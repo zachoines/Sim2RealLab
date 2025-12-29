@@ -1,0 +1,7 @@
+.asset_hash
+.vscode/
+Assets/
+IsaacLab/
+config.yaml
+typings/
+venv_isaac/

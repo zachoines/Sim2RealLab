@@ -74,6 +74,23 @@ def ensure_joint_frame(parent_prim: Usd.Prim, name: str = "joint_frame") -> UsdG
     return UsdGeom.Xform.Define(stage, path)
 
 
+def hoist_joint_frame(frame: UsdGeom.Xform, assembly: Usd.Prim, xform_cache: UsdGeom.XformCache) -> UsdGeom.Xform:
+    """Move joint_frame under assembly, baking its world pose into the new local transform."""
+    stage = assembly.GetStage()
+    xform_cache.Clear()
+    rel_mat, _ = xform_cache.ComputeRelativeTransform(frame.GetPrim(), assembly)
+    dst_path = assembly.GetPath().AppendChild("joint_frame")
+    suffix = 1
+    while stage.GetPrimAtPath(dst_path):
+        dst_path = assembly.GetPath().AppendChild(f"joint_frame_{suffix}")
+        suffix += 1
+    dst = UsdGeom.Xform.Define(stage, dst_path)
+    dst.ClearXformOpOrder()
+    dst.AddTransformOp().Set(rel_mat)
+    stage.RemovePrim(frame.GetPrim().GetPath())
+    return dst
+
+
 def matrix_to_quat(m: np.ndarray) -> tuple[float, float, float, float]:
     """Convert 3x3 rotation matrix to quaternion components (w, x, y, z)."""
     t = np.trace(m)
@@ -125,6 +142,7 @@ def main():
         raise SystemExit(f"Failed to open stage: {args.stage}")
 
     predicate = Usd.TraverseInstanceProxies(Usd.PrimAllPrimsPredicate)
+    xform_cache = UsdGeom.XformCache(Usd.TimeCode.Default())
 
     def find_child_with_fragment(parent: Usd.Prim, fragment: str) -> Optional[Usd.Prim]:
         """Prefer direct children; fall back to any descendant xform containing fragment."""
@@ -226,6 +244,11 @@ def main():
         frame.AddTranslateOp().Set(Gf.Vec3f(float(center[0]), float(center[1]), float(center[2])))
         orient_op = frame.AddOrientOp(precision=UsdGeom.XformOp.PrecisionFloat)
         orient_op.Set(Gf.Quatf(float(w), Gf.Vec3f(float(qx), float(qy), float(qz))))
+
+        # Hoist joint_frame to assembly level (sibling of axle/cover) while preserving world pose.
+        assembly = target.GetParent()
+        if assembly and assembly.IsA(UsdGeom.Xform):
+            frame = hoist_joint_frame(frame, assembly, xform_cache)
 
         updated += 1
         print(f"[OK] Added joint_frame under {target.GetPath()} using axle mesh {mesh.GetPath()}")

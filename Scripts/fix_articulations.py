@@ -123,6 +123,21 @@ def find_child_with_fragment(root: Usd.Prim, fragment: str, predicate=None) -> O
     return None
 
 
+def move_prim_to_parent(stage: Usd.Stage, prim: Usd.Prim, new_parent: Usd.Prim, base_name: str) -> Usd.Prim:
+    """Move prim under a new parent with a unique name; returns the new prim."""
+    src_layer = stage.GetEditTarget().GetLayer()
+    dst_layer = src_layer
+    new_path = new_parent.GetPath().AppendChild(base_name)
+    suffix = 1
+    while stage.GetPrimAtPath(new_path):
+        new_path = new_parent.GetPath().AppendChild(f"{base_name}_{suffix}")
+        suffix += 1
+    Sdf.CopySpec(src_layer, prim.GetPath(), dst_layer, new_path)
+    # Remove original prim spec via the stage API (handles composition correctly).
+    stage.RemovePrim(prim.GetPath())
+    return stage.GetPrimAtPath(new_path)
+
+
 def add_articulation_root(stage: Usd.Stage, path: str) -> None:
     prim = stage.GetPrimAtPath(path)
     if not prim:
@@ -175,77 +190,82 @@ def extract_quat_local(parent_world: Gf.Matrix4d, child_world: Gf.Matrix4d) -> G
 def process_joint_frames(stage: Usd.Stage, wheel_body_map: dict[str, Usd.Prim]) -> int:
     count = 0
     predicate = Usd.TraverseInstanceProxies(Usd.PrimAllPrimsPredicate)
-    for prim in Usd.PrimRange.Stage(stage, predicate):
-        if prim.GetName() == "joint_frame":
-            parent = ensure_editable(prim.GetParent())
-            if not parent:
-                continue
-            prim = ensure_editable(prim)
-            # Joint_frame stays non-rigid/non-colliding.
-            if UsdPhysics.RigidBodyAPI(prim):
-                prim.RemoveAppliedSchema(UsdPhysics.RigidBodyAPI)
-            if UsdPhysics.CollisionAPI(prim):
-                prim.RemoveAppliedSchema(UsdPhysics.CollisionAPI)
+    jf_paths = [p.GetPath() for p in Usd.PrimRange.Stage(stage, predicate) if p.GetName() == "joint_frame"]
+    for jf_path in jf_paths:
+        prim = stage.GetPrimAtPath(jf_path)
+        if not prim:
+            continue
+        prim = ensure_editable(prim)
+        assembly = prim.GetParent()
+        if not assembly:
+            continue
+        assembly = ensure_editable(assembly)
+        axle = assembly.GetChild("roller_axle")
+        if not axle:
+            axle = find_child_with_fragment(assembly, "roller_axle", predicate)
+        if not axle:
+            continue
+        axle = ensure_editable(axle)
 
-            # Axle = parent: make it rigid with collider (body1 for revolute).
-            apply_rigid_body_and_collider(parent, add_collider=True, reset_if_nested=False)
+        # joint_frame: make it rigid (no collider needed for mass, keep light inertia).
+        apply_rigid_body_and_collider(prim, add_collider=False, reset_if_nested=False)
+        # Axle: keep as rigid with collider (for mass/collision if needed).
+        apply_rigid_body_and_collider(axle, add_collider=True, reset_if_nested=False)
 
-            # Find cover sibling under same assembly; make it rigid with collider for the fixed joint.
-            assembly = parent.GetParent()
-            cover = None
-            if assembly:
-                cover = assembly.GetChild("roller_cover")
-                if not cover:
-                    cover = find_child_with_fragment(assembly, "roller_cover", predicate)
-            if cover:
-                cover = ensure_editable(cover)
-                apply_rigid_body_and_collider(cover, add_collider=True, reset_if_nested=False)
+        # Find cover sibling under same assembly; make it rigid with collider for the fixed joint.
+        cover = assembly.GetChild("roller_cover")
+        if not cover:
+            cover = find_child_with_fragment(assembly, "roller_cover", predicate)
+        if cover:
+            cover = ensure_editable(cover)
+            apply_rigid_body_and_collider(cover, add_collider=True, reset_if_nested=False)
 
-            body1 = parent  # axle
-            body0 = None
-            wheel_root = prim
-            while wheel_root and not wheel_root.GetName().endswith("_Wheel_1"):
-                wheel_root = wheel_root.GetParent()
-            if wheel_root:
-                body0 = wheel_body_map.get(str(wheel_root.GetPath()))
-            if body0 is None:
-                body0 = find_rigid_ancestor(parent)
-            if body0 is None:
-                continue
+        # Bodies:
+        body0_core = None  # used for core-fixed joint
+        wheel_root = assembly
+        while wheel_root and not wheel_root.GetName().endswith("_Wheel_1"):
+            wheel_root = wheel_root.GetParent()
+        if wheel_root:
+            body0_core = wheel_body_map.get(str(wheel_root.GetPath()))
+        if body0_core is None:
+            body0_core = find_rigid_ancestor(axle)
+        if body0_core is None:
+            continue
 
-            joint_path = prim.GetPath().AppendChild("revolute_joint")
-            joint = define_joint(stage, str(joint_path))
-            joint.CreateBody0Rel().SetTargets([body0.GetPath()])  # core
-            joint.CreateBody1Rel().SetTargets([body1.GetPath()])  # axle
-            joint.CreateAxisAttr().Set("Z")
+        if not cover:
+            continue
 
-            # Anchor the joint at the joint_frame location relative to both bodies.
-            jf_world = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
-            body0_world = UsdGeom.Xformable(body0).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
-            body1_world = UsdGeom.Xformable(body1).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
-            anchor_world = world_translation(jf_world)
-            joint.CreateLocalPos0Attr().Set(compute_local_pos(body0_world, anchor_world))
-            joint.CreateLocalPos1Attr().Set(compute_local_pos(body1_world, anchor_world))
-            joint.CreateLocalRot0Attr().Set(extract_quat_local(body0_world, jf_world))
-            joint.CreateLocalRot1Attr().Set(extract_quat_local(body1_world, jf_world))
+        joint_path = prim.GetPath().AppendChild("revolute_joint")
+        joint = define_joint(stage, str(joint_path))
+        joint.CreateBody0Rel().SetTargets([prim.GetPath()])   # joint_frame
+        joint.CreateBody1Rel().SetTargets([cover.GetPath()])  # roller_cover
+        joint.CreateAxisAttr().Set("Z")
 
-            # Fixed joint: cover follows axle so it stays attached.
-            if cover:
-                fixed_path = prim.GetPath().AppendChild("axle_cover_fixed")
-                suffix = 1
-                while stage.GetPrimAtPath(fixed_path):
-                    fixed_path = prim.GetPath().AppendChild(f"axle_cover_fixed_{suffix}")
-                    suffix += 1
-                fixed = define_fixed_joint(stage, str(fixed_path))
-                fixed.CreateBody0Rel().SetTargets([body1.GetPath()])  # axle
-                fixed.CreateBody1Rel().SetTargets([cover.GetPath()])
-                cover_world = UsdGeom.Xformable(cover).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
-                fixed.CreateLocalPos0Attr().Set(compute_local_pos(body1_world, anchor_world))
-                fixed.CreateLocalPos1Attr().Set(compute_local_pos(cover_world, anchor_world))
-                fixed.CreateLocalRot0Attr().Set(extract_quat_local(body1_world, jf_world))
-                fixed.CreateLocalRot1Attr().Set(extract_quat_local(cover_world, jf_world))
+        # Anchor the joint at the joint_frame location relative to both bodies.
+        jf_world = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+        cover_world = UsdGeom.Xformable(cover).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+        anchor_world = world_translation(jf_world)
+        joint.CreateLocalPos0Attr().Set(compute_local_pos(jf_world, anchor_world))     # joint_frame
+        joint.CreateLocalPos1Attr().Set(compute_local_pos(cover_world, anchor_world))  # cover
+        joint.CreateLocalRot0Attr().Set(extract_quat_local(jf_world, jf_world))
+        joint.CreateLocalRot1Attr().Set(extract_quat_local(cover_world, jf_world))
 
-            count += 1
+        # Fixed joint: cover follows joint_frame so it stays attached.
+        fixed_path = prim.GetPath().AppendChild("joint_frame_core_fixed")
+        suffix = 1
+        while stage.GetPrimAtPath(fixed_path):
+            fixed_path = prim.GetPath().AppendChild(f"joint_frame_core_fixed_{suffix}")
+            suffix += 1
+        fixed = define_fixed_joint(stage, str(fixed_path))
+        fixed.CreateBody0Rel().SetTargets([body0_core.GetPath()])  # core
+        fixed.CreateBody1Rel().SetTargets([prim.GetPath()])        # joint_frame
+        body0_world = UsdGeom.Xformable(body0_core).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+        fixed.CreateLocalPos0Attr().Set(compute_local_pos(body0_world, anchor_world))
+        fixed.CreateLocalPos1Attr().Set(compute_local_pos(jf_world, anchor_world))
+        fixed.CreateLocalRot0Attr().Set(extract_quat_local(body0_world, jf_world))
+        fixed.CreateLocalRot1Attr().Set(extract_quat_local(jf_world, jf_world))
+
+        count += 1
     return count
 
 

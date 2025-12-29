@@ -108,6 +108,7 @@ def main():
     assemblies = [p for p in Usd.PrimRange.Stage(stage, predicate) if "roller_assembly" in p.GetName()]
 
     moves = 0
+    predicate = Usd.TraverseInstanceProxies(Usd.PrimAllPrimsPredicate)
     for assembly in assemblies:
         # Refresh/skip if prim was removed earlier.
         assembly = stage.GetPrimAtPath(assembly.GetPath())

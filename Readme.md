@@ -24,4 +24,12 @@ python Scripts/final_processing.py --stage "C:/Worspace/Assets/mechanum_robot_v1
 # Other notes for converting mesh
 - Verify each step with `scripts/run_empty_lab.py`     
 
+python Scripts/repack_rollers.py --stage "C:/Worspace/Assets/mechanum_robot_v1.usd" --out "C:/Worspace/Assets/mechanum_robot_v1_repacked.usd"
+python Scripts\fix_roller_axes.py --stage "C:/Worspace/Assets/mechanum_robot_v1_repacked.usd" --out "C:/Worspace/Assets/mechanum_robot_v1_jointframes.usd"
+python Scripts/fix_articulations.py --stage "C:/Worspace/Assets/mechanum_robot_v1_jointframes.usd" --out "C:/Worspace/Assets/mechanum_robot_v1_articulated.usd"
+python Scripts/add_convex_collision.py --stage "C:/Worspace/Assets/mechanum_robot_v1_articulated.usd" --out "C:/Worspace/Assets/mechanum_robot_v1_collision.usd"
+python Scripts/final_processing.py --stage "C:/Worspace/Assets/mechanum_robot_v1_collision.usd" --out "C:/Worspace/Assets/mechanum_robot_v1_final.usd"
+python Scripts/setup_test_stage.py --stage "C:/Worspace/Assets/mechanum_robot_v1_final.usd" --out "C:/Worspace/Assets/mechanum_robot_v1_final_test.usd"
+
+
 

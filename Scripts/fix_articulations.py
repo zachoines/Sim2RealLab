@@ -181,27 +181,27 @@ def process_joint_frames(stage: Usd.Stage, wheel_body_map: dict[str, Usd.Prim]) 
             if not parent:
                 continue
             prim = ensure_editable(prim)
-            # Ensure axle parent and joint_frame are non-rigid/non-colliding.
-            if UsdPhysics.RigidBodyAPI(parent):
-                parent.RemoveAppliedSchema(UsdPhysics.RigidBodyAPI)
-            if UsdPhysics.CollisionAPI(parent):
-                parent.RemoveAppliedSchema(UsdPhysics.CollisionAPI)
+            # Joint_frame stays non-rigid/non-colliding.
             if UsdPhysics.RigidBodyAPI(prim):
                 prim.RemoveAppliedSchema(UsdPhysics.RigidBodyAPI)
             if UsdPhysics.CollisionAPI(prim):
                 prim.RemoveAppliedSchema(UsdPhysics.CollisionAPI)
 
-            # Find cover sibling under same assembly.
+            # Axle = parent: make it rigid with collider (body1 for revolute).
+            apply_rigid_body_and_collider(parent, add_collider=True, reset_if_nested=False)
+
+            # Find cover sibling under same assembly; make it rigid with collider for the fixed joint.
             assembly = parent.GetParent()
-            body1 = None
+            cover = None
             if assembly:
                 cover = assembly.GetChild("roller_cover")
                 if not cover:
                     cover = find_child_with_fragment(assembly, "roller_cover", predicate)
-                if cover:
-                    cover = ensure_editable(cover)
-                    apply_rigid_body_and_collider(cover, add_collider=True, reset_if_nested=False)
-                    body1 = cover
+            if cover:
+                cover = ensure_editable(cover)
+                apply_rigid_body_and_collider(cover, add_collider=True, reset_if_nested=False)
+
+            body1 = parent  # axle
             body0 = None
             wheel_root = prim
             while wheel_root and not wheel_root.GetName().endswith("_Wheel_1"):
@@ -210,17 +210,13 @@ def process_joint_frames(stage: Usd.Stage, wheel_body_map: dict[str, Usd.Prim]) 
                 body0 = wheel_body_map.get(str(wheel_root.GetPath()))
             if body0 is None:
                 body0 = find_rigid_ancestor(parent)
-            if body0 is None and body1:
-                body0 = body1
-            if body1 is None and body0:
-                body1 = body0
-            if body0 is None or body1 is None:
+            if body0 is None:
                 continue
 
             joint_path = prim.GetPath().AppendChild("revolute_joint")
             joint = define_joint(stage, str(joint_path))
-            joint.CreateBody0Rel().SetTargets([body0.GetPath()])
-            joint.CreateBody1Rel().SetTargets([body1.GetPath()])
+            joint.CreateBody0Rel().SetTargets([body0.GetPath()])  # core
+            joint.CreateBody1Rel().SetTargets([body1.GetPath()])  # axle
             joint.CreateAxisAttr().Set("Z")
 
             # Anchor the joint at the joint_frame location relative to both bodies.
@@ -232,6 +228,23 @@ def process_joint_frames(stage: Usd.Stage, wheel_body_map: dict[str, Usd.Prim]) 
             joint.CreateLocalPos1Attr().Set(compute_local_pos(body1_world, anchor_world))
             joint.CreateLocalRot0Attr().Set(extract_quat_local(body0_world, jf_world))
             joint.CreateLocalRot1Attr().Set(extract_quat_local(body1_world, jf_world))
+
+            # Fixed joint: cover follows axle so it stays attached.
+            if cover:
+                fixed_path = prim.GetPath().AppendChild("axle_cover_fixed")
+                suffix = 1
+                while stage.GetPrimAtPath(fixed_path):
+                    fixed_path = prim.GetPath().AppendChild(f"axle_cover_fixed_{suffix}")
+                    suffix += 1
+                fixed = define_fixed_joint(stage, str(fixed_path))
+                fixed.CreateBody0Rel().SetTargets([body1.GetPath()])  # axle
+                fixed.CreateBody1Rel().SetTargets([cover.GetPath()])
+                cover_world = UsdGeom.Xformable(cover).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+                fixed.CreateLocalPos0Attr().Set(compute_local_pos(body1_world, anchor_world))
+                fixed.CreateLocalPos1Attr().Set(compute_local_pos(cover_world, anchor_world))
+                fixed.CreateLocalRot0Attr().Set(extract_quat_local(body1_world, jf_world))
+                fixed.CreateLocalRot1Attr().Set(extract_quat_local(cover_world, jf_world))
+
             count += 1
     return count
 
@@ -301,11 +314,11 @@ def main():
     if stage is None:
         raise SystemExit(f"Failed to open stage: {args.stage}")
 
-    # Remove legacy RB/Colliders from side plates and roller_axles to avoid nested RBs.
+    # Remove legacy RB/Colliders from side plates and joint_frames to avoid nested RBs.
     stripped_side = strip_rigid_bodies(stage, "slant_side_plate")
-    stripped_axle = strip_rigid_bodies(stage, "roller_axle")
-    if stripped_side or stripped_axle:
-        print(f"Removed RigidBodyAPI from {stripped_side} slant_side_plate, {stripped_axle} roller_axle prim(s)")
+    stripped_frames = strip_rigid_bodies(stage, "joint_frame")
+    if stripped_side or stripped_frames:
+        print(f"Removed RigidBodyAPI from {stripped_side} slant_side_plate, {stripped_frames} joint_frame prim(s)")
 
     add_articulation_root(stage, ARTICULATION_ROOT_PATH)
     n_wheels, wheel_body_map = process_wheels(stage, ARTICULATION_ROOT_PATH)

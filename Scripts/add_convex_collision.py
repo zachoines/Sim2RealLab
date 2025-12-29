@@ -25,7 +25,7 @@ DEFAULT_RULES: List[Tuple[str, str]] = [
     ("roller_cover", "convexHull"),
     ("core", "convexHull"),
     ("roller_axle", "convexHull"),
-    # side plates, axles, joint_frames intentionally non-colliding
+    # side plates, joint_frames intentionally non-colliding
 ]
 
 

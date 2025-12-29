@@ -209,8 +209,11 @@ def process_joint_frames(stage: Usd.Stage, wheel_body_map: dict[str, Usd.Prim]) 
 
         # joint_frame: make it rigid (no collider needed for mass, keep light inertia).
         apply_rigid_body_and_collider(prim, add_collider=False, reset_if_nested=False)
-        # Axle: keep as rigid with collider (for mass/collision if needed).
-        apply_rigid_body_and_collider(axle, add_collider=True, reset_if_nested=False)
+        # Axle: strip rigid/collision so it is passive and doesn't fall.
+        if UsdPhysics.RigidBodyAPI(axle):
+            axle.RemoveAppliedSchema(UsdPhysics.RigidBodyAPI)
+        if UsdPhysics.CollisionAPI(axle):
+            axle.RemoveAppliedSchema(UsdPhysics.CollisionAPI)
 
         # Find cover sibling under same assembly; make it rigid with collider for the fixed joint.
         cover = assembly.GetChild("roller_cover")

@@ -1,7 +1,7 @@
 """
 Add collision shapes for prims whose paths contain given fragments (roller covers, rails, etc.).
 Default approximations:
-  - roller_cover, roller_axle       -> convexHull
+  - roller_cover                    -> convexHull
   - Side_Rail, Center_Rail          -> boundingCube (box)
 
 For each matching Mesh prim:
@@ -24,7 +24,6 @@ DEFAULT_RULES: List[Tuple[str, str]] = [
     ("Center_Rail", "boundingCube"),
     ("roller_cover", "convexHull"),
     ("core", "convexHull"),
-    ("roller_axle", "convexHull"),
     # side plates, joint_frames intentionally non-colliding
 ]
 
@@ -73,7 +72,7 @@ def main():
         nargs="+",
         help=(
             "Optional list of approximations aligned with --fragments (e.g., convexHull box). "
-            "If omitted, defaults to the internal mapping (Side_Rail:boundingCube, Center_Rail:boundingCube, roller_cover:convexHull, roller_axle:convexHull)."
+            "If omitted, defaults to the internal mapping (Side_Rail:boundingCube, Center_Rail:boundingCube, roller_cover:convexHull, core:convexHull)."
         ),
     )
     args = parser.parse_args()

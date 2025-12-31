@@ -22,8 +22,8 @@ from pxr import Usd, UsdGeom, UsdPhysics, Sdf
 DEFAULT_RULES: List[Tuple[str, str]] = [
     ("Side_Rail", "boundingCube"),
     ("Center_Rail", "boundingCube"),
-    ("roller_cover", "convexHull"),
-    ("core", "convexHull"),
+    ("roller_cover", "meshSimplification"),
+    ("core", "meshSimplification"),
     # side plates, joint_frames intentionally non-colliding
 ]
 

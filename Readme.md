@@ -27,6 +27,7 @@ python Scripts/final_processing.py --stage "C:/Worspace/Assets/mechanum_robot_v1
 # Copy-Paste to run all at once.
 python Scripts/repack_rollers.py --stage "C:/Worspace/Assets/mechanum_robot_v1.usd" --out "C:/Worspace/Assets/mechanum_robot_v1_repacked.usd"
 python Scripts/fix_roller_axes.py --stage "C:/Worspace/Assets/mechanum_robot_v1_repacked.usd" --out "C:/Worspace/Assets/mechanum_robot_v1_jointframes.usd"
+python Scripts/replace_covers.py --stage "C:/Worspace/Assets/mechanum_robot_v1_jointframes.usd" --cover "C:/Worspace/Assets/RollerCover.usdz" --out "C:/Worspace/Assets/mechanum_robot_v1_jointframes.usd"
 python Scripts/fix_articulations.py --stage "C:/Worspace/Assets/mechanum_robot_v1_jointframes.usd" --out "C:/Worspace/Assets/mechanum_robot_v1_articulated.usd"
 python Scripts/add_convex_collision.py --stage "C:/Worspace/Assets/mechanum_robot_v1_articulated.usd" --out "C:/Worspace/Assets/mechanum_robot_v1_collision.usd"
 python Scripts/final_processing.py --stage "C:/Worspace/Assets/mechanum_robot_v1_collision.usd" --out "C:/Worspace/Assets/mechanum_robot_v1_final.usd"

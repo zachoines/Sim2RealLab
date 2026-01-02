@@ -272,7 +272,7 @@ def process_joint_frames(stage: Usd.Stage, wheel_body_map: dict[str, Usd.Prim]) 
     return count
 
 
-def process_wheels(stage: Usd.Stage, root_path: str) -> tuple[int, dict[str, Usd.Prim]]:
+def process_wheels(stage: Usd.Stage, root_path: str, base_body: Optional[Usd.Prim]) -> tuple[int, dict[str, Usd.Prim]]:
     bbox_cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), [UsdGeom.Tokens.default_], useExtentsHint=False, ignoreVisibility=True)
     root = ensure_editable(stage.GetPrimAtPath(root_path))
     count = 0
@@ -318,7 +318,7 @@ def process_wheels(stage: Usd.Stage, root_path: str) -> tuple[int, dict[str, Usd
             joint_path = parent.GetPath().AppendChild(f"wheel_joint_{suffix}")
             suffix += 1
         joint = define_joint(stage, str(joint_path))
-        joint.CreateBody0Rel().SetTargets([root.GetPath()])
+        joint.CreateBody0Rel().SetTargets([base_body.GetPath() if base_body else root.GetPath()])
         joint.CreateBody1Rel().SetTargets([body.GetPath()])
         joint.CreateAxisAttr().Set("X")
         joint.CreateLocalPos0Attr().Set(local_center_root)
@@ -344,7 +344,22 @@ def main():
         print(f"Removed RigidBodyAPI from {stripped_side} slant_side_plate, {stripped_frames} joint_frame prim(s)")
 
     add_articulation_root(stage, ARTICULATION_ROOT_PATH)
-    n_wheels, wheel_body_map = process_wheels(stage, ARTICULATION_ROOT_PATH)
+
+    # Choose a base body (chassis) for wheel joints: prefer frame_body if present, else center rail, else side rail, else root.
+    root_prim = stage.GetPrimAtPath(ARTICULATION_ROOT_PATH)
+    base_body = stage.GetPrimAtPath(f"{ARTICULATION_ROOT_PATH}/frame_body")
+    if not base_body or not base_body.IsValid():
+        base_body = find_child_with_fragment(root_prim, "Center_Rail", Usd.TraverseInstanceProxies(Usd.PrimAllPrimsPredicate))
+    if not base_body:
+        base_body = find_child_with_fragment(root_prim, "Side_Rail", Usd.TraverseInstanceProxies(Usd.PrimAllPrimsPredicate))
+    if base_body:
+        base_body = ensure_editable(base_body)
+        apply_rigid_body_and_collider(base_body, add_collider=True, reset_if_nested=False)
+    else:
+        base_body = ensure_editable(root_prim)
+        apply_rigid_body_and_collider(base_body, add_collider=False, reset_if_nested=False)
+
+    n_wheels, wheel_body_map = process_wheels(stage, ARTICULATION_ROOT_PATH, base_body)
     n_frames = process_joint_frames(stage, wheel_body_map)
 
     stage.GetRootLayer().Export(args.out)

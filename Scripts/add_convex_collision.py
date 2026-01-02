@@ -1,7 +1,7 @@
 """
 Add collision shapes for prims whose paths contain given fragments (roller covers, rails, etc.).
 Default approximations:
-  - roller_cover                    -> convexHull
+  - roller_cover, core              -> convexHull
   - Side_Rail, Center_Rail          -> boundingCube (box)
 
 For each matching Mesh prim:
@@ -22,8 +22,8 @@ from pxr import Usd, UsdGeom, UsdPhysics, Sdf
 DEFAULT_RULES: List[Tuple[str, str]] = [
     ("Side_Rail", "boundingCube"),
     ("Center_Rail", "boundingCube"),
-    ("roller_cover", "meshSimplification"),
-    ("core", "meshSimplification"),
+    ("roller_cover", "sdfMesh"),
+    ("core", "sdfMesh"),
     # side plates, joint_frames intentionally non-colliding
 ]
 

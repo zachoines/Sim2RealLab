@@ -86,6 +86,19 @@ def main():
             xf_body1.ClearXformOpOrder()
             xf_body1.AddScaleOp().Set(Gf.Vec3f(0.1, 0.1, 0.1))
 
+        # Clear authored normals and set collision approximation to convexHull on the main mesh, if present.
+        mesh_prim = None
+        for child in Usd.PrimRange(cover_prim):
+            if child.IsA(UsdGeom.Mesh):
+                mesh_prim = child
+                break
+        if mesh_prim:
+            mesh = UsdGeom.Mesh(mesh_prim)
+            if mesh.GetNormalsAttr().HasAuthoredValueOpinion():
+                mesh.GetNormalsAttr().Clear()
+            mesh_prim.CreateAttribute("physxCollision:approximation", Sdf.ValueTypeNames.Token).Set("convexHull")
+            mesh_prim.CreateAttribute("physics:approximation", Sdf.ValueTypeNames.Token).Set("convexHull")
+
         replaced += 1
 
     stage.GetRootLayer().Export(args.out)

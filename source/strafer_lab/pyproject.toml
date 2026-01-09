@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools", "wheel", "toml"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "strafer_lab"
+version = "0.1.0"
+description = "Isaac Lab extension for Gobilda Strafer mecanum wheel robot"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Your Name", email = "your.email@example.com" },
+]
+keywords = ["isaaclab", "robotics", "reinforcement-learning", "simulation"]
+
+dependencies = [
+    "isaaclab",
+    "isaaclab_assets",
+    "isaaclab_rl",
+    "isaaclab_tasks",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "black",
+    "ruff",
+]
+
+[tool.setuptools]
+packages = ["strafer_lab"]
+package-dir = {"" = "."}
+
+[tool.black]
+line-length = 120
+
+[tool.ruff]
+line-length = 120
+select = ["E", "F", "I"]
+ignore = ["E501"]

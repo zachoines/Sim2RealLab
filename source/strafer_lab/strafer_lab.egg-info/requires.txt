@@ -1,0 +1,10 @@
+isaaclab
+isaaclab_assets
+isaaclab_rl
+isaaclab_tasks
+
+[dev]
+pytest
+pytest-cov
+black
+ruff

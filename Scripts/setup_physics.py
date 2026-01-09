@@ -436,9 +436,9 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass: float = 1.0) -> Optional
                 log.append(f"[OK] Collision (boundingCube) on mesh {left_mesh}")
             
             # Create fixed joint: left_side_rail mesh -> middle_center_rail mesh
-            joint_path = f"{RAILS_PATH}/FixedJoint_left"
+            joint_path = f"{RAILS_PATH}/frame_rail_left"
             if create_fixed_joint(stage, joint_path, middle_mesh, left_mesh):
-                log.append(f"[OK] Fixed joint {joint_path}")
+                log.append(f"[OK] Fixed joint {joint_path} (name: frame_rail_left)")
                 log.append(f"     Body0: {middle_mesh}")
                 log.append(f"     Body1: {left_mesh}")
             else:
@@ -456,9 +456,9 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass: float = 1.0) -> Optional
                 log.append(f"[OK] Collision (boundingCube) on mesh {right_mesh}")
             
             # Create fixed joint: right_side_rail mesh -> middle_center_rail mesh
-            joint_path = f"{RAILS_PATH}/FixedJoint_right"
+            joint_path = f"{RAILS_PATH}/frame_rail_right"
             if create_fixed_joint(stage, joint_path, middle_mesh, right_mesh):
-                log.append(f"[OK] Fixed joint {joint_path}")
+                log.append(f"[OK] Fixed joint {joint_path} (name: frame_rail_right)")
                 log.append(f"     Body0: {middle_mesh}")
                 log.append(f"     Body1: {right_mesh}")
             else:
@@ -478,9 +478,10 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass: float = 1.0) -> Optional
                 if apply_collision_to_mesh(stage, extra_mesh, "boundingCube"):
                     log.append(f"[OK] Collision (boundingCube) on mesh {extra_mesh}")
                 
-                joint_path = f"{RAILS_PATH}/FixedJoint_{rail_name}"
+                joint_name = f"frame_rail_{rail_name.replace('_rail', '')}"
+                joint_path = f"{RAILS_PATH}/{joint_name}"
                 if create_fixed_joint(stage, joint_path, middle_mesh, extra_mesh):
-                    log.append(f"[OK] Fixed joint {joint_path}")
+                    log.append(f"[OK] Fixed joint {joint_path} (name: {joint_name})")
                     log.append(f"     Body0: {middle_mesh}")
                     log.append(f"     Body1: {extra_mesh}")
                 else:
@@ -679,9 +680,12 @@ def setup_wheel(
     
     # 2. Create revolute joint: rail_mesh -> wheel_core_mesh
     # body0 = rail (parent, stationary), body1 = wheel core (child, rotates)
-    wheel_joint_path = f"{core_xform_path}/RevoluteJoint"
+    # Extract wheel number from wheel_name (e.g., "wheel_1" -> "1")
+    wheel_num = wheel_name.split("_")[1]
+    wheel_joint_name = f"{wheel_name}_drive"
+    wheel_joint_path = f"{core_xform_path}/{wheel_joint_name}"
     if create_revolute_joint(stage, wheel_joint_path, rail_mesh, core_mesh, "Z"):
-        log.append(f"[OK] Revolute joint {wheel_joint_path}")
+        log.append(f"[OK] Revolute joint {wheel_joint_path} (name: {wheel_joint_name})")
         log.append(f"     Body0 (rail): {rail_mesh}")
         log.append(f"     Body1 (core): {core_mesh}")
     else:
@@ -716,9 +720,11 @@ def setup_wheel(
                     log.append(f"[OK] Rigid body on side plate: {child_name}")
                 
                 # Create fixed joint to core
-                joint_path = f"{child_path}/FixedJoint_to_core"
+                plate_type = "left" if "left_slant" in child_name else "right"
+                plate_joint_name = f"{wheel_name}_plate_{plate_type}_{attach_count}"
+                joint_path = f"{child_path}/{plate_joint_name}"
                 if create_fixed_joint(stage, joint_path, core_mesh, child_mesh):
-                    log.append(f"[OK] Fixed joint: {child_name} -> core")
+                    log.append(f"[OK] Fixed joint: {child_name} -> core (name: {plate_joint_name})")
                     attach_count += 1
                 else:
                     log.append(f"[WARN] Failed to attach {child_name} to core")
@@ -729,13 +735,12 @@ def setup_wheel(
         log.append(f"[INFO] Wheel siblings: {attach_count} attached, {exclude_count} excluded")
     
     # 4. Process all roller assemblies
-    roller_count = 0
+    roller_index = 0  # 0-9 for each wheel
     roller_exclude_count = 0
     for child in wheel_prim.GetChildren():
         if "roller_assembly" not in child.GetName():
             continue
         
-        roller_count += 1
         assembly_path = str(child.GetPath())
         
         # Find axle and cover meshes
@@ -767,9 +772,10 @@ def setup_wheel(
         
         # 4a. Create fixed joint: wheel_core_mesh -> roller_axle_mesh
         # body0 = core (parent), body1 = axle (child, fixed to core)
-        fixed_joint_path = f"{axle_xform_path}/FixedJoint"
+        axle_joint_name = f"{wheel_name}_roller_{roller_index}_axle"
+        fixed_joint_path = f"{axle_xform_path}/{axle_joint_name}"
         if create_fixed_joint(stage, fixed_joint_path, core_mesh, axle_mesh):
-            log.append(f"[OK] Fixed joint: core -> axle")
+            log.append(f"[OK] Fixed joint: core -> axle (name: {axle_joint_name})")
             log.append(f"     Body0 (core): {core_mesh}")
             log.append(f"     Body1 (axle): {axle_mesh}")
         else:
@@ -778,9 +784,10 @@ def setup_wheel(
         # 4b. Create revolute joint: roller_axle_mesh -> roller_cover_mesh
         # body0 = cover (child frame), body1 = axle (provides pivot point)
         # The joint is positioned at body1's origin (axle center)
-        revolute_joint_path = f"{axle_xform_path}/RevoluteJoint"
+        roller_joint_name = f"{wheel_name}_roller_{roller_index}"
+        revolute_joint_path = f"{axle_xform_path}/{roller_joint_name}"
         if create_revolute_joint(stage, revolute_joint_path, cover_mesh, axle_mesh, "Z"):
-            log.append(f"[OK] Revolute joint: axle -> cover")
+            log.append(f"[OK] Revolute joint: axle -> cover (name: {roller_joint_name})")
             log.append(f"     Body0 (cover): {cover_mesh}")
             log.append(f"     Body1 (axle): {axle_mesh}")
         else:
@@ -793,8 +800,10 @@ def setup_wheel(
                 roller_child_name = roller_child.GetName()
                 if should_exclude_by_pattern(roller_child_name, ROLLER_ASSEMBLY_EXCLUDE_PATTERNS):
                     roller_exclude_count += 1
+        
+        roller_index += 1
     
-    log.append(f"[INFO] Processed {roller_count} roller assemblies for {wheel_name}")
+    log.append(f"[INFO] Processed {roller_index} roller assemblies for {wheel_name}")
     if roller_exclude_count > 0:
         log.append(f"[INFO] Excluded {roller_exclude_count} roller assembly siblings (e_clips, shims, etc.)")
 

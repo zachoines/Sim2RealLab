@@ -1,0 +1,65 @@
+# SKRL PPO configuration for Strafer navigation task
+# Reference: https://skrl.readthedocs.io/
+
+seed: 42
+
+# Models configuration
+models:
+  separate: False
+  policy:
+    class: GaussianMixin
+    clip_actions: True
+    clip_log_std: True
+    min_log_std: -20.0
+    max_log_std: 2.0
+    initial_log_std: 0.0
+    network:
+      - name: net
+        input: OBSERVATIONS
+        layers: [256, 256, 128]
+        activations: elu
+    output: ACTIONS
+
+  value:
+    class: DeterministicMixin
+    clip_actions: False
+    network:
+      - name: net
+        input: OBSERVATIONS
+        layers: [256, 256, 128]
+        activations: elu
+    output: ONE
+
+# PPO agent configuration
+agent:
+  class: PPO
+  rollouts: 24
+  learning_epochs: 5
+  mini_batches: 4
+  discount_factor: 0.99
+  lambda_coefficient: 0.95
+  learning_rate: 1.0e-3
+  learning_rate_scheduler: KLAdaptiveLR
+  learning_rate_scheduler_kwargs:
+    kl_threshold: 0.01
+  state_preprocessor: RunningStandardScaler
+  state_preprocessor_kwargs: null
+  value_preprocessor: RunningStandardScaler
+  value_preprocessor_kwargs: null
+  random_timesteps: 0
+  learning_starts: 0
+  grad_norm_clip: 1.0
+  ratio_clip: 0.2
+  value_clip: 0.2
+  clip_predicted_values: True
+  entropy_loss_scale: 0.01
+  value_loss_scale: 1.0
+  kl_threshold: 0.0
+  rewards_shaper: null
+  time_limit_bootstrap: False
+
+# Trainer configuration
+trainer:
+  class: SequentialTrainer
+  timesteps: 36000
+  environment_info: log

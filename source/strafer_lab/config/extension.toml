@@ -1,0 +1,17 @@
+[package]
+version = "0.1.0"
+category = "isaaclab"
+title = "Strafer Lab"
+author = "Your Name"
+description = "Isaac Lab extension for Gobilda Strafer mecanum wheel robot training and sim-to-real deployment"
+repository = ""
+keywords = ["isaaclab", "strafer", "mecanum", "navigation", "rl", "sim-to-real"]
+
+[dependencies]
+"isaaclab" = {}
+"isaaclab_assets" = {}
+"isaaclab_rl" = {}
+"isaaclab_tasks" = {}
+
+[[python.module]]
+name = "strafer_lab"

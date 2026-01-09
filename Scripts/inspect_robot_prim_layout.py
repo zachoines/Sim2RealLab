@@ -3,11 +3,13 @@ Dump a tree view of the robot hierarchy and basic physics flags.
 Also list axle joint_frames meshes if needed.
 
 Usage examples:
-  python Scripts/inspect_roller_meshes.py --stage C:/Worspace/Assets/mechanum_robot_v1_collision.usd
-  python Scripts/inspect_roller_meshes.py --stage C:/Worspace/Assets/mechanum_robot_v1_collision.usd --root /World/mechanum_robot_v18 --max-depth 6
+  python Scripts/inspect_robot_prim_layout.py --stage C:/Worspace/Assets/mechanum_robot_v1_collision.usd
+  python Scripts/inspect_robot_prim_layout.py --stage C:/Worspace/Assets/mechanum_robot_v1_collision.usd --root /World/mechanum_robot_v18 --max-depth 6
+  python Scripts/inspect_robot_prim_layout.py --stage Assets/3209-0001-0006-v6/3209-0001-0006.usd --tree-output ./robot_tree.txt
 """
 
 import argparse
+from pathlib import Path
 from pxr import Usd, UsdGeom, UsdPhysics
 
 
@@ -25,7 +27,7 @@ def flag_str(prim):
     return ",".join(flags) if flags else "-"
 
 
-def dump_tree(stage, root_path, max_depth):
+def iter_tree_lines(stage, root_path, max_depth=None):
     root = stage.GetPrimAtPath(root_path)
     if not root:
         raise SystemExit(f"Root prim not found: {root_path}")
@@ -34,12 +36,17 @@ def dump_tree(stage, root_path, max_depth):
     for prim in Usd.PrimRange(root, predicate):
         path_str = str(prim.GetPath())
         depth = path_str.count("/") - base_depth
-        if depth < 0 or depth > max_depth:
+        if depth < 0 or (max_depth is not None and depth > max_depth):
             continue
         indent = "  " * depth
         type_name = prim.GetTypeName()
         flags = flag_str(prim)
-        print(f"{indent}{path_str.split('/')[-1]} [{type_name}] ({flags})")
+        yield f"{indent}{path_str.split('/')[-1]} [{type_name}] ({flags})"
+
+
+def dump_tree(stage, root_path, max_depth):
+    for line in iter_tree_lines(stage, root_path, max_depth):
+        print(line)
 
 
 def dump_axles(stage, fragment, limit):
@@ -75,6 +82,7 @@ def main():
     parser.add_argument("--max-depth", type=int, default=5, help="Max depth to print from root.")
     parser.add_argument("--fragment", default="node_606_XXXX_0096_roller_axle", help="Substring to match axle xforms.")
     parser.add_argument("--limit", type=int, default=5, help="Number of axles to sample for meshes.")
+    parser.add_argument("--tree-output", help="Optional path to save the full prim tree (no depth limit).")
     args = parser.parse_args()
 
     stage = Usd.Stage.Open(args.stage)
@@ -84,6 +92,13 @@ def main():
     print(f"Tree from {args.root} (max depth {args.max_depth}):")
     dump_tree(stage, args.root, args.max_depth)
     dump_axles(stage, args.fragment, args.limit)
+
+    if args.tree_output:
+        output_path = Path(args.tree_output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        all_lines = list(iter_tree_lines(stage, args.root, max_depth=None))
+        output_path.write_text("\n".join(all_lines), encoding="utf-8")
+        print(f"\nFull prim tree written to: {output_path.resolve()}")
 
 
 if __name__ == "__main__":

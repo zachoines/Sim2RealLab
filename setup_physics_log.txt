@@ -3,26 +3,31 @@ Strafer Chassis Physics Setup
 ============================================================
 
 --- Setting up frame rails ---
+[OK] Created body_link with identity transform: /World/strafer/body_link
+[OK] ArticulationRootAPI on /World/strafer/body_link
+[OK] RigidBodyAPI (mass=1.0) on /World/strafer/body_link
 [INFO] Middle rail mesh: /World/strafer/frame/rails/middle_center_rail/Body1
 [INFO] Left rail mesh: /World/strafer/frame/rails/left_side_rail/Body10
 [INFO] Right rail mesh: /World/strafer/frame/rails/right_side_rail/Body10
-[OK] Articulation root on /World/strafer/frame/rails/middle_center_rail
 [OK] Rigid body (mass=1.0) on /World/strafer/frame/rails/middle_center_rail
 [OK] Collision (boundingCube) on mesh /World/strafer/frame/rails/middle_center_rail/Body1
+[OK] Fixed joint /World/strafer/frame/rails/frame_rail_middle (name: frame_rail_middle)
+     Body0: /World/strafer/body_link
+     Body1: /World/strafer/frame/rails/middle_center_rail/Body1
 [OK] Rigid body (mass=1.0) on /World/strafer/frame/rails/left_side_rail
 [OK] Collision (boundingCube) on mesh /World/strafer/frame/rails/left_side_rail/Body10
 [OK] Fixed joint /World/strafer/frame/rails/frame_rail_left (name: frame_rail_left)
-     Body0: /World/strafer/frame/rails/middle_center_rail/Body1
+     Body0: /World/strafer/body_link
      Body1: /World/strafer/frame/rails/left_side_rail/Body10
 [OK] Rigid body (mass=1.0) on /World/strafer/frame/rails/right_side_rail
 [OK] Collision (boundingCube) on mesh /World/strafer/frame/rails/right_side_rail/Body10
 [OK] Fixed joint /World/strafer/frame/rails/frame_rail_right (name: frame_rail_right)
-     Body0: /World/strafer/frame/rails/middle_center_rail/Body1
+     Body0: /World/strafer/body_link
      Body1: /World/strafer/frame/rails/right_side_rail/Body10
 [OK] Rigid body (mass=1.0) on /World/strafer/frame/rails/back_center_rail
 [OK] Collision (boundingCube) on mesh /World/strafer/frame/rails/back_center_rail/Body1
 [OK] Fixed joint /World/strafer/frame/rails/frame_rail_back_center (name: frame_rail_back_center)
-     Body0: /World/strafer/frame/rails/middle_center_rail/Body1
+     Body0: /World/strafer/body_link
      Body1: /World/strafer/frame/rails/back_center_rail/Body1
 
 --- Deleting excluded prims ---

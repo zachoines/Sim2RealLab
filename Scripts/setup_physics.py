@@ -2,16 +2,19 @@
 Apply articulation root, rigid bodies, colliders, and joints for the Strafer chassis.
 
 This script sets up the physics for a Gobilda Strafer mecanum wheel robot:
-- Articulation root on middle_center_rail
-- Fixed joints between frame rails
-- Revolute joints between frame rails and wheel cores
+- Articulation root on /World/strafer/body_link (created with identity transform)
+- Fixed joints between body_link and frame rails
+- Revolute joints between frame rails and wheel cores (with velocity drives)
 - Fixed joints from wheel cores to roller axles
 - Revolute joints between roller axles and roller covers
+
+The body_link prim is created at the robot root with identity orientation to ensure
+the articulation's base frame matches the robot's visual orientation (Z-up, -Y forward).
 
 Run after collapse_redundant_xforms.py and export to a new USD so the source stays intact.
 
 Example:
-  python Scripts/setup_physics_v2.py --stage Assets/3209-0001-0006-v6/3209-0001-0006-collapsed.usd \\
+  python Scripts/setup_physics.py --stage Assets/3209-0001-0006-v6/3209-0001-0006-collapsed.usd \\
     --output-usd Assets/3209-0001-0006-v6/3209-0001-0006-physics.usd \\
     --log ./setup_physics_log.txt
 """
@@ -33,6 +36,7 @@ from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
 # ============================================================================
 
 ROOT_PATH = "/World/strafer"
+BODY_LINK_PATH = f"{ROOT_PATH}/body_link"  # Will be created with identity transform
 RAILS_PATH = f"{ROOT_PATH}/frame/rails"
 WHEELS_PATH = f"{ROOT_PATH}/mecanum_wheels"
 FRAME_PATH = f"{ROOT_PATH}/frame"
@@ -428,17 +432,68 @@ def create_revolute_joint(
 # ============================================================================
 
 
+def create_body_link(stage: Usd.Stage, log: List[str], mass: float = 1.0) -> Optional[str]:
+    """
+    Create or retrieve the body_link prim at the robot root with identity transform.
+    
+    The body_link serves as the articulation root with a clean orientation:
+    - Z-up (robot upright)
+    - -Y forward (robot front)
+    - X left (robot left side)
+    
+    Returns the path to the body_link prim.
+    """
+    root_prim = stage.GetPrimAtPath(ROOT_PATH)
+    if not root_prim or not root_prim.IsValid():
+        log.append(f"[ERROR] Root prim not found: {ROOT_PATH}")
+        return None
+    
+    # Check if body_link already exists
+    body_link_prim = stage.GetPrimAtPath(BODY_LINK_PATH)
+    if body_link_prim and body_link_prim.IsValid():
+        log.append(f"[INFO] body_link already exists: {BODY_LINK_PATH}")
+    else:
+        # Create body_link as an Xform with identity transform
+        body_link = UsdGeom.Xform.Define(stage, BODY_LINK_PATH)
+        if not body_link:
+            log.append(f"[ERROR] Failed to create body_link at {BODY_LINK_PATH}")
+            return None
+        
+        # Set identity transform explicitly
+        body_link.ClearXformOpOrder()
+        body_link.AddTranslateOp().Set(Gf.Vec3d(0, 0, 0))
+        body_link.AddOrientOp().Set(Gf.Quatf(1, 0, 0, 0))  # Identity quaternion
+        
+        log.append(f"[OK] Created body_link with identity transform: {BODY_LINK_PATH}")
+        body_link_prim = stage.GetPrimAtPath(BODY_LINK_PATH)
+    
+    # Apply articulation root API to body_link
+    if apply_articulation_root(stage, BODY_LINK_PATH):
+        log.append(f"[OK] ArticulationRootAPI on {BODY_LINK_PATH}")
+    
+    # Apply rigid body with mass
+    if apply_rigid_body(stage, BODY_LINK_PATH, mass):
+        log.append(f"[OK] RigidBodyAPI (mass={mass}) on {BODY_LINK_PATH}")
+    
+    return BODY_LINK_PATH
+
+
 def setup_frame(stage: Usd.Stage, log: List[str], mass: float = 1.0) -> Optional[str]:
     """
-    Set up articulation root on middle_center_rail and connect side rails.
-    Returns the path to the middle rail mesh body for wheel connections.
+    Set up articulation root on body_link and connect all frame rails to it.
+    Returns the path to the body_link for wheel connections.
     """
     middle_rail = f"{RAILS_PATH}/middle_center_rail"
     left_rail = f"{RAILS_PATH}/left_side_rail"
     right_rail = f"{RAILS_PATH}/right_side_rail"
     
+    # 1. Create body_link with articulation root
+    body_link_path = create_body_link(stage, log, mass)
+    if not body_link_path:
+        log.append(f"[ERROR] Failed to create body_link")
+        return None
+    
     # Find the leaf mesh bodies for each rail
-    # middle_center_rail has Body1 mesh, side rails have Body10 mesh
     middle_mesh = find_leaf_mesh(stage, middle_rail)
     left_mesh = find_leaf_mesh(stage, left_rail)
     right_mesh = find_leaf_mesh(stage, right_rail)
@@ -451,21 +506,27 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass: float = 1.0) -> Optional
     log.append(f"[INFO] Left rail mesh: {left_mesh}")
     log.append(f"[INFO] Right rail mesh: {right_mesh}")
     
-    # 1. Apply articulation root to middle_center_rail Xform
+    # 2. Set up middle_center_rail (connect to body_link)
     middle_prim = make_editable_prim(stage, middle_rail)
     if middle_prim:
-        if apply_articulation_root(stage, middle_rail):
-            log.append(f"[OK] Articulation root on {middle_rail}")
         if apply_rigid_body(stage, middle_rail, mass):
             log.append(f"[OK] Rigid body (mass={mass}) on {middle_rail}")
-        # Apply collision to the mesh with boundingCube
         if apply_collision_to_mesh(stage, middle_mesh, "boundingCube"):
             log.append(f"[OK] Collision (boundingCube) on mesh {middle_mesh}")
+        
+        # Fixed joint: body_link -> middle_center_rail
+        joint_path = f"{RAILS_PATH}/frame_rail_middle"
+        if create_fixed_joint(stage, joint_path, body_link_path, middle_mesh):
+            log.append(f"[OK] Fixed joint {joint_path} (name: frame_rail_middle)")
+            log.append(f"     Body0: {body_link_path}")
+            log.append(f"     Body1: {middle_mesh}")
+        else:
+            log.append(f"[WARN] Failed to create fixed joint for middle rail")
     else:
         log.append(f"[WARN] Missing prim: {middle_rail}")
         return None
     
-    # 2. Set up left_side_rail
+    # 3. Set up left_side_rail (connect to body_link)
     if left_mesh:
         left_prim = make_editable_prim(stage, left_rail)
         if left_prim:
@@ -474,18 +535,18 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass: float = 1.0) -> Optional
             if apply_collision_to_mesh(stage, left_mesh, "boundingCube"):
                 log.append(f"[OK] Collision (boundingCube) on mesh {left_mesh}")
             
-            # Create fixed joint: left_side_rail mesh -> middle_center_rail mesh
+            # Fixed joint: body_link -> left_side_rail
             joint_path = f"{RAILS_PATH}/frame_rail_left"
-            if create_fixed_joint(stage, joint_path, middle_mesh, left_mesh):
+            if create_fixed_joint(stage, joint_path, body_link_path, left_mesh):
                 log.append(f"[OK] Fixed joint {joint_path} (name: frame_rail_left)")
-                log.append(f"     Body0: {middle_mesh}")
+                log.append(f"     Body0: {body_link_path}")
                 log.append(f"     Body1: {left_mesh}")
             else:
                 log.append(f"[WARN] Failed to create fixed joint for left rail")
     else:
         log.append(f"[WARN] Missing mesh under: {left_rail}")
     
-    # 3. Set up right_side_rail
+    # 4. Set up right_side_rail (connect to body_link)
     if right_mesh:
         right_prim = make_editable_prim(stage, right_rail)
         if right_prim:
@@ -494,18 +555,18 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass: float = 1.0) -> Optional
             if apply_collision_to_mesh(stage, right_mesh, "boundingCube"):
                 log.append(f"[OK] Collision (boundingCube) on mesh {right_mesh}")
             
-            # Create fixed joint: right_side_rail mesh -> middle_center_rail mesh
+            # Fixed joint: body_link -> right_side_rail
             joint_path = f"{RAILS_PATH}/frame_rail_right"
-            if create_fixed_joint(stage, joint_path, middle_mesh, right_mesh):
+            if create_fixed_joint(stage, joint_path, body_link_path, right_mesh):
                 log.append(f"[OK] Fixed joint {joint_path} (name: frame_rail_right)")
-                log.append(f"     Body0: {middle_mesh}")
+                log.append(f"     Body0: {body_link_path}")
                 log.append(f"     Body1: {right_mesh}")
             else:
                 log.append(f"[WARN] Failed to create fixed joint for right rail")
     else:
         log.append(f"[WARN] Missing mesh under: {right_rail}")
     
-    # 4. Attach additional rails from FRAME_ATTACH_TO_MIDDLE_RAIL
+    # 5. Attach additional rails from FRAME_ATTACH_TO_MIDDLE_RAIL (connect to body_link)
     for rail_name in FRAME_ATTACH_TO_MIDDLE_RAIL:
         extra_rail = f"{RAILS_PATH}/{rail_name}"
         extra_mesh = find_leaf_mesh(stage, extra_rail)
@@ -519,16 +580,16 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass: float = 1.0) -> Optional
                 
                 joint_name = f"frame_rail_{rail_name.replace('_rail', '')}"
                 joint_path = f"{RAILS_PATH}/{joint_name}"
-                if create_fixed_joint(stage, joint_path, middle_mesh, extra_mesh):
+                if create_fixed_joint(stage, joint_path, body_link_path, extra_mesh):
                     log.append(f"[OK] Fixed joint {joint_path} (name: {joint_name})")
-                    log.append(f"     Body0: {middle_mesh}")
+                    log.append(f"     Body0: {body_link_path}")
                     log.append(f"     Body1: {extra_mesh}")
                 else:
                     log.append(f"[WARN] Failed to create fixed joint for {rail_name}")
         else:
             log.append(f"[WARN] Missing mesh under: {extra_rail}")
     
-    return middle_mesh
+    return body_link_path
 
 
 # ============================================================================

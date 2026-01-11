@@ -143,24 +143,23 @@ class MecanumWheelAction(ActionTerm):
         # Kinematic matrix (maps body velocity to wheel angular velocity)
         # Rows: [wheel_1=FL, wheel_2=RL, wheel_3=RR, wheel_4=FR]
         # 
-        # Robot body frame convention (from USD positions):
-        #   Front wheels at +X (so +X is forward in USD coordinates)
-        #   BUT Isaac Lab reports lin_vel in body frame where Y appears to be forward
+        # Robot body frame convention (from USD):
+        #   - Robot "forward" is aligned with -Y axis
+        #   - Robot "left" is aligned with +X axis  
+        #   - Robot "up" is aligned with +Z axis
         #
-        # The observed behavior shows that commanding vx produces motion in body-Y.
-        # This suggests the robot's body frame has Y as forward, not X.
-        # 
-        # To fix this, we swap the action interpretation:
-        #   - action[0] (vx) should produce body-Y motion (forward)
-        #   - action[1] (vy) should produce body-X motion (strafe)
+        # Action convention:
+        #   - action[0] = vx (forward velocity in robot frame)
+        #   - action[1] = vy (strafe left velocity in robot frame)
+        #   - action[2] = omega (CCW rotation)
         #
-        # Swapped matrix columns: [vy_column, vx_column, omega_column]
-        # Plus left wheel negation and right-hand rule adjustments
+        # Since forward is -Y in the USD, positive vx should produce -Y motion.
+        # We negate the first column to achieve this.
         self._kinematic_matrix = torch.tensor([
-            [ 1/r, -1/r,  k/r],  # wheel_1 = Front-Left  
-            [-1/r, -1/r,  k/r],  # wheel_2 = Rear-Left   
-            [-1/r,  1/r,  k/r],  # wheel_3 = Rear-Right  
-            [ 1/r,  1/r,  k/r],  # wheel_4 = Front-Right 
+            [-1/r, -1/r,  k/r],  # wheel_1 = Front-Left  
+            [ 1/r, -1/r,  k/r],  # wheel_2 = Rear-Left   
+            [ 1/r,  1/r,  k/r],  # wheel_3 = Rear-Right  
+            [-1/r,  1/r,  k/r],  # wheel_4 = Front-Right 
         ], dtype=torch.float32, device=env.device)
         
         # Velocity scaling for normalized actions [-1, 1]

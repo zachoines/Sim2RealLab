@@ -361,7 +361,7 @@ Strafer Chassis Physics Setup
 [INFO] Core mesh: /World/strafer/mecanum_wheels/wheel_1/node_606_XXXX_0096_core__1__1/Body1/Body125
 [OK] Rigid body (mass=1.0) on /World/strafer/mecanum_wheels/wheel_1/node_606_XXXX_0096_core__1__1
 [OK] Collision (convexDecomposition) on mesh /World/strafer/mecanum_wheels/wheel_1/node_606_XXXX_0096_core__1__1/Body1/Body125
-[OK] Revolute joint /World/strafer/mecanum_wheels/wheel_1/node_606_XXXX_0096_core__1__1/wheel_1_drive (name: wheel_1_drive)
+[OK] Revolute joint /World/strafer/mecanum_wheels/wheel_1/node_606_XXXX_0096_core__1__1/wheel_1_drive (name: wheel_1_drive) with velocity drive
      Body0 (rail): /World/strafer/frame/rails/left_side_rail/Body10
      Body1 (core): /World/strafer/mecanum_wheels/wheel_1/node_606_XXXX_0096_core__1__1/Body1/Body125
 [OK] Rigid body on side plate: node_606_0000_0096_left_slant_side_plate_1
@@ -469,7 +469,7 @@ Strafer Chassis Physics Setup
 [INFO] Core mesh: /World/strafer/mecanum_wheels/wheel_2/node_606_XXXX_0096_core_2/Body1/Body113
 [OK] Rigid body (mass=1.0) on /World/strafer/mecanum_wheels/wheel_2/node_606_XXXX_0096_core_2
 [OK] Collision (convexDecomposition) on mesh /World/strafer/mecanum_wheels/wheel_2/node_606_XXXX_0096_core_2/Body1/Body113
-[OK] Revolute joint /World/strafer/mecanum_wheels/wheel_2/node_606_XXXX_0096_core_2/wheel_2_drive (name: wheel_2_drive)
+[OK] Revolute joint /World/strafer/mecanum_wheels/wheel_2/node_606_XXXX_0096_core_2/wheel_2_drive (name: wheel_2_drive) with velocity drive
      Body0 (rail): /World/strafer/frame/rails/right_side_rail/Body10
      Body1 (core): /World/strafer/mecanum_wheels/wheel_2/node_606_XXXX_0096_core_2/Body1/Body113
 [OK] Rigid body on side plate: node_606_0000_0096_right_slant_side_plate_3
@@ -577,7 +577,7 @@ Strafer Chassis Physics Setup
 [INFO] Core mesh: /World/strafer/mecanum_wheels/wheel_3/node_606_XXXX_0096_core__1__2/Body1/Body125
 [OK] Rigid body (mass=1.0) on /World/strafer/mecanum_wheels/wheel_3/node_606_XXXX_0096_core__1__2
 [OK] Collision (convexDecomposition) on mesh /World/strafer/mecanum_wheels/wheel_3/node_606_XXXX_0096_core__1__2/Body1/Body125
-[OK] Revolute joint /World/strafer/mecanum_wheels/wheel_3/node_606_XXXX_0096_core__1__2/wheel_3_drive (name: wheel_3_drive)
+[OK] Revolute joint /World/strafer/mecanum_wheels/wheel_3/node_606_XXXX_0096_core__1__2/wheel_3_drive (name: wheel_3_drive) with velocity drive
      Body0 (rail): /World/strafer/frame/rails/right_side_rail/Body10
      Body1 (core): /World/strafer/mecanum_wheels/wheel_3/node_606_XXXX_0096_core__1__2/Body1/Body125
 [OK] Rigid body on side plate: node_606_0000_0096_left_slant_side_plate_3
@@ -685,7 +685,7 @@ Strafer Chassis Physics Setup
 [INFO] Core mesh: /World/strafer/mecanum_wheels/wheel_4/node_606_XXXX_0096_core_1/Body1/Body113
 [OK] Rigid body (mass=1.0) on /World/strafer/mecanum_wheels/wheel_4/node_606_XXXX_0096_core_1
 [OK] Collision (convexDecomposition) on mesh /World/strafer/mecanum_wheels/wheel_4/node_606_XXXX_0096_core_1/Body1/Body113
-[OK] Revolute joint /World/strafer/mecanum_wheels/wheel_4/node_606_XXXX_0096_core_1/wheel_4_drive (name: wheel_4_drive)
+[OK] Revolute joint /World/strafer/mecanum_wheels/wheel_4/node_606_XXXX_0096_core_1/wheel_4_drive (name: wheel_4_drive) with velocity drive
      Body0 (rail): /World/strafer/frame/rails/left_side_rail/Body10
      Body1 (core): /World/strafer/mecanum_wheels/wheel_4/node_606_XXXX_0096_core_1/Body1/Body113
 [OK] Rigid body on side plate: node_606_0000_0096_right_slant_side_plate_1

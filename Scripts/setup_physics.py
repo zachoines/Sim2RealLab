@@ -341,12 +341,29 @@ def create_revolute_joint(
     joint_path: str, 
     body0_path: str, 
     body1_path: str, 
-    axis: str = "Z"
+    axis: str = "Z",
+    add_drive: bool = False,
+    drive_type: str = "velocity",
+    drive_damping: float = 1000.0,
+    drive_stiffness: float = 0.0,
+    drive_max_force: float = 1000.0,
 ) -> bool:
     """
     Create a revolute joint between two bodies.
-    body0 = parent body (stationary reference, e.g., axle)
-    body1 = child body (rotating body, e.g., wheel or roller cover)
+    body0 = parent body (stationary reference, e.g., rail)
+    body1 = child body (rotating body, e.g., wheel core)
+    
+    Args:
+        stage: USD stage
+        joint_path: Path for the joint prim
+        body0_path: Parent body path
+        body1_path: Child body path
+        axis: Rotation axis ("X", "Y", or "Z")
+        add_drive: If True, add a DriveAPI for motor control
+        drive_type: "velocity" or "position"
+        drive_damping: Damping coefficient for velocity control
+        drive_stiffness: Stiffness for position control (0 for pure velocity)
+        drive_max_force: Maximum force/torque the drive can apply
     
     Uses world transforms to compute correct local poses so bodies don't shift.
     """
@@ -380,6 +397,28 @@ def create_revolute_joint(
     joint.CreateLocalRot0Attr().Set(rot0)
     joint.CreateLocalPos1Attr().Set(Gf.Vec3f(0.0, 0.0, 0.0))
     joint.CreateLocalRot1Attr().Set(Gf.Quatf(1.0, 0.0, 0.0, 0.0))
+    
+    # Add Drive API for motor control if requested
+    if add_drive:
+        joint_prim = stage.GetPrimAtPath(joint_path)
+        if joint_prim:
+            # Apply DriveAPI for the angular axis
+            # For revolute joints, we drive the "angular" DOF
+            drive_api = UsdPhysics.DriveAPI.Apply(joint_prim, "angular")
+            
+            # Set drive parameters
+            # For velocity control: stiffness=0, damping>0
+            # For position control: stiffness>0, damping>0
+            drive_api.CreateTypeAttr("force")  # "force" or "acceleration"
+            drive_api.CreateDampingAttr(drive_damping)
+            drive_api.CreateStiffnessAttr(drive_stiffness)
+            drive_api.CreateMaxForceAttr(drive_max_force)
+            
+            # Set initial target velocity to 0
+            if drive_type == "velocity":
+                drive_api.CreateTargetVelocityAttr(0.0)
+            else:
+                drive_api.CreateTargetPositionAttr(0.0)
     
     return True
 
@@ -684,8 +723,16 @@ def setup_wheel(
     wheel_num = wheel_name.split("_")[1]
     wheel_joint_name = f"{wheel_name}_drive"
     wheel_joint_path = f"{core_xform_path}/{wheel_joint_name}"
-    if create_revolute_joint(stage, wheel_joint_path, rail_mesh, core_mesh, "Z"):
-        log.append(f"[OK] Revolute joint {wheel_joint_path} (name: {wheel_joint_name})")
+    # Add velocity drive for motor control (stiffness=0 for velocity mode)
+    if create_revolute_joint(
+        stage, wheel_joint_path, rail_mesh, core_mesh, "Z",
+        add_drive=True,
+        drive_type="velocity",
+        drive_damping=1000.0,    # Damping for velocity control
+        drive_stiffness=0.0,     # 0 = pure velocity control
+        drive_max_force=10000.0  # Max torque
+    ):
+        log.append(f"[OK] Revolute joint {wheel_joint_path} (name: {wheel_joint_name}) with velocity drive")
         log.append(f"     Body0 (rail): {rail_mesh}")
         log.append(f"     Body1 (core): {core_mesh}")
     else:

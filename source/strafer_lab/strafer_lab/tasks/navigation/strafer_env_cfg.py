@@ -66,16 +66,27 @@ class StraferSceneCfg(InteractiveSceneCfg):
 class ActionsCfg:
     """Action terms for the MDP.
     
-    Actions are wheel velocities for the 4 mecanum wheels.
-    The mecanum kinematics controller converts these to robot motion.
+    Actions are normalized velocity commands [-1, 1] for [vx, vy, omega].
+    The mecanum kinematics controller converts these to wheel angular velocities.
+    
+    Physical parameters are configured based on GoBilda Strafer chassis:
+    - 5203 Yellow Jacket motors (19.2:1 ratio, 312 RPM output)
+    - 96mm diameter mecanum wheels
+    - 432mm x 360mm chassis
     """
 
-    # Wheel velocity commands: [front_left, front_right, rear_left, rear_right]
-    # Joint names from setup_physics.py: wheel_1_drive, wheel_2_drive, etc.
+    # Velocity commands: [vx, vy, omega] normalized to [-1, 1]
+    # Joint order: wheel_1=FL, wheel_2=RL, wheel_3=RR, wheel_4=FR (counter-clockwise)
+    # We specify joints explicitly to ensure consistent ordering
     wheel_velocities = mdp.MecanumWheelActionCfg(
         asset_name="robot",
-        joint_names=["wheel_[1-4]_drive"],
-        scale=10.0,  # Scale factor for velocity commands
+        joint_names=["wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4_drive"],
+        # Physical parameters (GoBilda Strafer defaults)
+        wheel_radius=0.048,          # 96mm diameter / 2
+        wheel_base=0.304,            # ~304mm axle-to-axle
+        track_width=0.304,           # ~304mm left-right spacing
+        motor_rpm=312.0,             # 5203 @ 19.2:1 ratio
+        max_wheel_angular_vel=32.67, # 312 RPM in rad/s
     )
 
 

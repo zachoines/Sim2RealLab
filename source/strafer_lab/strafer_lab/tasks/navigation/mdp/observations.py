@@ -294,48 +294,7 @@ def imu_projected_gravity(
     return sensor.data.projected_gravity_b.clone()
 
 
-# =============================================================================
-# Legacy Observations (for backward compatibility)
-# =============================================================================
 
-
-def base_lin_vel(env: ManagerBasedEnv) -> torch.Tensor:
-    """Get robot base linear velocity in local frame.
-    
-    NOTE: Consider using IMU observations for more realistic sim-to-real.
-    Real robots typically estimate velocity from wheel odometry or IMU
-    integration, not from direct velocity measurement.
-    
-    Returns:
-        Linear velocity (x, y, z) in robot's local frame. Shape: (num_envs, 3)
-    """
-    robot = env.scene["robot"]
-    return robot.data.root_lin_vel_b
-
-
-def base_ang_vel(env: ManagerBasedEnv) -> torch.Tensor:
-    """Get robot base angular velocity in local frame.
-    
-    NOTE: Consider using imu_angular_velocity() for more realistic sim-to-real.
-    
-    Returns:
-        Angular velocity (roll, pitch, yaw) in robot's local frame. Shape: (num_envs, 3)
-    """
-    robot = env.scene["robot"]
-    return robot.data.root_ang_vel_b
-
-
-def projected_gravity(env: ManagerBasedEnv) -> torch.Tensor:
-    """Get gravity vector projected into robot's local frame.
-    
-    NOTE: Consider using imu_linear_acceleration() or imu_projected_gravity()
-    for more realistic sim-to-real transfer.
-    
-    Returns:
-        Projected gravity vector. Shape: (num_envs, 3)
-    """
-    robot = env.scene["robot"]
-    return robot.data.projected_gravity_b
 
 
 def goal_position_relative(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:

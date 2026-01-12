@@ -35,11 +35,8 @@ from .observations import (
     rgb_image,
 )
 
-# Custom observations - Legacy (backward compatibility)
+# Custom observations - Other
 from .observations import (
-    base_lin_vel,
-    base_ang_vel,
-    projected_gravity,
     goal_position_relative,
     last_action,
 )

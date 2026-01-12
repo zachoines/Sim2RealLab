@@ -122,6 +122,9 @@ python IsaacLab/scripts/reinforcement_learning/rsl_rl/play.py `
 | Physics Rigging | ✅ Done | setup_physics.py |
 | Isaac Lab Extension | ✅ Done | strafer_lab package |
 | RL Environment | ✅ Done | Navigation task |
+| D555 Camera | ✅ Done | RGB + Depth observations |
+| D555 IMU | ✅ Done | Accelerometer + Gyroscope |
+| Motor Encoders | ✅ Done | 537.7 PPR encoder model |
 | Training Scripts | 🔲 TODO | Custom train.py |
 | Policy Export | 🔲 TODO | ONNX export |
 | ROS2 Bridge | 🔲 TODO | omni.isaac.ros2_bridge |
@@ -133,8 +136,16 @@ The Strafer robot is a 4-wheel mecanum drive platform:
 
 - **Wheels**: 4 mecanum wheels with velocity control
 - **Rollers**: 40 passive rollers (10 per wheel, free spinning)
-- **Sensors**: Intel RealSense D555 camera (planned)
-- **Motors**: 4 gear motors with encoders (planned)
+- **Sensors**: Intel RealSense D555 (RGB-D camera + IMU)
+- **Motors**: GoBilda 5203 gear motors with 537.7 PPR encoders
+
+### Sensors
+
+| Sensor | Model | Observations |
+|--------|-------|-------------|
+| Camera | D555 RGB-D | 80×60 RGB (14400) + Depth (4800) |
+| IMU | D555 BMI055 | Accelerometer (3) + Gyroscope (3) |
+| Encoders | GoBilda 537.7 PPR | Wheel velocities (4) |
 
 ### Actuator Groups
 

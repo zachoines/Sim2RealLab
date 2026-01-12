@@ -67,14 +67,44 @@ The Strafer robot is configured in `assets/strafer.py` with:
 - **Wheel drives**: 4 mecanum wheels with velocity control
 - **Roller bearings**: 40 passive rollers (10 per wheel)
 - **Action space**: `[vx, vy, omega]` - forward, strafe, rotation velocities
-- **Observation space**: Base velocity, orientation, goal position, previous action
+
+### Sensors
+
+| Sensor | Configuration | Update Rate |
+|--------|--------------|-------------|
+| D555 Camera | 80×60 RGB-D, 87°×58° FOV | 30 Hz |
+| D555 IMU | BMI055, ±16g accel, ±2000°/s gyro | 200 Hz |
+| Encoders | 537.7 PPR (GoBilda 5203 motors) | Physics rate |
+
+### Encoder Model
+
+The motor encoders model GoBilda 5203 series specifications:
+- **Resolution**: 537.7 PPR at output shaft
+- **Formula**: `((1 + 46/17) × (1 + 46/11)) × 28 = 537.7`
+- **Conversion**: 85.57 ticks per radian
 
 ## Environments
 
-| Environment ID | Description |
-|---------------|-------------|
-| `Isaac-Strafer-Navigation-v0` | Training env (4096 parallel instances) |
-| `Isaac-Strafer-Navigation-Play-v0` | Evaluation env (50 instances, no noise) |
+| Environment ID | Sensors | Obs Dims | Description |
+|---------------|---------|----------|-------------|
+| `Isaac-Strafer-Navigation-v0` | IMU + Enc + RGB + Depth | 19,215 | Full sensors |
+| `Isaac-Strafer-Navigation-Depth-v0` | IMU + Enc + Depth | 4,815 | Depth only |
+| `Isaac-Strafer-Navigation-RGB-v0` | IMU + Enc + RGB | 14,415 | RGB only |
+| `Isaac-Strafer-Navigation-NoCam-v0` | IMU + Enc | 15 | Proprioceptive |
+
+All environments have corresponding `-Play-v0` variants for evaluation (50 envs, no noise).
+
+### Observation Space
+
+| Component | Dims | Source |
+|-----------|------|--------|
+| IMU Linear Acceleration | 3 | D555 BMI055 accelerometer (±16g) |
+| IMU Angular Velocity | 3 | D555 BMI055 gyroscope (±2000°/s) |
+| Wheel Encoder Velocities | 4 | GoBilda 537.7 PPR encoders |
+| Goal Position | 2 | Relative (x, y) in robot frame |
+| Last Action | 3 | Previous [vx, vy, omega] |
+| Depth Image | 4,800 | D555 depth (80×60, normalized) |
+| RGB Image | 14,400 | D555 RGB (80×60×3, normalized) |
 
 ## Sim-to-Real Pipeline
 

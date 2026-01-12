@@ -24,7 +24,7 @@ from isaaclab.utils import configclass
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 from isaaclab.terrains import TerrainImporterCfg
-from isaaclab.sensors import TiledCameraCfg
+from isaaclab.sensors import TiledCameraCfg, ImuCfg
 
 # Import custom MDP functions
 from . import mdp
@@ -87,6 +87,24 @@ class StraferSceneCfg(InteractiveSceneCfg):
         ),
     )
 
+    # Intel RealSense D555 IMU (BMI055)
+    # The D555 has a built-in IMU co-located with the depth sensor.
+    # BMI055 Specs:
+    #   - Accelerometer: ±2g/±4g/±8g/±16g
+    #   - Gyroscope: ±125/±250/±500/±1000/±2000 °/s
+    #   - Update rate: Up to 400 Hz
+    d555_imu: ImuCfg = ImuCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
+        update_period=1.0 / 200.0,  # 200 Hz IMU update rate
+        offset=ImuCfg.OffsetCfg(
+            # Same position as camera (D555 IMU is in the camera unit)
+            pos=(0.0, -0.15, 0.10),
+            rot=(1.0, 0.0, 0.0, 0.0),  # Identity - IMU axes align with robot body
+        ),
+        # Gravity bias: when stationary, accelerometer reads +9.81 in Z
+        gravity_bias=(0.0, 0.0, 9.81),
+    )
+
 
 @configclass
 class ActionsCfg:
@@ -118,36 +136,59 @@ class ActionsCfg:
 
 @configclass
 class ObservationsCfg:
-    """Observation specifications for the MDP - Full camera (RGB + Depth).
+    """Observation specifications for the MDP - Full realistic sensors.
     
-    Includes proprioceptive state and D555 RGB+depth camera observations.
-    Total: 14 + 4800 (depth) + 14400 (RGB) = 19214 dimensions.
+    Uses realistic sensor models matching the physical robot:
+    - D555 IMU (BMI055): accelerometer + gyroscope
+    - GoBilda 5203 motor encoders: 537.7 PPR
+    - D555 Camera: RGB + Depth
+    
+    Proprioceptive observations (15 dims):
+    - imu_linear_acceleration: (3,) - accelerometer reading (includes gravity)
+    - imu_angular_velocity: (3,) - gyroscope reading
+    - wheel_encoder_velocities: (4,) - encoder tick rates
+    - goal_position: (2,) - relative goal position
+    - last_action: (3,) - previous action [vx, vy, omega]
+    
+    Camera observations:
+    - depth_image: (4800,) - 80x60 depth
+    - rgb_image: (14400,) - 80x60x3 RGB
+    
+    Total: 19215 dimensions
     """
 
     @configclass
     class PolicyCfg(ObsGroup):
-        """Observations for the policy network.
-        
-        Proprioceptive observations (14 dims):
-        - base_lin_vel: (3,) - linear velocity in local frame
-        - base_ang_vel: (3,) - angular velocity in local frame  
-        - projected_gravity: (3,) - gravity vector in local frame
-        - goal_position: (2,) - relative goal position
-        - last_action: (3,) - previous action [vx, vy, omega]
-        
-        Camera observations:
-        - depth_image: (4800,) - Flattened depth image (80 x 60)
-        - rgb_image: (14400,) - Flattened RGB image (80 x 60 x 3)
-        
-        Total: 19214 dimensions
-        """
+        """Observations for the policy network with realistic sensors."""
 
-        # Robot base velocity (local frame)
-        base_lin_vel = ObsTerm(func=mdp.base_lin_vel)
-        base_ang_vel = ObsTerm(func=mdp.base_ang_vel)
+        # D555 IMU - Accelerometer (includes gravity, replaces base_lin_vel + projected_gravity)
+        imu_linear_acceleration = ObsTerm(
+            func=mdp.imu_linear_acceleration,
+            params={
+                "sensor_cfg": SceneEntityCfg("d555_imu"),
+                "normalize": True,
+                "max_accel": 156.96,  # ±16g in m/s²
+            },
+        )
 
-        # Robot orientation (projected gravity)
-        projected_gravity = ObsTerm(func=mdp.projected_gravity)
+        # D555 IMU - Gyroscope (replaces base_ang_vel)
+        imu_angular_velocity = ObsTerm(
+            func=mdp.imu_angular_velocity,
+            params={
+                "sensor_cfg": SceneEntityCfg("d555_imu"),
+                "normalize": True,
+                "max_angular_vel": 34.9,  # ±2000 °/s in rad/s
+            },
+        )
+
+        # Motor Encoders - wheel velocities (537.7 PPR)
+        wheel_encoder_velocities = ObsTerm(
+            func=mdp.wheel_encoder_velocities,
+            params={
+                "normalize": True,
+                "max_ticks_per_sec": 5000.0,  # ~3000 ticks/s at max RPM
+            },
+        )
 
         # Goal position relative to robot
         goal_position = ObsTerm(
@@ -163,7 +204,7 @@ class ObservationsCfg:
             func=mdp.depth_image,
             params={
                 "sensor_cfg": SceneEntityCfg("d555_camera"),
-                "max_depth": 6.0,  # D555 max range
+                "max_depth": 6.0,
             },
         )
 
@@ -182,15 +223,28 @@ class ObservationsCfg:
 
     @configclass
     class CriticCfg(ObsGroup):
-        """Observations for the critic network (if using asymmetric actor-critic).
-        
-        Contains same observations as policy but potentially with privileged info.
-        """
+        """Observations for the critic network with realistic sensors."""
 
-        # Same as policy observations
-        base_lin_vel = ObsTerm(func=mdp.base_lin_vel)
-        base_ang_vel = ObsTerm(func=mdp.base_ang_vel)
-        projected_gravity = ObsTerm(func=mdp.projected_gravity)
+        imu_linear_acceleration = ObsTerm(
+            func=mdp.imu_linear_acceleration,
+            params={
+                "sensor_cfg": SceneEntityCfg("d555_imu"),
+                "normalize": True,
+                "max_accel": 156.96,
+            },
+        )
+        imu_angular_velocity = ObsTerm(
+            func=mdp.imu_angular_velocity,
+            params={
+                "sensor_cfg": SceneEntityCfg("d555_imu"),
+                "normalize": True,
+                "max_angular_vel": 34.9,
+            },
+        )
+        wheel_encoder_velocities = ObsTerm(
+            func=mdp.wheel_encoder_velocities,
+            params={"normalize": True, "max_ticks_per_sec": 5000.0},
+        )
         goal_position = ObsTerm(
             func=mdp.goal_position_relative,
             params={"command_name": "goal_command"},
@@ -361,19 +415,41 @@ class StraferNavigationEnvCfg_PLAY(StraferNavigationEnvCfg):
 
 @configclass
 class ProprioceptiveObservationsCfg:
-    """Observation specifications without camera - proprioceptive only.
+    """Observation specifications without camera - realistic sensors only.
     
-    Useful for faster training without vision or as a baseline.
-    Total: 14 dimensions (no depth image)
+    Uses IMU + encoders for sim-to-real transfer.
+    Total: 12 dimensions (no camera)
+    - imu_linear_acceleration: (3,)
+    - imu_angular_velocity: (3,)
+    - wheel_encoder_velocities: (4,)
+    - goal_position: (2,)
+    - last_action: (3,) -> Total: 15 dims
     """
 
     @configclass
     class PolicyCfg(ObsGroup):
-        """Proprioceptive-only observations."""
+        """Proprioceptive-only observations with realistic sensors."""
 
-        base_lin_vel = ObsTerm(func=mdp.base_lin_vel)
-        base_ang_vel = ObsTerm(func=mdp.base_ang_vel)
-        projected_gravity = ObsTerm(func=mdp.projected_gravity)
+        imu_linear_acceleration = ObsTerm(
+            func=mdp.imu_linear_acceleration,
+            params={
+                "sensor_cfg": SceneEntityCfg("d555_imu"),
+                "normalize": True,
+                "max_accel": 156.96,
+            },
+        )
+        imu_angular_velocity = ObsTerm(
+            func=mdp.imu_angular_velocity,
+            params={
+                "sensor_cfg": SceneEntityCfg("d555_imu"),
+                "normalize": True,
+                "max_angular_vel": 34.9,
+            },
+        )
+        wheel_encoder_velocities = ObsTerm(
+            func=mdp.wheel_encoder_velocities,
+            params={"normalize": True, "max_ticks_per_sec": 5000.0},
+        )
         goal_position = ObsTerm(
             func=mdp.goal_position_relative,
             params={"command_name": "goal_command"},
@@ -389,7 +465,10 @@ class ProprioceptiveObservationsCfg:
 
 @configclass
 class StraferSceneCfg_NoCamera(InteractiveSceneCfg):
-    """Scene configuration without camera sensor for faster training."""
+    """Scene configuration without camera sensor for faster training.
+    
+    Still includes IMU for realistic proprioceptive observations.
+    """
 
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
@@ -411,6 +490,17 @@ class StraferSceneCfg_NoCamera(InteractiveSceneCfg):
             intensity=2000.0,
             color=(0.8, 0.8, 0.8),
         ),
+    )
+
+    # D555 IMU only (no camera rendering overhead)
+    d555_imu: ImuCfg = ImuCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
+        update_period=1.0 / 200.0,
+        offset=ImuCfg.OffsetCfg(
+            pos=(0.0, -0.15, 0.10),
+            rot=(1.0, 0.0, 0.0, 0.0),
+        ),
+        gravity_bias=(0.0, 0.0, 9.81),
     )
 
 
@@ -458,16 +548,34 @@ class StraferNavigationEnvCfg_NoCam_PLAY(StraferNavigationEnvCfg_NoCam):
 class DepthOnlyObservationsCfg:
     """Observation specifications with depth camera only (no RGB).
     
-    Total: 14 + 4800 = 4814 dimensions.
+    Uses realistic sensors: IMU + encoders + depth.
+    Total: 15 + 4800 = 4815 dimensions.
     """
 
     @configclass
     class PolicyCfg(ObsGroup):
-        """Depth-only camera observations."""
+        """Depth-only camera with realistic sensors."""
 
-        base_lin_vel = ObsTerm(func=mdp.base_lin_vel)
-        base_ang_vel = ObsTerm(func=mdp.base_ang_vel)
-        projected_gravity = ObsTerm(func=mdp.projected_gravity)
+        imu_linear_acceleration = ObsTerm(
+            func=mdp.imu_linear_acceleration,
+            params={
+                "sensor_cfg": SceneEntityCfg("d555_imu"),
+                "normalize": True,
+                "max_accel": 156.96,
+            },
+        )
+        imu_angular_velocity = ObsTerm(
+            func=mdp.imu_angular_velocity,
+            params={
+                "sensor_cfg": SceneEntityCfg("d555_imu"),
+                "normalize": True,
+                "max_angular_vel": 34.9,
+            },
+        )
+        wheel_encoder_velocities = ObsTerm(
+            func=mdp.wheel_encoder_velocities,
+            params={"normalize": True, "max_ticks_per_sec": 5000.0},
+        )
         goal_position = ObsTerm(
             func=mdp.goal_position_relative,
             params={"command_name": "goal_command"},
@@ -489,9 +597,26 @@ class DepthOnlyObservationsCfg:
     class CriticCfg(ObsGroup):
         """Critic observations for depth-only."""
 
-        base_lin_vel = ObsTerm(func=mdp.base_lin_vel)
-        base_ang_vel = ObsTerm(func=mdp.base_ang_vel)
-        projected_gravity = ObsTerm(func=mdp.projected_gravity)
+        imu_linear_acceleration = ObsTerm(
+            func=mdp.imu_linear_acceleration,
+            params={
+                "sensor_cfg": SceneEntityCfg("d555_imu"),
+                "normalize": True,
+                "max_accel": 156.96,
+            },
+        )
+        imu_angular_velocity = ObsTerm(
+            func=mdp.imu_angular_velocity,
+            params={
+                "sensor_cfg": SceneEntityCfg("d555_imu"),
+                "normalize": True,
+                "max_angular_vel": 34.9,
+            },
+        )
+        wheel_encoder_velocities = ObsTerm(
+            func=mdp.wheel_encoder_velocities,
+            params={"normalize": True, "max_ticks_per_sec": 5000.0},
+        )
         goal_position = ObsTerm(
             func=mdp.goal_position_relative,
             params={"command_name": "goal_command"},
@@ -557,16 +682,34 @@ class StraferNavigationEnvCfg_DepthOnly_PLAY(StraferNavigationEnvCfg_DepthOnly):
 class RGBOnlyObservationsCfg:
     """Observation specifications with RGB camera only (no depth).
     
-    Total: 14 + 14400 = 14414 dimensions.
+    Uses realistic sensors: IMU + encoders + RGB.
+    Total: 15 + 14400 = 14415 dimensions.
     """
 
     @configclass
     class PolicyCfg(ObsGroup):
-        """RGB-only camera observations."""
+        """RGB-only camera with realistic sensors."""
 
-        base_lin_vel = ObsTerm(func=mdp.base_lin_vel)
-        base_ang_vel = ObsTerm(func=mdp.base_ang_vel)
-        projected_gravity = ObsTerm(func=mdp.projected_gravity)
+        imu_linear_acceleration = ObsTerm(
+            func=mdp.imu_linear_acceleration,
+            params={
+                "sensor_cfg": SceneEntityCfg("d555_imu"),
+                "normalize": True,
+                "max_accel": 156.96,
+            },
+        )
+        imu_angular_velocity = ObsTerm(
+            func=mdp.imu_angular_velocity,
+            params={
+                "sensor_cfg": SceneEntityCfg("d555_imu"),
+                "normalize": True,
+                "max_angular_vel": 34.9,
+            },
+        )
+        wheel_encoder_velocities = ObsTerm(
+            func=mdp.wheel_encoder_velocities,
+            params={"normalize": True, "max_ticks_per_sec": 5000.0},
+        )
         goal_position = ObsTerm(
             func=mdp.goal_position_relative,
             params={"command_name": "goal_command"},
@@ -588,9 +731,26 @@ class RGBOnlyObservationsCfg:
     class CriticCfg(ObsGroup):
         """Critic observations for RGB-only."""
 
-        base_lin_vel = ObsTerm(func=mdp.base_lin_vel)
-        base_ang_vel = ObsTerm(func=mdp.base_ang_vel)
-        projected_gravity = ObsTerm(func=mdp.projected_gravity)
+        imu_linear_acceleration = ObsTerm(
+            func=mdp.imu_linear_acceleration,
+            params={
+                "sensor_cfg": SceneEntityCfg("d555_imu"),
+                "normalize": True,
+                "max_accel": 156.96,
+            },
+        )
+        imu_angular_velocity = ObsTerm(
+            func=mdp.imu_angular_velocity,
+            params={
+                "sensor_cfg": SceneEntityCfg("d555_imu"),
+                "normalize": True,
+                "max_angular_vel": 34.9,
+            },
+        )
+        wheel_encoder_velocities = ObsTerm(
+            func=mdp.wheel_encoder_velocities,
+            params={"normalize": True, "max_ticks_per_sec": 5000.0},
+        )
         goal_position = ObsTerm(
             func=mdp.goal_position_relative,
             params={"command_name": "goal_command"},

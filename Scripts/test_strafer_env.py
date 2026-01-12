@@ -24,6 +24,8 @@ def main():
     parser.add_argument("--num_envs", type=int, default=1, help="Number of environments")
     parser.add_argument("--device", type=str, default="cuda:0", help="Device to run on")
     parser.add_argument("--headless", action="store_true", help="Run without rendering")
+    parser.add_argument("--enable_cameras", action="store_true", default=True, 
+                        help="Enable camera rendering (required for camera-based envs)")
     parser.add_argument("--pattern", type=str, default="all", 
                         choices=["forward", "strafe", "rotate", "circle", "figure8", "all"],
                         help="Motion pattern to test")

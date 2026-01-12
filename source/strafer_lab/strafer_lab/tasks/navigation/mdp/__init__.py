@@ -14,6 +14,8 @@ from .observations import (
     projected_gravity,
     goal_position_relative,
     last_action,
+    depth_image,
+    rgb_image,
 )
 
 # Custom actions

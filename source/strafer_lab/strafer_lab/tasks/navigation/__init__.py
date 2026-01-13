@@ -1,23 +1,20 @@
 """Navigation task for Strafer mecanum wheel robot.
 
-This module registers the following Gym environments:
+This module registers 12 Gym environments organized by realism level and sensors:
 
-Full Camera (RGB + Depth):
-- ``Isaac-Strafer-Navigation-v0``: Full camera with RGB+depth (19214 obs dims)
-- ``Isaac-Strafer-Navigation-Play-v0``: Evaluation environment
+IDEAL (No noise, no motor dynamics - debugging/baselines):
+- ``Isaac-Strafer-Nav-v0``: Full RGB+Depth (19214 obs dims)
+- ``Isaac-Strafer-Nav-Depth-v0``: Depth-only (4814 obs dims)
+- ``Isaac-Strafer-Nav-NoCam-v0``: Proprioceptive-only (15 obs dims)
 
-Depth-Only Camera:
-- ``Isaac-Strafer-Navigation-Depth-v0``: Depth camera only (4814 obs dims)
-- ``Isaac-Strafer-Navigation-Depth-Play-v0``: Evaluation with depth
+REALISTIC (Motor dynamics + noise - sim-to-real target):
+- ``Isaac-Strafer-Nav-Real-v0``: Full RGB+Depth with realistic dynamics
+- ``Isaac-Strafer-Nav-Real-Depth-v0``: Depth-only with realistic dynamics
 
-RGB-Only Camera:
-- ``Isaac-Strafer-Navigation-RGB-v0``: RGB camera only (14414 obs dims)
-- ``Isaac-Strafer-Navigation-RGB-Play-v0``: Evaluation with RGB
+ROBUST (Aggressive noise + dynamics - stress-testing):
+- ``Isaac-Strafer-Nav-Robust-v0``: Full sensors with extreme noise
 
-Without Camera (Proprioceptive only):
-- ``Isaac-Strafer-Navigation-NoCam-v0``: Proprioceptive-only (14 obs dims)
-- ``Isaac-Strafer-Navigation-NoCam-Play-v0``: Evaluation without camera
-
+Each has a -Play variant for evaluation (fewer envs).
 """
 
 import gymnasium as gym
@@ -25,108 +22,153 @@ import gymnasium as gym
 from . import agents
 
 ##
-# Register Gym environments
+# Register Gym environments - 12 total (6 configs × Train/Play)
 ##
 
 # =============================================================================
-# Full Camera (RGB + Depth) - 19214 obs dims
+# IDEAL: No noise, no motor dynamics (debugging/baselines)
 # =============================================================================
 
+# Full RGB+Depth
 gym.register(
-    id="Isaac-Strafer-Navigation-v0",
+    id="Isaac-Strafer-Nav-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavigationEnvCfg",
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:StraferPPORunnerCfg",
         "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
     },
 )
 
 gym.register(
-    id="Isaac-Strafer-Navigation-Play-v0",
+    id="Isaac-Strafer-Nav-Play-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavigationEnvCfg_PLAY",
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_PLAY",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:StraferPPORunnerCfg",
         "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
     },
 )
 
-# =============================================================================
-# Depth-Only Camera - 4814 obs dims
-# =============================================================================
-
+# Depth-only
 gym.register(
-    id="Isaac-Strafer-Navigation-Depth-v0",
+    id="Isaac-Strafer-Nav-Depth-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavigationEnvCfg_DepthOnly",
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:StraferPPORunnerCfg",
-        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
-    },
-)
-
-gym.register(
-    id="Isaac-Strafer-Navigation-Depth-Play-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavigationEnvCfg_DepthOnly_PLAY",
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:StraferPPORunnerCfg",
-        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
-    },
-)
-
-# =============================================================================
-# RGB-Only Camera - 14414 obs dims
-# =============================================================================
-
-gym.register(
-    id="Isaac-Strafer-Navigation-RGB-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavigationEnvCfg_RGBOnly",
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Depth",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:StraferPPORunnerCfg",
         "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
     },
 )
 
 gym.register(
-    id="Isaac-Strafer-Navigation-RGB-Play-v0",
+    id="Isaac-Strafer-Nav-Depth-Play-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavigationEnvCfg_RGBOnly_PLAY",
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Depth_PLAY",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:StraferPPORunnerCfg",
         "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
     },
 )
 
-# =============================================================================
-# No Camera (Proprioceptive-only) - 14 obs dims
-# =============================================================================
-
+# Proprioceptive-only (no camera)
 gym.register(
-    id="Isaac-Strafer-Navigation-NoCam-v0",
+    id="Isaac-Strafer-Nav-NoCam-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavigationEnvCfg_NoCam",
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_NoCam",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:StraferPPORunnerCfg",
         "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
     },
 )
 
 gym.register(
-    id="Isaac-Strafer-Navigation-NoCam-Play-v0",
+    id="Isaac-Strafer-Nav-NoCam-Play-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavigationEnvCfg_NoCam_PLAY",
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_NoCam_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:StraferPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+# =============================================================================
+# REALISTIC: Motor dynamics + noise (sim-to-real target)
+# =============================================================================
+
+# Full RGB+Depth with realistic dynamics
+gym.register(
+    id="Isaac-Strafer-Nav-Real-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Real",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:StraferPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+gym.register(
+    id="Isaac-Strafer-Nav-Real-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Real_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:StraferPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+# Depth-only with realistic dynamics
+gym.register(
+    id="Isaac-Strafer-Nav-Real-Depth-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Real_Depth",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:StraferPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+gym.register(
+    id="Isaac-Strafer-Nav-Real-Depth-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Real_Depth_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:StraferPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+# =============================================================================
+# ROBUST: Aggressive noise + dynamics (stress-testing)
+# =============================================================================
+
+gym.register(
+    id="Isaac-Strafer-Nav-Robust-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Robust",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:StraferPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+gym.register(
+    id="Isaac-Strafer-Nav-Robust-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Robust_PLAY",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:StraferPPORunnerCfg",
         "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
     },

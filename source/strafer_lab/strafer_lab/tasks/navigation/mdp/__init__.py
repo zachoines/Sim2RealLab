@@ -7,6 +7,11 @@ Sensor Models:
 - GoBilda 5203 motor encoders (537.7 PPR at output shaft)
 - Intel RealSense D555 IMU (BMI055 accelerometer/gyroscope)
 - Intel RealSense D555 RGB-D camera
+
+Sim-to-Real Features:
+- Realistic sensor noise models (IMU bias drift, encoder quantization, depth holes)
+- Motor dynamics (first-order response, command delay)
+- Configurable latency and failure modes
 """
 
 # Import standard MDP functions from Isaac Lab
@@ -39,6 +44,25 @@ from .observations import (
 from .observations import (
     goal_position_relative,
     last_action,
+)
+
+# Custom noise models for sim-to-real
+from .noise_models import (
+    # Noise model classes
+    IMUNoiseModel,
+    IMUNoiseModelCfg,
+    EncoderNoiseModel,
+    EncoderNoiseModelCfg,
+    DepthNoiseModel,
+    DepthNoiseModelCfg,
+    RGBNoiseModel,
+    RGBNoiseModelCfg,
+    # Factory functions
+    create_imu_accel_noise_cfg,
+    create_imu_gyro_noise_cfg,
+    create_encoder_noise_cfg,
+    create_depth_noise_cfg,
+    create_rgb_noise_cfg,
 )
 
 # Custom actions

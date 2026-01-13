@@ -1,4 +1,10 @@
-"""Custom action terms for Strafer mecanum wheel robot."""
+"""Custom action terms for Strafer mecanum wheel robot.
+
+Includes sim-to-real transfer features:
+- Motor dynamics (first-order response)
+- Command latency (delay buffer)
+- Velocity smoothing
+"""
 
 from __future__ import annotations
 
@@ -9,6 +15,7 @@ import torch
 
 from isaaclab.managers.action_manager import ActionTerm, ActionTermCfg
 from isaaclab.utils import configclass
+from isaaclab.utils.buffers import DelayBuffer
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -174,6 +181,48 @@ class MecanumWheelAction(ActionTerm):
         self._raw_actions = torch.zeros(env.num_envs, 3, device=env.device)
         self._processed_actions = torch.zeros(env.num_envs, 4, device=env.device)
         
+        # ============================================================
+        # Sim-to-Real: Motor dynamics and command latency
+        # ============================================================
+        
+        # Motor dynamics (first-order low-pass filter)
+        self._enable_motor_dynamics = cfg.enable_motor_dynamics
+        if self._enable_motor_dynamics:
+            # Low-pass filter coefficient: alpha = dt / (tau + dt)
+            # where tau = motor time constant, dt = physics step time
+            physics_dt = env.physics_dt
+            self._motor_alpha = physics_dt / (cfg.motor_time_constant + physics_dt)
+            self._smoothed_wheel_vels = torch.zeros(env.num_envs, 4, device=env.device)
+        
+        # Command delay buffer
+        self._enable_command_delay = cfg.max_delay_steps > 0
+        if self._enable_command_delay:
+            self._action_delay_buffer = DelayBuffer(
+                history_length=cfg.max_delay_steps,
+                batch_size=env.num_envs,
+                device=env.device,
+            )
+            # Set random delay per environment
+            if cfg.min_delay_steps < cfg.max_delay_steps:
+                time_lags = torch.randint(
+                    low=cfg.min_delay_steps,
+                    high=cfg.max_delay_steps + 1,
+                    size=(env.num_envs,),
+                    dtype=torch.int,
+                    device=env.device,
+                )
+            else:
+                time_lags = torch.full(
+                    (env.num_envs,), cfg.max_delay_steps, dtype=torch.int, device=env.device
+                )
+            self._action_delay_buffer.set_time_lag(time_lags)
+        
+        # Slew rate limiting (max acceleration)
+        self._enable_slew_rate = cfg.max_acceleration_rad_s2 < float('inf')
+        if self._enable_slew_rate:
+            self._max_delta_per_step = cfg.max_acceleration_rad_s2 * env.physics_dt
+            self._prev_wheel_vels = torch.zeros(env.num_envs, 4, device=env.device)
+        
         # Log configuration
         print(f"[MecanumWheelAction] Initialized with:")
         print(f"  Wheel radius: {self._wheel_radius*1000:.1f} mm")
@@ -184,6 +233,26 @@ class MecanumWheelAction(ActionTerm):
         print(f"  Max angular vel: {self._max_angular_vel:.2f} rad/s")
         print(f"  Joint names (USD order): {self._joint_names}")
         print(f"  Joint reorder (kinematic->USD): {self._joint_reorder.tolist()}")
+        print(f"  Motor dynamics: {self._enable_motor_dynamics} (tau={cfg.motor_time_constant}s)")
+        print(f"  Command delay: {self._enable_command_delay} (steps={cfg.min_delay_steps}-{cfg.max_delay_steps})")
+        print(f"  Slew rate limit: {self._enable_slew_rate} (max_accel={cfg.max_acceleration_rad_s2} rad/s²)")
+
+    def reset(self, env_ids: torch.Tensor | None = None) -> None:
+        """Reset action state for specified environments."""
+        if env_ids is None:
+            env_ids = slice(None)
+        
+        # Reset motor dynamics filter
+        if self._enable_motor_dynamics:
+            self._smoothed_wheel_vels[env_ids] = 0.0
+        
+        # Reset delay buffer
+        if self._enable_command_delay:
+            self._action_delay_buffer.reset(env_ids)
+        
+        # Reset slew rate state
+        if self._enable_slew_rate:
+            self._prev_wheel_vels[env_ids] = 0.0
 
     @property
     def action_dim(self) -> int:
@@ -222,13 +291,37 @@ class MecanumWheelAction(ActionTerm):
         wheel_vels_kinematic = torch.matmul(body_velocities, self._kinematic_matrix.T)
         
         # Clamp wheel velocities to motor limits
-        wheel_vels_kinematic = torch.clamp(wheel_vels_kinematic, 
-                                            -self._max_wheel_angular_vel, 
-                                            self._max_wheel_angular_vel)
+        wheel_vels = torch.clamp(wheel_vels_kinematic, 
+                                  -self._max_wheel_angular_vel, 
+                                  self._max_wheel_angular_vel)
         
         # Reorder from kinematic order to USD joint order
-        # self._joint_reorder maps kinematic indices to found joint indices
-        self._processed_actions = wheel_vels_kinematic[:, self._joint_reorder]
+        wheel_vels = wheel_vels[:, self._joint_reorder]
+        
+        # ============================================================
+        # Apply sim-to-real processing
+        # ============================================================
+        
+        # 1. Command delay (simulate network/driver latency)
+        if self._enable_command_delay:
+            wheel_vels = self._action_delay_buffer.compute(wheel_vels)
+        
+        # 2. Slew rate limiting (max acceleration)
+        if self._enable_slew_rate:
+            delta = wheel_vels - self._prev_wheel_vels
+            delta = torch.clamp(delta, -self._max_delta_per_step, self._max_delta_per_step)
+            wheel_vels = self._prev_wheel_vels + delta
+            self._prev_wheel_vels = wheel_vels.clone()
+        
+        # 3. Motor dynamics (first-order low-pass filter)
+        if self._enable_motor_dynamics:
+            self._smoothed_wheel_vels = (
+                self._motor_alpha * wheel_vels + 
+                (1 - self._motor_alpha) * self._smoothed_wheel_vels
+            )
+            wheel_vels = self._smoothed_wheel_vels
+        
+        self._processed_actions = wheel_vels
 
     def apply_actions(self):
         """Apply wheel velocity targets to the robot."""
@@ -240,6 +333,7 @@ class MecanumWheelActionCfg(ActionTermCfg):
     """Configuration for mecanum wheel action term.
     
     Default values are for GoBilda Strafer chassis with 5203 Yellow Jacket motors.
+    Includes sim-to-real transfer parameters for motor dynamics and latency.
     """
 
     class_type: type = MecanumWheelAction
@@ -271,3 +365,33 @@ class MecanumWheelActionCfg(ActionTermCfg):
     
     max_wheel_angular_vel: float = 32.67
     """Maximum wheel angular velocity in rad/s. Default: 312 RPM = 32.67 rad/s."""
+    
+    # ============================================================
+    # Sim-to-Real: Motor dynamics
+    # ============================================================
+    
+    enable_motor_dynamics: bool = False
+    """Enable first-order motor response model. Default: False (ideal response)."""
+    
+    motor_time_constant: float = 0.05
+    """Motor time constant in seconds. Controls response speed.
+    Real GoBilda 5203 under load: ~50ms. Default: 0.05s."""
+    
+    # ============================================================
+    # Sim-to-Real: Command latency
+    # ============================================================
+    
+    min_delay_steps: int = 0
+    """Minimum command delay in physics steps. Default: 0."""
+    
+    max_delay_steps: int = 0
+    """Maximum command delay in physics steps. Randomized per reset.
+    Default: 0 (no delay)."""
+    
+    # ============================================================
+    # Sim-to-Real: Slew rate limiting  
+    # ============================================================
+    
+    max_acceleration_rad_s2: float = float('inf')
+    """Maximum wheel angular acceleration in rad/s². Prevents instant velocity changes.
+    Default: inf (no limit)."""

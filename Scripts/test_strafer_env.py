@@ -8,10 +8,18 @@ This script runs predefined motion patterns to validate mecanum kinematics:
 - Circle (forward + rotation)
 - Figure-8 pattern
 
+Environments (--env):
+    Isaac-Strafer-Nav-v0          Ideal Full (no noise)
+    Isaac-Strafer-Nav-Depth-v0    Ideal Depth-only
+    Isaac-Strafer-Nav-NoCam-v0    Ideal Proprioceptive-only
+    Isaac-Strafer-Nav-Real-v0     Realistic Full (default)
+    Isaac-Strafer-Nav-Real-Depth-v0  Realistic Depth-only
+    Isaac-Strafer-Nav-Robust-v0   Robust Full (stress-test)
+
 Usage:
     .\IsaacLab\isaaclab.bat -p Scripts\test_strafer_env.py
-    .\IsaacLab\isaaclab.bat -p Scripts\test_strafer_env.py --pattern circle
-    .\IsaacLab\isaaclab.bat -p Scripts\test_strafer_env.py --pattern all
+    .\IsaacLab\isaaclab.bat -p Scripts\test_strafer_env.py --env Isaac-Strafer-Nav-v0
+    .\IsaacLab\isaaclab.bat -p Scripts\test_strafer_env.py --pattern circle --env Isaac-Strafer-Nav-Robust-v0
 """
 
 import argparse
@@ -30,6 +38,8 @@ def main():
                         choices=["forward", "strafe", "rotate", "circle", "figure8", "all"],
                         help="Motion pattern to test")
     parser.add_argument("--duration", type=float, default=60.0, help="Duration per pattern in seconds")
+    parser.add_argument("--env", type=str, default="Isaac-Strafer-Nav-Real-v0",
+                        help="Environment ID (default: Isaac-Strafer-Nav-Real-v0 = Realistic Full)")
     args = parser.parse_args()
 
     # Import Isaac Lab app launcher first (required before other isaaclab imports)
@@ -63,8 +73,9 @@ def main():
         return
 
     # Create the navigation environment
-    env_name = "Isaac-Strafer-Navigation-v0"
+    env_name = args.env
     print(f"\nCreating environment: {env_name}")
+    print(f"Available: Isaac-Strafer-Nav-{{v0,Depth-v0,NoCam-v0,Real-v0,Real-Depth-v0,Robust-v0}}")
     
     try:
         # Parse environment config from registry (Isaac Lab pattern)

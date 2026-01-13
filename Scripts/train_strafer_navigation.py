@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """Training script for Strafer navigation task using RSL-RL PPO.
 
-This script must be run with Isaac Lab's Python interpreter:
+Environments (--env):
+    Isaac-Strafer-Nav-v0          Ideal Full (no noise, debugging)
+    Isaac-Strafer-Nav-Depth-v0    Ideal Depth-only
+    Isaac-Strafer-Nav-NoCam-v0    Ideal Proprioceptive-only (fastest)
+    Isaac-Strafer-Nav-Real-v0     Realistic Full (default, sim-to-real)
+    Isaac-Strafer-Nav-Real-Depth-v0  Realistic Depth-only
+    Isaac-Strafer-Nav-Robust-v0   Robust Full (stress-test training)
+
+Usage:
     ./IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py --num_envs 512
-
-Or on Windows:
     .\IsaacLab\isaaclab.bat -p Scripts\train_strafer_navigation.py --num_envs 512
-
-For headless training (no GUI):
     .\IsaacLab\isaaclab.bat -p Scripts\train_strafer_navigation.py --headless --num_envs 1024
+    .\IsaacLab\isaaclab.bat -p Scripts\train_strafer_navigation.py --env Isaac-Strafer-Nav-NoCam-v0 --num_envs 4096
 """
 
 import argparse
@@ -26,6 +31,8 @@ def main():
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--log_dir", type=str, default="logs/rsl_rl/strafer_navigation", help="Log directory")
     parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume from")
+    parser.add_argument("--env", type=str, default="Isaac-Strafer-Nav-Real-v0",
+                        help="Environment ID (default: Isaac-Strafer-Nav-Real-v0 = Realistic Full)")
     args = parser.parse_args()
 
     # Import Isaac Lab app launcher first
@@ -55,8 +62,9 @@ def main():
     print("=" * 60 + "\n")
 
     # Create environment
-    env_name = "Isaac-Strafer-Navigation-v0"
+    env_name = args.env
     print(f"Creating environment: {env_name}")
+    print(f"Available: Isaac-Strafer-Nav-{{v0,Depth-v0,NoCam-v0,Real-v0,Real-Depth-v0,Robust-v0}}")
     
     # Parse environment config from registry (Isaac Lab pattern)
     env_cfg = parse_env_cfg(

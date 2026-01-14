@@ -53,6 +53,20 @@ python IsaacLab/scripts/reinforcement_learning/rsl_rl/train.py --task Isaac-Stra
 python IsaacLab/scripts/reinforcement_learning/rsl_rl/play.py --task Isaac-Strafer-Nav-Real-Play-v0 --num_envs 50
 ```
 
+### Executing Tests
+
+```bash
+# From the IsaacLab directory
+cd c:\Worspace\IsaacLab
+.\isaaclab.bat -p -m pytest ..\source\strafer_lab\test\ -v
+
+# Unit tests (no simulation needed for most)
+.\isaaclab.bat -p -m pytest ..\source\strafer_lab\test\unit\ -v
+
+# Integration tests (requires Isaac Sim)
+.\isaaclab.bat -p -m pytest ..\source\strafer_lab\test\integration\test_motor_dynamics.py -v
+```
+
 ## Project Structure
 
 ```

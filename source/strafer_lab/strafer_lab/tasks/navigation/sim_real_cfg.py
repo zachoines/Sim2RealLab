@@ -42,6 +42,14 @@ from isaaclab.utils.noise import (
     NoiseModelWithAdditiveBiasCfg,
 )
 
+# Import custom noise models that generate independent per-environment noise
+from strafer_lab.tasks.navigation.mdp.noise_models import (
+    IMUNoiseModelCfg,
+    EncoderNoiseModelCfg,
+    DepthNoiseModelCfg,
+    RGBNoiseModelCfg,
+)
+
 
 # =============================================================================
 # Timing & Latency Configuration
@@ -521,48 +529,99 @@ ROBUST_TRAINING_CONTRACT = create_robust_training_contract()
 # Contract-to-Config Helpers
 # =============================================================================
 
-def get_imu_accel_noise(contract: SimRealContractCfg) -> GaussianNoiseCfg | None:
-    """Get accelerometer noise config from contract."""
+def get_imu_accel_noise(contract: SimRealContractCfg) -> IMUNoiseModelCfg | None:
+    """Get accelerometer noise config from contract.
+    
+    Returns IMUNoiseModelCfg which generates independent noise per environment.
+    Noise is in RAW units (m/s²) - normalization happens via ObsTerm.scale.
+    """
     if not contract.sensors.imu.enable_noise:
         return None
     # Convert noise density to std (assuming 200Hz → sqrt(200) factor)
+    # This gives noise std in m/s² (raw units)
     std = contract.sensors.imu.accel_noise_density * 14.14  # sqrt(200)
-    # Normalize by max_accel (156.96 m/s² for ±16g)
-    normalized_std = std / 156.96
-    return GaussianNoiseCfg(mean=0.0, std=max(0.001, normalized_std))
+    return IMUNoiseModelCfg(
+        noise_cfg=GaussianNoiseCfg(std=std),
+        sensor_type='accel',
+        accel_noise_std=std,
+        accel_bias_range=(-contract.sensors.imu.accel_bias_stability, 
+                          contract.sensors.imu.accel_bias_stability),
+        accel_bias_drift_rate=contract.sensors.imu.accel_random_walk,
+        output_size=3,
+    )
 
 
-def get_imu_gyro_noise(contract: SimRealContractCfg) -> GaussianNoiseCfg | None:
-    """Get gyroscope noise config from contract."""
+def get_imu_gyro_noise(contract: SimRealContractCfg) -> IMUNoiseModelCfg | None:
+    """Get gyroscope noise config from contract.
+    
+    Returns IMUNoiseModelCfg which generates independent noise per environment.
+    Noise is in RAW units (rad/s) - normalization happens via ObsTerm.scale.
+    """
     if not contract.sensors.imu.enable_noise:
         return None
+    # Convert noise density to std (assuming 200Hz → sqrt(200) factor)
+    # This gives noise std in rad/s (raw units)
     std = contract.sensors.imu.gyro_noise_density * 14.14  # sqrt(200)
-    # Normalize by max_angular_vel (34.9 rad/s for ±2000°/s)
-    normalized_std = std / 34.9
-    return GaussianNoiseCfg(mean=0.0, std=max(0.001, normalized_std))
+    return IMUNoiseModelCfg(
+        noise_cfg=GaussianNoiseCfg(std=std),
+        sensor_type='gyro',
+        gyro_noise_std=std,
+        gyro_bias_range=(-contract.sensors.imu.gyro_bias_stability,
+                         contract.sensors.imu.gyro_bias_stability),
+        gyro_bias_drift_rate=contract.sensors.imu.gyro_random_walk,
+        output_size=3,
+    )
 
 
-def get_encoder_noise(contract: SimRealContractCfg) -> GaussianNoiseCfg | None:
-    """Get encoder velocity noise config from contract."""
+def get_encoder_noise(contract: SimRealContractCfg) -> EncoderNoiseModelCfg | None:
+    """Get encoder velocity noise config from contract.
+    
+    Returns EncoderNoiseModelCfg which generates independent noise per environment,
+    and includes quantization and tick error simulation.
+    """
     if not contract.sensors.encoders.enable_noise:
         return None
-    return GaussianNoiseCfg(mean=0.0, std=contract.sensors.encoders.velocity_noise_std)
+    return EncoderNoiseModelCfg(
+        noise_cfg=GaussianNoiseCfg(std=contract.sensors.encoders.velocity_noise_std),
+        enable_quantization=contract.sensors.encoders.enable_quantization,
+        velocity_noise_std=contract.sensors.encoders.velocity_noise_std,
+        missed_tick_prob=contract.sensors.encoders.missed_tick_probability,
+        extra_tick_prob=contract.sensors.encoders.extra_tick_probability,
+    )
 
 
-def get_depth_noise(contract: SimRealContractCfg) -> GaussianNoiseCfg | None:
-    """Get depth camera noise config from contract."""
+def get_depth_noise(contract: SimRealContractCfg) -> DepthNoiseModelCfg | None:
+    """Get depth camera noise config from contract.
+    
+    Returns DepthNoiseModelCfg which generates independent noise per environment,
+    including depth-dependent noise, holes, and frame drops.
+    """
     if not contract.sensors.depth_camera.enable_noise:
         return None
-    # Normalize by max_range (6m)
-    normalized_std = contract.sensors.depth_camera.base_noise_std_m / 6.0
-    return GaussianNoiseCfg(mean=0.0, std=max(0.001, normalized_std))
+    return DepthNoiseModelCfg(
+        noise_cfg=GaussianNoiseCfg(std=contract.sensors.depth_camera.base_noise_std_m),
+        base_noise_std=contract.sensors.depth_camera.base_noise_std_m,
+        depth_noise_coeff=contract.sensors.depth_camera.noise_depth_coefficient,
+        hole_probability=contract.sensors.depth_camera.hole_probability,
+        min_range=contract.sensors.depth_camera.min_range_m,
+        max_range=contract.sensors.depth_camera.max_range_m,
+        frame_drop_prob=contract.sensors.depth_camera.frame_drop_probability,
+    )
 
 
-def get_rgb_noise(contract: SimRealContractCfg) -> GaussianNoiseCfg | None:
-    """Get RGB camera noise config from contract."""
+def get_rgb_noise(contract: SimRealContractCfg) -> RGBNoiseModelCfg | None:
+    """Get RGB camera noise config from contract.
+    
+    Returns RGBNoiseModelCfg which generates independent noise per environment.
+    """
     if not contract.sensors.rgb_camera.enable_noise:
         return None
-    return GaussianNoiseCfg(mean=0.0, std=contract.sensors.rgb_camera.pixel_noise_std)
+    return RGBNoiseModelCfg(
+        noise_cfg=GaussianNoiseCfg(std=contract.sensors.rgb_camera.pixel_noise_std),
+        pixel_noise_std=contract.sensors.rgb_camera.pixel_noise_std,
+        brightness_range=contract.sensors.rgb_camera.exposure_variation_range,
+        frame_drop_prob=contract.sensors.rgb_camera.frame_drop_probability,
+    )
 
 
 def get_action_config_params(contract: SimRealContractCfg) -> dict:

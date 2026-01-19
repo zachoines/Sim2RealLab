@@ -107,21 +107,21 @@ def wheel_encoder_positions(
 def wheel_encoder_velocities(
     env: ManagerBasedEnv,
     asset_cfg: SceneEntityCfg | None = None,
-    normalize: bool = True,
-    max_ticks_per_sec: float = 5000.0,
 ) -> torch.Tensor:
-    """Get wheel encoder velocities in ticks per second.
+    """Get wheel encoder velocities in ticks per second (RAW).
     
     This represents what you'd compute from encoder tick deltas:
     velocity = (current_ticks - previous_ticks) / dt
     
     At 312 RPM (max motor speed): 312/60 * 537.7 = 2796 ticks/sec
     
+    Note: Returns RAW values. Normalization should be handled via the
+    ObservationTermCfg.scale parameter so that noise is applied to
+    raw sensor values (physically correct).
+    
     Args:
         env: The environment instance.
         asset_cfg: Asset configuration for the robot. Defaults to "robot".
-        normalize: Whether to normalize to [-1, 1] range.
-        max_ticks_per_sec: Max velocity for normalization (default 5000).
     
     Returns:
         Encoder velocities in ticks/sec. Shape: (num_envs, 4)
@@ -135,11 +135,8 @@ def wheel_encoder_velocities(
     # Get joint velocities for wheel joints only
     joint_vel = robot.data.joint_vel[:, wheel_indices]  # Shape: (num_envs, 4)
     
-    # Convert rad/s to ticks/s
+    # Convert rad/s to ticks/s (RAW - no normalization)
     encoder_vel = joint_vel * RADIANS_TO_ENCODER_TICKS
-    
-    if normalize:
-        encoder_vel = torch.clamp(encoder_vel / max_ticks_per_sec, -1.0, 1.0)
     
     return encoder_vel
 
@@ -192,29 +189,26 @@ def wheel_encoder_deltas(
 def imu_angular_velocity(
     env: ManagerBasedEnv,
     sensor_cfg: SceneEntityCfg,
-    normalize: bool = True,
-    max_angular_vel: float = 34.9,  # ±2000 °/s in rad/s
 ) -> torch.Tensor:
-    """Get angular velocity from D555 IMU (gyroscope).
+    """Get angular velocity from D555 IMU (gyroscope) in rad/s (RAW).
     
     Models the BMI055 gyroscope in the Intel RealSense D555:
     - Range: ±125/±250/±500/±1000/±2000 °/s (we use ±2000 °/s = 34.9 rad/s)
     - Output: 3-axis angular velocity in sensor frame
     
+    Note: Returns RAW values in rad/s. Normalization should be handled via
+    the ObservationTermCfg.scale parameter so that noise is applied to
+    raw sensor values (physically correct).
+    
     Args:
         env: The environment instance.
         sensor_cfg: Scene entity configuration for the IMU sensor.
-        normalize: Whether to normalize to [-1, 1] range.
-        max_angular_vel: Max angular velocity for normalization (rad/s).
     
     Returns:
-        Angular velocity (roll, pitch, yaw rate). Shape: (num_envs, 3)
+        Angular velocity (roll, pitch, yaw rate) in rad/s. Shape: (num_envs, 3)
     """
     sensor: Imu = env.scene.sensors[sensor_cfg.name]
     ang_vel = sensor.data.ang_vel_b.clone()
-    
-    if normalize:
-        ang_vel = torch.clamp(ang_vel / max_angular_vel, -1.0, 1.0)
     
     return ang_vel
 
@@ -222,10 +216,8 @@ def imu_angular_velocity(
 def imu_linear_acceleration(
     env: ManagerBasedEnv,
     sensor_cfg: SceneEntityCfg,
-    normalize: bool = True,
-    max_accel: float = 156.96,  # ±16g in m/s²
 ) -> torch.Tensor:
-    """Get linear acceleration from D555 IMU (accelerometer).
+    """Get linear acceleration from D555 IMU (accelerometer) in m/s² (RAW).
     
     Models the BMI055 accelerometer in the Intel RealSense D555:
     - Range: ±2g/±4g/±8g/±16g (we use ±16g = 156.96 m/s²)
@@ -235,20 +227,19 @@ def imu_linear_acceleration(
     This replaces the separate base_lin_vel and projected_gravity
     observations with a single realistic IMU measurement.
     
+    Note: Returns RAW values in m/s². Normalization should be handled via
+    the ObservationTermCfg.scale parameter so that noise is applied to
+    raw sensor values (physically correct).
+    
     Args:
         env: The environment instance.
         sensor_cfg: Scene entity configuration for the IMU sensor.
-        normalize: Whether to normalize to [-1, 1] range.
-        max_accel: Max acceleration for normalization (m/s²).
     
     Returns:
-        Linear acceleration (ax, ay, az). Shape: (num_envs, 3)
+        Linear acceleration (ax, ay, az) in m/s². Shape: (num_envs, 3)
     """
     sensor: Imu = env.scene.sensors[sensor_cfg.name]
     lin_acc = sensor.data.lin_acc_b.clone()
-    
-    if normalize:
-        lin_acc = torch.clamp(lin_acc / max_accel, -1.0, 1.0)
     
     return lin_acc
 
@@ -348,23 +339,27 @@ def depth_image(
     env: ManagerBasedEnv,
     sensor_cfg: SceneEntityCfg,
     max_depth: float = 6.0,
-    normalize: bool = True,
 ) -> torch.Tensor:
-    """Get flattened depth image from D555 camera.
+    """Get flattened depth image from D555 camera in RAW meters.
+    
+    Returns RAW depth in meters so that:
+    1. Noise is applied to physical depth values (enables depth-dependent noise)
+    2. Normalization happens via ObsTermCfg.scale parameter (Isaac Lab standard)
+    
+    Pipeline: RAW meters → noise → scale (1/max_depth) → [0, 1] output
     
     Preprocesses the depth image by:
-    1. Replacing infinity values with max_depth
-    2. Normalizing to [0, 1] range (optional)
+    1. Replacing infinity/NaN values with max_depth
+    2. Clamping to [0, max_depth] range
     3. Flattening to 1D for MLP policies
     
     Args:
         env: The environment instance.
         sensor_cfg: Scene entity configuration for the camera sensor.
-        max_depth: Maximum depth value for normalization and inf replacement.
-        normalize: Whether to normalize depth to [0, 1]. Defaults to True.
+        max_depth: Maximum depth value for inf replacement and clamping.
     
     Returns:
-        Flattened depth image. Shape: (num_envs, height * width)
+        Flattened depth image in meters. Shape: (num_envs, height * width)
     """
     # Get the camera sensor
     sensor: TiledCamera | Camera = env.scene.sensors[sensor_cfg.name]
@@ -379,12 +374,8 @@ def depth_image(
         depth
     )
     
-    # Clamp to valid range
+    # Clamp to valid range (in meters)
     depth = torch.clamp(depth, 0.0, max_depth)
-    
-    # Normalize to [0, 1] if requested
-    if normalize:
-        depth = depth / max_depth
     
     # Flatten: (num_envs, height, width, 1) -> (num_envs, height * width)
     num_envs = depth.shape[0]
@@ -396,25 +387,29 @@ def depth_image(
 def rgb_image(
     env: ManagerBasedEnv,
     sensor_cfg: SceneEntityCfg,
-    normalize: bool = True,
 ) -> torch.Tensor:
-    """Get flattened RGB image from D555 camera.
+    """Get flattened RGB image from D555 camera in [0, 1] range.
+    
+    Returns RGB as float [0, 1] so that:
+    1. Noise is applied to normalized pixel values
+    2. Output is already bounded, no additional scale needed
     
     WARNING: RGB observations are very high dimensional (80*60*3 = 14400 dims).
     Consider using a CNN encoder or feature extractor for RGB-based policies.
     
     Preprocesses the RGB image by:
-    1. Converting to float [0, 1]
-    2. Mean-centering (optional)
-    3. Flattening to 1D
+    1. Converting uint8 [0, 255] to float [0, 1]
+    2. Flattening to 1D
+    
+    Note: Mean-centering is NOT done here. If needed for your network,
+    apply it as a separate preprocessing step or modifier.
     
     Args:
         env: The environment instance.
         sensor_cfg: Scene entity configuration for the camera sensor.
-        normalize: Whether to normalize and mean-center. Defaults to True.
     
     Returns:
-        Flattened RGB image. Shape: (num_envs, height * width * 3)
+        Flattened RGB image in [0, 1]. Shape: (num_envs, height * width * 3)
     """
     # Get the camera sensor
     sensor: TiledCamera | Camera = env.scene.sensors[sensor_cfg.name]
@@ -422,14 +417,8 @@ def rgb_image(
     # Get RGB image: shape (num_envs, height, width, 3)
     rgb = sensor.data.output["rgb"].clone()
     
-    # Convert to float [0, 1]
+    # Convert uint8 [0, 255] to float [0, 1]
     rgb = rgb.float() / 255.0
-    
-    # Mean-center if normalizing
-    if normalize:
-        # Compute mean across spatial dimensions (H, W)
-        mean = rgb.mean(dim=(1, 2), keepdim=True)
-        rgb = rgb - mean
     
     # Flatten: (num_envs, height, width, 3) -> (num_envs, height * width * 3)
     num_envs = rgb.shape[0]

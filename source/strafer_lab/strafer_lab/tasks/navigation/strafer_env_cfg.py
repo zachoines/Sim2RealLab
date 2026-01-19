@@ -221,12 +221,25 @@ class ActionsCfg_Robust:
 # Observation Configurations - Per Realism Level
 # =============================================================================
 
-# Helper: Standard proprioceptive params
-_IMU_ACCEL_PARAMS = {"sensor_cfg": SceneEntityCfg("d555_imu"), "normalize": True, "max_accel": 156.96}
-_IMU_GYRO_PARAMS = {"sensor_cfg": SceneEntityCfg("d555_imu"), "normalize": True, "max_angular_vel": 34.9}
-_ENCODER_PARAMS = {"normalize": True, "max_ticks_per_sec": 5000.0}
-_DEPTH_PARAMS = {"sensor_cfg": SceneEntityCfg("d555_camera"), "max_depth": 6.0}
-_RGB_PARAMS = {"sensor_cfg": SceneEntityCfg("d555_camera"), "normalize": True}
+# Sensor normalization constants (for scale parameter)
+# Noise is applied to RAW values, then scaled to normalize for neural network
+IMU_ACCEL_MAX = 156.96  # ±16g in m/s²
+IMU_GYRO_MAX = 34.9     # ±2000 °/s in rad/s
+ENCODER_VEL_MAX = 5000.0  # Max ticks/sec
+DEPTH_MAX = 6.0  # Max depth in meters
+
+# Scale factors: scale = 1/max_value to normalize to [0, 1] or [-1, 1]
+_IMU_ACCEL_SCALE = 1.0 / IMU_ACCEL_MAX
+_IMU_GYRO_SCALE = 1.0 / IMU_GYRO_MAX
+_ENCODER_SCALE = 1.0 / ENCODER_VEL_MAX
+_DEPTH_SCALE = 1.0 / DEPTH_MAX  # Normalizes depth to [0, 1]
+
+# Helper: Standard sensor params (no normalization in obs functions - handled by scale)
+_IMU_ACCEL_PARAMS = {"sensor_cfg": SceneEntityCfg("d555_imu")}
+_IMU_GYRO_PARAMS = {"sensor_cfg": SceneEntityCfg("d555_imu")}
+_ENCODER_PARAMS = {}  # No params needed - raw output
+_DEPTH_PARAMS = {"sensor_cfg": SceneEntityCfg("d555_camera"), "max_depth": DEPTH_MAX}
+_RGB_PARAMS = {"sensor_cfg": SceneEntityCfg("d555_camera")}  # Returns [0,1] directly
 
 
 # -----------------------------------------------------------------------------
@@ -238,12 +251,12 @@ class ObsCfg_Full_Ideal:
     """Full sensors (RGB+Depth), no noise."""
     @configclass
     class PolicyCfg(ObsGroup):
-        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS)
-        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS)
-        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS)
+        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, scale=_IMU_ACCEL_SCALE)
+        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, scale=_IMU_GYRO_SCALE)
+        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         last_action = ObsTerm(func=mdp.last_action)
-        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS)
+        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
         rgb_image = ObsTerm(func=mdp.rgb_image, params=_RGB_PARAMS)
         def __post_init__(self):
             self.enable_corruption = False
@@ -251,12 +264,12 @@ class ObsCfg_Full_Ideal:
 
     @configclass
     class CriticCfg(ObsGroup):
-        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS)
-        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS)
-        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS)
+        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, scale=_IMU_ACCEL_SCALE)
+        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, scale=_IMU_GYRO_SCALE)
+        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         last_action = ObsTerm(func=mdp.last_action)
-        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS)
+        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
         rgb_image = ObsTerm(func=mdp.rgb_image, params=_RGB_PARAMS)
         def __post_init__(self):
             self.enable_corruption = False
@@ -271,24 +284,24 @@ class ObsCfg_Depth_Ideal:
     """Depth-only, no noise."""
     @configclass
     class PolicyCfg(ObsGroup):
-        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS)
-        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS)
-        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS)
+        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, scale=_IMU_ACCEL_SCALE)
+        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, scale=_IMU_GYRO_SCALE)
+        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         last_action = ObsTerm(func=mdp.last_action)
-        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS)
+        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
         def __post_init__(self):
             self.enable_corruption = False
             self.concatenate_terms = True
 
     @configclass
     class CriticCfg(ObsGroup):
-        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS)
-        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS)
-        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS)
+        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, scale=_IMU_ACCEL_SCALE)
+        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, scale=_IMU_GYRO_SCALE)
+        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         last_action = ObsTerm(func=mdp.last_action)
-        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS)
+        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
         def __post_init__(self):
             self.enable_corruption = False
             self.concatenate_terms = True
@@ -302,9 +315,9 @@ class ObsCfg_NoCam_Ideal:
     """Proprioceptive-only, no noise."""
     @configclass
     class PolicyCfg(ObsGroup):
-        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS)
-        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS)
-        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS)
+        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, scale=_IMU_ACCEL_SCALE)
+        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, scale=_IMU_GYRO_SCALE)
+        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         last_action = ObsTerm(func=mdp.last_action)
         def __post_init__(self):
@@ -331,12 +344,12 @@ class ObsCfg_Full_Realistic:
     """Full sensors with realistic noise."""
     @configclass
     class PolicyCfg(ObsGroup):
-        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, noise=_REAL_ACCEL_NOISE)
-        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, noise=_REAL_GYRO_NOISE)
-        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, noise=_REAL_ENCODER_NOISE)
+        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, noise=_REAL_ACCEL_NOISE, scale=_IMU_ACCEL_SCALE)
+        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, noise=_REAL_GYRO_NOISE, scale=_IMU_GYRO_SCALE)
+        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, noise=_REAL_ENCODER_NOISE, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         last_action = ObsTerm(func=mdp.last_action)
-        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, noise=_REAL_DEPTH_NOISE)
+        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, noise=_REAL_DEPTH_NOISE, scale=_DEPTH_SCALE)
         rgb_image = ObsTerm(func=mdp.rgb_image, params=_RGB_PARAMS, noise=_REAL_RGB_NOISE)
         def __post_init__(self):
             self.enable_corruption = True
@@ -344,12 +357,12 @@ class ObsCfg_Full_Realistic:
 
     @configclass
     class CriticCfg(ObsGroup):
-        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS)
-        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS)
-        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS)
+        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, scale=_IMU_ACCEL_SCALE)
+        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, scale=_IMU_GYRO_SCALE)
+        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         last_action = ObsTerm(func=mdp.last_action)
-        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS)
+        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
         rgb_image = ObsTerm(func=mdp.rgb_image, params=_RGB_PARAMS)
         def __post_init__(self):
             self.enable_corruption = False
@@ -364,30 +377,47 @@ class ObsCfg_Depth_Realistic:
     """Depth-only with realistic noise."""
     @configclass
     class PolicyCfg(ObsGroup):
-        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, noise=_REAL_ACCEL_NOISE)
-        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, noise=_REAL_GYRO_NOISE)
-        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, noise=_REAL_ENCODER_NOISE)
+        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, noise=_REAL_ACCEL_NOISE, scale=_IMU_ACCEL_SCALE)
+        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, noise=_REAL_GYRO_NOISE, scale=_IMU_GYRO_SCALE)
+        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, noise=_REAL_ENCODER_NOISE, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         last_action = ObsTerm(func=mdp.last_action)
-        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, noise=_REAL_DEPTH_NOISE)
+        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, noise=_REAL_DEPTH_NOISE, scale=_DEPTH_SCALE)
         def __post_init__(self):
             self.enable_corruption = True
             self.concatenate_terms = True
 
     @configclass
     class CriticCfg(ObsGroup):
-        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS)
-        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS)
-        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS)
+        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, scale=_IMU_ACCEL_SCALE)
+        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, scale=_IMU_GYRO_SCALE)
+        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         last_action = ObsTerm(func=mdp.last_action)
-        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS)
+        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
         def __post_init__(self):
             self.enable_corruption = False
             self.concatenate_terms = True
 
     policy: PolicyCfg = PolicyCfg()
     critic: CriticCfg = CriticCfg()
+
+
+@configclass
+class ObsCfg_NoCam_Realistic:
+    """Proprioceptive-only with realistic noise."""
+    @configclass
+    class PolicyCfg(ObsGroup):
+        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, noise=_REAL_ACCEL_NOISE, scale=_IMU_ACCEL_SCALE)
+        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, noise=_REAL_GYRO_NOISE, scale=_IMU_GYRO_SCALE)
+        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, noise=_REAL_ENCODER_NOISE, scale=_ENCODER_SCALE)
+        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
+        last_action = ObsTerm(func=mdp.last_action)
+        def __post_init__(self):
+            self.enable_corruption = True
+            self.concatenate_terms = True
+
+    policy: PolicyCfg = PolicyCfg()
 
 
 # -----------------------------------------------------------------------------
@@ -407,12 +437,12 @@ class ObsCfg_Full_Robust:
     """Full sensors with aggressive noise for robust training."""
     @configclass
     class PolicyCfg(ObsGroup):
-        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, noise=_ROBUST_ACCEL_NOISE)
-        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, noise=_ROBUST_GYRO_NOISE)
-        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, noise=_ROBUST_ENCODER_NOISE)
+        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, noise=_ROBUST_ACCEL_NOISE, scale=_IMU_ACCEL_SCALE)
+        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, noise=_ROBUST_GYRO_NOISE, scale=_IMU_GYRO_SCALE)
+        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, noise=_ROBUST_ENCODER_NOISE, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         last_action = ObsTerm(func=mdp.last_action)
-        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, noise=_ROBUST_DEPTH_NOISE)
+        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, noise=_ROBUST_DEPTH_NOISE, scale=_DEPTH_SCALE)
         rgb_image = ObsTerm(func=mdp.rgb_image, params=_RGB_PARAMS, noise=_ROBUST_RGB_NOISE)
         def __post_init__(self):
             self.enable_corruption = True
@@ -420,12 +450,12 @@ class ObsCfg_Full_Robust:
 
     @configclass
     class CriticCfg(ObsGroup):
-        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS)
-        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS)
-        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS)
+        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, scale=_IMU_ACCEL_SCALE)
+        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, scale=_IMU_GYRO_SCALE)
+        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         last_action = ObsTerm(func=mdp.last_action)
-        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS)
+        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
         rgb_image = ObsTerm(func=mdp.rgb_image, params=_RGB_PARAMS)
         def __post_init__(self):
             self.enable_corruption = False

@@ -1,9 +1,9 @@
 # Copyright (c) 2025, Strafer Lab Project
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Integration tests for observation noise through the full environment pipeline.
+"""Integration tests for proprioceptive sensor noise through the full environment pipeline.
 
-These tests validate that sensor noise is correctly applied during environment
+These tests validate that IMU and encoder noise is correctly applied during environment
 stepping, not just when calling noise model classes in isolation.
 
 Approach:
@@ -18,8 +18,8 @@ config per test session. We use a workaround: compare repeated observations
 of a stationary robot to measure noise-induced variance.
 
 Usage:
-    cd IsaacLab
-    pytest ../source/strafer_lab/test/integration/test_observation_noise_pipeline.py -v
+    cd source/strafer_lab
+    isaaclab -p -m pytest test/integration/test_proprioceptive_noise_pipeline.py -v
 """
 
 # Isaac Sim must be launched before importing Isaac Lab modules
@@ -392,7 +392,7 @@ def _get_or_create_env(use_noise: bool = True):
 
 @pytest.fixture(scope="module")
 def noisy_env():
-    """Provide Strafer environment with realistic noise enabled."""
+    """Provide Strafer environment with realistic noise enabled (no camera)."""
     env = _get_or_create_env(use_noise=True)
     yield env
 
@@ -815,3 +815,4 @@ class TestNoiseStatisticalProperties:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
+

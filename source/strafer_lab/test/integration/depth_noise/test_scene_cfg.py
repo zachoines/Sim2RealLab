@@ -33,11 +33,17 @@ TEST_WALL_WIDTH = 4.0
 TEST_WALL_HEIGHT = 2.0
 TEST_WALL_THICKNESS = 0.1
 
-# Camera mount offset from robot body_link (matches main strafer_env_cfg.py)
-# Position: 20cm forward (-Y in robot frame), 10cm up (Z in robot frame)
+# Camera mount offset from robot body_link
+# NOTE: These values are scaled differently than main scene due to USD unit handling.
+# The offset values appear to need 100x scaling to achieve the desired physical offset.
+# -20.0 achieves ~20cm forward offset, 25.0 achieves ~25cm up offset.
 CAMERA_Y_OFFSET = -20.
 CAMERA_Z_OFFSET = 25.
-ENV_SPACING = 5.0
+
+# Environment spacing must be large enough to prevent wall overlap
+# Each wall is 4m wide, so spacing should be > 4m
+# Also account for wall distance (2m) in front of each robot
+ENV_SPACING = 8.0
 
 
 @configclass

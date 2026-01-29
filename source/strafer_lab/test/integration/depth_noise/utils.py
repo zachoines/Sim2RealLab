@@ -29,11 +29,11 @@ from pathlib import Path
 # =============================================================================
 
 # Environment settings
-# Use single environment to avoid GridCloner layout issues with walls
-# Statistical power comes from many timesteps rather than parallel envs
-NUM_ENVS = 1
-N_SAMPLES_STEPS = 500        # More steps to compensate for single env
-N_SETTLE_STEPS = 10          # Steps to let physics settle initially
+# Multiple parallel environments improve statistical power
+# Each environment has its own wall via {ENV_REGEX_NS} pattern
+NUM_ENVS = 16                 # Parallel robots with walls
+N_SAMPLES_STEPS = 500         # Steps per environment
+N_SETTLE_STEPS = 50           # Steps to let physics settle fully
 DEVICE = "cuda:0"
 
 # Statistical thresholds
@@ -351,76 +351,22 @@ def identify_wall_pixels(
 ) -> torch.Tensor:
     """Identify pixels that consistently show the wall (not max-range or edge pixels).
 
-    Geometry-aware if height/width are provided: uses known wall size/pose and camera
-    pose to compute the min/max wall depth band (with tolerance margin) and selects
-    pixels whose median/min depth fall within that band. Falls back to statistical
-    selection if the geometry band yields no pixels.
+    Uses statistical selection: pixels whose median depth is within tolerance of
+    expected_depth AND whose std is below max_std.
 
-    Statistical (no height/width): median +- tolerance and std < max_std on flattened depth.
+    Args:
+        depth_obs: Depth observations tensor of shape (n_steps, depth_dim) for one env
+        tolerance: Allowed deviation from expected wall depth (normalized units)
+        max_std: Maximum allowed standard deviation (normalized units)
+        height: Image height (currently unused, kept for API compatibility)
+        width: Image width (currently unused, kept for API compatibility)
+        expected_depth: Expected normalized depth of wall pixels
+
+    Returns:
+        Boolean mask of shape (depth_dim,) where True = wall pixel
     """
     if max_std is None:
         max_std = tolerance
-
-    if height is not None and width is not None:
-        from test_scene_cfg import TEST_WALL_WIDTH, TEST_WALL_HEIGHT, TEST_WALL_THICKNESS, CAMERA_Z_OFFSET, CAMERA_Y_OFFSET
-
-        # Camera pose (world) when reset_robot_pose(face_wall=True) is used
-        # Robot origin at (0,0,0.1), camera offset (0, CAMERA_Y_OFFSET, CAMERA_Z_OFFSET)
-        # CAMERA_Y_OFFSET is -0.15 (camera 15cm forward in -Y direction)
-        cam_pos = torch.tensor([0.0, CAMERA_Y_OFFSET, 0.1 + CAMERA_Z_OFFSET], device=depth_obs.device)
-
-        # Wall AABB in world (front face toward +Y of camera looking -Y)
-        # Wall center Y = CAMERA_Y_OFFSET - TEST_WALL_DISTANCE - TEST_WALL_THICKNESS/2
-        wall_xmin = -TEST_WALL_WIDTH / 2
-        wall_xmax = TEST_WALL_WIDTH / 2
-        wall_y_center = CAMERA_Y_OFFSET - TEST_WALL_DISTANCE - TEST_WALL_THICKNESS / 2
-        wall_ymin = wall_y_center - TEST_WALL_THICKNESS / 2
-        wall_ymax = wall_y_center + TEST_WALL_THICKNESS / 2
-        wall_zmin = 0.0
-        wall_zmax = TEST_WALL_HEIGHT
-
-        # Min distance from camera to box
-        nearest = torch.tensor([
-            torch.clamp(cam_pos[0], wall_xmin, wall_xmax),
-            torch.clamp(cam_pos[1], wall_ymin, wall_ymax),
-            torch.clamp(cam_pos[2], wall_zmin, wall_zmax),
-        ], device=depth_obs.device)
-        min_dist = torch.linalg.norm(cam_pos - nearest)
-
-        # Max distance: farthest corner
-        corners = torch.tensor([
-            [wall_xmin, wall_ymin, wall_zmin],
-            [wall_xmin, wall_ymin, wall_zmax],
-            [wall_xmin, wall_ymax, wall_zmin],
-            [wall_xmin, wall_ymax, wall_zmax],
-            [wall_xmax, wall_ymin, wall_zmin],
-            [wall_xmax, wall_ymin, wall_zmax],
-            [wall_xmax, wall_ymax, wall_zmin],
-            [wall_xmax, wall_ymax, wall_zmax],
-        ], device=depth_obs.device)
-        max_dist = torch.linalg.norm(corners - cam_pos, dim=1).max()
-
-        # Normalize distance band (use tolerance to set margin in meters)
-        margin_m = tolerance * DEPTH_MAX_RANGE
-        depth_min_norm = max((min_dist - margin_m) / DEPTH_MAX_RANGE, 0.0)
-        depth_max_norm = min((max_dist + margin_m) / DEPTH_MAX_RANGE, 1.0)
-
-        depth_img = depth_obs.reshape(-1, height, width)
-        median_img = depth_img.median(dim=0).values
-        min_img = depth_img.min(dim=0).values
-
-        wall_mask_img = (
-            (median_img > depth_min_norm)
-            & (median_img < depth_max_norm)
-            & (min_img > depth_min_norm)
-            & (min_img < depth_max_norm)
-        )
-
-        wall_mask_flat = wall_mask_img.flatten()
-        if wall_mask_flat.any():
-            return wall_mask_flat
-        # Fallback to statistical mask if geometry filter is too strict
-        print("    [identify_wall_pixels] geometry mask empty; falling back to statistical mask")
 
     # Statistical mask on flattened depth
     median_depth = depth_obs.median(dim=0).values
@@ -484,37 +430,58 @@ def identify_wall_pixels_with_holes(depth_obs: torch.Tensor, tolerance: float = 
 # Robot Pose Control
 # =============================================================================
 
+def get_env_origins(env) -> torch.Tensor:
+    """Get the world-frame origin positions for each environment.
+
+    Isaac Lab's GridCloner places environments on a grid. Each environment
+    has its own origin point in world coordinates.
+
+    Args:
+        env: The Isaac Lab environment
+
+    Returns:
+        Tensor of shape (num_envs, 3) with XYZ origin for each environment
+    """
+    # The scene stores environment origins
+    return env.scene.env_origins
+
+
 def reset_robot_pose(env, face_wall: bool = True):
-    """Reset the robot to a known pose.
+    """Reset each robot to its environment's origin with specified orientation.
+
+    IMPORTANT: Each robot must be positioned relative to its environment's
+    grid origin, not at absolute (0,0,0). Isaac Lab's GridCloner places
+    environments on a grid, and each robot+wall pair needs to stay in its
+    designated grid cell.
 
     Args:
         env: The Isaac Lab environment
         face_wall: If True, camera faces the wall (-Y direction).
                    If False, camera faces away from wall (+Y direction) to see max-range.
-
-    This ensures consistent camera orientation regardless of how
-    Isaac Lab's GridCloner initially placed the environment.
     """
     robot = env.scene["robot"]
 
-    # Get current root state shape
     num_envs = env.num_envs
     device = env.device
 
+    # Get each environment's origin position (set by GridCloner)
+    env_origins = get_env_origins(env)  # Shape: (num_envs, 3)
+
     # Create desired root state
-    # Root state format: [pos_x, pos_y, pos_z, quat_w, quat_x, quat_y, quat_z, vel_x, vel_y, vel_z, ang_vel_x, ang_vel_y, ang_vel_z]
+    # Root state format: [pos_x, pos_y, pos_z, quat_w, quat_x, quat_y, quat_z,
+    #                     vel_x, vel_y, vel_z, ang_vel_x, ang_vel_y, ang_vel_z]
     root_state = torch.zeros(num_envs, 13, device=device)
 
-    # Position: (0, 0, 0.1) - slightly above ground
-    root_state[:, 0] = 0.0   # x
-    root_state[:, 1] = 0.0   # y
-    root_state[:, 2] = 0.1   # z
+    # Position: environment origin + (0, 0, 0.1) for slight elevation
+    # Each robot is placed at its grid cell's origin
+    root_state[:, 0] = env_origins[:, 0]        # x = grid origin x
+    root_state[:, 1] = env_origins[:, 1]        # y = grid origin y
+    root_state[:, 2] = env_origins[:, 2] + 0.1  # z = grid origin z + slight elevation
 
     if face_wall:
         # Identity quaternion (w, x, y, z) = (1, 0, 0, 0)
         # Robot forward is -Y in USD local frame, which aligns with world -Y
-        # where the wall is located. Camera rotation on the robot handles
-        # pointing the camera in the robot's forward direction.
+        # where the wall is located (relative to each env origin).
         root_state[:, 3] = 1.0   # quat_w
         root_state[:, 4] = 0.0   # quat_x
         root_state[:, 5] = 0.0   # quat_y
@@ -543,8 +510,36 @@ def reset_robot_pose(env, face_wall: bool = True):
 # Observation Collection
 # =============================================================================
 
+def reset_noise_models(env):
+    """Reset all noise models in the observation manager to clear internal state.
+
+    This is important when repositioning the robot, as noise models like
+    DepthNoiseModel maintain internal state (e.g., previous frame buffer)
+    that should be cleared when starting a new observation collection.
+
+    Args:
+        env: The Isaac Lab environment
+    """
+    try:
+        obs_manager = env.observation_manager
+        # Iterate over all observation term groups
+        for group_name, terms in obs_manager._group_obs_term_names.items():
+            for term_name in terms:
+                term = obs_manager._terms[group_name][term_name]
+                # Check if the term has a noise model with a reset method
+                if hasattr(term, '_noise_model') and term._noise_model is not None:
+                    noise_model = term._noise_model
+                    if hasattr(noise_model, 'reset'):
+                        noise_model.reset()
+    except Exception as e:
+        # Silently continue if we can't access noise models
+        # This is a best-effort reset
+        pass
+
+
 def collect_stationary_observations(
-    env, n_steps: int, n_settle_steps: int = N_SETTLE_STEPS, face_wall: bool = True
+    env, n_steps: int, n_settle_steps: int = N_SETTLE_STEPS, face_wall: bool = True,
+    verify_stability: bool = False
 ) -> torch.Tensor:
     """Collect observations from a stationary robot over multiple steps.
 
@@ -557,12 +552,21 @@ def collect_stationary_observations(
         n_settle_steps: Number of steps to let physics settle before collecting
         face_wall: If True (default), robot faces the wall (-Y direction).
                    If False, robot faces away from wall (+Y direction) to see max-range.
+        verify_stability: If True, check and report robot stability metrics
 
     Returns:
         Tensor of shape (n_steps, num_envs, obs_dim)
     """
+    # Full environment reset to ensure clean state
+    # This clears any episode management state that might interfere with pose setting
+    env.reset()
+
     # Reset robot to known pose with specified orientation
+    # Must be called AFTER env.reset() since reset() may randomize positions
     reset_robot_pose(env, face_wall=face_wall)
+
+    # Reset noise models to clear any stale internal state
+    reset_noise_models(env)
 
     # Zero action (stationary)
     zero_action = torch.zeros(env.num_envs, 3, device=env.device)
@@ -570,6 +574,43 @@ def collect_stationary_observations(
     # Let physics settle after reset
     for _ in range(n_settle_steps):
         env.step(zero_action)
+
+    # Optionally verify robot is stable before collecting
+    if verify_stability:
+        robot = env.scene["robot"]
+        root_pos = robot.data.root_pos_w  # World positions
+        root_vel = robot.data.root_lin_vel_w
+        root_ang_vel = robot.data.root_ang_vel_w
+        lin_speed = root_vel.norm(dim=1).max().item()
+        ang_speed = root_ang_vel.norm(dim=1).max().item()
+
+        # Get expected positions from env origins
+        env_origins = get_env_origins(env)
+
+        print(f"    Robot stability after {n_settle_steps} settle steps:")
+        print(f"      Num environments: {env.num_envs}")
+        print(f"      Max linear velocity: {lin_speed:.6f} m/s")
+        print(f"      Max angular velocity: {ang_speed:.6f} rad/s")
+
+        # Verify robots are at their grid positions
+        pos_errors = (root_pos[:, :2] - env_origins[:, :2]).norm(dim=1)
+        max_pos_error = pos_errors.max().item()
+        print(f"      Max XY position error from grid origin: {max_pos_error:.4f} m")
+
+        if env.num_envs > 1:
+            # Check that robots are spread out (not overlapping)
+            robot_positions = root_pos[:, :2]  # XY only
+            min_inter_robot_dist = float('inf')
+            for i in range(env.num_envs):
+                for j in range(i + 1, env.num_envs):
+                    dist = (robot_positions[i] - robot_positions[j]).norm().item()
+                    min_inter_robot_dist = min(min_inter_robot_dist, dist)
+            print(f"      Min inter-robot distance: {min_inter_robot_dist:.2f} m")
+            if min_inter_robot_dist < 1.0:
+                print(f"      WARNING: Robots may be overlapping!")
+
+        if lin_speed > 1e-4 or ang_speed > 1e-4:
+            print(f"      WARNING: Robot may not be fully settled!")
 
     # Collect observations
     observations = []
@@ -768,4 +809,30 @@ def create_frame_drops_with_gaussian_cfg(
         min_range=DEPTH_MIN_RANGE,
         max_range=DEPTH_MAX_RANGE,
         frame_drop_prob=frame_drop_prob,
+    )
+
+
+def create_no_noise_cfg():
+    """Create depth noise config with ALL noise disabled.
+
+    Used to measure baseline render variance from Isaac Sim's depth buffer.
+    Any variance observed with this config comes from:
+    - Raytracer floating-point precision
+    - Robot micro-movements from physics settling
+    - Temporal aliasing in the renderer
+
+    Returns:
+        DepthNoiseModelCfg with all noise sources disabled
+    """
+    from strafer_lab.tasks.navigation.mdp.noise_models import DepthNoiseModelCfg
+    from isaaclab.utils.noise import GaussianNoiseCfg
+
+    return DepthNoiseModelCfg(
+        noise_cfg=GaussianNoiseCfg(std=0.0),  # No base noise
+        base_noise_std=0.0,                    # No Gaussian noise
+        depth_noise_coeff=0.0,                 # No depth-dependent noise
+        hole_probability=0.0,                  # No holes
+        min_range=DEPTH_MIN_RANGE,
+        max_range=DEPTH_MAX_RANGE,
+        frame_drop_prob=0.0,                   # No frame drops
     )

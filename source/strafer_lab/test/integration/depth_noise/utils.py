@@ -48,6 +48,12 @@ DEPTH_START_IDX = 15
 DEPTH_MAX_RANGE = 6.0
 DEPTH_MIN_RANGE = 0.2
 
+# Intel RealSense D555 stereo parameters (for noise model)
+# These are physical camera properties used in stereo error propagation
+D555_BASELINE_M = 0.095        # Stereo baseline: 95mm
+D555_FOCAL_LENGTH_PX = 673.0   # Focal length at native 1280x720 resolution
+D555_DISPARITY_NOISE_PX = 0.08 # Typical subpixel disparity noise
+
 # Test scene geometry
 TEST_WALL_DISTANCE = 2.0     # meters - wall in front of robot
 TEST_WALL_DEPTH_NORMALIZED = TEST_WALL_DISTANCE / DEPTH_MAX_RANGE  # ~0.333
@@ -295,6 +301,45 @@ def clamped_normal_variance(z: float) -> float:
     return var_Y
 
 
+def stereo_depth_noise_std(
+    depth_m: float,
+    baseline_m: float = D555_BASELINE_M,
+    focal_length_px: float = D555_FOCAL_LENGTH_PX,
+    disparity_noise_px: float = D555_DISPARITY_NOISE_PX,
+) -> float:
+    """Calculate stereo depth noise standard deviation at a given depth.
+
+    Uses the Intel RealSense stereo error propagation formula:
+        σ_z = (z² / (f · B)) · σ_d
+
+    Where:
+        z = depth in meters
+        f = focal length in pixels (at native camera resolution)
+        B = stereo baseline in meters
+        σ_d = subpixel disparity noise in pixels
+    See: https://openaccess.thecvf.com/content_cvpr_2017_workshops/w15/papers/Keselman_Intel_RealSense_Stereoscopic_CVPR_2017_paper.pdf
+    
+    This formula arises from error propagation of the stereo depth equation:
+        z = f · B / d  (where d is disparity in pixels)
+
+    Taking the derivative: dz/dd = -z²/(f·B), so σ_z = |dz/dd| · σ_d
+
+    Args:
+        depth_m: Depth in meters
+        baseline_m: Stereo baseline in meters (default: 0.095m for D555)
+        focal_length_px: Focal length in pixels at native resolution (default: 673 for D555)
+        disparity_noise_px: Subpixel disparity noise in pixels (default: 0.08)
+
+    Returns:
+        Depth noise standard deviation in meters
+
+    Example:
+        At 2.0m with D555 defaults:
+        σ_z = (2.0² / (673 · 0.095)) · 0.08 = 5.01mm
+    """
+    return (depth_m ** 2) * disparity_noise_px / (focal_length_px * baseline_m)
+
+
 def hole_diff_variance(mean_depth_normalized: float, hole_probability: float) -> float:
     """Calculate expected variance of first-differences when only holes are present.
 
@@ -340,6 +385,174 @@ def hole_diff_variance(mean_depth_normalized: float, hole_probability: float) ->
 # Pixel Classification Helpers
 # =============================================================================
 
+def compute_geometric_wall_mask(
+    height: int,
+    width: int,
+    focal_length: float,
+    horizontal_aperture: float,
+    camera_height: float,
+    wall_distance: float,
+    wall_width: float,
+    wall_height: float,
+    wall_bottom_z: float = 0.0,
+    device: str = "cpu",
+) -> torch.Tensor:
+    """Compute a mask of pixels that geometrically hit the wall based on ray casting.
+
+    This provides a precise pixel selection based on camera intrinsics and wall geometry,
+    avoiding the need for statistical selection that may include/exclude wrong pixels.
+
+    CAMERA MODEL:
+    We use a pinhole camera model where:
+    - focal_length and horizontal_aperture define the horizontal FOV
+    - The camera looks along -Y axis (ROS convention after rotation)
+    - Pixel (0,0) is top-left, (width-1, height-1) is bottom-right
+
+    RAY CASTING:
+    For each pixel (u, v), we compute the ray direction and check if it intersects
+    the wall plane at Y = -wall_distance (relative to camera).
+
+    Args:
+        height: Image height in pixels
+        width: Image width in pixels
+        focal_length: Camera focal length in mm
+        horizontal_aperture: Camera horizontal aperture in mm
+        camera_height: Camera height above ground in meters
+        wall_distance: Distance from camera to wall surface in meters
+        wall_width: Wall width in meters (centered at X=0)
+        wall_height: Wall height in meters
+        wall_bottom_z: Z coordinate of wall bottom edge in meters
+        device: Torch device
+
+    Returns:
+        Boolean tensor of shape (height * width,) where True = wall pixel
+    """
+    # Compute FOV from camera intrinsics
+    # horizontal_fov = 2 * atan(horizontal_aperture / (2 * focal_length))
+    h_fov = 2 * np.arctan(horizontal_aperture / (2 * focal_length))
+
+    # Vertical FOV based on aspect ratio
+    aspect = width / height
+    v_fov = 2 * np.arctan(np.tan(h_fov / 2) / aspect)
+
+    # Create pixel coordinate grids (normalized to [-1, 1])
+    # u goes from -1 (left) to +1 (right)
+    # v goes from -1 (top) to +1 (bottom)
+    u = torch.linspace(-1, 1, width, device=device)
+    v = torch.linspace(-1, 1, height, device=device)
+    vv, uu = torch.meshgrid(v, u, indexing='ij')
+
+    # Convert to ray directions in camera frame
+    # Camera frame: X-right, Y-down, Z-forward (looking at -Y world after rotation)
+    # But since camera is rotated to look at -Y world, we work in world frame directly
+    #
+    # Ray direction components (unnormalized):
+    # - X component: proportional to horizontal pixel offset
+    # - Y component: fixed at -1 (camera looks at -Y)
+    # - Z component: proportional to vertical pixel offset (inverted because Y-down in image)
+
+    # Half-angle tangents give the extent at unit depth
+    tan_h_fov_2 = np.tan(h_fov / 2)
+    tan_v_fov_2 = np.tan(v_fov / 2)
+
+    # Ray directions (unnormalized, relative to camera looking at -Y)
+    ray_x = uu * tan_h_fov_2  # Horizontal spread
+    ray_y = -torch.ones_like(uu)  # Forward direction (-Y)
+    ray_z = -vv * tan_v_fov_2  # Vertical spread (negated for image Y-down convention)
+
+    # Normalize ray directions
+    ray_norm = torch.sqrt(ray_x**2 + ray_y**2 + ray_z**2)
+    ray_x = ray_x / ray_norm
+    ray_y = ray_y / ray_norm
+    ray_z = ray_z / ray_norm
+
+    # Ray-plane intersection
+    # Wall is at Y = -wall_distance (relative to camera at Y=0)
+    # Ray: P = O + t*D where O is camera origin (0,0,camera_height in world-ish coords)
+    # Actually, we're computing in camera-centric coordinates
+    # Plane: Y = -wall_distance
+    # Intersection: t = -wall_distance / ray_y
+
+    t = -wall_distance / ray_y  # t > 0 since ray_y < 0
+
+    # Intersection points
+    hit_x = ray_x * t
+    hit_z = camera_height + ray_z * t  # Camera is at height camera_height
+
+    # Check if intersection is within wall bounds
+    # Wall is centered at X=0, width wall_width
+    # Wall is from Z=wall_bottom_z to Z=wall_bottom_z+wall_height
+    wall_x_min = -wall_width / 2
+    wall_x_max = wall_width / 2
+    wall_z_min = wall_bottom_z
+    wall_z_max = wall_bottom_z + wall_height
+
+    is_wall = (
+        (hit_x >= wall_x_min) & (hit_x <= wall_x_max) &
+        (hit_z >= wall_z_min) & (hit_z <= wall_z_max)
+    )
+
+    # Flatten to match observation format
+    return is_wall.flatten()
+
+
+def get_geometric_wall_mask(env, device: str = "cuda:0") -> torch.Tensor:
+    """Get a geometric wall mask for the test scene using camera intrinsics.
+
+    This is a convenience wrapper around compute_geometric_wall_mask that
+    extracts parameters from the environment's camera configuration.
+
+    Args:
+        env: The Isaac Lab environment with the test scene
+        device: Torch device
+
+    Returns:
+        Boolean tensor of shape (height * width,) where True = wall pixel
+    """
+    # Get camera config
+    camera = env.scene["d555_camera"]
+    height = camera.cfg.height
+    width = camera.cfg.width
+
+    # Get camera intrinsics from spawn config
+    spawn_cfg = camera.cfg.spawn
+    focal_length = spawn_cfg.focal_length
+    horizontal_aperture = spawn_cfg.horizontal_aperture
+
+    # Get camera offset (height above robot body)
+    # The camera is mounted at CAMERA_Z_OFFSET above body_link
+    # When robot is at z=0.1 (slight elevation), camera is at z=0.1 + offset
+    # For test scene: CAMERA_Z_OFFSET = 25 (scaled to 0.25m)
+    camera_offset = camera.cfg.offset.pos
+    camera_z_offset = camera_offset[2] / 100.0  # Scale from scene units to meters
+    robot_elevation = 0.1  # From reset_robot_pose
+    camera_height = robot_elevation + camera_z_offset
+
+    # Get wall geometry from test scene constants
+    # Imported from test_scene_cfg if available, otherwise use defaults
+    try:
+        from test_scene_cfg import (
+            TEST_WALL_DISTANCE, TEST_WALL_WIDTH, TEST_WALL_HEIGHT
+        )
+    except ImportError:
+        TEST_WALL_DISTANCE = 2.0
+        TEST_WALL_WIDTH = 4.0
+        TEST_WALL_HEIGHT = 2.0
+
+    return compute_geometric_wall_mask(
+        height=height,
+        width=width,
+        focal_length=focal_length,
+        horizontal_aperture=horizontal_aperture,
+        camera_height=camera_height,
+        wall_distance=TEST_WALL_DISTANCE,
+        wall_width=TEST_WALL_WIDTH,
+        wall_height=TEST_WALL_HEIGHT,
+        wall_bottom_z=0.0,  # Wall sits on ground
+        device=device,
+    )
+
+
 def identify_wall_pixels(
     depth_obs: torch.Tensor,
     tolerance: float = 0.05,
@@ -353,6 +566,9 @@ def identify_wall_pixels(
 
     Uses statistical selection: pixels whose median depth is within tolerance of
     expected_depth AND whose std is below max_std.
+
+    NOTE: For more precise pixel selection, consider using get_geometric_wall_mask()
+    which computes the expected wall pixels based on camera intrinsics and wall geometry.
 
     Args:
         depth_obs: Depth observations tensor of shape (n_steps, depth_dim) for one env
@@ -506,6 +722,35 @@ def reset_robot_pose(env, face_wall: bool = True):
     robot.write_joint_state_to_sim(joint_pos, joint_vel)
 
 
+def _freeze_robot_in_place(env):
+    """Zero out all robot velocities to freeze it in place.
+
+    This is called after each simulation step when freeze_robot=True to prevent
+    any micro-settling from affecting depth measurements. The robot's position
+    is preserved, only velocities are zeroed.
+
+    Args:
+        env: The Isaac Lab environment
+    """
+    robot = env.scene["robot"]
+    num_envs = env.num_envs
+    device = env.device
+
+    # Get current root state to preserve position and orientation
+    current_state = robot.data.root_state_w.clone()
+
+    # Zero out velocities (indices 7-12: lin_vel_x, lin_vel_y, lin_vel_z, ang_vel_x, ang_vel_y, ang_vel_z)
+    current_state[:, 7:13] = 0.0
+
+    # Write back with zeroed velocities
+    robot.write_root_state_to_sim(current_state)
+
+    # Also zero joint velocities
+    joint_pos = robot.data.joint_pos.clone()
+    joint_vel = torch.zeros(num_envs, robot.num_joints, device=device)
+    robot.write_joint_state_to_sim(joint_pos, joint_vel)
+
+
 # =============================================================================
 # Observation Collection
 # =============================================================================
@@ -539,8 +784,8 @@ def reset_noise_models(env):
 
 def collect_stationary_observations(
     env, n_steps: int, n_settle_steps: int = N_SETTLE_STEPS, face_wall: bool = True,
-    verify_stability: bool = False
-) -> torch.Tensor:
+    verify_stability: bool = False, freeze_robot: bool = True, track_positions: bool = False
+) -> torch.Tensor | tuple[torch.Tensor, dict]:
     """Collect observations from a stationary robot over multiple steps.
 
     With zero actions and settled physics, any observation variance
@@ -553,9 +798,16 @@ def collect_stationary_observations(
         face_wall: If True (default), robot faces the wall (-Y direction).
                    If False, robot faces away from wall (+Y direction) to see max-range.
         verify_stability: If True, check and report robot stability metrics
+        freeze_robot: If True (default), continuously zero out robot velocities during
+                      observation collection to eliminate micro-settling noise. This ensures
+                      any measured variance comes purely from sensor noise, not robot movement.
+        track_positions: If True, also track robot and wall positions at each timestep
+                         to detect any drift. Returns (observations, position_data) tuple.
 
     Returns:
-        Tensor of shape (n_steps, num_envs, obs_dim)
+        If track_positions=False: Tensor of shape (n_steps, num_envs, obs_dim)
+        If track_positions=True: Tuple of (observations, position_data) where position_data
+                                 is a dict with 'robot_pos', 'wall_pos', 'distance' tensors
     """
     # Full environment reset to ensure clean state
     # This clears any episode management state that might interfere with pose setting
@@ -574,6 +826,8 @@ def collect_stationary_observations(
     # Let physics settle after reset
     for _ in range(n_settle_steps):
         env.step(zero_action)
+        if freeze_robot:
+            _freeze_robot_in_place(env)
 
     # Optionally verify robot is stable before collecting
     if verify_stability:
@@ -589,6 +843,7 @@ def collect_stationary_observations(
 
         print(f"    Robot stability after {n_settle_steps} settle steps:")
         print(f"      Num environments: {env.num_envs}")
+        print(f"      Robot freeze enabled: {freeze_robot}")
         print(f"      Max linear velocity: {lin_speed:.6f} m/s")
         print(f"      Max angular velocity: {ang_speed:.6f} rad/s")
 
@@ -612,13 +867,63 @@ def collect_stationary_observations(
         if lin_speed > 1e-4 or ang_speed > 1e-4:
             print(f"      WARNING: Robot may not be fully settled!")
 
-    # Collect observations
+    # Collect observations (and optionally positions)
     observations = []
+    robot_positions = [] if track_positions else None
+    wall_positions = [] if track_positions else None
+
+    # Get references for position tracking
+    if track_positions:
+        robot = env.scene["robot"]
+        # Wall may not exist in all scene configurations
+        try:
+            wall = env.scene["test_wall"]
+        except KeyError:
+            wall = None
+            print("    WARNING: No 'test_wall' found in scene, position tracking limited to robot only")
+
     for _ in range(n_steps):
         obs_dict, _, _, _, _ = env.step(zero_action)
         observations.append(obs_dict["policy"].clone())
 
-    return torch.stack(observations, dim=0)
+        if track_positions:
+            # Track robot root position (shape: num_envs, 3)
+            robot_positions.append(robot.data.root_pos_w.clone())
+            if wall is not None:
+                # Track wall position (shape: num_envs, 3)
+                wall_positions.append(wall.data.root_pos_w.clone())
+
+        if freeze_robot:
+            _freeze_robot_in_place(env)
+
+    obs_tensor = torch.stack(observations, dim=0)
+
+    if track_positions:
+        # Stack position histories: (n_steps, num_envs, 3)
+        robot_pos_tensor = torch.stack(robot_positions, dim=0)
+        wall_pos_tensor = torch.stack(wall_positions, dim=0) if wall_positions else None
+
+        # Compute camera-to-wall distance over time
+        # Camera is offset from robot root by (0, CAMERA_Y_OFFSET/100, CAMERA_Z_OFFSET/100)
+        # For distance to wall, we care about Y component (wall is in -Y direction)
+        if wall_pos_tensor is not None:
+            # Robot Y position + camera offset (-0.2m forward)
+            camera_y = robot_pos_tensor[:, :, 1] - 0.2  # Approximate camera Y offset
+            # Wall front surface Y (wall center Y + half thickness)
+            wall_front_y = wall_pos_tensor[:, :, 1] + 0.05  # +half thickness
+            # Distance = |camera_y - wall_front_y|
+            distance = torch.abs(camera_y - wall_front_y)
+        else:
+            distance = None
+
+        position_data = {
+            'robot_pos': robot_pos_tensor,
+            'wall_pos': wall_pos_tensor,
+            'distance': distance,
+        }
+        return obs_tensor, position_data
+
+    return obs_tensor
 
 
 def collect_stationary_observations_facing_away(
@@ -728,27 +1033,35 @@ def cleanup_simulation():
 # =============================================================================
 
 def create_gaussian_only_noise_cfg(
-    base_noise_std: float = 0.001,
-    depth_noise_coeff: float = 0.002,
+    baseline_m: float = D555_BASELINE_M,
+    focal_length_px: float = D555_FOCAL_LENGTH_PX,
+    disparity_noise_px: float = D555_DISPARITY_NOISE_PX,
 ):
-    """Create depth noise config with ONLY Gaussian noise enabled.
+    """Create depth noise config with ONLY stereo Gaussian noise enabled.
 
-    Holes and frame drops are disabled to isolate Gaussian component.
+    Holes and frame drops are disabled to isolate the Gaussian component.
+
+    Uses Intel RealSense stereo error propagation: σ_z = (z²/(f·B))·σ_d
 
     Args:
-        base_noise_std: Base noise standard deviation in meters
-        depth_noise_coeff: Depth-dependent noise coefficient (m/m)
+        baseline_m: Stereo baseline in meters (default: 0.095m for D555)
+        focal_length_px: Focal length in pixels at native resolution (default: 673)
+        disparity_noise_px: Subpixel disparity noise in pixels (default: 0.08)
 
     Returns:
-        DepthNoiseModelCfg with only Gaussian noise enabled
+        DepthNoiseModelCfg with only stereo Gaussian noise enabled
     """
     from strafer_lab.tasks.navigation.mdp.noise_models import DepthNoiseModelCfg
     from isaaclab.utils.noise import GaussianNoiseCfg
 
+    # Compute noise at 1m for informational GaussianNoiseCfg
+    noise_at_1m = stereo_depth_noise_std(1.0, baseline_m, focal_length_px, disparity_noise_px)
+
     return DepthNoiseModelCfg(
-        noise_cfg=GaussianNoiseCfg(std=base_noise_std),
-        base_noise_std=base_noise_std,
-        depth_noise_coeff=depth_noise_coeff,
+        noise_cfg=GaussianNoiseCfg(std=noise_at_1m),
+        baseline_m=baseline_m,
+        focal_length_px=focal_length_px,
+        disparity_noise_px=disparity_noise_px,
         hole_probability=0.0,  # Disabled
         min_range=DEPTH_MIN_RANGE,
         max_range=DEPTH_MAX_RANGE,
@@ -759,7 +1072,7 @@ def create_gaussian_only_noise_cfg(
 def create_holes_only_noise_cfg(hole_probability: float = 0.05):
     """Create depth noise config with ONLY holes enabled.
 
-    Gaussian noise and frame drops are disabled to isolate hole component.
+    Stereo Gaussian noise and frame drops are disabled to isolate hole component.
 
     Args:
         hole_probability: Probability of a pixel being set to max_range
@@ -772,8 +1085,9 @@ def create_holes_only_noise_cfg(hole_probability: float = 0.05):
 
     return DepthNoiseModelCfg(
         noise_cfg=GaussianNoiseCfg(std=0.0),  # No Gaussian noise
-        base_noise_std=0.0,
-        depth_noise_coeff=0.0,
+        baseline_m=D555_BASELINE_M,
+        focal_length_px=D555_FOCAL_LENGTH_PX,
+        disparity_noise_px=0.0,  # Disabled - no stereo noise
         hole_probability=hole_probability,
         min_range=DEPTH_MIN_RANGE,
         max_range=DEPTH_MAX_RANGE,
@@ -783,9 +1097,9 @@ def create_holes_only_noise_cfg(hole_probability: float = 0.05):
 
 def create_frame_drops_with_gaussian_cfg(
     frame_drop_prob: float = 0.10,
-    base_noise_std: float = 0.005,
+    disparity_noise_px: float = D555_DISPARITY_NOISE_PX,
 ):
-    """Create depth noise config with frame drops AND small Gaussian noise.
+    """Create depth noise config with frame drops AND stereo Gaussian noise.
 
     We need Gaussian noise to make frame drops detectable - without it,
     all frames are identical and drops are invisible.
@@ -793,18 +1107,22 @@ def create_frame_drops_with_gaussian_cfg(
 
     Args:
         frame_drop_prob: Probability of dropping a frame
-        base_noise_std: Small Gaussian noise to make drops detectable
+        disparity_noise_px: Subpixel disparity noise (controls Gaussian noise magnitude)
 
     Returns:
-        DepthNoiseModelCfg with frame drops and detection noise
+        DepthNoiseModelCfg with frame drops and stereo detection noise
     """
     from strafer_lab.tasks.navigation.mdp.noise_models import DepthNoiseModelCfg
     from isaaclab.utils.noise import GaussianNoiseCfg
 
+    # Compute noise at 1m for informational GaussianNoiseCfg
+    noise_at_1m = stereo_depth_noise_std(1.0, D555_BASELINE_M, D555_FOCAL_LENGTH_PX, disparity_noise_px)
+
     return DepthNoiseModelCfg(
-        noise_cfg=GaussianNoiseCfg(std=base_noise_std),
-        base_noise_std=base_noise_std,
-        depth_noise_coeff=0.0,  # No depth-dependent noise for simplicity
+        noise_cfg=GaussianNoiseCfg(std=noise_at_1m),
+        baseline_m=D555_BASELINE_M,
+        focal_length_px=D555_FOCAL_LENGTH_PX,
+        disparity_noise_px=disparity_noise_px,
         hole_probability=0.0,  # Disabled
         min_range=DEPTH_MIN_RANGE,
         max_range=DEPTH_MAX_RANGE,
@@ -829,8 +1147,9 @@ def create_no_noise_cfg():
 
     return DepthNoiseModelCfg(
         noise_cfg=GaussianNoiseCfg(std=0.0),  # No base noise
-        base_noise_std=0.0,                    # No Gaussian noise
-        depth_noise_coeff=0.0,                 # No depth-dependent noise
+        baseline_m=D555_BASELINE_M,
+        focal_length_px=D555_FOCAL_LENGTH_PX,
+        disparity_noise_px=0.0,               # No stereo noise
         hole_probability=0.0,                  # No holes
         min_range=DEPTH_MIN_RANGE,
         max_range=DEPTH_MAX_RANGE,

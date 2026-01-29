@@ -9,15 +9,26 @@ Validates the full pipeline: RAW meters -> Gaussian noise -> clamp -> scale -> c
 Uses the dedicated test scene with a wall at known distance (2.0m) to provide
 stable pixels at a known depth, enabling precise variance testing.
 
-GAUSSIAN NOISE MODEL:
-The depth noise model applies depth-dependent Gaussian noise:
-    noise_std = base_noise_std + depth_noise_coeff * depth_meters
+STEREO DEPTH NOISE MODEL (Intel RealSense):
+The depth noise model uses stereo error propagation from the Intel RealSense documentation:
+
+    σ_z = (z² / (f · B)) · σ_d
+
+Where:
+    z = depth in meters
+    f = focal length in pixels (at native camera resolution)
+    B = stereo baseline in meters (95mm for D555)
+    σ_d = subpixel disparity noise (typically 0.05-0.1 pixels)
+
+This quadratic z² relationship (NOT linear) arises from error propagation of the
+stereo depth equation z = f·B/d where d is disparity. The derivative gives
+dz/dd = -z²/(f·B), so σ_z = |dz/dd| · σ_d = z²·σ_d/(f·B).
 
 After normalization to [0, 1], the effective noise std in normalized space:
-    effective_std = noise_std / max_range
+    effective_std = σ_z / max_range
 
 For first-differences y[t] - y[t-1] of IID observations:
-    Var(diff) = 2 * Var(y) = 2 * effective_std^2
+    Var(diff) = 2 * effective_std^2
 
 CLAMPING EFFECTS:
 Near max_range, values are clamped (can't exceed 1.0). This reduces variance.
@@ -60,6 +71,10 @@ from utils import (
     DEPTH_MAX_RANGE,
     TEST_WALL_DISTANCE,
     TEST_WALL_DEPTH_NORMALIZED,
+    D555_BASELINE_M,
+    D555_FOCAL_LENGTH_PX,
+    D555_DISPARITY_NOISE_PX,
+    stereo_depth_noise_std,
     clamped_normal_variance,
     identify_wall_pixels,
     collect_stationary_observations,
@@ -73,9 +88,9 @@ from utils import (
 # Test Configuration
 # =============================================================================
 
-# Gaussian noise parameters for testing
-TEST_BASE_NOISE_STD = 0.005      # 5mm base noise
-TEST_DEPTH_NOISE_COEFF = 0.002   # 2mm per meter depth
+# Intel RealSense D555 stereo noise parameters for testing
+# Using default D555 values - see utils.py for documentation
+TEST_DISPARITY_NOISE_PX = D555_DISPARITY_NOISE_PX  # 0.08 pixels
 
 
 # =============================================================================
@@ -92,6 +107,7 @@ def _get_or_create_test_env():
     """Get or create the shared test environment with Gaussian-only noise.
 
     Uses the dedicated test scene with a wall at known distance.
+    Configures Intel D555 stereo noise model with default parameters.
     """
     global _module_env
 
@@ -99,8 +115,9 @@ def _get_or_create_test_env():
         return _module_env
 
     noise_cfg = create_gaussian_only_noise_cfg(
-        base_noise_std=TEST_BASE_NOISE_STD,
-        depth_noise_coeff=TEST_DEPTH_NOISE_COEFF,
+        baseline_m=D555_BASELINE_M,
+        focal_length_px=D555_FOCAL_LENGTH_PX,
+        disparity_noise_px=TEST_DISPARITY_NOISE_PX,
     )
     # Use test scene with wall at known distance
     _module_env = create_depth_test_env(noise_cfg, num_envs=NUM_ENVS, use_test_scene=True)
@@ -135,33 +152,40 @@ class TestGaussianNoiseVariance:
     Wall pixels provide stable depth readings at a known distance, enabling
     precise noise variance testing.
 
-    ANALYTICAL MODEL:
-    For wall pixels at depth d = 2.0m:
-        noise_std = base_noise_std + depth_noise_coeff * d
-                  = 0.005 + 0.002 * 2.0 = 0.009 meters
+    ANALYTICAL MODEL (Intel RealSense Stereo Error Propagation):
+    For wall pixels at depth z = 2.0m with D555 parameters:
+        σ_z = (z² / (f · B)) · σ_d
+            = (2.0² / (673 · 0.095)) · 0.08
+            = (4.0 / 63.935) · 0.08
+            = 0.00501 meters ≈ 5.0mm
 
-        effective_std (normalized) = 0.009 / 6.0 = 0.0015
+        effective_std (normalized) = 0.00501 / 6.0 = 0.000835
 
-        Var(diff) = 2 * effective_std^2 = 2 * 0.0015^2 = 4.5e-6
+        Var(diff) = 2 * effective_std² = 2 * 0.000835² = 1.39e-6
     """
 
     def test_variance_at_wall_distance(self, depth_env):
-        """Verify first-difference variance matches expected Gaussian noise.
+        """Verify first-difference variance matches expected stereo depth noise.
 
         Uses a proper two-sided chi-squared test to verify variance matches
         the theoretical prediction: Var(first_diff) = 2 * σ² where σ is the
-        configured depth-dependent noise std in normalized units.
+        stereo depth noise std in normalized units.
 
-        For wall at 2.0m with base_noise_std=0.005m and depth_coeff=0.002:
-            noise_std = 0.005 + 0.002 * 2.0 = 0.009m
-            noise_std_normalized = 0.009 / 6.0 = 0.0015
-            expected_var = 2 * 0.0015² = 4.5e-6
+        For wall at 2.0m with D555 stereo parameters:
+            σ_z = (z² / (f · B)) · σ_d = (4.0 / 63.935) · 0.08 ≈ 5.0mm
+            σ_normalized = 5.0mm / 6000mm = 0.000835
+            expected_var = 2 * 0.000835² = 1.39e-6
         """
         obs = collect_stationary_observations(depth_env, N_SAMPLES_STEPS)
 
-        # Calculate expected variance at wall distance
+        # Calculate expected variance using stereo error propagation
         depth_meters = TEST_WALL_DISTANCE
-        noise_std_meters = TEST_BASE_NOISE_STD + TEST_DEPTH_NOISE_COEFF * depth_meters
+        noise_std_meters = stereo_depth_noise_std(
+            depth_meters,
+            baseline_m=D555_BASELINE_M,
+            focal_length_px=D555_FOCAL_LENGTH_PX,
+            disparity_noise_px=TEST_DISPARITY_NOISE_PX,
+        )
         noise_std_normalized = noise_std_meters / DEPTH_MAX_RANGE
         expected_var = 2 * (noise_std_normalized ** 2)
 

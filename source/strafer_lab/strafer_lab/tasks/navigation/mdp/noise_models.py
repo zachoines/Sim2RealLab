@@ -226,23 +226,44 @@ class EncoderNoiseModelCfg(NoiseModelCfg):
 # =============================================================================
 
 class DepthNoiseModel(NoiseModel):
-    """Depth camera noise model with realistic imperfections.
-    
+    """Depth camera noise model with realistic stereo depth error propagation.
+
     Models:
-    - Depth-dependent Gaussian noise
+    - Stereo depth noise using Intel RealSense error propagation formula
     - Random invalid pixels (holes)
     - Range limiting
     - Dropped frames
+
+    STEREO DEPTH ERROR MODEL (Intel RealSense):
+    From stereo geometry, depth z = f·B/d where:
+      - f = focal length (pixels)
+      - B = stereo baseline (meters)
+      - d = disparity (pixels)
+
+    Error propagation gives: σ_z = (z² / (f·B)) · σ_d
+
+    Where σ_d is the subpixel disparity noise (typically 0.05-0.1 pixels for
+    good stereo matching algorithms). This quadratic depth dependence matches
+    real RealSense behavior much better than linear models.
+
+    Reference: Intel RealSense documentation on depth quality and error propagation
+    https://openaccess.thecvf.com/content_cvpr_2017_workshops/w15/papers/Keselman_Intel_RealSense_Stereoscopic_CVPR_2017_paper.pdf
     """
-    
+
     def __init__(self, noise_model_cfg, num_envs: int, device: str):
         super().__init__(noise_model_cfg, num_envs, device)
         self.cfg = noise_model_cfg
-        
+
+        # Precompute stereo depth noise coefficient: σ_d / (f · B)
+        # σ_z = z² · (σ_d / (f · B)) = z² · stereo_coeff
+        self._stereo_coeff = self.cfg.disparity_noise_px / (
+            self.cfg.focal_length_px * self.cfg.baseline_m
+        )
+
         # Store previous frame for drops
         self._prev_frame = None
         self._frame_dropped = torch.zeros(num_envs, dtype=torch.bool, device=device)
-    
+
     def reset(self, env_ids: Sequence[int] | None = None):
         """Reset frame drop state."""
         if env_ids is None:
@@ -250,66 +271,89 @@ class DepthNoiseModel(NoiseModel):
             self._frame_dropped.zero_()
         else:
             self._frame_dropped[env_ids] = False
-    
+
     def __call__(self, data: torch.Tensor) -> torch.Tensor:
         """Apply depth camera noise to RAW depth in meters.
-        
+
         Expects RAW input data in meters (not normalized).
         Noise is applied in physical units for realism.
-        
+
         Pipeline: RAW meters → noise (this) → scale (normalize via ObsTerm.scale)
         """
         # Data shape: (num_envs, height * width) - flattened depth in METERS
         noisy_data = data.clone()
         max_range = self.cfg.max_range
-        
-        # Depth-dependent noise: std = base + coeff * depth
-        # This is physically correct: ToF/stereo noise increases with distance
-        noise_std = self.cfg.base_noise_std + self.cfg.depth_noise_coeff * noisy_data
+
+        # Stereo depth noise: σ_z = z² · σ_d / (f · B)
+        # This is the physically correct error propagation for stereo depth cameras.
+        # Noise increases with z² (quadratic), not linearly.
+        noise_std = noisy_data.square() * self._stereo_coeff
         depth_noise = torch.randn_like(noisy_data) * noise_std
         noisy_data = noisy_data + depth_noise
-        
+
         # Add holes (random invalid pixels) - set to max_range
         if self.cfg.hole_probability > 0:
             holes = torch.rand_like(noisy_data) < self.cfg.hole_probability
             noisy_data = torch.where(holes, torch.full_like(noisy_data, max_range), noisy_data)
-        
+
         # Apply range limits (in meters)
         noisy_data = torch.clamp(noisy_data, 0.0, max_range)
         too_close = noisy_data < self.cfg.min_range
         noisy_data = torch.where(too_close, torch.full_like(noisy_data, max_range), noisy_data)
-        
+
         # Frame drops (return previous frame)
         if self.cfg.frame_drop_prob > 0 and self._prev_frame is not None:
             drop = torch.rand(self._num_envs, device=self._device) < self.cfg.frame_drop_prob
             noisy_data[drop] = self._prev_frame[drop]
-        
+
         # Store for next frame
         self._prev_frame = noisy_data.clone()
-        
+
         return noisy_data
 
 
 @configclass
 class DepthNoiseModelCfg(NoiseModelCfg):
-    """Configuration for depth camera noise model."""
-    
+    """Configuration for depth camera noise model with stereo error propagation.
+
+    Uses the Intel RealSense stereo depth error model:
+        σ_z = (z² / (f · B)) · σ_d
+
+    Where:
+        z = depth in meters
+        f = focal_length_px (at native camera resolution)
+        B = baseline_m (stereo camera baseline)
+        σ_d = disparity_noise_px (subpixel matching accuracy)
+
+    Intel RealSense D555 reference values:
+        - Baseline: 95mm (0.095m)
+        - Native resolution: 1280x720
+        - Horizontal FOV: ~87°
+        - Focal length: ~673 pixels (at 1280 width)
+        - Typical disparity noise: 0.05-0.1 pixels
+
+    At 2.0m depth with default D555 values:
+        σ_z = (2.0² / (673 · 0.095)) · 0.08 ≈ 5.0mm
+    """
+
     class_type: type = DepthNoiseModel
-    
-    # Depth-dependent noise
-    base_noise_std: float = 0.001  # meters at 1m
-    depth_noise_coeff: float = 0.002  # additional noise per meter
-    
-    # Holes (invalid pixels)
+
+    # Intel RealSense D555 stereo parameters
+    # These define the depth-dependent noise via error propagation
+    baseline_m: float = 0.095  # Stereo baseline in meters (95mm for D555)
+    focal_length_px: float = 673.0  # Focal length in pixels at native resolution
+    disparity_noise_px: float = 0.08  # Subpixel disparity noise (typical: 0.05-0.1)
+
+    # Holes (invalid pixels from stereo matching failures)
     hole_probability: float = 0.01
-    
+
     # Range limits
-    min_range: float = 0.2  # meters
-    max_range: float = 6.0  # meters
-    
+    min_range: float = 0.2  # meters (D555 min range: 0.4m, we allow some margin)
+    max_range: float = 6.0  # meters (D555 max range at optimal accuracy)
+
     # Frame drops
     frame_drop_prob: float = 0.001
-    
+
     # Image dimensions (for unflattening if needed)
     height: int = 60
     width: int = 80
@@ -435,14 +479,31 @@ def create_encoder_noise_cfg(
 
 
 def create_depth_noise_cfg(
-    base_noise_std: float = 0.001,
+    baseline_m: float = 0.095,
+    focal_length_px: float = 673.0,
+    disparity_noise_px: float = 0.08,
     hole_probability: float = 0.01,
     frame_drop_prob: float = 0.001,
 ) -> DepthNoiseModelCfg:
-    """Create depth camera noise config."""
+    """Create depth camera noise config with Intel RealSense stereo error model.
+
+    Args:
+        baseline_m: Stereo baseline in meters (default: 0.095m for D555)
+        focal_length_px: Focal length in pixels at native resolution (default: 673 for D555)
+        disparity_noise_px: Subpixel disparity noise (default: 0.08 pixels)
+        hole_probability: Probability of invalid pixel (default: 0.01)
+        frame_drop_prob: Probability of frame drop (default: 0.001)
+
+    Returns:
+        DepthNoiseModelCfg configured for stereo depth noise
+    """
+    # Compute expected noise at 1m for the GaussianNoiseCfg (informational only)
+    noise_at_1m = (1.0 ** 2) * disparity_noise_px / (focal_length_px * baseline_m)
     return DepthNoiseModelCfg(
-        noise_cfg=GaussianNoiseCfg(std=base_noise_std),
-        base_noise_std=base_noise_std,
+        noise_cfg=GaussianNoiseCfg(std=noise_at_1m),
+        baseline_m=baseline_m,
+        focal_length_px=focal_length_px,
+        disparity_noise_px=disparity_noise_px,
         hole_probability=hole_probability,
         frame_drop_prob=frame_drop_prob,
     )

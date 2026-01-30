@@ -38,7 +38,7 @@ Usage:
 # Isaac Sim must be launched BEFORE importing Isaac Lab modules
 from isaaclab.app import AppLauncher
 
-app_launcher = AppLauncher(headless=False, enable_cameras=True)
+app_launcher = AppLauncher(headless=True, enable_cameras=True)
 simulation_app = app_launcher.app
 
 # --- Imports that require Isaac Sim runtime ---

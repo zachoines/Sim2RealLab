@@ -207,43 +207,54 @@ class EncoderNoiseCfg:
 
 @configclass
 class DepthCameraNoiseCfg:
-    """Depth camera noise configuration for D555.
-    
-    Models real depth sensor imperfections:
-    - Depth-dependent noise
-    - Invalid pixels (holes)
-    - Range limits
-    - Dropped frames
+    """Depth camera noise configuration for Intel RealSense D555.
+
+    Uses the Intel RealSense stereo depth error propagation model:
+        σ_z = (z² / (f · B)) · σ_d
+
+    Where:
+        z = depth in meters
+        f = focal length in pixels (at native resolution)
+        B = stereo baseline in meters
+        σ_d = subpixel disparity noise in pixels
+
+    This quadratic z² relationship matches real RealSense behavior.
+
+    Reference: Intel RealSense documentation on depth quality and error propagation
+    https://openaccess.thecvf.com/content_cvpr_2017_workshops/w15/papers/Keselman_Intel_RealSense_Stereoscopic_CVPR_2017_paper.pdf
     """
-    
+
     enable_noise: bool = True
     """Enable depth camera noise injection."""
-    
-    # Depth noise (increases with distance)
-    base_noise_std_m: float = 0.001
-    """Base depth noise standard deviation in meters (at 1m)."""
-    
-    noise_depth_coefficient: float = 0.002
-    """Noise increase per meter of depth. noise_std = base + coef * depth."""
-    
-    # Invalid pixels (holes)
+
+    # Intel RealSense D555 stereo parameters
+    baseline_m: float = 0.095
+    """Stereo baseline in meters (95mm for D555)."""
+
+    focal_length_px: float = 673.0
+    """Focal length in pixels at native 1280x720 resolution."""
+
+    disparity_noise_px: float = 0.08
+    """Subpixel disparity noise (typical: 0.05-0.1 pixels)."""
+
+    # Invalid pixels (holes from stereo matching failures)
     hole_probability: float = 0.01
     """Probability of invalid pixel (set to max_depth)."""
-    
+
     hole_cluster_size: int = 3
     """Average size of hole clusters in pixels."""
-    
+
     # Range limits
     min_range_m: float = 0.2
     """Minimum valid depth range in meters. Closer = invalid."""
-    
+
     max_range_m: float = 6.0
     """Maximum valid depth range in meters. Further = invalid."""
-    
+
     # Dropped frames
     frame_drop_probability: float = 0.001
     """Probability of dropping a frame (return previous frame)."""
-    
+
     # Temporal noise (flickering)
     enable_temporal_noise: bool = False
     """Enable frame-to-frame temporal noise (flickering)."""
@@ -445,8 +456,10 @@ def create_real_robot_contract() -> SimRealContractCfg:
             ),
             depth_camera=DepthCameraNoiseCfg(
                 enable_noise=True,
-                base_noise_std_m=0.001,
-                noise_depth_coefficient=0.002,
+                # Intel D555 stereo parameters (default values)
+                baseline_m=0.095,
+                focal_length_px=673.0,
+                disparity_noise_px=0.08,
                 hole_probability=0.01,
                 frame_drop_probability=0.001,
             ),
@@ -499,7 +512,10 @@ def create_robust_training_contract() -> SimRealContractCfg:
             ),
             depth_camera=DepthCameraNoiseCfg(
                 enable_noise=True,
-                base_noise_std_m=0.002,  # 2x typical
+                # Intel D555 stereo parameters with increased disparity noise
+                baseline_m=0.095,
+                focal_length_px=673.0,
+                disparity_noise_px=0.16,  # 2x typical for robust training
                 hole_probability=0.03,  # 3x typical
                 frame_drop_probability=0.01,  # 10x typical
             ),
@@ -592,20 +608,28 @@ def get_encoder_noise(contract: SimRealContractCfg) -> EncoderNoiseModelCfg | No
 
 def get_depth_noise(contract: SimRealContractCfg) -> DepthNoiseModelCfg | None:
     """Get depth camera noise config from contract.
-    
-    Returns DepthNoiseModelCfg which generates independent noise per environment,
-    including depth-dependent noise, holes, and frame drops.
+
+    Returns DepthNoiseModelCfg using Intel RealSense stereo error propagation:
+        σ_z = (z² / (f · B)) · σ_d
+
+    Includes depth-dependent noise, holes, and frame drops.
     """
     if not contract.sensors.depth_camera.enable_noise:
         return None
+
+    # Compute noise at 1m for informational GaussianNoiseCfg
+    cfg = contract.sensors.depth_camera
+    noise_at_1m = cfg.disparity_noise_px / (cfg.focal_length_px * cfg.baseline_m)
+
     return DepthNoiseModelCfg(
-        noise_cfg=GaussianNoiseCfg(std=contract.sensors.depth_camera.base_noise_std_m),
-        base_noise_std=contract.sensors.depth_camera.base_noise_std_m,
-        depth_noise_coeff=contract.sensors.depth_camera.noise_depth_coefficient,
-        hole_probability=contract.sensors.depth_camera.hole_probability,
-        min_range=contract.sensors.depth_camera.min_range_m,
-        max_range=contract.sensors.depth_camera.max_range_m,
-        frame_drop_prob=contract.sensors.depth_camera.frame_drop_probability,
+        noise_cfg=GaussianNoiseCfg(std=noise_at_1m),
+        baseline_m=cfg.baseline_m,
+        focal_length_px=cfg.focal_length_px,
+        disparity_noise_px=cfg.disparity_noise_px,
+        hole_probability=cfg.hole_probability,
+        min_range=cfg.min_range_m,
+        max_range=cfg.max_range_m,
+        frame_drop_prob=cfg.frame_drop_probability,
     )
 
 

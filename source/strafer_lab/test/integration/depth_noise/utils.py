@@ -727,7 +727,9 @@ def _freeze_robot_in_place(env):
 
     This is called after each simulation step when freeze_robot=True to prevent
     any micro-settling from affecting depth measurements. The robot's position
-    is preserved, only velocities are zeroed.
+    is preserved, only velocities are zeroed. Additionally, the root pose is
+    re-written from the first call's snapshot so the robot behaves like a
+    kinematic object during stationary sampling.
 
     Args:
         env: The Isaac Lab environment
@@ -736,19 +738,19 @@ def _freeze_robot_in_place(env):
     num_envs = env.num_envs
     device = env.device
 
-    # Get current root state to preserve position and orientation
-    current_state = robot.data.root_state_w.clone()
+    # On the first call after a reset, capture the desired frozen pose.
+    if not hasattr(_freeze_robot_in_place, "_frozen_root_state"):
+        _freeze_robot_in_place._frozen_root_state = robot.data.root_state_w.clone()
+        _freeze_robot_in_place._frozen_joint_pos = robot.data.joint_pos.clone()
 
-    # Zero out velocities (indices 7-12: lin_vel_x, lin_vel_y, lin_vel_z, ang_vel_x, ang_vel_y, ang_vel_z)
-    current_state[:, 7:13] = 0.0
+    frozen_root = _freeze_robot_in_place._frozen_root_state.clone()
+    # Ensure velocities are zero
+    frozen_root[:, 7:13] = 0.0
+    robot.write_root_state_to_sim(frozen_root)
 
-    # Write back with zeroed velocities
-    robot.write_root_state_to_sim(current_state)
-
-    # Also zero joint velocities
-    joint_pos = robot.data.joint_pos.clone()
+    frozen_joint_pos = _freeze_robot_in_place._frozen_joint_pos
     joint_vel = torch.zeros(num_envs, robot.num_joints, device=device)
-    robot.write_joint_state_to_sim(joint_pos, joint_vel)
+    robot.write_joint_state_to_sim(frozen_joint_pos, joint_vel)
 
 
 # =============================================================================
@@ -784,8 +786,8 @@ def reset_noise_models(env):
 
 def collect_stationary_observations(
     env, n_steps: int, n_settle_steps: int = N_SETTLE_STEPS, face_wall: bool = True,
-    verify_stability: bool = False, freeze_robot: bool = True, track_positions: bool = False
-) -> torch.Tensor | tuple[torch.Tensor, dict]:
+    freeze_robot: bool = True
+) -> torch.Tensor:
     """Collect observations from a stationary robot over multiple steps.
 
     With zero actions and settled physics, any observation variance
@@ -797,17 +799,12 @@ def collect_stationary_observations(
         n_settle_steps: Number of steps to let physics settle before collecting
         face_wall: If True (default), robot faces the wall (-Y direction).
                    If False, robot faces away from wall (+Y direction) to see max-range.
-        verify_stability: If True, check and report robot stability metrics
         freeze_robot: If True (default), continuously zero out robot velocities during
                       observation collection to eliminate micro-settling noise. This ensures
                       any measured variance comes purely from sensor noise, not robot movement.
-        track_positions: If True, also track robot and wall positions at each timestep
-                         to detect any drift. Returns (observations, position_data) tuple.
 
     Returns:
-        If track_positions=False: Tensor of shape (n_steps, num_envs, obs_dim)
-        If track_positions=True: Tuple of (observations, position_data) where position_data
-                                 is a dict with 'robot_pos', 'wall_pos', 'distance' tensors
+        Tensor of shape (n_steps, num_envs, obs_dim)
     """
     # Full environment reset to ensure clean state
     # This clears any episode management state that might interfere with pose setting
@@ -829,120 +826,18 @@ def collect_stationary_observations(
         if freeze_robot:
             _freeze_robot_in_place(env)
 
-    # Optionally verify robot is stable before collecting
-    if verify_stability:
-        robot = env.scene["robot"]
-        root_pos = robot.data.root_pos_w  # World positions
-        root_vel = robot.data.root_lin_vel_w
-        root_ang_vel = robot.data.root_ang_vel_w
-        lin_speed = root_vel.norm(dim=1).max().item()
-        ang_speed = root_ang_vel.norm(dim=1).max().item()
-
-        # Get expected positions from env origins
-        env_origins = get_env_origins(env)
-
-        print(f"    Robot stability after {n_settle_steps} settle steps:")
-        print(f"      Num environments: {env.num_envs}")
-        print(f"      Robot freeze enabled: {freeze_robot}")
-        print(f"      Max linear velocity: {lin_speed:.6f} m/s")
-        print(f"      Max angular velocity: {ang_speed:.6f} rad/s")
-
-        # Verify robots are at their grid positions
-        pos_errors = (root_pos[:, :2] - env_origins[:, :2]).norm(dim=1)
-        max_pos_error = pos_errors.max().item()
-        print(f"      Max XY position error from grid origin: {max_pos_error:.4f} m")
-
-        if env.num_envs > 1:
-            # Check that robots are spread out (not overlapping)
-            robot_positions = root_pos[:, :2]  # XY only
-            min_inter_robot_dist = float('inf')
-            for i in range(env.num_envs):
-                for j in range(i + 1, env.num_envs):
-                    dist = (robot_positions[i] - robot_positions[j]).norm().item()
-                    min_inter_robot_dist = min(min_inter_robot_dist, dist)
-            print(f"      Min inter-robot distance: {min_inter_robot_dist:.2f} m")
-            if min_inter_robot_dist < 1.0:
-                print(f"      WARNING: Robots may be overlapping!")
-
-        if lin_speed > 1e-4 or ang_speed > 1e-4:
-            print(f"      WARNING: Robot may not be fully settled!")
-
-    # Collect observations (and optionally positions)
+    # Collect observations
     observations = []
-    robot_positions = [] if track_positions else None
-    wall_positions = [] if track_positions else None
-
-    # Get references for position tracking
-    if track_positions:
-        robot = env.scene["robot"]
-        # Wall may not exist in all scene configurations
-        try:
-            wall = env.scene["test_wall"]
-        except KeyError:
-            wall = None
-            print("    WARNING: No 'test_wall' found in scene, position tracking limited to robot only")
 
     for _ in range(n_steps):
         obs_dict, _, _, _, _ = env.step(zero_action)
         observations.append(obs_dict["policy"].clone())
 
-        if track_positions:
-            # Track robot root position (shape: num_envs, 3)
-            robot_positions.append(robot.data.root_pos_w.clone())
-            if wall is not None:
-                # Track wall position (shape: num_envs, 3)
-                wall_positions.append(wall.data.root_pos_w.clone())
-
         if freeze_robot:
             _freeze_robot_in_place(env)
 
     obs_tensor = torch.stack(observations, dim=0)
-
-    if track_positions:
-        # Stack position histories: (n_steps, num_envs, 3)
-        robot_pos_tensor = torch.stack(robot_positions, dim=0)
-        wall_pos_tensor = torch.stack(wall_positions, dim=0) if wall_positions else None
-
-        # Compute camera-to-wall distance over time
-        # Camera is offset from robot root by (0, CAMERA_Y_OFFSET/100, CAMERA_Z_OFFSET/100)
-        # For distance to wall, we care about Y component (wall is in -Y direction)
-        if wall_pos_tensor is not None:
-            # Robot Y position + camera offset (-0.2m forward)
-            camera_y = robot_pos_tensor[:, :, 1] - 0.2  # Approximate camera Y offset
-            # Wall front surface Y (wall center Y + half thickness)
-            wall_front_y = wall_pos_tensor[:, :, 1] + 0.05  # +half thickness
-            # Distance = |camera_y - wall_front_y|
-            distance = torch.abs(camera_y - wall_front_y)
-        else:
-            distance = None
-
-        position_data = {
-            'robot_pos': robot_pos_tensor,
-            'wall_pos': wall_pos_tensor,
-            'distance': distance,
-        }
-        return obs_tensor, position_data
-
     return obs_tensor
-
-
-def collect_stationary_observations_facing_away(
-    env, n_steps: int, n_settle_steps: int = N_SETTLE_STEPS
-) -> torch.Tensor:
-    """Collect observations with robot facing away from wall (for max-range tests).
-
-    This is a convenience wrapper around collect_stationary_observations that
-    faces the robot away from the wall so camera sees open space (max-range).
-
-    Args:
-        env: The Isaac Lab environment
-        n_steps: Number of observation steps to collect
-        n_settle_steps: Number of steps to let physics settle before collecting
-
-    Returns:
-        Tensor of shape (n_steps, num_envs, obs_dim)
-    """
-    return collect_stationary_observations(env, n_steps, n_settle_steps, face_wall=False)
 
 
 # =============================================================================

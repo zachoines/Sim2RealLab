@@ -85,67 +85,10 @@ from utils import (
 TEST_FRAME_DROP_PROB = 0.10   # 10% frame drop rate
 TEST_DISPARITY_NOISE_PX = D555_DISPARITY_NOISE_PX  # Use D555 stereo noise
 
-# Small residual variance floor to cover renderer precision / micro-jitter not
-# captured by the analytical model. In normalized units^2 for first differences.
-# Chosen from empirical residual (~2-3e-09) observed in CI with 23M samples.
-RESIDUAL_VAR_FLOOR = 2e-9
-
-# Dynamically estimated correction factor (measured/expected) from baseline diag.
-# Initialized to 1.0 and updated in TestBaselineNoise.test_diagnose_baseline_sources.
-VARIANCE_CORRECTION_FACTOR = 1.0
-
 
 # =============================================================================
 # Utility: baseline variance correction
 # =============================================================================
-
-
-def _compute_variance_correction_from_obs(obs: torch.Tensor, height: int, width: int) -> float:
-    """Estimate measured/expected variance ratio for wall pixels to use as a correction factor.
-
-    Uses up to 3 environments for a quick estimate. Returns 1.0 if estimation fails.
-    """
-    variance_ratios = []
-    for env_idx in range(min(3, obs.shape[1])):
-        depth_obs = obs[:, env_idx, DEPTH_START_IDX:]
-
-        is_wall = identify_wall_pixels(
-            depth_obs,
-            tolerance=0.05,
-            max_std=0.10,
-            height=height,
-            width=width,
-            expected_depth=TEST_WALL_DEPTH_NORMALIZED,
-        )
-        n_wall = is_wall.sum().item()
-        if n_wall < 50:
-            continue
-
-        wall_depths = depth_obs[:, is_wall]
-        wall_depth_mean_m = (wall_depths.mean() * DEPTH_MAX_RANGE).item()
-
-        first_diffs = wall_depths[1:] - wall_depths[:-1]
-        diff_var = first_diffs.var().item()
-
-        # Observed drop rate on full frame to align expectation with this run
-        full_first_diffs = depth_obs[1:] - depth_obs[:-1]
-        max_abs_full = full_first_diffs.abs().max(dim=1).values
-        observed_drop_rate = (max_abs_full < 1e-9).float().mean().item()
-        p_fresh = 1 - observed_drop_rate
-
-        expected_noise_std = stereo_depth_noise_std(
-            wall_depth_mean_m,
-            baseline_m=D555_BASELINE_M,
-            focal_length_px=D555_FOCAL_LENGTH_PX,
-            disparity_noise_px=TEST_DISPARITY_NOISE_PX,
-        )
-        expected_var = p_fresh * 2 * (expected_noise_std / DEPTH_MAX_RANGE) ** 2
-        if expected_var > 0:
-            variance_ratios.append(diff_var / expected_var)
-
-    if variance_ratios:
-        return float(np.median(variance_ratios))
-    return 1.0
 
 
 # =============================================================================
@@ -199,190 +142,6 @@ def pytest_sessionfinish(session, exitstatus):
 # Tests: Frame Drop Detection
 # =============================================================================
 
-class TestBaselineNoise:
-    """Diagnostic tests to measure baseline noise from Isaac Sim's depth buffer.
-
-    These tests help understand the variance components:
-    1. Baseline render noise (raytracer precision, temporal aliasing)
-    2. Robot movement noise (micro-settling)
-    3. Configured noise from our noise model
-
-    Run these tests first to establish the baseline, then compare against
-    tests with noise enabled.
-    """
-
-    def test_diagnose_baseline_sources(self, depth_env):
-        """Diagnose sources of variance in the depth observations.
-
-        This test measures the variance of raw depth values and tries to
-        attribute it to different sources:
-        - Mean depth variance (if wall is at consistent distance)
-        - Temporal variance per pixel (frame-to-frame noise)
-        - Spatial variance (are all wall pixels at same depth?)
-        """
-        print(f"\n  Baseline noise diagnosis:")
-
-        obs = collect_stationary_observations(
-            depth_env, N_SAMPLES_STEPS, face_wall=True, verify_stability=True
-        )
-
-        camera = depth_env.scene["d555_camera"]
-        height, width = camera.cfg.height, camera.cfg.width
-
-        for env_idx in range(min(3, obs.shape[1])):  # Analyze first 3 envs
-            depth_obs = obs[:, env_idx, DEPTH_START_IDX:]
-
-            # Find wall pixels
-            is_wall = identify_wall_pixels(
-                depth_obs, tolerance=0.05, max_std=0.10,  # Looser max_std for diagnosis
-                height=height, width=width,
-                expected_depth=TEST_WALL_DEPTH_NORMALIZED,
-            )
-            n_wall = is_wall.sum().item()
-
-            if n_wall < 10:
-                print(f"    Env {env_idx}: Insufficient wall pixels ({n_wall})")
-                continue
-
-            wall_depths = depth_obs[:, is_wall]  # (n_steps, n_wall_pixels)
-
-            # Temporal variance: per-pixel variance across time
-            temporal_var = wall_depths.var(dim=0).mean().item()  # avg variance per pixel
-
-            # Spatial variance: per-timestep variance across pixels
-            spatial_var = wall_depths.var(dim=1).mean().item()  # avg variance per timestep
-
-            # First-diff variance (what we test)
-            first_diffs = wall_depths[1:] - wall_depths[:-1]
-            diff_var = first_diffs.var().item()
-
-            # Mean depth
-            mean_depth = wall_depths.mean().item()
-            mean_depth_m = mean_depth * DEPTH_MAX_RANGE
-
-            # Convert to physical units
-            temporal_std_m = (temporal_var ** 0.5) * DEPTH_MAX_RANGE
-            spatial_std_m = (spatial_var ** 0.5) * DEPTH_MAX_RANGE
-            diff_std_m = (diff_var ** 0.5) * DEPTH_MAX_RANGE / (2 ** 0.5)  # Account for 2x in diff var
-
-            # Expected stereo noise at wall distance
-            expected_noise_std = stereo_depth_noise_std(
-                mean_depth_m, D555_BASELINE_M, D555_FOCAL_LENGTH_PX, TEST_DISPARITY_NOISE_PX
-            )
-
-            print(f"    Env {env_idx}: {n_wall} wall pixels")
-            print(f"      Mean depth: {mean_depth:.4f} ({mean_depth_m:.3f}m)")
-            print(f"      Temporal std (per pixel): {temporal_std_m*1000:.2f}mm")
-            print(f"      Spatial std (per frame): {spatial_std_m*1000:.2f}mm")
-            print(f"      First-diff implied std: {diff_std_m*1000:.2f}mm")
-            print(f"      Expected stereo noise at {mean_depth_m:.1f}m: {expected_noise_std*1000:.2f}mm")
-
-        # Update global correction factor using this observation batch
-        global VARIANCE_CORRECTION_FACTOR
-        factor = _compute_variance_correction_from_obs(obs, height, width)
-        # Only reduce expectation; if factor>1, clamp to 1.0 to avoid over-correction
-        VARIANCE_CORRECTION_FACTOR = min(factor, 1.0)
-        print(f"\n    Baseline variance correction factor set to {VARIANCE_CORRECTION_FACTOR:.6f}.")
-
-        # This is a diagnostic test - always passes but provides info
-        print(f"\n    NOTE: If first-diff std >> expected, investigate:")
-        print(f"      - Robot not fully settled (check velocity above)")
-        print(f"      - Isaac Sim raytracer has inherent noise")
-        print(f"      - Wall geometry issues (not perfectly flat)")
-
-    def test_position_drift_diagnostic(self, depth_env):
-        """Diagnose whether observed variance comes from position drift vs render noise.
-
-        Tracks robot and wall positions directly from simulation to see if there's
-        any physical drift that could explain variance beyond configured noise.
-
-        If positions are perfectly stable but depth varies, the variance is from
-        rendering noise. If positions drift, the variance includes physical movement.
-        """
-        print(f"\n  Position drift diagnostic:")
-
-        obs, pos_data = collect_stationary_observations(
-            depth_env, N_SAMPLES_STEPS, face_wall=True, verify_stability=True,
-            track_positions=True
-        )
-
-        robot_pos = pos_data['robot_pos']  # (n_steps, num_envs, 3)
-        wall_pos = pos_data['wall_pos']    # (n_steps, num_envs, 3) or None
-        distance = pos_data['distance']     # (n_steps, num_envs) or None
-
-        # Analyze robot position drift
-        robot_drift = robot_pos[-1] - robot_pos[0]  # Final - initial
-        robot_drift_mm = robot_drift * 1000
-
-        print(f"    Robot position analysis (over {N_SAMPLES_STEPS} steps):")
-        print(f"      Initial pos (env 0): {robot_pos[0, 0].cpu().numpy()}")
-        print(f"      Final pos (env 0):   {robot_pos[-1, 0].cpu().numpy()}")
-        print(f"      Total drift (env 0): {robot_drift_mm[0].cpu().numpy()} mm")
-
-        # Per-step robot position variance
-        robot_pos_std = robot_pos.std(dim=0)  # (num_envs, 3)
-        print(f"      Position std over time (env 0): {(robot_pos_std[0] * 1000).cpu().numpy()} mm")
-
-        if wall_pos is not None:
-            wall_drift = wall_pos[-1] - wall_pos[0]
-            wall_drift_mm = wall_drift * 1000
-
-            print(f"\n    Wall position analysis:")
-            print(f"      Initial pos (env 0): {wall_pos[0, 0].cpu().numpy()}")
-            print(f"      Final pos (env 0):   {wall_pos[-1, 0].cpu().numpy()}")
-            print(f"      Total drift (env 0): {wall_drift_mm[0].cpu().numpy()} mm")
-
-            wall_pos_std = wall_pos.std(dim=0)
-            print(f"      Position std over time (env 0): {(wall_pos_std[0] * 1000).cpu().numpy()} mm")
-
-        if distance is not None:
-            print(f"\n    Camera-to-wall distance analysis:")
-            dist_mean = distance.mean(dim=0)  # (num_envs,)
-            dist_std = distance.std(dim=0)    # (num_envs,)
-            dist_range = distance.max(dim=0).values - distance.min(dim=0).values
-
-            print(f"      Mean distance (env 0): {dist_mean[0].item():.6f} m")
-            print(f"      Distance std (env 0):  {dist_std[0].item() * 1000:.4f} mm")
-            print(f"      Distance range (env 0): {dist_range[0].item() * 1000:.4f} mm")
-
-            # Compare with depth observation variance
-            depth_obs = obs[:, 0, DEPTH_START_IDX:]
-            is_wall = identify_wall_pixels(
-                depth_obs, tolerance=0.05, max_std=0.10,
-                expected_depth=TEST_WALL_DEPTH_NORMALIZED,
-            )
-            if is_wall.sum() > 100:
-                wall_depths = depth_obs[:, is_wall]
-                # Convert normalized depth back to meters
-                wall_depth_m = wall_depths.mean(dim=1) * DEPTH_MAX_RANGE  # (n_steps,)
-
-                obs_depth_mean = wall_depth_m.mean().item()
-                obs_depth_std = wall_depth_m.std().item()
-                obs_depth_range = (wall_depth_m.max() - wall_depth_m.min()).item()
-
-                print(f"\n    Observed depth (from wall pixels):")
-                print(f"      Mean observed depth: {obs_depth_mean:.6f} m")
-                print(f"      Observed depth std:  {obs_depth_std * 1000:.4f} mm")
-                print(f"      Observed depth range: {obs_depth_range * 1000:.4f} mm")
-
-                # Expected stereo noise at wall distance
-                expected_noise_std = stereo_depth_noise_std(
-                    obs_depth_mean, D555_BASELINE_M, D555_FOCAL_LENGTH_PX, TEST_DISPARITY_NOISE_PX
-                )
-
-                print(f"\n    Comparison:")
-                print(f"      Physical distance std:  {dist_std[0].item() * 1000:.4f} mm")
-                print(f"      Observed depth std:     {obs_depth_std * 1000:.4f} mm")
-                print(f"      Expected stereo noise at {obs_depth_mean:.2f}m: {expected_noise_std * 1000:.2f} mm")
-
-                if dist_std[0].item() < 1e-6:
-                    print(f"\n    CONCLUSION: Position is STABLE (< 1μm drift)")
-                    print(f"      All observed variance must come from noise model + render noise")
-                else:
-                    print(f"\n    CONCLUSION: Position is DRIFTING")
-                    print(f"      Some variance may come from physical movement")
-
-
 class TestFrameDropVariance:
     """Test frame drop detection through zero-difference analysis.
 
@@ -405,11 +164,14 @@ class TestFrameDropVariance:
 
         Pools data across all parallel environments for robust statistics.
         """
-        obs = collect_stationary_observations(depth_env, N_SAMPLES_STEPS)
+        # Seed RNGs to make results independent of earlier tests (order changes)
+        torch.manual_seed(42)
+        np.random.seed(42)
 
-        print(f"\n  Frame drop detection test:")
-        print(f"    Expected frame drop rate: {TEST_FRAME_DROP_PROB}")
-        print(f"    Number of parallel environments: {obs.shape[1]}")
+        obs = collect_stationary_observations(depth_env, N_SAMPLES_STEPS, n_settle_steps=10)
+
+        print(f"\n  Frame drop detection:")
+        print(f"    Parallel environments: {obs.shape[1]}")
 
         # Pool across all environments
         total_steps = 0
@@ -434,16 +196,15 @@ class TestFrameDropVariance:
 
         observed_rate = total_zero_steps / total_steps
 
-        print(f"    Total timesteps (all envs): {total_steps}")
-        print(f"    Zero-diff timesteps: {total_zero_steps}")
-        print(f"    Observed drop rate: {observed_rate:.4f}")
+        print(f"    Total timesteps: {total_steps}")
+        print(f"    Expected drop prob: {TEST_FRAME_DROP_PROB}")
+        print(f"    Measured drop prob: {observed_rate:.6f}")
 
         # Binomial test: is observed rate consistent with expected rate?
         result = stats.binomtest(total_zero_steps, total_steps, TEST_FRAME_DROP_PROB)
         alpha = 1 - CONFIDENCE_LEVEL
 
-        print(f"    Binomial test p-value: {result.pvalue:.4f}")
-        print(f"    Significance level (alpha): {alpha}")
+        print(f"    Binomial test p-value: {result.pvalue:.4f} (alpha={alpha})")
 
         # Pass if we fail to reject H0 (rates are consistent)
         assert result.pvalue > alpha, (
@@ -467,29 +228,20 @@ class TestFrameDropVariance:
         We measure variance on ALL first differences (including zeros from drops)
         and compare against (1-p) * 2σ² where σ is the noise std.
         """
-        print(f"\n  Fresh frame variance test (with frame drops):")
+        print(f"\n  Fresh frame variance (with frame drops):")
+
+        # Seed RNGs to make results independent of earlier tests (order changes)
+        torch.manual_seed(42)
+        np.random.seed(42)
 
         # Collect observations with extra settle time to ensure stable state
         obs = collect_stationary_observations(
-            depth_env, N_SAMPLES_STEPS, face_wall=True, verify_stability=True,
+            depth_env, N_SAMPLES_STEPS, face_wall=True,
             n_settle_steps=100,  # Extra settling for noise model state
         )
 
-        # Diagnostic: check what the camera is actually seeing
-        depth_first_step = obs[0, 0, DEPTH_START_IDX:]  # First step, first env
-        mean_depth = depth_first_step.mean().item()
-        print(f"    DIAGNOSTIC: Mean depth in first obs: {mean_depth:.4f} (expected ~{TEST_WALL_DEPTH_NORMALIZED:.3f} for wall)")
-        if abs(mean_depth - TEST_WALL_DEPTH_NORMALIZED) > 0.2:
-            print(f"    WARNING: Camera may not be facing wall!")
-
         camera = depth_env.scene["d555_camera"]
         height, width = camera.cfg.height, camera.cfg.width
-
-        # If baseline correction hasn't been set (e.g., baseline test skipped), derive it now
-        global VARIANCE_CORRECTION_FACTOR
-        if VARIANCE_CORRECTION_FACTOR == 1.0:
-            VARIANCE_CORRECTION_FACTOR = min(_compute_variance_correction_from_obs(obs, height, width), 1.0)
-            print(f"    Variance correction factor (fallback) set to {VARIANCE_CORRECTION_FACTOR:.6f}.")
 
         # Pool wall pixel differences across ALL environments
         all_diffs = []
@@ -547,9 +299,6 @@ class TestFrameDropVariance:
             first_diffs = wall_depths[1:] - wall_depths[:-1]
             all_diffs.append(first_diffs.flatten())
 
-            if env_idx < 3:  # Print details for first few envs
-                print(f"    Env {env_idx}: {n_wall} wall pixels")
-
         assert len(all_diffs) > 0, (
             f"No environments with sufficient wall pixels. "
             f"Check test scene geometry and camera orientation."
@@ -581,8 +330,7 @@ class TestFrameDropVariance:
         # Use per-sample averaged noise variance (normalized units) for the expectation
         mean_noise_std_sq_normalized = noise_std_sq_sum / noise_std_sq_count
         expected_var = (
-            p_fresh * 2 * mean_noise_std_sq_normalized * VARIANCE_CORRECTION_FACTOR
-            + RESIDUAL_VAR_FLOOR
+            p_fresh * 2 * mean_noise_std_sq_normalized
         )
         expected_noise_std_m = (mean_noise_std_sq_normalized ** 0.5) * DEPTH_MAX_RANGE
 
@@ -593,80 +341,34 @@ class TestFrameDropVariance:
 
         ratio = measured_var / expected_var
 
-        print(f"    Results:")
-        print(f"      Environments with wall pixels: {envs_with_wall}")
-        print(f"      Total wall pixels: {total_wall_pixels}")
-        print(f"      Total samples (all diffs, including drops): {n_samples}")
-        print(f"      Measured wall depth (mean across envs): {mean_wall_depth_m:.4f} m")
-        print(f"      Frame drop probability (config): {TEST_FRAME_DROP_PROB}")
-        print(f"      Frame drop probability (observed): {observed_drop_rate:.6f}")
-        print(f"      Measured variance: {measured_var:.2e}")
-        print(f"      Expected variance (using observed p_drop): {expected_var:.2e}")
+        print(f"    Summary:")
+        print(f"      Parallel environments: {obs.shape[1]}")
+        print(f"      Wall pixels (total): {total_wall_pixels}")
+        print(f"      Samples (diffs): {n_samples}")
+        print(f"      Wall depth (mean): {mean_wall_depth_m:.4f} m")
+        print(f"      Drop prob (config): {TEST_FRAME_DROP_PROB}")
+        print(f"      Drop prob (measured): {observed_drop_rate:.6f}")
+        print(f"      Variance (expected): {expected_var:.2e}")
+        print(f"      Variance (measured): {measured_var:.2e}")
+        print(f"      Noise std (expected): ~{expected_std_m*1000:.2f} mm")
+        print(f"      Noise std (measured): ~{measured_std_m*1000:.2f} mm")
         print(f"      Variance ratio: {ratio:.4f}")
-        print(f"      Measured noise std: ~{measured_std_m*1000:.2f}mm")
-        print(f"      Expected noise std: ~{expected_std_m*1000:.2f}mm")
 
-        # Two-sided chi-squared test for variance
-        # H0: σ² = expected_var
-        # Test statistic: χ² = (n-1) * S² / σ²
         df = n_samples - 1
         alpha = 1 - CONFIDENCE_LEVEL
         chi2_low = stats.chi2.ppf(alpha / 2, df)
         chi2_high = stats.chi2.ppf(1 - alpha / 2, df)
 
-        # Confidence interval for ratio = S² / σ²
         ci_low = chi2_low / df
         ci_high = chi2_high / df
 
         print(f"      {CONFIDENCE_LEVEL*100:.0f}% CI for ratio: [{ci_low:.4f}, {ci_high:.4f}]")
 
-        # With very large sample sizes, the chi-squared CI becomes extremely narrow
-        # (e.g., 0.9994 to 1.0006 with 23M samples). A ratio of 1.0025 is statistically
-        # "significant" but practically meaningless - it's only 0.25% deviation.
-        #
-        # We use BOTH criteria:
-        # 1. Practical tolerance: ratio must be within [0.9, 1.1] (10% engineering tolerance)
-        # 2. Statistical test: ratio should be close to CI (informational, not enforced)
-        #
-        # The practical tolerance ensures the noise model is working correctly without
-        # being overly sensitive to tiny deviations that have no engineering significance.
-        PRACTICAL_TOLERANCE_LOW = 0.9
-        PRACTICAL_TOLERANCE_HIGH = 1.1
-
-        in_practical_bounds = PRACTICAL_TOLERANCE_LOW <= ratio <= PRACTICAL_TOLERANCE_HIGH
         in_ci = ci_low <= ratio <= ci_high
 
-        print(f"      Practical tolerance: [{PRACTICAL_TOLERANCE_LOW}, {PRACTICAL_TOLERANCE_HIGH}]")
-        print(f"      In practical bounds: {in_practical_bounds}")
         print(f"      In statistical CI: {in_ci}")
 
-        if not in_practical_bounds:
-            print(f"    FAILURE: Variance ratio {ratio:.4f} outside practical bounds")
-            print(f"    Capturing debug images...")
-            debug_camera_orientation(depth_env)
-
-            # Provide diagnostic information
-            if ratio > PRACTICAL_TOLERANCE_HIGH:
-                excess_var = measured_var - expected_var
-                excess_std_m = (excess_var ** 0.5) * DEPTH_MAX_RANGE / (2 ** 0.5) if excess_var > 0 else 0
-                print(f"    DIAGNOSIS: Measured variance is {ratio:.1f}x expected.")
-                print(f"      Excess variance: {excess_var:.2e}")
-                print(f"      Excess noise std: ~{excess_std_m*1000:.1f}mm")
-                print(f"    Possible causes:")
-                print(f"      - Robot micro-movement during observation collection")
-                print(f"      - Additional noise source not accounted for")
-                print(f"      - Wall pixel selection including non-wall pixels")
-            else:
-                print(f"    DIAGNOSIS: Measured variance is too LOW ({ratio:.4f}x expected).")
-                print(f"    Possible causes:")
-                print(f"      - Noise model not being applied correctly")
-                print(f"      - Scale factor mismatch in observation pipeline")
-
-        assert in_practical_bounds, (
-            f"Fresh frame variance mismatch: ratio={ratio:.4f} "
-            f"outside practical bounds [{PRACTICAL_TOLERANCE_LOW}, {PRACTICAL_TOLERANCE_HIGH}]. "
-            f"Measured ~{measured_std_m*1000:.1f}mm vs expected ~{expected_std_m*1000:.1f}mm."
-        )
+        # debug_camera_orientation(depth_env)
 
         assert in_ci, (
             f"Fresh frame variance outside 95% CI: ratio={ratio:.6f}, "

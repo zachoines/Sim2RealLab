@@ -92,6 +92,8 @@ class StraferSceneCfg(InteractiveSceneCfg):
     )
 
     # Intel RealSense D555 depth camera (87° FOV, 0.4-6m range)
+    # Camera mount: 20cm forward (-Y), 25cm up (+Z) from body_link
+    # Rotation: 90° around Z axis to point camera in robot's forward direction (-Y in USD)
     d555_camera: TiledCameraCfg = TiledCameraCfg(
         prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link/d555_camera",
         update_period=1.0 / 30.0,
@@ -104,18 +106,21 @@ class StraferSceneCfg(InteractiveSceneCfg):
             clipping_range=(0.4, 6.0),
         ),
         offset=TiledCameraCfg.OffsetCfg(
-            pos=(0.0, -0.15, 0.10),
-            rot=(0.5, -0.5, 0.5, -0.5),
+            pos=(0.0, -0.20, 0.25),
+            # ROS camera convention: Z-forward, X-right, Y-down
+            # (0, 0, 0.707, -0.707) is 90° rotation around Z to point -Y
+            rot=(0.0, 0.0, 0.707, -0.707),
             convention="ros",
         ),
     )
 
     # Intel RealSense D555 IMU (BMI055)
+    # Co-located with camera for sensor fusion
     d555_imu: ImuCfg = ImuCfg(
         prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
         update_period=1.0 / 200.0,
         offset=ImuCfg.OffsetCfg(
-            pos=(0.0, -0.15, 0.10),
+            pos=(0.0, -0.20, 0.25),
             rot=(1.0, 0.0, 0.0, 0.0),
         ),
         gravity_bias=(0.0, 0.0, 9.81),
@@ -146,11 +151,12 @@ class StraferSceneCfg_NoCam(InteractiveSceneCfg):
     )
 
     # IMU only (no camera overhead)
+    # Same placement as camera scene for consistency
     d555_imu: ImuCfg = ImuCfg(
         prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
         update_period=1.0 / 200.0,
         offset=ImuCfg.OffsetCfg(
-            pos=(0.0, -0.15, 0.10),
+            pos=(0.0, -0.20, 0.25),
             rot=(1.0, 0.0, 0.0, 0.0),
         ),
         gravity_bias=(0.0, 0.0, 9.81),

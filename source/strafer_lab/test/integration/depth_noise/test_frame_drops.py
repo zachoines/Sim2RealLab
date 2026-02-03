@@ -52,7 +52,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 import torch
 import numpy as np
 import pytest
-from scipy import stats
 
 # Import shared utilities (must come after Isaac Sim launch)
 from utils import (
@@ -74,6 +73,9 @@ from utils import (
     create_frame_drops_with_gaussian_cfg,
     set_simulation_app,
     debug_camera_orientation,
+    # Statistical utilities from common module
+    binomial_test,
+    variance_ratio_test,
 )
 
 
@@ -194,22 +196,18 @@ class TestFrameDropVariance:
             total_steps += n_steps
             total_zero_steps += n_zero_steps
 
-        observed_rate = total_zero_steps / total_steps
+        # Binomial test: is observed rate consistent with expected rate?
+        result = binomial_test(total_zero_steps, total_steps, TEST_FRAME_DROP_PROB)
 
         print(f"    Total timesteps: {total_steps}")
         print(f"    Expected drop prob: {TEST_FRAME_DROP_PROB}")
-        print(f"    Measured drop prob: {observed_rate:.6f}")
-
-        # Binomial test: is observed rate consistent with expected rate?
-        result = stats.binomtest(total_zero_steps, total_steps, TEST_FRAME_DROP_PROB)
-        alpha = 1 - CONFIDENCE_LEVEL
-
-        print(f"    Binomial test p-value: {result.pvalue:.4f} (alpha={alpha})")
+        print(f"    Measured drop prob: {result.observed_rate:.6f}")
+        print(f"    Binomial test p-value: {result.p_value:.4f} (alpha={1 - CONFIDENCE_LEVEL})")
 
         # Pass if we fail to reject H0 (rates are consistent)
-        assert result.pvalue > alpha, (
-            f"Frame drop rate mismatch: observed={observed_rate:.4f}, "
-            f"expected={TEST_FRAME_DROP_PROB}, p-value={result.pvalue:.4f} <= alpha={alpha}"
+        assert not result.reject_null, (
+            f"Frame drop rate mismatch: observed={result.observed_rate:.4f}, "
+            f"expected={TEST_FRAME_DROP_PROB}, p-value={result.p_value:.4f}"
         )
 
     def test_fresh_frame_variance(self, depth_env):
@@ -339,7 +337,8 @@ class TestFrameDropVariance:
         measured_std_m = (measured_var / (2 * p_fresh)) ** 0.5 * DEPTH_MAX_RANGE
         expected_std_m = expected_noise_std_m
 
-        ratio = measured_var / expected_var
+        # Chi-squared test for variance
+        result = variance_ratio_test(measured_var, expected_var, n_samples)
 
         print(f"    Summary:")
         print(f"      Parallel environments: {obs.shape[1]}")
@@ -348,32 +347,20 @@ class TestFrameDropVariance:
         print(f"      Wall depth (mean): {mean_wall_depth_m:.4f} m")
         print(f"      Drop prob (config): {TEST_FRAME_DROP_PROB}")
         print(f"      Drop prob (measured): {observed_drop_rate:.6f}")
-        print(f"      Variance (expected): {expected_var:.2e}")
-        print(f"      Variance (measured): {measured_var:.2e}")
+        print(f"      Variance (expected): {result.expected_var:.2e}")
+        print(f"      Variance (measured): {result.measured_var:.2e}")
         print(f"      Noise std (expected): ~{expected_std_m*1000:.2f} mm")
         print(f"      Noise std (measured): ~{measured_std_m*1000:.2f} mm")
-        print(f"      Variance ratio: {ratio:.4f}")
+        print(f"      Variance ratio: {result.ratio:.4f}")
+        print(f"      {CONFIDENCE_LEVEL*100:.0f}% CI for ratio: [{result.ci_low:.4f}, {result.ci_high:.4f}]")
+        print(f"      In statistical CI: {result.in_ci}")
 
-        df = n_samples - 1
-        alpha = 1 - CONFIDENCE_LEVEL
-        chi2_low = stats.chi2.ppf(alpha / 2, df)
-        chi2_high = stats.chi2.ppf(1 - alpha / 2, df)
-
-        ci_low = chi2_low / df
-        ci_high = chi2_high / df
-
-        print(f"      {CONFIDENCE_LEVEL*100:.0f}% CI for ratio: [{ci_low:.4f}, {ci_high:.4f}]")
-
-        in_ci = ci_low <= ratio <= ci_high
-
-        print(f"      In statistical CI: {in_ci}")
-
-        if not in_ci:
+        if not result.in_ci:
             debug_camera_orientation(depth_env)
 
-        assert in_ci, (
-            f"Fresh frame variance outside 95% CI: ratio={ratio:.6f}, "
-            f"CI=[{ci_low:.6f}, {ci_high:.6f}], "
+        assert result.in_ci, (
+            f"Fresh frame variance outside 95% CI: ratio={result.ratio:.6f}, "
+            f"CI=[{result.ci_low:.6f}, {result.ci_high:.6f}], "
             f"observed p_drop={observed_drop_rate:.6f}, samples={n_samples}"
         )
 

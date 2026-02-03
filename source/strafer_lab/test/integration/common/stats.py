@@ -112,6 +112,60 @@ def chi_squared_variance_test(
     )
 
 
+def variance_ratio_test(
+    measured_var: float,
+    expected_var: float,
+    n_samples: int,
+    confidence_level: float = CONFIDENCE_LEVEL,
+) -> VarianceTestResult:
+    """Test if measured variance matches expected variance using chi-squared distribution.
+
+    Use this function when you've already computed the variance (e.g., from pooled
+    first-differences across environments) rather than having raw samples.
+
+    Uses the chi-squared distribution:
+        (n-1) * s² / σ² ~ χ²(n-1)
+
+    Args:
+        measured_var: Measured (sample) variance
+        expected_var: Expected (theoretical) variance
+        n_samples: Number of samples used to compute measured_var
+        confidence_level: Confidence level for the test (default 0.95)
+
+    Returns:
+        VarianceTestResult with test statistics and CI
+    """
+    if expected_var <= 0:
+        raise ValueError("expected_var must be positive")
+    if n_samples < 2:
+        raise ValueError("n_samples must be at least 2")
+
+    df = n_samples - 1
+    ratio = measured_var / expected_var
+
+    # Chi-squared confidence interval for variance ratio
+    alpha = 1 - confidence_level
+    chi2_low = stats.chi2.ppf(alpha / 2, df)
+    chi2_high = stats.chi2.ppf(1 - alpha / 2, df)
+
+    # CI for ratio
+    ci_low = chi2_low / df
+    ci_high = chi2_high / df
+
+    in_ci = ci_low <= ratio <= ci_high
+
+    return VarianceTestResult(
+        measured_var=measured_var,
+        expected_var=expected_var,
+        ratio=ratio,
+        ci_low=ci_low,
+        ci_high=ci_high,
+        in_ci=in_ci,
+        n_samples=n_samples,
+        df=df,
+    )
+
+
 def chi_squared_variance_ci(
     samples: np.ndarray,
     confidence_level: float = CONFIDENCE_LEVEL,

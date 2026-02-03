@@ -4,7 +4,7 @@
 """Shared test utilities for depth noise integration tests.
 
 This module provides:
-- Constants shared across all depth noise tests
+- Constants specific to depth noise tests
 - Dedicated test scene configuration with controlled geometry
 - Environment creation and cleanup utilities
 - Observation collection helpers
@@ -17,42 +17,50 @@ The test scene provides:
 - A wall at known distance (TEST_WALL_DISTANCE) for non-max pixels
 - Open space behind the robot for max-range pixels
 - Controlled geometry independent of training scene content
+
+Shared statistical utilities are imported from test.integration.common.
 """
 
 import torch
 import numpy as np
-from scipy import stats
 from pathlib import Path
+
+# Import shared constants from common module
+from test.integration.common.constants import (
+    CONFIDENCE_LEVEL,
+    DEFAULT_NUM_ENVS,
+    DEFAULT_SETTLE_STEPS,
+    DEVICE,
+    DEPTH_MAX_RANGE,
+    DEPTH_MIN_RANGE,
+    D555_BASELINE_M,
+    D555_FOCAL_LENGTH_PX,
+    D555_DISPARITY_NOISE_PX,
+)
+
+# Re-export statistical utilities from common module for use by test files
+from test.integration.common.stats import (
+    variance_ratio_test,
+    binomial_test,
+    one_sample_t_test,
+    VarianceTestResult,
+    BinomialTestResult,
+    TTestResult,
+)
 
 # =============================================================================
 # Test Configuration Constants
 # =============================================================================
 
-# Environment settings
-# Multiple parallel environments improve statistical power
-# Each environment has its own wall via {ENV_REGEX_NS} pattern
-NUM_ENVS = 16                 # Parallel robots with walls
-N_SAMPLES_STEPS = 500         # Steps per environment
-N_SETTLE_STEPS = 50           # Steps to let physics settle fully
-DEVICE = "cuda:0"
-
-# Statistical thresholds
-CONFIDENCE_LEVEL = 0.95      # For hypothesis tests
+# Environment settings (use shared defaults)
+NUM_ENVS = DEFAULT_NUM_ENVS   # Parallel robots with walls
+N_SAMPLES_STEPS = 500         # Steps per environment (depth-specific)
+N_SETTLE_STEPS = DEFAULT_SETTLE_STEPS  # Steps to let physics settle
 
 # Observation term indices for Depth config
 # imu_accel(3) + imu_gyro(3) + encoders(4) + goal(2) + action(3) + depth(N)
 # Depth starts at index 15 and continues to end
 DEPTH_START_IDX = 15
-
-# Depth camera parameters (from REAL_ROBOT_CONTRACT)
-DEPTH_MAX_RANGE = 6.0
-DEPTH_MIN_RANGE = 0.2
-
-# Intel RealSense D555 stereo parameters (for noise model)
-# These are physical camera properties used in stereo error propagation
-D555_BASELINE_M = 0.095        # Stereo baseline: 95mm
-D555_FOCAL_LENGTH_PX = 673.0   # Focal length at native 1280x720 resolution
-D555_DISPARITY_NOISE_PX = 0.08 # Typical subpixel disparity noise
 
 # Test scene geometry
 TEST_WALL_DISTANCE = 2.0     # meters - wall in front of robot

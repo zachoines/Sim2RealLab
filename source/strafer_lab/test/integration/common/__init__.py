@@ -23,9 +23,13 @@ from .constants import (
 from .stats import (
     chi_squared_variance_test,
     chi_squared_variance_ci,
+    variance_ratio_test,
     one_sample_t_test,
     welch_t_test,
     binomial_test,
+    VarianceTestResult,
+    TTestResult,
+    BinomialTestResult,
 )
 
 from .circular import (
@@ -45,9 +49,14 @@ __all__ = [
     # Statistical tests
     "chi_squared_variance_test",
     "chi_squared_variance_ci",
+    "variance_ratio_test",
     "one_sample_t_test",
     "welch_t_test",
     "binomial_test",
+    # Result types
+    "VarianceTestResult",
+    "TTestResult",
+    "BinomialTestResult",
     # Circular statistics
     "circular_mean",
     "circular_variance",

@@ -60,7 +60,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 import torch
 import numpy as np
 import pytest
-from scipy import stats
 
 # Import shared utilities (must come after Isaac Sim launch)
 from utils import (
@@ -81,7 +80,10 @@ from utils import (
     create_depth_test_env,
     create_gaussian_only_noise_cfg,
     set_simulation_app,
-    debug_camera_orientation
+    debug_camera_orientation,
+    # Statistical utilities from common module
+    variance_ratio_test,
+    one_sample_t_test,
 )
 
 
@@ -231,17 +233,10 @@ class TestGaussianNoiseVariance:
         expected_noise_std_m = (mean_noise_std_sq_normalized ** 0.5) * DEPTH_MAX_RANGE
         mean_wall_depth_m = float(torch.tensor(wall_depth_means_m).mean().item())
 
-        ratio = measured_var / expected_var
+        # Chi-squared test for variance
+        result = variance_ratio_test(measured_var, expected_var, n_samples)
 
-        df = n_samples - 1
-        alpha = 1 - CONFIDENCE_LEVEL
-        chi2_low = stats.chi2.ppf(alpha / 2, df)
-        chi2_high = stats.chi2.ppf(1 - alpha / 2, df)
-        ci_low = chi2_low / df
-        ci_high = chi2_high / df
-        in_ci = ci_low <= ratio <= ci_high
-
-        if not in_ci:
+        if not result.in_ci:
             debug_camera_orientation(depth_env)
 
         print(f"    Summary:")
@@ -249,16 +244,16 @@ class TestGaussianNoiseVariance:
         print(f"      Wall pixels (total): {total_wall_pixels}")
         print(f"      Samples (diffs): {n_samples}")
         print(f"      Wall depth (mean): {mean_wall_depth_m:.4f} m")
-        print(f"      Variance (expected): {expected_var:.2e}")
-        print(f"      Variance (measured): {measured_var:.2e}")
+        print(f"      Variance (expected): {result.expected_var:.2e}")
+        print(f"      Variance (measured): {result.measured_var:.2e}")
         print(f"      Noise std (expected): ~{expected_noise_std_m*1000:.2f} mm")
         print(f"      Noise std (measured): ~{measured_std_m*1000:.2f} mm")
-        print(f"      Variance ratio: {ratio:.4f}")
-        print(f"      {CONFIDENCE_LEVEL*100:.0f}% CI for ratio: [{ci_low:.4f}, {ci_high:.4f}]")
-        print(f"      In statistical CI: {in_ci}")
-        assert in_ci, (
-            f"Gaussian noise variance mismatch: ratio={ratio:.6f} "
-            f"outside 95% CI [{ci_low:.6f}, {ci_high:.6f}]. "
+        print(f"      Variance ratio: {result.ratio:.4f}")
+        print(f"      {CONFIDENCE_LEVEL*100:.0f}% CI for ratio: [{result.ci_low:.4f}, {result.ci_high:.4f}]")
+        print(f"      In statistical CI: {result.in_ci}")
+        assert result.in_ci, (
+            f"Gaussian noise variance mismatch: ratio={result.ratio:.6f} "
+            f"outside 95% CI [{result.ci_low:.6f}, {result.ci_high:.6f}]. "
             f"Measured ~{measured_std_m*1000:.1f}mm vs expected ~{expected_noise_std_m*1000:.1f}mm."
         )
 
@@ -291,27 +286,23 @@ class TestGaussianNoiseVariance:
         assert len(all_diffs) > 0, "No environments with sufficient wall pixels"
 
         all_diffs_tensor = torch.cat(all_diffs)
-        mean_diff = all_diffs_tensor.mean().item()
-        std_diff = all_diffs_tensor.std().item()
-        n_samples = all_diffs_tensor.numel()
+        all_diffs_np = all_diffs_tensor.cpu().numpy()
 
-        sem = std_diff / np.sqrt(n_samples)
-        ci_half_width = 1.96 * sem
-        ci_low, ci_high = mean_diff - ci_half_width, mean_diff + ci_half_width
-        in_ci = (ci_low <= 0.0 <= ci_high)
+        # One-sample t-test: is mean significantly different from 0?
+        result = one_sample_t_test(all_diffs_np, null_value=0.0)
 
-        if not in_ci:
+        if result.reject_null:
             debug_camera_orientation(depth_env)
 
-        print(f"    N samples: {n_samples}")
-        print(f"    Mean diff: {mean_diff:.2e}")
-        print(f"    Std diff: {std_diff:.2e}")
-        print(f"    95% CI for mean: [{ci_low:.2e}, {ci_high:.2e}]")
-        print(f"    In CI: {in_ci}")
+        print(f"    N samples: {result.n_samples}")
+        print(f"    Mean diff: {result.mean:.2e}")
+        print(f"    95% CI for mean: [{result.ci_low:.2e}, {result.ci_high:.2e}]")
+        print(f"    p-value: {result.p_value:.4f}")
+        print(f"    Zero in CI: {not result.reject_null}")
 
-        assert in_ci, (
-            f"Mean of differences is significantly non-zero: {mean_diff:.2e}, "
-            f"95% CI [{ci_low:.2e}, {ci_high:.2e}]"
+        assert not result.reject_null, (
+            f"Mean of differences is significantly non-zero: {result.mean:.2e}, "
+            f"95% CI [{result.ci_low:.2e}, {result.ci_high:.2e}], p={result.p_value:.4f}"
         )
 
 

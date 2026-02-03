@@ -61,7 +61,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 import torch
 import numpy as np
 import pytest
-from scipy import stats
 
 # Import shared utilities (must come after Isaac Sim launch)
 from utils import (
@@ -79,6 +78,9 @@ from utils import (
     create_holes_only_noise_cfg,
     set_simulation_app,
     debug_camera_orientation,
+    # Statistical utilities from common module
+    binomial_test,
+    variance_ratio_test,
 )
 
 
@@ -191,29 +193,26 @@ class TestHoleNoiseVariance:
             f"Check that test scene is correctly configured with wall at {TEST_WALL_DISTANCE}m."
         )
 
-        observed_rate = total_holes / total_at_wall
-
         # Two-sided binomial test: is observed rate consistent with expected rate?
         # H0: true rate = TEST_HOLE_PROBABILITY
         # We fail to reject H0 if p-value > alpha (1 - CONFIDENCE_LEVEL)
-        result = stats.binomtest(total_holes, total_at_wall, TEST_HOLE_PROBABILITY)
-        alpha = 1 - CONFIDENCE_LEVEL
+        result = binomial_test(total_holes, total_at_wall, TEST_HOLE_PROBABILITY)
 
         print(f"    Summary:")
         print(f"      Parallel environments: {obs.shape[1]}")
         print(f"      Wall pixels (observations): {total_at_wall}")
         print(f"      Hole prob (expected): {TEST_HOLE_PROBABILITY}")
-        print(f"      Hole prob (measured): {observed_rate:.6f}")
-        print(f"      Binomial p-value: {result.pvalue:.4f} (alpha={alpha})")
+        print(f"      Hole prob (measured): {result.observed_rate:.6f}")
+        print(f"      Binomial p-value: {result.p_value:.4f} (alpha={1 - CONFIDENCE_LEVEL})")
 
-        if result.pvalue > alpha:
+        if not result.reject_null:
             debug_camera_orientation(depth_env)
 
-        # Pass if we fail to reject H0 (p-value > alpha means rates are consistent)
-        assert result.pvalue > alpha, (
-            f"Hole rate mismatch: observed={observed_rate:.4f}, "
+        # Pass if we fail to reject H0 (rates are consistent)
+        assert not result.reject_null, (
+            f"Hole rate mismatch: observed={result.observed_rate:.4f}, "
             f"expected={TEST_HOLE_PROBABILITY}, "
-            f"p-value={result.pvalue:.4f} <= alpha={alpha}"
+            f"p-value={result.p_value:.4f}"
         )
 
     def test_hole_variance_on_wall_pixels(self, depth_env):
@@ -280,15 +279,9 @@ class TestHoleNoiseVariance:
 
         # Use the true (unbiased) wall depth for expected variance
         expected_var = hole_diff_variance(true_wall_depth_norm, TEST_HOLE_PROBABILITY)
-        ratio = measured_var / expected_var
 
         # Chi-squared test for variance
-        df = n_samples - 1
-        alpha = 1 - CONFIDENCE_LEVEL
-        chi2_low = stats.chi2.ppf(alpha / 2, df)
-        chi2_high = stats.chi2.ppf(1 - alpha / 2, df)
-        ci_low = chi2_low / df
-        ci_high = chi2_high / df
+        result = variance_ratio_test(measured_var, expected_var, n_samples)
 
         print(f"    Summary:")
         print(f"      Parallel environments: {obs.shape[1]}")
@@ -296,19 +289,19 @@ class TestHoleNoiseVariance:
         print(f"      Samples (diffs): {n_samples}")
         print(f"      Wall depth (observed mean): {observed_mean_depth:.4f} (biased by holes)")
         print(f"      Wall depth (true, unbiased): {true_wall_depth_norm:.4f}")
-        print(f"      Variance (expected): {expected_var:.2e}")
-        print(f"      Variance (measured): {measured_var:.2e}")
-        print(f"      Variance ratio: {ratio:.4f}")
-        print(f"      {CONFIDENCE_LEVEL*100:.0f}% CI for ratio: [{ci_low:.4f}, {ci_high:.4f}]")
-        print(f"      In statistical CI: {ci_low <= ratio <= ci_high}")
+        print(f"      Variance (expected): {result.expected_var:.2e}")
+        print(f"      Variance (measured): {result.measured_var:.2e}")
+        print(f"      Variance ratio: {result.ratio:.4f}")
+        print(f"      {CONFIDENCE_LEVEL*100:.0f}% CI for ratio: [{result.ci_low:.4f}, {result.ci_high:.4f}]")
+        print(f"      In statistical CI: {result.in_ci}")
 
-        if not (ci_low <= ratio <= ci_high):
+        if not result.in_ci:
             debug_camera_orientation(depth_env)
 
         # Pass if ratio is within expected range
-        assert ci_low <= ratio <= ci_high, (
-            f"Hole noise variance mismatch: ratio={ratio:.4f} "
-            f"outside {CONFIDENCE_LEVEL*100:.0f}% CI [{ci_low:.4f}, {ci_high:.4f}]"
+        assert result.in_ci, (
+            f"Hole noise variance mismatch: ratio={result.ratio:.4f} "
+            f"outside {CONFIDENCE_LEVEL*100:.0f}% CI [{result.ci_low:.4f}, {result.ci_high:.4f}]"
         )
         
    

@@ -34,6 +34,18 @@ from scipy import stats
 
 from isaaclab.envs import ManagerBasedRLEnv
 
+# Import shared statistical utilities from common module
+from test.integration.common import (
+    circular_mean,
+    circular_variance,
+    circular_std,
+    circular_confidence_interval,
+    angle_in_circular_ci,
+    one_sample_t_test,
+    welch_t_test,
+    CONFIDENCE_LEVEL as COMMON_CONFIDENCE_LEVEL,
+)
+
 from strafer_lab.tasks.navigation.strafer_env_cfg import (
     StraferNavEnvCfg_NoCam,
     ActionsCfg_Ideal,
@@ -318,132 +330,11 @@ def quat_to_yaw(quat: np.ndarray) -> np.ndarray:
 
 
 # =============================================================================
-# Helper: Circular Statistics for Angles
-# =============================================================================
-
-def circular_mean(angles: np.ndarray) -> float:
-    """Compute circular mean of angles using vector averaging.
-
-    The circular mean handles angle wrapping correctly by converting to
-    unit vectors, averaging, and converting back.
-
-    Args:
-        angles: Array of angles in radians
-
-    Returns:
-        Circular mean angle in radians [-π, π]
-    """
-    # Convert to unit vectors and average
-    mean_cos = np.mean(np.cos(angles))
-    mean_sin = np.mean(np.sin(angles))
-    return np.arctan2(mean_sin, mean_cos)
-
-
-def circular_variance(angles: np.ndarray) -> float:
-    """Compute circular variance of angles.
-
-    Circular variance V = 1 - R, where R is the mean resultant length.
-    V ranges from 0 (all angles identical) to 1 (uniform distribution).
-
-    Args:
-        angles: Array of angles in radians
-
-    Returns:
-        Circular variance in [0, 1]
-    """
-    mean_cos = np.mean(np.cos(angles))
-    mean_sin = np.mean(np.sin(angles))
-    R = np.sqrt(mean_cos**2 + mean_sin**2)  # Mean resultant length
-    return 1 - R
-
-
-def circular_std(angles: np.ndarray) -> float:
-    """Compute circular standard deviation.
-
-    Uses the formula: σ_circ = sqrt(-2 * ln(R)) where R is mean resultant length.
-    This approximates the wrapped normal distribution's std for small dispersions.
-
-    Args:
-        angles: Array of angles in radians
-
-    Returns:
-        Circular standard deviation in radians
-    """
-    mean_cos = np.mean(np.cos(angles))
-    mean_sin = np.mean(np.sin(angles))
-    R = np.sqrt(mean_cos**2 + mean_sin**2)
-    # Clamp R to avoid log(0) or negative values from numerical error
-    R = np.clip(R, 1e-10, 1.0 - 1e-10)
-    return np.sqrt(-2 * np.log(R))
-
-
-def circular_confidence_interval(
-    angles: np.ndarray,
-    confidence_level: float = 0.95
-) -> tuple[float, float, float]:
-    """Compute confidence interval for circular mean using Fisher's method.
-
-    For concentrated distributions (high κ), the circular mean approximately
-    follows a wrapped normal distribution. We use the large-sample approximation
-    for the CI based on the angular standard error.
-
-    Args:
-        angles: Array of angles in radians
-        confidence_level: Confidence level (default 0.95)
-
-    Returns:
-        Tuple of (mean_angle, ci_half_width, mean_resultant_length)
-    """
-    n = len(angles)
-    mean_cos = np.mean(np.cos(angles))
-    mean_sin = np.mean(np.sin(angles))
-    R = np.sqrt(mean_cos**2 + mean_sin**2)  # Mean resultant length
-    mean_angle = np.arctan2(mean_sin, mean_cos)
-
-    # For large samples with concentrated distribution, use normal approximation
-    # SE of circular mean ≈ 1 / (sqrt(n) * sqrt(2) * R) for large n
-    # More accurate: SE ≈ sqrt((1-R²)/(n*R²)) for moderate concentration
-    if R > 0.01:
-        # Angular standard error (Mardia & Jupp, 2000, eq. 4.4.6)
-        se_angle = np.sqrt((1 - R**2) / (n * R**2 + 1e-10))
-    else:
-        # Very dispersed data - use conservative estimate
-        se_angle = np.pi / np.sqrt(n)
-
-    alpha = 1 - confidence_level
-    z_crit = stats.norm.ppf(1 - alpha/2)
-    ci_half_width = z_crit * se_angle
-
-    return mean_angle, ci_half_width, R
-
-
-def angle_in_circular_ci(
-    angle: float,
-    mean: float,
-    half_width: float
-) -> bool:
-    """Check if angle falls within circular confidence interval.
-
-    Handles the wraparound at ±π correctly.
-
-    Args:
-        angle: Angle to test (radians)
-        mean: Center of CI (radians)
-        half_width: Half-width of CI (radians)
-
-    Returns:
-        True if angle is within [mean - half_width, mean + half_width] on the circle
-    """
-    # Compute angular distance (shortest path on circle)
-    diff = angle - mean
-    # Wrap to [-π, π]
-    diff = np.arctan2(np.sin(diff), np.cos(diff))
-    return abs(diff) <= half_width
-
-
-# =============================================================================
 # Helper: Statistical Direction Testing
 # =============================================================================
+# Note: Circular statistics functions (circular_mean, circular_variance,
+# circular_std, circular_confidence_interval, angle_in_circular_ci) are
+# imported from test.integration.common module.
 
 def compute_motion_direction_ci(
     dx: np.ndarray,
@@ -498,9 +389,9 @@ def compute_motion_direction_ci(
     displacement_along_expected = dx * cos_exp + dy * sin_exp
 
     # One-sample t-test: H0: mean displacement <= 0 (didn't move in expected direction)
-    t_stat, p_two_sided = stats.ttest_1samp(displacement_along_expected, 0)
-    # Convert to one-sided p-value for "greater than" alternative
-    p_one_sided = p_two_sided / 2 if t_stat > 0 else 1 - p_two_sided / 2
+    t_result = one_sample_t_test(
+        displacement_along_expected, null_value=0.0, alternative="greater"
+    )
 
     return {
         'mean_angle': mean_angle,
@@ -508,8 +399,8 @@ def compute_motion_direction_ci(
         'ci_upper': ci_upper,
         'ci_half_width': ci_half_width,
         'expected_in_ci': expected_in_ci,
-        'mean_displacement': np.mean(displacement_along_expected),
-        'displacement_p_value': p_one_sided,
+        'mean_displacement': t_result.mean,
+        'displacement_p_value': t_result.p_value,
         'n_samples': n,
         # Circular statistics
         'mean_resultant_length': R,
@@ -710,21 +601,14 @@ class TestMecanumKinematics:
         
         n = len(yaw_change)
         alpha = 1 - CONFIDENCE_LEVEL
-        t_crit = stats.t.ppf(1 - alpha/2, n - 1)
-        
-        # Statistics for yaw change
-        mean_yaw = np.mean(yaw_change)
-        sem_yaw = stats.sem(yaw_change)
-        yaw_ci_lower = mean_yaw - t_crit * sem_yaw
-        yaw_ci_upper = mean_yaw + t_crit * sem_yaw
-        
-        # One-sample t-test: H0: mean yaw change <= 0
-        t_stat_yaw, p_two_sided_yaw = stats.ttest_1samp(yaw_change, 0)
-        p_yaw = p_two_sided_yaw / 2 if t_stat_yaw > 0 else 1 - p_two_sided_yaw / 2
-        
-        # Statistics for displacement
+
+        # One-sample t-test for yaw change: H0: mean yaw change <= 0
+        yaw_result = one_sample_t_test(yaw_change, null_value=0.0, alternative="greater")
+
+        # Statistics for displacement (using basic scipy since we just need CI)
         mean_disp = np.mean(displacement_mag)
         sem_disp = stats.sem(displacement_mag)
+        t_crit = stats.t.ppf(1 - alpha/2, n - 1)
         disp_ci_lower = mean_disp - t_crit * sem_disp
         disp_ci_upper = mean_disp + t_crit * sem_disp
         
@@ -732,23 +616,23 @@ class TestMecanumKinematics:
         # For rotation θ about offset r from center: displacement ≈ 2*r*sin(θ/2)
         # We derive max acceptable offset from robot geometry (~10cm tolerance)
         max_acceptable_offset = 0.1  # 10cm offset from center of rotation
-        max_expected_disp = 2 * max_acceptable_offset * np.sin(abs(mean_yaw) / 2)
-        
+        max_expected_disp = 2 * max_acceptable_offset * np.sin(abs(yaw_result.mean) / 2)
+
         print(f"\n  Rotation motion test (n={n} envs):")
-        print(f"    Mean yaw change: {np.degrees(mean_yaw):.2f}°")
-        print(f"    Yaw {CONFIDENCE_LEVEL*100:.0f}% CI: [{np.degrees(yaw_ci_lower):.2f}°, {np.degrees(yaw_ci_upper):.2f}°]")
-        print(f"    Yaw p-value (>0): {p_yaw:.4f}")
+        print(f"    Mean yaw change: {np.degrees(yaw_result.mean):.2f}°")
+        print(f"    Yaw {CONFIDENCE_LEVEL*100:.0f}% CI: [{np.degrees(yaw_result.ci_low):.2f}°, {np.degrees(yaw_result.ci_high):.2f}°]")
+        print(f"    Yaw p-value (>0): {yaw_result.p_value:.4f}")
         print(f"    Mean displacement: {mean_disp:.4f}m")
         print(f"    Displacement {CONFIDENCE_LEVEL*100:.0f}% CI: [{disp_ci_lower:.4f}m, {disp_ci_upper:.4f}m]")
         print(f"    Max expected displacement (10cm axis offset): {max_expected_disp:.4f}m")
-        
+
         # Test 1: Yaw change is significantly positive (CCW rotation)
-        assert p_yaw < alpha, \
-            f"Cannot confirm CCW rotation (p={p_yaw:.4f} >= {alpha})"
-        
+        assert yaw_result.p_value < alpha, \
+            f"Cannot confirm CCW rotation (p={yaw_result.p_value:.4f} >= {alpha})"
+
         # Test 2: Yaw CI should not include 0 (definite rotation occurred)
-        assert yaw_ci_lower > 0, \
-            f"Yaw change CI [{np.degrees(yaw_ci_lower):.1f}°, {np.degrees(yaw_ci_upper):.1f}°] includes 0"
+        assert yaw_result.ci_low > 0, \
+            f"Yaw change CI [{np.degrees(yaw_result.ci_low):.1f}°, {np.degrees(yaw_result.ci_high):.1f}°] includes 0"
         
         # Test 3: Displacement bounded by physics (rotation axis offset)
         # Allow for CI uncertainty in displacement measurement
@@ -1005,40 +889,30 @@ class TestIdealVsRealistic:
         ideal_rise_times = np.array(ideal_rise_times)
         realistic_rise_times = np.array(realistic_rise_times)
 
-        # Welch's t-test (equal_var=False)
-        # H0: ideal rise time = realistic rise time
-        # H1: realistic rise time > ideal rise time (one-sided)
-        t_stat, p_two_sided = stats.ttest_ind(
+        # Welch's t-test: H1: realistic rise time > ideal rise time (one-sided)
+        welch_result = welch_t_test(
             realistic_rise_times,
             ideal_rise_times,
-            equal_var=False  # Welch's t-test
+            alternative="greater"
         )
-        # Convert to one-sided (realistic > ideal)
-        p_one_sided = p_two_sided / 2 if t_stat > 0 else 1 - p_two_sided / 2
-
-        # Effect size: Cohen's d
-        pooled_std = np.sqrt(
-            (np.var(ideal_rise_times) + np.var(realistic_rise_times)) / 2
-        )
-        cohens_d = (np.mean(realistic_rise_times) - np.mean(ideal_rise_times)) / (pooled_std + 1e-9)
 
         alpha = 1 - CONFIDENCE_LEVEL
 
         print(f"\n  Ideal vs Realistic rise time comparison (Welch's t-test):")
-        print(f"    Ideal rise times: mean={np.mean(ideal_rise_times)*1000:.2f}ms, std={np.std(ideal_rise_times)*1000:.2f}ms, n={len(ideal_rise_times)}")
-        print(f"    Realistic rise times: mean={np.mean(realistic_rise_times)*1000:.2f}ms, std={np.std(realistic_rise_times)*1000:.2f}ms, n={len(realistic_rise_times)}")
-        print(f"    Welch's t-statistic: {t_stat:.2f}")
-        print(f"    One-sided p-value (realistic > ideal): {p_one_sided:.4f}")
-        print(f"    Cohen's d effect size: {cohens_d:.2f}")
-        print(f"    Interpretation: {'Large' if abs(cohens_d) > 0.8 else 'Medium' if abs(cohens_d) > 0.5 else 'Small'} effect")
+        print(f"    Ideal rise times: mean={welch_result['mean_b']*1000:.2f}ms, std={welch_result['std_b']*1000:.2f}ms, n={welch_result['n_b']}")
+        print(f"    Realistic rise times: mean={welch_result['mean_a']*1000:.2f}ms, std={welch_result['std_a']*1000:.2f}ms, n={welch_result['n_a']}")
+        print(f"    Welch's t-statistic: {welch_result['t_statistic']:.2f}")
+        print(f"    One-sided p-value (realistic > ideal): {welch_result['p_value']:.4f}")
+        print(f"    Cohen's d effect size: {welch_result['cohens_d']:.2f}")
+        print(f"    Interpretation: {'Large' if abs(welch_result['cohens_d']) > 0.8 else 'Medium' if abs(welch_result['cohens_d']) > 0.5 else 'Small'} effect")
 
         # Test: Realistic rise time significantly greater than ideal
-        assert p_one_sided < alpha, \
-            f"Realistic rise time should be significantly greater than ideal (p={p_one_sided:.4f} >= {alpha})"
+        assert welch_result['p_value'] < alpha, \
+            f"Realistic rise time should be significantly greater than ideal (p={welch_result['p_value']:.4f} >= {alpha})"
 
         # Test: Effect size should be large (d > 0.8)
-        assert cohens_d > 0.8, \
-            f"Effect size should be large (Cohen's d={cohens_d:.2f} <= 0.8)"
+        assert welch_result['cohens_d'] > 0.8, \
+            f"Effect size should be large (Cohen's d={welch_result['cohens_d']:.2f} <= 0.8)"
 
 
 # =============================================================================

@@ -241,6 +241,9 @@ class TestGaussianNoiseVariance:
         ci_high = chi2_high / df
         in_ci = ci_low <= ratio <= ci_high
 
+        if not in_ci:
+            debug_camera_orientation(depth_env)
+
         print(f"    Summary:")
         print(f"      Parallel environments: {obs.shape[1]}")
         print(f"      Wall pixels (total): {total_wall_pixels}")
@@ -253,7 +256,6 @@ class TestGaussianNoiseVariance:
         print(f"      Variance ratio: {ratio:.4f}")
         print(f"      {CONFIDENCE_LEVEL*100:.0f}% CI for ratio: [{ci_low:.4f}, {ci_high:.4f}]")
         print(f"      In statistical CI: {in_ci}")
-        # debug_camera_orientation(depth_env)
         assert in_ci, (
             f"Gaussian noise variance mismatch: ratio={ratio:.6f} "
             f"outside 95% CI [{ci_low:.6f}, {ci_high:.6f}]. "
@@ -297,6 +299,9 @@ class TestGaussianNoiseVariance:
         ci_half_width = 1.96 * sem
         ci_low, ci_high = mean_diff - ci_half_width, mean_diff + ci_half_width
         in_ci = (ci_low <= 0.0 <= ci_high)
+
+        if not in_ci:
+            debug_camera_orientation(depth_env)
 
         print(f"    N samples: {n_samples}")
         print(f"    Mean diff: {mean_diff:.2e}")

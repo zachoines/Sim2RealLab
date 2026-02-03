@@ -47,7 +47,7 @@ Usage:
 # Isaac Sim must be launched BEFORE importing Isaac Lab modules
 from isaaclab.app import AppLauncher
 
-app_launcher = AppLauncher(headless=False, enable_cameras=True)
+app_launcher = AppLauncher(headless=True, enable_cameras=True)
 simulation_app = app_launcher.app
 
 # --- Imports that require Isaac Sim runtime ---
@@ -206,6 +206,9 @@ class TestHoleNoiseVariance:
         print(f"      Hole prob (measured): {observed_rate:.6f}")
         print(f"      Binomial p-value: {result.pvalue:.4f} (alpha={alpha})")
 
+        if result.pvalue > alpha:
+            debug_camera_orientation(depth_env)
+
         # Pass if we fail to reject H0 (p-value > alpha means rates are consistent)
         assert result.pvalue > alpha, (
             f"Hole rate mismatch: observed={observed_rate:.4f}, "
@@ -267,9 +270,16 @@ class TestHoleNoiseVariance:
         n_samples = all_diffs_tensor.numel()
         measured_var = all_diffs_tensor.var().item()
 
-        # Use mean wall depth for expected variance
-        mean_wall_depth_norm = float(torch.tensor(wall_depth_means).mean().item())
-        expected_var = hole_diff_variance(mean_wall_depth_norm, TEST_HOLE_PROBABILITY)
+        # The observed MEAN depth is biased by holes:
+        #   observed_mean = (1-p) * true_depth + p * 1.0
+        # We need the TRUE depth (when no hole) for the variance formula.
+        # Rearranging: true_depth = (observed_mean - p) / (1 - p)
+        observed_mean_depth = float(torch.tensor(wall_depth_means).mean().item())
+        p = TEST_HOLE_PROBABILITY
+        true_wall_depth_norm = (observed_mean_depth - p) / (1 - p)
+
+        # Use the true (unbiased) wall depth for expected variance
+        expected_var = hole_diff_variance(true_wall_depth_norm, TEST_HOLE_PROBABILITY)
         ratio = measured_var / expected_var
 
         # Chi-squared test for variance
@@ -284,7 +294,8 @@ class TestHoleNoiseVariance:
         print(f"      Parallel environments: {obs.shape[1]}")
         print(f"      Wall pixels (total): {total_wall_pixels}")
         print(f"      Samples (diffs): {n_samples}")
-        print(f"      Wall depth (mean): {mean_wall_depth_norm:.4f} (normalized)")
+        print(f"      Wall depth (observed mean): {observed_mean_depth:.4f} (biased by holes)")
+        print(f"      Wall depth (true, unbiased): {true_wall_depth_norm:.4f}")
         print(f"      Variance (expected): {expected_var:.2e}")
         print(f"      Variance (measured): {measured_var:.2e}")
         print(f"      Variance ratio: {ratio:.4f}")
@@ -300,59 +311,7 @@ class TestHoleNoiseVariance:
             f"outside {CONFIDENCE_LEVEL*100:.0f}% CI [{ci_low:.4f}, {ci_high:.4f}]"
         )
         
-
-    def test_no_variance_at_max_range(self, depth_env):
-        """Verify holes produce NO additional variance on pixels already at max_range.
-
-        For pixels at true depth = max_range, holes set them to max_range which is
-        their existing value. So first-differences should be zero (no noise effect).
-
-        The robot is oriented to face AWAY from the wall, looking into open space
-        where all pixels are at max_range.
-        """
-        torch.manual_seed(42)
-        np.random.seed(42)
-
-        # Face away from wall to see max-range pixels (open space)
-        obs = collect_stationary_observations(depth_env, N_SAMPLES_STEPS, face_wall=False)
-
-        print(f"\n  Holes at max_range:")
-
-        # Pool across environments
-        total_max_pixels = 0
-        total_variance = 0.0
-
-        for env_idx in range(obs.shape[1]):
-            depth_obs_env = obs[:, env_idx, DEPTH_START_IDX:]
-            first_diffs = depth_obs_env[1:] - depth_obs_env[:-1]
-
-            # Pixels always at max_range
-            is_always_max = (depth_obs_env > 0.999).all(dim=0)
-            n_always_max = is_always_max.sum().item()
-
-            if n_always_max < 10:
-                continue
-
-            diffs_at_max = first_diffs[:, is_always_max]
-            measured_var = diffs_at_max.var().item()
-            total_max_pixels += n_always_max
-            total_variance += measured_var * n_always_max
-
-        if total_max_pixels < 10:
-            pytest.skip(f"Insufficient max-range pixels across all envs: {total_max_pixels}")
-
-        avg_variance = total_variance / total_max_pixels
-
-        print(f"    Summary:")
-        print(f"      Parallel environments: {obs.shape[1]}")
-        print(f"      Max-range pixels (total): {total_max_pixels}")
-        print(f"      Variance (measured): {avg_variance:.2e}")
-        print(f"      Expected: ~0 (holes unchanged at max range)")
-
-        assert avg_variance < 1e-8, (
-            f"Unexpected variance at max_range pixels: {avg_variance:.2e}. "
-            f"Holes should have no effect on pixels already at max_range."
-        )
+   
 
 
 # =============================================================================

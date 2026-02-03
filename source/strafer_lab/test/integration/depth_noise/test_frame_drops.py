@@ -368,7 +368,8 @@ class TestFrameDropVariance:
 
         print(f"      In statistical CI: {in_ci}")
 
-        # debug_camera_orientation(depth_env)
+        if not in_ci:
+            debug_camera_orientation(depth_env)
 
         assert in_ci, (
             f"Fresh frame variance outside 95% CI: ratio={ratio:.6f}, "

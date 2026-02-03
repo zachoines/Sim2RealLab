@@ -14,3 +14,4 @@ __pycache__/
 *.pyo
 *.pyd
 *.cpython-*.pyc
+source/strafer_lab/test/integration/depth_noise/debug_output/

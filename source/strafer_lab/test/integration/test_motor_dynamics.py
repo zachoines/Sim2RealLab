@@ -34,7 +34,7 @@ from scipy import stats
 
 from isaaclab.envs import ManagerBasedRLEnv
 
-# Import shared statistical utilities from common module
+# Import shared utilities from common module
 from test.integration.common import (
     circular_mean,
     circular_variance,
@@ -43,7 +43,8 @@ from test.integration.common import (
     angle_in_circular_ci,
     one_sample_t_test,
     welch_t_test,
-    CONFIDENCE_LEVEL as COMMON_CONFIDENCE_LEVEL,
+    CONFIDENCE_LEVEL,
+    DEVICE,
 )
 
 from strafer_lab.tasks.navigation.strafer_env_cfg import (
@@ -56,6 +57,7 @@ from strafer_lab.tasks.navigation.strafer_env_cfg import (
 # =============================================================================
 # Test Configuration
 # =============================================================================
+# Note: CONFIDENCE_LEVEL and DEVICE are imported from test.integration.common
 
 # Statistical power analysis for NUM_ENVS:
 # For a one-sample t-test with:
@@ -72,8 +74,6 @@ NUM_ENVS = 16                # Justified via power analysis for large effects (d
 N_SETTLE_STEPS = 10          # Steps to let physics settle
 N_RESPONSE_STEPS = 200       # Steps to measure step response
 N_MOTION_STEPS = 100         # Steps for kinematics tests
-CONFIDENCE_LEVEL = 0.95      # For statistical tests (α = 0.05)
-DEVICE = "cuda:0"
 
 
 # =============================================================================

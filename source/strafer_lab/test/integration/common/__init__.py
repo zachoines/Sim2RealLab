@@ -23,6 +23,16 @@ from .constants import (
     DEFAULT_NUM_ENVS,
     DEFAULT_SETTLE_STEPS,
     DEVICE,
+    # Sensor normalization constants
+    IMU_ACCEL_MAX,
+    IMU_GYRO_MAX,
+    ENCODER_VEL_MAX,
+    # Depth camera constants
+    DEPTH_MAX_RANGE,
+    DEPTH_MIN_RANGE,
+    D555_BASELINE_M,
+    D555_FOCAL_LENGTH_PX,
+    D555_DISPARITY_NOISE_PX,
 )
 
 from .stats import (
@@ -46,11 +56,21 @@ from .circular import (
 )
 
 __all__ = [
-    # Constants
+    # Constants - general
     "CONFIDENCE_LEVEL",
     "DEFAULT_NUM_ENVS",
     "DEFAULT_SETTLE_STEPS",
     "DEVICE",
+    # Constants - sensor normalization
+    "IMU_ACCEL_MAX",
+    "IMU_GYRO_MAX",
+    "ENCODER_VEL_MAX",
+    # Constants - depth camera
+    "DEPTH_MAX_RANGE",
+    "DEPTH_MIN_RANGE",
+    "D555_BASELINE_M",
+    "D555_FOCAL_LENGTH_PX",
+    "D555_DISPARITY_NOISE_PX",
     # Statistical tests
     "chi_squared_variance_test",
     "chi_squared_variance_ci",

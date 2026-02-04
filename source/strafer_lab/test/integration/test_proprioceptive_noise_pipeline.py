@@ -37,11 +37,15 @@ import pytest
 
 from isaaclab.envs import ManagerBasedRLEnv
 
-# Import shared statistical utilities from common module
+# Import shared utilities from common module
 from test.integration.common import (
     variance_ratio_test,
     one_sample_t_test,
-    CONFIDENCE_LEVEL as COMMON_CONFIDENCE_LEVEL,
+    CONFIDENCE_LEVEL,
+    DEVICE,
+    IMU_ACCEL_MAX,
+    IMU_GYRO_MAX,
+    ENCODER_VEL_MAX,
 )
 
 # Import robot utilities from common module
@@ -69,16 +73,12 @@ from strafer_lab.tasks.navigation.sim_real_cfg import (
 # =============================================================================
 # Test Configuration
 # =============================================================================
+# Note: CONFIDENCE_LEVEL, DEVICE, IMU_ACCEL_MAX, IMU_GYRO_MAX, ENCODER_VEL_MAX
+# are imported from test.integration.common
 
 NUM_ENVS = 32                # More envs = more samples per step
 N_SAMPLES_STEPS = 500        # Steps to collect (more samples = tighter CI)
 N_SETTLE_STEPS = 10          # Steps to let physics settle initially
-DEVICE = "cuda:0"
-
-# Statistical thresholds
-# With n=500 steps * 32 envs * 3 dims = 48,000 samples, CI is very tight
-# We use hypothesis testing rather than arbitrary tolerance
-CONFIDENCE_LEVEL = 0.95      # For confidence intervals
 
 # Observation term indices (for NoCam config: 15 total dims)
 # imu_accel(3) + imu_gyro(3) + encoders(4) + goal(2) + action(3)
@@ -101,10 +101,6 @@ ACTION_SLICE = slice(12, 15)
 # Therefore, measured noise in normalized output space:
 #   measured_std = raw_noise_std * scale = raw_noise_std / max_value
 #
-# Sensor max values (for normalization):
-IMU_ACCEL_MAX = 156.96  # m/s² (±16g)
-IMU_GYRO_MAX = 34.9     # rad/s (±2000°/s)
-ENCODER_MAX = 5000.0    # ticks/s
 
 # Expected noise std values (derived from actual config via helper functions)
 # These are RAW noise std values (before scale is applied)
@@ -122,7 +118,7 @@ RAW_ENCODER_STD = (_ENCODER_NOISE_CFG.velocity_noise_std * _ENCODER_NOISE_CFG.ma
 # normalized_std = raw_std / max_value = raw_std * scale
 EXPECTED_ACCEL_STD = RAW_ACCEL_STD / IMU_ACCEL_MAX if RAW_ACCEL_STD else 0.0
 EXPECTED_GYRO_STD = RAW_GYRO_STD / IMU_GYRO_MAX if RAW_GYRO_STD else 0.0
-EXPECTED_ENCODER_STD = RAW_ENCODER_STD / ENCODER_MAX if RAW_ENCODER_STD else 0.0
+EXPECTED_ENCODER_STD = RAW_ENCODER_STD / ENCODER_VEL_MAX if RAW_ENCODER_STD else 0.0
 
 # =============================================================================
 # Theoretical Bounds Using First Differences

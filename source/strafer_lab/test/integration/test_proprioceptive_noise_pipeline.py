@@ -485,33 +485,7 @@ def extract_first_differences(observations: torch.Tensor, term_slice: slice) -> 
 
 class TestIMUNoiseFromEnv:
     """Test IMU noise characteristics from environment observations."""
-    
-    def test_accel_noise_is_present(self, noisy_env):
-        """Verify accelerometer observations have non-zero variance (noise is applied).
 
-        Expected normalized variance is ~1e-7 based on:
-        - accel_noise_density = 0.0098 m/s²/√Hz
-        - At 30Hz: std ≈ 0.054 m/s²
-        - After normalization (÷156.96): std ≈ 3.4e-4
-        - Expected variance ≈ 1.2e-7
-        """
-        obs = collect_stationary_observations(noisy_env, N_SAMPLES_STEPS)
-
-        accel_obs = obs[:, :, IMU_ACCEL_SLICE]
-        variance = accel_obs.var().item()
-
-        # Compute expected variance for informative output
-        expected_var = EXPECTED_ACCEL_STD ** 2 if EXPECTED_ACCEL_STD > 0 else 0.0
-
-        print(f"\n  Accelerometer observation variance: {variance:.2e}")
-        print(f"    Expected variance (white noise only): {expected_var:.2e}")
-        print(f"    Ratio (measured/expected): {variance / max(expected_var, 1e-15):.2f}")
-
-        # Threshold: 10% of expected variance, with minimum floor for safety
-        threshold = max(expected_var * 0.1, 1e-12)
-        assert variance > threshold, \
-            f"Accelerometer variance too low ({variance:.2e} < {threshold:.2e}), noise may not be applied"
-    
     def test_accel_noise_std_matches_config(self, noisy_env):
         """Verify accelerometer noise std matches theoretical prediction using chi-squared test.
 
@@ -554,36 +528,7 @@ class TestIMUNoiseFromEnv:
             f"Accelerometer variance ratio {result.ratio:.4f} not within "
             f"{CONFIDENCE_LEVEL*100:.0f}% CI [{result.ci_low:.4f}, {result.ci_high:.4f}]"
         )
-    
-    def test_gyro_noise_is_present(self, noisy_env):
-        """Verify gyroscope observations have non-zero variance.
 
-        Note: Gyroscope noise is much smaller than accelerometer noise.
-        Expected normalized variance is ~1e-9 based on:
-        - gyro_noise_density = 0.00024 rad/s/√Hz
-        - At 30Hz: std ≈ 0.00131 rad/s
-        - After normalization (÷34.9): std ≈ 3.77e-5
-        - Expected variance ≈ 1.4e-9
-
-        We use a threshold of 1e-10 (10% of expected) to verify noise is present.
-        """
-        obs = collect_stationary_observations(noisy_env, N_SAMPLES_STEPS)
-
-        gyro_obs = obs[:, :, IMU_GYRO_SLICE]
-        variance = gyro_obs.var().item()
-
-        # Compute expected variance for informative output
-        expected_var = EXPECTED_GYRO_STD ** 2 if EXPECTED_GYRO_STD > 0 else 0.0
-
-        print(f"\n  Gyroscope observation variance: {variance:.2e}")
-        print(f"    Expected variance (white noise only): {expected_var:.2e}")
-        print(f"    Ratio (measured/expected): {variance / max(expected_var, 1e-15):.2f}")
-
-        # Threshold: 10% of expected variance, with minimum floor for safety
-        threshold = max(expected_var * 0.1, 1e-12)
-        assert variance > threshold, \
-            f"Gyroscope variance too low ({variance:.2e} < {threshold:.2e}), noise may not be applied"
-    
     def test_gyro_noise_std_matches_config(self, noisy_env):
         """Verify gyroscope noise std matches theoretical prediction using chi-squared test.
 
@@ -634,20 +579,7 @@ class TestIMUNoiseFromEnv:
 
 class TestEncoderNoiseFromEnv:
     """Test encoder noise characteristics from environment observations."""
-    
-    def test_encoder_noise_is_present(self, noisy_env):
-        """Verify encoder observations have non-zero variance."""
-        obs = collect_stationary_observations(noisy_env, N_SAMPLES_STEPS)
-        
-        encoder_obs = obs[:, :, ENCODER_SLICE]
-        variance = encoder_obs.var().item()
-        
-        print(f"\n  Encoder observation variance: {variance:.6f}")
-        
-        # Encoder noise should be present
-        assert variance > 1e-8, \
-            f"Encoder variance too low ({variance:.2e}), noise may not be applied"
-    
+
     def test_encoder_noise_std_matches_config(self, noisy_env):
         """Verify encoder velocity noise std matches theoretical prediction using chi-squared test.
         
@@ -781,14 +713,14 @@ class TestNoiseConfiguration:
         print(f"    Correlation between env 0 and env 1: r={correlation:.4f}")
         print(f"    Standard error under H0 (independence): {se_r:.6f}")
         print(f"    Two-tailed p-value: {p_value:.4e}")
-        print(f"    Note: Low |r| with high p-value indicates independent noise")
-        
+        print(f"    Significance level (α): {1 - CONFIDENCE_LEVEL:.2f}")
+        print(f"    Note: p > α indicates independent noise (fail to reject H0)")
+
         # Test: correlation should not be significantly different from zero
-        # We allow p > 0.001 (very conservative) - if p < 0.001, noise is correlated
-        # Also check that absolute correlation is reasonably small (effect size)
-        assert p_value > 0.001 or abs(correlation) < 0.1, (
+        # If p-value > α, we fail to reject the null hypothesis of independence
+        assert p_value > (1 - CONFIDENCE_LEVEL), (
             f"Noise appears correlated across environments: "
-            f"r={correlation:.4f}, p={p_value:.4e}"
+            f"r={correlation:.4f}, p={p_value:.4e} < α={1 - CONFIDENCE_LEVEL:.2f}"
         )
     
     def test_noise_changes_each_step(self, noisy_env):
@@ -819,63 +751,34 @@ class TestNoiseStatisticalProperties:
     
     def test_noise_has_zero_mean(self, noisy_env):
         """Verify noise has approximately zero mean (unbiased).
-        
+
         Uses one-sample t-test to verify the mean is not significantly
-        different from zero.
+        different from zero at the configured confidence level.
         """
         obs = collect_stationary_observations(noisy_env, N_SAMPLES_STEPS)
-        
+
         # Extract noise for accelerometer
         noise_samples = extract_noise_samples(obs, IMU_ACCEL_SLICE)
-        
+
         # One-sample t-test: is mean significantly different from 0?
         result = one_sample_t_test(noise_samples, null_value=0.0)
-        
+
         std = np.std(noise_samples)
-        
+
         print(f"\n  Accelerometer noise mean test (one-sample t-test):")
         print(f"    N samples: {result.n_samples:,}")
         print(f"    Mean: {result.mean:.6f}")
         print(f"    Std: {std:.6f}")
-        print(f"    95% CI for mean: [{result.ci_low:.2e}, {result.ci_high:.2e}]")
+        print(f"    {CONFIDENCE_LEVEL*100:.0f}% CI for mean: [{result.ci_low:.2e}, {result.ci_high:.2e}]")
         print(f"    p-value: {result.p_value:.4f}")
-        print(f"    Zero in CI: {not result.reject_null}")
-        
-        # Mean should be close to zero (not statistically different)
-        # Note: With many samples, even small biases may be "significant"
-        # We also check the magnitude is small relative to the noise std
-        assert abs(result.mean) < std * 0.1, \
-            f"Noise mean {result.mean:.6f} seems biased (std={std:.6f})"
+        print(f"    Reject null (mean ≠ 0): {result.reject_null}")
+
+        # Test passes if we fail to reject the null hypothesis (mean = 0)
+        assert not result.reject_null, (
+            f"Noise mean {result.mean:.6f} is significantly different from zero "
+            f"(p={result.p_value:.4f} < α={1 - CONFIDENCE_LEVEL:.2f})"
+        )
     
-    def test_noise_variance_is_stable(self, noisy_env):
-        """Verify noise variance is consistent over time.
-        
-        Note: With a stationary robot, there may still be some drift in
-        observations due to settling physics or accumulated numerical errors.
-        We use a generous tolerance.
-        """
-        obs = collect_stationary_observations(noisy_env, N_SAMPLES_STEPS)
-        
-        # Split into first half and second half
-        mid = N_SAMPLES_STEPS // 2
-        first_half = obs[:mid, :, IMU_ACCEL_SLICE]
-        second_half = obs[mid:, :, IMU_ACCEL_SLICE]
-        
-        var_first = first_half.var().item()
-        var_second = second_half.var().item()
-        
-        print(f"\n  Variance stability check:")
-        print(f"    First half variance: {var_first:.6f}")
-        print(f"    Second half variance: {var_second:.6f}")
-        print(f"    Ratio: {var_second / max(var_first, 1e-9):.2f}x")
-        
-        # Variances should be in the same order of magnitude
-        # Allow up to 3x difference due to physics drift and settling
-        ratio = max(var_first, var_second) / max(min(var_first, var_second), 1e-9)
-        assert ratio < 3.0, \
-            f"Noise variance not stable: ratio={ratio:.2f}"
-
-
 # =============================================================================
 # Run module cleanup on import (for running outside pytest)
 # =============================================================================

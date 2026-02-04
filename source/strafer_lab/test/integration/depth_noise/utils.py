@@ -28,8 +28,9 @@ from pathlib import Path
 # Import shared constants from common module
 from test.integration.common.constants import (
     CONFIDENCE_LEVEL,
-    DEFAULT_NUM_ENVS,
-    DEFAULT_SETTLE_STEPS,
+    NUM_ENVS,
+    N_SETTLE_STEPS,
+    N_SAMPLES_STEPS,
     DEVICE,
     DEPTH_MAX_RANGE,
     DEPTH_MIN_RANGE,
@@ -51,11 +52,7 @@ from test.integration.common.stats import (
 # =============================================================================
 # Test Configuration Constants
 # =============================================================================
-
-# Environment settings (use shared defaults)
-NUM_ENVS = DEFAULT_NUM_ENVS   # Parallel robots with walls
-N_SAMPLES_STEPS = 500         # Steps per environment (depth-specific)
-N_SETTLE_STEPS = DEFAULT_SETTLE_STEPS  # Steps to let physics settle
+# Note: NUM_ENVS, N_SETTLE_STEPS, N_SAMPLES_STEPS are imported from common.constants
 
 # Observation term indices for Depth config
 # imu_accel(3) + imu_gyro(3) + encoders(4) + goal(2) + action(3) + depth(N)

@@ -19,13 +19,15 @@ CONFIDENCE_LEVEL = 0.95
 # Environment Configuration
 # =============================================================================
 
-# Default number of parallel environments
-# Justified via power analysis for detecting large effects (Cohen's d ≥ 1.0)
-# with 80% power at α = 0.05
-DEFAULT_NUM_ENVS = 16
+# Number of parallel environments for statistical power
+# 64 envs provides sufficient samples for detecting effects with high confidence
+NUM_ENVS = 64
 
-# Default steps to let physics settle after reset
-DEFAULT_SETTLE_STEPS = 50
+# Steps to let physics settle after reset before collecting data
+N_SETTLE_STEPS = 10
+
+# Steps to collect observations (more steps = tighter confidence intervals)
+N_SAMPLES_STEPS = 200
 
 # Default CUDA device
 DEVICE = "cuda:0"

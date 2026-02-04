@@ -20,8 +20,9 @@ Usage:
 
 from .constants import (
     CONFIDENCE_LEVEL,
-    DEFAULT_NUM_ENVS,
-    DEFAULT_SETTLE_STEPS,
+    NUM_ENVS,
+    N_SETTLE_STEPS,
+    N_SAMPLES_STEPS,
     DEVICE,
     # Sensor normalization constants
     IMU_ACCEL_MAX,
@@ -58,8 +59,9 @@ from .circular import (
 __all__ = [
     # Constants - general
     "CONFIDENCE_LEVEL",
-    "DEFAULT_NUM_ENVS",
-    "DEFAULT_SETTLE_STEPS",
+    "NUM_ENVS",
+    "N_SETTLE_STEPS",
+    "N_SAMPLES_STEPS",
     "DEVICE",
     # Constants - sensor normalization
     "IMU_ACCEL_MAX",

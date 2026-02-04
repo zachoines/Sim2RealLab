@@ -42,6 +42,9 @@ from test.integration.common import (
     variance_ratio_test,
     one_sample_t_test,
     CONFIDENCE_LEVEL,
+    NUM_ENVS,
+    N_SETTLE_STEPS,
+    N_SAMPLES_STEPS,
     DEVICE,
     IMU_ACCEL_MAX,
     IMU_GYRO_MAX,
@@ -73,12 +76,8 @@ from strafer_lab.tasks.navigation.sim_real_cfg import (
 # =============================================================================
 # Test Configuration
 # =============================================================================
-# Note: CONFIDENCE_LEVEL, DEVICE, IMU_ACCEL_MAX, IMU_GYRO_MAX, ENCODER_VEL_MAX
-# are imported from test.integration.common
-
-NUM_ENVS = 32                # More envs = more samples per step
-N_SAMPLES_STEPS = 500        # Steps to collect (more samples = tighter CI)
-N_SETTLE_STEPS = 10          # Steps to let physics settle initially
+# Note: CONFIDENCE_LEVEL, DEVICE, NUM_ENVS, N_SETTLE_STEPS, N_SAMPLES_STEPS,
+# IMU_ACCEL_MAX, IMU_GYRO_MAX, ENCODER_VEL_MAX are imported from test.integration.common
 
 # Observation term indices (for NoCam config: 15 total dims)
 # imu_accel(3) + imu_gyro(3) + encoders(4) + goal(2) + action(3)

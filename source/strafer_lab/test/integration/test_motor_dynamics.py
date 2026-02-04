@@ -44,6 +44,8 @@ from test.integration.common import (
     one_sample_t_test,
     welch_t_test,
     CONFIDENCE_LEVEL,
+    NUM_ENVS,
+    N_SETTLE_STEPS,
     DEVICE,
 )
 
@@ -57,21 +59,10 @@ from strafer_lab.tasks.navigation.strafer_env_cfg import (
 # =============================================================================
 # Test Configuration
 # =============================================================================
-# Note: CONFIDENCE_LEVEL and DEVICE are imported from test.integration.common
+# Note: CONFIDENCE_LEVEL, NUM_ENVS, N_SETTLE_STEPS, DEVICE are imported from
+# test.integration.common
 
-# Statistical power analysis for NUM_ENVS:
-# For a one-sample t-test with:
-#   - Effect size d = 1.0 (large, expected for kinematics tests where motion is clear)
-#   - Alpha = 0.05 (Type I error rate)
-#   - Power = 0.80 (probability of detecting true effect)
-# Required sample size n ≈ 10 (from power.t.test in R or statsmodels)
-# We use n=16 to provide margin for:
-#   - Medium effect sizes (d=0.5 requires n≈34, but our effects are large)
-#   - Non-normality in small samples
-#   - Multiple comparisons across test methods
-# Formula: n = (t_α + t_β)² × 2σ²/δ² where δ is minimum detectable effect
-NUM_ENVS = 16                # Justified via power analysis for large effects (d≥1.0)
-N_SETTLE_STEPS = 10          # Steps to let physics settle
+# Motor dynamics test-specific constants (more sensitive to timing)
 N_RESPONSE_STEPS = 200       # Steps to measure step response
 N_MOTION_STEPS = 100         # Steps for kinematics tests
 

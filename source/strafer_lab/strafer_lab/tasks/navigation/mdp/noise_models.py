@@ -53,6 +53,11 @@ class IMUNoiseModel(NoiseModel):
         super().__init__(noise_model_cfg, num_envs, device)
         self.cfg = noise_model_cfg
         
+        # Time step for drift scaling (drift rates are specified per-second)
+        # For random walk: per-step std = per-second std * sqrt(dt)
+        self._dt = 1.0 / self.cfg.control_frequency_hz
+        self._sqrt_dt = self._dt ** 0.5
+        
         # Determine which sensor parameters to use
         self._sensor_type = self.cfg.sensor_type
         if self._sensor_type == 'accel':
@@ -91,9 +96,14 @@ class IMUNoiseModel(NoiseModel):
         return len(env_ids)
     
     def __call__(self, data: torch.Tensor) -> torch.Tensor:
-        """Apply IMU noise: bias + white noise."""
+        """Apply IMU noise: bias + white noise.
+        
+        The drift rate is scaled by sqrt(dt) to properly model a random walk
+        where drift_rate is specified per-second.
+        """
         # Add bias drift (random walk)
-        drift = torch.randn_like(self._bias) * self._drift_rate
+        # Per-step drift std = per-second drift rate * sqrt(dt)
+        drift = torch.randn_like(self._bias) * self._drift_rate * self._sqrt_dt
         self._bias = self._bias + drift
         
         # Clamp bias to 2x the configured range
@@ -103,10 +113,6 @@ class IMUNoiseModel(NoiseModel):
         # Add white noise + bias
         noise = torch.randn_like(data) * self._noise_std
         return data + self._bias + noise
-        
-        # Add white noise + bias
-        noise = torch.randn_like(data) * noise_std
-        return data + self._bias + noise
 
 
 @configclass
@@ -114,6 +120,10 @@ class IMUNoiseModelCfg(NoiseModelCfg):
     """Configuration for IMU noise model with bias drift.
     
     Set sensor_type='accel' or 'gyro' to control which parameters are used.
+    
+    The drift rate parameters (accel_bias_drift_rate, gyro_bias_drift_rate) are
+    specified in units per second. The model internally converts to per-step
+    values using control_frequency_hz.
     """
     
     # Set class_type directly to the NoiseModel class (defined above)
@@ -121,6 +131,9 @@ class IMUNoiseModelCfg(NoiseModelCfg):
     
     # Sensor type: 'accel' or 'gyro' (determines which parameters to use)
     sensor_type: str = 'accel'
+    
+    # Control frequency for time-scaling drift (drift rates are per-second)
+    control_frequency_hz: float = 30.0
     
     # Accelerometer
     accel_noise_std: float = 0.01  # m/s² white noise

@@ -550,15 +550,21 @@ def get_imu_accel_noise(contract: SimRealContractCfg) -> IMUNoiseModelCfg | None
     
     Returns IMUNoiseModelCfg which generates independent noise per environment.
     Noise is in RAW units (m/s²) - normalization happens via ObsTerm.scale.
+    
+    Noise density conversion:
+        noise_density [unit/√Hz] → std [unit/sample] = density * √(sample_rate_hz)
     """
     if not contract.sensors.imu.enable_noise:
         return None
-    # Convert noise density to std (assuming 200Hz → sqrt(200) factor)
-    # This gives noise std in m/s² (raw units)
-    std = contract.sensors.imu.accel_noise_density * 14.14  # sqrt(200)
+    # Convert noise density to std using actual control frequency
+    # noise_density [m/s²/√Hz] → std [m/s²/sample] = density * √(sample_rate_hz)
+    import math
+    sample_rate = contract.timing.control_frequency_hz
+    std = contract.sensors.imu.accel_noise_density * math.sqrt(sample_rate)
     return IMUNoiseModelCfg(
         noise_cfg=GaussianNoiseCfg(std=std),
         sensor_type='accel',
+        control_frequency_hz=sample_rate,
         accel_noise_std=std,
         accel_bias_range=(-contract.sensors.imu.accel_bias_stability, 
                           contract.sensors.imu.accel_bias_stability),
@@ -572,15 +578,21 @@ def get_imu_gyro_noise(contract: SimRealContractCfg) -> IMUNoiseModelCfg | None:
     
     Returns IMUNoiseModelCfg which generates independent noise per environment.
     Noise is in RAW units (rad/s) - normalization happens via ObsTerm.scale.
+    
+    Noise density conversion:
+        noise_density [unit/√Hz] → std [unit/sample] = density * √(sample_rate_hz)
     """
     if not contract.sensors.imu.enable_noise:
         return None
-    # Convert noise density to std (assuming 200Hz → sqrt(200) factor)
-    # This gives noise std in rad/s (raw units)
-    std = contract.sensors.imu.gyro_noise_density * 14.14  # sqrt(200)
+    # Convert noise density to std using actual control frequency
+    # noise_density [rad/s/√Hz] → std [rad/s/sample] = density * √(sample_rate_hz)
+    import math
+    sample_rate = contract.timing.control_frequency_hz
+    std = contract.sensors.imu.gyro_noise_density * math.sqrt(sample_rate)
     return IMUNoiseModelCfg(
         noise_cfg=GaussianNoiseCfg(std=std),
         sensor_type='gyro',
+        control_frequency_hz=sample_rate,
         gyro_noise_std=std,
         gyro_bias_range=(-contract.sensors.imu.gyro_bias_stability,
                          contract.sensors.imu.gyro_bias_stability),

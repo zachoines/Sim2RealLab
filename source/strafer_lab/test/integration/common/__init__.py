@@ -6,11 +6,16 @@
 This module provides shared utilities across all integration test suites:
 - Statistical testing functions (chi-squared, t-tests, circular stats)
 - Common constants (confidence levels, sample sizes)
-- Fixture patterns for Isaac Sim environments
+- Robot control utilities (positioning, freezing)
 
 Usage:
     from test.integration.common import CONFIDENCE_LEVEL, chi_squared_variance_test
     from test.integration.common.circular import circular_mean, circular_ci
+
+    # Robot utilities (import AFTER Isaac Sim is launched):
+    from test.integration.common.robot import (
+        get_env_origins, reset_robot_pose, freeze_robot_in_place, clear_frozen_state
+    )
 """
 
 from .constants import (

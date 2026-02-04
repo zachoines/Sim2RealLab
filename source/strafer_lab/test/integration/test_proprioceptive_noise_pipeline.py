@@ -37,6 +37,21 @@ import pytest
 
 from isaaclab.envs import ManagerBasedRLEnv
 
+# Import shared statistical utilities from common module
+from test.integration.common import (
+    variance_ratio_test,
+    one_sample_t_test,
+    CONFIDENCE_LEVEL as COMMON_CONFIDENCE_LEVEL,
+)
+
+# Import robot utilities from common module
+from test.integration.common.robot import (
+    get_env_origins,
+    reset_robot_pose,
+    freeze_robot_in_place,
+    clear_frozen_state,
+)
+
 from strafer_lab.tasks.navigation.strafer_env_cfg import (
     StraferNavEnvCfg_NoCam,
     ActionsCfg_Ideal,
@@ -122,8 +137,8 @@ EXPECTED_ENCODER_STD = RAW_ENCODER_STD / ENCODER_MAX if RAW_ENCODER_STD else 0.0
 # The IMU noise model produces (in RAW space):
 #   y_t = signal + bias_t + white_noise_t
 #   
-# Where bias evolves as:
-#   bias_t = bias_{t-1} + drift_step_t,  drift_step ~ N(0, drift_rate²)
+# Where bias evolves as (with drift scaled by sqrt(dt) for proper time integration):
+#   bias_t = bias_{t-1} + drift_step_t,  drift_step ~ N(0, (drift_rate * sqrt(dt))²)
 #
 # For a STATIONARY robot (signal constant), first differences give:
 #   Δy_t = y_t - y_{t-1}
@@ -131,7 +146,9 @@ EXPECTED_ENCODER_STD = RAW_ENCODER_STD / ENCODER_MAX if RAW_ENCODER_STD else 0.0
 #        = drift_step_t + (v_t - v_{t-1})
 #
 # The variance (in RAW space) is:
-#   Var(Δy_raw) = drift_rate² + 2 * white_noise_std²
+#   Var(Δy_raw) = drift_rate² * dt + 2 * white_noise_std²
+#
+# Where dt = 1/control_frequency_hz (e.g., 1/30 for 30Hz control).
 #
 # After scaling to normalized space:
 #   Var(Δy_normalized) = Var(Δy_raw) / max_value²
@@ -143,28 +160,34 @@ EXPECTED_ENCODER_STD = RAW_ENCODER_STD / ENCODER_MAX if RAW_ENCODER_STD else 0.0
 def _calculate_first_diff_theoretical_std(
     white_noise_std: float,
     drift_rate: float,
+    control_frequency_hz: float = 30.0,
 ) -> float:
     """Calculate theoretical std of first differences for IMU noise.
     
     For the noise model:
         y_t = bias_t + white_noise_t
-        bias_t = bias_{t-1} + N(0, drift_rate²)
+        bias_t = bias_{t-1} + N(0, (drift_rate * sqrt(dt))²)
     
     The first difference is:
         Δy_t = y_t - y_{t-1} = drift_step + (v_t - v_{t-1})
     
-    With variance:
-        Var(Δy) = drift_rate² + 2 * white_noise_std²
+    With variance (drift scaled by sqrt(dt) for random walk):
+        Var(Δy) = drift_rate² * dt + 2 * white_noise_std²
+        
+    Where dt = 1/control_frequency_hz.
         
     Args:
         white_noise_std: White noise standard deviation per step
-        drift_rate: Bias drift rate (std of per-step drift)
+        drift_rate: Bias drift rate (std per second, scaled by sqrt(dt) per step)
+        control_frequency_hz: Control loop frequency (default 30Hz)
         
     Returns:
         Theoretical std of first differences
     """
     import math
-    variance = drift_rate**2 + 2 * white_noise_std**2
+    dt = 1.0 / control_frequency_hz
+    # Drift variance per step: (drift_rate * sqrt(dt))^2 = drift_rate^2 * dt
+    variance = drift_rate**2 * dt + 2 * white_noise_std**2
     return math.sqrt(variance)
 
 
@@ -172,19 +195,23 @@ def _calculate_first_diff_theoretical_std_normalized(
     white_noise_std: float,
     drift_rate: float,
     max_value: float,
+    control_frequency_hz: float = 30.0,
 ) -> float:
     """Calculate theoretical std of first differences in NORMALIZED space.
     
     Args:
         white_noise_std: White noise std in RAW units (m/s² or rad/s)
-        drift_rate: Bias drift rate in RAW units
+        drift_rate: Bias drift rate in RAW units (per second)
         max_value: Max sensor value for normalization
+        control_frequency_hz: Control loop frequency (default 30Hz)
         
     Returns:
         Theoretical std of first differences in normalized space
     """
     # Theoretical std in RAW space
-    raw_theoretical_std = _calculate_first_diff_theoretical_std(white_noise_std, drift_rate)
+    raw_theoretical_std = _calculate_first_diff_theoretical_std(
+        white_noise_std, drift_rate, control_frequency_hz
+    )
     # Convert to normalized space
     return raw_theoretical_std / max_value
 
@@ -195,6 +222,7 @@ if _ACCEL_NOISE_CFG:
         _ACCEL_NOISE_CFG.accel_noise_std,
         _ACCEL_NOISE_CFG.accel_bias_drift_rate,
         IMU_ACCEL_MAX,
+        _ACCEL_NOISE_CFG.control_frequency_hz,
     )
 else:
     ACCEL_DIFF_STD_THEORETICAL = 0.0
@@ -204,6 +232,7 @@ if _GYRO_NOISE_CFG:
         _GYRO_NOISE_CFG.gyro_noise_std,
         _GYRO_NOISE_CFG.gyro_bias_drift_rate,
         IMU_GYRO_MAX,
+        _GYRO_NOISE_CFG.control_frequency_hz,
     )
 else:
     GYRO_DIFF_STD_THEORETICAL = 0.0
@@ -357,29 +386,52 @@ def pytest_sessionfinish(session, exitstatus):
 # =============================================================================
 # Helper Functions
 # =============================================================================
+# Robot control functions (get_env_origins, reset_robot_pose, freeze_robot_in_place,
+# clear_frozen_state) are imported from test.integration.common.robot module.
 
-def collect_stationary_observations(env, n_steps: int) -> torch.Tensor:
+
+def collect_stationary_observations(env, n_steps: int, freeze_robot: bool = True) -> torch.Tensor:
     """Collect observations from a stationary robot over multiple steps.
-    
+
     With zero actions and settled physics, any observation variance
     comes from sensor noise.
-    
+
+    Args:
+        env: The Isaac Lab environment
+        n_steps: Number of observation steps to collect
+        freeze_robot: If True (default), continuously zero out robot velocities
+                      to eliminate physics settling noise. This ensures measured
+                      variance comes purely from sensor noise.
+
     Returns:
         Tensor of shape (n_steps, num_envs, obs_dim)
     """
+    # Full environment reset to ensure clean state
+    env.reset()
+
+    # Reset robots to fixed positions at grid origins (avoids randomization overlap)
+    reset_robot_pose(env)
+
+    # Clear frozen state so it captures fresh pose on next freeze call
+    clear_frozen_state()
+
     # Zero action (stationary)
     zero_action = torch.zeros(env.num_envs, 3, device=env.device)
-    
+
     # Let physics settle
     for _ in range(N_SETTLE_STEPS):
         env.step(zero_action)
-    
+        if freeze_robot:
+            freeze_robot_in_place(env)
+
     # Collect observations
     observations = []
     for _ in range(n_steps):
         obs_dict, _, _, _, _ = env.step(zero_action)
         observations.append(obs_dict["policy"].clone())
-    
+        if freeze_robot:
+            freeze_robot_in_place(env)
+
     return torch.stack(observations, dim=0)
 
 
@@ -440,136 +492,144 @@ class TestIMUNoiseFromEnv:
     """Test IMU noise characteristics from environment observations."""
     
     def test_accel_noise_is_present(self, noisy_env):
-        """Verify accelerometer observations have non-zero variance (noise is applied)."""
+        """Verify accelerometer observations have non-zero variance (noise is applied).
+
+        Expected normalized variance is ~1e-7 based on:
+        - accel_noise_density = 0.0098 m/s²/√Hz
+        - At 30Hz: std ≈ 0.054 m/s²
+        - After normalization (÷156.96): std ≈ 3.4e-4
+        - Expected variance ≈ 1.2e-7
+        """
         obs = collect_stationary_observations(noisy_env, N_SAMPLES_STEPS)
-        
+
         accel_obs = obs[:, :, IMU_ACCEL_SLICE]
         variance = accel_obs.var().item()
-        
-        print(f"\n  Accelerometer observation variance: {variance:.6f}")
-        
-        # With noise enabled, variance should be non-zero
-        assert variance > 1e-8, \
-            f"Accelerometer variance too low ({variance:.2e}), noise may not be applied"
+
+        # Compute expected variance for informative output
+        expected_var = EXPECTED_ACCEL_STD ** 2 if EXPECTED_ACCEL_STD > 0 else 0.0
+
+        print(f"\n  Accelerometer observation variance: {variance:.2e}")
+        print(f"    Expected variance (white noise only): {expected_var:.2e}")
+        print(f"    Ratio (measured/expected): {variance / max(expected_var, 1e-15):.2f}")
+
+        # Threshold: 10% of expected variance, with minimum floor for safety
+        threshold = max(expected_var * 0.1, 1e-12)
+        assert variance > threshold, \
+            f"Accelerometer variance too low ({variance:.2e} < {threshold:.2e}), noise may not be applied"
     
     def test_accel_noise_std_matches_config(self, noisy_env):
         """Verify accelerometer noise std matches theoretical prediction using chi-squared test.
-        
+
         Uses first-differences approach for precise theoretical bounds:
-        
+
             Δy_t = y_t - y_{t-1} = drift_step + (v_t - v_{t-1})
             Var(Δy) = drift_rate² + 2 * white_noise_std²
-            
+
         Statistical approach:
         - For Gaussian noise, (n-1) * S² / σ² ~ χ²(n-1)
         - We compute a confidence interval for our measured std
         - Test passes if theoretical std falls within this CI
         """
         obs = collect_stationary_observations(noisy_env, N_SAMPLES_STEPS)
-        
+
         # Use first differences for clean theoretical prediction
         diff_samples = extract_first_differences(obs, IMU_ACCEL_SLICE)
         n_samples = len(diff_samples)
         measured_var = np.var(diff_samples)
         measured_std = np.sqrt(measured_var)
-        
-        # Compute confidence interval using chi-squared distribution
-        df = n_samples - 1
-        alpha = 1 - CONFIDENCE_LEVEL
-        chi2_lower = stats.chi2.ppf(alpha / 2, df)
-        chi2_upper = stats.chi2.ppf(1 - alpha / 2, df)
-        
-        # CI for variance: [S² * df / χ²_upper, S² * df / χ²_lower]
-        var_ci_lower = measured_var * df / chi2_upper
-        var_ci_upper = measured_var * df / chi2_lower
-        std_ci_lower = np.sqrt(var_ci_lower)
-        std_ci_upper = np.sqrt(var_ci_upper)
-        
-        # Check if theoretical value falls within CI
-        ci_contains_theoretical = std_ci_lower <= ACCEL_DIFF_STD_THEORETICAL <= std_ci_upper
-        
+
+        # Chi-squared variance ratio test
+        expected_var = ACCEL_DIFF_STD_THEORETICAL ** 2
+        result = variance_ratio_test(measured_var, expected_var, n_samples)
+
         print(f"\n  Accelerometer first-difference analysis (chi-squared test):")
         print(f"    Config values:")
         print(f"      white_noise_std: {EXPECTED_ACCEL_STD:.6f}")
         print(f"      drift_rate: {_ACCEL_NOISE_CFG.accel_bias_drift_rate:.6f}")
-        print(f"    Theoretical Var(Δy) = drift² + 2*white²")
+        print(f"    Theoretical Var(Dy) = drift^2 * dt + 2*white^2")
         print(f"      = {_ACCEL_NOISE_CFG.accel_bias_drift_rate**2:.9f} + 2*{EXPECTED_ACCEL_STD**2:.9f}")
-        print(f"    Statistical analysis (n={n_samples:,} samples, df={df:,}):")
-        print(f"      Measured std(Δy): {measured_std:.6f}")
-        print(f"      {CONFIDENCE_LEVEL*100:.0f}% CI for std: [{std_ci_lower:.6f}, {std_ci_upper:.6f}]")
-        print(f"      Theoretical std(Δy): {ACCEL_DIFF_STD_THEORETICAL:.6f}")
-        print(f"      Ratio (measured/theoretical): {measured_std / ACCEL_DIFF_STD_THEORETICAL:.3f}")
-        print(f"    Result: Theoretical value {'is' if ci_contains_theoretical else 'is NOT'} within CI")
-        
-        assert ci_contains_theoretical, (
-            f"Theoretical std {ACCEL_DIFF_STD_THEORETICAL:.6f} not within "
-            f"{CONFIDENCE_LEVEL*100:.0f}% CI [{std_ci_lower:.6f}, {std_ci_upper:.6f}]"
+        print(f"    Statistical analysis (n={n_samples:,} samples, df={result.df:,}):")
+        print(f"      Measured std(Dy): {measured_std:.6f}")
+        print(f"      Theoretical std(Dy): {ACCEL_DIFF_STD_THEORETICAL:.6f}")
+        print(f"      Variance ratio (measured/theoretical): {result.ratio:.4f}")
+        print(f"      {CONFIDENCE_LEVEL*100:.0f}% CI for ratio: [{result.ci_low:.4f}, {result.ci_high:.4f}]")
+        print(f"    Result: Variance ratio {'is' if result.in_ci else 'is NOT'} within CI")
+
+        assert result.in_ci, (
+            f"Accelerometer variance ratio {result.ratio:.4f} not within "
+            f"{CONFIDENCE_LEVEL*100:.0f}% CI [{result.ci_low:.4f}, {result.ci_high:.4f}]"
         )
     
     def test_gyro_noise_is_present(self, noisy_env):
-        """Verify gyroscope observations have non-zero variance."""
+        """Verify gyroscope observations have non-zero variance.
+
+        Note: Gyroscope noise is much smaller than accelerometer noise.
+        Expected normalized variance is ~1e-9 based on:
+        - gyro_noise_density = 0.00024 rad/s/√Hz
+        - At 30Hz: std ≈ 0.00131 rad/s
+        - After normalization (÷34.9): std ≈ 3.77e-5
+        - Expected variance ≈ 1.4e-9
+
+        We use a threshold of 1e-10 (10% of expected) to verify noise is present.
+        """
         obs = collect_stationary_observations(noisy_env, N_SAMPLES_STEPS)
-        
+
         gyro_obs = obs[:, :, IMU_GYRO_SLICE]
         variance = gyro_obs.var().item()
-        
-        print(f"\n  Gyroscope observation variance: {variance:.6f}")
-        
-        assert variance > 1e-8, \
-            f"Gyroscope variance too low ({variance:.2e}), noise may not be applied"
+
+        # Compute expected variance for informative output
+        expected_var = EXPECTED_GYRO_STD ** 2 if EXPECTED_GYRO_STD > 0 else 0.0
+
+        print(f"\n  Gyroscope observation variance: {variance:.2e}")
+        print(f"    Expected variance (white noise only): {expected_var:.2e}")
+        print(f"    Ratio (measured/expected): {variance / max(expected_var, 1e-15):.2f}")
+
+        # Threshold: 10% of expected variance, with minimum floor for safety
+        threshold = max(expected_var * 0.1, 1e-12)
+        assert variance > threshold, \
+            f"Gyroscope variance too low ({variance:.2e} < {threshold:.2e}), noise may not be applied"
     
     def test_gyro_noise_std_matches_config(self, noisy_env):
         """Verify gyroscope noise std matches theoretical prediction using chi-squared test.
-        
+
         Uses first-differences approach for precise theoretical bounds:
-        
+
             Δy_t = y_t - y_{t-1} = drift_step + (v_t - v_{t-1})
             Var(Δy) = drift_rate² + 2 * white_noise_std²
-            
+
         Statistical approach:
         - For Gaussian noise, (n-1) * S² / σ² ~ χ²(n-1)
         - We compute a confidence interval for our measured std
         - Test passes if theoretical std falls within this CI
         """
         obs = collect_stationary_observations(noisy_env, N_SAMPLES_STEPS)
-        
+
         # Use first differences for clean theoretical prediction
         diff_samples = extract_first_differences(obs, IMU_GYRO_SLICE)
         n_samples = len(diff_samples)
         measured_var = np.var(diff_samples)
         measured_std = np.sqrt(measured_var)
-        
-        # Compute confidence interval using chi-squared distribution
-        df = n_samples - 1
-        alpha = 1 - CONFIDENCE_LEVEL
-        chi2_lower = stats.chi2.ppf(alpha / 2, df)
-        chi2_upper = stats.chi2.ppf(1 - alpha / 2, df)
-        
-        # CI for variance: [S² * df / χ²_upper, S² * df / χ²_lower]
-        var_ci_lower = measured_var * df / chi2_upper
-        var_ci_upper = measured_var * df / chi2_lower
-        std_ci_lower = np.sqrt(var_ci_lower)
-        std_ci_upper = np.sqrt(var_ci_upper)
-        
-        # Check if theoretical value falls within CI
-        ci_contains_theoretical = std_ci_lower <= GYRO_DIFF_STD_THEORETICAL <= std_ci_upper
-        
+
+        # Chi-squared variance ratio test
+        expected_var = GYRO_DIFF_STD_THEORETICAL ** 2
+        result = variance_ratio_test(measured_var, expected_var, n_samples)
+
         print(f"\n  Gyroscope first-difference analysis (chi-squared test):")
         print(f"    Config values:")
         print(f"      white_noise_std: {EXPECTED_GYRO_STD:.6f}")
         print(f"      drift_rate: {_GYRO_NOISE_CFG.gyro_bias_drift_rate:.6f}")
-        print(f"    Theoretical Var(Δy) = drift² + 2*white²")
+        print(f"    Theoretical Var(Dy) = drift^2 * dt + 2*white^2")
         print(f"      = {_GYRO_NOISE_CFG.gyro_bias_drift_rate**2:.9f} + 2*{EXPECTED_GYRO_STD**2:.9f}")
-        print(f"    Statistical analysis (n={n_samples:,} samples, df={df:,}):")
-        print(f"      Measured std(Δy): {measured_std:.6f}")
-        print(f"      {CONFIDENCE_LEVEL*100:.0f}% CI for std: [{std_ci_lower:.6f}, {std_ci_upper:.6f}]")
-        print(f"      Theoretical std(Δy): {GYRO_DIFF_STD_THEORETICAL:.6f}")
-        print(f"      Ratio (measured/theoretical): {measured_std / GYRO_DIFF_STD_THEORETICAL:.3f}")
-        print(f"    Result: Theoretical value {'is' if ci_contains_theoretical else 'is NOT'} within CI")
-        
-        assert ci_contains_theoretical, (
-            f"Theoretical std {GYRO_DIFF_STD_THEORETICAL:.6f} not within "
-            f"{CONFIDENCE_LEVEL*100:.0f}% CI [{std_ci_lower:.6f}, {std_ci_upper:.6f}]"
+        print(f"    Statistical analysis (n={n_samples:,} samples, df={result.df:,}):")
+        print(f"      Measured std(Dy): {measured_std:.6f}")
+        print(f"      Theoretical std(Dy): {GYRO_DIFF_STD_THEORETICAL:.6f}")
+        print(f"      Variance ratio (measured/theoretical): {result.ratio:.4f}")
+        print(f"      {CONFIDENCE_LEVEL*100:.0f}% CI for ratio: [{result.ci_low:.4f}, {result.ci_high:.4f}]")
+        print(f"    Result: Variance ratio {'is' if result.in_ci else 'is NOT'} within CI")
+
+        assert result.in_ci, (
+            f"Gyroscope variance ratio {result.ratio:.4f} not within "
+            f"{CONFIDENCE_LEVEL*100:.0f}% CI [{result.ci_low:.4f}, {result.ci_high:.4f}]"
         )
 
 
@@ -606,8 +666,8 @@ class TestEncoderNoiseFromEnv:
         
         Statistical approach:
         - Compute sample variance from noise samples
-        - Use chi-squared CI for variance
-        - Test passes if theoretical std falls within CI
+        - Use chi-squared variance ratio test
+        - Test passes if variance ratio falls within CI
         
         Note: Unlike IMU noise, encoder noise has NO drift component,
         so we can directly measure std without using first-differences.
@@ -619,20 +679,9 @@ class TestEncoderNoiseFromEnv:
         measured_var = np.var(noise_samples)
         measured_std = np.sqrt(measured_var)
         
-        # Compute confidence interval using chi-squared distribution
-        df = n_samples - 1
-        alpha = 1 - CONFIDENCE_LEVEL
-        chi2_lower = stats.chi2.ppf(alpha / 2, df)
-        chi2_upper = stats.chi2.ppf(1 - alpha / 2, df)
-        
-        # CI for variance: [S² * df / χ²_upper, S² * df / χ²_lower]
-        var_ci_lower = measured_var * df / chi2_upper
-        var_ci_upper = measured_var * df / chi2_lower
-        std_ci_lower = np.sqrt(var_ci_lower)
-        std_ci_upper = np.sqrt(var_ci_upper)
-        
-        # Check if theoretical value falls within CI
-        ci_contains_theoretical = std_ci_lower <= ENCODER_STD_THEORETICAL <= std_ci_upper
+        # Chi-squared variance ratio test
+        expected_var = ENCODER_STD_THEORETICAL ** 2
+        result = variance_ratio_test(measured_var, expected_var, n_samples)
         
         # Get config values for display
         vel_noise_std = _ENCODER_NOISE_CFG.velocity_noise_std
@@ -645,7 +694,7 @@ class TestEncoderNoiseFromEnv:
         gaussian_var = (vel_noise_std * max_vel) ** 2
         tick_var = p_miss + p_extra
         quant_var = (1.0 / 12.0) if quant_enabled else 0.0
-        total_var = gaussian_var + tick_var + quant_var
+        total_var_raw = gaussian_var + tick_var + quant_var
         
         print(f"\n  Encoder noise analysis (chi-squared test):")
         print(f"    Config values:")
@@ -654,21 +703,21 @@ class TestEncoderNoiseFromEnv:
         print(f"      missed_tick_prob: {p_miss:.6f}")
         print(f"      extra_tick_prob: {p_extra:.6f}")
         print(f"      enable_quantization: {quant_enabled}")
-        print(f"    Theoretical variance breakdown:")
+        print(f"    Theoretical variance breakdown (raw space):")
         print(f"      Gaussian: ({vel_noise_std:.4f} × {max_vel:.0f})² = {gaussian_var:.6f}")
         print(f"      Tick errors: {p_miss:.6f} + {p_extra:.6f} = {tick_var:.6f}")
         print(f"      Quantization: 1/12 = {quant_var:.6f}")
-        print(f"      Total variance: {total_var:.6f}")
-        print(f"    Statistical analysis (n={n_samples:,} samples, df={df:,}):")
+        print(f"      Total variance (raw): {total_var_raw:.6f}")
+        print(f"    Statistical analysis (n={n_samples:,} samples, df={result.df:,}):")
         print(f"      Measured std: {measured_std:.6f}")
-        print(f"      {CONFIDENCE_LEVEL*100:.0f}% CI for std: [{std_ci_lower:.6f}, {std_ci_upper:.6f}]")
         print(f"      Theoretical std: {ENCODER_STD_THEORETICAL:.6f}")
-        print(f"      Ratio (measured/theoretical): {measured_std / ENCODER_STD_THEORETICAL:.3f}")
-        print(f"    Result: Theoretical value {'is' if ci_contains_theoretical else 'is NOT'} within CI")
+        print(f"      Variance ratio (measured/theoretical): {result.ratio:.4f}")
+        print(f"      {CONFIDENCE_LEVEL*100:.0f}% CI for ratio: [{result.ci_low:.4f}, {result.ci_high:.4f}]")
+        print(f"    Result: Variance ratio {'is' if result.in_ci else 'is NOT'} within CI")
         
-        assert ci_contains_theoretical, (
-            f"Theoretical std {ENCODER_STD_THEORETICAL:.6f} not within "
-            f"{CONFIDENCE_LEVEL*100:.0f}% CI [{std_ci_lower:.6f}, {std_ci_upper:.6f}]"
+        assert result.in_ci, (
+            f"Encoder variance ratio {result.ratio:.4f} not within "
+            f"{CONFIDENCE_LEVEL*100:.0f}% CI [{result.ci_low:.4f}, {result.ci_high:.4f}]"
         )
 
 
@@ -774,33 +823,34 @@ class TestNoiseStatisticalProperties:
     """Test statistical properties of observation noise."""
     
     def test_noise_has_zero_mean(self, noisy_env):
-        """Verify noise has approximately zero mean (unbiased)."""
+        """Verify noise has approximately zero mean (unbiased).
+        
+        Uses one-sample t-test to verify the mean is not significantly
+        different from zero.
+        """
         obs = collect_stationary_observations(noisy_env, N_SAMPLES_STEPS)
         
         # Extract noise for accelerometer
         noise_samples = extract_noise_samples(obs, IMU_ACCEL_SLICE)
         
-        mean = np.mean(noise_samples)
+        # One-sample t-test: is mean significantly different from 0?
+        result = one_sample_t_test(noise_samples, null_value=0.0)
+        
         std = np.std(noise_samples)
-        n = len(noise_samples)
         
-        # Standard error of the mean
-        sem = std / np.sqrt(n)
+        print(f"\n  Accelerometer noise mean test (one-sample t-test):")
+        print(f"    N samples: {result.n_samples:,}")
+        print(f"    Mean: {result.mean:.6f}")
+        print(f"    Std: {std:.6f}")
+        print(f"    95% CI for mean: [{result.ci_low:.2e}, {result.ci_high:.2e}]")
+        print(f"    p-value: {result.p_value:.4f}")
+        print(f"    Zero in CI: {not result.reject_null}")
         
-        # t-test against mean=0
-        t_stat = mean / sem
-        p_value = 2 * (1 - stats.t.cdf(abs(t_stat), n - 1))
-        
-        print(f"\n  Accelerometer noise mean: {mean:.6f}")
-        print(f"    Standard error: {sem:.6f}")
-        print(f"    t-statistic: {t_stat:.4f}")
-        print(f"    p-value: {p_value:.4f}")
-        
-        # Mean should be close to zero (not statistically different at p=0.01)
+        # Mean should be close to zero (not statistically different)
         # Note: With many samples, even small biases may be "significant"
-        # We check the magnitude is small relative to the noise std
-        assert abs(mean) < std * 0.1, \
-            f"Noise mean {mean:.6f} seems biased (std={std:.6f})"
+        # We also check the magnitude is small relative to the noise std
+        assert abs(result.mean) < std * 0.1, \
+            f"Noise mean {result.mean:.6f} seems biased (std={std:.6f})"
     
     def test_noise_variance_is_stable(self, noisy_env):
         """Verify noise variance is consistent over time.

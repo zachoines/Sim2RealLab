@@ -49,6 +49,13 @@ from test.common import DEVICE
 NUM_ENVS = 4                 # Minimal envs for unit tests
 N_RESPONSE_STEPS = 200       # Steps to measure step response
 
+# Thresholds for deterministic analytical tests (not statistical tolerances)
+# These are justified by the mathematical properties being tested:
+R_SQUARED_EXPONENTIAL_FIT = 0.99    # First-order systems fit exponential near-perfectly
+R_SQUARED_LINEAR_FIT = 0.999        # Constant acceleration gives perfect linear ramp
+CORRELATION_SIGNAL_PRESERVE = 0.999 # Delay buffer preserves signal exactly
+FLOAT_PRECISION_FACTOR = 1.001      # Allow 0.1% for floating-point accumulation
+
 
 # =============================================================================
 # Module-scoped Fixtures
@@ -339,11 +346,13 @@ class TestMotorDynamicsIsolated:
 
         print(f"\n  Motor dynamics isolated - exponential fit quality:")
         print(f"    R²: {r_squared:.6f}")
-        print(f"    Expected: > 0.99 (pure first-order response)")
+        print(f"    Expected: > {R_SQUARED_EXPONENTIAL_FIT} (pure first-order response)")
 
         # With isolated motor dynamics, should get near-perfect fit
-        assert r_squared > 0.99, \
-            f"Isolated motor dynamics should give R² > 0.99, got {r_squared:.4f}"
+        # A pure first-order system analytically produces v(t) = v_final*(1-e^(-t/τ)),
+        # so R² should be very close to 1.0
+        assert r_squared > R_SQUARED_EXPONENTIAL_FIT, \
+            f"Isolated motor dynamics should give R² > {R_SQUARED_EXPONENTIAL_FIT}, got {r_squared:.4f}"
 
     def test_no_overshoot(self, env):
         """Verify first-order response has no overshoot (strictly monotonic).
@@ -368,16 +377,21 @@ class TestMotorDynamicsIsolated:
         v_final = wheel_response[-1]
 
         # Noise threshold based on numerical precision
-        noise_floor = max(1e-7 * v_final, 1e-6)
+        # IEEE 754 float32 has ~7 significant digits, so relative error ~1e-7
+        # We use 3σ threshold to avoid false positives from accumulated rounding
+        relative_precision = 1e-7
+        absolute_minimum = 1e-9  # Avoid division issues near zero
+        noise_floor = max(relative_precision * v_final, absolute_minimum)
         diffs = np.diff(wheel_response)
         significant_decreases = np.sum(diffs < -3 * noise_floor)
 
         print(f"\n  Motor dynamics isolated - monotonicity check:")
         print(f"    Significant decreases: {significant_decreases}")
         print(f"    Min diff: {np.min(diffs):.2e}")
-        print(f"    Noise threshold: {-3*noise_floor:.2e}")
+        print(f"    Noise threshold (3σ): {-3*noise_floor:.2e}")
 
         # Should be strictly monotonic (0 decreases, allowing for float noise)
+        # A pure first-order system analytically never overshoots
         assert significant_decreases == 0, \
             f"Pure first-order system should never decrease, found {significant_decreases} decreases"
 
@@ -482,15 +496,16 @@ class TestCommandDelayIsolated:
             input_segment = input_segment[:min_len]
             output_segment = output_segment[:min_len]
 
-            # Correlation should be very high (>0.999) for identical signals
+            # Correlation should be very high for identical signals
+            # A pure delay buffer just shifts the signal in time without distortion
             correlation = np.corrcoef(input_segment, output_segment)[0, 1]
 
             print(f"\n  Command delay isolated - signal preservation:")
             print(f"    Delay: {actual_delay} steps")
             print(f"    Correlation(input, shifted output): {correlation:.6f}")
 
-            assert correlation > 0.999, \
-                f"Delay buffer should preserve signal shape (correlation={correlation:.4f})"
+            assert correlation > CORRELATION_SIGNAL_PRESERVE, \
+                f"Delay buffer should preserve signal shape (correlation={correlation:.4f} < {CORRELATION_SIGNAL_PRESERVE})"
 
 
 # =============================================================================
@@ -535,8 +550,9 @@ class TestSlewRateIsolated:
         print(f"    Max measured accel: {max_measured_accel:.1f} rad/s^2")
         print(f"    Difference: {max_measured_accel - max_accel:.4f} rad/s^2")
 
-        # Should be bounded exactly (within float precision)
-        assert max_measured_accel <= max_accel * 1.001, \
+        # Should be bounded exactly (allow small float accumulation error)
+        # The slew rate limiter clamps dv/dt analytically, so this is a deterministic bound
+        assert max_measured_accel <= max_accel * FLOAT_PRECISION_FACTOR, \
             f"Acceleration ({max_measured_accel:.1f}) should not exceed {max_accel:.1f} rad/s^2"
 
     def test_ramp_time_matches_physics(self, env):
@@ -624,9 +640,10 @@ class TestSlewRateIsolated:
             print(f"    Linear fit R²: {r_squared:.6f}")
             print(f"    Slope (acceleration): {slope:.1f} rad/s^2")
 
-            # Should be very linear (R² > 0.999)
-            assert r_squared > 0.999, \
-                f"Ramp should be linear (R²={r_squared:.4f}), indicates non-constant acceleration"
+            # Should be very linear - constant acceleration produces v(t) = a*t
+            # which is perfectly linear. R² near 1.0 confirms constant acceleration.
+            assert r_squared > R_SQUARED_LINEAR_FIT, \
+                f"Ramp should be linear (R²={r_squared:.4f} < {R_SQUARED_LINEAR_FIT}), indicates non-constant acceleration"
 
 
 # =============================================================================

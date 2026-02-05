@@ -778,7 +778,129 @@ class TestNoiseStatisticalProperties:
             f"Noise mean {result.mean:.6f} is significantly different from zero "
             f"(p={result.p_value:.4f} < α={1 - CONFIDENCE_LEVEL:.2f})"
         )
-    
+
+
+# =============================================================================
+# Tests: Observation Pipeline Structure and Physics
+# =============================================================================
+
+# Physical constants for gravity test
+GRAVITY = 9.81  # m/s²
+
+# Expected observation structure for NoCam config
+EXPECTED_OBS_DIMS = [(3,), (3,), (4,), (2,), (3,)]  # imu_accel, imu_gyro, encoders, goal, action
+EXPECTED_TOTAL_DIM = 15
+
+
+class TestObservationPipeline:
+    """Test observation pipeline structure and physics correctness.
+
+    These tests validate that:
+    - Observation structure matches expected dimensions
+    - Physics signals (like gravity) are correctly measured
+    """
+
+    def test_observation_structure(self, noisy_env):
+        """Verify observation term structure matches expected dimensions.
+
+        Observation structure for NoCam config (15 dims total):
+        - imu_linear_acceleration: (3,) - normalized by max_accel
+        - imu_angular_velocity: (3,) - normalized by max_angular_vel
+        - wheel_encoder_velocities: (4,) - normalized by max_ticks_per_sec
+        - goal_position: (2,) - relative [x, y] to goal (meters)
+        - last_action: (3,) - previous [vx, vy, omega] command
+        """
+        obs_manager = noisy_env.observation_manager
+
+        if hasattr(obs_manager, '_group_obs_term_dim'):
+            group_cfg = obs_manager._group_obs_term_dim
+
+            assert "policy" in group_cfg, "Missing 'policy' observation group"
+
+            term_dims = group_cfg["policy"]
+
+            print(f"\n  Observation structure validation:")
+            print(f"    Number of terms: {len(term_dims)} (expected {len(EXPECTED_OBS_DIMS)})")
+
+            assert len(term_dims) == len(EXPECTED_OBS_DIMS), (
+                f"Expected {len(EXPECTED_OBS_DIMS)} terms, got {len(term_dims)}"
+            )
+
+            for i, (actual, expected) in enumerate(zip(term_dims, EXPECTED_OBS_DIMS)):
+                term_names = ["imu_accel", "imu_gyro", "encoders", "goal", "action"]
+                print(f"    Term {i} ({term_names[i]}): {actual} (expected {expected})")
+                assert actual == expected, f"Term {i}: expected {expected}, got {actual}"
+
+            total = sum(d[0] for d in term_dims)
+            print(f"    Total dimensions: {total} (expected {EXPECTED_TOTAL_DIM})")
+            assert total == EXPECTED_TOTAL_DIM, f"Expected {EXPECTED_TOTAL_DIM} total dims, got {total}"
+        else:
+            # Fallback: verify total dimension from actual observation
+            obs_dict, _ = noisy_env.reset()
+            total_dim = obs_dict["policy"].shape[1]
+            print(f"\n  Observation total dimension: {total_dim} (expected {EXPECTED_TOTAL_DIM})")
+            assert total_dim == EXPECTED_TOTAL_DIM, f"Expected {EXPECTED_TOTAL_DIM} dims, got {total_dim}"
+
+    def test_imu_gravity(self, noisy_env):
+        """Verify IMU measures gravity correctly when robot is stationary.
+
+        When the robot is stationary and upright, the accelerometer should measure
+        approximately 9.81 m/s² total acceleration (from gravity). The Z-axis
+        should dominate since the robot is upright.
+
+        Uses one-sample t-test to verify the measured gravity magnitude is
+        consistent with the expected value.
+        """
+        obs = collect_stationary_observations(noisy_env, N_SAMPLES_STEPS)
+
+        # Extract and de-normalize IMU readings
+        imu_accel_normalized = obs[:, :, IMU_ACCEL_SLICE]  # (n_steps, num_envs, 3)
+        imu_accel_raw = imu_accel_normalized * IMU_ACCEL_MAX  # Convert to m/s²
+
+        # Compute magnitude for each sample
+        magnitudes = torch.norm(imu_accel_raw, dim=2)  # (n_steps, num_envs)
+        gravity_samples = magnitudes.cpu().numpy().flatten()
+
+        # One-sample t-test: is measured gravity consistent with expected?
+        result = one_sample_t_test(gravity_samples, null_value=GRAVITY)
+
+        print(f"\n  IMU gravity measurement (one-sample t-test):")
+        print(f"    N samples: {result.n_samples:,}")
+        print(f"    Expected gravity: {GRAVITY:.3f} m/s²")
+        print(f"    Measured mean: {result.mean:.3f} m/s²")
+        print(f"    {CONFIDENCE_LEVEL*100:.0f}% CI: [{result.ci_low:.3f}, {result.ci_high:.3f}] m/s²")
+        print(f"    p-value: {result.p_value:.4f}")
+        print(f"    Gravity in CI: {not result.reject_null}")
+
+        # Test 1: Gravity should be within CI (or p-value indicates consistency)
+        # Note: With noise enabled, we may have small systematic bias, so we use
+        # a slightly relaxed check - gravity should be close to expected
+        gravity_error = abs(result.mean - GRAVITY)
+        max_acceptable_error = 0.5  # Allow 0.5 m/s² error (5% of g)
+
+        assert gravity_error < max_acceptable_error or not result.reject_null, (
+            f"Gravity measurement inconsistent: mean={result.mean:.3f} m/s², "
+            f"expected={GRAVITY:.3f} m/s², error={gravity_error:.3f} m/s²"
+        )
+
+        # Test 2: Z-axis should dominate (robot is upright)
+        mean_components = imu_accel_raw.mean(dim=(0, 1)).cpu().numpy()  # Mean across steps and envs
+        xy_magnitude = np.sqrt(mean_components[0]**2 + mean_components[1]**2)
+        z_magnitude = abs(mean_components[2])
+
+        print(f"    Component analysis:")
+        print(f"      Mean X: {mean_components[0]:.3f} m/s²")
+        print(f"      Mean Y: {mean_components[1]:.3f} m/s²")
+        print(f"      Mean Z: {mean_components[2]:.3f} m/s²")
+        print(f"      XY magnitude: {xy_magnitude:.3f} m/s²")
+        print(f"      Z magnitude: {z_magnitude:.3f} m/s²")
+
+        # Z should be much larger than XY for an upright robot
+        assert z_magnitude > xy_magnitude, (
+            f"Robot appears tilted: Z={z_magnitude:.2f} m/s², XY={xy_magnitude:.2f} m/s²"
+        )
+
+
 # =============================================================================
 # Run module cleanup on import (for running outside pytest)
 # =============================================================================

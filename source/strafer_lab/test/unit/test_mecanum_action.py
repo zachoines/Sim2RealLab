@@ -38,6 +38,9 @@ from strafer_lab.tasks.navigation.strafer_env_cfg import (
     ActionsCfg_Realistic,
 )
 
+# Import shared constants from common module
+from test.common import DEVICE
+
 
 # =============================================================================
 # Test Configuration
@@ -45,7 +48,6 @@ from strafer_lab.tasks.navigation.strafer_env_cfg import (
 
 NUM_ENVS = 4                 # Minimal envs for unit tests
 N_RESPONSE_STEPS = 200       # Steps to measure step response
-DEVICE = "cuda:0"
 
 
 # =============================================================================

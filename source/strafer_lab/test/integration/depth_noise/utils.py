@@ -18,7 +18,7 @@ The test scene provides:
 - Open space behind the robot for max-range pixels
 - Controlled geometry independent of training scene content
 
-Shared statistical utilities are imported from test.integration.common.
+Shared statistical utilities are imported from test.common.
 """
 
 import torch
@@ -26,7 +26,7 @@ import numpy as np
 from pathlib import Path
 
 # Import shared constants from common module
-from test.integration.common.constants import (
+from test.common.constants import (
     CONFIDENCE_LEVEL,
     NUM_ENVS,
     N_SETTLE_STEPS,
@@ -40,7 +40,7 @@ from test.integration.common.constants import (
 )
 
 # Re-export statistical utilities from common module for use by test files
-from test.integration.common.stats import (
+from test.common.stats import (
     variance_ratio_test,
     binomial_test,
     one_sample_t_test,
@@ -652,7 +652,7 @@ def identify_wall_pixels_with_holes(depth_obs: torch.Tensor, tolerance: float = 
 # =============================================================================
 # These functions are imported from the common module for consistency across tests.
 
-from test.integration.common.robot import (
+from test.common.robot import (
     get_env_origins,
     reset_robot_pose,
     freeze_robot_in_place as _freeze_robot_in_place,

@@ -66,6 +66,7 @@ import pytest
 from utils import (
     NUM_ENVS,
     N_SAMPLES_STEPS,
+    N_SETTLE_STEPS,
     CONFIDENCE_LEVEL,
     DEPTH_START_IDX,
     TEST_WALL_DISTANCE,
@@ -230,8 +231,10 @@ class TestHoleNoiseVariance:
         np.random.seed(42)
 
         obs = collect_stationary_observations(
-            depth_env, N_SAMPLES_STEPS, face_wall=True,
-            n_settle_steps=100,  # Extra settling for noise model state
+            depth_env, 
+            N_SAMPLES_STEPS * 2,  # Extra steps for better stats 
+            face_wall=True,
+            n_settle_steps=N_SETTLE_STEPS,  
         )
 
         print(f"\n  Hole variance on wall pixels:")

@@ -35,8 +35,13 @@ def main():
     parser.add_argument("--enable_cameras", action="store_true", default=True, 
                         help="Enable camera rendering (required for camera-based envs)")
     parser.add_argument("--pattern", type=str, default="all", 
-                        choices=["forward", "strafe", "rotate", "circle", "figure8", "all"],
+                        choices=[
+                            "forward", "strafe", "strafe_left", "strafe_right",
+                            "rotate", "circle", "figure8", "all"
+                        ],
                         help="Motion pattern to test")
+    parser.add_argument("--speed", type=float, default=1.0,
+                        help="Scale factor for pattern magnitudes (1.0 = default speeds)")
     parser.add_argument("--duration", type=float, default=60.0, help="Duration per pattern in seconds")
     parser.add_argument("--env", type=str, default="Isaac-Strafer-Nav-Real-v0",
                         help="Environment ID (default: Isaac-Strafer-Nav-Real-v0 = Realistic Full)")
@@ -104,60 +109,68 @@ def main():
         
         # Define motion patterns
         # Each pattern is a function that returns [vx, vy, omega] given time t
+        speed_scale = args.speed
+        base_linear = 0.5
+        base_omega = 0.5
+        circle_omega = 0.3
+        figure8_speed = 0.4
+
         def pattern_forward(t: float) -> tuple:
             """Move forward at 50% speed."""
-            return (0.5, 0.0, 0.0)
+            return (base_linear * speed_scale, 0.0, 0.0)
         
         def pattern_backward(t: float) -> tuple:
             """Move backward at 50% speed."""
-            return (-0.5, 0.0, 0.0)
+            return (-base_linear * speed_scale, 0.0, 0.0)
         
         def pattern_strafe_right(t: float) -> tuple:
             """Strafe right at 50% speed."""
-            return (0.0, -0.5, 0.0)
+            return (0.0, -base_linear * speed_scale, 0.0)
         
         def pattern_strafe_left(t: float) -> tuple:
             """Strafe left at 50% speed."""
-            return (0.0, 0.5, 0.0)
+            return (0.0, base_linear * speed_scale, 0.0)
         
         def pattern_rotate_cw(t: float) -> tuple:
             """Rotate clockwise at 50% speed."""
-            return (0.0, 0.0, -0.5)
+            return (0.0, 0.0, -base_omega * speed_scale)
         
         def pattern_rotate_ccw(t: float) -> tuple:
             """Rotate counter-clockwise at 50% speed."""
-            return (0.0, 0.0, 0.5)
+            return (0.0, 0.0, base_omega * speed_scale)
         
         def pattern_circle(t: float) -> tuple:
             """Drive in a circle (forward + rotation)."""
-            return (0.5, 0.0, 0.3)  # Forward + CCW rotation
+            return (base_linear * speed_scale, 0.0, circle_omega * speed_scale)  # Forward + CCW rotation
         
         def pattern_figure8(t: float) -> tuple:
             """Drive in a figure-8 pattern."""
             # Alternate rotation direction based on time
             period = 4.0  # seconds per loop
             phase = (t % (2 * period)) / period
-            omega = 0.4 if phase < 1.0 else -0.4
-            return (0.4, 0.0, omega)
+            omega = figure8_speed * speed_scale if phase < 1.0 else -figure8_speed * speed_scale
+            return (figure8_speed * speed_scale, 0.0, omega)
         
         def pattern_strafe(t: float) -> tuple:
             """Alternate strafe left/right."""
             period = 2.0
             phase = (t % (2 * period)) / period
-            vy = 0.5 if phase < 1.0 else -0.5
+            vy = base_linear * speed_scale if phase < 1.0 else -base_linear * speed_scale
             return (0.0, vy, 0.0)
         
         def pattern_rotate(t: float) -> tuple:
             """Alternate rotation CW/CCW."""
             period = 2.0
             phase = (t % (2 * period)) / period
-            omega = 0.5 if phase < 1.0 else -0.5
+            omega = base_omega * speed_scale if phase < 1.0 else -base_omega * speed_scale
             return (0.0, 0.0, omega)
         
         # Build list of patterns to run
         pattern_map = {
             "forward": [("Forward", pattern_forward), ("Backward", pattern_backward)],
             "strafe": [("Strafe Left/Right", pattern_strafe)],
+            "strafe_left": [("Strafe Left", pattern_strafe_left)],
+            "strafe_right": [("Strafe Right", pattern_strafe_right)],
             "rotate": [("Rotate CW/CCW", pattern_rotate)],
             "circle": [("Circle", pattern_circle)],
             "figure8": [("Figure-8", pattern_figure8)],
@@ -165,6 +178,8 @@ def main():
                 ("Forward", pattern_forward),
                 ("Backward", pattern_backward),
                 ("Strafe Left/Right", pattern_strafe),
+                ("Strafe Left", pattern_strafe_left),
+                ("Strafe Right", pattern_strafe_right),
                 ("Rotate CW/CCW", pattern_rotate),
                 ("Circle", pattern_circle),
                 ("Figure-8", pattern_figure8),

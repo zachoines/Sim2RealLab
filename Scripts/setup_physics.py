@@ -51,6 +51,24 @@ WHEEL_TO_RAIL = {
     "wheel_4": "right_side_rail",
 }
 
+# Mass configuration (kg)
+# Manufacturer specs: total robot mass ~4.149 kg, each wheel ~0.207 kg.
+# We distribute wheel mass between wheel frame (core + side plates) and rollers (axles + covers),
+# and distribute the remaining mass across the 4 frame rails to represent missing components.
+TOTAL_MASS_KG = 4.149
+WHEEL_MASS_KG = 0.207
+NUM_WHEELS = 4
+BODY_LINK_MASS_KG = 0.05  # Small root mass to keep articulation stable
+
+# Wheel mass split
+WHEEL_FRAME_FRACTION = 0.6  # core + side plates
+WHEEL_CORE_FRACTION_OF_FRAME = 0.7
+WHEEL_PLATES_PER_WHEEL = 2
+
+# Roller mass split (per wheel)
+ROLLER_COUNT_PER_WHEEL = 10
+ROLLER_AXLE_FRACTION = 0.3
+
 # ============================================================================
 # Exclusion / Attachment Configuration
 # ============================================================================
@@ -294,6 +312,41 @@ def apply_articulation_root(stage: Usd.Stage, prim_path: str) -> bool:
     return True
 
 
+def compute_mass_cfg(total_mass: float) -> dict[str, float]:
+    """Compute per-part mass distribution from top-level configuration."""
+    wheel_total_mass = WHEEL_MASS_KG * NUM_WHEELS
+    remaining_mass = total_mass - wheel_total_mass - BODY_LINK_MASS_KG
+    if remaining_mass <= 0.0:
+        raise ValueError(
+            f"Total mass {total_mass:.3f}kg is too small for wheel/body allocation."
+        )
+
+    # Frame rails (4 components)
+    rail_mass = remaining_mass / 4.0
+
+    # Wheel frame (core + plates)
+    wheel_frame_mass = WHEEL_MASS_KG * WHEEL_FRAME_FRACTION
+    wheel_core_mass = wheel_frame_mass * WHEEL_CORE_FRACTION_OF_FRAME
+    wheel_plate_mass = (
+        wheel_frame_mass * (1.0 - WHEEL_CORE_FRACTION_OF_FRAME) / WHEEL_PLATES_PER_WHEEL
+    )
+
+    # Rollers (axle + cover)
+    roller_total_mass = WHEEL_MASS_KG * (1.0 - WHEEL_FRAME_FRACTION)
+    roller_mass_each = roller_total_mass / ROLLER_COUNT_PER_WHEEL
+    roller_axle_mass = roller_mass_each * ROLLER_AXLE_FRACTION
+    roller_cover_mass = roller_mass_each * (1.0 - ROLLER_AXLE_FRACTION)
+
+    return {
+        "body_link": BODY_LINK_MASS_KG,
+        "rail": rail_mass,
+        "wheel_core": wheel_core_mass,
+        "wheel_plate": wheel_plate_mass,
+        "roller_axle": roller_axle_mass,
+        "roller_cover": roller_cover_mass,
+    }
+
+
 def create_fixed_joint(
     stage: Usd.Stage, 
     joint_path: str, 
@@ -432,7 +485,7 @@ def create_revolute_joint(
 # ============================================================================
 
 
-def create_body_link(stage: Usd.Stage, log: List[str], mass: float = 1.0) -> Optional[str]:
+def create_body_link(stage: Usd.Stage, log: List[str], mass_cfg: dict[str, float]) -> Optional[str]:
     """
     Create or retrieve the body_link prim at the robot root with identity transform.
     
@@ -472,13 +525,14 @@ def create_body_link(stage: Usd.Stage, log: List[str], mass: float = 1.0) -> Opt
         log.append(f"[OK] ArticulationRootAPI on {BODY_LINK_PATH}")
     
     # Apply rigid body with mass
-    if apply_rigid_body(stage, BODY_LINK_PATH, mass):
-        log.append(f"[OK] RigidBodyAPI (mass={mass}) on {BODY_LINK_PATH}")
+    body_mass = mass_cfg["body_link"]
+    if apply_rigid_body(stage, BODY_LINK_PATH, body_mass):
+        log.append(f"[OK] RigidBodyAPI (mass={body_mass:.3f}) on {BODY_LINK_PATH}")
     
     return BODY_LINK_PATH
 
 
-def setup_frame(stage: Usd.Stage, log: List[str], mass: float = 1.0) -> Optional[str]:
+def setup_frame(stage: Usd.Stage, log: List[str], mass_cfg: dict[str, float]) -> Optional[str]:
     """
     Set up articulation root on body_link and connect all frame rails to it.
     Returns the path to the body_link for wheel connections.
@@ -488,7 +542,7 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass: float = 1.0) -> Optional
     right_rail = f"{RAILS_PATH}/right_side_rail"
     
     # 1. Create body_link with articulation root
-    body_link_path = create_body_link(stage, log, mass)
+    body_link_path = create_body_link(stage, log, mass_cfg)
     if not body_link_path:
         log.append(f"[ERROR] Failed to create body_link")
         return None
@@ -509,8 +563,9 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass: float = 1.0) -> Optional
     # 2. Set up middle_center_rail (connect to body_link)
     middle_prim = make_editable_prim(stage, middle_rail)
     if middle_prim:
-        if apply_rigid_body(stage, middle_rail, mass):
-            log.append(f"[OK] Rigid body (mass={mass}) on {middle_rail}")
+        rail_mass = mass_cfg["rail"]
+        if apply_rigid_body(stage, middle_rail, rail_mass):
+            log.append(f"[OK] Rigid body (mass={rail_mass:.3f}) on {middle_rail}")
         if apply_collision_to_mesh(stage, middle_mesh, "boundingCube"):
             log.append(f"[OK] Collision (boundingCube) on mesh {middle_mesh}")
         
@@ -530,8 +585,9 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass: float = 1.0) -> Optional
     if left_mesh:
         left_prim = make_editable_prim(stage, left_rail)
         if left_prim:
-            if apply_rigid_body(stage, left_rail, mass):
-                log.append(f"[OK] Rigid body (mass={mass}) on {left_rail}")
+            rail_mass = mass_cfg["rail"]
+            if apply_rigid_body(stage, left_rail, rail_mass):
+                log.append(f"[OK] Rigid body (mass={rail_mass:.3f}) on {left_rail}")
             if apply_collision_to_mesh(stage, left_mesh, "boundingCube"):
                 log.append(f"[OK] Collision (boundingCube) on mesh {left_mesh}")
             
@@ -550,8 +606,9 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass: float = 1.0) -> Optional
     if right_mesh:
         right_prim = make_editable_prim(stage, right_rail)
         if right_prim:
-            if apply_rigid_body(stage, right_rail, mass):
-                log.append(f"[OK] Rigid body (mass={mass}) on {right_rail}")
+            rail_mass = mass_cfg["rail"]
+            if apply_rigid_body(stage, right_rail, rail_mass):
+                log.append(f"[OK] Rigid body (mass={rail_mass:.3f}) on {right_rail}")
             if apply_collision_to_mesh(stage, right_mesh, "boundingCube"):
                 log.append(f"[OK] Collision (boundingCube) on mesh {right_mesh}")
             
@@ -573,8 +630,9 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass: float = 1.0) -> Optional
         if extra_mesh:
             extra_prim = make_editable_prim(stage, extra_rail)
             if extra_prim:
-                if apply_rigid_body(stage, extra_rail, mass):
-                    log.append(f"[OK] Rigid body (mass={mass}) on {extra_rail}")
+                rail_mass = mass_cfg["rail"]
+                if apply_rigid_body(stage, extra_rail, rail_mass):
+                    log.append(f"[OK] Rigid body (mass={rail_mass:.3f}) on {extra_rail}")
                 if apply_collision_to_mesh(stage, extra_mesh, "boundingCube"):
                     log.append(f"[OK] Collision (boundingCube) on mesh {extra_mesh}")
                 
@@ -717,7 +775,7 @@ def setup_wheel(
     wheel_name: str,
     rail_name: str,
     log: List[str],
-    mass: float = 1.0,
+    mass_cfg: dict[str, float],
 ) -> None:
     """
     Set up physics for a single wheel and all its roller assemblies.
@@ -771,8 +829,9 @@ def setup_wheel(
     core_xform_path = str(core_mesh_path.GetParentPath().GetParentPath())
     
     # Apply rigid body to wheel core Xform
-    if apply_rigid_body(stage, core_xform_path, mass):
-        log.append(f"[OK] Rigid body (mass={mass}) on {core_xform_path}")
+    core_mass = mass_cfg["wheel_core"]
+    if apply_rigid_body(stage, core_xform_path, core_mass):
+        log.append(f"[OK] Rigid body (mass={core_mass:.3f}) on {core_xform_path}")
     
     # Apply collision to the mesh
     if apply_collision_to_mesh(stage, core_mesh, "convexDecomposition"):
@@ -824,8 +883,9 @@ def setup_wheel(
             child_mesh = find_leaf_mesh(stage, child_path)
             if child_mesh:
                 # Apply rigid body to the child Xform
-                if apply_rigid_body(stage, child_path, mass * 0.1):
-                    log.append(f"[OK] Rigid body on side plate: {child_name}")
+                plate_mass = mass_cfg["wheel_plate"]
+                if apply_rigid_body(stage, child_path, plate_mass):
+                    log.append(f"[OK] Rigid body (mass={plate_mass:.3f}) on side plate: {child_name}")
                 
                 # Create fixed joint to core
                 plate_type = "left" if "left_slant" in child_name else "right"
@@ -869,12 +929,14 @@ def setup_wheel(
         cover_xform_path = str(cover_mesh_path.GetParentPath().GetParentPath())
         
         # Apply rigid body to axle Xform (no collision needed for axle pins)
-        if apply_rigid_body(stage, axle_xform_path, mass):
-            log.append(f"[OK] Rigid body on axle: {axle_xform_path}")
+        axle_mass = mass_cfg["roller_axle"]
+        if apply_rigid_body(stage, axle_xform_path, axle_mass):
+            log.append(f"[OK] Rigid body (mass={axle_mass:.3f}) on axle: {axle_xform_path}")
         
         # Apply rigid body and collision to cover Xform/mesh
-        if apply_rigid_body(stage, cover_xform_path, mass):
-            log.append(f"[OK] Rigid body on cover: {cover_xform_path}")
+        cover_mass = mass_cfg["roller_cover"]
+        if apply_rigid_body(stage, cover_xform_path, cover_mass):
+            log.append(f"[OK] Rigid body (mass={cover_mass:.3f}) on cover: {cover_xform_path}")
         if apply_collision_to_mesh(stage, cover_mesh, "convexDecomposition"):
             log.append(f"[OK] Collision (convexDecomposition) on cover mesh: {cover_mesh}")
         
@@ -928,7 +990,12 @@ def main():
     parser.add_argument("--stage", required=True, help="Input USD to read.")
     parser.add_argument("--output-usd", required=True, help="Path to write modified USD.")
     parser.add_argument("--log", help="Optional path to write a summary log.")
-    parser.add_argument("--mass", type=float, default=1.0, help="Mass to assign to bodies.")
+    parser.add_argument(
+        "--mass",
+        type=float,
+        default=TOTAL_MASS_KG,
+        help="Total robot mass (kg). Overrides TOTAL_MASS_KG.",
+    )
     parser.add_argument(
         "--delete-excluded",
         action="store_true",
@@ -945,9 +1012,15 @@ def main():
     log.append("Strafer Chassis Physics Setup")
     log.append("=" * 60)
     
+    # Compute mass distribution
+    mass_cfg = compute_mass_cfg(args.mass)
+    log.append("\n--- Mass distribution (kg) ---")
+    for key, value in mass_cfg.items():
+        log.append(f"[INFO] {key}: {value:.3f}")
+
     # Setup frame (articulation root and rail connections)
     log.append("\n--- Setting up frame rails ---")
-    middle_body = setup_frame(stage, log, mass=args.mass)
+    middle_body = setup_frame(stage, log, mass_cfg)
     
     if not middle_body:
         log.append("[ERROR] Failed to set up frame, aborting.")
@@ -966,7 +1039,7 @@ def main():
         
         # Setup each wheel
         for wheel_name, rail_name in WHEEL_TO_RAIL.items():
-            setup_wheel(stage, wheel_name, rail_name, log, mass=args.mass)
+            setup_wheel(stage, wheel_name, rail_name, log, mass_cfg)
     
     # Export
     out_usd = Path(args.output_usd)

@@ -38,6 +38,7 @@ ENCODER_TICKS_TO_RADIANS = (2.0 * math.pi) / ENCODER_PPR_OUTPUT_SHAFT  # ~0.0116
 # =============================================================================
 
 # Wheel drive joint names (must match USD joint names)
+# Order: [wheel_1, wheel_2, wheel_3, wheel_4] = [FL, FR, RL, RR]
 WHEEL_JOINT_NAMES = ["wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4_drive"]
 
 
@@ -84,7 +85,7 @@ def wheel_encoder_positions(
     
     Returns:
         Encoder positions in ticks. Shape: (num_envs, 4)
-        Order: [wheel_1, wheel_2, wheel_3, wheel_4] = [FL, RL, RR, FR]
+        Order: [wheel_1, wheel_2, wheel_3, wheel_4] = [FL, FR, RL, RR]
     """
     asset_name = asset_cfg.name if asset_cfg is not None else "robot"
     robot = env.scene[asset_name]

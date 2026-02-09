@@ -92,8 +92,8 @@ class StraferSceneCfg(InteractiveSceneCfg):
     )
 
     # Intel RealSense D555 depth camera (87° FOV, 0.4-6m range)
-    # Camera mount: 20cm forward (-Y), 25cm up (+Z) from body_link
-    # Rotation: 90° around Z axis to point camera in robot's forward direction (-Y in USD)
+    # Camera mount: 20cm forward (+X), 25cm up (+Z) from body_link (ROS frame)
+    # Rotation: ROS camera frame (Z-forward, X-right, Y-down) aligned to robot frame
     d555_camera: TiledCameraCfg = TiledCameraCfg(
         prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link/d555_camera",
         update_period=1.0 / 30.0,
@@ -106,10 +106,10 @@ class StraferSceneCfg(InteractiveSceneCfg):
             clipping_range=(0.4, 6.0),
         ),
         offset=TiledCameraCfg.OffsetCfg(
-            pos=(0.0, -0.20, 0.25),
+            pos=(0.20, 0.0, 0.25),
             # ROS camera convention: Z-forward, X-right, Y-down
-            # (0, 0, 0.707, -0.707) is 90° rotation around Z to point -Y
-            rot=(0.0, 0.0, 0.707, -0.707),
+            # (0.5, -0.5, 0.5, -0.5) aligns camera forward (+Z) to robot +X
+            rot=(0.5, -0.5, 0.5, -0.5),
             convention="ros",
         ),
     )
@@ -120,7 +120,7 @@ class StraferSceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
         update_period=1.0 / 200.0,
         offset=ImuCfg.OffsetCfg(
-            pos=(0.0, -0.20, 0.25),
+            pos=(0.20, 0.0, 0.25),
             rot=(1.0, 0.0, 0.0, 0.0),
         ),
         gravity_bias=(0.0, 0.0, 9.81),
@@ -151,12 +151,12 @@ class StraferSceneCfg_NoCam(InteractiveSceneCfg):
     )
 
     # IMU only (no camera overhead)
-    # Same placement as camera scene for consistency
+    # Same placement as camera scene for consistency (ROS frame)
     d555_imu: ImuCfg = ImuCfg(
         prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
         update_period=1.0 / 200.0,
         offset=ImuCfg.OffsetCfg(
-            pos=(0.0, -0.20, 0.25),
+            pos=(0.20, 0.0, 0.25),
             rot=(1.0, 0.0, 0.0, 0.0),
         ),
         gravity_bias=(0.0, 0.0, 9.81),
@@ -174,6 +174,7 @@ class ActionsCfg_Ideal:
     wheel_velocities = mdp.MecanumWheelActionCfg(
         asset_name="robot",
         joint_names=["wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4_drive"],
+        wheel_axis_signs=(-1.0, 1.0, -1.0, 1.0),
         wheel_radius=0.048,
         wheel_base=0.304,
         track_width=0.304,
@@ -191,6 +192,7 @@ class ActionsCfg_Realistic:
     wheel_velocities = mdp.MecanumWheelActionCfg(
         asset_name="robot",
         joint_names=["wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4_drive"],
+        wheel_axis_signs=(-1.0, 1.0, -1.0, 1.0),
         wheel_radius=0.048,
         wheel_base=0.304,
         track_width=0.304,
@@ -210,6 +212,7 @@ class ActionsCfg_Robust:
     wheel_velocities = mdp.MecanumWheelActionCfg(
         asset_name="robot",
         joint_names=["wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4_drive"],
+        wheel_axis_signs=(-1.0, 1.0, -1.0, 1.0),
         wheel_radius=0.048,
         wheel_base=0.304,
         track_width=0.304,

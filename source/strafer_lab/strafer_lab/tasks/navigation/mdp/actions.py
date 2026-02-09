@@ -46,22 +46,22 @@ class MecanumWheelAction(ActionTerm):
         +X (Forward)
            ^
            |
-       FL  |  FR     wheel_1    wheel_4
+       FL  |  FR     wheel_1    wheel_2
            [==]
-       RL  |  RR     wheel_2    wheel_3
+       RL  |  RR     wheel_3    wheel_4
            |
         -X (Back)
        
-       <-- -Y     +Y -->
+       <-- -Y (Right)     +Y (Left) -->
     
-    USD wheel numbering (counter-clockwise from front-left):
-    - wheel_1 = Front-Left  (X=+20.7, Y=-16.8)
-    - wheel_2 = Rear-Left   (X=-20.7, Y=-16.8)  
-    - wheel_3 = Rear-Right  (X=-20.7, Y=+16.8)
-    - wheel_4 = Front-Right (X=+20.7, Y=+16.8)
+    Wheel numbering (front axle left->right, rear axle left->right):
+    - wheel_1 = Front-Left  (FL)
+    - wheel_2 = Front-Right (FR)
+    - wheel_3 = Rear-Left   (RL)
+    - wheel_4 = Rear-Right  (RR)
     
-    Note: Left wheels (1,2) have opposite joint rotation direction from right wheels (3,4)
-    due to joint frame orientation in the USD.
+    Note: This assumes wheel joint axes are consistent across all wheels.
+    If a wheel joint axis is flipped in USD, apply a per-wheel sign correction.
     """
 
     cfg: MecanumWheelActionCfg
@@ -77,7 +77,7 @@ class MecanumWheelAction(ActionTerm):
         self._joint_ids, self._joint_names = self._asset.find_joints(cfg.joint_names)
         
         # Create reorder mapping: for each USD joint position, which kinematic index to use?
-        # Kinematic matrix rows: [wheel_1, wheel_2, wheel_3, wheel_4]
+        # Kinematic matrix rows: [wheel_1=FL, wheel_2=FR, wheel_3=RL, wheel_4=RR]
         # USD order example: ['wheel_1_drive', 'wheel_4_drive', 'wheel_2_drive', 'wheel_3_drive']
         # We need: USD[0]=kinematic[0], USD[1]=kinematic[3], USD[2]=kinematic[1], USD[3]=kinematic[2]
         
@@ -91,6 +91,15 @@ class MecanumWheelAction(ActionTerm):
                     self._joint_reorder.append(kin_idx)
                     break
         self._joint_reorder = torch.tensor(self._joint_reorder, device=env.device, dtype=torch.long)
+
+        # Per-wheel sign correction in kinematic order (FL, FR, RL, RR)
+        self._wheel_axis_signs = torch.tensor(
+            cfg.wheel_axis_signs, device=env.device, dtype=torch.float32
+        )
+        if self._wheel_axis_signs.numel() != 4:
+            raise ValueError(
+                f"wheel_axis_signs must have 4 entries (got {self._wheel_axis_signs.numel()})"
+            )
         
         # ============================================================
         # Robot physical parameters (GoBilda Strafer with 5203 motors)
@@ -130,43 +139,35 @@ class MecanumWheelAction(ActionTerm):
         #
         # Matrix form: ω_wheels = K * [vx, vy, ω_body]^T
         #
-        # USD wheel layout (based on actual positions):
-        #   wheel_1 = FRONT-LEFT  (X=+20.7, Y=-16.8)
-        #   wheel_2 = REAR-LEFT   (X=-20.7, Y=-16.8)
-        #   wheel_3 = REAR-RIGHT  (X=-20.7, Y=+16.8)
-        #   wheel_4 = FRONT-RIGHT (X=+20.7, Y=+16.8)
+        # Wheel numbering (front axle left->right, rear axle left->right):
+        #   wheel_1 = FRONT-LEFT (FL)
+        #   wheel_2 = FRONT-RIGHT (FR)
+        #   wheel_3 = REAR-LEFT (RL)
+        #   wheel_4 = REAR-RIGHT (RR)
         #
-        # Counter-clockwise numbering: FL(1) → RL(2) → RR(3) → FR(4)
-        #
-        # Joint rotation sign convention:
-        #   Left wheels (1,2): positive velocity = wheel spins one way
-        #   Right wheels (3,4): positive velocity = wheel spins opposite way
-        #   For forward motion, left wheels need NEGATIVE velocity,
-        #   right wheels need POSITIVE velocity (based on joint frame orientation)
+        # If any wheel joint axis is flipped in USD, apply a per-wheel sign correction
+        # rather than changing the kinematic matrix form.
         
         k = L_half + W_half  # Combined lever arm for rotation
         r = self._wheel_radius
         
         # Kinematic matrix (maps body velocity to wheel angular velocity)
-        # Rows: [wheel_1=FL, wheel_2=RL, wheel_3=RR, wheel_4=FR]
+        # Rows: [wheel_1=FL, wheel_2=FR, wheel_3=RL, wheel_4=RR]
         # 
-        # Robot body frame convention (from USD):
-        #   - Robot "forward" is aligned with -Y axis
-        #   - Robot "left" is aligned with +X axis  
+        # Robot body frame convention (ROS):
+        #   - Robot "forward" is aligned with +X axis
+        #   - Robot "left" is aligned with +Y axis
         #   - Robot "up" is aligned with +Z axis
         #
         # Action convention:
         #   - action[0] = vx (forward velocity in robot frame)
         #   - action[1] = vy (strafe left velocity in robot frame)
         #   - action[2] = omega (CCW rotation)
-        #
-        # Since forward is -Y in the USD, positive vx should produce -Y motion.
-        # We negate the first column to achieve this.
         self._kinematic_matrix = torch.tensor([
-            [-1/r, -1/r,  k/r],  # wheel_1 = Front-Left  
-            [ 1/r, -1/r,  k/r],  # wheel_2 = Rear-Left   
-            [ 1/r,  1/r,  k/r],  # wheel_3 = Rear-Right  
-            [-1/r,  1/r,  k/r],  # wheel_4 = Front-Right 
+            [ 1/r, -1/r, -k/r],  # wheel_1 = Front-Left  
+            [ 1/r,  1/r,  k/r],  # wheel_2 = Front-Right 
+            [ 1/r,  1/r, -k/r],  # wheel_3 = Rear-Left   
+            [ 1/r, -1/r,  k/r],  # wheel_4 = Rear-Right  
         ], dtype=torch.float32, device=env.device)
         
         # Velocity scaling for normalized actions [-1, 1]
@@ -233,6 +234,7 @@ class MecanumWheelAction(ActionTerm):
         print(f"  Max angular vel: {self._max_angular_vel:.2f} rad/s")
         print(f"  Joint names (USD order): {self._joint_names}")
         print(f"  Joint reorder (kinematic->USD): {self._joint_reorder.tolist()}")
+        print(f"  Wheel axis signs (FL,FR,RL,RR): {self._wheel_axis_signs.tolist()}")
         print(f"  Motor dynamics: {self._enable_motor_dynamics} (tau={cfg.motor_time_constant}s)")
         print(f"  Command delay: {self._enable_command_delay} (steps={cfg.min_delay_steps}-{cfg.max_delay_steps})")
         print(f"  Slew rate limit: {self._enable_slew_rate} (max_accel={cfg.max_acceleration_rad_s2} rad/s²)")
@@ -289,6 +291,8 @@ class MecanumWheelAction(ActionTerm):
         # Convert to wheel angular velocities using mecanum kinematics
         # wheel_vels_kinematic is in kinematic order: [wheel_1, wheel_2, wheel_3, wheel_4]
         wheel_vels_kinematic = torch.matmul(body_velocities, self._kinematic_matrix.T)
+        # Apply per-wheel sign correction (joint axis direction)
+        wheel_vels_kinematic = wheel_vels_kinematic * self._wheel_axis_signs
         
         # Clamp wheel velocities to motor limits
         wheel_vels = torch.clamp(wheel_vels_kinematic, 
@@ -343,6 +347,9 @@ class MecanumWheelActionCfg(ActionTermCfg):
 
     joint_names: list[str] = MISSING
     """Regex pattern(s) for wheel joint names. Order: [FL, FR, RL, RR]."""
+
+    wheel_axis_signs: tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0)
+    """Per-wheel sign correction for joint axis direction in kinematic order [FL, FR, RL, RR]."""
 
     # ============================================================
     # Physical robot parameters

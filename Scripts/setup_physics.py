@@ -2,14 +2,14 @@
 Apply articulation root, rigid bodies, colliders, and joints for the Strafer chassis.
 
 This script sets up the physics for a Gobilda Strafer mecanum wheel robot:
-- Articulation root on /World/strafer/body_link (created with identity transform)
+- Articulation root on /World/strafer/body_link (identity transform in ROS frame)
 - Fixed joints between body_link and frame rails
 - Revolute joints between frame rails and wheel cores (with velocity drives)
 - Fixed joints from wheel cores to roller axles
 - Revolute joints between roller axles and roller covers
 
 The body_link prim is created at the robot root with identity orientation to ensure
-the articulation's base frame matches the robot's visual orientation (Z-up, -Y forward).
+the articulation's base frame matches the robot's visual orientation (Z-up, +X forward).
 
 Run after collapse_redundant_xforms.py and export to a new USD so the source stays intact.
 
@@ -41,14 +41,14 @@ RAILS_PATH = f"{ROOT_PATH}/frame/rails"
 WHEELS_PATH = f"{ROOT_PATH}/mecanum_wheels"
 FRAME_PATH = f"{ROOT_PATH}/frame"
 
-# Wheel-to-rail mapping:
-# wheel_1 (top-left) and wheel_4 (bottom-left) connect to left_side_rail
-# wheel_2 (top-right) and wheel_3 (bottom-right) connect to right_side_rail
+# Wheel-to-rail mapping (ROS frame, X forward, Y left):
+# wheel_1 = Front-Left, wheel_3 = Rear-Left -> left_side_rail
+# wheel_2 = Front-Right, wheel_4 = Rear-Right -> right_side_rail
 WHEEL_TO_RAIL = {
     "wheel_1": "left_side_rail",
     "wheel_2": "right_side_rail",
-    "wheel_3": "right_side_rail",
-    "wheel_4": "left_side_rail",
+    "wheel_3": "left_side_rail",
+    "wheel_4": "right_side_rail",
 }
 
 # ============================================================================
@@ -436,10 +436,10 @@ def create_body_link(stage: Usd.Stage, log: List[str], mass: float = 1.0) -> Opt
     """
     Create or retrieve the body_link prim at the robot root with identity transform.
     
-    The body_link serves as the articulation root with a clean orientation:
+    The body_link serves as the articulation root in ROS convention:
     - Z-up (robot upright)
-    - -Y forward (robot front)
-    - X left (robot left side)
+    - +X forward (robot front)
+    - +Y left (robot left side)
     
     Returns the path to the body_link prim.
     """

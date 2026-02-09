@@ -7,28 +7,67 @@ This script sets up the physics for a Gobilda Strafer mecanum wheel robot:
 - Revolute joints between frame rails and wheel cores (with velocity drives)
 - Fixed joints from wheel cores to roller axles
 - Revolute joints between roller axles and roller covers
+- SDF collision on roller covers for smooth wheel contact
 
 The body_link prim is created at the robot root with identity orientation to ensure
 the articulation's base frame matches the robot's visual orientation (Z-up, +X forward).
 
+IMPORTANT: This script must be run within Isaac Sim context to access PhysxSchema
+for SDF collision. Use isaaclab.bat to run it.
+
 Run after collapse_redundant_xforms.py and export to a new USD so the source stays intact.
 
 Example:
-  python Scripts/setup_physics.py --stage Assets/3209-0001-0006-v6/3209-0001-0006-collapsed.usd \\
-    --output-usd Assets/3209-0001-0006-v6/3209-0001-0006-physics.usd \\
-    --log ./setup_physics_log.txt
+.\IsaacLab\isaaclab.bat -p Scripts/setup_physics.py `
+    --stage Assets/3209-0001-0006-v6/3209-0001-0006-collapsed.usd `
+    --output-usd Assets/3209-0001-0006-v6/3209-0001-0006-physics.usd `
+    --log ./setup_physics_log.txt `
+    --delete-excluded
 """
 
+# =============================================================================
+# Parse arguments BEFORE launching Isaac Sim
+# =============================================================================
 import argparse
+import sys
+
+# Parse our arguments first, keeping unknown args for AppLauncher
+parser = argparse.ArgumentParser(
+    description="Set up articulation, rigid bodies, colliders, and joints on the Strafer chassis.",
+    add_help=False,  # Disable -h so AppLauncher can handle it
+)
+parser.add_argument("--stage", required=True, help="Input USD to read.")
+parser.add_argument("--output-usd", required=True, help="Path to write modified USD.")
+parser.add_argument("--log", help="Optional path to write a summary log.")
+parser.add_argument("--mass", type=float, default=None, help="Total robot mass (kg).")
+parser.add_argument("--delete-excluded", action="store_true", help="Delete excluded prims from stage.")
+
+# Parse known args, pass rest to AppLauncher
+script_args, remaining_args = parser.parse_known_args()
+
+# Temporarily replace sys.argv for AppLauncher
+original_argv = sys.argv
+sys.argv = [sys.argv[0]] + remaining_args
+
+# =============================================================================
+# Launch Isaac Sim (required for PhysxSchema)
+# =============================================================================
+from isaaclab.app import AppLauncher
+
+app_launcher = AppLauncher(headless=True)
+simulation_app = app_launcher.app
+
+# Restore original argv
+sys.argv = original_argv
+
+# =============================================================================
+# Now we can import PhysxSchema and other modules
+# =============================================================================
 import re
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-try:
-    from pxr import PhysxSchema
-except ImportError:
-    PhysxSchema = None  # Fallback when PhysX schema bindings are unavailable
-from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics
+from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics
 
 
 # ============================================================================
@@ -68,6 +107,13 @@ WHEEL_PLATES_PER_WHEEL = 2
 # Roller mass split (per wheel)
 ROLLER_COUNT_PER_WHEEL = 10
 ROLLER_AXLE_FRACTION = 0.3
+
+# Joint drive configuration (wheel motors)
+# If using Isaac Lab actuators (ImplicitActuatorCfg), you can disable DriveAPI to avoid double control.
+USE_WHEEL_DRIVE_API = False
+DRIVE_MAX_TORQUE_NM = 3.2    # Match actuator effort_limit_sim
+DRIVE_DAMPING = 10.0         # Match actuator damping (velocity control)
+DRIVE_STIFFNESS = 0.0        # 0 for velocity control
 
 # ============================================================================
 # Exclusion / Attachment Configuration
@@ -270,22 +316,56 @@ def apply_collision_to_mesh(stage: Usd.Stage, mesh_path: str, approximation: str
     """
     Apply collision API directly to a mesh prim with specified approximation type.
     This ensures the collision is on the actual mesh geometry.
+
+    Supported approximations: convexHull, convexDecomposition, boundingCube, boundingSphere
+
+    For SDF collision, use apply_sdf_collision_to_mesh() instead.
     """
     prim = make_editable_prim(stage, mesh_path)
     if not prim:
         return False
-    
+
     # Verify it's a mesh
     if not prim.IsA(UsdGeom.Mesh):
         return False
-    
+
     # Apply CollisionAPI
     UsdPhysics.CollisionAPI.Apply(prim)
-    
-    # Set the approximation using the MeshCollisionAPI for mesh-specific settings
-    mesh_collision = UsdPhysics.MeshCollisionAPI.Apply(prim)
-    mesh_collision.CreateApproximationAttr().Set(approximation)
-    
+
+    # Apply MeshCollisionAPI and set approximation
+    mesh_collision_api = UsdPhysics.MeshCollisionAPI.Apply(prim)
+    mesh_collision_api.CreateApproximationAttr().Set(approximation)
+
+    return True
+
+
+def apply_sdf_collision_to_mesh(stage: Usd.Stage, mesh_path: str) -> bool:
+    """
+    Apply SDF (Signed Distance Field) collision to a mesh prim.
+
+    SDF collision provides smooth, accurate collision detection for complex
+    mesh geometries like barrel-shaped roller covers.
+
+    Requires Isaac Sim context (PhysxSchema must be available).
+    """
+    prim = make_editable_prim(stage, mesh_path)
+    if not prim:
+        return False
+
+    # Verify it's a mesh
+    if not prim.IsA(UsdGeom.Mesh):
+        return False
+
+    # Apply CollisionAPI
+    UsdPhysics.CollisionAPI.Apply(prim)
+
+    # Apply MeshCollisionAPI with SDF approximation
+    mesh_collision_api = UsdPhysics.MeshCollisionAPI.Apply(prim)
+    mesh_collision_api.CreateApproximationAttr().Set(PhysxSchema.Tokens.sdf)
+
+    # Apply PhysxSDFMeshCollisionAPI for SDF-specific settings
+    PhysxSchema.PhysxSDFMeshCollisionAPI.Apply(prim)
+
     return True
 
 
@@ -833,9 +913,9 @@ def setup_wheel(
     if apply_rigid_body(stage, core_xform_path, core_mass):
         log.append(f"[OK] Rigid body (mass={core_mass:.3f}) on {core_xform_path}")
     
-    # Apply collision to the mesh
-    if apply_collision_to_mesh(stage, core_mesh, "convexDecomposition"):
-        log.append(f"[OK] Collision (convexDecomposition) on mesh {core_mesh}")
+    # Apply collision to the mesh (convexHull for wheel core - simple geometry)
+    if apply_collision_to_mesh(stage, core_mesh, "convexHull"):
+        log.append(f"[OK] Collision (convexHull) on mesh {core_mesh}")
     
     # 2. Create revolute joint: rail_mesh -> wheel_core_mesh
     # body0 = rail (parent, stationary), body1 = wheel core (child, rotates)
@@ -846,13 +926,14 @@ def setup_wheel(
     # Add velocity drive for motor control (stiffness=0 for velocity mode)
     if create_revolute_joint(
         stage, wheel_joint_path, rail_mesh, core_mesh, "Z",
-        add_drive=True,
+        add_drive=USE_WHEEL_DRIVE_API,
         drive_type="velocity",
-        drive_damping=1000.0,    # Damping for velocity control
-        drive_stiffness=0.0,     # 0 = pure velocity control
-        drive_max_force=10000.0  # Max torque
+        drive_damping=DRIVE_DAMPING,
+        drive_stiffness=DRIVE_STIFFNESS,
+        drive_max_force=DRIVE_MAX_TORQUE_NM,
     ):
-        log.append(f"[OK] Revolute joint {wheel_joint_path} (name: {wheel_joint_name}) with velocity drive")
+        drive_note = "with velocity drive" if USE_WHEEL_DRIVE_API else "no DriveAPI (actuator only)"
+        log.append(f"[OK] Revolute joint {wheel_joint_path} (name: {wheel_joint_name}) {drive_note}")
         log.append(f"     Body0 (rail): {rail_mesh}")
         log.append(f"     Body1 (core): {core_mesh}")
     else:
@@ -933,12 +1014,13 @@ def setup_wheel(
         if apply_rigid_body(stage, axle_xform_path, axle_mass):
             log.append(f"[OK] Rigid body (mass={axle_mass:.3f}) on axle: {axle_xform_path}")
         
-        # Apply rigid body and collision to cover Xform/mesh
+        # Apply rigid body and SDF collision to cover Xform/mesh
+        # SDF provides smooth collision for barrel-shaped roller covers
         cover_mass = mass_cfg["roller_cover"]
         if apply_rigid_body(stage, cover_xform_path, cover_mass):
             log.append(f"[OK] Rigid body (mass={cover_mass:.3f}) on cover: {cover_xform_path}")
-        if apply_collision_to_mesh(stage, cover_mesh, "convexDecomposition"):
-            log.append(f"[OK] Collision (convexDecomposition) on cover mesh: {cover_mesh}")
+        if apply_sdf_collision_to_mesh(stage, cover_mesh):
+            log.append(f"[OK] Collision (SDF) on cover mesh: {cover_mesh}")
         
         # 4a. Create fixed joint: wheel_core_mesh -> roller_axle_mesh
         # body0 = core (parent), body1 = axle (child, fixed to core)
@@ -984,24 +1066,12 @@ def setup_wheel(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Set up articulation, rigid bodies, colliders, and joints on the Strafer chassis."
-    )
-    parser.add_argument("--stage", required=True, help="Input USD to read.")
-    parser.add_argument("--output-usd", required=True, help="Path to write modified USD.")
-    parser.add_argument("--log", help="Optional path to write a summary log.")
-    parser.add_argument(
-        "--mass",
-        type=float,
-        default=TOTAL_MASS_KG,
-        help="Total robot mass (kg). Overrides TOTAL_MASS_KG.",
-    )
-    parser.add_argument(
-        "--delete-excluded",
-        action="store_true",
-        help="Delete excluded prims from stage for maximum efficiency (irreversible)."
-    )
-    args = parser.parse_args()
+    # Use pre-parsed arguments from module level (parsed before AppLauncher)
+    args = script_args
+
+    # Handle default mass
+    if args.mass is None:
+        args.mass = TOTAL_MASS_KG
 
     stage = Usd.Stage.Open(args.stage)
     if stage is None:
@@ -1059,4 +1129,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        # Clean shutdown of Isaac Sim
+        simulation_app.close()

@@ -7,7 +7,6 @@ Events are used for:
 
 from __future__ import annotations
 
-import math
 from typing import TYPE_CHECKING
 
 import torch
@@ -66,9 +65,9 @@ def randomize_friction(
     friction_range: tuple[float, float],
 ) -> None:
     """Randomize ground friction coefficient.
-    
+
     Domain randomization to improve sim-to-real transfer.
-    
+
     Args:
         env: The environment instance.
         env_ids: Indices of environments to randomize.
@@ -76,7 +75,7 @@ def randomize_friction(
     """
     # Note: This is a placeholder - actual implementation depends on
     # how physics materials are configured in the scene
-    # 
+    #
     # For full implementation, you would:
     # 1. Access the ground plane's physics material
     # 2. Modify the static/dynamic friction coefficients

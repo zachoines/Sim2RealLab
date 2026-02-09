@@ -81,7 +81,7 @@ class TimingCfg:
     
     # Action latency (policy → actuator)
     action_latency_steps: int = 0
-    """Fixed action command latency in control steps."""
+    """Fixed action command latency in physics steps."""
     
     action_latency_steps_range: tuple[int, int] = (0, 0)
     """Random action latency range [min, max] steps. Sampled per reset."""
@@ -96,17 +96,9 @@ class ActuatorModelCfg:
     """Actuator dynamics configuration for GoBilda 5203 motors.
     
     Models real motor behavior:
-    - Command delay (CAN bus / PWM latency)
     - First-order response dynamics (motor inertia + driver response)
     - Velocity and acceleration limits
     """
-    
-    # Command delay
-    min_delay_steps: int = 0
-    """Minimum actuator command delay in physics steps."""
-    
-    max_delay_steps: int = 0
-    """Maximum actuator command delay in physics steps. Randomized per reset."""
     
     # Motor response dynamics (first-order system)
     enable_motor_dynamics: bool = False
@@ -402,8 +394,7 @@ def create_ideal_contract() -> SimRealContractCfg:
         ),
         actuator=ActuatorModelCfg(
             enable_motor_dynamics=False,
-            min_delay_steps=0,
-            max_delay_steps=0,
+            max_acceleration_rad_s2=float("inf"),
         ),
         sensors=SensorNoiseCfg(
             imu=IMUNoiseCfg(enable_noise=False),
@@ -435,8 +426,6 @@ def create_real_robot_contract() -> SimRealContractCfg:
             enable_motor_dynamics=True,
             motor_time_constant_s=0.05,  # 50ms response
             motor_time_constant_range=(0.03, 0.08),
-            min_delay_steps=1,  # 1-3 physics steps delay
-            max_delay_steps=3,
             max_velocity_rad_s=32.67,  # 312 RPM
             max_acceleration_rad_s2=100.0,
         ),
@@ -487,14 +476,13 @@ def create_robust_training_contract() -> SimRealContractCfg:
             obs_latency_steps=1,
             obs_latency_steps_range=(0, 3),  # Up to 100ms random
             action_latency_steps=1,
-            action_latency_steps_range=(0, 3),
+            action_latency_steps_range=(0, 4),  # Up to 133ms random
         ),
         actuator=ActuatorModelCfg(
             enable_motor_dynamics=True,
             motor_time_constant_s=0.06,  # Slightly slower
             motor_time_constant_range=(0.02, 0.10),  # Wide range
-            min_delay_steps=1,
-            max_delay_steps=5,  # Up to 5 steps delay
+            max_acceleration_rad_s2=80.0,
         ),
         sensors=SensorNoiseCfg(
             imu=IMUNoiseCfg(
@@ -665,10 +653,18 @@ def get_action_config_params(contract: SimRealContractCfg) -> dict:
     
     Returns dict to spread into MecanumWheelActionCfg.
     """
+    import math
+    base_delay = max(contract.timing.action_latency_steps, 0)
+    range_min, range_max = contract.timing.action_latency_steps_range
+    min_delay = max(0, base_delay + min(range_min, range_max))
+    max_delay = max(0, base_delay + max(range_min, range_max))
+    motor_rpm = contract.actuator.max_velocity_rad_s * 60.0 / (2.0 * math.pi)
     return {
+        "motor_rpm": motor_rpm,
+        "max_wheel_angular_vel": contract.actuator.max_velocity_rad_s,
         "enable_motor_dynamics": contract.actuator.enable_motor_dynamics,
         "motor_time_constant": contract.actuator.motor_time_constant_s,
-        "min_delay_steps": contract.actuator.min_delay_steps,
-        "max_delay_steps": contract.actuator.max_delay_steps,
+        "min_delay_steps": min_delay,
+        "max_delay_steps": max_delay,
         "max_acceleration_rad_s2": contract.actuator.max_acceleration_rad_s2,
     }

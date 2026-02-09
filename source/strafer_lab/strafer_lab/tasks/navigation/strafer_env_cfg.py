@@ -60,6 +60,7 @@ from .sim_real_cfg import (
     get_encoder_noise,
     get_depth_noise,
     get_rgb_noise,
+    get_action_config_params,
 )
 
 
@@ -178,11 +179,7 @@ class ActionsCfg_Ideal:
         wheel_radius=0.048,
         wheel_base=0.304,
         track_width=0.304,
-        motor_rpm=312.0,
-        max_wheel_angular_vel=32.67,
-        enable_motor_dynamics=False,
-        min_delay_steps=0,
-        max_delay_steps=0,
+        **get_action_config_params(IDEAL_SIM_CONTRACT),
     )
 
 
@@ -196,13 +193,7 @@ class ActionsCfg_Realistic:
         wheel_radius=0.048,
         wheel_base=0.304,
         track_width=0.304,
-        motor_rpm=312.0,
-        max_wheel_angular_vel=32.67,
-        enable_motor_dynamics=True,
-        motor_time_constant=0.05,
-        min_delay_steps=1,
-        max_delay_steps=3,
-        max_acceleration_rad_s2=100.0,
+        **get_action_config_params(REAL_ROBOT_CONTRACT),
     )
 
 
@@ -216,13 +207,7 @@ class ActionsCfg_Robust:
         wheel_radius=0.048,
         wheel_base=0.304,
         track_width=0.304,
-        motor_rpm=312.0,
-        max_wheel_angular_vel=32.67,
-        enable_motor_dynamics=True,
-        motor_time_constant=0.06,
-        min_delay_steps=1,
-        max_delay_steps=5,
-        max_acceleration_rad_s2=80.0,
+        **get_action_config_params(ROBUST_TRAINING_CONTRACT),
     )
 
 

@@ -1,6 +1,6 @@
 .asset_hash
 .vscode/
-Assets/
+/Assets/
 IsaacLab/
 config.yaml
 typings/

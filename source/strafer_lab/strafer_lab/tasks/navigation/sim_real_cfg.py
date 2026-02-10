@@ -29,18 +29,8 @@ Usage:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Literal
-
-import torch
-
 from isaaclab.utils import configclass
-from isaaclab.utils.noise import (
-    GaussianNoiseCfg,
-    UniformNoiseCfg,
-    NoiseModelCfg,
-    NoiseModelWithAdditiveBiasCfg,
-)
+from isaaclab.utils.noise import GaussianNoiseCfg
 
 # Import custom noise models that generate independent per-environment noise
 from strafer_lab.tasks.navigation.mdp.noise_models import (

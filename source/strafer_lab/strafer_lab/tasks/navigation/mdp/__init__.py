@@ -48,6 +48,8 @@ from .observations import (
 
 # Custom noise models for sim-to-real
 from .noise_models import (
+    # Delay buffer for observation latency
+    DelayBuffer,
     # Noise model classes
     IMUNoiseModel,
     IMUNoiseModelCfg,
@@ -57,12 +59,6 @@ from .noise_models import (
     DepthNoiseModelCfg,
     RGBNoiseModel,
     RGBNoiseModelCfg,
-    # Factory functions
-    create_imu_accel_noise_cfg,
-    create_imu_gyro_noise_cfg,
-    create_encoder_noise_cfg,
-    create_depth_noise_cfg,
-    create_rgb_noise_cfg,
 )
 
 # Custom actions

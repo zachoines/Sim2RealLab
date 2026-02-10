@@ -93,25 +93,3 @@ STRAFER_CFG = ArticulationCfg(
         ),
     },
 )
-"""Configuration for the Gobilda Strafer mecanum wheel robot.
-
-The robot has two actuator groups:
-- **wheel_drives**: The 4 main wheel motors (velocity controlled)
-- **roller_bearings**: The passive rollers on each wheel (40 total, free spinning)
-
-Control mode: Velocity control on wheel drives
-- Set target velocities for each wheel to achieve desired motion
-- Mecanum kinematics allow omnidirectional movement
-
-Example usage::
-
-    from strafer_lab.assets import STRAFER_CFG
-    
-    robot = Articulation(cfg=STRAFER_CFG)
-    robot.write_joint_velocity_target_to_sim(velocities, joint_ids=wheel_joint_ids)
-"""
-
-
-# Play/evaluation configuration with reduced environment count
-STRAFER_CFG_PLAY = STRAFER_CFG.copy()
-STRAFER_CFG_PLAY.spawn.articulation_props.enabled_self_collisions = False

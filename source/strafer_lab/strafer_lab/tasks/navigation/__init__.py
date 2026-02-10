@@ -1,6 +1,6 @@
 """Navigation task for Strafer mecanum wheel robot.
 
-This module registers 16 Gym environments organized by realism level and sensors:
+This module registers 18 Gym environments organized by realism level and sensors:
 
 IDEAL (No noise, no motor dynamics - debugging/baselines):
 - ``Isaac-Strafer-Nav-v0``: Full RGB+Depth
@@ -14,6 +14,7 @@ REALISTIC (Motor dynamics + noise - sim-to-real target):
 
 ROBUST (Aggressive noise + dynamics - stress-testing):
 - ``Isaac-Strafer-Nav-Robust-v0``: Full sensors with extreme noise
+- ``Isaac-Strafer-Nav-Robust-Depth-v0``: Depth-only with extreme noise
 - ``Isaac-Strafer-Nav-Robust-NoCam-v0``: Proprioceptive-only with extreme noise
 
 Each has a -Play variant for evaluation (fewer envs).
@@ -24,7 +25,7 @@ import gymnasium as gym
 from . import agents
 
 ##
-# Register Gym environments - 16 total (8 configs × Train/Play)
+# Register Gym environments - 18 total (9 configs × Train/Play)
 ##
 
 # =============================================================================
@@ -194,6 +195,29 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Robust_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:StraferPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+# Depth-only with aggressive dynamics
+gym.register(
+    id="Isaac-Strafer-Nav-Robust-Depth-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Robust_Depth",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:StraferPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+gym.register(
+    id="Isaac-Strafer-Nav-Robust-Depth-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Robust_Depth_PLAY",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:StraferPPORunnerCfg",
         "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
     },

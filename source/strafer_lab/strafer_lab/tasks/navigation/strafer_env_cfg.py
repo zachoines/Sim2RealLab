@@ -3,7 +3,7 @@
 This defines the full RL environment including:
 - Scene configuration (robot, ground plane, lights)
 - Observation space
-- Action space  
+- Action space
 - Reward functions
 - Termination conditions
 - Domain randomization events
@@ -14,15 +14,20 @@ SimRealContractCfg presets for consistency:
   - REALISTIC: Matches real hardware (sim-to-real target)
   - ROBUST: Aggressive noise (stress-testing)
 
-Environment Matrix (12 registered = 6 configs × Train/Play):
-    | Realism  | Sensors    | Train ID                          |
-    |----------|------------|-----------------------------------|
-    | Ideal    | Full       | Isaac-Strafer-Nav-v0              |
-    | Ideal    | Depth-only | Isaac-Strafer-Nav-Depth-v0        |
-    | Ideal    | NoCam      | Isaac-Strafer-Nav-NoCam-v0        |
-    | Realistic| Full       | Isaac-Strafer-Nav-Real-v0         |
-    | Realistic| Depth-only | Isaac-Strafer-Nav-Real-Depth-v0   |
-    | Robust   | Full       | Isaac-Strafer-Nav-Robust-v0       |
+Environment Matrix (18 registered = 9 configs × Train/Play):
+    | Realism   | Sensors    | Train ID                            |
+    |-----------|------------|-------------------------------------|
+    | Ideal     | Full       | Isaac-Strafer-Nav-v0                |
+    | Ideal     | Depth-only | Isaac-Strafer-Nav-Depth-v0          |
+    | Ideal     | NoCam      | Isaac-Strafer-Nav-NoCam-v0          |
+    | Realistic | Full       | Isaac-Strafer-Nav-Real-v0           |
+    | Realistic | Depth-only | Isaac-Strafer-Nav-Real-Depth-v0     |
+    | Realistic | NoCam      | Isaac-Strafer-Nav-Real-NoCam-v0     |
+    | Robust    | Full       | Isaac-Strafer-Nav-Robust-v0         |
+    | Robust    | Depth-only | Isaac-Strafer-Nav-Robust-Depth-v0   |
+    | Robust    | NoCam      | Isaac-Strafer-Nav-Robust-NoCam-v0   |
+
+Each has a -Play-v0 variant for evaluation (50 envs instead of 4096).
 """
 
 import math
@@ -460,6 +465,37 @@ class ObsCfg_Full_Robust:
 
 
 @configclass
+class ObsCfg_Depth_Robust:
+    """Depth-only with aggressive noise for robust training."""
+    @configclass
+    class PolicyCfg(ObsGroup):
+        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, noise=_ROBUST_ACCEL_NOISE, scale=_IMU_ACCEL_SCALE)
+        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, noise=_ROBUST_GYRO_NOISE, scale=_IMU_GYRO_SCALE)
+        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, noise=_ROBUST_ENCODER_NOISE, scale=_ENCODER_SCALE)
+        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
+        last_action = ObsTerm(func=mdp.last_action)
+        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, noise=_ROBUST_DEPTH_NOISE, scale=_DEPTH_SCALE)
+        def __post_init__(self):
+            self.enable_corruption = True
+            self.concatenate_terms = True
+
+    @configclass
+    class CriticCfg(ObsGroup):
+        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, scale=_IMU_ACCEL_SCALE)
+        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, scale=_IMU_GYRO_SCALE)
+        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
+        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
+        last_action = ObsTerm(func=mdp.last_action)
+        depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = True
+
+    policy: PolicyCfg = PolicyCfg()
+    critic: CriticCfg = CriticCfg()
+
+
+@configclass
 class ObsCfg_NoCam_Robust:
     """Proprioceptive-only with aggressive noise for robust training."""
     @configclass
@@ -725,6 +761,33 @@ class StraferNavEnvCfg_Robust(ManagerBasedRLEnvCfg):
 @configclass
 class StraferNavEnvCfg_Robust_PLAY(StraferNavEnvCfg_Robust):
     """Play/eval config for Robust Full."""
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 50
+
+
+@configclass
+class StraferNavEnvCfg_Robust_Depth(ManagerBasedRLEnvCfg):
+    """Robust Depth-only - aggressive noise for worst-case robustness."""
+    scene: StraferSceneCfg = StraferSceneCfg(num_envs=4096, env_spacing=4.0)
+    actions: ActionsCfg_Robust = ActionsCfg_Robust()
+    observations: ObsCfg_Depth_Robust = ObsCfg_Depth_Robust()
+    commands: CommandsCfg = CommandsCfg()
+    rewards: RewardsCfg = RewardsCfg()
+    terminations: TerminationsCfg = TerminationsCfg()
+    events: EventsCfg = EventsCfg()
+    seed: int = 42
+
+    def __post_init__(self):
+        self.sim.dt = 1.0 / 120.0
+        self.sim.render_interval = 4
+        self.decimation = 4
+        self.episode_length_s = 20.0
+
+
+@configclass
+class StraferNavEnvCfg_Robust_Depth_PLAY(StraferNavEnvCfg_Robust_Depth):
+    """Play/eval config for Robust Depth-only."""
     def __post_init__(self):
         super().__post_init__()
         self.scene.num_envs = 50

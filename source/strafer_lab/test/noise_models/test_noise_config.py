@@ -7,6 +7,7 @@ These tests validate general noise model behavior:
 - Noise is enabled/disabled correctly via enable_corruption
 - Noise is independent across parallel environments
 - Noise changes each timestep (not frozen)
+- Noise is unbiased (zero mean)
 
 Usage:
     cd source/strafer_lab
@@ -17,10 +18,15 @@ import numpy as np
 from scipy import stats
 import pytest
 
-from test.common import CONFIDENCE_LEVEL
+from test.common import (
+    CONFIDENCE_LEVEL,
+    N_SAMPLES_STEPS,
+    one_sample_t_test,
+)
 
 from test.noise_models.conftest import (
     collect_stationary_observations,
+    extract_noise_samples,
     IMU_ACCEL_SLICE,
 )
 
@@ -111,4 +117,40 @@ def test_noise_changes_each_step(noisy_env):
     # If noise is working, observations should change between steps
     assert mean_diff > 1e-6, (
         f"Observations not changing between steps ({mean_diff:.2e}). Noise may be frozen."
+    )
+
+
+# =============================================================================
+# Tests: Statistical Properties
+# =============================================================================
+
+
+def test_noise_has_zero_mean(noisy_env):
+    """Verify noise has approximately zero mean (unbiased).
+
+    Uses one-sample t-test to verify the mean is not significantly
+    different from zero at the configured confidence level.
+    """
+    obs = collect_stationary_observations(noisy_env, N_SAMPLES_STEPS)
+
+    # Extract noise for accelerometer
+    noise_samples = extract_noise_samples(obs, IMU_ACCEL_SLICE)
+
+    # One-sample t-test: is mean significantly different from 0?
+    result = one_sample_t_test(noise_samples, null_value=0.0)
+
+    std = np.std(noise_samples)
+
+    print(f"\n  Accelerometer noise mean test (one-sample t-test):")
+    print(f"    N samples: {result.n_samples:,}")
+    print(f"    Mean: {result.mean:.6f}")
+    print(f"    Std: {std:.6f}")
+    print(f"    {CONFIDENCE_LEVEL*100:.0f}% CI for mean: [{result.ci_low:.2e}, {result.ci_high:.2e}]")
+    print(f"    p-value: {result.p_value:.4f}")
+    print(f"    Reject null (mean ≠ 0): {result.reject_null}")
+
+    # Test passes if we fail to reject the null hypothesis (mean = 0)
+    assert not result.reject_null, (
+        f"Noise mean {result.mean:.6f} is significantly different from zero "
+        f"(p={result.p_value:.4f} < α={1 - CONFIDENCE_LEVEL:.2f})"
     )

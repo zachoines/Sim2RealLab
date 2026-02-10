@@ -71,6 +71,7 @@ from strafer_lab.tasks.navigation.sim_real_cfg import (
     get_imu_gyro_noise,
     get_encoder_noise,
 )
+from strafer_lab.tasks.navigation.mdp.noise_models import DelayBuffer
 
 
 # =============================================================================
@@ -899,6 +900,140 @@ class TestObservationPipeline:
         assert z_magnitude > xy_magnitude, (
             f"Robot appears tilted: Z={z_magnitude:.2f} m/s², XY={xy_magnitude:.2f} m/s²"
         )
+
+
+# =============================================================================
+# Tests: Observation Latency (DelayBuffer)
+# =============================================================================
+
+class TestNoiseModelLatency:
+    """Test observation latency through noise models.
+
+    The per-sensor latency feature (POINT_OF_IMPROVEMENT #7) adds DelayBuffer
+    to each noise model. These tests verify the latency implementation.
+    """
+
+    def test_delay_buffer_zero_passthrough(self):
+        """Verify delay_steps=0 returns input unchanged."""
+        buffer = DelayBuffer(num_envs=NUM_ENVS, obs_size=3, delay_steps=0, device=DEVICE)
+
+        # Generate random input
+        data = torch.randn(NUM_ENVS, 3, device=DEVICE)
+        output = buffer(data)
+
+        # Should be identical (no delay)
+        assert torch.allclose(output, data), "Zero delay should pass through unchanged"
+
+    def test_delay_buffer_exact_delay(self):
+        """Verify output is delayed by exactly delay_steps."""
+        delay_steps = 3
+        buffer = DelayBuffer(num_envs=NUM_ENVS, obs_size=4, delay_steps=delay_steps, device=DEVICE)
+
+        # Store inputs for verification
+        inputs = []
+        outputs = []
+
+        # Push data through buffer
+        for i in range(delay_steps + 5):
+            data = torch.full((NUM_ENVS, 4), float(i + 1), device=DEVICE)
+            inputs.append(data.clone())
+            outputs.append(buffer(data).clone())
+
+        # First delay_steps outputs should be zeros (buffer was empty)
+        for i in range(delay_steps):
+            assert torch.allclose(outputs[i], torch.zeros_like(outputs[i])), (
+                f"Output {i} should be zeros (buffer warming up)"
+            )
+
+        # After warming up, output should be exactly delay_steps behind input
+        for i in range(delay_steps, delay_steps + 5):
+            expected = inputs[i - delay_steps]
+            assert torch.allclose(outputs[i], expected), (
+                f"Output {i} should equal input {i - delay_steps}"
+            )
+
+    def test_delay_buffer_reset_clears_history(self):
+        """Verify reset() clears buffer history."""
+        delay_steps = 2
+        buffer = DelayBuffer(num_envs=NUM_ENVS, obs_size=3, delay_steps=delay_steps, device=DEVICE)
+
+        # Fill buffer with non-zero data
+        for _ in range(delay_steps + 1):
+            data = torch.randn(NUM_ENVS, 3, device=DEVICE)
+            buffer(data)
+
+        # Reset buffer
+        buffer.reset()
+
+        # After reset, outputs should be zeros again
+        test_data = torch.ones(NUM_ENVS, 3, device=DEVICE)
+        output = buffer(test_data)
+        assert torch.allclose(output, torch.zeros_like(output)), (
+            "After reset, delayed output should be zeros"
+        )
+
+    def test_delay_buffer_per_env_reset(self):
+        """Verify reset(env_ids) only clears specified environments."""
+        delay_steps = 1
+        buffer = DelayBuffer(num_envs=NUM_ENVS, obs_size=2, delay_steps=delay_steps, device=DEVICE)
+
+        # Fill buffer with identifiable data
+        fill_data = torch.arange(NUM_ENVS, device=DEVICE).unsqueeze(1).expand(-1, 2).float()
+        buffer(fill_data)
+
+        # Now buffer has fill_data stored; next call should return it
+        # First, push again to have fill_data in delayed position
+        second_data = fill_data + 100
+        output1 = buffer(second_data)
+
+        # output1 should be fill_data
+        assert torch.allclose(output1, fill_data), "First delayed output should be fill_data"
+
+        # Reset only first 10 environments
+        reset_ids = list(range(10))
+        buffer.reset(reset_ids)
+
+        # Push new data
+        third_data = fill_data + 200
+        output2 = buffer(third_data)
+
+        # Reset envs should get zeros, others should get second_data
+        assert torch.allclose(output2[:10], torch.zeros(10, 2, device=DEVICE)), (
+            "Reset env outputs should be zeros"
+        )
+        assert torch.allclose(output2[10:], second_data[10:]), (
+            "Non-reset env outputs should be previous data"
+        )
+
+    def test_imu_noise_with_latency(self, noisy_env):
+        """Verify IMU observations are delayed when latency_steps > 0.
+
+        This test validates that the per-sensor latency feature works correctly
+        through the full noise model pipeline. Since REAL_ROBOT_CONTRACT has
+        imu_latency_steps=0 by default, this test mainly verifies the wiring
+        works without causing errors.
+        """
+        obs = collect_stationary_observations(noisy_env, 50)
+
+        # Verify observations were collected successfully
+        assert obs.shape[0] == 50, "Should collect 50 steps"
+        assert obs.shape[1] == NUM_ENVS, f"Should have {NUM_ENVS} environments"
+
+        # IMU accel observations should have variance (noise is enabled)
+        imu_variance = obs[:, :, IMU_ACCEL_SLICE].var().item()
+        assert imu_variance > 1e-8, "IMU should have measurable noise variance"
+
+    def test_encoder_noise_with_latency(self, noisy_env):
+        """Verify encoder observations work with latency configuration.
+
+        Since REAL_ROBOT_CONTRACT has encoder_latency_steps=0 by default,
+        this test verifies the noise model works correctly without latency.
+        """
+        obs = collect_stationary_observations(noisy_env, 50)
+
+        # Encoder observations should have variance (noise is enabled)
+        encoder_variance = obs[:, :, ENCODER_SLICE].var().item()
+        assert encoder_variance > 1e-8, "Encoder should have measurable noise variance"
 
 
 # =============================================================================

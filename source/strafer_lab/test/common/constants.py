@@ -27,7 +27,9 @@ NUM_ENVS = 64
 N_SETTLE_STEPS = 10
 
 # Steps to collect observations (more steps = tighter confidence intervals)
-N_SAMPLES_STEPS = 200
+# 400 steps provides sufficient statistical power for chi-squared variance tests
+# at 95% CI with 38K+ samples (400 steps * 64 envs * ~1.5 dims per sensor)
+N_SAMPLES_STEPS = 400
 
 # Default CUDA device
 DEVICE = "cuda:0"
@@ -50,4 +52,4 @@ IMU_ACCEL_MAX = 156.96  # ±16g in m/s²
 IMU_GYRO_MAX = 34.9     # ±2000 °/s in rad/s
 
 # Encoder parameters
-ENCODER_VEL_MAX = 5000.0  # Max ticks/sec
+ENCODER_VEL_MAX = 3000.0  # Max ticks/sec (312 RPM ≈ 2796 ticks/s + margin)

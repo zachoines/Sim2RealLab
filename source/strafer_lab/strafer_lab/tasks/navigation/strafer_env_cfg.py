@@ -219,7 +219,7 @@ class ActionsCfg_Robust:
 # Noise is applied to RAW values, then scaled to normalize for neural network
 IMU_ACCEL_MAX = 156.96  # ±16g in m/s²
 IMU_GYRO_MAX = 34.9     # ±2000 °/s in rad/s
-ENCODER_VEL_MAX = 5000.0  # Max ticks/sec
+ENCODER_VEL_MAX = 3000.0  # Max ticks/sec (312 RPM ≈ 2796 ticks/s + margin)
 DEPTH_MAX = 6.0  # Max depth in meters
 
 # Scale factors: scale = 1/max_value to normalize to [0, 1] or [-1, 1]

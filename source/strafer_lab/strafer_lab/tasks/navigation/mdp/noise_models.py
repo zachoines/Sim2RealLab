@@ -227,7 +227,7 @@ class EncoderNoiseModelCfg(NoiseModelCfg):
     
     # Noise
     velocity_noise_std: float = 0.02  # Fraction of max velocity
-    max_velocity: float = 5000.0  # Max ticks/sec for normalization
+    max_velocity: float = 3000.0  # Max ticks/sec (312 RPM ≈ 2796 ticks/s + margin)
     
     # Errors
     missed_tick_prob: float = 0.001

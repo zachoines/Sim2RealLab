@@ -40,35 +40,41 @@ def goal_progress_reward(
     command_name: str,
 ) -> torch.Tensor:
     """Reward for making progress toward the goal.
-    
+
     This is a dense reward based on the change in distance to goal.
-    
+
     Args:
         env: The environment instance.
         command_name: Name of the command manager providing goal positions.
-    
+
     Returns:
         Progress reward (positive if moving toward goal).
     """
     robot = env.scene["robot"]
     robot_pos = robot.data.root_pos_w[:, :2]
-    
+
     command = env.command_manager.get_command(command_name)
     goal_pos = command[:, :2]
-    
+
     # Current distance
     current_distance = torch.norm(goal_pos - robot_pos, dim=-1)
-    
-    # Get previous distance from environment state
+
+    # Initialize previous distance if not present
     if not hasattr(env, "_prev_goal_distance"):
         env._prev_goal_distance = current_distance.clone()
-    
+
+    # Reset previous distance for environments that just reset
+    # This prevents incorrect reward spikes after episode reset
+    reset_mask = env.episode_length_buf == 0
+    if reset_mask.any():
+        env._prev_goal_distance[reset_mask] = current_distance[reset_mask]
+
     # Progress = reduction in distance
     progress = env._prev_goal_distance - current_distance
-    
+
     # Update previous distance
     env._prev_goal_distance = current_distance.clone()
-    
+
     return progress
 
 
@@ -127,21 +133,28 @@ def energy_penalty(env: ManagerBasedEnv) -> torch.Tensor:
 
 def action_smoothness_penalty(env: ManagerBasedEnv) -> torch.Tensor:
     """Penalty for jerky/non-smooth actions.
-    
+
     Encourages smooth motion by penalizing large action changes.
-    
+
     Returns:
         Negative reward proportional to action rate of change.
     """
     current_action = env.action_manager.action
-    
+
+    # Initialize previous action if not present
     if not hasattr(env, "_prev_action"):
         env._prev_action = current_action.clone()
-    
+
+    # Reset previous action for environments that just reset
+    # This prevents incorrect penalty spikes after episode reset
+    reset_mask = env.episode_length_buf == 0
+    if reset_mask.any():
+        env._prev_action[reset_mask] = current_action[reset_mask]
+
     # Rate of change
     action_diff = current_action - env._prev_action
     smoothness_cost = torch.sum(action_diff ** 2, dim=-1)
-    
+
     env._prev_action = current_action.clone()
-    
+
     return smoothness_cost

@@ -58,31 +58,45 @@ from strafer_lab.tasks.navigation.mdp.noise_models import (
 @configclass
 class TimingCfg:
     """Timing and latency configuration for sim-to-real transfer.
-    
+
     Models real-world timing imperfections:
     - Control loop frequency and jitter
-    - Sensor data latency (observation delay)
+    - Sensor data latency (observation delay) - per-sensor
     - Command latency (action delay)
     """
-    
+
     # Control frequency
     control_frequency_hz: float = 30.0
     """Target control loop frequency in Hz. Default: 30 Hz (matching ROS2 node rate)."""
-    
+
     control_frequency_jitter_pct: float = 0.0
     """Random jitter in control frequency as percentage. 0.1 = ±10% variation."""
-    
-    # Observation latency (sensor → policy)
+
+    # Global observation latency (legacy - use per-sensor latency instead)
     obs_latency_steps: int = 0
     """Fixed observation latency in control steps. 1 step @ 30Hz = 33ms."""
-    
+
     obs_latency_steps_range: tuple[int, int] = (0, 0)
     """Random observation latency range [min, max] steps. Sampled per reset."""
-    
+
+    # Per-sensor observation latency (steps)
+    # Different sensors have different processing pipelines and latencies
+    imu_latency_steps: int = 0
+    """IMU observation latency in control steps. IMU is typically fastest (~1-2ms)."""
+
+    encoder_latency_steps: int = 0
+    """Encoder observation latency in control steps. Encoders are fast (~5ms)."""
+
+    depth_latency_steps: int = 1
+    """Depth camera latency in control steps. Stereo matching adds delay (~33-66ms)."""
+
+    rgb_latency_steps: int = 1
+    """RGB camera latency in control steps. Image processing adds delay (~33-66ms)."""
+
     # Action latency (policy → actuator)
     action_latency_steps: int = 0
     """Fixed action command latency in physics steps."""
-    
+
     action_latency_steps_range: tuple[int, int] = (0, 0)
     """Random action latency range [min, max] steps. Sampled per reset."""
 
@@ -384,13 +398,18 @@ class SimRealContractCfg:
 
 def create_ideal_contract() -> SimRealContractCfg:
     """Create ideal simulation contract with no noise or delays.
-    
+
     Use for debugging, visualization, and baseline comparisons.
     """
     return SimRealContractCfg(
         timing=TimingCfg(
             obs_latency_steps=0,
             action_latency_steps=0,
+            # No per-sensor latency in ideal mode
+            imu_latency_steps=0,
+            encoder_latency_steps=0,
+            depth_latency_steps=0,
+            rgb_latency_steps=0,
         ),
         actuator=ActuatorModelCfg(
             enable_motor_dynamics=False,
@@ -409,7 +428,7 @@ def create_ideal_contract() -> SimRealContractCfg:
 
 def create_real_robot_contract() -> SimRealContractCfg:
     """Create realistic contract matching real Strafer robot.
-    
+
     Use for training policies intended for real-world deployment.
     Includes realistic noise, delays, and failure modes.
     """
@@ -417,10 +436,15 @@ def create_real_robot_contract() -> SimRealContractCfg:
         timing=TimingCfg(
             control_frequency_hz=30.0,
             control_frequency_jitter_pct=0.05,  # ±5% jitter
-            obs_latency_steps=1,  # 33ms sensor delay
+            obs_latency_steps=1,  # 33ms sensor delay (legacy, use per-sensor)
             obs_latency_steps_range=(0, 2),  # 0-66ms random
             action_latency_steps=1,  # 33ms command delay
             action_latency_steps_range=(0, 2),  # 0-66ms random
+            # Per-sensor latency (realistic values)
+            imu_latency_steps=0,  # IMU is very fast (~1-2ms)
+            encoder_latency_steps=0,  # Encoders are fast (~5ms)
+            depth_latency_steps=1,  # Stereo matching adds delay (~33ms)
+            rgb_latency_steps=1,  # Image processing adds delay (~33ms)
         ),
         actuator=ActuatorModelCfg(
             enable_motor_dynamics=True,
@@ -465,7 +489,7 @@ def create_real_robot_contract() -> SimRealContractCfg:
 
 def create_robust_training_contract() -> SimRealContractCfg:
     """Create aggressive contract for training robust policies.
-    
+
     Includes higher noise levels and occasional sensor failures
     to train policies that handle worst-case scenarios.
     """
@@ -477,6 +501,11 @@ def create_robust_training_contract() -> SimRealContractCfg:
             obs_latency_steps_range=(0, 3),  # Up to 100ms random
             action_latency_steps=1,
             action_latency_steps_range=(0, 4),  # Up to 133ms random
+            # Per-sensor latency (aggressive values for robustness)
+            imu_latency_steps=1,  # Add slight delay to IMU
+            encoder_latency_steps=1,  # Add slight delay to encoders
+            depth_latency_steps=2,  # Higher camera delay (~66ms)
+            rgb_latency_steps=2,  # Higher camera delay (~66ms)
         ),
         actuator=ActuatorModelCfg(
             enable_motor_dynamics=True,
@@ -535,10 +564,10 @@ ROBUST_TRAINING_CONTRACT = create_robust_training_contract()
 
 def get_imu_accel_noise(contract: SimRealContractCfg) -> IMUNoiseModelCfg | None:
     """Get accelerometer noise config from contract.
-    
+
     Returns IMUNoiseModelCfg which generates independent noise per environment.
     Noise is in RAW units (m/s²) - normalization happens via ObsTerm.scale.
-    
+
     Noise density conversion:
         noise_density [unit/√Hz] → std [unit/sample] = density * √(sample_rate_hz)
     """
@@ -549,24 +578,33 @@ def get_imu_accel_noise(contract: SimRealContractCfg) -> IMUNoiseModelCfg | None
     import math
     sample_rate = contract.timing.control_frequency_hz
     std = contract.sensors.imu.accel_noise_density * math.sqrt(sample_rate)
+
+    # Get failure probabilities from SensorFailureCfg
+    failures = contract.sensors.failures
+    failure_prob = failures.imu_failure_probability if failures.enable_failures else 0.0
+    stuck_prob = failures.imu_stuck_probability if failures.enable_failures else 0.0
+
     return IMUNoiseModelCfg(
         noise_cfg=GaussianNoiseCfg(std=std),
         sensor_type='accel',
         control_frequency_hz=sample_rate,
         accel_noise_std=std,
-        accel_bias_range=(-contract.sensors.imu.accel_bias_stability, 
+        accel_bias_range=(-contract.sensors.imu.accel_bias_stability,
                           contract.sensors.imu.accel_bias_stability),
         accel_bias_drift_rate=contract.sensors.imu.accel_random_walk,
         output_size=3,
+        failure_probability=failure_prob,
+        stuck_probability=stuck_prob,
+        latency_steps=contract.timing.imu_latency_steps,
     )
 
 
 def get_imu_gyro_noise(contract: SimRealContractCfg) -> IMUNoiseModelCfg | None:
     """Get gyroscope noise config from contract.
-    
+
     Returns IMUNoiseModelCfg which generates independent noise per environment.
     Noise is in RAW units (rad/s) - normalization happens via ObsTerm.scale.
-    
+
     Noise density conversion:
         noise_density [unit/√Hz] → std [unit/sample] = density * √(sample_rate_hz)
     """
@@ -577,6 +615,12 @@ def get_imu_gyro_noise(contract: SimRealContractCfg) -> IMUNoiseModelCfg | None:
     import math
     sample_rate = contract.timing.control_frequency_hz
     std = contract.sensors.imu.gyro_noise_density * math.sqrt(sample_rate)
+
+    # Get failure probabilities from SensorFailureCfg
+    failures = contract.sensors.failures
+    failure_prob = failures.imu_failure_probability if failures.enable_failures else 0.0
+    stuck_prob = failures.imu_stuck_probability if failures.enable_failures else 0.0
+
     return IMUNoiseModelCfg(
         noise_cfg=GaussianNoiseCfg(std=std),
         sensor_type='gyro',
@@ -586,23 +630,33 @@ def get_imu_gyro_noise(contract: SimRealContractCfg) -> IMUNoiseModelCfg | None:
                          contract.sensors.imu.gyro_bias_stability),
         gyro_bias_drift_rate=contract.sensors.imu.gyro_random_walk,
         output_size=3,
+        failure_probability=failure_prob,
+        stuck_probability=stuck_prob,
+        latency_steps=contract.timing.imu_latency_steps,
     )
 
 
 def get_encoder_noise(contract: SimRealContractCfg) -> EncoderNoiseModelCfg | None:
     """Get encoder velocity noise config from contract.
-    
+
     Returns EncoderNoiseModelCfg which generates independent noise per environment,
     and includes quantization and tick error simulation.
     """
     if not contract.sensors.encoders.enable_noise:
         return None
+
+    # Get failure probability from SensorFailureCfg
+    failures = contract.sensors.failures
+    failure_prob = failures.encoder_failure_probability if failures.enable_failures else 0.0
+
     return EncoderNoiseModelCfg(
         noise_cfg=GaussianNoiseCfg(std=contract.sensors.encoders.velocity_noise_std),
         enable_quantization=contract.sensors.encoders.enable_quantization,
         velocity_noise_std=contract.sensors.encoders.velocity_noise_std,
         missed_tick_prob=contract.sensors.encoders.missed_tick_probability,
         extra_tick_prob=contract.sensors.encoders.extra_tick_probability,
+        failure_probability=failure_prob,
+        latency_steps=contract.timing.encoder_latency_steps,
     )
 
 
@@ -621,6 +675,10 @@ def get_depth_noise(contract: SimRealContractCfg) -> DepthNoiseModelCfg | None:
     cfg = contract.sensors.depth_camera
     noise_at_1m = cfg.disparity_noise_px / (cfg.focal_length_px * cfg.baseline_m)
 
+    # Get failure probability from SensorFailureCfg
+    failures = contract.sensors.failures
+    failure_prob = failures.camera_failure_probability if failures.enable_failures else 0.0
+
     return DepthNoiseModelCfg(
         noise_cfg=GaussianNoiseCfg(std=noise_at_1m),
         baseline_m=cfg.baseline_m,
@@ -630,21 +688,30 @@ def get_depth_noise(contract: SimRealContractCfg) -> DepthNoiseModelCfg | None:
         min_range=cfg.min_range_m,
         max_range=cfg.max_range_m,
         frame_drop_prob=cfg.frame_drop_probability,
+        failure_probability=failure_prob,
+        latency_steps=contract.timing.depth_latency_steps,
     )
 
 
 def get_rgb_noise(contract: SimRealContractCfg) -> RGBNoiseModelCfg | None:
     """Get RGB camera noise config from contract.
-    
+
     Returns RGBNoiseModelCfg which generates independent noise per environment.
     """
     if not contract.sensors.rgb_camera.enable_noise:
         return None
+
+    # Get failure probability from SensorFailureCfg
+    failures = contract.sensors.failures
+    failure_prob = failures.camera_failure_probability if failures.enable_failures else 0.0
+
     return RGBNoiseModelCfg(
         noise_cfg=GaussianNoiseCfg(std=contract.sensors.rgb_camera.pixel_noise_std),
         pixel_noise_std=contract.sensors.rgb_camera.pixel_noise_std,
         brightness_range=contract.sensors.rgb_camera.exposure_variation_range,
         frame_drop_prob=contract.sensors.rgb_camera.frame_drop_probability,
+        failure_probability=failure_prob,
+        latency_steps=contract.timing.rgb_latency_steps,
     )
 
 

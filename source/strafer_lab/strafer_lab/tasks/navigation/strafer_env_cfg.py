@@ -459,6 +459,23 @@ class ObsCfg_Full_Robust:
     critic: CriticCfg = CriticCfg()
 
 
+@configclass
+class ObsCfg_NoCam_Robust:
+    """Proprioceptive-only with aggressive noise for robust training."""
+    @configclass
+    class PolicyCfg(ObsGroup):
+        imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, noise=_ROBUST_ACCEL_NOISE, scale=_IMU_ACCEL_SCALE)
+        imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, noise=_ROBUST_GYRO_NOISE, scale=_IMU_GYRO_SCALE)
+        wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, noise=_ROBUST_ENCODER_NOISE, scale=_ENCODER_SCALE)
+        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
+        last_action = ObsTerm(func=mdp.last_action)
+        def __post_init__(self):
+            self.enable_corruption = True
+            self.concatenate_terms = True
+
+    policy: PolicyCfg = PolicyCfg()
+
+
 # =============================================================================
 # Shared MDP Components
 # =============================================================================
@@ -655,6 +672,33 @@ class StraferNavEnvCfg_Real_Depth_PLAY(StraferNavEnvCfg_Real_Depth):
         self.scene.num_envs = 50
 
 
+@configclass
+class StraferNavEnvCfg_Real_NoCam(ManagerBasedRLEnvCfg):
+    """Realistic Proprioceptive-only - fast training with realistic dynamics."""
+    scene: StraferSceneCfg_NoCam = StraferSceneCfg_NoCam(num_envs=4096, env_spacing=4.0)
+    actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
+    observations: ObsCfg_NoCam_Realistic = ObsCfg_NoCam_Realistic()
+    commands: CommandsCfg = CommandsCfg()
+    rewards: RewardsCfg = RewardsCfg()
+    terminations: TerminationsCfg = TerminationsCfg()
+    events: EventsCfg = EventsCfg()
+    seed: int = 42
+
+    def __post_init__(self):
+        self.sim.dt = 1.0 / 120.0
+        self.sim.render_interval = 4
+        self.decimation = 4
+        self.episode_length_s = 20.0
+
+
+@configclass
+class StraferNavEnvCfg_Real_NoCam_PLAY(StraferNavEnvCfg_Real_NoCam):
+    """Play/eval config for Realistic Proprioceptive-only."""
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 50
+
+
 # -----------------------------------------------------------------------------
 # ROBUST: Aggressive noise + dynamics for stress-testing
 # -----------------------------------------------------------------------------
@@ -681,6 +725,33 @@ class StraferNavEnvCfg_Robust(ManagerBasedRLEnvCfg):
 @configclass
 class StraferNavEnvCfg_Robust_PLAY(StraferNavEnvCfg_Robust):
     """Play/eval config for Robust Full."""
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 50
+
+
+@configclass
+class StraferNavEnvCfg_Robust_NoCam(ManagerBasedRLEnvCfg):
+    """Robust Proprioceptive-only - aggressive noise for worst-case robustness."""
+    scene: StraferSceneCfg_NoCam = StraferSceneCfg_NoCam(num_envs=4096, env_spacing=4.0)
+    actions: ActionsCfg_Robust = ActionsCfg_Robust()
+    observations: ObsCfg_NoCam_Robust = ObsCfg_NoCam_Robust()
+    commands: CommandsCfg = CommandsCfg()
+    rewards: RewardsCfg = RewardsCfg()
+    terminations: TerminationsCfg = TerminationsCfg()
+    events: EventsCfg = EventsCfg()
+    seed: int = 42
+
+    def __post_init__(self):
+        self.sim.dt = 1.0 / 120.0
+        self.sim.render_interval = 4
+        self.decimation = 4
+        self.episode_length_s = 20.0
+
+
+@configclass
+class StraferNavEnvCfg_Robust_NoCam_PLAY(StraferNavEnvCfg_Robust_NoCam):
+    """Play/eval config for Robust Proprioceptive-only."""
     def __post_init__(self):
         super().__post_init__()
         self.scene.num_envs = 50

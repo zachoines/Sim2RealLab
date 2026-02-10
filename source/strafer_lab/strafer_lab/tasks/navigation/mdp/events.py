@@ -89,10 +89,15 @@ def randomize_friction(
     # Shape: (num_envs, max_num_shapes, 3) where 3 = [static, dynamic, restitution]
     materials = robot.root_physx_view.get_material_properties()
 
+    # Ensure env_ids is on the same device as materials for indexing
+    # PhysX view may return materials on a different device than env.device
+    materials_device = materials.device
+    env_ids_device = env_ids.to(materials_device)
+
     # Sample random friction values for each environment being reset
     num_resets = len(env_ids)
     friction_values = (
-        torch.rand(num_resets, device=device)
+        torch.rand(num_resets, device=materials_device)
         * (friction_range[1] - friction_range[0])
         + friction_range[0]
     )
@@ -104,9 +109,11 @@ def randomize_friction(
 
     # Update static friction (index 0) and dynamic friction (index 1)
     # Dynamic friction should be <= static friction for physical consistency
-    materials[env_ids, :, 0] = friction_expanded  # Static friction
-    materials[env_ids, :, 1] = friction_expanded * 0.9  # Dynamic friction (slightly lower)
+    materials[env_ids_device, :, 0] = friction_expanded  # Static friction
+    materials[env_ids_device, :, 1] = friction_expanded * 0.9  # Dynamic friction (slightly lower)
     # Keep restitution (index 2) unchanged
 
     # Apply the modified materials back to simulation
-    robot.root_physx_view.set_material_properties(materials, env_ids)
+    # Note: set_material_properties expects env_ids on CPU
+    env_ids_cpu = env_ids.cpu() if env_ids.device.type != "cpu" else env_ids
+    robot.root_physx_view.set_material_properties(materials, env_ids_cpu)

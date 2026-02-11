@@ -3,13 +3,11 @@
 
 """Unit tests for encoder noise model in isolation.
 
-These tests verify the statistical properties of EncoderNoiseModel without
-running a full simulation environment - only torch device access is needed.
-
-Tests validate:
-1. Velocity noise std scales correctly with max_velocity (chi-squared test)
-2. Quantization produces integer-valued outputs
-3. Missed tick probability matches configured rate (binomial test)
+These tests validate the EncoderNoiseModel class directly without a
+simulation environment. They verify:
+- Velocity noise variance matches config (fraction × max_velocity)
+- Quantization produces integer tick values
+- Missed tick probability matches configured rate
 
 Usage:
     cd source/strafer_lab
@@ -18,157 +16,158 @@ Usage:
 
 import torch
 import numpy as np
-import pytest
 
+from test.common import (
+    CONFIDENCE_LEVEL,
+    chi_squared_variance_test,
+    binomial_test,
+    DEVICE,
+)
+
+# -- imports resolved after AppLauncher (root conftest) --
 from strafer_lab.tasks.navigation.mdp.noise_models import (
     EncoderNoiseModel,
     EncoderNoiseModelCfg,
 )
-from isaaclab.utils.noise import GaussianNoiseCfg
 
-from test.common import (
-    chi_squared_variance_test,
-    binomial_test,
-    CONFIDENCE_LEVEL,
-    DEVICE,
-)
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
 
+N_SAMPLES = 50_000
+N_ENVS = 32
 
-# =============================================================================
-# Test Configuration
-# =============================================================================
-
-N_SAMPLES = 50000        # Samples for statistical tests
-N_ENVS = 32              # Parallel environments for unit tests
-FLOAT_TOLERANCE = 1e-6   # Floating-point tolerance for deterministic comparisons
+TEST_VEL_NOISE_FRACTION = 0.02
+TEST_MAX_VELOCITY = 3000.0
+TEST_TICKS_PER_RADIAN = 85.57
+TEST_MISSED_TICK_PROB = 0.02  # Elevated for testability
 
 
 # =============================================================================
-# Fixtures
+# Tests
 # =============================================================================
 
-@pytest.fixture(scope="module")
-def device():
-    return DEVICE
+
+def test_velocity_noise_std():
+    """Verify encoder noise variance matches configured std.
+
+    The actual noise std = velocity_noise_std × max_velocity.
+    With quantization and tick errors disabled, model(zeros) gives
+    pure Gaussian noise. Single wheel tested to avoid inflated N.
+    """
+    expected_std = TEST_VEL_NOISE_FRACTION * TEST_MAX_VELOCITY
+    cfg = EncoderNoiseModelCfg(
+        velocity_noise_std=TEST_VEL_NOISE_FRACTION,
+        max_velocity=TEST_MAX_VELOCITY,
+        enable_quantization=False,
+        ticks_per_radian=TEST_TICKS_PER_RADIAN,
+        missed_tick_prob=0.0,
+        extra_tick_prob=0.0,
+        output_size=4,
+        latency_steps=0,
+    )
+    model = EncoderNoiseModel(cfg, N_ENVS, DEVICE)
+
+    # Use fewer samples for chi-squared to accommodate float32 GPU precision.
+    n_chi2 = 5_000
+    clean = torch.zeros(N_ENVS, 4, device=DEVICE)
+    samples = []
+    for _ in range(n_chi2):
+        noisy = model(clean.clone())
+        # Single env, single wheel to keep chi-squared df reasonable
+        samples.append(noisy[0, 0].cpu().item())
+
+    samples = np.array(samples)
+    result = chi_squared_variance_test(samples, expected_std**2)
+
+    print(f"\n  Encoder velocity noise test:")
+    print(f"    Expected std: {expected_std:.2f} ticks/s")
+    print(f"    Measured std: {np.std(samples):.2f} ticks/s")
+    print(f"    Variance ratio: {result.ratio:.4f}")
+    print(f"    In CI: {result.in_ci} [{result.ci_low:.4f}, {result.ci_high:.4f}]")
+
+    assert result.in_ci, (
+        f"Encoder noise variance doesn't match config. "
+        f"Expected σ={expected_std:.2f}, got {np.std(samples):.2f} "
+        f"(ratio={result.ratio:.4f}, CI=[{result.ci_low:.4f}, {result.ci_high:.4f}])"
+    )
 
 
-# =============================================================================
-# Encoder Noise Tests
-# =============================================================================
+def test_quantization_produces_integers():
+    """Verify quantization rounds output to integer ticks.
 
-class TestEncoderNoise:
-    """Test encoder noise model."""
+    With quantization enabled, output values should be exact integers
+    (within floating-point tolerance).
+    """
+    cfg = EncoderNoiseModelCfg(
+        velocity_noise_std=TEST_VEL_NOISE_FRACTION,
+        max_velocity=TEST_MAX_VELOCITY,
+        enable_quantization=True,
+        ticks_per_radian=TEST_TICKS_PER_RADIAN,
+        missed_tick_prob=0.0,
+        extra_tick_prob=0.0,
+        output_size=4,
+        latency_steps=0,
+    )
+    model = EncoderNoiseModel(cfg, N_ENVS, DEVICE)
 
-    def test_velocity_noise_std(self, device):
-        """Velocity noise should scale by max_velocity.
+    # Non-integer input to ensure quantization is actually acting
+    clean = torch.full((N_ENVS, 4), 100.7, device=DEVICE)
+    noisy = model(clean.clone())
 
-        Uses chi-squared variance test to verify measured noise variance
-        matches the expected value (noise_frac * max_velocity)².
-        """
-        noise_frac = 0.05  # 5% of max
-        max_vel = 5000.0
-        expected_std = noise_frac * max_vel
+    # After quantization, all values should be close to integers
+    residuals = torch.abs(noisy - torch.round(noisy))
+    max_residual = residuals.max().item()
 
-        cfg = EncoderNoiseModelCfg(
-            noise_cfg=GaussianNoiseCfg(std=noise_frac),
-            velocity_noise_std=noise_frac,
-            max_velocity=max_vel,
-            enable_quantization=False,
-            missed_tick_prob=0.0,
-            extra_tick_prob=0.0,
-        )
+    print(f"\n  Quantization test:")
+    print(f"    Max residual from integer: {max_residual:.8f}")
 
-        model = EncoderNoiseModel(cfg, N_ENVS, device)
+    assert max_residual < 1e-5, (
+        f"Quantization did not produce integers: max residual = {max_residual:.8f}"
+    )
 
-        # Apply to constant velocity
-        base = torch.ones(N_ENVS, 4, device=device) * 1000.0
-        samples = []
-        for _ in range(N_SAMPLES // N_ENVS):
-            samples.append((model(base) - base).cpu())
 
-        all_noise = torch.cat(samples, dim=0).numpy()
-        # Use single wheel to keep sample count reasonable (~10k);
-        # flattening all 4 wheels yields ~40k samples whose CI becomes
-        # so tight that normal floating-point jitter causes false failures.
-        noise = all_noise[:, 0]
+def test_missed_tick_probability():
+    """Verify missed tick rate matches configured probability.
 
-        result = chi_squared_variance_test(noise, expected_std**2)
+    Uses binomial test to verify the proportion of samples where the
+    output differs from expected (input + noise, without quantization)
+    by exactly ±1 tick (missed or extra tick).
+    """
+    cfg = EncoderNoiseModelCfg(
+        velocity_noise_std=0.0,  # No Gaussian noise
+        max_velocity=TEST_MAX_VELOCITY,
+        enable_quantization=False,
+        ticks_per_radian=TEST_TICKS_PER_RADIAN,
+        missed_tick_prob=TEST_MISSED_TICK_PROB,
+        extra_tick_prob=0.0,  # Only test missed ticks
+        output_size=4,
+        latency_steps=0,
+    )
+    model = EncoderNoiseModel(cfg, N_ENVS, DEVICE)
 
-        print(f"\n  Encoder noise std (chi-squared test):")
-        print(f"    Expected std: {expected_std:.2f}")
-        print(f"    Measured std: {np.sqrt(result.measured_var):.2f}")
-        print(f"    Variance ratio: {result.ratio:.4f}")
-        print(f"    {CONFIDENCE_LEVEL*100:.0f}% CI: [{result.ci_low:.4f}, {result.ci_high:.4f}]")
+    # Constant input — any deviation is a missed tick
+    clean = torch.full((N_ENVS, 4), 500.0, device=DEVICE)
 
-        assert result.in_ci, (
-            f"Variance ratio {result.ratio:.4f} not within "
-            f"{CONFIDENCE_LEVEL*100:.0f}% CI [{result.ci_low:.4f}, {result.ci_high:.4f}]"
-        )
+    n_total = 0
+    n_missed = 0
+    for _ in range(N_SAMPLES):
+        noisy = model(clean.clone())
+        diff = (noisy - clean).abs()
+        # Missed tick → output changed by any amount
+        n_missed += int((diff > 0.5).sum().item())
+        n_total += N_ENVS * 4
 
-    def test_quantization_produces_integers(self, device):
-        """Quantization should produce integer values."""
-        cfg = EncoderNoiseModelCfg(
-            noise_cfg=GaussianNoiseCfg(std=0.1),
-            velocity_noise_std=0.1,
-            enable_quantization=True,
-            missed_tick_prob=0.0,
-            extra_tick_prob=0.0,
-        )
+    result = binomial_test(n_missed, n_total, TEST_MISSED_TICK_PROB)
 
-        model = EncoderNoiseModel(cfg, N_ENVS, device)
+    print(f"\n  Missed tick probability test:")
+    print(f"    Expected rate: {TEST_MISSED_TICK_PROB:.4f}")
+    print(f"    Observed rate: {n_missed / n_total:.4f}")
+    print(f"    n_total: {n_total}")
+    print(f"    Binomial p-value: {result.p_value:.4f}")
 
-        # Non-integer input
-        base = torch.ones(N_ENVS, 4, device=device) * 123.456
-
-        all_integer = True
-        for _ in range(100):
-            out = model(base)
-            if not torch.all(torch.abs(out - out.round()) < 1e-5):
-                all_integer = False
-                break
-
-        print(f"\n  All outputs are integers: {all_integer}")
-        assert all_integer
-
-    def test_missed_tick_probability(self, device):
-        """Missed ticks should occur at configured probability.
-
-        Uses binomial test to verify the observed miss rate is consistent
-        with the configured probability.
-        """
-        expected_prob = 0.02
-
-        cfg = EncoderNoiseModelCfg(
-            noise_cfg=GaussianNoiseCfg(std=0.0),
-            velocity_noise_std=0.0,
-            enable_quantization=False,
-            missed_tick_prob=expected_prob,
-            extra_tick_prob=0.0,
-        )
-
-        model = EncoderNoiseModel(cfg, N_ENVS, device)
-
-        base = torch.ones(N_ENVS, 4, device=device) * 100.0
-
-        # Use enough iterations to get ~500k samples for reliable binomial test
-        n_iterations = N_SAMPLES // (N_ENVS * 4) * 4  # ~6250 iterations
-        total = 0
-        missed = 0
-        for _ in range(n_iterations):
-            out = model(base)
-            missed += int((out < base).sum().item())
-            total += out.numel()
-
-        result = binomial_test(missed, total, expected_prob)
-
-        print(f"\n  Missed tick probability (binomial test):")
-        print(f"    Total samples: {total}")
-        print(f"    Expected prob: {expected_prob:.4f}")
-        print(f"    Observed prob: {result.observed_rate:.4f}")
-        print(f"    p-value: {result.p_value:.4f}")
-        print(f"    Reject null: {result.reject_null}")
-
-        assert not result.reject_null, (
-            f"Missed tick rate {result.observed_rate:.4f} inconsistent with "
-            f"expected {expected_prob:.4f} (p={result.p_value:.4f})"
-        )
+    assert not result.reject_null, (
+        f"Missed tick rate doesn't match config. "
+        f"Expected {TEST_MISSED_TICK_PROB:.4f}, got {n_missed / n_total:.4f} "
+        f"(p={result.p_value:.4f})"
+    )

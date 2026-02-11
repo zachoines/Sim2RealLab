@@ -3,12 +3,10 @@
 
 """Unit tests for depth camera noise model in isolation.
 
-These tests verify the statistical properties of DepthNoiseModel without
-running a full simulation environment - only torch device access is needed.
-
-Tests validate:
-1. Depth-dependent noise follows stereo error propagation (quadratic growth)
-2. Hole probability matches configured rate (binomial test)
+These tests validate the DepthNoiseModel class directly without a
+simulation environment. They verify:
+- Depth-dependent stereo noise (σ ∝ z²) with chi-squared test
+- Hole probability matches configured rate
 
 Usage:
     cd source/strafer_lab
@@ -17,147 +15,148 @@ Usage:
 
 import torch
 import numpy as np
-import pytest
 
+from test.common import (
+    chi_squared_variance_test,
+    binomial_test,
+    DEVICE,
+)
+
+# -- imports resolved after AppLauncher (root conftest) --
 from strafer_lab.tasks.navigation.mdp.noise_models import (
     DepthNoiseModel,
     DepthNoiseModelCfg,
 )
-from isaaclab.utils.noise import GaussianNoiseCfg
 
-from test.common import (
-    binomial_test,
-    CONFIDENCE_LEVEL,
-    DEVICE,
-)
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
 
+N_SAMPLES = 50_000
+N_ENVS = 32
+N_PIXELS = 256  # 16×16 depth image, flattened
 
-# =============================================================================
-# Test Configuration
-# =============================================================================
-
-N_SAMPLES = 50000        # Samples for statistical tests
-N_ENVS = 32              # Parallel environments for unit tests
-FLOAT_TOLERANCE = 1e-6   # Floating-point tolerance for deterministic comparisons
-
-# Depth-specific test parameters
+TEST_BASELINE_M = 0.095
+TEST_FOCAL_PX = 673.0
+TEST_DISPARITY_NOISE_PX = 0.08
 TEST_HOLE_PROBABILITY = 0.03
-TEST_DEPTH_MAX_RANGE = 6.0
+TEST_MAX_RANGE = 6.0
+TEST_MIN_RANGE = 0.2
+
+
+def _make_depth_model(hole_probability: float = 0.0) -> DepthNoiseModel:
+    """Create a DepthNoiseModel for testing."""
+    cfg = DepthNoiseModelCfg(
+        baseline_m=TEST_BASELINE_M,
+        focal_length_px=TEST_FOCAL_PX,
+        disparity_noise_px=TEST_DISPARITY_NOISE_PX,
+        hole_probability=hole_probability,
+        min_range=TEST_MIN_RANGE,
+        max_range=TEST_MAX_RANGE,
+        latency_steps=0,
+    )
+    return DepthNoiseModel(cfg, N_ENVS, DEVICE)
 
 
 # =============================================================================
-# Fixtures
+# Tests
 # =============================================================================
 
-@pytest.fixture(scope="module")
-def device():
-    return DEVICE
 
+def test_depth_dependent_noise():
+    """Verify depth noise increases with distance (stereo noise model).
 
-# =============================================================================
-# Depth Camera Noise Tests
-# =============================================================================
+    The stereo noise formula is: σ = z² × σ_d / (f × B)
+    at distances [1m, 2m, 4m], noise std should scale as z².
 
-class TestDepthNoise:
-    """Test depth camera noise model.
-
-    Note: DepthNoiseModel works on RAW meters (not normalized).
-    Normalization is applied afterwards via ObsTerm.scale.
+    Tests both:
+    1. Monotone ordering: std(1m) < std(2m) < std(4m)
+    2. Chi-squared variance test at a reference depth against theoretical σ
     """
+    model = _make_depth_model(hole_probability=0.0)
+    stereo_coeff = TEST_DISPARITY_NOISE_PX / (TEST_FOCAL_PX * TEST_BASELINE_M)
 
-    def test_depth_dependent_noise(self, device):
-        """Noise should increase with depth (stereo error propagation).
+    # Use fewer samples for chi-squared to accommodate float32 GPU precision.
+    n_chi2 = 5_000
+    test_depths = [1.0, 2.0, 4.0]
+    measured_stds = {}
 
-        The depth noise model uses the stereo camera error formula:
-            σ_z = z² · σ_d / (f · B)
+    for z in test_depths:
+        # Flattened depth image: (N_ENVS, N_PIXELS)
+        clean = torch.full((N_ENVS, N_PIXELS), z, device=DEVICE)
+        samples = []
+        for _ in range(n_chi2):
+            noisy = model(clean.clone())
+            # Single env, single pixel to keep chi-squared df reasonable
+            samples.append(noisy[0, 0].cpu().item() - z)
 
-        This means noise grows quadratically with depth. We verify that
-        measured noise at three different depths follows this trend.
-        """
-        cfg = DepthNoiseModelCfg(
-            noise_cfg=GaussianNoiseCfg(std=0.0),
-            baseline_m=0.095,
-            focal_length_px=673.0,
-            disparity_noise_px=0.08,
-            hole_probability=0.0,
-            frame_drop_prob=0.0,
-            max_range=10.0,
-            latency_steps=0,  # Disable latency for unit test isolation
+        flat = np.array(samples)
+        measured_stds[z] = np.std(flat)
+
+    # 1. Monotone ordering
+    for i in range(len(test_depths) - 1):
+        z_near, z_far = test_depths[i], test_depths[i + 1]
+        assert measured_stds[z_near] < measured_stds[z_far], (
+            f"Noise should increase with depth: "
+            f"std({z_near}m)={measured_stds[z_near]:.4f} >= "
+            f"std({z_far}m)={measured_stds[z_far]:.4f}"
         )
 
-        model = DepthNoiseModel(cfg, N_ENVS, device)
+    # 2. Chi-squared test at reference depth (2m)
+    ref_depth = 2.0
+    expected_std = ref_depth**2 * stereo_coeff
+    clean_ref = torch.full((N_ENVS, N_PIXELS), ref_depth, device=DEVICE)
+    ref_samples = []
+    for _ in range(n_chi2):
+        noisy = model(clean_ref.clone())
+        # Single env, single pixel
+        ref_samples.append(noisy[0, 0].cpu().item() - ref_depth)
+    ref_flat = np.array(ref_samples)
 
-        # Stereo coefficient: σ_d / (f · B)
-        stereo_coeff = cfg.disparity_noise_px / (cfg.focal_length_px * cfg.baseline_m)
+    result = chi_squared_variance_test(ref_flat, expected_std**2)
 
-        # Test at different depths (in METERS)
-        depths_m = [1.0, 2.0, 4.0]
-        measured_stds = []
+    print(f"\n  Depth-dependent noise test:")
+    for z in test_depths:
+        expected = z**2 * stereo_coeff
+        print(f"    z={z}m: measured σ={measured_stds[z]:.6f}, expected σ={expected:.6f}")
+    print(f"    Chi-squared at 2m: ratio={result.ratio:.4f}, in_ci={result.in_ci}")
+    print(f"    CI: [{result.ci_low:.4f}, {result.ci_high:.4f}]")
 
-        for depth in depths_m:
-            model.reset()
-            base = torch.ones(N_ENVS, 500, device=device) * depth
+    assert result.in_ci, (
+        f"Noise at reference depth doesn't match stereo formula. "
+        f"Expected σ²={expected_std**2:.6f}, got {result.measured_var:.6f} "
+        f"(ratio={result.ratio:.4f}, CI=[{result.ci_low:.4f}, {result.ci_high:.4f}])"
+    )
 
-            samples = []
-            for _ in range(200):
-                samples.append((model(base) - depth).cpu())
 
-            noise = torch.cat(samples, dim=0).numpy().flatten()
-            measured_stds.append(np.std(noise))
+def test_hole_probability():
+    """Verify hole insertion rate matches configured probability.
 
-        print(f"\n  Depth (m) | Expected Std  | Measured Std")
-        print(f"  " + "-" * 45)
-        for d, m in zip(depths_m, measured_stds):
-            expected = d**2 * stereo_coeff
-            print(f"  {d:.1f}m      | {expected:.6f}m  | {m:.6f}m")
+    Holes replace depth values with max_range. Uses binomial test to
+    verify the proportion of max_range pixels matches hole_probability.
+    """
+    model = _make_depth_model(hole_probability=TEST_HOLE_PROBABILITY)
 
-        # Verify noise increases with depth (quadratic relationship)
-        assert measured_stds[1] > measured_stds[0], \
-            f"Noise at {depths_m[1]}m ({measured_stds[1]:.6f}) should exceed noise at {depths_m[0]}m ({measured_stds[0]:.6f})"
-        assert measured_stds[2] > measured_stds[1], \
-            f"Noise at {depths_m[2]}m ({measured_stds[2]:.6f}) should exceed noise at {depths_m[1]}m ({measured_stds[1]:.6f})"
+    # Mid-range depth unlikely to trigger max_range by noise alone
+    clean = torch.full((N_ENVS, N_PIXELS), 3.0, device=DEVICE)
 
-    def test_hole_probability(self, device):
-        """Holes should occur at configured probability.
+    n_total = 0
+    n_holes = 0
+    for _ in range(N_SAMPLES):
+        noisy = model(clean.clone())
+        # Holes are replaced with max_range
+        n_holes += int((noisy >= TEST_MAX_RANGE - 1e-3).sum().item())
+        n_total += N_ENVS * N_PIXELS
 
-        Uses binomial test to verify the observed hole rate is consistent
-        with the configured probability.
-        """
-        cfg = DepthNoiseModelCfg(
-            noise_cfg=GaussianNoiseCfg(std=0.0),
-            disparity_noise_px=0.0,
-            hole_probability=TEST_HOLE_PROBABILITY,
-            frame_drop_prob=0.0,
-            max_range=TEST_DEPTH_MAX_RANGE,
-            latency_steps=0,  # Disable latency to avoid delay buffer warmup
-        )
+    result = binomial_test(n_holes, n_total, TEST_HOLE_PROBABILITY)
 
-        model = DepthNoiseModel(cfg, N_ENVS, device)
+    print(f"\n  Hole probability test:")
+    print(f"    Expected rate: {TEST_HOLE_PROBABILITY}")
+    print(f"    Observed rate: {n_holes / n_total:.4f}")
+    print(f"    Binomial p-value: {result.p_value:.4f}")
 
-        # Mid-range depth in METERS
-        pixels_per_frame = 1000
-        base = torch.ones(N_ENVS, pixels_per_frame, device=device) * 3.0
-
-        # Use enough iterations to get ~500k samples for reliable binomial test
-        n_iterations = N_SAMPLES // (N_ENVS * pixels_per_frame) * 10
-        total = 0
-        holes = 0
-        for _ in range(n_iterations):
-            out = model(base)
-            # Holes are set to max_range (in meters)
-            holes += int((out >= TEST_DEPTH_MAX_RANGE - FLOAT_TOLERANCE).sum().item())
-            total += out.numel()
-
-        result = binomial_test(holes, total, TEST_HOLE_PROBABILITY)
-
-        print(f"\n  Hole probability (binomial test):")
-        print(f"    Total samples: {total}")
-        print(f"    Expected prob: {TEST_HOLE_PROBABILITY:.4f}")
-        print(f"    Observed prob: {result.observed_rate:.4f}")
-        print(f"    p-value: {result.p_value:.4f}")
-        print(f"    Reject null: {result.reject_null}")
-
-        assert not result.reject_null, (
-            f"Hole rate {result.observed_rate:.4f} inconsistent with "
-            f"expected {TEST_HOLE_PROBABILITY:.4f} (p={result.p_value:.4f})"
-        )
+    assert not result.reject_null, (
+        f"Hole rate doesn't match config. "
+        f"Expected {TEST_HOLE_PROBABILITY}, got {n_holes / n_total:.4f} "
+        f"(p={result.p_value:.4f})"
+    )

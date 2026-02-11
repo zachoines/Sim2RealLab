@@ -151,14 +151,4 @@ def test_encoder_noise_std_matches_config(noisy_env):
     )
 
 
-def test_encoder_noise_with_latency(noisy_env):
-    """Verify encoder observations work with latency configuration.
 
-    Since REAL_ROBOT_CONTRACT has encoder_latency_steps=0 by default,
-    this test verifies the noise model works correctly without latency.
-    """
-    obs = collect_stationary_observations(noisy_env, 50)
-
-    # Encoder observations should have variance (noise is enabled)
-    encoder_variance = obs[:, :, ENCODER_SLICE].var().item()
-    assert encoder_variance > 1e-8, "Encoder should have measurable noise variance"

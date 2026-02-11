@@ -61,24 +61,31 @@ def test_imu_gravity(noisy_env):
     magnitudes = torch.norm(imu_accel_raw, dim=2)  # (n_steps, num_envs)
     gravity_samples = magnitudes.cpu().numpy().flatten()
 
-    # One-sample t-test: is measured gravity consistent with expected?
-    result = one_sample_t_test(gravity_samples, null_value=GRAVITY)
+    # Use a one-sample t-test to get the CI of the measured gravity.
+    # The CI is used to verify the measured mean is within a physics-meaningful
+    # tolerance of the expected value. With many samples the CI is very tight,
+    # so a direct null_value=9.81 test would reject for sub-percent simulation
+    # discretisation offsets.  Instead we check that the CI overlaps with the
+    # acceptable gravity interval [GRAVITY ± GRAVITY_TOLERANCE].
+    GRAVITY_TOLERANCE = 0.3  # m/s²: accounts for sim discretisation + noise bias
 
-    print(f"\n  IMU gravity measurement (one-sample t-test):")
+    result = one_sample_t_test(gravity_samples, null_value=GRAVITY)
+    gravity_error = abs(result.mean - GRAVITY)
+
+    print(f"\n  IMU gravity measurement:")
     print(f"    N samples: {result.n_samples:,}")
     print(f"    Expected gravity: {GRAVITY:.3f} m/s²")
     print(f"    Measured mean: {result.mean:.3f} m/s²")
+    print(f"    Gravity error: {gravity_error:.4f} m/s²")
     print(f"    {CONFIDENCE_LEVEL*100:.0f}% CI: [{result.ci_low:.3f}, {result.ci_high:.3f}] m/s²")
-    print(f"    p-value: {result.p_value:.4f}")
-    print(f"    Gravity in CI: {not result.reject_null}")
+    print(f"    Tolerance: ±{GRAVITY_TOLERANCE} m/s²")
 
-    # Test 1: Gravity should be within CI or close to expected
-    gravity_error = abs(result.mean - GRAVITY)
-    max_acceptable_error = 0.5  # Allow 0.5 m/s² error (5% of g)
-
-    assert gravity_error < max_acceptable_error or not result.reject_null, (
-        f"Gravity measurement inconsistent: mean={result.mean:.3f} m/s², "
-        f"expected={GRAVITY:.3f} m/s², error={gravity_error:.3f} m/s²"
+    # Test 1: Measured gravity mean must be within tolerance of expected
+    assert gravity_error < GRAVITY_TOLERANCE, (
+        f"Measured gravity ({result.mean:.3f} m/s²) deviates from "
+        f"expected ({GRAVITY:.3f} m/s²) by {gravity_error:.3f} m/s², "
+        f"exceeding tolerance of ±{GRAVITY_TOLERANCE} m/s². "
+        f"{CONFIDENCE_LEVEL*100:.0f}% CI: [{result.ci_low:.3f}, {result.ci_high:.3f}] m/s²"
     )
 
     # Test 2: Z-axis should dominate (robot is upright)

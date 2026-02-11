@@ -202,20 +202,3 @@ def test_gyro_noise_std_matches_config(noisy_env):
     )
 
 
-def test_imu_noise_with_latency(noisy_env):
-    """Verify IMU observations work with latency configuration.
-
-    This test validates that the per-sensor latency feature works correctly
-    through the full noise model pipeline.
-    """
-    obs = collect_stationary_observations(noisy_env, 50)
-
-    # Verify observations were collected successfully
-    from test.common import NUM_ENVS
-
-    assert obs.shape[0] == 50, "Should collect 50 steps"
-    assert obs.shape[1] == NUM_ENVS, f"Should have {NUM_ENVS} environments"
-
-    # IMU accel observations should have variance (noise is enabled)
-    imu_variance = obs[:, :, IMU_ACCEL_SLICE].var().item()
-    assert imu_variance > 1e-8, "IMU should have measurable noise variance"

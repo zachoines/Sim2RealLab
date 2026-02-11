@@ -39,19 +39,27 @@ from test.noise_models.conftest import (
 def test_noise_affects_observations(noisy_env):
     """Verify observations have variance when noise is enabled.
 
-    This is a sanity check that the enable_corruption flag works.
+    Uses one-sample t-test on per-step variances to verify that the
+    mean variance across steps is significantly greater than zero.
+    This replaces an arbitrary threshold with a proper statistical test.
     """
     obs = collect_stationary_observations(noisy_env, 50)
 
-    # Compute total variance across all observations
-    total_variance = obs.var().item()
+    # Compute variance per step across envs for IMU accel
+    per_step_var = obs[:, :, IMU_ACCEL_SLICE].var(dim=1).mean(dim=1)  # (n_steps,)
+    var_samples = per_step_var.cpu().numpy()
 
-    print(f"\n  Total observation variance (with noise): {total_variance:.6f}")
+    result = one_sample_t_test(var_samples, null_value=0.0)
 
-    # With noise enabled, there should be measurable variance
-    # even for a stationary robot
-    assert total_variance > 1e-6, (
-        f"Observation variance too low ({total_variance:.2e}). Is noise enabled?"
+    print(f"\n  Noise-enabled observation variance test (one-sample t-test):")
+    print(f"    Mean per-step variance: {result.mean:.6e}")
+    print(f"    p-value (H0: variance = 0): {result.p_value:.4f}")
+    print(f"    Reject null: {result.reject_null}")
+
+    # Variance should be SIGNIFICANTLY greater than zero
+    assert result.reject_null and result.mean > 0, (
+        f"Observation variance not significantly above zero "
+        f"(mean={result.mean:.2e}, p={result.p_value:.4f}). Is noise enabled?"
     )
 
 
@@ -101,22 +109,31 @@ def test_noise_is_independent_across_envs(noisy_env):
 
 
 def test_noise_changes_each_step(noisy_env):
-    """Verify noise is different at each timestep (not frozen)."""
+    """Verify noise is different at each timestep (not frozen).
+
+    Uses one-sample t-test on mean absolute step-to-step differences
+    to verify the changes are significantly greater than zero.
+    """
     obs = collect_stationary_observations(noisy_env, 50)
 
-    # Compare consecutive steps
+    # Mean absolute difference between consecutive steps
     step_diffs = []
     for i in range(len(obs) - 1):
         diff = (obs[i + 1, :, IMU_ACCEL_SLICE] - obs[i, :, IMU_ACCEL_SLICE]).abs().mean()
         step_diffs.append(diff.item())
 
-    mean_diff = np.mean(step_diffs)
+    step_diffs = np.array(step_diffs)
+    result = one_sample_t_test(step_diffs, null_value=0.0)
 
-    print(f"\n  Mean absolute change between steps: {mean_diff:.6f}")
+    print(f"\n  Step-to-step noise change test (one-sample t-test):")
+    print(f"    Mean |Δobs| per step: {result.mean:.6f}")
+    print(f"    p-value (H0: Δ = 0): {result.p_value:.4f}")
+    print(f"    Reject null: {result.reject_null}")
 
-    # If noise is working, observations should change between steps
-    assert mean_diff > 1e-6, (
-        f"Observations not changing between steps ({mean_diff:.2e}). Noise may be frozen."
+    # Step differences should be significantly greater than zero
+    assert result.reject_null and result.mean > 0, (
+        f"Step-to-step differences not significantly above zero "
+        f"(mean={result.mean:.2e}, p={result.p_value:.4f}). Noise may be frozen."
     )
 
 

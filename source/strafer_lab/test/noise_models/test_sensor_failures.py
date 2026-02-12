@@ -41,7 +41,7 @@ from strafer_lab.tasks.navigation.mdp.noise_models import (
 # ---------------------------------------------------------------------------
 
 N_ENVS = 16
-N_TRIALS = 2_000  # enough for binomial precision without being slow
+N_TRIALS = 5_000  # 5K trials × 16 envs = 80K samples for stable binomial tests
 
 # High failure prob for deterministic-like behaviour in output-value tests
 HIGH_FAIL_PROB = 1.0

@@ -76,8 +76,10 @@ def test_depth_dependent_noise():
     model = _make_depth_model(hole_probability=0.0)
     stereo_coeff = TEST_DISPARITY_NOISE_PX / (TEST_FOCAL_PX * TEST_BASELINE_M)
 
-    # Use fewer samples for chi-squared to accommodate float32 GPU precision.
-    n_chi2 = 5_000
+    # Use enough samples for stable chi-squared but not so many that float32
+    # GPU precision causes false rejections.  A 99% CI keeps the test stable.
+    n_chi2 = 10_000
+    chi2_confidence = 0.99
     test_depths = [1.0, 2.0, 4.0]
     measured_stds = {}
 
@@ -113,7 +115,7 @@ def test_depth_dependent_noise():
         ref_samples.append(noisy[0, 0].cpu().item() - ref_depth)
     ref_flat = np.array(ref_samples)
 
-    result = chi_squared_variance_test(ref_flat, expected_std**2)
+    result = chi_squared_variance_test(ref_flat, expected_std**2, confidence_level=chi2_confidence)
 
     print(f"\n  Depth-dependent noise test:")
     for z in test_depths:

@@ -1,17 +1,17 @@
 # Copyright (c) 2025, Strafer Lab Project
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Shared test utilities for depth noise integration tests.
+"""Shared test utilities for depth noise tests.
 
 This module provides:
 - Constants specific to depth noise tests
-- Dedicated test scene configuration with controlled geometry
-- Environment creation and cleanup utilities
+- Environment creation utilities
 - Observation collection helpers
 - Theoretical variance calculation functions
+- Pixel classification helpers
 
-IMPORTANT: Isaac Sim must be launched BEFORE importing Isaac Lab modules.
-Each test file must launch the app at module level before importing from here.
+IMPORTANT: Isaac Sim is launched by the root conftest.py. Do NOT launch
+AppLauncher in individual test files or in this module.
 
 The test scene provides:
 - A wall at known distance (TEST_WALL_DISTANCE) for non-max pixels
@@ -323,7 +323,7 @@ def stereo_depth_noise_std(
         B = stereo baseline in meters
         σ_d = subpixel disparity noise in pixels
     See: https://openaccess.thecvf.com/content_cvpr_2017_workshops/w15/papers/Keselman_Intel_RealSense_Stereoscopic_CVPR_2017_paper.pdf
-    
+
     This formula arises from error propagation of the stereo depth equation:
         z = f · B / d  (where d is disparity in pixels)
 
@@ -448,22 +448,22 @@ def compute_geometric_wall_mask(
     vv, uu = torch.meshgrid(v, u, indexing='ij')
 
     # Convert to ray directions in camera frame
-    # Camera frame: X-right, Y-down, Z-forward (looking at -Y world after rotation)
-    # But since camera is rotated to look at -Y world, we work in world frame directly
+    # Camera looks along +X in world frame (after ROS rotation applied)
+    # ROS camera: Z-forward → rotated to align with +X world
     #
     # Ray direction components (unnormalized):
-    # - X component: proportional to horizontal pixel offset
-    # - Y component: fixed at -1 (camera looks at -Y)
-    # - Z component: proportional to vertical pixel offset (inverted because Y-down in image)
+    # - X component: fixed at +1 (camera looks at +X)
+    # - Y component: proportional to horizontal pixel offset (left-right)
+    # - Z component: proportional to vertical pixel offset (up-down)
 
     # Half-angle tangents give the extent at unit depth
     tan_h_fov_2 = np.tan(h_fov / 2)
     tan_v_fov_2 = np.tan(v_fov / 2)
 
-    # Ray directions (unnormalized, relative to camera looking at -Y)
-    ray_x = uu * tan_h_fov_2  # Horizontal spread
-    ray_y = -torch.ones_like(uu)  # Forward direction (-Y)
-    ray_z = -vv * tan_v_fov_2  # Vertical spread (negated for image Y-down convention)
+    # Ray directions (unnormalized, relative to camera looking at +X)
+    ray_x = torch.ones_like(uu)      # Forward direction (+X)
+    ray_y = -uu * tan_h_fov_2        # Horizontal spread (negated: image right → world -Y)
+    ray_z = -vv * tan_v_fov_2        # Vertical spread (negated: image down → world -Z)
 
     # Normalize ray directions
     ray_norm = torch.sqrt(ray_x**2 + ray_y**2 + ray_z**2)
@@ -472,28 +472,27 @@ def compute_geometric_wall_mask(
     ray_z = ray_z / ray_norm
 
     # Ray-plane intersection
-    # Wall is at Y = -wall_distance (relative to camera at Y=0)
-    # Ray: P = O + t*D where O is camera origin (0,0,camera_height in world-ish coords)
-    # Actually, we're computing in camera-centric coordinates
-    # Plane: Y = -wall_distance
-    # Intersection: t = -wall_distance / ray_y
+    # Wall is at X = +wall_distance (relative to camera at X=0)
+    # Ray: P = O + t*D where O is camera origin
+    # Plane: X = wall_distance
+    # Intersection: t = wall_distance / ray_x
 
-    t = -wall_distance / ray_y  # t > 0 since ray_y < 0
+    t = wall_distance / ray_x  # t > 0 since ray_x > 0
 
     # Intersection points
-    hit_x = ray_x * t
+    hit_y = ray_y * t
     hit_z = camera_height + ray_z * t  # Camera is at height camera_height
 
     # Check if intersection is within wall bounds
-    # Wall is centered at X=0, width wall_width
+    # Wall is centered at Y=0, width wall_width (along Y axis)
     # Wall is from Z=wall_bottom_z to Z=wall_bottom_z+wall_height
-    wall_x_min = -wall_width / 2
-    wall_x_max = wall_width / 2
+    wall_y_min = -wall_width / 2
+    wall_y_max = wall_width / 2
     wall_z_min = wall_bottom_z
     wall_z_max = wall_bottom_z + wall_height
 
     is_wall = (
-        (hit_x >= wall_x_min) & (hit_x <= wall_x_max) &
+        (hit_y >= wall_y_min) & (hit_y <= wall_y_max) &
         (hit_z >= wall_z_min) & (hit_z <= wall_z_max)
     )
 
@@ -527,22 +526,15 @@ def get_geometric_wall_mask(env, device: str = "cuda:0") -> torch.Tensor:
     # Get camera offset (height above robot body)
     # The camera is mounted at CAMERA_Z_OFFSET above body_link
     # When robot is at z=0.1 (slight elevation), camera is at z=0.1 + offset
-    # For test scene: CAMERA_Z_OFFSET = 25 (scaled to 0.25m)
     camera_offset = camera.cfg.offset.pos
-    camera_z_offset = camera_offset[2] / 100.0  # Scale from scene units to meters
+    camera_z_offset = camera_offset[2]  # Already in meters
     robot_elevation = 0.1  # From reset_robot_pose
     camera_height = robot_elevation + camera_z_offset
 
     # Get wall geometry from test scene constants
-    # Imported from test_scene_cfg if available, otherwise use defaults
-    try:
-        from test_scene_cfg import (
-            TEST_WALL_DISTANCE, TEST_WALL_WIDTH, TEST_WALL_HEIGHT
-        )
-    except ImportError:
-        TEST_WALL_DISTANCE = 2.0
-        TEST_WALL_WIDTH = 4.0
-        TEST_WALL_HEIGHT = 2.0
+    from test.sensors.depth_noise.scene_cfg import (
+        TEST_WALL_DISTANCE, TEST_WALL_WIDTH, TEST_WALL_HEIGHT
+    )
 
     return compute_geometric_wall_mask(
         height=height,
@@ -754,23 +746,6 @@ def collect_stationary_observations(
 # Environment Management
 # =============================================================================
 
-# Module-level environment storage
-# Each test file manages its own _module_env to avoid cross-file interference
-_module_env = None
-_simulation_app = None
-
-
-def set_simulation_app(app):
-    """Store reference to the simulation app for cleanup."""
-    global _simulation_app
-    _simulation_app = app
-
-
-def get_simulation_app():
-    """Get the stored simulation app reference."""
-    return _simulation_app
-
-
 def create_depth_test_env(noise_cfg, num_envs: int = NUM_ENVS, use_test_scene: bool = False):
     """Create a depth camera test environment with specified noise configuration.
 
@@ -807,7 +782,7 @@ def create_depth_test_env(noise_cfg, num_envs: int = NUM_ENVS, use_test_scene: b
 
     # Optionally use dedicated test scene with controlled geometry
     if use_test_scene:
-        from test_scene_cfg import DepthNoiseTestSceneCfg, ENV_SPACING
+        from test.sensors.depth_noise.scene_cfg import DepthNoiseTestSceneCfg, ENV_SPACING
         cfg.scene = DepthNoiseTestSceneCfg(num_envs=num_envs, env_spacing=ENV_SPACING)
 
     # Apply the specified noise configuration
@@ -817,20 +792,6 @@ def create_depth_test_env(noise_cfg, num_envs: int = NUM_ENVS, use_test_scene: b
     env.reset()
 
     return env
-
-
-def cleanup_env(env):
-    """Clean up an environment instance."""
-    if env is not None:
-        env.close()
-
-
-def cleanup_simulation():
-    """Clean up the simulation app (call at session end)."""
-    global _simulation_app
-    if _simulation_app is not None:
-        _simulation_app.close()
-        _simulation_app = None
 
 
 # =============================================================================

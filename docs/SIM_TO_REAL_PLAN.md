@@ -4,7 +4,7 @@
 
 The Strafer simulation environment in Isaac Lab is feature-complete: 18 Gym environments, mecanum kinematics, realistic sensor/noise models, and a PPO training pipeline. The next step is deploying trained policies onto real hardware. This plan covers hardware wiring, ROS2 software architecture, policy export/inference, and a full autonomy stack (SLAM + Nav2).
 
-**Hardware**: Jetson Xavier NX, Intel RealSense D555, 4x GoBilda 5203 motors, 2x RoboClaw ST 2x45A. No Arduino needed -- RoboClaws connect directly to Xavier NX via USB.
+**Hardware**: Jetson Orin Nano, Intel RealSense D555, 4x GoBilda 5203 motors, 2x RoboClaw ST 2x45A. No Arduino needed -- RoboClaws connect directly to Jetson via USB.
 
 ---
 
@@ -12,26 +12,27 @@ The Strafer simulation environment in Isaac Lab is feature-complete: 18 Gym envi
 
 | Component | Version | Why |
 |-----------|---------|-----|
-| **JetPack** | 6.1 (L4T R36.4) | CUDA 12.2, TensorRT 10.3, Ubuntu 22.04 |
+| **JetPack** | 6.2 (L4T R36.x) | CUDA 12.6, TensorRT 10.x, Ubuntu 22.04. Already flashed. |
+| **Board** | Jetson Orin Nano | 8GB RAM, 1024-core Ampere GPU, 40 TOPS AI performance |
 | **ROS2** | Humble Hawksbill | LTS on Ubuntu 22.04, broad Nav2/RealSense support |
 | **Python** | 3.10 | Ships with Ubuntu 22.04, onnxruntime-gpu compatible |
 
-JetPack 5.x forces Ubuntu 20.04 + EOL ROS2 distros. JetPack 6.x is the clear choice.
+JetPack 6.2 is already flashed on the Orin Nano. Ubuntu 22.04 base pairs natively with ROS2 Humble.
 
 ---
 
 ## 2. Hardware Wiring
 
 ```
-Xavier NX USB 3.1 #1  -->  RealSense D555 (RGB + Depth + IMU)
-Xavier NX USB 3.1 #2  -->  RoboClaw #1 (addr 0x80): FL motor + FR motor + encoders
-Xavier NX USB 2.0     -->  RoboClaw #2 (addr 0x81): RL motor + RR motor + encoders
+Jetson Orin Nano USB 3.1 #1  -->  RealSense D555 (RGB + Depth + IMU)
+Jetson Orin Nano USB 3.1 #2  -->  RoboClaw #1 (addr 0x80): FL motor + FR motor + encoders
+Jetson Orin Nano USB 2.0     -->  RoboClaw #2 (addr 0x81): RL motor + RR motor + encoders
 ```
 
 **RoboClaw #1 (0x80 - Front Axle)**: M1=FL (wheel_1), M2=FR (wheel_2), EN1=FL encoder, EN2=FR encoder
 **RoboClaw #2 (0x81 - Rear Axle)**: M1=RL (wheel_3), M2=RR (wheel_4), EN1=RL encoder, EN2=RR encoder
 
-**Power**: 12V 3S/4S LiPo -> RoboClaws (motor power) + boost/buck converter -> Xavier NX (19V barrel jack). RealSense powered via USB 3.x.
+**Power**: 12V 3S/4S LiPo -> RoboClaws (motor power) + boost/buck converter -> Jetson Orin Nano (19V barrel jack). RealSense powered via USB 3.x.
 
 **Udev rules** for persistent device names (`/dev/roboclaw_front`, `/dev/roboclaw_rear`).
 
@@ -118,7 +119,7 @@ Encoder velocities from `JointState` (rad/s) must be converted to ticks/sec via 
 
 1. **Train**: `Isaac-Strafer-Nav-Real-NoCam-v0` (15-dim obs, start without camera dependency)
 2. **Export**: Reconstruct actor MLP `[256, 256, 128]` with ELU activation (from [rsl_rl_ppo_cfg.py:14](source/strafer_lab/strafer_lab/tasks/navigation/agents/rsl_rl_ppo_cfg.py#L14)), load `actor.` weights from RSL-RL checkpoint, export via `torch.onnx.export`
-3. **Optimize**: TensorRT FP16 on Xavier NX via `trtexec` or ONNX Runtime TensorRT EP
+3. **Optimize**: TensorRT FP16 on Jetson Orin Nano via `trtexec` or ONNX Runtime TensorRT EP
 4. **Infer**: ONNX Runtime with `['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']` fallback chain. Expected latency: <5ms for a 15-dim MLP.
 
 ---
@@ -138,8 +139,10 @@ Encoder velocities from `JointState` (rad/s) must be converted to ticks/sec via 
 
 ## 8. Implementation Phases
 
-### Phase 1: Xavier NX Setup + Hardware Bring-Up
-- [ ] Flash JetPack 6.1, install ROS2 Humble
+### Phase 1: Jetson Orin Nano Setup + Hardware Bring-Up
+- [x] Flash JetPack 6.2 (done -- Orin Nano on network, SSH accessible)
+- [ ] Set up VS Code Remote-SSH workspace (Windows <-> Jetson)
+- [ ] Install ROS2 Humble
 - [ ] Create udev rules, test RoboClaw serial communication
 - [ ] Verify each motor spins correctly, encoders respond
 - [ ] Install librealsense2 (from source with CUDA), verify D555 streams
@@ -157,7 +160,7 @@ Encoder velocities from `JointState` (rad/s) must be converted to ticks/sec via 
 
 ### Phase 4: Policy Export + Inference
 - [ ] Train policy on workstation with `Isaac-Strafer-Nav-Real-NoCam-v0`
-- [ ] Export to ONNX, optimize with TensorRT on Xavier NX
+- [ ] Export to ONNX, optimize with TensorRT on Jetson Orin Nano
 - [ ] Create `strafer_inference` with `policy_inference_node`
 - **Test**: fixed goal -> robot drives toward it, inference <5ms
 

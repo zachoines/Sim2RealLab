@@ -40,19 +40,39 @@ Jetson Orin Nano USB 2.0     -->  RoboClaw #2 (addr 0x81): RL motor + RR motor +
 
 ---
 
-## 3. ROS2 Package Architecture
+## 3. Repository Structure (Monorepo)
 
 ```
-~/strafer_ws/src/
-  strafer_msgs/            # Custom messages (WheelVelocities, EncoderTicks, PolicyAction)
-  strafer_description/     # URDF/xacro, TF frames, robot_state_publisher
-  strafer_driver/          # RoboClaw node: cmd_vel -> motors, encoders -> JointState + odom
-  strafer_perception/      # RealSense launch wrapper + depth downsampler (80x60)
-  strafer_inference/       # ONNX/TensorRT policy inference node
-  strafer_slam/            # RTAB-Map configuration
-  strafer_navigation/      # Nav2 integration, behavior trees
-  strafer_bringup/         # Composed launch files
+<repo-root>/
+├── source/
+│   ├── strafer_lab/             # Isaac Lab simulation (Windows workstation)
+│   ├── strafer_ros/             # ROS2 packages (Jetson Orin Nano)
+│   │   ├── CLAUDE.md            # Agent prompt for Jetson-side Claude Code
+│   │   ├── strafer_msgs/
+│   │   ├── strafer_description/
+│   │   ├── strafer_driver/
+│   │   ├── strafer_perception/
+│   │   ├── strafer_inference/
+│   │   ├── strafer_slam/
+│   │   ├── strafer_navigation/
+│   │   └── strafer_bringup/
+│   └── strafer_shared/          # Shared Python module (both machines)
+│       └── strafer_shared/
+│           ├── constants.py     # Single source of truth for all robot params
+│           └── mecanum_kinematics.py
+├── docs/
+│   └── SIM_TO_REAL_PLAN.md
+└── Assets/
 ```
+
+On the Jetson, symlink into a colcon workspace:
+```bash
+mkdir -p ~/strafer_ws/src
+ln -s ~/strafer/source/strafer_ros/* ~/strafer_ws/src/
+ln -s ~/strafer/source/strafer_shared ~/strafer_ws/src/
+```
+
+### ROS2 Package Details
 
 ### strafer_driver: `roboclaw_node`
 

@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "strafer-shared"
+version = "0.1.0"
+description = "Shared constants and kinematics for Strafer robot (sim + real)"
+requires-python = ">=3.10"
+dependencies = ["numpy"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["strafer_shared*"]

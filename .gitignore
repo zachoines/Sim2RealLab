@@ -5,6 +5,7 @@ IsaacLab/
 config.yaml
 typings/
 venv_isaac/
+.claude
 
 # Ignore Python bytecode and cache directories
 __pycache__/

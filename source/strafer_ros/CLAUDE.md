@@ -103,6 +103,75 @@ Encoder velocities from JointState (rad/s) must be converted to ticks/sec via `R
 - Test with `colcon test`; use `launch_testing` for integration tests
 - Udev rules go in `/etc/udev/rules.d/99-strafer.rules` for persistent device names
 
-## Current Phase
+## Current Phase: Phase 2 -- ROS2 Driver Packages
 
-Check `docs/SIM_TO_REAL_PLAN.md` Section 8 for the current implementation phase and what to work on next. Tasks are tracked with `- [ ]` / `- [x]` checkboxes.
+Both RoboClaws are connected to the Jetson via USB and configured:
+- **RoboClaw #1** (front): address 0x80, packet serial, 115200 baud
+- **RoboClaw #2** (rear): address 0x81, packet serial, 115200 baud
+
+Udev rules have NOT been created yet. RoboClaws will appear as `/dev/ttyACM0` and `/dev/ttyACM1` (order not guaranteed).
+
+### Task: Build `strafer_driver` package
+
+Create the `strafer_driver` ROS2 package with a `roboclaw_node` that:
+
+1. **Subscribes** to `/strafer/cmd_vel` (`geometry_msgs/Twist`) and converts body velocity to per-wheel commands using `strafer_shared.mecanum_kinematics.twist_to_wheel_velocities()`, then `wheel_vels_to_ticks_per_sec()`, then sends to RoboClaws via `SpeedM1`/`SpeedM2`.
+
+2. **Publishes** `/strafer/joint_states` (`sensor_msgs/JointState`) at 50 Hz by reading encoder velocities from both RoboClaws (`ReadSpeedM1`/`ReadSpeedM2`), converting ticks/s to rad/s. Joint names must be `["wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4_drive"]` (matching simulation).
+
+3. **Publishes** `/strafer/odom` (`nav_msgs/Odometry`) at 50 Hz by integrating wheel odometry using `strafer_shared.mecanum_kinematics.encoder_ticks_to_body_velocity()`. Also broadcasts `odom` -> `base_link` TF.
+
+4. **Safety**: Stops all motors if no `cmd_vel` received within 500ms (watchdog).
+
+5. **ROS2 parameters** (configurable via launch or YAML):
+   - `front_port` (string, default: `/dev/ttyACM0`)
+   - `rear_port` (string, default: `/dev/ttyACM1`)
+   - `baud_rate` (int, default: 115200)
+   - `publish_rate` (float, default: 50.0)
+
+#### RoboClaw communication
+
+Use the `roboclaw_3` Python library (pip install roboclaw-3) or vendor a minimal serial driver. The key commands:
+- `SpeedM1(address, speed)` / `SpeedM2(address, speed)` -- velocity in ticks/sec (signed int32)
+- `ReadSpeedM1(address)` / `ReadSpeedM2(address)` -- returns (speed, status) in ticks/sec
+- `ReadEncM1(address)` / `ReadEncM2(address)` -- returns (count, status)
+- `ForwardM1(address, 0)` / `ForwardM2(address, 0)` -- stop motors
+
+#### Package structure
+
+```
+strafer_driver/
+├── package.xml
+├── setup.py (or setup.cfg)
+├── strafer_driver/
+│   ├── __init__.py
+│   ├── roboclaw_node.py      # Main ROS2 node
+│   └── roboclaw_interface.py # Low-level serial interface to RoboClaw
+├── config/
+│   └── driver_params.yaml    # Default parameters
+├── launch/
+│   └── driver.launch.py      # Launch file
+└── test/
+    └── test_driver.py        # Basic tests
+```
+
+#### Critical rules
+
+- **ALL constants** come from `strafer_shared.constants` -- never hardcode motor addresses, encoder PPR, wheel dimensions, etc.
+- **ALL kinematics** come from `strafer_shared.mecanum_kinematics` -- do not reimplement
+- Use `ament_python` build type
+- Wheel order is always `[FL, FR, RL, RR]` = `[wheel_1, wheel_2, wheel_3, wheel_4]`
+- RoboClaw #1 (0x80) controls M1=FL, M2=FR. RoboClaw #2 (0x81) controls M1=RL, M2=RR.
+
+### Also needed (lower priority)
+
+- **`strafer_msgs`**: Create the package with `package.xml` and `CMakeLists.txt`. Custom messages can wait until standard messages prove insufficient.
+- **Udev rules**: Create `/etc/udev/rules.d/99-strafer.rules` for persistent `/dev/roboclaw_front` and `/dev/roboclaw_rear` symlinks. Run `udevadm info -a /dev/ttyACMx | grep serial` to find unique serial numbers.
+- **Standalone test script**: A simple Python script (not ROS2) that spins each motor briefly and reads encoders, for validating wiring before running the full ROS2 stack.
+
+### References
+
+- `docs/SIM_TO_REAL_PLAN.md` -- Sections 3-4 for full ROS2 architecture
+- `docs/WIRING_GUIDE.md` -- Physical connections, terminal layout
+- `source/strafer_shared/strafer_shared/constants.py` -- All robot constants
+- `source/strafer_shared/strafer_shared/mecanum_kinematics.py` -- Kinematics functions

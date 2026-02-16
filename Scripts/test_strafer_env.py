@@ -89,6 +89,8 @@ def main():
             device=args.device,
             num_envs=args.num_envs,
         )
+        # Enable USD writeback so property panel shows live transforms (test script only)
+        env_cfg.sim.physx.update_transformations_in_usd = True
         # Create environment with the parsed config
         env = gym.make(env_name, cfg=env_cfg)
         print("[OK] Environment created successfully!")

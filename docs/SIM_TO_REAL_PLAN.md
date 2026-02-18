@@ -1,5 +1,61 @@
 # Strafer Robot: Sim-to-Real Deployment Plan
 
+---
+
+## 0. Project Goals & MVP
+
+### Vision
+
+A human-robot interaction loop where a user gives natural language commands ("go to the kitchen, wait, then come back"). A VLM decodes the command alongside the robot's current state (Nav2 map, RGB/depth, IMU) and outputs a sequence of goal poses or skills. The robot executes each using trained low-level RL controllers until the command is fulfilled.
+
+### MVP: RL Navigation to Goal
+
+An RL policy trained in Isaac Lab navigates to a hardcoded goal pose while avoiding obstacles. The **same model** runs in both simulation and on the real robot. No VLM, no natural language, no skills.
+
+**MVP success criteria**:
+- Policy trained in Isaac Lab with `Realistic` noise preset
+- Same `.pt` model loads and runs on both platforms
+- Robot reaches goal within 0.3m accuracy
+- Obstacle avoidance via depth or proprioceptive policy
+
+### Two Evaluation Paths
+
+The project has two distinct ways to evaluate a trained policy:
+
+```
+PATH 1: Gym Eval (fast, during training)                PATH 2: ROS Eval (deployment validation)
+─────────────────────────────────────                   ──────────────────────────────────────
+Isaac Lab env.step(action) → obs                        Inference node reads sensor topics
+No ROS. Pure Python/PyTorch.                            Assembles obs → runs policy → cmd_vel
+Thousands of envs in parallel.                          Works against real HW or Isaac Sim
+                                                        via ROS2 bridge.
+Used for: training, quick checks                        Used for: integration test, real deploy
+```
+
+Both paths reference the same **policy contract** defined in `strafer_shared.policy_interface`:
+- **Observation spec**: field ordering, dimensions, normalization scales
+- **Action spec**: dimensions, denormalization to physical velocities
+- **Model loading**: `.pt` (TorchScript) now, `.onnx` (ONNX/TensorRT) later
+
+### Two Contracts
+
+| Contract | What it defines | Where it lives | Who uses it |
+|----------|----------------|----------------|-------------|
+| **Policy contract** | Obs fields, ordering, scales, action denorm | `strafer_shared.policy_interface` | Gym env config, ROS inference node |
+| **ROS topic contract** | Topics, message types, rates, TF frames | `source/strafer_ros/CLAUDE.md`, launch files | Driver node, inference node, Nav2 |
+
+The policy contract is the "inner" contract (model I/O). The ROS topic contract is the "outer" contract (system integration). The inference node bridges the two: it subscribes to ROS topics, calls `assemble_observation()` from the policy contract, runs the model, calls `interpret_action()`, and publishes `cmd_vel`.
+
+### Roadmap Beyond MVP
+
+| Phase | Goal Interface | Policy | Notes |
+|-------|---------------|--------|-------|
+| **MVP** | Hardcoded goal pose | RL nav-to-goal (.pt) | Current target |
+| **Nav2** | Waypoints from map/planner | RL + obstacle avoidance | Nav2 global plan → RL local control |
+| **VLM** | NL command → VLM → poses/skills | Multi-task RL | Train VLM on Nav2 trajectory data (behavioral cloning) |
+
+---
+
 ## Context
 
 The Strafer simulation environment in Isaac Lab is feature-complete: 18 Gym environments, mecanum kinematics, realistic sensor/noise models, and a PPO training pipeline. The next step is deploying trained policies onto real hardware. This plan covers hardware wiring, ROS2 software architecture, policy export/inference, and a full autonomy stack (SLAM + Nav2).
@@ -58,8 +114,9 @@ Jetson Orin Nano USB 2.0     -->  RoboClaw #2 (addr 0x81): RL motor + RR motor +
 │   │   └── strafer_bringup/
 │   └── strafer_shared/          # Shared Python module (both machines)
 │       └── strafer_shared/
-│           ├── constants.py     # Single source of truth for all robot params
-│           └── mecanum_kinematics.py
+│           ├── constants.py           # Single source of truth for all robot params
+│           ├── mecanum_kinematics.py  # Forward/inverse kinematics (NumPy)
+│           └── policy_interface.py    # Policy contract: obs/action specs, model loading
 ├── docs/
 │   └── SIM_TO_REAL_PLAN.md
 └── Assets/
@@ -120,27 +177,62 @@ The kinematic matrix replicates [actions.py:166-171](source/strafer_lab/strafer_
 
 ## 5. Observation Assembly (Critical for sim-to-real transfer)
 
-The inference node must replicate the exact observation order and normalization from [strafer_env_cfg.py:249-257](source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py#L249-L257):
+The observation spec is defined in `strafer_shared.policy_interface` as the single source of truth. Both the Isaac Lab env config and the ROS2 inference node reference it. The `assemble_observation(raw, variant)` function normalizes and concatenates raw sensor values into the policy's expected input.
 
-| Index | Field | Real Source | Scale (from [strafer_env_cfg.py:225-234](source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py#L225-L234)) |
-|-------|-------|-------------|-------|
-| 0-2 | `imu_linear_acceleration` | D555 IMU `linear_acceleration` (m/s^2) | 1/156.96 |
-| 3-5 | `imu_angular_velocity` | D555 IMU `angular_velocity` (rad/s) | 1/34.9 |
-| 6-9 | `wheel_encoder_velocities` | RoboClaw `ReadSpeedM1/M2` (ticks/s) | 1/3000.0 |
-| 10-11 | `goal_position_relative` | TF transform base_link->goal (m) | 1.0 |
-| 12-14 | `last_action` | Previous policy output | 1.0 |
-| 15-4814 | `depth_image` (if Depth variant) | D555 depth, 80x60, float32 meters | 1/6.0 |
+### NoCam variant (15 dims) -- `PolicyVariant.NOCAM`
 
-Encoder velocities from `JointState` (rad/s) must be converted to ticks/sec via `RADIANS_TO_ENCODER_TICKS = 85.57` from [observations.py:32](source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py#L32) before scaling.
+| Index | Field | Key | Real Source | Scale |
+|-------|-------|-----|-------------|-------|
+| 0-2 | IMU linear acceleration | `imu_accel` | D555 IMU (m/s^2) | 1/156.96 |
+| 3-5 | IMU angular velocity | `imu_gyro` | D555 IMU (rad/s) | 1/34.9 |
+| 6-9 | Wheel encoder velocities | `encoder_vels_ticks` | RoboClaw `ReadSpeedM1/M2` (ticks/s) | 1/3000.0 |
+| 10-11 | Goal position relative | `goal_relative` | TF base_link→goal (m) | 1.0 |
+| 12-14 | Last action | `last_action` | Previous policy output | 1.0 |
+
+### Depth variant (4815 dims) -- `PolicyVariant.DEPTH`
+
+All NoCam fields (indices 0-14) plus:
+
+| Index | Field | Key | Real Source | Scale |
+|-------|-------|-----|-------------|-------|
+| 15-4814 | Depth image | `depth_image` | D555 depth, 80x60, float32 meters | 1/6.0 |
+
+### Usage
+
+```python
+from strafer_shared.policy_interface import assemble_observation, PolicyVariant
+
+raw = {
+    "imu_accel": imu_data.accel,               # (3,) m/s²
+    "imu_gyro": imu_data.gyro,                  # (3,) rad/s
+    "encoder_vels_ticks": [fl, fr, rl, rr],     # (4,) ticks/s -- raw from RoboClaw
+    "goal_relative": [gx, gy],                  # (2,) meters in robot frame
+    "last_action": prev_action,                 # (3,) normalized [-1, 1]
+}
+obs = assemble_observation(raw, PolicyVariant.NOCAM)  # → (15,) float32
+```
+
+Encoder velocities from `JointState` (rad/s) must be converted to ticks/sec via `RADIANS_TO_ENCODER_TICKS = 85.57` from [observations.py:32](source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py#L32) before passing to `assemble_observation`.
 
 ---
 
 ## 6. Policy Export Pipeline
 
+### MVP: TorchScript (.pt)
+
 1. **Train**: `Isaac-Strafer-Nav-Real-NoCam-v0` (15-dim obs, start without camera dependency)
-2. **Export**: Reconstruct actor MLP `[256, 256, 128]` with ELU activation (from [rsl_rl_ppo_cfg.py:14](source/strafer_lab/strafer_lab/tasks/navigation/agents/rsl_rl_ppo_cfg.py#L14)), load `actor.` weights from RSL-RL checkpoint, export via `torch.onnx.export`
-3. **Optimize**: TensorRT FP16 on Jetson Orin Nano via `trtexec` or ONNX Runtime TensorRT EP
-4. **Infer**: ONNX Runtime with `['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']` fallback chain. Expected latency: <5ms for a 15-dim MLP.
+2. **Export**: Use `export_policy_as_jit()` from Isaac Lab's `isaaclab_rl` module to produce a `.pt` (TorchScript) file
+3. **Load**: `strafer_shared.policy_interface.load_policy("model.pt", PolicyVariant.NOCAM)` handles loading on both platforms
+4. **Measure latency**: Run `benchmark_policy()` to measure inference time on both workstation and Jetson
+
+### Later: ONNX + TensorRT
+
+When model complexity increases (depth images, larger networks):
+1. **Export**: `export_policy_as_onnx()` → `.onnx` file
+2. **Optimize**: TensorRT FP16 on Jetson via `trtexec` or ONNX Runtime TensorRT EP
+3. **Infer**: `load_policy("model.onnx", variant)` auto-detects format and uses ONNX Runtime
+
+The `load_policy` function in `strafer_shared.policy_interface` handles both `.pt` and `.onnx` formats transparently. Switching from `.pt` to `.onnx` requires no code changes in either the gym eval script or the ROS inference node.
 
 ---
 
@@ -204,8 +296,11 @@ Encoder velocities from `JointState` (rad/s) must be converted to ticks/sec via 
 
 | File | What to reference |
 |------|-------------------|
-| [actions.py](source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py) | Kinematic matrix (L166-171), velocity scaling (L173-179), motor dynamics |
-| [strafer_env_cfg.py](source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py) | Observation order (L249-258), normalization constants (L225-234), camera config (L103-121) |
+| [policy_interface.py](source/strafer_shared/strafer_shared/policy_interface.py) | **Policy contract**: obs specs, action specs, `assemble_observation()`, `load_policy()` |
+| [constants.py](source/strafer_shared/strafer_shared/constants.py) | All robot physical constants, normalization scales |
+| [mecanum_kinematics.py](source/strafer_shared/strafer_shared/mecanum_kinematics.py) | Kinematic matrix, forward/inverse kinematics |
+| [actions.py](source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py) | Sim kinematic matrix (L166-171), velocity scaling (L173-179), motor dynamics |
+| [strafer_env_cfg.py](source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py) | Sim obs order (L249-258), normalization (L225-234), camera config (L103-121) |
 | [sim_real_cfg.py](source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py) | REAL_ROBOT_CONTRACT timing/noise params (L419-477) |
 | [observations.py](source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py) | Encoder tick conversion (L28-33), sensor data extraction |
 | [rsl_rl_ppo_cfg.py](source/strafer_lab/strafer_lab/tasks/navigation/agents/rsl_rl_ppo_cfg.py) | Network architecture: [256,256,128] ELU (L14-16) |

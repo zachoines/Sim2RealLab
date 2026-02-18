@@ -182,11 +182,44 @@ Environments are organized by **realism level** (noise/dynamics) and **sensor co
 ## Sim-to-Real Pipeline
 
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Asset Prep     │────▶│  RL Training    │────▶│  Deployment     │
-│  (USD scripts)  │     │  (Isaac Lab)    │     │  (ROS2 + ONNX)  │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  Asset Prep     │────▶│  RL Training    │────▶│  Gym Eval       │────▶│  ROS Deployment │
+│  (USD scripts)  │     │  (Isaac Lab)    │     │  (fast, Python)  │     │  (Jetson/ROS2)  │
+└─────────────────┘     └─────────────────┘     └─────────────────┘     └─────────────────┘
 ```
+
+### Policy Interface (`strafer_shared.policy_interface`)
+
+The policy contract -- observation spec, action spec, normalization -- lives in `strafer_shared.policy_interface`. This module is the **single source of truth** for how observations are assembled and how actions are interpreted. Both the gym environment and the ROS2 inference node reference it.
+
+Key components:
+- **`PolicyVariant.NOCAM`** (15 dims), **`PolicyVariant.DEPTH`** (4815 dims) -- define obs field ordering and scales
+- **`assemble_observation(raw, variant)`** -- normalizes and concatenates raw sensor values
+- **`interpret_action(action)`** -- denormalizes `[-1,1]` to physical `(vx, vy, omega)`
+- **`load_policy(path, variant)`** -- loads `.pt` or `.onnx`, returns a callable
+
+### Gym Eval Path (Path 1)
+
+For fast iteration during training, the gym environment handles observation assembly internally via `env.step()`. The policy is evaluated directly in Python with no ROS overhead:
+
+```python
+from strafer_shared.policy_interface import load_policy, PolicyVariant
+import gymnasium as gym
+import strafer_lab
+
+env = gym.make("Isaac-Strafer-Nav-Real-NoCam-v0", num_envs=1)
+policy = load_policy("logs/best_model.pt", PolicyVariant.NOCAM)
+
+obs, info = env.reset()
+done = False
+while not done:
+    action = policy(obs)
+    obs, reward, terminated, truncated, info = env.step(action)
+    done = terminated or truncated
+env.close()
+```
+
+The ROS eval path (Path 2) runs the same model on real hardware or Isaac Sim via ROS2 bridge. See `source/strafer_ros/CLAUDE.md` and `docs/SIM_TO_REAL_PLAN.md` Section 0.
 
 ### Sim-to-Real Contract
 
@@ -220,11 +253,11 @@ USD processing scripts in `Scripts/`:
 - PPO training with RSL-RL or SKRL
 - Domain randomization for sim-to-real
 
-### 3. Deployment (TODO)
+### 3. Deployment
 
-- [ ] Export trained policy to ONNX
-- [ ] ROS2 bridge integration
-- [ ] Real robot deployment scripts
+- [ ] Export trained policy to `.pt` (TorchScript) via `export_policy_as_jit()`
+- [ ] Measure inference latency on both platforms
+- [ ] Later: export to ONNX, optimize with TensorRT on Jetson
 
 ## Customization
 

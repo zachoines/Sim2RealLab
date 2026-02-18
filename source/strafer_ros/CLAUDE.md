@@ -60,28 +60,42 @@ source install/setup.bash
 
 - **`constants.py`** -- All robot physical constants, encoder specs, normalization scales, RoboClaw addresses. These are the single source of truth; the simulation references identical values.
 - **`mecanum_kinematics.py`** -- Forward/inverse kinematics for mecanum wheels. Pure NumPy, no PyTorch. The kinematic matrix exactly matches the simulation's `MecanumWheelAction`.
+- **`policy_interface.py`** -- Policy contract: observation/action specs, `assemble_observation()`, `interpret_action()`, `action_to_wheel_ticks()`, `load_policy()`. This is the bridge between sensor data and the trained model.
 
 Install it on the Jetson with: `pip install -e source/strafer_shared`
 
 **Always import constants from `strafer_shared` rather than hardcoding values.** This prevents sim-real drift.
 
+### Two Contracts
+
+This project uses a two-contract architecture (see `docs/SIM_TO_REAL_PLAN.md` Section 0):
+
+1. **Policy contract** (`strafer_shared.policy_interface`) -- defines obs field ordering, normalization scales, action denormalization. Used by the gym env config AND the ROS inference node. This is the "inner" contract.
+2. **ROS topic contract** (this file + launch files) -- defines topics, message types, rates, TF frames. This is the "outer" contract. The inference node bridges the two.
+
 ## Critical Sim-to-Real Contract
 
-The trained RL policy expects observations in a specific order and scale. Getting this wrong silently breaks the policy. Reference `docs/SIM_TO_REAL_PLAN.md` Section 5 for the full table. Summary for the NoCam variant (15 dims):
+The trained RL policy expects observations in a specific order and scale. The observation spec is defined in `strafer_shared.policy_interface.PolicyVariant` as the single source of truth. **Do NOT manually assemble or normalize observations** -- use `assemble_observation(raw, variant)` instead.
 
-| Index | Field | Scale |
-|-------|-------|-------|
-| 0-2 | IMU linear acceleration (m/s²) | × 1/156.96 |
-| 3-5 | IMU angular velocity (rad/s) | × 1/34.9 |
-| 6-9 | Wheel encoder velocities (ticks/s) | × 1/3000.0 |
-| 10-11 | Goal position relative (m) | × 1.0 |
-| 12-14 | Last action (normalized) | × 1.0 |
+Summary for `PolicyVariant.NOCAM` (15 dims):
 
-Encoder velocities from JointState (rad/s) must be converted to ticks/sec via `RADIANS_TO_ENCODER_TICKS ≈ 85.57` before applying the scale.
+| Index | Field | Raw dict key | Scale |
+|-------|-------|-------------|-------|
+| 0-2 | IMU linear acceleration (m/s²) | `imu_accel` | × 1/156.96 |
+| 3-5 | IMU angular velocity (rad/s) | `imu_gyro` | × 1/34.9 |
+| 6-9 | Wheel encoder velocities (ticks/s) | `encoder_vels_ticks` | × 1/3000.0 |
+| 10-11 | Goal position relative (m) | `goal_relative` | × 1.0 |
+| 12-14 | Last action (normalized) | `last_action` | × 1.0 |
+
+Encoder velocities from JointState (rad/s) must be converted to ticks/sec via `RADIANS_TO_ENCODER_TICKS ≈ 85.57` before passing to `assemble_observation()`.
+
+For action output, use `interpret_action(action)` → `(vx, vy, omega)` or `action_to_wheel_ticks(action)` → `(4,)` ticks/sec array for direct RoboClaw commands.
 
 ## Motor Direction
 
-`wheel_axis_signs = [-1, 1, -1, 1]` for [FL, FR, RL, RR]. Apply in software (in `strafer_shared.mecanum_kinematics`), not by swapping wires.
+`wheel_axis_signs = [-1, 1, -1, 1]` for [FL, FR, RL, RR]. These signs are applied **inside** `strafer_shared.mecanum_kinematics` functions (`twist_to_wheel_velocities`, `encoder_ticks_to_body_velocity`, etc.). **Do NOT apply signs again in the driver node** — doing so silently inverts two wheels.
+
+Similarly, pass **raw** RoboClaw `ReadSpeedM1`/`ReadSpeedM2` tick rates directly to `encoder_ticks_to_body_velocity()` without any sign manipulation. The function handles sign correction internally. If a motor or encoder direction is physically wrong, fix it by swapping wires (see `docs/WIRING_GUIDE.md` Section 6), not in code.
 
 ## Key Topics
 
@@ -115,9 +129,12 @@ Udev rules have NOT been created yet. RoboClaws will appear as `/dev/ttyACM0` an
 
 Create the `strafer_driver` ROS2 package with a `roboclaw_node` that:
 
-1. **Subscribes** to `/strafer/cmd_vel` (`geometry_msgs/Twist`) and converts body velocity to per-wheel commands using `strafer_shared.mecanum_kinematics.twist_to_wheel_velocities()`, then `wheel_vels_to_ticks_per_sec()`, then sends to RoboClaws via `SpeedM1`/`SpeedM2`.
+1. **Subscribes** to `/strafer/cmd_vel` (`geometry_msgs/Twist`) and converts body velocity to per-wheel commands using `strafer_shared.mecanum_kinematics.twist_to_wheel_velocities(vx, vy, omega)`, then `wheel_vels_to_ticks_per_sec()`, then sends to RoboClaws via `SpeedM1`/`SpeedM2`. Twist field mapping: `linear.x` = vx (forward), `linear.y` = vy (strafe left), `angular.z` = omega (CCW yaw). The `cmd_vel` callback only stores the latest Twist — serial I/O happens in the timer.
 
-2. **Publishes** `/strafer/joint_states` (`sensor_msgs/JointState`) at 50 Hz by reading encoder velocities from both RoboClaws (`ReadSpeedM1`/`ReadSpeedM2`), converting ticks/s to rad/s. Joint names must be `["wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4_drive"]` (matching simulation).
+2. **Publishes** `/strafer/joint_states` (`sensor_msgs/JointState`) at 50 Hz by reading encoder velocities from both RoboClaws (`ReadSpeedM1`/`ReadSpeedM2`), converting ticks/s to rad/s. Joint names must be `["wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4_drive"]` (matching simulation). Field population:
+   - `velocity`: rad/s in URDF frame (sign correction already handled by kinematics)
+   - `position`: cumulative radians from `ReadEncM1`/`ReadEncM2` counts (useful for `robot_state_publisher` and debugging)
+   - `effort`: leave empty (RoboClaw does not report torque)
 
 3. **Publishes** `/strafer/odom` (`nav_msgs/Odometry`) at 50 Hz by integrating wheel odometry using `strafer_shared.mecanum_kinematics.encoder_ticks_to_body_velocity()`. Also broadcasts `odom` -> `base_link` TF.
 
@@ -129,13 +146,24 @@ Create the `strafer_driver` ROS2 package with a `roboclaw_node` that:
    - `baud_rate` (int, default: 115200)
    - `publish_rate` (float, default: 50.0)
 
+6. **Threading model**: Use a **single-threaded executor**. The 50 Hz timer callback handles all serial I/O (send motor commands from stored `cmd_vel`, read encoders, publish JointState/odom). The `cmd_vel` subscription callback only stores the latest Twist value — no serial I/O in the callback.
+
 #### RoboClaw communication
 
-Use the `roboclaw_3` Python library (pip install roboclaw-3) or vendor a minimal serial driver. The key commands:
+**Vendor a minimal serial interface** in `roboclaw_interface.py` using `pyserial`. Do NOT depend on `roboclaw_3` or other third-party RoboClaw libraries — they are poorly maintained and untested on aarch64. The interface is ~100-150 lines wrapping the RoboClaw packet serial protocol (address byte + command byte + data + CRC16). Reference: [RoboClaw User Manual](https://downloads.basicmicro.com/docs/roboclaw_user_manual.pdf).
+
+The key commands to implement:
 - `SpeedM1(address, speed)` / `SpeedM2(address, speed)` -- velocity in ticks/sec (signed int32)
 - `ReadSpeedM1(address)` / `ReadSpeedM2(address)` -- returns (speed, status) in ticks/sec
 - `ReadEncM1(address)` / `ReadEncM2(address)` -- returns (count, status)
 - `ForwardM1(address, 0)` / `ForwardM2(address, 0)` -- stop motors
+
+#### Serial error handling
+
+- **Read timeout**: 100ms per command
+- **Retry**: 1 retry on checksum/timeout failure, then log warning and skip that cycle
+- **Sustained failure**: After 10 consecutive failures, stop all motors, publish `diagnostic_msgs/DiagnosticStatus` with ERROR level, and attempt reconnect every 2 seconds
+- **Diagnostics**: Publish `diagnostic_msgs/DiagnosticStatus` on `/diagnostics` with connection state, error counts, and last successful read timestamp
 
 #### Package structure
 
@@ -159,15 +187,26 @@ strafer_driver/
 
 - **ALL constants** come from `strafer_shared.constants` -- never hardcode motor addresses, encoder PPR, wheel dimensions, etc.
 - **ALL kinematics** come from `strafer_shared.mecanum_kinematics` -- do not reimplement
+- **Do NOT apply `WHEEL_AXIS_SIGNS` in the driver** -- the kinematics functions handle signs internally
 - Use `ament_python` build type
 - Wheel order is always `[FL, FR, RL, RR]` = `[wheel_1, wheel_2, wheel_3, wheel_4]`
 - RoboClaw #1 (0x80) controls M1=FL, M2=FR. RoboClaw #2 (0x81) controls M1=RL, M2=RR.
+- `strafer_shared` is pip-installed (`pip install -e source/strafer_shared`), not a colcon package. Add `<exec_depend>strafer_shared</exec_depend>` in `package.xml` as documentation, but colcon will not manage this dependency. Add `pyserial` to `install_requires` in `setup.py`.
+
+### First: Standalone wiring test script
+
+Before building the full ROS2 driver, create a **standalone Python script** (no ROS2 dependency) that validates the physical wiring:
+- Opens both RoboClaw serial ports
+- Spins each motor briefly at low speed (~500 ticks/sec) and reads its encoder
+- Verifies encoder counts increase in the expected direction
+- Prints a pass/fail summary for each motor+encoder pair
+
+This validates Phase 1 wiring before committing to the full ROS2 stack.
 
 ### Also needed (lower priority)
 
 - **`strafer_msgs`**: Create the package with `package.xml` and `CMakeLists.txt`. Custom messages can wait until standard messages prove insufficient.
 - **Udev rules**: Create `/etc/udev/rules.d/99-strafer.rules` for persistent `/dev/roboclaw_front` and `/dev/roboclaw_rear` symlinks. Run `udevadm info -a /dev/ttyACMx | grep serial` to find unique serial numbers.
-- **Standalone test script**: A simple Python script (not ROS2) that spins each motor briefly and reads encoders, for validating wiring before running the full ROS2 stack.
 
 ### References
 

@@ -2,6 +2,38 @@
 
 A complete sim-to-real pipeline for the GoBilda Strafer mecanum-wheel robot. Train navigation policies in NVIDIA Isaac Lab, deploy on a Jetson Orin Nano via ROS2.
 
+## Vision
+
+**End state**: A user gives a natural language command ("go to the kitchen, wait, then come back"). A VLM interprets the command alongside the robot's current state (Nav2 map, RGB/depth, IMU) and outputs a sequence of goal poses or skills. The robot executes each via trained low-level RL controllers, repeating until the command is fulfilled.
+
+**MVP**: An RL policy trained in Isaac Lab navigates to a hardcoded goal pose while avoiding obstacles. The same model runs in simulation (via gym) and on the real robot (via ROS2). No VLM, no natural language, no skills -- just "here's a (x, y) goal, go there."
+
+### Two Evaluation Paths
+
+```
+PATH 1: Gym Eval (fast, during training)
+  Isaac Lab env.step(action) → obs tensor directly
+  No ROS. Pure Python. Thousands of envs in parallel.
+  Used for: training, hyperparameter search, quick policy checks
+
+PATH 2: ROS Eval (realistic, deployment validation)
+  Inference node reads sensor topics → assembles obs → runs policy → publishes cmd_vel
+  Works against EITHER:
+    (a) Real hardware (Jetson + RoboClaw + RealSense)
+    (b) Isaac Sim via ROS2 bridge (sim acting as hardware)
+  Used for: final validation, integration testing, real deployment
+```
+
+Both paths reference the same **policy contract** (observation spec, action spec, normalization) defined in `strafer_shared.policy_interface`. This guarantees sim-real parity.
+
+### Building Beyond MVP
+
+| Phase | Goal Interface | Policy | Platform |
+|-------|---------------|--------|----------|
+| **MVP** | Hardcoded goal pose | RL nav-to-goal (.pt) | Gym eval + ROS eval |
+| **Phase 2** | Nav2 waypoints from map | RL nav + obstacle avoidance | ROS + Nav2 |
+| **Phase 3** | VLM decodes NL commands → poses/skills | Multi-task RL (behavorial cloning from Nav2 data) | ROS + VLM |
+
 ## Hardware
 
 | Component | Model | Purpose |
@@ -40,7 +72,8 @@ A complete sim-to-real pipeline for the GoBilda Strafer mecanum-wheel robot. Tra
 │   └── strafer_shared/          # Shared Python module (both machines)
 │       └── strafer_shared/
 │           ├── constants.py           # Single source of truth for all robot params
-│           └── mecanum_kinematics.py  # Forward/inverse kinematics (NumPy)
+│           ├── mecanum_kinematics.py  # Forward/inverse kinematics (NumPy)
+│           └── policy_interface.py    # Policy contract: obs/action specs, assembly, inference
 │
 ├── Assets/                      # Robot USD assets
 ├── Scripts/                     # Asset processing & training scripts
@@ -60,9 +93,10 @@ A complete sim-to-real pipeline for the GoBilda Strafer mecanum-wheel robot. Tra
 | Noise Models | Done | Per-sensor noise with 3 presets: ideal, realistic, robust |
 | Sim-to-Real Contract | Done | Motor dynamics, command delay, sensor latency |
 | Shared Kinematics | Done | `strafer_shared` module with constants + mecanum math |
+| Policy Interface | Done | `policy_interface.py` -- obs/action contract, model loading |
 | Jetson Setup | Done | JetPack 6.2 flashed, SSH accessible |
 | ROS2 Packages | In Progress | Package structure created, implementation pending |
-| Policy Export | Planned | PyTorch -> ONNX -> TensorRT FP16 |
+| Policy Export | Planned | PyTorch (.pt) initially, ONNX/TensorRT later |
 | SLAM + Nav2 | Planned | RTAB-Map + robot_localization EKF + Nav2 |
 
 ## Quick Start
@@ -129,15 +163,20 @@ source install/setup.bash
 
 **Monorepo**: Sim and real code share a single repo so that the observation ordering, normalization constants, and kinematics are always in sync. The `strafer_shared` module is the single source of truth.
 
+**Two-contract architecture**: The policy contract (obs spec, action spec, normalization) lives in `strafer_shared.policy_interface` and is used by both the gym environment and the ROS2 inference node. The ROS topic contract (`cmd_vel`, `joint_states`, `odom`, etc.) is the deployment interface -- identical whether the backend is real hardware or Isaac Sim via the ROS2 bridge.
+
+**Custom driver over ros2_control**: The `strafer_driver` uses a custom Python node rather than ros2_control's `mecanum_drive_controller`. This keeps kinematics in `strafer_shared` (matching sim exactly) and avoids requiring a C++ hardware interface for RoboClaw serial communication.
+
 **Sim-to-Real Contract**: Three realism presets define motor dynamics (time constant, slew rate), command delay, and per-sensor noise. The policy trained with `Realistic` or `Robust` presets transfers to real hardware.
 
 **No Arduino**: RoboClaw ST 2x45A controllers connect directly to the Jetson via USB. They handle motor PID, encoder counting, and provide a Python API.
 
 ## Documentation
 
-- [Detailed Deployment Plan](docs/SIM_TO_REAL_PLAN.md) -- hardware wiring, ROS2 architecture, implementation phases
-- [Simulation Extension](source/strafer_lab/README.md) -- Isaac Lab environment details, training commands, test suite
-- [ROS2 Agent Context](source/strafer_ros/CLAUDE.md) -- Jetson-side development guide
+- [Deployment Plan](docs/SIM_TO_REAL_PLAN.md) -- project goals, MVP path, ROS2 architecture, implementation phases
+- [Wiring Guide](docs/WIRING_GUIDE.md) -- motor, encoder, RoboClaw, and Jetson connections
+- [Simulation Extension](source/strafer_lab/README.md) -- Isaac Lab environments, training, gym eval path
+- [ROS2 Development Guide](source/strafer_ros/CLAUDE.md) -- Jetson-side driver/inference development
 
 ## References
 

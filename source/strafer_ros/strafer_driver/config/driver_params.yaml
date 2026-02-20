@@ -1,0 +1,9 @@
+# strafer_driver default parameters
+# Override via launch file or command line.
+
+roboclaw_node:
+  ros__parameters:
+    front_port: "/dev/roboclaw_front"
+    rear_port: "/dev/roboclaw_rear"
+    baud_rate: 115200
+    publish_rate: 50.0

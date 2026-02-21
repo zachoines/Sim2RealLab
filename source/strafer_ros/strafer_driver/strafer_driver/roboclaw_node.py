@@ -52,6 +52,7 @@ from strafer_shared.mecanum_kinematics import (
 from strafer_driver.roboclaw_interface import (
     RoboClawInterface,
     RoboClawError,
+    detect_roboclaws,
 )
 
 
@@ -78,11 +79,50 @@ class RoboClawNode(Node):
         self.declare_parameter("rear_port", ROBOCLAW_REAR_PORT)
         self.declare_parameter("baud_rate", ROBOCLAW_BAUD_RATE)
         self.declare_parameter("publish_rate", 50.0)
+        self.declare_parameter("auto_detect", True)
 
         front_port = self.get_parameter("front_port").get_parameter_value().string_value
         rear_port = self.get_parameter("rear_port").get_parameter_value().string_value
         baud_rate = self.get_parameter("baud_rate").get_parameter_value().integer_value
         publish_rate = self.get_parameter("publish_rate").get_parameter_value().double_value
+        auto_detect = self.get_parameter("auto_detect").get_parameter_value().bool_value
+
+        # ------------------------------------------------------------------
+        # Auto-detect: probe ports to find which RoboClaw is where
+        # ------------------------------------------------------------------
+        if auto_detect:
+            self.get_logger().info("Auto-detecting RoboClaw ports...")
+            detected = detect_roboclaws(
+                ROBOCLAW_FRONT_ADDRESS, ROBOCLAW_REAR_ADDRESS,
+                baud_rate=baud_rate,
+            )
+            if ROBOCLAW_FRONT_ADDRESS in detected and ROBOCLAW_REAR_ADDRESS in detected:
+                front_port = detected[ROBOCLAW_FRONT_ADDRESS]
+                rear_port = detected[ROBOCLAW_REAR_ADDRESS]
+                self.get_logger().info(
+                    f"Auto-detect: front (0x{ROBOCLAW_FRONT_ADDRESS:02X}) -> {front_port}, "
+                    f"rear (0x{ROBOCLAW_REAR_ADDRESS:02X}) -> {rear_port}"
+                )
+            elif detected:
+                # Partial detection — use what we found, keep defaults for the rest
+                for addr, port in detected.items():
+                    if addr == ROBOCLAW_FRONT_ADDRESS:
+                        front_port = port
+                    elif addr == ROBOCLAW_REAR_ADDRESS:
+                        rear_port = port
+                missing = (
+                    {ROBOCLAW_FRONT_ADDRESS, ROBOCLAW_REAR_ADDRESS} - detected.keys()
+                )
+                self.get_logger().warn(
+                    f"Auto-detect: only found {len(detected)}/2 controllers. "
+                    f"Missing addresses: {[f'0x{a:02X}' for a in missing]}. "
+                    f"Using configured defaults for missing controllers."
+                )
+            else:
+                self.get_logger().warn(
+                    "Auto-detect: no RoboClaws found. "
+                    "Falling back to configured ports."
+                )
 
         self.get_logger().info(
             f"RoboClawNode starting: front={front_port} rear={rear_port} "

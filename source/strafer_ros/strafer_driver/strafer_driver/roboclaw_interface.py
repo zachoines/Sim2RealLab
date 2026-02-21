@@ -12,6 +12,7 @@ Packet format (recv):  [...data, crc16_hi, crc16_lo]  (no address/command echo)
 
 from __future__ import annotations
 
+import glob
 import struct
 import threading
 import time
@@ -356,3 +357,73 @@ class RoboClawInterface:
         payload = self._retry(self._send_and_recv, CMD_READ_TEMP, b"", 2)
         raw = struct.unpack(">H", payload)[0]
         return raw / 10.0
+
+
+# ---------------------------------------------------------------------------
+# Auto-detection
+# ---------------------------------------------------------------------------
+
+def probe_address(port: str, address: int, baud_rate: int = 115200) -> bool:
+    """Try to communicate with a RoboClaw at *address* on *port*.
+
+    Sends a ``read_main_battery`` command and checks for a valid CRC
+    response.  Returns True if the controller responds, False otherwise.
+    Does not raise on failure.
+    """
+    try:
+        rc = RoboClawInterface(port, address, baud_rate=baud_rate,
+                               read_timeout=0.15, max_retries=0)
+        rc.open()
+        try:
+            rc.read_main_battery()
+            return True
+        except (RoboClawError, serial.SerialException):
+            return False
+        finally:
+            rc.close()
+    except (serial.SerialException, OSError):
+        return False
+
+
+def detect_roboclaws(
+    front_address: int,
+    rear_address: int,
+    baud_rate: int = 115200,
+    candidate_ports: list[str] | None = None,
+) -> dict[int, str]:
+    """Scan serial ports and identify which RoboClaw is on which port.
+
+    Probes each candidate port for both ``front_address`` and
+    ``rear_address``.  Returns a dict mapping address -> port for every
+    address that was found.
+
+    Args:
+        front_address: Packet serial address of the front controller.
+        rear_address: Packet serial address of the rear controller.
+        baud_rate: Serial baud rate.
+        candidate_ports: Explicit list of ports to scan.  If ``None``,
+            auto-discovers by looking for ``/dev/roboclaw_*`` first, then
+            ``/dev/ttyACM*``.
+
+    Returns:
+        ``{address: port}`` for each controller found.  May be empty, or
+        contain only one entry if only one controller is reachable.
+    """
+    if candidate_ports is None:
+        candidate_ports = sorted(glob.glob("/dev/roboclaw*"))
+        if not candidate_ports:
+            candidate_ports = sorted(glob.glob("/dev/ttyACM*"))
+
+    addresses = [front_address, rear_address]
+    result: dict[int, str] = {}
+
+    for port in candidate_ports:
+        for addr in addresses:
+            if addr in result:
+                continue  # already found this one
+            if probe_address(port, addr, baud_rate):
+                result[addr] = port
+        if len(result) == len(addresses):
+            break  # both found
+
+    return result

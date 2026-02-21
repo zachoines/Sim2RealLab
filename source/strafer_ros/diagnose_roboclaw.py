@@ -148,16 +148,35 @@ def diagnose_roboclaw(port: str, address: int, label: str):
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="RoboClaw diagnostic tool")
-    parser.add_argument("--front", default="/dev/roboclaw_front")
-    parser.add_argument("--rear", default="/dev/roboclaw_rear")
+    parser.add_argument("--front", default=None)
+    parser.add_argument("--rear", default=None)
     parser.add_argument("--front-only", action="store_true", help="Only test front")
     parser.add_argument("--rear-only", action="store_true", help="Only test rear")
     args = parser.parse_args()
 
+    # Auto-detect ports if not explicitly given
+    if args.front is None or args.rear is None:
+        from roboclaw_interface import detect_roboclaws
+        detected = detect_roboclaws(ROBOCLAW_FRONT_ADDRESS, ROBOCLAW_REAR_ADDRESS, ROBOCLAW_BAUD_RATE)
+        if args.front is None:
+            args.front = detected.get(ROBOCLAW_FRONT_ADDRESS)
+        if args.rear is None:
+            args.rear = detected.get(ROBOCLAW_REAR_ADDRESS)
+        if detected:
+            print(f"Auto-detected: {', '.join(f'0x{a:02X}->{p}' for a, p in detected.items())}")
+        else:
+            print("Auto-detect: no RoboClaws found on any port.")
+
     if not args.rear_only:
-        diagnose_roboclaw(args.front, ROBOCLAW_FRONT_ADDRESS, "Front")
+        if args.front:
+            diagnose_roboclaw(args.front, ROBOCLAW_FRONT_ADDRESS, "Front")
+        else:
+            print("\nFront RoboClaw (0x80): not detected")
     if not args.front_only:
-        diagnose_roboclaw(args.rear, ROBOCLAW_REAR_ADDRESS, "Rear")
+        if args.rear:
+            diagnose_roboclaw(args.rear, ROBOCLAW_REAR_ADDRESS, "Rear")
+        else:
+            print("\nRear RoboClaw (0x81): not detected")
 
 
 if __name__ == "__main__":

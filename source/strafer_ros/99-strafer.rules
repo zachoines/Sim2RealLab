@@ -1,0 +1,20 @@
+# Udev rules for Strafer robot persistent device names.
+#
+# Two RoboClaws (Basicmicro) share identical vendor/product/serial attributes.
+# The driver auto-detects which is front vs rear by probing each port's packet
+# serial address (0x80 = front, 0x81 = rear) at startup.
+#
+# This rule creates generic symlinks /dev/roboclaw0, /dev/roboclaw1 for any
+# Basicmicro RoboClaw regardless of which USB port it's plugged into.
+# The driver's auto-detect scans /dev/roboclaw* to find candidates.
+#
+# Install:  make udev   (or manually):
+#   sudo cp 99-strafer.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger
+#
+# Verify:
+#   ls -la /dev/roboclaw*
+
+# Any Basicmicro RoboClaw -> /dev/roboclaw<N>
+SUBSYSTEM=="tty", ATTRS{idVendor}=="03eb", ATTRS{idProduct}=="2404", SYMLINK+="roboclaw%n", MODE="0666"

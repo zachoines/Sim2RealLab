@@ -1,10 +1,11 @@
 """Tests for strafer_driver.roboclaw_interface.
 
-Covers CRC16, packet assembly/parsing, connection management, retry logic.
+Covers CRC16, packet assembly/parsing, connection management, retry logic,
+and auto-detection.
 """
 
 import struct
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -275,3 +276,138 @@ class TestRetryLogic:
             rc.read_speed_m1()
 
         assert mock_serial.read.call_count == 3
+
+
+class TestAutoDetect:
+    """Tests for probe_address() and detect_roboclaws()."""
+
+    def test_probe_address_success(self, crc16):
+        """probe_address returns True when the controller responds."""
+        from strafer_driver.roboclaw_interface import probe_address
+
+        # Build a valid read_main_battery response for address 0x80
+        raw = 122  # 12.2V
+        payload = struct.pack(">H", raw)
+        header = bytes([0x80, 24])
+        resp_crc = crc16(header + payload)
+        response = payload + struct.pack(">H", resp_crc)
+
+        with patch("strafer_driver.roboclaw_interface.serial.Serial") as MockSerial:
+            mock_ser = MagicMock()
+            mock_ser.is_open = True
+            mock_ser.read.return_value = response
+            MockSerial.return_value = mock_ser
+
+            assert probe_address("/dev/fake", 0x80, 115200) is True
+
+    def test_probe_address_wrong_address(self, crc16):
+        """probe_address returns False when probing the wrong address."""
+        from strafer_driver.roboclaw_interface import probe_address
+
+        # Build response with CRC computed for address 0x81
+        raw = 122
+        payload = struct.pack(">H", raw)
+        header = bytes([0x81, 24])
+        resp_crc = crc16(header + payload)
+        response = payload + struct.pack(">H", resp_crc)
+
+        with patch("strafer_driver.roboclaw_interface.serial.Serial") as MockSerial:
+            mock_ser = MagicMock()
+            mock_ser.is_open = True
+            mock_ser.read.return_value = response
+            MockSerial.return_value = mock_ser
+
+            # Probe with address 0x80 but response CRC is for 0x81 -> mismatch
+            assert probe_address("/dev/fake", 0x80, 115200) is False
+
+    def test_probe_address_no_device(self):
+        """probe_address returns False for a nonexistent port."""
+        from strafer_driver.roboclaw_interface import probe_address
+        assert probe_address("/dev/nonexistent_port_xyz", 0x80) is False
+
+    def test_detect_both_on_separate_ports(self, crc16):
+        """detect_roboclaws finds front and rear on different ports."""
+        from strafer_driver.roboclaw_interface import detect_roboclaws
+
+        def fake_probe(port, addr, baud_rate=115200):
+            # Port A has address 0x80, Port B has address 0x81
+            if port == "/dev/ttyACM0" and addr == 0x80:
+                return True
+            if port == "/dev/ttyACM1" and addr == 0x81:
+                return True
+            return False
+
+        with patch("strafer_driver.roboclaw_interface.probe_address", side_effect=fake_probe):
+            result = detect_roboclaws(
+                0x80, 0x81,
+                candidate_ports=["/dev/ttyACM0", "/dev/ttyACM1"],
+            )
+
+        assert result == {0x80: "/dev/ttyACM0", 0x81: "/dev/ttyACM1"}
+
+    def test_detect_swapped_cables(self, crc16):
+        """detect_roboclaws correctly maps when cables are swapped."""
+        from strafer_driver.roboclaw_interface import detect_roboclaws
+
+        def fake_probe(port, addr, baud_rate=115200):
+            # Swapped: Port A has 0x81 (rear), Port B has 0x80 (front)
+            if port == "/dev/ttyACM0" and addr == 0x81:
+                return True
+            if port == "/dev/ttyACM1" and addr == 0x80:
+                return True
+            return False
+
+        with patch("strafer_driver.roboclaw_interface.probe_address", side_effect=fake_probe):
+            result = detect_roboclaws(
+                0x80, 0x81,
+                candidate_ports=["/dev/ttyACM0", "/dev/ttyACM1"],
+            )
+
+        assert result[0x80] == "/dev/ttyACM1"
+        assert result[0x81] == "/dev/ttyACM0"
+
+    def test_detect_partial_one_missing(self):
+        """detect_roboclaws returns partial result if one controller is offline."""
+        from strafer_driver.roboclaw_interface import detect_roboclaws
+
+        def fake_probe(port, addr, baud_rate=115200):
+            return port == "/dev/ttyACM0" and addr == 0x80
+
+        with patch("strafer_driver.roboclaw_interface.probe_address", side_effect=fake_probe):
+            result = detect_roboclaws(
+                0x80, 0x81,
+                candidate_ports=["/dev/ttyACM0"],
+            )
+
+        assert result == {0x80: "/dev/ttyACM0"}
+
+    def test_detect_none_found(self):
+        """detect_roboclaws returns empty dict when no controllers respond."""
+        from strafer_driver.roboclaw_interface import detect_roboclaws
+
+        with patch("strafer_driver.roboclaw_interface.probe_address", return_value=False):
+            result = detect_roboclaws(
+                0x80, 0x81,
+                candidate_ports=["/dev/ttyACM0", "/dev/ttyACM1"],
+            )
+
+        assert result == {}
+
+    def test_detect_auto_discovers_ports(self):
+        """detect_roboclaws globs /dev/roboclaw* when no ports given."""
+        from strafer_driver.roboclaw_interface import detect_roboclaws
+
+        def fake_probe(port, addr, baud_rate=115200):
+            if port == "/dev/roboclaw0" and addr == 0x80:
+                return True
+            if port == "/dev/roboclaw1" and addr == 0x81:
+                return True
+            return False
+
+        with patch("strafer_driver.roboclaw_interface.glob.glob") as mock_glob, \
+             patch("strafer_driver.roboclaw_interface.probe_address", side_effect=fake_probe):
+            mock_glob.return_value = ["/dev/roboclaw0", "/dev/roboclaw1"]
+
+            result = detect_roboclaws(0x80, 0x81)
+
+        assert result == {0x80: "/dev/roboclaw0", 0x81: "/dev/roboclaw1"}

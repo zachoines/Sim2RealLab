@@ -4,7 +4,7 @@
 SHELL := /bin/bash
 COLCON_WS := $(HOME)/strafer_ws
 
-.PHONY: build test test-unit lint format clean install-tools help
+.PHONY: build test test-unit lint format clean install-tools udev help
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -47,3 +47,9 @@ clean: ## Remove colcon build artifacts
 
 install-tools: ## Install black (flake8 is already available via ROS)
 	pip install black
+
+udev: ## Install udev rules for RoboClaw symlinks (requires sudo)
+	sudo cp source/strafer_ros/99-strafer.rules /etc/udev/rules.d/
+	sudo udevadm control --reload-rules
+	sudo udevadm trigger
+	@echo "Verify with: ls -la /dev/roboclaw*"

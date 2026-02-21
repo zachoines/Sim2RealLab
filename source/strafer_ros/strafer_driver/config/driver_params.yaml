@@ -3,7 +3,8 @@
 
 roboclaw_node:
   ros__parameters:
-    front_port: "/dev/roboclaw_front"
-    rear_port: "/dev/roboclaw_rear"
+    front_port: "/dev/roboclaw0"
+    rear_port: "/dev/roboclaw1"
     baud_rate: 115200
     publish_rate: 50.0
+    auto_detect: true  # Probe ports to find front/rear by address

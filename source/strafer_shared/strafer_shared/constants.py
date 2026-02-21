@@ -86,5 +86,5 @@ DEPTH_CLIP_FAR = 6.0        # meters
 ROBOCLAW_FRONT_ADDRESS = 0x80   # 128 decimal (factory default)
 ROBOCLAW_REAR_ADDRESS = 0x81    # 129 decimal (DIP switch 1)
 ROBOCLAW_BAUD_RATE = 115200
-ROBOCLAW_FRONT_PORT = "/dev/roboclaw_front"  # udev symlink (99-strafer.rules)
-ROBOCLAW_REAR_PORT = "/dev/roboclaw_rear"    # udev symlink (99-strafer.rules)
+ROBOCLAW_FRONT_PORT = "/dev/roboclaw0"  # fallback; auto-detect overrides at runtime
+ROBOCLAW_REAR_PORT = "/dev/roboclaw1"   # fallback; auto-detect overrides at runtime

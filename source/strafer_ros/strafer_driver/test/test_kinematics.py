@@ -32,13 +32,14 @@ class TestKinematics:
             assert t != 0.0, f"Wheel {i} has zero ticks for forward motion"
 
     def test_pure_strafe_left(self):
-        """Pure left strafe: front pair same sign, rear pair opposite."""
+        """Pure left strafe: diagonal pairs match, adjacent pairs opposite."""
         from strafer_shared.mecanum_kinematics import twist_to_wheel_velocities
 
         vels = twist_to_wheel_velocities(0.0, 0.5, 0.0)
-        assert np.isclose(vels[0], vels[1], atol=0.01)
-        assert np.isclose(vels[2], vels[3], atol=0.01)
-        assert np.sign(vels[0]) != np.sign(vels[2])
+        # Mecanum strafe: FL==RR (diagonal) and FR==RL (diagonal), opposite sign
+        assert np.isclose(vels[0], vels[3], atol=0.01)  # FL == RR
+        assert np.isclose(vels[1], vels[2], atol=0.01)  # FR == RL
+        assert np.sign(vels[0]) != np.sign(vels[1])      # FL opposite FR
 
     def test_pure_rotation_ccw(self):
         """Pure CCW rotation: all magnitudes equal."""

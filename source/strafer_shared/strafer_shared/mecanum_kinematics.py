@@ -1,10 +1,12 @@
-"""Mecanum wheel kinematics -- shared between Isaac Lab sim and ROS2 hardware.
+"""Mecanum wheel kinematics for ROS2 hardware.
 
-Replicates the exact kinematic matrix from:
-  source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py (lines 166-171)
+Uses the standard mecanum kinematic matrix (same form as the sim's
+actions.py) but does NOT apply WHEEL_AXIS_SIGNS.  Those signs exist
+solely to compensate for USD revolute-joint axis orientation in
+Isaac Sim -- the real motors don't need that correction.
 
-This module uses only NumPy (no PyTorch) so it runs on both the training
-workstation and the Jetson.
+The sim builds its own PyTorch kinematic matrix in actions.py and
+applies wheel_axis_signs there independently.
 """
 
 import numpy as np
@@ -16,7 +18,6 @@ from strafer_shared.constants import (
     MAX_LINEAR_VEL,
     MAX_ANGULAR_VEL,
     MAX_WHEEL_ANGULAR_VEL,
-    WHEEL_AXIS_SIGNS,
     RADIANS_TO_ENCODER_TICKS,
     ENCODER_TICKS_TO_RADIANS,
 )
@@ -46,9 +47,6 @@ INVERSE_KINEMATIC_MATRIX = np.array(
     ],
     dtype=np.float64,
 )
-
-_SIGNS = np.array(WHEEL_AXIS_SIGNS, dtype=np.float64)
-
 
 def normalized_to_wheel_velocities(
     vx_norm: float, vy_norm: float, omega_norm: float
@@ -80,7 +78,6 @@ def normalized_to_wheel_velocities(
     )
 
     wheel_vels = KINEMATIC_MATRIX @ body_vel
-    wheel_vels *= _SIGNS
     wheel_vels = np.clip(wheel_vels, -MAX_WHEEL_ANGULAR_VEL, MAX_WHEEL_ANGULAR_VEL)
     return wheel_vels
 
@@ -98,7 +95,6 @@ def twist_to_wheel_velocities(vx: float, vy: float, omega: float) -> np.ndarray:
     """
     body_vel = np.array([vx, vy, omega], dtype=np.float64)
     wheel_vels = KINEMATIC_MATRIX @ body_vel
-    wheel_vels *= _SIGNS
     wheel_vels = np.clip(wheel_vels, -MAX_WHEEL_ANGULAR_VEL, MAX_WHEEL_ANGULAR_VEL)
     return wheel_vels
 
@@ -126,6 +122,6 @@ def encoder_ticks_to_body_velocity(
     Returns:
         Tuple of (vx, vy, omega) in (m/s, m/s, rad/s).
     """
-    wheel_vels = (ticks_per_sec * ENCODER_TICKS_TO_RADIANS) / _SIGNS
+    wheel_vels = ticks_per_sec * ENCODER_TICKS_TO_RADIANS
     body_vel = INVERSE_KINEMATIC_MATRIX @ wheel_vels
     return float(body_vel[0]), float(body_vel[1]), float(body_vel[2])

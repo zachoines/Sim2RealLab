@@ -27,19 +27,25 @@ _r = WHEEL_RADIUS
 
 # Forward kinematic matrix: body velocities [vx, vy, omega] -> wheel angular velocities
 # Rows: [FL, FR, RL, RR]
-KINEMATIC_MATRIX = np.array([
-    [1.0 / _r, -1.0 / _r, -_K / _r],   # wheel_1 = Front-Left
-    [1.0 / _r,  1.0 / _r,  _K / _r],   # wheel_2 = Front-Right
-    [1.0 / _r,  1.0 / _r, -_K / _r],   # wheel_3 = Rear-Left
-    [1.0 / _r, -1.0 / _r,  _K / _r],   # wheel_4 = Rear-Right
-], dtype=np.float64)
+KINEMATIC_MATRIX = np.array(
+    [
+        [1.0 / _r, -1.0 / _r, -_K / _r],  # wheel_1 = Front-Left
+        [1.0 / _r, 1.0 / _r, _K / _r],  # wheel_2 = Front-Right
+        [1.0 / _r, 1.0 / _r, -_K / _r],  # wheel_3 = Rear-Left
+        [1.0 / _r, -1.0 / _r, _K / _r],  # wheel_4 = Rear-Right
+    ],
+    dtype=np.float64,
+)
 
 # Inverse kinematic matrix: wheel angular velocities -> body velocities [vx, vy, omega]
-INVERSE_KINEMATIC_MATRIX = np.array([
-    [_r / 4.0,  _r / 4.0,  _r / 4.0,  _r / 4.0],                          # vx
-    [-_r / 4.0,  _r / 4.0,  _r / 4.0, -_r / 4.0],                          # vy
-    [-_r / (4.0 * _K), _r / (4.0 * _K), -_r / (4.0 * _K), _r / (4.0 * _K)],  # omega
-], dtype=np.float64)
+INVERSE_KINEMATIC_MATRIX = np.array(
+    [
+        [_r / 4.0, _r / 4.0, _r / 4.0, _r / 4.0],  # vx
+        [-_r / 4.0, _r / 4.0, _r / 4.0, -_r / 4.0],  # vy
+        [-_r / (4.0 * _K), _r / (4.0 * _K), -_r / (4.0 * _K), _r / (4.0 * _K)],  # omega
+    ],
+    dtype=np.float64,
+)
 
 _SIGNS = np.array(WHEEL_AXIS_SIGNS, dtype=np.float64)
 
@@ -64,11 +70,14 @@ def normalized_to_wheel_velocities(
     vy_norm = np.clip(vy_norm, -1.0, 1.0)
     omega_norm = np.clip(omega_norm, -1.0, 1.0)
 
-    body_vel = np.array([
-        vx_norm * MAX_LINEAR_VEL,
-        vy_norm * MAX_LINEAR_VEL,
-        omega_norm * MAX_ANGULAR_VEL,
-    ], dtype=np.float64)
+    body_vel = np.array(
+        [
+            vx_norm * MAX_LINEAR_VEL,
+            vy_norm * MAX_LINEAR_VEL,
+            omega_norm * MAX_ANGULAR_VEL,
+        ],
+        dtype=np.float64,
+    )
 
     wheel_vels = KINEMATIC_MATRIX @ body_vel
     wheel_vels *= _SIGNS

@@ -29,23 +29,48 @@ import math
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description="Test Strafer environment")
-    parser.add_argument("--num_envs", type=int, default=1, help="Number of environments")
+    parser.add_argument(
+        "--num_envs", type=int, default=1, help="Number of environments"
+    )
     parser.add_argument("--device", type=str, default="cuda:0", help="Device to run on")
     parser.add_argument("--headless", action="store_true", help="Run without rendering")
-    parser.add_argument("--enable_cameras", action="store_true", default=True,
-                        help="Enable camera rendering (required for camera-based envs)")
-    parser.add_argument("--pattern", type=str, default="all",
-                        choices=[
-                            "forward", "strafe", "strafe_left", "strafe_right",
-                            "rotate", "circle", "figure8", "all"
-                        ],
-                        help="Motion pattern to test")
-    parser.add_argument("--speed", type=float, default=1.0,
-                        help="Scale factor for pattern magnitudes (1.0 = default speeds)")
-    parser.add_argument("--duration", type=float, default=60.0,
-                        help="Duration per pattern in seconds")
-    parser.add_argument("--env", type=str, default="Isaac-Strafer-Nav-Real-v0",
-                        help="Environment ID (default: Isaac-Strafer-Nav-Real-v0 = Realistic Full)")
+    parser.add_argument(
+        "--enable_cameras",
+        action="store_true",
+        default=True,
+        help="Enable camera rendering (required for camera-based envs)",
+    )
+    parser.add_argument(
+        "--pattern",
+        type=str,
+        default="all",
+        choices=[
+            "forward",
+            "strafe",
+            "strafe_left",
+            "strafe_right",
+            "rotate",
+            "circle",
+            "figure8",
+            "all",
+        ],
+        help="Motion pattern to test",
+    )
+    parser.add_argument(
+        "--speed",
+        type=float,
+        default=1.0,
+        help="Scale factor for pattern magnitudes (1.0 = default speeds)",
+    )
+    parser.add_argument(
+        "--duration", type=float, default=60.0, help="Duration per pattern in seconds"
+    )
+    parser.add_argument(
+        "--env",
+        type=str,
+        default="Isaac-Strafer-Nav-Real-v0",
+        help="Environment ID (default: Isaac-Strafer-Nav-Real-v0 = Realistic Full)",
+    )
     args = parser.parse_args()
 
     # Import Isaac Lab app launcher first (required before other isaaclab imports)
@@ -81,7 +106,9 @@ def main():
     # Create the navigation environment
     env_name = args.env
     print(f"\nCreating environment: {env_name}")
-    print(f"Available: Isaac-Strafer-Nav-{{v0,Depth-v0,NoCam-v0,Real-v0,Real-Depth-v0,Robust-v0}}")
+    print(
+        f"Available: Isaac-Strafer-Nav-{{v0,Depth-v0,NoCam-v0,Real-v0,Real-Depth-v0,Robust-v0}}"
+    )
 
     try:
         # Parse environment config from registry (Isaac Lab pattern)
@@ -144,28 +171,40 @@ def main():
 
         def pattern_circle(t: float) -> tuple:
             """Drive in a circle (forward + rotation)."""
-            return (base_linear * speed_scale, 0.0, circle_omega * speed_scale)  # Forward + CCW rotation
+            return (
+                base_linear * speed_scale,
+                0.0,
+                circle_omega * speed_scale,
+            )  # Forward + CCW rotation
 
         def pattern_figure8(t: float) -> tuple:
             """Drive in a figure-8 pattern."""
             # Alternate rotation direction based on time
             period = 4.0  # seconds per loop
             phase = (t % (2 * period)) / period
-            omega = figure8_speed * speed_scale if phase < 1.0 else -figure8_speed * speed_scale
+            omega = (
+                figure8_speed * speed_scale
+                if phase < 1.0
+                else -figure8_speed * speed_scale
+            )
             return (figure8_speed * speed_scale, 0.0, omega)
 
         def pattern_strafe(t: float) -> tuple:
             """Alternate strafe left/right."""
             period = 2.0
             phase = (t % (2 * period)) / period
-            vy = base_linear * speed_scale if phase < 1.0 else -base_linear * speed_scale
+            vy = (
+                base_linear * speed_scale if phase < 1.0 else -base_linear * speed_scale
+            )
             return (0.0, vy, 0.0)
 
         def pattern_rotate(t: float) -> tuple:
             """Alternate rotation CW/CCW."""
             period = 2.0
             phase = (t % (2 * period)) / period
-            omega = base_omega * speed_scale if phase < 1.0 else -base_omega * speed_scale
+            omega = (
+                base_omega * speed_scale if phase < 1.0 else -base_omega * speed_scale
+            )
             return (0.0, 0.0, omega)
 
         # Build list of patterns to run
@@ -219,13 +258,15 @@ def main():
 
                 # Print progress every second
                 if step % int(1.0 / env_dt) == 0:
-                    obs_policy = obs['policy'] if isinstance(obs, dict) else obs
+                    obs_policy = obs["policy"] if isinstance(obs, dict) else obs
                     # Extract velocities from observation (first 6 elements are lin_vel and ang_vel)
                     lin_vel = obs_policy[0, :3].cpu().numpy()
                     ang_vel = obs_policy[0, 3:6].cpu().numpy()
-                    print(f"  t={t:.1f}s | action=[{vx:.2f}, {vy:.2f}, {omega:.2f}] | "
-                          f"lin_vel=[{lin_vel[0]:.2f}, {lin_vel[1]:.2f}, {lin_vel[2]:.2f}] | "
-                          f"ang_vel=[{ang_vel[0]:.2f}, {ang_vel[1]:.2f}, {ang_vel[2]:.2f}]")
+                    print(
+                        f"  t={t:.1f}s | action=[{vx:.2f}, {vy:.2f}, {omega:.2f}] | "
+                        f"lin_vel=[{lin_vel[0]:.2f}, {lin_vel[1]:.2f}, {lin_vel[2]:.2f}] | "
+                        f"ang_vel=[{ang_vel[0]:.2f}, {ang_vel[1]:.2f}, {ang_vel[2]:.2f}]"
+                    )
 
                 total_steps += 1
 
@@ -240,6 +281,7 @@ def main():
     except Exception as e:
         print(f"\n[ERROR] Failed to create environment: {e}")
         import traceback
+
         traceback.print_exc()
 
     simulation_app.close()

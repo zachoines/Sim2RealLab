@@ -27,7 +27,8 @@ def main() -> None:
 
     # Increase GPU buffer for collision pairs (needed for robots with many collision shapes)
     physx_cfg = PhysxCfg(
-        gpu_found_lost_aggregate_pairs_capacity=2**18,  # 262144, default is much smaller
+        gpu_found_lost_aggregate_pairs_capacity=2
+        ** 18,  # 262144, default is much smaller
         gpu_total_aggregate_pairs_capacity=2**18,
     )
 

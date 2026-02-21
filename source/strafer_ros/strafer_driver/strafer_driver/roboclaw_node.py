@@ -55,7 +55,6 @@ from strafer_driver.roboclaw_interface import (
     detect_roboclaws,
 )
 
-
 # Watchdog timeout: stop motors if no cmd_vel received within this period.
 WATCHDOG_TIMEOUT_SEC = 0.5
 
@@ -84,7 +83,9 @@ class RoboClawNode(Node):
         front_port = self.get_parameter("front_port").get_parameter_value().string_value
         rear_port = self.get_parameter("rear_port").get_parameter_value().string_value
         baud_rate = self.get_parameter("baud_rate").get_parameter_value().integer_value
-        publish_rate = self.get_parameter("publish_rate").get_parameter_value().double_value
+        publish_rate = (
+            self.get_parameter("publish_rate").get_parameter_value().double_value
+        )
         auto_detect = self.get_parameter("auto_detect").get_parameter_value().bool_value
 
         # ------------------------------------------------------------------
@@ -93,7 +94,8 @@ class RoboClawNode(Node):
         if auto_detect:
             self.get_logger().info("Auto-detecting RoboClaw ports...")
             detected = detect_roboclaws(
-                ROBOCLAW_FRONT_ADDRESS, ROBOCLAW_REAR_ADDRESS,
+                ROBOCLAW_FRONT_ADDRESS,
+                ROBOCLAW_REAR_ADDRESS,
                 baud_rate=baud_rate,
             )
             if ROBOCLAW_FRONT_ADDRESS in detected and ROBOCLAW_REAR_ADDRESS in detected:
@@ -110,9 +112,10 @@ class RoboClawNode(Node):
                         front_port = port
                     elif addr == ROBOCLAW_REAR_ADDRESS:
                         rear_port = port
-                missing = (
-                    {ROBOCLAW_FRONT_ADDRESS, ROBOCLAW_REAR_ADDRESS} - detected.keys()
-                )
+                missing = {
+                    ROBOCLAW_FRONT_ADDRESS,
+                    ROBOCLAW_REAR_ADDRESS,
+                } - detected.keys()
                 self.get_logger().warn(
                     f"Auto-detect: only found {len(detected)}/2 controllers. "
                     f"Missing addresses: {[f'0x{a:02X}' for a in missing]}. "
@@ -170,15 +173,9 @@ class RoboClawNode(Node):
         # ------------------------------------------------------------------
         # Publishers
         # ------------------------------------------------------------------
-        self._joint_pub = self.create_publisher(
-            JointState, "/strafer/joint_states", 10
-        )
-        self._odom_pub = self.create_publisher(
-            Odometry, "/strafer/odom", 10
-        )
-        self._diag_pub = self.create_publisher(
-            DiagnosticStatus, "/diagnostics", 10
-        )
+        self._joint_pub = self.create_publisher(JointState, "/strafer/joint_states", 10)
+        self._odom_pub = self.create_publisher(Odometry, "/strafer/odom", 10)
+        self._diag_pub = self.create_publisher(DiagnosticStatus, "/diagnostics", 10)
 
         # TF broadcaster
         self._tf_broadcaster = TransformBroadcaster(self)
@@ -301,7 +298,9 @@ class RoboClawNode(Node):
         self._last_success_time = time.monotonic()
 
         # Speed in ticks/sec -> rad/s (for JointState)
-        speeds_ticks = np.array([fl_speed, fr_speed, rl_speed, rr_speed], dtype=np.float64)
+        speeds_ticks = np.array(
+            [fl_speed, fr_speed, rl_speed, rr_speed], dtype=np.float64
+        )
         speeds_rad = speeds_ticks * ENCODER_TICKS_TO_RADIANS
 
         # Encoder counts -> cumulative radians (for JointState position)
@@ -426,8 +425,10 @@ class RoboClawNode(Node):
             KeyValue(key="rear_connected", value=str(self._rear.is_open)),
             KeyValue(key="consecutive_failures", value=str(self._consecutive_failures)),
             KeyValue(key="total_errors", value=str(self._total_errors)),
-            KeyValue(key="last_success_age_sec",
-                     value=f"{time.monotonic() - self._last_success_time:.1f}"),
+            KeyValue(
+                key="last_success_age_sec",
+                value=f"{time.monotonic() - self._last_success_time:.1f}",
+            ),
             KeyValue(key="watchdog_active", value=str(self._watchdog_active)),
         ]
 

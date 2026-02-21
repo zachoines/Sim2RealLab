@@ -31,7 +31,6 @@ from strafer_shared.mecanum_kinematics import (
     wheel_vels_to_ticks_per_sec,
 )
 
-
 # ---------------------------------------------------------------------------
 # Observation spec
 # ---------------------------------------------------------------------------
@@ -192,7 +191,9 @@ def load_policy(path: str | Path, variant: PolicyVariant):
         return _infer_onnx
 
     else:
-        raise ValueError(f"Unsupported model format: {path.suffix} (expected .pt or .onnx)")
+        raise ValueError(
+            f"Unsupported model format: {path.suffix} (expected .pt or .onnx)"
+        )
 
 
 # ---------------------------------------------------------------------------

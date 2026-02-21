@@ -24,18 +24,30 @@ from datetime import datetime
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description="Train Strafer navigation policy")
-    parser.add_argument("--num_envs", type=int, default=512, help="Number of parallel environments")
+    parser.add_argument(
+        "--num_envs", type=int, default=512, help="Number of parallel environments"
+    )
     parser.add_argument("--device", type=str, default="cuda:0", help="Device to run on")
     parser.add_argument("--headless", action="store_true", help="Run without rendering")
-    parser.add_argument("--max_iterations", type=int, default=1000,
-                        help="Maximum training iterations")
+    parser.add_argument(
+        "--max_iterations", type=int, default=1000, help="Maximum training iterations"
+    )
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("--log_dir", type=str,
-                        default="logs/rsl_rl/strafer_navigation", help="Log directory")
-    parser.add_argument("--resume", type=str, default=None,
-                        help="Path to checkpoint to resume from")
-    parser.add_argument("--env", type=str, default="Isaac-Strafer-Nav-Real-v0",
-                        help="Environment ID (default: Isaac-Strafer-Nav-Real-v0 = Realistic Full)")
+    parser.add_argument(
+        "--log_dir",
+        type=str,
+        default="logs/rsl_rl/strafer_navigation",
+        help="Log directory",
+    )
+    parser.add_argument(
+        "--resume", type=str, default=None, help="Path to checkpoint to resume from"
+    )
+    parser.add_argument(
+        "--env",
+        type=str,
+        default="Isaac-Strafer-Nav-Real-v0",
+        help="Environment ID (default: Isaac-Strafer-Nav-Real-v0 = Realistic Full)",
+    )
     args = parser.parse_args()
 
     # Import Isaac Lab app launcher first
@@ -67,7 +79,9 @@ def main():
     # Create environment
     env_name = args.env
     print(f"Creating environment: {env_name}")
-    print(f"Available: Isaac-Strafer-Nav-{{v0,Depth-v0,NoCam-v0,Real-v0,Real-Depth-v0,Robust-v0}}")
+    print(
+        f"Available: Isaac-Strafer-Nav-{{v0,Depth-v0,NoCam-v0,Real-v0,Real-Depth-v0,Robust-v0}}"
+    )
 
     # Parse environment config from registry (Isaac Lab pattern)
     env_cfg = parse_env_cfg(

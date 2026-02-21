@@ -18,7 +18,6 @@ from typing import Dict, List, Optional, Tuple
 
 from pxr import Gf, Sdf, Usd, UsdGeom
 
-
 PREDICATE = Usd.TraverseInstanceProxies(Usd.PrimAllPrimsPredicate)
 ALLOWED_NON_XFORM_ATTRS = {"visibility"}
 
@@ -56,7 +55,11 @@ def _has_only_transform_attrs(prim: Usd.Prim) -> bool:
         return False
     if prim.GetAuthoredRelationships():
         return False
-    if prim.HasAuthoredReferences() or prim.HasAuthoredInherits() or prim.HasAuthoredPayloads():
+    if (
+        prim.HasAuthoredReferences()
+        or prim.HasAuthoredInherits()
+        or prim.HasAuthoredPayloads()
+    ):
         return False
     if prim.GetVariantSets().GetNames():
         return False
@@ -92,7 +95,9 @@ def _is_collapsible_transform(prim: Usd.Prim) -> bool:
     return True
 
 
-def _unique_temp_path(stage: Usd.Stage, parent_path: Sdf.Path, base_name: str) -> Sdf.Path:
+def _unique_temp_path(
+    stage: Usd.Stage, parent_path: Sdf.Path, base_name: str
+) -> Sdf.Path:
     """Return a non-colliding temp path under the given parent."""
     idx = 0
     while True:
@@ -115,7 +120,9 @@ def _move_prim(stage: Usd.Stage, src: Sdf.Path, dst: Sdf.Path) -> bool:
     return True
 
 
-def _compute_new_local(child: Usd.Prim, target_parent: Optional[Usd.Prim]) -> Tuple[Gf.Matrix4d, bool]:
+def _compute_new_local(
+    child: Usd.Prim, target_parent: Optional[Usd.Prim]
+) -> Tuple[Gf.Matrix4d, bool]:
     """Compute child local transform that preserves world pose after reparent."""
     cache = UsdGeom.XformCache()
     child_world = cache.GetLocalToWorldTransform(child)
@@ -123,12 +130,17 @@ def _compute_new_local(child: Usd.Prim, target_parent: Optional[Usd.Prim]) -> Tu
     reset_child = bool(child_xf) and child_xf.GetResetXformStack()
     if reset_child:
         return child_world, reset_child
-    parent_world = cache.GetLocalToWorldTransform(
-        target_parent) if target_parent else Gf.Matrix4d(1)
+    parent_world = (
+        cache.GetLocalToWorldTransform(target_parent)
+        if target_parent
+        else Gf.Matrix4d(1)
+    )
     return child_world * parent_world.GetInverse(), reset_child
 
 
-def _apply_new_transform(prim: Usd.Prim, matrix: Gf.Matrix4d, reset_stack: bool) -> None:
+def _apply_new_transform(
+    prim: Usd.Prim, matrix: Gf.Matrix4d, reset_stack: bool
+) -> None:
     """Replace xform op order with a single baked matrix op."""
     xformable = UsdGeom.Xformable(prim)
     if not xformable:
@@ -211,21 +223,32 @@ def collapse_redundant_transforms(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Flatten redundant xform chains while preserving world transforms.")
+        description="Flatten redundant xform chains while preserving world transforms."
+    )
     parser.add_argument("--stage", required=True, help="Path to USD stage to edit.")
     parser.add_argument("--root", default="/World", help="Root prim to process.")
-    parser.add_argument("--tmp-name", default="tmp_flatten",
-                        help="Temporary name used during moves.")
+    parser.add_argument(
+        "--tmp-name", default="tmp_flatten", help="Temporary name used during moves."
+    )
     parser.add_argument("--output", help="Path to write a log of collapsed prims.")
     parser.add_argument(
-        "--output-usd", help="Optional path to save modified stage (input is left untouched).")
-    parser.add_argument("--tree-output", help="Optional path to write the resulting prim tree.")
-    parser.add_argument("--max-depth", type=int, default=6,
-                        help="Depth for the optional tree output.")
-    parser.add_argument("--max-rounds", type=int, default=8,
-                        help="Safety limit on collapse passes.")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Plan operations without writing USD changes.")
+        "--output-usd",
+        help="Optional path to save modified stage (input is left untouched).",
+    )
+    parser.add_argument(
+        "--tree-output", help="Optional path to write the resulting prim tree."
+    )
+    parser.add_argument(
+        "--max-depth", type=int, default=6, help="Depth for the optional tree output."
+    )
+    parser.add_argument(
+        "--max-rounds", type=int, default=8, help="Safety limit on collapse passes."
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Plan operations without writing USD changes.",
+    )
     args = parser.parse_args()
 
     stage = Usd.Stage.Open(args.stage)

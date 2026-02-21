@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Quick diagnostic for RoboClaw -- tries duty-cycle commands instead of PID velocity.
-"""
+"""Quick diagnostic for RoboClaw -- tries duty-cycle commands instead of PID velocity."""
 
 from __future__ import annotations
 from strafer_shared.constants import (
@@ -14,8 +13,14 @@ import struct
 import sys
 import time
 
-sys.path.insert(0, str(__import__("pathlib").Path(
-    __file__).resolve().parent / "strafer_driver" / "strafer_driver"))
+sys.path.insert(
+    0,
+    str(
+        __import__("pathlib").Path(__file__).resolve().parent
+        / "strafer_driver"
+        / "strafer_driver"
+    ),
+)
 
 
 # Additional command IDs for PID reads
@@ -51,7 +56,9 @@ def read_velocity_pid(claw: RoboClawInterface, motor: int) -> dict:
     return {"P": p, "I": i, "D": d, "QPPS": qpps}
 
 
-def test_duty_drive(claw: RoboClawInterface, motor: int, duty: int = 32, duration: float = 1.0):
+def test_duty_drive(
+    claw: RoboClawInterface, motor: int, duty: int = 32, duration: float = 1.0
+):
     """Drive a motor with simple duty-cycle command (no PID needed)."""
     motor_label = f"M{motor}"
     print(f"  Driving {motor_label} with duty={duty}/127 for {duration}s ...")
@@ -130,10 +137,16 @@ def diagnose_roboclaw(port: str, address: int, label: str):
         if "error" in pid:
             print(f"    M{m}: {pid['error']}")
         else:
-            print(f"    M{m}: P={pid['P']}  I={pid['I']}  D={pid['D']}  QPPS={pid['QPPS']}")
-            if pid['P'] == 0 and pid['I'] == 0 and pid['D'] == 0:
-                print(f"    *** M{m} PID is all zeros -- velocity commands will NOT work! ***")
-                print(f"    *** Use Motion Studio to auto-tune PID, or set QPPS manually ***")
+            print(
+                f"    M{m}: P={pid['P']}  I={pid['I']}  D={pid['D']}  QPPS={pid['QPPS']}"
+            )
+            if pid["P"] == 0 and pid["I"] == 0 and pid["D"] == 0:
+                print(
+                    f"    *** M{m} PID is all zeros -- velocity commands will NOT work! ***"
+                )
+                print(
+                    f"    *** Use Motion Studio to auto-tune PID, or set QPPS manually ***"
+                )
 
     # Test with duty-cycle commands (no PID needed)
     print("\n  Testing duty-cycle drive (bypasses PID):")
@@ -147,6 +160,7 @@ def diagnose_roboclaw(port: str, address: int, label: str):
 
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="RoboClaw diagnostic tool")
     parser.add_argument("--front", default=None)
     parser.add_argument("--rear", default=None)
@@ -157,14 +171,18 @@ def main():
     # Auto-detect ports if not explicitly given
     if args.front is None or args.rear is None:
         from roboclaw_interface import detect_roboclaws
-        detected = detect_roboclaws(ROBOCLAW_FRONT_ADDRESS,
-                                    ROBOCLAW_REAR_ADDRESS, ROBOCLAW_BAUD_RATE)
+
+        detected = detect_roboclaws(
+            ROBOCLAW_FRONT_ADDRESS, ROBOCLAW_REAR_ADDRESS, ROBOCLAW_BAUD_RATE
+        )
         if args.front is None:
             args.front = detected.get(ROBOCLAW_FRONT_ADDRESS)
         if args.rear is None:
             args.rear = detected.get(ROBOCLAW_REAR_ADDRESS)
         if detected:
-            print(f"Auto-detected: {', '.join(f'0x{a:02X}->{p}' for a, p in detected.items())}")
+            print(
+                f"Auto-detected: {', '.join(f'0x{a:02X}->{p}' for a, p in detected.items())}"
+            )
         else:
             print("Auto-detect: no RoboClaws found on any port.")
 

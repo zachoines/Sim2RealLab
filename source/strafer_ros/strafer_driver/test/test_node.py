@@ -13,6 +13,7 @@ class TestOdometryMath:
     def test_stationary_no_drift(self):
         """Zero wheel speeds produce zero body velocity."""
         from strafer_shared.mecanum_kinematics import encoder_ticks_to_body_velocity
+
         vx, vy, omega = encoder_ticks_to_body_velocity(np.zeros(4))
         assert vx == 0.0
         assert vy == 0.0
@@ -25,9 +26,8 @@ class TestOdometryMath:
             wheel_vels_to_ticks_per_sec,
             encoder_ticks_to_body_velocity,
         )
-        ticks = wheel_vels_to_ticks_per_sec(
-            twist_to_wheel_velocities(0.5, 0.0, 0.0)
-        )
+
+        ticks = wheel_vels_to_ticks_per_sec(twist_to_wheel_velocities(0.5, 0.0, 0.0))
         vx, vy, omega = encoder_ticks_to_body_velocity(ticks)
 
         dt = 1.0
@@ -45,9 +45,8 @@ class TestOdometryMath:
             wheel_vels_to_ticks_per_sec,
             encoder_ticks_to_body_velocity,
         )
-        ticks = wheel_vels_to_ticks_per_sec(
-            twist_to_wheel_velocities(0.0, 0.0, 1.0)
-        )
+
+        ticks = wheel_vels_to_ticks_per_sec(twist_to_wheel_velocities(0.0, 0.0, 1.0))
         vx, vy, omega = encoder_ticks_to_body_velocity(ticks)
 
         dt = 1.0

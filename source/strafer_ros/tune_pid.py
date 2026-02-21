@@ -58,9 +58,9 @@ TARGET_TAU_S = 0.05
 
 # Step-response test parameters
 STEP_VELOCITY_TICKS = QPPS // 2  # 50% of max speed for safety
-SAMPLE_PERIOD_S = 0.005           # 5 ms sample period (200 Hz)
-STEP_DURATION_S = 0.5             # 500 ms capture window
-SETTLE_TIME_S = 0.2               # Wait after stopping before next test
+SAMPLE_PERIOD_S = 0.005  # 5 ms sample period (200 Hz)
+STEP_DURATION_S = 0.5  # 500 ms capture window
+SETTLE_TIME_S = 0.2  # Wait after stopping before next test
 
 # Abort step-response if speed starts >50% of target on first 5 samples
 # (indicates reversed motor/encoder direction)
@@ -80,7 +80,10 @@ DEFAULT_D = 0
 # Helpers
 # ---------------------------------------------------------------------------
 
-def fit_first_order_tau(times: list[float], speeds: list[float], target: float) -> float:
+
+def fit_first_order_tau(
+    times: list[float], speeds: list[float], target: float
+) -> float:
     """Estimate the first-order time constant from step-response data.
 
     Fits y(t) = target * (1 - exp(-t/tau)) by finding tau that minimises
@@ -202,6 +205,7 @@ def get_motor_list(which: str) -> list[str]:
 # Commands
 # ---------------------------------------------------------------------------
 
+
 def cmd_read(args: argparse.Namespace) -> None:
     """Read and display current PID values."""
     for label, port, addr in get_controllers(args.controller):
@@ -214,9 +218,11 @@ def cmd_read(args: argparse.Namespace) -> None:
             pid_m2 = rc.read_velocity_pid_m2()
             rc.close()
             print(
-                f"  M1 PID: P={pid_m1['P']:>6}  I={pid_m1['I']:>6}  D={pid_m1['D']:>6}  QPPS={pid_m1['QPPS']}")
+                f"  M1 PID: P={pid_m1['P']:>6}  I={pid_m1['I']:>6}  D={pid_m1['D']:>6}  QPPS={pid_m1['QPPS']}"
+            )
             print(
-                f"  M2 PID: P={pid_m2['P']:>6}  I={pid_m2['I']:>6}  D={pid_m2['D']:>6}  QPPS={pid_m2['QPPS']}")
+                f"  M2 PID: P={pid_m2['P']:>6}  I={pid_m2['I']:>6}  D={pid_m2['D']:>6}  QPPS={pid_m2['QPPS']}"
+            )
         except Exception as e:
             print(f"  ERROR: {e}")
 
@@ -247,9 +253,11 @@ def cmd_set(args: argparse.Namespace) -> None:
             pid_m1 = rc.read_velocity_pid_m1()
             pid_m2 = rc.read_velocity_pid_m2()
             print(
-                f"  Readback M1: P={pid_m1['P']} I={pid_m1['I']} D={pid_m1['D']} QPPS={pid_m1['QPPS']}")
+                f"  Readback M1: P={pid_m1['P']} I={pid_m1['I']} D={pid_m1['D']} QPPS={pid_m1['QPPS']}"
+            )
             print(
-                f"  Readback M2: P={pid_m2['P']} I={pid_m2['I']} D={pid_m2['D']} QPPS={pid_m2['QPPS']}")
+                f"  Readback M2: P={pid_m2['P']} I={pid_m2['I']} D={pid_m2['D']} QPPS={pid_m2['QPPS']}"
+            )
             rc.close()
         except Exception as e:
             print(f"  ERROR: {e}")
@@ -336,11 +344,14 @@ def run_step_response(
             avg_early = sum(speeds[:REVERSED_DETECT_SAMPLES]) / REVERSED_DETECT_SAMPLES
             if neg_count >= 3 or avg_early > speed_ticks * REVERSED_DETECT_THRESHOLD:
                 reversed_detected = True
-                print(f"    ABORT: {motor} appears to have REVERSED motor/encoder direction!")
+                print(
+                    f"    ABORT: {motor} appears to have REVERSED motor/encoder direction!"
+                )
                 print(f"           Early speeds: {[int(s) for s in signed_speeds[:5]]}")
                 print(f"           Expected: ramp from 0 toward +{speed_ticks}")
                 print(
-                    f"           Fix: swap M{'1' if motor == 'M1' else '2'}A / M{'1' if motor == 'M1' else '2'}B wires")
+                    f"           Fix: swap M{'1' if motor == 'M1' else '2'}A / M{'1' if motor == 'M1' else '2'}B wires"
+                )
                 # Hard-stop immediately
                 hard_stop(rc)
                 time.sleep(SETTLE_TIME_S)
@@ -357,7 +368,9 @@ def run_step_response(
         else:
             post_spd, _ = rc.read_speed_m2()
         if abs(post_spd) > 10:
-            print(f"    WARNING: {motor} still at {post_spd} ticks/s after stop, retrying...")
+            print(
+                f"    WARNING: {motor} still at {post_spd} ticks/s after stop, retrying..."
+            )
             hard_stop(rc)
             time.sleep(SETTLE_TIME_S)
     except Exception:
@@ -365,7 +378,7 @@ def run_step_response(
 
     # Steady-state = mean of last 20% of samples
     if speeds:
-        tail = speeds[int(len(speeds) * 0.8):]
+        tail = speeds[int(len(speeds) * 0.8) :]
         steady = sum(tail) / len(tail) if tail else 0.0
     else:
         steady = 0.0
@@ -374,9 +387,14 @@ def run_step_response(
 
 
 def _report_step_result(
-    motor: str, times: list[float], speeds: list[float],
-    steady: float, speed: int, reversed_detected: bool,
-    verbose: bool, p: int | None = None,
+    motor: str,
+    times: list[float],
+    speeds: list[float],
+    steady: float,
+    speed: int,
+    reversed_detected: bool,
+    verbose: bool,
+    p: int | None = None,
 ) -> None:
     """Print step-response analysis for one motor."""
     if reversed_detected:
@@ -392,7 +410,8 @@ def _report_step_result(
     print(f"    Samples:      {len(times)}")
     print(f"    Steady-state: {steady:.0f} ticks/s (target={speed})")
     print(
-        f"    Measured tau:  {tau*1000:.1f} ms (target={TARGET_TAU_S*1000:.0f} ms, error={error_pct:+.1f}%)")
+        f"    Measured tau:  {tau*1000:.1f} ms (target={TARGET_TAU_S*1000:.0f} ms, error={error_pct:+.1f}%)"
+    )
 
     if steady < speed * 0.1:
         print(f"    WARNING: Steady-state speed is <10% of target.")
@@ -434,17 +453,22 @@ def cmd_step_response(args: argparse.Namespace) -> None:
             pid_m1 = rc.read_velocity_pid_m1()
             pid_m2 = rc.read_velocity_pid_m2()
             print(
-                f"  Current M1 PID: P={pid_m1['P']} I={pid_m1['I']} D={pid_m1['D']} QPPS={pid_m1['QPPS']}")
+                f"  Current M1 PID: P={pid_m1['P']} I={pid_m1['I']} D={pid_m1['D']} QPPS={pid_m1['QPPS']}"
+            )
             print(
-                f"  Current M2 PID: P={pid_m2['P']} I={pid_m2['I']} D={pid_m2['D']} QPPS={pid_m2['QPPS']}")
+                f"  Current M2 PID: P={pid_m2['P']} I={pid_m2['I']} D={pid_m2['D']} QPPS={pid_m2['QPPS']}"
+            )
             print(f"  Step target: {speed} ticks/s ({speed / QPPS * 100:.0f}% of max)")
             print()
 
             for motor in motors:
                 print(f"  Testing {motor}...")
-                times, speeds, steady, reversed_detected = run_step_response(rc, motor, speed)
-                _report_step_result(motor, times, speeds, steady, speed,
-                                    reversed_detected, args.verbose)
+                times, speeds, steady, reversed_detected = run_step_response(
+                    rc, motor, speed
+                )
+                _report_step_result(
+                    motor, times, speeds, steady, speed, reversed_detected, args.verbose
+                )
                 time.sleep(SETTLE_TIME_S)
 
             close_controller(rc)
@@ -485,17 +509,30 @@ def cmd_tune(args: argparse.Namespace) -> None:
                 else:
                     pid = rc.read_velocity_pid_m2()
                 print(
-                    f"  {motor} readback: P={pid['P']} I={pid['I']} D={pid['D']} QPPS={pid['QPPS']}")
+                    f"  {motor} readback: P={pid['P']} I={pid['I']} D={pid['D']} QPPS={pid['QPPS']}"
+                )
 
-            print(f"\n  Step target: {speed} ticks/s ({speed / QPPS * 100:.0f}% of max)")
+            print(
+                f"\n  Step target: {speed} ticks/s ({speed / QPPS * 100:.0f}% of max)"
+            )
             print()
 
             # Run step-response
             for motor in motors:
                 print(f"  Testing {motor}...")
-                times, speeds, steady, reversed_detected = run_step_response(rc, motor, speed)
-                _report_step_result(motor, times, speeds, steady, speed,
-                                    reversed_detected, args.verbose, p)
+                times, speeds, steady, reversed_detected = run_step_response(
+                    rc, motor, speed
+                )
+                _report_step_result(
+                    motor,
+                    times,
+                    speeds,
+                    steady,
+                    speed,
+                    reversed_detected,
+                    args.verbose,
+                    p,
+                )
                 time.sleep(SETTLE_TIME_S)
 
             close_controller(rc)
@@ -506,7 +543,9 @@ def cmd_tune(args: argparse.Namespace) -> None:
     print("  Tuning Summary")
     print(f"{'='*60}")
     print(f"  Target tau:  {TARGET_TAU_S*1000:.0f} ms (from sim motor_time_constant_s)")
-    print(f"  QPPS:        {qpps} ({MOTOR_MAX_RPM:.0f} RPM * {ENCODER_PPR_OUTPUT_SHAFT} PPR / 60)")
+    print(
+        f"  QPPS:        {qpps} ({MOTOR_MAX_RPM:.0f} RPM * {ENCODER_PPR_OUTPUT_SHAFT} PPR / 60)"
+    )
     print()
     print("  If all motors show PASS, these PID values are good.")
     print("  If SLOW: increase P by 50%, or add small I (e.g., 500).")
@@ -537,6 +576,7 @@ def cmd_stop(args: argparse.Namespace) -> None:
 # Argument parsing
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="RoboClaw velocity PID tuning for Strafer chassis",
@@ -558,29 +598,56 @@ Examples:
     mode.add_argument("--read", action="store_true", help="Read current PID values")
     mode.add_argument("--tune", action="store_true", help="Set PID + run step-response")
     mode.add_argument("--set", action="store_true", help="Set PID values only")
-    mode.add_argument("--step-response", action="store_true", help="Run step-response only")
+    mode.add_argument(
+        "--step-response", action="store_true", help="Run step-response only"
+    )
     mode.add_argument("--stop", action="store_true", help="Emergency stop all motors")
 
-    parser.add_argument("--controller", choices=["front", "rear", "both"], default="both",
-                        help="Which controller(s) to operate on (default: both)")
-    parser.add_argument("--motor", choices=["m1", "m2", "both"], default="both",
-                        help="Which motor(s) to operate on (default: both)")
+    parser.add_argument(
+        "--controller",
+        choices=["front", "rear", "both"],
+        default="both",
+        help="Which controller(s) to operate on (default: both)",
+    )
+    parser.add_argument(
+        "--motor",
+        choices=["m1", "m2", "both"],
+        default="both",
+        help="Which motor(s) to operate on (default: both)",
+    )
 
-    parser.add_argument("--p", type=int, default=None,
-                        help=f"P gain (default for --tune: {DEFAULT_P})")
-    parser.add_argument("--i", type=int, default=None,
-                        help=f"I gain (default for --tune: {DEFAULT_I})")
-    parser.add_argument("--d", type=int, default=None,
-                        help=f"D gain (default for --tune: {DEFAULT_D})")
-    parser.add_argument("--qpps", type=int, default=None, help=f"QPPS (default: {QPPS})")
-    parser.add_argument("--speed", type=int, default=None,
-                        help=f"Step-response target speed in ticks/s (default: {STEP_VELOCITY_TICKS})")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Print raw step-response data")
+    parser.add_argument(
+        "--p", type=int, default=None, help=f"P gain (default for --tune: {DEFAULT_P})"
+    )
+    parser.add_argument(
+        "--i", type=int, default=None, help=f"I gain (default for --tune: {DEFAULT_I})"
+    )
+    parser.add_argument(
+        "--d", type=int, default=None, help=f"D gain (default for --tune: {DEFAULT_D})"
+    )
+    parser.add_argument(
+        "--qpps", type=int, default=None, help=f"QPPS (default: {QPPS})"
+    )
+    parser.add_argument(
+        "--speed",
+        type=int,
+        default=None,
+        help=f"Step-response target speed in ticks/s (default: {STEP_VELOCITY_TICKS})",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Print raw step-response data"
+    )
 
     args = parser.parse_args()
 
     # Validate --set requires at least one PID value
-    if args.set and args.p is None and args.i is None and args.d is None and args.qpps is None:
+    if (
+        args.set
+        and args.p is None
+        and args.i is None
+        and args.d is None
+        and args.qpps is None
+    ):
         parser.error("--set requires at least one of --p, --i, --d, --qpps")
 
     if args.stop:

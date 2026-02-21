@@ -50,7 +50,11 @@ def dump_tree(stage, root_path, max_depth):
 
 
 def dump_axles(stage, fragment, limit):
-    axles = [p for p in stage.Traverse() if fragment in str(p.GetPath()) and p.IsA(UsdGeom.Xform)]
+    axles = [
+        p
+        for p in stage.Traverse()
+        if fragment in str(p.GetPath()) and p.IsA(UsdGeom.Xform)
+    ]
     print(f"\nFound {len(axles)} axle xforms matching '{fragment}'")
     for axle in axles[:limit]:
         print(f"\nAxle: {axle.GetPath()}")
@@ -78,14 +82,24 @@ def dump_axles(stage, fragment, limit):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--stage", required=True, help="Path to USD stage.")
-    parser.add_argument("--root", default="/World", help="Root prim to start tree dump.")
-    parser.add_argument("--max-depth", type=int, default=5, help="Max depth to print from root.")
-    parser.add_argument("--fragment", default="node_606_XXXX_0096_roller_axle",
-                        help="Substring to match axle xforms.")
-    parser.add_argument("--limit", type=int, default=5,
-                        help="Number of axles to sample for meshes.")
     parser.add_argument(
-        "--tree-output", help="Optional path to save the full prim tree (no depth limit).")
+        "--root", default="/World", help="Root prim to start tree dump."
+    )
+    parser.add_argument(
+        "--max-depth", type=int, default=5, help="Max depth to print from root."
+    )
+    parser.add_argument(
+        "--fragment",
+        default="node_606_XXXX_0096_roller_axle",
+        help="Substring to match axle xforms.",
+    )
+    parser.add_argument(
+        "--limit", type=int, default=5, help="Number of axles to sample for meshes."
+    )
+    parser.add_argument(
+        "--tree-output",
+        help="Optional path to save the full prim tree (no depth limit).",
+    )
     args = parser.parse_args()
 
     stage = Usd.Stage.Open(args.stage)

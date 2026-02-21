@@ -37,10 +37,10 @@ lint-fix: ## Auto-fix lint issues with autopep8
 		source/strafer_ros/ source/strafer_shared/ Scripts/
 
 format: ## Run black on all Python source
-	black source/strafer_ros/ source/strafer_shared/ Scripts/
+	python3 -m black source/strafer_ros/ source/strafer_shared/ Scripts/
 
 format-check: ## Check formatting without modifying files
-	black --check source/strafer_ros/ source/strafer_shared/ Scripts/
+	python3 -m black --check source/strafer_ros/ source/strafer_shared/ Scripts/
 
 # ---------- Clean ----------
 

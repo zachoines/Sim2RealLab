@@ -45,8 +45,9 @@ parser.add_argument("--stage", required=True, help="Input USD to read.")
 parser.add_argument("--output-usd", required=True, help="Path to write modified USD.")
 parser.add_argument("--log", help="Optional path to write a summary log.")
 parser.add_argument("--mass", type=float, default=None, help="Total robot mass (kg).")
-parser.add_argument("--delete-excluded", action="store_true",
-                    help="Delete excluded prims from stage.")
+parser.add_argument(
+    "--delete-excluded", action="store_true", help="Delete excluded prims from stage."
+)
 
 # Parse known args, pass rest to AppLauncher
 script_args, remaining_args = parser.parse_known_args()
@@ -111,9 +112,9 @@ ROLLER_AXLE_FRACTION = 0.3
 # Joint drive configuration (wheel motors)
 # If using Isaac Lab actuators (ImplicitActuatorCfg), you can disable DriveAPI to avoid double control.
 USE_WHEEL_DRIVE_API = False
-DRIVE_MAX_TORQUE_NM = 3.2    # Match actuator effort_limit_sim
-DRIVE_DAMPING = 10.0         # Match actuator damping (velocity control)
-DRIVE_STIFFNESS = 0.0        # 0 for velocity control
+DRIVE_MAX_TORQUE_NM = 3.2  # Match actuator effort_limit_sim
+DRIVE_DAMPING = 10.0  # Match actuator damping (velocity control)
+DRIVE_STIFFNESS = 0.0  # 0 for velocity control
 
 # ============================================================================
 # Exclusion / Attachment Configuration
@@ -122,17 +123,17 @@ DRIVE_STIFFNESS = 0.0        # 0 for velocity control
 # 1) Roller assembly siblings - patterns to EXCLUDE (no physics at all)
 #    These are inside each roller_assembly and are purely visual
 ROLLER_ASSEMBLY_EXCLUDE_PATTERNS = [
-    "roller_e_clip",      # e_clip parts
-    "roller_shim",        # shim parts
-    "roller_core",        # roller_core (not wheel core)
+    "roller_e_clip",  # e_clip parts
+    "roller_shim",  # shim parts
+    "roller_core",  # roller_core (not wheel core)
     "node_600_0307_0003",  # bearing balls
 ]
 
 # 2) Wheel siblings - patterns to EXCLUDE (no physics)
 WHEEL_EXCLUDE_PATTERNS = [
     "node_606_XXXX_0096_text",  # text labels
-    "node_812_0004_0007",       # screws/hardware
-    "node_800_0004_0020",       # screws/hardware
+    "node_812_0004_0007",  # screws/hardware
+    "node_800_0004_0020",  # screws/hardware
 ]
 
 # 2b) Wheel siblings - patterns to ATTACH to wheel core (fixed joint)
@@ -213,11 +214,13 @@ def delete_excluded_prims(stage: Usd.Stage, log: List[str]) -> int:
             for child in wheel_prim.GetChildren():
                 if "roller_assembly" in child.GetName():
                     for roller_child in child.GetChildren():
-                        if should_exclude_by_pattern(roller_child.GetName(), ROLLER_ASSEMBLY_EXCLUDE_PATTERNS):
+                        if should_exclude_by_pattern(
+                            roller_child.GetName(), ROLLER_ASSEMBLY_EXCLUDE_PATTERNS
+                        ):
                             paths_to_delete.append(str(roller_child.GetPath()))
 
     # Delete all collected paths (in reverse order to delete children before parents)
-    paths_to_delete.sort(key=lambda p: p.count('/'), reverse=True)
+    paths_to_delete.sort(key=lambda p: p.count("/"), reverse=True)
     for path in paths_to_delete:
         if stage.RemovePrim(path):
             log.append(f"[DEL] Removed: {path}")
@@ -293,7 +296,9 @@ def find_leaf_mesh(stage: Usd.Stage, root_path: str) -> Optional[str]:
     return best_mesh
 
 
-def find_child_containing(parent: Usd.Prim, fragment: str, exclude_fragment: Optional[str] = None) -> Optional[Usd.Prim]:
+def find_child_containing(
+    parent: Usd.Prim, fragment: str, exclude_fragment: Optional[str] = None
+) -> Optional[Usd.Prim]:
     """
     Find a direct child whose name contains the given fragment.
     Optionally exclude children containing exclude_fragment.
@@ -312,7 +317,9 @@ def find_child_containing(parent: Usd.Prim, fragment: str, exclude_fragment: Opt
 # ============================================================================
 
 
-def apply_collision_to_mesh(stage: Usd.Stage, mesh_path: str, approximation: str = "convexDecomposition") -> bool:
+def apply_collision_to_mesh(
+    stage: Usd.Stage, mesh_path: str, approximation: str = "convexDecomposition"
+) -> bool:
     """
     Apply collision API directly to a mesh prim with specified approximation type.
     This ensures the collision is on the actual mesh geometry.
@@ -428,10 +435,7 @@ def compute_mass_cfg(total_mass: float) -> dict[str, float]:
 
 
 def create_fixed_joint(
-    stage: Usd.Stage,
-    joint_path: str,
-    body0_path: str,
-    body1_path: str
+    stage: Usd.Stage, joint_path: str, body0_path: str, body1_path: str
 ) -> bool:
     """
     Create a fixed joint between two bodies.
@@ -565,7 +569,9 @@ def create_revolute_joint(
 # ============================================================================
 
 
-def create_body_link(stage: Usd.Stage, log: List[str], mass_cfg: dict[str, float]) -> Optional[str]:
+def create_body_link(
+    stage: Usd.Stage, log: List[str], mass_cfg: dict[str, float]
+) -> Optional[str]:
     """
     Create or retrieve the body_link prim at the robot root with identity transform.
 
@@ -612,7 +618,9 @@ def create_body_link(stage: Usd.Stage, log: List[str], mass_cfg: dict[str, float
     return BODY_LINK_PATH
 
 
-def setup_frame(stage: Usd.Stage, log: List[str], mass_cfg: dict[str, float]) -> Optional[str]:
+def setup_frame(
+    stage: Usd.Stage, log: List[str], mass_cfg: dict[str, float]
+) -> Optional[str]:
     """
     Set up articulation root on body_link and connect all frame rails to it.
     Returns the path to the body_link for wheel connections.
@@ -712,7 +720,9 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass_cfg: dict[str, float]) ->
             if extra_prim:
                 rail_mass = mass_cfg["rail"]
                 if apply_rigid_body(stage, extra_rail, rail_mass):
-                    log.append(f"[OK] Rigid body (mass={rail_mass:.3f}) on {extra_rail}")
+                    log.append(
+                        f"[OK] Rigid body (mass={rail_mass:.3f}) on {extra_rail}"
+                    )
                 if apply_collision_to_mesh(stage, extra_mesh, "boundingCube"):
                     log.append(f"[OK] Collision (boundingCube) on mesh {extra_mesh}")
 
@@ -735,7 +745,9 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass_cfg: dict[str, float]) ->
 # ============================================================================
 
 
-def find_wheel_core_mesh(stage: Usd.Stage, wheel_prim: Usd.Prim, log: List[str]) -> Optional[str]:
+def find_wheel_core_mesh(
+    stage: Usd.Stage, wheel_prim: Usd.Prim, log: List[str]
+) -> Optional[str]:
     """
     Find the wheel core's leaf mesh body path.
     Looks for prim containing "core" but not "roller_core".
@@ -799,7 +811,9 @@ def find_wheel_core_mesh(stage: Usd.Stage, wheel_prim: Usd.Prim, log: List[str])
     return None
 
 
-def find_roller_mesh_bodies(stage: Usd.Stage, assembly_prim: Usd.Prim) -> Tuple[Optional[str], Optional[str]]:
+def find_roller_mesh_bodies(
+    stage: Usd.Stage, assembly_prim: Usd.Prim
+) -> Tuple[Optional[str], Optional[str]]:
     """
     Find roller axle and cover leaf mesh body paths within a roller assembly.
     Returns (axle_mesh_path, cover_mesh_path).
@@ -925,16 +939,25 @@ def setup_wheel(
     wheel_joint_path = f"{core_xform_path}/{wheel_joint_name}"
     # Add velocity drive for motor control (stiffness=0 for velocity mode)
     if create_revolute_joint(
-        stage, wheel_joint_path, rail_mesh, core_mesh, "Z",
+        stage,
+        wheel_joint_path,
+        rail_mesh,
+        core_mesh,
+        "Z",
         add_drive=USE_WHEEL_DRIVE_API,
         drive_type="velocity",
         drive_damping=DRIVE_DAMPING,
         drive_stiffness=DRIVE_STIFFNESS,
         drive_max_force=DRIVE_MAX_TORQUE_NM,
     ):
-        drive_note = "with velocity drive" if USE_WHEEL_DRIVE_API else "no DriveAPI (actuator only)"
+        drive_note = (
+            "with velocity drive"
+            if USE_WHEEL_DRIVE_API
+            else "no DriveAPI (actuator only)"
+        )
         log.append(
-            f"[OK] Revolute joint {wheel_joint_path} (name: {wheel_joint_name}) {drive_note}")
+            f"[OK] Revolute joint {wheel_joint_path} (name: {wheel_joint_name}) {drive_note}"
+        )
         log.append(f"     Body0 (rail): {rail_mesh}")
         log.append(f"     Body1 (core): {core_mesh}")
     else:
@@ -968,14 +991,17 @@ def setup_wheel(
                 plate_mass = mass_cfg["wheel_plate"]
                 if apply_rigid_body(stage, child_path, plate_mass):
                     log.append(
-                        f"[OK] Rigid body (mass={plate_mass:.3f}) on side plate: {child_name}")
+                        f"[OK] Rigid body (mass={plate_mass:.3f}) on side plate: {child_name}"
+                    )
 
                 # Create fixed joint to core
                 plate_type = "left" if "left_slant" in child_name else "right"
                 plate_joint_name = f"{wheel_name}_plate_{plate_type}_{attach_count}"
                 joint_path = f"{child_path}/{plate_joint_name}"
                 if create_fixed_joint(stage, joint_path, core_mesh, child_mesh):
-                    log.append(f"[OK] Fixed joint: {child_name} -> core (name: {plate_joint_name})")
+                    log.append(
+                        f"[OK] Fixed joint: {child_name} -> core (name: {plate_joint_name})"
+                    )
                     attach_count += 1
                 else:
                     log.append(f"[WARN] Failed to attach {child_name} to core")
@@ -983,7 +1009,9 @@ def setup_wheel(
                 log.append(f"[WARN] No mesh under {child_path}")
 
     if attach_count > 0 or exclude_count > 0:
-        log.append(f"[INFO] Wheel siblings: {attach_count} attached, {exclude_count} excluded")
+        log.append(
+            f"[INFO] Wheel siblings: {attach_count} attached, {exclude_count} excluded"
+        )
 
     # 4. Process all roller assemblies
     roller_index = 0  # 0-9 for each wheel
@@ -1014,13 +1042,17 @@ def setup_wheel(
         # Apply rigid body to axle Xform (no collision needed for axle pins)
         axle_mass = mass_cfg["roller_axle"]
         if apply_rigid_body(stage, axle_xform_path, axle_mass):
-            log.append(f"[OK] Rigid body (mass={axle_mass:.3f}) on axle: {axle_xform_path}")
+            log.append(
+                f"[OK] Rigid body (mass={axle_mass:.3f}) on axle: {axle_xform_path}"
+            )
 
         # Apply rigid body and SDF collision to cover Xform/mesh
         # SDF provides smooth collision for barrel-shaped roller covers
         cover_mass = mass_cfg["roller_cover"]
         if apply_rigid_body(stage, cover_xform_path, cover_mass):
-            log.append(f"[OK] Rigid body (mass={cover_mass:.3f}) on cover: {cover_xform_path}")
+            log.append(
+                f"[OK] Rigid body (mass={cover_mass:.3f}) on cover: {cover_xform_path}"
+            )
         if apply_sdf_collision_to_mesh(stage, cover_mesh):
             log.append(f"[OK] Collision (SDF) on cover mesh: {cover_mesh}")
 
@@ -1040,8 +1072,12 @@ def setup_wheel(
         # The joint is positioned at body1's origin (axle center)
         roller_joint_name = f"{wheel_name}_roller_{roller_index}"
         revolute_joint_path = f"{axle_xform_path}/{roller_joint_name}"
-        if create_revolute_joint(stage, revolute_joint_path, cover_mesh, axle_mesh, "Z"):
-            log.append(f"[OK] Revolute joint: axle -> cover (name: {roller_joint_name})")
+        if create_revolute_joint(
+            stage, revolute_joint_path, cover_mesh, axle_mesh, "Z"
+        ):
+            log.append(
+                f"[OK] Revolute joint: axle -> cover (name: {roller_joint_name})"
+            )
             log.append(f"     Body0 (cover): {cover_mesh}")
             log.append(f"     Body1 (axle): {axle_mesh}")
         else:
@@ -1052,7 +1088,9 @@ def setup_wheel(
         if assembly_prim:
             for roller_child in assembly_prim.GetChildren():
                 roller_child_name = roller_child.GetName()
-                if should_exclude_by_pattern(roller_child_name, ROLLER_ASSEMBLY_EXCLUDE_PATTERNS):
+                if should_exclude_by_pattern(
+                    roller_child_name, ROLLER_ASSEMBLY_EXCLUDE_PATTERNS
+                ):
                     roller_exclude_count += 1
 
         roller_index += 1
@@ -1060,7 +1098,8 @@ def setup_wheel(
     log.append(f"[INFO] Processed {roller_index} roller assemblies for {wheel_name}")
     if roller_exclude_count > 0:
         log.append(
-            f"[INFO] Excluded {roller_exclude_count} roller assembly siblings (e_clips, shims, etc.)")
+            f"[INFO] Excluded {roller_exclude_count} roller assembly siblings (e_clips, shims, etc.)"
+        )
 
 
 # ============================================================================
@@ -1104,7 +1143,9 @@ def main():
             deleted = delete_excluded_prims(stage, log)
             log.append(f"[INFO] Deleted {deleted} excluded prims")
         else:
-            log.append("\n--- Excluded paths (no physics, use --delete-excluded to remove) ---")
+            log.append(
+                "\n--- Excluded paths (no physics, use --delete-excluded to remove) ---"
+            )
             for path in FRAME_EXCLUDE_PATHS:
                 log.append(f"[SKIP] Frame: {path}")
             for path in ROOT_EXCLUDE_PATHS:

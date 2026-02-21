@@ -32,8 +32,10 @@ def generate_class_stub(cls: type, indent: str = "") -> list[str]:
     bases = cls.__bases__
     if bases and bases != (object,):
         base_names = ", ".join(
-            b.__name__ for b in bases
-            if b.__name__ not in ("pybind11_object", "Boost.Python.instance", "instance", "object")
+            b.__name__
+            for b in bases
+            if b.__name__
+            not in ("pybind11_object", "Boost.Python.instance", "instance", "object")
         )
         if base_names:
             lines.append(f"{indent}class {cls.__name__}({base_names}):")
@@ -45,7 +47,7 @@ def generate_class_stub(cls: type, indent: str = "") -> list[str]:
     # Get all members
     members = []
     for name in dir(cls):
-        if name.startswith('_') and name not in ('__init__', '__new__'):
+        if name.startswith("_") and name not in ("__init__", "__new__"):
             continue
         try:
             attr = getattr(cls, name)
@@ -104,7 +106,7 @@ def generate_module_stub(module: Any, output_path: Path, module_name: str):
     constants = []
 
     for name in dir(module):
-        if name.startswith('_'):
+        if name.startswith("_"):
             continue
         try:
             attr = getattr(module, name)
@@ -145,13 +147,16 @@ def generate_module_stub(module: Any, output_path: Path, module_name: str):
 
     # Write to file
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(lines))
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
 
     class_count = len(classes)
-    method_count = sum(len([l for l in generate_class_stub(cls) if 'def ' in l])
-                       for _, cls in classes)
-    print(f"  Generated {output_path.name}: {class_count} classes, {method_count} methods")
+    method_count = sum(
+        len([l for l in generate_class_stub(cls) if "def " in l]) for _, cls in classes
+    )
+    print(
+        f"  Generated {output_path.name}: {class_count} classes, {method_count} methods"
+    )
 
 
 def get_workspace_root() -> Path:
@@ -171,16 +176,27 @@ def main():
     # Package configurations
     package_configs = {
         "pxr": [
-            'Usd', 'UsdGeom', 'Gf', 'Sdf', 'Vt', 'Tf',
-            'UsdPhysics', 'UsdShade',
+            "Usd",
+            "UsdGeom",
+            "Gf",
+            "Sdf",
+            "Vt",
+            "Tf",
+            "UsdPhysics",
+            "UsdShade",
         ],
         "isaaclab": [
-            'app', 'sim', 'assets', 'scene', 'utils',
-            'envs', 'managers', 'sensors', 'terrains',
+            "app",
+            "sim",
+            "assets",
+            "scene",
+            "utils",
+            "envs",
+            "managers",
+            "sensors",
+            "terrains",
         ],
-        "omni": [
-            'isaac', 'kit', 'usd', 'ui'
-        ],
+        "omni": ["isaac", "kit", "usd", "ui"],
     }
 
     # Get modules to process
@@ -189,11 +205,14 @@ def main():
     else:
         # Try to import the package and get its submodules
         try:
-            pkg = __import__(package, fromlist=[''])
+            pkg = __import__(package, fromlist=[""])
             modules_to_process = [
-                name for name in dir(pkg)
-                if not name.startswith('_') and inspect.ismodule(getattr(pkg, name))
-            ][:10]  # Limit to first 10 submodules
+                name
+                for name in dir(pkg)
+                if not name.startswith("_") and inspect.ismodule(getattr(pkg, name))
+            ][
+                :10
+            ]  # Limit to first 10 submodules
         except ImportError:
             print(f"[ERROR] Package '{package}' not found or not importable")
             print("\nSupported packages: pxr, isaaclab, omni")
@@ -210,7 +229,7 @@ def main():
         print(f"Processing {package}.{module_name}...")
         try:
             # Import module
-            module = __import__(f'{package}.{module_name}', fromlist=[''])
+            module = __import__(f"{package}.{module_name}", fromlist=[""])
 
             # Generate stub for main module
             output_path = typings_base / module_name / f"{module_name}.pyi"
@@ -220,7 +239,7 @@ def main():
             init_path = typings_base / module_name / "__init__.pyi"
             if not init_path.exists():
                 init_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(init_path, 'w') as f:
+                with open(init_path, "w") as f:
                     f.write(f"from .{module_name} import *\n")
 
             success_count += 1
@@ -228,7 +247,9 @@ def main():
         except Exception as e:
             print(f"  Error: {type(e).__name__}: {e}")
 
-    print(f"\n[SUCCESS] Generated stubs for {success_count}/{len(modules_to_process)} modules")
+    print(
+        f"\n[SUCCESS] Generated stubs for {success_count}/{len(modules_to_process)} modules"
+    )
     print(f"Stubs saved to: {typings_base}")
     print("\nReload VS Code for changes to take effect.")
 

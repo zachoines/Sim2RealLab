@@ -13,6 +13,7 @@ import pytest
 @pytest.fixture
 def crc16():
     from strafer_driver.roboclaw_interface import _crc16
+
     return _crc16
 
 
@@ -126,6 +127,7 @@ class TestPacketProtocol:
     def test_checksum_error_raised(self, make_interface):
         """Bad CRC in response should raise RoboClawChecksumError."""
         from strafer_driver.roboclaw_interface import RoboClawChecksumError
+
         rc, mock_serial = make_interface()
         rc.max_retries = 0
 
@@ -139,6 +141,7 @@ class TestPacketProtocol:
     def test_timeout_error_raised(self, make_interface):
         """Short response should raise RoboClawTimeoutError."""
         from strafer_driver.roboclaw_interface import RoboClawTimeoutError
+
         rc, mock_serial = make_interface()
         rc.max_retries = 0
 
@@ -233,17 +236,20 @@ class TestPacketProtocol:
 class TestConnectionManagement:
     def test_is_open_false_initially(self):
         from strafer_driver.roboclaw_interface import RoboClawInterface
+
         rc = RoboClawInterface("/dev/fake", 0x80)
         assert rc.is_open is False
 
     def test_close_idempotent(self):
         from strafer_driver.roboclaw_interface import RoboClawInterface
+
         rc = RoboClawInterface("/dev/fake", 0x80)
         rc.close()
         rc.close()
 
     def test_reconnect_failure(self):
         from strafer_driver.roboclaw_interface import RoboClawInterface
+
         rc = RoboClawInterface("/dev/nonexistent_port", 0x80)
         assert rc.reconnect() is False
 
@@ -267,6 +273,7 @@ class TestRetryLogic:
     def test_retry_exhausted_raises(self, make_interface):
         """After all retries exhausted, the last exception is raised."""
         from strafer_driver.roboclaw_interface import RoboClawTimeoutError
+
         rc, mock_serial = make_interface()
         rc.max_retries = 2
 
@@ -323,6 +330,7 @@ class TestAutoDetect:
     def test_probe_address_no_device(self):
         """probe_address returns False for a nonexistent port."""
         from strafer_driver.roboclaw_interface import probe_address
+
         assert probe_address("/dev/nonexistent_port_xyz", 0x80) is False
 
     def test_detect_both_on_separate_ports(self, crc16):
@@ -337,9 +345,12 @@ class TestAutoDetect:
                 return True
             return False
 
-        with patch("strafer_driver.roboclaw_interface.probe_address", side_effect=fake_probe):
+        with patch(
+            "strafer_driver.roboclaw_interface.probe_address", side_effect=fake_probe
+        ):
             result = detect_roboclaws(
-                0x80, 0x81,
+                0x80,
+                0x81,
                 candidate_ports=["/dev/ttyACM0", "/dev/ttyACM1"],
             )
 
@@ -357,9 +368,12 @@ class TestAutoDetect:
                 return True
             return False
 
-        with patch("strafer_driver.roboclaw_interface.probe_address", side_effect=fake_probe):
+        with patch(
+            "strafer_driver.roboclaw_interface.probe_address", side_effect=fake_probe
+        ):
             result = detect_roboclaws(
-                0x80, 0x81,
+                0x80,
+                0x81,
                 candidate_ports=["/dev/ttyACM0", "/dev/ttyACM1"],
             )
 
@@ -373,9 +387,12 @@ class TestAutoDetect:
         def fake_probe(port, addr, baud_rate=115200):
             return port == "/dev/ttyACM0" and addr == 0x80
 
-        with patch("strafer_driver.roboclaw_interface.probe_address", side_effect=fake_probe):
+        with patch(
+            "strafer_driver.roboclaw_interface.probe_address", side_effect=fake_probe
+        ):
             result = detect_roboclaws(
-                0x80, 0x81,
+                0x80,
+                0x81,
                 candidate_ports=["/dev/ttyACM0"],
             )
 
@@ -385,9 +402,12 @@ class TestAutoDetect:
         """detect_roboclaws returns empty dict when no controllers respond."""
         from strafer_driver.roboclaw_interface import detect_roboclaws
 
-        with patch("strafer_driver.roboclaw_interface.probe_address", return_value=False):
+        with patch(
+            "strafer_driver.roboclaw_interface.probe_address", return_value=False
+        ):
             result = detect_roboclaws(
-                0x80, 0x81,
+                0x80,
+                0x81,
                 candidate_ports=["/dev/ttyACM0", "/dev/ttyACM1"],
             )
 
@@ -404,8 +424,9 @@ class TestAutoDetect:
                 return True
             return False
 
-        with patch("strafer_driver.roboclaw_interface.glob.glob") as mock_glob, \
-                patch("strafer_driver.roboclaw_interface.probe_address", side_effect=fake_probe):
+        with patch("strafer_driver.roboclaw_interface.glob.glob") as mock_glob, patch(
+            "strafer_driver.roboclaw_interface.probe_address", side_effect=fake_probe
+        ):
             mock_glob.return_value = ["/dev/roboclaw0", "/dev/roboclaw1"]
 
             result = detect_roboclaws(0x80, 0x81)

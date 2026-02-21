@@ -20,10 +20,10 @@ from typing import Optional
 
 import serial
 
-
 # ---------------------------------------------------------------------------
 # CRC-16 (same algorithm as BasicMicro's reference code)
 # ---------------------------------------------------------------------------
+
 
 def _crc16(data: bytes) -> int:
     """Compute CRC-16 for RoboClaw packet serial protocol."""
@@ -363,6 +363,7 @@ class RoboClawInterface:
 # Auto-detection
 # ---------------------------------------------------------------------------
 
+
 def probe_address(port: str, address: int, baud_rate: int = 115200) -> bool:
     """Try to communicate with a RoboClaw at *address* on *port*.
 
@@ -371,8 +372,9 @@ def probe_address(port: str, address: int, baud_rate: int = 115200) -> bool:
     Does not raise on failure.
     """
     try:
-        rc = RoboClawInterface(port, address, baud_rate=baud_rate,
-                               read_timeout=0.15, max_retries=0)
+        rc = RoboClawInterface(
+            port, address, baud_rate=baud_rate, read_timeout=0.15, max_retries=0
+        )
         rc.open()
         try:
             rc.read_main_battery()

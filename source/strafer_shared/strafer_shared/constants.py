@@ -92,3 +92,9 @@ ROBOCLAW_REAR_ADDRESS = 0x81  # 129 decimal (DIP switch 1)
 ROBOCLAW_BAUD_RATE = 115200
 ROBOCLAW_FRONT_PORT = "/dev/roboclaw0"  # fallback; auto-detect overrides at runtime
 ROBOCLAW_REAR_PORT = "/dev/roboclaw1"  # fallback; auto-detect overrides at runtime
+
+# Velocity PID gains (written to RAM on every startup by driver and test scripts).
+ROBOCLAW_PID_P = 15000
+ROBOCLAW_PID_I = 750
+ROBOCLAW_PID_D = 0
+ROBOCLAW_QPPS = 2796  # max ticks/sec at 312 RPM (537.7 PPR)

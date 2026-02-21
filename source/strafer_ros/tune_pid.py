@@ -31,16 +31,15 @@ from strafer_shared.constants import (
     ROBOCLAW_FRONT_ADDRESS,
     ROBOCLAW_REAR_ADDRESS,
 )
-from strafer_driver.roboclaw_interface import RoboClawInterface
+from strafer_driver.roboclaw_interface import (
+    RoboClawInterface,
+    detect_roboclaws,
+)
 
 import argparse
 import atexit
 import math
-import sys
 import time
-
-# Add parent so we can import the driver package directly
-sys.path.insert(0, "strafer_driver")
 
 
 # Global list of open controllers for cleanup on exit
@@ -182,13 +181,42 @@ def close_controller(rc: RoboClawInterface) -> None:
         _open_controllers.remove(rc)
 
 
+# Cached auto-detected port mapping
+_detected_ports: dict[int, str] | None = None
+
+
+def _get_detected_ports() -> dict[int, str]:
+    """Auto-detect RoboClaw ports (cached)."""
+    global _detected_ports
+    if _detected_ports is None:
+        _detected_ports = detect_roboclaws(
+            ROBOCLAW_FRONT_ADDRESS, ROBOCLAW_REAR_ADDRESS, ROBOCLAW_BAUD_RATE
+        )
+        if _detected_ports:
+            print(
+                f"Auto-detected: {', '.join(f'0x{a:02X}->{p}' for a, p in _detected_ports.items())}"
+            )
+        else:
+            print("WARNING: No RoboClaws auto-detected on any port.")
+    return _detected_ports
+
+
 def get_controllers(which: str) -> list[tuple[str, str, int]]:
     """Return list of (label, port, address) based on --controller arg."""
+    detected = _get_detected_ports()
     controllers = []
     if which in ("front", "both"):
-        controllers.append(("Front", "/dev/roboclaw_front", ROBOCLAW_FRONT_ADDRESS))
+        port = detected.get(ROBOCLAW_FRONT_ADDRESS)
+        if port:
+            controllers.append(("Front", port, ROBOCLAW_FRONT_ADDRESS))
+        else:
+            print("WARNING: Front RoboClaw (0x80) not detected.")
     if which in ("rear", "both"):
-        controllers.append(("Rear", "/dev/roboclaw_rear", ROBOCLAW_REAR_ADDRESS))
+        port = detected.get(ROBOCLAW_REAR_ADDRESS)
+        if port:
+            controllers.append(("Rear", port, ROBOCLAW_REAR_ADDRESS))
+        else:
+            print("WARNING: Rear RoboClaw (0x81) not detected.")
     return controllers
 
 
@@ -233,7 +261,6 @@ def cmd_set(args: argparse.Namespace) -> None:
     i = args.i
     d = args.d
     qpps = args.qpps or QPPS
-
     motors = get_motor_list(args.motor)
 
     for label, port, addr in get_controllers(args.controller):
@@ -258,6 +285,7 @@ def cmd_set(args: argparse.Namespace) -> None:
             print(
                 f"  Readback M2: P={pid_m2['P']} I={pid_m2['I']} D={pid_m2['D']} QPPS={pid_m2['QPPS']}"
             )
+
             rc.close()
         except Exception as e:
             print(f"  ERROR: {e}")
@@ -552,7 +580,8 @@ def cmd_tune(args: argparse.Namespace) -> None:
     print("  If FAST/oscillating: decrease P by 30%, or add D (e.g., 5000).")
     print()
     print("  Iterate by running:  python3 tune_pid.py --tune --p <new_P>")
-    print("  PID values persist until power cycle (stored in RAM, not EEPROM).")
+    print("  PID values stored in RAM only — set automatically on startup")
+    print("  by the driver node and test scripts.")
 
 
 def cmd_stop(args: argparse.Namespace) -> None:
@@ -586,7 +615,7 @@ Examples:
   python3 tune_pid.py --read                          # Show current PID
   python3 tune_pid.py --tune                          # Set defaults + test
   python3 tune_pid.py --tune --p 20000 --i 500        # Custom PID + test
-  python3 tune_pid.py --set --p 15000 --i 750 --d 0   # Set PID only
+  python3 tune_pid.py --set --p 15000 --i 750 --d 0   # Set PID only (RAM)
   python3 tune_pid.py --step-response                  # Test only
   python3 tune_pid.py --step-response -v               # Test with raw data
   python3 tune_pid.py --tune --controller front        # Front only
@@ -637,7 +666,6 @@ Examples:
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Print raw step-response data"
     )
-
     args = parser.parse_args()
 
     # Validate --set requires at least one PID value

@@ -2,26 +2,21 @@
 """Quick diagnostic for RoboClaw -- tries duty-cycle commands instead of PID velocity."""
 
 from __future__ import annotations
+
+import struct
+import time
+
 from strafer_shared.constants import (
     ROBOCLAW_FRONT_ADDRESS,
     ROBOCLAW_REAR_ADDRESS,
     ROBOCLAW_BAUD_RATE,
 )
-from roboclaw_interface import RoboClawInterface, RoboClawError, _crc16
-
-import struct
-import sys
-import time
-
-sys.path.insert(
-    0,
-    str(
-        __import__("pathlib").Path(__file__).resolve().parent
-        / "strafer_driver"
-        / "strafer_driver"
-    ),
+from strafer_driver.roboclaw_interface import (
+    RoboClawInterface,
+    RoboClawError,
+    _crc16,
+    detect_roboclaws,
 )
-
 
 # Additional command IDs for PID reads
 CMD_READ_M1_VEL_PID = 55
@@ -170,8 +165,6 @@ def main():
 
     # Auto-detect ports if not explicitly given
     if args.front is None or args.rear is None:
-        from roboclaw_interface import detect_roboclaws
-
         detected = detect_roboclaws(
             ROBOCLAW_FRONT_ADDRESS, ROBOCLAW_REAR_ADDRESS, ROBOCLAW_BAUD_RATE
         )

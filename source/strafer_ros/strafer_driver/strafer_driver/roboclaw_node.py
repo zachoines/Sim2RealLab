@@ -40,6 +40,10 @@ from strafer_shared.constants import (
     ROBOCLAW_BAUD_RATE,
     ROBOCLAW_FRONT_PORT,
     ROBOCLAW_REAR_PORT,
+    ROBOCLAW_PID_P,
+    ROBOCLAW_PID_I,
+    ROBOCLAW_PID_D,
+    ROBOCLAW_QPPS,
     ENCODER_TICKS_TO_RADIANS,
     WHEEL_JOINT_NAMES,
 )
@@ -141,12 +145,14 @@ class RoboClawNode(Node):
         try:
             self._front.open()
             self.get_logger().info(f"Front RoboClaw opened on {front_port}")
+            self._configure_pid(self._front, "Front")
         except Exception as e:
             self.get_logger().error(f"Failed to open front RoboClaw: {e}")
 
         try:
             self._rear.open()
             self.get_logger().info(f"Rear RoboClaw opened on {rear_port}")
+            self._configure_pid(self._rear, "Rear")
         except Exception as e:
             self.get_logger().error(f"Failed to open rear RoboClaw: {e}")
 
@@ -207,6 +213,21 @@ class RoboClawNode(Node):
         self._latest_twist = msg
         self._last_cmd_vel_time = self.get_clock().now()
         self._watchdog_active = False
+
+    def _configure_pid(self, rc: RoboClawInterface, label: str) -> None:
+        """Set velocity PID on both motors of a controller.
+
+        Called on startup to ensure PID values are loaded into RAM.
+        """
+        p, i, d, qpps = ROBOCLAW_PID_P, ROBOCLAW_PID_I, ROBOCLAW_PID_D, ROBOCLAW_QPPS
+        try:
+            rc.set_velocity_pid_m1(p, i, d, qpps)
+            rc.set_velocity_pid_m2(p, i, d, qpps)
+            self.get_logger().info(
+                f"{label} PID set: P={p} I={i} D={d} QPPS={qpps}"
+            )
+        except Exception as e:
+            self.get_logger().error(f"{label} PID config failed: {e}")
 
     # ==================================================================
     # Timer callback (all serial I/O)

@@ -32,9 +32,9 @@ def main():
     parser.add_argument("--num_envs", type=int, default=1, help="Number of environments")
     parser.add_argument("--device", type=str, default="cuda:0", help="Device to run on")
     parser.add_argument("--headless", action="store_true", help="Run without rendering")
-    parser.add_argument("--enable_cameras", action="store_true", default=True, 
+    parser.add_argument("--enable_cameras", action="store_true", default=True,
                         help="Enable camera rendering (required for camera-based envs)")
-    parser.add_argument("--pattern", type=str, default="all", 
+    parser.add_argument("--pattern", type=str, default="all",
                         choices=[
                             "forward", "strafe", "strafe_left", "strafe_right",
                             "rotate", "circle", "figure8", "all"
@@ -42,7 +42,8 @@ def main():
                         help="Motion pattern to test")
     parser.add_argument("--speed", type=float, default=1.0,
                         help="Scale factor for pattern magnitudes (1.0 = default speeds)")
-    parser.add_argument("--duration", type=float, default=60.0, help="Duration per pattern in seconds")
+    parser.add_argument("--duration", type=float, default=60.0,
+                        help="Duration per pattern in seconds")
     parser.add_argument("--env", type=str, default="Isaac-Strafer-Nav-Real-v0",
                         help="Environment ID (default: Isaac-Strafer-Nav-Real-v0 = Realistic Full)")
     args = parser.parse_args()
@@ -81,7 +82,7 @@ def main():
     env_name = args.env
     print(f"\nCreating environment: {env_name}")
     print(f"Available: Isaac-Strafer-Nav-{{v0,Depth-v0,NoCam-v0,Real-v0,Real-Depth-v0,Robust-v0}}")
-    
+
     try:
         # Parse environment config from registry (Isaac Lab pattern)
         env_cfg = parse_env_cfg(
@@ -94,21 +95,21 @@ def main():
         # Create environment with the parsed config
         env = gym.make(env_name, cfg=env_cfg)
         print("[OK] Environment created successfully!")
-        
+
         # Print environment info
         print(f"\n--- Environment Info ---")
         print(f"Action space: {env.action_space}")
         print(f"Observation space: {env.observation_space}")
-        
+
         # Calculate steps per pattern based on environment dt
         env_dt = env_cfg.sim.dt * env_cfg.decimation  # ~0.033s at 30Hz policy
         steps_per_pattern = int(args.duration / env_dt)
-        
+
         print(f"\n--- Motion Test Configuration ---")
         print(f"Environment dt: {env_dt:.4f}s ({1/env_dt:.1f} Hz)")
         print(f"Pattern duration: {args.duration}s ({steps_per_pattern} steps)")
         print(f"Pattern(s) to run: {args.pattern}")
-        
+
         # Define motion patterns
         # Each pattern is a function that returns [vx, vy, omega] given time t
         speed_scale = args.speed
@@ -120,31 +121,31 @@ def main():
         def pattern_forward(t: float) -> tuple:
             """Move forward at 50% speed."""
             return (base_linear * speed_scale, 0.0, 0.0)
-        
+
         def pattern_backward(t: float) -> tuple:
             """Move backward at 50% speed."""
             return (-base_linear * speed_scale, 0.0, 0.0)
-        
+
         def pattern_strafe_right(t: float) -> tuple:
             """Strafe right at 50% speed."""
             return (0.0, -base_linear * speed_scale, 0.0)
-        
+
         def pattern_strafe_left(t: float) -> tuple:
             """Strafe left at 50% speed."""
             return (0.0, base_linear * speed_scale, 0.0)
-        
+
         def pattern_rotate_cw(t: float) -> tuple:
             """Rotate clockwise at 50% speed."""
             return (0.0, 0.0, -base_omega * speed_scale)
-        
+
         def pattern_rotate_ccw(t: float) -> tuple:
             """Rotate counter-clockwise at 50% speed."""
             return (0.0, 0.0, base_omega * speed_scale)
-        
+
         def pattern_circle(t: float) -> tuple:
             """Drive in a circle (forward + rotation)."""
             return (base_linear * speed_scale, 0.0, circle_omega * speed_scale)  # Forward + CCW rotation
-        
+
         def pattern_figure8(t: float) -> tuple:
             """Drive in a figure-8 pattern."""
             # Alternate rotation direction based on time
@@ -152,21 +153,21 @@ def main():
             phase = (t % (2 * period)) / period
             omega = figure8_speed * speed_scale if phase < 1.0 else -figure8_speed * speed_scale
             return (figure8_speed * speed_scale, 0.0, omega)
-        
+
         def pattern_strafe(t: float) -> tuple:
             """Alternate strafe left/right."""
             period = 2.0
             phase = (t % (2 * period)) / period
             vy = base_linear * speed_scale if phase < 1.0 else -base_linear * speed_scale
             return (0.0, vy, 0.0)
-        
+
         def pattern_rotate(t: float) -> tuple:
             """Alternate rotation CW/CCW."""
             period = 2.0
             phase = (t % (2 * period)) / period
             omega = base_omega * speed_scale if phase < 1.0 else -base_omega * speed_scale
             return (0.0, 0.0, omega)
-        
+
         # Build list of patterns to run
         pattern_map = {
             "forward": [("Forward", pattern_forward), ("Backward", pattern_backward)],
@@ -187,35 +188,35 @@ def main():
                 ("Figure-8", pattern_figure8),
             ],
         }
-        
+
         patterns_to_run = pattern_map[args.pattern]
-        
+
         # Reset environment
         print(f"\n--- Running Motion Patterns ---")
         obs, info = env.reset()
-        
+
         total_steps = 0
-        
+
         for pattern_name, pattern_fn in patterns_to_run:
             print(f"\n>>> Running pattern: {pattern_name} for {args.duration}s")
-            
+
             # Reset for each pattern
             obs, info = env.reset()
-            
+
             for step in range(steps_per_pattern):
                 t = step * env_dt  # Current time in seconds
-                
+
                 # Get action from pattern
                 vx, vy, omega = pattern_fn(t)
                 action = torch.tensor([[vx, vy, omega]], device=args.device)
-                
+
                 # Expand for multiple envs if needed
                 if args.num_envs > 1:
                     action = action.expand(args.num_envs, -1)
-                
+
                 # Step environment
                 obs, reward, terminated, truncated, info = env.step(action)
-                
+
                 # Print progress every second
                 if step % int(1.0 / env_dt) == 0:
                     obs_policy = obs['policy'] if isinstance(obs, dict) else obs
@@ -225,17 +226,17 @@ def main():
                     print(f"  t={t:.1f}s | action=[{vx:.2f}, {vy:.2f}, {omega:.2f}] | "
                           f"lin_vel=[{lin_vel[0]:.2f}, {lin_vel[1]:.2f}, {lin_vel[2]:.2f}] | "
                           f"ang_vel=[{ang_vel[0]:.2f}, {ang_vel[1]:.2f}, {ang_vel[2]:.2f}]")
-                
+
                 total_steps += 1
-                
+
                 # Check for termination
                 if terminated.any() or truncated.any():
                     print(f"  Episode ended at step {step}")
                     obs, info = env.reset()
-        
+
         print(f"\n[OK] Motion pattern test completed! ({total_steps} total steps)")
         env.close()
-        
+
     except Exception as e:
         print(f"\n[ERROR] Failed to create environment: {e}")
         import traceback

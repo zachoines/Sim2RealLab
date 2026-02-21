@@ -3,19 +3,19 @@
 """
 
 from __future__ import annotations
-
-import struct
-import sys
-import time
-
-sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent / "strafer_driver" / "strafer_driver"))
-from roboclaw_interface import RoboClawInterface, RoboClawError, _crc16
-
 from strafer_shared.constants import (
     ROBOCLAW_FRONT_ADDRESS,
     ROBOCLAW_REAR_ADDRESS,
     ROBOCLAW_BAUD_RATE,
 )
+from roboclaw_interface import RoboClawInterface, RoboClawError, _crc16
+
+import struct
+import sys
+import time
+
+sys.path.insert(0, str(__import__("pathlib").Path(
+    __file__).resolve().parent / "strafer_driver" / "strafer_driver"))
 
 
 # Additional command IDs for PID reads
@@ -157,7 +157,8 @@ def main():
     # Auto-detect ports if not explicitly given
     if args.front is None or args.rear is None:
         from roboclaw_interface import detect_roboclaws
-        detected = detect_roboclaws(ROBOCLAW_FRONT_ADDRESS, ROBOCLAW_REAR_ADDRESS, ROBOCLAW_BAUD_RATE)
+        detected = detect_roboclaws(ROBOCLAW_FRONT_ADDRESS,
+                                    ROBOCLAW_REAR_ADDRESS, ROBOCLAW_BAUD_RATE)
         if args.front is None:
             args.front = detected.get(ROBOCLAW_FRONT_ADDRESS)
         if args.rear is None:

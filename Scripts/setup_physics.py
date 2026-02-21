@@ -28,6 +28,11 @@ Example:
 # =============================================================================
 # Parse arguments BEFORE launching Isaac Sim
 # =============================================================================
+from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics
+from typing import List, Optional, Tuple
+from pathlib import Path
+import re
+from isaaclab.app import AppLauncher
 import argparse
 import sys
 
@@ -40,7 +45,8 @@ parser.add_argument("--stage", required=True, help="Input USD to read.")
 parser.add_argument("--output-usd", required=True, help="Path to write modified USD.")
 parser.add_argument("--log", help="Optional path to write a summary log.")
 parser.add_argument("--mass", type=float, default=None, help="Total robot mass (kg).")
-parser.add_argument("--delete-excluded", action="store_true", help="Delete excluded prims from stage.")
+parser.add_argument("--delete-excluded", action="store_true",
+                    help="Delete excluded prims from stage.")
 
 # Parse known args, pass rest to AppLauncher
 script_args, remaining_args = parser.parse_known_args()
@@ -52,7 +58,6 @@ sys.argv = [sys.argv[0]] + remaining_args
 # =============================================================================
 # Launch Isaac Sim (required for PhysxSchema)
 # =============================================================================
-from isaaclab.app import AppLauncher
 
 app_launcher = AppLauncher(headless=True)
 simulation_app = app_launcher.app
@@ -63,11 +68,6 @@ sys.argv = original_argv
 # =============================================================================
 # Now we can import PhysxSchema and other modules
 # =============================================================================
-import re
-from pathlib import Path
-from typing import List, Optional, Tuple
-
-from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics
 
 
 # ============================================================================
@@ -125,7 +125,7 @@ ROLLER_ASSEMBLY_EXCLUDE_PATTERNS = [
     "roller_e_clip",      # e_clip parts
     "roller_shim",        # shim parts
     "roller_core",        # roller_core (not wheel core)
-    "node_600_0307_0003", # bearing balls
+    "node_600_0307_0003",  # bearing balls
 ]
 
 # 2) Wheel siblings - patterns to EXCLUDE (no physics)
@@ -183,19 +183,19 @@ def delete_excluded_prims(stage: Usd.Stage, log: List[str]) -> int:
     """
     deleted_count = 0
     paths_to_delete: List[str] = []
-    
+
     # 1) Collect ROOT_EXCLUDE_PATHS (full paths)
     for path in ROOT_EXCLUDE_PATHS:
         prim = stage.GetPrimAtPath(path)
         if prim and prim.IsValid():
             paths_to_delete.append(path)
-    
+
     # 2) Collect FRAME_EXCLUDE_PATHS (full paths)
     for path in FRAME_EXCLUDE_PATHS:
         prim = stage.GetPrimAtPath(path)
         if prim and prim.IsValid():
             paths_to_delete.append(path)
-    
+
     # 3) Collect wheel siblings matching WHEEL_EXCLUDE_PATTERNS
     for wheel_name in WHEEL_TO_RAIL.keys():
         wheel_path = f"{WHEELS_PATH}/{wheel_name}"
@@ -204,7 +204,7 @@ def delete_excluded_prims(stage: Usd.Stage, log: List[str]) -> int:
             for child in wheel_prim.GetChildren():
                 if should_exclude_by_pattern(child.GetName(), WHEEL_EXCLUDE_PATTERNS):
                     paths_to_delete.append(str(child.GetPath()))
-    
+
     # 4) Collect roller assembly siblings matching ROLLER_ASSEMBLY_EXCLUDE_PATTERNS
     for wheel_name in WHEEL_TO_RAIL.keys():
         wheel_path = f"{WHEELS_PATH}/{wheel_name}"
@@ -215,7 +215,7 @@ def delete_excluded_prims(stage: Usd.Stage, log: List[str]) -> int:
                     for roller_child in child.GetChildren():
                         if should_exclude_by_pattern(roller_child.GetName(), ROLLER_ASSEMBLY_EXCLUDE_PATTERNS):
                             paths_to_delete.append(str(roller_child.GetPath()))
-    
+
     # Delete all collected paths (in reverse order to delete children before parents)
     paths_to_delete.sort(key=lambda p: p.count('/'), reverse=True)
     for path in paths_to_delete:
@@ -224,7 +224,7 @@ def delete_excluded_prims(stage: Usd.Stage, log: List[str]) -> int:
             deleted_count += 1
         else:
             log.append(f"[WARN] Failed to remove: {path}")
-    
+
     return deleted_count
 
 
@@ -257,31 +257,31 @@ def find_leaf_mesh(stage: Usd.Stage, root_path: str) -> Optional[str]:
     Find the deepest mesh prim under the given root path.
     This traverses through Body1/BodyXXX hierarchy to find the actual mesh.
     Example: node_606_XXXX_0096_core_1/Body1/Body113 (mesh)
-    
+
     Handles instanced prims by de-instancing them first.
     """
     root = stage.GetPrimAtPath(root_path)
     if not root or not root.IsValid():
         return None
-    
+
     # De-instance the root if needed
     if root.IsInstance():
         root.SetInstanceable(False)
         root = stage.GetPrimAtPath(root_path)
-    
+
     # First pass: de-instance any instanced children
     for prim in Usd.PrimRange(root):
         if prim.IsInstance():
             prim.SetInstanceable(False)
-    
+
     # Re-fetch root after de-instancing
     root = stage.GetPrimAtPath(root_path)
     if not root or not root.IsValid():
         return None
-    
+
     best_mesh = None
     best_depth = -1
-    
+
     # Second pass: find meshes
     for prim in Usd.PrimRange(root):
         if prim.IsA(UsdGeom.Mesh):
@@ -289,7 +289,7 @@ def find_leaf_mesh(stage: Usd.Stage, root_path: str) -> Optional[str]:
             if depth > best_depth:
                 best_depth = depth
                 best_mesh = str(prim.GetPath())
-    
+
     return best_mesh
 
 
@@ -374,11 +374,11 @@ def apply_rigid_body(stage: Usd.Stage, prim_path: str, mass: float = 1.0) -> boo
     prim = make_editable_prim(stage, prim_path)
     if not prim:
         return False
-    
+
     UsdPhysics.RigidBodyAPI.Apply(prim)
     mass_api = UsdPhysics.MassAPI.Apply(prim)
     mass_api.CreateMassAttr(mass)
-    
+
     return True
 
 
@@ -387,7 +387,7 @@ def apply_articulation_root(stage: Usd.Stage, prim_path: str) -> bool:
     prim = make_editable_prim(stage, prim_path)
     if not prim:
         return False
-    
+
     UsdPhysics.ArticulationRootAPI.Apply(prim)
     return True
 
@@ -428,16 +428,16 @@ def compute_mass_cfg(total_mass: float) -> dict[str, float]:
 
 
 def create_fixed_joint(
-    stage: Usd.Stage, 
-    joint_path: str, 
-    body0_path: str, 
+    stage: Usd.Stage,
+    joint_path: str,
+    body0_path: str,
     body1_path: str
 ) -> bool:
     """
     Create a fixed joint between two bodies.
     body0 = parent body (the one the joint is relative to)
     body1 = child body (the one being constrained)
-    
+
     Uses world transforms to compute correct local poses so bodies don't shift.
     """
     # Ensure bodies are editable
@@ -445,39 +445,39 @@ def create_fixed_joint(
     b1 = make_editable_prim(stage, body1_path)
     if not b0 or not b1:
         return False
-    
+
     joint = UsdPhysics.FixedJoint.Define(stage, joint_path)
     if not joint:
         return False
-    
+
     joint.CreateBody0Rel().SetTargets([Sdf.Path(body0_path)])
     joint.CreateBody1Rel().SetTargets([Sdf.Path(body1_path)])
-    
+
     # Compute relative transform so bodies stay in place
     xf_cache = UsdGeom.XformCache()
     body0_world = xf_cache.GetLocalToWorldTransform(b0)
     body1_world = xf_cache.GetLocalToWorldTransform(b1)
-    
+
     # Relative pose of body1 in body0's frame
     rel_pose = body1_world * body0_world.GetInverse()
     rel_pose = rel_pose.RemoveScaleShear()
-    
+
     pos0 = Gf.Vec3f(rel_pose.ExtractTranslation())
     rot0 = Gf.Quatf(rel_pose.ExtractRotationQuat())
-    
+
     joint.CreateLocalPos0Attr().Set(pos0)
     joint.CreateLocalRot0Attr().Set(rot0)
     joint.CreateLocalPos1Attr().Set(Gf.Vec3f(0.0, 0.0, 0.0))
     joint.CreateLocalRot1Attr().Set(Gf.Quatf(1.0, 0.0, 0.0, 0.0))
-    
+
     return True
 
 
 def create_revolute_joint(
-    stage: Usd.Stage, 
-    joint_path: str, 
-    body0_path: str, 
-    body1_path: str, 
+    stage: Usd.Stage,
+    joint_path: str,
+    body0_path: str,
+    body1_path: str,
     axis: str = "Z",
     add_drive: bool = False,
     drive_type: str = "velocity",
@@ -489,7 +489,7 @@ def create_revolute_joint(
     Create a revolute joint between two bodies.
     body0 = parent body (stationary reference, e.g., rail)
     body1 = child body (rotating body, e.g., wheel core)
-    
+
     Args:
         stage: USD stage
         joint_path: Path for the joint prim
@@ -501,7 +501,7 @@ def create_revolute_joint(
         drive_damping: Damping coefficient for velocity control
         drive_stiffness: Stiffness for position control (0 for pure velocity)
         drive_max_force: Maximum force/torque the drive can apply
-    
+
     Uses world transforms to compute correct local poses so bodies don't shift.
     """
     # Ensure bodies are editable
@@ -509,32 +509,32 @@ def create_revolute_joint(
     b1 = make_editable_prim(stage, body1_path)
     if not b0 or not b1:
         return False
-    
+
     joint = UsdPhysics.RevoluteJoint.Define(stage, joint_path)
     if not joint:
         return False
-    
+
     joint.CreateBody0Rel().SetTargets([Sdf.Path(body0_path)])
     joint.CreateBody1Rel().SetTargets([Sdf.Path(body1_path)])
     joint.CreateAxisAttr(axis)
-    
+
     # Compute relative transform so bodies stay in place
     xf_cache = UsdGeom.XformCache()
     body0_world = xf_cache.GetLocalToWorldTransform(b0)
     body1_world = xf_cache.GetLocalToWorldTransform(b1)
-    
+
     # Relative pose of body1 in body0's frame
     rel_pose = body1_world * body0_world.GetInverse()
     rel_pose = rel_pose.RemoveScaleShear()
-    
+
     pos0 = Gf.Vec3f(rel_pose.ExtractTranslation())
     rot0 = Gf.Quatf(rel_pose.ExtractRotationQuat())
-    
+
     joint.CreateLocalPos0Attr().Set(pos0)
     joint.CreateLocalRot0Attr().Set(rot0)
     joint.CreateLocalPos1Attr().Set(Gf.Vec3f(0.0, 0.0, 0.0))
     joint.CreateLocalRot1Attr().Set(Gf.Quatf(1.0, 0.0, 0.0, 0.0))
-    
+
     # Add Drive API for motor control if requested
     if add_drive:
         joint_prim = stage.GetPrimAtPath(joint_path)
@@ -542,7 +542,7 @@ def create_revolute_joint(
             # Apply DriveAPI for the angular axis
             # For revolute joints, we drive the "angular" DOF
             drive_api = UsdPhysics.DriveAPI.Apply(joint_prim, "angular")
-            
+
             # Set drive parameters
             # For velocity control: stiffness=0, damping>0
             # For position control: stiffness>0, damping>0
@@ -550,13 +550,13 @@ def create_revolute_joint(
             drive_api.CreateDampingAttr(drive_damping)
             drive_api.CreateStiffnessAttr(drive_stiffness)
             drive_api.CreateMaxForceAttr(drive_max_force)
-            
+
             # Set initial target velocity to 0
             if drive_type == "velocity":
                 drive_api.CreateTargetVelocityAttr(0.0)
             else:
                 drive_api.CreateTargetPositionAttr(0.0)
-    
+
     return True
 
 
@@ -568,19 +568,19 @@ def create_revolute_joint(
 def create_body_link(stage: Usd.Stage, log: List[str], mass_cfg: dict[str, float]) -> Optional[str]:
     """
     Create or retrieve the body_link prim at the robot root with identity transform.
-    
+
     The body_link serves as the articulation root in ROS convention:
     - Z-up (robot upright)
     - +X forward (robot front)
     - +Y left (robot left side)
-    
+
     Returns the path to the body_link prim.
     """
     root_prim = stage.GetPrimAtPath(ROOT_PATH)
     if not root_prim or not root_prim.IsValid():
         log.append(f"[ERROR] Root prim not found: {ROOT_PATH}")
         return None
-    
+
     # Check if body_link already exists
     body_link_prim = stage.GetPrimAtPath(BODY_LINK_PATH)
     if body_link_prim and body_link_prim.IsValid():
@@ -591,24 +591,24 @@ def create_body_link(stage: Usd.Stage, log: List[str], mass_cfg: dict[str, float
         if not body_link:
             log.append(f"[ERROR] Failed to create body_link at {BODY_LINK_PATH}")
             return None
-        
+
         # Set identity transform explicitly
         body_link.ClearXformOpOrder()
         body_link.AddTranslateOp().Set(Gf.Vec3d(0, 0, 0))
         body_link.AddOrientOp().Set(Gf.Quatf(1, 0, 0, 0))  # Identity quaternion
-        
+
         log.append(f"[OK] Created body_link with identity transform: {BODY_LINK_PATH}")
         body_link_prim = stage.GetPrimAtPath(BODY_LINK_PATH)
-    
+
     # Apply articulation root API to body_link
     if apply_articulation_root(stage, BODY_LINK_PATH):
         log.append(f"[OK] ArticulationRootAPI on {BODY_LINK_PATH}")
-    
+
     # Apply rigid body with mass
     body_mass = mass_cfg["body_link"]
     if apply_rigid_body(stage, BODY_LINK_PATH, body_mass):
         log.append(f"[OK] RigidBodyAPI (mass={body_mass:.3f}) on {BODY_LINK_PATH}")
-    
+
     return BODY_LINK_PATH
 
 
@@ -620,26 +620,26 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass_cfg: dict[str, float]) ->
     middle_rail = f"{RAILS_PATH}/middle_center_rail"
     left_rail = f"{RAILS_PATH}/left_side_rail"
     right_rail = f"{RAILS_PATH}/right_side_rail"
-    
+
     # 1. Create body_link with articulation root
     body_link_path = create_body_link(stage, log, mass_cfg)
     if not body_link_path:
         log.append(f"[ERROR] Failed to create body_link")
         return None
-    
+
     # Find the leaf mesh bodies for each rail
     middle_mesh = find_leaf_mesh(stage, middle_rail)
     left_mesh = find_leaf_mesh(stage, left_rail)
     right_mesh = find_leaf_mesh(stage, right_rail)
-    
+
     if not middle_mesh:
         log.append(f"[ERROR] Cannot find mesh under {middle_rail}")
         return None
-    
+
     log.append(f"[INFO] Middle rail mesh: {middle_mesh}")
     log.append(f"[INFO] Left rail mesh: {left_mesh}")
     log.append(f"[INFO] Right rail mesh: {right_mesh}")
-    
+
     # 2. Set up middle_center_rail (connect to body_link)
     middle_prim = make_editable_prim(stage, middle_rail)
     if middle_prim:
@@ -648,7 +648,7 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass_cfg: dict[str, float]) ->
             log.append(f"[OK] Rigid body (mass={rail_mass:.3f}) on {middle_rail}")
         if apply_collision_to_mesh(stage, middle_mesh, "boundingCube"):
             log.append(f"[OK] Collision (boundingCube) on mesh {middle_mesh}")
-        
+
         # Fixed joint: body_link -> middle_center_rail
         joint_path = f"{RAILS_PATH}/frame_rail_middle"
         if create_fixed_joint(stage, joint_path, body_link_path, middle_mesh):
@@ -660,7 +660,7 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass_cfg: dict[str, float]) ->
     else:
         log.append(f"[WARN] Missing prim: {middle_rail}")
         return None
-    
+
     # 3. Set up left_side_rail (connect to body_link)
     if left_mesh:
         left_prim = make_editable_prim(stage, left_rail)
@@ -670,7 +670,7 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass_cfg: dict[str, float]) ->
                 log.append(f"[OK] Rigid body (mass={rail_mass:.3f}) on {left_rail}")
             if apply_collision_to_mesh(stage, left_mesh, "boundingCube"):
                 log.append(f"[OK] Collision (boundingCube) on mesh {left_mesh}")
-            
+
             # Fixed joint: body_link -> left_side_rail
             joint_path = f"{RAILS_PATH}/frame_rail_left"
             if create_fixed_joint(stage, joint_path, body_link_path, left_mesh):
@@ -681,7 +681,7 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass_cfg: dict[str, float]) ->
                 log.append(f"[WARN] Failed to create fixed joint for left rail")
     else:
         log.append(f"[WARN] Missing mesh under: {left_rail}")
-    
+
     # 4. Set up right_side_rail (connect to body_link)
     if right_mesh:
         right_prim = make_editable_prim(stage, right_rail)
@@ -691,7 +691,7 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass_cfg: dict[str, float]) ->
                 log.append(f"[OK] Rigid body (mass={rail_mass:.3f}) on {right_rail}")
             if apply_collision_to_mesh(stage, right_mesh, "boundingCube"):
                 log.append(f"[OK] Collision (boundingCube) on mesh {right_mesh}")
-            
+
             # Fixed joint: body_link -> right_side_rail
             joint_path = f"{RAILS_PATH}/frame_rail_right"
             if create_fixed_joint(stage, joint_path, body_link_path, right_mesh):
@@ -702,7 +702,7 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass_cfg: dict[str, float]) ->
                 log.append(f"[WARN] Failed to create fixed joint for right rail")
     else:
         log.append(f"[WARN] Missing mesh under: {right_rail}")
-    
+
     # 5. Attach additional rails from FRAME_ATTACH_TO_MIDDLE_RAIL (connect to body_link)
     for rail_name in FRAME_ATTACH_TO_MIDDLE_RAIL:
         extra_rail = f"{RAILS_PATH}/{rail_name}"
@@ -715,7 +715,7 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass_cfg: dict[str, float]) ->
                     log.append(f"[OK] Rigid body (mass={rail_mass:.3f}) on {extra_rail}")
                 if apply_collision_to_mesh(stage, extra_mesh, "boundingCube"):
                     log.append(f"[OK] Collision (boundingCube) on mesh {extra_mesh}")
-                
+
                 joint_name = f"frame_rail_{rail_name.replace('_rail', '')}"
                 joint_path = f"{RAILS_PATH}/{joint_name}"
                 if create_fixed_joint(stage, joint_path, body_link_path, extra_mesh):
@@ -726,7 +726,7 @@ def setup_frame(stage: Usd.Stage, log: List[str], mass_cfg: dict[str, float]) ->
                     log.append(f"[WARN] Failed to create fixed joint for {rail_name}")
         else:
             log.append(f"[WARN] Missing mesh under: {extra_rail}")
-    
+
     return body_link_path
 
 
@@ -740,7 +740,7 @@ def find_wheel_core_mesh(stage: Usd.Stage, wheel_prim: Usd.Prim, log: List[str])
     Find the wheel core's leaf mesh body path.
     Looks for prim containing "core" but not "roller_core".
     Returns the deepest mesh path like: .../node_606_XXXX_0096_core_1/Body1/Body113
-    
+
     Core naming patterns:
     - node_606_XXXX_0096_core_1
     - node_606_XXXX_0096_core__1__1
@@ -752,15 +752,15 @@ def find_wheel_core_mesh(stage: Usd.Stage, wheel_prim: Usd.Prim, log: List[str])
     if wheel_prim.IsInstance():
         wheel_prim.SetInstanceable(False)
         wheel_prim = stage.GetPrimAtPath(wheel_path)
-    
+
     # De-instance all children first
     for child in wheel_prim.GetChildren():
         if child.IsInstance():
             child.SetInstanceable(False)
-    
+
     # Re-fetch wheel prim
     wheel_prim = stage.GetPrimAtPath(wheel_path)
-    
+
     for child in wheel_prim.GetChildren():
         name = child.GetName()
         # Match "core" but exclude "roller_core"
@@ -770,19 +770,19 @@ def find_wheel_core_mesh(stage: Usd.Stage, wheel_prim: Usd.Prim, log: List[str])
                 continue
             core_path = str(child.GetPath())
             log.append(f"[DEBUG] Found core prim: {core_path}")
-            
+
             # De-instance the core prim and its children
             core_prim = stage.GetPrimAtPath(core_path)
             if core_prim and core_prim.IsInstance():
                 core_prim.SetInstanceable(False)
-            
+
             # De-instance Body1 if it exists and is instanced
             body1_path = f"{core_path}/Body1"
             body1_prim = stage.GetPrimAtPath(body1_path)
             if body1_prim and body1_prim.IsValid() and body1_prim.IsInstance():
                 body1_prim.SetInstanceable(False)
                 log.append(f"[DEBUG] De-instanced Body1: {body1_path}")
-            
+
             # Find the leaf mesh
             mesh_path = find_leaf_mesh(stage, core_path)
             if mesh_path:
@@ -790,12 +790,12 @@ def find_wheel_core_mesh(stage: Usd.Stage, wheel_prim: Usd.Prim, log: List[str])
                 return mesh_path
             else:
                 log.append(f"[WARN] Could not find mesh under core: {core_path}")
-    
+
     # Debug: list all children
     log.append(f"[DEBUG] Children of {wheel_path}:")
     for child in wheel_prim.GetChildren():
         log.append(f"[DEBUG]   - {child.GetName()}")
-    
+
     return None
 
 
@@ -803,50 +803,50 @@ def find_roller_mesh_bodies(stage: Usd.Stage, assembly_prim: Usd.Prim) -> Tuple[
     """
     Find roller axle and cover leaf mesh body paths within a roller assembly.
     Returns (axle_mesh_path, cover_mesh_path).
-    
+
     Example paths:
     - axle:  .../node_606_XXXX_0096_roller_axle_2/Body1/Body116
     - cover: .../node_606_XXXX_0096_roller_cover_2/Body1/Body115
     """
     axle_mesh = None
     cover_mesh = None
-    
+
     assembly_path = str(assembly_prim.GetPath())
-    
+
     # De-instance the assembly first
     if assembly_prim.IsInstance():
         assembly_prim.SetInstanceable(False)
         assembly_prim = stage.GetPrimAtPath(assembly_path)
-    
+
     # De-instance all children of assembly
     for child in assembly_prim.GetChildren():
         if child.IsInstance():
             child.SetInstanceable(False)
-    
+
     # Re-fetch assembly
     assembly_prim = stage.GetPrimAtPath(assembly_path)
-    
+
     for child in assembly_prim.GetChildren():
         name = child.GetName()
         child_path = str(child.GetPath())
-        
+
         # De-instance child if needed
         child_prim = stage.GetPrimAtPath(child_path)
         if child_prim and child_prim.IsInstance():
             child_prim.SetInstanceable(False)
-        
+
         # De-instance Body1 under this child
         body1_path = f"{child_path}/Body1"
         body1_prim = stage.GetPrimAtPath(body1_path)
         if body1_prim and body1_prim.IsValid() and body1_prim.IsInstance():
             body1_prim.SetInstanceable(False)
-        
+
         if "roller_axle" in name:
             axle_mesh = find_leaf_mesh(stage, child_path)
-                
+
         elif "roller_cover" in name:
             cover_mesh = find_leaf_mesh(stage, child_path)
-    
+
     return (axle_mesh, cover_mesh)
 
 
@@ -859,15 +859,15 @@ def setup_wheel(
 ) -> None:
     """
     Set up physics for a single wheel and all its roller assemblies.
-    
+
     Structure:
     - Revolute joint: rail_mesh -> wheel_core_mesh (wheel spins on rail)
     - For each roller assembly:
       - Fixed joint: wheel_core_mesh -> roller_axle_mesh (axle fixed to wheel)
       - Revolute joint: roller_axle_mesh -> roller_cover_mesh (cover spins on axle)
-    
+
     All joints reference the leaf mesh prims (e.g., Body1/Body113).
-    
+
     Respects exclusion patterns:
     - WHEEL_EXCLUDE_PATTERNS: siblings of wheel core to skip
     - WHEEL_ATTACH_TO_CORE_PATTERNS: siblings to attach to wheel core
@@ -875,48 +875,48 @@ def setup_wheel(
     """
     wheel_path = f"{WHEELS_PATH}/{wheel_name}"
     rail_path = f"{RAILS_PATH}/{rail_name}"
-    
+
     wheel_prim = stage.GetPrimAtPath(wheel_path)
     if not wheel_prim or not wheel_prim.IsValid():
         log.append(f"[WARN] Missing wheel: {wheel_path}")
         return
-    
+
     # De-instance if needed
     if wheel_prim.IsInstance():
         wheel_prim.SetInstanceable(False)
         wheel_prim = stage.GetPrimAtPath(wheel_path)
-    
+
     # Find rail leaf mesh
     rail_mesh = find_leaf_mesh(stage, rail_path)
     if not rail_mesh:
         log.append(f"[WARN] Missing rail mesh under: {rail_path}")
         return
-    
+
     log.append(f"\n=== Setting up {wheel_name} (connected to {rail_name}) ===")
     log.append(f"[INFO] Rail mesh: {rail_mesh}")
-    
+
     # 1. Find wheel core leaf mesh
     core_mesh = find_wheel_core_mesh(stage, wheel_prim, log)
     if not core_mesh:
         log.append(f"[WARN] Missing wheel core mesh for {wheel_path}")
         return
-    
+
     log.append(f"[INFO] Core mesh: {core_mesh}")
-    
+
     # Get the parent Xform for applying rigid body (go up from mesh to the core Xform)
     # Path: .../node_606_XXXX_0096_core_1/Body1/Body113 -> .../node_606_XXXX_0096_core_1
     core_mesh_path = Sdf.Path(core_mesh)
     core_xform_path = str(core_mesh_path.GetParentPath().GetParentPath())
-    
+
     # Apply rigid body to wheel core Xform
     core_mass = mass_cfg["wheel_core"]
     if apply_rigid_body(stage, core_xform_path, core_mass):
         log.append(f"[OK] Rigid body (mass={core_mass:.3f}) on {core_xform_path}")
-    
+
     # Apply collision to the mesh (convexHull for wheel core - simple geometry)
     if apply_collision_to_mesh(stage, core_mesh, "convexHull"):
         log.append(f"[OK] Collision (convexHull) on mesh {core_mesh}")
-    
+
     # 2. Create revolute joint: rail_mesh -> wheel_core_mesh
     # body0 = rail (parent, stationary), body1 = wheel core (child, rotates)
     # Extract wheel number from wheel_name (e.g., "wheel_1" -> "1")
@@ -933,32 +933,33 @@ def setup_wheel(
         drive_max_force=DRIVE_MAX_TORQUE_NM,
     ):
         drive_note = "with velocity drive" if USE_WHEEL_DRIVE_API else "no DriveAPI (actuator only)"
-        log.append(f"[OK] Revolute joint {wheel_joint_path} (name: {wheel_joint_name}) {drive_note}")
+        log.append(
+            f"[OK] Revolute joint {wheel_joint_path} (name: {wheel_joint_name}) {drive_note}")
         log.append(f"     Body0 (rail): {rail_mesh}")
         log.append(f"     Body1 (core): {core_mesh}")
     else:
         log.append(f"[WARN] Failed to create revolute joint for wheel core")
-    
+
     # 3. Process wheel siblings - attach side plates to core
     attach_count = 0
     exclude_count = 0
     for child in wheel_prim.GetChildren():
         child_name = child.GetName()
         child_path = str(child.GetPath())
-        
+
         # Skip roller assemblies (handled separately) and core (already done)
         if "roller_assembly" in child_name:
             continue
         if "_core_" in child_name or "_core__" in child_name:
             if "roller" not in child_name.lower():
                 continue
-        
+
         # Check if should be excluded
         if should_exclude_by_pattern(child_name, WHEEL_EXCLUDE_PATTERNS):
             log.append(f"[SKIP] Excluded wheel sibling: {child_name}")
             exclude_count += 1
             continue
-        
+
         # Check if should be attached to core
         if should_attach_by_pattern(child_name, WHEEL_ATTACH_TO_CORE_PATTERNS):
             child_mesh = find_leaf_mesh(stage, child_path)
@@ -966,8 +967,9 @@ def setup_wheel(
                 # Apply rigid body to the child Xform
                 plate_mass = mass_cfg["wheel_plate"]
                 if apply_rigid_body(stage, child_path, plate_mass):
-                    log.append(f"[OK] Rigid body (mass={plate_mass:.3f}) on side plate: {child_name}")
-                
+                    log.append(
+                        f"[OK] Rigid body (mass={plate_mass:.3f}) on side plate: {child_name}")
+
                 # Create fixed joint to core
                 plate_type = "left" if "left_slant" in child_name else "right"
                 plate_joint_name = f"{wheel_name}_plate_{plate_type}_{attach_count}"
@@ -979,41 +981,41 @@ def setup_wheel(
                     log.append(f"[WARN] Failed to attach {child_name} to core")
             else:
                 log.append(f"[WARN] No mesh under {child_path}")
-    
+
     if attach_count > 0 or exclude_count > 0:
         log.append(f"[INFO] Wheel siblings: {attach_count} attached, {exclude_count} excluded")
-    
+
     # 4. Process all roller assemblies
     roller_index = 0  # 0-9 for each wheel
     roller_exclude_count = 0
     for child in wheel_prim.GetChildren():
         if "roller_assembly" not in child.GetName():
             continue
-        
+
         assembly_path = str(child.GetPath())
-        
+
         # Find axle and cover meshes
         axle_mesh, cover_mesh = find_roller_mesh_bodies(stage, child)
-        
+
         if not axle_mesh:
             log.append(f"[WARN] Missing axle mesh in {assembly_path}")
             continue
-        
+
         if not cover_mesh:
             log.append(f"[WARN] Missing cover mesh in {assembly_path}")
             continue
-        
+
         # Get parent Xforms for rigid body application
         axle_mesh_path = Sdf.Path(axle_mesh)
         cover_mesh_path = Sdf.Path(cover_mesh)
         axle_xform_path = str(axle_mesh_path.GetParentPath().GetParentPath())
         cover_xform_path = str(cover_mesh_path.GetParentPath().GetParentPath())
-        
+
         # Apply rigid body to axle Xform (no collision needed for axle pins)
         axle_mass = mass_cfg["roller_axle"]
         if apply_rigid_body(stage, axle_xform_path, axle_mass):
             log.append(f"[OK] Rigid body (mass={axle_mass:.3f}) on axle: {axle_xform_path}")
-        
+
         # Apply rigid body and SDF collision to cover Xform/mesh
         # SDF provides smooth collision for barrel-shaped roller covers
         cover_mass = mass_cfg["roller_cover"]
@@ -1021,7 +1023,7 @@ def setup_wheel(
             log.append(f"[OK] Rigid body (mass={cover_mass:.3f}) on cover: {cover_xform_path}")
         if apply_sdf_collision_to_mesh(stage, cover_mesh):
             log.append(f"[OK] Collision (SDF) on cover mesh: {cover_mesh}")
-        
+
         # 4a. Create fixed joint: wheel_core_mesh -> roller_axle_mesh
         # body0 = core (parent), body1 = axle (child, fixed to core)
         axle_joint_name = f"{wheel_name}_roller_{roller_index}_axle"
@@ -1032,7 +1034,7 @@ def setup_wheel(
             log.append(f"     Body1 (axle): {axle_mesh}")
         else:
             log.append(f"[WARN] Failed to create fixed joint for axle")
-        
+
         # 4b. Create revolute joint: roller_axle_mesh -> roller_cover_mesh
         # body0 = cover (child frame), body1 = axle (provides pivot point)
         # The joint is positioned at body1's origin (axle center)
@@ -1044,7 +1046,7 @@ def setup_wheel(
             log.append(f"     Body1 (axle): {axle_mesh}")
         else:
             log.append(f"[WARN] Failed to create revolute joint for roller")
-        
+
         # 4c. Count excluded siblings in roller assembly (for logging)
         assembly_prim = stage.GetPrimAtPath(assembly_path)
         if assembly_prim:
@@ -1052,12 +1054,13 @@ def setup_wheel(
                 roller_child_name = roller_child.GetName()
                 if should_exclude_by_pattern(roller_child_name, ROLLER_ASSEMBLY_EXCLUDE_PATTERNS):
                     roller_exclude_count += 1
-        
+
         roller_index += 1
-    
+
     log.append(f"[INFO] Processed {roller_index} roller assemblies for {wheel_name}")
     if roller_exclude_count > 0:
-        log.append(f"[INFO] Excluded {roller_exclude_count} roller assembly siblings (e_clips, shims, etc.)")
+        log.append(
+            f"[INFO] Excluded {roller_exclude_count} roller assembly siblings (e_clips, shims, etc.)")
 
 
 # ============================================================================
@@ -1081,7 +1084,7 @@ def main():
     log.append("=" * 60)
     log.append("Strafer Chassis Physics Setup")
     log.append("=" * 60)
-    
+
     # Compute mass distribution
     mass_cfg = compute_mass_cfg(args.mass)
     log.append("\n--- Mass distribution (kg) ---")
@@ -1091,7 +1094,7 @@ def main():
     # Setup frame (articulation root and rail connections)
     log.append("\n--- Setting up frame rails ---")
     middle_body = setup_frame(stage, log, mass_cfg)
-    
+
     if not middle_body:
         log.append("[ERROR] Failed to set up frame, aborting.")
     else:
@@ -1106,11 +1109,11 @@ def main():
                 log.append(f"[SKIP] Frame: {path}")
             for path in ROOT_EXCLUDE_PATHS:
                 log.append(f"[SKIP] Root: {path}")
-        
+
         # Setup each wheel
         for wheel_name, rail_name in WHEEL_TO_RAIL.items():
             setup_wheel(stage, wheel_name, rail_name, log, mass_cfg)
-    
+
     # Export
     out_usd = Path(args.output_usd)
     out_usd.parent.mkdir(parents=True, exist_ok=True)

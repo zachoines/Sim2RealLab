@@ -123,7 +123,8 @@ def _compute_new_local(child: Usd.Prim, target_parent: Optional[Usd.Prim]) -> Tu
     reset_child = bool(child_xf) and child_xf.GetResetXformStack()
     if reset_child:
         return child_world, reset_child
-    parent_world = cache.GetLocalToWorldTransform(target_parent) if target_parent else Gf.Matrix4d(1)
+    parent_world = cache.GetLocalToWorldTransform(
+        target_parent) if target_parent else Gf.Matrix4d(1)
     return child_world * parent_world.GetInverse(), reset_child
 
 
@@ -209,16 +210,22 @@ def collapse_redundant_transforms(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Flatten redundant xform chains while preserving world transforms.")
+    parser = argparse.ArgumentParser(
+        description="Flatten redundant xform chains while preserving world transforms.")
     parser.add_argument("--stage", required=True, help="Path to USD stage to edit.")
     parser.add_argument("--root", default="/World", help="Root prim to process.")
-    parser.add_argument("--tmp-name", default="tmp_flatten", help="Temporary name used during moves.")
+    parser.add_argument("--tmp-name", default="tmp_flatten",
+                        help="Temporary name used during moves.")
     parser.add_argument("--output", help="Path to write a log of collapsed prims.")
-    parser.add_argument("--output-usd", help="Optional path to save modified stage (input is left untouched).")
+    parser.add_argument(
+        "--output-usd", help="Optional path to save modified stage (input is left untouched).")
     parser.add_argument("--tree-output", help="Optional path to write the resulting prim tree.")
-    parser.add_argument("--max-depth", type=int, default=6, help="Depth for the optional tree output.")
-    parser.add_argument("--max-rounds", type=int, default=8, help="Safety limit on collapse passes.")
-    parser.add_argument("--dry-run", action="store_true", help="Plan operations without writing USD changes.")
+    parser.add_argument("--max-depth", type=int, default=6,
+                        help="Depth for the optional tree output.")
+    parser.add_argument("--max-rounds", type=int, default=8,
+                        help="Safety limit on collapse passes.")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Plan operations without writing USD changes.")
     args = parser.parse_args()
 
     stage = Usd.Stage.Open(args.stage)

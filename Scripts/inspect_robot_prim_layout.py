@@ -80,9 +80,12 @@ def main():
     parser.add_argument("--stage", required=True, help="Path to USD stage.")
     parser.add_argument("--root", default="/World", help="Root prim to start tree dump.")
     parser.add_argument("--max-depth", type=int, default=5, help="Max depth to print from root.")
-    parser.add_argument("--fragment", default="node_606_XXXX_0096_roller_axle", help="Substring to match axle xforms.")
-    parser.add_argument("--limit", type=int, default=5, help="Number of axles to sample for meshes.")
-    parser.add_argument("--tree-output", help="Optional path to save the full prim tree (no depth limit).")
+    parser.add_argument("--fragment", default="node_606_XXXX_0096_roller_axle",
+                        help="Substring to match axle xforms.")
+    parser.add_argument("--limit", type=int, default=5,
+                        help="Number of axles to sample for meshes.")
+    parser.add_argument(
+        "--tree-output", help="Optional path to save the full prim tree (no depth limit).")
     args = parser.parse_args()
 
     stage = Usd.Stage.Open(args.stage)

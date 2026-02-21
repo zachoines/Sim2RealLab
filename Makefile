@@ -4,7 +4,7 @@
 SHELL := /bin/bash
 COLCON_WS := $(HOME)/strafer_ws
 
-.PHONY: build test test-unit lint format clean install-tools udev help
+.PHONY: build test test-unit lint lint-fix format format-check clean install-tools udev help
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -29,8 +29,12 @@ test-unit: ## Run strafer_driver unit tests directly with pytest
 # ---------- Lint / Format ----------
 
 lint: ## Run flake8 on all Python source
-	flake8 source/strafer_ros/ source/strafer_shared/ Scripts/ \
+	python3 -m flake8 source/strafer_ros/ source/strafer_shared/ Scripts/ \
 		--max-line-length 100 --extend-ignore=E203,W503
+
+lint-fix: ## Auto-fix lint issues with autopep8
+	python3 -m autopep8 --in-place --recursive --max-line-length 100 \
+		source/strafer_ros/ source/strafer_shared/ Scripts/
 
 format: ## Run black on all Python source
 	black source/strafer_ros/ source/strafer_shared/ Scripts/
@@ -45,8 +49,8 @@ clean: ## Remove colcon build artifacts
 
 # ---------- Setup ----------
 
-install-tools: ## Install black (flake8 is already available via ROS)
-	pip install black
+install-tools: ## Install black, autopep8 (flake8 is already available via ROS)
+	pip install black 'autopep8>=2,<3' --no-deps
 
 udev: ## Install udev rules for RoboClaw symlinks (requires sudo)
 	sudo cp source/strafer_ros/99-strafer.rules /etc/udev/rules.d/

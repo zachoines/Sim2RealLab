@@ -426,7 +426,8 @@ class RoboClawNode(Node):
             KeyValue(key="rear_connected", value=str(self._rear.is_open)),
             KeyValue(key="consecutive_failures", value=str(self._consecutive_failures)),
             KeyValue(key="total_errors", value=str(self._total_errors)),
-            KeyValue(key="last_success_age_sec", value=f"{time.monotonic() - self._last_success_time:.1f}"),
+            KeyValue(key="last_success_age_sec",
+                     value=f"{time.monotonic() - self._last_success_time:.1f}"),
             KeyValue(key="watchdog_active", value=str(self._watchdog_active)),
         ]
 

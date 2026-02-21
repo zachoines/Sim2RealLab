@@ -405,7 +405,7 @@ class TestAutoDetect:
             return False
 
         with patch("strafer_driver.roboclaw_interface.glob.glob") as mock_glob, \
-             patch("strafer_driver.roboclaw_interface.probe_address", side_effect=fake_probe):
+                patch("strafer_driver.roboclaw_interface.probe_address", side_effect=fake_probe):
             mock_glob.return_value = ["/dev/roboclaw0", "/dev/roboclaw1"]
 
             result = detect_roboclaws(0x80, 0x81)

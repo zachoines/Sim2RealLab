@@ -94,8 +94,10 @@ Both paths reference the same **policy contract** (observation spec, action spec
 | Sim-to-Real Contract | Done | Motor dynamics, command delay, sensor latency |
 | Shared Kinematics | Done | `strafer_shared` module with constants + mecanum math |
 | Policy Interface | Done | `policy_interface.py` -- obs/action contract, model loading |
-| Jetson Setup | Done | JetPack 6.2 flashed, SSH accessible |
-| ROS2 Packages | In Progress | Package structure created, implementation pending |
+| Jetson Setup | Done | JetPack 6.2 flashed, SSH accessible, ROS2 Humble |
+| ROS2 Driver | Done | `strafer_driver` -- auto-detect, auto-PID, cmd_vel/odom/joint_states/TF |
+| Hardware Validation | Done | All 4 motors, encoders, PID tuning, motion patterns verified |
+| ROS2 Packages | In Progress | Driver done, perception/inference/SLAM pending |
 | Policy Export | Planned | PyTorch (.pt) initially, ONNX/TensorRT later |
 | SLAM + Nav2 | Planned | RTAB-Map + robot_localization EKF + Nav2 |
 
@@ -130,21 +132,45 @@ cd IsaacLab && .\isaaclab.bat -p -m pytest ..\source\strafer_lab\test\ -v
 ### Robot (Jetson Orin Nano)
 
 ```bash
-# Clone repo on Jetson
-git clone <repo-url> ~/strafer
-cd ~/strafer
+# -- One-time setup --
 
-# Install shared module
+# Install shared module and driver as editable packages
 pip install -e source/strafer_shared
+pip install -e source/strafer_ros/strafer_driver
 
-# Set up ROS2 workspace
+# Set up ROS2 colcon workspace (symlinks into this repo)
 mkdir -p ~/strafer_ws/src
-ln -s ~/strafer/source/strafer_ros/* ~/strafer_ws/src/
-ln -s ~/strafer/source/strafer_shared ~/strafer_ws/src/
+ln -s $(pwd)/source/strafer_ros/strafer_driver ~/strafer_ws/src/
+ln -s $(pwd)/source/strafer_ros/strafer_msgs  ~/strafer_ws/src/
+cd ~/strafer_ws && colcon build --symlink-install && cd -
 
-cd ~/strafer_ws
-colcon build --symlink-install
-source install/setup.bash
+# Add to ~/.bashrc so every terminal finds the ROS2 packages
+echo 'source ~/strafer_ws/install/setup.bash' >> ~/.bashrc
+source ~/strafer_ws/install/setup.bash
+
+# Install udev rules for RoboClaw auto-detection
+make udev
+```
+
+```bash
+# -- Running --
+
+# Terminal 1: Start the driver node
+ros2 run strafer_driver roboclaw_node
+
+# Terminal 2: Run ROS2 motion test (publishes to /strafer/cmd_vel, reads /strafer/odom)
+python3 source/strafer_ros/ros_test_motion.py --pattern forward --duration 3
+python3 source/strafer_ros/ros_test_motion.py --pattern circle --speed 2.0
+
+# Direct hardware test (no ROS2 needed, talks to RoboClaw directly)
+python3 source/strafer_ros/test_motion_patterns.py --pattern forward --duration 3
+
+# Run tests
+make test
+
+# Lint / format
+make lint
+make format-check
 ```
 
 ## Environments

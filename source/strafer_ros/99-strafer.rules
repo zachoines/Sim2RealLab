@@ -18,3 +18,12 @@
 
 # Any Basicmicro RoboClaw -> /dev/roboclaw<N>
 SUBSYSTEM=="tty", ATTRS{idVendor}=="03eb", ATTRS{idProduct}=="2404", SYMLINK+="roboclaw%n", MODE="0666"
+
+# Intel RealSense D555 HID interface (IMU: BMI055 accel + gyro)
+# Custom-built hid-sensor-hub + IIO modules expose the IMU as IIO devices.
+# Grant rw access to /dev/iio:device* and fix sysfs scan_elements permissions
+# so librealsense can read IMU data without root.
+SUBSYSTEM=="iio", KERNEL=="iio:device*", MODE="0666", RUN+="/bin/sh -c 'find /sys%p -type f -exec chmod a+rw {} + 2>/dev/null'"
+
+# Also keep hidraw accessible for the D555 HID interface
+KERNEL=="hidraw*", ATTRS{idVendor}=="8086", ATTRS{idProduct}=="0b56", MODE="0666"

@@ -1,0 +1,27 @@
+# RealSense D555 camera parameters for the Strafer robot.
+#
+# These are supplementary parameters. The primary stream configuration is in
+# the launch file (perception.launch.py). This YAML can be loaded via
+# --ros-args --params-file for additional tuning.
+#
+# Stream specs (D555 native resolutions):
+#   Depth: 640x360 @ 30 Hz → downsampled to 80x60 for policy
+#   Color: 640x360 @ 30 Hz
+#   IMU:   200 Hz (BMI055 accel + gyro, unified) -- may not be available
+#          on all D555 firmware revisions
+#
+# RealSense post-processing filters are disabled by default.
+# The depth_downsampler node handles clipping and resizing instead,
+# keeping the full-res stream available for SLAM / visualization.
+
+d555:
+  ros__parameters:
+    # Post-processing filters (disabled to minimize latency)
+    decimation_filter.enable: false
+    spatial_filter.enable: false
+    temporal_filter.enable: false
+    hole_filling_filter.enable: false
+
+    # Auto-exposure
+    depth_module.enable_auto_exposure: true
+    rgb_camera.enable_auto_exposure: true

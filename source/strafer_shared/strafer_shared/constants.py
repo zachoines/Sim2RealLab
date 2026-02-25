@@ -96,6 +96,7 @@ WHEEL_JOINT_NAMES = ("wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4
 IMU_ACCEL_MAX = 156.96  # ±16g in m/s²
 IMU_GYRO_MAX = 34.9  # ±2000°/s in rad/s
 ENCODER_VEL_MAX = 3000.0  # Max ticks/sec (312 RPM ≈ 2796 ticks/s + margin)
+DEPTH_MIN = 0.4  # Min usable depth in meters (D555 stereo baseline limit)
 DEPTH_MAX = 6.0  # Max depth in meters
 
 IMU_ACCEL_SCALE = 1.0 / IMU_ACCEL_MAX
@@ -115,6 +116,12 @@ DEPTH_WIDTH = 80  # Policy input resolution (downsampled)
 DEPTH_HEIGHT = 60
 DEPTH_CLIP_NEAR = 0.4  # meters
 DEPTH_CLIP_FAR = 6.0  # meters
+
+# =============================================================================
+# Mapping / Navigation
+# =============================================================================
+
+MAP_RESOLUTION = 0.05  # meters per cell — shared by RTAB-Map grid and Nav2 costmap
 
 # =============================================================================
 # RoboClaw Motor Controllers

@@ -1,0 +1,30 @@
+# depthimage_to_laserscan parameters for the D555 camera.
+#
+# Converts the depth image into a virtual 2D laser scan for:
+#   1. RTAB-Map occupancy grid generation
+#   2. Nav2 obstacle layer
+#
+# D555 at 640x360, mounted 0.25m above floor (CAMERA_OFFSET_Z),
+# horizontal FOV ~87° (matching D455-class depth module).
+
+depthimage_to_laserscan:
+  ros__parameters:
+    # Vertical scan window (rows of the depth image to use)
+    # Centered on the horizon for a ground robot.
+    # With 360 rows, use the middle ~60 rows.
+    scan_height: 60
+
+    # Depth range (meters) — defaults only; overridden at launch from
+    # strafer_shared.constants (DEPTH_MIN / DEPTH_MAX).
+    range_min: 0.4
+    range_max: 6.0
+
+    # Output frame — the scan appears to come from the camera link
+    output_frame_id: "d555_link"
+
+    # Quality of service
+    qos: 2  # Best Effort (matches RealSense output)
+
+    # Infinity for out-of-range readings (NaN = skip those rays)
+    # 0.0 = report as inf. This is the standard for laser scans.
+    inf_epsilon: 0.0

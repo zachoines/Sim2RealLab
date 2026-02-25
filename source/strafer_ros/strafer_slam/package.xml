@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>strafer_slam</name>
+  <version>0.1.0</version>
+  <description>RTAB-Map SLAM configuration for the GoBilda Strafer robot with D555 camera</description>
+  <maintainer email="jetson@localhost.local">jetson</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>rtabmap_ros</exec_depend>
+  <exec_depend>rtabmap_launch</exec_depend>
+  <exec_depend>depthimage_to_laserscan</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+
+  <!-- Packages we compose with -->
+  <exec_depend>strafer_description</exec_depend>
+  <exec_depend>strafer_perception</exec_depend>
+  <exec_depend>strafer_driver</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

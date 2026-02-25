@@ -1,0 +1,78 @@
+# RTAB-Map parameters for the Strafer robot with Intel RealSense D555.
+#
+# These parameters are loaded by the slam.launch.py launch file.
+# They tune RTAB-Map for indoor RGB-D SLAM on a Jetson Orin NX.
+#
+# Reference: https://rtabmap.github.io/Parameters.html
+
+# ---------------------------------------------------------------------------
+# Memory management
+# ---------------------------------------------------------------------------
+# Working Memory (WM) size limit — keeps Jetson RAM usage bounded.
+# 0 = unlimited.  With 640x360 images we can afford a generous budget.
+Mem/STMSize: "30"                # Short-Term Memory capacity (recent nodes)
+Mem/IncrementalMemory: "true"    # Mapping mode (set false for localization)
+Mem/InitWMWithAllNodes: "false"  # Don't load entire DB into WM on start
+
+# ---------------------------------------------------------------------------
+# Loop closure / visual place recognition
+# ---------------------------------------------------------------------------
+Rtabmap/DetectionRate: "2.0"     # Hz — how often RTAB-Map processes a frame
+                                  # 2 Hz is plenty for indoor speeds; saves CPU
+Rtabmap/TimeThr: "0"             # ms — 0 = no hard time limit per iteration
+RGBD/NeighborLinkRefining: "true"       # Refine neighbor links with ICP
+RGBD/ProximityBySpace: "true"           # Detect loop closures by proximity
+RGBD/ProximityMaxGraphDepth: "0"        # 0 = no depth limit for proximity
+RGBD/OptimizeFromGraphEnd: "false"      # Optimize from first node (anchor)
+RGBD/AngularUpdate: "0.05"      # rad (~3°) — min rotation to add new node
+RGBD/LinearUpdate: "0.05"       # m — min translation to add new node
+RGBD/CreateOccupancyGrid: "true"        # Generate 2D occupancy grid for Nav2
+
+# ---------------------------------------------------------------------------
+# Visual features
+# ---------------------------------------------------------------------------
+Vis/MinInliers: "15"             # Min inliers for valid transform
+Vis/InlierDistance: "0.1"        # m — max reprojection inlier distance
+Vis/MaxFeatures: "500"           # Features per image (reduce for Jetson)
+Vis/FeatureType: "8"             # ORB (fast, good enough for indoor)
+
+# ---------------------------------------------------------------------------
+# Odometry (disabled — we use wheel odometry from strafer_driver)
+# ---------------------------------------------------------------------------
+# Visual odometry is disabled via launch args (visual_odometry:=false).
+# These params are kept as reference if we ever add visual-inertial odom.
+Odom/Strategy: "0"               # Frame-to-Map
+Odom/ResetCountdown: "2"
+
+# ---------------------------------------------------------------------------
+# Occupancy grid parameters (for Nav2 costmap)
+# ---------------------------------------------------------------------------
+Grid/Sensor: "0"                 # 0=laser scan (from depthimage_to_laserscan)
+Grid/CellSize: "0.05"           # Default — overridden at launch from MAP_RESOLUTION
+Grid/RangeMin: "0.4"            # Default — overridden at launch from DEPTH_MIN
+Grid/RangeMax: "6.0"            # Default — overridden at launch from DEPTH_MAX
+Grid/MinClusterSize: "20"       # Filter small noise clusters
+Grid/MaxObstacleHeight: "1.5"   # Ignore points above 1.5m
+Grid/MaxGroundHeight: "0.05"    # Points below 5cm = ground
+Grid/NormalsSegmentation: "true" # Use surface normals to find ground
+Grid/ClusterRadius: "0.1"
+
+# ---------------------------------------------------------------------------
+# Optimizer
+# ---------------------------------------------------------------------------
+Optimizer/Strategy: "1"          # g2o (better than TORO for small graphs)
+Optimizer/Iterations: "10"
+Optimizer/Slam2D: "true"         # Constrain to 2D (ground robot)
+Optimizer/VarianceIgnored: "false"
+
+# ---------------------------------------------------------------------------
+# Registration (how transforms between frames are computed)
+# ---------------------------------------------------------------------------
+Reg/Strategy: "0"                # 0=Visual, 1=ICP, 2=Visual+ICP
+Reg/Force3DoF: "true"            # Force 2D (x, y, theta) — ground robot
+
+# ---------------------------------------------------------------------------
+# ICP (used for neighbor link refining)
+# ---------------------------------------------------------------------------
+Icp/VoxelSize: "0.05"
+Icp/MaxCorrespondenceDistance: "0.1"

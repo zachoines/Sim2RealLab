@@ -1,0 +1,240 @@
+<?xml version="1.0"?>
+<!--
+  GoBilda Strafer robot URDF model.
+
+  Dimensions sourced from strafer_shared.constants (single source of truth).
+  Joint names match WHEEL_JOINT_NAMES: wheel_1_drive .. wheel_4_drive.
+
+  TF tree:
+    base_link (root, at wheel-axle height = 0.048m above ground)
+      ├── chassis_link      (fixed)
+      ├── wheel_1_link (FL)  (continuous: wheel_1_drive)
+      ├── wheel_2_link (FR)  (continuous: wheel_2_drive)
+      ├── wheel_3_link (RL)  (continuous: wheel_3_drive)
+      ├── wheel_4_link (RR)  (continuous: wheel_4_drive)
+      └── d555_link          (fixed: camera mount)
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="strafer">
+
+  <!-- ================================================================== -->
+  <!-- Args: injected from strafer_shared.constants by the launch file.   -->
+  <!-- Sentinel defaults (-1) catch missing injection at a glance.        -->
+  <!-- ================================================================== -->
+
+  <!-- Wheel geometry -->
+  <xacro:arg name="wheel_radius"  default="-1"/>
+  <xacro:arg name="wheel_width"   default="-1"/>
+  <xacro:arg name="wheel_base"    default="-1"/>
+  <xacro:arg name="track_width"   default="-1"/>
+
+  <!-- Chassis frame dimensions -->
+  <xacro:arg name="chassis_length"           default="-1"/>
+  <xacro:arg name="chassis_width"            default="-1"/>
+  <xacro:arg name="chassis_height"           default="-1"/>
+  <xacro:arg name="chassis_ground_clearance" default="-1"/>
+
+  <!-- Camera mount offsets from base_link -->
+  <xacro:arg name="camera_x" default="-1"/>
+  <xacro:arg name="camera_y" default="-1"/>
+  <xacro:arg name="camera_z" default="-1"/>
+
+  <!-- Mass budget -->
+  <xacro:arg name="mass_wheel_assembly" default="-1"/>
+  <xacro:arg name="mass_chassis"        default="-1"/>
+  <xacro:arg name="mass_camera"         default="-1"/>
+
+  <!-- Camera box dimensions for inertia -->
+  <xacro:arg name="camera_length" default="-1"/>
+  <xacro:arg name="camera_width"  default="-1"/>
+  <xacro:arg name="camera_height" default="-1"/>
+
+  <!-- Resolve args into xacro properties for use in expressions -->
+  <xacro:property name="wheel_radius"        value="$(arg wheel_radius)"/>
+  <xacro:property name="wheel_width"         value="$(arg wheel_width)"/>
+  <xacro:property name="wheel_base"          value="$(arg wheel_base)"/>
+  <xacro:property name="track_width"         value="$(arg track_width)"/>
+  <xacro:property name="chassis_length"      value="$(arg chassis_length)"/>
+  <xacro:property name="chassis_width"       value="$(arg chassis_width)"/>
+  <xacro:property name="chassis_height"      value="$(arg chassis_height)"/>
+  <xacro:property name="chassis_ground_clearance" value="$(arg chassis_ground_clearance)"/>
+  <xacro:property name="camera_x"            value="$(arg camera_x)"/>
+  <xacro:property name="camera_y"            value="$(arg camera_y)"/>
+  <xacro:property name="camera_z"            value="$(arg camera_z)"/>
+  <xacro:property name="mass_wheel_assembly" value="$(arg mass_wheel_assembly)"/>
+  <xacro:property name="mass_chassis"        value="$(arg mass_chassis)"/>
+  <xacro:property name="mass_camera"         value="$(arg mass_camera)"/>
+  <xacro:property name="camera_length"       value="$(arg camera_length)"/>
+  <xacro:property name="camera_width"        value="$(arg camera_width)"/>
+  <xacro:property name="camera_height"       value="$(arg camera_height)"/>
+
+  <!-- ================================================================== -->
+  <!-- Materials                                                          -->
+  <!-- ================================================================== -->
+
+  <material name="dark_grey">
+    <color rgba="0.3 0.3 0.3 1.0"/>
+  </material>
+
+  <material name="black">
+    <color rgba="0.1 0.1 0.1 1.0"/>
+  </material>
+
+  <material name="blue">
+    <color rgba="0.0 0.4 0.8 1.0"/>
+  </material>
+
+  <!-- ================================================================== -->
+  <!-- Base link: origin at chassis center, wheel-axle height             -->
+  <!-- ================================================================== -->
+
+  <link name="base_link"/>
+
+  <!-- Chassis visual/collision -->
+  <link name="chassis_link">
+    <visual>
+      <geometry>
+        <box size="${chassis_length} ${chassis_width} ${chassis_height}"/>
+      </geometry>
+      <material name="dark_grey"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="${chassis_length} ${chassis_width} ${chassis_height}"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <!-- MASS_CHASSIS from constants.py (frame + roboclaws + misc electronics) -->
+      <mass value="${mass_chassis}"/>
+      <!-- Box inertia: Ixx=m/12*(w²+h²), Iyy=m/12*(l²+h²), Izz=m/12*(l²+w²) -->
+      <inertia ixx="${mass_chassis/12*(chassis_width**2 + chassis_height**2)}"
+               ixy="0.0" ixz="0.0"
+               iyy="${mass_chassis/12*(chassis_length**2 + chassis_height**2)}"
+               iyz="0.0"
+               izz="${mass_chassis/12*(chassis_length**2 + chassis_width**2)}"/>
+    </inertial>
+  </link>
+
+  <!-- Chassis sits with bottom at ground_clearance above floor;
+       base_link is at wheel center (wheel_radius above floor).
+       bottom_of_frame = ground_clearance - wheel_radius  (from base_link)
+       center_of_frame = bottom_of_frame + chassis_height/2 -->
+  <joint name="chassis_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="chassis_link"/>
+    <origin xyz="0 0 ${chassis_ground_clearance - wheel_radius + chassis_height/2}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ================================================================== -->
+  <!-- Wheel macro                                                        -->
+  <!-- ================================================================== -->
+
+  <xacro:macro name="wheel" params="name x_sign y_sign">
+    <link name="${name}_link">
+      <visual>
+        <!-- Cylinder axis is Z by default; rotate 90° around X to align with Y -->
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+        </geometry>
+        <material name="black"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <!-- MASS_WHEEL_ASSEMBLY: motor + mecanum wheel per corner -->
+        <mass value="${mass_wheel_assembly}"/>
+        <!-- Cylinder inertia (axis along Y after visual rotation):
+             Ixx=Izz=m/12*(3r²+L²), Iyy=mr²/2 -->
+        <inertia ixx="${mass_wheel_assembly/12*(3*wheel_radius**2 + wheel_width**2)}"
+                 ixy="0.0" ixz="0.0"
+                 iyy="${mass_wheel_assembly * wheel_radius**2 / 2}"
+                 iyz="0.0"
+                 izz="${mass_wheel_assembly/12*(3*wheel_radius**2 + wheel_width**2)}"/>
+      </inertial>
+    </link>
+  </xacro:macro>
+
+  <!-- ================================================================== -->
+  <!-- Wheel instances: FL=1, FR=2, RL=3, RR=4                           -->
+  <!-- Positions: ±wheel_base/2 (X), ±track_width/2 (Y), 0 (Z)          -->
+  <!-- ================================================================== -->
+
+  <!-- Front Left (wheel_1) -->
+  <xacro:wheel name="wheel_1" x_sign="1" y_sign="1"/>
+  <joint name="wheel_1_drive" type="continuous">
+    <parent link="base_link"/>
+    <child link="wheel_1_link"/>
+    <origin xyz="${wheel_base/2} ${track_width/2} 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+
+  <!-- Front Right (wheel_2) -->
+  <xacro:wheel name="wheel_2" x_sign="1" y_sign="-1"/>
+  <joint name="wheel_2_drive" type="continuous">
+    <parent link="base_link"/>
+    <child link="wheel_2_link"/>
+    <origin xyz="${wheel_base/2} ${-track_width/2} 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+
+  <!-- Rear Left (wheel_3) -->
+  <xacro:wheel name="wheel_3" x_sign="-1" y_sign="1"/>
+  <joint name="wheel_3_drive" type="continuous">
+    <parent link="base_link"/>
+    <child link="wheel_3_link"/>
+    <origin xyz="${-wheel_base/2} ${track_width/2} 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+
+  <!-- Rear Right (wheel_4) -->
+  <xacro:wheel name="wheel_4" x_sign="-1" y_sign="-1"/>
+  <joint name="wheel_4_drive" type="continuous">
+    <parent link="base_link"/>
+    <child link="wheel_4_link"/>
+    <origin xyz="${-wheel_base/2} ${-track_width/2} 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+
+  <!-- ================================================================== -->
+  <!-- Camera mount: Intel RealSense D555                                 -->
+  <!-- Offsets from CAMERA_OFFSET_X/Y/Z in constants.py                   -->
+  <!-- NOTE: perception.launch.py also publishes this as a static TF.     -->
+  <!-- When both are launched, remove the static TF from perception.      -->
+  <!-- ================================================================== -->
+
+  <link name="d555_link">
+    <!-- Small box representing the camera -->
+    <visual>
+      <geometry>
+        <box size="${camera_length} ${camera_width} ${camera_height}"/>
+      </geometry>
+      <material name="blue"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="${camera_length} ${camera_width} ${camera_height}"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <!-- MASS_CAMERA from constants.py -->
+      <mass value="${mass_camera}"/>
+      <!-- Box inertia for camera housing -->
+      <inertia ixx="${mass_camera/12*(camera_width**2 + camera_height**2)}"
+               ixy="0.0" ixz="0.0"
+               iyy="${mass_camera/12*(camera_length**2 + camera_height**2)}"
+               iyz="0.0"
+               izz="${mass_camera/12*(camera_length**2 + camera_width**2)}"/>
+    </inertial>
+  </link>
+
+  <joint name="d555_mount" type="fixed">
+    <parent link="base_link"/>
+    <child link="d555_link"/>
+    <origin xyz="${camera_x} ${camera_y} ${camera_z}" rpy="0 0 0"/>
+  </joint>
+
+</robot>

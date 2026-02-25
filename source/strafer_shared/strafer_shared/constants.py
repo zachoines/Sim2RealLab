@@ -13,11 +13,42 @@ import math
 # GoBilda Strafer Chassis Geometry
 # =============================================================================
 
-# Frame: 432mm (L) x 360mm (W), sits 24mm off floor, center at 48mm
 # Axles protrude 15.2mm from frame; wheels are 38mm wide (96mm diameter)
 WHEEL_RADIUS = 0.048  # meters (96mm diameter mecanum wheel)
+WHEEL_WIDTH = 0.038  # meters (38mm mecanum wheel width)
 WHEEL_BASE = 0.336  # front-to-rear axle distance (meters, center-to-center)
 TRACK_WIDTH = 0.4284  # left-to-right axle distance (meters, center-to-center)
+
+# Chassis frame dimensions
+CHASSIS_LENGTH = 0.432  # meters (432mm frame length)
+CHASSIS_WIDTH = 0.360  # meters (360mm frame width)
+CHASSIS_HEIGHT = 0.040  # meters (~40mm tall aluminum channel)
+CHASSIS_GROUND_CLEARANCE = 0.024  # meters (24mm, bottom of frame to floor)
+
+# Camera housing dimensions (Intel RealSense D555)
+CAMERA_LENGTH = 0.025  # meters (depth)
+CAMERA_WIDTH = 0.090  # meters (width)
+CAMERA_HEIGHT = 0.025  # meters (height)
+
+# =============================================================================
+# Mass Budget (kilograms)
+# =============================================================================
+
+# Measured / spec-sheet values
+MASS_KIT = 4.149  # GoBilda Strafer kit (frame + 4 motors + 4 wheels)
+MASS_CAMERA = 0.337  # Intel RealSense D555
+MASS_ROBOCLAW = 0.061  # RoboClaw ST 2x45A (per unit, ×2 on robot)
+MASS_MISC = 0.500  # Estimate: LiPo + wires + buck converter + mounting hw
+
+MASS_TOTAL = MASS_KIT + MASS_CAMERA + 2 * MASS_ROBOCLAW + MASS_MISC  # ~5.108 kg
+
+# Per-component estimates for URDF mass distribution
+# GoBilda doesn't break down kit mass; these are approximate
+MASS_WHEEL_ASSEMBLY = 0.320  # Per corner: ~200g motor + ~120g mecanum wheel
+MASS_FRAME = MASS_KIT - 4 * MASS_WHEEL_ASSEMBLY  # ~2.869 kg (bare frame + hardware)
+
+# Chassis link gets frame + electronics (everything bolted to frame)
+MASS_CHASSIS = MASS_FRAME + 2 * MASS_ROBOCLAW + MASS_MISC  # ~3.491 kg
 
 # =============================================================================
 # GoBilda 5203 Yellow Jacket Motor (19.2:1 ratio)

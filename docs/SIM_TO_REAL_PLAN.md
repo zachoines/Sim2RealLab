@@ -164,7 +164,7 @@ Assembles observation vector in **exact simulation order**, applies normalizatio
 
 A pure-Python `mecanum_kinematics.py` module shared between sim and real, containing:
 
-- Constants from simulation: `WHEEL_RADIUS=0.048`, `WHEEL_BASE=0.304`, `TRACK_WIDTH=0.304`, `MAX_WHEEL_ANGULAR_VEL=32.67`, `ENCODER_PPR=537.7`, `WHEEL_AXIS_SIGNS=[-1,1,-1,1]`
+- Constants from simulation: `WHEEL_RADIUS=0.048`, `WHEEL_BASE=0.336`, `TRACK_WIDTH=0.4284`, `MAX_WHEEL_ANGULAR_VEL=32.67`, `ENCODER_PPR=537.7`, `WHEEL_AXIS_SIGNS=[-1,1,-1,1]`
 - Forward kinematics: `[vx, vy, omega]` -> `[w_fl, w_fr, w_rl, w_rr]` (rad/s)
 - Inverse kinematics: wheel velocities -> body velocity (for odometry)
 - Unit conversions: rad/s <-> ticks/sec

@@ -13,9 +13,11 @@ import math
 # GoBilda Strafer Chassis Geometry
 # =============================================================================
 
+# Frame: 432mm (L) x 360mm (W), sits 24mm off floor, center at 48mm
+# Axles protrude 15.2mm from frame; wheels are 38mm wide (96mm diameter)
 WHEEL_RADIUS = 0.048  # meters (96mm diameter mecanum wheel)
-WHEEL_BASE = 0.304  # front-to-rear axle distance (meters, center-to-center)
-TRACK_WIDTH = 0.304  # left-to-right axle distance (meters, center-to-center)
+WHEEL_BASE = 0.336  # front-to-rear axle distance (meters, center-to-center)
+TRACK_WIDTH = 0.4284  # left-to-right axle distance (meters, center-to-center)
 
 # =============================================================================
 # GoBilda 5203 Yellow Jacket Motor (19.2:1 ratio)
@@ -41,8 +43,8 @@ ENCODER_TICKS_TO_RADIANS = (
 # =============================================================================
 
 MAX_LINEAR_VEL = WHEEL_RADIUS * MAX_WHEEL_ANGULAR_VEL  # ~1.568 m/s
-K = (WHEEL_BASE / 2.0) + (TRACK_WIDTH / 2.0)  # ~0.304 m (lever arm)
-MAX_ANGULAR_VEL = MAX_LINEAR_VEL / K  # ~5.16 rad/s
+K = (WHEEL_BASE / 2.0) + (TRACK_WIDTH / 2.0)  # ~0.382 m (lever arm)
+MAX_ANGULAR_VEL = MAX_LINEAR_VEL / K  # ~4.10 rad/s
 
 # =============================================================================
 # Per-Wheel Sign Correction

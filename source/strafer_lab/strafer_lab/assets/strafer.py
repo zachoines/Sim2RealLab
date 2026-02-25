@@ -8,8 +8,10 @@ The Strafer chassis is a 4-wheel mecanum drive platform with:
 
 Physical specifications:
 - Chassis: 432mm (L) x 360mm (W)
-- Width with wheels: 451.2mm
-- Wheel diameter: 96mm
+- Width with wheels: 428.4mm (360 + 2×15.2 axle + 38 wheel)
+- Track width (wheel center-to-center): 428.4mm
+- Wheel base (front-to-rear center-to-center): 336mm
+- Wheel diameter: 96mm, width 38mm
 - Motor RPM: 312 (after 19.2:1 gearbox)
 - Max wheel angular velocity: 32.67 rad/s
 

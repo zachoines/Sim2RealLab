@@ -360,11 +360,11 @@ class MecanumWheelActionCfg(ActionTermCfg):
     """Wheel radius in meters. Default: 48mm (96mm diameter mecanum wheel)."""
     
     # Frame dimensions (center-to-center of wheel axles)
-    wheel_base: float = 0.304
-    """Distance between front and rear axles in meters. Default: 304mm."""
+    wheel_base: float = 0.336
+    """Distance between front and rear axles in meters. Default: 336mm."""
     
-    track_width: float = 0.304
-    """Distance between left and right wheels in meters. Default: 304mm."""
+    track_width: float = 0.4284
+    """Distance between left and right wheels in meters. Default: 428.4mm."""
     
     # Motor specifications (5203 Yellow Jacket 19.2:1 ratio)
     motor_rpm: float = 312.0

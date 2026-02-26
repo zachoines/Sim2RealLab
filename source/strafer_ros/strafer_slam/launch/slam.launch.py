@@ -2,7 +2,7 @@
 
 Requires (launched separately or via strafer_bringup):
   - strafer_driver:   /strafer/odom, /strafer/joint_states
-  - strafer_perception: /d555/color/image_raw, /d555/depth/…, /d555/imu
+  - strafer_perception: /d555/color/image_raw, /d555/depth/…, /d555/imu/filtered
   - strafer_description: robot_state_publisher (TF tree)
 
 This launch file:
@@ -121,7 +121,7 @@ def _launch_setup(context, *args, **kwargs):
                 ("rgb/camera_info", "/d555/color/camera_info"),
                 ("scan", "/scan"),
                 ("odom", "/strafer/odom"),
-                ("imu", "/d555/imu"),
+                ("imu", "/d555/imu/filtered"),
             ],
             arguments=extra_args,
         ),

@@ -2,13 +2,15 @@
 
 Launches:
   1. RealSense D555 camera node (depth + color + IMU if available)
-  2. Static TF: base_link → d555_link (camera mounting position)
-  3. Depth downsampler node (full-res → 80x60 for policy input)
+  2. IMU orientation filter (Madgwick) — fuses accel+gyro → quaternion
+  3. Static TF: base_link → d555_link (camera mounting position)
+  4. Depth downsampler node (full-res → 80x60 for policy input)
 
 Published topics (matching sim contract in CLAUDE.md):
   /d555/color/image_raw       - sensor_msgs/Image   @ 30 Hz
   /d555/depth/image_rect_raw  - sensor_msgs/Image   @ 30 Hz
-  /d555/imu                   - sensor_msgs/Imu     @ 200 Hz (if IMU available)
+  /d555/imu                   - sensor_msgs/Imu     @ 200 Hz (raw, no orientation)
+  /d555/imu/filtered          - sensor_msgs/Imu     @ 200 Hz (with orientation quaternion)
   /d555/depth/downsampled     - sensor_msgs/Image   @ 30 Hz (80x60 32FC1)
 
 NOTE: IMU requires the
@@ -62,6 +64,26 @@ def generate_launch_description():
                 # re-enumeration.  Camera state is clean at module load.
                 "initial_reset": "false",
             }.items(),
+        ),
+
+        # ── IMU orientation filter (Madgwick) ────────────────────────────
+        # RealSense D555 publishes raw accel+gyro on /d555/imu but no
+        # orientation quaternion.  Madgwick fuses these into a proper
+        # orientation published on /d555/imu/filtered for RTAB-Map.
+        Node(
+            package="imu_filter_madgwick",
+            executable="imu_filter_madgwick_node",
+            name="imu_filter",
+            output="screen",
+            parameters=[{
+                "use_mag": False,
+                "publish_tf": False,
+                "world_frame": "enu",
+            }],
+            remappings=[
+                ("imu/data_raw", "/d555/imu"),
+                ("imu/data", "/d555/imu/filtered"),
+            ],
         ),
 
         # ── Static TF: base_link → d555_link ───────────────────────────

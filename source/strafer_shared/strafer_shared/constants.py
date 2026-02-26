@@ -123,6 +123,15 @@ DEPTH_CLIP_FAR = 6.0  # meters
 
 MAP_RESOLUTION = 0.05  # meters per cell — shared by RTAB-Map grid and Nav2 costmap
 
+# Autonomous navigation velocity scaling (fraction of hardware max).
+# Hardware max is ~1.57 m/s / ~4.10 rad/s — too fast for indoor autonomy.
+NAV_VEL_SCALE = 0.5  # forward/strafe: 50% of MAX_LINEAR_VEL (~0.78 m/s)
+NAV_REVERSE_SCALE = 0.7  # reverse: 70% of nav forward (D555 is front-facing, no rear sensing)
+
+NAV_LINEAR_VEL = round(MAX_LINEAR_VEL * NAV_VEL_SCALE, 4)
+NAV_ANGULAR_VEL = round(MAX_ANGULAR_VEL * NAV_VEL_SCALE, 4)
+NAV_REVERSE_VEL = round(NAV_LINEAR_VEL * NAV_REVERSE_SCALE, 4)
+
 # =============================================================================
 # RoboClaw Motor Controllers
 # =============================================================================

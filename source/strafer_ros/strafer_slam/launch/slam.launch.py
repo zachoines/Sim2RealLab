@@ -2,7 +2,7 @@
 
 Requires (launched separately or via strafer_bringup):
   - strafer_driver:   /strafer/odom, /strafer/joint_states
-  - strafer_perception: /d555/color/image_raw, /d555/depth/…, /d555/imu/filtered
+  - strafer_perception: /d555/color/image_sync, /d555/…/image_sync, /d555/imu/filtered
   - strafer_description: robot_state_publisher (TF tree)
 
 This launch file:
@@ -70,11 +70,15 @@ def _launch_setup(context, *args, **kwargs):
             output="screen",
             parameters=[
                 depthimage_params_path,
-                {"range_min": DEPTH_MIN, "range_max": DEPTH_MAX},
+                {
+                    "range_min": DEPTH_MIN,
+                    "range_max": DEPTH_MAX,
+                    "output_frame": "d555_link",
+                },
             ],
             remappings=[
-                ("depth", "/d555/aligned_depth_to_color/image_raw"),
-                ("depth_camera_info", "/d555/aligned_depth_to_color/camera_info"),
+                ("depth", "/d555/aligned_depth_to_color/image_sync"),
+                ("depth_camera_info", "/d555/aligned_depth_to_color/camera_info_sync"),
                 ("scan", "/scan"),
             ],
         ),
@@ -105,20 +109,20 @@ def _launch_setup(context, *args, **kwargs):
                     "publish_tf": True,
                     "database_path": database_path,
                     "approx_sync": True,
-                    "approx_sync_max_interval": 0.05,
-                    "queue_size": 10,
-                    "qos_image": 2,
-                    "qos_scan": 2,
-                    "qos_odom": 2,
-                    "qos_camera_info": 2,
-                    "qos_imu": 2,
+                    "topic_queue_size": 100,
+                    "sync_queue_size": 100,
+                    "qos_image": 1,
+                    "qos_scan": 1,
+                    "qos_odom": 1,
+                    "qos_camera_info": 1,
+                    "qos_imu": 1,
                     "wait_for_transform": 0.2,
                 },
             ],
             remappings=[
-                ("rgb/image", "/d555/color/image_raw"),
-                ("depth/image", "/d555/aligned_depth_to_color/image_raw"),
-                ("rgb/camera_info", "/d555/color/camera_info"),
+                ("rgb/image", "/d555/color/image_sync"),
+                ("depth/image", "/d555/aligned_depth_to_color/image_sync"),
+                ("rgb/camera_info", "/d555/color/camera_info_sync"),
                 ("scan", "/scan"),
                 ("odom", "/strafer/odom"),
                 ("imu", "/d555/imu/filtered"),
@@ -143,16 +147,16 @@ def _launch_setup(context, *args, **kwargs):
                         "subscribe_odom_info": False,
                         "frame_id": "base_link",
                         "approx_sync": True,
-                        "qos_image": 2,
-                        "qos_scan": 2,
-                        "qos_odom": 2,
-                        "qos_camera_info": 2,
+                        "qos_image": 1,
+                        "qos_scan": 1,
+                        "qos_odom": 1,
+                        "qos_camera_info": 1,
                     },
                 ],
                 remappings=[
-                    ("rgb/image", "/d555/color/image_raw"),
-                    ("depth/image", "/d555/aligned_depth_to_color/image_raw"),
-                    ("rgb/camera_info", "/d555/color/camera_info"),
+                    ("rgb/image", "/d555/color/image_sync"),
+                    ("depth/image", "/d555/aligned_depth_to_color/image_sync"),
+                    ("rgb/camera_info", "/d555/color/camera_info_sync"),
                     ("scan", "/scan"),
                     ("odom", "/strafer/odom"),
                 ],

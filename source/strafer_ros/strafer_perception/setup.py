@@ -26,6 +26,7 @@ setup(
     entry_points={
         "console_scripts": [
             "depth_downsampler = strafer_perception.depth_downsampler:main",
+            "timestamp_fixer = strafer_perception.timestamp_fixer:main",
         ],
     },
 )

@@ -20,10 +20,7 @@ depthimage_to_laserscan:
     range_max: 6.0
 
     # Output frame — the scan appears to come from the camera link
-    output_frame_id: "d555_link"
-
-    # Quality of service
-    qos: 2  # Best Effort (matches RealSense output)
+    output_frame: "d555_link"
 
     # Infinity for out-of-range readings (NaN = skip those rays)
     # 0.0 = report as inf. This is the standard for laser scans.

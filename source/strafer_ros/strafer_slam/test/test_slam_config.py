@@ -81,7 +81,7 @@ class TestDepthimageParams:
         assert float(p["range_max"]) == DEPTH_MAX
 
     def test_output_frame(self, params):
-        frame = params["depthimage_to_laserscan"]["ros__parameters"]["output_frame_id"]
+        frame = params["depthimage_to_laserscan"]["ros__parameters"]["output_frame"]
         assert frame == "d555_link"
 
 

@@ -23,6 +23,8 @@ setup(
     license="MIT",
     tests_require=["pytest"],
     entry_points={
-        "console_scripts": [],
+        "console_scripts": [
+            "validate_drive = strafer_bringup.validate_drive:main",
+        ],
     },
 )

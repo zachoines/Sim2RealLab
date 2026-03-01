@@ -4,7 +4,7 @@
 SHELL := /bin/bash
 COLCON_WS := $(HOME)/strafer_ws
 
-.PHONY: build test test-unit lint lint-fix format format-check clean install-tools udev help
+.PHONY: build test test-unit lint lint-fix format format-check clean kill install-tools udev help
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -46,6 +46,13 @@ format-check: ## Check formatting without modifying files
 
 clean: ## Remove colcon build artifacts
 	cd $(COLCON_WS) && rm -rf build/ install/ log/
+
+# ---------- Kill ----------
+
+kill: ## Kill all running ROS2 / strafer processes
+	@pkill -9 -f "ros2|rtabmap|realsense|roboclaw|madgwick|timestamp_fixer|depthimage|validate_drive" 2>/dev/null || true
+	@sleep 0.5
+	@echo "All ROS processes killed."
 
 # ---------- Setup ----------
 

@@ -186,22 +186,40 @@ def compute_odom_drift(poses: List[Pose2D]) -> Metric:
 def compute_slam_deviation(
     odom: List[Pose2D], slam: List[Pose2D],
 ) -> Metric:
-    """Mean odom-vs-SLAM trajectory deviation."""
+    """Mean odom-vs-SLAM trajectory deviation (frame-aligned).
+
+    The map and odom frames have different origins, so we subtract the
+    initial offset between the first matched pair before comparing.
+    This measures trajectory *shape* divergence, not frame offset.
+    """
     if not slam:
         return Metric("SLAM vs Odom", True, "N/A", "< 0.15 m",
                        "No SLAM data \u2014 skipped")
-    devs: List[float] = []
+
+    # Build time-matched pairs
+    pairs: List[Tuple[Pose2D, Pose2D]] = []
     for sp in slam:
         nearest = min(odom, key=lambda op: abs(op.stamp - sp.stamp))
         if abs(nearest.stamp - sp.stamp) < 0.5:
-            devs.append(math.hypot(sp.x - nearest.x, sp.y - nearest.y))
-    if not devs:
+            pairs.append((nearest, sp))
+    if not pairs:
         return Metric("SLAM vs Odom", True, "N/A", "< 0.15 m",
                        "No matching timestamps")
+
+    # Subtract initial offset so we compare shapes, not frame origins
+    o0, s0 = pairs[0]
+    dx = s0.x - o0.x
+    dy = s0.y - o0.y
+
+    devs = [
+        math.hypot((sp.x - dx) - op.x, (sp.y - dy) - op.y)
+        for op, sp in pairs
+    ]
     mean_d = sum(devs) / len(devs)
     return Metric(
         "SLAM vs Odom", mean_d < 0.15, f"{mean_d:.3f} m", "< 0.15 m",
-        f"{len(devs)} pairs, max {max(devs):.3f} m",
+        f"{len(devs)} pairs, max {max(devs):.3f} m, "
+        f"frame offset ({dx:.2f},{dy:.2f})",
     )
 
 

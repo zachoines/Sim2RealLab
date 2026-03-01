@@ -134,11 +134,20 @@ class TestSlamDeviation:
         assert "0.000" in m.value
 
     def test_large_deviation_fails(self):
+        """Trajectories with different shapes (not just offset) should fail."""
         odom = [Pose2D(float(i), i * 0.1, 0.0, 0.0) for i in range(10)]
-        slam = [Pose2D(float(i), i * 0.1 + 0.5, 0.0, 0.0)
-                for i in range(10)]
+        slam = [Pose2D(float(i), i * 0.3, 0.0, 0.0) for i in range(10)]
         m = compute_slam_deviation(odom, slam)
         assert not m.passed
+
+    def test_constant_offset_passes(self):
+        """SLAM in a shifted frame but same shape should pass."""
+        odom = [Pose2D(float(i), i * 0.1, 0.0, 0.0) for i in range(10)]
+        slam = [Pose2D(float(i), i * 0.1 + 3.0, 5.0, 0.0)
+                for i in range(10)]
+        m = compute_slam_deviation(odom, slam)
+        assert m.passed
+        assert "0.000" in m.value
 
 
 class TestEncoderHealth:

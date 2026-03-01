@@ -200,6 +200,7 @@ make format-check
 ## Documentation
 
 - [Deployment Plan](docs/SIM_TO_REAL_PLAN.md) -- project goals, MVP path, ROS2 architecture, implementation phases
+- [Sim-to-Real Tuning Guide](docs/SIM_TO_REAL_TUNING_GUIDE.md) -- actuator model mapping, sensor noise characterization, tuning procedure
 - [Wiring Guide](docs/WIRING_GUIDE.md) -- motor, encoder, RoboClaw, and Jetson connections
 - [Simulation Extension](source/strafer_lab/README.md) -- Isaac Lab environments, training, gym eval path
 - [ROS2 Development Guide](source/strafer_ros/CLAUDE.md) -- Jetson-side driver/inference development

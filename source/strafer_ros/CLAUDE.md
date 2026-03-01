@@ -211,6 +211,7 @@ This validates Phase 1 wiring before committing to the full ROS2 stack.
 ### References
 
 - `docs/SIM_TO_REAL_PLAN.md` -- Sections 3-4 for full ROS2 architecture
+- `docs/SIM_TO_REAL_TUNING_GUIDE.md` -- Actuator model mapping, sensor characterization, tuning procedure for Phase 5
 - `docs/WIRING_GUIDE.md` -- Physical connections, terminal layout
 - `source/strafer_shared/strafer_shared/constants.py` -- All robot constants
 - `source/strafer_shared/strafer_shared/mecanum_kinematics.py` -- Kinematics functions

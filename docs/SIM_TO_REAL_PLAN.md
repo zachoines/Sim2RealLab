@@ -276,11 +276,13 @@ The `load_policy` function in `strafer_shared.policy_interface` handles both `.p
 - [ ] Create `strafer_inference` with `policy_inference_node`
 - **Test**: fixed goal -> robot drives toward it, inference <5ms
 
-### Phase 5: Integration Testing
+### Phase 5: Integration Testing & Sim-to-Real Tuning
 - [ ] RoboClaw PID tuning to approximate sim's 50ms motor time constant
+- [ ] Characterize all sensors (IMU noise, encoder noise, depth noise)
+- [ ] Verify real hardware falls within Robust training envelope
 - [ ] Waypoint following accuracy (<0.3m error)
-- [ ] Speed calibration, disturbance rejection
-- [ ] Sim-real gap analysis: compare trajectories
+- [ ] Sim-real gap analysis: compare trajectories (square test)
+- See [Sim-to-Real Tuning Guide](SIM_TO_REAL_TUNING_GUIDE.md) for full procedure
 - **Test**: 10-waypoint course, 30-minute endurance run
 
 ### Phase 6: SLAM + Nav2

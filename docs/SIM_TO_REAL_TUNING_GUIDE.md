@@ -4,6 +4,17 @@ How the Isaac Lab simulation models the real Strafer robot, and how to tune each
 
 **Key insight**: You don't need perfect alignment. The `Robust` training preset intentionally over-estimates noise and widens parameter ranges. If your real hardware falls within the Robust envelope, the policy should transfer. This guide helps you **verify** that the real hardware is within the trained distribution, and adjust the sim if it isn't.
 
+**Current measured dimensions** (from `strafer_shared.constants`, updated after physical measurement):
+
+| Constant | Value | Notes |
+|----------|-------|-------|
+| `WHEEL_RADIUS` | 0.048 m | 96mm mecanum wheel |
+| `WHEEL_BASE` | 0.336 m | Front-to-rear axle, center-to-center |
+| `TRACK_WIDTH` | 0.4284 m | Left-to-right axle, center-to-center (frame 360mm + 2×15.2mm axle + 38mm wheel) |
+| `K` (lever arm) | 0.382 m | `WHEEL_BASE/2 + TRACK_WIDTH/2` -- used in kinematic matrix |
+| `MAX_LINEAR_VEL` | 1.568 m/s | `WHEEL_RADIUS × MAX_WHEEL_ANGULAR_VEL` |
+| `MAX_ANGULAR_VEL` | 4.10 rad/s | `MAX_LINEAR_VEL / K` |
+
 ---
 
 ## Table of Contents
@@ -102,17 +113,23 @@ RoboClaw's `SpeedM1`/`SpeedM2` commands run a closed-loop velocity PID controlle
 
 The sim's `damping=10.0` determines how aggressively the *simulated* motor tracks velocity. On the real robot, RoboClaw's PID serves this role. What matters is that the **closed-loop step response** is similar -- specifically settling time, overshoot, and steady-state error. The policy doesn't "know" about the controller gains; it only observes the resulting wheel velocities through encoder readings.
 
-### How to tune RoboClaw PID
+### Tuned PID values (applied automatically on startup)
 
-1. Open **Motion Studio** (BasicMicro's configuration tool)
-2. Use the **Auto-Tune** feature as a starting point
-3. Send velocity step commands (e.g., 0 → 1000 ticks/s) and observe the encoder response
-4. Tune until:
-   - **Settling time**: 50-80ms (matching sim's motor time constant range)
-   - **Overshoot**: <5% (the policy wasn't trained with significant overshoot)
-   - **Steady-state error**: <2% of commanded velocity
-5. Test at multiple speeds: 500, 1000, 2000 ticks/s
-6. Test under load (robot on ground vs. wheels free-spinning)
+The RoboClaw PID has been tuned and is now written to RAM automatically on every `roboclaw_node` startup and by all test scripts. Current values from `strafer_shared.constants`:
+
+```python
+ROBOCLAW_PID_P = 15000
+ROBOCLAW_PID_I = 750
+ROBOCLAW_PID_D = 0
+ROBOCLAW_QPPS  = 2796   # max ticks/sec at 312 RPM (537.7 PPR)
+```
+
+Use `source/strafer_ros/tune_pid.py` to re-run characterization and adjust if needed. If you retune, update these constants in `strafer_shared/constants.py` so all nodes and scripts stay synchronized.
+
+**Target response characteristics**:
+- **Settling time**: 50-80ms (matching sim's motor time constant range)
+- **Overshoot**: <5% (policy wasn't trained with significant overshoot)
+- **Steady-state error**: <2% of commanded velocity
 
 ---
 
@@ -223,7 +240,7 @@ At 30 Hz control rate: accel σ ≈ 0.054 m/s², gyro σ ≈ 0.0013 rad/s.
 
 **How to characterize your D555 IMU**:
 1. Place the robot on a flat, stable surface
-2. Record `/d555/imu` data for 30 seconds (stationary)
+2. Record `/d555/imu/filtered` data for 30 seconds (stationary)
 3. Compute:
    - **Accel bias**: mean of each axis minus gravity (Z should be ~9.81 m/s²)
    - **Accel noise σ**: std of each axis
@@ -304,16 +321,16 @@ These are modeled as per-sensor observation delays in [sim_real_cfg.py:73-84](so
 
 Follow this sequence. Each step builds on the previous.
 
-### Step 1: RoboClaw PID (prerequisite for everything else)
+### Step 1: RoboClaw PID ✅ (already tuned)
 
-Get clean velocity tracking before measuring anything.
+PID is auto-applied on every startup (P=15000, I=750, D=0, QPPS=2796 from `constants.py`). Re-characterize only if behavior changes or after hardware swap.
 
-1. Use Motion Studio auto-tune
-2. Verify step response: settling < 80ms, overshoot < 5%
-3. Test at multiple speeds: 500, 1000, 2000 ticks/s
-4. Test with wheels on ground (loaded) vs. free-spinning
+Use `source/strafer_ros/tune_pid.py` to run a step-response sweep and verify:
+- Settling time < 80ms
+- Overshoot < 5%
+- Steady-state error < 2%
 
-**Pass criteria**: Step response visually resembles a first-order system with τ ≈ 30-80ms.
+**Pass criteria**: Step response resembles a first-order system with τ ≈ 30-80ms.
 
 ### Step 2: Motor Time Constant (τ)
 
@@ -412,8 +429,9 @@ Use this checklist before deploying a trained policy on hardware.
 | [sim_real_cfg.py](source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py) | All noise/timing/actuator presets (Ideal, Realistic, Robust) |
 | [strafer.py](source/strafer_lab/strafer_lab/assets/strafer.py) | DCMotorCfg: stiffness, damping, torque-speed curve |
 | [actions.py](source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py) | Motor dynamics filter, command delay, slew rate (L309-326) |
-| [constants.py](source/strafer_shared/strafer_shared/constants.py) | All robot physical constants, normalization scales |
+| [constants.py](source/strafer_shared/strafer_shared/constants.py) | All robot physical constants, PID gains, normalization scales |
 | [policy_interface.py](source/strafer_shared/strafer_shared/policy_interface.py) | Observation assembly, action interpretation |
+| [tune_pid.py](source/strafer_ros/tune_pid.py) | Interactive PID characterization and step-response sweep |
 
 ### Sim-to-Real Contract Presets Summary
 

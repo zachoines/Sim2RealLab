@@ -99,14 +99,17 @@ Similarly, pass **raw** RoboClaw `ReadSpeedM1`/`ReadSpeedM2` tick rates directly
 
 ## Key Topics
 
-| Topic | Type | Publisher | Rate |
-|-------|------|-----------|------|
-| `/strafer/cmd_vel` | `geometry_msgs/Twist` | inference node | 30 Hz |
-| `/strafer/joint_states` | `sensor_msgs/JointState` | driver node | 50 Hz |
-| `/strafer/odom` | `nav_msgs/Odometry` | driver node | 50 Hz |
-| `/d555/imu` | `sensor_msgs/Imu` | realsense node | 200 Hz |
-| `/d555/depth/image_rect_raw` | `sensor_msgs/Image` | realsense node | 30 Hz |
-| `/d555/color/image_raw` | `sensor_msgs/Image` | realsense node | 30 Hz |
+| Topic | Type | Publisher | Rate | Notes |
+|-------|------|-----------|------|-------|
+| `/strafer/cmd_vel` | `geometry_msgs/Twist` | inference / teleop | 30 Hz | input to driver |
+| `/strafer/joint_states` | `sensor_msgs/JointState` | driver node | 50 Hz | wheel rad/s + cumulative rad |
+| `/strafer/odom` | `nav_msgs/Odometry` | driver node | 50 Hz | odom→base_link |
+| `/strafer/goal` | `geometry_msgs/PoseStamped` | user / Nav2 | -- | input to inference |
+| `/d555/imu/filtered` | `sensor_msgs/Imu` | madgwick node | 200 Hz | orientation-corrected |
+| `/d555/depth/image_rect_raw` | `sensor_msgs/Image` | realsense node | 30 Hz | 16UC1, mm |
+| `/d555/depth/downsampled` | `sensor_msgs/Image` | depth_downsampler | 30 Hz | 32FC1, m, 80×60 |
+| `/d555/color/image_sync` | `sensor_msgs/Image` | timestamp_fixer | 30 Hz | HW-clock-corrected |
+| `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | driver node | 1 Hz | RoboClaw connection state |
 
 ## Conventions
 
@@ -117,96 +120,102 @@ Similarly, pass **raw** RoboClaw `ReadSpeedM1`/`ReadSpeedM2` tick rates directly
 - Test with `colcon test`; use `launch_testing` for integration tests
 - Udev rules go in `/etc/udev/rules.d/99-strafer.rules` for persistent device names
 
-## Current Phase: Phase 2 -- ROS2 Driver Packages
+## Package Status
 
-Both RoboClaws are connected to the Jetson via USB and configured:
-- **RoboClaw #1** (front): address 0x80, packet serial, 115200 baud
-- **RoboClaw #2** (rear): address 0x81, packet serial, 115200 baud
+| Package | Status | Notes |
+|---------|--------|-------|
+| `strafer_msgs` | Done | Package scaffolding; custom msgs when needed |
+| `strafer_driver` | Done | `roboclaw_node`: auto-detect, auto-PID, 50 Hz loop, watchdog, diagnostics |
+| `strafer_perception` | Done | `depth_downsampler` + `timestamp_fixer` (D555 HW clock sync) + madgwick IMU filter |
+| `strafer_description` | Done | URDF/xacro, all dims from `strafer_shared.constants`, `robot_state_publisher` |
+| `strafer_slam` | Config done | RTAB-Map params tuned; end-to-end test pending |
+| `strafer_navigation` | Config done | Nav2 + MPPI OmniMotionModel; end-to-end test pending |
+| `strafer_bringup` | Done | Layered launch files + `ValidateDrive` smoke test |
+| `strafer_inference` | **Planned** | Policy inference node -- current target |
 
-Udev rules have NOT been created yet. RoboClaws will appear as `/dev/ttyACM0` and `/dev/ttyACM1` (order not guaranteed).
+## Current Phase: Phase 4 -- Policy Inference Node
 
-### Task: Build `strafer_driver` package
+Phases 1-3 are complete. Hardware is verified, the full driver + perception + SLAM/Nav2 config stack is in place. The next step is training an RL policy on the Windows workstation and creating the `strafer_inference` package to run it on the Jetson.
 
-Create the `strafer_driver` ROS2 package with a `roboclaw_node` that:
+### Context
 
-1. **Subscribes** to `/strafer/cmd_vel` (`geometry_msgs/Twist`) and converts body velocity to per-wheel commands using `strafer_shared.mecanum_kinematics.twist_to_wheel_velocities(vx, vy, omega)`, then `wheel_vels_to_ticks_per_sec()`, then sends to RoboClaws via `SpeedM1`/`SpeedM2`. Twist field mapping: `linear.x` = vx (forward), `linear.y` = vy (strafe left), `angular.z` = omega (CCW yaw). The `cmd_vel` callback only stores the latest Twist — serial I/O happens in the timer.
+- RoboClaw PID is tuned and auto-applied on startup: **P=15000, I=750, D=0, QPPS=2796**
+- Ports: `/dev/roboclaw0` (front, 0x80), `/dev/roboclaw1` (rear, 0x81) via udev (`make udev`)
+- Perception pipeline is live: `/d555/imu/filtered` (200 Hz madgwick), `/d555/depth/downsampled` (30 Hz, 32FC1, 80×60)
+- Full bringup: `ros2 launch strafer_bringup base.launch.py` → driver + description + perception
+- Smoke test: `ros2 launch strafer_bringup navigation.launch.py` → full stack + ValidateDrive
 
-2. **Publishes** `/strafer/joint_states` (`sensor_msgs/JointState`) at 50 Hz by reading encoder velocities from both RoboClaws (`ReadSpeedM1`/`ReadSpeedM2`), converting ticks/s to rad/s. Joint names must be `["wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4_drive"]` (matching simulation). Field population:
-   - `velocity`: rad/s in URDF frame (sign correction already handled by kinematics)
-   - `position`: cumulative radians from `ReadEncM1`/`ReadEncM2` counts (useful for `robot_state_publisher` and debugging)
-   - `effort`: leave empty (RoboClaw does not report torque)
+### Task: Create `strafer_inference` package
 
-3. **Publishes** `/strafer/odom` (`nav_msgs/Odometry`) at 50 Hz by integrating wheel odometry using `strafer_shared.mecanum_kinematics.encoder_ticks_to_body_velocity()`. Also broadcasts `odom` -> `base_link` TF.
+Build the `strafer_inference` ROS2 package with a `policy_inference_node` that closes the loop between sensor data and motor commands via a trained RL policy.
 
-4. **Safety**: Stops all motors if no `cmd_vel` received within 500ms (watchdog).
+#### Architecture
 
-5. **ROS2 parameters** (configurable via launch or YAML):
-   - `front_port` (string, default: `/dev/ttyACM0`)
-   - `rear_port` (string, default: `/dev/ttyACM1`)
-   - `baud_rate` (int, default: 115200)
-   - `publish_rate` (float, default: 50.0)
+```
+/d555/imu/filtered ────────────┐
+/strafer/joint_states ─────────┤
+/d555/depth/downsampled ───────┤  assemble_observation()  ┌──────────────┐
+/strafer/goal ─────────────────┤ ───────────────────────► │  RL Policy   │ ──► interpret_action() ──► /strafer/cmd_vel
+                                └──────────────────────    │  (.pt/.onnx) │
+                                    last_action feedback   └──────────────┘
+```
 
-6. **Threading model**: Use a **single-threaded executor**. The 50 Hz timer callback handles all serial I/O (send motor commands from stored `cmd_vel`, read encoders, publish JointState/odom). The `cmd_vel` subscription callback only stores the latest Twist value — no serial I/O in the callback.
+#### Implementation
 
-#### RoboClaw communication
+1. **Subscribe**:
+   - `/d555/imu/filtered` (`sensor_msgs/Imu`, 200 Hz) → cache latest `linear_acceleration` + `angular_velocity`
+   - `/strafer/joint_states` (`sensor_msgs/JointState`, 50 Hz) → cache wheel velocities, convert rad/s → ticks/s via `RADIANS_TO_ENCODER_TICKS`
+   - `/d555/depth/downsampled` (`sensor_msgs/Image`, 32FC1, 80×60, 30 Hz) → cache as flat float32 array (DEPTH variant only)
+   - `/strafer/goal` (`geometry_msgs/PoseStamped`) → cache goal; compute `goal_relative` = goal in robot frame via TF
 
-**Vendor a minimal serial interface** in `roboclaw_interface.py` using `pyserial`. Do NOT depend on `roboclaw_3` or other third-party RoboClaw libraries — they are poorly maintained and untested on aarch64. The interface is ~100-150 lines wrapping the RoboClaw packet serial protocol (address byte + command byte + data + CRC16). Reference: [RoboClaw User Manual](https://downloads.basicmicro.com/docs/roboclaw_user_manual.pdf).
+2. **Timer at 30 Hz**: assemble observation, run model, publish `cmd_vel`:
+   ```python
+   raw = {
+       "imu_accel": [...],           # (3,) m/s²
+       "imu_gyro": [...],            # (3,) rad/s
+       "encoder_vels_ticks": [...],  # (4,) ticks/s -- raw from RoboClaw (via JointState × 85.57)
+       "goal_relative": [...],       # (2,) meters in robot frame (from TF)
+       "last_action": [...],         # (3,) normalized, cached from previous step
+   }
+   obs = assemble_observation(raw, PolicyVariant.NOCAM)  # → (15,) float32
+   action = policy(obs)                                   # → (3,) float32
+   vx, vy, omega = interpret_action(action)
+   # publish Twist(linear.x=vx, linear.y=vy, angular.z=omega)
+   last_action = action  # cache for next step
+   ```
 
-The key commands to implement:
-- `SpeedM1(address, speed)` / `SpeedM2(address, speed)` -- velocity in ticks/sec (signed int32)
-- `ReadSpeedM1(address)` / `ReadSpeedM2(address)` -- returns (speed, status) in ticks/sec
-- `ReadEncM1(address)` / `ReadEncM2(address)` -- returns (count, status)
-- `ForwardM1(address, 0)` / `ForwardM2(address, 0)` -- stop motors
+3. **Model loading**: `load_policy(path, variant)` from `strafer_shared.policy_interface` handles `.pt` and `.onnx` transparently. Pass `--model` path as ROS2 param or CLI arg.
 
-#### Serial error handling
+4. **ROS2 parameters**:
+   - `model_path` (string) -- path to `.pt` or `.onnx` file
+   - `variant` (string, default: `"NOCAM"`) -- `"NOCAM"` or `"DEPTH"`
+   - `publish_rate` (float, default: `30.0`)
+   - `goal_timeout_s` (float, default: `5.0`) -- stop if no goal received within this window
 
-- **Read timeout**: 100ms per command
-- **Retry**: 1 retry on checksum/timeout failure, then log warning and skip that cycle
-- **Sustained failure**: After 10 consecutive failures, stop all motors, publish `diagnostic_msgs/DiagnosticStatus` with ERROR level, and attempt reconnect every 2 seconds
-- **Diagnostics**: Publish `diagnostic_msgs/DiagnosticStatus` on `/diagnostics` with connection state, error counts, and last successful read timestamp
+5. **Safety**: If no goal received for `goal_timeout_s`, publish zero `cmd_vel`.
 
 #### Package structure
 
 ```
-strafer_driver/
+strafer_inference/
 ├── package.xml
-├── setup.py (or setup.cfg)
-├── strafer_driver/
+├── setup.py
+├── strafer_inference/
 │   ├── __init__.py
-│   ├── roboclaw_node.py      # Main ROS2 node
-│   └── roboclaw_interface.py # Low-level serial interface to RoboClaw
-├── config/
-│   └── driver_params.yaml    # Default parameters
+│   └── policy_inference_node.py
 ├── launch/
-│   └── driver.launch.py      # Launch file
+│   └── inference.launch.py
 └── test/
-    └── test_driver.py        # Basic tests
+    └── test_inference_node.py
 ```
 
 #### Critical rules
 
-- **ALL constants** come from `strafer_shared.constants` -- never hardcode motor addresses, encoder PPR, wheel dimensions, etc.
-- **ALL kinematics** come from `strafer_shared.mecanum_kinematics` -- do not reimplement
-- **Do NOT apply `WHEEL_AXIS_SIGNS` in the driver** -- the kinematics functions handle signs internally
-- Use `ament_python` build type
-- Wheel order is always `[FL, FR, RL, RR]` = `[wheel_1, wheel_2, wheel_3, wheel_4]`
-- RoboClaw #1 (0x80) controls M1=FL, M2=FR. RoboClaw #2 (0x81) controls M1=RL, M2=RR.
-- `strafer_shared` is pip-installed (`pip install -e source/strafer_shared`), not a colcon package. Add `<exec_depend>strafer_shared</exec_depend>` in `package.xml` as documentation, but colcon will not manage this dependency. Add `pyserial` to `install_requires` in `setup.py`.
-
-### First: Standalone wiring test script
-
-Before building the full ROS2 driver, create a **standalone Python script** (no ROS2 dependency) that validates the physical wiring:
-- Opens both RoboClaw serial ports
-- Spins each motor briefly at low speed (~500 ticks/sec) and reads its encoder
-- Verifies encoder counts increase in the expected direction
-- Prints a pass/fail summary for each motor+encoder pair
-
-This validates Phase 1 wiring before committing to the full ROS2 stack.
-
-### Also needed (lower priority)
-
-- **`strafer_msgs`**: Create the package with `package.xml` and `CMakeLists.txt`. Custom messages can wait until standard messages prove insufficient.
-- **Udev rules**: Create `/etc/udev/rules.d/99-strafer.rules` for persistent `/dev/roboclaw_front` and `/dev/roboclaw_rear` symlinks. Run `udevadm info -a /dev/ttyACMx | grep serial` to find unique serial numbers.
+- Use `assemble_observation()` and `interpret_action()` from `strafer_shared.policy_interface` -- do NOT manually normalize
+- Encoder velocities: convert JointState rad/s → ticks/s using `RADIANS_TO_ENCODER_TICKS ≈ 85.57` before passing to `assemble_observation()`
+- Goal in robot frame: use `tf2_ros.Buffer.lookup_transform("base_link", goal.header.frame_id, ...)` to transform goal pose
+- All constants from `strafer_shared.constants` (do not hardcode)
+- Single-threaded executor; all callbacks are cache-only; only the timer does work
 
 ### References
 

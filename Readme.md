@@ -78,9 +78,13 @@ Both paths reference the same **policy contract** (observation spec, action spec
 ├── Assets/                      # Robot USD assets
 ├── Scripts/                     # Asset processing & training scripts
 ├── IsaacLab/                    # NVIDIA Isaac Lab (submodule)
+├── Makefile                     # Jetson helpers: make udev / make test / make lint
 ├── docs/
-│   └── SIM_TO_REAL_PLAN.md      # Detailed deployment plan
-└── README.md
+│   ├── SIM_TO_REAL_PLAN.md      # Detailed deployment plan + phase status
+│   ├── SIM_TO_REAL_TUNING_GUIDE.md  # Actuator + sensor characterization guide
+│   ├── WIRING_GUIDE.md          # Motor, encoder, RoboClaw, Jetson connections
+│   └── D555_IMU_KERNEL_FIX.md   # RealSense HW clock drift fix for JetPack 6.x
+└── Readme.md
 ```
 
 ## Pipeline Status
@@ -97,9 +101,14 @@ Both paths reference the same **policy contract** (observation spec, action spec
 | Jetson Setup | Done | JetPack 6.2 flashed, SSH accessible, ROS2 Humble |
 | ROS2 Driver | Done | `strafer_driver` -- auto-detect, auto-PID, cmd_vel/odom/joint_states/TF |
 | Hardware Validation | Done | All 4 motors, encoders, PID tuning, motion patterns verified |
-| ROS2 Packages | In Progress | Driver done, perception/inference/SLAM pending |
+| ROS2 Perception | Done | `strafer_perception` -- depth downsampler + D555 HW clock sync |
+| ROS2 Description | Done | `strafer_description` -- URDF/xacro, TF frames, robot_state_publisher |
+| ROS2 SLAM config | Done | `strafer_slam` -- RTAB-Map params tuned for Jetson |
+| ROS2 Nav2 config | Done | `strafer_navigation` -- MPPI controller for mecanum |
+| ROS2 Bringup | Done | `strafer_bringup` -- layered launch files + ValidateDrive smoke test |
 | Policy Export | Planned | PyTorch (.pt) initially, ONNX/TensorRT later |
-| SLAM + Nav2 | Planned | RTAB-Map + robot_localization EKF + Nav2 |
+| RL Policy Inference | Planned | `strafer_inference` -- assemble obs, run model, publish cmd_vel |
+| SLAM + Nav2 Integration | Planned | End-to-end test: map build, localization, Nav2 goal following |
 
 ## Quick Start
 

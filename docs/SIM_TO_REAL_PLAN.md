@@ -90,7 +90,7 @@ Jetson Orin Nano USB 2.0     -->  RoboClaw #2 (addr 0x81): RL motor + RR motor +
 
 **Power**: 12V 3S/4S LiPo -> RoboClaws (motor power) + boost/buck converter -> Jetson Orin Nano (19V barrel jack). RealSense powered via USB 3.x.
 
-**Udev rules** for persistent device names (`/dev/roboclaw_front`, `/dev/roboclaw_rear`).
+**Udev rules**: `source/strafer_ros/99-strafer.rules` creates persistent symlinks `/dev/roboclaw0` (front, addr 0x80) and `/dev/roboclaw1` (rear, addr 0x81). Install with `make udev`.
 
 **Motor direction**: `wheel_axis_signs = [-1, 1, -1, 1]` (FL, FR, RL, RR) from [strafer_env_cfg.py:183](source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py#L183). Apply sign correction in software, not by swapping wires.
 
@@ -146,17 +146,26 @@ Mecanum kinematics (Twist -> wheel angular velocities -> encoder ticks/sec -> Ro
 
 Safety: motor watchdog stops all wheels if no `cmd_vel` received within 500ms.
 
-### strafer_inference: `policy_inference_node`
+### strafer_perception: `depth_downsampler`, `timestamp_fixer`
 
 | Direction | Topic | Type | Rate |
 |-----------|-------|------|------|
-| Sub | `/d555/imu` | `sensor_msgs/Imu` | 200 Hz |
+| Sub | `/d555/depth/image_rect_raw` | `sensor_msgs/Image` (16UC1, mm) | 30 Hz |
+| Pub | `/d555/depth/downsampled` | `sensor_msgs/Image` (32FC1, m, 80×60) | 30 Hz |
+
+`timestamp_fixer` re-stamps all D555 streams from hardware clock to ROS system time, fixing a known JetPack 6.x sync issue (see `docs/D555_IMU_KERNEL_FIX.md`).
+
+### strafer_inference: `policy_inference_node` *(planned)*
+
+| Direction | Topic | Type | Rate |
+|-----------|-------|------|------|
+| Sub | `/d555/imu/filtered` | `sensor_msgs/Imu` | 200 Hz |
 | Sub | `/strafer/joint_states` | `sensor_msgs/JointState` | 50 Hz |
-| Sub | `/strafer/depth/policy_input` | `sensor_msgs/Image` | 30 Hz |
+| Sub | `/d555/depth/downsampled` | `sensor_msgs/Image` (32FC1, m, 80×60) | 30 Hz |
 | Sub | `/strafer/goal` | `geometry_msgs/PoseStamped` | -- |
 | Pub | `/strafer/cmd_vel` | `geometry_msgs/Twist` | 30 Hz |
 
-Assembles observation vector in **exact simulation order**, applies normalization, runs ONNX inference, denormalizes action output.
+Assembles observation vector via `assemble_observation(raw, variant)`, runs `.pt` or `.onnx` model, calls `interpret_action()`, publishes `cmd_vel`.
 
 ---
 
@@ -238,58 +247,71 @@ The `load_policy` function in `strafer_shared.policy_interface` handles both `.p
 
 ## 7. SLAM & Nav2 Integration
 
-**SLAM**: RTAB-Map (`ros-humble-rtabmap-ros`) with D555 RGB-D + IMU. Produces `/map` and `map->odom` TF.
+**SLAM**: RTAB-Map (`ros-humble-rtabmap-ros`) with D555 RGB-D. Tuned config in `strafer_slam/config/rtabmap_params.yaml`: 2 Hz loop closure, ORB features, 0.05m grid cells, g2o optimizer, 2D SLAM. Produces `/rtabmap/map` (`OccupancyGrid`) and `map→odom` TF.
 
-**Sensor fusion**: `robot_localization` EKF fusing wheel odometry (50Hz) + D555 IMU (200Hz) for `odom->base_link` TF.
+**Odometry**: Wheel encoder odometry (`strafer_driver`) provides `odom→base_link` TF at 50 Hz. RTAB-Map uses this as the odometry source (no EKF needed for MVP).
+
+**IMU filtering**: `imu_filter_madgwick` node fuses D555 IMU into `/d555/imu/filtered` (orientation-corrected). Used by inference node.
+
+**Nav2 controller**: MPPI (`nav2_mppi_controller`) with the `OmniMotionModel` for full mecanum motion. Params in `strafer_navigation/config/nav2_params.yaml`.
 
 **Nav2 operating modes**:
-- **Mode 1 (initial)**: Pure RL policy. `policy_inference_node` publishes directly to `cmd_vel`. No Nav2.
-- **Mode 2**: Nav2 with RL as local controller plugin. Nav2 handles global planning + behavior trees; RL policy handles low-level control.
-- **Mode 3 (future)**: Hybrid switching between traditional controller and RL based on context.
+- **Mode 1 (MVP)**: Pure RL policy. `policy_inference_node` publishes directly to `/strafer/cmd_vel`. No Nav2. Goal is a hardcoded `PoseStamped`.
+- **Mode 2**: Nav2 with RL as local controller plugin. Nav2 handles global planning + behavior trees; RL policy handles low-level velocity control.
+- **Mode 3 (future)**: VLM decodes NL commands → Nav2 goal poses → RL local controller.
 
 ---
 
 ## 8. Implementation Phases
 
-### Phase 1: Jetson Orin Nano Setup + Hardware Bring-Up
-- [x] Flash JetPack 6.2 (done -- Orin Nano on network, SSH accessible)
-- [ ] Set up VS Code Remote-SSH workspace (Windows <-> Jetson)
-- [ ] Install ROS2 Humble
-- [ ] Create udev rules, test RoboClaw serial communication
-- [ ] Verify each motor spins correctly, encoders respond
-- [ ] Install librealsense2 (from source with CUDA), verify D555 streams
-- **Test**: standalone Python scripts for motor/encoder/camera validation
+### Phase 1: Jetson Setup + Hardware Bring-Up ✅
+- [x] Flash JetPack 6.2 -- Orin Nano on network, SSH accessible
+- [x] VS Code Remote-SSH workspace (Windows ↔ Jetson)
+- [x] Install ROS2 Humble
+- [x] Udev rules: `99-strafer.rules` → `/dev/roboclaw0`, `/dev/roboclaw1`; install with `make udev`
+- [x] RoboClaw serial communication verified, PID auto-set on startup
+- [x] All 4 motors verified: spin direction, encoder counts, motion patterns
+- [x] librealsense2 installed, D555 RGB + depth + IMU streams verified
+- [x] D555 HW clock drift diagnosed and fixed (`timestamp_fixer`, see `docs/D555_IMU_KERNEL_FIX.md`)
+- **Evidence**: `source/strafer_ros/test_motion_patterns.py`, `source/strafer_ros/test_d555_camera.py`, `source/strafer_ros/tune_pid.py`
 
-### Phase 2: ROS2 Driver Packages
-- [ ] Create `strafer_msgs`, `strafer_driver` (roboclaw_node), `strafer_perception` (RealSense wrapper + depth downsampler)
-- [ ] Implement shared `mecanum_kinematics.py`
-- **Test**: keyboard teleop drives robot, odometry publishes, drive a 1m square
+### Phase 2: ROS2 Driver + Perception ✅
+- [x] `strafer_msgs`: package scaffolding created
+- [x] `strafer_driver`: `roboclaw_node` -- auto-detect ports, auto-PID, cmd_vel/odom/joint_states/TF, watchdog, diagnostics
+- [x] `strafer_perception`: `depth_downsampler` (16UC1→32FC1 80×60), `timestamp_fixer` (D555 HW clock sync), `imu_filter_madgwick`
+- [x] Shared `mecanum_kinematics.py` in `strafer_shared`
+- **Evidence**: `source/strafer_ros/ros_test_motion.py`, `source/strafer_ros/ros_test_perception.py`
 
-### Phase 3: URDF + TF Tree
-- [ ] Create `strafer_description` with xacro matching sim dimensions
-- [ ] Export STL meshes from USD assets in [Assets/3209-0001-0006-v6/](Assets/3209-0001-0006-v6/)
-- **Test**: RViz2 shows correct robot model with live TF, camera frame matches RealSense intrinsics
+### Phase 3: URDF + TF Tree ✅
+- [x] `strafer_description`: URDF/xacro with dimensions from `strafer_shared.constants`, `robot_state_publisher` launch
+- [x] TF tree: `map → odom → base_link → {chassis, d555, wheel_1..4}`
+- [ ] STL meshes from USD assets (visual-only, not blocking)
+- **Test**: `colcon test --packages-select strafer_description` (URDF parse + TF validation)
 
-### Phase 4: Policy Export + Inference
-- [ ] Train policy on workstation with `Isaac-Strafer-Nav-Real-NoCam-v0`
-- [ ] Export to ONNX, optimize with TensorRT on Jetson Orin Nano
-- [ ] Create `strafer_inference` with `policy_inference_node`
-- **Test**: fixed goal -> robot drives toward it, inference <5ms
+### Phase 4: Policy Export + Inference ← **Current**
+- [ ] Train policy on workstation: `Isaac-Strafer-Nav-Real-NoCam-v0` (15-dim obs, no camera)
+- [ ] Export to TorchScript (`.pt`) via `export_policy_as_jit()`
+- [ ] Create `strafer_inference` package with `policy_inference_node`:
+  - Sub: `/d555/imu/filtered`, `/strafer/joint_states`, `/d555/depth/downsampled`, `/strafer/goal`
+  - Pub: `/strafer/cmd_vel` at 30 Hz
+  - Logic: `assemble_observation()` → model forward → `interpret_action()` → Twist
+- [ ] Benchmark inference latency: target <5ms on Jetson
+- **Test**: hardcoded goal → robot drives toward it and stops within 0.3m
 
-### Phase 5: Integration Testing & Sim-to-Real Tuning
-- [ ] RoboClaw PID tuning to approximate sim's 50ms motor time constant
-- [ ] Characterize all sensors (IMU noise, encoder noise, depth noise)
-- [ ] Verify real hardware falls within Robust training envelope
+### Phase 5: Sim-to-Real Tuning + Integration Testing
+- [ ] Characterize all sensors (IMU noise, encoder noise) -- see [Sim-to-Real Tuning Guide](SIM_TO_REAL_TUNING_GUIDE.md)
+- [x] RoboClaw PID tuned: P=15000, I=750, D=0, QPPS=2796 (auto-set on every startup)
+- [ ] Verify measured motor τ falls within Robust envelope [20-100ms]
 - [ ] Waypoint following accuracy (<0.3m error)
-- [ ] Sim-real gap analysis: compare trajectories (square test)
-- See [Sim-to-Real Tuning Guide](SIM_TO_REAL_TUNING_GUIDE.md) for full procedure
+- [ ] Square test: compare real vs. sim trajectories
 - **Test**: 10-waypoint course, 30-minute endurance run
 
-### Phase 6: SLAM + Nav2
-- [ ] Install RTAB-Map, robot_localization, Nav2
-- [ ] Create `strafer_slam`, `strafer_navigation`, `strafer_bringup`
-- [ ] Build map, test localization, configure costmaps
-- [ ] Integrate RL as Nav2 local controller
+### Phase 6: SLAM + Nav2 Integration
+- [x] `strafer_slam`: RTAB-Map config tuned (2 Hz loop closure, 0.05m grid, g2o optimizer)
+- [x] `strafer_navigation`: Nav2 + MPPI OmniMotionModel config
+- [x] `strafer_bringup`: layered launch files (base / perception / slam / navigation) + `ValidateDrive` smoke test
+- [ ] End-to-end test: build map of room, localize, send Nav2 goal
+- [ ] Integrate RL policy as Nav2 local controller plugin
 - **Test**: autonomous navigation in mapped environment with obstacle avoidance
 
 ---
@@ -299,11 +321,15 @@ The `load_policy` function in `strafer_shared.policy_interface` handles both `.p
 | File | What to reference |
 |------|-------------------|
 | [policy_interface.py](source/strafer_shared/strafer_shared/policy_interface.py) | **Policy contract**: obs specs, action specs, `assemble_observation()`, `load_policy()` |
-| [constants.py](source/strafer_shared/strafer_shared/constants.py) | All robot physical constants, normalization scales |
+| [constants.py](source/strafer_shared/strafer_shared/constants.py) | All robot physical constants, PID gains, normalization scales |
 | [mecanum_kinematics.py](source/strafer_shared/strafer_shared/mecanum_kinematics.py) | Kinematic matrix, forward/inverse kinematics |
-| [actions.py](source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py) | Sim kinematic matrix (L166-171), velocity scaling (L173-179), motor dynamics |
-| [strafer_env_cfg.py](source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py) | Sim obs order (L249-258), normalization (L225-234), camera config (L103-121) |
-| [sim_real_cfg.py](source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py) | REAL_ROBOT_CONTRACT timing/noise params (L419-477) |
-| [observations.py](source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py) | Encoder tick conversion (L28-33), sensor data extraction |
-| [rsl_rl_ppo_cfg.py](source/strafer_lab/strafer_lab/tasks/navigation/agents/rsl_rl_ppo_cfg.py) | Network architecture: [256,256,128] ELU (L14-16) |
-| [strafer.py](source/strafer_lab/strafer_lab/assets/strafer.py) | Robot ArticulationCfg, motor specs, joint names |
+| [roboclaw_node.py](source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py) | ROS2 driver: 50 Hz loop, watchdog, diagnostics, odom integration |
+| [roboclaw_interface.py](source/strafer_ros/strafer_driver/strafer_driver/roboclaw_interface.py) | Packet serial protocol, CRC-16, retry logic |
+| [depth_downsampler.py](source/strafer_ros/strafer_perception/strafer_perception/depth_downsampler.py) | 16UC1→32FC1 downsampler, clip [0.4, 6.0]m |
+| [strafer.urdf.xacro](source/strafer_ros/strafer_description/urdf/strafer.urdf.xacro) | URDF: link dimensions, TF frames, wheel joints |
+| [rtabmap_params.yaml](source/strafer_ros/strafer_slam/config/rtabmap_params.yaml) | SLAM: loop closure rate, grid resolution, ORB features |
+| [nav2_params.yaml](source/strafer_ros/strafer_navigation/config/nav2_params.yaml) | Nav2: MPPI OmniMotionModel, velocity limits, costmaps |
+| [actions.py](source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py) | Sim kinematic matrix (L166-171), motor dynamics filter |
+| [strafer_env_cfg.py](source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py) | Sim obs order, normalization, camera config |
+| [sim_real_cfg.py](source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py) | REAL_ROBOT_CONTRACT and ROBUST_TRAINING_CONTRACT |
+| [strafer.py](source/strafer_lab/strafer_lab/assets/strafer.py) | Robot ArticulationCfg, DCMotorCfg, joint names |

@@ -104,11 +104,14 @@ Similarly, pass **raw** RoboClaw `ReadSpeedM1`/`ReadSpeedM2` tick rates directly
 | `/strafer/cmd_vel` | `geometry_msgs/Twist` | inference / teleop | 30 Hz | input to driver |
 | `/strafer/joint_states` | `sensor_msgs/JointState` | driver node | 50 Hz | wheel rad/s + cumulative rad |
 | `/strafer/odom` | `nav_msgs/Odometry` | driver node | 50 Hz | odom→base_link |
-| `/strafer/goal` | `geometry_msgs/PoseStamped` | user / Nav2 | -- | input to inference |
+| `/strafer/goal` | `geometry_msgs/PoseStamped` | user / Nav2 / VLM | -- | input to inference; frame: `map` |
+| `/strafer/vlm_status` | `std_msgs/String` | vlm_goal_node | -- | `idle`/`detecting`/`navigating`/`goal_reached` |
 | `/d555/imu/filtered` | `sensor_msgs/Imu` | madgwick node | 200 Hz | orientation-corrected |
 | `/d555/depth/image_rect_raw` | `sensor_msgs/Image` | realsense node | 30 Hz | 16UC1, mm |
 | `/d555/depth/downsampled` | `sensor_msgs/Image` | depth_downsampler | 30 Hz | 32FC1, m, 80×60 |
+| `/d555/aligned_depth_to_color/image_raw` | `sensor_msgs/Image` | realsense node | 30 Hz | 16UC1, mm; depth in RGB frame; requires `align_depth.enable: true` |
 | `/d555/color/image_sync` | `sensor_msgs/Image` | timestamp_fixer | 30 Hz | HW-clock-corrected |
+| `/d555/color/camera_info_sync` | `sensor_msgs/CameraInfo` | timestamp_fixer | 30 Hz | HW-clock-corrected intrinsics |
 | `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | driver node | 1 Hz | RoboClaw connection state |
 
 ## Conventions
@@ -124,14 +127,15 @@ Similarly, pass **raw** RoboClaw `ReadSpeedM1`/`ReadSpeedM2` tick rates directly
 
 | Package | Status | Notes |
 |---------|--------|-------|
-| `strafer_msgs` | Done | Package scaffolding; custom msgs when needed |
+| `strafer_msgs` | Done | Package scaffolding; add `SetCommand.srv` for Phase 5 |
 | `strafer_driver` | Done | `roboclaw_node`: auto-detect, auto-PID, 50 Hz loop, watchdog, diagnostics |
 | `strafer_perception` | Done | `depth_downsampler` + `timestamp_fixer` (D555 HW clock sync) + madgwick IMU filter |
 | `strafer_description` | Done | URDF/xacro, all dims from `strafer_shared.constants`, `robot_state_publisher` |
 | `strafer_slam` | Config done | RTAB-Map params tuned; end-to-end test pending |
 | `strafer_navigation` | Config done | Nav2 + MPPI OmniMotionModel; end-to-end test pending |
 | `strafer_bringup` | Done | Layered launch files + `ValidateDrive` smoke test |
-| `strafer_inference` | **Planned** | Policy inference node -- current target |
+| `strafer_inference` | **Planned** | Policy inference node -- current target (Phase 4) |
+| `strafer_vlm` | **Planned** | Qwen2.5-VL-3B visual grounding + NL command → goal pose (Phase 5) |
 
 ## Current Phase: Phase 4 -- Policy Inference Node
 

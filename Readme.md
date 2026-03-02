@@ -32,7 +32,7 @@ Both paths reference the same **policy contract** (observation spec, action spec
 |-------|---------------|--------|----------|
 | **MVP** | Hardcoded goal pose | RL nav-to-goal (.pt) | Gym eval + ROS eval |
 | **Phase 2** | Nav2 waypoints from map | RL nav + obstacle avoidance | ROS + Nav2 |
-| **Phase 3** | VLM decodes NL commands → poses/skills | Multi-task RL (behavorial cloning from Nav2 data) | ROS + VLM |
+| **Phase 3** | VLM decodes NL command → object bounding box → goal pose | RL nav policy + Qwen2.5-VL-3B grounding | ROS + VLM |
 
 ## Hardware
 
@@ -64,7 +64,8 @@ Both paths reference the same **policy contract** (observation spec, action spec
 │   │   ├── strafer_msgs/        # Custom message definitions
 │   │   ├── strafer_driver/      # RoboClaw hardware interface
 │   │   ├── strafer_perception/  # RealSense integration
-│   │   ├── strafer_inference/   # ONNX/TensorRT policy inference
+│   │   │   ├── strafer_inference/   # ONNX/TensorRT policy inference
+│   │   ├── strafer_vlm/         # Qwen2.5-VL-3B visual grounding + goal generation
 │   │   ├── strafer_slam/        # RTAB-Map SLAM
 │   │   ├── strafer_navigation/  # Nav2 integration
 │   │   └── strafer_bringup/     # Launch files
@@ -80,10 +81,11 @@ Both paths reference the same **policy contract** (observation spec, action spec
 ├── IsaacLab/                    # NVIDIA Isaac Lab (submodule)
 ├── Makefile                     # Jetson helpers: make udev / make test / make lint
 ├── docs/
-│   ├── SIM_TO_REAL_PLAN.md      # Detailed deployment plan + phase status
+│   ├── SIM_TO_REAL_PLAN.md          # Detailed deployment plan + phase status
 │   ├── SIM_TO_REAL_TUNING_GUIDE.md  # Actuator + sensor characterization guide
-│   ├── WIRING_GUIDE.md          # Motor, encoder, RoboClaw, Jetson connections
-│   └── D555_IMU_KERNEL_FIX.md   # RealSense HW clock drift fix for JetPack 6.x
+│   ├── PHASE_5_VLM_INTEGRATION.md   # VLM (Qwen2.5-VL-3B) integration plan
+│   ├── WIRING_GUIDE.md              # Motor, encoder, RoboClaw, Jetson connections
+│   └── D555_IMU_KERNEL_FIX.md       # RealSense HW clock drift fix for JetPack 6.x
 └── Readme.md
 ```
 
@@ -109,6 +111,7 @@ Both paths reference the same **policy contract** (observation spec, action spec
 | Policy Export | Planned | PyTorch (.pt) initially, ONNX/TensorRT later |
 | RL Policy Inference | Planned | `strafer_inference` -- assemble obs, run model, publish cmd_vel |
 | SLAM + Nav2 Integration | Planned | End-to-end test: map build, localization, Nav2 goal following |
+| VLM Integration | Planned | `strafer_vlm` -- Qwen2.5-VL-3B visual grounding, NL command → goal pose |
 
 ## Quick Start
 
@@ -210,6 +213,7 @@ make format-check
 
 - [Deployment Plan](docs/SIM_TO_REAL_PLAN.md) -- project goals, MVP path, ROS2 architecture, implementation phases
 - [Sim-to-Real Tuning Guide](docs/SIM_TO_REAL_TUNING_GUIDE.md) -- actuator model mapping, sensor noise characterization, tuning procedure
+- [VLM Integration Plan](docs/PHASE_5_VLM_INTEGRATION.md) -- Qwen2.5-VL-3B architecture, fine-tuning, Jetson deployment
 - [Wiring Guide](docs/WIRING_GUIDE.md) -- motor, encoder, RoboClaw, and Jetson connections
 - [Simulation Extension](source/strafer_lab/README.md) -- Isaac Lab environments, training, gym eval path
 - [ROS2 Development Guide](source/strafer_ros/CLAUDE.md) -- Jetson-side driver/inference development

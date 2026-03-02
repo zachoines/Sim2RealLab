@@ -255,9 +255,13 @@ USD processing scripts in `Scripts/`:
 
 ### 3. Deployment
 
-- [ ] Export trained policy to `.pt` (TorchScript) via `export_policy_as_jit()`
+- [ ] **Export trained policy** to `.pt` (TorchScript) via `export_policy_as_jit()` — **current action item** (gates Phase 4)
+  - Call after training: `python Scripts/export_policy.py --checkpoint logs/best_model/model_*.pt --output model.pt`
+  - Validate with `benchmark_policy()` from `strafer_shared.policy_interface`; target <5ms on Jetson
 - [ ] Measure inference latency on both platforms
 - [ ] Later: export to ONNX, optimize with TensorRT on Jetson
+
+**Phase 5 training note**: Before exporting the checkpoint intended for VLM deployment, train with goal position noise (`goal_position_noise_std: 0.2–0.3 m` in `commands.py`) to match the ±0.2–0.5m localization error of Qwen2.5-VL-3B visual grounding. Without this, the policy may oscillate at deployment when given imprecise VLM-generated goals.
 
 ## Customization
 

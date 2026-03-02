@@ -108,7 +108,8 @@ Jetson Orin Nano USB 2.0     -->  RoboClaw #2 (addr 0x81): RL motor + RR motor +
 │   │   ├── strafer_description/
 │   │   ├── strafer_driver/
 │   │   ├── strafer_perception/
-│   │   ├── strafer_inference/
+│   │   │   ├── strafer_inference/
+│   │   ├── strafer_vlm/
 │   │   ├── strafer_slam/
 │   │   ├── strafer_navigation/
 │   │   └── strafer_bringup/
@@ -258,7 +259,7 @@ The `load_policy` function in `strafer_shared.policy_interface` handles both `.p
 **Nav2 operating modes**:
 - **Mode 1 (MVP)**: Pure RL policy. `policy_inference_node` publishes directly to `/strafer/cmd_vel`. No Nav2. Goal is a hardcoded `PoseStamped`.
 - **Mode 2**: Nav2 with RL as local controller plugin. Nav2 handles global planning + behavior trees; RL policy handles low-level velocity control.
-- **Mode 3 (future)**: VLM decodes NL commands → Nav2 goal poses → RL local controller.
+- **Mode 3 (Phase 5)**: VLM (Qwen2.5-VL-3B) decodes NL command → object bounding box → goal pose on `/strafer/goal` → RL local controller. See `docs/PHASE_5_VLM_INTEGRATION.md`.
 
 ---
 
@@ -314,6 +315,18 @@ The `load_policy` function in `strafer_shared.policy_interface` handles both `.p
 - [ ] Integrate RL policy as Nav2 local controller plugin
 - **Test**: autonomous navigation in mapped environment with obstacle avoidance
 
+### Phase 7: VLM Integration
+- [ ] Enable aligned depth in D555 launch (`align_depth.enable: true`) for RGB-registered depth
+- [ ] Add `SetCommand.srv` to `strafer_msgs`
+- [ ] Evaluate zero-shot Qwen2.5-VL-3B grounding on test images from operating environment
+- [ ] Create `strafer_vlm` package: `vlm_goal_node`, `vlm_inference`, `depth_projection`, `command_sequencer`
+- [ ] Train RL policy with goal position noise (`goal_position_noise_std: 0.2–0.3m`) before exporting
+- [ ] End-to-end test: text command → VLM bbox → 3D goal → RL navigation within 0.5m of target
+- [ ] (Optional) LoRA fine-tune on domain-specific images if zero-shot accuracy < 80%
+- [ ] Add `full_stack.launch.py` to `strafer_bringup` composing all layers
+- **Test**: "go to the [object]" for 5 common household objects, ≥80% success rate
+- **Reference**: `docs/PHASE_5_VLM_INTEGRATION.md`
+
 ---
 
 ## 9. Critical Source Files
@@ -333,3 +346,6 @@ The `load_policy` function in `strafer_shared.policy_interface` handles both `.p
 | [strafer_env_cfg.py](source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py) | Sim obs order, normalization, camera config |
 | [sim_real_cfg.py](source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py) | REAL_ROBOT_CONTRACT and ROBUST_TRAINING_CONTRACT |
 | [strafer.py](source/strafer_lab/strafer_lab/assets/strafer.py) | Robot ArticulationCfg, DCMotorCfg, joint names |
+| [PHASE_5_VLM_INTEGRATION.md](docs/PHASE_5_VLM_INTEGRATION.md) | VLM architecture, Qwen2.5-VL-3B deployment, fine-tuning procedure |
+| [vlm_goal_node.py](source/strafer_ros/strafer_vlm/strafer_vlm/vlm_goal_node.py) | VLM goal node: RGB+depth → bbox → 3D goal on `/strafer/goal` |
+| [depth_projection.py](source/strafer_ros/strafer_vlm/strafer_vlm/depth_projection.py) | Aligned depth deprojection, camera_info intrinsics, TF2 to map frame |

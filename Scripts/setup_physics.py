@@ -15,12 +15,12 @@ the articulation's base frame matches the robot's visual orientation (Z-up, +X f
 IMPORTANT: This script must be run within Isaac Sim context to access PhysxSchema
 for SDF collision. Use isaaclab.bat to run it.
 
-Run after collapse_redundant_xforms.py and export to a new USD so the source stays intact.
+Run after add_additional_components.py and export to a new USD so the source stays intact.
 
 Example:
 .\IsaacLab\isaaclab.bat -p Scripts/setup_physics.py `
-    --stage Assets/3209-0001-0006-v6/3209-0001-0006-collapsed.usd `
-    --output-usd Assets/3209-0001-0006-v6/3209-0001-0006-physics.usd `
+    --stage Assets/strafer/3209-0001-0006-with-components.usd `
+    --output-usd Assets/strafer/3209-0001-0006-physics.usd `
     --log ./setup_physics_log.txt `
     --delete-excluded
 """
@@ -28,13 +28,13 @@ Example:
 # =============================================================================
 # Parse arguments BEFORE launching Isaac Sim
 # =============================================================================
-from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics
 from typing import List, Optional, Tuple
 from pathlib import Path
 import re
-from isaaclab.app import AppLauncher
 import argparse
 import sys
+
+from isaaclab.app import AppLauncher
 
 # Parse our arguments first, keeping unknown args for AppLauncher
 parser = argparse.ArgumentParser(
@@ -44,7 +44,6 @@ parser = argparse.ArgumentParser(
 parser.add_argument("--stage", required=True, help="Input USD to read.")
 parser.add_argument("--output-usd", required=True, help="Path to write modified USD.")
 parser.add_argument("--log", help="Optional path to write a summary log.")
-parser.add_argument("--mass", type=float, default=None, help="Total robot mass (kg).")
 parser.add_argument(
     "--delete-excluded", action="store_true", help="Delete excluded prims from stage."
 )
@@ -67,9 +66,9 @@ simulation_app = app_launcher.app
 sys.argv = original_argv
 
 # =============================================================================
-# Now we can import PhysxSchema and other modules
+# Now we can import PhysxSchema and other Isaac Sim modules
 # =============================================================================
-
+from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics
 
 # ============================================================================
 # Configuration
@@ -91,23 +90,98 @@ WHEEL_TO_RAIL = {
     "wheel_4": "right_side_rail",
 }
 
-# Mass configuration (kg)
-# Manufacturer specs: total robot mass ~4.149 kg, each wheel ~0.207 kg.
-# We distribute wheel mass between wheel frame (core + side plates) and rollers (axles + covers),
-# and distribute the remaining mass across the 4 frame rails to represent missing components.
-TOTAL_MASS_KG = 4.149
-WHEEL_MASS_KG = 0.207
-NUM_WHEELS = 4
-BODY_LINK_MASS_KG = 0.05  # Small root mass to keep articulation stable
+# ============================================================================
+# Mass configuration (kg) — derived from GoBilda BOM
+# ============================================================================
+#
+# Each rigid body's mass is the sum of parts physically attached to that USD
+# mesh, using GoBilda catalog weights. Parts that are excluded from the USD
+# (gear_motors, axles, miter_gears, hardware) are lumped into the rail that
+# holds them, because the rail is the simplest rigid body in the kinematic
+# chain that represents that assembly.
+#
+# TODO: Electronics (RoboClaw x2, Jetson Orin Nano, buck converter, D555
+# camera) are not yet included. They will be added as USD meshes with their
+# own rigid bodies and masses in a future pass.
+#
+# I. Side rail assembly (left_side_rail, right_side_rail) — per rail:
+#    5203 motor x2           437g x2 = 874.0g
+#    Miter gear x4            23g x4 =  92.0g
+#    REX shaft x2             28g x2 =  56.0g
+#    Thrust bearing x4       3.4g x4 =  13.6g
+#    Hyper hub x2             23g x2 =  46.0g
+#    Flanged bearing x4      3.5g x4 =  14.0g
+#    Quad block x2            15g x2 =  30.0g
+#    17-hole U-channel x1         284.0g
+#    M4x8mm screw x8         1.7g x8 =  13.6g
+#    M4x16mm screw x8        2.3g x8 =  18.4g
+#    Spacer x2               3.6g x2 =   7.2g
+#    M4x11mm screw x8        1.7g x8 =  13.6g
+#    ─────────────────────────────────────────
+#    Total per side rail:            1,462.4g
+#
+# II. Center rail (middle_center_rail, back_center_rail) — per rail:
+#    10-hole U-channel x1         175.0g
+#    Quad block x2            15g x2 =  30.0g
+#    M4x11mm screw x8        1.7g x8 =  13.6g
+#    ─────────────────────────────────────────
+#    Total per center rail:            218.6g
+#
+# III. Wheel assembly (wheel_1..4) — per wheel:
+#    96mm Mecanum wheel x1        207.0g
+#    M4x16mm screw x4         2.3g x4 =   9.2g
+#    Steel washer x4         0.29g x4 =   1.16g
+#    ─────────────────────────────────────────
+#    Total per wheel:                  217.36g
+#
+# IV. Support rail (support_rail_****_****) — per rail:
+#    goRAIL 168mm x1               89.0g
+#    M4x11mm screw x4         1.7g x4 =   6.8g
+#    ─────────────────────────────────────────
+#    Total per support rail:            95.8g
+#
+# V. Long channel (long_channel_****) — per channel:
+#    U-channel 432mm x1           146.0g
+#    ─────────────────────────────────────────
+#    Total per long channel:           146.0g
+#
+# VI. Cross channel (cross_channel_****) — per channel:
+#    U-channel 264mm x1            90.0g
+#    Dual block mount x2      3.7g x2 =   7.4g
+#    ─────────────────────────────────────────
+#    Total per cross channel:           97.4g
+#
+# Grand total (mechanical only, no electronics):
+#   2×1462.4 + 2×218.6 + 4×217.36 + 4×95.8 + 2×146.0 + 2×97.4 = 5,078.44g
+#
 
-# Wheel mass split
-WHEEL_FRAME_FRACTION = 0.6  # core + side plates
-WHEEL_CORE_FRACTION_OF_FRAME = 0.7
+BODY_LINK_MASS_KG = 0.050  # Small root mass to keep articulation stable
+
+# Per-assembly masses (kg) — from BOM above
+SIDE_RAIL_MASS_KG = 1.4624       # I.  left/right side rail
+CENTER_RAIL_MASS_KG = 0.2186     # II. middle/back center rail
+WHEEL_ASSEMBLY_MASS_KG = 0.21736 # III. wheel + mounting hardware
+
+# Wheel sub-component fractional split (ratios, must sum to 1.0)
+# The 96mm mecanum wheel (207g + 10.36g hardware = 217.36g total) has
+# internal parts whose individual weights are not published. We distribute
+# the total wheel assembly mass proportionally across the 4 USD rigid body
+# types based on visual size/material estimates:
+#   core (hub + center ring):    ~35%
+#   side plates (2x slant):      ~15% (7.5% each)
+#   roller axles (10x pins):     ~10% (1% each)
+#   roller covers (10x barrels): ~40% (4% each)
+WHEEL_CORE_FRACTION = 0.35
+WHEEL_PLATE_FRACTION = 0.15   # split across 2 plates
+ROLLER_AXLE_FRACTION = 0.10   # split across 10 axles
+ROLLER_COVER_FRACTION = 0.40  # split across 10 covers
 WHEEL_PLATES_PER_WHEEL = 2
-
-# Roller mass split (per wheel)
 ROLLER_COUNT_PER_WHEEL = 10
-ROLLER_AXLE_FRACTION = 0.3
+
+# Additional frame component masses (kg) — from BOM sections IV-VI
+SUPPORT_RAIL_MASS_KG = 0.0958    # IV.  goRAIL 168mm + screws
+LONG_CHANNEL_MASS_KG = 0.146     # V.   U-channel 432mm
+CROSS_CHANNEL_MASS_KG = 0.0974   # VI.  U-channel 264mm + dual blocks
 
 # Joint drive configuration (wheel motors)
 # If using Isaac Lab actuators (ImplicitActuatorCfg), you can disable DriveAPI to avoid double control.
@@ -159,6 +233,32 @@ ROOT_EXCLUDE_PATHS = [
     f"{ROOT_PATH}/hardware",
     f"{ROOT_PATH}/miter_gears",
 ]
+
+# 5) Additional frame components (imported by add_additional_components.py)
+# These live directly under /World/strafer/frame/ as Mesh prims and need
+# rigid body + bounding cube collision + fixed joint to body_link.
+FRAME_ADDITIONAL_COMPONENTS = [
+    "support_rail_rear_left",
+    "support_rail_rear_right",
+    "support_rail_front_left",
+    "support_rail_front_right",
+    "long_channel_left",
+    "long_channel_right",
+    "cross_channel_front",
+    "cross_channel_center",
+]
+
+# Map each additional component name to its per-assembly mass (kg)
+FRAME_COMPONENT_MASS = {
+    "support_rail_rear_left": SUPPORT_RAIL_MASS_KG,
+    "support_rail_rear_right": SUPPORT_RAIL_MASS_KG,
+    "support_rail_front_left": SUPPORT_RAIL_MASS_KG,
+    "support_rail_front_right": SUPPORT_RAIL_MASS_KG,
+    "cross_channel_center": CROSS_CHANNEL_MASS_KG,
+    "cross_channel_front": CROSS_CHANNEL_MASS_KG,
+    "long_channel_left": LONG_CHANNEL_MASS_KG,
+    "long_channel_right": LONG_CHANNEL_MASS_KG,
+}
 
 
 def should_exclude_by_pattern(name: str, patterns: List[str]) -> bool:
@@ -399,34 +499,24 @@ def apply_articulation_root(stage: Usd.Stage, prim_path: str) -> bool:
     return True
 
 
-def compute_mass_cfg(total_mass: float) -> dict[str, float]:
-    """Compute per-part mass distribution from top-level configuration."""
-    wheel_total_mass = WHEEL_MASS_KG * NUM_WHEELS
-    remaining_mass = total_mass - wheel_total_mass - BODY_LINK_MASS_KG
-    if remaining_mass <= 0.0:
-        raise ValueError(
-            f"Total mass {total_mass:.3f}kg is too small for wheel/body allocation."
-        )
+def compute_mass_cfg() -> dict[str, float]:
+    """Compute per-rigid-body mass from BOM-based assembly masses.
 
-    # Frame rails (4 components)
-    rail_mass = remaining_mass / 4.0
-
-    # Wheel frame (core + plates)
-    wheel_frame_mass = WHEEL_MASS_KG * WHEEL_FRAME_FRACTION
-    wheel_core_mass = wheel_frame_mass * WHEEL_CORE_FRACTION_OF_FRAME
-    wheel_plate_mass = (
-        wheel_frame_mass * (1.0 - WHEEL_CORE_FRACTION_OF_FRAME) / WHEEL_PLATES_PER_WHEEL
-    )
-
-    # Rollers (axle + cover)
-    roller_total_mass = WHEEL_MASS_KG * (1.0 - WHEEL_FRAME_FRACTION)
-    roller_mass_each = roller_total_mass / ROLLER_COUNT_PER_WHEEL
-    roller_axle_mass = roller_mass_each * ROLLER_AXLE_FRACTION
-    roller_cover_mass = roller_mass_each * (1.0 - ROLLER_AXLE_FRACTION)
+    Each value is the mass (kg) applied to a single USD rigid body prim.
+    Frame rail masses include all attached hardware (motors, bearings, gears,
+    screws) that is excluded from the USD visual hierarchy.
+    """
+    # Wheel sub-component masses (fractional split of total wheel assembly)
+    w = WHEEL_ASSEMBLY_MASS_KG
+    wheel_core_mass = w * WHEEL_CORE_FRACTION
+    wheel_plate_mass = w * WHEEL_PLATE_FRACTION / WHEEL_PLATES_PER_WHEEL
+    roller_axle_mass = w * ROLLER_AXLE_FRACTION / ROLLER_COUNT_PER_WHEEL
+    roller_cover_mass = w * ROLLER_COVER_FRACTION / ROLLER_COUNT_PER_WHEEL
 
     return {
         "body_link": BODY_LINK_MASS_KG,
-        "rail": rail_mass,
+        "side_rail": SIDE_RAIL_MASS_KG,
+        "center_rail": CENTER_RAIL_MASS_KG,
         "wheel_core": wheel_core_mass,
         "wheel_plate": wheel_plate_mass,
         "roller_axle": roller_axle_mass,
@@ -651,7 +741,7 @@ def setup_frame(
     # 2. Set up middle_center_rail (connect to body_link)
     middle_prim = make_editable_prim(stage, middle_rail)
     if middle_prim:
-        rail_mass = mass_cfg["rail"]
+        rail_mass = mass_cfg["center_rail"]
         if apply_rigid_body(stage, middle_rail, rail_mass):
             log.append(f"[OK] Rigid body (mass={rail_mass:.3f}) on {middle_rail}")
         if apply_collision_to_mesh(stage, middle_mesh, "boundingCube"):
@@ -673,7 +763,7 @@ def setup_frame(
     if left_mesh:
         left_prim = make_editable_prim(stage, left_rail)
         if left_prim:
-            rail_mass = mass_cfg["rail"]
+            rail_mass = mass_cfg["side_rail"]
             if apply_rigid_body(stage, left_rail, rail_mass):
                 log.append(f"[OK] Rigid body (mass={rail_mass:.3f}) on {left_rail}")
             if apply_collision_to_mesh(stage, left_mesh, "boundingCube"):
@@ -694,7 +784,7 @@ def setup_frame(
     if right_mesh:
         right_prim = make_editable_prim(stage, right_rail)
         if right_prim:
-            rail_mass = mass_cfg["rail"]
+            rail_mass = mass_cfg["side_rail"]
             if apply_rigid_body(stage, right_rail, rail_mass):
                 log.append(f"[OK] Rigid body (mass={rail_mass:.3f}) on {right_rail}")
             if apply_collision_to_mesh(stage, right_mesh, "boundingCube"):
@@ -718,7 +808,7 @@ def setup_frame(
         if extra_mesh:
             extra_prim = make_editable_prim(stage, extra_rail)
             if extra_prim:
-                rail_mass = mass_cfg["rail"]
+                rail_mass = mass_cfg["center_rail"]
                 if apply_rigid_body(stage, extra_rail, rail_mass):
                     log.append(
                         f"[OK] Rigid body (mass={rail_mass:.3f}) on {extra_rail}"
@@ -736,6 +826,32 @@ def setup_frame(
                     log.append(f"[WARN] Failed to create fixed joint for {rail_name}")
         else:
             log.append(f"[WARN] Missing mesh under: {extra_rail}")
+
+    # 6. Set up additional frame components (supports, channels)
+    for comp_name in FRAME_ADDITIONAL_COMPONENTS:
+        comp_path = f"{RAILS_PATH}/{comp_name}"
+        comp_prim = stage.GetPrimAtPath(comp_path)
+        if not comp_prim or not comp_prim.IsValid():
+            log.append(f"[WARN] Additional component not found: {comp_path} (not imported?)")
+            continue
+
+        # These are Mesh prims directly (not Xform wrapping a mesh),
+        # so we apply rigid body and collision directly to the mesh.
+        comp_mass = FRAME_COMPONENT_MASS[comp_name]
+
+        if apply_rigid_body(stage, comp_path, comp_mass):
+            log.append(f"[OK] Rigid body (mass={comp_mass:.3f}) on {comp_path}")
+
+        if apply_collision_to_mesh(stage, comp_path, "boundingCube"):
+            log.append(f"[OK] Collision (boundingCube) on {comp_path}")
+
+        # Fixed joint: body_link -> component
+        joint_name = f"frame_{comp_name}"
+        joint_path = f"{RAILS_PATH}/{joint_name}"
+        if create_fixed_joint(stage, joint_path, body_link_path, comp_path):
+            log.append(f"[OK] Fixed joint {joint_path}")
+        else:
+            log.append(f"[WARN] Failed to create fixed joint for {comp_name}")
 
     return body_link_path
 
@@ -1111,10 +1227,6 @@ def main():
     # Use pre-parsed arguments from module level (parsed before AppLauncher)
     args = script_args
 
-    # Handle default mass
-    if args.mass is None:
-        args.mass = TOTAL_MASS_KG
-
     stage = Usd.Stage.Open(args.stage)
     if stage is None:
         raise SystemExit(f"Failed to open stage: {args.stage}")
@@ -1124,8 +1236,8 @@ def main():
     log.append("Strafer Chassis Physics Setup")
     log.append("=" * 60)
 
-    # Compute mass distribution
-    mass_cfg = compute_mass_cfg(args.mass)
+    # Compute mass distribution from BOM
+    mass_cfg = compute_mass_cfg()
     log.append("\n--- Mass distribution (kg) ---")
     for key, value in mass_cfg.items():
         log.append(f"[INFO] {key}: {value:.3f}")

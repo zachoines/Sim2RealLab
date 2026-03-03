@@ -244,8 +244,11 @@ from strafer_lab.tasks.navigation.sim_real_cfg import (
 ### 1. Asset Preparation (Complete)
 
 USD processing scripts in `Scripts/`:
+- `add_additional_components.py` - Import top-rack hardware into collapsed USD
 - `collapse_redundant_xforms.py` - Clean USD hierarchy
-- `setup_physics.py` - Add articulation, joints, colliders
+- `setup_physics.py` - Add articulation, joints, colliders (BOM-based masses)
+
+**TODO — Electronics masses**: Add USD meshes with rigid bodies for RoboClaw motor controllers (x2), Jetson Orin Nano, buck converter, and Intel RealSense D555 camera. Each should be positioned in the USD and given its catalog mass in `setup_physics.py`.
 
 ### 2. RL Training (This Extension)
 

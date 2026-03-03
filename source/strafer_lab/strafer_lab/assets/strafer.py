@@ -26,7 +26,7 @@ from isaaclab.actuators import DCMotorCfg, ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
 
 # Path to the physics-rigged USD asset
-_STRAFER_USD_PATH = str(Path(__file__).parents[4] / "Assets" / "3209-0001-0006-v6" / "3209-0001-0006-physics.usd")
+_STRAFER_USD_PATH = str(Path(__file__).parents[4] / "Assets" / "strafer" / "3209-0001-0006-physics.usd")
 
 # ============================================================
 # Motor specifications (5203 Yellow Jacket 19.2:1 @ 12V)

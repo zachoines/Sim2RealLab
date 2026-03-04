@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 import torch
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
+    from isaaclab.managers import SceneEntityCfg
 
 
 def goal_reached_reward(
@@ -43,6 +45,13 @@ def goal_progress_reward(
 
     This is a dense reward based on the change in distance to goal.
 
+    Handles two discontinuities that would produce false spikes:
+    - Episode reset: ``episode_length_buf == 0``
+    - Mid-episode goal resample: ``GoalCommand.goal_resampled`` flag
+
+    In both cases the previous distance is re-seeded to the current distance
+    so that the delta is zero on that step.
+
     Args:
         env: The environment instance.
         command_name: Name of the command manager providing goal positions.
@@ -64,10 +73,15 @@ def goal_progress_reward(
         env._prev_goal_distance = current_distance.clone()
 
     # Reset previous distance for environments that just reset
-    # This prevents incorrect reward spikes after episode reset
     reset_mask = env.episode_length_buf == 0
     if reset_mask.any():
         env._prev_goal_distance[reset_mask] = current_distance[reset_mask]
+
+    # Reset previous distance for mid-episode goal resamples
+    command_term = env.command_manager.get_term(command_name)
+    if hasattr(command_term, "goal_resampled") and command_term.goal_resampled.any():
+        resample_mask = command_term.goal_resampled
+        env._prev_goal_distance[resample_mask] = current_distance[resample_mask]
 
     # Progress = reduction in distance
     progress = env._prev_goal_distance - current_distance
@@ -102,8 +116,9 @@ def heading_to_goal_reward(
     to_goal = goal_pos - robot_pos
     goal_angle = torch.atan2(to_goal[:, 1], to_goal[:, 0])
     
-    # Robot heading (yaw from quaternion)
-    robot_yaw = 2.0 * torch.atan2(robot_quat[:, 3], robot_quat[:, 0])
+    # Robot heading (yaw from quaternion, full formula handles pitch/roll)
+    w, x, y, z = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    robot_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
     
     # Angular difference
     angle_diff = goal_angle - robot_yaw
@@ -158,3 +173,112 @@ def action_smoothness_penalty(env: ManagerBasedEnv) -> torch.Tensor:
     env._prev_action = current_action.clone()
 
     return smoothness_cost
+
+
+def goal_proximity_reward(
+    env: ManagerBasedEnv,
+    command_name: str,
+    sigma: float = 0.3,
+) -> torch.Tensor:
+    """Exponential proximity reward — provides continuous gradient to goal.
+
+    reward = exp(-distance / sigma)
+
+    Unlike the binary goal_reached_reward, this gives signal at all distances,
+    with increasing reward as the robot gets closer.
+
+    On mid-episode goal resample steps the reward is zeroed to avoid a
+    misleading drop (the robot just succeeded — ``goal_reached_reward``
+    handles the positive signal).
+
+    Args:
+        env: The environment instance.
+        command_name: Name of the command manager providing goal positions.
+        sigma: Temperature parameter. Smaller = sharper peak near goal.
+
+    Returns:
+        Proximity reward in (0, 1]. Shape: (num_envs,)
+    """
+    robot = env.scene["robot"]
+    robot_pos = robot.data.root_pos_w[:, :2]
+
+    command = env.command_manager.get_command(command_name)
+    goal_pos = command[:, :2]
+
+    distance = torch.norm(goal_pos - robot_pos, dim=-1)
+    reward = torch.exp(-distance / sigma)
+
+    # Zero out on the step a mid-episode resample occurred
+    command_term = env.command_manager.get_term(command_name)
+    if hasattr(command_term, "goal_resampled") and command_term.goal_resampled.any():
+        reward[command_term.goal_resampled] = 0.0
+
+    return reward
+
+
+def collision_penalty(
+    env: ManagerBasedEnv,
+    sensor_cfg: SceneEntityCfg,
+    threshold: float = 1.0,
+) -> torch.Tensor:
+    """Penalty for colliding with obstacles.
+
+    Uses the contact sensor to detect non-zero contact forces.
+
+    Args:
+        env: The environment instance.
+        sensor_cfg: Scene entity config for the contact sensor.
+        threshold: Force magnitude threshold for counting a collision.
+
+    Returns:
+        Binary collision indicator: 1.0 if any contact force > threshold.
+    """
+    contact_sensor = env.scene.sensors[sensor_cfg.name]
+    # net_forces_w shape: (num_envs, num_bodies, 3)
+    net_forces = contact_sensor.data.net_forces_w
+    force_mag = torch.norm(net_forces, dim=-1)  # (num_envs, num_bodies)
+    has_collision = (force_mag > threshold).any(dim=-1).float()
+    return has_collision
+
+
+def speed_near_goal_penalty(
+    env: ManagerBasedEnv,
+    command_name: str,
+    distance_threshold: float = 1.0,
+) -> torch.Tensor:
+    """Penalty for moving fast when close to the goal.
+
+    Encourages the robot to slow down as it approaches the goal.
+
+    Args:
+        env: The environment instance.
+        command_name: Name of the command manager providing goal positions.
+        distance_threshold: Distance within which speed is penalized.
+
+    Returns:
+        Speed penalty when near goal. Shape: (num_envs,)
+    """
+    robot = env.scene["robot"]
+    robot_pos = robot.data.root_pos_w[:, :2]
+    robot_vel = robot.data.root_lin_vel_b[:, :2]
+
+    command = env.command_manager.get_command(command_name)
+    goal_pos = command[:, :2]
+
+    distance = torch.norm(goal_pos - robot_pos, dim=-1)
+    speed = torch.norm(robot_vel, dim=-1)
+
+    # Only penalize when within threshold distance
+    near_goal = (distance < distance_threshold).float()
+    return speed * near_goal
+
+
+def alive_bonus(env: ManagerBasedEnv) -> torch.Tensor:
+    """Small positive reward per step for staying alive (not flipped/terminated).
+
+    Prevents the policy from learning to terminate early.
+
+    Returns:
+        Constant 1.0 for all environments. Shape: (num_envs,)
+    """
+    return torch.ones(env.num_envs, device=env.device)

@@ -19,7 +19,7 @@ Run after add_additional_components.py and export to a new USD so the source sta
 
 Example:
 .\IsaacLab\isaaclab.bat -p Scripts/setup_physics.py `
-    --stage Assets/strafer/3209-0001-0006-with-components.usd `
+    --stage Assets/strafer/3209-0001-0006-no-physics.usd `
     --output-usd Assets/strafer/3209-0001-0006-physics.usd `
     --log ./setup_physics_log.txt `
     --delete-excluded

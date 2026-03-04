@@ -43,6 +43,10 @@ from .observations import (
 # Custom observations - Other
 from .observations import (
     goal_position_relative,
+    goal_distance,
+    goal_heading_relative,
+    body_velocity_xy,
+    privileged_ground_truth,
     last_action,
 )
 
@@ -68,16 +72,31 @@ from .actions import MecanumWheelActionCfg
 from .rewards import (
     goal_reached_reward,
     goal_progress_reward,
+    goal_proximity_reward,
     heading_to_goal_reward,
     energy_penalty,
     action_smoothness_penalty,
+    collision_penalty,
+    speed_near_goal_penalty,
+    alive_bonus,
 )
 
 # Custom terminations
-from .terminations import robot_flipped
+from .terminations import robot_flipped, goal_reached
 
 # Custom events
-from .events import reset_robot_state, randomize_friction
+from .events import (
+    reset_robot_state,
+    randomize_friction,
+    randomize_obstacles,
+    randomize_mass,
+    randomize_goal_noise,
+    randomize_motor_strength,
+    randomize_d555_mount_offset,
+)
 
 # Custom commands
 from .commands import GoalCommandCfg
+
+# Curriculum learning
+from .curriculums import GoalDistanceCurriculum, ObstacleCurriculum

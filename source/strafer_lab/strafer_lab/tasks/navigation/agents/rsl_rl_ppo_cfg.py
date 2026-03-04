@@ -1,16 +1,36 @@
-"""RSL-RL PPO configuration for Strafer navigation task."""
+"""RSL-RL PPO configuration for Strafer navigation task.
 
-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg
+Three config tiers:
+  - STRAFER_PPO_RUNNER_CFG: Standard MLP for NoCam variants (fast iteration)
+  - STRAFER_PPO_LSTM_RUNNER_CFG: LSTM for NoCam variants (online system ID)
+  - STRAFER_PPO_DEPTH_RUNNER_CFG: CNN-MLP hybrid for Depth variants
 
+All use asymmetric actor-critic: the actor sees noisy policy observations
+while the critic additionally receives privileged ground truth state.
+"""
+
+from isaaclab_rl.rsl_rl import (
+    RslRlOnPolicyRunnerCfg,
+    RslRlPpoActorCriticCfg,
+    RslRlPpoActorCriticRecurrentCfg,
+    RslRlPpoAlgorithmCfg,
+)
+
+
+# =============================================================================
+# NoCam: Standard MLP (19-dim obs)
+# =============================================================================
 
 STRAFER_PPO_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
-    num_steps_per_env=24,
-    max_iterations=1500,
-    save_interval=50,
+    num_steps_per_env=48,
+    max_iterations=3000,
+    save_interval=100,
     experiment_name="strafer_navigation",
     empirical_normalization=False,
+    obs_groups={"policy": ["policy"], "critic": ["critic"]},
     policy=RslRlPpoActorCriticCfg(
-        init_noise_std=1.0,
+        class_name="ActorCritic",
+        init_noise_std=0.5,
         actor_hidden_dims=[256, 256, 128],
         critic_hidden_dims=[256, 256, 128],
         activation="elu",
@@ -19,10 +39,10 @@ STRAFER_PPO_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
         value_loss_coef=1.0,
         use_clipped_value_loss=True,
         clip_param=0.2,
-        entropy_coef=0.01,
+        entropy_coef=0.005,
         num_learning_epochs=5,
-        num_mini_batches=4,
-        learning_rate=1.0e-3,
+        num_mini_batches=8,
+        learning_rate=3.0e-4,
         schedule="adaptive",
         gamma=0.99,
         lam=0.95,
@@ -30,44 +50,80 @@ STRAFER_PPO_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
         max_grad_norm=1.0,
     ),
 )
-"""PPO runner configuration for Strafer navigation.
-
-Training parameters:
-- 24 steps per environment before update
-- 1500 max iterations (~36k environment steps per iteration)
-- Adaptive learning rate schedule
-- 3-layer MLP policy (256-256-128)
-"""
 
 
-class StraferPPORunnerCfg(RslRlOnPolicyRunnerCfg):
-    """Wrapper class for runner configuration."""
+# =============================================================================
+# NoCam LSTM: Recurrent policy for online system identification (19-dim obs)
+#
+# The LSTM can infer per-episode hidden variables (friction, mass, motor
+# strength, D555 mount offset) from a few timesteps of interaction, enabling
+# adaptive behavior that a feedforward MLP cannot achieve.
+# =============================================================================
 
-    def __init__(self):
-        super().__init__(
-            num_steps_per_env=24,
-            max_iterations=1500,
-            save_interval=50,
-            experiment_name="strafer_navigation",
-            empirical_normalization=False,
-            policy=RslRlPpoActorCriticCfg(
-                init_noise_std=1.0,
-                actor_hidden_dims=[256, 256, 128],
-                critic_hidden_dims=[256, 256, 128],
-                activation="elu",
-            ),
-            algorithm=RslRlPpoAlgorithmCfg(
-                value_loss_coef=1.0,
-                use_clipped_value_loss=True,
-                clip_param=0.2,
-                entropy_coef=0.01,
-                num_learning_epochs=5,
-                num_mini_batches=4,
-                learning_rate=1.0e-3,
-                schedule="adaptive",
-                gamma=0.99,
-                lam=0.95,
-                desired_kl=0.01,
-                max_grad_norm=1.0,
-            ),
-        )
+STRAFER_PPO_LSTM_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
+    num_steps_per_env=48,
+    max_iterations=3000,
+    save_interval=100,
+    experiment_name="strafer_navigation_lstm",
+    empirical_normalization=False,
+    obs_groups={"policy": ["policy"], "critic": ["critic"]},
+    policy=RslRlPpoActorCriticRecurrentCfg(
+        class_name="ActorCriticRecurrent",
+        init_noise_std=0.5,
+        actor_hidden_dims=[256, 128],
+        critic_hidden_dims=[256, 128],
+        activation="elu",
+        rnn_type="lstm",
+        rnn_hidden_dim=256,
+        rnn_num_layers=1,
+    ),
+    algorithm=RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.005,
+        num_learning_epochs=5,
+        num_mini_batches=8,
+        learning_rate=3.0e-4,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+    ),
+)
+
+
+# =============================================================================
+# Depth: CNN-MLP Hybrid (4819-dim obs = 19 scalar + 4800 depth pixels)
+# =============================================================================
+
+STRAFER_PPO_DEPTH_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
+    num_steps_per_env=48,
+    max_iterations=3000,
+    save_interval=100,
+    experiment_name="strafer_navigation_depth",
+    empirical_normalization=False,  # handled inside StraferActorCritic
+    obs_groups={"policy": ["policy"], "critic": ["critic"]},
+    policy=RslRlPpoActorCriticCfg(
+        class_name="StraferActorCritic",
+        init_noise_std=0.5,
+        actor_hidden_dims=[256, 128],
+        critic_hidden_dims=[256, 128],
+        activation="elu",
+    ),
+    algorithm=RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.005,
+        num_learning_epochs=5,
+        num_mini_batches=8,
+        learning_rate=3.0e-4,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+    ),
+)

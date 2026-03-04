@@ -16,6 +16,7 @@ import torch
 from isaaclab.managers.action_manager import ActionTerm, ActionTermCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.buffers import DelayBuffer
+from strafer_shared.mecanum_kinematics import KINEMATIC_MATRIX
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -148,27 +149,12 @@ class MecanumWheelAction(ActionTerm):
         # If any wheel joint axis is flipped in USD, apply a per-wheel sign correction
         # rather than changing the kinematic matrix form.
         
-        k = L_half + W_half  # Combined lever arm for rotation
-        r = self._wheel_radius
-        
-        # Kinematic matrix (maps body velocity to wheel angular velocity)
-        # Rows: [wheel_1=FL, wheel_2=FR, wheel_3=RL, wheel_4=RR]
-        # 
-        # Robot body frame convention (ROS):
-        #   - Robot "forward" is aligned with +X axis
-        #   - Robot "left" is aligned with +Y axis
-        #   - Robot "up" is aligned with +Z axis
-        #
-        # Action convention:
-        #   - action[0] = vx (forward velocity in robot frame)
-        #   - action[1] = vy (strafe left velocity in robot frame)
-        #   - action[2] = omega (CCW rotation)
-        self._kinematic_matrix = torch.tensor([
-            [ 1/r, -1/r, -k/r],  # wheel_1 = Front-Left  
-            [ 1/r,  1/r,  k/r],  # wheel_2 = Front-Right 
-            [ 1/r,  1/r, -k/r],  # wheel_3 = Rear-Left   
-            [ 1/r, -1/r,  k/r],  # wheel_4 = Rear-Right  
-        ], dtype=torch.float32, device=env.device)
+        # Kinematic matrix from strafer_shared (single source of truth)
+        # Converts body velocities [vx, vy, omega] -> wheel angular velocities [FL, FR, RL, RR]
+        # wheel_axis_signs are applied separately (sim-only USD joint axis correction)
+        self._kinematic_matrix = torch.from_numpy(KINEMATIC_MATRIX).to(
+            dtype=torch.float32, device=env.device
+        )
         
         # Velocity scaling for normalized actions [-1, 1]
         # This converts normalized actions to physical velocities
@@ -241,17 +227,18 @@ class MecanumWheelAction(ActionTerm):
 
     def reset(self, env_ids: torch.Tensor | None = None) -> None:
         """Reset action state for specified environments."""
-        if env_ids is None:
+        all_envs = env_ids is None
+        if all_envs:
             env_ids = slice(None)
-        
+
         # Reset motor dynamics filter
         if self._enable_motor_dynamics:
             self._smoothed_wheel_vels[env_ids] = 0.0
-        
-        # Reset delay buffer
+
+        # Reset delay buffer (expects Tensor or None, not slice)
         if self._enable_command_delay:
-            self._action_delay_buffer.reset(env_ids)
-        
+            self._action_delay_buffer.reset(None if all_envs else env_ids)
+
         # Reset slew rate state
         if self._enable_slew_rate:
             self._prev_wheel_vels[env_ids] = 0.0

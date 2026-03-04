@@ -12,6 +12,7 @@ import math
 from typing import TYPE_CHECKING
 
 import torch
+from isaaclab.utils.math import quat_apply, quat_apply_inverse
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -192,25 +193,33 @@ def imu_angular_velocity(
     sensor_cfg: SceneEntityCfg,
 ) -> torch.Tensor:
     """Get angular velocity from D555 IMU (gyroscope) in rad/s (RAW).
-    
+
     Models the BMI055 gyroscope in the Intel RealSense D555:
     - Range: ±125/±250/±500/±1000/±2000 °/s (we use ±2000 °/s = 34.9 rad/s)
     - Output: 3-axis angular velocity in sensor frame
-    
+
+    If ``env._d555_mount_quat`` exists (set by :func:`randomize_d555_mount_offset`),
+    the reading is rotated into the slightly-misaligned mount frame, simulating
+    imperfect physical mounting of the D555 housing.
+
     Note: Returns RAW values in rad/s. Normalization should be handled via
     the ObservationTermCfg.scale parameter so that noise is applied to
     raw sensor values (physically correct).
-    
+
     Args:
         env: The environment instance.
         sensor_cfg: Scene entity configuration for the IMU sensor.
-    
+
     Returns:
         Angular velocity (roll, pitch, yaw rate) in rad/s. Shape: (num_envs, 3)
     """
     sensor: Imu = env.scene.sensors[sensor_cfg.name]
     ang_vel = sensor.data.ang_vel_b.clone()
-    
+
+    # Apply D555 mount offset (if randomized)
+    if hasattr(env, "_d555_mount_quat"):
+        ang_vel = quat_apply(env._d555_mount_quat, ang_vel)
+
     return ang_vel
 
 
@@ -219,29 +228,34 @@ def imu_linear_acceleration(
     sensor_cfg: SceneEntityCfg,
 ) -> torch.Tensor:
     """Get linear acceleration from D555 IMU (accelerometer) in m/s² (RAW).
-    
+
     Models the BMI055 accelerometer in the Intel RealSense D555:
     - Range: ±2g/±4g/±8g/±16g (we use ±16g = 156.96 m/s²)
     - Output: 3-axis linear acceleration including gravity
     - When stationary and level: reads (0, 0, +9.81) m/s²
-    
-    This replaces the separate base_lin_vel and projected_gravity
-    observations with a single realistic IMU measurement.
-    
+
+    If ``env._d555_mount_quat`` exists (set by :func:`randomize_d555_mount_offset`),
+    the reading is rotated into the slightly-misaligned mount frame, simulating
+    imperfect physical mounting of the D555 housing.
+
     Note: Returns RAW values in m/s². Normalization should be handled via
     the ObservationTermCfg.scale parameter so that noise is applied to
     raw sensor values (physically correct).
-    
+
     Args:
         env: The environment instance.
         sensor_cfg: Scene entity configuration for the IMU sensor.
-    
+
     Returns:
         Linear acceleration (ax, ay, az) in m/s². Shape: (num_envs, 3)
     """
     sensor: Imu = env.scene.sensors[sensor_cfg.name]
     lin_acc = sensor.data.lin_acc_b.clone()
-    
+
+    # Apply D555 mount offset (if randomized)
+    if hasattr(env, "_d555_mount_quat"):
+        lin_acc = quat_apply(env._d555_mount_quat, lin_acc)
+
     return lin_acc
 
 
@@ -291,38 +305,145 @@ def imu_projected_gravity(
 
 def goal_position_relative(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
     """Get goal position relative to robot in local frame.
-    
+
+    Uses a full quaternion inverse rotation (matching TF2 on the real robot)
+    rather than a yaw-only 2D rotation.  The world-frame displacement vector
+    is lifted to 3-D (z=0), rotated by the conjugate of the robot quaternion,
+    and the resulting local x/y are returned.
+
     Args:
         env: The environment instance.
         command_name: Name of the command manager providing goal positions.
-    
+
     Returns:
         Relative goal position (x, y) in robot's local frame. Shape: (num_envs, 2)
     """
-    # Get goal position from command manager
     command = env.command_manager.get_command(command_name)
-    goal_pos_w = command[:, :2]  # (x, y) in world frame
-    
-    # Get robot position and orientation
+    goal_pos_w = command[:, :2]
+
     robot = env.scene["robot"]
     robot_pos_w = robot.data.root_pos_w[:, :2]
-    robot_quat_w = robot.data.root_quat_w
-    
-    # Compute relative position
-    rel_pos_w = goal_pos_w - robot_pos_w
-    
-    # Rotate to local frame using yaw
-    # Extract yaw from quaternion (simplified for 2D)
-    yaw = 2.0 * torch.atan2(robot_quat_w[:, 3], robot_quat_w[:, 0])
-    cos_yaw = torch.cos(yaw)
-    sin_yaw = torch.sin(yaw)
-    
-    rel_pos_local = torch.stack([
-        cos_yaw * rel_pos_w[:, 0] + sin_yaw * rel_pos_w[:, 1],
-        -sin_yaw * rel_pos_w[:, 0] + cos_yaw * rel_pos_w[:, 1],
-    ], dim=-1)
-    
-    return rel_pos_local
+    robot_quat_w = robot.data.root_quat_w  # (w, x, y, z)
+
+    # World-frame displacement lifted to 3-D (z=0)
+    rel_w = torch.zeros(robot_pos_w.shape[0], 3, device=robot_pos_w.device)
+    rel_w[:, 0] = goal_pos_w[:, 0] - robot_pos_w[:, 0]
+    rel_w[:, 1] = goal_pos_w[:, 1] - robot_pos_w[:, 1]
+
+    # Full quaternion inverse rotation (matches TF2 on real robot)
+    rel_local = quat_apply_inverse(robot_quat_w, rel_w)
+
+    # Return local x, y (discard z component)
+    return rel_local[:, :2]
+
+
+def goal_distance(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+    """Get scalar Euclidean distance to goal.
+
+    Args:
+        env: The environment instance.
+        command_name: Name of the command manager providing goal positions.
+
+    Returns:
+        Distance to goal. Shape: (num_envs, 1)
+    """
+    command = env.command_manager.get_command(command_name)
+    goal_pos_w = command[:, :2]
+
+    robot = env.scene["robot"]
+    robot_pos_w = robot.data.root_pos_w[:, :2]
+
+    distance = torch.norm(goal_pos_w - robot_pos_w, dim=-1, keepdim=True)
+    return distance
+
+
+def goal_heading_relative(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+    """Angular error between robot heading and desired goal heading.
+
+    Returns the shortest signed angle from the robot's current yaw to the
+    desired arrival heading (stored as command[:, 2]).  Normalized to [-pi, pi].
+
+    On the real robot, the desired heading comes from the VLM or planner and
+    the robot yaw comes from TF2.  This observation lets the policy learn to
+    orient itself at the goal.
+
+    Args:
+        env: The environment instance.
+        command_name: Name of the command manager providing goal commands.
+
+    Returns:
+        Heading error in radians, shape (num_envs, 1).  Positive = goal heading
+        is CCW from robot heading.
+    """
+    command = env.command_manager.get_command(command_name)
+    desired_heading = command[:, 2]
+
+    robot = env.scene["robot"]
+    robot_quat = robot.data.root_quat_w
+    w, x, y, z = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    robot_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+    # Shortest signed angle
+    diff = desired_heading - robot_yaw
+    heading_err = torch.atan2(torch.sin(diff), torch.cos(diff))
+    return heading_err.unsqueeze(-1)
+
+
+def body_velocity_xy(env: ManagerBasedEnv) -> torch.Tensor:
+    """Get body-frame linear velocity (vx, vy) from simulation ground truth.
+
+    Equivalent to running forward kinematics on encoder readings in the real
+    system (``encoder_ticks_to_body_velocity``).
+
+    Args:
+        env: The environment instance.
+
+    Returns:
+        Body velocity (vx, vy) in m/s. Shape: (num_envs, 2)
+    """
+    robot = env.scene["robot"]
+    # root_lin_vel_b is body-frame linear velocity (x, y, z)
+    return robot.data.root_lin_vel_b[:, :2]
+
+
+def privileged_ground_truth(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+    """Privileged observations for asymmetric actor-critic.
+
+    Provides clean ground truth state for the critic:
+    - body_velocity_xy (2): ground truth body velocity
+    - goal_distance (1): scalar distance to goal
+    - heading_error (1): angular error to goal in [-pi, pi]
+
+    Args:
+        env: The environment instance.
+        command_name: Name of the command manager providing goal positions.
+
+    Returns:
+        Privileged state vector. Shape: (num_envs, 4)
+    """
+    robot = env.scene["robot"]
+
+    # Ground truth body velocity
+    vel_xy = robot.data.root_lin_vel_b[:, :2]
+
+    # Goal distance
+    command = env.command_manager.get_command(command_name)
+    goal_pos_w = command[:, :2]
+    robot_pos_w = robot.data.root_pos_w[:, :2]
+    distance = torch.norm(goal_pos_w - robot_pos_w, dim=-1, keepdim=True)
+
+    # Heading error
+    to_goal = goal_pos_w - robot_pos_w
+    goal_angle = torch.atan2(to_goal[:, 1], to_goal[:, 0])
+    robot_quat = robot.data.root_quat_w
+    w, x, y, z = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    robot_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+    heading_err = torch.atan2(
+        torch.sin(goal_angle - robot_yaw),
+        torch.cos(goal_angle - robot_yaw),
+    ).unsqueeze(-1)
+
+    return torch.cat([vel_xy, distance, heading_err], dim=-1)
 
 
 def last_action(env: ManagerBasedEnv) -> torch.Tensor:

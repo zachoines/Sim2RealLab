@@ -9,10 +9,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import math
+
 import torch
+
+from isaaclab.utils.math import quat_from_euler_xyz, quat_apply
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
+    from isaaclab.managers import SceneEntityCfg
 
 
 def reset_robot_state(
@@ -117,3 +122,239 @@ def randomize_friction(
     # Note: set_material_properties expects env_ids on CPU
     env_ids_cpu = env_ids.cpu() if env_ids.device.type != "cpu" else env_ids
     robot.root_physx_view.set_material_properties(materials, env_ids_cpu)
+
+
+def randomize_obstacles(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    obstacle_names: list[str],
+    position_range: dict,
+    min_robot_dist: float = 0.6,
+) -> None:
+    """Randomize obstacle positions at episode reset.
+
+    Places obstacles at random positions within the specified range, ensuring
+    they don't overlap the robot spawn area.
+
+    Args:
+        env: The environment instance.
+        env_ids: Indices of environments to reset.
+        obstacle_names: Scene entity names for each obstacle.
+        position_range: Dict with 'x' and 'y' as (min, max) tuples.
+        min_robot_dist: Minimum distance from origin (robot spawn area).
+    """
+    num_resets = len(env_ids)
+    if num_resets == 0:
+        return
+
+    device = env.device
+    x_range = position_range.get("x", (-4.0, 4.0))
+    y_range = position_range.get("y", (-4.0, 4.0))
+    z_height = 0.15  # half-height of 0.3m box
+
+    for obs_name in obstacle_names:
+        if obs_name not in env.scene:
+            continue
+        obstacle = env.scene[obs_name]
+
+        # Sample positions with rejection for robot proximity
+        accepted = torch.zeros(num_resets, dtype=torch.bool, device=device)
+        ox = torch.zeros(num_resets, device=device)
+        oy = torch.zeros(num_resets, device=device)
+
+        for _ in range(20):
+            remaining = ~accepted
+            n = remaining.sum().item()
+            if n == 0:
+                break
+            cx = torch.rand(n, device=device) * (x_range[1] - x_range[0]) + x_range[0]
+            cy = torch.rand(n, device=device) * (y_range[1] - y_range[0]) + y_range[0]
+            dist_from_origin = torch.sqrt(cx ** 2 + cy ** 2)
+            far_enough = dist_from_origin >= min_robot_dist
+
+            idx = torch.where(remaining)[0]
+            newly_accepted = idx[far_enough]
+            ox[newly_accepted] = cx[far_enough]
+            oy[newly_accepted] = cy[far_enough]
+            accepted[newly_accepted] = True
+
+        # Fallback: place remaining at min_robot_dist in random direction
+        remaining = ~accepted
+        if remaining.any():
+            n = remaining.sum().item()
+            angle = torch.rand(n, device=device) * (2.0 * math.pi)
+            ox[remaining] = min_robot_dist * torch.cos(angle)
+            oy[remaining] = min_robot_dist * torch.sin(angle)
+
+        # Build root state
+        root_state = obstacle.data.default_root_state[env_ids].clone()
+        root_state[:, 0] = ox
+        root_state[:, 1] = oy
+        root_state[:, 2] = z_height
+        root_state[:, 3] = 1.0  # w (identity quaternion)
+        root_state[:, 4:7] = 0.0
+        root_state[:, 7:] = 0.0  # zero velocity
+
+        obstacle.write_root_state_to_sim(root_state, env_ids)
+
+
+def randomize_mass(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    mass_range: tuple[float, float],
+) -> None:
+    """Randomize robot base mass for domain randomization.
+
+    Simulates mass variation from battery charge, added payloads, etc.
+
+    Args:
+        env: The environment instance.
+        env_ids: Indices of environments to randomize.
+        mass_range: (min_scale, max_scale) multiplier for default mass.
+    """
+    if len(env_ids) == 0:
+        return
+
+    robot = env.scene["robot"]
+    device = env.device
+    num_resets = len(env_ids)
+
+    # Get current body masses from simulation
+    body_masses = robot.root_physx_view.get_body_masses()
+    body_device = body_masses.device
+    env_ids_dev = env_ids.to(body_device)
+
+    # Initialize default masses on first call
+    if not hasattr(env, "_default_body_masses"):
+        env._default_body_masses = body_masses.clone()
+
+    # Sample random scale per environment
+    scales = (
+        torch.rand(num_resets, device=body_device)
+        * (mass_range[1] - mass_range[0])
+        + mass_range[0]
+    )
+
+    # Apply scale to all bodies in the reset environments
+    num_bodies = body_masses.shape[1]
+    scales_expanded = scales.unsqueeze(1).expand(-1, num_bodies)
+    body_masses[env_ids_dev] = env._default_body_masses[env_ids_dev] * scales_expanded
+
+    env_ids_cpu = env_ids.cpu() if env_ids.device.type != "cpu" else env_ids
+    robot.root_physx_view.set_body_masses(body_masses, env_ids_cpu)
+
+
+def randomize_goal_noise(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    command_name: str,
+    noise_std: float = 0.25,
+) -> None:
+    """Add Gaussian noise to goal positions (simulates VLM localization error).
+
+    Args:
+        env: The environment instance.
+        env_ids: Indices of environments to apply noise to.
+        command_name: Name of the command term to perturb.
+        noise_std: Standard deviation of position noise in meters.
+    """
+    if len(env_ids) == 0:
+        return
+
+    command_term = env.command_manager.get_term(command_name)
+    device = env.device
+
+    noise = torch.randn(len(env_ids), 2, device=device) * noise_std
+    command_term._goal[env_ids, :2] += noise
+
+
+def randomize_motor_strength(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    strength_range: tuple[float, float],
+) -> None:
+    """Randomize per-wheel motor strength for domain randomization.
+
+    Scales the joint effort limit for each wheel independently, simulating
+    motor-to-motor variation, degradation, or voltage sag. The scale is
+    sampled independently per wheel so one motor can be weaker than others.
+
+    Args:
+        env: The environment instance.
+        env_ids: Indices of environments to randomize.
+        strength_range: (min_scale, max_scale) multiplier for default effort limits.
+            Example: (0.85, 1.15) = ±15% variation.
+    """
+    if len(env_ids) == 0:
+        return
+
+    robot = env.scene["robot"]
+
+    # Get current effort limits from PhysX view
+    # Shape: (num_envs, num_joints)
+    effort_limits = robot.root_physx_view.get_dof_max_forces()
+    effort_device = effort_limits.device
+    env_ids_dev = env_ids.to(effort_device)
+
+    # Store defaults on first call
+    if not hasattr(env, "_default_effort_limits"):
+        env._default_effort_limits = effort_limits.clone()
+
+    num_resets = len(env_ids)
+    num_joints = effort_limits.shape[1]
+
+    # Sample independent scale per joint per environment
+    scales = (
+        torch.rand(num_resets, num_joints, device=effort_device)
+        * (strength_range[1] - strength_range[0])
+        + strength_range[0]
+    )
+
+    effort_limits[env_ids_dev] = env._default_effort_limits[env_ids_dev] * scales
+
+    env_ids_cpu = env_ids.cpu() if env_ids.device.type != "cpu" else env_ids
+    robot.root_physx_view.set_dof_max_forces(effort_limits, env_ids_cpu)
+
+
+def randomize_d555_mount_offset(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    max_angle_deg: float = 2.0,
+) -> None:
+    """Randomize D555 camera/IMU mounting orientation offset.
+
+    The Intel RealSense D555 is bolted to a bracket on the chassis. Small
+    mounting imprecision means the sensor frame differs slightly from the
+    nominal body frame. Since the IMU, depth camera, and RGB camera all
+    share the same physical housing, they share a single random rotation.
+
+    This event samples a small random rotation (roll, pitch, yaw each
+    within ±max_angle_deg) per environment and stores it as a quaternion
+    on ``env._d555_mount_quat``. IMU observation functions apply this
+    rotation to sensor readings. For the depth/RGB camera the effect is
+    negligible (1-2° ≈ 1-2 pixel shift) and the CNN learns invariance.
+
+    Args:
+        env: The environment instance.
+        env_ids: Indices of environments to randomize.
+        max_angle_deg: Maximum offset per axis in degrees.
+    """
+    if len(env_ids) == 0:
+        return
+
+    device = env.device
+    num_resets = len(env_ids)
+    max_rad = math.radians(max_angle_deg)
+
+    # Initialize storage on first call (identity = no offset)
+    if not hasattr(env, "_d555_mount_quat"):
+        env._d555_mount_quat = torch.zeros(env.num_envs, 4, device=device)
+        env._d555_mount_quat[:, 0] = 1.0  # w = 1 (identity)
+
+    # Sample small random Euler angles in [-max_rad, max_rad]
+    roll = (torch.rand(num_resets, device=device) * 2.0 - 1.0) * max_rad
+    pitch = (torch.rand(num_resets, device=device) * 2.0 - 1.0) * max_rad
+    yaw = (torch.rand(num_resets, device=device) * 2.0 - 1.0) * max_rad
+
+    mount_quat = quat_from_euler_xyz(roll, pitch, yaw)
+    env._d555_mount_quat[env_ids] = mount_quat

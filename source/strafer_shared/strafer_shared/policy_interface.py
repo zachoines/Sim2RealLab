@@ -19,8 +19,11 @@ from pathlib import Path
 import numpy as np
 
 from strafer_shared.constants import (
+    BODY_VEL_SCALE,
     DEPTH_SCALE,
     ENCODER_VEL_SCALE,
+    GOAL_DIST_SCALE,
+    HEADING_SCALE,
     IMU_ACCEL_SCALE,
     IMU_GYRO_SCALE,
     MAX_ANGULAR_VEL,
@@ -50,6 +53,9 @@ _NOCAM_FIELDS: tuple[ObsField, ...] = (
     ObsField("imu_gyro", 3, IMU_GYRO_SCALE),
     ObsField("encoder_vels_ticks", 4, ENCODER_VEL_SCALE),
     ObsField("goal_relative", 2, 1.0),
+    ObsField("goal_distance", 1, GOAL_DIST_SCALE),
+    ObsField("goal_heading_relative", 1, HEADING_SCALE),
+    ObsField("body_velocity_xy", 2, BODY_VEL_SCALE),
     ObsField("last_action", 3, 1.0),
 )
 
@@ -61,8 +67,8 @@ _DEPTH_FIELDS: tuple[ObsField, ...] = _NOCAM_FIELDS + (
 class PolicyVariant(Enum):
     """Policy observation variants matching Isaac Lab environment configs."""
 
-    NOCAM = _NOCAM_FIELDS  # 15 dims
-    DEPTH = _DEPTH_FIELDS  # 4815 dims
+    NOCAM = _NOCAM_FIELDS  # 19 dims
+    DEPTH = _DEPTH_FIELDS  # 4819 dims
 
     @property
     def obs_dim(self) -> int:

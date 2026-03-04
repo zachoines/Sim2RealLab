@@ -99,10 +99,16 @@ ENCODER_VEL_MAX = 3000.0  # Max ticks/sec (312 RPM ≈ 2796 ticks/s + margin)
 DEPTH_MIN = 0.4  # Min usable depth in meters (D555 stereo baseline limit)
 DEPTH_MAX = 6.0  # Max depth in meters
 
+BODY_VEL_MAX = 2.0  # Max body velocity in m/s (robot tops ~1.57 m/s, with margin)
+GOAL_DIST_MAX = 10.0  # Max goal distance in meters (goals sampled ±5m)
+
 IMU_ACCEL_SCALE = 1.0 / IMU_ACCEL_MAX
 IMU_GYRO_SCALE = 1.0 / IMU_GYRO_MAX
 ENCODER_VEL_SCALE = 1.0 / ENCODER_VEL_MAX
 DEPTH_SCALE = 1.0 / DEPTH_MAX
+BODY_VEL_SCALE = 1.0 / BODY_VEL_MAX
+GOAL_DIST_SCALE = 1.0 / GOAL_DIST_MAX
+HEADING_SCALE = 1.0 / 3.141592653589793  # Heading error [-pi, pi] -> [-1, 1]
 
 # =============================================================================
 # Camera (Intel RealSense D555)

@@ -1,12 +1,13 @@
-"""Mecanum wheel kinematics for ROS2 hardware.
+"""Mecanum wheel kinematics — single source of truth for sim and real.
 
-Uses the standard mecanum kinematic matrix (same form as the sim's
-actions.py) but does NOT apply WHEEL_AXIS_SIGNS.  Those signs exist
-solely to compensate for USD revolute-joint axis orientation in
-Isaac Sim -- the real motors don't need that correction.
+The KINEMATIC_MATRIX defined here is imported by both the ROS2 hardware
+nodes and the Isaac Lab action term (actions.py converts it to a PyTorch
+tensor).  This eliminates any risk of sim-real kinematic drift.
 
-The sim builds its own PyTorch kinematic matrix in actions.py and
-applies wheel_axis_signs there independently.
+Note: WHEEL_AXIS_SIGNS are NOT baked into this matrix.  Those signs
+compensate for USD revolute-joint axis orientation in Isaac Sim and
+are applied separately in actions.py.  The real motors don't need
+that correction.
 """
 
 import numpy as np

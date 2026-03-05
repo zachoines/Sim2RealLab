@@ -13,7 +13,7 @@ import isaaclab.sim as sim_utils
 from isaaclab.managers import CommandTerm, CommandTermCfg
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.utils import configclass
-from isaaclab.utils.math import quat_from_euler_xyz
+from isaaclab.utils.math import quat_from_euler_xyz, quat_mul
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -87,11 +87,14 @@ class GoalCommand(CommandTerm):
         if not isinstance(env_ids, torch.Tensor):
             env_ids = torch.tensor(env_ids, device=self.device)
 
-        # Robot positions for distance check
+        # Robot positions for distance check (world frame)
         robot_pos = self._robot.data.root_pos_w[env_ids, :2]
+        # Environment origins to convert local goal range to world frame
+        env_origins = self._env.scene.env_origins[env_ids, :2]
         min_dist = self.cfg.min_goal_distance
 
         # Rejection sampling (up to 10 attempts)
+        # Goals are sampled in env-local frame then converted to world frame
         accepted = torch.zeros(num_resets, dtype=torch.bool, device=self.device)
         goal_x = torch.zeros(num_resets, device=self.device)
         goal_y = torch.zeros(num_resets, device=self.device)
@@ -107,18 +110,21 @@ class GoalCommand(CommandTerm):
             x = x * (self.cfg.goal_range.pos_x[1] - self.cfg.goal_range.pos_x[0]) + self.cfg.goal_range.pos_x[0]
             y = y * (self.cfg.goal_range.pos_y[1] - self.cfg.goal_range.pos_y[0]) + self.cfg.goal_range.pos_y[0]
 
-            candidates = torch.stack([x, y], dim=-1)
+            # Convert to world frame for distance check against robot
+            x_world = x + env_origins[remaining, 0]
+            y_world = y + env_origins[remaining, 1]
+            candidates = torch.stack([x_world, y_world], dim=-1)
             dist = torch.norm(candidates - robot_pos[remaining], dim=-1)
             far_enough = dist >= min_dist
 
-            # Place accepted candidates
+            # Place accepted candidates (stored in world frame)
             remaining_indices = torch.where(remaining)[0]
             newly_accepted = remaining_indices[far_enough]
-            goal_x[newly_accepted] = x[far_enough]
-            goal_y[newly_accepted] = y[far_enough]
+            goal_x[newly_accepted] = x_world[far_enough]
+            goal_y[newly_accepted] = y_world[far_enough]
             accepted[newly_accepted] = True
 
-        # Fallback: place remaining goals at min_dist in a random direction
+        # Fallback: place remaining goals at min_dist in a random direction from robot
         remaining = ~accepted
         if remaining.any():
             n = remaining.sum().item()
@@ -224,13 +230,21 @@ class GoalCommand(CommandTerm):
             marker_indices=marker_indices,
         )
 
-        # -- Heading arrow at goal position
+        # -- Heading cone at goal position, offset above the sphere
+        arrow_pos = goal_pos.clone()
+        arrow_pos[:, 2] += 0.2  # sit on top of sphere
+
         zeros = torch.zeros(num_envs, device=self.device)
+        # Tip cone from +Z (vertical) to +X (horizontal) with -90° pitch,
+        # then apply the heading yaw so the cone points in the goal direction.
+        pitch_neg90 = torch.full((num_envs,), -math.pi / 2, device=self.device)
+        tip_quat = quat_from_euler_xyz(zeros, pitch_neg90, zeros)
         heading_quat = quat_from_euler_xyz(zeros, zeros, self._goal[:, 2])
+        arrow_quat = quat_mul(heading_quat, tip_quat)
 
         self._goal_heading_vis.visualize(
-            translations=goal_pos,
-            orientations=heading_quat,
+            translations=arrow_pos,
+            orientations=arrow_quat,
         )
 
 
@@ -259,9 +273,9 @@ _GOAL_SPHERE_CFG = VisualizationMarkersCfg(
 _GOAL_HEADING_CFG = VisualizationMarkersCfg(
     prim_path="/Visuals/Command/goal_heading",
     markers={
-        "arrow": sim_utils.UsdFileCfg(
-            usd_path="{ISAAC_NUCLEUS_DIR}/Props/UIElements/arrow_x.usd",
-            scale=(0.3, 0.15, 0.15),
+        "arrow": sim_utils.ConeCfg(
+            radius=0.08,
+            height=0.3,
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.2, 0.6, 1.0)),
         ),
     },

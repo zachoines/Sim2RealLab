@@ -53,14 +53,15 @@ def reset_robot_state(
     quat[:, 0] = torch.cos(yaw / 2)  # w
     quat[:, 3] = torch.sin(yaw / 2)  # z
     
-    # Set robot state
+    # Set robot state (positions are relative to each env's origin)
     root_state = robot.data.default_root_state[env_ids].clone()
-    root_state[:, 0] = x  # pos_x
-    root_state[:, 1] = y  # pos_y
-    root_state[:, 2] = z  # pos_z
+    env_origins = env.scene.env_origins[env_ids]
+    root_state[:, 0] = env_origins[:, 0] + x  # pos_x
+    root_state[:, 1] = env_origins[:, 1] + y  # pos_y
+    root_state[:, 2] = env_origins[:, 2] + z  # pos_z
     root_state[:, 3:7] = quat  # orientation
     root_state[:, 7:] = 0.0  # zero velocity
-    
+
     robot.write_root_state_to_sim(root_state, env_ids)
 
 
@@ -187,11 +188,12 @@ def randomize_obstacles(
             ox[remaining] = min_robot_dist * torch.cos(angle)
             oy[remaining] = min_robot_dist * torch.sin(angle)
 
-        # Build root state
+        # Build root state (positions are relative to each env's origin)
         root_state = obstacle.data.default_root_state[env_ids].clone()
-        root_state[:, 0] = ox
-        root_state[:, 1] = oy
-        root_state[:, 2] = z_height
+        env_origins = env.scene.env_origins[env_ids]
+        root_state[:, 0] = env_origins[:, 0] + ox
+        root_state[:, 1] = env_origins[:, 1] + oy
+        root_state[:, 2] = env_origins[:, 2] + z_height
         root_state[:, 3] = 1.0  # w (identity quaternion)
         root_state[:, 4:7] = 0.0
         root_state[:, 7:] = 0.0  # zero velocity

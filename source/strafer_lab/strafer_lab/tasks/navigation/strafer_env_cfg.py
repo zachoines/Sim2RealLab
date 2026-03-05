@@ -849,7 +849,7 @@ class CurriculumCfg:
 @configclass
 class StraferNavEnvCfg(ManagerBasedRLEnvCfg):
     """Ideal Full (RGB+Depth) - baseline for debugging."""
-    scene: StraferSceneCfg = StraferSceneCfg(num_envs=4096, env_spacing=4.0)
+    scene: StraferSceneCfg = StraferSceneCfg(num_envs=4096, env_spacing=8.0)
     actions: ActionsCfg_Ideal = ActionsCfg_Ideal()
     observations: ObsCfg_Full_Ideal = ObsCfg_Full_Ideal()
     commands: CommandsCfg = CommandsCfg()
@@ -877,7 +877,7 @@ class StraferNavEnvCfg_PLAY(StraferNavEnvCfg):
 @configclass
 class StraferNavEnvCfg_Depth(ManagerBasedRLEnvCfg):
     """Ideal Depth-only."""
-    scene: StraferSceneCfg = StraferSceneCfg(num_envs=4096, env_spacing=4.0)
+    scene: StraferSceneCfg = StraferSceneCfg(num_envs=4096, env_spacing=8.0)
     actions: ActionsCfg_Ideal = ActionsCfg_Ideal()
     observations: ObsCfg_Depth_Ideal = ObsCfg_Depth_Ideal()
     commands: CommandsCfg = CommandsCfg()
@@ -905,7 +905,7 @@ class StraferNavEnvCfg_Depth_PLAY(StraferNavEnvCfg_Depth):
 @configclass
 class StraferNavEnvCfg_NoCam(ManagerBasedRLEnvCfg):
     """Ideal Proprioceptive-only (fastest training)."""
-    scene: StraferSceneCfg_NoCam = StraferSceneCfg_NoCam(num_envs=4096, env_spacing=4.0)
+    scene: StraferSceneCfg_NoCam = StraferSceneCfg_NoCam(num_envs=4096, env_spacing=8.0)
     actions: ActionsCfg_Ideal = ActionsCfg_Ideal()
     observations: ObsCfg_NoCam_Ideal = ObsCfg_NoCam_Ideal()
     commands: CommandsCfg = CommandsCfg()
@@ -937,7 +937,7 @@ class StraferNavEnvCfg_NoCam_PLAY(StraferNavEnvCfg_NoCam):
 @configclass
 class StraferNavEnvCfg_Real(ManagerBasedRLEnvCfg):
     """Realistic Full (RGB+Depth) - main sim-to-real target."""
-    scene: StraferSceneCfg = StraferSceneCfg(num_envs=4096, env_spacing=4.0)
+    scene: StraferSceneCfg = StraferSceneCfg(num_envs=4096, env_spacing=8.0)
     actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
     observations: ObsCfg_Full_Realistic = ObsCfg_Full_Realistic()
     commands: CommandsCfg = CommandsCfg()
@@ -966,7 +966,7 @@ class StraferNavEnvCfg_Real_PLAY(StraferNavEnvCfg_Real):
 @configclass
 class StraferNavEnvCfg_Real_Depth(ManagerBasedRLEnvCfg):
     """Realistic Depth-only - balanced sim-to-real."""
-    scene: StraferSceneCfg = StraferSceneCfg(num_envs=4096, env_spacing=4.0)
+    scene: StraferSceneCfg = StraferSceneCfg(num_envs=4096, env_spacing=8.0)
     actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
     observations: ObsCfg_Depth_Realistic = ObsCfg_Depth_Realistic()
     commands: CommandsCfg = CommandsCfg()
@@ -994,7 +994,7 @@ class StraferNavEnvCfg_Real_Depth_PLAY(StraferNavEnvCfg_Real_Depth):
 @configclass
 class StraferNavEnvCfg_Real_NoCam(ManagerBasedRLEnvCfg):
     """Realistic Proprioceptive-only - fast training with realistic dynamics."""
-    scene: StraferSceneCfg_NoCam = StraferSceneCfg_NoCam(num_envs=4096, env_spacing=4.0)
+    scene: StraferSceneCfg_NoCam = StraferSceneCfg_NoCam(num_envs=4096, env_spacing=8.0)
     actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
     observations: ObsCfg_NoCam_Realistic = ObsCfg_NoCam_Realistic()
     commands: CommandsCfg = CommandsCfg()
@@ -1026,7 +1026,7 @@ class StraferNavEnvCfg_Real_NoCam_PLAY(StraferNavEnvCfg_Real_NoCam):
 @configclass
 class StraferNavEnvCfg_Robust(ManagerBasedRLEnvCfg):
     """Robust Full (RGB+Depth) - aggressive noise for worst-case robustness."""
-    scene: StraferSceneCfg = StraferSceneCfg(num_envs=4096, env_spacing=4.0)
+    scene: StraferSceneCfg = StraferSceneCfg(num_envs=4096, env_spacing=8.0)
     actions: ActionsCfg_Robust = ActionsCfg_Robust()
     observations: ObsCfg_Full_Robust = ObsCfg_Full_Robust()
     commands: CommandsCfg = CommandsCfg()
@@ -1054,7 +1054,7 @@ class StraferNavEnvCfg_Robust_PLAY(StraferNavEnvCfg_Robust):
 @configclass
 class StraferNavEnvCfg_Robust_Depth(ManagerBasedRLEnvCfg):
     """Robust Depth-only - aggressive noise for worst-case robustness."""
-    scene: StraferSceneCfg = StraferSceneCfg(num_envs=4096, env_spacing=4.0)
+    scene: StraferSceneCfg = StraferSceneCfg(num_envs=4096, env_spacing=8.0)
     actions: ActionsCfg_Robust = ActionsCfg_Robust()
     observations: ObsCfg_Depth_Robust = ObsCfg_Depth_Robust()
     commands: CommandsCfg = CommandsCfg()
@@ -1082,7 +1082,7 @@ class StraferNavEnvCfg_Robust_Depth_PLAY(StraferNavEnvCfg_Robust_Depth):
 @configclass
 class StraferNavEnvCfg_Robust_NoCam(ManagerBasedRLEnvCfg):
     """Robust Proprioceptive-only - aggressive noise for worst-case robustness."""
-    scene: StraferSceneCfg_NoCam = StraferSceneCfg_NoCam(num_envs=4096, env_spacing=4.0)
+    scene: StraferSceneCfg_NoCam = StraferSceneCfg_NoCam(num_envs=4096, env_spacing=8.0)
     actions: ActionsCfg_Robust = ActionsCfg_Robust()
     observations: ObsCfg_NoCam_Robust = ObsCfg_NoCam_Robust()
     commands: CommandsCfg = CommandsCfg()

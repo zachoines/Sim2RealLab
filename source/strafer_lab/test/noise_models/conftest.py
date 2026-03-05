@@ -89,6 +89,7 @@ def _get_or_create_env(use_noise: bool = True):
     cfg = StraferNavEnvCfg_NoCam()
     cfg.scene.num_envs = NUM_ENVS
     cfg.actions = ActionsCfg_Ideal()  # Always ideal actions for predictability
+    cfg.commands.goal_command.debug_vis = False
 
     if use_noise:
         cfg.observations = ObsCfg_NoCam_Realistic()

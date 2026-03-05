@@ -48,6 +48,7 @@ def _get_or_create_env():
     cfg.scene.num_envs = NUM_ENVS
     cfg.actions = ActionsCfg_Ideal()
     cfg.observations = ObsCfg_NoCam_Realistic()
+    cfg.commands.goal_command.debug_vis = False
 
     _module_env = ManagerBasedRLEnv(cfg)
     _module_env.reset()

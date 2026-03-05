@@ -90,6 +90,7 @@ def _get_or_create_env():
     cfg = StraferNavEnvCfg_NoCam()
     cfg.scene.num_envs = NUM_ENVS_INTEGRATION
     cfg.actions = ActionsCfg_Realistic()
+    cfg.commands.goal_command.debug_vis = False
 
     _module_env = ManagerBasedRLEnv(cfg)
     _module_env.reset()

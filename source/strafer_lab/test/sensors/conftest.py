@@ -33,14 +33,18 @@ from strafer_lab.tasks.navigation.strafer_env_cfg import (
 
 
 # =============================================================================
-# Observation Term Indices (for NoCam config: 15 total dims)
+# Observation Term Indices (for NoCam config: 19 total dims)
 # =============================================================================
-# imu_accel(3) + imu_gyro(3) + encoders(4) + goal(2) + action(3)
+# imu_accel(3) + imu_gyro(3) + encoders(4) + goal(2) + goal_dist(1)
+# + goal_heading(1) + body_vel(2) + action(3)
 IMU_ACCEL_SLICE = slice(0, 3)
 IMU_GYRO_SLICE = slice(3, 6)
 ENCODER_SLICE = slice(6, 10)
 GOAL_SLICE = slice(10, 12)
-ACTION_SLICE = slice(12, 15)
+GOAL_DIST_SLICE = slice(12, 13)
+GOAL_HEADING_SLICE = slice(13, 14)
+BODY_VEL_SLICE = slice(14, 16)
+ACTION_SLICE = slice(16, 19)
 
 
 # =============================================================================
@@ -68,6 +72,7 @@ def _get_or_create_env(use_noise: bool = True):
     cfg = StraferNavEnvCfg_NoCam()
     cfg.scene.num_envs = NUM_ENVS
     cfg.actions = ActionsCfg_Ideal()
+    cfg.commands.goal_command.debug_vis = False
 
     if use_noise:
         cfg.observations = ObsCfg_NoCam_Realistic()

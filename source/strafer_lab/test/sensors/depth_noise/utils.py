@@ -55,9 +55,10 @@ from test.common.stats import (
 # Note: NUM_ENVS, N_SETTLE_STEPS, N_SAMPLES_STEPS are imported from common.constants
 
 # Observation term indices for Depth config
-# imu_accel(3) + imu_gyro(3) + encoders(4) + goal(2) + action(3) + depth(N)
-# Depth starts at index 15 and continues to end
-DEPTH_START_IDX = 15
+# imu_accel(3) + imu_gyro(3) + encoders(4) + goal(2) + goal_dist(1)
+# + goal_heading(1) + body_vel(2) + action(3) + depth(N)
+# Depth starts at index 19 and continues to end
+DEPTH_START_IDX = 19
 
 # Test scene geometry
 TEST_WALL_DISTANCE = 2.0     # meters - wall in front of robot
@@ -779,6 +780,7 @@ def create_depth_test_env(noise_cfg, num_envs: int = NUM_ENVS, use_test_scene: b
     cfg.scene.num_envs = num_envs
     cfg.actions = ActionsCfg_Ideal()  # Ideal actions for predictability
     cfg.observations = ObsCfg_Depth_Realistic()
+    cfg.commands.goal_command.debug_vis = False
 
     # Optionally use dedicated test scene with controlled geometry
     if use_test_scene:

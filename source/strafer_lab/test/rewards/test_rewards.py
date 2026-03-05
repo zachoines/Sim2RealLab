@@ -10,6 +10,9 @@ Functions under test (``strafer_lab.tasks.navigation.mdp.rewards``):
 * ``heading_to_goal_reward``    — cosine alignment between heading and goal.
 * ``energy_penalty``            — sum of squared applied torques.
 * ``action_smoothness_penalty`` — sum of squared step-to-step action changes.
+* ``goal_proximity_reward``     — exponential proximity reward near goal.
+* ``speed_near_goal_penalty``   — speed penalty when close to goal.
+* ``alive_bonus``               — constant per-step survival reward.
 
 Usage:
     cd source/strafer_lab
@@ -28,6 +31,9 @@ from strafer_lab.tasks.navigation.mdp.rewards import (
     heading_to_goal_reward,
     energy_penalty,
     action_smoothness_penalty,
+    goal_proximity_reward,
+    speed_near_goal_penalty,
+    alive_bonus,
 )
 
 from test.common.stats import one_sample_t_test
@@ -68,8 +74,9 @@ def _goal_direction_body_frame(env) -> torch.Tensor:
     delta = goal_pos - robot_pos
     world_dir = delta / (torch.norm(delta, dim=-1, keepdim=True) + 1e-8)
 
-    # Robot yaw from quaternion (w, x, y, z in IsaacLab)
-    yaw = 2.0 * torch.atan2(robot_quat[:, 3], robot_quat[:, 0])
+    # Robot yaw from quaternion (w, x, y, z in IsaacLab) — full formula
+    w, x, y, z = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
     cos_y = torch.cos(yaw)
     sin_y = torch.sin(yaw)
 
@@ -509,3 +516,229 @@ def test_action_smoothness_positive_when_changing(env):
         f"got mean expected = {mean_expected:.6f}. Actions may be "
         f"identical after env processing."
     )
+
+
+# =====================================================================
+# Goal Proximity Reward — Functional Tests
+# =====================================================================
+
+
+def test_goal_proximity_bounded_0_1(env):
+    """Proximity reward must lie in (0, 1] for all envs."""
+    env.reset()
+    _warm_up_env(env, 10)
+
+    reward = goal_proximity_reward(env, command_name="goal_command", sigma=0.3)
+
+    print(f"\n  Goal proximity bounded:")
+    print(f"    min: {reward.min().item():.6f}")
+    print(f"    max: {reward.max().item():.6f}")
+
+    assert (reward > 0.0 - 1e-7).all(), (
+        f"Proximity reward has non-positive values: min={reward.min().item():.6f}"
+    )
+    assert (reward <= 1.0 + 1e-7).all(), (
+        f"Proximity reward exceeds 1: max={reward.max().item():.6f}"
+    )
+
+
+def test_goal_proximity_increases_when_closer(env):
+    """Proximity reward increases as robot moves toward goal.
+
+    Step toward the goal and verify the reward increases (distance decreases
+    → exp(-d/sigma) increases).
+    """
+    env.reset()
+    _warm_up_env(env, 10)
+
+    reward_before = goal_proximity_reward(
+        env, command_name="goal_command", sigma=0.3
+    ).clone()
+
+    # Move toward goal
+    direction = _goal_direction_body_frame(env)
+    approach_action = torch.zeros(env.num_envs, 3, device=env.device)
+    approach_action[:, 0] = direction[:, 0]
+    approach_action[:, 1] = direction[:, 1]
+
+    for _ in range(20):
+        env.step(approach_action)
+
+    reward_after = goal_proximity_reward(
+        env, command_name="goal_command", sigma=0.3
+    )
+
+    improvement = (reward_after - reward_before).cpu().numpy()
+
+    result = one_sample_t_test(improvement, null_value=0.0, alternative="greater")
+
+    print(f"\n  Goal proximity improvement:")
+    print(f"    mean Δreward = {result.mean:.6f}")
+    print(f"    t = {result.t_statistic:.2f}, p = {result.p_value:.4e}")
+
+    assert result.reject_null, (
+        f"Proximity reward did not increase when approaching goal. "
+        f"mean Δ = {result.mean:.6f}, p = {result.p_value:.4e}"
+    )
+
+
+def test_goal_proximity_sigma_sensitivity(env):
+    """Smaller sigma produces sharper peak (lower reward at same distance).
+
+    At any non-zero distance: exp(-d/0.1) < exp(-d/1.0) for d > 0.
+    """
+    env.reset()
+    _warm_up_env(env, 10)
+
+    reward_sharp = goal_proximity_reward(
+        env, command_name="goal_command", sigma=0.1
+    )
+    reward_broad = goal_proximity_reward(
+        env, command_name="goal_command", sigma=1.0
+    )
+
+    # At non-zero distance, sharp sigma gives lower reward
+    diff = reward_broad - reward_sharp
+    mean_diff = diff.mean().item()
+
+    print(f"\n  Goal proximity sigma sensitivity:")
+    print(f"    sigma=0.1 mean: {reward_sharp.mean().item():.6f}")
+    print(f"    sigma=1.0 mean: {reward_broad.mean().item():.6f}")
+    print(f"    mean diff: {mean_diff:.6f}")
+
+    assert mean_diff > 0.0, (
+        f"Expected broader sigma to give higher reward at distance, "
+        f"got mean diff = {mean_diff:.6f}"
+    )
+
+
+# =====================================================================
+# Speed Near Goal Penalty — Functional Tests
+# =====================================================================
+
+
+def test_speed_near_goal_zero_when_far(env):
+    """Speed penalty should be zero when robot is far from goal."""
+    env.reset()
+
+    # Move away from goal to ensure distance > threshold
+    direction = _goal_direction_body_frame(env)
+    retreat_action = torch.zeros(env.num_envs, 3, device=env.device)
+    retreat_action[:, 0] = -direction[:, 0]
+    retreat_action[:, 1] = -direction[:, 1]
+
+    for _ in range(30):
+        env.step(retreat_action)
+
+    # Use a small threshold so most envs are outside it
+    penalty = speed_near_goal_penalty(
+        env, command_name="goal_command", distance_threshold=0.01
+    )
+
+    # Check how many envs are actually within the threshold
+    robot_pos = env.scene["robot"].data.root_pos_w[:, :2]
+    goal_pos = env.command_manager.get_command("goal_command")[:, :2]
+    distances = torch.norm(goal_pos - robot_pos, dim=-1)
+    far_mask = distances >= 0.01
+
+    print(f"\n  Speed near goal (far check):")
+    print(f"    Envs far from goal: {far_mask.sum().item()}/{env.num_envs}")
+    print(f"    Penalty for far envs: max={penalty[far_mask].max().item():.6f}")
+
+    if far_mask.any():
+        assert (penalty[far_mask] < 1e-6).all(), (
+            f"Speed penalty should be zero when far from goal, "
+            f"max = {penalty[far_mask].max().item():.6f}"
+        )
+
+
+def test_speed_near_goal_positive_when_moving_near(env):
+    """Speed penalty should be positive when moving fast near the goal."""
+    env.reset()
+    _warm_up_env(env, 10)
+
+    # Step with movement to build up speed
+    fast_action = torch.ones(env.num_envs, 3, device=env.device) * 0.8
+    for _ in range(10):
+        env.step(fast_action)
+
+    # Use generous threshold so all envs qualify
+    penalty = speed_near_goal_penalty(
+        env, command_name="goal_command", distance_threshold=100.0
+    )
+
+    mean_penalty = penalty.mean().item()
+    print(f"\n  Speed near goal (moving near):")
+    print(f"    Mean penalty: {mean_penalty:.6f}")
+
+    # With such a large threshold, all envs are "near" and have some speed
+    assert mean_penalty > 0.0, (
+        f"Expected positive speed penalty when moving near goal, "
+        f"got mean = {mean_penalty:.6f}"
+    )
+
+
+def test_speed_near_goal_nonnegative(env):
+    """Speed near goal penalty is always non-negative."""
+    env.reset()
+    _warm_up_env(env, 10)
+
+    penalty = speed_near_goal_penalty(
+        env, command_name="goal_command", distance_threshold=2.0
+    )
+
+    assert (penalty >= 0).all(), (
+        f"Speed near goal penalty has negative values: "
+        f"min={penalty.min().item():.6f}"
+    )
+    assert torch.isfinite(penalty).all(), "Speed near goal penalty is not finite"
+
+
+# =====================================================================
+# Alive Bonus — Functional Tests
+# =====================================================================
+
+
+def test_alive_bonus_all_ones(env):
+    """Alive bonus must return exactly 1.0 for all environments."""
+    env.reset()
+
+    bonus = alive_bonus(env)
+
+    print(f"\n  Alive bonus:")
+    print(f"    Shape: {bonus.shape}")
+    print(f"    Values: all 1.0 = {(bonus == 1.0).all().item()}")
+
+    assert bonus.shape == (env.num_envs,), (
+        f"Expected shape ({env.num_envs},), got {bonus.shape}"
+    )
+    assert (bonus == 1.0).all(), (
+        f"Expected all 1.0, got unique values: {bonus.unique().tolist()}"
+    )
+
+
+def test_alive_bonus_correct_device(env):
+    """Alive bonus tensor must be on the same device as the environment."""
+    bonus = alive_bonus(env)
+
+    assert bonus.device == torch.device(env.device), (
+        f"Expected device {env.device}, got {bonus.device}"
+    )
+
+
+def test_alive_bonus_after_stepping(env):
+    """Alive bonus remains constant regardless of environment state."""
+    env.reset()
+
+    # Step with various actions
+    for action_val in [0.0, 0.5, -0.5, 1.0]:
+        action = torch.full(
+            (env.num_envs, 3), action_val, device=env.device
+        )
+        env.step(action)
+
+        bonus = alive_bonus(env)
+        assert (bonus == 1.0).all(), (
+            f"Alive bonus changed after stepping with action={action_val}: "
+            f"unique values = {bonus.unique().tolist()}"
+        )

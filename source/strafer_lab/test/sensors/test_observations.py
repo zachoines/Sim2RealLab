@@ -19,9 +19,10 @@ import torch
 # =============================================================================
 
 # Expected observation structure for NoCam config
-# imu_accel(3) + imu_gyro(3) + encoders(4) + goal(2) + action(3) = 15
-EXPECTED_OBS_DIMS = [(3,), (3,), (4,), (2,), (3,)]
-EXPECTED_TOTAL_DIM = 15
+# imu_accel(3) + imu_gyro(3) + encoders(4) + goal(2) + goal_dist(1)
+# + goal_heading(1) + body_vel(2) + action(3) = 19
+EXPECTED_OBS_DIMS = [(3,), (3,), (4,), (2,), (1,), (1,), (2,), (3,)]
+EXPECTED_TOTAL_DIM = 19
 
 
 # =============================================================================
@@ -32,11 +33,14 @@ EXPECTED_TOTAL_DIM = 15
 def test_observation_structure(noisy_env):
     """Verify observation term structure matches expected dimensions.
 
-    Observation structure for NoCam config (15 dims total):
+    Observation structure for NoCam config (19 dims total):
     - imu_linear_acceleration: (3,) - normalized by max_accel
     - imu_angular_velocity: (3,) - normalized by max_angular_vel
     - wheel_encoder_velocities: (4,) - normalized by max_ticks_per_sec
     - goal_position: (2,) - relative [x, y] to goal (meters)
+    - goal_distance: (1,) - scalar distance to goal
+    - goal_heading_relative: (1,) - heading error to goal
+    - body_velocity_xy: (2,) - body-frame velocity
     - last_action: (3,) - previous [vx, vy, omega] command
     """
     obs_manager = noisy_env.observation_manager
@@ -55,7 +59,10 @@ def test_observation_structure(noisy_env):
             f"Expected {len(EXPECTED_OBS_DIMS)} terms, got {len(term_dims)}"
         )
 
-        term_names = ["imu_accel", "imu_gyro", "encoders", "goal", "action"]
+        term_names = [
+            "imu_accel", "imu_gyro", "encoders", "goal",
+            "goal_dist", "goal_heading", "body_vel", "action",
+        ]
         for i, (actual, expected) in enumerate(zip(term_dims, EXPECTED_OBS_DIMS)):
             print(f"    Term {i} ({term_names[i]}): {actual} (expected {expected})")
             assert actual == expected, f"Term {i}: expected {expected}, got {actual}"

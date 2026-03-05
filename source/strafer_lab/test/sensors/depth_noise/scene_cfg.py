@@ -11,7 +11,7 @@ This module provides a controlled test scene with known geometry:
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.terrains import TerrainImporterCfg
-from isaaclab.sensors import TiledCameraCfg, ImuCfg
+from isaaclab.sensors import TiledCameraCfg, ImuCfg, ContactSensorCfg
 from isaaclab.utils import configclass
 
 import isaaclab.sim as sim_utils
@@ -130,4 +130,11 @@ class DepthNoiseTestSceneCfg(InteractiveSceneCfg):
             rot=(1.0, 0.0, 0.0, 0.0),
         ),
         gravity_bias=(0.0, 0.0, 9.81),
+    )
+
+    # Contact sensor on robot body (required by collision_penalty reward)
+    contact_sensor = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/.*",
+        update_period=0.0,
+        history_length=1,
     )

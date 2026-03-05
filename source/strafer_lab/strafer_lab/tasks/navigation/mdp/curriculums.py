@@ -192,9 +192,10 @@ def _deactivate_excess_obstacles(
     """Move inactive obstacles far offscreen (100, 100, -10)."""
     for i in range(8):
         obs_name = f"obstacle_{i}"
-        if obs_name not in env.scene:
+        try:
+            obstacle = env.scene[obs_name]
+        except KeyError:
             continue
-        obstacle = env.scene[obs_name]
 
         # Environments where this obstacle index exceeds active count
         should_hide = active_counts[env_ids] <= i

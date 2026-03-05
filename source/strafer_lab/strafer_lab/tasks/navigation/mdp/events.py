@@ -153,9 +153,10 @@ def randomize_obstacles(
     z_height = 0.15  # half-height of 0.3m box
 
     for obs_name in obstacle_names:
-        if obs_name not in env.scene:
+        try:
+            obstacle = env.scene[obs_name]
+        except KeyError:
             continue
-        obstacle = env.scene[obs_name]
 
         # Sample positions with rejection for robot proximity
         accepted = torch.zeros(num_resets, dtype=torch.bool, device=device)
@@ -220,7 +221,7 @@ def randomize_mass(
     num_resets = len(env_ids)
 
     # Get current body masses from simulation
-    body_masses = robot.root_physx_view.get_body_masses()
+    body_masses = robot.root_physx_view.get_masses()
     body_device = body_masses.device
     env_ids_dev = env_ids.to(body_device)
 
@@ -240,8 +241,7 @@ def randomize_mass(
     scales_expanded = scales.unsqueeze(1).expand(-1, num_bodies)
     body_masses[env_ids_dev] = env._default_body_masses[env_ids_dev] * scales_expanded
 
-    env_ids_cpu = env_ids.cpu() if env_ids.device.type != "cpu" else env_ids
-    robot.root_physx_view.set_body_masses(body_masses, env_ids_cpu)
+    robot.root_physx_view.set_masses(body_masses, env_ids_dev)
 
 
 def randomize_goal_noise(

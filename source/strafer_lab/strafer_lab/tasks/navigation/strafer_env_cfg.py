@@ -166,7 +166,7 @@ class StraferSceneCfg(InteractiveSceneCfg):
 
     # Contact sensor on robot body for collision detection
     contact_sensor = ContactSensorCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/.*",
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/.*",
         update_period=0.0,
         history_length=1,
     )
@@ -219,7 +219,7 @@ class StraferSceneCfg_NoCam(InteractiveSceneCfg):
 
     # Contact sensor on robot body for collision detection
     contact_sensor = ContactSensorCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/.*",
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/.*",
         update_period=0.0,
         history_length=1,
     )

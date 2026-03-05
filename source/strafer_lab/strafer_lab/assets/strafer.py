@@ -58,7 +58,7 @@ STRAFER_CFG = ArticulationCfg(
             solver_position_iteration_count=4,
             solver_velocity_iteration_count=1,
         ),
-        activate_contact_sensors=False,
+        activate_contact_sensors=True,
     ),
     init_state=ArticulationCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.1),  # Spawn slightly above ground

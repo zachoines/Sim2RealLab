@@ -55,17 +55,49 @@ python IsaacLab/scripts/reinforcement_learning/rsl_rl/play.py --task Isaac-Straf
 
 ### Executing Tests
 
+Tests require the Isaac Lab Python environment and a GPU. All test suites
+launch Isaac Sim headlessly via the root `test/conftest.py`.
+
+**Recommended: use `run_tests.py`** for clean output (suppresses Isaac Sim
+initialization noise and captures results via junit-xml):
+
 ```bash
-# From the IsaacLab directory
-cd c:\Worspace\IsaacLab
-.\isaaclab.bat -p -m pytest ..\source\strafer_lab\test\ -v
+cd C:\Worspace\IsaacLab
 
-# Unit tests (no simulation needed for most)
-.\isaaclab.bat -p -m pytest ..\source\strafer_lab\test\unit\ -v
+# Run all suites
+.\isaaclab.bat -p ..\source\strafer_lab\run_tests.py all
 
-# Integration tests (requires Isaac Sim)
-.\isaaclab.bat -p -m pytest ..\source\strafer_lab\test\integration\test_motor_dynamics.py -v
+# Run specific suites
+.\isaaclab.bat -p ..\source\strafer_lab\run_tests.py rewards observations
+
+# Run a single suite
+.\isaaclab.bat -p ..\source\strafer_lab\run_tests.py terminations
 ```
+
+Available suites: `terminations`, `events`, `commands`, `observations`,
+`curriculums`, `rewards`, `sensors`, `actions`, `env`, `noise_models`,
+`depth_noise`, `imu`, `all`
+
+**Direct pytest** (verbose Isaac Sim output, but useful for debugging):
+
+```bash
+cd C:\Worspace\IsaacLab
+
+# Single suite
+.\isaaclab.bat -p -m pytest ..\source\strafer_lab\test\rewards\test_rewards.py -v
+
+# All tests (slow — each suite restarts Isaac Sim)
+.\isaaclab.bat -p -m pytest ..\source\strafer_lab\test\ -v
+```
+
+**Notes:**
+- Each suite runs in its own subprocess (Isaac Sim's `SimulationContext`
+  is a singleton — only one environment per process).
+- The root conftest calls `os._exit()` to avoid PhysX teardown hangs on
+  Windows, which kills pytest before it prints its summary.
+  `run_tests.py` works around this by capturing results via `--junit-xml`.
+- `depth_noise` tests each create their own environment, so
+  `run_tests.py` runs each file in a separate subprocess automatically.
 
 ## Project Structure
 
@@ -73,6 +105,7 @@ cd c:\Worspace\IsaacLab
 source/strafer_lab/
 ├── config/
 │   └── extension.toml           # Package metadata
+├── run_tests.py                 # Test runner (clean output, junit-xml)
 ├── strafer_lab/
 │   ├── __init__.py              # Package init, registers gym envs
 │   ├── assets/                  # Robot configurations
@@ -83,6 +116,7 @@ source/strafer_lab/
 │       └── navigation/          # Navigation task
 │           ├── __init__.py      # gym.register()
 │           ├── strafer_env_cfg.py  # Environment configuration
+│           ├── sim_real_cfg.py  # Sim-to-real noise contracts
 │           ├── agents/          # RL algorithm configs
 │           │   ├── rsl_rl_ppo_cfg.py
 │           │   └── skrl_ppo_cfg.yaml
@@ -92,7 +126,21 @@ source/strafer_lab/
 │               ├── rewards.py
 │               ├── terminations.py
 │               ├── events.py
+│               ├── curriculums.py
 │               └── commands.py  # Goal command generator
+├── test/
+│   ├── conftest.py              # Root: AppLauncher + os._exit() teardown
+│   ├── common/                  # Shared fixtures, stats, robot helpers
+│   ├── actions/                 # Motor dynamics, kinematics tests
+│   ├── commands/                # Goal command generation tests
+│   ├── curriculums/             # Curriculum progression tests
+│   ├── env/                     # Gym registration tests
+│   ├── events/                  # Domain randomization tests
+│   ├── noise_models/            # Sensor noise model tests
+│   ├── observations/            # Observation function tests
+│   ├── rewards/                 # Reward function tests
+│   ├── sensors/                 # Observation structure + depth noise
+│   └── terminations/            # Termination condition tests
 ├── pyproject.toml
 └── setup.py
 ```
@@ -160,12 +208,12 @@ Environments are organized by **realism level** (noise/dynamics) and **sensor co
 
 | Realism | Sensors | Train ID | Play ID | Obs Dims |
 |---------|---------|----------|---------|----------|
-| Ideal | Full (RGB+Depth) | `Isaac-Strafer-Nav-v0` | `Isaac-Strafer-Nav-Play-v0` | 19,215 |
-| Ideal | Depth-only | `Isaac-Strafer-Nav-Depth-v0` | `Isaac-Strafer-Nav-Depth-Play-v0` | 4,815 |
-| Ideal | NoCam | `Isaac-Strafer-Nav-NoCam-v0` | `Isaac-Strafer-Nav-NoCam-Play-v0` | 15 |
-| Realistic | Full (RGB+Depth) | `Isaac-Strafer-Nav-Real-v0` | `Isaac-Strafer-Nav-Real-Play-v0` | 19,215 |
-| Realistic | Depth-only | `Isaac-Strafer-Nav-Real-Depth-v0` | `Isaac-Strafer-Nav-Real-Depth-Play-v0` | 4,815 |
-| Robust | Full (RGB+Depth) | `Isaac-Strafer-Nav-Robust-v0` | `Isaac-Strafer-Nav-Robust-Play-v0` | 19,215 |
+| Ideal | Full (RGB+Depth) | `Isaac-Strafer-Nav-v0` | `Isaac-Strafer-Nav-Play-v0` | 19,219 |
+| Ideal | Depth-only | `Isaac-Strafer-Nav-Depth-v0` | `Isaac-Strafer-Nav-Depth-Play-v0` | 4,819 |
+| Ideal | NoCam | `Isaac-Strafer-Nav-NoCam-v0` | `Isaac-Strafer-Nav-NoCam-Play-v0` | 19 |
+| Realistic | Full (RGB+Depth) | `Isaac-Strafer-Nav-Real-v0` | `Isaac-Strafer-Nav-Real-Play-v0` | 19,219 |
+| Realistic | Depth-only | `Isaac-Strafer-Nav-Real-Depth-v0` | `Isaac-Strafer-Nav-Real-Depth-Play-v0` | 4,819 |
+| Robust | Full (RGB+Depth) | `Isaac-Strafer-Nav-Robust-v0` | `Isaac-Strafer-Nav-Robust-Play-v0` | 19,219 |
 
 ### Observation Space
 
@@ -175,6 +223,9 @@ Environments are organized by **realism level** (noise/dynamics) and **sensor co
 | IMU Angular Velocity | 3 | D555 BMI055 gyroscope (±2000°/s) |
 | Wheel Encoder Velocities | 4 | GoBilda 537.7 PPR encoders |
 | Goal Position | 2 | Relative (x, y) in robot frame |
+| Goal Distance | 1 | Euclidean distance to goal |
+| Goal Heading | 1 | Angular error to goal direction |
+| Body Velocity | 2 | Body-frame linear velocity (vx, vy) |
 | Last Action | 3 | Previous [vx, vy, omega] |
 | Depth Image | 4,800 | D555 depth (80×60, normalized) |
 | RGB Image | 14,400 | D555 RGB (80×60×3, normalized) |
@@ -193,7 +244,7 @@ Environments are organized by **realism level** (noise/dynamics) and **sensor co
 The policy contract -- observation spec, action spec, normalization -- lives in `strafer_shared.policy_interface`. This module is the **single source of truth** for how observations are assembled and how actions are interpreted. Both the gym environment and the ROS2 inference node reference it.
 
 Key components:
-- **`PolicyVariant.NOCAM`** (15 dims), **`PolicyVariant.DEPTH`** (4815 dims) -- define obs field ordering and scales
+- **`PolicyVariant.NOCAM`** (19 dims), **`PolicyVariant.DEPTH`** (4819 dims) -- define obs field ordering and scales
 - **`assemble_observation(raw, variant)`** -- normalizes and concatenates raw sensor values
 - **`interpret_action(action)`** -- denormalizes `[-1,1]` to physical `(vx, vy, omega)`
 - **`load_policy(path, variant)`** -- loads `.pt` or `.onnx`, returns a callable

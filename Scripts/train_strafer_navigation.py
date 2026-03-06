@@ -27,8 +27,6 @@ def main():
     parser.add_argument(
         "--num_envs", type=int, default=512, help="Number of parallel environments"
     )
-    parser.add_argument("--device", type=str, default="cuda:0", help="Device to run on")
-    parser.add_argument("--headless", action="store_true", help="Run without rendering")
     parser.add_argument(
         "--max_iterations", type=int, default=1000, help="Maximum training iterations"
     )
@@ -48,10 +46,14 @@ def main():
         default="Isaac-Strafer-Nav-Real-v0",
         help="Environment ID (default: Isaac-Strafer-Nav-Real-v0 = Realistic Full)",
     )
+    # Import Isaac Lab app launcher and add its CLI args (--enable_cameras, etc.)
+    from isaaclab.app import AppLauncher
+    AppLauncher.add_app_launcher_args(parser)
     args = parser.parse_args()
 
-    # Import Isaac Lab app launcher first
-    from isaaclab.app import AppLauncher
+    # Auto-enable cameras for variants that use depth/RGB
+    if "NoCam" not in args.env:
+        args.enable_cameras = True
 
     # Launch the simulator
     app_launcher = AppLauncher(args)
@@ -61,27 +63,26 @@ def main():
     import gymnasium as gym
     import torch
 
-    from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerEnv, RslRlVecEnvWrapper
+    from rsl_rl.runners import OnPolicyRunner
+    from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
     from isaaclab_tasks.utils import parse_env_cfg
+    from isaaclab_tasks.utils.hydra import load_cfg_from_registry
 
-    # Import strafer_lab to register environments and get agent config
+    # Import strafer_lab to register environments and inject custom network
     import strafer_lab  # noqa: F401
-    from strafer_lab.tasks.navigation.agents.rsl_rl_ppo_cfg import StraferPPORunnerCfg
+    from strafer_lab.tasks.navigation.agents import register_strafer_network
+    register_strafer_network()
+
+    env_name = args.env
 
     print("\n" + "=" * 60)
     print("Strafer Navigation Training - RSL-RL PPO")
     print("=" * 60)
+    print(f"Environment: {env_name}")
     print(f"Number of environments: {args.num_envs}")
     print(f"Max iterations: {args.max_iterations}")
     print(f"Log directory: {args.log_dir}")
     print("=" * 60 + "\n")
-
-    # Create environment
-    env_name = args.env
-    print(f"Creating environment: {env_name}")
-    print(
-        f"Available: Isaac-Strafer-Nav-{{v0,Depth-v0,NoCam-v0,Real-v0,Real-Depth-v0,Robust-v0}}"
-    )
 
     # Parse environment config from registry (Isaac Lab pattern)
     env_cfg = parse_env_cfg(
@@ -89,16 +90,17 @@ def main():
         device=args.device,
         num_envs=args.num_envs,
     )
-    env = gym.make(env_name, cfg=env_cfg)
+    env_cfg.seed = args.seed
 
-    # Wrap for RSL-RL
-    env = RslRlVecEnvWrapper(env)
-    print("[OK] Environment created and wrapped for RSL-RL")
-
-    # Get runner config
-    agent_cfg = StraferPPORunnerCfg()
+    # Load the agent config registered for this env variant
+    agent_cfg = load_cfg_from_registry(env_name, "rsl_rl_cfg_entry_point")
     agent_cfg.max_iterations = args.max_iterations
     agent_cfg.seed = args.seed
+
+    # Create environment
+    env = gym.make(env_name, cfg=env_cfg)
+    env = RslRlVecEnvWrapper(env)
+    print("[OK] Environment created and wrapped for RSL-RL")
 
     # Setup logging
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -108,12 +110,7 @@ def main():
     print(f"Logging to: {log_dir}")
 
     # Create runner
-    runner = RslRlOnPolicyRunnerEnv(
-        env=env,
-        train_cfg=agent_cfg,
-        log_dir=log_dir,
-        device=agent_cfg.device,
-    )
+    runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
 
     # Resume from checkpoint if specified
     if args.resume:
@@ -122,7 +119,7 @@ def main():
 
     # Train
     print("\n--- Starting Training ---")
-    runner.learn(num_learning_iterations=args.max_iterations)
+    runner.learn(num_learning_iterations=args.max_iterations, init_at_random_ep_len=True)
 
     print("\n[OK] Training complete!")
     print(f"Checkpoints saved to: {log_dir}")

@@ -33,24 +33,49 @@ python -c "import strafer_lab; import gymnasium as gym; print([e for e in gym.en
 
 ### Train with RSL-RL
 
+All commands run from `C:\Worspace\IsaacLab` with the Isaac Lab venv activated
+(`source C:/Worspace/venv_isaac/Scripts/activate` or `& C:\Worspace\venv_isaac\Scripts\Activate.ps1`).
+
 ```bash
-# Default: Realistic Full (recommended for sim-to-real)
-.\IsaacLab\isaaclab.bat -p Scripts\train_strafer_navigation.py --num_envs 512
+cd C:\Worspace\IsaacLab
 
-# Fast iteration with NoCam (proprioceptive only)
-.\IsaacLab\isaaclab.bat -p Scripts\train_strafer_navigation.py --env Isaac-Strafer-Nav-NoCam-v0 --num_envs 4096
+# NoCam Realistic (proprioceptive only, 19 obs dims — recommended first)
+.\isaaclab.bat -p ..\Scripts\train_strafer_navigation.py --env Isaac-Strafer-Nav-Real-NoCam-v0 --num_envs 512
 
-# Stress-test training with Robust (aggressive noise)
-.\IsaacLab\isaaclab.bat -p Scripts\train_strafer_navigation.py --env Isaac-Strafer-Nav-Robust-v0 --headless
+# Depth Realistic (adds depth camera, 4819 obs dims — cameras auto-enabled)
+.\isaaclab.bat -p ..\Scripts\train_strafer_navigation.py --env Isaac-Strafer-Nav-Real-Depth-v0 --num_envs 32
 
-# Or use Isaac Lab's built-in training script
-python IsaacLab/scripts/reinforcement_learning/rsl_rl/train.py --task Isaac-Strafer-Nav-Real-v0 --num_envs 4096
+# Full Realistic (RGB + Depth, 19219 obs dims)
+.\isaaclab.bat -p ..\Scripts\train_strafer_navigation.py --env Isaac-Strafer-Nav-Real-v0 --num_envs 32
+
+# Headless (no GUI, faster)
+.\isaaclab.bat -p ..\Scripts\train_strafer_navigation.py --env Isaac-Strafer-Nav-Real-NoCam-v0 --num_envs 4096 --headless
+
+# Stress-test with Robust (aggressive noise + dynamics)
+.\isaaclab.bat -p ..\Scripts\train_strafer_navigation.py --env Isaac-Strafer-Nav-Robust-NoCam-v0 --num_envs 4096 --headless
+
+# Resume from checkpoint
+.\isaaclab.bat -p ..\Scripts\train_strafer_navigation.py --env Isaac-Strafer-Nav-Real-NoCam-v0 --resume logs\rsl_rl\strafer_navigation\run_XXXXX\model_500.pt
 ```
+
+### Monitor Training
+
+```bash
+# In a separate terminal (with venv activated)
+tensorboard --logdir logs/rsl_rl/strafer_navigation
+# Open http://localhost:6006
+```
+
+Key metrics to watch:
+- **Train/mean_reward** — should trend upward
+- **Train/mean_episode_length** — should increase (robot surviving longer)
+- **Loss/policy** — oscillating but bounded (not diverging)
+- **Policy/std** — slowly decreasing (not collapsing to 0)
 
 ### Evaluate Trained Policy
 
 ```bash
-python IsaacLab/scripts/reinforcement_learning/rsl_rl/play.py --task Isaac-Strafer-Nav-Real-Play-v0 --num_envs 50
+.\isaaclab.bat -p scripts\reinforcement_learning\rsl_rl\play.py --task Isaac-Strafer-Nav-Real-NoCam-Play-v0 --num_envs 50
 ```
 
 ### Executing Tests
@@ -162,11 +187,15 @@ source/strafer_lab/
 --num_envs     Number of parallel environments
 
 # train_strafer_navigation.py
---env          Environment ID (default: Isaac-Strafer-Nav-Real-v0)
---num_envs     Number of parallel environments
---max_iterations  Training iterations
---headless     Run without GUI
---resume       Path to checkpoint to resume from
+--env            Environment ID (default: Isaac-Strafer-Nav-Real-v0)
+--num_envs       Number of parallel environments (default: 512)
+--max_iterations Training iterations (default: 1000)
+--seed           Random seed (default: 42)
+--log_dir        Log directory (default: logs/rsl_rl/strafer_navigation)
+--resume         Path to checkpoint to resume from
+--headless       Run without GUI (AppLauncher flag)
+--device         Device to run on, e.g. cuda:0 (AppLauncher flag)
+--enable_cameras Enable camera sensors (auto-enabled for non-NoCam variants)
 ```
 
 ## Robot Configuration

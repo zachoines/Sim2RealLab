@@ -154,27 +154,59 @@ All hardware is wired, tested, and operational. The ROS2 driver, perception pipe
 ### Simulation (Windows)
 
 ```powershell
-# Activate virtual environment
+# Activate virtual environment (required before every session)
 & C:\Worspace\venv_isaac\Scripts\Activate.ps1
 
-# Install extensions
+# Install extensions (one-time)
 python -m pip install -e source/strafer_lab
 python -m pip install -e source/strafer_shared
 
 # List environments
 python -c "import strafer_lab; import gymnasium as gym; print([e for e in gym.envs.registry.keys() if 'Strafer' in e])"
+```
 
-# Train (proprioceptive-only, fastest iteration)
-.\IsaacLab\isaaclab.bat -p Scripts\train_strafer_navigation.py --env Isaac-Strafer-Nav-Real-NoCam-v0 --num_envs 4096
+#### Training
 
-# Train (with depth camera, sim-to-real target)
-.\IsaacLab\isaaclab.bat -p Scripts\train_strafer_navigation.py --env Isaac-Strafer-Nav-Real-Depth-v0 --num_envs 512
+All training commands run from `C:\Worspace\IsaacLab` with the venv activated.
 
-# Evaluate
-python IsaacLab/scripts/reinforcement_learning/rsl_rl/play.py --task Isaac-Strafer-Nav-Real-Play-v0 --num_envs 50
+```powershell
+cd IsaacLab
 
-# Run tests
-cd IsaacLab && .\isaaclab.bat -p -m pytest ..\source\strafer_lab\test\ -v
+# NoCam (proprioceptive-only, fastest iteration, recommended first)
+.\isaaclab.bat -p ..\Scripts\train_strafer_navigation.py --env Isaac-Strafer-Nav-Real-NoCam-v0 --num_envs 512
+
+# Depth (adds depth camera — cameras are auto-enabled)
+.\isaaclab.bat -p ..\Scripts\train_strafer_navigation.py --env Isaac-Strafer-Nav-Real-Depth-v0 --num_envs 32
+
+# Full (RGB + Depth, heaviest)
+.\isaaclab.bat -p ..\Scripts\train_strafer_navigation.py --env Isaac-Strafer-Nav-Real-v0 --num_envs 32
+
+# Headless (no GUI, faster training)
+.\isaaclab.bat -p ..\Scripts\train_strafer_navigation.py --env Isaac-Strafer-Nav-Real-NoCam-v0 --num_envs 4096 --headless
+
+# Resume from checkpoint
+.\isaaclab.bat -p ..\Scripts\train_strafer_navigation.py --env Isaac-Strafer-Nav-Real-NoCam-v0 --resume logs\rsl_rl\strafer_navigation\run_XXXXX\model_500.pt
+```
+
+#### Monitoring Training
+
+```powershell
+# In a separate terminal (with venv activated)
+tensorboard --logdir logs\rsl_rl\strafer_navigation
+# Open http://localhost:6006 in browser
+```
+
+#### Evaluate Trained Policy
+
+```powershell
+.\isaaclab.bat -p scripts\reinforcement_learning\rsl_rl\play.py --task Isaac-Strafer-Nav-Real-NoCam-Play-v0 --num_envs 50
+```
+
+#### Run Tests
+
+```powershell
+cd IsaacLab
+.\isaaclab.bat -p ..\source\strafer_lab\run_tests.py all
 ```
 
 ### Robot (Jetson Orin Nano)

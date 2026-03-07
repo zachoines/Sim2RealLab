@@ -132,9 +132,10 @@ class DepthNoiseTestSceneCfg(InteractiveSceneCfg):
         gravity_bias=(0.0, 0.0, 9.81),
     )
 
-    # Contact sensor on robot body (required by collision_penalty reward)
+    # Contact sensor on body_link for obstacle collision detection.
     contact_sensor = ContactSensorCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/strafer/.*",
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
         update_period=0.0,
         history_length=1,
+        filter_prim_paths_expr=["{ENV_REGEX_NS}/Obstacle_.*"],
     )

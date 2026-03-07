@@ -223,7 +223,9 @@ def collision_penalty(
 ) -> torch.Tensor:
     """Penalty for colliding with obstacles.
 
-    Uses the contact sensor to detect non-zero contact forces.
+    Uses the contact sensor's ``force_matrix_w`` to detect obstacle-specific
+    contact forces. Requires ``filter_prim_paths_expr`` on the sensor config
+    so that ``force_matrix_w`` is populated with per-obstacle forces.
 
     Args:
         env: The environment instance.
@@ -231,13 +233,16 @@ def collision_penalty(
         threshold: Force magnitude threshold for counting a collision.
 
     Returns:
-        Binary collision indicator: 1.0 if any contact force > threshold.
+        Binary collision indicator: 1.0 if any obstacle contact force > threshold.
     """
     contact_sensor = env.scene.sensors[sensor_cfg.name]
-    # net_forces_w shape: (num_envs, num_bodies, 3)
-    net_forces = contact_sensor.data.net_forces_w
-    force_mag = torch.norm(net_forces, dim=-1)  # (num_envs, num_bodies)
-    has_collision = (force_mag > threshold).any(dim=-1).float()
+    # force_matrix_w shape: (num_envs, num_bodies, num_filter_prims, 3)
+    # Only populated when filter_prim_paths_expr is set on the sensor.
+    force_matrix = contact_sensor.data.force_matrix_w
+    # Magnitude per (body, obstacle) pair → (num_envs, num_bodies, num_obstacles)
+    force_mag = torch.norm(force_matrix, dim=-1)
+    # Collapse body and obstacle dims: any obstacle contact on any body counts
+    has_collision = (force_mag > threshold).any(dim=-1).any(dim=-1).float()
     return has_collision
 
 
@@ -276,9 +281,40 @@ def speed_near_goal_penalty(
 def alive_bonus(env: ManagerBasedEnv) -> torch.Tensor:
     """Small positive reward per step for staying alive (not flipped/terminated).
 
-    Prevents the policy from learning to terminate early.
+    Note: With continuous multi-goal episodes where only timeout/flip terminate,
+    this is a constant that provides no gradient. Consider removing from RewardsCfg.
 
     Returns:
         Constant 1.0 for all environments. Shape: (num_envs,)
     """
     return torch.ones(env.num_envs, device=env.device)
+
+
+def collision_sustained_penalty(
+    env: ManagerBasedEnv,
+    sensor_cfg: SceneEntityCfg,
+    threshold: float = 1.0,
+) -> torch.Tensor:
+    """Escalating penalty for sustained obstacle contact.
+
+    Returns the total obstacle contact force magnitude, clipped to [0, 1].
+    Unlike the binary ``collision_penalty``, this grows with contact intensity,
+    penalizing the robot more for pushing hard into an obstacle than for
+    a brief bump.
+
+    Args:
+        env: The environment instance.
+        sensor_cfg: Scene entity config for the contact sensor.
+        threshold: Force below which contact is ignored.
+
+    Returns:
+        Normalized contact intensity in [0, 1]. Shape: (num_envs,)
+    """
+    contact_sensor = env.scene.sensors[sensor_cfg.name]
+    force_matrix = contact_sensor.data.force_matrix_w
+    # Sum force magnitudes across all bodies and obstacles
+    force_mag = torch.norm(force_matrix, dim=-1)  # (N, B, M)
+    total_force = force_mag.sum(dim=-1).sum(dim=-1)  # (N,)
+    # Zero out below threshold, normalize to [0, 1] (cap at 50N)
+    total_force = torch.clamp(total_force - threshold, min=0.0) / 50.0
+    return torch.clamp(total_force, max=1.0)

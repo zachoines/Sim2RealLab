@@ -35,12 +35,13 @@ SUITE_TIMEOUTS = {
     "noise_models": 900,  # 55 tests with heavy GPU work
     "actions": 300,
     "env": 300,
+    "rewards": 300,       # per-file timeout (collision tests run physics)
 }
 DEFAULT_TIMEOUT = 180
 
 # Suites that must run each test file in a separate subprocess because
 # each file creates its own ManagerBasedRLEnv (SimulationContext singleton).
-MULTI_PROCESS_SUITES = {"depth_noise"}
+MULTI_PROCESS_SUITES = {"depth_noise", "rewards"}
 
 SUITES = {
     "terminations":  [str(TEST_ROOT / "terminations" / "test_terminations.py")],
@@ -48,7 +49,8 @@ SUITES = {
     "commands":      [str(TEST_ROOT / "commands" / "test_commands.py")],
     "observations":  [str(TEST_ROOT / "observations" / "test_obs_functions.py")],
     "curriculums":   [str(TEST_ROOT / "curriculums" / "test_curriculums.py")],
-    "rewards":       [str(TEST_ROOT / "rewards" / "test_rewards.py")],
+    "rewards":       [str(TEST_ROOT / "rewards" / "test_rewards.py"),
+                      str(TEST_ROOT / "rewards" / "test_collision_rewards.py")],
     "sensors":       [str(TEST_ROOT / "sensors" / "test_observations.py")],
     "actions":       [str(TEST_ROOT / "actions")],
     "env":           [str(TEST_ROOT / "env")],

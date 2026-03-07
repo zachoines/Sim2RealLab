@@ -77,6 +77,7 @@ from .rewards import (
     energy_penalty,
     action_smoothness_penalty,
     collision_penalty,
+    collision_sustained_penalty,
     speed_near_goal_penalty,
     alive_bonus,
 )

@@ -164,11 +164,28 @@ class StraferSceneCfg(InteractiveSceneCfg):
     obstacle_6: RigidObjectCfg = OBSTACLE_CFG.replace(prim_path="{ENV_REGEX_NS}/Obstacle_6")
     obstacle_7: RigidObjectCfg = OBSTACLE_CFG.replace(prim_path="{ENV_REGEX_NS}/Obstacle_7")
 
-    # Contact sensor on robot body for collision detection
+    # Contact sensor on body_link for obstacle collision detection.
+    # body_link has a collision box (added by setup_physics.py) covering
+    # the full robot footprint (0.48 x 0.44 x 0.216 m, frame bottom to
+    # support rail top). Detects collisions from any direction.
+    # filter_prim_paths_expr isolates obstacle contacts from ground contact.
+    # Each obstacle is listed separately because PhysX tensors API requires
+    # each filter pattern to match exactly 1 prim per env (wildcard Obstacle_.*
+    # matches 8 per env → error). This gives force_matrix_w shape (N, 1, 8, 3).
     contact_sensor = ContactSensorCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/strafer/.*",
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
         update_period=0.0,
         history_length=1,
+        filter_prim_paths_expr=[
+            "{ENV_REGEX_NS}/Obstacle_0",
+            "{ENV_REGEX_NS}/Obstacle_1",
+            "{ENV_REGEX_NS}/Obstacle_2",
+            "{ENV_REGEX_NS}/Obstacle_3",
+            "{ENV_REGEX_NS}/Obstacle_4",
+            "{ENV_REGEX_NS}/Obstacle_5",
+            "{ENV_REGEX_NS}/Obstacle_6",
+            "{ENV_REGEX_NS}/Obstacle_7",
+        ],
     )
 
 
@@ -217,11 +234,28 @@ class StraferSceneCfg_NoCam(InteractiveSceneCfg):
     obstacle_6: RigidObjectCfg = OBSTACLE_CFG.replace(prim_path="{ENV_REGEX_NS}/Obstacle_6")
     obstacle_7: RigidObjectCfg = OBSTACLE_CFG.replace(prim_path="{ENV_REGEX_NS}/Obstacle_7")
 
-    # Contact sensor on robot body for collision detection
+    # Contact sensor on body_link for obstacle collision detection.
+    # body_link has a collision box (added by setup_physics.py) covering
+    # the full robot footprint (0.48 x 0.44 x 0.216 m, frame bottom to
+    # support rail top). Detects collisions from any direction.
+    # filter_prim_paths_expr isolates obstacle contacts from ground contact.
+    # Each obstacle is listed separately because PhysX tensors API requires
+    # each filter pattern to match exactly 1 prim per env (wildcard Obstacle_.*
+    # matches 8 per env → error). This gives force_matrix_w shape (N, 1, 8, 3).
     contact_sensor = ContactSensorCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/strafer/.*",
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
         update_period=0.0,
         history_length=1,
+        filter_prim_paths_expr=[
+            "{ENV_REGEX_NS}/Obstacle_0",
+            "{ENV_REGEX_NS}/Obstacle_1",
+            "{ENV_REGEX_NS}/Obstacle_2",
+            "{ENV_REGEX_NS}/Obstacle_3",
+            "{ENV_REGEX_NS}/Obstacle_4",
+            "{ENV_REGEX_NS}/Obstacle_5",
+            "{ENV_REGEX_NS}/Obstacle_6",
+            "{ENV_REGEX_NS}/Obstacle_7",
+        ],
     )
 
 
@@ -690,22 +724,29 @@ class CommandsCfg:
 
 @configclass
 class RewardsCfg:
-    """Reward terms for the MDP."""
-    # Goal reaching: binary bonus (reduced) + exponential proximity (new, dense)
-    goal_reached = RewTerm(func=mdp.goal_reached_reward, weight=5.0, params={"threshold": 0.3, "command_name": "goal_command"})
-    goal_proximity = RewTerm(func=mdp.goal_proximity_reward, weight=2.0, params={"command_name": "goal_command", "sigma": 0.3})
-    goal_progress = RewTerm(func=mdp.goal_progress_reward, weight=1.0, params={"command_name": "goal_command"})
-    # Heading alignment: reduced weight (mecanum can strafe efficiently)
-    heading_alignment = RewTerm(func=mdp.heading_to_goal_reward, weight=0.1, params={"command_name": "goal_command"})
-    # Collision avoidance
+    """Reward terms for the MDP.
+
+    Design principles (sim-to-real navigation):
+    - Dense shaping (progress/proximity) for the main task signal
+    - Sparse bonus for goal completion
+    - Small penalties as guardrails (collision, jerk), not primary signal
+    - Positive-dominant: robot should want to reach goals, not just avoid punishment
+    """
+    # --- Primary task signal (dense) ---
+    goal_progress = RewTerm(func=mdp.goal_progress_reward, weight=2.0, params={"command_name": "goal_command"})
+    goal_proximity = RewTerm(func=mdp.goal_proximity_reward, weight=1.5, params={"command_name": "goal_command", "sigma": 0.3})
+    # --- Sparse completion bonus ---
+    goal_reached = RewTerm(func=mdp.goal_reached_reward, weight=10.0, params={"threshold": 0.3, "command_name": "goal_command"})
+    # --- Heading (low weight — mecanum can strafe, heading is secondary) ---
+    heading_alignment = RewTerm(func=mdp.heading_to_goal_reward, weight=0.05, params={"command_name": "goal_command"})
+    # --- Collision avoidance ---
     collision = RewTerm(func=mdp.collision_penalty, weight=-5.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
-    # Slow down near goal
-    speed_near_goal = RewTerm(func=mdp.speed_near_goal_penalty, weight=-0.5, params={"command_name": "goal_command", "distance_threshold": 1.0})
-    # Alive bonus
-    alive = RewTerm(func=mdp.alive_bonus, weight=0.1)
-    # Regularization
+    collision_sustained = RewTerm(func=mdp.collision_sustained_penalty, weight=-2.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
+    # --- Slow down near goal ---
+    speed_near_goal = RewTerm(func=mdp.speed_near_goal_penalty, weight=-0.3, params={"command_name": "goal_command", "distance_threshold": 0.8})
+    # --- Regularization (smooth, energy-efficient motion transfers better to real hardware) ---
     energy_penalty = RewTerm(func=mdp.energy_penalty, weight=-0.01)
-    action_smoothness = RewTerm(func=mdp.action_smoothness_penalty, weight=-0.1)
+    action_smoothness = RewTerm(func=mdp.action_smoothness_penalty, weight=-0.05)
 
 
 @configclass

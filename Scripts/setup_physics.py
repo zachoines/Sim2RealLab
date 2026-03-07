@@ -705,6 +705,45 @@ def create_body_link(
     if apply_rigid_body(stage, BODY_LINK_PATH, body_mass):
         log.append(f"[OK] RigidBodyAPI (mass={body_mass:.3f}) on {BODY_LINK_PATH}")
 
+    # Add invisible collision box covering the full robot footprint.
+    # body_link needs collision geometry for the contact sensor to report
+    # obstacle impacts. Without this, PhysxContactReportAPI on body_link
+    # produces zero forces (no collision shape = nothing to collide).
+    # Dimensions from strafer_shared/constants.py:
+    #   CHASSIS_LENGTH=0.432, TRACK_WIDTH=0.4284, CHASSIS_GROUND_CLEARANCE=0.024
+    # The box extends beyond the chassis to cover wheel overhang and reaches
+    # from frame bottom to the top of the support rails.
+    # Geometry (world frame, robot resting on ground):
+    #   ground clearance (frame bottom):  24 mm
+    #   base frame top:  24 + 48 = 72 mm
+    #   support rail top: 72 + 168 = 240 mm
+    # body_link origin sits at center of base frame: 24 + 24 = 48 mm above ground.
+    # Box covers frame bottom to support rail top (NOT to ground — extending
+    # to ground causes the box to drag on the ground plane, preventing motion).
+    # In body_link local frame:
+    #   box bottom (frame bottom):   24 - 48 = -24 mm  = -0.024 m
+    #   box top (support rail top): 240 - 48 = +192 mm = +0.192 m
+    #   box height: 216 mm → half-height = 0.108 m (Z scale)
+    #   box center: (-0.024 + 0.192) / 2 = 0.084 m (Z translate)
+    collision_cube_path = f"{BODY_LINK_PATH}/collision_box"
+    collision_cube_prim = stage.GetPrimAtPath(collision_cube_path)
+    # Always recreate to pick up dimension/offset changes
+    if collision_cube_prim and collision_cube_prim.IsValid():
+        stage.RemovePrim(collision_cube_path)
+    cube = UsdGeom.Cube.Define(stage, collision_cube_path)
+    # xformOps are applied right-to-left: Scale first, then Translate.
+    # So we add Translate first, then Scale, in the AddOp call order.
+    cube.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, 0.084))
+    # UsdGeom.Cube has unit size 2x2x2 centered at origin; scale gives half-extents
+    # Half-extents: X=0.24m (length), Y=0.22m (width), Z=0.108m (height)
+    cube.AddScaleOp().Set(Gf.Vec3f(0.24, 0.22, 0.108))
+    # Make invisible (collision only, no visual)
+    cube.CreatePurposeAttr().Set(UsdGeom.Tokens.guide)
+    # Apply collision API
+    UsdPhysics.CollisionAPI.Apply(cube.GetPrim())
+    log.append(f"[OK] Collision box on {collision_cube_path} "
+               f"(0.48 x 0.44 x 0.216 m, z-offset=0.084, invisible)")
+
     return BODY_LINK_PATH
 
 

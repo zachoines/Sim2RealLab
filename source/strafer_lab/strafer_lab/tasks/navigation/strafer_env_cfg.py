@@ -1146,3 +1146,54 @@ class StraferNavEnvCfg_Robust_NoCam_PLAY(StraferNavEnvCfg_Robust_NoCam):
     def __post_init__(self):
         super().__post_init__()
         self.scene.num_envs = 50
+
+
+# =============================================================================
+# PROC-SCENE: Realistic dynamics + procedural scene obstacles (Phase 6)
+#
+# These variants use the same obs/action contract as Real-Depth but are
+# intended for training with procedurally generated scenes from the Phase 6
+# scene generation pipeline.  For now they inherit from Real_Depth directly
+# (using primitive box obstacles).  Once compose_scenes_replicator.py
+# generates USD scenes, the scene config will be swapped to load those.
+# =============================================================================
+
+@configclass
+class StraferNavEnvCfg_Real_ProcDepth(StraferNavEnvCfg_Real_Depth):
+    """Realistic Depth with procedural scene obstacles (Phase 6).
+
+    Currently identical to Real_Depth. Will be extended to load generated
+    scene USD files from Assets/generated/scenes/ at reset time.
+    """
+    def __post_init__(self):
+        super().__post_init__()
+        # Proc-scene runs use fewer envs due to higher per-env scene complexity
+        self.scene.num_envs = 24
+
+
+@configclass
+class StraferNavEnvCfg_Real_ProcDepth_PLAY(StraferNavEnvCfg_Real_ProcDepth):
+    """Play/eval config for Realistic ProcDepth."""
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 8
+
+
+@configclass
+class StraferNavEnvCfg_Robust_ProcDepth(StraferNavEnvCfg_Robust_Depth):
+    """Robust Depth with procedural scene obstacles (Phase 6).
+
+    Currently identical to Robust_Depth. Will include dynamic obstacles
+    once Phase 6b behavior library is implemented.
+    """
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 24
+
+
+@configclass
+class StraferNavEnvCfg_Robust_ProcDepth_PLAY(StraferNavEnvCfg_Robust_ProcDepth):
+    """Play/eval config for Robust ProcDepth."""
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 8

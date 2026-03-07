@@ -1,6 +1,6 @@
 """Navigation task for Strafer mecanum wheel robot.
 
-This module registers 18 Gym environments organized by realism level and sensors:
+This module registers 22 Gym environments organized by realism level and sensors:
 
 IDEAL (No noise, no motor dynamics - debugging/baselines):
 - ``Isaac-Strafer-Nav-v0``: Full RGB+Depth
@@ -16,6 +16,10 @@ ROBUST (Aggressive noise + dynamics - stress-testing):
 - ``Isaac-Strafer-Nav-Robust-v0``: Full sensors with extreme noise
 - ``Isaac-Strafer-Nav-Robust-Depth-v0``: Depth-only with extreme noise
 - ``Isaac-Strafer-Nav-Robust-NoCam-v0``: Proprioceptive-only with extreme noise
+
+PROC-SCENE (Phase 6 - procedural scene obstacles):
+- ``Isaac-Strafer-Nav-Real-ProcDepth-v0``: Realistic depth + proc scenes
+- ``Isaac-Strafer-Nav-Robust-ProcDepth-v0``: Robust depth + proc scenes
 
 Each has a -Play variant for evaluation (fewer envs).
 """
@@ -242,6 +246,56 @@ gym.register(
     kwargs={
         "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Robust_NoCam_PLAY",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:STRAFER_PPO_RUNNER_CFG",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+# =============================================================================
+# PROC-SCENE: Procedural scene variants (Phase 6)
+# =============================================================================
+
+# Realistic + procedural scenes (depth-only)
+gym.register(
+    id="Isaac-Strafer-Nav-Real-ProcDepth-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Real_ProcDepth",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:STRAFER_PPO_DEPTH_RUNNER_CFG",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+gym.register(
+    id="Isaac-Strafer-Nav-Real-ProcDepth-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Real_ProcDepth_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:STRAFER_PPO_DEPTH_RUNNER_CFG",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+# Robust + procedural scenes (depth-only)
+gym.register(
+    id="Isaac-Strafer-Nav-Robust-ProcDepth-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Robust_ProcDepth",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:STRAFER_PPO_DEPTH_RUNNER_CFG",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+gym.register(
+    id="Isaac-Strafer-Nav-Robust-ProcDepth-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Robust_ProcDepth_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:STRAFER_PPO_DEPTH_RUNNER_CFG",
         "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
     },
 )

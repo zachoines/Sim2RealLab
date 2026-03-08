@@ -19,4 +19,16 @@ __pycache__/
 source/strafer_lab/test/integration/depth_noise/debug_output/
 
 # Test runner output
-test_results*.xml
+test_results*.xml   
+
+# Virtual environment
+.venv*/*
+
+# Training / evaluation artifacts
+outputs/
+logs/
+runs/
+wandb/
+ray_results/
+checkpoints/
+*.tfevents*

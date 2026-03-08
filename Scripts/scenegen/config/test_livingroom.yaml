@@ -1,0 +1,55 @@
+# Minimal test config: compose LivingRoom with a few objects
+# Usage: isaaclab.bat -p ..\Scripts\scenegen\compose_scenes_replicator.py --config ..\Scripts\scenegen\config\test_livingroom.yaml
+
+environments:
+  folders: []
+  files:
+    - ../Assets/generated/infinigen_rooms/living_room_1/export_scene.usdc
+
+capture:
+  total_captures: 3
+  num_floating_captures_per_env: 1
+  num_dropped_captures_per_env: 2
+  num_cameras: 1
+  resolution: [320, 240]
+  disable_render_products: true
+  rt_subframes: 4
+  path_tracing: false
+  camera_distance_to_target_range: [1.5, 3.0]
+  num_scene_lights: 2
+
+writers:
+  - type: BasicWriter
+    kwargs:
+      output_dir: ../Assets/generated/sdg_output/test_livingroom
+      rgb: true
+      semantic_segmentation: true
+      colorize_semantic_segmentation: true
+      use_common_output_dir: false
+
+labeled_assets:
+  auto_label:
+    num: 3
+    gravity_disabled_chance: 0.25
+    folders:
+      - ../Assets/Residential_NVD@10012/Assets/ArchVis/Residential/Furniture/
+    files: []
+
+distractors:
+  shape_distractors:
+    num: 5
+    gravity_disabled_chance: 0.25
+    types: [capsule, cone, cylinder, sphere, cube]
+  mesh_distractors:
+    num: 3
+    gravity_disabled_chance: 0.25
+    folders:
+      - ../Assets/SimReady_Furniture_Misc_01_NVD@10010/Assets/simready_content/common_assets/props/
+    files: []
+
+scene_export:
+  enabled: true
+  out_dir: ../Assets/generated/scenes/
+  manifest_path: ../Assets/generated/manifests/scene_manifest.jsonl
+
+debug_mode: true

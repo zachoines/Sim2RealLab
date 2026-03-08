@@ -14,7 +14,7 @@ SimRealContractCfg presets for consistency:
   - REALISTIC: Matches real hardware (sim-to-real target)
   - ROBUST: Aggressive noise (stress-testing)
 
-Environment Matrix (18 registered = 9 configs × Train/Play):
+Environment Matrix (22 registered = 11 configs x Train/Play):
     | Realism   | Sensors    | Train ID                            |
     |-----------|------------|-------------------------------------|
     | Ideal     | Full       | Isaac-Strafer-Nav-v0                |
@@ -23,11 +23,13 @@ Environment Matrix (18 registered = 9 configs × Train/Play):
     | Realistic | Full       | Isaac-Strafer-Nav-Real-v0           |
     | Realistic | Depth-only | Isaac-Strafer-Nav-Real-Depth-v0     |
     | Realistic | NoCam      | Isaac-Strafer-Nav-Real-NoCam-v0     |
+    | Realistic | ProcDepth  | Isaac-Strafer-Nav-Real-ProcDepth-v0 |
     | Robust    | Full       | Isaac-Strafer-Nav-Robust-v0         |
     | Robust    | Depth-only | Isaac-Strafer-Nav-Robust-Depth-v0   |
     | Robust    | NoCam      | Isaac-Strafer-Nav-Robust-NoCam-v0   |
+    | Robust    | ProcDepth  | Isaac-Strafer-Nav-Robust-ProcDepth-v0 |
 
-Each has a -Play-v0 variant for evaluation (50 envs instead of 4096).
+Each has a -Play-v0 variant for evaluation (fewer envs).
 """
 
 import math
@@ -1162,9 +1164,11 @@ class StraferNavEnvCfg_Robust_NoCam_PLAY(StraferNavEnvCfg_Robust_NoCam):
 class StraferNavEnvCfg_Real_ProcDepth(StraferNavEnvCfg_Real_Depth):
     """Realistic Depth with procedural scene obstacles (Phase 6).
 
-    Currently identical to Real_Depth. Will be extended to load generated
-    scene USD files from Assets/generated/scenes/ at reset time.
+    Inherits full obs/action/reward/events from Real_Depth. Once the
+    Infinigen + Replicator pipeline generates composed scene USDs, this
+    config will be extended to load those scenes at init time.
     """
+
     def __post_init__(self):
         super().__post_init__()
         # Proc-scene runs use fewer envs due to higher per-env scene complexity
@@ -1183,9 +1187,10 @@ class StraferNavEnvCfg_Real_ProcDepth_PLAY(StraferNavEnvCfg_Real_ProcDepth):
 class StraferNavEnvCfg_Robust_ProcDepth(StraferNavEnvCfg_Robust_Depth):
     """Robust Depth with procedural scene obstacles (Phase 6).
 
-    Currently identical to Robust_Depth. Will include dynamic obstacles
-    once Phase 6b behavior library is implemented.
+    Inherits full obs/action/reward/events from Robust_Depth. Will include
+    dynamic obstacles once Phase 6b behavior library is implemented.
     """
+
     def __post_init__(self):
         super().__post_init__()
         self.scene.num_envs = 24

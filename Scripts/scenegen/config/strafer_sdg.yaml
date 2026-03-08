@@ -1,0 +1,73 @@
+# Strafer SDG Configuration
+# Scene composition config for the Infinigen + Replicator pipeline.
+# Used by: isaaclab.bat -p Scripts/scenegen/compose_scenes_replicator.py --config <this file>
+
+environments:
+  folders:
+    - ../Assets/generated/infinigen_rooms/
+  files: []
+
+capture:
+  total_captures: 50
+  num_floating_captures_per_env: 1
+  num_dropped_captures_per_env: 2
+  num_cameras: 1
+  resolution: [320, 240]          # Matches Strafer depth input scale
+  disable_render_products: true    # Performance: disable between captures
+  rt_subframes: 4
+  path_tracing: false              # Rasterize for speed (depth doesn't need PT)
+  camera_look_at_target_offset: 0.1
+  camera_distance_to_target_range: [1.5, 3.0]  # Robot-eye-level distances
+  num_scene_lights: 3
+
+writers:
+  - type: BasicWriter
+    kwargs:
+      output_dir: ../Assets/generated/sdg_output/basicwriter
+      rgb: true
+      semantic_segmentation: true
+      colorize_semantic_segmentation: true
+      use_common_output_dir: false
+
+# Labeled target assets: furniture from Residential pack
+labeled_assets:
+  auto_label:
+    num: 5
+    gravity_disabled_chance: 0.25
+    folders:
+      - ../Assets/Residential_NVD@10012/Assets/ArchVis/Residential/Furniture/
+    files: []
+
+# Distractor assets spawned into the Infinigen room shells.
+# These provide the ground-level clutter and obstacle density.
+# Infinigen rooms provide background geometry only (walls, floor, basic furniture).
+distractors:
+  # Primitive shapes (capsule, cone, cylinder, sphere, cube)
+  shape_distractors:
+    num: 25
+    gravity_disabled_chance: 0.25
+    types:
+      - capsule
+      - cone
+      - cylinder
+      - sphere
+      - cube
+
+  # Mesh distractors from both local asset packs (709 assets combined)
+  mesh_distractors:
+    num: 15
+    gravity_disabled_chance: 0.25
+    folders:
+      - ../Assets/SimReady_Furniture_Misc_01_NVD@10010/Assets/simready_content/common_assets/props/
+      - ../Assets/Residential_NVD@10012/Assets/ArchVis/Residential/Decor/
+      - ../Assets/Residential_NVD@10012/Assets/ArchVis/Residential/Kitchen/
+      - ../Assets/Residential_NVD@10012/Assets/ArchVis/Residential/Appliances/
+    files: []
+
+# Scene export for Isaac Lab training
+scene_export:
+  enabled: true
+  out_dir: ../Assets/generated/scenes/
+  manifest_path: ../Assets/generated/manifests/scene_manifest.jsonl
+
+debug_mode: true

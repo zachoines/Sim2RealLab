@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "strafer-vlm"
+version = "0.1.0"
+description = "Workstation-first VLM utilities for Strafer (Qwen2.5-VL grounding)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pillow",
+]
+
+[project.optional-dependencies]
+qwen = [
+    "accelerate",
+    "datasets",
+    "peft",
+    "torch",
+    "transformers",
+    "trl",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["strafer_vlm*"]

@@ -8,6 +8,48 @@ Phase 5 introduces a high-level Vision-Language Model (VLM) that interprets natu
 
 This phase does **not** replace the trained RL controller from Phases 1–4. It adds a semantic reasoning layer on top of it, completing the full autonomy stack: language → perception → planning → control.
 
+## 0. Workstation-First Development (No ROS Yet)
+
+Before ROS integration, we develop and validate the VLM stack offline on the Windows training workstation. This keeps iteration fast while we finalize prompting, dataset format, training, and metrics.
+
+### 0.1 Local scripts in this repo
+
+| Script | Purpose | Input | Output |
+|--------|---------|-------|--------|
+| `source/strafer_vlm/strafer_vlm/test_qwen25vl_grounding.py` | Base-model smoke test on one image | `--image`, `--prompt` | Raw model text, parsed JSON, optional bbox overlay image |
+| `source/strafer_vlm/strafer_vlm/train_qwen25vl_lora.py` | LoRA fine-tuning routine | Train/eval JSON or JSONL dataset | Adapter checkpoint dir + `training_summary.json`; optional merged model |
+| `source/strafer_vlm/strafer_vlm/eval_qwen25vl_grounding.py` | Offline grounding evaluation | Eval JSON or JSONL dataset + model(+adapter) | `predictions.jsonl` + `evaluation_summary.json` (IoU/Acc metrics) |
+| `source/strafer_vlm/strafer_vlm/qwen_vl_common.py` | Shared parser/prompt/metrics utilities | Used by all 3 scripts | Canonical dataset parsing and JSON extraction |
+
+### 0.2 Windows setup and smoke test
+
+```powershell
+# From repo root (Windows)
+python -m venv .venv_vlm
+.\.venv_vlm\Scripts\Activate.ps1
+
+# Install local package
+pip install -e source/strafer_vlm
+
+# Core dependencies for local test/train/eval
+pip install --upgrade pip
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+pip install transformers accelerate peft trl datasets pillow
+```
+
+```powershell
+# Base-model single-image check (zero-shot)
+python -m strafer_vlm.test_qwen25vl_grounding `
+  --image data\vlm\images\frame_0001.jpg `
+  --prompt "the chair next to the couch" `
+  --output-image outputs\vlm_smoke\frame_0001_bbox.jpg `
+  --output-json outputs\vlm_smoke\frame_0001_output.json
+```
+
+Notes:
+- Start with zero-shot evaluation first; only fine-tune if domain accuracy is insufficient.
+- On Windows, start with standard LoRA (`--load-in-4bit` disabled) unless your environment has a working bitsandbytes setup.
+
 ## 1. Two-Model Architecture
 
 ### 1.1 Design Rationale
@@ -258,6 +300,22 @@ If zero-shot falls short on domain-specific objects or lighting conditions, buil
 ]
 ```
 
+**Equivalent flat format** (also supported by local scripts):
+
+```json
+[
+  {
+    "image": "images/frame_0042.jpg",
+    "prompt": "Locate: the red chair next to the bookshelf",
+    "target": {
+      "found": true,
+      "bbox_2d": [345, 220, 567, 489],
+      "label": "red chair"
+    }
+  }
+]
+```
+
 Bounding box coordinates are normalized to [0, 1000] scale relative to the full image. The model handles internal image resizing automatically — no double conversion is needed.
 
 **Isaac Sim synthetic data** (optional, high-impact):
@@ -336,6 +394,70 @@ python -m autoawq.quantize \
   --quant_path ./merged_model_awq_int4 \
   --bits 4 --group_size 128
 ```
+
+### 2.5 Local Training and Evaluation Routine (Implemented)
+
+The repository now includes a workstation-first loop for Qwen2.5-VL-3B:
+1. Smoke test base model on single images
+2. Fine-tune with LoRA on local grounding data
+3. Evaluate on held-out data with IoU-based metrics
+
+**Train command**:
+
+```powershell
+python -m strafer_vlm.train_qwen25vl_lora `
+  --train-dataset data\vlm\train.jsonl `
+  --eval-dataset data\vlm\val.jsonl `
+  --output-dir outputs\qwen25vl_lora_run1 `
+  --num-train-epochs 5 `
+  --learning-rate 2e-4 `
+  --per-device-train-batch-size 2 `
+  --gradient-accumulation-steps 8 `
+  --torch-dtype bfloat16 `
+  --freeze-vision `
+  --merge-adapter-after-training
+```
+
+**Eval command**:
+
+```powershell
+python -m strafer_vlm.eval_qwen25vl_grounding `
+  --dataset data\vlm\test.jsonl `
+  --model Qwen/Qwen2.5-VL-3B-Instruct `
+  --adapter outputs\qwen25vl_lora_run1 `
+  --output-dir outputs\qwen25vl_eval_run1 `
+  --iou-threshold 0.5
+```
+
+**Training inputs**:
+- JSON/JSONL dataset in chat format (`messages`) or flat format (`image`, `prompt`, `target`)
+- `target.found` boolean and `target.bbox_2d` normalized to [0, 1000] when found is true
+- Optional `target.label` and `target.confidence`
+- Images are auto-downscaled by default (`--max-image-side 1024`) in test/train/eval scripts to avoid GPU OOM on 8-12 GB cards
+
+**Training outputs**:
+- LoRA adapter checkpoint(s) in `--output-dir`
+- `training_summary.json` (dataset sizes, hyperparameters, train/eval losses)
+- Optional merged model directory when `--merge-adapter-after-training` is enabled
+
+**Evaluation outputs**:
+- `predictions.jsonl`: per-sample prompt, ground truth, parsed prediction, raw model output, IoU, latency
+- `evaluation_summary.json`: parse success rate, found/not-found accuracy, precision/recall/F1, mean IoU, Acc@IoU threshold
+
+**Canonical prediction schema** (for later ROS integration):
+
+```json
+{
+  "found": true,
+  "bbox_2d": [234, 156, 456, 378],
+  "label": "chair",
+  "confidence": 0.87
+}
+```
+
+For ROS phase integration, the contract is:
+- Input to VLM: one RGB frame + one referring-expression prompt (`Locate: ...`)
+- Output from VLM: normalized 2D bbox JSON (above), then depth projection converts it to a `map`-frame goal pose.
 
 ## 3. Deployment on Jetson Orin Nano
 

@@ -78,6 +78,8 @@ from .rewards import (
     action_smoothness_penalty,
     collision_penalty,
     collision_sustained_penalty,
+    collision_penalty_net,
+    collision_sustained_penalty_net,
     speed_near_goal_penalty,
     alive_bonus,
 )

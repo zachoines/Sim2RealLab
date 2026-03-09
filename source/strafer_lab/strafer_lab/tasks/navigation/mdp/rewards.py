@@ -318,3 +318,68 @@ def collision_sustained_penalty(
     # Zero out below threshold, normalize to [0, 1] (cap at 50N)
     total_force = torch.clamp(total_force - threshold, min=0.0) / 50.0
     return torch.clamp(total_force, max=1.0)
+
+
+# ---------------------------------------------------------------------------
+# Scene-geometry collision rewards
+# ---------------------------------------------------------------------------
+# Intended for ProcScene configs where scene geometry has variable/unknown mesh prims.
+
+
+def collision_penalty_net(
+    env: ManagerBasedEnv,
+    sensor_cfg: SceneEntityCfg,
+    threshold: float = 1.0,
+) -> torch.Tensor:
+    """Binary collision penalty using net contact forces.
+
+    Uses ``net_forces_w`` which reports total contact force on the sensor
+    body from ALL contacts.  Since body_link is wheel-suspended (~10 cm
+    above ground), any significant force on body_link indicates collision
+    with scene geometry (walls, furniture, clutter).
+
+    Args:
+        env: The environment instance.
+        sensor_cfg: Scene entity config for the contact sensor.
+        threshold: Force magnitude threshold (N) for counting a collision.
+
+    Returns:
+        Binary collision indicator: 1.0 if net contact force > threshold.
+    """
+    contact_sensor = env.scene.sensors[sensor_cfg.name]
+    # net_forces_w shape: (num_envs, num_bodies, 3)
+    net_forces = contact_sensor.data.net_forces_w
+    # Magnitude per body -> (num_envs, num_bodies)
+    force_mag = torch.norm(net_forces, dim=-1)
+    # Any body with force above threshold -> (num_envs,)
+    has_collision = (force_mag > threshold).any(dim=-1).float()
+    return has_collision
+
+
+def collision_sustained_penalty_net(
+    env: ManagerBasedEnv,
+    sensor_cfg: SceneEntityCfg,
+    threshold: float = 1.0,
+) -> torch.Tensor:
+    """Escalating collision penalty using net contact forces.
+
+    Returns normalized total contact force magnitude, clipped to [0, 1].
+
+    Args:
+        env: The environment instance.
+        sensor_cfg: Scene entity config for the contact sensor.
+        threshold: Force below which contact is ignored (N).
+
+    Returns:
+        Normalized contact intensity in [0, 1]. Shape: (num_envs,)
+    """
+    contact_sensor = env.scene.sensors[sensor_cfg.name]
+    # net_forces_w shape: (num_envs, num_bodies, 3)
+    net_forces = contact_sensor.data.net_forces_w
+    # Magnitude per body -> (num_envs, num_bodies)
+    force_mag = torch.norm(net_forces, dim=-1)
+    # Sum across bodies -> (num_envs,)
+    total_force = force_mag.sum(dim=-1)
+    # Zero out below threshold, normalize to [0, 1] (cap at 50N)
+    total_force = torch.clamp(total_force - threshold, min=0.0) / 50.0
+    return torch.clamp(total_force, max=1.0)

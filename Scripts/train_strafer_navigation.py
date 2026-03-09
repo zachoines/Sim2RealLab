@@ -8,6 +8,8 @@ Environments (--env):
     Isaac-Strafer-Nav-Real-v0     Realistic Full (default, sim-to-real)
     Isaac-Strafer-Nav-Real-Depth-v0  Realistic Depth-only
     Isaac-Strafer-Nav-Robust-v0   Robust Full (stress-test training)
+    Isaac-Strafer-Nav-Real-ProcDepth-v0   Realistic + procedural scenes (Phase 6)
+    Isaac-Strafer-Nav-Robust-ProcDepth-v0 Robust + procedural scenes (Phase 6)
 
 Usage:
     ./IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py --num_envs 512

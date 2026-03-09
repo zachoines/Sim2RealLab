@@ -1,6 +1,6 @@
 """Navigation task for Strafer mecanum wheel robot.
 
-This module registers 22 Gym environments organized by realism level and sensors:
+This module registers Gym environments organized by realism level and sensors:
 
 IDEAL (No noise, no motor dynamics - debugging/baselines):
 - ``Isaac-Strafer-Nav-v0``: Full RGB+Depth
@@ -17,9 +17,9 @@ ROBUST (Aggressive noise + dynamics - stress-testing):
 - ``Isaac-Strafer-Nav-Robust-Depth-v0``: Depth-only with extreme noise
 - ``Isaac-Strafer-Nav-Robust-NoCam-v0``: Proprioceptive-only with extreme noise
 
-PROC-SCENE (Phase 6 - procedural scene obstacles):
-- ``Isaac-Strafer-Nav-Real-ProcDepth-v0``: Realistic depth + proc scenes
-- ``Isaac-Strafer-Nav-Robust-ProcDepth-v0``: Robust depth + proc scenes
+PROC-SCENE (Phase 6 - offline composed scene obstacles):
+- ``Isaac-Strafer-Nav-Real-ProcDepth-v0``: Realistic depth + composed scenes
+- ``Isaac-Strafer-Nav-Robust-ProcDepth-v0``: Robust depth + composed scenes
 
 Each has a -Play variant for evaluation (fewer envs).
 """

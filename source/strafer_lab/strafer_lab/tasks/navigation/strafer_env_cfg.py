@@ -15,6 +15,7 @@ SimRealContractCfg presets for consistency:
   - ROBUST: Aggressive noise (stress-testing)
 
 Environment Matrix (22 registered = 11 configs x Train/Play):
+
     | Realism   | Sensors    | Train ID                            |
     |-----------|------------|-------------------------------------|
     | Ideal     | Full       | Isaac-Strafer-Nav-v0                |
@@ -33,6 +34,7 @@ Each has a -Play-v0 variant for evaluation (fewer envs).
 """
 
 import math
+from pathlib import Path
 
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import EventTermCfg as EventTerm
@@ -48,6 +50,7 @@ from isaaclab.utils.noise import GaussianNoiseCfg
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
+from isaaclab.sim.spawners.wrappers import MultiUsdFileCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.sensors import TiledCameraCfg, ImuCfg, ContactSensorCfg
 
@@ -90,6 +93,42 @@ OBSTACLE_CFG = RigidObjectCfg(
         visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.6, 0.2, 0.2)),
     ),
 )
+
+
+# =============================================================================
+# Scene USD Discovery (Phase 6 - Procedural Scenes)
+# =============================================================================
+
+_ASSET_ROOT = Path(__file__).resolve().parents[5] / "Assets"
+
+# Composed scene USDs (offline pipeline output)
+SCENE_USD_DIR = _ASSET_ROOT / "generated" / "scenes"
+
+
+
+def _get_scene_usd_paths() -> list[str]:
+    """Discover composed scene USDC files for ProcScene training (offline pipeline).
+
+    Returns absolute paths to all .usdc/.usd files in SCENE_USD_DIR,
+    sorted by name for deterministic ordering.
+    """
+    if not SCENE_USD_DIR.is_dir():
+        raise FileNotFoundError(
+            f"Scene USD directory not found: {SCENE_USD_DIR}\n"
+            "Run compose_scenes_replicator.py first to generate scenes."
+        )
+    paths = sorted(
+        str(p) for p in SCENE_USD_DIR.iterdir()
+        if p.suffix in (".usdc", ".usd") and p.stem.startswith("scene_")
+    )
+    if not paths:
+        raise FileNotFoundError(
+            f"No scene_*.usdc files found in: {SCENE_USD_DIR}\n"
+            "Run compose_scenes_replicator.py first to generate scenes."
+        )
+    return paths
+
+
 
 
 # =============================================================================
@@ -259,6 +298,94 @@ class StraferSceneCfg_NoCam(InteractiveSceneCfg):
             "{ENV_REGEX_NS}/Obstacle_7",
         ],
     )
+
+
+@configclass
+class StraferSceneCfg_ProcScene(InteractiveSceneCfg):
+    """Scene with procedural Infinigen room geometry instead of box obstacles.
+
+    Uses MultiUsdFileCfg to load random composed scene USDs per environment.
+    Requires replicate_physics=False since each env gets a different scene.
+    Contact sensor uses net_forces_w (no filter) since scene mesh prims are
+    variable and unknown at config time.
+    """
+
+    replicate_physics = False
+
+    terrain = TerrainImporterCfg(
+        prim_path="/World/ground",
+        terrain_type="plane",
+        collision_group=-1,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            static_friction=0.5,
+            dynamic_friction=0.5,
+            restitution=0.0,
+        ),
+        debug_vis=False,
+    )
+
+    robot: ArticulationCfg = STRAFER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+    dome_light = AssetBaseCfg(
+        prim_path="/World/DomeLight",
+        spawn=sim_utils.DomeLightCfg(intensity=2000.0, color=(0.8, 0.8, 0.8)),
+    )
+
+    # Intel RealSense D555 depth camera (same as StraferSceneCfg)
+    d555_camera: TiledCameraCfg = TiledCameraCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link/d555_camera",
+        update_period=1.0 / 30.0,
+        height=60,
+        width=80,
+        data_types=["rgb", "distance_to_image_plane"],
+        spawn=sim_utils.PinholeCameraCfg(
+            focal_length=1.93,
+            horizontal_aperture=3.68,
+            clipping_range=(0.4, 6.0),
+        ),
+        offset=TiledCameraCfg.OffsetCfg(
+            pos=(0.20, 0.0, 0.25),
+            rot=(0.5, -0.5, 0.5, -0.5),
+            convention="ros",
+        ),
+    )
+
+    # Intel RealSense D555 IMU (same as StraferSceneCfg)
+    d555_imu: ImuCfg = ImuCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
+        update_period=1.0 / 200.0,
+        offset=ImuCfg.OffsetCfg(
+            pos=(0.20, 0.0, 0.25),
+            rot=(1.0, 0.0, 0.0, 0.0),
+        ),
+        gravity_bias=(0.0, 0.0, 9.81),
+    )
+
+    # Procedural scene geometry loaded from composed scene USDs.
+    # MultiUsdFileCfg with random_choice=True assigns a random scene per env.
+    # collision_props ensures collision meshes are active on all geometry.
+    # Note: usd_path is set in __post_init__ to avoid import-time file discovery
+    # that would break other env configs when scenes aren't generated yet.
+    scene_geometry: AssetBaseCfg = AssetBaseCfg(
+        prim_path="{ENV_REGEX_NS}/Scene",
+        spawn=MultiUsdFileCfg(
+            usd_path=[],  # populated in env config __post_init__
+            random_choice=True,
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+        ),
+    )
+
+    # Contact sensor on body_link 
+    # Uses net_forces_w for collision detection against all scene geometry.
+    # body_link is wheel-suspended (~10cm above ground), so net_forces_w on
+    # body_link effectively detects only collisions with scene geometry
+    # (walls, furniture), not ground plane contact.
+    contact_sensor = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
+        update_period=0.0,
+        history_length=1,
+    )
+
 
 
 # =============================================================================
@@ -880,6 +1007,113 @@ class CurriculumCfg:
         },
     )
 
+@configclass
+class CommandsCfg_ProcScene:
+    """Commands for ProcScene — tighter goal range to fit within rooms (4-6m)."""
+    goal_command = mdp.GoalCommandCfg(
+        asset_name="robot",
+        resampling_time_range=(10.0, 15.0),
+        debug_vis=True,
+        goal_range=mdp.GoalCommandCfg.Ranges(pos_x=(-2.5, 2.5), pos_y=(-2.5, 2.5)),
+    )
+
+
+@configclass
+class RewardsCfg_ProcScene:
+    """Rewards for ProcScene — uses net_forces_w collision instead of force_matrix_w."""
+    # --- Primary task signal (dense) ---
+    goal_progress = RewTerm(func=mdp.goal_progress_reward, weight=2.0, params={"command_name": "goal_command"})
+    goal_proximity = RewTerm(func=mdp.goal_proximity_reward, weight=1.5, params={"command_name": "goal_command", "sigma": 0.3})
+    # --- Sparse completion bonus ---
+    goal_reached = RewTerm(func=mdp.goal_reached_reward, weight=10.0, params={"threshold": 0.3, "command_name": "goal_command"})
+    # --- Heading (low weight — mecanum can strafe, heading is secondary) ---
+    heading_alignment = RewTerm(func=mdp.heading_to_goal_reward, weight=0.05, params={"command_name": "goal_command"})
+    # --- Collision avoidance (net_forces_w — works with any scene geometry) ---
+    collision = RewTerm(func=mdp.collision_penalty_net, weight=-5.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
+    collision_sustained = RewTerm(func=mdp.collision_sustained_penalty_net, weight=-2.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
+    # --- Slow down near goal ---
+    speed_near_goal = RewTerm(func=mdp.speed_near_goal_penalty, weight=-0.3, params={"command_name": "goal_command", "distance_threshold": 0.8})
+    # --- Regularization ---
+    energy_penalty = RewTerm(func=mdp.energy_penalty, weight=-0.01)
+    action_smoothness = RewTerm(func=mdp.action_smoothness_penalty, weight=-0.05)
+
+
+# Structural event for ProcScene: tighter robot spawn to stay in navigable core
+_RESET_ROBOT_PROCSCENE = EventTerm(
+    func=mdp.reset_robot_state,
+    mode="reset",
+    params={"pose_range": {"x": (-1.5, 1.5), "y": (-1.5, 1.5), "yaw": (-math.pi, math.pi)}},
+)
+
+
+@configclass
+class EventsCfg_ProcScene_Realistic:
+    """Realistic DR for ProcScene — no obstacle randomization, tighter spawn."""
+    reset_robot = _RESET_ROBOT_PROCSCENE
+    randomize_friction = EventTerm(
+        func=mdp.randomize_friction, mode="reset",
+        params={"friction_range": (0.6, 1.2)},
+    )
+    randomize_mass = EventTerm(
+        func=mdp.randomize_mass, mode="reset",
+        params={"mass_range": (0.95, 1.05)},
+    )
+    randomize_motor_strength = EventTerm(
+        func=mdp.randomize_motor_strength, mode="reset",
+        params={"strength_range": (0.92, 1.08)},
+    )
+    randomize_d555_mount = EventTerm(
+        func=mdp.randomize_d555_mount_offset, mode="reset",
+        params={"max_angle_deg": 1.0},
+    )
+    randomize_goal_noise = EventTerm(
+        func=mdp.randomize_goal_noise, mode="reset",
+        params={"command_name": "goal_command", "noise_std": 0.15},
+    )
+
+
+@configclass
+class EventsCfg_ProcScene_Robust:
+    """Robust DR for ProcScene — no obstacle randomization, tighter spawn."""
+    reset_robot = _RESET_ROBOT_PROCSCENE
+    randomize_friction = EventTerm(
+        func=mdp.randomize_friction, mode="reset",
+        params={"friction_range": (0.3, 1.5)},
+    )
+    randomize_mass = EventTerm(
+        func=mdp.randomize_mass, mode="reset",
+        params={"mass_range": (0.85, 1.15)},
+    )
+    randomize_motor_strength = EventTerm(
+        func=mdp.randomize_motor_strength, mode="reset",
+        params={"strength_range": (0.80, 1.20)},
+    )
+    randomize_d555_mount = EventTerm(
+        func=mdp.randomize_d555_mount_offset, mode="reset",
+        params={"max_angle_deg": 3.0},
+    )
+    randomize_goal_noise = EventTerm(
+        func=mdp.randomize_goal_noise, mode="reset",
+        params={"command_name": "goal_command", "noise_std": 0.35},
+    )
+
+
+@configclass
+class CurriculumCfg_ProcScene:
+    """Curriculum for ProcScene — goal distance only, no obstacle count."""
+    goal_distance = CurrTerm(
+        func=mdp.GoalDistanceCurriculum,
+        params={
+            "command_name": "goal_command",
+            "initial_range": 1.5,
+            "max_range": 3.0,
+            "step_size": 0.5,
+            "success_threshold": 5,
+            "goal_threshold": 0.3,
+        },
+    )
+
+
 
 # =============================================================================
 # Environment Configurations - 18 Variants (9 configs × Train/Play)
@@ -1151,28 +1385,32 @@ class StraferNavEnvCfg_Robust_NoCam_PLAY(StraferNavEnvCfg_Robust_NoCam):
 
 
 # =============================================================================
-# PROC-SCENE: Realistic dynamics + procedural scene obstacles (Phase 6)
+# PROC-SCENE: Procedural scene geometry
 #
-# These variants use the same obs/action contract as Real-Depth but are
-# intended for training with procedurally generated scenes from the Phase 6
-# scene generation pipeline.  For now they inherit from Real_Depth directly
-# (using primitive box obstacles).  Once compose_scenes_replicator.py
-# generates USD scenes, the scene config will be swapped to load those.
+# These variants use StraferSceneCfg_ProcScene (Infinigen room USD scenes)
+# instead of box obstacles. Uses net_forces_w for collision detection,
+# tighter spawn/goal ranges to fit within rooms, and no obstacle curriculum.
 # =============================================================================
 
 @configclass
-class StraferNavEnvCfg_Real_ProcDepth(StraferNavEnvCfg_Real_Depth):
-    """Realistic Depth with procedural scene obstacles (Phase 6).
-
-    Inherits full obs/action/reward/events from Real_Depth. Once the
-    Infinigen + Replicator pipeline generates composed scene USDs, this
-    config will be extended to load those scenes at init time.
-    """
+class StraferNavEnvCfg_Real_ProcDepth(ManagerBasedRLEnvCfg):
+    """Realistic Depth with procedural Infinigen scene geometry."""
+    scene: StraferSceneCfg_ProcScene = StraferSceneCfg_ProcScene(num_envs=24, env_spacing=8.0)
+    actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
+    observations: ObsCfg_Depth_Realistic = ObsCfg_Depth_Realistic()
+    commands: CommandsCfg_ProcScene = CommandsCfg_ProcScene()
+    rewards: RewardsCfg_ProcScene = RewardsCfg_ProcScene()
+    terminations: TerminationsCfg = TerminationsCfg()
+    events: EventsCfg_ProcScene_Realistic = EventsCfg_ProcScene_Realistic()
+    curriculum: CurriculumCfg_ProcScene = CurriculumCfg_ProcScene()
+    seed: int = 42
 
     def __post_init__(self):
-        super().__post_init__()
-        # Proc-scene runs use fewer envs due to higher per-env scene complexity
-        self.scene.num_envs = 24
+        self.sim.dt = 1.0 / 120.0
+        self.sim.render_interval = 4
+        self.decimation = 4
+        self.episode_length_s = 20.0
+        self.scene.scene_geometry.spawn.usd_path = _get_scene_usd_paths()
 
 
 @configclass
@@ -1184,16 +1422,24 @@ class StraferNavEnvCfg_Real_ProcDepth_PLAY(StraferNavEnvCfg_Real_ProcDepth):
 
 
 @configclass
-class StraferNavEnvCfg_Robust_ProcDepth(StraferNavEnvCfg_Robust_Depth):
-    """Robust Depth with procedural scene obstacles (Phase 6).
-
-    Inherits full obs/action/reward/events from Robust_Depth. Will include
-    dynamic obstacles once Phase 6b behavior library is implemented.
-    """
+class StraferNavEnvCfg_Robust_ProcDepth(ManagerBasedRLEnvCfg):
+    """Robust Depth with procedural Infinigen scene geometry."""
+    scene: StraferSceneCfg_ProcScene = StraferSceneCfg_ProcScene(num_envs=24, env_spacing=8.0)
+    actions: ActionsCfg_Robust = ActionsCfg_Robust()
+    observations: ObsCfg_Depth_Robust = ObsCfg_Depth_Robust()
+    commands: CommandsCfg_ProcScene = CommandsCfg_ProcScene()
+    rewards: RewardsCfg_ProcScene = RewardsCfg_ProcScene()
+    terminations: TerminationsCfg = TerminationsCfg()
+    events: EventsCfg_ProcScene_Robust = EventsCfg_ProcScene_Robust()
+    curriculum: CurriculumCfg_ProcScene = CurriculumCfg_ProcScene()
+    seed: int = 42
 
     def __post_init__(self):
-        super().__post_init__()
-        self.scene.num_envs = 24
+        self.sim.dt = 1.0 / 120.0
+        self.sim.render_interval = 4
+        self.decimation = 4
+        self.episode_length_s = 20.0
+        self.scene.scene_geometry.spawn.usd_path = _get_scene_usd_paths()
 
 
 @configclass
@@ -1202,3 +1448,5 @@ class StraferNavEnvCfg_Robust_ProcDepth_PLAY(StraferNavEnvCfg_Robust_ProcDepth):
     def __post_init__(self):
         super().__post_init__()
         self.scene.num_envs = 8
+
+

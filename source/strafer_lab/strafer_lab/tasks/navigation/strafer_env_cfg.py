@@ -110,22 +110,33 @@ SCENE_USD_DIR = _ASSET_ROOT / "generated" / "scenes"
 def _get_scene_usd_paths() -> list[str]:
     """Discover composed scene USDC files for ProcScene training (offline pipeline).
 
-    Returns absolute paths to all .usdc/.usd files in SCENE_USD_DIR,
-    sorted by name for deterministic ordering.
+    Returns absolute paths to valid scene .usdc files in SCENE_USD_DIR.
+    If scenes_metadata.json exists, only returns scenes listed there
+    (degenerate scenes are excluded by prep_room_usds.py).
     """
     if not SCENE_USD_DIR.is_dir():
         raise FileNotFoundError(
             f"Scene USD directory not found: {SCENE_USD_DIR}\n"
-            "Run compose_scenes_replicator.py first to generate scenes."
+            "Run prep_room_usds.py first to generate scenes."
         )
-    paths = sorted(
-        str(p) for p in SCENE_USD_DIR.iterdir()
-        if p.suffix in (".usdc", ".usd") and p.stem.startswith("scene_")
-    )
+    # Use metadata to filter to valid scenes only
+    meta_path = SCENE_USD_DIR / "scenes_metadata.json"
+    if meta_path.is_file():
+        meta = json.loads(meta_path.read_text())
+        valid_names = set(meta["scenes"].keys())
+        paths = sorted(
+            str(p) for p in SCENE_USD_DIR.iterdir()
+            if p.suffix in (".usdc", ".usd") and p.stem in valid_names
+        )
+    else:
+        paths = sorted(
+            str(p) for p in SCENE_USD_DIR.iterdir()
+            if p.suffix in (".usdc", ".usd") and p.stem.startswith("scene_")
+        )
     if not paths:
         raise FileNotFoundError(
-            f"No scene_*.usdc files found in: {SCENE_USD_DIR}\n"
-            "Run compose_scenes_replicator.py first to generate scenes."
+            f"No valid scene_*.usdc files found in: {SCENE_USD_DIR}\n"
+            "Run prep_room_usds.py first to generate scenes."
         )
     return paths
 

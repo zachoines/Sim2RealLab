@@ -238,29 +238,63 @@ def main():
     for name, meta in sorted(results.items()):
         print(f"  {name}: {meta}")
 
-    # Compute conservative spawn bounds (intersection of all scene floor areas)
+    # Filter out degenerate scenes (corrupted geometry with extreme bbox values)
+    MAX_ROOM_EXTENT = 50.0  # no real room exceeds 50m in any dimension
+    valid_scenes = {}
+    skipped_scenes = []
+    for idx, (name, meta) in enumerate(sorted(results.items())):
+        scene_key = f"scene_{idx:04d}"
+        extents_ok = (
+            abs(meta["x_min"]) < MAX_ROOM_EXTENT
+            and abs(meta["x_max"]) < MAX_ROOM_EXTENT
+            and abs(meta["y_min"]) < MAX_ROOM_EXTENT
+            and abs(meta["y_max"]) < MAX_ROOM_EXTENT
+            and abs(meta["floor_z"]) < MAX_ROOM_EXTENT
+        )
+        if extents_ok:
+            valid_scenes[scene_key] = meta
+        else:
+            skipped_scenes.append(scene_key)
+            print(f"  [WARN] Skipping degenerate scene {scene_key} ({name}): bbox out of range")
+            # Remove the exported file for degenerate scenes
+            bad_path = output_dir / f"{scene_key}.usdc"
+            if bad_path.exists():
+                bad_path.unlink()
+                print(f"    Removed: {bad_path}")
+
+    if not valid_scenes:
+        print("[ERROR] No valid scenes after filtering!")
+        sys.exit(1)
+
+    # Compute conservative spawn bounds (intersection of all valid scene floor areas)
     # with additional robot-radius inset so the robot never spawns at room edges.
+    # For each scene, the spawn area is the smaller of its x/y half-extents.
+    # The global conservative range uses the minimum half-extent across all scenes
+    # applied symmetrically to both axes, so robots always fit in any room.
     ROBOT_INSET = 0.5  # extra safety margin beyond bbox inset
-    all_x_min = max(m["x_min"] for m in results.values()) + ROBOT_INSET
-    all_x_max = min(m["x_max"] for m in results.values()) - ROBOT_INSET
-    all_y_min = max(m["y_min"] for m in results.values()) + ROBOT_INSET
-    all_y_max = min(m["y_max"] for m in results.values()) - ROBOT_INSET
+    half_extents = []
+    for m in valid_scenes.values():
+        hx = min(abs(m["x_min"]), abs(m["x_max"]))
+        hy = min(abs(m["y_min"]), abs(m["y_max"]))
+        half_extents.append(min(hx, hy) - ROBOT_INSET)
+    safe_radius = max(0.5, min(half_extents))  # at least 0.5m
 
     scenes_metadata = {
-        "scenes": {
-            f"scene_{idx:04d}": meta
-            for idx, (_, meta) in enumerate(sorted(results.items()))
-        },
+        "scenes": valid_scenes,
         "conservative_spawn": {
-            "x": (round(all_x_min, 2), round(all_x_max, 2)),
-            "y": (round(all_y_min, 2), round(all_y_max, 2)),
+            "x": (round(-safe_radius, 2), round(safe_radius, 2)),
+            "y": (round(-safe_radius, 2), round(safe_radius, 2)),
         },
     }
+
+    if skipped_scenes:
+        scenes_metadata["skipped_degenerate"] = skipped_scenes
 
     if not args.dry_run:
         meta_path = output_dir / "scenes_metadata.json"
         meta_path.write_text(json.dumps(scenes_metadata, indent=2))
         print(f"\nMetadata saved: {meta_path}")
+        print(f"  Valid scenes: {len(valid_scenes)}, Skipped: {len(skipped_scenes)}")
         print(f"  Conservative spawn: x={scenes_metadata['conservative_spawn']['x']}, "
               f"y={scenes_metadata['conservative_spawn']['y']}")
 

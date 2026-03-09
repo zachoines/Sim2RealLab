@@ -15,6 +15,7 @@ After running, scenes are ready for _get_scene_usd_paths() / MultiUsdFileCfg.
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -56,13 +57,20 @@ def setup_collision_and_hide_ceiling(stage, root_path="/Environment"):
     root_prim = stage.GetPrimAtPath(root_path)
     if not root_prim or not root_prim.IsValid():
         print(f"  [WARN] root prim {root_path} not found")
-        return 0, 0
+        return 0, 0, 0
 
     mesh_count = 0
     hidden_count = 0
 
+    skipped_count = 0
     for prim in Usd.PrimRange(root_prim):
         if prim.IsA(UsdGeom.Mesh):
+            # Skip meshes with no points (placeholder prims like
+            # place_cam_overhead, hoof_parent_temp, etc.)
+            points = UsdGeom.Mesh(prim).GetPointsAttr().Get()
+            if not points or len(points) == 0:
+                skipped_count += 1
+                continue
             if not prim.HasAPI(UsdPhysics.CollisionAPI):
                 UsdPhysics.CollisionAPI.Apply(prim)
             if not prim.HasAPI(UsdPhysics.MeshCollisionAPI):
@@ -77,7 +85,7 @@ def setup_collision_and_hide_ceiling(stage, root_path="/Environment"):
                 imageable.MakeInvisible()
                 hidden_count += 1
 
-    return mesh_count, hidden_count
+    return mesh_count, hidden_count, skipped_count
 
 
 def compute_floor_bbox(stage, root_path="/Environment"):
@@ -170,8 +178,8 @@ def process_room(room_usd_path: Path, export_path: Path, dry_run: bool = False):
     omni.kit.app.get_app().update()
 
     # Step 1: Add collision and hide ceilings
-    mesh_count, hidden_count = setup_collision_and_hide_ceiling(stage, root_path)
-    print(f"  Collision applied to {mesh_count} meshes, hidden {hidden_count} ceiling prims")
+    mesh_count, hidden_count, skipped_count = setup_collision_and_hide_ceiling(stage, root_path)
+    print(f"  Collision applied to {mesh_count} meshes, hidden {hidden_count} ceiling prims, skipped {skipped_count} empty meshes")
 
     # Step 2: Compute pre-centering bbox
     x_range, y_range, floor_z = compute_floor_bbox(stage, root_path)
@@ -229,6 +237,32 @@ def main():
     print(f"{'='*60}")
     for name, meta in sorted(results.items()):
         print(f"  {name}: {meta}")
+
+    # Compute conservative spawn bounds (intersection of all scene floor areas)
+    # with additional robot-radius inset so the robot never spawns at room edges.
+    ROBOT_INSET = 0.5  # extra safety margin beyond bbox inset
+    all_x_min = max(m["x_min"] for m in results.values()) + ROBOT_INSET
+    all_x_max = min(m["x_max"] for m in results.values()) - ROBOT_INSET
+    all_y_min = max(m["y_min"] for m in results.values()) + ROBOT_INSET
+    all_y_max = min(m["y_max"] for m in results.values()) - ROBOT_INSET
+
+    scenes_metadata = {
+        "scenes": {
+            f"scene_{idx:04d}": meta
+            for idx, (_, meta) in enumerate(sorted(results.items()))
+        },
+        "conservative_spawn": {
+            "x": (round(all_x_min, 2), round(all_x_max, 2)),
+            "y": (round(all_y_min, 2), round(all_y_max, 2)),
+        },
+    }
+
+    if not args.dry_run:
+        meta_path = output_dir / "scenes_metadata.json"
+        meta_path.write_text(json.dumps(scenes_metadata, indent=2))
+        print(f"\nMetadata saved: {meta_path}")
+        print(f"  Conservative spawn: x={scenes_metadata['conservative_spawn']['x']}, "
+              f"y={scenes_metadata['conservative_spawn']['y']}")
 
     print("\nDone! Rooms are ready for Isaac Lab training.")
 

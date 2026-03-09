@@ -33,6 +33,7 @@ Environment Matrix (22 registered = 11 configs x Train/Play):
 Each has a -Play-v0 variant for evaluation (fewer envs).
 """
 
+import json
 import math
 from pathlib import Path
 
@@ -127,6 +128,20 @@ def _get_scene_usd_paths() -> list[str]:
             "Run compose_scenes_replicator.py first to generate scenes."
         )
     return paths
+
+
+def _get_scene_spawn_ranges() -> dict:
+    """Load conservative spawn/goal ranges from scenes_metadata.json.
+
+    Returns dict with 'x' and 'y' keys, each a (min, max) tuple representing
+    the safe spawn area that fits within ALL processed scenes.
+    Falls back to (-1.5, 1.5) if metadata not found.
+    """
+    meta_path = SCENE_USD_DIR / "scenes_metadata.json"
+    if not meta_path.is_file():
+        return {"x": (-1.5, 1.5), "y": (-1.5, 1.5)}
+    meta = json.loads(meta_path.read_text())
+    return meta["conservative_spawn"]
 
 
 
@@ -329,6 +344,12 @@ class StraferSceneCfg_ProcScene(InteractiveSceneCfg):
     dome_light = AssetBaseCfg(
         prim_path="/World/DomeLight",
         spawn=sim_utils.DomeLightCfg(intensity=2000.0, color=(0.8, 0.8, 0.8)),
+    )
+
+    directional_light = AssetBaseCfg(
+        prim_path="/World/DirectionalLight",
+        spawn=sim_utils.DistantLightCfg(intensity=3000.0, color=(1.0, 1.0, 1.0)),
+        init_state=AssetBaseCfg.InitialStateCfg(rot=(0.866, 0.0, 0.5, 0.0)),  # 60° from vertical
     )
 
     # Intel RealSense D555 depth camera (same as StraferSceneCfg)
@@ -1411,6 +1432,12 @@ class StraferNavEnvCfg_Real_ProcDepth(ManagerBasedRLEnvCfg):
         self.decimation = 4
         self.episode_length_s = 20.0
         self.scene.scene_geometry.spawn.usd_path = _get_scene_usd_paths()
+        # Override spawn/goal ranges from scene metadata
+        ranges = _get_scene_spawn_ranges()
+        self.events.reset_robot.params["pose_range"]["x"] = tuple(ranges["x"])
+        self.events.reset_robot.params["pose_range"]["y"] = tuple(ranges["y"])
+        self.commands.goal_command.goal_range.pos_x = tuple(ranges["x"])
+        self.commands.goal_command.goal_range.pos_y = tuple(ranges["y"])
 
 
 @configclass
@@ -1440,6 +1467,12 @@ class StraferNavEnvCfg_Robust_ProcDepth(ManagerBasedRLEnvCfg):
         self.decimation = 4
         self.episode_length_s = 20.0
         self.scene.scene_geometry.spawn.usd_path = _get_scene_usd_paths()
+        # Override spawn/goal ranges from scene metadata
+        ranges = _get_scene_spawn_ranges()
+        self.events.reset_robot.params["pose_range"]["x"] = tuple(ranges["x"])
+        self.events.reset_robot.params["pose_range"]["y"] = tuple(ranges["y"])
+        self.commands.goal_command.goal_range.pos_x = tuple(ranges["x"])
+        self.commands.goal_command.goal_range.pos_y = tuple(ranges["y"])
 
 
 @configclass

@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
+import shutil
 import sys
 from itertools import cycle
 from pathlib import Path
@@ -99,9 +101,22 @@ DEFAULT_CONFIG = {
         "auto_label": {
             "num": 5,
             "gravity_disabled_chance": 0.25,
+            "wall_snap_chance": 0.6,
+            "wall_snap_offset": 0.15,
+            "wall_snap_min_spacing": 0.8,
             "folders": [
                 "../Assets/Residential_NVD@10012/Assets/ArchVis/Residential/"
-                "Furniture/",
+                "Decor/",
+                "../Assets/Residential_NVD@10012/Assets/ArchVis/Residential/"
+                "Plants/",
+                "../Assets/Residential_NVD@10012/Assets/ArchVis/Residential/"
+                "Electronics/",
+                "../Assets/Residential_NVD@10012/Assets/ArchVis/Residential/"
+                "Lighting/",
+                "../Assets/Residential_NVD@10012/Assets/ArchVis/Residential/"
+                "Entertainment/",
+                "../Assets/Residential_NVD@10012/Assets/ArchVis/Residential/"
+                "Food/",
             ],
             "files": [],
         },
@@ -191,11 +206,14 @@ def run_sdg_pipeline(config: dict) -> None:
             load_env,
             setup_env,
             get_floor_prims,
+            get_wall_prims,
+            get_env_floor_bbox,
             get_matching_prim_location,
             spawn_labeled_assets,
             spawn_shape_distractors,
             spawn_mesh_distractors,
             scatter_on_floor,
+            snap_to_walls,
             create_scene_lights,
             randomize_lights,
             register_dome_light_randomizer,
@@ -205,6 +223,8 @@ def run_sdg_pipeline(config: dict) -> None:
             run_simulation,
             randomize_camera_poses,
             setup_writer,
+            center_scene_at_origin,
+            verify_collision_in_exported_scene,
         )
     except ImportError as e:
         print(f"ERROR: This script must run inside Isaac Sim.", file=sys.stderr)
@@ -261,14 +281,18 @@ def run_sdg_pipeline(config: dict) -> None:
             except AttributeError:
                 pass  # API not available in this version
 
+    # Track whether we should call orchestrator / writers
+    render_enabled = not capture_cfg.get("disable_render_products", False)
+
     # --- Setup writers ---
     writers = []
-    for writer_config in config.get("writers", []):
-        writer = setup_writer(writer_config)
-        if writer:
-            writer.attach(render_products)
-            writers.append(writer)
-            print(f"  Writer: {writer_config['type']}")
+    if render_enabled:
+        for writer_config in config.get("writers", []):
+            writer = setup_writer(writer_config)
+            if writer:
+                writer.attach(render_products)
+                writers.append(writer)
+                print(f"  Writer: {writer_config['type']}")
 
     # Helper for orchestrator step (API varies across Isaac Sim versions)
     def _orchestrator_step():
@@ -309,6 +333,9 @@ def run_sdg_pipeline(config: dict) -> None:
         # 2b. Discover floor mesh prims for scatter_2d placement
         floor_prims = get_floor_prims(root_path="/Environment")
 
+        # 2c. Discover wall mesh prims for wall-snap placement
+        wall_prims = get_wall_prims(root_path="/Environment")
+
         # 3. Find working area (fallback to scene center)
         try:
             working_area_loc = get_matching_prim_location(
@@ -333,11 +360,38 @@ def run_sdg_pipeline(config: dict) -> None:
             working_area_loc=working_area_loc,
         )
 
-        assets_to_randomize = target_assets + mesh_distractors + shape_distractors
+        # 5. Place assets: wall-snap eligible labeled assets, then floor-scatter the rest
+        auto_label_cfg = config.get("labeled_assets", {}).get("auto_label", {})
+        wall_snap_chance = auto_label_cfg.get("wall_snap_chance", 0.0)
+        wall_snap_offset = auto_label_cfg.get("wall_snap_offset", 0.15)
+        wall_snap_spacing = auto_label_cfg.get("wall_snap_min_spacing", 0.8)
 
-        # 5. Scatter assets on floor surfaces
+        # Partition labeled assets
+        wall_snap_assets = []
+        floor_scatter_labeled = []
+        for prim in target_assets:
+            if wall_prims and random.random() < wall_snap_chance:
+                wall_snap_assets.append(prim)
+            else:
+                floor_scatter_labeled.append(prim)
+
+        # 5a. Wall-snap eligible assets
+        failed_wall_snap = []
+        if wall_snap_assets:
+            _, _, floor_z = get_env_floor_bbox()
+            failed_wall_snap = snap_to_walls(
+                assets=wall_snap_assets,
+                wall_prims=wall_prims,
+                floor_z=floor_z,
+                offset=wall_snap_offset,
+                min_spacing=wall_snap_spacing,
+            )
+
+        # 5b. Floor-scatter everything else (including wall-snap failures)
+        assets_to_scatter = (floor_scatter_labeled + failed_wall_snap
+                             + mesh_distractors + shape_distractors)
         scatter_on_floor(
-            assets=assets_to_randomize,
+            assets=assets_to_scatter,
             floor_prims=floor_prims,
         )
 
@@ -370,7 +424,8 @@ def run_sdg_pipeline(config: dict) -> None:
             # Advance a few subframes then trigger writer capture
             for _ in range(rt_subframes):
                 omni.kit.app.get_app().update()
-            _orchestrator_step()
+            if render_enabled:
+                _orchestrator_step()
 
         # 10. Physics drop simulation
         run_simulation(num_frames=200, render=False)
@@ -387,9 +442,13 @@ def run_sdg_pipeline(config: dict) -> None:
             )
             for _ in range(rt_subframes):
                 omni.kit.app.get_app().update()
-            _orchestrator_step()
+            if render_enabled:
+                _orchestrator_step()
 
-        # 12. Export composed scene as USDC (binary, much smaller than USDA)
+        # 12. Center scene at origin for consistent training env alignment
+        spawn_metadata = center_scene_at_origin(root_path="/Environment")
+
+        # 13. Export composed scene as USDC (binary, much smaller than USDA)
         scene_id = f"scene_{scene_counter:04d}"
         if scene_export.get("enabled", False):
             out_dir = Path(scene_export.get("out_dir", "../Assets/generated/scenes/"))
@@ -397,29 +456,49 @@ def run_sdg_pipeline(config: dict) -> None:
             scene_usd_path = str(out_dir / f"{scene_id}.usdc")
             stage.Export(scene_usd_path)
             print(f"[compose] Exported scene: {scene_usd_path}")
+
+            # Verify collision APIs survived the export; fix if needed
+            verify_collision_in_exported_scene(scene_usd_path)
+
+            # Copy textures from the environment USD directory so that
+            # relative texture paths (./textures/...) resolve correctly
+            # next to the exported scene USDC.
+            env_dir = Path(env_url).resolve().parent
+            src_tex = env_dir / "textures"
+            dst_tex = out_dir / "textures"
+            if src_tex.is_dir():
+                if dst_tex.exists():
+                    shutil.rmtree(dst_tex)
+                shutil.copytree(str(src_tex), str(dst_tex))
+                print(f"[compose] Copied textures: {src_tex} -> {dst_tex}")
         else:
             scene_usd_path = ""
 
         # 13. Record scene for manifest
-        manifest_entries.append({
+        entry = {
             "scene_id": scene_id,
             "environment_usd": env_url,
             "scene_usd": scene_usd_path,
             "num_targets": len(target_assets),
+            "num_wall_snapped": len(wall_snap_assets) - len(failed_wall_snap),
             "num_shape_distractors": len(shape_distractors),
             "num_mesh_distractors": len(mesh_distractors),
-        })
+        }
+        if spawn_metadata:
+            entry["spawn_box"] = spawn_metadata
+        manifest_entries.append(entry)
         scene_counter += 1
         capture_counter += num_floating + num_dropped
 
     # Wait for all writes
-    try:
-        rep.orchestrator.wait_until_complete()
-    except (AttributeError, Exception) as e:
-        print(f"[compose] Orchestrator wait skipped: {e}")
-        # Flush with a few extra frames
-        for _ in range(10):
-            omni.kit.app.get_app().update()
+    if render_enabled:
+        try:
+            rep.orchestrator.wait_until_complete()
+        except (AttributeError, Exception) as e:
+            print(f"[compose] Orchestrator wait skipped: {e}")
+            # Flush with a few extra frames
+            for _ in range(10):
+                omni.kit.app.get_app().update()
 
     # Write scene manifest
     if scene_export.get("enabled", False) and manifest_entries:

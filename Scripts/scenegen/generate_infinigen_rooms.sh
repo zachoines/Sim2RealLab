@@ -5,6 +5,13 @@
 # Generated rooms are exported as USDC with --omniverse flag for
 # compatibility with Isaac Sim / Omniverse.
 #
+# Infinigen generates full apartment layouts procedurally — room types
+# and counts cannot be restricted. Each seed produces a unique apartment
+# with a random mix of rooms.  The singleroom gin config constrains the
+# floor plan to smaller layouts (~3 min/room with fast_solve) while
+# overhead gin hides ceilings.  WITHOUT singleroom, generation takes
+# 2+ hours per seed.
+#
 # Prerequisites:
 #   1. Conda environment "infinigen" with Infinigen + bpy + pyyaml + coacd
 #      (see docs/PHASE_6_SYNTHETIC_SCENE_GENERATION.md for setup)
@@ -13,23 +20,17 @@
 #   4. Git submodules initialized: cd ~/infinigen && git submodule update --init --recursive
 #
 # Usage (from WSL):
-#   # Default (fast quality):
+#   # Default (10 rooms, fast quality):
 #   bash /mnt/c/Worspace/Scripts/scenegen/generate_infinigen_rooms.sh
 #
-#   # Fully furnished rooms with small clutter:
-#   QUALITY=high ROOMS_PER_TYPE=1 bash /mnt/c/Worspace/Scripts/scenegen/generate_infinigen_rooms.sh
+#   # 3 rooms with low textures:
+#   NUM_ROOMS=3 TEXTURE_RES=256 bash /mnt/c/Worspace/Scripts/scenegen/generate_infinigen_rooms.sh
 #
-#   # Full quality + outdoor terrain through windows:
-#   QUALITY=full ROOMS_PER_TYPE=1 bash /mnt/c/Worspace/Scripts/scenegen/generate_infinigen_rooms.sh
-#
-#   # Fast mode but boost small object placement:
-#   QUALITY=medium ROOMS_PER_TYPE=1 bash /mnt/c/Worspace/Scripts/scenegen/generate_infinigen_rooms.sh
+#   # High quality (full solver, no fast_solve):
+#   QUALITY=high NUM_ROOMS=1 bash /mnt/c/Worspace/Scripts/scenegen/generate_infinigen_rooms.sh
 #
 # Output:
-#   Assets/generated/infinigen_rooms/dining_room_*/export_scene.usdc
-#   Assets/generated/infinigen_rooms/living_room_*/export_scene.usdc
-#   Assets/generated/infinigen_rooms/bedroom_*/export_scene.usdc
-#   Assets/generated/infinigen_rooms/kitchen_*/export_scene.usdc
+#   Assets/generated/infinigen_rooms/room_*/export_scene.usdc
 
 set -euo pipefail
 
@@ -40,95 +41,45 @@ if [ -d "/usr/local/cuda-12.6/bin" ]; then
 fi
 
 # Configuration
-ROOMS_PER_TYPE="${ROOMS_PER_TYPE:-10}"
-TEXTURE_RES="${TEXTURE_RES:-2048}"
+NUM_ROOMS="${NUM_ROOMS:-10}"
+TEXTURE_RES="${TEXTURE_RES:-256}"
 INFINIGEN_DIR="${INFINIGEN_DIR:-$HOME/infinigen}"
 RAW_DIR="${RAW_DIR:-$HOME/infinigen_output/rooms}"
 EXPORT_DIR="${EXPORT_DIR:-$HOME/infinigen_output/export}"
 WINDOWS_OUTPUT="/mnt/c/Worspace/Assets/generated/infinigen_rooms"
 WINDOWS_COPY="${WINDOWS_COPY:-1}"
 
-# Gin configs for single-room indoor generation
-# "singleroom" = 1 room, no open doors
-# "fast_solve" = terrain disabled, reduced solver iterations (~3 min/room)
-#
 # Quality presets:
-#   QUALITY=fast    — fast_solve gin, no terrain (default, ~5 min/room)
-#   QUALITY=medium  — fast_solve but boost small solver steps (~10 min/room)
-#   QUALITY=high    — full solver, medium+small objects, no terrain (~30 min/room)
-#   QUALITY=full    — full solver + terrain outside windows (~45 min/room)
-#
-# Individual overrides (applied after preset):
-#   TERRAIN=1       — force terrain_enabled=True (outdoor scenery through windows)
-#   SOLVE_SMALL=N   — override solve_steps_small (default varies by preset)
-#   SOLVE_MEDIUM=N  — override solve_steps_medium
+#   QUALITY=fast    — singleroom + fast_solve + overhead (default, ~3 min/room)
+#   QUALITY=high    — singleroom + full solver (~30-60 min/room)
+#   QUALITY=full    — full apartment + full solver + terrain (~2+ hr/room)
 QUALITY="${QUALITY:-fast}"
-TERRAIN="${TERRAIN:-}"
-SOLVE_SMALL="${SOLVE_SMALL:-}"
-SOLVE_MEDIUM="${SOLVE_MEDIUM:-}"
 
 case "${QUALITY}" in
     fast)
-        GIN_CONFIGS="singleroom fast_solve"
-        GIN_OVERRIDES=""
-        ;;
-    medium)
-        # Use fast_solve base but increase small-object solver steps
-        GIN_CONFIGS="singleroom fast_solve"
-        GIN_OVERRIDES="compose_indoors.solve_steps_small=40"
+        GIN_CONFIGS="fast_solve overhead singleroom"
+        GIN_OVERRIDES="compose_indoors.terrain_enabled=False"
         ;;
     high)
-        # Full solver (no fast_solve), disable terrain for speed
-        GIN_CONFIGS="singleroom"
+        # Full solver (no fast_solve), singleroom layout
+        GIN_CONFIGS="overhead singleroom"
         GIN_OVERRIDES="compose_indoors.terrain_enabled=False"
         ;;
     full)
-        # Full solver + terrain
-        GIN_CONFIGS="singleroom"
+        # Full apartment + full solver + terrain (very slow, 2+ hr/room)
+        GIN_CONFIGS="overhead"
         GIN_OVERRIDES=""
         ;;
     *)
-        echo "ERROR: Unknown QUALITY=${QUALITY}. Use: fast, medium, high, full"
+        echo "ERROR: Unknown QUALITY=${QUALITY}. Use: fast, high, full"
         exit 1
         ;;
 esac
 
-# Apply individual overrides
-if [ "${TERRAIN}" = "1" ]; then
-    GIN_OVERRIDES="${GIN_OVERRIDES} compose_indoors.terrain_enabled=True"
-fi
-if [ -n "${SOLVE_SMALL}" ]; then
-    GIN_OVERRIDES="${GIN_OVERRIDES} compose_indoors.solve_steps_small=${SOLVE_SMALL}"
-fi
-if [ -n "${SOLVE_MEDIUM}" ]; then
-    GIN_OVERRIDES="${GIN_OVERRIDES} compose_indoors.solve_steps_medium=${SOLVE_MEDIUM}"
-fi
-
-# Room types to generate (override with ROOM_TYPES env var)
-# e.g. ROOM_TYPES="DiningRoom" for a single type
-if [ -n "${ROOM_TYPES:-}" ]; then
-    IFS=' ' read -ra ROOM_TYPE_ARR <<< "${ROOM_TYPES}"
-else
-    ROOM_TYPE_ARR=(
-        "DiningRoom"
-        "LivingRoom"
-        "Bedroom"
-        "Kitchen"
-    )
-fi
-
-# Map room type to output prefix
-declare -A ROOM_PREFIX
-ROOM_PREFIX[DiningRoom]="dining_room"
-ROOM_PREFIX[LivingRoom]="living_room"
-ROOM_PREFIX[Bedroom]="bedroom"
-ROOM_PREFIX[Kitchen]="kitchen"
-
 echo "============================================"
 echo "Infinigen Room Generation for Phase 6"
 echo "============================================"
-echo "Rooms per type: ${ROOMS_PER_TYPE}"
-echo "Room types: ${ROOM_TYPE_ARR[*]}"
+echo "Number of rooms: ${NUM_ROOMS}"
 echo "Infinigen dir: ${INFINIGEN_DIR}"
 echo "Texture resolution: ${TEXTURE_RES}"
 echo "Quality: ${QUALITY}"
@@ -169,74 +120,66 @@ mkdir -p "${EXPORT_DIR}"
 TOTAL=0
 FAILED=0
 
-for ROOM_TYPE in "${ROOM_TYPE_ARR[@]}"; do
-    PREFIX="${ROOM_PREFIX[$ROOM_TYPE]}"
-    echo ""
-    echo "--- Generating ${ROOMS_PER_TYPE} ${ROOM_TYPE} rooms ---"
+echo ""
+echo "--- Generating ${NUM_ROOMS} rooms ---"
 
-    for i in $(seq 1 "${ROOMS_PER_TYPE}"); do
-        SEED=$((RANDOM + i))
-        ROOM_RAW="${RAW_DIR}/${PREFIX}_${i}"
-        ROOM_EXPORT="${EXPORT_DIR}/${PREFIX}_${i}"
-        ROOM_NAME="${PREFIX}_${i}"
+for i in $(seq 1 "${NUM_ROOMS}"); do
+    SEED=$((RANDOM + i))
+    ROOM_NAME="room_${i}"
+    ROOM_RAW="${RAW_DIR}/${ROOM_NAME}"
+    ROOM_EXPORT="${EXPORT_DIR}/${ROOM_NAME}"
 
-        echo "  [${ROOM_NAME}] seed=${SEED} ..."
+    echo "  [${ROOM_NAME}] seed=${SEED} ..."
 
-        # Clean any previous partial output
-        rm -rf "${ROOM_RAW}" "${ROOM_EXPORT}"
+    # Clean any previous partial output
+    rm -rf "${ROOM_RAW}" "${ROOM_EXPORT}"
 
-        # Step 1: Generate room geometry via Blender (bpy)
-        # Uses singleroom gin config + optional fast_solve
-        # Infinigen generates room shells; Replicator adds clutter later.
-        GIN_OVERRIDES_FULL="compose_indoors.room_type=\"${ROOM_TYPE}\" compose_indoors.restrict_single_supported_roomtype=True"
-        if [ -n "${GIN_OVERRIDES}" ]; then
-            GIN_OVERRIDES_FULL="${GIN_OVERRIDES} ${GIN_OVERRIDES_FULL}"
-        fi
-        if python -m infinigen_examples.generate_indoors \
-            --seed "${SEED}" \
-            --task coarse \
-            --output_folder "${ROOM_RAW}" \
-            -g ${GIN_CONFIGS} \
-            -p ${GIN_OVERRIDES_FULL} \
-            2>&1 | tail -5; then
+    # Step 1: Generate room geometry via Blender (bpy)
+    # Infinigen generates apartment shells; Replicator adds clutter later.
+    if python -m infinigen_examples.generate_indoors \
+        --seed "${SEED}" \
+        --task coarse \
+        --output_folder "${ROOM_RAW}" \
+        -g ${GIN_CONFIGS} \
+        ${GIN_OVERRIDES:+-p ${GIN_OVERRIDES}} \
+        2>&1 | tail -5; then
 
-            # Step 2: Export .blend to USDC with Omniverse-compatible materials
-            # The export tool produces: export_scene.blend/export_scene.usdc + textures/
-            if python -m infinigen.tools.export \
-                --input_folder "${ROOM_RAW}" \
-                --output_folder "${ROOM_EXPORT}" \
-                -f usdc \
-                -r "${TEXTURE_RES}" \
-                --omniverse \
-                2>&1 | tail -3; then
+        # Step 2: Export .blend to USDC with Omniverse-compatible materials
+        # The export tool produces: export_scene.blend/export_scene.usdc + textures/
+        if python -m infinigen.tools.export \
+            --input_folder "${ROOM_RAW}" \
+            --output_folder "${ROOM_EXPORT}" \
+            -f usdc \
+            -r "${TEXTURE_RES}" \
+            --omniverse \
+            2>&1 | tail -3; then
 
-                # The export creates a nested export_scene.blend/ subdirectory
-                USDC_DIR="${ROOM_EXPORT}/export_scene.blend"
+            # The export creates a nested export_scene.blend/ subdirectory
+            USDC_DIR="${ROOM_EXPORT}/export_scene.blend"
 
-                if [ -f "${USDC_DIR}/export_scene.usdc" ]; then
-                    echo "    OK: ${ROOM_NAME} ($(du -sh "${USDC_DIR}" | cut -f1))"
-                    TOTAL=$((TOTAL + 1))
+            if [ -f "${USDC_DIR}/export_scene.usdc" ]; then
+                echo "    OK: ${ROOM_NAME} ($(du -sh "${USDC_DIR}" | cut -f1))"
+                TOTAL=$((TOTAL + 1))
 
-                    # Copy to Windows workspace if enabled
-                    if [ "${WINDOWS_COPY}" = "1" ]; then
-                        DEST="${WINDOWS_OUTPUT}/${ROOM_NAME}"
-                        mkdir -p "${DEST}"
-                        cp -r "${USDC_DIR}"/* "${DEST}/"
-                        echo "    Copied to: ${DEST}"
-                    fi
-                else
-                    echo "    FAIL: USDC not found after export for ${ROOM_NAME}"
-                    FAILED=$((FAILED + 1))
+                # Copy to Windows workspace if enabled
+                if [ "${WINDOWS_COPY}" = "1" ]; then
+                    DEST="${WINDOWS_OUTPUT}/${ROOM_NAME}"
+                    mkdir -p "${DEST}"
+                    cp -r "${USDC_DIR}"/* "${DEST}/"
+                    echo "    Copied to: ${DEST}"
                 fi
             else
-                echo "    FAIL: export failed for ${ROOM_NAME} (exit code $?)"
+                echo "    FAIL: USDC not found after export for ${ROOM_NAME}"
                 FAILED=$((FAILED + 1))
             fi
         else
-            echo "    FAIL: generation failed for ${ROOM_NAME} (exit code $?)"
+            echo "    FAIL: export failed for ${ROOM_NAME} (exit code $?)"
             FAILED=$((FAILED + 1))
         fi
-    done
+    else
+        echo "    FAIL: generation failed for ${ROOM_NAME} (exit code $?)"
+        FAILED=$((FAILED + 1))
+    fi
 done
 
 echo ""

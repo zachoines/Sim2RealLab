@@ -13,6 +13,8 @@ import math
 import os
 import random
 import re
+from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 
 import omni.kit.app
@@ -301,8 +303,8 @@ def spawn_labeled_assets(
         # Scale only — position is set later by scatter_on_floor()
         xform = UsdGeom.Xformable(prim)
         xform.ClearXformOpOrder()
-        xform.AddTranslateOp().Set(Gf.Vec3d(0, 0, 0))
         xform.AddScaleOp().Set(Gf.Vec3f(unit_scale, unit_scale, unit_scale))
+        xform.AddTranslateOp().Set(Gf.Vec3d(0, 0, 0))
 
         if unit_scale != 1.0:
             print(f"  [sdg_utils] asset_{i}: {label} scaled {unit_scale:.4f}x (unit conversion)")
@@ -330,8 +332,8 @@ def spawn_labeled_assets(
             # Scale only — position is set later by scatter_on_floor()
             xform = UsdGeom.Xformable(prim)
             xform.ClearXformOpOrder()
-            xform.AddTranslateOp().Set(Gf.Vec3d(0, 0, 0))
             xform.AddScaleOp().Set(Gf.Vec3f(unit_scale, unit_scale, unit_scale))
+            xform.AddTranslateOp().Set(Gf.Vec3d(0, 0, 0))
 
             gravity_disabled = random.random() < grav_chance
             _add_rigid_body(prim, gravity_disabled=gravity_disabled)
@@ -376,8 +378,8 @@ def spawn_shape_distractors(
         xform.ClearXformOpOrder()
 
         # Scale only — position is set later by scatter_on_floor()
-        xform.AddTranslateOp().Set(Gf.Vec3d(0, 0, 0))
         xform.AddScaleOp().Set(Gf.Vec3f(scale, scale, scale))
+        xform.AddTranslateOp().Set(Gf.Vec3d(0, 0, 0))
 
         # Random color
         material_path = f"/ShapeDistractors/mat_{i}"
@@ -436,8 +438,8 @@ def spawn_mesh_distractors(
         # Scale only — position is set later by scatter_on_floor()
         xform = UsdGeom.Xformable(prim)
         xform.ClearXformOpOrder()
-        xform.AddTranslateOp().Set(Gf.Vec3d(0, 0, 0))
         xform.AddScaleOp().Set(Gf.Vec3f(total_scale, total_scale, total_scale))
+        xform.AddTranslateOp().Set(Gf.Vec3d(0, 0, 0))
 
         if unit_scale != 1.0:
             print(f"  [sdg_utils] mesh_{i}: scaled {total_scale:.4f}x (unit={unit_scale}, var={variation:.2f})")
@@ -476,9 +478,9 @@ def randomize_poses(
         xform.ClearXformOpOrder()
 
         pos = _random_floor_position(x_range, y_range, floor_z, drop_height=0.5)
-        xform.AddTranslateOp().Set(Gf.Vec3d(*pos))
         xform.AddScaleOp().Set(existing_scale)
         xform.AddRotateXYZOp().Set(Gf.Vec3f(0, 0, random.uniform(0, 360)))
+        xform.AddTranslateOp().Set(Gf.Vec3d(*pos))
 
     omni.kit.app.get_app().update()
     print(f"[sdg_utils] Randomized poses for {len(assets)} assets")
@@ -554,6 +556,276 @@ def scatter_on_floor(
     omni.kit.app.get_app().update()
     print(f"[sdg_utils] Scattered {len(assets)} assets on "
           f"{len(floor_prims)} floor prim(s)")
+
+
+# ---------------------------------------------------------------------------
+# Wall-snap placement
+# ---------------------------------------------------------------------------
+
+@dataclass
+class WallSegment:
+    """A floor-level wall segment with computed inward normal."""
+    start: tuple[float, float]        # (x, y) world space
+    end: tuple[float, float]          # (x, y) world space
+    inward_normal: tuple[float, float] # unit 2D vector pointing into room
+    length: float
+
+
+def get_wall_prims(root_path: str = "/Environment") -> list:
+    """Find wall mesh prims under the environment root.
+
+    Excludes ``top_wall`` prims (ceiling-facing surfaces hidden by setup_env).
+    """
+    stage = omni.usd.get_context().get_stage()
+    root = stage.GetPrimAtPath(root_path)
+    if not root or not root.IsValid():
+        return []
+
+    wall_prims = []
+    for prim in Usd.PrimRange(root):
+        name = prim.GetName().lower()
+        if "wall" in name and "top_wall" not in name and prim.IsA(UsdGeom.Mesh):
+            wall_prims.append(prim)
+
+    print(f"[sdg_utils] Found {len(wall_prims)} wall mesh prim(s): "
+          f"{[p.GetPath().pathString for p in wall_prims]}")
+    return wall_prims
+
+
+def _extract_wall_segments(
+    wall_prim,
+    z_tolerance: float = 0.05,
+) -> list[WallSegment]:
+    """Extract floor-level wall segments with inward normals from a wall mesh."""
+    mesh = UsdGeom.Mesh(wall_prim)
+    points_local = mesh.GetPointsAttr().Get()
+    face_indices = mesh.GetFaceVertexIndicesAttr().Get()
+    face_counts = mesh.GetFaceVertexCountsAttr().Get()
+
+    if not points_local or not face_indices or not face_counts:
+        return []
+
+    # Transform points to world space
+    xformable = UsdGeom.Xformable(wall_prim)
+    world_xform = xformable.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+    points = []
+    for pt in points_local:
+        p = world_xform.Transform(Gf.Vec3d(pt[0], pt[1], pt[2]))
+        points.append((p[0], p[1], p[2]))
+
+    # Identify floor-level vertices
+    z_values = [p[2] for p in points]
+    floor_z = min(z_values)
+    floor_verts = {i for i, p in enumerate(points) if abs(p[2] - floor_z) < z_tolerance}
+
+    if len(floor_verts) < 2:
+        return []
+
+    # Extract floor-level edges from face indices
+    floor_edges: set[frozenset] = set()
+    offset = 0
+    for count in face_counts:
+        face = face_indices[offset:offset + count]
+        offset += count
+        for i in range(count):
+            v0, v1 = face[i], face[(i + 1) % count]
+            if v0 in floor_verts and v1 in floor_verts:
+                floor_edges.add(frozenset((v0, v1)))
+
+    if not floor_edges:
+        return []
+
+    # Build adjacency and chain edges into ordered polylines
+    adj: dict[int, set[int]] = defaultdict(set)
+    for edge in floor_edges:
+        v0, v1 = tuple(edge)
+        adj[v0].add(v1)
+        adj[v1].add(v0)
+
+    visited: set[frozenset] = set()
+    chains: list[list[int]] = []
+    for start_v in adj:
+        for next_v in list(adj[start_v]):
+            ek = frozenset((start_v, next_v))
+            if ek in visited:
+                continue
+            chain = [start_v, next_v]
+            visited.add(ek)
+            cur, prev = next_v, start_v
+            while True:
+                unvis = [n for n in adj[cur] - {prev}
+                         if frozenset((cur, n)) not in visited]
+                if not unvis:
+                    break
+                nxt = unvis[0]
+                visited.add(frozenset((cur, nxt)))
+                chain.append(nxt)
+                prev, cur = cur, nxt
+            chains.append(chain)
+
+    # Room center from floor-level vertices (for inward normal orientation)
+    floor_pts = [points[i] for i in floor_verts]
+    cx = sum(p[0] for p in floor_pts) / len(floor_pts)
+    cy = sum(p[1] for p in floor_pts) / len(floor_pts)
+
+    # Convert chains to WallSegment objects
+    segments: list[WallSegment] = []
+    for chain in chains:
+        for i in range(len(chain) - 1):
+            ax, ay = points[chain[i]][0], points[chain[i]][1]
+            bx, by = points[chain[i + 1]][0], points[chain[i + 1]][1]
+            dx, dy = bx - ax, by - ay
+            length = math.sqrt(dx * dx + dy * dy)
+            if length < 1e-6:
+                continue
+            dx /= length
+            dy /= length
+
+            # Two candidate perpendicular normals
+            n1x, n1y = -dy, dx
+            # Pick the one pointing toward room center
+            mx, my = (ax + bx) / 2.0, (ay + by) / 2.0
+            to_center_x, to_center_y = cx - mx, cy - my
+            if n1x * to_center_x + n1y * to_center_y > 0:
+                inward = (n1x, n1y)
+            else:
+                inward = (dy, -dx)
+
+            segments.append(WallSegment(
+                start=(ax, ay), end=(bx, by),
+                inward_normal=inward, length=length,
+            ))
+
+    print(f"[sdg_utils] Extracted {len(segments)} wall segments from "
+          f"{wall_prim.GetPath().pathString}")
+    return segments
+
+
+def _filter_doorway_segments(
+    segments: list[WallSegment],
+    root_path: str = "/Environment",
+    margin: float = 0.5,
+    min_length: float = 0.3,
+) -> list[WallSegment]:
+    """Remove wall segments near doorways or too short for furniture."""
+    stage = omni.usd.get_context().get_stage()
+    root = stage.GetPrimAtPath(root_path)
+
+    # Collect door XY positions
+    door_positions: list[tuple[float, float]] = []
+    if root and root.IsValid():
+        for prim in Usd.PrimRange(root):
+            if "door" in prim.GetName().lower():
+                xformable = UsdGeom.Xformable(prim)
+                if xformable:
+                    xf = xformable.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+                    t = xf.ExtractTranslation()
+                    door_positions.append((t[0], t[1]))
+
+    filtered = []
+    for seg in segments:
+        if seg.length < min_length:
+            continue
+        mx, my = (seg.start[0] + seg.end[0]) / 2.0, (seg.start[1] + seg.end[1]) / 2.0
+        near_door = False
+        for dx, dy in door_positions:
+            if math.sqrt((mx - dx) ** 2 + (my - dy) ** 2) < margin:
+                near_door = True
+                break
+        if not near_door:
+            filtered.append(seg)
+
+    removed = len(segments) - len(filtered)
+    if removed:
+        print(f"[sdg_utils] Filtered {removed} wall segments "
+              f"(doorways/short), {len(filtered)} remain")
+    return filtered
+
+
+def snap_to_walls(
+    assets: list,
+    wall_prims: list,
+    floor_z: float,
+    offset: float = 0.15,
+    min_spacing: float = 0.8,
+    root_path: str = "/Environment",
+) -> list:
+    """Place assets against walls with inward-facing orientation.
+
+    Returns list of assets that could NOT be wall-snapped (for fallback
+    to scatter_on_floor).
+    """
+    if not assets or not wall_prims:
+        return list(assets)
+
+    # Extract and merge segments from all wall prims
+    all_segments: list[WallSegment] = []
+    for wp in wall_prims:
+        all_segments.extend(_extract_wall_segments(wp))
+
+    if not all_segments:
+        print("[sdg_utils] WARNING: No wall segments extracted")
+        return list(assets)
+
+    # Filter doorway regions
+    all_segments = _filter_doorway_segments(all_segments, root_path)
+    if not all_segments:
+        print("[sdg_utils] WARNING: All wall segments filtered out")
+        return list(assets)
+
+    # Length-weighted sampling
+    weights = [s.length for s in all_segments]
+    placed_xy: list[tuple[float, float]] = []
+    failed: list = []
+
+    for prim in assets:
+        placed = False
+        for _ in range(20):
+            seg = random.choices(all_segments, weights=weights, k=1)[0]
+            t = random.uniform(0.1, 0.9)
+            px = seg.start[0] + t * (seg.end[0] - seg.start[0])
+            py = seg.start[1] + t * (seg.end[1] - seg.start[1])
+
+            # Enforce min spacing
+            if any(math.sqrt((px - ox) ** 2 + (py - oy) ** 2) < min_spacing
+                   for ox, oy in placed_xy):
+                continue
+
+            # Wall-snapped position
+            wx = px + offset * seg.inward_normal[0]
+            wy = py + offset * seg.inward_normal[1]
+            wz = floor_z + 0.01
+
+            # Yaw: furniture faces into room (along inward normal)
+            yaw_deg = math.degrees(math.atan2(
+                seg.inward_normal[1], seg.inward_normal[0],
+            ))
+
+            # Read existing scale
+            xform = UsdGeom.Xformable(prim)
+            existing_scale = Gf.Vec3f(1, 1, 1)
+            for op in xform.GetOrderedXformOps():
+                if op.GetOpType() == UsdGeom.XformOp.TypeScale:
+                    existing_scale = op.Get()
+                    break
+
+            xform.ClearXformOpOrder()
+            xform.AddScaleOp().Set(existing_scale)
+            xform.AddRotateXYZOp().Set(Gf.Vec3f(0, 0, yaw_deg))
+            xform.AddTranslateOp().Set(Gf.Vec3d(wx, wy, wz))
+
+            placed_xy.append((px, py))
+            placed = True
+            break
+
+        if not placed:
+            failed.append(prim)
+
+    omni.kit.app.get_app().update()
+    placed_count = len(assets) - len(failed)
+    print(f"[sdg_utils] Wall-snapped {placed_count}/{len(assets)} assets "
+          f"({len(failed)} failed -> fallback)")
+    return failed
 
 
 # ---------------------------------------------------------------------------
@@ -759,3 +1031,97 @@ def setup_writer(writer_config: dict):
     except Exception as e:
         print(f"[sdg_utils] WARNING: Failed to create writer '{writer_type}': {e}")
         return None
+
+
+# ---------------------------------------------------------------------------
+# Scene centering and export verification
+# ---------------------------------------------------------------------------
+
+def center_scene_at_origin(root_path: str = "/Environment") -> dict:
+    """Translate the environment so the floor bounding box center sits at (0,0,0).
+
+    This ensures exported scenes have a consistent coordinate origin for
+    use in the training environment (each env clone's origin maps to the
+    scene center).
+
+    Returns a dict with the centered floor bounding box metadata:
+        {"x_min", "x_max", "y_min", "y_max", "floor_z"}
+    """
+    stage = omni.usd.get_context().get_stage()
+    root_prim = stage.GetPrimAtPath(root_path)
+    if not root_prim or not root_prim.IsValid():
+        print(f"[sdg_utils] WARNING: cannot center — {root_path} not found")
+        return {"x_min": -3, "x_max": 3, "y_min": -3, "y_max": 3, "floor_z": 0.0}
+
+    # Compute floor bounding box before centering
+    x_range, y_range, floor_z = get_env_floor_bbox(root_path)
+    cx = (x_range[0] + x_range[1]) / 2.0
+    cy = (y_range[0] + y_range[1]) / 2.0
+
+    # Apply centering offset to the root prim
+    xform = UsdGeom.Xformable(root_prim)
+    xform.AddTranslateOp(opSuffix="centering").Set(Gf.Vec3d(-cx, -cy, -floor_z))
+
+    omni.kit.app.get_app().update()
+
+    # Recompute the floor bbox in the new centered frame
+    x_range_c, y_range_c, floor_z_c = get_env_floor_bbox(root_path)
+
+    metadata = {
+        "x_min": round(x_range_c[0], 3),
+        "x_max": round(x_range_c[1], 3),
+        "y_min": round(y_range_c[0], 3),
+        "y_max": round(y_range_c[1], 3),
+        "floor_z": round(floor_z_c, 3),
+    }
+    print(f"[sdg_utils] Centered scene at origin: {metadata}")
+    return metadata
+
+
+def verify_collision_in_exported_scene(scene_usd_path: str) -> bool:
+    """Verify that an exported scene USDC has collision APIs on mesh prims.
+
+    Opens the USDC as a standalone stage and checks that CollisionAPI is
+    applied to mesh prims.  If fewer than 90% of meshes have collision,
+    re-applies CollisionAPI + MeshCollisionAPI(meshSimplification) and
+    saves the fixed file.
+
+    Returns True if the scene already had collision (or was successfully fixed).
+    """
+    ref_stage = Usd.Stage.Open(scene_usd_path)
+    if not ref_stage:
+        print(f"[sdg_utils] WARNING: cannot open {scene_usd_path}")
+        return False
+
+    mesh_count = 0
+    collision_count = 0
+    for prim in Usd.PrimRange(ref_stage.GetPseudoRoot()):
+        if prim.IsA(UsdGeom.Mesh):
+            mesh_count += 1
+            if prim.HasAPI(UsdPhysics.CollisionAPI):
+                collision_count += 1
+
+    if mesh_count == 0:
+        print(f"[sdg_utils] WARNING: no meshes found in {scene_usd_path}")
+        return False
+
+    ratio = collision_count / mesh_count
+    if ratio >= 0.9:
+        print(f"[sdg_utils] Collision OK: {collision_count}/{mesh_count} meshes "
+              f"in {Path(scene_usd_path).name}")
+        return True
+
+    # Fix: re-apply collision APIs
+    print(f"[sdg_utils] Fixing collision: only {collision_count}/{mesh_count} meshes "
+          f"had CollisionAPI in {Path(scene_usd_path).name}")
+    for prim in Usd.PrimRange(ref_stage.GetPseudoRoot()):
+        if prim.IsA(UsdGeom.Mesh):
+            if not prim.HasAPI(UsdPhysics.CollisionAPI):
+                UsdPhysics.CollisionAPI.Apply(prim)
+            if not prim.HasAPI(UsdPhysics.MeshCollisionAPI):
+                mesh_col = UsdPhysics.MeshCollisionAPI.Apply(prim)
+                mesh_col.GetApproximationAttr().Set("meshSimplification")
+
+    ref_stage.Save()
+    print(f"[sdg_utils] Fixed and saved collision APIs in {Path(scene_usd_path).name}")
+    return True

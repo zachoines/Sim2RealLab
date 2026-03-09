@@ -60,7 +60,7 @@ The pipeline follows the standard NVIDIA two-stage architecture:
 
 ```
 Infinigen (WSL / Linux)
-  |- Generate indoor rooms procedurally (DiningRoom, LivingRoom, etc.)
+  |- Generate indoor apartments procedurally (random room mix per seed)
   |- Export each as .usdc with --omniverse flag
   |- Output: outputs/omniverse/<room_name>/  (USD + textures)
          |
@@ -68,11 +68,12 @@ Infinigen (WSL / Linux)
   Copy USD rooms into Assets/generated/infinigen_rooms/
 ```
 
-Infinigen generates **room shells**: walls, floors, ceiling, built-in furniture
-(tables, chairs, shelves), and lighting — all as a single USD file per room.
-Use `fast_solve` gin config for quick generation (~3 min/room). Infinigen rooms
-provide diverse **background geometry**; all ground-level clutter and movable
-obstacles are added in Stage 2 by Replicator.
+Infinigen generates **apartment shells**: walls, floors, ceiling, built-in furniture
+(tables, chairs, shelves), and lighting — all as a single USD file per apartment.
+Use `singleroom fast_solve` gin configs for quick generation (~3 min/room).
+**`singleroom.gin` is essential** — without it, generation takes 2+ hours per seed.
+Infinigen rooms provide diverse **background geometry**; all ground-level clutter
+and movable obstacles are added in Stage 2 by Replicator.
 
 ### 2.2 Stage 2: Runtime Scene Composition (Isaac Sim + Replicator on Windows)
 
@@ -128,13 +129,17 @@ Isaac Lab env reset
 Generated on WSL/Linux using `infinigen_examples.generate_indoors` and exported
 with `infinigen.tools.export --omniverse -f usdc`.
 
-Room types to generate:
-- `DiningRoom` — tables/chairs as obstacles
-- `LivingRoom` — sofas, coffee tables, scattered objects
-- `Bedroom` — beds, nightstands, narrow passages
-- `Kitchen` — counters, appliances, tight corridors
+Infinigen generates full apartment layouts procedurally — room types and counts
+cannot be restricted via configuration. Each seed produces a different apartment
+with a random mix of rooms (living room, bedroom, kitchen, bathroom, etc.).
+Use `singleroom fast_solve overhead` gin configs: `singleroom` constrains
+the floor plan to a smaller layout (~3 min/room), `fast_solve` reduces solver
+iterations, and `overhead` hides ceilings.  Without `singleroom.gin`, generation
+takes 2+ hours per seed.
 
-Target: 10 rooms per type = 40 base environments.
+Target: 10 unique apartments with varied seeds.
+Each apartment provides diverse background geometry; all ground-level clutter
+is added in Stage 2 by Replicator.
 
 ### 3.2 Local OpenUSD Asset Packs (already downloaded)
 
@@ -166,10 +171,10 @@ Each candidate asset must pass (via `validate_asset_pool.py`):
 
 ### 4.1 Scene Counts and Split
 
-Generate a **200-scene library** (5 scenes per Infinigen room x 40 rooms):
-- 120 train scenes
-- 40 val scenes
-- 40 test scenes (never used in training)
+Generate a **50-scene library** (5 compositions per Infinigen apartment x 10 apartments):
+- 30 train scenes
+- 10 val scenes
+- 10 test scenes (never used in training)
 
 ### 4.2 Per-Scene Asset Spawning (following NVIDIA tutorial pattern)
 
@@ -242,6 +247,7 @@ Under `Scripts/scenegen/`:
 | `build_asset_manifest.py` | **Done** | Scan local packs -> asset_manifest.jsonl |
 | `validate_asset_pool.py` | **Done** | Quality gate checks (filesystem + optional USD) |
 | `compose_scenes_replicator.py` | **Done** | Isaac Sim standalone: Infinigen rooms + Replicator SDG |
+| `prep_room_usds.py` | **Done** | Preprocess Infinigen rooms -> scene_NNNN.usdc for training |
 | `split_scene_dataset.py` | **Done** | Train/val/test split from scene_manifest.jsonl |
 | `export_scene_stats.py` | **Done** | Report statistics on manifests |
 | `generate_infinigen_rooms.sh` | **New** | WSL/Linux script for batch Infinigen room generation |
@@ -252,15 +258,14 @@ Under `Assets/generated/`:
 
 ```
 Assets/generated/
-├── infinigen_rooms/          # Infinigen USD exports (from WSL)
-│   ├── dining_room_1/
-│   ├── dining_room_2/
-│   ├── living_room_1/
+├── infinigen_rooms/          # Raw Infinigen USD exports (from WSL)
+│   ├── room_1/
+│   ├── room_2/
 │   └── ...
-├── scenes/                   # Composed scene USDs (from Replicator)
-│   ├── train/*.usd
-│   ├── val/*.usd
-│   └── test/*.usd
+├── scenes/                   # Processed scene USDs for Isaac Lab training
+│   ├── scene_0000.usdc       # From prep_room_usds.py (preprocessed rooms)
+│   ├── scene_0001.usdc       # ... or from compose_scenes_replicator.py
+│   └── ...
 ├── manifests/
 │   ├── asset_manifest.jsonl  # Local asset pack inventory (done)
 │   ├── scene_manifest.jsonl  # Composed scene metadata
@@ -273,10 +278,11 @@ Assets/generated/
 
 ### 5.3 Isaac Lab Integration Points
 
-1. `strafer_env_cfg.py` — ProcDepth env configs (done, events need update)
-2. `mdp/events.py` — Scene-aware obstacle placement event
+1. `strafer_env_cfg.py` — ProcDepth env configs load scene USDs from `Assets/generated/scenes/`
+2. `mdp/events.py` — Scene-aware reset events (no obstacles — scene geometry provides obstacles)
 3. `__init__.py` — New env ID registrations (done)
-4. `test/env/test_env_registration.py` — Updated for 22 env count (done)
+4. `test/env/test_env_registration.py` — Updated for env count (done)
+5. `prep_room_usds.py` — Preprocesses raw Infinigen rooms into training-ready scene USDs
 
 ## 6. Environment Variants
 
@@ -321,7 +327,7 @@ Track:
 ## 8. Success Criteria
 
 Phase 6 is complete when all are met:
-1. 200-scene library generated and versioned with manifests.
+1. 50-scene library generated and versioned with manifests.
 2. New proc-scene env variants train end-to-end without manual intervention.
 3. Held-out synthetic test success improves by >= 15% over box-only baseline.
 4. Real-world collision rate decreases by >= 25% at matched route set.
@@ -334,27 +340,27 @@ Phase 6 is complete when all are met:
 | Step | Task | Status |
 |------|------|--------|
 | 6a.1 | Build asset manifest from local packs + quality gate | **Done** |
-| 6a.2 | Install Infinigen on WSL, generate first batch of rooms | **Done** (2 rooms verified) |
+| 6a.2 | Install Infinigen on WSL, generate first batch of rooms | **Done** |
 | 6a.3 | Split scene dataset tooling | **Done** |
 | 6a.4 | Register ProcDepth env variants in Isaac Lab | **Done** |
 | 6a.5 | Rewrite compose_scenes_replicator.py to follow NVIDIA SDG pattern | **Done** |
 
 **Exit criterion**: 10 Infinigen rooms exported,
 compose_scenes_replicator.py loads them and spawns obstacle assets.
-**Current**: 2 rooms generated and verified (dining_room_1, living_room_1).
-`compose_scenes_replicator.py --check-only` confirms discovery.
+**Current**: Pipeline verified end-to-end.
+`compose_scenes_replicator.py --check-only` confirms room discovery.
 
 ### 9.2 Phase 6b: Scene Library Build-Out (Week 2)
 
 | Step | Task | Duration |
 |------|------|----------|
-| 6b.1 | Generate 40 Infinigen rooms (10 per room type) | 1-2 days |
-| 6b.2 | Compose 200 scenes via Replicator pipeline | 1-2 days |
+| 6b.1 | Generate 10 Infinigen apartments (varied seeds) | 1-2 days |
+| 6b.2 | Compose 50 scenes via Replicator pipeline | 1-2 days |
 | 6b.3 | Add dynamic obstacle behavior library | 1-2 days |
 | 6b.4 | Add traversability/path feasibility filter | 1 day |
 | 6b.5 | Wire Isaac Lab ProcDepth env to load composed scene USDs | 1 day |
 
-**Exit criterion**: 200-scene library, 100-iteration training smoke test passes.
+**Exit criterion**: 50-scene library, 100-iteration training smoke test passes.
 
 ### 9.3 Phase 6c: Sim-to-Real Validation Sprint (Week 3)
 
@@ -397,46 +403,102 @@ pip install pyyaml coacd
 # 4. Compile terrain C++ libraries (required even for indoor generation)
 make terrain
 
-# 5. Verify: generate a test dining room (~3 min)
+# 5. Verify: generate a test room (~3 min with singleroom + fast_solve)
 python -m infinigen_examples.generate_indoors \
   --seed 1 --task coarse \
-  --output_folder /tmp/infinigen_test/dining_room_1 \
-  -g singleroom fast_solve \
-  -p 'compose_indoors.room_type="DiningRoom"' \
-     'compose_indoors.restrict_single_supported_roomtype=True'
+  --output_folder /tmp/infinigen_test/room_1 \
+  -g fast_solve overhead singleroom \
+  -p compose_indoors.terrain_enabled=False
 
-# 6. Export to USDC (~2 min, requires textures baking)
+# 6. Export to USDC (~30 sec, requires texture baking)
 python -m infinigen.tools.export \
-  --input_folder /tmp/infinigen_test/dining_room_1 \
-  --output_folder /tmp/infinigen_test/export/dining_room_1 \
-  -f usdc -r 1024 --omniverse
-# Output: /tmp/infinigen_test/export/dining_room_1/export_scene.blend/export_scene.usdc
+  --input_folder /tmp/infinigen_test/room_1 \
+  --output_folder /tmp/infinigen_test/export/room_1 \
+  -f usdc -r 256 --omniverse
+# Output: /tmp/infinigen_test/export/room_1/export_scene.blend/export_scene.usdc
 ```
 
 **Key findings from setup:**
-- Use `-g singleroom fast_solve` gin configs: `singleroom` limits to 1 room,
-  `fast_solve` disables terrain and reduces solver iterations.
+- Use `-g fast_solve overhead singleroom` gin configs: `singleroom` constrains
+  the floor plan to a smaller layout, `fast_solve` reduces solver iterations
+  (~3 min/room), `overhead` hides ceilings and provides overhead camera.
+- **`singleroom.gin` is essential**: without it, generation takes 2+ hours per
+  seed (vs ~3 min with it). The floor plan solver generates a full multi-room
+  apartment; `singleroom` constrains this to a practical size.
+- Infinigen generates full apartment layouts — room types cannot be restricted.
+  Each seed produces a unique apartment with a random mix of rooms.
 - Gin overrides go after `-p` flag (not bare `--` arguments).
 - The export tool creates a nested `export_scene.blend/` subdirectory containing
   `export_scene.usdc` + `textures/`.
-- Room sizes vary significantly: dining room ~245MB, living room ~780MB exported.
+- Use `-r 256` for lowest texture resolution (adequate for depth-only training).
 - `zip` must be installed or the export will fail at the final packaging step.
 
 ### 10.1b Batch Generation
 
 ```bash
-# Use the provided batch generation script:
+# Option A — shell script (sequential, one room at a time):
 bash /mnt/c/Worspace/Scripts/scenegen/generate_infinigen_rooms.sh
 
-# Or generate a single room type with custom settings:
-ROOMS_PER_TYPE=3 ROOM_TYPES="DiningRoom" \
+# Generate 5 rooms with low texture resolution:
+NUM_ROOMS=5 TEXTURE_RES=256 \
   bash /mnt/c/Worspace/Scripts/scenegen/generate_infinigen_rooms.sh
 ```
+
+```bash
+# Option B — manage_jobs (recommended, parallel generation + export):
+# Generates rooms 2-at-a-time (~33 min for 10 rooms on 32GB machine).
+# Requires: pip install jinja2  (in the infinigen conda env)
+source ~/miniconda3/bin/activate infinigen
+cd ~/infinigen
+
+python -m infinigen.datagen.manage_jobs \
+  --output_folder ~/infinigen_batch \
+  --num_scenes 10 \
+  --pipeline_configs local_16GB.gin monocular.gin export.gin \
+  --configs singleroom.gin fast_solve.gin overhead.gin \
+  --pipeline_overrides \
+    get_cmd.driver_script='infinigen_examples.generate_indoors' \
+    manage_datagen_jobs.num_concurrent=2 \
+    LocalScheduleHandler.use_gpu=False \
+    "iterate_scene_tasks.global_tasks=[{'name':'coarse','func':@queue_coarse}]" \
+    "iterate_scene_tasks.camera_dependent_tasks=[]" \
+  --overrides compose_indoors.terrain_enabled=False \
+  --cleanup none
+
+# Exported USDCs are at: ~/infinigen_batch/<seed>/frames/export_scene.blend/export_scene.usdc
+# Copy to Windows workspace:
+i=1; for d in ~/infinigen_batch/*/frames/export_scene.blend; do
+  dest="/mnt/c/Worspace/Assets/generated/infinigen_rooms/room_$i"
+  mkdir -p "$dest" && cp -r "$d"/* "$dest/"
+  echo "room_$i -> $dest"
+  i=$((i+1))
+done
+```
+
+**manage_jobs key flags:**
+- `--pipeline_configs local_16GB.gin` — safe for 32GB machines (sets `num_concurrent=1` base, overridden to 2)
+- `monocular.gin` — defines the pipeline task list (we override to coarse-only)
+- `export.gin` — adds the USDC export step after coarse generation
+- `--configs` — passed through to each scene's `generate_indoors` call
+- `iterate_scene_tasks.global_tasks` override — skips fineterrain and populate stages
+- `iterate_scene_tasks.camera_dependent_tasks=[]` — skips rendering (not needed)
 
 ### 10.2 Scene Composition (Windows, Isaac Sim)
 
 ```powershell
-# Compose scenes from Infinigen rooms + local asset packs
+# Option A — Quick start: preprocess Infinigen rooms directly (no Replicator)
+# Centers rooms, adds collision, hides ceilings, exports to Assets/generated/scenes/
+cd IsaacLab
+.\isaaclab.bat -p ..\Scripts\scenegen\prep_room_usds.py
+
+# Train on proc-scene variant
+.\isaaclab.bat -p ..\Scripts\train_strafer_navigation.py `
+  --env Isaac-Strafer-Nav-Real-ProcDepth-v0 `
+  --num_envs 24 --headless
+```
+
+```powershell
+# Option B — Full pipeline: compose scenes with Replicator (more diversity)
 cd IsaacLab
 .\isaaclab.bat -p ..\Scripts\scenegen\compose_scenes_replicator.py `
   --config ..\Scripts\scenegen\config\strafer_sdg.yaml

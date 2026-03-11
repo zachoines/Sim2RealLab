@@ -407,7 +407,8 @@ class StraferSceneCfg_ProcScene(InteractiveSceneCfg):
 
     # Procedural scene geometry loaded from composed scene USDs.
     # MultiUsdFileCfg with random_choice=True assigns a random scene per env.
-    # collision_props ensures collision meshes are active on all geometry.
+    # Collision is fully handled by prep_room_usds.py (tiered: convexDecomposition
+    # for structural, convexHull for ground obstacles, none for elevated).
     # Note: usd_path is set in __post_init__ to avoid import-time file discovery
     # that would break other env configs when scenes aren't generated yet.
     scene_geometry: AssetBaseCfg = AssetBaseCfg(
@@ -415,7 +416,6 @@ class StraferSceneCfg_ProcScene(InteractiveSceneCfg):
         spawn=MultiUsdFileCfg(
             usd_path=[],  # populated in env config __post_init__
             random_choice=True,
-            collision_props=sim_utils.CollisionPropertiesCfg(),
         ),
     )
 

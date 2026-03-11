@@ -4,18 +4,27 @@
 This script processes each room_*/export_scene.usdc and exports to
 Assets/generated/scenes/scene_NNNN.usdc (ready for ProcDepth env configs):
 1. Center the floor bounding box at world origin (0, 0, 0)
-2. Apply CollisionAPI + MeshCollisionAPI(meshSimplification) to all meshes
+2. Apply CollisionAPI + MeshCollisionAPI(none = triangle mesh) to all meshes
 3. Hide ceiling/top_wall prims via USD visibility
 
+USD hierarchy in exported files:
+    /Environment (Xform) -- defaultPrim, empty; spawner sets translate here
+        /Geometry (Xform) -- room reference + centering xform
+            /...room prims...
+
+The centering xform is on /Environment/Geometry so it survives when Isaac Lab's
+MultiUsdFileCfg sets translate(0,0,0) on the defaultPrim (/Environment).
+
 Must be run with Isaac Sim Python BEFORE training:
-    cd IsaacLab
-    .\\isaaclab.bat -p ..\\Scripts\\scenegen\\prep_room_usds.py
+    cd C:\Worspace\IsaacLab && .\isaaclab.bat -p ..\Scripts\scenegen\prep_room_usds.py
 
 After running, scenes are ready for _get_scene_usd_paths() / MultiUsdFileCfg.
 """
 
 import argparse
 import json
+import math
+import random
 import sys
 from pathlib import Path
 
@@ -75,7 +84,7 @@ def setup_collision_and_hide_ceiling(stage, root_path="/Environment"):
                 UsdPhysics.CollisionAPI.Apply(prim)
             if not prim.HasAPI(UsdPhysics.MeshCollisionAPI):
                 mesh_col = UsdPhysics.MeshCollisionAPI.Apply(prim)
-                mesh_col.GetApproximationAttr().Set("meshSimplification")
+                mesh_col.GetApproximationAttr().Set("none")
             mesh_count += 1
 
         name = prim.GetName().lower()
@@ -88,27 +97,58 @@ def setup_collision_and_hide_ceiling(stage, root_path="/Environment"):
     return mesh_count, hidden_count, skipped_count
 
 
-def compute_floor_bbox(stage, root_path="/Environment"):
-    """Compute the world-aligned bounding box of the environment.
+def find_floor_prims(stage, root_path="/Environment"):
+    """Find ALL floor mesh prims by searching for '*floor*' under root.
 
-    Returns ((x_min, x_max), (y_min, y_max), floor_z).
-    Replicates the logic from infinigen_sdg_utils.get_env_floor_bbox().
+    Multi-room Infinigen scenes have one floor mesh per room (e.g.
+    bedroom_0_0_floor, bathroom_0_0_floor, hallway_0_0_floor).
     """
     root = stage.GetPrimAtPath(root_path)
     if not root or not root.IsValid():
-        return ((-5, 5), (-5, 5), 0.0)
+        return []
+    floors = []
+    for prim in Usd.PrimRange(root):
+        if prim.IsA(UsdGeom.Mesh) and "floor" in prim.GetName().lower():
+            floors.append(prim)
+    return floors
+
+
+def compute_floor_bbox(stage, root_path="/Environment"):
+    """Compute the world-aligned bounding box of all floor meshes (union).
+
+    For multi-room scenes, unions bboxes of all *_floor meshes so centering
+    places the navigable floor area at origin.
+    Returns ((x_min, x_max), (y_min, y_max), floor_z).
+    Falls back to the whole-room bbox if no floor meshes are found.
+    """
+    floor_prims = find_floor_prims(stage, root_path)
+    if not floor_prims:
+        target = stage.GetPrimAtPath(root_path)
+        if not target or not target.IsValid():
+            return ((-5, 5), (-5, 5), 0.0)
+        floor_prims = [target]
 
     bbox_cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), ["default"])
-    bbox = bbox_cache.ComputeWorldBound(root)
-    rng = bbox.ComputeAlignedRange()
-    lo = rng.GetMin()
-    hi = rng.GetMax()
+
+    # Union bbox across all floor prims
+    x_lo, y_lo, z_lo = float("inf"), float("inf"), float("inf")
+    x_hi, y_hi = float("-inf"), float("-inf")
+    for prim in floor_prims:
+        bbox = bbox_cache.ComputeWorldBound(prim)
+        rng = bbox.ComputeAlignedRange()
+        lo = rng.GetMin()
+        hi = rng.GetMax()
+        x_lo = min(x_lo, lo[0])
+        y_lo = min(y_lo, lo[1])
+        z_lo = min(z_lo, lo[2])
+        x_hi = max(x_hi, hi[0])
+        y_hi = max(y_hi, hi[1])
 
     inset = 0.5
     return (
-        (lo[0] + inset, hi[0] - inset),
-        (lo[1] + inset, hi[1] - inset),
-        lo[2],
+        (x_lo + inset, x_hi - inset),
+        (y_lo + inset, y_hi - inset),
+        z_lo,
     )
 
 
@@ -136,17 +176,120 @@ def center_at_origin(stage, root_path="/Environment"):
     return _recompute_metadata(stage, root_path)
 
 
+def _extract_floor_triangles(stage, root_path):
+    """Extract world-space triangles from all floor meshes.
+
+    Returns list of ((ax,ay), (bx,by), (cx,cy), area) tuples — the XY
+    projection of each triangle with its 2D area.
+    """
+    floor_prims = find_floor_prims(stage, root_path)
+    triangles = []
+    for prim in floor_prims:
+        mesh = UsdGeom.Mesh(prim)
+        points = mesh.GetPointsAttr().Get()
+        face_counts = mesh.GetFaceVertexCountsAttr().Get()
+        face_indices = mesh.GetFaceVertexIndicesAttr().Get()
+        if not points or not face_counts or not face_indices:
+            continue
+
+        xf = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(
+            Usd.TimeCode.Default()
+        )
+
+        # Transform all points to world space once
+        world_pts = []
+        for pt in points:
+            wp = xf.Transform(Gf.Vec3d(pt))
+            world_pts.append((wp[0], wp[1]))
+
+        # Walk face_indices using face_counts to extract triangles
+        idx_offset = 0
+        for nv in face_counts:
+            if nv < 3:
+                idx_offset += nv
+                continue
+            # Fan-triangulate: (v0, v1, v2), (v0, v2, v3), ...
+            v0 = face_indices[idx_offset]
+            for k in range(1, nv - 1):
+                v1 = face_indices[idx_offset + k]
+                v2 = face_indices[idx_offset + k + 1]
+                a = world_pts[v0]
+                b = world_pts[v1]
+                c = world_pts[v2]
+                # 2D cross product = 2 * signed area
+                area = abs((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])) / 2.0
+                if area > 1e-8:
+                    triangles.append((a, b, c, area))
+            idx_offset += nv
+
+    return triangles
+
+
+def _sample_interior_points(triangles, num_points=500):
+    """Sample uniformly distributed interior points from floor triangles.
+
+    Uses area-weighted triangle selection + barycentric sampling to get
+    a uniform distribution across the walkable floor surface.
+    """
+    if not triangles:
+        return []
+
+    areas = [t[3] for t in triangles]
+    total_area = sum(areas)
+    if total_area < 1e-8:
+        return []
+
+    # Cumulative distribution for area-weighted sampling
+    cum_areas = []
+    running = 0.0
+    for a in areas:
+        running += a
+        cum_areas.append(running)
+
+    points = []
+    for _ in range(num_points):
+        # Pick triangle weighted by area
+        r = random.uniform(0, total_area)
+        tri_idx = 0
+        for i, ca in enumerate(cum_areas):
+            if r <= ca:
+                tri_idx = i
+                break
+        a, b, c, _ = triangles[tri_idx]
+
+        # Barycentric sampling: uniform interior point
+        r1 = random.random()
+        r2 = random.random()
+        sqrt_r1 = math.sqrt(r1)
+        px = (1 - sqrt_r1) * a[0] + sqrt_r1 * (1 - r2) * b[0] + sqrt_r1 * r2 * c[0]
+        py = (1 - sqrt_r1) * a[1] + sqrt_r1 * (1 - r2) * b[1] + sqrt_r1 * r2 * c[1]
+        points.append([round(px, 3), round(py, 3)])
+
+    return points
+
+
+SPAWN_POINTS_PER_SCENE = 500
+
+
 def _recompute_metadata(stage, root_path):
-    """Recompute floor bbox after centering for metadata."""
-    # Need to update the stage for transforms to take effect
+    """Recompute floor bbox and sample interior spawn points after centering."""
     omni.kit.app.get_app().update()
     x_range_c, y_range_c, floor_z_c = compute_floor_bbox(stage, root_path)
+
+    # Extract triangles from all floor meshes and sample interior points
+    triangles = _extract_floor_triangles(stage, root_path)
+    spawn_points_xy = _sample_interior_points(triangles, SPAWN_POINTS_PER_SCENE)
+    num_floors = len(find_floor_prims(stage, root_path))
+
     return {
         "x_min": round(x_range_c[0], 3),
         "x_max": round(x_range_c[1], 3),
         "y_min": round(y_range_c[0], 3),
         "y_max": round(y_range_c[1], 3),
         "floor_z": round(floor_z_c, 3),
+        "num_floors": num_floors,
+        "num_floor_triangles": len(triangles),
+        "spawn_points_xy": spawn_points_xy,
     }
 
 
@@ -169,27 +312,31 @@ def process_room(room_usd_path: Path, export_path: Path, dry_run: bool = False):
     stage = ctx.get_stage()
     omni.kit.app.get_app().update()
 
-    # Create root prim and add room as reference
+    # Create two-level hierarchy:
+    #   /Environment (Xform) -- becomes defaultPrim; spawner writes translate(0,0,0) here
+    #   /Environment/Geometry (Xform) -- room reference + centering xform (survives spawner)
     root_path = "/Environment"
-    root_prim = stage.DefinePrim(root_path, "Xform")
+    geom_path = "/Environment/Geometry"
+    stage.DefinePrim(root_path, "Xform")
+    geom_prim = stage.DefinePrim(geom_path, "Xform")
     abs_path = str(room_usd_path.resolve())
-    root_prim.GetReferences().AddReference(abs_path)
+    geom_prim.GetReferences().AddReference(abs_path)
     omni.kit.app.get_app().update()
     omni.kit.app.get_app().update()
 
-    # Step 1: Add collision and hide ceilings
-    mesh_count, hidden_count, skipped_count = setup_collision_and_hide_ceiling(stage, root_path)
+    # Step 1: Add collision and hide ceilings (traverse under Geometry)
+    mesh_count, hidden_count, skipped_count = setup_collision_and_hide_ceiling(stage, geom_path)
     print(f"  Collision applied to {mesh_count} meshes, hidden {hidden_count} ceiling prims, skipped {skipped_count} empty meshes")
 
-    # Step 2: Compute pre-centering bbox
-    x_range, y_range, floor_z = compute_floor_bbox(stage, root_path)
+    # Step 2: Compute pre-centering bbox (from floor mesh under Geometry)
+    x_range, y_range, floor_z = compute_floor_bbox(stage, geom_path)
     cx = (x_range[0] + x_range[1]) / 2.0
     cy = (y_range[0] + y_range[1]) / 2.0
     print(f"  Pre-center bbox: X=[{x_range[0]:.1f}, {x_range[1]:.1f}], Y=[{y_range[0]:.1f}, {y_range[1]:.1f}], Z={floor_z:.3f}")
     print(f"  Center offset: ({-cx:.3f}, {-cy:.3f}, {-floor_z:.3f})")
 
-    # Step 3: Center at origin
-    metadata = center_at_origin(stage, root_path)
+    # Step 3: Center at origin (centering xform goes on /Environment/Geometry)
+    metadata = center_at_origin(stage, geom_path)
     print(f"  Post-center bbox: {metadata}")
 
     if dry_run:
@@ -236,7 +383,13 @@ def main():
     print(f"Summary: processed {len(results)} rooms")
     print(f"{'='*60}")
     for name, meta in sorted(results.items()):
-        print(f"  {name}: {meta}")
+        npts = len(meta.get("spawn_points_xy", []))
+        nfloors = meta.get("num_floors", 1)
+        ntris = meta.get("num_floor_triangles", 0)
+        print(f"  {name}: floor=[{meta['x_min']:.1f},{meta['x_max']:.1f}]x"
+              f"[{meta['y_min']:.1f},{meta['y_max']:.1f}], "
+              f"floor_z={meta['floor_z']:.2f}, "
+              f"{nfloors} floor(s), {ntris} tris, {npts} spawn pts")
 
     # Filter out degenerate scenes (corrupted geometry with extreme bbox values)
     MAX_ROOM_EXTENT = 50.0  # no real room exceeds 50m in any dimension
@@ -271,7 +424,7 @@ def main():
     # For each scene, the spawn area is the smaller of its x/y half-extents.
     # The global conservative range uses the minimum half-extent across all scenes
     # applied symmetrically to both axes, so robots always fit in any room.
-    ROBOT_INSET = 0.5  # extra safety margin beyond bbox inset
+    ROBOT_INSET = 0.25  # safety margin for robot half-width (~0.2m)
     half_extents = []
     for m in valid_scenes.values():
         hx = min(abs(m["x_min"]), abs(m["x_max"]))

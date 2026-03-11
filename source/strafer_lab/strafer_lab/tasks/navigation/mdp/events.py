@@ -65,6 +65,62 @@ def reset_robot_state(
     robot.write_root_state_to_sim(root_state, env_ids)
 
 
+# Cache for spawn points tensor (loaded once, reused across resets)
+_spawn_points_cache: dict[str, torch.Tensor] = {}
+
+
+def reset_robot_state_on_floor(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    spawn_points_xy: list[list[float]],
+    yaw_range: tuple[float, float] = (-3.14159, 3.14159),
+) -> None:
+    """Reset robot to a random interior floor position.
+
+    Samples from precomputed interior spawn points (from scenes_metadata.json)
+    generated via area-weighted barycentric sampling of floor mesh triangles.
+    Points are uniformly distributed across all walkable floor surfaces,
+    including multi-room scenes with multiple floor meshes.
+
+    Args:
+        env: The environment instance.
+        env_ids: Indices of environments to reset.
+        spawn_points_xy: List of [x, y] interior floor positions (env-local frame).
+        yaw_range: (min, max) yaw range in radians.
+    """
+    robot = env.scene["robot"]
+    num_resets = len(env_ids)
+    device = env.device
+
+    # Lazy-build and cache the points tensor
+    cache_key = str(id(spawn_points_xy))
+    if cache_key not in _spawn_points_cache or _spawn_points_cache[cache_key].device != device:
+        _spawn_points_cache[cache_key] = torch.tensor(spawn_points_xy, device=device, dtype=torch.float32)
+    pts = _spawn_points_cache[cache_key]
+
+    # Sample random point indices
+    indices = torch.randint(0, len(pts), (num_resets,), device=device)
+    xy = pts[indices]  # (num_resets, 2)
+
+    z = torch.full((num_resets,), 0.1, device=device)
+    yaw = torch.rand(num_resets, device=device) * (yaw_range[1] - yaw_range[0]) + yaw_range[0]
+
+    # Convert yaw to quaternion (w, x, y, z)
+    quat = torch.zeros(num_resets, 4, device=device)
+    quat[:, 0] = torch.cos(yaw / 2)
+    quat[:, 3] = torch.sin(yaw / 2)
+
+    root_state = robot.data.default_root_state[env_ids].clone()
+    env_origins = env.scene.env_origins[env_ids]
+    root_state[:, 0] = env_origins[:, 0] + xy[:, 0]
+    root_state[:, 1] = env_origins[:, 1] + xy[:, 1]
+    root_state[:, 2] = env_origins[:, 2] + z
+    root_state[:, 3:7] = quat
+    root_state[:, 7:] = 0.0
+
+    robot.write_root_state_to_sim(root_state, env_ids)
+
+
 def randomize_friction(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,

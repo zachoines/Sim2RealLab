@@ -155,6 +155,18 @@ def _get_scene_spawn_ranges() -> dict:
     return meta["conservative_spawn"]
 
 
+def _get_scenes_metadata() -> dict | None:
+    """Load full scenes metadata including per-scene spawn points.
+
+    Returns the full metadata dict, or None if not found.
+    """
+    meta_path = SCENE_USD_DIR / "scenes_metadata.json"
+    if not meta_path.is_file():
+        return None
+    return json.loads(meta_path.read_text())
+
+
+
 
 
 # =============================================================================
@@ -1070,11 +1082,11 @@ class RewardsCfg_ProcScene:
     action_smoothness = RewTerm(func=mdp.action_smoothness_penalty, weight=-0.05)
 
 
-# Structural event for ProcScene: tighter robot spawn to stay in navigable core
+# Structural event for ProcScene: spawn on interior floor points
 _RESET_ROBOT_PROCSCENE = EventTerm(
-    func=mdp.reset_robot_state,
+    func=mdp.reset_robot_state_on_floor,
     mode="reset",
-    params={"pose_range": {"x": (-1.5, 1.5), "y": (-1.5, 1.5), "yaw": (-math.pi, math.pi)}},
+    params={"spawn_points_xy": [], "yaw_range": (-math.pi, math.pi)},  # populated in __post_init__
 )
 
 
@@ -1427,7 +1439,7 @@ class StraferNavEnvCfg_Robust_NoCam_PLAY(StraferNavEnvCfg_Robust_NoCam):
 @configclass
 class StraferNavEnvCfg_Real_ProcDepth(ManagerBasedRLEnvCfg):
     """Realistic Depth with procedural Infinigen scene geometry."""
-    scene: StraferSceneCfg_ProcScene = StraferSceneCfg_ProcScene(num_envs=24, env_spacing=8.0)
+    scene: StraferSceneCfg_ProcScene = StraferSceneCfg_ProcScene(num_envs=24, env_spacing=15.0)
     actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
     observations: ObsCfg_Depth_Realistic = ObsCfg_Depth_Realistic()
     commands: CommandsCfg_ProcScene = CommandsCfg_ProcScene()
@@ -1443,12 +1455,19 @@ class StraferNavEnvCfg_Real_ProcDepth(ManagerBasedRLEnvCfg):
         self.decimation = 4
         self.episode_length_s = 20.0
         self.scene.scene_geometry.spawn.usd_path = _get_scene_usd_paths()
-        # Override spawn/goal ranges from scene metadata
-        ranges = _get_scene_spawn_ranges()
-        self.events.reset_robot.params["pose_range"]["x"] = tuple(ranges["x"])
-        self.events.reset_robot.params["pose_range"]["y"] = tuple(ranges["y"])
-        self.commands.goal_command.goal_range.pos_x = tuple(ranges["x"])
-        self.commands.goal_command.goal_range.pos_y = tuple(ranges["y"])
+        # Load spawn points and goal ranges from metadata
+        meta = _get_scenes_metadata()
+        if meta:
+            # Pool interior spawn points from all scenes
+            all_pts = []
+            for scene_data in meta["scenes"].values():
+                all_pts.extend(scene_data.get("spawn_points_xy", []))
+            if all_pts:
+                self.events.reset_robot.params["spawn_points_xy"] = all_pts
+            # Use conservative ranges for goal placement
+            ranges = meta["conservative_spawn"]
+            self.commands.goal_command.goal_range.pos_x = tuple(ranges["x"])
+            self.commands.goal_command.goal_range.pos_y = tuple(ranges["y"])
 
 
 @configclass
@@ -1462,7 +1481,7 @@ class StraferNavEnvCfg_Real_ProcDepth_PLAY(StraferNavEnvCfg_Real_ProcDepth):
 @configclass
 class StraferNavEnvCfg_Robust_ProcDepth(ManagerBasedRLEnvCfg):
     """Robust Depth with procedural Infinigen scene geometry."""
-    scene: StraferSceneCfg_ProcScene = StraferSceneCfg_ProcScene(num_envs=24, env_spacing=8.0)
+    scene: StraferSceneCfg_ProcScene = StraferSceneCfg_ProcScene(num_envs=24, env_spacing=15.0)
     actions: ActionsCfg_Robust = ActionsCfg_Robust()
     observations: ObsCfg_Depth_Robust = ObsCfg_Depth_Robust()
     commands: CommandsCfg_ProcScene = CommandsCfg_ProcScene()
@@ -1478,12 +1497,17 @@ class StraferNavEnvCfg_Robust_ProcDepth(ManagerBasedRLEnvCfg):
         self.decimation = 4
         self.episode_length_s = 20.0
         self.scene.scene_geometry.spawn.usd_path = _get_scene_usd_paths()
-        # Override spawn/goal ranges from scene metadata
-        ranges = _get_scene_spawn_ranges()
-        self.events.reset_robot.params["pose_range"]["x"] = tuple(ranges["x"])
-        self.events.reset_robot.params["pose_range"]["y"] = tuple(ranges["y"])
-        self.commands.goal_command.goal_range.pos_x = tuple(ranges["x"])
-        self.commands.goal_command.goal_range.pos_y = tuple(ranges["y"])
+        # Load spawn points and goal ranges from metadata
+        meta = _get_scenes_metadata()
+        if meta:
+            all_pts = []
+            for scene_data in meta["scenes"].values():
+                all_pts.extend(scene_data.get("spawn_points_xy", []))
+            if all_pts:
+                self.events.reset_robot.params["spawn_points_xy"] = all_pts
+            ranges = meta["conservative_spawn"]
+            self.commands.goal_command.goal_range.pos_x = tuple(ranges["x"])
+            self.commands.goal_command.goal_range.pos_y = tuple(ranges["y"])
 
 
 @configclass

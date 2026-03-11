@@ -90,6 +90,7 @@ from .terminations import robot_flipped, goal_reached
 # Custom events
 from .events import (
     reset_robot_state,
+    reset_robot_state_on_floor,
     randomize_friction,
     randomize_obstacles,
     randomize_mass,

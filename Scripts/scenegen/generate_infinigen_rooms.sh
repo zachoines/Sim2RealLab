@@ -52,6 +52,7 @@ WINDOWS_COPY="${WINDOWS_COPY:-1}"
 # Quality presets:
 #   QUALITY=fast    — singleroom + fast_solve + overhead (default, ~3 min/room)
 #   QUALITY=high    — singleroom + full solver (~30-60 min/room)
+#   QUALITY=multi   — multi-room apartment + fast_solve (~10-15 min/seed)
 #   QUALITY=full    — full apartment + full solver + terrain (~2+ hr/room)
 QUALITY="${QUALITY:-fast}"
 
@@ -63,6 +64,13 @@ case "${QUALITY}" in
     high)
         # Full solver (no fast_solve), singleroom layout
         GIN_CONFIGS="overhead singleroom"
+        GIN_OVERRIDES="compose_indoors.terrain_enabled=False"
+        ;;
+    multi)
+        # Multi-room apartment with fast solver (no singleroom constraint)
+        # Generates layouts with multiple connected rooms (bedroom, bathroom,
+        # kitchen, hallway, etc.) for training on diverse multi-floor scenes.
+        GIN_CONFIGS="fast_solve overhead"
         GIN_OVERRIDES="compose_indoors.terrain_enabled=False"
         ;;
     full)

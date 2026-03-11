@@ -436,6 +436,8 @@ python -m infinigen.tools.export \
 ### 10.1b Batch Generation
 
 ```bash
+
+
 # Option A — shell script (sequential, one room at a time):
 bash /mnt/c/Worspace/Scripts/scenegen/generate_infinigen_rooms.sh
 
@@ -453,13 +455,13 @@ cd ~/infinigen
 
 python -m infinigen.datagen.manage_jobs \
   --output_folder ~/infinigen_batch \
-  --num_scenes 10 \
+  --num_scenes 2 \
   --pipeline_configs local_16GB.gin monocular.gin export.gin \
-  --configs singleroom.gin fast_solve.gin overhead.gin \
+  --configs fast_solve.gin overhead.gin studio.gin \
   --pipeline_overrides \
     get_cmd.driver_script='infinigen_examples.generate_indoors' \
     manage_datagen_jobs.num_concurrent=2 \
-    LocalScheduleHandler.use_gpu=False \
+    LocalScheduleHandler.use_gpu=True \
     "iterate_scene_tasks.global_tasks=[{'name':'coarse','func':@queue_coarse}]" \
     "iterate_scene_tasks.camera_dependent_tasks=[]" \
   --overrides compose_indoors.terrain_enabled=False \

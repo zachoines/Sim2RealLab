@@ -141,20 +141,6 @@ def _get_scene_usd_paths() -> list[str]:
     return paths
 
 
-def _get_scene_spawn_ranges() -> dict:
-    """Load conservative spawn/goal ranges from scenes_metadata.json.
-
-    Returns dict with 'x' and 'y' keys, each a (min, max) tuple representing
-    the safe spawn area that fits within ALL processed scenes.
-    Falls back to (-1.5, 1.5) if metadata not found.
-    """
-    meta_path = SCENE_USD_DIR / "scenes_metadata.json"
-    if not meta_path.is_file():
-        return {"x": (-1.5, 1.5), "y": (-1.5, 1.5)}
-    meta = json.loads(meta_path.read_text())
-    return meta["conservative_spawn"]
-
-
 def _get_scenes_metadata() -> dict | None:
     """Load full scenes metadata including per-scene spawn points.
 
@@ -1464,10 +1450,8 @@ class StraferNavEnvCfg_Real_ProcDepth(ManagerBasedRLEnvCfg):
                 all_pts.extend(scene_data.get("spawn_points_xy", []))
             if all_pts:
                 self.events.reset_robot.params["spawn_points_xy"] = all_pts
-            # Use conservative ranges for goal placement
-            ranges = meta["conservative_spawn"]
-            self.commands.goal_command.goal_range.pos_x = tuple(ranges["x"])
-            self.commands.goal_command.goal_range.pos_y = tuple(ranges["y"])
+                # Goals sample from same floor points as robot
+                self.commands.goal_command.spawn_points_xy = all_pts
 
 
 @configclass
@@ -1505,9 +1489,8 @@ class StraferNavEnvCfg_Robust_ProcDepth(ManagerBasedRLEnvCfg):
                 all_pts.extend(scene_data.get("spawn_points_xy", []))
             if all_pts:
                 self.events.reset_robot.params["spawn_points_xy"] = all_pts
-            ranges = meta["conservative_spawn"]
-            self.commands.goal_command.goal_range.pos_x = tuple(ranges["x"])
-            self.commands.goal_command.goal_range.pos_y = tuple(ranges["y"])
+                # Goals sample from same floor points as robot
+                self.commands.goal_command.spawn_points_xy = all_pts
 
 
 @configclass

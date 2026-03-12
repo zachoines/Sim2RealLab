@@ -39,6 +39,11 @@ class GoalCommand(CommandTerm):
         self._distance_to_goal = torch.zeros(env.num_envs, device=env.device)
         self._goal_reached_count = torch.zeros(env.num_envs, device=env.device)
 
+        # Build spawn points tensor if provided (for ProcScene goal placement)
+        self._spawn_points: torch.Tensor | None = None
+        if cfg.spawn_points_xy:
+            self._spawn_points = torch.tensor(cfg.spawn_points_xy, device=env.device, dtype=torch.float32)
+
         # Call parent constructor (this calls reset which uses _goal)
         super().__init__(cfg, env)
 
@@ -73,8 +78,10 @@ class GoalCommand(CommandTerm):
         """Resample goal positions for specified environments.
 
         Ensures goals are at least ``cfg.min_goal_distance`` from the robot.
-        Uses rejection sampling with a fixed number of attempts, then falls
-        back to placing the goal at min distance along a random direction.
+        When ``spawn_points_xy`` is configured, samples from precomputed floor
+        positions (ProcScene). Otherwise uses uniform box sampling with
+        rejection for min distance, falling back to min distance along a
+        random direction.
 
         Args:
             env_ids: Environment indices to resample commands for.
@@ -93,8 +100,80 @@ class GoalCommand(CommandTerm):
         env_origins = self._env.scene.env_origins[env_ids, :2]
         min_dist = self.cfg.min_goal_distance
 
-        # Rejection sampling (up to 10 attempts)
-        # Goals are sampled in env-local frame then converted to world frame
+        if self._spawn_points is not None:
+            # Sample from precomputed spawn points (env-local frame)
+            goal_x, goal_y = self._resample_from_spawn_points(
+                num_resets, robot_pos, env_origins, min_dist
+            )
+        else:
+            # Uniform box sampling with rejection
+            goal_x, goal_y = self._resample_from_range(
+                num_resets, robot_pos, env_origins, min_dist
+            )
+
+        self._goal[env_ids, 0] = goal_x
+        self._goal[env_ids, 1] = goal_y
+
+        # Sample random desired heading in [-pi, pi]
+        heading_range = self.cfg.goal_range.heading
+        self._goal[env_ids, 2] = (
+            torch.rand(num_resets, device=self.device)
+            * (heading_range[1] - heading_range[0])
+            + heading_range[0]
+        )
+
+    def _resample_from_spawn_points(
+        self,
+        num_resets: int,
+        robot_pos: torch.Tensor,
+        env_origins: torch.Tensor,
+        min_dist: float,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Sample goals from precomputed spawn points with min-distance rejection."""
+        pts = self._spawn_points
+        accepted = torch.zeros(num_resets, dtype=torch.bool, device=self.device)
+        goal_x = torch.zeros(num_resets, device=self.device)
+        goal_y = torch.zeros(num_resets, device=self.device)
+
+        for _ in range(10):
+            remaining = ~accepted
+            n_remaining = remaining.sum().item()
+            if n_remaining == 0:
+                break
+
+            indices = torch.randint(0, len(pts), (n_remaining,), device=self.device)
+            xy_local = pts[indices]  # (n_remaining, 2)
+
+            x_world = xy_local[:, 0] + env_origins[remaining, 0]
+            y_world = xy_local[:, 1] + env_origins[remaining, 1]
+            candidates = torch.stack([x_world, y_world], dim=-1)
+            dist = torch.norm(candidates - robot_pos[remaining], dim=-1)
+            far_enough = dist >= min_dist
+
+            remaining_indices = torch.where(remaining)[0]
+            newly_accepted = remaining_indices[far_enough]
+            goal_x[newly_accepted] = x_world[far_enough]
+            goal_y[newly_accepted] = y_world[far_enough]
+            accepted[newly_accepted] = True
+
+        # Fallback: place remaining goals at min_dist in a random direction from robot
+        remaining = ~accepted
+        if remaining.any():
+            n = remaining.sum().item()
+            angle = torch.rand(n, device=self.device) * (2.0 * math.pi)
+            goal_x[remaining] = robot_pos[remaining, 0] + min_dist * torch.cos(angle)
+            goal_y[remaining] = robot_pos[remaining, 1] + min_dist * torch.sin(angle)
+
+        return goal_x, goal_y
+
+    def _resample_from_range(
+        self,
+        num_resets: int,
+        robot_pos: torch.Tensor,
+        env_origins: torch.Tensor,
+        min_dist: float,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Sample goals uniformly within goal_range with min-distance rejection."""
         accepted = torch.zeros(num_resets, dtype=torch.bool, device=self.device)
         goal_x = torch.zeros(num_resets, device=self.device)
         goal_y = torch.zeros(num_resets, device=self.device)
@@ -132,16 +211,7 @@ class GoalCommand(CommandTerm):
             goal_x[remaining] = robot_pos[remaining, 0] + min_dist * torch.cos(angle)
             goal_y[remaining] = robot_pos[remaining, 1] + min_dist * torch.sin(angle)
 
-        self._goal[env_ids, 0] = goal_x
-        self._goal[env_ids, 1] = goal_y
-
-        # Sample random desired heading in [-pi, pi]
-        heading_range = self.cfg.goal_range.heading
-        self._goal[env_ids, 2] = (
-            torch.rand(num_resets, device=self.device)
-            * (heading_range[1] - heading_range[0])
-            + heading_range[0]
-        )
+        return goal_x, goal_y
 
     def _update_command(self):
         """Check for goal reach and resample a new goal mid-episode.
@@ -307,6 +377,11 @@ class GoalCommandCfg(CommandTermCfg):
     goal_reach_cooldown_s: float = 0.5
     """Seconds to wait after resampling before checking goal reach again.
     Prevents double-counting on consecutive steps."""
+
+    spawn_points_xy: list[list[float]] | None = None
+    """Precomputed valid floor positions for goal sampling (env-local frame).
+    When provided (ProcScene), goals are sampled from these points instead of
+    the uniform goal_range box. Set from scenes_metadata.json at config time."""
 
     debug_vis: bool = False
     """Whether to visualize goal positions."""

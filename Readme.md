@@ -69,6 +69,14 @@ The Isaac Lab environment is feature-complete: 18 gym environment variants (3 re
   <em>Test drive in Isaac Lab — <a href="docs/artifacts/strafer_isaac_lab_test_drive.mp4">watch video</a></em>
 </p>
 
+<p align="center">
+  <a href="docs/artifacts/strafer_infinitygen_scene.mp4">
+    <img src="docs/artifacts/strafer_infinitygen_thumbnail.png" alt="Click to view Infinigen scene video" width="50%"/>
+  </a>
+  <br/>
+  <em>Robot in a procedurally generated Infinigen apartment — <a href="docs/artifacts/strafer_infinitygen_scene.mp4">watch video</a></em>
+</p>
+
 ### Hardware
 
 All hardware is wired, tested, and operational. The ROS2 driver, perception pipeline, URDF, SLAM config, and Nav2 config are complete. The robot can be teleoperated and produces odometry, IMU data, and depth images.

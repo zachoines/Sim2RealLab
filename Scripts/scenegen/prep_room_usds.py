@@ -31,6 +31,8 @@ import random
 import sys
 from pathlib import Path
 
+from strafer_shared.constants import CHASSIS_LENGTH
+
 # Parse args before Isaac Sim launch
 parser = argparse.ArgumentParser(description="Prepare Infinigen room USDs for training")
 parser.add_argument(
@@ -75,6 +77,10 @@ from pxr import Gf, Usd, UsdGeom, UsdPhysics
 # =============================================================================
 
 SPAWN_POINTS_PER_SCENE = 500
+SPAWN_OVERSAMPLE_FACTOR = 5  # sample 5x candidates, filter down to target
+
+# Robot clearance
+ROBOT_INSET = CHASSIS_LENGTH / 2.0  # half longest dimension as spawn clearance radius
 
 # Collision tier thresholds
 ELEVATED_Z_OFFSET = 0.50  # objects with bottom Z above floor_z + this get no collision
@@ -534,15 +540,151 @@ def _sample_interior_points(triangles, num_points=500):
     return points
 
 
+def _collect_obstacle_aabbs_xy(stage, root_path, floor_z=0.0, clearance=0.25):
+    """Collect 2D (XY) AABBs of ground-level obstacle meshes, inflated by clearance.
+
+    Identifies meshes that would block robot spawning — the same prims classified
+    as 'ground_obstacle' or 'small_ground' by classify_and_set_collision().
+    Each AABB is inflated by `clearance` (robot half-width) so a simple point-in-box
+    test is equivalent to checking robot-footprint overlap.
+
+    Args:
+        stage: The USD stage (post-centering).
+        root_path: Root prim path to traverse.
+        floor_z: Z coordinate of the floor.
+        clearance: Inflation radius in meters (robot half-width).
+
+    Returns:
+        List of (x_min, x_max, y_min, y_max) tuples, each inflated by clearance.
+    """
+    root_prim = stage.GetPrimAtPath(root_path)
+    if not root_prim or not root_prim.IsValid():
+        return []
+
+    bbox_cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), ["default"])
+    elevated_z = floor_z + ELEVATED_Z_OFFSET
+    aabbs = []
+
+    for prim in Usd.PrimRange(root_prim):
+        if not prim.IsA(UsdGeom.Mesh):
+            continue
+        points = UsdGeom.Mesh(prim).GetPointsAttr().Get()
+        if not points or len(points) == 0:
+            continue
+
+        name_lower = prim.GetName().lower()
+
+        # Skip structural (floor/wall) — wall AABBs span the entire room
+        # perimeter so point-in-box would reject all floor points. Wall clearance
+        # is handled separately via floor bbox inset.
+        if any(p in name_lower for p in STRUCTURAL_PATTERNS) and "top_wall" not in name_lower:
+            continue
+
+        bbox = bbox_cache.ComputeWorldBound(prim)
+        rng = bbox.ComputeAlignedRange()
+        lo = rng.GetMin()
+        hi = rng.GetMax()
+        bottom_z = lo[2]
+
+        # Skip elevated/ceiling/decorative — above robot height
+        if any(p in name_lower for p in NO_COLLISION_PATTERNS) or bottom_z >= elevated_z:
+            continue
+
+        # Ground-level obstacle — add inflated XY AABB
+        aabbs.append((
+            lo[0] - clearance,
+            hi[0] + clearance,
+            lo[1] - clearance,
+            hi[1] + clearance,
+        ))
+
+    return aabbs
+
+
+def _filter_spawn_points(points, obstacle_aabbs, floor_bbox=None, clearance=0.0):
+    """Remove spawn points that fall inside any obstacle AABB or outside floor bounds.
+
+    Since obstacle AABBs are pre-inflated by robot clearance radius, a simple
+    point-in-box test suffices to reject points where the robot footprint
+    would overlap furniture. The floor_bbox + clearance provides wall clearance.
+
+    Args:
+        points: List of [x, y] spawn point coordinates.
+        obstacle_aabbs: List of (x_min, x_max, y_min, y_max) inflated AABBs.
+        floor_bbox: Optional ((x_min, x_max), (y_min, y_max)) floor bounds.
+            Points outside these bounds (shrunk by clearance) are rejected.
+        clearance: Inset distance from floor bbox edges for wall clearance.
+
+    Returns:
+        List of [x, y] points that are free from obstacle overlap.
+    """
+    # Compute floor boundary with wall clearance inset
+    if floor_bbox:
+        fx_min = floor_bbox[0][0] + clearance
+        fx_max = floor_bbox[0][1] - clearance
+        fy_min = floor_bbox[1][0] + clearance
+        fy_max = floor_bbox[1][1] - clearance
+    else:
+        fx_min = fx_max = fy_min = fy_max = None
+
+    valid = []
+    for px, py in points:
+        # Check floor boundary (wall clearance)
+        if fx_min is not None:
+            if px < fx_min or px > fx_max or py < fy_min or py > fy_max:
+                continue
+
+        # Check obstacle AABBs (furniture clearance)
+        blocked = False
+        for x_min, x_max, y_min, y_max in obstacle_aabbs:
+            if x_min <= px <= x_max and y_min <= py <= y_max:
+                blocked = True
+                break
+        if not blocked:
+            valid.append([px, py])
+    return valid
+
+
 def _recompute_metadata(stage, root_path):
     """Recompute floor bbox and sample interior spawn points after centering."""
     omni.kit.app.get_app().update()
     x_range_c, y_range_c, floor_z_c = compute_floor_bbox(stage, root_path)
 
-    # Extract triangles from all floor meshes and sample interior points
+    # Extract triangles from all floor meshes
     triangles = _extract_floor_triangles(stage, root_path)
-    spawn_points_xy = _sample_interior_points(triangles, SPAWN_POINTS_PER_SCENE)
     num_floors = len(find_floor_prims(stage, root_path))
+
+    # Collect ground-level obstacle AABBs (inflated by robot clearance)
+    obstacle_aabbs = _collect_obstacle_aabbs_xy(
+        stage, root_path, floor_z=floor_z_c, clearance=ROBOT_INSET,
+    )
+
+    # Oversample candidates, then filter against obstacles + wall clearance
+    floor_bbox = (x_range_c, y_range_c)
+    num_candidates = SPAWN_POINTS_PER_SCENE * SPAWN_OVERSAMPLE_FACTOR
+    candidates = _sample_interior_points(triangles, num_candidates)
+    spawn_points_xy = _filter_spawn_points(
+        candidates, obstacle_aabbs, floor_bbox=floor_bbox, clearance=ROBOT_INSET,
+    )
+
+    # If too few survived, retry with more candidates
+    if len(spawn_points_xy) < SPAWN_POINTS_PER_SCENE:
+        print(f"  [WARN] Only {len(spawn_points_xy)}/{SPAWN_POINTS_PER_SCENE} spawn points "
+              f"survived filtering (from {num_candidates} candidates). Resampling with 20x...")
+        candidates = _sample_interior_points(triangles, SPAWN_POINTS_PER_SCENE * 20)
+        spawn_points_xy = _filter_spawn_points(
+            candidates, obstacle_aabbs, floor_bbox=floor_bbox, clearance=ROBOT_INSET,
+        )
+
+    if len(spawn_points_xy) < SPAWN_POINTS_PER_SCENE:
+        print(f"  [WARN] Still only {len(spawn_points_xy)} valid spawn points. "
+              f"Scene may be heavily furnished.")
+    else:
+        random.shuffle(spawn_points_xy)
+        spawn_points_xy = spawn_points_xy[:SPAWN_POINTS_PER_SCENE]
+
+    print(f"  Spawn filtering: {len(obstacle_aabbs)} obstacle AABBs, "
+          f"{len(spawn_points_xy)} valid points (from {num_candidates} candidates)")
 
     return {
         "x_min": round(x_range_c[0], 3),
@@ -552,6 +694,7 @@ def _recompute_metadata(stage, root_path):
         "floor_z": round(floor_z_c, 3),
         "num_floors": num_floors,
         "num_floor_triangles": len(triangles),
+        "num_obstacle_aabbs": len(obstacle_aabbs),
         "spawn_points_xy": spawn_points_xy,
     }
 
@@ -727,7 +870,6 @@ def main():
 
     # Compute conservative spawn bounds (intersection of all scene floor areas)
     # with additional robot-radius inset so the robot never spawns at room edges.
-    ROBOT_INSET = 0.25  # safety margin for robot half-width (~0.2m)
     half_extents = []
     for m in scenes.values():
         hx = min(abs(m["x_min"]), abs(m["x_max"]))

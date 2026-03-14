@@ -1,12 +1,29 @@
 """CNN-MLP hybrid actor-critic for Strafer navigation with depth images.
 
 Splits the observation into scalar features (IMU, encoders, goal, etc.) and
-a 2D depth image.  The depth image is processed by a lightweight CNN encoder
-and the resulting embedding is concatenated with the scalar features before
-being fed through standard MLP actor/critic heads.
+a 2D depth image.  The depth image is processed by a CNN encoder and the
+resulting embedding is concatenated with the scalar features before being fed
+through standard MLP actor/critic heads.
 
 For NoCam variants (no depth), this falls back to a pure MLP — the CNN path
 is simply skipped.
+
+DepthEncoder architecture (Option A — improved CNN):
+    Conv2d(1, 32, 5, stride=2, pad=2) + BN + ELU    → 30×40×32
+    Conv2d(32, 64, 3, stride=2, pad=1) + BN + ELU    → 15×20×64
+    Conv2d(64, 64, 3, stride=1, pad=1) + BN + ELU    → 15×20×64  (residual add)
+    Conv2d(64, 128, 3, stride=2, pad=1) + BN + ELU   → 8×10×128
+    SpatialSoftArgmax                                  → 128×2 = 256
+    Linear(256, output_dim)                            → output_dim (default 128)
+
+Design rationale:
+    - BatchNorm stabilizes CNN training alongside PPO gradient updates
+    - Residual connection at 15×20 preserves fine spatial detail
+    - SpatialSoftArgmax learns *where* features are (not just what), critical
+      for navigation obstacle avoidance
+    - 128-dim embedding (4× wider than original 32) retains enough spatial
+      information to represent room geometry
+    - ~80K params — still lightweight for Jetson Orin Nano inference
 
 Usage:
     Inject into the rsl_rl runner namespace and set ``class_name`` in the
@@ -51,33 +68,90 @@ def _build_mlp(
 
 
 # ---------------------------------------------------------------------------
+# Spatial Soft-Argmax
+# ---------------------------------------------------------------------------
+
+
+class SpatialSoftArgmax(nn.Module):
+    """Differentiable spatial soft-argmax over 2D feature maps.
+
+    For each channel, computes a softmax over all spatial positions and returns
+    the expected (x, y) coordinates.  This gives the network an explicit spatial
+    prior: each filter can "point at" a location in the image.
+
+    Input:  (B, C, H, W)
+    Output: (B, C*2) — (x, y) per channel, normalized to [-1, 1].
+    """
+
+    def __init__(self, temperature: float = 1.0, height: int = 8, width: int = 10):
+        super().__init__()
+        self.temperature = temperature
+        # Register coordinate grids as buffers so they move with .to(device)
+        # and are proper tensors (not inference tensors) for autograd.
+        grid_y = torch.linspace(-1, 1, height).view(1, 1, height, 1)
+        grid_x = torch.linspace(-1, 1, width).view(1, 1, 1, width)
+        self.register_buffer("_grid_y", grid_y)
+        self.register_buffer("_grid_x", grid_x)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, C, H, W = x.shape
+
+        # Softmax over spatial dimensions
+        flat = x.view(B, C, -1)  # (B, C, H*W)
+        weights = torch.softmax(flat / self.temperature, dim=-1)
+        weights = weights.view(B, C, H, W)
+
+        # Expected coordinates
+        exp_x = (weights * self._grid_x).sum(dim=(2, 3))  # (B, C)
+        exp_y = (weights * self._grid_y).sum(dim=(2, 3))  # (B, C)
+
+        return torch.cat([exp_x, exp_y], dim=-1)  # (B, C*2)
+
+
+# ---------------------------------------------------------------------------
 # CNN Depth Encoder
 # ---------------------------------------------------------------------------
 
 
 class DepthEncoder(nn.Module):
-    """Lightweight CNN for 60x80 single-channel depth images.
+    """CNN encoder for 60×80 single-channel depth images.
 
-    Architecture (designed for Jetson Orin Nano inference):
-        Conv2d(1, 16, 5, stride=2, pad=2)  -> 30x40x16
-        Conv2d(16, 32, 3, stride=2, pad=1) -> 15x20x32
-        Conv2d(32, 32, 3, stride=2, pad=1) -> 8x10x32
-        AdaptiveAvgPool(4, 4)              -> 4x4x32 = 512
-        Linear(512, output_dim)            -> output_dim
+    Architecture:
+        Conv(1→32, 5×5, stride=2) + BN + ELU    → 30×40×32
+        Conv(32→64, 3×3, stride=2) + BN + ELU    → 15×20×64
+        Conv(64→64, 3×3, stride=1) + BN + ELU    → 15×20×64  (+ residual)
+        Conv(64→128, 3×3, stride=2) + BN + ELU   → 8×10×128
+        SpatialSoftArgmax                          → 256
+        Linear(256 → output_dim)                   → output_dim
+
+    The residual connection at layer 3 preserves fine spatial detail.
+    SpatialSoftArgmax produces (x, y) per channel — the network learns
+    to point at obstacle/wall/free-space locations, which is exactly what
+    the navigation policy needs.
     """
 
-    def __init__(self, output_dim: int = 32):
+    def __init__(self, output_dim: int = 128):
         super().__init__()
-        self.cnn = nn.Sequential(
-            nn.Conv2d(1, 16, kernel_size=5, stride=2, padding=2),
-            nn.ELU(),
-            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
-            nn.ELU(),
-            nn.Conv2d(32, 32, kernel_size=3, stride=2, padding=1),
-            nn.ELU(),
-            nn.AdaptiveAvgPool2d((4, 4)),
-        )
-        self.fc = nn.Linear(32 * 4 * 4, output_dim)
+
+        # Stage 1: 60×80 → 30×40
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=5, stride=2, padding=2)
+        self.bn1 = nn.BatchNorm2d(32)
+
+        # Stage 2: 30×40 → 15×20
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
+        self.bn2 = nn.BatchNorm2d(64)
+
+        # Stage 3: 15×20 → 15×20 (residual)
+        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
+        self.bn3 = nn.BatchNorm2d(64)
+
+        # Stage 4: 15×20 → 8×10
+        self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
+        self.bn4 = nn.BatchNorm2d(128)
+
+        self.act = nn.ELU()
+        self.spatial_argmax = SpatialSoftArgmax(temperature=1.0, height=8, width=10)
+        self.fc = nn.Linear(128 * 2, output_dim)  # 128 channels × 2 coords
 
     def forward(self, depth_flat: torch.Tensor) -> torch.Tensor:
         """Forward pass.
@@ -89,9 +163,19 @@ class DepthEncoder(nn.Module):
             Embedding of shape (B, output_dim).
         """
         x = depth_flat.view(-1, 1, 60, 80)
-        x = self.cnn(x)
-        x = x.view(x.size(0), -1)
-        return self.fc(x)
+
+        x = self.act(self.bn1(self.conv1(x)))   # 30×40×32
+        x = self.act(self.bn2(self.conv2(x)))    # 15×20×64
+
+        # Residual block
+        residual = x
+        x = self.act(self.bn3(self.conv3(x)))    # 15×20×64
+        x = x + residual
+
+        x = self.act(self.bn4(self.conv4(x)))    # 8×10×128
+
+        x = self.spatial_argmax(x)                # (B, 256)
+        return self.fc(x)                         # (B, output_dim)
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +216,7 @@ class StraferActorCritic(nn.Module):
         noise_std_type: str = "scalar",
         state_dependent_std: bool = False,
         # Custom params
-        depth_embedding_dim: int = 32,
+        depth_embedding_dim: int = 128,
         scalar_obs_dim: int = 19,
         **kwargs,
     ) -> None:

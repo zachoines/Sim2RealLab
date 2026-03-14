@@ -323,7 +323,7 @@ def collision_sustained_penalty(
 # ---------------------------------------------------------------------------
 # Scene-geometry collision rewards
 # ---------------------------------------------------------------------------
-# Intended for ProcScene configs where scene geometry has variable/unknown mesh prims.
+# Intended for Infinigen configs where scene geometry has variable/unknown mesh prims.
 
 
 def collision_penalty_net(

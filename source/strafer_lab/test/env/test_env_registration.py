@@ -3,7 +3,7 @@
 
 """Tests for Gymnasium environment registration.
 
-Strafer Lab registers 22 environment variants in
+Strafer Lab registers 30 environment variants in
 ``strafer_lab.tasks.navigation.__init__``.  These tests verify:
 
 1. Every expected environment ID appears in ``gymnasium.envs.registry``.
@@ -25,7 +25,7 @@ import strafer_lab.tasks.navigation  # noqa: F401
 
 
 # =====================================================================
-# Expected environment IDs (9 configs × Train + Play = 18)
+# Expected environment IDs (15 configs × Train + Play = 30)
 # =====================================================================
 
 EXPECTED_ENVS = [
@@ -50,11 +50,20 @@ EXPECTED_ENVS = [
     "Isaac-Strafer-Nav-Robust-Depth-Play-v0",
     "Isaac-Strafer-Nav-Robust-NoCam-v0",
     "Isaac-Strafer-Nav-Robust-NoCam-Play-v0",
-    # Proc-scene (Phase 6 - procedural scene obstacles)
-    "Isaac-Strafer-Nav-Real-ProcDepth-v0",
-    "Isaac-Strafer-Nav-Real-ProcDepth-Play-v0",
-    "Isaac-Strafer-Nav-Robust-ProcDepth-v0",
-    "Isaac-Strafer-Nav-Robust-ProcDepth-Play-v0",
+    # Infinigen (Infinigen scene geometry)
+    "Isaac-Strafer-Nav-Real-InfinigenDepth-v0",
+    "Isaac-Strafer-Nav-Real-InfinigenDepth-Play-v0",
+    "Isaac-Strafer-Nav-Robust-InfinigenDepth-v0",
+    "Isaac-Strafer-Nav-Robust-InfinigenDepth-Play-v0",
+    # ProcRoom (procedural primitive rooms)
+    "Isaac-Strafer-Nav-Real-ProcRoom-NoCam-v0",
+    "Isaac-Strafer-Nav-Real-ProcRoom-NoCam-Play-v0",
+    "Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0",
+    "Isaac-Strafer-Nav-Real-ProcRoom-Depth-Play-v0",
+    "Isaac-Strafer-Nav-Robust-ProcRoom-NoCam-v0",
+    "Isaac-Strafer-Nav-Robust-ProcRoom-NoCam-Play-v0",
+    "Isaac-Strafer-Nav-Robust-ProcRoom-Depth-v0",
+    "Isaac-Strafer-Nav-Robust-ProcRoom-Depth-Play-v0",
 ]
 
 
@@ -84,7 +93,7 @@ def test_env_entry_point(env_id: str):
 
 
 def test_expected_env_count():
-    """Verify exactly 22 Strafer environments are registered."""
+    """Verify exactly 30 Strafer environments are registered."""
     strafer_envs = [
         eid for eid in gym.envs.registry
         if eid.startswith("Isaac-Strafer-Nav")
@@ -93,8 +102,8 @@ def test_expected_env_count():
     for eid in sorted(strafer_envs):
         print(f"    {eid}")
 
-    assert len(strafer_envs) == 22, (
-        f"Expected 22 Strafer env registrations, found {len(strafer_envs)}"
+    assert len(strafer_envs) == 30, (
+        f"Expected 30 Strafer env registrations, found {len(strafer_envs)}"
     )
 
 
@@ -105,7 +114,8 @@ def test_expected_env_count():
 _IDEAL_ENVS = [e for e in EXPECTED_ENVS if "Real" not in e and "Robust" not in e]
 _REAL_ENVS = [e for e in EXPECTED_ENVS if "Real" in e]
 _ROBUST_ENVS = [e for e in EXPECTED_ENVS if "Robust" in e]
-_PROC_ENVS = [e for e in EXPECTED_ENVS if "ProcDepth" in e]
+_INFINIGEN_ENVS = [e for e in EXPECTED_ENVS if "InfinigenDepth" in e]
+_PROCROOM_ENVS = [e for e in EXPECTED_ENVS if "ProcRoom" in e]
 
 
 def test_ideal_tier_count():
@@ -114,18 +124,23 @@ def test_ideal_tier_count():
 
 
 def test_realistic_tier_count():
-    """8 Realistic-tier environments (3 sensor + 1 ProcDepth x Train+Play)."""
-    assert len(_REAL_ENVS) == 8, f"Expected 8 Realistic envs, got {len(_REAL_ENVS)}"
+    """12 Realistic-tier environments (3 sensor + 1 InfinigenDepth + 2 ProcRoom x Train+Play)."""
+    assert len(_REAL_ENVS) == 12, f"Expected 12 Realistic envs, got {len(_REAL_ENVS)}"
 
 
 def test_robust_tier_count():
-    """8 Robust-tier environments (3 sensor + 1 ProcDepth x Train+Play)."""
-    assert len(_ROBUST_ENVS) == 8, f"Expected 8 Robust envs, got {len(_ROBUST_ENVS)}"
+    """12 Robust-tier environments (3 sensor + 1 InfinigenDepth + 2 ProcRoom x Train+Play)."""
+    assert len(_ROBUST_ENVS) == 12, f"Expected 12 Robust envs, got {len(_ROBUST_ENVS)}"
 
 
-def test_proc_scene_tier_count():
-    """4 Proc-scene environments (2 realism x Train+Play)."""
-    assert len(_PROC_ENVS) == 4, f"Expected 4 ProcDepth envs, got {len(_PROC_ENVS)}"
+def test_infinigen_tier_count():
+    """4 Infinigen environments (2 realism x Train+Play)."""
+    assert len(_INFINIGEN_ENVS) == 4, f"Expected 4 InfinigenDepth envs, got {len(_INFINIGEN_ENVS)}"
+
+
+def test_procroom_tier_count():
+    """8 ProcRoom environments (2 realism x 2 sensor configs x Train+Play)."""
+    assert len(_PROCROOM_ENVS) == 8, f"Expected 8 ProcRoom envs, got {len(_PROCROOM_ENVS)}"
 
 
 @pytest.mark.parametrize("env_id", EXPECTED_ENVS)

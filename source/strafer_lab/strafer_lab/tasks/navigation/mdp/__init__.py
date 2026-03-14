@@ -91,6 +91,7 @@ from .terminations import robot_flipped, goal_reached
 from .events import (
     reset_robot_state,
     reset_robot_state_on_floor,
+    reset_robot_proc_room,
     randomize_friction,
     randomize_obstacles,
     randomize_mass,
@@ -100,7 +101,10 @@ from .events import (
 )
 
 # Custom commands
-from .commands import GoalCommandCfg
+from .commands import GoalCommandCfg, GoalCommandProcRoomCfg
 
 # Curriculum learning
-from .curriculums import GoalDistanceCurriculum, ObstacleCurriculum
+from .curriculums import GoalDistanceCurriculum, ObstacleCurriculum, RoomComplexityCurriculum
+
+# Procedural room generation
+from .proc_room import generate_proc_room, build_proc_room_collection_cfg

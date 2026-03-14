@@ -2,7 +2,7 @@
 """One-time preprocessing script to prepare Infinigen room USDs for Isaac Lab training.
 
 This script processes each room_*/export_scene.usdc and exports to
-Assets/generated/scenes/scene_NNNN.usdc (ready for ProcDepth env configs):
+Assets/generated/scenes/scene_NNNN.usdc (ready for InfinigenDepth env configs):
 1. (Optional) Strip non-essential textures from source directories
 2. Decimate high-poly meshes via Omniverse Scene Optimizer (95% reduction)
 3. Apply tiered collision (structural→convexDecomposition, ground→convexHull, etc.)

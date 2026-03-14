@@ -278,7 +278,7 @@ Assets/generated/
 
 ### 5.3 Isaac Lab Integration Points
 
-1. `strafer_env_cfg.py` — ProcDepth env configs load scene USDs from `Assets/generated/scenes/`
+1. `strafer_env_cfg.py` — InfinigenDepth env configs load scene USDs from `Assets/generated/scenes/`
 2. `mdp/events.py` — Scene-aware reset events (no obstacles — scene geometry provides obstacles)
 3. `__init__.py` — New env ID registrations (done)
 4. `test/env/test_env_registration.py` — Updated for env count (done)
@@ -290,10 +290,10 @@ Added (registered, functional as stubs):
 
 | Env ID | Realism | Scene Source |
 |--------|---------|-------------|
-| `Isaac-Strafer-Nav-Real-ProcDepth-v0` | Realistic | Proc scenes |
-| `Isaac-Strafer-Nav-Real-ProcDepth-Play-v0` | Realistic | Proc scenes (eval) |
-| `Isaac-Strafer-Nav-Robust-ProcDepth-v0` | Robust | Proc scenes |
-| `Isaac-Strafer-Nav-Robust-ProcDepth-Play-v0` | Robust | Proc scenes (eval) |
+| `Isaac-Strafer-Nav-Real-InfinigenDepth-v0` | Realistic | Proc scenes |
+| `Isaac-Strafer-Nav-Real-InfinigenDepth-Play-v0` | Realistic | Proc scenes (eval) |
+| `Isaac-Strafer-Nav-Robust-InfinigenDepth-v0` | Robust | Proc scenes |
+| `Isaac-Strafer-Nav-Robust-InfinigenDepth-Play-v0` | Robust | Proc scenes (eval) |
 
 Guidelines:
 1. Observation/action contract identical to existing Depth variants.
@@ -308,8 +308,8 @@ Guidelines:
 |------|-----|------------|---------|
 | S0 | Real-NoCam | 600-1000 | Fast locomotion and goal-tracking baseline |
 | S1 | Real-Depth | 300-600 | Depth encoder stabilization in simple scenes |
-| S2 | Real-ProcDepth (static) | 400-800 | Geometry diversity adaptation |
-| S3 | Robust-ProcDepth (dynamic) | 400-800 | Dynamic obstacle robustness |
+| S2 | Real-InfinigenDepth (static) | 400-800 | Geometry diversity adaptation |
+| S3 | Robust-InfinigenDepth (dynamic) | 400-800 | Dynamic obstacle robustness |
 
 ### 7.2 Evaluation Protocol
 
@@ -342,7 +342,7 @@ Phase 6 is complete when all are met:
 | 6a.1 | Build asset manifest from local packs + quality gate | **Done** |
 | 6a.2 | Install Infinigen on WSL, generate first batch of rooms | **Done** |
 | 6a.3 | Split scene dataset tooling | **Done** |
-| 6a.4 | Register ProcDepth env variants in Isaac Lab | **Done** |
+| 6a.4 | Register InfinigenDepth env variants in Isaac Lab | **Done** |
 | 6a.5 | Rewrite compose_scenes_replicator.py to follow NVIDIA SDG pattern | **Done** |
 
 **Exit criterion**: 10 Infinigen rooms exported,
@@ -358,7 +358,7 @@ compose_scenes_replicator.py loads them and spawns obstacle assets.
 | 6b.2 | Compose 50 scenes via Replicator pipeline | 1-2 days |
 | 6b.3 | Add dynamic obstacle behavior library | 1-2 days |
 | 6b.4 | Add traversability/path feasibility filter | 1 day |
-| 6b.5 | Wire Isaac Lab ProcDepth env to load composed scene USDs | 1 day |
+| 6b.5 | Wire Isaac Lab InfinigenDepth env to load composed scene USDs | 1 day |
 
 **Exit criterion**: 50-scene library, 100-iteration training smoke test passes.
 
@@ -455,12 +455,12 @@ cd ~/infinigen
 
 python -m infinigen.datagen.manage_jobs \
   --output_folder ~/infinigen_batch \
-  --num_scenes 2 \
+  --num_scenes 1 \
   --pipeline_configs local_16GB.gin monocular.gin export.gin \
-  --configs fast_solve.gin overhead.gin studio.gin \
+  --configs overhead.gin real_geometry.gin \
   --pipeline_overrides \
     get_cmd.driver_script='infinigen_examples.generate_indoors' \
-    manage_datagen_jobs.num_concurrent=2 \
+    manage_datagen_jobs.num_concurrent=1 \
     LocalScheduleHandler.use_gpu=True \
     "iterate_scene_tasks.global_tasks=[{'name':'coarse','func':@queue_coarse}]" \
     "iterate_scene_tasks.camera_dependent_tasks=[]" \
@@ -495,7 +495,7 @@ cd IsaacLab
 
 # Train on proc-scene variant
 .\isaaclab.bat -p ..\Scripts\train_strafer_navigation.py `
-  --env Isaac-Strafer-Nav-Real-ProcDepth-v0 `
+  --env Isaac-Strafer-Nav-Real-InfinigenDepth-v0 `
   --num_envs 24 --headless
 ```
 
@@ -511,7 +511,7 @@ python ..\Scripts\scenegen\split_scene_dataset.py `
 
 # Train on proc-scene variant
 .\isaaclab.bat -p ..\Scripts\train_strafer_navigation.py `
-  --env Isaac-Strafer-Nav-Real-ProcDepth-v0 `
+  --env Isaac-Strafer-Nav-Real-InfinigenDepth-v0 `
   --num_envs 24 --headless
 ```
 

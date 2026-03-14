@@ -416,3 +416,53 @@ def randomize_d555_mount_offset(
 
     mount_quat = quat_from_euler_xyz(roll, pitch, yaw)
     env._d555_mount_quat[env_ids] = mount_quat
+
+
+def reset_robot_proc_room(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    yaw_range: tuple[float, float] = (-3.14159, 3.14159),
+) -> None:
+    """Reset robot to a random BFS-reachable position in a procedural room.
+
+    Reads from dynamic per-env spawn points computed by ``generate_proc_room``
+    and stored on ``env._proc_room_spawn_pts``.
+
+    Args:
+        env: The environment instance.
+        env_ids: Indices of environments to reset.
+        yaw_range: (min, max) yaw range in radians.
+    """
+    robot = env.scene["robot"]
+    num_resets = len(env_ids)
+    device = env.device
+
+    # Read per-env spawn points (populated by generate_proc_room EventTerm)
+    spawn_pts = env._proc_room_spawn_pts[env_ids]       # (B, K, 2)
+    spawn_count = env._proc_room_spawn_count[env_ids]    # (B,)
+
+    # Sample random index per env (bounded by actual count)
+    max_idx = spawn_count.clamp(min=1)  # avoid div-by-zero
+    indices = (torch.rand(num_resets, device=device) * max_idx.float()).long()
+    indices = indices.clamp(max=spawn_pts.shape[1] - 1)
+
+    # Gather selected XY positions
+    xy = spawn_pts[torch.arange(num_resets, device=device), indices]  # (B, 2)
+
+    z = torch.full((num_resets,), 0.1, device=device)
+    yaw = torch.rand(num_resets, device=device) * (yaw_range[1] - yaw_range[0]) + yaw_range[0]
+
+    # Convert yaw to quaternion (w, x, y, z)
+    quat = torch.zeros(num_resets, 4, device=device)
+    quat[:, 0] = torch.cos(yaw / 2)
+    quat[:, 3] = torch.sin(yaw / 2)
+
+    root_state = robot.data.default_root_state[env_ids].clone()
+    env_origins = env.scene.env_origins[env_ids]
+    root_state[:, 0] = env_origins[:, 0] + xy[:, 0]
+    root_state[:, 1] = env_origins[:, 1] + xy[:, 1]
+    root_state[:, 2] = env_origins[:, 2] + z
+    root_state[:, 3:7] = quat
+    root_state[:, 7:] = 0.0
+
+    robot.write_root_state_to_sim(root_state, env_ids)

@@ -39,7 +39,7 @@ class GoalCommand(CommandTerm):
         self._distance_to_goal = torch.zeros(env.num_envs, device=env.device)
         self._goal_reached_count = torch.zeros(env.num_envs, device=env.device)
 
-        # Build spawn points tensor if provided (for ProcScene goal placement)
+        # Build spawn points tensor if provided (for Infinigen goal placement)
         self._spawn_points: torch.Tensor | None = None
         if cfg.spawn_points_xy:
             self._spawn_points = torch.tensor(cfg.spawn_points_xy, device=env.device, dtype=torch.float32)
@@ -79,7 +79,7 @@ class GoalCommand(CommandTerm):
 
         Ensures goals are at least ``cfg.min_goal_distance`` from the robot.
         When ``spawn_points_xy`` is configured, samples from precomputed floor
-        positions (ProcScene). Otherwise uses uniform box sampling with
+        positions (Infinigen). Otherwise uses uniform box sampling with
         rejection for min distance, falling back to min distance along a
         random direction.
 
@@ -380,7 +380,7 @@ class GoalCommandCfg(CommandTermCfg):
 
     spawn_points_xy: list[list[float]] | None = None
     """Precomputed valid floor positions for goal sampling (env-local frame).
-    When provided (ProcScene), goals are sampled from these points instead of
+    When provided (Infinigen), goals are sampled from these points instead of
     the uniform goal_range box. Set from scenes_metadata.json at config time."""
 
     debug_vis: bool = False
@@ -401,3 +401,95 @@ class GoalCommandCfg(CommandTermCfg):
 
     goal_range: Ranges = Ranges()
     """Goal position sampling range."""
+
+
+class GoalCommandProcRoom(GoalCommand):
+    """Goal command that samples from dynamic per-env BFS reachable points.
+
+    Reads spawn points from ``env._proc_room_spawn_pts`` populated by
+    ``generate_proc_room``. Falls back to min-distance placement when
+    rejection sampling fails.
+    """
+
+    cfg: GoalCommandProcRoomCfg
+
+    def __init__(self, cfg: GoalCommandProcRoomCfg, env: ManagerBasedRLEnv):
+        # Skip building static spawn points — we use dynamic ones
+        cfg.spawn_points_xy = None
+        super().__init__(cfg, env)
+
+    def _resample_command(self, env_ids: Sequence[int]):
+        num_resets = len(env_ids)
+        if num_resets == 0:
+            return
+
+        if not isinstance(env_ids, torch.Tensor):
+            env_ids = torch.tensor(env_ids, device=self.device)
+
+        robot_pos = self._robot.data.root_pos_w[env_ids, :2]
+        env_origins = self._env.scene.env_origins[env_ids, :2]
+        min_dist = self.cfg.min_goal_distance
+
+        # Read dynamic per-env spawn points
+        spawn_pts = self._env._proc_room_spawn_pts[env_ids]       # (B, K, 2)
+        spawn_count = self._env._proc_room_spawn_count[env_ids]    # (B,)
+
+        accepted = torch.zeros(num_resets, dtype=torch.bool, device=self.device)
+        goal_x = torch.zeros(num_resets, device=self.device)
+        goal_y = torch.zeros(num_resets, device=self.device)
+
+        max_idx = spawn_count.clamp(min=1)
+
+        for _ in range(10):
+            remaining = ~accepted
+            n_remaining = remaining.sum().item()
+            if n_remaining == 0:
+                break
+
+            rem_idx = torch.where(remaining)[0]
+            # Sample random point index per env, bounded by that env's count
+            rand_frac = torch.rand(n_remaining, device=self.device)
+            pt_idx = (rand_frac * max_idx[remaining].float()).long()
+            pt_idx = pt_idx.clamp(max=spawn_pts.shape[1] - 1)
+
+            # Gather selected XY (env-local frame)
+            xy_local = spawn_pts[remaining][
+                torch.arange(n_remaining, device=self.device), pt_idx
+            ]  # (n_remaining, 2)
+
+            x_world = xy_local[:, 0] + env_origins[remaining, 0]
+            y_world = xy_local[:, 1] + env_origins[remaining, 1]
+            candidates = torch.stack([x_world, y_world], dim=-1)
+            dist = torch.norm(candidates - robot_pos[remaining], dim=-1)
+            far_enough = dist >= min_dist
+
+            newly_accepted = rem_idx[far_enough]
+            goal_x[newly_accepted] = x_world[far_enough]
+            goal_y[newly_accepted] = y_world[far_enough]
+            accepted[newly_accepted] = True
+
+        # Fallback: place at min_dist in random direction
+        remaining = ~accepted
+        if remaining.any():
+            n = remaining.sum().item()
+            angle = torch.rand(n, device=self.device) * (2.0 * math.pi)
+            goal_x[remaining] = robot_pos[remaining, 0] + min_dist * torch.cos(angle)
+            goal_y[remaining] = robot_pos[remaining, 1] + min_dist * torch.sin(angle)
+
+        self._goal[env_ids, 0] = goal_x
+        self._goal[env_ids, 1] = goal_y
+
+        # Random heading
+        heading_range = self.cfg.goal_range.heading
+        self._goal[env_ids, 2] = (
+            torch.rand(num_resets, device=self.device)
+            * (heading_range[1] - heading_range[0])
+            + heading_range[0]
+        )
+
+
+@configclass
+class GoalCommandProcRoomCfg(GoalCommandCfg):
+    """Configuration for goal command in procedural rooms."""
+
+    class_type: type = GoalCommandProcRoom

@@ -166,9 +166,11 @@ def action_smoothness_penalty(env: ManagerBasedEnv) -> torch.Tensor:
     if reset_mask.any():
         env._prev_action[reset_mask] = current_action[reset_mask]
 
-    # Rate of change
+    # Rate of change (L1 norm — penalizes large and small changes
+    # proportionally, unlike L2 which quadratically amplifies large jumps
+    # and creates a "don't move at all" gradient)
     action_diff = current_action - env._prev_action
-    smoothness_cost = torch.sum(action_diff ** 2, dim=-1)
+    smoothness_cost = torch.sum(torch.abs(action_diff), dim=-1)
 
     env._prev_action = current_action.clone()
 

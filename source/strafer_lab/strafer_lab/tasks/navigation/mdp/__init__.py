@@ -85,7 +85,7 @@ from .rewards import (
 )
 
 # Custom terminations
-from .terminations import robot_flipped, goal_reached
+from .terminations import robot_flipped, goal_reached, sustained_collision
 
 # Custom events
 from .events import (

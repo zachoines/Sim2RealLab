@@ -820,21 +820,21 @@ class RewardsCfg:
     - Small penalties as guardrails (collision, jerk), not primary signal
     - Positive-dominant: robot should want to reach goals, not just avoid punishment
     """
-    # --- Primary task signal (dense) ---
-    goal_progress = RewTerm(func=mdp.goal_progress_reward, weight=2.0, params={"command_name": "goal_command"})
-    goal_proximity = RewTerm(func=mdp.goal_proximity_reward, weight=1.5, params={"command_name": "goal_command", "sigma": 0.3})
-    # --- Sparse completion bonus ---
-    goal_reached = RewTerm(func=mdp.goal_reached_reward, weight=10.0, params={"threshold": 0.3, "command_name": "goal_command"})
+    # --- Primary task signal (dense, DOMINANT) ---
+    goal_progress = RewTerm(func=mdp.goal_progress_reward, weight=10.0, params={"command_name": "goal_command"})
+    goal_proximity = RewTerm(func=mdp.goal_proximity_reward, weight=5.0, params={"command_name": "goal_command", "sigma": 0.5})
+    # --- Sparse completion bonus (LARGE — must be unmistakable) ---
+    goal_reached = RewTerm(func=mdp.goal_reached_reward, weight=50.0, params={"threshold": 0.3, "command_name": "goal_command"})
     # --- Heading (low weight — mecanum can strafe, heading is secondary) ---
-    heading_alignment = RewTerm(func=mdp.heading_to_goal_reward, weight=0.05, params={"command_name": "goal_command"})
-    # --- Collision avoidance (net_forces_w — works with any scene geometry) ---
-    collision = RewTerm(func=mdp.collision_penalty_net, weight=-5.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
-    collision_sustained = RewTerm(func=mdp.collision_sustained_penalty_net, weight=-2.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
+    heading_alignment = RewTerm(func=mdp.heading_to_goal_reward, weight=0.1, params={"command_name": "goal_command"})
+    # --- Collision avoidance (moderate — strong enough to discourage, not paralyze) ---
+    collision = RewTerm(func=mdp.collision_penalty_net, weight=-2.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
+    collision_sustained = RewTerm(func=mdp.collision_sustained_penalty_net, weight=-1.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
     # --- Slow down near goal ---
-    speed_near_goal = RewTerm(func=mdp.speed_near_goal_penalty, weight=-0.3, params={"command_name": "goal_command", "distance_threshold": 0.8})
-    # --- Regularization (smooth, energy-efficient motion transfers better to real hardware) ---
-    energy_penalty = RewTerm(func=mdp.energy_penalty, weight=-0.01)
-    action_smoothness = RewTerm(func=mdp.action_smoothness_penalty, weight=-0.05)
+    speed_near_goal = RewTerm(func=mdp.speed_near_goal_penalty, weight=-0.1, params={"command_name": "goal_command", "distance_threshold": 0.8})
+    # --- Regularization (TINY — just guardrails, must not dominate goal signals) ---
+    energy_penalty = RewTerm(func=mdp.energy_penalty, weight=-0.001)
+    action_smoothness = RewTerm(func=mdp.action_smoothness_penalty, weight=-0.005)
 
 
 @configclass
@@ -843,10 +843,14 @@ class TerminationsCfg:
 
     Note: goal_reached is NOT a termination. Multi-goal resampling in
     GoalCommand._update_command() handles goal reach by issuing a new goal
-    mid-episode. Episodes end only on time-out or robot flip.
+    mid-episode. Episodes end only on time-out, robot flip, or sustained collision.
     """
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
     robot_flipped = DoneTerm(func=mdp.robot_flipped, params={"threshold": 0.5})
+    sustained_collision = DoneTerm(
+        func=mdp.sustained_collision,
+        params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0, "max_steps": 10},
+    )
 
 
 
@@ -953,22 +957,22 @@ class CommandsCfg_Infinigen:
 
 @configclass
 class RewardsCfg_Infinigen:
-    """Rewards for Infinigen — uses net_forces_w collision instead of force_matrix_w."""
-    # --- Primary task signal (dense) ---
-    goal_progress = RewTerm(func=mdp.goal_progress_reward, weight=2.0, params={"command_name": "goal_command"})
-    goal_proximity = RewTerm(func=mdp.goal_proximity_reward, weight=1.5, params={"command_name": "goal_command", "sigma": 0.3})
-    # --- Sparse completion bonus ---
-    goal_reached = RewTerm(func=mdp.goal_reached_reward, weight=10.0, params={"threshold": 0.3, "command_name": "goal_command"})
+    """Rewards for Infinigen/ProcRoom — uses net_forces_w collision."""
+    # --- Primary task signal (dense, DOMINANT) ---
+    goal_progress = RewTerm(func=mdp.goal_progress_reward, weight=10.0, params={"command_name": "goal_command"})
+    goal_proximity = RewTerm(func=mdp.goal_proximity_reward, weight=5.0, params={"command_name": "goal_command", "sigma": 0.5})
+    # --- Sparse completion bonus (LARGE — must be unmistakable) ---
+    goal_reached = RewTerm(func=mdp.goal_reached_reward, weight=50.0, params={"threshold": 0.3, "command_name": "goal_command"})
     # --- Heading (low weight — mecanum can strafe, heading is secondary) ---
-    heading_alignment = RewTerm(func=mdp.heading_to_goal_reward, weight=0.05, params={"command_name": "goal_command"})
-    # --- Collision avoidance (net_forces_w — works with any scene geometry) ---
-    collision = RewTerm(func=mdp.collision_penalty_net, weight=-5.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
-    collision_sustained = RewTerm(func=mdp.collision_sustained_penalty_net, weight=-2.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
+    heading_alignment = RewTerm(func=mdp.heading_to_goal_reward, weight=0.1, params={"command_name": "goal_command"})
+    # --- Collision avoidance (moderate — strong enough to discourage, not paralyze) ---
+    collision = RewTerm(func=mdp.collision_penalty_net, weight=-2.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
+    collision_sustained = RewTerm(func=mdp.collision_sustained_penalty_net, weight=-1.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
     # --- Slow down near goal ---
-    speed_near_goal = RewTerm(func=mdp.speed_near_goal_penalty, weight=-0.3, params={"command_name": "goal_command", "distance_threshold": 0.8})
-    # --- Regularization ---
-    energy_penalty = RewTerm(func=mdp.energy_penalty, weight=-0.01)
-    action_smoothness = RewTerm(func=mdp.action_smoothness_penalty, weight=-0.05)
+    speed_near_goal = RewTerm(func=mdp.speed_near_goal_penalty, weight=-0.1, params={"command_name": "goal_command", "distance_threshold": 0.8})
+    # --- Regularization (TINY — just guardrails, must not dominate goal signals) ---
+    energy_penalty = RewTerm(func=mdp.energy_penalty, weight=-0.001)
+    action_smoothness = RewTerm(func=mdp.action_smoothness_penalty, weight=-0.005)
 
 
 # Structural event for Infinigen: spawn on interior floor points
@@ -1577,10 +1581,8 @@ class EventsCfg_ProcRoom_Realistic:
         func=mdp.randomize_d555_mount_offset, mode="reset",
         params={"max_angle_deg": 1.0},
     )
-    randomize_goal_noise = EventTerm(
-        func=mdp.randomize_goal_noise, mode="reset",
-        params={"command_name": "goal_command", "noise_std": 0.15},
-    )
+    # Goal noise disabled for initial training (Phase 1).
+    # Re-enable with noise_std=0.15 for Phase 3 robustness hardening.
 
 
 @configclass
@@ -1617,10 +1619,10 @@ class CurriculumCfg_ProcRoom:
         func=mdp.GoalDistanceCurriculum,
         params={
             "command_name": "goal_command",
-            "initial_range": 2.0,
-            "max_range": 5.0,
+            "initial_range": 1.5,
+            "max_range": 4.0,
             "step_size": 0.5,
-            "success_threshold": 5,
+            "success_threshold": 3,
             "goal_threshold": 0.3,
         },
     )
@@ -1630,7 +1632,7 @@ class CurriculumCfg_ProcRoom:
             "command_name": "goal_command",
             "initial_level": 0,
             "max_level": 5,
-            "success_threshold": 10,
+            "success_threshold": 5,
             "goal_threshold": 0.3,
         },
     )

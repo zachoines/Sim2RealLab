@@ -67,6 +67,14 @@ def main():
         "--video_interval", type=int, default=2000,
         help="Steps between video recordings (default: 2000)",
     )
+    # Behavior cloning
+    parser.add_argument(
+        "--bc_demos", type=str, default=None,
+        help="Path to HDF5 demo file for BC auxiliary loss (e.g. demos.h5)",
+    )
+    parser.add_argument("--bc_weight", type=float, default=1.0, help="Initial BC loss weight")
+    parser.add_argument("--bc_decay_steps", type=int, default=2000, help="BC weight decay steps")
+    parser.add_argument("--bc_batch_size", type=int, default=256, help="BC mini-batch size")
     # Import Isaac Lab app launcher and add its CLI args (--enable_cameras, etc.)
     from isaaclab.app import AppLauncher
     AppLauncher.add_app_launcher_args(parser)
@@ -163,6 +171,17 @@ def main():
         log_dir = os.path.join(log_root, f"run_{timestamp}")
         os.makedirs(log_dir, exist_ok=True)
     print(f"Logging to: {log_dir}")
+
+    # Register BC auxiliary loss (must happen before runner creation)
+    if args.bc_demos:
+        from strafer_lab.tasks.navigation.agents import register_bc_loss
+        register_bc_loss(
+            demo_path=args.bc_demos,
+            bc_weight=args.bc_weight,
+            bc_decay_steps=args.bc_decay_steps,
+            bc_batch_size=args.bc_batch_size,
+            device=agent_cfg.device,
+        )
 
     # Create runner
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)

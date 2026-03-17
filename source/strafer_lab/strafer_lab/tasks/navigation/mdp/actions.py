@@ -204,10 +204,20 @@ class MecanumWheelAction(ActionTerm):
                 )
             self._action_delay_buffer.set_time_lag(time_lags)
         
-        # Slew rate limiting (max acceleration)
+        # Slew rate limiting (max acceleration) — per-env randomization
         self._enable_slew_rate = cfg.max_acceleration_rad_s2 < float('inf')
         if self._enable_slew_rate:
-            self._max_delta_per_step = cfg.max_acceleration_rad_s2 * env.physics_dt
+            self._accel_range = cfg.max_acceleration_range
+            self._accel_nominal = cfg.max_acceleration_rad_s2
+            self._physics_dt = env.physics_dt
+            self._num_envs = env.num_envs
+            lo, hi = self._accel_range
+            if lo < hi:
+                accel_per_env = lo + (hi - lo) * torch.rand(env.num_envs, device=env.device)
+            else:
+                accel_per_env = torch.full((env.num_envs,), self._accel_nominal, device=env.device)
+            # Shape (num_envs, 1) for broadcasting with (num_envs, 4) wheel vels
+            self._max_delta_per_step = (accel_per_env * env.physics_dt).unsqueeze(-1)
             self._prev_wheel_vels = torch.zeros(env.num_envs, 4, device=env.device)
         
         # Log configuration
@@ -223,7 +233,7 @@ class MecanumWheelAction(ActionTerm):
         print(f"  Wheel axis signs (FL,FR,RL,RR): {self._wheel_axis_signs.tolist()}")
         print(f"  Motor dynamics: {self._enable_motor_dynamics} (tau={cfg.motor_time_constant}s)")
         print(f"  Command delay: {self._enable_command_delay} (steps={cfg.min_delay_steps}-{cfg.max_delay_steps})")
-        print(f"  Slew rate limit: {self._enable_slew_rate} (max_accel={cfg.max_acceleration_rad_s2} rad/s²)")
+        print(f"  Slew rate limit: {self._enable_slew_rate} (max_accel={cfg.max_acceleration_rad_s2} rad/s², range={cfg.max_acceleration_range})")
 
     def reset(self, env_ids: torch.Tensor | None = None) -> None:
         """Reset action state for specified environments."""
@@ -239,9 +249,17 @@ class MecanumWheelAction(ActionTerm):
         if self._enable_command_delay:
             self._action_delay_buffer.reset(None if all_envs else env_ids)
 
-        # Reset slew rate state
+        # Reset slew rate state and re-randomize acceleration per env
         if self._enable_slew_rate:
             self._prev_wheel_vels[env_ids] = 0.0
+            lo, hi = self._accel_range
+            if lo < hi:
+                if all_envs:
+                    n = self._num_envs
+                else:
+                    n = env_ids.shape[0]
+                new_accel = lo + (hi - lo) * torch.rand(n, device=self._prev_wheel_vels.device)
+                self._max_delta_per_step[env_ids] = (new_accel * self._physics_dt).unsqueeze(-1)
 
     @property
     def action_dim(self) -> int:
@@ -389,3 +407,7 @@ class MecanumWheelActionCfg(ActionTermCfg):
     max_acceleration_rad_s2: float = float('inf')
     """Maximum wheel angular acceleration in rad/s². Prevents instant velocity changes.
     Default: inf (no limit)."""
+
+    max_acceleration_range: tuple[float, float] = (float('inf'), float('inf'))
+    """Range for per-env randomization of max acceleration [min, max] rad/s².
+    Models battery discharge and load variation."""

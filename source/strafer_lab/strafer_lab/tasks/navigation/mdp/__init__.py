@@ -45,6 +45,7 @@ from .observations import (
     goal_position_relative,
     goal_distance,
     goal_heading_relative,
+    goal_heading_to_goal,
     body_velocity_xy,
     privileged_ground_truth,
     last_action,

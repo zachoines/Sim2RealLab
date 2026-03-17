@@ -218,12 +218,14 @@ class RoomComplexityCurriculum(ManagerTermBase):
     and clutter objects placed by ``generate_proc_room``.
 
     Difficulty levels:
-        0: Empty rectangular room
-        1: Sparse furniture (2)
-        2: Moderate obstacles (4 furniture, 4 clutter)
-        3: Internal wall + furniture + clutter (1, 4, 8)
-        4: Dense clutter (1 wall, 6 furniture, 12 clutter)
-        5: Full complexity (2 walls, 8 furniture, 16 clutter)
+        0: Open field — just goals, no walls or obstacles
+        1: Scattered obstacles on open ground (2 furniture, 4 clutter)
+        2: Empty rectangular room
+        3: Room + sparse furniture (2)
+        4: Room + moderate obstacles (4 furniture, 4 clutter)
+        5: Room + internal wall + clutter (1 wall, 4 furniture, 8 clutter)
+        6: Room + dense clutter (1 wall, 6 furniture, 12 clutter)
+        7: Full complexity (2 walls, 8 furniture, 16 clutter)
     """
 
     def __init__(self, cfg, env: ManagerBasedRLEnv):
@@ -247,7 +249,7 @@ class RoomComplexityCurriculum(ManagerTermBase):
         env_ids: Sequence[int],
         command_name: str = "goal_command",
         initial_level: int = 0,
-        max_level: int = 5,
+        max_level: int = 7,
         success_threshold: int = 10,
         goal_threshold: float = 0.3,
     ) -> float:

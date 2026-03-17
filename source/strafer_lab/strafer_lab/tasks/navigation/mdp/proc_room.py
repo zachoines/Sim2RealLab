@@ -228,6 +228,7 @@ def _build_occupancy_grid(
     room_w: torch.Tensor,
     room_h: torch.Tensor,
     device: torch.device,
+    has_room_walls: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Rasterize object AABBs onto an occupancy grid.
 
@@ -238,6 +239,8 @@ def _build_occupancy_grid(
         room_w: (B,) room width.
         room_h: (B,) room height.
         device: torch device.
+        has_room_walls: (B,) long — 1 if env has enclosing walls, 0 for open field.
+            When None, all envs are treated as having room walls.
 
     Returns:
         occupancy: (B, GRID_SIZE, GRID_SIZE) float — 1.0 = occupied, 0.0 = free.
@@ -285,6 +288,24 @@ def _build_occupancy_grid(
         for b in batch_idx:
             bi = b.item()
             occupancy[bi, x_min[bi, j]:x_max[bi, j] + 1, y_min[bi, j]:y_max[bi, j] + 1] = 1.0
+
+    # Mark cells outside the room bounding box as occupied.
+    # Without this, BFS floods through doorway gaps into unbounded exterior,
+    # causing robot/goals to spawn outside the room.
+    # Skipped for open-field envs (no enclosing walls).
+    grid_xs = torch.arange(G, device=device).float() * GRID_RES + grid_origin_x + GRID_RES / 2.0
+    grid_ys = torch.arange(G, device=device).float() * GRID_RES + grid_origin_y + GRID_RES / 2.0
+
+    for b in range(B):
+        if has_room_walls is not None and has_room_walls[b].item() == 0:
+            continue  # Open field — no exterior clipping
+        hw = room_w[b] / 2.0
+        hh = room_h[b] / 2.0
+        outside_x = (grid_xs < -hw) | (grid_xs > hw)  # (G,)
+        outside_y = (grid_ys < -hh) | (grid_ys > hh)  # (G,)
+        # Any cell where row OR column is outside the room is exterior
+        exterior = outside_x.unsqueeze(1) | outside_y.unsqueeze(0)  # (G, G)
+        occupancy[b][exterior] = 1.0
 
     return occupancy
 
@@ -479,24 +500,30 @@ def generate_proc_room(
     if hasattr(env, "_proc_room_difficulty"):
         difficulty = env._proc_room_difficulty[env_ids]
         # Curriculum levels override the max params per-env
-        # Levels: 0=(0,0,0), 1=(0,2,0), 2=(0,4,4), 3=(1,4,8), 4=(1,6,12), 5=(2,8,16)
+        # Columns: (internal_walls, furniture, clutter, has_room_walls)
+        # Levels 0-1: open field (no enclosing walls) for easy early learning
+        # Levels 2+: enclosed rooms with increasing complexity
         level_table = torch.tensor([
-            [0, 0, 0],   # level 0
-            [0, 2, 0],   # level 1
-            [0, 4, 4],   # level 2
-            [1, 4, 8],   # level 3
-            [1, 6, 12],  # level 4
-            [2, 8, 16],  # level 5
+            [0, 0, 0, 0],   # level 0: open field — just goals
+            [0, 2, 4, 0],   # level 1: scattered obstacles on open ground
+            [0, 0, 0, 1],   # level 2: empty rectangular room
+            [0, 2, 0, 1],   # level 3: room + sparse furniture
+            [0, 4, 4, 1],   # level 4: room + moderate obstacles
+            [1, 4, 8, 1],   # level 5: room + internal wall + clutter
+            [1, 6, 12, 1],  # level 6: room + dense clutter
+            [2, 8, 16, 1],  # level 7: full complexity
         ], device=device, dtype=torch.long)
-        difficulty_clamped = difficulty.clamp(0, 5).long()
-        per_env_limits = level_table[difficulty_clamped]  # (B, 3)
+        difficulty_clamped = difficulty.clamp(0, 7).long()
+        per_env_limits = level_table[difficulty_clamped]  # (B, 4)
         max_iw = per_env_limits[:, 0]
         max_furn = per_env_limits[:, 1]
         max_clut = per_env_limits[:, 2]
+        has_room_walls = per_env_limits[:, 3]  # (B,) 0=open field, 1=room
     else:
         max_iw = torch.full((B,), max_internal_walls, device=device, dtype=torch.long)
         max_furn = torch.full((B,), max_furniture, device=device, dtype=torch.long)
         max_clut = torch.full((B,), max_clutter, device=device, dtype=torch.long)
+        has_room_walls = torch.ones(B, device=device, dtype=torch.long)  # default: room walls on
 
     # --- Phase 1: Parameter sampling ---
     room_w = torch.rand(B, device=device) * 3.0 + 4.0  # [4, 7]
@@ -515,123 +542,133 @@ def generate_proc_room(
         w = room_w[b_idx].item()
         h = room_h[b_idx].item()
 
-        # Budget tracking (available slot indices)
-        long_avail = list(WALL_LONG_SLOTS)
-        med_avail = list(WALL_MED_SLOTS)
-        short_avail = list(WALL_SHORT_SLOTS)
+        # --- Phase 2a: Wall construction (skip for open-field levels) ---
+        if has_room_walls[b_idx].item() != 0:
+            # Budget tracking (available slot indices)
+            long_avail = list(WALL_LONG_SLOTS)
+            med_avail = list(WALL_MED_SLOTS)
+            short_avail = list(WALL_SHORT_SLOTS)
 
-        # Doorway: pick 1 random side
-        door_side = torch.randint(0, 4, (1,), device=device).item()
-        door_pos = torch.rand(1, device=device).item()  # 0-1 along wall
-        door_width = torch.rand(1, device=device).item() * 0.4 + 0.8  # [0.8, 1.2]
+            # Doorway: pick 1 random side
+            door_side = torch.randint(0, 4, (1,), device=device).item()
+            door_pos = torch.rand(1, device=device).item()  # 0-1 along wall
+            door_width = torch.rand(1, device=device).item() * 0.4 + 0.8  # [0.8, 1.2]
 
-        # Build 4 walls: N(top), S(bottom), E(right), W(left)
-        # Convention: room spans [-w/2, w/2] x [-h/2, h/2]
-        sides = [
-            # (start_x, start_y, end_x, end_y, is_horizontal)
-            (-w / 2, h / 2, w / 2, h / 2, True),     # N
-            (-w / 2, -h / 2, w / 2, -h / 2, True),   # S
-            (w / 2, -h / 2, w / 2, h / 2, False),     # E
-            (-w / 2, -h / 2, -w / 2, h / 2, False),   # W
-        ]
+            # Build 4 walls: N(top), S(bottom), E(right), W(left)
+            # Convention: room spans [-w/2, w/2] x [-h/2, h/2]
+            sides = [
+                # (start_x, start_y, end_x, end_y, is_horizontal)
+                (-w / 2, h / 2, w / 2, h / 2, True),     # N
+                (-w / 2, -h / 2, w / 2, -h / 2, True),   # S
+                (w / 2, -h / 2, w / 2, h / 2, False),     # E
+                (-w / 2, -h / 2, -w / 2, h / 2, False),   # W
+            ]
 
-        for side_idx, (sx, sy, ex, ey, is_horiz) in enumerate(sides):
-            wall_length = w if is_horiz else h
+            for side_idx, (sx, sy, ex, ey, is_horiz) in enumerate(sides):
+                wall_length = w if is_horiz else h
 
-            if side_idx == door_side:
-                # Split wall around doorway
-                door_center = door_pos * (wall_length - door_width - 0.5) + door_width / 2 + 0.25
-                left_len = door_center - door_width / 2
-                right_len = wall_length - door_center - door_width / 2
+                if side_idx == door_side:
+                    # Split wall around doorway
+                    door_center = door_pos * (wall_length - door_width - 0.5) + door_width / 2 + 0.25
+                    left_len = door_center - door_width / 2
+                    right_len = wall_length - door_center - door_width / 2
 
-                left_segs = _pack_wall_segments(left_len, long_avail, med_avail, short_avail)
-                right_segs = _pack_wall_segments(right_len, long_avail, med_avail, short_avail)
+                    left_segs = _pack_wall_segments(left_len, long_avail, med_avail, short_avail)
+                    right_segs = _pack_wall_segments(right_len, long_avail, med_avail, short_avail)
 
-                # Place left segments
-                cursor = 0.0
-                for slot, seg_len in left_segs:
-                    if is_horiz:
-                        px = sx + cursor + seg_len / 2
-                        py = sy
-                        yaw = 0.0
-                    else:
-                        px = sx
-                        py = sy + cursor + seg_len / 2
-                        yaw = math.pi / 2
-                    poses[b_idx, slot, 0] = px
-                    poses[b_idx, slot, 1] = py
-                    poses[b_idx, slot, 2] = 0.5  # height/2 for 1.0m walls
-                    q = _yaw_to_quat(torch.tensor(yaw, device=device))
-                    poses[b_idx, slot, 3:7] = q
-                    active_mask[b_idx, slot] = True
-                    cursor += seg_len
+                    # Place left segments
+                    cursor = 0.0
+                    for slot, seg_len in left_segs:
+                        if is_horiz:
+                            px = sx + cursor + seg_len / 2
+                            py = sy
+                            yaw = 0.0
+                        else:
+                            px = sx
+                            py = sy + cursor + seg_len / 2
+                            yaw = math.pi / 2
+                        poses[b_idx, slot, 0] = px
+                        poses[b_idx, slot, 1] = py
+                        poses[b_idx, slot, 2] = 0.5  # height/2 for 1.0m walls
+                        q = _yaw_to_quat(torch.tensor(yaw, device=device))
+                        poses[b_idx, slot, 3:7] = q
+                        active_mask[b_idx, slot] = True
+                        cursor += seg_len
 
-                # Place right segments (start after doorway gap)
-                cursor = door_center + door_width / 2
-                for slot, seg_len in right_segs:
-                    if is_horiz:
-                        px = sx + cursor + seg_len / 2
-                        py = sy
-                        yaw = 0.0
-                    else:
-                        px = sx
-                        py = sy + cursor + seg_len / 2
-                        yaw = math.pi / 2
-                    poses[b_idx, slot, 0] = px
-                    poses[b_idx, slot, 1] = py
-                    poses[b_idx, slot, 2] = 0.5
-                    q = _yaw_to_quat(torch.tensor(yaw, device=device))
-                    poses[b_idx, slot, 3:7] = q
-                    active_mask[b_idx, slot] = True
-                    cursor += seg_len
-            else:
-                # Full wall (no doorway)
-                segs = _pack_wall_segments(wall_length, long_avail, med_avail, short_avail)
-                cursor = 0.0
-                for slot, seg_len in segs:
-                    if is_horiz:
-                        px = sx + cursor + seg_len / 2
-                        py = sy
-                        yaw = 0.0
-                    else:
-                        px = sx
-                        py = sy + cursor + seg_len / 2
-                        yaw = math.pi / 2
-                    poses[b_idx, slot, 0] = px
-                    poses[b_idx, slot, 1] = py
-                    poses[b_idx, slot, 2] = 0.5
-                    q = _yaw_to_quat(torch.tensor(yaw, device=device))
-                    poses[b_idx, slot, 3:7] = q
-                    active_mask[b_idx, slot] = True
-                    cursor += seg_len
+                    # Place right segments (start after doorway gap)
+                    cursor = door_center + door_width / 2
+                    for slot, seg_len in right_segs:
+                        if is_horiz:
+                            px = sx + cursor + seg_len / 2
+                            py = sy
+                            yaw = 0.0
+                        else:
+                            px = sx
+                            py = sy + cursor + seg_len / 2
+                            yaw = math.pi / 2
+                        poses[b_idx, slot, 0] = px
+                        poses[b_idx, slot, 1] = py
+                        poses[b_idx, slot, 2] = 0.5
+                        q = _yaw_to_quat(torch.tensor(yaw, device=device))
+                        poses[b_idx, slot, 3:7] = q
+                        active_mask[b_idx, slot] = True
+                        cursor += seg_len
+                else:
+                    # Full wall (no doorway)
+                    segs = _pack_wall_segments(wall_length, long_avail, med_avail, short_avail)
+                    cursor = 0.0
+                    for slot, seg_len in segs:
+                        if is_horiz:
+                            px = sx + cursor + seg_len / 2
+                            py = sy
+                            yaw = 0.0
+                        else:
+                            px = sx
+                            py = sy + cursor + seg_len / 2
+                            yaw = math.pi / 2
+                        poses[b_idx, slot, 0] = px
+                        poses[b_idx, slot, 1] = py
+                        poses[b_idx, slot, 2] = 0.5
+                        q = _yaw_to_quat(torch.tensor(yaw, device=device))
+                        poses[b_idx, slot, 3:7] = q
+                        active_mask[b_idx, slot] = True
+                        cursor += seg_len
 
         # --- Phase 3: Furniture placement ---
         n_furn = max_furn[b_idx].item()
         placed_furn_xy = []
+        is_open_field = has_room_walls[b_idx].item() == 0
         for f_idx in range(min(n_furn, NUM_FURNITURE)):
             slot = FURNITURE_SLOTS[f_idx]
             furn_sx = OBJECT_SIZES[slot, 0].item()
             furn_sy = OBJECT_SIZES[slot, 1].item()
 
             for _ in range(10):
-                # Pick random wall to align against
-                wall_side = torch.randint(0, 4, (1,), device=device).item()
-                if wall_side == 0:  # N wall
-                    fx = (torch.rand(1, device=device).item() - 0.5) * (w - furn_sx - 0.5)
-                    fy = h / 2 - 0.075 - furn_sy / 2
-                    fyaw = 0.0
-                elif wall_side == 1:  # S wall
-                    fx = (torch.rand(1, device=device).item() - 0.5) * (w - furn_sx - 0.5)
-                    fy = -h / 2 + 0.075 + furn_sy / 2
-                    fyaw = math.pi
-                elif wall_side == 2:  # E wall
-                    fy = (torch.rand(1, device=device).item() - 0.5) * (h - furn_sx - 0.5)
-                    fx = w / 2 - 0.075 - furn_sy / 2
-                    fyaw = math.pi / 2
-                else:  # W wall
-                    fy = (torch.rand(1, device=device).item() - 0.5) * (h - furn_sx - 0.5)
-                    fx = -w / 2 + 0.075 + furn_sy / 2
-                    fyaw = -math.pi / 2
+                if is_open_field:
+                    # Open field: scatter randomly within the area
+                    inset_f = 0.5
+                    fx = (torch.rand(1, device=device).item() - 0.5) * (w - 2 * inset_f)
+                    fy = (torch.rand(1, device=device).item() - 0.5) * (h - 2 * inset_f)
+                    fyaw = torch.rand(1, device=device).item() * 2.0 * math.pi - math.pi
+                else:
+                    # Room: align against a wall
+                    wall_side = torch.randint(0, 4, (1,), device=device).item()
+                    if wall_side == 0:  # N wall
+                        fx = (torch.rand(1, device=device).item() - 0.5) * (w - furn_sx - 0.5)
+                        fy = h / 2 - 0.075 - furn_sy / 2
+                        fyaw = 0.0
+                    elif wall_side == 1:  # S wall
+                        fx = (torch.rand(1, device=device).item() - 0.5) * (w - furn_sx - 0.5)
+                        fy = -h / 2 + 0.075 + furn_sy / 2
+                        fyaw = math.pi
+                    elif wall_side == 2:  # E wall
+                        fy = (torch.rand(1, device=device).item() - 0.5) * (h - furn_sx - 0.5)
+                        fx = w / 2 - 0.075 - furn_sy / 2
+                        fyaw = math.pi / 2
+                    else:  # W wall
+                        fy = (torch.rand(1, device=device).item() - 0.5) * (h - furn_sx - 0.5)
+                        fx = -w / 2 + 0.075 + furn_sy / 2
+                        fyaw = -math.pi / 2
 
                 # Check min distance from previously placed furniture
                 too_close = False
@@ -691,7 +728,7 @@ def generate_proc_room(
                 break
 
     # --- Phase 5: BFS solvability check ---
-    occupancy = _build_occupancy_grid(poses, active_mask, sizes, room_w, room_h, device)
+    occupancy = _build_occupancy_grid(poses, active_mask, sizes, room_w, room_h, device, has_room_walls)
     free_space = _inflate_obstacles(occupancy)
 
     # BFS from room center (0, 0)
@@ -737,7 +774,7 @@ def generate_proc_room(
                             poses[fi, s, :3] = PARK_POS.to(device)
 
             # Rebuild and re-check
-            occupancy = _build_occupancy_grid(poses, active_mask, sizes, room_w, room_h, device)
+            occupancy = _build_occupancy_grid(poses, active_mask, sizes, room_w, room_h, device, has_room_walls)
             free_space = _inflate_obstacles(occupancy)
             reachable = _gpu_bfs(free_space, start_cells)
             reachable_count = reachable.view(B, -1).sum(dim=-1)

@@ -13,15 +13,26 @@ Environments (--env):
     Isaac-Strafer-Nav-Real-ProcRoom-NoCam-v0   Realistic + Procedural rooms (Phase 7)
     Isaac-Strafer-Nav-Robust-ProcRoom-NoCam-v0 Robust + Procedural rooms (Phase 7)
 
+Auxiliary losses (--aux):
+    dapg    Demo Augmented Policy Gradient (NLL on expert demos)
+    gail    Generative Adversarial Imitation Learning (WGAN-GP discriminator)
+
+    Examples:
+        --aux dapg --dapg_demos demos.h5
+        --aux gail --gail_demos demos.h5
+        --aux dapg --aux gail --dapg_demos demos.h5 --gail_demos demos.h5
+
+    Legacy flags (--bc_demos etc.) are still supported for backward compat.
+
 Video recording (overhead view):
     --video                Record periodic MP4 videos during training
     --video_length 200     Frames per clip (default: 200)
     --video_interval 2000  Steps between recordings (default: 2000)
 
 Usage:
-    .\IsaacLab\isaaclab.bat -p Scripts\train_strafer_navigation.py --num_envs 512
-    .\IsaacLab\isaaclab.bat -p Scripts\train_strafer_navigation.py --headless --num_envs 1024
-    .\IsaacLab\isaaclab.bat -p Scripts\train_strafer_navigation.py --video --num_envs 64
+    .\\IsaacLab\\isaaclab.bat -p Scripts\\train_strafer_navigation.py --num_envs 512
+    .\\IsaacLab\\isaaclab.bat -p Scripts\\train_strafer_navigation.py --headless --num_envs 1024
+    .\\IsaacLab\\isaaclab.bat -p Scripts\\train_strafer_navigation.py --video --num_envs 64
 """
 
 import argparse
@@ -67,18 +78,29 @@ def main():
         "--video_interval", type=int, default=2000,
         help="Steps between video recordings (default: 2000)",
     )
-    # Demo-augmented policy gradient (DAPG)
+    # Modular auxiliary losses
     parser.add_argument(
-        "--bc_demos", type=str, default=None,
-        help="Path to HDF5 demo file for DAPG auxiliary loss (e.g. demos.h5)",
+        "--aux", type=str, action="append", default=[],
+        choices=["dapg", "gail"],
+        help="Auxiliary loss modules to activate (can specify multiple)",
     )
-    parser.add_argument("--bc_weight", type=float, default=0.1, help="Initial DAPG loss weight")
-    parser.add_argument("--bc_decay_steps", type=int, default=3000, help="DAPG weight decay steps")
-    parser.add_argument("--bc_batch_size", type=int, default=256, help="DAPG mini-batch size")
-    parser.add_argument("--bc_min_return_pct", type=float, default=0.0,
-                        help="Drop demo episodes below this return percentile (0.0=keep all, 0.25=drop bottom 25%%)")
+    # Legacy DAPG flags (backward compatibility)
+    parser.add_argument("--bc_demos", type=str, default=None,
+                        help="[Legacy] Path to HDF5 demo file (use --aux dapg --dapg_demos instead)")
+    parser.add_argument("--bc_weight", type=float, default=0.03, help=argparse.SUPPRESS)
+    parser.add_argument("--bc_decay_steps", type=int, default=3000, help=argparse.SUPPRESS)
+    parser.add_argument("--bc_batch_size", type=int, default=128, help=argparse.SUPPRESS)
+    parser.add_argument("--bc_min_return_pct", type=float, default=0.0, help=argparse.SUPPRESS)
+
     # Import Isaac Lab app launcher and add its CLI args (--enable_cameras, etc.)
     from isaaclab.app import AppLauncher
+
+    # Add auxiliary-specific CLI args before parsing
+    from strafer_lab.tasks.navigation.agents.aux_dapg import DAPGAuxiliary
+    from strafer_lab.tasks.navigation.agents.aux_gail import GAILAuxiliary
+    DAPGAuxiliary.add_args(parser)
+    GAILAuxiliary.add_args(parser)
+
     AppLauncher.add_app_launcher_args(parser)
     args = parser.parse_args()
 
@@ -102,7 +124,11 @@ def main():
 
     # Import strafer_lab to register environments and inject custom network
     import strafer_lab  # noqa: F401
-    from strafer_lab.tasks.navigation.agents import register_strafer_network
+    from strafer_lab.tasks.navigation.agents import (
+        register_strafer_network,
+        install_strafer_ppo,
+        register_auxiliary,
+    )
     register_strafer_network()
 
     env_name = args.env
@@ -140,6 +166,8 @@ def main():
     print(f"Log directory: {args.log_dir}")
     if args.video:
         print(f"Video: every {args.video_interval} steps, {args.video_length} frames/clip")
+    if args.aux:
+        print(f"Auxiliary losses: {', '.join(args.aux)}")
     print("=" * 60 + "\n")
 
     # Create environment (with render_mode for video if needed)
@@ -174,8 +202,16 @@ def main():
         os.makedirs(log_dir, exist_ok=True)
     print(f"Logging to: {log_dir}")
 
-    # Register DAPG auxiliary loss (must happen before runner creation)
-    if args.bc_demos:
+    # --- Register auxiliary losses ---
+    # Handle legacy --bc_demos flag (maps to DAPG)
+    use_legacy_dapg = args.bc_demos is not None and "dapg" not in args.aux
+    has_auxiliaries = bool(args.aux) or use_legacy_dapg
+
+    if has_auxiliaries:
+        install_strafer_ppo()
+
+    if use_legacy_dapg:
+        # Legacy path: use old-style --bc_* flags
         from strafer_lab.tasks.navigation.agents import register_dapg_loss
         register_dapg_loss(
             demo_path=args.bc_demos,
@@ -185,6 +221,19 @@ def main():
             min_return_percentile=args.bc_min_return_pct,
             device=agent_cfg.device,
         )
+        print("[WARN] Using legacy --bc_demos flag. "
+              "Prefer --aux dapg --dapg_demos for new training runs.")
+    else:
+        # New modular path
+        if "dapg" in args.aux:
+            if args.dapg_demos is None:
+                raise ValueError("--aux dapg requires --dapg_demos <path>")
+            register_auxiliary(DAPGAuxiliary.from_args(args, device=agent_cfg.device))
+
+        if "gail" in args.aux:
+            if args.gail_demos is None:
+                raise ValueError("--aux gail requires --gail_demos <path>")
+            register_auxiliary(GAILAuxiliary.from_args(args, device=agent_cfg.device))
 
     # Create runner
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)

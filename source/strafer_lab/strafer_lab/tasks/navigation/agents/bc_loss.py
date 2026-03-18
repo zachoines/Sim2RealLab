@@ -1,47 +1,27 @@
 """Demo Augmented Policy Gradient (DAPG) for PPO training.
 
-Implements the DAPG approach from Rajeswaran et al. 2018
-("Learning Complex Dexterous Manipulation with Deep RL and Demonstrations").
+**NOTE:** This module is kept for backward compatibility. New code should use
+the modular auxiliary loss architecture in ``strafer_ppo.py`` + ``aux_dapg.py``:
 
-Instead of a separate BC gradient step after PPO, DAPG adds the demo
-log-probability term directly into the PPO surrogate loss inside the
-mini-batch loop:
+    from strafer_lab.tasks.navigation.agents.strafer_ppo import (
+        install_strafer_ppo, register_auxiliary,
+    )
+    from strafer_lab.tasks.navigation.agents.aux_dapg import DAPGAuxiliary
 
-    L_total = L_ppo + λ * mean(-log π(a_demo | s_demo))
+    install_strafer_ppo()
+    register_auxiliary(DAPGAuxiliary(demo_path="demos.h5"))
 
-The BC term is weighted by ``λ`` which decays linearly from ``bc_weight``
-to 0 over ``bc_decay_steps`` PPO updates. This naturally transitions from
-imitation to pure RL.
+The ``register_dapg_loss()`` / ``register_bc_loss()`` functions below still
+work but use their own independent monkey-patch of PPO.update(). They cannot
+be combined with the new ``install_strafer_ppo()`` architecture.
 
-Key advantages over separate-step BC:
-    - Single backward pass — gradients from RL and BC are combined, avoiding
-      conflicting gradient steps that can destabilize training.
-    - The value function sees demo states — demo observations are passed
-      through the critic during the BC forward pass, so V(s) learns from
-      both RL rollouts and expert demonstrations.
-    - Robust to imperfect demos — bad demos produce low log-prob naturally
-      and contribute less gradient signal. Optional return-based filtering
-      can further downweight poor episodes.
+``ExpertDemoBuffer`` is shared between this module and the new auxiliary
+modules — it is the canonical demo loading class.
 
 HDF5 format (from ``collect_demos.py``):
     episode_XXXX/obs      (T, obs_dim)
     episode_XXXX/actions   (T, act_dim)
     episode_XXXX/rewards   (T,)  — optional, used for return-weighted filtering
-
-Integration: call ``register_dapg_loss()`` before creating the PPO runner.
-This monkey-patches ``PPO.update()`` to inject the DAPG term.
-
-Usage:
-    from strafer_lab.tasks.navigation.agents.bc_loss import register_dapg_loss
-    register_dapg_loss(
-        demo_path="demos.h5",
-        bc_weight=0.03,
-        bc_decay_steps=3000,
-        bc_batch_size=128,
-    )
-
-    # Legacy alias:
-    from strafer_lab.tasks.navigation.agents.bc_loss import register_bc_loss
 """
 
 from __future__ import annotations

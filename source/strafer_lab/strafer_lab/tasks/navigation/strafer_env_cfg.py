@@ -1560,9 +1560,17 @@ _RESET_ROBOT_PROC_ROOM = EventTerm(
 )
 
 
+_RANDOMIZE_PROC_ROOM_DIFFICULTY = EventTerm(
+    func=mdp.randomize_proc_room_difficulty,
+    mode="reset",
+    params={"max_level": 7},
+)
+
+
 @configclass
 class EventsCfg_ProcRoom_Realistic:
     """Realistic DR for ProcRoom — room generation + robot reset + DR."""
+    randomize_difficulty = _RANDOMIZE_PROC_ROOM_DIFFICULTY
     generate_room = _GENERATE_PROC_ROOM
     reset_robot = _RESET_ROBOT_PROC_ROOM
     randomize_friction = EventTerm(
@@ -1588,6 +1596,7 @@ class EventsCfg_ProcRoom_Realistic:
 @configclass
 class EventsCfg_ProcRoom_Robust:
     """Robust DR for ProcRoom — room generation + robot reset + aggressive DR."""
+    randomize_difficulty = _RANDOMIZE_PROC_ROOM_DIFFICULTY
     generate_room = _GENERATE_PROC_ROOM
     reset_robot = _RESET_ROBOT_PROC_ROOM
     randomize_friction = EventTerm(
@@ -1614,28 +1623,13 @@ class EventsCfg_ProcRoom_Robust:
 
 @configclass
 class CurriculumCfg_ProcRoom:
-    """Curriculum for ProcRoom — goal distance + room complexity."""
-    goal_distance = CurrTerm(
-        func=mdp.GoalDistanceCurriculum,
-        params={
-            "command_name": "goal_command",
-            "initial_range": 0.5,
-            "max_range": 4.0,
-            "step_size": 0.25,
-            "success_threshold": 5,
-            "goal_threshold": 0.3,
-        },
-    )
-    room_complexity = CurrTerm(
-        func=mdp.RoomComplexityCurriculum,
-        params={
-            "command_name": "goal_command",
-            "initial_level": 0,
-            "max_level": 7,
-            "success_threshold": 8,
-            "goal_threshold": 0.3,
-        },
-    )
+    """No curriculum for ProcRoom — difficulty is randomized per-env via event.
+
+    GoalDistanceCurriculum and RoomComplexityCurriculum were removed to match
+    the demo distribution (random difficulty per episode). The curriculum classes
+    remain in mdp/curriculums.py for future use.
+    """
+    pass
 
 
 # --- ProcRoom environment configs ---

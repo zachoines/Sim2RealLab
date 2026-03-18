@@ -99,6 +99,7 @@ from .events import (
     randomize_goal_noise,
     randomize_motor_strength,
     randomize_d555_mount_offset,
+    randomize_proc_room_difficulty,
 )
 
 # Custom commands

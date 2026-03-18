@@ -466,3 +466,27 @@ def reset_robot_proc_room(
     root_state[:, 7:] = 0.0
 
     robot.write_root_state_to_sim(root_state, env_ids)
+
+
+def randomize_proc_room_difficulty(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    max_level: int = 7,
+) -> None:
+    """Sample uniform random room difficulty per env on episode reset.
+
+    Sets ``env._proc_room_difficulty`` which is read by ``generate_proc_room``
+    to control the number of walls, furniture, and clutter placed.
+
+    Args:
+        env: The environment instance.
+        env_ids: Indices of environments being reset.
+        max_level: Maximum difficulty level (inclusive).
+    """
+    if not hasattr(env, "_proc_room_difficulty"):
+        env._proc_room_difficulty = torch.zeros(
+            env.num_envs, dtype=torch.long, device=env.device
+        )
+    env._proc_room_difficulty[env_ids] = torch.randint(
+        0, max_level + 1, (len(env_ids),), device=env.device
+    )

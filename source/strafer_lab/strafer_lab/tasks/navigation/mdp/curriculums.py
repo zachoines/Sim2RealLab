@@ -63,12 +63,11 @@ class GoalDistanceCurriculum(ManagerTermBase):
             env_ids, device=env.device
         )
 
-        # Check if goals were reached at the moment of reset
+        # Check if any goals were reached during the episode (not at reset instant).
+        # GoalCommand resamples goals mid-episode, so checking distance at reset
+        # would always fail. Instead, read the per-episode reach counter.
         command_term = env.command_manager.get_term(command_name)
-        robot_pos = env.scene["robot"].data.root_pos_w[env_ids_t, :2]
-        goal_pos = command_term.command[env_ids_t, :2]
-        distance = torch.norm(goal_pos - robot_pos, dim=-1)
-        reached = distance < goal_threshold
+        reached = command_term._goal_reached_count[env_ids_t] > 0
 
         # Update success counts — increment for reached, reset for not
         self._success_count[env_ids_t] = torch.where(
@@ -155,12 +154,9 @@ class ObstacleCurriculum(ManagerTermBase):
             env_ids, device=env.device
         )
 
-        # Check if goals were reached at reset
+        # Check if any goals were reached during the episode
         command_term = env.command_manager.get_term(command_name)
-        robot_pos = env.scene["robot"].data.root_pos_w[env_ids_t, :2]
-        goal_pos = command_term.command[env_ids_t, :2]
-        distance = torch.norm(goal_pos - robot_pos, dim=-1)
-        reached = distance < goal_threshold
+        reached = command_term._goal_reached_count[env_ids_t] > 0
 
         self._success_count[env_ids_t] = torch.where(
             reached,
@@ -274,12 +270,11 @@ class RoomComplexityCurriculum(ManagerTermBase):
             env_ids, device=env.device
         )
 
-        # Check if goals were reached at reset
+        # Check if any goals were reached during the episode (not at reset instant).
+        # GoalCommand resamples goals mid-episode, so checking distance at reset
+        # would always fail. Instead, read the per-episode reach counter.
         command_term = env.command_manager.get_term(command_name)
-        robot_pos = env.scene["robot"].data.root_pos_w[env_ids_t, :2]
-        goal_pos = command_term.command[env_ids_t, :2]
-        distance = torch.norm(goal_pos - robot_pos, dim=-1)
-        reached = distance < goal_threshold
+        reached = command_term._goal_reached_count[env_ids_t] > 0
 
         self._success_count[env_ids_t] = torch.where(
             reached,

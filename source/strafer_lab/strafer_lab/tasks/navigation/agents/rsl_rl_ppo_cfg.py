@@ -95,7 +95,19 @@ STRAFER_PPO_LSTM_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
 
 
 # =============================================================================
-# Depth: CNN-MLP Hybrid (4819-dim obs = 19 scalar + 4800 depth pixels)
+# Depth: CNN-GRU-MLP Hybrid (4819-dim obs = 19 scalar + 4800 depth pixels)
+#
+# GRU enables online system identification — the policy can infer latent
+# dynamics (friction, motor delay, payload) from temporal context, improving
+# sim-to-real transfer and robustness to env noise.
+#
+# gamma=0.99 / lam=0.97: longer effective horizon (vs 0.95/0.95) so the
+# value function looks further ahead — important for navigation where
+# reaching a goal 6s away requires sustained planning.
+#
+# entropy_coef=0.01: doubled from 0.005 to encourage broader exploration,
+# especially when DAPG is active (which tends to collapse action variance
+# toward expert behavior).
 # =============================================================================
 
 STRAFER_PPO_DEPTH_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
@@ -105,24 +117,27 @@ STRAFER_PPO_DEPTH_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
     experiment_name="strafer_navigation_depth",
     empirical_normalization=True,
     obs_groups={"policy": ["policy"], "critic": ["critic"]},
-    policy=RslRlPpoActorCriticCfg(
+    policy=RslRlPpoActorCriticRecurrentCfg(
         class_name="StraferActorCritic",
         init_noise_std=0.3,
-        actor_hidden_dims=[256, 256, 128],
-        critic_hidden_dims=[256, 256, 128],
+        actor_hidden_dims=[256, 128],
+        critic_hidden_dims=[256, 128],
         activation="elu",
+        rnn_type="gru",
+        rnn_hidden_dim=128,
+        rnn_num_layers=1,
     ),
     algorithm=RslRlPpoAlgorithmCfg(
-        value_loss_coef=0.5,
+        value_loss_coef=1.0,
         use_clipped_value_loss=True,
         clip_param=0.2,
-        entropy_coef=0.005,
+        entropy_coef=0.01,
         num_learning_epochs=5,
         num_mini_batches=4,
         learning_rate=3.0e-4,
-        schedule="fixed",
-        gamma=0.95,
-        lam=0.95,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.97,
         desired_kl=0.01,
         max_grad_norm=0.5,
     ),

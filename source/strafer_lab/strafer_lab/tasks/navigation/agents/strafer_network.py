@@ -272,9 +272,20 @@ class StraferActorCritic(nn.Module):
 
     The encoder compresses depth into a compact embedding, which is
     concatenated with scalar_obs before the MLP heads.
-    """
 
-    is_recurrent: bool = False
+    Optional recurrence (``rnn_type="gru"`` or ``"lstm"``):
+        When enabled, a recurrent layer sits between the CNN encoder output
+        and the MLP heads.  This allows the policy to perform online system
+        identification — inferring latent dynamics (friction, motor delay,
+        payload) from temporal context.  The architecture becomes:
+
+            depth → CNN → embedding ─┐
+                                      ├─→ GRU/LSTM → MLP → actions
+            scalar_obs ──────────────┘
+
+        The ``is_recurrent`` flag is set dynamically so RSL-RL's runner
+        automatically uses recurrent rollout storage and mini-batch generation.
+    """
 
     def __init__(
         self,
@@ -293,6 +304,10 @@ class StraferActorCritic(nn.Module):
         depth_embedding_dim: int = 128,
         depth_encoder_type: str = "defm",
         defm_model_name: str = "efficientnet_b0",
+        # Recurrence params
+        rnn_type: str | None = None,
+        rnn_hidden_dim: int = 128,
+        rnn_num_layers: int = 1,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -314,34 +329,53 @@ class StraferActorCritic(nn.Module):
             self.scalar_obs_dim = num_actor_obs
             self.has_depth = False
 
+        # Recurrence setup
+        self._use_rnn = rnn_type is not None
+        # Set is_recurrent as instance attribute (overrides class default)
+        self.is_recurrent = self._use_rnn
+
         print(f"[StraferActorCritic] actor_obs={num_actor_obs}, scalar_dim={self.scalar_obs_dim}, "
-              f"has_depth={self.has_depth}, encoder={depth_encoder_type}")
+              f"has_depth={self.has_depth}, encoder={depth_encoder_type}, "
+              f"rnn={rnn_type or 'none'}")
 
         # Build depth encoder if needed
         if self.has_depth:
             self.depth_encoder_actor = _create_depth_encoder(
                 depth_encoder_type, depth_embedding_dim, defm_model_name,
             )
-            actor_input_dim = self.scalar_obs_dim + depth_embedding_dim
+            encoded_dim = self.scalar_obs_dim + depth_embedding_dim
         else:
             self.depth_encoder_actor = None
-            actor_input_dim = num_actor_obs
+            encoded_dim = num_actor_obs
 
         # Critic may have different obs size (privileged info)
         if num_critic_obs > _DEPTH_PIXELS:
             self.critic_has_depth = True
             self.critic_scalar_dim = num_critic_obs - _DEPTH_PIXELS
-            # Critic gets its own encoder (separate from actor for asymmetric obs)
             self.depth_encoder_critic = _create_depth_encoder(
                 depth_encoder_type, depth_embedding_dim, defm_model_name,
             )
-            # Critic scalar includes privileged obs that come after depth
-            critic_input_dim = self.critic_scalar_dim + depth_embedding_dim
+            critic_encoded_dim = self.critic_scalar_dim + depth_embedding_dim
         else:
             self.critic_has_depth = False
             self.critic_scalar_dim = num_critic_obs
             self.depth_encoder_critic = None
-            critic_input_dim = num_critic_obs
+            critic_encoded_dim = num_critic_obs
+
+        # Build optional RNN layers (between encoder and MLP)
+        if self._use_rnn:
+            from rsl_rl.networks import Memory
+            self.memory_a = Memory(encoded_dim, rnn_hidden_dim, rnn_num_layers, rnn_type)
+            self.memory_c = Memory(critic_encoded_dim, rnn_hidden_dim, rnn_num_layers, rnn_type)
+            actor_input_dim = rnn_hidden_dim
+            critic_input_dim = rnn_hidden_dim
+            print(f"[StraferActorCritic] Actor RNN: {self.memory_a}")
+            print(f"[StraferActorCritic] Critic RNN: {self.memory_c}")
+        else:
+            self.memory_a = None
+            self.memory_c = None
+            actor_input_dim = encoded_dim
+            critic_input_dim = critic_encoded_dim
 
         # Build MLP heads
         self.actor = _build_mlp(actor_input_dim, num_actions, list(actor_hidden_dims), activation)
@@ -372,32 +406,43 @@ class StraferActorCritic(nn.Module):
 
     def _encode_actor(self, raw_obs: torch.Tensor) -> torch.Tensor:
         if self.has_depth and self.depth_encoder_actor is not None:
-            scalar = raw_obs[:, :self.scalar_obs_dim]
-            depth_flat = raw_obs[:, self.scalar_obs_dim:self.scalar_obs_dim + _DEPTH_PIXELS]
+            # Handle both 2D (B, D) and 3D (T, B, D) from recurrent mini-batches
+            leading_shape = raw_obs.shape[:-1]
+            flat = raw_obs.reshape(-1, raw_obs.shape[-1])
+            scalar = flat[:, :self.scalar_obs_dim]
+            depth_flat = flat[:, self.scalar_obs_dim:self.scalar_obs_dim + _DEPTH_PIXELS]
             depth_emb = self.depth_encoder_actor(depth_flat)
-            return torch.cat([scalar, depth_emb], dim=-1)
+            encoded = torch.cat([scalar, depth_emb], dim=-1)
+            return encoded.reshape(*leading_shape, -1)
         return raw_obs
 
     def _encode_critic(self, raw_obs: torch.Tensor) -> torch.Tensor:
         if self.critic_has_depth and self.depth_encoder_critic is not None:
-            # Scalar obs come first, then depth pixels, then any privileged extras
-            scalar_before = raw_obs[:, :self.scalar_obs_dim]
-            depth_flat = raw_obs[:, self.scalar_obs_dim:self.scalar_obs_dim + _DEPTH_PIXELS]
+            leading_shape = raw_obs.shape[:-1]
+            flat = raw_obs.reshape(-1, raw_obs.shape[-1])
+            scalar_before = flat[:, :self.scalar_obs_dim]
+            depth_flat = flat[:, self.scalar_obs_dim:self.scalar_obs_dim + _DEPTH_PIXELS]
             depth_emb = self.depth_encoder_critic(depth_flat)
-            extra = raw_obs[:, self.scalar_obs_dim + _DEPTH_PIXELS:]
+            extra = flat[:, self.scalar_obs_dim + _DEPTH_PIXELS:]
             parts = [scalar_before, depth_emb]
             if extra.shape[-1] > 0:
                 parts.append(extra)
-            return torch.cat(parts, dim=-1)
+            encoded = torch.cat(parts, dim=-1)
+            return encoded.reshape(*leading_shape, -1)
         return raw_obs
 
     # ----- interface required by rsl_rl -----
 
-    def act(self, obs: TensorDict, **kwargs) -> torch.Tensor:
+    def act(self, obs: TensorDict, masks: torch.Tensor | None = None,
+            hidden_state=None, **kwargs) -> torch.Tensor:
         raw = self._get_actor_obs(obs)
         if self._actor_obs_norm is not None:
             raw = self._actor_obs_norm(raw)
         encoded = self._encode_actor(raw)
+
+        if self._use_rnn:
+            encoded = self.memory_a(encoded, masks, hidden_state).squeeze(0)
+
         mean = self.actor(encoded)
         self.distribution = Normal(mean, self.std.expand_as(mean))
         return self.distribution.sample()
@@ -407,20 +452,37 @@ class StraferActorCritic(nn.Module):
         if self._actor_obs_norm is not None:
             raw = self._actor_obs_norm(raw)
         encoded = self._encode_actor(raw)
+
+        if self._use_rnn:
+            encoded = self.memory_a(encoded).squeeze(0)
+
         return self.actor(encoded)
 
-    def evaluate(self, obs: TensorDict, **kwargs) -> torch.Tensor:
+    def evaluate(self, obs: TensorDict, masks: torch.Tensor | None = None,
+                 hidden_state=None, **kwargs) -> torch.Tensor:
         raw = self._get_critic_obs(obs)
         if self._critic_obs_norm is not None:
             raw = self._critic_obs_norm(raw)
         encoded = self._encode_critic(raw)
+
+        if self._use_rnn:
+            encoded = self.memory_c(encoded, masks, hidden_state).squeeze(0)
+
         return self.critic(encoded)
 
     def get_actions_log_prob(self, actions: torch.Tensor) -> torch.Tensor:
         return self.distribution.log_prob(actions).sum(dim=-1)
 
+    def get_hidden_states(self) -> tuple:
+        """Return RNN hidden states for actor and critic (required by recurrent runner)."""
+        if self._use_rnn:
+            return self.memory_a.hidden_state, self.memory_c.hidden_state
+        return None, None
+
     def reset(self, dones: torch.Tensor | None = None) -> None:
-        pass
+        if self._use_rnn:
+            self.memory_a.reset(dones)
+            self.memory_c.reset(dones)
 
     def update_normalization(self, obs: TensorDict) -> None:
         if self._actor_obs_norm is not None:

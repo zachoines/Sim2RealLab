@@ -114,6 +114,12 @@ class GoalCommand(CommandTerm):
         self._goal[env_ids, 0] = goal_x
         self._goal[env_ids, 1] = goal_y
 
+        # NOTE: Do NOT reset _goal_reached_count here — _resample_command is
+        # called both on episode reset AND mid-episode goal resampling.  The
+        # base CommandTerm.reset() already zeros all metrics (including this
+        # counter) on episode reset.  Zeroing here would wipe the counter every
+        # time a goal is reached mid-episode, preventing curriculum advancement.
+
         # Sample random desired heading in [-pi, pi]
         heading_range = self.cfg.goal_range.heading
         self._goal[env_ids, 2] = (
@@ -478,6 +484,8 @@ class GoalCommandProcRoom(GoalCommand):
 
         self._goal[env_ids, 0] = goal_x
         self._goal[env_ids, 1] = goal_y
+
+        # NOTE: Do NOT reset _goal_reached_count here — see GoalCommand._resample_command.
 
         # Random heading
         heading_range = self.cfg.goal_range.heading

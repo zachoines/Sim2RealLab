@@ -185,12 +185,13 @@ class DemoWriter:
         self._current: dict[str, list] | None = None
 
     def begin_episode(self):
-        self._current = {"obs": [], "actions": []}
+        self._current = {"obs": [], "actions": [], "rewards": []}
 
-    def add_step(self, obs: np.ndarray, action: np.ndarray):
+    def add_step(self, obs: np.ndarray, action: np.ndarray, reward: float = 0.0):
         assert self._current is not None, "Call begin_episode() first"
         self._current["obs"].append(obs)
         self._current["actions"].append(action)
+        self._current["rewards"].append(reward)
 
     def end_episode(self, keep: bool = True):
         if self._current is None:
@@ -213,7 +214,9 @@ class DemoWriter:
                 grp = f.create_group(f"episode_{i:04d}")
                 grp.create_dataset("obs", data=np.stack(ep["obs"]))
                 grp.create_dataset("actions", data=np.stack(ep["actions"]))
+                grp.create_dataset("rewards", data=np.array(ep["rewards"], dtype=np.float32))
                 grp.attrs["length"] = len(ep["obs"])
+                grp.attrs["return"] = float(sum(ep["rewards"]))
 
     @property
     def num_episodes(self) -> int:
@@ -307,13 +310,14 @@ def main():
             action = torch.tensor([[vx, vy, omega]], dtype=torch.float32,
                                   device=env.unwrapped.device)
 
-            # Record
+            # Record obs+action before step, reward after step
             current_obs = _get_obs(obs)
             current_action = np.array([vx, vy, omega], dtype=np.float32)
-            writer.add_step(current_obs, current_action)
 
             # Step
             obs, reward, terminated, truncated, info = env.step(action)
+            step_reward = float(reward.squeeze().item())
+            writer.add_step(current_obs, current_action, reward=step_reward)
             episode_step += 1
 
             # Episode ended (timeout or termination)

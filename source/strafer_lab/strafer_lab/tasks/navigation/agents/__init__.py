@@ -10,7 +10,7 @@ Call ``register_strafer_network()`` once at startup.
 
 from .rsl_rl_ppo_cfg import STRAFER_PPO_RUNNER_CFG, STRAFER_PPO_LSTM_RUNNER_CFG, STRAFER_PPO_DEPTH_RUNNER_CFG
 from .strafer_network import StraferActorCritic
-from .bc_loss import register_bc_loss
+from .bc_loss import register_bc_loss, register_dapg_loss
 
 
 def register_strafer_network():
@@ -27,4 +27,5 @@ __all__ = [
     "StraferActorCritic",
     "register_strafer_network",
     "register_bc_loss",
+    "register_dapg_loss",
 ]

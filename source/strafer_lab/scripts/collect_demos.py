@@ -4,10 +4,10 @@ Launches a single-environment Isaac Lab simulation and records expert
 (human) demonstrations using an Xbox / generic gamepad.  Transitions
 are saved to HDF5 for offline imitation learning.
 
-Controls:
-    Left stick Y   → vx  (forward / backward)
-    Left stick X   → vy  (strafe left / right)
-    Right stick X  → ω   (yaw rotation)
+World-frame control mode:
+    Left stick     → world-frame velocity (stick direction = movement direction)
+    Right stick X  → world-frame heading target (stick angle = desired heading,
+                     centered = hold current heading)
     A button       → mark current episode as "good" (default)
     B button       → discard current episode
     Start button   → save & quit
@@ -53,6 +53,8 @@ app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
 # --- Post-launch imports ---
+import math
+
 import h5py
 import numpy as np
 import torch
@@ -142,30 +144,26 @@ class GamepadReader:
         sign = 1.0 if value > 0 else -1.0
         return sign * (abs(value) - self.deadzone) / (1.0 - self.deadzone)
 
-    def read(self) -> tuple[float, float, float, dict[str, bool]]:
-        """Read gamepad state.
+    def read(self) -> tuple[float, float, float, float, dict[str, bool]]:
+        """Read raw gamepad stick values.
 
         Returns:
-            (vx, vy, omega) in [-1, 1] and dict of button states.
+            (lx, ly, rx, ry) raw stick axes in [-1, 1] and dict of button states.
+            lx/ly: left stick (world-frame velocity direction).
+            rx: right stick X (heading target).
+            ry: right stick Y (unused, reserved).
         """
         pygame.event.pump()
         lx = self._apply_deadzone(self.joystick.get_axis(self.AXIS_LX))
         ly = self._apply_deadzone(self.joystick.get_axis(self.AXIS_LY))
         rx = self._apply_deadzone(self.joystick.get_axis(self.AXIS_RX))
 
-        # stick-up (negative ly) → positive vx (forward)
-        # stick-right (positive lx) → negative vy (strafe right, +vy = left)
-        # stick-right on rx (positive rx) → negative omega (rotate clockwise/right)
-        vx = -ly
-        vy = -lx
-        omega = -rx
-
         buttons = {
             "a": self.joystick.get_button(self.BTN_A),
             "b": self.joystick.get_button(self.BTN_B),
             "start": self.joystick.get_button(self.BTN_START),
         }
-        return vx, vy, omega, buttons
+        return lx, ly, rx, buttons
 
     def close(self):
         pygame.joystick.quit()
@@ -279,10 +277,23 @@ def main():
     writer.begin_episode()
 
     episode_step = 0
+    desired_heading = 0.0  # world-frame heading target (radians)
+    heading_kp = 3.0       # P-controller gain for heading tracking
+
+    def _get_robot_heading() -> float:
+        """Extract robot yaw from quaternion (w, x, y, z)."""
+        quat = unwrapped.scene["robot"].data.root_quat_w[0]  # (4,) — single env
+        w, x, y, z = quat[0].item(), quat[1].item(), quat[2].item(), quat[3].item()
+        return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+    def _wrap_angle(a: float) -> float:
+        """Wrap angle to [-pi, pi]."""
+        return (a + math.pi) % (2.0 * math.pi) - math.pi
+
     print("\n" + "=" * 60)
-    print("DEMO COLLECTION — Use gamepad to drive the robot toward goals")
-    print("  Left stick  → forward/strafe")
-    print("  Right stick → rotate")
+    print("DEMO COLLECTION — World-frame gamepad control")
+    print("  Left stick  → world-frame velocity direction")
+    print("  Right stick → world-frame heading target")
     print("  A button    → keep episode (auto on reset)")
     print("  B button    → discard episode")
     print("  Start       → save & quit")
@@ -290,7 +301,7 @@ def main():
 
     try:
         while simulation_app.is_running():
-            vx, vy, omega, buttons = gamepad.read()
+            lx, ly, rx, buttons = gamepad.read()
 
             if buttons["start"]:
                 writer.end_episode(keep=True)
@@ -301,18 +312,51 @@ def main():
                 writer.end_episode(keep=False)
                 _randomize_difficulty()
                 obs, info = env.reset()
+                desired_heading = _get_robot_heading()
                 writer.begin_episode()
                 episode_step = 0
                 time.sleep(0.3)  # Debounce
                 continue
 
-            # Build action tensor
-            action = torch.tensor([[vx, vy, omega]], dtype=torch.float32,
-                                  device=env.unwrapped.device)
+            # --- World-frame control ---
+            robot_heading = _get_robot_heading()
+
+            # Left stick → world-frame velocity
+            # stick-up (-ly) = world +X, stick-right (+lx) = world +Y
+            world_vx = -ly
+            world_vy = lx
+            stick_mag = min(1.0, math.sqrt(world_vx ** 2 + world_vy ** 2))
+
+            if stick_mag > 0.01:
+                # Normalize direction then scale by magnitude
+                inv_norm = stick_mag / math.sqrt(world_vx ** 2 + world_vy ** 2)
+                world_vx *= inv_norm
+                world_vy *= inv_norm
+
+            # Transform world-frame velocity to robot body frame
+            cos_h = math.cos(robot_heading)
+            sin_h = math.sin(robot_heading)
+            body_vx = cos_h * world_vx + sin_h * world_vy
+            body_vy = -sin_h * world_vx + cos_h * world_vy
+
+            # Right stick X → heading target (absolute world-frame heading)
+            if abs(rx) > 0.01:
+                # Map stick angle to desired heading: right stick X directly
+                # sets desired heading change rate, integrated over time
+                desired_heading += rx * 0.05  # ~3 rad/s at 60Hz
+                desired_heading = _wrap_angle(desired_heading)
+
+            # P-controller for heading tracking
+            heading_error = _wrap_angle(desired_heading - robot_heading)
+            omega = max(-1.0, min(1.0, heading_kp * heading_error))
+
+            # Build action tensor [body_vx, body_vy, omega]
+            action = torch.tensor([[body_vx, body_vy, omega]], dtype=torch.float32,
+                                  device=unwrapped.device)
 
             # Record obs+action before step, reward after step
             current_obs = _get_obs(obs)
-            current_action = np.array([vx, vy, omega], dtype=np.float32)
+            current_action = np.array([body_vx, body_vy, omega], dtype=np.float32)
 
             # Step
             obs, reward, terminated, truncated, info = env.step(action)
@@ -332,6 +376,7 @@ def main():
                     break
                 _randomize_difficulty()
                 obs, info = env.reset()
+                desired_heading = _get_robot_heading()
                 writer.begin_episode()
                 episode_step = 0
 

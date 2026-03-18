@@ -31,7 +31,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from .bc_loss import ExpertDemoBuffer
+from .demo_buffer import ExpertDemoBuffer
 from .strafer_ppo import AuxiliaryLoss
 
 

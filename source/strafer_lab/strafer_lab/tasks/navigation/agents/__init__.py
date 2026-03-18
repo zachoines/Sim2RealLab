@@ -15,7 +15,7 @@ then register auxiliary modules via ``register_auxiliary()``.
 from .rsl_rl_ppo_cfg import STRAFER_PPO_RUNNER_CFG, STRAFER_PPO_LSTM_RUNNER_CFG, STRAFER_PPO_DEPTH_RUNNER_CFG
 from .strafer_network import StraferActorCritic
 from .strafer_ppo import AuxiliaryLoss, install_strafer_ppo, register_auxiliary
-from .bc_loss import ExpertDemoBuffer, register_bc_loss, register_dapg_loss
+from .demo_buffer import ExpertDemoBuffer
 from .aux_dapg import DAPGAuxiliary
 from .aux_gail import GAILAuxiliary
 
@@ -33,11 +33,7 @@ __all__ = [
     "STRAFER_PPO_DEPTH_RUNNER_CFG",
     "StraferActorCritic",
     "register_strafer_network",
-    # Legacy DAPG API (backward compat)
-    "register_bc_loss",
-    "register_dapg_loss",
     "ExpertDemoBuffer",
-    # New modular auxiliary architecture
     "AuxiliaryLoss",
     "install_strafer_ppo",
     "register_auxiliary",

@@ -22,8 +22,6 @@ Auxiliary losses (--aux):
         --aux gail --gail_demos demos.h5
         --aux dapg --aux gail --dapg_demos demos.h5 --gail_demos demos.h5
 
-    Legacy flags (--bc_demos etc.) are still supported for backward compat.
-
 Video recording (overhead view):
     --video                Record periodic MP4 videos during training
     --video_length 200     Frames per clip (default: 200)
@@ -84,14 +82,6 @@ def main():
         choices=["dapg", "gail"],
         help="Auxiliary loss modules to activate (can specify multiple)",
     )
-    # Legacy DAPG flags (backward compatibility)
-    parser.add_argument("--bc_demos", type=str, default=None,
-                        help="[Legacy] Path to HDF5 demo file (use --aux dapg --dapg_demos instead)")
-    parser.add_argument("--bc_weight", type=float, default=0.03, help=argparse.SUPPRESS)
-    parser.add_argument("--bc_decay_steps", type=int, default=3000, help=argparse.SUPPRESS)
-    parser.add_argument("--bc_batch_size", type=int, default=128, help=argparse.SUPPRESS)
-    parser.add_argument("--bc_min_return_pct", type=float, default=0.0, help=argparse.SUPPRESS)
-
     # Import Isaac Lab app launcher and add its CLI args (--enable_cameras, etc.)
     from isaaclab.app import AppLauncher
 
@@ -203,28 +193,9 @@ def main():
     print(f"Logging to: {log_dir}")
 
     # --- Register auxiliary losses ---
-    # Handle legacy --bc_demos flag (maps to DAPG)
-    use_legacy_dapg = args.bc_demos is not None and "dapg" not in args.aux
-    has_auxiliaries = bool(args.aux) or use_legacy_dapg
-
-    if has_auxiliaries:
+    if args.aux:
         install_strafer_ppo()
 
-    if use_legacy_dapg:
-        # Legacy path: use old-style --bc_* flags
-        from strafer_lab.tasks.navigation.agents import register_dapg_loss
-        register_dapg_loss(
-            demo_path=args.bc_demos,
-            bc_weight=args.bc_weight,
-            bc_decay_steps=args.bc_decay_steps,
-            bc_batch_size=args.bc_batch_size,
-            min_return_percentile=args.bc_min_return_pct,
-            device=agent_cfg.device,
-        )
-        print("[WARN] Using legacy --bc_demos flag. "
-              "Prefer --aux dapg --dapg_demos for new training runs.")
-    else:
-        # New modular path
         if "dapg" in args.aux:
             if args.dapg_demos is None:
                 raise ValueError("--aux dapg requires --dapg_demos <path>")

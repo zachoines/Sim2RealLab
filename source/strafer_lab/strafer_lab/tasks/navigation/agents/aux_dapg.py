@@ -30,7 +30,7 @@ import argparse
 
 import torch
 
-from .bc_loss import ExpertDemoBuffer
+from .demo_buffer import ExpertDemoBuffer
 from .strafer_ppo import AuxiliaryLoss
 
 

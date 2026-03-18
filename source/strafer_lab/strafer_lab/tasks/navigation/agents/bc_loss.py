@@ -35,9 +35,9 @@ Usage:
     from strafer_lab.tasks.navigation.agents.bc_loss import register_dapg_loss
     register_dapg_loss(
         demo_path="demos.h5",
-        bc_weight=0.1,
+        bc_weight=0.03,
         bc_decay_steps=3000,
-        bc_batch_size=256,
+        bc_batch_size=128,
     )
 
     # Legacy alias:
@@ -59,7 +59,13 @@ class ExpertDemoBuffer:
     when reward data is available in the HDF5 file.
     """
 
-    def __init__(self, path: str, device: str = "cuda", min_return_percentile: float = 0.0):
+    def __init__(
+        self,
+        path: str,
+        device: str = "cuda",
+        min_return_percentile: float = 0.0,
+        action_noise_std: float = 0.05,
+    ):
         """Load expert demonstrations from HDF5.
 
         Args:
@@ -68,6 +74,9 @@ class ExpertDemoBuffer:
             min_return_percentile: Drop episodes below this return percentile
                 (0.0 = keep all, 0.25 = drop bottom 25%). Only applies when
                 reward data is available.
+            action_noise_std: Std of Gaussian noise added to demo actions during
+                sampling. Regularizes the BC target to prevent overfitting to
+                exact gamepad inputs.
         """
         self.device = device
         obs_list = []
@@ -101,6 +110,7 @@ class ExpertDemoBuffer:
         self.actions = torch.from_numpy(np.concatenate(act_list, axis=0)).float().to(device)
         self.num_samples = self.obs.shape[0]
         self.has_rewards = has_rewards
+        self.action_noise_std = action_noise_std
 
         print(f"[DAPG] Loaded {self.num_samples} expert transitions "
               f"(obs: {self.obs.shape}, actions: {self.actions.shape})")
@@ -109,9 +119,12 @@ class ExpertDemoBuffer:
                   f"max={max(episode_returns):.1f}, mean={np.mean(episode_returns):.1f}")
 
     def sample(self, batch_size: int) -> tuple[torch.Tensor, torch.Tensor]:
-        """Sample a random batch of (obs, expert_actions)."""
+        """Sample a random batch of (obs, expert_actions) with action noise."""
         indices = torch.randint(0, self.num_samples, (batch_size,), device=self.device)
-        return self.obs[indices], self.actions[indices]
+        actions = self.actions[indices]
+        if self.action_noise_std > 0.0:
+            actions = actions + torch.randn_like(actions) * self.action_noise_std
+        return self.obs[indices], actions
 
 
 # ---------------------------------------------------------------------------
@@ -123,10 +136,11 @@ _DAPG_STATE: dict = {}
 
 def register_dapg_loss(
     demo_path: str,
-    bc_weight: float = 0.1,
+    bc_weight: float = 0.03,
     bc_decay_steps: int = 3000,
-    bc_batch_size: int = 256,
+    bc_batch_size: int = 128,
     min_return_percentile: float = 0.0,
+    action_noise_std: float = 0.05,
     device: str = "cuda",
 ) -> None:
     """Monkey-patch RSL-RL PPO to add DAPG demo-augmented loss.
@@ -145,13 +159,16 @@ def register_dapg_loss(
         bc_decay_steps: Number of PPO update calls over which to decay weight.
         bc_batch_size: Expert transitions to sample per PPO mini-batch.
         min_return_percentile: Drop demo episodes below this return percentile.
+        action_noise_std: Std of Gaussian noise added to demo actions during
+            sampling. Regularizes BC target to prevent overfitting.
         device: Torch device for the demo buffer.
     """
     from rsl_rl.algorithms.ppo import PPO
 
     # Load demos
     buffer = ExpertDemoBuffer(demo_path, device=device,
-                              min_return_percentile=min_return_percentile)
+                              min_return_percentile=min_return_percentile,
+                              action_noise_std=action_noise_std)
 
     # Store state
     _DAPG_STATE["buffer"] = buffer
@@ -400,15 +417,16 @@ def register_dapg_loss(
     print(f"[DAPG] Registered demo-augmented policy gradient: "
           f"weight={bc_weight}, decay_steps={bc_decay_steps}, "
           f"batch_size={bc_batch_size}, "
+          f"action_noise_std={action_noise_std}, "
           f"min_return_percentile={min_return_percentile}")
 
 
 # Legacy alias — drop-in replacement for existing training scripts
 def register_bc_loss(
     demo_path: str,
-    bc_weight: float = 0.1,
+    bc_weight: float = 0.03,
     bc_decay_steps: int = 3000,
-    bc_batch_size: int = 256,
+    bc_batch_size: int = 128,
     device: str = "cuda",
 ) -> None:
     """Legacy alias for ``register_dapg_loss``.

@@ -13,6 +13,13 @@ World-frame control mode:
     Start button   → save & quit
 
 Usage:
+    # Depth variant (recommended for GAIL/DAPG with visual context):
+    isaaclab -p scripts/collect_demos.py \
+        --task Isaac-Strafer-Nav-Real-ProcRoom-Depth-Play-v0 \
+        --output demos_depth.h5 \
+        [--deadzone 0.12] [--max_episodes 100]
+
+    # NoCam variant (proprio-only, faster, for NoCam training):
     isaaclab -p scripts/collect_demos.py \
         --task Isaac-Strafer-Nav-Real-ProcRoom-NoCam-Play-v0 \
         --output demos.h5 \
@@ -39,13 +46,17 @@ parser.add_argument("--num_envs", type=int, default=1,
                     help="Number of environments (default 1 for teleop)")
 parser.add_argument("--max_episodes", type=int, default=100,
                     help="Stop after N episodes")
-parser.add_argument("--deadzone", type=float, default=0.12,
+parser.add_argument("--deadzone", type=float, default=0.15,
                     help="Gamepad stick deadzone")
 AppLauncher.add_app_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
 
 # Clear sys.argv for Hydra
 sys.argv = [sys.argv[0]] + hydra_args
+
+# Auto-enable cameras for variants that use depth/RGB
+if "NoCam" not in args_cli.task:
+    args_cli.enable_cameras = True
 
 # Launch simulator (not headless — need viewport for teleop)
 args_cli.headless = False
@@ -177,8 +188,9 @@ class GamepadReader:
 class DemoWriter:
     """Accumulates episodes and writes to HDF5."""
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, env_name: str = ""):
         self.path = path
+        self.env_name = env_name
         self.episodes: list[dict[str, list]] = []
         self._current: dict[str, list] | None = None
 
@@ -205,9 +217,13 @@ class DemoWriter:
         total_steps = sum(len(ep["obs"]) for ep in self.episodes)
         print(f"[DemoWriter] Saving {len(self.episodes)} episodes "
               f"({total_steps} total steps) → {self.path}")
+        obs_dim = self.episodes[0]["obs"][0].shape[-1] if self.episodes else 0
         with h5py.File(self.path, "w") as f:
             f.attrs["num_episodes"] = len(self.episodes)
             f.attrs["total_steps"] = total_steps
+            f.attrs["obs_dim"] = obs_dim
+            f.attrs["has_depth"] = bool(obs_dim > 100)
+            f.attrs["env_name"] = self.env_name
             for i, ep in enumerate(self.episodes):
                 grp = f.create_group(f"episode_{i:04d}")
                 grp.create_dataset("obs", data=np.stack(ep["obs"]))
@@ -230,14 +246,20 @@ def main():
     env_cfg = load_cfg_from_registry(args_cli.task, "env_cfg_entry_point")
     env_cfg.scene.num_envs = args_cli.num_envs
 
+    # Sync UI with physics: render every physics step for accurate visual debugging
+    if hasattr(env_cfg.sim, "render_interval"):
+        env_cfg.sim.render_interval = 1
+        print("[Demo] render_interval forced to 1 (UI synced with physics)")
+
     import random
 
     # Create the environment with the resolved config
     env = gym.make(args_cli.task, cfg=env_cfg)
 
+    unwrapped = env.unwrapped
+
     # Enable random ProcRoom difficulty per episode (levels 0-7)
     max_difficulty = 7
-    unwrapped = env.unwrapped
     if hasattr(unwrapped, "_proc_room_difficulty"):
         has_proc_room = True
         print(f"[Demo] ProcRoom detected — randomizing difficulty 0-{max_difficulty} per episode")
@@ -271,14 +293,26 @@ def main():
             return o[obs_key].cpu().numpy().squeeze(0)
         return o.cpu().numpy().squeeze(0)
 
+    # Report obs dimensionality so user can verify depth is included
+    sample_obs = _get_obs(obs)
+    obs_dim = sample_obs.shape[-1]
+    has_depth = obs_dim > 100  # 4819 for depth, 19 for proprio
+    print(f"[Demo] obs_dim={obs_dim} ({'includes depth' if has_depth else 'proprio only'})")
+
     # --- Gamepad + writer ---
     gamepad = GamepadReader(deadzone=args_cli.deadzone)
-    writer = DemoWriter(args_cli.output)
+    writer = DemoWriter(args_cli.output, env_name=args_cli.task)
     writer.begin_episode()
 
     episode_step = 0
-    desired_heading = 0.0  # world-frame heading target (radians)
-    heading_kp = 3.0       # P-controller gain for heading tracking
+    _heading_print_interval = 60  # Print heading every ~1s (at 60 Hz physics)
+    _diag_print_interval = 120  # Print detailed diagnostics every ~2s
+
+    # Cache wheel joint indices for diagnostics
+    robot_asset = unwrapped.scene["robot"]
+    _wheel_joint_names = ["wheel_1_drive", "wheel_2_drive", "wheel_3_drive", "wheel_4_drive"]
+    _wheel_joint_ids = [robot_asset.joint_names.index(n) for n in _wheel_joint_names]
+    print(f"[Demo] Wheel joint indices: {_wheel_joint_ids}")
 
     def _get_robot_heading() -> float:
         """Extract robot yaw from quaternion (w, x, y, z)."""
@@ -286,14 +320,10 @@ def main():
         w, x, y, z = quat[0].item(), quat[1].item(), quat[2].item(), quat[3].item()
         return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
-    def _wrap_angle(a: float) -> float:
-        """Wrap angle to [-pi, pi]."""
-        return (a + math.pi) % (2.0 * math.pi) - math.pi
-
     print("\n" + "=" * 60)
     print("DEMO COLLECTION — World-frame gamepad control")
-    print("  Left stick  → world-frame velocity direction")
-    print("  Right stick → world-frame heading target")
+    print("  Left stick  → world-frame velocity (stick direction = move direction)")
+    print("  Right stick → angular velocity (proportional, ±max)")
     print("  A button    → keep episode (auto on reset)")
     print("  B button    → discard episode")
     print("  Start       → save & quit")
@@ -312,7 +342,6 @@ def main():
                 writer.end_episode(keep=False)
                 _randomize_difficulty()
                 obs, info = env.reset()
-                desired_heading = _get_robot_heading()
                 writer.begin_episode()
                 episode_step = 0
                 time.sleep(0.3)  # Debounce
@@ -320,6 +349,12 @@ def main():
 
             # --- World-frame control ---
             robot_heading = _get_robot_heading()
+
+            # Periodic heading debug print
+            if episode_step % _heading_print_interval == 0:
+                deg = math.degrees(robot_heading)
+                print(f"    [dbg] step={episode_step} heading={deg:+.1f}° "
+                      f"stick=({lx:+.2f},{ly:+.2f}) rx={rx:+.2f}")
 
             # Left stick → world-frame velocity
             # stick-up (-ly) = world +X, stick-right (+lx) = world +Y
@@ -339,16 +374,15 @@ def main():
             body_vx = cos_h * world_vx + sin_h * world_vy
             body_vy = -sin_h * world_vx + cos_h * world_vy
 
-            # Right stick X → heading target (absolute world-frame heading)
-            if abs(rx) > 0.01:
-                # Map stick angle to desired heading: right stick X directly
-                # sets desired heading change rate, integrated over time
-                desired_heading += rx * 0.05  # ~3 rad/s at 60Hz
-                desired_heading = _wrap_angle(desired_heading)
+            # Right stick X → direct angular velocity (proportional)
+            omega = rx
 
-            # P-controller for heading tracking
-            heading_error = _wrap_angle(desired_heading - robot_heading)
-            omega = max(-1.0, min(1.0, heading_kp * heading_error))
+            # Zero-threshold: if no gamepad input, send exact zero to prevent
+            # micro-movements from floating-point residuals
+            if stick_mag < 0.01 and abs(omega) < 0.01:
+                body_vx = 0.0
+                body_vy = 0.0
+                omega = 0.0
 
             # Build action tensor [body_vx, body_vy, omega]
             action = torch.tensor([[body_vx, body_vy, omega]], dtype=torch.float32,
@@ -364,6 +398,14 @@ def main():
             writer.add_step(current_obs, current_action, reward=step_reward)
             episode_step += 1
 
+            if episode_step % _diag_print_interval == 0:
+                rd = robot_asset.data
+                wv = rd.joint_vel[0, _wheel_joint_ids].cpu().numpy()
+                bv = rd.root_lin_vel_b[0, :2].cpu().numpy()
+                print(f"    [diag] wheel_vel(rad/s)=[{wv[0]:+.2f},{wv[1]:+.2f},{wv[2]:+.2f},{wv[3]:+.2f}]"
+                      f"  body_vel(m/s)=[vx={bv[0]:+.3f}, vy={bv[1]:+.3f}]"
+                      f"  cmd=[{body_vx:+.2f},{body_vy:+.2f},{omega:+.2f}]")
+
             # Episode ended (timeout or termination)
             done = terminated.any().item() or truncated.any().item()
             if done:
@@ -376,7 +418,6 @@ def main():
                     break
                 _randomize_difficulty()
                 obs, info = env.reset()
-                desired_heading = _get_robot_heading()
                 writer.begin_episode()
                 episode_step = 0
 

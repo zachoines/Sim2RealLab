@@ -177,6 +177,7 @@ def main() -> None:
                 image_rgb,
                 prediction.bbox_2d,
                 label=prediction.label,
+                coordinate_mode=prediction.bbox_coordinate_mode,
             )
             overlay.save(output_image_path)
             print(f"\nSaved bbox visualization: {output_image_path}")

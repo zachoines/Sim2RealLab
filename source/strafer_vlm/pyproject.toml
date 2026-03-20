@@ -22,6 +22,9 @@ qwen = [
     "transformers",
     "trl",
 ]
+live = [
+    "opencv-python",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

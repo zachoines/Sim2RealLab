@@ -28,6 +28,7 @@ class GroundingTarget:
     bbox_2d: tuple[int, int, int, int] | None = None
     label: str | None = None
     confidence: float | None = None
+    bbox_coordinate_mode: str | None = None
 
 
 @dataclass(frozen=True)
@@ -169,6 +170,7 @@ def parse_grounding_target(value: Any, *, strict_bbox_when_found: bool) -> Groun
         bbox_2d=bbox,
         label=_coerce_optional_text(payload.get("label")),
         confidence=_coerce_confidence(payload.get("confidence")),
+        bbox_coordinate_mode="normalized_1000",
     )
 
 
@@ -187,7 +189,29 @@ def parse_grounding_prediction(text: str) -> GroundingTarget | None:
         bbox_2d=bbox,
         label=_coerce_optional_text(payload.get("label")),
         confidence=_coerce_confidence(payload.get("confidence")),
+        bbox_coordinate_mode=None,
     )
+
+
+def infer_prediction_bbox_coordinate_mode(
+    bbox_2d: tuple[int, int, int, int] | None,
+    *,
+    image_width: int,
+    image_height: int,
+) -> str | None:
+    """Infer whether a prediction bbox is pixel-space or normalized [0,1000]."""
+    if bbox_2d is None:
+        return None
+
+    x1, y1, x2, y2 = bbox_2d
+    if image_width > 0 and image_height > 0:
+        fits_image = x1 >= 0 and y1 >= 0 and x2 <= image_width and y2 <= image_height
+        if fits_image:
+            # Qwen commonly emits pixel-space boxes in the resized inference image.
+            return "pixel"
+    if max(x1, y1, x2, y2) > 1000:
+        return "pixel"
+    return "normalized_1000"
 
 
 def normalize_prediction_bbox_to_1000(
@@ -196,17 +220,28 @@ def normalize_prediction_bbox_to_1000(
     image_width: int,
     image_height: int,
 ) -> GroundingTarget:
-    """Normalize model bbox to [0,1000] if it appears to be in pixel coordinates."""
+    """Normalize a model prediction bbox to [0,1000]."""
     if prediction.bbox_2d is None:
         return prediction
 
-    x1, y1, x2, y2 = prediction.bbox_2d
-    if max(x1, y1, x2, y2) <= 1000:
-        return prediction
+    coordinate_mode = prediction.bbox_coordinate_mode or infer_prediction_bbox_coordinate_mode(
+        prediction.bbox_2d,
+        image_width=image_width,
+        image_height=image_height,
+    )
+    if coordinate_mode != "pixel":
+        return GroundingTarget(
+            found=prediction.found,
+            bbox_2d=prediction.bbox_2d,
+            label=prediction.label,
+            confidence=prediction.confidence,
+            bbox_coordinate_mode="normalized_1000",
+        )
 
     if image_width <= 0 or image_height <= 0:
         return prediction
 
+    x1, y1, x2, y2 = prediction.bbox_2d
     nx1 = int(round(x1 * 1000.0 / image_width))
     nx2 = int(round(x2 * 1000.0 / image_width))
     ny1 = int(round(y1 * 1000.0 / image_height))
@@ -217,7 +252,44 @@ def normalize_prediction_bbox_to_1000(
         bbox_2d=normalized_bbox,
         label=prediction.label,
         confidence=prediction.confidence,
+        bbox_coordinate_mode="normalized_1000",
     )
+
+
+def clamp_pixel_bbox(
+    bbox_2d: tuple[int, int, int, int],
+    *,
+    image_width: int,
+    image_height: int,
+) -> tuple[int, int, int, int]:
+    """Clamp pixel-space bbox coordinates to image bounds."""
+    x1, y1, x2, y2 = bbox_2d
+    px1 = max(0, min(image_width - 1, x1))
+    px2 = max(0, min(image_width - 1, x2))
+    py1 = max(0, min(image_height - 1, y1))
+    py2 = max(0, min(image_height - 1, y2))
+    if px2 <= px1:
+        px2 = min(image_width - 1, px1 + 1)
+    if py2 <= py1:
+        py2 = min(image_height - 1, py1 + 1)
+    return (px1, py1, px2, py2)
+
+
+def bbox_to_pixel_coords(
+    bbox_2d: tuple[int, int, int, int],
+    *,
+    image_width: int,
+    image_height: int,
+    coordinate_mode: str | None,
+) -> tuple[int, int, int, int]:
+    """Convert a bbox in either pixel or normalized coordinates to pixel coords."""
+    if coordinate_mode == "pixel":
+        return clamp_pixel_bbox(
+            bbox_2d,
+            image_width=image_width,
+            image_height=image_height,
+        )
+    return denormalize_bbox_1000(bbox_2d, image_width, image_height)
 
 
 def _resolve_path(raw_value: str, dataset_root: Path) -> Path:
@@ -435,11 +507,17 @@ def overlay_bbox(
     label: str | None = None,
     color: str = "lime",
     width: int = 3,
+    coordinate_mode: str | None = "normalized_1000",
 ) -> Image.Image:
-    """Return a copy of the image with denormalized bbox overlaid."""
+    """Return a copy of the image with bbox overlaid."""
     output = image.copy().convert("RGB")
     draw = ImageDraw.Draw(output)
-    px_bbox = denormalize_bbox_1000(bbox_2d, output.width, output.height)
+    px_bbox = bbox_to_pixel_coords(
+        bbox_2d,
+        image_width=output.width,
+        image_height=output.height,
+        coordinate_mode=coordinate_mode,
+    )
     draw.rectangle(px_bbox, outline=color, width=width)
     if label:
         draw.text((px_bbox[0], max(0, px_bbox[1] - 16)), label, fill=color)

@@ -232,16 +232,28 @@ class GAILAuxiliary(AuxiliaryLoss):
         """
         self._ensure_discriminator(ppo)
 
-        # Get current policy actions (with grad) and observations
-        actions = ppo.policy.action_mean[:original_batch_size]
-        obs_flat = obs_batch["policy"][:original_batch_size]
+        # Get current policy actions (with grad) and observations.
+        # For recurrent policies these are (seq_len, batch, dim) — take last
+        # timestep first, THEN slice to original_batch_size (pre-augmentation).
+        actions = ppo.policy.action_mean
+        obs_flat = obs_batch["policy"]
 
-        # For recurrent policies, obs may be (seq_len, batch, dim) — take last
         if obs_flat.dim() == 3:
             obs_flat = obs_flat[-1]
+        if actions.dim() == 3:
+            actions = actions[-1]
+
+        actions = actions[:original_batch_size]
+        obs_flat = obs_flat[:original_batch_size]
 
         # Encode through shared backbone (detach — encoder trained by PPO only)
         encoded = ppo.policy.encode_actor(obs_flat).detach()
+
+        # Ensure batch dims match (recurrent trajectory splitting can cause
+        # obs and action_mean to have different trajectory counts)
+        batch = min(encoded.shape[0], actions.shape[0])
+        encoded = encoded[:batch]
+        actions = actions[:batch]
 
         sa = torch.cat([encoded, actions], dim=-1)
 

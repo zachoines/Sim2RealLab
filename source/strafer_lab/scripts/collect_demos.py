@@ -4,10 +4,9 @@ Launches a single-environment Isaac Lab simulation and records expert
 (human) demonstrations using an Xbox / generic gamepad.  Transitions
 are saved to HDF5 for offline imitation learning.
 
-World-frame control mode:
-    Left stick     → world-frame velocity (stick direction = movement direction)
-    Right stick X  → world-frame heading target (stick angle = desired heading,
-                     centered = hold current heading)
+World-frame control mode (overhead camera, stick = viewport motion):
+    Left stick     → world-frame velocity (stick direction = viewport direction)
+    Right stick X  → angular velocity (proportional, ±max)
     A button       → mark current episode as "good" (default)
     B button       → discard current episode
     Start button   → save & quit
@@ -75,6 +74,7 @@ import gymnasium as gym
 import isaaclab_tasks  # noqa: F401 — registers Isaac Lab tasks
 import strafer_lab.tasks  # noqa: F401 — registers Strafer tasks
 
+from isaaclab.envs.common import ViewerCfg
 from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry
 
 # ---------------------------------------------------------------------------
@@ -251,6 +251,16 @@ def main():
         env_cfg.sim.render_interval = 1
         print("[Demo] render_interval forced to 1 (UI synced with physics)")
 
+    # Overhead camera aligned with world axes so stick directions match viewport:
+    #   screen right = world +X,  screen up = world +Y
+    env_cfg.viewer = ViewerCfg(
+        eye=(0.0, 0.0, 12),
+        lookat=(0.0, 0.0, 0.0),
+        origin_type="env",
+        env_index=0,
+        resolution=(1280, 720),
+    )
+
     import random
 
     # Create the environment with the resolved config
@@ -321,8 +331,8 @@ def main():
         return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
     print("\n" + "=" * 60)
-    print("DEMO COLLECTION — World-frame gamepad control")
-    print("  Left stick  → world-frame velocity (stick direction = move direction)")
+    print("DEMO COLLECTION — World-frame gamepad (overhead view)")
+    print("  Left stick  → world-frame velocity (stick direction = viewport direction)")
     print("  Right stick → angular velocity (proportional, ±max)")
     print("  A button    → keep episode (auto on reset)")
     print("  B button    → discard episode")
@@ -356,10 +366,11 @@ def main():
                 print(f"    [dbg] step={episode_step} heading={deg:+.1f}° "
                       f"stick=({lx:+.2f},{ly:+.2f}) rx={rx:+.2f}")
 
-            # Left stick → world-frame velocity
-            # stick-up (-ly) = world +X, stick-right (+lx) = world +Y
-            world_vx = -ly
-            world_vy = lx
+            # Left stick → world-frame velocity (aligned with overhead viewport)
+            # stick-right (+lx) = world +X = screen right
+            # stick-up    (-ly) = world +Y = screen up
+            world_vx = lx
+            world_vy = -ly
             stick_mag = min(1.0, math.sqrt(world_vx ** 2 + world_vy ** 2))
 
             if stick_mag > 0.01:
@@ -374,8 +385,8 @@ def main():
             body_vx = cos_h * world_vx + sin_h * world_vy
             body_vy = -sin_h * world_vx + cos_h * world_vy
 
-            # Right stick X → direct angular velocity (proportional)
-            omega = rx
+            # Right stick X → angular velocity (negate: stick-left = CCW = positive omega)
+            omega = -rx
 
             # Zero-threshold: if no gamepad input, send exact zero to prevent
             # micro-movements from floating-point residuals

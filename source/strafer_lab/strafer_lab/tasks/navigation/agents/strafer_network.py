@@ -348,6 +348,8 @@ class StraferActorCritic(nn.Module):
             self.depth_encoder_actor = None
             encoded_dim = num_actor_obs
 
+        self._encoded_obs_dim = encoded_dim
+
         # Critic may have different obs size (privileged info)
         if num_critic_obs > _DEPTH_PIXELS:
             self.critic_has_depth = True
@@ -396,6 +398,11 @@ class StraferActorCritic(nn.Module):
             from rsl_rl.utils import EmpiricalNormalization
             self._critic_obs_norm = EmpiricalNormalization(num_critic_obs)
 
+    @property
+    def encoded_obs_dim(self) -> int:
+        """Dimension of the encoded actor observation (scalar + depth embedding)."""
+        return self._encoded_obs_dim
+
     # ----- obs helpers -----
 
     def _get_actor_obs(self, obs: TensorDict) -> torch.Tensor:
@@ -404,7 +411,7 @@ class StraferActorCritic(nn.Module):
     def _get_critic_obs(self, obs: TensorDict) -> torch.Tensor:
         return torch.cat([obs[g] for g in self.obs_groups["critic"]], dim=-1)
 
-    def _encode_actor(self, raw_obs: torch.Tensor) -> torch.Tensor:
+    def encode_actor(self, raw_obs: torch.Tensor) -> torch.Tensor:
         if self.has_depth and self.depth_encoder_actor is not None:
             # Handle both 2D (B, D) and 3D (T, B, D) from recurrent mini-batches
             leading_shape = raw_obs.shape[:-1]
@@ -416,7 +423,7 @@ class StraferActorCritic(nn.Module):
             return encoded.reshape(*leading_shape, -1)
         return raw_obs
 
-    def _encode_critic(self, raw_obs: torch.Tensor) -> torch.Tensor:
+    def encode_critic(self, raw_obs: torch.Tensor) -> torch.Tensor:
         if self.critic_has_depth and self.depth_encoder_critic is not None:
             leading_shape = raw_obs.shape[:-1]
             flat = raw_obs.reshape(-1, raw_obs.shape[-1])
@@ -438,7 +445,7 @@ class StraferActorCritic(nn.Module):
         raw = self._get_actor_obs(obs)
         if self._actor_obs_norm is not None:
             raw = self._actor_obs_norm(raw)
-        encoded = self._encode_actor(raw)
+        encoded = self.encode_actor(raw)
 
         if self._use_rnn:
             encoded = self.memory_a(encoded, masks, hidden_state).squeeze(0)
@@ -451,7 +458,7 @@ class StraferActorCritic(nn.Module):
         raw = self._get_actor_obs(obs)
         if self._actor_obs_norm is not None:
             raw = self._actor_obs_norm(raw)
-        encoded = self._encode_actor(raw)
+        encoded = self.encode_actor(raw)
 
         if self._use_rnn:
             encoded = self.memory_a(encoded).squeeze(0)
@@ -463,7 +470,7 @@ class StraferActorCritic(nn.Module):
         raw = self._get_critic_obs(obs)
         if self._critic_obs_norm is not None:
             raw = self._critic_obs_norm(raw)
-        encoded = self._encode_critic(raw)
+        encoded = self.encode_critic(raw)
 
         if self._use_rnn:
             encoded = self.memory_c(encoded, masks, hidden_state).squeeze(0)

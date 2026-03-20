@@ -17,7 +17,7 @@ Auxiliary losses (--aux):
     dapg    Demo Augmented Policy Gradient (NLL on expert demos)
     gail    Generative Adversarial Imitation Learning (WGAN-GP discriminator)
 
-    Examples:
+    Examples (demo obs_dim must match env variant — use Depth demos for Depth envs):
         --aux dapg --dapg_demos demos.h5
         --aux gail --gail_demos demos.h5
         --aux dapg --aux gail --dapg_demos demos.h5 --gail_demos demos.h5
@@ -82,14 +82,39 @@ def main():
         choices=["dapg", "gail"],
         help="Auxiliary loss modules to activate (can specify multiple)",
     )
+    # DAPG auxiliary arguments (defined inline to avoid importing strafer_lab before AppLauncher)
+    g = parser.add_argument_group("DAPG")
+    g.add_argument("--dapg_demos", type=str, default=None,
+                    help="Path to HDF5 demo file for DAPG")
+    g.add_argument("--dapg_weight", type=float, default=0.03,
+                    help="Initial DAPG loss weight (default: 0.03)")
+    g.add_argument("--dapg_decay", type=int, default=3000,
+                    help="DAPG weight decay steps (default: 3000)")
+    g.add_argument("--dapg_batch_size", type=int, default=128,
+                    help="DAPG mini-batch size (default: 128)")
+    g.add_argument("--dapg_min_return_pct", type=float, default=0.0,
+                    help="Drop demo episodes below this return percentile")
+    g.add_argument("--dapg_action_noise", type=float, default=0.05,
+                    help="Std of Gaussian noise on demo actions (default: 0.05)")
+    # GAIL auxiliary arguments (obs_dim auto-detected from policy)
+    g = parser.add_argument_group("GAIL")
+    g.add_argument("--gail_demos", type=str, default=None,
+                    help="Path to HDF5 demo file for GAIL")
+    g.add_argument("--gail_act_dim", type=int, default=3,
+                    help="Action dimension (default: 3)")
+    g.add_argument("--gail_reward_weight", type=float, default=1.0,
+                    help="GAIL loss weight (default: 1.0)")
+    g.add_argument("--gail_disc_lr", type=float, default=3e-4,
+                    help="Discriminator learning rate (default: 3e-4)")
+    g.add_argument("--gail_disc_updates", type=int, default=1,
+                    help="Discriminator updates per PPO update (default: 1)")
+    g.add_argument("--gail_disc_batch_size", type=int, default=256,
+                    help="Discriminator batch size (default: 256)")
+    g.add_argument("--gail_grad_penalty", type=float, default=10.0,
+                    help="WGAN-GP gradient penalty weight (default: 10.0)")
+
     # Import Isaac Lab app launcher and add its CLI args (--enable_cameras, etc.)
     from isaaclab.app import AppLauncher
-
-    # Add auxiliary-specific CLI args before parsing
-    from strafer_lab.tasks.navigation.agents.aux_dapg import DAPGAuxiliary
-    from strafer_lab.tasks.navigation.agents.aux_gail import GAILAuxiliary
-    DAPGAuxiliary.add_args(parser)
-    GAILAuxiliary.add_args(parser)
 
     AppLauncher.add_app_launcher_args(parser)
     args = parser.parse_args()
@@ -194,6 +219,9 @@ def main():
 
     # --- Register auxiliary losses ---
     if args.aux:
+        from strafer_lab.tasks.navigation.agents.aux_dapg import DAPGAuxiliary
+        from strafer_lab.tasks.navigation.agents.aux_gail import GAILAuxiliary
+
         install_strafer_ppo()
 
         if "dapg" in args.aux:

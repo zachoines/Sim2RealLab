@@ -62,12 +62,29 @@ class DAPGAuxiliary(AuxiliaryLoss):
         self.batch_size = bc_batch_size
         self.update_count = 0
         self.bc_lambda = bc_weight
+        self._validated = False
 
         print(f"[DAPGAuxiliary] weight={bc_weight}, decay_steps={bc_decay_steps}, "
               f"batch_size={bc_batch_size}, action_noise_std={action_noise_std}")
 
     def on_update_start(self, ppo) -> None:
         """Compute current lambda with linear decay."""
+        # One-time validation: demo obs_dim must match policy input dim
+        if not self._validated:
+            policy_obs_dim = sum(
+                ppo.storage.observations[g].shape[-1]
+                for g in ppo.policy.obs_groups["policy"]
+            )
+            demo_obs_dim = self.buffer.obs.shape[1]
+            if demo_obs_dim != policy_obs_dim:
+                raise ValueError(
+                    f"DAPG demo obs_dim={demo_obs_dim} but policy expects "
+                    f"{policy_obs_dim}. Recollect demos with a matching env "
+                    f"variant (NoCam for {demo_obs_dim}-dim, Depth for "
+                    f"{policy_obs_dim}-dim)."
+                )
+            self._validated = True
+
         step = self.update_count
         if self.decay_steps > 0:
             self.bc_lambda = self.bc_weight * max(0.0, 1.0 - step / self.decay_steps)
@@ -91,7 +108,10 @@ class DAPGAuxiliary(AuxiliaryLoss):
         bc_obs, bc_actions = self.buffer.sample(self.batch_size)
         bc_obs_dict = {"policy": bc_obs}
 
-        # Save/reset/restore RNN hidden state for independent demo samples
+        # Save/reset/restore RNN hidden state and distribution for independent
+        # demo samples. Restoring the distribution is critical when other
+        # auxiliaries (e.g., GAIL) read policy.action_mean after DAPG runs.
+        saved_dist = ppo.policy.distribution
         if ppo.policy.is_recurrent:
             saved_h_a = ppo.policy.memory_a.hidden_state
             saved_h_c = ppo.policy.memory_c.hidden_state
@@ -101,6 +121,8 @@ class DAPGAuxiliary(AuxiliaryLoss):
         ppo.policy.act(bc_obs_dict)
         bc_log_prob = ppo.policy.get_actions_log_prob(bc_actions)
 
+        # Restore policy state so subsequent auxiliaries see the PPO mini-batch
+        ppo.policy.distribution = saved_dist
         if ppo.policy.is_recurrent:
             ppo.policy.memory_a.reset(hidden_state=saved_h_a)
             ppo.policy.memory_c.reset(hidden_state=saved_h_c)

@@ -26,6 +26,7 @@ class ExpertDemoBuffer:
         device: str = "cuda",
         min_return_percentile: float = 0.0,
         action_noise_std: float = 0.05,
+        expected_obs_dim: int | None = None,
     ):
         """Load expert demonstrations from HDF5.
 
@@ -38,6 +39,9 @@ class ExpertDemoBuffer:
             action_noise_std: Std of Gaussian noise added to demo actions during
                 sampling. Regularizes the BC target to prevent overfitting to
                 exact gamepad inputs.
+            expected_obs_dim: If set, assert that loaded obs matches this dim.
+                Helps catch mismatches between demo files and training env
+                (e.g., NoCam demos with a Depth variant).
         """
         self.device = device
         obs_list = []
@@ -72,6 +76,13 @@ class ExpertDemoBuffer:
         self.num_samples = self.obs.shape[0]
         self.has_rewards = has_rewards
         self.action_noise_std = action_noise_std
+
+        if expected_obs_dim is not None and self.obs.shape[1] != expected_obs_dim:
+            raise ValueError(
+                f"Demo obs_dim={self.obs.shape[1]} but expected "
+                f"{expected_obs_dim}. Recollect demos with a matching env "
+                f"variant (use Depth variant for {expected_obs_dim}-dim obs)."
+            )
 
         print(f"[DemoBuffer] Loaded {self.num_samples} expert transitions "
               f"(obs: {self.obs.shape}, actions: {self.actions.shape})")

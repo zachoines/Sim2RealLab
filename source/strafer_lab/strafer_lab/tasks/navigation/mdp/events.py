@@ -65,40 +65,110 @@ def reset_robot_state(
     robot.write_root_state_to_sim(root_state, env_ids)
 
 
+# Cache for spawn points tensor (loaded once, reused across resets)
+_spawn_points_cache: dict[str, torch.Tensor] = {}
+
+
+def reset_robot_state_on_floor(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    spawn_points_xy: list[list[float]],
+    yaw_range: tuple[float, float] = (-3.14159, 3.14159),
+) -> None:
+    """Reset robot to a random interior floor position.
+
+    Samples from precomputed interior spawn points (from scenes_metadata.json)
+    generated via area-weighted barycentric sampling of floor mesh triangles.
+    Points are uniformly distributed across all walkable floor surfaces,
+    including multi-room scenes with multiple floor meshes.
+
+    Args:
+        env: The environment instance.
+        env_ids: Indices of environments to reset.
+        spawn_points_xy: List of [x, y] interior floor positions (env-local frame).
+        yaw_range: (min, max) yaw range in radians.
+    """
+    robot = env.scene["robot"]
+    num_resets = len(env_ids)
+    device = env.device
+
+    # Lazy-build and cache the points tensor
+    cache_key = str(id(spawn_points_xy))
+    if cache_key not in _spawn_points_cache or _spawn_points_cache[cache_key].device != device:
+        _spawn_points_cache[cache_key] = torch.tensor(spawn_points_xy, device=device, dtype=torch.float32)
+    pts = _spawn_points_cache[cache_key]
+
+    # Sample random point indices
+    indices = torch.randint(0, len(pts), (num_resets,), device=device)
+    xy = pts[indices]  # (num_resets, 2)
+
+    z = torch.full((num_resets,), 0.1, device=device)
+    yaw = torch.rand(num_resets, device=device) * (yaw_range[1] - yaw_range[0]) + yaw_range[0]
+
+    # Convert yaw to quaternion (w, x, y, z)
+    quat = torch.zeros(num_resets, 4, device=device)
+    quat[:, 0] = torch.cos(yaw / 2)
+    quat[:, 3] = torch.sin(yaw / 2)
+
+    root_state = robot.data.default_root_state[env_ids].clone()
+    env_origins = env.scene.env_origins[env_ids]
+    root_state[:, 0] = env_origins[:, 0] + xy[:, 0]
+    root_state[:, 1] = env_origins[:, 1] + xy[:, 1]
+    root_state[:, 2] = env_origins[:, 2] + z
+    root_state[:, 3:7] = quat
+    root_state[:, 7:] = 0.0
+
+    robot.write_root_state_to_sim(root_state, env_ids)
+
+
 def randomize_friction(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
     friction_range: tuple[float, float],
+    roller_friction_threshold: float = 0.9,
 ) -> None:
-    """Randomize wheel-ground friction coefficient for domain randomization.
+    """Randomize floor-contact friction for domain randomization.
 
-    Modifies the physics material properties of the robot's contact surfaces
-    (wheels) to simulate varying floor conditions. This helps with sim-to-real
-    transfer by training policies robust to different friction levels.
+    Modifies the physics material properties of the robot's non-roller
+    contact surfaces to simulate varying floor conditions (carpet, tile,
+    polished concrete, etc.).
 
-    The friction value is randomized per-environment at reset time, simulating
-    conditions like carpet vs tile vs polished concrete.
+    Roller cover shapes are **preserved** at their USD-baked rubber
+    friction values (static ~1.0).  This is detected automatically on
+    first call: any shape whose initial static friction >= ``roller_friction_threshold``
+    is treated as a rubber roller and excluded from randomization.
 
     Args:
         env: The environment instance.
         env_ids: Indices of environments to randomize.
         friction_range: (min, max) friction coefficient range.
             Typical values: (0.3, 1.2) for indoor surfaces.
+        roller_friction_threshold: Shapes with initial static friction
+            at or above this value are treated as rubber rollers and
+            excluded from randomization.  Default 0.9.
     """
     if len(env_ids) == 0:
         return
 
     robot = env.scene["robot"]
-    device = env.device
 
     # Get current material properties from PhysX view
     # Shape: (num_envs, max_num_shapes, 3) where 3 = [static, dynamic, restitution]
     materials = robot.root_physx_view.get_material_properties()
-
-    # Ensure env_ids is on the same device as materials for indexing
-    # PhysX view may return materials on a different device than env.device
     materials_device = materials.device
     env_ids_device = env_ids.to(materials_device)
+
+    # On first call, cache initial materials and build a boolean mask of
+    # roller shapes (high friction from USD rubber material) to preserve.
+    if not hasattr(env, "_roller_shape_mask"):
+        env._initial_robot_materials = materials.clone()
+        # Use env 0 as reference — all envs start with identical USD materials
+        env._roller_shape_mask = materials[0, :, 0] >= roller_friction_threshold
+        n_roller = int(env._roller_shape_mask.sum().item())
+        n_total = materials.shape[1]
+        if n_roller > 0:
+            print(f"[randomize_friction] Preserving {n_roller}/{n_total} "
+                  f"roller shapes (rubber, μs≥{roller_friction_threshold})")
 
     # Sample random friction values for each environment being reset
     num_resets = len(env_ids)
@@ -108,19 +178,25 @@ def randomize_friction(
         + friction_range[0]
     )
 
-    # Apply friction to all shapes in the reset environments
-    # Expand friction to match shape dimension: (num_resets,) -> (num_resets, num_shapes)
+    # Apply friction to all shapes, then restore rollers
     num_shapes = materials.shape[1]
     friction_expanded = friction_values.unsqueeze(1).expand(-1, num_shapes)
 
-    # Update static friction (index 0) and dynamic friction (index 1)
-    # Dynamic friction should be <= static friction for physical consistency
-    materials[env_ids_device, :, 0] = friction_expanded  # Static friction
-    materials[env_ids_device, :, 1] = friction_expanded * 0.9  # Dynamic friction (slightly lower)
-    # Keep restitution (index 2) unchanged
+    materials[env_ids_device, :, 0] = friction_expanded          # Static friction
+    materials[env_ids_device, :, 1] = friction_expanded * 0.9    # Dynamic friction
+
+    # Restore roller shapes to their original rubber friction
+    roller_mask = env._roller_shape_mask
+    if roller_mask.any():
+        ref = env._initial_robot_materials[0]  # (num_shapes, 3)
+        roller_idx = roller_mask.nonzero(as_tuple=False).squeeze(-1)  # (n_rollers,)
+        # ref_vals: (n_rollers, 3) -> broadcast to (num_resets, n_rollers, 3)
+        ref_vals = ref[roller_idx].unsqueeze(0).expand(num_resets, -1, -1)
+        env_sel = env_ids_device.unsqueeze(1).expand(-1, roller_idx.shape[0])
+        shape_sel = roller_idx.unsqueeze(0).expand(num_resets, -1)
+        materials[env_sel, shape_sel] = ref_vals
 
     # Apply the modified materials back to simulation
-    # Note: set_material_properties expects env_ids on CPU
     env_ids_cpu = env_ids.cpu() if env_ids.device.type != "cpu" else env_ids
     robot.root_physx_view.set_material_properties(materials, env_ids_cpu)
 
@@ -360,3 +436,77 @@ def randomize_d555_mount_offset(
 
     mount_quat = quat_from_euler_xyz(roll, pitch, yaw)
     env._d555_mount_quat[env_ids] = mount_quat
+
+
+def reset_robot_proc_room(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    yaw_range: tuple[float, float] = (-3.14159, 3.14159),
+) -> None:
+    """Reset robot to a random BFS-reachable position in a procedural room.
+
+    Reads from dynamic per-env spawn points computed by ``generate_proc_room``
+    and stored on ``env._proc_room_spawn_pts``.
+
+    Args:
+        env: The environment instance.
+        env_ids: Indices of environments to reset.
+        yaw_range: (min, max) yaw range in radians.
+    """
+    robot = env.scene["robot"]
+    num_resets = len(env_ids)
+    device = env.device
+
+    # Read per-env spawn points (populated by generate_proc_room EventTerm)
+    spawn_pts = env._proc_room_spawn_pts[env_ids]       # (B, K, 2)
+    spawn_count = env._proc_room_spawn_count[env_ids]    # (B,)
+
+    # Sample random index per env (bounded by actual count)
+    max_idx = spawn_count.clamp(min=1)  # avoid div-by-zero
+    indices = (torch.rand(num_resets, device=device) * max_idx.float()).long()
+    indices = indices.clamp(max=spawn_pts.shape[1] - 1)
+
+    # Gather selected XY positions
+    xy = spawn_pts[torch.arange(num_resets, device=device), indices]  # (B, 2)
+
+    z = torch.full((num_resets,), 0.1, device=device)
+    yaw = torch.rand(num_resets, device=device) * (yaw_range[1] - yaw_range[0]) + yaw_range[0]
+
+    # Convert yaw to quaternion (w, x, y, z)
+    quat = torch.zeros(num_resets, 4, device=device)
+    quat[:, 0] = torch.cos(yaw / 2)
+    quat[:, 3] = torch.sin(yaw / 2)
+
+    root_state = robot.data.default_root_state[env_ids].clone()
+    env_origins = env.scene.env_origins[env_ids]
+    root_state[:, 0] = env_origins[:, 0] + xy[:, 0]
+    root_state[:, 1] = env_origins[:, 1] + xy[:, 1]
+    root_state[:, 2] = env_origins[:, 2] + z
+    root_state[:, 3:7] = quat
+    root_state[:, 7:] = 0.0
+
+    robot.write_root_state_to_sim(root_state, env_ids)
+
+
+def randomize_proc_room_difficulty(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    max_level: int = 7,
+) -> None:
+    """Sample uniform random room difficulty per env on episode reset.
+
+    Sets ``env._proc_room_difficulty`` which is read by ``generate_proc_room``
+    to control the number of walls, furniture, and clutter placed.
+
+    Args:
+        env: The environment instance.
+        env_ids: Indices of environments being reset.
+        max_level: Maximum difficulty level (inclusive).
+    """
+    if not hasattr(env, "_proc_room_difficulty"):
+        env._proc_room_difficulty = torch.zeros(
+            env.num_envs, dtype=torch.long, device=env.device
+        )
+    env._proc_room_difficulty[env_ids] = torch.randint(
+        0, max_level + 1, (len(env_ids),), device=env.device
+    )

@@ -69,6 +69,14 @@ The Isaac Lab environment is feature-complete: 18 gym environment variants (3 re
   <em>Test drive in Isaac Lab — <a href="docs/artifacts/strafer_isaac_lab_test_drive.mp4">watch video</a></em>
 </p>
 
+<p align="center">
+  <a href="docs/artifacts/strafer_infinitygen_scene.mp4">
+    <img src="docs/artifacts/strafer_infinitygen_thumbnail.png" alt="Click to view Infinigen scene video" width="50%"/>
+  </a>
+  <br/>
+  <em>Robot in a procedurally generated Infinigen apartment — <a href="docs/artifacts/strafer_infinitygen_scene.mp4">watch video</a></em>
+</p>
+
 ### Hardware
 
 All hardware is wired, tested, and operational. The ROS2 driver, perception pipeline, URDF, SLAM config, and Nav2 config are complete. The robot can be teleoperated and produces odometry, IMU data, and depth images.
@@ -283,6 +291,7 @@ make lint
 - [Deployment Plan](docs/SIM_TO_REAL_PLAN.md) — Project goals, MVP path, ROS2 architecture, implementation phases
 - [Sim-to-Real Tuning Guide](docs/SIM_TO_REAL_TUNING_GUIDE.md) — Actuator model mapping, sensor noise characterization, tuning procedure
 - [VLM Integration Plan](docs/PHASE_5_VLM_INTEGRATION.md) — Qwen2.5-VL-3B architecture, fine-tuning, Jetson deployment
+- [Synthetic Scene Generation Plan](docs/PHASE_6_SYNTHETIC_SCENE_GENERATION.md) — Infinigen + Replicator roadmap for obstacle diversity and sim-to-real robustness
 - [Wiring Guide](docs/WIRING_GUIDE.md) — Motor, encoder, RoboClaw, and Jetson connections
 - [D555 IMU Kernel Fix](docs/D555_IMU_KERNEL_FIX.md) — RealSense HID sensor module build for JetPack 6.x
 - [Simulation Extension](IsaacLab/README.md) — Isaac Lab framework documentation

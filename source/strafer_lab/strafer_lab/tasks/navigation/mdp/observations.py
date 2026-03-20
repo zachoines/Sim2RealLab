@@ -360,20 +360,18 @@ def goal_distance(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
 def goal_heading_relative(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
     """Angular error between robot heading and desired goal heading.
 
-    Returns the shortest signed angle from the robot's current yaw to the
-    desired arrival heading (stored as command[:, 2]).  Normalized to [-pi, pi].
-
-    On the real robot, the desired heading comes from the VLM or planner and
-    the robot yaw comes from TF2.  This observation lets the policy learn to
-    orient itself at the goal.
+    .. deprecated::
+        This observation uses ``command[:, 2]`` which is a random arrival
+        heading uniformly sampled from [-pi, pi] — essentially noise.
+        Use :func:`goal_heading_to_goal` instead, which computes the actual
+        angle from the robot to the goal position.
 
     Args:
         env: The environment instance.
         command_name: Name of the command manager providing goal commands.
 
     Returns:
-        Heading error in radians, shape (num_envs, 1).  Positive = goal heading
-        is CCW from robot heading.
+        Heading error in radians, shape (num_envs, 1).
     """
     command = env.command_manager.get_command(command_name)
     desired_heading = command[:, 2]
@@ -385,6 +383,40 @@ def goal_heading_relative(env: ManagerBasedEnv, command_name: str) -> torch.Tens
 
     # Shortest signed angle
     diff = desired_heading - robot_yaw
+    heading_err = torch.atan2(torch.sin(diff), torch.cos(diff))
+    return heading_err.unsqueeze(-1)
+
+
+def goal_heading_to_goal(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+    """Angular error between robot heading and direction TO the goal.
+
+    Computes the signed angle from the robot's current yaw to the bearing
+    of the goal position.  This tells the policy which way to turn to face
+    the goal.  Normalized to [-pi, pi].
+
+    Args:
+        env: The environment instance.
+        command_name: Name of the command manager providing goal commands.
+
+    Returns:
+        Heading-to-goal error in radians, shape (num_envs, 1).
+        Positive = goal is CCW from robot heading.
+    """
+    command = env.command_manager.get_command(command_name)
+    goal_pos_w = command[:, :2]
+
+    robot = env.scene["robot"]
+    robot_pos_w = robot.data.root_pos_w[:, :2]
+    robot_quat = robot.data.root_quat_w
+    w, x, y, z = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    robot_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+    # Bearing to goal
+    to_goal = goal_pos_w - robot_pos_w
+    goal_angle = torch.atan2(to_goal[:, 1], to_goal[:, 0])
+
+    # Shortest signed angle
+    diff = goal_angle - robot_yaw
     heading_err = torch.atan2(torch.sin(diff), torch.cos(diff))
     return heading_err.unsqueeze(-1)
 

@@ -11,7 +11,6 @@ Functions under test (``strafer_lab.tasks.navigation.mdp.events``):
 * ``randomize_motor_strength``     — per-joint effort limit randomization.
 * ``randomize_d555_mount_offset``  — D555 mounting angle randomization.
 * ``randomize_goal_noise``         — Gaussian noise on goal position.
-* ``randomize_obstacles``          — obstacle position randomization.
 
 Usage:
     cd source/strafer_lab
@@ -48,7 +47,7 @@ def env(event_env):
 
 
 def test_reset_robot_state_positions_within_range(env):
-    """Robot positions after reset must lie within the specified range."""
+    """Robot positions after reset must lie within the specified range (env-local)."""
     env.reset()
 
     pose_range = {"x": (-2.0, 2.0), "y": (-2.0, 2.0), "yaw": (-math.pi, math.pi)}
@@ -57,11 +56,14 @@ def test_reset_robot_state_positions_within_range(env):
     reset_robot_state(env, env_ids, pose_range)
 
     robot = env.scene["robot"]
-    root_state = robot.data.root_pos_w
-    x_vals = root_state[:, 0]
-    y_vals = root_state[:, 1]
+    root_pos_w = robot.data.root_pos_w  # world frame
+    env_origins = env.scene.env_origins  # (num_envs, 3)
 
-    print(f"\n  reset_robot_state positions:")
+    # Convert to env-local coordinates
+    x_vals = root_pos_w[:, 0] - env_origins[:, 0]
+    y_vals = root_pos_w[:, 1] - env_origins[:, 1]
+
+    print(f"\n  reset_robot_state positions (env-local):")
     print(f"    x range: [{x_vals.min().item():.3f}, {x_vals.max().item():.3f}]")
     print(f"    y range: [{y_vals.min().item():.3f}, {y_vals.max().item():.3f}]")
 

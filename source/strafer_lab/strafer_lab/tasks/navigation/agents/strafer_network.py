@@ -1,12 +1,31 @@
 """CNN-MLP hybrid actor-critic for Strafer navigation with depth images.
 
 Splits the observation into scalar features (IMU, encoders, goal, etc.) and
-a 2D depth image.  The depth image is processed by a lightweight CNN encoder
-and the resulting embedding is concatenated with the scalar features before
-being fed through standard MLP actor/critic heads.
+a 2D depth image.  The depth image is processed by an encoder and the
+resulting embedding is concatenated with the scalar features before being fed
+through standard MLP actor/critic heads.
 
-For NoCam variants (no depth), this falls back to a pure MLP — the CNN path
-is simply skipped.
+For NoCam variants (no depth), this falls back to a pure MLP — the encoder
+path is simply skipped.
+
+Depth encoder options (selected via ``depth_encoder_type``):
+
+    "defm" (default, recommended):
+        Frozen DeFM (Depth Foundation Model) backbone + trainable linear
+        projection.  DeFM is a ViT/CNN pretrained on 60M depth images via
+        DINOv2-style self-distillation (ETH Zurich, Jan 2026).  The frozen
+        features are metric-aware and transfer across sim-to-real without
+        fine-tuning.  Only the projection head (~164K params) trains.
+
+        Variant selection via ``defm_model_name``:
+            "efficientnet_b0"  — 3M params, 3ms on Jetson Orin (default)
+            "efficientnet_b2"  — 7M params, 5ms on Jetson Orin
+            "resnet18"         — 11M params, 12ms on Jetson Orin
+
+    "cnn" (legacy fallback):
+        Custom BN+residual CNN with SpatialSoftArgmax, trained from scratch.
+        ~80K params.  Struggles to converge alongside PPO — use only if DeFM
+        is unavailable.
 
 Usage:
     Inject into the rsl_rl runner namespace and set ``class_name`` in the
@@ -17,6 +36,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from tensordict import TensorDict
 from torch.distributions import Normal
 
@@ -51,33 +71,93 @@ def _build_mlp(
 
 
 # ---------------------------------------------------------------------------
-# CNN Depth Encoder
+# Spatial Soft-Argmax (used by legacy CNN encoder)
 # ---------------------------------------------------------------------------
 
 
-class DepthEncoder(nn.Module):
-    """Lightweight CNN for 60x80 single-channel depth images.
+class SpatialSoftArgmax(nn.Module):
+    """Differentiable spatial soft-argmax over 2D feature maps.
 
-    Architecture (designed for Jetson Orin Nano inference):
-        Conv2d(1, 16, 5, stride=2, pad=2)  -> 30x40x16
-        Conv2d(16, 32, 3, stride=2, pad=1) -> 15x20x32
-        Conv2d(32, 32, 3, stride=2, pad=1) -> 8x10x32
-        AdaptiveAvgPool(4, 4)              -> 4x4x32 = 512
-        Linear(512, output_dim)            -> output_dim
+    For each channel, computes a softmax over all spatial positions and returns
+    the expected (x, y) coordinates.  This gives the network an explicit spatial
+    prior: each filter can "point at" a location in the image.
+
+    Input:  (B, C, H, W)
+    Output: (B, C*2) — (x, y) per channel, normalized to [-1, 1].
     """
 
-    def __init__(self, output_dim: int = 32):
+    def __init__(self, temperature: float = 1.0, height: int = 8, width: int = 10):
         super().__init__()
-        self.cnn = nn.Sequential(
-            nn.Conv2d(1, 16, kernel_size=5, stride=2, padding=2),
+        self.temperature = temperature
+        grid_y = torch.linspace(-1, 1, height).view(1, 1, height, 1)
+        grid_x = torch.linspace(-1, 1, width).view(1, 1, 1, width)
+        self.register_buffer("_grid_y", grid_y)
+        self.register_buffer("_grid_x", grid_x)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, C, H, W = x.shape
+        flat = x.view(B, C, -1)
+        weights = torch.softmax(flat / self.temperature, dim=-1)
+        weights = weights.view(B, C, H, W)
+        exp_x = (weights * self._grid_x).sum(dim=(2, 3))
+        exp_y = (weights * self._grid_y).sum(dim=(2, 3))
+        return torch.cat([exp_x, exp_y], dim=-1)
+
+
+# ---------------------------------------------------------------------------
+# DeFM Depth Encoder (frozen pretrained backbone + trainable projection)
+# See https://github.com/leggedrobotics/defm
+# ---------------------------------------------------------------------------
+
+# DeFM input resolution (all variants expect 224×224)
+_DEFM_INPUT_SIZE = 224
+
+
+def _load_defm_backbone(model_name: str) -> tuple[nn.Module, int]:
+    """Load a frozen DeFM backbone via torch.hub.
+
+    Returns (backbone_module, feature_dim).
+    """
+    print(f"[DeFMDepthEncoder] Loading DeFM backbone: {model_name}")
+    model = torch.hub.load(
+        "leggedrobotics/defm:main",
+        f"defm_{model_name}",
+        pretrained=True,
+    )
+    model.eval()
+    for p in model.parameters():
+        p.requires_grad = False
+
+    # Determine feature dim by probing with a dummy input.
+    # DeFM returns a dict: {"global_backbone": (B, D), "dense_bifpn": {...}}
+    # We use the global_backbone vector for RL (pooled C5 features).
+    with torch.no_grad():
+        dummy = torch.zeros(1, 3, _DEFM_INPUT_SIZE, _DEFM_INPUT_SIZE)
+        out = model(dummy)
+        global_feat = out["global_backbone"]
+        feature_dim = global_feat.shape[-1]
+
+    print(f"[DeFMDepthEncoder] Loaded: {model_name}, feature_dim={feature_dim}")
+    return model, feature_dim
+
+
+class DeFMDepthEncoder(nn.Module):
+    """Frozen DeFM encoder + trainable projection head.
+
+    DeFM expects 3-channel input at 224×224.  The depth image (60×80, 1ch)
+    is resized and replicated to 3 channels (DeFM's log-compression handles
+    the normalization internally).
+
+    Only the projection layer trains — the backbone is frozen.
+    """
+
+    def __init__(self, output_dim: int = 128, model_name: str = "efficientnet_b0"):
+        super().__init__()
+        self.backbone, backbone_dim = _load_defm_backbone(model_name)
+        self.projection = nn.Sequential(
+            nn.Linear(backbone_dim, output_dim),
             nn.ELU(),
-            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
-            nn.ELU(),
-            nn.Conv2d(32, 32, kernel_size=3, stride=2, padding=1),
-            nn.ELU(),
-            nn.AdaptiveAvgPool2d((4, 4)),
         )
-        self.fc = nn.Linear(32 * 4 * 4, output_dim)
 
     def forward(self, depth_flat: torch.Tensor) -> torch.Tensor:
         """Forward pass.
@@ -88,10 +168,88 @@ class DepthEncoder(nn.Module):
         Returns:
             Embedding of shape (B, output_dim).
         """
+        # Reshape: (B, 4800) → (B, 1, 60, 80)
         x = depth_flat.view(-1, 1, 60, 80)
-        x = self.cnn(x)
-        x = x.view(x.size(0), -1)
+        # Resize to DeFM input resolution
+        x = F.interpolate(x, size=(_DEFM_INPUT_SIZE, _DEFM_INPUT_SIZE), mode="bilinear", align_corners=False)
+        # Replicate single channel to 3 channels (DeFM expects 3ch)
+        x = x.expand(-1, 3, -1, -1)
+        # Frozen forward pass — extract global_backbone vector from DeFM output dict
+        with torch.no_grad():
+            out = self.backbone(x)
+            features = out["global_backbone"]
+        # Trainable projection
+        return self.projection(features)
+
+
+# ---------------------------------------------------------------------------
+# Legacy CNN Depth Encoder (fallback if DeFM unavailable)
+# ---------------------------------------------------------------------------
+
+
+class DepthEncoder(nn.Module):
+    """CNN encoder for 60×80 single-channel depth images (legacy fallback).
+
+    Architecture:
+        Conv(1→32, 5×5, stride=2) + BN + ELU    → 30×40×32
+        Conv(32→64, 3×3, stride=2) + BN + ELU    → 15×20×64
+        Conv(64→64, 3×3, stride=1) + BN + ELU    → 15×20×64  (+ residual)
+        Conv(64→128, 3×3, stride=2) + BN + ELU   → 8×10×128
+        SpatialSoftArgmax                          → 256
+        Linear(256 → output_dim)                   → output_dim
+    """
+
+    def __init__(self, output_dim: int = 128):
+        super().__init__()
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=5, stride=2, padding=2)
+        self.bn1 = nn.BatchNorm2d(32)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
+        self.bn2 = nn.BatchNorm2d(64)
+        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
+        self.bn3 = nn.BatchNorm2d(64)
+        self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
+        self.bn4 = nn.BatchNorm2d(128)
+        self.act = nn.ELU()
+        self.spatial_argmax = SpatialSoftArgmax(temperature=1.0, height=8, width=10)
+        self.fc = nn.Linear(128 * 2, output_dim)
+
+    def forward(self, depth_flat: torch.Tensor) -> torch.Tensor:
+        x = depth_flat.view(-1, 1, 60, 80)
+        x = self.act(self.bn1(self.conv1(x)))
+        x = self.act(self.bn2(self.conv2(x)))
+        residual = x
+        x = self.act(self.bn3(self.conv3(x)))
+        x = x + residual
+        x = self.act(self.bn4(self.conv4(x)))
+        x = self.spatial_argmax(x)
         return self.fc(x)
+
+
+# ---------------------------------------------------------------------------
+# Depth encoder factory
+# ---------------------------------------------------------------------------
+
+
+def _create_depth_encoder(
+    encoder_type: str,
+    output_dim: int,
+    defm_model_name: str,
+) -> nn.Module:
+    """Create a depth encoder by type, with automatic fallback."""
+    if encoder_type == "defm":
+        try:
+            return DeFMDepthEncoder(output_dim=output_dim, model_name=defm_model_name)
+        except Exception as e:
+            print(
+                f"[StraferActorCritic] WARNING: Failed to load DeFM ({e}). "
+                "Falling back to legacy CNN encoder. Install DeFM for better "
+                "training: pip install -e git+https://github.com/leggedrobotics/defm.git"
+            )
+            return DepthEncoder(output_dim=output_dim)
+    elif encoder_type == "cnn":
+        return DepthEncoder(output_dim=output_dim)
+    else:
+        raise ValueError(f"Unknown depth_encoder_type: {encoder_type!r}. Use 'defm' or 'cnn'.")
 
 
 # ---------------------------------------------------------------------------
@@ -105,18 +263,29 @@ _DEPTH_PIXELS = 60 * 80  # 4800
 class StraferActorCritic(nn.Module):
     """CNN-MLP hybrid actor-critic for Strafer navigation.
 
-    Handles both NoCam (pure MLP) and Depth (CNN+MLP) variants
+    Handles both NoCam (pure MLP) and Depth (encoder+MLP) variants
     automatically based on observation dimensionality.
 
     For Depth variants the observation vector is split:
-        scalar_obs = obs[:, :scalar_dim]   (19 dims for NoCam fields)
-        depth_obs  = obs[:, scalar_dim:]   (4800 dims)
+        scalar_obs = obs[:, :scalar_dim]   (auto-detected)
+        depth_obs  = obs[:, scalar_dim:scalar_dim + 4800]
 
-    The CNN encodes depth into a compact embedding, which is concatenated
-    with scalar_obs before the MLP heads.
+    The encoder compresses depth into a compact embedding, which is
+    concatenated with scalar_obs before the MLP heads.
+
+    Optional recurrence (``rnn_type="gru"`` or ``"lstm"``):
+        When enabled, a recurrent layer sits between the CNN encoder output
+        and the MLP heads.  This allows the policy to perform online system
+        identification — inferring latent dynamics (friction, motor delay,
+        payload) from temporal context.  The architecture becomes:
+
+            depth → CNN → embedding ─┐
+                                      ├─→ GRU/LSTM → MLP → actions
+            scalar_obs ──────────────┘
+
+        The ``is_recurrent`` flag is set dynamically so RSL-RL's runner
+        automatically uses recurrent rollout storage and mini-batch generation.
     """
-
-    is_recurrent: bool = False
 
     def __init__(
         self,
@@ -132,8 +301,13 @@ class StraferActorCritic(nn.Module):
         noise_std_type: str = "scalar",
         state_dependent_std: bool = False,
         # Custom params
-        depth_embedding_dim: int = 32,
-        scalar_obs_dim: int = 19,
+        depth_embedding_dim: int = 128,
+        depth_encoder_type: str = "defm",
+        defm_model_name: str = "efficientnet_b0",
+        # Recurrence params
+        rnn_type: str | None = None,
+        rnn_hidden_dim: int = 128,
+        rnn_num_layers: int = 1,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -146,31 +320,64 @@ class StraferActorCritic(nn.Module):
         num_actor_obs = sum(obs[g].shape[-1] for g in obs_groups["policy"])
         num_critic_obs = sum(obs[g].shape[-1] for g in obs_groups["critic"])
 
-        # Detect depth variant: if actor obs > scalar_obs_dim, depth is present
-        self.has_depth = num_actor_obs > scalar_obs_dim
-        self.scalar_obs_dim = scalar_obs_dim
+        # Dynamically compute scalar obs dim: total obs minus depth pixels
+        # This avoids hardcoding 19 and breaking when obs space changes.
+        if num_actor_obs > _DEPTH_PIXELS:
+            self.scalar_obs_dim = num_actor_obs - _DEPTH_PIXELS
+            self.has_depth = True
+        else:
+            self.scalar_obs_dim = num_actor_obs
+            self.has_depth = False
+
+        # Recurrence setup
+        self._use_rnn = rnn_type is not None
+        # Set is_recurrent as instance attribute (overrides class default)
+        self.is_recurrent = self._use_rnn
+
+        print(f"[StraferActorCritic] actor_obs={num_actor_obs}, scalar_dim={self.scalar_obs_dim}, "
+              f"has_depth={self.has_depth}, encoder={depth_encoder_type}, "
+              f"rnn={rnn_type or 'none'}")
 
         # Build depth encoder if needed
         if self.has_depth:
-            self.depth_encoder_actor = DepthEncoder(output_dim=depth_embedding_dim)
-            actor_input_dim = scalar_obs_dim + depth_embedding_dim
+            self.depth_encoder_actor = _create_depth_encoder(
+                depth_encoder_type, depth_embedding_dim, defm_model_name,
+            )
+            encoded_dim = self.scalar_obs_dim + depth_embedding_dim
         else:
             self.depth_encoder_actor = None
-            actor_input_dim = num_actor_obs
+            encoded_dim = num_actor_obs
+
+        self._encoded_obs_dim = encoded_dim
 
         # Critic may have different obs size (privileged info)
-        # Check if critic also has depth
-        self.critic_has_depth = num_critic_obs > scalar_obs_dim
-        if self.critic_has_depth:
-            self.depth_encoder_critic = DepthEncoder(output_dim=depth_embedding_dim)
-            critic_input_dim = scalar_obs_dim + depth_embedding_dim
-            # If critic has privileged obs beyond depth, account for it
-            critic_extra = num_critic_obs - scalar_obs_dim - _DEPTH_PIXELS
-            if critic_extra > 0:
-                critic_input_dim += critic_extra
+        if num_critic_obs > _DEPTH_PIXELS:
+            self.critic_has_depth = True
+            self.critic_scalar_dim = num_critic_obs - _DEPTH_PIXELS
+            self.depth_encoder_critic = _create_depth_encoder(
+                depth_encoder_type, depth_embedding_dim, defm_model_name,
+            )
+            critic_encoded_dim = self.critic_scalar_dim + depth_embedding_dim
         else:
+            self.critic_has_depth = False
+            self.critic_scalar_dim = num_critic_obs
             self.depth_encoder_critic = None
-            critic_input_dim = num_critic_obs
+            critic_encoded_dim = num_critic_obs
+
+        # Build optional RNN layers (between encoder and MLP)
+        if self._use_rnn:
+            from rsl_rl.networks import Memory
+            self.memory_a = Memory(encoded_dim, rnn_hidden_dim, rnn_num_layers, rnn_type)
+            self.memory_c = Memory(critic_encoded_dim, rnn_hidden_dim, rnn_num_layers, rnn_type)
+            actor_input_dim = rnn_hidden_dim
+            critic_input_dim = rnn_hidden_dim
+            print(f"[StraferActorCritic] Actor RNN: {self.memory_a}")
+            print(f"[StraferActorCritic] Critic RNN: {self.memory_c}")
+        else:
+            self.memory_a = None
+            self.memory_c = None
+            actor_input_dim = encoded_dim
+            critic_input_dim = critic_encoded_dim
 
         # Build MLP heads
         self.actor = _build_mlp(actor_input_dim, num_actions, list(actor_hidden_dims), activation)
@@ -181,7 +388,7 @@ class StraferActorCritic(nn.Module):
         self.distribution: Normal | None = None
         Normal.set_default_validate_args(False)
 
-        # Running normalization (optional)
+        # Running normalization (optional — saved with checkpoint for deployment)
         self._actor_obs_norm = None
         self._critic_obs_norm = None
         if actor_obs_normalization:
@@ -191,6 +398,11 @@ class StraferActorCritic(nn.Module):
             from rsl_rl.utils import EmpiricalNormalization
             self._critic_obs_norm = EmpiricalNormalization(num_critic_obs)
 
+    @property
+    def encoded_obs_dim(self) -> int:
+        """Dimension of the encoded actor observation (scalar + depth embedding)."""
+        return self._encoded_obs_dim
+
     # ----- obs helpers -----
 
     def _get_actor_obs(self, obs: TensorDict) -> torch.Tensor:
@@ -199,33 +411,45 @@ class StraferActorCritic(nn.Module):
     def _get_critic_obs(self, obs: TensorDict) -> torch.Tensor:
         return torch.cat([obs[g] for g in self.obs_groups["critic"]], dim=-1)
 
-    def _encode_actor(self, raw_obs: torch.Tensor) -> torch.Tensor:
+    def encode_actor(self, raw_obs: torch.Tensor) -> torch.Tensor:
         if self.has_depth and self.depth_encoder_actor is not None:
-            scalar = raw_obs[:, :self.scalar_obs_dim]
-            depth_flat = raw_obs[:, self.scalar_obs_dim:self.scalar_obs_dim + _DEPTH_PIXELS]
+            # Handle both 2D (B, D) and 3D (T, B, D) from recurrent mini-batches
+            leading_shape = raw_obs.shape[:-1]
+            flat = raw_obs.reshape(-1, raw_obs.shape[-1])
+            scalar = flat[:, :self.scalar_obs_dim]
+            depth_flat = flat[:, self.scalar_obs_dim:self.scalar_obs_dim + _DEPTH_PIXELS]
             depth_emb = self.depth_encoder_actor(depth_flat)
-            return torch.cat([scalar, depth_emb], dim=-1)
+            encoded = torch.cat([scalar, depth_emb], dim=-1)
+            return encoded.reshape(*leading_shape, -1)
         return raw_obs
 
-    def _encode_critic(self, raw_obs: torch.Tensor) -> torch.Tensor:
+    def encode_critic(self, raw_obs: torch.Tensor) -> torch.Tensor:
         if self.critic_has_depth and self.depth_encoder_critic is not None:
-            scalar = raw_obs[:, :self.scalar_obs_dim]
-            depth_flat = raw_obs[:, self.scalar_obs_dim:self.scalar_obs_dim + _DEPTH_PIXELS]
+            leading_shape = raw_obs.shape[:-1]
+            flat = raw_obs.reshape(-1, raw_obs.shape[-1])
+            scalar_before = flat[:, :self.scalar_obs_dim]
+            depth_flat = flat[:, self.scalar_obs_dim:self.scalar_obs_dim + _DEPTH_PIXELS]
             depth_emb = self.depth_encoder_critic(depth_flat)
-            extra = raw_obs[:, self.scalar_obs_dim + _DEPTH_PIXELS:]
-            parts = [scalar, depth_emb]
+            extra = flat[:, self.scalar_obs_dim + _DEPTH_PIXELS:]
+            parts = [scalar_before, depth_emb]
             if extra.shape[-1] > 0:
                 parts.append(extra)
-            return torch.cat(parts, dim=-1)
+            encoded = torch.cat(parts, dim=-1)
+            return encoded.reshape(*leading_shape, -1)
         return raw_obs
 
     # ----- interface required by rsl_rl -----
 
-    def act(self, obs: TensorDict, **kwargs) -> torch.Tensor:
+    def act(self, obs: TensorDict, masks: torch.Tensor | None = None,
+            hidden_state=None, **kwargs) -> torch.Tensor:
         raw = self._get_actor_obs(obs)
         if self._actor_obs_norm is not None:
             raw = self._actor_obs_norm(raw)
-        encoded = self._encode_actor(raw)
+        encoded = self.encode_actor(raw)
+
+        if self._use_rnn:
+            encoded = self.memory_a(encoded, masks, hidden_state).squeeze(0)
+
         mean = self.actor(encoded)
         self.distribution = Normal(mean, self.std.expand_as(mean))
         return self.distribution.sample()
@@ -234,21 +458,38 @@ class StraferActorCritic(nn.Module):
         raw = self._get_actor_obs(obs)
         if self._actor_obs_norm is not None:
             raw = self._actor_obs_norm(raw)
-        encoded = self._encode_actor(raw)
+        encoded = self.encode_actor(raw)
+
+        if self._use_rnn:
+            encoded = self.memory_a(encoded).squeeze(0)
+
         return self.actor(encoded)
 
-    def evaluate(self, obs: TensorDict, **kwargs) -> torch.Tensor:
+    def evaluate(self, obs: TensorDict, masks: torch.Tensor | None = None,
+                 hidden_state=None, **kwargs) -> torch.Tensor:
         raw = self._get_critic_obs(obs)
         if self._critic_obs_norm is not None:
             raw = self._critic_obs_norm(raw)
-        encoded = self._encode_critic(raw)
+        encoded = self.encode_critic(raw)
+
+        if self._use_rnn:
+            encoded = self.memory_c(encoded, masks, hidden_state).squeeze(0)
+
         return self.critic(encoded)
 
     def get_actions_log_prob(self, actions: torch.Tensor) -> torch.Tensor:
         return self.distribution.log_prob(actions).sum(dim=-1)
 
+    def get_hidden_states(self) -> tuple:
+        """Return RNN hidden states for actor and critic (required by recurrent runner)."""
+        if self._use_rnn:
+            return self.memory_a.hidden_state, self.memory_c.hidden_state
+        return None, None
+
     def reset(self, dones: torch.Tensor | None = None) -> None:
-        pass
+        if self._use_rnn:
+            self.memory_a.reset(dones)
+            self.memory_c.reset(dones)
 
     def update_normalization(self, obs: TensorDict) -> None:
         if self._actor_obs_norm is not None:

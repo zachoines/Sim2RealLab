@@ -45,6 +45,7 @@ from .observations import (
     goal_position_relative,
     goal_distance,
     goal_heading_relative,
+    goal_heading_to_goal,
     body_velocity_xy,
     privileged_ground_truth,
     last_action,
@@ -78,26 +79,34 @@ from .rewards import (
     action_smoothness_penalty,
     collision_penalty,
     collision_sustained_penalty,
+    collision_penalty_net,
+    collision_sustained_penalty_net,
     speed_near_goal_penalty,
     alive_bonus,
 )
 
 # Custom terminations
-from .terminations import robot_flipped, goal_reached
+from .terminations import robot_flipped, goal_reached, sustained_collision
 
 # Custom events
 from .events import (
     reset_robot_state,
+    reset_robot_state_on_floor,
+    reset_robot_proc_room,
     randomize_friction,
     randomize_obstacles,
     randomize_mass,
     randomize_goal_noise,
     randomize_motor_strength,
     randomize_d555_mount_offset,
+    randomize_proc_room_difficulty,
 )
 
 # Custom commands
-from .commands import GoalCommandCfg
+from .commands import GoalCommandCfg, GoalCommandProcRoomCfg
 
 # Curriculum learning
-from .curriculums import GoalDistanceCurriculum, ObstacleCurriculum
+from .curriculums import GoalDistanceCurriculum, ObstacleCurriculum, RoomComplexityCurriculum
+
+# Procedural room generation
+from .proc_room import generate_proc_room, build_proc_room_collection_cfg

@@ -120,8 +120,14 @@ class ActuatorModelCfg:
     """Maximum motor velocity in rad/s. GoBilda 5203 = 312 RPM = 32.67 rad/s."""
     
     # Acceleration limits (slew rate)
-    max_acceleration_rad_s2: float = 100.0
-    """Maximum acceleration for velocity commands. Prevents instant velocity changes."""
+    max_acceleration_rad_s2: float = 900.0
+    """Maximum acceleration for velocity commands in rad/s².
+    GoBilda 5203 on 4S LiPo: ~900 rad/s² under light load (frame weight).
+    Near-instant response at 32.67 rad/s max → 0-to-full in ~36ms."""
+
+    max_acceleration_range: tuple[float, float] = (900.0, 900.0)
+    """Range for randomized max acceleration [min, max] rad/s².
+    Models battery state (fresh 16.8V vs depleted 14.0V) and load variation."""
 
 
 # =============================================================================
@@ -441,7 +447,8 @@ def create_real_robot_contract() -> SimRealContractCfg:
             motor_time_constant_s=0.05,  # 50ms response
             motor_time_constant_range=(0.03, 0.08),
             max_velocity_rad_s=32.67,  # 312 RPM
-            max_acceleration_rad_s2=100.0,
+            max_acceleration_rad_s2=900.0,
+            max_acceleration_range=(700.0, 1100.0),  # ±~20% for battery state
         ),
         sensors=SensorNoiseCfg(
             imu=IMUNoiseCfg(
@@ -501,7 +508,8 @@ def create_robust_training_contract() -> SimRealContractCfg:
             enable_motor_dynamics=True,
             motor_time_constant_s=0.06,  # Slightly slower
             motor_time_constant_range=(0.02, 0.10),  # Wide range
-            max_acceleration_rad_s2=80.0,
+            max_acceleration_rad_s2=900.0,
+            max_acceleration_range=(500.0, 1200.0),  # Wide: depleted+loaded → fresh+free
         ),
         sensors=SensorNoiseCfg(
             imu=IMUNoiseCfg(
@@ -724,4 +732,5 @@ def get_action_config_params(contract: SimRealContractCfg) -> dict:
         "min_delay_steps": min_delay,
         "max_delay_steps": max_delay,
         "max_acceleration_rad_s2": contract.actuator.max_acceleration_rad_s2,
+        "max_acceleration_range": contract.actuator.max_acceleration_range,
     }

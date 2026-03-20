@@ -68,7 +68,7 @@ sys.argv = original_argv
 # =============================================================================
 # Now we can import PhysxSchema and other Isaac Sim modules
 # =============================================================================
-from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics
+from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
 
 # ============================================================================
 # Configuration
@@ -185,7 +185,7 @@ CROSS_CHANNEL_MASS_KG = 0.0974   # VI.  U-channel 264mm + dual blocks
 
 # Joint drive configuration (wheel motors)
 # If using Isaac Lab actuators (ImplicitActuatorCfg), you can disable DriveAPI to avoid double control.
-USE_WHEEL_DRIVE_API = False
+USE_WHEEL_DRIVE_API = True
 DRIVE_MAX_TORQUE_NM = 3.2  # Match actuator effort_limit_sim
 DRIVE_DAMPING = 10.0  # Match actuator damping (velocity control)
 DRIVE_STIFFNESS = 0.0  # 0 for velocity control
@@ -472,6 +472,47 @@ def apply_sdf_collision_to_mesh(stage: Usd.Stage, mesh_path: str) -> bool:
 
     # Apply PhysxSDFMeshCollisionAPI for SDF-specific settings
     PhysxSchema.PhysxSDFMeshCollisionAPI.Apply(prim)
+
+    return True
+
+
+def apply_rubber_physics_material(
+    stage: Usd.Stage,
+    mesh_path: str,
+    static_friction: float = 1.0,
+    dynamic_friction: float = 0.9,
+    restitution: float = 0.12,
+) -> bool:
+    """Apply a rubber-like physics material to a collision mesh.
+
+    Used for mecanum roller covers which are grippy rubber in the real
+    robot.  The material is bound directly to the mesh prim so PhysX
+    uses it instead of the default (low-friction) material.
+
+    Args:
+        stage: USD stage.
+        mesh_path: Prim path of the collision mesh.
+        static_friction: Static friction coefficient (rubber on floor ~1.0).
+        dynamic_friction: Dynamic friction coefficient (slightly below static).
+        restitution: Bounciness (low for rubber).
+    """
+    prim = stage.GetPrimAtPath(mesh_path)
+    if not prim:
+        return False
+
+    # Create a material prim as a child of the mesh
+    mat_path = mesh_path + "/RubberMaterial"
+    mat_prim = stage.DefinePrim(mat_path)
+    mat_api = UsdPhysics.MaterialAPI.Apply(mat_prim)
+    mat_api.CreateStaticFrictionAttr(static_friction)
+    mat_api.CreateDynamicFrictionAttr(dynamic_friction)
+    mat_api.CreateRestitutionAttr(restitution)
+
+    # Bind the material to the collision mesh
+    UsdShade.MaterialBindingAPI.Apply(prim)
+    binding_api = UsdShade.MaterialBindingAPI(prim)
+    mat_schema = UsdShade.Material(mat_prim)
+    binding_api.Bind(mat_schema, UsdShade.Tokens.weakerThanDescendants, "physics")
 
     return True
 
@@ -1210,6 +1251,8 @@ def setup_wheel(
             )
         if apply_sdf_collision_to_mesh(stage, cover_mesh):
             log.append(f"[OK] Collision (SDF) on cover mesh: {cover_mesh}")
+        if apply_rubber_physics_material(stage, cover_mesh):
+            log.append(f"[OK] Rubber material (μs=1.0) on cover mesh: {cover_mesh}")
 
         # 4a. Create fixed joint: wheel_core_mesh -> roller_axle_mesh
         # body0 = core (parent), body1 = axle (child, fixed to core)

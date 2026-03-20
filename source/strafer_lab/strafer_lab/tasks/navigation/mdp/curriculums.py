@@ -2,7 +2,6 @@
 
 Progressively increases task difficulty during training:
 - Goal distance: Start close (2m), expand to full range (5m)
-- Obstacle count: Start sparse (2), increase to dense (8)
 """
 
 from __future__ import annotations
@@ -64,12 +63,11 @@ class GoalDistanceCurriculum(ManagerTermBase):
             env_ids, device=env.device
         )
 
-        # Check if goals were reached at the moment of reset
+        # Check if any goals were reached during the episode (not at reset instant).
+        # GoalCommand resamples goals mid-episode, so checking distance at reset
+        # would always fail. Instead, read the per-episode reach counter.
         command_term = env.command_manager.get_term(command_name)
-        robot_pos = env.scene["robot"].data.root_pos_w[env_ids_t, :2]
-        goal_pos = command_term.command[env_ids_t, :2]
-        distance = torch.norm(goal_pos - robot_pos, dim=-1)
-        reached = distance < goal_threshold
+        reached = command_term._goal_reached_count[env_ids_t] > 0
 
         # Update success counts — increment for reached, reset for not
         self._success_count[env_ids_t] = torch.where(
@@ -156,12 +154,9 @@ class ObstacleCurriculum(ManagerTermBase):
             env_ids, device=env.device
         )
 
-        # Check if goals were reached at reset
+        # Check if any goals were reached during the episode
         command_term = env.command_manager.get_term(command_name)
-        robot_pos = env.scene["robot"].data.root_pos_w[env_ids_t, :2]
-        goal_pos = command_term.command[env_ids_t, :2]
-        distance = torch.norm(goal_pos - robot_pos, dim=-1)
-        reached = distance < goal_threshold
+        reached = command_term._goal_reached_count[env_ids_t] > 0
 
         self._success_count[env_ids_t] = torch.where(
             reached,
@@ -209,3 +204,91 @@ def _deactivate_excess_obstacles(
         root_state[:, 2] = -10.0
         root_state[:, 7:] = 0.0
         obstacle.write_root_state_to_sim(root_state, hide_ids)
+
+
+class RoomComplexityCurriculum(ManagerTermBase):
+    """Progressively increases procedural room complexity based on goal-reach success.
+
+    Tracks per-environment consecutive successes and advances through
+    difficulty levels that control the number of internal walls, furniture,
+    and clutter objects placed by ``generate_proc_room``.
+
+    Difficulty levels:
+        0: Open field — just goals, no walls or obstacles
+        1: Scattered obstacles on open ground (2 furniture, 4 clutter)
+        2: Empty rectangular room
+        3: Room + sparse furniture (2)
+        4: Room + moderate obstacles (4 furniture, 4 clutter)
+        5: Room + internal wall + clutter (1 wall, 4 furniture, 8 clutter)
+        6: Room + dense clutter (1 wall, 6 furniture, 12 clutter)
+        7: Full complexity (2 walls, 8 furniture, 16 clutter)
+    """
+
+    def __init__(self, cfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+        init_level = cfg.params.get("initial_level", 0)
+        self._difficulty = torch.full(
+            (env.num_envs,), init_level, dtype=torch.long, device=env.device
+        )
+        self._success_count = torch.zeros(env.num_envs, device=env.device)
+        # Store on env so generate_proc_room can read it
+        env._proc_room_difficulty = self._difficulty
+
+    @property
+    def difficulty(self) -> torch.Tensor:
+        """Per-environment difficulty level."""
+        return self._difficulty
+
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+        env_ids: Sequence[int],
+        command_name: str = "goal_command",
+        initial_level: int = 0,
+        max_level: int = 7,
+        success_threshold: int = 10,
+        goal_threshold: float = 0.3,
+    ) -> float:
+        """Evaluate and update room complexity curriculum.
+
+        Args:
+            env: Environment instance.
+            env_ids: Environments that just reset.
+            command_name: Name of the goal command term.
+            initial_level: Starting difficulty level.
+            max_level: Maximum difficulty level.
+            success_threshold: Consecutive successes needed to promote.
+            goal_threshold: Distance (m) for counting a goal as reached.
+
+        Returns:
+            Mean difficulty level across all environments.
+        """
+        if len(env_ids) == 0:
+            return float(self._difficulty.float().mean().item())
+
+        env_ids_t = env_ids if isinstance(env_ids, torch.Tensor) else torch.tensor(
+            env_ids, device=env.device
+        )
+
+        # Check if any goals were reached during the episode (not at reset instant).
+        # GoalCommand resamples goals mid-episode, so checking distance at reset
+        # would always fail. Instead, read the per-episode reach counter.
+        command_term = env.command_manager.get_term(command_name)
+        reached = command_term._goal_reached_count[env_ids_t] > 0
+
+        self._success_count[env_ids_t] = torch.where(
+            reached,
+            self._success_count[env_ids_t] + 1,
+            torch.zeros_like(self._success_count[env_ids_t]),
+        )
+
+        # Promote
+        promote = self._success_count[env_ids_t] >= success_threshold
+        if promote.any():
+            promote_ids = env_ids_t[promote]
+            self._difficulty[promote_ids] = torch.clamp(
+                self._difficulty[promote_ids] + 1, max=max_level
+            )
+            self._success_count[promote_ids] = 0
+
+        return float(self._difficulty.float().mean().item())

@@ -14,23 +14,32 @@ SimRealContractCfg presets for consistency:
   - REALISTIC: Matches real hardware (sim-to-real target)
   - ROBUST: Aggressive noise (stress-testing)
 
-Environment Matrix (18 registered = 9 configs × Train/Play):
-    | Realism   | Sensors    | Train ID                            |
-    |-----------|------------|-------------------------------------|
-    | Ideal     | Full       | Isaac-Strafer-Nav-v0                |
-    | Ideal     | Depth-only | Isaac-Strafer-Nav-Depth-v0          |
-    | Ideal     | NoCam      | Isaac-Strafer-Nav-NoCam-v0          |
-    | Realistic | Full       | Isaac-Strafer-Nav-Real-v0           |
-    | Realistic | Depth-only | Isaac-Strafer-Nav-Real-Depth-v0     |
-    | Realistic | NoCam      | Isaac-Strafer-Nav-Real-NoCam-v0     |
-    | Robust    | Full       | Isaac-Strafer-Nav-Robust-v0         |
-    | Robust    | Depth-only | Isaac-Strafer-Nav-Robust-Depth-v0   |
-    | Robust    | NoCam      | Isaac-Strafer-Nav-Robust-NoCam-v0   |
+Environment Matrix (30 registered = 15 configs x Train/Play):
 
-Each has a -Play-v0 variant for evaluation (50 envs instead of 4096).
+    | Realism   | Sensors          | Train ID                                    |
+    |-----------|------------------|---------------------------------------------|
+    | Ideal     | Full             | Isaac-Strafer-Nav-v0                        |
+    | Ideal     | Depth-only       | Isaac-Strafer-Nav-Depth-v0                  |
+    | Ideal     | NoCam            | Isaac-Strafer-Nav-NoCam-v0                  |
+    | Realistic | Full             | Isaac-Strafer-Nav-Real-v0                   |
+    | Realistic | Depth-only       | Isaac-Strafer-Nav-Real-Depth-v0             |
+    | Realistic | NoCam            | Isaac-Strafer-Nav-Real-NoCam-v0             |
+    | Realistic | InfinigenDepth   | Isaac-Strafer-Nav-Real-InfinigenDepth-v0    |
+    | Realistic | ProcRoom NoCam   | Isaac-Strafer-Nav-Real-ProcRoom-NoCam-v0    |
+    | Realistic | ProcRoom Depth   | Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0    |
+    | Robust    | Full             | Isaac-Strafer-Nav-Robust-v0                 |
+    | Robust    | Depth-only       | Isaac-Strafer-Nav-Robust-Depth-v0           |
+    | Robust    | NoCam            | Isaac-Strafer-Nav-Robust-NoCam-v0           |
+    | Robust    | InfinigenDepth   | Isaac-Strafer-Nav-Robust-InfinigenDepth-v0  |
+    | Robust    | ProcRoom NoCam   | Isaac-Strafer-Nav-Robust-ProcRoom-NoCam-v0  |
+    | Robust    | ProcRoom Depth   | Isaac-Strafer-Nav-Robust-ProcRoom-Depth-v0  |
+
+Each has a -Play-v0 variant for evaluation (fewer envs).
 """
 
+import json
 import math
+from pathlib import Path
 
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import EventTermCfg as EventTerm
@@ -45,7 +54,7 @@ from isaaclab.utils import configclass
 from isaaclab.utils.noise import GaussianNoiseCfg
 
 import isaaclab.sim as sim_utils
-from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
+from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCollectionCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.sensors import TiledCameraCfg, ImuCfg, ContactSensorCfg
 
@@ -71,23 +80,62 @@ from .sim_real_cfg import (
 
 
 # =============================================================================
-# Obstacle Template
+# Scene USD Discovery (Phase 6 - Procedural Scenes)
 # =============================================================================
 
-NUM_OBSTACLES = 8
+_ASSET_ROOT = Path(__file__).resolve().parents[5] / "Assets"
 
-OBSTACLE_CFG = RigidObjectCfg(
-    prim_path="{ENV_REGEX_NS}/Obstacle",
-    init_state=RigidObjectCfg.InitialStateCfg(pos=(50.0, 50.0, 0.15)),  # far away; repositioned at reset
-    spawn=sim_utils.CuboidCfg(
-        size=(0.3, 0.3, 0.3),
-        rigid_props=sim_utils.RigidBodyPropertiesCfg(
-            kinematic_enabled=True,  # static obstacles
-        ),
-        collision_props=sim_utils.CollisionPropertiesCfg(),
-        visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.6, 0.2, 0.2)),
-    ),
-)
+# Composed scene USDs (offline pipeline output)
+SCENE_USD_DIR = _ASSET_ROOT / "generated" / "scenes"
+
+
+
+def _get_scene_usd_paths() -> list[str]:
+    """Discover composed scene USDC files for Infinigen training (offline pipeline).
+
+    Returns absolute paths to valid scene .usdc files in SCENE_USD_DIR.
+    If scenes_metadata.json exists, only returns scenes listed there
+    (degenerate scenes are excluded by prep_room_usds.py).
+    """
+    if not SCENE_USD_DIR.is_dir():
+        raise FileNotFoundError(
+            f"Scene USD directory not found: {SCENE_USD_DIR}\n"
+            "Run prep_room_usds.py first to generate scenes."
+        )
+    # Use metadata to filter to valid scenes only
+    meta_path = SCENE_USD_DIR / "scenes_metadata.json"
+    if meta_path.is_file():
+        meta = json.loads(meta_path.read_text())
+        valid_names = set(meta["scenes"].keys())
+        paths = sorted(
+            str(p) for p in SCENE_USD_DIR.iterdir()
+            if p.suffix in (".usdc", ".usd") and p.stem in valid_names
+        )
+    else:
+        paths = sorted(
+            str(p) for p in SCENE_USD_DIR.iterdir()
+            if p.suffix in (".usdc", ".usd") and p.stem.startswith("scene_")
+        )
+    if not paths:
+        raise FileNotFoundError(
+            f"No valid scene_*.usdc files found in: {SCENE_USD_DIR}\n"
+            "Run prep_room_usds.py first to generate scenes."
+        )
+    return paths
+
+
+def _get_scenes_metadata() -> dict | None:
+    """Load full scenes metadata including per-scene spawn points.
+
+    Returns the full metadata dict, or None if not found.
+    """
+    meta_path = SCENE_USD_DIR / "scenes_metadata.json"
+    if not meta_path.is_file():
+        return None
+    return json.loads(meta_path.read_text())
+
+
+
 
 
 # =============================================================================
@@ -153,39 +201,13 @@ class StraferSceneCfg(InteractiveSceneCfg):
         gravity_bias=(0.0, 0.0, 9.81),
     )
 
-    # Obstacles: 8 rigid body boxes for obstacle avoidance training
-    # Repositioned randomly at episode reset via events.randomize_obstacles()
-    obstacle_0: RigidObjectCfg = OBSTACLE_CFG.replace(prim_path="{ENV_REGEX_NS}/Obstacle_0")
-    obstacle_1: RigidObjectCfg = OBSTACLE_CFG.replace(prim_path="{ENV_REGEX_NS}/Obstacle_1")
-    obstacle_2: RigidObjectCfg = OBSTACLE_CFG.replace(prim_path="{ENV_REGEX_NS}/Obstacle_2")
-    obstacle_3: RigidObjectCfg = OBSTACLE_CFG.replace(prim_path="{ENV_REGEX_NS}/Obstacle_3")
-    obstacle_4: RigidObjectCfg = OBSTACLE_CFG.replace(prim_path="{ENV_REGEX_NS}/Obstacle_4")
-    obstacle_5: RigidObjectCfg = OBSTACLE_CFG.replace(prim_path="{ENV_REGEX_NS}/Obstacle_5")
-    obstacle_6: RigidObjectCfg = OBSTACLE_CFG.replace(prim_path="{ENV_REGEX_NS}/Obstacle_6")
-    obstacle_7: RigidObjectCfg = OBSTACLE_CFG.replace(prim_path="{ENV_REGEX_NS}/Obstacle_7")
-
-    # Contact sensor on body_link for obstacle collision detection.
-    # body_link has a collision box (added by setup_physics.py) covering
-    # the full robot footprint (0.48 x 0.44 x 0.216 m, frame bottom to
-    # support rail top). Detects collisions from any direction.
-    # filter_prim_paths_expr isolates obstacle contacts from ground contact.
-    # Each obstacle is listed separately because PhysX tensors API requires
-    # each filter pattern to match exactly 1 prim per env (wildcard Obstacle_.*
-    # matches 8 per env → error). This gives force_matrix_w shape (N, 1, 8, 3).
+    # Contact sensor on body_link for collision detection.
+    # Uses net_forces_w — body_link is wheel-suspended (~10cm above ground),
+    # so net forces detect collisions with scene geometry, not ground contact.
     contact_sensor = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
         update_period=0.0,
         history_length=1,
-        filter_prim_paths_expr=[
-            "{ENV_REGEX_NS}/Obstacle_0",
-            "{ENV_REGEX_NS}/Obstacle_1",
-            "{ENV_REGEX_NS}/Obstacle_2",
-            "{ENV_REGEX_NS}/Obstacle_3",
-            "{ENV_REGEX_NS}/Obstacle_4",
-            "{ENV_REGEX_NS}/Obstacle_5",
-            "{ENV_REGEX_NS}/Obstacle_6",
-            "{ENV_REGEX_NS}/Obstacle_7",
-        ],
     )
 
 
@@ -224,39 +246,105 @@ class StraferSceneCfg_NoCam(InteractiveSceneCfg):
         gravity_bias=(0.0, 0.0, 9.81),
     )
 
-    # Obstacles (same as Full scene)
-    obstacle_0: RigidObjectCfg = OBSTACLE_CFG.replace(prim_path="{ENV_REGEX_NS}/Obstacle_0")
-    obstacle_1: RigidObjectCfg = OBSTACLE_CFG.replace(prim_path="{ENV_REGEX_NS}/Obstacle_1")
-    obstacle_2: RigidObjectCfg = OBSTACLE_CFG.replace(prim_path="{ENV_REGEX_NS}/Obstacle_2")
-    obstacle_3: RigidObjectCfg = OBSTACLE_CFG.replace(prim_path="{ENV_REGEX_NS}/Obstacle_3")
-    obstacle_4: RigidObjectCfg = OBSTACLE_CFG.replace(prim_path="{ENV_REGEX_NS}/Obstacle_4")
-    obstacle_5: RigidObjectCfg = OBSTACLE_CFG.replace(prim_path="{ENV_REGEX_NS}/Obstacle_5")
-    obstacle_6: RigidObjectCfg = OBSTACLE_CFG.replace(prim_path="{ENV_REGEX_NS}/Obstacle_6")
-    obstacle_7: RigidObjectCfg = OBSTACLE_CFG.replace(prim_path="{ENV_REGEX_NS}/Obstacle_7")
-
-    # Contact sensor on body_link for obstacle collision detection.
-    # body_link has a collision box (added by setup_physics.py) covering
-    # the full robot footprint (0.48 x 0.44 x 0.216 m, frame bottom to
-    # support rail top). Detects collisions from any direction.
-    # filter_prim_paths_expr isolates obstacle contacts from ground contact.
-    # Each obstacle is listed separately because PhysX tensors API requires
-    # each filter pattern to match exactly 1 prim per env (wildcard Obstacle_.*
-    # matches 8 per env → error). This gives force_matrix_w shape (N, 1, 8, 3).
+    # Contact sensor on body_link for collision detection.
+    # Uses net_forces_w — body_link is wheel-suspended (~10cm above ground),
+    # so net forces detect collisions with scene geometry, not ground contact.
     contact_sensor = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
         update_period=0.0,
         history_length=1,
-        filter_prim_paths_expr=[
-            "{ENV_REGEX_NS}/Obstacle_0",
-            "{ENV_REGEX_NS}/Obstacle_1",
-            "{ENV_REGEX_NS}/Obstacle_2",
-            "{ENV_REGEX_NS}/Obstacle_3",
-            "{ENV_REGEX_NS}/Obstacle_4",
-            "{ENV_REGEX_NS}/Obstacle_5",
-            "{ENV_REGEX_NS}/Obstacle_6",
-            "{ENV_REGEX_NS}/Obstacle_7",
-        ],
     )
+
+
+@configclass
+class StraferSceneCfg_Infinigen(InteractiveSceneCfg):
+    """Scene with procedural Infinigen room geometry as a global shared prim.
+
+    Scene geometry is loaded once at /World/Room (collision_group=-1) so all
+    robot environments share a single copy. Environments are co-located at the
+    origin (env_spacing=0) — per-env collision filtering keeps robots isolated
+    from each other while the global room geometry collides with all of them.
+
+    Contact sensor uses net_forces_w (no filter) since scene mesh prims are
+    variable and unknown at config time.
+    """
+
+    terrain = TerrainImporterCfg(
+        prim_path="/World/ground",
+        terrain_type="plane",
+        collision_group=-1,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            static_friction=0.5,
+            dynamic_friction=0.5,
+            restitution=0.0,
+        ),
+        debug_vis=False,
+    )
+
+    robot: ArticulationCfg = STRAFER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+    dome_light = AssetBaseCfg(
+        prim_path="/World/DomeLight",
+        spawn=sim_utils.DomeLightCfg(intensity=2000.0, color=(0.8, 0.8, 0.8)),
+    )
+
+    directional_light = AssetBaseCfg(
+        prim_path="/World/DirectionalLight",
+        spawn=sim_utils.DistantLightCfg(intensity=3000.0, color=(1.0, 1.0, 1.0)),
+        init_state=AssetBaseCfg.InitialStateCfg(rot=(0.866, 0.0, 0.5, 0.0)),  # 60° from vertical
+    )
+
+    # Intel RealSense D555 depth camera (same as StraferSceneCfg)
+    d555_camera: TiledCameraCfg = TiledCameraCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link/d555_camera",
+        update_period=1.0 / 30.0,
+        height=60,
+        width=80,
+        data_types=["rgb", "distance_to_image_plane"],
+        spawn=sim_utils.PinholeCameraCfg(
+            focal_length=1.93,
+            horizontal_aperture=3.68,
+            clipping_range=(0.4, 6.0),
+        ),
+        offset=TiledCameraCfg.OffsetCfg(
+            pos=(0.20, 0.0, 0.25),
+            rot=(0.5, -0.5, 0.5, -0.5),
+            convention="ros",
+        ),
+    )
+
+    # Intel RealSense D555 IMU (same as StraferSceneCfg)
+    d555_imu: ImuCfg = ImuCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
+        update_period=1.0 / 200.0,
+        offset=ImuCfg.OffsetCfg(
+            pos=(0.20, 0.0, 0.25),
+            rot=(1.0, 0.0, 0.0, 0.0),
+        ),
+        gravity_bias=(0.0, 0.0, 9.81),
+    )
+
+    # Procedural scene geometry loaded as a global prim (single copy).
+    # All robot environments share this scene via collision_group=-1.
+    # UsdFileCfg path is set in __post_init__ to avoid import-time file
+    # discovery that would break other env configs when scenes aren't generated.
+    scene_geometry: AssetBaseCfg = AssetBaseCfg(
+        prim_path="/World/Room",
+        spawn=sim_utils.UsdFileCfg(usd_path=""),  # populated in env config __post_init__
+        collision_group=-1,
+    )
+
+    # Contact sensor on body_link 
+    # Uses net_forces_w for collision detection against all scene geometry.
+    # body_link is wheel-suspended (~10cm above ground), so net_forces_w on
+    # body_link effectively detects only collisions with scene geometry
+    # (walls, furniture), not ground plane contact.
+    contact_sensor = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
+        update_period=0.0,
+        history_length=1,
+    )
+
 
 
 # =============================================================================
@@ -273,7 +361,7 @@ class ActionsCfg_Ideal:
         wheel_axis_signs=(-1.0, 1.0, -1.0, 1.0),
         wheel_radius=0.048,
         wheel_base=0.336,
-        track_width=0.4284,
+        track_width=0.4132,
         **get_action_config_params(IDEAL_SIM_CONTRACT),
     )
 
@@ -287,7 +375,7 @@ class ActionsCfg_Realistic:
         wheel_axis_signs=(-1.0, 1.0, -1.0, 1.0),
         wheel_radius=0.048,
         wheel_base=0.336,
-        track_width=0.4284,
+        track_width=0.4132,
         **get_action_config_params(REAL_ROBOT_CONTRACT),
     )
 
@@ -301,7 +389,7 @@ class ActionsCfg_Robust:
         wheel_axis_signs=(-1.0, 1.0, -1.0, 1.0),
         wheel_radius=0.048,
         wheel_base=0.336,
-        track_width=0.4284,
+        track_width=0.4132,
         **get_action_config_params(ROBUST_TRAINING_CONTRACT),
     )
 
@@ -350,7 +438,7 @@ class ObsCfg_Full_Ideal:
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_relative = ObsTerm(func=mdp.goal_heading_relative, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
@@ -366,7 +454,7 @@ class ObsCfg_Full_Ideal:
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_relative = ObsTerm(func=mdp.goal_heading_relative, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
@@ -390,7 +478,7 @@ class ObsCfg_Depth_Ideal:
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_relative = ObsTerm(func=mdp.goal_heading_relative, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
@@ -405,7 +493,7 @@ class ObsCfg_Depth_Ideal:
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_relative = ObsTerm(func=mdp.goal_heading_relative, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
@@ -428,7 +516,7 @@ class ObsCfg_NoCam_Ideal:
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_relative = ObsTerm(func=mdp.goal_heading_relative, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         def __post_init__(self):
@@ -442,7 +530,7 @@ class ObsCfg_NoCam_Ideal:
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_relative = ObsTerm(func=mdp.goal_heading_relative, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         privileged = ObsTerm(func=mdp.privileged_ground_truth, params={"command_name": "goal_command"})
@@ -476,7 +564,7 @@ class ObsCfg_Full_Realistic:
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, noise=_REAL_ENCODER_NOISE, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_relative = ObsTerm(func=mdp.goal_heading_relative, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, noise=_REAL_DEPTH_NOISE, scale=_DEPTH_SCALE)
@@ -492,7 +580,7 @@ class ObsCfg_Full_Realistic:
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_relative = ObsTerm(func=mdp.goal_heading_relative, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
@@ -516,7 +604,7 @@ class ObsCfg_Depth_Realistic:
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, noise=_REAL_ENCODER_NOISE, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_relative = ObsTerm(func=mdp.goal_heading_relative, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, noise=_REAL_DEPTH_NOISE, scale=_DEPTH_SCALE)
@@ -531,7 +619,7 @@ class ObsCfg_Depth_Realistic:
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_relative = ObsTerm(func=mdp.goal_heading_relative, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
@@ -554,7 +642,7 @@ class ObsCfg_NoCam_Realistic:
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, noise=_REAL_ENCODER_NOISE, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_relative = ObsTerm(func=mdp.goal_heading_relative, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         def __post_init__(self):
@@ -568,7 +656,7 @@ class ObsCfg_NoCam_Realistic:
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_relative = ObsTerm(func=mdp.goal_heading_relative, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         privileged = ObsTerm(func=mdp.privileged_ground_truth, params={"command_name": "goal_command"})
@@ -602,7 +690,7 @@ class ObsCfg_Full_Robust:
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, noise=_ROBUST_ENCODER_NOISE, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_relative = ObsTerm(func=mdp.goal_heading_relative, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, noise=_ROBUST_DEPTH_NOISE, scale=_DEPTH_SCALE)
@@ -618,7 +706,7 @@ class ObsCfg_Full_Robust:
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_relative = ObsTerm(func=mdp.goal_heading_relative, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
@@ -642,7 +730,7 @@ class ObsCfg_Depth_Robust:
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, noise=_ROBUST_ENCODER_NOISE, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_relative = ObsTerm(func=mdp.goal_heading_relative, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, noise=_ROBUST_DEPTH_NOISE, scale=_DEPTH_SCALE)
@@ -657,7 +745,7 @@ class ObsCfg_Depth_Robust:
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_relative = ObsTerm(func=mdp.goal_heading_relative, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
@@ -680,7 +768,7 @@ class ObsCfg_NoCam_Robust:
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, noise=_ROBUST_ENCODER_NOISE, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_relative = ObsTerm(func=mdp.goal_heading_relative, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         def __post_init__(self):
@@ -694,7 +782,7 @@ class ObsCfg_NoCam_Robust:
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
         goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"})
         goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_relative = ObsTerm(func=mdp.goal_heading_relative, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         privileged = ObsTerm(func=mdp.privileged_ground_truth, params={"command_name": "goal_command"})
@@ -732,21 +820,21 @@ class RewardsCfg:
     - Small penalties as guardrails (collision, jerk), not primary signal
     - Positive-dominant: robot should want to reach goals, not just avoid punishment
     """
-    # --- Primary task signal (dense) ---
-    goal_progress = RewTerm(func=mdp.goal_progress_reward, weight=2.0, params={"command_name": "goal_command"})
-    goal_proximity = RewTerm(func=mdp.goal_proximity_reward, weight=1.5, params={"command_name": "goal_command", "sigma": 0.3})
-    # --- Sparse completion bonus ---
-    goal_reached = RewTerm(func=mdp.goal_reached_reward, weight=10.0, params={"threshold": 0.3, "command_name": "goal_command"})
+    # --- Primary task signal (dense, DOMINANT) ---
+    goal_progress = RewTerm(func=mdp.goal_progress_reward, weight=10.0, params={"command_name": "goal_command"})
+    goal_proximity = RewTerm(func=mdp.goal_proximity_reward, weight=5.0, params={"command_name": "goal_command", "sigma": 0.5})
+    # --- Sparse completion bonus (LARGE — must be unmistakable) ---
+    goal_reached = RewTerm(func=mdp.goal_reached_reward, weight=50.0, params={"threshold": 0.3, "command_name": "goal_command"})
     # --- Heading (low weight — mecanum can strafe, heading is secondary) ---
-    heading_alignment = RewTerm(func=mdp.heading_to_goal_reward, weight=0.05, params={"command_name": "goal_command"})
-    # --- Collision avoidance ---
-    collision = RewTerm(func=mdp.collision_penalty, weight=-5.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
-    collision_sustained = RewTerm(func=mdp.collision_sustained_penalty, weight=-2.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
+    heading_alignment = RewTerm(func=mdp.heading_to_goal_reward, weight=1.5, params={"command_name": "goal_command"})
+    # --- Collision avoidance (moderate — strong enough to discourage, not paralyze) ---
+    collision = RewTerm(func=mdp.collision_penalty_net, weight=-2.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
+    collision_sustained = RewTerm(func=mdp.collision_sustained_penalty_net, weight=-1.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
     # --- Slow down near goal ---
-    speed_near_goal = RewTerm(func=mdp.speed_near_goal_penalty, weight=-0.3, params={"command_name": "goal_command", "distance_threshold": 0.8})
-    # --- Regularization (smooth, energy-efficient motion transfers better to real hardware) ---
-    energy_penalty = RewTerm(func=mdp.energy_penalty, weight=-0.01)
-    action_smoothness = RewTerm(func=mdp.action_smoothness_penalty, weight=-0.05)
+    speed_near_goal = RewTerm(func=mdp.speed_near_goal_penalty, weight=-0.1, params={"command_name": "goal_command", "distance_threshold": 0.8})
+    # --- Regularization (TINY — just guardrails, must not dominate goal signals) ---
+    energy_penalty = RewTerm(func=mdp.energy_penalty, weight=-0.001)
+    action_smoothness = RewTerm(func=mdp.action_smoothness_penalty, weight=-0.005)
 
 
 @configclass
@@ -755,37 +843,30 @@ class TerminationsCfg:
 
     Note: goal_reached is NOT a termination. Multi-goal resampling in
     GoalCommand._update_command() handles goal reach by issuing a new goal
-    mid-episode. Episodes end only on time-out or robot flip.
+    mid-episode. Episodes end only on time-out, robot flip, or sustained collision.
     """
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
     robot_flipped = DoneTerm(func=mdp.robot_flipped, params={"threshold": 0.5})
+    sustained_collision = DoneTerm(
+        func=mdp.sustained_collision,
+        params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0, "max_steps": 10},
+    )
 
-
-_OBSTACLE_NAMES = [f"obstacle_{i}" for i in range(NUM_OBSTACLES)]
 
 
 # ---------------------------------------------------------------------------
 # Events: tiered domain randomization (Ideal / Realistic / Robust)
 #
-# Structural events (robot reset, obstacle placement) are identical across
-# tiers. Domain randomization (friction, mass, motor strength, mount offset,
+# Structural events (robot reset) are identical across tiers.
+# Domain randomization (friction, mass, motor strength, mount offset,
 # goal noise) scales with realism level.
 # ---------------------------------------------------------------------------
 
-# Structural events shared by all tiers
+# Structural event shared by all tiers
 _RESET_ROBOT = EventTerm(
     func=mdp.reset_robot_state,
     mode="reset",
     params={"pose_range": {"x": (-1.0, 1.0), "y": (-1.0, 1.0), "yaw": (-math.pi, math.pi)}},
-)
-_RANDOMIZE_OBSTACLES = EventTerm(
-    func=mdp.randomize_obstacles,
-    mode="reset",
-    params={
-        "obstacle_names": _OBSTACLE_NAMES,
-        "position_range": {"x": (-4.0, 4.0), "y": (-4.0, 4.0)},
-        "min_robot_dist": 0.6,
-    },
 )
 
 
@@ -793,14 +874,12 @@ _RANDOMIZE_OBSTACLES = EventTerm(
 class EventsCfg_Ideal:
     """Ideal: no domain randomization. For debugging and ablation."""
     reset_robot = _RESET_ROBOT
-    randomize_obstacles = _RANDOMIZE_OBSTACLES
 
 
 @configclass
 class EventsCfg_Realistic:
     """Realistic: moderate domain randomization for sim-to-real transfer."""
     reset_robot = _RESET_ROBOT
-    randomize_obstacles = _RANDOMIZE_OBSTACLES
     randomize_friction = EventTerm(
         func=mdp.randomize_friction, mode="reset",
         params={"friction_range": (0.6, 1.2)},
@@ -827,7 +906,6 @@ class EventsCfg_Realistic:
 class EventsCfg_Robust:
     """Robust: aggressive domain randomization for worst-case robustness."""
     reset_robot = _RESET_ROBOT
-    randomize_obstacles = _RANDOMIZE_OBSTACLES
     randomize_friction = EventTerm(
         func=mdp.randomize_friction, mode="reset",
         params={"friction_range": (0.3, 1.5)},
@@ -858,29 +936,124 @@ class CurriculumCfg:
         func=mdp.GoalDistanceCurriculum,
         params={
             "command_name": "goal_command",
-            "initial_range": 2.0,
+            "initial_range": 0.5,
             "max_range": 5.0,
-            "step_size": 0.5,
+            "step_size": 0.25,
             "success_threshold": 5,
             "goal_threshold": 0.3,
         },
     )
 
-    obstacle_difficulty = CurrTerm(
-        func=mdp.ObstacleCurriculum,
+@configclass
+class CommandsCfg_Infinigen:
+    """Commands for Infinigen — tighter goal range to fit within rooms (4-6m)."""
+    goal_command = mdp.GoalCommandCfg(
+        asset_name="robot",
+        resampling_time_range=(10.0, 15.0),
+        debug_vis=True,
+        goal_range=mdp.GoalCommandCfg.Ranges(pos_x=(-2.5, 2.5), pos_y=(-2.5, 2.5)),
+    )
+
+
+@configclass
+class RewardsCfg_Infinigen:
+    """Rewards for Infinigen/ProcRoom — uses net_forces_w collision."""
+    # --- Primary task signal (dense, DOMINANT) ---
+    goal_progress = RewTerm(func=mdp.goal_progress_reward, weight=10.0, params={"command_name": "goal_command"})
+    goal_proximity = RewTerm(func=mdp.goal_proximity_reward, weight=5.0, params={"command_name": "goal_command", "sigma": 0.5})
+    # --- Sparse completion bonus (LARGE — must be unmistakable) ---
+    goal_reached = RewTerm(func=mdp.goal_reached_reward, weight=50.0, params={"threshold": 0.3, "command_name": "goal_command"})
+    # --- Heading (low weight — mecanum can strafe, heading is secondary) ---
+    heading_alignment = RewTerm(func=mdp.heading_to_goal_reward, weight=1.5, params={"command_name": "goal_command"})
+    # --- Collision avoidance (moderate — strong enough to discourage, not paralyze) ---
+    collision = RewTerm(func=mdp.collision_penalty_net, weight=-2.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
+    collision_sustained = RewTerm(func=mdp.collision_sustained_penalty_net, weight=-1.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
+    # --- Slow down near goal ---
+    speed_near_goal = RewTerm(func=mdp.speed_near_goal_penalty, weight=-0.1, params={"command_name": "goal_command", "distance_threshold": 0.8})
+    # --- Regularization (TINY — just guardrails, must not dominate goal signals) ---
+    energy_penalty = RewTerm(func=mdp.energy_penalty, weight=-0.001)
+    action_smoothness = RewTerm(func=mdp.action_smoothness_penalty, weight=-0.005)
+
+
+# Structural event for Infinigen: spawn on interior floor points
+_RESET_ROBOT_INFINIGEN = EventTerm(
+    func=mdp.reset_robot_state_on_floor,
+    mode="reset",
+    params={"spawn_points_xy": [], "yaw_range": (-math.pi, math.pi)},  # populated in __post_init__
+)
+
+
+@configclass
+class EventsCfg_Infinigen_Realistic:
+    """Realistic DR for Infinigen — no obstacle randomization, tighter spawn."""
+    reset_robot = _RESET_ROBOT_INFINIGEN
+    randomize_friction = EventTerm(
+        func=mdp.randomize_friction, mode="reset",
+        params={"friction_range": (0.6, 1.2)},
+    )
+    randomize_mass = EventTerm(
+        func=mdp.randomize_mass, mode="reset",
+        params={"mass_range": (0.95, 1.05)},
+    )
+    randomize_motor_strength = EventTerm(
+        func=mdp.randomize_motor_strength, mode="reset",
+        params={"strength_range": (0.92, 1.08)},
+    )
+    randomize_d555_mount = EventTerm(
+        func=mdp.randomize_d555_mount_offset, mode="reset",
+        params={"max_angle_deg": 1.0},
+    )
+    randomize_goal_noise = EventTerm(
+        func=mdp.randomize_goal_noise, mode="reset",
+        params={"command_name": "goal_command", "noise_std": 0.15},
+    )
+
+
+@configclass
+class EventsCfg_Infinigen_Robust:
+    """Robust DR for Infinigen — no obstacle randomization, tighter spawn."""
+    reset_robot = _RESET_ROBOT_INFINIGEN
+    randomize_friction = EventTerm(
+        func=mdp.randomize_friction, mode="reset",
+        params={"friction_range": (0.3, 1.5)},
+    )
+    randomize_mass = EventTerm(
+        func=mdp.randomize_mass, mode="reset",
+        params={"mass_range": (0.85, 1.15)},
+    )
+    randomize_motor_strength = EventTerm(
+        func=mdp.randomize_motor_strength, mode="reset",
+        params={"strength_range": (0.80, 1.20)},
+    )
+    randomize_d555_mount = EventTerm(
+        func=mdp.randomize_d555_mount_offset, mode="reset",
+        params={"max_angle_deg": 3.0},
+    )
+    randomize_goal_noise = EventTerm(
+        func=mdp.randomize_goal_noise, mode="reset",
+        params={"command_name": "goal_command", "noise_std": 0.35},
+    )
+
+
+@configclass
+class CurriculumCfg_Infinigen:
+    """Curriculum for Infinigen — goal distance only, no obstacle count."""
+    goal_distance = CurrTerm(
+        func=mdp.GoalDistanceCurriculum,
         params={
             "command_name": "goal_command",
-            "initial_count": 2,
-            "max_count": 8,
-            "step_size": 2,
-            "success_threshold": 10,
+            "initial_range": 0.5,
+            "max_range": 3.0,
+            "step_size": 0.25,
+            "success_threshold": 5,
             "goal_threshold": 0.3,
         },
     )
 
 
+
 # =============================================================================
-# Environment Configurations - 18 Variants (9 configs × Train/Play)
+# Environment Configurations - 30 Variants (15 configs × Train/Play)
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -1146,3 +1319,430 @@ class StraferNavEnvCfg_Robust_NoCam_PLAY(StraferNavEnvCfg_Robust_NoCam):
     def __post_init__(self):
         super().__post_init__()
         self.scene.num_envs = 50
+
+
+# =============================================================================
+# INFINIGEN: Procedural Infinigen scene geometry
+#
+# These variants use StraferSceneCfg_Infinigen (Infinigen room USD scenes)
+# instead of box obstacles. Uses net_forces_w for collision detection,
+# tighter spawn/goal ranges to fit within rooms, and no obstacle curriculum.
+# =============================================================================
+
+@configclass
+class StraferNavEnvCfg_Real_InfinigenDepth(ManagerBasedRLEnvCfg):
+    """Realistic Depth with procedural Infinigen scene geometry."""
+    scene: StraferSceneCfg_Infinigen = StraferSceneCfg_Infinigen(num_envs=3, env_spacing=0.0)
+    actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
+    observations: ObsCfg_Depth_Realistic = ObsCfg_Depth_Realistic()
+    commands: CommandsCfg_Infinigen = CommandsCfg_Infinigen()
+    rewards: RewardsCfg_Infinigen = RewardsCfg_Infinigen()
+    terminations: TerminationsCfg = TerminationsCfg()
+    events: EventsCfg_Infinigen_Realistic = EventsCfg_Infinigen_Realistic()
+    curriculum: CurriculumCfg_Infinigen = CurriculumCfg_Infinigen()
+    seed: int = 42
+
+    def __post_init__(self):
+        self.sim.dt = 1.0 / 120.0
+        self.sim.render_interval = 4
+        self.decimation = 4
+        self.episode_length_s = 20.0
+        scene_paths = _get_scene_usd_paths()
+        self.scene.scene_geometry.spawn.usd_path = scene_paths[0]
+        # Load spawn points and goal ranges from metadata
+        meta = _get_scenes_metadata()
+        if meta:
+            # Pool interior spawn points from all scenes
+            all_pts = []
+            for scene_data in meta["scenes"].values():
+                all_pts.extend(scene_data.get("spawn_points_xy", []))
+            if all_pts:
+                self.events.reset_robot.params["spawn_points_xy"] = all_pts
+                # Goals sample from same floor points as robot
+                self.commands.goal_command.spawn_points_xy = all_pts
+
+
+@configclass
+class StraferNavEnvCfg_Real_InfinigenDepth_PLAY(StraferNavEnvCfg_Real_InfinigenDepth):
+    """Play/eval config for Realistic InfinigenDepth."""
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 8
+
+
+@configclass
+class StraferNavEnvCfg_Robust_InfinigenDepth(ManagerBasedRLEnvCfg):
+    """Robust Depth with procedural Infinigen scene geometry."""
+    scene: StraferSceneCfg_Infinigen = StraferSceneCfg_Infinigen(num_envs=3, env_spacing=0.0)
+    actions: ActionsCfg_Robust = ActionsCfg_Robust()
+    observations: ObsCfg_Depth_Robust = ObsCfg_Depth_Robust()
+    commands: CommandsCfg_Infinigen = CommandsCfg_Infinigen()
+    rewards: RewardsCfg_Infinigen = RewardsCfg_Infinigen()
+    terminations: TerminationsCfg = TerminationsCfg()
+    events: EventsCfg_Infinigen_Robust = EventsCfg_Infinigen_Robust()
+    curriculum: CurriculumCfg_Infinigen = CurriculumCfg_Infinigen()
+    seed: int = 42
+
+    def __post_init__(self):
+        self.sim.dt = 1.0 / 120.0
+        self.sim.render_interval = 4
+        self.decimation = 4
+        self.episode_length_s = 20.0
+        scene_paths = _get_scene_usd_paths()
+        self.scene.scene_geometry.spawn.usd_path = scene_paths[0]
+        # Load spawn points and goal ranges from metadata
+        meta = _get_scenes_metadata()
+        if meta:
+            all_pts = []
+            for scene_data in meta["scenes"].values():
+                all_pts.extend(scene_data.get("spawn_points_xy", []))
+            if all_pts:
+                self.events.reset_robot.params["spawn_points_xy"] = all_pts
+                # Goals sample from same floor points as robot
+                self.commands.goal_command.spawn_points_xy = all_pts
+
+
+@configclass
+class StraferNavEnvCfg_Robust_InfinigenDepth_PLAY(StraferNavEnvCfg_Robust_InfinigenDepth):
+    """Play/eval config for Robust InfinigenDepth."""
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 8
+
+
+# =============================================================================
+# PROCROOM: Procedural primitive rooms with GPU BFS solvability
+#
+# Lightweight primitive shapes (walls, furniture, clutter) generated at each
+# episode reset. Supports 256+ envs with replicated physics. GPU BFS
+# guarantees solvable layouts.
+# =============================================================================
+
+# Import procedural room palette builder
+from .mdp.proc_room import build_proc_room_collection_cfg
+
+
+@configclass
+class StraferSceneCfg_ProcRoom(InteractiveSceneCfg):
+    """Scene with procedural primitive rooms and depth camera."""
+
+    terrain = TerrainImporterCfg(
+        prim_path="/World/ground",
+        terrain_type="plane",
+        collision_group=-1,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            static_friction=0.5,
+            dynamic_friction=0.5,
+            restitution=0.0,
+        ),
+        debug_vis=False,
+    )
+
+    robot: ArticulationCfg = STRAFER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+    dome_light = AssetBaseCfg(
+        prim_path="/World/DomeLight",
+        spawn=sim_utils.DomeLightCfg(intensity=2000.0, color=(0.8, 0.8, 0.8)),
+    )
+
+    # Intel RealSense D555 depth camera (same as StraferSceneCfg)
+    d555_camera: TiledCameraCfg = TiledCameraCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link/d555_camera",
+        update_period=1.0 / 30.0,
+        height=60,
+        width=80,
+        data_types=["distance_to_image_plane"],
+        spawn=sim_utils.PinholeCameraCfg(
+            focal_length=1.93,
+            horizontal_aperture=3.68,
+            clipping_range=(0.4, 6.0),
+        ),
+        offset=TiledCameraCfg.OffsetCfg(
+            pos=(0.20, 0.0, 0.25),
+            rot=(0.5, -0.5, 0.5, -0.5),
+            convention="ros",
+        ),
+    )
+
+    # Intel RealSense D555 IMU (same as StraferSceneCfg)
+    d555_imu: ImuCfg = ImuCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
+        update_period=1.0 / 200.0,
+        offset=ImuCfg.OffsetCfg(
+            pos=(0.20, 0.0, 0.25),
+            rot=(1.0, 0.0, 0.0, 0.0),
+        ),
+        gravity_bias=(0.0, 0.0, 9.81),
+    )
+
+    # 44-object primitive palette (walls, furniture, clutter)
+    room_primitives: RigidObjectCollectionCfg = RigidObjectCollectionCfg(
+        rigid_objects=build_proc_room_collection_cfg(),
+    )
+
+    # Contact sensor on body_link for collision detection
+    contact_sensor = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
+        update_period=0.0,
+        history_length=1,
+    )
+
+
+@configclass
+class StraferSceneCfg_ProcRoom_NoCam(InteractiveSceneCfg):
+    """Scene with procedural primitive rooms, no camera (fastest training)."""
+
+    terrain = TerrainImporterCfg(
+        prim_path="/World/ground",
+        terrain_type="plane",
+        collision_group=-1,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            static_friction=0.5,
+            dynamic_friction=0.5,
+            restitution=0.0,
+        ),
+        debug_vis=False,
+    )
+
+    robot: ArticulationCfg = STRAFER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+    dome_light = AssetBaseCfg(
+        prim_path="/World/DomeLight",
+        spawn=sim_utils.DomeLightCfg(intensity=2000.0, color=(0.8, 0.8, 0.8)),
+    )
+
+    # IMU only (no camera overhead)
+    d555_imu: ImuCfg = ImuCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
+        update_period=1.0 / 200.0,
+        offset=ImuCfg.OffsetCfg(
+            pos=(0.20, 0.0, 0.25),
+            rot=(1.0, 0.0, 0.0, 0.0),
+        ),
+        gravity_bias=(0.0, 0.0, 9.81),
+    )
+
+    # 44-object primitive palette (walls, furniture, clutter)
+    room_primitives: RigidObjectCollectionCfg = RigidObjectCollectionCfg(
+        rigid_objects=build_proc_room_collection_cfg(),
+    )
+
+    # Contact sensor on body_link for collision detection
+    contact_sensor = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
+        update_period=0.0,
+        history_length=1,
+    )
+
+
+@configclass
+class CommandsCfg_ProcRoom:
+    """Commands for ProcRoom — goals sampled from BFS reachable points."""
+    goal_command = mdp.GoalCommandProcRoomCfg(
+        asset_name="robot",
+        resampling_time_range=(10.0, 15.0),
+        debug_vis=True,
+        goal_range=mdp.GoalCommandProcRoomCfg.Ranges(pos_x=(-3.5, 3.5), pos_y=(-3.5, 3.5)),
+    )
+
+
+# Structural event for ProcRoom: generate room THEN reset robot
+_GENERATE_PROC_ROOM = EventTerm(
+    func=mdp.generate_proc_room,
+    mode="reset",
+    params={"collection_name": "room_primitives"},
+)
+
+_RESET_ROBOT_PROC_ROOM = EventTerm(
+    func=mdp.reset_robot_proc_room,
+    mode="reset",
+    params={"yaw_range": (-math.pi, math.pi)},
+)
+
+
+_RANDOMIZE_PROC_ROOM_DIFFICULTY = EventTerm(
+    func=mdp.randomize_proc_room_difficulty,
+    mode="reset",
+    params={"max_level": 7},
+)
+
+
+@configclass
+class EventsCfg_ProcRoom_Realistic:
+    """Realistic DR for ProcRoom — room generation + robot reset + DR."""
+    randomize_difficulty = _RANDOMIZE_PROC_ROOM_DIFFICULTY
+    generate_room = _GENERATE_PROC_ROOM
+    reset_robot = _RESET_ROBOT_PROC_ROOM
+    randomize_friction = EventTerm(
+        func=mdp.randomize_friction, mode="reset",
+        params={"friction_range": (0.6, 1.2)},
+    )
+    randomize_mass = EventTerm(
+        func=mdp.randomize_mass, mode="reset",
+        params={"mass_range": (0.95, 1.05)},
+    )
+    randomize_motor_strength = EventTerm(
+        func=mdp.randomize_motor_strength, mode="reset",
+        params={"strength_range": (0.92, 1.08)},
+    )
+    randomize_d555_mount = EventTerm(
+        func=mdp.randomize_d555_mount_offset, mode="reset",
+        params={"max_angle_deg": 1.0},
+    )
+    # Goal noise disabled for initial training (Phase 1).
+    # Re-enable with noise_std=0.15 for Phase 3 robustness hardening.
+
+
+@configclass
+class EventsCfg_ProcRoom_Robust:
+    """Robust DR for ProcRoom — room generation + robot reset + aggressive DR."""
+    randomize_difficulty = _RANDOMIZE_PROC_ROOM_DIFFICULTY
+    generate_room = _GENERATE_PROC_ROOM
+    reset_robot = _RESET_ROBOT_PROC_ROOM
+    randomize_friction = EventTerm(
+        func=mdp.randomize_friction, mode="reset",
+        params={"friction_range": (0.3, 1.5)},
+    )
+    randomize_mass = EventTerm(
+        func=mdp.randomize_mass, mode="reset",
+        params={"mass_range": (0.85, 1.15)},
+    )
+    randomize_motor_strength = EventTerm(
+        func=mdp.randomize_motor_strength, mode="reset",
+        params={"strength_range": (0.80, 1.20)},
+    )
+    randomize_d555_mount = EventTerm(
+        func=mdp.randomize_d555_mount_offset, mode="reset",
+        params={"max_angle_deg": 3.0},
+    )
+    randomize_goal_noise = EventTerm(
+        func=mdp.randomize_goal_noise, mode="reset",
+        params={"command_name": "goal_command", "noise_std": 0.35},
+    )
+
+
+@configclass
+class CurriculumCfg_ProcRoom:
+    """No curriculum for ProcRoom — difficulty is randomized per-env via event.
+
+    GoalDistanceCurriculum and RoomComplexityCurriculum were removed to match
+    the demo distribution (random difficulty per episode). The curriculum classes
+    remain in mdp/curriculums.py for future use.
+    """
+    pass
+
+
+# --- ProcRoom environment configs ---
+
+@configclass
+class StraferNavEnvCfg_Real_ProcRoom_NoCam(ManagerBasedRLEnvCfg):
+    """Realistic NoCam ProcRoom — high env count for fast training."""
+    scene: StraferSceneCfg_ProcRoom_NoCam = StraferSceneCfg_ProcRoom_NoCam(num_envs=256, env_spacing=10.0)
+    actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
+    observations: ObsCfg_NoCam_Realistic = ObsCfg_NoCam_Realistic()
+    commands: CommandsCfg_ProcRoom = CommandsCfg_ProcRoom()
+    rewards: RewardsCfg_Infinigen = RewardsCfg_Infinigen()
+    terminations: TerminationsCfg = TerminationsCfg()
+    events: EventsCfg_ProcRoom_Realistic = EventsCfg_ProcRoom_Realistic()
+    curriculum: CurriculumCfg_ProcRoom = CurriculumCfg_ProcRoom()
+    seed: int = 42
+
+    def __post_init__(self):
+        self.sim.dt = 1.0 / 120.0
+        self.sim.render_interval = 4
+        self.decimation = 4
+        self.episode_length_s = 20.0
+
+
+@configclass
+class StraferNavEnvCfg_Real_ProcRoom_NoCam_PLAY(StraferNavEnvCfg_Real_ProcRoom_NoCam):
+    """Play/eval config for Realistic ProcRoom NoCam."""
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 50
+
+
+@configclass
+class StraferNavEnvCfg_Real_ProcRoom_Depth(ManagerBasedRLEnvCfg):
+    """Realistic Depth ProcRoom — depth training with room geometry."""
+    scene: StraferSceneCfg_ProcRoom = StraferSceneCfg_ProcRoom(num_envs=64, env_spacing=10.0)
+    actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
+    observations: ObsCfg_Depth_Realistic = ObsCfg_Depth_Realistic()
+    commands: CommandsCfg_ProcRoom = CommandsCfg_ProcRoom()
+    rewards: RewardsCfg_Infinigen = RewardsCfg_Infinigen()
+    terminations: TerminationsCfg = TerminationsCfg()
+    events: EventsCfg_ProcRoom_Realistic = EventsCfg_ProcRoom_Realistic()
+    curriculum: CurriculumCfg_ProcRoom = CurriculumCfg_ProcRoom()
+    seed: int = 42
+
+    def __post_init__(self):
+        self.sim.dt = 1.0 / 120.0
+        self.sim.render_interval = 4
+        self.decimation = 4
+        self.episode_length_s = 20.0
+
+
+@configclass
+class StraferNavEnvCfg_Real_ProcRoom_Depth_PLAY(StraferNavEnvCfg_Real_ProcRoom_Depth):
+    """Play/eval config for Realistic ProcRoom Depth."""
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 8
+
+
+@configclass
+class StraferNavEnvCfg_Robust_ProcRoom_NoCam(ManagerBasedRLEnvCfg):
+    """Robust NoCam ProcRoom — aggressive noise with high env count."""
+    scene: StraferSceneCfg_ProcRoom_NoCam = StraferSceneCfg_ProcRoom_NoCam(num_envs=256, env_spacing=10.0)
+    actions: ActionsCfg_Robust = ActionsCfg_Robust()
+    observations: ObsCfg_NoCam_Robust = ObsCfg_NoCam_Robust()
+    commands: CommandsCfg_ProcRoom = CommandsCfg_ProcRoom()
+    rewards: RewardsCfg_Infinigen = RewardsCfg_Infinigen()
+    terminations: TerminationsCfg = TerminationsCfg()
+    events: EventsCfg_ProcRoom_Robust = EventsCfg_ProcRoom_Robust()
+    curriculum: CurriculumCfg_ProcRoom = CurriculumCfg_ProcRoom()
+    seed: int = 42
+
+    def __post_init__(self):
+        self.sim.dt = 1.0 / 120.0
+        self.sim.render_interval = 4
+        self.decimation = 4
+        self.episode_length_s = 20.0
+
+
+@configclass
+class StraferNavEnvCfg_Robust_ProcRoom_NoCam_PLAY(StraferNavEnvCfg_Robust_ProcRoom_NoCam):
+    """Play/eval config for Robust ProcRoom NoCam."""
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 50
+
+
+@configclass
+class StraferNavEnvCfg_Robust_ProcRoom_Depth(ManagerBasedRLEnvCfg):
+    """Robust Depth ProcRoom — aggressive noise with depth camera."""
+    scene: StraferSceneCfg_ProcRoom = StraferSceneCfg_ProcRoom(num_envs=64, env_spacing=10.0)
+    actions: ActionsCfg_Robust = ActionsCfg_Robust()
+    observations: ObsCfg_Depth_Robust = ObsCfg_Depth_Robust()
+    commands: CommandsCfg_ProcRoom = CommandsCfg_ProcRoom()
+    rewards: RewardsCfg_Infinigen = RewardsCfg_Infinigen()
+    terminations: TerminationsCfg = TerminationsCfg()
+    events: EventsCfg_ProcRoom_Robust = EventsCfg_ProcRoom_Robust()
+    curriculum: CurriculumCfg_ProcRoom = CurriculumCfg_ProcRoom()
+    seed: int = 42
+
+    def __post_init__(self):
+        self.sim.dt = 1.0 / 120.0
+        self.sim.render_interval = 4
+        self.decimation = 4
+        self.episode_length_s = 20.0
+
+
+@configclass
+class StraferNavEnvCfg_Robust_ProcRoom_Depth_PLAY(StraferNavEnvCfg_Robust_ProcRoom_Depth):
+    """Play/eval config for Robust ProcRoom Depth."""
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 8
+
+

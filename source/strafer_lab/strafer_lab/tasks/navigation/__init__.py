@@ -1,6 +1,6 @@
 """Navigation task for Strafer mecanum wheel robot.
 
-This module registers 18 Gym environments organized by realism level and sensors:
+This module registers Gym environments organized by realism level and sensors:
 
 IDEAL (No noise, no motor dynamics - debugging/baselines):
 - ``Isaac-Strafer-Nav-v0``: Full RGB+Depth
@@ -17,6 +17,16 @@ ROBUST (Aggressive noise + dynamics - stress-testing):
 - ``Isaac-Strafer-Nav-Robust-Depth-v0``: Depth-only with extreme noise
 - ``Isaac-Strafer-Nav-Robust-NoCam-v0``: Proprioceptive-only with extreme noise
 
+INFINIGEN (Phase 6 - offline Infinigen scene geometry):
+- ``Isaac-Strafer-Nav-Real-InfinigenDepth-v0``: Realistic depth + Infinigen scenes
+- ``Isaac-Strafer-Nav-Robust-InfinigenDepth-v0``: Robust depth + Infinigen scenes
+
+PROCROOM (Phase 7 - procedural primitive rooms):
+- ``Isaac-Strafer-Nav-Real-ProcRoom-NoCam-v0``: Realistic NoCam + proc rooms (256 envs)
+- ``Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0``: Realistic Depth + proc rooms (64 envs)
+- ``Isaac-Strafer-Nav-Robust-ProcRoom-NoCam-v0``: Robust NoCam + proc rooms (256 envs)
+- ``Isaac-Strafer-Nav-Robust-ProcRoom-Depth-v0``: Robust Depth + proc rooms (64 envs)
+
 Each has a -Play variant for evaluation (fewer envs).
 """
 
@@ -25,7 +35,7 @@ import gymnasium as gym
 from . import agents
 
 ##
-# Register Gym environments - 18 total (9 configs × Train/Play)
+# Register Gym environments - 30 total (15 configs × Train/Play)
 ##
 
 # =============================================================================
@@ -242,6 +252,152 @@ gym.register(
     kwargs={
         "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Robust_NoCam_PLAY",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:STRAFER_PPO_RUNNER_CFG",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+# =============================================================================
+# INFINIGEN: Infinigen scene variants (Phase 6)
+# =============================================================================
+
+# Realistic + Infinigen scenes (depth-only)
+gym.register(
+    id="Isaac-Strafer-Nav-Real-InfinigenDepth-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Real_InfinigenDepth",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:STRAFER_PPO_DEPTH_RUNNER_CFG",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+gym.register(
+    id="Isaac-Strafer-Nav-Real-InfinigenDepth-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Real_InfinigenDepth_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:STRAFER_PPO_DEPTH_RUNNER_CFG",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+# Robust + Infinigen scenes (depth-only)
+gym.register(
+    id="Isaac-Strafer-Nav-Robust-InfinigenDepth-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Robust_InfinigenDepth",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:STRAFER_PPO_DEPTH_RUNNER_CFG",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+gym.register(
+    id="Isaac-Strafer-Nav-Robust-InfinigenDepth-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Robust_InfinigenDepth_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:STRAFER_PPO_DEPTH_RUNNER_CFG",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+# =============================================================================
+# PROCROOM: Procedural primitive rooms (Phase 7)
+# =============================================================================
+
+# Realistic + ProcRoom NoCam
+gym.register(
+    id="Isaac-Strafer-Nav-Real-ProcRoom-NoCam-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Real_ProcRoom_NoCam",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:STRAFER_PPO_RUNNER_CFG",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+gym.register(
+    id="Isaac-Strafer-Nav-Real-ProcRoom-NoCam-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Real_ProcRoom_NoCam_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:STRAFER_PPO_RUNNER_CFG",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+# Realistic + ProcRoom Depth
+gym.register(
+    id="Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Real_ProcRoom_Depth",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:STRAFER_PPO_DEPTH_RUNNER_CFG",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+gym.register(
+    id="Isaac-Strafer-Nav-Real-ProcRoom-Depth-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Real_ProcRoom_Depth_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:STRAFER_PPO_DEPTH_RUNNER_CFG",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+# Robust + ProcRoom NoCam
+gym.register(
+    id="Isaac-Strafer-Nav-Robust-ProcRoom-NoCam-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Robust_ProcRoom_NoCam",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:STRAFER_PPO_RUNNER_CFG",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+gym.register(
+    id="Isaac-Strafer-Nav-Robust-ProcRoom-NoCam-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Robust_ProcRoom_NoCam_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:STRAFER_PPO_RUNNER_CFG",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+# Robust + ProcRoom Depth
+gym.register(
+    id="Isaac-Strafer-Nav-Robust-ProcRoom-Depth-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Robust_ProcRoom_Depth",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:STRAFER_PPO_DEPTH_RUNNER_CFG",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
+    },
+)
+
+gym.register(
+    id="Isaac-Strafer-Nav-Robust-ProcRoom-Depth-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:StraferNavEnvCfg_Robust_ProcRoom_Depth_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:STRAFER_PPO_DEPTH_RUNNER_CFG",
         "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
     },
 )

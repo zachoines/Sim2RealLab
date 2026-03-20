@@ -6,7 +6,6 @@
 Classes under test (``strafer_lab.tasks.navigation.mdp.curriculums``):
 
 * ``GoalDistanceCurriculum``  — expands goal range based on success rate.
-* ``ObstacleCurriculum``      — activates more obstacles as agent improves.
 
 Tests access curriculum terms through ``env.curriculum_manager`` internals.
 The class-based term instances live at ``_term_cfgs[idx].func``.
@@ -21,7 +20,6 @@ import pytest
 
 from strafer_lab.tasks.navigation.mdp.curriculums import (
     GoalDistanceCurriculum,
-    ObstacleCurriculum,
 )
 
 
@@ -129,36 +127,3 @@ def test_goal_distance_curriculum_returns_float(env):
     print(f"    Mean range: {result:.2f}")
 
 
-# =====================================================================
-# ObstacleCurriculum — Tests
-# =====================================================================
-
-
-def test_obstacle_curriculum_exists(env):
-    """The environment must have an obstacle_difficulty curriculum term."""
-    term = _get_curriculum_term(env, "obstacle_difficulty")
-
-    assert isinstance(term, ObstacleCurriculum), (
-        f"Expected ObstacleCurriculum, got {type(term).__name__}"
-    )
-
-
-def test_obstacle_curriculum_active_count_property(env):
-    """active_obstacle_count property must expose per-env counts."""
-    env.reset()
-
-    term = _get_curriculum_term(env, "obstacle_difficulty")
-    counts = term.active_obstacle_count
-
-    assert counts.shape == (env.num_envs,), (
-        f"Expected shape ({env.num_envs},), got {counts.shape}"
-    )
-
-    initial_count = term.cfg.params.get("initial_count", 2)
-    print(f"\n  ObstacleCurriculum active counts:")
-    print(f"    Config initial_count: {initial_count}")
-    print(f"    Unique counts: {counts.unique().tolist()}")
-
-    assert (counts >= 0).all(), (
-        f"Negative obstacle counts: min={counts.min().item()}"
-    )

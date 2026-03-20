@@ -9,7 +9,7 @@ Functions under test (``strafer_lab.tasks.navigation.mdp.rewards``):
 * ``goal_reached_reward``       — binary reward when within threshold of goal.
 * ``heading_to_goal_reward``    — cosine alignment between heading and goal.
 * ``energy_penalty``            — sum of squared applied torques.
-* ``action_smoothness_penalty`` — sum of squared step-to-step action changes.
+* ``action_smoothness_penalty`` — sum of absolute step-to-step action changes (L1).
 * ``goal_proximity_reward``     — exponential proximity reward near goal.
 * ``speed_near_goal_penalty``   — speed penalty when close to goal.
 * ``alive_bonus``               — constant per-step survival reward.
@@ -474,8 +474,9 @@ def test_action_smoothness_positive_when_changing(env):
     """Changing action between steps produces non-zero smoothness penalty.
 
     We verify by comparing the raw action difference: the penalty function
-    computes ``sum((current - prev)², dim=-1)``.  We step with two distinct
-    actions and verify the *env's* ``action_manager.action`` actually changes.
+    computes ``sum(|current - prev|, dim=-1)`` (L1 norm).  We step with two
+    distinct actions and verify the *env's* ``action_manager.action`` actually
+    changes.
     """
     env.reset()
 
@@ -493,9 +494,9 @@ def test_action_smoothness_positive_when_changing(env):
 
     curr_action = env.action_manager.action.clone()
 
-    # Compute expected smoothness penalty from the actual actions
+    # Compute expected smoothness penalty from the actual actions (L1 norm)
     diff = curr_action - prev_action
-    expected_penalty = (diff ** 2).sum(dim=-1)
+    expected_penalty = diff.abs().sum(dim=-1)
     mean_expected = expected_penalty.mean().item()
 
     print(f"\n  Action smoothness (changing):")

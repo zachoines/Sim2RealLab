@@ -17,7 +17,7 @@ import math
 WHEEL_RADIUS = 0.048  # meters (96mm diameter mecanum wheel)
 WHEEL_WIDTH = 0.038  # meters (38mm mecanum wheel width)
 WHEEL_BASE = 0.336  # front-to-rear axle distance (meters, center-to-center)
-TRACK_WIDTH = 0.4284  # left-to-right axle distance (meters, center-to-center)
+TRACK_WIDTH = 0.4132  # left-to-right axle distance (meters, center-to-center)
 
 # Chassis frame dimensions
 CHASSIS_LENGTH = 0.432  # meters (432mm frame length)

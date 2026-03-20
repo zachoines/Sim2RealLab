@@ -368,8 +368,8 @@ class MecanumWheelActionCfg(ActionTermCfg):
     wheel_base: float = 0.336
     """Distance between front and rear axles in meters. Default: 336mm."""
     
-    track_width: float = 0.4284
-    """Distance between left and right wheels in meters. Default: 428.4mm."""
+    track_width: float = 0.4132
+    """Distance between left and right wheels in meters. Default: 413.2mm."""
     
     # Motor specifications (5203 Yellow Jacket 19.2:1 ratio)
     motor_rpm: float = 312.0

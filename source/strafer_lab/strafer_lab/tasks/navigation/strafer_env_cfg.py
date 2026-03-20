@@ -361,7 +361,7 @@ class ActionsCfg_Ideal:
         wheel_axis_signs=(-1.0, 1.0, -1.0, 1.0),
         wheel_radius=0.048,
         wheel_base=0.336,
-        track_width=0.4284,
+        track_width=0.4132,
         **get_action_config_params(IDEAL_SIM_CONTRACT),
     )
 
@@ -375,7 +375,7 @@ class ActionsCfg_Realistic:
         wheel_axis_signs=(-1.0, 1.0, -1.0, 1.0),
         wheel_radius=0.048,
         wheel_base=0.336,
-        track_width=0.4284,
+        track_width=0.4132,
         **get_action_config_params(REAL_ROBOT_CONTRACT),
     )
 
@@ -389,7 +389,7 @@ class ActionsCfg_Robust:
         wheel_axis_signs=(-1.0, 1.0, -1.0, 1.0),
         wheel_radius=0.048,
         wheel_base=0.336,
-        track_width=0.4284,
+        track_width=0.4132,
         **get_action_config_params(ROBUST_TRAINING_CONTRACT),
     )
 

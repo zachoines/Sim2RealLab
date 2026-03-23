@@ -120,8 +120,10 @@ CAMERA_OFFSET_Z = 0.25  # meters up from body_link
 
 DEPTH_WIDTH = 80  # Policy input resolution (downsampled)
 DEPTH_HEIGHT = 60
-DEPTH_CLIP_NEAR = 0.4  # meters
+DEPTH_CLIP_NEAR = 0.4  # meters — D555 stereo min range (real hardware limit)
 DEPTH_CLIP_FAR = 6.0  # meters
+DEPTH_SIM_CLIP_NEAR = 0.01  # meters — sim renders below D555 min range
+DEPTH_NEARFIELD_FILL = 0.2  # meters — replacement value for sub-0.4m pixels
 
 # =============================================================================
 # Mapping / Navigation

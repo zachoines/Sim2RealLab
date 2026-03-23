@@ -41,7 +41,7 @@ DEFAULT_TIMEOUT = 180
 
 # Suites that must run each test file in a separate subprocess because
 # each file creates its own ManagerBasedRLEnv (SimulationContext singleton).
-MULTI_PROCESS_SUITES = {"depth_noise", "rewards"}
+MULTI_PROCESS_SUITES = {"depth_noise", "rewards", "imu"}
 
 SUITES = {
     "terminations":  [str(TEST_ROOT / "terminations" / "test_terminations.py")],
@@ -60,7 +60,8 @@ SUITES = {
         str(TEST_ROOT / "sensors" / "depth_noise" / "test_holes.py"),
         str(TEST_ROOT / "sensors" / "depth_noise" / "test_frame_drops.py"),
     ],
-    "imu":           [str(TEST_ROOT / "sensors" / "test_imu.py")],
+    "imu":           [str(TEST_ROOT / "sensors" / "test_imu.py"),
+                      str(TEST_ROOT / "sensors" / "test_imu_collision.py")],
 }
 
 

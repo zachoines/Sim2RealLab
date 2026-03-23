@@ -53,3 +53,6 @@ IMU_GYRO_MAX = 34.9     # ±2000 °/s in rad/s
 
 # Encoder parameters
 ENCODER_VEL_MAX = 3000.0  # Max ticks/sec (312 RPM ≈ 2796 ticks/s + margin)
+
+# Body velocity
+BODY_VEL_MAX = 2.0  # Max body velocity in m/s (robot tops ~1.57 m/s, with margin)

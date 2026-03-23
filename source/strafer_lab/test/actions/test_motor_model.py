@@ -1,17 +1,16 @@
 # Copyright (c) 2025, Strafer Lab Project
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Tests for DC motor torque-speed model and asset configuration.
+"""Tests for motor model and asset configuration.
 
 The Strafer robot uses GoBilda 5203 Yellow Jacket motors (19.2:1 ratio)
 with specifications:
 - No-load speed: 312 RPM (≈ 32.67 rad/s)
 - Stall torque: 24.3 kg·cm (≈ 2.383 Nm)
-- Continuous torque: 50% of stall (conservative estimate)
 
 These tests validate:
 1. Motor constants are correctly computed from GoBilda specs.
-2. ``STRAFER_CFG`` ArticulationCfg wires the correct DCMotor parameters.
+2. ``STRAFER_CFG`` ArticulationCfg wires the correct ImplicitActuator parameters.
 3. ``get_action_config_params()`` yields consistent motor/action config.
 
 Usage:
@@ -96,29 +95,20 @@ def test_cfg_has_wheel_drives_actuator():
 
 
 def test_cfg_wheel_drives_velocity_limit():
-    """Verify DCMotor velocity_limit matches no-load speed."""
+    """Verify ImplicitActuator velocity_limit_sim matches no-load speed."""
     drive_cfg = STRAFER_CFG.actuators["wheel_drives"]
-    assert abs(drive_cfg.velocity_limit - EXPECTED_NO_LOAD_RAD_S) < 0.1, (
-        f"velocity_limit={drive_cfg.velocity_limit:.2f}, "
+    assert abs(drive_cfg.velocity_limit_sim - EXPECTED_NO_LOAD_RAD_S) < 0.1, (
+        f"velocity_limit_sim={drive_cfg.velocity_limit_sim:.2f}, "
         f"expected ≈ {EXPECTED_NO_LOAD_RAD_S:.2f} rad/s"
     )
 
 
-def test_cfg_wheel_drives_saturation_effort():
-    """Verify DCMotor saturation_effort matches stall torque."""
-    drive_cfg = STRAFER_CFG.actuators["wheel_drives"]
-    assert abs(drive_cfg.saturation_effort - EXPECTED_STALL_TORQUE_NM) < 0.01, (
-        f"saturation_effort={drive_cfg.saturation_effort:.4f}, "
-        f"expected ≈ {EXPECTED_STALL_TORQUE_NM:.4f} Nm"
-    )
-
-
 def test_cfg_wheel_drives_effort_limit():
-    """Verify DCMotor effort_limit matches continuous torque."""
+    """Verify ImplicitActuator effort_limit_sim matches stall torque."""
     drive_cfg = STRAFER_CFG.actuators["wheel_drives"]
-    assert abs(drive_cfg.effort_limit - EXPECTED_CONTINUOUS_TORQUE_NM) < 0.01, (
-        f"effort_limit={drive_cfg.effort_limit:.4f}, "
-        f"expected ≈ {EXPECTED_CONTINUOUS_TORQUE_NM:.4f} Nm"
+    assert abs(drive_cfg.effort_limit_sim - EXPECTED_STALL_TORQUE_NM) < 0.01, (
+        f"effort_limit_sim={drive_cfg.effort_limit_sim:.4f}, "
+        f"expected ≈ {EXPECTED_STALL_TORQUE_NM:.4f} Nm"
     )
 
 

@@ -54,7 +54,7 @@ _NOCAM_FIELDS: tuple[ObsField, ...] = (
     ObsField("encoder_vels_ticks", 4, ENCODER_VEL_SCALE),
     ObsField("goal_relative", 2, 1.0),
     ObsField("goal_distance", 1, GOAL_DIST_SCALE),
-    ObsField("goal_heading_relative", 1, HEADING_SCALE),
+    ObsField("goal_heading_to_goal", 1, HEADING_SCALE),
     ObsField("body_velocity_xy", 2, BODY_VEL_SCALE),
     ObsField("last_action", 3, 1.0),
 )

@@ -11,18 +11,27 @@ World-frame control mode (overhead camera, stick = viewport motion):
     B button       → discard current episode
     Start button   → save & quit
 
+Output:
+    --output can be a ``.h5`` file or a directory.  When a directory is given
+    (or a path without ``.h5`` extension), a timestamped filename is
+    auto-generated inside it (e.g., ``demos/demos_20260321_143000.h5``).
+    This allows incremental collection across sessions — point the training
+    script at the folder and all ``.h5`` files will be loaded and concatenated.
+
 Usage:
-    # Depth variant (recommended for GAIL/DAPG with visual context):
+    # Single file (classic):
     isaaclab -p scripts/collect_demos.py \
         --task Isaac-Strafer-Nav-Real-ProcRoom-Depth-Play-v0 \
-        --output demos_depth.h5 \
-        [--deadzone 0.12] [--max_episodes 100]
+        --output demos.h5
 
-    # NoCam variant (proprio-only, faster, for NoCam training):
+    # Incremental folder (recommended):
     isaaclab -p scripts/collect_demos.py \
-        --task Isaac-Strafer-Nav-Real-ProcRoom-NoCam-Play-v0 \
-        --output demos.h5 \
-        [--deadzone 0.12] [--max_episodes 100]
+        --task Isaac-Strafer-Nav-Real-ProcRoom-Depth-Play-v0 \
+        --output demos/ --max_episodes 40
+
+    # Train on the folder:
+    isaaclab -p Scripts/train_strafer_navigation.py \
+        --aux dapg --dapg_demos demos/
 """
 
 from __future__ import annotations
@@ -40,13 +49,15 @@ parser = argparse.ArgumentParser(description="Collect gamepad demos for BC.")
 parser.add_argument("--task", type=str, required=True,
                     help="Registered Isaac Lab task name (Play variant)")
 parser.add_argument("--output", type=str, default="demos.h5",
-                    help="Output HDF5 file path")
+                    help="Output path: .h5 file or directory (auto-generates timestamped filename)")
 parser.add_argument("--num_envs", type=int, default=1,
                     help="Number of environments (default 1 for teleop)")
 parser.add_argument("--max_episodes", type=int, default=100,
                     help="Stop after N episodes")
 parser.add_argument("--deadzone", type=float, default=0.15,
                     help="Gamepad stick deadzone")
+parser.add_argument("--show_depth", action="store_true",
+                    help="Show real-time depth camera feed (matplotlib window)")
 AppLauncher.add_app_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
 
@@ -88,6 +99,16 @@ try:
 
     _PYGAME_AVAILABLE = True
 except ImportError:
+    pass
+
+_MPL_AVAILABLE = False
+try:
+    import matplotlib
+    matplotlib.use("TkAgg")  # Interactive backend for live updates
+    import matplotlib.pyplot as plt
+
+    _MPL_AVAILABLE = True
+except (ImportError, Exception):
     pass
 
 
@@ -182,6 +203,66 @@ class GamepadReader:
 
 
 # ---------------------------------------------------------------------------
+# Depth visualizer (OpenCV)
+# ---------------------------------------------------------------------------
+
+class DepthVisualizer:
+    """Real-time depth image display using matplotlib.
+
+    Shows the robot's depth camera feed in a separate window using the
+    turbo colormap (blue=near, red=far) with a colorbar legend.
+    Uses matplotlib instead of OpenCV highgui to avoid headless-build issues.
+    """
+
+    def __init__(self, height: int = 60, width: int = 80, max_depth: float = 6.0):
+        if not _MPL_AVAILABLE:
+            raise RuntimeError("matplotlib with TkAgg backend required for depth visualization.")
+        self.height = height
+        self.width = width
+        self.max_depth = max_depth
+
+        plt.ion()
+        self._fig, self._ax = plt.subplots(1, 1, figsize=(8, 5))
+        self._fig.canvas.manager.set_window_title("Depth Camera (D555)")
+        # Initialize with blank image
+        blank = np.full((height, width), max_depth, dtype=np.float32)
+        self._im = self._ax.imshow(blank, cmap="turbo", vmin=0.0, vmax=max_depth,
+                                   interpolation="nearest", aspect="auto")
+        self._fig.colorbar(self._im, ax=self._ax, label="Depth (m)")
+        self._ax.set_title("D555 Depth")
+        self._ax.set_xlabel("px")
+        self._ax.set_ylabel("px")
+        self._fig.tight_layout()
+        self._fig.show()
+
+    def update(self, depth_tensor: torch.Tensor):
+        """Display depth image from sensor output.
+
+        Args:
+            depth_tensor: Raw depth from camera, shape (num_envs, H, W, 1) or (H, W, 1).
+                          Values in meters.
+        """
+        # Take env 0, squeeze to (H, W)
+        if depth_tensor.dim() == 4:
+            depth = depth_tensor[0, :, :, 0].cpu().numpy()
+        elif depth_tensor.dim() == 3:
+            depth = depth_tensor[:, :, 0].cpu().numpy()
+        else:
+            depth = depth_tensor.cpu().numpy().reshape(self.height, self.width)
+
+        # Replace inf/nan with max_depth
+        depth = np.where(np.isfinite(depth), depth, self.max_depth)
+        depth = np.clip(depth, 0.0, self.max_depth)
+
+        self._im.set_data(depth)
+        self._fig.canvas.draw_idle()
+        self._fig.canvas.flush_events()
+
+    def close(self):
+        plt.close(self._fig)
+
+
+# ---------------------------------------------------------------------------
 # HDF5 writer
 # ---------------------------------------------------------------------------
 
@@ -247,9 +328,9 @@ def main():
     env_cfg.scene.num_envs = args_cli.num_envs
 
     # Sync UI with physics: render every physics step for accurate visual debugging
-    if hasattr(env_cfg.sim, "render_interval"):
-        env_cfg.sim.render_interval = 1
-        print("[Demo] render_interval forced to 1 (UI synced with physics)")
+    # if hasattr(env_cfg.sim, "render_interval"):
+    #     env_cfg.sim.render_interval = 1
+    #     print("[Demo] render_interval forced to 1 (UI synced with physics)")
 
     # Overhead camera aligned with world axes so stick directions match viewport:
     #   screen right = world +X,  screen up = world +Y
@@ -309,9 +390,32 @@ def main():
     has_depth = obs_dim > 100  # 4819 for depth, 19 for proprio
     print(f"[Demo] obs_dim={obs_dim} ({'includes depth' if has_depth else 'proprio only'})")
 
+    # --- Depth visualization ---
+    depth_viz = None
+    if args_cli.show_depth and has_depth:
+        if _MPL_AVAILABLE:
+            try:
+                depth_viz = DepthVisualizer(height=60, width=80, max_depth=6.0)
+                print("[Demo] Depth visualization enabled (matplotlib window)")
+            except Exception as e:
+                print(f"[Demo] Depth visualization failed: {e}")
+        else:
+            print("[Demo] --show_depth requires matplotlib — install with: pip install matplotlib")
+
+    # --- Resolve output path ---
+    # If --output is a directory (or doesn't end in .h5), treat it as a folder
+    # and auto-generate a timestamped filename inside it.
+    output_path = Path(args_cli.output)
+    if output_path.is_dir() or (not output_path.suffix and not output_path.exists()):
+        from datetime import datetime
+        output_path.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_path = output_path / f"demos_{timestamp}.h5"
+        print(f"[Demo] Output directory mode → {output_path}")
+
     # --- Gamepad + writer ---
     gamepad = GamepadReader(deadzone=args_cli.deadzone)
-    writer = DemoWriter(args_cli.output, env_name=args_cli.task)
+    writer = DemoWriter(str(output_path), env_name=args_cli.task)
     writer.begin_episode()
 
     episode_step = 0
@@ -409,6 +513,15 @@ def main():
             writer.add_step(current_obs, current_action, reward=step_reward)
             episode_step += 1
 
+            # Update depth visualization (every 2nd frame to reduce overhead)
+            if depth_viz is not None and episode_step % 2 == 0:
+                try:
+                    camera = unwrapped.scene.sensors["d555_camera"]
+                    depth_data = camera.data.output["distance_to_image_plane"]
+                    depth_viz.update(depth_data)
+                except Exception:
+                    pass  # Don't crash demo collection on viz errors
+
             if episode_step % _diag_print_interval == 0:
                 rd = robot_asset.data
                 wv = rd.joint_vel[0, _wheel_joint_ids].cpu().numpy()
@@ -438,6 +551,8 @@ def main():
 
     finally:
         writer.save()
+        if depth_viz is not None:
+            depth_viz.close()
         gamepad.close()
         env.close()
         simulation_app.close()

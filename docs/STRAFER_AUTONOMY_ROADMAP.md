@@ -180,12 +180,23 @@ Examples:
 
 ```text
 User text
-  -> strafer_autonomy planner
+  -> Jetson-resident strafer_autonomy executor
+  -> planner service on workstation
   -> typed mission plan
-  -> strafer_autonomy executor
-  -> strafer_ros / strafer_vlm skill calls
+  -> local strafer_ros skill calls on Jetson
+  -> workstation-hosted VLM call when grounding is needed
   -> mission status updates
 ```
+
+### First runtime target
+
+The chosen first runtime target is:
+- `strafer_ros` on the Jetson
+- `strafer_autonomy.executor` on the Jetson
+- `strafer_autonomy.planner` on the Windows workstation
+- `strafer_vlm` on the Windows workstation
+
+This keeps mission execution local to the robot while offloading heavy model inference to the workstation.
 
 ### MVP execution flow
 
@@ -420,6 +431,6 @@ For now, keep `PHASE_5_VLM_INTEGRATION.md` as the grounding-specific implementat
 
 1. Create `source/strafer_autonomy` with mission and skill schemas.
 2. Define the first callable skill contracts between `strafer_autonomy`, `strafer_ros`, and `strafer_vlm`.
-3. Decide whether the first `strafer_autonomy` to `strafer_vlm` path is in-process, sidecar, or remote.
+3. Implement the Jetson-executor, workstation-planner, workstation-VLM runtime split captured in the autonomy docs.
 4. Draft the bounded planner prompt and JSON output schema for the MVP.
 5. Split the old Phase 5 document once the Stage 2 and Stage 3 interfaces are settled.

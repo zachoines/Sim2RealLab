@@ -151,6 +151,7 @@ All hardware is wired, tested, and operational. The ROS2 driver, perception pipe
 └── docs/
     ├── SIM_TO_REAL_PLAN.md          # Detailed deployment plan + phase status
     ├── SIM_TO_REAL_TUNING_GUIDE.md  # Actuator + sensor characterization guide
+    ├── STRAFER_AUTONOMY_ROADMAP.md  # Skill registry + staged autonomy roadmap
     ├── PHASE_5_VLM_INTEGRATION.md   # VLM (Qwen2.5-VL-3B) integration plan
     ├── WIRING_GUIDE.md              # Motor, encoder, RoboClaw, Jetson connections
     ├── D555_IMU_KERNEL_FIX.md       # RealSense HW clock drift fix for JetPack 6.x
@@ -308,3 +309,5 @@ make lint
 ## License
 
 MIT
+
+

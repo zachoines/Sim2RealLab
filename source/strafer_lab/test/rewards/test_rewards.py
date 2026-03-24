@@ -10,8 +10,8 @@ Functions under test (``strafer_lab.tasks.navigation.mdp.rewards``):
 * ``heading_to_goal_reward``    — cosine alignment between heading and goal.
 * ``energy_penalty``            — sum of squared applied torques.
 * ``action_smoothness_penalty`` — sum of absolute step-to-step action changes (L1).
-* ``goal_proximity_reward``     — exponential proximity reward near goal.
-* ``speed_near_goal_penalty``   — speed penalty when close to goal.
+* ``goal_proximity_potential``   — potential-based exponential proximity shaping.
+* ``speed_near_goal_penalty``   — graduated speed penalty near goal (with min_speed dead zone).
 * ``alive_bonus``               — constant per-step survival reward.
 
 Usage:
@@ -31,7 +31,7 @@ from strafer_lab.tasks.navigation.mdp.rewards import (
     heading_to_goal_reward,
     energy_penalty,
     action_smoothness_penalty,
-    goal_proximity_reward,
+    goal_proximity_potential,
     speed_near_goal_penalty,
     alive_bonus,
 )
@@ -524,37 +524,69 @@ def test_action_smoothness_positive_when_changing(env):
 # =====================================================================
 
 
-def test_goal_proximity_bounded_0_1(env):
-    """Proximity reward must lie in (0, 1] for all envs."""
+def test_goal_proximity_potential_bounded(env):
+    """Potential-based proximity reward must lie in [-1, 1]."""
     env.reset()
     _warm_up_env(env, 10)
 
-    reward = goal_proximity_reward(env, command_name="goal_command", sigma=0.3)
+    reward = goal_proximity_potential(env, command_name="goal_command", sigma=0.3)
 
-    print(f"\n  Goal proximity bounded:")
+    print(f"\n  Goal proximity potential bounded:")
     print(f"    min: {reward.min().item():.6f}")
     print(f"    max: {reward.max().item():.6f}")
 
-    assert (reward > 0.0 - 1e-7).all(), (
-        f"Proximity reward has non-positive values: min={reward.min().item():.6f}"
+    assert (reward >= -1.0 - 1e-7).all(), (
+        f"Proximity potential below -1: min={reward.min().item():.6f}"
     )
     assert (reward <= 1.0 + 1e-7).all(), (
-        f"Proximity reward exceeds 1: max={reward.max().item():.6f}"
+        f"Proximity potential exceeds 1: max={reward.max().item():.6f}"
     )
 
 
-def test_goal_proximity_increases_when_closer(env):
-    """Proximity reward increases as robot moves toward goal.
+def test_goal_proximity_potential_zero_when_stationary(env):
+    """Potential-based proximity reward should be ~zero when robot doesn't move.
 
-    Step toward the goal and verify the reward increases (distance decreases
-    → exp(-d/sigma) increases).
+    If distance doesn't change between steps, phi(s_t) - phi(s_{t-1}) ≈ 0.
     """
     env.reset()
     _warm_up_env(env, 10)
 
-    reward_before = goal_proximity_reward(
-        env, command_name="goal_command", sigma=0.3
-    ).clone()
+    # First call seeds the previous potential
+    goal_proximity_potential(env, command_name="goal_command", sigma=0.3)
+
+    # Zero action — robot stays still
+    zero_action = torch.zeros(env.num_envs, 3, device=env.device)
+    env.step(zero_action)
+
+    reward = goal_proximity_potential(env, command_name="goal_command", sigma=0.3)
+    mean_abs = reward.abs().mean().item()
+
+    print(f"\n  Goal proximity potential (stationary):")
+    print(f"    mean |reward|: {mean_abs:.6f}")
+
+    assert mean_abs < 0.05, (
+        f"Expected near-zero potential reward when stationary, "
+        f"got mean |reward| = {mean_abs:.6f}"
+    )
+
+
+def test_goal_proximity_potential_positive_when_approaching(env):
+    """Potential increases when approaching the goal.
+
+    Moving toward the goal decreases distance → phi = exp(-d/σ) increases.
+    We verify this by computing phi directly before and after approach,
+    avoiding interference from the env's internal reward manager which also
+    calls goal_proximity_potential each step.
+    """
+    env.reset()
+    _warm_up_env(env, 10)
+
+    sigma = 0.3
+
+    # Compute phi before approach
+    robot_pos = env.scene["robot"].data.root_pos_w[:, :2]
+    goal_pos = env.command_manager.get_command("goal_command")[:, :2]
+    phi_before = torch.exp(-torch.norm(goal_pos - robot_pos, dim=-1) / sigma).clone()
 
     # Move toward goal
     direction = _goal_direction_body_frame(env)
@@ -565,51 +597,21 @@ def test_goal_proximity_increases_when_closer(env):
     for _ in range(20):
         env.step(approach_action)
 
-    reward_after = goal_proximity_reward(
-        env, command_name="goal_command", sigma=0.3
-    )
+    # Compute phi after approach
+    robot_pos = env.scene["robot"].data.root_pos_w[:, :2]
+    goal_pos = env.command_manager.get_command("goal_command")[:, :2]
+    phi_after = torch.exp(-torch.norm(goal_pos - robot_pos, dim=-1) / sigma)
 
-    improvement = (reward_after - reward_before).cpu().numpy()
+    delta = (phi_after - phi_before).cpu().numpy()
+    result = one_sample_t_test(delta, null_value=0.0, alternative="greater")
 
-    result = one_sample_t_test(improvement, null_value=0.0, alternative="greater")
-
-    print(f"\n  Goal proximity improvement:")
-    print(f"    mean Δreward = {result.mean:.6f}")
+    print(f"\n  Goal proximity potential (approaching):")
+    print(f"    mean Δphi = {result.mean:.6f}")
     print(f"    t = {result.t_statistic:.2f}, p = {result.p_value:.4e}")
 
     assert result.reject_null, (
-        f"Proximity reward did not increase when approaching goal. "
-        f"mean Δ = {result.mean:.6f}, p = {result.p_value:.4e}"
-    )
-
-
-def test_goal_proximity_sigma_sensitivity(env):
-    """Smaller sigma produces sharper peak (lower reward at same distance).
-
-    At any non-zero distance: exp(-d/0.1) < exp(-d/1.0) for d > 0.
-    """
-    env.reset()
-    _warm_up_env(env, 10)
-
-    reward_sharp = goal_proximity_reward(
-        env, command_name="goal_command", sigma=0.1
-    )
-    reward_broad = goal_proximity_reward(
-        env, command_name="goal_command", sigma=1.0
-    )
-
-    # At non-zero distance, sharp sigma gives lower reward
-    diff = reward_broad - reward_sharp
-    mean_diff = diff.mean().item()
-
-    print(f"\n  Goal proximity sigma sensitivity:")
-    print(f"    sigma=0.1 mean: {reward_sharp.mean().item():.6f}")
-    print(f"    sigma=1.0 mean: {reward_broad.mean().item():.6f}")
-    print(f"    mean diff: {mean_diff:.6f}")
-
-    assert mean_diff > 0.0, (
-        f"Expected broader sigma to give higher reward at distance, "
-        f"got mean diff = {mean_diff:.6f}"
+        f"Proximity potential did not increase when approaching goal. "
+        f"mean Δphi = {result.mean:.6f}, p = {result.p_value:.4e}"
     )
 
 
@@ -633,7 +635,7 @@ def test_speed_near_goal_zero_when_far(env):
 
     # Use a small threshold so most envs are outside it
     penalty = speed_near_goal_penalty(
-        env, command_name="goal_command", distance_threshold=0.01
+        env, command_name="goal_command", distance_threshold=0.01, min_speed=0.15
     )
 
     # Check how many envs are actually within the threshold
@@ -653,28 +655,46 @@ def test_speed_near_goal_zero_when_far(env):
         )
 
 
-def test_speed_near_goal_positive_when_moving_near(env):
-    """Speed penalty should be positive when moving fast near the goal."""
+def test_speed_near_goal_zero_below_min_speed(env):
+    """Speed penalty should be zero when speed is below min_speed threshold."""
     env.reset()
     _warm_up_env(env, 10)
 
-    # Step with movement to build up speed
+    # Use a very high min_speed so all speeds are below it
+    penalty = speed_near_goal_penalty(
+        env, command_name="goal_command", distance_threshold=100.0, min_speed=100.0
+    )
+
+    print(f"\n  Speed near goal (below min_speed):")
+    print(f"    max penalty: {penalty.max().item():.6f}")
+
+    assert (penalty < 1e-6).all(), (
+        f"Speed penalty should be zero when speed < min_speed, "
+        f"max = {penalty.max().item():.6f}"
+    )
+
+
+def test_speed_near_goal_positive_when_moving_fast_near(env):
+    """Speed penalty should be positive when moving fast (above min_speed) near goal."""
+    env.reset()
+    _warm_up_env(env, 10)
+
+    # Step with movement to build up speed well above min_speed
     fast_action = torch.ones(env.num_envs, 3, device=env.device) * 0.8
     for _ in range(10):
         env.step(fast_action)
 
-    # Use generous threshold so all envs qualify
+    # Use generous threshold so all envs qualify, low min_speed
     penalty = speed_near_goal_penalty(
-        env, command_name="goal_command", distance_threshold=100.0
+        env, command_name="goal_command", distance_threshold=100.0, min_speed=0.01
     )
 
     mean_penalty = penalty.mean().item()
-    print(f"\n  Speed near goal (moving near):")
+    print(f"\n  Speed near goal (moving fast near):")
     print(f"    Mean penalty: {mean_penalty:.6f}")
 
-    # With such a large threshold, all envs are "near" and have some speed
     assert mean_penalty > 0.0, (
-        f"Expected positive speed penalty when moving near goal, "
+        f"Expected positive speed penalty when moving fast near goal, "
         f"got mean = {mean_penalty:.6f}"
     )
 

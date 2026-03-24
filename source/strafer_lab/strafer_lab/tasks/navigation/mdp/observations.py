@@ -493,48 +493,67 @@ def depth_image(
     env: ManagerBasedEnv,
     sensor_cfg: SceneEntityCfg,
     max_depth: float = 6.0,
+    nearfield_clip: float = 0.4,
+    nearfield_fill: float = 0.2,
 ) -> torch.Tensor:
     """Get flattened depth image from D555 camera in RAW meters.
-    
+
     Returns RAW depth in meters so that:
     1. Noise is applied to physical depth values (enables depth-dependent noise)
     2. Normalization happens via ObsTermCfg.scale parameter (Isaac Lab standard)
-    
-    Pipeline: RAW meters → noise → scale (1/max_depth) → [0, 1] output
-    
-    Preprocesses the depth image by:
-    1. Replacing infinity/NaN values with max_depth
-    2. Clamping to [0, max_depth] range
-    3. Flattening to 1D for MLP policies
-    
+
+    Pipeline: RAW meters → nearfield fill → noise → scale (1/max_depth) → [0, 1]
+
+    Nearfield handling:
+        The real D555 camera cannot resolve depth below ~0.4m.  In sim the near
+        clip is set to 0.01m so objects are still rendered at close range.  Any
+        pixel with depth < ``nearfield_clip`` is replaced with ``nearfield_fill``
+        — a small constant that signals "something very close" to the policy.
+        This prevents the camera from "seeing through" close objects (whose
+        clipped faces would otherwise reveal empty interiors or far walls) and
+        matches the real sensor's saturated near-field behavior.
+
     Args:
         env: The environment instance.
         sensor_cfg: Scene entity configuration for the camera sensor.
         max_depth: Maximum depth value for inf replacement and clamping.
-    
+        nearfield_clip: Distance (m) below which depth is unreliable (D555 min range).
+        nearfield_fill: Replacement value (m) for nearfield pixels. Should be small
+            but nonzero so the policy distinguishes "close object" from "nothing".
+
     Returns:
         Flattened depth image in meters. Shape: (num_envs, height * width)
     """
     # Get the camera sensor
     sensor: TiledCamera | Camera = env.scene.sensors[sensor_cfg.name]
-    
+
     # Get depth image: shape (num_envs, height, width, 1)
     depth = sensor.data.output["distance_to_image_plane"].clone()
-    
-    # Replace inf/nan values with max_depth
+
+    # Replace inf/nan values with max_depth (nothing in range)
     depth = torch.where(
         torch.isinf(depth) | torch.isnan(depth),
         torch.full_like(depth, max_depth),
         depth
     )
-    
+
+    # Nearfield fill: pixels closer than D555's min range get a saturated
+    # low value instead of their actual depth.  This prevents the policy
+    # from seeing through clipped geometry and provides a "something very
+    # close" signal that transfers to the real sensor.
+    depth = torch.where(
+        depth < nearfield_clip,
+        torch.full_like(depth, nearfield_fill),
+        depth
+    )
+
     # Clamp to valid range (in meters)
     depth = torch.clamp(depth, 0.0, max_depth)
-    
+
     # Flatten: (num_envs, height, width, 1) -> (num_envs, height * width)
     num_envs = depth.shape[0]
     depth_flat = depth.view(num_envs, -1)
-    
+
     return depth_flat
 
 

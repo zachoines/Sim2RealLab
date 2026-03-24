@@ -166,9 +166,13 @@ class StraferSceneCfg(InteractiveSceneCfg):
         spawn=sim_utils.DomeLightCfg(intensity=2000.0, color=(0.8, 0.8, 0.8)),
     )
 
-    # Intel RealSense D555 depth camera (87° FOV, 0.4-6m range)
+    # Intel RealSense D555 depth camera (87° FOV, 0.4-6m usable range)
     # Camera mount: 20cm forward (+X), 25cm up (+Z) from body_link (ROS frame)
     # Rotation: ROS camera frame (Z-forward, X-right, Y-down) aligned to robot frame
+    #
+    # Near clip set to 0.01m (not 0.4m) so sim renders close objects.
+    # The depth_image() observation handles the D555's real 0.4m blind zone
+    # by filling nearfield pixels with a saturated value (see observations.py).
     d555_camera: TiledCameraCfg = TiledCameraCfg(
         prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link/d555_camera",
         update_period=1.0 / 30.0,
@@ -178,7 +182,7 @@ class StraferSceneCfg(InteractiveSceneCfg):
         spawn=sim_utils.PinholeCameraCfg(
             focal_length=1.93,
             horizontal_aperture=3.68,
-            clipping_range=(0.4, 6.0),
+            clipping_range=(0.01, 6.0),
         ),
         offset=TiledCameraCfg.OffsetCfg(
             pos=(0.20, 0.0, 0.25),
@@ -294,7 +298,7 @@ class StraferSceneCfg_Infinigen(InteractiveSceneCfg):
         init_state=AssetBaseCfg.InitialStateCfg(rot=(0.866, 0.0, 0.5, 0.0)),  # 60° from vertical
     )
 
-    # Intel RealSense D555 depth camera (same as StraferSceneCfg)
+    # Intel RealSense D555 depth camera (near clip 0.01m, see StraferSceneCfg comment)
     d555_camera: TiledCameraCfg = TiledCameraCfg(
         prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link/d555_camera",
         update_period=1.0 / 30.0,
@@ -304,7 +308,7 @@ class StraferSceneCfg_Infinigen(InteractiveSceneCfg):
         spawn=sim_utils.PinholeCameraCfg(
             focal_length=1.93,
             horizontal_aperture=3.68,
-            clipping_range=(0.4, 6.0),
+            clipping_range=(0.01, 6.0),
         ),
         offset=TiledCameraCfg.OffsetCfg(
             pos=(0.20, 0.0, 0.25),
@@ -820,18 +824,20 @@ class RewardsCfg:
     - Small penalties as guardrails (collision, jerk), not primary signal
     - Positive-dominant: robot should want to reach goals, not just avoid punishment
     """
-    # --- Primary task signal (dense, DOMINANT) ---
+    # --- Primary task signal (dense potential shaping) ---
+    # Linear potential: uniform gradient at all distances
     goal_progress = RewTerm(func=mdp.goal_progress_reward, weight=10.0, params={"command_name": "goal_command"})
-    goal_proximity = RewTerm(func=mdp.goal_proximity_reward, weight=5.0, params={"command_name": "goal_command", "sigma": 0.5})
-    # --- Sparse completion bonus (LARGE — must be unmistakable) ---
-    goal_reached = RewTerm(func=mdp.goal_reached_reward, weight=50.0, params={"threshold": 0.3, "command_name": "goal_command"})
+    # Exponential potential: amplifies gradient in final approach (no loiter incentive)
+    goal_proximity = RewTerm(func=mdp.goal_proximity_potential, weight=5.0, params={"command_name": "goal_command", "sigma": 0.3})
+    # --- Sparse completion bonus (LARGE — must dominate any shaping residual) ---
+    goal_reached = RewTerm(func=mdp.goal_reached_reward, weight=200.0, params={"threshold": 0.3, "command_name": "goal_command"})
     # --- Heading (low weight — mecanum can strafe, heading is secondary) ---
     heading_alignment = RewTerm(func=mdp.heading_to_goal_reward, weight=1.5, params={"command_name": "goal_command"})
-    # --- Collision avoidance (moderate — strong enough to discourage, not paralyze) ---
-    collision = RewTerm(func=mdp.collision_penalty_net, weight=-2.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
-    collision_sustained = RewTerm(func=mdp.collision_sustained_penalty_net, weight=-1.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
-    # --- Slow down near goal ---
-    speed_near_goal = RewTerm(func=mdp.speed_near_goal_penalty, weight=-0.1, params={"command_name": "goal_command", "distance_threshold": 0.8})
+    # --- Collision avoidance (must outweigh single-step progress to prevent b-lining) ---
+    collision = RewTerm(func=mdp.collision_penalty_net, weight=-10.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
+    collision_sustained = RewTerm(func=mdp.collision_sustained_penalty_net, weight=-5.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
+    # --- Smooth deceleration near goal (allows creep speed for final approach) ---
+    speed_near_goal = RewTerm(func=mdp.speed_near_goal_penalty, weight=-0.1, params={"command_name": "goal_command", "distance_threshold": 0.8, "min_speed": 0.15})
     # --- Regularization (TINY — just guardrails, must not dominate goal signals) ---
     energy_penalty = RewTerm(func=mdp.energy_penalty, weight=-0.001)
     action_smoothness = RewTerm(func=mdp.action_smoothness_penalty, weight=-0.005)
@@ -849,7 +855,7 @@ class TerminationsCfg:
     robot_flipped = DoneTerm(func=mdp.robot_flipped, params={"threshold": 0.5})
     sustained_collision = DoneTerm(
         func=mdp.sustained_collision,
-        params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0, "max_steps": 10},
+        params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0, "max_steps": 5},
     )
 
 
@@ -958,18 +964,18 @@ class CommandsCfg_Infinigen:
 @configclass
 class RewardsCfg_Infinigen:
     """Rewards for Infinigen/ProcRoom — uses net_forces_w collision."""
-    # --- Primary task signal (dense, DOMINANT) ---
+    # --- Primary task signal (dense potential shaping) ---
     goal_progress = RewTerm(func=mdp.goal_progress_reward, weight=10.0, params={"command_name": "goal_command"})
-    goal_proximity = RewTerm(func=mdp.goal_proximity_reward, weight=5.0, params={"command_name": "goal_command", "sigma": 0.5})
-    # --- Sparse completion bonus (LARGE — must be unmistakable) ---
-    goal_reached = RewTerm(func=mdp.goal_reached_reward, weight=50.0, params={"threshold": 0.3, "command_name": "goal_command"})
+    goal_proximity = RewTerm(func=mdp.goal_proximity_potential, weight=5.0, params={"command_name": "goal_command", "sigma": 0.3})
+    # --- Sparse completion bonus (LARGE — must dominate any shaping residual) ---
+    goal_reached = RewTerm(func=mdp.goal_reached_reward, weight=200.0, params={"threshold": 0.3, "command_name": "goal_command"})
     # --- Heading (low weight — mecanum can strafe, heading is secondary) ---
     heading_alignment = RewTerm(func=mdp.heading_to_goal_reward, weight=1.5, params={"command_name": "goal_command"})
-    # --- Collision avoidance (moderate — strong enough to discourage, not paralyze) ---
-    collision = RewTerm(func=mdp.collision_penalty_net, weight=-2.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
-    collision_sustained = RewTerm(func=mdp.collision_sustained_penalty_net, weight=-1.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
-    # --- Slow down near goal ---
-    speed_near_goal = RewTerm(func=mdp.speed_near_goal_penalty, weight=-0.1, params={"command_name": "goal_command", "distance_threshold": 0.8})
+    # --- Collision avoidance (must outweigh single-step progress to prevent b-lining) ---
+    collision = RewTerm(func=mdp.collision_penalty_net, weight=-10.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
+    collision_sustained = RewTerm(func=mdp.collision_sustained_penalty_net, weight=-5.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
+    # --- Smooth deceleration near goal (allows creep speed for final approach) ---
+    speed_near_goal = RewTerm(func=mdp.speed_near_goal_penalty, weight=-0.1, params={"command_name": "goal_command", "distance_threshold": 0.8, "min_speed": 0.15})
     # --- Regularization (TINY — just guardrails, must not dominate goal signals) ---
     energy_penalty = RewTerm(func=mdp.energy_penalty, weight=-0.001)
     action_smoothness = RewTerm(func=mdp.action_smoothness_penalty, weight=-0.005)
@@ -1445,7 +1451,7 @@ class StraferSceneCfg_ProcRoom(InteractiveSceneCfg):
         spawn=sim_utils.DomeLightCfg(intensity=2000.0, color=(0.8, 0.8, 0.8)),
     )
 
-    # Intel RealSense D555 depth camera (same as StraferSceneCfg)
+    # Intel RealSense D555 depth camera (near clip 0.01m, see StraferSceneCfg comment)
     d555_camera: TiledCameraCfg = TiledCameraCfg(
         prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link/d555_camera",
         update_period=1.0 / 30.0,
@@ -1455,7 +1461,7 @@ class StraferSceneCfg_ProcRoom(InteractiveSceneCfg):
         spawn=sim_utils.PinholeCameraCfg(
             focal_length=1.93,
             horizontal_aperture=3.68,
-            clipping_range=(0.4, 6.0),
+            clipping_range=(0.01, 6.0),
         ),
         offset=TiledCameraCfg.OffsetCfg(
             pos=(0.20, 0.0, 0.25),

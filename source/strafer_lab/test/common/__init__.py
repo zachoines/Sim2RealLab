@@ -28,6 +28,7 @@ from .constants import (
     IMU_ACCEL_MAX,
     IMU_GYRO_MAX,
     ENCODER_VEL_MAX,
+    BODY_VEL_MAX,
     # Depth camera constants
     DEPTH_MAX_RANGE,
     DEPTH_MIN_RANGE,
@@ -67,6 +68,7 @@ __all__ = [
     "IMU_ACCEL_MAX",
     "IMU_GYRO_MAX",
     "ENCODER_VEL_MAX",
+    "BODY_VEL_MAX",
     # Constants - depth camera
     "DEPTH_MAX_RANGE",
     "DEPTH_MIN_RANGE",

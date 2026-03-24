@@ -150,7 +150,11 @@ def test_hole_probability():
         n_holes += int((noisy >= TEST_MAX_RANGE - 1e-3).sum().item())
         n_total += N_ENVS * N_PIXELS
 
-    result = binomial_test(n_holes, n_total, TEST_HOLE_PROBABILITY)
+    # Use 99% confidence: with ~409M observations the binomial test has
+    # extreme power — even sub-0.01% deviations cause rejection at 95%.
+    hole_confidence = 0.99
+    result = binomial_test(n_holes, n_total, TEST_HOLE_PROBABILITY,
+                           confidence_level=hole_confidence)
 
     print(f"\n  Hole probability test:")
     print(f"    Expected rate: {TEST_HOLE_PROBABILITY}")

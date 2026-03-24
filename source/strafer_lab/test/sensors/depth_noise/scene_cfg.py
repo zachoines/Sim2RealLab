@@ -109,7 +109,7 @@ class DepthNoiseTestSceneCfg(InteractiveSceneCfg):
         spawn=sim_utils.PinholeCameraCfg(
             focal_length=1.93,
             horizontal_aperture=3.68,
-            clipping_range=(0.4, 6.0),
+            clipping_range=(0.01, 6.0),
         ),
         offset=TiledCameraCfg.OffsetCfg(
             pos=(CAMERA_X_OFFSET, 0.0, CAMERA_Z_OFFSET),

@@ -73,7 +73,7 @@ from .actions import MecanumWheelActionCfg
 from .rewards import (
     goal_reached_reward,
     goal_progress_reward,
-    goal_proximity_reward,
+    goal_proximity_potential,
     heading_to_goal_reward,
     energy_penalty,
     action_smoothness_penalty,

@@ -177,29 +177,37 @@ def action_smoothness_penalty(env: ManagerBasedEnv) -> torch.Tensor:
     return smoothness_cost
 
 
-def goal_proximity_reward(
+def goal_proximity_potential(
     env: ManagerBasedEnv,
     command_name: str,
     sigma: float = 0.3,
 ) -> torch.Tensor:
-    """Exponential proximity reward — provides continuous gradient to goal.
+    """Potential-based proximity shaping — rewards change in closeness, not closeness itself.
 
-    reward = exp(-distance / sigma)
+    Uses an exponential potential ``phi(s) = exp(-distance / sigma)`` and returns
+    the one-step difference ``phi(s_t) - phi(s_{t-1})``.  This gives strong
+    gradient near the goal (where the exponential curve is steep) without the
+    loitering incentive of a per-step proximity reward — once the robot stops
+    moving, the potential delta is zero and no reward accrues.
 
-    Unlike the binary goal_reached_reward, this gives signal at all distances,
-    with increasing reward as the robot gets closer.
+    Handles two discontinuities that would produce false spikes:
+    - Episode reset: ``episode_length_buf == 0``
+    - Mid-episode goal resample: ``GoalCommand.goal_resampled`` flag
 
-    On mid-episode goal resample steps the reward is zeroed to avoid a
-    misleading drop (the robot just succeeded — ``goal_reached_reward``
-    handles the positive signal).
+    In both cases the previous potential is re-seeded to the current potential
+    so that the delta is zero on that step (same pattern as ``goal_progress_reward``).
+
+    Complements ``goal_progress_reward`` (linear potential ``phi = -distance``):
+    linear shaping gives uniform gradient at all distances, while exponential
+    shaping amplifies gradient in the final approach where linear flattens out.
 
     Args:
         env: The environment instance.
         command_name: Name of the command manager providing goal positions.
-        sigma: Temperature parameter. Smaller = sharper peak near goal.
+        sigma: Temperature parameter. Smaller = sharper gradient near goal.
 
     Returns:
-        Proximity reward in (0, 1]. Shape: (num_envs,)
+        Potential difference in [-1, 1]. Shape: (num_envs,)
     """
     robot = env.scene["robot"]
     robot_pos = robot.data.root_pos_w[:, :2]
@@ -208,12 +216,28 @@ def goal_proximity_reward(
     goal_pos = command[:, :2]
 
     distance = torch.norm(goal_pos - robot_pos, dim=-1)
-    reward = torch.exp(-distance / sigma)
+    phi = torch.exp(-distance / sigma)
 
-    # Zero out on the step a mid-episode resample occurred
+    # Initialize previous potential if not present
+    if not hasattr(env, "_prev_proximity_phi"):
+        env._prev_proximity_phi = phi.clone()
+
+    # Reset previous potential for environments that just reset
+    reset_mask = env.episode_length_buf == 0
+    if reset_mask.any():
+        env._prev_proximity_phi[reset_mask] = phi[reset_mask]
+
+    # Reset previous potential for mid-episode goal resamples
     command_term = env.command_manager.get_term(command_name)
     if hasattr(command_term, "goal_resampled") and command_term.goal_resampled.any():
-        reward[command_term.goal_resampled] = 0.0
+        resample_mask = command_term.goal_resampled
+        env._prev_proximity_phi[resample_mask] = phi[resample_mask]
+
+    # Potential difference: positive when getting closer
+    reward = phi - env._prev_proximity_phi
+
+    # Update previous potential
+    env._prev_proximity_phi = phi.clone()
 
     return reward
 
@@ -252,15 +276,28 @@ def speed_near_goal_penalty(
     env: ManagerBasedEnv,
     command_name: str,
     distance_threshold: float = 1.0,
+    min_speed: float = 0.15,
 ) -> torch.Tensor:
-    """Penalty for moving fast when close to the goal.
+    """Graduated penalty for excessive speed near the goal.
 
-    Encourages the robot to slow down as it approaches the goal.
+    Encourages smooth deceleration on approach rather than crashing into the
+    goal at full speed, while always allowing a low creep speed for the final
+    approach.
+
+    The penalty has two factors that multiply together:
+    - **Excess speed**: ``max(0, speed - min_speed)``.  Speed at or below
+      ``min_speed`` is never penalized, so the robot can always creep in.
+    - **Proximity ramp**: ``max(0, 1 - distance / distance_threshold)``.
+      Linearly increases from 0 at ``distance_threshold`` to 1 at distance 0.
+      At the boundary there is no penalty; it strengthens smoothly as the
+      robot gets closer.
 
     Args:
         env: The environment instance.
         command_name: Name of the command manager providing goal positions.
-        distance_threshold: Distance within which speed is penalized.
+        distance_threshold: Distance at which the penalty begins to ramp up.
+        min_speed: Speed (m/s) below which no penalty is applied.  Should be
+            fast enough for the robot to comfortably reach the goal.
 
     Returns:
         Speed penalty when near goal. Shape: (num_envs,)
@@ -275,9 +312,13 @@ def speed_near_goal_penalty(
     distance = torch.norm(goal_pos - robot_pos, dim=-1)
     speed = torch.norm(robot_vel, dim=-1)
 
-    # Only penalize when within threshold distance
-    near_goal = (distance < distance_threshold).float()
-    return speed * near_goal
+    # Only penalize speed above the minimum creep threshold
+    excess_speed = (speed - min_speed).clamp(min=0.0)
+
+    # Linear ramp: 0 at distance_threshold, 1 at distance 0
+    proximity_ramp = (1.0 - distance / distance_threshold).clamp(min=0.0)
+
+    return excess_speed * proximity_ramp
 
 
 def alive_bonus(env: ManagerBasedEnv) -> torch.Tensor:

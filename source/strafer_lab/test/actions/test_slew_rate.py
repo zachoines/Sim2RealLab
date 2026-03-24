@@ -32,9 +32,10 @@ def test_acceleration_bounded(action_env):
     action_term = configure_action_term_dynamics(
         action_env, enable_motor=False, enable_delay=False, enable_slew=True
     )
-    cfg = action_env.cfg.actions.wheel_velocities
-    max_accel = cfg.max_acceleration_rad_s2
     physics_dt = action_env.physics_dt
+
+    # Read env 0's actual randomized max acceleration (may differ from nominal)
+    max_accel = (action_term._max_delta_per_step[0, 0] / physics_dt).cpu().item()
 
     step_action = torch.tensor([[1.0, 0.0, 0.0]], device=action_env.device)
     step_action = step_action.repeat(action_env.num_envs, 1)
@@ -50,7 +51,7 @@ def test_acceleration_bounded(action_env):
     max_measured_accel = np.max(np.abs(accelerations))
 
     print(f"\n  Slew rate - acceleration bound:")
-    print(f"    Configured max accel: {max_accel:.1f} rad/s^2")
+    print(f"    Env 0 max accel: {max_accel:.1f} rad/s^2")
     print(f"    Max measured accel: {max_measured_accel:.1f} rad/s^2")
     print(f"    Difference: {max_measured_accel - max_accel:.4f} rad/s^2")
 

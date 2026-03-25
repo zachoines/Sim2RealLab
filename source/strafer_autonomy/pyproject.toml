@@ -10,6 +10,9 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
 
+[project.scripts]
+strafer-autonomy-cli = "strafer_autonomy.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["strafer_autonomy*"]

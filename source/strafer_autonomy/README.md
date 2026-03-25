@@ -13,5 +13,7 @@ python -m pip install -e source/strafer_autonomy
 ```text
 strafer_autonomy/
   clients/   # Planner, VLM, and ROS client protocols plus first transport stubs
+  executor/  # Jetson-local command ingress and mission execution scaffolding
   schemas/   # Typed data contracts for planner, executor, ROS, and VLM boundaries
+  cli.py     # Operator CLI for submit/status/cancel
 ```

@@ -3,18 +3,13 @@ project(strafer_msgs)
 
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
-find_package(std_msgs REQUIRED)
 
-# Custom messages -- add .msg files here as needed.
-# Currently a placeholder. Uncomment and add messages when standard messages
-# prove insufficient.
-#
-# rosidl_generate_interfaces(${PROJECT_NAME}
-#   "msg/WheelVelocities.msg"
-#   "msg/EncoderTicks.msg"
-#   "msg/PolicyAction.msg"
-#   DEPENDENCIES std_msgs
-# )
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "action/ExecuteMission.action"
+  "srv/GetMissionStatus.srv"
+)
+
+ament_export_dependencies(rosidl_default_runtime)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

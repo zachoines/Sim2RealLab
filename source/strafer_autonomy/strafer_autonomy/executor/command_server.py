@@ -33,6 +33,7 @@ class MissionStatusSnapshot:
     current_step_id: str = ""
     current_skill: str = ""
     message: str = ""
+    error_code: str = ""
     elapsed_s: float = 0.0
 
 
@@ -182,7 +183,12 @@ class AutonomyCommandServer:
             last_snapshot = self._handler.get_status()
             goal_handle.publish_feedback(self._make_feedback(last_snapshot))
             if not last_snapshot.active:
-                goal_handle.succeed()
+                if last_snapshot.state == "succeeded":
+                    goal_handle.succeed()
+                elif last_snapshot.state == "canceled":
+                    goal_handle.canceled()
+                else:
+                    goal_handle.abort()
                 return self._make_result_from_snapshot(last_snapshot, accepted=True)
             time.sleep(self._config.feedback_period_s)
 
@@ -229,6 +235,27 @@ class AutonomyCommandServer:
         result.accepted = accepted
         result.mission_id = snapshot.mission_id
         result.final_state = snapshot.state
-        result.error_code = ""
+        result.error_code = snapshot.error_code
         result.message = snapshot.message
         return result
+
+
+def build_command_server(
+    *,
+    planner_client,
+    grounding_client,
+    ros_client,
+    runner_config=None,
+    server_config: CommandServerConfig | None = None,
+):
+    """Construct a mission runner and wrap it in the Jetson-local command server."""
+
+    from .mission_runner import MissionRunner
+
+    runner = MissionRunner(
+        planner_client=planner_client,
+        grounding_client=grounding_client,
+        ros_client=ros_client,
+        config=runner_config,
+    )
+    return AutonomyCommandServer(handler=runner, config=server_config), runner

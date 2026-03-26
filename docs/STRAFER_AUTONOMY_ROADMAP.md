@@ -418,6 +418,7 @@ Focus:
 
 Current split:
 - `STRAFER_AUTONOMY_VLM_GROUNDING.md` for grounding model development, evaluation, and service boundary
+- `STRAFER_AUTONOMY_LLM_PLANNER.md` for planner service design, contracts, and model choice
 - one document for ROS grounding skill integration
 - one document for `strafer_autonomy` MVP design
 - one document for deployment architecture

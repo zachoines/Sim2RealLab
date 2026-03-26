@@ -242,8 +242,9 @@ Updated recommended order:
 2. `strafer_msgs/srv/GetMissionStatus.srv`
 3. `strafer_autonomy.executor.command_server`
 4. `strafer_autonomy.cli`
-5. planner and VLM transport implementations
-6. `mission_runner`
-7. `ProjectDetectionToGoalPose.srv`
+5. `strafer_autonomy.executor.mission_runner`
+6. `strafer_msgs/srv/ProjectDetectionToGoalPose.srv`
+7. `strafer_autonomy.clients.ros_client`
+8. planner and VLM transport implementations
 
-The exact order between `mission_runner` and the transport clients can still move slightly, but the command-ingress boundary should be decided first.
+The exact order between the runner, `ros_client`, and transport clients can still move slightly, but the command-ingress boundary should be decided first.

@@ -18,7 +18,7 @@ That means these stay on or next to the robot:
 - sensing
 - TF
 - depth projection
-- Nav2 and robot execution
+- robot-local navigation and execution modes
 - cancel and safety-critical stop behavior
 - the autonomy executor for the chosen MVP and likely for the long-term product shape
 
@@ -88,6 +88,11 @@ Why this is the right split:
 - the VLM can be remote because it is heavy and runs at low rate
 - the robot remains safe if planner or VLM connectivity is lost
 - the deployed architecture becomes a straightforward extension of the MVP rather than a redesign
+
+Robot-local execution note:
+- the stable autonomy skill remains `navigate_to_pose`
+- the robot may satisfy that skill through different local execution modes such as `nav2`, `strafer_direct`, or `hybrid_nav2_strafer`
+- deployment mode changes where planner and VLM live, not the autonomy skill contract
 
 ## Which Components Fit Which Hosting Options
 

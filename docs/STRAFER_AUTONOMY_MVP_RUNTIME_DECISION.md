@@ -76,7 +76,8 @@ strafer_ros                              planner service
   - sensors                                - text LLM
   - TF                                     - MissionPlan output
   - depth projection                      VLM service
-  - Nav2 / robot execution                 - Qwen grounding
+  - local execution modes                  - Qwen grounding
+    (Nav2 first; direct and hybrid RL later)
 strafer_autonomy.executor
   - mission runner
   - ros_client (local)
@@ -138,5 +139,9 @@ Once this MVP works, the next architecture step becomes much clearer:
 - move planner to cloud while keeping executor local
 - move VLM to cloud while keeping executor local
 - or move both planner and VLM to deployed services while preserving the same executor contracts
+
+The same runtime choice also preserves the robot-local execution abstraction:
+- `navigate_to_pose` remains the stable skill
+- the Jetson may later satisfy it through `nav2`, `strafer_direct`, or `hybrid_nav2_strafer`
 
 Until then, this document is the source of truth for the MVP runtime target.

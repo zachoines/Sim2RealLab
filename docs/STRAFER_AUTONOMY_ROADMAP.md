@@ -1,8 +1,8 @@
 # Strafer Autonomy Roadmap
 
-This document reframes the autonomy stack around typed robot skills instead of a single Phase 5 VLM integration step.
+This document defines the Strafer autonomy stack around typed robot skills.
 
-The main design change is simple:
+Core architecture:
 - Qwen is not the autonomy layer.
 - Qwen is one skill backend inside a larger task execution system.
 - `strafer_ros` remains the safe execution runtime on the robot.
@@ -13,7 +13,7 @@ This document does four things:
 1. Defines the initial Strafer skill registry.
 2. Maps each skill onto `strafer_ros`, `strafer_vlm`, and `strafer_autonomy`.
 3. Defines an MVP built around a small LLM planner plus a deterministic executor.
-4. Defines a staged roadmap that can eventually replace the current single `PHASE_5_VLM_INTEGRATION.md` framing.
+4. Defines a staged roadmap toward the end-state product.
 
 ## Design Principles
 
@@ -47,7 +47,7 @@ This document does four things:
 | Autonomy layer | Convert user intent into typed plans, execute missions, track step state | `strafer_autonomy` |
 | Perception layer | Ground semantic targets in images and return detections | `strafer_vlm` |
 | Robot execution layer | Execute typed skills safely and report progress | `strafer_ros` |
-| Control layer | Local navigation, control, sensing, and hardware safety | Nav2, RL policy, ROS drivers |
+| Control layer | Local navigation, control, sensing, and hardware safety | Nav2 classical mode, direct RL mode, hybrid RL mode, ROS drivers |
 
 ## Initial Strafer Skill Registry
 
@@ -335,7 +335,7 @@ Goal:
 - Hardcoded or manually supplied goal poses execute safely on the robot.
 
 Focus:
-- RL policy or Nav2 execution
+- classical Nav2 execution, direct RL execution, or hybrid execution
 - sensing, TF, depth, and control integration
 
 ### Stage 1: Grounding workstation pipeline
@@ -416,16 +416,14 @@ Focus:
 
 ## Document Implications
 
-`PHASE_5_VLM_INTEGRATION.md` should eventually be replaced by a set of narrower stage documents.
-
-Recommended future split:
-- one document for grounding model development and evaluation
+Current split:
+- `STRAFER_AUTONOMY_VLM_GROUNDING.md` for grounding model development, evaluation, and service boundary
 - one document for ROS grounding skill integration
 - one document for `strafer_autonomy` MVP design
 - one document for deployment architecture
 - one document for advanced orchestration design
 
-For now, keep `PHASE_5_VLM_INTEGRATION.md` as the grounding-specific implementation deep dive, but treat this roadmap as the higher-level system plan.
+Treat this roadmap as the higher-level system plan, and treat `STRAFER_AUTONOMY_VLM_GROUNDING.md` as the current VLM source of truth.
 
 ## Immediate Next Work
 
@@ -433,4 +431,4 @@ For now, keep `PHASE_5_VLM_INTEGRATION.md` as the grounding-specific implementat
 2. Define the first callable skill contracts between `strafer_autonomy`, `strafer_ros`, and `strafer_vlm`.
 3. Implement the Jetson-executor, workstation-planner, workstation-VLM runtime split captured in the autonomy docs.
 4. Draft the bounded planner prompt and JSON output schema for the MVP.
-5. Split the old Phase 5 document once the Stage 2 and Stage 3 interfaces are settled.
+5. Continue replacing remaining old Phase 5 assumptions with narrower autonomy-aligned documents as implementation solidifies.

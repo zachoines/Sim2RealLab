@@ -286,6 +286,11 @@ That client uses a mix of:
 
 This is the right split because images and odometry are streaming data, while navigation is asynchronous.
 
+Existing mission ingress interfaces already follow the same package-boundary rule:
+- define `ExecuteMission.action` in `strafer_msgs`
+- define `GetMissionStatus.srv` in `strafer_msgs`
+- implement both in the Jetson-side `strafer_autonomy.command_server`
+
 ## ROS Topic Inputs Used By `ros_client`
 
 These are runtime inputs that the `ros_client` caches locally on the Jetson.
@@ -293,12 +298,17 @@ These are runtime inputs that the `ros_client` caches locally on the Jetson.
 | Topic | Type | Purpose |
 |------|------|---------|
 | `/d555/color/image_sync` | `sensor_msgs/Image` | latest RGB frame for grounding |
-| `/d555/aligned_depth_to_color/image_raw` | `sensor_msgs/Image` | aligned depth for 2D-to-3D projection |
+| `/d555/aligned_depth_to_color/image_sync` | `sensor_msgs/Image` | timestamp-corrected aligned depth for 2D-to-3D projection |
+| `/d555/aligned_depth_to_color/camera_info_sync` | `sensor_msgs/CameraInfo` | aligned-depth camera info in the RGB frame |
 | `/d555/color/camera_info_sync` | `sensor_msgs/CameraInfo` | intrinsics for projection |
-| `/odom` | `nav_msgs/Odometry` | robot pose/velocity fallback |
+| `/strafer/odom` | `nav_msgs/Odometry` | robot pose/velocity fallback |
 | `/tf` and `/tf_static` | standard TF streams | camera-to-map transforms |
 
 The callable interface exposed by `ros_client` should hide these subscriptions.
+
+Current-state note:
+- the existing ROS stack already publishes timestamp-fixed `*_sync` image and camera-info topics through `strafer_perception.timestamp_fixer`
+- first-pass projection work should consume the synced aligned-depth path instead of mixing synced RGB with raw depth
 
 ### `ros_client.capture_scene_observation()`
 
@@ -332,7 +342,7 @@ Returns:
 - dict with pose, velocity, nav state, timestamp
 
 Implementation note:
-- this can initially be built from cached `/odom` and local action state
+- this can initially be built from cached `/strafer/odom` and local action state
 - a dedicated ROS service can be added later only if needed
 
 ## ROS Service Interface
@@ -340,6 +350,12 @@ Implementation note:
 The first custom robot-side request-response interface should be:
 
 ### `strafer_msgs/srv/ProjectDetectionToGoalPose.srv`
+
+Definition location:
+- `source/strafer_ros/strafer_msgs/srv/ProjectDetectionToGoalPose.srv`
+
+First implementation location:
+- `source/strafer_ros/strafer_navigation`
 
 Purpose:
 - convert a 2D detection into a reachable goal pose using robot-local depth, intrinsics, and TF
@@ -359,7 +375,11 @@ Response fields:
 - `bool depth_valid`
 - `string[] quality_flags`
 
-Why this belongs in `strafer_ros`:
+Why the split is correct:
+- define the service type in `strafer_msgs` because it is a shared ROS interface contract
+- implement the service in `strafer_navigation` because the logic depends on depth, TF, reachability, and navigation-side goal semantics
+
+Why this belongs on the robot side:
 - it depends on aligned depth, camera calibration, TF, and robot pose
 - these are robot-runtime concerns, not VLM concerns
 
@@ -367,32 +387,57 @@ Why this belongs in `strafer_ros`:
 
 ### `ros_client.navigate_to_pose(request)`
 
-Transport:
-- wrap `nav2_msgs/action/NavigateToPose`
+Purpose:
+- execute goal-directed motion through a selectable robot-local backend
 
 Inputs:
 - `goal_pose`
+- `execution_backend: str`
 - `behavior_tree: str | None`
 - `timeout_s: float | None`
 
 Returns:
 - `SkillResult`
 
+Supported execution modes:
+- `nav2`
+  - classical mode
+  - wrap `nav2_msgs/action/NavigateToPose`
+  - Nav2 plans and controls to the driver command path
+- `strafer_direct`
+  - pure RL mode through `strafer_inference`
+  - the policy consumes a goal pose or goal-relative target and drives the robot directly
+  - intended for the Jetson path where RL replaces classical navigation execution
+- `hybrid_nav2_strafer`
+  - hybrid mode
+  - Nav2 provides a global path, waypoint stream, or subgoal sequence
+  - `strafer_inference` provides the local motion controller that executes that higher-level guidance
+
+Current scaffolding note:
+- the code scaffold still uses the field name `execution_backend`
+- that field should be interpreted as selecting the robot-local execution mode, not as a permanently binary Nav2-vs-RL switch
+
 Feedback used by executor:
-- navigation progress
+- navigation or motion progress
 - distance remaining if available
 - cancel/timeout state
 
 Important note:
-- do not create a duplicate custom navigate action for the MVP if Nav2 already covers the behavior
+- keep the autonomy skill stable even if the local execution backend changes
+- `nav2` can remain the initial default mode, but the interface should not be Nav2-only
+- the autonomy layer should not need to change when the robot moves between classical, direct-RL, and hybrid execution modes
 
 ### `ros_client.cancel_active_navigation()`
 
 Transport:
-- cancel the active `NavigateToPose` action goal
+- cancel the currently active local motion backend
 
 Purpose:
 - used by executor for mission cancel and timeout handling
+- should cancel whichever execution mode is currently active:
+  - `nav2`
+  - `strafer_direct`
+  - `hybrid_nav2_strafer`
 
 ### `ros_client.orient_relative_to_target(request)`
 
@@ -401,6 +446,13 @@ MVP status:
 
 Recommended transport when implemented:
 - `strafer_msgs/action/OrientRelativeToTarget.action`
+
+Definition location:
+- `source/strafer_ros/strafer_msgs/action/OrientRelativeToTarget.action`
+
+First implementation location:
+- `source/strafer_ros/strafer_navigation`
+  - or a future robot-local behavior package if orientation logic outgrows navigation ownership
 
 Goal fields:
 - `geometry_msgs/PoseStamped target_pose`
@@ -501,7 +553,7 @@ This lets the Jetson executor keep the same callable method while swapping the w
 | `capture_scene_observation` | Jetson executor | `ros_client` observation cache | local ROS subscriptions |
 | `locate_semantic_target` | Jetson executor | `vlm_client` | LAN HTTP first, cloud HTTP later |
 | `project_detection_to_goal_pose` | Jetson executor | `strafer_ros` | local ROS service |
-| `navigate_to_pose` | Jetson executor | Nav2 via `ros_client` | local ROS action |
+| `navigate_to_pose` | Jetson executor | `ros_client` dispatch to `nav2`, `strafer_direct`, or `hybrid_nav2_strafer` | local ROS action or local backend adapter |
 | `orient_relative_to_target` | Jetson executor | future Strafer-specific robot behavior | local ROS action |
 | `wait` | Jetson executor | local timer / mission state | local only |
 | `cancel_mission` | Jetson executor | local mission cancel + ROS action cancel | local + ROS action cancel |
@@ -521,10 +573,12 @@ Implement in this order:
 3. `strafer_autonomy.clients.ros_client`
    - subscribe to synchronized RGB, depth, camera info, odom, TF locally on the Jetson
    - expose `capture_scene_observation()` and `get_robot_state()`
-   - wrap `NavigateToPose`
+   - dispatch `navigate_to_pose` to the selected execution mode
+   - support backend-agnostic cancel for the currently active motion executor
 
 4. `strafer_msgs/srv/ProjectDetectionToGoalPose.srv`
-   - robot-side projection service
+   - define in `strafer_msgs`
+   - implement first in `strafer_navigation`
 
 5. `strafer_autonomy.clients.planner_client`
    - LAN HTTP implementation first

@@ -34,13 +34,14 @@ class RosClient(Protocol):
         *,
         step_id: str,
         goal_pose: dict[str, Any],
+        execution_backend: str = "nav2",
         behavior_tree: str | None = None,
         timeout_s: float | None = None,
     ) -> SkillResult:
-        """Execute Nav2 NavigateToPose and normalize the result."""
+        """Execute goal-directed motion through the selected local backend."""
 
     def cancel_active_navigation(self) -> bool:
-        """Cancel the currently active navigation goal if one exists."""
+        """Cancel the currently active motion backend if one exists."""
 
     def orient_relative_to_target(
         self,
@@ -62,6 +63,7 @@ class RosClientConfig:
     observation_max_age_s: float = 0.5
     default_goal_frame: str = "map"
     default_nav_timeout_s: float = 90.0
+    default_navigation_backend: str = "nav2"
     default_orientation_tolerance_rad: float = 0.1
 
 
@@ -114,22 +116,25 @@ class JetsonRosClient:
         *,
         step_id: str,
         goal_pose: dict[str, Any],
+        execution_backend: str = "nav2",
         behavior_tree: str | None = None,
         timeout_s: float | None = None,
     ) -> SkillResult:
-        """Wrap Nav2 NavigateToPose and return a normalized skill result."""
+        """Dispatch goal execution to the selected local backend and normalize the result."""
 
         raise NotImplementedError(
             "Navigation action integration is not implemented yet. "
-            "Wrap nav2_msgs/action/NavigateToPose and translate action outcomes into SkillResult."
+            "Dispatch to either the Nav2 backend or the strafer_inference backend "
+            "and translate outcomes into SkillResult."
         )
 
     def cancel_active_navigation(self) -> bool:
-        """Cancel the active navigation goal, if present."""
+        """Cancel the active local motion backend, if present."""
 
         raise NotImplementedError(
             "Navigation cancelation is not implemented yet. "
-            "Track the active Nav2 goal handle inside the Jetson executor."
+            "Track the active local motion backend inside the Jetson executor "
+            "so Nav2 or strafer_inference can be canceled uniformly."
         )
 
     def orient_relative_to_target(

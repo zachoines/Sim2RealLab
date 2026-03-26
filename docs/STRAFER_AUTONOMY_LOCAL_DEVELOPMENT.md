@@ -33,7 +33,8 @@ strafer_ros                              planner service
   - sensors                                - text LLM
   - TF                                     - MissionPlan output
   - depth projection                      VLM service
-  - Nav2                                   - Qwen grounding
+  - local execution modes                  - Qwen grounding
+    (Nav2 first; direct and hybrid RL later)
 strafer_autonomy.executor
   - mission runner
   - ros_client (local)
@@ -80,7 +81,7 @@ User command
   -> ros_client.capture_scene_observation() on Jetson
   -> vlm_client.locate_semantic_target() over LAN
   -> ros_client.project_detection_to_goal_pose() on Jetson
-  -> ros_client.navigate_to_pose() via local ROS action
+  -> ros_client.navigate_to_pose() via the selected local execution mode
   -> executor monitors status, cancel, retry, timeout
 ```
 
@@ -108,6 +109,10 @@ Why:
 - no LAN dependency for sensing or navigation execution
 - robot-critical execution stays local
 - easiest path to safe cancellation and retry logic
+
+Important clarification:
+- the autonomy skill stays `navigate_to_pose`
+- the robot-local execution mode may be `nav2`, `strafer_direct`, or `hybrid_nav2_strafer`
 
 ### Executor to planner
 

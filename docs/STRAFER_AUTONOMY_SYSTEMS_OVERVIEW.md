@@ -15,17 +15,21 @@ It summarizes the main decisions already captured in:
 ```mermaid
 flowchart LR
     U[Operator]
-    A[strafer_autonomy\nplanner + executor + mission state]
+    EX[strafer_autonomy.executor\nmission state + skill sequencing]
+    PL[Planner service\nbounded mission planning]
+    LLM[Text LLM]
     V[strafer_vlm\nsemantic grounding]
     LAB[strafer_lab / Isaac Lab\nRL training and evaluation]
-    RL[Trained RL behavior policies]
-    R[strafer_ros\nrobot runtime skills]
-    N[Nav2, behavior trees,\nand local navigation services]
+    RL[Trained RL policies\nplanned robot backend]
+    R[strafer_ros\ncurrent ROS runtime packages]
+    N[Current Nav2 + RTAB-Map\nlaunch/config stack]
     S[Sensors, depth, TF, odometry]
 
-    U --> A
-    A --> V
-    A --> R
+    U --> EX
+    EX --> PL
+    PL --> LLM
+    EX --> V
+    EX --> R
     LAB --> RL
     RL --> R
     R --> N
@@ -40,16 +44,17 @@ flowchart LR
         CLI[SSH CLI or ros2 action client]
         EX[strafer_autonomy.executor]
         RC[ros_client]
-        ROS[strafer_ros]
-        RLP[RL policy inference\nand robot behaviors]
-        NAV[Nav2 and behavior trees]
+        ROS[strafer_ros\ncurrent driver/perception/description\n+ planned skill services]
+        RLP[Planned strafer_inference\nRL direct + hybrid modes]
+        NAV[Current Nav2 + behavior trees\nclassical mode or hybrid waypoint source]
         SNS[Sensors + TF + depth]
 
         CLI --> EX
         EX --> RC
         RC --> ROS
-        ROS --> RLP
+        ROS -. future direct / hybrid modes .-> RLP
         ROS --> NAV
+        NAV -. hybrid path / subgoals .-> RLP
         SNS --> ROS
     end
 
@@ -156,8 +161,11 @@ flowchart LR
 
 - `strafer_ros` stays robot-local and owns sensing, TF, projection, navigation, and safety-critical execution.
 - `strafer_autonomy.executor` stays robot-local and owns mission state, retries, timeout, cancel, and skill sequencing.
+- the planner service is a separate remote runtime from the robot-local executor, even though both sides share autonomy-layer schemas and contracts.
 - `strafer_lab` trains RL navigation and behavior policies that are later deployed onto the robot as inference artifacts.
-- The robot execution layer is not just Nav2: it also includes trained RL behavior policies that sit alongside or underneath the classical navigation stack.
+- Today, the Jetson ROS stack is mostly `strafer_driver`, `strafer_perception`, `strafer_description`, and layered launch/config packages for SLAM and Nav2.
+- `strafer_inference` and autonomy-facing robot skill services are planned additions, not current ROS functionality.
+- The intended end state is not just Nav2: trained RL behavior policies should support both direct execution and hybrid execution beneath higher-level classical planning.
 - Planner and VLM are heavy remote services from the executor's point of view.
 - The first operator path is SSH plus CLI, but the long-term stable command boundary is robot-local `ExecuteMission.action`.
 - Future workstation, web, mobile, or cloud frontends should adapt into the same robot-local executor contract rather than replacing it.

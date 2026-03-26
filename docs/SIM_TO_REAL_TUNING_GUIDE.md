@@ -1,4 +1,11 @@
-# Sim-to-Real Tuning Guide
+﻿# Sim-to-Real Tuning Guide
+
+This guide is the deep-dive companion to `docs/SIM_TO_REAL_PLAN.md`.
+
+Use:
+
+- `SIM_TO_REAL_PLAN.md` for the training, export, and Jetson deployment path
+- this guide for actuator, sensor, and timing alignment once policy transfer is being validated
 
 How the Isaac Lab simulation models the real Strafer robot, and how to tune each component so the trained RL policy transfers cleanly.
 
@@ -10,9 +17,9 @@ How the Isaac Lab simulation models the real Strafer robot, and how to tune each
 |----------|-------|-------|
 | `WHEEL_RADIUS` | 0.048 m | 96mm mecanum wheel |
 | `WHEEL_BASE` | 0.336 m | Front-to-rear axle, center-to-center |
-| `TRACK_WIDTH` | 0.4284 m | Left-to-right axle, center-to-center (frame 360mm + 2×15.2mm axle + 38mm wheel) |
+| `TRACK_WIDTH` | 0.4284 m | Left-to-right axle, center-to-center (frame 360mm + 2x15.2mm axle + 38mm wheel) |
 | `K` (lever arm) | 0.382 m | `WHEEL_BASE/2 + TRACK_WIDTH/2` -- used in kinematic matrix |
-| `MAX_LINEAR_VEL` | 1.568 m/s | `WHEEL_RADIUS × MAX_WHEEL_ANGULAR_VEL` |
+| `MAX_LINEAR_VEL` | 1.568 m/s | `WHEEL_RADIUS x MAX_WHEEL_ANGULAR_VEL` |
 | `MAX_ANGULAR_VEL` | 4.10 rad/s | `MAX_LINEAR_VEL / K` |
 
 ---
@@ -20,7 +27,7 @@ How the Isaac Lab simulation models the real Strafer robot, and how to tune each
 ## Table of Contents
 
 1. [Architecture: Three Layers of Actuation](#1-architecture-three-layers-of-actuation)
-2. [Layer 1: PhysX PD Controller → RoboClaw Velocity PID](#2-layer-1-physx-pd-controller--roboclaw-velocity-pid)
+2. [Layer 1: PhysX PD Controller -> RoboClaw Velocity PID](#2-layer-1-physx-pd-controller--roboclaw-velocity-pid)
 3. [Layer 2: Motor Dynamics Filter](#3-layer-2-motor-dynamics-filter)
 4. [Layer 3: Sensor Noise Models](#4-layer-3-sensor-noise-models)
 5. [Tuning Procedure](#5-tuning-procedure)
@@ -33,37 +40,37 @@ How the Isaac Lab simulation models the real Strafer robot, and how to tune each
 
 Between a policy action and actual wheel motion, there are three distinct layers in simulation. Each has a real-world counterpart:
 
-```
+```text
 Policy output: [-1, 1] normalized [vx, vy, omega]
-        │
-        ▼
-┌─────────────────────────────────────┐
-│  LAYER 2a: Command Delay            │  ← USB serial latency
-│  Circular buffer, 1-3 steps         │
-├─────────────────────────────────────┤
-│  LAYER 2b: Slew Rate Limiting       │  ← Motor + gearbox inertia
-│  Max acceleration clamp             │
-├─────────────────────────────────────┤
-│  LAYER 2c: Motor Dynamics Filter    │  ← Combined electrical + mechanical τ
-│  First-order low-pass, τ = 50ms     │
-└─────────────────────────────────────┘
-        │
-        ▼  velocity target (rad/s)
-┌─────────────────────────────────────┐
-│  LAYER 1: PhysX PD Controller       │  ← RoboClaw velocity PID
-│  torque = D × (target - current)    │
-│  clamped by DC motor curve          │
-└─────────────────────────────────────┘
-        │
-        ▼  torque → PhysX rigid body dynamics
-     Wheel motion
+    |
+    v
++-----------------------------------+    <- USB serial latency
+| LAYER 2a: Command Delay           |
+| Circular buffer, 1-3 steps        |
++-----------------------------------+
+| LAYER 2b: Slew Rate Limiting      |    <- Motor + gearbox inertia
+| Max acceleration clamp            |
++-----------------------------------+
+| LAYER 2c: Motor Dynamics Filter   |    <- Combined electrical + mechanical tau
+| First-order low-pass, tau = 50ms  |
++-----------------------------------+
+    |
+    v  velocity target (rad/s)
++-----------------------------------+    <- RoboClaw velocity PID
+| LAYER 1: PhysX PD Controller      |
+| torque = D x (target - current)   |
+| clamped by DC motor curve         |
++-----------------------------------+
+    |
+    v  torque -> PhysX rigid body dynamics
+Wheel motion
 ```
 
 The policy was trained with all three layers active (under the `Realistic` and `Robust` presets). On the real robot, Layers 2a-2c don't exist in software -- they emerge naturally from USB latency, motor inertia, and RoboClaw PID response. Your job is to verify the real-world values fall within the trained ranges.
 
 ---
 
-## 2. Layer 1: PhysX PD Controller → RoboClaw Velocity PID
+## 2. Layer 1: PhysX PD Controller -> RoboClaw Velocity PID
 
 ### What Isaac Sim does
 
@@ -73,7 +80,7 @@ The robot's `DCMotorCfg` in [strafer.py](source/strafer_lab/strafer_lab/assets/s
 DCMotorCfg(
     stiffness=0.0,          # P gain (position) -- ZERO, no position control
     damping=10.0,            # D gain (velocity tracking)
-    saturation_effort=2.38,  # Stall torque (N·m) -- hard limit
+    saturation_effort=2.38,  # Stall torque (N*m) -- hard limit
     velocity_limit=32.67,    # No-load speed (rad/s) -- back-EMF limit
 )
 ```
@@ -81,19 +88,19 @@ DCMotorCfg(
 With `stiffness=0.0`, this is a **D-only velocity controller**. Each physics step, PhysX computes:
 
 ```
-torque = damping × (velocity_target - velocity_current)
-       = 10.0 × (ω_target - ω_current)
+torque = damping x (velocity_target - velocity_current)
+       = 10.0 x (omega_target - omega_current)
 ```
 
 This torque is then clamped by the DC motor torque-speed curve, which models back-EMF:
 
 ```
-torque_max(ω) = stall_torque × (1 - |ω| / no_load_speed)
-              = 2.38 × (1 - |ω| / 32.67)
+torque_max(omega) = stall_torque x (1 - |omega| / no_load_speed)
+              = 2.38 x (1 - |omega| / 32.67)
 final_torque  = clamp(torque, -torque_max, +torque_max)
 ```
 
-At zero speed, full stall torque (2.38 N·m) is available. As speed approaches 32.67 rad/s (312 RPM), available torque drops linearly to zero. This is physically accurate for a brushed DC motor.
+At zero speed, full stall torque (2.38 N*m) is available. As speed approaches 32.67 rad/s (312 RPM), available torque drops linearly to zero. This is physically accurate for a brushed DC motor.
 
 ### What the real robot does
 
@@ -103,7 +110,7 @@ RoboClaw's `SpeedM1`/`SpeedM2` commands run a closed-loop velocity PID controlle
 
 | Aspect | Isaac Sim (PhysX) | RoboClaw (real) |
 |--------|-------------------|-----------------|
-| Controller type | D-only (damping × velocity error) | Full PID (QPPS-based) |
+| Controller type | D-only (damping x velocity error) | Full PID (QPPS-based) |
 | Torque/current limit | DC motor curve model | Physical motor + RoboClaw current limit |
 | Update rate | Physics dt (200 Hz typical) | ~300 Hz internal |
 | Feedback source | Joint velocity from physics solver | Encoder ticks from hardware |
@@ -147,7 +154,7 @@ action_latency_steps = 1      # 33ms at 30 Hz
 action_latency_steps_range = (0, 2)  # 0-66ms random, sampled per reset
 ```
 
-**Real-world source**: USB serial write → RoboClaw command processing → motor response. Typical round-trip: 2-5ms per command × 4 motors = 8-20ms total. At 50 Hz control rate (20ms period), this is roughly 0.5-1 step of delay.
+**Real-world source**: USB serial write -> RoboClaw command processing -> motor response. Typical round-trip: 2-5ms per command x 4 motors = 8-20ms total. At 50 Hz control rate (20ms period), this is roughly 0.5-1 step of delay.
 
 **How to measure**: Timestamp the serial write and the first encoder velocity change. Use a tight Python loop:
 ```python
@@ -168,14 +175,14 @@ while True:
 
 ```python
 # From REAL_ROBOT_CONTRACT (sim_real_cfg.py:444)
-max_acceleration_rad_s2 = 100.0  # rad/s² → max_delta = 100 × dt per step
+max_acceleration_rad_s2 = 100.0  # rad/s^2 -> max_delta = 100 x dt per step
 ```
 
-**Real-world source**: Motor + 19.2:1 gearbox inertia limits how fast velocity can change. The reflected inertia through the gearbox (J_reflected = J_motor × ratio²) creates a natural slew rate.
+**Real-world source**: Motor + 19.2:1 gearbox inertia limits how fast velocity can change. The reflected inertia through the gearbox (J_reflected = J_motor x ratio^2) creates a natural slew rate.
 
-**How to measure**: Command an instantaneous velocity step (0 → max speed) and record encoder velocity at high rate. The slope of the velocity ramp gives you the real acceleration limit.
+**How to measure**: Command an instantaneous velocity step (0 -> max speed) and record encoder velocity at high rate. The slope of the velocity ramp gives you the real acceleration limit.
 
-**Tuning**: If the real acceleration is ~80-120 rad/s², the sim value is already well-matched. The `Robust` preset uses 80 rad/s² for extra conservatism.
+**Tuning**: If the real acceleration is ~80-120 rad/s^2, the sim value is already well-matched. The `Robust` preset uses 80 rad/s^2 for extra conservatism.
 
 ### 2c. First-Order Motor Dynamics (Most Important)
 
@@ -183,37 +190,37 @@ max_acceleration_rad_s2 = 100.0  # rad/s² → max_delta = 100 × dt per step
 
 ```python
 alpha = dt / (tau + dt)  # tau = 0.05s (50ms) for Realistic
-smoothed = alpha × target + (1 - alpha) × smoothed
+smoothed = alpha x target + (1 - alpha) x smoothed
 ```
 
 This is the **most critical parameter** for sim-to-real transfer. It determines how quickly commanded velocity changes actually take effect.
 
 **Real-world source**: The combined time constant of:
-- Motor electrical time constant (L/R ≈ 2-5ms for brushed DC)
+- Motor electrical time constant (L/R ~= 2-5ms for brushed DC)
 - Gearbox compliance and backlash
 - RoboClaw PID loop response time
 - Mechanical friction and inertia
 
-**How to measure** (the τ extraction procedure):
-1. Command a velocity step: 0 → 1000 ticks/s via `SpeedM1`
+**How to measure** (the tau extraction procedure):
+1. Command a velocity step: 0 -> 1000 ticks/s via `SpeedM1`
 2. Log encoder velocity at the highest rate possible (~100+ samples/sec)
 3. Find the time when velocity reaches **63.2%** of the target (632 ticks/s)
-4. That time is τ by definition of first-order systems
+4. That time is tau by definition of first-order systems
 5. Repeat at multiple speeds and under load
 
 **Sim preset values**:
 
-| Preset | τ nominal | τ range (randomized) |
+| Preset | tau nominal | tau range (randomized) |
 |--------|-----------|----------------------|
 | Ideal | N/A (disabled) | N/A |
 | Realistic | 50ms | 30-80ms |
 | Robust | 60ms | 20-100ms |
 
 **Tuning**:
-- If real τ is 40ms → within Realistic range, no change needed
-- If real τ is 15ms → below Robust range, lower `motor_time_constant_range[0]` in sim
-- If real τ is 120ms → above Robust range, either retrain with wider range or tune RoboClaw PID to reduce response time
-- RoboClaw PID tuning directly affects the effective τ -- a well-tuned PID can bring it to 30-50ms
+- If real tau is 40ms -> within Realistic range, no change needed
+- If real tau is 15ms -> below Robust range, lower `motor_time_constant_range[0]` in sim
+- If real tau is 120ms -> above Robust range, either retrain with wider range or tune RoboClaw PID to reduce response time
+- RoboClaw PID tuning directly affects the effective tau -- a well-tuned PID can bring it to 30-50ms
 
 ---
 
@@ -227,35 +234,35 @@ The BMI055 is the IMU inside the D555. Noise parameters are derived from its dat
 
 | Parameter | Sim (Realistic) | Sim (Robust) | Datasheet | Unit |
 |-----------|-----------------|--------------|-----------|------|
-| Accel noise density | 0.0098 | 0.015 | 0.98 mg/√Hz = 0.0096 m/s²/√Hz | m/s²/√Hz |
-| Accel bias stability | 0.04 | 0.06 | 40 μg | m/s² |
-| Gyro noise density | 0.00024 | 0.00036 | 0.014 °/s/√Hz = 0.000244 rad/s/√Hz | rad/s/√Hz |
-| Gyro bias stability | 0.0017 | 0.0025 | 0.1 °/s | rad/s |
+| Accel noise density | 0.0098 | 0.015 | 0.98 mg/sqrtHz = 0.0096 m/s^2/sqrtHz | m/s^2/sqrtHz |
+| Accel bias stability | 0.04 | 0.06 | 40 ug | m/s^2 |
+| Gyro noise density | 0.00024 | 0.00036 | 0.014 deg/s/sqrtHz = 0.000244 rad/s/sqrtHz | rad/s/sqrtHz |
+| Gyro bias stability | 0.0017 | 0.0025 | 0.1 deg/s | rad/s |
 
 **Conversion from noise density to per-sample std**:
 ```
-σ_sample = noise_density × √(sample_rate_hz)
+sigma_sample = noise_density x sqrt(sample_rate_hz)
 ```
-At 30 Hz control rate: accel σ ≈ 0.054 m/s², gyro σ ≈ 0.0013 rad/s.
+At 30 Hz control rate: accel sigma ~= 0.054 m/s^2, gyro sigma ~= 0.0013 rad/s.
 
 **How to characterize your D555 IMU**:
 1. Place the robot on a flat, stable surface
 2. Record `/d555/imu/filtered` data for 30 seconds (stationary)
 3. Compute:
-   - **Accel bias**: mean of each axis minus gravity (Z should be ~9.81 m/s²)
-   - **Accel noise σ**: std of each axis
+   - **Accel bias**: mean of each axis minus gravity (Z should be ~9.81 m/s^2)
+   - **Accel noise sigma**: std of each axis
    - **Gyro bias**: mean of each axis (should be near zero)
-   - **Gyro noise σ**: std of each axis
+   - **Gyro noise sigma**: std of each axis
 4. Compare against sim values above
 
-**If real noise is higher**: Increase sim values. The Robust preset gives 1.5× margin.
+**If real noise is higher**: Increase sim values. The Robust preset gives 1.5x margin.
 **If real noise is lower**: No change needed -- training with more noise than reality is fine.
 
 ### Encoders (GoBilda 5203, 537.7 PPR)
 
 | Parameter | Sim (Realistic) | Sim (Robust) | Unit |
 |-----------|-----------------|--------------|------|
-| Velocity noise σ | 0.02 | 0.05 | fraction of max velocity |
+| Velocity noise sigma | 0.02 | 0.05 | fraction of max velocity |
 | Missed tick probability | 0.001 | 0.005 | per tick per step |
 | Quantization | 537.7 PPR | 537.7 PPR | ticks/revolution |
 
@@ -264,29 +271,29 @@ At 537.7 PPR, the quantization resolution is 0.0117 rad/tick. Velocity is estima
 **How to characterize**:
 1. Spin each wheel at a constant moderate speed (~1000 ticks/s) using RoboClaw's velocity PID
 2. Read `ReadSpeedM1`/`ReadSpeedM2` at ~100 Hz for 5 seconds
-3. Compute velocity σ
-4. Normalize: σ_normalized = σ_measured / ENCODER_VEL_MAX (3000 ticks/s)
+3. Compute velocity sigma
+4. Normalize: sigma_normalized = sigma_measured / ENCODER_VEL_MAX (3000 ticks/s)
 5. Compare against sim's `velocity_noise_std`
 
-**Typical results**: At 1000 ticks/s, expect σ ≈ 10-30 ticks/s, giving σ_normalized ≈ 0.003-0.01. This is often *lower* than the sim's 0.02, which is fine.
+**Typical results**: At 1000 ticks/s, expect sigma ~= 10-30 ticks/s, giving sigma_normalized ~= 0.003-0.01. This is often *lower* than the sim's 0.02, which is fine.
 
 ### Depth Camera (RealSense D555)
 
 The depth noise model uses the Intel RealSense stereo error propagation formula:
 
 ```
-σ_z = (z² / (f × B)) × σ_d
+sigma_z = (z^2 / (f x B)) x sigma_d
 ```
 
 Where:
 - `z` = depth in meters
-- `f` = focal length in pixels (673 px at 1280×720)
+- `f` = focal length in pixels (673 px at 1280x720)
 - `B` = stereo baseline (0.095 m for D555)
-- `σ_d` = subpixel disparity noise (0.08 px typical)
+- `sigma_d` = subpixel disparity noise (0.08 px typical)
 
 This means noise **grows quadratically with distance**:
 
-| Distance | σ_z (Realistic) | σ_z (Robust) |
+| Distance | sigma_z (Realistic) | sigma_z (Robust) |
 |----------|-----------------|--------------|
 | 0.5 m | 0.3 mm | 0.6 mm |
 | 1.0 m | 1.3 mm | 2.5 mm |
@@ -296,9 +303,9 @@ This means noise **grows quadratically with distance**:
 **How to characterize**:
 1. Point the D555 at a flat wall at known distances (0.5m, 1m, 2m, 4m)
 2. Record depth frames for 5 seconds at each distance
-3. Crop a central patch (e.g., 20×20 pixels) from the 80×60 downsampled image
-4. Compute σ of depth values across frames
-5. Plot σ vs z² -- should be linear. The slope gives `σ_d / (f × B)`.
+3. Crop a central patch (e.g., 20x20 pixels) from the 80x60 downsampled image
+4. Compute sigma of depth values across frames
+5. Plot sigma vs z^2 -- should be linear. The slope gives `sigma_d / (f x B)`.
 
 **For MVP (NoCam variant)**: Depth tuning doesn't apply. Handle this when you add `PolicyVariant.DEPTH`.
 
@@ -321,7 +328,7 @@ These are modeled as per-sensor observation delays in [sim_real_cfg.py:73-84](so
 
 Follow this sequence. Each step builds on the previous.
 
-### Step 1: RoboClaw PID ✅ (already tuned)
+### Step 1: RoboClaw PID [done] (already tuned)
 
 PID is auto-applied on every startup (P=15000, I=750, D=0, QPPS=2796 from `constants.py`). Re-characterize only if behavior changes or after hardware swap.
 
@@ -330,24 +337,24 @@ Use `source/strafer_ros/tune_pid.py` to run a step-response sweep and verify:
 - Overshoot < 5%
 - Steady-state error < 2%
 
-**Pass criteria**: Step response resembles a first-order system with τ ≈ 30-80ms.
+**Pass criteria**: Step response resembles a first-order system with tau ~= 30-80ms.
 
-### Step 2: Motor Time Constant (τ)
+### Step 2: Motor Time Constant (tau)
 
-Extract τ from the step response measured in Step 1.
+Extract tau from the step response measured in Step 1.
 
-1. Command velocity step: 0 → 1000 ticks/s
-2. Log encoder velocity at ≥100 Hz
-3. Find time to reach 63.2% of target → that's τ
+1. Command velocity step: 0 -> 1000 ticks/s
+2. Log encoder velocity at >=100 Hz
+3. Find time to reach 63.2% of target -> that's tau
 4. Repeat for each motor (they may differ slightly due to friction/wiring)
 
-**Pass criteria**: τ within [30ms, 80ms] (Realistic range) or [20ms, 100ms] (Robust range).
+**Pass criteria**: tau within [30ms, 80ms] (Realistic range) or [20ms, 100ms] (Robust range).
 
-**If τ is outside range**: Adjust `motor_time_constant_range` in `sim_real_cfg.py` and retrain, or tune RoboClaw PID to bring τ into range.
+**If tau is outside range**: Adjust `motor_time_constant_range` in `sim_real_cfg.py` and retrain, or tune RoboClaw PID to bring tau into range.
 
 ### Step 3: Command Latency
 
-1. Timestamp serial write → first encoder movement
+1. Timestamp serial write -> first encoder movement
 2. Measure at 50 Hz control rate (typical ROS node rate)
 
 **Pass criteria**: Total command latency < 66ms (2 steps at 30 Hz).
@@ -357,20 +364,20 @@ Extract τ from the step response measured in Step 1.
 1. Static recording, 30 seconds
 2. Compute bias (mean) and noise (std) for accel and gyro
 
-**Pass criteria**: Noise σ within Robust envelope (see table in Section 4).
+**Pass criteria**: Noise sigma within Robust envelope (see table in Section 4).
 
 ### Step 5: Encoder Noise
 
 1. Constant-speed test, 5 seconds per motor
-2. Compute velocity σ, normalize by 3000 ticks/s
+2. Compute velocity sigma, normalize by 3000 ticks/s
 
-**Pass criteria**: σ_normalized < 0.05 (Robust `velocity_noise_std`).
+**Pass criteria**: sigma_normalized < 0.05 (Robust `velocity_noise_std`).
 
 ### Step 6: End-to-End Validation (the real test)
 
 This is where you verify that everything works together.
 
-1. **Square test**: Command a 1m × 1m square path via `cmd_vel` sequences:
+1. **Square test**: Command a 1m x 1m square path via `cmd_vel` sequences:
    - Forward 1m (vx=0.3 m/s for ~3.3s)
    - Strafe left 1m (vy=0.3 m/s for ~3.3s)
    - Backward 1m (vx=-0.3 m/s for ~3.3s)
@@ -393,24 +400,24 @@ Use this checklist before deploying a trained policy on hardware.
 ### Actuator Alignment
 
 - [ ] RoboClaw PID tuned: settling < 80ms, overshoot < 5%, SS error < 2%
-- [ ] Motor τ measured for all 4 motors: within [20ms, 100ms]
+- [ ] Motor tau measured for all 4 motors: within [20ms, 100ms]
 - [ ] Command latency measured: < 66ms total
 - [ ] All 4 motors spin in correct direction (verified by wiring test script)
 - [ ] Encoder counts increase in expected direction for positive velocity commands
 
 ### Sensor Alignment
 
-- [ ] IMU accel noise σ measured: < 0.08 m/s² (Robust threshold)
-- [ ] IMU gyro noise σ measured: < 0.002 rad/s (Robust threshold)
+- [ ] IMU accel noise sigma measured: < 0.08 m/s^2 (Robust threshold)
+- [ ] IMU gyro noise sigma measured: < 0.002 rad/s (Robust threshold)
 - [ ] IMU frame orientation matches sim (x-forward, y-left, z-up in body frame)
-- [ ] Encoder velocity noise σ_normalized measured: < 0.05
+- [ ] Encoder velocity noise sigma_normalized measured: < 0.05
 - [ ] Depth camera noise characterized (if using DEPTH variant)
 
 ### Integration
 
 - [ ] Square test: sim vs. real trajectories qualitatively match
 - [ ] Observation vector assembled correctly: `assemble_observation()` produces correct dims
-- [ ] Action denormalization correct: `interpret_action([1,0,0])` → forward at MAX_LINEAR_VEL
+- [ ] Action denormalization correct: `interpret_action([1,0,0])` -> forward at MAX_LINEAR_VEL
 - [ ] Watchdog works: motors stop within 500ms of last `cmd_vel`
 
 ### Contract Compliance
@@ -437,13 +444,14 @@ Use this checklist before deploying a trained policy on hardware.
 
 | Parameter | Ideal | Realistic | Robust |
 |-----------|-------|-----------|--------|
-| Motor dynamics | Disabled | τ=50ms, range [30,80]ms | τ=60ms, range [20,100]ms |
+| Motor dynamics | Disabled | tau=50ms, range [30,80]ms | tau=60ms, range [20,100]ms |
 | Command delay | 0 steps | 1 step, range [0,2] | 1 step, range [0,4] |
-| Slew rate limit | ∞ | 100 rad/s² | 80 rad/s² |
-| Control jitter | 0% | ±5% | ±10% |
-| IMU accel noise density | 0 | 0.0098 m/s²/√Hz | 0.015 m/s²/√Hz |
-| IMU gyro noise density | 0 | 0.00024 rad/s/√Hz | 0.00036 rad/s/√Hz |
-| Encoder velocity noise σ | 0 | 0.02 | 0.05 |
+| Slew rate limit | infinity | 100 rad/s^2 | 80 rad/s^2 |
+| Control jitter | 0% | +/-5% | +/-10% |
+| IMU accel noise density | 0 | 0.0098 m/s^2/sqrtHz | 0.015 m/s^2/sqrtHz |
+| IMU gyro noise density | 0 | 0.00024 rad/s/sqrtHz | 0.00036 rad/s/sqrtHz |
+| Encoder velocity noise sigma | 0 | 0.02 | 0.05 |
 | Depth disparity noise | 0 | 0.08 px | 0.16 px |
 | Sensor failures | Disabled | Disabled | Enabled |
-| Domain randomization | 0× | 1× | 1.5× |
+| Domain randomization | 0x | 1x | 1.5x |
+

@@ -47,6 +47,7 @@ class MissionRunnerConfig:
     default_grounding_max_image_side: int = 1024
     default_standoff_m: float = 0.7
     default_navigation_timeout_s: float = 90.0
+    default_navigation_backend: str = "nav2"
 
 
 @dataclass
@@ -454,6 +455,9 @@ class MissionRunner(MissionCommandHandler):
             return self._ros_client.navigate_to_pose(
                 step_id=step.step_id,
                 goal_pose=goal_pose,
+                execution_backend=str(
+                    step.args.get("execution_backend", self._config.default_navigation_backend)
+                ),
                 behavior_tree=str(step.args["behavior_tree"]) if step.args.get("behavior_tree") else None,
                 timeout_s=step.timeout_s or self._config.default_navigation_timeout_s,
             )

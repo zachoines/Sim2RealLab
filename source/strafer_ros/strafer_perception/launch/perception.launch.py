@@ -7,7 +7,7 @@ Launches:
   4. Static TF: base_link → d555_link (camera mounting position)
   5. Depth downsampler node (full-res → 80x60 for policy input)
 
-Published topics (matching sim contract in CLAUDE.md):
+Published topics (matching the sim-to-real perception contract):
   /d555/color/image_raw       - sensor_msgs/Image   @ 30 Hz
   /d555/depth/image_rect_raw  - sensor_msgs/Image   @ 30 Hz
   /d555/imu                   - sensor_msgs/Imu     @ 200 Hz (raw, no orientation)

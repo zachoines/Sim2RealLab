@@ -1,0 +1,10 @@
+# Return the current active mission status, or the most recent mission if idle.
+---
+bool active
+string mission_id
+string state
+string raw_command
+string current_step_id
+string current_skill
+string message
+float32 elapsed_s

@@ -1,0 +1,20 @@
+# Submit a natural-language mission request to the Jetson-local autonomy executor.
+string request_id
+string raw_command
+string source
+bool replace_active_mission
+---
+# Immediate acceptance plus the terminal mission outcome after execution completes.
+bool accepted
+string mission_id
+string final_state
+string error_code
+string message
+---
+# Streaming mission progress while the executor runs the current plan.
+string mission_id
+string state
+string current_step_id
+string current_skill
+string message
+float32 elapsed_s

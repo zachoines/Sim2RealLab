@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "strafer-autonomy"
+version = "0.1.0"
+description = "Autonomy planning and schema layer for Strafer"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+strafer-autonomy-cli = "strafer_autonomy.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["strafer_autonomy*"]

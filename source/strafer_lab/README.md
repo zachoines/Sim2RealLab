@@ -299,7 +299,7 @@ while not done:
 env.close()
 ```
 
-The ROS eval path (Path 2) runs the same model on real hardware or Isaac Sim via ROS2 bridge. See `source/strafer_ros/CLAUDE.md` and `docs/SIM_TO_REAL_PLAN.md` Section 0.
+The ROS eval path (Path 2) runs the same model on real hardware or Isaac Sim via ROS2 bridge. See `docs/STRAFER_AUTONOMY_ROS.md` and `docs/SIM_TO_REAL_PLAN.md`.
 
 ### Sim-to-Real Contract
 

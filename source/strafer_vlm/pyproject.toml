@@ -25,7 +25,21 @@ qwen = [
 live = [
     "opencv-python",
 ]
+service = [
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.20",
+]
+dev = [
+    "pytest>=7.0",
+    "httpx",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["strafer_vlm*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "gpu: marks tests that require a GPU and loaded model (deselect with '-m \"not gpu\"')",
+]

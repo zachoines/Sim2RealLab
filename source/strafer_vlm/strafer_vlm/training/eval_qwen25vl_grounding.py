@@ -21,15 +21,17 @@ from typing import Any
 
 from PIL import Image
 
-from strafer_vlm.qwen_vl_common import (
+from strafer_vlm.inference.parsing import (
     SYSTEM_PROMPT_DEFAULT,
     bbox_iou,
-    load_grounding_dataset,
-    load_qwen_model_and_processor,
     normalize_prediction_bbox_to_1000,
     parse_grounding_prediction,
+)
+from strafer_vlm.inference.qwen_runtime import (
+    load_qwen_model_and_processor,
     run_grounding_generation,
 )
+from strafer_vlm.training.dataset_io import load_grounding_dataset
 
 
 def parse_args() -> argparse.Namespace:

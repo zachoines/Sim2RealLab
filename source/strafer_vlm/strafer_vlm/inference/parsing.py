@@ -1,13 +1,14 @@
-#!/usr/bin/env python3
-"""Shared helpers for local Qwen2.5-VL grounding workflows."""
+"""JSON extraction, bbox coercion, coordinate conversion, and grounding parsing.
+
+This module contains all pure-function helpers that do **not** require
+``torch`` or a loaded model at import time.
+"""
 
 from __future__ import annotations
 
 import json
 import re
-import urllib.parse
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageDraw
@@ -16,8 +17,13 @@ SYSTEM_PROMPT_DEFAULT = (
     "You are a robot navigation assistant. Given one camera image and an object "
     "description, return JSON only with keys: found (bool), bbox_2d "
     "([x1,y1,x2,y2] in 0..1000), label (string), optional confidence (0..1). "
-    "If object is not visible, return {\"found\": false}."
+    'If object is not visible, return {"found": false}.'
 )
+
+
+# ---------------------------------------------------------------------------
+# Data classes
+# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -35,9 +41,14 @@ class GroundingTarget:
 class GroundingExample:
     """One grounding sample backed by a local image path."""
 
-    image_path: Path
+    image_path: "Path"  # noqa: F821 — resolved at runtime via pathlib
     prompt: str
     target: GroundingTarget
+
+
+# ---------------------------------------------------------------------------
+# Prompt helpers
+# ---------------------------------------------------------------------------
 
 
 def normalize_prompt(prompt: str) -> str:
@@ -60,6 +71,11 @@ def serialize_target(target: GroundingTarget) -> str:
     if target.confidence is not None:
         payload["confidence"] = round(float(target.confidence), 4)
     return json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+
+
+# ---------------------------------------------------------------------------
+# JSON extraction
+# ---------------------------------------------------------------------------
 
 
 def extract_first_json_object(text: str) -> dict[str, Any] | None:
@@ -87,6 +103,11 @@ def extract_first_json_object(text: str) -> dict[str, Any] | None:
         if isinstance(value, dict):
             return value
     return None
+
+
+# ---------------------------------------------------------------------------
+# Coercion helpers
+# ---------------------------------------------------------------------------
 
 
 def _coerce_bool(value: Any, *, default: bool = False) -> bool:
@@ -149,6 +170,11 @@ def _coerce_bbox(
     return (x1, y1, x2, y2)
 
 
+# ---------------------------------------------------------------------------
+# Grounding target parsing
+# ---------------------------------------------------------------------------
+
+
 def parse_grounding_target(value: Any, *, strict_bbox_when_found: bool) -> GroundingTarget:
     """Parse a grounding target from dict or JSON string."""
     payload = value
@@ -193,6 +219,11 @@ def parse_grounding_prediction(text: str) -> GroundingTarget | None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Coordinate conversion & bbox utilities
+# ---------------------------------------------------------------------------
+
+
 def infer_prediction_bbox_coordinate_mode(
     bbox_2d: tuple[int, int, int, int] | None,
     *,
@@ -207,7 +238,6 @@ def infer_prediction_bbox_coordinate_mode(
     if image_width > 0 and image_height > 0:
         fits_image = x1 >= 0 and y1 >= 0 and x2 <= image_width and y2 <= image_height
         if fits_image:
-            # Qwen commonly emits pixel-space boxes in the resized inference image.
             return "pixel"
     if max(x1, y1, x2, y2) > 1000:
         return "pixel"
@@ -292,164 +322,6 @@ def bbox_to_pixel_coords(
     return denormalize_bbox_1000(bbox_2d, image_width, image_height)
 
 
-def _resolve_path(raw_value: str, dataset_root: Path) -> Path:
-    raw = raw_value.strip()
-    if raw.startswith("file://"):
-        parsed = urllib.parse.urlparse(raw)
-        raw = urllib.parse.unquote(parsed.path)
-        if len(raw) >= 3 and raw[0] == "/" and raw[2] == ":":
-            raw = raw[1:]
-    candidate = Path(raw)
-    if candidate.is_absolute():
-        return candidate
-    return (dataset_root / candidate).resolve()
-
-
-def _parse_chat_record(record: dict[str, Any], dataset_root: Path) -> GroundingExample:
-    messages = record.get("messages")
-    if not isinstance(messages, list):
-        raise ValueError("messages must be a list.")
-
-    user_message = next(
-        (m for m in messages if isinstance(m, dict) and m.get("role") == "user"),
-        None,
-    )
-    if user_message is None:
-        raise ValueError("Could not find user message in chat record.")
-
-    content = user_message.get("content")
-    image_ref: str | None = None
-    prompt: str | None = None
-
-    if isinstance(content, list):
-        for item in content:
-            if not isinstance(item, dict):
-                continue
-            item_type = item.get("type")
-            if item_type == "image" and image_ref is None:
-                image_ref = _coerce_optional_text(item.get("image"))
-            if item_type == "text" and prompt is None:
-                prompt = _coerce_optional_text(item.get("text"))
-    elif isinstance(content, str):
-        prompt = content
-    else:
-        raise ValueError("Unsupported user content format.")
-
-    if image_ref is None:
-        image_ref = _coerce_optional_text(record.get("image") or record.get("image_path"))
-    if prompt is None:
-        raise ValueError("Could not parse prompt text from user message.")
-
-    assistant_message = next(
-        (
-            m
-            for m in reversed(messages)
-            if isinstance(m, dict) and m.get("role") == "assistant"
-        ),
-        None,
-    )
-    if assistant_message is None:
-        raise ValueError("Could not find assistant message in chat record.")
-
-    target = parse_grounding_target(
-        assistant_message.get("content"),
-        strict_bbox_when_found=True,
-    )
-    if image_ref is None:
-        raise ValueError("Could not parse image path from user message.")
-
-    image_path = _resolve_path(image_ref, dataset_root)
-    return GroundingExample(image_path=image_path, prompt=normalize_prompt(prompt), target=target)
-
-
-def _parse_flat_record(record: dict[str, Any], dataset_root: Path) -> GroundingExample:
-    image_ref = (
-        _coerce_optional_text(record.get("image"))
-        or _coerce_optional_text(record.get("image_path"))
-        or _coerce_optional_text(record.get("img"))
-    )
-    if image_ref is None:
-        raise ValueError("Missing image or image_path field.")
-
-    prompt = (
-        _coerce_optional_text(record.get("prompt"))
-        or _coerce_optional_text(record.get("query"))
-        or _coerce_optional_text(record.get("text"))
-    )
-    if prompt is None:
-        raise ValueError("Missing prompt/query/text field.")
-
-    target_payload: Any
-    if "target" in record:
-        target_payload = record["target"]
-    elif "assistant" in record:
-        target_payload = record["assistant"]
-    elif "response" in record:
-        target_payload = record["response"]
-    else:
-        target_payload = {
-            "found": record.get("found"),
-            "bbox_2d": record.get("bbox_2d"),
-            "label": record.get("label"),
-            "confidence": record.get("confidence"),
-        }
-
-    target = parse_grounding_target(target_payload, strict_bbox_when_found=True)
-    image_path = _resolve_path(image_ref, dataset_root)
-    return GroundingExample(image_path=image_path, prompt=normalize_prompt(prompt), target=target)
-
-
-def load_grounding_dataset(dataset_path: str) -> list[GroundingExample]:
-    """Load a grounding dataset from JSON or JSONL."""
-    path = Path(dataset_path).resolve()
-    if not path.exists():
-        raise FileNotFoundError(f"Dataset file does not exist: {path}")
-
-    dataset_root = path.parent
-    records: list[dict[str, Any]] = []
-
-    if path.suffix.lower() == ".jsonl":
-        with path.open("r", encoding="utf-8") as handle:
-            for line_number, line in enumerate(handle, start=1):
-                stripped = line.strip().lstrip("\ufeff")
-                if not stripped:
-                    continue
-                try:
-                    payload = json.loads(stripped)
-                except json.JSONDecodeError as exc:
-                    raise ValueError(f"{path}:{line_number} is not valid JSON.") from exc
-                if not isinstance(payload, dict):
-                    raise ValueError(f"{path}:{line_number} must contain a JSON object.")
-                records.append(payload)
-    else:
-        with path.open("r", encoding="utf-8") as handle:
-            payload = json.load(handle)
-        if isinstance(payload, list):
-            records = [item for item in payload if isinstance(item, dict)]
-        elif isinstance(payload, dict) and isinstance(payload.get("examples"), list):
-            records = [item for item in payload["examples"] if isinstance(item, dict)]
-        else:
-            raise ValueError("Dataset JSON must be a list or an object with an 'examples' list.")
-
-    examples: list[GroundingExample] = []
-    for index, record in enumerate(records, start=1):
-        try:
-            if isinstance(record.get("messages"), list):
-                example = _parse_chat_record(record, dataset_root)
-            else:
-                example = _parse_flat_record(record, dataset_root)
-        except Exception as exc:  # noqa: BLE001
-            raise ValueError(f"Failed to parse dataset record #{index}: {exc}") from exc
-
-        if not example.image_path.exists():
-            raise FileNotFoundError(f"Image path does not exist: {example.image_path}")
-        examples.append(example)
-
-    if not examples:
-        raise ValueError(f"No valid examples found in dataset: {path}")
-    return examples
-
-
 def denormalize_bbox_1000(
     bbox_2d: tuple[int, int, int, int], image_width: int, image_height: int
 ) -> tuple[int, int, int, int]:
@@ -522,144 +394,3 @@ def overlay_bbox(
     if label:
         draw.text((px_bbox[0], max(0, px_bbox[1] - 16)), label, fill=color)
     return output
-
-
-def _resolve_torch_dtype(dtype_name: str) -> Any:
-    import torch
-
-    normalized = dtype_name.strip().lower()
-    if normalized == "auto":
-        return "auto"
-    if normalized in {"float16", "fp16"}:
-        return torch.float16
-    if normalized in {"bfloat16", "bf16"}:
-        return torch.bfloat16
-    if normalized in {"float32", "fp32"}:
-        return torch.float32
-    raise ValueError(f"Unsupported torch dtype: {dtype_name}")
-
-
-def get_model_device(model: Any) -> Any:
-    """Best-effort retrieval of the model device."""
-    try:
-        return next(model.parameters()).device
-    except StopIteration:
-        import torch
-
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-def load_qwen_model_and_processor(
-    *,
-    model_name_or_path: str,
-    torch_dtype: str = "auto",
-    device_map: str = "auto",
-    attn_implementation: str | None = None,
-    load_in_4bit: bool = False,
-    bnb_4bit_compute_dtype: str = "bfloat16",
-) -> tuple[Any, Any]:
-    """Load Qwen2.5-VL model + processor with optional 4-bit quantization."""
-    import torch
-
-    try:
-        from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
-    except ImportError as exc:  # pragma: no cover - import guard
-        raise RuntimeError(
-            "Missing transformers dependency. Install with: "
-            "pip install transformers accelerate"
-        ) from exc
-
-    resolved_dtype = _resolve_torch_dtype(torch_dtype)
-    if resolved_dtype == "auto" and torch.cuda.is_available():
-        # Prefer FP16 on CUDA to avoid defaulting to FP32 and OOM.
-        resolved_dtype = torch.float16
-
-    model_kwargs: dict[str, Any] = {
-        "torch_dtype": resolved_dtype,
-        "device_map": device_map,
-    }
-    if attn_implementation:
-        model_kwargs["attn_implementation"] = attn_implementation
-    if load_in_4bit:
-        try:
-            from transformers import BitsAndBytesConfig
-        except ImportError as exc:  # pragma: no cover - import guard
-            raise RuntimeError(
-                "4-bit loading requested but bitsandbytes support is missing."
-            ) from exc
-        model_kwargs["quantization_config"] = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_compute_dtype=_resolve_torch_dtype(bnb_4bit_compute_dtype),
-        )
-
-    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-        model_name_or_path,
-        **model_kwargs,
-    )
-    processor = AutoProcessor.from_pretrained(model_name_or_path)
-    return model, processor
-
-
-def run_grounding_generation(
-    *,
-    model: Any,
-    processor: Any,
-    image: Image.Image,
-    prompt: str,
-    system_prompt: str = SYSTEM_PROMPT_DEFAULT,
-    max_new_tokens: int = 128,
-    temperature: float = 0.0,
-    top_p: float = 0.9,
-) -> str:
-    """Run one grounding inference and return decoded assistant text."""
-    user_prompt = normalize_prompt(prompt)
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {
-            "role": "user",
-            "content": [
-                {"type": "image", "image": "local_image"},
-                {"type": "text", "text": user_prompt},
-            ],
-        },
-    ]
-    chat_text = processor.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True,
-    )
-
-    model_inputs = processor(
-        text=[chat_text],
-        images=[image.convert("RGB")],
-        return_tensors="pt",
-    )
-    device = get_model_device(model)
-    model_inputs = {
-        key: value.to(device) if hasattr(value, "to") else value
-        for key, value in model_inputs.items()
-    }
-
-    generation_kwargs: dict[str, Any] = {"max_new_tokens": max_new_tokens}
-    if temperature > 0:
-        generation_kwargs.update(
-            {
-                "do_sample": True,
-                "temperature": temperature,
-                "top_p": top_p,
-            }
-        )
-    else:
-        generation_kwargs["do_sample"] = False
-
-    generated = model.generate(**model_inputs, **generation_kwargs)
-    prompt_length = model_inputs["input_ids"].shape[1]
-    completion_ids = generated[:, prompt_length:]
-    decoded = processor.batch_decode(
-        completion_ids,
-        skip_special_tokens=True,
-        clean_up_tokenization_spaces=False,
-    )
-    return decoded[0].strip()

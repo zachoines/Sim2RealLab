@@ -64,6 +64,11 @@ def reset_robot_state(
 
     robot.write_root_state_to_sim(root_state, env_ids)
 
+    # Zero joint state to prevent stale wheel velocities from flipping the robot
+    joint_pos = robot.data.default_joint_pos[env_ids].clone()
+    joint_vel = torch.zeros_like(robot.data.default_joint_vel[env_ids])
+    robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+
 
 # Cache for spawn points tensor (loaded once, reused across resets)
 _spawn_points_cache: dict[str, torch.Tensor] = {}
@@ -119,6 +124,11 @@ def reset_robot_state_on_floor(
     root_state[:, 7:] = 0.0
 
     robot.write_root_state_to_sim(root_state, env_ids)
+
+    # Zero joint state to prevent stale wheel velocities from flipping the robot
+    joint_pos = robot.data.default_joint_pos[env_ids].clone()
+    joint_vel = torch.zeros_like(robot.data.default_joint_vel[env_ids])
+    robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
 
 
 def randomize_friction(
@@ -486,6 +496,15 @@ def reset_robot_proc_room(
     root_state[:, 7:] = 0.0
 
     robot.write_root_state_to_sim(root_state, env_ids)
+
+    # Zero joint positions and velocities — without this, wheels carry
+    # angular velocity from the previous episode.  The mismatch between
+    # zero body velocity and spinning wheels causes PhysX to resolve an
+    # impulse that can flip the robot, especially at high env counts where
+    # the GPU solver has less budget per constraint.
+    joint_pos = robot.data.default_joint_pos[env_ids].clone()
+    joint_vel = torch.zeros_like(robot.data.default_joint_vel[env_ids])
+    robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
 
 
 def randomize_proc_room_difficulty(

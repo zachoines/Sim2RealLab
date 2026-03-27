@@ -50,6 +50,11 @@ def main():
     parser.add_argument(
         "--max_iterations", type=int, default=None, help="Maximum training iterations (default: from agent config)"
     )
+    parser.add_argument(
+        "--num_steps", type=int, default=None,
+        help="Rollout steps per env per update (default: from agent config, e.g. 48). "
+             "Lower values reduce VRAM, allowing more envs for sample diversity.",
+    )
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument(
         "--log_dir",
@@ -78,6 +83,12 @@ def main():
     parser.add_argument(
         "--video_interval", type=int, default=2000,
         help="Steps between video recordings (default: 2000)",
+    )
+    # Network overrides
+    parser.add_argument(
+        "--depth_encoder", type=str, default=None, choices=["defm", "cnn"],
+        help="Depth encoder type (default: from network config, typically 'defm'). "
+             "'cnn' uses a lightweight trainable CNN instead of the frozen DeFM backbone.",
     )
     # Modular auxiliary losses
     parser.add_argument(
@@ -156,6 +167,8 @@ def main():
     agent_cfg = load_cfg_from_registry(env_name, "rsl_rl_cfg_entry_point")
     if args.max_iterations is not None:
         agent_cfg.max_iterations = args.max_iterations
+    if args.num_steps is not None:
+        agent_cfg.num_steps_per_env = args.num_steps
     agent_cfg.seed = args.seed
 
     print("\n" + "=" * 60)
@@ -163,10 +176,13 @@ def main():
     print("=" * 60)
     print(f"Environment: {env_name}")
     print(f"Number of environments: {args.num_envs}")
+    print(f"Steps per env per update: {agent_cfg.num_steps_per_env}")
     print(f"Max iterations: {agent_cfg.max_iterations}")
     print(f"Log directory: {args.log_dir}")
     if args.video:
         print(f"Video: every {args.video_interval} steps, {args.video_length} frames/clip")
+    if args.depth_encoder:
+        print(f"Depth encoder: {args.depth_encoder} (CLI override)")
     if args.aux:
         print(f"Auxiliary losses: {', '.join(args.aux)}")
     print("=" * 60 + "\n")
@@ -217,8 +233,12 @@ def main():
                 raise ValueError("--aux gail requires --gail_demos <path>")
             register_auxiliary(GAILAuxiliary.from_args(args, device=agent_cfg.device))
 
-    # Create runner
-    runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
+    # Create runner (inject CLI overrides into the config dict)
+    agent_dict = agent_cfg.to_dict()
+    if args.depth_encoder is not None:
+        agent_dict["policy"]["depth_encoder_type"] = args.depth_encoder
+        print(f"[Override] depth_encoder_type = {args.depth_encoder}")
+    runner = OnPolicyRunner(env, agent_dict, log_dir=log_dir, device=agent_cfg.device)
 
     # Resume from checkpoint if specified
     if args.resume:

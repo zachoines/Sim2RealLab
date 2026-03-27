@@ -1,0 +1,53 @@
+"""Inference subpackage — parsing, bbox utilities, and model runtime."""
+
+from strafer_vlm.inference.parsing import (
+    SYSTEM_PROMPT_DEFAULT,
+    GroundingExample,
+    GroundingTarget,
+    _coerce_bbox,
+    _coerce_bool,
+    _coerce_confidence,
+    _coerce_optional_text,
+    bbox_iou,
+    bbox_to_pixel_coords,
+    clamp_pixel_bbox,
+    denormalize_bbox_1000,
+    extract_first_json_object,
+    infer_prediction_bbox_coordinate_mode,
+    normalize_prediction_bbox_to_1000,
+    normalize_prompt,
+    overlay_bbox,
+    parse_grounding_prediction,
+    parse_grounding_target,
+    serialize_target,
+)
+from strafer_vlm.inference.qwen_runtime import (
+    get_model_device,
+    load_qwen_model_and_processor,
+    run_grounding_generation,
+)
+
+__all__ = [
+    "SYSTEM_PROMPT_DEFAULT",
+    "GroundingExample",
+    "GroundingTarget",
+    "_coerce_bbox",
+    "_coerce_bool",
+    "_coerce_confidence",
+    "_coerce_optional_text",
+    "bbox_iou",
+    "bbox_to_pixel_coords",
+    "clamp_pixel_bbox",
+    "denormalize_bbox_1000",
+    "extract_first_json_object",
+    "get_model_device",
+    "infer_prediction_bbox_coordinate_mode",
+    "load_qwen_model_and_processor",
+    "normalize_prediction_bbox_to_1000",
+    "normalize_prompt",
+    "overlay_bbox",
+    "parse_grounding_prediction",
+    "parse_grounding_target",
+    "run_grounding_generation",
+    "serialize_target",
+]

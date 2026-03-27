@@ -17,13 +17,15 @@ from pathlib import Path
 
 from PIL import Image
 
-from strafer_vlm.qwen_vl_common import (
+from strafer_vlm.inference.parsing import (
     SYSTEM_PROMPT_DEFAULT,
-    get_model_device,
-    load_qwen_model_and_processor,
     normalize_prediction_bbox_to_1000,
     overlay_bbox,
     parse_grounding_prediction,
+)
+from strafer_vlm.inference.qwen_runtime import (
+    get_model_device,
+    load_qwen_model_and_processor,
     run_grounding_generation,
 )
 

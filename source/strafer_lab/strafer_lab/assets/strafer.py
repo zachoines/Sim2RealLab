@@ -53,8 +53,8 @@ STRAFER_CFG = ArticulationCfg(
         usd_path=_STRAFER_USD_PATH,
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
             enabled_self_collisions=False,
-            solver_position_iteration_count=12,
-            solver_velocity_iteration_count=8,
+            solver_position_iteration_count=32,
+            solver_velocity_iteration_count=16,
         ),
         activate_contact_sensors=True,
     ),
@@ -94,7 +94,9 @@ STRAFER_CFG = ArticulationCfg(
             effort_limit_sim=0.0,       # No active drive
             velocity_limit_sim=1000.0,   # Allow free spinning (high limit)
             stiffness=0.0,
-            damping=0.01,               # Very low friction for free rolling
+            damping=0.5,                # Low friction for free rolling; 0.01 caused GPU
+                                        # TGS solver divergence at high env counts (>24),
+                                        # flipping the robot via phantom constraint forces.
         ),
     },
 )

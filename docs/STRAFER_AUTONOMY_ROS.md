@@ -332,9 +332,9 @@ Practical recommendation:
 - keep `navigate_to_pose` as the stable autonomy skill
 - make the robot-side execution mode selectable from the start
 - support three robot-local execution modes at the interface level:
-  - `execution_backend="nav2"`
-  - `execution_backend="strafer_direct"`
-  - `execution_backend="hybrid_nav2_strafer"`
+  - `execution_backend="nav2"` — **MVP: only implemented backend**
+  - `execution_backend="strafer_direct"` — post-MVP (requires `strafer_inference`)
+  - `execution_backend="hybrid_nav2_strafer"` — post-MVP (requires `strafer_inference`)
 - interpret the current `execution_backend` field as an execution-mode selector
 - allow the default mode to remain `nav2` until the RL policy is ready, but do not make the interface Nav2-specific
 
@@ -407,7 +407,7 @@ Required:
 Required behavior:
 - cache RGB, aligned depth, camera info, odom, and TF locally
 - expose `capture_scene_observation()`
-- expose `get_robot_state()`
+- expose `get_robot_state()` — MVP returns `{"pose": ..., "nav_state": ...}` from odom + Nav2 status; battery and velocity are deferred until `DiagnosticStatus` aggregation is implemented
 - call `ProjectDetectionToGoalPose.srv`
 - dispatch `navigate_to_pose` to the selected execution mode
 - support cancel for the currently active execution mode

@@ -17,10 +17,10 @@ How the Isaac Lab simulation models the real Strafer robot, and how to tune each
 |----------|-------|-------|
 | `WHEEL_RADIUS` | 0.048 m | 96mm mecanum wheel |
 | `WHEEL_BASE` | 0.336 m | Front-to-rear axle, center-to-center |
-| `TRACK_WIDTH` | 0.4284 m | Left-to-right axle, center-to-center (frame 360mm + 2x15.2mm axle + 38mm wheel) |
-| `K` (lever arm) | 0.382 m | `WHEEL_BASE/2 + TRACK_WIDTH/2` -- used in kinematic matrix |
+| `TRACK_WIDTH` | 0.4132 m | Left-to-right axle, center-to-center (451.2mm outer width − 38mm wheel width) |
+| `K` (lever arm) | 0.3746 m | `WHEEL_BASE/2 + TRACK_WIDTH/2` -- used in kinematic matrix |
 | `MAX_LINEAR_VEL` | 1.568 m/s | `WHEEL_RADIUS x MAX_WHEEL_ANGULAR_VEL` |
-| `MAX_ANGULAR_VEL` | 4.10 rad/s | `MAX_LINEAR_VEL / K` |
+| `MAX_ANGULAR_VEL` | 4.19 rad/s | `MAX_LINEAR_VEL / K` |
 
 ---
 

@@ -73,7 +73,7 @@ The initial registry is intentionally small. It is enough to support a useful MV
 |------|---------|--------|---------|---------------|----------|-----|
 | `interpret_user_command` | Turn freeform text into a typed mission request | natural language command, robot context | structured mission intent | `strafer_autonomy` planner | No | Yes |
 | `plan_skill_sequence` | Build a bounded skill list from mission intent | mission intent, skill catalog, world state | ordered `SkillCall` list | `strafer_autonomy` planner | Indirectly | Yes |
-| `validate_plan` | Reject unsafe or unsupported plans before execution | proposed plan, skill catalog | accepted plan or validation errors | `strafer_autonomy` | No | Yes |
+| `validate_plan` | Reject unsafe or unsupported plans before execution | proposed plan, skill catalog | accepted plan or validation errors | `strafer_autonomy` | No | Yes (internal) |
 | `select_next_skill` | Choose the next executable step from mission state | mission state, world state | next skill call or mission completion | `strafer_autonomy` executor | No | Yes |
 | `repair_plan` | Recover after a failed step | mission state, failure code, world state | revised plan or terminal failure | `strafer_autonomy` planner | Optional | Later |
 | `ask_for_clarification` | Request user clarification when intent is ambiguous | command text, ambiguity reason | clarification question | `strafer_autonomy` planner | No | Later |

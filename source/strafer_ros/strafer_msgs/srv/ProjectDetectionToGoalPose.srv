@@ -1,0 +1,49 @@
+# Project a 2D VLM grounding detection into a reachable robot goal pose.
+#
+# The caller provides the bounding box from the grounding service and a
+# standoff distance.  This service owns the full projection pipeline:
+#   bbox center (normalized) -> pixel coordinates -> depth lookup ->
+#   3D point in camera frame -> TF to map frame -> standoff offset ->
+#   reachability check -> goal PoseStamped.
+#
+# The service node subscribes to the synced depth and camera_info topics
+# and uses TF2 to look up d555_link -> map internally.
+
+# --- Request ---
+
+# Bounding box from the VLM grounding service in Qwen normalized
+# [0, 1000] coordinates, ordered [x1, y1, x2, y2].
+float32[4] bbox_normalized_1000
+
+# Timestamp of the RGB frame used for grounding so the service can
+# select the matching depth frame and TF snapshot.
+float64 image_stamp_sec
+
+# Desired standoff distance in meters from the detected target.
+float32 standoff_m
+
+# Optional human-readable label for logging and diagnostics.
+string target_label
+
+---
+
+# --- Response ---
+
+# True if a valid goal pose was produced.
+bool found
+
+# True if the depth reading at the bbox center was valid.
+bool depth_valid
+
+# The pose the robot should navigate to (standoff-offset from target).
+geometry_msgs/PoseStamped goal_pose
+
+# The raw projected position of the detected object in the map frame.
+geometry_msgs/PoseStamped target_pose
+
+# Optional quality flags such as "depth_sparse", "near_obstacle",
+# "at_map_edge", "standoff_clipped".
+string[] quality_flags
+
+# Human-readable status or error description.
+string message

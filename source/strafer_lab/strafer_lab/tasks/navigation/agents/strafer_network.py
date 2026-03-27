@@ -13,19 +13,21 @@ Depth encoder options (selected via ``depth_encoder_type``):
     "defm" (default, recommended):
         Frozen DeFM (Depth Foundation Model) backbone + trainable linear
         projection.  DeFM is a ViT/CNN pretrained on 60M depth images via
-        DINOv2-style self-distillation (ETH Zurich, Jan 2026).  The frozen
-        features are metric-aware and transfer across sim-to-real without
-        fine-tuning.  Only the projection head (~164K params) trains.
+        DINOv2-style self-distillation (ETH Zurich, Jan 2026).  Input depth
+        (raw meters) is converted to DeFM's 3-channel log-normalized
+        representation using ``preprocess_depth_batch()`` from the DeFM
+        library.  The frozen features are metric-aware and transfer across
+        sim-to-real without fine-tuning.  Only the projection head (~164K
+        params) trains.
 
         Variant selection via ``defm_model_name``:
             "efficientnet_b0"  — 3M params, 3ms on Jetson Orin (default)
             "efficientnet_b2"  — 7M params, 5ms on Jetson Orin
             "resnet18"         — 11M params, 12ms on Jetson Orin
 
-    "cnn" (legacy fallback):
+    "cnn" (fallback):
         Custom BN+residual CNN with SpatialSoftArgmax, trained from scratch.
-        ~80K params.  Struggles to converge alongside PPO — use only if DeFM
-        is unavailable.
+        ~80K params.  Useful when DeFM is unavailable or for fast iteration.
 
 Usage:
     Inject into the rsl_rl runner namespace and set ``class_name`` in the
@@ -107,14 +109,30 @@ class SpatialSoftArgmax(nn.Module):
 # ---------------------------------------------------------------------------
 # DeFM Depth Encoder (frozen pretrained backbone + trainable projection)
 # See https://github.com/leggedrobotics/defm
+#
+# DeFM is a Depth Foundation Model pretrained on 60M depth images via
+# DINOv2-style self-distillation.  It expects metric depth (meters) as
+# input, NOT RGB.  Its preprocessing converts single-channel depth into
+# a 3-channel representation:
+#   C1: log1p(depth) / log1p(100)    — global scale normalization
+#   C2: clipped log normalization     — mid-range (~9m) detail
+#   C3: per-image min-max             — local relative contrast
+# followed by DeFM-specific mean/std normalization.
+#
+# We use DeFM's own `preprocess_depth_batch()` for this conversion,
+# which is fully vectorized on GPU tensors.
 # ---------------------------------------------------------------------------
 
-# DeFM input resolution (all variants expect 224×224)
+# DeFM input resolution for CNN variants (EfficientNet, ResNet).
+# ViT variants use 518×518 but we don't expose those for real-time use.
 _DEFM_INPUT_SIZE = 224
 
 
 def _load_defm_backbone(model_name: str) -> tuple[nn.Module, int]:
     """Load a frozen DeFM backbone via torch.hub.
+
+    Also imports DeFM's preprocessing utilities from the hub cache so they
+    are available at inference time without a separate pip install.
 
     Returns (backbone_module, feature_dim).
     """
@@ -141,19 +159,35 @@ def _load_defm_backbone(model_name: str) -> tuple[nn.Module, int]:
     return model, feature_dim
 
 
+def _get_defm_preprocess():
+    """Import DeFM's vectorized depth preprocessing from the torch.hub cache.
+
+    Returns ``preprocess_depth_batch`` or raises ImportError.
+    """
+    import sys
+    from pathlib import Path
+
+    # torch.hub caches the repo here after the first load
+    hub_dir = Path(torch.hub.get_dir()) / "leggedrobotics_defm_main"
+    if hub_dir.is_dir() and str(hub_dir) not in sys.path:
+        sys.path.insert(0, str(hub_dir))
+
+    from defm.utils.utils import preprocess_depth_batch
+    return preprocess_depth_batch
+
+
 class DeFMDepthEncoder(nn.Module):
     """Frozen DeFM encoder + trainable projection head.
 
-    DeFM expects 3-channel input at 224×224.  The depth image (60×80, 1ch)
-    is resized and replicated to 3 channels (DeFM's log-compression handles
-    the normalization internally).
-
-    Only the projection layer trains — the backbone is frozen.
+    Uses DeFM's native ``preprocess_depth_batch()`` to convert raw metric
+    depth into the 3-channel log-normalized representation the backbone was
+    pretrained on.  Only the projection layer trains (~164K params).
     """
 
     def __init__(self, output_dim: int = 128, model_name: str = "efficientnet_b0"):
         super().__init__()
         self.backbone, backbone_dim = _load_defm_backbone(model_name)
+        self._preprocess = _get_defm_preprocess()
         self.projection = nn.Sequential(
             nn.Linear(backbone_dim, output_dim),
             nn.ELU(),
@@ -163,17 +197,21 @@ class DeFMDepthEncoder(nn.Module):
         """Forward pass.
 
         Args:
-            depth_flat: Flattened depth image, shape (B, 4800) (60*80).
+            depth_flat: Flattened depth image in meters, shape (B, 4800).
 
         Returns:
             Embedding of shape (B, output_dim).
         """
         # Reshape: (B, 4800) → (B, 1, 60, 80)
         x = depth_flat.view(-1, 1, 60, 80)
-        # Resize to DeFM input resolution
-        x = F.interpolate(x, size=(_DEFM_INPUT_SIZE, _DEFM_INPUT_SIZE), mode="bilinear", align_corners=False)
-        # Replicate single channel to 3 channels (DeFM expects 3ch)
-        x = x.expand(-1, 3, -1, -1)
+        # DeFM preprocessing: metric depth → 3-channel log-normalized + resize
+        # + DeFM mean/std normalization + CNN BiFPN padding.  Fully vectorized.
+        x = self._preprocess(
+            x,
+            target_size=_DEFM_INPUT_SIZE,
+            cnn_padding=True,
+            device=depth_flat.device,
+        )
         # Frozen forward pass — extract global_backbone vector from DeFM output dict
         with torch.no_grad():
             out = self.backbone(x)

@@ -198,7 +198,7 @@ Important note:
 Fields:
 - `request_id: str`
 - `found: bool`
-- `bbox_2d: list[int] | None`
+- `bbox_2d: tuple[int, int, int, int] | None` — coordinates are in the Qwen normalized `[0, 1000]` space, not pixel coordinates.  The projection service converts to pixels using camera intrinsics.
 - `label: str | None`
 - `confidence: float | None`
 - `raw_output: str | None`

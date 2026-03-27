@@ -4,8 +4,11 @@ Launches:
   1. RealSense D555 camera node (depth + color + IMU if available)
   2. IMU orientation filter (Madgwick) — fuses accel+gyro → quaternion
   3. Timestamp fixer — shifts HW clock timestamps to system time
-  4. Static TF: base_link → d555_link (camera mounting position)
-  5. Depth downsampler node (full-res → 80x60 for policy input)
+  4. Depth downsampler node (full-res → 80x60 for policy input)
+
+The base_link → d555_link static TF is published by strafer_description
+from the URDF (with constants from strafer_shared).  Do not add a
+duplicate static_transform_publisher here.
 
 Published topics (matching the sim-to-real perception contract):
   /d555/color/image_raw       - sensor_msgs/Image   @ 30 Hz
@@ -103,25 +106,6 @@ def generate_launch_description():
             executable="timestamp_fixer",
             name="timestamp_fixer",
             output="screen",
-        ),
-
-        # ── Static TF: base_link → d555_link ───────────────────────────
-        # Camera mount position matching sim config:
-        #   20cm forward (+X), 0cm lateral, 25cm up (+Z) from body center
-        Node(
-            package="tf2_ros",
-            executable="static_transform_publisher",
-            name="d555_static_tf",
-            arguments=[
-                "--x", "0.20",
-                "--y", "0.0",
-                "--z", "0.25",
-                "--roll", "0.0",
-                "--pitch", "0.0",
-                "--yaw", "0.0",
-                "--frame-id", "base_link",
-                "--child-frame-id", "d555_link",
-            ],
         ),
 
         # ── Depth downsampler (full-res → 80x60 for policy) ────────────

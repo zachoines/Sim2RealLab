@@ -116,7 +116,6 @@ The first planner API should accept the current `PlannerRequest` shape:
     "locate_semantic_target",
     "project_detection_to_goal_pose",
     "navigate_to_pose",
-    "orient_relative_to_target",
     "wait",
     "cancel_mission",
     "report_status"
@@ -172,7 +171,7 @@ The first planner API should return a `MissionPlan`:
       "args": {"mode": "face_away"},
       "timeout_s": 15.0,
       "retry_limit": 0
-    },
+    },  // post-MVP — omit until orient skill is implemented
     {
       "step_id": "step_06",
       "skill": "wait",
@@ -285,7 +284,7 @@ capture_scene_observation
 locate_semantic_target(label=...)
 project_detection_to_goal_pose(standoff_m=0.7)
 navigate_to_pose(goal_source="projected_target", execution_backend="nav2")
-orient_relative_to_target(mode=...)
+orient_relative_to_target(mode=...)  # post-MVP — omit until orient skill is implemented
 wait(mode="until_next_command")
 ```
 

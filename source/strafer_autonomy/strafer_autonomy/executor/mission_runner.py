@@ -19,6 +19,7 @@ from strafer_autonomy.schemas import (
     GroundingResult,
     MissionPlan,
     PlannerRequest,
+    Pose3D,
     SceneObservation,
     SkillCall,
     SkillResult,
@@ -30,7 +31,7 @@ DEFAULT_AVAILABLE_SKILLS = (
     "locate_semantic_target",
     "project_detection_to_goal_pose",
     "navigate_to_pose",
-    "orient_relative_to_target",
+    # "orient_relative_to_target" — deferred from MVP; handler kept for post-MVP.
     "wait",
     "cancel_mission",
     "report_status",
@@ -66,6 +67,7 @@ class _MissionRuntime:
     message: str = "Mission accepted."
     error_code: str = ""
     cancel_event: Event = field(default_factory=Event)
+    resume_event: Event = field(default_factory=Event)
     thread: Thread | None = None
     plan: MissionPlan | None = None
     latest_observation: SceneObservation | None = None
@@ -219,8 +221,19 @@ class MissionRunner(MissionCommandHandler):
                     available_skills=self._config.available_skills,
                 )
             )
+            validation_errors = self._validate_plan(plan)
+            if validation_errors:
+                self._finish_runtime(
+                    runtime,
+                    state="failed",
+                    message=f"Plan validation failed: {'; '.join(validation_errors)}",
+                    error_code="plan_validation_failed",
+                )
+                return
+
             with self._lock:
                 runtime.plan = plan
+                runtime.mission_id = plan.mission_id
                 runtime.message = f"Planner returned {len(plan.steps)} steps."
                 runtime.error_code = ""
 
@@ -234,15 +247,7 @@ class MissionRunner(MissionCommandHandler):
                     )
                     return
 
-                self._set_runtime_state(
-                    runtime,
-                    state="executing",
-                    current_step_id=step.step_id,
-                    current_skill=step.skill,
-                    message=f"Executing skill '{step.skill}'.",
-                    error_code="",
-                )
-                result = self._execute_step(runtime, step)
+                result = self._execute_step_with_retries(runtime, step)
                 with self._lock:
                     runtime.step_results.append(result)
 
@@ -285,6 +290,74 @@ class MissionRunner(MissionCommandHandler):
                 message=f"Mission execution raised an exception: {exc}",
                 error_code="mission_exception",
             )
+
+    # ------------------------------------------------------------------
+    # Plan validation
+    # ------------------------------------------------------------------
+
+    _RECOGNISED_BACKENDS = frozenset({"nav2", "direct"})
+
+    def _validate_plan(self, plan: MissionPlan) -> list[str]:
+        """Validate a planner-returned mission plan before execution.
+
+        Returns a list of human-readable error strings.  An empty list means
+        the plan is valid and safe to execute.
+        """
+        errors: list[str] = []
+        allowed = set(self._config.available_skills)
+        seen_ids: set[str] = set()
+        for step in plan.steps:
+            if step.skill not in allowed:
+                errors.append(f"Unknown skill '{step.skill}' (step {step.step_id})")
+            if step.step_id in seen_ids:
+                errors.append(f"Duplicate step_id '{step.step_id}'")
+            seen_ids.add(step.step_id)
+            backend = step.args.get("execution_backend")
+            if backend is not None and backend not in self._RECOGNISED_BACKENDS:
+                errors.append(
+                    f"Unrecognised execution_backend '{backend}' (step {step.step_id})"
+                )
+        return errors
+
+    def _execute_step_with_retries(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
+        """Execute a skill step, retrying up to ``step.retry_limit`` times on failure."""
+
+        max_attempts = step.retry_limit + 1
+        for attempt in range(1, max_attempts + 1):
+            if runtime.cancel_event.is_set():
+                return SkillResult(
+                    step_id=step.step_id,
+                    skill=step.skill,
+                    status="canceled",
+                    outputs={},
+                    message="Mission canceled before retry.",
+                    error_code="mission_canceled",
+                    started_at=time.time(),
+                    finished_at=time.time(),
+                )
+
+            self._set_runtime_state(
+                runtime,
+                state="executing",
+                current_step_id=step.step_id,
+                current_skill=step.skill,
+                message=(
+                    f"Executing skill '{step.skill}'."
+                    if attempt == 1
+                    else f"Retrying skill '{step.skill}' (attempt {attempt}/{max_attempts})."
+                ),
+                error_code="",
+            )
+            result = self._execute_step(runtime, step)
+
+            if result.status == "succeeded" or result.status == "canceled":
+                return result
+            if attempt < max_attempts:
+                continue
+            return result
+
+        # Unreachable, but keeps the type checker happy.
+        return result  # type: ignore[possibly-undefined]
 
     def _execute_step(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
         if step.skill == "capture_scene_observation":
@@ -435,13 +508,12 @@ class MissionRunner(MissionCommandHandler):
     def _navigate_to_pose(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
         started_at = time.time()
         goal_source = str(step.args.get("goal_source", "projected_target"))
-        goal_pose: dict[str, Any] | None
+        goal_pose: Pose3D | None
         if goal_source == "projected_target":
             candidate = runtime.latest_goal_pose
             goal_pose = candidate.goal_pose if candidate is not None else None
         else:
-            raw_goal_pose = step.args.get("goal_pose")
-            goal_pose = dict(raw_goal_pose) if isinstance(raw_goal_pose, dict) else None
+            goal_pose = self._parse_pose3d(step.args.get("goal_pose"))
 
         if goal_pose is None:
             return self._failed_result(
@@ -468,9 +540,8 @@ class MissionRunner(MissionCommandHandler):
         started_at = time.time()
         candidate = runtime.latest_goal_pose
         target_pose = candidate.target_pose if candidate is not None else None
-        if not isinstance(target_pose, dict):
-            raw_target_pose = step.args.get("target_pose")
-            target_pose = dict(raw_target_pose) if isinstance(raw_target_pose, dict) else None
+        if target_pose is None:
+            target_pose = self._parse_pose3d(step.args.get("target_pose"))
         if target_pose is None:
             return self._failed_result(
                 step,
@@ -528,7 +599,17 @@ class MissionRunner(MissionCommandHandler):
                     started_at=started_at,
                     finished_at=time.time(),
                 )
-            if mode == "until_next_command" and not runtime.cancel_event.is_set():
+            if mode == "until_next_command":
+                if runtime.resume_event.is_set():
+                    return SkillResult(
+                        step_id=step.step_id,
+                        skill=step.skill,
+                        status="succeeded",
+                        outputs={"mode": mode, "resumed": True},
+                        message="Wait step resumed by new command.",
+                        started_at=started_at,
+                        finished_at=time.time(),
+                    )
                 time.sleep(self._config.wait_poll_period_s)
                 continue
             if deadline is None:
@@ -719,3 +800,23 @@ class MissionRunner(MissionCommandHandler):
         if isinstance(value, dict):
             return {str(key): self._serialize(item) for key, item in value.items()}
         return value
+
+    @staticmethod
+    def _parse_pose3d(raw: Any) -> Pose3D | None:
+        """Try to convert a raw dict (e.g. from planner args) into a ``Pose3D``."""
+        if isinstance(raw, Pose3D):
+            return raw
+        if not isinstance(raw, dict):
+            return None
+        try:
+            return Pose3D(
+                x=float(raw.get("x", 0.0)),
+                y=float(raw.get("y", 0.0)),
+                z=float(raw.get("z", 0.0)),
+                qx=float(raw.get("qx", 0.0)),
+                qy=float(raw.get("qy", 0.0)),
+                qz=float(raw.get("qz", 0.0)),
+                qw=float(raw.get("qw", 1.0)),
+            )
+        except (TypeError, ValueError):
+            return None

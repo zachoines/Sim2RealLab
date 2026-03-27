@@ -235,6 +235,12 @@ Response body:
 }
 ```
 
+Coordinate convention:
+
+- `bbox_2d` values are in the Qwen normalized `[0, 1000]` coordinate space, not pixel coordinates
+- the robot-side projection service (`ProjectDetectionToGoalPose`) is responsible for converting to pixel space using camera intrinsics before depth lookup
+- this convention is shared across the `POST /ground` response, `GroundingResult` in `strafer_autonomy.schemas`, and the projection service request
+
 Transport expectations:
 
 - image crosses the network as compressed payload, not a raw NumPy object

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
-from strafer_autonomy.schemas import GoalPoseCandidate, SceneObservation, SkillResult
+from strafer_autonomy.schemas import GoalPoseCandidate, Pose3D, SceneObservation, SkillResult
 
 
 @runtime_checkable
@@ -33,7 +33,7 @@ class RosClient(Protocol):
         self,
         *,
         step_id: str,
-        goal_pose: dict[str, Any],
+        goal_pose: Pose3D,
         execution_backend: str = "nav2",
         behavior_tree: str | None = None,
         timeout_s: float | None = None,
@@ -47,7 +47,7 @@ class RosClient(Protocol):
         self,
         *,
         step_id: str,
-        target_pose: dict[str, Any],
+        target_pose: Pose3D,
         mode: str,
         yaw_offset_rad: float = 0.0,
         tolerance_rad: float = 0.1,
@@ -115,7 +115,7 @@ class JetsonRosClient:
         self,
         *,
         step_id: str,
-        goal_pose: dict[str, Any],
+        goal_pose: Pose3D,
         execution_backend: str = "nav2",
         behavior_tree: str | None = None,
         timeout_s: float | None = None,
@@ -141,7 +141,7 @@ class JetsonRosClient:
         self,
         *,
         step_id: str,
-        target_pose: dict[str, Any],
+        target_pose: Pose3D,
         mode: str,
         yaw_offset_rad: float = 0.0,
         tolerance_rad: float = 0.1,

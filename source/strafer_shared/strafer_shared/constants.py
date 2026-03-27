@@ -74,8 +74,8 @@ ENCODER_TICKS_TO_RADIANS = (
 # =============================================================================
 
 MAX_LINEAR_VEL = WHEEL_RADIUS * MAX_WHEEL_ANGULAR_VEL  # ~1.568 m/s
-K = (WHEEL_BASE / 2.0) + (TRACK_WIDTH / 2.0)  # ~0.382 m (lever arm)
-MAX_ANGULAR_VEL = MAX_LINEAR_VEL / K  # ~4.10 rad/s
+K = (WHEEL_BASE / 2.0) + (TRACK_WIDTH / 2.0)  # ~0.375 m (lever arm)
+MAX_ANGULAR_VEL = MAX_LINEAR_VEL / K  # ~4.19 rad/s
 
 # =============================================================================
 # Per-Wheel Sign Correction

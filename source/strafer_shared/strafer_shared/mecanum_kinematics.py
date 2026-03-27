@@ -13,6 +13,7 @@ that correction.
 import numpy as np
 
 from strafer_shared.constants import (
+    K,
     WHEEL_RADIUS,
     WHEEL_BASE,
     TRACK_WIDTH,
@@ -24,7 +25,7 @@ from strafer_shared.constants import (
 )
 
 # Combined lever arm for rotation
-_K = (WHEEL_BASE / 2.0) + (TRACK_WIDTH / 2.0)
+_K = K
 _r = WHEEL_RADIUS
 
 # Forward kinematic matrix: body velocities [vx, vy, omega] -> wheel angular velocities

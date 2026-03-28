@@ -17,3 +17,14 @@ strafer_autonomy/
   schemas/   # Typed data contracts for planner, executor, ROS, and VLM boundaries
   cli.py     # Operator CLI for submit/status/cancel
 ```
+
+## VLM Integration
+
+`HttpGroundingClient` connects to the `strafer_vlm` grounding service over LAN.
+
+- Retry with exponential backoff on connection errors and 5xx responses
+- Domain-specific `GroundingServiceUnavailable` exception on failure
+- `build_command_server()` probes VLM health at startup before accepting missions
+- Debug overlay support via `return_debug_overlay` / `debug_overlay_jpeg_b64`
+
+See `source/strafer_vlm/README.md` for service launch instructions and API details.

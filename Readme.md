@@ -11,8 +11,8 @@ This repository covers:
 - a planned workstation-hosted LLM planner with a Jetson-local executor
 
 <p align="center">
-  <img src="docs/artifacts/strafer_top.jpeg" alt="Strafer robot, top view" width="45%"/>
-  <img src="docs/artifacts/strafer_side.jpeg" alt="Strafer robot, side view" width="45%"/>
+  <img src="docs/artifacts/strafer_top.jpeg" alt="Strafer robot, top view" width="31%"/>
+  <img src="docs/artifacts/strafer_side.jpeg" alt="Strafer robot, side view" width="55%"/>
 </p>
 
 ## Project Direction
@@ -60,17 +60,11 @@ The Isaac Lab environment is in good shape:
 - PPO training pipeline for navigation policies
 
 <p align="center">
-  <img src="docs/artifacts/strafer_usd.png" alt="Strafer USD model in Isaac Sim editor" width="70%"/>
-  <br/>
-  <em>Robot USD model in the Isaac Sim editor</em>
-</p>
-
-<p align="center">
   <a href="docs/artifacts/strafer_isaac_lab_test_drive.mp4">
     <img src="docs/artifacts/strafer_usd.png" alt="Click to view test drive video" width="50%"/>
   </a>
   <br/>
-  <em>Test drive in Isaac Lab - <a href="docs/artifacts/strafer_isaac_lab_test_drive.mp4">watch video</a></em>
+  <em>Robot USD model in the Isaac Sim editor - <a href="docs/artifacts/strafer_isaac_lab_test_drive.mp4">watch video</a></em>
 </p>
 
 <p align="center">
@@ -105,14 +99,20 @@ The autonomy stack is now split intentionally:
 - `strafer_autonomy`
   - owns planner-facing schemas, mission execution, and Jetson-side executor scaffolding
 - `strafer_vlm`
-  - owns Qwen grounding evaluation, training, and the future workstation grounding service
+  - workstation-hosted VLM grounding service, Qwen inference, training, and evaluation
 
-Current VLM status:
+The VLM grounding service is production-ready. It runs as a FastAPI endpoint on the
+workstation GPU (port 8100), accepts a natural-language prompt and a JPEG image, and
+returns a bounding box localising the target object. The Jetson executor calls it over
+LAN via `HttpGroundingClient` in `strafer_autonomy`. A Postman collection is included
+at `source/SImToRealLab.postman_collection.json` for interactive testing.
 
-- workstation-first Qwen grounding is implemented and working on Windows
-- live evaluation from a Windows-connected camera is working
-- LoRA training and offline evaluation routines are implemented
-- the LAN service boundary for the Jetson executor is planned but not yet implemented
+<p align="center">
+  <img src="docs/artifacts/hallway_grounding_example.png" alt="Hallway scene with yucca plant" width="35%"/>
+  <img src="docs/artifacts/hallway_grounding_example_postman.png" alt="Postman grounding request finding a yucca plant" width="44%"/>
+  <br/>
+  <em>VLM grounding: "Green yucca plant end of hall" — Original scene (left) and Postman request showing output with bbox overlay (right)</em>
+</p>
 
 ### Pipeline Snapshot
 
@@ -126,7 +126,7 @@ Current VLM status:
 | `strafer_inference` runtime | Planned | Policy runtime on the Jetson is still to be implemented |
 | `strafer_autonomy` executor | Scaffolded | Schemas, client stubs, command ingress, and mission runner exist |
 | LLM planner service | Planned | Workstation-hosted planner service is the next major autonomy step |
-| VLM grounding service | Planned | Current `strafer_vlm` tooling needs to be refactored into a service |
+| VLM grounding service | Done | FastAPI service on port 8100, inference timeout, health check, debug overlay, 124 tests |
 
 ## Hardware
 
@@ -147,7 +147,7 @@ source/
   strafer_shared/      shared constants, kinematics, policy I/O
   strafer_ros/         Jetson ROS2 packages
   strafer_autonomy/    autonomy schemas, executor, planner/VLM clients
-  strafer_vlm/         workstation grounding package and future grounding service
+  strafer_vlm/         workstation VLM grounding service, inference, training, and evaluation
 
 docs/
   SIM_TO_REAL_PLAN.md
@@ -217,21 +217,29 @@ cd IsaacLab
 ### VLM Grounding on Windows
 
 ```powershell
-python -m pip install -e source/strafer_vlm
-python -m pip install -e "source/strafer_vlm[qwen,live]"
+# Install core + inference + live dependencies
+python -m pip install -e "source/strafer_vlm[qwen,live,service]"
 ```
 
 ```powershell
-# Single-image grounding smoke test
+# Launch the grounding service (downloads model on first run)
+uvicorn strafer_vlm.service.app:create_app --factory --host 0.0.0.0 --port 8100
+```
+
+```powershell
+# Single-image grounding smoke test (CLI, no service needed)
 python -m strafer_vlm.test_qwen25vl_grounding `
   --image docs\artifacts\strafer_top.jpeg `
   --prompt "the robot chassis"
 ```
 
 ```powershell
-# Live grounding against a local camera
+# Live grounding against a local camera (CLI, no service needed)
 python -m strafer_vlm.live_qwen25vl_grounding --source 0 --prompt "Locate: the robot chassis"
 ```
+
+See `source/strafer_vlm/README.md` for env vars, API details, and curl/PowerShell examples.
+Import `source/SImToRealLab.postman_collection.json` into Postman for interactive testing.
 
 ### Robot Runtime on Jetson
 

@@ -26,7 +26,7 @@ class GroundResponse(BaseModel):
     confidence: float | None = Field(None, description="Detection confidence in [0, 1].")
     raw_output: str | None = Field(None, description="Raw model text output (for debugging).")
     latency_s: float = Field(0.0, description="Inference wall-clock time in seconds.")
-    debug_artifact_path: str | None = Field(None, description="Path to debug overlay image, if requested.")
+    debug_overlay_jpeg_b64: str | None = Field(None, description="JPEG-encoded base64 image with bbox overlay, returned when return_debug_overlay=true and a bbox was found.")
 
 
 class HealthResponse(BaseModel):

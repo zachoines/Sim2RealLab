@@ -57,7 +57,7 @@ class GroundingResult:
     confidence: float | None = None
     raw_output: str | None = None
     latency_s: float = 0.0
-    debug_artifact_path: str | None = None
+    debug_overlay_jpeg_b64: str | None = None
 
 
 @dataclass(frozen=True)

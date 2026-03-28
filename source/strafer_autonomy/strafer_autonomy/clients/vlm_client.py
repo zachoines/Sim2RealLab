@@ -153,9 +153,9 @@ def grounding_result_from_payload(payload: dict[str, Any]) -> GroundingResult:
         confidence=float(payload["confidence"]) if payload.get("confidence") is not None else None,
         raw_output=str(payload["raw_output"]) if payload.get("raw_output") is not None else None,
         latency_s=float(payload.get("latency_s", 0.0)),
-        debug_artifact_path=(
-            str(payload["debug_artifact_path"])
-            if payload.get("debug_artifact_path") is not None
+        debug_overlay_jpeg_b64=(
+            str(payload["debug_overlay_jpeg_b64"])
+            if payload.get("debug_overlay_jpeg_b64") is not None
             else None
         ),
     )

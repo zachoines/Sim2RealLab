@@ -63,7 +63,7 @@ not an automated test.
 | 2.4 | ~~Add `tests/test_service_endpoints.py` — FastAPI `TestClient` tests for `/health` and `/ground`~~ | ✅ DONE | 8 tests with mocked model: health, prompt validation (400), invalid image (400), missing fields (422), found/not-found/unparseable inference. |
 | 2.5 | ~~Add `tests/conftest.py` with shared fixtures~~ | ✅ DONE | `tiny_jpeg_b64`, `tiny_jpeg_path`, `mock_vlm_client` fixtures shared across all test modules. |
 | 2.6 | ~~Add pytest config to `pyproject.toml`~~ | ✅ DONE | `[tool.pytest.ini_options]` with `testpaths = ["tests"]` and `gpu` marker. `[dev]` extras group added. |
-| 2.7 | Verify tests pass in CI-like conditions (no GPU) | RECOMMENDED | All unit tests should run without torch/GPU. Mark integration tests with `@pytest.mark.gpu`. |
+| 2.7 | ~~Verify tests pass in CI-like conditions (no GPU)~~ | ✅ DONE | All 115 unit tests run without torch/GPU. Integration tests use `@pytest.mark.gpu`. |
 
 ---
 
@@ -75,10 +75,10 @@ The service works end-to-end but needs production-readiness improvements.
 |---|------|----------|-------|
 | 3.1 | ~~Add prompt validation — reject empty or whitespace-only prompts with 400~~ | ✅ DONE | Returns HTTP 400 with `"prompt must be a non-empty string."` for empty/whitespace prompts. |
 | 3.2 | ~~Add image size guard — reject payloads where decoded image exceeds a configurable max (e.g. 20 MP)~~ | ✅ DONE | `GROUNDING_MAX_IMAGE_MP` env var (default 20). Returns HTTP 400 with MP details. |
-| 3.3 | Add inference timeout — wrap `run_grounding_generation` with a timeout (configurable, default 30s) | RECOMMENDED | Prevents hung requests from blocking the worker. |
+| 3.3 | ~~Add inference timeout — wrap `run_grounding_generation` with a timeout (configurable, default 30s)~~ | ✅ DONE | `GROUNDING_INFERENCE_TIMEOUT` env var (default 30s, 0=no limit). Returns HTTP 504 on timeout. Inference runs in a thread pool with `asyncio.wait_for`. |
 | 3.4 | ~~Add graceful model-load failure — catch exceptions during lifespan, set `_state.ready = False`, return 503 on all requests instead of crashing~~ | ✅ DONE | Lifespan wraps model load in try/except, logs traceback, sets ready=False. |
 | 3.5 | ~~Add request-id logging — log `request_id` with every `/ground` request for traceability~~ | ✅ DONE | Logs `[request_id] /ground prompt=...` on entry and `[request_id] found=... bbox=... latency=...` on exit. |
-| 3.6 | Add `debug_artifact_path` support — when `return_debug_overlay=true`, save bbox overlay image and return the file path | DEFERRED | Contract field exists but always returns `null`. |
+| 3.6 | ~~Add `debug_overlay_jpeg_b64` support — when `return_debug_overlay=true`, generate bbox overlay and return as base64 JPEG~~ | ✅ DONE | Returns overlay image inline as base64 JPEG in `debug_overlay_jpeg_b64`. Only populated when `found=true` and overlay requested. Replaces the old `debug_artifact_path` design. |
 
 ---
 
@@ -100,7 +100,7 @@ VLM integration story.
 | # | Task | Priority | Notes |
 |---|------|----------|-------|
 | 5.1 | ~~Add timeout + retry to `HttpGroundingClient.locate_semantic_target`~~ | ✅ DONE | `max_retries` (default 2) and `retry_backoff_s` (default 0.5) on config. Retries on ConnectionError/Timeout/5xx with exponential backoff. |
-| 5.2 | Add `HttpGroundingClient.health()` call to executor startup | RECOMMENDED | Fail fast if VLM service is unreachable before accepting missions. |
+| 5.2 | ~~Add `HttpGroundingClient.health()` call to executor startup~~ | ✅ DONE | `build_command_server()` probes grounding client `.health()` before creating the runner. Raises `GroundingServiceUnavailable` if unreachable or model not loaded. Skippable via `check_vlm_health=False`. |
 | 5.3 | ~~Add connection error handling — raise a domain-specific exception (e.g. `GroundingServiceUnavailable`) instead of raw `requests` exceptions~~ | ✅ DONE | `GroundingServiceUnavailable` raised on all retry exhaustion and client HTTP errors. Exported from `clients/__init__.py`. |
 
 ---

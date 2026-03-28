@@ -774,7 +774,7 @@ class MissionRunner(MissionCommandHandler):
             "label": grounding.label,
             "confidence": grounding.confidence,
             "latency_s": grounding.latency_s,
-            "debug_artifact_path": grounding.debug_artifact_path,
+            "debug_overlay_jpeg_b64": grounding.debug_overlay_jpeg_b64,
         }
 
     def _goal_pose_outputs(self, candidate: GoalPoseCandidate) -> dict[str, Any]:

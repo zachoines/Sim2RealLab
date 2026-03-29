@@ -2,7 +2,7 @@
 
 from .grounding import GoalPoseCandidate, GroundingRequest, GroundingResult, Pose3D
 from .mission import MissionIntent, MissionPlan, PlannerRequest, SkillCall, SkillResult
-from .observation import SceneObservation
+from .observation import SceneDescription, SceneObservation
 
 __all__ = [
     "GoalPoseCandidate",
@@ -12,6 +12,7 @@ __all__ = [
     "MissionPlan",
     "PlannerRequest",
     "Pose3D",
+    "SceneDescription",
     "SceneObservation",
     "SkillCall",
     "SkillResult",

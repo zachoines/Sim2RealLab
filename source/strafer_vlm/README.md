@@ -58,7 +58,8 @@ Request:
   "request_id": "req-001",
   "prompt": "Locate: red chair",
   "image_jpeg_b64": "<base64-encoded JPEG>",
-  "max_image_side": 1024
+  "max_image_side": 1024,
+  "return_debug_overlay": false
 }
 ```
 
@@ -71,9 +72,13 @@ Response:
   "label": "chair",
   "confidence": 0.92,
   "raw_output": "{\"found\": true, ...}",
-  "latency_s": 2.15
+  "latency_s": 2.15,
+  "debug_overlay_jpeg_b64": null
 }
 ```
+
+Set `"return_debug_overlay": true` to receive a JPEG-encoded base64 image with the
+bounding box drawn on it in `debug_overlay_jpeg_b64`. Only populated when `found` is `true`.
 
 Bounding boxes use the **normalized [0, 1000] coordinate convention**, not pixel coordinates.
 

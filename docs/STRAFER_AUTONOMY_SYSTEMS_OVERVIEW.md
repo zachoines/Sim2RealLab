@@ -96,12 +96,13 @@ flowchart LR
 flowchart TD
     C[User command: wait by the door for me] --> P[planner_client.plan_mission]
     P --> MP[MissionPlan]
-    MP --> OBS[ros_client.capture_scene_observation]
-    OBS --> G[vlm_client.locate_semantic_target]
-    G --> PROJ[ros_client.project_detection_to_goal_pose]
+    MP --> SCAN[scan_for_target — rotate + capture + ground loop]
+    SCAN --> PROJ[ros_client.project_detection_to_goal_pose]
     PROJ --> NAV[ros_client.navigate_to_pose]
     NAV --> WAIT[executor wait step / hold state]
     WAIT --> DONE[Mission complete or next command]
+    SCAN -. on failure .-> DESC[describe_scene — report what is visible]
+    DESC --> FAIL[Mission failed with scene context]
 ```
 
 ## Stable Interface Boundaries
@@ -167,5 +168,8 @@ flowchart LR
 - `strafer_inference` and autonomy-facing robot skill services are planned additions, not current ROS functionality.
 - The intended end state is not just Nav2: trained RL behavior policies should support both direct execution and hybrid execution beneath higher-level classical planning.
 - Planner and VLM are heavy remote services from the executor's point of view.
+- Planned: `scan_for_target` is a composite Jetson-side skill that rotates the robot and calls the VLM at each heading until the target is found.
+- Planned: `describe_scene` calls a new `POST /describe` endpoint on the VLM service using the same Qwen2.5-VL model with a description prompt. Scene descriptions are attached to scan failure messages for operator situational awareness.
+- See `docs/STRAFER_VLM_AND_PLANNER_TASKS.md` for full task breakdown.
 - The first operator path is SSH plus CLI, but the long-term stable command boundary is robot-local `ExecuteMission.action`.
 - Future workstation, web, mobile, or cloud frontends should adapt into the same robot-local executor contract rather than replacing it.

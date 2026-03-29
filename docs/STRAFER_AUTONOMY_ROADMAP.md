@@ -206,24 +206,29 @@ User text
   -> plan_skill_sequence
   -> validate_plan
   -> select_next_skill
-  -> capture_scene_observation
-  -> locate_semantic_target
+  -> scan_for_target (rotate + capture + locate loop)
   -> project_detection_to_goal_pose
   -> navigate_to_pose
-  -> optional orient_relative_to_target
   -> optional wait
   -> report_status
 ```
+
+If `scan_for_target` fails to find the target after a full rotation, a planned
+`describe_scene` skill can capture a scene description via the VLM `POST /describe`
+endpoint and report what the robot sees.
 
 ### MVP supported command families
 
 | Intent | Example | Expected plan shape |
 |------|---------|---------------------|
-| `go_to_target` | "go to the door" | locate -> project -> navigate |
-| `go_and_wait` | "wait by the door" | locate -> project -> navigate -> wait |
-| `go_and_face` | "face the couch" | locate -> project -> navigate -> orient |
+| `go_to_target` | "go to the door" | scan_for_target -> project -> navigate |
+| `wait_by_target` | "wait by the door" | scan_for_target -> project -> navigate -> wait |
 | `cancel` | "stop" | cancel current mission |
 | `status` | "what are you doing" | summarize active mission |
+
+Note: `go_and_face` (orient) is deferred from MVP. `scan_for_target` is a
+composite skill that rotates the robot and calls the VLM at each heading until
+the target is found.
 
 ### MVP planner requirements
 
@@ -251,8 +256,7 @@ Example:
 {
   "mission_type": "wait_by_target",
   "steps": [
-    {"skill": "capture_scene_observation", "args": {}},
-    {"skill": "locate_semantic_target", "args": {"label": "door"}},
+    {"skill": "scan_for_target", "args": {"label": "door"}},
     {"skill": "project_detection_to_goal_pose", "args": {"standoff_m": 0.7}},
     {"skill": "navigate_to_pose", "args": {"goal_source": "projected_target"}},
     {"skill": "wait", "args": {"mode": "until_next_command"}}
@@ -428,8 +432,10 @@ Treat this roadmap as the higher-level system plan, and treat `STRAFER_AUTONOMY_
 
 ## Immediate Next Work
 
-1. Create `source/strafer_autonomy` with mission and skill schemas.
-2. Define the first callable skill contracts between `strafer_autonomy`, `strafer_ros`, and `strafer_vlm`.
-3. Implement the Jetson-executor, workstation-planner, workstation-VLM runtime split captured in the autonomy docs.
-4. Draft the bounded planner prompt and JSON output schema for the MVP.
-5. Continue replacing remaining old Phase 5 assumptions with narrower autonomy-aligned documents as implementation solidifies.
+1. ~~Create `source/strafer_autonomy` with mission and skill schemas.~~ Done.
+2. ~~Define the first callable skill contracts between `strafer_autonomy`, `strafer_ros`, and `strafer_vlm`.~~ Done.
+3. ~~Implement the Jetson-executor, workstation-planner, workstation-VLM runtime split captured in the autonomy docs.~~ Done (planner service + executor + clients wired).
+4. ~~Draft the bounded planner prompt and JSON output schema for the MVP.~~ Done.
+5. Implement `scan_for_target` composite skill on the Jetson executor (rotate + capture + ground loop). See `docs/STRAFER_VLM_AND_PLANNER_TASKS.md`.
+6. Add `POST /describe` endpoint to the VLM service and wire a `describe_scene` executor skill. See `docs/STRAFER_VLM_AND_PLANNER_TASKS.md`.
+7. Continue replacing remaining old Phase 5 assumptions with narrower autonomy-aligned documents as implementation solidifies.

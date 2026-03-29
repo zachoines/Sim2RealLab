@@ -61,12 +61,16 @@ User command
   -> Jetson executor receives command
   -> planner_client.plan_mission() over LAN
   -> MissionPlan(steps=[SkillCall, ...])
-  -> ros_client.capture_scene_observation() locally on Jetson
-  -> vlm_client.locate_semantic_target() over LAN
+  -> scan_for_target: rotate + capture + ground loop on Jetson
+       (calls vlm_client.locate_semantic_target() over LAN at each heading)
   -> ros_client.project_detection_to_goal_pose() locally on Jetson
   -> ros_client.navigate_to_pose() locally on Jetson
   -> executor monitors result, cancel, retry, and timeout
 ```
+
+If `scan_for_target` fails to find the target after a full rotation, a planned
+`describe_scene` skill can report what the robot sees.
+See `docs/STRAFER_VLM_AND_PLANNER_TASKS.md` for implementation details.
 
 ## Shared Schemas
 
@@ -558,6 +562,8 @@ This lets the Jetson executor keep the same callable method while swapping the w
 | `wait` | Jetson executor | local timer / mission state | local only |
 | `cancel_mission` | Jetson executor | local mission cancel + ROS action cancel | local + ROS action cancel |
 | `report_status` | Jetson executor | mission state + robot state | local only |
+| `scan_for_target` | Jetson executor | composite: `ros_client` rotation + `vlm_client` grounding loop | local ROS + LAN HTTP (planned) |
+| `describe_scene` | Jetson executor | `vlm_client` via `POST /describe` | LAN HTTP first, cloud HTTP later (planned) |
 
 ## First Implementation Recommendation
 

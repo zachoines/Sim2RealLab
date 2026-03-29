@@ -10,17 +10,20 @@ Environment variables:
     GROUNDING_LOAD_4BIT      set "1" to enable 4-bit quantisation
     GROUNDING_MAX_TOKENS     max new tokens per inference (default: 128)
     GROUNDING_MAX_IMAGE_MP   max decoded image megapixels (default: 20)
+    GROUNDING_INFERENCE_TIMEOUT  max seconds for a single inference call (default: 30, 0=no limit)
     GROUNDING_HOST           bind host (default: 0.0.0.0)
     GROUNDING_PORT           bind port (default: 8100)
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -43,6 +46,7 @@ class _RuntimeState:
         self.processor: Any = None
         self.model_name: str = ""
         self.ready: bool = False
+        self.inference_pool: ThreadPoolExecutor = ThreadPoolExecutor(max_workers=1)
 
 
 _state = _RuntimeState()
@@ -97,6 +101,7 @@ async def _lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     max_image_mp = float(_env("GROUNDING_MAX_IMAGE_MP", "20"))
+    inference_timeout = float(_env("GROUNDING_INFERENCE_TIMEOUT", "30"))
 
     app = FastAPI(
         title="Strafer VLM Grounding Service",
@@ -128,6 +133,7 @@ def create_app() -> FastAPI:
         from strafer_vlm.inference.parsing import (
             SYSTEM_PROMPT_DEFAULT,
             normalize_prediction_bbox_to_1000,
+            overlay_bbox,
             parse_grounding_prediction,
         )
         from strafer_vlm.inference.qwen_runtime import run_grounding_generation
@@ -157,15 +163,33 @@ def create_app() -> FastAPI:
         # Run inference
         max_tokens = int(_env("GROUNDING_MAX_TOKENS", "128"))
         start = time.perf_counter()
-        raw_output = run_grounding_generation(
-            model=_state.model,
-            processor=_state.processor,
-            image=image,
-            prompt=req.prompt,
-            system_prompt=SYSTEM_PROMPT_DEFAULT,
-            max_new_tokens=max_tokens,
-            temperature=0.0,
-        )
+
+        loop = asyncio.get_running_loop()
+        try:
+            raw_output = await asyncio.wait_for(
+                loop.run_in_executor(
+                    _state.inference_pool,
+                    lambda: run_grounding_generation(
+                        model=_state.model,
+                        processor=_state.processor,
+                        image=image,
+                        prompt=req.prompt,
+                        system_prompt=SYSTEM_PROMPT_DEFAULT,
+                        max_new_tokens=max_tokens,
+                        temperature=0.0,
+                    ),
+                ),
+                timeout=inference_timeout if inference_timeout > 0 else None,
+            )
+        except asyncio.TimeoutError:
+            latency_s = time.perf_counter() - start
+            logger.error(
+                "[%s] inference timed out after %.1fs", req.request_id, latency_s,
+            )
+            raise HTTPException(
+                status_code=504,
+                detail=f"Inference timed out after {inference_timeout:.0f}s.",
+            )
         latency_s = time.perf_counter() - start
 
         # Parse and normalise
@@ -189,6 +213,19 @@ def create_app() -> FastAPI:
             req.request_id, normalized.found, normalized.bbox_2d, latency_s,
         )
 
+        # Generate debug overlay if requested and a bbox was found
+        debug_overlay_jpeg_b64: str | None = None
+        if req.return_debug_overlay and normalized.found and normalized.bbox_2d:
+            overlay_img = overlay_bbox(
+                image,
+                tuple(normalized.bbox_2d),
+                label=normalized.label,
+                coordinate_mode="normalized_1000",
+            )
+            buf = io.BytesIO()
+            overlay_img.save(buf, format="JPEG", quality=85)
+            debug_overlay_jpeg_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+
         return GroundResponse(
             request_id=req.request_id,
             found=normalized.found,
@@ -197,6 +234,7 @@ def create_app() -> FastAPI:
             confidence=round(normalized.confidence, 4) if normalized.confidence is not None else None,
             raw_output=raw_output,
             latency_s=round(latency_s, 4),
+            debug_overlay_jpeg_b64=debug_overlay_jpeg_b64,
         )
 
     return app

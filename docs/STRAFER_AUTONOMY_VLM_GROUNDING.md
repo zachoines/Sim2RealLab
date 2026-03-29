@@ -204,6 +204,7 @@ The first service shape should remain:
 
 - `POST /ground`
 - `GET /health`
+- `POST /describe` (planned — scene description endpoint using the same Qwen2.5-VL model with a description prompt; see `docs/STRAFER_VLM_AND_PLANNER_TASKS.md`)
 
 ### `POST /ground`
 
@@ -420,8 +421,10 @@ If any of those start accumulating inside `strafer_vlm`, the package boundary ha
 
 ## Immediate Next Work
 
-1. Refactor the current Qwen runtime into reusable service-friendly modules.
-2. Implement the workstation-side `POST /ground` and `GET /health` service.
-3. Implement the LAN HTTP `strafer_autonomy.clients.vlm_client`.
+1. ~~Refactor the current Qwen runtime into reusable service-friendly modules.~~ Done.
+2. ~~Implement the workstation-side `POST /ground` and `GET /health` service.~~ Done.
+3. ~~Implement the LAN HTTP `strafer_autonomy.clients.vlm_client`.~~ Done.
 4. Keep training and evaluation code inside `source/strafer_vlm`, but separate it from service runtime code.
 5. Leave depth projection and reachability logic on the Jetson in `strafer_ros`.
+6. Implement `POST /describe` endpoint for VLM scene descriptions (planned). See `docs/STRAFER_VLM_AND_PLANNER_TASKS.md`.
+7. Wire `describe_scene` executor skill on the Jetson to call the new endpoint (planned). See `docs/STRAFER_VLM_AND_PLANNER_TASKS.md`.

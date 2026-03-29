@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import time
 from typing import Protocol, runtime_checkable
 
 
 DEFAULT_EXECUTE_MISSION_ACTION = "execute_mission"
 DEFAULT_STATUS_SERVICE = "get_mission_status"
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -247,8 +250,26 @@ def build_command_server(
     ros_client,
     runner_config=None,
     server_config: CommandServerConfig | None = None,
+    check_vlm_health: bool = True,
 ):
-    """Construct a mission runner and wrap it in the Jetson-local command server."""
+    """Construct a mission runner and wrap it in the Jetson-local command server.
+
+    When *check_vlm_health* is ``True`` (the default) and the grounding client
+    exposes a ``health()`` method, the service is probed before the runner is
+    created.  A ``GroundingServiceUnavailable`` exception is raised if the
+    service is unreachable, allowing the caller to fail fast.
+    """
+
+    if check_vlm_health and hasattr(grounding_client, "health"):
+        _logger.info("Checking VLM grounding service health …")
+        health = grounding_client.health()
+        if not health.get("model_loaded", False):
+            from strafer_autonomy.clients.vlm_client import GroundingServiceUnavailable
+
+            raise GroundingServiceUnavailable(
+                f"VLM service is reachable but model is not loaded: {health}"
+            )
+        _logger.info("VLM grounding service healthy: %s", health)
 
     from .mission_runner import MissionRunner
 

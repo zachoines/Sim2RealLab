@@ -43,6 +43,16 @@ class RosClient(Protocol):
     def cancel_active_navigation(self) -> bool:
         """Cancel the currently active motion backend if one exists."""
 
+    def rotate_in_place(
+        self,
+        *,
+        step_id: str,
+        yaw_delta_rad: float,
+        tolerance_rad: float = 0.1,
+        timeout_s: float | None = None,
+    ) -> SkillResult:
+        """Rotate the robot in place by the given yaw delta."""
+
     def orient_relative_to_target(
         self,
         *,
@@ -135,6 +145,21 @@ class JetsonRosClient:
             "Navigation cancelation is not implemented yet. "
             "Track the active local motion backend inside the Jetson executor "
             "so Nav2 or strafer_inference can be canceled uniformly."
+        )
+
+    def rotate_in_place(
+        self,
+        *,
+        step_id: str,
+        yaw_delta_rad: float,
+        tolerance_rad: float = 0.1,
+        timeout_s: float | None = None,
+    ) -> SkillResult:
+        """Rotate the robot in place by the given yaw delta."""
+
+        raise NotImplementedError(
+            "In-place rotation is not implemented yet. "
+            "Publish geometry_msgs/Twist with angular z or use the Nav2 Spin behavior plugin."
         )
 
     def orient_relative_to_target(

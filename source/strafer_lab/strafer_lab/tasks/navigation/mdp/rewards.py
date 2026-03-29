@@ -129,6 +129,39 @@ def heading_to_goal_reward(
     return torch.cos(angle_diff)
 
 
+def arrival_heading_reward(
+    env: ManagerBasedEnv,
+    command_name: str,
+) -> torch.Tensor:
+    """Reward for matching the desired arrival heading.
+
+    The arrival heading is a randomly sampled direction stored in
+    ``command[:, 2]``.  Unlike :func:`heading_to_goal_reward` (which
+    rewards always facing the goal), this rewards maintaining an
+    arbitrary heading — forcing the mecanum robot to use strafing and
+    backwards driving instead of always b-lining forward.
+
+    Args:
+        env: The environment instance.
+        command_name: Name of the command manager providing goal commands.
+
+    Returns:
+        Cosine similarity between robot yaw and desired heading.
+        Range: [-1, 1] where 1.0 = perfect alignment.
+    """
+    command = env.command_manager.get_command(command_name)
+    desired_heading = command[:, 2]
+
+    robot = env.scene["robot"]
+    robot_quat = robot.data.root_quat_w
+    w, x, y, z = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    robot_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+    angle_diff = desired_heading - robot_yaw
+    angle_diff = torch.atan2(torch.sin(angle_diff), torch.cos(angle_diff))
+    return torch.cos(angle_diff)
+
+
 def energy_penalty(env: ManagerBasedEnv) -> torch.Tensor:
     """Penalty for energy consumption (motor effort).
     

@@ -358,13 +358,15 @@ def goal_distance(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
 
 
 def goal_heading_relative(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
-    """Angular error between robot heading and desired goal heading.
+    """Angular error between robot heading and desired arrival heading.
 
-    .. deprecated::
-        This observation uses ``command[:, 2]`` which is a random arrival
-        heading uniformly sampled from [-pi, pi] — essentially noise.
-        Use :func:`goal_heading_to_goal` instead, which computes the actual
-        angle from the robot to the goal position.
+    The arrival heading (``command[:, 2]``) is a randomly sampled target
+    orientation.  This observation tells the policy how far it is from
+    matching that heading, enabling strafing and backwards-driving
+    behaviors instead of always facing the goal.
+
+    Use alongside :func:`goal_heading_to_goal` (bearing to goal) so the
+    policy has both navigation direction and heading target.
 
     Args:
         env: The environment instance.

@@ -105,11 +105,12 @@ STRAFER_PPO_LSTM_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
 # value function looks further ahead — important for navigation where
 # reaching a goal 6s away requires sustained planning.
 #
-# entropy_coef=0.02: raised to counteract DAPG's variance-collapsing effect.
-# With fixed LR the entropy bonus actually has effect throughout training.
+# entropy_coef=0.005: mild exploration bonus. 0.02 caused unbounded noise
+# growth (mean_noise_std 1→13) that destroyed learned behavior after ~3k iters.
 #
-# schedule="fixed": adaptive LR is counterproductive with DAPG — the strong
-# initial BC gradient triggers the KL controller to kill LR before RL starts.
+# schedule="fixed": LR decay is handled via --lr_schedule CLI arg (cosine
+# or linear) which monkey-patches the runner.  "adaptive" (KL-based) is
+# counterproductive with DAPG and unpredictable with cosine/linear decay.
 # =============================================================================
 
 STRAFER_PPO_DEPTH_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
@@ -133,7 +134,7 @@ STRAFER_PPO_DEPTH_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
         value_loss_coef=1.0,
         use_clipped_value_loss=True,
         clip_param=0.2,
-        entropy_coef=0.02,
+        entropy_coef=0.005,
         num_learning_epochs=5,
         num_mini_batches=4,
         learning_rate=3.0e-4,

@@ -566,13 +566,28 @@ class MissionRunner(MissionCommandHandler):
                         step, f"Rotation failed at heading {i}: {exc}", "rotation_failed", started_at,
                     )
 
-        # Exhausted all headings without finding target
+        # Exhausted all headings without finding target — try to describe what was seen
+        failure_msg = f"Target '{label}' not found after full {scan_arc_deg:.0f}° scan."
+        scan_outputs: dict[str, Any] = {"headings_checked": max_scan_steps}
+
+        observation = runtime.latest_observation
+        if observation is not None:
+            try:
+                desc = self._grounding_client.describe_scene(
+                    request_id=f"{runtime.mission_id}:{step.step_id}:describe",
+                    image_rgb_u8=self._bgr_to_rgb(observation.color_image_bgr),
+                )
+                failure_msg += f" Last observation: {desc.description}"
+                scan_outputs["last_scene_description"] = desc.description
+            except Exception:
+                pass  # description is best-effort
+
         return self._failed_result(
             step,
-            message=f"Target '{label}' not found after full {scan_arc_deg:.0f}° scan.",
+            message=failure_msg,
             error_code="target_not_found_after_scan",
             started_at=started_at,
-            outputs={"headings_checked": max_scan_steps},
+            outputs=scan_outputs,
         )
 
     def _describe_scene(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:

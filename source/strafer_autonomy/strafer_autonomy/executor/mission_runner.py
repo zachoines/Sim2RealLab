@@ -30,6 +30,7 @@ DEFAULT_AVAILABLE_SKILLS = (
     "capture_scene_observation",
     "locate_semantic_target",
     "scan_for_target",
+    "describe_scene",
     "project_detection_to_goal_pose",
     "navigate_to_pose",
     # "orient_relative_to_target" — deferred from MVP; handler kept for post-MVP.
@@ -367,6 +368,8 @@ class MissionRunner(MissionCommandHandler):
             return self._locate_semantic_target(runtime, step)
         if step.skill == "scan_for_target":
             return self._scan_for_target(runtime, step)
+        if step.skill == "describe_scene":
+            return self._describe_scene(runtime, step)
         if step.skill == "project_detection_to_goal_pose":
             return self._project_detection_to_goal_pose(runtime, step)
         if step.skill == "navigate_to_pose":
@@ -571,6 +574,43 @@ class MissionRunner(MissionCommandHandler):
             started_at=started_at,
             outputs={"headings_checked": max_scan_steps},
         )
+
+    def _describe_scene(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
+        """Capture (or reuse) an observation and return a VLM scene description."""
+        started_at = time.time()
+
+        observation = runtime.latest_observation
+        if observation is None:
+            try:
+                observation = self._ros_client.capture_scene_observation()
+                with self._lock:
+                    runtime.latest_observation = observation
+            except Exception as exc:
+                return self._failed_result(
+                    step, f"Failed to capture observation for description: {exc}", "capture_failed", started_at,
+                )
+
+        prompt = step.args.get("prompt")
+        max_image_side = int(step.args.get("max_image_side", self._config.default_grounding_max_image_side))
+
+        try:
+            desc = self._grounding_client.describe_scene(
+                request_id=f"{runtime.mission_id}:{step.step_id}",
+                image_rgb_u8=self._bgr_to_rgb(observation.color_image_bgr),
+                prompt=prompt,
+                max_image_side=max_image_side,
+            )
+            return SkillResult(
+                step_id=step.step_id,
+                skill=step.skill,
+                status="succeeded",
+                outputs={"description": desc.description, "latency_s": desc.latency_s},
+                message="Scene described.",
+                started_at=started_at,
+                finished_at=time.time(),
+            )
+        except Exception as exc:
+            return self._failed_result(step, f"Scene description failed: {exc}", "describe_failed", started_at)
 
     def _project_detection_to_goal_pose(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
         started_at = time.time()

@@ -73,11 +73,10 @@ class TestPlanEndpoint:
         body = resp.json()
         assert body["mission_type"] == "go_to_target"
         assert body["raw_command"] == "go to the door"
-        assert len(body["steps"]) == 4
+        assert len(body["steps"]) == 3
         skills = [s["skill"] for s in body["steps"]]
         assert skills == [
-            "capture_scene_observation",
-            "locate_semantic_target",
+            "scan_for_target",
             "project_detection_to_goal_pose",
             "navigate_to_pose",
         ]
@@ -100,7 +99,7 @@ class TestPlanEndpoint:
         assert resp.status_code == 200
         body = resp.json()
         assert body["mission_type"] == "wait_by_target"
-        assert len(body["steps"]) == 5
+        assert len(body["steps"]) == 4
         assert body["steps"][-1]["skill"] == "wait"
 
     def test_model_not_loaded_returns_503(self, unloaded_client):

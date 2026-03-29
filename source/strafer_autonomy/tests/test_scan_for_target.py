@@ -117,6 +117,7 @@ class TestScanForTarget:
         ros.capture_scene_observation.return_value = _make_observation()
         ros.rotate_in_place.return_value = _make_rotate_result()
         grounding.locate_semantic_target.return_value = _make_grounding(found=False)
+        grounding.describe_scene.side_effect = ConnectionError("no describe")
 
         runtime = _make_runtime()
         step = _make_scan_step(max_scan_steps=3, scan_arc_deg=360)
@@ -126,6 +127,27 @@ class TestScanForTarget:
         assert result.error_code == "target_not_found_after_scan"
         assert result.outputs["headings_checked"] == 3
         assert ros.rotate_in_place.call_count == 2  # skips rotation after last heading
+
+    def test_scan_failure_includes_scene_description(self):
+        from strafer_autonomy.schemas import SceneDescription
+
+        runner, _, grounding, ros = _make_runner()
+        ros.capture_scene_observation.return_value = _make_observation()
+        ros.rotate_in_place.return_value = _make_rotate_result()
+        grounding.locate_semantic_target.return_value = _make_grounding(found=False)
+        grounding.describe_scene.return_value = SceneDescription(
+            request_id="test",
+            description="I see a hallway with a closed door and a bookshelf.",
+            latency_s=0.1,
+        )
+
+        runtime = _make_runtime()
+        step = _make_scan_step(max_scan_steps=2, scan_arc_deg=360)
+        result = runner._scan_for_target(runtime, step)
+
+        assert result.status == "failed"
+        assert "hallway" in result.message
+        assert result.outputs["last_scene_description"] == "I see a hallway with a closed door and a bookshelf."
 
     def test_cancel_during_scan(self):
         runner, _, grounding, ros = _make_runner()

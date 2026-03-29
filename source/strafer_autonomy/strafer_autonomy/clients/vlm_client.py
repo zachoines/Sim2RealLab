@@ -11,7 +11,7 @@ from typing import Any, Protocol, runtime_checkable
 
 import requests
 
-from strafer_autonomy.schemas import GroundingRequest, GroundingResult
+from strafer_autonomy.schemas import GroundingRequest, GroundingResult, SceneDescription
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,16 @@ class GroundingClient(Protocol):
     def locate_semantic_target(self, request: GroundingRequest) -> GroundingResult:
         """Return a normalized grounding result for one prompt-image pair."""
 
+    def describe_scene(
+        self,
+        *,
+        request_id: str,
+        image_rgb_u8: Any,
+        prompt: str | None = None,
+        max_image_side: int = 1024,
+    ) -> SceneDescription:
+        """Return a free-text scene description for one image."""
+
 
 @dataclass(frozen=True)
 class HttpGroundingClientConfig:
@@ -35,6 +45,7 @@ class HttpGroundingClientConfig:
     base_url: str
     timeout_s: float = 15.0
     ground_path: str = "/ground"
+    describe_path: str = "/describe"
     health_path: str = "/health"
     headers: dict[str, str] | None = None
     max_retries: int = 2
@@ -97,6 +108,65 @@ class HttpGroundingClient:
 
         raise GroundingServiceUnavailable(
             f"Grounding service unreachable after {1 + self._config.max_retries} attempts."
+        ) from last_exc
+
+    def describe_scene(
+        self,
+        *,
+        request_id: str,
+        image_rgb_u8: Any,
+        prompt: str | None = None,
+        max_image_side: int = 1024,
+    ) -> SceneDescription:
+        """Send a scene description request to the remote VLM service.
+
+        Uses the same retry logic as ``locate_semantic_target``.
+        """
+        image_jpeg_b64 = _encode_image_to_jpeg_b64(image_rgb_u8)
+        payload: dict[str, Any] = {
+            "request_id": request_id,
+            "image_jpeg_b64": image_jpeg_b64,
+            "max_image_side": max_image_side,
+        }
+        if prompt is not None:
+            payload["prompt"] = prompt
+
+        url = self._config.base_url.rstrip("/") + self._config.describe_path
+
+        last_exc: Exception | None = None
+        for attempt in range(1 + self._config.max_retries):
+            try:
+                resp = self._session.post(url, json=payload, timeout=self._config.timeout_s)
+                resp.raise_for_status()
+                body = resp.json()
+                return SceneDescription(
+                    request_id=str(body["request_id"]),
+                    description=str(body["description"]),
+                    latency_s=float(body.get("latency_s", 0.0)),
+                )
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                last_exc = exc
+                logger.warning(
+                    "Describe request %s attempt %d/%d failed: %s",
+                    request_id, attempt + 1, 1 + self._config.max_retries, exc,
+                )
+            except requests.HTTPError as exc:
+                if exc.response is not None and exc.response.status_code < 500:
+                    raise GroundingServiceUnavailable(
+                        f"Describe service returned {exc.response.status_code}: {exc.response.text}"
+                    ) from exc
+                last_exc = exc
+                logger.warning(
+                    "Describe request %s attempt %d/%d server error: %s",
+                    request_id, attempt + 1, 1 + self._config.max_retries, exc,
+                )
+
+            if attempt < self._config.max_retries:
+                backoff = self._config.retry_backoff_s * (2 ** attempt)
+                time.sleep(backoff)
+
+        raise GroundingServiceUnavailable(
+            f"Describe service unreachable after {1 + self._config.max_retries} attempts."
         ) from last_exc
 
     def health(self) -> dict[str, Any]:

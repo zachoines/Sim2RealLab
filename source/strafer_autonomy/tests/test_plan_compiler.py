@@ -22,24 +22,23 @@ class TestGoToTarget:
     def test_step_count(self):
         intent = _make_intent("go_to_target", target_label="door", requires_grounding=True)
         plan = compile_plan(intent)
-        assert len(plan.steps) == 4
+        assert len(plan.steps) == 3
 
     def test_skill_sequence(self):
         intent = _make_intent("go_to_target", target_label="chair", requires_grounding=True)
         plan = compile_plan(intent)
         skills = [s.skill for s in plan.steps]
         assert skills == [
-            "capture_scene_observation",
-            "locate_semantic_target",
+            "scan_for_target",
             "project_detection_to_goal_pose",
             "navigate_to_pose",
         ]
 
-    def test_target_label_in_locate(self):
+    def test_target_label_in_scan(self):
         intent = _make_intent("go_to_target", target_label="table", requires_grounding=True)
         plan = compile_plan(intent)
-        locate_step = [s for s in plan.steps if s.skill == "locate_semantic_target"][0]
-        assert locate_step.args["label"] == "table"
+        scan_step = [s for s in plan.steps if s.skill == "scan_for_target"][0]
+        assert scan_step.args["label"] == "table"
 
     def test_navigation_backend(self):
         intent = _make_intent("go_to_target", target_label="door", requires_grounding=True)
@@ -64,7 +63,7 @@ class TestWaitByTarget:
     def test_step_count(self):
         intent = _make_intent("wait_by_target", target_label="couch", wait_mode="until_next_command", requires_grounding=True)
         plan = compile_plan(intent)
-        assert len(plan.steps) == 5
+        assert len(plan.steps) == 4
 
     def test_ends_with_wait(self):
         intent = _make_intent("wait_by_target", target_label="couch", wait_mode="until_next_command", requires_grounding=True)

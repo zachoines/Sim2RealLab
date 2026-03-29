@@ -35,3 +35,23 @@ class HealthResponse(BaseModel):
     status: str = Field(..., description="'ok' when the model is loaded and ready, else 'loading'.")
     model_loaded: bool = Field(..., description="Whether the model has been loaded into GPU memory.")
     model_name: str | None = Field(None, description="HuggingFace model name or local path.")
+
+
+class DescribeRequest(BaseModel):
+    """JSON body for ``POST /describe``."""
+
+    request_id: str = Field(..., description="Caller-assigned unique request identifier.")
+    image_jpeg_b64: str = Field(..., description="JPEG image encoded as a base64 string.")
+    prompt: str = Field(
+        "Describe the objects and layout visible in this image in one or two sentences.",
+        description="Description prompt to send to the VLM.",
+    )
+    max_image_side: int = Field(1024, description="If > 0, resize so the longest side <= this value before inference.")
+
+
+class DescribeResponse(BaseModel):
+    """JSON response from ``POST /describe``."""
+
+    request_id: str = Field(..., description="Echo of the caller's request_id.")
+    description: str = Field(..., description="Free-text scene description from the VLM.")
+    latency_s: float = Field(0.0, description="Inference wall-clock time in seconds.")

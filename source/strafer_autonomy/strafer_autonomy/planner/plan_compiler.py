@@ -38,27 +38,20 @@ def _compile_go_to_target(intent: MissionIntent) -> list[SkillCall]:
     return [
         SkillCall(
             step_id="step_01",
-            skill="capture_scene_observation",
-            args={},
-            timeout_s=5.0,
+            skill="scan_for_target",
+            args={"label": intent.target_label, "max_scan_steps": 6, "scan_arc_deg": 360},
+            timeout_s=60.0,
             retry_limit=0,
         ),
         SkillCall(
             step_id="step_02",
-            skill="locate_semantic_target",
-            args={"label": intent.target_label},
-            timeout_s=8.0,
-            retry_limit=1,
-        ),
-        SkillCall(
-            step_id="step_03",
             skill="project_detection_to_goal_pose",
             args={"standoff_m": 0.7},
             timeout_s=2.0,
             retry_limit=0,
         ),
         SkillCall(
-            step_id="step_04",
+            step_id="step_03",
             skill="navigate_to_pose",
             args={"goal_source": "projected_target", "execution_backend": "nav2"},
             timeout_s=90.0,

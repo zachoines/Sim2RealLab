@@ -24,3 +24,13 @@ class SceneObservation:
     camera_info: dict[str, Any] = field(default_factory=dict)
     robot_pose_map: dict[str, Any] | None = None
     tf_snapshot_ready: bool = False
+
+
+@dataclass(frozen=True)
+class SceneDescription:
+    """VLM-generated free-text description of a scene image."""
+
+    request_id: str
+    description: str
+    stamp_sec: float = 0.0
+    latency_s: float = 0.0

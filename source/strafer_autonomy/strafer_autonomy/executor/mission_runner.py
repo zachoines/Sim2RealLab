@@ -29,6 +29,8 @@ from strafer_autonomy.schemas import (
 DEFAULT_AVAILABLE_SKILLS = (
     "capture_scene_observation",
     "locate_semantic_target",
+    "scan_for_target",
+    "describe_scene",
     "project_detection_to_goal_pose",
     "navigate_to_pose",
     # "orient_relative_to_target" — deferred from MVP; handler kept for post-MVP.
@@ -364,6 +366,10 @@ class MissionRunner(MissionCommandHandler):
             return self._capture_scene_observation(runtime, step)
         if step.skill == "locate_semantic_target":
             return self._locate_semantic_target(runtime, step)
+        if step.skill == "scan_for_target":
+            return self._scan_for_target(runtime, step)
+        if step.skill == "describe_scene":
+            return self._describe_scene(runtime, step)
         if step.skill == "project_detection_to_goal_pose":
             return self._project_detection_to_goal_pose(runtime, step)
         if step.skill == "navigate_to_pose":
@@ -461,6 +467,165 @@ class MissionRunner(MissionCommandHandler):
             )
         except Exception as exc:
             return self._failed_result(step, f"Grounding request failed: {exc}", "grounding_failed", started_at)
+
+    def _scan_for_target(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
+        """Rotate-and-ground loop: scan headings until the target is found.
+
+        Args passed through ``step.args``:
+            label (str): target to search for (required)
+            max_scan_steps (int): number of rotation increments (default 6)
+            scan_arc_deg (float): total arc to sweep in degrees (default 360)
+            prompt (str | None): optional VLM prompt override
+            max_image_side (int): image resize limit (default from config)
+        """
+        import math
+
+        started_at = time.time()
+        label = str(step.args.get("label", "")).strip()
+        if not label:
+            return self._failed_result(step, "scan_for_target is missing 'label'.", "invalid_args", started_at)
+
+        max_scan_steps = int(step.args.get("max_scan_steps", 6))
+        scan_arc_deg = float(step.args.get("scan_arc_deg", 360))
+        step_angle_rad = scan_arc_deg * math.pi / 180.0 / max_scan_steps
+        prompt = str(step.args.get("prompt") or f"Locate: {label}")
+        max_image_side = int(step.args.get("max_image_side", self._config.default_grounding_max_image_side))
+
+        for i in range(max_scan_steps):
+            # a. capture scene observation
+            try:
+                observation = self._ros_client.capture_scene_observation()
+                with self._lock:
+                    runtime.latest_observation = observation
+            except Exception as exc:
+                return self._failed_result(
+                    step, f"Scan capture failed at heading {i}: {exc}", "capture_failed", started_at,
+                )
+
+            # b. attempt grounding
+            try:
+                grounding = self._grounding_client.locate_semantic_target(
+                    GroundingRequest(
+                        request_id=f"{runtime.mission_id}:{step.step_id}:scan_{i}",
+                        prompt=prompt,
+                        image_rgb_u8=self._bgr_to_rgb(observation.color_image_bgr),
+                        image_stamp_sec=observation.stamp_sec,
+                        max_image_side=max_image_side,
+                    )
+                )
+                with self._lock:
+                    runtime.latest_grounding = grounding
+
+                if grounding.found and grounding.bbox_2d is not None:
+                    return SkillResult(
+                        step_id=step.step_id,
+                        skill=step.skill,
+                        status="succeeded",
+                        outputs={
+                            "heading_index": i,
+                            **self._grounding_outputs(grounding),
+                        },
+                        message=f"Target '{label}' found at heading {i}.",
+                        started_at=started_at,
+                        finished_at=time.time(),
+                    )
+            except Exception as exc:
+                return self._failed_result(
+                    step, f"Grounding failed during scan at heading {i}: {exc}", "grounding_failed", started_at,
+                )
+
+            # c. check cancel
+            if runtime.cancel_event.is_set():
+                return SkillResult(
+                    step_id=step.step_id,
+                    skill=step.skill,
+                    status="canceled",
+                    outputs={"heading_index": i},
+                    error_code="mission_canceled",
+                    message="Scan canceled.",
+                    started_at=started_at,
+                    finished_at=time.time(),
+                )
+
+            # d. rotate to next heading (skip after last heading)
+            if i < max_scan_steps - 1:
+                try:
+                    rotate_result = self._ros_client.rotate_in_place(
+                        step_id=f"{step.step_id}:rotate_{i}",
+                        yaw_delta_rad=step_angle_rad,
+                    )
+                    if rotate_result.status != "succeeded":
+                        return self._failed_result(
+                            step,
+                            f"Rotation failed at heading {i}: {rotate_result.message}",
+                            rotate_result.error_code or "rotation_failed",
+                            started_at,
+                        )
+                except Exception as exc:
+                    return self._failed_result(
+                        step, f"Rotation failed at heading {i}: {exc}", "rotation_failed", started_at,
+                    )
+
+        # Exhausted all headings without finding target — try to describe what was seen
+        failure_msg = f"Target '{label}' not found after full {scan_arc_deg:.0f}° scan."
+        scan_outputs: dict[str, Any] = {"headings_checked": max_scan_steps}
+
+        observation = runtime.latest_observation
+        if observation is not None:
+            try:
+                desc = self._grounding_client.describe_scene(
+                    request_id=f"{runtime.mission_id}:{step.step_id}:describe",
+                    image_rgb_u8=self._bgr_to_rgb(observation.color_image_bgr),
+                )
+                failure_msg += f" Last observation: {desc.description}"
+                scan_outputs["last_scene_description"] = desc.description
+            except Exception:
+                pass  # description is best-effort
+
+        return self._failed_result(
+            step,
+            message=failure_msg,
+            error_code="target_not_found_after_scan",
+            started_at=started_at,
+            outputs=scan_outputs,
+        )
+
+    def _describe_scene(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
+        """Capture (or reuse) an observation and return a VLM scene description."""
+        started_at = time.time()
+
+        observation = runtime.latest_observation
+        if observation is None:
+            try:
+                observation = self._ros_client.capture_scene_observation()
+                with self._lock:
+                    runtime.latest_observation = observation
+            except Exception as exc:
+                return self._failed_result(
+                    step, f"Failed to capture observation for description: {exc}", "capture_failed", started_at,
+                )
+
+        prompt = step.args.get("prompt")
+        max_image_side = int(step.args.get("max_image_side", self._config.default_grounding_max_image_side))
+
+        try:
+            desc = self._grounding_client.describe_scene(
+                request_id=f"{runtime.mission_id}:{step.step_id}",
+                image_rgb_u8=self._bgr_to_rgb(observation.color_image_bgr),
+                prompt=prompt,
+                max_image_side=max_image_side,
+            )
+            return SkillResult(
+                step_id=step.step_id,
+                skill=step.skill,
+                status="succeeded",
+                outputs={"description": desc.description, "latency_s": desc.latency_s},
+                message="Scene described.",
+                started_at=started_at,
+                finished_at=time.time(),
+            )
+        except Exception as exc:
+            return self._failed_result(step, f"Scene description failed: {exc}", "describe_failed", started_at)
 
     def _project_detection_to_goal_pose(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
         started_at = time.time()

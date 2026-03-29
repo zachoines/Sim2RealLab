@@ -1,11 +1,18 @@
 """Tests for planner FastAPI endpoints with mocked LLM."""
 
+import os
 from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from strafer_autonomy.planner.app import _state, create_app
+
+
+@pytest.fixture(autouse=True)
+def _block_model_download(monkeypatch):
+    """Prevent lifespan from downloading a real model during tests."""
+    monkeypatch.setenv("PLANNER_MODEL", "/nonexistent")
 
 
 @pytest.fixture()

@@ -29,7 +29,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 
-from strafer_vlm.service.payloads import GroundRequest, GroundResponse, HealthResponse
+from strafer_vlm.service.payloads import DescribeRequest, DescribeResponse, GroundRequest, GroundResponse, HealthResponse
 
 logger = logging.getLogger("strafer_vlm.service")
 
@@ -235,6 +235,84 @@ def create_app() -> FastAPI:
             raw_output=raw_output,
             latency_s=round(latency_s, 4),
             debug_overlay_jpeg_b64=debug_overlay_jpeg_b64,
+        )
+
+    # ------------------------------------------------------------------
+    # POST /describe — scene description using the same Qwen2.5-VL model
+    # ------------------------------------------------------------------
+
+    DESCRIBE_SYSTEM_PROMPT = (
+        "You are a robot vision system. Describe the scene in the image concisely. "
+        "List the main objects, surfaces, and spatial layout visible. "
+        "Keep your response to 1-3 sentences. Do not speculate about objects not visible."
+    )
+
+    @app.post("/describe", response_model=DescribeResponse, summary="Generate a text description of a scene image")
+    async def describe(req: DescribeRequest) -> DescribeResponse:
+        if not _state.ready:
+            raise HTTPException(status_code=503, detail="Model is not loaded yet.")
+
+        logger.info("[%s] /describe prompt=%r", req.request_id, req.prompt)
+
+        from PIL import Image
+
+        from strafer_vlm.inference.qwen_runtime import run_grounding_generation
+
+        # Decode image
+        try:
+            image_bytes = base64.b64decode(req.image_jpeg_b64)
+            image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid image payload: {exc}")
+
+        # Image size guard
+        megapixels = (image.width * image.height) / 1_000_000
+        if megapixels > max_image_mp:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Image too large: {megapixels:.1f} MP exceeds {max_image_mp:.0f} MP limit.",
+            )
+
+        # Resize if requested
+        if req.max_image_side > 0 and max(image.width, image.height) > req.max_image_side:
+            image.thumbnail((req.max_image_side, req.max_image_side), Image.Resampling.LANCZOS)
+
+        # Run inference with description prompt
+        max_tokens = int(_env("GROUNDING_MAX_TOKENS", "128"))
+        start = time.perf_counter()
+
+        loop = asyncio.get_running_loop()
+        try:
+            raw_output = await asyncio.wait_for(
+                loop.run_in_executor(
+                    _state.inference_pool,
+                    lambda: run_grounding_generation(
+                        model=_state.model,
+                        processor=_state.processor,
+                        image=image,
+                        prompt=req.prompt,
+                        system_prompt=DESCRIBE_SYSTEM_PROMPT,
+                        max_new_tokens=max_tokens,
+                        temperature=0.0,
+                    ),
+                ),
+                timeout=inference_timeout if inference_timeout > 0 else None,
+            )
+        except asyncio.TimeoutError:
+            latency_s = time.perf_counter() - start
+            logger.error("[%s] describe inference timed out after %.1fs", req.request_id, latency_s)
+            raise HTTPException(
+                status_code=504,
+                detail=f"Inference timed out after {inference_timeout:.0f}s.",
+            )
+        latency_s = time.perf_counter() - start
+
+        logger.info("[%s] describe completed in %.3fs", req.request_id, latency_s)
+
+        return DescribeResponse(
+            request_id=req.request_id,
+            description=raw_output,
+            latency_s=round(latency_s, 4),
         )
 
     return app

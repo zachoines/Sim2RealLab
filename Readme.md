@@ -8,7 +8,7 @@ This repository covers:
 - Jetson ROS2 runtime for real-robot execution
 - shared sim-to-real contracts in `strafer_shared`
 - a workstation-hosted VLM grounding stack
-- a planned workstation-hosted LLM planner with a Jetson-local executor
+- a workstation-hosted LLM planner with a Jetson-local executor
 
 <p align="center">
   <img src="docs/artifacts/strafer_top.jpeg" alt="Strafer robot, top view" width="31%"/>
@@ -107,6 +107,17 @@ returns a bounding box localising the target object. The Jetson executor calls i
 LAN via `HttpGroundingClient` in `strafer_autonomy`. A Postman collection is included
 at `source/SImToRealLab.postman_collection.json` for interactive testing.
 
+The LLM planner service is also running. It uses Qwen3-4B on port 8200 with a two-stage
+architecture: the LLM classifies user commands into one of four intent types
+(`go_to_target`, `wait_by_target`, `cancel`, `status`), then a deterministic compiler
+expands each intent into a validated `MissionPlan`. The Jetson executor calls it over
+LAN via `HttpPlannerClient` in `strafer_autonomy`.
+
+Next planned enhancements (see `docs/STRAFER_VLM_AND_PLANNER_TASKS.md`):
+- `scan_for_target` skill: rotate-and-ground loop so targets behind the robot can be found
+- VLM scene description endpoint (`POST /describe`): return what the robot sees for
+  operator awareness and future re-planning
+
 <p align="center">
   <img src="docs/artifacts/hallway_grounding_example.png" alt="Hallway scene with yucca plant" width="35%"/>
   <img src="docs/artifacts/hallway_grounding_example_postman.png" alt="Postman grounding request finding a yucca plant" width="44%"/>
@@ -125,8 +136,10 @@ at `source/SImToRealLab.postman_collection.json` for interactive testing.
 | RL policy training | In progress | Navigation training is active in Isaac Lab |
 | `strafer_inference` runtime | Planned | Policy runtime on the Jetson is still to be implemented |
 | `strafer_autonomy` executor | Scaffolded | Schemas, client stubs, command ingress, and mission runner exist |
-| LLM planner service | Planned | Workstation-hosted planner service is the next major autonomy step |
+| LLM planner service | Done | FastAPI service on port 8200, Qwen3-4B two-stage pipeline, 59 tests |
 | VLM grounding service | Done | FastAPI service on port 8100, inference timeout, health check, debug overlay, 124 tests |
+| `scan_for_target` skill | Planned | Rotate-and-ground loop for targets not in frame |
+| VLM scene description | Planned | `POST /describe` endpoint for operator situational awareness |
 
 ## Hardware
 

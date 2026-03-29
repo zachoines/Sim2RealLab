@@ -90,6 +90,16 @@ def main():
         help="Depth encoder type (default: from network config, typically 'defm'). "
              "'cnn' uses a lightweight trainable CNN instead of the frozen DeFM backbone.",
     )
+    # Learning rate schedule
+    parser.add_argument(
+        "--lr_schedule", type=str, default=None, choices=["cosine", "linear"],
+        help="LR decay schedule (default: use config's schedule). "
+             "Overrides the config schedule with a smooth decay to --lr_min.",
+    )
+    parser.add_argument(
+        "--lr_min", type=float, default=1e-5,
+        help="Minimum learning rate for cosine/linear decay (default: 1e-5).",
+    )
     # Modular auxiliary losses
     parser.add_argument(
         "--aux", type=str, action="append", default=[],
@@ -238,7 +248,35 @@ def main():
     if args.depth_encoder is not None:
         agent_dict["policy"]["depth_encoder_type"] = args.depth_encoder
         print(f"[Override] depth_encoder_type = {args.depth_encoder}")
+    # Force schedule="fixed" when using CLI LR schedule to prevent
+    # RSL-RL's KL-adaptive controller from fighting the decay.
+    if args.lr_schedule is not None:
+        agent_dict["algorithm"]["schedule"] = "fixed"
     runner = OnPolicyRunner(env, agent_dict, log_dir=log_dir, device=agent_cfg.device)
+
+    # Attach LR decay schedule (monkey-patches alg.update to apply decay)
+    if args.lr_schedule is not None:
+        import math as _math
+
+        _lr_init = agent_dict["algorithm"]["learning_rate"]
+        _lr_min = args.lr_min
+        _total_iters = agent_cfg.max_iterations
+        _schedule_type = args.lr_schedule
+        _original_update = runner.alg.update
+
+        def _update_with_lr_schedule():
+            result = _original_update()
+            it = runner.current_learning_iteration
+            progress = min(it / max(_total_iters, 1), 1.0)
+            if _schedule_type == "cosine":
+                lr = _lr_min + 0.5 * (_lr_init - _lr_min) * (1.0 + _math.cos(_math.pi * progress))
+            else:  # linear
+                lr = _lr_init + (_lr_min - _lr_init) * progress
+            runner.alg.learning_rate = lr
+            return result
+
+        runner.alg.update = _update_with_lr_schedule
+        print(f"[Override] LR schedule = {args.lr_schedule} ({_lr_init:.1e} → {_lr_min:.1e} over {_total_iters} iters)")
 
     # Resume from checkpoint if specified
     if args.resume:

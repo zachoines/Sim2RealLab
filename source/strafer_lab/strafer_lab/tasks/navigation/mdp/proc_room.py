@@ -787,9 +787,13 @@ def generate_proc_room(
         env._proc_room_spawn_count = torch.zeros(
             env.num_envs, dtype=torch.long, device=device
         )
+        env._proc_room_active_mask = torch.zeros(
+            env.num_envs, NUM_OBJECTS, dtype=torch.bool, device=device
+        )
 
     env._proc_room_spawn_pts[env_ids] = spawn_xy
     env._proc_room_spawn_count[env_ids] = spawn_count
+    env._proc_room_active_mask[env_ids] = active_mask
 
     # --- Phase 7: Offset by env origins and write ---
     env_origins = env.scene.env_origins[env_ids]  # (B, 3)

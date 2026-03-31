@@ -21,11 +21,14 @@ Usage:
 NOTE: Uses the ``reward_env`` fixture from ``test/rewards/conftest.py``.
 """
 
+import math
 import numpy as np
 import torch
 import pytest
 
 from strafer_lab.tasks.navigation.mdp.rewards import (
+    _point_to_oriented_box_distance_xy,
+    _sum_exponential_clearance_penalty,
     goal_progress_reward,
     goal_reached_reward,
     heading_to_goal_reward,
@@ -35,8 +38,66 @@ from strafer_lab.tasks.navigation.mdp.rewards import (
     speed_near_goal_penalty,
     alive_bonus,
 )
+from strafer_lab.tasks.navigation.strafer_env_cfg import (
+    RewardsCfg,
+    RewardsCfg_Infinigen,
+    RewardsCfg_ProcRoom,
+)
 
 from test.common.stats import one_sample_t_test
+
+
+def test_heading_reward_config_uses_goal_direction():
+    """Configured heading shaping should use the actor-visible goal-direction signal."""
+    assert RewardsCfg().heading_alignment.func is heading_to_goal_reward
+    assert RewardsCfg_Infinigen().heading_alignment.func is heading_to_goal_reward
+    assert RewardsCfg_Infinigen().heading_alignment.weight == 0.0
+    assert RewardsCfg_ProcRoom().heading_alignment.func is heading_to_goal_reward
+    assert RewardsCfg_ProcRoom().obstacle_proximity.weight == -1.0
+
+
+def test_point_to_oriented_box_distance_axis_aligned():
+    """Axis-aligned box distance should match the analytic edge clearance."""
+    points_xy = torch.tensor([[[1.0, 0.0]]], dtype=torch.float32)
+    box_centers_xy = torch.tensor([[[0.0, 0.0]]], dtype=torch.float32)
+    box_yaw = torch.zeros((1, 1), dtype=torch.float32)
+    box_half_extents_xy = torch.tensor([[[0.5, 0.25]]], dtype=torch.float32)
+
+    distance = _point_to_oriented_box_distance_xy(
+        points_xy, box_centers_xy, box_yaw, box_half_extents_xy
+    )
+
+    torch.testing.assert_close(distance, torch.tensor([[0.5]], dtype=torch.float32))
+
+
+def test_point_to_oriented_box_distance_inside_zero():
+    """Points inside the box should have zero unsigned distance."""
+    points_xy = torch.tensor([[[0.1, -0.1]]], dtype=torch.float32)
+    box_centers_xy = torch.tensor([[[0.0, 0.0]]], dtype=torch.float32)
+    box_yaw = torch.tensor([[math.pi / 4]], dtype=torch.float32)
+    box_half_extents_xy = torch.tensor([[[0.5, 0.25]]], dtype=torch.float32)
+
+    distance = _point_to_oriented_box_distance_xy(
+        points_xy, box_centers_xy, box_yaw, box_half_extents_xy
+    )
+
+    torch.testing.assert_close(distance, torch.zeros((1, 1), dtype=torch.float32))
+
+
+def test_clearance_penalty_accumulates_local_clutter():
+    """All active objects inside personal space should contribute to the penalty."""
+    surface_clearance = torch.tensor([[0.05, 0.10, 0.50]], dtype=torch.float32)
+    active_mask = torch.tensor([[True, True, True]])
+
+    penalty = _sum_exponential_clearance_penalty(
+        surface_clearance,
+        active_mask,
+        sigma=0.10,
+        distance_threshold=0.35,
+    )
+
+    expected = torch.exp(torch.tensor(-0.5)) + torch.exp(torch.tensor(-1.0))
+    torch.testing.assert_close(penalty, expected.unsqueeze(0))
 
 
 # =====================================================================

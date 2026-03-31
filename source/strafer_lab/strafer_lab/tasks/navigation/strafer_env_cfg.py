@@ -987,6 +987,21 @@ class RewardsCfg_Infinigen:
     action_smoothness = RewTerm(func=mdp.action_smoothness_penalty, weight=0.0)
 
 
+@configclass
+class RewardsCfg_ProcRoom(RewardsCfg_Infinigen):
+    """ProcRoom rewards with dense obstacle-clearance shaping."""
+
+    obstacle_proximity = RewTerm(
+        func=mdp.procroom_obstacle_proximity_penalty,
+        weight=-1.0,
+        params={
+            "collection_name": "room_primitives",
+            "sigma": 0.12,
+            "distance_threshold": 0.35,
+        },
+    )
+
+
 # Structural event for Infinigen: spawn on interior floor points
 _RESET_ROBOT_INFINIGEN = EventTerm(
     func=mdp.reset_robot_state_on_floor,
@@ -1681,7 +1696,7 @@ class StraferNavEnvCfg_Real_ProcRoom_NoCam(ManagerBasedRLEnvCfg):
     actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
     observations: ObsCfg_NoCam_Realistic = ObsCfg_NoCam_Realistic()
     commands: CommandsCfg_ProcRoom = CommandsCfg_ProcRoom()
-    rewards: RewardsCfg_Infinigen = RewardsCfg_Infinigen()
+    rewards: RewardsCfg_ProcRoom = RewardsCfg_ProcRoom()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventsCfg_ProcRoom_Realistic = EventsCfg_ProcRoom_Realistic()
     curriculum: CurriculumCfg_ProcRoom = CurriculumCfg_ProcRoom()
@@ -1710,7 +1725,7 @@ class StraferNavEnvCfg_Real_ProcRoom_Depth(ManagerBasedRLEnvCfg):
     actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
     observations: ObsCfg_Depth_Realistic = ObsCfg_Depth_Realistic()
     commands: CommandsCfg_ProcRoom = CommandsCfg_ProcRoom()
-    rewards: RewardsCfg_Infinigen = RewardsCfg_Infinigen()
+    rewards: RewardsCfg_ProcRoom = RewardsCfg_ProcRoom()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventsCfg_ProcRoom_Realistic = EventsCfg_ProcRoom_Realistic()
     curriculum: CurriculumCfg_ProcRoom = CurriculumCfg_ProcRoom()
@@ -1739,7 +1754,7 @@ class StraferNavEnvCfg_Robust_ProcRoom_NoCam(ManagerBasedRLEnvCfg):
     actions: ActionsCfg_Robust = ActionsCfg_Robust()
     observations: ObsCfg_NoCam_Robust = ObsCfg_NoCam_Robust()
     commands: CommandsCfg_ProcRoom = CommandsCfg_ProcRoom()
-    rewards: RewardsCfg_Infinigen = RewardsCfg_Infinigen()
+    rewards: RewardsCfg_ProcRoom = RewardsCfg_ProcRoom()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventsCfg_ProcRoom_Robust = EventsCfg_ProcRoom_Robust()
     curriculum: CurriculumCfg_ProcRoom = CurriculumCfg_ProcRoom()
@@ -1768,7 +1783,7 @@ class StraferNavEnvCfg_Robust_ProcRoom_Depth(ManagerBasedRLEnvCfg):
     actions: ActionsCfg_Robust = ActionsCfg_Robust()
     observations: ObsCfg_Depth_Robust = ObsCfg_Depth_Robust()
     commands: CommandsCfg_ProcRoom = CommandsCfg_ProcRoom()
-    rewards: RewardsCfg_Infinigen = RewardsCfg_Infinigen()
+    rewards: RewardsCfg_ProcRoom = RewardsCfg_ProcRoom()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventsCfg_ProcRoom_Robust = EventsCfg_ProcRoom_Robust()
     curriculum: CurriculumCfg_ProcRoom = CurriculumCfg_ProcRoom()

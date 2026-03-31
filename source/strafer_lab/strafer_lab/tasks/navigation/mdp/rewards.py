@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 import torch
 
+from .proc_room import OBJECT_SIZES, ROBOT_HALF_WIDTH
+
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
     from isaaclab.managers import SceneEntityCfg
@@ -459,3 +461,115 @@ def collision_sustained_penalty_net(
     # Zero out below threshold, normalize to [0, 1] (cap at 50N)
     total_force = torch.clamp(total_force - threshold, min=0.0) / 50.0
     return torch.clamp(total_force, max=1.0)
+
+
+def _point_to_oriented_box_distance_xy(
+    points_xy: torch.Tensor,
+    box_centers_xy: torch.Tensor,
+    box_yaw: torch.Tensor,
+    box_half_extents_xy: torch.Tensor,
+) -> torch.Tensor:
+    """Unsigned distance from 2D points to oriented boxes.
+
+    Args:
+        points_xy: Point positions. Shape (..., 2)
+        box_centers_xy: Box centers. Shape (..., 2)
+        box_yaw: Box yaw in radians. Shape (...)
+        box_half_extents_xy: Half extents (hx, hy). Shape (..., 2)
+
+    Returns:
+        Euclidean distance from each point to the corresponding box boundary.
+        Points inside the box return 0. Shape (...)
+    """
+    rel = points_xy - box_centers_xy
+    cos_yaw = torch.cos(box_yaw)
+    sin_yaw = torch.sin(box_yaw)
+
+    # Rotate the point into the box local frame via inverse yaw.
+    local_x = cos_yaw * rel[..., 0] + sin_yaw * rel[..., 1]
+    local_y = -sin_yaw * rel[..., 0] + cos_yaw * rel[..., 1]
+    local = torch.stack([local_x, local_y], dim=-1)
+
+    q = torch.abs(local) - box_half_extents_xy
+    outside = torch.clamp(q, min=0.0)
+    return torch.linalg.norm(outside, dim=-1)
+
+
+def _sum_exponential_clearance_penalty(
+    surface_clearance: torch.Tensor,
+    active_mask: torch.Tensor,
+    sigma: float,
+    distance_threshold: float,
+) -> torch.Tensor:
+    """Aggregate local obstacle penalties from all active objects in personal space."""
+    within_threshold = active_mask & (surface_clearance < distance_threshold)
+    object_penalty = torch.exp(-surface_clearance / sigma)
+    object_penalty = torch.where(within_threshold, object_penalty, torch.zeros_like(object_penalty))
+    return object_penalty.sum(dim=1)
+
+
+def procroom_obstacle_proximity_penalty(
+    env: ManagerBasedEnv,
+    collection_name: str = "room_primitives",
+    sigma: float = 0.12,
+    distance_threshold: float = 0.35,
+    robot_radius: float = ROBOT_HALF_WIDTH,
+) -> torch.Tensor:
+    """Dense ProcRoom penalty for getting too close to scene primitives.
+
+    Uses the distance between the robot's footprint disc and the oriented
+    bounding boxes of the active ProcRoom primitives. This avoids the
+    inconsistent center-to-center signal caused by objects with different
+    sizes/shapes.
+
+    Every active object inside the robot's personal-space threshold contributes
+    ``exp(-d / sigma)`` to the penalty. Objects beyond
+    ``distance_threshold`` contribute zero, so only local clutter is penalized.
+
+    Args:
+        env: The environment instance.
+        collection_name: ProcRoom rigid-object collection name.
+        sigma: Exponential falloff distance in meters.
+        distance_threshold: Clearance threshold where the penalty becomes zero.
+        robot_radius: Radius of the robot footprint bounding disc in meters.
+
+    Returns:
+        Aggregated proximity penalty from nearby objects. Shape: (num_envs,)
+    """
+    robot = env.scene["robot"]
+    robot_xy = robot.data.root_pos_w[:, :2]
+
+    collection = env.scene[collection_name]
+    object_xy = collection.data.object_link_pos_w[:, :, :2]
+    object_quat = collection.data.object_link_quat_w
+
+    sizes_xy = OBJECT_SIZES.to(env.device)[:, :2]
+    half_extents_xy = 0.5 * sizes_xy.unsqueeze(0).expand(env.num_envs, -1, -1)
+
+    # ProcRoom objects are yaw-only; extract yaw from (w, x, y, z).
+    w = object_quat[..., 0]
+    x = object_quat[..., 1]
+    y = object_quat[..., 2]
+    z = object_quat[..., 3]
+    object_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+    robot_xy_expanded = robot_xy.unsqueeze(1).expand_as(object_xy)
+    point_to_box = _point_to_oriented_box_distance_xy(
+        robot_xy_expanded,
+        object_xy,
+        object_yaw,
+        half_extents_xy,
+    )
+    surface_clearance = torch.clamp(point_to_box - robot_radius, min=0.0)
+
+    if hasattr(env, "_proc_room_active_mask"):
+        active_mask = env._proc_room_active_mask
+    else:
+        active_mask = collection.data.object_link_pos_w[:, :, 2] > -5.0
+
+    return _sum_exponential_clearance_penalty(
+        surface_clearance,
+        active_mask,
+        sigma=sigma,
+        distance_threshold=distance_threshold,
+    )

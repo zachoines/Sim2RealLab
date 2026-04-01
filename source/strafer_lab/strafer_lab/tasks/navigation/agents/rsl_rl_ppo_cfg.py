@@ -5,8 +5,9 @@ Three config tiers:
   - STRAFER_PPO_LSTM_RUNNER_CFG: LSTM for NoCam variants (online system ID)
   - STRAFER_PPO_DEPTH_RUNNER_CFG: CNN-MLP hybrid for Depth variants
 
-All use asymmetric actor-critic: the actor sees noisy policy observations
-while the critic additionally receives privileged ground truth state.
+All use matched-observation actor-critic: the actor sees the policy observation
+contract (optionally corrupted by sensor noise) while the critic receives the
+same flattened observation layout without corruption.
 """
 
 from isaaclab_rl.rsl_rl import (
@@ -27,6 +28,7 @@ STRAFER_PPO_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
     save_interval=100,
     experiment_name="strafer_navigation",
     empirical_normalization=False,
+    clip_actions=1.0,
     obs_groups={"policy": ["policy"], "critic": ["critic"]},
     policy=RslRlPpoActorCriticCfg(
         class_name="ActorCritic",
@@ -66,6 +68,7 @@ STRAFER_PPO_LSTM_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
     save_interval=100,
     experiment_name="strafer_navigation_lstm",
     empirical_normalization=False,
+    clip_actions=1.0,
     obs_groups={"policy": ["policy"], "critic": ["critic"]},
     policy=RslRlPpoActorCriticRecurrentCfg(
         class_name="ActorCriticRecurrent",
@@ -105,11 +108,15 @@ STRAFER_PPO_LSTM_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
 # value function looks further ahead — important for navigation where
 # reaching a goal 6s away requires sustained planning.
 #
-# entropy_coef=0.02: raised to counteract DAPG's variance-collapsing effect.
-# With fixed LR the entropy bonus actually has effect throughout training.
+# init_noise_std=0.3 seeds a symmetric zero-mean Beta policy whose initial
+# action std on [-1, 1] is 0.3.
 #
-# schedule="fixed": adaptive LR is counterproductive with DAPG — the strong
-# initial BC gradient triggers the KL controller to kill LR before RL starts.
+# entropy_coef=0.001: conservative exploration pressure for the bounded Beta
+# policy. This has been the more stable setting across the current depth runs.
+#
+# schedule="fixed": LR decay is handled via --lr_schedule CLI arg (cosine
+# or linear) which monkey-patches the runner.  "adaptive" (KL-based) is
+# counterproductive with DAPG and unpredictable with cosine/linear decay.
 # =============================================================================
 
 STRAFER_PPO_DEPTH_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
@@ -118,6 +125,7 @@ STRAFER_PPO_DEPTH_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
     save_interval=100,
     experiment_name="strafer_navigation_depth",
     empirical_normalization=True,
+    clip_actions=1.0,
     obs_groups={"policy": ["policy"], "critic": ["critic"]},
     policy=RslRlPpoActorCriticRecurrentCfg(
         class_name="StraferActorCritic",
@@ -133,7 +141,7 @@ STRAFER_PPO_DEPTH_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
         value_loss_coef=1.0,
         use_clipped_value_loss=True,
         clip_param=0.2,
-        entropy_coef=0.02,
+        entropy_coef=0.001,
         num_learning_epochs=5,
         num_mini_batches=4,
         learning_rate=3.0e-4,

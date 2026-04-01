@@ -511,6 +511,7 @@ def randomize_proc_room_difficulty(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
     max_level: int = 7,
+    min_level: int = 0,
 ) -> None:
     """Sample uniform random room difficulty per env on episode reset.
 
@@ -521,11 +522,13 @@ def randomize_proc_room_difficulty(
         env: The environment instance.
         env_ids: Indices of environments being reset.
         max_level: Maximum difficulty level (inclusive).
+        min_level: Minimum difficulty level (inclusive).  Set equal to
+            max_level to lock difficulty to a fixed value.
     """
     if not hasattr(env, "_proc_room_difficulty"):
         env._proc_room_difficulty = torch.zeros(
             env.num_envs, dtype=torch.long, device=env.device
         )
     env._proc_room_difficulty[env_ids] = torch.randint(
-        0, max_level + 1, (len(env_ids),), device=env.device
+        min_level, max_level + 1, (len(env_ids),), device=env.device
     )

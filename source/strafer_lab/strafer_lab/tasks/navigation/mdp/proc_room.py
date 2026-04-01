@@ -742,36 +742,32 @@ def generate_proc_room(
     reachable_count = reachable.view(B, -1).sum(dim=-1)  # (B,)
     failed = reachable_count < MIN_REACHABLE_CELLS
 
-    # Retry: park clutter then furniture for failed envs
+    # Retry: park clutter then furniture for failed envs, one at a time.
+    # With dense level-7 rooms (16 clutter + 8 furniture) we may need many
+    # passes.  Each pass removes one object (clutter first, then furniture)
+    # and re-checks BFS.  This keeps rooms as full as possible.
     if failed.any():
-        failed_ids = torch.where(failed)[0]
-        for retry in range(5):
+        max_retries = NUM_CLUTTER + NUM_FURNITURE  # worst case: remove everything
+        for retry in range(max_retries):
             if not failed.any():
                 break
-            # Park objects progressively
+            failed_ids = torch.where(failed)[0]
             for fi in failed_ids:
-                if not failed[fi]:
-                    continue
-                if retry < 3:
-                    # Park one clutter
-                    for s in CLUTTER_SLOTS:
+                # Try parking one clutter first
+                parked = False
+                for s in reversed(CLUTTER_SLOTS):
+                    if active_mask[fi, s]:
+                        active_mask[fi, s] = False
+                        poses[fi, s, :3] = PARK_POS.to(device)
+                        parked = True
+                        break
+                if not parked:
+                    # No clutter left, park one furniture
+                    for s in reversed(FURNITURE_SLOTS):
                         if active_mask[fi, s]:
                             active_mask[fi, s] = False
                             poses[fi, s, :3] = PARK_POS.to(device)
                             break
-                elif retry == 3:
-                    # Park one furniture
-                    for s in FURNITURE_SLOTS:
-                        if active_mask[fi, s]:
-                            active_mask[fi, s] = False
-                            poses[fi, s, :3] = PARK_POS.to(device)
-                            break
-                else:
-                    # Park all remaining non-wall objects
-                    for s in FURNITURE_SLOTS + CLUTTER_SLOTS:
-                        if active_mask[fi, s]:
-                            active_mask[fi, s] = False
-                            poses[fi, s, :3] = PARK_POS.to(device)
 
             # Rebuild and re-check
             occupancy = _build_occupancy_grid(poses, active_mask, sizes, room_w, room_h, device, has_room_walls)
@@ -791,9 +787,13 @@ def generate_proc_room(
         env._proc_room_spawn_count = torch.zeros(
             env.num_envs, dtype=torch.long, device=device
         )
+        env._proc_room_active_mask = torch.zeros(
+            env.num_envs, NUM_OBJECTS, dtype=torch.bool, device=device
+        )
 
     env._proc_room_spawn_pts[env_ids] = spawn_xy
     env._proc_room_spawn_count[env_ids] = spawn_count
+    env._proc_room_active_mask[env_ids] = active_mask
 
     # --- Phase 7: Offset by env origins and write ---
     env_origins = env.scene.env_origins[env_ids]  # (B, 3)

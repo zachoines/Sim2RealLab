@@ -411,7 +411,7 @@ def compute_geometric_wall_mask(
     CAMERA MODEL:
     We use a pinhole camera model where:
     - focal_length and horizontal_aperture define the horizontal FOV
-    - The camera looks along -Y axis (ROS convention after rotation)
+    - The camera looks along +X after the ROS-frame mount rotation is applied
     - Pixel (0,0) is top-left, (width-1, height-1) is bottom-right
 
     RAY CASTING:
@@ -697,8 +697,9 @@ def collect_stationary_observations(
         env: The Isaac Lab environment
         n_steps: Number of observation steps to collect
         n_settle_steps: Number of steps to let physics settle before collecting
-        face_wall: If True (default), robot faces the wall (-Y direction).
-                   If False, robot faces away from wall (+Y direction) to see max-range.
+        face_wall: If True (default), robot faces the wall along world +X.
+                   If False, robot faces away from the wall along world -X to
+                   observe max-range pixels.
         freeze_robot: If True (default), continuously zero out robot velocities during
                       observation collection to eliminate micro-settling noise. This ensures
                       any measured variance comes purely from sensor noise, not robot movement.

@@ -21,11 +21,21 @@ Usage:
 NOTE: Uses the ``reward_env`` fixture from ``test/rewards/conftest.py``.
 """
 
+import math
+from types import SimpleNamespace
 import numpy as np
 import torch
 import pytest
 
+from strafer_lab.tasks.navigation.agents.rsl_rl_ppo_cfg import (
+    STRAFER_PPO_DEPTH_RUNNER_CFG,
+    STRAFER_PPO_LSTM_RUNNER_CFG,
+    STRAFER_PPO_RUNNER_CFG,
+)
+from strafer_lab.tasks.navigation.agents.strafer_network import StraferActorCritic
 from strafer_lab.tasks.navigation.mdp.rewards import (
+    _point_to_oriented_box_distance_xy,
+    _sum_exponential_clearance_penalty,
     goal_progress_reward,
     goal_reached_reward,
     heading_to_goal_reward,
@@ -35,8 +45,224 @@ from strafer_lab.tasks.navigation.mdp.rewards import (
     speed_near_goal_penalty,
     alive_bonus,
 )
+from strafer_lab.tasks.navigation.strafer_env_cfg import (
+    CommandsCfg_ProcRoom,
+    ObsCfg_Depth_Ideal,
+    ObsCfg_Depth_Realistic,
+    ObsCfg_Depth_Robust,
+    ObsCfg_Full_Ideal,
+    ObsCfg_Full_Realistic,
+    ObsCfg_Full_Robust,
+    ObsCfg_NoCam_Ideal,
+    ObsCfg_NoCam_Realistic,
+    ObsCfg_NoCam_Robust,
+    RewardsCfg,
+    RewardsCfg_ProcRoom,
+    TerminationsCfg_ProcRoom,
+)
+from strafer_lab.tasks.navigation.mdp.terminations import goal_reached
 
 from test.common.stats import one_sample_t_test
+
+
+def test_heading_reward_config_uses_goal_direction():
+    """Configured heading shaping should use the actor-visible goal-direction signal."""
+    assert RewardsCfg().heading_alignment.func is heading_to_goal_reward
+    assert RewardsCfg().heading_alignment.weight == 0.0
+    assert RewardsCfg_ProcRoom().heading_alignment.func is heading_to_goal_reward
+    assert RewardsCfg_ProcRoom().heading_alignment.weight == 0.02
+    assert RewardsCfg_ProcRoom().obstacle_proximity.weight == -1.0
+
+
+def test_procroom_run1_config_stabilizes_episode_returns():
+    """ProcRoom should train on single-goal episodes with earlier collision resets."""
+    procroom_commands = CommandsCfg_ProcRoom().goal_command
+    procroom_terminations = TerminationsCfg_ProcRoom()
+
+    assert procroom_commands.multi_goal is False
+    assert procroom_commands.resampling_time_range == (1.0e6, 1.0e6)
+    assert procroom_terminations.goal_reached.func is goal_reached
+    assert procroom_terminations.sustained_collision.params["max_steps"] == 3
+    assert STRAFER_PPO_DEPTH_RUNNER_CFG.clip_actions == 1.0
+    assert STRAFER_PPO_DEPTH_RUNNER_CFG.algorithm.entropy_coef == 0.001
+
+
+def test_strafer_actor_critic_initializes_symmetric_beta_from_init_noise_std():
+    """The Beta head should start centered at zero with the requested action std."""
+    obs = {
+        "policy": torch.zeros(2, 8, dtype=torch.float32),
+        "critic": torch.zeros(2, 8, dtype=torch.float32),
+    }
+    policy = StraferActorCritic(
+        obs=obs,
+        obs_groups={"policy": ["policy"], "critic": ["critic"]},
+        num_actions=3,
+        actor_hidden_dims=[16],
+        critic_hidden_dims=[16],
+        init_noise_std=0.3,
+    )
+
+    policy.act(obs)
+
+    torch.testing.assert_close(
+        policy.action_std[0],
+        torch.full((3,), 0.3, dtype=torch.float32),
+        atol=1.0e-4,
+        rtol=1.0e-4,
+    )
+    torch.testing.assert_close(
+        policy.action_mean[0],
+        torch.zeros(3, dtype=torch.float32),
+        atol=1.0e-6,
+        rtol=1.0e-6,
+    )
+
+
+def test_strafer_actor_critic_bounds_actions_and_log_probs():
+    """Beta actor samples, means, entropy, and inference outputs should be well-formed."""
+    obs = {
+        "policy": torch.zeros(4, 8, dtype=torch.float32),
+        "critic": torch.zeros(4, 8, dtype=torch.float32),
+    }
+    policy = StraferActorCritic(
+        obs=obs,
+        obs_groups={"policy": ["policy"], "critic": ["critic"]},
+        num_actions=3,
+        actor_hidden_dims=[16],
+        critic_hidden_dims=[16],
+        init_noise_std=0.3,
+    )
+
+    sampled = policy.act(obs)
+    inferred = policy.act_inference(obs)
+    log_prob = policy.get_actions_log_prob(sampled)
+
+    assert torch.all(sampled <= 1.0)
+    assert torch.all(sampled >= -1.0)
+    assert torch.all(inferred <= 1.0)
+    assert torch.all(inferred >= -1.0)
+    assert torch.all(policy.action_mean <= 1.0)
+    assert torch.all(policy.action_mean >= -1.0)
+    torch.testing.assert_close(inferred, policy.action_mean)
+    assert torch.isfinite(log_prob).all()
+    assert torch.isfinite(policy.entropy).all()
+
+
+def test_strafer_actor_critic_requires_matched_actor_and_critic_obs():
+    """The custom network should reject asymmetric actor/critic observation sizes."""
+    obs = {
+        "policy": torch.zeros(2, 8, dtype=torch.float32),
+        "critic": torch.zeros(2, 9, dtype=torch.float32),
+    }
+
+    with pytest.raises(ValueError, match="same flattened shape"):
+        StraferActorCritic(
+            obs=obs,
+            obs_groups={"policy": ["policy"], "critic": ["critic"]},
+            num_actions=3,
+            actor_hidden_dims=[16],
+            critic_hidden_dims=[16],
+            init_noise_std=0.3,
+        )
+
+
+def test_runner_cfgs_clip_actions_to_normalized_range():
+    """All Strafer PPO configs should clamp the action contract at the wrapper too."""
+    runner_cfgs = (
+        STRAFER_PPO_RUNNER_CFG,
+        STRAFER_PPO_LSTM_RUNNER_CFG,
+        STRAFER_PPO_DEPTH_RUNNER_CFG,
+    )
+    for runner_cfg in runner_cfgs:
+        assert runner_cfg.clip_actions == 1.0
+
+
+def _obs_term_names(group) -> list[str]:
+    """Return configured observation term names in declaration order."""
+    return [
+        name
+        for name in vars(group)
+        if name not in {"enable_corruption", "concatenate_terms"} and not name.startswith("_")
+    ]
+
+
+@pytest.mark.parametrize(
+    "obs_cfg_cls",
+    [
+        ObsCfg_Full_Ideal,
+        ObsCfg_Depth_Ideal,
+        ObsCfg_NoCam_Ideal,
+        ObsCfg_Full_Realistic,
+        ObsCfg_Depth_Realistic,
+        ObsCfg_NoCam_Realistic,
+        ObsCfg_Full_Robust,
+        ObsCfg_Depth_Robust,
+        ObsCfg_NoCam_Robust,
+    ],
+)
+def test_obs_cfgs_keep_policy_and_critic_layout_identical(obs_cfg_cls):
+    """Critic should mirror the policy field layout exactly, just without noise."""
+    obs_cfg = obs_cfg_cls()
+    assert _obs_term_names(obs_cfg.policy) == _obs_term_names(obs_cfg.critic)
+
+
+def test_point_to_oriented_box_distance_axis_aligned():
+    """Axis-aligned box distance should match the analytic edge clearance."""
+    points_xy = torch.tensor([[[1.0, 0.0]]], dtype=torch.float32)
+    box_centers_xy = torch.tensor([[[0.0, 0.0]]], dtype=torch.float32)
+    box_yaw = torch.zeros((1, 1), dtype=torch.float32)
+    box_half_extents_xy = torch.tensor([[[0.5, 0.25]]], dtype=torch.float32)
+
+    distance = _point_to_oriented_box_distance_xy(
+        points_xy, box_centers_xy, box_yaw, box_half_extents_xy
+    )
+
+    torch.testing.assert_close(distance, torch.tensor([[0.5]], dtype=torch.float32))
+
+
+def test_point_to_oriented_box_distance_inside_zero():
+    """Points inside the box should have zero unsigned distance."""
+    points_xy = torch.tensor([[[0.1, -0.1]]], dtype=torch.float32)
+    box_centers_xy = torch.tensor([[[0.0, 0.0]]], dtype=torch.float32)
+    box_yaw = torch.tensor([[math.pi / 4]], dtype=torch.float32)
+    box_half_extents_xy = torch.tensor([[[0.5, 0.25]]], dtype=torch.float32)
+
+    distance = _point_to_oriented_box_distance_xy(
+        points_xy, box_centers_xy, box_yaw, box_half_extents_xy
+    )
+
+    torch.testing.assert_close(distance, torch.zeros((1, 1), dtype=torch.float32))
+
+
+def test_clearance_penalty_accumulates_local_clutter():
+    """All active objects inside personal space should contribute to the penalty."""
+    surface_clearance = torch.tensor([[0.05, 0.10, 0.50]], dtype=torch.float32)
+    active_mask = torch.tensor([[True, True, True]])
+
+    penalty = _sum_exponential_clearance_penalty(
+        surface_clearance,
+        active_mask,
+        sigma=0.10,
+        distance_threshold=0.35,
+    )
+
+    expected = torch.exp(torch.tensor(-0.5)) + torch.exp(torch.tensor(-1.0))
+    torch.testing.assert_close(penalty, expected.unsqueeze(0))
+
+
+def test_action_smoothness_uses_action_manager_history():
+    """Smoothness should track per-step action history, not reward-call history."""
+    env = SimpleNamespace(
+        action_manager=SimpleNamespace(
+            action=torch.tensor([[0.3, 0.3, 0.3], [0.5, -0.5, 0.0]], dtype=torch.float32),
+            prev_action=torch.tensor([[0.3, 0.3, 0.3], [0.0, 0.0, 0.0]], dtype=torch.float32),
+        ),
+        episode_length_buf=torch.tensor([5, 1], dtype=torch.long),
+    )
+
+    penalty = action_smoothness_penalty(env)
+
+    torch.testing.assert_close(penalty, torch.tensor([0.0, 0.0], dtype=torch.float32))
 
 
 # =====================================================================
@@ -96,9 +322,8 @@ def test_no_reward_spikes_on_reset(env):
     """Reward signals must be continuous across episode boundaries.
 
     After a reset the stateful reward functions (``goal_progress_reward``
-    and ``action_smoothness_penalty``) reinitialise their internal
-    buffers (``_prev_goal_distance``, ``_prev_action``) to match the
-    new episode state.  This test verifies that the first-step reward
+    and ``action_smoothness_penalty``) realign their state tracking to
+    match the new episode state.  This test verifies that the first-step reward
     magnitude is comparable to a mid-episode step — no transient spike.
 
     Checks:
@@ -106,7 +331,7 @@ def test_no_reward_spikes_on_reset(env):
        (a spike would indicate stale ``_prev_goal_distance`` carrying
        a distance from the previous episode).
     2. ``action_smoothness_penalty`` on step 0 — max penalty < 0.1
-       (a spike would indicate stale ``_prev_action`` from the
+       (a spike would indicate stale action history from the
        previous episode).
     3. ``_prev_goal_distance`` tracks the current distance within 0.1 m
        after the first post-reset step.

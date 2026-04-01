@@ -22,6 +22,7 @@ NOTE: Uses the ``reward_env`` fixture from ``test/rewards/conftest.py``.
 """
 
 import math
+from types import SimpleNamespace
 import numpy as np
 import torch
 import pytest
@@ -249,6 +250,21 @@ def test_clearance_penalty_accumulates_local_clutter():
     torch.testing.assert_close(penalty, expected.unsqueeze(0))
 
 
+def test_action_smoothness_uses_action_manager_history():
+    """Smoothness should track per-step action history, not reward-call history."""
+    env = SimpleNamespace(
+        action_manager=SimpleNamespace(
+            action=torch.tensor([[0.3, 0.3, 0.3], [0.5, -0.5, 0.0]], dtype=torch.float32),
+            prev_action=torch.tensor([[0.3, 0.3, 0.3], [0.0, 0.0, 0.0]], dtype=torch.float32),
+        ),
+        episode_length_buf=torch.tensor([5, 1], dtype=torch.long),
+    )
+
+    penalty = action_smoothness_penalty(env)
+
+    torch.testing.assert_close(penalty, torch.tensor([0.0, 0.0], dtype=torch.float32))
+
+
 # =====================================================================
 # Fixture alias — use the shared conftest env
 # =====================================================================
@@ -306,9 +322,8 @@ def test_no_reward_spikes_on_reset(env):
     """Reward signals must be continuous across episode boundaries.
 
     After a reset the stateful reward functions (``goal_progress_reward``
-    and ``action_smoothness_penalty``) reinitialise their internal
-    buffers (``_prev_goal_distance``, ``_prev_action``) to match the
-    new episode state.  This test verifies that the first-step reward
+    and ``action_smoothness_penalty``) realign their state tracking to
+    match the new episode state.  This test verifies that the first-step reward
     magnitude is comparable to a mid-episode step — no transient spike.
 
     Checks:
@@ -316,7 +331,7 @@ def test_no_reward_spikes_on_reset(env):
        (a spike would indicate stale ``_prev_goal_distance`` carrying
        a distance from the previous episode).
     2. ``action_smoothness_penalty`` on step 0 — max penalty < 0.1
-       (a spike would indicate stale ``_prev_action`` from the
+       (a spike would indicate stale action history from the
        previous episode).
     3. ``_prev_goal_distance`` tracks the current distance within 0.1 m
        after the first post-reset step.

@@ -77,6 +77,7 @@ from .sim_real_cfg import (
     get_rgb_noise,
     get_action_config_params,
 )
+from .d555_cfg import make_d555_camera_cfg, make_d555_imu_cfg
 
 
 # =============================================================================
@@ -173,37 +174,13 @@ class StraferSceneCfg(InteractiveSceneCfg):
     # Near clip set to 0.01m (not 0.4m) so sim renders close objects.
     # The depth_image() observation handles the D555's real 0.4m blind zone
     # by filling nearfield pixels with a saturated value (see observations.py).
-    d555_camera: TiledCameraCfg = TiledCameraCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link/d555_camera",
-        update_period=1.0 / 30.0,
-        height=60,
-        width=80,
-        data_types=["rgb", "distance_to_image_plane"],
-        spawn=sim_utils.PinholeCameraCfg(
-            focal_length=1.93,
-            horizontal_aperture=3.68,
-            clipping_range=(0.01, 6.0),
-        ),
-        offset=TiledCameraCfg.OffsetCfg(
-            pos=(0.20, 0.0, 0.25),
-            # ROS camera convention: Z-forward, X-right, Y-down
-            # (0.5, -0.5, 0.5, -0.5) aligns camera forward (+Z) to robot +X
-            rot=(0.5, -0.5, 0.5, -0.5),
-            convention="ros",
-        ),
+    d555_camera: TiledCameraCfg = make_d555_camera_cfg(
+        data_types=("rgb", "distance_to_image_plane"),
     )
 
     # Intel RealSense D555 IMU (BMI055)
     # Co-located with camera for sensor fusion
-    d555_imu: ImuCfg = ImuCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
-        update_period=1.0 / 200.0,
-        offset=ImuCfg.OffsetCfg(
-            pos=(0.20, 0.0, 0.25),
-            rot=(1.0, 0.0, 0.0, 0.0),
-        ),
-        gravity_bias=(0.0, 0.0, 9.81),
-    )
+    d555_imu: ImuCfg = make_d555_imu_cfg()
 
     # Contact sensor on body_link for collision detection.
     # Uses net_forces_w — body_link is wheel-suspended (~10cm above ground),
@@ -299,34 +276,12 @@ class StraferSceneCfg_Infinigen(InteractiveSceneCfg):
     )
 
     # Intel RealSense D555 depth camera (near clip 0.01m, see StraferSceneCfg comment)
-    d555_camera: TiledCameraCfg = TiledCameraCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link/d555_camera",
-        update_period=1.0 / 30.0,
-        height=60,
-        width=80,
-        data_types=["rgb", "distance_to_image_plane"],
-        spawn=sim_utils.PinholeCameraCfg(
-            focal_length=1.93,
-            horizontal_aperture=3.68,
-            clipping_range=(0.01, 6.0),
-        ),
-        offset=TiledCameraCfg.OffsetCfg(
-            pos=(0.20, 0.0, 0.25),
-            rot=(0.5, -0.5, 0.5, -0.5),
-            convention="ros",
-        ),
+    d555_camera: TiledCameraCfg = make_d555_camera_cfg(
+        data_types=("rgb", "distance_to_image_plane"),
     )
 
     # Intel RealSense D555 IMU (same as StraferSceneCfg)
-    d555_imu: ImuCfg = ImuCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
-        update_period=1.0 / 200.0,
-        offset=ImuCfg.OffsetCfg(
-            pos=(0.20, 0.0, 0.25),
-            rot=(1.0, 0.0, 0.0, 0.0),
-        ),
-        gravity_bias=(0.0, 0.0, 9.81),
-    )
+    d555_imu: ImuCfg = make_d555_imu_cfg()
 
     # Procedural scene geometry loaded as a global prim (single copy).
     # All robot environments share this scene via collision_group=-1.
@@ -1047,92 +1002,158 @@ class CurriculumCfg_Infinigen:
 # Environment Configurations - 30 Variants (15 configs × Train/Play)
 # =============================================================================
 
+_DEFAULT_NAV_SIM_DT = 1.0 / 120.0
+_DEFAULT_NAV_RENDER_INTERVAL = 4
+_DEFAULT_NAV_DECIMATION = 4
+_DEFAULT_NAV_EPISODE_LENGTH_S = 20.0
+
+_STANDARD_TRAIN_NUM_ENVS = 4096
+_STANDARD_PLAY_NUM_ENVS = 50
+_STANDARD_ENV_SPACING = 8.0
+
+_INFINIGEN_TRAIN_NUM_ENVS = 3
+_INFINIGEN_PLAY_NUM_ENVS = 8
+
+_PROCROOM_NOCAM_TRAIN_NUM_ENVS = 256
+_PROCROOM_DEPTH_TRAIN_NUM_ENVS = 64
+_PROCROOM_NOCAM_PLAY_NUM_ENVS = 50
+_PROCROOM_DEPTH_PLAY_NUM_ENVS = 8
+_PROCROOM_ENV_SPACING = 10.0
+
+
+def _apply_default_nav_runtime(cfg: ManagerBasedRLEnvCfg) -> None:
+    """Apply the shared runtime defaults used by all navigation environments."""
+    cfg.sim.dt = _DEFAULT_NAV_SIM_DT
+    cfg.sim.render_interval = _DEFAULT_NAV_RENDER_INTERVAL
+    cfg.decimation = _DEFAULT_NAV_DECIMATION
+    cfg.episode_length_s = _DEFAULT_NAV_EPISODE_LENGTH_S
+
+
+def _apply_play_num_envs(cfg: ManagerBasedRLEnvCfg, *, num_envs: int) -> None:
+    """Shrink train configs for play/eval without changing other behavior."""
+    cfg.scene.num_envs = num_envs
+
+
+def _get_infinigen_spawn_points_xy() -> list[list[float]]:
+    """Pool interior spawn points from the offline Infinigen scene metadata."""
+    meta = _get_scenes_metadata()
+    if not meta:
+        return []
+
+    spawn_points_xy = []
+    for scene_data in meta["scenes"].values():
+        spawn_points_xy.extend(scene_data.get("spawn_points_xy", []))
+    return spawn_points_xy
+
+
+def _apply_infinigen_scene_setup(cfg: ManagerBasedRLEnvCfg) -> None:
+    """Attach the first scene USD and pooled floor spawn points to an env cfg."""
+    cfg.scene.scene_geometry.spawn.usd_path = _get_scene_usd_paths()[0]
+
+    spawn_points_xy = _get_infinigen_spawn_points_xy()
+    if spawn_points_xy:
+        cfg.events.reset_robot.params["spawn_points_xy"] = spawn_points_xy
+        cfg.commands.goal_command.spawn_points_xy = spawn_points_xy
+
+
+class _PlayEnvCfgMixin:
+    """Shared play-mode override that only reduces the scene env count."""
+
+    play_num_envs = _STANDARD_PLAY_NUM_ENVS
+
+    def __post_init__(self):
+        super().__post_init__()
+        _apply_play_num_envs(self, num_envs=self.play_num_envs)
+
+
+@configclass
+class _BaseStraferNavEnvCfg(ManagerBasedRLEnvCfg):
+    """Shared runtime defaults for all navigation environment configs."""
+
+    seed: int = 42
+
+    def __post_init__(self):
+        _apply_default_nav_runtime(self)
+
+
+@configclass
+class _BaseStandardCameraNavEnvCfg(_BaseStraferNavEnvCfg):
+    """Common train-time config for camera-equipped plane navigation envs."""
+
+    scene: StraferSceneCfg = StraferSceneCfg(num_envs=_STANDARD_TRAIN_NUM_ENVS, env_spacing=_STANDARD_ENV_SPACING)
+    commands: CommandsCfg = CommandsCfg()
+    rewards: RewardsCfg = RewardsCfg()
+    terminations: TerminationsCfg = TerminationsCfg()
+    curriculum: CurriculumCfg = CurriculumCfg()
+
+
+@configclass
+class _BaseStandardNoCamNavEnvCfg(_BaseStraferNavEnvCfg):
+    """Common train-time config for NoCam plane navigation envs."""
+
+    scene: StraferSceneCfg_NoCam = StraferSceneCfg_NoCam(num_envs=_STANDARD_TRAIN_NUM_ENVS, env_spacing=_STANDARD_ENV_SPACING)
+    commands: CommandsCfg = CommandsCfg()
+    rewards: RewardsCfg = RewardsCfg()
+    terminations: TerminationsCfg = TerminationsCfg()
+    curriculum: CurriculumCfg = CurriculumCfg()
+
+
+@configclass
+class _BaseInfinigenDepthNavEnvCfg(_BaseStraferNavEnvCfg):
+    """Common train-time config for depth-only Infinigen scene variants."""
+
+    scene: StraferSceneCfg_Infinigen = StraferSceneCfg_Infinigen(num_envs=_INFINIGEN_TRAIN_NUM_ENVS, env_spacing=0.0)
+    commands: CommandsCfg_Infinigen = CommandsCfg_Infinigen()
+    rewards: RewardsCfg = RewardsCfg()
+    terminations: TerminationsCfg = TerminationsCfg()
+    curriculum: CurriculumCfg_Infinigen = CurriculumCfg_Infinigen()
+
+    def __post_init__(self):
+        super().__post_init__()
+        _apply_infinigen_scene_setup(self)
+
+
 # -----------------------------------------------------------------------------
 # IDEAL: No noise, no motor dynamics (debugging/baselines)
 # -----------------------------------------------------------------------------
 
 @configclass
-class StraferNavEnvCfg(ManagerBasedRLEnvCfg):
+class StraferNavEnvCfg(_BaseStandardCameraNavEnvCfg):
     """Ideal Full (RGB+Depth) - baseline for debugging."""
-    scene: StraferSceneCfg = StraferSceneCfg(num_envs=4096, env_spacing=8.0)
     actions: ActionsCfg_Ideal = ActionsCfg_Ideal()
     observations: ObsCfg_Full_Ideal = ObsCfg_Full_Ideal()
-    commands: CommandsCfg = CommandsCfg()
-    rewards: RewardsCfg = RewardsCfg()
-    terminations: TerminationsCfg = TerminationsCfg()
     events: EventsCfg_Ideal = EventsCfg_Ideal()
-    curriculum: CurriculumCfg = CurriculumCfg()
-    seed: int = 42
-
-    def __post_init__(self):
-        self.sim.dt = 1.0 / 120.0
-        self.sim.render_interval = 4
-        self.decimation = 4
-        self.episode_length_s = 20.0
 
 
 @configclass
-class StraferNavEnvCfg_PLAY(StraferNavEnvCfg):
+class StraferNavEnvCfg_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg):
     """Play/eval config for Ideal Full."""
-    def __post_init__(self):
-        super().__post_init__()
-        self.scene.num_envs = 50
 
 
 @configclass
-class StraferNavEnvCfg_Depth(ManagerBasedRLEnvCfg):
+class StraferNavEnvCfg_Depth(_BaseStandardCameraNavEnvCfg):
     """Ideal Depth-only."""
-    scene: StraferSceneCfg = StraferSceneCfg(num_envs=4096, env_spacing=8.0)
     actions: ActionsCfg_Ideal = ActionsCfg_Ideal()
     observations: ObsCfg_Depth_Ideal = ObsCfg_Depth_Ideal()
-    commands: CommandsCfg = CommandsCfg()
-    rewards: RewardsCfg = RewardsCfg()
-    terminations: TerminationsCfg = TerminationsCfg()
     events: EventsCfg_Ideal = EventsCfg_Ideal()
-    curriculum: CurriculumCfg = CurriculumCfg()
-    seed: int = 42
-
-    def __post_init__(self):
-        self.sim.dt = 1.0 / 120.0
-        self.sim.render_interval = 4
-        self.decimation = 4
-        self.episode_length_s = 20.0
 
 
 @configclass
-class StraferNavEnvCfg_Depth_PLAY(StraferNavEnvCfg_Depth):
+class StraferNavEnvCfg_Depth_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Depth):
     """Play/eval config for Ideal Depth-only."""
-    def __post_init__(self):
-        super().__post_init__()
-        self.scene.num_envs = 50
 
 
 @configclass
-class StraferNavEnvCfg_NoCam(ManagerBasedRLEnvCfg):
+class StraferNavEnvCfg_NoCam(_BaseStandardNoCamNavEnvCfg):
     """Ideal Proprioceptive-only (fastest training)."""
-    scene: StraferSceneCfg_NoCam = StraferSceneCfg_NoCam(num_envs=4096, env_spacing=8.0)
     actions: ActionsCfg_Ideal = ActionsCfg_Ideal()
     observations: ObsCfg_NoCam_Ideal = ObsCfg_NoCam_Ideal()
-    commands: CommandsCfg = CommandsCfg()
-    rewards: RewardsCfg = RewardsCfg()
-    terminations: TerminationsCfg = TerminationsCfg()
     events: EventsCfg_Ideal = EventsCfg_Ideal()
-    curriculum: CurriculumCfg = CurriculumCfg()
-    seed: int = 42
-
-    def __post_init__(self):
-        self.sim.dt = 1.0 / 120.0
-        self.sim.render_interval = 4
-        self.decimation = 4
-        self.episode_length_s = 20.0
 
 
 @configclass
-class StraferNavEnvCfg_NoCam_PLAY(StraferNavEnvCfg_NoCam):
+class StraferNavEnvCfg_NoCam_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_NoCam):
     """Play/eval config for Ideal Proprioceptive-only."""
-    def __post_init__(self):
-        super().__post_init__()
-        self.scene.num_envs = 50
 
 
 # -----------------------------------------------------------------------------
@@ -1140,88 +1161,42 @@ class StraferNavEnvCfg_NoCam_PLAY(StraferNavEnvCfg_NoCam):
 # -----------------------------------------------------------------------------
 
 @configclass
-class StraferNavEnvCfg_Real(ManagerBasedRLEnvCfg):
+class StraferNavEnvCfg_Real(_BaseStandardCameraNavEnvCfg):
     """Realistic Full (RGB+Depth) - main sim-to-real target."""
-    scene: StraferSceneCfg = StraferSceneCfg(num_envs=4096, env_spacing=8.0)
     actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
     observations: ObsCfg_Full_Realistic = ObsCfg_Full_Realistic()
-    commands: CommandsCfg = CommandsCfg()
-    rewards: RewardsCfg = RewardsCfg()
-    terminations: TerminationsCfg = TerminationsCfg()
     events: EventsCfg_Realistic = EventsCfg_Realistic()
-    curriculum: CurriculumCfg = CurriculumCfg()
-    seed: int = 42
-
-    def __post_init__(self):
-        self.sim.dt = 1.0 / 120.0
-        self.sim.render_interval = 4
-        self.decimation = 4
-        self.episode_length_s = 20.0
 
 
 @configclass
-class StraferNavEnvCfg_Real_PLAY(StraferNavEnvCfg_Real):
-    """Play/eval config for Realistic Full."""
-    def __post_init__(self):
-        super().__post_init__()
-        self.scene.num_envs = 50
-        # Keep noise enabled to match training distribution
+class StraferNavEnvCfg_Real_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Real):
+    """Play/eval config for Realistic Full; keeps noise enabled."""
 
 
 @configclass
-class StraferNavEnvCfg_Real_Depth(ManagerBasedRLEnvCfg):
+class StraferNavEnvCfg_Real_Depth(_BaseStandardCameraNavEnvCfg):
     """Realistic Depth-only - balanced sim-to-real."""
-    scene: StraferSceneCfg = StraferSceneCfg(num_envs=4096, env_spacing=8.0)
     actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
     observations: ObsCfg_Depth_Realistic = ObsCfg_Depth_Realistic()
-    commands: CommandsCfg = CommandsCfg()
-    rewards: RewardsCfg = RewardsCfg()
-    terminations: TerminationsCfg = TerminationsCfg()
     events: EventsCfg_Realistic = EventsCfg_Realistic()
-    curriculum: CurriculumCfg = CurriculumCfg()
-    seed: int = 42
-
-    def __post_init__(self):
-        self.sim.dt = 1.0 / 120.0
-        self.sim.render_interval = 4
-        self.decimation = 4
-        self.episode_length_s = 20.0
 
 
 @configclass
-class StraferNavEnvCfg_Real_Depth_PLAY(StraferNavEnvCfg_Real_Depth):
+class StraferNavEnvCfg_Real_Depth_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Real_Depth):
     """Play/eval config for Realistic Depth-only."""
-    def __post_init__(self):
-        super().__post_init__()
-        self.scene.num_envs = 50
 
 
 @configclass
-class StraferNavEnvCfg_Real_NoCam(ManagerBasedRLEnvCfg):
+class StraferNavEnvCfg_Real_NoCam(_BaseStandardNoCamNavEnvCfg):
     """Realistic Proprioceptive-only - fast training with realistic dynamics."""
-    scene: StraferSceneCfg_NoCam = StraferSceneCfg_NoCam(num_envs=4096, env_spacing=8.0)
     actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
     observations: ObsCfg_NoCam_Realistic = ObsCfg_NoCam_Realistic()
-    commands: CommandsCfg = CommandsCfg()
-    rewards: RewardsCfg = RewardsCfg()
-    terminations: TerminationsCfg = TerminationsCfg()
     events: EventsCfg_Realistic = EventsCfg_Realistic()
-    curriculum: CurriculumCfg = CurriculumCfg()
-    seed: int = 42
-
-    def __post_init__(self):
-        self.sim.dt = 1.0 / 120.0
-        self.sim.render_interval = 4
-        self.decimation = 4
-        self.episode_length_s = 20.0
 
 
 @configclass
-class StraferNavEnvCfg_Real_NoCam_PLAY(StraferNavEnvCfg_Real_NoCam):
+class StraferNavEnvCfg_Real_NoCam_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Real_NoCam):
     """Play/eval config for Realistic Proprioceptive-only."""
-    def __post_init__(self):
-        super().__post_init__()
-        self.scene.num_envs = 50
 
 
 # -----------------------------------------------------------------------------
@@ -1229,87 +1204,42 @@ class StraferNavEnvCfg_Real_NoCam_PLAY(StraferNavEnvCfg_Real_NoCam):
 # -----------------------------------------------------------------------------
 
 @configclass
-class StraferNavEnvCfg_Robust(ManagerBasedRLEnvCfg):
+class StraferNavEnvCfg_Robust(_BaseStandardCameraNavEnvCfg):
     """Robust Full (RGB+Depth) - aggressive noise for worst-case robustness."""
-    scene: StraferSceneCfg = StraferSceneCfg(num_envs=4096, env_spacing=8.0)
     actions: ActionsCfg_Robust = ActionsCfg_Robust()
     observations: ObsCfg_Full_Robust = ObsCfg_Full_Robust()
-    commands: CommandsCfg = CommandsCfg()
-    rewards: RewardsCfg = RewardsCfg()
-    terminations: TerminationsCfg = TerminationsCfg()
     events: EventsCfg_Robust = EventsCfg_Robust()
-    curriculum: CurriculumCfg = CurriculumCfg()
-    seed: int = 42
-
-    def __post_init__(self):
-        self.sim.dt = 1.0 / 120.0
-        self.sim.render_interval = 4
-        self.decimation = 4
-        self.episode_length_s = 20.0
 
 
 @configclass
-class StraferNavEnvCfg_Robust_PLAY(StraferNavEnvCfg_Robust):
+class StraferNavEnvCfg_Robust_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Robust):
     """Play/eval config for Robust Full."""
-    def __post_init__(self):
-        super().__post_init__()
-        self.scene.num_envs = 50
 
 
 @configclass
-class StraferNavEnvCfg_Robust_Depth(ManagerBasedRLEnvCfg):
+class StraferNavEnvCfg_Robust_Depth(_BaseStandardCameraNavEnvCfg):
     """Robust Depth-only - aggressive noise for worst-case robustness."""
-    scene: StraferSceneCfg = StraferSceneCfg(num_envs=4096, env_spacing=8.0)
     actions: ActionsCfg_Robust = ActionsCfg_Robust()
     observations: ObsCfg_Depth_Robust = ObsCfg_Depth_Robust()
-    commands: CommandsCfg = CommandsCfg()
-    rewards: RewardsCfg = RewardsCfg()
-    terminations: TerminationsCfg = TerminationsCfg()
     events: EventsCfg_Robust = EventsCfg_Robust()
-    curriculum: CurriculumCfg = CurriculumCfg()
-    seed: int = 42
-
-    def __post_init__(self):
-        self.sim.dt = 1.0 / 120.0
-        self.sim.render_interval = 4
-        self.decimation = 4
-        self.episode_length_s = 20.0
 
 
 @configclass
-class StraferNavEnvCfg_Robust_Depth_PLAY(StraferNavEnvCfg_Robust_Depth):
+class StraferNavEnvCfg_Robust_Depth_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Robust_Depth):
     """Play/eval config for Robust Depth-only."""
-    def __post_init__(self):
-        super().__post_init__()
-        self.scene.num_envs = 50
 
 
 @configclass
-class StraferNavEnvCfg_Robust_NoCam(ManagerBasedRLEnvCfg):
+class StraferNavEnvCfg_Robust_NoCam(_BaseStandardNoCamNavEnvCfg):
     """Robust Proprioceptive-only - aggressive noise for worst-case robustness."""
-    scene: StraferSceneCfg_NoCam = StraferSceneCfg_NoCam(num_envs=4096, env_spacing=8.0)
     actions: ActionsCfg_Robust = ActionsCfg_Robust()
     observations: ObsCfg_NoCam_Robust = ObsCfg_NoCam_Robust()
-    commands: CommandsCfg = CommandsCfg()
-    rewards: RewardsCfg = RewardsCfg()
-    terminations: TerminationsCfg = TerminationsCfg()
     events: EventsCfg_Robust = EventsCfg_Robust()
-    curriculum: CurriculumCfg = CurriculumCfg()
-    seed: int = 42
-
-    def __post_init__(self):
-        self.sim.dt = 1.0 / 120.0
-        self.sim.render_interval = 4
-        self.decimation = 4
-        self.episode_length_s = 20.0
 
 
 @configclass
-class StraferNavEnvCfg_Robust_NoCam_PLAY(StraferNavEnvCfg_Robust_NoCam):
+class StraferNavEnvCfg_Robust_NoCam_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Robust_NoCam):
     """Play/eval config for Robust Proprioceptive-only."""
-    def __post_init__(self):
-        super().__post_init__()
-        self.scene.num_envs = 50
 
 
 # =============================================================================
@@ -1321,84 +1251,31 @@ class StraferNavEnvCfg_Robust_NoCam_PLAY(StraferNavEnvCfg_Robust_NoCam):
 # =============================================================================
 
 @configclass
-class StraferNavEnvCfg_Real_InfinigenDepth(ManagerBasedRLEnvCfg):
+class StraferNavEnvCfg_Real_InfinigenDepth(_BaseInfinigenDepthNavEnvCfg):
     """Realistic Depth with procedural Infinigen scene geometry."""
-    scene: StraferSceneCfg_Infinigen = StraferSceneCfg_Infinigen(num_envs=3, env_spacing=0.0)
     actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
     observations: ObsCfg_Depth_Realistic = ObsCfg_Depth_Realistic()
-    commands: CommandsCfg_Infinigen = CommandsCfg_Infinigen()
-    rewards: RewardsCfg = RewardsCfg()
-    terminations: TerminationsCfg = TerminationsCfg()
     events: EventsCfg_Infinigen_Realistic = EventsCfg_Infinigen_Realistic()
-    curriculum: CurriculumCfg_Infinigen = CurriculumCfg_Infinigen()
-    seed: int = 42
-
-    def __post_init__(self):
-        self.sim.dt = 1.0 / 120.0
-        self.sim.render_interval = 4
-        self.decimation = 4
-        self.episode_length_s = 20.0
-        scene_paths = _get_scene_usd_paths()
-        self.scene.scene_geometry.spawn.usd_path = scene_paths[0]
-        # Load spawn points and goal ranges from metadata
-        meta = _get_scenes_metadata()
-        if meta:
-            # Pool interior spawn points from all scenes
-            all_pts = []
-            for scene_data in meta["scenes"].values():
-                all_pts.extend(scene_data.get("spawn_points_xy", []))
-            if all_pts:
-                self.events.reset_robot.params["spawn_points_xy"] = all_pts
-                # Goals sample from same floor points as robot
-                self.commands.goal_command.spawn_points_xy = all_pts
 
 
 @configclass
-class StraferNavEnvCfg_Real_InfinigenDepth_PLAY(StraferNavEnvCfg_Real_InfinigenDepth):
+class StraferNavEnvCfg_Real_InfinigenDepth_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Real_InfinigenDepth):
     """Play/eval config for Realistic InfinigenDepth."""
-    def __post_init__(self):
-        super().__post_init__()
-        self.scene.num_envs = 8
+    play_num_envs = _INFINIGEN_PLAY_NUM_ENVS
 
 
 @configclass
-class StraferNavEnvCfg_Robust_InfinigenDepth(ManagerBasedRLEnvCfg):
+class StraferNavEnvCfg_Robust_InfinigenDepth(_BaseInfinigenDepthNavEnvCfg):
     """Robust Depth with procedural Infinigen scene geometry."""
-    scene: StraferSceneCfg_Infinigen = StraferSceneCfg_Infinigen(num_envs=3, env_spacing=0.0)
     actions: ActionsCfg_Robust = ActionsCfg_Robust()
     observations: ObsCfg_Depth_Robust = ObsCfg_Depth_Robust()
-    commands: CommandsCfg_Infinigen = CommandsCfg_Infinigen()
-    rewards: RewardsCfg = RewardsCfg()
-    terminations: TerminationsCfg = TerminationsCfg()
     events: EventsCfg_Infinigen_Robust = EventsCfg_Infinigen_Robust()
-    curriculum: CurriculumCfg_Infinigen = CurriculumCfg_Infinigen()
-    seed: int = 42
-
-    def __post_init__(self):
-        self.sim.dt = 1.0 / 120.0
-        self.sim.render_interval = 4
-        self.decimation = 4
-        self.episode_length_s = 20.0
-        scene_paths = _get_scene_usd_paths()
-        self.scene.scene_geometry.spawn.usd_path = scene_paths[0]
-        # Load spawn points and goal ranges from metadata
-        meta = _get_scenes_metadata()
-        if meta:
-            all_pts = []
-            for scene_data in meta["scenes"].values():
-                all_pts.extend(scene_data.get("spawn_points_xy", []))
-            if all_pts:
-                self.events.reset_robot.params["spawn_points_xy"] = all_pts
-                # Goals sample from same floor points as robot
-                self.commands.goal_command.spawn_points_xy = all_pts
 
 
 @configclass
-class StraferNavEnvCfg_Robust_InfinigenDepth_PLAY(StraferNavEnvCfg_Robust_InfinigenDepth):
+class StraferNavEnvCfg_Robust_InfinigenDepth_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Robust_InfinigenDepth):
     """Play/eval config for Robust InfinigenDepth."""
-    def __post_init__(self):
-        super().__post_init__()
-        self.scene.num_envs = 8
+    play_num_envs = _INFINIGEN_PLAY_NUM_ENVS
 
 
 # =============================================================================
@@ -1437,34 +1314,12 @@ class StraferSceneCfg_ProcRoom(InteractiveSceneCfg):
     )
 
     # Intel RealSense D555 depth camera (near clip 0.01m, see StraferSceneCfg comment)
-    d555_camera: TiledCameraCfg = TiledCameraCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link/d555_camera",
-        update_period=1.0 / 30.0,
-        height=60,
-        width=80,
-        data_types=["distance_to_image_plane"],
-        spawn=sim_utils.PinholeCameraCfg(
-            focal_length=1.93,
-            horizontal_aperture=3.68,
-            clipping_range=(0.01, 6.0),
-        ),
-        offset=TiledCameraCfg.OffsetCfg(
-            pos=(0.20, 0.0, 0.25),
-            rot=(0.5, -0.5, 0.5, -0.5),
-            convention="ros",
-        ),
+    d555_camera: TiledCameraCfg = make_d555_camera_cfg(
+        data_types=("distance_to_image_plane",),
     )
 
     # Intel RealSense D555 IMU (same as StraferSceneCfg)
-    d555_imu: ImuCfg = ImuCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
-        update_period=1.0 / 200.0,
-        offset=ImuCfg.OffsetCfg(
-            pos=(0.20, 0.0, 0.25),
-            rot=(1.0, 0.0, 0.0, 0.0),
-        ),
-        gravity_bias=(0.0, 0.0, 9.81),
-    )
+    d555_imu: ImuCfg = make_d555_imu_cfg()
 
     # 44-object primitive palette (walls, furniture, clutter)
     room_primitives: RigidObjectCollectionCfg = RigidObjectCollectionCfg(
@@ -1670,118 +1525,93 @@ def _apply_procroom_physx_buffers(cfg) -> None:
 # --- ProcRoom environment configs ---
 
 @configclass
-class StraferNavEnvCfg_Real_ProcRoom_NoCam(ManagerBasedRLEnvCfg):
+class _BaseProcRoomNoCamNavEnvCfg(_BaseStraferNavEnvCfg):
+    """Common train-time config for NoCam ProcRoom scene variants."""
+
+    scene: StraferSceneCfg_ProcRoom_NoCam = StraferSceneCfg_ProcRoom_NoCam(
+        num_envs=_PROCROOM_NOCAM_TRAIN_NUM_ENVS,
+        env_spacing=_PROCROOM_ENV_SPACING,
+    )
+    commands: CommandsCfg_ProcRoom = CommandsCfg_ProcRoom()
+    rewards: RewardsCfg_ProcRoom = RewardsCfg_ProcRoom()
+    terminations: TerminationsCfg_ProcRoom = TerminationsCfg_ProcRoom()
+    curriculum: CurriculumCfg_ProcRoom = CurriculumCfg_ProcRoom()
+
+    def __post_init__(self):
+        super().__post_init__()
+        _apply_procroom_physx_buffers(self)
+
+
+@configclass
+class _BaseProcRoomDepthNavEnvCfg(_BaseStraferNavEnvCfg):
+    """Common train-time config for depth ProcRoom scene variants."""
+
+    scene: StraferSceneCfg_ProcRoom = StraferSceneCfg_ProcRoom(
+        num_envs=_PROCROOM_DEPTH_TRAIN_NUM_ENVS,
+        env_spacing=_PROCROOM_ENV_SPACING,
+    )
+    commands: CommandsCfg_ProcRoom = CommandsCfg_ProcRoom()
+    rewards: RewardsCfg_ProcRoom = RewardsCfg_ProcRoom()
+    terminations: TerminationsCfg_ProcRoom = TerminationsCfg_ProcRoom()
+    curriculum: CurriculumCfg_ProcRoom = CurriculumCfg_ProcRoom()
+
+    def __post_init__(self):
+        super().__post_init__()
+        _apply_procroom_physx_buffers(self)
+
+@configclass
+class StraferNavEnvCfg_Real_ProcRoom_NoCam(_BaseProcRoomNoCamNavEnvCfg):
     """Realistic NoCam ProcRoom — high env count for fast training."""
-    scene: StraferSceneCfg_ProcRoom_NoCam = StraferSceneCfg_ProcRoom_NoCam(num_envs=256, env_spacing=10.0)
     actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
     observations: ObsCfg_NoCam_Realistic = ObsCfg_NoCam_Realistic()
-    commands: CommandsCfg_ProcRoom = CommandsCfg_ProcRoom()
-    rewards: RewardsCfg_ProcRoom = RewardsCfg_ProcRoom()
-    terminations: TerminationsCfg_ProcRoom = TerminationsCfg_ProcRoom()
     events: EventsCfg_ProcRoom_Realistic = EventsCfg_ProcRoom_Realistic()
-    curriculum: CurriculumCfg_ProcRoom = CurriculumCfg_ProcRoom()
-    seed: int = 42
-
-    def __post_init__(self):
-        self.sim.dt = 1.0 / 120.0
-        self.sim.render_interval = 4
-        self.decimation = 4
-        self.episode_length_s = 20.0
-        _apply_procroom_physx_buffers(self)
 
 
 @configclass
-class StraferNavEnvCfg_Real_ProcRoom_NoCam_PLAY(StraferNavEnvCfg_Real_ProcRoom_NoCam):
+class StraferNavEnvCfg_Real_ProcRoom_NoCam_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Real_ProcRoom_NoCam):
     """Play/eval config for Realistic ProcRoom NoCam."""
-    def __post_init__(self):
-        super().__post_init__()
-        self.scene.num_envs = 50
+    play_num_envs = _PROCROOM_NOCAM_PLAY_NUM_ENVS
 
 
 @configclass
-class StraferNavEnvCfg_Real_ProcRoom_Depth(ManagerBasedRLEnvCfg):
+class StraferNavEnvCfg_Real_ProcRoom_Depth(_BaseProcRoomDepthNavEnvCfg):
     """Realistic Depth ProcRoom — depth training with room geometry."""
-    scene: StraferSceneCfg_ProcRoom = StraferSceneCfg_ProcRoom(num_envs=64, env_spacing=10.0)
     actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
     observations: ObsCfg_Depth_Realistic = ObsCfg_Depth_Realistic()
-    commands: CommandsCfg_ProcRoom = CommandsCfg_ProcRoom()
-    rewards: RewardsCfg_ProcRoom = RewardsCfg_ProcRoom()
-    terminations: TerminationsCfg_ProcRoom = TerminationsCfg_ProcRoom()
     events: EventsCfg_ProcRoom_Realistic = EventsCfg_ProcRoom_Realistic()
-    curriculum: CurriculumCfg_ProcRoom = CurriculumCfg_ProcRoom()
-    seed: int = 42
-
-    def __post_init__(self):
-        self.sim.dt = 1.0 / 120.0
-        self.sim.render_interval = 4
-        self.decimation = 4
-        self.episode_length_s = 20.0
-        _apply_procroom_physx_buffers(self)
 
 
 @configclass
-class StraferNavEnvCfg_Real_ProcRoom_Depth_PLAY(StraferNavEnvCfg_Real_ProcRoom_Depth):
+class StraferNavEnvCfg_Real_ProcRoom_Depth_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Real_ProcRoom_Depth):
     """Play/eval config for Realistic ProcRoom Depth."""
-    def __post_init__(self):
-        super().__post_init__()
-        self.scene.num_envs = 8
+    play_num_envs = _PROCROOM_DEPTH_PLAY_NUM_ENVS
 
 
 @configclass
-class StraferNavEnvCfg_Robust_ProcRoom_NoCam(ManagerBasedRLEnvCfg):
+class StraferNavEnvCfg_Robust_ProcRoom_NoCam(_BaseProcRoomNoCamNavEnvCfg):
     """Robust NoCam ProcRoom — aggressive noise with high env count."""
-    scene: StraferSceneCfg_ProcRoom_NoCam = StraferSceneCfg_ProcRoom_NoCam(num_envs=256, env_spacing=10.0)
     actions: ActionsCfg_Robust = ActionsCfg_Robust()
     observations: ObsCfg_NoCam_Robust = ObsCfg_NoCam_Robust()
-    commands: CommandsCfg_ProcRoom = CommandsCfg_ProcRoom()
-    rewards: RewardsCfg_ProcRoom = RewardsCfg_ProcRoom()
-    terminations: TerminationsCfg_ProcRoom = TerminationsCfg_ProcRoom()
     events: EventsCfg_ProcRoom_Robust = EventsCfg_ProcRoom_Robust()
-    curriculum: CurriculumCfg_ProcRoom = CurriculumCfg_ProcRoom()
-    seed: int = 42
-
-    def __post_init__(self):
-        self.sim.dt = 1.0 / 120.0
-        self.sim.render_interval = 4
-        self.decimation = 4
-        self.episode_length_s = 20.0
-        _apply_procroom_physx_buffers(self)
 
 
 @configclass
-class StraferNavEnvCfg_Robust_ProcRoom_NoCam_PLAY(StraferNavEnvCfg_Robust_ProcRoom_NoCam):
+class StraferNavEnvCfg_Robust_ProcRoom_NoCam_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Robust_ProcRoom_NoCam):
     """Play/eval config for Robust ProcRoom NoCam."""
-    def __post_init__(self):
-        super().__post_init__()
-        self.scene.num_envs = 50
+    play_num_envs = _PROCROOM_NOCAM_PLAY_NUM_ENVS
 
 
 @configclass
-class StraferNavEnvCfg_Robust_ProcRoom_Depth(ManagerBasedRLEnvCfg):
+class StraferNavEnvCfg_Robust_ProcRoom_Depth(_BaseProcRoomDepthNavEnvCfg):
     """Robust Depth ProcRoom — aggressive noise with depth camera."""
-    scene: StraferSceneCfg_ProcRoom = StraferSceneCfg_ProcRoom(num_envs=64, env_spacing=10.0)
     actions: ActionsCfg_Robust = ActionsCfg_Robust()
     observations: ObsCfg_Depth_Robust = ObsCfg_Depth_Robust()
-    commands: CommandsCfg_ProcRoom = CommandsCfg_ProcRoom()
-    rewards: RewardsCfg_ProcRoom = RewardsCfg_ProcRoom()
-    terminations: TerminationsCfg_ProcRoom = TerminationsCfg_ProcRoom()
     events: EventsCfg_ProcRoom_Robust = EventsCfg_ProcRoom_Robust()
-    curriculum: CurriculumCfg_ProcRoom = CurriculumCfg_ProcRoom()
-    seed: int = 42
-
-    def __post_init__(self):
-        self.sim.dt = 1.0 / 120.0
-        self.sim.render_interval = 4
-        self.decimation = 4
-        self.episode_length_s = 20.0
-        _apply_procroom_physx_buffers(self)
 
 
 @configclass
-class StraferNavEnvCfg_Robust_ProcRoom_Depth_PLAY(StraferNavEnvCfg_Robust_ProcRoom_Depth):
+class StraferNavEnvCfg_Robust_ProcRoom_Depth_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Robust_ProcRoom_Depth):
     """Play/eval config for Robust ProcRoom Depth."""
-    def __post_init__(self):
-        super().__post_init__()
-        self.scene.num_envs = 8
+    play_num_envs = _PROCROOM_DEPTH_PLAY_NUM_ENVS
 
 

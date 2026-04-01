@@ -22,6 +22,14 @@ import gymnasium as gym
 
 # Importing the package triggers the gym.register() calls
 import strafer_lab.tasks.navigation  # noqa: F401
+from strafer_lab.tasks.navigation.strafer_env_cfg import (
+    StraferNavEnvCfg,
+    StraferNavEnvCfg_PLAY,
+    StraferNavEnvCfg_Real_ProcRoom_Depth,
+    StraferNavEnvCfg_Real_ProcRoom_Depth_PLAY,
+    StraferNavEnvCfg_Real_ProcRoom_NoCam,
+    StraferNavEnvCfg_Real_ProcRoom_NoCam_PLAY,
+)
 
 
 # =====================================================================
@@ -151,3 +159,46 @@ def test_env_spec_has_env_cfg(env_id: str):
     assert "env_cfg_entry_point" in kwargs, (
         f"{env_id} is missing 'env_cfg_entry_point' in kwargs"
     )
+
+
+@pytest.mark.parametrize("env_id", EXPECTED_ENVS)
+def test_env_spec_uses_expected_runner_cfg(env_id: str):
+    """NoCam variants use the proprio runner; all others use the depth runner."""
+    spec = gym.envs.registry[env_id]
+    kwargs = spec.kwargs or {}
+    runner_cfg_entry = kwargs.get("rsl_rl_cfg_entry_point", "")
+    expected_runner = "STRAFER_PPO_RUNNER_CFG" if "NoCam" in env_id else "STRAFER_PPO_DEPTH_RUNNER_CFG"
+    assert runner_cfg_entry.endswith(expected_runner), (
+        f"{env_id} runner cfg = '{runner_cfg_entry}', expected suffix '{expected_runner}'"
+    )
+
+
+@pytest.mark.parametrize(
+    ("cfg_cls", "expected_num_envs"),
+    [
+        (StraferNavEnvCfg_PLAY, 50),
+        (StraferNavEnvCfg_Real_ProcRoom_NoCam_PLAY, 50),
+        (StraferNavEnvCfg_Real_ProcRoom_Depth_PLAY, 8),
+    ],
+)
+def test_play_cfgs_override_only_scene_env_count(cfg_cls, expected_num_envs: int):
+    """Play configs should just reduce the scene env count for evaluation."""
+    cfg = cfg_cls()
+    assert cfg.scene.num_envs == expected_num_envs
+
+
+@pytest.mark.parametrize(
+    "cfg_cls",
+    [
+        StraferNavEnvCfg,
+        StraferNavEnvCfg_Real_ProcRoom_NoCam,
+        StraferNavEnvCfg_Real_ProcRoom_Depth,
+    ],
+)
+def test_nav_cfgs_share_runtime_defaults(cfg_cls):
+    """Refactored env bases should keep the shared runtime contract identical."""
+    cfg = cfg_cls()
+    assert cfg.sim.dt == pytest.approx(1.0 / 120.0)
+    assert cfg.sim.render_interval == 4
+    assert cfg.decimation == 4
+    assert cfg.episode_length_s == 20.0

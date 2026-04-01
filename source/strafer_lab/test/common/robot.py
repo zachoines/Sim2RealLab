@@ -36,10 +36,10 @@ def reset_robot_pose(env, face_wall: bool = True):
 
     Args:
         env: The Isaac Lab environment
-        face_wall: If True (default), robot faces -Y direction (identity quaternion).
-                   If False, robot faces +Y direction (180° rotation around Z).
-                   This parameter is primarily used by depth tests to orient
-                   the camera toward or away from a wall.
+        face_wall: If True (default), robot keeps the identity quaternion so
+                   body +X and the front-mounted camera face the wall. If
+                   False, rotate 180 degrees around Z so robot/camera face
+                   away from the wall along world -X.
     """
     robot = env.scene["robot"]
     num_envs = env.num_envs
@@ -60,14 +60,14 @@ def reset_robot_pose(env, face_wall: bool = True):
 
     if face_wall:
         # Identity quaternion (w, x, y, z) = (1, 0, 0, 0)
-        # Robot forward is -Y in USD local frame, which aligns with world -Y
+        # Robot body +X remains aligned with world +X.
         root_state[:, 3] = 1.0   # quat_w
         root_state[:, 4] = 0.0   # quat_x
         root_state[:, 5] = 0.0   # quat_y
         root_state[:, 6] = 0.0   # quat_z
     else:
-        # 180° rotation around Z axis: (w, x, y, z) = (0, 0, 0, 1)
-        # Robot forward (-Y local) now points to world +Y (away from wall)
+        # 180-degree rotation around Z axis: (w, x, y, z) = (0, 0, 0, 1)
+        # Robot body +X now points to world -X (away from wall).
         root_state[:, 3] = 0.0   # quat_w
         root_state[:, 4] = 0.0   # quat_x
         root_state[:, 5] = 0.0   # quat_y

@@ -190,24 +190,20 @@ def action_smoothness_penalty(env: ManagerBasedEnv) -> torch.Tensor:
         Negative reward proportional to action rate of change.
     """
     current_action = env.action_manager.action
+    prev_action = env.action_manager.prev_action
 
-    # Initialize previous action if not present
-    if not hasattr(env, "_prev_action"):
-        env._prev_action = current_action.clone()
-
-    # Reset previous action for environments that just reset
-    # This prevents incorrect penalty spikes after episode reset
-    reset_mask = env.episode_length_buf == 0
-    if reset_mask.any():
-        env._prev_action[reset_mask] = current_action[reset_mask]
+    # Ignore the first control command after reset so the episode does not
+    # start with an artificial spike from the action history being zeroed.
+    first_step_mask = env.episode_length_buf <= 1
+    if first_step_mask.any():
+        prev_action = prev_action.clone()
+        prev_action[first_step_mask] = current_action[first_step_mask]
 
     # Rate of change (L1 norm — penalizes large and small changes
     # proportionally, unlike L2 which quadratically amplifies large jumps
     # and creates a "don't move at all" gradient)
-    action_diff = current_action - env._prev_action
+    action_diff = current_action - prev_action
     smoothness_cost = torch.sum(torch.abs(action_diff), dim=-1)
-
-    env._prev_action = current_action.clone()
 
     return smoothness_cost
 

@@ -18,6 +18,11 @@ import isaaclab.sim as sim_utils
 
 # Import robot configuration
 from strafer_lab.assets import STRAFER_CFG
+from strafer_lab.tasks.navigation.d555_cfg import (
+    D555_CAMERA_OFFSET,
+    make_d555_camera_cfg,
+    make_d555_imu_cfg,
+)
 
 # =============================================================================
 # Test Scene Geometry Constants
@@ -34,9 +39,8 @@ TEST_WALL_HEIGHT = 2.0
 TEST_WALL_THICKNESS = 0.1
 
 # Camera mount offset from robot body_link (meters, matching production scene)
-# Camera is 20cm forward (+X) and 25cm up (+Z) from body_link
-CAMERA_X_OFFSET = 0.20
-CAMERA_Z_OFFSET = 0.25
+CAMERA_X_OFFSET = D555_CAMERA_OFFSET[0]
+CAMERA_Z_OFFSET = D555_CAMERA_OFFSET[2]
 
 # Environment spacing must be large enough to prevent wall overlap
 # Each wall is 4m wide, so spacing should be > 4m
@@ -100,37 +104,13 @@ class DepthNoiseTestSceneCfg(InteractiveSceneCfg):
 
     # Intel RealSense D555 depth camera (87° FOV, 0.4-6m range)
     # IMPORTANT: Camera config must match strafer_env_cfg.py StraferSceneCfg
-    d555_camera: TiledCameraCfg = TiledCameraCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link/d555_camera",
-        update_period=1.0 / 30.0,
-        height=60,
-        width=80,
-        data_types=["rgb", "distance_to_image_plane"],
-        spawn=sim_utils.PinholeCameraCfg(
-            focal_length=1.93,
-            horizontal_aperture=3.68,
-            clipping_range=(0.01, 6.0),
-        ),
-        offset=TiledCameraCfg.OffsetCfg(
-            pos=(CAMERA_X_OFFSET, 0.0, CAMERA_Z_OFFSET),
-            # ROS camera convention: Z-forward, X-right, Y-down
-            # (0.5, -0.5, 0.5, -0.5) aligns camera forward (+Z) to robot +X
-            rot=(0.5, -0.5, 0.5, -0.5),
-            convention="ros",
-        ),
+    d555_camera: TiledCameraCfg = make_d555_camera_cfg(
+        data_types=("rgb", "distance_to_image_plane"),
     )
 
     # Intel RealSense D555 IMU (BMI055)
     # IMPORTANT: IMU config must match strafer_env_cfg.py StraferSceneCfg
-    d555_imu: ImuCfg = ImuCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
-        update_period=1.0 / 200.0,
-        offset=ImuCfg.OffsetCfg(
-            pos=(CAMERA_X_OFFSET, 0.0, CAMERA_Z_OFFSET),
-            rot=(1.0, 0.0, 0.0, 0.0),
-        ),
-        gravity_bias=(0.0, 0.0, 9.81),
-    )
+    d555_imu: ImuCfg = make_d555_imu_cfg()
 
     # Contact sensor on body_link for obstacle collision detection.
     contact_sensor = ContactSensorCfg(

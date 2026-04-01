@@ -807,33 +807,26 @@ class CommandsCfg:
 
 @configclass
 class RewardsCfg:
-    """Reward terms for the MDP.
+    """Shared reward terms for navigation environments.
 
-    Design principles (sim-to-real navigation):
-    - Dense shaping (progress/proximity) for the main task signal
-    - Sparse bonus for goal completion
-    - Small penalties as guardrails (collision, jerk), not primary signal
-    - Positive-dominant: robot should want to reach goals, not just avoid punishment
+    The current baseline keeps only the core goal-reaching and collision terms
+    active by default. Secondary shaping can be re-enabled environment-by-
+    environment once the core loop is stable.
     """
     # --- Primary task signal (dense potential shaping) ---
-    # Linear potential: uniform gradient at all distances
     goal_progress = RewTerm(func=mdp.goal_progress_reward, weight=10.0, params={"command_name": "goal_command"})
-    # Exponential potential: amplifies gradient in final approach (no loiter incentive)
-    goal_proximity = RewTerm(func=mdp.goal_proximity_potential, weight=5.0, params={"command_name": "goal_command", "sigma": 0.3})
+    goal_proximity = RewTerm(func=mdp.goal_proximity_potential, weight=0.0, params={"command_name": "goal_command", "sigma": 0.3})
     # --- Sparse completion bonus (LARGE — must dominate any shaping residual) ---
     goal_reached = RewTerm(func=mdp.goal_reached_reward, weight=200.0, params={"threshold": 0.3, "command_name": "goal_command"})
-    # --- Heading alignment (face the goal direction) ---
-    # Use heading_to_goal_reward because the actor observes goal_heading_to_goal;
-    # desired arrival heading is not part of the current policy observation contract.
-    heading_alignment = RewTerm(func=mdp.heading_to_goal_reward, weight=0.25, params={"command_name": "goal_command"})
     # --- Collision avoidance (must outweigh single-step progress to prevent b-lining) ---
     collision = RewTerm(func=mdp.collision_penalty_net, weight=-10.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
     collision_sustained = RewTerm(func=mdp.collision_sustained_penalty_net, weight=-5.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
-    # --- Smooth deceleration near goal (allows creep speed for final approach) ---
-    speed_near_goal = RewTerm(func=mdp.speed_near_goal_penalty, weight=-0.1, params={"command_name": "goal_command", "distance_threshold": 0.8, "min_speed": 0.15})
-    # --- Regularization (TINY — just guardrails, must not dominate goal signals) ---
-    energy_penalty = RewTerm(func=mdp.energy_penalty, weight=-0.001)
-    action_smoothness = RewTerm(func=mdp.action_smoothness_penalty, weight=-0.005)
+    # --- Secondary signals (disabled by default) ---
+    # When enabled, reward facing the goal direction rather than a random arrival yaw.
+    heading_alignment = RewTerm(func=mdp.heading_to_goal_reward, weight=0.0, params={"command_name": "goal_command"})
+    speed_near_goal = RewTerm(func=mdp.speed_near_goal_penalty, weight=0.0, params={"command_name": "goal_command", "distance_threshold": 0.8, "min_speed": 0.15})
+    energy_penalty = RewTerm(func=mdp.energy_penalty, weight=0.0)
+    action_smoothness = RewTerm(func=mdp.action_smoothness_penalty, weight=0.0)
 
 
 @configclass
@@ -955,31 +948,7 @@ class CommandsCfg_Infinigen:
 
 
 @configclass
-class RewardsCfg_Infinigen:
-    """Rewards for Infinigen/ProcRoom — uses net_forces_w collision.
-
-    Secondary signals (heading, speed, energy, smoothness) are disabled
-    until the core navigation + collision avoidance loop is stable.
-    Re-enable one at a time once goal_reached sustains above ~1.0.
-    """
-    # --- Primary task signal (dense potential shaping) ---
-    goal_progress = RewTerm(func=mdp.goal_progress_reward, weight=10.0, params={"command_name": "goal_command"})
-    goal_proximity = RewTerm(func=mdp.goal_proximity_potential, weight=0.0, params={"command_name": "goal_command", "sigma": 0.3})
-    # --- Sparse completion bonus (LARGE — must dominate any shaping residual) ---
-    goal_reached = RewTerm(func=mdp.goal_reached_reward, weight=200.0, params={"threshold": 0.3, "command_name": "goal_command"})
-    # --- Collision avoidance (must outweigh single-step progress to prevent b-lining) ---
-    collision = RewTerm(func=mdp.collision_penalty_net, weight=-10.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
-    collision_sustained = RewTerm(func=mdp.collision_sustained_penalty_net, weight=-5.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
-    # --- Secondary signals (DISABLED — re-enable once core loop is stable) ---
-    # When enabled, reward facing the goal direction rather than a random arrival yaw.
-    heading_alignment = RewTerm(func=mdp.heading_to_goal_reward, weight=0.0, params={"command_name": "goal_command"})
-    speed_near_goal = RewTerm(func=mdp.speed_near_goal_penalty, weight=0.0, params={"command_name": "goal_command", "distance_threshold": 0.8, "min_speed": 0.15})
-    energy_penalty = RewTerm(func=mdp.energy_penalty, weight=0.0)
-    action_smoothness = RewTerm(func=mdp.action_smoothness_penalty, weight=0.0)
-
-
-@configclass
-class RewardsCfg_ProcRoom(RewardsCfg_Infinigen):
+class RewardsCfg_ProcRoom(RewardsCfg):
     """ProcRoom rewards with dense obstacle-clearance shaping."""
 
     # Small forward-facing bias to discourage backing into goals while still
@@ -1358,7 +1327,7 @@ class StraferNavEnvCfg_Real_InfinigenDepth(ManagerBasedRLEnvCfg):
     actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
     observations: ObsCfg_Depth_Realistic = ObsCfg_Depth_Realistic()
     commands: CommandsCfg_Infinigen = CommandsCfg_Infinigen()
-    rewards: RewardsCfg_Infinigen = RewardsCfg_Infinigen()
+    rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventsCfg_Infinigen_Realistic = EventsCfg_Infinigen_Realistic()
     curriculum: CurriculumCfg_Infinigen = CurriculumCfg_Infinigen()
@@ -1399,7 +1368,7 @@ class StraferNavEnvCfg_Robust_InfinigenDepth(ManagerBasedRLEnvCfg):
     actions: ActionsCfg_Robust = ActionsCfg_Robust()
     observations: ObsCfg_Depth_Robust = ObsCfg_Depth_Robust()
     commands: CommandsCfg_Infinigen = CommandsCfg_Infinigen()
-    rewards: RewardsCfg_Infinigen = RewardsCfg_Infinigen()
+    rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventsCfg_Infinigen_Robust = EventsCfg_Infinigen_Robust()
     curriculum: CurriculumCfg_Infinigen = CurriculumCfg_Infinigen()

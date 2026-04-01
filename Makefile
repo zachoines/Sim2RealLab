@@ -50,7 +50,7 @@ clean: ## Remove colcon build artifacts
 # ---------- Kill ----------
 
 kill: ## Kill all running ROS2 / strafer processes
-	@pkill -9 -f "ros2|rtabmap|realsense|roboclaw|madgwick|timestamp_fixer|depthimage|validate_drive" 2>/dev/null || true
+	@pkill -9 -f "ros2|rtabmap|realsense2_camera_node|timestamp_fixer|imu_filter_madgwick|depth_downsampler|roboclaw|depthimage|validate_drive" 2>/dev/null || true
 	@sleep 0.5
 	@echo "All ROS processes killed."
 

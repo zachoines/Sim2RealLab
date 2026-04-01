@@ -16,6 +16,8 @@
   <exec_depend>realsense2_camera</exec_depend>
   <exec_depend>realsense2_camera_msgs</exec_depend>
   <exec_depend>imu_filter_madgwick</exec_depend>
+  <exec_depend>strafer_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
 
   <!-- pip-installed, not managed by colcon -->
   <exec_depend>strafer_shared</exec_depend>

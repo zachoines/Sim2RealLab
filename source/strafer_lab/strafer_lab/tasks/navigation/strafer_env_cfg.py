@@ -982,6 +982,10 @@ class RewardsCfg_Infinigen:
 class RewardsCfg_ProcRoom(RewardsCfg_Infinigen):
     """ProcRoom rewards with dense obstacle-clearance shaping."""
 
+    # Small forward-facing bias to discourage backing into goals while still
+    # allowing holonomic sidesteps in clutter.
+    heading_alignment = RewTerm(func=mdp.heading_to_goal_reward, weight=0.02, params={"command_name": "goal_command"})
+
     obstacle_proximity = RewTerm(
         func=mdp.procroom_obstacle_proximity_penalty,
         weight=-1.0,

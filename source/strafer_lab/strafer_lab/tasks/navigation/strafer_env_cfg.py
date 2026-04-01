@@ -463,7 +463,6 @@ class ObsCfg_Full_Ideal:
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
         rgb_image = ObsTerm(func=mdp.rgb_image, params=_RGB_PARAMS)
-        privileged = ObsTerm(func=mdp.privileged_ground_truth, params={"command_name": "goal_command"})
         def __post_init__(self):
             self.enable_corruption = False
             self.concatenate_terms = True
@@ -501,7 +500,6 @@ class ObsCfg_Depth_Ideal:
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
-        privileged = ObsTerm(func=mdp.privileged_ground_truth, params={"command_name": "goal_command"})
         def __post_init__(self):
             self.enable_corruption = False
             self.concatenate_terms = True
@@ -537,7 +535,6 @@ class ObsCfg_NoCam_Ideal:
         goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
-        privileged = ObsTerm(func=mdp.privileged_ground_truth, params={"command_name": "goal_command"})
         def __post_init__(self):
             self.enable_corruption = False
             self.concatenate_terms = True
@@ -589,7 +586,6 @@ class ObsCfg_Full_Realistic:
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
         rgb_image = ObsTerm(func=mdp.rgb_image, params=_RGB_PARAMS)
-        privileged = ObsTerm(func=mdp.privileged_ground_truth, params={"command_name": "goal_command"})
         def __post_init__(self):
             self.enable_corruption = False
             self.concatenate_terms = True
@@ -627,7 +623,6 @@ class ObsCfg_Depth_Realistic:
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
-        privileged = ObsTerm(func=mdp.privileged_ground_truth, params={"command_name": "goal_command"})
         def __post_init__(self):
             self.enable_corruption = False
             self.concatenate_terms = True
@@ -663,7 +658,6 @@ class ObsCfg_NoCam_Realistic:
         goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
-        privileged = ObsTerm(func=mdp.privileged_ground_truth, params={"command_name": "goal_command"})
         def __post_init__(self):
             self.enable_corruption = False
             self.concatenate_terms = True
@@ -715,7 +709,6 @@ class ObsCfg_Full_Robust:
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
         rgb_image = ObsTerm(func=mdp.rgb_image, params=_RGB_PARAMS)
-        privileged = ObsTerm(func=mdp.privileged_ground_truth, params={"command_name": "goal_command"})
         def __post_init__(self):
             self.enable_corruption = False
             self.concatenate_terms = True
@@ -753,7 +746,6 @@ class ObsCfg_Depth_Robust:
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
-        privileged = ObsTerm(func=mdp.privileged_ground_truth, params={"command_name": "goal_command"})
         def __post_init__(self):
             self.enable_corruption = False
             self.concatenate_terms = True
@@ -789,7 +781,6 @@ class ObsCfg_NoCam_Robust:
         goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
-        privileged = ObsTerm(func=mdp.privileged_ground_truth, params={"command_name": "goal_command"})
         def __post_init__(self):
             self.enable_corruption = False
             self.concatenate_terms = True
@@ -1564,10 +1555,12 @@ class StraferSceneCfg_ProcRoom_NoCam(InteractiveSceneCfg):
 
 @configclass
 class CommandsCfg_ProcRoom:
-    """Commands for ProcRoom — goals sampled from BFS reachable points."""
+    """Commands for ProcRoom — one goal per episode from BFS reachable points."""
     goal_command = mdp.GoalCommandProcRoomCfg(
         asset_name="robot",
-        resampling_time_range=(10.0, 15.0),
+        # Keep a single goal active for the whole episode to narrow return variance.
+        resampling_time_range=(1.0e6, 1.0e6),
+        multi_goal=False,
         debug_vis=True,
         goal_range=mdp.GoalCommandProcRoomCfg.Ranges(pos_x=(-3.5, 3.5), pos_y=(-3.5, 3.5)),
     )
@@ -1659,6 +1652,20 @@ class CurriculumCfg_ProcRoom:
     pass
 
 
+@configclass
+class TerminationsCfg_ProcRoom(TerminationsCfg):
+    """ProcRoom termination tweaks for more stable navigation training."""
+
+    goal_reached = DoneTerm(
+        func=mdp.goal_reached,
+        params={"command_name": "goal_command", "threshold": 0.3},
+    )
+    sustained_collision = DoneTerm(
+        func=mdp.sustained_collision,
+        params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0, "max_steps": 3},
+    )
+
+
 # --- ProcRoom PhysX buffer sizing ---
 #
 # ProcRoom envs have high rigid body counts (44 room primitives + robot with
@@ -1697,7 +1704,7 @@ class StraferNavEnvCfg_Real_ProcRoom_NoCam(ManagerBasedRLEnvCfg):
     observations: ObsCfg_NoCam_Realistic = ObsCfg_NoCam_Realistic()
     commands: CommandsCfg_ProcRoom = CommandsCfg_ProcRoom()
     rewards: RewardsCfg_ProcRoom = RewardsCfg_ProcRoom()
-    terminations: TerminationsCfg = TerminationsCfg()
+    terminations: TerminationsCfg_ProcRoom = TerminationsCfg_ProcRoom()
     events: EventsCfg_ProcRoom_Realistic = EventsCfg_ProcRoom_Realistic()
     curriculum: CurriculumCfg_ProcRoom = CurriculumCfg_ProcRoom()
     seed: int = 42
@@ -1726,7 +1733,7 @@ class StraferNavEnvCfg_Real_ProcRoom_Depth(ManagerBasedRLEnvCfg):
     observations: ObsCfg_Depth_Realistic = ObsCfg_Depth_Realistic()
     commands: CommandsCfg_ProcRoom = CommandsCfg_ProcRoom()
     rewards: RewardsCfg_ProcRoom = RewardsCfg_ProcRoom()
-    terminations: TerminationsCfg = TerminationsCfg()
+    terminations: TerminationsCfg_ProcRoom = TerminationsCfg_ProcRoom()
     events: EventsCfg_ProcRoom_Realistic = EventsCfg_ProcRoom_Realistic()
     curriculum: CurriculumCfg_ProcRoom = CurriculumCfg_ProcRoom()
     seed: int = 42
@@ -1755,7 +1762,7 @@ class StraferNavEnvCfg_Robust_ProcRoom_NoCam(ManagerBasedRLEnvCfg):
     observations: ObsCfg_NoCam_Robust = ObsCfg_NoCam_Robust()
     commands: CommandsCfg_ProcRoom = CommandsCfg_ProcRoom()
     rewards: RewardsCfg_ProcRoom = RewardsCfg_ProcRoom()
-    terminations: TerminationsCfg = TerminationsCfg()
+    terminations: TerminationsCfg_ProcRoom = TerminationsCfg_ProcRoom()
     events: EventsCfg_ProcRoom_Robust = EventsCfg_ProcRoom_Robust()
     curriculum: CurriculumCfg_ProcRoom = CurriculumCfg_ProcRoom()
     seed: int = 42
@@ -1784,7 +1791,7 @@ class StraferNavEnvCfg_Robust_ProcRoom_Depth(ManagerBasedRLEnvCfg):
     observations: ObsCfg_Depth_Robust = ObsCfg_Depth_Robust()
     commands: CommandsCfg_ProcRoom = CommandsCfg_ProcRoom()
     rewards: RewardsCfg_ProcRoom = RewardsCfg_ProcRoom()
-    terminations: TerminationsCfg = TerminationsCfg()
+    terminations: TerminationsCfg_ProcRoom = TerminationsCfg_ProcRoom()
     events: EventsCfg_ProcRoom_Robust = EventsCfg_ProcRoom_Robust()
     curriculum: CurriculumCfg_ProcRoom = CurriculumCfg_ProcRoom()
     seed: int = 42

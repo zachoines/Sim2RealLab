@@ -441,7 +441,7 @@ def body_velocity_xy(env: ManagerBasedEnv) -> torch.Tensor:
 
 
 def privileged_ground_truth(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
-    """Privileged observations for asymmetric actor-critic.
+    """Legacy privileged observations for optional asymmetric actor-critic runs.
 
     Provides clean ground truth state for the critic:
     - body_velocity_xy (2): ground truth body velocity

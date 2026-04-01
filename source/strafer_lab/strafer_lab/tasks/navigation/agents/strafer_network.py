@@ -8,6 +8,11 @@ through standard MLP actor/critic heads.
 For NoCam variants (no depth), this falls back to a pure MLP — the encoder
 path is simply skipped.
 
+The policy action contract is normalized body-frame velocity commands in
+``[-1, 1]``. Training therefore uses a Beta distribution affinely mapped from
+``[0, 1]`` to ``[-1, 1]`` so rollout actions, log-probs, entropy, and
+deployment all agree on the same bounded action space.
+
 Depth encoder options (selected via ``depth_encoder_type``):
 
     "defm" (default, recommended):
@@ -40,7 +45,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from tensordict import TensorDict
-from torch.distributions import Normal
+from torch.distributions import Beta
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +75,49 @@ def _build_mlp(
         prev = h
     layers.append(nn.Linear(prev, output_dim))
     return nn.Sequential(*layers)
+
+
+def _inverse_softplus(x: torch.Tensor) -> torch.Tensor:
+    """Numerically stable inverse of softplus for positive inputs."""
+    return x + torch.log(-torch.expm1(-x))
+
+
+def _symmetric_beta_concentration_for_std(std: float) -> float:
+    """Return alpha=beta concentration giving the requested std on [-1, 1]."""
+    std = float(max(min(std, 0.999), 1.0e-3))
+    return 0.5 * ((1.0 / (std * std)) - 1.0)
+
+
+class AffineBeta:
+    """Independent Beta distribution scaled from [0, 1] to [-1, 1]."""
+
+    _LOG_TWO = torch.log(torch.tensor(2.0))
+
+    def __init__(self, concentration1: torch.Tensor, concentration0: torch.Tensor):
+        self.base_dist = Beta(concentration1, concentration0)
+
+    def sample(self) -> torch.Tensor:
+        unit_sample = self.base_dist.rsample()
+        return unit_sample.mul(2.0).sub(1.0)
+
+    def log_prob(self, value: torch.Tensor) -> torch.Tensor:
+        eps = torch.finfo(value.dtype).eps
+        unit_value = value.add(1.0).mul(0.5)
+        unit_value = torch.clamp(unit_value, min=eps, max=1.0 - eps)
+        return self.base_dist.log_prob(unit_value) - self._LOG_TWO.to(value.device, value.dtype)
+
+    @property
+    def mean(self) -> torch.Tensor:
+        return self.base_dist.mean.mul(2.0).sub(1.0)
+
+    @property
+    def stddev(self) -> torch.Tensor:
+        return torch.sqrt(self.base_dist.variance).mul(2.0)
+
+    def entropy(self) -> torch.Tensor:
+        return self.base_dist.entropy() + self._LOG_TWO.to(
+            self.base_dist.concentration1.device, self.base_dist.concentration1.dtype
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -336,6 +384,7 @@ class StraferActorCritic(nn.Module):
         critic_hidden_dims: list[int] | tuple[int, ...] = (256, 128),
         activation: str = "elu",
         init_noise_std: float = 1.0,
+        min_action_concentration: float = 0.2,
         noise_std_type: str = "scalar",
         state_dependent_std: bool = False,
         # Custom params
@@ -351,20 +400,30 @@ class StraferActorCritic(nn.Module):
         super().__init__()
         if kwargs:
             print(f"[StraferActorCritic] ignoring unknown kwargs: {list(kwargs.keys())}")
+        if state_dependent_std:
+            raise ValueError("StraferActorCritic uses a Beta policy and does not support state-dependent std.")
+        if noise_std_type != "scalar":
+            raise ValueError("StraferActorCritic uses a Beta policy and only supports scalar init_noise_std.")
 
         self.obs_groups = obs_groups
 
         # Compute observation sizes from sample TensorDict
         num_actor_obs = sum(obs[g].shape[-1] for g in obs_groups["policy"])
         num_critic_obs = sum(obs[g].shape[-1] for g in obs_groups["critic"])
+        if num_actor_obs != num_critic_obs:
+            raise ValueError(
+                "StraferActorCritic expects actor and critic observations to have the same flattened shape. "
+                f"Got actor={num_actor_obs}, critic={num_critic_obs}."
+            )
+        self.obs_dim = num_actor_obs
 
         # Dynamically compute scalar obs dim: total obs minus depth pixels
         # This avoids hardcoding 19 and breaking when obs space changes.
-        if num_actor_obs > _DEPTH_PIXELS:
-            self.scalar_obs_dim = num_actor_obs - _DEPTH_PIXELS
+        if self.obs_dim > _DEPTH_PIXELS:
+            self.scalar_obs_dim = self.obs_dim - _DEPTH_PIXELS
             self.has_depth = True
         else:
-            self.scalar_obs_dim = num_actor_obs
+            self.scalar_obs_dim = self.obs_dim
             self.has_depth = False
 
         # Recurrence setup
@@ -372,7 +431,7 @@ class StraferActorCritic(nn.Module):
         # Set is_recurrent as instance attribute (overrides class default)
         self.is_recurrent = self._use_rnn
 
-        print(f"[StraferActorCritic] actor_obs={num_actor_obs}, scalar_dim={self.scalar_obs_dim}, "
+        print(f"[StraferActorCritic] obs_dim={self.obs_dim}, scalar_dim={self.scalar_obs_dim}, "
               f"has_depth={self.has_depth}, encoder={depth_encoder_type}, "
               f"rnn={rnn_type or 'none'}")
 
@@ -384,23 +443,18 @@ class StraferActorCritic(nn.Module):
             encoded_dim = self.scalar_obs_dim + depth_embedding_dim
         else:
             self.depth_encoder_actor = None
-            encoded_dim = num_actor_obs
+            encoded_dim = self.obs_dim
 
         self._encoded_obs_dim = encoded_dim
 
-        # Critic may have different obs size (privileged info)
-        if num_critic_obs > _DEPTH_PIXELS:
-            self.critic_has_depth = True
-            self.critic_scalar_dim = num_critic_obs - _DEPTH_PIXELS
+        if self.has_depth:
             self.depth_encoder_critic = _create_depth_encoder(
                 depth_encoder_type, depth_embedding_dim, defm_model_name,
             )
-            critic_encoded_dim = self.critic_scalar_dim + depth_embedding_dim
+            critic_encoded_dim = self.scalar_obs_dim + depth_embedding_dim
         else:
-            self.critic_has_depth = False
-            self.critic_scalar_dim = num_critic_obs
             self.depth_encoder_critic = None
-            critic_encoded_dim = num_critic_obs
+            critic_encoded_dim = self.obs_dim
 
         # Build optional RNN layers (between encoder and MLP)
         if self._use_rnn:
@@ -418,23 +472,28 @@ class StraferActorCritic(nn.Module):
             critic_input_dim = critic_encoded_dim
 
         # Build MLP heads
-        self.actor = _build_mlp(actor_input_dim, num_actions, list(actor_hidden_dims), activation)
+        self.actor = _build_mlp(actor_input_dim, 2 * num_actions, list(actor_hidden_dims), activation)
         self.critic = _build_mlp(critic_input_dim, 1, list(critic_hidden_dims), activation)
 
-        # Action noise
-        self.std = nn.Parameter(init_noise_std * torch.ones(num_actions))
-        self.distribution: Normal | None = None
-        Normal.set_default_validate_args(False)
+        # Beta action distribution parameters
+        self._min_action_concentration = min_action_concentration
+        self._base_concentration = max(
+            _symmetric_beta_concentration_for_std(init_noise_std),
+            self._min_action_concentration + 1.0e-4,
+        )
+        self.distribution: AffineBeta | None = None
+        Beta.set_default_validate_args(False)
+        self._init_beta_head(num_actions)
 
         # Running normalization (optional — saved with checkpoint for deployment)
         self._actor_obs_norm = None
         self._critic_obs_norm = None
         if actor_obs_normalization:
             from rsl_rl.utils import EmpiricalNormalization
-            self._actor_obs_norm = EmpiricalNormalization(num_actor_obs)
+            self._actor_obs_norm = EmpiricalNormalization(self.obs_dim)
         if critic_obs_normalization:
             from rsl_rl.utils import EmpiricalNormalization
-            self._critic_obs_norm = EmpiricalNormalization(num_critic_obs)
+            self._critic_obs_norm = EmpiricalNormalization(self.obs_dim)
 
     @property
     def encoded_obs_dim(self) -> int:
@@ -449,32 +508,47 @@ class StraferActorCritic(nn.Module):
     def _get_critic_obs(self, obs: TensorDict) -> torch.Tensor:
         return torch.cat([obs[g] for g in self.obs_groups["critic"]], dim=-1)
 
-    def encode_actor(self, raw_obs: torch.Tensor) -> torch.Tensor:
-        if self.has_depth and self.depth_encoder_actor is not None:
+    def _init_beta_head(self, num_actions: int) -> None:
+        """Initialize the Beta head near a zero-mean symmetric prior."""
+        final_layer = self.actor[-1]
+        if not isinstance(final_layer, nn.Linear):
+            raise TypeError("StraferActorCritic actor head must end with a Linear layer.")
+
+        base = torch.full(
+            (2 * num_actions,),
+            _inverse_softplus(
+                torch.tensor(self._base_concentration - self._min_action_concentration, dtype=final_layer.bias.dtype)
+            ).item(),
+            dtype=final_layer.bias.dtype,
+            device=final_layer.bias.device,
+        )
+        nn.init.zeros_(final_layer.weight)
+        with torch.no_grad():
+            final_layer.bias.copy_(base)
+
+    def _beta_distribution_from_logits(self, logits: torch.Tensor) -> AffineBeta:
+        concentration_logits = logits.view(*logits.shape[:-1], 2, -1)
+        concentration1 = F.softplus(concentration_logits[..., 0, :]) + self._min_action_concentration
+        concentration0 = F.softplus(concentration_logits[..., 1, :]) + self._min_action_concentration
+        return AffineBeta(concentration1, concentration0)
+
+    def _encode_obs(self, raw_obs: torch.Tensor, depth_encoder: nn.Module | None) -> torch.Tensor:
+        if self.has_depth and depth_encoder is not None:
             # Handle both 2D (B, D) and 3D (T, B, D) from recurrent mini-batches
             leading_shape = raw_obs.shape[:-1]
             flat = raw_obs.reshape(-1, raw_obs.shape[-1])
             scalar = flat[:, :self.scalar_obs_dim]
             depth_flat = flat[:, self.scalar_obs_dim:self.scalar_obs_dim + _DEPTH_PIXELS]
-            depth_emb = self.depth_encoder_actor(depth_flat)
+            depth_emb = depth_encoder(depth_flat)
             encoded = torch.cat([scalar, depth_emb], dim=-1)
             return encoded.reshape(*leading_shape, -1)
         return raw_obs
 
+    def encode_actor(self, raw_obs: torch.Tensor) -> torch.Tensor:
+        return self._encode_obs(raw_obs, self.depth_encoder_actor)
+
     def encode_critic(self, raw_obs: torch.Tensor) -> torch.Tensor:
-        if self.critic_has_depth and self.depth_encoder_critic is not None:
-            leading_shape = raw_obs.shape[:-1]
-            flat = raw_obs.reshape(-1, raw_obs.shape[-1])
-            scalar_before = flat[:, :self.scalar_obs_dim]
-            depth_flat = flat[:, self.scalar_obs_dim:self.scalar_obs_dim + _DEPTH_PIXELS]
-            depth_emb = self.depth_encoder_critic(depth_flat)
-            extra = flat[:, self.scalar_obs_dim + _DEPTH_PIXELS:]
-            parts = [scalar_before, depth_emb]
-            if extra.shape[-1] > 0:
-                parts.append(extra)
-            encoded = torch.cat(parts, dim=-1)
-            return encoded.reshape(*leading_shape, -1)
-        return raw_obs
+        return self._encode_obs(raw_obs, self.depth_encoder_critic)
 
     # ----- interface required by rsl_rl -----
 
@@ -488,8 +562,8 @@ class StraferActorCritic(nn.Module):
         if self._use_rnn:
             encoded = self.memory_a(encoded, masks, hidden_state).squeeze(0)
 
-        mean = self.actor(encoded)
-        self.distribution = Normal(mean, self.std.expand_as(mean))
+        logits = self.actor(encoded)
+        self.distribution = self._beta_distribution_from_logits(logits)
         return self.distribution.sample()
 
     def act_inference(self, obs: TensorDict) -> torch.Tensor:
@@ -501,7 +575,7 @@ class StraferActorCritic(nn.Module):
         if self._use_rnn:
             encoded = self.memory_a(encoded).squeeze(0)
 
-        return self.actor(encoded)
+        return self._beta_distribution_from_logits(self.actor(encoded)).mean
 
     def evaluate(self, obs: TensorDict, masks: torch.Tensor | None = None,
                  hidden_state=None, **kwargs) -> torch.Tensor:

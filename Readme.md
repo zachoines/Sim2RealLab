@@ -135,11 +135,9 @@ Next planned enhancements (see `docs/STRAFER_VLM_AND_PLANNER_TASKS.md`):
 | Jetson ROS driver and perception | Done | Driver, perception, URDF, SLAM, and Nav2 config exist |
 | RL policy training | In progress | Navigation training is active in Isaac Lab |
 | `strafer_inference` runtime | Planned | Policy runtime on the Jetson is still to be implemented |
-| `strafer_autonomy` executor | Scaffolded | Schemas, client stubs, command ingress, and mission runner exist |
-| LLM planner service | Done | FastAPI service on port 8200, Qwen3-4B two-stage pipeline, 59 tests |
-| VLM grounding service | Done | FastAPI service on port 8100, inference timeout, health check, debug overlay, 124 tests |
-| `scan_for_target` skill | Planned | Rotate-and-ground loop for targets not in frame |
-| VLM scene description | Planned | `POST /describe` endpoint for operator situational awareness |
+| `strafer_autonomy` executor | In progress | Schemas, client stubs, command ingress, and mission runner exist |
+| LLM planner service | In progress | FastAPI service on port 8200, Qwen3-4B two-stage pipeline, 59 tests |
+| VLM grounding service | In progress | FastAPI service on port 8100, inference timeout, health check, debug overlay, 124 tests |
 
 ## Hardware
 

@@ -34,7 +34,9 @@ STRAFER_PPO_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
     actor=RslRlMLPModelCfg(
         hidden_dims=[256, 256, 128],
         activation="elu",
-        init_noise_std=0.5,
+        distribution_cfg=RslRlMLPModelCfg.GaussianDistributionCfg(
+            init_std=0.5,
+        ),
     ),
     critic=RslRlMLPModelCfg(
         hidden_dims=[256, 256, 128],
@@ -76,7 +78,9 @@ STRAFER_PPO_LSTM_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
     actor=RslRlRNNModelCfg(
         hidden_dims=[256, 128],
         activation="elu",
-        init_noise_std=0.5,
+        distribution_cfg=RslRlRNNModelCfg.GaussianDistributionCfg(
+            init_std=0.5,
+        ),
         rnn_type="lstm",
         rnn_hidden_dim=256,
         rnn_num_layers=1,

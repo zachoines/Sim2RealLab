@@ -55,20 +55,23 @@ def reset_robot_state(
     quat[:, 3] = torch.cos(yaw / 2)  # w
     
     # Set robot state (positions are relative to each env's origin)
-    root_state = wp.to_torch(robot.data.default_root_state)[env_ids].clone()
+    root_pose = wp.to_torch(robot.data.default_root_pose)[env_ids].clone()
     env_origins = env.scene.env_origins[env_ids]
-    root_state[:, 0] = env_origins[:, 0] + x  # pos_x
-    root_state[:, 1] = env_origins[:, 1] + y  # pos_y
-    root_state[:, 2] = env_origins[:, 2] + z  # pos_z
-    root_state[:, 3:7] = quat  # orientation
-    root_state[:, 7:] = 0.0  # zero velocity
+    root_pose[:, 0] = env_origins[:, 0] + x  # pos_x
+    root_pose[:, 1] = env_origins[:, 1] + y  # pos_y
+    root_pose[:, 2] = env_origins[:, 2] + z  # pos_z
+    root_pose[:, 3:7] = quat  # orientation
 
-    robot.write_root_state_to_sim_index(root_state, env_ids)
+    robot.write_root_pose_to_sim_index(root_pose=root_pose, env_ids=env_ids)
+    robot.write_root_velocity_to_sim_index(
+        root_velocity=torch.zeros(num_resets, 6, device=device), env_ids=env_ids
+    )
 
     # Zero joint state to prevent stale wheel velocities from flipping the robot
     joint_pos = wp.to_torch(robot.data.default_joint_pos)[env_ids].clone()
     joint_vel = torch.zeros_like(wp.to_torch(robot.data.default_joint_vel)[env_ids])
-    robot.write_joint_state_to_sim_index(joint_pos, joint_vel, env_ids=env_ids)
+    robot.write_joint_position_to_sim_index(position=joint_pos, env_ids=env_ids)
+    robot.write_joint_velocity_to_sim_index(velocity=joint_vel, env_ids=env_ids)
 
 
 # Cache for spawn points tensor (loaded once, reused across resets)
@@ -116,20 +119,23 @@ def reset_robot_state_on_floor(
     quat[:, 2] = torch.sin(yaw / 2)
     quat[:, 3] = torch.cos(yaw / 2)
 
-    root_state = wp.to_torch(robot.data.default_root_state)[env_ids].clone()
+    root_pose = wp.to_torch(robot.data.default_root_pose)[env_ids].clone()
     env_origins = env.scene.env_origins[env_ids]
-    root_state[:, 0] = env_origins[:, 0] + xy[:, 0]
-    root_state[:, 1] = env_origins[:, 1] + xy[:, 1]
-    root_state[:, 2] = env_origins[:, 2] + z
-    root_state[:, 3:7] = quat
-    root_state[:, 7:] = 0.0
+    root_pose[:, 0] = env_origins[:, 0] + xy[:, 0]
+    root_pose[:, 1] = env_origins[:, 1] + xy[:, 1]
+    root_pose[:, 2] = env_origins[:, 2] + z
+    root_pose[:, 3:7] = quat
 
-    robot.write_root_state_to_sim_index(root_state, env_ids)
+    robot.write_root_pose_to_sim_index(root_pose=root_pose, env_ids=env_ids)
+    robot.write_root_velocity_to_sim_index(
+        root_velocity=torch.zeros(num_resets, 6, device=device), env_ids=env_ids
+    )
 
     # Zero joint state to prevent stale wheel velocities from flipping the robot
     joint_pos = wp.to_torch(robot.data.default_joint_pos)[env_ids].clone()
     joint_vel = torch.zeros_like(wp.to_torch(robot.data.default_joint_vel)[env_ids])
-    robot.write_joint_state_to_sim_index(joint_pos, joint_vel, env_ids=env_ids)
+    robot.write_joint_position_to_sim_index(position=joint_pos, env_ids=env_ids)
+    robot.write_joint_velocity_to_sim_index(velocity=joint_vel, env_ids=env_ids)
 
 
 def randomize_friction(
@@ -166,6 +172,9 @@ def randomize_friction(
     # Get current material properties from PhysX view
     # Shape: (num_envs, max_num_shapes, 3) where 3 = [static, dynamic, restitution]
     materials = robot.root_view.get_material_properties()
+    # materials may be a warp array — convert to torch for slicing
+    if not isinstance(materials, torch.Tensor):
+        materials = wp.to_torch(materials)
     materials_device = materials.device
     env_ids_device = env_ids.to(materials_device)
 
@@ -208,8 +217,11 @@ def randomize_friction(
         materials[env_sel, shape_sel] = ref_vals
 
     # Apply the modified materials back to simulation
-    env_ids_cpu = env_ids.cpu() if env_ids.device.type != "cpu" else env_ids
-    robot.root_view.set_material_properties(materials, env_ids_cpu)
+    # root_view methods expect warp arrays on develop branch — convert back
+    # Index tensor must be on CPU (device -1)
+    materials_wp = wp.from_torch(materials)
+    env_ids_cpu = env_ids.cpu().int()
+    robot.root_view.set_material_properties(materials_wp, wp.from_torch(env_ids_cpu))
 
 
 def randomize_obstacles(
@@ -275,17 +287,19 @@ def randomize_obstacles(
             ox[remaining] = min_robot_dist * torch.cos(angle)
             oy[remaining] = min_robot_dist * torch.sin(angle)
 
-        # Build root state (positions are relative to each env's origin)
-        root_state = wp.to_torch(obstacle.data.default_root_state)[env_ids].clone()
+        # Build root pose (positions are relative to each env's origin)
+        root_pose = wp.to_torch(obstacle.data.default_root_pose)[env_ids].clone()
         env_origins = env.scene.env_origins[env_ids]
-        root_state[:, 0] = env_origins[:, 0] + ox
-        root_state[:, 1] = env_origins[:, 1] + oy
-        root_state[:, 2] = env_origins[:, 2] + z_height
-        root_state[:, 3:6] = 0.0  # x, y, z
-        root_state[:, 6] = 1.0    # w (identity quaternion, XYZW)
-        root_state[:, 7:] = 0.0  # zero velocity
+        root_pose[:, 0] = env_origins[:, 0] + ox
+        root_pose[:, 1] = env_origins[:, 1] + oy
+        root_pose[:, 2] = env_origins[:, 2] + z_height
+        root_pose[:, 3:6] = 0.0  # x, y, z
+        root_pose[:, 6] = 1.0    # w (identity quaternion, XYZW)
 
-        obstacle.write_root_state_to_sim_index(root_state, env_ids)
+        obstacle.write_root_pose_to_sim_index(root_pose=root_pose, env_ids=env_ids)
+        obstacle.write_root_velocity_to_sim_index(
+            root_velocity=torch.zeros(len(env_ids), 6, device=device), env_ids=env_ids
+        )
 
 
 def randomize_mass(
@@ -311,6 +325,8 @@ def randomize_mass(
 
     # Get current body masses from simulation
     body_masses = robot.root_view.get_masses()
+    if not isinstance(body_masses, torch.Tensor):
+        body_masses = wp.to_torch(body_masses)
     body_device = body_masses.device
     env_ids_dev = env_ids.to(body_device)
 
@@ -330,7 +346,9 @@ def randomize_mass(
     scales_expanded = scales.unsqueeze(1).expand(-1, num_bodies)
     body_masses[env_ids_dev] = env._default_body_masses[env_ids_dev] * scales_expanded
 
-    robot.root_view.set_masses(body_masses, env_ids_dev)
+    masses_wp = wp.from_torch(body_masses)
+    env_ids_cpu = env_ids_dev.cpu().int()
+    robot.root_view.set_masses(masses_wp, wp.from_torch(env_ids_cpu))
 
 
 def randomize_goal_noise(
@@ -382,6 +400,8 @@ def randomize_motor_strength(
     # Get current effort limits from PhysX view
     # Shape: (num_envs, num_joints)
     effort_limits = robot.root_view.get_dof_max_forces()
+    if not isinstance(effort_limits, torch.Tensor):
+        effort_limits = wp.to_torch(effort_limits)
     effort_device = effort_limits.device
     env_ids_dev = env_ids.to(effort_device)
 
@@ -401,8 +421,9 @@ def randomize_motor_strength(
 
     effort_limits[env_ids_dev] = env._default_effort_limits[env_ids_dev] * scales
 
-    env_ids_cpu = env_ids.cpu() if env_ids.device.type != "cpu" else env_ids
-    robot.root_view.set_dof_max_forces(effort_limits, env_ids_cpu)
+    effort_wp = wp.from_torch(effort_limits)
+    env_ids_cpu = env_ids_dev.cpu().int()
+    robot.root_view.set_dof_max_forces(effort_wp, wp.from_torch(env_ids_cpu))
 
 
 def randomize_d555_mount_offset(
@@ -488,15 +509,17 @@ def reset_robot_proc_room(
     quat[:, 2] = torch.sin(yaw / 2)
     quat[:, 3] = torch.cos(yaw / 2)
 
-    root_state = wp.to_torch(robot.data.default_root_state)[env_ids].clone()
+    root_pose = wp.to_torch(robot.data.default_root_pose)[env_ids].clone()
     env_origins = env.scene.env_origins[env_ids]
-    root_state[:, 0] = env_origins[:, 0] + xy[:, 0]
-    root_state[:, 1] = env_origins[:, 1] + xy[:, 1]
-    root_state[:, 2] = env_origins[:, 2] + z
-    root_state[:, 3:7] = quat
-    root_state[:, 7:] = 0.0
+    root_pose[:, 0] = env_origins[:, 0] + xy[:, 0]
+    root_pose[:, 1] = env_origins[:, 1] + xy[:, 1]
+    root_pose[:, 2] = env_origins[:, 2] + z
+    root_pose[:, 3:7] = quat
 
-    robot.write_root_state_to_sim_index(root_state, env_ids)
+    robot.write_root_pose_to_sim_index(root_pose=root_pose, env_ids=env_ids)
+    robot.write_root_velocity_to_sim_index(
+        root_velocity=torch.zeros(num_resets, 6, device=device), env_ids=env_ids
+    )
 
     # Zero joint positions and velocities — without this, wheels carry
     # angular velocity from the previous episode.  The mismatch between
@@ -505,7 +528,8 @@ def reset_robot_proc_room(
     # the GPU solver has less budget per constraint.
     joint_pos = wp.to_torch(robot.data.default_joint_pos)[env_ids].clone()
     joint_vel = torch.zeros_like(wp.to_torch(robot.data.default_joint_vel)[env_ids])
-    robot.write_joint_state_to_sim_index(joint_pos, joint_vel, env_ids=env_ids)
+    robot.write_joint_position_to_sim_index(position=joint_pos, env_ids=env_ids)
+    robot.write_joint_velocity_to_sim_index(velocity=joint_vel, env_ids=env_ids)
 
 
 def randomize_proc_room_difficulty(

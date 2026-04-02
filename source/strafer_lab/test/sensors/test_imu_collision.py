@@ -143,16 +143,18 @@ def _place_obstacle_in_front(env, distance: float = 0.4):
     x, y, z, w = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
     yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
-    root_state = wp.to_torch(obstacle.data.default_root_state).clone()[:num_envs]
-    root_state[:, 0] = robot_pos[:, 0] + distance * torch.cos(yaw)
-    root_state[:, 1] = robot_pos[:, 1] + distance * torch.sin(yaw)
-    root_state[:, 2] = env_origins[:, 2] + 0.15
-    root_state[:, 3:6] = 0.0
-    root_state[:, 6] = 1.0
-    root_state[:, 7:] = 0.0
+    root_pose = wp.to_torch(obstacle.data.default_root_pose).clone()[:num_envs]
+    root_pose[:, 0] = robot_pos[:, 0] + distance * torch.cos(yaw)
+    root_pose[:, 1] = robot_pos[:, 1] + distance * torch.sin(yaw)
+    root_pose[:, 2] = env_origins[:, 2] + 0.15
+    root_pose[:, 3:6] = 0.0
+    root_pose[:, 6] = 1.0
 
     all_ids = torch.arange(num_envs, device=device)
-    obstacle.write_root_state_to_sim_index(root_state, all_ids)
+    obstacle.write_root_pose_to_sim_index(root_pose=root_pose, env_ids=all_ids)
+    obstacle.write_root_velocity_to_sim_index(
+        root_velocity=torch.zeros(num_envs, 6, device=device), env_ids=all_ids
+    )
 
 
 def _move_obstacle_far_away(env):
@@ -162,16 +164,18 @@ def _move_obstacle_far_away(env):
     num_envs = env.num_envs
     env_origins = get_env_origins(env)
 
-    root_state = wp.to_torch(obstacle.data.default_root_state).clone()[:num_envs]
-    root_state[:, 0] = env_origins[:, 0] + 50.0
-    root_state[:, 1] = env_origins[:, 1] + 50.0
-    root_state[:, 2] = env_origins[:, 2] + 0.15
-    root_state[:, 3] = 1.0
-    root_state[:, 4:7] = 0.0
-    root_state[:, 7:] = 0.0
+    root_pose = wp.to_torch(obstacle.data.default_root_pose).clone()[:num_envs]
+    root_pose[:, 0] = env_origins[:, 0] + 50.0
+    root_pose[:, 1] = env_origins[:, 1] + 50.0
+    root_pose[:, 2] = env_origins[:, 2] + 0.15
+    root_pose[:, 3] = 1.0
+    root_pose[:, 4:7] = 0.0
 
     all_ids = torch.arange(num_envs, device=device)
-    obstacle.write_root_state_to_sim_index(root_state, all_ids)
+    obstacle.write_root_pose_to_sim_index(root_pose=root_pose, env_ids=all_ids)
+    obstacle.write_root_velocity_to_sim_index(
+        root_velocity=torch.zeros(num_envs, 6, device=device), env_ids=all_ids
+    )
 
 
 def _collect_obs_per_step(

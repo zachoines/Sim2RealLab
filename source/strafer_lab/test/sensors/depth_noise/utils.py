@@ -200,14 +200,15 @@ def debug_camera_orientation(env):
 
     # Print robot and wall info
     robot = env.scene["robot"]
-    print(f"\n  Robot root state shape: {wp.to_torch(robot.data.root_state_w).shape}")
-    print(f"  Robot position: {wp.to_torch(robot.data.root_state_w)[0, :3].cpu().numpy()}")
-    print(f"  Robot quaternion (x,y,z,w): {wp.to_torch(robot.data.root_state_w)[0, 3:7].cpu().numpy()}")
+    root_pose = wp.to_torch(robot.data.root_link_pose_w)
+    print(f"\n  Robot root pose shape: {root_pose.shape}")
+    print(f"  Robot position: {root_pose[0, :3].cpu().numpy()}")
+    print(f"  Robot quaternion (x,y,z,w): {root_pose[0, 3:7].cpu().numpy()}")
 
     # Print wall position if available
     if "test_wall" in env.scene.keys():
         wall = env.scene["test_wall"]
-        print(f"  Wall position: {wp.to_torch(wall.data.root_state_w)[0, :3].cpu().numpy()}")
+        print(f"  Wall position: {wp.to_torch(wall.data.root_link_pose_w)[0, :3].cpu().numpy()}")
 
     print("\n1. Robot facing TOWARD wall (expected: wall pixels ~0.333)")
     depth_toward, path_toward = save_depth_image(
@@ -215,14 +216,14 @@ def debug_camera_orientation(env):
     )
 
     # Print robot pose after reset
-    print(f"  After reset - Robot quaternion: {wp.to_torch(robot.data.root_state_w)[0, 3:7].cpu().numpy()}")
+    print(f"  After reset - Robot quaternion: {wp.to_torch(robot.data.root_link_pose_w)[0, 3:7].cpu().numpy()}")
 
     print("\n2. Robot facing AWAY from wall (expected: max-range pixels ~1.0)")
     depth_away, path_away = save_depth_image(
         env, "debug_facing_away", face_wall=False
     )
 
-    print(f"  After reset - Robot quaternion: {wp.to_torch(robot.data.root_state_w)[0, 3:7].cpu().numpy()}")
+    print(f"  After reset - Robot quaternion: {wp.to_torch(robot.data.root_link_pose_w)[0, 3:7].cpu().numpy()}")
 
     print("\n" + "=" * 60)
     print("DEBUG SUMMARY:")

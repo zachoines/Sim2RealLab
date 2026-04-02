@@ -86,8 +86,9 @@ def test_reset_robot_state_velocities_zeroed(env):
     reset_robot_state(env, env_ids, pose_range)
 
     robot = env.scene["robot"]
-    root_state = wp.to_torch(robot.data.root_state_w)
-    velocities = root_state[:, 7:]  # lin_vel(3) + ang_vel(3)
+    root_pose = wp.to_torch(robot.data.root_link_pose_w)
+    root_vel = wp.to_torch(robot.data.root_link_vel_w)
+    velocities = root_vel  # lin_vel(3) + ang_vel(3)
 
     max_vel = velocities.abs().max().item()
     print(f"\n  reset_robot_state velocities:")

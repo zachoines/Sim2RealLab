@@ -181,7 +181,7 @@ Every training session on DGX SPARK requires this preamble:
 
 ```bash
 cd ~/Documents/repos/IsaacLab
-conda activate env_isaaclab
+conda activate env_isaaclab3
 export LD_PRELOAD="/lib/aarch64-linux-gnu/libgomp.so.1"
 ```
 
@@ -279,3 +279,153 @@ done interactively and is now cached.
 - **Total time:** ~1 min 13 sec
 - **Result:** SUCCESS — all reward, termination, curriculum, and metric channels active
 - **Checkpoint saved to:** `logs/rsl_rl/strafer_navigation/run_20260401_223559`
+
+---
+
+## Isaac Lab 3.0 (Develop Branch) — Build from Source
+
+The `feature/isaaclab-3.0-migration` branch targets Isaac Lab's `develop` branch
+(version 4.5.24, pre-3.0 release). This requires Isaac Sim 6.0.0 and Python 3.12.
+Below are the complete setup steps.
+
+### System Requirements (additional)
+
+```
+libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libgl1-mesa-dev
+```
+
+These are required to build `imgui-bundle` (a transitive Isaac Sim 6.0 dependency)
+from source on aarch64.
+
+### Step 0: Install X11 / GL dev libraries
+
+```bash
+sudo apt-get install -y libx11-dev libxrandr-dev libxinerama-dev \
+  libxcursor-dev libxi-dev libxkbcommon-dev libgl1-mesa-dev
+```
+
+### Step 1: Create Python 3.12 environment
+
+Isaac Sim 6.0.0 requires `Python ==3.12.*`.
+
+```bash
+conda create -n env_isaaclab3 python=3.12 -y
+conda activate env_isaaclab3
+```
+
+### Step 2: Install PyTorch 2.10.0 + CUDA 13.0
+
+```bash
+pip install torch==2.10.0 torchvision==0.25.0 torchaudio==2.10.0 \
+  --index-url https://download.pytorch.org/whl/cu130
+```
+
+### Step 3: Install Isaac Sim 6.0.0
+
+```bash
+pip install "isaacsim[all]>=6.0.0" --extra-index-url https://pypi.nvidia.com
+```
+
+> **Note:** This takes 5-10 min on first install. `imgui-bundle` compiles from
+> source on aarch64 (~2 min).
+
+### Step 4: Reinstall PyTorch with CUDA (critical!)
+
+Isaac Sim's dependency resolver pulls in `torch==2.10.0` (CPU-only). Force
+reinstall the CUDA build:
+
+```bash
+pip install --force-reinstall --no-deps \
+  torch==2.10.0 torchvision==0.25.0 torchaudio==2.10.0 \
+  --index-url https://download.pytorch.org/whl/cu130
+```
+
+Verify:
+```bash
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+# Expected: 2.10.0+cu130 True
+```
+
+### Step 5: Switch Isaac Lab to develop branch
+
+```bash
+cd ~/Documents/repos/IsaacLab
+git fetch origin develop
+git checkout -b develop origin/develop
+```
+
+### Step 6: Install Isaac Lab from source
+
+```bash
+./isaaclab.sh --install rsl_rl
+```
+
+This installs all Isaac Lab submodules (isaaclab, isaaclab_physx, isaaclab_rl,
+isaaclab_assets, isaaclab_tasks, etc.) plus the rsl_rl framework in editable mode.
+
+### Step 7: Install strafer packages
+
+```bash
+cd ~/Documents/repos/Sim2RealLab
+pip install -e source/strafer_shared
+pip install -e source/strafer_lab
+```
+
+### Step 8: Smoke test
+
+```bash
+cd ~/Documents/repos/IsaacLab
+conda activate env_isaaclab3
+export LD_PRELOAD="/lib/aarch64-linux-gnu/libgomp.so.1"
+
+./isaaclab.sh -p ../Sim2RealLab/Scripts/train_strafer_navigation.py \
+  --env Isaac-Strafer-Nav-Real-NoCam-v0 \
+  --num_envs 64 \
+  --max_iterations 10 \
+  --headless
+```
+
+### Key API Changes (develop branch vs main)
+
+| Old API (main / 2.x) | New API (develop / 3.0) |
+|---|---|
+| `write_root_state_to_sim(state, env_ids)` | `write_root_pose_to_sim_index(root_pose=..., env_ids=...)` + `write_root_velocity_to_sim_index(root_velocity=..., env_ids=...)` |
+| `write_joint_state_to_sim(pos, vel, env_ids=...)` | `write_joint_position_to_sim_index(position=..., env_ids=...)` + `write_joint_velocity_to_sim_index(velocity=..., env_ids=...)` |
+| `data.default_root_state` | `data.default_root_pose` + `data.default_root_vel` |
+| `data.root_state_w` | `data.root_link_pose_w` + `data.root_link_vel_w` |
+| `data.body_pos_w` / `data.body_quat_w` | `data.body_link_pos_w` / `data.body_link_quat_w` |
+| `root_physx_view` | `root_view` |
+| Quaternion WXYZ `(w,x,y,z)` | Quaternion XYZW `(x,y,z,w)` |
+| Returns `torch.Tensor` | Returns `wp.array` — wrap with `wp.to_torch()` |
+| Positional args in write methods | Keyword-only args (`root_pose=`, `env_ids=`, etc.) |
+| `RslRlMLPModelCfg(init_noise_std=0.5)` | `RslRlMLPModelCfg(distribution_cfg=GaussianDistributionCfg(init_std=0.5))` |
+
+> **Note:** `root_pos_w`, `root_quat_w`, `root_lin_vel_b` etc. still exist as
+> shorthand aliases on the develop branch — no need to rename observation code.
+
+### root_view getter/setter pattern (warp conversion)
+
+The `root_view.get_*()` methods return warp arrays. Convert to torch for
+manipulation, then convert back before writing:
+
+```python
+materials = robot.root_view.get_material_properties()
+materials = wp.to_torch(materials)   # convert for torch indexing/math
+# ... modify materials ...
+robot.root_view.set_material_properties(
+    wp.from_torch(materials),
+    wp.from_torch(env_ids.cpu().int())  # indices MUST be on CPU
+)
+```
+
+### Smoke Test Results (develop branch)
+
+- **Environment:** `Isaac-Strafer-Nav-Real-NoCam-v0`
+- **Stack:** Isaac Sim 6.0.0, Isaac Lab develop (v4.5.24), Python 3.12.13, PyTorch 2.10.0+cu130, rsl_rl 5.0.1
+- **Num envs:** 64
+- **Iterations:** 10
+- **Iteration time:** ~7.2–7.6s per iteration
+- **Total time:** ~1:15
+- **Mean reward:** -0.02 → 0.50 (increasing over 10 iterations)
+- **Goal reached:** 39.6%
+- **Result:** SUCCESS

@@ -199,12 +199,14 @@ def _deactivate_excess_obstacles(
             continue
 
         hide_ids = env_ids[should_hide]
-        root_state = wp.to_torch(obstacle.data.default_root_state)[hide_ids].clone()
-        root_state[:, 0] = 100.0
-        root_state[:, 1] = 100.0
-        root_state[:, 2] = -10.0
-        root_state[:, 7:] = 0.0
-        obstacle.write_root_state_to_sim_index(root_state, hide_ids)
+        root_pose = wp.to_torch(obstacle.data.default_root_pose)[hide_ids].clone()
+        root_pose[:, 0] = 100.0
+        root_pose[:, 1] = 100.0
+        root_pose[:, 2] = -10.0
+        obstacle.write_root_pose_to_sim_index(root_pose=root_pose, env_ids=hide_ids)
+        obstacle.write_root_velocity_to_sim_index(
+            root_velocity=torch.zeros(len(hide_ids), 6, device=env.device), env_ids=hide_ids
+        )
 
 
 class RoomComplexityCurriculum(ManagerTermBase):

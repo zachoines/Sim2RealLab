@@ -9,6 +9,7 @@ import torch
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
     from isaaclab.managers import SceneEntityCfg
+import warp as wp
 
 
 def robot_flipped(env: ManagerBasedEnv, threshold: float = 0.5) -> torch.Tensor:
@@ -30,7 +31,7 @@ def robot_flipped(env: ManagerBasedEnv, threshold: float = 0.5) -> torch.Tensor:
     # Projected gravity in robot frame
     # If robot is upright, gravity projects to (0, 0, -1)
     # If flipped, gravity projects to (0, 0, +1)
-    projected_gravity = robot.data.projected_gravity_b
+    projected_gravity = wp.to_torch(robot.data.projected_gravity_b)
     
     # Check if z-component of projected gravity is positive (flipped)
     # projected_gravity_b is a unit vector: upright ≈ (0,0,-1), flipped ≈ (0,0,+1)
@@ -56,7 +57,7 @@ def goal_reached(
         Boolean tensor indicating which environments reached the goal.
     """
     robot = env.scene["robot"]
-    robot_pos = robot.data.root_pos_w[:, :2]
+    robot_pos = wp.to_torch(robot.data.root_pos_w)[:, :2]
 
     command = env.command_manager.get_command(command_name)
     goal_pos = command[:, :2]
@@ -90,7 +91,7 @@ def sustained_collision(
         Boolean tensor indicating which environments should terminate.
     """
     contact_sensor = env.scene.sensors[sensor_cfg.name]
-    net_forces = contact_sensor.data.net_forces_w
+    net_forces = wp.to_torch(contact_sensor.data.net_forces_w)
     force_mag = torch.norm(net_forces, dim=-1)
     has_collision = (force_mag > threshold).any(dim=-1)
 

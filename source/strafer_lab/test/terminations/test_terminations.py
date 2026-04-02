@@ -20,6 +20,7 @@ import pytest
 from isaaclab.managers import SceneEntityCfg
 
 from strafer_lab.tasks.navigation.mdp.terminations import (
+import warp as wp
     robot_flipped,
     goal_reached,
     sustained_collision,
@@ -66,7 +67,7 @@ def test_robot_flipped_false_when_upright(env):
     print(f"\n  robot_flipped (upright):")
     print(f"    Flipped count: {flipped.sum().item()}/{env.num_envs}")
 
-    gravity_z = env.scene["robot"].data.projected_gravity_b[:, 2]
+    gravity_z = wp.to_torch(env.scene["robot"].data.projected_gravity_b)[:, 2]
     print(f"    gravity_z mean: {gravity_z.mean().item():.4f}")
 
     assert not flipped.any(), (
@@ -101,7 +102,7 @@ def test_robot_flipped_threshold_zero_still_upright(env):
 
     flipped = robot_flipped(env, threshold=0.0)
 
-    gravity_z = env.scene["robot"].data.projected_gravity_b[:, 2]
+    gravity_z = wp.to_torch(env.scene["robot"].data.projected_gravity_b)[:, 2]
     print(f"\n  robot_flipped (threshold=0):")
     print(f"    gravity_z range: [{gravity_z.min().item():.4f}, {gravity_z.max().item():.4f}]")
     print(f"    Flipped: {flipped.sum().item()}/{env.num_envs}")

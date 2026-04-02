@@ -22,6 +22,7 @@ import torch
 import pytest
 
 from strafer_lab.tasks.navigation.mdp.events import (
+import warp as wp
     reset_robot_state,
     randomize_friction,
     randomize_mass,
@@ -56,7 +57,7 @@ def test_reset_robot_state_positions_within_range(env):
     reset_robot_state(env, env_ids, pose_range)
 
     robot = env.scene["robot"]
-    root_pos_w = robot.data.root_pos_w  # world frame
+    root_pos_w = wp.to_torch(robot.data.root_pos_w)  # world frame
     env_origins = env.scene.env_origins  # (num_envs, 3)
 
     # Convert to env-local coordinates
@@ -85,7 +86,7 @@ def test_reset_robot_state_velocities_zeroed(env):
     reset_robot_state(env, env_ids, pose_range)
 
     robot = env.scene["robot"]
-    root_state = robot.data.root_state_w
+    root_state = wp.to_torch(robot.data.root_state_w)
     velocities = root_state[:, 7:]  # lin_vel(3) + ang_vel(3)
 
     max_vel = velocities.abs().max().item()
@@ -107,13 +108,13 @@ def test_reset_robot_state_partial_env_ids(env):
 
     # Record positions
     robot = env.scene["robot"]
-    pos_before = robot.data.root_pos_w[:, :2].clone()
+    pos_before = wp.to_torch(robot.data.root_pos_w)[:, :2].clone()
 
     # Now reset only first half
     half_ids = torch.arange(env.num_envs // 2, device=env.device)
     reset_robot_state(env, half_ids, {"x": (1.0, 1.0), "y": (1.0, 1.0), "yaw": (0.0, 0.0)})
 
-    pos_after = robot.data.root_pos_w[:, :2]
+    pos_after = wp.to_torch(robot.data.root_pos_w)[:, :2]
 
     # Second half should be unchanged
     second_half = slice(env.num_envs // 2, None)
@@ -141,7 +142,7 @@ def test_randomize_friction_within_range(env):
     randomize_friction(env, env_ids, friction_range)
 
     robot = env.scene["robot"]
-    materials = robot.root_physx_view.get_material_properties()
+    materials = robot.root_view.get_material_properties()
     static_friction = materials[:, :, 0]
 
     print(f"\n  randomize_friction:")
@@ -165,7 +166,7 @@ def test_randomize_friction_dynamic_less_than_static(env):
     randomize_friction(env, env_ids, (0.3, 1.2))
 
     robot = env.scene["robot"]
-    materials = robot.root_physx_view.get_material_properties()
+    materials = robot.root_view.get_material_properties()
     static_friction = materials[:, :, 0]
     dynamic_friction = materials[:, :, 1]
 
@@ -206,7 +207,7 @@ def test_randomize_mass_scales_correctly(env):
     randomize_mass(env, env_ids, mass_range)
 
     robot = env.scene["robot"]
-    current_masses = robot.root_physx_view.get_masses()
+    current_masses = robot.root_view.get_masses()
     default_masses = env._default_body_masses
 
     ratios = current_masses / (default_masses + 1e-8)
@@ -251,7 +252,7 @@ def test_randomize_motor_strength_within_range(env):
     randomize_motor_strength(env, env_ids, strength_range)
 
     robot = env.scene["robot"]
-    current_limits = robot.root_physx_view.get_dof_max_forces()
+    current_limits = robot.root_view.get_dof_max_forces()
     default_limits = env._default_effort_limits
 
     # Only check wheel drive joints (first 4) — roller joints have 0 effort limit
@@ -285,7 +286,7 @@ def test_randomize_motor_strength_per_joint_independent(env):
     randomize_motor_strength(env, env_ids, (0.5, 1.5))
 
     robot = env.scene["robot"]
-    current_limits = robot.root_physx_view.get_dof_max_forces()
+    current_limits = robot.root_view.get_dof_max_forces()
     default_limits = env._default_effort_limits
 
     # Only check wheel drive joints (first 4) — roller joints have 0 effort limit

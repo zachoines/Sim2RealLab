@@ -63,6 +63,7 @@ from strafer_lab.tasks.navigation.strafer_env_cfg import (
 from strafer_lab.tasks.navigation.mdp.terminations import goal_reached
 
 from test.common.stats import one_sample_t_test
+import warp as wp
 
 
 def test_heading_reward_config_uses_goal_direction():
@@ -293,15 +294,15 @@ def _goal_direction_body_frame(env) -> torch.Tensor:
     world-frame direction vector must be rotated by the inverse of the
     robot's yaw before it can be used as a (vx, vy) command.
     """
-    robot_pos = env.scene["robot"].data.root_pos_w[:, :2]
-    robot_quat = env.scene["robot"].data.root_quat_w
+    robot_pos = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2]
+    robot_quat = wp.to_torch(env.scene["robot"].data.root_quat_w)
     goal_pos = env.command_manager.get_command("goal_command")[:, :2]
 
     delta = goal_pos - robot_pos
     world_dir = delta / (torch.norm(delta, dim=-1, keepdim=True) + 1e-8)
 
-    # Robot yaw from quaternion (w, x, y, z in IsaacLab) — full formula
-    w, x, y, z = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    # Robot yaw from quaternion (x, y, z, w in IsaacLab 3.0) — full formula
+    x, y, z, w = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
     yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
     cos_y = torch.cos(yaw)
     sin_y = torch.sin(yaw)
@@ -371,7 +372,7 @@ def test_no_reward_spikes_on_reset(env):
     assert hasattr(env, "_prev_goal_distance"), (
         "env._prev_goal_distance not initialised after goal_progress_reward"
     )
-    robot_pos = env.scene["robot"].data.root_pos_w[:, :2]
+    robot_pos = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2]
     goal_pos = env.command_manager.get_command("goal_command")[:, :2]
     current_dist = torch.norm(goal_pos - robot_pos, dim=-1)
     tracking_err = (env._prev_goal_distance - current_dist).abs().max().item()
@@ -427,7 +428,7 @@ def test_goal_progress_positive_when_approaching(env):
     goal_pos = env.command_manager.get_command("goal_command")[:, :2].clone()
 
     # Measure distance before
-    pos_before = env.scene["robot"].data.root_pos_w[:, :2].clone()
+    pos_before = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2].clone()
     dist_before = torch.norm(goal_pos - pos_before, dim=-1)
 
     # Command each robot toward its own goal (body-frame)
@@ -440,7 +441,7 @@ def test_goal_progress_positive_when_approaching(env):
         env.step(approach_action)
 
     # Measure distance after
-    pos_after = env.scene["robot"].data.root_pos_w[:, :2]
+    pos_after = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2]
     dist_after = torch.norm(goal_pos - pos_after, dim=-1)
 
     # progress > 0 means distance decreased (good)
@@ -475,7 +476,7 @@ def test_goal_progress_negative_when_retreating(env):
 
     goal_pos = env.command_manager.get_command("goal_command")[:, :2].clone()
 
-    pos_before = env.scene["robot"].data.root_pos_w[:, :2].clone()
+    pos_before = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2].clone()
     dist_before = torch.norm(goal_pos - pos_before, dim=-1)
 
     # Command each robot AWAY from its goal (body-frame)
@@ -487,7 +488,7 @@ def test_goal_progress_negative_when_retreating(env):
     for _ in range(20):
         env.step(retreat_action)
 
-    pos_after = env.scene["robot"].data.root_pos_w[:, :2]
+    pos_after = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2]
     dist_after = torch.norm(goal_pos - pos_after, dim=-1)
 
     # regression > 0 means distance increased (retreated)
@@ -525,7 +526,7 @@ def test_goal_reached_fires_within_threshold(env):
     reward = goal_reached_reward(env, threshold=threshold, command_name="goal_command")
 
     # Compute actual distances for comparison
-    robot_pos = env.scene["robot"].data.root_pos_w[:, :2]
+    robot_pos = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2]
     goal_pos = env.command_manager.get_command("goal_command")[:, :2]
     distances = torch.norm(goal_pos - robot_pos, dim=-1)
 
@@ -809,7 +810,7 @@ def test_goal_proximity_potential_positive_when_approaching(env):
     sigma = 0.3
 
     # Compute phi before approach
-    robot_pos = env.scene["robot"].data.root_pos_w[:, :2]
+    robot_pos = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2]
     goal_pos = env.command_manager.get_command("goal_command")[:, :2]
     phi_before = torch.exp(-torch.norm(goal_pos - robot_pos, dim=-1) / sigma).clone()
 
@@ -823,7 +824,7 @@ def test_goal_proximity_potential_positive_when_approaching(env):
         env.step(approach_action)
 
     # Compute phi after approach
-    robot_pos = env.scene["robot"].data.root_pos_w[:, :2]
+    robot_pos = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2]
     goal_pos = env.command_manager.get_command("goal_command")[:, :2]
     phi_after = torch.exp(-torch.norm(goal_pos - robot_pos, dim=-1) / sigma)
 
@@ -864,7 +865,7 @@ def test_speed_near_goal_zero_when_far(env):
     )
 
     # Check how many envs are actually within the threshold
-    robot_pos = env.scene["robot"].data.root_pos_w[:, :2]
+    robot_pos = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2]
     goal_pos = env.command_manager.get_command("goal_command")[:, :2]
     distances = torch.norm(goal_pos - robot_pos, dim=-1)
     far_mask = distances >= 0.01

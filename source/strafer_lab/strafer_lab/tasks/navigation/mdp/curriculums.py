@@ -15,6 +15,7 @@ from isaaclab.managers import ManagerTermBase
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
+import warp as wp
 
 
 class GoalDistanceCurriculum(ManagerTermBase):
@@ -198,12 +199,12 @@ def _deactivate_excess_obstacles(
             continue
 
         hide_ids = env_ids[should_hide]
-        root_state = obstacle.data.default_root_state[hide_ids].clone()
+        root_state = wp.to_torch(obstacle.data.default_root_state)[hide_ids].clone()
         root_state[:, 0] = 100.0
         root_state[:, 1] = 100.0
         root_state[:, 2] = -10.0
         root_state[:, 7:] = 0.0
-        obstacle.write_root_state_to_sim(root_state, hide_ids)
+        obstacle.write_root_state_to_sim_index(root_state, hide_ids)
 
 
 class RoomComplexityCurriculum(ManagerTermBase):

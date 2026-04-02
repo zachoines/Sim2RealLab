@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
     from isaaclab.managers import SceneEntityCfg
     from isaaclab.sensors import TiledCamera, Camera, Imu
+import warp as wp
 
 
 # =============================================================================
@@ -95,7 +96,7 @@ def wheel_encoder_positions(
     wheel_indices = _get_wheel_joint_indices(robot)
     
     # Get joint positions for wheel joints only
-    joint_pos = robot.data.joint_pos[:, wheel_indices]  # Shape: (num_envs, 4)
+    joint_pos = wp.to_torch(robot.data.joint_pos)[:, wheel_indices]  # Shape: (num_envs, 4)
     
     # Convert radians to encoder ticks
     encoder_ticks = joint_pos * RADIANS_TO_ENCODER_TICKS
@@ -135,7 +136,7 @@ def wheel_encoder_velocities(
     wheel_indices = _get_wheel_joint_indices(robot)
     
     # Get joint velocities for wheel joints only
-    joint_vel = robot.data.joint_vel[:, wheel_indices]  # Shape: (num_envs, 4)
+    joint_vel = wp.to_torch(robot.data.joint_vel)[:, wheel_indices]  # Shape: (num_envs, 4)
     
     # Convert rad/s to ticks/s (RAW - no normalization)
     encoder_vel = joint_vel * RADIANS_TO_ENCODER_TICKS
@@ -171,7 +172,7 @@ def wheel_encoder_deltas(
     wheel_indices = _get_wheel_joint_indices(robot)
     
     # Get joint velocities for wheel joints and multiply by dt
-    joint_vel = robot.data.joint_vel[:, wheel_indices]
+    joint_vel = wp.to_torch(robot.data.joint_vel)[:, wheel_indices]
     dt = env.step_dt  # Environment step dt
     
     # Delta ticks = velocity * dt * conversion
@@ -214,7 +215,7 @@ def imu_angular_velocity(
         Angular velocity (roll, pitch, yaw rate) in rad/s. Shape: (num_envs, 3)
     """
     sensor: Imu = env.scene.sensors[sensor_cfg.name]
-    ang_vel = sensor.data.ang_vel_b.clone()
+    ang_vel = wp.to_torch(sensor.data.ang_vel_b).clone()
 
     # Apply D555 mount offset (if randomized)
     if hasattr(env, "_d555_mount_quat"):
@@ -250,7 +251,7 @@ def imu_linear_acceleration(
         Linear acceleration (ax, ay, az) in m/s². Shape: (num_envs, 3)
     """
     sensor: Imu = env.scene.sensors[sensor_cfg.name]
-    lin_acc = sensor.data.lin_acc_b.clone()
+    lin_acc = wp.to_torch(sensor.data.lin_acc_b).clone()
 
     # Apply D555 mount offset (if randomized)
     if hasattr(env, "_d555_mount_quat"):
@@ -274,10 +275,10 @@ def imu_orientation(
         sensor_cfg: Scene entity configuration for the IMU sensor.
     
     Returns:
-        Orientation quaternion (w, x, y, z). Shape: (num_envs, 4)
+        Orientation quaternion (x, y, z, w) — XYZW. Shape: (num_envs, 4)
     """
     sensor: Imu = env.scene.sensors[sensor_cfg.name]
-    return sensor.data.quat_w.clone()
+    return wp.to_torch(sensor.data.quat_w).clone()
 
 
 def imu_projected_gravity(
@@ -297,7 +298,7 @@ def imu_projected_gravity(
         Projected gravity unit vector. Shape: (num_envs, 3)
     """
     sensor: Imu = env.scene.sensors[sensor_cfg.name]
-    return sensor.data.projected_gravity_b.clone()
+    return wp.to_torch(sensor.data.projected_gravity_b).clone()
 
 
 
@@ -322,8 +323,8 @@ def goal_position_relative(env: ManagerBasedEnv, command_name: str) -> torch.Ten
     goal_pos_w = command[:, :2]
 
     robot = env.scene["robot"]
-    robot_pos_w = robot.data.root_pos_w[:, :2]
-    robot_quat_w = robot.data.root_quat_w  # (w, x, y, z)
+    robot_pos_w = wp.to_torch(robot.data.root_pos_w)[:, :2]
+    robot_quat_w = wp.to_torch(robot.data.root_quat_w)  # (x, y, z, w) — XYZW (Isaac Lab 3.0)
 
     # World-frame displacement lifted to 3-D (z=0)
     rel_w = torch.zeros(robot_pos_w.shape[0], 3, device=robot_pos_w.device)
@@ -351,7 +352,7 @@ def goal_distance(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
     goal_pos_w = command[:, :2]
 
     robot = env.scene["robot"]
-    robot_pos_w = robot.data.root_pos_w[:, :2]
+    robot_pos_w = wp.to_torch(robot.data.root_pos_w)[:, :2]
 
     distance = torch.norm(goal_pos_w - robot_pos_w, dim=-1, keepdim=True)
     return distance
@@ -379,8 +380,8 @@ def goal_heading_relative(env: ManagerBasedEnv, command_name: str) -> torch.Tens
     desired_heading = command[:, 2]
 
     robot = env.scene["robot"]
-    robot_quat = robot.data.root_quat_w
-    w, x, y, z = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    robot_quat = wp.to_torch(robot.data.root_quat_w)
+    x, y, z, w = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
     robot_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
     # Shortest signed angle
@@ -408,9 +409,9 @@ def goal_heading_to_goal(env: ManagerBasedEnv, command_name: str) -> torch.Tenso
     goal_pos_w = command[:, :2]
 
     robot = env.scene["robot"]
-    robot_pos_w = robot.data.root_pos_w[:, :2]
-    robot_quat = robot.data.root_quat_w
-    w, x, y, z = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    robot_pos_w = wp.to_torch(robot.data.root_pos_w)[:, :2]
+    robot_quat = wp.to_torch(robot.data.root_quat_w)
+    x, y, z, w = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
     robot_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
     # Bearing to goal
@@ -437,7 +438,7 @@ def body_velocity_xy(env: ManagerBasedEnv) -> torch.Tensor:
     """
     robot = env.scene["robot"]
     # root_lin_vel_b is body-frame linear velocity (x, y, z)
-    return robot.data.root_lin_vel_b[:, :2]
+    return wp.to_torch(robot.data.root_lin_vel_b)[:, :2]
 
 
 def privileged_ground_truth(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
@@ -458,19 +459,19 @@ def privileged_ground_truth(env: ManagerBasedEnv, command_name: str) -> torch.Te
     robot = env.scene["robot"]
 
     # Ground truth body velocity
-    vel_xy = robot.data.root_lin_vel_b[:, :2]
+    vel_xy = wp.to_torch(robot.data.root_lin_vel_b)[:, :2]
 
     # Goal distance
     command = env.command_manager.get_command(command_name)
     goal_pos_w = command[:, :2]
-    robot_pos_w = robot.data.root_pos_w[:, :2]
+    robot_pos_w = wp.to_torch(robot.data.root_pos_w)[:, :2]
     distance = torch.norm(goal_pos_w - robot_pos_w, dim=-1, keepdim=True)
 
     # Heading error
     to_goal = goal_pos_w - robot_pos_w
     goal_angle = torch.atan2(to_goal[:, 1], to_goal[:, 0])
-    robot_quat = robot.data.root_quat_w
-    w, x, y, z = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    robot_quat = wp.to_torch(robot.data.root_quat_w)
+    x, y, z, w = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
     robot_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
     heading_err = torch.atan2(
         torch.sin(goal_angle - robot_yaw),
@@ -530,7 +531,7 @@ def depth_image(
     sensor: TiledCamera | Camera = env.scene.sensors[sensor_cfg.name]
 
     # Get depth image: shape (num_envs, height, width, 1)
-    depth = sensor.data.output["distance_to_image_plane"].clone()
+    depth = wp.to_torch(sensor.data.output["distance_to_image_plane"]).clone()
 
     # Replace inf/nan values with max_depth (nothing in range)
     depth = torch.where(
@@ -590,7 +591,7 @@ def rgb_image(
     sensor: TiledCamera | Camera = env.scene.sensors[sensor_cfg.name]
     
     # Get RGB image: shape (num_envs, height, width, 3)
-    rgb = sensor.data.output["rgb"].clone()
+    rgb = wp.to_torch(sensor.data.output["rgb"]).clone()
     
     # Convert uint8 [0, 255] to float [0, 1]
     rgb = rgb.float() / 255.0

@@ -37,6 +37,7 @@ from strafer_lab.tasks.navigation.strafer_env_cfg import (
     ObsCfg_NoCam_Realistic,
 )
 from strafer_lab.tasks.navigation.mdp.rewards import (
+import warp as wp
     collision_penalty_net,
     collision_sustained_penalty_net,
 )
@@ -132,23 +133,23 @@ def _place_obstacle_in_front(env, distance: float = 0.4):
     device = env.device
     num_envs = env.num_envs
 
-    robot_pos = robot.data.root_pos_w[:, :3].clone()
-    robot_quat = robot.data.root_quat_w
+    robot_pos = wp.to_torch(robot.data.root_pos_w)[:, :3].clone()
+    robot_quat = wp.to_torch(robot.data.root_quat_w)
     env_origins = get_env_origins(env)
 
-    w, x, y, z = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    x, y, z, w = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
     yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
-    root_state = obstacle.data.default_root_state.clone()[:num_envs]
+    root_state = wp.to_torch(obstacle.data.default_root_state).clone()[:num_envs]
     root_state[:, 0] = robot_pos[:, 0] + distance * torch.cos(yaw)
     root_state[:, 1] = robot_pos[:, 1] + distance * torch.sin(yaw)
     root_state[:, 2] = env_origins[:, 2] + 0.15
-    root_state[:, 3] = 1.0
-    root_state[:, 4:7] = 0.0
+    root_state[:, 3:6] = 0.0
+    root_state[:, 6] = 1.0
     root_state[:, 7:] = 0.0
 
     all_ids = torch.arange(num_envs, device=device)
-    obstacle.write_root_state_to_sim(root_state, all_ids)
+    obstacle.write_root_state_to_sim_index(root_state, all_ids)
 
 
 def _move_obstacle_far_away(env):
@@ -158,7 +159,7 @@ def _move_obstacle_far_away(env):
     num_envs = env.num_envs
     env_origins = get_env_origins(env)
 
-    root_state = obstacle.data.default_root_state.clone()[:num_envs]
+    root_state = wp.to_torch(obstacle.data.default_root_state).clone()[:num_envs]
     root_state[:, 0] = env_origins[:, 0] + 50.0
     root_state[:, 1] = env_origins[:, 1] + 50.0
     root_state[:, 2] = env_origins[:, 2] + 0.15
@@ -167,7 +168,7 @@ def _move_obstacle_far_away(env):
     root_state[:, 7:] = 0.0
 
     all_ids = torch.arange(num_envs, device=device)
-    obstacle.write_root_state_to_sim(root_state, all_ids)
+    obstacle.write_root_state_to_sim_index(root_state, all_ids)
 
 
 def _step_stationary(env, n_steps: int = 10):
@@ -193,7 +194,7 @@ def _drive_and_detect_net(env, n_steps: int = 40, speed: float = 1.0,
 
     for _ in range(n_steps):
         env.step(action)
-        nf = sensor.data.net_forces_w  # (N, 1, 3)
+        nf = wp.to_torch(sensor.data.net_forces_w)  # (N, 1, 3)
         force_mag = torch.norm(nf, dim=-1)  # (N, 1)
         step_detected = (force_mag > threshold).any(dim=-1)  # (N,)
         ever_detected |= step_detected
@@ -216,7 +217,7 @@ class TestNetForcesWDiagnostics:
         _step_stationary(env, 5)
 
         sensor = env.scene.sensors["contact_sensor"]
-        nf = sensor.data.net_forces_w
+        nf = wp.to_torch(sensor.data.net_forces_w)
 
         assert nf is not None, "net_forces_w is None"
         assert nf.shape == (env.num_envs, 1, 3), (
@@ -231,7 +232,7 @@ class TestNetForcesWDiagnostics:
         _step_stationary(env, 5)
 
         sensor = env.scene.sensors["contact_sensor"]
-        fm = sensor.data.force_matrix_w
+        fm = wp.to_torch(sensor.data.force_matrix_w)
 
         assert fm is None, (
             f"force_matrix_w should be None without filter_prim_paths_expr, "

@@ -81,6 +81,7 @@ import numpy as np
 import torch
 
 import gymnasium as gym
+import warp as wp
 
 import isaaclab_tasks  # noqa: F401 — registers Isaac Lab tasks
 import strafer_lab.tasks  # noqa: F401 — registers Strafer tasks
@@ -429,9 +430,9 @@ def main():
     print(f"[Demo] Wheel joint indices: {_wheel_joint_ids}")
 
     def _get_robot_heading() -> float:
-        """Extract robot yaw from quaternion (w, x, y, z)."""
-        quat = unwrapped.scene["robot"].data.root_quat_w[0]  # (4,) — single env
-        w, x, y, z = quat[0].item(), quat[1].item(), quat[2].item(), quat[3].item()
+        """Extract robot yaw from quaternion (x, y, z, w) — XYZW."""
+        quat = wp.to_torch(unwrapped.scene["robot"].data.root_quat_w)[0]  # (4,) — single env
+        x, y, z, w = quat[0].item(), quat[1].item(), quat[2].item(), quat[3].item()
         return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
     print("\n" + "=" * 60)
@@ -517,7 +518,7 @@ def main():
             if depth_viz is not None and episode_step % 2 == 0:
                 try:
                     camera = unwrapped.scene.sensors["d555_camera"]
-                    depth_data = camera.data.output["distance_to_image_plane"]
+                    depth_data = wp.to_torch(camera.data.output["distance_to_image_plane"])
                     depth_viz.update(depth_data)
                 except Exception:
                     pass  # Don't crash demo collection on viz errors

@@ -12,7 +12,8 @@ same flattened observation layout without corruption.
 
 from isaaclab_rl.rsl_rl import (
     RslRlOnPolicyRunnerCfg,
-    RslRlPpoActorCriticCfg,
+    RslRlMLPModelCfg,
+    RslRlRNNModelCfg,
     RslRlPpoActorCriticRecurrentCfg,
     RslRlPpoAlgorithmCfg,
 )
@@ -30,11 +31,13 @@ STRAFER_PPO_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
     empirical_normalization=False,
     clip_actions=1.0,
     obs_groups={"policy": ["policy"], "critic": ["critic"]},
-    policy=RslRlPpoActorCriticCfg(
-        class_name="ActorCritic",
+    actor=RslRlMLPModelCfg(
+        hidden_dims=[256, 256, 128],
+        activation="elu",
         init_noise_std=0.5,
-        actor_hidden_dims=[256, 256, 128],
-        critic_hidden_dims=[256, 256, 128],
+    ),
+    critic=RslRlMLPModelCfg(
+        hidden_dims=[256, 256, 128],
         activation="elu",
     ),
     algorithm=RslRlPpoAlgorithmCfg(
@@ -70,15 +73,17 @@ STRAFER_PPO_LSTM_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
     empirical_normalization=False,
     clip_actions=1.0,
     obs_groups={"policy": ["policy"], "critic": ["critic"]},
-    policy=RslRlPpoActorCriticRecurrentCfg(
-        class_name="ActorCriticRecurrent",
-        init_noise_std=0.5,
-        actor_hidden_dims=[256, 128],
-        critic_hidden_dims=[256, 128],
+    actor=RslRlRNNModelCfg(
+        hidden_dims=[256, 128],
         activation="elu",
+        init_noise_std=0.5,
         rnn_type="lstm",
         rnn_hidden_dim=256,
         rnn_num_layers=1,
+    ),
+    critic=RslRlMLPModelCfg(
+        hidden_dims=[256, 128],
+        activation="elu",
     ),
     algorithm=RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,
@@ -119,6 +124,9 @@ STRAFER_PPO_LSTM_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
 # counterproductive with DAPG and unpredictable with cosine/linear decay.
 # =============================================================================
 
+# TODO(isaaclab-3.0): Refactor StraferActorCritic into separate actor/critic
+# models and migrate to actor=RslRlCNNModelCfg / critic=RslRlMLPModelCfg.
+# Currently uses deprecated `policy` field with handle_deprecated_rsl_rl_cfg().
 STRAFER_PPO_DEPTH_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
     num_steps_per_env=48,
     max_iterations=10000,

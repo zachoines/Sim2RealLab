@@ -23,8 +23,8 @@ D555_CAMERA_PRIM_PATH = "{ENV_REGEX_NS}/Robot/strafer/body_link/d555_camera"
 D555_IMU_PRIM_PATH = "{ENV_REGEX_NS}/Robot/strafer/body_link"
 
 D555_CAMERA_OFFSET = (CAMERA_OFFSET_X, CAMERA_OFFSET_Y, CAMERA_OFFSET_Z)
-D555_CAMERA_ROT_ROS = (0.5, -0.5, 0.5, -0.5)
-D555_IMU_ROT = (1.0, 0.0, 0.0, 0.0)
+D555_CAMERA_ROT_ROS = (-0.5, 0.5, -0.5, 0.5)  # XYZW (Isaac Lab 3.0)
+D555_IMU_ROT = (0.0, 0.0, 0.0, 1.0)  # Identity quaternion, XYZW (Isaac Lab 3.0)
 
 D555_CAMERA_UPDATE_PERIOD = 1.0 / 30.0
 D555_IMU_UPDATE_PERIOD = 1.0 / 200.0

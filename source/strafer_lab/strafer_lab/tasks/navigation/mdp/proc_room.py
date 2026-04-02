@@ -431,17 +431,17 @@ def _extract_spawn_points(
 # ===========================================================================
 
 def _yaw_to_quat(yaw: torch.Tensor) -> torch.Tensor:
-    """Convert yaw angles to quaternions (w, x, y, z).
+    """Convert yaw angles to quaternions (x, y, z, w) — XYZW (Isaac Lab 3.0).
 
     Args:
         yaw: (...) tensor of yaw angles in radians.
 
     Returns:
-        quat: (..., 4) tensor of quaternions.
+        quat: (..., 4) tensor of quaternions in XYZW format.
     """
     half = yaw / 2.0
     zeros = torch.zeros_like(yaw)
-    return torch.stack([torch.cos(half), zeros, zeros, torch.sin(half)], dim=-1)
+    return torch.stack([zeros, zeros, torch.sin(half), torch.cos(half)], dim=-1)
 
 
 def _pack_wall_segments(
@@ -804,4 +804,4 @@ def generate_proc_room(
     # Write all 44 objects in one batched call
     collection = env.scene[collection_name]
     all_object_ids = torch.arange(NUM_OBJECTS, device=device)
-    collection.write_object_link_pose_to_sim(poses, env_ids, all_object_ids)
+    collection.write_body_link_pose_to_sim_index(poses, env_ids, all_object_ids)

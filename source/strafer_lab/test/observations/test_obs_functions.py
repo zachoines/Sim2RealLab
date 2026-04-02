@@ -26,6 +26,7 @@ from test.common import CONFIDENCE_LEVEL, N_SETTLE_STEPS
 from test.common.stats import one_sample_t_test
 
 from strafer_lab.tasks.navigation.mdp.observations import (
+import warp as wp
     goal_position_relative,
     goal_distance,
     goal_heading_relative,
@@ -122,7 +123,7 @@ def test_goal_distance_matches_manual_computation(env):
     dist = goal_distance(env, command_name="goal_command")
 
     # Manual computation
-    robot_pos = env.scene["robot"].data.root_pos_w[:, :2]
+    robot_pos = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2]
     goal_pos = env.command_manager.get_command("goal_command")[:, :2]
     expected = torch.norm(goal_pos - robot_pos, dim=-1, keepdim=True)
 

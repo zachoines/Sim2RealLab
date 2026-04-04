@@ -50,7 +50,7 @@ def reset_robot_pose(env, face_wall: bool = True):
     env_origins = get_env_origins(env)  # Shape: (num_envs, 3)
 
     # Create desired root state
-    # Root state format: [pos_x, pos_y, pos_z, quat_w, quat_x, quat_y, quat_z,
+    # Root state format: [pos_x, pos_y, pos_z, quat_x, quat_y, quat_z, quat_w,
     #                     vel_x, vel_y, vel_z, ang_vel_x, ang_vel_y, ang_vel_z]
     root_pose = torch.zeros(num_envs, 7, device=device)
 

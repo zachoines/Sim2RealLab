@@ -15,6 +15,7 @@ import torch
 import warp as wp
 
 from isaaclab.utils.math import quat_from_euler_xyz, quat_apply
+from strafer_lab.compat import QW
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -459,7 +460,7 @@ def randomize_d555_mount_offset(
     # Initialize storage on first call (identity = no offset)
     if not hasattr(env, "_d555_mount_quat"):
         env._d555_mount_quat = torch.zeros(env.num_envs, 4, device=device)
-        env._d555_mount_quat[:, 0] = 1.0  # w = 1 (identity)
+        env._d555_mount_quat[:, QW] = 1.0  # w = 1 (identity)
 
     # Sample small random Euler angles in [-max_rad, max_rad]
     roll = (torch.rand(num_resets, device=device) * 2.0 - 1.0) * max_rad

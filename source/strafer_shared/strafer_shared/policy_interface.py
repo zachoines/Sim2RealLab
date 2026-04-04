@@ -52,7 +52,7 @@ _NOCAM_FIELDS: tuple[ObsField, ...] = (
     ObsField("imu_accel", 3, IMU_ACCEL_SCALE),
     ObsField("imu_gyro", 3, IMU_GYRO_SCALE),
     ObsField("encoder_vels_ticks", 4, ENCODER_VEL_SCALE),
-    ObsField("goal_relative", 2, 1.0),
+    ObsField("goal_relative", 2, GOAL_DIST_SCALE),
     ObsField("goal_distance", 1, GOAL_DIST_SCALE),
     ObsField("goal_heading_to_goal", 1, HEADING_SCALE),
     ObsField("body_velocity_xy", 2, BODY_VEL_SCALE),

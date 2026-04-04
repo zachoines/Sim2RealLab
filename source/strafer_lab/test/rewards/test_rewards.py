@@ -39,6 +39,8 @@ from strafer_lab.tasks.navigation.mdp.rewards import (
     goal_progress_reward,
     goal_reached_reward,
     heading_to_goal_reward,
+    heading_progress_reward,
+    backward_motion_penalty,
     energy_penalty,
     action_smoothness_penalty,
     goal_proximity_potential,
@@ -67,11 +69,13 @@ import warp as wp
 
 
 def test_heading_reward_config_uses_goal_direction():
-    """Configured heading shaping should use the actor-visible goal-direction signal."""
+    """Configured heading shaping should use potential-based heading progress."""
     assert RewardsCfg().heading_alignment.func is heading_to_goal_reward
     assert RewardsCfg().heading_alignment.weight == 0.0
     assert RewardsCfg_ProcRoom().heading_alignment.func is heading_to_goal_reward
-    assert RewardsCfg_ProcRoom().heading_alignment.weight == 0.02
+    assert RewardsCfg_ProcRoom().heading_alignment.weight == 0.0
+    assert RewardsCfg_ProcRoom().backward_motion.func is backward_motion_penalty
+    assert RewardsCfg_ProcRoom().backward_motion.weight == -2.0
     assert RewardsCfg_ProcRoom().obstacle_proximity.weight == -1.0
 
 
@@ -84,8 +88,7 @@ def test_procroom_run1_config_stabilizes_episode_returns():
     assert procroom_commands.resampling_time_range == (1.0e6, 1.0e6)
     assert procroom_terminations.goal_reached.func is goal_reached
     assert procroom_terminations.sustained_collision.params["max_steps"] == 3
-    assert STRAFER_PPO_DEPTH_RUNNER_CFG.clip_actions == 1.0
-    assert STRAFER_PPO_DEPTH_RUNNER_CFG.algorithm.entropy_coef == 0.001
+    assert STRAFER_PPO_DEPTH_RUNNER_CFG.algorithm.entropy_coef == 0.005
 
 
 def test_strafer_actor_critic_initializes_symmetric_beta_from_init_noise_std():
@@ -175,7 +178,7 @@ def test_runner_cfgs_clip_actions_to_normalized_range():
         STRAFER_PPO_DEPTH_RUNNER_CFG,
     )
     for runner_cfg in runner_cfgs:
-        assert runner_cfg.clip_actions == 1.0
+        assert runner_cfg.clip_actions is None
 
 
 def _obs_term_names(group) -> list[str]:

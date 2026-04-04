@@ -385,6 +385,12 @@ export LD_PRELOAD="/lib/aarch64-linux-gnu/libgomp.so.1"
   --headless
 ```
 
+
+#### Step 9: Check if Unit Tests pass
+```bash
+cd ~/Documents/repos/IsaacLab && conda activate env_isaaclab3 && export LD_PRELOAD="/lib/aarch64-linux-gnu/libgomp.so.1" && ./isaaclab.sh -p ~/Documents/repos/Sim2RealLab/source/strafer_lab/run_tests.py all
+```
+
 ### Key API Changes (develop branch vs main)
 
 | Old API (main / 2.x) | New API (develop / 3.0) |
@@ -429,3 +435,82 @@ robot.root_view.set_material_properties(
 - **Mean reward:** -0.02 → 0.50 (increasing over 10 iterations)
 - **Goal reached:** 39.6%
 - **Result:** SUCCESS
+
+## Remaining Migration TODOs
+
+Items that still need attention to complete the Isaac Lab 2.x → 3.0 migration.
+
+### 1. Refactor `STRAFER_PPO_DEPTH_RUNNER_CFG` (deprecated `policy` field)
+
+**File:** `strafer_lab/tasks/navigation/agents/rsl_rl_ppo_cfg.py` line 131
+
+The depth-training runner config still uses the deprecated `policy` field with
+`handle_deprecated_rsl_rl_cfg()`.  Refactor `StraferActorCritic` into separate
+actor and critic models and migrate to `actor=RslRlCNNModelCfg` /
+`critic=RslRlMLPModelCfg`.
+
+### 2. Eliminate `compat.py` — dead-code removal and inline migration
+
+**File:** `strafer_lab/compat.py`
+
+Most compat wrappers are **dead code** — never imported or called anywhere:
+
+| Dead symbol | Line | Purpose |
+|---|---|---|
+| `write_root_state` | 111 | Callers already use `write_root_pose_to_sim_index` / `write_root_velocity_to_sim_index` directly |
+| `write_joint_state` | 123 | Callers already use `write_joint_position_to_sim_index` / `write_joint_velocity_to_sim_index` directly |
+| `get_root_view` | 143 | Callers already use `asset.root_view` directly |
+| `get_body_link_pos_w` | 155 | Callers already use `data.body_link_pos_w` directly |
+| `get_body_link_quat_w` | 160 | Callers already use `data.body_link_quat_w` directly |
+| `write_body_link_pose` | 165 | `proc_room.py:807` calls `.write_body_link_pose_to_sim_index` directly |
+| `set_identity_quat` | 75 | Never called |
+| `set_yaw_quat` | 81 | Never called |
+| `extract_yaw` | 58 | Never called (manual inline used instead) |
+| `yaw_to_quat_tensor` | 67 | Never called |
+| `make_quat_tuple` | 51 | Never called |
+| `QX`, `QY`, `QZ` | 41/43 | Never imported (only `QW` is used) |
+
+**Still in use** (3 symbols — inline these, then delete compat.py):
+
+| Symbol | Call sites |
+|---|---|
+| `ensure_torch` | `observations.py:535, 595` — replace with direct `wp.to_torch()` |
+| `IDENTITY_QUAT` | `strafer_env_cfg.py:227, 1368` — replace with `(0.0, 0.0, 0.0, 1.0)` |
+| `QW` | `events.py:463`, `test_events.py:362` — replace with literal `3` or inline constant |
+
+### 3. Replace `AppLauncher` with `--viz none`
+
+**File:** `test/conftest.py` line 17
+
+```python
+app_launcher = AppLauncher(headless=True, enable_cameras=True)  # TODO: replace with --viz none in 3.0 stable
+```
+
+When Isaac Lab 3.0 reaches stable release, replace `AppLauncher(headless=True,
+enable_cameras=True)` with the new `--viz none` CLI flag.
+
+### 4. Add electronics mass meshes to robot USD
+
+**File:** `README.md` line 331
+
+Add USD meshes with rigid bodies for RoboClaw motor controllers (×2), Jetson
+Orin Nano, buck converter, and Intel RealSense D555 camera.  Each should be
+positioned in the USD and given its catalog mass in `setup_physics.py`.
+
+### 5. Hardcoded XYZW quaternion indices (fragile but correct)
+
+These sites use raw `[:, 0]`..`[:, 3]` to unpack XYZW quaternions.  They work
+on the develop branch but will break if the convention changes again (or if
+backported to 2.x).  Consider using `QW`/`QX`/`QY`/`QZ` from compat (or
+hardcoded constants) for clarity.
+
+| File | Lines |
+|---|---|
+| `mdp/rewards.py` | 123, 160, 547–550 |
+| `mdp/observations.py` | 385, 415, 475 |
+| `mdp/events.py` | 55–56, 120–121, 510–511 |
+| `mdp/proc_room.py` | 440–446 |
+| `test/actions/conftest.py` | 386 |
+| `test/rewards/test_rewards.py` | 305 |
+| `test/rewards/test_collision_rewards.py` | 140 |
+| `test/sensors/test_imu_collision.py` | 143 |

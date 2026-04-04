@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from isaaclab.managers import SceneEntityCfg
     from isaaclab.sensors import TiledCamera, Camera, Imu
 import warp as wp
+from strafer_lab.compat import ensure_torch
 
 
 # =============================================================================
@@ -531,7 +532,7 @@ def depth_image(
     sensor: TiledCamera | Camera = env.scene.sensors[sensor_cfg.name]
 
     # Get depth image: shape (num_envs, height, width, 1)
-    depth = wp.to_torch(sensor.data.output["distance_to_image_plane"]).clone()
+    depth = ensure_torch(sensor.data.output["distance_to_image_plane"]).clone()
 
     # Replace inf/nan values with max_depth (nothing in range)
     depth = torch.where(
@@ -591,7 +592,7 @@ def rgb_image(
     sensor: TiledCamera | Camera = env.scene.sensors[sensor_cfg.name]
     
     # Get RGB image: shape (num_envs, height, width, 3)
-    rgb = wp.to_torch(sensor.data.output["rgb"]).clone()
+    rgb = ensure_torch(sensor.data.output["rgb"]).clone()
     
     # Convert uint8 [0, 255] to float [0, 1]
     rgb = rgb.float() / 255.0

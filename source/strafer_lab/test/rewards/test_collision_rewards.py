@@ -36,8 +36,8 @@ from strafer_lab.tasks.navigation.strafer_env_cfg import (
     ActionsCfg_Ideal,
     ObsCfg_NoCam_Realistic,
 )
-from strafer_lab.tasks.navigation.mdp.rewards import (
 import warp as wp
+from strafer_lab.tasks.navigation.mdp.rewards import (
     collision_penalty_net,
     collision_sustained_penalty_net,
 )
@@ -165,8 +165,8 @@ def _move_obstacle_far_away(env):
     root_pose[:, 0] = env_origins[:, 0] + 50.0
     root_pose[:, 1] = env_origins[:, 1] + 50.0
     root_pose[:, 2] = env_origins[:, 2] + 0.15
-    root_pose[:, 3] = 1.0
-    root_pose[:, 4:7] = 0.0
+    root_pose[:, 3:6] = 0.0  # quat x, y, z = 0
+    root_pose[:, 6] = 1.0    # quat w = 1 (XYZW identity)
 
     all_ids = torch.arange(num_envs, device=device)
     obstacle.write_root_pose_to_sim_index(root_pose=root_pose, env_ids=all_ids)
@@ -236,7 +236,8 @@ class TestNetForcesWDiagnostics:
         _step_stationary(env, 5)
 
         sensor = env.scene.sensors["contact_sensor"]
-        fm = wp.to_torch(sensor.data.force_matrix_w)
+        raw_fm = sensor.data.force_matrix_w
+        fm = wp.to_torch(raw_fm) if raw_fm is not None else None
 
         assert fm is None, (
             f"force_matrix_w should be None without filter_prim_paths_expr, "

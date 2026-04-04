@@ -25,8 +25,8 @@ import pytest
 from test.common import CONFIDENCE_LEVEL, N_SETTLE_STEPS
 from test.common.stats import one_sample_t_test
 
-from strafer_lab.tasks.navigation.mdp.observations import (
 import warp as wp
+from strafer_lab.tasks.navigation.mdp.observations import (
     goal_position_relative,
     goal_distance,
     goal_heading_relative,

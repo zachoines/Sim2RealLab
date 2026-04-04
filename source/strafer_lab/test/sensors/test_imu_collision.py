@@ -37,8 +37,8 @@ from test.common import NUM_ENVS, CONFIDENCE_LEVEL, IMU_ACCEL_MAX, BODY_VEL_MAX
 from test.common.stats import one_sample_t_test, welch_t_test
 from test.common.robot import get_env_origins
 
-from strafer_lab.tasks.navigation.strafer_env_cfg import (
 import warp as wp
+from strafer_lab.tasks.navigation.strafer_env_cfg import (
     StraferNavEnvCfg_NoCam,
     ActionsCfg_Ideal,
     ObsCfg_NoCam_Ideal,
@@ -168,8 +168,8 @@ def _move_obstacle_far_away(env):
     root_pose[:, 0] = env_origins[:, 0] + 50.0
     root_pose[:, 1] = env_origins[:, 1] + 50.0
     root_pose[:, 2] = env_origins[:, 2] + 0.15
-    root_pose[:, 3] = 1.0
-    root_pose[:, 4:7] = 0.0
+    root_pose[:, 3:6] = 0.0  # quat x, y, z = 0
+    root_pose[:, 6] = 1.0    # quat w = 1 (XYZW identity)
 
     all_ids = torch.arange(num_envs, device=device)
     obstacle.write_root_pose_to_sim_index(root_pose=root_pose, env_ids=all_ids)

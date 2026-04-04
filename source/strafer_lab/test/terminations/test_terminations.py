@@ -19,8 +19,8 @@ import pytest
 
 from isaaclab.managers import SceneEntityCfg
 
-from strafer_lab.tasks.navigation.mdp.terminations import (
 import warp as wp
+from strafer_lab.tasks.navigation.mdp.terminations import (
     robot_flipped,
     goal_reached,
     sustained_collision,

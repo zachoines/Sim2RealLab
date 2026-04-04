@@ -21,8 +21,9 @@ import math
 import torch
 import pytest
 
-from strafer_lab.tasks.navigation.mdp.events import (
 import warp as wp
+from strafer_lab.compat import QW
+from strafer_lab.tasks.navigation.mdp.events import (
     reset_robot_state,
     randomize_friction,
     randomize_mass,
@@ -143,7 +144,7 @@ def test_randomize_friction_within_range(env):
     randomize_friction(env, env_ids, friction_range)
 
     robot = env.scene["robot"]
-    materials = robot.root_view.get_material_properties()
+    materials = wp.to_torch(robot.root_view.get_material_properties())
     static_friction = materials[:, :, 0]
 
     print(f"\n  randomize_friction:")
@@ -167,7 +168,7 @@ def test_randomize_friction_dynamic_less_than_static(env):
     randomize_friction(env, env_ids, (0.3, 1.2))
 
     robot = env.scene["robot"]
-    materials = robot.root_view.get_material_properties()
+    materials = wp.to_torch(robot.root_view.get_material_properties())
     static_friction = materials[:, :, 0]
     dynamic_friction = materials[:, :, 1]
 
@@ -208,7 +209,7 @@ def test_randomize_mass_scales_correctly(env):
     randomize_mass(env, env_ids, mass_range)
 
     robot = env.scene["robot"]
-    current_masses = robot.root_view.get_masses()
+    current_masses = wp.to_torch(robot.root_view.get_masses())
     default_masses = env._default_body_masses
 
     ratios = current_masses / (default_masses + 1e-8)
@@ -253,7 +254,7 @@ def test_randomize_motor_strength_within_range(env):
     randomize_motor_strength(env, env_ids, strength_range)
 
     robot = env.scene["robot"]
-    current_limits = robot.root_view.get_dof_max_forces()
+    current_limits = wp.to_torch(robot.root_view.get_dof_max_forces())
     default_limits = env._default_effort_limits
 
     # Only check wheel drive joints (first 4) — roller joints have 0 effort limit
@@ -287,7 +288,7 @@ def test_randomize_motor_strength_per_joint_independent(env):
     randomize_motor_strength(env, env_ids, (0.5, 1.5))
 
     robot = env.scene["robot"]
-    current_limits = robot.root_view.get_dof_max_forces()
+    current_limits = wp.to_torch(robot.root_view.get_dof_max_forces())
     default_limits = env._default_effort_limits
 
     # Only check wheel drive joints (first 4) — roller joints have 0 effort limit
@@ -358,7 +359,7 @@ def test_d555_mount_offset_small_angles(env):
     randomize_d555_mount_offset(env, env_ids, max_angle_deg=2.0)
 
     quat = env._d555_mount_quat
-    w_component = quat[:, 0]
+    w_component = quat[:, QW]
 
     print(f"\n  D555 mount offset (small angles):")
     print(f"    w range: [{w_component.min().item():.6f}, {w_component.max().item():.6f}]")

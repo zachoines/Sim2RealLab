@@ -79,7 +79,7 @@ _FIELD_SCALES = {
     "imu_accel": IMU_ACCEL_SCALE,
     "imu_gyro": IMU_GYRO_SCALE,
     "encoder_vels_ticks": ENCODER_VEL_SCALE,
-    "goal_relative": 1.0,
+    "goal_relative": GOAL_DIST_SCALE,
     "goal_distance": GOAL_DIST_SCALE,
     "goal_heading_to_goal": HEADING_SCALE,
     "body_velocity_xy": BODY_VEL_SCALE,

@@ -75,6 +75,8 @@ from .rewards import (
     goal_progress_reward,
     goal_proximity_potential,
     heading_to_goal_reward,
+    heading_progress_reward,
+    backward_motion_penalty,
     arrival_heading_reward,
     energy_penalty,
     action_smoothness_penalty,

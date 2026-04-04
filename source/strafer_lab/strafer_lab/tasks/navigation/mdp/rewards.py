@@ -99,36 +99,131 @@ def heading_to_goal_reward(
     command_name: str,
 ) -> torch.Tensor:
     """Reward for facing toward the goal.
-    
+
     Args:
         env: The environment instance.
         command_name: Name of the command manager providing goal positions.
-    
+
     Returns:
         Heading alignment reward (1.0 when facing goal, -1.0 when facing away).
     """
     robot = env.scene["robot"]
     robot_pos = robot.data.root_pos_w[:, :2]
     robot_quat = robot.data.root_quat_w
-    
+
     command = env.command_manager.get_command(command_name)
     goal_pos = command[:, :2]
-    
+
     # Direction to goal
     to_goal = goal_pos - robot_pos
     goal_angle = torch.atan2(to_goal[:, 1], to_goal[:, 0])
-    
+
     # Robot heading (yaw from quaternion, full formula handles pitch/roll)
     w, x, y, z = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
     robot_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
-    
+
     # Angular difference
     angle_diff = goal_angle - robot_yaw
     # Normalize to [-pi, pi]
     angle_diff = torch.atan2(torch.sin(angle_diff), torch.cos(angle_diff))
-    
-    # Reward based on cosine of angle difference
+
     return torch.cos(angle_diff)
+
+
+def heading_progress_reward(
+    env: ManagerBasedEnv,
+    command_name: str,
+) -> torch.Tensor:
+    """Potential-based heading shaping — rewards *change* in goal alignment.
+
+    Uses potential ``phi(s) = cos(heading_error)`` and returns the one-step
+    difference ``phi(s_t) - phi(s_{t-1})``.  This gives a transient reward
+    burst when the robot turns toward the goal but zero reward for maintaining
+    alignment, eliminating any loitering incentive.
+
+    Handles two discontinuities that would produce false spikes:
+    - Episode reset: ``episode_length_buf == 0``
+    - Mid-episode goal resample: ``GoalCommand.goal_resampled`` flag
+
+    In both cases the previous potential is re-seeded to the current potential
+    so that the delta is zero on that step (same pattern as
+    ``goal_progress_reward``).
+
+    Args:
+        env: The environment instance.
+        command_name: Name of the command manager providing goal positions.
+
+    Returns:
+        Heading progress in [-2, 2]. Positive when turning toward goal.
+    """
+    robot = env.scene["robot"]
+    robot_pos = robot.data.root_pos_w[:, :2]
+    robot_quat = robot.data.root_quat_w
+
+    command = env.command_manager.get_command(command_name)
+    goal_pos = command[:, :2]
+
+    # Direction to goal
+    to_goal = goal_pos - robot_pos
+    goal_angle = torch.atan2(to_goal[:, 1], to_goal[:, 0])
+
+    # Robot heading
+    w, x, y, z = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    robot_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+    # Current potential: cos(heading_error)
+    angle_diff = goal_angle - robot_yaw
+    angle_diff = torch.atan2(torch.sin(angle_diff), torch.cos(angle_diff))
+    phi = torch.cos(angle_diff)
+
+    # Initialize previous potential if not present
+    if not hasattr(env, "_prev_heading_phi"):
+        env._prev_heading_phi = phi.clone()
+
+    # Reset previous potential on episode reset
+    reset_mask = env.episode_length_buf == 0
+    if reset_mask.any():
+        env._prev_heading_phi[reset_mask] = phi[reset_mask]
+
+    # Reset previous potential on mid-episode goal resample
+    command_term = env.command_manager.get_term(command_name)
+    if hasattr(command_term, "goal_resampled") and command_term.goal_resampled.any():
+        resample_mask = command_term.goal_resampled
+        env._prev_heading_phi[resample_mask] = phi[resample_mask]
+
+    # Potential difference: positive when improving alignment
+    reward = phi - env._prev_heading_phi
+
+    # Update previous potential
+    env._prev_heading_phi = phi.clone()
+
+    return reward
+
+
+def backward_motion_penalty(
+    env: ManagerBasedEnv,
+) -> torch.Tensor:
+    """Penalty for moving backward (negative body-frame vx).
+
+    The robot has a forward-facing depth camera, so driving backward means
+    moving into space the camera cannot see. This penalty discourages blind
+    reverse driving while leaving forward motion and lateral strafing
+    completely unconstrained.
+
+    Returns ``max(0, -body_vx)`` — zero when stationary or moving forward,
+    linearly increasing with backward speed. Designed to be used with a
+    negative weight (e.g., ``-5.0``).
+
+    Args:
+        env: The environment instance.
+
+    Returns:
+        Backward speed magnitude (>=0). Shape: (num_envs,)
+    """
+    robot = env.scene["robot"]
+    # root_lin_vel_b is velocity in the body frame: [vx, vy, vz]
+    body_vx = robot.data.root_lin_vel_b[:, 0]
+    return torch.clamp(-body_vx, min=0.0)
 
 
 def arrival_heading_reward(

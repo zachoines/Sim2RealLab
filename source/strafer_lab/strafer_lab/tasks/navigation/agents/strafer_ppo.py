@@ -117,6 +117,8 @@ def install_strafer_ppo() -> None:
         mean_value_loss = 0
         mean_surrogate_loss = 0
         mean_entropy = 0
+        # Beta distribution diagnostics (populated only for AffineBeta policies)
+        beta_diag_accum: dict[str, float] = {}
         # Accumulate auxiliary metrics across mini-batches
         aux_metrics_accum: dict[str, float] = {}
 
@@ -293,6 +295,28 @@ def install_strafer_ppo() -> None:
             mean_surrogate_loss += surrogate_loss.item()
             mean_entropy += entropy_batch.mean().item()
 
+            # Beta distribution diagnostics
+            dist = getattr(self.policy, "distribution", None)
+            if dist is not None and hasattr(dist, "base_dist"):
+                bd = dist.base_dist
+                c1 = bd.concentration1[:original_batch_size]
+                c0 = bd.concentration0[:original_batch_size]
+                beta_diag_accum["beta/concentration1_mean"] = (
+                    beta_diag_accum.get("beta/concentration1_mean", 0.0) + c1.mean().item()
+                )
+                beta_diag_accum["beta/concentration0_mean"] = (
+                    beta_diag_accum.get("beta/concentration0_mean", 0.0) + c0.mean().item()
+                )
+                beta_diag_accum["beta/concentration_max"] = max(
+                    beta_diag_accum.get("beta/concentration_max", 0.0),
+                    c1.max().item(),
+                    c0.max().item(),
+                )
+                beta_diag_accum["beta/action_std_mean"] = (
+                    beta_diag_accum.get("beta/action_std_mean", 0.0)
+                    + sigma_batch.mean().item()
+                )
+
         # Average over all mini-batch updates
         num_updates = self.num_learning_epochs * self.num_mini_batches
         mean_value_loss /= num_updates
@@ -310,6 +334,12 @@ def install_strafer_ppo() -> None:
             "surrogate": mean_surrogate_loss,
             "entropy": mean_entropy,
         }
+        # Beta distribution diagnostics (averaged, except concentration_max)
+        for k, v in beta_diag_accum.items():
+            if k == "beta/concentration_max":
+                loss_dict[k] = v
+            else:
+                loss_dict[k] = v / num_updates
         # Average auxiliary metrics
         for k, v in aux_metrics_accum.items():
             loss_dict[k] = v / num_updates

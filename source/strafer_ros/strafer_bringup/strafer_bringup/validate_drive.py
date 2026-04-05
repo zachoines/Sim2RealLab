@@ -534,7 +534,7 @@ class ValidateDriveNode(Node):
 
         # ── Pub / Sub ──────────────────────────────────────────────
         self._cmd_pub = self.create_publisher(
-            Twist, "/strafer/cmd_vel", 10)
+            Twist, "/cmd_vel", 10)
         self.create_subscription(
             Odometry, "/strafer/odom", self._on_odom, 10)
         self.create_subscription(

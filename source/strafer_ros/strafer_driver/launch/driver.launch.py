@@ -42,7 +42,9 @@ def generate_launch_description():
                         "rear_port": LaunchConfiguration("rear_port"),
                     },
                 ],
-                remappings=[],
+                remappings=[
+                    ("/strafer/cmd_vel", "/cmd_vel"),
+                ],
             ),
         ]
     )

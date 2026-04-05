@@ -1,21 +1,22 @@
 # strafer_vlm
 
-Workstation-first VLM tooling for Qwen2.5-VL-3B grounding before ROS integration.
+VLM grounding service and tooling for Qwen2.5-VL-3B. Currently deployed on
+DGX Spark (port 8100) and called by the Jetson executor over LAN.
 
 ## Install
 
-```powershell
+```bash
 # Core package
-python -m pip install -e source/strafer_vlm
+pip install -e source/strafer_vlm
 
 # With Qwen inference + live grounding (requires GPU)
-python -m pip install -e 'source/strafer_vlm[qwen,live]'
+pip install -e 'source/strafer_vlm[qwen,live]'
 
 # With HTTP grounding service
-python -m pip install -e 'source/strafer_vlm[service]'
+pip install -e 'source/strafer_vlm[service]'
 
 # With dev/test tooling
-python -m pip install -e 'source/strafer_vlm[dev]'
+pip install -e 'source/strafer_vlm[dev]'
 ```
 
 ## Grounding Service
@@ -25,7 +26,7 @@ It runs on the workstation GPU and is called by `HttpGroundingClient` on the Jet
 
 ### Launch
 
-```powershell
+```bash
 uvicorn strafer_vlm.service.app:create_app --factory --host 0.0.0.0 --port 8100
 ```
 

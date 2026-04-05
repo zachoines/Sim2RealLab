@@ -4,9 +4,7 @@ This document is the high-level visual companion to the detailed autonomy docs.
 
 It summarizes the main decisions already captured in:
 - `STRAFER_AUTONOMY_COMMAND_INGRESS.md`
-- `STRAFER_AUTONOMY_DEPLOYMENT_MODES.md`
 - `STRAFER_AUTONOMY_INTERFACES.md`
-- `STRAFER_AUTONOMY_LOCAL_DEVELOPMENT.md`
 - `STRAFER_AUTONOMY_MVP_RUNTIME_DECISION.md`
 - `STRAFER_AUTONOMY_ROADMAP.md`
 

@@ -6,7 +6,7 @@ This document is the source of truth for the `strafer_vlm` package and its role 
 
 This document covers:
 
-- the current `source/strafer_vlm` implementation on the Windows workstation
+- the current `source/strafer_vlm` implementation on the DGX Spark (or Windows workstation)
 - the grounding contract between `strafer_autonomy` and `strafer_vlm`
 - the target repository shape for turning the current Qwen tooling into a workstation or cloud grounding service
 - the staged work required to move from offline evaluation to autonomy-compatible deployment
@@ -22,7 +22,7 @@ Those live in:
 
 - `docs/STRAFER_AUTONOMY_ROS.md`
 - `docs/STRAFER_AUTONOMY_INTERFACES.md`
-- `docs/STRAFER_AUTONOMY_DEPLOYMENT_MODES.md`
+- `docs/STRAFER_AUTONOMY_MVP_RUNTIME_DECISION.md`
 
 ## Core Decision
 

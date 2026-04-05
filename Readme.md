@@ -28,24 +28,16 @@ The current architecture is split into four layers:
 4. `strafer_autonomy` and `strafer_vlm`
    - planner and VLM services hosted off-robot first, with the executor staying robot-local
 
-The long-term end state is:
+The current working pipeline is:
 
 ```text
-user command
-  -> planner service
+user command (CLI)
+  -> LLM planner service (DGX Spark, port 8200)
   -> bounded MissionPlan
   -> Jetson executor
-  -> grounding when needed
-  -> robot-local projection and motion execution
+  -> VLM grounding when needed (DGX Spark, port 8100)
+  -> robot-local goal projection and Nav2 navigation
   -> real hardware
-```
-
-The current MVP remains narrower:
-
-```text
-hardcoded or simple goal
-  -> trained navigation policy
-  -> robot-local execution
 ```
 
 ## Current State
@@ -94,29 +86,27 @@ The robot-side ROS stack already has substantial coverage:
 
 ### Autonomy and VLM
 
-The autonomy stack is now split intentionally:
+The full autonomy pipeline is operational end-to-end on real hardware:
 
 - `strafer_autonomy`
-  - owns planner-facing schemas, mission execution, and Jetson-side executor scaffolding
+  - Jetson-side executor with mission runner, skill dispatch, and HTTP clients
+  - `strafer-executor` entry point reads `VLM_URL` / `PLANNER_URL` env vars and spins the command server
+  - Operator CLI (`strafer-autonomy-cli submit/status/cancel`) for mission control
 - `strafer_vlm`
-  - workstation-hosted VLM grounding service, Qwen inference, training, and evaluation
+  - VLM grounding service (Qwen2.5-VL-3B-Instruct) on DGX Spark port 8100
+  - Scene description endpoint (`POST /describe`) for operator awareness
+- LLM planner service (Qwen3-4B) on DGX Spark port 8200
+  - Two-stage architecture: LLM classifies commands into intent types, deterministic compiler expands to validated `MissionPlan`
 
-The VLM grounding service is production-ready. It runs as a FastAPI endpoint on the
-workstation GPU (port 8100), accepts a natural-language prompt and a JPEG image, and
-returns a bounding box localising the target object. The Jetson executor calls it over
-LAN via `HttpGroundingClient` in `strafer_autonomy`. A Postman collection is included
-at `source/SImToRealLab.postman_collection.json` for interactive testing.
+The Jetson executor calls both services over LAN HTTP. All mission state, cancel, retry,
+and safety-critical behavior stays local on the robot.
 
-The LLM planner service is also running. It uses Qwen3-4B on port 8200 with a two-stage
-architecture: the LLM classifies user commands into one of four intent types
-(`go_to_target`, `wait_by_target`, `cancel`, `status`), then a deterministic compiler
-expands each intent into a validated `MissionPlan`. The Jetson executor calls it over
-LAN via `HttpPlannerClient` in `strafer_autonomy`.
+Implemented skills: `scan_for_target` (rotate-and-ground loop), `locate_semantic_target`,
+`project_detection_to_goal_pose`, `navigate_to_pose`, `describe_scene`, `wait`,
+`report_status`, `cancel_mission`.
 
-Next planned enhancements (see `docs/STRAFER_VLM_AND_PLANNER_TASKS.md`):
-- `scan_for_target` skill: rotate-and-ground loop so targets behind the robot can be found
-- VLM scene description endpoint (`POST /describe`): return what the robot sees for
-  operator awareness and future re-planning
+A Postman collection is included at `source/SImToRealLab.postman_collection.json` for
+interactive testing of the DGX services.
 
 <p align="center">
   <img src="docs/artifacts/hallway_grounding_example.png" alt="Hallway scene with yucca plant" width="35%"/>
@@ -132,18 +122,19 @@ Next planned enhancements (see `docs/STRAFER_VLM_AND_PLANNER_TASKS.md`):
 | CAD to USD | Done | Asset import, rigging, hierarchy cleanup |
 | Isaac Lab environments | Done | Realism presets and sensor variants are in place |
 | Shared kinematics and policy contract | Done | `strafer_shared` is the sim-to-real boundary |
-| Jetson ROS driver and perception | Done | Driver, perception, URDF, SLAM, and Nav2 config exist |
+| Jetson ROS driver and perception | Done | Driver, perception, URDF, SLAM, Nav2, goal projection |
 | RL policy training | In progress | Navigation training is active in Isaac Lab |
 | `strafer_inference` runtime | Planned | Policy runtime on the Jetson is still to be implemented |
-| `strafer_autonomy` executor | In progress | Schemas, client stubs, command ingress, and mission runner exist |
-| LLM planner service | In progress | FastAPI service on port 8200, Qwen3-4B two-stage pipeline, 59 tests |
-| VLM grounding service | In progress | FastAPI service on port 8100, inference timeout, health check, debug overlay, 124 tests |
+| `strafer_autonomy` executor | Done | Mission runner, skill dispatch, CLI, HTTP clients, end-to-end on hardware |
+| LLM planner service | Done | Qwen3-4B on DGX Spark:8200, two-stage intent→plan pipeline, 59 tests |
+| VLM grounding service | Done | Qwen2.5-VL-3B on DGX Spark:8100, grounding + scene description, 124 tests |
+| End-to-end autonomy | Done | "go to the tennis ball" tested on real hardware via full pipeline |
 
 ## Hardware
 
 | Component | Model | Purpose |
 |---|---|---|
-| Workstation | Windows PC + NVIDIA GPU | Isaac Lab training, VLM grounding, planner hosting |
+| Workstation | DGX Spark (or Windows PC + NVIDIA GPU) | VLM grounding, planner hosting, Isaac Lab training |
 | Robot compute | Jetson Orin Nano | ROS2 runtime and robot-local execution |
 | Camera | Intel RealSense D555 | RGB, depth, IMU |
 | Motors | 4x GoBilda 5203 Yellow Jacket (19.2:1) | Mecanum drive |
@@ -167,8 +158,6 @@ docs/
   STRAFER_AUTONOMY_ROS.md
   STRAFER_AUTONOMY_INTERFACES.md
   STRAFER_AUTONOMY_COMMAND_INGRESS.md
-  STRAFER_AUTONOMY_LOCAL_DEVELOPMENT.md
-  STRAFER_AUTONOMY_DEPLOYMENT_MODES.md
   STRAFER_AUTONOMY_MVP_RUNTIME_DECISION.md
   STRAFER_AUTONOMY_SYSTEMS_OVERVIEW.md
   STRAFER_AUTONOMY_VLM_GROUNDING.md
@@ -255,28 +244,38 @@ Import `source/SImToRealLab.postman_collection.json` into Postman for interactiv
 ### Robot Runtime on Jetson
 
 ```bash
-# Install shared code and Python-side ROS packages as needed
-pip install -e source/strafer_shared
-pip install -e source/strafer_ros/strafer_driver
+# Build all ROS2 packages
+make build
 
-# Create a ROS workspace
-mkdir -p ~/strafer_ws/src
-
-# Symlink the ROS packages you need from source/strafer_ros/ into ~/strafer_ws/src/
-# Then build:
-cd ~/strafer_ws && colcon build --symlink-install && cd -
-
-source ~/strafer_ws/install/setup.bash
+# Install autonomy package
+pip install -e source/strafer_autonomy
 ```
 
 ```bash
-# Base bringup
-ros2 launch strafer_bringup base.launch.py
+# Navigation stack only (driver + perception + SLAM + Nav2)
+make launch
+
+# Full autonomy stack (navigation + goal projection + executor → DGX services)
+VLM_URL=http://192.168.50.196:8100 PLANNER_URL=http://192.168.50.196:8200 \
+    make launch-autonomy
 ```
 
-For the current Jetson-side package inventory, expected topics, and implementation status, use:
+```bash
+# Submit a mission
+strafer-autonomy-cli submit "go to the tennis ball" --detach
+strafer-autonomy-cli status
+strafer-autonomy-cli cancel
+```
 
-- `docs/STRAFER_AUTONOMY_ROS.md`
+```bash
+# Verify SLAM, motion, and depth
+python3 source/strafer_ros/ros_test_slam.py --drive forward --duration 3 --speed 1.0
+
+# Verify perception stack
+python3 source/strafer_ros/ros_test_perception.py --record
+```
+
+For the Jetson-side package inventory and architecture, see `docs/STRAFER_AUTONOMY_ROS.md`.
 
 ## Key Design Decisions
 
@@ -334,8 +333,6 @@ Core docs:
 - [Strafer Autonomy ROS](docs/STRAFER_AUTONOMY_ROS.md)
 - [Strafer Autonomy Interfaces](docs/STRAFER_AUTONOMY_INTERFACES.md)
 - [Strafer Autonomy Command Ingress](docs/STRAFER_AUTONOMY_COMMAND_INGRESS.md)
-- [Strafer Autonomy Local Development](docs/STRAFER_AUTONOMY_LOCAL_DEVELOPMENT.md)
-- [Strafer Autonomy Deployment Modes](docs/STRAFER_AUTONOMY_DEPLOYMENT_MODES.md)
 - [Strafer Autonomy MVP Runtime Decision](docs/STRAFER_AUTONOMY_MVP_RUNTIME_DECISION.md)
 - [Strafer Autonomy Systems Overview](docs/STRAFER_AUTONOMY_SYSTEMS_OVERVIEW.md)
 - [Strafer Autonomy VLM Grounding](docs/STRAFER_AUTONOMY_VLM_GROUNDING.md)

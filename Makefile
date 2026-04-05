@@ -4,7 +4,8 @@
 SHELL := /bin/bash
 COLCON_WS := $(HOME)/strafer_ws
 
-.PHONY: build test test-unit lint lint-fix format format-check clean kill install-tools udev help
+.PHONY: build test test-unit lint lint-fix format format-check clean kill \
+       launch launch-nav launch-autonomy clean-map install-tools udev help
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -42,10 +43,31 @@ format: ## Run black on all Python source
 format-check: ## Check formatting without modifying files
 	python3 -m black --check source/strafer_ros/ source/strafer_shared/ Scripts/
 
+# ---------- Launch ----------
+
+launch: launch-nav ## Alias for launch-nav
+
+launch-nav: ## Launch navigation stack (driver + perception + SLAM + Nav2)
+	source $(COLCON_WS)/install/setup.bash && \
+		ros2 launch strafer_bringup navigation.launch.py
+
+launch-autonomy: ## Launch full autonomy stack (nav + executor → DGX services)
+	@if [ -z "$$VLM_URL" ] || [ -z "$$PLANNER_URL" ]; then \
+		echo "Usage: VLM_URL=http://<DGX>:8100 PLANNER_URL=http://<DGX>:8200 make launch-autonomy"; \
+		exit 1; \
+	fi
+	source $(COLCON_WS)/install/setup.bash && \
+		ros2 launch strafer_bringup autonomy.launch.py \
+			vlm_url:=$$VLM_URL planner_url:=$$PLANNER_URL
+
 # ---------- Clean ----------
 
 clean: ## Remove colcon build artifacts
 	cd $(COLCON_WS) && rm -rf build/ install/ log/
+
+clean-map: ## Delete corrupted or stale RTAB-Map database
+	rm -f $(HOME)/.ros/rtabmap.db
+	@echo "RTAB-Map database removed. SLAM will start fresh on next launch."
 
 # ---------- Kill ----------
 

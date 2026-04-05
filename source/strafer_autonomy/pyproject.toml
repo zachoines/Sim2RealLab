@@ -18,6 +18,7 @@ planner = ["fastapi>=0.100", "uvicorn[standard]>=0.20", "transformers>=4.45", "t
 
 [project.scripts]
 strafer-autonomy-cli = "strafer_autonomy.cli:main"
+strafer-executor = "strafer_autonomy.executor.main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

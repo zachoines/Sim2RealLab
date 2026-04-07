@@ -3,8 +3,10 @@
 
 SHELL := /bin/bash
 COLCON_WS := $(HOME)/strafer_ws
+VENV_VLM := .venv_vlm
 
-.PHONY: build test test-unit lint lint-fix format format-check clean kill install-tools udev help
+.PHONY: build test test-unit test-dgx lint lint-fix format format-check clean kill \
+        install-tools udev serve-vlm serve-planner check-nvrtc help
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -64,3 +66,34 @@ udev: ## Install udev rules for RoboClaw symlinks (requires sudo)
 	sudo udevadm control --reload-rules
 	sudo udevadm trigger
 	@echo "Verify with: ls -la /dev/roboclaw*"
+
+# ---------- DGX Spark Services ----------
+
+serve-vlm: check-nvrtc ## Start VLM grounding service on port 8100
+	$(VENV_VLM)/bin/uvicorn strafer_vlm.service.app:create_app \
+		--factory --host 0.0.0.0 --port $${GROUNDING_PORT:-8100}
+
+serve-planner: check-nvrtc ## Start LLM planner service on port 8200
+	$(VENV_VLM)/bin/uvicorn strafer_autonomy.planner.app:create_app \
+		--factory --host 0.0.0.0 --port $${PLANNER_PORT:-8200}
+
+test-dgx: ## Run autonomy + VLM tests (skips ROS-dependent tests)
+	$(VENV_VLM)/bin/python -m pytest \
+		source/strafer_autonomy/tests/ source/strafer_vlm/tests/ \
+		-m "not requires_ros" -v
+
+check-nvrtc: ## Verify NVRTC symlinks point to system CUDA 13.0
+	@NVRTC_DIR="$(VENV_VLM)/lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib"; \
+	if [ ! -L "$$NVRTC_DIR/libnvrtc.so.12" ]; then \
+		echo "ERROR: $$NVRTC_DIR/libnvrtc.so.12 is not a symlink."; \
+		echo "Run the NVRTC fix from docs/INTEGRATION_DGX_SPARK.md"; \
+		exit 1; \
+	fi; \
+	TARGET=$$(readlink -f "$$NVRTC_DIR/libnvrtc.so.12"); \
+	if echo "$$TARGET" | grep -q "cuda-13"; then \
+		echo "NVRTC: OK ($$TARGET)"; \
+	else \
+		echo "ERROR: NVRTC symlink points to $$TARGET (expected cuda-13.x)"; \
+		echo "Run the NVRTC fix from docs/INTEGRATION_DGX_SPARK.md"; \
+		exit 1; \
+	fi

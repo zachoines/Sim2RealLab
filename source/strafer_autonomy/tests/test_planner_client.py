@@ -18,7 +18,7 @@ from strafer_autonomy.schemas import PlannerRequest
 
 
 def _make_config(**kwargs) -> HttpPlannerClientConfig:
-    defaults = {"base_url": "http://192.168.1.100:8200"}
+    defaults = {"base_url": "http://localhost:8200"}
     defaults.update(kwargs)
     return HttpPlannerClientConfig(**defaults)
 

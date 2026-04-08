@@ -328,6 +328,14 @@ class JetsonRosClient:
         if behavior_tree:
             goal_msg.behavior_tree = behavior_tree
 
+        logger.info(
+            "Sending Nav2 goal: frame=%s pos=(%.3f, %.3f, %.3f) "
+            "orient=(%.3f, %.3f, %.3f, %.3f)",
+            goal_msg.pose.header.frame_id,
+            goal_pose.x, goal_pose.y, goal_pose.z,
+            goal_pose.qx, goal_pose.qy, goal_pose.qz, goal_pose.qw,
+        )
+
         send_future = self._nav2_client.send_goal_async(goal_msg)
         if not self._wait_for_future(send_future, 10.0):
             return SkillResult(
@@ -339,6 +347,10 @@ class JetsonRosClient:
 
         goal_handle = send_future.result()
         if not goal_handle.accepted:
+            logger.error(
+                "Nav2 REJECTED goal: pos=(%.3f, %.3f, %.3f)",
+                goal_pose.x, goal_pose.y, goal_pose.z,
+            )
             return SkillResult(
                 step_id=step_id, skill="navigate_to_pose", status="failed",
                 error_code="goal_rejected",
@@ -547,7 +559,7 @@ class JetsonRosClient:
 
         if not hasattr(self, "_cmd_vel_pub"):
             self._cmd_vel_pub = self._node.create_publisher(
-                Twist, "/strafer/cmd_vel", 10
+                Twist, "/cmd_vel", 10
             )
 
         with self._cache_lock:

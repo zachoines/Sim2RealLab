@@ -18,6 +18,13 @@ planner = ["fastapi>=0.100", "uvicorn[standard]>=0.20", "transformers>=4.45", "t
 
 [project.scripts]
 strafer-autonomy-cli = "strafer_autonomy.cli:main"
+strafer-executor = "strafer_autonomy.executor.main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "requires_ros: marks tests that need rclpy and ROS 2 message packages (deselect with '-m \"not requires_ros\"')",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

@@ -7,7 +7,7 @@ Core architecture:
 - Qwen is one skill backend inside a larger task execution system.
 - `strafer_ros` remains the safe execution runtime on the robot.
 - `strafer_vlm` remains the perception package for grounding.
-- A new `strafer_autonomy` package should own planning, mission execution, and skill orchestration.
+- The `strafer_autonomy` package owns planning, mission execution, and skill orchestration.
 
 This document does four things:
 1. Defines the initial Strafer skill registry.

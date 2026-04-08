@@ -29,10 +29,10 @@ Those are covered by the newer autonomy and deployment docs under `docs/`.
 ## Runtime Architecture
 
 The Jetson-side autonomy architecture is:
-- `strafer_autonomy.executor` runs on the Jetson
-- planner service runs remotely, first on the Windows workstation
-- grounding service runs remotely, first on the Windows workstation
-- `strafer_ros` remains the robot-local execution layer
+- `strafer_autonomy.executor` runs on the Jetson via `strafer-executor` entry point
+- planner service (Qwen3-4B) runs on the DGX Spark at port 8200
+- grounding service (Qwen2.5-VL-3B) runs on the DGX Spark at port 8100
+- `strafer_ros` is the robot-local execution layer
 - `strafer_inference` remains the planned robot-local RL execution backend
 
 ## Runtime Split
@@ -191,22 +191,23 @@ Still true:
 
 | Component | Runtime location | Status | Purpose |
 |----------|------------------|--------|---------|
-| `strafer_msgs` | Jetson ROS workspace | Partial | custom ROS interfaces for autonomy and robot-side services |
-| `strafer_driver` | Jetson ROS workspace | Done | RoboClaw control, odom, joint states, diagnostics |
-| `strafer_perception` | Jetson ROS workspace | Done | D555 launch, timestamp fix, depth downsampling, IMU filtering |
+| `strafer_msgs` | Jetson ROS workspace | Done | ExecuteMission.action, GetMissionStatus.srv, ProjectDetectionToGoalPose.srv |
+| `strafer_driver` | Jetson ROS workspace | Done | RoboClaw control, odom, joint states, diagnostics, `/cmd_vel` input |
+| `strafer_perception` | Jetson ROS workspace | Done | D555 launch, timestamp fix, depth downsampling, IMU filtering, goal projection service |
 | `strafer_description` | Jetson ROS workspace | Done | URDF, TF frames, robot_state_publisher |
-| `strafer_slam` | Jetson ROS workspace | Launch/config only | RTAB-Map launch, depthimage_to_laserscan, and localization support |
-| `strafer_navigation` | Jetson ROS workspace | Launch/config only | Nav2 bringup, parameter patching, and classical navigation backend config |
-| `strafer_bringup` | Jetson ROS workspace | Done | layered launch files plus `validate_drive` smoke and validation tooling |
-| `strafer_autonomy.executor` | Jetson Python runtime | Scaffolded | mission ingress, mission runner, robot-side orchestration |
+| `strafer_slam` | Jetson ROS workspace | Done | RTAB-Map launch, depthimage_to_laserscan, localization support |
+| `strafer_navigation` | Jetson ROS workspace | Done | Nav2 bringup with MPPI holonomic controller, parameter patching from constants |
+| `strafer_bringup` | Jetson ROS workspace | Done | layered launch files (`base`, `perception`, `slam`, `navigation`, `autonomy`) plus validation tooling |
+| `strafer_autonomy.executor` | Jetson Python runtime | Done | mission runner, skill dispatch, HTTP clients, `strafer-executor` entry point, CLI |
 | `strafer_inference` | Jetson ROS workspace | Planned | Isaac-trained RL policy execution backend on the Jetson |
-| planner service | Workstation or cloud | Planned | natural-language command to bounded mission plan |
-| `strafer_vlm` | Workstation or cloud | In progress | semantic grounding service |
+| planner service | DGX Spark:8200 | Done | Qwen3-4B, natural-language command to bounded mission plan |
+| `strafer_vlm` | DGX Spark:8100 | Done | Qwen2.5-VL-3B grounding and scene description service |
 
-Important current-state notes:
-- the layered bringup launches still default to `/dev/ttyACM0` and `/dev/ttyACM1`, while the driver parameter file prefers `/dev/roboclaw0` and `/dev/roboclaw1` when udev rules are installed
-- `strafer_slam` and `strafer_navigation` are currently launch/config packages; autonomy-facing projection and orientation services are still planned additions
-- `strafer_inference` is not implemented yet, so RL execution remains an end-state backend rather than a present ROS capability
+Current-state notes:
+- the driver auto-detects RoboClaw ports; udev rules create `/dev/roboclaw0` and `/dev/roboclaw1` symlinks
+- `goal_projection_node` in `strafer_perception` implements `ProjectDetectionToGoalPose.srv` (VLM bbox → map-frame goal pose)
+- Nav2 velocity output is on `/cmd_vel`; the driver launch remaps `/strafer/cmd_vel` → `/cmd_vel`
+- `strafer_inference` is not implemented yet, so RL execution remains an end-state backend
 
 ## ROS Topics And Interfaces That Still Matter
 
@@ -236,12 +237,11 @@ These are the canonical robot-local command interfaces:
 | `strafer_msgs/action/ExecuteMission.action` | `strafer_msgs` | `strafer_autonomy.command_server` | Added | submit, monitor, and cancel missions |
 | `strafer_msgs/srv/GetMissionStatus.srv` | `strafer_msgs` | `strafer_autonomy.command_server` | Added | query active or last mission state |
 
-### Remaining Jetson-side ROS interfaces to add
+### Optional future ROS interfaces
 
 | Interface | Define in | Implement in | Purpose | Priority |
 |----------|-----------|--------------|---------|----------|
-| `strafer_msgs/srv/ProjectDetectionToGoalPose.srv` | `strafer_msgs` | `strafer_navigation` first | turn 2D grounding result into reachable `PoseStamped` goal | High |
-| `strafer_msgs/msg/MissionStatus.msg` | `strafer_msgs` | publisher chosen later if needed | topic-based status for dashboards or logging | Medium |
+| `strafer_msgs/msg/MissionStatus.msg` | `strafer_msgs` | publisher chosen later if needed | topic-based status for dashboards or logging | Low |
 | `strafer_msgs/action/OrientRelativeToTarget.action` | `strafer_msgs` | `strafer_navigation` first, or a future behavior package | face target / face away / lateral orientation behavior | Medium |
 
 ## Jetson-Side Package Responsibilities
@@ -251,13 +251,13 @@ These are the canonical robot-local command interfaces:
 Owns shared ROS interfaces.
 
 Current state:
-- `ExecuteMission.action` exists
-- `GetMissionStatus.srv` exists
+- `ExecuteMission.action` — submit, monitor, and cancel missions
+- `GetMissionStatus.srv` — query active or last mission state
+- `ProjectDetectionToGoalPose.srv` — VLM bbox to map-frame goal pose
 
-Remaining work:
-- add `ProjectDetectionToGoalPose.srv`
-- optionally add `MissionStatus.msg`
-- optionally add `OrientRelativeToTarget.action`
+Optional future additions:
+- `MissionStatus.msg` for topic-based dashboards
+- `OrientRelativeToTarget.action` for facing/orientation behaviors
 
 Clarification:
 - `strafer_msgs` defines ROS interface types
@@ -266,7 +266,7 @@ Clarification:
 ### `strafer_driver`
 
 Still owns:
-- `/strafer/cmd_vel` to motors
+- `/cmd_vel` to motors (remapped from `/strafer/cmd_vel` in the driver launch)
 - wheel state publication
 - odom publication
 - diagnostics
@@ -353,19 +353,17 @@ Mode definitions:
 
 ### `strafer_autonomy`
 
-This is now a Jetson-installed Python package, not a ROS workspace package.
+This is a Jetson-installed Python package (pip editable), not a ROS workspace package.
 
-Current scaffolded pieces:
-- schemas
-- planner/VLM/ROS client interfaces
-- command ingress CLI
-- command server around `ExecuteMission.action`
-- mission runner
-
-Jetson-side work still needed:
-- implement `ros_client` against real ROS topics/services/actions
-- add a runnable Jetson node entry point that builds the command server with concrete clients
-- integrate launch and runtime docs
+Implemented:
+- schemas and typed data contracts
+- `HttpPlannerClient` and `HttpGroundingClient` with retry and health checks
+- `JetsonRosClient` with sensor caching, Nav2 action client, goal projection service client, rotate-in-place
+- `MissionRunner` with 10 implemented skills
+- `AutonomyCommandServer` wrapping `ExecuteMission.action` and `GetMissionStatus.srv`
+- `strafer-executor` entry point (reads `VLM_URL`/`PLANNER_URL` env vars)
+- `strafer-autonomy-cli` for submit/status/cancel
+- `autonomy.launch.py` in `strafer_bringup` (navigation + goal projection + executor)
 
 ## MVP Jetson Architecture
 
@@ -395,47 +393,8 @@ The workstation or cloud can plan and ground, but it does not own the control lo
 
 ## Remaining Jetson Work
 
-### Stage A: Finish robot-local ROS interfaces
-
-Required:
-1. define `ProjectDetectionToGoalPose.srv` in `strafer_msgs`
-2. decide whether `MissionStatus.msg` is needed immediately
-3. defer `OrientRelativeToTarget.action` unless navigation and projection are already working
-
-### Stage B: Implement `strafer_autonomy.clients.ros_client`
-
-Required behavior:
-- cache RGB, aligned depth, camera info, odom, and TF locally
-- expose `capture_scene_observation()`
-- expose `get_robot_state()` — MVP returns `{"pose": ..., "nav_state": ...}` from odom + Nav2 status; battery and velocity are deferred until `DiagnosticStatus` aggregation is implemented
-- call `ProjectDetectionToGoalPose.srv`
-- dispatch `navigate_to_pose` to the selected execution mode
-- support cancel for the currently active execution mode
-
-This is the most important remaining Jetson-side Python task.
-
-### Stage C: Implement the projection service
-
-Recommended first placement:
-- define `ProjectDetectionToGoalPose.srv` in `strafer_msgs`
-- implement the first server in `strafer_navigation`
-
-Required behavior:
-- accept bounding box + image timestamp + standoff
-- sample depth in the aligned RGB frame
-- deproject to 3D using camera intrinsics
-- transform target pose into `map`
-- produce a reachable goal pose for navigation
-- return quality flags when depth is sparse, invalid, or ambiguous
-
-### Stage D: Run `strafer_autonomy` on the Jetson as a real runtime process
-
-Needed pieces:
-- concrete `planner_client`
-- concrete `vlm_client`
-- concrete `ros_client`
-- command-server bootstrap entry point
-- launch or service wrapper for robot startup
+Stages A-D (ROS interfaces, ros_client, projection service, executor runtime) are
+complete and tested on real hardware. The remaining work is RL policy integration.
 
 ### Stage E: Integrate `strafer_inference` execution modes
 
@@ -449,23 +408,13 @@ Once the policy is ready, the next Jetson task is to make `strafer_inference` a 
 - `strafer_direct`
 - `hybrid_nav2_strafer`
 
-### Stage F: Launch and bringup integration
+## Recommended Next Steps
 
-Likely next additions after the executor works:
-- new Jetson launch file or startup script for the autonomy runtime
-- documentation for sourcing ROS + Python environment together
-- operator CLI usage examples
-
-## Recommended Jetson Implementation Order
-
-1. `strafer_msgs/srv/ProjectDetectionToGoalPose.srv`
-   - define in `strafer_msgs`
-2. `strafer_autonomy.clients.ros_client`
-3. projection service implementation in `strafer_navigation`
-4. Jetson bootstrap for `strafer_autonomy.command_server`
-5. LAN planner and VLM client implementations
-6. launch integration
-7. integrate `strafer_inference` as `strafer_direct`, then later `hybrid_nav2_strafer` if needed
+1. Integrate `strafer_inference` as `strafer_direct` execution backend
+2. Later add `hybrid_nav2_strafer` if needed
+3. Add composite/multi-target mission support to the planner
+4. Tune `rotate_in_place` PID on real hardware
+5. Implement `orient_relative_to_target` skill
 
 ## Testing Expectations On The Jetson
 

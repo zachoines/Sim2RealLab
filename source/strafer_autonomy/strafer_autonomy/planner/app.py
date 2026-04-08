@@ -3,13 +3,14 @@
 Launch:
     uvicorn strafer_autonomy.planner.app:create_app --factory --host 0.0.0.0 --port 8200
 
-Environment variables:
+Environment variables (read by the app at startup):
     PLANNER_MODEL          HF model name or local path (default: Qwen/Qwen3-4B)
     PLANNER_DEVICE_MAP     device_map for model loading (default: auto)
     PLANNER_TORCH_DTYPE    torch dtype (default: auto)
     PLANNER_LOAD_4BIT      set "1" to enable 4-bit quantisation
     PLANNER_MAX_TOKENS     max new tokens per inference (default: 256)
-    PLANNER_PORT           bind port (default: 8200)
+
+Host and port are controlled by uvicorn CLI arguments, not by the app.
 """
 
 from __future__ import annotations

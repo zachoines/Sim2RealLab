@@ -2573,19 +2573,25 @@ only partially preserves this information.
 
 **What needs to be built:**
 
-1. **Label-preserving USD export** -- extend `prep_room_usds.py` to write
-   Infinigen's object class, instance ID, and 3D bbox as custom USD prim
-   attributes (e.g. `custom:semanticLabel`, `custom:instanceId`).
-2. **Runtime label accessor** -- a utility that reads these attributes from
-   the loaded USD stage and provides a mapping from prim path to
-   `(class_name, instance_id, world_pose)`.
-3. **Per-scene label manifest** -- extend `scenes_metadata.json` (or add a
-   companion `scenes_labels.json`) listing all objects with their class,
-   mesh bounding box, and initial pose. This avoids parsing USD at runtime.
+1. **Configure Infinigen to output labels at generation time.** Rather than
+   recovering labels from existing unlabeled USDs, configure the Infinigen
+   generation pipeline to write `semanticLabel` and `instanceId` as custom
+   USD prim attributes on each object during scene creation. These attributes
+   are what the Isaac Sim Replicator `bounding_box_2d_tight` and
+   `semantic_segmentation` annotators read to produce labeled bboxes.
+2. **Per-scene label manifest** -- extend `scenes_metadata.json` with a
+   per-scene `objects` list containing each object's label, instance ID,
+   prim path, and 3D bbox. This avoids parsing USD at runtime.
+3. **Runtime label accessor** -- a utility that reads the manifest and
+   provides label sets, object counts, and prim-to-label mappings for
+   data collection scripts.
 
-Until step 1 is complete, Infinigen scenes provide high-quality unlabeled
-geometry. ProcRoom scenes (Section 5.5) are the more practical starting point
-for labeled data generation since object poses are already accessible.
+Note: ProcRoom scenes use solid-color primitives (boxes, cylinders, cones)
+that are not useful for VLM perception training. ProcRoom data is valuable
+for depth/navigation training and CLIP contrastive pairs (visual place
+recognition) but should be excluded from VLM grounding fine-tuning datasets.
+Infinigen scenes with realistic labeled objects are the primary source for
+VLM and grounding data.
 
 ### 5.4 Fine-tuning targets
 

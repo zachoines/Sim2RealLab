@@ -228,7 +228,7 @@ python scripts/collect_perception_data.py \
 
 ---
 
-### Task 2: Ground-truth 2D bbox extraction (Section 5.5)
+### Task 2: Ground-truth 2D bbox extraction via Replicator (Section 5.5)
 
 **Priority:** High | **Effort:** Medium
 
@@ -242,48 +242,70 @@ source/strafer_lab/strafer_lab/tools/
 
 **What to implement:**
 
-Two approaches for extracting 2D bounding boxes from sim:
+Use the **Isaac Sim Replicator API** to extract ground-truth 2D bounding
+boxes with semantic labels. This is the single approach — it works for both
+Infinigen scenes (realistic objects with labels from the generation API) and
+ProcRoom environments.
 
-**Approach A — Isaac Sim Replicator API** (preferred for Infinigen scenes):
+**Why NOT manual 3D-to-2D projection:** ProcRoom objects are solid-color
+primitives (boxes, cylinders, cones). They are useful for navigation training
+but not for VLM perception training — a VLM fine-tuned on "locate the cyan
+box" won't generalize to real-world objects. The perception data pipeline
+should prioritize Infinigen scenes with realistic objects, where Replicator
+provides accurate bboxes and semantic labels from the USD prim metadata.
+
+**Replicator annotator setup:**
+
 ```python
 import omni.replicator.core as rep
-annotator = rep.AnnotatorRegistry.get_annotator("bounding_box_2d_tight")
-annotator.attach([camera_render_product_path])
-bbox_data = annotator.get_data()
+
+class ReplicatorBboxExtractor:
+    """Extract 2D bounding boxes and semantic labels via Isaac Sim Replicator."""
+
+    def __init__(self, camera_render_product_path: str):
+        self._bbox_annotator = rep.AnnotatorRegistry.get_annotator(
+            "bounding_box_2d_tight"
+        )
+        self._bbox_annotator.attach([camera_render_product_path])
+
+        # Semantic segmentation gives prim-level class labels
+        self._sem_annotator = rep.AnnotatorRegistry.get_annotator(
+            "semantic_segmentation"
+        )
+        self._sem_annotator.attach([camera_render_product_path])
+
+    def extract(self) -> list[dict]:
+        """Return list of {label, bbox_2d, instance_id} for visible objects."""
+        bbox_data = self._bbox_annotator.get_data()
+        sem_data = self._sem_annotator.get_data()
+
+        results = []
+        for bbox_entry in bbox_data["data"]:
+            results.append({
+                "label": bbox_entry.get("semanticLabel", "unknown"),
+                "bbox_2d": [
+                    int(bbox_entry["x_min"]),
+                    int(bbox_entry["y_min"]),
+                    int(bbox_entry["x_max"]),
+                    int(bbox_entry["y_max"]),
+                ],
+                "instance_id": bbox_entry.get("instanceId", -1),
+                "occlusion": bbox_entry.get("occlusionRatio", 0.0),
+            })
+        return results
 ```
 
-**Approach B — Manual 3D-to-2D projection** (works for ProcRoom):
-- Read object 3D positions from `env.scene["obstacles"].data.object_pos_w`
-- Read object extents from known primitive dimensions (see ProcRoom inventory)
-- Project 3D bounding box corners through camera intrinsics:
-  - Focal length: 1.93 mm
-  - Horizontal aperture: 3.68 mm
-  - Resolution: 80x60
-- Compute tight 2D bounding box from projected corners
-- Filter by visibility (in front of camera, within image bounds)
-
-**ProcRoom object inventory (for known dimensions):**
-
-| Slot range | Type | Dimensions (X, Y, Z) m |
-|-----------|------|------------------------|
-| 0-7 | wall_long | 2.0 x 0.15 x 1.0 |
-| 8-15 | wall_med | 1.0 x 0.15 x 1.0 |
-| 16-19 | wall_short | 0.5 x 0.15 x 1.0 |
-| 20-21 | furn_table | 0.8 x 0.6 x 0.4 |
-| 22-23 | furn_shelf | 1.2 x 0.3 x 0.8 |
-| 24-25 | furn_cabinet | 0.5 x 0.5 x 0.6 |
-| 26-27 | furn_couch | 1.4 x 0.6 x 0.35 |
-| 28-31 | clutter_box | 0.3 x 0.3 x 0.3 |
-| 32-33 | clutter_cyl | r=0.15, h=0.4 |
-| 34-35 | clutter_flat | 0.4 x 0.4 x 0.15 |
-| 36-37 | clutter_sphere | r=0.15 |
-| 38-39 | clutter_cone | r=0.12, h=0.35 |
-| 40-41 | clutter_capsule | r=0.1, h=0.4 |
-| 42-43 | clutter_tall_cyl | r=0.1, h=0.7 |
+**Key requirement:** For Replicator annotators to return semantic labels,
+the USD prims must have `semanticLabel` attributes set. This is handled by
+Task 4 (Infinigen label-preserving export). For ProcRoom, the prim names
+(e.g., `furn_table_0`) can serve as fallback labels but the primary
+training data source should be Infinigen scenes.
 
 **Integration with Task 1:** `PerceptionDataCollector` calls
-`bbox_extractor.extract_bboxes(env, camera)` each step, adding `bboxes`
-to frame_data.
+`bbox_extractor.extract()` each step, adding `bboxes` to frame_data.
+Frames from ProcRoom are useful for depth/navigation training but should
+be flagged as `"scene_type": "procroom"` so the export pipeline (Task 3)
+can exclude them from VLM grounding fine-tuning datasets.
 
 ---
 
@@ -320,44 +342,88 @@ Convert collected perception data into training-ready formats:
 
 ---
 
-### Task 4: Label-preserving Infinigen USD export (Section 5.3)
+### Task 4: Infinigen labeled scene generation (Section 5.3)
 
 **Priority:** Medium | **Effort:** Medium
 
-**Files to modify:**
+**Files to create/modify:**
 
 ```
-source/strafer_lab/scripts/prep_room_usds.py  (if it exists in the repo)
+source/strafer_lab/scripts/prep_room_usds.py       # modify (if exists) or create
+source/strafer_lab/strafer_lab/tools/scene_labels.py  # NEW — runtime label accessor
 ```
+
+**Context:** Infinigen (Princeton procedural generation) creates realistic
+indoor scenes with full semantic knowledge — every object has a class label,
+mesh, material, and pose inside the Infinigen pipeline. The current
+integration (`prep_room_usds.py`) imports geometry as USD meshes but drops
+the semantic labels during conversion.
 
 **What to implement:**
 
-1. During Blender → USD conversion, write Infinigen's per-object class name,
-   instance ID, and 3D bbox as custom USD prim attributes:
-   ```
-   custom:semanticLabel = "chair"
-   custom:instanceId = 42
+1. **Configure Infinigen to output labels at generation time.** Infinigen's
+   API supports exporting per-object metadata (class name, instance ID,
+   material tags) alongside the USD geometry. Instead of post-hoc label
+   recovery, configure the generation pipeline to:
+   - Write `semanticLabel` as a custom USD prim attribute on each object
+   - Write `instanceId` as a unique integer per object instance
+   - These attributes are what the Isaac Sim Replicator `bounding_box_2d_tight`
+     and `semantic_segmentation` annotators read (see Task 2)
+
+   In the Infinigen generation config or post-processing script:
+   ```python
+   # During USD export, set prim metadata for each generated object
+   from pxr import Usd, UsdGeom
+
+   stage = Usd.Stage.Open(scene_usd_path)
+   for prim in stage.Traverse():
+       if prim.GetTypeName() in ("Mesh", "Xform"):
+           # infinigen_label comes from Infinigen's internal object registry
+           label = get_infinigen_label(prim.GetName())
+           if label:
+               prim.CreateAttribute("semanticLabel", Sdf.ValueTypeNames.String).Set(label)
+               prim.CreateAttribute("instanceId", Sdf.ValueTypeNames.Int).Set(instance_id)
+   stage.Save()
    ```
 
-2. Extend `scenes_metadata.json` with a per-scene `objects` list:
+2. **Extend `scenes_metadata.json`** with a per-scene `objects` list so
+   labels are accessible without parsing USD at runtime:
    ```json
    {
      "scenes": {
        "scene_001": {
          "spawn_points_xy": [[1.0, 2.0], ...],
          "objects": [
-           {"label": "chair", "instance_id": 42, "bbox_3d": [...], "prim_path": "/World/Room/chair_42"}
+           {
+             "label": "chair",
+             "instance_id": 42,
+             "prim_path": "/World/Room/chair_42",
+             "bbox_3d_min": [1.2, 0.5, 0.0],
+             "bbox_3d_max": [1.8, 1.1, 0.9]
+           }
          ]
        }
      }
    }
    ```
 
-3. Add a runtime accessor in `strafer_lab/tools/scene_labels.py`:
+3. **Add a runtime accessor** in `strafer_lab/tools/scene_labels.py`:
    ```python
    def get_scene_objects(metadata_path: Path, scene_name: str) -> list[dict]:
        """Read labeled objects from scenes_metadata.json."""
+
+   def get_scene_label_set(metadata_path: Path, scene_name: str) -> set[str]:
+       """Return the set of unique object labels in a scene."""
    ```
+   These are used by `PerceptionDataCollector` (Task 1) and the VLM
+   fine-tuning data prep (Task 6) to know which objects are present in each
+   scene for generating grounding prompts and negative examples.
+
+**Why this approach:** Rather than trying to recover labels from existing
+unlabeled USDs, we ensure the Infinigen generation pipeline produces labeled
+USDs from the start. This is cleaner and gives us control over the label
+taxonomy (e.g., mapping Infinigen's internal names to the categories the VLM
+should learn).
 
 ---
 

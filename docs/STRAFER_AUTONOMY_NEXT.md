@@ -2949,84 +2949,295 @@ placement. For Infinigen, it selects scenes from the metadata catalog that
 match the failure's scene description (e.g. "kitchen" scenes for kitchen
 failures).
 
-### 5.9 Sim-in-the-loop data collection (follow-up)
+### 5.9 Sim-in-the-loop data collection via Isaac Sim ROS2 Bridge
 
 The data collection scripts in Section 5.5 use scripted trajectories or
 random walks to drive the robot through environments. This produces
 geometrically diverse data but doesn't match the real deployment distribution
 — the robot doesn't scan, ground, or navigate the way it does during actual
+missions. A trained RL policy would be ideal, but one does not yet exist for
+the strafer platform. Random policies miss the structured behavior (scan
+rotations, standoff approaches, heading changes) that characterizes real
 missions.
 
 **Proposal: run the full autonomy stack against the simulated robot** using
-the Isaac Sim ROS2 Bridge (`isaacsim.ros2_bridge` / OmniGraph ROS Bridge).
-Instead of a gamepad or random policy, the sim-robot is driven by the same
-planner → VLM → Nav2 pipeline used on the real Jetson:
+the Isaac Sim ROS2 Bridge (OmniGraph ROS Bridge). The sim-robot is driven
+by the same planner → VLM → Nav2 pipeline used on the real Jetson:
 
 ```text
-+--------------------+                   +-------------------------+
-| DGX Spark          |                   | DGX Spark (Isaac Sim)   |
-|                    |    LAN HTTP       |                         |
-|  Planner (:8200)   |<---------------->|  strafer_autonomy       |
-|  VLM     (:8100)   |                  |    executor             |
-|                    |                   |                         |
-+--------------------+                   |  Isaac Sim ROS2 Bridge  |
-                                         |    /d555/color          |
-                                         |    /d555/aligned_depth  |
-                                         |    /strafer/odom        |
-                                         |    /cmd_vel             |
-                                         |    Nav2 (sim costmap)   |
-                                         +-------------------------+
+Windows Workstation (Isaac Sim)          DGX Spark
+================================         ==========================
+Isaac Sim environment                    Planner service (:8200)
+  + OmniGraph ROS2 Bridge                VLM service (:8100)
+    publishers:                                ^
+      /d555/color/image_sync (640x360)         |
+      /d555/aligned_depth/image_sync           | LAN HTTP
+      /d555/color/camera_info_sync             |
+      /strafer/odom                      strafer_autonomy.executor
+      /d555/imu/filtered                   MissionRunner
+      TF: map→odom→base_link→d555_link     JetsonRosClient (same code)
+    subscriber:                              HttpPlannerClient → DGX
+      /cmd_vel                               HttpGroundingClient → DGX
+                                           Nav2 (against sim costmap)
+  + depthimage_to_laserscan node             goal_projection_node
+      /scan (from sim depth)
+                                         Data capture harness
+  + static map server (or RTAB-Map)        records (frame, VLM_response,
+      /map                                  ground_truth) tuples
 ```
 
-The executor runs identically to the real robot — it reads camera topics
-published by Isaac Sim's ROS2 bridge, sends them to the VLM for grounding,
-projects goals via depth, and navigates via Nav2 using the sim's costmap.
+**Note:** The executor and Nav2 can run on either the Windows machine (if
+ROS2 Humble is available) or on the Jetson over the network (same ROS2
+domain). The key is that the executor code is identical — it subscribes to
+the same topics regardless of whether they come from real hardware or the
+sim bridge.
 
-**How it works:**
+#### 5.9.1 What the bridge must provide
 
-1. Launch Isaac Sim with a ProcRoom or Infinigen environment and the ROS2
-   bridge enabled. The bridge publishes simulated sensor topics on the same
-   topic names as the real D555 camera and strafer odometry.
+The real robot's ROS stack exposes a specific set of topics, message types,
+and frame conventions. The bridge must replicate this interface exactly so
+that `JetsonRosClient`, Nav2, and `goal_projection_node` work without
+modification.
 
-2. Launch the autonomy executor pointing at the DGX planner and VLM services.
-   The executor sees the sim's ROS topics and operates as if on the real robot.
+**Sensor topics (bridge publishes):**
 
-3. A harness script generates random goal commands (e.g., "go to the table",
-   "go to the door") drawn from the objects actually placed in the scene
-   (known from ProcRoom's active mask or Infinigen's label manifest).
+| Topic | Type | Rate | Real source | Bridge source |
+|-------|------|------|-------------|---------------|
+| `/d555/color/image_sync` | sensor_msgs/Image (RGB8) | 30 Hz | D555 USB camera | Isaac Sim camera, **640x360** (not 80x60 policy resolution) |
+| `/d555/aligned_depth_to_color/image_sync` | sensor_msgs/Image (16UC1, mm) | 30 Hz | D555 aligned depth | Isaac Sim depth (convert float32 m → uint16 mm) |
+| `/d555/color/camera_info_sync` | sensor_msgs/CameraInfo | 30 Hz | D555 driver | Computed from sim camera intrinsics at 640x360 |
+| `/strafer/odom` | nav_msgs/Odometry | 50 Hz | RoboClaw wheel encoders | Sim wheel joint velocities → mecanum forward kinematics |
+| `/d555/imu/filtered` | sensor_msgs/Imu | 200 Hz | Madgwick filter on D555 IMU | Sim IMU sensor (already has orientation) |
+| `/scan` | sensor_msgs/LaserScan | 30 Hz | depthimage_to_laserscan on depth | Same node, reading sim depth topic |
 
-4. The executor plans, scans, grounds, navigates — and the harness captures
-   every `(frame, VLM_response, ground_truth_label, ground_truth_bbox)`
-   tuple for training data. Ground truth comes from the sim's scene graph;
-   the VLM response is the model's actual prediction against the sim-rendered
-   frame.
+**Control topic (bridge subscribes):**
 
-**Why this is valuable:**
+| Topic | Type | Rate | Real consumer | Bridge consumer |
+|-------|------|------|---------------|-----------------|
+| `/cmd_vel` | geometry_msgs/Twist | ~20 Hz | RoboClaw driver | Bridge converts `[vx, vy, wz]` to sim wheel velocities |
 
-- **Distribution match.** The collected frames come from the exact viewpoints,
-  scan headings, and standoff distances the real robot uses. Random walks
-  don't replicate this.
-- **Natural failure cases.** When the VLM misses a target or hallucinates a
-  detection, the harness captures both the VLM output and the ground truth
-  — these are the hardest examples to obtain synthetically and the most
-  valuable for fine-tuning.
-- **End-to-end validation.** Before deploying a fine-tuned model, run the
-  full stack in sim and measure mission success rate. This is a sim-based
-  integration test, not just a perception benchmark.
-- **No manual annotation.** Ground truth comes from the sim's scene graph.
-  VLM predictions come from the actual model. The comparison is automatic.
+**TF tree (bridge broadcasts):**
 
-**Dependencies:** Isaac Sim ROS2 Bridge configured for the D555 camera topics,
-Nav2 running against the sim's costmap, and the same DGX services used for
-real deployment. This is a follow-up feature that builds on steps 1-3 of the
-perception data pipeline.
+```
+map (static identity or from SLAM)
+  └── odom (dynamic, from sim wheel odometry)
+      └── base_link
+          ├── chassis_link (static)
+          ├── wheel_{1,2,3,4}_link (dynamic, from sim joint positions)
+          └── d555_link (static, +0.20m fwd, +0.25m up)
+              └── d555_color_optical_frame (static, Z-forward convention)
+```
+
+**Nav2 and SLAM:**
+
+For sim-in-the-loop, there are two options for the map/costmap:
+1. **Static map server** — pre-render the ProcRoom or Infinigen floor plan as
+   an OccupancyGrid and serve it via `nav2_map_server`. Simplest approach.
+2. **RTAB-Map on sim data** — run RTAB-Map against the sim's camera and depth
+   topics. Full fidelity but heavier. Useful for testing SLAM integration.
+
+Nav2 itself runs unmodified with the same `nav2_params.yaml` config — MPPI
+controller, omni motion model, same velocity limits.
+
+#### 5.9.2 Camera resolution gap
+
+**This is the biggest engineering task.** The current sim camera in
+`d555_cfg.py` outputs 80x60 for policy training. The real robot's VLM
+pipeline uses 640x360. The bridge needs full-resolution frames for:
+- VLM grounding (the model needs enough pixels to detect objects)
+- Depth-based goal projection (5x5 median kernel at 80x60 is only ~6% of
+  the image; at 640x360 it's <0.01%)
+
+**Solution: dual camera configuration in the sim environment.**
+
+```python
+# d555_cfg.py — add a second camera for ROS bridge output
+D555_ROS_CAMERA_CFG = TiledCameraCfg(
+    prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link/d555_camera_ros",
+    update_period=D555_CAMERA_UPDATE_PERIOD,  # 1/30 = 30 Hz
+    height=360,
+    width=640,
+    data_types=("rgb", "distance_to_image_plane"),
+    spawn=PinholeCameraCfg(
+        focal_length=D555_FOCAL_LENGTH,       # 1.93 mm
+        horizontal_aperture=D555_H_APERTURE,  # 3.68 mm
+        clipping_range=(0.01, DEPTH_CLIP_FAR),
+    ),
+    offset=OffsetCfg(
+        pos=D555_CAMERA_OFFSET_POS,   # (0.20, 0.0, 0.25)
+        rot=D555_CAMERA_OFFSET_ROT,   # ROS convention quaternion
+        convention="ros",
+    ),
+)
+```
+
+The 80x60 policy camera remains for RL training. The 640x360 ROS camera is
+only instantiated when the bridge is active. This avoids increasing GPU
+memory for normal training runs.
+
+**Rendering cost:** A 640x360 camera at 30 Hz is ~50x more pixels than 80x60.
+With a single environment (not 4096 parallel), this is manageable — Isaac Sim
+renders single high-res cameras efficiently. The limiting factor is that only
+1-8 environments can run simultaneously at this resolution (vs. 64+ at 80x60).
+
+#### 5.9.3 Bridge implementation
+
+**New file:**
+
+```
+source/strafer_lab/strafer_lab/bridge/
+    __init__.py
+    ros2_bridge.py          # StraferROS2Bridge class
+    depth_conversion.py     # float32 meters → uint16 mm, nearfield clamp
+    odom_integrator.py      # sim wheel velocities → nav_msgs/Odometry
+    camera_info_builder.py  # build CameraInfo from sim intrinsics
+```
+
+**Core class:**
+
+```python
+class StraferROS2Bridge:
+    """Publishes Isaac Sim sensor data as ROS2 topics.
+
+    Makes the simulated robot indistinguishable from the real robot
+    from the perspective of JetsonRosClient, Nav2, and goal_projection_node.
+    """
+
+    def __init__(self, env, ros_camera_name: str = "d555_camera_ros"):
+        self._env = env
+        self._camera = env.scene[ros_camera_name]  # 640x360 camera
+        self._node = rclpy.create_node("strafer_sim_bridge")
+
+        # Publishers — exact topic names matching real robot
+        self._pub_color = self._node.create_publisher(
+            Image, "/d555/color/image_sync", 10)
+        self._pub_depth = self._node.create_publisher(
+            Image, "/d555/aligned_depth_to_color/image_sync", 10)
+        self._pub_cam_info = self._node.create_publisher(
+            CameraInfo, "/d555/color/camera_info_sync", 10)
+        self._pub_odom = self._node.create_publisher(
+            Odometry, "/strafer/odom", 10)
+        self._pub_imu = self._node.create_publisher(
+            Imu, "/d555/imu/filtered", 10)
+
+        self._tf_broadcaster = TransformBroadcaster(self._node)
+        self._static_tf_broadcaster = StaticTransformBroadcaster(self._node)
+
+        # Subscriber — receive cmd_vel and apply to sim
+        self._sub_cmd_vel = self._node.create_subscription(
+            Twist, "/cmd_vel", self._on_cmd_vel, 10)
+        self._latest_cmd_vel = Twist()
+
+        # Publish static TFs once
+        self._publish_static_tfs()
+
+    def step_and_publish(self):
+        """Call after each env.step(). Publishes all sensor data as ROS2."""
+        now = self._node.get_clock().now().to_msg()
+
+        # RGB: (1, 360, 640, 4) RGBA → RGB8 sensor_msgs/Image
+        rgba = self._camera.data.output["rgb"][0]
+        rgb = rgba[:, :, :3].cpu().numpy()  # drop alpha
+        self._pub_color.publish(self._numpy_to_image(rgb, "rgb8", now))
+
+        # Depth: float32 meters → uint16 millimeters
+        depth_m = self._camera.data.output["distance_to_image_plane"][0, :, :, 0]
+        depth_mm = self._meters_to_uint16_mm(depth_m.cpu().numpy())
+        self._pub_depth.publish(self._numpy_to_image(depth_mm, "16UC1", now))
+
+        # CameraInfo (precomputed from intrinsics)
+        self._pub_cam_info.publish(self._build_camera_info(now))
+
+        # Odometry from sim wheel velocities
+        self._pub_odom.publish(self._build_odom(now))
+
+        # IMU from sim sensor
+        self._pub_imu.publish(self._build_imu(now))
+
+        # Dynamic TF: odom → base_link
+        self._broadcast_odom_tf(now)
+
+    def _meters_to_uint16_mm(self, depth_m: np.ndarray) -> np.ndarray:
+        """Convert float32 meters to uint16 millimeters with D555 clipping."""
+        depth_clipped = np.clip(depth_m, DEPTH_CLIP_NEAR, DEPTH_CLIP_FAR)
+        return (depth_clipped * 1000.0).astype(np.uint16)
+```
+
+#### 5.9.4 Data capture harness
+
+A harness script drives the loop: generate commands → execute via autonomy
+stack → capture paired observations:
+
+```python
+class SimInTheLoopHarness:
+    def __init__(self, env, bridge, executor, scene_labels: list[str]):
+        self.env = env
+        self.bridge = bridge
+        self.executor = executor
+        self.scene_labels = scene_labels
+
+    def run_episode(self, max_commands: int = 10):
+        for _ in range(max_commands):
+            # Pick a random object known to be in the scene
+            target = random.choice(self.scene_labels)
+            command = f"go to the {target}"
+
+            # Execute via the real autonomy stack
+            result = self.executor.start_mission(
+                request_id=uuid4().hex, raw_command=command, source="sim_harness",
+            )
+
+            # Wait for completion, recording every intermediate frame
+            while self.executor.get_status().active:
+                self.env.step(self._latest_action())
+                self.bridge.step_and_publish()
+                self.capture_frame(target)
+
+            # Log result vs. ground truth
+            self.log_result(target, result)
+```
+
+#### 5.9.5 What this enables that random walks cannot
+
+| Capability | Random walk | Sim-in-the-loop |
+|------------|-------------|-----------------|
+| Scan rotation frames | No | Yes — exact 60° heading increments, same as real |
+| VLM response capture | No | Yes — real model predictions vs. ground truth |
+| Standoff approach views | No | Yes — robot stops at 0.7m from target |
+| Natural failure cases | No | Yes — VLM misses, hallucinations, Nav2 timeouts |
+| Distribution match | Poor | Exact match to real deployment |
+| End-to-end validation | No | Yes — mission success rate metric |
+| Manual annotation | Required | Zero (ground truth from sim, predictions from model) |
+
+#### 5.9.6 Effort and dependencies
+
+This is a **Large** effort item with the following sub-tasks:
+
+| Sub-task | Effort | Dependencies |
+|----------|--------|--------------|
+| Dual camera config (640x360 + 80x60) in `d555_cfg.py` | Small | None |
+| `StraferROS2Bridge` class (topic publishers, TF, cmd_vel subscriber) | Medium | ROS2 on Windows or cross-machine ROS2 domain |
+| Depth conversion (float32 m → uint16 mm, D555 clipping) | Small | None |
+| Odom integrator (sim wheels → nav_msgs/Odometry) | Small | Mecanum FK from `strafer_shared` |
+| CameraInfo builder (sim intrinsics → sensor_msgs/CameraInfo) | Small | None |
+| Nav2 launch with static sim map or RTAB-Map | Medium | Static map renderer or RTAB-Map config |
+| Data capture harness (command generation, frame recording, ground truth) | Medium | Bridge + executor working |
+| Integration testing | Medium | All above |
+
+**Total estimated effort:** 2-3 weeks for a working prototype.
+
+**Critical dependency:** ROS2 Humble must be available on the Windows
+workstation (via WSL2, Docker, or native build) or the executor/Nav2 must
+run on the Jetson while the bridge publishes from the Windows machine over
+the network (same ROS2 domain via DDS discovery). The latter is simpler
+since the Jetson already has the full ROS2 stack.
 
 ### 5.10 Implementation plan
 
 | Step | Description | Effort | Dependencies |
 |------|-------------|--------|--------------|
 | 1 | Perception data collection script (`collect_perception_data.py`) | Medium | Existing Isaac Lab envs |
-| 2 | 2D bbox extraction via Replicator annotator or manual projection | Medium | Isaac Sim Replicator API, camera intrinsics |
+| 2 | 2D bbox extraction via Replicator annotator | Medium | Isaac Sim Replicator API |
 | 3 | HDF5/WebDataset export pipeline | Small | Step 1 |
 | 4 | Label-preserving Infinigen USD export (`prep_room_usds.py` update) | Medium | Infinigen scene graph, USD prim metadata |
 | 5 | CLIP contrastive fine-tuning (OpenCLIP + InfoNCE) | Medium | Steps 1-3, DGX/Databricks |
@@ -3034,7 +3245,11 @@ perception data pipeline.
 | 7 | ONNX export of fine-tuned CLIP for Jetson | Small | Step 5 |
 | 8 | Real-world failure logging in `SemanticMapManager` + JSON manifest | Small | Section 1 (SemanticMapManager) |
 | 9 | `gen_failure_scenarios.py` -- manifest-driven scenario spawning | Large | Steps 1-8 |
-| 10 | Sim-in-the-loop harness (Isaac Sim ROS2 Bridge + autonomy executor) | Large | Steps 1-3, Isaac Sim ROS2 Bridge, Nav2 sim |
+| 10a | Dual camera config (640x360 ROS camera + 80x60 policy camera) | Small | d555_cfg.py |
+| 10b | `StraferROS2Bridge` — sensor publishers, TF, cmd_vel subscriber | Medium | ROS2 on Windows or cross-machine DDS |
+| 10c | Depth conversion + odom integrator + CameraInfo builder | Small | strafer_shared constants |
+| 10d | Nav2 sim launch (static map server or RTAB-Map against sim) | Medium | Step 10b |
+| 10e | Data capture harness (command gen, frame recording, ground truth) | Medium | Steps 10b-10d + DGX services |
 
 ---
 
@@ -3078,5 +3293,7 @@ perception data pipeline.
 | Synthetic Data | ONNX export of fine-tuned CLIP | Small | Medium |
 | Synthetic Data | Real-world failure logging | Small | Medium |
 | Synthetic Data | Failure-to-sim feedback pipeline | Large | Low |
-| Synthetic Data | Sim-in-the-loop harness (ROS2 Bridge + executor) | Large | Low |
+| Synthetic Data | Dual camera config (640x360 + 80x60) | Small | Medium |
+| Synthetic Data | Isaac Sim ROS2 Bridge (StraferROS2Bridge) | Medium | Medium |
+| Synthetic Data | Sim-in-the-loop data capture harness | Medium | Low |
 

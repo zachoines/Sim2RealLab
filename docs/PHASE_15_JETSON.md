@@ -200,7 +200,7 @@ source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py
 
 ---
 
-### Task 5: Rotate skills (Section 3.1)
+### Task 5: Rotate skills — executor side (Section 3.1)
 
 **Priority:** High | **Effort:** Small
 
@@ -216,6 +216,11 @@ source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py
 2. Add `_rotate_by_degrees` handler — wraps `ros_client.rotate_in_place(yaw_delta_rad=radians(degrees))`
 3. Add `_orient_to_direction` handler — TF lookup for current heading, compute delta to cardinal yaw, call `rotate_in_place`
 4. Add both to `_execute_step` dispatch
+
+**Coordination:** The DGX agent creates the compiler (`_compile_rotate` in
+`plan_compiler.py`) and adds `"rotate"` to `_VALID_INTENTS`. This task only
+adds the executor-side handlers. The compiler emits `SkillCall(skill="rotate_by_degrees", args={"degrees": N})`
+and `SkillCall(skill="orient_to_direction", args={"direction": "north"})`.
 
 **No dependency on semantic map.**
 
@@ -261,7 +266,7 @@ source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py
 
 ---
 
-### Task 8: Environment query skill (Section 3.4)
+### Task 8: Environment query skill — executor side (Section 3.4)
 
 **Priority:** Medium | **Effort:** Small
 
@@ -277,7 +282,84 @@ source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py
 2. Add `_query_environment` handler — calls `self._semantic_map.query_by_text(query)`
 3. Add to `_execute_step` dispatch
 
+**Coordination:** The DGX agent creates the compiler (`_compile_query` in
+`plan_compiler.py`) and adds `"query"` to `_VALID_INTENTS`. This task only
+adds the executor-side handler.
+
 **Depends on:** Task 1
+
+---
+
+### Task 9: Parallel health checks at startup (Section 2.3)
+
+**Priority:** Medium | **Effort:** Small
+
+**Files to modify:**
+
+```
+source/strafer_autonomy/strafer_autonomy/executor/command_server.py
+```
+
+**What to implement:**
+
+Replace the sequential VLM health check in `build_command_server()` with
+`ThreadPoolExecutor(max_workers=2)` probing both planner and VLM health
+in parallel. Use `as_completed` to fail fast on the first unhealthy service.
+
+```python
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+futures = {}
+with ThreadPoolExecutor(max_workers=2) as pool:
+    if hasattr(grounding_client, "health"):
+        futures[pool.submit(grounding_client.health)] = "VLM"
+    if hasattr(planner_client, "health"):
+        futures[pool.submit(planner_client.health)] = "Planner"
+    for future in as_completed(futures):
+        name = futures[future]
+        health = future.result(timeout=10.0)
+        if not health.get("model_loaded", False):
+            raise RuntimeError(f"{name} model not loaded: {health}")
+```
+
+---
+
+### Task 10: Real-world failure logging (Section 5.8)
+
+**Priority:** Medium | **Effort:** Small
+
+**Files to modify:**
+
+```
+source/strafer_autonomy/strafer_autonomy/semantic_map/manager.py
+```
+
+**What to implement:**
+
+Add a `log_failure()` method to `SemanticMapManager` that records perception
+failures during normal operation for downstream sim feedback:
+
+1. `log_failure(failure_type, target_label, frame_bgr, depth, robot_pose, details)` —
+   saves the frame to `~/.strafer/semantic_map/failures/` and appends an
+   entry to `failure_manifest.json`
+2. Failure types: `"arrival_verification_failed"`, `"missed_detection"`,
+   `"hallucinated_detection"`, `"low_clip_similarity"`
+3. Each entry records: timestamp, failure type, target label, CLIP similarity
+   (if applicable), robot pose, frame path, depth path, scene description
+4. The manifest is consumed by the Windows agent's `gen_failure_scenarios.py`
+   (future work) to spawn targeted training scenarios in simulation
+
+**Depends on:** Task 1
+
+---
+
+## Deferred tasks (not assigned to this phase)
+
+These items from `STRAFER_AUTONOMY_NEXT.md` are explicitly deferred:
+
+- **Plan repair on failure** (Section 3.6) — Large effort, Low priority. Future exploration.
+- **Failure-to-sim feedback pipeline** (Section 5.8) — Large effort, Low priority. Depends on Windows sim pipeline.
+- **Sim-in-the-loop harness** (Section 5.9) — Large effort, Low priority. Depends on Isaac Sim ROS2 Bridge.
 
 ---
 

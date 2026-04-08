@@ -287,7 +287,7 @@ to frame_data.
 
 ---
 
-### Task 3: HDF5/WebDataset export pipeline (Section 5.10 step 3)
+### Task 3: HDF5/WebDataset export pipeline (Section 5.5 output format, Section 5.10 step 3)
 
 **Priority:** Medium | **Effort:** Small
 
@@ -436,6 +436,20 @@ python scripts/collect_perception_data.py \
   --output data/perception/ \
   --max_episodes 10
 ```
+
+---
+
+## Deferred tasks (not assigned to this phase)
+
+These items from `STRAFER_AUTONOMY_NEXT.md` are explicitly deferred:
+
+- **ONNX export of fine-tuned CLIP** (Section 5.10 step 7) — Small effort,
+  but depends on Task 5 being validated. Covered as the final step of
+  `finetune_clip.py` rather than a separate task.
+- **Failure-to-sim feedback pipeline** (Section 5.8) — Large effort, Low
+  priority. Depends on Jetson real-world failure logging (PHASE_15_JETSON Task 10).
+- **Sim-in-the-loop harness** (Section 5.9) — Large effort, Low priority.
+  Depends on Isaac Sim ROS2 Bridge configuration and full autonomy stack.
 
 ---
 

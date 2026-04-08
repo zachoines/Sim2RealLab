@@ -148,6 +148,14 @@ source/strafer_vlm/tests/test_detect_objects.py        # NEW
 
 **Priority:** High | **Effort:** Medium
 
+**Coordination with Jetson agent:** This task creates the PLANNER side
+(intent parser + plan compiler). The EXECUTOR side (skill handlers in
+`mission_runner.py`) is owned by the Jetson agent. The handshake is:
+- You add `"rotate"`, `"go_to_targets"`, `"describe"`, `"query"`, `"patrol"` to `_VALID_INTENTS` and `_COMPILERS`
+- The compiled plans emit existing skills (e.g., `scan_for_target`, `navigate_to_pose`) plus new ones: `rotate_by_degrees`, `orient_to_direction`, `query_environment`
+- The Jetson agent adds handlers for `rotate_by_degrees`, `orient_to_direction`, and `query_environment` in `_execute_step`
+- Skills like `describe_scene` already have handlers — the compiler just needs to emit them
+
 **Files to modify:**
 
 ```
@@ -287,25 +295,19 @@ source/strafer_autonomy/databricks/
 
 ---
 
-### Task 7: Parallel health checks at startup (Section 2.3)
+---
 
-**Priority:** Medium | **Effort:** Small
+## Deferred tasks (not assigned to this phase)
 
-**Files to modify:**
+These items from `STRAFER_AUTONOMY_NEXT.md` are explicitly deferred:
 
-```
-source/strafer_autonomy/strafer_autonomy/executor/command_server.py
-```
-
-**What to implement:**
-
-Replace the sequential VLM health check in `build_command_server` with
-`ThreadPoolExecutor` probing both planner and VLM health in parallel.
-
-**NOTE:** This is a shared file — the Jetson agent also works in this
-directory. Coordinate: this agent modifies ONLY the `build_command_server`
-function. The Jetson agent modifies ONLY `AutonomyCommandServer` and the
-protocol definitions.
+- **Parallel health checks** (Section 2.3) — Small effort but touches
+  `executor/command_server.py` which is owned by the Jetson agent. Reassigned
+  to Jetson workstream to avoid file ownership conflicts.
+- **Agentic combined endpoint** (Section 4.3 item 3) — Medium effort, Low
+  priority. Natural follow-up after Task 3 (agentic planner) is validated.
+- **Databricks serving endpoints** (Section 4.5) — Infrastructure setup,
+  depends on Tasks 5 and 6 being complete and tested.
 
 ---
 

@@ -13,9 +13,12 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 
 from strafer_autonomy.clients.ros_client import JetsonRosClient, RosClientConfig
 from strafer_autonomy.schemas import GoalPoseCandidate, Pose3D, SceneObservation, SkillResult
+
+pytestmark = pytest.mark.requires_ros
 
 
 # ------------------------------------------------------------------

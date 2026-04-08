@@ -378,12 +378,14 @@ def quat_to_yaw(quat: np.ndarray) -> np.ndarray:
     """Extract yaw angle from quaternion [x, y, z, w].
 
     Args:
-        quat: Quaternion array of shape (..., 4) in [x, y, z, w] order
+        quat: Quaternion array of shape (..., 4) in [x, y, z, w] order (XYZW)
 
     Returns:
         Yaw angles in radians
     """
-    x, y, z, w = quat[..., 0], quat[..., 1], quat[..., 2], quat[..., 3]
+    # XYZW quaternion indices
+    QX, QY, QZ, QW = 0, 1, 2, 3
+    x, y, z, w = quat[..., QX], quat[..., QY], quat[..., QZ], quat[..., QW]
     siny_cosp = 2 * (w * z + x * y)
     cosy_cosp = 1 - 2 * (y * y + z * z)
     return np.arctan2(siny_cosp, cosy_cosp)

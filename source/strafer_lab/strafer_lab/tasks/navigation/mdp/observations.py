@@ -19,7 +19,9 @@ if TYPE_CHECKING:
     from isaaclab.managers import SceneEntityCfg
     from isaaclab.sensors import TiledCamera, Camera, Imu
 import warp as wp
-from strafer_lab.compat import ensure_torch
+
+# XYZW quaternion component indices (Isaac Lab 3.0 convention)
+QX, QY, QZ, QW = 0, 1, 2, 3
 
 
 # =============================================================================
@@ -382,7 +384,7 @@ def goal_heading_relative(env: ManagerBasedEnv, command_name: str) -> torch.Tens
 
     robot = env.scene["robot"]
     robot_quat = wp.to_torch(robot.data.root_quat_w)
-    x, y, z, w = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    x, y, z, w = robot_quat[:, QX], robot_quat[:, QY], robot_quat[:, QZ], robot_quat[:, QW]
     robot_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
     # Shortest signed angle
@@ -412,7 +414,7 @@ def goal_heading_to_goal(env: ManagerBasedEnv, command_name: str) -> torch.Tenso
     robot = env.scene["robot"]
     robot_pos_w = wp.to_torch(robot.data.root_pos_w)[:, :2]
     robot_quat = wp.to_torch(robot.data.root_quat_w)
-    x, y, z, w = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    x, y, z, w = robot_quat[:, QX], robot_quat[:, QY], robot_quat[:, QZ], robot_quat[:, QW]
     robot_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
     # Bearing to goal
@@ -472,7 +474,7 @@ def privileged_ground_truth(env: ManagerBasedEnv, command_name: str) -> torch.Te
     to_goal = goal_pos_w - robot_pos_w
     goal_angle = torch.atan2(to_goal[:, 1], to_goal[:, 0])
     robot_quat = wp.to_torch(robot.data.root_quat_w)
-    x, y, z, w = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    x, y, z, w = robot_quat[:, QX], robot_quat[:, QY], robot_quat[:, QZ], robot_quat[:, QW]
     robot_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
     heading_err = torch.atan2(
         torch.sin(goal_angle - robot_yaw),
@@ -532,7 +534,7 @@ def depth_image(
     sensor: TiledCamera | Camera = env.scene.sensors[sensor_cfg.name]
 
     # Get depth image: shape (num_envs, height, width, 1)
-    depth = ensure_torch(sensor.data.output["distance_to_image_plane"]).clone()
+    depth = wp.to_torch(sensor.data.output["distance_to_image_plane"]).clone()
 
     # Replace inf/nan values with max_depth (nothing in range)
     depth = torch.where(
@@ -592,7 +594,7 @@ def rgb_image(
     sensor: TiledCamera | Camera = env.scene.sensors[sensor_cfg.name]
     
     # Get RGB image: shape (num_envs, height, width, 3)
-    rgb = ensure_torch(sensor.data.output["rgb"]).clone()
+    rgb = wp.to_torch(sensor.data.output["rgb"]).clone()
     
     # Convert uint8 [0, 255] to float [0, 1]
     rgb = rgb.float() / 255.0

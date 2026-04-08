@@ -67,6 +67,9 @@ from strafer_lab.tasks.navigation.mdp.terminations import goal_reached
 from test.common.stats import one_sample_t_test
 import warp as wp
 
+# XYZW quaternion component indices (Isaac Lab 3.0 convention)
+QX, QY, QZ, QW = 0, 1, 2, 3
+
 
 def test_heading_reward_config_uses_goal_direction():
     """Configured heading shaping should use potential-based heading progress."""
@@ -305,7 +308,7 @@ def _goal_direction_body_frame(env) -> torch.Tensor:
     world_dir = delta / (torch.norm(delta, dim=-1, keepdim=True) + 1e-8)
 
     # Robot yaw from quaternion (x, y, z, w in IsaacLab 3.0) — full formula
-    x, y, z, w = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    x, y, z, w = robot_quat[:, QX], robot_quat[:, QY], robot_quat[:, QZ], robot_quat[:, QW]
     yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
     cos_y = torch.cos(yaw)
     sin_y = torch.sin(yaw)

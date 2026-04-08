@@ -441,7 +441,9 @@ def _yaw_to_quat(yaw: torch.Tensor) -> torch.Tensor:
     """
     half = yaw / 2.0
     zeros = torch.zeros_like(yaw)
-    return torch.stack([zeros, zeros, torch.sin(half), torch.cos(half)], dim=-1)
+    # XYZW: [x=0, y=0, z=sin(yaw/2), w=cos(yaw/2)]
+    quat = torch.stack([zeros, zeros, torch.sin(half), torch.cos(half)], dim=-1)
+    return quat
 
 
 def _pack_wall_segments(

@@ -64,7 +64,6 @@ from . import mdp
 
 # Import robot configuration
 from strafer_lab.assets import STRAFER_CFG
-from strafer_lab.compat import IDENTITY_QUAT
 
 # Import sim-real contracts and helper functions
 from .sim_real_cfg import (
@@ -224,7 +223,7 @@ class StraferSceneCfg_NoCam(InteractiveSceneCfg):
         update_period=1.0 / 200.0,
         offset=ImuCfg.OffsetCfg(
             pos=(0.20, 0.0, 0.25),
-            rot=IDENTITY_QUAT,
+            rot=(0.0, 0.0, 0.0, 1.0),  # identity quaternion (XYZW)
         ),
         gravity_bias=(0.0, 0.0, 9.81),
     )
@@ -1366,7 +1365,7 @@ class StraferSceneCfg_ProcRoom_NoCam(InteractiveSceneCfg):
         update_period=1.0 / 200.0,
         offset=ImuCfg.OffsetCfg(
             pos=(0.20, 0.0, 0.25),
-            rot=IDENTITY_QUAT,
+            rot=(0.0, 0.0, 0.0, 1.0),  # identity quaternion (XYZW)
         ),
         gravity_bias=(0.0, 0.0, 9.81),
     )

@@ -37,6 +37,10 @@ from strafer_lab.tasks.navigation.strafer_env_cfg import (
     ObsCfg_NoCam_Realistic,
 )
 import warp as wp
+
+# XYZW quaternion component indices (Isaac Lab 3.0 convention)
+QX, QY, QZ, QW = 0, 1, 2, 3
+
 from strafer_lab.tasks.navigation.mdp.rewards import (
     collision_penalty_net,
     collision_sustained_penalty_net,
@@ -137,7 +141,7 @@ def _place_obstacle_in_front(env, distance: float = 0.4):
     robot_quat = wp.to_torch(robot.data.root_quat_w)
     env_origins = get_env_origins(env)
 
-    x, y, z, w = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    x, y, z, w = robot_quat[:, QX], robot_quat[:, QY], robot_quat[:, QZ], robot_quat[:, QW]
     yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
     root_pose = wp.to_torch(obstacle.data.default_root_pose).clone()[:num_envs]

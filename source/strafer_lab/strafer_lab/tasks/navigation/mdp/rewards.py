@@ -14,6 +14,9 @@ if TYPE_CHECKING:
     from isaaclab.managers import SceneEntityCfg
 import warp as wp
 
+# XYZW quaternion component indices (Isaac Lab 3.0 convention)
+QX, QY, QZ, QW = 0, 1, 2, 3
+
 
 def goal_reached_reward(
     env: ManagerBasedEnv,
@@ -120,7 +123,7 @@ def heading_to_goal_reward(
     goal_angle = torch.atan2(to_goal[:, 1], to_goal[:, 0])
 
     # Robot heading (yaw from quaternion, XYZW — Isaac Lab 3.0)
-    x, y, z, w = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    x, y, z, w = robot_quat[:, QX], robot_quat[:, QY], robot_quat[:, QZ], robot_quat[:, QW]
     robot_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
     # Angular difference
@@ -169,7 +172,7 @@ def heading_progress_reward(
     goal_angle = torch.atan2(to_goal[:, 1], to_goal[:, 0])
 
     # Robot heading (XYZW — Isaac Lab 3.0)
-    x, y, z, w = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    x, y, z, w = robot_quat[:, QX], robot_quat[:, QY], robot_quat[:, QZ], robot_quat[:, QW]
     robot_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
     # Current potential: cos(heading_error)
@@ -252,7 +255,7 @@ def arrival_heading_reward(
 
     robot = env.scene["robot"]
     robot_quat = wp.to_torch(robot.data.root_quat_w)
-    x, y, z, w = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    x, y, z, w = robot_quat[:, QX], robot_quat[:, QY], robot_quat[:, QZ], robot_quat[:, QW]
     robot_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
     angle_diff = desired_heading - robot_yaw

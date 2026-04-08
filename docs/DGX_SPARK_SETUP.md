@@ -445,38 +445,18 @@ Items that still need attention to complete the Isaac Lab 2.x → 3.0 migration.
 **File:** `strafer_lab/tasks/navigation/agents/rsl_rl_ppo_cfg.py` line 131
 
 The depth-training runner config still uses the deprecated `policy` field with
-`handle_deprecated_rsl_rl_cfg()`.  Refactor `StraferActorCritic` into separate
-actor and critic models and migrate to `actor=RslRlCNNModelCfg` /
-`critic=RslRlMLPModelCfg`.
+`handle_deprecated_rsl_rl_cfg()`.  `StraferActorCritic` uses a custom Beta
+(AffineBeta) distribution and DEFM/EfficientNet CNN encoder that cannot be
+mapped to the stock `RslRlCNNModelCfg` / `GaussianDistributionCfg`.  The
+deprecated `policy` field with the deprecation shim is the only safe way to
+keep using this custom model until Isaac Lab adds `BetaDistributionCfg` or
+a generic custom-model escape hatch.
 
-### 2. Eliminate `compat.py` — dead-code removal and inline migration
+### 2. ~~Eliminate `compat.py`~~ ✅ DONE
 
-**File:** `strafer_lab/compat.py`
-
-Most compat wrappers are **dead code** — never imported or called anywhere:
-
-| Dead symbol | Line | Purpose |
-|---|---|---|
-| `write_root_state` | 111 | Callers already use `write_root_pose_to_sim_index` / `write_root_velocity_to_sim_index` directly |
-| `write_joint_state` | 123 | Callers already use `write_joint_position_to_sim_index` / `write_joint_velocity_to_sim_index` directly |
-| `get_root_view` | 143 | Callers already use `asset.root_view` directly |
-| `get_body_link_pos_w` | 155 | Callers already use `data.body_link_pos_w` directly |
-| `get_body_link_quat_w` | 160 | Callers already use `data.body_link_quat_w` directly |
-| `write_body_link_pose` | 165 | `proc_room.py:807` calls `.write_body_link_pose_to_sim_index` directly |
-| `set_identity_quat` | 75 | Never called |
-| `set_yaw_quat` | 81 | Never called |
-| `extract_yaw` | 58 | Never called (manual inline used instead) |
-| `yaw_to_quat_tensor` | 67 | Never called |
-| `make_quat_tuple` | 51 | Never called |
-| `QX`, `QY`, `QZ` | 41/43 | Never imported (only `QW` is used) |
-
-**Still in use** (3 symbols — inline these, then delete compat.py):
-
-| Symbol | Call sites |
-|---|---|
-| `ensure_torch` | `observations.py:535, 595` — replace with direct `wp.to_torch()` |
-| `IDENTITY_QUAT` | `strafer_env_cfg.py:227, 1368` — replace with `(0.0, 0.0, 0.0, 1.0)` |
-| `QW` | `events.py:463`, `test_events.py:362` — replace with literal `3` or inline constant |
+Deleted `compat.py`.  Inlined `ensure_torch` → `wp.to_torch()`,
+`IDENTITY_QUAT` → `(0.0, 0.0, 0.0, 1.0)`, and `QW` → module-level
+`QX, QY, QZ, QW = 0, 1, 2, 3` constants.
 
 ### 3. Replace `AppLauncher` with `--viz none`
 
@@ -489,28 +469,16 @@ app_launcher = AppLauncher(headless=True, enable_cameras=True)  # TODO: replace 
 When Isaac Lab 3.0 reaches stable release, replace `AppLauncher(headless=True,
 enable_cameras=True)` with the new `--viz none` CLI flag.
 
-### 4. Add electronics mass meshes to robot USD
+### 4. ~~Hardcoded XYZW quaternion indices~~ ✅ DONE
 
-**File:** `README.md` line 331
+All sites now use named `QX, QY, QZ, QW` constants defined at module level
+instead of raw `[:, 0]`..`[:, 3]` indices.  Files updated: `rewards.py`,
+`observations.py`, `events.py`, `proc_room.py`, `test_rewards.py`,
+`test_collision_rewards.py`, `test_imu_collision.py`, `test/actions/conftest.py`.
 
-Add USD meshes with rigid bodies for RoboClaw motor controllers (×2), Jetson
-Orin Nano, buck converter, and Intel RealSense D555 camera.  Each should be
-positioned in the USD and given its catalog mass in `setup_physics.py`.
+### 5. `depth_noise` test suite — `torch.device.is_cpu` error
 
-### 5. Hardcoded XYZW quaternion indices (fragile but correct)
-
-These sites use raw `[:, 0]`..`[:, 3]` to unpack XYZW quaternions.  They work
-on the develop branch but will break if the convention changes again (or if
-backported to 2.x).  Consider using `QW`/`QX`/`QY`/`QZ` from compat (or
-hardcoded constants) for clarity.
-
-| File | Lines |
-|---|---|
-| `mdp/rewards.py` | 123, 160, 547–550 |
-| `mdp/observations.py` | 385, 415, 475 |
-| `mdp/events.py` | 55–56, 120–121, 510–511 |
-| `mdp/proc_room.py` | 440–446 |
-| `test/actions/conftest.py` | 386 |
-| `test/rewards/test_rewards.py` | 305 |
-| `test/rewards/test_collision_rewards.py` | 140 |
-| `test/sensors/test_imu_collision.py` | 143 |
+The 6 `depth_noise` tests fail with `AttributeError: 'torch.device' object
+has no attribute 'is_cpu'` from within warp/torch interop.  Pre-existing
+issue — not related to migration changes.  Likely a PyTorch 2.10 / warp 1.12
+compatibility gap on aarch64.

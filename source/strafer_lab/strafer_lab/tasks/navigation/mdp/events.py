@@ -15,7 +15,9 @@ import torch
 import warp as wp
 
 from isaaclab.utils.math import quat_from_euler_xyz, quat_apply
-from strafer_lab.compat import QW
+
+# XYZW quaternion component indices (Isaac Lab 3.0 convention)
+QX, QY, QZ, QW = 0, 1, 2, 3
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -52,9 +54,9 @@ def reset_robot_state(
     
     # Convert yaw to quaternion (x, y, z, w) — XYZW (Isaac Lab 3.0)
     quat = torch.zeros(num_resets, 4, device=device)
-    quat[:, 2] = torch.sin(yaw / 2)  # z
-    quat[:, 3] = torch.cos(yaw / 2)  # w
-    
+    quat[:, QZ] = torch.sin(yaw / 2)  # z
+    quat[:, QW] = torch.cos(yaw / 2)  # w
+
     # Set robot state (positions are relative to each env's origin)
     root_pose = wp.to_torch(robot.data.default_root_pose)[env_ids].clone()
     env_origins = env.scene.env_origins[env_ids]
@@ -117,8 +119,8 @@ def reset_robot_state_on_floor(
 
     # Convert yaw to quaternion (x, y, z, w) — XYZW (Isaac Lab 3.0)
     quat = torch.zeros(num_resets, 4, device=device)
-    quat[:, 2] = torch.sin(yaw / 2)
-    quat[:, 3] = torch.cos(yaw / 2)
+    quat[:, QZ] = torch.sin(yaw / 2)
+    quat[:, QW] = torch.cos(yaw / 2)
 
     root_pose = wp.to_torch(robot.data.default_root_pose)[env_ids].clone()
     env_origins = env.scene.env_origins[env_ids]
@@ -507,8 +509,8 @@ def reset_robot_proc_room(
 
     # Convert yaw to quaternion (x, y, z, w) — XYZW (Isaac Lab 3.0)
     quat = torch.zeros(num_resets, 4, device=device)
-    quat[:, 2] = torch.sin(yaw / 2)
-    quat[:, 3] = torch.cos(yaw / 2)
+    quat[:, QZ] = torch.sin(yaw / 2)
+    quat[:, QW] = torch.cos(yaw / 2)
 
     root_pose = wp.to_torch(robot.data.default_root_pose)[env_ids].clone()
     env_origins = env.scene.env_origins[env_ids]

@@ -22,7 +22,10 @@ import torch
 import pytest
 
 import warp as wp
-from strafer_lab.compat import QW
+
+# XYZW quaternion component indices (Isaac Lab 3.0 convention)
+QX, QY, QZ, QW = 0, 1, 2, 3
+
 from strafer_lab.tasks.navigation.mdp.events import (
     reset_robot_state,
     randomize_friction,

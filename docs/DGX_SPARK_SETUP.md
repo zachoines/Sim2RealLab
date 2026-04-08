@@ -476,9 +476,11 @@ instead of raw `[:, 0]`..`[:, 3]` indices.  Files updated: `rewards.py`,
 `observations.py`, `events.py`, `proc_room.py`, `test_rewards.py`,
 `test_collision_rewards.py`, `test_imu_collision.py`, `test/actions/conftest.py`.
 
-### 5. `depth_noise` test suite — `torch.device.is_cpu` error
+### 5. ~~`depth_noise` test suite — `torch.device.is_cpu` error~~ ✅ DONE
 
-The 6 `depth_noise` tests fail with `AttributeError: 'torch.device' object
-has no attribute 'is_cpu'` from within warp/torch interop.  Pre-existing
-issue — not related to migration changes.  Likely a PyTorch 2.10 / warp 1.12
-compatibility gap on aarch64.
+Fixed by adding a `_to_torch()` guard in `observations.py` that handles both
+`wp.array` (TiledCamera) and `torch.Tensor` (Camera) inputs.  Calling
+`wp.to_torch()` on an already-torch tensor crashed because `torch.device`
+has no `is_cpu` attribute (warp's `Device` does).  This was a regression from
+deleting `compat.py`'s `ensure_torch()` which had the same guard.
+All 6 depth_noise tests now pass.  **353/353 tests pass.**

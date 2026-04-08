@@ -24,6 +24,18 @@ import warp as wp
 QX, QY, QZ, QW = 0, 1, 2, 3
 
 
+def _to_torch(x: object) -> torch.Tensor:
+    """Convert *x* to a ``torch.Tensor``.
+
+    Camera sensor data may be a ``wp.array`` (TiledCamera) or already a
+    ``torch.Tensor`` (Camera).  ``wp.to_torch()`` only accepts warp arrays,
+    so guard against the torch-tensor case.
+    """
+    if isinstance(x, torch.Tensor):
+        return x
+    return wp.to_torch(x)
+
+
 # =============================================================================
 # GoBilda 5203 Motor Encoder Constants
 # =============================================================================
@@ -534,7 +546,7 @@ def depth_image(
     sensor: TiledCamera | Camera = env.scene.sensors[sensor_cfg.name]
 
     # Get depth image: shape (num_envs, height, width, 1)
-    depth = wp.to_torch(sensor.data.output["distance_to_image_plane"]).clone()
+    depth = _to_torch(sensor.data.output["distance_to_image_plane"]).clone()
 
     # Replace inf/nan values with max_depth (nothing in range)
     depth = torch.where(
@@ -594,7 +606,7 @@ def rgb_image(
     sensor: TiledCamera | Camera = env.scene.sensors[sensor_cfg.name]
     
     # Get RGB image: shape (num_envs, height, width, 3)
-    rgb = wp.to_torch(sensor.data.output["rgb"]).clone()
+    rgb = _to_torch(sensor.data.output["rgb"]).clone()
     
     # Convert uint8 [0, 255] to float [0, 1]
     rgb = rgb.float() / 255.0

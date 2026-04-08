@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+
+_logger = logging.getLogger(__name__)
+
 from dataclasses import asdict, dataclass, field, is_dataclass
 from threading import Event, Lock, Thread
 import time
@@ -651,6 +655,10 @@ class MissionRunner(MissionCommandHandler):
                 runtime.latest_goal_pose = candidate
 
             if not candidate.found or candidate.goal_pose is None:
+                _logger.warning(
+                    "Projection failed: found=%s message=%s",
+                    candidate.found, candidate.message,
+                )
                 return self._failed_result(
                     step,
                     message=candidate.message or "Projection did not produce a reachable goal pose.",
@@ -658,6 +666,12 @@ class MissionRunner(MissionCommandHandler):
                     started_at=started_at,
                     outputs=self._goal_pose_outputs(candidate),
                 )
+            gp = candidate.goal_pose
+            _logger.info(
+                "Projected goal pose: (%.3f, %.3f, %.3f) flags=%s msg=%s",
+                gp.x, gp.y, gp.z,
+                candidate.quality_flags, candidate.message,
+            )
             return SkillResult(
                 step_id=step.step_id,
                 skill=step.skill,

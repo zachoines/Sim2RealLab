@@ -133,14 +133,12 @@ def main():
     from isaaclab_tasks.utils.hydra import load_cfg_from_registry
     from isaaclab.envs.common import ViewerCfg
 
-    # Import strafer_lab to register environments and inject custom network
+    # Import strafer_lab to register environments
     import strafer_lab  # noqa: F401
     from strafer_lab.tasks.navigation.agents import (
-        register_strafer_network,
         install_strafer_ppo,
         register_auxiliary,
     )
-    register_strafer_network()
 
     # Let aux modules define their own CLI args, then re-parse remainder.
     from strafer_lab.tasks.navigation.agents.aux_dapg import DAPGAuxiliary

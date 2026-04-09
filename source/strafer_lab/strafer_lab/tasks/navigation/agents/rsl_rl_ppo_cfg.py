@@ -13,9 +13,11 @@ from isaaclab_rl.rsl_rl import (
     RslRlOnPolicyRunnerCfg,
     RslRlMLPModelCfg,
     RslRlRNNModelCfg,
-    RslRlPpoActorCriticRecurrentCfg,
     RslRlPpoAlgorithmCfg,
 )
+
+from .distributions import BetaDistributionCfg
+from .depth_rnn_model import StraferDepthRNNModelCfg
 
 
 # =============================================================================
@@ -126,25 +128,38 @@ STRAFER_PPO_LSTM_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
 # initial BC gradient triggers the KL controller to kill LR before RL starts.
 # =============================================================================
 
-# TODO(isaaclab-3.0): Refactor StraferActorCritic into separate actor/critic
-# models and migrate to actor=RslRlCNNModelCfg / critic=RslRlMLPModelCfg.
-# Currently uses deprecated `policy` field with handle_deprecated_rsl_rl_cfg().
 STRAFER_PPO_DEPTH_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
     num_steps_per_env=48,
     max_iterations=10000,
     save_interval=100,
     experiment_name="strafer_navigation_depth",
-    empirical_normalization=True,
-    obs_groups={"policy": ["policy"], "critic": ["critic"]},
-    policy=RslRlPpoActorCriticRecurrentCfg(
-        class_name="StraferActorCritic",
-        init_noise_std=0.3,
-        actor_hidden_dims=[256, 128],
-        critic_hidden_dims=[256, 128],
+    empirical_normalization=False,
+    obs_groups={"actor": ["policy"], "critic": ["critic"]},
+    actor=StraferDepthRNNModelCfg(
+        hidden_dims=[256, 128],
         activation="elu",
+        obs_normalization=True,
+        distribution_cfg=BetaDistributionCfg(
+            init_std=0.3,
+            min_concentration=0.2,
+        ),
         rnn_type="gru",
         rnn_hidden_dim=128,
         rnn_num_layers=1,
+        depth_encoder_type="defm",
+        defm_model_name="efficientnet_b0",
+        depth_embedding_dim=128,
+    ),
+    critic=StraferDepthRNNModelCfg(
+        hidden_dims=[256, 128],
+        activation="elu",
+        obs_normalization=True,
+        rnn_type="gru",
+        rnn_hidden_dim=128,
+        rnn_num_layers=1,
+        depth_encoder_type="defm",
+        defm_model_name="efficientnet_b0",
+        depth_embedding_dim=128,
     ),
     algorithm=RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,

@@ -32,7 +32,7 @@ from strafer_lab.tasks.navigation.agents.rsl_rl_ppo_cfg import (
     STRAFER_PPO_LSTM_RUNNER_CFG,
     STRAFER_PPO_RUNNER_CFG,
 )
-from strafer_lab.tasks.navigation.agents.strafer_network import StraferActorCritic
+from strafer_lab.tasks.navigation.agents.distributions import AffineBetaDistribution
 from strafer_lab.tasks.navigation.mdp.rewards import (
     _point_to_oriented_box_distance_xy,
     _sum_exponential_clearance_penalty,
@@ -94,83 +94,59 @@ def test_procroom_run1_config_stabilizes_episode_returns():
     assert STRAFER_PPO_DEPTH_RUNNER_CFG.algorithm.entropy_coef == 0.005
 
 
-def test_strafer_actor_critic_initializes_symmetric_beta_from_init_noise_std():
-    """The Beta head should start centered at zero with the requested action std."""
-    obs = {
-        "policy": torch.zeros(2, 8, dtype=torch.float32),
-        "critic": torch.zeros(2, 8, dtype=torch.float32),
-    }
-    policy = StraferActorCritic(
-        obs=obs,
-        obs_groups={"policy": ["policy"], "critic": ["critic"]},
-        num_actions=3,
-        actor_hidden_dims=[16],
-        critic_hidden_dims=[16],
-        init_noise_std=0.3,
-    )
+def test_beta_distribution_initializes_symmetric_from_init_std():
+    """The Beta distribution should start centered at zero with the requested action std."""
+    num_actions = 3
+    dist = AffineBetaDistribution(output_dim=num_actions, init_std=0.3)
 
-    policy.act(obs)
+    # Build a tiny MLP matching input_dim = [2, num_actions]
+    mlp = torch.nn.Linear(8, 2 * num_actions)
+    dist.init_mlp_weights(mlp)
+
+    obs = torch.zeros(2, 8, dtype=torch.float32)
+    logits = mlp(obs).view(2, 2, num_actions)
+    dist.update(logits)
 
     torch.testing.assert_close(
-        policy.action_std[0],
-        torch.full((3,), 0.3, dtype=torch.float32),
+        dist.std[0],
+        torch.full((num_actions,), 0.3, dtype=torch.float32),
         atol=1.0e-4,
         rtol=1.0e-4,
     )
     torch.testing.assert_close(
-        policy.action_mean[0],
-        torch.zeros(3, dtype=torch.float32),
+        dist.mean[0],
+        torch.zeros(num_actions, dtype=torch.float32),
         atol=1.0e-6,
         rtol=1.0e-6,
     )
 
 
-def test_strafer_actor_critic_bounds_actions_and_log_probs():
-    """Beta actor samples, means, entropy, and inference outputs should be well-formed."""
-    obs = {
-        "policy": torch.zeros(4, 8, dtype=torch.float32),
-        "critic": torch.zeros(4, 8, dtype=torch.float32),
-    }
-    policy = StraferActorCritic(
-        obs=obs,
-        obs_groups={"policy": ["policy"], "critic": ["critic"]},
-        num_actions=3,
-        actor_hidden_dims=[16],
-        critic_hidden_dims=[16],
-        init_noise_std=0.3,
-    )
+def test_beta_distribution_bounds_actions_and_log_probs():
+    """Beta distribution samples, means, entropy, and log probs should be well-formed."""
+    num_actions = 3
+    dist = AffineBetaDistribution(output_dim=num_actions, init_std=0.3)
 
-    sampled = policy.act(obs)
-    inferred = policy.act_inference(obs)
-    log_prob = policy.get_actions_log_prob(sampled)
+    mlp = torch.nn.Linear(8, 2 * num_actions)
+    dist.init_mlp_weights(mlp)
+
+    obs = torch.zeros(4, 8, dtype=torch.float32)
+    logits = mlp(obs).view(4, 2, num_actions)
+    dist.update(logits)
+
+    sampled = dist.sample()
+    mean = dist.mean
+    log_prob = dist.log_prob(sampled)
+    det_output = dist.deterministic_output(logits)
 
     assert torch.all(sampled <= 1.0)
     assert torch.all(sampled >= -1.0)
-    assert torch.all(inferred <= 1.0)
-    assert torch.all(inferred >= -1.0)
-    assert torch.all(policy.action_mean <= 1.0)
-    assert torch.all(policy.action_mean >= -1.0)
-    torch.testing.assert_close(inferred, policy.action_mean)
+    assert torch.all(mean <= 1.0)
+    assert torch.all(mean >= -1.0)
+    assert torch.all(det_output <= 1.0)
+    assert torch.all(det_output >= -1.0)
+    torch.testing.assert_close(det_output, mean)
     assert torch.isfinite(log_prob).all()
-    assert torch.isfinite(policy.entropy).all()
-
-
-def test_strafer_actor_critic_requires_matched_actor_and_critic_obs():
-    """The custom network should reject asymmetric actor/critic observation sizes."""
-    obs = {
-        "policy": torch.zeros(2, 8, dtype=torch.float32),
-        "critic": torch.zeros(2, 9, dtype=torch.float32),
-    }
-
-    with pytest.raises(ValueError, match="same flattened shape"):
-        StraferActorCritic(
-            obs=obs,
-            obs_groups={"policy": ["policy"], "critic": ["critic"]},
-            num_actions=3,
-            actor_hidden_dims=[16],
-            critic_hidden_dims=[16],
-            init_noise_std=0.3,
-        )
+    assert torch.isfinite(dist.entropy).all()
 
 
 def test_runner_cfgs_clip_actions_to_normalized_range():

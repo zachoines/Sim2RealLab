@@ -806,4 +806,4 @@ def generate_proc_room(
     # Write all 44 objects in one batched call
     collection = env.scene[collection_name]
     all_object_ids = torch.arange(NUM_OBJECTS, device=device)
-    collection.write_body_link_pose_to_sim_index(poses, env_ids, all_object_ids)
+    collection.write_body_link_pose_to_sim_index(body_poses=poses, env_ids=env_ids, body_ids=all_object_ids)

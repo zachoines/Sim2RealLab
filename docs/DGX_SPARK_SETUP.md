@@ -440,17 +440,15 @@ robot.root_view.set_material_properties(
 
 Items that still need attention to complete the Isaac Lab 2.x → 3.0 migration.
 
-### 1. Refactor `STRAFER_PPO_DEPTH_RUNNER_CFG` (deprecated `policy` field)
+### 1. ~~Refactor `STRAFER_PPO_DEPTH_RUNNER_CFG` (deprecated `policy` field)~~ ✅ DONE
 
-**File:** `strafer_lab/tasks/navigation/agents/rsl_rl_ppo_cfg.py` line 131
-
-The depth-training runner config still uses the deprecated `policy` field with
-`handle_deprecated_rsl_rl_cfg()`.  `StraferActorCritic` uses a custom Beta
-(AffineBeta) distribution and DEFM/EfficientNet CNN encoder that cannot be
-mapped to the stock `RslRlCNNModelCfg` / `GaussianDistributionCfg`.  The
-deprecated `policy` field with the deprecation shim is the only safe way to
-keep using this custom model until Isaac Lab adds `BetaDistributionCfg` or
-a generic custom-model escape hatch.
+Migrated to separate `actor`/`critic` configs using custom extensions:
+- `AffineBetaDistribution(Distribution)` in `distributions.py` — implements
+  rsl_rl 5.0's 13-method Distribution interface for bounded `[-1, 1]` actions.
+- `StraferDepthRNNModel(RNNModel)` in `depth_rnn_model.py` — extends RNNModel
+  with integrated depth encoding (DeFM/EfficientNet or legacy CNN).
+- Both resolved automatically via `resolve_callable()` from config `class_name`.
+- `StraferActorCritic` kept with deprecation notice for legacy checkpoint loading.
 
 ### 2. ~~Eliminate `compat.py`~~ ✅ DONE
 

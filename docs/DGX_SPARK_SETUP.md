@@ -440,23 +440,7 @@ robot.root_view.set_material_properties(
 
 Items that still need attention to complete the Isaac Lab 2.x → 3.0 migration.
 
-### 1. ~~Refactor `STRAFER_PPO_DEPTH_RUNNER_CFG` (deprecated `policy` field)~~ ✅ DONE
-
-Migrated to separate `actor`/`critic` configs using custom extensions:
-- `AffineBetaDistribution(Distribution)` in `distributions.py` — implements
-  rsl_rl 5.0's 13-method Distribution interface for bounded `[-1, 1]` actions.
-- `StraferDepthRNNModel(RNNModel)` in `depth_rnn_model.py` — extends RNNModel
-  with integrated depth encoding (DeFM/EfficientNet or legacy CNN).
-- Both resolved automatically via `resolve_callable()` from config `class_name`.
-- `StraferActorCritic` kept with deprecation notice for legacy checkpoint loading.
-
-### 2. ~~Eliminate `compat.py`~~ ✅ DONE
-
-Deleted `compat.py`.  Inlined `ensure_torch` → `wp.to_torch()`,
-`IDENTITY_QUAT` → `(0.0, 0.0, 0.0, 1.0)`, and `QW` → module-level
-`QX, QY, QZ, QW = 0, 1, 2, 3` constants.
-
-### 3. Replace `AppLauncher` with `--viz none`
+### 1. Replace `AppLauncher` with `--viz none`
 
 **File:** `test/conftest.py` line 17
 
@@ -466,19 +450,3 @@ app_launcher = AppLauncher(headless=True, enable_cameras=True)  # TODO: replace 
 
 When Isaac Lab 3.0 reaches stable release, replace `AppLauncher(headless=True,
 enable_cameras=True)` with the new `--viz none` CLI flag.
-
-### 4. ~~Hardcoded XYZW quaternion indices~~ ✅ DONE
-
-All sites now use named `QX, QY, QZ, QW` constants defined at module level
-instead of raw `[:, 0]`..`[:, 3]` indices.  Files updated: `rewards.py`,
-`observations.py`, `events.py`, `proc_room.py`, `test_rewards.py`,
-`test_collision_rewards.py`, `test_imu_collision.py`, `test/actions/conftest.py`.
-
-### 5. ~~`depth_noise` test suite — `torch.device.is_cpu` error~~ ✅ DONE
-
-Fixed by adding a `_to_torch()` guard in `observations.py` that handles both
-`wp.array` (TiledCamera) and `torch.Tensor` (Camera) inputs.  Calling
-`wp.to_torch()` on an already-torch tensor crashed because `torch.device`
-has no `is_cpu` attribute (warp's `Device` does).  This was a regression from
-deleting `compat.py`'s `ensure_torch()` which had the same guard.
-All 6 depth_noise tests now pass.  **353/353 tests pass.**

@@ -356,3 +356,34 @@ def test_sustained_collision_counter_resets_on_episode_reset(env):
     assert max_counter == 0.0, (
         f"Counter not zeroed after episode reset: max = {max_counter:.1f}"
     )
+
+
+def test_sustained_collision_counter_clears_on_first_step_after_reset(env):
+    """Counter must not carry into the first env.step() of the next episode.
+
+    Isaac Lab increments ``episode_length_buf`` before evaluating DoneTerms
+    during ``env.step()``, so a reset guard that only checks for ``== 0``
+    misses the first post-reset step. Regress this exact carry-over case.
+    """
+    env.reset()
+    _warm_up_env(env, 5)
+
+    if hasattr(env, "_collision_step_count"):
+        del env._collision_step_count
+
+    sustained_collision(env, sensor_cfg=_CONTACT_CFG, threshold=1.0, max_steps=30)
+    env._collision_step_count[:] = 8.0
+
+    env.reset()
+
+    action = torch.zeros(env.num_envs, 3, device=env.device)
+    env.step(action)
+
+    max_counter = env._collision_step_count.max().item()
+
+    print(f"\n  sustained_collision (first step after reset):")
+    print(f"    Max counter after first env.step: {max_counter:.1f}")
+
+    assert max_counter == 0.0, (
+        f"Counter carried into first post-reset step: max = {max_counter:.1f}"
+    )

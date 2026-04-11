@@ -98,15 +98,19 @@ def sustained_collision(
     if not hasattr(env, "_collision_step_count"):
         env._collision_step_count = torch.zeros(env.num_envs, device=env.device)
 
+    # Isaac Lab increments episode_length_buf before computing terminations
+    # inside env.step(), so the first post-reset step sees episode_length_buf==1.
+    # Clear the stale counter before the leaky update so the new episode starts
+    # from zero whether the term is called directly after env.reset() or through
+    # the first env.step() after a reset.
+    reset_mask = env.episode_length_buf <= 1
+    env._collision_step_count[reset_mask] = 0.0
+
     # Leaky counter: +1 on contact, -0.5 on no-contact (clamp ≥ 0)
     env._collision_step_count = torch.where(
         has_collision,
         env._collision_step_count + 1.0,
         (env._collision_step_count - 0.5).clamp(min=0.0),
     )
-
-    # Reset counter on episode reset
-    reset_mask = env.episode_length_buf == 0
-    env._collision_step_count[reset_mask] = 0
 
     return env._collision_step_count >= max_steps

@@ -1316,8 +1316,11 @@ class StraferSceneCfg_ProcRoom(InteractiveSceneCfg):
     )
 
     # Intel RealSense D555 depth camera (near clip 0.01m, see StraferSceneCfg comment)
+    # RGB included alongside depth so the RTX renderer initializes the full
+    # colour pipeline — required for viewport / video recording to produce
+    # non-black frames even though observations only use depth.
     d555_camera: TiledCameraCfg = make_d555_camera_cfg(
-        data_types=("distance_to_image_plane",),
+        data_types=("rgb", "distance_to_image_plane"),
     )
 
     # Intel RealSense D555 IMU (same as StraferSceneCfg)

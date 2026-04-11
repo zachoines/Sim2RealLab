@@ -87,7 +87,7 @@ import isaaclab_tasks  # noqa: F401 — registers Isaac Lab tasks
 import strafer_lab.tasks  # noqa: F401 — registers Strafer tasks
 
 from isaaclab.envs.common import ViewerCfg
-from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry
+from isaaclab_tasks.utils import parse_env_cfg
 
 # ---------------------------------------------------------------------------
 # Pygame gamepad (lazy import — not available in headless servers)
@@ -324,14 +324,16 @@ class DemoWriter:
 # ---------------------------------------------------------------------------
 
 def main():
-    # Resolve the env config from the gym registry
-    env_cfg = load_cfg_from_registry(args_cli.task, "env_cfg_entry_point")
-    env_cfg.scene.num_envs = args_cli.num_envs
+    # Resolve the env config from the gym registry (parse_env_cfg resolves
+    # preset defaults and sets sim.device — matches test_strafer_env.py)
+    env_cfg = parse_env_cfg(
+        args_cli.task,
+        device=args_cli.device if hasattr(args_cli, "device") else "cuda:0",
+        num_envs=args_cli.num_envs,
+    )
 
-    # Sync UI with physics: render every physics step for accurate visual debugging
-    # if hasattr(env_cfg.sim, "render_interval"):
-    #     env_cfg.sim.render_interval = 1
-    #     print("[Demo] render_interval forced to 1 (UI synced with physics)")
+    # Sync UI with physics: render every step for responsive teleop
+    env_cfg.sim.render_interval = 1
 
     # Overhead camera aligned with world axes so stick directions match viewport:
     #   screen right = world +X,  screen up = world +Y

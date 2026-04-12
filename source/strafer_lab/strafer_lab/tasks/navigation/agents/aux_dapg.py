@@ -69,11 +69,11 @@ class DAPGAuxiliary(AuxiliaryLoss):
 
     def on_update_start(self, ppo) -> None:
         """Compute current lambda with linear decay."""
-        # One-time validation: demo obs_dim must match policy input dim
+        # One-time validation: demo obs_dim must match actor input dim
         if not self._validated:
             policy_obs_dim = sum(
                 ppo.storage.observations[g].shape[-1]
-                for g in ppo.policy.obs_groups["policy"]
+                for g in ppo.actor.obs_groups
             )
             demo_obs_dim = self.buffer.obs.shape[1]
             if demo_obs_dim != policy_obs_dim:
@@ -110,22 +110,19 @@ class DAPGAuxiliary(AuxiliaryLoss):
 
         # Save/reset/restore RNN hidden state and distribution for independent
         # demo samples. Restoring the distribution is critical when other
-        # auxiliaries (e.g., GAIL) read policy.action_mean after DAPG runs.
-        saved_dist = ppo.policy.distribution
-        if ppo.policy.is_recurrent:
-            saved_h_a = ppo.policy.memory_a.hidden_state
-            saved_h_c = ppo.policy.memory_c.hidden_state
-            ppo.policy.memory_a.reset()
-            ppo.policy.memory_c.reset()
+        # auxiliaries (e.g., GAIL) read actor distribution params after DAPG.
+        saved_dist = ppo.actor.distribution
+        if ppo.actor.is_recurrent:
+            saved_hidden = ppo.actor.get_hidden_state()
+            ppo.actor.reset()
 
-        ppo.policy.act(bc_obs_dict)
-        bc_log_prob = ppo.policy.get_actions_log_prob(bc_actions)
+        ppo.actor(bc_obs_dict, stochastic_output=True)
+        bc_log_prob = ppo.actor.get_output_log_prob(bc_actions)
 
-        # Restore policy state so subsequent auxiliaries see the PPO mini-batch
-        ppo.policy.distribution = saved_dist
-        if ppo.policy.is_recurrent:
-            ppo.policy.memory_a.reset(hidden_state=saved_h_a)
-            ppo.policy.memory_c.reset(hidden_state=saved_h_c)
+        # Restore actor state so subsequent auxiliaries see the PPO mini-batch
+        ppo.actor.distribution = saved_dist
+        if ppo.actor.is_recurrent:
+            ppo.actor.reset(hidden_state=saved_hidden)
 
         nll = -bc_log_prob.mean()
         return self.bc_lambda * nll, {

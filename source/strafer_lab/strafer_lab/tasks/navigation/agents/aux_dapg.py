@@ -79,9 +79,10 @@ class DAPGAuxiliary(AuxiliaryLoss):
             if demo_obs_dim != policy_obs_dim:
                 raise ValueError(
                     f"DAPG demo obs_dim={demo_obs_dim} but policy expects "
-                    f"{policy_obs_dim}. Recollect demos with a matching env "
-                    f"variant (NoCam for {demo_obs_dim}-dim, Depth for "
-                    f"{policy_obs_dim}-dim)."
+                    f"{policy_obs_dim}. Train with an env variant whose "
+                    f"obs_dim matches your demos (e.g. Depth for "
+                    f"{demo_obs_dim}-dim demos, NoCam for "
+                    f"{policy_obs_dim}-dim demos)."
                 )
             self._validated = True
 

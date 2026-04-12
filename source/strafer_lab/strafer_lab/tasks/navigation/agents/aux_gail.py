@@ -137,6 +137,21 @@ class GAILAuxiliary(AuxiliaryLoss):
         self.discriminator = nn.Sequential(*layers).to(self.device)
         self.disc_optimizer = optim.Adam(self.discriminator.parameters(), lr=self.disc_lr)
 
+        # Validate expert demo dimensions match the actor's obs space
+        demo_obs_dim = self.buffer.obs.shape[1]
+        policy_obs_dim = sum(
+            ppo.storage.observations[g].shape[-1]
+            for g in ppo.actor.obs_groups
+        )
+        if demo_obs_dim != policy_obs_dim:
+            raise ValueError(
+                f"GAIL demo obs_dim={demo_obs_dim} but policy expects "
+                f"{policy_obs_dim}. Train with an env variant whose "
+                f"obs_dim matches your demos (e.g. Depth for "
+                f"{demo_obs_dim}-dim demos, NoCam for "
+                f"{policy_obs_dim}-dim demos)."
+            )
+
         print(f"[GAILAuxiliary] Discriminator built: input_dim={input_dim} "
               f"(encoded_obs={enc_dim} + act={self.act_dim})")
 

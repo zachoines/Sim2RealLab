@@ -31,34 +31,42 @@ location, realizes nothing is wrong, and reports success. Simple heuristics
 like bbox size or center offset are fragile — the operator may intentionally
 position the robot far from the target, making size-based thresholds arbitrary.
 
-**Proposal: semantic map verification.** After `navigate_to_pose` completes,
-verify arrival by comparing the robot's current surroundings against the
-semantic spatial map (Section 1):
+**Proposal: ranking-based semantic map verification.** After `navigate_to_pose`
+completes, verify arrival by asking a *ranking* question — not a threshold
+question. Instead of "is cosine similarity > 0.75?" (a magic number that
+varies by model, environment, and fine-tuning), ask: "does this location
+look more like the goal area than like anywhere else in my map?"
+
+**Verification flow:**
 
 1. Capture a new RGB frame at the arrival pose.
 2. Compute a CLIP embedding of the frame.
-3. Query ChromaDB for the nearest semantic map node to the robot's current pose.
-4. Compare the CLIP embedding of the arrival frame against the stored
-   embedding(s) at and near the target node.
-5. If the visual similarity is above a configurable threshold **and** the
-   spatial distance is within tolerance, the step succeeds.
-6. If the environment doesn't match expectations (low embedding similarity,
-   or the semantic map says this region looks nothing like where the target
-   should be), fail with `arrival_verification_failed`.
+3. Query ChromaDB for the **top-k nearest neighbors** (k=5) across the
+   entire map.
+4. Check whether the top results are **spatially clustered near the goal
+   pose** (within `goal_radius_m`, default 3.0m).
+5. **Decision logic** (threshold-free):
+   - If **majority** (>=3 of 5) of top-k results are near the goal pose →
+     **pass**. The arrival frame looks most like goal-area observations.
+   - If **majority** of top-k results are from a different region → **fail**
+     with `arrival_verification_failed`. The robot is somewhere that looks
+     like a different part of the map.
+   - If top-k results are **mixed** or the map is too sparse to judge →
+     **uncertain**. Log warning, pass with `verified: false, reason: inconclusive`.
+   - If **no map data** exists near the goal → **skip** (first visit,
+     graceful degradation).
 
-**Why this is more robust than bbox-area checks:**
-- Works regardless of the robot's intended standoff distance from the target.
-- Catches cases where the VLM hallucinated a detection — the robot arrives at
-  a location that visually doesn't match where the target was previously seen.
-- Leverages persistent environmental memory rather than a single-frame snapshot.
-- Graceful degradation: if the semantic map has no data for a region (first
-  visit), skip verification and log a warning.
+**Why ranking beats thresholds:**
+- Works regardless of CLIP model variant, fine-tuning, or L2 normalization.
+- Transfers across environments without recalibration.
+- Leverages the full map as context — the same frame that would score 0.6
+  (below a fixed threshold) against one node might still be the *best match*
+  for the goal area relative to all alternatives.
+- Graceful degradation: with a sparse map, the system is uncertain rather
+  than wrong.
 
-**Implementation sketch.** The `verify_arrival` skill does not exist yet. It
-will be registered in `DEFAULT_AVAILABLE_SKILLS` and dispatched from
-`MissionRunner._execute_step`. The `SkillCall` emitted by the planner uses
-`runtime.latest_grounding.label` (not the planner-side `MissionIntent`, which
-is not accessible at skill dispatch time):
+**Implementation sketch.** The `verify_arrival` skill is registered in
+`DEFAULT_AVAILABLE_SKILLS` and dispatched from `MissionRunner._execute_step`.
 
 ```python
 SkillCall(
@@ -66,16 +74,17 @@ SkillCall(
     skill="verify_arrival",
     args={
         "target_label": runtime.latest_grounding.label,  # set by planner compiler
-        "max_spatial_distance_m": 2.0,
-        "min_visual_similarity": 0.75,        # CLIP cosine similarity threshold
-        "fallback_on_empty_map": "pass",      # "pass" or "fail" when no map data
+        "goal_radius_m": 3.0,       # how close top-k results must be to goal
+        "top_k": 5,                 # number of nearest neighbors to retrieve
+        "majority": 3,              # how many of top_k must be near goal
+        "fallback_on_empty_map": "pass",  # "pass" or "fail" when no map data
     },
     timeout_s=10.0,
     retry_limit=1,
 )
 ```
 
-The handler is a `MissionRunner` method with this signature:
+The handler:
 
 ```python
 def _verify_arrival(
@@ -96,28 +105,38 @@ def _verify_arrival(
     observation: SceneObservation = self._ros_client.capture_scene_observation()
     arrival_image_rgb = self._bgr_to_rgb(observation.color_image_bgr)
 
-    # 3. Get the robot's current pose.
+    # 3. Get the robot's current pose and goal pose.
     robot_state = self._ros_client.get_robot_state()
-    robot_pose: dict | None = robot_state["pose"]  # x/y/z/qx/qy/qz/qw or None
+    robot_pose: dict | None = robot_state["pose"]
     if robot_pose is None:
         return self._failed_result(
             step, "No robot pose available for arrival verification.",
             "no_pose", started_at,
         )
 
-    # 4. Compute CLIP embedding and query semantic map (Section 1 APIs).
-    arrival_embedding = self._semantic_map.clip_encoder.encode_image(arrival_image_rgb)
-    nearest_node = self._semantic_map.query_nearest(
-        x=robot_pose["x"], y=robot_pose["y"],
-        max_distance_m=float(step.args.get("max_spatial_distance_m", 2.0)),
-    )
+    goal_pose = runtime.latest_goal_pose
+    if goal_pose is None:
+        return self._failed_result(
+            step, "No goal pose available for arrival verification.",
+            "no_goal_pose", started_at,
+        )
+    goal_xy = np.array([goal_pose.goal_pose.x, goal_pose.goal_pose.y])
 
-    # 5. Compare embeddings.
-    if nearest_node is None:
+    # 4. CLIP encode arrival frame and retrieve top-k from entire map.
+    arrival_embedding = self._semantic_map.clip_encoder.encode_image(arrival_image_rgb)
+    top_k = int(step.args.get("top_k", 5))
+    goal_radius_m = float(step.args.get("goal_radius_m", 3.0))
+    majority = int(step.args.get("majority", 3))
+
+    results = self._semantic_map.query_by_embedding(
+        embedding=arrival_embedding, n_results=top_k,
+    )
+    # Returns list of (node, similarity) sorted by similarity descending.
+
+    if not results:
         fallback = str(step.args.get("fallback_on_empty_map", "pass"))
         if fallback == "pass":
-            _logger.warning("No semantic map data near (%.2f, %.2f); skipping verification.",
-                            robot_pose["x"], robot_pose["y"])
+            _logger.warning("No semantic map data; skipping verification.")
             return SkillResult(
                 step_id=step.step_id, skill=step.skill, status="succeeded",
                 outputs={"verified": False, "reason": "no_map_data"},
@@ -129,27 +148,57 @@ def _verify_arrival(
             "arrival_verification_failed", started_at,
         )
 
-    similarity = float(np.dot(arrival_embedding, nearest_node.embedding))
-    min_sim = float(step.args.get("min_visual_similarity", 0.75))
-    if similarity < min_sim:
+    # 5. Ranking decision: are top-k results near the goal?
+    near_goal_count = 0
+    for node, sim in results:
+        node_xy = np.array([node.pose.x, node.pose.y])
+        if np.linalg.norm(node_xy - goal_xy) <= goal_radius_m:
+            near_goal_count += 1
+
+    if near_goal_count >= majority:
+        return SkillResult(
+            step_id=step.step_id, skill=step.skill, status="succeeded",
+            outputs={
+                "verified": True,
+                "near_goal_count": near_goal_count,
+                "top_k": top_k,
+            },
+            message=f"Arrival verified ({near_goal_count}/{top_k} top matches near goal).",
+            started_at=started_at, finished_at=time.time(),
+        )
+    else:
+        # Where DO the top results think we are?
+        top_regions = [
+            f"({n.pose.x:.1f},{n.pose.y:.1f})" for n, _ in results[:3]
+        ]
         return self._failed_result(
             step,
-            f"Visual similarity {similarity:.3f} < threshold {min_sim:.3f}.",
+            f"Arrival mismatch: only {near_goal_count}/{top_k} top matches "
+            f"near goal. Top-3 matches at: {', '.join(top_regions)}.",
             "arrival_verification_failed", started_at,
         )
-
-    return SkillResult(
-        step_id=step.step_id, skill=step.skill, status="succeeded",
-        outputs={"verified": True, "similarity": similarity},
-        message=f"Arrival verified (similarity {similarity:.3f}).",
-        started_at=started_at, finished_at=time.time(),
-    )
 ```
 
 **Where this runs.** CLIP embedding is computed locally on the Jetson
-(OpenCLIP ViT-B/32, see Section 1.8). ChromaDB and NetworkX queries are local.
-The VLM is not needed for verification — this is a pure embedding similarity
+(OpenCLIP ViT-B/32 ONNX, see Section 1.8). ChromaDB queries are local.
+The VLM is not needed for verification — this is a pure embedding retrieval
 check, keeping the safety decision entirely on the robot.
+
+**`query_by_embedding` API.** `SemanticMapManager` must expose a method
+that queries ChromaDB by raw embedding vector (not text, not spatial):
+
+```python
+def query_by_embedding(
+    self, embedding: np.ndarray, n_results: int = 5,
+) -> list[tuple[SemanticNode, float]]:
+    """Retrieve top-n nodes most similar to the given CLIP embedding."""
+    results = self._collection.query(
+        query_embeddings=[embedding.tolist()],
+        n_results=n_results,
+    )
+    # Unpack ChromaDB response into (SemanticNode, similarity) pairs
+    ...
+```
 
 ### 0.2 Costmap collision pre-check
 
@@ -363,6 +412,181 @@ if speed > VEL_LIMIT:
 This guards against runaway controller output. The check lives in the driver
 node (closest to the hardware) so it cannot be bypassed by higher-level
 software faults.
+
+### 0.6 Transit monitoring via BackgroundMapper
+
+**Problem.** Between `scan_for_target` and `verify_arrival`, the robot
+drives blind for 30-90 seconds. If it goes off course (bad projection,
+RTAB-Map drift, Nav2 replanning around obstacles), nothing detects the
+error until arrival — wasting the entire transit.
+
+**Proposal: ranking-based transit monitoring.** Piggyback on
+`BackgroundMapper`'s existing 2-second capture cycle during active
+navigation. At each capture, ask: "which part of my map does my current
+frame look most like?" Track how the **nearest-neighbor region** shifts
+over consecutive captures:
+
+```text
+Expected progression (robot driving from dining room to living room):
+  t=0s:  Top-3 nearest → all dining room nodes
+  t=4s:  Top-3 → 2 dining room, 1 hallway         (transitioning)
+  t=8s:  Top-3 → 2 hallway, 1 living room          (on track)
+  t=12s: Top-3 → 3 living room nodes near goal      (approaching ✓)
+
+Failure case (robot takes wrong turn into bedroom):
+  t=0s:  Top-3 → all dining room nodes
+  t=4s:  Top-3 → 2 dining room, 1 hallway
+  t=8s:  Top-3 → 2 hallway, 1 bedroom               (diverging!)
+  t=12s: Top-3 → 3 bedroom nodes                     (wrong room → abort)
+```
+
+**No thresholds.** The decision is purely relative — "are my nearest
+neighbors getting closer to the goal, or drifting into a different
+region?" This transfers across models, environments, and fine-tuning.
+
+**TransitMonitor integration with BackgroundMapper:**
+
+```python
+class TransitMonitor:
+    """Tracks nearest-neighbor region drift during navigation.
+
+    Activated when navigate_to_pose starts. Piggybacks on
+    BackgroundMapper's 2-second capture cycle.
+    """
+
+    def __init__(self, semantic_map: SemanticMapManager):
+        self._semantic_map = semantic_map
+        self._goal_xy: np.ndarray | None = None
+        self._goal_radius_m: float = 3.0
+        self._history: list[dict] = []
+        self._consecutive_divergences: int = 0
+        self._active = False
+
+    def activate(self, goal_pose, goal_radius_m: float = 3.0):
+        """Called by MissionRunner when navigate_to_pose starts."""
+        self._goal_xy = np.array([goal_pose.x, goal_pose.y])
+        self._goal_radius_m = goal_radius_m
+        self._history = []
+        self._consecutive_divergences = 0
+        self._active = True
+
+    def deactivate(self):
+        """Called when navigation completes or is canceled."""
+        self._active = False
+        self._goal_xy = None
+
+    def check(self, clip_embedding: np.ndarray, robot_xy: np.ndarray) -> dict:
+        """Called by BackgroundMapper at each capture during navigation.
+
+        Returns status dict: {"on_track": bool, "abort": bool, ...}
+        """
+        if not self._active or self._goal_xy is None:
+            return {"on_track": True, "abort": False, "reason": "inactive"}
+
+        # Query top-3 nearest neighbors in the map
+        results = self._semantic_map.query_by_embedding(
+            embedding=clip_embedding, n_results=3,
+        )
+
+        if len(results) < 2:
+            # Map too sparse to judge
+            return {"on_track": True, "abort": False, "reason": "sparse_map"}
+
+        # How many of the top-3 are near the goal area?
+        near_goal = sum(
+            1 for node, _ in results
+            if np.linalg.norm(
+                np.array([node.pose.x, node.pose.y]) - self._goal_xy
+            ) <= self._goal_radius_m
+        )
+
+        # How many are near where the robot currently is?
+        near_robot = sum(
+            1 for node, _ in results
+            if np.linalg.norm(
+                np.array([node.pose.x, node.pose.y]) - robot_xy
+            ) <= 2.0
+        )
+
+        snapshot = {
+            "robot_xy": robot_xy.tolist(),
+            "near_goal": near_goal,
+            "near_robot": near_robot,
+            "top_regions": [
+                (n.pose.x, n.pose.y) for n, _ in results
+            ],
+        }
+        self._history.append(snapshot)
+
+        # Divergence detection: top matches are NOT near the goal
+        # AND NOT near the robot's expected path toward the goal.
+        # If all top matches are from an unrelated region for 3+
+        # consecutive captures, the robot has gone off course.
+        if near_goal == 0 and len(self._history) >= 3:
+            # Check if the top-match region is consistent but wrong
+            recent = self._history[-3:]
+            all_off_course = all(h["near_goal"] == 0 for h in recent)
+            if all_off_course:
+                self._consecutive_divergences += 1
+                if self._consecutive_divergences >= 1:
+                    return {
+                        "on_track": False,
+                        "abort": True,
+                        "reason": "transit_divergence",
+                        "message": (
+                            f"Top-3 matches from wrong region for "
+                            f"{len(recent)} consecutive captures. "
+                            f"Latest top matches at: {snapshot['top_regions']}"
+                        ),
+                    }
+        else:
+            self._consecutive_divergences = 0
+
+        return {"on_track": True, "abort": False, "reason": "ok"}
+```
+
+**BackgroundMapper integration:**
+
+During active navigation, `BackgroundMapper` calls
+`transit_monitor.check()` at each capture and reports divergence via a
+thread-safe flag that `MissionRunner` polls:
+
+```python
+# In BackgroundMapper._capture_loop (during active navigation):
+clip_emb = self._semantic_map.clip_encoder.encode_image(image_rgb)
+self._semantic_map.add_observation(pose=pose, clip_embedding=clip_emb, source="background")
+
+if self._transit_monitor.is_active:
+    status = self._transit_monitor.check(clip_emb, robot_xy)
+    if status["abort"]:
+        self._divergence_flag.set()  # threading.Event
+        _logger.warning("Transit divergence: %s", status["message"])
+```
+
+```python
+# In MissionRunner._navigate_to_pose (polling loop):
+while not result_future.done():
+    if self._background_mapper.divergence_detected():
+        goal_handle.cancel_goal_async()
+        return SkillResult(
+            status="failed",
+            error_code="transit_divergence",
+            message="Navigation aborted: robot appears off course.",
+        )
+    time.sleep(0.5)
+```
+
+**First-visit limitation.** With an empty or sparse map, transit
+monitoring gracefully degrades — it returns `"sparse_map"` and does
+not abort. The system builds the map during the first traversal via
+BackgroundMapper, and subsequent navigations benefit from transit
+monitoring. This is inherent to any memory-based approach: you can't
+validate against observations you've never made.
+
+**Async and non-blocking.** Transit monitoring adds no latency to
+navigation. CLIP encoding (~20ms on Jetson ONNX) already happens in
+BackgroundMapper's thread. The check is a ChromaDB query (~5ms) on
+top of work already being done.
 
 ---
 
@@ -596,18 +820,21 @@ for:
 
 They are just not separately embedded.
 
-**On similarity thresholds.** There is no universal "right" threshold.
-Cosine similarity values depend on the CLIP model variant, whether
-embeddings are L2-normalized, and the visual diversity of the environment.
-The practical approach:
+**On ranking vs. thresholds.** All CLIP-based decisions in the autonomy
+stack use **ranking** (retrieval + spatial clustering) rather than fixed
+cosine similarity thresholds. A hardcoded threshold like `> 0.75` is:
+- Dependent on the model variant, fine-tuning, and L2 normalization
+- Fragile across environments (a score of 0.6 might be "clearly the same
+  room" in one building and "barely related" in another)
+- Not transferable — requires recalibration after every model update
 
-- Start with `min_visual_similarity = 0.7` for query-before-scan and
-  `0.75` for arrival verification (stricter — safety-critical).
-- Log every comparison with its similarity score during real missions.
-- Tune based on the observed distribution of true positives vs. false
-  positives.
-- Different query types may warrant different thresholds — this is exposed
-  via `SkillCall.args` rather than a global constant.
+Ranking-based decisions ask "which part of my map does this look like
+most?" rather than "is this score above some number?" This transfers
+across models, environments, and fine-tuning runs because it uses the
+map itself as context.
+
+See Section 0.1 (verify_arrival), Section 0.6 (transit monitoring), and
+query-before-scan (Section 1.7) for the specific ranking approaches.
 
 All embeddings are stored in a single ChromaDB collection with metadata
 distinguishing the source (scan, arrival, describe, background).
@@ -998,7 +1225,13 @@ the initial implementation:
 
 The most immediate optimization the semantic map enables. This block is added
 at the top of `MissionRunner._scan_for_target`, before the rotation loop,
-and short-circuits the full scan when the target was recently observed:
+and short-circuits the full scan when the target was recently observed.
+
+Uses **ranking** instead of a fixed similarity threshold: capture the
+current frame, CLIP encode it, and ask "is the stored target node the
+top retrieval result for my current view?" If the target's stored
+observation is the best match in the entire map, the environment still
+looks like it did when the target was last seen — no need to re-scan.
 
 ```python
 def _scan_for_target(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
@@ -1009,13 +1242,13 @@ def _scan_for_target(self, runtime: _MissionRuntime, step: SkillCall) -> SkillRe
     if not label:
         return self._failed_result(step, "scan_for_target is missing 'label'.", "invalid_args", started_at)
 
-    # --- NEW: query-before-scan short-circuit ---
+    # --- NEW: query-before-scan short-circuit (ranking-based) ---
     max_map_age_s = float(step.args.get("max_map_age_s", 300))
 
     if self._semantic_map is not None:
         known = self._semantic_map.query_by_label(label, max_age_s=max_map_age_s)
         if known is not None:
-            # Target was seen recently -- verify the scene still looks similar
+            # Target was seen recently -- verify via ranking
             try:
                 observation = self._ros_client.capture_scene_observation()
                 with self._lock:
@@ -1023,35 +1256,44 @@ def _scan_for_target(self, runtime: _MissionRuntime, step: SkillCall) -> SkillRe
 
                 image_rgb = self._bgr_to_rgb(observation.color_image_bgr)
                 current_clip = self._semantic_map.clip_encoder.encode_image(image_rgb)
-                stored_clip = self._semantic_map.get_clip_embedding(known.clip_embedding_id)
-                similarity = float(self._semantic_map.cosine_similarity(current_clip, stored_clip))
 
-                if similarity > 0.7:
-                    _logger.info(
-                        "Query-before-scan hit: label=%s node=%s sim=%.3f",
-                        label, known.node_id, similarity,
-                    )
-                    return SkillResult(
-                        step_id=step.step_id,
-                        skill=step.skill,
-                        status="succeeded",
-                        outputs={
-                            "source": "semantic_map",
-                            "node_id": known.node_id,
-                            "clip_similarity": similarity,
-                            "pose_x": known.pose.x,
-                            "pose_y": known.pose.y,
-                            "pose_yaw": known.pose.yaw,
-                        },
-                        message=f"Target '{label}' found in semantic map (sim={similarity:.2f}), skipping scan.",
-                        started_at=started_at,
-                        finished_at=time.time(),
-                    )
-                else:
-                    _logger.info(
-                        "Query-before-scan miss: label=%s sim=%.3f < 0.7, falling through to scan.",
-                        label, similarity,
-                    )
+                # Ask: is the target's stored node the top retrieval match
+                # for what I'm currently seeing?
+                top_results = self._semantic_map.query_by_embedding(
+                    embedding=current_clip, n_results=3,
+                )
+
+                if top_results:
+                    top_node, top_sim = top_results[0]
+                    target_xy = np.array([known.pose.x, known.pose.y])
+                    top_xy = np.array([top_node.pose.x, top_node.pose.y])
+                    top_near_target = np.linalg.norm(top_xy - target_xy) < 2.0
+
+                    if top_near_target:
+                        _logger.info(
+                            "Query-before-scan hit: label=%s, top match near target node=%s",
+                            label, top_node.node_id,
+                        )
+                        return SkillResult(
+                            step_id=step.step_id,
+                            skill=step.skill,
+                            status="succeeded",
+                            outputs={
+                                "source": "semantic_map",
+                                "node_id": known.node_id,
+                                "pose_x": known.pose.x,
+                                "pose_y": known.pose.y,
+                                "pose_yaw": known.pose.yaw,
+                            },
+                            message=f"Target '{label}' found in semantic map (top match near target), skipping scan.",
+                            started_at=started_at,
+                            finished_at=time.time(),
+                        )
+                    else:
+                        _logger.info(
+                            "Query-before-scan miss: label=%s, top match at (%.1f,%.1f) not near target (%.1f,%.1f), falling through.",
+                            label, top_xy[0], top_xy[1], target_xy[0], target_xy[1],
+                        )
             except Exception:
                 _logger.debug("Query-before-scan failed, falling through to scan.", exc_info=True)
 
@@ -2529,6 +2771,24 @@ policy input), focal length 1.93 mm, horizontal aperture 3.68 mm, clip range
 0.01-6.0 m (sim) with real min range 0.4 m handled by nearfield fill, update
 rate 30 Hz, mounted at (0.20, 0.0, 0.25) m from `body_link`.
 
+
+**Platform allocation.** The synthetic data pipeline spans three machines:
+
+| Workload | Platform | Why |
+|----------|----------|-----|
+| Infinigen scene generation + metadata extraction | DGX Spark (128GB unified) | High-quality scenes need VRAM; metadata extraction needs Blender Python state |
+| Scene description pipeline (Stages 1-2) | DGX Spark | VLM (Qwen2.5-VL-7B) loaded standalone via transformers |
+| Isaac Sim + teleop data collection | DGX Spark or Windows workstation | Whichever machine runs Isaac Sim; DGX preferred for VRAM headroom |
+| Replicator bbox extraction | Runs with Isaac Sim | Same machine as data collection |
+| CLIP / VLM fine-tuning | DGX Spark | GPU training |
+| Model serving (planner, VLM) | DGX Spark | Already deployed |
+| RL policy training | Windows workstation or DGX Spark | Existing Isaac Lab setup |
+
+The DGX Spark (Grace Blackwell, 128GB+ unified memory) can run Infinigen
+generation, Isaac Sim, and model serving concurrently. The Windows workstation
+(GTX 4080, 16GB VRAM) serves as a secondary/backup or continues RL training.
+
+
 ### 5.2 What strafer_lab already provides
 
 The simulation environments are already configured with the infrastructure
@@ -2544,54 +2804,160 @@ needed for data generation:
 | **Gamepad demo collection** (`collect_demos.py`) | World-frame teleop, HDF5 output (`obs`, `actions`, `rewards` per episode) | Template for perception data collection |
 | **30 registered environments** | 5 scene types x 3 realism levels x 2 modes (Train/Play) | Complete sim infrastructure ready to tap |
 
+
 ### 5.3 Infinigen as a labeled object source
 
 Infinigen (Princeton procedural generation) creates realistic indoor scenes
 with full semantic knowledge -- every object has a class label, mesh, material,
-and pose **inside the Infinigen pipeline**. However, the current integration
-only partially preserves this information.
+and pose **inside the Infinigen pipeline**. The metadata is richer than
+originally assumed.
 
-**What works today:**
+**What Infinigen provides during generation (Blender Python `State` object):**
 
-- Infinigen generates Blender scenes with per-object labels and categories.
-- `prep_room_usds.py` converts these to USD and places them at `/World/Room`.
-- `scenes_metadata.json` provides `spawn_points_xy` per scene for robot
-  placement.
-- The geometry renders correctly with materials, lighting, and occlusion.
+| Metadata | Type | Example |
+|----------|------|---------|
+| Room type | `Semantics` enum | Kitchen, Bedroom, LivingRoom, Hallway, Bathroom, Office, etc. |
+| Room footprint | `shapely.Polygon` | 2D boundary geometry per room |
+| Room dimensions | `(width, height, wall_height)` | Per-room area and height |
+| Room connectivity | `RoomGraph` adjacency matrix | Which rooms connect to which |
+| Multi-story | `GroundFloor`, `SecondFloor` tags | Floor/story assignment |
+| Object semantic tags | `set[Semantics]` | `{Furniture, Seating, Chair}` (hierarchical) |
+| Spatial relations | `RelationState` list | `SupportedBy`, `StableAgainst`, `CoPlanar`, `Touching` |
+| Object 3D bbox | 8-corner vertex array | From `saved_mesh.json` / `instance_bbox` |
+| Materials | Material slot names | Per-object material assignments |
+| Instance hierarchy | Parent-child tree | `children` list per object |
 
-**What does NOT work today:**
+**Semantic tag categories available:**
 
-- `prep_room_usds.py` imports geometry as USD meshes but **does not preserve
-  Infinigen's semantic labels**. The per-object class names, category tags,
-  and instance IDs from Blender are dropped during USD conversion.
-- The env exposes no per-object semantic labels through the `info` dict.
-  There is no `info["scene_objects"]` or similar structure.
-- Extracting labels at runtime would require either (a) modifying
-  `prep_room_usds.py` to embed Infinigen labels as USD prim metadata, or
-  (b) parsing the USD scene graph at `/World/Room` to recover prim names
-  and match them against Infinigen's internal naming conventions.
+- **Room types:** Kitchen, Bedroom, LivingRoom, DiningRoom, Closet, Hallway,
+  Bathroom, Garage, Balcony, Utility, StaircaseRoom, Warehouse, Office,
+  MeetingRoom, OpenOffice, BreakRoom, Restroom, FactoryOffice
+- **Furniture functions:** Storage, Seating, LoungeSeating, Table, Bathing,
+  SideTable, Desk, Bed, Sink, CeilingLight, Lighting, KitchenCounter,
+  KitchenAppliance
+- **Small objects:** TableDisplayItem, OfficeShelfItem, KitchenCounterItem,
+  FoodPantryItem, BathroomItem, ShelfTrinket, Dishware, Cookware, Utensils
+- **Spatial:** Door, Window, Entrance, WallDecoration, FloorMat
+
+**What does NOT survive export to USD by default:**
+
+- Semantic tags and spatial relations live in Blender's Python `State` object
+  during generation -- they are NOT written to `saved_mesh.json` or USD
+- `saved_mesh.json` has object names, bboxes, materials, hierarchy -- but
+  not the `Semantics` tags or `RelationState` data
+- Segmentation masks encode labels via integer IDs mapped through
+  `MaskTag.json`, but not in a form Replicator can use directly
 
 **What needs to be built:**
 
-1. **Configure Infinigen to output labels at generation time.** Rather than
-   recovering labels from existing unlabeled USDs, configure the Infinigen
-   generation pipeline to write `semanticLabel` and `instanceId` as custom
-   USD prim attributes on each object during scene creation. These attributes
-   are what the Isaac Sim Replicator `bounding_box_2d_tight` and
-   `semantic_segmentation` annotators read to produce labeled bboxes.
-2. **Per-scene label manifest** -- extend `scenes_metadata.json` with a
-   per-scene `objects` list containing each object's label, instance ID,
-   prim path, and 3D bbox. This avoids parsing USD at runtime.
-3. **Runtime label accessor** -- a utility that reads the manifest and
-   provides label sets, object counts, and prim-to-label mappings for
-   data collection scripts.
+1. **Metadata extraction during Blender generation.** Hook into Infinigen's
+   generation pipeline to serialize the rich Python state before/after USD
+   export. This writes room types, object tags, spatial relations, and room
+   geometry to a structured JSON alongside the USD:
+
+   ```python
+   # During Infinigen scene generation (Blender Python)
+   def extract_scene_metadata(state, output_path: Path):
+       metadata = {
+           "rooms": [],
+           "objects": [],
+           "room_adjacency": state.room_graph.adjacency,
+       }
+       for room in state.rooms:
+           metadata["rooms"].append({
+               "room_type": room.semantics.name,  # "Kitchen", "Hallway", etc.
+               "footprint_xy": list(room.polygon.exterior.coords),
+               "area_m2": room.polygon.area,
+               "story": room.story,
+           })
+       for obj in state.objects:
+           tags = [t.name for t in obj.tags if isinstance(t, Semantics)]
+           relations = []
+           for rel in obj.relations:
+               relations.append({
+                   "type": type(rel).__name__,  # "SupportedBy", "StableAgainst"
+                   "target": rel.target.name if rel.target else None,
+               })
+           metadata["objects"].append({
+               "label": infer_label(obj),  # map tags to human-readable label
+               "semantic_tags": tags,
+               "instance_id": obj.instance_id,
+               "prim_path": f"/World/Room/{obj.name}",
+               "position_3d": obj.position.tolist(),
+               "bbox_3d": {"min": obj.bbox_min.tolist(), "max": obj.bbox_max.tolist()},
+               "room_idx": obj.room_index,
+               "relations": relations,
+               "materials": [m.name for m in obj.materials],
+           })
+       with open(output_path / "scene_metadata.json", "w") as f:
+           json.dump(metadata, f, indent=2)
+   ```
+
+2. **USD prim labeling.** Write `semanticLabel` and `instanceId` as custom
+   USD prim attributes on each object so Replicator annotators
+   (`bounding_box_2d_tight`, `semantic_segmentation`) can produce labeled
+   output:
+   ```python
+   from pxr import Usd, Sdf
+   stage = Usd.Stage.Open(scene_usd_path)
+   for prim in stage.Traverse():
+       if prim.GetTypeName() in ("Mesh", "Xform"):
+           label = metadata_lookup(prim.GetName())
+           if label:
+               prim.CreateAttribute("semanticLabel", Sdf.ValueTypeNames.String).Set(label)
+               prim.CreateAttribute("instanceId", Sdf.ValueTypeNames.Int).Set(instance_id)
+   stage.Save()
+   ```
+
+3. **Runtime label accessor** -- a utility that reads `scene_metadata.json`
+   and provides room types, label sets, object positions, spatial relations,
+   and room footprints for data collection scripts and the description
+   pipeline (Section 5.6).
+
+**Resulting `scene_metadata.json` structure:**
+
+```json
+{
+  "rooms": [
+    {
+      "room_type": "Kitchen",
+      "footprint_xy": [[0,0], [4,0], [4,3], [0,3]],
+      "area_m2": 12.0,
+      "story": 0
+    },
+    {
+      "room_type": "Hallway",
+      "footprint_xy": [[4,0], [6,0], [6,3], [4,3]],
+      "area_m2": 6.0,
+      "story": 0
+    }
+  ],
+  "room_adjacency": [[0, 1], [1, 0]],
+  "objects": [
+    {
+      "label": "table",
+      "semantic_tags": ["Furniture", "KitchenCounter"],
+      "instance_id": 1,
+      "prim_path": "/World/Room/table_001",
+      "position_3d": [2.0, 1.5, 0.0],
+      "bbox_3d": {"min": [1.5, 1.0, 0.0], "max": [2.5, 2.0, 0.8]},
+      "room_idx": 0,
+      "relations": [
+        {"type": "SupportedBy", "target": null},
+        {"type": "StableAgainst", "target": "wall_segment_3"}
+      ],
+      "materials": ["wood_oak", "wood_finish"]
+    }
+  ]
+}
+```
 
 Note: ProcRoom scenes use solid-color primitives (boxes, cylinders, cones)
-that are not useful for VLM perception training. ProcRoom data is valuable
-for depth/navigation training and CLIP contrastive pairs (visual place
-recognition) but should be excluded from VLM grounding fine-tuning datasets.
-Infinigen scenes with realistic labeled objects are the primary source for
-VLM and grounding data.
+that are not useful for VLM or CLIP perception training. ProcRoom data is
+valuable for RL policy training and depth/navigation data but must be
+excluded from perception fine-tuning datasets. Infinigen scenes with
+realistic labeled objects are the primary source for all perception data.
+
 
 ### 5.4 Fine-tuning targets
 
@@ -2602,11 +2968,106 @@ VLM and grounding data.
 | **Goal projection** | Depth frames with known ground-truth object distances | More accurate standoff distance estimation from depth + bbox | Robot stops closer to the intended distance from the target |
 | **RL navigation policy** | Full episodes with RGB/depth observations (existing Role 1) | Reactive obstacle avoidance in cluttered environments | Smoother navigation in dynamic scenes |
 
+
 ### 5.5 Synthetic data collection pipeline
 
-A new data collection script, modeled after the existing `collect_demos.py`
-but for perception rather than control. The code below uses the actual
+A perception data collection script, modeled after the existing
+`collect_demos.py` but capturing (RGB, depth, pose, bbox, label) tuples
+instead of (obs, action, reward) tuples. The code below uses the actual
 strafer_lab API surface.
+
+#### 5.5.1 Controller strategy
+
+The controller determines how the robot moves through environments during
+data collection. The quality of perception training data depends heavily on
+the viewpoint distribution matching real deployment.
+
+**Why scripted strategies fail:**
+
+| Strategy | Problem |
+|----------|---------|
+| Random walk | Collides with obstacles, gets stuck in corners, doesn't explore meaningfully |
+| Goal-seeking | No obstacle avoidance -- walks straight through furniture |
+| Scripted patrol | Fixed waypoints, collides along the way |
+| Trained RL policy | Trained on 80x60, collision-heavy, doesn't match real navigation behavior |
+
+None of these produce trajectories resembling real deployment, where the
+robot navigates around obstacles, through doorways, along hallways.
+
+**Two-phase approach:**
+
+| Phase | Controller | Scale | When |
+|-------|-----------|-------|------|
+| **Phase A (MVP)** | Human gamepad teleop | 50-100 episodes | Now (Phase 15) |
+| **Phase B (Scalable)** | ROS bridge + Nav2 autonomy | 1000+ episodes | After bridge setup (Section 5.9) |
+
+**Phase A** uses the existing `collect_demos.py` gamepad teleop infrastructure
+(world-to-body frame transform, HDF5 output pattern) adapted for perception
+data capture. A human operator drives the robot through Infinigen scenes,
+producing trajectories that naturally match real deployment behavior.
+
+**Phase B** runs the full autonomy stack (Nav2 MPPI, RTAB-Map or static map)
+against the simulated robot via the Isaac Sim ROS2 Bridge (Section 5.9).
+The executor code is identical to real deployment -- same topics, same TF
+tree, same planner/VLM calls. This produces data at the exact deployment
+distribution with zero human effort.
+
+#### 5.5.2 Camera resolution
+
+The current sim camera in `d555_cfg.py` outputs 80x60 for RL policy
+training. Perception training requires 640x360 -- the resolution used on the
+real robot for VLM grounding and depth-based goal projection.
+
+**Solution: dual camera configuration.**
+
+```python
+# d555_cfg.py -- add a second camera for perception data collection
+D555_PERCEPTION_CAMERA_CFG = TiledCameraCfg(
+    prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link/d555_camera_perception",
+    update_period=D555_CAMERA_UPDATE_PERIOD,  # 1/30 = 30 Hz
+    height=360,
+    width=640,
+    data_types=("rgb", "distance_to_image_plane"),
+    spawn=PinholeCameraCfg(
+        focal_length=D555_FOCAL_LENGTH,       # 1.93 mm
+        horizontal_aperture=D555_H_APERTURE,  # 3.68 mm
+        clipping_range=(0.01, DEPTH_CLIP_FAR),
+    ),
+    offset=OffsetCfg(
+        pos=D555_CAMERA_OFFSET_POS,   # (0.20, 0.0, 0.25)
+        rot=D555_CAMERA_OFFSET_ROT,   # ROS convention quaternion
+        convention="ros",
+    ),
+)
+```
+
+The 80x60 policy camera remains for RL training. The 640x360 perception
+camera is only instantiated in perception data collection environments and
+the ROS bridge. At 640x360 with a single environment, Isaac Sim renders
+efficiently -- but only 1-8 environments can run simultaneously at this
+resolution (vs. 64+ at 80x60).
+
+#### 5.5.3 ProcRoom exclusion from perception pipeline
+
+ProcRoom environments use solid-color primitive shapes (boxes, cylinders,
+cones, capsules) with randomized colors. These are **not useful** for VLM
+or CLIP perception training:
+
+- A VLM fine-tuned on "locate the cyan box" won't generalize to real tables
+- CLIP embeddings of solid-color shapes don't transfer to real rooms
+- No `semanticLabel` USD prim attributes -- Replicator cannot produce
+  labeled bboxes
+
+ProcRoom remains valuable for RL policy training (obstacle avoidance,
+navigation) and depth-based distance estimation, but **all perception
+training data must come from Infinigen scenes** with realistic textures,
+materials, lighting, and labeled objects.
+
+Data collection scripts must tag frames with `"scene_type": "infinigen"` or
+`"scene_type": "procroom"`. The export pipeline (Section 5.5.5) excludes
+ProcRoom frames from CLIP and VLM training datasets.
+
+#### 5.5.4 PerceptionDataCollector
 
 ```python
 # scripts/collect_perception_data.py
@@ -2617,63 +3078,64 @@ from pathlib import Path
 
 class PerceptionDataCollector:
     """
-    Run the robot through sim environments while capturing
-    perception data for downstream fine-tuning.
+    Human-teleoperated perception data collection through Infinigen scenes.
 
-    Uses the Isaac Lab Gymnasium API and scene sensor handles
-    to extract RGB, depth, and pose data.
+    Uses the 640x360 perception camera (not the 80x60 policy camera)
+    and Replicator annotators for ground-truth bboxes.
+
+    Modeled after collect_demos.py but captures (RGB, depth, pose, bbox,
+    label) tuples instead of (obs, action, reward) tuples.
     """
 
-    def __init__(self, env, output_dir: Path):
+    def __init__(self, env, output_dir: Path, scene_name: str):
         self.env = env
         self.output_dir = output_dir
-        self.camera = env.scene["d555_camera"]
+        self.scene_name = scene_name
+        # 640x360 perception camera (NOT the 80x60 policy camera)
+        self.camera = env.scene["d555_camera_perception"]
+        self.bbox_extractor = ReplicatorBboxExtractor(
+            self.camera.render_product_path
+        )
+        self.gamepad = GamepadTeleop()  # world-to-body frame transform
 
     def collect_episode(self, episode_id: int, max_steps: int = 500) -> dict:
         obs_dict, info = self.env.reset()
         frames = []
 
         for step in range(max_steps):
-            action = self.get_action(obs_dict)
+            # Human drives via gamepad (same as collect_demos.py)
+            action = self.gamepad.get_action()
+            if action is None:
+                break  # operator ended episode
             obs_dict, reward, terminated, truncated, info = self.env.step(action)
 
-            # --- Camera data (accessed via scene sensor, NOT obs_dict) ---
-            # Shape: (num_envs, 60, 80, 4) RGBA uint8
+            # --- Camera data (640x360 perception camera) ---
+            # Shape: (num_envs, 360, 640, 4) RGBA uint8
             rgba = self.camera.data.output["rgb"]
-            rgb = rgba[..., :3]  # drop alpha -> (num_envs, 60, 80, 3)
-
-            # Shape: (num_envs, 60, 80, 1) float32 meters
+            rgb = rgba[..., :3]  # drop alpha -> (num_envs, 360, 640, 3)
+            # Shape: (num_envs, 360, 640, 1) float32 meters
             depth = self.camera.data.output["distance_to_image_plane"]
 
             # --- Poses ---
             cam_pos = self.camera.data.pos_w           # (num_envs, 3)
             cam_quat = self.camera.data.quat_w_world   # (num_envs, 4)
-            robot_pos = self.env.scene["robot"].data.root_pos_w    # (num_envs, 3)
-            robot_quat = self.env.scene["robot"].data.root_quat_w  # (num_envs, 4)
+            robot_pos = self.env.scene["robot"].data.root_pos_w
+            robot_quat = self.env.scene["robot"].data.root_quat_w
 
-            # --- ProcRoom ground truth (when available) ---
-            obstacle_positions = None
-            if hasattr(self.env, "_proc_room_active_mask"):
-                # (num_envs, 44) bool -- which obstacle slots are populated
-                active_mask = self.env._proc_room_active_mask
-                # Per-slot 3D positions; prim names like "furn_table_0"
-                # are the only "labels" available -- no semantic class names
-                obstacle_positions = (
-                    self.env.scene["obstacles"].data.object_pos_w  # (num_envs, 44, 3)
-                )
+            # --- Ground-truth bboxes from Replicator ---
+            bboxes = self.bbox_extractor.extract()
 
             frame_data = {
-                "rgb": rgb.cpu().numpy(),
-                "depth": depth.cpu().numpy(),
-                "cam_pos": cam_pos.cpu().numpy(),
-                "cam_quat": cam_quat.cpu().numpy(),
-                "robot_pos": robot_pos.cpu().numpy(),
-                "robot_quat": robot_quat.cpu().numpy(),
+                "rgb": rgb[0].cpu().numpy(),         # (360, 640, 3)
+                "depth": depth[0].cpu().numpy(),     # (360, 640, 1)
+                "cam_pos": cam_pos[0].cpu().numpy(),
+                "cam_quat": cam_quat[0].cpu().numpy(),
+                "robot_pos": robot_pos[0].cpu().numpy(),
+                "robot_quat": robot_quat[0].cpu().numpy(),
+                "bboxes": bboxes,
+                "scene_type": "infinigen",
+                "scene_name": self.scene_name,
             }
-            if obstacle_positions is not None:
-                frame_data["obstacle_positions"] = obstacle_positions.cpu().numpy()
-                frame_data["obstacle_active_mask"] = active_mask.cpu().numpy()
-
             frames.append(frame_data)
 
             if terminated.any() or truncated.any():
@@ -2682,75 +3144,103 @@ class PerceptionDataCollector:
         return self.save_episode(episode_id, frames)
 ```
 
-**Ground-truth 2D bounding boxes.** The current setup does NOT provide 2D
-bboxes out of the box. Two approaches to obtain them:
+**CLI interface** (follows `collect_demos.py` pattern):
 
-1. **Isaac Sim Replicator API** -- attach a `bounding_box_2d_tight` annotator
-   to the camera sensor via `omni.replicator.core`:
-   ```python
-   import omni.replicator.core as rep
-   annotator = rep.AnnotatorRegistry.get_annotator("bounding_box_2d_tight")
-   annotator.attach([camera_render_product_path])
-   bbox_data = annotator.get_data()
-   ```
-   This requires wiring the annotator to the camera's render product, which
-   is not yet done in `d555_cfg.py`.
+```bash
+python scripts/collect_perception_data.py \
+  --task Isaac-Strafer-Nav-Real-Infinigen-Depth-Play-v0 \
+  --scene scene_001 \
+  --output data/perception/ \
+  --max_episodes 20 \
+  --max_steps 500
+```
 
-2. **Manual projection** -- project known 3D object positions (from
-   `env.scene["obstacles"].data.object_pos_w`) through the camera intrinsics
-   (focal length 1.93 mm, aperture 3.68 mm, resolution 80x60) to pixel
-   coordinates. This gives center points; full bboxes require knowing each
-   object's 3D extent, which can be read from the USD prim bounds.
+**Ground-truth 2D bounding boxes** are extracted via the Isaac Sim
+Replicator API (`bounding_box_2d_tight` annotator). This requires:
+1. The 640x360 perception camera wired to a render product
+2. `semanticLabel` USD prim attributes on Infinigen objects (Section 5.3)
 
-For ProcRoom, approach 2 is simpler since the 44 obstacle slots have known
-primitive shapes (boxes, cylinders, etc.) with fixed dimensions. For Infinigen
-scenes, approach 1 is necessary since object geometry is arbitrary.
+```python
+import omni.replicator.core as rep
 
-**ProcRoom object inventory (44 total):**
+class ReplicatorBboxExtractor:
+    """Extract 2D bounding boxes and semantic labels via Replicator."""
 
-| Category | Count | Types |
-|----------|-------|-------|
-| Walls | 20 | 8 long (2.0 m), 8 medium (1.0 m), 4 short (0.5 m) |
-| Furniture | 8 | 2 tables, 2 shelves, 2 cabinets, 2 couches |
-| Clutter | 16 | 4 boxes, 2 cylinders, 2 flat, 2 spheres, 2 cones, 2 capsules, 2 tall cylinders |
+    def __init__(self, camera_render_product_path: str):
+        self._bbox_annotator = rep.AnnotatorRegistry.get_annotator(
+            "bounding_box_2d_tight"
+        )
+        self._bbox_annotator.attach([camera_render_product_path])
 
-All are primitive shapes with solid randomized colors. The only "labels" are
-prim names (e.g. `furn_table_0`, `clutter_box_2`). These names encode the
-object category, which is sufficient for training data labeling.
+    def extract(self) -> list[dict]:
+        bbox_data = self._bbox_annotator.get_data()
+        results = []
+        for bbox_entry in bbox_data["data"]:
+            results.append({
+                "label": bbox_entry.get("semanticLabel", "unknown"),
+                "bbox_2d": [
+                    int(bbox_entry["x_min"]),
+                    int(bbox_entry["y_min"]),
+                    int(bbox_entry["x_max"]),
+                    int(bbox_entry["y_max"]),
+                ],
+                "instance_id": bbox_entry.get("instanceId", -1),
+                "occlusion": bbox_entry.get("occlusionRatio", 0.0),
+            })
+        return results
+```
 
-**Output format.** HDF5 or WebDataset shards, compatible with standard
-PyTorch dataloaders. Each shard contains:
+#### 5.5.5 Output format and export
+
+HDF5 per episode, with metadata for filtering:
 
 ```text
-episode_0042/
-  frame_0000.jpg          # RGB (80x60)
+episode_NNNN/
+  frame_0000.jpg          # RGB (640x360)
   frame_0000_depth.png    # uint16 depth in mm
-  frame_0000.json         # camera pose, robot pose, obstacle positions
+  frame_0000.json         # camera pose, robot pose, bboxes, scene metadata
   ...
 ```
 
-### 5.6 CLIP fine-tuning with contrastive sim data
+The export pipeline produces two downstream-ready datasets:
 
-The semantic map (Section 1) relies on CLIP embeddings for visual place
-recognition. Out-of-the-box CLIP was trained on internet images -- it has
-no special understanding of indoor robot perspectives at 25 cm camera height
-with a D555 FOV.
+1. **VLM grounding JSONL** -- convert bboxes to 0-1000 scaled
+   `<ref>label</ref><box>(x1,y1),(x2,y2)</box>` format with negative
+   examples (Section 5.7). **Excludes ProcRoom frames.**
 
-**Contrastive fine-tuning approach:**
+2. **CLIP contrastive CSV** -- generate (anchor, positive, negative) image
+   triples for InfoNCE training (Section 5.6). **Excludes ProcRoom frames.**
 
-1. **Positive pairs** -- two frames of the same scene from slightly different
-   robot poses (e.g., 10 cm translational offset, 5 deg rotational offset).
-   The sim provides exact camera poses, so generating positives is trivial.
 
-2. **Negative pairs** -- frames from different rooms or significantly different
-   viewpoints in the same room.
 
-3. **Hard negatives** -- frames from similar-looking but different locations
-   (e.g., two doorways in different rooms). The sim's room diversity makes
-   hard negative mining straightforward.
+### 5.6 CLIP fine-tuning with image-text contrastive data
 
-**Implementation with OpenCLIP.** Use OpenCLIP's built-in model loading and
-a standard PyTorch training loop:
+The semantic map (Section 1) relies on CLIP embeddings for two purposes:
+
+1. **Visual place recognition** (image-to-image) -- `BackgroundMapper`
+   embeds frames and compares against stored embeddings to recognize
+   previously visited locations.
+
+2. **Text-to-image semantic queries** (text-to-image) --
+   `SemanticMapManager.query_by_text("kitchen")` encodes text with CLIP's
+   text tower and searches ChromaDB for matching image embeddings. This
+   powers query-before-scan optimization and the `environment_query` skill.
+
+Out-of-the-box CLIP was trained on internet images -- it has no special
+understanding of indoor robot perspectives at 25 cm camera height with a
+D555 FOV. Fine-tuning must adapt both the image-text alignment (use case 2)
+and the image-image discrimination (use case 1).
+
+**Why image-text alignment is the primary objective:** If we only fine-tune
+with image triples (anchor/positive/negative), we adapt the vision tower to
+distinguish indoor scenes but risk drifting it away from the text tower's
+embedding space. After fine-tuning, `encode_image(kitchen_photo)` might land
+far from `encode_text("kitchen")`, breaking text queries.
+
+#### 5.6.1 Training approach
+
+**Phase 1 (primary): Image-text contrastive** -- standard CLIP InfoNCE loss
+on (image, text description) pairs. Both towers trained jointly:
 
 ```python
 import open_clip
@@ -2761,47 +3251,203 @@ model, _, preprocess = open_clip.create_model_and_transforms(
 )
 tokenizer = open_clip.get_tokenizer("ViT-B-32")
 
-# Freeze text tower, fine-tune vision tower
-for param in model.token_embedding.parameters():
-    param.requires_grad = False
+optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5, weight_decay=0.01)
 
-optimizer = torch.optim.AdamW(
-    filter(lambda p: p.requires_grad, model.parameters()),
-    lr=1e-5, weight_decay=0.01
-)
+# Standard CLIP contrastive loss (in-batch negatives)
+for images, texts in dataloader:
+    image_emb = model.encode_image(images)
+    text_emb = model.encode_text(tokenizer(texts))
 
-# Training loop over contrastive pairs
-for anchor, positive, negatives in dataloader:
-    anchor_emb = model.encode_image(anchor)
-    positive_emb = model.encode_image(positive)
-    negative_embs = [model.encode_image(n) for n in negatives]
-
-    loss = info_nce_loss(anchor_emb, positive_emb, negative_embs)
+    # Symmetric cross-entropy on image-text similarity matrix
+    logits = image_emb @ text_emb.T * model.logit_scale.exp()
+    labels = torch.arange(len(images), device=logits.device)
+    loss = (F.cross_entropy(logits, labels) +
+            F.cross_entropy(logits.T, labels)) / 2
     loss.backward()
     optimizer.step()
 ```
 
-Fine-tune with InfoNCE / NT-Xent loss on the contrastive pairs. This adapts
-the CLIP embedding space to better distinguish indoor locations from the
-robot's perspective without losing general visual understanding.
+**Phase 2 (optional follow-up): Image-image contrastive** -- if place
+recognition isn't accurate enough after Phase 1, add NT-Xent loss on
+(anchor, positive, negative) image triples from same/different rooms.
+This preserves text alignment while sharpening visual discrimination.
 
-**Dataset scale.** Generating 10k-50k image pairs from sim is trivial -- a
-few hours of rendering across the 30 registered environments, stepping the
-robot through random trajectories while sampling camera jitter for positive
-pairs. This scale is sufficient for contrastive fine-tuning of the vision
-tower.
+#### 5.6.2 Scene description generation pipeline (5 stages)
 
-**Training infrastructure.** DGX Spark for fast local iteration during
-development. Databricks for tracked experiments via MLflow -- each run logs
-hyperparameters, contrastive loss curves, and the resulting ONNX checkpoint.
-The fine-tuned model is exported to ONNX and deployed on the Jetson -- same
-deployment path as the base model.
+Rich text descriptions are critical. Simple label lists ("chair, table,
+bookshelf") produce shallow embeddings. Spatial and relational descriptions
+("a dimly lit hallway opening into a bright kitchen, wooden table with a
+cutting board on it") encode scene structure that enables queries like
+"where was the chair near the window?"
+
+The pipeline runs **after** teleop data collection, as a batch process on
+the DGX Spark. It uses simulation ground truth to produce factually correct
+descriptions, then refines them with models for natural language quality.
+
+```text
+Stage 1: Programmatic spatial analysis (no model, instant)
+    Input:  frame bboxes + 3D positions + robot pose + scene_metadata.json
+    Output: structured spatial facts JSON
+
+    Computes: room type (point-in-polygon from room footprints),
+    object distances/bearings from robot, pairwise relations
+    (from Infinigen's SupportedBy/StableAgainst/CoPlanar data),
+    region classification (near/midway/far from robot)
+
+Stage 2: VLM description generation (Qwen2.5-VL-7B on DGX)
+    Input:  structured spatial facts JSON + actual RGB frame
+    Output: 3-5 diverse natural language descriptions per frame
+
+    The VLM receives both the structured facts (room type,
+    object positions, bearings, spatial relations) and the
+    image in a single prompt. This lets it produce descriptions
+    that are spatially accurate (from GT facts) AND visually
+    grounded (lighting, textures, occlusion, materials).
+
+    Produces descriptions like "a dimly lit hallway opening into
+    a bright kitchen, wooden table with a cutting board on it,
+    small potted plant tucked beside the counter, partially
+    occluded by the doorframe"
+
+    Critical: must be a stronger model than Qwen2.5-VL-3B (the
+    model being fine-tuned). Qwen2.5-VL-7B fits on DGX Spark
+    alongside other models (128GB unified memory).
+
+    The VLM is loaded standalone via transformers
+    (AutoModelForVision2Seq), completely separate from the
+    strafer_vlm service package on port 8100.
+
+Stage 3: Ground truth validation filter
+    Input:  VLM descriptions + scene_metadata.json label set
+    Output: validated descriptions (discard any mentioning
+            objects not in scene metadata)
+
+    Catches VLM hallucinations without human review.
+
+Stage 4: Human spot-check (random sampling, periodic)
+    Input:  50 random samples per batch of 1000 frames
+    Output: quality scores (1-5 on accuracy, naturalness, detail),
+            systematic error flags, prompt refinements for Stage 2
+
+    Builds a scored validation set over time for automated
+    quality evaluation without manual review.
+```
+
+#### 5.6.3 Spatial description builder (Stage 1)
+
+Uses simulation ground truth to compute factual spatial assertions. Room
+type and spatial relationships come directly from `scene_metadata.json`
+(Section 5.3), not from inference or heuristics.
+
+```python
+from shapely.geometry import Point, Polygon
+
+class SpatialDescriptionBuilder:
+    """Compute spatial relations from simulation ground truth."""
+
+    def __init__(self, scene_metadata: dict):
+        self.rooms = [
+            {**r, "polygon": Polygon(r["footprint_xy"])}
+            for r in scene_metadata["rooms"]
+        ]
+        self.objects = scene_metadata["objects"]
+
+    def build(self, frame_data: dict) -> dict:
+        robot_xy = frame_data["robot_pos"][:2]
+        robot_yaw = quat_to_yaw(frame_data["robot_quat"])
+
+        # Which room is the robot in? (point-in-polygon)
+        current_room = None
+        for room in self.rooms:
+            if room["polygon"].contains(Point(robot_xy)):
+                current_room = room
+                break
+
+        described_objects = []
+        for obj in self._visible_objects(frame_data["bboxes"]):
+            pos = np.array(obj["position_3d"][:2])
+            dist = float(np.linalg.norm(pos - robot_xy))
+            bearing = self._compute_bearing(pos, robot_xy, robot_yaw)
+            region = self._classify_region(dist)
+
+            # Spatial relations from Infinigen ground truth
+            relations = []
+            for rel in obj.get("relations", []):
+                if rel["target"]:
+                    relations.append(f'{rel["type"]} {rel["target"]}')
+
+            # Which room is this object in?
+            obj_room = self.rooms[obj["room_idx"]] if "room_idx" in obj else None
+
+            described_objects.append({
+                "label": obj["label"],
+                "semantic_tags": obj.get("semantic_tags", []),
+                "distance_m": round(dist, 1),
+                "bearing": bearing,
+                "region": region,
+                "room_type": obj_room["room_type"] if obj_room else None,
+                "relations": relations,
+                "materials": obj.get("materials", []),
+            })
+
+        return {
+            "robot_room_type": current_room["room_type"] if current_room else None,
+            "visible_objects": described_objects,
+        }
+```
+
+#### 5.6.4 Description data format
+
+The export pipeline produces multi-description CSV for CLIP training:
+
+```csv
+image_path,description
+episode_0001/frame_0010.jpg,"a hallway with a plant and red ball at the far end"
+episode_0001/frame_0010.jpg,"looking down a dimly lit hallway, table on the left, potted plant beside a red ball in the distance"
+episode_0001/frame_0010.jpg,"indoor hallway with nearby table and distant plant"
+episode_0001/frame_0012.jpg,"bright kitchen with wooden counter and cutting board"
+```
+
+Multiple descriptions per image (3-5) at different detail levels train CLIP
+to match both broad queries ("hallway") and specific ones ("hallway with
+plant beside red ball at far end").
+
+**Dataset scale.** 50-100 teleop episodes x 500 frames x 3-5 descriptions
+= 75k-250k (image, text) pairs. This scale is sufficient for CLIP
+fine-tuning of both towers.
+
+**Training infrastructure.** DGX Spark for training. Databricks for tracked
+experiments via MLflow. The fine-tuned model is exported to ONNX — **both
+towers separately** (`clip_visual.onnx` + `clip_text.onnx`) since the
+Jetson's `clip_encoder.py` uses both `encode_image()` and `encode_text()`
+for image-image verification and text-to-image semantic queries respectively.
+
+**Evaluation gate for arrival verification.** Image-text contrastive training
+directly optimizes text-to-image alignment (for `query_by_text`). Arrival
+verification, however, uses image-to-image ranking — a property that is
+indirectly preserved but not directly trained. After Phase 1 training,
+evaluate the ranking-based verify_arrival logic on held-out sim data:
+construct (arrival_frame, goal_area_observations, distractor_observations)
+tuples and measure whether top-k retrieval correctly identifies the goal
+region. If ranking accuracy (majority of top-k near goal) is below 85%,
+proceed to Phase 2: add NT-Xent loss on (anchor, positive, negative) image
+triples from same/different locations to sharpen visual discrimination.
+
 
 ### 5.7 VLM fine-tuning with sim ground truth
 
-The VLM (Qwen2.5-VL-3B) handles object grounding during `scan_for_target`.
-Fine-tuning on domain-specific data improves detection of objects common in
-the robot's operating environment.
+The VLM (Qwen2.5-VL-3B) handles object grounding during `scan_for_target`,
+multi-object detection for semantic map population (`detect_objects`), and
+scene description for operator readback (`describe_scene`). Fine-tuning on
+domain-specific data improves detection of objects common in the robot's
+operating environment.
+
+**Fine-tuning method.** Use **LoRA** (rank 16-32) rather than full
+fine-tuning to preserve the pretrained model's general capabilities (scene
+description, OCR, reasoning) while specializing grounding performance. Full
+fine-tuning risks catastrophic forgetting of the `describe_scene` capability,
+which has no dedicated SFT data — it relies on the pretrained model's
+zero-shot quality.
 
 **Training data format.** Qwen2.5-VL grounding uses a specific format with
 `<ref>` and `<box>` tags. Coordinates are pixel values scaled to 0-1000:
@@ -2864,6 +3510,32 @@ Without negative examples, the VLM learns to always produce a bounding box
 regardless of whether the object is present, leading to hallucinated
 detections on the real robot. A ratio of roughly 1:3 negative-to-positive
 examples is a practical starting point.
+
+**Multi-object detection examples.** The `POST /detect_objects` endpoint
+asks the VLM to list all visible objects with bounding boxes in a single
+response (multiple `<ref>/<box>` tags). Include multi-object examples in the
+training mix (~20% of examples) so the model learns this output format:
+
+```json
+{
+  "image": "frame_0055.jpg",
+  "conversations": [
+    {
+      "role": "user",
+      "content": "<image>List all visible objects with their bounding boxes."
+    },
+    {
+      "role": "assistant",
+      "content": "<ref>table</ref><box>(100,300),(400,600)</box><ref>chair</ref><box>(500,350),(700,650)</box><ref>lamp</ref><box>(750,100),(850,400)</box>"
+    }
+  ]
+}
+```
+
+**Description preservation.** Include ~10% of training examples as scene
+description pairs (reusing Stage 2 output from Section 5.6) to preserve the
+model's `describe_scene` capability during grounding SFT. Combined with LoRA,
+this prevents catastrophic forgetting of the free-text description ability.
 
 ### 5.8 Closing the sim-to-real loop
 
@@ -2949,20 +3621,14 @@ placement. For Infinigen, it selects scenes from the metadata catalog that
 match the failure's scene description (e.g. "kitchen" scenes for kitchen
 failures).
 
+
 ### 5.9 Sim-in-the-loop data collection via Isaac Sim ROS2 Bridge
 
-The data collection scripts in Section 5.5 use scripted trajectories or
-random walks to drive the robot through environments. This produces
-geometrically diverse data but doesn't match the real deployment distribution
-— the robot doesn't scan, ground, or navigate the way it does during actual
-missions. A trained RL policy would be ideal, but one does not yet exist for
-the strafer platform. Random policies miss the structured behavior (scan
-rotations, standoff approaches, heading changes) that characterizes real
-missions.
-
-**Proposal: run the full autonomy stack against the simulated robot** using
-the Isaac Sim ROS2 Bridge (OmniGraph ROS Bridge). The sim-robot is driven
-by the same planner → VLM → Nav2 pipeline used on the real Jetson:
+The data collection approach in Section 5.5 uses human gamepad teleop as
+the MVP controller. This section defines the scalable successor: running the
+full autonomy stack against the simulated robot via the Isaac Sim ROS2
+Bridge (OmniGraph ROS Bridge), producing perception data at the exact
+deployment distribution with zero human effort.
 
 ```text
 Windows Workstation (Isaac Sim)          DGX Spark
@@ -2975,9 +3641,9 @@ Isaac Sim environment                    Planner service (:8200)
       /d555/color/camera_info_sync             |
       /strafer/odom                      strafer_autonomy.executor
       /d555/imu/filtered                   MissionRunner
-      TF: map→odom→base_link→d555_link     JetsonRosClient (same code)
-    subscriber:                              HttpPlannerClient → DGX
-      /cmd_vel                               HttpGroundingClient → DGX
+      TF: map->odom->base_link->d555_link    JetsonRosClient (same code)
+    subscriber:                              HttpPlannerClient -> DGX
+      /cmd_vel                               HttpGroundingClient -> DGX
                                            Nav2 (against sim costmap)
   + depthimage_to_laserscan node             goal_projection_node
       /scan (from sim depth)
@@ -2986,11 +3652,10 @@ Isaac Sim environment                    Planner service (:8200)
       /map                                  ground_truth) tuples
 ```
 
-**Note:** The executor and Nav2 can run on either the Windows machine (if
-ROS2 Humble is available) or on the Jetson over the network (same ROS2
-domain). The key is that the executor code is identical — it subscribes to
-the same topics regardless of whether they come from real hardware or the
-sim bridge.
+**Note:** The executor and Nav2 can run on the Jetson over the network
+(same ROS2 domain via DDS discovery) while the bridge publishes from
+the Windows machine. This is the recommended setup since the Jetson
+already has the full ROS2 stack.
 
 #### 5.9.1 What the bridge must provide
 
@@ -3004,9 +3669,9 @@ modification.
 | Topic | Type | Rate | Real source | Bridge source |
 |-------|------|------|-------------|---------------|
 | `/d555/color/image_sync` | sensor_msgs/Image (RGB8) | 30 Hz | D555 USB camera | Isaac Sim camera, **640x360** (not 80x60 policy resolution) |
-| `/d555/aligned_depth_to_color/image_sync` | sensor_msgs/Image (16UC1, mm) | 30 Hz | D555 aligned depth | Isaac Sim depth (convert float32 m → uint16 mm) |
+| `/d555/aligned_depth_to_color/image_sync` | sensor_msgs/Image (16UC1, mm) | 30 Hz | D555 aligned depth | Isaac Sim depth (convert float32 m -> uint16 mm) |
 | `/d555/color/camera_info_sync` | sensor_msgs/CameraInfo | 30 Hz | D555 driver | Computed from sim camera intrinsics at 640x360 |
-| `/strafer/odom` | nav_msgs/Odometry | 50 Hz | RoboClaw wheel encoders | Sim wheel joint velocities → mecanum forward kinematics |
+| `/strafer/odom` | nav_msgs/Odometry | 50 Hz | RoboClaw wheel encoders | Sim wheel joint velocities -> mecanum forward kinematics |
 | `/d555/imu/filtered` | sensor_msgs/Imu | 200 Hz | Madgwick filter on D555 IMU | Sim IMU sensor (already has orientation) |
 | `/scan` | sensor_msgs/LaserScan | 30 Hz | depthimage_to_laserscan on depth | Same node, reading sim depth topic |
 
@@ -3020,76 +3685,35 @@ modification.
 
 ```
 map (static identity or from SLAM)
-  └── odom (dynamic, from sim wheel odometry)
-      └── base_link
-          ├── chassis_link (static)
-          ├── wheel_{1,2,3,4}_link (dynamic, from sim joint positions)
-          └── d555_link (static, +0.20m fwd, +0.25m up)
-              └── d555_color_optical_frame (static, Z-forward convention)
+  +-- odom (dynamic, from sim wheel odometry)
+      +-- base_link
+          |-- chassis_link (static)
+          |-- wheel_{1,2,3,4}_link (dynamic, from sim joint positions)
+          +-- d555_link (static, +0.20m fwd, +0.25m up)
+              +-- d555_color_optical_frame (static, Z-forward convention)
 ```
 
 **Nav2 and SLAM:**
 
 For sim-in-the-loop, there are two options for the map/costmap:
-1. **Static map server** — pre-render the ProcRoom or Infinigen floor plan as
-   an OccupancyGrid and serve it via `nav2_map_server`. Simplest approach.
-2. **RTAB-Map on sim data** — run RTAB-Map against the sim's camera and depth
-   topics. Full fidelity but heavier. Useful for testing SLAM integration.
+1. **Static map server** -- pre-render the Infinigen floor plan as an
+   OccupancyGrid and serve it via `nav2_map_server`. Simplest approach.
+2. **RTAB-Map on sim data** -- run RTAB-Map against the sim's camera and
+   depth topics. Full fidelity but heavier.
 
-Nav2 itself runs unmodified with the same `nav2_params.yaml` config — MPPI
+Nav2 itself runs unmodified with the same `nav2_params.yaml` config -- MPPI
 controller, omni motion model, same velocity limits.
 
-#### 5.9.2 Camera resolution gap
+#### 5.9.2 Bridge implementation
 
-**This is the biggest engineering task.** The current sim camera in
-`d555_cfg.py` outputs 80x60 for policy training. The real robot's VLM
-pipeline uses 640x360. The bridge needs full-resolution frames for:
-- VLM grounding (the model needs enough pixels to detect objects)
-- Depth-based goal projection (5x5 median kernel at 80x60 is only ~6% of
-  the image; at 640x360 it's <0.01%)
-
-**Solution: dual camera configuration in the sim environment.**
-
-```python
-# d555_cfg.py — add a second camera for ROS bridge output
-D555_ROS_CAMERA_CFG = TiledCameraCfg(
-    prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link/d555_camera_ros",
-    update_period=D555_CAMERA_UPDATE_PERIOD,  # 1/30 = 30 Hz
-    height=360,
-    width=640,
-    data_types=("rgb", "distance_to_image_plane"),
-    spawn=PinholeCameraCfg(
-        focal_length=D555_FOCAL_LENGTH,       # 1.93 mm
-        horizontal_aperture=D555_H_APERTURE,  # 3.68 mm
-        clipping_range=(0.01, DEPTH_CLIP_FAR),
-    ),
-    offset=OffsetCfg(
-        pos=D555_CAMERA_OFFSET_POS,   # (0.20, 0.0, 0.25)
-        rot=D555_CAMERA_OFFSET_ROT,   # ROS convention quaternion
-        convention="ros",
-    ),
-)
-```
-
-The 80x60 policy camera remains for RL training. The 640x360 ROS camera is
-only instantiated when the bridge is active. This avoids increasing GPU
-memory for normal training runs.
-
-**Rendering cost:** A 640x360 camera at 30 Hz is ~50x more pixels than 80x60.
-With a single environment (not 4096 parallel), this is manageable — Isaac Sim
-renders single high-res cameras efficiently. The limiting factor is that only
-1-8 environments can run simultaneously at this resolution (vs. 64+ at 80x60).
-
-#### 5.9.3 Bridge implementation
-
-**New file:**
+**New files:**
 
 ```
 source/strafer_lab/strafer_lab/bridge/
     __init__.py
     ros2_bridge.py          # StraferROS2Bridge class
-    depth_conversion.py     # float32 meters → uint16 mm, nearfield clamp
-    odom_integrator.py      # sim wheel velocities → nav_msgs/Odometry
+    depth_conversion.py     # float32 meters -> uint16 mm, nearfield clamp
+    odom_integrator.py      # sim wheel velocities -> nav_msgs/Odometry
     camera_info_builder.py  # build CameraInfo from sim intrinsics
 ```
 
@@ -3103,12 +3727,12 @@ class StraferROS2Bridge:
     from the perspective of JetsonRosClient, Nav2, and goal_projection_node.
     """
 
-    def __init__(self, env, ros_camera_name: str = "d555_camera_ros"):
+    def __init__(self, env, ros_camera_name: str = "d555_camera_perception"):
         self._env = env
         self._camera = env.scene[ros_camera_name]  # 640x360 camera
         self._node = rclpy.create_node("strafer_sim_bridge")
 
-        # Publishers — exact topic names matching real robot
+        # Publishers -- exact topic names matching real robot
         self._pub_color = self._node.create_publisher(
             Image, "/d555/color/image_sync", 10)
         self._pub_depth = self._node.create_publisher(
@@ -3123,7 +3747,7 @@ class StraferROS2Bridge:
         self._tf_broadcaster = TransformBroadcaster(self._node)
         self._static_tf_broadcaster = StaticTransformBroadcaster(self._node)
 
-        # Subscriber — receive cmd_vel and apply to sim
+        # Subscriber -- receive cmd_vel and apply to sim
         self._sub_cmd_vel = self._node.create_subscription(
             Twist, "/cmd_vel", self._on_cmd_vel, 10)
         self._latest_cmd_vel = Twist()
@@ -3135,12 +3759,12 @@ class StraferROS2Bridge:
         """Call after each env.step(). Publishes all sensor data as ROS2."""
         now = self._node.get_clock().now().to_msg()
 
-        # RGB: (1, 360, 640, 4) RGBA → RGB8 sensor_msgs/Image
+        # RGB: (1, 360, 640, 4) RGBA -> RGB8 sensor_msgs/Image
         rgba = self._camera.data.output["rgb"][0]
         rgb = rgba[:, :, :3].cpu().numpy()  # drop alpha
         self._pub_color.publish(self._numpy_to_image(rgb, "rgb8", now))
 
-        # Depth: float32 meters → uint16 millimeters
+        # Depth: float32 meters -> uint16 millimeters
         depth_m = self._camera.data.output["distance_to_image_plane"][0, :, :, 0]
         depth_mm = self._meters_to_uint16_mm(depth_m.cpu().numpy())
         self._pub_depth.publish(self._numpy_to_image(depth_mm, "16UC1", now))
@@ -3154,19 +3778,89 @@ class StraferROS2Bridge:
         # IMU from sim sensor
         self._pub_imu.publish(self._build_imu(now))
 
-        # Dynamic TF: odom → base_link
+        # Dynamic TF: odom -> base_link
         self._broadcast_odom_tf(now)
 
     def _meters_to_uint16_mm(self, depth_m: np.ndarray) -> np.ndarray:
-        """Convert float32 meters to uint16 millimeters with D555 clipping."""
         depth_clipped = np.clip(depth_m, DEPTH_CLIP_NEAR, DEPTH_CLIP_FAR)
         return (depth_clipped * 1000.0).astype(np.uint16)
 ```
 
-#### 5.9.4 Data capture harness
+#### 5.9.3 Synthetic command generation
 
-A harness script drives the loop: generate commands → execute via autonomy
-stack → capture paired observations:
+The data capture harness needs to generate realistic navigation commands
+that mimic what a human operator would issue. This is a three-stage pipeline
+that avoids circular self-training:
+
+```text
+Stage 1: VLM detects objects in current frame
+    -> ["table", "chair", "bookshelf", "lamp"]
+
+Stage 2: Ground truth validates detections
+    -> cross-reference against scenes_metadata.json label set
+    -> discard any labels NOT confirmed by scene metadata
+    -> ["table", "chair", "bookshelf"]  (lamp was hallucinated)
+
+Stage 3: LLM generates diverse command phrasings
+    -> Input: validated labels ["table", "chair", "bookshelf"]
+    -> Output: "go check near the table then look around for the bookshelf"
+```
+
+**Why this avoids circular self-training:** The VLM (Qwen2.5-VL) proposes
+object detections, but ground truth from `scenes_metadata.json` validates
+them. A separate language model (Qwen3-4B, already on DGX) generates
+diverse phrasings from the validated label set. Three models, no circular
+dependency.
+
+**Template-based fallback:** For the MVP, skip Stage 1 (VLM detection)
+entirely and generate commands directly from the scene metadata label set:
+
+```python
+def generate_commands(scene_labels: list[str], n: int = 10) -> list[str]:
+    templates = [
+        "go to the {obj}",
+        "navigate to the {obj}",
+        "find the {obj}",
+        "check near the {obj}",
+        "go look at the {obj}",
+    ]
+    commands = []
+    for _ in range(n):
+        obj = random.choice(scene_labels)
+        template = random.choice(templates)
+        commands.append(template.format(obj=obj))
+    return commands
+```
+
+#### 5.9.4 Unreachable object handling
+
+Not all objects in Infinigen scenes can be reached. Doors may be closed,
+clutter may block paths, objects may be in inaccessible rooms. This is a
+real problem and a valuable training signal.
+
+| Scenario | What happens | Training use |
+|----------|-------------|-------------|
+| **Reachable** | Nav2 plans path, robot arrives, VLM confirms | Positive sample (navigation + grounding) |
+| **Unreachable (blocked)** | Nav2 fails to plan or times out | Navigation negative -- filter from goal commands OR label for feasibility predictor |
+| **Visible but unreachable** | Robot sees object from afar but can't reach | Grounding positive (VLM should still detect it), navigation negative |
+
+**MVP handling: post-hoc filtering.** During data collection (teleop or
+autonomous), if the robot fails to reach a target within the Nav2 timeout,
+tag that episode with `"reachable": false`:
+
+- **CLIP training:** Still use frames along the trajectory (valid for place
+  recognition regardless of whether the target was reached).
+- **VLM grounding:** Still use frames where the target was visible
+  (grounding is about detection, not reachability).
+- **Feasibility data:** Accumulate `(command, scene, reachable)` tuples.
+  This becomes training data for a future feasibility predictor -- the
+  planner learns to predict whether a command is likely to succeed in a
+  given scene. Not needed for Phase 15, but labeling now is free.
+
+#### 5.9.5 Data capture harness
+
+A harness script drives the loop: generate commands -> execute via autonomy
+stack -> capture paired observations:
 
 ```python
 class SimInTheLoopHarness:
@@ -3178,7 +3872,7 @@ class SimInTheLoopHarness:
 
     def run_episode(self, max_commands: int = 10):
         for _ in range(max_commands):
-            # Pick a random object known to be in the scene
+            # Generate command from validated scene labels
             target = random.choice(self.scene_labels)
             command = f"go to the {target}"
 
@@ -3188,28 +3882,34 @@ class SimInTheLoopHarness:
             )
 
             # Wait for completion, recording every intermediate frame
+            reachable = True
             while self.executor.get_status().active:
                 self.env.step(self._latest_action())
                 self.bridge.step_and_publish()
                 self.capture_frame(target)
 
-            # Log result vs. ground truth
-            self.log_result(target, result)
+            # Check if Nav2 timed out (target unreachable)
+            if result.status == "failed" and "timeout" in result.error:
+                reachable = False
+
+            # Log result with reachability label
+            self.log_result(target, result, reachable=reachable)
 ```
 
-#### 5.9.5 What this enables that random walks cannot
+#### 5.9.6 What this enables that teleop cannot
 
-| Capability | Random walk | Sim-in-the-loop |
+| Capability | Human teleop | Sim-in-the-loop |
 |------------|-------------|-----------------|
-| Scan rotation frames | No | Yes — exact 60° heading increments, same as real |
-| VLM response capture | No | Yes — real model predictions vs. ground truth |
-| Standoff approach views | No | Yes — robot stops at 0.7m from target |
-| Natural failure cases | No | Yes — VLM misses, hallucinations, Nav2 timeouts |
-| Distribution match | Poor | Exact match to real deployment |
-| End-to-end validation | No | Yes — mission success rate metric |
-| Manual annotation | Required | Zero (ground truth from sim, predictions from model) |
+| Scale | 50-100 episodes (human-limited) | 1000+ episodes (automated) |
+| Scan rotation frames | Manual only | Yes -- exact 60 deg heading increments, same as real |
+| VLM response capture | No | Yes -- real model predictions vs. ground truth |
+| Standoff approach views | Manual only | Yes -- robot stops at 0.7m from target |
+| Natural failure cases | No | Yes -- VLM misses, hallucinations, Nav2 timeouts |
+| Distribution match | Good (human drives naturally) | Exact match to real deployment |
+| End-to-end validation | No | Yes -- mission success rate metric |
+| Unreachable detection | Manual only | Automatic (Nav2 timeout = unreachable label) |
 
-#### 5.9.6 Effort and dependencies
+#### 5.9.7 Effort and dependencies
 
 This is a **Large** effort item with the following sub-tasks:
 
@@ -3217,11 +3917,12 @@ This is a **Large** effort item with the following sub-tasks:
 |----------|--------|--------------|
 | Dual camera config (640x360 + 80x60) in `d555_cfg.py` | Small | None |
 | `StraferROS2Bridge` class (topic publishers, TF, cmd_vel subscriber) | Medium | ROS2 on Windows or cross-machine ROS2 domain |
-| Depth conversion (float32 m → uint16 mm, D555 clipping) | Small | None |
-| Odom integrator (sim wheels → nav_msgs/Odometry) | Small | Mecanum FK from `strafer_shared` |
-| CameraInfo builder (sim intrinsics → sensor_msgs/CameraInfo) | Small | None |
-| Nav2 launch with static sim map or RTAB-Map | Medium | Static map renderer or RTAB-Map config |
-| Data capture harness (command generation, frame recording, ground truth) | Medium | Bridge + executor working |
+| Depth conversion (float32 m -> uint16 mm, D555 clipping) | Small | None |
+| Odom integrator (sim wheels -> nav_msgs/Odometry) | Small | Mecanum FK from `strafer_shared` |
+| CameraInfo builder (sim intrinsics -> sensor_msgs/CameraInfo) | Small | None |
+| Nav2 launch with static sim map or RTAB-Map | Medium | Step above |
+| Synthetic command generation (template-based + LLM paraphrase) | Small | Scene metadata labels |
+| Data capture harness (command gen, frame recording, reachability labeling) | Medium | Bridge + executor working |
 | Integration testing | Medium | All above |
 
 **Total estimated effort:** 2-3 weeks for a working prototype.
@@ -3232,24 +3933,37 @@ run on the Jetson while the bridge publishes from the Windows machine over
 the network (same ROS2 domain via DDS discovery). The latter is simpler
 since the Jetson already has the full ROS2 stack.
 
+
+
 ### 5.10 Implementation plan
 
-| Step | Description | Effort | Dependencies |
-|------|-------------|--------|--------------|
-| 1 | Perception data collection script (`collect_perception_data.py`) | Medium | Existing Isaac Lab envs |
-| 2 | 2D bbox extraction via Replicator annotator | Medium | Isaac Sim Replicator API |
-| 3 | HDF5/WebDataset export pipeline | Small | Step 1 |
-| 4 | Label-preserving Infinigen USD export (`prep_room_usds.py` update) | Medium | Infinigen scene graph, USD prim metadata |
-| 5 | CLIP contrastive fine-tuning (OpenCLIP + InfoNCE) | Medium | Steps 1-3, DGX/Databricks |
-| 6 | VLM grounding fine-tuning (Qwen2.5-VL ref/box format) | Medium | Steps 1-3, DGX/Databricks |
-| 7 | ONNX export of fine-tuned CLIP for Jetson | Small | Step 5 |
-| 8 | Real-world failure logging in `SemanticMapManager` + JSON manifest | Small | Section 1 (SemanticMapManager) |
-| 9 | `gen_failure_scenarios.py` -- manifest-driven scenario spawning | Large | Steps 1-8 |
-| 10a | Dual camera config (640x360 ROS camera + 80x60 policy camera) | Small | d555_cfg.py |
-| 10b | `StraferROS2Bridge` — sensor publishers, TF, cmd_vel subscriber | Medium | ROS2 on Windows or cross-machine DDS |
-| 10c | Depth conversion + odom integrator + CameraInfo builder | Small | strafer_shared constants |
-| 10d | Nav2 sim launch (static map server or RTAB-Map against sim) | Medium | Step 10b |
-| 10e | Data capture harness (command gen, frame recording, ground truth) | Medium | Steps 10b-10d + DGX services |
+**Platform key:** [D] = DGX Spark, [S] = Isaac Sim host (DGX or Windows),
+[J] = Jetson
+
+| Step | Description | Platform | Effort | Dependencies |
+|------|-------------|----------|--------|--------------|
+| 1 | Infinigen scene generation at higher quality | [D] | Medium | 128GB VRAM |
+| 2 | Scene metadata extraction (room types, object tags, spatial relations) | [D] | Medium | Infinigen Blender Python state |
+| 3 | USD prim labeling (`semanticLabel`, `instanceId` attributes) | [D] | Small | Step 2 |
+| 4 | Dual camera config (640x360 perception + 80x60 policy) in `d555_cfg.py` | [S] | Small | None |
+| 5 | Perception data collection with gamepad teleop (`collect_perception_data.py`) | [S] | Medium | Steps 3, 4 |
+| 6 | Replicator bbox extraction (`bounding_box_2d_tight` annotator) | [S] | Medium | Steps 3, 4 |
+| 7 | HDF5/WebDataset export pipeline with ProcRoom filtering | [S] | Small | Steps 5, 6 |
+| 8a | Stage 1: Spatial description builder (programmatic, from GT) | [D] | Medium | Step 2 metadata |
+| 8b | Stage 2: VLM description generation (Qwen2.5-VL-7B, standalone) | [D] | Small | Step 8a |
+| 8c | Stage 3: Ground truth validation filter | [D] | Small | Steps 8b, 2 |
+| 8d | Stage 4: Human spot-check tooling | [D] | Small | Step 8c |
+| 9 | CLIP image-text contrastive fine-tuning (OpenCLIP ViT-B/32) | [D] | Medium | Steps 7, 8c |
+| 10 | VLM grounding fine-tuning data prep (Qwen2.5-VL ref/box format + negatives) | [D] | Medium | Steps 6, 7 |
+| 11 | ONNX export of fine-tuned CLIP for Jetson | [D] | Small | Step 9 |
+| 12 | Real-world failure logging in `SemanticMapManager` + JSON manifest | [J] | Small | Section 1 |
+| 13 | `gen_failure_scenarios.py` -- manifest-driven scenario spawning | [D] | Large | Steps 1-12 |
+| 14a | Isaac Sim ROS2 Bridge -- sensor publishers, TF, cmd_vel subscriber | [S] | Medium | ROS2 available |
+| 14b | Depth conversion + odom integrator + CameraInfo builder | [S] | Small | strafer_shared constants |
+| 14c | Nav2 sim launch (static map server or RTAB-Map against sim) | [S/J] | Medium | Step 14a |
+| 14d | Synthetic command generation (template + LLM paraphrase) | [D] | Small | Step 2 metadata |
+| 14e | Data capture harness (command gen, frame recording, reachability labeling) | [S] | Medium | Steps 14a-14d + DGX services |
+
 
 ---
 
@@ -3262,12 +3976,12 @@ since the Jetson already has the full ROS2 stack.
 | Safety | Costmap collision pre-check | Small | Medium |
 | Safety | Odometry drift watchdog | Medium | Medium |
 | Safety | Velocity limit watchdog | Small | Low |
-| Semantic Map | CLIP encoder — unified image + text (OpenCLIP ViT-B/32 ONNX) | Small | High |
+| Semantic Map | CLIP encoder -- unified image + text (OpenCLIP ViT-B/32 ONNX) | Small | High |
 | Semantic Map | ChromaDB vector store integration | Small | High |
 | Semantic Map | NetworkX spatial graph | Small | High |
 | Semantic Map | SemanticMapManager | Medium | High |
 | Semantic Map | Observation capture in scan_for_target | Small | High |
-| Semantic Map | BackgroundMapper — passive movement-gated capture | Medium | High |
+| Semantic Map | BackgroundMapper -- passive movement-gated capture | Medium | High |
 | Semantic Map | `POST /detect_objects` VLM endpoint | Medium | High |
 | Semantic Map | Object reinforcement (Bayesian spatial tracking) | Medium | Medium |
 | Semantic Map | Query-before-scan optimization | Medium | Medium |
@@ -3285,15 +3999,22 @@ since the Jetson already has the full ROS2 stack.
 | Deployment | MLflow model packaging | Medium | Medium |
 | Deployment | Databricks serving endpoints | Medium | Medium |
 | Deployment | Agentic combined endpoint | Medium | Low |
-| Synthetic Data | Perception data collection script | Medium | High |
-| Synthetic Data | Ground-truth bbox extraction from sim | Medium | High |
-| Synthetic Data | HDF5/WebDataset export pipeline | Small | Medium |
-| Synthetic Data | CLIP contrastive fine-tuning | Medium | High |
-| Synthetic Data | VLM grounding fine-tuning | Medium | Medium |
+| Synthetic Data | Infinigen high-quality scene generation (DGX) | Medium | High |
+| Synthetic Data | Scene metadata extraction (room types, tags, relations) | Medium | High |
+| Synthetic Data | USD prim labeling for Replicator | Small | High |
+| Synthetic Data | Dual camera config (640x360 perception + 80x60 policy) | Small | High |
+| Synthetic Data | Perception data collection with gamepad teleop | Medium | High |
+| Synthetic Data | Ground-truth bbox extraction via Replicator | Medium | High |
+| Synthetic Data | HDF5/WebDataset export pipeline (ProcRoom filtering) | Small | Medium |
+| Synthetic Data | Scene description pipeline (5 stages) | Medium | High |
+| Synthetic Data | CLIP image-text contrastive fine-tuning | Medium | High |
+| Synthetic Data | VLM grounding fine-tuning data prep | Medium | Medium |
 | Synthetic Data | ONNX export of fine-tuned CLIP | Small | Medium |
 | Synthetic Data | Real-world failure logging | Small | Medium |
 | Synthetic Data | Failure-to-sim feedback pipeline | Large | Low |
-| Synthetic Data | Dual camera config (640x360 + 80x60) | Small | Medium |
-| Synthetic Data | Isaac Sim ROS2 Bridge (StraferROS2Bridge) | Medium | Medium |
-| Synthetic Data | Sim-in-the-loop data capture harness | Medium | Low |
+| Synthetic Data | Isaac Sim ROS2 Bridge (StraferROS2Bridge) | Medium | High |
+| Synthetic Data | Synthetic command generation (template + LLM) | Small | Medium |
+| Synthetic Data | Unreachable object handling + reachability labeling | Small | Medium |
+| Synthetic Data | Sim-in-the-loop data capture harness | Medium | Medium |
+| Synthetic Data | Human spot-check quality tooling | Small | Medium |
 

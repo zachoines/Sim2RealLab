@@ -100,8 +100,10 @@ source/strafer_autonomy/strafer_autonomy/semantic_map/
 2. `clip_encoder.py` — ONNX wrapper for OpenCLIP ViT-B/32:
    - `encode_image(image_rgb: np.ndarray) -> np.ndarray` (512-dim)
    - `encode_text(text: str) -> np.ndarray` (512-dim)
-   - Load from `~/.strafer/models/clip_vit_b32.onnx`
-   - If ONNX file doesn't exist, log a warning and disable (graceful degradation)
+   - Load visual tower from `~/.strafer/models/clip_visual.onnx`
+   - Load text tower from `~/.strafer/models/clip_text.onnx`
+   - Fallback: single `clip_vit_b32.onnx` for base (non-fine-tuned) model
+   - If ONNX files don't exist, log a warning and disable (graceful degradation)
 
 3. `manager.py` — `SemanticMapManager` from Sections 1.8–1.9:
    - `__init__(storage_dir)` — NetworkX DiGraph + ChromaDB PersistentClient
@@ -109,6 +111,8 @@ source/strafer_autonomy/strafer_autonomy/semantic_map/
    - `query_nearest(x, y, max_distance_m) -> SemanticNode | None`
    - `query_by_label(label, max_age_s) -> SemanticNode | None`
    - `query_by_text(query_text) -> list[dict]` — CLIP text encode → ChromaDB search
+   - `query_by_embedding(embedding, n_results) -> list[tuple]` — raw CLIP
+     vector → ChromaDB ANN search (used by verify_arrival and transit monitor)
    - `get_clip_embedding(embedding_id) -> np.ndarray`
    - `reinforce_or_add_object(...)` — 3D Bayesian update (Section 1.12)
    - `initial_object_covariance(depth_m, camera_yaw, camera_pitch)` → 3x3
@@ -149,30 +153,47 @@ source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py
    (best-effort, guarded by `if self._semantic_map is not None`)
 3. In `_describe_scene`: store CLIP embedding + text description
 4. Query-before-scan (Section 1.7): at the top of `_scan_for_target`, check
-   semantic map for recent sightings before starting the rotation loop
+   semantic map for recent sightings before starting the rotation loop.
+   Uses **ranking** (top retrieval match near target node) not fixed thresholds.
 
 **Depends on:** Task 1
 
 ---
 
-### Task 3: BackgroundMapper (Section 1.5)
+### Task 3: BackgroundMapper + TransitMonitor (Sections 1.5, 0.6)
 
 **Priority:** High | **Effort:** Medium
 
-**New file to create:**
+**New files to create:**
 
 ```
 source/strafer_autonomy/strafer_autonomy/semantic_map/background_mapper.py
+source/strafer_autonomy/strafer_autonomy/semantic_map/transit_monitor.py
 ```
 
 **What to implement:**
 
-- `BackgroundMapper` thread from the design doc
-- Movement-gated: only capture if robot moved >0.5m or rotated >30 degrees
-- Polls `ros_client.get_robot_state()` every 2 seconds
-- Captures `ros_client.capture_scene_observation()` + CLIP encode
-- Stores via `semantic_map.add_observation(source="background")`
-- `start()` / `stop()` lifecycle
+1. `BackgroundMapper` thread from the design doc:
+   - Movement-gated: only capture if robot moved >0.5m or rotated >30 degrees
+   - Polls `ros_client.get_robot_state()` every 2 seconds
+   - Captures `ros_client.capture_scene_observation()` + CLIP encode
+   - Stores via `semantic_map.add_observation(source="background")`
+   - `start()` / `stop()` lifecycle
+
+2. `TransitMonitor` (Section 0.6):
+   - `activate(goal_pose, goal_radius_m)` — called by MissionRunner at
+     navigate_to_pose start
+   - `deactivate()` — called when navigation completes
+   - `check(clip_embedding, robot_xy) -> dict` — called by BackgroundMapper
+     at each capture during active navigation
+   - Uses **ranking-based divergence detection**: queries top-3 nearest
+     neighbors in ChromaDB, tracks whether top matches drift away from
+     the goal region over 3+ consecutive captures
+   - Reports divergence via `threading.Event` flag that MissionRunner polls
+
+3. Integration: BackgroundMapper calls `transit_monitor.check()` at each
+   capture when transit monitor is active. MissionRunner polls
+   `background_mapper.divergence_detected()` during navigate_to_pose.
 
 **Depends on:** Task 1
 
@@ -193,8 +214,15 @@ source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py
 1. Add `"verify_arrival"` to `DEFAULT_AVAILABLE_SKILLS`
 2. Add `_verify_arrival(self, runtime, step) -> SkillResult` handler
 3. Add `if step.skill == "verify_arrival"` to `_execute_step` dispatch
-4. Implementation: capture observation, CLIP encode, query semantic map
-   nearest node, compare cosine similarity against threshold
+4. Implementation uses **ranking-based verification** (no fixed similarity
+   thresholds): CLIP encode arrival frame, query ChromaDB for top-k (k=5)
+   nearest neighbors across entire map, check whether the majority of
+   top results are spatially near the goal pose. See design doc Section 0.1.
+5. Add `query_by_embedding(embedding, n_results)` method to
+   `SemanticMapManager` (wraps `chromadb_collection.query` by raw vector)
+6. Wire transit monitor: call `transit_monitor.activate(goal_pose)` at
+   navigate_to_pose start, poll `divergence_detected()` during navigation,
+   call `transit_monitor.deactivate()` on completion
 
 **Depends on:** Task 1
 

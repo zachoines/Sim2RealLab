@@ -591,11 +591,23 @@ source/strafer_lab/scripts/finetune_clip.py
 - Standard CLIP contrastive loss (symmetric InfoNCE on image-text pairs)
 - Both towers trained (NOT just vision tower — text alignment matters)
 - Training: AdamW, lr=1e-5, weight_decay=0.01
-- Export fine-tuned model to ONNX: `torch.onnx.export(model.visual, ...)`
+- Export fine-tuned model to ONNX — **both towers separately**:
+  - `torch.onnx.export(model.visual, ...)` → `clip_visual.onnx`
+  - `torch.onnx.export(model.text, ...)` → `clip_text.onnx`
+  - The Jetson's `clip_encoder.py` uses both `encode_image()` and
+    `encode_text()` (for `query_by_text`), so both towers must be exported.
 - Log experiments with MLflow
-- CLI: `python scripts/finetune_clip.py --data data/clip_descriptions.csv --epochs 10 --output models/clip_finetuned.onnx`
+- CLI: `python scripts/finetune_clip.py --data data/clip_descriptions.csv --epochs 10 --output models/clip_finetuned/`
 
 **Dataset:** 75k-250k (image, text) pairs from Task 10.
+
+**Evaluation gate for arrival verification:** After Phase 1 (image-text)
+training, evaluate the ranking-based verify_arrival logic on held-out sim
+data: construct (arrival_frame, goal_area_observations, distractor_observations)
+tuples and measure whether top-k retrieval correctly identifies the goal
+region. If ranking accuracy (majority of top-k near goal) is below 85%,
+proceed to Phase 2: add NT-Xent loss on (anchor, positive, negative) image
+triples from same/different locations (optional, see design doc Section 5.6.1).
 
 ---
 
@@ -612,10 +624,29 @@ source/strafer_lab/scripts/prepare_vlm_finetune_data.py
 **What to implement:**
 
 Convert perception data + bboxes into Qwen2.5-VL SFT format:
-- Coordinates scaled to 0-1000 range
-- Negative examples (1:3 ratio)
-- Use `get_scene_label_set()` for negative query generation
-- **Exclude ProcRoom frames**
+
+1. **Single-object grounding examples** (primary):
+   - Coordinates scaled to 0-1000 range
+   - Negative examples (1:3 ratio)
+   - Use `get_scene_label_set()` for negative query generation
+   - **Exclude ProcRoom frames**
+
+2. **Multi-object detection examples** (for `POST /detect_objects`):
+   - Prompt: `"List all visible objects with their bounding boxes."`
+   - Response: multiple `<ref>label</ref><box>(...)</box>` tags
+   - Include frames with 2-10 visible objects
+   - Aim for ~20% of training examples to be multi-object
+
+3. **Scene description examples** (to preserve `POST /describe` quality):
+   - Reuse Stage 2 descriptions from Task 9 as (image, description) SFT pairs
+   - Include ~10% description examples in the training mix to prevent
+     catastrophic forgetting of the describe capability during grounding SFT
+
+**Fine-tuning method:** Use **LoRA** (rank 16-32) rather than full fine-tune
+to preserve the pretrained model's general capabilities (scene description,
+OCR, reasoning) while specializing grounding performance. This avoids
+degrading `POST /describe` quality.
+
 - Output: `.jsonl` ready for SFT on DGX
 
 **Depends on:** Tasks 8 (scene labels) and Isaac Sim host tasks (perception data)

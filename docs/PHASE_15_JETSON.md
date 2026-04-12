@@ -346,8 +346,9 @@ failures during normal operation for downstream sim feedback:
    `"hallucinated_detection"`, `"low_clip_similarity"`
 3. Each entry records: timestamp, failure type, target label, CLIP similarity
    (if applicable), robot pose, frame path, depth path, scene description
-4. The manifest is consumed by the Windows agent's `gen_failure_scenarios.py`
-   (future work) to spawn targeted training scenarios in simulation
+4. The manifest is consumed by a future `gen_failure_scenarios.py` script
+   (deferred, not assigned to Phase 15) to spawn targeted training scenarios
+   in simulation
 
 **Depends on:** Task 1
 
@@ -358,7 +359,7 @@ failures during normal operation for downstream sim feedback:
 These items from `STRAFER_AUTONOMY_NEXT.md` are explicitly deferred:
 
 - **Plan repair on failure** (Section 3.6) — Large effort, Low priority. Future exploration.
-- **Failure-to-sim feedback pipeline** (Section 5.8) — Large effort, Low priority. Depends on Windows sim pipeline.
+- **Failure-to-sim feedback pipeline** (Section 5.8) — Large effort, Low priority. Depends on synthetic data infrastructure (DGX + Isaac Sim host).
 - **Sim-in-the-loop harness** (Section 5.9) — Large effort, Low priority. Depends on Isaac Sim ROS2 Bridge.
 
 ---
@@ -384,6 +385,6 @@ make test
 - `source/strafer_autonomy/strafer_autonomy/planner/` — owned by DGX agent
 - `source/strafer_autonomy/strafer_autonomy/clients/planner_client.py` — owned by DGX agent
 - `source/strafer_autonomy/strafer_autonomy/clients/vlm_client.py` — owned by DGX agent
-- `source/strafer_lab/` — owned by Windows agent
+- `source/strafer_lab/` — owned by DGX agent (batch processing) and Isaac Sim host agent (runtime)
 - `Makefile` — shared, do not modify without coordination
 - `docs/` — do not modify design docs during implementation

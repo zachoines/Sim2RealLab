@@ -1,13 +1,19 @@
-# Phase 15 — Windows Workstation Workstream
+# Phase 15 -- Isaac Sim Host Workstream
 
 **Branch:** `phase_15`
-**Platform:** Windows workstation (Isaac Sim / Isaac Lab, CUDA GPU)
-**Package:** `source/strafer_lab/` (Isaac Lab extension)
+**Platform:** Isaac Sim host -- DGX Spark (Ubuntu, preferred) or Windows workstation
+**Package:** `source/strafer_lab/` (Isaac Lab extension -- runtime components)
 **Design doc:** `docs/STRAFER_AUTONOMY_NEXT.md` (read-only reference, Section 5)
 
-This file defines the tasks assigned to the Windows agent. All work is
-scoped to files that ONLY this agent touches — no overlap with the Jetson
-or DGX workstreams.
+This file defines the Isaac Sim runtime tasks: data collection, bbox
+extraction, camera configuration, and the ROS2 Bridge. These tasks require
+a running Isaac Sim instance and can execute on whichever machine has Isaac
+Sim available (DGX Spark preferred for VRAM headroom, Windows workstation
+as fallback).
+
+The DGX agent owns batch processing tasks (Infinigen generation, scene
+metadata extraction, description pipeline, fine-tuning) in a separate
+workstream -- see `PHASE_15_DGX.md` Tasks 7-12.
 
 ---
 
@@ -28,14 +34,17 @@ obs_dict, reward, terminated, truncated, info = env.step(action)
 
 **Camera data** (accessed via scene sensor handles, NOT obs_dict):
 ```python
-env.scene["d555_camera"].data.output["rgb"]                    # (num_envs, 60, 80, 4) RGBA uint8
-env.scene["d555_camera"].data.output["distance_to_image_plane"] # (num_envs, 60, 80, 1) float32 meters
-env.scene["d555_camera"].data.pos_w                             # (num_envs, 3)
-env.scene["d555_camera"].data.quat_w_world                      # (num_envs, 4)
+# Policy camera (80x60, existing)
+env.scene["d555_camera"].data.output["rgb"]                    # (num_envs, 60, 80, 4)
+
+# Perception camera (640x360, Task 1 of this workstream)
+env.scene["d555_camera_perception"].data.output["rgb"]         # (num_envs, 360, 640, 4)
+env.scene["d555_camera_perception"].data.output["distance_to_image_plane"]  # (num_envs, 360, 640, 1)
 ```
 
 **D555 camera specs** (`d555_cfg.py`):
-- Resolution: 80x60 (policy input, downsampled from real 640x360)
+- Policy resolution: 80x60 (existing, for RL training)
+- **Perception resolution: 640x360** (new, for data collection + ROS bridge)
 - Focal length: 1.93 mm, horizontal aperture: 3.68 mm
 - Clip range: 0.01-6.0 m (sim), real min range 0.4 m (handled by nearfield fill)
 - Update rate: 30 Hz
@@ -47,90 +56,100 @@ env.scene["robot"].data.root_pos_w    # (num_envs, 3)
 env.scene["robot"].data.root_quat_w   # (num_envs, 4)
 ```
 
-**ProcRoom ground truth** (available at runtime when env has `_proc_room_*` attributes):
-```python
-env._proc_room_active_mask      # (num_envs, 44) bool — which obstacle slots are populated
-env._proc_room_spawn_pts        # (num_envs, 200, 2) — BFS-verified spawn/goal XY positions
-env._proc_room_difficulty       # (num_envs,) — integer difficulty level
-env.scene["obstacles"].data.object_pos_w  # (num_envs, 44, 3) — per-slot 3D positions
-```
-
-**ProcRoom object inventory (44 total):**
-
-| Slot range | Prim name prefix | Type | Dimensions (X, Y, Z) m |
-|-----------|-----------------|------|------------------------|
-| 0-7 | `wall_long_` | wall | 2.0 x 0.15 x 1.0 |
-| 8-15 | `wall_med_` | wall | 1.0 x 0.15 x 1.0 |
-| 16-19 | `wall_short_` | wall | 0.5 x 0.15 x 1.0 |
-| 20-21 | `furn_table_` | furniture | 0.8 x 0.6 x 0.4 |
-| 22-23 | `furn_shelf_` | furniture | 1.2 x 0.3 x 0.8 |
-| 24-25 | `furn_cabinet_` | furniture | 0.5 x 0.5 x 0.6 |
-| 26-27 | `furn_couch_` | furniture | 1.4 x 0.6 x 0.35 |
-| 28-31 | `clutter_box_` | clutter | 0.3 x 0.3 x 0.3 |
-| 32-33 | `clutter_cyl_` | clutter | r=0.15, h=0.4 |
-| 34-35 | `clutter_flat_` | clutter | 0.4 x 0.4 x 0.15 |
-| 36-37 | `clutter_sphere_` | clutter | r=0.15 |
-| 38-39 | `clutter_cone_` | clutter | r=0.12, h=0.35 |
-| 40-41 | `clutter_capsule_` | clutter | r=0.1, h=0.4 |
-| 42-43 | `clutter_tall_cyl_` | clutter | r=0.1, h=0.7 |
-
-Prim names encode category — parse the prefix (e.g., `furn_table_0` → label `"table"`).
-
 **Infinigen environments:**
-- Scene USDs in `Assets/generated/scenes/` with `scenes_metadata.json`
+- Scene USDs in `Assets/generated/scenes/` with `scene_metadata.json`
+  (produced by DGX Task 8)
 - Loaded as global prim at `/World/Room`
-- No per-object labels currently preserved (see Task 4)
+- Objects have `semanticLabel` USD prim attributes (set by DGX Task 8)
+- **Primary source for all perception training data**
+
+**ProcRoom environments:**
+- Solid-color primitive shapes. **NOT useful for perception training.**
+- Keep for RL policy training only.
 
 **Existing `collect_demos.py`** (template for new scripts):
 - Output: HDF5 with per-episode groups (`obs`, `actions`, `rewards`)
 - Gamepad teleop with world-to-body frame transform
 - CLI: `--task`, `--output`, `--max_episodes`
 
-**Registered ProcRoom environments** (use these for data collection):
-- `Isaac-Strafer-Nav-Real-ProcRoom-Depth-Play-v0` — 8 play envs, realistic noise
-- `Isaac-Strafer-Nav-Real-ProcRoom-NoCam-Play-v0` — 50 play envs, no camera
-- `Isaac-Strafer-Nav-Robust-ProcRoom-Depth-Play-v0` — 8 play envs, aggressive noise
-
-### VLM training data format (output target for DGX fine-tuning)
-
-The DGX agent will consume the data you produce. The formats they expect:
-
-**Qwen2.5-VL grounding SFT** (JSONL):
-```json
-{
-  "image": "frame_0042.jpg",
-  "conversations": [
-    {"role": "user", "content": "<image>Locate the table in this image."},
-    {"role": "assistant", "content": "<ref>table</ref><box>(321,450),(580,890)</box>"}
-  ]
-}
-```
-Coordinates are 0-1000 scaled: `x_scaled = int(x_pixel / width * 1000)`.
-
-**CLIP contrastive pairs** (CSV manifest + image files):
-```csv
-anchor,positive,negative
-episode_0001/frame_0010.jpg,episode_0001/frame_0012.jpg,episode_0042/frame_0005.jpg
-```
-
 ---
 
-## Owned directories (do NOT edit files outside these)
+## Owned files (do NOT edit files outside these)
 
 ```
-source/strafer_lab/                      # entire Isaac Lab extension
-source/strafer_lab/scripts/              # data collection scripts
-source/strafer_lab/strafer_lab/          # env configs, MDP modules, assets
-source/strafer_lab/test/                 # all strafer_lab tests
+# Isaac Sim runtime scripts
+source/strafer_lab/scripts/collect_perception_data.py     # NEW -- teleop data collection
+source/strafer_lab/scripts/sim_in_the_loop.py            # NEW -- ROS bridge data harness
+
+# Isaac Sim runtime modules
+source/strafer_lab/strafer_lab/assets/strafer/d555_cfg.py  # modify -- add perception camera
+source/strafer_lab/strafer_lab/tools/bbox_extractor.py     # NEW -- Replicator bbox extraction
+source/strafer_lab/strafer_lab/bridge/                     # NEW -- ROS2 bridge
+source/strafer_lab/test/                                   # tests for above
 ```
+
+**Do NOT modify** files owned by the DGX agent:
+- `source/strafer_lab/scripts/prep_room_usds.py`
+- `source/strafer_lab/scripts/extract_scene_metadata.py`
+- `source/strafer_lab/scripts/generate_descriptions.py`
+- `source/strafer_lab/scripts/finetune_clip.py`
+- `source/strafer_lab/scripts/prepare_vlm_finetune_data.py`
+- `source/strafer_lab/strafer_lab/tools/scene_labels.py`
+- `source/strafer_lab/strafer_lab/tools/spatial_description.py`
+- `source/strafer_lab/strafer_lab/tools/dataset_export.py`
 
 ---
 
 ## Tasks (ordered by priority, then dependency)
 
-### Task 1: Perception data collection script (Section 5.5)
+### Task 1: Dual camera configuration (Section 5.5.2)
 
-**Priority:** High | **Effort:** Medium | **Section:** 5.5
+**Priority:** High | **Effort:** Small
+
+**File to modify:**
+
+```
+source/strafer_lab/strafer_lab/assets/strafer/d555_cfg.py
+```
+
+**What to implement:**
+
+Add a 640x360 perception camera config alongside the existing 80x60 policy
+camera. Both share the same physical parameters (focal length, aperture,
+mount offset) but differ in resolution.
+
+```python
+D555_PERCEPTION_CAMERA_CFG = TiledCameraCfg(
+    prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link/d555_camera_perception",
+    update_period=D555_CAMERA_UPDATE_PERIOD,  # 1/30 = 30 Hz
+    height=360,
+    width=640,
+    data_types=("rgb", "distance_to_image_plane"),
+    spawn=PinholeCameraCfg(
+        focal_length=D555_FOCAL_LENGTH,
+        horizontal_aperture=D555_H_APERTURE,
+        clipping_range=(0.01, DEPTH_CLIP_FAR),
+    ),
+    offset=OffsetCfg(
+        pos=D555_CAMERA_OFFSET_POS,
+        rot=D555_CAMERA_OFFSET_ROT,
+        convention="ros",
+    ),
+)
+```
+
+Only instantiate in perception/bridge environments (not RL training). At
+640x360, only 1-8 parallel envs are feasible.
+
+You will also need to create or modify an environment config that includes
+this camera in the scene definition (e.g., a new `Infinigen-Perception-Play`
+env variant).
+
+---
+
+### Task 2: Perception data collection with gamepad teleop (Section 5.5.4)
+
+**Priority:** High | **Effort:** Medium
 
 **New file to create:**
 
@@ -140,127 +159,88 @@ source/strafer_lab/scripts/collect_perception_data.py
 
 **What to implement:**
 
-A data collection script modeled after the existing `collect_demos.py` but
-for perception rather than control. It drives the robot through environments
-while capturing labeled perception data.
+A data collection script modeled after `collect_demos.py` but for perception
+data. **The controller is human gamepad teleop** -- not random walk, not
+goal-seeking, not scripted patrol.
+
+The operator drives the robot through Infinigen scenes via gamepad. The
+script captures 640x360 RGB-D + Replicator bboxes + poses at every frame.
 
 ```python
 class PerceptionDataCollector:
-    def __init__(self, env, output_dir: Path):
+    def __init__(self, env, output_dir: Path, scene_name: str):
         self.env = env
-        self.camera = env.scene["d555_camera"]
+        self.camera = env.scene["d555_camera_perception"]  # 640x360
+        self.bbox_extractor = ReplicatorBboxExtractor(
+            self.camera.render_product_path
+        )
+        self.gamepad = GamepadTeleop()
 
     def collect_episode(self, episode_id: int, max_steps: int = 500) -> dict:
         obs_dict, info = self.env.reset()
         frames = []
-
         for step in range(max_steps):
-            action = self.get_action(obs_dict)
+            action = self.gamepad.get_action()
+            if action is None:
+                break
             obs_dict, reward, terminated, truncated, info = self.env.step(action)
 
-            # Camera data via scene sensor handles (NOT obs_dict)
-            rgba = self.camera.data.output["rgb"]           # (num_envs, 60, 80, 4)
+            rgba = self.camera.data.output["rgb"]
             rgb = rgba[..., :3]
-            depth = self.camera.data.output["distance_to_image_plane"]  # (num_envs, 60, 80, 1)
-
-            # Poses
-            cam_pos = self.camera.data.pos_w                # (num_envs, 3)
-            cam_quat = self.camera.data.quat_w_world        # (num_envs, 4)
-            robot_pos = self.env.scene["robot"].data.root_pos_w
-            robot_quat = self.env.scene["robot"].data.root_quat_w
-
-            # ProcRoom ground truth
-            obstacle_positions = None
-            if hasattr(self.env, "_proc_room_active_mask"):
-                active_mask = self.env._proc_room_active_mask
-                obstacle_positions = self.env.scene["obstacles"].data.object_pos_w
+            depth = self.camera.data.output["distance_to_image_plane"]
+            bboxes = self.bbox_extractor.extract()
 
             frame_data = {
-                "rgb": rgb.cpu().numpy(),
-                "depth": depth.cpu().numpy(),
-                "cam_pos": cam_pos.cpu().numpy(),
-                "cam_quat": cam_quat.cpu().numpy(),
-                "robot_pos": robot_pos.cpu().numpy(),
-                "robot_quat": robot_quat.cpu().numpy(),
+                "rgb": rgb[0].cpu().numpy(),
+                "depth": depth[0].cpu().numpy(),
+                "cam_pos": self.camera.data.pos_w[0].cpu().numpy(),
+                "cam_quat": self.camera.data.quat_w_world[0].cpu().numpy(),
+                "robot_pos": self.env.scene["robot"].data.root_pos_w[0].cpu().numpy(),
+                "robot_quat": self.env.scene["robot"].data.root_quat_w[0].cpu().numpy(),
+                "bboxes": bboxes,
+                "scene_type": "infinigen",
+                "scene_name": self.scene_name,
             }
-            if obstacle_positions is not None:
-                frame_data["obstacle_positions"] = obstacle_positions.cpu().numpy()
-                frame_data["obstacle_active_mask"] = active_mask.cpu().numpy()
-
             frames.append(frame_data)
-
             if terminated.any() or truncated.any():
                 break
-
         return self.save_episode(episode_id, frames)
 ```
 
-**Key API details:**
-- Isaac Lab Gymnasium API: `obs_dict, reward, terminated, truncated, info = env.step(action)`
-- Camera data is on the sensor, not in `obs_dict`
-- D555 camera: 80x60 resolution, 30 Hz, mounted at (0.20, 0.0, 0.25) m
-- ProcRoom objects: 44 total (20 walls, 8 furniture, 16 clutter) — prim
-  names encode category (e.g., `furn_table_0`, `clutter_box_2`)
-- Use random policy or trained policy for driving trajectories
+**CLI:**
 
-**Action strategies to implement:**
-1. Random walk (uniform random `[vx, vy, omega]`)
-2. Goal-seeking (use the env's goal command as a waypoint)
-3. Scripted patrol (visit corners of the room)
-
-**Output format:** HDF5 per episode:
-```
-episode_NNNN/
-  frame_0000.jpg          # RGB (80x60)
-  frame_0000_depth.png    # uint16 depth in mm
-  frame_0000.json         # camera pose, robot pose, obstacle data
-```
-
-**CLI interface** (follow `collect_demos.py` pattern):
 ```bash
 python scripts/collect_perception_data.py \
-  --task Isaac-Strafer-Nav-Real-ProcRoom-Depth-Play-v0 \
+  --task Isaac-Strafer-Nav-Real-Infinigen-Depth-Play-v0 \
+  --scene scene_001 \
   --output data/perception/ \
-  --max_episodes 100 \
-  --max_steps 500 \
-  --action_strategy goal_seeking
+  --max_episodes 20
 ```
+
+**Depends on:** Task 1 (perception camera), Task 3 (bbox extractor).
+Also requires labeled Infinigen USDs from DGX Task 8.
 
 ---
 
-### Task 2: Ground-truth 2D bbox extraction via Replicator (Section 5.5)
+### Task 3: Ground-truth 2D bbox extraction via Replicator (Section 5.5.4)
 
 **Priority:** High | **Effort:** Medium
 
-**New file to create:**
+**New files to create:**
 
 ```
 source/strafer_lab/strafer_lab/tools/
-    __init__.py
+    __init__.py          # This agent creates it (DGX agent adds to it later)
     bbox_extractor.py
 ```
 
 **What to implement:**
 
-Use the **Isaac Sim Replicator API** to extract ground-truth 2D bounding
-boxes with semantic labels. This is the single approach — it works for both
-Infinigen scenes (realistic objects with labels from the generation API) and
-ProcRoom environments.
-
-**Why NOT manual 3D-to-2D projection:** ProcRoom objects are solid-color
-primitives (boxes, cylinders, cones). They are useful for navigation training
-but not for VLM perception training — a VLM fine-tuned on "locate the cyan
-box" won't generalize to real-world objects. The perception data pipeline
-should prioritize Infinigen scenes with realistic objects, where Replicator
-provides accurate bboxes and semantic labels from the USD prim metadata.
-
-**Replicator annotator setup:**
-
 ```python
 import omni.replicator.core as rep
 
 class ReplicatorBboxExtractor:
-    """Extract 2D bounding boxes and semantic labels via Isaac Sim Replicator."""
+    """Extract 2D bounding boxes + semantic labels via Replicator."""
 
     def __init__(self, camera_render_product_path: str):
         self._bbox_annotator = rep.AnnotatorRegistry.get_annotator(
@@ -268,221 +248,85 @@ class ReplicatorBboxExtractor:
         )
         self._bbox_annotator.attach([camera_render_product_path])
 
-        # Semantic segmentation gives prim-level class labels
-        self._sem_annotator = rep.AnnotatorRegistry.get_annotator(
-            "semantic_segmentation"
-        )
-        self._sem_annotator.attach([camera_render_product_path])
-
     def extract(self) -> list[dict]:
-        """Return list of {label, bbox_2d, instance_id} for visible objects."""
         bbox_data = self._bbox_annotator.get_data()
-        sem_data = self._sem_annotator.get_data()
-
         results = []
-        for bbox_entry in bbox_data["data"]:
+        for entry in bbox_data["data"]:
             results.append({
-                "label": bbox_entry.get("semanticLabel", "unknown"),
-                "bbox_2d": [
-                    int(bbox_entry["x_min"]),
-                    int(bbox_entry["y_min"]),
-                    int(bbox_entry["x_max"]),
-                    int(bbox_entry["y_max"]),
-                ],
-                "instance_id": bbox_entry.get("instanceId", -1),
-                "occlusion": bbox_entry.get("occlusionRatio", 0.0),
+                "label": entry.get("semanticLabel", "unknown"),
+                "bbox_2d": [int(entry["x_min"]), int(entry["y_min"]),
+                            int(entry["x_max"]), int(entry["y_max"])],
+                "instance_id": entry.get("instanceId", -1),
+                "occlusion": entry.get("occlusionRatio", 0.0),
             })
         return results
 ```
 
-**Key requirement:** For Replicator annotators to return semantic labels,
-the USD prims must have `semanticLabel` attributes set. This is handled by
-Task 4 (Infinigen label-preserving export). For ProcRoom, the prim names
-(e.g., `furn_table_0`) can serve as fallback labels but the primary
-training data source should be Infinigen scenes.
-
-**Integration with Task 1:** `PerceptionDataCollector` calls
-`bbox_extractor.extract()` each step, adding `bboxes` to frame_data.
-Frames from ProcRoom are useful for depth/navigation training but should
-be flagged as `"scene_type": "procroom"` so the export pipeline (Task 3)
-can exclude them from VLM grounding fine-tuning datasets.
+Requires `semanticLabel` USD prim attributes (set by DGX Task 8).
+Do NOT use manual 3D-to-2D projection.
 
 ---
 
-### Task 3: HDF5/WebDataset export pipeline (Section 5.5 output format, Section 5.10 step 3)
+### Task 4: Isaac Sim ROS2 Bridge (Section 5.9)
 
-**Priority:** Medium | **Effort:** Small
+**Priority:** High | **Effort:** Large
 
-**New file to create:**
+**New files to create:**
 
 ```
-source/strafer_lab/strafer_lab/tools/dataset_export.py
+source/strafer_lab/strafer_lab/bridge/
+    __init__.py
+    ros2_bridge.py
+    depth_conversion.py
+    odom_integrator.py
+    camera_info_builder.py
 ```
 
 **What to implement:**
 
-Convert collected perception data into training-ready formats:
+The ROS2 Bridge publishes Isaac Sim sensor data on real robot topic names
+so the full autonomy stack (JetsonRosClient, Nav2, goal_projection_node)
+works unmodified against the simulated robot.
 
-1. **HDF5** (for local training on DGX):
-   - Per-episode structure matching `collect_demos.py` pattern
-   - Add `bboxes`, `labels`, `cam_pose`, `robot_pose` datasets
+See design doc Section 5.9.1-5.9.2 for full topic table, TF tree, and
+`StraferROS2Bridge` implementation sketch.
 
-2. **VLM grounding JSONL** (for Qwen2.5-VL fine-tuning):
-   - Convert bboxes to 0-1000 scaled `<ref>label</ref><box>(x1,y1),(x2,y2)</box>` format
-   - Include negative examples (frames where queried object is not visible)
-   - Output `.jsonl` files ready for SFT
+**Key topics:** `/d555/color/image_sync` (RGB8 640x360), depth (16UC1 mm),
+CameraInfo, `/strafer/odom`, IMU, `/scan` (LaserScan), TF tree.
 
-3. **CLIP contrastive pairs** (for OpenCLIP fine-tuning):
-   - Generate (anchor, positive, negative) image triples
-   - Positive: same scene, small pose jitter
-   - Negative: different room
-   - Output as image file triplets with a manifest CSV
+**Critical dependency:** ROS2 Humble available on the host machine (WSL2,
+Docker, or native) OR the executor/Nav2 runs on the Jetson via network
+(same ROS2 domain via DDS discovery).
 
-**Depends on:** Tasks 1 and 2
+**Depends on:** Task 1 (perception camera)
 
 ---
 
-### Task 4: Infinigen labeled scene generation (Section 5.3)
-
-**Priority:** Medium | **Effort:** Medium
-
-**Files to create/modify:**
-
-```
-source/strafer_lab/scripts/prep_room_usds.py       # modify (if exists) or create
-source/strafer_lab/strafer_lab/tools/scene_labels.py  # NEW — runtime label accessor
-```
-
-**Context:** Infinigen (Princeton procedural generation) creates realistic
-indoor scenes with full semantic knowledge — every object has a class label,
-mesh, material, and pose inside the Infinigen pipeline. The current
-integration (`prep_room_usds.py`) imports geometry as USD meshes but drops
-the semantic labels during conversion.
-
-**What to implement:**
-
-1. **Configure Infinigen to output labels at generation time.** Infinigen's
-   API supports exporting per-object metadata (class name, instance ID,
-   material tags) alongside the USD geometry. Instead of post-hoc label
-   recovery, configure the generation pipeline to:
-   - Write `semanticLabel` as a custom USD prim attribute on each object
-   - Write `instanceId` as a unique integer per object instance
-   - These attributes are what the Isaac Sim Replicator `bounding_box_2d_tight`
-     and `semantic_segmentation` annotators read (see Task 2)
-
-   In the Infinigen generation config or post-processing script:
-   ```python
-   # During USD export, set prim metadata for each generated object
-   from pxr import Usd, UsdGeom
-
-   stage = Usd.Stage.Open(scene_usd_path)
-   for prim in stage.Traverse():
-       if prim.GetTypeName() in ("Mesh", "Xform"):
-           # infinigen_label comes from Infinigen's internal object registry
-           label = get_infinigen_label(prim.GetName())
-           if label:
-               prim.CreateAttribute("semanticLabel", Sdf.ValueTypeNames.String).Set(label)
-               prim.CreateAttribute("instanceId", Sdf.ValueTypeNames.Int).Set(instance_id)
-   stage.Save()
-   ```
-
-2. **Extend `scenes_metadata.json`** with a per-scene `objects` list so
-   labels are accessible without parsing USD at runtime:
-   ```json
-   {
-     "scenes": {
-       "scene_001": {
-         "spawn_points_xy": [[1.0, 2.0], ...],
-         "objects": [
-           {
-             "label": "chair",
-             "instance_id": 42,
-             "prim_path": "/World/Room/chair_42",
-             "bbox_3d_min": [1.2, 0.5, 0.0],
-             "bbox_3d_max": [1.8, 1.1, 0.9]
-           }
-         ]
-       }
-     }
-   }
-   ```
-
-3. **Add a runtime accessor** in `strafer_lab/tools/scene_labels.py`:
-   ```python
-   def get_scene_objects(metadata_path: Path, scene_name: str) -> list[dict]:
-       """Read labeled objects from scenes_metadata.json."""
-
-   def get_scene_label_set(metadata_path: Path, scene_name: str) -> set[str]:
-       """Return the set of unique object labels in a scene."""
-   ```
-   These are used by `PerceptionDataCollector` (Task 1) and the VLM
-   fine-tuning data prep (Task 6) to know which objects are present in each
-   scene for generating grounding prompts and negative examples.
-
-**Why this approach:** Rather than trying to recover labels from existing
-unlabeled USDs, we ensure the Infinigen generation pipeline produces labeled
-USDs from the start. This is cleaner and gives us control over the label
-taxonomy (e.g., mapping Infinigen's internal names to the categories the VLM
-should learn).
-
----
-
-### Task 5: CLIP contrastive fine-tuning pipeline (Section 5.6)
-
-**Priority:** High | **Effort:** Medium
-
-**New file to create:**
-
-```
-source/strafer_lab/scripts/finetune_clip.py
-```
-
-**What to implement:**
-
-- Load OpenCLIP ViT-B/32 with `open_clip.create_model_and_transforms`
-- Freeze text tower, fine-tune vision tower
-- InfoNCE / NT-Xent loss on contrastive pairs from Task 3
-- Training loop with AdamW, lr=1e-5, weight_decay=0.01
-- Export fine-tuned model to ONNX: `torch.onnx.export(model.visual, ...)`
-- Log experiments with MLflow (optional, for Databricks tracking)
-- CLI: `python scripts/finetune_clip.py --data data/clip_pairs/ --epochs 10 --output models/clip_finetuned.onnx`
-
-**Dataset scale:** 10k-50k image pairs, generated by Task 3.
-
----
-
-### Task 6: VLM grounding fine-tuning data prep (Section 5.7)
+### Task 5: Sim-in-the-loop data capture harness (Section 5.9.5)
 
 **Priority:** Medium | **Effort:** Medium
 
 **New file to create:**
 
 ```
-source/strafer_lab/scripts/prepare_vlm_finetune_data.py
+source/strafer_lab/scripts/sim_in_the_loop.py
 ```
 
 **What to implement:**
 
-Convert perception data + bboxes into Qwen2.5-VL SFT format:
+A harness that drives the simulation loop: generate navigation commands
+from scene labels -> execute via the autonomy stack (over ROS bridge) ->
+capture paired observations with reachability labels.
 
-```json
-{
-  "image": "frame_0042.jpg",
-  "conversations": [
-    {"role": "user", "content": "<image>Locate the table in this image."},
-    {"role": "assistant", "content": "<ref>table</ref><box>(321,450),(580,890)</box>"}
-  ]
-}
-```
+When Nav2 fails to reach a target (timeout), tag the episode as
+`"reachable": false`. These frames are still valid for CLIP/VLM training
+but get labeled for future feasibility prediction.
 
-- Coordinates scaled to 0-1000 range
-- Generate negative examples (1:3 ratio):
-  ```json
-  {"role": "assistant", "content": "The object is not visible in this image."}
-  ```
-- Output: `.jsonl` files ready for SFT on DGX
+See design doc Section 5.9.3-5.9.5 for command generation pipeline and
+`SimInTheLoopHarness` implementation sketch.
 
-**Depends on:** Tasks 1 and 2
+**Depends on:** Task 4 (ROS bridge) + DGX services running + DGX Task 8
+(labeled Infinigen USDs with `scene_metadata.json`)
 
 ---
 
@@ -496,34 +340,29 @@ python run_tests.py
 # Or with pytest directly
 python -m pytest test/ -v
 
-# Run perception data collection
+# Run perception data collection (requires gamepad + Infinigen env)
 python scripts/collect_perception_data.py \
-  --task Isaac-Strafer-Nav-Real-ProcRoom-Depth-Play-v0 \
+  --task Isaac-Strafer-Nav-Real-Infinigen-Depth-Play-v0 \
+  --scene scene_001 \
   --output data/perception/ \
   --max_episodes 10
 ```
 
 ---
 
-## Deferred tasks (not assigned to this phase)
+## Deferred tasks
 
-These items from `STRAFER_AUTONOMY_NEXT.md` are explicitly deferred:
-
-- **ONNX export of fine-tuned CLIP** (Section 5.10 step 7) — Small effort,
-  but depends on Task 5 being validated. Covered as the final step of
-  `finetune_clip.py` rather than a separate task.
-- **Failure-to-sim feedback pipeline** (Section 5.8) — Large effort, Low
-  priority. Depends on Jetson real-world failure logging (PHASE_15_JETSON Task 10).
-- **Sim-in-the-loop harness** (Section 5.9) — Large effort, Low priority.
-  Depends on Isaac Sim ROS2 Bridge configuration and full autonomy stack.
+- **Failure-to-sim feedback pipeline** (Section 5.8) -- Depends on Jetson
+  real-world failure logging and all synthetic data infrastructure.
 
 ---
 
 ## What NOT to touch
 
-- `source/strafer_autonomy/` — owned by Jetson + DGX agents
-- `source/strafer_vlm/` — owned by DGX agent
-- `source/strafer_ros/` — owned by Jetson agent
-- `source/strafer_shared/` — owned by Jetson agent
-- `Makefile` — shared, do not modify without coordination
-- `docs/` — do not modify design docs during implementation
+- `source/strafer_autonomy/` -- owned by Jetson + DGX agents
+- `source/strafer_vlm/` -- owned by DGX agent
+- `source/strafer_ros/` -- owned by Jetson agent
+- `source/strafer_shared/` -- owned by Jetson agent
+- DGX-owned strafer_lab files (see list above)
+- `Makefile` -- shared, do not modify without coordination
+- `docs/` -- do not modify design docs during implementation

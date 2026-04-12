@@ -66,6 +66,7 @@ this internal call.
 ## Owned directories (do NOT edit files outside these)
 
 ```
+# Planner + VLM services
 source/strafer_vlm/                                          # VLM service, inference, training
 source/strafer_autonomy/strafer_autonomy/planner/            # planner app, intent parser, plan compiler, LLM runtime
 source/strafer_autonomy/strafer_autonomy/clients/planner_client.py   # HttpPlannerClient
@@ -75,12 +76,23 @@ source/strafer_autonomy/strafer_autonomy/clients/databricks_vlm_client.py      #
 source/strafer_autonomy/tests/test_planner_*.py
 source/strafer_autonomy/tests/test_intent_parser.py
 source/strafer_autonomy/tests/test_plan_compiler.py
+
+# Synthetic data — batch processing scripts (NOT Isaac Sim runtime)
+source/strafer_lab/scripts/prep_room_usds.py                 # Infinigen → USD pipeline
+source/strafer_lab/scripts/extract_scene_metadata.py         # NEW — metadata extraction
+source/strafer_lab/scripts/generate_descriptions.py          # NEW — 4-stage description pipeline
+source/strafer_lab/scripts/finetune_clip.py                  # NEW — CLIP fine-tuning
+source/strafer_lab/scripts/prepare_vlm_finetune_data.py      # NEW — VLM SFT data prep
+source/strafer_lab/strafer_lab/tools/scene_labels.py         # NEW — runtime label accessor
+source/strafer_lab/strafer_lab/tools/spatial_description.py  # NEW — SpatialDescriptionBuilder
+source/strafer_lab/strafer_lab/tools/dataset_export.py       # NEW — export to CLIP CSV + VLM JSONL
 ```
 
 **Shared file protocol:** The Jetson agent owns `mission_runner.py` and the
 `_execute_step` dispatch. If you add a new intent type or skill, you provide
 only the compiler function and parser change — the Jetson agent wires the
-executor side.
+executor side. `source/strafer_lab/strafer_lab/tools/__init__.py` is created
+by the Isaac Sim host agent (Task 3) — your tools import into the existing file.
 
 ---
 
@@ -171,6 +183,10 @@ source/strafer_autonomy/tests/test_plan_compiler.py
 
 1. `schemas/mission.py` — add `targets: list[dict[str, Any]] | None = None`
    to `MissionIntent`
+
+   **Coordination:** This file is owned by the Jetson agent. Add ONLY the
+   `targets` field — do not modify other fields or classes. Coordinate with
+   the Jetson agent to avoid merge conflicts on this file.
 
 2. `intent_parser.py` — add to `_VALID_INTENTS`:
    ```python
@@ -297,6 +313,313 @@ source/strafer_autonomy/databricks/
 
 ---
 
+## Synthetic data tasks (DGX batch processing)
+
+These tasks run on the DGX Spark and do NOT require Isaac Sim. They
+process scene data, generate descriptions, and run model fine-tuning.
+The Isaac Sim host (Windows or DGX) collects raw perception data (Tasks
+in `PHASE_15_WINDOWS.md`); these tasks consume that data.
+
+### Task 7: Infinigen high-quality scene generation (Section 5.3)
+
+**Priority:** High | **Effort:** Medium
+
+**Files to modify:**
+
+```
+source/strafer_lab/scripts/prep_room_usds.py
+```
+
+**What to implement:**
+
+Generate Infinigen scenes at higher quality using the DGX Spark's 128GB
+unified memory (vs. the Windows workstation's 16GB VRAM limit). Update
+the generation config to produce scenes with:
+- Higher polygon counts and more detailed meshes
+- More diverse room types (Kitchen, Bedroom, LivingRoom, Hallway, Office)
+- More objects per room (richer scenes for perception training)
+- Multiple rooms per scene (multi-room layouts with connectivity)
+
+The existing `prep_room_usds.py` handles Infinigen → USD conversion. If
+Infinigen must run in Blender on DGX, verify Blender headless works on
+ARM64 (Grace). If not, generate scenes on Windows and transfer USDs to
+DGX for metadata extraction.
+
+---
+
+### Task 8: Scene metadata extraction (Section 5.3)
+
+**Priority:** High | **Effort:** Medium
+
+**New files to create:**
+
+```
+source/strafer_lab/scripts/extract_scene_metadata.py
+source/strafer_lab/strafer_lab/tools/scene_labels.py
+```
+
+**What to implement:**
+
+1. **Metadata extraction script.** Hook into Infinigen's Blender Python
+   state during generation (or as a post-processing step on `.blend` files)
+   to serialize the rich scene metadata that Infinigen tracks internally:
+
+   - Per-room: `room_type` (from `Semantics` enum — Kitchen, Hallway, etc.),
+     `footprint_xy` (from `shapely.Polygon`), `area_m2`, `story`
+   - Per-object: `label`, `semantic_tags` (from Infinigen's hierarchical
+     tag system — Furniture/Seating/Chair), `instance_id`, `position_3d`,
+     `bbox_3d`, `room_idx`, `relations` (SupportedBy, StableAgainst,
+     CoPlanar), `materials`
+   - Room adjacency graph from `RoomGraph`
+   - Spawn points (existing, from `scenes_metadata.json` `spawn_points_xy`)
+
+   Output: `scene_metadata.json` per scene in `Assets/generated/scenes/`.
+
+2. **USD prim labeling.** Write `semanticLabel` and `instanceId` as USD
+   prim attributes so Replicator annotators produce labeled bboxes:
+   ```python
+   from pxr import Usd, Sdf
+   stage = Usd.Stage.Open(scene_usd_path)
+   for prim in stage.Traverse():
+       label = metadata_lookup(prim.GetName())
+       if label:
+           prim.CreateAttribute("semanticLabel", Sdf.ValueTypeNames.String).Set(label)
+           prim.CreateAttribute("instanceId", Sdf.ValueTypeNames.Int).Set(instance_id)
+   stage.Save()
+   ```
+
+3. **Runtime label accessor** (`scene_labels.py`):
+   ```python
+   def get_scene_metadata(metadata_path: Path, scene_name: str) -> dict:
+       """Read full scene metadata including rooms, objects, relations."""
+
+   def get_scene_label_set(metadata_path: Path, scene_name: str) -> set[str]:
+       """Return unique object labels in a scene."""
+
+   def get_room_at_position(metadata: dict, xy: tuple[float, float]) -> dict | None:
+       """Point-in-polygon lookup: which room contains this XY position?"""
+   ```
+
+**Key insight:** Infinigen's richest metadata (room types, spatial relations,
+semantic tags) lives in the Blender Python `State` object during generation
+and is NOT written to `saved_mesh.json` or USD by default. This task must
+serialize that data.
+
+---
+
+### Task 9: Scene description pipeline — Stages 1-3 + spot-check (Section 5.6.2)
+
+**Priority:** High | **Effort:** Medium
+
+**New files to create:**
+
+```
+source/strafer_lab/strafer_lab/tools/spatial_description.py   # Stage 1
+source/strafer_lab/scripts/generate_descriptions.py           # Stages 1-4 batch runner
+```
+
+**What to implement:**
+
+A 4-stage batch pipeline that produces rich text descriptions for every
+frame captured during teleop data collection. Runs after data collection
+as a batch job on DGX Spark.
+
+**Stage 1: Programmatic spatial analysis** (`spatial_description.py`)
+
+```python
+from shapely.geometry import Point, Polygon
+
+class SpatialDescriptionBuilder:
+    """Compute spatial relations from simulation ground truth."""
+
+    def __init__(self, scene_metadata: dict):
+        self.rooms = [
+            {**r, "polygon": Polygon(r["footprint_xy"])}
+            for r in scene_metadata["rooms"]
+        ]
+        self.objects = scene_metadata["objects"]
+
+    def build(self, frame_data: dict) -> dict:
+        robot_xy = frame_data["robot_pos"][:2]
+        robot_yaw = quat_to_yaw(frame_data["robot_quat"])
+
+        # Which room is the robot in? (point-in-polygon)
+        current_room = None
+        for room in self.rooms:
+            if room["polygon"].contains(Point(robot_xy)):
+                current_room = room
+                break
+
+        described_objects = []
+        for obj in self._visible_objects(frame_data["bboxes"]):
+            pos = np.array(obj["position_3d"][:2])
+            dist = float(np.linalg.norm(pos - robot_xy))
+            bearing = self._compute_bearing(pos, robot_xy, robot_yaw)
+            region = self._classify_region(dist)
+
+            described_objects.append({
+                "label": obj["label"],
+                "semantic_tags": obj.get("semantic_tags", []),
+                "distance_m": round(dist, 1),
+                "bearing": bearing,
+                "region": region,
+                "room_type": self.rooms[obj["room_idx"]]["room_type"]
+                             if "room_idx" in obj else None,
+                "relations": [
+                    f'{r["type"]} {r["target"]}'
+                    for r in obj.get("relations", []) if r["target"]
+                ],
+                "materials": obj.get("materials", []),
+            })
+
+        return {
+            "robot_room_type": current_room["room_type"] if current_room else None,
+            "visible_objects": described_objects,
+        }
+```
+
+**Stage 2: VLM description generation** (Qwen2.5-VL-7B, standalone)
+
+Load Qwen2.5-VL-7B as a standalone model via `transformers.AutoModelForVision2Seq`
+in the `generate_descriptions.py` script. This is completely separate from the
+`strafer_vlm` service package (port 8100, which runs the 3B model being
+fine-tuned). Do NOT import from `strafer_vlm`. The 7B model fits easily on
+128GB DGX alongside other workloads.
+
+The VLM receives both the structured spatial facts JSON (from Stage 1) and
+the actual RGB frame in a single prompt. This lets it produce descriptions
+that are spatially accurate (from GT facts) AND visually grounded (lighting,
+textures, occlusion, materials) — no separate LLM stage needed.
+
+Prompt template:
+
+```text
+<image>
+Given these spatial facts about a scene viewed from a ground robot's
+camera (25cm height) and the image above, write 3 natural descriptions
+at different levels of detail: brief (5-10 words), medium (15-25 words),
+and detailed (30-50 words). Include spatial relationships from the facts
+and visual details (lighting, textures, materials) from the image.
+Each must only mention the objects listed in the facts.
+
+Facts: {structured_json}
+```
+
+**Stage 3: Ground truth validation filter**
+
+Cross-reference each description against scene_metadata.json.
+Discard any description that mentions objects not in the scene's label set.
+Log rejection rate for monitoring.
+
+**CLI:**
+
+```bash
+python scripts/generate_descriptions.py \
+  --perception-data data/perception/ \
+  --scene-metadata Assets/generated/scenes/ \
+  --output data/descriptions/ \
+  --vlm-model Qwen/Qwen2.5-VL-7B-Instruct
+```
+
+Note on model loading:
+- Load Qwen2.5-VL-7B directly via `transformers.AutoModelForVision2Seq`
+  and `AutoProcessor` inside `generate_descriptions.py`. Do NOT import
+  from `strafer_vlm` — the description pipeline must be completely
+  independent of the 3B VLM service to avoid self-training contamination.
+
+**Stage 4: Human spot-check** is manual and periodic — review 50 random
+samples per batch of 1000 frames, score quality (1-5), flag systematic
+errors, refine prompts.
+
+---
+
+### Task 10: Dataset export — CLIP CSV + VLM JSONL (Section 5.5.5, 5.6.4)
+
+**Priority:** Medium | **Effort:** Small
+
+**New file to create:**
+
+```
+source/strafer_lab/strafer_lab/tools/dataset_export.py
+```
+
+**What to implement:**
+
+Convert perception data + descriptions into training-ready formats:
+
+1. **CLIP image-text CSV** (for OpenCLIP fine-tuning):
+   ```csv
+   image_path,description
+   episode_0001/frame_0010.jpg,"a hallway with a plant and red ball at the far end"
+   episode_0001/frame_0010.jpg,"looking down a dimly lit hallway, table on the left"
+   ```
+   Multiple descriptions per image (3-5) at different detail levels.
+   **Excludes ProcRoom frames** (filter on `"scene_type": "infinigen"`).
+
+2. **VLM grounding JSONL** (for Qwen2.5-VL SFT):
+   ```json
+   {
+     "image": "frame_0042.jpg",
+     "conversations": [
+       {"role": "user", "content": "<image>Locate the table in this image."},
+       {"role": "assistant", "content": "<ref>table</ref><box>(321,450),(580,890)</box>"}
+     ]
+   }
+   ```
+   - Coordinates scaled to 0-1000 range
+   - Negative examples (1:3 ratio) using `get_scene_label_set()` to query
+     objects NOT in the frame
+   - **Excludes ProcRoom frames**
+
+**Depends on:** Tasks 8 (scene metadata) and 9 (descriptions)
+
+---
+
+### Task 11: CLIP image-text contrastive fine-tuning (Section 5.6.1)
+
+**Priority:** High | **Effort:** Medium
+
+**New file to create:**
+
+```
+source/strafer_lab/scripts/finetune_clip.py
+```
+
+**What to implement:**
+
+- Load OpenCLIP ViT-B/32 with `open_clip.create_model_and_transforms`
+- Standard CLIP contrastive loss (symmetric InfoNCE on image-text pairs)
+- Both towers trained (NOT just vision tower — text alignment matters)
+- Training: AdamW, lr=1e-5, weight_decay=0.01
+- Export fine-tuned model to ONNX: `torch.onnx.export(model.visual, ...)`
+- Log experiments with MLflow
+- CLI: `python scripts/finetune_clip.py --data data/clip_descriptions.csv --epochs 10 --output models/clip_finetuned.onnx`
+
+**Dataset:** 75k-250k (image, text) pairs from Task 10.
+
+---
+
+### Task 12: VLM grounding fine-tuning data prep (Section 5.7)
+
+**Priority:** Medium | **Effort:** Medium
+
+**New file to create:**
+
+```
+source/strafer_lab/scripts/prepare_vlm_finetune_data.py
+```
+
+**What to implement:**
+
+Convert perception data + bboxes into Qwen2.5-VL SFT format:
+- Coordinates scaled to 0-1000 range
+- Negative examples (1:3 ratio)
+- Use `get_scene_label_set()` for negative query generation
+- **Exclude ProcRoom frames**
+- Output: `.jsonl` ready for SFT on DGX
+
+**Depends on:** Tasks 8 (scene labels) and Isaac Sim host tasks (perception data)
+
 ## Deferred tasks (not assigned to this phase)
 
 These items from `STRAFER_AUTONOMY_NEXT.md` are explicitly deferred:
@@ -308,6 +631,9 @@ These items from `STRAFER_AUTONOMY_NEXT.md` are explicitly deferred:
   priority. Natural follow-up after Task 3 (agentic planner) is validated.
 - **Databricks serving endpoints** (Section 4.5) — Infrastructure setup,
   depends on Tasks 5 and 6 being complete and tested.
+- **Failure-to-sim feedback pipeline** (Section 5.8) — Large effort, Low
+  priority. Depends on real-world failure logging (Jetson Task 10) and all
+  synthetic data infrastructure being validated.
 
 ---
 
@@ -334,6 +660,11 @@ make serve-planner
 - `source/strafer_autonomy/strafer_autonomy/clients/ros_client.py` — owned by Jetson agent
 - `source/strafer_ros/` — owned by Jetson agent
 - `source/strafer_shared/` — owned by Jetson agent
-- `source/strafer_lab/` — owned by Windows agent
+- `source/strafer_lab/scripts/collect_perception_data.py` — owned by Isaac Sim host agent
+- `source/strafer_lab/scripts/sim_in_the_loop.py` — owned by Isaac Sim host agent
+- `source/strafer_lab/strafer_lab/bridge/` — owned by Isaac Sim host agent
+- `source/strafer_lab/strafer_lab/tools/bbox_extractor.py` — owned by Isaac Sim host agent
+- `source/strafer_lab/strafer_lab/assets/` — owned by Isaac Sim host agent
+- `source/strafer_lab/strafer_lab/envs/` — owned by Isaac Sim host agent
 - `Makefile` — shared, do not modify without coordination
 - `docs/` — do not modify design docs during implementation

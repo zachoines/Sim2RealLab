@@ -128,12 +128,14 @@ class GamepadReader:
     _AXIS_MAPS = {
         "xbox": {"lx": 0, "ly": 1, "rx": 2},
         "ps5":  {"lx": 0, "ly": 1, "rx": 2},
+        "switch": {"lx": 0, "ly": 1, "rx": 2},
     }
 
     # Button mappings per controller family
     _BUTTON_MAPS = {
         "xbox": {"a": 0, "b": 1, "start": 7},
         "ps5":  {"a": 0, "b": 1, "start": 9},  # Cross, Circle, Options
+        "switch": {"a": 0, "b": 1, "start": 9},  # B(east), A(south), Plus
     }
 
     def __init__(self, deadzone: float = 0.12):
@@ -153,6 +155,8 @@ class GamepadReader:
         name = self.joystick.get_name().lower()
         if "dualsense" in name or "ps5" in name or "sony" in name or "wireless controller" in name:
             self._family = "ps5"
+        elif "pro controller" in name or "switch" in name or "nintendo" in name:
+            self._family = "switch"
         else:
             self._family = "xbox"
         bmap = self._BUTTON_MAPS[self._family]
@@ -163,6 +167,10 @@ class GamepadReader:
         self.AXIS_LX = amap["lx"]
         self.AXIS_LY = amap["ly"]
         self.AXIS_RX = amap["rx"]
+
+        # Prevent pygame from generating QUIT events (which can interfere
+        # with the Kit/Omniverse application lifecycle)
+        pygame.event.set_blocked(pygame.QUIT)
 
         print(f"[Gamepad] Connected: {self.joystick.get_name()} (detected: {self._family})")
         print(f"[Gamepad] Axes: {self.joystick.get_numaxes()}, "
@@ -187,6 +195,8 @@ class GamepadReader:
             ry: right stick Y (unused, reserved).
         """
         pygame.event.pump()
+        # Block QUIT events so pygame doesn't signal the process to exit
+        pygame.event.set_blocked(pygame.QUIT)
         lx = self._apply_deadzone(self.joystick.get_axis(self.AXIS_LX))
         ly = self._apply_deadzone(self.joystick.get_axis(self.AXIS_LY))
         rx = self._apply_deadzone(self.joystick.get_axis(self.AXIS_RX))
@@ -333,7 +343,7 @@ def main():
     )
 
     # Sync UI with physics: render every step for responsive teleop
-    env_cfg.sim.render_interval = 1
+    # env_cfg.sim.render_interval = 1
 
     # Overhead camera aligned with world axes so stick directions match viewport:
     #   screen right = world +X,  screen up = world +Y
@@ -351,6 +361,23 @@ def main():
     env = gym.make(args_cli.task, cfg=env_cfg)
 
     unwrapped = env.unwrapped
+
+    # Force the viewport camera to the overhead position. ViewerCfg sets the
+    # desired pose but ViewportCameraController may not apply it immediately
+    # (or at all in some launch modes). isaacsim's set_camera_view goes
+    # through Kit's TransformPrimCommand which is FSD-safe.
+    import numpy as np
+    from isaacsim.core.utils.viewports import set_camera_view as isaacsim_set_camera_view
+
+    origin = unwrapped.scene.env_origins[0].cpu().numpy()
+    cam_eye = origin + np.array(env_cfg.viewer.eye, dtype=float)
+    cam_target = origin + np.array(env_cfg.viewer.lookat, dtype=float)
+    isaacsim_set_camera_view(
+        eye=cam_eye.tolist(),
+        target=cam_target.tolist(),
+        camera_prim_path=env_cfg.viewer.cam_prim_path,
+    )
+    print(f"[Demo] Camera set: eye={cam_eye.tolist()}, target={cam_target.tolist()}")
 
     # Enable random ProcRoom difficulty per episode (levels 0-7)
     max_difficulty = 7
@@ -424,6 +451,8 @@ def main():
     episode_step = 0
     _heading_print_interval = 60  # Print heading every ~1s (at 60 Hz physics)
     _diag_print_interval = 120  # Print detailed diagnostics every ~2s
+    _start_hold_frames = 0  # Counter for sustained Start-button hold
+    _START_HOLD_THRESHOLD = 60  # ~1 second at 60 Hz before save & quit
 
     # Cache wheel joint indices for diagnostics
     robot_asset = unwrapped.scene["robot"]
@@ -450,9 +479,24 @@ def main():
         while simulation_app.is_running():
             lx, ly, rx, buttons = gamepad.read()
 
+            # Check for pygame QUIT events (window close, etc.) which can
+            # cause is_running() to return False on the next iteration
+            for ev in pygame.event.get(pygame.QUIT):
+                print(f"[Demo] WARNING: pygame QUIT event received — ignoring: {ev}")
+
             if buttons["start"]:
-                writer.end_episode(keep=True)
-                break
+                _start_hold_frames += 1
+                if _start_hold_frames == 1:
+                    print("[Demo] Start button detected — hold for 1 second to save & quit...")
+                if _start_hold_frames >= _START_HOLD_THRESHOLD:
+                    print(f"[Demo] Start held — saving {writer.num_episodes} episodes and exiting.")
+                    writer.end_episode(keep=True)
+                    break
+                continue
+            else:
+                if _start_hold_frames > 0 and _start_hold_frames < _START_HOLD_THRESHOLD:
+                    print(f"[Demo] Start released early ({_start_hold_frames} frames) — cancelled.")
+                _start_hold_frames = 0
 
             if buttons["b"]:
                 print(f"  [Episode {writer.num_episodes}] DISCARDED ({episode_step} steps)")
@@ -527,8 +571,8 @@ def main():
 
             if episode_step % _diag_print_interval == 0:
                 rd = robot_asset.data
-                wv = rd.joint_vel[0, _wheel_joint_ids].cpu().numpy()
-                bv = rd.root_lin_vel_b[0, :2].cpu().numpy()
+                wv = wp.to_torch(rd.joint_vel)[0, _wheel_joint_ids].cpu().numpy()
+                bv = wp.to_torch(rd.root_lin_vel_b)[0, :2].cpu().numpy()
                 print(f"    [diag] wheel_vel(rad/s)=[{wv[0]:+.2f},{wv[1]:+.2f},{wv[2]:+.2f},{wv[3]:+.2f}]"
                       f"  body_vel(m/s)=[vx={bv[0]:+.3f}, vy={bv[1]:+.3f}]"
                       f"  cmd=[{body_vx:+.2f},{body_vy:+.2f},{omega:+.2f}]")
@@ -550,6 +594,18 @@ def main():
 
     except KeyboardInterrupt:
         print("\nInterrupted — saving collected episodes...")
+        writer.end_episode(keep=True)
+
+    except Exception as e:
+        import traceback
+        print(f"\n[Demo] ERROR: Unexpected exception — {type(e).__name__}: {e}")
+        traceback.print_exc()
+        writer.end_episode(keep=True)
+
+    else:
+        # Loop exited normally (simulation_app.is_running() returned False)
+        print(f"\n[Demo] WARNING: simulation_app.is_running() returned False — Kit shut down.")
+        print(f"[Demo] Collected {writer.num_episodes} episodes before shutdown.")
         writer.end_episode(keep=True)
 
     finally:

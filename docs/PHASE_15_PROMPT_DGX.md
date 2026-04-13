@@ -14,18 +14,59 @@ You are the **DGX agent** for phase_15. You have two workstreams:
 
 Two other agents are working in parallel -- one on the Jetson (executor/semantic map) and one on the Isaac Sim host (data collection, Replicator bboxes, ROS bridge). You MUST stay within your assigned file boundaries to avoid merge conflicts.
 
-## Setup
+## First-time workspace setup
+
+This is a fresh DGX Spark workspace. Run the full setup from
+`docs/PHASE_15_DGX.md` section "First-time workspace setup" **before
+writing any code**. The key steps are:
 
 ```bash
-cd ~/Documents/repos/Sim2RealLab
+# 1. Clone and checkout
+mkdir -p /home/zachoines/Workspace
+cd /home/zachoines/Workspace
+git clone git@github.com:zachoines/Sim2RealLab.git
+cd Sim2RealLab
 git checkout phase_15
-git pull origin phase_15
+
+# 2. Create venv + install deps
+python3.12 -m venv .venv_vlm
 source .venv_vlm/bin/activate
+pip install --upgrade pip setuptools wheel
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+pip install -e "source/strafer_shared"
+pip install -e "source/strafer_vlm[qwen,service,dev]"
+pip install -e "source/strafer_autonomy[planner]"
+pip install open_clip_torch chromadb networkx shapely mlflow httpx \
+            datasets peft trl qwen-vl-utils
+
+# 3. NVRTC fix (CRITICAL for Blackwell sm_121)
+NVRTC_DIR=".venv_vlm/lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib"
+mv "$NVRTC_DIR/libnvrtc.so.12" "$NVRTC_DIR/libnvrtc.so.12.bak"
+mv "$NVRTC_DIR/libnvrtc-builtins.so.12.8" "$NVRTC_DIR/libnvrtc-builtins.so.12.8.bak"
+ln -s /usr/local/cuda-13.0/lib64/libnvrtc.so.13.0.88 "$NVRTC_DIR/libnvrtc.so.12"
+ln -s /usr/local/cuda-13.0/lib64/libnvrtc-builtins.so.13.0.88 "$NVRTC_DIR/libnvrtc-builtins.so.12.8"
+make check-nvrtc
+
+# 4. Create data directories
+mkdir -p data/{perception,descriptions,clip_descriptions,vlm_finetune}
+mkdir -p Assets/generated/scenes
+mkdir -p models/clip_finetuned
+
+# 5. Verify services start (downloads models on first run)
+make serve-vlm    # ~7GB model download, port 8100
+make serve-planner # ~8GB model download, port 8200
+
+# 6. Run tests
+python -m pytest source/strafer_autonomy/tests/ source/strafer_vlm/tests/ \
+  -m "not requires_ros" -v
 ```
+
+For Infinigen setup (Task 7), see the detailed instructions in
+`docs/PHASE_15_DGX.md` section "6. Infinigen setup".
 
 ## Context files to read FIRST (in this order)
 
-1. `docs/PHASE_15_DGX.md` -- **your task list, file ownership rules, and platform context**. This is your primary instruction set. Read it completely before writing any code. It covers both workstreams.
+1. `docs/PHASE_15_DGX.md` -- **your task list, file ownership rules, workspace setup, and platform context**. This is your primary instruction set. Read it completely before writing any code. It covers both workstreams.
 2. `docs/INTEGRATION_DGX_SPARK.md` -- full API surface: VLM endpoints, planner pipeline, client protocols, env vars, NVRTC fix.
 3. `docs/STRAFER_AUTONOMY_NEXT.md` -- the design document. Reference:
    - Sections 1.12, 2.1-2.2, 3.1-3.5, 4.4 for Workstream A

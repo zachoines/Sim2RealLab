@@ -1,8 +1,9 @@
 # Phase 15 — DGX Spark Workstream
 
 **Branch:** `phase_15`
-**Platform:** DGX Spark (Ubuntu ARM64, CUDA 13.0, Python 3.12 venv at `.venv_vlm`)
-**Hardware:** Grace CPU (ARM64) + Blackwell GB10 GPU (sm_121)
+**Workspace:** `/home/zachoines/Workspace/Sim2RealLab`
+**Platform:** DGX Spark (Ubuntu ARM64, CUDA 13.0, Python 3.12)
+**Hardware:** Grace CPU (ARM64) + Blackwell GB10 GPU (sm_121), 128GB unified memory
 **Services:** VLM on port 8100, Planner on port 8200
 **Design doc:** `docs/STRAFER_AUTONOMY_NEXT.md` (read-only reference)
 **Integration context:** `docs/INTEGRATION_DGX_SPARK.md` (full API surface)
@@ -10,6 +11,230 @@
 This file defines the tasks assigned to the DGX agent. All work is scoped
 to files that ONLY this agent touches — no overlap with the Jetson or
 Windows workstreams.
+
+---
+
+## First-time workspace setup
+
+This is a full first-time setup guide for the DGX Spark. Run these steps
+once when setting up the workspace at `/home/zachoines/Workspace`.
+
+### 1. Clone repo and checkout branch
+
+```bash
+mkdir -p /home/zachoines/Workspace
+cd /home/zachoines/Workspace
+git clone git@github.com:zachoines/Sim2RealLab.git
+cd Sim2RealLab
+git checkout phase_15
+```
+
+### 2. Create the primary Python venv (`.venv_vlm`)
+
+This venv runs VLM/planner services, batch processing scripts, and
+fine-tuning. Everything except Isaac Sim runtime uses this venv.
+
+```bash
+python3.12 -m venv .venv_vlm
+source .venv_vlm/bin/activate
+
+# PyTorch — cu128 nightly for ARM64 Blackwell (sm_121)
+pip install --upgrade pip setuptools wheel
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+
+# Install project packages (editable)
+pip install -e "source/strafer_shared"
+pip install -e "source/strafer_vlm[qwen,service,dev]"
+pip install -e "source/strafer_autonomy[planner]"
+
+# Synthetic data / fine-tuning dependencies
+pip install open_clip_torch          # CLIP fine-tuning (Task 11)
+pip install chromadb                 # vector store (used by tests)
+pip install networkx                 # graph (used by tests)
+pip install shapely                  # spatial descriptions (Task 9, Stage 1)
+pip install mlflow                   # experiment tracking (Tasks 6, 11)
+pip install httpx                    # async HTTP for agentic endpoint (Task 3)
+pip install datasets                 # HF datasets for fine-tuning
+pip install peft                     # LoRA for VLM fine-tuning (Task 12)
+pip install trl                      # SFT trainer for VLM fine-tuning
+
+# Qwen2.5-VL-7B for description pipeline (Task 9, Stage 2)
+# This is loaded standalone via transformers — NOT the strafer_vlm service.
+# The 7B model downloads ~14GB on first use. It fits alongside other
+# models on 128GB unified memory.
+pip install qwen-vl-utils            # Qwen VL preprocessing helpers
+```
+
+### 3. CRITICAL: Fix NVRTC for Blackwell GPU
+
+PyTorch cu128 bundles NVRTC from CUDA 12.8 which does not support
+Blackwell's `sm_121`. JIT-compiled CUDA kernels fail silently. Replace
+the bundled NVRTC with the system's CUDA 13.0 version:
+
+```bash
+NVRTC_DIR=".venv_vlm/lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib"
+
+# Backup originals
+mv "$NVRTC_DIR/libnvrtc.so.12" "$NVRTC_DIR/libnvrtc.so.12.bak"
+mv "$NVRTC_DIR/libnvrtc-builtins.so.12.8" "$NVRTC_DIR/libnvrtc-builtins.so.12.8.bak"
+
+# Symlink system CUDA 13.0 NVRTC
+ln -s /usr/local/cuda-13.0/lib64/libnvrtc.so.13.0.88 "$NVRTC_DIR/libnvrtc.so.12"
+ln -s /usr/local/cuda-13.0/lib64/libnvrtc-builtins.so.13.0.88 "$NVRTC_DIR/libnvrtc-builtins.so.12.8"
+
+# Verify
+make check-nvrtc
+```
+
+**This must be redone if `nvidia-cuda-nvrtc` is upgraded or the venv is
+recreated.**
+
+### 4. Verify services start
+
+```bash
+source .venv_vlm/bin/activate
+
+# Terminal 1: VLM (downloads ~7GB model on first run)
+make serve-vlm
+# Wait for: "Application startup complete"
+
+# Terminal 2: Planner (downloads ~8GB model on first run)
+make serve-planner
+# Wait for: "Application startup complete"
+
+# Terminal 3: Verify
+curl http://localhost:8100/health
+# {"status":"ok","model_loaded":true,"model_name":"Qwen/Qwen2.5-VL-3B-Instruct"}
+
+curl http://localhost:8200/health
+# {"status":"ok","model_loaded":true,"model_name":"Qwen/Qwen3-4B"}
+```
+
+### 5. Run tests
+
+```bash
+source .venv_vlm/bin/activate
+
+# All non-ROS tests
+python -m pytest source/strafer_autonomy/tests/ source/strafer_vlm/tests/ \
+  -m "not requires_ros" -v
+```
+
+### 6. Infinigen setup (for Task 7 — scene generation)
+
+Infinigen generates procedural indoor scenes in Blender. It requires
+Blender with Python scripting support on ARM64.
+
+```bash
+# Option A: Blender headless on ARM64 (preferred if available)
+# Check if Blender is packaged for ARM64 Ubuntu:
+sudo apt-get install blender   # or snap install blender --classic
+
+# Verify headless mode:
+blender --version
+blender --background --python-expr "import bpy; print('Blender OK')"
+
+# Clone Infinigen into workspace (NOT inside the Sim2RealLab repo)
+cd /home/zachoines/Workspace
+git clone https://github.com/princeton-vl/infinigen.git
+cd infinigen
+pip install -e .   # into .venv_vlm
+
+# Option B: If Blender does not work headless on ARM64 (Grace),
+# generate scenes on the Windows workstation and transfer the USD
+# files + .blend files to DGX for metadata extraction. In this case,
+# only the metadata extraction (Task 8) runs on DGX — scene generation
+# runs on Windows. See Task 7 notes below.
+```
+
+**ARM64 compatibility note:** Blender's Python API (`bpy`) may not be
+available as a pip package on ARM64. If `pip install bpy` fails, use the
+system Blender installation and run scripts via `blender --background
+--python <script.py>`. Infinigen's room generation pipeline invokes
+Blender internally, so ensure `blender` is on `$PATH`.
+
+### 7. Isaac Sim / Isaac Lab setup (optional — for Isaac Sim host role)
+
+If the DGX Spark is also running Isaac Sim (preferred for VRAM headroom
+over the Windows workstation), install Isaac Sim and Isaac Lab:
+
+```bash
+# Isaac Sim 4.x — follow NVIDIA's official install guide for ARM64:
+# https://docs.omniverse.nvidia.com/isaacsim/latest/installation/install_workstation.html
+# The DGX Spark should use the workstation install (not container).
+
+# After Isaac Sim is installed, install Isaac Lab:
+cd /home/zachoines/Workspace
+git clone https://github.com/isaac-sim/IsaacLab.git
+cd IsaacLab
+./isaaclab.sh --install  # creates its own conda/venv environment
+
+# Install strafer_lab as an extension into Isaac Lab's environment:
+# (the exact command depends on Isaac Lab's env activation)
+cd /home/zachoines/Workspace/Sim2RealLab
+# From within Isaac Lab's Python environment:
+pip install -e "source/strafer_lab"
+```
+
+**If Isaac Sim is NOT on the DGX**, the Isaac Sim host tasks
+(`PHASE_15_WINDOWS.md`) run on the Windows workstation instead. The DGX
+still handles all batch processing tasks (Tasks 7-12) which do NOT
+require Isaac Sim at runtime.
+
+### 8. Create data directories
+
+```bash
+cd /home/zachoines/Workspace/Sim2RealLab
+
+# Perception data from Isaac Sim host (received via file transfer)
+mkdir -p data/perception
+
+# Generated descriptions (Task 9 output)
+mkdir -p data/descriptions
+
+# CLIP training data (Task 10 output)
+mkdir -p data/clip_descriptions
+
+# VLM fine-tuning data (Task 12 output)
+mkdir -p data/vlm_finetune
+
+# Infinigen generated scenes
+mkdir -p Assets/generated/scenes
+
+# Fine-tuned model output
+mkdir -p models/clip_finetuned
+```
+
+### 9. Environment variables (add to `~/.bashrc` or session)
+
+```bash
+# Repo root
+export STRAFER_ROOT="/home/zachoines/Workspace/Sim2RealLab"
+
+# Infinigen (if installed)
+export INFINIGEN_ROOT="/home/zachoines/Workspace/infinigen"
+
+# HuggingFace cache (models download here on first use)
+export HF_HOME="/home/zachoines/.cache/huggingface"
+
+# Service ports (defaults — only set to override)
+# export GROUNDING_PORT=8100
+# export PLANNER_PORT=8200
+```
+
+### Setup summary
+
+| Component | Location | Python env |
+|-----------|----------|-----------|
+| Sim2RealLab repo | `/home/zachoines/Workspace/Sim2RealLab` | — |
+| Primary venv | `Sim2RealLab/.venv_vlm` | Python 3.12, PyTorch cu128 |
+| VLM service | port 8100 | `.venv_vlm` |
+| Planner service | port 8200 | `.venv_vlm` |
+| Infinigen | `/home/zachoines/Workspace/infinigen` | `.venv_vlm` (shared) |
+| Isaac Lab (optional) | `/home/zachoines/Workspace/IsaacLab` | Isaac Lab's own env |
+| HuggingFace models | `~/.cache/huggingface/` | ~30GB after first boot |
+| Perception data | `Sim2RealLab/data/perception/` | — |
+| Generated scenes | `Sim2RealLab/Assets/generated/scenes/` | — |
 
 ---
 
@@ -690,7 +915,7 @@ These items from `STRAFER_AUTONOMY_NEXT.md` are explicitly deferred:
 ## Build and test
 
 ```bash
-# Activate venv
+cd /home/zachoines/Workspace/Sim2RealLab
 source .venv_vlm/bin/activate
 
 # Run tests (skips ROS-dependent)

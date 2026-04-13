@@ -84,6 +84,20 @@ SkillCall(
 )
 ```
 
+**Compiler integration (required).** All compilers that end with
+`navigate_to_pose` must emit a `verify_arrival` step immediately after
+navigation. This applies to:
+- `_compile_go_to_target` — append `verify_arrival` as step_04
+- `_compile_go_to_targets` — append `verify_arrival` after each target's
+  `navigate_to_pose` (4 steps per target, not 3)
+- `_compile_wait_by_target` — insert `verify_arrival` between `navigate_to_pose`
+  and `wait` (5 steps total)
+- `_compile_patrol` — inherits `verify_arrival` automatically via delegation to
+  `_compile_go_to_target`
+
+The `target_label` arg is set by the compiler from `intent.target_label`
+(single-target) or `target["label"]` (multi-target), not from runtime state.
+
 The handler:
 
 ```python
@@ -501,6 +515,10 @@ class TransitMonitor:
         )
 
         # How many are near where the robot currently is?
+        # Used for diagnostic telemetry: near_robot > 0 means the map
+        # has prior observations of the robot's current locale, confirming
+        # CLIP retrieval is working. near_robot == 0 in known territory
+        # could indicate a CLIP or map issue.
         near_robot = sum(
             1 for node, _ in results
             if np.linalg.norm(
@@ -519,7 +537,8 @@ class TransitMonitor:
         self._history.append(snapshot)
 
         # Divergence detection: top matches are NOT near the goal
-        # AND NOT near the robot's expected path toward the goal.
+        # AND the robot is in a recognized region that is NOT the goal
+        # (near_robot > 0 confirms this is a real locale, not noise).
         # If all top matches are from an unrelated region for 3+
         # consecutive captures, the robot has gone off course.
         if near_goal == 0 and len(self._history) >= 3:
@@ -959,6 +978,47 @@ detected objects. VLM descriptions can be backfilled during idle periods
 (no active mission) by iterating over nodes with `text_description is None`
 and calling `grounding_client.describe_scene(...)`.
 
+**`_project_bbox_to_map_xyz` helper.** The semantic map needs 3D object
+positions for `DetectedObjectEntry`. This helper wraps the existing
+`ros_client.project_detection_to_goal_pose` ROS service to extract the
+map-frame 3D position from a bbox + depth observation:
+
+```python
+def _project_bbox_to_map_xyz(
+    self, observation: SceneObservation, bbox_2d: tuple[int, int, int, int],
+) -> tuple[np.ndarray | None, float]:
+    """Project a 2D bbox to a 3D map-frame position using depth.
+
+    Returns (xyz_array, depth_m) or (None, 0.0) if projection fails.
+    Uses the existing goal_projection_node ROS service under the hood.
+    """
+    try:
+        candidate = self._ros_client.project_detection_to_goal_pose(
+            request_id="map_xyz_projection",
+            image_stamp_sec=observation.stamp_sec,
+            bbox_2d=bbox_2d,
+            standoff_m=0.0,  # we want the object position, not a standoff pose
+            target_label="",
+        )
+        if candidate.found and candidate.target_pose is not None:
+            tp = candidate.target_pose
+            xyz = np.array([tp.x, tp.y, tp.z])
+            depth_m = float(np.linalg.norm(
+                xyz[:2] - np.array([
+                    observation.robot_pose_map.get("x", 0.0),
+                    observation.robot_pose_map.get("y", 0.0),
+                ])
+            )) if observation.robot_pose_map else 1.0
+            return xyz, depth_m
+    except Exception:
+        _logger.debug("_project_bbox_to_map_xyz failed", exc_info=True)
+    return None, 0.0
+```
+
+This helper is called during semantic map observation storage (below) and
+during `detect_objects` integration (Section 1.12). It is a private method
+on `MissionRunner`, not a standalone skill.
+
 **1. During `_scan_for_target` rotations (automatic).**
 
 The robot already rotates and captures frames at each heading. Currently these
@@ -1274,6 +1334,32 @@ def _scan_for_target(self, runtime: _MissionRuntime, step: SkillCall) -> SkillRe
                             "Query-before-scan hit: label=%s, top match near target node=%s",
                             label, top_node.node_id,
                         )
+                        # Set latest_goal_pose so downstream steps
+                        # (navigate_to_pose, verify_arrival) can use the
+                        # stored map pose directly — no projection needed.
+                        # The navigate_to_pose handler checks goal_source;
+                        # when goal_source="semantic_map" it reads goal pose
+                        # from runtime.latest_goal_pose instead of requiring
+                        # a prior project_detection_to_goal_pose result.
+                        from strafer_autonomy.schemas.grounding import Pose3D
+                        map_goal = GoalPoseCandidate(
+                            request_id=f"{runtime.mission_id}:{step.step_id}:map",
+                            found=True,
+                            goal_frame="map",
+                            goal_pose=Pose3D(
+                                x=known.pose.x, y=known.pose.y, z=0.0,
+                                qx=0.0, qy=0.0,
+                                qz=math.sin(known.pose.yaw / 2),
+                                qw=math.cos(known.pose.yaw / 2),
+                            ),
+                            target_pose=None,
+                            standoff_m=0.0,
+                            depth_valid=True,
+                            quality_flags={},
+                        )
+                        with self._lock:
+                            runtime.latest_goal_pose = map_goal
+
                         return SkillResult(
                             step_id=step.step_id,
                             skill=step.skill,
@@ -1284,6 +1370,7 @@ def _scan_for_target(self, runtime: _MissionRuntime, step: SkillCall) -> SkillRe
                                 "pose_x": known.pose.x,
                                 "pose_y": known.pose.y,
                                 "pose_yaw": known.pose.yaw,
+                                "goal_pose_set": True,
                             },
                             message=f"Target '{label}' found in semantic map (top match near target), skipping scan.",
                             started_at=started_at,
@@ -1305,6 +1392,18 @@ def _scan_for_target(self, runtime: _MissionRuntime, step: SkillCall) -> SkillRe
 This eliminates the 20-40 second scan rotation for recently-seen targets.
 When the map is empty or the label has not been seen, the code falls through
 to the existing rotation loop with zero overhead beyond a dict lookup.
+
+**Data flow with `project_detection_to_goal_pose`.** When query-before-scan
+succeeds, there is no VLM grounding result and no bbox to project. The
+short-circuit sets `runtime.latest_goal_pose` directly from the stored map
+pose and returns `outputs["goal_pose_set"] = True`. The executor's
+`_project_detection_to_goal_pose` handler must check for this flag: if
+`runtime.latest_goal_pose` is already set (from a semantic map hit), skip
+projection and return success immediately. Alternatively, the executor can
+check `outputs["source"] == "semantic_map"` on the preceding scan result.
+
+The `navigate_to_pose` handler already reads `runtime.latest_goal_pose`
+regardless of how it was set, so no changes are needed there.
 
 ### 1.8 Component selection
 
@@ -1384,6 +1483,32 @@ class SemanticMapManager:
 - When RTAB-Map's SLAM map is reset (`make clean-map`), the semantic map
   should also be cleared since pose references become invalid.
 
+**Unreinforced object entry decay.** `DetectedObjectEntry` instances that
+are never reinforced (only seen once, `observation_count == 1`) may be
+hallucinated VLM detections. A single false-positive grounding result gets
+stored as a real object with a 3D position, and without decay, it persists
+until node-level TTL pruning (24 hours).
+
+To mitigate this, `prune()` applies tiered TTL based on reinforcement:
+
+| `observation_count` | TTL | Rationale |
+|---------------------|-----|-----------|
+| 1 (single sighting) | 1 hour | Likely real but possibly hallucinated; short window for re-observation |
+| 2-4 | 6 hours | Multiple sightings reduce hallucination risk |
+| 5+ | 24 hours (node TTL) | Well-established landmark |
+
+Objects that are revisited and NOT re-detected by the VLM (the robot
+returns to the stored pose but `scan_for_target` doesn't find the object)
+should be flagged via `log_failure(type="hallucinated_detection")` and
+have their entry removed immediately. This requires the executor to
+compare `scan_for_target` results against stored map objects at the
+current pose — a small addition to the observation pipeline.
+
+Implementation: `SemanticMapManager.prune()` iterates `detected_objects`
+on each node and removes entries whose `last_seen` exceeds their
+tiered TTL. The `prune()` method is already called on startup; this
+extends it to handle per-object decay in addition to per-node TTL.
+
 ### 1.10 Incremental build-up strategy
 
 The semantic map starts empty and grows during normal operation. With the
@@ -1400,6 +1525,46 @@ The semantic map is a pure additive improvement -- the system works exactly
 as it does today with an empty map, and every mission and every meter driven
 makes it better.
 
+### 1.10.1 Known limitation: multi-room navigation
+
+**Problem.** `scan_for_target` only finds targets visible from the robot's
+current position. When a target is in a different room (e.g., "go to the
+kitchen table" while in the living room), the scan rotation exhausts all
+headings without detecting the target and the mission fails.
+
+Multi-target commands (`go_to_targets`, `patrol`) that reference targets in
+different rooms fail at the first out-of-room target.
+
+**Why this is hard.** Cross-room navigation requires one of:
+1. The planner decomposes "kitchen table" into "navigate to kitchen area"
+   + "scan for table" — but the current planner has no room-level
+   knowledge to emit transit steps.
+2. `scan_for_target` falls back to navigating toward a stored map pose
+   for the target — which only works on repeat visits (the target must
+   already be in the semantic map from a prior sighting).
+3. An exploration strategy (frontier exploration, room-hopping) that the
+   system currently lacks.
+
+**Phase 15 scope.** This limitation is accepted for Phase 15. The system
+works for:
+- Single-room targets (target visible from current position)
+- Repeat visits to any target previously stored in the semantic map
+  (query-before-scan uses the stored pose, see Section 1.7)
+- Patrol routes through rooms the robot has visited before
+
+**Mitigation path (post Phase 15):**
+- **Short term:** When `scan_for_target` fails and the semantic map has a
+  stored sighting for the label (but the ranking check in query-before-scan
+  failed because the robot is in a different room), fall back to navigating
+  directly to the stored map pose and re-scanning from there. This is a
+  small change to `_scan_for_target` (navigate to `known.pose` instead of
+  failing) and does not require planner changes.
+- **Medium term:** Feed room-type knowledge from `scene_metadata.json`
+  (via the semantic map) into the planner's context, enabling the LLM to
+  emit transit steps like "navigate to kitchen area coordinates."
+- **Long term:** Plan repair (Section 3.6) where the planner receives
+  failure context and re-plans with room-level transit.
+
 ### 1.11 Implementation plan
 
 | Step | Description | Effort | Dependencies |
@@ -1408,14 +1573,15 @@ makes it better.
 | 2 | ChromaDB integration (PersistentClient, single collection, add/query) | Small | chromadb pip |
 | 3 | NetworkX graph manager (add node/edge, query, persist) | Small | networkx pip |
 | 4 | `SemanticMapManager` combining graph + vector store + CLIP | Medium | Steps 1-3 |
-| 5 | Observation capture in `scan_for_target` with `DetectedObjectEntry` | Small | Step 4 |
-| 6 | Arrival verification skill using CLIP similarity | Medium | Steps 4-5 |
-| 7 | Query-before-scan optimization | Medium | Steps 4-5 |
+| 4b | `_project_bbox_to_map_xyz` helper — wraps `project_detection_to_goal_pose` for 3D object positioning | Small | Step 4 |
+| 5 | Observation capture in `scan_for_target` with `DetectedObjectEntry` | Small | Steps 4, 4b |
+| 6 | Arrival verification skill using CLIP ranking + compiler integration (`verify_arrival` step in all navigation compilers) | Medium | Steps 4-5 |
+| 7 | Query-before-scan optimization (with `goal_pose_set` data flow for downstream projection skip) | Medium | Steps 4-5 |
 | 8 | `describe_and_store` integration with VLM `/describe` | Small | Step 4 |
 | 9 | `BackgroundMapper` — passive movement-gated capture thread | Medium | Step 4 |
 | 10 | `POST /detect_objects` VLM endpoint (Section 1.12) | Medium | strafer_vlm |
 | 11 | Object reinforcement — Bayesian tracking (Mahalanobis gate + Kalman update) | Medium | Steps 5, 10 |
-| 12 | Map pruning, reset, and lifecycle management | Small | Step 4 |
+| 12 | Map pruning, reset, and lifecycle management (including unreinforced object decay) | Small | Step 4 |
 
 ### 1.12 Structured object detection endpoint
 
@@ -2103,7 +2269,7 @@ def _compile_go_to_targets(intent: MissionIntent) -> list[SkillCall]:
     assert intent.targets is not None
     steps: list[SkillCall] = []
     for i, target in enumerate(intent.targets):
-        base = i * 3 + 1
+        base = i * 4 + 1  # 4 steps per target
         label = target["label"]
         standoff = float(target.get("standoff_m", 0.7))
         steps.extend([
@@ -2128,6 +2294,19 @@ def _compile_go_to_targets(intent: MissionIntent) -> list[SkillCall]:
                 timeout_s=90.0,
                 retry_limit=0,
             ),
+            SkillCall(
+                step_id=f"step_{base + 3:02d}",
+                skill="verify_arrival",
+                args={
+                    "target_label": label,
+                    "goal_radius_m": 3.0,
+                    "top_k": 5,
+                    "majority": 3,
+                    "fallback_on_empty_map": "pass",
+                },
+                timeout_s=10.0,
+                retry_limit=1,
+            ),
         ])
     return steps
 
@@ -2140,7 +2319,12 @@ _COMPILERS: dict[str, callable] = {
 
 No changes to `_execute_step` are needed -- the compiled plan uses only
 existing skills (`scan_for_target`, `project_detection_to_goal_pose`,
-`navigate_to_pose`) that already have handlers.
+`navigate_to_pose`, `verify_arrival`) that already have handlers.
+
+**Note:** The existing `_compile_go_to_target` (single target) must also be
+updated to append a `verify_arrival` step_04 after `navigate_to_pose`. The
+existing `_compile_wait_by_target` must insert `verify_arrival` between
+`navigate_to_pose` and `wait` (5 steps total).
 
 **Semantic map interaction.** Multi-target chaining benefits directly from
 query-before-scan (Section 1.7). For "go to the cup, then go to the door",
@@ -2279,11 +2463,15 @@ The LLM emits a `targets` list as in `go_to_targets`, plus an optional
 **(b) `planner/plan_compiler.py`**:
 
 ```python
+_STEPS_PER_TARGET = 4  # scan + project + navigate + verify_arrival
+
 def _compile_patrol(intent: MissionIntent) -> list[SkillCall]:
     """Compile a patrol by delegating to _compile_go_to_target per waypoint.
 
     Looping is handled at the MissionRunner level -- the compiler emits
-    a single pass through all targets.
+    a single pass through all targets.  _compile_go_to_target now emits
+    4 steps per target (including verify_arrival), so step numbering
+    uses _STEPS_PER_TARGET.
     """
     assert intent.targets is not None
     steps: list[SkillCall] = []
@@ -2296,7 +2484,7 @@ def _compile_patrol(intent: MissionIntent) -> list[SkillCall]:
         sub_steps = _compile_go_to_target(waypoint_intent)
         for j, s in enumerate(sub_steps):
             steps.append(SkillCall(
-                step_id=f"step_{i * 3 + j + 1:02d}",
+                step_id=f"step_{i * _STEPS_PER_TARGET + j + 1:02d}",
                 skill=s.skill,
                 args=s.args,
                 timeout_s=s.timeout_s,
@@ -3537,6 +3725,22 @@ description pairs (reusing Stage 2 output from Section 5.6) to preserve the
 model's `describe_scene` capability during grounding SFT. Combined with LoRA,
 this prevents catastrophic forgetting of the free-text description ability.
 
+**Relationship between export scripts.** Two scripts produce VLM training
+data, at different levels of sophistication:
+
+| Script | Scope | Output |
+|--------|-------|--------|
+| `dataset_export.py` (Section 5.5.5) | Basic single-object grounding JSONL + CLIP CSV | Quick export for initial CLIP training; VLM JSONL is minimal (positive examples only) |
+| `prepare_vlm_finetune_data.py` (this section) | Full VLM SFT dataset: single-object + multi-object + negative examples + description preservation | Production-quality SFT data for LoRA fine-tuning |
+
+`dataset_export.py` is the lightweight, first-pass exporter — sufficient
+for CLIP training and basic VLM experiments. `prepare_vlm_finetune_data.py`
+is the comprehensive VLM data preparation script that adds negative examples
+(1:3 ratio), multi-object detection examples (~20%), and description
+preservation examples (~10%). **Use `prepare_vlm_finetune_data.py` for the
+actual VLM LoRA fine-tuning run.** `dataset_export.py`'s VLM JSONL output
+is a subset and can be used for quick iteration or validation.
+
 ### 5.8 Closing the sim-to-real loop
 
 The data pipeline creates a feedback loop between simulation and deployment:
@@ -3985,12 +4189,13 @@ since the Jetson already has the full ROS2 stack.
 | Semantic Map | `POST /detect_objects` VLM endpoint | Medium | High |
 | Semantic Map | Object reinforcement (Bayesian spatial tracking) | Medium | Medium |
 | Semantic Map | Query-before-scan optimization | Medium | Medium |
-| Semantic Map | Map lifecycle (pruning, reset) | Small | Medium |
+| Semantic Map | Map lifecycle (pruning, reset, unreinforced object decay) | Small | Medium |
+| Semantic Map | `_project_bbox_to_map_xyz` helper for 3D object positioning | Small | High |
 | Optimization | Agentic planner+VLM endpoint | Medium | Medium |
 | Optimization | Image compression tuning | Small | Low |
 | Feature | `rotate_by_degrees` skill | Small | High |
 | Feature | `orient_to_direction` skill | Medium | High |
-| Feature | Multi-target chaining | Medium | High |
+| Feature | Multi-target chaining (with verify_arrival per target) | Medium | High |
 | Feature | Scene description as user intent | Small | Medium |
 | Feature | Environment query skill | Small | Medium |
 | Feature | Patrol / waypoint sequence | Medium | Low |

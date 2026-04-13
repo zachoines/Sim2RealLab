@@ -118,7 +118,11 @@ source/strafer_autonomy/strafer_autonomy/semantic_map/
    - `initial_object_covariance(depth_m, camera_yaw, camera_pitch)` → 3x3
    - `save()`, `load()` — JSON + ChromaDB persistence
    - `clear()` — full reset
-   - `prune(max_age_s)` — TTL-based node removal
+   - `prune(max_age_s)` — TTL-based node removal **with tiered decay for
+     `DetectedObjectEntry`**: single-sighting objects (`observation_count == 1`)
+     expire after 1 hour, 2-4 sightings after 6 hours, 5+ sightings use the
+     node TTL (24h). This prevents hallucinated VLM detections from persisting
+     in the map. See design doc Section 1.9.
 
 **Dependencies:** `pip install chromadb networkx onnxruntime-gpu`
 
@@ -129,7 +133,9 @@ source/strafer_autonomy/tests/test_semantic_map.py
 ```
 
 Test add/query/reinforce/save/load/prune without requiring ROS or CLIP model
-(mock the CLIP encoder with random 512-dim vectors).
+(mock the CLIP encoder with random 512-dim vectors). Include test cases for
+tiered object decay (verify single-sighting objects expire before
+multi-sighting ones).
 
 ---
 
@@ -149,12 +155,34 @@ source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py
 
 1. Add `semantic_map: SemanticMapManager | None = None` parameter to
    `MissionRunner.__init__`
-2. In `_scan_for_target`: after grounding, store observation in semantic map
-   (best-effort, guarded by `if self._semantic_map is not None`)
-3. In `_describe_scene`: store CLIP embedding + text description
-4. Query-before-scan (Section 1.7): at the top of `_scan_for_target`, check
+
+2. Add `_project_bbox_to_map_xyz(observation, bbox_2d)` private helper to
+   `MissionRunner`. This wraps `ros_client.project_detection_to_goal_pose`
+   (with `standoff_m=0.0`) to extract the 3D map-frame position of a
+   detected object from a bbox + depth observation. Returns
+   `(np.ndarray | None, float)` — the xyz position and depth. See design
+   doc Section 1.5 for the implementation sketch.
+
+3. In `_scan_for_target`: after grounding, store observation in semantic map
+   (best-effort, guarded by `if self._semantic_map is not None`). Use
+   `_project_bbox_to_map_xyz` to get 3D positions for `DetectedObjectEntry`.
+
+4. In `_describe_scene`: store CLIP embedding + text description
+
+5. Query-before-scan (Section 1.7): at the top of `_scan_for_target`, check
    semantic map for recent sightings before starting the rotation loop.
    Uses **ranking** (top retrieval match near target node) not fixed thresholds.
+   **When the short-circuit fires**, set `runtime.latest_goal_pose` directly
+   from the stored map pose (construct a `GoalPoseCandidate` from the stored
+   `Pose2D`) so downstream steps can navigate without projection. Return
+   `outputs["goal_pose_set"] = True`.
+
+6. In `_project_detection_to_goal_pose` handler: if
+   `runtime.latest_goal_pose` is already set (from a semantic map
+   query-before-scan hit, indicated by `outputs.get("goal_pose_set")`
+   on the preceding scan result), skip projection and return success
+   immediately. This avoids the data flow break where a scan short-circuit
+   produces no bbox for projection.
 
 **Depends on:** Task 1
 
@@ -223,6 +251,13 @@ source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py
 6. Wire transit monitor: call `transit_monitor.activate(goal_pose)` at
    navigate_to_pose start, poll `divergence_detected()` during navigation,
    call `transit_monitor.deactivate()` on completion
+
+**Compiler integration note:** The DGX agent (Task 2) updates all navigation
+compilers (`_compile_go_to_target`, `_compile_go_to_targets`,
+`_compile_wait_by_target`) to emit a `verify_arrival` step after each
+`navigate_to_pose`. The `target_label` arg is set by the compiler from the
+intent, not from runtime state. This task only implements the executor-side
+handler; the compiler changes are DGX-owned.
 
 **Depends on:** Task 1
 
@@ -386,6 +421,13 @@ failures during normal operation for downstream sim feedback:
 
 These items from `STRAFER_AUTONOMY_NEXT.md` are explicitly deferred:
 
+- **Multi-room navigation** (Section 1.10.1) — Medium effort, Medium priority.
+  Currently, `scan_for_target` fails when the target is in a different room
+  (not visible from the robot's current position). Phase 15 supports
+  single-room targets and repeat visits to previously-seen targets via the
+  semantic map. The short-term mitigation (navigate to stored map pose on
+  scan failure) is a small follow-up after the semantic map is operational.
+  See design doc Section 1.10.1 for the full mitigation path.
 - **Plan repair on failure** (Section 3.6) — Large effort, Low priority. Future exploration.
 - **Failure-to-sim feedback pipeline** (Section 5.8) — Large effort, Low priority. Depends on synthetic data infrastructure (DGX + Isaac Sim host).
 - **Sim-in-the-loop harness** (Section 5.9) — Large effort, Low priority. Depends on Isaac Sim ROS2 Bridge.

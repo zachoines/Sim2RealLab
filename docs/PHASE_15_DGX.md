@@ -164,9 +164,10 @@ source/strafer_vlm/tests/test_detect_objects.py        # NEW
 (intent parser + plan compiler). The EXECUTOR side (skill handlers in
 `mission_runner.py`) is owned by the Jetson agent. The handshake is:
 - You add `"rotate"`, `"go_to_targets"`, `"describe"`, `"query"`, `"patrol"` to `_VALID_INTENTS` and `_COMPILERS`
-- The compiled plans emit existing skills (e.g., `scan_for_target`, `navigate_to_pose`) plus new ones: `rotate_by_degrees`, `orient_to_direction`, `query_environment`
+- The compiled plans emit existing skills (e.g., `scan_for_target`, `navigate_to_pose`, `verify_arrival`) plus new ones: `rotate_by_degrees`, `orient_to_direction`, `query_environment`
 - The Jetson agent adds handlers for `rotate_by_degrees`, `orient_to_direction`, and `query_environment` in `_execute_step`
 - Skills like `describe_scene` already have handlers — the compiler just needs to emit them
+- **All compilers that end with `navigate_to_pose` must append a `verify_arrival` step.** This includes the existing `_compile_go_to_target` and `_compile_wait_by_target` (update them), plus the new `_compile_go_to_targets` and `_compile_patrol` (which inherits via delegation)
 
 **Files to modify:**
 
@@ -195,12 +196,22 @@ source/strafer_autonomy/tests/test_plan_compiler.py
    ```
    Add validation for `go_to_targets` and `patrol` (require non-empty `targets` list).
 
-3. `plan_compiler.py` — add compiler functions:
+3. `plan_compiler.py` — add compiler functions AND update existing ones:
+
+   **Update existing compilers:**
+   - `_compile_go_to_target(intent)` — append `verify_arrival` as step_04
+     after `navigate_to_pose`. Pass `target_label=intent.target_label`,
+     `goal_radius_m=3.0`, `top_k=5`, `majority=3`,
+     `fallback_on_empty_map="pass"`. Now 4 steps total.
+   - `_compile_wait_by_target(intent)` — insert `verify_arrival` between
+     `navigate_to_pose` and `wait`. Now 5 steps total.
+
+   **Add new compiler functions:**
    - `_compile_rotate(intent)` — numeric degrees → `rotate_by_degrees`, cardinal → `orient_to_direction`
-   - `_compile_go_to_targets(intent)` — chain scan→project→navigate per target
+   - `_compile_go_to_targets(intent)` — chain scan→project→navigate→verify_arrival per target (4 steps per target)
    - `_compile_describe(intent)` — single `describe_scene` step
    - `_compile_query(intent)` — single `query_environment` step
-   - `_compile_patrol(intent)` — delegate to `_compile_go_to_target` per waypoint
+   - `_compile_patrol(intent)` — delegate to `_compile_go_to_target` per waypoint (which now includes `verify_arrival`). Use `_STEPS_PER_TARGET = 4` for step numbering.
    - Register all in `_COMPILERS` dict
 
 4. Update LLM system prompt in `build_messages` (or wherever prompts are
@@ -572,6 +583,14 @@ Convert perception data + descriptions into training-ready formats:
    - **Excludes ProcRoom frames**
 
 **Depends on:** Tasks 8 (scene metadata) and 9 (descriptions)
+
+**Relationship with Task 12:** This task produces a basic VLM grounding
+JSONL (positive examples only) as a quick-export format alongside the CLIP
+CSV. Task 12 (`prepare_vlm_finetune_data.py`) produces the comprehensive
+VLM SFT dataset with negative examples (1:3 ratio), multi-object detection
+examples (~20%), and description preservation examples (~10%). **Use Task
+12's output for the actual VLM LoRA fine-tuning.** This task's VLM JSONL is
+a subset useful for quick iteration or validation runs.
 
 ---
 

@@ -29,7 +29,16 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 
-from strafer_vlm.service.payloads import DescribeRequest, DescribeResponse, GroundRequest, GroundResponse, HealthResponse
+from strafer_vlm.service.payloads import (
+    DescribeRequest,
+    DescribeResponse,
+    DetectedObject,
+    DetectObjectsRequest,
+    DetectObjectsResponse,
+    GroundRequest,
+    GroundResponse,
+    HealthResponse,
+)
 
 logger = logging.getLogger("strafer_vlm.service")
 
@@ -312,6 +321,132 @@ def create_app() -> FastAPI:
         return DescribeResponse(
             request_id=req.request_id,
             description=raw_output,
+            latency_s=round(latency_s, 4),
+        )
+
+    # ------------------------------------------------------------------
+    # POST /detect_objects — multi-object detection (Section 1.12)
+    # ------------------------------------------------------------------
+
+    DETECT_OBJECTS_SYSTEM_PROMPT = (
+        "You are a robot vision system. List every salient object visible in "
+        "the image using the Qwen grounding format: "
+        "<ref>label</ref><box>(x1,y1),(x2,y2)</box>. "
+        "Emit one <ref>/<box> pair per object. Coordinates are in the 0..1000 "
+        "normalized range. Do not include prose or explanations."
+    )
+    DETECT_OBJECTS_USER_PROMPT = (
+        "Locate: List all visible objects with their bounding boxes."
+    )
+
+    @app.post(
+        "/detect_objects",
+        response_model=DetectObjectsResponse,
+        summary="Detect all visible objects with bounding boxes in one image",
+    )
+    async def detect_objects(req: DetectObjectsRequest) -> DetectObjectsResponse:
+        if not _state.ready:
+            raise HTTPException(status_code=503, detail="Model is not loaded yet.")
+
+        if req.max_objects <= 0:
+            raise HTTPException(status_code=400, detail="max_objects must be > 0.")
+        if not 0.0 <= req.min_confidence <= 1.0:
+            raise HTTPException(status_code=400, detail="min_confidence must be in [0, 1].")
+
+        logger.info(
+            "[%s] /detect_objects max_objects=%d min_conf=%.2f",
+            req.request_id, req.max_objects, req.min_confidence,
+        )
+
+        from PIL import Image
+
+        from strafer_vlm.inference.parsing import (
+            bbox_to_pixel_coords,
+            parse_ref_box_detections,
+        )
+        from strafer_vlm.inference.qwen_runtime import run_grounding_generation
+
+        try:
+            image_bytes = base64.b64decode(req.image_jpeg_b64)
+            image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid image payload: {exc}")
+
+        megapixels = (image.width * image.height) / 1_000_000
+        if megapixels > max_image_mp:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Image too large: {megapixels:.1f} MP exceeds {max_image_mp:.0f} MP limit.",
+            )
+
+        if req.max_image_side > 0 and max(image.width, image.height) > req.max_image_side:
+            image.thumbnail((req.max_image_side, req.max_image_side), Image.Resampling.LANCZOS)
+
+        inference_w, inference_h = image.width, image.height
+
+        # Allow more tokens than /ground — multi-object output is longer.
+        max_tokens = int(_env("GROUNDING_DETECT_MAX_TOKENS", "512"))
+        start = time.perf_counter()
+
+        loop = asyncio.get_running_loop()
+        try:
+            raw_output = await asyncio.wait_for(
+                loop.run_in_executor(
+                    _state.inference_pool,
+                    lambda: run_grounding_generation(
+                        model=_state.model,
+                        processor=_state.processor,
+                        image=image,
+                        prompt=DETECT_OBJECTS_USER_PROMPT,
+                        system_prompt=DETECT_OBJECTS_SYSTEM_PROMPT,
+                        max_new_tokens=max_tokens,
+                        temperature=0.0,
+                    ),
+                ),
+                timeout=inference_timeout if inference_timeout > 0 else None,
+            )
+        except asyncio.TimeoutError:
+            latency_s = time.perf_counter() - start
+            logger.error(
+                "[%s] detect_objects inference timed out after %.1fs",
+                req.request_id, latency_s,
+            )
+            raise HTTPException(
+                status_code=504,
+                detail=f"Inference timed out after {inference_timeout:.0f}s.",
+            )
+        latency_s = time.perf_counter() - start
+
+        parsed = parse_ref_box_detections(raw_output)
+        filtered: list[DetectedObject] = []
+        for det in parsed:
+            if det.confidence < req.min_confidence:
+                continue
+            pixel_bbox = bbox_to_pixel_coords(
+                det.bbox_2d,
+                image_width=inference_w,
+                image_height=inference_h,
+                coordinate_mode="normalized_1000",
+            )
+            filtered.append(
+                DetectedObject(
+                    label=det.label,
+                    bbox_2d=list(pixel_bbox),
+                    confidence=round(det.confidence, 4),
+                )
+            )
+            if len(filtered) >= req.max_objects:
+                break
+
+        logger.info(
+            "[%s] detect_objects found=%d latency=%.3fs",
+            req.request_id, len(filtered), latency_s,
+        )
+
+        return DetectObjectsResponse(
+            request_id=req.request_id,
+            objects=filtered,
+            raw_output=raw_output,
             latency_s=round(latency_s, 4),
         )
 

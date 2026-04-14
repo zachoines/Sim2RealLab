@@ -200,6 +200,74 @@ def parse_grounding_target(value: Any, *, strict_bbox_when_found: bool) -> Groun
     )
 
 
+_REF_BOX_RE = re.compile(
+    r"<ref>(?P<label>.*?)</ref>\s*(?P<boxes>(?:<box>\([^)]+\),\([^)]+\)</box>\s*)+)",
+    re.DOTALL,
+)
+_SINGLE_BOX_RE = re.compile(
+    r"<box>\((?P<x1>-?\d+(?:\.\d+)?),\s*(?P<y1>-?\d+(?:\.\d+)?)\),\s*"
+    r"\((?P<x2>-?\d+(?:\.\d+)?),\s*(?P<y2>-?\d+(?:\.\d+)?)\)</box>"
+)
+
+
+@dataclass(frozen=True)
+class DetectedObjectParse:
+    """One parsed ``<ref>/<box>`` detection from multi-object VLM output."""
+
+    label: str
+    bbox_2d: tuple[int, int, int, int]
+    confidence: float
+
+
+def parse_ref_box_detections(
+    text: str,
+    *,
+    default_confidence: float = 1.0,
+) -> list[DetectedObjectParse]:
+    """Parse Qwen2.5-VL ``<ref>label</ref><box>(x1,y1),(x2,y2)</box>`` output.
+
+    Each ``<ref>`` can be followed by one or more ``<box>`` tags. Coordinates
+    are preserved exactly as emitted by the VLM (Qwen normalized 0..1000
+    space); the caller is responsible for converting to pixel coordinates.
+    Malformed entries are skipped rather than raising. Detections are
+    deduplicated by (label, bbox) while preserving insertion order.
+    """
+
+    if not text:
+        return []
+
+    out: list[DetectedObjectParse] = []
+    seen: set[tuple[str, tuple[int, int, int, int]]] = set()
+    for ref_match in _REF_BOX_RE.finditer(text):
+        label = ref_match.group("label").strip()
+        if not label:
+            continue
+        box_blob = ref_match.group("boxes")
+        for box_match in _SINGLE_BOX_RE.finditer(box_blob):
+            try:
+                x1 = int(round(float(box_match.group("x1"))))
+                y1 = int(round(float(box_match.group("y1"))))
+                x2 = int(round(float(box_match.group("x2"))))
+                y2 = int(round(float(box_match.group("y2"))))
+            except (TypeError, ValueError):
+                continue
+            if x2 <= x1 or y2 <= y1:
+                continue
+            bbox = (x1, y1, x2, y2)
+            key = (label, bbox)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(
+                DetectedObjectParse(
+                    label=label,
+                    bbox_2d=bbox,
+                    confidence=max(0.0, min(1.0, float(default_confidence))),
+                )
+            )
+    return out
+
+
 def parse_grounding_prediction(text: str) -> GroundingTarget | None:
     """Parse model output text into a grounding target, if possible."""
     payload = extract_first_json_object(text)

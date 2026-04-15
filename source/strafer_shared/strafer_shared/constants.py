@@ -180,3 +180,23 @@ ROBOCLAW_PID_P = 15000
 ROBOCLAW_PID_I = 750
 ROBOCLAW_PID_D = 0
 ROBOCLAW_QPPS = 2796  # max ticks/sec at 312 RPM (537.7 PPR)
+
+# =============================================================================
+# ROS2 Topic + Frame ID Conventions
+# =============================================================================
+# Canonical topic and frame names for the Strafer ROS2 graph. Both the real
+# Jetson stack (strafer_ros/*) and the Isaac Sim bridge (strafer_lab.bridge)
+# must agree on these strings so sim-in-the-loop consumers (Nav2, RTAB-Map,
+# VLM grounding clients) see the same wire format regardless of source.
+
+TOPIC_COLOR_IMAGE = "/d555/color/image_raw"
+TOPIC_COLOR_CAMERA_INFO = "/d555/color/camera_info"
+TOPIC_DEPTH_IMAGE = "/d555/depth/image_rect_raw"
+TOPIC_DEPTH_CAMERA_INFO = "/d555/depth/camera_info"
+TOPIC_ODOM = "/strafer/odom"
+TOPIC_CMD_VEL = "/cmd_vel"
+
+FRAME_ODOM = "odom"
+FRAME_BASE_LINK = "base_link"
+FRAME_D555_LINK = "d555_link"
+FRAME_D555_COLOR_OPTICAL = "d555_color_optical_frame"

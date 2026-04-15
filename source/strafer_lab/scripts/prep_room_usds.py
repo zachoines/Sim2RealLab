@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -142,7 +143,7 @@ def generate_scenes(
     num_scenes: int,
     output_dir: Path,
     infinigen_root: Path | None = None,
-    blender_binary: str = "blender",
+    blender_binary: str | None = None,
 ) -> list[GenerationResult]:
     """Run Infinigen ``num_scenes`` times and write USDs under ``output_dir``.
 
@@ -151,7 +152,14 @@ def generate_scenes(
     wrapper writes a ``scene_config.json`` next to each generated scene
     so the downstream metadata extractor and dataset exporters can tie
     each scene back to the preset that produced it.
+
+    If ``blender_binary`` is None, the resolver picks the best available
+    Blender on this host via :func:`_resolve_blender_binary`. On DGX Spark
+    that is the source-built 4.2.0 under ``~/Workspace/blender-build/``
+    (apt ships only Blender 4.0.2 on aarch64 Ubuntu 24.04, and Infinigen
+    pins 4.2.0 — see ``blender-build/README.md`` for the build recipe).
     """
+    blender_binary = blender_binary or _resolve_blender_binary()
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     infinigen_root = Path(infinigen_root) if infinigen_root else _guess_infinigen_root()
@@ -211,6 +219,50 @@ def _guess_infinigen_root() -> Path:
         if candidate.exists():
             return candidate
     return candidates[0]
+
+
+# -----------------------------------------------------------------------------
+# Blender binary resolution — reads STRAFER_BLENDER_BIN from the process
+# environment. The single source of truth is the shell-level variable that
+# ``env_setup.sh`` loads from ``.env`` at session start. There is no Python-
+# side ``.env`` fallback and no PATH fallback: Ubuntu 24.04 aarch64 ships
+# Blender 4.0.2 via apt, which Infinigen (pinning ``bpy==4.2.0``) will refuse
+# at generation time, and a dual-source lookup (env var + .env parsed by
+# Python) would drift silently whenever someone edits ``.env`` without
+# re-sourcing the shell wrapper. Failing loud is strictly better.
+#
+# If this resolver errors, the user forgot ``source env_setup.sh``; the
+# error message tells them exactly what to do.
+# -----------------------------------------------------------------------------
+
+_BLENDER_ENV_VAR = "STRAFER_BLENDER_BIN"
+
+
+def _resolve_blender_binary() -> str:
+    """Return the absolute path of a Blender 4.2 binary from the environment.
+
+    Reads :data:`_BLENDER_ENV_VAR` from :data:`os.environ`. Raises
+    :class:`RuntimeError` if the variable is unset or points at a
+    non-existent path.
+    """
+    value = os.environ.get(_BLENDER_ENV_VAR)
+    if not value:
+        raise RuntimeError(
+            f"{_BLENDER_ENV_VAR} is not set. Run `source env_setup.sh` from "
+            "the repo root to load it from .env (copy .env.example to .env "
+            "first if you have not yet). Infinigen pins bpy==4.2.0 and the "
+            "apt-installed /usr/bin/blender is 4.0.2 on Ubuntu 24.04 aarch64, "
+            "so a silent PATH fallback would fail downstream anyway. See "
+            "blender-build/README.md for the aarch64 source build recipe."
+        )
+
+    path = Path(value).expanduser()
+    if not path.exists():
+        raise RuntimeError(
+            f"{_BLENDER_ENV_VAR}={value!r} points to a non-existent path. "
+            "Check your .env or shell environment."
+        )
+    return str(path)
 
 
 def _build_infinigen_command(
@@ -332,7 +384,14 @@ def _build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--num-scenes", type=int, default=10)
     generate.add_argument("--output", type=Path, required=True)
     generate.add_argument("--infinigen-root", type=Path, default=None)
-    generate.add_argument("--blender", default="blender")
+    generate.add_argument(
+        "--blender",
+        default=None,
+        help="Path to Blender 4.2 binary (default: auto-resolve via "
+        "_resolve_blender_binary() — prefers the DGX source build at "
+        "~/Workspace/blender-build/build_blender/bin/blender, falls back to "
+        "/usr/bin/blender).",
+    )
     generate.add_argument("--seed-base", type=int, default=0)
 
     ingest = sub.add_parser(

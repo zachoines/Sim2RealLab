@@ -37,3 +37,7 @@ checkpoints/
 
 # Expert demo data (large HDF5 files)
 demos/
+
+# Per-machine environment configuration (.env.example IS committed)
+.env
+

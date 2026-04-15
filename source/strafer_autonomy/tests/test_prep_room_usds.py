@@ -93,3 +93,40 @@ class TestCLI:
         assert rc == 0
         payload = json.loads(captured.out)
         assert "high_quality_dgx" in payload
+
+
+class TestResolveBlenderBinary:
+    """Verify STRAFER_BLENDER_BIN env-var resolver behavior.
+
+    The resolver has a single source of truth (the process environment
+    loaded by ``env_setup.sh``). These tests monkeypatch ``os.environ``
+    directly and do not touch any ``.env`` file on disk.
+    """
+
+    @staticmethod
+    def _real_binary() -> Path:
+        """Return a path to any real executable file for existence checks.
+
+        ``/usr/bin/true`` is present on any Linux host; fall back to the
+        Python interpreter itself on macOS or unusual CI images.
+        """
+        candidate = Path("/usr/bin/true")
+        if candidate.exists():
+            return candidate
+        import sys as _sys
+        return Path(_sys.executable)
+
+    def test_reads_from_env_var(self, prep_mod, monkeypatch):
+        real = self._real_binary()
+        monkeypatch.setenv("STRAFER_BLENDER_BIN", str(real))
+        assert prep_mod._resolve_blender_binary() == str(real)
+
+    def test_missing_env_raises(self, prep_mod, monkeypatch):
+        monkeypatch.delenv("STRAFER_BLENDER_BIN", raising=False)
+        with pytest.raises(RuntimeError, match="STRAFER_BLENDER_BIN is not set"):
+            prep_mod._resolve_blender_binary()
+
+    def test_nonexistent_path_raises(self, prep_mod, monkeypatch):
+        monkeypatch.setenv("STRAFER_BLENDER_BIN", "/definitely/not/here/blender")
+        with pytest.raises(RuntimeError, match="non-existent path"):
+            prep_mod._resolve_blender_binary()

@@ -13,8 +13,10 @@ from typing import Callable
 from strafer_autonomy.schemas import MissionIntent, MissionPlan, SkillCall
 
 # Every compiler that ends in ``navigate_to_pose`` appends a
-# ``verify_arrival`` step (STRAFER_AUTONOMY_NEXT.md §0.1) for a total of
-# four steps per target: scan → project → navigate → verify.
+# ``verify_arrival`` step for a total of four steps per target:
+# scan → project → navigate → verify. The verify step runs a
+# CLIP top-k ranking against the semantic map at the arrival pose
+# to confirm the robot reached the intended target region.
 _STEPS_PER_TARGET = 4
 
 

@@ -325,7 +325,11 @@ def create_app() -> FastAPI:
         )
 
     # ------------------------------------------------------------------
-    # POST /detect_objects — multi-object detection (Section 1.12)
+    # POST /detect_objects — multi-object detection in a single inference
+    # pass. Returns every salient ``<ref>label</ref><box>(x1,y1),(x2,y2)</box>``
+    # the VLM emits for the given frame, parsed into a list of DetectedObject
+    # entries with pixel-coordinate bboxes. Used by the semantic map to
+    # populate object inventories per observation node.
     # ------------------------------------------------------------------
 
     DETECT_OBJECTS_SYSTEM_PROMPT = (

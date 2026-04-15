@@ -151,8 +151,8 @@ def get_room_at_position(
 ) -> RoomEntry | None:
     """Point-in-polygon lookup: return the room containing ``xy`` or None.
 
-    Uses ``shapely`` for the containment test. ``shapely`` is an explicit
-    dependency of the batch pipeline (see PHASE_15_DGX.md).
+    Uses ``shapely`` for the containment test — an explicit dependency
+    of the batch data pipeline.
     """
     from shapely.geometry import Point, Polygon
 

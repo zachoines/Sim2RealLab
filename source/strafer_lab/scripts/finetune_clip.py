@@ -1,8 +1,8 @@
 """OpenCLIP image-text contrastive fine-tuning on the strafer dataset.
 
 Trains OpenCLIP ViT-B/32 on (image, description) pairs produced by
-``dataset_export.py`` (Task 10). Both towers are trained jointly with a
-symmetric InfoNCE loss so the model adapts its image-text alignment to
+:mod:`strafer_lab.tools.dataset_export`. Both towers are trained jointly
+with a symmetric InfoNCE loss so the model adapts its image-text alignment to
 indoor robot perspectives at 25 cm camera height without drifting
 away from the text tower's embedding space.
 

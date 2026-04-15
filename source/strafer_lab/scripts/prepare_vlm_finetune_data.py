@@ -1,9 +1,8 @@
 """Prepare the comprehensive VLM LoRA fine-tuning JSONL dataset.
 
 Unlike the minimal exporter in :mod:`strafer_lab.tools.dataset_export`
-this script is the production-quality data preparation stage for
-Task 12. It emits three categories of examples that the LoRA run in
-``finetune_vlm.py`` (a future script) consumes:
+this script is the production-quality data preparation stage. It emits
+four categories of examples that a Qwen2.5-VL LoRA fine-tune consumes:
 
 1. **Single-object grounding** (primary). One ``<ref>label</ref><box>...``
    answer per frame+label. Coordinates rescaled to Qwen's 0..1000 range.
@@ -18,13 +17,14 @@ Task 12. It emits three categories of examples that the LoRA run in
    answer concatenates all ``<ref>/<box>`` pairs. This primes the VLM
    for the ``POST /detect_objects`` endpoint.
 
-4. **Description preservation** (~10% of examples). Reuses Stage 2
-   descriptions from Task 9 as plain image-to-text pairs so LoRA
-   fine-tuning does not degrade the ``POST /describe`` capability via
-   catastrophic forgetting.
+4. **Description preservation** (~10% of examples). Reuses scene
+   descriptions from :mod:`strafer_lab.scripts.generate_descriptions`
+   as plain image-to-text pairs so LoRA fine-tuning does not degrade
+   the ``POST /describe`` capability via catastrophic forgetting.
 
 All categories **exclude frames from ProcRoom** (``scene_type ==
-"procroom"``) per Section 5.5.3 of the design doc.
+"procroom"``): the primitive-shape ProcRoom scenes do not transfer to
+real rooms for VLM training.
 """
 
 from __future__ import annotations
@@ -292,7 +292,8 @@ def generate_examples(config: VLMDataPrepConfig) -> tuple[list[dict[str, Any]], 
             multi_object.append(_multi_object_example(image_rel, qwen_detections))
             stats.multi_object_examples += 1
 
-    # Description preservation: reuse Stage 2 descriptions from Task 9.
+    # Description preservation: reuse scene descriptions from the
+    # description pipeline (strafer_lab.scripts.generate_descriptions).
     description_examples: list[dict[str, Any]] = []
     for image_rel, descs in description_lookup.items():
         for desc in descs:

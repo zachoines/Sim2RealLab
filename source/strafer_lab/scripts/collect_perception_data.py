@@ -16,10 +16,10 @@ human-driven teleop session as one episode directory per run:
             ...
         writer_stats.json
 
-The layout matches what ``scripts/generate_descriptions.py`` (Task 9)
-and ``scripts/prepare_vlm_finetune_data.py`` (Task 12) already consume,
-so you can run Task 9 on this tree the moment a session finishes with
-no translation step.
+The layout matches what :mod:`strafer_lab.scripts.generate_descriptions`
+and :mod:`strafer_lab.scripts.prepare_vlm_finetune_data` already consume,
+so the downstream description / SFT pipelines can run on this tree the
+moment a session finishes with no translation step.
 
 Controls (same as ``collect_demos.py``):
 
@@ -70,7 +70,7 @@ parser.add_argument(
     "--task",
     type=str,
     default="Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0",
-    help="Registered Isaac Lab task name. Default is the Phase-15 perception "
+    help="Registered Isaac Lab task name. Default is the perception "
     "env that carries both the policy and perception cameras.",
 )
 parser.add_argument(

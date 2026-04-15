@@ -6,7 +6,7 @@ budgets, more diverse room types, richer per-room object counts, and
 multi-room layouts. This script wraps Infinigen's generation entry
 point with a curated config, then copies / post-processes the resulting
 USDs into ``Assets/generated/scenes/`` where
-``extract_scene_metadata.py`` (Task 8) can pick them up.
+:mod:`strafer_lab.scripts.extract_scene_metadata` can pick them up.
 
 The Infinigen generator itself must run inside a Blender Python
 environment. On DGX (Grace ARM64) this means a headless Blender build

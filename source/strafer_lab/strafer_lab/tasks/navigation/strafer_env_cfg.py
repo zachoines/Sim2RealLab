@@ -1192,9 +1192,9 @@ class _BaseInfinigenDepthNavEnvCfg(_BaseStraferNavEnvCfg):
 
 
 # Perception data-collection envs run at 640x360 and therefore cap parallel
-# env count at 1-8. Start at 1 — the Isaac Sim ROS2 bridge (Section 5.9) and
-# gamepad teleop (Section 5.5.4) are both single-env workflows. The play
-# override below bumps this to _INFINIGEN_PLAY_NUM_ENVS for batch captures.
+# env count at 1-8. Start at 1 — the Isaac Sim ROS2 bridge and gamepad
+# teleop are both single-env workflows. The play override below can bump
+# this for batch captures.
 _INFINIGEN_PERCEPTION_TRAIN_NUM_ENVS = 1
 
 
@@ -1205,7 +1205,7 @@ class _BaseInfinigenPerceptionNavEnvCfg(_BaseStraferNavEnvCfg):
     Uses :class:`StraferSceneCfg_InfinigenPerception` (both the 80x60 policy
     camera AND the 640x360 perception camera) with a single default env.
     Not intended for RL training — the perception camera resolution caps
-    throughput. See PHASE_15_WINDOWS.md Task 1 for the design rationale.
+    throughput.
     """
 
     scene: StraferSceneCfg_InfinigenPerception = StraferSceneCfg_InfinigenPerception(

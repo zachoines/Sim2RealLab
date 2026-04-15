@@ -14,10 +14,9 @@ Two camera configurations coexist:
 - **Perception camera** (`make_d555_perception_camera_cfg`, prim path
   ``d555_camera_perception``): 640x360 RGB + depth. Used ONLY by
   perception data collection, Replicator bbox extraction, and the
-  Isaac Sim ROS2 bridge (Section 5.5.2, 5.9 of the design doc). Never
-  instantiated in an RL training env — at 640x360 Isaac Sim can only
-  render 1-8 parallel envs, so mixing it with the RL policy's large
-  env counts would wreck throughput.
+  Isaac Sim ROS2 bridge. Never instantiated in an RL training env —
+  at 640x360 Isaac Sim can only render 1-8 parallel envs, so mixing
+  it with the RL policy's large env counts would wreck throughput.
 
 Source of truth for real hardware specs: :mod:`strafer_shared.constants`.
 Every value that mirrors a real-world D555 property — native capture

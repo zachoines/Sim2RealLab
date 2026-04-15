@@ -20,10 +20,10 @@ ROBUST (aggressive noise + dynamics - stress-testing):
 INFINIGEN (Phase 6 - offline Infinigen scene geometry):
 - ``Isaac-Strafer-Nav-Real-InfinigenDepth-v0``: Realistic depth + Infinigen scenes
 - ``Isaac-Strafer-Nav-Robust-InfinigenDepth-v0``: Robust depth + Infinigen scenes
-- ``Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0``: Phase 15 perception
+- ``Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0``: perception
   data-collection env. 640x360 RGB + depth from ``d555_camera_perception``,
   single-env by default (resolution caps throughput). Used by
-  ``scripts/collect_perception_data.py`` and the ROS2 bridge harness.
+  ``scripts/collect_perception_data.py`` and the Isaac Sim ROS2 bridge.
 
 PROCROOM (Phase 7 - procedural primitive rooms):
 - ``Isaac-Strafer-Nav-Real-ProcRoom-NoCam-v0``: Realistic NoCam + proc rooms (256 envs)
@@ -89,7 +89,7 @@ _ENV_REGISTRATIONS = [
     ("Isaac-Strafer-Nav-Real-InfinigenDepth-Play-v0", "StraferNavEnvCfg_Real_InfinigenDepth_PLAY", _DEPTH_RUNNER_CFG),
     ("Isaac-Strafer-Nav-Robust-InfinigenDepth-v0", "StraferNavEnvCfg_Robust_InfinigenDepth", _DEPTH_RUNNER_CFG),
     ("Isaac-Strafer-Nav-Robust-InfinigenDepth-Play-v0", "StraferNavEnvCfg_Robust_InfinigenDepth_PLAY", _DEPTH_RUNNER_CFG),
-    # Infinigen perception data-collection variant (Phase 15)
+    # Infinigen perception data-collection variant
     (
         "Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0",
         "StraferNavEnvCfg_Real_InfinigenPerception_PLAY",

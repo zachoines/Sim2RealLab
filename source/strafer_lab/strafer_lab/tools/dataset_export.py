@@ -1,23 +1,25 @@
 """Export perception data + descriptions into training-ready formats.
 
-Produces two quick-iteration formats from the outputs of the Stage 1-3
-description pipeline (Task 9) and the scene metadata (Task 8):
+Produces two quick-iteration formats from the outputs of the scene
+description pipeline (:mod:`strafer_lab.scripts.generate_descriptions`)
+and the scene metadata (:mod:`strafer_lab.scripts.extract_scene_metadata`):
 
 1. ``clip_descriptions.csv`` — (image_path, description) pairs for
-   OpenCLIP contrastive fine-tuning (Task 11). Multiple descriptions per
-   image are emitted as separate rows.
+   OpenCLIP contrastive fine-tuning. Multiple descriptions per image
+   are emitted as separate rows.
 
 2. ``vlm_grounding.jsonl`` — basic Qwen2.5-VL grounding SFT format:
    ``{"image": ..., "conversations": [user, assistant]}`` with
    ``<ref>label</ref><box>(x1,y1),(x2,y2)</box>`` coordinates scaled to
    the 0..1000 range Qwen expects. This is a *subset* of the full SFT
-   dataset — Task 12's ``prepare_vlm_finetune_data.py`` is the
-   comprehensive producer that adds negatives, multi-object examples,
-   and description-preservation examples.
+   dataset — :mod:`strafer_lab.scripts.prepare_vlm_finetune_data` is
+   the comprehensive producer that adds negatives, multi-object
+   examples, and description-preservation examples.
 
-Both outputs exclude frames from ``scene_type == "procroom"`` (Section
-5.5.3 of the design doc): solid-color primitive shapes do not transfer
-to real rooms for VLM or CLIP training.
+Both outputs exclude frames from ``scene_type == "procroom"``: the
+primitive-shape ProcRoom scenes (solid-color boxes / cylinders) do not
+transfer to real rooms for VLM or CLIP training and would only add
+noise to the dataset.
 """
 
 from __future__ import annotations
@@ -107,7 +109,7 @@ def format_qwen_grounding_answer(
 
 
 def iter_description_records(descriptions_root: Path) -> Iterator[tuple[Path, dict[str, Any]]]:
-    """Yield (episode_dir, record) pairs from the Task 9 pipeline output."""
+    """Yield (episode_dir, record) pairs from the description pipeline output."""
     descriptions_root = Path(descriptions_root)
     if not descriptions_root.exists():
         return

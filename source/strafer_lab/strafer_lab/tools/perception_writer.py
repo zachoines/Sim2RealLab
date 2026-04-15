@@ -11,13 +11,13 @@ Writes one episode directory per teleop run:
             frame_0001.depth.npy
             ...
 
-This is the layout the DGX-side batch pipeline already consumes —
+This is the layout the batch data pipeline already consumes —
 :mod:`strafer_lab.scripts.generate_descriptions` iterates ``frames.jsonl``
 files via :func:`iter_frame_records`, and
 :mod:`strafer_lab.scripts.prepare_vlm_finetune_data` reads both the
 JSONL records and the images referenced in them. Keeping the layout
-identical here means Task 2 (perception data collection) and Tasks 9/12
-(description pipeline, VLM SFT data prep) can be wired end-to-end with
+identical here means perception data collection and the downstream
+description / VLM SFT data prep scripts can be wired end-to-end with
 no translation step between them.
 
 The writer is deliberately pure-Python — it imports ``numpy`` and

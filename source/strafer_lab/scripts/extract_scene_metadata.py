@@ -20,7 +20,7 @@ This script provides two entry points:
 
 It also handles the USD prim labelling pass — walking a scene's USD
 stage and writing ``semanticLabel`` and ``instanceId`` prim attributes
-so Replicator annotators produce labeled bboxes (Task 8 item 2).
+so Replicator annotators produce labeled bboxes.
 
 Usage:
 

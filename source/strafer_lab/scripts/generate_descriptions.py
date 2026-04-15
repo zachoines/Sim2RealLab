@@ -2,8 +2,8 @@
 
 Runs on DGX Spark after teleop data collection. For each captured frame
 the pipeline produces 3-5 natural-language descriptions at different
-detail levels, suitable for CLIP contrastive fine-tuning (Task 11) and
-VLM description preservation (Task 12).
+detail levels, suitable for CLIP contrastive fine-tuning and
+VLM description preservation.
 
 Pipeline stages:
 

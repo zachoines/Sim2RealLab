@@ -17,26 +17,25 @@ Design notes:
   multiple semantic types — we preserve the full list AND expose the
   primary class as ``.label`` for simple consumers.
 
-- ``instanceId`` is NOT part of ``bounding_box_2d_tight``. The task spec in
-  ``PHASE_15_WINDOWS.md`` asked for it, but that field only exists on the
-  ``instance_id_segmentation`` annotator. We leave :class:`DetectedBbox`
-  with a ``semantic_id`` field instead; callers that need per-instance IDs
-  should attach a second annotator.
+- ``instanceId`` is NOT part of ``bounding_box_2d_tight`` — that field
+  only exists on the ``instance_id_segmentation`` annotator. We leave
+  :class:`DetectedBbox` with a ``semantic_id`` field instead; callers
+  that need per-instance IDs should attach a second annotator.
 
 - :func:`parse_bbox_data` is a pure function with NO Isaac Sim / numpy /
   Omniverse dependency — it accepts any iterable-of-row-objects that behaves
   like a structured numpy array (supports ``row["field"]`` access). This
-  keeps the parser unit-testable from ``.venv_vlm`` with synthetic dicts.
+  keeps the parser unit-testable from plain Python envs that do not have
+  Isaac Sim installed.
 
 - :class:`ReplicatorBboxExtractor` defers the ``omni.replicator.core`` import
   to ``__init__`` so merely importing this module from a plain Python env
-  (the namespace-stub path used by the DGX batch-processing tests) does not
-  trigger an Omniverse load. Tests inject a mock annotator via the
+  does not trigger an Omniverse load. Tests inject a mock annotator via the
   ``annotator`` keyword to exercise :meth:`extract` without Isaac Sim.
 
 - Requires ``semanticLabel`` USD prim attributes on the scene objects. On
   Infinigen scenes these are populated by
-  ``scripts/extract_scene_metadata.py`` (DGX Task 8).
+  :mod:`scripts.extract_scene_metadata`.
 """
 
 from __future__ import annotations
@@ -76,8 +75,9 @@ class DetectedBbox:
         """Serialize to the plain-dict shape consumed by the batch scripts.
 
         Mirrors the ``bboxes: list[dict]`` key shape the Stage-1 spatial
-        description builder and Task 9 / Task 12 data prep scripts expect
-        on ``frame_data``.
+        description builder (:class:`strafer_lab.tools.spatial_description.
+        SpatialDescriptionBuilder`) and the VLM data-prep scripts under
+        :mod:`strafer_lab.scripts` expect on ``frame_data``.
         """
         return {
             "label": self.label,
@@ -342,7 +342,8 @@ class ReplicatorBboxExtractor:
         """Convenience: return the extracted bboxes as plain dicts.
 
         Use this when passing the bboxes straight into
-        ``frame_data["bboxes"]`` for Task 2's ``collect_perception_data.py``
-        HDF5 serialization, or for any JSON output.
+        ``frame_data["bboxes"]`` for
+        :mod:`strafer_lab.scripts.collect_perception_data`'s JSONL output,
+        or for any JSON serialization.
         """
         return [bbox.to_dict() for bbox in self.extract()]

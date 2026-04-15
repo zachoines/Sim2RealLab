@@ -125,6 +125,31 @@ DEPTH_CLIP_FAR = 6.0  # meters
 DEPTH_SIM_CLIP_NEAR = 0.01  # meters — sim renders below D555 min range
 DEPTH_NEARFIELD_FILL = 0.2  # meters — replacement value for sub-0.4m pixels
 
+# D555 native capture resolution — used by the Jetson perception pipeline
+# (/d555/color/image_sync, /d555/aligned_depth_to_color/image_sync, VLM
+# grounding client) and mirrored by the Isaac Sim perception camera
+# (strafer_lab.tasks.navigation.d555_cfg). Distinct from DEPTH_WIDTH /
+# DEPTH_HEIGHT above, which is the 80×60 DOWNSAMPLED policy input only.
+PERCEPTION_WIDTH = 640
+PERCEPTION_HEIGHT = 360
+
+# D555 lens / sensor specs, from Intel's datasheet. Values are in
+# millimeters, which matches both the real-world spec and the unit
+# convention Isaac Sim's PinholeCameraCfg expects for focal_length /
+# horizontal_aperture.
+D555_FOCAL_LENGTH_MM = 1.93
+D555_HORIZONTAL_APERTURE_MM = 3.68
+
+# D555 native frame rate. Both the color and the aligned depth streams
+# run at this rate on real hardware; the sim TiledCameraCfg uses the
+# derived period.
+CAMERA_HZ = 30
+CAMERA_UPDATE_PERIOD_S = 1.0 / CAMERA_HZ
+
+# Bosch BMI055 IMU (integrated into the D555) native rate.
+IMU_HZ = 200
+IMU_UPDATE_PERIOD_S = 1.0 / IMU_HZ
+
 # =============================================================================
 # Mapping / Navigation
 # =============================================================================

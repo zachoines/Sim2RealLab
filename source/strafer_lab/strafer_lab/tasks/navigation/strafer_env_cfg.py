@@ -77,7 +77,11 @@ from .sim_real_cfg import (
     get_rgb_noise,
     get_action_config_params,
 )
-from .d555_cfg import make_d555_camera_cfg, make_d555_imu_cfg
+from .d555_cfg import (
+    make_d555_camera_cfg,
+    make_d555_imu_cfg,
+    make_d555_perception_camera_cfg,
+)
 
 
 # =============================================================================
@@ -293,11 +297,84 @@ class StraferSceneCfg_Infinigen(InteractiveSceneCfg):
         collision_group=-1,
     )
 
-    # Contact sensor on body_link 
+    # Contact sensor on body_link
     # Uses net_forces_w for collision detection against all scene geometry.
     # body_link is wheel-suspended (~10cm above ground), so net_forces_w on
     # body_link effectively detects only collisions with scene geometry
     # (walls, furniture), not ground plane contact.
+    contact_sensor = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
+        update_period=0.0,
+        history_length=1,
+    )
+
+
+@configclass
+class StraferSceneCfg_InfinigenPerception(InteractiveSceneCfg):
+    """Infinigen scene with the high-resolution perception camera attached.
+
+    Same Infinigen room geometry and global-prim layout as
+    :class:`StraferSceneCfg_Infinigen` but with both cameras present:
+
+    - ``d555_camera`` (80x60) — the RL policy camera, kept for parity with
+      the training scenes so the deployed model sees the same input shape.
+    - ``d555_camera_perception`` (640x360) — the perception data-collection
+      camera used by Replicator bbox extraction, gamepad teleop capture, and
+      the Isaac Sim ROS2 bridge. Consumers access it via
+      ``env.scene["d555_camera_perception"].data.output["rgb"]`` /
+      ``["distance_to_image_plane"]``.
+
+    This scene is intentionally NOT used in RL training. At 640x360 Isaac
+    Sim caps parallel envs at ~1-8 (vs. 256+ at 80x60), so this scene is
+    reserved for data collection and ROS bridge work.
+    """
+
+    terrain = TerrainImporterCfg(
+        prim_path="/World/ground",
+        terrain_type="plane",
+        collision_group=-1,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            static_friction=0.5,
+            dynamic_friction=0.5,
+            restitution=0.0,
+        ),
+        debug_vis=False,
+    )
+
+    robot: ArticulationCfg = STRAFER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+    dome_light = AssetBaseCfg(
+        prim_path="/World/DomeLight",
+        spawn=sim_utils.DomeLightCfg(intensity=2000.0, color=(0.8, 0.8, 0.8)),
+    )
+
+    directional_light = AssetBaseCfg(
+        prim_path="/World/DirectionalLight",
+        spawn=sim_utils.DistantLightCfg(intensity=3000.0, color=(1.0, 1.0, 1.0)),
+        init_state=AssetBaseCfg.InitialStateCfg(rot=(0.866, 0.0, 0.5, 0.0)),  # 60° from vertical
+    )
+
+    # Policy camera (80x60) — kept so the perception env matches the
+    # deployed observation shape; cheap to render alongside the perception
+    # camera when only 1-8 envs are active.
+    d555_camera: TiledCameraCfg = make_d555_camera_cfg(
+        data_types=("rgb", "distance_to_image_plane"),
+    )
+
+    # Perception camera (640x360 RGB + depth) — the reason this scene exists.
+    d555_camera_perception: TiledCameraCfg = make_d555_perception_camera_cfg()
+
+    d555_imu: ImuCfg = make_d555_imu_cfg()
+
+    # Procedural scene geometry as a global prim (shared across envs via
+    # collision_group=-1). The USD path is populated in __post_init__ by
+    # the env config so this class stays portable across Infinigen batches.
+    scene_geometry: AssetBaseCfg = AssetBaseCfg(
+        prim_path="/World/Room",
+        spawn=sim_utils.UsdFileCfg(usd_path=""),
+        collision_group=-1,
+    )
+
     contact_sensor = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
         update_period=0.0,
@@ -1114,6 +1191,37 @@ class _BaseInfinigenDepthNavEnvCfg(_BaseStraferNavEnvCfg):
         _apply_infinigen_scene_setup(self)
 
 
+# Perception data-collection envs run at 640x360 and therefore cap parallel
+# env count at 1-8. Start at 1 — the Isaac Sim ROS2 bridge (Section 5.9) and
+# gamepad teleop (Section 5.5.4) are both single-env workflows. The play
+# override below bumps this to _INFINIGEN_PLAY_NUM_ENVS for batch captures.
+_INFINIGEN_PERCEPTION_TRAIN_NUM_ENVS = 1
+
+
+@configclass
+class _BaseInfinigenPerceptionNavEnvCfg(_BaseStraferNavEnvCfg):
+    """Common config for perception data-collection envs on Infinigen scenes.
+
+    Uses :class:`StraferSceneCfg_InfinigenPerception` (both the 80x60 policy
+    camera AND the 640x360 perception camera) with a single default env.
+    Not intended for RL training — the perception camera resolution caps
+    throughput. See PHASE_15_WINDOWS.md Task 1 for the design rationale.
+    """
+
+    scene: StraferSceneCfg_InfinigenPerception = StraferSceneCfg_InfinigenPerception(
+        num_envs=_INFINIGEN_PERCEPTION_TRAIN_NUM_ENVS,
+        env_spacing=0.0,
+    )
+    commands: CommandsCfg_Infinigen = CommandsCfg_Infinigen()
+    rewards: RewardsCfg = RewardsCfg()
+    terminations: TerminationsCfg = TerminationsCfg()
+    curriculum: CurriculumCfg_Infinigen = CurriculumCfg_Infinigen()
+
+    def __post_init__(self):
+        super().__post_init__()
+        _apply_infinigen_scene_setup(self)
+
+
 # -----------------------------------------------------------------------------
 # IDEAL: No noise, no motor dynamics (debugging/baselines)
 # -----------------------------------------------------------------------------
@@ -1277,6 +1385,39 @@ class StraferNavEnvCfg_Robust_InfinigenDepth(_BaseInfinigenDepthNavEnvCfg):
 class StraferNavEnvCfg_Robust_InfinigenDepth_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Robust_InfinigenDepth):
     """Play/eval config for Robust InfinigenDepth."""
     play_num_envs = _INFINIGEN_PLAY_NUM_ENVS
+
+
+# -----------------------------------------------------------------------------
+# INFINIGEN PERCEPTION: 640x360 RGB + depth perception camera on Infinigen
+# scenes. Used by:
+#   - scripts/collect_perception_data.py   (gamepad teleop + Replicator bbox)
+#   - scripts/sim_in_the_loop.py           (Nav2 + ROS2 bridge harness)
+# Never used for RL training — the resolution caps env count at 1-8.
+# -----------------------------------------------------------------------------
+
+@configclass
+class StraferNavEnvCfg_Real_InfinigenPerception(_BaseInfinigenPerceptionNavEnvCfg):
+    """Realistic perception data-collection env on Infinigen scenes.
+
+    Observations, actions, and events are copied from the Realistic Depth
+    variant so the robot dynamics match what the RL policy was trained on —
+    this keeps trajectories collected here distributionally close to
+    deployment trajectories.
+    """
+    actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
+    observations: ObsCfg_Depth_Realistic = ObsCfg_Depth_Realistic()
+    events: EventsCfg_Infinigen_Realistic = EventsCfg_Infinigen_Realistic()
+
+
+@configclass
+class StraferNavEnvCfg_Real_InfinigenPerception_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Real_InfinigenPerception):
+    """Play/eval config for Realistic InfinigenPerception.
+
+    `play_num_envs` stays at the single-env default for data collection —
+    higher counts would OOM the renderer at 640x360. Increase cautiously if
+    targeting batch capture on a high-VRAM host.
+    """
+    play_num_envs = _INFINIGEN_PERCEPTION_TRAIN_NUM_ENVS
 
 
 # =============================================================================

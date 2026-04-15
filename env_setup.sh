@@ -100,6 +100,21 @@ if [ -n "${INFINIGEN_ROOT:-}" ] && [ -n "${STRAFER_BLENDER_BIN:-}" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# ROS2 cross-host defaults
+# ---------------------------------------------------------------------------
+# Only applied when the values come from `.env`. If the user already has
+# ROS_DOMAIN_ID / RMW_IMPLEMENTATION set from elsewhere (system defaults,
+# another project's env script), we leave them alone. Python scripts do not
+# read these — only ROS2 processes on this shell or its children do.
+
+if [ -n "${ROS_DOMAIN_ID:-}" ]; then
+    export ROS_DOMAIN_ID
+fi
+if [ -n "${RMW_IMPLEMENTATION:-}" ]; then
+    export RMW_IMPLEMENTATION
+fi
+
+# ---------------------------------------------------------------------------
 # Status report
 # ---------------------------------------------------------------------------
 
@@ -108,5 +123,8 @@ echo "[env_setup] STRAFER_BLENDER_BIN=${STRAFER_BLENDER_BIN:-<unset>}"
 echo "[env_setup] INFINIGEN_ROOT=${INFINIGEN_ROOT:-<unset>}"
 echo "[env_setup] ISAACSIM_PATH=${ISAACSIM_PATH:-<unset>}"
 echo "[env_setup] HF_HOME=${HF_HOME:-<unset>}"
+echo "[env_setup] ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-<unset>}"
+echo "[env_setup] RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-<unset>}"
+echo "[env_setup] STRAFER_JETSON_HOST=${STRAFER_JETSON_HOST:-<unset>}"
 
 unset _REPO_ROOT

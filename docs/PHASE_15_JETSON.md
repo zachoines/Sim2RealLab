@@ -417,6 +417,121 @@ failures during normal operation for downstream sim feedback:
 
 ---
 
+### Task 11: Sim-in-the-loop launch configuration
+
+**Priority:** Medium | **Effort:** Small
+
+**Coordination:** Unblocks the DGX agent's sim-in-the-loop harness work.
+The DGX side drives the simulation with Isaac Sim's bundled
+`isaacsim.ros2.bridge` extension, which publishes on the SAME real-robot
+topic names this Jetson already consumes from hardware (e.g.
+`/d555/color/image_sync`, `/strafer/odom`, `/scan`). This task does NOT
+change `JetsonRosClient`, Nav2, or the executor Python code at all — it
+creates a launch variant that brings up only the autonomy-consuming side
+of the stack (no real driver, no real perception) so remote-published
+topics from the DGX bridge drive the Jetson's autonomy pipeline.
+
+**Files to create:**
+
+```
+source/strafer_ros/strafer_bringup/launch/bringup_sim_in_the_loop.launch.py
+source/strafer_ros/strafer_bringup/config/env_sim_in_the_loop.env
+```
+
+**Files to (possibly) modify — audit first, only change if needed:**
+
+```
+source/strafer_autonomy/strafer_autonomy/executor/command_server.py
+source/strafer_autonomy/strafer_autonomy/clients/ros_client.py
+```
+
+**What to implement:**
+
+1. **New launch file** `bringup_sim_in_the_loop.launch.py` that brings up
+   ONLY the autonomy-consuming side of the stack:
+
+   - `strafer_navigation` (Nav2) — same params file as
+     `bringup_autonomy.launch.py`. Nav2 subscribes to the topics the DGX
+     bridge publishes and publishes `/cmd_vel`, which the DGX bridge
+     subscribes to in order to drive the simulated robot.
+   - `strafer_slam` — either RTAB-Map or a static map server, whichever
+     the current autonomy launch uses. For the first pass a static map
+     server loading the Infinigen scene's pre-rendered occupancy grid is
+     simplest; RTAB-Map on sim topics also works once we validate it.
+   - `strafer_autonomy` executor + command server — unchanged.
+   - `depthimage_to_laserscan` — needed to produce `/scan` from the sim
+     bridge's depth topic, exactly like it does against the real D555.
+
+   Do NOT start:
+   - `strafer_driver` (RoboClaw motor driver — no motors present)
+   - `strafer_perception` (D555 realsense_node — no camera present)
+   - Any hardware watchdog timers that would false-positive without the
+     physical USB bus.
+
+2. **New env file** `env_sim_in_the_loop.env` that exports the
+   cross-host DDS config:
+
+   ```bash
+   export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+   export ROS_DOMAIN_ID=42
+   export HARDWARE_PRESENT=false
+   ```
+
+   The DGX side exports the same `RMW_IMPLEMENTATION` and
+   `ROS_DOMAIN_ID` from its `env_setup.sh`. Both hosts must be on the
+   same LAN subnet; the LAN IPs for this deployment are:
+
+   - DGX Spark: `192.168.50.196` (hostname `dgx-spark`, or whatever the
+     DGX agent's `.env` records in `STRAFER_JETSON_HOST`'s sibling
+     variable — see the DGX agent's `env_setup.sh`)
+   - Jetson Orin Nano: `192.168.50.24` (hostname `jetson-desktop`)
+
+   `ROS_DOMAIN_ID=42` is arbitrary; any matching value works, the only
+   rule is both hosts must agree. `rmw_cyclonedds_cpp` is chosen because
+   it reliably handles cross-machine discovery, unlike FastDDS's default
+   shared-memory transport.
+
+3. **Audit** `command_server.build_command_server()` and
+   `JetsonRosClient` for startup health checks that assume the real
+   hardware driver is up — direct device-node polling, TF liveness
+   windows shorter than network jitter (typical LAN jitter is 1-10 ms,
+   so any TF liveness check under ~50 ms is at risk). If any such check
+   exists, gate it behind a `HARDWARE_PRESENT` env var that defaults to
+   True (preserving today's behavior on the real robot) and which the
+   new `env_sim_in_the_loop.env` sets to False.
+
+   Most likely outcome: no changes needed. The existing stack talks to
+   topics, not to hardware-specific device nodes, so the network jitter
+   case is the only real risk.
+
+**Testing (manual, once DGX-side Task 4 lands):**
+
+1. **Jetson side:**
+   ```bash
+   source source/strafer_ros/strafer_bringup/config/env_sim_in_the_loop.env
+   ros2 launch strafer_bringup bringup_sim_in_the_loop.launch.py
+   ```
+2. **DGX side:** boot the sim with the Isaac Sim ROS2 bridge enabled
+   (the DGX agent ships a script for this).
+3. Verify from the Jetson: `ros2 topic list` shows every expected
+   topic (`/d555/color/image_sync`, `/d555/aligned_depth_to_color/image_sync`,
+   `/strafer/odom`, `/d555/imu/filtered`, `/scan`, `/cmd_vel`), and
+   `ros2 topic hz /d555/color/image_sync` reports ~30 Hz.
+4. Submit a mission: `strafer-autonomy-cli submit "describe what you see"`.
+   Executor should run the mission, planner/VLM on the DGX (LAN HTTP,
+   unchanged from real-robot operation) should handle intent parsing
+   and grounding, and Nav2 should publish `/cmd_vel` if the mission
+   requires motion.
+5. On the DGX side, verify that the simulated robot moves in response
+   to `/cmd_vel`.
+
+**Depends on:** DGX Task 4 (Isaac Sim ROS2 Bridge). That task must ship
+before this one can be tested end-to-end, though the launch file and
+env file can be written and partially validated (syntax, Nav2 start-up)
+in isolation.
+
+---
+
 ## Deferred tasks (not assigned to this phase)
 
 These items from `STRAFER_AUTONOMY_NEXT.md` are explicitly deferred:
@@ -430,7 +545,6 @@ These items from `STRAFER_AUTONOMY_NEXT.md` are explicitly deferred:
   See design doc Section 1.10.1 for the full mitigation path.
 - **Plan repair on failure** (Section 3.6) — Large effort, Low priority. Future exploration.
 - **Failure-to-sim feedback pipeline** (Section 5.8) — Large effort, Low priority. Depends on synthetic data infrastructure (DGX + Isaac Sim host).
-- **Sim-in-the-loop harness** (Section 5.9) — Large effort, Low priority. Depends on Isaac Sim ROS2 Bridge.
 
 ---
 

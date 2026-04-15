@@ -3,6 +3,20 @@
 VLM grounding service and tooling for Qwen2.5-VL-3B. Currently deployed on
 DGX Spark (port 8100) and called by the Jetson executor over LAN.
 
+Three endpoints on a single loaded model:
+
+| Endpoint | Purpose | Used by |
+|---|---|---|
+| `POST /ground` | Single-object grounding — find ONE labelled bbox | `scan_for_target` skill |
+| `POST /describe` | Free-text scene description | `describe_scene` skill, operator readback |
+| `POST /detect_objects` | Multi-object detection — list every salient object with its bbox | Semantic map population, `query_environment` |
+
+An alternative deployment path uses Databricks Model Serving via
+`DatabricksServingGroundingClient` in `strafer_autonomy.clients`, which wraps
+this same Qwen2.5-VL-3B model packaged as an MLflow pyfunc. The wire format
+on the client side is identical; only the transport and health check
+differ. See `source/strafer_autonomy/README.md` for the backend selector.
+
 ## Install
 
 ```bash
@@ -82,6 +96,49 @@ Set `"return_debug_overlay": true` to receive a JPEG-encoded base64 image with t
 bounding box drawn on it in `debug_overlay_jpeg_b64`. Only populated when `found` is `true`.
 
 Bounding boxes use the **normalized [0, 1000] coordinate convention**, not pixel coordinates.
+
+**`POST /detect_objects`** — multi-object detection in a single inference pass
+
+Prompts Qwen2.5-VL with *"List all visible objects with their bounding boxes"*
+and parses the `<ref>label</ref><box>(x1,y1),(x2,y2)</box>` output. Detections
+are returned in **pixel** coordinates of the (possibly resized) inference image,
+sorted by confidence descending, capped at `max_objects`.
+
+Request:
+```json
+{
+  "request_id": "req-005",
+  "image_jpeg_b64": "<base64-encoded JPEG>",
+  "max_image_side": 1024,
+  "max_objects": 20,
+  "min_confidence": 0.3
+}
+```
+
+Response:
+```json
+{
+  "request_id": "req-005",
+  "objects": [
+    {"label": "table", "bbox_2d": [120, 340, 450, 720], "confidence": 1.0},
+    {"label": "chair", "bbox_2d": [500, 280, 680, 710], "confidence": 1.0},
+    {"label": "door",  "bbox_2d": [780,  50, 990, 980], "confidence": 1.0}
+  ],
+  "raw_output": "<ref>table</ref><box>...</box><ref>chair</ref><box>...</box>...",
+  "latency_s": 1.42
+}
+```
+
+`HttpGroundingClient.detect_objects()` is the executor-side call. It is
+intentionally NOT part of the `GroundingClient` protocol so existing
+implementations remain valid; callers use `hasattr(client, "detect_objects")`
+when they need the richer output. See
+`strafer_autonomy/clients/vlm_client.py` for the wire helpers
+(`detect_objects_request_to_payload`, `detect_objects_result_from_payload`).
+
+Additional env var for this endpoint: `GROUNDING_DETECT_MAX_TOKENS` (default
+`512`) — multi-object output is longer than single-object, so it has its own
+generation budget separate from `GROUNDING_MAX_TOKENS`.
 
 ### curl Example
 

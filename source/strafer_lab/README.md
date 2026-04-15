@@ -1,12 +1,59 @@
 # Strafer Lab
 
-Isaac Lab extension for training and deploying the Gobilda Strafer mecanum wheel robot.
+Isaac Lab extension for the GoBilda Strafer mecanum wheel robot. Two roles:
+
+1. **RL policy training** — manager-based Isaac Lab environment, PPO training with
+   RSL-RL or SKRL, realism / robust / ideal sim-to-real variants.
+2. **Synthetic data pipeline** — Infinigen procedural scene generation, scene
+   metadata extraction, 4-stage description generation, CLIP contrastive +
+   VLM LoRA fine-tune data prep. See `tools/` and `scripts/` below.
+
+The package's top-level `__init__.py` imports Isaac Sim Kit-dependent
+subpackages (`.tasks`, `.assets`) behind a graceful `ModuleNotFoundError`
+fallback, so `strafer_lab.tools.*` remains importable from plain-Python
+environments (DGX batch scripts, pytest, CI) that do not launch Isaac Sim via
+`AppLauncher`. When Isaac Sim IS active, the imports behave identically to
+before.
 
 ## Installation
 
+### DGX Spark (aarch64, preferred)
+
+The DGX path installs `strafer_lab` into an Isaac-Lab conda env. Detailed
+setup — Isaac Sim source build, Isaac Lab v2.3.2 checkout, `pxr` wiring — is
+in `docs/PHASE_15_DGX.md`. Short version:
+
+```bash
+# 1. Source the shell wrapper to load .env (STRAFER_BLENDER_BIN, ISAACSIM_PATH, …)
+#    and set LD_PRELOAD for aarch64.
+cd /home/you/Workspace/Sim2RealLab
+source env_setup.sh
+
+# 2. Activate the conda env that was created via `isaaclab.sh -c env_phase15`
+conda activate env_phase15
+
+# 3. Install strafer_lab editable. `--no-build-isolation` is required because
+#    flatdict (an upstream Isaac Lab dep) still uses legacy pkg_resources.
+pip install --no-build-isolation -e source/strafer_lab
+```
+
+After install, smoke-test:
+
+```bash
+python -c "
+import strafer_lab
+from strafer_lab.tools.scene_labels import get_scene_label_set
+from strafer_lab.tools.spatial_description import SpatialDescriptionBuilder
+from strafer_lab.tools.dataset_export import run_export
+print('strafer_lab tools OK')
+"
+```
+
+### Windows workstation
+
 ```bash
 # From the workspace root, with Isaac Lab Python environment active
-cd c:\Worspace
+cd C:\Workspace
 python -m pip install -e source/strafer_lab
 ```
 
@@ -131,12 +178,26 @@ source/strafer_lab/
 ├── config/
 │   └── extension.toml           # Package metadata
 ├── run_tests.py                 # Test runner (clean output, junit-xml)
+├── scripts/                     # Synthetic data pipeline entry points
+│   ├── collect_demos.py           # existing: gamepad teleop demo collection
+│   ├── prep_room_usds.py          # Infinigen scene generation orchestrator
+│   ├── extract_scene_metadata.py  # Serialize Blender State → scene_metadata.json
+│   ├── generate_descriptions.py   # 4-stage scene description pipeline
+│   ├── finetune_clip.py           # OpenCLIP ViT-B/32 contrastive fine-tune + ONNX export
+│   └── prepare_vlm_finetune_data.py  # Qwen VLM LoRA SFT data prep
 ├── strafer_lab/
-│   ├── __init__.py              # Package init, registers gym envs
-│   ├── assets/                  # Robot configurations
+│   ├── __init__.py              # Kit-runtime fallback: tries tasks/assets,
+│   │                              swallows ModuleNotFoundError from omni/pxr
+│   │                              so tools/* stays importable without Isaac Sim
+│   ├── assets/                  # Robot configurations (Isaac Sim-dependent)
 │   │   ├── __init__.py
 │   │   └── strafer.py           # ArticulationCfg for Strafer robot
-│   └── tasks/                   # RL environments
+│   ├── tools/                   # Pure-Python batch processing helpers
+│   │   ├── __init__.py
+│   │   ├── scene_labels.py        # RoomEntry / ObjectEntry accessors + shapely lookup
+│   │   ├── spatial_description.py # SpatialDescriptionBuilder (Stage 1)
+│   │   └── dataset_export.py      # CLIP CSV + basic VLM JSONL exporters
+│   └── tasks/                   # RL environments (Isaac Sim-dependent)
 │       ├── __init__.py
 │       └── navigation/          # Navigation task
 │           ├── __init__.py      # gym.register()
@@ -170,12 +231,50 @@ source/strafer_lab/
 └── setup.py
 ```
 
+Note: `tools/*` unit tests live in `source/strafer_autonomy/tests/`
+(`test_scene_labels.py`, `test_spatial_description.py`, `test_dataset_export.py`)
+because the `strafer_autonomy` conftest installs a namespace stub that lets
+those tests import `strafer_lab.tools.*` without loading the Isaac Sim-
+dependent `strafer_lab/__init__.py`. This keeps the batch-processing tests
+runnable in any Python env without an Isaac Lab install.
+
 ## Scripts
+
+### RL training / evaluation (requires Isaac Sim + `AppLauncher`)
 
 | Script | Purpose |
 |--------|---------|
 | `Scripts/test_strafer_env.py` | Test motion patterns (forward, strafe, rotate, etc.) |
 | `Scripts/train_strafer_navigation.py` | Train navigation policy with RSL-RL PPO |
+
+### Synthetic data pipeline (plain Python, no Isaac Sim required)
+
+These scripts run from a plain Python environment — they shell out to
+Blender for Infinigen work and do not launch Isaac Sim. Most of them depend
+on `STRAFER_BLENDER_BIN` being set via `source env_setup.sh` at the repo
+root; `prep_room_usds.py` fails loud with an actionable error if it is not.
+
+| Script | Purpose | Depends on |
+|---|---|---|
+| `scripts/prep_room_usds.py` | Orchestrate Infinigen scene generation with DGX / Windows / low-memory presets. Subcommands: `generate`, `ingest`, `presets`. | `STRAFER_BLENDER_BIN`, Infinigen repo |
+| `scripts/extract_scene_metadata.py` | Serialize Infinigen's Blender `State` (room types, polygons, semantic tags, relations) into `scene_metadata.json`. Also labels USD prims with `semanticLabel` / `instanceId` so Replicator produces labeled bboxes. | `bpy` (inside Blender subprocess), optional `pxr` for USD labeling |
+| `scripts/generate_descriptions.py` | 4-stage description pipeline (Stages 1-3 + spot-check bookkeeping): programmatic spatial analysis → VLM description generation (Qwen2.5-VL-7B standalone) → ground-truth validation filter → reservoir sampling for human spot-check. | `scene_metadata.json` from Task 8 |
+| `scripts/finetune_clip.py` | Phase 1 CLIP image-text contrastive fine-tuning (OpenCLIP ViT-B/32, symmetric InfoNCE). Exports both towers as `clip_visual.onnx` + `clip_text.onnx` for Jetson semantic map. | `open_clip_torch`, CSV from `dataset_export.py` |
+| `scripts/prepare_vlm_finetune_data.py` | Comprehensive VLM LoRA SFT data prep: single-object grounding, 1:3 negatives, ~20% multi-object detection, ~10% description preservation (to protect `describe_scene`). | Perception data, `scene_metadata.json`, Task 9 descriptions |
+
+### Batch processing Python helpers (`strafer_lab.tools`)
+
+Pure-Python runtime helpers with no Isaac Sim dependency:
+
+| Module | Exports |
+|---|---|
+| `strafer_lab.tools.scene_labels` | `get_scene_metadata`, `iter_rooms`, `iter_objects`, `get_scene_label_set`, `get_room_at_position`, `get_objects_in_room` — typed accessors over `scene_metadata.json` |
+| `strafer_lab.tools.spatial_description` | `SpatialDescriptionBuilder`, `quat_to_yaw`, `classify_region`, `classify_bearing` — Stage-1 factual spatial relations (room, distance, bearing, near/mid/far) from simulation ground truth |
+| `strafer_lab.tools.dataset_export` | `export_clip_csv`, `export_vlm_grounding_jsonl`, `run_export`, `pixel_bbox_to_qwen`, `format_qwen_grounding_answer` — convert perception + descriptions into CLIP CSV and basic VLM SFT JSONL (ProcRoom frames excluded) |
+
+All three modules are importable from any Python env that has `shapely`,
+`numpy`, and `Pillow` — they do NOT require Isaac Sim / Isaac Lab /
+Omniverse Kit.
 
 ### Script Arguments
 
@@ -365,9 +464,27 @@ Edit `tasks/navigation/mdp/events.py` to add randomization events.
 
 ## Dependencies
 
-- Isaac Lab (isaaclab, isaaclab_tasks, isaaclab_rl)
-- Isaac Sim 4.5+
-- Python 3.10+
+**Core (RL training, required):**
+
+- Isaac Lab (`isaaclab`, `isaaclab_tasks`, `isaaclab_rl`) — v2.3.2 is the
+  Windows-compatible target. Isaac Lab `v3.0.0-beta` drops Windows support
+  and lives on a separate `feature/isaaclab-3.0-migration` branch.
+- Isaac Sim 5.1.x — built from source on DGX Spark aarch64 (per
+  `docs/PHASE_15_DGX.md`) or installed from binaries on Windows.
+- Python 3.11 (DGX env_phase15) or 3.10+ (Windows)
+
+**Synthetic data pipeline (plain Python, no Isaac Sim):**
+
+- `shapely` — polygon point-in-polygon tests in `scene_labels` / `spatial_description`
+- `numpy`, `Pillow` — standard image / array ops
+- `bpy==4.2.0` — required by Infinigen, only needed in `env_infinigen`.
+  PyPI has no Linux aarch64 wheel for Blender 4.2, so DGX Spark uses a
+  source build documented in the `README.md` inside the sibling
+  `~/Workspace/blender-build/` directory (outside this repo because the
+  build artifacts are machine-specific).
+- `open_clip_torch` — CLIP fine-tuning (Task 11 only)
+- `transformers` + Qwen2.5-VL-7B — Stage 2 description generation (Task 9)
+- `mlflow` — optional experiment tracking for `finetune_clip.py`
 
 ## License
 

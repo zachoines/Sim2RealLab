@@ -4,11 +4,12 @@ Sim-to-real development for the GoBilda Strafer mecanum robot.
 
 This repository covers:
 
-- Isaac Lab training on a Windows workstation
+- Isaac Lab training on a Windows workstation **or NVIDIA DGX Spark**
 - Jetson ROS2 runtime for real-robot execution
 - shared sim-to-real contracts in `strafer_shared`
-- a workstation-hosted VLM grounding stack
-- a workstation-hosted LLM planner with a Jetson-local executor
+- VLM grounding + LLM planner services hosted off-robot (DGX Spark by default, Databricks Model Serving as an optional deployment target)
+- synthetic data pipeline: Infinigen procedural scenes → scene metadata → 4-stage description generation → CLIP contrastive + VLM LoRA fine-tuning
+- a single `.env` file + `env_setup.sh` for portable host configuration
 
 <p align="center">
   <img src="docs/artifacts/strafer_top.jpeg" alt="Strafer robot, top view" width="31%"/>
@@ -92,18 +93,23 @@ The full autonomy pipeline is operational end-to-end on real hardware:
   - Jetson-side executor with mission runner, skill dispatch, and HTTP clients
   - `strafer-executor` entry point reads `VLM_URL` / `PLANNER_URL` env vars and spins the command server
   - Operator CLI (`strafer-autonomy-cli submit/status/cancel`) for mission control
+  - Alternative Databricks Model Serving clients (`DatabricksServingPlannerClient`, `DatabricksServingGroundingClient`) for when planner/VLM are hosted in a Databricks workspace instead of on LAN
 - `strafer_vlm`
   - VLM grounding service (Qwen2.5-VL-3B-Instruct) on DGX Spark port 8100
-  - Scene description endpoint (`POST /describe`) for operator awareness
+  - Three endpoints: `POST /ground` (single-object grounding), `POST /describe` (free-text scene description), `POST /detect_objects` (multi-object detection, one call returns every visible `<ref>/<box>` pair — used by the semantic map)
 - LLM planner service (Qwen3-4B) on DGX Spark port 8200
-  - Two-stage architecture: LLM classifies commands into intent types, deterministic compiler expands to validated `MissionPlan`
+  - Two-stage architecture: LLM classifies commands into intent types, deterministic compiler expands each intent into a validated `MissionPlan`
+  - **Nine intent types**: `go_to_target`, `wait_by_target`, `cancel`, `status`, plus `rotate` (relative degrees or cardinal direction), `go_to_targets` (ordered multi-target chaining), `describe` (operator-facing scene readback), `query` (semantic-map lookup with no navigation), `patrol` (waypoint cycle)
+  - `POST /plan_with_grounding` agentic endpoint — planner pre-validates the target via a co-located VLM call before returning the plan, saving one LAN image round-trip per mission
 
 The Jetson executor calls both services over LAN HTTP. All mission state, cancel, retry,
 and safety-critical behavior stays local on the robot.
 
 Implemented skills: `scan_for_target` (rotate-and-ground loop), `locate_semantic_target`,
-`project_detection_to_goal_pose`, `navigate_to_pose`, `describe_scene`, `wait`,
-`report_status`, `cancel_mission`.
+`project_detection_to_goal_pose`, `navigate_to_pose`, `verify_arrival` (CLIP top-k ranking
+against the semantic map, appended to every navigation-terminating plan), `describe_scene`,
+`query_environment`, `rotate_by_degrees`, `orient_to_direction`, `wait`, `report_status`,
+`cancel_mission`.
 
 A Postman collection is included at `source/SImToRealLab.postman_collection.json` for
 interactive testing of the DGX services.
@@ -126,9 +132,12 @@ interactive testing of the DGX services.
 | RL policy training | In progress | Navigation training is active in Isaac Lab |
 | `strafer_inference` runtime | Planned | Policy runtime on the Jetson is still to be implemented |
 | `strafer_autonomy` executor | Done | Mission runner, skill dispatch, CLI, HTTP clients, end-to-end on hardware |
-| LLM planner service | Done | Qwen3-4B on DGX Spark:8200, two-stage intent→plan pipeline, 59 tests |
-| VLM grounding service | Done | Qwen2.5-VL-3B on DGX Spark:8100, grounding + scene description, 124 tests |
+| LLM planner service | Done | Qwen3-4B on DGX Spark:8200, two-stage intent→plan pipeline, 9 intent types, `/plan_with_grounding` agentic endpoint |
+| VLM grounding service | Done | Qwen2.5-VL-3B on DGX Spark:8100, `/ground` + `/describe` + `/detect_objects` |
+| Databricks backend (optional) | Done | `pyfunc` wrappers + serving clients — deploy path as an alternative to LAN HTTP |
+| Synthetic data pipeline | Done (scripts) | Infinigen scene generation, metadata extraction, 4-stage description pipeline, CLIP contrastive + VLM LoRA data prep — tooling ready, full run awaits scene collection |
 | End-to-end autonomy | Done | "go to the tennis ball" tested on real hardware via full pipeline |
+| Full test suite | 353 passing | `strafer_autonomy` + `strafer_vlm` combined, excluding ROS-dependent tests |
 
 ## Hardware
 
@@ -144,12 +153,25 @@ interactive testing of the DGX services.
 ## Repository Structure
 
 ```text
+.env.example           template for per-machine configuration (copy to .env)
+env_setup.sh           shell wrapper: loads .env + sets LD_PRELOAD on aarch64
+
 source/
-  strafer_lab/         Isaac Lab simulation and training
+  strafer_lab/         Isaac Lab simulation, training, synthetic data pipeline
+                         tools/       scene_labels, spatial_description, dataset_export
+                         scripts/     prep_room_usds, extract_scene_metadata,
+                                      generate_descriptions, finetune_clip,
+                                      prepare_vlm_finetune_data
   strafer_shared/      shared constants, kinematics, policy I/O
   strafer_ros/         Jetson ROS2 packages
-  strafer_autonomy/    autonomy schemas, executor, planner/VLM clients
-  strafer_vlm/         workstation VLM grounding service, inference, training, and evaluation
+  strafer_autonomy/    autonomy schemas, executor, planner service, clients
+                         clients/     HttpPlannerClient, HttpGroundingClient,
+                                      DatabricksServingPlannerClient,
+                                      DatabricksServingGroundingClient
+                         planner/     FastAPI service, intent parser,
+                                      plan compiler (9 intent types)
+                         databricks/  MLflow pyfunc wrappers for model serving
+  strafer_vlm/         VLM grounding service: /ground, /describe, /detect_objects
 
 docs/
   SIM_TO_REAL_PLAN.md
@@ -165,6 +187,49 @@ docs/
 ```
 
 ## Quick Start
+
+### Host configuration (any platform)
+
+Every host uses the same two-file configuration mechanism:
+
+```bash
+cp .env.example .env
+$EDITOR .env                 # fill in absolute paths for this machine
+source env_setup.sh          # loads .env into the current shell
+```
+
+`env_setup.sh` is idempotent, loads `.env`, and applies shell-level state that
+Python code cannot manage itself — on aarch64 hosts (DGX Spark, Grace) it
+prepends `/lib/aarch64-linux-gnu/libgomp.so.1` to `LD_PRELOAD` so Isaac Sim's
+bundled torch can find libgomp. It also creates `<INFINIGEN_ROOT>/blender`
+as a symlink to the built Blender 4.2 binary when both `INFINIGEN_ROOT` and
+`STRAFER_BLENDER_BIN` are set.
+
+`.env.example` documents every variable: `STRAFER_ROOT`,
+`STRAFER_BLENDER_BIN`, `INFINIGEN_ROOT`, `ISAACSIM_PATH`, `HF_HOME`. `.env` is
+machine-specific and gitignored.
+
+### Simulation on DGX Spark (preferred)
+
+DGX Spark (Grace CPU + Blackwell GB10 GPU, aarch64 Ubuntu 24.04, CUDA 13.0) is
+the primary host for Isaac Lab, Isaac Sim, the VLM/planner services, and the
+synthetic data pipeline. Isaac Sim aarch64 builds are officially supported
+only on DGX Spark at the moment, so this is the first-class path.
+
+Three conda environments partition the stack:
+
+| Env | Purpose | Key contents |
+|---|---|---|
+| `env_phase15` | Isaac Sim + Isaac Lab + `strafer_lab` editable | Python 3.11, Isaac Sim 5.1.x built from source, Isaac Lab v2.3.2, `pxr` USD bindings via `.pth` |
+| `env_infinigen` | Infinigen procedural scene generation | Python 3.11, source-built `bpy==4.2.0` wheel, Infinigen 1.19.x editable (`--no-deps`) |
+| `.venv_vlm` | VLM + planner services, batch processing scripts, test suite | Python 3.12, PyTorch cu128, transformers, `strafer_vlm`, `strafer_autonomy` |
+
+See `docs/PHASE_15_DGX.md` for the end-to-end install script (clone Isaac Sim,
+build from source, install Isaac Lab, create conda envs, wire `pxr` into
+`env_phase15`, etc.). For the aarch64-only Blender 4.2 source build that
+Infinigen depends on, see the `README.md` inside the sibling
+`~/Workspace/blender-build/` directory — the build artifacts live outside
+this repo because they are machine-specific.
 
 ### Simulation on Windows
 

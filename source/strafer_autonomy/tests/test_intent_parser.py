@@ -83,3 +83,115 @@ class TestParseIntent:
         raw = '{"intent_type": "cancel", "target_label": null, "wait_mode": null, "requires_grounding": false}'
         intent = parse_intent(raw, "please stop now")
         assert intent.raw_command == "please stop now"
+
+
+class TestRotateIntent:
+    def test_numeric_orientation_mode(self):
+        raw = '{"intent_type": "rotate", "orientation_mode": "90", "requires_grounding": false}'
+        intent = parse_intent(raw, "turn 90 degrees")
+        assert intent.intent_type == "rotate"
+        assert intent.orientation_mode == "90"
+
+    def test_cardinal_orientation_mode(self):
+        raw = '{"intent_type": "rotate", "orientation_mode": "north", "requires_grounding": false}'
+        intent = parse_intent(raw, "face north")
+        assert intent.orientation_mode == "north"
+
+    def test_rotate_without_orientation_mode_accepted(self):
+        raw = '{"intent_type": "rotate", "requires_grounding": false}'
+        intent = parse_intent(raw, "rotate")
+        assert intent.intent_type == "rotate"
+        assert intent.orientation_mode is None
+
+
+class TestGoToTargetsIntent:
+    def test_multiple_targets(self):
+        raw = (
+            '{"intent_type": "go_to_targets", '
+            '"targets": [{"label": "cup"}, {"label": "door"}], '
+            '"requires_grounding": true}'
+        )
+        intent = parse_intent(raw, "go to the cup then the door")
+        assert intent.intent_type == "go_to_targets"
+        assert intent.targets is not None
+        assert len(intent.targets) == 2
+        assert intent.targets[0]["label"] == "cup"
+        assert intent.targets[1]["label"] == "door"
+
+    def test_targets_with_standoff(self):
+        raw = (
+            '{"intent_type": "go_to_targets", '
+            '"targets": [{"label": "cup", "standoff_m": 0.4}], '
+            '"requires_grounding": true}'
+        )
+        intent = parse_intent(raw, "stop close to the cup")
+        assert intent.targets[0]["standoff_m"] == 0.4
+
+    def test_missing_targets_raises(self):
+        raw = '{"intent_type": "go_to_targets", "requires_grounding": true}'
+        with pytest.raises(IntentParseError, match="requires a non-empty 'targets' list"):
+            parse_intent(raw, "go to things")
+
+    def test_empty_targets_raises(self):
+        raw = '{"intent_type": "go_to_targets", "targets": [], "requires_grounding": true}'
+        with pytest.raises(IntentParseError, match="requires a non-empty 'targets' list"):
+            parse_intent(raw, "go to things")
+
+    def test_target_missing_label_raises(self):
+        raw = (
+            '{"intent_type": "go_to_targets", '
+            '"targets": [{"standoff_m": 0.5}], "requires_grounding": true}'
+        )
+        with pytest.raises(IntentParseError, match="non-empty string 'label'"):
+            parse_intent(raw, "go to things")
+
+    def test_non_object_target_raises(self):
+        raw = '{"intent_type": "go_to_targets", "targets": ["cup"], "requires_grounding": true}'
+        with pytest.raises(IntentParseError, match="must be an object"):
+            parse_intent(raw, "go to things")
+
+
+class TestDescribeIntent:
+    def test_describe(self):
+        raw = '{"intent_type": "describe", "requires_grounding": false}'
+        intent = parse_intent(raw, "what do you see")
+        assert intent.intent_type == "describe"
+        assert intent.target_label is None
+        assert intent.targets is None
+
+
+class TestQueryIntent:
+    def test_query(self):
+        raw = '{"intent_type": "query", "requires_grounding": false}'
+        intent = parse_intent(raw, "where was the chair")
+        assert intent.intent_type == "query"
+
+
+class TestPatrolIntent:
+    def test_patrol_with_targets(self):
+        raw = (
+            '{"intent_type": "patrol", '
+            '"targets": [{"label": "kitchen"}, {"label": "living room"}], '
+            '"requires_grounding": true}'
+        )
+        intent = parse_intent(raw, "patrol the rooms")
+        assert intent.intent_type == "patrol"
+        assert len(intent.targets) == 2
+
+    def test_patrol_empty_targets_raises(self):
+        raw = '{"intent_type": "patrol", "targets": [], "requires_grounding": true}'
+        with pytest.raises(IntentParseError, match="requires a non-empty 'targets' list"):
+            parse_intent(raw, "patrol")
+
+
+class TestNestedJsonExtraction:
+    def test_nested_targets_extracted(self):
+        # The bare-JSON path must handle nested {...} objects inside lists.
+        raw = (
+            'Here: {"intent_type": "go_to_targets", '
+            '"targets": [{"label": "cup"}, {"label": "door"}], '
+            '"requires_grounding": true} thanks.'
+        )
+        intent = parse_intent(raw, "cmd")
+        assert intent.intent_type == "go_to_targets"
+        assert len(intent.targets) == 2

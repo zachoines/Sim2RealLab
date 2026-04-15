@@ -27,6 +27,7 @@ class MissionIntent:
     orientation_mode: str | None = None
     wait_mode: str | None = None
     requires_grounding: bool = False
+    targets: tuple[dict[str, Any], ...] | None = None
 
 
 @dataclass(frozen=True)

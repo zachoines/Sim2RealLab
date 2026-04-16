@@ -415,6 +415,73 @@ class SemanticMapManager:
         else:
             self._graph = self._nx.DiGraph()
 
+    def log_failure(
+        self,
+        *,
+        failure_type: str,
+        target_label: str,
+        frame_bgr: Any = None,
+        depth: Any = None,
+        robot_pose: dict[str, Any] | None = None,
+        details: dict[str, Any] | None = None,
+        scene_description: str | None = None,
+    ) -> str | None:
+        """Record a real-world perception failure for downstream sim feedback.
+
+        Saves the frame and depth to disk and appends an entry to
+        ``failure_manifest.json``. Returns the failure record id (filename stem)
+        or ``None`` on error.
+        """
+        try:
+            failures_dir = self._storage_dir / "failures"
+            failures_dir.mkdir(parents=True, exist_ok=True)
+            manifest_path = failures_dir / "failure_manifest.json"
+
+            record_id = f"fail_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+
+            frame_path: str | None = None
+            if frame_bgr is not None:
+                path = failures_dir / f"{record_id}_frame.npy"
+                np.save(path, np.asarray(frame_bgr))
+                frame_path = str(path)
+
+            depth_path: str | None = None
+            if depth is not None:
+                path = failures_dir / f"{record_id}_depth.npy"
+                np.save(path, np.asarray(depth))
+                depth_path = str(path)
+
+            entry: dict[str, Any] = {
+                "record_id": record_id,
+                "timestamp": time.time(),
+                "failure_type": failure_type,
+                "target_label": target_label,
+                "robot_pose": robot_pose or {},
+                "frame_path": frame_path,
+                "depth_path": depth_path,
+                "scene_description": scene_description,
+                "details": details or {},
+            }
+
+            manifest: list[dict[str, Any]] = []
+            if manifest_path.exists():
+                try:
+                    with open(manifest_path, "r") as f:
+                        manifest = json.load(f)
+                    if not isinstance(manifest, list):
+                        manifest = []
+                except Exception:
+                    manifest = []
+            manifest.append(entry)
+
+            with open(manifest_path, "w") as f:
+                json.dump(manifest, f, indent=2, default=_json_default)
+
+            return record_id
+        except Exception:
+            _logger.debug("log_failure write failed", exc_info=True)
+            return None
+
     def clear(self) -> None:
         """Full reset of graph and vector store."""
         self._graph.clear()

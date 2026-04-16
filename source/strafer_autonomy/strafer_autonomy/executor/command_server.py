@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 import time
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 DEFAULT_EXECUTE_MISSION_ACTION = "execute_mission"
@@ -251,25 +251,45 @@ def build_command_server(
     runner_config=None,
     server_config: CommandServerConfig | None = None,
     check_vlm_health: bool = True,
+    semantic_map=None,
+    background_mapper=None,
 ):
     """Construct a mission runner and wrap it in the Jetson-local command server.
 
-    When *check_vlm_health* is ``True`` (the default) and the grounding client
-    exposes a ``health()`` method, the service is probed before the runner is
-    created.  A ``GroundingServiceUnavailable`` exception is raised if the
-    service is unreachable, allowing the caller to fail fast.
+    When *check_vlm_health* is ``True`` (the default), the grounding client and
+    planner client are health-checked in parallel. If either is reachable but
+    reports ``model_loaded: false``, a ``RuntimeError`` is raised. Unreachable
+    services propagate their original exception.
     """
 
-    if check_vlm_health and hasattr(grounding_client, "health"):
-        _logger.info("Checking VLM grounding service health …")
-        health = grounding_client.health()
-        if not health.get("model_loaded", False):
-            from strafer_autonomy.clients.vlm_client import GroundingServiceUnavailable
+    if check_vlm_health:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-            raise GroundingServiceUnavailable(
-                f"VLM service is reachable but model is not loaded: {health}"
-            )
-        _logger.info("VLM grounding service healthy: %s", health)
+        probes: dict[str, Any] = {}
+        if hasattr(grounding_client, "health"):
+            probes["VLM"] = grounding_client.health
+        if hasattr(planner_client, "health"):
+            probes["Planner"] = planner_client.health
+
+        if probes:
+            _logger.info("Running parallel health checks for: %s", list(probes))
+            with ThreadPoolExecutor(max_workers=max(2, len(probes))) as pool:
+                futures = {pool.submit(fn): name for name, fn in probes.items()}
+                for future in as_completed(futures):
+                    name = futures[future]
+                    health = future.result(timeout=10.0)
+                    if not health.get("model_loaded", False):
+                        if name == "VLM":
+                            from strafer_autonomy.clients.vlm_client import (
+                                GroundingServiceUnavailable,
+                            )
+                            raise GroundingServiceUnavailable(
+                                f"VLM service is reachable but model is not loaded: {health}"
+                            )
+                        raise RuntimeError(
+                            f"{name} service is reachable but model is not loaded: {health}"
+                        )
+                    _logger.info("%s service healthy: %s", name, health)
 
     from .mission_runner import MissionRunner
 
@@ -278,5 +298,7 @@ def build_command_server(
         grounding_client=grounding_client,
         ros_client=ros_client,
         config=runner_config,
+        semantic_map=semantic_map,
+        background_mapper=background_mapper,
     )
     return AutonomyCommandServer(handler=runner, config=server_config), runner

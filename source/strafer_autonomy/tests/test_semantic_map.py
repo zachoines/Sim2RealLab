@@ -545,6 +545,40 @@ class TestReinforcement:
 # ---------------------------------------------------------------------------
 
 
+class TestLogFailure:
+    def test_log_failure_creates_manifest(self, manager):
+        record_id = manager.log_failure(
+            failure_type="arrival_verification_failed",
+            target_label="door",
+            frame_bgr=np.zeros((64, 64, 3), dtype=np.uint8),
+            depth=np.zeros((64, 64), dtype=np.float32),
+            robot_pose={"x": 1.0, "y": 2.0},
+            details={"near_goal_count": 0, "top_k": 5},
+        )
+        assert record_id is not None
+        manifest_path = manager._storage_dir / "failures" / "failure_manifest.json"
+        assert manifest_path.exists()
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        assert len(manifest) == 1
+        assert manifest[0]["failure_type"] == "arrival_verification_failed"
+        assert manifest[0]["target_label"] == "door"
+
+    def test_log_failure_appends(self, manager):
+        manager.log_failure(
+            failure_type="missed_detection",
+            target_label="chair",
+        )
+        manager.log_failure(
+            failure_type="hallucinated_detection",
+            target_label="ghost",
+        )
+        manifest_path = manager._storage_dir / "failures" / "failure_manifest.json"
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        assert len(manifest) == 2
+
+
 class TestCLIPEncoder:
     def test_disabled_when_no_models(self, tmp_path):
         from strafer_autonomy.semantic_map.clip_encoder import CLIPEncoder

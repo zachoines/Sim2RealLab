@@ -77,8 +77,31 @@ class TestBuildCommandServerHealth:
         """Clients without a health() method (e.g. test mocks) pass through."""
         client = MagicMock(spec=["locate_semantic_target"])
         server, runner = build_command_server(
-            planner_client=MagicMock(),
+            planner_client=MagicMock(spec=["plan_mission"]),
             grounding_client=client,
             ros_client=MagicMock(),
         )
         assert server is not None
+
+    def test_parallel_planner_health_check(self):
+        vlm = _make_grounding_client()
+        planner = MagicMock()
+        planner.health.return_value = {"status": "ok", "model_loaded": True}
+        server, runner = build_command_server(
+            planner_client=planner,
+            grounding_client=vlm,
+            ros_client=MagicMock(),
+        )
+        vlm.health.assert_called_once()
+        planner.health.assert_called_once()
+
+    def test_planner_not_loaded_raises(self):
+        vlm = _make_grounding_client()
+        planner = MagicMock()
+        planner.health.return_value = {"status": "loading", "model_loaded": False}
+        with pytest.raises(RuntimeError, match="Planner"):
+            build_command_server(
+                planner_client=planner,
+                grounding_client=vlm,
+                ros_client=MagicMock(),
+            )

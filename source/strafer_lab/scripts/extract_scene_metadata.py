@@ -344,6 +344,181 @@ def _load_metadata_for_labelling(metadata_path: Path) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# USD-only extraction (no .blend, no in-process State)
+# ---------------------------------------------------------------------------
+#
+# Realistic post-Task-7 workflow: Infinigen produces a ``.blend``, then
+# ``infinigen.tools.export`` produces a ``.usdc``. Neither file carries
+# semantic attrs in its default schema, but the ``.usdc`` prim NAMES
+# encode the factory class that produced each asset (e.g.
+# ``GlassPanelDoorFactory_430087__spawn_asset_5_``). The two functions
+# below recover labels from those prim names alone — no Blender, no
+# Infinigen State, no custom .blend properties needed.
+
+
+def extract_from_usd(usd_path: Path, output_dir: Path) -> Path:
+    """Walk a Infinigen-exported ``.usdc`` and write ``scene_metadata.json``.
+
+    The resulting metadata has no rooms (USD geometry alone can't
+    recover the constraint solver's room polygons), but every parseable
+    factory prim becomes one ``ObjectRecord`` with a label, instance
+    ID, and 3D bounding box pulled from the USD.
+
+    Use ``extract_from_state`` (in-process) or ``extract_from_blend``
+    instead if you need rooms / relations / materials. ``extract_from_usd``
+    is the post-hoc path for scenes where neither is available.
+    """
+
+    from strafer_lab.tools.infinigen_label_parser import (
+        is_skippable_prim,
+        parse_factory_label,
+    )
+
+    try:
+        from pxr import Usd, UsdGeom  # type: ignore
+    except ImportError as exc:
+        raise RuntimeError(
+            "pxr is required for extract_from_usd. Run inside an Isaac Sim "
+            "environment (env_phase15) where the USD runtime is available."
+        ) from exc
+
+    usd_path = Path(usd_path)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    stage = Usd.Stage.Open(str(usd_path))
+    if stage is None:
+        raise RuntimeError(f"Failed to open USD stage: {usd_path}")
+
+    bbox_cache = UsdGeom.BBoxCache(
+        Usd.TimeCode.Default(), [UsdGeom.Tokens.default_], useExtentsHint=True,
+    )
+
+    objects: list[ObjectRecord] = []
+    for prim in stage.Traverse():
+        if not prim.IsValid():
+            continue
+        prim_name = prim.GetName()
+        if is_skippable_prim(prim_name):
+            continue
+        parsed = parse_factory_label(prim_name)
+        if parsed is None:
+            continue
+        # Only count parent Xform / Mesh prims, not material children.
+        type_name = str(prim.GetTypeName())
+        if type_name not in {"Xform", "Mesh", ""}:
+            continue
+        # If this Xform has a same-named Mesh child, skip the child to
+        # avoid duplicate records — the Xform is the canonical handle
+        # Infinigen uses for placement.
+        parent = prim.GetParent()
+        if parent is not None and parent.IsValid() and parent.GetName() == prim_name:
+            continue
+
+        try:
+            bbox = bbox_cache.ComputeWorldBound(prim).ComputeAlignedRange()
+            if bbox.IsEmpty():
+                position = [0.0, 0.0, 0.0]
+                bbox_min = [0.0, 0.0, 0.0]
+                bbox_max = [0.0, 0.0, 0.0]
+            else:
+                bbox_min = [float(v) for v in bbox.GetMin()]
+                bbox_max = [float(v) for v in bbox.GetMax()]
+                position = [
+                    0.5 * (bbox_min[0] + bbox_max[0]),
+                    0.5 * (bbox_min[1] + bbox_max[1]),
+                    0.5 * (bbox_min[2] + bbox_max[2]),
+                ]
+        except Exception:  # noqa: BLE001  USD bbox can throw on malformed prims
+            position = [0.0, 0.0, 0.0]
+            bbox_min = [0.0, 0.0, 0.0]
+            bbox_max = [0.0, 0.0, 0.0]
+
+        objects.append(
+            ObjectRecord(
+                instance_id=int(parsed.instance_id),
+                label=parsed.label,
+                semantic_tags=[parsed.factory_class] if parsed.factory_class else [],
+                prim_path=str(prim.GetPath()),
+                position_3d=position,
+                bbox_3d_min=bbox_min,
+                bbox_3d_max=bbox_max,
+                room_idx=None,
+                relations=[],
+                materials=[],
+            )
+        )
+
+    metadata = {
+        "rooms": [],
+        "objects": [o.__dict__ for o in objects],
+        "room_adjacency": [],
+        "source": "usd_prim_names",
+    }
+    output_path = output_dir / "scene_metadata.json"
+    with output_path.open("w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2)
+    logger.info(
+        "Wrote %s from %s with %d objects (rooms NOT recoverable from USD alone)",
+        output_path, usd_path, len(objects),
+    )
+    return output_path
+
+
+def label_usd_prims_from_names(usd_path: Path) -> int:
+    """Stamp ``semanticLabel`` / ``instanceId`` on USD prims using prim names.
+
+    Walks the USD stage and, for any prim whose name matches the
+    Infinigen factory pattern, writes the parsed label and instance ID
+    as USD attributes that Replicator's ``bounding_box_2d_*``
+    annotators will pick up.
+
+    Unlike :func:`label_usd_prims`, this function does NOT require a
+    pre-existing ``scene_metadata.json`` — the prim names alone are the
+    source of labels. Returns the number of prims labelled.
+    """
+
+    from strafer_lab.tools.infinigen_label_parser import (
+        is_skippable_prim,
+        parse_factory_label,
+    )
+
+    try:
+        from pxr import Sdf, Usd  # type: ignore
+    except ImportError:
+        logger.warning(
+            "pxr is not installed; skipping USD prim labelling. "
+            "Run this inside Isaac Sim (env_phase15) for USD writes."
+        )
+        return 0
+
+    stage = Usd.Stage.Open(str(usd_path))
+    if stage is None:
+        raise RuntimeError(f"Failed to open USD stage: {usd_path}")
+
+    labeled = 0
+    for prim in stage.Traverse():
+        if not prim.IsValid():
+            continue
+        if is_skippable_prim(prim.GetName()):
+            continue
+        parsed = parse_factory_label(prim.GetName())
+        if parsed is None or not parsed.label:
+            continue
+        attr = prim.CreateAttribute("semanticLabel", Sdf.ValueTypeNames.String)
+        attr.Set(parsed.label)
+        if parsed.instance_id >= 0:
+            iid_attr = prim.CreateAttribute("instanceId", Sdf.ValueTypeNames.Int)
+            iid_attr.Set(parsed.instance_id)
+        labeled += 1
+    stage.Save()
+    logger.info(
+        "Labeled %d USD prims in %s using prim-name parser", labeled, usd_path,
+    )
+    return labeled
+
+
+# ---------------------------------------------------------------------------
 # .blend post-processing path (best-effort, for scenes generated upstream)
 # ---------------------------------------------------------------------------
 
@@ -430,21 +605,51 @@ def _cli_main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--usd", type=Path, default=None, help="USD stage to label.")
     parser.add_argument("--metadata", type=Path, default=None, help="Path to an existing scene_metadata.json.")
     parser.add_argument("--output", type=Path, required=True, help="Output directory for scene_metadata.json.")
-    parser.add_argument("--label-usd-only", action="store_true", help="Skip metadata extraction; only label USD.")
+    parser.add_argument(
+        "--label-usd-only",
+        action="store_true",
+        help="Skip metadata extraction; only label USD using --metadata.",
+    )
+    parser.add_argument(
+        "--from-usd",
+        action="store_true",
+        help="Extract scene_metadata.json directly from --usd by parsing prim names. "
+             "Use when no .blend or in-process Infinigen State is available — this is "
+             "the realistic post-Task-7 workflow.",
+    )
+    parser.add_argument(
+        "--label-from-prim-names",
+        action="store_true",
+        help="Stamp semanticLabel/instanceId on --usd prims by parsing prim names. "
+             "Does not require --metadata. Compatible with --from-usd.",
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
     metadata_path: Path | None = args.metadata
-    if not args.label_usd_only:
+
+    # New USD-only path takes priority — when --from-usd is set we ignore
+    # --blend entirely (the .blend is not needed if all we have is the USD).
+    if args.from_usd:
+        if args.usd is None:
+            parser.error("--usd is required with --from-usd")
+        metadata_path = extract_from_usd(args.usd, args.output)
+    elif not args.label_usd_only:
         if args.blend is None:
-            parser.error("--blend is required unless --label-usd-only is set")
+            parser.error("--blend is required unless --label-usd-only or --from-usd is set")
         metadata_path = extract_from_blend(args.blend, args.output)
 
     if args.usd is not None:
-        if metadata_path is None:
-            parser.error("--metadata is required when labelling USD without extraction")
-        label_usd_prims(args.usd, metadata_path)
+        if args.label_from_prim_names:
+            label_usd_prims_from_names(args.usd)
+        else:
+            if metadata_path is None:
+                parser.error(
+                    "--metadata is required when labelling USD without extraction. "
+                    "Use --label-from-prim-names to label without metadata."
+                )
+            label_usd_prims(args.usd, metadata_path)
 
     return 0
 

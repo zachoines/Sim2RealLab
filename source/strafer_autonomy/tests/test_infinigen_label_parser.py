@@ -1,8 +1,7 @@
 """Tests for strafer_lab.tools.infinigen_label_parser.
 
 Pure Python — runs in .venv_vlm via the strafer_lab namespace stub.
-Synthetic prim names mirror the actual Infinigen USD export pattern
-observed in the validation runbook (Phase D1):
+Synthetic prim names mirror the actual Infinigen USD export pattern:
 
     /World/GlassPanelDoorFactory_430087__spawn_asset_5_
     /World/window

@@ -347,13 +347,13 @@ def _load_metadata_for_labelling(metadata_path: Path) -> dict[str, Any]:
 # USD-only extraction (no .blend, no in-process State)
 # ---------------------------------------------------------------------------
 #
-# Realistic post-Task-7 workflow: Infinigen produces a ``.blend``, then
-# ``infinigen.tools.export`` produces a ``.usdc``. Neither file carries
-# semantic attrs in its default schema, but the ``.usdc`` prim NAMES
-# encode the factory class that produced each asset (e.g.
-# ``GlassPanelDoorFactory_430087__spawn_asset_5_``). The two functions
-# below recover labels from those prim names alone — no Blender, no
-# Infinigen State, no custom .blend properties needed.
+# When Infinigen has already produced a ``.usdc`` via ``infinigen.tools.export``
+# but the original ``.blend`` and the in-process generation ``State`` are no
+# longer available, the only semantic signal that survives is the prim name
+# itself, which encodes the factory class that produced each asset (e.g.
+# ``GlassPanelDoorFactory_430087__spawn_asset_5_``). The two functions below
+# recover labels from those prim names alone — no Blender, no in-process
+# State, no custom .blend properties needed.
 
 
 def extract_from_usd(usd_path: Path, output_dir: Path) -> Path:
@@ -614,8 +614,7 @@ def _cli_main(argv: Iterable[str] | None = None) -> int:
         "--from-usd",
         action="store_true",
         help="Extract scene_metadata.json directly from --usd by parsing prim names. "
-             "Use when no .blend or in-process Infinigen State is available — this is "
-             "the realistic post-Task-7 workflow.",
+             "Use when no .blend or in-process Infinigen State is available.",
     )
     parser.add_argument(
         "--label-from-prim-names",

@@ -1,9 +1,9 @@
 """Mission specifications derived from Infinigen ``scene_metadata.json``.
 
 Reads the per-scene metadata JSON written by
-``scripts/extract_scene_metadata.py`` (DGX Task 8 output) and produces a
-stream of natural-language navigation missions targeting individual
-labeled objects in the scene. The Jetson executor consumes the
+``scripts/extract_scene_metadata.py`` and produces a stream of
+natural-language navigation missions targeting individual labeled
+objects in the scene. The Jetson executor consumes the
 ``raw_command`` field unchanged via its ``execute_mission`` ROS2 action.
 
 Pure Python — no Isaac Sim, no ROS, no Infinigen runtime imports.

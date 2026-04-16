@@ -1,10 +1,11 @@
 """Sim-in-the-loop orchestration loop.
 
-Phase 1 ships this pure-Python harness with all sim / ROS access
-abstracted behind two callables passed in by the caller. Phase 2 will
-provide a thin runtime adapter that boots Isaac Sim + opens an
-``rclpy.action.ActionClient`` for ``execute_mission`` and passes those
-through. None of phase 1's code needs to change for that.
+Pure-Python harness with all sim / ROS access abstracted behind two
+adapter protocols passed in by the caller. The launch script that owns
+the live Isaac Sim env and the ROS context is responsible for
+constructing the adapters; this module never imports ``omni`` or
+``rclpy``, which keeps the orchestration logic unit-testable against
+plain fakes.
 
 Per-mission lifecycle::
 
@@ -88,9 +89,9 @@ class FrameBundle:
     """Everything the writer needs from one env step.
 
     The harness does not interpret the array contents, only forwards
-    them to ``PerceptionFrameWriter.save_frame``. The runtime adapter
-    in phase 2 fills these from the live ``d555_camera_perception``
-    handle and the robot articulation root pose.
+    them to ``PerceptionFrameWriter.save_frame``. The runtime env
+    adapter is responsible for pulling these from the live
+    ``d555_camera_perception`` handle and the robot articulation root.
     """
 
     rgb: Any  # np.ndarray (H, W, 3) uint8
@@ -192,15 +193,12 @@ class HarnessConfig:
 class SimInTheLoopHarness:
     """Drives an env + executor through a stream of missions.
 
-    The harness owns no sim or ROS state of its own. All sim access goes
-    through ``env_adapter`` and all executor access goes through
-    ``mission_api``. The ``writer`` produces the on-disk dataset.
-
-    Phase 2 wires:
-      - ``env_adapter`` to a wrapper around ``run_sim_in_the_loop.py``'s
-        env handle + ``strafer_lab.bridge.graph.read_cmd_vel``.
-      - ``mission_api`` to ``rclpy.action.ActionClient`` against the
-        Jetson's ``execute_mission`` action.
+    The harness owns no sim or ROS state of its own. All sim access
+    goes through ``env_adapter`` and all executor access goes through
+    ``mission_api``. The ``writer`` produces the on-disk dataset. The
+    launch script that owns the live Isaac Sim env and the rclpy
+    ``ActionClient`` for ``execute_mission`` builds those adapters and
+    passes them in.
     """
 
     def __init__(

@@ -6,19 +6,19 @@ Drives Isaac Sim through navigation missions via the bundled ROS2 bridge
 into a ``frames.jsonl`` dataset that the existing description and
 SFT-prep pipelines can consume unchanged.
 
-Phase 1 (this commit) — pure-Python orchestration:
+Layout:
   - :mod:`strafer_lab.sim_in_the_loop.mission`: ``MissionSpec`` +
     ``MissionGenerator`` reading scenes' ``scene_metadata.json``.
   - :mod:`strafer_lab.sim_in_the_loop.extras`: helper to attach
     reachability + mission metadata to ``PerceptionFrameWriter`` frames.
   - :mod:`strafer_lab.sim_in_the_loop.harness`: ``SimInTheLoopHarness``
-    pure-Python orchestrator with injectable env / mission-API callables
-    so the run loop is fully unit-testable in ``.venv_vlm`` without
-    Isaac Sim or rclpy.
+    pure-Python orchestrator with injectable env / mission-API adapters
+    so the run loop is fully unit-testable without Isaac Sim or rclpy.
 
-Phase 2 (next) wires the harness's injected callables to the real
-Isaac Lab env and the real ``rclpy.action.ActionClient`` for
-``execute_mission``. No phase-1 file needs to change for that.
+The runtime adapters that wire the harness to a live Isaac Sim env and
+to the Jetson's ``execute_mission`` ``rclpy.action.ActionClient`` are
+provided separately by the launch script that owns the simulator and
+ROS context — nothing in this package imports ``omni`` or ``rclpy``.
 """
 
 from strafer_lab.sim_in_the_loop.extras import make_episode_extras

@@ -504,31 +504,61 @@ source/strafer_autonomy/strafer_autonomy/clients/ros_client.py
    topics, not to hardware-specific device nodes, so the network jitter
    case is the only real risk.
 
-**Testing (manual, once DGX-side Task 4 lands):**
+**Testing (DGX Task 4 is now complete — commit b529e69):**
 
-1. **Jetson side:**
+1. **DGX side** — boot the sim with the ROS2 bridge:
+   ```bash
+   cd /home/zachoines/Workspace/Sim2RealLab
+   source env_setup.sh
+   ../IsaacLab/isaaclab.sh -p source/strafer_lab/scripts/run_sim_in_the_loop.py --headless
+   ```
+   This creates the OmniGraph bridge and starts the env step loop.
+   The script is at `source/strafer_lab/scripts/run_sim_in_the_loop.py`.
+2. **Jetson side:**
    ```bash
    source source/strafer_ros/strafer_bringup/config/env_sim_in_the_loop.env
    ros2 launch strafer_bringup bringup_sim_in_the_loop.launch.py
    ```
-2. **DGX side:** boot the sim with the Isaac Sim ROS2 bridge enabled
-   (the DGX agent ships a script for this).
-3. Verify from the Jetson: `ros2 topic list` shows every expected
-   topic (`/d555/color/image_sync`, `/d555/aligned_depth_to_color/image_sync`,
-   `/strafer/odom`, `/d555/imu/filtered`, `/scan`, `/cmd_vel`), and
-   `ros2 topic hz /d555/color/image_sync` reports ~30 Hz.
+3. Verify from the Jetson: `ros2 topic list` shows the raw topics the
+   DGX bridge publishes, plus the Jetson-side derived topics:
+
+   **Published by DGX bridge (arrive over LAN):**
+   - `/d555/color/image_raw` (sensor_msgs/Image, ~30 Hz)
+   - `/d555/depth/image_rect_raw` (sensor_msgs/Image)
+   - `/d555/color/camera_info` (sensor_msgs/CameraInfo)
+   - `/d555/depth/camera_info` (sensor_msgs/CameraInfo)
+   - `/strafer/odom` (nav_msgs/Odometry)
+   - `/tf` (odom→base_link, base_link→d555_link)
+
+   **Produced by Jetson-side processing nodes:**
+   - `/d555/color/image_sync` — from `timestamp_fixer` on the raw stream
+   - `/d555/aligned_depth_to_color/image_sync` — from `timestamp_fixer`
+   - `/scan` — from `depthimage_to_laserscan` on the depth stream
+
+   **Not published by the DGX bridge (deferred):**
+   - `/d555/imu` — Isaac Sim has no `ROS2PublishImu` node; RTAB-Map
+     must run in visual-only mode. The Jetson's `env_sim_in_the_loop.env`
+     should document this so operators aren't surprised by missing IMU.
+
+   **Important:** the launch file must start `timestamp_fixer`,
+   `depth_downsampler`, and `depthimage_to_laserscan` from
+   `strafer_perception` — only the `realsense_node` (real camera driver)
+   should be suppressed. If `perception.launch.py` bundles the driver
+   with the processing nodes, a new launch arg may be needed to
+   selectively disable the driver.
+
 4. Submit a mission: `strafer-autonomy-cli submit "describe what you see"`.
    Executor should run the mission, planner/VLM on the DGX (LAN HTTP,
    unchanged from real-robot operation) should handle intent parsing
    and grounding, and Nav2 should publish `/cmd_vel` if the mission
    requires motion.
 5. On the DGX side, verify that the simulated robot moves in response
-   to `/cmd_vel`.
+   to `/cmd_vel` (the bridge subscribes to `/cmd_vel` and injects it
+   into the Isaac Lab action tensor).
 
-**Depends on:** DGX Task 4 (Isaac Sim ROS2 Bridge). That task must ship
-before this one can be tested end-to-end, though the launch file and
-env file can be written and partially validated (syntax, Nav2 start-up)
-in isolation.
+**Depends on:** DGX Task 4 (Isaac Sim ROS2 Bridge) — **DONE** (commit
+b529e69, branch `phase_15`). The launch file and env file can now be
+tested end-to-end once they are written.
 
 ---
 

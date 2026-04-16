@@ -87,7 +87,6 @@ def test_procroom_run1_config_stabilizes_episode_returns():
     assert procroom_commands.resampling_time_range == (1.0e6, 1.0e6)
     assert procroom_terminations.goal_reached.func is goal_reached
     assert procroom_terminations.sustained_collision.params["max_steps"] == 3
-    assert STRAFER_PPO_DEPTH_RUNNER_CFG.clip_actions == 1.0
     assert STRAFER_PPO_DEPTH_RUNNER_CFG.algorithm.entropy_coef == 0.005
 
 
@@ -170,15 +169,30 @@ def test_strafer_actor_critic_requires_matched_actor_and_critic_obs():
         )
 
 
-def test_runner_cfgs_clip_actions_to_normalized_range():
-    """All Strafer PPO configs should clamp the action contract at the wrapper too."""
+def test_runner_cfgs_delegate_action_bounds_to_beta_distribution():
+    """All Strafer PPO configs leave wrapper-level action clipping off.
+
+    Before the rsl_rl 5.0 migration (commit 5f40fbd) the three runner
+    configs set ``clip_actions=1.0`` so the PPO wrapper clamped actions
+    into [-1, 1]. The migration replaced the old StraferActorCritic
+    with ``AffineBetaDistribution`` which samples in [0, 1] and affine-
+    maps to [-1, 1], making the wrapper-level clip redundant. This test
+    documents that invariant: if a future change re-introduces
+    ``clip_actions=<non-None>`` without also reverting the Beta
+    distribution, the two clipping paths will fight each other and
+    PPO's entropy/log-prob bookkeeping will silently drift.
+    """
     runner_cfgs = (
         STRAFER_PPO_RUNNER_CFG,
         STRAFER_PPO_LSTM_RUNNER_CFG,
         STRAFER_PPO_DEPTH_RUNNER_CFG,
     )
     for runner_cfg in runner_cfgs:
-        assert runner_cfg.clip_actions == 1.0
+        assert runner_cfg.clip_actions is None, (
+            f"{runner_cfg.experiment_name} has clip_actions="
+            f"{runner_cfg.clip_actions!r}; AffineBetaDistribution already "
+            "guarantees action bounds, so wrapper-level clipping must stay off."
+        )
 
 
 def _obs_term_names(group) -> list[str]:

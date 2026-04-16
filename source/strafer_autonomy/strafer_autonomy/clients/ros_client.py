@@ -124,6 +124,9 @@ class JetsonRosClient:
         self._latest_depth = None
         self._latest_cam_info = None
         self._latest_odom = None
+        self._latest_costmap = None
+        self._tf_buffer: Any = None
+        self._tf_listener: Any = None
 
         # Nav2 goal tracking
         self._nav_lock = threading.Lock()
@@ -149,13 +152,24 @@ class JetsonRosClient:
     # ------------------------------------------------------------------
 
     def _setup_subscriptions(self) -> None:
-        from nav_msgs.msg import Odometry
+        from nav_msgs.msg import OccupancyGrid, Odometry
         from sensor_msgs.msg import CameraInfo, Image
 
         self._node.create_subscription(Image, self.TOPIC_COLOR, self._on_color, 10)
         self._node.create_subscription(Image, self.TOPIC_DEPTH, self._on_depth, 10)
         self._node.create_subscription(CameraInfo, self.TOPIC_CAM_INFO, self._on_cam_info, 10)
         self._node.create_subscription(Odometry, self.TOPIC_ODOM, self._on_odom, 10)
+        self._node.create_subscription(
+            OccupancyGrid, "/global_costmap/costmap", self._on_costmap, 1,
+        )
+
+        # TF buffer for SLAM tracking freshness checks
+        try:
+            import tf2_ros
+            self._tf_buffer = tf2_ros.Buffer()
+            self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self._node)
+        except Exception:
+            logger.debug("tf2_ros not available; SLAM tracking checks disabled")
 
     def _on_color(self, msg: Any) -> None:
         with self._cache_lock:
@@ -172,6 +186,57 @@ class JetsonRosClient:
     def _on_odom(self, msg: Any) -> None:
         with self._cache_lock:
             self._latest_odom = msg
+
+    def _on_costmap(self, msg: Any) -> None:
+        with self._cache_lock:
+            self._latest_costmap = msg
+
+    # ------------------------------------------------------------------
+    # Safety pre-checks
+    # ------------------------------------------------------------------
+
+    def check_costmap_at_pose(self, x: float, y: float) -> str:
+        """Check the Nav2 global costmap cell at the given world (x, y).
+
+        Returns one of ``"free"``, ``"occupied"``, ``"unknown"``, or
+        ``"no_costmap"`` if no costmap has been received yet.
+        """
+        with self._cache_lock:
+            costmap = self._latest_costmap
+        if costmap is None:
+            return "no_costmap"
+
+        info = costmap.info
+        col = int((x - info.origin.position.x) / info.resolution)
+        row = int((y - info.origin.position.y) / info.resolution)
+        if col < 0 or col >= info.width or row < 0 or row >= info.height:
+            return "unknown"
+        cell = costmap.data[row * info.width + col]
+        if cell == -1:
+            return "unknown"
+        if cell >= 65:
+            return "occupied"
+        return "free"
+
+    def check_slam_tracking(self, threshold_s: float = 5.0) -> tuple[bool, float]:
+        """Check ``map -> odom`` TF freshness.
+
+        Returns ``(is_fresh, age_s)``. If TF is unavailable, returns
+        ``(False, float('inf'))``.
+        """
+        if self._tf_buffer is None:
+            return False, float("inf")
+        try:
+            from rclpy.time import Time
+            transform = self._tf_buffer.lookup_transform(
+                "map", "odom", Time(),
+            )
+            tf_stamp_sec = self._stamp_to_sec(transform.header.stamp)
+            now = self._stamp_to_sec(self._node.get_clock().now().to_msg())
+            age = now - tf_stamp_sec
+            return age < threshold_s, age
+        except Exception:
+            return False, float("inf")
 
     # ------------------------------------------------------------------
     # Helpers

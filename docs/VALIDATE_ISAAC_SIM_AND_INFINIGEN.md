@@ -2,8 +2,9 @@
 
 A runbook for validating the DGX Spark Isaac Sim source build and the
 Infinigen + bpy 4.2.0 aarch64 install before touching any scene-generation
-or Task 8 work. Run the commands one-by-one in order. Each phase gates
-the next — if a command in Phase A fails, do not skip ahead to Phase B.
+or semantic-label stamping work. Run the commands one-by-one in order. Each
+phase gates the next — if a command in Phase A fails, do not skip ahead
+to Phase B.
 
 Before starting, make sure the shell is configured:
 
@@ -315,8 +316,9 @@ the expected `.usd` files.
 > `__post_init__` calls `_apply_infinigen_scene_setup`, which hard-fails
 > with `FileNotFoundError: No valid scene_*.usdc files found` if no
 > scenes exist. **Skip this step until Phase C (Infinigen generation)
-> has produced at least one scene, or Task 8 has run the scene prep
-> pipeline.** B4 below does not depend on Infinigen and can run now.
+> has produced at least one scene, or the semantic-label stamping pass
+> (`extract_scene_metadata.py`) has run over an existing scene.** B4
+> below does not depend on Infinigen and can run now.
 
 ```bash
 python -c "
@@ -351,8 +353,9 @@ app.close()
 of empty scene — fine, the room placeholder is minimal. The shape
 check is what matters: it proves the 640×360 render path is wired.
 
-**If the shape is wrong** (e.g. 80×60 instead of 640×360), Task 1's
-work regressed — check `strafer_shared/constants.py` PERCEPTION_* values.
+**If the shape is wrong** (e.g. 80×60 instead of 640×360), the
+perception-camera config has regressed — check
+`strafer_shared/constants.py` `PERCEPTION_*` values and `d555_cfg.py`.
 
 ---
 
@@ -440,8 +443,8 @@ as a validation check. Budget a few hours of DGX time. The exact
 iteration count to reach a usable policy depends on the task; for
 `ProcRoom-Depth-v0` a reasonable target is ~3000 iterations at 64
 envs. The eventual plan is to train in ProcRoom (Infinigen-independent)
-first, then move to InfinigenDepth once Phase C and Task 8 have
-produced real scenes.
+first, then move to InfinigenDepth once Phase C and the semantic-label
+stamping pass have produced real scenes.
 
 ```bash
 cd /home/zachoines/Workspace/Sim2RealLab
@@ -475,9 +478,8 @@ have two options:
    highest-numbered MP4 from the `videos/train/` directory without
    running a separate playback.
 
-When a dedicated play script lands (likely paired with the sim-in-the-
-loop harness work in Windows Task 5 / Jetson Task 11), this step will
-get a cleaner replay command.
+When a dedicated play script lands (likely paired with the
+sim-in-the-loop harness), this step will get a cleaner replay command.
 
 ---
 
@@ -486,7 +488,8 @@ B5 green → the renderer + video writer path also works. B6 is not a
 gate; it is the "eventually, run a real training job" step for when
 you want a working policy.
 
-Continue to Phase C only if you need Infinigen for Task 8.
+Continue to Phase C only if you need Infinigen for the semantic-label
+stamping pass.
 
 ---
 
@@ -614,9 +617,9 @@ if you dropped it.
 
 ### C5. Render one frame through a TiledCamera on the loaded stage
 
-This is the test that most closely simulates what Task 8 + perception
-data collection will actually do: load an Infinigen USD as a scene,
-place a camera, capture one RGB frame.
+This is the test that most closely simulates what semantic-label
+stamping + perception data collection will actually do: load an
+Infinigen USD as a scene, place a camera, capture one RGB frame.
 
 ```bash
 python -c "
@@ -649,28 +652,30 @@ crashing`. Takes ~60-90 s.
 
 **If Kit crashes during updates** with a material / shader error, the
 Infinigen export's materials are not Omniverse-compatible. The scene
-geometry is still usable for Task 8 — Task 8 only cares about
-semantic labels on the prims, not about PBR material bake quality.
+geometry is still usable for the semantic-label stamping pass — that
+pass only cares about semantic labels on the prims, not about PBR
+material bake quality.
 
 ---
 
 **Phase C gate:** if C1-C4 pass, Infinigen can produce USDs Isaac Sim
 can open. C5 passing is a stretch goal; C1-C4 green is enough to
-unblock Task 8 since Task 8 is a prim-attribute pass, not a render
-test.
+unblock the semantic-label stamping pass, which only walks prim
+attributes and does not render.
 
 ---
 
-## Phase D — Task 8 readiness gate (~5 min)
+## Phase D — Semantic-label stamping readiness gate (~5 min)
 
-Once Phase C passes, verify the glue that Task 8 will actually exercise.
+Once Phase C passes, verify the glue that the semantic-label stamping
+pass will actually exercise.
 
 ### D1. Inspect Infinigen-exported prim tags
 
-Task 8's whole job is to walk the USD, read whatever semantic info
-Infinigen already wrote, and re-stamp it as `semanticLabel` attrs the
-Isaac Sim Replicator bbox annotator understands. So before writing any
-Task 8 code, look at what Infinigen actually emits:
+`extract_scene_metadata.py` walks the USD, reads whatever semantic info
+Infinigen already wrote, and re-stamps it as `semanticLabel` attrs the
+Isaac Sim Replicator bbox annotator understands. So before extending
+that pass, look at what Infinigen actually emits:
 
 ```bash
 python -c "
@@ -696,13 +701,14 @@ for i, prim in enumerate(stage.Traverse()):
 
 **Expect:** some set of semantic-related attribute names, and a sample
 of prim paths that look like `/Root/Home/Kitchen/Chair_0` or similar.
-The attribute names you see here dictate how Task 8 reads labels from
-the export — document them in the Task 8 design before writing code.
+The attribute names you see here dictate how `extract_scene_metadata.py`
+reads labels from the export — extend the script's logic if any new
+attribute names appear that it does not already handle.
 
 **If no semantic attrs are found**, Infinigen's USD export is not
-preserving semantic tags on this code path. Task 8 gets harder (must
-cross-reference the `.blend` file's object names with the USD prim
-tree). Not a blocker, but worth knowing early.
+preserving semantic tags on this code path. The stamping pass gets
+harder (must cross-reference the `.blend` file's object names with the
+USD prim tree). Not a blocker, but worth knowing early.
 
 ---
 

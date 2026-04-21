@@ -36,6 +36,14 @@ class TimestampFixer(Node):
     def __init__(self):
         super().__init__("timestamp_fixer")
 
+        # When the upstream publisher already stamps messages on the same
+        # clock as wheel odometry (e.g. the Isaac Sim ROS 2 bridge, which
+        # stamps every topic with sim-time), rewriting to the Jetson's
+        # system clock would de-sync cameras from odom. Expose a parameter
+        # so the sim-in-the-loop launch can flip this to pass-through.
+        self.declare_parameter("restamp", True)
+        self._restamp = self.get_parameter("restamp").value
+
         self._first_logged = False
 
         qos = QoSProfile(
@@ -70,9 +78,22 @@ class TimestampFixer(Node):
                 qos,
             )
 
-        self.get_logger().info("TimestampFixer ready — waiting for first frame")
+        mode = "restamp" if self._restamp else "passthrough"
+        self.get_logger().info(
+            f"TimestampFixer ready ({mode}) — waiting for first frame"
+        )
 
     def _relay(self, msg, pub):
+        if not self._restamp:
+            if not self._first_logged:
+                self._first_logged = True
+                hw_s = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
+                self.get_logger().info(
+                    f"First frame relayed unchanged: stamp={hw_s:.3f}"
+                )
+            pub.publish(msg)
+            return
+
         now = self.get_clock().now().to_msg()
 
         if not self._first_logged:

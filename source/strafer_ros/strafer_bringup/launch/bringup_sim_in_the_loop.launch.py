@@ -26,8 +26,6 @@ Source the env file first on BOTH hosts so DDS discovery works:
 
     source source/strafer_ros/strafer_bringup/config/env_sim_in_the_loop.env
     ros2 launch strafer_bringup bringup_sim_in_the_loop.launch.py
-
-See `docs/PHASE_15_JETSON.md` Task 11 for the end-to-end test procedure.
 """
 
 import os
@@ -71,11 +69,27 @@ def _launch_setup(context, *args, **kwargs):
         # ── Timestamp fixer ─────────────────────────────────────────────
         # Re-stamps camera frames from the DGX bridge so message sync
         # across odom / depth / color works in RTAB-Map and Nav2.
+        #
+        # In sim the D555 is a single co-registered RGB+D sensor, so the
+        # bridge's raw depth is already aligned to color. The real-robot
+        # driver publishes under /d555/aligned_depth_to_color/* because
+        # alignment happens at the RealSense driver; these remaps hand
+        # the bridge's /d555/depth/* topics in under the same contract.
         Node(
             package="strafer_perception",
             executable="timestamp_fixer",
             name="timestamp_fixer",
             output="screen",
+            # restamp=False keeps the bridge's sim-time stamps so the
+            # cameras stay synchronised with the bridge-published odom,
+            # which does not pass through this node.
+            parameters=[{"restamp": False}],
+            remappings=[
+                ("/d555/aligned_depth_to_color/image_raw",
+                 "/d555/depth/image_rect_raw"),
+                ("/d555/aligned_depth_to_color/camera_info",
+                 "/d555/depth/camera_info"),
+            ],
         ),
 
         # ── SLAM (depthimage_to_laserscan + RTAB-Map) ──────────────────

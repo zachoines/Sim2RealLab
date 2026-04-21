@@ -104,6 +104,51 @@ class TestRotateIntent:
         assert intent.orientation_mode is None
 
 
+class TestTranslateIntent:
+    def test_forward_translation(self):
+        raw = (
+            '{"intent_type": "translate", '
+            '"translation_xy": [1.0, 0.0], "requires_grounding": false}'
+        )
+        intent = parse_intent(raw, "move forward 1 meter")
+        assert intent.intent_type == "translate"
+        assert intent.translation_xy == (1.0, 0.0)
+        assert intent.requires_grounding is False
+
+    def test_backward_and_right(self):
+        raw = (
+            '{"intent_type": "translate", '
+            '"translation_xy": [-0.5, -0.3], "requires_grounding": false}'
+        )
+        intent = parse_intent(raw, "back up and strafe right")
+        assert intent.translation_xy == (-0.5, -0.3)
+
+    def test_integer_values_coerce_to_float(self):
+        raw = (
+            '{"intent_type": "translate", '
+            '"translation_xy": [2, 0], "requires_grounding": false}'
+        )
+        intent = parse_intent(raw, "move forward 2")
+        assert intent.translation_xy == (2.0, 0.0)
+
+    def test_missing_translation_rejected(self):
+        import pytest
+        from strafer_autonomy.planner.intent_parser import IntentParseError
+        raw = '{"intent_type": "translate", "requires_grounding": false}'
+        with pytest.raises(IntentParseError, match="translation_xy"):
+            parse_intent(raw, "move forward")
+
+    def test_wrong_length_rejected(self):
+        import pytest
+        from strafer_autonomy.planner.intent_parser import IntentParseError
+        raw = (
+            '{"intent_type": "translate", '
+            '"translation_xy": [1.0], "requires_grounding": false}'
+        )
+        with pytest.raises(IntentParseError, match="translation_xy"):
+            parse_intent(raw, "move forward")
+
+
 class TestGoToTargetsIntent:
     def test_multiple_targets(self):
         raw = (

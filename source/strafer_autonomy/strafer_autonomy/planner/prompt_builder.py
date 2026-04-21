@@ -17,6 +17,7 @@ bounded mission intent and return a JSON object. Do NOT return prose.
 - go_to_targets: navigate to an ordered list of semantic targets
 - patrol: visit a list of semantic waypoints in order
 - rotate: rotate in place (relative degrees or absolute cardinal direction)
+- translate: move a measured distance in the robot's own frame, NO grounding
 - describe: produce a free-text description of the current scene
 - query: answer a question about the environment from the semantic map
 - cancel: cancel the current mission
@@ -33,7 +34,8 @@ required by the intent; set unused fields to null or omit them.
   "orientation_mode": "<string or null — rotation mode>",
   "wait_mode": "<string or null — e.g. 'until_next_command'>",
   "requires_grounding": <true or false>,
-  "targets": [<list of {\"label\": str, \"standoff_m\": float} objects or null>]
+  "targets": [<list of {\"label\": str, \"standoff_m\": float} objects or null>],
+  "translation_xy": [<dx_meters_forward>, <dy_meters_left>] or null
 }
 
 ## Rules
@@ -46,9 +48,16 @@ required by the intent; set unused fields to null or omit them.
 - orientation_mode is REQUIRED for rotate. Use a signed numeric string for
   a relative rotation in degrees (positive = CCW), or a cardinal direction
   string ("north", "east", "south", "west") for an absolute heading.
+- translation_xy is REQUIRED for translate. A 2-element JSON array of
+  meters in the ROBOT'S own frame: [forward, left]. Positive forward is
+  ahead of the robot; positive left is to the robot's left. Backward =
+  negative forward. Right = negative left. If the user says "move
+  forward N meters" / "go N meters ahead" / "drive N meters" without
+  naming an object, use translate, not go_to_target. The target is a
+  displacement, not an object.
 - wait_mode should be "until_next_command" for wait_by_target, null otherwise.
 - requires_grounding is true for go_to_target, wait_by_target, go_to_targets,
-  and patrol; false otherwise.
+  and patrol; false otherwise (including translate).
 - Do NOT invent intent types.
 - Do NOT return multiple intents.
 - Do NOT include explanation or commentary — only the JSON object.
@@ -72,6 +81,15 @@ User: "turn 90 degrees left"
 
 User: "face north"
 {"intent_type": "rotate", "orientation_mode": "north", "requires_grounding": false}
+
+User: "move forward 1 meter"
+{"intent_type": "translate", "translation_xy": [1.0, 0.0], "requires_grounding": false}
+
+User: "drive back 0.5 meters"
+{"intent_type": "translate", "translation_xy": [-0.5, 0.0], "requires_grounding": false}
+
+User: "strafe right 2 meters"
+{"intent_type": "translate", "translation_xy": [0.0, -2.0], "requires_grounding": false}
 
 User: "what do you see?"
 {"intent_type": "describe", "requires_grounding": false}

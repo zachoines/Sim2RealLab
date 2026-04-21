@@ -138,6 +138,29 @@ def _compile_status(intent: MissionIntent) -> list[SkillCall]:
     ]
 
 
+def _compile_translate(intent: MissionIntent) -> list[SkillCall]:
+    """Compile a translate intent into a single relative-motion step.
+
+    Emits the ``translate`` skill with the robot-local (dx, dy) in
+    meters. The executor is expected to compose this against the robot's
+    current map-frame pose and dispatch to ``navigate_to_pose`` (or an
+    equivalent low-level primitive) — keeping the frame math on the
+    executor means the planner needs no pose feedback.
+    """
+    if intent.translation_xy is None:
+        raise CompilationError("translate requires translation_xy.")
+    dx, dy = intent.translation_xy
+    return [
+        SkillCall(
+            step_id="step_01",
+            skill="translate",
+            args={"dx_m": float(dx), "dy_m": float(dy)},
+            timeout_s=60.0,
+            retry_limit=0,
+        ),
+    ]
+
+
 def _compile_rotate(intent: MissionIntent) -> list[SkillCall]:
     """Compile a rotate intent into a single rotation step.
 
@@ -240,6 +263,7 @@ _COMPILERS: dict[str, Callable[[MissionIntent], list[SkillCall]]] = {
     "cancel": _compile_cancel,
     "status": _compile_status,
     "rotate": _compile_rotate,
+    "translate": _compile_translate,
     "go_to_targets": _compile_go_to_targets,
     "describe": _compile_describe,
     "query": _compile_query,

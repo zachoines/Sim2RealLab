@@ -18,6 +18,7 @@ _PLANNED_NEW_SKILLS = (
     "rotate_by_degrees",
     "orient_to_direction",
     "query_environment",
+    "translate",
 )
 _EXTENDED_AVAILABLE_SKILLS = tuple(
     dict.fromkeys((*DEFAULT_AVAILABLE_SKILLS, *_PLANNED_NEW_SKILLS))
@@ -187,6 +188,28 @@ class TestRotate:
         plan = compile_plan(intent)
         assert plan.steps[0].skill == "orient_to_direction"
         assert plan.steps[0].args["direction"] == "north"
+
+
+class TestTranslate:
+    def test_forward(self):
+        intent = _make_intent("translate", translation_xy=(1.0, 0.0))
+        plan = compile_plan(intent)
+        assert len(plan.steps) == 1
+        step = plan.steps[0]
+        assert step.skill == "translate"
+        assert step.args == {"dx_m": 1.0, "dy_m": 0.0}
+        _validate(plan)
+
+    def test_back_and_left(self):
+        intent = _make_intent("translate", translation_xy=(-0.5, 0.3))
+        plan = compile_plan(intent)
+        step = plan.steps[0]
+        assert step.args == {"dx_m": -0.5, "dy_m": 0.3}
+
+    def test_missing_translation_raises(self):
+        intent = _make_intent("translate", translation_xy=None)
+        with pytest.raises(CompilationError):
+            compile_plan(intent)
 
 
 class TestGoToTargets:

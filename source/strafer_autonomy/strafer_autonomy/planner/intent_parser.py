@@ -13,6 +13,7 @@ _VALID_INTENTS = frozenset({
     "cancel",
     "status",
     "rotate",
+    "translate",
     "go_to_targets",
     "describe",
     "query",
@@ -21,6 +22,7 @@ _VALID_INTENTS = frozenset({
 
 _INTENTS_REQUIRING_TARGET_LABEL = frozenset({"go_to_target", "wait_by_target"})
 _INTENTS_REQUIRING_TARGETS_LIST = frozenset({"go_to_targets", "patrol"})
+_INTENTS_REQUIRING_TRANSLATION = frozenset({"translate"})
 
 _FENCE_OPEN_RE = re.compile(r"```(?:json)?\s*", re.IGNORECASE)
 
@@ -80,6 +82,26 @@ def parse_intent(raw_output: str, raw_command: str) -> MissionIntent:
             validated.append(dict(entry))
         targets = tuple(validated)
 
+    translation_xy: tuple[float, float] | None = None
+    if intent_type in _INTENTS_REQUIRING_TRANSLATION:
+        raw_translation = data.get("translation_xy")
+        if (
+            not isinstance(raw_translation, (list, tuple))
+            or len(raw_translation) != 2
+        ):
+            raise IntentParseError(
+                f"intent_type '{intent_type}' requires 'translation_xy' as a 2-element "
+                f"[forward, left] array; got {raw_translation!r}."
+            )
+        try:
+            dx = float(raw_translation[0])
+            dy = float(raw_translation[1])
+        except (TypeError, ValueError) as exc:
+            raise IntentParseError(
+                f"translation_xy entries must be numeric; got {raw_translation!r}."
+            ) from exc
+        translation_xy = (dx, dy)
+
     return MissionIntent(
         intent_type=intent_type,
         raw_command=raw_command,
@@ -92,6 +114,7 @@ def parse_intent(raw_output: str, raw_command: str) -> MissionIntent:
         wait_mode=str(data["wait_mode"]) if data.get("wait_mode") is not None else None,
         requires_grounding=bool(data.get("requires_grounding", False)),
         targets=targets,
+        translation_xy=translation_xy,
     )
 
 

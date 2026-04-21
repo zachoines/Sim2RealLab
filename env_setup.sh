@@ -115,6 +115,42 @@ if [ -n "${RMW_IMPLEMENTATION:-}" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Source Isaac Sim's vendored ROS 2 Humble
+# ---------------------------------------------------------------------------
+# Isaac Sim's `isaacsim.ros2.bridge` extension defaults to `system_default`,
+# meaning "whatever ROS 2 is sourced in the shell; otherwise fall back to the
+# bundled default." The bundled default is Jazzy, which (a) is ABI-incompatible
+# with the Jetson's Humble stack and (b) fails to load unless its own lib dir
+# is on LD_LIBRARY_PATH. Sourcing the vendored Humble setup.bash fixes both:
+# it sets AMENT_PREFIX_PATH / LD_LIBRARY_PATH / PYTHONPATH and advertises
+# ROS_DISTRO=humble to the bridge.
+#
+# Idempotency: guard on whether the specific packman humble lib path is
+# already on LD_LIBRARY_PATH. Guarding on ROS_DISTRO alone turned out to be
+# too loose — a parent shell (or a leaked export from a previous Kit run)
+# can leave ROS_DISTRO set without the lib path actually being present,
+# causing the bridge to fail with "librmw_cyclonedds_cpp.so: cannot open
+# shared object file" even though env_setup.sh appeared to succeed.
+
+_HUMBLE_PREFIX=$(shopt -s nullglob; set -- "$HOME"/.cache/packman/chk/nv_ros2/humble_py_*; [ $# -gt 0 ] && printf '%s' "$1")
+if [ -n "${_HUMBLE_PREFIX}" ] && [ -f "${_HUMBLE_PREFIX}/setup.bash" ]; then
+    case ":${LD_LIBRARY_PATH:-}:" in
+        *":${_HUMBLE_PREFIX}/lib:"*)
+            # Already on LD_LIBRARY_PATH — earlier env_setup.sh call in this
+            # shell chain took care of it.
+            ;;
+        *)
+            # shellcheck disable=SC1091
+            source "${_HUMBLE_PREFIX}/setup.bash"
+            echo "[env_setup] ROS_DISTRO=${ROS_DISTRO:-humble} (sourced ${_HUMBLE_PREFIX})"
+            ;;
+    esac
+else
+    echo "[env_setup] WARNING: no Humble packman bundle found under ~/.cache/packman/chk/nv_ros2/; Isaac Sim bridge may fall back to Jazzy" >&2
+fi
+unset _HUMBLE_PREFIX
+
+# ---------------------------------------------------------------------------
 # Status report
 # ---------------------------------------------------------------------------
 
@@ -122,6 +158,8 @@ echo "[env_setup] STRAFER_ROOT=${STRAFER_ROOT:-<unset>}"
 echo "[env_setup] STRAFER_BLENDER_BIN=${STRAFER_BLENDER_BIN:-<unset>}"
 echo "[env_setup] INFINIGEN_ROOT=${INFINIGEN_ROOT:-<unset>}"
 echo "[env_setup] ISAACSIM_PATH=${ISAACSIM_PATH:-<unset>}"
+echo "[env_setup] STRAFER_INFINIGEN_PYTHON=${STRAFER_INFINIGEN_PYTHON:-<unset>}"
+echo "[env_setup] STRAFER_ISAACLAB_PYTHON=${STRAFER_ISAACLAB_PYTHON:-<unset>}"
 echo "[env_setup] HF_HOME=${HF_HOME:-<unset>}"
 echo "[env_setup] ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-<unset>}"
 echo "[env_setup] RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-<unset>}"

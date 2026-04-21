@@ -8,6 +8,7 @@ message objects are replaced with lightweight MagicMocks.
 from __future__ import annotations
 
 import threading
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -34,6 +35,7 @@ def _make_client(config: RosClientConfig | None = None) -> JetsonRosClient:
     client._config = config or RosClientConfig()
     client._cache_lock = threading.Lock()
     client._latest_color = None
+    client._latest_color_rx_t = time.monotonic()
     client._latest_depth = None
     client._latest_cam_info = None
     client._latest_odom = None
@@ -182,10 +184,11 @@ class TestCaptureSceneObservation(unittest.TestCase):
             client.capture_scene_observation()
 
     def test_capture_raises_on_stale_frame(self) -> None:
-        """Frame stamped at t=50, clock now at t=100 → age=50s >> max_age."""
+        """Frame received 50s ago on the wall clock → age >> max_age."""
         client = _make_client()
-        client._latest_color = _make_color_msg(stamp=_make_stamp(sec=50, nanosec=0))
+        client._latest_color = _make_color_msg()
         client._latest_depth = _make_depth_msg()
+        client._latest_color_rx_t = time.monotonic() - 50.0
         with self.assertRaises(RuntimeError) as ctx:
             client.capture_scene_observation()
         self.assertIn("old", str(ctx.exception))

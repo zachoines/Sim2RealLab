@@ -118,9 +118,14 @@ class JetsonRosClient:
         self._executor = SingleThreadedExecutor()
         self._executor.add_node(self._node)
 
-        # Thread-safe sensor cache
+        # Thread-safe sensor cache. The `*_rx_t` fields record the wall-
+        # clock time (monotonic) when each message was received, so
+        # freshness checks do not rely on header stamps — those may be
+        # in sim-time when the bridge is upstream, and comparing them to
+        # the node's system clock yields nonsense ages.
         self._cache_lock = threading.Lock()
         self._latest_color = None
+        self._latest_color_rx_t: float | None = None
         self._latest_depth = None
         self._latest_cam_info = None
         self._latest_odom = None
@@ -174,6 +179,7 @@ class JetsonRosClient:
     def _on_color(self, msg: Any) -> None:
         with self._cache_lock:
             self._latest_color = msg
+            self._latest_color_rx_t = time.monotonic()
 
     def _on_depth(self, msg: Any) -> None:
         with self._cache_lock:
@@ -276,6 +282,7 @@ class JetsonRosClient:
 
         with self._cache_lock:
             color_msg = self._latest_color
+            color_rx_t = self._latest_color_rx_t
             depth_msg = self._latest_depth
             cam_info_msg = self._latest_cam_info
             odom_msg = self._latest_odom
@@ -285,16 +292,18 @@ class JetsonRosClient:
                 "No color or depth frames cached. Is the perception stack running?"
             )
 
-        # Freshness check (sync topics use ROS system time)
-        color_stamp = self._stamp_to_sec(color_msg.header.stamp)
-        now = self._stamp_to_sec(self._node.get_clock().now().to_msg())
-        age = now - color_stamp
-        if age > self._config.observation_max_age_s:
+        # Measure receive-to-now on the wall clock, not on header stamps:
+        # header stamps can be sim-time (upstream bridge) while the node
+        # clock is wall time, which previously produced absurd ages.
+        age = time.monotonic() - (color_rx_t if color_rx_t is not None else 0.0)
+        if color_rx_t is None or age > self._config.observation_max_age_s:
             raise RuntimeError(
                 f"Cached color frame is {age:.1f}s old "
                 f"(max {self._config.observation_max_age_s}s). "
                 "The perception stack may have stopped."
             )
+
+        color_stamp = self._stamp_to_sec(color_msg.header.stamp)
 
         bridge = CvBridge()
         color_bgr = bridge.imgmsg_to_cv2(color_msg, desired_encoding="bgr8")

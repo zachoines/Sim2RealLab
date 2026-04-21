@@ -79,6 +79,7 @@ def reset_robot_state_on_floor(
     env_ids: torch.Tensor,
     spawn_points_xy: list[list[float]],
     yaw_range: tuple[float, float] = (-3.14159, 3.14159),
+    spawn_z: float = 0.1,
 ) -> None:
     """Reset robot to a random interior floor position.
 
@@ -92,10 +93,24 @@ def reset_robot_state_on_floor(
         env_ids: Indices of environments to reset.
         spawn_points_xy: List of [x, y] interior floor positions (env-local frame).
         yaw_range: (min, max) yaw range in radians.
+        spawn_z: Height above the env origin at which the robot root is
+            placed. Defaults to 0.1 m, which assumes the floor surface is
+            at world Z≈0. For Infinigen scenes where the floor sits
+            several cm above world origin, pass floor_top_z + wheel
+            clearance (typically floor_top_z + 0.1) so the robot spawns
+            above the floor instead of inside it.
     """
     robot = env.scene["robot"]
     num_resets = len(env_ids)
     device = env.device
+
+    # Fallback: scenes that have not been through extract_scene_metadata yet
+    # (smoke tests, fresh Infinigen output before metadata extraction, sim-
+    # in-the-loop bridge mode) arrive here with an empty list. Treat that as
+    # "spawn at the env origin" so the env still resets cleanly instead of
+    # tripping torch.randint's from<to assertion.
+    if not spawn_points_xy:
+        spawn_points_xy = [[0.0, 0.0]]
 
     # Lazy-build and cache the points tensor
     cache_key = str(id(spawn_points_xy))
@@ -107,7 +122,7 @@ def reset_robot_state_on_floor(
     indices = torch.randint(0, len(pts), (num_resets,), device=device)
     xy = pts[indices]  # (num_resets, 2)
 
-    z = torch.full((num_resets,), 0.1, device=device)
+    z = torch.full((num_resets,), spawn_z, device=device)
     yaw = torch.rand(num_resets, device=device) * (yaw_range[1] - yaw_range[0]) + yaw_range[0]
 
     # Convert yaw to quaternion (w, x, y, z)

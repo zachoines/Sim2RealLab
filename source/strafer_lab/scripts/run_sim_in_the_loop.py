@@ -152,8 +152,58 @@ def _parse_args() -> argparse.Namespace:
         help="Harness mode: env-step interval for frame capture during nav.",
     )
 
+    # Bridge / harness overrides on the RL env cfg. Defaults match the
+    # integration-test workflow: fixed spawn yaw, no episode-timeout
+    # auto-reset mid-run. The RL training wrapper (train_strafer_navigation.py)
+    # does not call these, so training behavior is unchanged.
+    parser.add_argument(
+        "--pin-yaw",
+        type=float,
+        default=0.0,
+        help="Spawn yaw in radians. 0.0 (default) faces +X. Pass None is "
+             "not supported; to keep the env's random yaw range, pass the "
+             "env cfg directly (no sim-in-the-loop override).",
+    )
+    parser.add_argument(
+        "--enable-episode-timeout",
+        action="store_true",
+        help="Keep the env's default episode-length termination. By default "
+             "sim-in-the-loop disables it so the robot is not teleported "
+             "mid-mission (or mid-bridge-run) by the training-scale timeout.",
+    )
+
     AppLauncher.add_app_launcher_args(parser)
     return parser.parse_args()
+
+
+def _apply_sim_in_the_loop_overrides(env_cfg, *, pin_yaw: float, disable_timeout: bool) -> None:
+    """Adapt an RL env cfg for sim-in-the-loop use.
+
+    Two overrides, both safe to apply to any Strafer nav env cfg:
+
+    - **Pin spawn yaw** to a fixed value. The reset event either exposes
+      ``yaw_range`` (Infinigen floor-spawn variant) or
+      ``pose_range["yaw"]`` (non-Infinigen variant); we patch whichever
+      is present.
+    - **Disable the episode-length termination** so the env does not
+      auto-reset on a training-scale timeout. Collision and flipped
+      terminations remain active — we still want those to fire if the
+      simulation goes off the rails.
+    """
+    reset_term = getattr(env_cfg.events, "reset_robot", None)
+    if reset_term is not None and getattr(reset_term, "params", None):
+        params = reset_term.params
+        if "yaw_range" in params:
+            params["yaw_range"] = (pin_yaw, pin_yaw)
+            print(f"[sim_in_the_loop] reset yaw pinned to {pin_yaw:.3f} rad (yaw_range)")
+        elif "pose_range" in params and isinstance(params["pose_range"], dict):
+            params["pose_range"]["yaw"] = (pin_yaw, pin_yaw)
+            print(f"[sim_in_the_loop] reset yaw pinned to {pin_yaw:.3f} rad (pose_range)")
+
+    if disable_timeout:
+        if getattr(env_cfg.terminations, "time_out", None) is not None:
+            env_cfg.terminations.time_out = None
+            print("[sim_in_the_loop] episode-length time_out termination disabled")
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +246,8 @@ def main() -> None:
     if args.scene_usd is not None:
         env_cfg.scene.scene_geometry.spawn.usd_path = str(args.scene_usd.resolve())
         print(f"[sim_in_the_loop] scene USD override → {env_cfg.scene.scene_geometry.spawn.usd_path}")
+
+    _apply_sim_in_the_loop_overrides(env_cfg, pin_yaw=args.pin_yaw, disable_timeout=not args.enable_episode_timeout)
 
     env = gym.make(args.task, cfg=env_cfg)
 

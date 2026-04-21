@@ -95,8 +95,7 @@ def build_bridge_graph(config: BridgeConfig) -> Any:
             ],
             keys.CONNECT: [
                 ("OnPlaybackTick.outputs:tick", "RunOnce.inputs:execIn"),
-                # Odometry chain
-                ("RunOnce.outputs:step", "ComputeOdometry.inputs:execIn"),
+                ("OnPlaybackTick.outputs:tick", "ComputeOdometry.inputs:execIn"),
                 ("ComputeOdometry.outputs:execOut", "PublishOdometry.inputs:execIn"),
                 ("ComputeOdometry.outputs:angularVelocity", "PublishOdometry.inputs:angularVelocity"),
                 ("ComputeOdometry.outputs:linearVelocity", "PublishOdometry.inputs:linearVelocity"),
@@ -123,14 +122,15 @@ def build_bridge_graph(config: BridgeConfig) -> Any:
         },
     )
 
-    _add_camera_stream(graph_handle, config.color_camera, suffix="Color")
-    _add_camera_stream(graph_handle, config.depth_camera, suffix="Depth")
+    _add_camera_stream(graph_handle, graph_path, config.color_camera, suffix="Color")
+    _add_camera_stream(graph_handle, graph_path, config.depth_camera, suffix="Depth")
 
     return graph_handle
 
 
 def _add_camera_stream(
     graph_handle: Any,
+    graph_path: str,
     stream: CameraStreamConfig,
     *,
     suffix: str,
@@ -140,6 +140,13 @@ def _add_camera_stream(
     Each stream gets its own ``IsaacCreateRenderProduct`` so the render
     product's resolution tracks the camera prim's resolution attribute,
     matching the real D555's color/depth stream convention.
+
+    ``graph_path`` threads through so cross-block references (``RunOnce``,
+    ``Context`` — created in the main ``build_bridge_graph`` edit block)
+    can be addressed by full USD path. OmniGraph's short-name resolution
+    only finds nodes created in the current ``Controller.edit`` call; a
+    bare ``"RunOnce.outputs:step"`` falls through to being parsed as a
+    literal USD path and then fails the source/destination type check.
     """
 
     import omni.graph.core as og
@@ -149,6 +156,9 @@ def _add_camera_stream(
     render_node = f"RenderProduct{suffix}"
     image_node = f"CameraHelper{suffix}"
     info_node = f"CameraInfoHelper{suffix}"
+
+    run_once_step = f"{graph_path}/RunOnce.outputs:step"
+    context_out = f"{graph_path}/Context.outputs:context"
 
     og.Controller.edit(
         graph_handle,
@@ -169,13 +179,13 @@ def _add_camera_stream(
                 (f"{info_node}.inputs:resetSimulationTimeOnStop", True),
             ],
             keys.CONNECT: [
-                ("RunOnce.outputs:step", f"{render_node}.inputs:execIn"),
+                (run_once_step, f"{render_node}.inputs:execIn"),
                 (f"{render_node}.outputs:execOut", f"{image_node}.inputs:execIn"),
                 (f"{render_node}.outputs:renderProductPath", f"{image_node}.inputs:renderProductPath"),
                 (f"{render_node}.outputs:execOut", f"{info_node}.inputs:execIn"),
                 (f"{render_node}.outputs:renderProductPath", f"{info_node}.inputs:renderProductPath"),
-                ("Context.outputs:context", f"{image_node}.inputs:context"),
-                ("Context.outputs:context", f"{info_node}.inputs:context"),
+                (context_out, f"{image_node}.inputs:context"),
+                (context_out, f"{info_node}.inputs:context"),
             ],
         },
     )

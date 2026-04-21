@@ -1124,14 +1124,37 @@ def _get_infinigen_spawn_points_xy() -> list[list[float]]:
     return spawn_points_xy
 
 
+def _get_infinigen_floor_top_z() -> float | None:
+    """Return max ``floor_top_z`` across pooled scenes, or None if absent."""
+    meta = _get_scenes_metadata()
+    if not meta:
+        return None
+    zs = [
+        scene_data["floor_top_z"]
+        for scene_data in meta["scenes"].values()
+        if "floor_top_z" in scene_data
+    ]
+    return max(zs) if zs else None
+
+
 def _apply_infinigen_scene_setup(cfg: ManagerBasedRLEnvCfg) -> None:
-    """Attach the first scene USD and pooled floor spawn points to an env cfg."""
-    cfg.scene.scene_geometry.spawn.usd_path = _get_scene_usd_paths()[0]
+    """Attach the first scene USD and pooled floor spawn points to an env cfg.
+
+    The scene path is resolved from its symlink — USD's asset resolver
+    anchors relative texture refs against the symlink location, not the
+    target, and that breaks every ``./textures/*`` lookup.
+    """
+    scene_path = Path(_get_scene_usd_paths()[0]).resolve()
+    cfg.scene.scene_geometry.spawn.usd_path = str(scene_path)
 
     spawn_points_xy = _get_infinigen_spawn_points_xy()
     if spawn_points_xy:
         cfg.events.reset_robot.params["spawn_points_xy"] = spawn_points_xy
         cfg.commands.goal_command.spawn_points_xy = spawn_points_xy
+
+    floor_top_z = _get_infinigen_floor_top_z()
+    if floor_top_z is not None:
+        cfg.events.reset_robot.params["spawn_z"] = floor_top_z + 0.1
 
 
 class _PlayEnvCfgMixin:

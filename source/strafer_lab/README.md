@@ -123,7 +123,9 @@ If the Isaac-side observation layout changes, `strafer_shared.policy_interface` 
 
 | Path | Purpose | Depends on |
 |---|---|---|
-| `scripts/prep_room_usds.py` | Orchestrate Infinigen scene generation (`generate`, `ingest`, `presets` subcommands) | `STRAFER_BLENDER_BIN`, Infinigen repo |
+| `scripts/prep_room_usds.py` | Orchestrate Infinigen scene generation (`generate`, `ingest`, `presets` subcommands) | `INFINIGEN_ROOT`, `STRAFER_INFINIGEN_PYTHON`, `STRAFER_ISAACLAB_PYTHON` |
+| `scripts/postprocess_scene_usd.py` | Bake colliders + ceiling-light emitters into an Infinigen-exported USDC (called by `prep_room_usds.py` after export, or run manually on existing scenes) | `pxr` (env_phase15) |
+| `scripts/generate_scenes_metadata.py` | Walk `Assets/generated/scenes/` and author the combined `scenes_metadata.json` with per-scene spawn points + floor top Z | `pxr` (env_phase15) |
 | `scripts/extract_scene_metadata.py` | Serialize Blender `State` (rooms, polygons, semantic tags, relations) into `scene_metadata.json`; label USD prims with `semanticLabel` | `bpy` (inside Blender subprocess), optional `pxr` |
 | `scripts/generate_descriptions.py` | 4-stage description pipeline: programmatic spatial → Qwen2.5-VL-7B standalone → ground-truth filter → reservoir sampling for human spot-check | `scene_metadata.json`, `transformers`, Qwen2.5-VL-7B |
 | `scripts/prepare_vlm_finetune_data.py` | Comprehensive VLM LoRA SFT prep: single-object grounding + 1:3 negatives + ~20% multi-object + ~10% description preservation | Perception frames, scene metadata, Stage-2 descriptions |

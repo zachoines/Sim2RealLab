@@ -379,7 +379,7 @@ def extract_from_usd(usd_path: Path, output_dir: Path) -> Path:
     except ImportError as exc:
         raise RuntimeError(
             "pxr is required for extract_from_usd. Run inside an Isaac Sim "
-            "environment (env_phase15) where the USD runtime is available."
+            "Python environment where the USD runtime is available."
         ) from exc
 
     usd_path = Path(usd_path)
@@ -488,7 +488,7 @@ def label_usd_prims_from_names(usd_path: Path) -> int:
     except ImportError:
         logger.warning(
             "pxr is not installed; skipping USD prim labelling. "
-            "Run this inside Isaac Sim (env_phase15) for USD writes."
+            "Run this under an Isaac Sim Python environment for USD writes."
         )
         return 0
 

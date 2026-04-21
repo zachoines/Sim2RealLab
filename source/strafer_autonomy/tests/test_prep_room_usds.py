@@ -22,23 +22,108 @@ def prep_mod():
 
 
 class TestPresets:
-    def test_high_quality_dgx_is_larger(self, prep_mod):
-        dgx = prep_mod.PRESETS["high_quality_dgx"]
-        windows = prep_mod.PRESETS["windows_baseline"]
-        assert dgx.max_poly_count_millions > windows.max_poly_count_millions
-        assert dgx.max_objects_per_room >= windows.max_objects_per_room
-        assert dgx.max_rooms_per_scene >= windows.max_rooms_per_scene
+    def test_presets_have_real_gin_configs(self, prep_mod):
+        for name, preset in prep_mod.PRESETS.items():
+            assert preset.gin_configs, f"{name} has empty gin_configs"
+            for gin_file in preset.gin_configs:
+                assert not gin_file.endswith(".gin"), (
+                    f"{name}: gin_configs entries must omit the .gin suffix "
+                    f"(Infinigen adds it), got {gin_file!r}"
+                )
+
+    def test_presets_disable_terrain(self, prep_mod):
+        # Every indoor preset should disable Infinigen's terrain generator,
+        # which otherwise inflates runtime and can fail solve.
+        for name, preset in prep_mod.PRESETS.items():
+            assert any(
+                "terrain_enabled=False" in o for o in preset.gin_overrides
+            ), f"{name} does not disable terrain"
 
     def test_preset_names_round_trip(self, prep_mod):
         for name, preset in prep_mod.PRESETS.items():
             assert preset.name == name
 
+    def test_texture_resolution_positive(self, prep_mod):
+        for name, preset in prep_mod.PRESETS.items():
+            assert preset.texture_resolution > 0, f"{name} has nonpositive texture_resolution"
+
+    def test_max_rooms_positive(self, prep_mod):
+        for name, preset in prep_mod.PRESETS.items():
+            assert preset.max_rooms >= 1, f"{name} has max_rooms<1"
+
     def test_to_dict_serializable(self, prep_mod):
-        dgx = prep_mod.PRESETS["high_quality_dgx"]
-        encoded = json.dumps(dgx.to_dict())
-        decoded = json.loads(encoded)
-        assert decoded["name"] == "high_quality_dgx"
-        assert isinstance(decoded["room_types"], list)
+        for name, preset in prep_mod.PRESETS.items():
+            encoded = json.dumps(preset.to_dict())
+            decoded = json.loads(encoded)
+            assert decoded["name"] == name
+            assert isinstance(decoded["gin_configs"], list)
+            assert isinstance(decoded["gin_overrides"], list)
+
+
+class TestBuildGenerateCommand:
+    def test_includes_gin_flags(self, prep_mod, tmp_path):
+        cfg = prep_mod.SceneGenConfig(
+            name="t",
+            gin_configs=("fast_solve", "singleroom"),
+            gin_overrides=("compose_indoors.terrain_enabled=False",),
+            max_rooms=3,
+        )
+        cmd = prep_mod._build_generate_command(
+            infinigen_python="/fake/python",
+            output_folder=tmp_path / "out",
+            seed=42,
+            config=cfg,
+        )
+        assert cmd[0] == "/fake/python"
+        assert cmd[1:3] == ["-m", "infinigen_examples.generate_indoors"]
+        assert "--seed" in cmd and cmd[cmd.index("--seed") + 1] == "42"
+        assert "-g" in cmd
+        g_idx = cmd.index("-g")
+        assert cmd[g_idx + 1 : g_idx + 3] == ["fast_solve", "singleroom"]
+        assert "-p" in cmd
+        p_idx = cmd.index("-p")
+        # Every -p payload is captured up to the next flag or end of args.
+        p_values = cmd[p_idx + 1 :]
+        assert "compose_indoors.terrain_enabled=False" in p_values
+        assert "restrict_solving.solve_max_rooms=3" in p_values
+        assert "--task" in cmd and cmd[cmd.index("--task") + 1] == "coarse"
+
+    def test_always_appends_max_rooms_override(self, prep_mod, tmp_path):
+        cfg = prep_mod.SceneGenConfig(name="t", gin_configs=(), gin_overrides=(), max_rooms=7)
+        cmd = prep_mod._build_generate_command(
+            infinigen_python="/fake/python",
+            output_folder=tmp_path / "out",
+            seed=0,
+            config=cfg,
+        )
+        assert "-p" in cmd
+        p_idx = cmd.index("-p")
+        assert cmd[p_idx + 1] == "restrict_solving.solve_max_rooms=7"
+
+    def test_omits_g_when_no_gin_configs(self, prep_mod, tmp_path):
+        cfg = prep_mod.SceneGenConfig(name="t", gin_configs=(), gin_overrides=())
+        cmd = prep_mod._build_generate_command(
+            infinigen_python="/fake/python",
+            output_folder=tmp_path / "out",
+            seed=0,
+            config=cfg,
+        )
+        assert "-g" not in cmd
+
+
+class TestBuildExportCommand:
+    def test_includes_omniverse_and_usdc(self, prep_mod, tmp_path):
+        cmd = prep_mod._build_export_command(
+            infinigen_python="/fake/python",
+            input_folder=tmp_path / "in",
+            output_folder=tmp_path / "out",
+            texture_resolution=512,
+        )
+        assert cmd[0] == "/fake/python"
+        assert cmd[1:3] == ["-m", "infinigen.tools.export"]
+        assert "--omniverse" in cmd
+        assert "-f" in cmd and cmd[cmd.index("-f") + 1] == "usdc"
+        assert "-r" in cmd and cmd[cmd.index("-r") + 1] == "512"
 
 
 class TestIngestExternalUsd:
@@ -93,40 +178,58 @@ class TestCLI:
         assert rc == 0
         payload = json.loads(captured.out)
         assert "high_quality_dgx" in payload
+        assert "gin_configs" in payload["high_quality_dgx"]
 
 
-class TestResolveBlenderBinary:
-    """Verify STRAFER_BLENDER_BIN env-var resolver behavior.
+class TestResolveInfinigenPython:
+    def test_reads_from_env_var(self, prep_mod, monkeypatch, tmp_path):
+        fake = tmp_path / "python"
+        fake.write_text("#!/bin/sh\nexit 0\n")
+        fake.chmod(0o755)
+        monkeypatch.setenv("STRAFER_INFINIGEN_PYTHON", str(fake))
+        assert prep_mod._resolve_infinigen_python() == str(fake)
 
-    The resolver has a single source of truth (the process environment
-    loaded by ``env_setup.sh``). These tests monkeypatch ``os.environ``
-    directly and do not touch any ``.env`` file on disk.
-    """
+    def test_missing_env_var_raises(self, prep_mod, monkeypatch):
+        monkeypatch.delenv("STRAFER_INFINIGEN_PYTHON", raising=False)
+        with pytest.raises(RuntimeError, match="STRAFER_INFINIGEN_PYTHON is not set"):
+            prep_mod._resolve_infinigen_python()
 
-    @staticmethod
-    def _real_binary() -> Path:
-        """Return a path to any real executable file for existence checks.
+    def test_nonexistent_env_var_raises(self, prep_mod, monkeypatch):
+        monkeypatch.setenv("STRAFER_INFINIGEN_PYTHON", "/definitely/not/here/python")
+        with pytest.raises(RuntimeError, match="non-existent path"):
+            prep_mod._resolve_infinigen_python()
 
-        ``/usr/bin/true`` is present on any Linux host; fall back to the
-        Python interpreter itself on macOS or unusual CI images.
-        """
-        candidate = Path("/usr/bin/true")
-        if candidate.exists():
-            return candidate
-        import sys as _sys
-        return Path(_sys.executable)
 
-    def test_reads_from_env_var(self, prep_mod, monkeypatch):
-        real = self._real_binary()
-        monkeypatch.setenv("STRAFER_BLENDER_BIN", str(real))
-        assert prep_mod._resolve_blender_binary() == str(real)
+class TestResolveIsaaclabPython:
+    def test_reads_from_env_var(self, prep_mod, monkeypatch, tmp_path):
+        fake = tmp_path / "python"
+        fake.write_text("#!/bin/sh\nexit 0\n")
+        fake.chmod(0o755)
+        monkeypatch.setenv("STRAFER_ISAACLAB_PYTHON", str(fake))
+        assert prep_mod._resolve_isaaclab_python() == str(fake)
+
+    def test_missing_env_var_raises(self, prep_mod, monkeypatch):
+        monkeypatch.delenv("STRAFER_ISAACLAB_PYTHON", raising=False)
+        with pytest.raises(RuntimeError, match="STRAFER_ISAACLAB_PYTHON is not set"):
+            prep_mod._resolve_isaaclab_python()
+
+    def test_nonexistent_env_var_raises(self, prep_mod, monkeypatch):
+        monkeypatch.setenv("STRAFER_ISAACLAB_PYTHON", "/definitely/not/here/python")
+        with pytest.raises(RuntimeError, match="non-existent path"):
+            prep_mod._resolve_isaaclab_python()
+
+
+class TestResolveInfinigenRoot:
+    def test_reads_from_env_var(self, prep_mod, monkeypatch, tmp_path):
+        monkeypatch.setenv("INFINIGEN_ROOT", str(tmp_path))
+        assert prep_mod._resolve_infinigen_root() == tmp_path
 
     def test_missing_env_raises(self, prep_mod, monkeypatch):
-        monkeypatch.delenv("STRAFER_BLENDER_BIN", raising=False)
-        with pytest.raises(RuntimeError, match="STRAFER_BLENDER_BIN is not set"):
-            prep_mod._resolve_blender_binary()
+        monkeypatch.delenv("INFINIGEN_ROOT", raising=False)
+        with pytest.raises(RuntimeError, match="INFINIGEN_ROOT is not set"):
+            prep_mod._resolve_infinigen_root()
 
     def test_nonexistent_path_raises(self, prep_mod, monkeypatch):
-        monkeypatch.setenv("STRAFER_BLENDER_BIN", "/definitely/not/here/blender")
-        with pytest.raises(RuntimeError, match="non-existent path"):
-            prep_mod._resolve_blender_binary()
+        monkeypatch.setenv("INFINIGEN_ROOT", "/definitely/not/here/infinigen")
+        with pytest.raises(RuntimeError, match="not a directory"):
+            prep_mod._resolve_infinigen_root()

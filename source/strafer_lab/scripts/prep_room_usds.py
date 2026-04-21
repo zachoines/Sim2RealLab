@@ -1,37 +1,62 @@
-"""Generate high-quality Infinigen scenes and stage them as USDs.
+"""Generate Infinigen indoor scenes and stage them as USDC files.
 
-The DGX Spark's 128 GB unified memory unlocks scene settings that are
-infeasible on the 16 GB Windows workstation baseline: larger polygon
-budgets, more diverse room types, richer per-room object counts, and
-multi-room layouts. This script wraps Infinigen's generation entry
-point with a curated config, then copies / post-processes the resulting
-USDs into ``Assets/generated/scenes/`` where
-:mod:`strafer_lab.scripts.extract_scene_metadata` can pick them up.
+Pipeline per scene:
 
-The Infinigen generator itself must run inside a Blender Python
-environment. On DGX (Grace ARM64) this means a headless Blender build
-with ``blender --background --python``. On hosts where Blender cannot
-run headless, generate on a Windows workstation and transfer the
-resulting USDs + ``.blend`` files to DGX — :func:`ingest_external_usd`
-below handles that hand-off.
+1. ``python -m infinigen_examples.generate_indoors`` (coarse task) solves a
+   floor plan and room population, saving ``scene.blend`` under a per-scene
+   work directory. Invoked via the Python interpreter at
+   ``STRAFER_INFINIGEN_PYTHON``, not via the Blender binary — Infinigen
+   needs the source-built ``bpy`` wheel plus a stack of pure-Python deps
+   (``gin-config``, numpy, etc.) that are only installed into that env.
+   Blender's bundled Python does not have them.
 
-Usage examples:
+2. ``python -m infinigen.tools.export --omniverse -f usdc`` converts the
+   ``.blend`` to a USDC file plus a textures/ directory.
 
-    # Full run on DGX (requires Blender on PATH and Infinigen installed)
+3. ``postprocess_scene_usd.py`` bakes colliders + ceiling-light emitters
+   into the USDC. Runs via ``STRAFER_ISAACLAB_PYTHON`` (needs ``pxr``).
+
+4. A top-level symlink ``Assets/generated/scenes/scene_<name>.usdc`` points
+   at the USDC inside the per-scene subdir. ``strafer_env_cfg._get_scene_usd_paths``
+   discovers files with the ``scene_*.usdc`` prefix at the top level of
+   ``Assets/generated/scenes/``; the symlink satisfies that filter while
+   keeping each scene's textures bundled with its USDC.
+
+Presets wrap Infinigen's real knobs (``-g`` gin config files and ``-p``
+gin-style parameter overrides).
+
+Usage::
+
     python scripts/prep_room_usds.py generate \\
         --config high_quality_dgx \\
-        --num-scenes 50 \\
+        --num-scenes 10 \\
         --output Assets/generated/scenes
 
-    # Import externally-generated USDs (from the Windows workstation)
+    # Fast debug scene (single furnished room):
+    python scripts/prep_room_usds.py generate \\
+        --config fast_singleroom \\
+        --num-scenes 1 \\
+        --output Assets/generated/scenes
+
+    # Import externally-generated scenes (e.g. from another host):
     python scripts/prep_room_usds.py ingest \\
         --source /mnt/transfer/infinigen_out \\
         --output Assets/generated/scenes
+
+Prerequisites (all read from ``.env`` via ``env_setup.sh``):
+
+- ``INFINIGEN_ROOT`` — Infinigen source checkout.
+  ``generate_indoors`` imports ``infinigen`` relative to the source
+  tree, so subprocesses run with that dir as their working directory.
+- ``STRAFER_INFINIGEN_PYTHON`` — Python with ``bpy`` + ``gin-config`` +
+  Infinigen deps installed.
+- ``STRAFER_ISAACLAB_PYTHON`` — Python with ``pxr`` importable.
 """
 
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import logging
 import os
@@ -52,73 +77,78 @@ logger = logging.getLogger("prep_room_usds")
 
 @dataclass
 class SceneGenConfig:
-    """Tunable scene generation parameters.
+    """Scene generation preset.
 
-    Defaults reflect the DGX Spark high-quality preset. See the
-    :data:`PRESETS` dict for Windows / low-memory alternates.
+    ``gin_configs`` and ``gin_overrides`` map directly onto Infinigen's
+    ``-g``/``-p`` CLI flags. Everything else is provenance metadata
+    recorded into ``scene_config.json`` next to each generated scene.
     """
 
     name: str
-    room_types: tuple[str, ...] = (
-        "Kitchen",
-        "Bedroom",
-        "LivingRoom",
-        "Hallway",
-        "Bathroom",
-        "Office",
-        "DiningRoom",
-    )
-    min_rooms_per_scene: int = 2
-    max_rooms_per_scene: int = 5
-    min_objects_per_room: int = 8
-    max_objects_per_room: int = 25
-    target_poly_count_millions: float = 4.0
-    max_poly_count_millions: float = 8.0
-    enable_materials: bool = True
-    enable_lighting_variation: bool = True
-    enable_small_items: bool = True
-    multi_story: bool = False
-    scene_size_range_m: tuple[float, float] = (30.0, 120.0)
+    # Gin config file stems (no ``.gin`` extension). Loaded from
+    # ``infinigen_examples/configs_indoor/``. Order matters: later files
+    # can override earlier ones.
+    gin_configs: tuple[str, ...] = ("base_indoors",)
+    # Gin parameter overrides, ``module.key=value`` strings. Applied after
+    # the gin_configs so they always win.
+    gin_overrides: tuple[str, ...] = ("compose_indoors.terrain_enabled=False",)
+    # Cap on the number of rooms the constraint solver will try to fit.
+    # Passed to Infinigen as ``restrict_solving.solve_max_rooms=N``. The
+    # unconstrained default is known to wedge the solver on hard seeds;
+    # capping keeps runtime bounded. ``5`` matches the DGX workhorse
+    # preset's original intent; set to ``1`` for fast single-room scenes.
+    max_rooms: int = 5
+    # Texture image resolution for the USDC export pass. Higher values
+    # give better perception training data but slow export considerably.
+    texture_resolution: int = 1024
+    # Seed base; scene i uses seed = random_seed_base + i.
     random_seed_base: int = 0
+    # Human-readable preset description (recorded in scene_config.json).
+    description: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {k: list(v) if isinstance(v, tuple) else v for k, v in asdict(self).items()}
 
 
-# High-quality DGX preset — exploits 128 GB unified memory for much
-# larger polygon budgets than the 16 GB Windows baseline.
+# Full multi-room house with furniture — the workhorse preset.
+# ``base_indoors`` is Infinigen's default full-quality recipe; terrain is
+# disabled because we are generating interior scenes. ``max_rooms=5``
+# caps the solver's search space; leaving it unbounded wedges on hard
+# seeds for hours.
 HIGH_QUALITY_DGX = SceneGenConfig(
     name="high_quality_dgx",
-    target_poly_count_millions=4.0,
-    max_poly_count_millions=8.0,
-    max_objects_per_room=25,
-    min_rooms_per_scene=3,
-    max_rooms_per_scene=5,
+    gin_configs=("base_indoors",),
+    gin_overrides=("compose_indoors.terrain_enabled=False",),
+    max_rooms=5,
+    texture_resolution=1024,
+    description="Full multi-room furnished house on DGX Spark (<=5 rooms).",
 )
 
-# Matched Windows preset (for parity when offloading scene generation).
+# Fast single-room iteration — matches docs/HelloRoom.md's `-g fast_solve.gin
+# singleroom.gin` recipe. Useful for debugging, CI smoke tests, and quick
+# perception-pipeline validation.
+FAST_SINGLEROOM = SceneGenConfig(
+    name="fast_singleroom",
+    gin_configs=("fast_solve", "singleroom"),
+    gin_overrides=("compose_indoors.terrain_enabled=False",),
+    max_rooms=1,
+    texture_resolution=512,
+    description="Single furnished room; fast solver for debug / CI.",
+)
+
+# Lower-memory baseline preserved for parity with earlier workstation
+# workflows that transferred scenes onto the DGX via the ingest path.
 WINDOWS_BASELINE = SceneGenConfig(
     name="windows_baseline",
-    target_poly_count_millions=1.5,
-    max_poly_count_millions=3.0,
-    max_objects_per_room=15,
-    min_rooms_per_scene=1,
-    max_rooms_per_scene=3,
-)
-
-# Low-memory fallback (for ARM64 Blender builds with constrained RAM).
-LOW_MEMORY = SceneGenConfig(
-    name="low_memory",
-    target_poly_count_millions=0.8,
-    max_poly_count_millions=1.5,
-    max_objects_per_room=10,
-    min_rooms_per_scene=1,
-    max_rooms_per_scene=2,
-    enable_small_items=False,
+    gin_configs=("fast_solve", "singleroom"),
+    gin_overrides=("compose_indoors.terrain_enabled=False",),
+    max_rooms=1,
+    texture_resolution=512,
+    description="Low-memory baseline for the Windows workstation.",
 )
 
 PRESETS: dict[str, SceneGenConfig] = {
-    cfg.name: cfg for cfg in (HIGH_QUALITY_DGX, WINDOWS_BASELINE, LOW_MEMORY)
+    cfg.name: cfg for cfg in (HIGH_QUALITY_DGX, FAST_SINGLEROOM, WINDOWS_BASELINE)
 }
 
 
@@ -132,9 +162,16 @@ class GenerationResult:
     scene_dir: Path
     blend_path: Path | None = None
     usd_path: Path | None = None
-    metadata_path: Path | None = None
+    symlink_path: Path | None = None
     returncode: int = 0
     stderr_tail: str = ""
+
+
+# Return codes reserved for orchestrator-detected failures (subprocess itself
+# reports its own non-zero rc). Picked above typical shell exit codes to
+# stay out of the way.
+_RC_BLEND_MISSING = 101
+_RC_USDC_MISSING = 102
 
 
 def generate_scenes(
@@ -143,185 +180,287 @@ def generate_scenes(
     num_scenes: int,
     output_dir: Path,
     infinigen_root: Path | None = None,
-    blender_binary: str | None = None,
+    infinigen_python: str | None = None,
 ) -> list[GenerationResult]:
-    """Run Infinigen ``num_scenes`` times and write USDs under ``output_dir``.
+    """Run Infinigen ``num_scenes`` times and stage USDCs under ``output_dir``.
 
-    This function shells out to Blender/Infinigen per scene so each run
-    is isolated (Infinigen occasionally leaks state between runs). The
-    wrapper writes a ``scene_config.json`` next to each generated scene
-    so the downstream metadata extractor and dataset exporters can tie
-    each scene back to the preset that produced it.
+    For each scene:
 
-    If ``blender_binary`` is None, the resolver picks the best available
-    Blender on this host via :func:`_resolve_blender_binary`. On DGX Spark
-    that is the source-built 4.2.0 under ``~/Workspace/blender-build/``
-    (apt ships only Blender 4.0.2 on aarch64 Ubuntu 24.04, and Infinigen
-    pins 4.2.0 — see ``blender-build/README.md`` for the build recipe).
+    - Coarse generate → ``output_dir/<scene_name>/coarse/scene.blend``
+    - Export to USDC  → ``output_dir/<scene_name>/export/export_scene.blend/*.usdc``
+      (plus a sibling ``textures/`` directory)
+    - Symlink         → ``output_dir/<scene_name>.usdc`` points at the USDC
+      inside the export tree so ``strafer_env_cfg._get_scene_usd_paths``
+      discovers the scene without needing to recurse.
+
+    A ``scene_config.json`` is written next to each scene for provenance.
+    The orchestrator asserts that both the ``.blend`` (after coarse gen)
+    and the ``.usdc`` (after export) actually exist; if either step
+    silently produced no file, the result is flagged with a nonzero
+    ``returncode`` instead of being reported as success.
     """
-    blender_binary = blender_binary or _resolve_blender_binary()
-    output_dir = Path(output_dir)
+    infinigen_python = infinigen_python or _resolve_infinigen_python()
+    # Resolve to absolute paths: the subprocess runs with cwd=infinigen_root,
+    # so any relative output path would land inside Infinigen's source tree
+    # rather than under the caller-intended directory.
+    output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    infinigen_root = Path(infinigen_root) if infinigen_root else _guess_infinigen_root()
+    infinigen_root = (
+        Path(infinigen_root).resolve() if infinigen_root else _resolve_infinigen_root()
+    )
 
     results: list[GenerationResult] = []
     for i in range(num_scenes):
         seed = config.random_seed_base + i
-        scene_name = f"{config.name}_{i:03d}_seed{seed}"
+        scene_name = f"scene_{config.name}_{i:03d}_seed{seed}"
         scene_dir = output_dir / scene_name
         scene_dir.mkdir(parents=True, exist_ok=True)
+        coarse_dir = scene_dir / "coarse"
+        export_dir = scene_dir / "export"
 
-        cmd = _build_infinigen_command(
-            infinigen_root=infinigen_root,
-            blender_binary=blender_binary,
-            scene_dir=scene_dir,
+        logger.info("=== Scene %d/%d: %s (seed=%d) ===", i + 1, num_scenes, scene_name, seed)
+
+        # --- Step 1: coarse generation ---
+        gen_cmd = _build_generate_command(
+            infinigen_python=infinigen_python,
+            output_folder=coarse_dir,
             seed=seed,
             config=config,
         )
-        logger.info("Running scene %d/%d: %s", i + 1, num_scenes, " ".join(cmd))
-        proc = subprocess.run(
-            cmd,
-            cwd=str(infinigen_root) if infinigen_root.exists() else None,
-            capture_output=True,
-            text=True,
-        )
-        stderr_tail = "\n".join(proc.stderr.splitlines()[-20:])
-        result = GenerationResult(
-            scene_dir=scene_dir,
-            returncode=proc.returncode,
-            stderr_tail=stderr_tail,
-        )
-        if proc.returncode != 0:
-            logger.error("Scene %s failed (rc=%d): %s", scene_name, proc.returncode, stderr_tail)
+        gen_rc, gen_stderr = _run_subprocess(gen_cmd, cwd=infinigen_root)
+        result = GenerationResult(scene_dir=scene_dir, returncode=gen_rc, stderr_tail=gen_stderr)
+
+        if gen_rc != 0:
+            logger.error("Scene %s: coarse gen failed (rc=%d)\n%s", scene_name, gen_rc, gen_stderr)
             results.append(result)
             continue
 
-        blend_candidates = sorted(scene_dir.glob("*.blend"))
-        usd_candidates = sorted(scene_dir.glob("*.usd"))
-        result.blend_path = blend_candidates[0] if blend_candidates else None
-        result.usd_path = usd_candidates[0] if usd_candidates else None
+        blend_path = coarse_dir / "scene.blend"
+        if not blend_path.exists():
+            logger.error(
+                "Scene %s: coarse gen returned rc=0 but %s is missing — silent failure in Infinigen\n"
+                "Last stderr:\n%s",
+                scene_name, blend_path, gen_stderr,
+            )
+            result.returncode = _RC_BLEND_MISSING
+            results.append(result)
+            continue
+        result.blend_path = blend_path
 
-        config_path = scene_dir / "scene_config.json"
-        config_path.write_text(json.dumps(config.to_dict(), indent=2))
+        # --- Step 2: USDC export ---
+        export_cmd = _build_export_command(
+            infinigen_python=infinigen_python,
+            input_folder=coarse_dir,
+            output_folder=export_dir,
+            texture_resolution=config.texture_resolution,
+        )
+        exp_rc, exp_stderr = _run_subprocess(export_cmd, cwd=infinigen_root)
 
+        if exp_rc != 0:
+            logger.error("Scene %s: export failed (rc=%d)\n%s", scene_name, exp_rc, exp_stderr)
+            result.returncode = exp_rc
+            result.stderr_tail = exp_stderr
+            results.append(result)
+            continue
+
+        usd_candidates = sorted(export_dir.rglob("*.usdc"))
+        if not usd_candidates:
+            logger.error(
+                "Scene %s: export returned rc=0 but no .usdc file was written under %s\n"
+                "Last stderr:\n%s",
+                scene_name, export_dir, exp_stderr,
+            )
+            result.returncode = _RC_USDC_MISSING
+            results.append(result)
+            continue
+        result.usd_path = usd_candidates[0]
+
+        # --- Step 3: post-process USDC (bake colliders + interior lights) ---
+        post_rc, post_stderr = _run_postprocess(result.usd_path)
+        if post_rc != 0:
+            logger.error(
+                "Scene %s: USDC post-process failed (rc=%d)\n%s",
+                scene_name, post_rc, post_stderr,
+            )
+            result.returncode = post_rc
+            result.stderr_tail = post_stderr
+            results.append(result)
+            continue
+
+        # --- Step 4: top-level symlink for _get_scene_usd_paths() discovery ---
+        link_path = output_dir / f"{scene_name}.usdc"
+        if link_path.is_symlink() or link_path.exists():
+            link_path.unlink()
+        link_path.symlink_to(result.usd_path)
+        result.symlink_path = link_path
+
+        # --- Step 5: provenance ---
+        (scene_dir / "scene_config.json").write_text(json.dumps(config.to_dict(), indent=2))
+
+        logger.info("Scene %s OK → %s (USDC at %s)", scene_name, link_path, result.usd_path)
         results.append(result)
+
     return results
 
 
-def _guess_infinigen_root() -> Path:
-    """Best-effort guess for the Infinigen checkout location on DGX."""
-    candidates = [
-        Path.home() / "Workspace" / "infinigen",
-        Path("/home/zachoines/Workspace/infinigen"),
-        Path("/opt/infinigen"),
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return candidates[0]
+def _run_postprocess(usdc_path: Path) -> tuple[int, str]:
+    """Run ``postprocess_scene_usd.py`` on the freshly-exported USDC.
 
-
-# -----------------------------------------------------------------------------
-# Blender binary resolution — reads STRAFER_BLENDER_BIN from the process
-# environment. The single source of truth is the shell-level variable that
-# ``env_setup.sh`` loads from ``.env`` at session start. There is no Python-
-# side ``.env`` fallback and no PATH fallback: Ubuntu 24.04 aarch64 ships
-# Blender 4.0.2 via apt, which Infinigen (pinning ``bpy==4.2.0``) will refuse
-# at generation time, and a dual-source lookup (env var + .env parsed by
-# Python) would drift silently whenever someone edits ``.env`` without
-# re-sourcing the shell wrapper. Failing loud is strictly better.
-#
-# If this resolver errors, the user forgot ``source env_setup.sh``; the
-# error message tells them exactly what to do.
-# -----------------------------------------------------------------------------
-
-_BLENDER_ENV_VAR = "STRAFER_BLENDER_BIN"
-
-
-def _resolve_blender_binary() -> str:
-    """Return the absolute path of a Blender 4.2 binary from the environment.
-
-    Reads :data:`_BLENDER_ENV_VAR` from :data:`os.environ`. Raises
-    :class:`RuntimeError` if the variable is unset or points at a
-    non-existent path.
+    Runs under ``STRAFER_ISAACLAB_PYTHON`` (needs ``pxr``), not the
+    Infinigen Python used for generation. Bakes colliders + ceiling-light
+    emitters into the USDC so runtime sim launches don't pay a per-start
+    traversal cost.
     """
-    value = os.environ.get(_BLENDER_ENV_VAR)
+    script = Path(__file__).resolve().parent / "postprocess_scene_usd.py"
+    cmd = [
+        _resolve_isaaclab_python(),
+        str(script),
+        "--usdc",
+        str(usdc_path),
+    ]
+    return _run_subprocess(cmd, cwd=script.parent)
+
+
+def _run_subprocess(cmd: list[str], *, cwd: Path) -> tuple[int, str]:
+    """Run ``cmd`` in ``cwd``, stream its stderr+stdout live, and return
+    ``(returncode, last 30 lines of merged output)``.
+
+    Live streaming matters here: the coarse-gen task runs for tens of
+    minutes and Infinigen's constraint solver prints step-by-step progress
+    that lets you catch a wedged run early. A buffered ``capture_output``
+    model (the old implementation) hides all of that until the subprocess
+    exits, which turned a solver wedge into a silent 9-hour hang.
+    """
+    logger.info("  $ %s", " ".join(cmd))
+    proc = subprocess.Popen(
+        cmd,
+        cwd=str(cwd),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,  # merge stderr into stdout for ordering
+        text=True,
+        bufsize=1,
+    )
+    tail: collections.deque[str] = collections.deque(maxlen=30)
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+        tail.append(line.rstrip())
+    proc.wait()
+    return proc.returncode, "\n".join(tail)
+
+
+# Environment variables the resolvers read. ``env_setup.sh`` exports
+# ``INFINIGEN_ROOT`` from ``.env``; the two Python env vars let callers
+# point at alternate conda envs without touching ``.env``.
+_INFINIGEN_ROOT_ENV_VAR = "INFINIGEN_ROOT"
+_INFINIGEN_PYTHON_ENV_VAR = "STRAFER_INFINIGEN_PYTHON"
+_ISAACLAB_PYTHON_ENV_VAR = "STRAFER_ISAACLAB_PYTHON"
+
+
+def _resolve_env_python(env_var: str) -> str:
+    """Read a Python-interpreter path from ``env_var`` and validate it."""
+    value = os.environ.get(env_var)
     if not value:
         raise RuntimeError(
-            f"{_BLENDER_ENV_VAR} is not set. Run `source env_setup.sh` from "
-            "the repo root to load it from .env (copy .env.example to .env "
-            "first if you have not yet). Infinigen pins bpy==4.2.0 and the "
-            "apt-installed /usr/bin/blender is 4.0.2 on Ubuntu 24.04 aarch64, "
-            "so a silent PATH fallback would fail downstream anyway. See "
-            "blender-build/README.md for the aarch64 source build recipe."
+            f"{env_var} is not set. Run `source env_setup.sh` from the repo "
+            "root to load it from .env (copy .env.example to .env first if "
+            "you have not yet)."
         )
-
     path = Path(value).expanduser()
     if not path.exists():
-        raise RuntimeError(
-            f"{_BLENDER_ENV_VAR}={value!r} points to a non-existent path. "
-            "Check your .env or shell environment."
-        )
+        raise RuntimeError(f"{env_var}={value!r} points to a non-existent path.")
     return str(path)
 
 
-def _build_infinigen_command(
+def _resolve_infinigen_root() -> Path:
+    """Resolve the Infinigen checkout via ``INFINIGEN_ROOT`` env var."""
+    value = os.environ.get(_INFINIGEN_ROOT_ENV_VAR)
+    if not value:
+        raise RuntimeError(
+            f"{_INFINIGEN_ROOT_ENV_VAR} is not set. Run `source env_setup.sh` "
+            "from the repo root to load it from .env."
+        )
+    path = Path(value).expanduser()
+    if not path.is_dir():
+        raise RuntimeError(
+            f"{_INFINIGEN_ROOT_ENV_VAR}={value!r} is not a directory."
+        )
+    return path
+
+
+def _resolve_infinigen_python() -> str:
+    """Return the Python interpreter with Infinigen + bpy + gin installed."""
+    return _resolve_env_python(_INFINIGEN_PYTHON_ENV_VAR)
+
+
+def _resolve_isaaclab_python() -> str:
+    """Return the Python interpreter with ``pxr`` available (for USDC post-processing)."""
+    return _resolve_env_python(_ISAACLAB_PYTHON_ENV_VAR)
+
+
+def _build_generate_command(
     *,
-    infinigen_root: Path,
-    blender_binary: str,
-    scene_dir: Path,
+    infinigen_python: str,
+    output_folder: Path,
     seed: int,
     config: SceneGenConfig,
 ) -> list[str]:
-    """Build the CLI invocation for one Infinigen scene.
+    """Build the ``generate_indoors`` CLI invocation for one scene.
 
-    Infinigen exposes a ``generate_indoors`` entry point through its
-    own runner module. Room selection and object budgets are plumbed
-    through overrides passed via ``--gin_param``-style overrides when
-    the Infinigen version supports them. For older versions, these
-    overrides are best-effort and the caller should verify the resulting
-    scene_metadata matches the requested preset.
+    Uses Infinigen's real CLI: ``-g`` for gin config files (without the
+    ``.gin`` suffix) and ``-p`` for ``module.key=value`` overrides.
     """
-    script = infinigen_root / "infinigen_examples" / "generate_indoors.py"
     cmd: list[str] = [
-        blender_binary,
-        "--background",
-        "--python",
-        str(script),
-        "--",
+        infinigen_python,
+        "-m",
+        "infinigen_examples.generate_indoors",
         "--output_folder",
-        str(scene_dir),
+        str(output_folder),
         "--seed",
         str(seed),
+        "--task",
+        "coarse",
     ]
+    if config.gin_configs:
+        cmd.append("-g")
+        cmd.extend(config.gin_configs)
 
-    cmd.extend(
-        [
-            "--override",
-            f"configs.rooms.room_types={list(config.room_types)}",
-            "--override",
-            f"configs.rooms.min_rooms={config.min_rooms_per_scene}",
-            "--override",
-            f"configs.rooms.max_rooms={config.max_rooms_per_scene}",
-            "--override",
-            f"configs.objects.min_per_room={config.min_objects_per_room}",
-            "--override",
-            f"configs.objects.max_per_room={config.max_objects_per_room}",
-            "--override",
-            f"configs.geometry.target_million_polys={config.target_poly_count_millions}",
-            "--override",
-            f"configs.geometry.max_million_polys={config.max_poly_count_millions}",
-            "--override",
-            f"configs.materials.enable={str(config.enable_materials).lower()}",
-            "--override",
-            f"configs.lighting.variation={str(config.enable_lighting_variation).lower()}",
-            "--override",
-            f"configs.objects.include_small_items={str(config.enable_small_items).lower()}",
-            "--override",
-            f"configs.geometry.multi_story={str(config.multi_story).lower()}",
-        ]
-    )
+    overrides = list(config.gin_overrides)
+    overrides.append(f"restrict_solving.solve_max_rooms={config.max_rooms}")
+    cmd.append("-p")
+    cmd.extend(overrides)
     return cmd
+
+
+def _build_export_command(
+    *,
+    infinigen_python: str,
+    input_folder: Path,
+    output_folder: Path,
+    texture_resolution: int,
+) -> list[str]:
+    """Build the ``infinigen.tools.export`` CLI invocation for one scene.
+
+    ``--omniverse`` toggles schema adjustments (wattages, center-of-mass,
+    zero-polygon-mesh removal) that the Omniverse / Isaac Sim USD runtime
+    prefers. Dropping it produces a USDC that Isaac Sim can still load but
+    with some material glitches.
+    """
+    return [
+        infinigen_python,
+        "-m",
+        "infinigen.tools.export",
+        "--input_folder",
+        str(input_folder),
+        "--output_folder",
+        str(output_folder),
+        "-f",
+        "usdc",
+        "-r",
+        str(texture_resolution),
+        "--omniverse",
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -385,14 +524,22 @@ def _build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--output", type=Path, required=True)
     generate.add_argument("--infinigen-root", type=Path, default=None)
     generate.add_argument(
-        "--blender",
+        "--infinigen-python",
         default=None,
-        help="Path to Blender 4.2 binary (default: auto-resolve via "
-        "_resolve_blender_binary() — prefers the DGX source build at "
-        "~/Workspace/blender-build/build_blender/bin/blender, falls back to "
-        "/usr/bin/blender).",
+        help=f"Path to the Python interpreter that has Infinigen + bpy + gin "
+             f"installed. Default: read from the {_INFINIGEN_PYTHON_ENV_VAR} "
+             "env var (populated by env_setup.sh from .env).",
     )
     generate.add_argument("--seed-base", type=int, default=0)
+    generate.add_argument(
+        "--max-rooms",
+        type=int,
+        default=None,
+        help="Override the preset's solver room cap "
+        "(restrict_solving.solve_max_rooms). Presets default to 5 for "
+        "high_quality_dgx and 1 for fast/windows; set higher for richer "
+        "scenes, but solver runtime can blow up without a cap.",
+    )
 
     ingest = sub.add_parser(
         "ingest",
@@ -420,20 +567,25 @@ def main(argv: Iterable[str] | None = None) -> int:
             print(json.dumps({k: v.to_dict() for k, v in PRESETS.items()}, indent=2))
         else:
             for name, preset in PRESETS.items():
-                print(f"{name}: max_objects_per_room={preset.max_objects_per_room} "
-                      f"rooms=[{preset.min_rooms_per_scene},{preset.max_rooms_per_scene}] "
-                      f"polys<={preset.max_poly_count_millions}M")
+                configs = ",".join(preset.gin_configs) or "(none)"
+                print(
+                    f"{name}: gin_configs=[{configs}] "
+                    f"texture_res={preset.texture_resolution} — {preset.description}"
+                )
         return 0
 
     if args.command == "generate":
         config = PRESETS[args.config]
-        config = SceneGenConfig(**{**asdict(config), "random_seed_base": args.seed_base})
+        overrides: dict[str, Any] = {"random_seed_base": args.seed_base}
+        if args.max_rooms is not None:
+            overrides["max_rooms"] = args.max_rooms
+        config = SceneGenConfig(**{**asdict(config), **overrides})
         results = generate_scenes(
             config=config,
             num_scenes=args.num_scenes,
             output_dir=args.output,
             infinigen_root=args.infinigen_root,
-            blender_binary=args.blender,
+            infinigen_python=args.infinigen_python,
         )
         failures = [r for r in results if r.returncode != 0]
         if failures:

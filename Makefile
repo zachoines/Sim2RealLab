@@ -4,10 +4,14 @@
 SHELL := /bin/bash
 COLCON_WS := $(HOME)/strafer_ws
 VENV_VLM := .venv_vlm
+ISAACLAB := $(HOME)/Workspace/IsaacLab/isaaclab.sh
+CONDA_ROOT ?= $(HOME)/miniconda3
+CONDA_ENV ?= env_phase15
 
 .PHONY: build test test-unit test-dgx lint lint-fix format format-check clean kill \
         launch launch-nav launch-autonomy clean-map \
-        install-tools udev serve-vlm serve-planner check-nvrtc help
+        install-tools udev serve-vlm serve-planner check-nvrtc help \
+        sim-bridge sim-bridge-gui sim-harness
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -100,7 +104,12 @@ serve-planner: check-nvrtc ## Start LLM planner service on port 8200
 		--factory --host 0.0.0.0 --port $${PLANNER_PORT:-8200}
 
 test-dgx: ## Run autonomy + VLM tests (skips ROS-dependent tests)
-	$(VENV_VLM)/bin/python -m pytest \
+	@# Clear PYTHONPATH so the vendored ROS 2 Humble site-packages
+	@# (Python 3.11) env_setup.sh puts there for Isaac Sim don't leak
+	@# into .venv_vlm (Python 3.12). Pytest auto-discovers plugin entry
+	@# points across sys.path; with PYTHONPATH unset, launch_testing's
+	@# Python 3.11 modules aren't visible and pytest starts cleanly.
+	PYTHONPATH= $(VENV_VLM)/bin/python -m pytest \
 		source/strafer_autonomy/tests/ source/strafer_vlm/tests/ \
 		-m "not requires_ros" -v
 
@@ -119,3 +128,49 @@ check-nvrtc: ## Verify NVRTC symlinks point to system CUDA 13.0
 		echo "Run the NVRTC fix from docs/INTEGRATION_DGX_SPARK.md"; \
 		exit 1; \
 	fi
+
+# ---------- DGX Spark Sim-in-the-loop ----------
+
+sim-bridge: ## Launch Isaac Sim + ROS 2 bridge (headless)
+	@source env_setup.sh && \
+		source $(CONDA_ROOT)/etc/profile.d/conda.sh && \
+		conda activate $(CONDA_ENV) && \
+		_HUMBLE=$$(ls -d $$HOME/.cache/packman/chk/nv_ros2/humble_py_*/ 2>/dev/null | head -1) && \
+		case ":$$LD_LIBRARY_PATH:" in *":$${_HUMBLE}lib:"*) : ;; *) export LD_LIBRARY_PATH="$${_HUMBLE}lib:$$LD_LIBRARY_PATH" ;; esac && \
+		export AMENT_PREFIX_PATH="$${_HUMBLE%/}$${AMENT_PREFIX_PATH:+:$$AMENT_PREFIX_PATH}" && \
+		export ROS_DISTRO=humble && \
+		echo "[sim-bridge] ROS_DISTRO=$$ROS_DISTRO, LD_LIBRARY_PATH head: $$(echo $$LD_LIBRARY_PATH | cut -d: -f1)" && \
+		$(ISAACLAB) -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
+			--mode bridge --headless --enable_cameras
+
+sim-bridge-gui: ## Launch Isaac Sim + ROS 2 bridge with the viewport open
+	@source env_setup.sh && \
+		source $(CONDA_ROOT)/etc/profile.d/conda.sh && \
+		conda activate $(CONDA_ENV) && \
+		_HUMBLE=$$(ls -d $$HOME/.cache/packman/chk/nv_ros2/humble_py_*/ 2>/dev/null | head -1) && \
+		case ":$$LD_LIBRARY_PATH:" in *":$${_HUMBLE}lib:"*) : ;; *) export LD_LIBRARY_PATH="$${_HUMBLE}lib:$$LD_LIBRARY_PATH" ;; esac && \
+		export AMENT_PREFIX_PATH="$${_HUMBLE%/}$${AMENT_PREFIX_PATH:+:$$AMENT_PREFIX_PATH}" && \
+		export ROS_DISTRO=humble && \
+		echo "[sim-bridge-gui] ROS_DISTRO=$$ROS_DISTRO, LD_LIBRARY_PATH head: $$(echo $$LD_LIBRARY_PATH | cut -d: -f1)" && \
+		$(ISAACLAB) -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
+			--mode bridge --enable_cameras
+
+sim-harness: ## Run sim-in-the-loop autonomous mission sweep
+	@if [ -z "$$SCENE_META" ] || [ -z "$$SCENE_USD" ] || [ -z "$$OUTPUT_DIR" ]; then \
+		echo "Usage: SCENE_META=<path> SCENE_USD=<path> OUTPUT_DIR=<path> [MAX_MISSIONS=N] make sim-harness"; \
+		exit 1; \
+	fi
+	@source env_setup.sh && \
+		source $(CONDA_ROOT)/etc/profile.d/conda.sh && \
+		conda activate $(CONDA_ENV) && \
+		_HUMBLE=$$(ls -d $$HOME/.cache/packman/chk/nv_ros2/humble_py_*/ 2>/dev/null | head -1) && \
+		case ":$$LD_LIBRARY_PATH:" in *":$${_HUMBLE}lib:"*) : ;; *) export LD_LIBRARY_PATH="$${_HUMBLE}lib:$$LD_LIBRARY_PATH" ;; esac && \
+		export AMENT_PREFIX_PATH="$${_HUMBLE%/}$${AMENT_PREFIX_PATH:+:$$AMENT_PREFIX_PATH}" && \
+		export ROS_DISTRO=humble && \
+		$(ISAACLAB) -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
+			--mode harness \
+			--scene-metadata $$SCENE_META \
+			--scene-usd $$SCENE_USD \
+			--output $$OUTPUT_DIR \
+			$${MAX_MISSIONS:+--max-missions $$MAX_MISSIONS} \
+			--headless --enable_cameras

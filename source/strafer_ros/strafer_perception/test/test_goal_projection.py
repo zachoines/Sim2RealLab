@@ -49,6 +49,33 @@ class TestMedianDepth(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertAlmostEqual(result, 3.0, places=3)
 
+    def test_float32_meters_uniform(self) -> None:
+        # Isaac Sim bridge path: 32FC1 already in metres.
+        depth = np.full((20, 20), 2.0, dtype=np.float32)
+        result = GoalProjectionNode._median_depth(depth, 10, 10)
+        self.assertIsNotNone(result)
+        self.assertAlmostEqual(result, 2.0, places=3)
+
+    def test_float32_inf_rejected(self) -> None:
+        depth = np.full((20, 20), np.inf, dtype=np.float32)
+        result = GoalProjectionNode._median_depth(depth, 10, 10)
+        self.assertIsNone(result)
+
+    def test_float32_mixed_inf_and_valid(self) -> None:
+        depth = np.full((20, 20), np.inf, dtype=np.float32)
+        for r in range(8, 13):
+            for c in range(8, 13):
+                if (r + c) % 2 == 0:
+                    depth[r, c] = 1.5
+        result = GoalProjectionNode._median_depth(depth, 10, 10)
+        self.assertIsNotNone(result)
+        self.assertAlmostEqual(result, 1.5, places=3)
+
+    def test_float32_out_of_range(self) -> None:
+        depth = np.full((20, 20), 10.0, dtype=np.float32)
+        result = GoalProjectionNode._median_depth(depth, 10, 10)
+        self.assertIsNone(result)
+
 
 class TestTransformPoint(unittest.TestCase):
     """Tests for _transform_point (quaternion rotation + translation)."""

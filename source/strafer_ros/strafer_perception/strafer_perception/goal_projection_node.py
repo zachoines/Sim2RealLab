@@ -218,18 +218,27 @@ class GoalProjectionNode(Node):
 
     @staticmethod
     def _median_depth(
-        depth_16uc1: np.ndarray, u: int, v: int
+        depth: np.ndarray, u: int, v: int
     ) -> float | None:
-        """Return median depth in meters from a 5x5 window, or None if invalid."""
-        h, w = depth_16uc1.shape[:2]
+        """Return median depth in meters from a 5x5 window, or None if invalid.
+
+        Accepts both depth encodings the stack sees:
+          - 16UC1 (uint16, millimetres) — real D555 driver output.
+          - 32FC1 (float32, metres)     — Isaac Sim ROS 2 bridge output.
+        """
+        h, w = depth.shape[:2]
         u = max(_DEPTH_KERNEL_HALF, min(u, w - _DEPTH_KERNEL_HALF - 1))
         v = max(_DEPTH_KERNEL_HALF, min(v, h - _DEPTH_KERNEL_HALF - 1))
 
-        patch = depth_16uc1[
+        patch = depth[
             v - _DEPTH_KERNEL_HALF : v + _DEPTH_KERNEL_HALF + 1,
             u - _DEPTH_KERNEL_HALF : u + _DEPTH_KERNEL_HALF + 1,
         ]
-        valid = patch[patch > 0].astype(np.float64) * 0.001  # mm → m
+        if depth.dtype == np.uint16:
+            valid = patch[patch > 0].astype(np.float64) * 0.001  # mm → m
+        else:
+            finite = np.isfinite(patch) & (patch > 0)
+            valid = patch[finite].astype(np.float64)
         valid = valid[(valid >= _DEPTH_MIN_M) & (valid <= _DEPTH_MAX_M)]
 
         if len(valid) == 0:

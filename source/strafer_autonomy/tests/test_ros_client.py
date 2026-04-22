@@ -148,6 +148,22 @@ class TestCaptureSceneObservation(unittest.TestCase):
         self.assertEqual(len(obs.observation_id), 12)
 
     @patch("cv_bridge.CvBridge")
+    def test_capture_accepts_float32_depth(self, MockBridge: MagicMock) -> None:
+        """Isaac Sim bridge publishes 32FC1 (m); keep as-is without rescaling."""
+        bridge = MockBridge.return_value
+        color_arr = np.zeros((360, 640, 3), dtype=np.uint8)
+        depth_arr = np.full((360, 640), 2.0, dtype=np.float32)
+        bridge.imgmsg_to_cv2.side_effect = [color_arr, depth_arr]
+
+        client = _make_client()
+        client._latest_color = _make_color_msg()
+        client._latest_depth = _make_depth_msg()
+
+        obs = client.capture_scene_observation()
+
+        np.testing.assert_allclose(obs.aligned_depth_m, 2.0, atol=1e-6)
+
+    @patch("cv_bridge.CvBridge")
     def test_capture_without_odom_still_succeeds(self, MockBridge: MagicMock) -> None:
         bridge = MockBridge.return_value
         bridge.imgmsg_to_cv2.side_effect = [

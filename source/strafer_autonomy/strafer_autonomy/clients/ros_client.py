@@ -332,9 +332,13 @@ class JetsonRosClient:
         bridge = CvBridge()
         color_bgr = bridge.imgmsg_to_cv2(color_msg, desired_encoding="bgr8")
 
-        # Aligned depth arrives as 16UC1 in millimeters; convert to float32 meters
+        # Real D555 driver publishes aligned depth as 16UC1 (mm); the Isaac
+        # Sim ROS 2 bridge publishes it as 32FC1 (m). Normalise to float32 m.
         depth_raw = bridge.imgmsg_to_cv2(depth_msg, desired_encoding="passthrough")
-        aligned_depth_m = depth_raw.astype(np.float32) * 0.001
+        if depth_raw.dtype == np.uint16:
+            aligned_depth_m = depth_raw.astype(np.float32) * 0.001
+        else:
+            aligned_depth_m = depth_raw.astype(np.float32)
 
         camera_info: dict[str, Any] = {}
         if cam_info_msg is not None:

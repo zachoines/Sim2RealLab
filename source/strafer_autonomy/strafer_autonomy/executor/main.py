@@ -5,8 +5,12 @@ clients and ROS client, and spins the AutonomyCommandServer node.
 
 Environment variables
 ---------------------
-VLM_URL      : Base URL for the VLM grounding service  (required, e.g. http://192.168.50.196:8100)
-PLANNER_URL  : Base URL for the LLM planner service    (required, e.g. http://192.168.50.196:8200)
+VLM_URL                : Base URL for the VLM grounding service  (required, e.g. http://192.168.50.196:8100)
+PLANNER_URL            : Base URL for the LLM planner service    (required, e.g. http://192.168.50.196:8200)
+OBSERVATION_MAX_AGE_S  : Override the freshness cap on cached camera frames (optional, seconds; default 0.5).
+                         Raise this when the upstream publisher runs slower than the RealSense D555 — e.g.
+                         an Isaac Sim bridge delivering at ~5 Hz needs 1.5-2.0 s of headroom to tolerate
+                         jitter.
 """
 
 from __future__ import annotations
@@ -41,7 +45,7 @@ def main() -> None:
         HttpPlannerClient,
         HttpPlannerClientConfig,
     )
-    from strafer_autonomy.clients.ros_client import JetsonRosClient
+    from strafer_autonomy.clients.ros_client import JetsonRosClient, RosClientConfig
     from strafer_autonomy.clients.vlm_client import (
         HttpGroundingClient,
         HttpGroundingClientConfig,
@@ -60,7 +64,23 @@ def main() -> None:
     grounding_client = HttpGroundingClient(
         config=HttpGroundingClientConfig(base_url=vlm_url),
     )
-    ros_client = JetsonRosClient()
+
+    ros_config_kwargs: dict = {}
+    max_age_env = os.environ.get("OBSERVATION_MAX_AGE_S")
+    if max_age_env:
+        try:
+            ros_config_kwargs["observation_max_age_s"] = float(max_age_env)
+            logger.info(
+                "observation_max_age_s overridden to %s via env",
+                ros_config_kwargs["observation_max_age_s"],
+            )
+        except ValueError:
+            logger.warning(
+                "Ignoring non-numeric OBSERVATION_MAX_AGE_S=%r", max_age_env,
+            )
+    ros_client = JetsonRosClient(
+        config=RosClientConfig(**ros_config_kwargs) if ros_config_kwargs else None,
+    )
 
     logger.info("Planner service: %s", planner_url)
     logger.info("VLM service:     %s", vlm_url)

@@ -56,6 +56,11 @@ def _launch_setup(context, *args, **kwargs):
     rtabmap_args = LaunchConfiguration("rtabmap_args").perform(context)
     rtabmap_viz = LaunchConfiguration("rtabmap_viz").perform(context)
 
+    # The DGX bridge publishes /clock, so every node in this launch runs
+    # on sim time. Pins the whole chain (TF, approx_sync, freshness
+    # checks) to a single monotonic source.
+    sim_time = "true"
+
     nodes = [
         # ── Robot description (URDF → TF tree) ─────────────────────────
         # TF from base_link → d555_link. Odom TF comes from the DGX bridge;
@@ -64,6 +69,7 @@ def _launch_setup(context, *args, **kwargs):
             PythonLaunchDescriptionSource(
                 os.path.join(description_dir, "launch", "description.launch.py")
             ),
+            launch_arguments={"use_sim_time": sim_time}.items(),
         ),
 
         # ── Timestamp fixer ─────────────────────────────────────────────
@@ -80,10 +86,7 @@ def _launch_setup(context, *args, **kwargs):
             executable="timestamp_fixer",
             name="timestamp_fixer",
             output="screen",
-            # restamp=False keeps the bridge's sim-time stamps so the
-            # cameras stay synchronised with the bridge-published odom,
-            # which does not pass through this node.
-            parameters=[{"restamp": False}],
+            parameters=[{"use_sim_time": True}],
             remappings=[
                 ("/d555/aligned_depth_to_color/image_raw",
                  "/d555/depth/image_rect_raw"),
@@ -102,6 +105,7 @@ def _launch_setup(context, *args, **kwargs):
                 "database_path": database_path,
                 "rtabmap_args": rtabmap_args,
                 "rtabmap_viz": rtabmap_viz,
+                "use_sim_time": sim_time,
             }.items(),
         ),
 
@@ -112,6 +116,7 @@ def _launch_setup(context, *args, **kwargs):
             ),
             launch_arguments={
                 "log_level": nav_log_level,
+                "use_sim_time": sim_time,
             }.items(),
         ),
 
@@ -121,11 +126,12 @@ def _launch_setup(context, *args, **kwargs):
             executable="goal_projection",
             name="goal_projection",
             output="screen",
+            parameters=[{"use_sim_time": True}],
         ),
 
         # ── Autonomy executor ─────────────────────────────────────────
         ExecuteProcess(
-            cmd=["strafer-executor"],
+            cmd=["strafer-executor", "--ros-args", "-p", "use_sim_time:=true"],
             name="strafer_executor",
             output="screen",
             additional_env={

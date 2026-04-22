@@ -49,7 +49,10 @@ def main() -> None:
     from strafer_autonomy.executor.command_server import build_command_server
 
     if not rclpy.ok():
-        rclpy.init()
+        # Forward sys.argv so `--ros-args -p use_sim_time:=true` and
+        # similar overrides reach the rclpy context and propagate to the
+        # nodes this executor constructs.
+        rclpy.init(args=sys.argv)
 
     planner_client = HttpPlannerClient(
         config=HttpPlannerClientConfig(base_url=planner_url),

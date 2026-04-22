@@ -97,6 +97,7 @@ def _launch_setup(context, *args, **kwargs):
     nav2_bringup_dir = get_package_share_directory("nav2_bringup")
 
     log_level = LaunchConfiguration("log_level").perform(context)
+    use_sim_time = LaunchConfiguration("use_sim_time").perform(context)
 
     # ── Load YAML ───────────────────────────────────────────────────────
     yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
@@ -124,7 +125,7 @@ def _launch_setup(context, *args, **kwargs):
                 os.path.join(nav2_bringup_dir, "launch", "navigation_launch.py")
             ),
             launch_arguments={
-                "use_sim_time": "false",
+                "use_sim_time": use_sim_time,
                 "params_file": patched_path,
                 "autostart": "true",
                 "use_composition": "False",
@@ -139,6 +140,10 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "log_level", default_value="warn",
             description="Log level for Nav2 nodes.",
+        ),
+        DeclareLaunchArgument(
+            "use_sim_time", default_value="false",
+            description="Set true when /clock is published upstream (sim-in-the-loop).",
         ),
         OpaqueFunction(function=_launch_setup),
     ])

@@ -195,6 +195,12 @@ TOPIC_DEPTH_IMAGE = "/d555/depth/image_rect_raw"
 TOPIC_DEPTH_CAMERA_INFO = "/d555/depth/camera_info"
 TOPIC_ODOM = "/strafer/odom"
 TOPIC_CMD_VEL = "/cmd_vel"
+# Sim-time clock published by the Isaac Sim bridge. The Jetson side sets
+# `use_sim_time:=True` on every ROS 2 node launched by
+# `bringup_sim_in_the_loop.launch.py` so the whole cross-host stack shares
+# the bridge's monotonic sim clock and TF chains compose without stamp
+# conflicts between wall-time and sim-time publishers.
+TOPIC_CLOCK = "/clock"
 
 FRAME_ODOM = "odom"
 FRAME_BASE_LINK = "base_link"

@@ -7,6 +7,10 @@ booted Isaac Sim). The pure-Python config layer lives in
 
 What gets wired
 ---------------
+- **Sim clock** → ``/clock`` (``rosgraph_msgs/Clock``). Drives the
+  whole cross-host stack when Jetson-side nodes run with
+  ``use_sim_time:=True``, keeping TF stamps monotonic in sim time
+  instead of mixing wall-time (RTAB-Map) and sim-time (bridge).
 - **Color camera** → ``/d555/color/image_raw`` (``sensor_msgs/Image``)
   + ``/d555/color/camera_info`` (``sensor_msgs/CameraInfo``).
 - **Depth camera** → ``/d555/depth/image_rect_raw``
@@ -66,6 +70,8 @@ def build_bridge_graph(config: BridgeConfig) -> Any:
                 ("RunOnce", "isaacsim.core.nodes.OgnIsaacRunOneSimulationFrame"),
                 ("ReadSimTime", "isaacsim.core.nodes.IsaacReadSimulationTime"),
                 ("Context", "isaacsim.ros2.bridge.ROS2Context"),
+                # Clock — authoritative sim-time for every cross-host ROS 2 node
+                ("PublishClock", "isaacsim.ros2.bridge.ROS2PublishClock"),
                 # Odometry
                 ("ComputeOdometry", "isaacsim.core.nodes.IsaacComputeOdometry"),
                 ("PublishOdometry", "isaacsim.ros2.bridge.ROS2PublishOdometry"),
@@ -76,6 +82,8 @@ def build_bridge_graph(config: BridgeConfig) -> Any:
                 ("SubscribeTwist", "isaacsim.ros2.bridge.ROS2SubscribeTwist"),
             ],
             keys.SET_VALUES: [
+                # /clock
+                ("PublishClock.inputs:topicName", config.clock_topic),
                 # Odometry
                 ("ComputeOdometry.inputs:chassisPrim", config.chassis_prim_path),
                 ("PublishOdometry.inputs:topicName", config.odom_topic),
@@ -95,6 +103,12 @@ def build_bridge_graph(config: BridgeConfig) -> Any:
             ],
             keys.CONNECT: [
                 ("OnPlaybackTick.outputs:tick", "RunOnce.inputs:execIn"),
+                # Clock — tick every frame, stamp from the same sim-time source
+                # as every other publisher so consumers using use_sim_time:=True
+                # see monotonic sim-time across the whole stack.
+                ("OnPlaybackTick.outputs:tick", "PublishClock.inputs:execIn"),
+                ("ReadSimTime.outputs:simulationTime", "PublishClock.inputs:timeStamp"),
+                ("Context.outputs:context", "PublishClock.inputs:context"),
                 ("OnPlaybackTick.outputs:tick", "ComputeOdometry.inputs:execIn"),
                 ("ComputeOdometry.outputs:execOut", "PublishOdometry.inputs:execIn"),
                 ("ComputeOdometry.outputs:angularVelocity", "PublishOdometry.inputs:angularVelocity"),

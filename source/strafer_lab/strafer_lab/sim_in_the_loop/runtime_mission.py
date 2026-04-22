@@ -84,6 +84,7 @@ class Ros2MissionApi(MissionApi):
         import rclpy  # noqa: PLC0415
         from rclpy.action import ActionClient  # noqa: PLC0415
         from rclpy.node import Node  # noqa: PLC0415
+        from rclpy.parameter import Parameter  # noqa: PLC0415
 
         from strafer_msgs.action import ExecuteMission  # noqa: PLC0415
         from strafer_msgs.srv import GetMissionStatus  # noqa: PLC0415
@@ -96,7 +97,15 @@ class Ros2MissionApi(MissionApi):
         if self._owns_rclpy_init:
             rclpy.init(args=None)
 
-        self._node = Node(node_name)
+        # use_sim_time=True so any stamp this client reads off node.get_clock()
+        # matches the bridge's /clock publisher and the Jetson nodes (which
+        # also run with use_sim_time:=True in the sim-in-the-loop bringup).
+        # Without this the harness would compare wall-time stamps against
+        # sim-time stamps coming back from the executor.
+        self._node = Node(
+            node_name,
+            parameter_overrides=[Parameter("use_sim_time", value=True)],
+        )
         self._action_client = ActionClient(self._node, ExecuteMission, action_name)
         self._status_client = self._node.create_client(
             GetMissionStatus, status_service_name,

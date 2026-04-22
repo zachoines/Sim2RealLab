@@ -21,6 +21,7 @@ from strafer_shared.constants import (
     FRAME_D555_COLOR_OPTICAL,
     FRAME_D555_LINK,
     FRAME_ODOM,
+    TOPIC_CLOCK,
     TOPIC_CMD_VEL,
     TOPIC_COLOR_CAMERA_INFO,
     TOPIC_COLOR_IMAGE,
@@ -53,6 +54,9 @@ class TestDefaultBridgeTopicNames:
 
     def test_cmd_vel_topic(self, default_cfg):
         assert default_cfg.cmd_vel_topic == TOPIC_CMD_VEL
+
+    def test_clock_topic(self, default_cfg):
+        assert default_cfg.clock_topic == TOPIC_CLOCK
 
 
 class TestDefaultBridgeFrameIds:

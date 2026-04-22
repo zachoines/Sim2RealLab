@@ -19,6 +19,7 @@ from strafer_shared.constants import (
     FRAME_D555_COLOR_OPTICAL,
     FRAME_D555_LINK,
     FRAME_ODOM,
+    TOPIC_CLOCK,
     TOPIC_CMD_VEL,
     TOPIC_COLOR_CAMERA_INFO,
     TOPIC_COLOR_IMAGE,
@@ -55,6 +56,7 @@ class BridgeConfig:
     depth_camera: CameraStreamConfig
     odom_topic: str
     cmd_vel_topic: str
+    clock_topic: str
     odom_frame_id: str
     base_frame_id: str
     camera_mount_frame_id: str
@@ -111,6 +113,7 @@ def build_default_bridge_config(
         depth_camera=depth_camera,
         odom_topic=TOPIC_ODOM,
         cmd_vel_topic=TOPIC_CMD_VEL,
+        clock_topic=TOPIC_CLOCK,
         odom_frame_id=FRAME_ODOM,
         base_frame_id=FRAME_BASE_LINK,
         camera_mount_frame_id=FRAME_D555_LINK,

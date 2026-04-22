@@ -25,6 +25,10 @@ class RosClient(Protocol):
     def get_robot_state(self) -> dict[str, Any]:
         """Return the latest robot state snapshot for planning and status."""
 
+    def get_map_pose(self) -> dict[str, float] | None:
+        """Return the robot's current pose in the map frame, or ``None``
+        if the ``map -> base_link`` transform is not yet available."""
+
     def project_detection_to_goal_pose(
         self,
         *,
@@ -223,6 +227,26 @@ class JetsonRosClient:
         if cell >= 65:
             return "occupied"
         return "free"
+
+    def get_map_pose(self) -> dict[str, float] | None:
+        """Look up ``map -> base_link`` and return the pose dict.
+
+        Returns ``None`` if the transform is not yet available (e.g.
+        SLAM has not produced the map frame yet).
+        """
+        if self._tf_buffer is None:
+            return None
+        try:
+            from rclpy.time import Time
+            tf = self._tf_buffer.lookup_transform("map", "base_link", Time())
+        except Exception:
+            return None
+        t = tf.transform.translation
+        r = tf.transform.rotation
+        return {
+            "x": t.x, "y": t.y, "z": t.z,
+            "qx": r.x, "qy": r.y, "qz": r.z, "qw": r.w,
+        }
 
     def check_slam_tracking(self, threshold_s: float = 5.0) -> tuple[bool, float]:
         """Check ``map -> odom`` TF freshness.

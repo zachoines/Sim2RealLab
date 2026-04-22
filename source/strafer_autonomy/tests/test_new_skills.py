@@ -231,6 +231,78 @@ class TestRotateByDegrees:
 
 
 # ---------------------------------------------------------------------------
+# translate
+# ---------------------------------------------------------------------------
+
+
+class TestTranslate:
+    def test_forward_from_origin(self):
+        runner, ros = _make_runner()
+        ros.get_map_pose.return_value = {
+            "x": 0.0, "y": 0.0, "z": 0.0,
+            "qx": 0.0, "qy": 0.0, "qz": 0.0, "qw": 1.0,
+        }
+        ros.navigate_to_pose.return_value = SkillResult(
+            step_id="t1", skill="translate", status="succeeded",
+        )
+        runtime = _make_runtime()
+        step = SkillCall(
+            skill="translate", step_id="t1",
+            args={"dx_m": 1.0, "dy_m": 0.0},
+        )
+        result = runner._translate(runtime, step)
+        assert result.status == "succeeded"
+        goal = ros.navigate_to_pose.call_args.kwargs["goal_pose"]
+        assert abs(goal.x - 1.0) < 1e-6
+        assert abs(goal.y - 0.0) < 1e-6
+
+    def test_lateral_left_rotates_into_map(self):
+        runner, ros = _make_runner()
+        # Robot at (2, 3) facing +y (yaw=90°, qz=sqrt(2)/2, qw=sqrt(2)/2).
+        half_sqrt2 = math.sqrt(2) / 2
+        ros.get_map_pose.return_value = {
+            "x": 2.0, "y": 3.0, "z": 0.0,
+            "qx": 0.0, "qy": 0.0, "qz": half_sqrt2, "qw": half_sqrt2,
+        }
+        ros.navigate_to_pose.return_value = SkillResult(
+            step_id="t1", skill="translate", status="succeeded",
+        )
+        runtime = _make_runtime()
+        step = SkillCall(
+            skill="translate", step_id="t1",
+            args={"dx_m": 1.0, "dy_m": 0.5},
+        )
+        runner._translate(runtime, step)
+        goal = ros.navigate_to_pose.call_args.kwargs["goal_pose"]
+        # +1m forward (along +y in map) + 0.5m left (along -x in map).
+        assert abs(goal.x - (2.0 - 0.5)) < 1e-6
+        assert abs(goal.y - (3.0 + 1.0)) < 1e-6
+
+    def test_no_map_pose_returns_error(self):
+        runner, ros = _make_runner()
+        ros.get_map_pose.return_value = None
+        runtime = _make_runtime()
+        step = SkillCall(
+            skill="translate", step_id="t1",
+            args={"dx_m": 1.0, "dy_m": 0.0},
+        )
+        result = runner._translate(runtime, step)
+        assert result.status == "failed"
+        assert result.error_code == "no_map_pose"
+
+    def test_invalid_args_returns_error(self):
+        runner, ros = _make_runner()
+        runtime = _make_runtime()
+        step = SkillCall(
+            skill="translate", step_id="t1",
+            args={"dx_m": "bad", "dy_m": 0.0},
+        )
+        result = runner._translate(runtime, step)
+        assert result.status == "failed"
+        assert result.error_code == "invalid_args"
+
+
+# ---------------------------------------------------------------------------
 # orient_to_direction
 # ---------------------------------------------------------------------------
 
@@ -329,6 +401,7 @@ class TestDispatch:
         assert "verify_arrival" in DEFAULT_AVAILABLE_SKILLS
         assert "rotate_by_degrees" in DEFAULT_AVAILABLE_SKILLS
         assert "orient_to_direction" in DEFAULT_AVAILABLE_SKILLS
+        assert "translate" in DEFAULT_AVAILABLE_SKILLS
         assert "query_environment" in DEFAULT_AVAILABLE_SKILLS
 
     def test_execute_step_dispatches_verify_arrival(self):

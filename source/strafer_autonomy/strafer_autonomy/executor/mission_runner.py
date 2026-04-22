@@ -48,6 +48,7 @@ DEFAULT_AVAILABLE_SKILLS = (
     "verify_arrival",
     "rotate_by_degrees",
     "orient_to_direction",
+    "translate",
     "query_environment",
     # "orient_relative_to_target" — deferred from MVP; handler kept for post-MVP.
     "wait",
@@ -399,6 +400,8 @@ class MissionRunner(MissionCommandHandler):
             return self._verify_arrival(runtime, step)
         if step.skill == "rotate_by_degrees":
             return self._rotate_by_degrees(runtime, step)
+        if step.skill == "translate":
+            return self._translate(runtime, step)
         if step.skill == "orient_to_direction":
             return self._orient_to_direction(runtime, step)
         if step.skill == "query_environment":
@@ -1033,6 +1036,65 @@ class MissionRunner(MissionCommandHandler):
         except Exception as exc:
             return self._failed_result(
                 step, f"rotate_by_degrees failed: {exc}", "rotation_failed", started_at,
+            )
+
+    def _translate(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
+        started_at = time.time()
+        try:
+            dx_m = float(step.args.get("dx_m", 0.0))
+            dy_m = float(step.args.get("dy_m", 0.0))
+        except (TypeError, ValueError):
+            return self._failed_result(
+                step, "translate requires numeric 'dx_m' and 'dy_m'.",
+                "invalid_args", started_at,
+            )
+
+        try:
+            pose = self._ros_client.get_map_pose()
+        except Exception as exc:
+            return self._failed_result(
+                step, f"translate could not read map-frame pose: {exc}",
+                "map_pose_failed", started_at,
+            )
+        if pose is None:
+            return self._failed_result(
+                step, "translate requires the map->base_link transform.",
+                "no_map_pose", started_at,
+            )
+
+        # Planar yaw from the z-component of the orientation quaternion.
+        qw = pose["qw"]
+        qz = pose["qz"]
+        yaw = math.atan2(2.0 * qw * qz, 1.0 - 2.0 * qz * qz)
+        cos_y = math.cos(yaw)
+        sin_y = math.sin(yaw)
+
+        # Robot-local displacement (+x forward, +y left) rotated into map.
+        dx_map = cos_y * dx_m - sin_y * dy_m
+        dy_map = sin_y * dx_m + cos_y * dy_m
+
+        goal = Pose3D(
+            x=pose["x"] + dx_map,
+            y=pose["y"] + dy_map,
+            z=pose["z"],
+            qx=pose["qx"],
+            qy=pose["qy"],
+            qz=qz,
+            qw=qw,
+        )
+
+        timeout_s = step.timeout_s or self._config.default_navigation_timeout_s
+        try:
+            return self._ros_client.navigate_to_pose(
+                step_id=step.step_id,
+                goal_pose=goal,
+                execution_backend=self._config.default_navigation_backend,
+                behavior_tree=None,
+                timeout_s=timeout_s,
+            )
+        except Exception as exc:
+            return self._failed_result(
+                step, f"translate failed: {exc}", "navigation_failed", started_at,
             )
 
     _CARDINAL_YAWS = {

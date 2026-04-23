@@ -325,7 +325,10 @@ def main() -> None:
         graph_path=args.graph_path,
         camera_frame_skip=args.camera_frame_skip,
     )
-    build_bridge_graph(config, skip_cameras=args.no_camera_bridge)
+    # Telemetry (/clock, /odom, TF, /cmd_vel) is handled by a Python
+    # rclpy thread; only the cameras stay on the OmniGraph because they
+    # are bound to Isaac Sim render products.
+    build_bridge_graph(config, skip_cameras=args.no_camera_bridge, skip_telemetry=True)
     print(f"[sim_in_the_loop] bridge graph built at {args.graph_path}")
     if args.no_camera_bridge:
         print("[sim_in_the_loop] camera streams skipped (--no-camera-bridge)")
@@ -335,7 +338,7 @@ def main() -> None:
     print(f"[sim_in_the_loop] chassis_prim={config.chassis_prim_path}")
 
     if args.mode == "bridge":
-        _run_bridge_mode(simulation_app, env, args)
+        _run_bridge_mode(simulation_app, env, args, config)
     else:
         _run_harness_mode(simulation_app, env, args)
 
@@ -348,10 +351,10 @@ def main() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _run_bridge_mode(simulation_app, env, args) -> None:
+def _run_bridge_mode(simulation_app, env, args, config) -> None:
     import torch
 
-    from strafer_lab.bridge.graph import read_cmd_vel
+    from strafer_lab.bridge.async_publisher import StraferAsyncPublisher
 
     unwrapped = env.unwrapped
     env.reset()
@@ -362,33 +365,53 @@ def _run_bridge_mode(simulation_app, env, args) -> None:
     device = unwrapped.device
     zero_action = torch.zeros(action_shape, device=device)
 
+    publisher = StraferAsyncPublisher(
+        robot=unwrapped.scene["robot"],
+        clock_topic=config.clock_topic,
+        odom_topic=config.odom_topic,
+        cmd_vel_topic=config.cmd_vel_topic,
+        odom_frame_id=config.odom_frame_id,
+        base_frame_id=config.base_frame_id,
+    )
+    print("[sim_in_the_loop] async publisher up: /clock, /odom, TF, /cmd_vel")
+
+    # Track sim time in the bridge loop so /clock advances in lock-step
+    # with env.step. Matches IsaacReadSimulationTime's source: seconds
+    # elapsed since play-start = physics_dt * decimation * iter_count.
+    physics_dt = unwrapped.sim.get_physics_dt()
+    step_dt = physics_dt * unwrapped.cfg.decimation
+    sim_time_s = 0.0
+
     last_cmd_time = time.monotonic()
-    while simulation_app.is_running():
-        linear, angular = read_cmd_vel(args.graph_path)
-        vx, vy, _vz = linear
-        _wx, _wy, wz = angular
+    try:
+        while simulation_app.is_running():
+            linear, angular = publisher.get_cmd_vel()
+            vx, vy = linear[0], linear[1]
+            wz = angular[2]
 
-        now = time.monotonic()
-        if any(abs(v) > 1e-6 for v in (vx, vy, wz)):
-            last_cmd_time = now
-            action = zero_action.clone()
-            if action.shape[-1] >= 3:
-                action[0, 0] = float(vx)
-                action[0, 1] = float(vy)
-                action[0, 2] = float(wz)
-        elif now - last_cmd_time > args.cmd_vel_timeout:
-            action = zero_action
-        else:
-            action = zero_action
+            now = time.monotonic()
+            if any(abs(v) > 1e-6 for v in (vx, vy, wz)):
+                last_cmd_time = now
+                action = zero_action.clone()
+                if action.shape[-1] >= 3:
+                    action[0, 0] = float(vx)
+                    action[0, 1] = float(vy)
+                    action[0, 2] = float(wz)
+            elif now - last_cmd_time > args.cmd_vel_timeout:
+                action = zero_action
+            else:
+                action = zero_action
 
-        env.step(action)
-        # Tick Kit's main loop so OnPlaybackTick fires and the ROS2 bridge
-        # OmniGraph publishes once per env.step. Without this call, Isaac
-        # Lab 3.0's SimulationContext.render() no longer advances Kit (it
-        # only updates visualizers), so the bridge graph falls back to
-        # Kit's background cadence (~4 Hz) and /clock, /odom, /tf, camera
-        # topics all publish at that rate regardless of env.step rate.
-        simulation_app.update()
+            env.step(action)
+            sim_time_s += step_dt
+            publisher.publish_state(sim_time_s)
+            # Tick Kit's main loop so the camera OmniGraph (render
+            # product → ROS2 Image) evaluates once per env.step. Without
+            # this the image publishers fall back to Kit's background
+            # cadence on Isaac Lab 3.0.
+            simulation_app.update()
+    finally:
+        publisher.shutdown()
 
 
 # ---------------------------------------------------------------------------

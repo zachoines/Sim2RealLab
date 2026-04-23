@@ -48,7 +48,12 @@ from typing import Any
 from strafer_lab.bridge.config import BridgeConfig, CameraStreamConfig
 
 
-def build_bridge_graph(config: BridgeConfig, *, skip_cameras: bool = False) -> Any:
+def build_bridge_graph(
+    config: BridgeConfig,
+    *,
+    skip_cameras: bool = False,
+    skip_telemetry: bool = False,
+) -> Any:
     """Create the ROS2 bridge OmniGraph described by ``config``.
 
     Returns the ``og.Controller.edit`` graph handle so callers can
@@ -60,6 +65,13 @@ def build_bridge_graph(config: BridgeConfig, *, skip_cameras: bool = False) -> A
     baseline where the env is spawned without a perception camera — no
     render product means no GPU readback sync, so env.step throughput is
     no longer coupled to the render pipeline.
+
+    ``skip_telemetry`` omits the Clock / Odometry / TransformTree /
+    SubscribeTwist nodes. Use when a Python-side publisher
+    (``strafer_lab.bridge.async_publisher.StraferAsyncPublisher``) is
+    driving those topics instead; leaves the camera chain on OmniGraph
+    (cameras are render-product-bound and cannot be driven from Python
+    without re-implementing the image serialization path).
     """
 
     import omni.graph.core as og
@@ -68,79 +80,99 @@ def build_bridge_graph(config: BridgeConfig, *, skip_cameras: bool = False) -> A
 
     graph_path = config.graph_path
 
-    (graph_handle, _nodes, _, _) = og.Controller.edit(
-        {"graph_path": graph_path, "evaluator_name": "execution"},
-        {
-            keys.CREATE_NODES: [
-                ("OnPlaybackTick", "omni.graph.action.OnPlaybackTick"),
-                ("RunOnce", "isaacsim.core.nodes.OgnIsaacRunOneSimulationFrame"),
-                ("ReadSimTime", "isaacsim.core.nodes.IsaacReadSimulationTime"),
-                ("Context", "isaacsim.ros2.bridge.ROS2Context"),
-                # Clock — authoritative sim-time for every cross-host ROS 2 node
-                ("PublishClock", "isaacsim.ros2.bridge.ROS2PublishClock"),
-                # Odometry
-                ("ComputeOdometry", "isaacsim.core.nodes.IsaacComputeOdometry"),
-                ("PublishOdometry", "isaacsim.ros2.bridge.ROS2PublishOdometry"),
-                # TF: odom → base_link (raw) and base_link → d555_link (tree)
-                ("PublishOdomToBaseTF", "isaacsim.ros2.bridge.ROS2PublishRawTransformTree"),
-                ("PublishBaseLinkTF", "isaacsim.ros2.bridge.ROS2PublishTransformTree"),
-                # /cmd_vel subscription
-                ("SubscribeTwist", "isaacsim.ros2.bridge.ROS2SubscribeTwist"),
-            ],
-            keys.SET_VALUES: [
-                # /clock
-                ("PublishClock.inputs:topicName", config.clock_topic),
-                # Odometry
-                ("ComputeOdometry.inputs:chassisPrim", config.chassis_prim_path),
-                ("PublishOdometry.inputs:topicName", config.odom_topic),
-                ("PublishOdometry.inputs:chassisFrameId", config.base_frame_id),
-                ("PublishOdometry.inputs:odomFrameId", config.odom_frame_id),
-                # Raw odom → base_link
-                ("PublishOdomToBaseTF.inputs:parentFrameId", config.odom_frame_id),
-                ("PublishOdomToBaseTF.inputs:childFrameId", config.base_frame_id),
-                # base_link → children (d555_link + whatever else is in tf_extra_target_prims)
-                ("PublishBaseLinkTF.inputs:parentPrim", [config.chassis_prim_path]),
-                (
-                    "PublishBaseLinkTF.inputs:targetPrims",
-                    list(config.tf_extra_target_prims),
-                ),
-                # /cmd_vel
-                ("SubscribeTwist.inputs:topicName", config.cmd_vel_topic),
-            ],
-            keys.CONNECT: [
-                ("OnPlaybackTick.outputs:tick", "RunOnce.inputs:execIn"),
-                # Clock — tick every frame, stamp from the same sim-time source
-                # as every other publisher so consumers using use_sim_time:=True
-                # see monotonic sim-time across the whole stack.
-                ("OnPlaybackTick.outputs:tick", "PublishClock.inputs:execIn"),
-                ("ReadSimTime.outputs:simulationTime", "PublishClock.inputs:timeStamp"),
-                ("Context.outputs:context", "PublishClock.inputs:context"),
-                ("OnPlaybackTick.outputs:tick", "ComputeOdometry.inputs:execIn"),
-                ("ComputeOdometry.outputs:execOut", "PublishOdometry.inputs:execIn"),
-                ("ComputeOdometry.outputs:angularVelocity", "PublishOdometry.inputs:angularVelocity"),
-                ("ComputeOdometry.outputs:linearVelocity", "PublishOdometry.inputs:linearVelocity"),
-                ("ComputeOdometry.outputs:orientation", "PublishOdometry.inputs:orientation"),
-                ("ComputeOdometry.outputs:position", "PublishOdometry.inputs:position"),
-                # odom → base_link raw TF reuses the odometry pose
-                ("OnPlaybackTick.outputs:tick", "PublishOdomToBaseTF.inputs:execIn"),
-                ("ComputeOdometry.outputs:orientation", "PublishOdomToBaseTF.inputs:rotation"),
-                ("ComputeOdometry.outputs:position", "PublishOdomToBaseTF.inputs:translation"),
-                # base_link TF tree ticks every frame
-                ("OnPlaybackTick.outputs:tick", "PublishBaseLinkTF.inputs:execIn"),
-                # Subscribe twist
-                ("OnPlaybackTick.outputs:tick", "SubscribeTwist.inputs:execIn"),
-                # Context wiring
-                ("Context.outputs:context", "PublishOdometry.inputs:context"),
-                ("Context.outputs:context", "PublishOdomToBaseTF.inputs:context"),
-                ("Context.outputs:context", "PublishBaseLinkTF.inputs:context"),
-                ("Context.outputs:context", "SubscribeTwist.inputs:context"),
-                # Sim time on all publishers
-                ("ReadSimTime.outputs:simulationTime", "PublishOdometry.inputs:timeStamp"),
-                ("ReadSimTime.outputs:simulationTime", "PublishOdomToBaseTF.inputs:timeStamp"),
-                ("ReadSimTime.outputs:simulationTime", "PublishBaseLinkTF.inputs:timeStamp"),
-            ],
-        },
-    )
+    if not skip_telemetry:
+        (graph_handle, *_) = og.Controller.edit(
+            {"graph_path": graph_path, "evaluator_name": "execution"},
+            {
+                keys.CREATE_NODES: [
+                    ("OnPlaybackTick", "omni.graph.action.OnPlaybackTick"),
+                    ("RunOnce", "isaacsim.core.nodes.OgnIsaacRunOneSimulationFrame"),
+                    ("ReadSimTime", "isaacsim.core.nodes.IsaacReadSimulationTime"),
+                    ("Context", "isaacsim.ros2.bridge.ROS2Context"),
+                    # Clock — authoritative sim-time for every cross-host ROS 2 node
+                    ("PublishClock", "isaacsim.ros2.bridge.ROS2PublishClock"),
+                    # Odometry
+                    ("ComputeOdometry", "isaacsim.core.nodes.IsaacComputeOdometry"),
+                    ("PublishOdometry", "isaacsim.ros2.bridge.ROS2PublishOdometry"),
+                    # TF: odom → base_link (raw) and base_link → d555_link (tree)
+                    ("PublishOdomToBaseTF", "isaacsim.ros2.bridge.ROS2PublishRawTransformTree"),
+                    ("PublishBaseLinkTF", "isaacsim.ros2.bridge.ROS2PublishTransformTree"),
+                    # /cmd_vel subscription
+                    ("SubscribeTwist", "isaacsim.ros2.bridge.ROS2SubscribeTwist"),
+                ],
+                keys.SET_VALUES: [
+                    # /clock
+                    ("PublishClock.inputs:topicName", config.clock_topic),
+                    # Odometry
+                    ("ComputeOdometry.inputs:chassisPrim", config.chassis_prim_path),
+                    ("PublishOdometry.inputs:topicName", config.odom_topic),
+                    ("PublishOdometry.inputs:chassisFrameId", config.base_frame_id),
+                    ("PublishOdometry.inputs:odomFrameId", config.odom_frame_id),
+                    # Raw odom → base_link
+                    ("PublishOdomToBaseTF.inputs:parentFrameId", config.odom_frame_id),
+                    ("PublishOdomToBaseTF.inputs:childFrameId", config.base_frame_id),
+                    # base_link → children (d555_link + whatever else is in tf_extra_target_prims)
+                    ("PublishBaseLinkTF.inputs:parentPrim", [config.chassis_prim_path]),
+                    (
+                        "PublishBaseLinkTF.inputs:targetPrims",
+                        list(config.tf_extra_target_prims),
+                    ),
+                    # /cmd_vel
+                    ("SubscribeTwist.inputs:topicName", config.cmd_vel_topic),
+                ],
+                keys.CONNECT: [
+                    ("OnPlaybackTick.outputs:tick", "RunOnce.inputs:execIn"),
+                    # Clock — tick every frame, stamp from the same sim-time source
+                    # as every other publisher so consumers using use_sim_time:=True
+                    # see monotonic sim-time across the whole stack.
+                    ("OnPlaybackTick.outputs:tick", "PublishClock.inputs:execIn"),
+                    ("ReadSimTime.outputs:simulationTime", "PublishClock.inputs:timeStamp"),
+                    ("Context.outputs:context", "PublishClock.inputs:context"),
+                    ("OnPlaybackTick.outputs:tick", "ComputeOdometry.inputs:execIn"),
+                    ("ComputeOdometry.outputs:execOut", "PublishOdometry.inputs:execIn"),
+                    ("ComputeOdometry.outputs:angularVelocity", "PublishOdometry.inputs:angularVelocity"),
+                    ("ComputeOdometry.outputs:linearVelocity", "PublishOdometry.inputs:linearVelocity"),
+                    ("ComputeOdometry.outputs:orientation", "PublishOdometry.inputs:orientation"),
+                    ("ComputeOdometry.outputs:position", "PublishOdometry.inputs:position"),
+                    # odom → base_link raw TF reuses the odometry pose
+                    ("OnPlaybackTick.outputs:tick", "PublishOdomToBaseTF.inputs:execIn"),
+                    ("ComputeOdometry.outputs:orientation", "PublishOdomToBaseTF.inputs:rotation"),
+                    ("ComputeOdometry.outputs:position", "PublishOdomToBaseTF.inputs:translation"),
+                    # base_link TF tree ticks every frame
+                    ("OnPlaybackTick.outputs:tick", "PublishBaseLinkTF.inputs:execIn"),
+                    # Subscribe twist
+                    ("OnPlaybackTick.outputs:tick", "SubscribeTwist.inputs:execIn"),
+                    # Context wiring
+                    ("Context.outputs:context", "PublishOdometry.inputs:context"),
+                    ("Context.outputs:context", "PublishOdomToBaseTF.inputs:context"),
+                    ("Context.outputs:context", "PublishBaseLinkTF.inputs:context"),
+                    ("Context.outputs:context", "SubscribeTwist.inputs:context"),
+                    # Sim time on all publishers
+                    ("ReadSimTime.outputs:simulationTime", "PublishOdometry.inputs:timeStamp"),
+                    ("ReadSimTime.outputs:simulationTime", "PublishOdomToBaseTF.inputs:timeStamp"),
+                    ("ReadSimTime.outputs:simulationTime", "PublishBaseLinkTF.inputs:timeStamp"),
+                ],
+            },
+        )
+    else:
+        # Camera-only mode: still need OnPlaybackTick to drive the
+        # render-product chain, RunOnce to gate one-shot initialization,
+        # and a ROS2Context for the camera publishers. No sim-time node
+        # is required because the camera helpers pull their own
+        # timestamps via the IsaacSimulationGate.
+        (graph_handle, *_) = og.Controller.edit(
+            {"graph_path": graph_path, "evaluator_name": "execution"},
+            {
+                keys.CREATE_NODES: [
+                    ("OnPlaybackTick", "omni.graph.action.OnPlaybackTick"),
+                    ("RunOnce", "isaacsim.core.nodes.OgnIsaacRunOneSimulationFrame"),
+                    ("Context", "isaacsim.ros2.bridge.ROS2Context"),
+                ],
+                keys.CONNECT: [
+                    ("OnPlaybackTick.outputs:tick", "RunOnce.inputs:execIn"),
+                ],
+            },
+        )
 
     if not skip_cameras:
         _add_camera_stream(

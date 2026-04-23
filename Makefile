@@ -140,10 +140,6 @@ sim-bridge: ## Launch Isaac Sim + ROS 2 bridge (headless)
 	@source env_setup.sh && \
 		source $(CONDA_ROOT)/etc/profile.d/conda.sh && \
 		conda activate $(CONDA_ENV) && \
-		_HUMBLE=$$(ls -d $$HOME/.cache/packman/chk/nv_ros2/humble_py_*/ 2>/dev/null | head -1) && \
-		case ":$$LD_LIBRARY_PATH:" in *":$${_HUMBLE}lib:"*) : ;; *) export LD_LIBRARY_PATH="$${_HUMBLE}lib:$$LD_LIBRARY_PATH" ;; esac && \
-		export AMENT_PREFIX_PATH="$${_HUMBLE%/}$${AMENT_PREFIX_PATH:+:$$AMENT_PREFIX_PATH}" && \
-		export ROS_DISTRO=humble && \
 		echo "[sim-bridge] ROS_DISTRO=$$ROS_DISTRO, LD_LIBRARY_PATH head: $$(echo $$LD_LIBRARY_PATH | cut -d: -f1)" && \
 		$(ISAACLAB) -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
 			--mode bridge --headless --enable_cameras
@@ -152,10 +148,6 @@ sim-bridge-gui: ## Launch Isaac Sim + ROS 2 bridge with the viewport open
 	@source env_setup.sh && \
 		source $(CONDA_ROOT)/etc/profile.d/conda.sh && \
 		conda activate $(CONDA_ENV) && \
-		_HUMBLE=$$(ls -d $$HOME/.cache/packman/chk/nv_ros2/humble_py_*/ 2>/dev/null | head -1) && \
-		case ":$$LD_LIBRARY_PATH:" in *":$${_HUMBLE}lib:"*) : ;; *) export LD_LIBRARY_PATH="$${_HUMBLE}lib:$$LD_LIBRARY_PATH" ;; esac && \
-		export AMENT_PREFIX_PATH="$${_HUMBLE%/}$${AMENT_PREFIX_PATH:+:$$AMENT_PREFIX_PATH}" && \
-		export ROS_DISTRO=humble && \
 		echo "[sim-bridge-gui] ROS_DISTRO=$$ROS_DISTRO, LD_LIBRARY_PATH head: $$(echo $$LD_LIBRARY_PATH | cut -d: -f1)" && \
 		$(ISAACLAB) -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
 			--mode bridge --enable_cameras --viz kit
@@ -168,10 +160,6 @@ sim-harness: ## Run sim-in-the-loop autonomous mission sweep
 	@source env_setup.sh && \
 		source $(CONDA_ROOT)/etc/profile.d/conda.sh && \
 		conda activate $(CONDA_ENV) && \
-		_HUMBLE=$$(ls -d $$HOME/.cache/packman/chk/nv_ros2/humble_py_*/ 2>/dev/null | head -1) && \
-		case ":$$LD_LIBRARY_PATH:" in *":$${_HUMBLE}lib:"*) : ;; *) export LD_LIBRARY_PATH="$${_HUMBLE}lib:$$LD_LIBRARY_PATH" ;; esac && \
-		export AMENT_PREFIX_PATH="$${_HUMBLE%/}$${AMENT_PREFIX_PATH:+:$$AMENT_PREFIX_PATH}" && \
-		export ROS_DISTRO=humble && \
 		$(ISAACLAB) -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
 			--mode harness \
 			--scene-metadata $$SCENE_META \

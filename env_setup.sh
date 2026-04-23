@@ -115,40 +115,120 @@ if [ -n "${RMW_IMPLEMENTATION:-}" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Source Isaac Sim's vendored ROS 2 Humble
+# Advertise ROS 2 Humble runtime to Isaac Sim's ros2 extension
 # ---------------------------------------------------------------------------
-# Isaac Sim's `isaacsim.ros2.bridge` extension defaults to `system_default`,
-# meaning "whatever ROS 2 is sourced in the shell; otherwise fall back to the
-# bundled default." The bundled default is Jazzy, which (a) is ABI-incompatible
-# with the Jetson's Humble stack and (b) fails to load unless its own lib dir
-# is on LD_LIBRARY_PATH. Sourcing the vendored Humble setup.bash fixes both:
-# it sets AMENT_PREFIX_PATH / LD_LIBRARY_PATH / PYTHONPATH and advertises
-# ROS_DISTRO=humble to the bridge.
+# Isaac Sim 6 ships a self-contained Humble payload (rclpy compiled for
+# Kit's Python 3.12 plus every runtime .so — librmw_cyclonedds_cpp,
+# libddsc, librcl, etc.) inside the isaacsim.ros2.core extension. The
+# extension activates that payload automatically on startup, but only
+# when (a) ROS_DISTRO=humble, and (b) the payload's lib/ directory is
+# already on LD_LIBRARY_PATH so the C++ OmniGraph publishers can dlopen
+# their dependencies.
 #
-# Idempotency: guard on whether the specific packman humble lib path is
-# already on LD_LIBRARY_PATH. Guarding on ROS_DISTRO alone turned out to be
-# too loose — a parent shell (or a leaked export from a previous Kit run)
-# can leave ROS_DISTRO set without the lib path actually being present,
-# causing the bridge to fail with "librmw_cyclonedds_cpp.so: cannot open
-# shared object file" even though env_setup.sh appeared to succeed.
+# Preference order:
+#   1) Isaac Sim 6 bundled Humble (STRAFER_ISAACLAB_PYTHON points at a
+#      conda env with isaacsim[all]>=6.0.0 installed). This is the
+#      canonical setup on the Isaac Lab 3.0 stack and keeps the rclpy
+#      ABI aligned with Kit's Python, which is a prerequisite for any
+#      Python-side ROS 2 publisher/subscriber running inside Kit.
+#   2) Legacy packman-cached Humble bundle (~/.cache/packman/chk/
+#      nv_ros2/humble_py_*). Used on hosts where isaacsim is not
+#      pip-installed (e.g. an Isaac Sim 5.x source build). The packman
+#      payload is Python-3.11-flavoured, so its rclpy will NOT import
+#      inside Kit's 3.12 Python — but the C++ DDS libs still work for
+#      the OmniGraph publishers, which is enough for bridge mode.
+#
+# Guard on whether the chosen lib directory is already on
+# LD_LIBRARY_PATH to keep a nested `source env_setup.sh` idempotent.
 
-_HUMBLE_PREFIX=$(shopt -s nullglob; set -- "$HOME"/.cache/packman/chk/nv_ros2/humble_py_*; [ $# -gt 0 ] && printf '%s' "$1")
-if [ -n "${_HUMBLE_PREFIX}" ] && [ -f "${_HUMBLE_PREFIX}/setup.bash" ]; then
+_ISAACSIM_HUMBLE_LIB=
+if [ -n "${STRAFER_ISAACLAB_PYTHON:-}" ]; then
+    _CONDA_ENV_PREFIX="$(dirname "$(dirname "${STRAFER_ISAACLAB_PYTHON}")")"
+    _CANDIDATE="${_CONDA_ENV_PREFIX}/lib/python3.12/site-packages/isaacsim/exts/isaacsim.ros2.core/humble/lib"
+    if [ -f "${_CANDIDATE}/librmw_cyclonedds_cpp.so" ]; then
+        _ISAACSIM_HUMBLE_LIB="${_CANDIDATE}"
+    fi
+    unset _CANDIDATE _CONDA_ENV_PREFIX
+fi
+
+if [ -n "${_ISAACSIM_HUMBLE_LIB}" ]; then
+    # Defensive: scrub any leftover ROS 2 shell state from prior
+    # sessions (e.g. a previous source of packman's 3.11 humble
+    # setup.bash). Kit's isaacsim.ros2.core extension calls
+    # restore_ros2_python_paths() at startup, which reads OLD_PYTHONPATH
+    # / AMENT_PREFIX_PATH and re-injects those entries onto sys.path
+    # BEFORE falling back to its own bundled 3.12 rclpy. If those
+    # envvars still point at the packman 3.11 bundle, Python finds the
+    # wrong rclpy first and import blows up on ABI mismatch. Unsetting
+    # them here keeps restore_ros2_python_paths a no-op so the extension
+    # goes straight to its bundled 3.12 rclpy.
+    unset OLD_PYTHONPATH AMENT_PREFIX_PATH AMENT_CURRENT_PREFIX
+    # Scrub packman humble entries from PYTHONPATH while preserving
+    # anything else the user put there. The packman bundle is 3.11
+    # flavoured; keeping it on Python 3.12's sys.path will shadow the
+    # isaacsim bundled 3.12 rclpy.
+    if [ -n "${PYTHONPATH:-}" ]; then
+        _CLEANED=
+        IFS=':'; for _entry in ${PYTHONPATH}; do
+            case "${_entry}" in
+                *"/packman/chk/nv_ros2/humble_py_3.11_"*) ;;
+                *) _CLEANED="${_CLEANED:+${_CLEANED}:}${_entry}" ;;
+            esac
+        done
+        unset IFS
+        if [ -n "${_CLEANED}" ]; then
+            export PYTHONPATH="${_CLEANED}"
+        else
+            unset PYTHONPATH
+        fi
+        unset _CLEANED _entry
+    fi
     case ":${LD_LIBRARY_PATH:-}:" in
-        *":${_HUMBLE_PREFIX}/lib:"*)
-            # Already on LD_LIBRARY_PATH — earlier env_setup.sh call in this
-            # shell chain took care of it.
-            ;;
+        *":${_ISAACSIM_HUMBLE_LIB}:"*) ;;  # idempotent
         *)
-            # shellcheck disable=SC1091
-            source "${_HUMBLE_PREFIX}/setup.bash"
-            echo "[env_setup] ROS_DISTRO=${ROS_DISTRO:-humble} (sourced ${_HUMBLE_PREFIX})"
+            export LD_LIBRARY_PATH="${_ISAACSIM_HUMBLE_LIB}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
             ;;
     esac
+    export ROS_DISTRO="${ROS_DISTRO:-humble}"
+    echo "[env_setup] ROS_DISTRO=${ROS_DISTRO} (isaacsim.ros2.core bundle)"
 else
-    echo "[env_setup] WARNING: no Humble packman bundle found under ~/.cache/packman/chk/nv_ros2/; Isaac Sim bridge may fall back to Jazzy" >&2
+    _HUMBLE_PREFIX=$(shopt -s nullglob; set -- "$HOME"/.cache/packman/chk/nv_ros2/humble_py_*; [ $# -gt 0 ] && printf '%s' "$1")
+    if [ -n "${_HUMBLE_PREFIX}" ] && [ -f "${_HUMBLE_PREFIX}/setup.bash" ]; then
+        case ":${LD_LIBRARY_PATH:-}:" in
+            *":${_HUMBLE_PREFIX}/lib:"*) ;;
+            *)
+                # shellcheck disable=SC1091
+                source "${_HUMBLE_PREFIX}/setup.bash"
+                echo "[env_setup] ROS_DISTRO=${ROS_DISTRO:-humble} (sourced packman ${_HUMBLE_PREFIX})"
+                ;;
+        esac
+    else
+        echo "[env_setup] WARNING: no Humble payload found (neither isaacsim.ros2.core nor packman); Isaac Sim bridge may fall back to Jazzy" >&2
+    fi
+    unset _HUMBLE_PREFIX
 fi
-unset _HUMBLE_PREFIX
+unset _ISAACSIM_HUMBLE_LIB
+
+# ---------------------------------------------------------------------------
+# Python 3.11 ROS 2 Humble — opt-in rclpy location for non-Kit clients
+# ---------------------------------------------------------------------------
+# Off-Kit tooling that runs in a Python 3.11 conda env (e.g. the
+# sim-in-the-loop bench subscriber invoked through STRAFER_INFINIGEN_PYTHON)
+# cannot reuse the Isaac Sim 6 bundle above — its rclpy C extension is
+# 3.12-flavoured. Export the packman-cached 3.11 Humble bundle's
+# site-packages as STRAFER_ROS2_HUMBLE_PY311_PYTHONPATH so those callers
+# can prepend it to PYTHONPATH on a per-invocation basis. Kept as an
+# env var (not auto-added to PYTHONPATH) so Kit's 3.12 interpreter never
+# sees the ABI-wrong rclpy on its sys.path.
+
+_PACKMAN_PY311=$(shopt -s nullglob; set -- "$HOME"/.cache/packman/chk/nv_ros2/humble_py_3.11_*; [ $# -gt 0 ] && printf '%s' "$1")
+if [ -n "${_PACKMAN_PY311}" ]; then
+    if [ -f "${_PACKMAN_PY311}/local/lib/python3.11/dist-packages/rclpy/__init__.py" ]; then
+        export STRAFER_ROS2_HUMBLE_PY311_PYTHONPATH="${_PACKMAN_PY311}/local/lib/python3.11/dist-packages:${_PACKMAN_PY311}/lib/python3.11/site-packages"
+        export STRAFER_ROS2_HUMBLE_PY311_LIB="${_PACKMAN_PY311}/lib"
+    fi
+fi
+unset _PACKMAN_PY311
 
 # ---------------------------------------------------------------------------
 # Status report
@@ -164,6 +244,7 @@ echo "[env_setup] CONDA_ROOT=${CONDA_ROOT:-<unset>}"
 echo "[env_setup] CONDA_ENV=${CONDA_ENV:-<unset>}"
 echo "[env_setup] ISAACLAB=${ISAACLAB:-<unset>}"
 echo "[env_setup] COLCON_WS=${COLCON_WS:-<unset>}"
+echo "[env_setup] STRAFER_ROS2_HUMBLE_PY311_PYTHONPATH=${STRAFER_ROS2_HUMBLE_PY311_PYTHONPATH:-<unset>}"
 echo "[env_setup] HF_HOME=${HF_HOME:-<unset>}"
 echo "[env_setup] ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-<unset>}"
 echo "[env_setup] RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-<unset>}"

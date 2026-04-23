@@ -20,6 +20,7 @@ Usage:
 import math
 import torch
 import pytest
+import warp as wp
 
 
 # =====================================================================
@@ -165,7 +166,7 @@ def test_goal_minimum_distance_from_robot(env):
     command_term = env.command_manager.get_term("goal_command")
     min_dist = command_term.cfg.min_goal_distance
 
-    robot_pos = env.scene["robot"].data.root_pos_w[:, :2]
+    robot_pos = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2]
     goal_pos = command_term.command[:, :2]
 
     distances = torch.norm(goal_pos - robot_pos, dim=-1)

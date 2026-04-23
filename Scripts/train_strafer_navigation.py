@@ -126,19 +126,19 @@ def main():
     import torch
 
     from rsl_rl.runners import OnPolicyRunner
-    from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
+    import importlib.metadata as _metadata
+    _rsl_rl_version = _metadata.version("rsl-rl-lib")
+    from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper, handle_deprecated_rsl_rl_cfg
     from isaaclab_tasks.utils import parse_env_cfg
     from isaaclab_tasks.utils.hydra import load_cfg_from_registry
     from isaaclab.envs.common import ViewerCfg
 
-    # Import strafer_lab to register environments and inject custom network
+    # Import strafer_lab to register environments
     import strafer_lab  # noqa: F401
     from strafer_lab.tasks.navigation.agents import (
-        register_strafer_network,
         install_strafer_ppo,
         register_auxiliary,
     )
-    register_strafer_network()
 
     # Let aux modules define their own CLI args, then re-parse remainder.
     from strafer_lab.tasks.navigation.agents.aux_dapg import DAPGAuxiliary
@@ -244,6 +244,7 @@ def main():
             register_auxiliary(GAILAuxiliary.from_args(args, device=agent_cfg.device))
 
     # Create runner (inject CLI overrides into the config dict)
+    agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, _rsl_rl_version)
     agent_dict = agent_cfg.to_dict()
     if args.depth_encoder is not None:
         agent_dict["policy"]["depth_encoder_type"] = args.depth_encoder

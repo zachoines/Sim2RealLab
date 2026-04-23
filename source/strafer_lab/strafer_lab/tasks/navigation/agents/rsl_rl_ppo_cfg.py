@@ -11,10 +11,13 @@ while the critic additionally receives privileged ground truth state.
 
 from isaaclab_rl.rsl_rl import (
     RslRlOnPolicyRunnerCfg,
-    RslRlPpoActorCriticCfg,
-    RslRlPpoActorCriticRecurrentCfg,
+    RslRlMLPModelCfg,
+    RslRlRNNModelCfg,
     RslRlPpoAlgorithmCfg,
 )
+
+from .distributions import BetaDistributionCfg
+from .depth_rnn_model import StraferDepthRNNModelCfg
 
 
 # =============================================================================
@@ -28,11 +31,15 @@ STRAFER_PPO_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
     experiment_name="strafer_navigation",
     empirical_normalization=False,
     obs_groups={"policy": ["policy"], "critic": ["critic"]},
-    policy=RslRlPpoActorCriticCfg(
-        class_name="ActorCritic",
-        init_noise_std=0.5,
-        actor_hidden_dims=[256, 256, 128],
-        critic_hidden_dims=[256, 256, 128],
+    actor=RslRlMLPModelCfg(
+        hidden_dims=[256, 256, 128],
+        activation="elu",
+        distribution_cfg=RslRlMLPModelCfg.GaussianDistributionCfg(
+            init_std=0.5,
+        ),
+    ),
+    critic=RslRlMLPModelCfg(
+        hidden_dims=[256, 256, 128],
         activation="elu",
     ),
     algorithm=RslRlPpoAlgorithmCfg(
@@ -67,15 +74,19 @@ STRAFER_PPO_LSTM_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
     experiment_name="strafer_navigation_lstm",
     empirical_normalization=False,
     obs_groups={"policy": ["policy"], "critic": ["critic"]},
-    policy=RslRlPpoActorCriticRecurrentCfg(
-        class_name="ActorCriticRecurrent",
-        init_noise_std=0.5,
-        actor_hidden_dims=[256, 128],
-        critic_hidden_dims=[256, 128],
+    actor=RslRlRNNModelCfg(
+        hidden_dims=[256, 128],
         activation="elu",
+        distribution_cfg=RslRlRNNModelCfg.GaussianDistributionCfg(
+            init_std=0.5,
+        ),
         rnn_type="lstm",
         rnn_hidden_dim=256,
         rnn_num_layers=1,
+    ),
+    critic=RslRlMLPModelCfg(
+        hidden_dims=[256, 128],
+        activation="elu",
     ),
     algorithm=RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,
@@ -122,17 +133,33 @@ STRAFER_PPO_DEPTH_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
     max_iterations=10000,
     save_interval=100,
     experiment_name="strafer_navigation_depth",
-    empirical_normalization=True,
-    obs_groups={"policy": ["policy"], "critic": ["critic"]},
-    policy=RslRlPpoActorCriticRecurrentCfg(
-        class_name="StraferActorCritic",
-        init_noise_std=0.3,
-        actor_hidden_dims=[256, 128],
-        critic_hidden_dims=[256, 128],
+    empirical_normalization=False,
+    obs_groups={"actor": ["policy"], "critic": ["critic"]},
+    actor=StraferDepthRNNModelCfg(
+        hidden_dims=[256, 128],
         activation="elu",
+        obs_normalization=True,
+        distribution_cfg=BetaDistributionCfg(
+            init_std=0.3,
+            min_concentration=0.2,
+        ),
         rnn_type="gru",
         rnn_hidden_dim=128,
         rnn_num_layers=1,
+        depth_encoder_type="defm",
+        defm_model_name="efficientnet_b0",
+        depth_embedding_dim=128,
+    ),
+    critic=StraferDepthRNNModelCfg(
+        hidden_dims=[256, 128],
+        activation="elu",
+        obs_normalization=True,
+        rnn_type="gru",
+        rnn_hidden_dim=128,
+        rnn_num_layers=1,
+        depth_encoder_type="defm",
+        defm_model_name="efficientnet_b0",
+        depth_embedding_dim=128,
     ),
     algorithm=RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,

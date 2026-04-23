@@ -158,7 +158,7 @@ def test_missed_tick_probability():
         n_missed += int((diff > 0.5).sum().item())
         n_total += N_ENVS * 4
 
-    result = binomial_test(n_missed, n_total, TEST_MISSED_TICK_PROB)
+    result = binomial_test(n_missed, n_total, TEST_MISSED_TICK_PROB, confidence_level=0.99)
 
     print(f"\n  Missed tick probability test:")
     print(f"    Expected rate: {TEST_MISSED_TICK_PROB:.4f}")

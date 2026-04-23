@@ -12,6 +12,10 @@ from .proc_room import OBJECT_SIZES, ROBOT_HALF_WIDTH
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
     from isaaclab.managers import SceneEntityCfg
+import warp as wp
+
+# XYZW quaternion component indices (Isaac Lab 3.0 convention)
+QX, QY, QZ, QW = 0, 1, 2, 3
 
 
 def goal_reached_reward(
@@ -30,7 +34,7 @@ def goal_reached_reward(
         Binary reward: 1.0 if goal reached, 0.0 otherwise.
     """
     robot = env.scene["robot"]
-    robot_pos = robot.data.root_pos_w[:, :2]
+    robot_pos = wp.to_torch(robot.data.root_pos_w)[:, :2]
     
     command = env.command_manager.get_command(command_name)
     goal_pos = command[:, :2]
@@ -62,7 +66,7 @@ def goal_progress_reward(
         Progress reward (positive if moving toward goal).
     """
     robot = env.scene["robot"]
-    robot_pos = robot.data.root_pos_w[:, :2]
+    robot_pos = wp.to_torch(robot.data.root_pos_w)[:, :2]
 
     command = env.command_manager.get_command(command_name)
     goal_pos = command[:, :2]
@@ -108,8 +112,8 @@ def heading_to_goal_reward(
         Heading alignment reward (1.0 when facing goal, -1.0 when facing away).
     """
     robot = env.scene["robot"]
-    robot_pos = robot.data.root_pos_w[:, :2]
-    robot_quat = robot.data.root_quat_w
+    robot_pos = wp.to_torch(robot.data.root_pos_w)[:, :2]
+    robot_quat = wp.to_torch(robot.data.root_quat_w)
 
     command = env.command_manager.get_command(command_name)
     goal_pos = command[:, :2]
@@ -118,8 +122,8 @@ def heading_to_goal_reward(
     to_goal = goal_pos - robot_pos
     goal_angle = torch.atan2(to_goal[:, 1], to_goal[:, 0])
 
-    # Robot heading (yaw from quaternion, full formula handles pitch/roll)
-    w, x, y, z = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    # Robot heading (yaw from quaternion, XYZW — Isaac Lab 3.0)
+    x, y, z, w = robot_quat[:, QX], robot_quat[:, QY], robot_quat[:, QZ], robot_quat[:, QW]
     robot_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
     # Angular difference
@@ -157,8 +161,8 @@ def heading_progress_reward(
         Heading progress in [-2, 2]. Positive when turning toward goal.
     """
     robot = env.scene["robot"]
-    robot_pos = robot.data.root_pos_w[:, :2]
-    robot_quat = robot.data.root_quat_w
+    robot_pos = wp.to_torch(robot.data.root_pos_w)[:, :2]
+    robot_quat = wp.to_torch(robot.data.root_quat_w)
 
     command = env.command_manager.get_command(command_name)
     goal_pos = command[:, :2]
@@ -167,8 +171,8 @@ def heading_progress_reward(
     to_goal = goal_pos - robot_pos
     goal_angle = torch.atan2(to_goal[:, 1], to_goal[:, 0])
 
-    # Robot heading
-    w, x, y, z = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    # Robot heading (XYZW — Isaac Lab 3.0)
+    x, y, z, w = robot_quat[:, QX], robot_quat[:, QY], robot_quat[:, QZ], robot_quat[:, QW]
     robot_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
     # Current potential: cos(heading_error)
@@ -222,7 +226,7 @@ def backward_motion_penalty(
     """
     robot = env.scene["robot"]
     # root_lin_vel_b is velocity in the body frame: [vx, vy, vz]
-    body_vx = robot.data.root_lin_vel_b[:, 0]
+    body_vx = wp.to_torch(robot.data.root_lin_vel_b)[:, 0]
     return torch.clamp(-body_vx, min=0.0)
 
 
@@ -250,8 +254,8 @@ def arrival_heading_reward(
     desired_heading = command[:, 2]
 
     robot = env.scene["robot"]
-    robot_quat = robot.data.root_quat_w
-    w, x, y, z = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    robot_quat = wp.to_torch(robot.data.root_quat_w)
+    x, y, z, w = robot_quat[:, QX], robot_quat[:, QY], robot_quat[:, QZ], robot_quat[:, QW]
     robot_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
     angle_diff = desired_heading - robot_yaw
@@ -270,7 +274,7 @@ def energy_penalty(env: ManagerBasedEnv) -> torch.Tensor:
     robot = env.scene["robot"]
     
     # Sum of squared joint efforts
-    efforts = robot.data.applied_torque
+    efforts = wp.to_torch(robot.data.applied_torque)
     energy = torch.sum(efforts ** 2, dim=-1)
     
     return energy
@@ -336,7 +340,7 @@ def goal_proximity_potential(
         Potential difference in [-1, 1]. Shape: (num_envs,)
     """
     robot = env.scene["robot"]
-    robot_pos = robot.data.root_pos_w[:, :2]
+    robot_pos = wp.to_torch(robot.data.root_pos_w)[:, :2]
 
     command = env.command_manager.get_command(command_name)
     goal_pos = command[:, :2]
@@ -390,7 +394,7 @@ def collision_penalty(
     contact_sensor = env.scene.sensors[sensor_cfg.name]
     # force_matrix_w shape: (num_envs, num_bodies, num_filter_prims, 3)
     # Only populated when filter_prim_paths_expr is set on the sensor.
-    force_matrix = contact_sensor.data.force_matrix_w
+    force_matrix = wp.to_torch(contact_sensor.data.force_matrix_w)
     # Magnitude per (body, obstacle) pair → (num_envs, num_bodies, num_obstacles)
     force_mag = torch.norm(force_matrix, dim=-1)
     # Collapse body and obstacle dims: any obstacle contact on any body counts
@@ -429,8 +433,8 @@ def speed_near_goal_penalty(
         Speed penalty when near goal. Shape: (num_envs,)
     """
     robot = env.scene["robot"]
-    robot_pos = robot.data.root_pos_w[:, :2]
-    robot_vel = robot.data.root_lin_vel_b[:, :2]
+    robot_pos = wp.to_torch(robot.data.root_pos_w)[:, :2]
+    robot_vel = wp.to_torch(robot.data.root_lin_vel_b)[:, :2]
 
     command = env.command_manager.get_command(command_name)
     goal_pos = command[:, :2]
@@ -480,7 +484,7 @@ def collision_sustained_penalty(
         Normalized contact intensity in [0, 1]. Shape: (num_envs,)
     """
     contact_sensor = env.scene.sensors[sensor_cfg.name]
-    force_matrix = contact_sensor.data.force_matrix_w
+    force_matrix = wp.to_torch(contact_sensor.data.force_matrix_w)
     # Sum force magnitudes across all bodies and obstacles
     force_mag = torch.norm(force_matrix, dim=-1)  # (N, B, M)
     total_force = force_mag.sum(dim=-1).sum(dim=-1)  # (N,)
@@ -517,7 +521,7 @@ def collision_penalty_net(
     """
     contact_sensor = env.scene.sensors[sensor_cfg.name]
     # net_forces_w shape: (num_envs, num_bodies, 3)
-    net_forces = contact_sensor.data.net_forces_w
+    net_forces = wp.to_torch(contact_sensor.data.net_forces_w)
     # Magnitude per body -> (num_envs, num_bodies)
     force_mag = torch.norm(net_forces, dim=-1)
     # Any body with force above threshold -> (num_envs,)
@@ -544,7 +548,7 @@ def collision_sustained_penalty_net(
     """
     contact_sensor = env.scene.sensors[sensor_cfg.name]
     # net_forces_w shape: (num_envs, num_bodies, 3)
-    net_forces = contact_sensor.data.net_forces_w
+    net_forces = wp.to_torch(contact_sensor.data.net_forces_w)
     # Magnitude per body -> (num_envs, num_bodies)
     force_mag = torch.norm(net_forces, dim=-1)
     # Sum across bodies -> (num_envs,)
@@ -628,20 +632,20 @@ def procroom_obstacle_proximity_penalty(
         Aggregated proximity penalty from nearby objects. Shape: (num_envs,)
     """
     robot = env.scene["robot"]
-    robot_xy = robot.data.root_pos_w[:, :2]
+    robot_xy = wp.to_torch(robot.data.root_pos_w)[:, :2]
 
     collection = env.scene[collection_name]
-    object_xy = collection.data.object_link_pos_w[:, :, :2]
-    object_quat = collection.data.object_link_quat_w
+    object_xy = wp.to_torch(collection.data.body_link_pos_w)[:, :, :2]
+    object_quat = wp.to_torch(collection.data.body_link_quat_w)
 
     sizes_xy = OBJECT_SIZES.to(env.device)[:, :2]
     half_extents_xy = 0.5 * sizes_xy.unsqueeze(0).expand(env.num_envs, -1, -1)
 
-    # ProcRoom objects are yaw-only; extract yaw from (w, x, y, z).
-    w = object_quat[..., 0]
-    x = object_quat[..., 1]
-    y = object_quat[..., 2]
-    z = object_quat[..., 3]
+    # ProcRoom objects are yaw-only; extract yaw from (x, y, z, w) — XYZW.
+    x = object_quat[..., 0]
+    y = object_quat[..., 1]
+    z = object_quat[..., 2]
+    w = object_quat[..., 3]
     object_yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
     robot_xy_expanded = robot_xy.unsqueeze(1).expand_as(object_xy)
@@ -656,7 +660,7 @@ def procroom_obstacle_proximity_penalty(
     if hasattr(env, "_proc_room_active_mask"):
         active_mask = env._proc_room_active_mask
     else:
-        active_mask = collection.data.object_link_pos_w[:, :, 2] > -5.0
+        active_mask = wp.to_torch(collection.data.body_link_pos_w)[:, :, 2] > -5.0
 
     return _sum_exponential_clearance_penalty(
         surface_clearance,

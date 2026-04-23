@@ -57,6 +57,7 @@ import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCollectionCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.sensors import TiledCameraCfg, ImuCfg, ContactSensorCfg
+from isaaclab_physx.physics import PhysxCfg
 
 # Import custom MDP functions
 from . import mdp
@@ -226,7 +227,7 @@ class StraferSceneCfg_NoCam(InteractiveSceneCfg):
         update_period=1.0 / 200.0,
         offset=ImuCfg.OffsetCfg(
             pos=(0.20, 0.0, 0.25),
-            rot=(1.0, 0.0, 0.0, 0.0),
+            rot=(0.0, 0.0, 0.0, 1.0),  # identity quaternion (XYZW)
         ),
         gravity_bias=(0.0, 0.0, 9.81),
     )
@@ -1479,8 +1480,11 @@ class StraferSceneCfg_ProcRoom(InteractiveSceneCfg):
     )
 
     # Intel RealSense D555 depth camera (near clip 0.01m, see StraferSceneCfg comment)
+    # RGB included alongside depth so the RTX renderer initializes the full
+    # colour pipeline — required for viewport / video recording to produce
+    # non-black frames even though observations only use depth.
     d555_camera: TiledCameraCfg = make_d555_camera_cfg(
-        data_types=("distance_to_image_plane",),
+        data_types=("rgb", "distance_to_image_plane"),
     )
 
     # Intel RealSense D555 IMU (same as StraferSceneCfg)
@@ -1528,7 +1532,7 @@ class StraferSceneCfg_ProcRoom_NoCam(InteractiveSceneCfg):
         update_period=1.0 / 200.0,
         offset=ImuCfg.OffsetCfg(
             pos=(0.20, 0.0, 0.25),
-            rot=(1.0, 0.0, 0.0, 0.0),
+            rot=(0.0, 0.0, 0.0, 1.0),  # identity quaternion (XYZW)
         ),
         gravity_bias=(0.0, 0.0, 9.81),
     )
@@ -1674,17 +1678,15 @@ class TerminationsCfg_ProcRoom(TerminationsCfg):
 
 def _apply_procroom_physx_buffers(cfg) -> None:
     """Increase PhysX GPU buffers and stabilize solver for ProcRoom."""
-    cfg.sim.physx.gpu_found_lost_pairs_capacity = 2**23       # 4× default (roller contact churn)
-    cfg.sim.physx.gpu_max_rigid_contact_count = 2**24          # 2× default
-    cfg.sim.physx.gpu_max_rigid_patch_count = 2**18            # ~1.6× default
-    cfg.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 2**26  # ~2× default
-    # Force single solver partition so the articulation's 32 position iterations
-    # are not split across parallel groups at high env counts.
-    cfg.sim.physx.gpu_max_num_partitions = 1
-    # Stabilization + raised bounce threshold reduce chassis micro-bouncing from
-    # roller-ground contacts, giving the policy cleaner transition dynamics.
-    cfg.sim.physx.enable_stabilization = True
-    cfg.sim.physx.bounce_threshold_velocity = 2.0
+    cfg.sim.physics = PhysxCfg(
+        gpu_found_lost_pairs_capacity=2**23,             # 4× default (roller contact churn)
+        gpu_max_rigid_contact_count=2**24,               # 2× default
+        gpu_max_rigid_patch_count=2**18,                  # ~1.6× default
+        gpu_found_lost_aggregate_pairs_capacity=2**26,   # ~2× default
+        gpu_max_num_partitions=1,                         # single solver partition
+        enable_stabilization=True,
+        bounce_threshold_velocity=2.0,
+    )
 
 
 # --- ProcRoom environment configs ---

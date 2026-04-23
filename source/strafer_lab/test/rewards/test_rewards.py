@@ -32,7 +32,7 @@ from strafer_lab.tasks.navigation.agents.rsl_rl_ppo_cfg import (
     STRAFER_PPO_LSTM_RUNNER_CFG,
     STRAFER_PPO_RUNNER_CFG,
 )
-from strafer_lab.tasks.navigation.agents.strafer_network import StraferActorCritic
+from strafer_lab.tasks.navigation.agents.distributions import AffineBetaDistribution
 from strafer_lab.tasks.navigation.mdp.rewards import (
     _point_to_oriented_box_distance_xy,
     _sum_exponential_clearance_penalty,
@@ -65,6 +65,10 @@ from strafer_lab.tasks.navigation.strafer_env_cfg import (
 from strafer_lab.tasks.navigation.mdp.terminations import goal_reached
 
 from test.common.stats import one_sample_t_test
+import warp as wp
+
+# XYZW quaternion component indices (Isaac Lab 3.0 convention)
+QX, QY, QZ, QW = 0, 1, 2, 3
 
 
 def test_heading_reward_config_uses_goal_direction():
@@ -90,83 +94,59 @@ def test_procroom_run1_config_stabilizes_episode_returns():
     assert STRAFER_PPO_DEPTH_RUNNER_CFG.algorithm.entropy_coef == 0.005
 
 
-def test_strafer_actor_critic_initializes_symmetric_beta_from_init_noise_std():
-    """The Beta head should start centered at zero with the requested action std."""
-    obs = {
-        "policy": torch.zeros(2, 8, dtype=torch.float32),
-        "critic": torch.zeros(2, 8, dtype=torch.float32),
-    }
-    policy = StraferActorCritic(
-        obs=obs,
-        obs_groups={"policy": ["policy"], "critic": ["critic"]},
-        num_actions=3,
-        actor_hidden_dims=[16],
-        critic_hidden_dims=[16],
-        init_noise_std=0.3,
-    )
+def test_beta_distribution_initializes_symmetric_from_init_std():
+    """The Beta distribution should start centered at zero with the requested action std."""
+    num_actions = 3
+    dist = AffineBetaDistribution(output_dim=num_actions, init_std=0.3)
 
-    policy.act(obs)
+    # Build a tiny MLP matching input_dim = [2, num_actions]
+    mlp = torch.nn.Linear(8, 2 * num_actions)
+    dist.init_mlp_weights(mlp)
+
+    obs = torch.zeros(2, 8, dtype=torch.float32)
+    logits = mlp(obs).view(2, 2, num_actions)
+    dist.update(logits)
 
     torch.testing.assert_close(
-        policy.action_std[0],
-        torch.full((3,), 0.3, dtype=torch.float32),
+        dist.std[0],
+        torch.full((num_actions,), 0.3, dtype=torch.float32),
         atol=1.0e-4,
         rtol=1.0e-4,
     )
     torch.testing.assert_close(
-        policy.action_mean[0],
-        torch.zeros(3, dtype=torch.float32),
+        dist.mean[0],
+        torch.zeros(num_actions, dtype=torch.float32),
         atol=1.0e-6,
         rtol=1.0e-6,
     )
 
 
-def test_strafer_actor_critic_bounds_actions_and_log_probs():
-    """Beta actor samples, means, entropy, and inference outputs should be well-formed."""
-    obs = {
-        "policy": torch.zeros(4, 8, dtype=torch.float32),
-        "critic": torch.zeros(4, 8, dtype=torch.float32),
-    }
-    policy = StraferActorCritic(
-        obs=obs,
-        obs_groups={"policy": ["policy"], "critic": ["critic"]},
-        num_actions=3,
-        actor_hidden_dims=[16],
-        critic_hidden_dims=[16],
-        init_noise_std=0.3,
-    )
+def test_beta_distribution_bounds_actions_and_log_probs():
+    """Beta distribution samples, means, entropy, and log probs should be well-formed."""
+    num_actions = 3
+    dist = AffineBetaDistribution(output_dim=num_actions, init_std=0.3)
 
-    sampled = policy.act(obs)
-    inferred = policy.act_inference(obs)
-    log_prob = policy.get_actions_log_prob(sampled)
+    mlp = torch.nn.Linear(8, 2 * num_actions)
+    dist.init_mlp_weights(mlp)
+
+    obs = torch.zeros(4, 8, dtype=torch.float32)
+    logits = mlp(obs).view(4, 2, num_actions)
+    dist.update(logits)
+
+    sampled = dist.sample()
+    mean = dist.mean
+    log_prob = dist.log_prob(sampled)
+    det_output = dist.deterministic_output(logits)
 
     assert torch.all(sampled <= 1.0)
     assert torch.all(sampled >= -1.0)
-    assert torch.all(inferred <= 1.0)
-    assert torch.all(inferred >= -1.0)
-    assert torch.all(policy.action_mean <= 1.0)
-    assert torch.all(policy.action_mean >= -1.0)
-    torch.testing.assert_close(inferred, policy.action_mean)
+    assert torch.all(mean <= 1.0)
+    assert torch.all(mean >= -1.0)
+    assert torch.all(det_output <= 1.0)
+    assert torch.all(det_output >= -1.0)
+    torch.testing.assert_close(det_output, mean)
     assert torch.isfinite(log_prob).all()
-    assert torch.isfinite(policy.entropy).all()
-
-
-def test_strafer_actor_critic_requires_matched_actor_and_critic_obs():
-    """The custom network should reject asymmetric actor/critic observation sizes."""
-    obs = {
-        "policy": torch.zeros(2, 8, dtype=torch.float32),
-        "critic": torch.zeros(2, 9, dtype=torch.float32),
-    }
-
-    with pytest.raises(ValueError, match="same flattened shape"):
-        StraferActorCritic(
-            obs=obs,
-            obs_groups={"policy": ["policy"], "critic": ["critic"]},
-            num_actions=3,
-            actor_hidden_dims=[16],
-            critic_hidden_dims=[16],
-            init_noise_std=0.3,
-        )
+    assert torch.isfinite(dist.entropy).all()
 
 
 def test_runner_cfgs_delegate_action_bounds_to_beta_distribution():
@@ -311,15 +291,15 @@ def _goal_direction_body_frame(env) -> torch.Tensor:
     world-frame direction vector must be rotated by the inverse of the
     robot's yaw before it can be used as a (vx, vy) command.
     """
-    robot_pos = env.scene["robot"].data.root_pos_w[:, :2]
-    robot_quat = env.scene["robot"].data.root_quat_w
+    robot_pos = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2]
+    robot_quat = wp.to_torch(env.scene["robot"].data.root_quat_w)
     goal_pos = env.command_manager.get_command("goal_command")[:, :2]
 
     delta = goal_pos - robot_pos
     world_dir = delta / (torch.norm(delta, dim=-1, keepdim=True) + 1e-8)
 
-    # Robot yaw from quaternion (w, x, y, z in IsaacLab) — full formula
-    w, x, y, z = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    # Robot yaw from quaternion (x, y, z, w in IsaacLab 3.0) — full formula
+    x, y, z, w = robot_quat[:, QX], robot_quat[:, QY], robot_quat[:, QZ], robot_quat[:, QW]
     yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
     cos_y = torch.cos(yaw)
     sin_y = torch.sin(yaw)
@@ -389,7 +369,7 @@ def test_no_reward_spikes_on_reset(env):
     assert hasattr(env, "_prev_goal_distance"), (
         "env._prev_goal_distance not initialised after goal_progress_reward"
     )
-    robot_pos = env.scene["robot"].data.root_pos_w[:, :2]
+    robot_pos = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2]
     goal_pos = env.command_manager.get_command("goal_command")[:, :2]
     current_dist = torch.norm(goal_pos - robot_pos, dim=-1)
     tracking_err = (env._prev_goal_distance - current_dist).abs().max().item()
@@ -445,7 +425,7 @@ def test_goal_progress_positive_when_approaching(env):
     goal_pos = env.command_manager.get_command("goal_command")[:, :2].clone()
 
     # Measure distance before
-    pos_before = env.scene["robot"].data.root_pos_w[:, :2].clone()
+    pos_before = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2].clone()
     dist_before = torch.norm(goal_pos - pos_before, dim=-1)
 
     # Command each robot toward its own goal (body-frame)
@@ -458,7 +438,7 @@ def test_goal_progress_positive_when_approaching(env):
         env.step(approach_action)
 
     # Measure distance after
-    pos_after = env.scene["robot"].data.root_pos_w[:, :2]
+    pos_after = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2]
     dist_after = torch.norm(goal_pos - pos_after, dim=-1)
 
     # progress > 0 means distance decreased (good)
@@ -493,7 +473,7 @@ def test_goal_progress_negative_when_retreating(env):
 
     goal_pos = env.command_manager.get_command("goal_command")[:, :2].clone()
 
-    pos_before = env.scene["robot"].data.root_pos_w[:, :2].clone()
+    pos_before = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2].clone()
     dist_before = torch.norm(goal_pos - pos_before, dim=-1)
 
     # Command each robot AWAY from its goal (body-frame)
@@ -505,7 +485,7 @@ def test_goal_progress_negative_when_retreating(env):
     for _ in range(20):
         env.step(retreat_action)
 
-    pos_after = env.scene["robot"].data.root_pos_w[:, :2]
+    pos_after = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2]
     dist_after = torch.norm(goal_pos - pos_after, dim=-1)
 
     # regression > 0 means distance increased (retreated)
@@ -543,7 +523,7 @@ def test_goal_reached_fires_within_threshold(env):
     reward = goal_reached_reward(env, threshold=threshold, command_name="goal_command")
 
     # Compute actual distances for comparison
-    robot_pos = env.scene["robot"].data.root_pos_w[:, :2]
+    robot_pos = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2]
     goal_pos = env.command_manager.get_command("goal_command")[:, :2]
     distances = torch.norm(goal_pos - robot_pos, dim=-1)
 
@@ -827,7 +807,7 @@ def test_goal_proximity_potential_positive_when_approaching(env):
     sigma = 0.3
 
     # Compute phi before approach
-    robot_pos = env.scene["robot"].data.root_pos_w[:, :2]
+    robot_pos = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2]
     goal_pos = env.command_manager.get_command("goal_command")[:, :2]
     phi_before = torch.exp(-torch.norm(goal_pos - robot_pos, dim=-1) / sigma).clone()
 
@@ -841,7 +821,7 @@ def test_goal_proximity_potential_positive_when_approaching(env):
         env.step(approach_action)
 
     # Compute phi after approach
-    robot_pos = env.scene["robot"].data.root_pos_w[:, :2]
+    robot_pos = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2]
     goal_pos = env.command_manager.get_command("goal_command")[:, :2]
     phi_after = torch.exp(-torch.norm(goal_pos - robot_pos, dim=-1) / sigma)
 
@@ -882,7 +862,7 @@ def test_speed_near_goal_zero_when_far(env):
     )
 
     # Check how many envs are actually within the threshold
-    robot_pos = env.scene["robot"].data.root_pos_w[:, :2]
+    robot_pos = wp.to_torch(env.scene["robot"].data.root_pos_w)[:, :2]
     goal_pos = env.command_manager.get_command("goal_command")[:, :2]
     distances = torch.norm(goal_pos - robot_pos, dim=-1)
     far_mask = distances >= 0.01

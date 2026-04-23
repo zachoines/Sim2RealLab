@@ -9,6 +9,7 @@ on the grid and can be frozen in place for stationary measurements.
 """
 
 import torch
+import warp as wp
 
 
 def get_env_origins(env) -> torch.Tensor:
@@ -49,40 +50,41 @@ def reset_robot_pose(env, face_wall: bool = True):
     env_origins = get_env_origins(env)  # Shape: (num_envs, 3)
 
     # Create desired root state
-    # Root state format: [pos_x, pos_y, pos_z, quat_w, quat_x, quat_y, quat_z,
+    # Root state format: [pos_x, pos_y, pos_z, quat_x, quat_y, quat_z, quat_w,
     #                     vel_x, vel_y, vel_z, ang_vel_x, ang_vel_y, ang_vel_z]
-    root_state = torch.zeros(num_envs, 13, device=device)
+    root_pose = torch.zeros(num_envs, 7, device=device)
 
     # Position: environment origin + slight elevation
-    root_state[:, 0] = env_origins[:, 0]        # x = grid origin x
-    root_state[:, 1] = env_origins[:, 1]        # y = grid origin y
-    root_state[:, 2] = env_origins[:, 2] + 0.1  # z = grid origin z + slight elevation
+    root_pose[:, 0] = env_origins[:, 0]        # x = grid origin x
+    root_pose[:, 1] = env_origins[:, 1]        # y = grid origin y
+    root_pose[:, 2] = env_origins[:, 2] + 0.1  # z = grid origin z + slight elevation
 
     if face_wall:
-        # Identity quaternion (w, x, y, z) = (1, 0, 0, 0)
+        # Identity quaternion (x, y, z, w) = (0, 0, 0, 1)
         # Robot body +X remains aligned with world +X.
-        root_state[:, 3] = 1.0   # quat_w
-        root_state[:, 4] = 0.0   # quat_x
-        root_state[:, 5] = 0.0   # quat_y
-        root_state[:, 6] = 0.0   # quat_z
+        root_pose[:, 3] = 0.0   # quat_x
+        root_pose[:, 4] = 0.0   # quat_y
+        root_pose[:, 5] = 0.0   # quat_z
+        root_pose[:, 6] = 1.0   # quat_w
     else:
-        # 180-degree rotation around Z axis: (w, x, y, z) = (0, 0, 0, 1)
+        # 180-degree rotation around Z axis: (x, y, z, w) = (0, 0, 1, 0)
         # Robot body +X now points to world -X (away from wall).
-        root_state[:, 3] = 0.0   # quat_w
-        root_state[:, 4] = 0.0   # quat_x
-        root_state[:, 5] = 0.0   # quat_y
-        root_state[:, 6] = 1.0   # quat_z
+        root_pose[:, 3] = 0.0   # quat_x
+        root_pose[:, 4] = 0.0   # quat_y
+        root_pose[:, 5] = 1.0   # quat_z
+        root_pose[:, 6] = 0.0   # quat_w
 
-    # Velocities: all zero (stationary)
-    # root_state[:, 7:13] already zero
-
-    # Write root state to simulation
-    robot.write_root_state_to_sim(root_state)
+    # Write root pose and zero velocity to simulation
+    robot.write_root_pose_to_sim_index(root_pose=root_pose)
+    robot.write_root_velocity_to_sim_index(
+        root_velocity=torch.zeros(num_envs, 6, device=device)
+    )
 
     # Also reset joint positions and velocities to zero
     joint_pos = torch.zeros(num_envs, robot.num_joints, device=device)
     joint_vel = torch.zeros(num_envs, robot.num_joints, device=device)
-    robot.write_joint_state_to_sim(joint_pos, joint_vel)
+    robot.write_joint_position_to_sim_index(position=joint_pos)
+    robot.write_joint_velocity_to_sim_index(velocity=joint_vel)
 
 
 # Module-level state for freeze_robot_in_place
@@ -123,14 +125,19 @@ def freeze_robot_in_place(env):
 
     # On the first call after a reset, capture the desired frozen pose
     if _frozen_state["root_state"] is None:
-        _frozen_state["root_state"] = robot.data.root_state_w.clone()
-        _frozen_state["joint_pos"] = robot.data.joint_pos.clone()
+        _frozen_state["root_state"] = torch.cat([
+            wp.to_torch(robot.data.root_link_pose_w),
+            wp.to_torch(robot.data.root_link_vel_w),
+        ], dim=-1).clone()
+        _frozen_state["joint_pos"] = wp.to_torch(robot.data.joint_pos).clone()
 
-    frozen_root = _frozen_state["root_state"].clone()
-    # Ensure velocities are zero
-    frozen_root[:, 7:13] = 0.0
-    robot.write_root_state_to_sim(frozen_root)
+    frozen_pose = _frozen_state["root_state"][:, :7].clone()
+    robot.write_root_pose_to_sim_index(root_pose=frozen_pose)
+    robot.write_root_velocity_to_sim_index(
+        root_velocity=torch.zeros(num_envs, 6, device=device)
+    )
 
     frozen_joint_pos = _frozen_state["joint_pos"]
     joint_vel = torch.zeros(num_envs, robot.num_joints, device=device)
-    robot.write_joint_state_to_sim(frozen_joint_pos, joint_vel)
+    robot.write_joint_position_to_sim_index(position=frozen_joint_pos)
+    robot.write_joint_velocity_to_sim_index(velocity=joint_vel)

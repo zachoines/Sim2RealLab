@@ -17,6 +17,7 @@ from isaaclab.utils.math import quat_from_euler_xyz, quat_mul
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
+import warp as wp
 
 
 class GoalCommand(CommandTerm):
@@ -95,7 +96,7 @@ class GoalCommand(CommandTerm):
             env_ids = torch.tensor(env_ids, device=self.device)
 
         # Robot positions for distance check (world frame)
-        robot_pos = self._robot.data.root_pos_w[env_ids, :2]
+        robot_pos = wp.to_torch(self._robot.data.root_pos_w)[env_ids, :2]
         # Environment origins to convert local goal range to world frame
         env_origins = self._env.scene.env_origins[env_ids, :2]
         min_dist = self.cfg.min_goal_distance
@@ -253,7 +254,7 @@ class GoalCommand(CommandTerm):
 
     def _update_metrics(self):
         """Update metrics based on current state."""
-        root_pos = self._robot.data.root_pos_w[:, :2]
+        root_pos = wp.to_torch(self._robot.data.root_pos_w)[:, :2]
 
         self._distance_to_goal[:] = torch.norm(root_pos - self._goal[:, :2], dim=1)
 
@@ -432,7 +433,7 @@ class GoalCommandProcRoom(GoalCommand):
         if not isinstance(env_ids, torch.Tensor):
             env_ids = torch.tensor(env_ids, device=self.device)
 
-        robot_pos = self._robot.data.root_pos_w[env_ids, :2]
+        robot_pos = wp.to_torch(self._robot.data.root_pos_w)[env_ids, :2]
         env_origins = self._env.scene.env_origins[env_ids, :2]
         min_dist = self.cfg.min_goal_distance
 

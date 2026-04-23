@@ -233,7 +233,7 @@ def _build_occupancy_grid(
     """Rasterize object AABBs onto an occupancy grid.
 
     Args:
-        poses: (B, N, 7) object poses in env-local frame [x, y, z, qw, qx, qy, qz].
+        poses: (B, N, 7) object poses in env-local frame [x, y, z, qx, qy, qz, qw] (XYZW).
         active_mask: (B, N) bool — True if object is placed (not parked).
         sizes: (N, 3) object dimensions (X, Y, Z) — same for all envs.
         room_w: (B,) room width.
@@ -256,11 +256,11 @@ def _build_occupancy_grid(
     grid_origin_x = -G * GRID_RES / 2.0  # -4.0 for 80 cells
     grid_origin_y = -G * GRID_RES / 2.0
 
-    # Extract XY positions and yaw from poses
+    # Extract XY positions and yaw from poses (XYZW convention)
     cx = poses[:, :, 0]  # (B, N)
     cy = poses[:, :, 1]  # (B, N)
-    qw = poses[:, :, 3]  # (B, N)
-    qz = poses[:, :, 6]  # (B, N)
+    qz = poses[:, :, 5]  # (B, N) — XYZW: index 5 is qz
+    qw = poses[:, :, 6]  # (B, N) — XYZW: index 6 is qw
     yaw = 2.0 * torch.atan2(qz, qw)  # (B, N)
 
     # Object half-sizes
@@ -431,17 +431,19 @@ def _extract_spawn_points(
 # ===========================================================================
 
 def _yaw_to_quat(yaw: torch.Tensor) -> torch.Tensor:
-    """Convert yaw angles to quaternions (w, x, y, z).
+    """Convert yaw angles to quaternions (x, y, z, w) — XYZW (Isaac Lab 3.0).
 
     Args:
         yaw: (...) tensor of yaw angles in radians.
 
     Returns:
-        quat: (..., 4) tensor of quaternions.
+        quat: (..., 4) tensor of quaternions in XYZW format.
     """
     half = yaw / 2.0
     zeros = torch.zeros_like(yaw)
-    return torch.stack([torch.cos(half), zeros, zeros, torch.sin(half)], dim=-1)
+    # XYZW: [x=0, y=0, z=sin(yaw/2), w=cos(yaw/2)]
+    quat = torch.stack([zeros, zeros, torch.sin(half), torch.cos(half)], dim=-1)
+    return quat
 
 
 def _pack_wall_segments(
@@ -534,7 +536,7 @@ def generate_proc_room(
     poses[:, :, 0] = PARK_POS[0]
     poses[:, :, 1] = PARK_POS[1]
     poses[:, :, 2] = PARK_POS[2]
-    poses[:, :, 3] = 1.0  # qw = 1 (identity rotation)
+    poses[:, :, 6] = 1.0  # qw = 1 (identity) — XYZW: [x,y,z,qx,qy,qz,qw]
     active_mask = torch.zeros(B, NUM_OBJECTS, dtype=torch.bool, device=device)
 
     # --- Phase 2: Wall construction (per-env loop — small B) ---
@@ -804,4 +806,4 @@ def generate_proc_room(
     # Write all 44 objects in one batched call
     collection = env.scene[collection_name]
     all_object_ids = torch.arange(NUM_OBJECTS, device=device)
-    collection.write_object_link_pose_to_sim(poses, env_ids, all_object_ids)
+    collection.write_body_link_pose_to_sim_index(body_poses=poses, env_ids=env_ids, body_ids=all_object_ids)

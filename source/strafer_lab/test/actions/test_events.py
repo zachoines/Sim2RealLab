@@ -21,6 +21,7 @@ NOTE: Uses the shared ``action_env`` fixture from ``test/actions/conftest.py``.
 import torch
 import pytest
 import numpy as np
+import warp as wp
 
 from strafer_lab.tasks.navigation.mdp.events import randomize_friction
 
@@ -52,7 +53,7 @@ def test_friction_within_range(env):
     randomize_friction(env, env_ids, friction_range=FRICTION_RANGE)
 
     robot = env.scene["robot"]
-    materials = robot.root_physx_view.get_material_properties()
+    materials = wp.to_torch(robot.root_view.get_material_properties())
     # materials shape: (num_envs, num_shapes, 3) → [0]=static, [1]=dynamic, [2]=restitution
 
     # Check STATIC friction (index 0) — should be within FRICTION_RANGE
@@ -83,7 +84,7 @@ def test_friction_dynamic_is_lower(env):
     randomize_friction(env, env_ids, friction_range=FRICTION_RANGE)
 
     robot = env.scene["robot"]
-    materials = robot.root_physx_view.get_material_properties()
+    materials = wp.to_torch(robot.root_view.get_material_properties())
 
     static_f = materials[:, 0, 0].cpu().numpy()
     dynamic_f = materials[:, 0, 1].cpu().numpy()
@@ -109,7 +110,7 @@ def test_friction_varies_across_envs(env):
     randomize_friction(env, env_ids, friction_range=FRICTION_RANGE)
 
     robot = env.scene["robot"]
-    materials = robot.root_physx_view.get_material_properties()
+    materials = wp.to_torch(robot.root_view.get_material_properties())
 
     per_env_friction = materials[:, 0, 0].cpu().numpy()
     n_unique = len(np.unique(np.round(per_env_friction, 4)))
@@ -131,13 +132,13 @@ def test_friction_partial_env_randomization(env):
     randomize_friction(env, all_ids, friction_range=(0.5, 0.5))
 
     robot = env.scene["robot"]
-    before = robot.root_physx_view.get_material_properties()[:, 0, 0].cpu().numpy().copy()
+    before = wp.to_torch(robot.root_view.get_material_properties())[:, 0, 0].cpu().numpy().copy()
 
     # Now randomize only the first half
     half_ids = torch.arange(env.num_envs // 2, device=env.device)
     randomize_friction(env, half_ids, friction_range=(0.8, 1.2))
 
-    after = robot.root_physx_view.get_material_properties()[:, 0, 0].cpu().numpy()
+    after = wp.to_torch(robot.root_view.get_material_properties())[:, 0, 0].cpu().numpy()
 
     # The second half should be unchanged
     second_half_diff = np.abs(after[env.num_envs // 2:] - before[env.num_envs // 2:]).max()

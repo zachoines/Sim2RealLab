@@ -14,7 +14,7 @@ import threading
 # Isaac Sim must be launched before importing Isaac Lab modules
 from isaaclab.app import AppLauncher
 
-app_launcher = AppLauncher(headless=True, enable_cameras=True)
+app_launcher = AppLauncher(headless=True, enable_cameras=True)  # TODO: replace with --viz none in 3.0 stable
 simulation_app = app_launcher.app
 
 

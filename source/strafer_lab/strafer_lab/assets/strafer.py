@@ -60,7 +60,7 @@ STRAFER_CFG = ArticulationCfg(
     ),
     init_state=ArticulationCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.1),  # Spawn slightly above ground
-        rot=(1.0, 0.0, 0.0, 0.0),  # Identity quaternion (w, x, y, z)
+        rot=(0.0, 0.0, 0.0, 1.0),  # Identity quaternion (x, y, z, w) — Isaac Lab 3.0 XYZW
         joint_pos={
             # All joints start at rest
             ".*": 0.0,

@@ -81,8 +81,9 @@ D555_CAMERA_OFFSET = (CAMERA_OFFSET_X, CAMERA_OFFSET_Y, CAMERA_OFFSET_Z)
 # This is a sim-side transform, not a hardware property — the Jetson
 # executor's RealSense driver publishes frames directly in the ROS frame
 # convention, so no equivalent rotation is needed on the real robot.
-D555_CAMERA_ROT_ROS = (0.5, -0.5, 0.5, -0.5)
-D555_IMU_ROT = (1.0, 0.0, 0.0, 0.0)
+# Values use the XYZW convention required by Isaac Lab 3.0.
+D555_CAMERA_ROT_ROS = (-0.5, 0.5, -0.5, 0.5)
+D555_IMU_ROT = (0.0, 0.0, 0.0, 1.0)  # identity, XYZW
 
 # Clipping range mixes the sim-only near override (sim renders below the
 # D555's 0.4 m stereo blind zone so objects don't pop out of view next to

@@ -171,15 +171,64 @@ def _parse_args() -> argparse.Namespace:
              "sim-in-the-loop disables it so the robot is not teleported "
              "mid-mission (or mid-bridge-run) by the training-scale timeout.",
     )
+    parser.add_argument(
+        "--decimation",
+        type=int,
+        default=1,
+        help="Physics ticks per env.step. RL training defaults to 4 to "
+             "compress sim-time (motor dynamics / command delay are tuned "
+             "for that), but for sim-in-the-loop we want high wall-clock "
+             "publish rate, not sim-time compression. Decimation=1 runs "
+             "one physics tick per env.step, which on DGX Spark gets the "
+             "perception env to ~29 steps/s vs ~8 at the training default. "
+             "Raise back to 4 only if you need training-equivalent dynamics.",
+    )
+    parser.add_argument(
+        "--render-interval",
+        type=int,
+        default=1,
+        help="Override env_cfg.sim.render_interval (physics ticks per render). "
+             "Default 1 (render every tick): on DGX Spark, env.step is "
+             "render-paced, and lower render_interval means higher tick rate "
+             "(counterintuitive but measured — per-render wall time grows "
+             "with render_interval, so fewer-but-slower renders is a net loss). "
+             "Training defaults to 4 and is untouched.",
+    )
+    parser.add_argument(
+        "--no-camera-bridge",
+        action="store_true",
+        help="Skip wiring camera streams into the bridge OmniGraph. "
+             "Useful for a cameras-off perf baseline (paired with "
+             "--task Isaac-Strafer-Nav-Real-NoCam-Play-v0). Default off; "
+             "the standard bridge publishes color + depth.",
+    )
+    parser.add_argument(
+        "--camera-frame-skip",
+        type=int,
+        default=3,
+        help="Number of simulation frames ROS2CameraHelper skips between "
+             "each Image/CameraInfo publish. 0 = publish every tick "
+             "(matches pre-optimization behavior). Default 3 = publish "
+             "once every 4 physics ticks, matching sim.render_interval so "
+             "we don't serialize + push duplicate frames when the "
+             "underlying render has not advanced.",
+    )
 
     AppLauncher.add_app_launcher_args(parser)
     return parser.parse_args()
 
 
-def _apply_sim_in_the_loop_overrides(env_cfg, *, pin_yaw: float, disable_timeout: bool) -> None:
+def _apply_sim_in_the_loop_overrides(
+    env_cfg,
+    *,
+    pin_yaw: float,
+    disable_timeout: bool,
+    decimation: int,
+    render_interval: int | None,
+) -> None:
     """Adapt an RL env cfg for sim-in-the-loop use.
 
-    Two overrides, both safe to apply to any Strafer nav env cfg:
+    Three overrides, all safe to apply to any Strafer nav env cfg:
 
     - **Pin spawn yaw** to a fixed value. The reset event either exposes
       ``yaw_range`` (Infinigen floor-spawn variant) or
@@ -189,6 +238,11 @@ def _apply_sim_in_the_loop_overrides(env_cfg, *, pin_yaw: float, disable_timeout
       auto-reset on a training-scale timeout. Collision and flipped
       terminations remain active — we still want those to fire if the
       simulation goes off the rails.
+    - **Override physics decimation.** RL training runs with
+      ``decimation=4`` so motor-dynamics and command-delay are tuned
+      against a 33 ms env-step. Bridge mode needs high wall-clock
+      publish rate, not sim-time compression; running at ``decimation=1``
+      cuts wall-time per step by ~3×.
     """
     reset_term = getattr(env_cfg.events, "reset_robot", None)
     if reset_term is not None and getattr(reset_term, "params", None):
@@ -204,6 +258,16 @@ def _apply_sim_in_the_loop_overrides(env_cfg, *, pin_yaw: float, disable_timeout
         if getattr(env_cfg.terminations, "time_out", None) is not None:
             env_cfg.terminations.time_out = None
             print("[sim_in_the_loop] episode-length time_out termination disabled")
+
+    if decimation > 0 and decimation != env_cfg.decimation:
+        prev = env_cfg.decimation
+        env_cfg.decimation = decimation
+        print(f"[sim_in_the_loop] decimation {prev} -> {decimation}")
+
+    if render_interval is not None and render_interval > 0 and render_interval != env_cfg.sim.render_interval:
+        prev = env_cfg.sim.render_interval
+        env_cfg.sim.render_interval = render_interval
+        print(f"[sim_in_the_loop] sim.render_interval {prev} -> {render_interval}")
 
 
 # ---------------------------------------------------------------------------
@@ -247,15 +311,28 @@ def main() -> None:
         env_cfg.scene.scene_geometry.spawn.usd_path = str(args.scene_usd.resolve())
         print(f"[sim_in_the_loop] scene USD override → {env_cfg.scene.scene_geometry.spawn.usd_path}")
 
-    _apply_sim_in_the_loop_overrides(env_cfg, pin_yaw=args.pin_yaw, disable_timeout=not args.enable_episode_timeout)
+    _apply_sim_in_the_loop_overrides(
+        env_cfg,
+        pin_yaw=args.pin_yaw,
+        disable_timeout=not args.enable_episode_timeout,
+        decimation=args.decimation,
+        render_interval=args.render_interval,
+    )
 
     env = gym.make(args.task, cfg=env_cfg)
 
-    config = build_default_bridge_config(graph_path=args.graph_path)
-    build_bridge_graph(config)
+    config = build_default_bridge_config(
+        graph_path=args.graph_path,
+        camera_frame_skip=args.camera_frame_skip,
+    )
+    build_bridge_graph(config, skip_cameras=args.no_camera_bridge)
     print(f"[sim_in_the_loop] bridge graph built at {args.graph_path}")
+    if args.no_camera_bridge:
+        print("[sim_in_the_loop] camera streams skipped (--no-camera-bridge)")
+    else:
+        print(f"[sim_in_the_loop] camera_frame_skip = {config.camera_frame_skip}")
+        print(f"[sim_in_the_loop] color camera prim={config.color_camera.camera_prim_path}")
     print(f"[sim_in_the_loop] chassis_prim={config.chassis_prim_path}")
-    print(f"[sim_in_the_loop] color camera prim={config.color_camera.camera_prim_path}")
 
     if args.mode == "bridge":
         _run_bridge_mode(simulation_app, env, args)

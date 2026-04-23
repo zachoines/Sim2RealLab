@@ -64,12 +64,22 @@ class BridgeConfig:
     # (published as base_link → d555_link etc.). Empty tuple means the
     # builder only publishes odom → base_link.
     tf_extra_target_prims: tuple[str, ...] = field(default_factory=tuple)
+    # Per-publisher frame skip. ROS2CameraHelper + ROS2CameraInfoHelper
+    # each fire on every OmniGraph tick but serialize and push a full
+    # Image / CameraInfo message every time. On the DGX sim-in-the-loop
+    # this is the dominant bridge cost. Setting ``camera_frame_skip=N``
+    # means the helper publishes once every ``N+1`` ticks (the field is
+    # "frames to skip between publishes"). 0 keeps the original per-tick
+    # behavior; ``render_interval - 1`` matches the actual render rate
+    # and avoids publishing duplicate frames.
+    camera_frame_skip: int = 0
 
 
 def build_default_bridge_config(
     *,
     env_ns: str = "/World/envs/env_0",
     graph_path: str = "/World/ROS2Bridge",
+    camera_frame_skip: int = 0,
 ) -> BridgeConfig:
     """Construct the canonical Strafer bridge config for a single-env run.
 
@@ -118,4 +128,5 @@ def build_default_bridge_config(
         base_frame_id=FRAME_BASE_LINK,
         camera_mount_frame_id=FRAME_D555_LINK,
         tf_extra_target_prims=(camera_prim,),
+        camera_frame_skip=camera_frame_skip,
     )

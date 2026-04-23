@@ -48,12 +48,18 @@ from typing import Any
 from strafer_lab.bridge.config import BridgeConfig, CameraStreamConfig
 
 
-def build_bridge_graph(config: BridgeConfig) -> Any:
+def build_bridge_graph(config: BridgeConfig, *, skip_cameras: bool = False) -> Any:
     """Create the ROS2 bridge OmniGraph described by ``config``.
 
     Returns the ``og.Controller.edit`` graph handle so callers can
     subsequently read or write attributes (e.g. poll the subscribed
     ``/cmd_vel`` linear/angular velocity).
+
+    ``skip_cameras`` omits the render-product + camera publisher chain
+    for both color and depth. Useful for a bridge-mode performance
+    baseline where the env is spawned without a perception camera — no
+    render product means no GPU readback sync, so env.step throughput is
+    no longer coupled to the render pipeline.
     """
 
     import omni.graph.core as og
@@ -136,8 +142,15 @@ def build_bridge_graph(config: BridgeConfig) -> Any:
         },
     )
 
-    _add_camera_stream(graph_handle, graph_path, config.color_camera, suffix="Color")
-    _add_camera_stream(graph_handle, graph_path, config.depth_camera, suffix="Depth")
+    if not skip_cameras:
+        _add_camera_stream(
+            graph_handle, graph_path, config.color_camera,
+            suffix="Color", frame_skip=config.camera_frame_skip,
+        )
+        _add_camera_stream(
+            graph_handle, graph_path, config.depth_camera,
+            suffix="Depth", frame_skip=config.camera_frame_skip,
+        )
 
     return graph_handle
 
@@ -148,6 +161,7 @@ def _add_camera_stream(
     stream: CameraStreamConfig,
     *,
     suffix: str,
+    frame_skip: int = 0,
 ) -> None:
     """Wire one camera prim as both an image publisher and camera_info publisher.
 
@@ -188,9 +202,11 @@ def _add_camera_stream(
                 (f"{image_node}.inputs:frameId", stream.frame_id),
                 (f"{image_node}.inputs:type", stream.stream_type),
                 (f"{image_node}.inputs:resetSimulationTimeOnStop", True),
+                (f"{image_node}.inputs:frameSkipCount", int(frame_skip)),
                 (f"{info_node}.inputs:topicName", stream.camera_info_topic),
                 (f"{info_node}.inputs:frameId", stream.frame_id),
                 (f"{info_node}.inputs:resetSimulationTimeOnStop", True),
+                (f"{info_node}.inputs:frameSkipCount", int(frame_skip)),
             ],
             keys.CONNECT: [
                 (run_once_step, f"{render_node}.inputs:execIn"),

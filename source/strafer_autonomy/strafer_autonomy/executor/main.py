@@ -11,6 +11,10 @@ OBSERVATION_MAX_AGE_S  : Override the freshness cap on cached camera frames (opt
                          Raise this when the upstream publisher runs slower than the RealSense D555 — e.g.
                          an Isaac Sim bridge delivering at ~5 Hz needs 1.5-2.0 s of headroom to tolerate
                          jitter.
+ROTATE_TIMEOUT_S       : Override the default rotate_in_place timeout (optional, seconds; default 15.0).
+                         scan_for_target uses this default for its inter-heading rotations. Raise it when
+                         sim real-time factor is sub-unity or the chassis rotates slowly under the
+                         configured angular velocity.
 """
 
 from __future__ import annotations
@@ -65,19 +69,19 @@ def main() -> None:
         config=HttpGroundingClientConfig(base_url=vlm_url),
     )
 
-    ros_config_kwargs: dict = {}
-    max_age_env = os.environ.get("OBSERVATION_MAX_AGE_S")
-    if max_age_env:
+    def _read_float_env(name: str, config_key: str) -> None:
+        raw = os.environ.get(name)
+        if not raw:
+            return
         try:
-            ros_config_kwargs["observation_max_age_s"] = float(max_age_env)
-            logger.info(
-                "observation_max_age_s overridden to %s via env",
-                ros_config_kwargs["observation_max_age_s"],
-            )
+            ros_config_kwargs[config_key] = float(raw)
+            logger.info("%s overridden to %s via env", config_key, raw)
         except ValueError:
-            logger.warning(
-                "Ignoring non-numeric OBSERVATION_MAX_AGE_S=%r", max_age_env,
-            )
+            logger.warning("Ignoring non-numeric %s=%r", name, raw)
+
+    ros_config_kwargs: dict = {}
+    _read_float_env("OBSERVATION_MAX_AGE_S", "observation_max_age_s")
+    _read_float_env("ROTATE_TIMEOUT_S", "default_rotate_timeout_s")
     ros_client = JetsonRosClient(
         config=RosClientConfig(**ros_config_kwargs) if ros_config_kwargs else None,
     )

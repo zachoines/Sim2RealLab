@@ -436,3 +436,102 @@ TERM=xterm ~/Workspace/IsaacLab/isaaclab.sh -p /tmp/bridge_perf_rollout.py \
 
 Should move into `source/strafer_lab/scripts/` once this investigation
 stabilizes — it's a generally useful tool, not just a one-off.
+
+## Results — Isaac Lab 3.0 / Isaac Sim 6 migration
+
+Measured `make sim-bridge` on the `phase_15-isaaclab3` branch
+(phase_15 + `feature/isaaclab-3.0-migration`) against the phase_15
+baseline. Same host, same scene pool, same subscriber script.
+
+### Initial result — 3.4× regression
+
+| Stack | `/clock` Hz | `/image` Hz |
+|---|---:|---:|
+| phase_15 tip (Isaac Lab 2.3.2, Sim 5.1) | 15.88 | 4.00 |
+| phase_15-isaaclab3, first measurement (Lab develop, Sim 6) | 4.70 | 1.05 |
+
+Stable across three 10 s samples (4.60 / 4.70 / 4.70 Hz `/clock`). GPU
+SM utilization sat at 59–69 %, within 5 pp of the phase_15 envelope, so
+the GB10 wasn't more-pinned — per-iteration wall time grew while SM
+occupancy stayed put.
+
+### Knob sweep — the usual levers didn't move the needle
+
+| Config | `/clock` Hz |
+|---|---:|
+| default (decimation=1, render_interval=1) | 4.70 |
+| decimation=1, render_interval=4 | 4.67 |
+| decimation=4, render_interval=4 | 5.13 |
+| `--no-camera-bridge` (skip ROS2 camera publish) | 5.30 |
+| `RenderCfg(antialiasing="Off", dl_denoiser=False)` | 3.55 |
+| `RenderCfg(antialiasing="DLSS", dlss_mode=0)` | 4.53 |
+| Kit-GUI runtime DLSS 4×/Perf toggle | 8.07 |
+| kit_args `--/omni/replicator/asyncRendering=1`, `--/app/asyncRendering=1`, `--/app/omni.usd/asyncHandshake=1` | 5.07 |
+| kit_args async + `/app/hydraEngine/waitIdle=0` + `/app/runLoops/main/rateLimitEnabled=false` | 5.00 |
+
+None of the render/physics/carb knobs that worked on 5.1 had an effect
+on 3.0. Even disabling DLSS actively hurt, and the GUI DLSS toggle's
+partial gain turned out to come from a carb path the `RenderCfg` API
+doesn't expose. That was the signal that the bottleneck wasn't in the
+render path at all.
+
+### Step profiler — env.step is fine
+
+Instrumented `ManagerBasedRLEnv.step` phase-by-phase (standalone, no
+bridge graph, same task and overrides):
+
+| phase | mean ms | share |
+|---|---:|---:|
+| `sim.step` (physics, TGS solver w/ 16 vel iters) | 30.5 | 58.5 % |
+| `obs.compute` (incl. lazy tiled-camera render) | 15.7 | 30.3 % |
+| all others | ~6 | 11.2 % |
+| **total env.step** | **52.2** | — |
+
+Implied rate **19.17 Hz**. Attaching the full bridge graph without
+external subscribers: 63 ms, **15.83 Hz**. So env.step itself on 3.0 is
+perfectly healthy — within the 5.1 envelope.
+
+### Root cause — Kit main-loop no longer ticked per env.step
+
+On Isaac Lab 2.x, `SimulationContext.render()` internally advanced
+Kit's main loop, which fired `OnPlaybackTick` and ran the ROS2 bridge
+OmniGraph once per env.step. On Isaac Lab 3.0, `render()` was
+refactored to a lightweight "update visualizers" that no longer calls
+`simulation_app.update()`. Result: the bridge graph falls back to
+Kit's background cadence (~4 Hz) regardless of env.step rate.
+
+Direct confirmation via per-bucket timing inside the bridge's while
+loop: env.step ran steady at 15–17 Hz, but `/clock` only reached the
+subscriber at 4.6 Hz — a clean 4× under-publication tied to Kit's
+background main-loop cadence rather than to any render or physics cost.
+
+### Fix — one-line `simulation_app.update()` in `_run_bridge_mode`
+
+`source/strafer_lab/scripts/run_sim_in_the_loop.py` now calls
+`simulation_app.update()` after `env.step()` in the bridge while-loop.
+That explicitly ticks Kit once per iteration, firing `OnPlaybackTick`
+and advancing the ROS2 OmniGraph.
+
+| Stack | `/clock` Hz | `/image` Hz |
+|---|---:|---:|
+| phase_15 tip (Isaac Lab 2.3.2, Sim 5.1) | 15.88 | 4.00 |
+| phase_15-isaaclab3 **before** fix | 4.70 | 1.05 |
+| phase_15-isaaclab3 **after** `simulation_app.update()` fix | **10.20** | **2.40** |
+
+10.2 Hz `/clock` and 2.4 Hz `/image` across three back-to-back samples
+(10.10 / 10.30 / 10.20 Hz). That's 2.17× over the regression baseline
+and 64 % of the phase_15 tip. The remaining gap is `simulation_app.update()`
+overhead itself (~38 ms per iteration on top of the 62 ms env.step),
+which is the cost of evaluating the entire OmniGraph and flushing DDS
+publishers every tick.
+
+### Branch status
+
+Shippable. 642 autonomy/VLM tests pass, bridge boots clean, Infinigen
+scene setup survives, and the perf regression has been reduced from
+-70 % to -36 %. The remaining gap is a real but smaller tax of moving
+from Isaac Sim 5.1 to Isaac Sim 6 — closing it further would require
+either (a) making Kit's main-loop tick cheaper (batch or skip expensive
+extensions), or (b) moving the ROS2 publishers off the env.step hot
+path via a dedicated async publisher thread. Both are follow-on work;
+neither blocks merging this branch into `phase_15`.

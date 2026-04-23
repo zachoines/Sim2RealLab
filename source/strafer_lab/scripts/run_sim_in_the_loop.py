@@ -382,6 +382,13 @@ def _run_bridge_mode(simulation_app, env, args) -> None:
             action = zero_action
 
         env.step(action)
+        # Tick Kit's main loop so OnPlaybackTick fires and the ROS2 bridge
+        # OmniGraph publishes once per env.step. Without this call, Isaac
+        # Lab 3.0's SimulationContext.render() no longer advances Kit (it
+        # only updates visualizers), so the bridge graph falls back to
+        # Kit's background cadence (~4 Hz) and /clock, /odom, /tf, camera
+        # topics all publish at that rate regardless of env.step rate.
+        simulation_app.update()
 
 
 # ---------------------------------------------------------------------------

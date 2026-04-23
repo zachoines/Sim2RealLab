@@ -2,11 +2,16 @@
 # Wraps colcon build/test workflows and Python lint/format tools.
 
 SHELL := /bin/bash
-COLCON_WS := $(HOME)/strafer_ws
 VENV_VLM := .venv_vlm
-ISAACLAB := $(HOME)/Workspace/IsaacLab/isaaclab.sh
+
+# Host-specific paths. Override per-host by setting these in .env (see
+# .env.example for the documented list); `source env_setup.sh` exports
+# them into the shell environment that `make` inherits. The defaults
+# below exist only so `make` still runs if .env has not been sourced.
+COLCON_WS ?= $(HOME)/strafer_ws
+ISAACLAB ?= $(HOME)/Documents/repos/IsaacLab/isaaclab.sh
 CONDA_ROOT ?= $(HOME)/miniconda3
-CONDA_ENV ?= env_phase15
+CONDA_ENV ?= env_isaaclab3
 
 .PHONY: build test test-unit test-dgx lint lint-fix format format-check clean kill \
         launch launch-nav launch-autonomy clean-map \
@@ -153,7 +158,7 @@ sim-bridge-gui: ## Launch Isaac Sim + ROS 2 bridge with the viewport open
 		export ROS_DISTRO=humble && \
 		echo "[sim-bridge-gui] ROS_DISTRO=$$ROS_DISTRO, LD_LIBRARY_PATH head: $$(echo $$LD_LIBRARY_PATH | cut -d: -f1)" && \
 		$(ISAACLAB) -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
-			--mode bridge --enable_cameras
+			--mode bridge --enable_cameras --viz kit
 
 sim-harness: ## Run sim-in-the-loop autonomous mission sweep
 	@if [ -z "$$SCENE_META" ] || [ -z "$$SCENE_USD" ] || [ -z "$$OUTPUT_DIR" ]; then \

@@ -20,6 +20,7 @@ import math
 import numpy as np
 
 import rclpy
+from rclpy.duration import Duration
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from cv_bridge import CvBridge
@@ -143,17 +144,28 @@ class GoalProjectionNode(Node):
         y_cam = (v - ppy) * depth_m / fy
         z_cam = depth_m
 
-        # 4. Transform camera → map via TF2
+        # 4. Transform camera → map via TF2.
+        # Use the node's current clock (wall- or sim-time, depending on
+        # use_sim_time) as the lookup time with a short wait. The
+        # `rclpy.time.Time()` zero-is-latest idiom has been unreliable
+        # under sim-time + cross-host TF — tf2 has been seen rejecting
+        # it with "extrapolation into the past" when the buffer's
+        # earliest entry is newer than epoch-zero.
         camera_frame = depth_msg.header.frame_id or "d555_color_optical_frame"
         target_frame = "map"
 
+        lookup_time = self.get_clock().now()
+        lookup_timeout = Duration(seconds=0.5)
         try:
             tf = self._tf_buffer.lookup_transform(
-                target_frame, camera_frame, rclpy.time.Time()
+                target_frame, camera_frame, lookup_time, timeout=lookup_timeout,
             )
         except TransformException as exc:
             response.found = False
-            response.message = f"TF lookup {camera_frame} → {target_frame} failed: {exc}"
+            response.message = (
+                f"TF lookup {camera_frame} → {target_frame} failed at "
+                f"t={lookup_time.nanoseconds * 1e-9:.3f}s: {exc}"
+            )
             return response
 
         target_in_map = self._transform_point(tf, x_cam, y_cam, z_cam)
@@ -168,10 +180,12 @@ class GoalProjectionNode(Node):
         response.target_pose.pose.orientation.w = 1.0
 
         # 5. Compute goal pose with standoff
-        # Get robot position from TF (base_link → map)
+        # Get robot position from TF (base_link → map) at the same
+        # clock the camera lookup used, so both project against a
+        # coherent snapshot.
         try:
             robot_tf = self._tf_buffer.lookup_transform(
-                target_frame, "base_link", rclpy.time.Time()
+                target_frame, "base_link", lookup_time, timeout=lookup_timeout,
             )
         except TransformException:
             # Fallback: place goal at standoff directly in front of target

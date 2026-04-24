@@ -162,5 +162,4 @@ def make_d555_imu_cfg() -> ImuCfg:
             pos=D555_CAMERA_OFFSET,
             rot=D555_IMU_ROT,
         ),
-        gravity_bias=(0.0, 0.0, 9.81),
     )

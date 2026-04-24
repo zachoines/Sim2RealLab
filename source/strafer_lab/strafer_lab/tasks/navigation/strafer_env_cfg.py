@@ -229,7 +229,6 @@ class StraferSceneCfg_NoCam(InteractiveSceneCfg):
             pos=(0.20, 0.0, 0.25),
             rot=(0.0, 0.0, 0.0, 1.0),  # identity quaternion (XYZW)
         ),
-        gravity_bias=(0.0, 0.0, 9.81),
     )
 
     # Contact sensor on body_link for collision detection.
@@ -1534,7 +1533,6 @@ class StraferSceneCfg_ProcRoom_NoCam(InteractiveSceneCfg):
             pos=(0.20, 0.0, 0.25),
             rot=(0.0, 0.0, 0.0, 1.0),  # identity quaternion (XYZW)
         ),
-        gravity_bias=(0.0, 0.0, 9.81),
     )
 
     # 44-object primitive palette (walls, furniture, clutter)

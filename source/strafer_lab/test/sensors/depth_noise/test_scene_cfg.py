@@ -37,7 +37,6 @@ def _imu_signature(scene_cfg) -> dict:
         "update_period": imu.update_period,
         "offset_pos": offset.pos,
         "offset_rot": offset.rot,
-        "gravity_bias": imu.gravity_bias,
     }
 
 

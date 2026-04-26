@@ -738,15 +738,43 @@ class JetsonRosClient:
     # Internal: future waiting
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _wait_for_future(future: Any, timeout_s: float) -> bool:
-        """Block until *future* completes or *timeout_s* elapses.
+    def _wait_for_future(self, future: Any, timeout_s: float) -> bool:
+        """Block on *future* using the executor node's clock.
+
+        Honors ``use_sim_time``: sim launches with ``use_sim_time:=true``
+        tick on ``/clock``, real launches tick on the system clock. This
+        keeps the executor's timeout enforcement aligned with Nav2,
+        RTAB-Map, and the BT navigator, all of which already tick on
+        the same clock.
+
+        A wall-clock safety cap of ``2 * timeout_s`` bounds the wait if
+        ``/clock`` stops advancing (e.g. sim bridge crash mid-mission)
+        so the executor cannot wedge waiting on a stalled sim clock.
+        On real hardware the system clock advances at wall rate, so the
+        cap never trips before the primary timeout fires.
 
         Returns ``True`` if the future completed, ``False`` on timeout.
-        Uses a :class:`threading.Event` signalled by the future's
-        done-callback so the calling thread sleeps efficiently instead
-        of polling.
         """
-        event = threading.Event()
-        future.add_done_callback(lambda _: event.set())
-        return event.wait(timeout=timeout_s)
+        from rclpy.duration import Duration
+
+        done = threading.Event()
+        future.add_done_callback(lambda _: done.set())
+
+        clock = self._node.get_clock()
+        deadline = clock.now() + Duration(seconds=timeout_s)
+        wall_cap = time.monotonic() + 2.0 * timeout_s
+
+        poll_dt = max(0.01, min(0.1, timeout_s / 10.0))
+        while not done.is_set():
+            if clock.now() >= deadline:
+                return False
+            if time.monotonic() >= wall_cap:
+                logger.warning(
+                    "Future wait hit wall-clock safety cap (%.1fs) — "
+                    "is /clock advancing?",
+                    2.0 * timeout_s,
+                )
+                return False
+            if done.wait(timeout=poll_dt):
+                return True
+        return True

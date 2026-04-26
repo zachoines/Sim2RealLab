@@ -29,7 +29,7 @@ pytestmark = pytest.mark.requires_ros
 
 def _make_client(config: RosClientConfig | None = None) -> JetsonRosClient:
     """Create a JetsonRosClient without starting rclpy."""
-    from builtin_interfaces.msg import Time
+    from rclpy.time import Time as RclpyTime
 
     client = object.__new__(JetsonRosClient)
     client._config = config or RosClientConfig()
@@ -41,12 +41,14 @@ def _make_client(config: RosClientConfig | None = None) -> JetsonRosClient:
     client._latest_odom = None
     client._nav_lock = threading.Lock()
     client._active_goal_handle = None
-    # Mock the ROS node — use a real Time msg so PoseStamped assignment works
-    real_time = Time(sec=100, nanosec=400_000_000)
-    clock_now = MagicMock()
-    clock_now.to_msg.return_value = real_time
+    # Mock the ROS node — use a real rclpy.time.Time advancing with the
+    # monotonic wall clock so Time + Duration arithmetic and Time
+    # comparisons in _wait_for_future work, and ``.to_msg()`` returns a
+    # real ``builtin_interfaces.msg.Time`` for goal-stamp assignments.
     client._node = MagicMock()
-    client._node.get_clock.return_value.now.return_value = clock_now
+    client._node.get_clock.return_value.now.side_effect = (
+        lambda: RclpyTime(seconds=time.monotonic())
+    )
     return client
 
 
@@ -655,10 +657,50 @@ class TestRotateInPlace(unittest.TestCase):
 class TestWaitForFuture(unittest.TestCase):
 
     def test_immediate_done(self) -> None:
-        future = _make_future(done=True)
-        self.assertTrue(JetsonRosClient._wait_for_future(future, 1.0))
+        from rclpy.time import Time
 
-    def test_timeout(self) -> None:
+        client = _make_client()
+        # Pin sim time at 0 so the deadline never trips first.
+        client._node.get_clock.return_value.now.side_effect = (
+            lambda: Time(seconds=0)
+        )
+        future = _make_future(done=True)
+        self.assertTrue(client._wait_for_future(future, 1.0))
+
+    def test_timeout_on_sim_clock(self) -> None:
+        """Sim-time deadline trips before the wall-clock safety cap."""
+        from rclpy.time import Time
+
+        client = _make_client()
+        # Step the mocked sim clock forward 1 s per call after the
+        # initial deadline read at t=0. timeout_s=1.0 -> deadline=1.0s;
+        # the next clock.now() returns 2.0s, crossing the deadline. Wall
+        # time barely advances, so the wall-cap (2.0s) does not fire.
+        sim_seconds = iter([0.0, 2.0, 3.0, 4.0])
+        client._node.get_clock.return_value.now.side_effect = (
+            lambda: Time(seconds=next(sim_seconds))
+        )
         future = _make_future(done=False)
-        # Use a very short timeout
-        self.assertFalse(JetsonRosClient._wait_for_future(future, 0.05))
+        start = time.monotonic()
+        self.assertFalse(client._wait_for_future(future, 1.0))
+        elapsed = time.monotonic() - start
+        # Sim-time deadline trips before the 2.0s wall cap.
+        self.assertLess(elapsed, 1.5)
+
+    def test_wall_clock_safety_cap(self) -> None:
+        """A frozen sim clock must not wedge the executor — wall cap fires."""
+        from rclpy.time import Time
+
+        client = _make_client()
+        # Sim clock never advances past 0.
+        client._node.get_clock.return_value.now.side_effect = (
+            lambda: Time(seconds=0)
+        )
+        future = _make_future(done=False)
+        # timeout_s=0.05 -> wall cap = 0.1s, well under any test runtime.
+        start = time.monotonic()
+        self.assertFalse(client._wait_for_future(future, 0.05))
+        elapsed = time.monotonic() - start
+        # Cap is 2 * 0.05 = 0.1s. Allow generous headroom for CI jitter.
+        self.assertGreaterEqual(elapsed, 0.05)
+        self.assertLess(elapsed, 1.0)

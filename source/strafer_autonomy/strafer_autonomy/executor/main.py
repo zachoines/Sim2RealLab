@@ -15,6 +15,10 @@ ROTATE_TIMEOUT_S       : Override the default rotate_in_place timeout (optional,
                          scan_for_target uses this default for its inter-heading rotations. Raise it when
                          sim real-time factor is sub-unity or the chassis rotates slowly under the
                          configured angular velocity.
+STRAFER_NAVIGATION_TIMEOUT_S : Override the default navigate_to_pose timeout (optional, seconds; default 90.0).
+                         The executor's nav timeout ticks on the executor node's clock, so under
+                         use_sim_time:=true this is a sim-time budget. Raise it on sub-unity-RTF sim
+                         scenes where 90 s of sim time can correspond to several minutes of wall time.
 """
 
 from __future__ import annotations
@@ -24,6 +28,22 @@ import os
 import sys
 
 logger = logging.getLogger(__name__)
+
+
+def _read_float_env(name: str, config_key: str, target: dict) -> None:
+    """Copy ``$name`` into ``target[config_key]`` as a float, if set.
+
+    Silently ignores unset env vars (preserving the dataclass default)
+    and logs a warning on a non-numeric value rather than raising.
+    """
+    raw = os.environ.get(name)
+    if not raw:
+        return
+    try:
+        target[config_key] = float(raw)
+        logger.info("%s overridden to %s via env", config_key, raw)
+    except ValueError:
+        logger.warning("Ignoring non-numeric %s=%r", name, raw)
 
 
 def main() -> None:
@@ -55,6 +75,7 @@ def main() -> None:
         HttpGroundingClientConfig,
     )
     from strafer_autonomy.executor.command_server import build_command_server
+    from strafer_autonomy.executor.mission_runner import MissionRunnerConfig
 
     if not rclpy.ok():
         # Forward sys.argv so `--ros-args -p use_sim_time:=true` and
@@ -69,21 +90,23 @@ def main() -> None:
         config=HttpGroundingClientConfig(base_url=vlm_url),
     )
 
-    def _read_float_env(name: str, config_key: str) -> None:
-        raw = os.environ.get(name)
-        if not raw:
-            return
-        try:
-            ros_config_kwargs[config_key] = float(raw)
-            logger.info("%s overridden to %s via env", config_key, raw)
-        except ValueError:
-            logger.warning("Ignoring non-numeric %s=%r", name, raw)
-
     ros_config_kwargs: dict = {}
-    _read_float_env("OBSERVATION_MAX_AGE_S", "observation_max_age_s")
-    _read_float_env("ROTATE_TIMEOUT_S", "default_rotate_timeout_s")
+    _read_float_env("OBSERVATION_MAX_AGE_S", "observation_max_age_s", ros_config_kwargs)
+    _read_float_env("ROTATE_TIMEOUT_S", "default_rotate_timeout_s", ros_config_kwargs)
     ros_client = JetsonRosClient(
         config=RosClientConfig(**ros_config_kwargs) if ros_config_kwargs else None,
+    )
+
+    mission_config_kwargs: dict = {}
+    _read_float_env(
+        "STRAFER_NAVIGATION_TIMEOUT_S",
+        "default_navigation_timeout_s",
+        mission_config_kwargs,
+    )
+    runner_config = (
+        MissionRunnerConfig(**mission_config_kwargs)
+        if mission_config_kwargs
+        else None
     )
 
     logger.info("Planner service: %s", planner_url)
@@ -93,6 +116,7 @@ def main() -> None:
         planner_client=planner_client,
         grounding_client=grounding_client,
         ros_client=ros_client,
+        runner_config=runner_config,
     )
 
     logger.info("Autonomy executor ready — spinning.")

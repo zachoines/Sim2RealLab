@@ -11,10 +11,21 @@ This launch file:
   2. Overrides robot-specific values from strafer_shared.constants
   3. Writes a patched YAML to /tmp and passes it to Nav2's navigation_launch.py
 
+Environment variables:
+  STRAFER_NAV_VEL_SCALE : Override the constants.NAV_VEL_SCALE fraction
+                         (default 0.5) used to derive Nav2's linear /
+                         angular velocity caps. Set to 1.0 in
+                         env_sim_in_the_loop.env to let MPPI ask for
+                         full chassis dynamics in sim; leave unset on
+                         real-robot bringup so the indoor safety cap
+                         stays in force. Reverse cap stays scaled by
+                         NAV_REVERSE_SCALE off the resolved forward cap.
+
 Usage:
   ros2 launch strafer_navigation navigation.launch.py
 """
 
+import logging
 import os
 import tempfile
 
@@ -34,11 +45,57 @@ from strafer_shared.constants import (
     DEPTH_MAX,
     DEPTH_MIN,
     MAP_RESOLUTION,
+    MAX_ANGULAR_VEL,
+    MAX_LINEAR_VEL,
     NAV_ANGULAR_VEL,
     NAV_LINEAR_VEL,
+    NAV_REVERSE_SCALE,
     NAV_REVERSE_VEL,
+    NAV_VEL_SCALE,
     TRACK_WIDTH,
 )
+
+
+_logger = logging.getLogger(__name__)
+
+
+def _resolved_nav_velocities():
+    """Resolve Nav2 velocity caps, honoring ``STRAFER_NAV_VEL_SCALE``.
+
+    Real-robot bringup leaves the env var unset and gets the
+    constants-derived defaults (NAV_VEL_SCALE = 0.5, ~0.78 m/s linear cap)
+    intended as an indoor safety bound. Sim-in-the-loop bringup sources
+    ``env_sim_in_the_loop.env`` which exports STRAFER_NAV_VEL_SCALE=1.0,
+    letting Nav2 in sim ask for hardware-max velocities — matching the
+    envelope the trained policy and joystick teleop see, so MPPI is not
+    artificially capped at half the chassis dynamics.
+    """
+    raw = os.environ.get("STRAFER_NAV_VEL_SCALE")
+    if not raw:
+        return NAV_LINEAR_VEL, NAV_ANGULAR_VEL, NAV_REVERSE_VEL
+    try:
+        scale = float(raw)
+    except ValueError:
+        _logger.warning(
+            "Ignoring non-numeric STRAFER_NAV_VEL_SCALE=%r; using default %.4f",
+            raw, NAV_VEL_SCALE,
+        )
+        return NAV_LINEAR_VEL, NAV_ANGULAR_VEL, NAV_REVERSE_VEL
+    if scale <= 0.0:
+        _logger.warning(
+            "Ignoring non-positive STRAFER_NAV_VEL_SCALE=%s; using default %.4f",
+            scale, NAV_VEL_SCALE,
+        )
+        return NAV_LINEAR_VEL, NAV_ANGULAR_VEL, NAV_REVERSE_VEL
+    linear = round(MAX_LINEAR_VEL * scale, 4)
+    angular = round(MAX_ANGULAR_VEL * scale, 4)
+    reverse = round(linear * NAV_REVERSE_SCALE, 4)
+    _logger.info(
+        "STRAFER_NAV_VEL_SCALE=%s overrides NAV_VEL_SCALE=%.4f "
+        "(linear=%.4f m/s, angular=%.4f rad/s, reverse=%.4f m/s)",
+        raw, NAV_VEL_SCALE, linear, angular, reverse,
+    )
+    return linear, angular, reverse
 
 
 def _build_footprint(length, width):
@@ -106,9 +163,10 @@ def _launch_setup(context, *args, **kwargs):
 
     # ── Derived values from constants ────────────────────────────────────
     footprint = _build_footprint(CHASSIS_LENGTH, TRACK_WIDTH)
+    nav_linear_vel, nav_angular_vel, nav_reverse_vel = _resolved_nav_velocities()
 
-    _patch_params(params, footprint, NAV_LINEAR_VEL, NAV_ANGULAR_VEL,
-                  NAV_REVERSE_VEL, MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX)
+    _patch_params(params, footprint, nav_linear_vel, nav_angular_vel,
+                  nav_reverse_vel, MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX)
 
     # ── Write patched YAML to temp file ─────────────────────────────────
     # Nav2's navigation_launch.py expects a file path.

@@ -6,6 +6,8 @@ import pytest
 import yaml
 from ament_index_python.packages import get_package_share_directory
 
+from unittest.mock import patch
+
 from strafer_shared.constants import (
     CHASSIS_LENGTH,
     DEPTH_MAX,
@@ -15,6 +17,7 @@ from strafer_shared.constants import (
     MAX_LINEAR_VEL,
     NAV_ANGULAR_VEL,
     NAV_LINEAR_VEL,
+    NAV_REVERSE_SCALE,
     NAV_REVERSE_VEL,
     TRACK_WIDTH,
 )
@@ -239,3 +242,98 @@ class TestConstantsInjection:
         scan = lc["obstacle_layer"]["scan"]
         assert scan["raytrace_min_range"] == DEPTH_MIN
         assert scan["raytrace_max_range"] == DEPTH_MAX
+
+
+# =============================================================================
+# STRAFER_NAV_VEL_SCALE override
+# =============================================================================
+
+
+def _load_launch_module(pkg_dir):
+    import importlib.util
+
+    path = os.path.join(pkg_dir, "launch", "navigation.launch.py")
+    spec = importlib.util.spec_from_file_location("nav_launch", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TestNavVelScaleOverride:
+    """``_resolved_nav_velocities`` honors STRAFER_NAV_VEL_SCALE.
+
+    Real-robot bringup leaves the env var unset and gets the
+    constants-derived defaults (NAV_VEL_SCALE = 0.5). Sim bringup
+    exports STRAFER_NAV_VEL_SCALE=1.0 to lift the cap to the chassis
+    max so MPPI matches the envelope the trained policy sees.
+    """
+
+    def test_unset_yields_constants_defaults(self, pkg_dir):
+        mod = _load_launch_module(pkg_dir)
+        env = {k: v for k, v in os.environ.items() if k != "STRAFER_NAV_VEL_SCALE"}
+        with patch.dict(os.environ, env, clear=True):
+            linear, angular, reverse = mod._resolved_nav_velocities()
+        assert linear == NAV_LINEAR_VEL
+        assert angular == NAV_ANGULAR_VEL
+        assert reverse == NAV_REVERSE_VEL
+
+    def test_unity_scale_lifts_to_hardware_max(self, pkg_dir):
+        mod = _load_launch_module(pkg_dir)
+        with patch.dict(os.environ, {"STRAFER_NAV_VEL_SCALE": "1.0"}, clear=False):
+            linear, angular, reverse = mod._resolved_nav_velocities()
+        assert linear == round(MAX_LINEAR_VEL, 4)
+        assert angular == round(MAX_ANGULAR_VEL, 4)
+        assert reverse == round(linear * NAV_REVERSE_SCALE, 4)
+
+    def test_arbitrary_scale_recomputes_all_three(self, pkg_dir):
+        mod = _load_launch_module(pkg_dir)
+        with patch.dict(os.environ, {"STRAFER_NAV_VEL_SCALE": "0.75"}, clear=False):
+            linear, angular, reverse = mod._resolved_nav_velocities()
+        assert linear == round(MAX_LINEAR_VEL * 0.75, 4)
+        assert angular == round(MAX_ANGULAR_VEL * 0.75, 4)
+        assert reverse == round(linear * NAV_REVERSE_SCALE, 4)
+
+    def test_non_numeric_falls_back_to_defaults(self, pkg_dir):
+        mod = _load_launch_module(pkg_dir)
+        with patch.dict(os.environ, {"STRAFER_NAV_VEL_SCALE": "fast"}, clear=False):
+            linear, angular, reverse = mod._resolved_nav_velocities()
+        assert linear == NAV_LINEAR_VEL
+        assert angular == NAV_ANGULAR_VEL
+        assert reverse == NAV_REVERSE_VEL
+
+    def test_non_positive_falls_back_to_defaults(self, pkg_dir):
+        mod = _load_launch_module(pkg_dir)
+        with patch.dict(os.environ, {"STRAFER_NAV_VEL_SCALE": "0"}, clear=False):
+            linear, angular, reverse = mod._resolved_nav_velocities()
+        assert linear == NAV_LINEAR_VEL
+        assert angular == NAV_ANGULAR_VEL
+        assert reverse == NAV_REVERSE_VEL
+
+
+class TestSimEnvFile:
+    """Verify ``env_sim_in_the_loop.env`` exports the documented overrides."""
+
+    @pytest.fixture
+    def env_text(self):
+        # Sourced by sim operators before bringup_sim_in_the_loop launch.
+        bringup_dir = get_package_share_directory("strafer_bringup")
+        path = os.path.join(bringup_dir, "config", "env_sim_in_the_loop.env")
+        with open(path) as f:
+            return f.read()
+
+    def test_exports_unity_nav_vel_scale(self, env_text):
+        assert "export STRAFER_NAV_VEL_SCALE=1.0" in env_text
+
+    def test_navigation_timeout_dropped_below_legacy_600(self, env_text):
+        # Capture the assigned float so the assertion explains regressions.
+        for line in env_text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("export STRAFER_NAVIGATION_TIMEOUT_S="):
+                value = float(stripped.split("=", 1)[1])
+                assert value < 600.0, (
+                    f"STRAFER_NAVIGATION_TIMEOUT_S={value} — expected to drop "
+                    "below 600 once the bridge unit-mismatch fix and "
+                    "STRAFER_NAV_VEL_SCALE=1.0 let MPPI run at chassis max."
+                )
+                return
+        pytest.fail("STRAFER_NAVIGATION_TIMEOUT_S export not found in env file")

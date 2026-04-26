@@ -32,11 +32,21 @@ from __future__ import annotations
 from typing import Any, Callable, Sequence
 
 from strafer_lab.sim_in_the_loop.harness import EnvAdapter, FrameBundle
+from strafer_shared.constants import MAX_ANGULAR_VEL, MAX_LINEAR_VEL
 
 
 # Type alias for the cmd_vel reader. Returns
 # ``((lx, ly, lz), (ax, ay, az))`` in m/s and rad/s.
 CmdVelReader = Callable[[str], tuple[tuple[float, float, float], tuple[float, float, float]]]
+
+
+def _clamp_unit(value: float) -> float:
+    """Clamp ``value`` into the action term's ``[-1, 1]`` contract."""
+    if value > 1.0:
+        return 1.0
+    if value < -1.0:
+        return -1.0
+    return value
 
 
 class IsaacLabEnvAdapter(EnvAdapter):
@@ -172,6 +182,18 @@ class IsaacLabEnvAdapter(EnvAdapter):
     ) -> Any:
         """Convert one Twist sample into the env's action tensor.
 
+        ``MecanumWheelAction.process_actions`` consumes actions in the
+        normalized ``[-1, 1]`` contract and scales them up to physical
+        velocities via ``_velocity_scale = [MAX_LINEAR_VEL, MAX_LINEAR_VEL,
+        MAX_ANGULAR_VEL]``. ``/cmd_vel`` from Nav2 / teleop arrives in
+        physical units (m/s, rad/s), so this method divides by the same
+        ``strafer_shared.constants`` values that the action term scales
+        with — keeping the bridge-side and env-side conversions on a
+        single source of truth. Out-of-band velocities are clamped to
+        ``[-1, 1]`` here for explicitness; ``process_actions`` clamps too,
+        but expressing intent in the bridge stops a bad ``/cmd_vel``
+        publisher from saturating the per-wheel motor cap silently.
+
         The action layout assumed here is the Strafer mecanum convention
         ``[linear_x, linear_y, angular_z]`` at indices 0, 1, 2 of the
         first env's action row. Variants whose action layout differs
@@ -180,9 +202,9 @@ class IsaacLabEnvAdapter(EnvAdapter):
 
         action = self._zero_action.clone()
         if action.shape[-1] >= 3:
-            action[0, self._ACTION_LINEAR_X] = float(linear[0])
-            action[0, self._ACTION_LINEAR_Y] = float(linear[1])
-            action[0, self._ACTION_ANGULAR_Z] = float(angular[2])
+            action[0, self._ACTION_LINEAR_X] = _clamp_unit(float(linear[0]) / MAX_LINEAR_VEL)
+            action[0, self._ACTION_LINEAR_Y] = _clamp_unit(float(linear[1]) / MAX_LINEAR_VEL)
+            action[0, self._ACTION_ANGULAR_Z] = _clamp_unit(float(angular[2]) / MAX_ANGULAR_VEL)
         return action
 
     @staticmethod

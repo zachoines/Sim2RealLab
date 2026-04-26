@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 
 from strafer_lab.sim_in_the_loop.runtime_env import IsaacLabEnvAdapter
+from strafer_shared.constants import MAX_ANGULAR_VEL, MAX_LINEAR_VEL
 
 
 # ---------------------------------------------------------------------------
@@ -235,9 +236,12 @@ class TestStep:
         assert env.last_action is not None
         action_data = env.last_action.data
         # Strafer mecanum layout: [linear_x, linear_y, angular_z]
-        assert action_data[0, 0] == pytest.approx(0.5)
-        assert action_data[0, 1] == pytest.approx(0.1)
-        assert action_data[0, 2] == pytest.approx(-0.3)
+        # /cmd_vel arrives in physical units (m/s, rad/s); the bridge
+        # divides by MAX_LINEAR_VEL / MAX_ANGULAR_VEL so the action term
+        # (which expects [-1, 1]) gets the contract it documents.
+        assert action_data[0, 0] == pytest.approx(0.5 / MAX_LINEAR_VEL)
+        assert action_data[0, 1] == pytest.approx(0.1 / MAX_LINEAR_VEL)
+        assert action_data[0, 2] == pytest.approx(-0.3 / MAX_ANGULAR_VEL)
 
     def test_zero_cmd_vel_produces_zero_action(self):
         env = _build_env()
@@ -245,6 +249,37 @@ class TestStep:
         adapter.step()
         assert env.last_action is not None
         assert np.allclose(env.last_action.data, 0.0)
+
+    def test_max_cmd_vel_normalizes_to_unit_action(self):
+        """A /cmd_vel at the chassis cap maps to ±1.0 in the action tensor."""
+        env = _build_env()
+        adapter = _build_adapter(
+            env,
+            cmd_vel_reader=lambda _gp: (
+                (MAX_LINEAR_VEL, -MAX_LINEAR_VEL, 0.0),
+                (0.0, 0.0, MAX_ANGULAR_VEL),
+            ),
+        )
+        adapter.step()
+        action_data = env.last_action.data
+        assert action_data[0, 0] == pytest.approx(1.0)
+        assert action_data[0, 1] == pytest.approx(-1.0)
+        assert action_data[0, 2] == pytest.approx(1.0)
+
+    def test_above_cap_cmd_vel_clamps_to_unit(self):
+        """A misbehaving publisher sending above-cap velocities is clamped."""
+        env = _build_env()
+        adapter = _build_adapter(
+            env,
+            cmd_vel_reader=lambda _gp: (
+                (10.0 * MAX_LINEAR_VEL, 0.0, 0.0),
+                (0.0, 0.0, -10.0 * MAX_ANGULAR_VEL),
+            ),
+        )
+        adapter.step()
+        action_data = env.last_action.data
+        assert action_data[0, 0] == pytest.approx(1.0)
+        assert action_data[0, 2] == pytest.approx(-1.0)
 
     def test_step_passes_graph_path_to_reader(self):
         env = _build_env()

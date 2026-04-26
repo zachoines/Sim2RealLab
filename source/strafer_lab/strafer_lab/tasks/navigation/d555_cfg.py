@@ -23,10 +23,15 @@ Every value that mirrors a real-world D555 property — native capture
 resolution (``PERCEPTION_WIDTH`` / ``PERCEPTION_HEIGHT``), lens specs
 (``D555_FOCAL_LENGTH_MM`` / ``D555_HORIZONTAL_APERTURE_MM``), frame rate
 (``CAMERA_HZ`` / ``CAMERA_UPDATE_PERIOD_S``), IMU rate (``IMU_HZ`` /
-``IMU_UPDATE_PERIOD_S``), hardware clip limits (``DEPTH_CLIP_FAR``), and
-mount offset (``CAMERA_OFFSET_X/Y/Z``) — lives in ``strafer_shared`` so
-the Jetson real-robot driver and the Isaac Sim cameras share one
-authoritative specification and can never drift against each other.
+``IMU_UPDATE_PERIOD_S``), depth-sensor saturation limits
+(``DEPTH_CLIP_NEAR``, ``DEPTH_CLIP_FAR`` — applied in software in
+``observations.depth_image``), and mount offset (``CAMERA_OFFSET_X/Y/Z``)
+— lives in ``strafer_shared`` so the Jetson real-robot driver and the
+Isaac Sim cameras share one authoritative specification and can never
+drift against each other. The renderer frustum clip
+(``D555_RENDER_FAR_CLIP_M``) is sim-only and intentionally decoupled
+from the depth-sensor limit so RGB and other render-product channels
+extend through the full scene.
 What stays local to this module is sim-only: Isaac Sim USD prim-path
 strings, the Isaac Sim → ROS camera-frame quaternion, and the Isaac Sim
 ``data_types`` channel names.
@@ -48,7 +53,7 @@ from strafer_shared.constants import (
     CAMERA_UPDATE_PERIOD_S,
     D555_FOCAL_LENGTH_MM,
     D555_HORIZONTAL_APERTURE_MM,
-    DEPTH_CLIP_FAR,
+    D555_RENDER_FAR_CLIP_M,
     DEPTH_HEIGHT,
     DEPTH_SIM_CLIP_NEAR,
     DEPTH_WIDTH,
@@ -85,10 +90,25 @@ D555_CAMERA_OFFSET = (CAMERA_OFFSET_X, CAMERA_OFFSET_Y, CAMERA_OFFSET_Z)
 D555_CAMERA_ROT_ROS = (-0.5, 0.5, -0.5, 0.5)
 D555_IMU_ROT = (0.0, 0.0, 0.0, 1.0)  # identity, XYZW
 
-# Clipping range mixes the sim-only near override (sim renders below the
-# D555's 0.4 m stereo blind zone so objects don't pop out of view next to
-# the robot) with the real hardware far limit.
-D555_CAMERA_CLIPPING_RANGE = (DEPTH_SIM_CLIP_NEAR, DEPTH_CLIP_FAR)
+# Renderer frustum clip applied to the camera prim. Both ends are
+# sim-only and decoupled from the real D555's depth saturation limit.
+#
+# Near (DEPTH_SIM_CLIP_NEAR = 0.01 m): sim renders below the D555's
+# 0.4 m stereo blind zone so objects don't pop out of view next to the
+# robot. The depth-sensor min-range model (0.4 m saturation to
+# DEPTH_NEARFIELD_FILL) is enforced in software in observations.depth_image.
+#
+# Far (D555_RENDER_FAR_CLIP_M = 50 m): sim renders the entire room.
+# Using DEPTH_CLIP_FAR (6 m) here is wrong — the renderer's frustum cull
+# affects EVERY channel the camera emits (RGB, depth, semantic, bbox),
+# so a 6 m cap blackens RGB beyond 6 m even though the depth-saturation
+# model already enforces the 6 m sensor limit at observation post-
+# processing. The bridge's /d555/depth/... stream comes straight off the
+# rendered camera with no software hook, so beyond-6 m depth values
+# DO reach the bridge — Jetson-side consumers (RTAB-Map, Nav2 costmap,
+# goal projection) should cap depth on their end if they want sim/real
+# parity at the sensor's ~6 m saturation.
+D555_CAMERA_CLIPPING_RANGE = (DEPTH_SIM_CLIP_NEAR, D555_RENDER_FAR_CLIP_M)
 
 # Data types for the perception camera spawn. These are Isaac Sim sensor
 # output channel names — NOT D555 hardware config. RGB is mandatory (the

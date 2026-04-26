@@ -125,6 +125,16 @@ DEPTH_CLIP_FAR = 6.0  # meters
 DEPTH_SIM_CLIP_NEAR = 0.01  # meters — sim renders below D555 min range
 DEPTH_NEARFIELD_FILL = 0.2  # meters — replacement value for sub-0.4m pixels
 
+# Sim-only renderer frustum far clip. Distinct from DEPTH_CLIP_FAR — the
+# depth-sensor 6 m limit is enforced in software in observations.depth_image
+# (and is irrelevant for RGB), whereas the frustum clip is a renderer-level
+# cull that affects EVERY channel the camera emits (RGB, depth, semantic,
+# bbox). Using DEPTH_CLIP_FAR for the frustum cuts RGB at 6 m too, leaving
+# the policy / VLM blind to anything in the room beyond that. 50 m is well
+# beyond any indoor scene we run; pinhole-camera frustum culling is cheap
+# so making this generous costs nothing.
+D555_RENDER_FAR_CLIP_M = 50.0
+
 # D555 native capture resolution — used by the Jetson perception pipeline
 # (/d555/color/image_sync, /d555/aligned_depth_to_color/image_sync, VLM
 # grounding client) and mirrored by the Isaac Sim perception camera

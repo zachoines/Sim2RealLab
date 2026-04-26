@@ -7,6 +7,7 @@ Events are used for:
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 import math
@@ -15,6 +16,8 @@ import torch
 import warp as wp
 
 from isaaclab.utils.math import quat_from_euler_xyz, quat_apply
+
+logger = logging.getLogger(__name__)
 
 # XYZW quaternion component indices (Isaac Lab 3.0 convention)
 QX, QY, QZ, QW = 0, 1, 2, 3
@@ -574,4 +577,68 @@ def randomize_proc_room_difficulty(
         )
     env._proc_room_difficulty[env_ids] = torch.randint(
         min_level, max_level + 1, (len(env_ids),), device=env.device
+    )
+
+
+def lift_ground_plane_to_floor(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor | None,
+    target_z: float,
+    ground_prim_path: str = "/World/ground/terrain",
+) -> None:
+    """Translate the world ground plane up so its top face matches a target z.
+
+    Used by Infinigen scenes whose floor meshes sit above world z=0. Robot
+    collision is delegated to ``/World/ground`` (the floor meshes have their
+    colliders stripped at scene-bake time), so the ground plane needs to ride
+    just below the visible floor to be coincident in physics. A small negative
+    z offset (e.g. ``floor_top_z - 0.002``) avoids z-fighting against the
+    Infinigen floor mesh while keeping the wheel-contact surface effectively
+    at floor height.
+
+    The default target is ``/World/ground/terrain`` — the Xform that
+    ``TerrainImporter.import_ground_plane`` actually creates via
+    ``spawn_ground_plane``. The ``TerrainImporterCfg.prim_path`` parent
+    (``/World/ground``) is only an implicit untyped USD ancestor and
+    authoring ``xformOp:translate`` on it does not compose into the world
+    transform.
+
+    Idempotent — sets ``xformOp:translate`` directly so repeated calls just
+    overwrite the value.
+
+    Args:
+        env: The environment instance.
+        env_ids: Unused (mode="prestartup"); accepted to match the event signature.
+        target_z: World-space z to set on ``ground_prim_path``'s translate op.
+        ground_prim_path: USD path to the ground Xform created by
+            ``TerrainImporter``. Defaults to ``/World/ground/terrain``.
+    """
+    del env_ids  # event signature only; ground prim is global
+
+    from pxr import Gf, UsdGeom  # type: ignore
+
+    stage = env.sim.stage
+    if stage is None:
+        logger.warning("[lift_ground_plane_to_floor] sim.stage is None; skipping")
+        return
+    prim = stage.GetPrimAtPath(ground_prim_path)
+    if not prim.IsValid():
+        logger.warning(
+            "[lift_ground_plane_to_floor] prim not found at %s; ground stays at z=0",
+            ground_prim_path,
+        )
+        return
+
+    xformable = UsdGeom.Xformable(prim)
+    translate_op = None
+    for op in xformable.GetOrderedXformOps():
+        if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+            translate_op = op
+            break
+    if translate_op is None:
+        translate_op = xformable.AddTranslateOp()
+    translate_op.Set(Gf.Vec3d(0.0, 0.0, float(target_z)))
+    logger.info(
+        "[lift_ground_plane_to_floor] %s translate -> (0, 0, %.4f)",
+        ground_prim_path, float(target_z),
     )

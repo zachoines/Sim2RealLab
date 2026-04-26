@@ -1,13 +1,18 @@
 """Bake runtime scene modifications into an Infinigen-exported USDC.
 
-Infinigen's USD export is visual-only and lacks two things Isaac Sim
+Infinigen's USD export is visual-only and lacks the things Isaac Sim
 needs for robot integration:
 
-1. Collision shapes. Without them the robot falls through floors and
-   phases through walls.
+1. Collision shapes on most meshes. Without them the robot falls
+   through walls and phases through furniture.
 2. Light emitters at ``CeilingLightFactory_*`` fixtures. The fixture
    meshes are exported but no ``UsdLux`` emitters are authored, so the
    interiors render black.
+
+Floor meshes are deliberately *excluded* from the collision pass — their
+tessellated triangle edges catch the Strafer mecanum rollers and pull
+the robot into the geometry. Robot collision is delegated to the clean
+``/World/ground`` plane lifted to floor height by the env config.
 
 Applying these at Kit startup works but traversing a ~7 GB USDC to
 attach ``UsdPhysics.CollisionAPI`` on hundreds of meshes freezes the
@@ -15,8 +20,9 @@ env for ~60 s on every launch. This script bakes the same changes into
 the USDC once at scene-generation time so subsequent launches are
 fast.
 
-Idempotent — re-running on an already-postprocessed USDC just confirms
-the state (skips meshes that already carry ``CollisionAPI``, leaves
+Idempotent — re-running on an already-postprocessed USDC strips any
+floor colliders the previous bake left behind and leaves all other
+state alone (skips meshes that already carry ``CollisionAPI``, leaves
 existing ``AutoSphereLight`` children alone).
 
 Requires ``pxr``. Runs under the interpreter at
@@ -42,8 +48,25 @@ logger = logging.getLogger("postprocess_scene_usd")
 
 _CEILING_LIGHT_NAME_RE = re.compile(r"^CeilingLightFactory_\d+__spawn_asset_\d+_$")
 
+# Floor meshes Infinigen exports are tessellated and have triangle edges /
+# T-junctions that catch the Strafer mecanum rollers. Infinigen emits an
+# Xform-with-same-name-Mesh-child pattern at file root depth 2/3, e.g.
+# ``/World/bedroom_0_0_floor`` (Xform) and
+# ``/World/bedroom_0_0_floor/bedroom_0_0_floor`` (Mesh). Note the path is
+# rooted at ``/World/`` here, not ``/World/Room/`` — the env config later
+# references this USDC under ``/World/Room`` at runtime, but during the
+# offline postprocess pass we operate on the standalone file. Both the
+# outer Xform and the inner Mesh leaf match so we can strip / skip either.
+_DEFAULT_FLOOR_PRIM_PATTERN = r"^/World/[^/]+_floor(?:/[^/]+_floor)?$"
 
-def attach_mesh_colliders(stage: Any) -> int:
+
+def _compile_floor_pattern(pattern: str) -> re.Pattern[str]:
+    return re.compile(pattern)
+
+
+def attach_mesh_colliders(
+    stage: Any, floor_pattern: re.Pattern[str] | None = None
+) -> int:
     """Attach ``CollisionAPI`` + ``MeshCollisionAPI`` to every scene ``Mesh``.
 
     Applies the ``none`` approximation (use the raw triangle mesh as the
@@ -51,8 +74,14 @@ def attach_mesh_colliders(stage: Any) -> int:
     dynamic bodies would need ``convexHull`` / ``convexDecomposition``
     but nothing in an Infinigen indoor scene moves on its own.
 
-    Skips material subtrees and prims that already carry ``CollisionAPI``
-    so repeated invocations are a no-op.
+    Skips:
+
+    * Material subtrees.
+    * Prims that already carry ``CollisionAPI`` so repeated invocations
+      are a no-op.
+    * Floor meshes matching ``floor_pattern`` — robot collision goes to
+      the clean ``/World/ground`` plane the env config lifts to floor
+      height. Pass ``None`` to disable the skip (debugging only).
     """
     from pxr import UsdPhysics  # type: ignore
 
@@ -65,11 +94,41 @@ def attach_mesh_colliders(stage: Any) -> int:
         path = str(prim.GetPath())
         if "/_materials/" in path:
             continue
+        if floor_pattern is not None and floor_pattern.match(path):
+            continue
         if prim.HasAPI(UsdPhysics.CollisionAPI):
             continue
         UsdPhysics.CollisionAPI.Apply(prim)
         mesh_api = UsdPhysics.MeshCollisionAPI.Apply(prim)
         mesh_api.CreateApproximationAttr().Set("none")
+        count += 1
+    return count
+
+
+def strip_floor_colliders(stage: Any, floor_pattern: re.Pattern[str]) -> int:
+    """Remove ``CollisionAPI`` / ``MeshCollisionAPI`` from floor mesh prims.
+
+    Walks every prim whose path matches ``floor_pattern``. If the prim
+    carries collision authoring it is removed via ``RemoveAPI`` so
+    PhysX no longer sees the floor as a collider. Idempotent — prims
+    without authored collision are skipped.
+    """
+    from pxr import UsdPhysics  # type: ignore
+
+    count = 0
+    for prim in stage.Traverse():
+        if not prim.IsValid():
+            continue
+        if not floor_pattern.match(str(prim.GetPath())):
+            continue
+        had_collision = prim.HasAPI(UsdPhysics.CollisionAPI)
+        had_mesh = prim.HasAPI(UsdPhysics.MeshCollisionAPI)
+        if not (had_collision or had_mesh):
+            continue
+        if had_mesh:
+            prim.RemoveAPI(UsdPhysics.MeshCollisionAPI)
+        if had_collision:
+            prim.RemoveAPI(UsdPhysics.CollisionAPI)
         count += 1
     return count
 
@@ -109,7 +168,13 @@ def inject_ceiling_light_emitters(stage: Any, intensity: float) -> int:
     return count
 
 
-def postprocess_usdc(usdc_path: Path, *, light_intensity: float) -> None:
+def postprocess_usdc(
+    usdc_path: Path,
+    *,
+    light_intensity: float,
+    floor_pattern: re.Pattern[str],
+    keep_floor_colliders: bool,
+) -> None:
     from pxr import Usd  # type: ignore
 
     resolved = usdc_path.resolve()
@@ -117,12 +182,16 @@ def postprocess_usdc(usdc_path: Path, *, light_intensity: float) -> None:
     if stage is None:
         raise RuntimeError(f"Failed to open USD stage: {resolved}")
 
-    colliders = attach_mesh_colliders(stage)
+    floor_skip = None if keep_floor_colliders else floor_pattern
+    stripped = (
+        0 if keep_floor_colliders else strip_floor_colliders(stage, floor_pattern)
+    )
+    colliders = attach_mesh_colliders(stage, floor_pattern=floor_skip)
     lights = inject_ceiling_light_emitters(stage, light_intensity)
     stage.Save()
     logger.info(
-        "%s: attached %d collider(s), injected %d light(s)",
-        resolved, colliders, lights,
+        "%s: stripped %d floor collider(s), attached %d collider(s), injected %d light(s)",
+        resolved, stripped, colliders, lights,
     )
 
 
@@ -143,13 +212,33 @@ def main(argv: list[str] | None = None) -> int:
         help="Intensity for each injected SphereLight. Tune higher if "
              "rooms are still dim, lower if the scene blows out.",
     )
+    parser.add_argument(
+        "--floor-prim-pattern",
+        type=str,
+        default=_DEFAULT_FLOOR_PRIM_PATTERN,
+        help="Regex matched against full USD prim paths to identify Infinigen "
+             "floor meshes whose colliders must be stripped. Override only if "
+             "you discover Infinigen export variants the default misses.",
+    )
+    parser.add_argument(
+        "--keep-floor-colliders",
+        action="store_true",
+        help="Keep floor mesh colliders (debugging only). Reintroduces "
+             "the wheel-catching behavior the floor strip was added to fix.",
+    )
     args = parser.parse_args(argv)
 
     if not args.usdc.exists():
         logger.error("USDC not found: %s", args.usdc)
         return 2
 
-    postprocess_usdc(args.usdc, light_intensity=args.light_intensity)
+    floor_pattern = _compile_floor_pattern(args.floor_prim_pattern)
+    postprocess_usdc(
+        args.usdc,
+        light_intensity=args.light_intensity,
+        floor_pattern=floor_pattern,
+        keep_floor_colliders=args.keep_floor_colliders,
+    )
     return 0
 
 

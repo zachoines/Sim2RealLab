@@ -252,7 +252,15 @@ class StraferSceneCfg_Infinigen(InteractiveSceneCfg):
 
     Contact sensor uses net_forces_w (no filter) since scene mesh prims are
     variable and unknown at config time.
+
+    ``replicate_physics`` is disabled because the scene already explicitly
+    shares ``/World/Room`` across all envs (Isaac Lab's per-env replication
+    would be a no-op here) AND the prestartup ``lift_ground_plane_to_floor``
+    event has to author USD-level changes before ``sim.reset()`` builds the
+    PhysX collider tensors — that path is gated on ``replicate_physics=False``.
     """
+
+    replicate_physics: bool = False
 
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
@@ -327,7 +335,12 @@ class StraferSceneCfg_InfinigenPerception(InteractiveSceneCfg):
     This scene is intentionally NOT used in RL training. At 640x360 Isaac
     Sim caps parallel envs at ~1-8 (vs. 256+ at 80x60), so this scene is
     reserved for data collection and ROS bridge work.
+
+    See :class:`StraferSceneCfg_Infinigen` for why ``replicate_physics`` is
+    disabled.
     """
+
+    replicate_physics: bool = False
 
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
@@ -1006,11 +1019,33 @@ _RESET_ROBOT_INFINIGEN = EventTerm(
     params={"spawn_points_xy": [], "yaw_range": (-math.pi, math.pi)},  # populated in __post_init__
 )
 
+# Structural event for Infinigen: lift /World/ground to the loaded scene's
+# floor height. Floor meshes have their colliders stripped at bake time
+# (see scripts/postprocess_scene_usd.py) so robot collision flows entirely
+# through this lifted plane. ``target_z`` is populated in __post_init__
+# with ``floor_top_z - 0.002`` to keep the plane just below the visible
+# Infinigen floor and avoid z-fighting.
+#
+# mode="prestartup" is required: PhysX builds collider tensors during
+# ``sim.reset()`` from the USD prim transforms as they exist at that
+# moment, so the translate must land before sim.reset(). Running at
+# "startup" left the visual plane lifted but the collider stuck at z=0.
+# prestartup is gated on ``replicate_physics=False`` (set on the
+# Infinigen scene cfgs); that's a no-op for these scenes since they
+# already share a single ``/World/Room`` with ``env_spacing=0`` and
+# ``collision_group=-1``.
+_LIFT_GROUND_INFINIGEN = EventTerm(
+    func=mdp.lift_ground_plane_to_floor,
+    mode="prestartup",
+    params={"target_z": 0.0},  # populated in __post_init__
+)
+
 
 @configclass
 class EventsCfg_Infinigen_Realistic:
     """Realistic DR for Infinigen — no obstacle randomization, tighter spawn."""
     reset_robot = _RESET_ROBOT_INFINIGEN
+    lift_ground = _LIFT_GROUND_INFINIGEN
     randomize_friction = EventTerm(
         func=mdp.randomize_friction, mode="reset",
         params={"friction_range": (0.6, 1.2)},
@@ -1037,6 +1072,7 @@ class EventsCfg_Infinigen_Realistic:
 class EventsCfg_Infinigen_Robust:
     """Robust DR for Infinigen — no obstacle randomization, tighter spawn."""
     reset_robot = _RESET_ROBOT_INFINIGEN
+    lift_ground = _LIFT_GROUND_INFINIGEN
     randomize_friction = EventTerm(
         func=mdp.randomize_friction, mode="reset",
         params={"friction_range": (0.3, 1.5)},
@@ -1137,6 +1173,21 @@ def _get_infinigen_floor_top_z() -> float | None:
     return max(zs) if zs else None
 
 
+def _get_infinigen_active_scene_floor_top_z(scene_stem: str) -> float | None:
+    """Return ``floor_top_z`` for a single scene by stem name, or None.
+
+    Used by the ground-lift event which needs the *active* scene's floor
+    height, not the pooled max across all scenes.
+    """
+    meta = _get_scenes_metadata()
+    if not meta:
+        return None
+    scene_data = meta.get("scenes", {}).get(scene_stem)
+    if not scene_data:
+        return None
+    return scene_data.get("floor_top_z")
+
+
 def _apply_infinigen_scene_setup(cfg: ManagerBasedRLEnvCfg) -> None:
     """Attach the first scene USD and pooled floor spawn points to an env cfg.
 
@@ -1144,7 +1195,8 @@ def _apply_infinigen_scene_setup(cfg: ManagerBasedRLEnvCfg) -> None:
     anchors relative texture refs against the symlink location, not the
     target, and that breaks every ``./textures/*`` lookup.
     """
-    scene_path = Path(_get_scene_usd_paths()[0]).resolve()
+    scene_link = Path(_get_scene_usd_paths()[0])
+    scene_path = scene_link.resolve()
     cfg.scene.scene_geometry.spawn.usd_path = str(scene_path)
 
     spawn_points_xy = _get_infinigen_spawn_points_xy()
@@ -1155,6 +1207,12 @@ def _apply_infinigen_scene_setup(cfg: ManagerBasedRLEnvCfg) -> None:
     floor_top_z = _get_infinigen_floor_top_z()
     if floor_top_z is not None:
         cfg.events.reset_robot.params["spawn_z"] = floor_top_z + 0.1
+
+    active_floor_top_z = _get_infinigen_active_scene_floor_top_z(scene_link.stem)
+    if active_floor_top_z is not None:
+        # Sit the ground plane 2 mm below the visible Infinigen floor: the
+        # gap is imperceptible and prevents z-fighting between the two.
+        cfg.events.lift_ground.params["target_z"] = float(active_floor_top_z) - 0.002
 
 
 class _PlayEnvCfgMixin:

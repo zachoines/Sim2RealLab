@@ -135,8 +135,8 @@ def test_ideal_tier_count():
 
 
 def test_realistic_tier_count():
-    """12 Realistic-tier environments (3 sensor + 1 InfinigenDepth + 2 ProcRoom x Train+Play)."""
-    assert len(_REAL_ENVS) == 12, f"Expected 12 Realistic envs, got {len(_REAL_ENVS)}"
+    """13 Realistic-tier environments: 3 sensor + 1 InfinigenDepth + 2 ProcRoom (x Train+Play) + 1 InfinigenPerception-Play-only."""
+    assert len(_REAL_ENVS) == 13, f"Expected 13 Realistic envs, got {len(_REAL_ENVS)}"
 
 
 def test_robust_tier_count():

@@ -117,6 +117,21 @@ def main():
     if "NoCam" not in args.env or args.video:
         args.enable_cameras = True
 
+    # On Isaac Lab develop the env-relative video camera (ViewerCfg
+    # origin_type="env" + env_index=0) is only honored when a Kit
+    # visualizer is active, which in turn requires --viz kit AND a
+    # viewport (i.e. NOT --headless). Auto-inject --viz kit when the
+    # user asks for --video without explicitly requesting headless mode;
+    # if they did pass --headless we leave the visualizer disabled and
+    # the recording falls back to a world-frame camera (frames the
+    # whole grid; not env 0). Pick one of:
+    #   --video              -> headed, env-centered video
+    #   --headless           -> headless, no video
+    #   --headless --video   -> headless, world-frame video (off-center
+    #                           on multi-env runs)
+    if args.video and not getattr(args, "visualizer", None) and not args.headless:
+        args.visualizer = ["kit"]
+
     # Launch the simulator
     app_launcher = AppLauncher(args)
     simulation_app = app_launcher.app
@@ -130,7 +145,7 @@ def main():
     _rsl_rl_version = _metadata.version("rsl-rl-lib")
     from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper, handle_deprecated_rsl_rl_cfg
     from isaaclab_tasks.utils import parse_env_cfg
-    from isaaclab_tasks.utils.hydra import load_cfg_from_registry
+    from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry
     from isaaclab.envs.common import ViewerCfg
 
     # Import strafer_lab to register environments
@@ -200,6 +215,50 @@ def main():
     # Create environment (with render_mode for video if needed)
     render_mode = "rgb_array" if args.video else None
     env = gym.make(env_name, cfg=env_cfg, render_mode=render_mode)
+
+    # Anchor the recording camera over env_0. ManagerBasedRLEnv copies
+    # cfg.viewer.eye/lookat raw into VideoRecorderCfg.camera_position/target
+    # without translating ViewerCfg(origin_type="env") to world coords, so on
+    # the first render_rgb_array() call IsaacsimKitPerspectiveVideo resets
+    # /OmniverseKit_Persp to those env-relative values (interpreted as world).
+    # Patch the capture cfg + GUI viewport with the env_0 world-frame pose.
+    if args.video:
+        unwrapped = env.unwrapped
+        env_origin = unwrapped.scene.env_origins[0].detach().cpu().tolist()
+        viewer = unwrapped.cfg.viewer
+        world_eye = (
+            env_origin[0] + viewer.eye[0],
+            env_origin[1] + viewer.eye[1],
+            env_origin[2] + viewer.eye[2],
+        )
+        world_target = (
+            env_origin[0] + viewer.lookat[0],
+            env_origin[1] + viewer.lookat[1],
+            env_origin[2] + viewer.lookat[2],
+        )
+        recorder = getattr(unwrapped, "video_recorder", None)
+        capture = getattr(recorder, "_capture", None) if recorder is not None else None
+        if capture is not None:
+            capture.cfg.camera_position = world_eye
+            capture.cfg.camera_target = world_target
+        unwrapped.sim.set_camera_view(eye=world_eye, target=world_target)
+        try:
+            from isaaclab_physx.renderers.kit_viewport_utils import (
+                set_kit_renderer_camera_view,
+            )
+
+            set_kit_renderer_camera_view(
+                eye=world_eye,
+                target=world_target,
+                camera_prim_path=viewer.cam_prim_path,
+            )
+        except ImportError:
+            pass
+        print(
+            f"[INFO] Recording camera anchored on env_0 at "
+            f"world ({world_eye[0]:.1f}, {world_eye[1]:.1f}, {world_eye[2]:.1f}) "
+            f"-> ({world_target[0]:.1f}, {world_target[1]:.1f}, {world_target[2]:.1f})"
+        )
 
     # Wrap with video recorder before RSL-RL wrapper
     if args.video:

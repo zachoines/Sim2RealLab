@@ -183,6 +183,90 @@ A few rules of thumb that hold up in practice:
 
 ---
 
+## How to kick off a task with a new agent
+
+Briefs in this directory are **self-contained as far as task content
+goes** — the context modules they reference cover all the preamble.
+But a fresh agent does still need a thin launcher message giving them
+four things the brief itself doesn't carry: their identity, a pointer
+to which brief, workspace state, and stop conditions.
+
+### Recommended template
+
+```
+You are the [DGX | Jetson]-side coding agent. Your task brief is at:
+
+    docs/tasks/<brief-name>.md
+
+Start by reading the brief and the context modules it links to from
+its "## Context bundle" section. Workspace is already set up
+(branch phase_15-isaaclab3, conda env active where needed) — no
+setup commands needed.
+
+You're authorized to commit and push directly to phase_15-isaaclab3.
+When you're done — or if you hit a blocker — give me a short summary
+of what landed plus any remaining open questions.
+```
+
+### What each line does
+
+- **Identity** (`You are the [DGX | Jetson]-side coding agent`). The
+  brief's `Owner:` field says this too, but front-loading it
+  short-circuits any "wait, am I supposed to be touching this lane?"
+  hesitation. The agent immediately knows which lane in
+  [`context/ownership-boundaries.md`](context/ownership-boundaries.md)
+  applies.
+- **Pointer to the brief.** Agents can't psychically know what to
+  read first. Always include the full path.
+- **Workspace expectation.** Tells them not to spend cycles on
+  `pip install -e`, `colcon build`, `git checkout`, etc. If the
+  workspace actually isn't ready (stale branch, missing build, env
+  not active), say so explicitly instead.
+- **Permission.** Without it, agents default to feature-branch + PR
+  ceremony. With it, they land work in one commit and the change
+  shows up on `git log` immediately.
+- **Stop condition.** Without it agents either silently overshoot the
+  brief's scope OR stall without telling you. The "or when blocked"
+  clause is what saves you from the quietly-burning-cycles failure
+  mode.
+
+### When to deviate from the template
+
+- **Feature branch instead of direct commits.** Replace
+  `phase_15-isaaclab3` with the branch name. Useful for high-risk
+  refactors where you want a checkpoint before merging.
+- **Multi-brief ordering.** If briefs compose (e.g.,
+  `kit-pump-redundancy` + `async-camera-publishers`), say "land
+  [first] before starting [second]." Most current briefs are
+  independent; the brief's `Out of scope` section usually flags
+  relationships when they exist.
+- **Mid-flight context.** If a different agent landed something on
+  the branch since the brief was written, call out the recent commit
+  so they sync first.
+- **The brief leaves a real choice unmade.** If it lists Option A
+  and Option B and you have a preference, name it in the launcher so
+  they don't re-deliberate.
+- **Brief's `Context bundle` is missing a module the work obviously
+  needs.** Include the missing module path in the launcher. Bundle
+  is meant to be exhaustive but reality drifts; close the loop in
+  the brief afterward.
+
+### Anti-patterns
+
+- **Rewriting the brief in the launcher.** If you find yourself
+  re-explaining the task in the kickoff, the brief itself is missing
+  something — fix the brief, don't paper over it in the launcher.
+  The brief is the durable artifact; the launcher is throwaway.
+- **Overspecifying implementation.** The brief leaves implementation
+  latitude on purpose; the launcher should respect it. "Use a Python
+  rclpy thread" is fine guidance for a brief; "rewrite this exact
+  function this way" is overspecification.
+- **Forgetting the stop condition.** Even verbal kickoffs benefit
+  from "and ping me when done." Without it, the agent's idea of
+  "done" may be more ambitious than yours.
+
+---
+
 ## Examples
 
 The current queue is itself a useful set of examples:

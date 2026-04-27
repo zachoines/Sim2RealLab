@@ -28,9 +28,11 @@ earlier ones work.
   (real-robot execution). The bridge mode of this runbook exercises
   Flow 5's outer shell; the manual-mission stage exercises Flow 6's
   control path with simulated sensors.
-- [Isaac Sim install validation](VALIDATE_ISAAC_SIM_AND_INFINIGEN.md) —
-  must be green on the DGX before starting this runbook. If
-  `AppLauncher` doesn't boot cleanly, nothing else here will work.
+- DGX prerequisite: Isaac Sim must boot under `AppLauncher` and a
+  smoke-test env (e.g.
+  `Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0`) must reset
+  cleanly before starting this runbook. If `AppLauncher` doesn't boot
+  cleanly, nothing else here will work.
 - Agent prompts (if you're handing this to two parallel assistants):
   - [INTEGRATION_PROMPT_DGX.md](INTEGRATION_PROMPT_DGX.md)
   - [INTEGRATION_PROMPT_JETSON.md](INTEGRATION_PROMPT_JETSON.md)
@@ -94,8 +96,12 @@ stages.
       (prints the configured paths and exports `LD_PRELOAD`,
       `STRAFER_BLENDER_BIN`, `ISAACSIM_PATH`, `ROS_DOMAIN_ID`,
       `RMW_IMPLEMENTATION`).
-- [ ] [Install validation runbook](VALIDATE_ISAAC_SIM_AND_INFINIGEN.md)
-      Phase A + Phase B are green.
+- [ ] Isaac Sim boots under `AppLauncher` and a smoke-test env
+      (e.g. `make sim-bridge-gui` or
+      `$ISAACLAB -p Scripts/test_strafer_env.py
+       --env Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0
+       --num_envs 1 --duration 5 --headless`) reaches the env-step
+      loop without errors.
 - [ ] `strafer_msgs` is built / discoverable from
       `env_phase15` — the sim-in-the-loop harness imports
       `strafer_msgs.action.ExecuteMission` and

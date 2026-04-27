@@ -202,9 +202,9 @@ tracking is optional — `finetune_clip.py` runs without it if
 ## Flow 3 — Strafer RL training (Isaac Lab)
 
 **When**: RL training runs, typically long-lived (hundreds to thousands
-of PPO iterations). Manually triggered; not automated. Shorter
-validation runs (10-100 iterations) are part of the install runbook in
-[`VALIDATE_ISAAC_SIM_AND_INFINIGEN.md`](VALIDATE_ISAAC_SIM_AND_INFINIGEN.md).
+of PPO iterations). Manually triggered; not automated. Smoke-test
+invocations (10-100 iterations) live in `commands.md` at the repo
+root.
 
 **Triggered by**: operator on the DGX in `env_phase15`. The launcher
 wrapper is Isaac Lab's `isaaclab.sh`.

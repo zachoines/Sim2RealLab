@@ -160,12 +160,12 @@ Sim2RealLab/
 └── docs/
     ├── STRAFER_AUTONOMY_NEXT.md         # current-round design master (ground truth for intent)
     ├── SYSTEM_FLOW_DIAGRAMS.md          # cross-package runtime flow reference
-    ├── DEFERRED_WORK.md                 # open items queued for the next round
     ├── SIM_TO_REAL_TUNING_GUIDE.md      # deep-dive actuator + sensor alignment
     ├── WIRING_GUIDE.md                  # motor + encoder + RoboClaw + Jetson wiring
     ├── D555_IMU_KERNEL_FIX.md           # Tegra kernel module build for D555 IMU
-    ├── VALIDATE_ISAAC_SIM_AND_INFINIGEN.md  # DGX-side install + smoke-test runbook
-    ├── archive/                         # historical design + integration + task docs
+    ├── PERF_INVESTIGATION_SIM_IN_THE_LOOP.md  # bridge perf attribution + decisions
+    ├── INTEGRATION_*.md                 # spin-up runbooks for DGX / Jetson / sim-in-the-loop
+    ├── tasks/                           # one-shot Jira-style task briefs for follow-on work
     └── artifacts/, reference/           # images, videos, product inserts
 ```
 

@@ -535,3 +535,108 @@ either (a) making Kit's main-loop tick cheaper (batch or skip expensive
 extensions), or (b) moving the ROS2 publishers off the env.step hot
 path via a dedicated async publisher thread. Both are follow-on work;
 neither blocks merging this branch into `phase_15`.
+
+## Follow-up: phase-level attribution (`--profile` harness)
+
+Operator observation that `collect_demos.py` runs as slow as — or
+slower than — `make sim-bridge-gui`, despite using a much lighter
+software stack (no bridge, single-camera 80×60, ProcRoom procedural
+scene), motivated a more granular look. Camera resolution alone
+couldn't explain it, so a phase-level timing harness was added to
+`run_sim_in_the_loop.py` (`--profile` / `--profile-interval` /
+`--profile-window`) that wraps the bridge mainloop's outer phases and
+monkey-patches `sim.step` / `sim.render` to attribute their per-tick
+wall time. Same flag also catches manager-loop residuals.
+
+### Three runs on the InfinigenPerception scene at decimation=1
+
+All three configurations sampled with `--profile-window 200` over a
+~30 s drive on the Infinigen `fast_singleroom` scene:
+
+| Phase                         | Headed +cam | Headed, no-cam | **Headless +cam** |
+|-------------------------------|------------:|---------------:|------------------:|
+| `env.step (total)`            |      128.74 |          83.52 |             42.04 |
+| ↳ `sim.render (Kit)`          |       88.60 |          44.59 |              0.05 |
+| ↳ `sim.step (PhysX)`          |       21.82 |          21.65 |             22.33 |
+| `simulation_app.update`       |       83.07 |          40.78 |             74.18 |
+| `publish_state`               |        1.28 |           1.24 |              1.29 |
+| Loop wall total               |       ~213 |           ~125 |              ~117 |
+| Throughput                    |     4.7 Hz |        8.0 Hz |          **8.5 Hz** |
+
+(All numbers p50 milliseconds. Camera resolutions: perception 640×360,
+policy 80×60. Decimation=1, render_interval=1, /viz kit when "Headed".)
+
+### Findings 8-10 — what actually costs what at the bridge
+
+**Finding 8 — `sim.render`'s 88 ms is 100 % editor viewport rendering,
+not OmniGraph eval.** Going from `--viz kit` → headless dropped
+`sim.render` from 88.60 ms to 0.05 ms. The KitVisualizer's
+`step()` calls `app.update()` with `playSimulations=False` to avoid
+double-stepping physics; that pump's wall cost is dominated by RTX
+rendering of the editor window, not by anything OmniGraph-related
+(OnPlaybackTick OG nodes don't fire under `playSimulations=False`).
+
+**Finding 9 — `simulation_app.update`'s cost IS the camera-bridge
+OmniGraph publish chain.** Going from cameras-on → cameras-off (same
+`--viz kit`) dropped `simulation_app.update` from 83.07 ms to 40.78 ms,
+a ~42 ms decrease attributable to evaluating the
+`isaacsim.ros2.bridge.*` publisher nodes (color + depth Replicator →
+ROS2 Image). The remaining ~40 ms is editor viewport refresh from the
+second pump (with `playSimulations=True`) and Kit core scheduling
+overhead. With cameras on but headless, the ~74 ms attribution is
+nearly all camera publishing (no viewport).
+
+**Finding 10 — physics is NOT the bottleneck at the bridge.**
+PhysX is rock-stable at ~22 ms p50 across all three configurations.
+The bridge's bottleneck is rendering pipeline cost (viewport + camera
+publish), not physics. *Caveat:* Finding 5 above (decimation dominates)
+remains true at training time (no viewport, light camera load),
+because rendering cost is small there. The two findings describe
+different regimes of the same env stack.
+
+### Decomposition of the original 213 ms / 4.7 Hz headed+camera bridge
+
+```
+Editor viewport (RTX, twice per loop iteration) ~98 ms  (46 %)
+Camera OmniGraph publish (640×360 + 80×60)      ~74 ms  (35 %)
+PhysX                                            ~22 ms  (10 %)
+IsaacLab manager loop + scene.update             ~18 ms  ( 9 %)
+Misc (publish_state, cmd_vel read)                ~1 ms
+```
+
+### Why `collect_demos.py` is slower than `make sim-bridge-gui`
+
+The bridge sets `env_cfg.decimation = 1` via `--decimation` (Finding
+5's fix); `collect_demos.py` uses the default `decimation=4`. So
+collect_demos pays 4× the physics-tick cost per env.step and 4× the
+KitVisualizer-pump cost while sharing the same robot articulation +
+scene-collider load. The Strafer mecanum's 4-wheel articulation cost
+is the constant factor; decimation is the multiplier.
+
+### Recommendations
+
+1. **Use `make sim-bridge` (headless) as the daily driver** for
+   mission testing. Drops 96 ms / loop relative to `--viz kit`. The
+   editor viewport's value is mostly debug visualization, which can
+   move to a Jetson-side ROS topic viewer (Foxglove Studio +
+   `foxglove_bridge`, or a custom MJPEG viewer; tracked under
+   `docs/tasks/jetson-headless-viewer.md`).
+2. **Do NOT lower the perception camera resolution**. 640×360 is
+   locked to the real D555 native rate (see
+   `strafer_shared.constants.PERCEPTION_WIDTH/HEIGHT` comment); sim
+   resolution must mirror real to avoid sim-to-real drift in VLM
+   detection accuracy and depth-pixel resolution at goal-projection
+   time.
+3. **Land async camera publishers** (mirror the `StraferAsyncPublisher`
+   refactor that moved telemetry off OnPlaybackTick). Targets the
+   ~74 ms `simulation_app.update` cost; tracked under
+   `docs/tasks/async-camera-publishers.md`.
+4. **Investigate the redundant Kit pump under `--viz kit`**. The two
+   pumps each refresh the editor viewport once per loop iteration and
+   together account for ~80 ms of duplicated RTX work. Tracked under
+   `docs/tasks/kit-pump-redundancy-investigation.md`. Doesn't help
+   training (which is headless) but does help any `--viz kit`
+   workflow including `--video` recording during training.
+
+The `--profile` harness lives in `run_sim_in_the_loop.py` for any
+future regression hunt.

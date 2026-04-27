@@ -55,8 +55,15 @@ import argparse
 import logging
 import time
 from pathlib import Path
+from typing import Any
 
 from isaaclab.app import AppLauncher
+from strafer_shared.constants import MAX_ANGULAR_VEL, MAX_LINEAR_VEL
+
+
+def _clamp_unit(value: float) -> float:
+    """Clamp ``value`` to ``[-1, 1]`` (the action term's normalized contract)."""
+    return max(-1.0, min(1.0, value))
 
 
 # ---------------------------------------------------------------------------
@@ -213,9 +220,130 @@ def _parse_args() -> argparse.Namespace:
              "we don't serialize + push duplicate frames when the "
              "underlying render has not advanced.",
     )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Phase-level timing harness. Wraps sim.step / sim.render plus "
+             "the bridge loop's outer phases (cmd_vel read, env.step, "
+             "publish, kit.update) and prints rolling p50/p99 every "
+             "--profile-interval seconds. Use to attribute the per-step "
+             "wall budget across PhysX vs Kit vs bridge.",
+    )
+    parser.add_argument(
+        "--profile-interval",
+        type=float,
+        default=10.0,
+        help="Seconds between --profile reports (default 10).",
+    )
+    parser.add_argument(
+        "--profile-window",
+        type=int,
+        default=200,
+        help="Rolling sample window for p50/p99 in --profile (default 200 steps).",
+    )
 
     AppLauncher.add_app_launcher_args(parser)
     return parser.parse_args()
+
+
+# ---------------------------------------------------------------------------
+# Phase-level profiling harness (--profile)
+# ---------------------------------------------------------------------------
+
+
+class _PhaseProfiler:
+    """Roll p50/p99 wall-time samples for named phases, print periodically.
+
+    Designed for the bridge mainloop. Outer-loop phases are recorded with
+    :meth:`time` as a context manager; ``env.step`` internals (PhysX vs
+    Kit-render) are captured by monkey-patching ``sim.step`` /
+    ``sim.render`` once at install time so the per-decimation-tick timing
+    is attributed correctly.
+    """
+
+    def __init__(self, *, window: int, period_s: float) -> None:
+        import collections
+        self._collections = collections
+        self._samples: dict[str, "collections.deque[float]"] = {}
+        self._window = max(1, int(window))
+        self._period_s = float(period_s)
+        self._last_print = time.monotonic()
+        self._step_count = 0
+
+    def record(self, phase: str, dt_s: float) -> None:
+        bucket = self._samples.get(phase)
+        if bucket is None:
+            bucket = self._collections.deque(maxlen=self._window)
+            self._samples[phase] = bucket
+        bucket.append(dt_s * 1000.0)  # store as milliseconds
+
+    @property
+    def time(self):  # context manager factory
+        import contextlib
+
+        @contextlib.contextmanager
+        def _ctx(phase: str):
+            t0 = time.perf_counter()
+            try:
+                yield
+            finally:
+                self.record(phase, time.perf_counter() - t0)
+        return _ctx
+
+    def install_env_step_hooks(self, sim_context: Any) -> None:
+        """Wrap sim.step / sim.render to attribute their per-tick wall time."""
+        orig_step = sim_context.step
+        orig_render = sim_context.render
+
+        def _timed_step(*args, **kwargs):
+            t0 = time.perf_counter()
+            try:
+                return orig_step(*args, **kwargs)
+            finally:
+                self.record("env.step :: sim.step (PhysX)", time.perf_counter() - t0)
+
+        def _timed_render(*args, **kwargs):
+            t0 = time.perf_counter()
+            try:
+                return orig_render(*args, **kwargs)
+            finally:
+                self.record("env.step :: sim.render (Kit)", time.perf_counter() - t0)
+
+        sim_context.step = _timed_step
+        sim_context.render = _timed_render
+
+    def tick(self) -> None:
+        """Bump the step counter and emit a report if the period has elapsed."""
+        self._step_count += 1
+        now = time.monotonic()
+        if now - self._last_print < self._period_s:
+            return
+        self._last_print = now
+        self._report(now)
+
+    def _report(self, now: float) -> None:
+        import statistics
+        if not self._samples:
+            return
+        # Sort phases by p50 desc so the dominant cost is always at the top.
+        rows: list[tuple[str, float, float, int]] = []
+        for phase, bucket in self._samples.items():
+            if not bucket:
+                continue
+            vals = sorted(bucket)
+            n = len(vals)
+            p50 = vals[n // 2]
+            p99 = vals[min(n - 1, max(0, int(round(0.99 * (n - 1)))))]
+            rows.append((phase, p50, p99, n))
+        rows.sort(key=lambda r: r[1], reverse=True)
+
+        print(f"\n[profile] step={self._step_count}  window={self._window}  unit=ms")
+        print(f"  {'phase':<42s} {'p50':>8s} {'p99':>8s} {'n':>5s}")
+        for phase, p50, p99, n in rows:
+            print(f"  {phase:<42s} {p50:8.2f} {p99:8.2f} {n:5d}")
+        # Hint at where to look next.
+        top = rows[0][0] if rows else "?"
+        print(f"  -> dominant: {top}")
 
 
 def _apply_sim_in_the_loop_overrides(
@@ -382,10 +510,25 @@ def _run_bridge_mode(simulation_app, env, args, config) -> None:
     step_dt = physics_dt * unwrapped.cfg.decimation
     sim_time_s = 0.0
 
+    profiler: _PhaseProfiler | None = None
+    if args.profile:
+        profiler = _PhaseProfiler(
+            window=args.profile_window, period_s=args.profile_interval
+        )
+        profiler.install_env_step_hooks(unwrapped.sim)
+        print(
+            f"[sim_in_the_loop] --profile on: window={args.profile_window} steps, "
+            f"reporting every {args.profile_interval:.1f}s"
+        )
+
     last_cmd_time = time.monotonic()
     try:
         while simulation_app.is_running():
-            linear, angular = publisher.get_cmd_vel()
+            if profiler is not None:
+                with profiler.time("loop :: cmd_vel read"):
+                    linear, angular = publisher.get_cmd_vel()
+            else:
+                linear, angular = publisher.get_cmd_vel()
             vx, vy = linear[0], linear[1]
             wz = angular[2]
 
@@ -394,22 +537,40 @@ def _run_bridge_mode(simulation_app, env, args, config) -> None:
                 last_cmd_time = now
                 action = zero_action.clone()
                 if action.shape[-1] >= 3:
-                    action[0, 0] = float(vx)
-                    action[0, 1] = float(vy)
-                    action[0, 2] = float(wz)
+                    # /cmd_vel arrives in physical units (m/s, rad/s);
+                    # MecanumWheelAction.process_actions clamps to [-1, 1]
+                    # and scales by [MAX_LINEAR_VEL, MAX_LINEAR_VEL,
+                    # MAX_ANGULAR_VEL]. Match that contract here so a
+                    # Nav2 command of 0.5 m/s produces 0.5 m/s of body
+                    # velocity, not 0.78 m/s. Mirrors the normalization
+                    # in IsaacLabEnvAdapter._build_action used by the
+                    # harness path.
+                    action[0, 0] = _clamp_unit(float(vx) / MAX_LINEAR_VEL)
+                    action[0, 1] = _clamp_unit(float(vy) / MAX_LINEAR_VEL)
+                    action[0, 2] = _clamp_unit(float(wz) / MAX_ANGULAR_VEL)
             elif now - last_cmd_time > args.cmd_vel_timeout:
                 action = zero_action
             else:
                 action = zero_action
 
-            env.step(action)
-            sim_time_s += step_dt
-            publisher.publish_state(sim_time_s)
-            # Tick Kit's main loop so the camera OmniGraph (render
-            # product → ROS2 Image) evaluates once per env.step. Without
-            # this the image publishers fall back to Kit's background
-            # cadence on Isaac Lab 3.0.
-            simulation_app.update()
+            if profiler is not None:
+                with profiler.time("loop :: env.step (total)"):
+                    env.step(action)
+                sim_time_s += step_dt
+                with profiler.time("loop :: publish_state"):
+                    publisher.publish_state(sim_time_s)
+                with profiler.time("loop :: simulation_app.update"):
+                    simulation_app.update()
+                profiler.tick()
+            else:
+                env.step(action)
+                sim_time_s += step_dt
+                publisher.publish_state(sim_time_s)
+                # Tick Kit's main loop so the camera OmniGraph (render
+                # product → ROS2 Image) evaluates once per env.step. Without
+                # this the image publishers fall back to Kit's background
+                # cadence on Isaac Lab 3.0.
+                simulation_app.update()
     finally:
         publisher.shutdown()
 

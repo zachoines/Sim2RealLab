@@ -16,6 +16,19 @@ the original integration round**, so that **handing them to a fresh
 agent yields correct context the agent can execute against without me
 correcting drift mid-run**.
 
+## Context bundle
+
+Read these before starting:
+- [context/repo-topology.md](context/repo-topology.md)
+- [context/ownership-boundaries.md](context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
+
+The integration docs being refreshed are themselves *prompts that
+duplicate what context modules now own*. A reasonable shape for the
+refreshed prompts is to read those modules in turn (rather than re-state
+their contents inline), making the prompts shorter and self-correcting
+as modules update.
+
 ## Context
 
 The three integration docs are the prompts that bootstrap fresh DGX
@@ -81,11 +94,10 @@ moved on:
       `env_isaaclab3`. Sanity-grep returns no `env_phase15` outside
       historical perf-doc text.
 - [ ] `INTEGRATION_PROMPT_DGX.md` ownership boundaries match the
-      current state of the lanes (DGX agent = `strafer_lab/`,
-      `strafer_vlm/`, planner client, etc.; Jetson agent = the rest).
-      Verify against the most recent ownership lists in the
-      `scratch_pad.md` / `dgx_scratch_pad.md` briefs that landed during
-      the current round.
+      current state of the lanes. Source of truth for the lanes is
+      [`context/ownership-boundaries.md`](context/ownership-boundaries.md);
+      either link out to it from the prompt, or replicate inline and
+      keep both in sync.
 - [ ] `INTEGRATION_SIM_IN_THE_LOOP.md` stage-by-stage commands point
       at `make sim-bridge` (headless) by default, with a clear
       callout for when to use `--viz kit` (debugging only). Include
@@ -121,24 +133,24 @@ moved on:
       tell the agent the actual current branch state (last few
       commits on `phase_15-isaaclab3`, what's known-good vs
       in-progress).
+- [ ] If your work invalidates a fact in any referenced context
+      module, update that module in the same commit.
 
 ## Investigation pointers
 
 - Recent perf attribution: `docs/PERF_INVESTIGATION_SIM_IN_THE_LOOP.md`
   Findings 8-10 (the camera-bridge-on/off + headed/headless decomposition).
-- Recent cmd_vel fix rationale: `dgx_scratch_pad.md` (the brief that
-  triggered commit `d642bff`). Will be cleaned up after this task
-  lands; capture the relevant rationale into the runbook so the
-  scratch-pad can be deleted without losing context.
-- Existing task briefs in `docs/tasks/` follow a Jira-style format
-  ([kit-pump-redundancy-investigation.md](kit-pump-redundancy-investigation.md),
-  [async-camera-publishers.md](async-camera-publishers.md),
-  [jetson-headless-viewer.md](jetson-headless-viewer.md)) — match
-  that voice / structure for any new stage briefs you fold into the
-  runbook.
+- Recent cmd_vel fix rationale: captured in
+  [`context/bridge-runtime-invariants.md`](context/bridge-runtime-invariants.md#cmd_vel-normalization-contract-both-paths).
+  The original session brief (`dgx_scratch_pad.md`) has been deleted;
+  the invariant lives in context now.
+- Task-brief format + composition guidance: see
+  [`docs/tasks/README.md`](README.md). Match that voice / structure
+  for any new stage briefs you fold into the runbook.
 - Source of truth for the cheatsheet content:
-  `docs/example_commands_cheatsheet.md` — gets updated as commands
-  evolve, mirror anything in the runbook against it.
+  [`docs/example_commands_cheatsheet.md`](../example_commands_cheatsheet.md)
+  — gets updated as commands evolve, mirror anything in the runbook
+  against it.
 
 ## Out of scope
 

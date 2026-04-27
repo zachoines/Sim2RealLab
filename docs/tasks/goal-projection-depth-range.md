@@ -13,6 +13,13 @@ the camera can reliably see**, so that **the VLM can ground a target
 across a room and the planner gets a valid 3D goal pose instead of
 hitting `goal_projection_failed: out of range`**.
 
+## Context bundle
+
+Read these before starting:
+- [context/repo-topology.md](context/repo-topology.md)
+- [context/ownership-boundaries.md](context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
+
 ## Context
 
 `goal_projection_node._median_depth` filters its 5×5 patch to the
@@ -93,6 +100,8 @@ This task is **independent of the broader 6 m question**:
       - non-numeric / non-positive overrides fall back to default
       - the new error-message split actually distinguishes the two
         rejection reasons
+- [ ] If your work invalidates a fact in any referenced context
+      module, update that module in the same commit.
 
 ## Investigation pointers
 

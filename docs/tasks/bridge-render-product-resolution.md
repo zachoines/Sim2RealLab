@@ -17,6 +17,13 @@ matches the real D555 spec the rest of the stack assumes,
 indexing aligns with VLM-grounded bboxes, and the depth-aligned-to-
 color contract holds without 4× bandwidth waste**.
 
+## Context bundle
+
+Read these before starting:
+- [context/repo-topology.md](context/repo-topology.md)
+- [context/ownership-boundaries.md](context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
+
 ## Context
 
 The perception camera is configured in
@@ -133,6 +140,8 @@ configure.
       `RenderProduct*` node spec the builder emits, or a smoke test
       that brings up the bridge briefly and reads `cam_info` off the
       ROS2 graph (matching the existing bridge-test scaffolding).
+- [ ] If your work invalidates a fact in any referenced context
+      module, update that module in the same commit.
 
 ## Investigation pointers
 

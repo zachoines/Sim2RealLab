@@ -14,6 +14,13 @@ own Python rclpy thread instead of on Kit's `OnPlaybackTick`**, so that
 bridge can sustain a higher mission-execution rate without sacrificing
 camera publish cadence**.
 
+## Context bundle
+
+Read these before starting:
+- [context/repo-topology.md](context/repo-topology.md)
+- [context/ownership-boundaries.md](context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
+
 ## Context
 
 Profiling the bridge in headless + cameras-on (the configuration where
@@ -82,6 +89,8 @@ the next env.step, which is the throughput win.
       per-thread rate divider); existing CLI surface intact.
 - [ ] Headless smoke test: a navigate_to_pose mission completes against
       the bridge with at least the same success rate as today.
+- [ ] If your work invalidates a fact in any referenced context
+      module, update that module in the same commit.
 
 ## Investigation pointers
 
@@ -126,8 +135,9 @@ the next env.step, which is the throughput win.
 
 ## Out of scope
 
-- Lowering perception camera resolution (sim-to-real gap; see
-  `STRAFER_AUTONOMY_NEXT` thread for analysis).
+- Lowering perception camera resolution. The sim-mirrors-real
+  constraint and reasoning are spelled out in
+  [`context/bridge-runtime-invariants.md`](context/bridge-runtime-invariants.md#camera-resolutions-sim-mirrors-real).
 - Touching the policy 80×60 camera (`d555_camera`) — it's not bridged
   and stays inside the env on GPU.
 - Removing the second Kit pump itself — that's the

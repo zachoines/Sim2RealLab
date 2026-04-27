@@ -16,14 +16,22 @@ sim-bridge` instead of `make sim-bridge-gui`) and still debug what the
 robot perceives during a mission, without paying the ~80 ms/loop cost
 of the Isaac Sim editor viewport on the DGX side**.
 
+## Context bundle
+
+Read these before starting:
+- [context/repo-topology.md](context/repo-topology.md)
+- [context/ownership-boundaries.md](context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
+
 ## Context
 
-DGX-side perf profiling found that the Isaac Sim editor viewport
-(`--viz kit`) costs ~85 ms per bridge loop iteration — about half the
-total wall-clock time at decimation=1. Switching to headless mode
-(`make sim-bridge`) recovers that 85 ms, lifting bridge throughput from
-~5 Hz to ~8.5 Hz, and lifts further once async camera publishers land
-(see [async-camera-publishers task](async-camera-publishers.md)).
+The headless-vs-`--viz kit` cost split is summarized in
+[`context/bridge-runtime-invariants.md`](context/bridge-runtime-invariants.md#headless-vs---viz-kit-defaults)
+and detailed in `docs/PERF_INVESTIGATION_SIM_IN_THE_LOOP.md` Findings
+8-10. Switching to headless mode (`make sim-bridge`) recovers ~85 ms
+per loop, lifting bridge throughput from ~5 Hz to ~8.5 Hz, and lifts
+further once async camera publishers land (see
+[async-camera-publishers task](async-camera-publishers.md)).
 
 The blocker for using headless as the default bridge mode: the
 operator currently relies on the editor viewport to confirm scene
@@ -119,6 +127,8 @@ Trade-offs:
       missions.
 - [ ] No measurable impact on the rest of the Jetson stack — the
       visualizer's CPU should be < 10 % at idle, < 30 % when streaming.
+- [ ] If your work invalidates a fact in any referenced context
+      module, update that module in the same commit.
 
 ## Investigation pointers
 

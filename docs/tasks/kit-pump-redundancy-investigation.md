@@ -12,6 +12,13 @@ per env.step iteration**, so that **headed bridge-mode and `--video`
 training runs aren't paying ~80 ms/loop for what looks like a
 redundant viewport refresh on top of the OmniGraph publish pump**.
 
+## Context bundle
+
+Read these before starting:
+- [context/repo-topology.md](context/repo-topology.md)
+- [context/ownership-boundaries.md](context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
+
 ## Context
 
 Phase-level profiling of the sim-in-the-loop bridge with
@@ -97,6 +104,8 @@ The investigation should answer:
       before.
 - [ ] `docs/PERF_INVESTIGATION_SIM_IN_THE_LOOP.md` updated with the
       finding and the chosen fix.
+- [ ] If your work invalidates a fact in any referenced context
+      module, update that module in the same commit.
 
 ## Investigation pointers
 

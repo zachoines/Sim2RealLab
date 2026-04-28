@@ -102,7 +102,7 @@ parity at the real saturation point cap depth on their end.
 
 | Make target | Visibility | When to use |
 |-------------|------------|-------------|
-| `make sim-bridge` | Headless (no editor viewport) | **Daily-driver for missions.** Saves ~25-30 ms/loop vs `--viz kit`. Visual debugging via Jetson-side topic viewer (Foxglove or MJPEG; tracked at [`jetson-headless-viewer.md`](../jetson-headless-viewer.md)). |
+| `make sim-bridge` | Headless (no editor viewport) | **Daily-driver for missions.** Saves ~25-30 ms/loop vs `--viz kit`. Visual debugging via the Jetson-side `foxglove_bridge` (`bringup_sim_in_the_loop.launch.py` `viewer:=true`, default), connected through an SSH tunnel from the operator's workstation; see [INTEGRATION_SIM_IN_THE_LOOP.md Stage 3.5](../../INTEGRATION_SIM_IN_THE_LOOP.md). |
 | `make sim-bridge-gui` | Headed, Kit editor viewport | Visual debugging only. The bridge mainloop sets `env.render_enabled = False` so `KitVisualizer.step`'s `app.update()` is short-circuited; the explicit `simulation_app.update()` after each `env.step()` is the sole Kit pump per loop, refreshing the viewport, firing `OnPlaybackTick`, and driving the camera-publish OmniGraph in one pass. See [PERF_INVESTIGATION_SIM_IN_THE_LOOP.md "Kit-pump redundancy resolution"](../../PERF_INVESTIGATION_SIM_IN_THE_LOOP.md). |
 
 Default decimation in bridge: **`decimation=1`** (matches

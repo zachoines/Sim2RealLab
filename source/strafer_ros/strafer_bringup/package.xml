@@ -13,6 +13,7 @@
   <exec_depend>strafer_perception</exec_depend>
   <exec_depend>strafer_slam</exec_depend>
   <exec_depend>strafer_navigation</exec_depend>
+  <exec_depend>foxglove_bridge</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
 

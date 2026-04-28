@@ -14,6 +14,7 @@ Started here (subscribes to DGX-published topics):
   - Nav2                                       (/navigate_to_pose)
   - goal_projection_node                       (bbox → map-frame goal)
   - strafer-executor                           (autonomy command server)
+  - foxglove_bridge                            (WebSocket :8765, viewer:=true)
 
 Not started (hardware-only):
   - strafer_driver (RoboClaw — no motors)
@@ -26,6 +27,12 @@ Source the env file first on BOTH hosts so DDS discovery works:
 
     source source/strafer_ros/strafer_bringup/config/env_sim_in_the_loop.env
     ros2 launch strafer_bringup bringup_sim_in_the_loop.launch.py
+
+A ``foxglove_bridge`` node is brought up on TCP 8765 by default so an
+operator on a remote workstation can SSH-tunnel back and inspect the
+robot's camera, depth, TF, and map state in Foxglove Studio. Disable
+with ``viewer:=false``. End-to-end setup walkthrough lives in
+``docs/INTEGRATION_SIM_IN_THE_LOOP.md``.
 """
 
 import os
@@ -37,6 +44,7 @@ from launch.actions import (
     IncludeLaunchDescription,
     OpaqueFunction,
 )
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -55,6 +63,7 @@ def _launch_setup(context, *args, **kwargs):
     database_path = LaunchConfiguration("database_path").perform(context)
     rtabmap_args = LaunchConfiguration("rtabmap_args").perform(context)
     rtabmap_viz = LaunchConfiguration("rtabmap_viz").perform(context)
+    viewer_port = LaunchConfiguration("viewer_port").perform(context)
 
     # The DGX bridge publishes /clock, so every node in this launch runs
     # on sim time. Pins the whole chain (TF, approx_sync, freshness
@@ -142,6 +151,19 @@ def _launch_setup(context, *args, **kwargs):
                 "HARDWARE_PRESENT": "false",
             },
         ),
+
+        # ── Headless visual debugger (Foxglove WebSocket) ─────────────
+        Node(
+            package="foxglove_bridge",
+            executable="foxglove_bridge",
+            name="foxglove_bridge",
+            output="screen",
+            condition=IfCondition(LaunchConfiguration("viewer")),
+            parameters=[{
+                "use_sim_time": True,
+                "port": int(viewer_port),
+            }],
+        ),
     ]
     return nodes
 
@@ -178,6 +200,14 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "nav_log_level", default_value="warn",
             description="Log level for Nav2 nodes.",
+        ),
+        DeclareLaunchArgument(
+            "viewer", default_value="true",
+            description="Start foxglove_bridge on `viewer_port` for remote inspection.",
+        ),
+        DeclareLaunchArgument(
+            "viewer_port", default_value="8765",
+            description="Foxglove WebSocket TCP port.",
         ),
         OpaqueFunction(function=_launch_setup),
     ])

@@ -372,6 +372,74 @@ echoed.
 
 ---
 
+## Stage 3.5 — Headless visual debugger (Foxglove over SSH)
+
+**Goal**: an operator on a workstation can see the Jetson's live camera
++ TF + map state without a monitor on the Jetson, and without running
+Isaac Sim's editor viewport on the DGX.
+
+**Why**: `make sim-bridge` (headless) is the daily-driver bridge target
+because the editor viewport costs ~85 ms/loop (see
+[`docs/PERF_INVESTIGATION_SIM_IN_THE_LOOP.md`](PERF_INVESTIGATION_SIM_IN_THE_LOOP.md)
+Findings 8-10). Headless drops bridge throughput's biggest cost, but
+loses the only place the operator currently *sees* what the camera +
+robot are doing. The Jetson side has every relevant topic already
+(RGB, depth, `/tf`, `/scan`, `/rtabmap/map`, `/strafer/odom`), so
+exposing them via `foxglove_bridge` and viewing them in Foxglove
+Studio on the operator's workstation closes the gap.
+
+**Setup (one-time)**
+
+On the **Jetson**:
+
+```bash
+# Jetson
+sudo apt install ros-humble-foxglove-bridge
+```
+
+`bringup_sim_in_the_loop.launch.py` defaults to `viewer:=true` which
+starts `foxglove_bridge` on TCP 8765. Pass `viewer:=false` to disable
+it (e.g. for non-debug missions or when the dep isn't installed).
+
+**Connect from the operator's workstation**
+
+```bash
+# operator workstation — opens an SSH tunnel that forwards the bridge
+# port back to the workstation's loopback
+ssh -L 8765:localhost:8765 jetson-desktop
+```
+
+In Foxglove Studio (browser at <https://app.foxglove.dev/> or the
+desktop app):
+
+1. **Open connection** → **Foxglove WebSocket**.
+2. URL: `ws://localhost:8765`.
+3. **Layout** → **Import from file…** →
+   `source/strafer_ros/strafer_bringup/foxglove/strafer_layout.json`
+   (from a checkout of this repo on the workstation).
+
+**Go/no-go**: the RGB panel shows `/d555/color/image_raw` updating at
+~30 Hz, the depth panel renders `/d555/depth/image_rect_raw` with a
+near-to-6 m colormap, and the 3D panel shows the URDF following
+`base_link` with `/scan` and `/rtabmap/map` overlaid.
+
+**Same launch on the real robot.** The visualizer subscribes to the
+same `/d555/...` topic names that the real D555 driver publishes, so
+Foxglove on the workstation works against the real robot with zero
+config change — only the SSH target (`jetson-desktop`) is different.
+
+**Troubleshooting**
+
+| Symptom | Most likely cause | What to check |
+|---|---|---|
+| `foxglove_bridge` not in `ros2 node list` | Package not installed, or `viewer:=false` | `dpkg -s ros-humble-foxglove-bridge`; relaunch with `viewer:=true`. |
+| Studio fails to connect to `ws://localhost:8765` | SSH tunnel down, or port already in use on the workstation | Check the `ssh -L` shell is still alive; `lsof -iTCP:8765` on the workstation; pick a different `viewer_port:=...` and update both `-L` and the URL. |
+| Studio connects but topics list is empty | Jetson bringup isn't producing topics yet | `ros2 topic list` on the Jetson; rerun Stage 3 if RTAB-Map / timestamp_fixer haven't started. |
+| RGB panel black, others fine | Camera not yet streaming | `ros2 topic hz /d555/color/image_raw` on the Jetson; is the DGX bridge running? |
+| Depth all-white | Default colormap range bad for this scene | In Foxglove, open the Image panel settings and bump `maxValue` higher than 6 m, or switch to the `"viridis"` colormap. |
+
+---
+
 ## Stage 4 — Manual mission submission end-to-end
 
 **Goal**: an operator submits a natural-language mission via the CLI

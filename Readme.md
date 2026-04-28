@@ -337,23 +337,35 @@ python3 source/strafer_ros/test_d555_camera.py
 python3 source/strafer_ros/ros_test_slam.py --drive forward --duration 3
 ```
 
-### DGX: sim-in-the-loop (replace the real robot with Isaac Sim)
+### Sim-in-the-loop (replace the real robot with Isaac Sim)
 
 ```bash
-# Jetson side:
-ros2 launch strafer_bringup bringup_sim_in_the_loop.launch.py
-
-# DGX side (manual / Nav2 mode):
+# DGX — manual / Nav2 mode (headless, daily-driver):
 source env_setup.sh
-isaaclab -p source/strafer_lab/scripts/run_sim_in_the_loop.py
+make sim-bridge
 
-# DGX side (reachability-labelled dataset capture):
+# Jetson — full autonomy stack against the DGX bridge topics:
+make launch-sim
+
+# Operator workstation — Foxglove Studio over SSH for live
+# camera / depth / TF / map debug visualization:
+ssh -L 8765:localhost:8765 jetson-desktop
+# then connect Foxglove Studio (https://app.foxglove.dev/ or the desktop
+# app) to ws://localhost:8765 and import strafer_layout.json.
+
+# DGX — reachability-labelled dataset capture (alternative to bridge mode):
 isaaclab -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
     --mode harness \
     --scene-metadata Assets/generated/scenes/kitchen_01/scene_metadata.json \
     --scene-usd Assets/generated/scenes/kitchen_01/scene.usdc \
     --output data/sim_in_the_loop/kitchen_01
 ```
+
+End-to-end runbook + troubleshooting:
+[`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](docs/INTEGRATION_SIM_IN_THE_LOOP.md).
+Operator one-liners (full sim-in-the-loop recipe with shell-by-shell
+commands across DGX / Jetson / operator workstation):
+[`docs/example_commands_cheatsheet.md`](docs/example_commands_cheatsheet.md).
 
 ## Design
 

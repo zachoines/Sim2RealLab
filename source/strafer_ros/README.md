@@ -141,6 +141,7 @@ Prerequisites:
 - Two RoboClaw ST 2x45A controllers wired per [`docs/WIRING_GUIDE.md`](../../docs/WIRING_GUIDE.md).
 - `strafer_shared` and `strafer_autonomy` pip-installed into the ROS Python environment: `pip install -e source/strafer_shared source/strafer_autonomy`.
 - udev rules: `sudo cp source/strafer_ros/99-strafer.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules`.
+- `ros-humble-foxglove-bridge` for the headless visualizer in `bringup_sim_in_the_loop.launch.py`: `sudo apt install ros-humble-foxglove-bridge`. Skip if you always launch with `viewer:=false`.
 
 From the repo root, `make build` runs the colcon build and `make udev` installs the rules.
 
@@ -155,7 +156,7 @@ From the repo root, `make build` runs the colcon build and `make udev` installs 
 | `slam.launch.py` | perception + `depthimage_to_laserscan` + RTAB-Map |
 | `navigation.launch.py` | slam + Nav2 (MPPI holonomic) |
 | `autonomy.launch.py` | navigation + `goal_projection_node` + `strafer-executor` (needs `VLM_URL` + `PLANNER_URL`) |
-| `bringup_sim_in_the_loop.launch.py` | perception + SLAM + Nav2 consuming topics from the DGX Isaac Sim ROS 2 bridge (no real hardware) |
+| `bringup_sim_in_the_loop.launch.py` | perception + SLAM + Nav2 + executor + `foxglove_bridge` (default :8765) consuming topics from the DGX Isaac Sim ROS 2 bridge (no real hardware) |
 
 Typical operator sequences:
 
@@ -171,6 +172,13 @@ VLM_URL=http://192.168.50.196:8100 PLANNER_URL=http://192.168.50.196:8200 \
 # or:
 VLM_URL=http://192.168.50.196:8100 PLANNER_URL=http://192.168.50.196:8200 \
     make launch-autonomy
+
+# Sim-in-the-loop (Jetson side; DGX must be running `make sim-bridge`):
+make launch-sim
+# foxglove_bridge comes up on :8765 by default; SSH-tunnel from the
+# operator's workstation and connect Foxglove Studio to ws://localhost:8765
+# (full walkthrough: docs/INTEGRATION_SIM_IN_THE_LOOP.md Stage 3.5).
+# Disable the visualizer with `viewer:=false` if the dep isn't installed.
 ```
 
 ### Hardware validation scripts

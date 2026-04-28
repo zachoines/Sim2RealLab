@@ -131,38 +131,70 @@ $ISAACLAB -p Scripts/play_strafer_navigation.py \
 ```
 MP4 lands in `logs/rsl_rl/strafer_navigation/play_videos/play_<timestamp>/`.
 
-# Full-stack autonomy
-## Shell 1: VLM service
+# Full-stack sim-in-the-loop autonomy
+
+End-to-end orchestration: DGX runs the VLM + planner + Isaac Sim
+bridge, Jetson runs the autonomy stack, the operator
+workstation connects Foxglove Studio over an SSH tunnel for live
+visual debugging.
+
+## DGX shell A — VLM grounding service
 ```bash
 source env_setup.sh
 make serve-vlm
 ```
 
-## Shell 2: LLM planner
+## DGX shell B — LLM planner service
 ```bash
 source env_setup.sh
 make serve-planner
 ```
 
-## Shell 3: sim bridge with viewport
+## DGX shell C — Isaac Sim bridge
 ```bash
 source env_setup.sh
-make sim-bridge-gui
+make sim-bridge          # headless (daily-driver, ~85 ms/loop faster)
+# or:
+make sim-bridge-gui      # editor viewport open (visual debug, slower)
 ```
 
-## Shell 1: full bringup (RTAB-Map + Nav2 + executor)
+## Jetson shell 1 — full bringup (perception + SLAM + Nav2 + executor + foxglove_bridge)
 ```bash
-source source/strafer_ros/strafer_bringup/config/env_sim_in_the_loop.env
-ros2 launch strafer_bringup bringup_sim_in_the_loop.launch.py \
-    vlm_url:=http://192.168.50.196:8100 \
-    planner_url:=http://192.168.50.196:8200 \
-    rtabmap_args:='-d'
+make launch-sim
+# Equivalent to:
+#   source ~/strafer_ws/install/setup.bash
+#   source source/strafer_ros/strafer_bringup/config/env_sim_in_the_loop.env
+#   ros2 launch strafer_bringup bringup_sim_in_the_loop.launch.py \
+#       vlm_url:=http://192.168.50.196:8100 planner_url:=http://192.168.50.196:8200
+#
+# Override service URLs if the DGX moves:
+#   VLM_URL=http://other:8100 PLANNER_URL=http://other:8200 make launch-sim
+# Disable the headless visualizer:
+#   ros2 launch strafer_bringup bringup_sim_in_the_loop.launch.py viewer:=false
+# Wipe the RTAB-Map database before launching (fresh map):
+#   make clean-map && make launch-sim
 ```
 
-## Shell 2: send a real mission
+## Jetson shell 2 — submit a mission
 ```bash
-ros2 action send_goal /execute_mission strafer_autonomy_msgs/action/ExecuteMission \
-    '{prompt: "go to the couch"}' --feedback
+strafer-autonomy-cli submit "go to the couch"
+strafer-autonomy-cli status
+strafer-autonomy-cli cancel
+```
+
+## Operator workstation — Foxglove Studio over SSH (live debug visualizer)
+```bash
+# operator workstation, terminal 1: keep this open while debugging
+ssh -L 8765:localhost:8765 jetson-desktop
+```
+Then open Foxglove Studio (desktop app or
+<https://app.foxglove.dev/>) → **Open connection** → **Foxglove
+WebSocket** → `ws://localhost:8765`. First-time setup: **Layout** →
+**Import from file** → `source/strafer_ros/strafer_bringup/foxglove/strafer_layout.json`.
+
+## Reset between runs
+```bash
+make kill           # Jetson — clear stale ros2 / nav2 / executor / foxglove_bridge
 ```
 
 # Sim-in-the-loop bridge + DDS bench

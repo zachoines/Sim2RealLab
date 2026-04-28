@@ -14,7 +14,7 @@ CONDA_ROOT ?= $(HOME)/miniconda3
 CONDA_ENV ?= env_isaaclab3
 
 .PHONY: build test test-unit test-dgx lint lint-fix format format-check clean kill \
-        launch launch-nav launch-autonomy clean-map \
+        launch launch-nav launch-autonomy launch-sim clean-map \
         install-tools udev serve-vlm serve-planner check-nvrtc help \
         sim-bridge sim-bridge-gui sim-harness
 
@@ -71,6 +71,13 @@ launch-autonomy: ## Launch full autonomy stack (nav + executor → DGX services)
 		ros2 launch strafer_bringup autonomy.launch.py \
 			vlm_url:=$$VLM_URL planner_url:=$$PLANNER_URL
 
+launch-sim: ## Launch Jetson sim-in-the-loop bringup (consumes DGX bridge topics; foxglove on :8765)
+	source $(COLCON_WS)/install/setup.bash && \
+		source source/strafer_ros/strafer_bringup/config/env_sim_in_the_loop.env && \
+		ros2 launch strafer_bringup bringup_sim_in_the_loop.launch.py \
+			vlm_url:=$${VLM_URL:-http://192.168.50.196:8100} \
+			planner_url:=$${PLANNER_URL:-http://192.168.50.196:8200}
+
 # ---------- Clean ----------
 
 clean: ## Remove colcon build artifacts
@@ -83,7 +90,7 @@ clean-map: ## Delete corrupted or stale RTAB-Map database
 # ---------- Kill ----------
 
 kill: ## Kill all running ROS2 / strafer processes
-	@pkill -9 -f "ros2|rtabmap|realsense2_camera_node|timestamp_fixer|imu_filter_madgwick|depth_downsampler|roboclaw|depthimage|validate_drive" 2>/dev/null || true
+	@pkill -9 -f "ros2|rtabmap|nav2_|realsense2_camera_node|timestamp_fixer|imu_filter_madgwick|depth_downsampler|roboclaw|depthimage|validate_drive|foxglove_bridge|strafer-executor|goal_projection" 2>/dev/null || true
 	@sleep 0.5
 	@echo "All ROS processes killed."
 

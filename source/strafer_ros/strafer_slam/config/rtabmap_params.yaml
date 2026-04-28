@@ -47,13 +47,17 @@ Odom/ResetCountdown: "2"
 # ---------------------------------------------------------------------------
 # Occupancy grid parameters (for Nav2 costmap)
 # ---------------------------------------------------------------------------
-Grid/Sensor: "0"                 # 0=laser scan (from depthimage_to_laserscan)
+Grid/Sensor: "1"                 # 1=depth image (NOT laser scan). The scan
+                                  # path can't filter by 3D height, so the
+                                  # bottom of the scan window stamps the floor
+                                  # as an obstacle ring at ~3 m. Depth-based
+                                  # grid honors Grid/MaxGroundHeight below.
 Grid/CellSize: "0.05"           # Default — overridden at launch from MAP_RESOLUTION
 Grid/RangeMin: "0.4"            # Default — overridden at launch from DEPTH_MIN
 Grid/RangeMax: "6.0"            # Default — overridden at launch from DEPTH_MAX
 Grid/MinClusterSize: "20"       # Filter small noise clusters
 Grid/MaxObstacleHeight: "1.5"   # Ignore points above 1.5m
-Grid/MaxGroundHeight: "0.05"    # Points below 5cm = ground
+Grid/MaxGroundHeight: "0.05"    # Points below 5cm = ground (Grid/Sensor=1 only)
 Grid/NormalsSegmentation: "true" # Use surface normals to find ground
 Grid/ClusterRadius: "0.1"
 

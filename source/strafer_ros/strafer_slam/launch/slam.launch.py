@@ -37,6 +37,7 @@ def _launch_setup(context, *args, **kwargs):
     database_path = LaunchConfiguration("database_path").perform(context)
     rtabmap_args = LaunchConfiguration("rtabmap_args").perform(context)
     show_viz = LaunchConfiguration("rtabmap_viz").perform(context) == "true"
+    use_sim_time = LaunchConfiguration("use_sim_time").perform(context) == "true"
 
     # ── Load & patch RTAB-Map parameters ────────────────────────────────
     rtabmap_params_path = os.path.join(pkg_dir, "config", "rtabmap_params.yaml")
@@ -74,6 +75,7 @@ def _launch_setup(context, *args, **kwargs):
                     "range_min": DEPTH_MIN,
                     "range_max": DEPTH_MAX,
                     "output_frame": "d555_link",
+                    "use_sim_time": use_sim_time,
                 },
             ],
             remappings=[
@@ -117,6 +119,7 @@ def _launch_setup(context, *args, **kwargs):
                     "qos_camera_info": 1,
                     "qos_imu": 1,
                     "wait_for_transform": 0.2,
+                    "use_sim_time": use_sim_time,
                 },
             ],
             remappings=[
@@ -151,6 +154,7 @@ def _launch_setup(context, *args, **kwargs):
                         "qos_scan": 1,
                         "qos_odom": 1,
                         "qos_camera_info": 1,
+                        "use_sim_time": use_sim_time,
                     },
                 ],
                 remappings=[
@@ -183,6 +187,10 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "rtabmap_viz", default_value="false",
             description="Launch RTAB-Map's built-in visualizer.",
+        ),
+        DeclareLaunchArgument(
+            "use_sim_time", default_value="false",
+            description="Set true when /clock is published upstream (sim-in-the-loop).",
         ),
         OpaqueFunction(function=_launch_setup),
     ])

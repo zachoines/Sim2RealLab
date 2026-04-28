@@ -104,6 +104,7 @@ from .events import (
     randomize_motor_strength,
     randomize_d555_mount_offset,
     randomize_proc_room_difficulty,
+    lift_ground_plane_to_floor,
 )
 
 # Custom commands

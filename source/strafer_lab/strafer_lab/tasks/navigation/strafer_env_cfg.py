@@ -57,6 +57,7 @@ import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCollectionCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.sensors import TiledCameraCfg, ImuCfg, ContactSensorCfg
+from isaaclab_physx.physics import PhysxCfg
 
 # Import custom MDP functions
 from . import mdp
@@ -77,7 +78,11 @@ from .sim_real_cfg import (
     get_rgb_noise,
     get_action_config_params,
 )
-from .d555_cfg import make_d555_camera_cfg, make_d555_imu_cfg
+from .d555_cfg import (
+    make_d555_camera_cfg,
+    make_d555_imu_cfg,
+    make_d555_perception_camera_cfg,
+)
 
 
 # =============================================================================
@@ -222,9 +227,8 @@ class StraferSceneCfg_NoCam(InteractiveSceneCfg):
         update_period=1.0 / 200.0,
         offset=ImuCfg.OffsetCfg(
             pos=(0.20, 0.0, 0.25),
-            rot=(1.0, 0.0, 0.0, 0.0),
+            rot=(0.0, 0.0, 0.0, 1.0),  # identity quaternion (XYZW)
         ),
-        gravity_bias=(0.0, 0.0, 9.81),
     )
 
     # Contact sensor on body_link for collision detection.
@@ -248,7 +252,15 @@ class StraferSceneCfg_Infinigen(InteractiveSceneCfg):
 
     Contact sensor uses net_forces_w (no filter) since scene mesh prims are
     variable and unknown at config time.
+
+    ``replicate_physics`` is disabled because the scene already explicitly
+    shares ``/World/Room`` across all envs (Isaac Lab's per-env replication
+    would be a no-op here) AND the prestartup ``lift_ground_plane_to_floor``
+    event has to author USD-level changes before ``sim.reset()`` builds the
+    PhysX collider tensors — that path is gated on ``replicate_physics=False``.
     """
+
+    replicate_physics: bool = False
 
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
@@ -293,11 +305,89 @@ class StraferSceneCfg_Infinigen(InteractiveSceneCfg):
         collision_group=-1,
     )
 
-    # Contact sensor on body_link 
+    # Contact sensor on body_link
     # Uses net_forces_w for collision detection against all scene geometry.
     # body_link is wheel-suspended (~10cm above ground), so net_forces_w on
     # body_link effectively detects only collisions with scene geometry
     # (walls, furniture), not ground plane contact.
+    contact_sensor = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
+        update_period=0.0,
+        history_length=1,
+    )
+
+
+@configclass
+class StraferSceneCfg_InfinigenPerception(InteractiveSceneCfg):
+    """Infinigen scene with the high-resolution perception camera attached.
+
+    Same Infinigen room geometry and global-prim layout as
+    :class:`StraferSceneCfg_Infinigen` but with both cameras present:
+
+    - ``d555_camera`` (80x60) — the RL policy camera, kept for parity with
+      the training scenes so the deployed model sees the same input shape.
+    - ``d555_camera_perception`` (640x360) — the perception data-collection
+      camera used by Replicator bbox extraction, gamepad teleop capture, and
+      the Isaac Sim ROS2 bridge. Consumers access it via
+      ``env.scene["d555_camera_perception"].data.output["rgb"]`` /
+      ``["distance_to_image_plane"]``.
+
+    This scene is intentionally NOT used in RL training. At 640x360 Isaac
+    Sim caps parallel envs at ~1-8 (vs. 256+ at 80x60), so this scene is
+    reserved for data collection and ROS bridge work.
+
+    See :class:`StraferSceneCfg_Infinigen` for why ``replicate_physics`` is
+    disabled.
+    """
+
+    replicate_physics: bool = False
+
+    terrain = TerrainImporterCfg(
+        prim_path="/World/ground",
+        terrain_type="plane",
+        collision_group=-1,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            static_friction=0.5,
+            dynamic_friction=0.5,
+            restitution=0.0,
+        ),
+        debug_vis=False,
+    )
+
+    robot: ArticulationCfg = STRAFER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+    dome_light = AssetBaseCfg(
+        prim_path="/World/DomeLight",
+        spawn=sim_utils.DomeLightCfg(intensity=2000.0, color=(0.8, 0.8, 0.8)),
+    )
+
+    directional_light = AssetBaseCfg(
+        prim_path="/World/DirectionalLight",
+        spawn=sim_utils.DistantLightCfg(intensity=3000.0, color=(1.0, 1.0, 1.0)),
+        init_state=AssetBaseCfg.InitialStateCfg(rot=(0.866, 0.0, 0.5, 0.0)),  # 60° from vertical
+    )
+
+    # Policy camera (80x60) — kept so the perception env matches the
+    # deployed observation shape; cheap to render alongside the perception
+    # camera when only 1-8 envs are active.
+    d555_camera: TiledCameraCfg = make_d555_camera_cfg(
+        data_types=("rgb", "distance_to_image_plane"),
+    )
+
+    # Perception camera (640x360 RGB + depth) — the reason this scene exists.
+    d555_camera_perception: TiledCameraCfg = make_d555_perception_camera_cfg()
+
+    d555_imu: ImuCfg = make_d555_imu_cfg()
+
+    # Procedural scene geometry as a global prim (shared across envs via
+    # collision_group=-1). The USD path is populated in __post_init__ by
+    # the env config so this class stays portable across Infinigen batches.
+    scene_geometry: AssetBaseCfg = AssetBaseCfg(
+        prim_path="/World/Room",
+        spawn=sim_utils.UsdFileCfg(usd_path=""),
+        collision_group=-1,
+    )
+
     contact_sensor = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
         update_period=0.0,
@@ -929,11 +1019,33 @@ _RESET_ROBOT_INFINIGEN = EventTerm(
     params={"spawn_points_xy": [], "yaw_range": (-math.pi, math.pi)},  # populated in __post_init__
 )
 
+# Structural event for Infinigen: lift /World/ground to the loaded scene's
+# floor height. Floor meshes have their colliders stripped at bake time
+# (see scripts/postprocess_scene_usd.py) so robot collision flows entirely
+# through this lifted plane. ``target_z`` is populated in __post_init__
+# with ``floor_top_z - 0.002`` to keep the plane just below the visible
+# Infinigen floor and avoid z-fighting.
+#
+# mode="prestartup" is required: PhysX builds collider tensors during
+# ``sim.reset()`` from the USD prim transforms as they exist at that
+# moment, so the translate must land before sim.reset(). Running at
+# "startup" left the visual plane lifted but the collider stuck at z=0.
+# prestartup is gated on ``replicate_physics=False`` (set on the
+# Infinigen scene cfgs); that's a no-op for these scenes since they
+# already share a single ``/World/Room`` with ``env_spacing=0`` and
+# ``collision_group=-1``.
+_LIFT_GROUND_INFINIGEN = EventTerm(
+    func=mdp.lift_ground_plane_to_floor,
+    mode="prestartup",
+    params={"target_z": 0.0},  # populated in __post_init__
+)
+
 
 @configclass
 class EventsCfg_Infinigen_Realistic:
     """Realistic DR for Infinigen — no obstacle randomization, tighter spawn."""
     reset_robot = _RESET_ROBOT_INFINIGEN
+    lift_ground = _LIFT_GROUND_INFINIGEN
     randomize_friction = EventTerm(
         func=mdp.randomize_friction, mode="reset",
         params={"friction_range": (0.6, 1.2)},
@@ -960,6 +1072,7 @@ class EventsCfg_Infinigen_Realistic:
 class EventsCfg_Infinigen_Robust:
     """Robust DR for Infinigen — no obstacle randomization, tighter spawn."""
     reset_robot = _RESET_ROBOT_INFINIGEN
+    lift_ground = _LIFT_GROUND_INFINIGEN
     randomize_friction = EventTerm(
         func=mdp.randomize_friction, mode="reset",
         params={"friction_range": (0.3, 1.5)},
@@ -1047,14 +1160,59 @@ def _get_infinigen_spawn_points_xy() -> list[list[float]]:
     return spawn_points_xy
 
 
+def _get_infinigen_floor_top_z() -> float | None:
+    """Return max ``floor_top_z`` across pooled scenes, or None if absent."""
+    meta = _get_scenes_metadata()
+    if not meta:
+        return None
+    zs = [
+        scene_data["floor_top_z"]
+        for scene_data in meta["scenes"].values()
+        if "floor_top_z" in scene_data
+    ]
+    return max(zs) if zs else None
+
+
+def _get_infinigen_active_scene_floor_top_z(scene_stem: str) -> float | None:
+    """Return ``floor_top_z`` for a single scene by stem name, or None.
+
+    Used by the ground-lift event which needs the *active* scene's floor
+    height, not the pooled max across all scenes.
+    """
+    meta = _get_scenes_metadata()
+    if not meta:
+        return None
+    scene_data = meta.get("scenes", {}).get(scene_stem)
+    if not scene_data:
+        return None
+    return scene_data.get("floor_top_z")
+
+
 def _apply_infinigen_scene_setup(cfg: ManagerBasedRLEnvCfg) -> None:
-    """Attach the first scene USD and pooled floor spawn points to an env cfg."""
-    cfg.scene.scene_geometry.spawn.usd_path = _get_scene_usd_paths()[0]
+    """Attach the first scene USD and pooled floor spawn points to an env cfg.
+
+    The scene path is resolved from its symlink — USD's asset resolver
+    anchors relative texture refs against the symlink location, not the
+    target, and that breaks every ``./textures/*`` lookup.
+    """
+    scene_link = Path(_get_scene_usd_paths()[0])
+    scene_path = scene_link.resolve()
+    cfg.scene.scene_geometry.spawn.usd_path = str(scene_path)
 
     spawn_points_xy = _get_infinigen_spawn_points_xy()
     if spawn_points_xy:
         cfg.events.reset_robot.params["spawn_points_xy"] = spawn_points_xy
         cfg.commands.goal_command.spawn_points_xy = spawn_points_xy
+
+    floor_top_z = _get_infinigen_floor_top_z()
+    if floor_top_z is not None:
+        cfg.events.reset_robot.params["spawn_z"] = floor_top_z + 0.1
+
+    active_floor_top_z = _get_infinigen_active_scene_floor_top_z(scene_link.stem)
+    if active_floor_top_z is not None:
+        # Sit the ground plane 2 mm below the visible Infinigen floor: the
+        # gap is imperceptible and prevents z-fighting between the two.
+        cfg.events.lift_ground.params["target_z"] = float(active_floor_top_z) - 0.002
 
 
 class _PlayEnvCfgMixin:
@@ -1104,6 +1262,37 @@ class _BaseInfinigenDepthNavEnvCfg(_BaseStraferNavEnvCfg):
     """Common train-time config for depth-only Infinigen scene variants."""
 
     scene: StraferSceneCfg_Infinigen = StraferSceneCfg_Infinigen(num_envs=_INFINIGEN_TRAIN_NUM_ENVS, env_spacing=0.0)
+    commands: CommandsCfg_Infinigen = CommandsCfg_Infinigen()
+    rewards: RewardsCfg = RewardsCfg()
+    terminations: TerminationsCfg = TerminationsCfg()
+    curriculum: CurriculumCfg_Infinigen = CurriculumCfg_Infinigen()
+
+    def __post_init__(self):
+        super().__post_init__()
+        _apply_infinigen_scene_setup(self)
+
+
+# Perception data-collection envs run at 640x360 and therefore cap parallel
+# env count at 1-8. Start at 1 — the Isaac Sim ROS2 bridge and gamepad
+# teleop are both single-env workflows. The play override below can bump
+# this for batch captures.
+_INFINIGEN_PERCEPTION_TRAIN_NUM_ENVS = 1
+
+
+@configclass
+class _BaseInfinigenPerceptionNavEnvCfg(_BaseStraferNavEnvCfg):
+    """Common config for perception data-collection envs on Infinigen scenes.
+
+    Uses :class:`StraferSceneCfg_InfinigenPerception` (both the 80x60 policy
+    camera AND the 640x360 perception camera) with a single default env.
+    Not intended for RL training — the perception camera resolution caps
+    throughput.
+    """
+
+    scene: StraferSceneCfg_InfinigenPerception = StraferSceneCfg_InfinigenPerception(
+        num_envs=_INFINIGEN_PERCEPTION_TRAIN_NUM_ENVS,
+        env_spacing=0.0,
+    )
     commands: CommandsCfg_Infinigen = CommandsCfg_Infinigen()
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
@@ -1279,6 +1468,39 @@ class StraferNavEnvCfg_Robust_InfinigenDepth_PLAY(_PlayEnvCfgMixin, StraferNavEn
     play_num_envs = _INFINIGEN_PLAY_NUM_ENVS
 
 
+# -----------------------------------------------------------------------------
+# INFINIGEN PERCEPTION: 640x360 RGB + depth perception camera on Infinigen
+# scenes. Used by:
+#   - scripts/collect_perception_data.py   (gamepad teleop + Replicator bbox)
+#   - scripts/sim_in_the_loop.py           (Nav2 + ROS2 bridge harness)
+# Never used for RL training — the resolution caps env count at 1-8.
+# -----------------------------------------------------------------------------
+
+@configclass
+class StraferNavEnvCfg_Real_InfinigenPerception(_BaseInfinigenPerceptionNavEnvCfg):
+    """Realistic perception data-collection env on Infinigen scenes.
+
+    Observations, actions, and events are copied from the Realistic Depth
+    variant so the robot dynamics match what the RL policy was trained on —
+    this keeps trajectories collected here distributionally close to
+    deployment trajectories.
+    """
+    actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
+    observations: ObsCfg_Depth_Realistic = ObsCfg_Depth_Realistic()
+    events: EventsCfg_Infinigen_Realistic = EventsCfg_Infinigen_Realistic()
+
+
+@configclass
+class StraferNavEnvCfg_Real_InfinigenPerception_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Real_InfinigenPerception):
+    """Play/eval config for Realistic InfinigenPerception.
+
+    `play_num_envs` stays at the single-env default for data collection —
+    higher counts would OOM the renderer at 640x360. Increase cautiously if
+    targeting batch capture on a high-VRAM host.
+    """
+    play_num_envs = _INFINIGEN_PERCEPTION_TRAIN_NUM_ENVS
+
+
 # =============================================================================
 # PROCROOM: Procedural primitive rooms with GPU BFS solvability
 #
@@ -1315,8 +1537,11 @@ class StraferSceneCfg_ProcRoom(InteractiveSceneCfg):
     )
 
     # Intel RealSense D555 depth camera (near clip 0.01m, see StraferSceneCfg comment)
+    # RGB included alongside depth so the RTX renderer initializes the full
+    # colour pipeline — required for viewport / video recording to produce
+    # non-black frames even though observations only use depth.
     d555_camera: TiledCameraCfg = make_d555_camera_cfg(
-        data_types=("distance_to_image_plane",),
+        data_types=("rgb", "distance_to_image_plane"),
     )
 
     # Intel RealSense D555 IMU (same as StraferSceneCfg)
@@ -1364,9 +1589,8 @@ class StraferSceneCfg_ProcRoom_NoCam(InteractiveSceneCfg):
         update_period=1.0 / 200.0,
         offset=ImuCfg.OffsetCfg(
             pos=(0.20, 0.0, 0.25),
-            rot=(1.0, 0.0, 0.0, 0.0),
+            rot=(0.0, 0.0, 0.0, 1.0),  # identity quaternion (XYZW)
         ),
-        gravity_bias=(0.0, 0.0, 9.81),
     )
 
     # 44-object primitive palette (walls, furniture, clutter)
@@ -1510,17 +1734,15 @@ class TerminationsCfg_ProcRoom(TerminationsCfg):
 
 def _apply_procroom_physx_buffers(cfg) -> None:
     """Increase PhysX GPU buffers and stabilize solver for ProcRoom."""
-    cfg.sim.physx.gpu_found_lost_pairs_capacity = 2**23       # 4× default (roller contact churn)
-    cfg.sim.physx.gpu_max_rigid_contact_count = 2**24          # 2× default
-    cfg.sim.physx.gpu_max_rigid_patch_count = 2**18            # ~1.6× default
-    cfg.sim.physx.gpu_found_lost_aggregate_pairs_capacity = 2**26  # ~2× default
-    # Force single solver partition so the articulation's 32 position iterations
-    # are not split across parallel groups at high env counts.
-    cfg.sim.physx.gpu_max_num_partitions = 1
-    # Stabilization + raised bounce threshold reduce chassis micro-bouncing from
-    # roller-ground contacts, giving the policy cleaner transition dynamics.
-    cfg.sim.physx.enable_stabilization = True
-    cfg.sim.physx.bounce_threshold_velocity = 2.0
+    cfg.sim.physics = PhysxCfg(
+        gpu_found_lost_pairs_capacity=2**23,             # 4× default (roller contact churn)
+        gpu_max_rigid_contact_count=2**24,               # 2× default
+        gpu_max_rigid_patch_count=2**18,                  # ~1.6× default
+        gpu_found_lost_aggregate_pairs_capacity=2**26,   # ~2× default
+        gpu_max_num_partitions=1,                         # single solver partition
+        enable_stabilization=True,
+        bounce_threshold_velocity=2.0,
+    )
 
 
 # --- ProcRoom environment configs ---

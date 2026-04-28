@@ -12,6 +12,8 @@ via mappings, so constants.py remains the single source of truth.
 """
 
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
@@ -54,7 +56,12 @@ def generate_launch_description():
 
     robot_description = xacro.process_file(xacro_path, mappings=mappings).toxml()
 
+    use_sim_time = LaunchConfiguration("use_sim_time")
     return LaunchDescription([
+        DeclareLaunchArgument(
+            "use_sim_time", default_value="false",
+            description="Set to true when the /clock publisher is upstream (sim-in-the-loop).",
+        ),
         Node(
             package="robot_state_publisher",
             executable="robot_state_publisher",
@@ -62,6 +69,7 @@ def generate_launch_description():
             output="screen",
             parameters=[{
                 "robot_description": robot_description,
+                "use_sim_time": PythonExpression(["'", use_sim_time, "' == 'true'"]),
             }],
             remappings=[
                 ("joint_states", "/strafer/joint_states"),

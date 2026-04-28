@@ -41,3 +41,51 @@ class PlannerHealthResponse(BaseModel):
     status: str = Field(..., description="'ok' when the model is loaded and ready, else 'loading'.")
     model_loaded: bool = Field(..., description="Whether the LLM has been loaded into memory.")
     model_name: str | None = Field(None, description="HuggingFace model name or local path.")
+
+
+class GroundResultPayload(BaseModel):
+    """Subset of VLM ``GroundResponse`` fields forwarded to the planner caller."""
+
+    found: bool = Field(..., description="Whether the target object was detected.")
+    bbox_2d: list[int] | None = Field(None, description="[x1, y1, x2, y2] in normalized [0, 1000] coordinates.")
+    label: str | None = Field(None, description="Model-assigned label for the detected object.")
+    confidence: float | None = Field(None, description="Detection confidence in [0, 1].")
+    latency_s: float = Field(0.0, description="VLM inference wall-clock time in seconds.")
+
+
+class PlanWithGroundingRequest(PlanRequest):
+    """JSON body for ``POST /plan_with_grounding``.
+
+    Extends ``PlanRequest`` with an optional camera frame the planner can
+    forward to the co-located VLM service for pre-grounding.
+    """
+
+    image_jpeg_b64: str | None = Field(
+        None,
+        description="Optional JPEG image (base64). If present and the parsed "
+        "intent requires grounding, the planner forwards it to the VLM "
+        "service on localhost.",
+    )
+    image_stamp_sec: float = Field(
+        0.0,
+        description="Capture timestamp in seconds (forwarded to VLM for logging).",
+    )
+    max_image_side: int = Field(
+        1024,
+        description="Forwarded to the VLM service — resize bound for inference.",
+    )
+
+
+class PlanWithGroundingResponse(PlanResponse):
+    """JSON response from ``POST /plan_with_grounding``.
+
+    Extends ``PlanResponse`` with an optional pre-grounding result produced
+    by the co-located VLM service when a camera frame was provided.
+    """
+
+    pre_grounding: GroundResultPayload | None = Field(
+        None,
+        description="Pre-grounding result from the VLM service, or null if "
+        "no image was provided, the intent did not require grounding, or "
+        "the VLM call failed.",
+    )

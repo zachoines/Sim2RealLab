@@ -45,6 +45,8 @@ from strafer_shared.constants import (
     ROBOCLAW_PID_D,
     ROBOCLAW_QPPS,
     ENCODER_TICKS_TO_RADIANS,
+    MAX_ANGULAR_VEL,
+    MAX_LINEAR_VEL,
     WHEEL_JOINT_NAMES,
 )
 from strafer_shared.mecanum_kinematics import (
@@ -61,6 +63,12 @@ from strafer_driver.roboclaw_interface import (
 
 # Watchdog timeout: stop motors if no cmd_vel received within this period.
 WATCHDOG_TIMEOUT_SEC = 0.5
+
+# Velocity watchdog: reject cmd_vel exceeding this factor of the max.
+# Guards against a runaway planner/controller commanding dangerous speeds.
+VELOCITY_WATCHDOG_MULTIPLIER = 1.2
+VELOCITY_WATCHDOG_LINEAR_MAX = MAX_LINEAR_VEL * VELOCITY_WATCHDOG_MULTIPLIER
+VELOCITY_WATCHDOG_ANGULAR_MAX = MAX_ANGULAR_VEL * VELOCITY_WATCHDOG_MULTIPLIER
 
 # After this many consecutive serial failures, go into error state.
 MAX_CONSECUTIVE_FAILURES = 10
@@ -269,6 +277,20 @@ class RoboClawNode(Node):
             twist = Twist()  # zero velocity
         else:
             twist = self._latest_twist
+
+        # Velocity magnitude check: if the commanded velocity exceeds safe
+        # limits (e.g. runaway controller), zero motors and log.
+        linear_mag = math.sqrt(twist.linear.x ** 2 + twist.linear.y ** 2)
+        if (
+            linear_mag > VELOCITY_WATCHDOG_LINEAR_MAX
+            or abs(twist.angular.z) > VELOCITY_WATCHDOG_ANGULAR_MAX
+        ):
+            self.get_logger().error(
+                f"Velocity watchdog tripped: |v|={linear_mag:.2f} m/s "
+                f"|w|={twist.angular.z:.2f} rad/s exceeds safe limit -- "
+                "zeroing motors."
+            )
+            twist = Twist()
 
         # ------------------------------------------------------------------
         # Convert Twist -> per-wheel ticks/sec

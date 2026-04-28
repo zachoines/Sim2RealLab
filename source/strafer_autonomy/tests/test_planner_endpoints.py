@@ -80,12 +80,13 @@ class TestPlanEndpoint:
         body = resp.json()
         assert body["mission_type"] == "go_to_target"
         assert body["raw_command"] == "go to the door"
-        assert len(body["steps"]) == 3
+        assert len(body["steps"]) == 4
         skills = [s["skill"] for s in body["steps"]]
         assert skills == [
             "scan_for_target",
             "project_detection_to_goal_pose",
             "navigate_to_pose",
+            "verify_arrival",
         ]
 
     def test_cancel(self, client):
@@ -106,8 +107,9 @@ class TestPlanEndpoint:
         assert resp.status_code == 200
         body = resp.json()
         assert body["mission_type"] == "wait_by_target"
-        assert len(body["steps"]) == 4
+        assert len(body["steps"]) == 5
         assert body["steps"][-1]["skill"] == "wait"
+        assert body["steps"][-2]["skill"] == "verify_arrival"
 
     def test_model_not_loaded_returns_503(self, unloaded_client):
         resp = unloaded_client.post("/plan", json={
@@ -133,3 +135,167 @@ class TestPlanEndpoint:
         assert resp.status_code == 200
         assert "created_at" in resp.json()
         assert isinstance(resp.json()["created_at"], float)
+
+
+class TestPlanWithGroundingEndpoint:
+    _GO_TO_DOOR_LLM_OUTPUT = (
+        '{"intent_type": "go_to_target", "target_label": "door", '
+        '"wait_mode": null, "requires_grounding": true}'
+    )
+    _CANCEL_LLM_OUTPUT = (
+        '{"intent_type": "cancel", "target_label": null, '
+        '"wait_mode": null, "requires_grounding": false}'
+    )
+
+    def _request_body(self, **overrides):
+        body = {
+            "request_id": "test_pwg_001",
+            "raw_command": "go to the door",
+            "available_skills": [],
+        }
+        body.update(overrides)
+        return body
+
+    def test_plans_with_image_triggers_vlm(self, client):
+        class _MockVlmResp:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "request_id": "test_pwg_001",
+                    "found": True,
+                    "bbox_2d": [100, 200, 400, 700],
+                    "label": "door",
+                    "confidence": 0.92,
+                    "raw_output": "{\"found\": true}",
+                    "latency_s": 0.45,
+                }
+
+        class _MockAsyncClient:
+            def __init__(self, *args, **kwargs):
+                self.posted = None
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def post(self, url, json):  # type: ignore[override]
+                self.posted = (url, json)
+                return _MockVlmResp()
+
+        with patch.object(
+            _state.llm, "generate", return_value=self._GO_TO_DOOR_LLM_OUTPUT,
+        ), patch("httpx.AsyncClient", _MockAsyncClient):
+            resp = client.post(
+                "/plan_with_grounding",
+                json=self._request_body(image_jpeg_b64="fakeimgb64"),
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["mission_type"] == "go_to_target"
+        assert body["pre_grounding"] is not None
+        assert body["pre_grounding"]["found"] is True
+        assert body["pre_grounding"]["label"] == "door"
+        assert body["pre_grounding"]["bbox_2d"] == [100, 200, 400, 700]
+
+    def test_no_image_skips_vlm(self, client):
+        called = {"httpx": False}
+
+        class _ShouldNotBeCalled:
+            def __init__(self, *args, **kwargs):
+                called["httpx"] = True
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def post(self, *a, **k):
+                called["httpx"] = True
+
+                class _R:
+                    def raise_for_status(self_inner):
+                        return None
+
+                    def json(self_inner):
+                        return {}
+
+                return _R()
+
+        with patch.object(
+            _state.llm, "generate", return_value=self._GO_TO_DOOR_LLM_OUTPUT,
+        ), patch("httpx.AsyncClient", _ShouldNotBeCalled):
+            resp = client.post("/plan_with_grounding", json=self._request_body())
+        assert resp.status_code == 200
+        assert resp.json()["pre_grounding"] is None
+        assert called["httpx"] is False
+
+    def test_non_grounding_intent_skips_vlm(self, client):
+        called = {"httpx": False}
+
+        class _ShouldNotBeCalled:
+            def __init__(self, *args, **kwargs):
+                called["httpx"] = True
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def post(self, *a, **k):
+                called["httpx"] = True
+                raise AssertionError("VLM should not be called for cancel intent")
+
+        with patch.object(
+            _state.llm, "generate", return_value=self._CANCEL_LLM_OUTPUT,
+        ), patch("httpx.AsyncClient", _ShouldNotBeCalled):
+            resp = client.post(
+                "/plan_with_grounding",
+                json=self._request_body(
+                    raw_command="stop", image_jpeg_b64="fakeimgb64",
+                ),
+            )
+        assert resp.status_code == 200
+        assert resp.json()["pre_grounding"] is None
+        assert called["httpx"] is False
+
+    def test_vlm_failure_returns_plan_without_grounding(self, client):
+        class _BrokenClient:
+            def __init__(self, *a, **k):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def post(self, *a, **k):
+                raise RuntimeError("network exploded")
+
+        with patch.object(
+            _state.llm, "generate", return_value=self._GO_TO_DOOR_LLM_OUTPUT,
+        ), patch("httpx.AsyncClient", _BrokenClient):
+            resp = client.post(
+                "/plan_with_grounding",
+                json=self._request_body(image_jpeg_b64="fakeimgb64"),
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["mission_type"] == "go_to_target"
+        assert body["pre_grounding"] is None
+        # The plan still contains the scan step so the executor can fall back.
+        skills = [s["skill"] for s in body["steps"]]
+        assert "scan_for_target" in skills
+
+    def test_model_not_loaded_returns_503(self, unloaded_client):
+        resp = unloaded_client.post(
+            "/plan_with_grounding",
+            json={"request_id": "x", "raw_command": "go to the door"},
+        )
+        assert resp.status_code == 503

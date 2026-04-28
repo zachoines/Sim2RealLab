@@ -55,3 +55,30 @@ class DescribeResponse(BaseModel):
     request_id: str = Field(..., description="Echo of the caller's request_id.")
     description: str = Field(..., description="Free-text scene description from the VLM.")
     latency_s: float = Field(0.0, description="Inference wall-clock time in seconds.")
+
+
+class DetectObjectsRequest(BaseModel):
+    """JSON body for ``POST /detect_objects``."""
+
+    request_id: str = Field(..., description="Caller-assigned unique request identifier.")
+    image_jpeg_b64: str = Field(..., description="JPEG image encoded as a base64 string.")
+    max_image_side: int = Field(1024, description="If > 0, resize so the longest side <= this value before inference.")
+    max_objects: int = Field(20, description="Maximum number of objects to return.")
+    min_confidence: float = Field(0.3, description="Minimum confidence (0..1) for a detection to be included.")
+
+
+class DetectedObject(BaseModel):
+    """One detected object in a ``DetectObjectsResponse``."""
+
+    label: str = Field(..., description="Model-assigned label for the detected object.")
+    bbox_2d: list[int] = Field(..., description="[x1, y1, x2, y2] in pixel coordinates of the (possibly resized) inference image.")
+    confidence: float = Field(..., description="Detection confidence in [0, 1].")
+
+
+class DetectObjectsResponse(BaseModel):
+    """JSON response from ``POST /detect_objects``."""
+
+    request_id: str = Field(..., description="Echo of the caller's request_id.")
+    objects: list[DetectedObject] = Field(default_factory=list, description="Detected objects sorted by confidence descending.")
+    raw_output: str | None = Field(None, description="Raw model text output (for debugging).")
+    latency_s: float = Field(0.0, description="Inference wall-clock time in seconds.")

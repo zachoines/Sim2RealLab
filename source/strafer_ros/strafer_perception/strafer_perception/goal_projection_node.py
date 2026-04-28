@@ -11,15 +11,33 @@ Subscribes to:
 
 Provides service:
     /strafer/project_detection_to_goal_pose  — ProjectDetectionToGoalPose.srv
+
+Environment variables:
+    STRAFER_PROJECTION_DEPTH_MAX_M : Override the projection-side max depth
+                                     cutoff (default 6.0 m). Sim missions
+                                     export 15.0 in env_sim_in_the_loop.env
+                                     to admit far targets that Isaac Sim
+                                     renders accurately past the real D555's
+                                     conservative stereo bound. Real-robot
+                                     bringup leaves this unset.
+    STRAFER_PROJECTION_DEPTH_MIN_M : Override the projection-side min depth
+                                     cutoff (default 0.3 m).
+
+These ONLY gate goal-projection's per-pixel depth lookup. They do not
+touch ``strafer_shared.constants.DEPTH_MAX`` (policy normalization /
+Nav2 raytracing), which is fixed by the trained policy's input
+distribution.
 """
 
 from __future__ import annotations
 
 import math
+import os
 
 import numpy as np
 
 import rclpy
+from rclpy.duration import Duration
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from cv_bridge import CvBridge
@@ -32,11 +50,39 @@ from strafer_msgs.srv import ProjectDetectionToGoalPose
 # center is sampled and the median taken to reject outliers.
 _DEPTH_KERNEL_HALF = 2
 
-# Maximum allowed depth (meters).  Beyond this the stereo estimate is noisy.
+# Default max allowed depth (meters). Conservative bound for the real
+# D555's stereo noise floor; sim overrides via env var.
 _DEPTH_MAX_M = 6.0
 
-# Minimum allowed depth (meters).  Below the D555 stereo baseline limit.
+# Default min allowed depth (meters). Below the D555 stereo baseline limit.
 _DEPTH_MIN_M = 0.3
+
+_ENV_DEPTH_MAX = "STRAFER_PROJECTION_DEPTH_MAX_M"
+_ENV_DEPTH_MIN = "STRAFER_PROJECTION_DEPTH_MIN_M"
+
+
+def _parse_depth_env(raw: str | None, default: float) -> tuple[float, str | None]:
+    """Parse a STRAFER_PROJECTION_DEPTH_*_M env value.
+
+    Returns ``(resolved_value, kind)`` where ``kind`` is:
+        ``None``         — env var is unset; default returned silently.
+        ``"non_numeric"`` — ``float()`` failed; default returned, warn.
+        ``"non_positive"`` — value <= 0; default returned, warn.
+        ``"override"``    — accepted positive override.
+
+    Mirrors the resolution semantics of ``STRAFER_NAV_VEL_SCALE`` in
+    ``navigation.launch.py``: unset → silent default, bad → warn-and-fall-
+    back, valid → log the override.
+    """
+    if not raw:
+        return default, None
+    try:
+        value = float(raw)
+    except ValueError:
+        return default, "non_numeric"
+    if value <= 0.0:
+        return default, "non_positive"
+    return value, "override"
 
 
 class GoalProjectionNode(Node):
@@ -46,6 +92,12 @@ class GoalProjectionNode(Node):
         super().__init__("goal_projection")
 
         self._bridge = CvBridge()
+
+        # Per-instance depth cutoffs, env-overridable. See module
+        # docstring for the rationale; resolution mirrors
+        # navigation.launch.py:_resolved_nav_velocities.
+        self._depth_min_m = self._resolve_depth_env(_ENV_DEPTH_MIN, _DEPTH_MIN_M, "min")
+        self._depth_max_m = self._resolve_depth_env(_ENV_DEPTH_MAX, _DEPTH_MAX_M, "max")
 
         # Latest depth frame + camera info
         self._latest_depth: Image | None = None
@@ -87,6 +139,28 @@ class GoalProjectionNode(Node):
         self._latest_cam_info = msg
 
     # ------------------------------------------------------------------
+    # Env resolution
+    # ------------------------------------------------------------------
+
+    def _resolve_depth_env(self, env_var: str, default: float, kind: str) -> float:
+        raw = os.environ.get(env_var)
+        value, log_kind = _parse_depth_env(raw, default)
+        log = self.get_logger()
+        if log_kind == "non_numeric":
+            log.warning(
+                f"Ignoring non-numeric {env_var}={raw!r}; using default {default:.4f}"
+            )
+        elif log_kind == "non_positive":
+            log.warning(
+                f"Ignoring non-positive {env_var}={value}; using default {default:.4f}"
+            )
+        elif log_kind == "override":
+            log.info(
+                f"{env_var}={raw} overrides projection depth {kind} (={value:.4f} m)"
+            )
+        return value
+
+    # ------------------------------------------------------------------
     # Service handler
     # ------------------------------------------------------------------
 
@@ -115,15 +189,33 @@ class GoalProjectionNode(Node):
 
         # 2. Depth lookup with median kernel
         depth_cv = self._bridge.imgmsg_to_cv2(depth_msg, desired_encoding="passthrough")
-        depth_m = self._median_depth(depth_cv, u, v)
+        depth_m, reason = self._median_depth(
+            depth_cv, u, v,
+            depth_min=self._depth_min_m,
+            depth_max=self._depth_max_m,
+        )
 
         if depth_m is None:
             response.found = False
             response.depth_valid = False
-            response.message = (
-                f"Invalid depth at pixel ({u}, {v}): "
-                "zero, NaN, or out of range."
-            )
+            if reason == "out_of_range":
+                # Sensor reach problem: every patch sample was finite but
+                # outside [min, max]. Operator should consider widening
+                # STRAFER_PROJECTION_DEPTH_MAX_M (sim) or measuring real
+                # D555 reach before raising the default.
+                response.message = (
+                    f"Depth at pixel ({u}, {v}) out of "
+                    f"[{self._depth_min_m:.2f}, {self._depth_max_m:.2f}] m "
+                    "range (sensor reach)."
+                )
+            else:
+                # Bridge / sky-region problem: the patch has no finite
+                # positive samples at all (zeros from the depth driver
+                # or NaN/inf from a region the renderer can't resolve).
+                response.message = (
+                    f"Invalid depth at pixel ({u}, {v}): "
+                    "all patch samples zero or NaN (bridge or sky region)."
+                )
             return response
 
         response.depth_valid = True
@@ -143,17 +235,28 @@ class GoalProjectionNode(Node):
         y_cam = (v - ppy) * depth_m / fy
         z_cam = depth_m
 
-        # 4. Transform camera → map via TF2
+        # 4. Transform camera → map via TF2.
+        # Use the node's current clock (wall- or sim-time, depending on
+        # use_sim_time) as the lookup time with a short wait. The
+        # `rclpy.time.Time()` zero-is-latest idiom has been unreliable
+        # under sim-time + cross-host TF — tf2 has been seen rejecting
+        # it with "extrapolation into the past" when the buffer's
+        # earliest entry is newer than epoch-zero.
         camera_frame = depth_msg.header.frame_id or "d555_color_optical_frame"
         target_frame = "map"
 
+        lookup_time = self.get_clock().now()
+        lookup_timeout = Duration(seconds=0.5)
         try:
             tf = self._tf_buffer.lookup_transform(
-                target_frame, camera_frame, rclpy.time.Time()
+                target_frame, camera_frame, lookup_time, timeout=lookup_timeout,
             )
         except TransformException as exc:
             response.found = False
-            response.message = f"TF lookup {camera_frame} → {target_frame} failed: {exc}"
+            response.message = (
+                f"TF lookup {camera_frame} → {target_frame} failed at "
+                f"t={lookup_time.nanoseconds * 1e-9:.3f}s: {exc}"
+            )
             return response
 
         target_in_map = self._transform_point(tf, x_cam, y_cam, z_cam)
@@ -168,10 +271,12 @@ class GoalProjectionNode(Node):
         response.target_pose.pose.orientation.w = 1.0
 
         # 5. Compute goal pose with standoff
-        # Get robot position from TF (base_link → map)
+        # Get robot position from TF (base_link → map) at the same
+        # clock the camera lookup used, so both project against a
+        # coherent snapshot.
         try:
             robot_tf = self._tf_buffer.lookup_transform(
-                target_frame, "base_link", rclpy.time.Time()
+                target_frame, "base_link", lookup_time, timeout=lookup_timeout,
             )
         except TransformException:
             # Fallback: place goal at standoff directly in front of target
@@ -194,9 +299,9 @@ class GoalProjectionNode(Node):
 
         # Quality flags
         flags: list[str] = []
-        if depth_m < _DEPTH_MIN_M + 0.1:
+        if depth_m < self._depth_min_m + 0.1:
             flags.append("near_min_range")
-        if depth_m > _DEPTH_MAX_M - 0.5:
+        if depth_m > self._depth_max_m - 0.5:
             flags.append("near_max_range")
         if request.standoff_m > depth_m:
             flags.append("standoff_clipped")
@@ -218,23 +323,49 @@ class GoalProjectionNode(Node):
 
     @staticmethod
     def _median_depth(
-        depth_16uc1: np.ndarray, u: int, v: int
-    ) -> float | None:
-        """Return median depth in meters from a 5x5 window, or None if invalid."""
-        h, w = depth_16uc1.shape[:2]
+        depth: np.ndarray,
+        u: int,
+        v: int,
+        depth_min: float = _DEPTH_MIN_M,
+        depth_max: float = _DEPTH_MAX_M,
+    ) -> tuple[float | None, str]:
+        """Return ``(median_depth_m, reason)`` for the 5x5 patch at (u, v).
+
+        Reasons:
+            ``"ok"``                — patch had usable samples; first
+                                      element is the median in metres.
+            ``"all_zero_or_nan"``    — every patch sample was zero / NaN
+                                      / inf (bridge or sky region).
+            ``"out_of_range"``       — patch had finite positive samples
+                                      but none fell inside
+                                      ``[depth_min, depth_max]`` (sensor
+                                      reach problem).
+
+        Accepts both depth encodings the stack sees:
+          - 16UC1 (uint16, millimetres) — real D555 driver output.
+          - 32FC1 (float32, metres)     — Isaac Sim ROS 2 bridge output.
+        """
+        h, w = depth.shape[:2]
         u = max(_DEPTH_KERNEL_HALF, min(u, w - _DEPTH_KERNEL_HALF - 1))
         v = max(_DEPTH_KERNEL_HALF, min(v, h - _DEPTH_KERNEL_HALF - 1))
 
-        patch = depth_16uc1[
+        patch = depth[
             v - _DEPTH_KERNEL_HALF : v + _DEPTH_KERNEL_HALF + 1,
             u - _DEPTH_KERNEL_HALF : u + _DEPTH_KERNEL_HALF + 1,
         ]
-        valid = patch[patch > 0].astype(np.float64) * 0.001  # mm → m
-        valid = valid[(valid >= _DEPTH_MIN_M) & (valid <= _DEPTH_MAX_M)]
+        if depth.dtype == np.uint16:
+            present = patch[patch > 0].astype(np.float64) * 0.001  # mm → m
+        else:
+            finite = np.isfinite(patch) & (patch > 0)
+            present = patch[finite].astype(np.float64)
 
-        if len(valid) == 0:
-            return None
-        return float(np.median(valid))
+        if len(present) == 0:
+            return None, "all_zero_or_nan"
+
+        in_range = present[(present >= depth_min) & (present <= depth_max)]
+        if len(in_range) == 0:
+            return None, "out_of_range"
+        return float(np.median(in_range)), "ok"
 
     @staticmethod
     def _transform_point(

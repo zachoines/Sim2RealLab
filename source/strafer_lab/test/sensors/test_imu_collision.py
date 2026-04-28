@@ -37,6 +37,11 @@ from test.common import NUM_ENVS, CONFIDENCE_LEVEL, IMU_ACCEL_MAX, BODY_VEL_MAX
 from test.common.stats import one_sample_t_test, welch_t_test
 from test.common.robot import get_env_origins
 
+import warp as wp
+
+# XYZW quaternion component indices (Isaac Lab 3.0 convention)
+QX, QY, QZ, QW = 0, 1, 2, 3
+
 from strafer_lab.tasks.navigation.strafer_env_cfg import (
     StraferNavEnvCfg_NoCam,
     ActionsCfg_Ideal,
@@ -135,23 +140,25 @@ def _place_obstacle_in_front(env, distance: float = 0.4):
     device = env.device
     num_envs = env.num_envs
 
-    robot_pos = robot.data.root_pos_w[:, :3].clone()
-    robot_quat = robot.data.root_quat_w
+    robot_pos = wp.to_torch(robot.data.root_pos_w)[:, :3].clone()
+    robot_quat = wp.to_torch(robot.data.root_quat_w)
     env_origins = get_env_origins(env)
 
-    w, x, y, z = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+    x, y, z, w = robot_quat[:, QX], robot_quat[:, QY], robot_quat[:, QZ], robot_quat[:, QW]
     yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
-    root_state = obstacle.data.default_root_state.clone()[:num_envs]
-    root_state[:, 0] = robot_pos[:, 0] + distance * torch.cos(yaw)
-    root_state[:, 1] = robot_pos[:, 1] + distance * torch.sin(yaw)
-    root_state[:, 2] = env_origins[:, 2] + 0.15
-    root_state[:, 3] = 1.0
-    root_state[:, 4:7] = 0.0
-    root_state[:, 7:] = 0.0
+    root_pose = wp.to_torch(obstacle.data.default_root_pose).clone()[:num_envs]
+    root_pose[:, 0] = robot_pos[:, 0] + distance * torch.cos(yaw)
+    root_pose[:, 1] = robot_pos[:, 1] + distance * torch.sin(yaw)
+    root_pose[:, 2] = env_origins[:, 2] + 0.15
+    root_pose[:, 3:6] = 0.0
+    root_pose[:, 6] = 1.0
 
     all_ids = torch.arange(num_envs, device=device)
-    obstacle.write_root_state_to_sim(root_state, all_ids)
+    obstacle.write_root_pose_to_sim_index(root_pose=root_pose, env_ids=all_ids)
+    obstacle.write_root_velocity_to_sim_index(
+        root_velocity=torch.zeros(num_envs, 6, device=device), env_ids=all_ids
+    )
 
 
 def _move_obstacle_far_away(env):
@@ -161,16 +168,18 @@ def _move_obstacle_far_away(env):
     num_envs = env.num_envs
     env_origins = get_env_origins(env)
 
-    root_state = obstacle.data.default_root_state.clone()[:num_envs]
-    root_state[:, 0] = env_origins[:, 0] + 50.0
-    root_state[:, 1] = env_origins[:, 1] + 50.0
-    root_state[:, 2] = env_origins[:, 2] + 0.15
-    root_state[:, 3] = 1.0
-    root_state[:, 4:7] = 0.0
-    root_state[:, 7:] = 0.0
+    root_pose = wp.to_torch(obstacle.data.default_root_pose).clone()[:num_envs]
+    root_pose[:, 0] = env_origins[:, 0] + 50.0
+    root_pose[:, 1] = env_origins[:, 1] + 50.0
+    root_pose[:, 2] = env_origins[:, 2] + 0.15
+    root_pose[:, 3:6] = 0.0  # quat x, y, z = 0
+    root_pose[:, 6] = 1.0    # quat w = 1 (XYZW identity)
 
     all_ids = torch.arange(num_envs, device=device)
-    obstacle.write_root_state_to_sim(root_state, all_ids)
+    obstacle.write_root_pose_to_sim_index(root_pose=root_pose, env_ids=all_ids)
+    obstacle.write_root_velocity_to_sim_index(
+        root_velocity=torch.zeros(num_envs, 6, device=device), env_ids=all_ids
+    )
 
 
 def _collect_obs_per_step(

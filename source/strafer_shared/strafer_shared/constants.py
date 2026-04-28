@@ -125,6 +125,41 @@ DEPTH_CLIP_FAR = 6.0  # meters
 DEPTH_SIM_CLIP_NEAR = 0.01  # meters — sim renders below D555 min range
 DEPTH_NEARFIELD_FILL = 0.2  # meters — replacement value for sub-0.4m pixels
 
+# Sim-only renderer frustum far clip. Distinct from DEPTH_CLIP_FAR — the
+# depth-sensor 6 m limit is enforced in software in observations.depth_image
+# (and is irrelevant for RGB), whereas the frustum clip is a renderer-level
+# cull that affects EVERY channel the camera emits (RGB, depth, semantic,
+# bbox). Using DEPTH_CLIP_FAR for the frustum cuts RGB at 6 m too, leaving
+# the policy / VLM blind to anything in the room beyond that. 50 m is well
+# beyond any indoor scene we run; pinhole-camera frustum culling is cheap
+# so making this generous costs nothing.
+D555_RENDER_FAR_CLIP_M = 50.0
+
+# D555 native capture resolution — used by the Jetson perception pipeline
+# (/d555/color/image_sync, /d555/aligned_depth_to_color/image_sync, VLM
+# grounding client) and mirrored by the Isaac Sim perception camera
+# (strafer_lab.tasks.navigation.d555_cfg). Distinct from DEPTH_WIDTH /
+# DEPTH_HEIGHT above, which is the 80×60 DOWNSAMPLED policy input only.
+PERCEPTION_WIDTH = 640
+PERCEPTION_HEIGHT = 360
+
+# D555 lens / sensor specs, from Intel's datasheet. Values are in
+# millimeters, which matches both the real-world spec and the unit
+# convention Isaac Sim's PinholeCameraCfg expects for focal_length /
+# horizontal_aperture.
+D555_FOCAL_LENGTH_MM = 1.93
+D555_HORIZONTAL_APERTURE_MM = 3.68
+
+# D555 native frame rate. Both the color and the aligned depth streams
+# run at this rate on real hardware; the sim TiledCameraCfg uses the
+# derived period.
+CAMERA_HZ = 30
+CAMERA_UPDATE_PERIOD_S = 1.0 / CAMERA_HZ
+
+# Bosch BMI055 IMU (integrated into the D555) native rate.
+IMU_HZ = 200
+IMU_UPDATE_PERIOD_S = 1.0 / IMU_HZ
+
 # =============================================================================
 # Mapping / Navigation
 # =============================================================================
@@ -155,3 +190,29 @@ ROBOCLAW_PID_P = 15000
 ROBOCLAW_PID_I = 750
 ROBOCLAW_PID_D = 0
 ROBOCLAW_QPPS = 2796  # max ticks/sec at 312 RPM (537.7 PPR)
+
+# =============================================================================
+# ROS2 Topic + Frame ID Conventions
+# =============================================================================
+# Canonical topic and frame names for the Strafer ROS2 graph. Both the real
+# Jetson stack (strafer_ros/*) and the Isaac Sim bridge (strafer_lab.bridge)
+# must agree on these strings so sim-in-the-loop consumers (Nav2, RTAB-Map,
+# VLM grounding clients) see the same wire format regardless of source.
+
+TOPIC_COLOR_IMAGE = "/d555/color/image_raw"
+TOPIC_COLOR_CAMERA_INFO = "/d555/color/camera_info"
+TOPIC_DEPTH_IMAGE = "/d555/depth/image_rect_raw"
+TOPIC_DEPTH_CAMERA_INFO = "/d555/depth/camera_info"
+TOPIC_ODOM = "/strafer/odom"
+TOPIC_CMD_VEL = "/cmd_vel"
+# Sim-time clock published by the Isaac Sim bridge. The Jetson side sets
+# `use_sim_time:=True` on every ROS 2 node launched by
+# `bringup_sim_in_the_loop.launch.py` so the whole cross-host stack shares
+# the bridge's monotonic sim clock and TF chains compose without stamp
+# conflicts between wall-time and sim-time publishers.
+TOPIC_CLOCK = "/clock"
+
+FRAME_ODOM = "odom"
+FRAME_BASE_LINK = "base_link"
+FRAME_D555_LINK = "d555_link"
+FRAME_D555_COLOR_OPTICAL = "d555_color_optical_frame"

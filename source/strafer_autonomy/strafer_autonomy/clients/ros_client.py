@@ -25,6 +25,10 @@ class RosClient(Protocol):
     def get_robot_state(self) -> dict[str, Any]:
         """Return the latest robot state snapshot for planning and status."""
 
+    def get_map_pose(self) -> dict[str, float] | None:
+        """Return the robot's current pose in the map frame, or ``None``
+        if the ``map -> base_link`` transform is not yet available."""
+
     def project_detection_to_goal_pose(
         self,
         *,
@@ -118,12 +122,20 @@ class JetsonRosClient:
         self._executor = SingleThreadedExecutor()
         self._executor.add_node(self._node)
 
-        # Thread-safe sensor cache
+        # Thread-safe sensor cache. The `*_rx_t` fields record the wall-
+        # clock time (monotonic) when each message was received, so
+        # freshness checks do not rely on header stamps — those may be
+        # in sim-time when the bridge is upstream, and comparing them to
+        # the node's system clock yields nonsense ages.
         self._cache_lock = threading.Lock()
         self._latest_color = None
+        self._latest_color_rx_t: float | None = None
         self._latest_depth = None
         self._latest_cam_info = None
         self._latest_odom = None
+        self._latest_costmap = None
+        self._tf_buffer: Any = None
+        self._tf_listener: Any = None
 
         # Nav2 goal tracking
         self._nav_lock = threading.Lock()
@@ -149,17 +161,29 @@ class JetsonRosClient:
     # ------------------------------------------------------------------
 
     def _setup_subscriptions(self) -> None:
-        from nav_msgs.msg import Odometry
+        from nav_msgs.msg import OccupancyGrid, Odometry
         from sensor_msgs.msg import CameraInfo, Image
 
         self._node.create_subscription(Image, self.TOPIC_COLOR, self._on_color, 10)
         self._node.create_subscription(Image, self.TOPIC_DEPTH, self._on_depth, 10)
         self._node.create_subscription(CameraInfo, self.TOPIC_CAM_INFO, self._on_cam_info, 10)
         self._node.create_subscription(Odometry, self.TOPIC_ODOM, self._on_odom, 10)
+        self._node.create_subscription(
+            OccupancyGrid, "/global_costmap/costmap", self._on_costmap, 1,
+        )
+
+        # TF buffer for SLAM tracking freshness checks
+        try:
+            import tf2_ros
+            self._tf_buffer = tf2_ros.Buffer()
+            self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self._node)
+        except Exception:
+            logger.debug("tf2_ros not available; SLAM tracking checks disabled")
 
     def _on_color(self, msg: Any) -> None:
         with self._cache_lock:
             self._latest_color = msg
+            self._latest_color_rx_t = time.monotonic()
 
     def _on_depth(self, msg: Any) -> None:
         with self._cache_lock:
@@ -172,6 +196,77 @@ class JetsonRosClient:
     def _on_odom(self, msg: Any) -> None:
         with self._cache_lock:
             self._latest_odom = msg
+
+    def _on_costmap(self, msg: Any) -> None:
+        with self._cache_lock:
+            self._latest_costmap = msg
+
+    # ------------------------------------------------------------------
+    # Safety pre-checks
+    # ------------------------------------------------------------------
+
+    def check_costmap_at_pose(self, x: float, y: float) -> str:
+        """Check the Nav2 global costmap cell at the given world (x, y).
+
+        Returns one of ``"free"``, ``"occupied"``, ``"unknown"``, or
+        ``"no_costmap"`` if no costmap has been received yet.
+        """
+        with self._cache_lock:
+            costmap = self._latest_costmap
+        if costmap is None:
+            return "no_costmap"
+
+        info = costmap.info
+        col = int((x - info.origin.position.x) / info.resolution)
+        row = int((y - info.origin.position.y) / info.resolution)
+        if col < 0 or col >= info.width or row < 0 or row >= info.height:
+            return "unknown"
+        cell = costmap.data[row * info.width + col]
+        if cell == -1:
+            return "unknown"
+        if cell >= 65:
+            return "occupied"
+        return "free"
+
+    def get_map_pose(self) -> dict[str, float] | None:
+        """Look up ``map -> base_link`` and return the pose dict.
+
+        Returns ``None`` if the transform is not yet available (e.g.
+        SLAM has not produced the map frame yet).
+        """
+        if self._tf_buffer is None:
+            return None
+        try:
+            from rclpy.time import Time
+            tf = self._tf_buffer.lookup_transform("map", "base_link", Time())
+        except Exception:
+            return None
+        t = tf.transform.translation
+        r = tf.transform.rotation
+        return {
+            "x": t.x, "y": t.y, "z": t.z,
+            "qx": r.x, "qy": r.y, "qz": r.z, "qw": r.w,
+        }
+
+    def check_slam_tracking(self, threshold_s: float = 5.0) -> tuple[bool, float]:
+        """Check ``map -> odom`` TF freshness.
+
+        Returns ``(is_fresh, age_s)``. If TF is unavailable, returns
+        ``(False, float('inf'))``.
+        """
+        if self._tf_buffer is None:
+            return False, float("inf")
+        try:
+            from rclpy.time import Time
+            transform = self._tf_buffer.lookup_transform(
+                "map", "odom", Time(),
+            )
+            tf_stamp_sec = self._stamp_to_sec(transform.header.stamp)
+            now = self._stamp_to_sec(self._node.get_clock().now().to_msg())
+            age = now - tf_stamp_sec
+            return age < threshold_s, age
+        except Exception:
+            return False, float("inf")
 
     # ------------------------------------------------------------------
     # Helpers
@@ -211,6 +306,7 @@ class JetsonRosClient:
 
         with self._cache_lock:
             color_msg = self._latest_color
+            color_rx_t = self._latest_color_rx_t
             depth_msg = self._latest_depth
             cam_info_msg = self._latest_cam_info
             odom_msg = self._latest_odom
@@ -220,23 +316,29 @@ class JetsonRosClient:
                 "No color or depth frames cached. Is the perception stack running?"
             )
 
-        # Freshness check (sync topics use ROS system time)
-        color_stamp = self._stamp_to_sec(color_msg.header.stamp)
-        now = self._stamp_to_sec(self._node.get_clock().now().to_msg())
-        age = now - color_stamp
-        if age > self._config.observation_max_age_s:
+        # Measure receive-to-now on the wall clock, not on header stamps:
+        # header stamps can be sim-time (upstream bridge) while the node
+        # clock is wall time, which previously produced absurd ages.
+        age = time.monotonic() - (color_rx_t if color_rx_t is not None else 0.0)
+        if color_rx_t is None or age > self._config.observation_max_age_s:
             raise RuntimeError(
                 f"Cached color frame is {age:.1f}s old "
                 f"(max {self._config.observation_max_age_s}s). "
                 "The perception stack may have stopped."
             )
 
+        color_stamp = self._stamp_to_sec(color_msg.header.stamp)
+
         bridge = CvBridge()
         color_bgr = bridge.imgmsg_to_cv2(color_msg, desired_encoding="bgr8")
 
-        # Aligned depth arrives as 16UC1 in millimeters; convert to float32 meters
+        # Real D555 driver publishes aligned depth as 16UC1 (mm); the Isaac
+        # Sim ROS 2 bridge publishes it as 32FC1 (m). Normalise to float32 m.
         depth_raw = bridge.imgmsg_to_cv2(depth_msg, desired_encoding="passthrough")
-        aligned_depth_m = depth_raw.astype(np.float32) * 0.001
+        if depth_raw.dtype == np.uint16:
+            aligned_depth_m = depth_raw.astype(np.float32) * 0.001
+        else:
+            aligned_depth_m = depth_raw.astype(np.float32)
 
         camera_info: dict[str, Any] = {}
         if cam_info_msg is not None:
@@ -636,15 +738,43 @@ class JetsonRosClient:
     # Internal: future waiting
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _wait_for_future(future: Any, timeout_s: float) -> bool:
-        """Block until *future* completes or *timeout_s* elapses.
+    def _wait_for_future(self, future: Any, timeout_s: float) -> bool:
+        """Block on *future* using the executor node's clock.
+
+        Honors ``use_sim_time``: sim launches with ``use_sim_time:=true``
+        tick on ``/clock``, real launches tick on the system clock. This
+        keeps the executor's timeout enforcement aligned with Nav2,
+        RTAB-Map, and the BT navigator, all of which already tick on
+        the same clock.
+
+        A wall-clock safety cap of ``2 * timeout_s`` bounds the wait if
+        ``/clock`` stops advancing (e.g. sim bridge crash mid-mission)
+        so the executor cannot wedge waiting on a stalled sim clock.
+        On real hardware the system clock advances at wall rate, so the
+        cap never trips before the primary timeout fires.
 
         Returns ``True`` if the future completed, ``False`` on timeout.
-        Uses a :class:`threading.Event` signalled by the future's
-        done-callback so the calling thread sleeps efficiently instead
-        of polling.
         """
-        event = threading.Event()
-        future.add_done_callback(lambda _: event.set())
-        return event.wait(timeout=timeout_s)
+        from rclpy.duration import Duration
+
+        done = threading.Event()
+        future.add_done_callback(lambda _: done.set())
+
+        clock = self._node.get_clock()
+        deadline = clock.now() + Duration(seconds=timeout_s)
+        wall_cap = time.monotonic() + 2.0 * timeout_s
+
+        poll_dt = max(0.01, min(0.1, timeout_s / 10.0))
+        while not done.is_set():
+            if clock.now() >= deadline:
+                return False
+            if time.monotonic() >= wall_cap:
+                logger.warning(
+                    "Future wait hit wall-clock safety cap (%.1fs) — "
+                    "is /clock advancing?",
+                    2.0 * timeout_s,
+                )
+                return False
+            if done.wait(timeout=poll_dt):
+                return True
+        return True

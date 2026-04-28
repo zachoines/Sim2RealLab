@@ -17,9 +17,9 @@ Environments (--env):
     Isaac-Strafer-Nav-Robust-v0   Robust Full (stress-test)
 
 Usage:
-    .\IsaacLab\isaaclab.bat -p Scripts\test_strafer_env.py
-    .\IsaacLab\isaaclab.bat -p Scripts\test_strafer_env.py --env Isaac-Strafer-Nav-v0
-    .\IsaacLab\isaaclab.bat -p Scripts\test_strafer_env.py --pattern circle --env Isaac-Strafer-Nav-Robust-v0
+    ./IsaacLab/isaaclab.sh -p Scripts/test_strafer_env.py
+    ./IsaacLab/isaaclab.sh -p Scripts/test_strafer_env.py --env Isaac-Strafer-Nav-v0
+    ./IsaacLab/isaaclab.sh -p Scripts/test_strafer_env.py --pattern circle --env Isaac-Strafer-Nav-Robust-v0
 """
 
 import argparse
@@ -31,14 +31,6 @@ def main():
     parser = argparse.ArgumentParser(description="Test Strafer environment")
     parser.add_argument(
         "--num_envs", type=int, default=1, help="Number of environments"
-    )
-    parser.add_argument("--device", type=str, default="cuda:0", help="Device to run on")
-    parser.add_argument("--headless", action="store_true", help="Run without rendering")
-    parser.add_argument(
-        "--enable_cameras",
-        action="store_true",
-        default=True,
-        help="Enable camera rendering (required for camera-based envs)",
     )
     parser.add_argument(
         "--pattern",
@@ -71,19 +63,36 @@ def main():
         default="Isaac-Strafer-Nav-Real-v0",
         help="Environment ID (default: Isaac-Strafer-Nav-Real-v0 = Realistic Full)",
     )
+    parser.add_argument(
+        "--video", action="store_true", default=False,
+        help="Record an MP4 video of the test run (saved to /tmp/test_strafer_videos/)",
+    )
+    parser.add_argument(
+        "--video_dir", type=str, default="/tmp/test_strafer_videos",
+        help="Directory for recorded videos (default: /tmp/test_strafer_videos)",
+    )
+
+    # Import Isaac Lab app launcher and add its CLI args (--headless, --enable_cameras, --viz, etc.)
+    from isaaclab.app import AppLauncher
+
+    AppLauncher.add_app_launcher_args(parser)
     args = parser.parse_args()
 
-    # Import Isaac Lab app launcher first (required before other isaaclab imports)
-    from isaaclab.app import AppLauncher
+    # Auto-enable cameras for depth/camera-based envs or video recording
+    if "NoCam" not in args.env or args.video:
+        args.enable_cameras = True
 
     # Launch the simulator
     app_launcher = AppLauncher(args)
     simulation_app = app_launcher.app
 
     # Now import Isaac Lab modules
+    import os
+
     import gymnasium as gym
     import torch
 
+    from isaaclab.envs.common import ViewerCfg
     from isaaclab_tasks.utils import parse_env_cfg
 
     # Import strafer_lab to register environments
@@ -114,14 +123,56 @@ def main():
         # Parse environment config from registry (Isaac Lab pattern)
         env_cfg = parse_env_cfg(
             env_name,
-            device=args.device,
+            device=args.device if hasattr(args, "device") else "cuda:0",
             num_envs=args.num_envs,
         )
-        # Enable USD writeback so property panel shows live transforms (test script only)
-        env_cfg.sim.physx.update_transformations_in_usd = True
+        # Set up camera for video recording — eye is offset from env origin
+        if args.video:
+            env_cfg.viewer = ViewerCfg(
+                eye=(0, 0, 30.0),
+                lookat=(0.0, 0.0, 0),
+                origin_type="env",
+                env_index=0,
+                resolution=(1280, 720),
+            )
+
         # Create environment with the parsed config
-        env = gym.make(env_name, cfg=env_cfg)
+        render_mode = "rgb_array" if args.video else None
+        env = gym.make(env_name, cfg=env_cfg, render_mode=render_mode)
+
+        # Wrap with video recorder if requested
+        if args.video:
+            os.makedirs(args.video_dir, exist_ok=True)
+            video_kwargs = {
+                "video_folder": args.video_dir,
+                "step_trigger": lambda step: step == 0,  # record from the start
+                "video_length": int(args.duration / (env_cfg.sim.dt * env_cfg.decimation)),
+                "disable_logger": True,
+            }
+            print(f"[INFO] Recording video to: {args.video_dir}")
+            env = gym.wrappers.RecordVideo(env, **video_kwargs)
+
         print("[OK] Environment created successfully!")
+
+        # In headless mode the ViewportCameraController is never created, so
+        # ViewerCfg.eye/lookat are never applied to /OmniverseKit_Persp.
+        # sim.set_camera_view() only forwards to visualizers (empty in headless).
+        # Use isaacsim's FSD-safe set_camera_view (goes through TransformPrimCommand).
+        if args.video:
+            import numpy as np
+            from isaacsim.core.utils.viewports import set_camera_view as isaacsim_set_camera_view
+
+            unwrapped = env.unwrapped
+            origin = unwrapped.scene.env_origins[0].cpu().numpy()
+            cam_eye = origin + np.array(env_cfg.viewer.eye, dtype=float)
+            cam_target = origin + np.array(env_cfg.viewer.lookat, dtype=float)
+
+            isaacsim_set_camera_view(
+                eye=cam_eye.tolist(),
+                target=cam_target.tolist(),
+                camera_prim_path=env_cfg.viewer.cam_prim_path,
+            )
+            print(f"[INFO] Camera set: eye={cam_eye.tolist()}, target={cam_target.tolist()}")
 
         # Print environment info
         print(f"\n--- Environment Info ---")
@@ -247,7 +298,7 @@ def main():
 
                 # Get action from pattern
                 vx, vy, omega = pattern_fn(t)
-                action = torch.tensor([[vx, vy, omega]], device=args.device)
+                action = torch.tensor([[vx, vy, omega]], device=env_cfg.sim.device)
 
                 # Expand for multiple envs if needed
                 if args.num_envs > 1:

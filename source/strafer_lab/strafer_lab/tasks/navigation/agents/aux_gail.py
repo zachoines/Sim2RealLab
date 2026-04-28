@@ -111,11 +111,21 @@ class GAILAuxiliary(AuxiliaryLoss):
               f"grad_penalty={grad_penalty_weight} (discriminator built on first use)")
 
     def _ensure_discriminator(self, ppo) -> None:
-        """Lazily build the discriminator once the policy is available."""
+        """Lazily build the discriminator once the actor is available."""
         if self.discriminator is not None:
             return
 
-        enc_dim = ppo.policy.encoded_obs_dim
+        # StraferDepthRNNModel exposes encoded_obs_dim / encode_obs().
+        # For plain MLPModel/RNNModel actors, fall back to raw obs dim
+        # and identity encoding.
+        if hasattr(ppo.actor, "encoded_obs_dim"):
+            enc_dim = ppo.actor.encoded_obs_dim
+        else:
+            # Sum obs group dimensions as fallback
+            enc_dim = sum(
+                ppo.storage.observations[g].shape[-1]
+                for g in ppo.actor.obs_groups
+            )
         input_dim = enc_dim + self.act_dim
 
         layers: list[nn.Module] = []
@@ -127,8 +137,30 @@ class GAILAuxiliary(AuxiliaryLoss):
         self.discriminator = nn.Sequential(*layers).to(self.device)
         self.disc_optimizer = optim.Adam(self.discriminator.parameters(), lr=self.disc_lr)
 
+        # Validate expert demo dimensions match the actor's obs space
+        demo_obs_dim = self.buffer.obs.shape[1]
+        policy_obs_dim = sum(
+            ppo.storage.observations[g].shape[-1]
+            for g in ppo.actor.obs_groups
+        )
+        if demo_obs_dim != policy_obs_dim:
+            raise ValueError(
+                f"GAIL demo obs_dim={demo_obs_dim} but policy expects "
+                f"{policy_obs_dim}. Train with an env variant whose "
+                f"obs_dim matches your demos (e.g. Depth for "
+                f"{demo_obs_dim}-dim demos, NoCam for "
+                f"{policy_obs_dim}-dim demos)."
+            )
+
         print(f"[GAILAuxiliary] Discriminator built: input_dim={input_dim} "
               f"(encoded_obs={enc_dim} + act={self.act_dim})")
+
+    @staticmethod
+    def _encode(actor, obs_flat: torch.Tensor) -> torch.Tensor:
+        """Encode observations through the actor's encoder if available."""
+        if hasattr(actor, "encode_obs"):
+            return actor.encode_obs(obs_flat)
+        return obs_flat  # identity fallback for non-depth actors
 
     def _gradient_penalty(
         self,
@@ -171,7 +203,7 @@ class GAILAuxiliary(AuxiliaryLoss):
         # Encode rollout obs through shared backbone (no grad — encoder
         # is trained by PPO, not the discriminator)
         with torch.no_grad():
-            rollout_encoded = ppo.policy.encode_actor(rollout_obs_flat)
+            rollout_encoded = self._encode(ppo.actor, rollout_obs_flat)
 
         total_disc_loss = 0.0
         total_expert_score = 0.0
@@ -181,7 +213,7 @@ class GAILAuxiliary(AuxiliaryLoss):
             # Sample expert batch and encode through shared backbone
             expert_obs, expert_act = self.buffer.sample(self.disc_batch_size)
             with torch.no_grad():
-                expert_encoded = ppo.policy.encode_actor(expert_obs)
+                expert_encoded = self._encode(ppo.actor, expert_obs)
             expert_input = torch.cat([expert_encoded, expert_act], dim=-1)
 
             # Sample rollout batch (random indices from flattened storage)
@@ -233,9 +265,9 @@ class GAILAuxiliary(AuxiliaryLoss):
         self._ensure_discriminator(ppo)
 
         # Get current policy actions (with grad) and observations.
-        # For recurrent policies these are (seq_len, batch, dim) — take last
-        # timestep first, THEN slice to original_batch_size (pre-augmentation).
-        actions = ppo.policy.action_mean
+        # In rsl_rl 5.0.1, the actor's distribution params are stored after
+        # the forward pass. The first param tuple element is the action mean.
+        actions = ppo.actor.output_distribution_params[0]
         obs_flat = obs_batch["policy"]
 
         if obs_flat.dim() == 3:
@@ -247,7 +279,7 @@ class GAILAuxiliary(AuxiliaryLoss):
         obs_flat = obs_flat[:original_batch_size]
 
         # Encode through shared backbone (detach — encoder trained by PPO only)
-        encoded = ppo.policy.encode_actor(obs_flat).detach()
+        encoded = self._encode(ppo.actor, obs_flat).detach()
 
         # Ensure batch dims match (recurrent trajectory splitting can cause
         # obs and action_mean to have different trajectory counts)

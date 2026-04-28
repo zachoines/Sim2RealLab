@@ -11,6 +11,10 @@ from threading import Event, Lock, Thread
 import time
 from typing import Any
 
+import math
+
+import numpy as np
+
 from strafer_autonomy.clients import GroundingClient, PlannerClient, RosClient
 from strafer_autonomy.executor.command_server import (
     MissionCommandHandler,
@@ -28,6 +32,10 @@ from strafer_autonomy.schemas import (
     SkillCall,
     SkillResult,
 )
+from strafer_autonomy.semantic_map.models import (
+    DetectedObjectEntry,
+    Pose2D,
+)
 
 
 DEFAULT_AVAILABLE_SKILLS = (
@@ -37,6 +45,11 @@ DEFAULT_AVAILABLE_SKILLS = (
     "describe_scene",
     "project_detection_to_goal_pose",
     "navigate_to_pose",
+    "verify_arrival",
+    "rotate_by_degrees",
+    "orient_to_direction",
+    "translate",
+    "query_environment",
     # "orient_relative_to_target" — deferred from MVP; handler kept for post-MVP.
     "wait",
     "cancel_mission",
@@ -55,6 +68,7 @@ class MissionRunnerConfig:
     default_standoff_m: float = 0.7
     default_navigation_timeout_s: float = 90.0
     default_navigation_backend: str = "nav2"
+    min_grounding_confidence: float = 0.5
 
 
 @dataclass
@@ -92,11 +106,15 @@ class MissionRunner(MissionCommandHandler):
         grounding_client: GroundingClient,
         ros_client: RosClient,
         config: MissionRunnerConfig | None = None,
+        semantic_map: Any = None,
+        background_mapper: Any = None,
     ) -> None:
         self._planner_client = planner_client
         self._grounding_client = grounding_client
         self._ros_client = ros_client
         self._config = config or MissionRunnerConfig()
+        self._semantic_map = semantic_map
+        self._background_mapper = background_mapper
         self._lock = Lock()
         self._active_runtime: _MissionRuntime | None = None
         self._last_runtime: _MissionRuntime | None = None
@@ -378,6 +396,16 @@ class MissionRunner(MissionCommandHandler):
             return self._project_detection_to_goal_pose(runtime, step)
         if step.skill == "navigate_to_pose":
             return self._navigate_to_pose(runtime, step)
+        if step.skill == "verify_arrival":
+            return self._verify_arrival(runtime, step)
+        if step.skill == "rotate_by_degrees":
+            return self._rotate_by_degrees(runtime, step)
+        if step.skill == "translate":
+            return self._translate(runtime, step)
+        if step.skill == "orient_to_direction":
+            return self._orient_to_direction(runtime, step)
+        if step.skill == "query_environment":
+            return self._query_environment(runtime, step)
         if step.skill == "orient_relative_to_target":
             return self._orient_relative_to_target(runtime, step)
         if step.skill == "wait":
@@ -481,19 +509,27 @@ class MissionRunner(MissionCommandHandler):
             scan_arc_deg (float): total arc to sweep in degrees (default 360)
             prompt (str | None): optional VLM prompt override
             max_image_side (int): image resize limit (default from config)
+            max_map_age_s (float): query-before-scan recency window (default 300)
         """
-        import math
-
         started_at = time.time()
         label = str(step.args.get("label", "")).strip()
         if not label:
             return self._failed_result(step, "scan_for_target is missing 'label'.", "invalid_args", started_at)
+
+        # Query-before-scan: if the target was observed recently and the robot's
+        # current view looks like that same region, skip the full scan.
+        short_circuit = self._try_query_before_scan(runtime, step, label, started_at)
+        if short_circuit is not None:
+            return short_circuit
 
         max_scan_steps = int(step.args.get("max_scan_steps", 6))
         scan_arc_deg = float(step.args.get("scan_arc_deg", 360))
         step_angle_rad = scan_arc_deg * math.pi / 180.0 / max_scan_steps
         prompt = str(step.args.get("prompt") or f"Locate: {label}")
         max_image_side = int(step.args.get("max_image_side", self._config.default_grounding_max_image_side))
+        min_confidence = float(
+            step.args.get("min_confidence", self._config.min_grounding_confidence)
+        )
 
         for i in range(max_scan_steps):
             # a. capture scene observation
@@ -507,20 +543,42 @@ class MissionRunner(MissionCommandHandler):
                 )
 
             # b. attempt grounding
+            image_rgb = self._bgr_to_rgb(observation.color_image_bgr)
             try:
                 grounding = self._grounding_client.locate_semantic_target(
                     GroundingRequest(
                         request_id=f"{runtime.mission_id}:{step.step_id}:scan_{i}",
                         prompt=prompt,
-                        image_rgb_u8=self._bgr_to_rgb(observation.color_image_bgr),
+                        image_rgb_u8=image_rgb,
                         image_stamp_sec=observation.stamp_sec,
                         max_image_side=max_image_side,
                     )
                 )
+                # Reject low-confidence detections.
+                confidence = grounding.confidence or 0.0
+                accepted = (
+                    grounding.found
+                    and grounding.bbox_2d is not None
+                    and confidence >= min_confidence
+                )
+                if grounding.found and not accepted:
+                    _logger.info(
+                        "Rejecting low-confidence grounding at heading %d: conf=%.2f < %.2f",
+                        i, confidence, min_confidence,
+                    )
                 with self._lock:
                     runtime.latest_grounding = grounding
 
-                if grounding.found and grounding.bbox_2d is not None:
+                # Store observation in semantic map (best-effort, never blocks scan).
+                self._store_scan_observation(
+                    runtime=runtime,
+                    observation=observation,
+                    image_rgb=image_rgb,
+                    grounding=grounding if accepted else None,
+                    label_hint=label,
+                )
+
+                if accepted:
                     return SkillResult(
                         step_id=step.step_id,
                         skill=step.skill,
@@ -611,28 +669,59 @@ class MissionRunner(MissionCommandHandler):
 
         prompt = step.args.get("prompt")
         max_image_side = int(step.args.get("max_image_side", self._config.default_grounding_max_image_side))
+        image_rgb = self._bgr_to_rgb(observation.color_image_bgr)
 
         try:
             desc = self._grounding_client.describe_scene(
                 request_id=f"{runtime.mission_id}:{step.step_id}",
-                image_rgb_u8=self._bgr_to_rgb(observation.color_image_bgr),
+                image_rgb_u8=image_rgb,
                 prompt=prompt,
                 max_image_side=max_image_side,
-            )
-            return SkillResult(
-                step_id=step.step_id,
-                skill=step.skill,
-                status="succeeded",
-                outputs={"description": desc.description, "latency_s": desc.latency_s},
-                message="Scene described.",
-                started_at=started_at,
-                finished_at=time.time(),
             )
         except Exception as exc:
             return self._failed_result(step, f"Scene description failed: {exc}", "describe_failed", started_at)
 
+        # Store CLIP embedding + description in the semantic map (best-effort).
+        if self._semantic_map is not None:
+            try:
+                clip_emb = self._semantic_map.clip_encoder.encode_image(image_rgb)
+                pose = Pose2D.from_pose_map_dict(observation.robot_pose_map or {})
+                self._semantic_map.add_observation(
+                    pose=pose,
+                    timestamp=observation.stamp_sec,
+                    clip_embedding=clip_emb,
+                    text_description=desc.description,
+                    source="describe",
+                )
+            except Exception:
+                _logger.debug("Semantic map store failed during describe_scene", exc_info=True)
+
+        return SkillResult(
+            step_id=step.step_id,
+            skill=step.skill,
+            status="succeeded",
+            outputs={"description": desc.description, "latency_s": desc.latency_s},
+            message="Scene described.",
+            started_at=started_at,
+            finished_at=time.time(),
+        )
+
     def _project_detection_to_goal_pose(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
         started_at = time.time()
+
+        # If a prior scan short-circuited via semantic map, the goal pose is
+        # already set — skip projection and return success immediately.
+        if runtime.latest_goal_pose is not None and self._prior_scan_used_semantic_map(runtime):
+            return SkillResult(
+                step_id=step.step_id,
+                skill=step.skill,
+                status="succeeded",
+                outputs=self._goal_pose_outputs(runtime.latest_goal_pose),
+                message="Goal pose already set from semantic map; skipping projection.",
+                started_at=started_at,
+                finished_at=time.time(),
+            )
+
         observation = runtime.latest_observation
         grounding = runtime.latest_grounding
         if observation is None or grounding is None or grounding.bbox_2d is None:
@@ -702,18 +791,398 @@ class MissionRunner(MissionCommandHandler):
                 started_at,
             )
 
+        transit_monitor = self._activate_transit_monitor(goal_pose, step)
+
+        nav_kwargs = dict(
+            step_id=step.step_id,
+            goal_pose=goal_pose,
+            execution_backend=str(
+                step.args.get("execution_backend", self._config.default_navigation_backend)
+            ),
+            behavior_tree=str(step.args["behavior_tree"]) if step.args.get("behavior_tree") else None,
+            timeout_s=step.timeout_s or self._config.default_navigation_timeout_s,
+        )
+
+        # Without transit monitoring, call the blocking client directly.
+        if transit_monitor is None:
+            try:
+                return self._ros_client.navigate_to_pose(**nav_kwargs)
+            except Exception as exc:
+                return self._failed_result(
+                    step, f"Navigation request failed: {exc}", "navigation_failed", started_at,
+                )
+
+        # With transit monitoring, run navigation in a worker thread and
+        # poll the divergence flag. Cancel Nav2 if divergence is detected.
+        result_holder: dict[str, Any] = {}
+
+        def _worker() -> None:
+            try:
+                result_holder["result"] = self._ros_client.navigate_to_pose(**nav_kwargs)
+            except Exception as exc:
+                result_holder["error"] = exc
+
+        nav_thread = Thread(
+            target=_worker, name=f"nav-{step.step_id}", daemon=True,
+        )
+        nav_thread.start()
+        try:
+            while nav_thread.is_alive():
+                if self._background_mapper is not None and self._background_mapper.divergence_detected():
+                    _logger.warning("Transit divergence detected; canceling navigation.")
+                    try:
+                        self._ros_client.cancel_active_navigation()
+                    except Exception:
+                        _logger.debug("cancel_active_navigation failed", exc_info=True)
+                    nav_thread.join(timeout=5.0)
+                    return self._failed_result(
+                        step,
+                        "Navigation aborted: robot appears off course (transit divergence).",
+                        "transit_divergence",
+                        started_at,
+                    )
+                nav_thread.join(timeout=0.5)
+
+            if "error" in result_holder:
+                return self._failed_result(
+                    step, f"Navigation request failed: {result_holder['error']}",
+                    "navigation_failed", started_at,
+                )
+            return result_holder.get("result") or self._failed_result(
+                step, "Navigation thread returned no result.",
+                "navigation_failed", started_at,
+            )
+        finally:
+            transit_monitor.deactivate()
+            if self._background_mapper is not None:
+                self._background_mapper.clear_divergence()
+
+    def _activate_transit_monitor(self, goal_pose: Pose3D, step: SkillCall) -> Any:
+        if self._background_mapper is None:
+            return None
+        monitor = getattr(self._background_mapper, "transit_monitor", None)
+        if monitor is None:
+            return None
+        try:
+            goal_radius_m = float(step.args.get("transit_goal_radius_m", 3.0))
+            monitor.activate(goal_pose, goal_radius_m=goal_radius_m)
+            self._background_mapper.clear_divergence()
+            return monitor
+        except Exception:
+            _logger.debug("Transit monitor activation failed", exc_info=True)
+            return None
+
+    def _verify_arrival(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
+        """Ranking-based arrival verification using CLIP + ChromaDB retrieval."""
+        started_at = time.time()
+
+        if self._semantic_map is None:
+            return SkillResult(
+                step_id=step.step_id, skill=step.skill, status="succeeded",
+                outputs={"verified": False, "reason": "semantic_map_disabled"},
+                message="Arrival verification skipped (semantic map disabled).",
+                started_at=started_at, finished_at=time.time(),
+            )
+
+        target_label = str(step.args.get("target_label", "")).strip()
+        if not target_label and runtime.latest_grounding is not None:
+            target_label = runtime.latest_grounding.label or ""
+
+        try:
+            observation = self._ros_client.capture_scene_observation()
+            with self._lock:
+                runtime.latest_observation = observation
+        except Exception as exc:
+            return self._failed_result(
+                step, f"Arrival capture failed: {exc}", "capture_failed", started_at,
+            )
+
+        goal_pose = runtime.latest_goal_pose
+        if goal_pose is None or goal_pose.goal_pose is None:
+            return self._failed_result(
+                step, "No goal pose available for arrival verification.",
+                "no_goal_pose", started_at,
+            )
+        goal_xy = np.array([goal_pose.goal_pose.x, goal_pose.goal_pose.y])
+
+        image_rgb = self._bgr_to_rgb(observation.color_image_bgr)
+        try:
+            arrival_embedding = self._semantic_map.clip_encoder.encode_image(image_rgb)
+        except Exception as exc:
+            return self._failed_result(
+                step, f"CLIP encoding failed: {exc}", "clip_failed", started_at,
+            )
+
+        top_k = int(step.args.get("top_k", 5))
+        goal_radius_m = float(step.args.get("goal_radius_m", 3.0))
+        majority = int(step.args.get("majority", 3))
+        fallback = str(step.args.get("fallback_on_empty_map", "pass"))
+
+        try:
+            results = self._semantic_map.query_by_embedding(
+                embedding=arrival_embedding, n_results=top_k,
+            )
+        except Exception as exc:
+            return self._failed_result(
+                step, f"Semantic map query failed: {exc}", "query_failed", started_at,
+            )
+
+        if not results:
+            if fallback == "pass":
+                return SkillResult(
+                    step_id=step.step_id, skill=step.skill, status="succeeded",
+                    outputs={"verified": False, "reason": "no_map_data"},
+                    message="Arrival verification skipped (no map data).",
+                    started_at=started_at, finished_at=time.time(),
+                )
+            if self._semantic_map is not None:
+                self._log_arrival_failure(observation, target_label, None, 0, top_k)
+            return self._failed_result(
+                step, "No semantic map data and fallback_on_empty_map='fail'.",
+                "arrival_verification_failed", started_at,
+            )
+
+        near_goal_count = 0
+        for node, _sim in results:
+            node_xy = np.array([node.pose.x, node.pose.y])
+            if float(np.linalg.norm(node_xy - goal_xy)) <= goal_radius_m:
+                near_goal_count += 1
+
+        if near_goal_count >= majority:
+            return SkillResult(
+                step_id=step.step_id, skill=step.skill, status="succeeded",
+                outputs={
+                    "verified": True,
+                    "near_goal_count": near_goal_count,
+                    "top_k": top_k,
+                    "target_label": target_label,
+                },
+                message=f"Arrival verified ({near_goal_count}/{top_k} near goal).",
+                started_at=started_at, finished_at=time.time(),
+            )
+
+        top_regions = [
+            f"({n.pose.x:.1f},{n.pose.y:.1f})" for n, _ in results[:3]
+        ]
+        self._log_arrival_failure(
+            observation, target_label, goal_pose.goal_pose, near_goal_count, top_k,
+        )
+        return self._failed_result(
+            step,
+            message=(
+                f"Arrival mismatch: only {near_goal_count}/{top_k} top matches "
+                f"near goal. Top-3 matches at: {', '.join(top_regions)}."
+            ),
+            error_code="arrival_verification_failed",
+            started_at=started_at,
+            outputs={
+                "verified": False,
+                "near_goal_count": near_goal_count,
+                "top_k": top_k,
+                "target_label": target_label,
+            },
+        )
+
+    def _log_arrival_failure(
+        self,
+        observation: SceneObservation,
+        target_label: str,
+        goal_pose: Pose3D | None,
+        near_goal_count: int,
+        top_k: int,
+    ) -> None:
+        if self._semantic_map is None or not hasattr(self._semantic_map, "log_failure"):
+            return
+        try:
+            robot_pose = observation.robot_pose_map or {}
+            if goal_pose is not None:
+                robot_pose = dict(robot_pose)
+                robot_pose["goal_x"] = goal_pose.x
+                robot_pose["goal_y"] = goal_pose.y
+            self._semantic_map.log_failure(
+                failure_type="arrival_verification_failed",
+                target_label=target_label,
+                frame_bgr=observation.color_image_bgr,
+                depth=observation.aligned_depth_m,
+                robot_pose=robot_pose,
+                details={
+                    "near_goal_count": near_goal_count,
+                    "top_k": top_k,
+                },
+            )
+        except Exception:
+            _logger.debug("log_failure call failed", exc_info=True)
+
+    def _rotate_by_degrees(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
+        started_at = time.time()
+        try:
+            degrees = float(step.args.get("degrees", 0.0))
+        except (TypeError, ValueError):
+            return self._failed_result(
+                step, "rotate_by_degrees requires numeric 'degrees'.",
+                "invalid_args", started_at,
+            )
+
+        yaw_delta = math.radians(degrees)
+        tolerance = float(step.args.get("tolerance_rad", 0.1))
+        timeout_s = step.timeout_s or float(step.args.get("timeout_s", 30.0))
+        try:
+            return self._ros_client.rotate_in_place(
+                step_id=step.step_id,
+                yaw_delta_rad=yaw_delta,
+                tolerance_rad=tolerance,
+                timeout_s=timeout_s,
+            )
+        except Exception as exc:
+            return self._failed_result(
+                step, f"rotate_by_degrees failed: {exc}", "rotation_failed", started_at,
+            )
+
+    def _translate(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
+        started_at = time.time()
+        try:
+            dx_m = float(step.args.get("dx_m", 0.0))
+            dy_m = float(step.args.get("dy_m", 0.0))
+        except (TypeError, ValueError):
+            return self._failed_result(
+                step, "translate requires numeric 'dx_m' and 'dy_m'.",
+                "invalid_args", started_at,
+            )
+
+        try:
+            pose = self._ros_client.get_map_pose()
+        except Exception as exc:
+            return self._failed_result(
+                step, f"translate could not read map-frame pose: {exc}",
+                "map_pose_failed", started_at,
+            )
+        if pose is None:
+            return self._failed_result(
+                step, "translate requires the map->base_link transform.",
+                "no_map_pose", started_at,
+            )
+
+        # Planar yaw from the z-component of the orientation quaternion.
+        qw = pose["qw"]
+        qz = pose["qz"]
+        yaw = math.atan2(2.0 * qw * qz, 1.0 - 2.0 * qz * qz)
+        cos_y = math.cos(yaw)
+        sin_y = math.sin(yaw)
+
+        # Robot-local displacement (+x forward, +y left) rotated into map.
+        dx_map = cos_y * dx_m - sin_y * dy_m
+        dy_map = sin_y * dx_m + cos_y * dy_m
+
+        goal = Pose3D(
+            x=pose["x"] + dx_map,
+            y=pose["y"] + dy_map,
+            z=pose["z"],
+            qx=pose["qx"],
+            qy=pose["qy"],
+            qz=qz,
+            qw=qw,
+        )
+
+        timeout_s = step.timeout_s or self._config.default_navigation_timeout_s
         try:
             return self._ros_client.navigate_to_pose(
                 step_id=step.step_id,
-                goal_pose=goal_pose,
-                execution_backend=str(
-                    step.args.get("execution_backend", self._config.default_navigation_backend)
-                ),
-                behavior_tree=str(step.args["behavior_tree"]) if step.args.get("behavior_tree") else None,
-                timeout_s=step.timeout_s or self._config.default_navigation_timeout_s,
+                goal_pose=goal,
+                execution_backend=self._config.default_navigation_backend,
+                behavior_tree=None,
+                timeout_s=timeout_s,
             )
         except Exception as exc:
-            return self._failed_result(step, f"Navigation request failed: {exc}", "navigation_failed", started_at)
+            return self._failed_result(
+                step, f"translate failed: {exc}", "navigation_failed", started_at,
+            )
+
+    _CARDINAL_YAWS = {
+        "east": 0.0,
+        "north": math.pi / 2,
+        "west": math.pi,
+        "south": -math.pi / 2,
+        "northeast": math.pi / 4,
+        "northwest": 3 * math.pi / 4,
+        "southeast": -math.pi / 4,
+        "southwest": -3 * math.pi / 4,
+    }
+
+    def _orient_to_direction(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
+        started_at = time.time()
+        direction = str(step.args.get("direction", "")).strip().lower()
+        if direction not in self._CARDINAL_YAWS:
+            return self._failed_result(
+                step,
+                f"Unknown direction '{direction}'. Valid: {sorted(self._CARDINAL_YAWS)}.",
+                "invalid_args", started_at,
+            )
+
+        target_yaw = self._CARDINAL_YAWS[direction]
+        try:
+            robot_state = self._ros_client.get_robot_state()
+        except Exception as exc:
+            return self._failed_result(
+                step, f"orient_to_direction could not read robot state: {exc}",
+                "robot_state_failed", started_at,
+            )
+        pose = robot_state.get("pose") if robot_state else None
+        if pose is None:
+            return self._failed_result(
+                step, "orient_to_direction requires a robot pose.",
+                "no_pose", started_at,
+            )
+
+        current_yaw = math.atan2(
+            2.0 * pose.get("qw", 1.0) * pose.get("qz", 0.0),
+            1.0 - 2.0 * pose.get("qz", 0.0) ** 2,
+        )
+        delta = math.atan2(
+            math.sin(target_yaw - current_yaw),
+            math.cos(target_yaw - current_yaw),
+        )
+        tolerance = float(step.args.get("tolerance_rad", 0.1))
+        timeout_s = step.timeout_s or float(step.args.get("timeout_s", 30.0))
+        try:
+            return self._ros_client.rotate_in_place(
+                step_id=step.step_id,
+                yaw_delta_rad=delta,
+                tolerance_rad=tolerance,
+                timeout_s=timeout_s,
+            )
+        except Exception as exc:
+            return self._failed_result(
+                step, f"orient_to_direction failed: {exc}", "rotation_failed", started_at,
+            )
+
+    def _query_environment(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
+        started_at = time.time()
+        query = str(step.args.get("query", "")).strip()
+        if not query:
+            return self._failed_result(
+                step, "query_environment requires a 'query' string.",
+                "invalid_args", started_at,
+            )
+        if self._semantic_map is None:
+            return SkillResult(
+                step_id=step.step_id, skill=step.skill, status="succeeded",
+                outputs={"query": query, "results": [], "source": "disabled"},
+                message="Semantic map disabled; empty result.",
+                started_at=started_at, finished_at=time.time(),
+            )
+        n_results = int(step.args.get("n_results", 5))
+        try:
+            results = self._semantic_map.query_by_text(query, n_results=n_results)
+        except Exception as exc:
+            return self._failed_result(
+                step, f"query_environment failed: {exc}", "query_failed", started_at,
+            )
+        return SkillResult(
+            step_id=step.step_id, skill=step.skill, status="succeeded",
+            outputs={"query": query, "results": results, "source": "semantic_map"},
+            message=f"Found {len(results)} matches.",
+            started_at=started_at, finished_at=time.time(),
+        )
 
     def _orient_relative_to_target(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
         started_at = time.time()
@@ -938,6 +1407,186 @@ class MissionRunner(MissionCommandHandler):
             self._ros_client.cancel_active_navigation()
         except Exception:
             return
+
+    # ------------------------------------------------------------------
+    # Semantic map helpers
+    # ------------------------------------------------------------------
+
+    def _prior_scan_used_semantic_map(self, runtime: _MissionRuntime) -> bool:
+        """Return True if the most recent scan short-circuited via the semantic map."""
+        with self._lock:
+            for result in reversed(runtime.step_results):
+                if result.skill == "scan_for_target":
+                    return bool(result.outputs.get("goal_pose_set"))
+        return False
+
+    def _try_query_before_scan(
+        self,
+        runtime: _MissionRuntime,
+        step: SkillCall,
+        label: str,
+        started_at: float,
+    ) -> SkillResult | None:
+        """Return a successful SkillResult if semantic map can skip the scan, else None."""
+        if self._semantic_map is None:
+            return None
+
+        max_map_age_s = float(step.args.get("max_map_age_s", 300))
+        try:
+            known = self._semantic_map.query_by_label(label, max_age_s=max_map_age_s)
+        except Exception:
+            _logger.debug("query_by_label failed", exc_info=True)
+            return None
+        if known is None:
+            return None
+
+        try:
+            observation = self._ros_client.capture_scene_observation()
+            with self._lock:
+                runtime.latest_observation = observation
+
+            image_rgb = self._bgr_to_rgb(observation.color_image_bgr)
+            current_clip = self._semantic_map.clip_encoder.encode_image(image_rgb)
+            if np.allclose(current_clip, 0):
+                return None
+
+            top_results = self._semantic_map.query_by_embedding(
+                embedding=current_clip, n_results=3,
+            )
+            if not top_results:
+                return None
+
+            top_node, _top_sim = top_results[0]
+            target_xy = np.array([known.pose.x, known.pose.y])
+            top_xy = np.array([top_node.pose.x, top_node.pose.y])
+            if float(np.linalg.norm(top_xy - target_xy)) >= 2.0:
+                _logger.info(
+                    "Query-before-scan miss: label=%s top(%.1f,%.1f) target(%.1f,%.1f)",
+                    label, top_xy[0], top_xy[1], target_xy[0], target_xy[1],
+                )
+                return None
+
+            yaw = known.pose.yaw
+            map_goal = GoalPoseCandidate(
+                request_id=f"{runtime.mission_id}:{step.step_id}:map",
+                found=True,
+                goal_frame="map",
+                goal_pose=Pose3D(
+                    x=known.pose.x, y=known.pose.y, z=0.0,
+                    qx=0.0, qy=0.0,
+                    qz=math.sin(yaw / 2),
+                    qw=math.cos(yaw / 2),
+                ),
+                target_pose=None,
+                standoff_m=0.0,
+                depth_valid=True,
+                quality_flags=(),
+            )
+            with self._lock:
+                runtime.latest_goal_pose = map_goal
+
+            _logger.info(
+                "Query-before-scan hit: label=%s node=%s", label, known.node_id,
+            )
+            return SkillResult(
+                step_id=step.step_id,
+                skill=step.skill,
+                status="succeeded",
+                outputs={
+                    "source": "semantic_map",
+                    "node_id": known.node_id,
+                    "pose_x": known.pose.x,
+                    "pose_y": known.pose.y,
+                    "pose_yaw": yaw,
+                    "goal_pose_set": True,
+                },
+                message=f"Target '{label}' found in semantic map; skipping scan.",
+                started_at=started_at,
+                finished_at=time.time(),
+            )
+        except Exception:
+            _logger.debug("query-before-scan failed, falling through to scan", exc_info=True)
+            return None
+
+    def _store_scan_observation(
+        self,
+        *,
+        runtime: _MissionRuntime,
+        observation: SceneObservation,
+        image_rgb: Any,
+        grounding: GroundingResult | None,
+        label_hint: str,
+    ) -> None:
+        """Store a scan observation in the semantic map (best-effort)."""
+        if self._semantic_map is None:
+            return
+        try:
+            from strafer_autonomy.semantic_map.manager import initial_object_covariance
+
+            clip_emb = self._semantic_map.clip_encoder.encode_image(image_rgb)
+            pose = Pose2D.from_pose_map_dict(observation.robot_pose_map or {})
+
+            detected: list[DetectedObjectEntry] = []
+            if grounding is not None and grounding.found and grounding.bbox_2d is not None:
+                obj_xyz, obj_depth = self._project_bbox_to_map_xyz(
+                    observation, grounding.bbox_2d,
+                )
+                if obj_xyz is not None:
+                    obs_cov = initial_object_covariance(obj_depth, pose.yaw)
+                    detected.append(DetectedObjectEntry(
+                        label=grounding.label or label_hint,
+                        position_mean=obj_xyz,
+                        position_cov=obs_cov,
+                        bbox_2d=tuple(grounding.bbox_2d),  # type: ignore[arg-type]
+                        confidence=grounding.confidence or 0.0,
+                        first_seen=observation.stamp_sec,
+                        last_seen=observation.stamp_sec,
+                    ))
+
+            self._semantic_map.add_observation(
+                pose=pose,
+                timestamp=observation.stamp_sec,
+                clip_embedding=clip_emb,
+                detected_objects=detected,
+                source="scan",
+            )
+        except Exception:
+            _logger.debug("Semantic map store failed during scan", exc_info=True)
+
+    def _project_bbox_to_map_xyz(
+        self,
+        observation: SceneObservation,
+        bbox_2d: tuple[int, int, int, int],
+    ) -> tuple[Any, float]:
+        """Project a 2D bbox to a 3D map-frame position via the goal projection service.
+
+        Returns ``(xyz_array, depth_m)`` or ``(None, 0.0)`` if projection fails.
+        """
+        try:
+            candidate = self._ros_client.project_detection_to_goal_pose(
+                request_id="map_xyz_projection",
+                image_stamp_sec=observation.stamp_sec,
+                bbox_2d=bbox_2d,
+                standoff_m=0.0,
+                target_label="",
+            )
+        except Exception:
+            _logger.debug("_project_bbox_to_map_xyz call failed", exc_info=True)
+            return None, 0.0
+
+        if not candidate.found or candidate.target_pose is None:
+            return None, 0.0
+        tp = candidate.target_pose
+        xyz = np.array([tp.x, tp.y, tp.z])
+        if observation.robot_pose_map:
+            robot_xy = np.array([
+                observation.robot_pose_map.get("x", 0.0),
+                observation.robot_pose_map.get("y", 0.0),
+            ])
+            depth_m = float(np.linalg.norm(xyz[:2] - robot_xy))
+        else:
+            depth_m = 1.0
+        return xyz, depth_m
 
     def _bgr_to_rgb(self, image: Any) -> Any:
         try:

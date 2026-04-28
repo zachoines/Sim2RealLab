@@ -39,6 +39,7 @@ from test.common import (
     welch_t_test,
 )
 from test.common.robot import reset_robot_pose
+import warp as wp
 
 
 # =============================================================================
@@ -348,8 +349,8 @@ def collect_robot_trajectory(env, action: torch.Tensor, n_steps: int, ideal_mode
 
     # Record initial state
     robot = env.scene["robot"]
-    initial_pos = robot.data.root_pos_w.clone()
-    initial_quat = robot.data.root_quat_w.clone()
+    initial_pos = wp.to_torch(robot.data.root_pos_w).clone()
+    initial_quat = wp.to_torch(robot.data.root_quat_w).clone()
 
     # Collect trajectory
     positions = [initial_pos.cpu().numpy().copy()]
@@ -357,8 +358,8 @@ def collect_robot_trajectory(env, action: torch.Tensor, n_steps: int, ideal_mode
 
     for _ in range(n_steps):
         env.step(action)
-        positions.append(robot.data.root_pos_w.cpu().numpy().copy())
-        orientations.append(robot.data.root_quat_w.cpu().numpy().copy())
+        positions.append(wp.to_torch(robot.data.root_pos_w).cpu().numpy().copy())
+        orientations.append(wp.to_torch(robot.data.root_quat_w).cpu().numpy().copy())
 
     return {
         'positions': np.array(positions),
@@ -374,15 +375,17 @@ def collect_robot_trajectory(env, action: torch.Tensor, n_steps: int, ideal_mode
 
 
 def quat_to_yaw(quat: np.ndarray) -> np.ndarray:
-    """Extract yaw angle from quaternion [w, x, y, z].
+    """Extract yaw angle from quaternion [x, y, z, w].
 
     Args:
-        quat: Quaternion array of shape (..., 4) in [w, x, y, z] order
+        quat: Quaternion array of shape (..., 4) in [x, y, z, w] order (XYZW)
 
     Returns:
         Yaw angles in radians
     """
-    w, x, y, z = quat[..., 0], quat[..., 1], quat[..., 2], quat[..., 3]
+    # XYZW quaternion indices
+    QX, QY, QZ, QW = 0, 1, 2, 3
+    x, y, z, w = quat[..., QX], quat[..., QY], quat[..., QZ], quat[..., QW]
     siny_cosp = 2 * (w * z + x * y)
     cosy_cosp = 1 - 2 * (y * y + z * z)
     return np.arctan2(siny_cosp, cosy_cosp)

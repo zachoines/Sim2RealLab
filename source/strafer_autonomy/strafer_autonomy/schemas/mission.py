@@ -27,6 +27,10 @@ class MissionIntent:
     orientation_mode: str | None = None
     wait_mode: str | None = None
     requires_grounding: bool = False
+    targets: tuple[dict[str, Any], ...] | None = None
+    # Robot-local translation in meters for the ``translate`` intent.
+    # (dx, dy): +x is forward, +y is left. ``None`` for every other intent.
+    translation_xy: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True)

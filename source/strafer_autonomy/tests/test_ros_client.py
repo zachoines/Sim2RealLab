@@ -8,6 +8,7 @@ message objects are replaced with lightweight MagicMocks.
 from __future__ import annotations
 
 import threading
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -28,23 +29,26 @@ pytestmark = pytest.mark.requires_ros
 
 def _make_client(config: RosClientConfig | None = None) -> JetsonRosClient:
     """Create a JetsonRosClient without starting rclpy."""
-    from builtin_interfaces.msg import Time
+    from rclpy.time import Time as RclpyTime
 
     client = object.__new__(JetsonRosClient)
     client._config = config or RosClientConfig()
     client._cache_lock = threading.Lock()
     client._latest_color = None
+    client._latest_color_rx_t = time.monotonic()
     client._latest_depth = None
     client._latest_cam_info = None
     client._latest_odom = None
     client._nav_lock = threading.Lock()
     client._active_goal_handle = None
-    # Mock the ROS node — use a real Time msg so PoseStamped assignment works
-    real_time = Time(sec=100, nanosec=400_000_000)
-    clock_now = MagicMock()
-    clock_now.to_msg.return_value = real_time
+    # Mock the ROS node — use a real rclpy.time.Time advancing with the
+    # monotonic wall clock so Time + Duration arithmetic and Time
+    # comparisons in _wait_for_future work, and ``.to_msg()`` returns a
+    # real ``builtin_interfaces.msg.Time`` for goal-stamp assignments.
     client._node = MagicMock()
-    client._node.get_clock.return_value.now.return_value = clock_now
+    client._node.get_clock.return_value.now.side_effect = (
+        lambda: RclpyTime(seconds=time.monotonic())
+    )
     return client
 
 
@@ -146,6 +150,22 @@ class TestCaptureSceneObservation(unittest.TestCase):
         self.assertEqual(len(obs.observation_id), 12)
 
     @patch("cv_bridge.CvBridge")
+    def test_capture_accepts_float32_depth(self, MockBridge: MagicMock) -> None:
+        """Isaac Sim bridge publishes 32FC1 (m); keep as-is without rescaling."""
+        bridge = MockBridge.return_value
+        color_arr = np.zeros((360, 640, 3), dtype=np.uint8)
+        depth_arr = np.full((360, 640), 2.0, dtype=np.float32)
+        bridge.imgmsg_to_cv2.side_effect = [color_arr, depth_arr]
+
+        client = _make_client()
+        client._latest_color = _make_color_msg()
+        client._latest_depth = _make_depth_msg()
+
+        obs = client.capture_scene_observation()
+
+        np.testing.assert_allclose(obs.aligned_depth_m, 2.0, atol=1e-6)
+
+    @patch("cv_bridge.CvBridge")
     def test_capture_without_odom_still_succeeds(self, MockBridge: MagicMock) -> None:
         bridge = MockBridge.return_value
         bridge.imgmsg_to_cv2.side_effect = [
@@ -182,10 +202,11 @@ class TestCaptureSceneObservation(unittest.TestCase):
             client.capture_scene_observation()
 
     def test_capture_raises_on_stale_frame(self) -> None:
-        """Frame stamped at t=50, clock now at t=100 → age=50s >> max_age."""
+        """Frame received 50s ago on the wall clock → age >> max_age."""
         client = _make_client()
-        client._latest_color = _make_color_msg(stamp=_make_stamp(sec=50, nanosec=0))
+        client._latest_color = _make_color_msg()
         client._latest_depth = _make_depth_msg()
+        client._latest_color_rx_t = time.monotonic() - 50.0
         with self.assertRaises(RuntimeError) as ctx:
             client.capture_scene_observation()
         self.assertIn("old", str(ctx.exception))
@@ -636,10 +657,50 @@ class TestRotateInPlace(unittest.TestCase):
 class TestWaitForFuture(unittest.TestCase):
 
     def test_immediate_done(self) -> None:
-        future = _make_future(done=True)
-        self.assertTrue(JetsonRosClient._wait_for_future(future, 1.0))
+        from rclpy.time import Time
 
-    def test_timeout(self) -> None:
+        client = _make_client()
+        # Pin sim time at 0 so the deadline never trips first.
+        client._node.get_clock.return_value.now.side_effect = (
+            lambda: Time(seconds=0)
+        )
+        future = _make_future(done=True)
+        self.assertTrue(client._wait_for_future(future, 1.0))
+
+    def test_timeout_on_sim_clock(self) -> None:
+        """Sim-time deadline trips before the wall-clock safety cap."""
+        from rclpy.time import Time
+
+        client = _make_client()
+        # Step the mocked sim clock forward 1 s per call after the
+        # initial deadline read at t=0. timeout_s=1.0 -> deadline=1.0s;
+        # the next clock.now() returns 2.0s, crossing the deadline. Wall
+        # time barely advances, so the wall-cap (2.0s) does not fire.
+        sim_seconds = iter([0.0, 2.0, 3.0, 4.0])
+        client._node.get_clock.return_value.now.side_effect = (
+            lambda: Time(seconds=next(sim_seconds))
+        )
         future = _make_future(done=False)
-        # Use a very short timeout
-        self.assertFalse(JetsonRosClient._wait_for_future(future, 0.05))
+        start = time.monotonic()
+        self.assertFalse(client._wait_for_future(future, 1.0))
+        elapsed = time.monotonic() - start
+        # Sim-time deadline trips before the 2.0s wall cap.
+        self.assertLess(elapsed, 1.5)
+
+    def test_wall_clock_safety_cap(self) -> None:
+        """A frozen sim clock must not wedge the executor — wall cap fires."""
+        from rclpy.time import Time
+
+        client = _make_client()
+        # Sim clock never advances past 0.
+        client._node.get_clock.return_value.now.side_effect = (
+            lambda: Time(seconds=0)
+        )
+        future = _make_future(done=False)
+        # timeout_s=0.05 -> wall cap = 0.1s, well under any test runtime.
+        start = time.monotonic()
+        self.assertFalse(client._wait_for_future(future, 0.05))
+        elapsed = time.monotonic() - start
+        # Cap is 2 * 0.05 = 0.1s. Allow generous headroom for CI jitter.
+        self.assertGreaterEqual(elapsed, 0.05)
+        self.assertLess(elapsed, 1.0)

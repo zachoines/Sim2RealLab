@@ -33,7 +33,7 @@ from strafer_lab.tasks.navigation.strafer_env_cfg import (
 
 
 # =====================================================================
-# Expected environment IDs (15 configs × Train + Play = 30)
+# Expected environment IDs
 # =====================================================================
 
 EXPECTED_ENVS = [
@@ -63,6 +63,8 @@ EXPECTED_ENVS = [
     "Isaac-Strafer-Nav-Real-InfinigenDepth-Play-v0",
     "Isaac-Strafer-Nav-Robust-InfinigenDepth-v0",
     "Isaac-Strafer-Nav-Robust-InfinigenDepth-Play-v0",
+    # Infinigen perception (640x360 camera, Play-only)
+    "Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0",
     # ProcRoom (procedural primitive rooms)
     "Isaac-Strafer-Nav-Real-ProcRoom-NoCam-v0",
     "Isaac-Strafer-Nav-Real-ProcRoom-NoCam-Play-v0",
@@ -101,7 +103,7 @@ def test_env_entry_point(env_id: str):
 
 
 def test_expected_env_count():
-    """Verify exactly 30 Strafer environments are registered."""
+    """Verify the registered Strafer env count matches ``EXPECTED_ENVS``."""
     strafer_envs = [
         eid for eid in gym.envs.registry
         if eid.startswith("Isaac-Strafer-Nav")
@@ -110,8 +112,9 @@ def test_expected_env_count():
     for eid in sorted(strafer_envs):
         print(f"    {eid}")
 
-    assert len(strafer_envs) == 30, (
-        f"Expected 30 Strafer env registrations, found {len(strafer_envs)}"
+    assert len(strafer_envs) == len(EXPECTED_ENVS), (
+        f"Expected {len(EXPECTED_ENVS)} Strafer env registrations, "
+        f"found {len(strafer_envs)}"
     )
 
 
@@ -132,8 +135,8 @@ def test_ideal_tier_count():
 
 
 def test_realistic_tier_count():
-    """12 Realistic-tier environments (3 sensor + 1 InfinigenDepth + 2 ProcRoom x Train+Play)."""
-    assert len(_REAL_ENVS) == 12, f"Expected 12 Realistic envs, got {len(_REAL_ENVS)}"
+    """13 Realistic-tier environments: 3 sensor + 1 InfinigenDepth + 2 ProcRoom (x Train+Play) + 1 InfinigenPerception-Play-only."""
+    assert len(_REAL_ENVS) == 13, f"Expected 13 Realistic envs, got {len(_REAL_ENVS)}"
 
 
 def test_robust_tier_count():

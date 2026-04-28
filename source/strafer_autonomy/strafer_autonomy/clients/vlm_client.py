@@ -39,6 +39,25 @@ class GroundingClient(Protocol):
 
 
 @dataclass(frozen=True)
+class DetectedObjectResult:
+    """One detected object returned by POST /detect_objects."""
+
+    label: str
+    bbox_2d: tuple[int, int, int, int]
+    confidence: float
+
+
+@dataclass(frozen=True)
+class DetectObjectsResult:
+    """Parsed response from POST /detect_objects."""
+
+    request_id: str
+    objects: tuple[DetectedObjectResult, ...]
+    raw_output: str | None
+    latency_s: float
+
+
+@dataclass(frozen=True)
 class HttpGroundingClientConfig:
     """Connection settings for the workstation-hosted grounding service."""
 
@@ -46,10 +65,12 @@ class HttpGroundingClientConfig:
     timeout_s: float = 15.0
     ground_path: str = "/ground"
     describe_path: str = "/describe"
+    detect_objects_path: str = "/detect_objects"
     health_path: str = "/health"
     headers: dict[str, str] | None = None
     max_retries: int = 2
     retry_backoff_s: float = 0.5
+    jpeg_quality: int = 90
 
 
 class HttpGroundingClient:
@@ -75,7 +96,10 @@ class HttpGroundingClient:
         if all attempts fail.
         """
 
-        image_jpeg_b64 = _encode_image_to_jpeg_b64(request.image_rgb_u8)
+        image_jpeg_b64 = _encode_image_to_jpeg_b64(
+            request.image_rgb_u8,
+            quality=self._config.jpeg_quality,
+        )
         payload = grounding_request_to_payload(request, image_jpeg_b64)
         url = self._config.base_url.rstrip("/") + self._config.ground_path
 
@@ -122,7 +146,10 @@ class HttpGroundingClient:
 
         Uses the same retry logic as ``locate_semantic_target``.
         """
-        image_jpeg_b64 = _encode_image_to_jpeg_b64(image_rgb_u8)
+        image_jpeg_b64 = _encode_image_to_jpeg_b64(
+            image_rgb_u8,
+            quality=self._config.jpeg_quality,
+        )
         payload: dict[str, Any] = {
             "request_id": request_id,
             "image_jpeg_b64": image_jpeg_b64,
@@ -169,6 +196,65 @@ class HttpGroundingClient:
             f"Describe service unreachable after {1 + self._config.max_retries} attempts."
         ) from last_exc
 
+    def detect_objects(
+        self,
+        *,
+        request_id: str,
+        image_rgb_u8: Any,
+        max_image_side: int = 1024,
+        max_objects: int = 20,
+        min_confidence: float = 0.3,
+    ) -> DetectObjectsResult:
+        """Send a multi-object detection request to the remote VLM service.
+
+        This method is additive — it is intentionally not part of the
+        ``GroundingClient`` protocol so existing implementations remain valid.
+        Callers that rely on it should type-check at the call site.
+        """
+        image_jpeg_b64 = _encode_image_to_jpeg_b64(
+            image_rgb_u8,
+            quality=self._config.jpeg_quality,
+        )
+        payload = detect_objects_request_to_payload(
+            request_id=request_id,
+            image_jpeg_b64=image_jpeg_b64,
+            max_image_side=max_image_side,
+            max_objects=max_objects,
+            min_confidence=min_confidence,
+        )
+        url = self._config.base_url.rstrip("/") + self._config.detect_objects_path
+
+        last_exc: Exception | None = None
+        for attempt in range(1 + self._config.max_retries):
+            try:
+                resp = self._session.post(url, json=payload, timeout=self._config.timeout_s)
+                resp.raise_for_status()
+                return detect_objects_result_from_payload(resp.json())
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                last_exc = exc
+                logger.warning(
+                    "Detect request %s attempt %d/%d failed: %s",
+                    request_id, attempt + 1, 1 + self._config.max_retries, exc,
+                )
+            except requests.HTTPError as exc:
+                if exc.response is not None and exc.response.status_code < 500:
+                    raise GroundingServiceUnavailable(
+                        f"Detect service returned {exc.response.status_code}: {exc.response.text}"
+                    ) from exc
+                last_exc = exc
+                logger.warning(
+                    "Detect request %s attempt %d/%d server error: %s",
+                    request_id, attempt + 1, 1 + self._config.max_retries, exc,
+                )
+
+            if attempt < self._config.max_retries:
+                backoff = self._config.retry_backoff_s * (2 ** attempt)
+                time.sleep(backoff)
+
+        raise GroundingServiceUnavailable(
+            f"Detect service unreachable after {1 + self._config.max_retries} attempts."
+        ) from last_exc
+
     def health(self) -> dict[str, Any]:
         """Check the remote service health.
 
@@ -208,6 +294,51 @@ def grounding_request_to_payload(request: GroundingRequest, image_jpeg_b64: str)
         "max_image_side": request.max_image_side,
         "return_debug_overlay": request.return_debug_overlay,
     }
+
+
+def detect_objects_request_to_payload(
+    *,
+    request_id: str,
+    image_jpeg_b64: str,
+    max_image_side: int,
+    max_objects: int,
+    min_confidence: float,
+) -> dict[str, Any]:
+    """Build the JSON payload expected by POST /detect_objects."""
+
+    return {
+        "request_id": request_id,
+        "image_jpeg_b64": image_jpeg_b64,
+        "max_image_side": max_image_side,
+        "max_objects": max_objects,
+        "min_confidence": min_confidence,
+    }
+
+
+def detect_objects_result_from_payload(payload: dict[str, Any]) -> DetectObjectsResult:
+    """Parse a /detect_objects JSON response into a ``DetectObjectsResult``."""
+
+    objects: list[DetectedObjectResult] = []
+    for entry in payload.get("objects", ()) or ():
+        bbox_value = entry.get("bbox_2d")
+        if bbox_value is None or len(bbox_value) != 4:
+            continue
+        bbox = tuple(int(v) for v in bbox_value)
+        objects.append(
+            DetectedObjectResult(
+                label=str(entry["label"]),
+                bbox_2d=bbox,  # type: ignore[arg-type]
+                confidence=float(entry.get("confidence", 0.0)),
+            )
+        )
+    return DetectObjectsResult(
+        request_id=str(payload["request_id"]),
+        objects=tuple(objects),
+        raw_output=(
+            str(payload["raw_output"]) if payload.get("raw_output") is not None else None
+        ),
+        latency_s=float(payload.get("latency_s", 0.0)),
+    )
 
 
 def grounding_result_from_payload(payload: dict[str, Any]) -> GroundingResult:

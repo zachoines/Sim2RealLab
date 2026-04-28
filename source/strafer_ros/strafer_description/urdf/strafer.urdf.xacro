@@ -237,4 +237,16 @@
     <origin xyz="${camera_x} ${camera_y} ${camera_z}" rpy="0 0 0"/>
   </joint>
 
+  <!-- Optical frame: camera convention (x=right, y=down, z=forward) rotated
+       from the physical d555_link (x=forward, y=left, z=up). The RealSense
+       driver publishes this on real hardware; the Isaac Sim bridge does not,
+       so carry it in the URDF so both modes have the same TF tree. -->
+  <link name="d555_color_optical_frame"/>
+
+  <joint name="d555_color_optical_joint" type="fixed">
+    <parent link="d555_link"/>
+    <child link="d555_color_optical_frame"/>
+    <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+  </joint>
+
 </robot>

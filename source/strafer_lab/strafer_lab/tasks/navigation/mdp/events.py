@@ -7,13 +7,20 @@ Events are used for:
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 import math
 
 import torch
+import warp as wp
 
 from isaaclab.utils.math import quat_from_euler_xyz, quat_apply
+
+logger = logging.getLogger(__name__)
+
+# XYZW quaternion component indices (Isaac Lab 3.0 convention)
+QX, QY, QZ, QW = 0, 1, 2, 3
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -48,26 +55,29 @@ def reset_robot_state(
     
     yaw = torch.rand(num_resets, device=device) * (yaw_range[1] - yaw_range[0]) + yaw_range[0]
     
-    # Convert yaw to quaternion (w, x, y, z)
+    # Convert yaw to quaternion (x, y, z, w) — XYZW (Isaac Lab 3.0)
     quat = torch.zeros(num_resets, 4, device=device)
-    quat[:, 0] = torch.cos(yaw / 2)  # w
-    quat[:, 3] = torch.sin(yaw / 2)  # z
-    
-    # Set robot state (positions are relative to each env's origin)
-    root_state = robot.data.default_root_state[env_ids].clone()
-    env_origins = env.scene.env_origins[env_ids]
-    root_state[:, 0] = env_origins[:, 0] + x  # pos_x
-    root_state[:, 1] = env_origins[:, 1] + y  # pos_y
-    root_state[:, 2] = env_origins[:, 2] + z  # pos_z
-    root_state[:, 3:7] = quat  # orientation
-    root_state[:, 7:] = 0.0  # zero velocity
+    quat[:, QZ] = torch.sin(yaw / 2)  # z
+    quat[:, QW] = torch.cos(yaw / 2)  # w
 
-    robot.write_root_state_to_sim(root_state, env_ids)
+    # Set robot state (positions are relative to each env's origin)
+    root_pose = wp.to_torch(robot.data.default_root_pose)[env_ids].clone()
+    env_origins = env.scene.env_origins[env_ids]
+    root_pose[:, 0] = env_origins[:, 0] + x  # pos_x
+    root_pose[:, 1] = env_origins[:, 1] + y  # pos_y
+    root_pose[:, 2] = env_origins[:, 2] + z  # pos_z
+    root_pose[:, 3:7] = quat  # orientation
+
+    robot.write_root_pose_to_sim_index(root_pose=root_pose, env_ids=env_ids)
+    robot.write_root_velocity_to_sim_index(
+        root_velocity=torch.zeros(num_resets, 6, device=device), env_ids=env_ids
+    )
 
     # Zero joint state to prevent stale wheel velocities from flipping the robot
-    joint_pos = robot.data.default_joint_pos[env_ids].clone()
-    joint_vel = torch.zeros_like(robot.data.default_joint_vel[env_ids])
-    robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+    joint_pos = wp.to_torch(robot.data.default_joint_pos)[env_ids].clone()
+    joint_vel = torch.zeros_like(wp.to_torch(robot.data.default_joint_vel)[env_ids])
+    robot.write_joint_position_to_sim_index(position=joint_pos, env_ids=env_ids)
+    robot.write_joint_velocity_to_sim_index(velocity=joint_vel, env_ids=env_ids)
 
 
 # Cache for spawn points tensor (loaded once, reused across resets)
@@ -79,6 +89,7 @@ def reset_robot_state_on_floor(
     env_ids: torch.Tensor,
     spawn_points_xy: list[list[float]],
     yaw_range: tuple[float, float] = (-3.14159, 3.14159),
+    spawn_z: float = 0.1,
 ) -> None:
     """Reset robot to a random interior floor position.
 
@@ -92,10 +103,24 @@ def reset_robot_state_on_floor(
         env_ids: Indices of environments to reset.
         spawn_points_xy: List of [x, y] interior floor positions (env-local frame).
         yaw_range: (min, max) yaw range in radians.
+        spawn_z: Height above the env origin at which the robot root is
+            placed. Defaults to 0.1 m, which assumes the floor surface is
+            at world Z≈0. For Infinigen scenes where the floor sits
+            several cm above world origin, pass floor_top_z + wheel
+            clearance (typically floor_top_z + 0.1) so the robot spawns
+            above the floor instead of inside it.
     """
     robot = env.scene["robot"]
     num_resets = len(env_ids)
     device = env.device
+
+    # Fallback: scenes that have not been through extract_scene_metadata yet
+    # (smoke tests, fresh Infinigen output before metadata extraction, sim-
+    # in-the-loop bridge mode) arrive here with an empty list. Treat that as
+    # "spawn at the env origin" so the env still resets cleanly instead of
+    # tripping torch.randint's from<to assertion.
+    if not spawn_points_xy:
+        spawn_points_xy = [[0.0, 0.0]]
 
     # Lazy-build and cache the points tensor
     cache_key = str(id(spawn_points_xy))
@@ -107,28 +132,31 @@ def reset_robot_state_on_floor(
     indices = torch.randint(0, len(pts), (num_resets,), device=device)
     xy = pts[indices]  # (num_resets, 2)
 
-    z = torch.full((num_resets,), 0.1, device=device)
+    z = torch.full((num_resets,), spawn_z, device=device)
     yaw = torch.rand(num_resets, device=device) * (yaw_range[1] - yaw_range[0]) + yaw_range[0]
 
-    # Convert yaw to quaternion (w, x, y, z)
+    # Convert yaw to quaternion (x, y, z, w) — XYZW (Isaac Lab 3.0)
     quat = torch.zeros(num_resets, 4, device=device)
-    quat[:, 0] = torch.cos(yaw / 2)
-    quat[:, 3] = torch.sin(yaw / 2)
+    quat[:, QZ] = torch.sin(yaw / 2)
+    quat[:, QW] = torch.cos(yaw / 2)
 
-    root_state = robot.data.default_root_state[env_ids].clone()
+    root_pose = wp.to_torch(robot.data.default_root_pose)[env_ids].clone()
     env_origins = env.scene.env_origins[env_ids]
-    root_state[:, 0] = env_origins[:, 0] + xy[:, 0]
-    root_state[:, 1] = env_origins[:, 1] + xy[:, 1]
-    root_state[:, 2] = env_origins[:, 2] + z
-    root_state[:, 3:7] = quat
-    root_state[:, 7:] = 0.0
+    root_pose[:, 0] = env_origins[:, 0] + xy[:, 0]
+    root_pose[:, 1] = env_origins[:, 1] + xy[:, 1]
+    root_pose[:, 2] = env_origins[:, 2] + z
+    root_pose[:, 3:7] = quat
 
-    robot.write_root_state_to_sim(root_state, env_ids)
+    robot.write_root_pose_to_sim_index(root_pose=root_pose, env_ids=env_ids)
+    robot.write_root_velocity_to_sim_index(
+        root_velocity=torch.zeros(num_resets, 6, device=device), env_ids=env_ids
+    )
 
     # Zero joint state to prevent stale wheel velocities from flipping the robot
-    joint_pos = robot.data.default_joint_pos[env_ids].clone()
-    joint_vel = torch.zeros_like(robot.data.default_joint_vel[env_ids])
-    robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+    joint_pos = wp.to_torch(robot.data.default_joint_pos)[env_ids].clone()
+    joint_vel = torch.zeros_like(wp.to_torch(robot.data.default_joint_vel)[env_ids])
+    robot.write_joint_position_to_sim_index(position=joint_pos, env_ids=env_ids)
+    robot.write_joint_velocity_to_sim_index(velocity=joint_vel, env_ids=env_ids)
 
 
 def randomize_friction(
@@ -164,7 +192,10 @@ def randomize_friction(
 
     # Get current material properties from PhysX view
     # Shape: (num_envs, max_num_shapes, 3) where 3 = [static, dynamic, restitution]
-    materials = robot.root_physx_view.get_material_properties()
+    materials = robot.root_view.get_material_properties()
+    # materials may be a warp array — convert to torch for slicing
+    if not isinstance(materials, torch.Tensor):
+        materials = wp.to_torch(materials)
     materials_device = materials.device
     env_ids_device = env_ids.to(materials_device)
 
@@ -207,8 +238,11 @@ def randomize_friction(
         materials[env_sel, shape_sel] = ref_vals
 
     # Apply the modified materials back to simulation
-    env_ids_cpu = env_ids.cpu() if env_ids.device.type != "cpu" else env_ids
-    robot.root_physx_view.set_material_properties(materials, env_ids_cpu)
+    # root_view methods expect warp arrays on develop branch — convert back
+    # Index tensor must be on CPU (device -1)
+    materials_wp = wp.from_torch(materials)
+    env_ids_cpu = env_ids.cpu().int()
+    robot.root_view.set_material_properties(materials_wp, wp.from_torch(env_ids_cpu))
 
 
 def randomize_obstacles(
@@ -274,17 +308,19 @@ def randomize_obstacles(
             ox[remaining] = min_robot_dist * torch.cos(angle)
             oy[remaining] = min_robot_dist * torch.sin(angle)
 
-        # Build root state (positions are relative to each env's origin)
-        root_state = obstacle.data.default_root_state[env_ids].clone()
+        # Build root pose (positions are relative to each env's origin)
+        root_pose = wp.to_torch(obstacle.data.default_root_pose)[env_ids].clone()
         env_origins = env.scene.env_origins[env_ids]
-        root_state[:, 0] = env_origins[:, 0] + ox
-        root_state[:, 1] = env_origins[:, 1] + oy
-        root_state[:, 2] = env_origins[:, 2] + z_height
-        root_state[:, 3] = 1.0  # w (identity quaternion)
-        root_state[:, 4:7] = 0.0
-        root_state[:, 7:] = 0.0  # zero velocity
+        root_pose[:, 0] = env_origins[:, 0] + ox
+        root_pose[:, 1] = env_origins[:, 1] + oy
+        root_pose[:, 2] = env_origins[:, 2] + z_height
+        root_pose[:, 3:6] = 0.0  # x, y, z
+        root_pose[:, 6] = 1.0    # w (identity quaternion, XYZW)
 
-        obstacle.write_root_state_to_sim(root_state, env_ids)
+        obstacle.write_root_pose_to_sim_index(root_pose=root_pose, env_ids=env_ids)
+        obstacle.write_root_velocity_to_sim_index(
+            root_velocity=torch.zeros(len(env_ids), 6, device=device), env_ids=env_ids
+        )
 
 
 def randomize_mass(
@@ -309,7 +345,9 @@ def randomize_mass(
     num_resets = len(env_ids)
 
     # Get current body masses from simulation
-    body_masses = robot.root_physx_view.get_masses()
+    body_masses = robot.root_view.get_masses()
+    if not isinstance(body_masses, torch.Tensor):
+        body_masses = wp.to_torch(body_masses)
     body_device = body_masses.device
     env_ids_dev = env_ids.to(body_device)
 
@@ -329,7 +367,9 @@ def randomize_mass(
     scales_expanded = scales.unsqueeze(1).expand(-1, num_bodies)
     body_masses[env_ids_dev] = env._default_body_masses[env_ids_dev] * scales_expanded
 
-    robot.root_physx_view.set_masses(body_masses, env_ids_dev)
+    masses_wp = wp.from_torch(body_masses)
+    env_ids_cpu = env_ids_dev.cpu().int()
+    robot.root_view.set_masses(masses_wp, wp.from_torch(env_ids_cpu))
 
 
 def randomize_goal_noise(
@@ -380,7 +420,9 @@ def randomize_motor_strength(
 
     # Get current effort limits from PhysX view
     # Shape: (num_envs, num_joints)
-    effort_limits = robot.root_physx_view.get_dof_max_forces()
+    effort_limits = robot.root_view.get_dof_max_forces()
+    if not isinstance(effort_limits, torch.Tensor):
+        effort_limits = wp.to_torch(effort_limits)
     effort_device = effort_limits.device
     env_ids_dev = env_ids.to(effort_device)
 
@@ -400,8 +442,9 @@ def randomize_motor_strength(
 
     effort_limits[env_ids_dev] = env._default_effort_limits[env_ids_dev] * scales
 
-    env_ids_cpu = env_ids.cpu() if env_ids.device.type != "cpu" else env_ids
-    robot.root_physx_view.set_dof_max_forces(effort_limits, env_ids_cpu)
+    effort_wp = wp.from_torch(effort_limits)
+    env_ids_cpu = env_ids_dev.cpu().int()
+    robot.root_view.set_dof_max_forces(effort_wp, wp.from_torch(env_ids_cpu))
 
 
 def randomize_d555_mount_offset(
@@ -437,7 +480,7 @@ def randomize_d555_mount_offset(
     # Initialize storage on first call (identity = no offset)
     if not hasattr(env, "_d555_mount_quat"):
         env._d555_mount_quat = torch.zeros(env.num_envs, 4, device=device)
-        env._d555_mount_quat[:, 0] = 1.0  # w = 1 (identity)
+        env._d555_mount_quat[:, QW] = 1.0  # w = 1 (identity)
 
     # Sample small random Euler angles in [-max_rad, max_rad]
     roll = (torch.rand(num_resets, device=device) * 2.0 - 1.0) * max_rad
@@ -482,29 +525,32 @@ def reset_robot_proc_room(
     z = torch.full((num_resets,), 0.1, device=device)
     yaw = torch.rand(num_resets, device=device) * (yaw_range[1] - yaw_range[0]) + yaw_range[0]
 
-    # Convert yaw to quaternion (w, x, y, z)
+    # Convert yaw to quaternion (x, y, z, w) — XYZW (Isaac Lab 3.0)
     quat = torch.zeros(num_resets, 4, device=device)
-    quat[:, 0] = torch.cos(yaw / 2)
-    quat[:, 3] = torch.sin(yaw / 2)
+    quat[:, QZ] = torch.sin(yaw / 2)
+    quat[:, QW] = torch.cos(yaw / 2)
 
-    root_state = robot.data.default_root_state[env_ids].clone()
+    root_pose = wp.to_torch(robot.data.default_root_pose)[env_ids].clone()
     env_origins = env.scene.env_origins[env_ids]
-    root_state[:, 0] = env_origins[:, 0] + xy[:, 0]
-    root_state[:, 1] = env_origins[:, 1] + xy[:, 1]
-    root_state[:, 2] = env_origins[:, 2] + z
-    root_state[:, 3:7] = quat
-    root_state[:, 7:] = 0.0
+    root_pose[:, 0] = env_origins[:, 0] + xy[:, 0]
+    root_pose[:, 1] = env_origins[:, 1] + xy[:, 1]
+    root_pose[:, 2] = env_origins[:, 2] + z
+    root_pose[:, 3:7] = quat
 
-    robot.write_root_state_to_sim(root_state, env_ids)
+    robot.write_root_pose_to_sim_index(root_pose=root_pose, env_ids=env_ids)
+    robot.write_root_velocity_to_sim_index(
+        root_velocity=torch.zeros(num_resets, 6, device=device), env_ids=env_ids
+    )
 
     # Zero joint positions and velocities — without this, wheels carry
     # angular velocity from the previous episode.  The mismatch between
     # zero body velocity and spinning wheels causes PhysX to resolve an
     # impulse that can flip the robot, especially at high env counts where
     # the GPU solver has less budget per constraint.
-    joint_pos = robot.data.default_joint_pos[env_ids].clone()
-    joint_vel = torch.zeros_like(robot.data.default_joint_vel[env_ids])
-    robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+    joint_pos = wp.to_torch(robot.data.default_joint_pos)[env_ids].clone()
+    joint_vel = torch.zeros_like(wp.to_torch(robot.data.default_joint_vel)[env_ids])
+    robot.write_joint_position_to_sim_index(position=joint_pos, env_ids=env_ids)
+    robot.write_joint_velocity_to_sim_index(velocity=joint_vel, env_ids=env_ids)
 
 
 def randomize_proc_room_difficulty(
@@ -531,4 +577,68 @@ def randomize_proc_room_difficulty(
         )
     env._proc_room_difficulty[env_ids] = torch.randint(
         min_level, max_level + 1, (len(env_ids),), device=env.device
+    )
+
+
+def lift_ground_plane_to_floor(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor | None,
+    target_z: float,
+    ground_prim_path: str = "/World/ground/terrain",
+) -> None:
+    """Translate the world ground plane up so its top face matches a target z.
+
+    Used by Infinigen scenes whose floor meshes sit above world z=0. Robot
+    collision is delegated to ``/World/ground`` (the floor meshes have their
+    colliders stripped at scene-bake time), so the ground plane needs to ride
+    just below the visible floor to be coincident in physics. A small negative
+    z offset (e.g. ``floor_top_z - 0.002``) avoids z-fighting against the
+    Infinigen floor mesh while keeping the wheel-contact surface effectively
+    at floor height.
+
+    The default target is ``/World/ground/terrain`` — the Xform that
+    ``TerrainImporter.import_ground_plane`` actually creates via
+    ``spawn_ground_plane``. The ``TerrainImporterCfg.prim_path`` parent
+    (``/World/ground``) is only an implicit untyped USD ancestor and
+    authoring ``xformOp:translate`` on it does not compose into the world
+    transform.
+
+    Idempotent — sets ``xformOp:translate`` directly so repeated calls just
+    overwrite the value.
+
+    Args:
+        env: The environment instance.
+        env_ids: Unused (mode="prestartup"); accepted to match the event signature.
+        target_z: World-space z to set on ``ground_prim_path``'s translate op.
+        ground_prim_path: USD path to the ground Xform created by
+            ``TerrainImporter``. Defaults to ``/World/ground/terrain``.
+    """
+    del env_ids  # event signature only; ground prim is global
+
+    from pxr import Gf, UsdGeom  # type: ignore
+
+    stage = env.sim.stage
+    if stage is None:
+        logger.warning("[lift_ground_plane_to_floor] sim.stage is None; skipping")
+        return
+    prim = stage.GetPrimAtPath(ground_prim_path)
+    if not prim.IsValid():
+        logger.warning(
+            "[lift_ground_plane_to_floor] prim not found at %s; ground stays at z=0",
+            ground_prim_path,
+        )
+        return
+
+    xformable = UsdGeom.Xformable(prim)
+    translate_op = None
+    for op in xformable.GetOrderedXformOps():
+        if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+            translate_op = op
+            break
+    if translate_op is None:
+        translate_op = xformable.AddTranslateOp()
+    translate_op.Set(Gf.Vec3d(0.0, 0.0, float(target_z)))
+    logger.info(
+        "[lift_ground_plane_to_floor] %s translate -> (0, 0, %.4f)",
+        ground_prim_path, float(target_z),
     )

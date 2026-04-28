@@ -6,11 +6,14 @@ work that a fresh agent (DGX, Jetson, or either) can pick up and
 execute against without needing the operator to also write a long
 preamble each time.
 
-Briefs are persistent across sessions. When work lands, the brief is
-typically deleted (or marked done in its frontmatter) in the same
-commit that ships the change. **Briefs are not historical records** —
-git history serves that purpose. Once a task is shipped, its brief
-has done its job.
+Briefs are persistent across sessions. When work lands, the brief
+moves into [`completed/`](completed/) in the same commit that ships
+the change, with a `**Status:** Shipped <date> in <commit>` stamp at
+the top. The active queue stays scannable while shipped briefs remain
+discoverable as a record of what we asked for, the acceptance criteria
+we held the change to, and which follow-ups it spawned. Git history
+records the *what changed*; the brief records the *what we set out to
+do* — both are useful, and they're different artifacts.
 
 If you've landed here as a fresh agent looking for work, scan the
 list and pick a task whose `Owner` matches your host.
@@ -178,8 +181,11 @@ A few rules of thumb that hold up in practice:
 - **Multi-task briefs.** "Refactor A and also fix B and also
   document C" — split into three briefs. The Jira-style format is
   designed for one ticket = one PR.
-- **Stale briefs.** When work ships, delete or close the brief in
-  the same commit. Living briefs that nobody owns become noise.
+- **Stale briefs.** When work ships, move the brief into
+  [`completed/`](completed/) (with a Shipped stamp) in the same
+  commit. Living briefs in the top level that nobody owns become
+  noise; an unstamped brief in `completed/` is ambiguous between
+  "shipped" and "abandoned."
 
 ---
 
@@ -280,7 +286,7 @@ The current queue is itself a useful set of examples:
 - **Docs** ([`integration-prompts-refresh.md`](integration-prompts-refresh.md))
   — refresh of existing artifacts, with concrete drift listed.
 - **Bug fix** ([`bridge-render-product-resolution.md`](bridge-render-product-resolution.md),
-  [`goal-projection-depth-range.md`](goal-projection-depth-range.md))
+  [`completed/goal-projection-depth-range.md`](completed/goal-projection-depth-range.md))
   — symptom + root-cause + acceptance criteria.
 
 Match the closest one for the kind of work you're queuing.

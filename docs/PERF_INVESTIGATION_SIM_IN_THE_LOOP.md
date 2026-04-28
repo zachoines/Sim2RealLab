@@ -616,11 +616,14 @@ is the constant factor; decimation is the multiplier.
 ### Recommendations
 
 1. **Use `make sim-bridge` (headless) as the daily driver** for
-   mission testing. Drops 96 ms / loop relative to `--viz kit`. The
-   editor viewport's value is mostly debug visualization, which can
-   move to a Jetson-side ROS topic viewer (Foxglove Studio +
-   `foxglove_bridge`, or a custom MJPEG viewer; tracked under
-   `docs/tasks/jetson-headless-viewer.md`).
+   mission testing. After Recommendation #4 was resolved (see
+   "Kit-pump redundancy resolution" below) the headless-vs-`--viz kit`
+   gap on a no-DISPLAY DGX collapsed to ~2 ms (10.6 Hz vs 10.4 Hz).
+   On a DISPLAY-attached host the gap is wider (RTX viewport refresh
+   in `simulation_app.update`), but the editor viewport is still
+   debug-only — visual debugging can move to a Jetson-side ROS topic
+   viewer (Foxglove Studio + `foxglove_bridge`, or a custom MJPEG
+   viewer; tracked under `docs/tasks/jetson-headless-viewer.md`).
 2. **Do NOT lower the perception camera resolution**. 640×360 is
    locked to the real D555 native rate (see
    `strafer_shared.constants.PERCEPTION_WIDTH/HEIGHT` comment); sim
@@ -631,12 +634,100 @@ is the constant factor; decimation is the multiplier.
    refactor that moved telemetry off OnPlaybackTick). Targets the
    ~74 ms `simulation_app.update` cost; tracked under
    `docs/tasks/async-camera-publishers.md`.
-4. **Investigate the redundant Kit pump under `--viz kit`**. The two
-   pumps each refresh the editor viewport once per loop iteration and
-   together account for ~80 ms of duplicated RTX work. Tracked under
-   `docs/tasks/kit-pump-redundancy-investigation.md`. Doesn't help
-   training (which is headless) but does help any `--viz kit`
-   workflow including `--video` recording during training.
+4. ~~**Investigate the redundant Kit pump under `--viz kit`**.~~
+   Resolved — see "Follow-up: Kit-pump redundancy resolution" below.
+   `_run_bridge_mode` now sets `env.render_enabled = False`, which
+   makes `env.step()` invoke `sim.render(skip_app_pumping=True)` and
+   short-circuit `KitVisualizer.step`'s `app.update()`. The bridge's
+   own `simulation_app.update()` becomes the sole Kit pump per loop.
 
 The `--profile` harness lives in `run_sim_in_the_loop.py` for any
 future regression hunt.
+
+## Follow-up: Kit-pump redundancy resolution
+
+Acting on Recommendation #4, the bridge's per-loop Kit pumping was
+audited end-to-end. The 88 ms `sim.render` and 83 ms `simulation_app.update`
+attributions in Findings 8-9 were each completing one full Kit
+`app.update()` per env.step — `KitVisualizer.step` first, with
+`/app/player/playSimulations=False` (so the editor viewport refreshes but
+`OnPlaybackTick` stays silent and the camera-publish OmniGraph doesn't
+evaluate), then the bridge mainloop again with the default
+`playSimulations=True` (so the OmniGraph publishers tick and ROS2
+images flow). Both pumps RTX-render the editor viewport, paying the
+cost twice.
+
+### Fix
+
+Set `env.unwrapped.render_enabled = False` in `_run_bridge_mode` after
+`env.reset()`. This is the documented Isaac Lab 3 knob (introduced
+alongside `SimulationContext.render(skip_app_pumping=...)`); when
+`render_enabled` is False, `ManagerBasedRLEnv.step` calls
+`self.sim.render(skip_app_pumping=True)`, which in turn skips any
+visualizer whose `pumps_app_update()` is True. Standalone visualizers
+(Newton/Rerun/Viser) and the scene-data-provider's pre-step forward
+kinematics keep running normally.
+
+The bridge's `simulation_app.update()` after `env.step()` then becomes
+the **sole** Kit pump per loop iteration: it refreshes the editor
+viewport once, fires `OnPlaybackTick`, evaluates the bridge OmniGraph
+(camera Replicator chain through `IsaacSimulationGate`, all the
+publishers), and flushes DDS — all in a single Kit tick.
+
+### Empirical confirmation (DGX Spark, fast_singleroom, decimation=1, render_interval=1, --no-window)
+
+The DGX session profiled here had no DISPLAY attached, so the editor
+viewport's RTX cost is not realized — but pump #1's Kit-core +
+OmniGraph scheduling work IS still measurable, and that's the
+duplicated work the fix eliminates. Same fast_singleroom scene, same
+640×360 perception + 80×60 policy cameras, same `--profile` window of
+200 steps, ~30 stable cycles each:
+
+| Phase                                 | Before fix (p50 ms) | After fix (p50 ms) |
+|---------------------------------------|--------------------:|-------------------:|
+| `env.step :: sim.render (Kit)`        |               55.85 |               2.51 |
+| `env.step :: sim.step (PhysX)`        |               21.85 |              21.40 |
+| `env.step (total)`                    |               93.50 |              42.60 |
+| `simulation_app.update` (bridge pump) |               51.70 |              52.50 |
+| `publish_state`                       |                1.15 |               1.13 |
+| **Loop wall total**                   |              **146** |             **96** |
+| **Throughput**                        |             **6.84 Hz** |        **10.40 Hz** |
+
+The 53 ms savings come almost entirely from `sim.render`, which dropped
+from 55.85 ms to 2.51 ms (the residual 2.5 ms is the
+`update_scene_data_provider` forward-kinematics call that still runs
+when KitVisualizer is skipped via `skip_app_pumping=True`). The
+post-fix `simulation_app.update` cost is unchanged because pump #2
+already does the same OmniGraph + viewport work pump #1 was duplicating.
+
+### Predicted savings on a DISPLAY-attached host
+
+The brief's headed bridge run (DISPLAY set, full RTX viewport) measured
+`sim.render = 88.6 ms`, `simulation_app.update = 83.1 ms`,
+`loop ≈ 213 ms`, **4.7 Hz**. The fix drops `sim.render` to ~2.5 ms (the
+forward-kinematics floor), so the projected after-fix loop is
+`213 - 88.6 + 2.5 ≈ 127 ms`, **~7.9 Hz**. ≥1.7× speedup with one line
+of code, no graph rewrites, no new threads.
+
+### What this does NOT change
+
+- **Headless bridge (`make sim-bridge`)**: identical performance.
+  No KitVisualizer is registered, so `update_visualizers` returns
+  early regardless of `skip_app_pumping`. The fix is a true no-op.
+- **RL training (no `--video`, no `--viz kit`)**: not affected.
+  Training never enters `_run_bridge_mode`; the env wrapper Pulse is
+  whatever the rsl_rl runner does, and that path doesn't see this
+  setting.
+- **Camera publish rate gating**: still controlled by
+  `frameSkipCount` on the `ROS2CameraHelper` nodes (the
+  `--camera-frame-skip` flag); unchanged.
+- **Sim-time advance**: still computed in the bridge from
+  `physics_dt * decimation`; unchanged.
+
+### Files touched
+
+- `source/strafer_lab/scripts/run_sim_in_the_loop.py` —
+  `_run_bridge_mode` sets `env.render_enabled = False` after reset.
+- `docs/tasks/context/bridge-runtime-invariants.md` —
+  "Headless vs. `--viz kit` defaults" updated to drop the "paid
+  twice per loop" claim.

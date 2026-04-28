@@ -487,6 +487,20 @@ def _run_bridge_mode(simulation_app, env, args, config) -> None:
     unwrapped = env.unwrapped
     env.reset()
 
+    # Eliminate the redundant Kit pump under --viz kit. Without this, env.step
+    # calls sim.render() → KitVisualizer.step → app.update(playSimulations=False)
+    # to refresh the editor viewport, then this loop calls simulation_app.update()
+    # below with playSimulations=True to fire OnPlaybackTick and drive the camera
+    # OmniGraph publish chain. Both pumps RTX-render the editor viewport, paying
+    # ~80 ms of duplicated work per loop.
+    #
+    # Setting render_enabled=False makes env.step() invoke sim.render() with
+    # skip_app_pumping=True, which short-circuits KitVisualizer (no app.update).
+    # The simulation_app.update() below then becomes the SOLE Kit pump per loop
+    # and drives BOTH the viewport refresh AND the camera OmniGraph in one pass.
+    # No-op in headless mode (no Kit visualizer registered).
+    unwrapped.render_enabled = False
+
     action_shape = unwrapped.action_manager.action.shape
     print(f"[sim_in_the_loop] action tensor shape = {tuple(action_shape)}")
 
@@ -566,10 +580,10 @@ def _run_bridge_mode(simulation_app, env, args, config) -> None:
                 env.step(action)
                 sim_time_s += step_dt
                 publisher.publish_state(sim_time_s)
-                # Tick Kit's main loop so the camera OmniGraph (render
-                # product → ROS2 Image) evaluates once per env.step. Without
-                # this the image publishers fall back to Kit's background
-                # cadence on Isaac Lab 3.0.
+                # Sole Kit pump per loop iteration (render_enabled=False above
+                # disables KitVisualizer's pump inside env.step). One app.update
+                # per env.step refreshes the editor viewport, fires OnPlaybackTick,
+                # and drives the camera OmniGraph publish chain in one pass.
                 simulation_app.update()
     finally:
         publisher.shutdown()

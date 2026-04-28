@@ -61,11 +61,12 @@ the next env.step, which is the throughput win.
   ~45 ms (22 Hz) if readback overlap is achieved cleanly. Bounded by
   whichever phase becomes the new ceiling — likely PhysX (~22 ms)
   plus IsaacLab manager loop (~18 ms) ≈ 40 ms / 25 Hz.
-- **Bridge headed mode**: smaller relative win because the editor
-  viewport (~88 ms in `sim.render`) is the bottleneck under `--viz kit`.
-  Best to land the [Kit-pump-redundancy fix](kit-pump-redundancy-investigation.md)
-  alongside this one — together they would put headed mode in the
-  same ballpark as headless.
+- **Bridge headed mode**: smaller relative win — the
+  [Kit-pump-redundancy fix](completed/kit-pump-redundancy-investigation.md)
+  already eliminated the duplicated `app.update()` per loop, so the
+  remaining bridge-headed cost is mostly the single Kit pump
+  (camera-publish OmniGraph + viewport refresh) that this task's
+  Python-thread move would offload.
 - **Real-robot deployment**: zero impact. The real robot's camera
   drivers publish on their own threads natively; this brings sim into
   parity with that architecture.
@@ -140,6 +141,7 @@ the next env.step, which is the throughput win.
   [`context/bridge-runtime-invariants.md`](context/bridge-runtime-invariants.md#camera-resolutions-sim-mirrors-real).
 - Touching the policy 80×60 camera (`d555_camera`) — it's not bridged
   and stays inside the env on GPU.
-- Removing the second Kit pump itself — that's the
-  [Kit-pump-redundancy task](kit-pump-redundancy-investigation.md).
-  The two changes are complementary and either can land first.
+- Removing the redundant Kit pump itself — already shipped, see
+  [completed/kit-pump-redundancy-investigation.md](completed/kit-pump-redundancy-investigation.md).
+  This task is now purely about moving camera publish off the Kit
+  thread; the redundancy is gone.

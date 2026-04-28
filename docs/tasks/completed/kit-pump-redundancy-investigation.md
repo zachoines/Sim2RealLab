@@ -1,5 +1,15 @@
 # Kit-pump redundancy investigation
 
+**Status:** Shipped 2026-04-28 (DGX). `_run_bridge_mode` now sets
+`env.render_enabled = False` so `KitVisualizer.step`'s `app.update()`
+is short-circuited inside `env.step()`; the bridge's explicit
+`simulation_app.update()` after each `env.step()` is the sole Kit
+pump per loop. Empirical (DGX, no DISPLAY): `env.step :: sim.render`
+55.85 → 2.51 ms p50, throughput 6.84 → 10.40 Hz at decimation=1,
+render_interval=1, fast_singleroom. Predicted on a DISPLAY-attached
+host: 4.7 → ~7.9 Hz. See "Kit-pump redundancy resolution" in
+`docs/PERF_INVESTIGATION_SIM_IN_THE_LOOP.md`.
+
 **Type:** investigation
 **Owner:** DGX agent
 **Priority:** P1

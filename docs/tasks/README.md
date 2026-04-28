@@ -40,7 +40,7 @@ bullet that prevents context drift).
 
 Lowercase kebab-case, descriptive of the work, no leading numbers:
 
-- `kit-pump-redundancy-investigation.md`
+- `real-d555-depth-range-survey.md`
 - `async-camera-publishers.md`
 - `jetson-headless-viewer.md`
 - `integration-prompts-refresh.md`
@@ -277,7 +277,7 @@ of what landed plus any remaining open questions.
 
 The current queue is itself a useful set of examples:
 
-- **Investigation** ([`kit-pump-redundancy-investigation.md`](kit-pump-redundancy-investigation.md))
+- **Investigation** ([`real-d555-depth-range-survey.md`](real-d555-depth-range-survey.md))
   — open-ended diagnostic with a clear done-definition.
 - **Refactor** ([`async-camera-publishers.md`](async-camera-publishers.md))
   — larger surgical change with risks and out-of-scope explicit.

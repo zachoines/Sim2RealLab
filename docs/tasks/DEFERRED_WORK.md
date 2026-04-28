@@ -196,6 +196,34 @@ latency (<5 ms target).
 **Packages**: `strafer_lab` (export), `strafer_shared` (loader already
 exists), `strafer_ros` (future `strafer_inference` consumer).
 
+### `SdRenderVarPtr DistanceToImagePlaneSDbuff` cold-start warning
+
+**What**: Isaac Sim emits
+
+```
+[omni.syntheticdata.plugin] SdRenderVarPtr missing valid input renderVar
+DistanceToImagePlaneSDbuff
+```
+
+once on bridge startup, before the first depth frame is published. The
+`omni.syntheticdata` plugin is reading the depth renderVar against a
+fresh `IsaacCreateRenderProduct` before Hydra has finished registering
+the renderVar against the texture. Depth frames flow correctly from
+the second/third tick onward.
+
+**Why deferred**: Benign cold-start race in Isaac Sim's
+SyntheticData → Replicator → Hydra handshake. Independent of the
+render-product resolution — the warning fires whether
+`IsaacCreateRenderProduct.inputs:width` / `inputs:height` are set
+explicitly or fall through to defaults. Suppressing it cleanly means
+either gating the SD plugin's renderVar bind on a "render product
+ready" event upstream of Kit, or adding a one-tick warmup before
+connecting the camera helpers — both are larger changes than the
+message warrants.
+
+**Packages**: `strafer_lab` (bridge graph; if a warmup gate ends up
+worth shipping, it lives in `bridge/graph.py`).
+
 ### Pre-deployment training with goal-position noise
 
 **What**: Before exporting the checkpoint intended for VLM-sourced goals,

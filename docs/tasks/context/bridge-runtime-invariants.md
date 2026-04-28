@@ -72,6 +72,15 @@ an optimization. See [PERF_INVESTIGATION_SIM_IN_THE_LOOP.md
 Findings 8-10](../../PERF_INVESTIGATION_SIM_IN_THE_LOOP.md) for the
 full reasoning.
 
+Bridge enforcement: the resolution flows through
+`CameraStreamConfig.width` / `height` →
+`IsaacCreateRenderProduct.inputs:width` / `inputs:height` in
+`bridge/graph.py`. Setting these explicitly is mandatory —
+`IsaacCreateRenderProduct` does NOT inherit resolution from the
+camera prim, so an unset render product silently falls through to
+Hydra's 1280×720 default and publishes a wrong `camera_info`
+(width/height + fx/fy all 2× the configured pinhole intrinsics).
+
 ## Renderer frustum vs. depth-sensor saturation
 
 The D555 camera's `PinholeCameraCfg.clipping_range` uses

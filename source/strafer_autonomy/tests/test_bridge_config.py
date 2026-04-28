@@ -21,6 +21,8 @@ from strafer_shared.constants import (
     FRAME_D555_COLOR_OPTICAL,
     FRAME_D555_LINK,
     FRAME_ODOM,
+    PERCEPTION_HEIGHT,
+    PERCEPTION_WIDTH,
     TOPIC_CLOCK,
     TOPIC_CMD_VEL,
     TOPIC_COLOR_CAMERA_INFO,
@@ -121,6 +123,43 @@ class TestCameraStreamTypes:
 
     def test_depth_is_depth(self, default_cfg):
         assert default_cfg.depth_camera.stream_type == "depth"
+
+
+class TestCameraStreamResolution:
+    """Render-product resolution must match the perception-camera spec.
+
+    ``IsaacCreateRenderProduct`` defaults to Hydra's 1280×720 when
+    ``inputs:width`` / ``inputs:height`` are not set; the bridge has to
+    populate them from ``PERCEPTION_WIDTH`` / ``PERCEPTION_HEIGHT`` so
+    ``camera_info`` width/height + fx/fy stay consistent with the
+    TiledCameraCfg the env spawns and with the real D555's 640×360
+    native stream.
+    """
+
+    def test_color_width_matches_perception_constant(self, default_cfg):
+        assert default_cfg.color_camera.width == PERCEPTION_WIDTH
+
+    def test_color_height_matches_perception_constant(self, default_cfg):
+        assert default_cfg.color_camera.height == PERCEPTION_HEIGHT
+
+    def test_depth_width_matches_perception_constant(self, default_cfg):
+        assert default_cfg.depth_camera.width == PERCEPTION_WIDTH
+
+    def test_depth_height_matches_perception_constant(self, default_cfg):
+        assert default_cfg.depth_camera.height == PERCEPTION_HEIGHT
+
+    def test_color_and_depth_share_resolution(self, default_cfg):
+        """Both streams come off the same camera prim — depth-aligned-
+        to-color requires identical pixel grids."""
+        assert default_cfg.color_camera.width == default_cfg.depth_camera.width
+        assert default_cfg.color_camera.height == default_cfg.depth_camera.height
+
+    def test_resolution_is_640x360_d555_native(self, default_cfg):
+        """Locked to the real D555 native rate. Lowering it sim-side
+        would introduce a sim-to-real gap; raising it would invalidate
+        VLM/RTAB-Map tunings."""
+        assert default_cfg.color_camera.width == 640
+        assert default_cfg.color_camera.height == 360
 
 
 class TestFrozenDataclass:

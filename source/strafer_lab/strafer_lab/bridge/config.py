@@ -19,6 +19,8 @@ from strafer_shared.constants import (
     FRAME_D555_COLOR_OPTICAL,
     FRAME_D555_LINK,
     FRAME_ODOM,
+    PERCEPTION_HEIGHT,
+    PERCEPTION_WIDTH,
     TOPIC_CLOCK,
     TOPIC_CMD_VEL,
     TOPIC_COLOR_CAMERA_INFO,
@@ -31,13 +33,25 @@ from strafer_shared.constants import (
 
 @dataclass(frozen=True)
 class CameraStreamConfig:
-    """Wiring for a single Isaac Sim camera prim → ROS2 image + camera_info."""
+    """Wiring for a single Isaac Sim camera prim → ROS2 image + camera_info.
+
+    ``width`` / ``height`` are the explicit render-product resolution.
+    ``IsaacCreateRenderProduct`` does NOT inherit the camera prim's USD
+    ``width`` / ``height`` attributes — its own ``inputs:width`` /
+    ``inputs:height`` default to Hydra's 1280×720 unless set, which
+    overrides the configured TiledCameraCfg resolution and breaks
+    ``camera_info`` (publishes 1280×720 with fx/fy at 2× the configured
+    pinhole intrinsics). Carrying the resolution on the stream config
+    forces the OmniGraph builder to set both fields explicitly.
+    """
 
     camera_prim_path: str
     image_topic: str
     camera_info_topic: str
     frame_id: str
     stream_type: str  # "rgb" or "depth"
+    width: int
+    height: int
 
 
 @dataclass(frozen=True)
@@ -107,6 +121,8 @@ def build_default_bridge_config(
         camera_info_topic=TOPIC_COLOR_CAMERA_INFO,
         frame_id=FRAME_D555_COLOR_OPTICAL,
         stream_type="rgb",
+        width=PERCEPTION_WIDTH,
+        height=PERCEPTION_HEIGHT,
     )
     depth_camera = CameraStreamConfig(
         camera_prim_path=camera_prim,
@@ -114,6 +130,8 @@ def build_default_bridge_config(
         camera_info_topic=TOPIC_DEPTH_CAMERA_INFO,
         frame_id=FRAME_D555_COLOR_OPTICAL,
         stream_type="depth",
+        width=PERCEPTION_WIDTH,
+        height=PERCEPTION_HEIGHT,
     )
 
     return BridgeConfig(

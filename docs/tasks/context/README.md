@@ -156,11 +156,13 @@ accurate.
 - [`bridge-runtime-invariants.md`](bridge-runtime-invariants.md) —
   bridge architecture, cmd_vel normalization contract, sim-time
   timeout, headless-vs-`--viz kit` defaults.
+- [`conventions.md`](conventions.md) — commit style (no
+  `Co-Authored-By:` / agent-attribution trailers),
+  no-transient-doc-references-in-code rule, Mermaid edge-label
+  rule, closed-brief lifecycle.
 
-Two more candidates flagged for Pass 2 if duplication shows up:
+One more candidate flagged for Pass 3 if duplication shows up:
 
-- `conventions.md` — commit style, no-transient-doc-references rule,
-  mermaid edge-label rule.
 - `end-to-end-flow.md` — operator → planner → executor → grounding →
   goal projection → Nav2 → bridge → Isaac Sim arrow chain.
 

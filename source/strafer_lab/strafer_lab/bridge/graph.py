@@ -197,9 +197,16 @@ def _add_camera_stream(
 ) -> None:
     """Wire one camera prim as both an image publisher and camera_info publisher.
 
-    Each stream gets its own ``IsaacCreateRenderProduct`` so the render
-    product's resolution tracks the camera prim's resolution attribute,
-    matching the real D555's color/depth stream convention.
+    Each stream gets its own ``IsaacCreateRenderProduct`` configured at
+    ``stream.width`` × ``stream.height``. ``IsaacCreateRenderProduct``
+    does NOT inherit resolution from the camera prim — its
+    ``inputs:width`` / ``inputs:height`` default to Hydra's 1280×720
+    unless set explicitly, which silently overrides the camera prim's
+    spawn-time resolution and publishes a wrong ``camera_info`` (width,
+    height, and fx/fy all 2× the configured TiledCameraCfg). Sourcing
+    the resolution from ``stream`` keeps it pinned to the same
+    ``PERCEPTION_WIDTH`` / ``PERCEPTION_HEIGHT`` constants the
+    perception camera uses on the env side.
 
     ``graph_path`` threads through so cross-block references (``RunOnce``,
     ``Context`` — created in the main ``build_bridge_graph`` edit block)
@@ -230,6 +237,8 @@ def _add_camera_stream(
             ],
             keys.SET_VALUES: [
                 (f"{render_node}.inputs:cameraPrim", [stream.camera_prim_path]),
+                (f"{render_node}.inputs:width", int(stream.width)),
+                (f"{render_node}.inputs:height", int(stream.height)),
                 (f"{image_node}.inputs:topicName", stream.image_topic),
                 (f"{image_node}.inputs:frameId", stream.frame_id),
                 (f"{image_node}.inputs:type", stream.stream_type),

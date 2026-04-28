@@ -5,6 +5,7 @@
 **Priority:** P2
 **Estimate:** M–L (~2–3 days; world-state schema + planner prompt /
 few-shot work + planner-output validation harness)
+**Branch:** task/planner-far-target-staging
 
 ## Story
 

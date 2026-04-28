@@ -5,6 +5,7 @@
 **Priority:** P1
 **Estimate:** L (~3-5 days; mirrors the existing `StraferAsyncPublisher`
 refactor that moved telemetry off the OmniGraph)
+**Branch:** task/async-camera-publishers
 
 ## Story
 

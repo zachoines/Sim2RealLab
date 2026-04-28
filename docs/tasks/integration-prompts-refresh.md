@@ -6,6 +6,7 @@ to do the half they own and reconcile in a single PR
 **Priority:** P1 (blocks the next end-to-end integration round; not blocking
 ongoing bug-fix work)
 **Estimate:** M (~half-day per integration prompt + the runbook)
+**Branch:** task/integration-prompts-refresh
 
 ## Story
 

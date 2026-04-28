@@ -115,12 +115,16 @@ commit's SHA). Stamp the top of the moved brief with:
 
 ```
 **Status:** Shipped <YYYY-MM-DD> in `<commit-sha>` (<host>).
+**PR:** <github-pr-url>
 **Follow-ups:** [`<follow-up.md>`](../<follow-up.md>) — short hook.
 ```
 
 `<host>` is `DGX`, `Jetson`, or `Either`. `<follow-up.md>` is
-optional. See `docs/tasks/completed/goal-projection-depth-range.md`
-for the canonical example.
+optional. The `**PR:**` line is mandatory if the work landed via
+the [task → branch → PR convention](branching-and-prs.md); omit it
+only for briefs whose work pre-dates that convention. See
+`docs/tasks/completed/goal-projection-depth-range.md` for the
+canonical example.
 
 Update `docs/tasks/README.md`'s Examples section if it linked the
 brief at the top level — the link should now point at

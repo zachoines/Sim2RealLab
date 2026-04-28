@@ -1,5 +1,9 @@
 # Jetson-side visual debugger over SSH (no monitor)
 
+**Status:** Shipped 2026-04-28 in `179275e` (Jetson). Floor-leak fix
+in the occupancy grid surfaced during validation, shipped separately
+as `93d3254`.
+
 **Type:** task / new feature
 **Owner:** Jetson agent
 **Priority:** P1

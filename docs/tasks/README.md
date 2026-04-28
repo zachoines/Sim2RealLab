@@ -285,7 +285,7 @@ The current queue is itself a useful set of examples:
   — green-field work with a recommended approach + lighter alternative.
 - **Docs** ([`integration-prompts-refresh.md`](integration-prompts-refresh.md))
   — refresh of existing artifacts, with concrete drift listed.
-- **Bug fix** ([`bridge-render-product-resolution.md`](bridge-render-product-resolution.md),
+- **Bug fix** ([`completed/bridge-render-product-resolution.md`](completed/bridge-render-product-resolution.md),
   [`completed/goal-projection-depth-range.md`](completed/goal-projection-depth-range.md))
   — symptom + root-cause + acceptance criteria.
 

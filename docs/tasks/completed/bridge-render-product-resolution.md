@@ -1,5 +1,7 @@
 # Bridge render product resolution — IsaacCreateRenderProduct ignores camera prim's configured size
 
+**Status:** Shipped 2026-04-27 in `1401fde` (DGX).
+
 **Type:** task / bug
 **Owner:** DGX agent
 **Priority:** P1

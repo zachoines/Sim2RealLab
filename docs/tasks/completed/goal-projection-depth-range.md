@@ -1,8 +1,19 @@
 # Goal projection depth range — decouple from policy normalization cap
 
 **Status:** Shipped 2026-04-27 in `35018b1` (Jetson).
-**Follow-ups:** [`real-d555-depth-range-survey.md`](../real-d555-depth-range-survey.md)
-informs whether the conservative 6 m default should rise stack-wide.
+**Follow-ups:**
+- [`nav2-far-goal-staging.md`](../nav2-far-goal-staging.md) — Jetson
+  reactive staging through the SLAM horizon. Required to safely
+  re-enable `STRAFER_PROJECTION_DEPTH_MAX_M=15.0` in
+  `env_sim_in_the_loop.env`; the export was disabled on 2026-04-28
+  pending this task because the wider projection cap surfaced an
+  off-costmap-goal failure at the Nav2 planner.
+- [`planner-far-target-staging.md`](../planner-far-target-staging.md)
+  — DGX planner-side multi-hop plans for cross-room targets;
+  layers on top of the Jetson staging loop.
+- [`real-d555-depth-range-survey.md`](../real-d555-depth-range-survey.md)
+  — informs whether the conservative 6 m default should rise
+  stack-wide.
 
 **Type:** task / bug
 **Owner:** Jetson agent

@@ -54,6 +54,10 @@ class RosClient(Protocol):
     def cancel_active_navigation(self) -> bool:
         """Cancel the currently active motion backend if one exists."""
 
+    def get_global_costmap_bounds(self) -> "CostmapBounds | None":
+        """Return the map-frame extent of the global costmap, or ``None``
+        if no costmap message has been received yet."""
+
     def rotate_in_place(
         self,
         *,
@@ -88,6 +92,17 @@ class RosClientConfig:
     default_orientation_tolerance_rad: float = 0.1
     default_rotate_speed_rad_s: float = 0.5
     default_rotate_timeout_s: float = 15.0
+
+
+@dataclass(frozen=True)
+class CostmapBounds:
+    """Axis-aligned rectangle covered by the Nav2 global costmap, in the map frame."""
+
+    min_x: float
+    min_y: float
+    max_x: float
+    max_y: float
+    resolution: float
 
 
 class JetsonRosClient:
@@ -204,6 +219,28 @@ class JetsonRosClient:
     # ------------------------------------------------------------------
     # Safety pre-checks
     # ------------------------------------------------------------------
+
+    def get_global_costmap_bounds(self) -> CostmapBounds | None:
+        """Return the map-frame extent of the latest global costmap.
+
+        Returns ``None`` when the costmap subscription has not yet seen a
+        message (the structured "not yet available" sentinel callers use
+        to fall back to non-staged navigation).
+        """
+        with self._cache_lock:
+            costmap = self._latest_costmap
+        if costmap is None:
+            return None
+        info = costmap.info
+        origin_x = info.origin.position.x
+        origin_y = info.origin.position.y
+        return CostmapBounds(
+            min_x=origin_x,
+            min_y=origin_y,
+            max_x=origin_x + info.width * info.resolution,
+            max_y=origin_y + info.height * info.resolution,
+            resolution=info.resolution,
+        )
 
     def check_costmap_at_pose(self, x: float, y: float) -> str:
         """Check the Nav2 global costmap cell at the given world (x, y).

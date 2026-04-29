@@ -211,10 +211,9 @@ You are the [DGX | Jetson]-side coding agent. Your task brief is at:
 
 Start by reading the brief and the context modules it links to from
 its "## Context bundle" section. Workspace is already set up
-(branch phase_15-isaaclab3, conda env active where needed) — no
+(using [env_name] conda env; making sure to create your own branch per conventions) — no
 setup commands needed.
 
-You're authorized to commit and push directly to phase_15-isaaclab3.
 When you're done — or if you hit a blocker — give me a short summary
 of what landed plus any remaining open questions.
 ```

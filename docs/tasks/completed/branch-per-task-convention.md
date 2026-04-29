@@ -1,5 +1,8 @@
 # Establish task → branch → PR convention; retrofit active briefs
 
+**Status:** Shipped 2026-04-28 in `91b11b8` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/11
+
 **Type:** task / refactor / docs
 **Owner:** Jetson agent
 **Priority:** P1

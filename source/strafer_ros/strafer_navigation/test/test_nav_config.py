@@ -225,13 +225,60 @@ class TestConstantsInjection:
         footprint = mod._build_footprint(CHASSIS_LENGTH, TRACK_WIDTH)
 
         mod._patch_params(p, footprint, NAV_LINEAR_VEL, NAV_ANGULAR_VEL,
-                          NAV_REVERSE_VEL, MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX)
+                          NAV_REVERSE_VEL, 1.0,
+                          MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX)
 
         # Check MPPI controller
         ctrl = p["controller_server"]["ros__parameters"]["FollowPath"]
         assert ctrl["vx_max"] == NAV_LINEAR_VEL
         assert ctrl["vy_max"] == NAV_LINEAR_VEL
         assert ctrl["wz_max"] == NAV_ANGULAR_VEL
+
+    def test_patch_scales_mppi_sampling_with_envelope_factor(self, pkg_dir):
+        """At envelope_factor=2.0 (sim STRAFER_NAV_VEL_SCALE=1.0), MPPI
+        sampling stds and prune_distance double from the YAML baseline so
+        the larger velocity cap is reachable. Real-robot bringup runs with
+        envelope_factor=1.0 and inherits the baseline values untouched.
+        """
+        import importlib.util
+
+        launch_path = os.path.join(pkg_dir, "launch", "navigation.launch.py")
+        spec = importlib.util.spec_from_file_location("nav_launch", launch_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
+        with open(yaml_path) as f:
+            baseline = yaml.safe_load(f)
+        baseline_mppi = baseline["controller_server"]["ros__parameters"]["FollowPath"]
+        b_vx, b_vy, b_wz = baseline_mppi["vx_std"], baseline_mppi["vy_std"], baseline_mppi["wz_std"]
+        b_prune = baseline_mppi["prune_distance"]
+
+        with open(yaml_path) as f:
+            p = yaml.safe_load(f)
+        footprint = mod._build_footprint(CHASSIS_LENGTH, TRACK_WIDTH)
+        mod._patch_params(p, footprint,
+                          round(MAX_LINEAR_VEL, 4),
+                          round(MAX_ANGULAR_VEL, 4),
+                          round(MAX_LINEAR_VEL * NAV_REVERSE_SCALE, 4),
+                          2.0,
+                          MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX)
+        ctrl = p["controller_server"]["ros__parameters"]["FollowPath"]
+        assert ctrl["vx_std"] == round(b_vx * 2.0, 4)
+        assert ctrl["vy_std"] == round(b_vy * 2.0, 4)
+        assert ctrl["wz_std"] == round(b_wz * 2.0, 4)
+        assert ctrl["prune_distance"] == round(b_prune * 2.0, 4)
+
+        # Identity at envelope_factor=1.0 (real-robot lane).
+        with open(yaml_path) as f:
+            p2 = yaml.safe_load(f)
+        mod._patch_params(p2, footprint, NAV_LINEAR_VEL, NAV_ANGULAR_VEL,
+                          NAV_REVERSE_VEL, 1.0,
+                          MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX)
+        ctrl2 = p2["controller_server"]["ros__parameters"]["FollowPath"]
+        assert ctrl2["vx_std"] == round(b_vx, 4)
+        assert ctrl2["wz_std"] == round(b_wz, 4)
+        assert ctrl2["prune_distance"] == round(b_prune, 4)
 
         # Check costmap resolution
         lc = p["local_costmap"]["local_costmap"]["ros__parameters"]
@@ -272,7 +319,7 @@ class TestNavVelScaleOverride:
         mod = _load_launch_module(pkg_dir)
         env = {k: v for k, v in os.environ.items() if k != "STRAFER_NAV_VEL_SCALE"}
         with patch.dict(os.environ, env, clear=True):
-            linear, angular, reverse = mod._resolved_nav_velocities()
+            linear, angular, reverse, _factor = mod._resolved_nav_velocities()
         assert linear == NAV_LINEAR_VEL
         assert angular == NAV_ANGULAR_VEL
         assert reverse == NAV_REVERSE_VEL
@@ -280,15 +327,35 @@ class TestNavVelScaleOverride:
     def test_unity_scale_lifts_to_hardware_max(self, pkg_dir):
         mod = _load_launch_module(pkg_dir)
         with patch.dict(os.environ, {"STRAFER_NAV_VEL_SCALE": "1.0"}, clear=False):
-            linear, angular, reverse = mod._resolved_nav_velocities()
+            linear, angular, reverse, _factor = mod._resolved_nav_velocities()
         assert linear == round(MAX_LINEAR_VEL, 4)
         assert angular == round(MAX_ANGULAR_VEL, 4)
         assert reverse == round(linear * NAV_REVERSE_SCALE, 4)
 
+    def test_envelope_factor_doubles_at_unity_scale(self, pkg_dir):
+        """At STRAFER_NAV_VEL_SCALE=1.0 the cap doubles vs the 0.5 baseline.
+
+        ``_patch_params`` uses this factor to scale MPPI sampling noise
+        (vx/vy/wz_std) and ``prune_distance`` so the larger envelope is
+        actually exploitable; identity at envelope_factor=1.0 leaves
+        real-robot tuning untouched.
+        """
+        mod = _load_launch_module(pkg_dir)
+        with patch.dict(os.environ, {"STRAFER_NAV_VEL_SCALE": "1.0"}, clear=False):
+            _l, _a, _r, factor = mod._resolved_nav_velocities()
+        assert factor == 2.0
+
+    def test_envelope_factor_one_when_unset(self, pkg_dir):
+        mod = _load_launch_module(pkg_dir)
+        env = {k: v for k, v in os.environ.items() if k != "STRAFER_NAV_VEL_SCALE"}
+        with patch.dict(os.environ, env, clear=True):
+            _l, _a, _r, factor = mod._resolved_nav_velocities()
+        assert factor == 1.0
+
     def test_arbitrary_scale_recomputes_all_three(self, pkg_dir):
         mod = _load_launch_module(pkg_dir)
         with patch.dict(os.environ, {"STRAFER_NAV_VEL_SCALE": "0.75"}, clear=False):
-            linear, angular, reverse = mod._resolved_nav_velocities()
+            linear, angular, reverse, _factor = mod._resolved_nav_velocities()
         assert linear == round(MAX_LINEAR_VEL * 0.75, 4)
         assert angular == round(MAX_ANGULAR_VEL * 0.75, 4)
         assert reverse == round(linear * NAV_REVERSE_SCALE, 4)
@@ -296,7 +363,7 @@ class TestNavVelScaleOverride:
     def test_non_numeric_falls_back_to_defaults(self, pkg_dir):
         mod = _load_launch_module(pkg_dir)
         with patch.dict(os.environ, {"STRAFER_NAV_VEL_SCALE": "fast"}, clear=False):
-            linear, angular, reverse = mod._resolved_nav_velocities()
+            linear, angular, reverse, _factor = mod._resolved_nav_velocities()
         assert linear == NAV_LINEAR_VEL
         assert angular == NAV_ANGULAR_VEL
         assert reverse == NAV_REVERSE_VEL
@@ -304,7 +371,7 @@ class TestNavVelScaleOverride:
     def test_non_positive_falls_back_to_defaults(self, pkg_dir):
         mod = _load_launch_module(pkg_dir)
         with patch.dict(os.environ, {"STRAFER_NAV_VEL_SCALE": "0"}, clear=False):
-            linear, angular, reverse = mod._resolved_nav_velocities()
+            linear, angular, reverse, _factor = mod._resolved_nav_velocities()
         assert linear == NAV_LINEAR_VEL
         assert angular == NAV_ANGULAR_VEL
         assert reverse == NAV_REVERSE_VEL

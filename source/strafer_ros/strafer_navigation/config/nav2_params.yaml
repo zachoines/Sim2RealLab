@@ -109,15 +109,15 @@ controller_server:
       time_steps: 56
       model_dt: 0.05
       batch_size: 2000                  # TUNE: reduce to ~1000 if Jetson CPU is overloaded
-      vx_std: 0.2
-      vy_std: 0.2
-      wz_std: 0.4
+      vx_std: 0.2                       # Real-robot baseline; scaled at launch by envelope_factor (= NAV_VEL_SCALE override / 0.5)
+      vy_std: 0.2                       # Real-robot baseline; scaled at launch by envelope_factor
+      wz_std: 0.4                       # Real-robot baseline; scaled at launch by envelope_factor
       vx_max: 0.5                       # Default — overridden at launch from NAV_LINEAR_VEL
       vx_min: -0.35                     # Default — overridden at launch from NAV_REVERSE_VEL
       vy_max: 0.5                       # Default — overridden at launch from NAV_LINEAR_VEL
       wz_max: 1.9                       # Default — overridden at launch from NAV_ANGULAR_VEL
       iteration_count: 1
-      prune_distance: 1.7
+      prune_distance: 1.7               # Real-robot baseline; scaled at launch by envelope_factor
       transform_tolerance: 0.1
       temperature: 0.3                  # TUNE: lower = greedier trajectory selection
       gamma: 0.015

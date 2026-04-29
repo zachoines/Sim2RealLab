@@ -1,5 +1,88 @@
 # Investigate sim-in-the-loop `/cmd_vel` velocity attenuation
 
+**Status:** Shipped 2026-04-29 (Jetson) — v1; deeper MPPI tuning
+deferred to a follow-up brief (see below).
+**PR:** _set after merge_
+
+**Bisection conclusion:** Jetson lane. `/cmd_vel_nav ≡ /cmd_vel`
+(velocity smoother passes MPPI's command through unchanged) and the
+chassis can reach the cap end-to-end. Manual ground-truth check —
+`ros2 topic pub /cmd_vel {linear.x: 1.5683}` at 20 Hz — produced
+sustained `/strafer/odom.linear.x` of 1.37–1.45 m/s (sim instantaneous
+samples), within ~7–13 % of commanded. So the bridge contract is
+intact and the chassis ceiling is ≈ 1.4 m/s. MPPI, by contrast, was
+plateauing at peak `/cmd_vel.vx ≈ 0.55 m/s` against the sim cap of
+1.5683 m/s during a `translate forward 3 m` mission, with median
+near 0.4 m/s — i.e. asking for ~33 % of the cap when the chassis
+could deliver ~90 % of it.
+
+**Fix shipped (v1):** `_resolved_nav_velocities` now returns an
+`envelope_factor = resolved_scale / NAV_VEL_SCALE` (1.0 real, 2.0
+sim), and `_patch_params` scales MPPI's `vx_std`, `vy_std`, `wz_std`,
+and `prune_distance` linearly by that factor at launch. Identity at
+`envelope_factor=1.0` keeps real-robot bringup byte-identical.
+Empirically a super-linear (factor**1.5) std scaling pushed
+exploration so wide that MPPI started preferring strafe/spin over
+forward progress, so the shipped scaling is linear.
+
+**Post-fix vs pre-fix (`translate forward 3 m`, sim):**
+
+| | peak `/cmd_vel.vx` | peak `/strafer/odom.vx` |
+|---|---|---|
+| Pre-fix | 0.55 m/s | 0.45 m/s |
+| Post-fix (v1, this PR) | 0.83 m/s (+50 %) | 0.53 m/s (+18 %) |
+| Manual `ros2 topic pub` ground truth | 1.5683 m/s commanded | 1.37–1.45 m/s sustained |
+
+Peak commanded velocity moves the right direction. Median commanded
+velocity (~0.4 m/s) didn't shift meaningfully — that gap is critic
+balance, not noise scale, and is the territory of the follow-up.
+
+**Acceptance criteria — what landed:**
+- [x] Bisection between `/cmd_vel` and `/strafer/odom` recorded with
+      a clear "fix lives in the Jetson lane" conclusion.
+- [x] `STRAFER_NAV_VEL_SCALE=1.0` confirmed propagating to Nav2 (via
+      patched-yaml inspection — `vx_max=1.5683`, `wz_max=4.1866`).
+- [x] No regression on real-robot bringup — `envelope_factor=1.0`
+      branch keeps controller config byte-identical to YAML baseline,
+      asserted in `test_nav_config.py`.
+- [x] If your work invalidates a fact in any referenced context
+      module, update that module in the same commit. *(No invalidations.)*
+
+- [ ] **Median sustained `/strafer/odom.linear.x ≥ 0.8 × cap`** —
+      not met by v1 (sustained ≈ 0.2–0.5 m/s vs target 1.255 m/s).
+      Deferred to the MPPI critic-tuning follow-up below; the v1
+      std-scaling lifts MPPI's *exploration* into the new envelope,
+      but the critic landscape (especially `PathAlignCritic`,
+      weight 14.0) still biases the chosen mean toward slow precise
+      path-tracking.
+- [ ] **`translate 3 m forward` completes inside its timeout** — not
+      met, but for an orthogonal reason: every translate validation
+      tripped the planner-side `plan_compiler.py:158`
+      `timeout_s=60.0` hardcode, which silently overrides the
+      executor's 180 s `STRAFER_NAVIGATION_TIMEOUT_S` sim-time
+      budget. Same shape of bug the brief calls out for line 87
+      (`navigate_to_pose=90.0`); filed as a separate follow-up.
+- [ ] **Rotate-by-degrees regression check** + **far-goal staging
+      regression check** — not run. Held pending the timeout
+      follow-up; both will fire the same hardcoded-timeout path
+      regardless of MPPI tuning, so re-running them today would not
+      produce diagnostic data. Re-validate as part of the
+      timeout-fix brief or the critic-tuning brief, whichever lands
+      first.
+
+**Follow-ups filed:**
+- [`mppi-critic-tuning-for-sim-envelope.md`](../mppi-critic-tuning-for-sim-envelope.md)
+  — the deeper tuning pass (PathAlign / PreferForward weights,
+  PathFollow offset, iteration_count, temperature) needed to push
+  median commanded vel toward the cap. Picks up where this v1 ends.
+- [`plan-compiler-skill-timeouts.md`](../plan-compiler-skill-timeouts.md)
+  — `plan_compiler.py:56-233` hardcodes per-skill `timeout_s`
+  values that silently override the executor's
+  `STRAFER_NAVIGATION_TIMEOUT_S=180` sim-time budget. Generalizes
+  the navigate_to_pose=90 case the brief calls out to translate=60
+  and rotate_by_degrees=30, both surfaced during this task's
+  validation runs.
+
 **Type:** task / bug
 **Owner:** Either (bisection determines the lane — see Approach)
 **Priority:** P1 — currently blocks end-to-end mission validation in sim

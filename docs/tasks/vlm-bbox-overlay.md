@@ -5,6 +5,7 @@
 **Priority:** P2
 **Estimate:** S (a few hours; one publisher in the executor + a Foxglove
 layout tweak + a smoke test)
+**Branch:** task/vlm-bbox-overlay
 
 ## Story
 

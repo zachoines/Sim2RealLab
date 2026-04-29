@@ -5,6 +5,7 @@
 **Priority:** P2
 **Estimate:** S–M (a few hours of measurement + write-up; M only if it
 escalates into a separate retraining task)
+**Branch:** task/real-d555-depth-range-survey
 
 ## Story
 

@@ -61,6 +61,8 @@ ownership; the filename should still read sensibly when you scan
 **Owner:** DGX agent / Jetson agent / either
 **Priority:** P0 / P1 / P2
 **Estimate:** S / M / L  (rough effort; ~hours / ~day / ~multi-day)
+**Branch:** task/<brief-slug>  (= filename minus .md, prefixed with
+                                "task/"; see context/branching-and-prs.md)
 
 ## Story
 
@@ -72,7 +74,9 @@ Read these before starting:
 - [context/repo-topology.md](context/repo-topology.md)
 - [context/ownership-boundaries.md](context/ownership-boundaries.md)
 - [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
-  *(omit modules that are not relevant to this task)*
+- [context/branching-and-prs.md](context/branching-and-prs.md)
+  *(omit modules that are not relevant to this task; branching-and-prs
+   is universally relevant)*
 
 ## Context
 
@@ -103,8 +107,9 @@ work and producing oversize PRs.>
 
 ### Required vs optional sections
 
-- **Required:** Title, the four frontmatter fields, Story, Mission /
-  Context (one or the other), Acceptance criteria, Out of scope.
+- **Required:** Title, the five frontmatter fields (Type, Owner,
+  Priority, Estimate, Branch), Story, Mission / Context (one or the
+  other), Acceptance criteria, Out of scope.
 - **Recommended:** Context bundle (skip only for trivial,
   self-contained tasks).
 - **Optional:** Investigation pointers (skip when there's nothing

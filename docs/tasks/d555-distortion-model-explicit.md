@@ -6,6 +6,7 @@
 **Estimate:** S (~half day; small d555_cfg / startup-event edit + smoke
 verification that the warnings are gone and `/d555/color/camera_info`
 still matches real-D555 intrinsics)
+**Branch:** task/d555-distortion-model-explicit
 
 ## Story
 

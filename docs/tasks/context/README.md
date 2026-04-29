@@ -160,6 +160,9 @@ accurate.
   `Co-Authored-By:` / agent-attribution trailers),
   no-transient-doc-references-in-code rule, Mermaid edge-label
   rule, closed-brief lifecycle.
+- [`branching-and-prs.md`](branching-and-prs.md) — one brief = one
+  branch = one PR; naming, branch-off point (always `main`), per-task
+  workflow, PR composition rules, merge style.
 
 One more candidate flagged for Pass 3 if duplication shows up:
 

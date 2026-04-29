@@ -5,6 +5,7 @@
 **Priority:** P1
 **Estimate:** M (~1–2 days; executor staging loop + costmap-bounds query
 helper + tests, plus re-enable of the sim env override on green)
+**Branch:** task/nav2-far-goal-staging
 
 ## Story
 

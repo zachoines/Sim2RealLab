@@ -19,6 +19,11 @@ STRAFER_NAVIGATION_TIMEOUT_S : Override the default navigate_to_pose timeout (op
                          The executor's nav timeout ticks on the executor node's clock, so under
                          use_sim_time:=true this is a sim-time budget. Raise it on sub-unity-RTF sim
                          scenes where 90 s of sim time can correspond to several minutes of wall time.
+STRAFER_NAV_STAGING_BUDGET : Override the maximum number of clamped intermediate Nav2 goals issued
+                         by `_navigate_via_staging` when the projected target lands outside the global
+                         costmap (optional, integer; default 4). One additional final Nav2 goal fires
+                         once the projection lands inside the costmap, so the worst-case Nav2 goal
+                         count per navigate-with-projection step is `budget + 1`.
 """
 
 from __future__ import annotations
@@ -44,6 +49,27 @@ def _read_float_env(name: str, config_key: str, target: dict) -> None:
         logger.info("%s overridden to %s via env", config_key, raw)
     except ValueError:
         logger.warning("Ignoring non-numeric %s=%r", name, raw)
+
+
+def _read_positive_int_env(name: str, config_key: str, target: dict) -> None:
+    """Copy ``$name`` into ``target[config_key]`` as a positive int, if set.
+
+    Mirrors ``_read_float_env`` semantics: unset preserves the default,
+    non-numeric and non-positive values log a warning and fall through.
+    """
+    raw = os.environ.get(name)
+    if not raw:
+        return
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("Ignoring non-numeric %s=%r", name, raw)
+        return
+    if value <= 0:
+        logger.warning("Ignoring non-positive %s=%d", name, value)
+        return
+    target[config_key] = value
+    logger.info("%s overridden to %d via env", config_key, value)
 
 
 def main() -> None:
@@ -101,6 +127,11 @@ def main() -> None:
     _read_float_env(
         "STRAFER_NAVIGATION_TIMEOUT_S",
         "default_navigation_timeout_s",
+        mission_config_kwargs,
+    )
+    _read_positive_int_env(
+        "STRAFER_NAV_STAGING_BUDGET",
+        "staging_budget",
         mission_config_kwargs,
     )
     runner_config = (

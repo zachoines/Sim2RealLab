@@ -38,6 +38,61 @@ from strafer_autonomy.semantic_map.models import (
 )
 
 
+def clamp_goal_to_costmap_bounds(
+    *,
+    robot_xy: tuple[float, float],
+    goal_xy: tuple[float, float],
+    bounds: Any,
+    footprint_radius_m: float,
+) -> tuple[tuple[float, float], bool]:
+    """Clamp ``goal_xy`` to lie inside ``bounds`` (shrunk by the footprint
+    radius), travelling along the ``robot_xy → goal_xy`` ray.
+
+    Returns ``(clamped_xy, was_clamped)``. ``was_clamped`` is True iff the
+    returned point differs from ``goal_xy`` because the goal was outside
+    the safe rectangle. The robot pose itself is not validated — callers
+    should already know the robot is roughly inside the costmap.
+    """
+    safe_min_x = bounds.min_x + footprint_radius_m
+    safe_min_y = bounds.min_y + footprint_radius_m
+    safe_max_x = bounds.max_x - footprint_radius_m
+    safe_max_y = bounds.max_y - footprint_radius_m
+
+    # Degenerate rectangle (footprint margin too large) — nothing to clamp to.
+    if safe_max_x <= safe_min_x or safe_max_y <= safe_min_y:
+        return goal_xy, False
+
+    gx, gy = goal_xy
+    if safe_min_x <= gx <= safe_max_x and safe_min_y <= gy <= safe_max_y:
+        return (gx, gy), False
+
+    rx, ry = robot_xy
+    dx = gx - rx
+    dy = gy - ry
+    if dx == 0.0 and dy == 0.0:
+        return (rx, ry), True
+
+    # Largest t in [0, 1] such that (rx + t*dx, ry + t*dy) is on or inside
+    # the safe rectangle. The slab method: each axis contributes at most
+    # one upper bound on t in the direction of motion.
+    t_max = 1.0
+    if dx > 0.0:
+        t_max = min(t_max, (safe_max_x - rx) / dx)
+    elif dx < 0.0:
+        t_max = min(t_max, (safe_min_x - rx) / dx)
+    if dy > 0.0:
+        t_max = min(t_max, (safe_max_y - ry) / dy)
+    elif dy < 0.0:
+        t_max = min(t_max, (safe_min_y - ry) / dy)
+
+    # Robot already outside the safe rectangle on the relevant side — t goes
+    # negative. Pin to the robot's own pose so the caller can recognize the
+    # leg as a no-op.
+    t_max = max(0.0, min(1.0, t_max))
+    clamped = (rx + t_max * dx, ry + t_max * dy)
+    return clamped, True
+
+
 DEFAULT_AVAILABLE_SKILLS = (
     "capture_scene_observation",
     "locate_semantic_target",
@@ -69,6 +124,18 @@ class MissionRunnerConfig:
     default_navigation_timeout_s: float = 90.0
     default_navigation_backend: str = "nav2"
     min_grounding_confidence: float = 0.5
+    # Maximum number of clamped intermediate Nav2 goals issued by the
+    # staging loop in `_navigate_via_staging`. The loop also issues one
+    # final Nav2 goal once the projected target lands inside the global
+    # costmap, so up to ``staging_budget + 1`` Nav2 goals may fire on a
+    # single navigate-with-projection step. Override per-deployment via
+    # ``STRAFER_NAV_STAGING_BUDGET``.
+    staging_budget: int = 4
+    # Margin from the costmap edge when clamping a far goal, in meters.
+    # Sized to the chassis circumscribed radius so the clamped pose
+    # leaves a robot-footprint of slack between the goal and the
+    # costmap boundary, keeping Nav2's planner away from edge cells.
+    staging_footprint_radius_m: float = 0.3
 
 
 @dataclass
@@ -791,6 +858,21 @@ class MissionRunner(MissionCommandHandler):
                 started_at,
             )
 
+        # Only the projected-target path can re-ground/re-project for staging.
+        # Explicit goal_pose nav (e.g. from `translate`) bypasses staging and
+        # dispatches a single Nav2 goal as before.
+        if goal_source == "projected_target":
+            return self._navigate_via_staging(runtime, step, goal_pose, started_at)
+        return self._dispatch_nav_goal(step, goal_pose, started_at)
+
+    def _dispatch_nav_goal(
+        self,
+        step: SkillCall,
+        goal_pose: Pose3D,
+        started_at: float,
+    ) -> SkillResult:
+        """Send one goal to Nav2 with optional transit-divergence monitoring."""
+
         transit_monitor = self._activate_transit_monitor(goal_pose, step)
 
         nav_kwargs = dict(
@@ -856,6 +938,351 @@ class MissionRunner(MissionCommandHandler):
             transit_monitor.deactivate()
             if self._background_mapper is not None:
                 self._background_mapper.clear_divergence()
+
+    # ------------------------------------------------------------------
+    # Costmap-aware staging for far projected goals
+    # ------------------------------------------------------------------
+
+    def _navigate_via_staging(
+        self,
+        runtime: _MissionRuntime,
+        step: SkillCall,
+        initial_goal_pose: Pose3D,
+        started_at: float,
+    ) -> SkillResult:
+        """Drive the robot toward a projected goal in costmap-bounded stages.
+
+        When the projected goal is already inside the global costmap (or
+        the costmap is not yet available), this dispatches a single Nav2
+        goal — identical behavior to pre-staging code, no extra VLM calls.
+
+        Otherwise, clamps the goal along the robot→target vector to a
+        point a footprint-radius inside the costmap edge, drives there,
+        re-grounds via the VLM, re-projects, and repeats until the new
+        projection lands inside the costmap or ``staging_budget`` legs
+        are spent.
+        """
+        budget = max(0, int(self._config.staging_budget))
+        footprint_margin = float(self._config.staging_footprint_radius_m)
+        standoff_m = float(step.args.get("standoff_m", self._config.default_standoff_m))
+
+        seed_grounding = runtime.latest_grounding
+        label = (seed_grounding.label if seed_grounding is not None else "") or str(
+            step.args.get("target_label", "")
+        )
+        prompt_override = step.args.get("regrounding_prompt")
+        max_image_side = int(
+            step.args.get("max_image_side", self._config.default_grounding_max_image_side)
+        )
+
+        final_goal = initial_goal_pose
+        stage_log: list[dict[str, Any]] = []
+
+        for stage_idx in range(budget + 1):
+            bounds = self._safe_get_costmap_bounds()
+            robot_xy = self._safe_get_robot_xy()
+
+            in_costmap = self._goal_inside_bounds(
+                final_goal, bounds=bounds, footprint_margin=footprint_margin,
+            )
+
+            # Dispatch the final Nav2 goal when:
+            #   - the costmap has the goal covered (with footprint margin),
+            #   - the costmap is not yet available (we cannot stage safely),
+            #   - we have no robot pose to clamp against, or
+            #   - we lack a label to re-ground after the leg.
+            if in_costmap or bounds is None or robot_xy is None or not label:
+                if stage_log:
+                    _logger.info(
+                        "Staging dispatching final goal after %d clamped leg(s).",
+                        len(stage_log),
+                    )
+                result = self._dispatch_nav_goal(step, final_goal, started_at)
+                if stage_log:
+                    new_outputs = dict(result.outputs)
+                    new_outputs["staging_legs"] = stage_log
+                    new_outputs["stages_used"] = len(stage_log)
+                    result = SkillResult(
+                        step_id=result.step_id,
+                        skill=result.skill,
+                        status=result.status,
+                        outputs=new_outputs,
+                        error_code=result.error_code,
+                        message=result.message,
+                        started_at=result.started_at,
+                        finished_at=result.finished_at,
+                    )
+                return result
+
+            if stage_idx >= budget:
+                _logger.error(
+                    "Staging budget exhausted (%d legs); final goal still off-costmap "
+                    "at (%.3f, %.3f).",
+                    budget, final_goal.x, final_goal.y,
+                )
+                return self._failed_result(
+                    step,
+                    message=(
+                        f"Navigation staging exhausted after {budget} leg(s); "
+                        f"projected goal ({final_goal.x:.2f}, {final_goal.y:.2f}) "
+                        "is still outside the global costmap."
+                    ),
+                    error_code="navigate_via_staging_exhausted",
+                    started_at=started_at,
+                    outputs={
+                        "stages_used": budget,
+                        "staging_legs": stage_log,
+                        "final_goal_x": final_goal.x,
+                        "final_goal_y": final_goal.y,
+                    },
+                )
+
+            clamped_xy, was_clamped = clamp_goal_to_costmap_bounds(
+                robot_xy=robot_xy,
+                goal_xy=(final_goal.x, final_goal.y),
+                bounds=bounds,
+                footprint_radius_m=footprint_margin,
+            )
+            if not was_clamped:
+                # Goal looked off-costmap to ``_goal_inside_bounds`` but the
+                # clamp helper reports no clamp was needed — possible if the
+                # safe rectangle is degenerate. Fall back to direct dispatch.
+                _logger.warning(
+                    "Staging stage %d: clamp produced no progress; dispatching final goal.",
+                    stage_idx,
+                )
+                return self._dispatch_nav_goal(step, final_goal, started_at)
+
+            stage_yaw = math.atan2(
+                final_goal.y - robot_xy[1], final_goal.x - robot_xy[0],
+            )
+            stage_goal_pose = Pose3D(
+                x=clamped_xy[0],
+                y=clamped_xy[1],
+                z=final_goal.z,
+                qx=0.0,
+                qy=0.0,
+                qz=math.sin(stage_yaw / 2.0),
+                qw=math.cos(stage_yaw / 2.0),
+            )
+            _logger.info(
+                "Staging stage %d/%d: robot (%.3f, %.3f) → clamped (%.3f, %.3f) "
+                "toward target (%.3f, %.3f); bounds (%.2f..%.2f, %.2f..%.2f).",
+                stage_idx + 1, budget,
+                robot_xy[0], robot_xy[1],
+                clamped_xy[0], clamped_xy[1],
+                final_goal.x, final_goal.y,
+                bounds.min_x, bounds.max_x, bounds.min_y, bounds.max_y,
+            )
+
+            leg_step = SkillCall(
+                step_id=f"{step.step_id}:stage_{stage_idx + 1}",
+                skill=step.skill,
+                args=step.args,
+                timeout_s=step.timeout_s,
+                retry_limit=step.retry_limit,
+            )
+            leg_result = self._dispatch_nav_goal(leg_step, stage_goal_pose, time.time())
+            stage_entry: dict[str, Any] = {
+                "stage": stage_idx + 1,
+                "clamped_goal": [clamped_xy[0], clamped_xy[1]],
+                "stage_yaw_rad": stage_yaw,
+                "leg_status": leg_result.status,
+            }
+            if leg_result.status != "succeeded":
+                stage_entry["leg_error_code"] = leg_result.error_code
+                stage_entry["leg_message"] = leg_result.message
+                stage_log.append(stage_entry)
+                return self._failed_result(
+                    step,
+                    message=(
+                        f"Staging leg {stage_idx + 1}/{budget} failed: "
+                        f"{leg_result.message}"
+                    ),
+                    error_code=leg_result.error_code or "navigation_failed",
+                    started_at=started_at,
+                    outputs={
+                        "stages_used": stage_idx + 1,
+                        "staging_legs": stage_log,
+                        "failed_stage": stage_idx + 1,
+                    },
+                )
+
+            # Re-ground from the new vantage point so we can re-project.
+            try:
+                observation = self._ros_client.capture_scene_observation()
+                with self._lock:
+                    runtime.latest_observation = observation
+            except Exception as exc:
+                stage_entry["regrounding_error"] = f"capture_failed: {exc}"
+                stage_log.append(stage_entry)
+                return self._failed_result(
+                    step,
+                    message=(
+                        f"Staging leg {stage_idx + 1}: post-arrival capture failed: {exc}"
+                    ),
+                    error_code="capture_failed",
+                    started_at=started_at,
+                    outputs={
+                        "stages_used": stage_idx + 1,
+                        "staging_legs": stage_log,
+                    },
+                )
+
+            try:
+                grounding = self._grounding_client.locate_semantic_target(
+                    GroundingRequest(
+                        request_id=(
+                            f"{runtime.mission_id}:{step.step_id}:stage_{stage_idx + 1}"
+                        ),
+                        prompt=str(prompt_override or f"Locate: {label}"),
+                        image_rgb_u8=self._bgr_to_rgb(observation.color_image_bgr),
+                        image_stamp_sec=observation.stamp_sec,
+                        max_image_side=max_image_side,
+                    )
+                )
+            except Exception as exc:
+                stage_entry["regrounding_error"] = f"grounding_failed: {exc}"
+                stage_log.append(stage_entry)
+                return self._failed_result(
+                    step,
+                    message=(
+                        f"Staging leg {stage_idx + 1}: re-grounding failed: {exc}"
+                    ),
+                    error_code="grounding_failed",
+                    started_at=started_at,
+                    outputs={
+                        "stages_used": stage_idx + 1,
+                        "staging_legs": stage_log,
+                    },
+                )
+
+            with self._lock:
+                runtime.latest_grounding = grounding
+
+            if not grounding.found or grounding.bbox_2d is None:
+                stage_entry["regrounding_status"] = "target_not_found"
+                stage_log.append(stage_entry)
+                return self._failed_result(
+                    step,
+                    message=(
+                        f"Staging leg {stage_idx + 1}: target '{label}' not "
+                        "re-grounded after arrival."
+                    ),
+                    error_code="navigate_via_staging_target_lost",
+                    started_at=started_at,
+                    outputs={
+                        "stages_used": stage_idx + 1,
+                        "staging_legs": stage_log,
+                    },
+                )
+
+            try:
+                candidate = self._ros_client.project_detection_to_goal_pose(
+                    request_id=(
+                        f"{runtime.mission_id}:{step.step_id}:stage_{stage_idx + 1}:proj"
+                    ),
+                    image_stamp_sec=observation.stamp_sec,
+                    bbox_2d=grounding.bbox_2d,
+                    standoff_m=standoff_m,
+                    target_label=grounding.label or label,
+                )
+            except Exception as exc:
+                stage_entry["regrounding_error"] = f"projection_exception: {exc}"
+                stage_log.append(stage_entry)
+                return self._failed_result(
+                    step,
+                    message=(
+                        f"Staging leg {stage_idx + 1}: re-projection raised: {exc}"
+                    ),
+                    error_code="goal_projection_failed",
+                    started_at=started_at,
+                    outputs={
+                        "stages_used": stage_idx + 1,
+                        "staging_legs": stage_log,
+                    },
+                )
+
+            if not candidate.found or candidate.goal_pose is None:
+                stage_entry["regrounding_status"] = "projection_failed"
+                stage_entry["projection_message"] = candidate.message
+                stage_log.append(stage_entry)
+                return self._failed_result(
+                    step,
+                    message=(
+                        f"Staging leg {stage_idx + 1}: re-projection produced no "
+                        f"goal pose: {candidate.message}"
+                    ),
+                    error_code="goal_projection_failed",
+                    started_at=started_at,
+                    outputs={
+                        "stages_used": stage_idx + 1,
+                        "staging_legs": stage_log,
+                    },
+                )
+
+            with self._lock:
+                runtime.latest_goal_pose = candidate
+            new_goal = candidate.goal_pose
+            stage_entry["regrounding_status"] = "ok"
+            stage_entry["projected_goal"] = [new_goal.x, new_goal.y]
+            stage_log.append(stage_entry)
+            _logger.info(
+                "Staging stage %d arrived; re-projection → goal (%.3f, %.3f).",
+                stage_idx + 1, new_goal.x, new_goal.y,
+            )
+            final_goal = new_goal
+
+        # Loop body always returns; this is a safety net for the type
+        # checker.
+        return self._failed_result(
+            step,
+            "Staging loop fell through without a result.",
+            "navigate_via_staging_internal_error",
+            started_at,
+        )
+
+    def _safe_get_costmap_bounds(self) -> Any:
+        try:
+            return self._ros_client.get_global_costmap_bounds()
+        except Exception:
+            _logger.debug("get_global_costmap_bounds failed", exc_info=True)
+            return None
+
+    def _safe_get_robot_xy(self) -> tuple[float, float] | None:
+        try:
+            pose = self._ros_client.get_map_pose()
+        except Exception:
+            _logger.debug("get_map_pose failed", exc_info=True)
+            return None
+        if pose is None:
+            return None
+        return float(pose["x"]), float(pose["y"])
+
+    @staticmethod
+    def _goal_inside_bounds(
+        goal_pose: Pose3D,
+        *,
+        bounds: Any,
+        footprint_margin: float,
+    ) -> bool:
+        """Return True iff ``goal_pose`` lies inside the costmap bounds
+        shrunk by ``footprint_margin`` on every side. Returns False when
+        bounds are unavailable so the caller distinguishes "off-costmap"
+        from "no costmap yet" via an explicit ``bounds is None`` check.
+        """
+        if bounds is None:
+            return False
+        safe_min_x = bounds.min_x + footprint_margin
+        safe_min_y = bounds.min_y + footprint_margin
+        safe_max_x = bounds.max_x - footprint_margin
+        safe_max_y = bounds.max_y - footprint_margin
+        if safe_max_x <= safe_min_x or safe_max_y <= safe_min_y:
+            return False
+        return (
+            safe_min_x <= goal_pose.x <= safe_max_x
+            and safe_min_y <= goal_pose.y <= safe_max_y
+        )
 
     def _activate_transit_monitor(self, goal_pose: Pose3D, step: SkillCall) -> Any:
         if self._background_mapper is None:

@@ -6,16 +6,19 @@ work that a fresh agent (DGX, Jetson, or either) can pick up and
 execute against without needing the operator to also write a long
 preamble each time.
 
-Briefs are persistent across sessions. When work lands, the brief
-moves into [`completed/`](completed/) in the same commit that ships
-the change, with a `**Status:** Shipped <date> in <commit> (<host>).`
-+ `**PR:** <url>` stamp at the top. [`BOARD.md`](BOARD.md) is updated
-in the same commit. The active queue stays scannable while shipped
-briefs remain discoverable as a record of what we asked for, the
-acceptance criteria we held the change to, and which follow-ups it
-spawned. Git history records the *what changed*; the brief records
-the *what we set out to do* — both are useful, and they're different
-artifacts.
+Briefs are persistent across sessions. When you ship a brief, the
+housekeeping (stamp + move to [`completed/`](completed/) + update
+[`BOARD.md`](BOARD.md)) happens **inside the same PR as the work,
+before merging** — the exact sequence is documented under
+[Shipping a brief: order of operations](#shipping-a-brief-order-of-operations)
+below. Doing it after merge is the failure mode and has bitten us
+before; the rule is now strict.
+
+The active queue stays scannable while shipped briefs remain
+discoverable as a record of what we asked for, the acceptance
+criteria we held the change to, and which follow-ups it spawned.
+Git history records the *what changed*; the brief records the *what
+we set out to do* — both are useful, and they're different artifacts.
 
 **If you've landed here as a fresh agent looking for work, open
 [`BOARD.md`](BOARD.md).** It's the glanceable index of the queue,
@@ -191,13 +194,90 @@ A few rules of thumb that hold up in practice:
 - **Multi-task briefs.** "Refactor A and also fix B and also
   document C" — split into three briefs. The Jira-style format is
   designed for one ticket = one PR.
-- **Stale briefs.** When work ships, move the brief into
-  [`completed/`](completed/) (with a Shipped stamp) AND update
-  [`BOARD.md`](BOARD.md) in the same commit. Living briefs in the
-  top level that nobody owns become noise; an unstamped brief in
-  `completed/` is ambiguous between "shipped" and "abandoned"; a
-  board entry that points at a `completed/` path makes the index
-  lie about its own contents.
+- **Stale briefs.** When work ships, the housekeeping (stamp,
+  move to [`completed/`](completed/), update [`BOARD.md`](BOARD.md))
+  has to happen **inside the PR that ships the work, before
+  merging.** See
+  [Shipping a brief: order of operations](#shipping-a-brief-order-of-operations)
+  below for the exact sequence. Living briefs in the top level that
+  nobody owns become noise; an unstamped brief in `completed/` is
+  ambiguous between "shipped" and "abandoned"; a board entry that
+  points at a `completed/` path makes the index lie about its own
+  contents. Doing the housekeeping after merge is the failure mode
+  and has bitten us once already.
+
+---
+
+## Shipping a brief: order of operations
+
+When you ship a brief, the housekeeping happens **inside the PR
+that ships the work, before merging** — not after. Sequence on
+your task branch:
+
+1. **Land all work commits.** The actual code changes, tests,
+   docs, etc. that satisfy the brief's acceptance criteria.
+
+2. **As one of the last commits before requesting review, do the
+   housekeeping in a single commit.** Three things together:
+
+   a. Stamp the brief at the top, above the existing fields:
+
+      ```markdown
+      **Status:** Shipped <YYYY-MM-DD> in `<ship-commit>` (<host>).
+      **PR:** https://github.com/<org>/<repo>/pull/<N>
+      ```
+
+      `<ship-commit>` is the *work commit* on this branch (the
+      commit that lands the substantive change), not the merge
+      commit — the merge commit doesn't exist yet. `<host>` is
+      `Jetson` / `DGX` / `Either` per the brief's `Owner` field.
+
+   b. `git mv docs/tasks/<brief>.md docs/tasks/completed/<brief>.md`.
+
+   c. Update [`BOARD.md`](BOARD.md):
+      - Remove the brief's row from **In flight**. If In flight is
+        now empty, leave a single `_None._` row.
+      - If the brief's validation surfaced follow-ups that you
+        filed during this PR, ensure they're listed under
+        **Ready to pick up** (or **Blocked** if they have
+        unshipped dependencies).
+      - If, by the time you ship, the **Recently shipped —
+        housekeeping missed** section is non-empty, also clear
+        those entries here. That section is a tripwire; the next
+        PR touching `docs/tasks/` resolves it.
+
+3. **Request review and merge.** The PR cannot merge without the
+   housekeeping commit. Reviewers should treat its absence as a
+   blocker.
+
+### Why "in PR, before merge" is strict
+
+The looser "do it after merge eventually" rule has dropped before:
+[`completed/nav2-far-goal-staging.md`](completed/nav2-far-goal-staging.md)
+shipped in PR #13 / 2026-04-29 but its brief sat in the active
+queue until PR #15 caught it a week later. The active queue
+silently misrepresented work-in-flight for that whole window. The
+in-PR rule removes the discretion: there's no "later," there's
+just "before merge."
+
+The flipside is that the brief's `Status:` stamp uses the *ship
+commit* on the branch, which exists at PR-creation time — not the
+merge commit, which doesn't yet. That's a deliberate trade: the
+ship commit is identifiable now, and `git log --oneline` /
+`git show <ship-commit>` resolves the same actual change either
+way.
+
+### What "shipping a brief" means in this convention
+
+Only one brief per PR is moved on ship — the brief whose work the
+PR was opened to execute. Briefs *filed* during the same PR (as
+follow-ups surfaced by the work) stay in active queue under
+**Ready to pick up** — they're new work, not shipped work.
+
+If a PR ships work that doesn't correspond to a brief (small
+hotfixes, bumps, etc.), there's nothing to move; the BOARD.md
+update is also unneeded. The rule applies only to the brief→PR
+1:1 case the workflow is built around.
 
 ---
 

@@ -1,5 +1,12 @@
 # Tune MPPI critics so sim missions actually use the lifted velocity envelope
 
+**Status:** Shipped 2026-05-03 in `4b55093` (Jetson). Converged at
+sustained median odom vx 0.632 m/s — ~63% of the literal acceptance
+threshold; remaining gap split across two filed follow-up briefs
+([`nav2-startup-unknown-donut-path-noise`](nav2-startup-unknown-donut-path-noise.md)
+and [`strafer-inference-package`](strafer-inference-package.md)).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/15
+
 **Type:** task / tuning
 **Owner:** Jetson agent
 **Priority:** P2

@@ -16,11 +16,14 @@ see [`README.md`](README.md). For lane definitions, see
 
 ## In flight
 
-Open PRs — don't pick these up.
+Open PRs — don't pick these up. Empty when no brief is being
+executed (briefs are removed from this section in the same PR
+that ships them; see "Shipping a brief: order of operations" in
+[`README.md`](README.md)).
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`mppi-critic-tuning-for-sim-envelope`](mppi-critic-tuning-for-sim-envelope.md) | Jetson | [#15](https://github.com/zachoines/Sim2RealLab/pull/15) | review |
+| _None._ | | | |
 
 ---
 
@@ -97,14 +100,22 @@ Briefs that aren't pickable until something else lands.
 
 ---
 
-## Recently shipped — pending move to `completed/`
+## Recently shipped — housekeeping missed
 
-Empty when housekeeping is current. When non-empty, the next
-brief-touching commit should move these.
+**Should normally be empty.** This is a tripwire, not a normal
+workflow step. A non-empty entry means a PR shipped without its
+housekeeping commit (brief stamp + move to `completed/` + In-flight
+row removed). The next PR touching `docs/tasks/` should clear it.
+
+The "in-PR" rule under "Shipping a brief: order of operations" in
+[`README.md`](README.md) is what makes this section normally empty.
+Historical example: `completed/nav2-far-goal-staging.md` shipped in
+PR #13 / 2026-04-29 but didn't get moved until PR #15 — the gap was
+caught only because we built this board and audited the queue.
 
 | Brief | Shipped in | PR |
 |---|---|---|
-| _(none — `nav2-far-goal-staging` was moved in the same commit that introduced this board)_ | | |
+| _None._ | | |
 
 ---
 

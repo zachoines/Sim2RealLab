@@ -110,7 +110,7 @@ controller_server:
       model_dt: 0.05
       batch_size: 2000                  # TUNE: reduce to ~1000 if Jetson CPU is overloaded
       vx_std: 0.2                       # Real-robot baseline; scaled at launch by envelope_factor (= NAV_VEL_SCALE override / 0.5)
-      vy_std: 0.2                       # Real-robot baseline; scaled at launch by envelope_factor
+      vy_std: 0.2                       # Real-robot baseline; envelope_factor scaling un-done at launch when envelope_factor>1.0 (sim) — lifted envelope is for forward+rotation, not lateral
       wz_std: 0.4                       # Real-robot baseline; scaled at launch by envelope_factor
       vx_max: 0.5                       # Default — overridden at launch from NAV_LINEAR_VEL
       vx_min: -0.35                     # Default — overridden at launch from NAV_REVERSE_VEL
@@ -120,7 +120,7 @@ controller_server:
       prune_distance: 1.7               # Real-robot baseline; scaled at launch by envelope_factor
       transform_tolerance: 0.1
       temperature: 0.3                  # TUNE: lower = greedier trajectory selection
-      gamma: 0.015
+      gamma: 0.015                      # Real-robot baseline; lowered to 0.008 at launch when envelope_factor>1.0 (sim) — less smoothing on commanded controls so the running mean reaches the high-vx optimum faster
       motion_model: "Omni"              # mecanum / holonomic
       visualize: false
       retry_attempt_limit: 1
@@ -155,7 +155,7 @@ controller_server:
       PreferForwardCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 3.0               # TUNE: lower for more strafing, higher to prefer forward
+        cost_weight: 3.0               # Real-robot baseline; bumped to 10.0 at launch when envelope_factor>1.0 (sim) to dominate PathAlign's lateral pull on noisy global paths
         threshold_to_consider: 0.5
       CostCritic:
         enabled: true
@@ -169,7 +169,7 @@ controller_server:
       PathAlignCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 14.0
+        cost_weight: 14.0              # Real-robot baseline; lowered to 9.0 at launch when envelope_factor>1.0 (sim) — at higher velocity, integration noise puts rollouts off-path even on straights and 14.0 suppresses speed
         max_path_occupancy_ratio: 0.05
         trajectory_point_step: 4
         threshold_to_consider: 0.5
@@ -179,7 +179,7 @@ controller_server:
         enabled: true
         cost_power: 1
         cost_weight: 5.0
-        offset_from_furthest: 5
+        offset_from_furthest: 5        # Real-robot baseline (~25 cm past furthest at MAP_RESOLUTION=0.05); raised to 20 at launch when envelope_factor>1.0 (sim) so the look-ahead target sits ~1 m ahead and high-speed rollouts win on cost
         threshold_to_consider: 1.4
       PathAngleCritic:
         enabled: true

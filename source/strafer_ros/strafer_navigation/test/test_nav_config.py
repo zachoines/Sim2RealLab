@@ -265,7 +265,10 @@ class TestConstantsInjection:
                           MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX)
         ctrl = p["controller_server"]["ros__parameters"]["FollowPath"]
         assert ctrl["vx_std"] == round(b_vx * 2.0, 4)
-        assert ctrl["vy_std"] == round(b_vy * 2.0, 4)
+        # vy_std is scaled by envelope_factor like the others but then
+        # un-scaled back to YAML baseline inside the envelope_factor>1.0
+        # block — lifted envelope is for forward+rotation, not lateral.
+        assert ctrl["vy_std"] == round(b_vy, 4)
         assert ctrl["wz_std"] == round(b_wz * 2.0, 4)
         assert ctrl["prune_distance"] == round(b_prune * 2.0, 4)
 
@@ -277,6 +280,7 @@ class TestConstantsInjection:
                           MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX)
         ctrl2 = p2["controller_server"]["ros__parameters"]["FollowPath"]
         assert ctrl2["vx_std"] == round(b_vx, 4)
+        assert ctrl2["vy_std"] == round(b_vy, 4)
         assert ctrl2["wz_std"] == round(b_wz, 4)
         assert ctrl2["prune_distance"] == round(b_prune, 4)
 
@@ -289,6 +293,108 @@ class TestConstantsInjection:
         scan = lc["obstacle_layer"]["scan"]
         assert scan["raytrace_min_range"] == DEPTH_MIN
         assert scan["raytrace_max_range"] == DEPTH_MAX
+
+    def test_patch_rebalances_mppi_critics_when_envelope_lifted(self, pkg_dir):
+        """At envelope_factor>1.0 (sim), three critic knobs shift the cost
+        landscape toward higher-velocity straight rollouts so the median
+        commanded vx climbs into the lifted envelope instead of plateauing
+        at ~0.4 m/s under the real-robot critic balance.
+
+        Real-robot bringup (envelope_factor=1.0) inherits the YAML
+        baselines untouched — that's the byte-identical guarantee the
+        TestConstantsInjection.test_patch_overwrites_velocities check
+        anchors.
+        """
+        import importlib.util
+
+        launch_path = os.path.join(pkg_dir, "launch", "navigation.launch.py")
+        spec = importlib.util.spec_from_file_location("nav_launch", launch_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
+        with open(yaml_path) as f:
+            baseline = yaml.safe_load(f)
+        baseline_mppi = baseline["controller_server"]["ros__parameters"]["FollowPath"]
+        b_path_align_w = baseline_mppi["PathAlignCritic"]["cost_weight"]
+        b_prefer_fwd_w = baseline_mppi["PreferForwardCritic"]["cost_weight"]
+        b_path_follow_offset = baseline_mppi["PathFollowCritic"]["offset_from_furthest"]
+
+        # Sim lane: critic rebalance applied.
+        with open(yaml_path) as f:
+            p = yaml.safe_load(f)
+        footprint = mod._build_footprint(CHASSIS_LENGTH, TRACK_WIDTH)
+        mod._patch_params(p, footprint,
+                          round(MAX_LINEAR_VEL, 4),
+                          round(MAX_ANGULAR_VEL, 4),
+                          round(MAX_LINEAR_VEL * NAV_REVERSE_SCALE, 4),
+                          2.0,
+                          MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX)
+        ctrl = p["controller_server"]["ros__parameters"]["FollowPath"]
+        assert ctrl["PathAlignCritic"]["cost_weight"] == 9.0
+        assert ctrl["PathAlignCritic"]["cost_weight"] < b_path_align_w
+        assert ctrl["PreferForwardCritic"]["cost_weight"] == 10.0
+        assert ctrl["PreferForwardCritic"]["cost_weight"] > b_prefer_fwd_w
+        assert ctrl["PathFollowCritic"]["offset_from_furthest"] == 20
+        assert (
+            ctrl["PathFollowCritic"]["offset_from_furthest"]
+            > b_path_follow_offset
+        )
+        assert ctrl["gamma"] == 0.008
+        assert ctrl["gamma"] < baseline_mppi["gamma"]
+
+        # Real-robot lane: critics untouched at envelope_factor=1.0.
+        with open(yaml_path) as f:
+            p2 = yaml.safe_load(f)
+        mod._patch_params(p2, footprint, NAV_LINEAR_VEL, NAV_ANGULAR_VEL,
+                          NAV_REVERSE_VEL, 1.0,
+                          MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX)
+        ctrl2 = p2["controller_server"]["ros__parameters"]["FollowPath"]
+        assert ctrl2["PathAlignCritic"]["cost_weight"] == b_path_align_w
+        assert ctrl2["PreferForwardCritic"]["cost_weight"] == b_prefer_fwd_w
+        assert (
+            ctrl2["PathFollowCritic"]["offset_from_furthest"]
+            == b_path_follow_offset
+        )
+
+    def test_patch_critic_overrides_skipped_just_below_unity_envelope(self, pkg_dir):
+        """The critic rebalance is gated strictly on envelope_factor>1.0.
+        A scale of 1.0 (real-robot) and any sub-unity factor leave the
+        baselines in place. Anchors the gate so future changes don't drift
+        the threshold and silently re-tune real-robot bringup.
+        """
+        import importlib.util
+
+        launch_path = os.path.join(pkg_dir, "launch", "navigation.launch.py")
+        spec = importlib.util.spec_from_file_location("nav_launch", launch_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
+        with open(yaml_path) as f:
+            baseline = yaml.safe_load(f)
+        b_mppi = baseline["controller_server"]["ros__parameters"]["FollowPath"]
+        b_path_align_w = b_mppi["PathAlignCritic"]["cost_weight"]
+        b_prefer_fwd_w = b_mppi["PreferForwardCritic"]["cost_weight"]
+        b_path_follow_offset = b_mppi["PathFollowCritic"]["offset_from_furthest"]
+
+        footprint = mod._build_footprint(CHASSIS_LENGTH, TRACK_WIDTH)
+        for factor in (1.0, 0.75):
+            with open(yaml_path) as f:
+                p = yaml.safe_load(f)
+            mod._patch_params(
+                p, footprint, NAV_LINEAR_VEL, NAV_ANGULAR_VEL,
+                NAV_REVERSE_VEL, factor,
+                MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX,
+            )
+            ctrl = p["controller_server"]["ros__parameters"]["FollowPath"]
+            assert ctrl["PathAlignCritic"]["cost_weight"] == b_path_align_w
+            assert ctrl["PreferForwardCritic"]["cost_weight"] == b_prefer_fwd_w
+            assert (
+                ctrl["PathFollowCritic"]["offset_from_furthest"]
+                == b_path_follow_offset
+            )
+            assert ctrl["gamma"] == b_mppi["gamma"]
 
 
 # =============================================================================

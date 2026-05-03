@@ -100,25 +100,6 @@ Briefs that aren't pickable until something else lands.
 
 ---
 
-## Recently shipped — housekeeping missed
-
-**Should normally be empty.** This is a tripwire, not a normal
-workflow step. A non-empty entry means a PR shipped without its
-housekeeping commit (brief stamp + move to `completed/` + In-flight
-row removed). The next PR touching `docs/tasks/` should clear it.
-
-The "in-PR" rule under "Shipping a brief: order of operations" in
-[`README.md`](README.md) is what makes this section normally empty.
-Historical example: `completed/nav2-far-goal-staging.md` shipped in
-PR #13 / 2026-04-29 but didn't get moved until PR #15 — the gap was
-caught only because we built this board and audited the queue.
-
-| Brief | Shipped in | PR |
-|---|---|---|
-| _None._ | | |
-
----
-
 ## How to use this board
 
 ### As an agent (no specific brief assigned)

@@ -241,10 +241,6 @@ your task branch:
         filed during this PR, ensure they're listed under
         **Ready to pick up** (or **Blocked** if they have
         unshipped dependencies).
-      - If, by the time you ship, the **Recently shipped —
-        housekeeping missed** section is non-empty, also clear
-        those entries here. That section is a tripwire; the next
-        PR touching `docs/tasks/` resolves it.
 
 3. **Request review and merge.** The PR cannot merge without the
    housekeeping commit. Reviewers should treat its absence as a

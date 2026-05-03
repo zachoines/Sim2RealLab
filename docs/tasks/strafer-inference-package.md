@@ -3,7 +3,7 @@
 **Type:** task / feature
 **Owner:** Jetson (new ROS package lives in `strafer_ros/`)
 **Priority:** P1 — the trained-policy backend is the architectural answer to MPPI's plateau (see Story).
-**Estimate:** L (~1 week initial NOCAM path + integration; +0.5–1 week TensorRT optimization once a deployable checkpoint exists)
+**Estimate:** L (~1 week initial NOCAM path + integration). TensorRT optimization moves to the future DEPTH-variant brief — NOCAM is a 19-dim MLP and runs sub-millisecond on CPU, so TRT's payoff is in the depth-conv path, not here.
 **Branch:** task/strafer-inference-package
 
 ## Story
@@ -84,23 +84,32 @@ codebase since before the Nav2 backup was wired.
    `JetsonRosClient.navigate_to_pose` — currently routes unconditionally
    through Nav2's `/navigate_to_pose` action. Needs to honor an
    `execution_backend` field (env-var `STRAFER_NAV_BACKEND` or per-step)
-   with values `nav2` (default), `strafer_direct`, `hybrid_nav2_strafer`.
+   with values `nav2` (default) and `strafer_direct`.
 4. **A deployable checkpoint** from `strafer_lab` PPO training that
    has actually been trained with the current observation contract.
    Out of scope for this brief — gates the validation steps but not
-   the package skeleton.
+   the package skeleton. **The brief targets the
+   `strafer_navigation` env config in
+   [`strafer_env_cfg.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py)
+   with `PolicyVariant.NOCAM`, `_DEFAULT_NAV_DECIMATION = 4`,
+   `_DEFAULT_NAV_SIM_DT = 1/120`** — pin this in the deployment
+   metadata so a future env change forces a co-update of the
+   inference node's rate calculation (see Phase 2).
 
-### Three execution modes
+### Two execution modes
 
-The archived design doc spelled out three modes. They share the same
-ROS contract (`navigate_to_pose` skill) but differ in what runs the
-local-control loop:
+The archived design doc proposed three modes. The third
+(`hybrid_nav2_strafer`: Nav2 emits subgoals, RL drives between them)
+requires a *different trained policy* — one trained on
+subgoal-following with rolling local-obstacle context, not the
+goal-directed policy `strafer_lab` currently produces. Filing
+hybrid as a follow-up brief once a subgoal-aware
+`PolicyVariant` is added avoids landing a half-finished mode here.
 
 | Mode | Global plan | Local control | Status |
 |------|-------------|---------------|--------|
-| `nav2` (MVP, default) | Nav2 GridBased | Nav2 MPPI | Shipped |
-| `strafer_direct` | none | trained policy via `strafer_inference` | This brief |
-| `hybrid_nav2_strafer` | Nav2 GridBased | trained policy via `strafer_inference`, fed Nav2 path subgoals | Follow-up after `strafer_direct` validates |
+| `nav2` (default) | Nav2 GridBased | Nav2 MPPI | Shipped |
+| `strafer_direct` | none — direct goal | trained policy via `strafer_inference` | This brief |
 
 The mode is a *robot-side* execution choice; the autonomy / planner
 layer doesn't change. Operator-facing surface stays
@@ -108,10 +117,11 @@ layer doesn't change. Operator-facing surface stays
 
 ## Approach
 
-Work proceeds in five tightly-scoped phases. Each phase gets its own
+Work proceeds in four tightly-scoped phases. Each phase gets its own
 review-able commit on the same branch — no cross-phase intermixing
 (makes bisection trivial when the trained policy lands and validation
-surfaces an integration bug).
+surfaces an integration bug). TensorRT integration is deliberately
+*not* a phase here — see the DEPTH variant follow-up in Out of scope.
 
 ### Phase 1 — Package skeleton (½ day)
 
@@ -143,52 +153,131 @@ Wire the observation side end-to-end against `PolicyVariant.NOCAM`:
   [`bridge-runtime-invariants.md`](context/bridge-runtime-invariants.md)
   contract in both sim and real).
 - Subscribe to `/strafer/goal` (or accept goal pose via the action
-  server) — robot-frame target.
-- On a fixed rate (`infer_rate_hz`, default 30 Hz to match training
-  decimation), assemble the raw dict expected by
-  `assemble_observation`:
-  - `imu_accel`, `imu_gyro` from IMU
+  server) — pose in `map` frame (consistent with Nav2's input).
+- On a fixed-rate timer, assemble the raw dict expected by
+  `assemble_observation`. **Inference rate is derived, not
+  hardcoded:**
+
+  ```python
+  # Match the training env exactly. Hardcoding 30 Hz couples to the
+  # current env config and silently breaks when training rate changes.
+  from strafer_lab.tasks.navigation.strafer_env_cfg import (
+      _DEFAULT_NAV_SIM_DT, _DEFAULT_NAV_DECIMATION,
+  )
+  infer_period_s = _DEFAULT_NAV_SIM_DT * _DEFAULT_NAV_DECIMATION
+  # Currently 1/120 * 4 = 1/30 s = 30 Hz.
+  ```
+
+  If `strafer_lab` isn't installed on the Jetson (it isn't), import
+  the constants via `strafer_shared` re-export — add the re-export
+  in the same commit. Either way, do not duplicate the constant.
+
+- Raw dict construction (each field's coordinate frame matters for
+  contract parity):
+  - `imu_accel`, `imu_gyro` from `/d555/imu/filtered`. IMU frame —
+    `assemble_observation` applies `IMU_ACCEL_SCALE` /
+    `IMU_GYRO_SCALE`; do not pre-rotate.
   - `encoder_vels_ticks` from `joint_states.velocity` *via
-    `mecanum_kinematics.wheel_vels_to_ticks_per_sec`* — do NOT recompute
-    encoder geometry locally; that's `strafer_shared` lane.
-  - `goal_relative`, `goal_distance`, `goal_heading_to_goal` from goal
-    pose - current pose, in body frame.
-  - `body_velocity_xy` from `odom.twist.linear.{x,y}`.
-  - `last_action` cached from the previous tick (zero on first tick).
-- Pass through `assemble_observation(raw, variant)` and log the
-  resulting 19-dim vector at debug level.
+    `mecanum_kinematics.wheel_vels_to_ticks_per_sec`* — do NOT
+    recompute encoder geometry locally; that's `strafer_shared` lane.
+  - `goal_relative`, `goal_distance`, `goal_heading_to_goal` —
+    **body-frame**. Compute by transforming the `map`-frame goal
+    pose through TF (`map → base_link`) and taking
+    `(dx, dy)` in body frame, then `norm` and
+    `atan2(dy, dx)`. The training env (`mdp/observations.py`) does
+    the equivalent transform; if inference computes them in `map`
+    frame, the policy turns the wrong way on real-robot.
+  - `body_velocity_xy` from `odom.twist.linear.{x,y}` —
+    `odom` frame, which `strafer_driver`'s odom publisher emits in
+    body convention (X forward, Y left). Pass-through.
+  - `last_action` — **the raw [-1, 1]³ policy output from the
+    previous tick**, NOT the post-`interpret_action` velocity. The
+    training env caches `env.action_manager.action`
+    ([`mdp/observations.py:499`](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py)),
+    which is the raw policy tensor before `MecanumWheelAction.process_actions`
+    clamps and scales. Cache the same. Zero on first tick (matches
+    env reset).
+
+- Pass through `assemble_observation(raw, variant)` and emit the
+  resulting 19-dim vector at debug level. **Also log every
+  `(obs_vector, action_output, t_inference_ns)` tuple** at debug
+  level — needed for post-hoc distribution-shift analysis vs. the
+  training set, and for diagnosing real-vs-sim divergence.
 
 No inference yet. Output `cmd_vel = (0, 0, 0)` while the obs pipeline
-is validated against a recorded sim rosbag. Acceptance for this
-phase: the assembled obs vector matches what `strafer_lab`'s gym
-environment produces for the same simulated state, within float32
-noise. This is the sim-to-real contract guarantee — if it doesn't
-hold, the policy will not transfer.
+is validated against a recorded sim rosbag.
 
-### Phase 3 — Inference + action interpretation (1 day)
+Phase 2 acceptance: the assembled obs vector matches what
+`strafer_lab`'s gym environment produces for the same simulated
+state, within float32 noise (≤ 1e-5 max abs delta on the 19-dim
+vector). This is the sim-to-real contract guarantee — if it
+doesn't hold, the policy will not transfer.
+
+### Phase 3 — Inference + action interpretation + safety (1 day)
 
 - Load the model via `load_policy(path, PolicyVariant.NOCAM)` at node
-  startup.
+  startup. **Model-load failure is fatal:** if `model_path` doesn't
+  exist or `load_policy` raises, the node logs a clear error and
+  refuses to start the action server. Operator gets a launch-time
+  failure, not silent degradation. The autonomy-side
+  `JetsonRosClient` then sees the action server as unavailable and
+  falls back to `nav2` — same surface as if the inference node
+  weren't launched at all.
+- **Determinism contract:** the loaded callable must be
+  deterministic — same observation → same action across calls.
+  PPO trained via rsl_rl produces a Gaussian policy (mean + std);
+  the export step (DGX-lane) must freeze the deterministic head
+  (mean only, no sampling). Phase 3 asserts this with a unit test:
+  feed the same obs vector twice, assert byte-identical action
+  outputs. If the test fails, the export tooling shipped a
+  stochastic head and needs to be fixed before deployment — surface
+  the failure early.
 - On each tick, feed the assembled obs to the loaded callable, get
-  back a 3-vector action.
-- `interpret_action(action)` → `(vx, vy, omega)`.
+  back a 3-vector action. Cache it as `last_action` for the next
+  tick (raw, pre-`interpret_action` — see Phase 2).
+- `interpret_action(action)` → `(vx, vy, omega)` in m/s, rad/s.
+- **Output magnitude clamp (safety):** the policy can output
+  `(0.99, 0.99, 0.99)` which `interpret_action` denormalizes to
+  `(1.55 m/s, 1.55 m/s, 4.15 rad/s)` — but the chassis can't
+  physically achieve max forward + max lateral + max spin
+  simultaneously (per-wheel motor cap). After `interpret_action`,
+  apply an L1 ceiling:
+
+  ```python
+  l1 = abs(vx) + abs(vy)
+  cap = STRAFER_NAV_VEL_SCALE * MAX_LINEAR_VEL  # 1.5683 sim, 0.78 real
+  if l1 > cap:
+      scale = cap / l1
+      vx *= scale; vy *= scale
+  # omega clamp is independent: |omega| <= NAV_VEL_SCALE * MAX_ANGULAR_VEL
+  ```
+
+  Documented as "safety, not contract" — the bridge does similar
+  clamping in sim, but the real chassis has no per-wheel safety
+  fallback. One line, real protection.
 - Publish to `/strafer/cmd_vel` (real-robot path — driver remaps it
   to the chassis) or `/cmd_vel` (sim-in-the-loop path matches Nav2's
   publisher contract).
-- Watchdog: if no goal received for `goal_timeout_s` (default 1.0)
-  OR no IMU/odom for `obs_timeout_s` (default 0.2), publish zero
-  twist and log a warning. Hard requirement — autonomy / safety
-  invariant.
+- **Watchdog (expanded):** publish zero twist + log a warning if
+  ANY of the following:
+  - No goal received for `goal_timeout_s` (default 1.0 s).
+  - No IMU sample for `obs_timeout_s` (default 0.2 s).
+  - No `/strafer/odom` for `obs_timeout_s`.
+  - **TF lookup `map → base_link` is older than
+    `tf_max_age_s` (default 0.5 s)** — `goal_relative` depends on
+    this transform; stale TF = wrong observation = policy gets
+    confused. SLAM stalls produce this; it's a real failure mode.
 
 Phase 3 acceptance: with a hand-exported `.pt` artifact (any small
 model that produces valid `[-1, 1]^3` outputs is acceptable for
-plumbing validation — semantic correctness comes in Phase 5), the
-node publishes non-zero `/cmd_vel` at `infer_rate_hz` whenever the
-goal subscription is active and watchdog inputs are fresh. Latency
-target: end-to-end (obs receive → cmd_vel publish) < 5 ms p95 on
-Jetson Orin Nano. `benchmark_policy` should already give us the
-inference-only number; the wrapping infrastructure shouldn't add
-more than ~2 ms.
+plumbing validation — semantic correctness comes in real-world
+validation), the node publishes non-zero `/cmd_vel` at the derived
+`infer_period_s` whenever the goal subscription is active and all
+four watchdog inputs are fresh. Zero twist when any watchdog trips.
+Latency target: end-to-end (obs receive → cmd_vel publish) < 5 ms
+p95 on Jetson Orin Nano. `benchmark_policy` gives the inference-only
+number (sub-millisecond expected for NOCAM); the wrapping
+infrastructure shouldn't add more than ~3 ms.
 
 ### Phase 4 — Backend dispatch in `JetsonRosClient` (½ day)
 
@@ -202,36 +291,19 @@ Update
 - For `"nav2"`: keep current `/navigate_to_pose` action client path.
 - For `"strafer_direct"`: send to the new `strafer_inference`
   action server (same action type, different node namespace).
-- For `"hybrid_nav2_strafer"`: out of scope this brief — log a
-  "not yet implemented" error and fall back to `"nav2"`.
+- Unknown values: log a clear error naming the value, fall back to
+  `"nav2"`. Includes `"hybrid_nav2_strafer"` (filed as a follow-up
+  brief) — the fallback prevents typos from silently failing.
 
 The env-var default is the conservative choice — real-robot bringup
 keeps Nav2 unchanged unless the operator explicitly opts in. Mirrors
 the `STRAFER_NAV_VEL_SCALE` pattern.
 
-### Phase 5 — TensorRT path + Jetson optimization (½–1 week, after a deployable checkpoint exists)
-
-`load_policy` already supports `.onnx` via ONNX Runtime. ONNX Runtime
-on the Jetson can use the TensorRT execution provider transparently
-(no API change in the runtime; just a build/install detail). Concrete
-work:
-
-- Verify `onnxruntime-gpu` + TensorRT are installed in the
-  Jetson Python environment; if not, document the install path
-  (typically `python3 -m pip install onnxruntime-gpu` from NVIDIA's
-  Jetson wheel index).
-- Add a `providers=['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']`
-  hint to `load_policy` for `.onnx` models (or a separate
-  `load_policy_trt` path if the API divergence gets ugly). The
-  fallback chain handles missing TRT gracefully.
-- Run `benchmark_policy` on Jetson with each provider in the
-  fallback chain. Record the latency table in the PR.
-- If a true `.engine` (pre-built TRT plan) outperforms ONNX+TRT,
-  consider extending `load_policy` to a third format. Defer that
-  decision until benchmarks demand it — adding format support
-  incurs maintenance cost permanently.
-
 ### What's intentionally NOT in scope here
+
+(See the top-level **Out of scope** section below for the full list.
+This subsection only flags items that would be tempting to do as
+part of the four phases above and shouldn't be.)
 
 - **Replacing Nav2 as the default.** Default stays `nav2`. The
   trained policy is opt-in via `execution_backend` until it has
@@ -245,47 +317,14 @@ work:
   `strafer_shared.mecanum_kinematics`. Do not add a second sign
   correction layer in `strafer_inference` — same trap the archived
   ROS architecture doc explicitly called out.
-- **DEPTH variant.** First transfer target is NOCAM; depth-based
-  policy adds a 4800-dim depth observation that's harder to validate
-  end-to-end. Add as a follow-up brief once NOCAM transfers cleanly.
-- **`hybrid_nav2_strafer`.** Out of scope per Phase 4. Filed as a
-  follow-up brief if `strafer_direct` validates and the operator
-  wants Nav2 path-planning + RL local control.
 
 ## Acceptance criteria
 
+### Build / structure
+
 - [ ] `colcon build --packages-select strafer_inference` succeeds in
       `~/strafer_ws` on the Jetson; `colcon test` passes the
-      package's smoke tests (Phase 1 unit tests + Phase 3 latency
-      assertion).
-- [ ] `assemble_observation` round-trip parity: with a recorded
-      sim-in-the-loop rosbag, the inference node's assembled obs
-      vector at each tick matches the gym-env obs at the same sim
-      timestamp within float32 noise (≤ 1e-5 max abs delta).
-      Anchors the sim-to-real contract — if this drifts, the policy
-      will not transfer.
-- [ ] With a hand-exported test `.pt` artifact, the node publishes
-      non-zero `/cmd_vel` at `infer_rate_hz` while the goal /
-      observation watchdogs are fresh, and zero twist when either
-      times out. Watchdog test is a unit test using mocked clocks.
-- [ ] End-to-end latency p95 < 5 ms (obs receive → cmd_vel publish)
-      on Jetson Orin Nano. Recorded in the PR via the harness from
-      [`mppi-critic-tuning-for-sim-envelope.md`](mppi-critic-tuning-for-sim-envelope.md)
-      (`tune_capture.py`) extended to also capture inference-side
-      timestamps, OR a dedicated `benchmark_inference_node.py`.
-- [ ] `JetsonRosClient.navigate_to_pose` routes to
-      `strafer_inference` when `STRAFER_NAV_BACKEND=strafer_direct`
-      and to Nav2 otherwise. Default unset = `nav2` — anchored by a
-      unit test asserting the default path is byte-identical.
-- [ ] Real-robot bringup is unaffected when `STRAFER_NAV_BACKEND` is
-      unset — same controller, same launch graph as before this
-      brief.
-- [ ] Once a deployable checkpoint lands (separate dependency): on
-      a `translate forward 3 m` sim mission with
-      `STRAFER_NAV_BACKEND=strafer_direct`, observed
-      `/strafer/odom.linear.x` 1 s sustained median ≥ 1.0 m/s. This
-      is the architectural-win acceptance — the same metric the MPPI
-      brief plateaued under.
+      package's smoke tests.
 - [ ] If your work invalidates a fact in any referenced context
       module, update that module in the same commit. Particular
       attention to
@@ -293,6 +332,76 @@ work:
       (Jetson lane gains a new package) and
       [`context/repo-topology.md`](context/repo-topology.md)
       ("Workspace layout" section).
+
+### Contract parity (sim-to-real load-bearing)
+
+- [ ] **Obs vector parity**: with a recorded sim-in-the-loop rosbag,
+      the inference node's assembled obs vector at each tick matches
+      the gym-env obs at the same sim timestamp within float32 noise
+      (≤ 1e-5 max abs delta on the 19-dim vector). If this drifts,
+      the policy will not transfer.
+- [ ] **`infer_period_s` derived, not hardcoded**: the node
+      computes its rate from
+      `_DEFAULT_NAV_SIM_DT * _DEFAULT_NAV_DECIMATION` (re-exported
+      via `strafer_shared` if `strafer_lab` isn't a Jetson
+      dependency). Anchored by a unit test that asserts the value
+      changes when those constants change (mock-patched).
+- [ ] **`last_action` cache semantics**: unit test feeds the node a
+      sequence of synthetic policy outputs and asserts the *raw
+      [-1, 1]³ output* (not the post-`interpret_action` velocity)
+      appears in the next tick's obs vector at the
+      `last_action` field offset.
+- [ ] **`goal_relative` body-frame**: unit test sets
+      `map → base_link` to a known yaw rotation, places a known
+      goal in `map`, asserts the obs's `goal_relative` matches the
+      body-frame transform.
+- [ ] **Deterministic inference**: feed the loaded policy the same
+      obs vector twice; assert byte-identical action outputs. If
+      this fails, the export tooling shipped a stochastic head and
+      it must be fixed before deployment.
+
+### Safety / robustness
+
+- [ ] **Output L1 clamp**: unit test feeds a policy output of
+      `(0.99, 0.99, 0.99)` and asserts the published `/cmd_vel`
+      satisfies `|vx| + |vy| ≤ NAV_VEL_SCALE * MAX_LINEAR_VEL` and
+      `|wz| ≤ NAV_VEL_SCALE * MAX_ANGULAR_VEL`.
+- [ ] **Watchdog (4-source)**: unit test using mocked clocks
+      asserts zero twist on each independent failure: stale goal,
+      stale IMU, stale odom, stale `map → base_link` TF.
+- [ ] **Model-load failure**: unit test points
+      `model_path` at a non-existent file; node logs a clear error
+      and the action server is not advertised. Operator gets a
+      launch-time failure, not silent degradation.
+- [ ] **`(obs, action)` debug logging**: with `--ros-args --log-level
+      debug` enabled, every tick emits a structured log line
+      containing the 19-dim obs vector, 3-dim action, and inference
+      timestamp. Verifiable via `ros2 log list` or rqt_console.
+
+### Integration
+
+- [ ] `JetsonRosClient.navigate_to_pose` routes to
+      `strafer_inference` when `STRAFER_NAV_BACKEND=strafer_direct`,
+      to Nav2 when unset or `nav2`, and falls back to Nav2 with a
+      logged error on unknown values.
+- [ ] **Real-robot bringup is unaffected** when `STRAFER_NAV_BACKEND`
+      is unset — same controller, same launch graph as before this
+      brief.
+- [ ] **Latency p95 < 5 ms** (obs receive → cmd_vel publish) on
+      Jetson Orin Nano. Recorded in the PR via the
+      [`tune_capture.py`](../../source/strafer_ros/strafer_navigation/scripts/tune_capture.py)
+      harness extended to also capture inference-side timestamps,
+      OR a dedicated `benchmark_inference_node.py`. NOCAM on CPU
+      should clear this comfortably; the budget exists for the
+      future DEPTH variant.
+
+### End-to-end (gates on the deployable checkpoint dependency)
+
+- [ ] On a `translate forward 3 m` sim mission with
+      `STRAFER_NAV_BACKEND=strafer_direct`, observed
+      `/strafer/odom.linear.x` 1 s sustained median ≥ 1.0 m/s. This
+      is the architectural-win acceptance — the metric the MPPI
+      brief plateaued under at 0.632 m/s.
 
 ## Investigation pointers
 
@@ -338,9 +447,18 @@ work:
   policy execution (the trained policy doesn't consume Nav2 paths in
   `strafer_direct` mode).
 - **DEPTH variant inference.** First transfer target is NOCAM;
-  follow-up brief once NOCAM validates.
-- **`hybrid_nav2_strafer`.** Follow-up brief once `strafer_direct`
-  validates.
+  follow-up brief once NOCAM validates. **The DEPTH variant brief
+  also owns the TensorRT integration** (`onnxruntime-gpu` + TRT
+  execution provider on the Jetson; pre-built `.engine` if benchmarks
+  demand it). NOCAM is a 19-dim MLP and runs sub-millisecond on CPU,
+  so TRT's payoff is in the depth-conv path. Adding TRT support to
+  `load_policy` here would be premature — install footguns
+  (TRT EP version pinned to JetPack version, etc.) earn their
+  maintenance cost only when something actually needs them.
+- **`hybrid_nav2_strafer`.** Requires a subgoal-following policy
+  variant that `strafer_lab` doesn't currently train. Follow-up
+  brief once a subgoal-aware `PolicyVariant` is added and a
+  checkpoint trained against it.
 - **Removing or downgrading Nav2.** Nav2 is the default and the
   fallback. Even after the trained policy is deployed, the
   `nav2` backend should remain available for missions where

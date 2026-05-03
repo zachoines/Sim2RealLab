@@ -110,28 +110,36 @@ In [`commands.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/
 
 ### Phase 2 — Identify or train baseline checkpoint
 
-Skip if a converged baseline already exists. Otherwise:
+**MVP target: DEPTH variant** (since
+[`strafer-inference-package.md`](strafer-inference-package.md) ships
+`strafer_direct` against `PolicyVariant.DEPTH`). Skip if a converged
+DEPTH baseline already exists from the ProcRoom-Depth env. Otherwise:
 
 ```
 python Scripts/train_strafer_navigation.py \
-    --task strafer_navigation \
-    --policy_variant NOCAM
+    --task Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0
 ```
 
 Train to convergence (target episode reward; episode-length-target
 met). Save baseline as
-`logs/rsl_rl/strafer_navigation/baseline_no_noise/model_<step>.pt`.
+`logs/rsl_rl/strafer_navigation/baseline_depth_no_noise/model_<step>.pt`.
+
+NOCAM_SUBGOAL has its own baseline produced by
+[`strafer-lab-subgoal-env.md`](strafer-lab-subgoal-env.md) Phase 5
+— if/when that brief ships and a goal-noise pass is wanted for the
+hybrid mode policy too, file a `policy-subgoal-noise-training.md`
+follow-up. Subgoal noise from Nav2 path resolution (~5 cm at
+MAP_RESOLUTION) is smaller than VLM goal noise but non-zero.
 
 ### Phase 3 — Goal-noise resume training
 
 Edit the env config to set `goal_position_noise_std=0.25` (mid-range
-of the measured 0.2–0.5 m VLM noise). Resume from the baseline
-checkpoint:
+of the measured 0.2–0.5 m VLM noise). Resume from the DEPTH baseline:
 
 ```
 python Scripts/train_strafer_navigation.py \
-    --task strafer_navigation \
-    --resume logs/rsl_rl/strafer_navigation/baseline_no_noise/model_<step>.pt \
+    --task Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0 \
+    --resume logs/rsl_rl/strafer_navigation/baseline_depth_no_noise/model_<step>.pt \
     --max_iterations <baseline_iter * 0.15>
 ```
 
@@ -176,12 +184,13 @@ baseline wasn't actually converged. Investigate before declaring done.
         expected variance.
 
 ### Checkpoints
-- [ ] Noised checkpoint exists at
-      `logs/rsl_rl/strafer_navigation/goal_noise_0.25/model_<step>.pt`
+- [ ] Noised DEPTH checkpoint exists at
+      `logs/rsl_rl/strafer_navigation/depth_goal_noise_0.25/model_<step>.pt`
       with a metadata note (in commit message + a sidecar `.json` if
       [`policy-export-tooling.md`](policy-export-tooling.md) has
-      landed first; otherwise just the commit message) identifying it
-      as a goal-noise variant trained from `<baseline_path>`.
+      landed first; otherwise just the commit message) identifying
+      it as a goal-noise variant trained from `<baseline_path>` of
+      the DEPTH ProcRoom env.
 
 ### Comparative evaluation
 - [ ] PR description includes a comparison table: baseline vs noised

@@ -8,15 +8,20 @@ preamble each time.
 
 Briefs are persistent across sessions. When work lands, the brief
 moves into [`completed/`](completed/) in the same commit that ships
-the change, with a `**Status:** Shipped <date> in <commit>` stamp at
-the top. The active queue stays scannable while shipped briefs remain
-discoverable as a record of what we asked for, the acceptance criteria
-we held the change to, and which follow-ups it spawned. Git history
-records the *what changed*; the brief records the *what we set out to
-do* — both are useful, and they're different artifacts.
+the change, with a `**Status:** Shipped <date> in <commit> (<host>).`
++ `**PR:** <url>` stamp at the top. [`BOARD.md`](BOARD.md) is updated
+in the same commit. The active queue stays scannable while shipped
+briefs remain discoverable as a record of what we asked for, the
+acceptance criteria we held the change to, and which follow-ups it
+spawned. Git history records the *what changed*; the brief records
+the *what we set out to do* — both are useful, and they're different
+artifacts.
 
-If you've landed here as a fresh agent looking for work, scan the
-list and pick a task whose `Owner` matches your host.
+**If you've landed here as a fresh agent looking for work, open
+[`BOARD.md`](BOARD.md).** It's the glanceable index of the queue,
+sorted by priority + lane + estimate, with explicit "in flight" and
+"blocked" sections so you don't pick something already in review or
+gated on unshipped work.
 
 If you're writing a new brief, read on.
 
@@ -187,10 +192,12 @@ A few rules of thumb that hold up in practice:
   document C" — split into three briefs. The Jira-style format is
   designed for one ticket = one PR.
 - **Stale briefs.** When work ships, move the brief into
-  [`completed/`](completed/) (with a Shipped stamp) in the same
-  commit. Living briefs in the top level that nobody owns become
-  noise; an unstamped brief in `completed/` is ambiguous between
-  "shipped" and "abandoned."
+  [`completed/`](completed/) (with a Shipped stamp) AND update
+  [`BOARD.md`](BOARD.md) in the same commit. Living briefs in the
+  top level that nobody owns become noise; an unstamped brief in
+  `completed/` is ambiguous between "shipped" and "abandoned"; a
+  board entry that points at a `completed/` path makes the index
+  lie about its own contents.
 
 ---
 
@@ -202,7 +209,12 @@ But a fresh agent does still need a thin launcher message giving them
 four things the brief itself doesn't carry: their identity, a pointer
 to which brief, workspace state, and stop conditions.
 
-### Recommended template
+### Recommended templates
+
+Two variants. Pick by whether you have a specific brief in mind for
+this agent or you want them to choose from the queue.
+
+**Variant A — specific brief assigned (most common):**
 
 ```
 You are the [DGX | Jetson]-side coding agent. Your task brief is at:
@@ -217,6 +229,29 @@ setup commands needed.
 When you're done — or if you hit a blocker — give me a short summary
 of what landed plus any remaining open questions.
 ```
+
+**Variant B — agent picks from the board:**
+
+```
+You are the [DGX | Jetson]-side coding agent. Open
+docs/tasks/BOARD.md and pick the next item from "Ready to pick up"
+that matches your lane and a [S | M | L]-sized session. Read the
+chosen brief and the context modules it links to before starting.
+
+Move the brief from "Ready to pick up" → "In flight" on
+docs/tasks/BOARD.md in the commit that opens the PR (per the
+maintenance contract at the bottom of that file). Workspace is
+already set up (using [env_name] conda env; making sure to create
+your own branch per conventions) — no setup commands needed.
+
+When you're done — or if you hit a blocker — give me a short summary
+of what landed plus any remaining open questions.
+```
+
+Variant A is the default; the brief is durable, the launcher is
+throwaway. Use Variant B when the queue priority is clearer than the
+specific work item, or when you want the agent to exercise judgment
+on session-fit.
 
 ### What each line does
 

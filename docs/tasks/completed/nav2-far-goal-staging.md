@@ -1,5 +1,8 @@
 # Stage navigation through the SLAM horizon for far goal-projection targets
 
+**Status:** Shipped 2026-04-29 in `fccaede` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/13
+
 **Type:** task / new feature
 **Owner:** Jetson agent
 **Priority:** P1

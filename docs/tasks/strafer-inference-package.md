@@ -74,11 +74,12 @@ codebase since before the Nav2 backup was wired.
    package that holds the inference node, launch file, config, tests,
    and entry point. Empty today.
 2. **`Scripts/export_policy.py`** — the DGX-side checkpoint → `.pt` /
-   `.onnx` conversion tool. Tracked in
-   [`DEFERRED_WORK.md`](DEFERRED_WORK.md) under `strafer_lab` →
-   "Policy export tooling". Hard dependency in DGX lane; this brief
-   blocks on it for end-to-end validation but can land the runtime
-   plumbing against a hand-exported test artifact.
+   `.onnx` conversion tool. Filed as
+   [`policy-export-tooling.md`](policy-export-tooling.md). Hard
+   dependency in DGX lane; this brief blocks on it for end-to-end
+   validation but can land the runtime plumbing against a
+   hand-exported test artifact (any deterministic 19-dim → 3-dim
+   mapping).
 3. **`execution_backend` dispatch in
    [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)**
    `JetsonRosClient.navigate_to_pose` — currently routes unconditionally
@@ -101,15 +102,17 @@ codebase since before the Nav2 backup was wired.
 The archived design doc proposed three modes. The third
 (`hybrid_nav2_strafer`: Nav2 emits subgoals, RL drives between them)
 requires a *different trained policy* — one trained on
-subgoal-following with rolling local-obstacle context, not the
-goal-directed policy `strafer_lab` currently produces. Filing
-hybrid as a follow-up brief once a subgoal-aware
-`PolicyVariant` is added avoids landing a half-finished mode here.
+subgoal-following, not the goal-directed policy `strafer_lab`
+currently produces — so it gets its own brief at
+[`strafer-inference-hybrid-mode.md`](strafer-inference-hybrid-mode.md).
+Shipping it as "Phase X maybe later" inside this brief would land a
+half-finished mode; separate brief keeps both scopes clean.
 
-| Mode | Global plan | Local control | Status |
-|------|-------------|---------------|--------|
-| `nav2` (default) | Nav2 GridBased | Nav2 MPPI | Shipped |
-| `strafer_direct` | none — direct goal | trained policy via `strafer_inference` | This brief |
+| Mode | Global plan | Local control | Filed as |
+|------|-------------|---------------|----------|
+| `nav2` (default) | Nav2 GridBased | Nav2 MPPI | Shipped today |
+| `strafer_direct` | none — direct goal | trained policy via `strafer_inference` | **This brief** |
+| `hybrid_nav2_strafer` | Nav2 GridBased | trained `NOCAM_SUBGOAL` policy via `strafer_inference` | [`strafer-inference-hybrid-mode.md`](strafer-inference-hybrid-mode.md) |
 
 The mode is a *robot-side* execution choice; the autonomy / planner
 layer doesn't change. Operator-facing surface stays
@@ -429,15 +432,16 @@ part of the four phases above and shouldn't be.)
 
 ## Out of scope
 
-- **Policy export tooling (`Scripts/export_policy.py`).** Tracked in
-  [`DEFERRED_WORK.md`](DEFERRED_WORK.md) → `strafer_lab`. DGX-lane
-  brief; Jetson cannot land it. This brief blocks on it for end-to-end
-  validation but can complete Phases 1–4 against a hand-exported test
-  artifact.
-- **Pre-deployment training with goal-position noise.** Tracked in
-  [`DEFERRED_WORK.md`](DEFERRED_WORK.md) → `strafer_lab`. Required for
-  the policy to be robust to the ±0.2–0.5 m localization error of
-  VLM-grounded goals; DGX-lane.
+- **Policy export tooling (`Scripts/export_policy.py`).** Filed as
+  [`policy-export-tooling.md`](policy-export-tooling.md) (DGX-lane).
+  Jetson cannot land it. This brief blocks on it for end-to-end
+  validation but can complete Phases 1–4 against a hand-exported
+  test artifact.
+- **Pre-deployment training with goal-position noise.** Filed as
+  [`policy-goal-noise-training.md`](policy-goal-noise-training.md)
+  (DGX-lane). Required for the policy to be robust to the
+  ±0.2–0.5 m localization error of VLM-grounded goals; deployment-
+  prep training pass on top of a converged baseline checkpoint.
 - **MPPI critic re-tuning.** That's
   [`mppi-critic-tuning-for-sim-envelope.md`](mppi-critic-tuning-for-sim-envelope.md);
   this brief's existence presupposes that ceiling.
@@ -455,10 +459,13 @@ part of the four phases above and shouldn't be.)
   `load_policy` here would be premature — install footguns
   (TRT EP version pinned to JetPack version, etc.) earn their
   maintenance cost only when something actually needs them.
-- **`hybrid_nav2_strafer`.** Requires a subgoal-following policy
-  variant that `strafer_lab` doesn't currently train. Follow-up
-  brief once a subgoal-aware `PolicyVariant` is added and a
-  checkpoint trained against it.
+- **`hybrid_nav2_strafer` mode.** Filed as
+  [`strafer-inference-hybrid-mode.md`](strafer-inference-hybrid-mode.md)
+  (cross-lane). Requires a new `PolicyVariant.NOCAM_SUBGOAL` and a
+  subgoal-following policy trained against it; the hybrid backend
+  consumes Nav2's `/plan` for global geometry while the trained
+  policy does local control. Depends on this brief shipping
+  `strafer_direct` first.
 - **Removing or downgrading Nav2.** Nav2 is the default and the
   fallback. Even after the trained policy is deployed, the
   `nav2` backend should remain available for missions where

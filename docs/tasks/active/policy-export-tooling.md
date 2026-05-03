@@ -1,23 +1,28 @@
-# Policy export tooling: PPO checkpoint → deployable `.pt` / `.onnx` artifact
+# Policy export tooling: PPO checkpoint → deployable `.pt` + `.onnx` artifact
 
 **Type:** task / feature
 **Owner:** DGX (`strafer_lab` lane — training + export tooling)
 **Priority:** P1 — hard dependency for
 [`strafer-inference-package.md`](strafer-inference-package.md)
-end-to-end validation.
-**Estimate:** M (~2–3 days; tooling + tests + bench against the
-existing `load_policy()` round-trip)
+end-to-end validation. **Both TorchScript and ONNX paths are
+MVP-required** since the DEPTH variant in the inference brief is
+too slow on CPU and depends on the TensorRT execution provider
+(consumed via the ONNX path).
+**Estimate:** M–L (~3–5 days: TorchScript + ONNX export + TRT-EP
+verification on the Jetson + tests + bench against the existing
+`load_policy()` round-trip).
 **Branch:** task/policy-export-tooling
 
 ## Story
 
 As an **operator promoting a trained PPO checkpoint to robot
 deployment**, I want **a single export script that converts an
-rsl_rl checkpoint into a TorchScript `.pt` (later ONNX `.onnx`)
-artifact loadable by
+rsl_rl checkpoint into both a TorchScript `.pt` and an ONNX
+`.onnx` artifact loadable by
 [`strafer_shared.policy_interface.load_policy()`](../../../source/strafer_shared/strafer_shared/policy_interface.py)**,
 so that **the Jetson inference node consumes the exact policy
-contract the env trained against without per-deployment ad-hoc
+contract the env trained against — through the TensorRT execution
+provider for the DEPTH MVP — without per-deployment ad-hoc
 conversion code, and the inference node's deterministic-output
 contract is anchored at export time rather than discovered on
 robot**.
@@ -120,31 +125,91 @@ Tests in `source/strafer_lab/tests/test_export_policy.py`:
   (catches a checkpoint-variant mismatch at export time, not at
   Jetson-load time).
 
-### Phase 2 — ONNX export (defer to DEPTH-variant brief)
+### Phase 2 — ONNX export (MVP-required for DEPTH)
 
-ONNX export is the path TensorRT consumes. NOCAM is a 19-dim MLP and
-runs sub-millisecond on CPU per
-[`strafer-inference-package.md`](strafer-inference-package.md);
-adding ONNX support to `export_policy.py` is dead weight until the
-DEPTH variant brief actually uses it. **Out of scope here.**
+The DEPTH variant in
+[`strafer-inference-package.md`](strafer-inference-package.md) is
+too slow on CPU/CUDA-EP alone — the TRT execution provider is
+required for the latency target. ONNX is the path TensorRT
+consumes, so this phase is part of the MVP, not deferred.
 
-When the DEPTH brief picks this up, the ONNX path is `torch.onnx.export`
-on the same deterministic-mean wrapper. Same metadata sidecar,
-different `--format onnx` flag.
+CLI extension:
+
+```
+python Scripts/export_policy.py \
+    --checkpoint logs/rsl_rl/strafer_navigation/<run>/best_model/model_<step>.pt \
+    --output models/strafer_depth_v0 \
+    --variant DEPTH \
+    --formats pt,onnx
+```
+
+Implementation (on top of Phase 1's deterministic-mean wrapper):
+
+1. After the TorchScript export succeeds, also run `torch.onnx.export`
+   on the same wrapper module.
+2. Use opset 17+ (Jetson's onnxruntime-gpu wheel supports it).
+3. Round-trip verify via `load_policy(<output>.onnx, variant)` —
+   same byte-identical-determinism check as the TorchScript path.
+4. The metadata sidecar gains:
+   - `formats` (list, e.g. `["pt", "onnx"]`)
+   - `onnx_opset` (int)
+   - `tensorrt_engine_path` (optional, set if a pre-built engine
+     was generated alongside; otherwise omitted)
+
+Pre-built TRT engine (optional, but useful for production):
+- ONNX Runtime's TRT EP can build engines at first inference, but
+  that adds ~30 s to first-call latency on Jetson. Pre-building
+  with `onnxruntime` or NVIDIA's `trtexec` and shipping the
+  `.engine` alongside avoids the cold-start cost.
+- Pre-build path uses the same JetPack version's TRT runtime — so
+  the engine is JetPack-version-pinned. Document that pinning in
+  the metadata (`tensorrt_version` field).
+
+Tests in `source/strafer_lab/tests/test_export_policy.py` extend:
+- ONNX round-trip determinism (same as TorchScript path).
+- Metadata sidecar contains the `formats` field with both `pt` and
+  `onnx`.
+- ONNX file is loadable by ONNX Runtime's CPU EP (the test runs on
+  DGX, not Jetson — TRT EP verification happens on Jetson during
+  Phase 4).
 
 ### Phase 3 — Benchmark hook
 
 `Scripts/benchmark_policy.py`:
 
 ```
-python Scripts/benchmark_policy.py --model models/strafer_navigation_v0.pt --iters 1000
+python Scripts/benchmark_policy.py --model models/strafer_depth_v0.onnx --iters 1000
 ```
 
-Thin wrapper: load via `load_policy()`, run `benchmark_policy()`, print
-median / p95 / p99 latency. Used by the Jetson side to verify
-deployment-time inference latency after `rsync`-ing the artifact, and
-by this brief's CI to catch latency regressions in the export
+Thin wrapper: load via `load_policy()`, run `benchmark_policy()`,
+print median / p95 / p99 latency. Used by the Jetson side to verify
+deployment-time inference latency after `rsync`-ing the artifact,
+and by this brief's CI to catch latency regressions in the export
 toolchain.
+
+### Phase 4 — Jetson-side TRT-EP verification (1 day)
+
+Verify the ONNX artifact loads through the TensorRT execution
+provider on the Jetson Orin Nano. This phase runs *after*
+rsync'ing the export to a Jetson, since TRT EP availability is
+JetPack-version-coupled and not testable on the DGX.
+
+- Confirm `onnxruntime-gpu` (with TRT EP) is installed in the
+  Jetson Python environment. If not, document the install path
+  (typically `python3 -m pip install onnxruntime-gpu` from
+  NVIDIA's Jetson wheel index, version pinned to the JetPack
+  version).
+- Run `Scripts/benchmark_policy.py` with provider preference
+  `['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']`
+  — record the latency table per provider in the PR description.
+- For DEPTH variant, target median latency ≤ 6 ms via TRT (so
+  the Jetson inference node's wrapping infrastructure has budget
+  to clear the ≤ 10 ms p95 end-to-end target in
+  [`strafer-inference-package.md`](strafer-inference-package.md)
+  Phase 3).
+- Surface a clear warning if the TRT EP is unavailable — that's
+  the failure mode the inference node's launch-time benchmark
+  catches.
 
 ## Acceptance criteria
 
@@ -221,18 +286,17 @@ toolchain.
 - **Producing a converged checkpoint.** Training is ongoing, separate
   operator-side work. This brief takes whatever checkpoint is provided
   as input and converts it.
-- **TensorRT engine generation.** Lives in the future DEPTH-variant
-  brief per
-  [`strafer-inference-package.md`](strafer-inference-package.md).
-- **ONNX export.** Same — the DEPTH brief picks it up when it actually
-  needs it; adding ONNX here without a consumer is YAGNI.
 - **Goal-position noise training.** That's
   [`policy-goal-noise-training.md`](policy-goal-noise-training.md).
   Orthogonal — happens *before* export, produces the checkpoint this
   brief consumes.
-- **Model registry / Databricks Model Serving.** Separate operator-side
-  deployment work; not blocking for the LAN-HTTP / rsync path used by
-  this brief.
+- **Subgoal-following training env.** That's
+  [`strafer-lab-subgoal-env.md`](strafer-lab-subgoal-env.md).
+  Produces the `NOCAM_SUBGOAL` checkpoint that this export tooling
+  will then convert with `--variant NOCAM_SUBGOAL`.
+- **Model registry / Databricks Model Serving.** Separate
+  operator-side deployment work; not blocking for the LAN-HTTP /
+  rsync path used by this brief.
 - **Inference-side integration.** That's
-  [`strafer-inference-package.md`](strafer-inference-package.md). This
-  brief's output is rsync'd onto the Jetson by the operator.
+  [`strafer-inference-package.md`](strafer-inference-package.md).
+  This brief's output is rsync'd onto the Jetson by the operator.

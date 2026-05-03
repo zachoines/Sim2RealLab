@@ -38,9 +38,9 @@ session.
 | Brief | Owner | Estimate | Note |
 |---|---|---|---|
 | [`integration-prompts-refresh`](active/integration-prompts-refresh.md) | Either | M | Refreshes the DGX/Jetson/sim integration runbooks; blocks the next end-to-end integration round |
-| [`policy-export-tooling`](active/policy-export-tooling.md) | DGX | M (~2–3 d) | `Scripts/export_policy.py` — hard dep for `strafer-inference-package` end-to-end |
+| [`policy-export-tooling`](active/policy-export-tooling.md) | DGX | M–L (~3–5 d) | `Scripts/export_policy.py` covering BOTH TorchScript + ONNX + TRT-EP verification — hard dep for `strafer-inference-package` end-to-end (DEPTH MVP needs the TRT path) |
 | [`async-camera-publishers`](active/async-camera-publishers.md) | DGX | L (~3–5 d) | DGX bridge perf — closes the `OnPlaybackTick` gap (camera publish off Kit's main loop) |
-| [`strafer-inference-package`](active/strafer-inference-package.md) | Jetson | L (~1 wk) | Phases 1–4 land without a deployable checkpoint; the architectural answer to MPPI's plateau |
+| [`strafer-inference-package`](active/strafer-inference-package.md) | Jetson | L (~1.5 wk) | DEPTH MVP — `strafer_direct` mode with the trained ProcRoom-Depth policy. Phases 1–4 land without a deployable checkpoint; Phase 5 gates on DGX-side export+training. Architectural answer to MPPI's plateau |
 
 ### P2 — medium priority
 
@@ -50,8 +50,9 @@ session.
 |---|---|---|
 | [`d555-distortion-model-explicit`](active/d555-distortion-model-explicit.md) | S | Quick win |
 | [`planner-rotate-direction-prompt`](active/planner-rotate-direction-prompt.md) | S | Quick win — prompt edit |
-| [`policy-goal-noise-training`](active/policy-goal-noise-training.md) | M | Targeted training pass; gates VLM-grounded mission quality |
+| [`policy-goal-noise-training`](active/policy-goal-noise-training.md) | M | Targeted DEPTH-baseline training pass with goal-position noise; gates VLM-grounded mission quality for `strafer_direct` |
 | [`planner-far-target-staging`](active/planner-far-target-staging.md) | M–L | World-state schema + planner prompt |
+| [`strafer-lab-subgoal-env`](active/strafer-lab-subgoal-env.md) | L (~1.5–2 wk) | New training env for `NOCAM_SUBGOAL` — sim-internal path planner + SubgoalCommand + path-tracking rewards + termination + training run. Unblocks hybrid mode |
 
 #### Jetson lane
 
@@ -73,7 +74,7 @@ session.
 
 | Brief | Owner | Estimate | Blocks on |
 |---|---|---|---|
-| [`strafer-inference-hybrid-mode`](active/strafer-inference-hybrid-mode.md) | Either | L | [`strafer-inference-package`](active/strafer-inference-package.md) shipped + `NOCAM_SUBGOAL` policy trained |
+| [`strafer-inference-hybrid-mode`](active/strafer-inference-hybrid-mode.md) | Jetson | M (~3–4 d) | [`strafer-inference-package`](active/strafer-inference-package.md) shipped + [`strafer-lab-subgoal-env`](active/strafer-lab-subgoal-env.md) shipped (the latter produces the trained `NOCAM_SUBGOAL` checkpoint) |
 
 ---
 
@@ -96,7 +97,7 @@ Briefs that aren't pickable until something else lands.
 
 | Brief | Blocks on | Why |
 |---|---|---|
-| [`strafer-inference-hybrid-mode`](active/strafer-inference-hybrid-mode.md) | [`strafer-inference-package`](active/strafer-inference-package.md) shipped + new `NOCAM_SUBGOAL` checkpoint trained | Hybrid backend extends the inference package's runtime; subgoal-following needs a new `PolicyVariant` and training run |
+| [`strafer-inference-hybrid-mode`](active/strafer-inference-hybrid-mode.md) | [`strafer-inference-package`](active/strafer-inference-package.md) (Jetson) **and** [`strafer-lab-subgoal-env`](active/strafer-lab-subgoal-env.md) (DGX) both shipped | Hybrid backend extends the inference package's runtime AND consumes the `NOCAM_SUBGOAL` checkpoint produced by the env brief. The two prerequisites can run in parallel since they're cross-lane |
 
 ---
 

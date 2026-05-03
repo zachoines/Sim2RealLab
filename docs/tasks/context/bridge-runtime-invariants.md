@@ -56,7 +56,7 @@ the per-wheel motor cap on diagonal motion (the bug commits
 
 Moving cameras off `OnPlaybackTick` onto a Python thread is open
 work, tracked at
-[`async-camera-publishers.md`](../async-camera-publishers.md).
+[`async-camera-publishers.md`](../active/async-camera-publishers.md).
 
 ## Camera resolutions (sim mirrors real)
 

@@ -20,9 +20,9 @@ across multiple months before they land**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
-- [context/conventions.md](context/conventions.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/conventions.md](../context/conventions.md)
 
 ## Context
 
@@ -50,12 +50,12 @@ under the convention.
 - [ ] New module `docs/tasks/context/branching-and-prs.md` exists
       and covers: branch naming, branch-off point, per-task workflow,
       PR composition rules, merge style, what's NOT in scope.
-- [ ] [`docs/tasks/context/README.md`](context/README.md) lists the
+- [ ] [`docs/tasks/context/README.md`](../context/README.md) lists the
       new module under "Current modules".
-- [ ] [`docs/tasks/context/conventions.md`](context/conventions.md)'s
+- [ ] [`docs/tasks/context/conventions.md`](../context/conventions.md)'s
       "Closed task brief lifecycle" section includes a `**PR:**` line
       in the Shipped-stamp template, with a link to the new module.
-- [ ] [`docs/tasks/README.md`](README.md)'s "Brief format" template
+- [ ] [`docs/tasks/README.md`](../README.md)'s "Brief format" template
       adds `**Branch:** task/<brief-slug>` as a required frontmatter
       field, and the bundle example links the new module.
 - [ ] Every active brief in `docs/tasks/*.md` (NOT
@@ -71,9 +71,9 @@ under the convention.
 ## Investigation pointers
 
 - The existing context-module style is in
-  [`context/conventions.md`](context/conventions.md) — match its
+  [`context/conventions.md`](../context/conventions.md) — match its
   voice (terse, declarative, link-heavy).
-- The brief format is documented in [`README.md:55+`](README.md).
+- The brief format is documented in [`README.md:55+`](../README.md).
 - Active briefs to retrofit (as of this brief's authoring; verify
   with `ls docs/tasks/*.md` before starting):
   - `async-camera-publishers.md`

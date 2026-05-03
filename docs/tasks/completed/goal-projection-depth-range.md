@@ -2,16 +2,16 @@
 
 **Status:** Shipped 2026-04-27 in `35018b1` (Jetson).
 **Follow-ups:**
-- [`nav2-far-goal-staging.md`](../nav2-far-goal-staging.md) — Jetson
+- [`nav2-far-goal-staging.md`](nav2-far-goal-staging.md) — Jetson
   reactive staging through the SLAM horizon. Required to safely
   re-enable `STRAFER_PROJECTION_DEPTH_MAX_M=15.0` in
   `env_sim_in_the_loop.env`; the export was disabled on 2026-04-28
   pending this task because the wider projection cap surfaced an
   off-costmap-goal failure at the Nav2 planner.
-- [`planner-far-target-staging.md`](../planner-far-target-staging.md)
+- [`planner-far-target-staging.md`](../active/planner-far-target-staging.md)
   — DGX planner-side multi-hop plans for cross-room targets;
   layers on top of the Jetson staging loop.
-- [`real-d555-depth-range-survey.md`](../real-d555-depth-range-survey.md)
+- [`real-d555-depth-range-survey.md`](../active/real-d555-depth-range-survey.md)
   — informs whether the conservative 6 m default should rise
   stack-wide.
 
@@ -31,9 +31,9 @@ hitting `goal_projection_failed: out of range`**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
-- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md)
 
 ## Context
 

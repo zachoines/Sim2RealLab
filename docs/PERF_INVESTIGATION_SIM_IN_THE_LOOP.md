@@ -623,7 +623,7 @@ is the constant factor; decimation is the multiplier.
    in `simulation_app.update`), but the editor viewport is still
    debug-only — visual debugging can move to a Jetson-side ROS topic
    viewer (Foxglove Studio + `foxglove_bridge`, or a custom MJPEG
-   viewer; tracked under `docs/tasks/jetson-headless-viewer.md`).
+   viewer; tracked under `docs/tasks/completed/jetson-headless-viewer.md`).
 2. **Do NOT lower the perception camera resolution**. 640×360 is
    locked to the real D555 native rate (see
    `strafer_shared.constants.PERCEPTION_WIDTH/HEIGHT` comment); sim
@@ -633,7 +633,7 @@ is the constant factor; decimation is the multiplier.
 3. **Land async camera publishers** (mirror the `StraferAsyncPublisher`
    refactor that moved telemetry off OnPlaybackTick). Targets the
    ~74 ms `simulation_app.update` cost; tracked under
-   `docs/tasks/async-camera-publishers.md`.
+   `docs/tasks/active/async-camera-publishers.md`.
 4. ~~**Investigate the redundant Kit pump under `--viz kit`**.~~
    Resolved — see "Follow-up: Kit-pump redundancy resolution" below.
    `_run_bridge_mode` now sets `env.render_enabled = False`, which

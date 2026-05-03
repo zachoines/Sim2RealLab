@@ -18,9 +18,9 @@ camera publish cadence**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
-- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md)
 
 ## Context
 
@@ -63,7 +63,7 @@ the next env.step, which is the throughput win.
   whichever phase becomes the new ceiling — likely PhysX (~22 ms)
   plus IsaacLab manager loop (~18 ms) ≈ 40 ms / 25 Hz.
 - **Bridge headed mode**: smaller relative win — the
-  [Kit-pump-redundancy fix](completed/kit-pump-redundancy-investigation.md)
+  [Kit-pump-redundancy fix](../completed/kit-pump-redundancy-investigation.md)
   already eliminated the duplicated `app.update()` per loop, so the
   remaining bridge-headed cost is mostly the single Kit pump
   (camera-publish OmniGraph + viewport refresh) that this task's
@@ -139,10 +139,10 @@ the next env.step, which is the throughput win.
 
 - Lowering perception camera resolution. The sim-mirrors-real
   constraint and reasoning are spelled out in
-  [`context/bridge-runtime-invariants.md`](context/bridge-runtime-invariants.md#camera-resolutions-sim-mirrors-real).
+  [`context/bridge-runtime-invariants.md`](../context/bridge-runtime-invariants.md#camera-resolutions-sim-mirrors-real).
 - Touching the policy 80×60 camera (`d555_camera`) — it's not bridged
   and stays inside the env on GPU.
 - Removing the redundant Kit pump itself — already shipped, see
-  [completed/kit-pump-redundancy-investigation.md](completed/kit-pump-redundancy-investigation.md).
+  [completed/kit-pump-redundancy-investigation.md](../completed/kit-pump-redundancy-investigation.md).
   This task is now purely about moving camera publish off the Kit
   thread; the redundancy is gone.

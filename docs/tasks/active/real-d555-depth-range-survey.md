@@ -19,10 +19,10 @@ know operators report seeing past 6 m**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
-- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
-- [completed/goal-projection-depth-range.md](completed/goal-projection-depth-range.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md)
+- [completed/goal-projection-depth-range.md](../completed/goal-projection-depth-range.md)
   — the shipped task this one follows from; explains why the 6 m
   default was an unmeasured guess and what was deferred to here.
 
@@ -31,7 +31,7 @@ Read these before starting:
 `goal_projection_node._DEPTH_MAX_M = 6.0` is annotated as "Beyond
 this the stereo estimate is noisy" — a heuristic, not a measurement.
 The shipped goal-projection task
-([`completed/goal-projection-depth-range.md`](completed/goal-projection-depth-range.md))
+([`completed/goal-projection-depth-range.md`](../completed/goal-projection-depth-range.md))
 made the cap env-overridable so sim missions can use the renderer's
 honest 15 m depth, but explicitly **did not change the real-robot
 default** because the 6 m number was never validated against the
@@ -165,7 +165,7 @@ The numbers we care about are:
 - D555 datasheet "ideal stereo range" — Intel's spec sheet quotes a
   reliability bound; useful as one data point to calibrate
   expectations against, not as the answer.
-- [`completed/goal-projection-depth-range.md`](completed/goal-projection-depth-range.md)
+- [`completed/goal-projection-depth-range.md`](../completed/goal-projection-depth-range.md)
   — the shipped task that motivated this one. The "Out of scope"
   section there is exactly the work this brief picks up.
 

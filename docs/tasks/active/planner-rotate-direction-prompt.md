@@ -17,9 +17,9 @@ the LLM happens to have settled on**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
-- [completed/sim-velocity-attenuation.md](completed/sim-velocity-attenuation.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [completed/sim-velocity-attenuation.md](../completed/sim-velocity-attenuation.md)
   — surfaced this and two adjacent rotation issues during validation.
 
 ## Context
@@ -27,20 +27,20 @@ Read these before starting:
 Operator-observed: `"rotate left 90 degrees"` rotates the robot to
 its right (CW). The downstream code path is sign-clean end-to-end:
 
-- [`source/strafer_autonomy/strafer_autonomy/planner/intent_parser.py:109-113`](../../source/strafer_autonomy/strafer_autonomy/planner/intent_parser.py)
+- [`source/strafer_autonomy/strafer_autonomy/planner/intent_parser.py:109-113`](../../../source/strafer_autonomy/strafer_autonomy/planner/intent_parser.py)
   — `orientation_mode` is passed through unchanged.
-- [`source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py:174-183`](../../source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py)
+- [`source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py:174-183`](../../../source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py)
   — `float(mode)` with no sign munging.
-- [`source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py:1453`](../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py)
+- [`source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py:1453`](../../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py)
   — `yaw_delta = math.radians(degrees)` — no sign flip.
-- [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py:718`](../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
+- [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py:718`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
   — `direction = +1 if yaw_delta_rad >= 0 else -1`,
   `angular.z = direction * speed`. Standard ROS convention
   (positive `angular.z` = CCW = robot's left).
 
 So the convention is correct; the bug is the LLM emitting the wrong
 sign. The system prompt at
-[`source/strafer_autonomy/strafer_autonomy/planner/prompt_builder.py:48-50`](../../source/strafer_autonomy/strafer_autonomy/planner/prompt_builder.py)
+[`source/strafer_autonomy/strafer_autonomy/planner/prompt_builder.py:48-50`](../../../source/strafer_autonomy/strafer_autonomy/planner/prompt_builder.py)
 declares *"positive = CCW"* but the few-shot examples only show **one**
 rotate case (line 79-80, "turn 90 degrees left" → `"90"`). With no
 symmetric "right" example and no explicit "left = CCW = positive"

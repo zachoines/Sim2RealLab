@@ -23,19 +23,19 @@ of the Isaac Sim editor viewport on the DGX side**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
-- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md)
 
 ## Context
 
 The headless-vs-`--viz kit` cost split is summarized in
-[`context/bridge-runtime-invariants.md`](context/bridge-runtime-invariants.md#headless-vs---viz-kit-defaults)
+[`context/bridge-runtime-invariants.md`](../context/bridge-runtime-invariants.md#headless-vs---viz-kit-defaults)
 and detailed in `docs/PERF_INVESTIGATION_SIM_IN_THE_LOOP.md` Findings
 8-10. Switching to headless mode (`make sim-bridge`) recovers ~85 ms
 per loop, lifting bridge throughput from ~5 Hz to ~8.5 Hz, and lifts
 further once async camera publishers land (see
-[async-camera-publishers task](async-camera-publishers.md)).
+[async-camera-publishers task](../active/async-camera-publishers.md)).
 
 The blocker for using headless as the default bridge mode: the
 operator currently relies on the editor viewport to confirm scene

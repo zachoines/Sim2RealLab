@@ -20,9 +20,9 @@ correcting drift mid-run**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
-- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md)
 
 The integration docs being refreshed are themselves *prompts that
 duplicate what context modules now own*. A reasonable shape for the
@@ -60,7 +60,7 @@ moved on:
     for visual debugging only. The runbook's stage-by-stage commands
     should reflect that. Visual debugging from the headless mode
     needs a Jetson-side viewer (see
-    [jetson-headless-viewer.md](jetson-headless-viewer.md)).
+    [jetson-headless-viewer.md](../completed/jetson-headless-viewer.md)).
 - **Scene-side fixes that affect bridge runs**:
   - Infinigen floor mesh colliders are stripped at bake time
     (`6f9976c`); the env's `lift_ground_plane_to_floor` startup event
@@ -80,12 +80,12 @@ moved on:
     `prepare_vlm_finetune_data.py` / `finetune_clip.py` end-to-end
     path. Today's runbook only covers bridge-driven Nav2 missions.
 - **New artifacts the prompts should reference**:
-  - [`docs/example_commands_cheatsheet.md`](../example_commands_cheatsheet.md)
+  - [`docs/example_commands_cheatsheet.md`](../../example_commands_cheatsheet.md)
     for the exact one-liners operators run on the DGX.
-  - [`docs/PERF_INVESTIGATION_SIM_IN_THE_LOOP.md`](../PERF_INVESTIGATION_SIM_IN_THE_LOOP.md)
+  - [`docs/PERF_INVESTIGATION_SIM_IN_THE_LOOP.md`](../../PERF_INVESTIGATION_SIM_IN_THE_LOOP.md)
     Findings 8-10 — current bridge perf attribution + recommended
     knobs.
-  - [`docs/tasks/`](.) — the queue of follow-up work the agents
+  - [`docs/tasks/`](..) — the queue of follow-up work the agents
     should know about (so they don't independently rediscover the
     same issues).
 
@@ -96,7 +96,7 @@ moved on:
       historical perf-doc text.
 - [ ] `INTEGRATION_PROMPT_DGX.md` ownership boundaries match the
       current state of the lanes. Source of truth for the lanes is
-      [`context/ownership-boundaries.md`](context/ownership-boundaries.md);
+      [`context/ownership-boundaries.md`](../context/ownership-boundaries.md);
       either link out to it from the prompt, or replicate inline and
       keep both in sync.
 - [ ] `INTEGRATION_SIM_IN_THE_LOOP.md` stage-by-stage commands point
@@ -142,14 +142,14 @@ moved on:
 - Recent perf attribution: `docs/PERF_INVESTIGATION_SIM_IN_THE_LOOP.md`
   Findings 8-10 (the camera-bridge-on/off + headed/headless decomposition).
 - Recent cmd_vel fix rationale: captured in
-  [`context/bridge-runtime-invariants.md`](context/bridge-runtime-invariants.md#cmd_vel-normalization-contract-both-paths).
+  [`context/bridge-runtime-invariants.md`](../context/bridge-runtime-invariants.md#cmd_vel-normalization-contract-both-paths).
   The original session brief (`dgx_scratch_pad.md`) has been deleted;
   the invariant lives in context now.
 - Task-brief format + composition guidance: see
-  [`docs/tasks/README.md`](README.md). Match that voice / structure
+  [`docs/tasks/README.md`](../README.md). Match that voice / structure
   for any new stage briefs you fold into the runbook.
 - Source of truth for the cheatsheet content:
-  [`docs/example_commands_cheatsheet.md`](../example_commands_cheatsheet.md)
+  [`docs/example_commands_cheatsheet.md`](../../example_commands_cheatsheet.md)
   — gets updated as commands evolve, mirror anything in the runbook
   against it.
 

@@ -22,9 +22,9 @@ color contract holds without 4× bandwidth waste**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
-- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md)
 
 ## Context
 
@@ -209,6 +209,6 @@ configure.
   Both fixes can land independently and missions need both before
   they reliably succeed in sim.
 - Async camera publishers (separate task,
-  [async-camera-publishers](async-camera-publishers.md)) — that's an
+  [async-camera-publishers](../active/async-camera-publishers.md)) — that's an
   architecture move; this is a config bug. The two are
   complementary; either can land first.

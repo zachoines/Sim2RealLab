@@ -70,8 +70,8 @@ Task briefs include a small section near the top:
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
+- [context/repo-topology.md](repo-topology.md)
+- [context/bridge-runtime-invariants.md](bridge-runtime-invariants.md)
 ```
 
 That replaces what used to be 50 lines of duplicated preamble. The
@@ -103,7 +103,7 @@ In practice:
 
 A secondary safety net: when the operator stages a fresh integration
 round (currently tracked as
-[`docs/tasks/integration-prompts-refresh.md`](../integration-prompts-refresh.md)),
+[`docs/tasks/active/integration-prompts-refresh.md`](../active/integration-prompts-refresh.md)),
 that audit task should re-read context modules end-to-end and flag
 anything stale.
 

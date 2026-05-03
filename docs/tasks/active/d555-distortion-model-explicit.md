@@ -22,9 +22,9 @@ the deprecated path doesn't silently change our camera_info contract**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
-- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md)
 
 ## Context
 
@@ -62,7 +62,7 @@ The camera prims live at
 `d555_camera_perception`, spawned by:
 
 - `make_d555_camera_cfg` in
-  [`source/strafer_lab/strafer_lab/tasks/navigation/d555_cfg.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/d555_cfg.py)
+  [`source/strafer_lab/strafer_lab/tasks/navigation/d555_cfg.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/d555_cfg.py)
   (policy 80×60 — internal only, not bridged).
 - `make_d555_perception_camera_cfg` in the same file (640×360,
   bridged to `/d555/color/*` and `/d555/depth/*`).
@@ -79,7 +79,7 @@ via `isaacsim.sensors.camera.Camera.set_opencv_pinhole_properties()`
 
 A natural hook is a startup event in the env (mirroring
 `lift_ground_plane_to_floor`'s pattern in
-[`strafer_env_cfg.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py))
+[`strafer_env_cfg.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py))
 that walks the camera prims after scene assembly and stamps the
 schema. Setting it only on `d555_camera_perception` is sufficient if
 we want to scope the change to the bridged camera; the policy camera
@@ -110,7 +110,7 @@ imageSize}`.
 - [ ] Jetson-side RTAB-Map / `depthimage_to_laserscan` /
       goal-projection consumers continue to work unchanged.
 - [ ] If a startup event is the chosen hook, it lives in
-      [`strafer_env_cfg.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py)
+      [`strafer_env_cfg.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py)
       next to the existing `lift_ground_plane_to_floor` event, and
       the change is gated on the perception camera being present in
       the scene (NoCam variants must not crash).
@@ -136,7 +136,7 @@ imageSize}`.
 - Modeling actual D555 lens distortion. The real D555 has a fisheye
   lens, but the project deliberately runs sim cameras with zero
   distortion — see the rationale in
-  [`context/bridge-runtime-invariants.md`](context/bridge-runtime-invariants.md#camera-resolutions-sim-mirrors-real)
+  [`context/bridge-runtime-invariants.md`](../context/bridge-runtime-invariants.md#camera-resolutions-sim-mirrors-real)
   about avoiding sim-only distortion that consumers would have to
   invert. The contract stays "plumb_bob with zeroed `d`"; we're only
   changing how the schema is stored on the prim.

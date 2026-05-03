@@ -1,5 +1,8 @@
 # Stage navigation through the SLAM horizon for far goal-projection targets
 
+**Status:** Shipped 2026-04-29 in `fccaede` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/13
+
 **Type:** task / new feature
 **Owner:** Jetson agent
 **Priority:** P1
@@ -19,10 +22,10 @@ global costmap`**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
-- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
-- [completed/goal-projection-depth-range.md](completed/goal-projection-depth-range.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md)
+- [completed/goal-projection-depth-range.md](goal-projection-depth-range.md)
   — the immediate predecessor; explains the projection-side env
   override that surfaced this failure mode.
 
@@ -156,7 +159,7 @@ pixel→pose mapper.
 
 - **Smarter planner-side staging.** The LLM planner emitting
   explicit multi-hop plans is the parallel DGX-side task
-  [`planner-far-target-staging.md`](planner-far-target-staging.md).
+  [`planner-far-target-staging.md`](../active/planner-far-target-staging.md).
   It assumes this brief has shipped (and uses this loop as its
   safety net). Plan/code coordination between the two tasks goes
   through the operator, not directly.
@@ -168,7 +171,7 @@ pixel→pose mapper.
   defaults shipped in `35018b1` stay. This brief only re-enables
   the sim-side env override that admits 15 m.
 - **Real-D555 depth range survey** — orthogonal; tracked at
-  [`real-d555-depth-range-survey.md`](real-d555-depth-range-survey.md).
+  [`real-d555-depth-range-survey.md`](../active/real-d555-depth-range-survey.md).
   Affects how often staging triggers on the real robot, not whether
   staging is correct.
 - **Plan validation against the static map.** Checking whether

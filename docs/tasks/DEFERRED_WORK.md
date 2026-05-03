@@ -22,7 +22,7 @@ Items that cross multiple packages are in the final section.
 
 **What**: Rotate the robot to face toward, away from, or perpendicular to a
 known target pose. Handler is drafted in
-[`executor/mission_runner.py`](../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py)
+[`executor/mission_runner.py`](../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py)
 but the skill name is commented out of `DEFAULT_AVAILABLE_SKILLS`. The
 corresponding `strafer_msgs/action/OrientRelativeToTarget.action` does not
 yet exist.
@@ -35,7 +35,7 @@ mission set. MVP operator flows work without explicit facing behavior.
 ### Parallel health checks in `build_command_server`
 
 **Status**: **Shipped** — `check_vlm_health=True` runs parallel probes in
-[`command_server.py`](../source/strafer_autonomy/strafer_autonomy/executor/command_server.py).
+[`command_server.py`](../../source/strafer_autonomy/strafer_autonomy/executor/command_server.py).
 Retained here only as a cross-reference — remove on next revision.
 
 ### Agentic combined planning endpoint (broader than `/plan_with_grounding`)
@@ -106,7 +106,7 @@ same gap).
 
 ### Postman collection completeness
 
-**What**: [`source/SImToRealLab.postman_collection.json`](../source/SImToRealLab.postman_collection.json)
+**What**: [`source/SImToRealLab.postman_collection.json`](../../source/SImToRealLab.postman_collection.json)
 covers `/health` and `/ground` only. `/describe`, `/detect_objects`, and
 the planner's `/plan` + `/plan_with_grounding` are missing.
 
@@ -117,20 +117,6 @@ the planner's `/plan` + `/plan_with_grounding` are missing.
 ---
 
 ## `strafer_ros`
-
-### `strafer_inference` Jetson package
-
-**What**: The Jetson-side RL policy execution runtime. Once present, it
-becomes the backend for `execution_backend="strafer_direct"` (pure-RL)
-and `"hybrid_nav2_strafer"` (Nav2 global + RL local) on the
-`navigate_to_pose` skill.
-
-**Why deferred**: Depends on a deployable policy checkpoint from
-[`strafer_lab`](../source/strafer_lab/) + policy export tooling (also
-deferred; see below). Default `navigate_to_pose` remains `nav2`.
-
-**Packages**: `strafer_ros` (new package), `strafer_shared` (load_policy
-already exists), `strafer_autonomy` (dispatch in `JetsonRosClient.navigate_to_pose`).
 
 ### `OrientRelativeToTarget.action` definition
 
@@ -183,19 +169,6 @@ for current PPO training.
 
 **Packages**: `strafer_lab`.
 
-### Policy export tooling (`export_policy_as_jit`)
-
-**What**: Wrapper script that converts a trained PPO checkpoint into a
-TorchScript `.pt` artifact loadable by `strafer_shared.policy_interface.load_policy()`.
-Target: `python Scripts/export_policy.py --checkpoint logs/best_model/model_*.pt --output model.pt`.
-Paired with a `benchmark_policy()` helper to validate Jetson inference
-latency (<5 ms target).
-
-**Why deferred**: Gates `strafer_inference` Jetson deployment.
-
-**Packages**: `strafer_lab` (export), `strafer_shared` (loader already
-exists), `strafer_ros` (future `strafer_inference` consumer).
-
 ### `SdRenderVarPtr DistanceToImagePlaneSDbuff` cold-start warning
 
 **What**: Isaac Sim emits
@@ -223,21 +196,6 @@ message warrants.
 
 **Packages**: `strafer_lab` (bridge graph; if a warmup gate ends up
 worth shipping, it lives in `bridge/graph.py`).
-
-### Pre-deployment training with goal-position noise
-
-**What**: Before exporting the checkpoint intended for VLM-sourced goals,
-retrain with `goal_position_noise_std: 0.2-0.3 m` in
-[`tasks/navigation/mdp/commands.py`](../source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py)
-to match the ±0.2-0.5 m localization error of Qwen2.5-VL-3B grounding.
-Without this, the policy oscillates at deployment when given imprecise
-VLM-generated goals.
-
-**Why deferred**: Requires an otherwise-converged baseline policy first;
-goal-noise training is a targeted final pass, not a fresh train from
-scratch.
-
-**Packages**: `strafer_lab`.
 
 ---
 

@@ -22,18 +22,18 @@ cross-room mission**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
-- [completed/goal-projection-depth-range.md](completed/goal-projection-depth-range.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [completed/goal-projection-depth-range.md](../completed/goal-projection-depth-range.md)
   — the predecessor that surfaced the long-horizon problem.
-- [`nav2-far-goal-staging.md`](nav2-far-goal-staging.md) — the
+- [`nav2-far-goal-staging.md`](../completed/nav2-far-goal-staging.md) — the
   Jetson-side reactive staging loop this brief layers on top of.
   **Must ship first.**
 
 ## Context
 
 The Jetson-side reactive staging loop in
-[`nav2-far-goal-staging.md`](nav2-far-goal-staging.md) catches
+[`nav2-far-goal-staging.md`](../completed/nav2-far-goal-staging.md) catches
 off-costmap goals and drives the robot in stages along the approach
 vector. It works for any mission, including ones the planner emits
 as a single `navigate(target)` step — that's its safety-net role.
@@ -123,7 +123,7 @@ final-meter corrections.
       steps (e.g.,
       `scan → navigate(intermediate) → scan → navigate(final)`).
       The executor runs them linearly. The Jetson reactive staging
-      loop in [`nav2-far-goal-staging.md`](nav2-far-goal-staging.md)
+      loop in [`nav2-far-goal-staging.md`](../completed/nav2-far-goal-staging.md)
       fires ≤1 time during the mission, allowing for final-meter
       corrections at the last stage.
 - [ ] On a near-target mission (target visible and inside the
@@ -155,7 +155,7 @@ final-meter corrections.
 - `source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py`
   — Jetson-lane call site for `planner_client.plan(...)`. Where the
   populated `world_state` goes in. The Jetson reactive staging loop
-  shipping in [`nav2-far-goal-staging.md`](nav2-far-goal-staging.md)
+  shipping in [`nav2-far-goal-staging.md`](../completed/nav2-far-goal-staging.md)
   already needs to query the global-costmap bounds; reuse that
   helper to populate `world_state.costmap_extent`.
 - The failing run from 2026-04-27 reproduces the cross-room
@@ -166,7 +166,7 @@ final-meter corrections.
 ## Out of scope
 
 - **Executor-level reactive staging.** Tracked at
-  [`nav2-far-goal-staging.md`](nav2-far-goal-staging.md) (Jetson).
+  [`nav2-far-goal-staging.md`](../completed/nav2-far-goal-staging.md) (Jetson).
   This brief assumes that brief has shipped first and uses its
   reactive loop as a safety net.
 - **Real-D555 depth range survey** — tracked at

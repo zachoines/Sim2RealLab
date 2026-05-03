@@ -71,11 +71,11 @@ balance, not noise scale, and is the territory of the follow-up.
       first.
 
 **Follow-ups filed:**
-- [`mppi-critic-tuning-for-sim-envelope.md`](../mppi-critic-tuning-for-sim-envelope.md)
+- [`mppi-critic-tuning-for-sim-envelope.md`](mppi-critic-tuning-for-sim-envelope.md)
   — the deeper tuning pass (PathAlign / PreferForward weights,
   PathFollow offset, iteration_count, temperature) needed to push
   median commanded vel toward the cap. Picks up where this v1 ends.
-- [`plan-compiler-skill-timeouts.md`](../plan-compiler-skill-timeouts.md)
+- [`plan-compiler-skill-timeouts.md`](../active/plan-compiler-skill-timeouts.md)
   — `plan_compiler.py:56-233` hardcodes per-skill `timeout_s`
   values that silently override the executor's
   `STRAFER_NAVIGATION_TIMEOUT_S=180` sim-time budget. Generalizes
@@ -101,9 +101,9 @@ sim time instead of timing out at the navigation deadline**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
-- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md)
 - [nav2-far-goal-staging.md](nav2-far-goal-staging.md) — the
   predecessor task whose end-to-end validation surfaced this issue.
 

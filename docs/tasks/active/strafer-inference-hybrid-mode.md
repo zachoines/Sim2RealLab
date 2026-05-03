@@ -35,8 +35,8 @@ policy follows it section-by-section.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
 - [strafer-inference-package.md](strafer-inference-package.md) — the
   predecessor; this brief extends its `execution_backend` dispatch
   with a third mode and adds a new `PolicyVariant` to the shared
@@ -119,7 +119,7 @@ up end-to-end once the trained checkpoint arrives.
 
 ### Phase 1 (DGX) — `PolicyVariant.NOCAM_SUBGOAL` + subgoal command term (~3 days)
 
-In [`source/strafer_shared/strafer_shared/policy_interface.py`](../../source/strafer_shared/strafer_shared/policy_interface.py):
+In [`source/strafer_shared/strafer_shared/policy_interface.py`](../../../source/strafer_shared/strafer_shared/policy_interface.py):
 
 - Add `_NOCAM_SUBGOAL_FIELDS` mirroring `_NOCAM_FIELDS` exactly. The
   field shapes / scales are identical; the documented semantics
@@ -129,7 +129,7 @@ In [`source/strafer_shared/strafer_shared/policy_interface.py`](../../source/str
   architecture as NOCAM; different training distribution; consumed
   by the hybrid backend.
 
-In [`source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py):
+In [`source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py):
 
 - Add `SubgoalCommand` class (or extend `GoalCommand` with a subgoal
   mode). The command term:
@@ -152,7 +152,7 @@ In [`source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py`](../../sou
 ### Phase 2 (DGX) — Train `NOCAM_SUBGOAL` to convergence (~3–5 days wall)
 
 - Wire a new training task variant in
-  [`Scripts/train_strafer_navigation.py`](../../Scripts/train_strafer_navigation.py)
+  [`Scripts/train_strafer_navigation.py`](../../../Scripts/train_strafer_navigation.py)
   that uses the `SubgoalCommand` term and the
   `PolicyVariant.NOCAM_SUBGOAL` observation group.
 - Train to convergence. Target metrics: subgoal-tracking error
@@ -162,7 +162,7 @@ In [`source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py`](../../sou
 
 ### Phase 3 (Jetson) — Hybrid backend in `strafer_inference` (~2 days)
 
-In [`source/strafer_ros/strafer_inference/`](../../source/strafer_ros/strafer_inference/)
+In [`source/strafer_ros/strafer_inference/`](../../../source/strafer_ros/strafer_inference/)
 (once
 [`strafer-inference-package.md`](strafer-inference-package.md)
 ships):
@@ -185,7 +185,7 @@ ships):
     (deterministic-output, L1-clamp, watchdogs, debug logging) are
     inherited from the strafer-inference brief.
 
-In [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py):
+In [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py):
 
 - Update `JetsonRosClient.navigate_to_pose` dispatch (currently
   recognizes `nav2` and `strafer_direct`, falls back to `nav2` on
@@ -199,11 +199,11 @@ In [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../sour
 ### Phase 4 — End-to-end validation (~2 days)
 
 - **Sim cross-room mission**: pick the reference mission from
-  [`completed/nav2-far-goal-staging.md`](completed/nav2-far-goal-staging.md)
+  [`completed/nav2-far-goal-staging.md`](../completed/nav2-far-goal-staging.md)
   ("Navigate to the open wood door on other side of the room").
   Verify hybrid mode completes it with Nav2 publishing the path and
   the policy executing local control between subgoals. Capture run-
-  table via [`tune_capture.py`](../../source/strafer_ros/strafer_navigation/scripts/tune_capture.py).
+  table via [`tune_capture.py`](../../../source/strafer_ros/strafer_navigation/scripts/tune_capture.py).
 - **No-regression on `strafer_direct`** (translate forward 3 m
   acceptance from the strafer-inference brief).
 - **No-regression on `nav2`** (same translate mission with default
@@ -216,13 +216,13 @@ In [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../sour
 ### Contract (`strafer_shared` + `strafer_lab`)
 
 - [ ] `PolicyVariant.NOCAM_SUBGOAL` defined in
-      [`policy_interface.py`](../../source/strafer_shared/strafer_shared/policy_interface.py)
+      [`policy_interface.py`](../../../source/strafer_shared/strafer_shared/policy_interface.py)
       with field semantics documented as "subgoal pose, not final
       goal pose."
 - [ ] `obs_dim` matches `PolicyVariant.NOCAM` (same architecture;
       different training distribution). Anchored by a unit test.
 - [ ] `SubgoalCommand` (or `GoalCommand` subgoal mode) in
-      [`commands.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py)
+      [`commands.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py)
       with unit-tested rolling-subgoal-along-vector behavior.
 
 ### Training (DGX)
@@ -270,7 +270,7 @@ In [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../sour
 - [ ] Real-robot mission of equivalent shape — completes
       successfully with `xy_goal_tolerance` and `yaw_goal_tolerance`
       from
-      [`nav2_params.yaml`](../../source/strafer_ros/strafer_navigation/config/nav2_params.yaml)
+      [`nav2_params.yaml`](../../../source/strafer_ros/strafer_navigation/config/nav2_params.yaml)
       satisfied.
 
 ### Maintenance
@@ -280,22 +280,22 @@ In [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../sour
 
 ## Investigation pointers
 
-- [`source/strafer_shared/strafer_shared/policy_interface.py:42-79`](../../source/strafer_shared/strafer_shared/policy_interface.py)
+- [`source/strafer_shared/strafer_shared/policy_interface.py:42-79`](../../../source/strafer_shared/strafer_shared/policy_interface.py)
   — `PolicyVariant` enum + `ObsField` definitions; the pattern for
   adding a new variant.
-- [`source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py)
+- [`source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py)
   — `GoalCommand` (line 23), `GoalCommandCfg` (line 363),
   `GoalCommandProcRoom` (line 413). Subgoal command extends from
   these.
-- [`source/strafer_ros/strafer_navigation/config/nav2_params.yaml`](../../source/strafer_ros/strafer_navigation/config/nav2_params.yaml)
+- [`source/strafer_ros/strafer_navigation/config/nav2_params.yaml`](../../../source/strafer_ros/strafer_navigation/config/nav2_params.yaml)
   — Nav2 planner config; confirm the topic Nav2 publishes the path on
   (`/plan` is the convention; verify the QoS for the strafer_inference
   subscription).
-- [`source/strafer_ros/strafer_inference/`](../../source/strafer_ros/strafer_inference/)
+- [`source/strafer_ros/strafer_inference/`](../../../source/strafer_ros/strafer_inference/)
   — once
   [`strafer-inference-package.md`](strafer-inference-package.md)
   ships, this is the extension point.
-- [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
+- [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
   — `JetsonRosClient.navigate_to_pose`; Phase 3 edits the dispatch
   path here.
 - Pure-pursuit / lookahead-distance subgoal selection: classical

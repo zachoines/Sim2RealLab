@@ -19,9 +19,9 @@ landscape resolves least cleanly today**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
-- [completed/sim-velocity-attenuation.md](completed/sim-velocity-attenuation.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [completed/sim-velocity-attenuation.md](../completed/sim-velocity-attenuation.md)
   — same operator session that surfaced the velocity-attenuation
   symptom flagged this; useful for context on how MPPI behaves when
   the heading delta at navigate-start is large.
@@ -41,14 +41,14 @@ Two interacting code paths cause the operator-visible "robot strafes
 toward the goal" symptom:
 
 1. **Scan exits as soon as the bbox lands anywhere in FOV.**
-   [`mission_runner.py:_scan_for_target`](../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py)
+   [`mission_runner.py:_scan_for_target`](../../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py)
    captures, attempts grounding, and `return SkillResult(...)
    succeeded` the moment confidence ≥ `min_grounding_confidence`
    (default 0.5). The D555's perception-stream FOV is ~70°
    horizontal, so the robot can be up to ~35° off-axis from the
    target when scan succeeds.
 2. **Goal pose's yaw faces the target.**
-   [`goal_projection_node._compute_standoff_pose`](../../source/strafer_ros/strafer_perception/strafer_perception/goal_projection_node.py)
+   [`goal_projection_node._compute_standoff_pose`](../../../source/strafer_ros/strafer_perception/strafer_perception/goal_projection_node.py)
    sets `goal_yaw = math.atan2(uy, ux)` (the robot→target unit
    vector's angle). So `goal_pose.yaw` ≠ `robot_pose.yaw` at
    navigate-start by up to half-FOV.
@@ -86,7 +86,7 @@ to reflect the alignment, otherwise step 2's projection is off.
 **Option C: tune MPPI critics to prefer turn-then-drive over
 strafe-while-turn.** Bump `PreferForwardCritic.cost_weight` (3.0 →
 6–8) and trim `PathAlignCritic` weight. Already partially within
-[`mppi-critic-tuning-for-sim-envelope.md`](mppi-critic-tuning-for-sim-envelope.md)
+[`mppi-critic-tuning-for-sim-envelope.md`](../completed/mppi-critic-tuning-for-sim-envelope.md)
 scope. This is less surgical and doesn't deterministically fix the
 heading-mismatch root cause; it biases MPPI to prefer one resolution
 of it.
@@ -148,7 +148,7 @@ A is recommended.
   is explicitly not chosen here.
 - **MPPI critic tuning to prefer turn-then-drive.** That's Option
   C / part of
-  [`mppi-critic-tuning-for-sim-envelope.md`](mppi-critic-tuning-for-sim-envelope.md).
+  [`mppi-critic-tuning-for-sim-envelope.md`](../completed/mppi-critic-tuning-for-sim-envelope.md).
   The two changes are complementary; this brief delivers the fix at
   the planning layer regardless of MPPI tuning.
 - **Real-robot validation.** D555 FOV and chassis kinematics differ

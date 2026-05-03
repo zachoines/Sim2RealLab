@@ -18,18 +18,18 @@ a sim-second at low RTF**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
-- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md)
   — "Sim-time-aware navigation timeout (Jetson side)" section
   documents the convention this brief makes `rotate_in_place`
   comply with.
-- [completed/sim-velocity-attenuation.md](completed/sim-velocity-attenuation.md)
+- [completed/sim-velocity-attenuation.md](../completed/sim-velocity-attenuation.md)
   — surfaced this during rotation-timeout debugging.
 
 ## Context
 
-[`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py:720`](../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
+[`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py:720`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
 sets `deadline = time.monotonic() + timeout` and the loop checks
 `time.monotonic() < deadline`. That's wall clock, not sim clock.
 

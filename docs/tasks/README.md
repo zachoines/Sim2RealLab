@@ -56,7 +56,7 @@ Lowercase kebab-case, descriptive of the work, no leading numbers:
 Avoid prefixes like `001-`, dates, or owner initials. The `Owner` /
 `Priority` / `Estimate` fields in the frontmatter convey ordering and
 ownership; the filename should still read sensibly when you scan
-`ls docs/tasks/`.
+`ls docs/tasks/active/`.
 
 ---
 
@@ -70,7 +70,7 @@ ownership; the filename should still read sensibly when you scan
 **Priority:** P0 / P1 / P2
 **Estimate:** S / M / L  (rough effort; ~hours / ~day / ~multi-day)
 **Branch:** task/<brief-slug>  (= filename minus .md, prefixed with
-                                "task/"; see context/branching-and-prs.md)
+                                "task/"; see ../context/branching-and-prs.md)
 
 ## Story
 
@@ -79,10 +79,10 @@ As a **<role>**, I want **<action>**, so that **<outcome>**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
-- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
-- [context/branching-and-prs.md](context/branching-and-prs.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
   *(omit modules that are not relevant to this task; branching-and-prs
    is universally relevant)*
 
@@ -232,7 +232,7 @@ your task branch:
       commit — the merge commit doesn't exist yet. `<host>` is
       `Jetson` / `DGX` / `Either` per the brief's `Owner` field.
 
-   b. `git mv docs/tasks/<brief>.md docs/tasks/completed/<brief>.md`.
+   b. `git mv docs/tasks/active/<brief>.md docs/tasks/completed/<brief>.md`.
 
    c. Update [`BOARD.md`](BOARD.md):
       - Remove the brief's row from **In flight**. If In flight is
@@ -299,7 +299,7 @@ this agent or you want them to choose from the queue.
 ```
 You are the [DGX | Jetson]-side coding agent. Your task brief is at:
 
-    docs/tasks/<brief-name>.md
+    docs/tasks/active/<brief-name>.md
 
 Start by reading the brief and the context modules it links to from
 its "## Context bundle" section. Workspace is already set up
@@ -396,13 +396,13 @@ on session-fit.
 
 The current queue is itself a useful set of examples:
 
-- **Investigation** ([`real-d555-depth-range-survey.md`](real-d555-depth-range-survey.md))
+- **Investigation** ([`real-d555-depth-range-survey.md`](active/real-d555-depth-range-survey.md))
   — open-ended diagnostic with a clear done-definition.
-- **Refactor** ([`async-camera-publishers.md`](async-camera-publishers.md))
+- **Refactor** ([`async-camera-publishers.md`](active/async-camera-publishers.md))
   — larger surgical change with risks and out-of-scope explicit.
-- **New feature** ([`jetson-headless-viewer.md`](jetson-headless-viewer.md))
+- **New feature** ([`jetson-headless-viewer.md`](completed/jetson-headless-viewer.md))
   — green-field work with a recommended approach + lighter alternative.
-- **Docs** ([`integration-prompts-refresh.md`](integration-prompts-refresh.md))
+- **Docs** ([`integration-prompts-refresh.md`](active/integration-prompts-refresh.md))
   — refresh of existing artifacts, with concrete drift listed.
 - **Bug fix** ([`completed/bridge-render-product-resolution.md`](completed/bridge-render-product-resolution.md),
   [`completed/goal-projection-depth-range.md`](completed/goal-projection-depth-range.md))

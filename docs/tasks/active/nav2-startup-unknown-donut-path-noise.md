@@ -19,10 +19,10 @@ between forward / strafe / rotate commands**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
-- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
-- [mppi-critic-tuning-for-sim-envelope.md](mppi-critic-tuning-for-sim-envelope.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md)
+- [mppi-critic-tuning-for-sim-envelope.md](../completed/mppi-critic-tuning-for-sim-envelope.md)
   — the sibling brief whose B-scenario validation surfaced this. The
   MPPI critic-tuning work makes the controller more robust to path
   noise, but the planner-side root cause documented here is upstream
@@ -91,7 +91,7 @@ oscillation that overwhelms the forward bias from PreferForwardCritic
 even at `cost_weight=10.0`.
 
 The MPPI critic-tuning brief
-([`mppi-critic-tuning-for-sim-envelope.md`](mppi-critic-tuning-for-sim-envelope.md))
+([`mppi-critic-tuning-for-sim-envelope.md`](../completed/mppi-critic-tuning-for-sim-envelope.md))
 can attenuate the symptom — making MPPI less reactive to small path
 kinks — but cannot fix the input. As long as the planner emits a
 wavy path, the controller is stuck choosing between "follow the wave"
@@ -205,7 +205,7 @@ above fail.
   `strafer_navigation/config/` and selected via `default_nav_to_pose_bt_xml`.
 - `mppi-critic-tuning-for-sim-envelope.md`'s
   `tune_capture.py` harness at
-  [`source/strafer_ros/strafer_navigation/scripts/tune_capture.py`](../../source/strafer_ros/strafer_navigation/scripts/tune_capture.py)
+  [`source/strafer_ros/strafer_navigation/scripts/tune_capture.py`](../../../source/strafer_ros/strafer_navigation/scripts/tune_capture.py)
   is the validation tool. Capture at 30 s `--duration` covers the
   mission's active phase.
 - The "kink in the path" claim is verifiable in Foxglove by
@@ -215,7 +215,7 @@ above fail.
 ## Out of scope
 
 - **MPPI critic re-tuning.** That's
-  [`mppi-critic-tuning-for-sim-envelope.md`](mppi-critic-tuning-for-sim-envelope.md).
+  [`mppi-critic-tuning-for-sim-envelope.md`](../completed/mppi-critic-tuning-for-sim-envelope.md).
   This brief assumes the controller is doing its job given a sane
   path; the fix here is to make the path sane.
 - **`make clean-map` policy.** Whether the operator should be

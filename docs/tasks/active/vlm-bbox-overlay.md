@@ -20,13 +20,13 @@ coordinates**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
 
 ## Context
 
 The headless visualizer
-([`completed/jetson-headless-viewer.md`](completed/jetson-headless-viewer.md),
+([`completed/jetson-headless-viewer.md`](../completed/jetson-headless-viewer.md),
 shipped in `179275e`) brought the live RGB / depth / TF / map state
 to Foxglove Studio over an SSH-tunneled WebSocket. It deliberately
 deferred one acceptance bullet — bbox overlay on the RGB feed — because
@@ -66,7 +66,7 @@ matching image topic, with no custom annotation work required.
    Publish even on empty results (an empty `Detection2DArray` clears
    the previous overlay in Foxglove instead of leaving a stale box).
 3. **Foxglove layout update.** Edit
-   [`source/strafer_ros/strafer_bringup/foxglove/strafer_layout.json`](../../source/strafer_ros/strafer_bringup/foxglove/strafer_layout.json)
+   [`source/strafer_ros/strafer_bringup/foxglove/strafer_layout.json`](../../../source/strafer_ros/strafer_bringup/foxglove/strafer_layout.json)
    so the RGB Image panel subscribes to the new detections topic as
    an annotation source. The schema field is roughly
    `imageMode.annotations: { "/d555/color/detections": { visible: true } }`
@@ -82,7 +82,7 @@ matching image topic, with no custom annotation work required.
 - [ ] `JetsonRosClient` publishes `vision_msgs/Detection2DArray`
       on a documented topic (`/d555/color/detections` unless there's
       a reason to deviate). Topic name + message type added to
-      [`source/strafer_ros/README.md`](../../source/strafer_ros/README.md)'s
+      [`source/strafer_ros/README.md`](../../../source/strafer_ros/README.md)'s
       "Topics published / consumed" table.
 - [ ] Each published message's `header.stamp` matches the source
       image's stamp (NOT `node.now()`), so Foxglove can pair the
@@ -106,18 +106,18 @@ matching image topic, with no custom annotation work required.
 
 ## Investigation pointers
 
-- VLM client: [`source/strafer_autonomy/strafer_autonomy/clients/vlm_client.py`](../../source/strafer_autonomy/strafer_autonomy/clients/vlm_client.py)
+- VLM client: [`source/strafer_autonomy/strafer_autonomy/clients/vlm_client.py`](../../../source/strafer_autonomy/strafer_autonomy/clients/vlm_client.py)
   — `HttpGroundingClient.ground()` returns parsed detections.
 - ROS client (where the publisher lives):
-  [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
+  [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
   — see the existing `_setup_subscriptions` for the publisher /
   subscriber pattern. Add a `_detections_pub` alongside.
 - Where to call the publisher:
-  [`source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py`](../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py)
+  [`source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py`](../../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py)
   (or wherever `scan_for_target` resolves the grounding response —
   trace from `command_server.py:294`'s `MissionRunner` import).
 - VLM payload types:
-  [`source/strafer_vlm/strafer_vlm/service/payloads.py`](../../source/strafer_vlm/strafer_vlm/service/payloads.py)
+  [`source/strafer_vlm/strafer_vlm/service/payloads.py`](../../../source/strafer_vlm/strafer_vlm/service/payloads.py)
   — `confidence` and `bbox_2d` fields are what need to land in the
   `Detection2D.results[].hypothesis` and `Detection2D.bbox` fields.
 - Foxglove Image annotation schema reference:
@@ -126,7 +126,7 @@ matching image topic, with no custom annotation work required.
   — prefer `vision_msgs/Detection2DArray` for portability (RViz,
   bag replay tooling, future ROS consumers).
 - Bbox coordinate frame: VLM service returns Qwen-normalized
-  `[0, 1000]` coords (see [`goal_projection_node.py`](../../source/strafer_ros/strafer_perception/strafer_perception/goal_projection_node.py)
+  `[0, 1000]` coords (see [`goal_projection_node.py`](../../../source/strafer_ros/strafer_perception/strafer_perception/goal_projection_node.py)
   for the conversion). The ROS detection message must carry **pixel
   coordinates** matching the published image's resolution, so do
   the rescale before publishing.

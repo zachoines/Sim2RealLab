@@ -37,10 +37,10 @@ session.
 
 | Brief | Owner | Estimate | Note |
 |---|---|---|---|
-| [`integration-prompts-refresh`](integration-prompts-refresh.md) | Either | M | Refreshes the DGX/Jetson/sim integration runbooks; blocks the next end-to-end integration round |
-| [`policy-export-tooling`](policy-export-tooling.md) | DGX | M (~2–3 d) | `Scripts/export_policy.py` — hard dep for `strafer-inference-package` end-to-end |
-| [`async-camera-publishers`](async-camera-publishers.md) | DGX | L (~3–5 d) | DGX bridge perf — closes the `OnPlaybackTick` gap (camera publish off Kit's main loop) |
-| [`strafer-inference-package`](strafer-inference-package.md) | Jetson | L (~1 wk) | Phases 1–4 land without a deployable checkpoint; the architectural answer to MPPI's plateau |
+| [`integration-prompts-refresh`](active/integration-prompts-refresh.md) | Either | M | Refreshes the DGX/Jetson/sim integration runbooks; blocks the next end-to-end integration round |
+| [`policy-export-tooling`](active/policy-export-tooling.md) | DGX | M (~2–3 d) | `Scripts/export_policy.py` — hard dep for `strafer-inference-package` end-to-end |
+| [`async-camera-publishers`](active/async-camera-publishers.md) | DGX | L (~3–5 d) | DGX bridge perf — closes the `OnPlaybackTick` gap (camera publish off Kit's main loop) |
+| [`strafer-inference-package`](active/strafer-inference-package.md) | Jetson | L (~1 wk) | Phases 1–4 land without a deployable checkpoint; the architectural answer to MPPI's plateau |
 
 ### P2 — medium priority
 
@@ -48,32 +48,32 @@ session.
 
 | Brief | Estimate | Note |
 |---|---|---|
-| [`d555-distortion-model-explicit`](d555-distortion-model-explicit.md) | S | Quick win |
-| [`planner-rotate-direction-prompt`](planner-rotate-direction-prompt.md) | S | Quick win — prompt edit |
-| [`policy-goal-noise-training`](policy-goal-noise-training.md) | M | Targeted training pass; gates VLM-grounded mission quality |
-| [`planner-far-target-staging`](planner-far-target-staging.md) | M–L | World-state schema + planner prompt |
+| [`d555-distortion-model-explicit`](active/d555-distortion-model-explicit.md) | S | Quick win |
+| [`planner-rotate-direction-prompt`](active/planner-rotate-direction-prompt.md) | S | Quick win — prompt edit |
+| [`policy-goal-noise-training`](active/policy-goal-noise-training.md) | M | Targeted training pass; gates VLM-grounded mission quality |
+| [`planner-far-target-staging`](active/planner-far-target-staging.md) | M–L | World-state schema + planner prompt |
 
 #### Jetson lane
 
 | Brief | Estimate | Note |
 |---|---|---|
-| [`rotate-in-place-sim-clock-deadline`](rotate-in-place-sim-clock-deadline.md) | S | Quick win |
-| [`vlm-bbox-overlay`](vlm-bbox-overlay.md) | S | Quick win — Foxglove debug overlay |
-| [`align-after-scan-grounding`](align-after-scan-grounding.md) | S–M | Executor + plan_compiler tweak |
-| [`real-d555-depth-range-survey`](real-d555-depth-range-survey.md) | S–M | Investigation — bench measurement + write-up |
-| [`nav2-startup-unknown-donut-path-noise`](nav2-startup-unknown-donut-path-noise.md) | M | Planner-side fix for the kinky-path-through-camera-donut symptom |
+| [`rotate-in-place-sim-clock-deadline`](active/rotate-in-place-sim-clock-deadline.md) | S | Quick win |
+| [`vlm-bbox-overlay`](active/vlm-bbox-overlay.md) | S | Quick win — Foxglove debug overlay |
+| [`align-after-scan-grounding`](active/align-after-scan-grounding.md) | S–M | Executor + plan_compiler tweak |
+| [`real-d555-depth-range-survey`](active/real-d555-depth-range-survey.md) | S–M | Investigation — bench measurement + write-up |
+| [`nav2-startup-unknown-donut-path-noise`](active/nav2-startup-unknown-donut-path-noise.md) | M | Planner-side fix for the kinky-path-through-camera-donut symptom |
 
 #### Either lane
 
 | Brief | Estimate | Note |
 |---|---|---|
-| [`plan-compiler-skill-timeouts`](plan-compiler-skill-timeouts.md) | S | Quick win — drop hardcoded timeouts so `STRAFER_NAVIGATION_TIMEOUT_S` takes effect |
+| [`plan-compiler-skill-timeouts`](active/plan-compiler-skill-timeouts.md) | S | Quick win — drop hardcoded timeouts so `STRAFER_NAVIGATION_TIMEOUT_S` takes effect |
 
 ### P3 — has dependencies
 
 | Brief | Owner | Estimate | Blocks on |
 |---|---|---|---|
-| [`strafer-inference-hybrid-mode`](strafer-inference-hybrid-mode.md) | Either | L | [`strafer-inference-package`](strafer-inference-package.md) shipped + `NOCAM_SUBGOAL` policy trained |
+| [`strafer-inference-hybrid-mode`](active/strafer-inference-hybrid-mode.md) | Either | L | [`strafer-inference-package`](active/strafer-inference-package.md) shipped + `NOCAM_SUBGOAL` policy trained |
 
 ---
 
@@ -82,11 +82,11 @@ session.
 Briefs estimated **S** that any agent can knock out in <1 day. Useful
 for fresh-session pickup. Cross-cut — these also appear above.
 
-- [`d555-distortion-model-explicit`](d555-distortion-model-explicit.md) (DGX, P2)
-- [`plan-compiler-skill-timeouts`](plan-compiler-skill-timeouts.md) (Either, P2)
-- [`planner-rotate-direction-prompt`](planner-rotate-direction-prompt.md) (DGX, P2)
-- [`rotate-in-place-sim-clock-deadline`](rotate-in-place-sim-clock-deadline.md) (Jetson, P2)
-- [`vlm-bbox-overlay`](vlm-bbox-overlay.md) (Jetson, P2)
+- [`d555-distortion-model-explicit`](active/d555-distortion-model-explicit.md) (DGX, P2)
+- [`plan-compiler-skill-timeouts`](active/plan-compiler-skill-timeouts.md) (Either, P2)
+- [`planner-rotate-direction-prompt`](active/planner-rotate-direction-prompt.md) (DGX, P2)
+- [`rotate-in-place-sim-clock-deadline`](active/rotate-in-place-sim-clock-deadline.md) (Jetson, P2)
+- [`vlm-bbox-overlay`](active/vlm-bbox-overlay.md) (Jetson, P2)
 
 ---
 
@@ -96,7 +96,7 @@ Briefs that aren't pickable until something else lands.
 
 | Brief | Blocks on | Why |
 |---|---|---|
-| [`strafer-inference-hybrid-mode`](strafer-inference-hybrid-mode.md) | [`strafer-inference-package`](strafer-inference-package.md) shipped + new `NOCAM_SUBGOAL` checkpoint trained | Hybrid backend extends the inference package's runtime; subgoal-following needs a new `PolicyVariant` and training run |
+| [`strafer-inference-hybrid-mode`](active/strafer-inference-hybrid-mode.md) | [`strafer-inference-package`](active/strafer-inference-package.md) shipped + new `NOCAM_SUBGOAL` checkpoint trained | Hybrid backend extends the inference package's runtime; subgoal-following needs a new `PolicyVariant` and training run |
 
 ---
 

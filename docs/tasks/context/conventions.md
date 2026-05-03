@@ -116,7 +116,7 @@ commit's SHA). Stamp the top of the moved brief with:
 ```
 **Status:** Shipped <YYYY-MM-DD> in `<commit-sha>` (<host>).
 **PR:** <github-pr-url>
-**Follow-ups:** [`<follow-up.md>`](../<follow-up.md>) — short hook.
+**Follow-ups:** [`<follow-up.md>`](../active/<follow-up.md>) — short hook.
 ```
 
 `<host>` is `DGX`, `Jetson`, or `Either`. `<follow-up.md>` is

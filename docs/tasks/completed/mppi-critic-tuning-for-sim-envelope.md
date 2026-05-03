@@ -3,8 +3,8 @@
 **Status:** Shipped 2026-05-03 in `4b55093` (Jetson). Converged at
 sustained median odom vx 0.632 m/s — ~63% of the literal acceptance
 threshold; remaining gap split across two filed follow-up briefs
-([`nav2-startup-unknown-donut-path-noise`](nav2-startup-unknown-donut-path-noise.md)
-and [`strafer-inference-package`](strafer-inference-package.md)).
+([`nav2-startup-unknown-donut-path-noise`](../active/nav2-startup-unknown-donut-path-noise.md)
+and [`strafer-inference-package`](../active/strafer-inference-package.md)).
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/15
 
 **Type:** task / tuning
@@ -26,10 +26,10 @@ biases MPPI toward slow precise path-tracking**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
-- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
-- [completed/sim-velocity-attenuation.md](completed/sim-velocity-attenuation.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md)
+- [completed/sim-velocity-attenuation.md](sim-velocity-attenuation.md)
   — the predecessor that proved this is the actual bottleneck and
   shipped the v1 std-scaling fix this brief deepens.
 
@@ -126,7 +126,7 @@ A is the recommended starting point.
       the PR description, comparable to the predecessor brief's
       run-table format.
 - [ ] No regression on the
-      [`completed/nav2-far-goal-staging.md`](completed/nav2-far-goal-staging.md)
+      [`completed/nav2-far-goal-staging.md`](nav2-far-goal-staging.md)
       reference mission ("Navigate to the open wood door on other
       side of the room"): mission still completes end-to-end with
       ≥ 2 staging legs and the executor still reports ≥ 2
@@ -177,7 +177,7 @@ A is the recommended starting point.
   physics, not control. Separate brief if it ever becomes a
   blocker.
 - **`plan_compiler` per-skill timeout hardcodes.** That's
-  [`plan-compiler-skill-timeouts.md`](plan-compiler-skill-timeouts.md);
+  [`plan-compiler-skill-timeouts.md`](../active/plan-compiler-skill-timeouts.md);
   unrelated path. Validation of the acceptance criteria here may
   need that brief landed first if mission-level deadlines matter
   during the validation runs (the controller-level acceptance does

@@ -15,7 +15,7 @@ As an **operator promoting a trained PPO checkpoint to robot
 deployment**, I want **a single export script that converts an
 rsl_rl checkpoint into a TorchScript `.pt` (later ONNX `.onnx`)
 artifact loadable by
-[`strafer_shared.policy_interface.load_policy()`](../../source/strafer_shared/strafer_shared/policy_interface.py)**,
+[`strafer_shared.policy_interface.load_policy()`](../../../source/strafer_shared/strafer_shared/policy_interface.py)**,
 so that **the Jetson inference node consumes the exact policy
 contract the env trained against without per-deployment ad-hoc
 conversion code, and the inference node's deterministic-output
@@ -25,8 +25,8 @@ robot**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
 - [strafer-inference-package.md](strafer-inference-package.md) — the
   Jetson-side consumer that gates on this brief. The brief's Phase 3
   asserts byte-identical action outputs across two same-obs calls;
@@ -37,14 +37,14 @@ Read these before starting:
 
 ### What already exists
 
-- [`strafer_shared.policy_interface.load_policy(path, variant)`](../../source/strafer_shared/strafer_shared/policy_interface.py)
+- [`strafer_shared.policy_interface.load_policy(path, variant)`](../../../source/strafer_shared/strafer_shared/policy_interface.py)
   supports both `.pt` (TorchScript via `torch.jit.load`) and `.onnx`
   (ONNX Runtime). Returns a `(obs) → action` callable. The loading
   side is *done*; this brief produces artifacts that load cleanly.
-- [`benchmark_policy(policy, variant, n_iters)`](../../source/strafer_shared/strafer_shared/policy_interface.py)
+- [`benchmark_policy(policy, variant, n_iters)`](../../../source/strafer_shared/strafer_shared/policy_interface.py)
   measures inference latency. The right validation tool for this brief.
 - Training entry point:
-  [`Scripts/train_strafer_navigation.py`](../../Scripts/train_strafer_navigation.py)
+  [`Scripts/train_strafer_navigation.py`](../../../Scripts/train_strafer_navigation.py)
   produces rsl_rl checkpoints under
   `logs/rsl_rl/strafer_navigation/<run>/best_model/model_*.pt`.
 
@@ -199,16 +199,16 @@ toolchain.
 
 ## Investigation pointers
 
-- [`source/strafer_shared/strafer_shared/policy_interface.py`](../../source/strafer_shared/strafer_shared/policy_interface.py)
+- [`source/strafer_shared/strafer_shared/policy_interface.py`](../../../source/strafer_shared/strafer_shared/policy_interface.py)
   — `load_policy` (lines 155–202), `benchmark_policy`
   (lines 211+). The export must produce artifacts these consume
   without modification.
 - rsl_rl source (installed via pip): the
   `ActorCritic.act_inference()` method is typically the deterministic-
   mean entry point; that's what should get traced/scripted.
-- [`Scripts/train_strafer_navigation.py`](../../Scripts/train_strafer_navigation.py)
+- [`Scripts/train_strafer_navigation.py`](../../../Scripts/train_strafer_navigation.py)
   — training entry point; checkpoint paths configured here.
-- [`Scripts/play_strafer_navigation.py`](../../Scripts/play_strafer_navigation.py)
+- [`Scripts/play_strafer_navigation.py`](../../../Scripts/play_strafer_navigation.py)
   — closest existing example of loading and running a trained policy
   on the env. Useful reference for the smoke test.
 - The

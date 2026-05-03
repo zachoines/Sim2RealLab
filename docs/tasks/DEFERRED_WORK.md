@@ -22,7 +22,7 @@ Items that cross multiple packages are in the final section.
 
 **What**: Rotate the robot to face toward, away from, or perpendicular to a
 known target pose. Handler is drafted in
-[`executor/mission_runner.py`](../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py)
+[`executor/mission_runner.py`](../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py)
 but the skill name is commented out of `DEFAULT_AVAILABLE_SKILLS`. The
 corresponding `strafer_msgs/action/OrientRelativeToTarget.action` does not
 yet exist.
@@ -35,7 +35,7 @@ mission set. MVP operator flows work without explicit facing behavior.
 ### Parallel health checks in `build_command_server`
 
 **Status**: **Shipped** — `check_vlm_health=True` runs parallel probes in
-[`command_server.py`](../source/strafer_autonomy/strafer_autonomy/executor/command_server.py).
+[`command_server.py`](../../source/strafer_autonomy/strafer_autonomy/executor/command_server.py).
 Retained here only as a cross-reference — remove on next revision.
 
 ### Agentic combined planning endpoint (broader than `/plan_with_grounding`)
@@ -106,7 +106,7 @@ same gap).
 
 ### Postman collection completeness
 
-**What**: [`source/SImToRealLab.postman_collection.json`](../source/SImToRealLab.postman_collection.json)
+**What**: [`source/SImToRealLab.postman_collection.json`](../../source/SImToRealLab.postman_collection.json)
 covers `/health` and `/ground` only. `/describe`, `/detect_objects`, and
 the planner's `/plan` + `/plan_with_grounding` are missing.
 

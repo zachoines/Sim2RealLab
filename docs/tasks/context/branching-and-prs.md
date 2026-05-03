@@ -11,9 +11,9 @@ Branch name is the brief's filename minus the `.md`, prefixed with
 
 | Brief | Branch |
 |---|---|
-| [`docs/tasks/vlm-bbox-overlay.md`](../vlm-bbox-overlay.md) | `task/vlm-bbox-overlay` |
-| [`docs/tasks/async-camera-publishers.md`](../async-camera-publishers.md) | `task/async-camera-publishers` |
-| [`docs/tasks/branch-per-task-convention.md`](../branch-per-task-convention.md) | `task/branch-per-task-convention` |
+| [`docs/tasks/active/vlm-bbox-overlay.md`](../active/vlm-bbox-overlay.md) | `task/vlm-bbox-overlay` |
+| [`docs/tasks/active/async-camera-publishers.md`](../active/async-camera-publishers.md) | `task/async-camera-publishers` |
+| [`docs/tasks/completed/branch-per-task-convention.md`](../completed/branch-per-task-convention.md) | `task/branch-per-task-convention` |
 
 The brief's frontmatter carries the predetermined name on a `**Branch:**`
 line so a fresh agent doesn't have to guess.

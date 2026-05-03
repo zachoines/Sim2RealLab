@@ -23,8 +23,8 @@ positions and the deployment distribution doesn't**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
 - [strafer-inference-package.md](strafer-inference-package.md) — the
   inference brief whose Phase 5 (end-to-end acceptance) becomes
   reliable once this training pass lands. Without goal-noise
@@ -40,7 +40,7 @@ Read these before starting:
 
 VLM grounding produces goal poses with ~0.2–0.5 m localization error
 (measured on Qwen2.5-VL-3B real-camera grounds; see
-[`strafer_vlm/`](../../source/strafer_vlm/) ground-truth-vs-observed
+[`strafer_vlm/`](../../../source/strafer_vlm/) ground-truth-vs-observed
 analysis if available). The current PPO training pipeline uses zero
 goal noise — the policy sees pixel-perfect goal positions throughout
 training.
@@ -56,7 +56,7 @@ matching the deployment-noise distribution.
 
 ### What's missing
 
-[`source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py:363`](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py)
+[`source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py:363`](../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py)
 — `GoalCommandCfg` does *not* expose a `goal_position_noise_std` field
 today. The training-time implementation needs:
 
@@ -81,7 +81,7 @@ noise distribution without forgetting the base navigation behavior.
 
 ### Phase 1 — Add the config knob (½ day)
 
-In [`commands.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py):
+In [`commands.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py):
 
 - Add a field to `GoalCommandCfg` (and the `GoalCommandProcRoom`
   subclass config):
@@ -198,20 +198,20 @@ baseline wasn't actually converged. Investigate before declaring done.
 
 ## Investigation pointers
 
-- [`source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py)
+- [`source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py)
   — `GoalCommandCfg` (line 363), `Ranges` subclass (line 402), the
   `GoalCommand` class (line 23) and the `GoalCommandProcRoom` subclass
   (line 413). The noise field belongs in the cfg classes; the
   perturbation belongs in `_update_command` or a new property the
   observation terms consume.
-- [`source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py)
+- [`source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py)
   — `goal_relative` and friends; whichever property the noise gets
   added to needs to be the one these read.
 - VLM noise measurement: ground-truth-vs-observed analysis in
   `source/strafer_vlm/` if present; otherwise the `0.2–0.5 m` figure
   comes from the deferred-work entry's empirical estimate. Tighten
   this if better data exists.
-- [`Scripts/train_strafer_navigation.py`](../../Scripts/train_strafer_navigation.py)
+- [`Scripts/train_strafer_navigation.py`](../../../Scripts/train_strafer_navigation.py)
   — training entry; check that it accepts `--resume` (or equivalent
   flag) for the Phase 3 resume.
 

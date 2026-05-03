@@ -19,18 +19,18 @@ believes it has 180 s of sim time available**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
-- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md)
   — "Sim-time-aware navigation timeout (Jetson side)" section.
-- [completed/sim-velocity-attenuation.md](completed/sim-velocity-attenuation.md)
+- [completed/sim-velocity-attenuation.md](../completed/sim-velocity-attenuation.md)
   — the predecessor that surfaced this; its bisection runs all timed
   out at the planner-side 60 s cap before the executor's
   `STRAFER_NAVIGATION_TIMEOUT_S=180` could take effect.
 
 ## Context
 
-[`source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py`](../../source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py)
+[`source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py`](../../../source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py)
 hardcodes per-skill timeouts on the emitted `SkillCall` objects:
 
 | Line | Skill | Hardcoded `timeout_s` |
@@ -123,7 +123,7 @@ Two reasonable shapes:
 
 - **Lane.** `plan_compiler.py` lives under
   `source/strafer_autonomy/strafer_autonomy/planner/`, which is
-  DGX-lane per [`context/ownership-boundaries.md`](context/ownership-boundaries.md).
+  DGX-lane per [`context/ownership-boundaries.md`](../context/ownership-boundaries.md).
   The change is small and self-contained; the executor side already
   works correctly. Pick this up DGX-side.
 - **Re-tuning the executor's default timeouts.** The 90 s real /
@@ -131,7 +131,7 @@ Two reasonable shapes:
   brief just makes the compiler stop overriding them.
 - **Tightening MPPI / Nav2 to actually finish translate inside the
   envelope.** That's the
-  [`completed/sim-velocity-attenuation.md`](completed/sim-velocity-attenuation.md)
+  [`completed/sim-velocity-attenuation.md`](../completed/sim-velocity-attenuation.md)
   predecessor's territory; the linear MPPI std-scaling shipped there
   is the v1 fix and a separate brief can deepen the tuning if
   end-to-end mission reliability still needs more headroom.

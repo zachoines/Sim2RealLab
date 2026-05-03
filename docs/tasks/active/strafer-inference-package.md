@@ -17,7 +17,7 @@ joystick teleop already demonstrate (~1.4 m/s sustained), instead of
 plateauing at ~63 % of that ceiling under MPPI's critic landscape**.
 
 The MPPI critic-tuning sweep
-([`mppi-critic-tuning-for-sim-envelope.md`](mppi-critic-tuning-for-sim-envelope.md))
+([`mppi-critic-tuning-for-sim-envelope.md`](../completed/mppi-critic-tuning-for-sim-envelope.md))
 moved sustained median odom vx from 0.001 m/s (bridge unit-mismatch +
 narrow exploration) to 0.632 m/s through a converged set of
 sim-only critic / sampling overrides — but five tuning passes after
@@ -35,10 +35,10 @@ intended end-state when MPPI was first wired in as the backup.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](context/repo-topology.md)
-- [context/ownership-boundaries.md](context/ownership-boundaries.md)
-- [context/bridge-runtime-invariants.md](context/bridge-runtime-invariants.md)
-- [mppi-critic-tuning-for-sim-envelope.md](mppi-critic-tuning-for-sim-envelope.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md)
+- [mppi-critic-tuning-for-sim-envelope.md](../completed/mppi-critic-tuning-for-sim-envelope.md)
   — the predecessor whose validation surfaced the MPPI plateau and
   motivated this work as the architectural alternative.
 
@@ -49,7 +49,7 @@ Read these before starting:
 The shared sim-to-real contract is already in place — policy export
 is the missing dependency, not the contract:
 
-[`source/strafer_shared/strafer_shared/policy_interface.py`](../../source/strafer_shared/strafer_shared/policy_interface.py)
+[`source/strafer_shared/strafer_shared/policy_interface.py`](../../../source/strafer_shared/strafer_shared/policy_interface.py)
 ships:
 
 | API | Purpose |
@@ -81,7 +81,7 @@ codebase since before the Nav2 backup was wired.
    hand-exported test artifact (any deterministic 19-dim → 3-dim
    mapping).
 3. **`execution_backend` dispatch in
-   [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)**
+   [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)**
    `JetsonRosClient.navigate_to_pose` — currently routes unconditionally
    through Nav2's `/navigate_to_pose` action. Needs to honor an
    `execution_backend` field (env-var `STRAFER_NAV_BACKEND` or per-step)
@@ -91,7 +91,7 @@ codebase since before the Nav2 backup was wired.
    Out of scope for this brief — gates the validation steps but not
    the package skeleton. **The brief targets the
    `strafer_navigation` env config in
-   [`strafer_env_cfg.py`](../../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py)
+   [`strafer_env_cfg.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py)
    with `PolicyVariant.NOCAM`, `_DEFAULT_NAV_DECIMATION = 4`,
    `_DEFAULT_NAV_SIM_DT = 1/120`** — pin this in the deployment
    metadata so a future env change forces a co-update of the
@@ -153,7 +153,7 @@ Wire the observation side end-to-end against `PolicyVariant.NOCAM`:
 
 - Subscribe to `/d555/imu/filtered`, `/strafer/joint_states`,
   `/strafer/odom` (matching the
-  [`bridge-runtime-invariants.md`](context/bridge-runtime-invariants.md)
+  [`bridge-runtime-invariants.md`](../context/bridge-runtime-invariants.md)
   contract in both sim and real).
 - Subscribe to `/strafer/goal` (or accept goal pose via the action
   server) — pose in `map` frame (consistent with Nav2's input).
@@ -196,7 +196,7 @@ Wire the observation side end-to-end against `PolicyVariant.NOCAM`:
   - `last_action` — **the raw [-1, 1]³ policy output from the
     previous tick**, NOT the post-`interpret_action` velocity. The
     training env caches `env.action_manager.action`
-    ([`mdp/observations.py:499`](../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py)),
+    ([`mdp/observations.py:499`](../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py)),
     which is the raw policy tensor before `MecanumWheelAction.process_actions`
     clamps and scales. Cache the same. Zero on first tick (matches
     env reset).
@@ -285,7 +285,7 @@ infrastructure shouldn't add more than ~3 ms.
 ### Phase 4 — Backend dispatch in `JetsonRosClient` (½ day)
 
 Update
-[`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
+[`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
 `navigate_to_pose` to honor `execution_backend`:
 
 - Read default from `STRAFER_NAV_BACKEND` env var (default `"nav2"`).
@@ -313,7 +313,7 @@ part of the four phases above and shouldn't be.)
   validated end-to-end on real hardware.
 - **Folding inference into `strafer_autonomy`.** The package
   separation is load-bearing per
-  [`context/ownership-boundaries.md`](context/ownership-boundaries.md):
+  [`context/ownership-boundaries.md`](../context/ownership-boundaries.md):
   `strafer_inference` is robot-local execution, `strafer_autonomy` is
   mission planning. Don't conflate.
 - **Re-applying motor sign flips.** `wheel_axis_signs` lives in
@@ -331,9 +331,9 @@ part of the four phases above and shouldn't be.)
 - [ ] If your work invalidates a fact in any referenced context
       module, update that module in the same commit. Particular
       attention to
-      [`context/ownership-boundaries.md`](context/ownership-boundaries.md)
+      [`context/ownership-boundaries.md`](../context/ownership-boundaries.md)
       (Jetson lane gains a new package) and
-      [`context/repo-topology.md`](context/repo-topology.md)
+      [`context/repo-topology.md`](../context/repo-topology.md)
       ("Workspace layout" section).
 
 ### Contract parity (sim-to-real load-bearing)
@@ -392,7 +392,7 @@ part of the four phases above and shouldn't be.)
       brief.
 - [ ] **Latency p95 < 5 ms** (obs receive → cmd_vel publish) on
       Jetson Orin Nano. Recorded in the PR via the
-      [`tune_capture.py`](../../source/strafer_ros/strafer_navigation/scripts/tune_capture.py)
+      [`tune_capture.py`](../../../source/strafer_ros/strafer_navigation/scripts/tune_capture.py)
       harness extended to also capture inference-side timestamps,
       OR a dedicated `benchmark_inference_node.py`. NOCAM on CPU
       should clear this comfortably; the budget exists for the
@@ -426,7 +426,7 @@ part of the four phases above and shouldn't be.)
   three-mode design + the validation sequence (export → Jetson
   runtime → motion → sim-vs-real comparison) that this brief's
   acceptance criteria operationalize.
-- [`mppi-critic-tuning-for-sim-envelope.md`](mppi-critic-tuning-for-sim-envelope.md)
+- [`mppi-critic-tuning-for-sim-envelope.md`](../completed/mppi-critic-tuning-for-sim-envelope.md)
   — the run-table evolution under MPPI documents the plateau this
   package's trained-policy backend is expected to break past.
 
@@ -443,7 +443,7 @@ part of the four phases above and shouldn't be.)
   ±0.2–0.5 m localization error of VLM-grounded goals; deployment-
   prep training pass on top of a converged baseline checkpoint.
 - **MPPI critic re-tuning.** That's
-  [`mppi-critic-tuning-for-sim-envelope.md`](mppi-critic-tuning-for-sim-envelope.md);
+  [`mppi-critic-tuning-for-sim-envelope.md`](../completed/mppi-critic-tuning-for-sim-envelope.md);
   this brief's existence presupposes that ceiling.
 - **The planner-side wavy-path issue.** That's
   [`nav2-startup-unknown-donut-path-noise.md`](nav2-startup-unknown-donut-path-noise.md).

@@ -52,7 +52,7 @@ Read these before starting:
   DGX-side prerequisite. Defines `PolicyVariant.NOCAM_SUBGOAL`,
   the `SubgoalCommand` term, the new training env, and produces
   the deployable checkpoint this brief loads.
-- [policy-export-tooling.md](policy-export-tooling.md) — the
+- [policy-export-tooling.md](../completed/policy-export-tooling.md) — the
   export path the new variant flows through. No new export-side
   work needed; the variant uses `--variant NOCAM_SUBGOAL`.
 

@@ -32,7 +32,7 @@ Read these before starting:
   the DEPTH-MVP sibling. Useful as a reference for how the
   observation contract, decimation, and reward conventions are
   structured in the existing ProcRoom-Depth env.
-- [policy-export-tooling.md](policy-export-tooling.md) — the
+- [policy-export-tooling.md](../completed/policy-export-tooling.md) — the
   export path the new variant will flow through. No new export-side
   work needed; the variant uses `--variant NOCAM_SUBGOAL`.
 
@@ -138,7 +138,7 @@ ships:
    PPO setup likely transfers (same network architecture as NOCAM)
    but reward coefficients and PPO hyperparameters may need tuning
    for the new shaping. Output: a checkpoint that
-   [`policy-export-tooling.md`](policy-export-tooling.md) can
+   [`policy-export-tooling.md`](../completed/policy-export-tooling.md) can
    convert to a deployable artifact.
 
 ## Approach

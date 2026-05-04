@@ -80,7 +80,9 @@ Ownership boundaries are spelled out in
 | Path | Purpose |
 |------|---------|
 | `Scripts/train_strafer_navigation.py` | RL training (rsl_rl PPO, optional DAPG/GAIL aux losses, optional video) |
-| `Scripts/play_strafer_navigation.py` | Inference rollout from a checkpoint (headed or headless+MP4) |
+| `Scripts/play_strafer_navigation.py` | Inference rollout from a checkpoint or an exported `.pt` (headed or headless+MP4) |
+| `Scripts/export_policy.py` | Export an rsl_rl checkpoint to a deployable `.pt` / `.onnx` (+ JSON sidecar) consumed by `strafer_shared.policy_interface.load_policy()` |
+| `Scripts/benchmark_policy.py` | Inference-latency stats on an exported artifact, with ONNX execution-provider preference for the Jetson TRT-EP path |
 | `Scripts/test_strafer_env.py` | Env smoke tests (no policy; predefined motion patterns) |
 | `source/strafer_lab/scripts/run_sim_in_the_loop.py` | The sim bridge — `--mode bridge` (default) drives env from `/cmd_vel`; `--mode harness` walks scene metadata as missions |
 | `source/strafer_lab/scripts/collect_demos.py` | Gamepad-driven demo collection for DAPG/GAIL aux losses |

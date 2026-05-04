@@ -38,9 +38,10 @@ session.
 | Brief | Owner | Estimate | Note |
 |---|---|---|---|
 | [`integration-prompts-refresh`](active/integration-prompts-refresh.md) | Either | M | Refreshes the DGX/Jetson/sim integration runbooks; blocks the next end-to-end integration round |
-| [`policy-export-tooling`](active/policy-export-tooling.md) | DGX | M–L (~3–5 d) | `Scripts/export_policy.py` covering BOTH TorchScript + ONNX + TRT-EP verification — hard dep for `strafer-inference-package` end-to-end (DEPTH MVP needs the TRT path) |
 | [`async-camera-publishers`](active/async-camera-publishers.md) | DGX | L (~3–5 d) | DGX bridge perf — closes the `OnPlaybackTick` gap (camera publish off Kit's main loop) |
 | [`strafer-inference-package`](active/strafer-inference-package.md) | Jetson | L (~1.5 wk) | DEPTH MVP — `strafer_direct` mode with the trained ProcRoom-Depth policy. Phases 1–4 land without a deployable checkpoint; Phase 5 gates on DGX-side export+training. Architectural answer to MPPI's plateau |
+| [`policy-export-onnx-depth`](active/policy-export-onnx-depth.md) | DGX | M (~1–2 d) | Implement `_OnnxDepthGRUModel` so DEPTH gets ONNX export. Unblocks the Jetson TRT-EP latency target. Filed off `policy-export-tooling` ship. |
+| [`policy-loader-recurrent-state`](active/policy-loader-recurrent-state.md) | Either | S–M (~1 d) | Extend `strafer_shared.policy_interface.load_policy()` so recurrent artifacts expose `.reset()` and ONNX hidden state threads correctly. Prerequisite for stateful DEPTH inference on Jetson. |
 
 ### P2 — medium priority
 

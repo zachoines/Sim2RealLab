@@ -145,8 +145,11 @@ Sim2RealLab/
 ├── Readme.md                         # this file
 ├── .env.example / env_setup.sh       # per-machine configuration loader
 ├── Makefile                          # colcon build, ROS launches, DGX service targets
-├── Scripts/                          # Isaac-Lab-side training / testing scripts
-│   ├── train_strafer_navigation.py
+├── Scripts/                          # Isaac-Lab-side training / inference / export scripts
+│   ├── train_strafer_navigation.py   # PPO training (rsl_rl)
+│   ├── play_strafer_navigation.py    # Inference rollout from a checkpoint or exported .pt
+│   ├── export_policy.py              # Checkpoint → deployable .pt / .onnx + JSON sidecar
+│   ├── benchmark_policy.py           # Latency stats on an exported artifact (TRT-EP-aware)
 │   ├── test_strafer_env.py
 │   ├── setup_physics.py
 │   └── collapse_redundant_xforms.py
@@ -408,7 +411,7 @@ End-to-end validation: [`docs/VALIDATE_ISAAC_SIM_AND_INFINIGEN.md`](docs/VALIDAT
 Tracked in [`docs/DEFERRED_WORK.md`](docs/DEFERRED_WORK.md). Items currently open:
 
 - **`strafer_inference` Jetson package** — deployment target for Isaac-trained RL policies; once present, becomes the backend for `execution_backend="strafer_direct"` and `"hybrid_nav2_strafer"` on the `navigate_to_pose` skill.
-- **Policy export tooling** — `export_policy_as_jit()` wrapper and benchmark script pending; gates Jetson deployment.
+- **DEPTH ONNX export + recurrent-policy loader** — TorchScript and NoCam ONNX export ship via `Scripts/export_policy.py`. DEPTH ONNX is gated on a depth-encoder export wrapper (`policy-export-onnx-depth` brief), and `strafer_shared.policy_interface.load_policy()` still returns a stateless `(obs) → action` callable; recurrent deployment needs `.reset()` exposure (`policy-loader-recurrent-state` brief). Both gate the Jetson TRT-EP path for the DEPTH MVP.
 - **Electronics masses in the USD** — RoboClaws, Jetson, buck converter, D555 meshes + masses are TODO in `Scripts/setup_physics.py`; current chassis inertia underestimates real.
 - **`orient_relative_to_target` skill + action** — drafted but commented out; reinstate when behavior is needed.
 - **`rotate_in_place` PID tuning** on real hardware — open-loop `cmd_vel` with odom feedback; may need tolerance adjustment.

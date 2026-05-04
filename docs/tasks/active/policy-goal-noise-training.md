@@ -30,7 +30,7 @@ Read these before starting:
   reliable once this training pass lands. Without goal-noise
   training, deployment with VLM-grounded goals shows oscillation that
   is *not* an inference-side bug.
-- [policy-export-tooling.md](policy-export-tooling.md) — the next-step
+- [policy-export-tooling.md](../completed/policy-export-tooling.md) — the next-step
   brief in the deployment chain. This brief produces the checkpoint;
   that brief converts it to a deployable artifact.
 
@@ -187,7 +187,7 @@ baseline wasn't actually converged. Investigate before declaring done.
 - [ ] Noised DEPTH checkpoint exists at
       `logs/rsl_rl/strafer_navigation/depth_goal_noise_0.25/model_<step>.pt`
       with a metadata note (in commit message + a sidecar `.json` if
-      [`policy-export-tooling.md`](policy-export-tooling.md) has
+      [`policy-export-tooling.md`](../completed/policy-export-tooling.md) has
       landed first; otherwise just the commit message) identifying
       it as a goal-noise variant trained from `<baseline_path>` of
       the DEPTH ProcRoom env.
@@ -229,7 +229,7 @@ baseline wasn't actually converged. Investigate before declaring done.
 - **Training the baseline checkpoint.** Operator-side ongoing work;
   this brief consumes whatever converged baseline exists.
 - **Production export.** That's
-  [`policy-export-tooling.md`](policy-export-tooling.md). The two
+  [`policy-export-tooling.md`](../completed/policy-export-tooling.md). The two
   briefs run sequentially: train baseline → train noised → export
   → deploy.
 - **Inference-side integration.** That's

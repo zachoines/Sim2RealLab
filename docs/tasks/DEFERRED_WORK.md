@@ -201,6 +201,29 @@ worth shipping, it lives in `bridge/graph.py`).
 
 ## Hardware / cross-package
 
+### Jetson TRT-EP latency sweep on exported policy artifacts
+
+**What**: After `Scripts/export_policy.py` produces a `.onnx` artifact
+and the operator rsyncs it to the Jetson, run
+`python3 Scripts/benchmark_policy.py --model <artifact>.onnx --providers
+TensorrtExecutionProvider,CUDAExecutionProvider,CPUExecutionProvider
+--iters 1000` to record median / p95 / p99 latency per provider.
+Confirm TRT EP is actually selected (not silently falling back to CUDA
+EP) and that DEPTH median ≤ 6 ms via TRT — the budget the
+strafer-inference brief's ≤ 10 ms p95 end-to-end target depends on.
+
+**Why deferred**: The benchmark script and ONNX export already work for
+the NoCam variant; the Jetson-side sweep is operator-side execution
+(deployment-environment specific) and gates on a deployable DEPTH
+checkpoint plus
+[`policy-export-onnx-depth.md`](active/policy-export-onnx-depth.md)
+landing the DEPTH ONNX path. Capturing it as a runbook step rather
+than a separate brief — the work is `<1 hour` of operator time and
+slots into the strafer-inference brief's Phase 3 latency table.
+
+**Packages**: `strafer_lab` (export tooling), strafer-inference brief's
+PR description (where the latency table lands).
+
 ### `rotate_in_place` PID tuning on real hardware
 
 **What**: `JetsonRosClient.rotate_in_place()` uses open-loop `cmd_vel`

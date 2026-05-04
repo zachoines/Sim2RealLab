@@ -26,25 +26,20 @@ earlier ones work.
 - [`docs/example_commands_cheatsheet.md`](example_commands_cheatsheet.md)
   is the canonical place for the operator one-liners. Where this
   runbook references a command, prefer the cheatsheet's exact form.
-- [`docs/PERF_INVESTIGATION_SIM_IN_THE_LOOP.md`](PERF_INVESTIGATION_SIM_IN_THE_LOOP.md)
-  Findings 8-10 + Recommendations carry the perf attribution that
-  picked `make sim-bridge` (headless) as the default.
 - [`docs/SYSTEM_FLOW_DIAGRAMS.md`](SYSTEM_FLOW_DIAGRAMS.md) Flow 5
   (sim-in-the-loop) and Flow 6 (real-robot execution) — the bridge
   exercises Flow 5's outer shell; the manual-mission stage exercises
   Flow 6's control path with simulated sensors.
 - [`docs/tasks/context/bridge-runtime-invariants.md`](tasks/context/bridge-runtime-invariants.md)
   — cmd_vel normalization, telemetry/camera split, headless vs
-  `--viz kit`, scene-side prerequisites. **Read this before
+  `--viz kit`, the `--profile` harness, scene-side prerequisites,
+  and the headline per-phase wall-time numbers. **Read this before
   diagnosing bridge issues.**
 - DGX prerequisite: Isaac Sim must boot under `AppLauncher` and a
   smoke-test env (e.g.
   `Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0`) must reset
   cleanly before starting this runbook. If `AppLauncher` doesn't
   boot, nothing else here will work.
-- Agent prompts (when handing this to two parallel assistants):
-  - [`docs/INTEGRATION_PROMPT_DGX.md`](INTEGRATION_PROMPT_DGX.md)
-  - [`docs/INTEGRATION_PROMPT_JETSON.md`](INTEGRATION_PROMPT_JETSON.md)
 
 ---
 
@@ -211,10 +206,10 @@ make sim-bridge
 Use `make sim-bridge-gui` (adds `--viz kit`, drops `--headless`)
 **only** when you need to watch the editor viewport for visual
 debugging — the editor viewport adds ~85 ms / loop on a
-DISPLAY-attached host (see
-[`docs/PERF_INVESTIGATION_SIM_IN_THE_LOOP.md`](PERF_INVESTIGATION_SIM_IN_THE_LOOP.md)
-Findings 8-10). For visual debugging while running headless, use the
-Jetson-side Foxglove viewer in Stage 3.5 instead of `--viz kit`.
+DISPLAY-attached host (see the headless-vs-`--viz kit` table in
+[`bridge-runtime-invariants.md`](tasks/context/bridge-runtime-invariants.md#headless-vs---viz-kit-defaults)).
+For visual debugging while running headless, use the Jetson-side
+Foxglove viewer in Stage 3.5 instead of `--viz kit`.
 
 Expected console output includes, in order:
 
@@ -299,9 +294,9 @@ $ISAACLAB -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
 
 `--profile` rolls p50/p99 across `cmd_vel read`, `env.step (total)`,
 `publish_state`, `simulation_app.update`, plus per-tick `sim.step`
-and `sim.render`. Compare to the baselines in
-[`docs/PERF_INVESTIGATION_SIM_IN_THE_LOOP.md`](PERF_INVESTIGATION_SIM_IN_THE_LOOP.md)
-Findings 8-10 to see which phase regressed.
+and `sim.render`. Compare to the per-phase reference numbers in
+[`bridge-runtime-invariants.md`](tasks/context/bridge-runtime-invariants.md#phase-level-profiler---profile)
+to see which phase regressed.
 
 ---
 

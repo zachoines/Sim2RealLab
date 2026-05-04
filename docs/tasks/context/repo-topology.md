@@ -18,12 +18,9 @@ ROS domain ID: **42** (any value works as long as both hosts agree).
 
 ## Repository
 
-Single git remote. `main` is the active working line; per-task
-branches (one brief → one branch → one PR, see
-[`branching-and-prs.md`](branching-and-prs.md)) merge into it. The
-historical `phase_15-isaaclab3` long-lived branch is retained for
-provenance but not advanced — the Isaac Lab 3.0 / Isaac Sim 6
-migration that branch tracked is now on `main`.
+Single git remote. `main` is the working line; per-task branches
+(one brief → one branch → one PR, see
+[`branching-and-prs.md`](branching-and-prs.md)) merge into it.
 
 | Host | Repo path |
 |------|-----------|

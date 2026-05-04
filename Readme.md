@@ -166,8 +166,7 @@ Sim2RealLab/
     ├── SIM_TO_REAL_TUNING_GUIDE.md      # deep-dive actuator + sensor alignment
     ├── WIRING_GUIDE.md                  # motor + encoder + RoboClaw + Jetson wiring
     ├── D555_IMU_KERNEL_FIX.md           # Tegra kernel module build for D555 IMU
-    ├── PERF_INVESTIGATION_SIM_IN_THE_LOOP.md  # bridge perf attribution + decisions
-    ├── INTEGRATION_*.md                 # spin-up runbooks for DGX / Jetson / sim-in-the-loop
+    ├── INTEGRATION_SIM_IN_THE_LOOP.md    # cross-host bridge runbook (DGX + Jetson)
     ├── example_commands_cheatsheet.md   # one-liners operators copy-paste during ops
     ├── tasks/                           # one-shot Jira-style task briefs for follow-on work
     └── artifacts/, reference/           # images, videos, product inserts

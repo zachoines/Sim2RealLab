@@ -91,12 +91,11 @@ Suggested protocol — adjust if a better tool surfaces:
    step 1, but pointed at a more realistic target (chair, doorway,
    bookshelf), so the measurement reflects the kind of geometry VLM
    grounding actually sees.
-4. **Scratch in the perf doc.** Land the table + interpretation in
-   `docs/PERF_INVESTIGATION_SIM_IN_THE_LOOP.md` (or a new
-   `PERF_INVESTIGATION_REAL_D555.md` if the existing doc is too
-   sim-specific — judgment call). Include the room's lighting
-   conditions and date so a re-survey under different conditions is
-   reproducible.
+4. **Capture the result.** Land the table + interpretation as a
+   short standalone note (e.g. `docs/D555_REAL_DEPTH_RANGE.md`)
+   that the perception / goal-projection code can link to from a
+   docstring. Include the room's lighting conditions and date so a
+   re-survey under different conditions is reproducible.
 
 The numbers we care about are:
 

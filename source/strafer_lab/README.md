@@ -117,7 +117,10 @@ If the Isaac-side observation layout changes, `strafer_shared.policy_interface` 
 | Path | Purpose |
 |---|---|
 | `Scripts/train_strafer_navigation.py` | PPO training wrapper with video capture, DAPG / GAIL auxiliary losses, resume, headless |
+| `Scripts/play_strafer_navigation.py` | Inference rollout from a checkpoint *or* an exported `.pt` (via `--policy`) — headed in the Kit viewport or headless with MP4 capture |
 | `Scripts/test_strafer_env.py` | Motion-pattern smoke test (forward / strafe / rotate / circle / figure8) |
+| `Scripts/export_policy.py` | Convert an rsl_rl checkpoint to a deployable TorchScript `.pt` + (where supported) ONNX `.onnx`. Round-trips the artifact through `strafer_shared.policy_interface.load_policy()` and refuses to write if the deterministic-mean head wasn't frozen. Emits a JSON sidecar with variant, dimensions, source checkpoint, repo SHA, ONNX opset, and `is_recurrent` |
+| `Scripts/benchmark_policy.py` | Median / p95 / p99 inference-latency stats on an exported artifact. Accepts an ONNX execution-provider preference list so the Jetson lane can record TRT-EP latency after rsync |
 
 **Synthetic-data pipeline** (mostly plain Python, no Isaac Sim):
 
@@ -340,15 +343,23 @@ Jetson side (either mode) launches `bringup_sim_in_the_loop.launch.py` from [`st
 
 ## Testing
 
-All test suites launch Isaac Sim headlessly via the root `test/conftest.py`. Use `run_tests.py` for clean output (direct pytest is drowned by Kit startup noise, and the root conftest calls `os._exit()` before pytest can print its summary).
+The package has two test trees with different runtime assumptions:
+
+- **`test/`** — env / sensor / reward / observation suites that need Isaac Sim. The root `test/conftest.py` boots Kit headlessly once per session; use `run_tests.py` for clean output (direct pytest is drowned by Kit startup noise, and the root conftest calls `os._exit()` before pytest can print its summary).
+- **`tests/`** — pure-Python suites that exercise plumbing without Isaac Sim (today: `test_export_policy.py` for the export tooling helpers). Run via plain `pytest`; no Kit boot, sub-second iteration.
 
 ```bash
 cd /home/zachoines/Workspace/Sim2RealLab/source/strafer_lab
+
+# Isaac-Sim suites (test/) -- via run_tests.py
 python run_tests.py all
 
 # Subset for fast iteration
 python run_tests.py noise_models depth_noise imu sensors
 python run_tests.py terminations events commands observations curriculums
+
+# Plain-Python suites (tests/) -- direct pytest, no Isaac Sim
+python -m pytest tests/
 ```
 
 Available suites: `terminations`, `events`, `commands`, `observations`, `curriculums`, `rewards`, `sensors`, `actions`, `env`, `noise_models`, `depth_noise`, `imu`.
@@ -368,7 +379,8 @@ python -m pytest source/strafer_autonomy/tests/test_scene_labels.py \
 Tracked in [`docs/DEFERRED_WORK.md`](../../docs/DEFERRED_WORK.md). Items currently open:
 
 - **Electronics masses in the USD** — RoboClaws, Jetson, buck converter, D555 camera meshes + masses are TODO in `Scripts/setup_physics.py`. Without them, the simulated chassis inertia underestimates the real robot.
-- **Policy export to `.pt` / ONNX** — `export_policy_as_jit()` wrapper and benchmark script pending; gates Jetson deployment through `strafer_inference`.
+- **DEPTH ONNX export** — TorchScript export works for both NoCam and DEPTH variants; ONNX export works for NoCam only. `StraferDepthRNNModel.as_onnx` raises `NotImplementedError` because the depth-encoder + GRU stack lacks an ONNX export wrapper. Tracked by [`policy-export-onnx-depth`](../../docs/tasks/active/policy-export-onnx-depth.md). Gates the Jetson TRT-EP latency target for `strafer_inference`'s DEPTH MVP.
+- **Recurrent-policy loader contract** — `strafer_shared.policy_interface.load_policy()` returns a stateless `(obs) → action` callable; recurrent artifacts (DEPTH GRU today) need `.reset()` exposure and ONNX hidden-state threading. Tracked by [`policy-loader-recurrent-state`](../../docs/tasks/active/policy-loader-recurrent-state.md).
 - **`strafer_inference` Jetson package** — the deployment target for trained policies does not exist yet; see [`strafer_ros`](../strafer_ros/README.md) for the interface side.
 - **Goal position noise during final pre-deployment training** — for VLM-sourced goals, retrain with `goal_position_noise_std: 0.2-0.3 m` in `commands.py` to match Qwen2.5-VL-3B localization error; without this, the policy oscillates at deployment.
 

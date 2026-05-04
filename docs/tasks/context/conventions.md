@@ -134,3 +134,86 @@ Do **not** delete the brief outright. Git history records what
 changed; the brief records what we set out to do, the acceptance
 criteria we held the change to, and which follow-ups it spawned —
 those are different artifacts and both are useful.
+
+---
+
+## User-facing documentation maintenance
+
+The brief acceptance template already includes:
+
+```
+If your work invalidates a fact in any referenced context module,
+update that module in the same commit.
+```
+
+That covers `docs/tasks/context/`. It does **not** cover the rest of
+the repo's user-facing surfaces, and those drift fastest when a brief
+ships behavior the surfaces previously described as missing,
+deferred, or shaped differently. The contract here extends the
+maintenance rule beyond context modules.
+
+**Before opening (or merging) the PR for a brief, sweep these surfaces
+and update any that your change invalidates — in the same PR.**
+
+| Surface | What to check |
+|---|---|
+| Top-level [`Readme.md`](../../../Readme.md) | "What ships today", "Repository structure" (`Scripts/` listing), "Run", "Deferred / known limitations". |
+| [`source/strafer_lab/README.md`](../../../source/strafer_lab/README.md) | "Scripts and tools inventory", "Contracts", "Testing", "Deferred / known limitations". |
+| [`source/strafer_ros/README.md`](../../../source/strafer_ros/README.md) | Package list, launch / config surface, topic / action contracts. |
+| [`source/strafer_autonomy/README.md`](../../../source/strafer_autonomy/README.md) | Skill table, planner endpoints, executor commands. |
+| [`source/strafer_vlm/README.md`](../../../source/strafer_vlm/README.md) | Endpoint table, env-var / config surface. |
+| [`docs/example_commands_cheatsheet.md`](../../example_commands_cheatsheet.md) | Operator one-liners — copy-paste fidelity matters. |
+| [`docs/INTEGRATION_*.md`](../..) | DGX / Jetson / sim-in-the-loop spin-up runbooks. |
+| [`docs/SIM_TO_REAL_TUNING_GUIDE.md`](../../SIM_TO_REAL_TUNING_GUIDE.md), [`docs/SYSTEM_FLOW_DIAGRAMS.md`](../../SYSTEM_FLOW_DIAGRAMS.md) | Cited-by-name reference docs. |
+| [`docs/tasks/DEFERRED_WORK.md`](../DEFERRED_WORK.md) | Items you just shipped must be **deleted from this file** in the same commit, per its own maintenance contract at the bottom of the file. |
+
+### Trigger heuristics — your change probably invalidates user-facing docs if it:
+
+- Adds, renames, or removes a `Scripts/` or `source/<pkg>/scripts/`
+  entry point (the top-level `Readme.md` and the owning package
+  README list these by name).
+- Changes a CLI surface that operators copy-paste — flags, defaults,
+  required args, mutual exclusion (the cheatsheet and runbooks
+  embed these).
+- Adds, renames, or removes a public function / class / contract
+  named in a "What ships today" or "Contracts" listing.
+- Ships something previously listed under "Deferred / known
+  limitations" or in `DEFERRED_WORK.md` — those entries must move
+  or be deleted.
+- Changes test layout, testing entry points, or how to run the
+  suite (the `Testing` section in package READMEs commits to a
+  specific path / runner).
+- Changes a topic name, action name, env var, or config field that
+  any README documents.
+
+### Sweep before commit
+
+Pick keywords specific to your change and grep all candidate surfaces
+in one shot — empty match = nothing to update:
+
+```
+rg -nE "<your-script-name>|<your-flag>|<your-function>|<your-env-var>" \
+   Readme.md docs/ source/*/README.md
+```
+
+If a hit exists, update the surface in the same commit / PR. The
+maintenance contract is identical to the context-module rule: a doc
+that lies about the system is worse than no doc, and the agent
+shipping the change is closest to the new truth.
+
+### Acceptance-bullet upgrade
+
+New briefs should use the broader template line:
+
+```markdown
+- [ ] If your work invalidates a fact in any referenced context
+      module, package README, top-level `Readme.md`, or guide under
+      `docs/`, update those in the same commit. See
+      [`conventions.md`'s user-facing documentation maintenance
+      section](../context/conventions.md#user-facing-documentation-maintenance)
+      for the surface list and trigger heuristics.
+```
+
+Existing briefs authored under the narrower text are not invalidated
+by this change — they pick up the broader contract through this
+context module on the next ship sweep.

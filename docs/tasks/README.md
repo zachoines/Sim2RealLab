@@ -98,7 +98,11 @@ keep this section about the task itself.>
 - [ ] <criterion 1 — concrete, falsifiable>
 - [ ] <criterion 2>
 - [ ] If your work invalidates a fact in any referenced context
-      module, update that module in the same commit.
+      module, package README, top-level `Readme.md`, or guide under
+      `docs/`, update those in the same commit. See
+      [`conventions.md`'s user-facing documentation maintenance
+      section](context/conventions.md#user-facing-documentation-maintenance)
+      for the surface list and trigger heuristics.
 - [ ] No regression in the workflows the touched code supports
       (call out the relevant smoke test).
 
@@ -130,13 +134,22 @@ Every brief must include this bullet (or an equivalent):
 
 ```markdown
 - [ ] If your work invalidates a fact in any referenced context
-      module, update that module in the same commit.
+      module, package README, top-level `Readme.md`, or guide under
+      `docs/`, update those in the same commit. See
+      [`conventions.md`'s user-facing documentation maintenance
+      section](context/conventions.md#user-facing-documentation-maintenance)
+      for the surface list and trigger heuristics.
 ```
 
-This is the forcing function that prevents context drift. The agent
-that ships the change is the one closest to the new truth — easier
-to update one fact in one module than to ripple it through half a
-dozen briefs later.
+This is the forcing function that prevents documentation drift. The
+agent that ships the change is the one closest to the new truth —
+easier to update one fact in one place than to ripple it through
+half a dozen briefs / READMEs / runbooks later.
+
+The original narrower form (context modules only) appears in older
+briefs and is not invalidated retroactively; new briefs use the
+broader form so package READMEs, the top-level `Readme.md`, and the
+`docs/` guides stay aligned with the system they describe.
 
 ---
 

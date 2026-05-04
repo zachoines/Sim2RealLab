@@ -30,7 +30,7 @@ Read these before starting:
   — particularly the **Shared boundary** section: `strafer_shared`
   edits should be append-friendly; coordinate any signature changes
   with the operator.
-- [policy-export-tooling.md](policy-export-tooling.md) — the producer
+- [policy-export-tooling.md](../completed/policy-export-tooling.md) — the producer
   side. Sidecar already records `is_recurrent` and (post-
   [`policy-export-onnx-depth.md`](policy-export-onnx-depth.md)) ONNX
   artifacts will carry `(obs, h_in[, c_in]) → (actions, h_out[, c_out])`.

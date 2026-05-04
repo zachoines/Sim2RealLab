@@ -53,7 +53,7 @@ subgoals along it. That's
 
 The DEPTH ProcRoom env has been training for months; a deployable
 checkpoint is gated mostly on training-time + the
-[`policy-export-tooling.md`](policy-export-tooling.md) brief landing.
+[`policy-export-tooling.md`](../completed/policy-export-tooling.md) brief landing.
 The hybrid-mode path requires a brand-new env that doesn't exist yet.
 
 So this brief gets the trained-policy backend deployed first, on the
@@ -110,7 +110,7 @@ with documented preprocessing (RAW depth → nearfield fill →
    and entry point. Empty today.
 2. **`Scripts/export_policy.py` (TorchScript + ONNX + TRT EP path).**
    Filed as
-   [`policy-export-tooling.md`](policy-export-tooling.md). Hard
+   [`policy-export-tooling.md`](../completed/policy-export-tooling.md). Hard
    dependency in DGX lane: DEPTH inference latency on a 4819-dim
    observation through a conv-aware policy is NOT sub-millisecond on
    CPU. The TRT execution provider is required for deployment, not
@@ -291,7 +291,7 @@ guarantee — if it doesn't hold, the policy will not transfer.
   deterministic — same observation → same action across calls.
   PPO trained via rsl_rl produces a Gaussian policy (mean + std);
   the export step (DGX-lane,
-  [`policy-export-tooling.md`](policy-export-tooling.md)) freezes
+  [`policy-export-tooling.md`](../completed/policy-export-tooling.md)) freezes
   the deterministic head. Phase 3 asserts this with a unit test:
   feed the same obs vector twice, assert byte-identical action
   outputs.
@@ -372,7 +372,7 @@ in. Mirrors the `STRAFER_NAV_VEL_SCALE` pattern.
 ### Phase 5 — End-to-end sim validation against the real DEPTH checkpoint (2–3 days, gates on DGX-side dependencies)
 
 This phase only starts once
-[`policy-export-tooling.md`](policy-export-tooling.md) has shipped
+[`policy-export-tooling.md`](../completed/policy-export-tooling.md) has shipped
 AND a deployable DEPTH checkpoint exists. Until then, Phases 1–4
 land against a hand-built dummy artifact for plumbing-only
 validation.
@@ -549,7 +549,7 @@ do as part of the five phases above and shouldn't be.)
 ## Out of scope
 
 - **Policy export tooling.** Filed as
-  [`policy-export-tooling.md`](policy-export-tooling.md) (DGX-lane).
+  [`policy-export-tooling.md`](../completed/policy-export-tooling.md) (DGX-lane).
   Now MVP-required for both TorchScript and ONNX-with-TRT-EP paths.
 - **Pre-deployment training with goal-position noise.** Filed as
   [`policy-goal-noise-training.md`](policy-goal-noise-training.md)

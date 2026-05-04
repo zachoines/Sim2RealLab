@@ -26,7 +26,7 @@ plateauing well above the budget on the 4819-dim observation vector**.
 Read these before starting:
 - [context/repo-topology.md](../context/repo-topology.md)
 - [context/ownership-boundaries.md](../context/ownership-boundaries.md)
-- [policy-export-tooling.md](policy-export-tooling.md) — the export
+- [policy-export-tooling.md](../completed/policy-export-tooling.md) — the export
   tooling whose `--formats pt,onnx` path errors today on DEPTH
   variants because of the gap this brief closes.
 - [strafer-inference-package.md](strafer-inference-package.md) — the
@@ -180,7 +180,7 @@ sweep happens after rsync per the strafer-inference brief.
 ### Maintenance
 
 - [ ] If your work invalidates a fact in any referenced context module
-      or in [`policy-export-tooling.md`](policy-export-tooling.md)'s
+      or in [`policy-export-tooling.md`](../completed/policy-export-tooling.md)'s
       out-of-scope notes, update those in the same commit.
 
 ## Investigation pointers

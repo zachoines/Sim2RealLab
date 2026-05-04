@@ -70,6 +70,7 @@ session.
 | Brief | Estimate | Note |
 |---|---|---|
 | [`plan-compiler-skill-timeouts`](active/plan-compiler-skill-timeouts.md) | S | Quick win — drop hardcoded timeouts so `STRAFER_NAVIGATION_TIMEOUT_S` takes effect |
+| [`mid-mission-validation-investigation`](active/mid-mission-validation-investigation.md) | L | Architecture investigation — audit current CLIP usage, characterise its limits, survey alternatives (better CLIP, small learned validator, small VLA, smarter VLM scheduling), recommend a direction with falsifiable success criteria |
 
 ### P3 — has dependencies
 

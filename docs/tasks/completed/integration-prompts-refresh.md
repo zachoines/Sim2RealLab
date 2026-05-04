@@ -1,5 +1,13 @@
 # Refresh integration prompts + sim-in-the-loop runbook
 
+**Status:** Shipped 2026-05-04 in `393459d` (DGX). Both prompts now
+link out to the context modules instead of re-stating their facts
+inline; the runbook's stage-by-stage commands point at
+`make sim-bridge` (headless) by default, exercise cmd_vel
+normalization in Stage 4, and add a Stage 6 covering the VLM/CLIP
+data-collection path through the same bridge. `env_phase15` →
+`env_isaaclab3` swept repo-wide outside historical perf-doc text.
+
 **Type:** docs / refresh
 **Owner:** Operator-driven; could delegate to either a DGX or Jetson agent
 to do the half they own and reconcile in a single PR

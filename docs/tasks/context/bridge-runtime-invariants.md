@@ -8,9 +8,9 @@ Jetson stack.
 Source code: [`source/strafer_lab/scripts/run_sim_in_the_loop.py`](../../../source/strafer_lab/scripts/run_sim_in_the_loop.py)
 + [`source/strafer_lab/strafer_lab/bridge/`](../../../source/strafer_lab/strafer_lab/bridge/)
 + [`source/strafer_lab/strafer_lab/sim_in_the_loop/`](../../../source/strafer_lab/strafer_lab/sim_in_the_loop/).
-Operator-facing perf attribution + recommendations live in
-[`docs/PERF_INVESTIGATION_SIM_IN_THE_LOOP.md`](../../PERF_INVESTIGATION_SIM_IN_THE_LOOP.md)
-Findings 8-10.
+Re-run the `--profile` harness on the bridge mainloop (see
+[Phase-level profiler](#phase-level-profiler---profile) below) to
+re-derive per-phase wall-time attribution if you suspect a regression.
 
 ## Two run modes
 
@@ -67,10 +67,9 @@ work, tracked at
 
 640×360 is **locked to the real D555 native rate** (see
 `strafer_shared.constants.PERCEPTION_WIDTH/HEIGHT` comment).
-Lowering it sim-side introduces a deliberate sim-to-real gap, not
-an optimization. See [PERF_INVESTIGATION_SIM_IN_THE_LOOP.md
-Findings 8-10](../../PERF_INVESTIGATION_SIM_IN_THE_LOOP.md) for the
-full reasoning.
+Lowering it sim-side introduces a deliberate sim-to-real gap, not an
+optimization — the camera-publish OmniGraph cost (~74 ms/loop on
+this stack) is a fact of the bridge, not an axis to tune away.
 
 Bridge enforcement: the resolution flows through
 `CameraStreamConfig.width` / `height` →
@@ -102,8 +101,8 @@ parity at the real saturation point cap depth on their end.
 
 | Make target | Visibility | When to use |
 |-------------|------------|-------------|
-| `make sim-bridge` | Headless (no editor viewport) | **Daily-driver for missions.** Saves ~25-30 ms/loop vs `--viz kit`. Visual debugging via the Jetson-side `foxglove_bridge` (`bringup_sim_in_the_loop.launch.py` `viewer:=true`, default), connected through an SSH tunnel from the operator's workstation; see [INTEGRATION_SIM_IN_THE_LOOP.md Stage 3.5](../../INTEGRATION_SIM_IN_THE_LOOP.md). |
-| `make sim-bridge-gui` | Headed, Kit editor viewport | Visual debugging only. The bridge mainloop sets `env.render_enabled = False` so `KitVisualizer.step`'s `app.update()` is short-circuited; the explicit `simulation_app.update()` after each `env.step()` is the sole Kit pump per loop, refreshing the viewport, firing `OnPlaybackTick`, and driving the camera-publish OmniGraph in one pass. See [PERF_INVESTIGATION_SIM_IN_THE_LOOP.md "Kit-pump redundancy resolution"](../../PERF_INVESTIGATION_SIM_IN_THE_LOOP.md). |
+| `make sim-bridge` | Headless (no editor viewport) | **Daily-driver for missions.** Saves ~85 ms/loop vs `--viz kit` on a DISPLAY-attached host (~2 ms/loop on a no-DISPLAY DGX, where the editor viewport collapses to a no-op). Visual debugging via the Jetson-side `foxglove_bridge` (`bringup_sim_in_the_loop.launch.py` `viewer:=true`, default), connected through an SSH tunnel from the operator's workstation; see [INTEGRATION_SIM_IN_THE_LOOP.md Stage 3.5](../../INTEGRATION_SIM_IN_THE_LOOP.md). |
+| `make sim-bridge-gui` | Headed, Kit editor viewport | Visual debugging only. The bridge mainloop sets `env.render_enabled = False` so `KitVisualizer.step`'s `app.update()` is short-circuited; the explicit `simulation_app.update()` after each `env.step()` is the sole Kit pump per loop, refreshing the viewport, firing `OnPlaybackTick`, and driving the camera-publish OmniGraph in one pass. |
 
 Default decimation in bridge: **`decimation=1`** (matches
 `run_sim_in_the_loop.py --decimation` default). RL training default
@@ -134,8 +133,23 @@ phases (`cmd_vel read`, `env.step (total)`, `publish_state`,
 `sim.render` to attribute their per-tick wall time. p50/p99 reported
 on a rolling window every `--profile-interval` seconds. Lives behind
 the flag so normal runs are untouched. Use for any bridge perf
-regression hunt — was added in `70c4ba9` and produced Findings 8-10
-in the perf investigation doc.
+regression hunt — added in `70c4ba9`.
+
+Reference per-phase numbers on this stack
+(InfinigenPerception, decimation=1, render_interval=1, no DISPLAY
+attached) at the time the headless default was chosen:
+
+| Configuration | `sim.step` p50 | `sim.render` p50 | `simulation_app.update` p50 | Loop total p50 | Throughput |
+|---|---|---|---|---|---|
+| `make sim-bridge-gui` (cameras on) | 21.8 ms | 88.6 ms | 83.1 ms | ~213 ms | 4.7 Hz |
+| `make sim-bridge-gui` (cameras off) | 21.7 ms | 88.6 ms | 40.8 ms | ~125 ms | 8.0 Hz |
+| `make sim-bridge` headless (cameras on) | 22.3 ms | 0.05 ms | 74.2 ms | ~117 ms | 8.5 Hz |
+
+Read: `sim.render`'s 88 ms is editor-viewport RTX work (vanishes
+headless); `simulation_app.update`'s ~74 ms is the camera-publish
+OmniGraph evaluation; PhysX (`sim.step`) is rock-stable at ~22 ms
+across configs. The bridge's bottleneck is rendering pipeline cost,
+not physics.
 
 ## Scene-side prerequisites the bridge assumes
 

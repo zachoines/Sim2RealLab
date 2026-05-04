@@ -206,7 +206,7 @@ of PPO iterations). Manually triggered; not automated. Smoke-test
 invocations (10-100 iterations) live in `commands.md` at the repo
 root.
 
-**Triggered by**: operator on the DGX in `env_phase15`. The launcher
+**Triggered by**: operator on the DGX in `env_isaaclab3`. The launcher
 wrapper is Isaac Lab's `isaaclab.sh`.
 
 **Produces**: PPO checkpoints under `logs/rsl_rl/strafer_navigation/<timestamp>/`.
@@ -216,7 +216,7 @@ Optional MP4 clips under `videos/train/` when `--video` is passed.
 flowchart TB
     Operator((Operator<br/>DGX Spark))
 
-    subgraph DGX["DGX Spark — env_phase15"]
+    subgraph DGX["DGX Spark — env_isaaclab3"]
         direction TB
 
         Launcher["isaaclab.sh -p<br/>Scripts/train_strafer_navigation.py"]
@@ -284,7 +284,7 @@ scene before moving on. The operator drives through a procedurally
 generated room with a gamepad while the env renders from the 640×360
 perception camera and Replicator stamps semantic bboxes on every frame.
 
-**Triggered by**: operator on the DGX in `env_phase15`, with a USB
+**Triggered by**: operator on the DGX in `env_isaaclab3`, with a USB
 gamepad connected. Isaac Sim runs at `num_envs=1` (the 640×360 render
 caps throughput).
 
@@ -300,7 +300,7 @@ consume — no translation step.
 flowchart TB
     Operator((Operator<br/>+ gamepad))
 
-    subgraph DGX["DGX Spark — env_phase15"]
+    subgraph DGX["DGX Spark — env_isaaclab3"]
         direction TB
 
         Collect["collect_perception_data.py<br/>(scripts/)"]
@@ -379,7 +379,7 @@ flowchart TB
     DGXOp((Operator<br/>DGX))
     JetsonOp((Operator<br/>Jetson))
 
-    subgraph DGX["DGX Spark — env_phase15"]
+    subgraph DGX["DGX Spark — env_isaaclab3"]
         direction TB
 
         RunSIL["run_sim_in_the_loop.py<br/>--mode harness"]
@@ -651,7 +651,7 @@ flowchart LR
   `strafer_inference` path. Until that ships, Flow 6 uses Nav2 as its
   only `navigate_to_pose` backend.
 - The `Flow 6 → Flow 5` feedback edge is the deferred "failure-to-sim"
-  pipeline (see [`DEFERRED_WORK.md`](DEFERRED_WORK.md)) — it closes the
+  pipeline (see [`tasks/DEFERRED_WORK.md`](tasks/DEFERRED_WORK.md)) — it closes the
   loop by turning real-world mission failures into targeted sim
   regression tests.
 - Flow 6 feeding back into itself is the semantic map: every mission

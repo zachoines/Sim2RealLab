@@ -267,5 +267,5 @@ Tracked in [`docs/DEFERRED_WORK.md`](../../docs/DEFERRED_WORK.md). Items current
 - [`docs/WIRING_GUIDE.md`](../../docs/WIRING_GUIDE.md) — motor + encoder + RoboClaw + Jetson wiring, pinouts, address configuration.
 - [`docs/D555_IMU_KERNEL_FIX.md`](../../docs/D555_IMU_KERNEL_FIX.md) — Tegra-kernel HID sensor module build (mandatory for D555 IMU).
 - [`docs/SIM_TO_REAL_TUNING_GUIDE.md`](../../docs/SIM_TO_REAL_TUNING_GUIDE.md) — actuator / sensor alignment procedure pairing this package with `strafer_lab`.
-- [`docs/VALIDATE_ISAAC_SIM_AND_INFINIGEN.md`](../../docs/VALIDATE_ISAAC_SIM_AND_INFINIGEN.md) — DGX-side validation (for sim-in-the-loop bringup).
-- [`docs/DEFERRED_WORK.md`](../../docs/DEFERRED_WORK.md) — open items.
+- [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host bringup runbook (Stage 3 covers `bringup_sim_in_the_loop.launch.py` consuming the DGX bridge).
+- [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md) — open items.

@@ -18,9 +18,9 @@ ROS domain ID: **42** (any value works as long as both hosts agree).
 
 ## Repository
 
-Single git remote, `phase_15-isaaclab3` branch is the active working
-line (Isaac Lab 3.0 / Isaac Sim 6 migration; the project hasn't
-returned to a stable Isaac Lab release yet).
+Single git remote. `main` is the working line; per-task branches
+(one brief → one branch → one PR, see
+[`branching-and-prs.md`](branching-and-prs.md)) merge into it.
 
 | Host | Repo path |
 |------|-----------|

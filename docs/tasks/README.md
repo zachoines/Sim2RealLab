@@ -157,8 +157,8 @@ broader form so package READMEs, the top-level `Readme.md`, and the
 
 1. **Identify which modules cover preamble you'd otherwise duplicate.**
    Skim [`context/`](context/). If your brief would otherwise repeat
-   "DGX is at 192.168.50.196 / branch is phase_15-isaaclab3 / conda
-   env is env_isaaclab3" — that's a `context/repo-topology.md` link.
+   "DGX is at 192.168.50.196 / conda env is env_isaaclab3 / branch
+   off `main`" — that's a `context/repo-topology.md` link.
 
 2. **Pull only what's relevant.** A pure-DGX bridge perf task probably
    needs `repo-topology` + `bridge-runtime-invariants`. A Jetson
@@ -366,9 +366,6 @@ on session-fit.
 
 ### When to deviate from the template
 
-- **Feature branch instead of direct commits.** Replace
-  `phase_15-isaaclab3` with the branch name. Useful for high-risk
-  refactors where you want a checkpoint before merging.
 - **Multi-brief ordering.** If briefs compose (e.g.,
   `kit-pump-redundancy` + `async-camera-publishers`), say "land
   [first] before starting [second]." Most current briefs are

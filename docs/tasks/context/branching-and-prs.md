@@ -1,8 +1,8 @@
 # Branching and PRs
 
-The repo follows a **one brief → one branch → one PR** rule. Long-lived
-shared branches (like the historical `phase_15-isaaclab3`) are not used
-anymore.
+The repo follows a **one brief → one branch → one PR** rule. Each
+piece of planned work lives on its own short-lived task branch off
+`main`; long-lived shared feature branches are not used.
 
 ## Naming
 
@@ -67,11 +67,10 @@ defeats the point of small, independently-mergable PRs.
   is being used to share code between agents without intent to merge,
   that's not a task; it's a side channel. Don't create those.
 
-## Why we changed
+## Why this convention
 
-Pre-convention (through commit `0592e21`), `phase_15-isaaclab3`
-accumulated 109 commits / +31k LOC / 183 files across 3 months of
-unrelated work — Isaac Lab migration, bridge work, autonomy polish,
-docs system, the headless visualizer, the SLAM floor-leak fix.
-Reviewing it as one PR is hard; reverting any one piece is harder.
-The goal of the convention is that no future PR is that big.
+Long-lived shared branches accumulate unrelated work — migrations,
+bridge changes, autonomy polish, docs sweeps — and become impossible
+to review or revert as a unit. The one-brief-per-PR rule keeps every
+change small enough to review in isolation, blame cleanly, and
+revert without dragging in adjacent work.

@@ -37,7 +37,7 @@ session.
 
 | Brief | Owner | Estimate | Note |
 |---|---|---|---|
-| [`integration-prompts-refresh`](active/integration-prompts-refresh.md) | Either | M | Refreshes the DGX/Jetson/sim integration runbooks; blocks the next end-to-end integration round |
+| [`next-integration-round`](active/next-integration-round.md) | Either | M–L | Full end-to-end sim-in-the-loop run against `INTEGRATION_SIM_IN_THE_LOOP.md`; gating signal that bridge + autonomy + VLM/CLIP compose end-to-end |
 | [`async-camera-publishers`](active/async-camera-publishers.md) | DGX | L (~3–5 d) | DGX bridge perf — closes the `OnPlaybackTick` gap (camera publish off Kit's main loop) |
 | [`strafer-inference-package`](active/strafer-inference-package.md) | Jetson | L (~1.5 wk) | DEPTH MVP — `strafer_direct` mode with the trained ProcRoom-Depth policy. Phases 1–4 land without a deployable checkpoint; Phase 5 gates on DGX-side export+training. Architectural answer to MPPI's plateau |
 | [`policy-export-onnx-depth`](active/policy-export-onnx-depth.md) | DGX | M (~1–2 d) | Implement `_OnnxDepthGRUModel` so DEPTH gets ONNX export. Unblocks the Jetson TRT-EP latency target. Filed off `policy-export-tooling` ship. |
@@ -70,6 +70,7 @@ session.
 | Brief | Estimate | Note |
 |---|---|---|
 | [`plan-compiler-skill-timeouts`](active/plan-compiler-skill-timeouts.md) | S | Quick win — drop hardcoded timeouts so `STRAFER_NAVIGATION_TIMEOUT_S` takes effect |
+| [`mid-mission-validation-investigation`](active/mid-mission-validation-investigation.md) | L | Architecture investigation — audit current CLIP usage, characterise its limits, survey alternatives (better CLIP, small learned validator, small VLA, smarter VLM scheduling), recommend a direction with falsifiable success criteria |
 
 ### P3 — has dependencies
 

@@ -1,5 +1,21 @@
 # Refresh integration prompts + sim-in-the-loop runbook
 
+**Status:** Shipped 2026-05-04 in `393459d` (DGX). The runbook's
+stage-by-stage commands point at `make sim-bridge` (headless) by
+default, exercise cmd_vel normalization in Stage 4, and add a
+Stage 6 covering the VLM/CLIP data-collection path through the same
+bridge. `env_phase15` → `env_isaaclab3` swept repo-wide outside
+historical perf-doc text. Same PR also retired
+`docs/PERF_INVESTIGATION_SIM_IN_THE_LOOP.md` (load-bearing facts
+folded into `context/bridge-runtime-invariants.md` in `8cb36d9`),
+deleted the `INTEGRATION_PROMPT_DGX/JETSON.md` agent-bootstrap docs,
+and stripped lingering `phase_15-isaaclab3` references from active
+docs.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/18
+**Follow-ups:** [`next-integration-round`](../active/next-integration-round.md)
+— consolidates the deleted prompts' operational essence into a
+trackable "schedule a sim-in-the-loop round" brief.
+
 **Type:** docs / refresh
 **Owner:** Operator-driven; could delegate to either a DGX or Jetson agent
 to do the half they own and reconcile in a single PR

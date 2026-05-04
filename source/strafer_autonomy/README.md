@@ -294,7 +294,7 @@ Tests marked `requires_ros` exercise the command server, CLI, and `JetsonRosClie
 
 ## Deferred / known limitations
 
-Tracked in [`docs/DEFERRED_WORK.md`](../../docs/DEFERRED_WORK.md). Items currently open:
+Tracked in [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md). Items currently open:
 
 - `orient_relative_to_target` skill — handler is drafted but commented out of `DEFAULT_AVAILABLE_SKILLS`. Reinstate when the behavior is needed.
 - RL execution backends for `navigate_to_pose` — `strafer_direct` (pure-RL) and `hybrid_nav2_strafer` (Nav2 waypoints + learned local controller) are defined in the interface but not implemented. Default remains `nav2`.
@@ -306,5 +306,5 @@ Tracked in [`docs/DEFERRED_WORK.md`](../../docs/DEFERRED_WORK.md). Items current
 - [`source/strafer_ros/README.md`](../strafer_ros/README.md) — Jetson runtime, sensors, TF, Nav2, goal projection.
 - [`docs/STRAFER_AUTONOMY_NEXT.md`](../../docs/STRAFER_AUTONOMY_NEXT.md) — design rationale for current features (verify_arrival, `/plan_with_grounding`, semantic map).
 - [`docs/SYSTEM_FLOW_DIAGRAMS.md`](../../docs/SYSTEM_FLOW_DIAGRAMS.md) — end-to-end runtime flows spanning this package + siblings.
-- [`docs/DEFERRED_WORK.md`](../../docs/DEFERRED_WORK.md) — open items that will roll into the next design round.
-- [`docs/VALIDATE_ISAAC_SIM_AND_INFINIGEN.md`](../../docs/VALIDATE_ISAAC_SIM_AND_INFINIGEN.md) — DGX-side install and smoke-test runbook.
+- [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md) — open items that will roll into the next design round.
+- [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host integration runbook.

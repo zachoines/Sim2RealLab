@@ -209,7 +209,7 @@ Three conda / venv environments partition the stack:
 
 | Env | Purpose | Key contents |
 |---|---|---|
-| `env_phase15` | Isaac Sim + Isaac Lab + `strafer_lab` editable | Python 3.11, Isaac Sim 5.1 (source build), Isaac Lab 2.3.2, `pxr` via `.pth` |
+| `env_isaaclab3` | Isaac Sim + Isaac Lab + `strafer_lab` editable | Python 3.12, Isaac Sim 6 (bundled in Isaac Lab 3.0 develop), `pxr` via `.pth` |
 | `env_infinigen` | Infinigen procedural scene generation | Python 3.11, source-built `bpy==4.2.0` wheel, Infinigen 1.19.x editable `--no-deps` |
 | `.venv_vlm` | VLM + planner services, batch scripts, test suite | Python 3.12, PyTorch cu128, transformers, `strafer_vlm`, `strafer_autonomy` |
 
@@ -238,7 +238,7 @@ make check-nvrtc
 
 Must be redone if `nvidia-cuda-nvrtc` is upgraded or the venv is recreated. `make serve-vlm` and `make serve-planner` run this check first.
 
-For Isaac Sim / Isaac Lab source build (`env_phase15`) and the aarch64 `bpy` wheel (`env_infinigen`), see the validation runbook in [`docs/VALIDATE_ISAAC_SIM_AND_INFINIGEN.md`](docs/VALIDATE_ISAAC_SIM_AND_INFINIGEN.md) and the `README.md` inside the sibling `~/Workspace/blender-build/` directory.
+For the Isaac Lab 3.0 source build that backs `env_isaaclab3` and the aarch64 `bpy` wheel (`env_infinigen`), see the `README.md` inside the sibling `~/Workspace/blender-build/` directory and the upstream Isaac Lab install instructions.
 
 ### Windows workstation (fallback for Isaac Lab)
 
@@ -404,11 +404,11 @@ cd ~/strafer_ws && colcon test && colcon test-result --verbose
 
 The current test suite runs 350+ tests across autonomy + VLM without any service running; planner endpoint tests use an `autouse` fixture that points `PLANNER_MODEL` / `GROUNDING_MODEL` at `/nonexistent` to prevent model download during tests.
 
-End-to-end validation: [`docs/VALIDATE_ISAAC_SIM_AND_INFINIGEN.md`](docs/VALIDATE_ISAAC_SIM_AND_INFINIGEN.md) is the gating smoke-test runbook after every DGX rebuild.
+End-to-end validation: [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](docs/INTEGRATION_SIM_IN_THE_LOOP.md) is the gating cross-host runbook after every DGX rebuild.
 
 ## Deferred / known limitations
 
-Tracked in [`docs/DEFERRED_WORK.md`](docs/DEFERRED_WORK.md). Items currently open:
+Tracked in [`docs/tasks/DEFERRED_WORK.md`](docs/tasks/DEFERRED_WORK.md). Items currently open:
 
 - **`strafer_inference` Jetson package** — deployment target for Isaac-trained RL policies; once present, becomes the backend for `execution_backend="strafer_direct"` and `"hybrid_nav2_strafer"` on the `navigate_to_pose` skill.
 - **DEPTH ONNX export + recurrent-policy loader** — TorchScript and NoCam ONNX export ship via `Scripts/export_policy.py`. DEPTH ONNX is gated on a depth-encoder export wrapper (`policy-export-onnx-depth` brief), and `strafer_shared.policy_interface.load_policy()` still returns a stateless `(obs) → action` callable; recurrent deployment needs `.reset()` exposure (`policy-loader-recurrent-state` brief). Both gate the Jetson TRT-EP path for the DEPTH MVP.
@@ -431,12 +431,12 @@ Cross-package docs:
 
 - [`docs/STRAFER_AUTONOMY_NEXT.md`](docs/STRAFER_AUTONOMY_NEXT.md) — current-round design master
 - [`docs/SYSTEM_FLOW_DIAGRAMS.md`](docs/SYSTEM_FLOW_DIAGRAMS.md) — end-to-end runtime flows with file-level hyperlinks
-- [`docs/DEFERRED_WORK.md`](docs/DEFERRED_WORK.md) — open items queued for the next round
+- [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](docs/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host bridge runbook
+- [`docs/tasks/DEFERRED_WORK.md`](docs/tasks/DEFERRED_WORK.md) — open items queued for the next round
+- [`docs/tasks/`](docs/tasks/) — Jira-style work-brief queue + context modules
 - [`docs/SIM_TO_REAL_TUNING_GUIDE.md`](docs/SIM_TO_REAL_TUNING_GUIDE.md) — actuator / sensor alignment
 - [`docs/WIRING_GUIDE.md`](docs/WIRING_GUIDE.md) — hardware wiring reference
 - [`docs/D555_IMU_KERNEL_FIX.md`](docs/D555_IMU_KERNEL_FIX.md) — Tegra kernel module build for D555 IMU
-- [`docs/VALIDATE_ISAAC_SIM_AND_INFINIGEN.md`](docs/VALIDATE_ISAAC_SIM_AND_INFINIGEN.md) — DGX validation runbook
-- [`docs/archive/`](docs/archive/) — historical design, integration, and task docs
 
 External references:
 

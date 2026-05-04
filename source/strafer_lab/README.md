@@ -127,8 +127,8 @@ If the Isaac-side observation layout changes, `strafer_shared.policy_interface` 
 | Path | Purpose | Depends on |
 |---|---|---|
 | `scripts/prep_room_usds.py` | Orchestrate Infinigen scene generation (`generate`, `ingest`, `presets` subcommands) | `INFINIGEN_ROOT`, `STRAFER_INFINIGEN_PYTHON`, `STRAFER_ISAACLAB_PYTHON` |
-| `scripts/postprocess_scene_usd.py` | Bake colliders + ceiling-light emitters into an Infinigen-exported USDC (called by `prep_room_usds.py` after export, or run manually on existing scenes) | `pxr` (env_phase15) |
-| `scripts/generate_scenes_metadata.py` | Walk `Assets/generated/scenes/` and author the combined `scenes_metadata.json` with per-scene spawn points + floor top Z | `pxr` (env_phase15) |
+| `scripts/postprocess_scene_usd.py` | Bake colliders + ceiling-light emitters into an Infinigen-exported USDC (called by `prep_room_usds.py` after export, or run manually on existing scenes) | `pxr` (env_isaaclab3) |
+| `scripts/generate_scenes_metadata.py` | Walk `Assets/generated/scenes/` and author the combined `scenes_metadata.json` with per-scene spawn points + floor top Z | `pxr` (env_isaaclab3) |
 | `scripts/extract_scene_metadata.py` | Serialize Blender `State` (rooms, polygons, semantic tags, relations) into `scene_metadata.json`; label USD prims with `semanticLabel` | `bpy` (inside Blender subprocess), optional `pxr` |
 | `scripts/generate_descriptions.py` | 4-stage description pipeline: programmatic spatial → Qwen2.5-VL-7B standalone → ground-truth filter → reservoir sampling for human spot-check | `scene_metadata.json`, `transformers`, Qwen2.5-VL-7B |
 | `scripts/prepare_vlm_finetune_data.py` | Comprehensive VLM LoRA SFT prep: single-object grounding + 1:3 negatives + ~20% multi-object + ~10% description preservation | Perception frames, scene metadata, Stage-2 descriptions |
@@ -166,8 +166,8 @@ If the Isaac-side observation layout changes, `strafer_shared.policy_interface` 
 cd /home/zachoines/Workspace/Sim2RealLab
 source env_setup.sh
 
-# 2. Activate the conda env created via `isaaclab.sh -c env_phase15`
-conda activate env_phase15
+# 2. Activate the conda env created via `isaaclab.sh -c env_isaaclab3`
+conda activate env_isaaclab3
 
 # 3. Install strafer_lab editable. --no-build-isolation is required because
 #    a transitive dep (flatdict) uses legacy pkg_resources.
@@ -201,7 +201,7 @@ Three environments partition the DGX stack:
 
 | Env | Purpose | Key contents |
 |---|---|---|
-| `env_phase15` | Isaac Sim + Isaac Lab + `strafer_lab` | Python 3.11, Isaac Sim 5.1 (source build), Isaac Lab 2.3.2, `pxr` via `.pth` |
+| `env_isaaclab3` | Isaac Sim + Isaac Lab + `strafer_lab` | Python 3.12, Isaac Sim 6 (bundled in Isaac Lab 3.0 develop), `pxr` via `.pth` |
 | `env_infinigen` | Infinigen procedural scene generation | Python 3.11, source-built `bpy==4.2.0` wheel, Infinigen 1.19.x editable `--no-deps` |
 | `.venv_vlm` | VLM / planner services, batch scripts, tests | Python 3.12, PyTorch cu128, transformers, `strafer_vlm`, `strafer_autonomy` |
 
@@ -391,5 +391,5 @@ Tracked in [`docs/DEFERRED_WORK.md`](../../docs/DEFERRED_WORK.md). Items current
 - [`source/strafer_autonomy/README.md`](../strafer_autonomy/README.md) — Jetson executor that sim-in-the-loop drives.
 - [`source/strafer_vlm/README.md`](../strafer_vlm/README.md) — grounding service + LoRA fine-tuning tooling consuming datasets from this pipeline.
 - [`docs/SIM_TO_REAL_TUNING_GUIDE.md`](../../docs/SIM_TO_REAL_TUNING_GUIDE.md) — deep-dive actuator / sensor alignment procedure pairing sim presets with hardware measurements.
-- [`docs/VALIDATE_ISAAC_SIM_AND_INFINIGEN.md`](../../docs/VALIDATE_ISAAC_SIM_AND_INFINIGEN.md) — install + smoke-test runbook gating this package.
-- [`docs/DEFERRED_WORK.md`](../../docs/DEFERRED_WORK.md) — open items.
+- [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host bridge runbook (Stage 2 covers `make sim-bridge` smoke-test gating this package).
+- [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md) — open items.

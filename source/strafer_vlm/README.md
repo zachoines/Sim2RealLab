@@ -239,7 +239,7 @@ Tests marked `@pytest.mark.gpu` require a CUDA device and loaded model. Everythi
 
 ## Deferred / known limitations
 
-Tracked in [`docs/DEFERRED_WORK.md`](../../docs/DEFERRED_WORK.md). Items currently open:
+Tracked in [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md). Items currently open:
 
 - No containerization / deployment automation — services run directly in a venv.
 - Postman collection covers `/health` and `/ground` only; `/describe` and `/detect_objects` are missing.
@@ -250,5 +250,6 @@ Tracked in [`docs/DEFERRED_WORK.md`](../../docs/DEFERRED_WORK.md). Items current
 - [`source/strafer_autonomy/README.md`](../strafer_autonomy/README.md) — executor-side `HttpGroundingClient`, schemas, `/plan_with_grounding` agentic endpoint.
 - [`source/strafer_lab/README.md`](../strafer_lab/README.md) — fine-tune dataset prep pipeline (description generation, SFT data prep).
 - [`docs/STRAFER_AUTONOMY_NEXT.md`](../../docs/STRAFER_AUTONOMY_NEXT.md) — design rationale for the `/detect_objects` endpoint and semantic-map integration.
-- [`docs/VALIDATE_ISAAC_SIM_AND_INFINIGEN.md`](../../docs/VALIDATE_ISAAC_SIM_AND_INFINIGEN.md) — DGX-side install and smoke-test runbook (covers NVRTC).
-- [`docs/DEFERRED_WORK.md`](../../docs/DEFERRED_WORK.md) — open items.
+- [`Readme.md`](../../Readme.md) — top-level setup (NVRTC fix, conda envs, test commands).
+- [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](../../docs/INTEGRATION_SIM_IN_THE_LOOP.md) — cross-host integration runbook (where the VLM service is consumed by the executor).
+- [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md) — open items.

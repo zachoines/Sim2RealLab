@@ -131,6 +131,65 @@ $ISAACLAB -p Scripts/play_strafer_navigation.py \
 ```
 MP4 lands in `logs/rsl_rl/strafer_navigation/play_videos/play_<timestamp>/`.
 
+# Export a checkpoint to a deployable artifact
+Converts an `rsl_rl` PPO checkpoint into a TorchScript `.pt` (and
+optionally an ONNX `.onnx`) loadable by
+`strafer_shared.policy_interface.load_policy()` on the Jetson. Writes a
+`<output>.json` sidecar with variant, dimensions, source checkpoint,
+git commit, and ONNX opset.
+
+## NoCam — TorchScript only
+```bash
+$ISAACLAB -p Scripts/export_policy.py \
+    --checkpoint logs/rsl_rl/strafer_navigation/run_<timestamp>/model_<step>.pt \
+    --output models/strafer_nocam_v0 \
+    --variant NOCAM
+```
+
+## NoCam — TorchScript + ONNX (TRT-EP path on Jetson)
+```bash
+$ISAACLAB -p Scripts/export_policy.py \
+    --checkpoint logs/rsl_rl/strafer_navigation/run_<timestamp>/model_<step>.pt \
+    --output models/strafer_nocam_v0 \
+    --variant NOCAM \
+    --formats pt,onnx
+```
+
+## Depth — TorchScript only
+ONNX export for the Depth actor's depth encoder is not yet implemented
+(see `source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py`'s
+`as_onnx`); Depth deployment uses TorchScript today.
+```bash
+$ISAACLAB -p Scripts/export_policy.py \
+    --checkpoint logs/rsl_rl/strafer_navigation/run_<timestamp>/model_<step>.pt \
+    --output models/strafer_depth_v0 \
+    --variant DEPTH
+```
+
+## Smoke-test the exported artifact in sim
+Re-runs `play_strafer_navigation.py` against the exported `.pt` instead
+of the rsl_rl checkpoint; verifies the export didn't break the policy.
+Single-env only (the export is deployment-shape).
+```bash
+$ISAACLAB -p Scripts/play_strafer_navigation.py \
+    --env Isaac-Strafer-Nav-Real-ProcRoom-NoCam-Play-v0 \
+    --policy models/strafer_nocam_v0.pt \
+    --num_envs 1 --viz kit --real_time --steps 2000
+```
+
+## Bench inference latency on an exported artifact
+Reports median / p95 / p99 over 1000 iterations on a synthetic obs.
+```bash
+# DGX (CPU EP) -- regression check on the export toolchain.
+python Scripts/benchmark_policy.py --model models/strafer_nocam_v0.pt --iters 1000
+
+# Jetson (TRT EP preferred, then CUDA, then CPU fallback) -- run after rsync.
+python3 Scripts/benchmark_policy.py \
+    --model models/strafer_depth_v0.onnx \
+    --providers TensorrtExecutionProvider,CUDAExecutionProvider,CPUExecutionProvider \
+    --iters 1000
+```
+
 # Full-stack sim-in-the-loop autonomy
 
 End-to-end orchestration: DGX runs the VLM + planner + Isaac Sim

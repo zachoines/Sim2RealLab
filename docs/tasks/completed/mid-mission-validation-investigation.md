@@ -1,5 +1,21 @@
 # Investigate mid-mission validation: CLIP today, alternatives next
 
+**Status:** Shipped 2026-05-05 in `26b97bb` (Either). The audit landed
+as [`docs/MISSION_VALIDATION_ARCHITECTURE.md`](../../MISSION_VALIDATION_ARCHITECTURE.md)
+— current-state map of CLIP usage with file:line pointers, structural
++ measurement-required limitations, alternatives survey grounded
+against published references, and a staged recommendation with
+falsifiable TPR/FPR gates. The investigation surfaced that the
+semantic-map package is complete-but-orphaned in production
+(`executor/main.py` constructs the runner with `semantic_map=None`
+and `background_mapper=None`), which moved the framing from "is CLIP
+useful?" to "wire it in, measure it, then decide."
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/19
+**Follow-ups:** [`clip-mid-mission-validator-evaluation`](clip-mid-mission-validator-evaluation.md)
+— P1 wire-and-measure brief (the gating prerequisite); and
+[`learned-mid-mission-validator`](learned-mid-mission-validator.md)
+— P3 conditional escalation if the CLIP path fails its bar.
+
 **Type:** investigation / architecture
 **Owner:** Either (the audit half spans `strafer_lab` + `strafer_vlm` +
 `strafer_autonomy`; the alternatives half is mostly DGX-led but the

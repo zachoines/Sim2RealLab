@@ -23,7 +23,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`mid-mission-validation-investigation`](active/mid-mission-validation-investigation.md) | Either | _opening_ | Architecture audit + recommendation; ships with two follow-up briefs |
+| _None._ | | | |
 
 ---
 

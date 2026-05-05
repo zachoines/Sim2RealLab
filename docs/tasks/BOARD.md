@@ -23,7 +23,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| _None._ | | | |
+| [`mid-mission-validation-investigation`](active/mid-mission-validation-investigation.md) | Either | _opening_ | Architecture audit + recommendation; ships with two follow-up briefs |
 
 ---
 
@@ -42,6 +42,7 @@ session.
 | [`strafer-inference-package`](active/strafer-inference-package.md) | Jetson | L (~1.5 wk) | DEPTH MVP — `strafer_direct` mode with the trained ProcRoom-Depth policy. Phases 1–4 land without a deployable checkpoint; Phase 5 gates on DGX-side export+training. Architectural answer to MPPI's plateau |
 | [`policy-export-onnx-depth`](active/policy-export-onnx-depth.md) | DGX | M (~1–2 d) | Implement `_OnnxDepthGRUModel` so DEPTH gets ONNX export. Unblocks the Jetson TRT-EP latency target. Filed off `policy-export-tooling` ship. |
 | [`policy-loader-recurrent-state`](active/policy-loader-recurrent-state.md) | Either | S–M (~1 d) | Extend `strafer_shared.policy_interface.load_policy()` so recurrent artifacts expose `.reset()` and ONNX hidden state threads correctly. Prerequisite for stateful DEPTH inference on Jetson. |
+| [`clip-mid-mission-validator-evaluation`](active/clip-mid-mission-validator-evaluation.md) | Either | L | Wire the orphaned `SemanticMapManager` + `BackgroundMapper` + `TransitMonitor` path into the production executor and measure pre-registered TPR/FPR/time-to-decision on harness output. Gating brief for `MISSION_VALIDATION_ARCHITECTURE.md` §4 staged plan. Filed off `mid-mission-validation-investigation` ship. |
 
 ### P2 — medium priority
 
@@ -70,13 +71,13 @@ session.
 | Brief | Estimate | Note |
 |---|---|---|
 | [`plan-compiler-skill-timeouts`](active/plan-compiler-skill-timeouts.md) | S | Quick win — drop hardcoded timeouts so `STRAFER_NAVIGATION_TIMEOUT_S` takes effect |
-| [`mid-mission-validation-investigation`](active/mid-mission-validation-investigation.md) | L | Architecture investigation — audit current CLIP usage, characterise its limits, survey alternatives (better CLIP, small learned validator, small VLA, smarter VLM scheduling), recommend a direction with falsifiable success criteria |
 
 ### P3 — has dependencies
 
 | Brief | Owner | Estimate | Blocks on |
 |---|---|---|---|
 | [`strafer-inference-hybrid-mode`](active/strafer-inference-hybrid-mode.md) | Jetson | M (~3–4 d) | [`strafer-inference-package`](active/strafer-inference-package.md) shipped + [`strafer-lab-subgoal-env`](active/strafer-lab-subgoal-env.md) shipped (the latter produces the trained `NOCAM_SUBGOAL` checkpoint) |
+| [`learned-mid-mission-validator`](active/learned-mid-mission-validator.md) | DGX | L | [`clip-mid-mission-validator-evaluation`](active/clip-mid-mission-validator-evaluation.md) shipped with `fail` or post-cheap-fix `in-between` decision (per `MISSION_VALIDATION_ARCHITECTURE.md` §4) |
 
 ---
 
@@ -100,6 +101,7 @@ Briefs that aren't pickable until something else lands.
 | Brief | Blocks on | Why |
 |---|---|---|
 | [`strafer-inference-hybrid-mode`](active/strafer-inference-hybrid-mode.md) | [`strafer-inference-package`](active/strafer-inference-package.md) (Jetson) **and** [`strafer-lab-subgoal-env`](active/strafer-lab-subgoal-env.md) (DGX) both shipped | Hybrid backend extends the inference package's runtime AND consumes the `NOCAM_SUBGOAL` checkpoint produced by the env brief. The two prerequisites can run in parallel since they're cross-lane |
+| [`learned-mid-mission-validator`](active/learned-mid-mission-validator.md) | [`clip-mid-mission-validator-evaluation`](active/clip-mid-mission-validator-evaluation.md) shipped with `fail` (or post-cheap-fix `in-between`) | Whether to train a new validator depends on the measurement that brief produces. If the CLIP path's TPR ≥ 0.7 / FPR ≤ 0.1 bar holds, this brief is retired without picking up. |
 
 ---
 

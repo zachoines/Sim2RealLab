@@ -597,12 +597,17 @@ flowchart TB
 **Notes.** This is the flow all the upstream training and data
 pipelines feed into. The planner runs on DGX port 8200, the VLM on DGX
 port 8100, both reached via LAN HTTP. Every mission that ends in
-`navigate_to_pose` appends a `verify_arrival` step — a CLIP top-k
-ranking against the semantic map — so the executor can catch cases
-where the robot "arrived" somewhere that does not look like the goal
-area. The flow also powers the `/plan_with_grounding` optimization,
-which lets the planner pre-ground the target via a co-located VLM call
-and save one LAN image round-trip per mission.
+`navigate_to_pose` appends a `verify_arrival` step — designed as a
+CLIP top-k ranking against the semantic map so the executor can catch
+cases where the robot "arrived" somewhere that does not look like the
+goal area. The semantic-map kwargs that back `verify_arrival` are not
+yet wired into `executor/main.py` today, so the step currently
+short-circuits on `semantic_map_disabled`; see
+[`docs/MISSION_VALIDATION_ARCHITECTURE.md`](MISSION_VALIDATION_ARCHITECTURE.md)
+for the audit + the staged plan to graduate it. The flow also powers
+the `/plan_with_grounding` optimization, which lets the planner
+pre-ground the target via a co-located VLM call and save one LAN image
+round-trip per mission.
 
 ---
 

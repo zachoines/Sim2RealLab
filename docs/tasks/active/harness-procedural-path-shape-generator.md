@@ -45,21 +45,37 @@ Sibling briefs:
 
 ## Trigger condition — when to pick this brief up
 
-**Do not pick up until at least one of:**
+**Do not pick up until:**
 
 - A v2 VLA training run on operator-typed path-shape demos has
   shown that path-shape language is in scope but the demo volume
   is the binding constraint (e.g., 50 demos per constraint type
   underfit; 1000 would be expected to fit; operator can't type
   1000).
-- A `planner-trajectory-constraint-decomposition.md` (planner-side
-  case-3 work) has shipped and the planner now emits structured
-  `path_constraints[]` — at which point a matching generator on
-  the data side becomes useful.
-- A specific downstream brief explicitly requires path-shape
-  language at scale.
 
-If none of those have fired, this brief stays parked.
+If that hasn't fired, this brief stays parked.
+
+## Schema ownership and the parallel-producer relationship
+
+This brief defines the `path_constraints[]` schema. The
+constraints are produced from scene metadata at training-data
+time, consumed by the oracle driver (cost-function biasing) and
+the teleop driver (operator display). A second producer of the
+same schema is possible at runtime — a future planner-side
+`planner-trajectory-constraint-decomposition.md` brief that
+decomposes operator-spoken mission text ("hug the wall") into
+the same structured shape so a runtime validator can check
+case-3 violations during deployment. **The two producers are
+parallel, not sequential — neither blocks the other.**
+
+| Producer | Consumer | When |
+|---|---|---|
+| **This brief** — walks scene metadata, computes A* candidate paths, emits `path_constraints[]` annotations | Oracle driver (biases cost function); teleop driver (displays to operator); v2 VLA training (auxiliary structured supervision) | Training-data time, offline |
+| **Future planner work** — decomposes operator mission text into `path_constraints[]` at mission start | Validator (case-3 check at runtime); executor (commands respecting the constraint) | Runtime, deployment |
+
+What this brief contributes is the **schema definition** plus
+the offline producer. A runtime producer is independent work and
+neither blocks nor is blocked by this brief.
 
 ## Architectural sketch
 

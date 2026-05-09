@@ -37,35 +37,74 @@ emits against):
 
 ## Trigger condition — when to pick this brief up
 
-**Do not pick up this brief until at least one of:**
+**Do not pick up this brief until BOTH:**
 
-- The teleop driver has shipped and a v2 VLA training run has
-  demonstrated that throughput (not quality) is the binding
-  constraint — i.e., the model would benefit from 10× more demos
-  but operator time isn't available.
-- A scene-coverage ablation requires sweeping >100 scene seeds
-  and teleop coverage at that scale is impractical.
-- A specific downstream brief (e.g.,
-  `mvp-teacher-vla-distillation.md`) explicitly requires
-  parallel-env data collection.
+1. [`strafer-lab-subgoal-env`](strafer-lab-subgoal-env.md) has
+   shipped, producing the NoCam RL waypoint-following checkpoint
+   the oracle uses as its tracking layer.
+2. **And** at least one of:
+   - The teleop driver has shipped and a v2 VLA training run
+     has demonstrated that throughput (not quality) is the
+     binding constraint — i.e., the model would benefit from
+     10× more demos but operator time isn't available.
+   - A scene-coverage ablation requires sweeping >100 scene
+     seeds and teleop coverage at that scale is impractical.
+   - A specific downstream brief (e.g.,
+     `mvp-teacher-vla-distillation.md`) explicitly requires
+     parallel-env data collection.
 
-If none of those have fired, this brief stays parked. The
-sketch exists to claim the slot so that when the trigger does
+If neither side of the AND has fired, this brief stays parked.
+The sketch exists to claim the slot so that when the triggers do
 fire, the brief slot is ready.
+
+**Why the RL-controller dependency is hard.** The proportional
+fallback exists for debugging, but the *actual* value of the
+oracle is producing demos whose action distribution matches
+deployment. That requires the trained NoCam waypoint follower
+from `strafer-lab-subgoal-env`. Picking up this brief without
+that prerequisite produces low-quality demos that don't justify
+the implementation effort.
 
 ## Architectural sketch
 
-The driver is **in-process Isaac Lab + a scripted policy + the
-existing `actions.jsonl` writer**, parallelizable via Isaac Lab's
-native multi-env infrastructure (`ManagerBasedRLEnv` already
-supports thousands of parallel envs on the DGX).
+The driver is **in-process Isaac Lab + the MVP RL controller +
+the existing `actions.jsonl` writer**, parallelizable via Isaac
+Lab's native multi-env infrastructure (`ManagerBasedRLEnv`
+already supports thousands of parallel envs on the DGX).
 
-The scripted policy is the smallest thing that works:
+Pipeline:
 
-- **Path planning:** A* on the scene's navigable mask (Infinigen
-  metadata already exposes navigable space).
-- **Path tracking:** simple proportional controller `(vx, vy)`
-  toward the next waypoint; no MPPI, no Nav2.
+```
+scene metadata → A* path  → next waypoint  → NoCam RL controller → cmd_vel → env
+                (cost     (consumer of the   (loaded via
+                biased    waypoint, fed as   strafer_shared.policy_interface
+                by path_  the policy goal)   .load_policy())
+                constraints[])
+```
+
+The split: **A\* owns the *what* (path planning); the RL
+controller owns the *how* (waypoint tracking).** Path-shape
+constraints from the procedural generator bias the A* cost
+function only — they don't touch the controller.
+
+Components:
+
+- **Path planning:** A* on the scene's navigable mask
+  (Infinigen metadata already exposes navigable space).
+- **Path tracking:** the MVP NoCam RL controller produced by
+  [`strafer-lab-subgoal-env`](strafer-lab-subgoal-env.md) — a
+  goal-conditioned waypoint follower trained on the actual
+  mecanum dynamics. Loaded via
+  `strafer_shared.policy_interface.load_policy()` from
+  `~/.strafer/models/policy_*.pt` or `.onnx`. Recorded
+  `actions.jsonl` rows are the controller's `(vx, vy, ωz)`
+  output, which is what a deployed VLA would learn to emit at
+  the controller-output level.
+  - **Fallback:** `--controller proportional` selects a simple
+    proportional `(vx, vy)` toward the next waypoint. Useful as
+    a debug option if the RL checkpoint has issues at pickup
+    time, or for sanity-check runs without the policy
+    dependency.
 - **Stop heuristic:** within R = 0.5 m of `target_position_3d`,
   emit `stop=True`.
 - **Hard-negative injection:** reuse the harness's
@@ -77,9 +116,15 @@ The scripted policy is the smallest thing that works:
   [`harness-procedural-path-shape-generator`](harness-procedural-path-shape-generator.md))
   and bias the A* cost function — wall-following becomes a soft
   cost on distance-from-wall, "via room R" becomes a waypoint.
+  Constraints affect *path planning only*, not the controller —
+  if the RL controller has its own preferences (e.g., minimum
+  turning radius), they compose with the planner's biased
+  costs.
 
-The policy is *intentionally crude*. The point isn't to produce
-expert demos — it's to produce *more* demos. Quality comes from
+The oracle is *intentionally a scale supplement, not a v1
+replacement*. Demos are tagged `source: "oracle"` in
+`actions.jsonl` so downstream training can weight or filter them
+differently from teleop or bridge demos. Quality comes from
 teleop; scale comes from oracle.
 
 ## Acceptance criteria (preliminary; expand at pickup time)
@@ -91,9 +136,23 @@ teleop; scale comes from oracle.
       [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md)
       schema bit-for-bit; `actions.jsonl` rows tagged
       `source: "oracle"`.
+- [ ] **RL controller integration.** Default `--controller rl`
+      loads the NoCam waypoint-following checkpoint from
+      `~/.strafer/models/` via
+      `strafer_shared.policy_interface.load_policy()` and feeds
+      it the next A* waypoint as the goal observation. Recorded
+      `actions.jsonl` rows are the controller's
+      `(vx, vy, ωz)` output. Smoke test: ≥ 1 episode per scene
+      reaches its target via the RL controller.
+- [ ] **Proportional fallback.** `--controller proportional`
+      runs a simple proportional `(vx, vy)` controller toward
+      the next waypoint, no policy load. Smoke test: 1 episode
+      per scene completes.
 - [ ] **Throughput target.** ≥ 100× teleop throughput in
       success-episodes-per-hour (single operator vs. parallel
-      DGX run). Measured + reported in the PR.
+      DGX run, with the RL controller). Measured + reported in
+      the PR. Proportional-fallback throughput reported
+      separately for reference.
 - [ ] **Honest quality assessment.** Brief PR includes a
       side-by-side comparison: 30 oracle demos vs. 30 teleop
       demos on the same missions. Operator notes which
@@ -112,9 +171,14 @@ teleop; scale comes from oracle.
   replacement. Teleop demos remain the quality anchor.
 - **Real-robot use.** Sim-only. The oracle policy depends on
   full scene metadata that's only available in sim.
-- **Sophisticated controllers.** Proportional control on A*
-  waypoints is the bar. MPPI / RL / behavior-tree controllers
-  are over-scoped here — that's what teleop and the v1 stack
-  cover.
+- **Training a new controller.** This brief reuses the NoCam
+  waypoint-following policy from
+  [`strafer-lab-subgoal-env`](strafer-lab-subgoal-env.md);
+  it does not retrain the controller. If the trained controller
+  underperforms, the proportional fallback is the safety net,
+  and a separate brief decides whether to retrain.
+- **MPPI or behavior-tree controllers.** Out of scope. The RL
+  controller (or proportional fallback) is the bar. MPPI lives
+  in the v1 stack; teleop and the v1 stack cover that path.
 - **Curriculum / active sampling.** Future brief if the simple
   random-mission distribution underdelivers.

@@ -283,28 +283,50 @@ mitigate the patch-count problem at higher Jetson cost. The
 center-crop FoV loss is fixed by changing the preprocess (e.g.,
 letterbox + resize) and is essentially free.
 
-### 2.3 Structural: the open-vocab fine-tune target is wrong for the use case
+### 2.3 Structural: the validation problem has a granularity hierarchy the current setup ignores
 
-§1.4 shows `finetune_clip.py` trains on `(image, free-form
-description)` pairs with InfoNCE. That preserves CLIP's open-vocab
-strength but trains exactly **the wrong contrast** for transit
-monitoring:
+The brief frames mid-mission validation as "kitchen-trending vs.
+living-room-trending" — a room-grain decision. Real missions aren't
+that uniform. There are three failure granularities, and the right
+validator architecture differs at each level:
 
-- Transit monitoring decides "current frame is consistent with
-  *the goal region* vs. *some other region*." That's a closed-set
-  classification problem over the rooms / regions the map knows
-  about.
-- Open-vocab InfoNCE trains image-vs-text similarity over batches
-  of *random text labels* — there is no signal pushing two
-  different views of the same room together unless their VLM-emitted
-  captions happen to overlap in the in-batch contrast.
+| Granularity | Example | Validator question | What the existing setup catches |
+|---|---|---|---|
+| **Wrong room** | The mission says "go to the kitchen" but the robot drifts into the bedroom. | Is the current view consistent with the goal *region*? | Endpoint-CLIP retrieval can plausibly catch this once wired and trained. |
+| **Wrong instance, same room** | The dining room has two windows; the planner pointed at the wrong one. The robot navigates to within 3 m of the wrong window. | Is the current view consistent with the goal *target description*? | Endpoint-CLIP retrieval **cannot** catch this — `near_goal_count ≥ majority` is true at the wrong window because the goal pose is stamped on a map node within the radius. The signal needed is image-vs-target-text alignment, not image-vs-region retrieval. |
+| **Wrong trajectory shape** | The mission says "move to the other end of the room by hugging the wall." The robot ends up at the right endpoint via a center-of-room path. | Is the path-so-far consistent with the trajectory *constraint* in the mission text? | Nothing. Nav2 plans on costmap occupancy, not "hug the wall," so the constraint never reached the lower stack. |
 
-A symmetric loss with image-vs-image positives sampled from the
-same room (e.g., SimCLR-style or a triplet loss with
-"same-room"/"different-room" mining from the harness's `scene_name`
-+ `robot_pos`) would put the model exactly where the runtime wants
-it. The current pipeline doesn't do that; it inherits it from
-OpenCLIP's training recipe which targets a different problem.
+The current `verify_arrival` and `TransitMonitor` are case-1 tools.
+They're underdesigned for case 2 and structurally incompatible with
+case 3.
+
+**The fine-tune target is wrong for case 1 in a specific way, and
+wrong for case 2 in a different way:**
+
+- For **case 1 (room-grain)**: the open-vocab InfoNCE in
+  [`finetune_clip.py`](../source/strafer_lab/scripts/finetune_clip.py)
+  trains image-vs-random-text-label similarity. There is no signal
+  pushing two different views of the same room together unless their
+  VLM-emitted captions happen to overlap in the in-batch contrast. A
+  symmetric loss with image-vs-image positives sampled from the same
+  `scene_name` + `robot_pos` neighborhood (SimCLR-style; triplet with
+  same-room / different-room mining) would put the model exactly
+  where the runtime wants it.
+- For **case 2 (instance-grain)**: same-region contrastive is
+  *actively wrong*. It pushes the embeddings of the dining room's
+  two windows *together* (they're both same-room positives), which
+  is the opposite of what instance-level discrimination needs. The
+  right signal is **image-vs-target-text**: the mission's target
+  phrase ("the window on the south wall") encoded by the CLIP text
+  tower, cosine'd against the live frame. This is closer to CLIP's
+  *original* design point and doesn't need a map at all.
+- For **case 3 (trajectory-grain)**: no CLIP recipe helps. The
+  planner has to decompose "hug the wall" into a checkable trajectory
+  constraint (a sequence of waypoints + distance-to-wall threshold,
+  or a costmap potential the executor can monitor). Without that
+  decomposition the validator has no spec to check against. Case 3
+  is a **planner-side prerequisite**, not a perception problem, and
+  is filed accordingly in §4.
 
 This is independent of the FoV loss in §2.2 — the right loss on the
 wrong tokens is still wrong; the right tokens with the wrong loss is
@@ -330,6 +352,25 @@ embedding-only spatial gating. The fifth is a deployment hazard —
 the production executor's silent zero-embedding path (§1.3) hides
 this entirely.
 
+**These failure modes don't make CLIP dead-on-arrival, but they do
+narrow CLIP's role.** Splitting them by whether they're inherent or
+fixable (and which case in §2.3 they apply to):
+
+| Failure mode | Verdict | Reason |
+|---|---|---|
+| Cold-start | Inherent to any memory-based method | Mitigated by an offline mapping pass before deployment, or by accepting that the first mission in a new house is unguarded. Only relevant for case-1 image-vs-image retrieval. |
+| Sparse-map | Inherent to memory-based | Degrades gracefully (returns `sparse_map`); the system gets better with use. Same scope as cold-start. |
+| Goal locale never observed | **Fixable** | Switch the validator's primary signal from image-vs-image retrieval (needs prior map) to **image-vs-target-text** alignment (needs only the mission text + current frame). This is what `verify_arrival` *should* be doing for case-2 instance-level checks. Image-vs-image retrieval moves to a secondary "have I been here before?" role. |
+| Mecanum sideslip / pure-rotation crawl | Tractable | Slip-detection heuristic on `BackgroundMapper._should_capture` or capture-rate gating off `/odom` velocity. |
+| Same-region-different-pose visual aliasing | Tractable | Embedding-only spatial gating: filter top-k results by metric distance before majority-counting. |
+| Disabled CLIP encoder | Deployment hygiene | Loud-fail at startup instead of silent zero-vectors. Covered in the §4 eval brief. |
+
+The bigger reframing: **CLIP image-vs-image retrieval is a
+"place-recognition" signal, not a "validation" signal.**
+Image-vs-text alignment is the more durable validator use, because
+it's map-free and works on first visit. Both should be inputs to
+the §3.5 cascade, not the cascade's decision.
+
 ### 2.5 Structural: the bad-grounding failure mode the user named
 
 The brief calls out: *"A bad VLM grounding result (the wrong 'couch'
@@ -339,26 +380,34 @@ mitigations:
 - `min_grounding_confidence` rejects sub-threshold detections
   ([`mission_runner.py:597-635`](../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py#L597-L635)).
 - `verify_arrival` catches it at the goal pose — *if* the semantic
-  map is wired (§1.3 says it isn't).
+  map is wired (§1.3 says it isn't), AND if the failure is
+  case-1 (wrong-room) per §2.3. Case-2 (wrong-instance,
+  same-room) defeats the goal-radius majority rule.
 - Costmap collisions interrupt some bad goals (Nav2 won't accept a
   goal in lethal cells).
 
 What's not caught:
 
-- A grounding that points at the wrong instance of a known label
-  (the VLM picks "couch" in the dining-room view that contains
-  *two* couches in the scene).
-- A grounding that points at a scene element near but not at the
-  intended target (a side table next to the couch).
+- **Case 2.** A grounding that points at the wrong instance of a
+  known label (the VLM picks "couch" in the dining-room view that
+  contains *two* couches in the scene, or "the window" when there
+  are windows on the north and south walls).
+- **Case 2 (variant).** A grounding that points at a scene element
+  near but not at the intended target (a side table next to the
+  couch).
 - A goal-projection error where the VLM's bbox is correct but the
   depth at that pixel is invalid / extrapolated.
+- **Case 3.** Trajectory-shape violations ("hug the wall," "approach
+  from the east"). The planner doesn't decompose them, Nav2 doesn't
+  honor them, and no validator has a spec to check against.
 
-The fraction of harness missions that fall into one of those
-three is **measurement-required**, not derivable from code alone.
-The harness does record `reachability` per mission, but
+The fraction of harness missions that fall into each is
+**measurement-required**, not derivable from code alone. The
+harness does record `reachability` per mission, but
 `reachable=False` mixes "Nav2 timed out" with "robot reached the
-wrong place." Disambiguating those is one of the data-collection
-asks in §4.
+wrong room" and "robot reached the wrong instance"; `reachable=True`
+hides any trajectory-shape violation. Disambiguating these is the
+key data-collection ask in §4.
 
 ### 2.6 Measurement-required: the empirical questions this audit cannot answer
 
@@ -395,71 +444,90 @@ runs Nav2 + RTAB-Map + executor + a TRT-EP CLIP path that needs
 
 ### 3.1 Better CLIP usage
 
-**The candidate.** Keep the same OpenCLIP ViT-B/32 backbone. Change
-three things:
+**The candidate.** Keep the OpenCLIP ViT-B/32 backbone. Change four
+things, split by which §2.3 case each addresses:
 
-1. **Aggregation.** Replace top-1 / top-k single-frame retrieval
-   with a rolling temporal window (e.g., 5-frame median) keyed on
-   *room-cluster ID* rather than nearest-node. Robust to
-   single-frame viewpoint flips.
-2. **Fine-tune target.** Drop the open-vocab description loss. Move
-   to room-classification or "same-region" contrastive (positives:
+1. **Deployment (both cases).** Letterbox-then-224 instead of
+   center-crop (preserves FoV per §2.2). Move to TRT-EP at FP16
+   for ~80–120 ms per encode on Orin Nano. Loud-fail at startup if
+   ONNX is missing (instead of silent zero-vectors).
+2. **Aggregation (both cases).** Replace top-1 / top-k single-frame
+   retrieval with a rolling temporal window (e.g., 5-frame median).
+   Robust to single-frame viewpoint flips.
+3. **Case-1 fine-tune target (room-grain).** Drop the open-vocab
+   description loss. Move to "same-region" contrastive (positives:
    two views of the same `scene_name` within R meters; negatives:
-   views from a different scene). Existing harness output already
-   labels frames by `scene_name` and `robot_pos` — no new
-   annotation infra.
-3. **Deployment.** Letterbox-then-224 instead of center-crop
-   (preserves FoV per §2.2). Move to TRT-EP at FP16 for ~80–120 ms
-   per encode on Orin Nano.
+   views from a different scene). Harness output already keys
+   frames by `scene_name` + `robot_pos` — no new annotation infra.
+4. **Case-2 signal (instance-grain).** Add **image-vs-target-text
+   alignment** as a parallel signal: encode the mission's target
+   phrase via the CLIP text tower, cosine against the live frame,
+   threshold or rank against an alternate-instance pool. Map-free,
+   works on first visit, exactly the use case CLIP was originally
+   trained for. Crucially, do **not** use same-region contrastive
+   here — it pushes alternate-instance embeddings together, which
+   destroys instance discrimination (see §2.3).
+
+The two fine-tune targets are in tension. If both heads are needed,
+the recipe is a multi-task loss (image-vs-image contrastive head +
+image-vs-text alignment head sharing the visual tower) — or two
+separate fine-tunes serving the two cases.
 
 **State-of-the-art references.**
 - SigLIP (Zhai et al., NeurIPS 2023) — sigmoid loss, robustly
   outperforms InfoNCE on retrieval-style tasks at the same
   parameter budget. Drop-in replacement for the InfoNCE in
-  `finetune_clip.py`.
+  `finetune_clip.py`. Better at *both* signals than vanilla CLIP.
 - DINOv2 (Oquab et al. 2023) — vision-only; consistently better at
   visual place recognition than CLIP's image tower. Smaller
-  variants (DINOv2-S/14 at 21 M params) fit Orin Nano.
+  variants (DINOv2-S/14 at 21 M params) fit Orin Nano. **Best for
+  case 1; cannot do case 2 alone (no text tower).**
 - MobileCLIP (Apple, CVPR 2024) — explicit Jetson / mobile target,
-  4-12× faster than ViT-B/32 at comparable retrieval accuracy.
-- Visual place recognition specifically: NetVLAD (Arandjelović et
-  al. 2016) and its descendants (Patch-NetVLAD, MixVPR) are the
-  literature's "what CLIP would be if trained for this" — useful
-  baselines for the §4 measurement to anchor against.
+  4–12× faster than ViT-B/32. Has both towers, can do case 1 + 2.
+- DFN-CLIP / OpenCLIP-DFN — improved-data CLIP variants with better
+  zero-shot text-image alignment than vanilla CLIP. Case-2 lift.
+- Visual place recognition (case-1 anchor): NetVLAD (Arandjelović
+  et al. 2016) and its descendants (Patch-NetVLAD, MixVPR) — useful
+  baselines for the §4 measurement.
 
 **Compute on Orin Nano (rough).** Current ONNX path ~150–200 ms at
 FP16. TRT-EP at FP16 plausibly 80–120 ms. SigLIP-base ~same as
 ViT-B/32 (architecture identical). MobileCLIP-S0 ~30–50 ms.
-DINOv2-S/14 ~60–80 ms. All comfortably under the 2 s
-`BackgroundMapper` poll interval.
+DINOv2-S/14 ~60–80 ms. Image-vs-text adds one text-tower call per
+mission (text encoded once; cached for the leg) — negligible.
 
-**Training data.** Existing pipeline suffices for a same-region
-contrastive recipe — `frames.jsonl` already keys by
-`scene_name` + `robot_pos`. Open-vocab descriptions in
-`clip_descriptions.csv` become an *auxiliary* loss, not the
-primary loss.
+**Training data.** Case 1 uses harness output's
+`scene_name` + `robot_pos` keying directly. Case 2 uses the
+`target_label` already in `frames.jsonl` plus a synthetic
+"alternate target description" pool (other labels in the same scene
+metadata) for negative mining. Open-vocab descriptions in
+`clip_descriptions.csv` become an auxiliary loss for the text-tower
+head.
 
-**Sim-to-real risk.** Same as today — the OpenCLIP pretrain saw
-internet-scale imagery, indoor scenes are in distribution. The fine-tune
-risk shifts from "the harness corpus narrows the open-vocab
-generalization" (current) to "the same-region recipe overfits the
-specific Infinigen rooms" (proposed). Mitigated by mixing real
-indoor data (Places365, ImageNet-Indoor) into the contrast
-batches.
+**Sim-to-real risk.** Same as today for case 1 (OpenCLIP pretrain
+saw internet-scale indoor imagery). Higher for case 2 because
+target phrases like "the window on the south wall" carry pose
+information that doesn't transfer if real-room layouts differ from
+Infinigen's. Mitigation: keep target phrasing in distribution
+(reuse Qwen-described phrasings from the harness rather than
+hand-authored).
 
 **Why this is the cheap option.** No new model, no new training
-infra, no new runtime budget. It directly tests whether the
-embedding-drift idea works *when given a fair shot* — current
-deployment doesn't give it one.
+infra, no new runtime budget. The case-1 + case-2 split is what
+makes this serious — current deployment doesn't even attempt
+case 2.
 
 ### 3.2 Small learned validator
 
-**The candidate.** A purpose-built ~30–80 M parameter vision-only
-model (or vision + mission-text, light fusion) that takes the
-recent N frames + the mission text and emits a scalar
-"on-course / off-course / abort" signal. Trained on
-`(frame_window, mission_text, on_course?)` tuples mined from the
-harness's `mission_id` + `reachability` + `mission_state`.
+**The candidate.** A purpose-built ~30–80 M parameter
+vision + mission-text fusion model that takes the recent N frames
+and the mission text and emits a categorical signal over the §2.3
+hierarchy: `{on_course, wrong_room, wrong_instance, trajectory_violation, ambiguous}`.
+Trained on `(frame_window, mission_text, category_label)` tuples
+mined from harness output. The mission-text fusion is **not
+optional** — it's what gives the model a chance at case 2 (and at
+case 3, once the planner emits the constraint). A vision-only
+variant collapses to the case-1 signal that §3.1 already provides.
 
 **State-of-the-art references.**
 - Vision-and-Language Navigation progress monitors: "Self-Monitoring
@@ -483,24 +551,37 @@ harness's `mission_id` + `reachability` + `mission_state`.
 inference at FP16. Fits comfortably under the 2 s poll interval and
 leaves room for the planner / VLM stack.
 
-**Training data.**
-- Positives: frames mid-leg of a `mission_state=succeeded` mission,
-  `reachable=True`. The harness already labels these.
-- Negatives: frames mid-leg of a `mission_state=failed` mission
-  where the failure root cause is "wrong place" (vs. "Nav2 timed
-  out"). **Disaggregating the failure cause is the new annotation
-  ask.** The cheapest way to do this is to add a one-shot
-  `verify_arrival_with_vlm` pass to the harness exit path that
-  describes the arrival scene and lets a script compare the
-  description against the intended target — automating the
-  positive/negative split.
-- Hard negatives: deliberately-perturbed missions (wrong
-  goal-projection, mid-leg goal swap) that the harness can be
-  scripted to inject.
+**Training data.** Five-way categorical labels mined from harness
+output:
 
-The harness's existing pose stream + reachability label + the new
+- `on_course`: frames mid-leg of `mission_state=succeeded`,
+  `reachable=True` missions where the final pose is within R m of
+  `target_position_3d`. The harness already labels these.
+- `wrong_room`: failed missions where the final pose is in a
+  different room polygon than `target_position_3d` (room polygons
+  come from `scene_metadata.json`'s `rooms[]`).
+- `wrong_instance`: failed missions where the final pose is in
+  the *correct* room but >R m from `target_position_3d` AND the
+  scene metadata shows ≥ 2 objects with the same `target_label`.
+  Needs a one-shot VLM exit-pass (`/describe` + LLM-as-judge
+  comparison against the mission target phrase) to confirm the
+  robot reached an *alternate* instance and not random clutter.
+- `trajectory_violation`: missions tagged with a trajectory
+  constraint by the planner (case 3) where the path-so-far
+  violated the constraint. **Empty until the planner emits these
+  constraints** — see §4 for the planner-side prerequisite.
+- `ambiguous`: anything the automated labeling can't classify;
+  excluded from train/eval.
+- Hard negatives: deliberately-perturbed missions (wrong
+  goal-projection, mid-leg goal swap, wrong-instance forced via
+  metadata override) that the harness can be scripted to inject.
+
+The harness's existing pose stream + scene metadata + the
 VLM exit-pass gives a few thousand labelled tuples per scene
-without human annotation.
+without human annotation. The five-way label is what lets the
+validator emit a *useful* abort signal — not just "stop" but "stop,
+re-plan with the correct instance" or "stop, ask the operator to
+re-state the path constraint."
 
 **Sim-to-real risk.**
 - Same scene-distribution risk as the current CLIP path — Infinigen
@@ -523,50 +604,111 @@ harness data path.
 ### 3.3 Small VLA
 
 **The candidate.** A vision-language-action model that consumes
-recent frames + the mission text and emits a discrete signal
-("stay-on-course" / "stop" / "re-ground") at 5–10 Hz.
+recent frames + the mission text and either (a) emits a validation
+signal at 5–10 Hz or (b) replaces a mid-level skill (planner /
+executor) outright. The two options have very different cost
+profiles, so this section first sizes the integration depth, then
+the model choice, then the data path.
 
-**State-of-the-art references and Orin-Nano feasibility.**
+#### 3.3.a Integration depth — where would a VLA actually plug in?
 
-| Model | Params | VRAM (FP16) | Realistic Orin Nano fit? |
-|---|---|---|---|
-| RT-2 (Brohan et al., 2023) | 55 B | ~110 GB | No |
-| OpenVLA (Kim et al., CoRL 2024) | 7 B | ~14 GB | No (8 GB unified) |
-| Octo (Octo Team, 2024) | 27–93 M | ~0.5 GB | Yes |
-| π0 / π0.5 (Physical Intelligence, 2024–25) | ~3 B | ~6 GB FP16 | Marginal — co-tenant with Nav2 / RTAB unlikely |
-| TinyVLA / MiniVLA (2024) | ~80–500 M | 0.5–1.5 GB | Yes for the smaller end |
-| NaVid (Zhang et al., CVPR 2024) | 7 B | ~14 GB | No (navigation-flavored but full-LLM-sized) |
+Three insertion depths exist for any VLA, ranked by how invasive
+each is:
+
+| Depth | What gets replaced | What stays | Action output | Realistic for strafer? |
+|---|---|---|---|---|
+| **Low-level controller** (RT-2 / OpenVLA / π0 style) | RL policy + Nav2 | RealSense + chassis + executor's safety wrapper | Tokenized continuous velocity or wheel torques at 5–10 Hz; an action-diffusion or autoregressive head un-tokenizes to continuous control. | Big regression risk — the existing RL policy already handles mecanum dynamics. Teaching a VLA mecanum + sim-to-real costs more than it saves. Don't go here first. |
+| **Mid-level skill provider** (NaVid / NaviLLM style) | `strafer_autonomy.planner` + parts of the executor | Nav2, RL policy, scan / grounding skills | Skill calls (`navigate_to_pose(x,y,θ)`, `rotate(δθ)`, `scan_for_target(label)`) | **The natural insertion point.** The skill abstraction is already designed to be replaceable; Nav2's costmap-based obstacle handling stays; the RL policy's dynamics expertise stays. |
+| **Planner-only replacement** | The LLM in `strafer_autonomy.planner` | Everything else | Plan JSON (skill list) | Low risk, low ceiling — a VLA used as a planner is mostly an expensive LLM that happens to see images. |
+
+On the action-output question specifically: modern VLAs **don't**
+emit raw velocity commands directly from text. They emit action
+*tokens* (256-bin per axis is common) or use a diffusion head; a
+runtime decoder un-tokenizes to continuous control. The "thinking"
+happens autoregressively over visual + language + (optionally)
+prior-action tokens at 5–10 Hz. Direct natural-language → low-level
+torques is theoretically possible, but practically nobody builds it
+that way for embedded — the action space is too rich for
+autoregressive decoding to keep up.
+
+On real-time semantic mapping + path planning + control inside one
+model: the long-term VLA vision, but Orin Nano can't run a 7 B
+model at 10 Hz alongside Nav2 + RTAB. Even Octo's ~50–80 ms/frame
+numbers leave thin margins. Practically, the map + path planner
+stay external; the VLA emits goals or skills.
+
+For this stack, **insertion at the mid-level skill provider** is
+the only depth worth scoping seriously. The other two are filed as
+"don't do this without a separate brief."
+
+#### 3.3.b Model choices and Orin Nano feasibility
+
+| Model | Params | VRAM (FP16) | Wheeled / mobile focus? | Orin Nano fit? |
+|---|---|---|---|---|
+| RT-2 (Brohan et al., 2023) | 55 B | ~110 GB | Manipulation | No |
+| OpenVLA (Kim et al., CoRL 2024) | 7 B | ~14 GB | Generalist | No (8 GB unified) |
+| Octo (Octo Team, 2024) | 27–93 M | ~0.5 GB | Generalist; navigation extensions exist | Yes |
+| π0 / π0.5 (Physical Intelligence, 2024–25) | ~3 B | ~6 GB FP16 | Mobile manipulation | Marginal — co-tenant with Nav2 / RTAB unlikely |
+| TinyVLA / MiniVLA (2024) | ~80–500 M | 0.5–1.5 GB | Generalist; small targets explicitly | Yes for the smaller end |
+| NaVid (Zhang et al., CVPR / RSS 2024) | 7 B (Vicuna-7B-based) | ~14 GB | Pure VLN | No |
+| NaVILA (Cheng et al., 2024) | 8 B + smaller | Varies | Legged + wheeled | Marginal at the smallest variant |
+| MobileVLA (Sermanet et al.) | 70 M – 500 M | 0.5–1.5 GB | Mobile platform target | Yes |
 
 The two that realistically fit the Orin Nano with the rest of the
 stack co-tenant are **Octo-class (27–93 M)** and the smaller-end
-**TinyVLA (~80–200 M)**. Both pre-date a "navigation success
-monitor" specialization — they're trained as generalist policies, so
-adapting them to emit a stay/stop/re-ground signal is a finetune,
-not a drop-in.
+**TinyVLA / MobileVLA (~80–200 M)**. Octo + Qwen2.5-VL-3B
+(already deployed) approximate a GR00T-style dual-system
+architecture: Qwen as the slow VLM emitting action-latent or skill
+tokens, Octo as the fast policy consuming them. The "wiring" — what
+GR00T calls the action-latent vocabulary — is the design surface
+you'd own.
 
-**Compute on Orin Nano.** Octo-base inference is ~50–80 ms/frame at
-FP16 in published numbers; TinyVLA ~150–300 ms. Both fit. The
-issue is *training* cost (DGX-side), not inference.
+#### 3.3.c Compute and training cost
+
+**Inference (Orin Nano).** Octo-base ~50–80 ms/frame at FP16;
+TinyVLA / MobileVLA ~150–300 ms. Both fit the existing
+`BackgroundMapper` poll budget. The bottleneck is **training cost
+on the DGX**, not inference.
 
 **Training data.** A VLA wants `(frame_window, mission_text,
-action_label)` tuples. The harness produces frame windows and
-mission text, but the action labels would need to be the
-hindsight-relabelled "what the executor *should* have done" — a
-structured task-decomposition problem the harness doesn't currently
-solve. This is more annotation infra than §3.2 needs.
+action_label)` tuples. The action labels need to be the
+hindsight-relabelled "what the executor *should* have done." This
+is more annotation infra than §3.2 needs, but it's exactly what
+§3.6 (MVP-as-teacher distillation) makes available for free once
+the integration round ships.
 
 **Sim-to-real risk.** Higher than §3.2. VLAs are notoriously
-sensitive to the action-space and tokenization choices used at
-training time; a pure-sim training run can produce a model that
-fails on real robot purely on action-space drift. The literature
-(OpenVLA paper, Pi0 deployment notes) consistently flags this.
+sensitive to action-space and tokenization choices at training
+time; a pure-sim training run can fail on real robot purely on
+action-space drift. The OpenVLA paper and π0 deployment notes
+consistently flag this. Mitigation: distill from the MVP teacher
+(§3.6), which already operates in the deployment action space.
 
-**Why this is the high-cost option.** It's the broadest answer (a
-VLA can also help planning, scan policy, recovery behaviors), but
-it's also the answer with the most expensive training loop, the
-heaviest sim-to-real risk, and the largest co-tenancy pressure
-on the Jetson stack. Probably worth deferring until §3.2 either
-ships and underdelivers or §3.1 ships and underdelivers.
+#### 3.3.d Cross-reference: GR00T
+
+**Nvidia GR00T-N1** (March 2025) is a humanoid VLA framework with a
+dual-system architecture: a slow VLM that emits action latents and
+a fast diffusion policy that consumes them at 50–100 Hz. The
+*architecture* generalizes beyond humanoids; Isaac GR00T added
+wheeled / legged base support in 2025 per Nvidia's release notes.
+For strafer specifically, GR00T-N1 is too large to run on the
+Jetson Orin Nano end-to-end, but the dual-system *pattern* is
+useful: that's what an Octo + Qwen-3B mid-level deployment would
+approximate at strafer's compute budget. If staying inside the
+Nvidia stack matters operationally (Isaac Sim integration, Nvidia
+support), GR00T is the closest shipping example of the pattern.
+
+#### 3.3.e Why this is the high-cost option
+
+It's the broadest answer (a VLA at the mid-level can drive
+planning, scan policy, recovery behaviors, and instance-grain
+validation), but it's also the answer with the most expensive
+training loop, the heaviest sim-to-real risk, and the largest
+co-tenancy pressure on the Jetson stack. **Worth deferring until
+either §3.2 underdelivers or the MVP-as-teacher path (§3.6) makes
+the data corpus available cheaply.** Don't burn DGX cycles training
+a VLA from scratch when the integration round will produce the
+right corpus as a byproduct.
 
 ### 3.4 No new model — smarter VLM scheduling
 
@@ -617,11 +759,17 @@ the cascade in §3.5 falls back to.
 **The candidate.** Hierarchical perception:
 
 1. CLIP (or upgrade-from-§3.1) at 0.5–1 Hz as the always-on
-   tripwire. Decision: continue / wake up the arbiter.
+   tripwire. Two parallel signals: image-vs-image place recognition
+   (case-1 wrong-room) + image-vs-target-text alignment (case-2
+   wrong-instance). Either falling below threshold wakes up the
+   arbiter.
 2. On tripwire fire, the arbiter runs once: VLM `/describe` of the
-   current view, compared against the mission text by a small rule
-   or a held-out classifier. Decision: actually-off-course (cancel
-   + re-plan) / tripwire-false-positive (resume).
+   current view, plus a structured comparison against the
+   **mission text** (LLM-as-judge: "does the current scene
+   description match what the operator asked for?"). The arbiter
+   does not generate an operator-facing description — it emits a
+   classification (`actually_off_course` / `tripwire_false_positive`
+   / `instance_mismatch_re_ground`) that the executor consumes.
 
 This is the cascade architecture from Inner-Monologue and
 Code-as-Policies, applied to the in-flight validation problem.
@@ -648,53 +796,200 @@ arbiter has zero training cost (uses the deployed VLM).
 
 **Why this is the right shape.** It matches the asymmetric cost
 profile in §2.1: the tripwire fires often and decides cheaply; the
-arbiter fires rarely and decides expensively. It's also the only
-option that compounds gracefully: today (no validator) → §3.1
-tripwire-only → §3.5 tripwire + arbiter → §3.2 + §3.5 (replace the
-tripwire with a learned validator) → §3.3 (replace everything with a
-VLA, if and only if the prior steps underdeliver).
+arbiter fires rarely and decides expensively. It also handles
+case 2 cleanly (the image-vs-text tripwire fires on
+wrong-instance; the arbiter confirms via mission-text comparison).
+It's the only option that compounds gracefully: today (no
+validator) → §3.1 tripwire-only → §3.5 tripwire + arbiter → §3.2 +
+§3.5 (replace the tripwire with a learned validator) → §3.3
+(replace mid-level skills with a VLA, if and only if the prior
+steps underdeliver).
+
+### 3.6 Data-path options for VLA training (the ones that make §3.3 affordable)
+
+§3.3 deferred a from-scratch VLA because training cost + data
+infra were prohibitive in isolation. Three data paths change that
+calculus, each with different cost / quality / scale trade-offs.
+**The §3.3 framing is data-source-agnostic; pick the path that
+fits.**
+
+#### 3.6.a Teleop demos (primary; canonical)
+
+**The candidate.** Run the harness's
+[`harness-teleop-driver`](tasks/active/harness-teleop-driver.md)
+mode. Operator drives the robot via gamepad through Infinigen
+scenes; episodes are tagged at capture time as
+`succeeded` / `failed` / `wrong_instance` / `wrong_room` /
+`trajectory_violation` via dedicated buttons. Output is the
+canonical schema from
+[`harness-behavior-cloning-data-expansion`](tasks/active/harness-behavior-cloning-data-expansion.md).
+
+**Why this is the recommended primary source.** Every published
+wheeled-VLA (RT-2 navigation derivatives, NaVid, VLN-CE models,
+NaVILA) trains on human teleop demos. This is the *canonical*
+paradigm; "MVP-as-teacher distillation" is a specialty case.
+
+**Throughput.** Single-operator, ~60 success episodes / hour;
+~30 path-shape episodes / hour. Honest budgets per training
+target are tabulated in
+[`harness-teleop-driver`](tasks/active/harness-teleop-driver.md);
+~30–40 hours of operator time gets to a v2 VLA endpoint corpus
+(with hindsight-relabel + replay-perturbation multipliers, both
+recommended-tier in the harness brief).
+
+**Limitations.** Operator-paced; reflects operator play style;
+path-shape data is operator-bottlenecked. The procedural
+path-shape generator
+([`harness-procedural-path-shape-generator`](tasks/active/harness-procedural-path-shape-generator.md))
+is filed against this exact bottleneck.
+
+#### 3.6.b MVP-as-teacher distillation (secondary; conditional on v1 stability)
+
+**The candidate.** Treat the existing two-tier architecture (RL
+controller + Nav2 + `strafer_autonomy` + `strafer_vlm`) as the
+*demonstrator* once the integration round ships. Harvest its
+deployment trajectories — bridge-driver mode of
+[`harness-behavior-cloning-data-expansion`](tasks/active/harness-behavior-cloning-data-expansion.md)
+— as `(frame_sequence, mission_text, action_sequence, outcome)`
+tuples and use them to fine-tune a small VLA.
+
+**Why secondary, not primary.** The bridge harness was designed
+for end-to-end validation, not bulk training-data capture: ~6–15
+FPS throughput, fragile on the current MPPI / Nav2 path quirks,
+and produces a distribution that reflects *the v1 stack's*
+decisions rather than what a generalist demonstrator would do.
+Worth using as a *supplement* to teleop once the v1 stack is
+reliable, not as the primary corpus.
+
+**Free auxiliary signals (when the bridge driver runs).** The
+harness's `mission.json` records `target_position_3d`,
+`reachability`, `mission_state`. Infinigen scene metadata gives
+ground-truth grounding labels — predicted-target-position vs.
+true-position becomes a free auxiliary loss. `reachability`
+outcomes are a free reward signal for RLHF / DPO after SFT.
+
+**Sequencing (when this path becomes viable).**
+
+1. Ship [`next-integration-round`](tasks/active/next-integration-round.md).
+2. Ship the bridge-driver upgrades in
+   [`harness-behavior-cloning-data-expansion`](tasks/active/harness-behavior-cloning-data-expansion.md)
+   so the action stream is captured.
+3. File `mvp-teacher-vla-distillation.md` to build the dataset
+   assembly tooling and run the supplementary SFT pass against an
+   existing teleop-trained checkpoint.
+
+#### 3.6.c In-process oracle (future; for scale supplements only)
+
+**The candidate.**
+[`harness-oracle-driver`](tasks/active/harness-oracle-driver.md)
+— a scripted policy in-process Isaac Lab that uses A* on the
+navigable mask plus heuristics for "stop near target." Crude but
+viable; trades demo quality for massive parallel throughput
+(1000s of envs simultaneously).
+
+**Why this is filed-on-trigger, not now.** Teleop + bridge cover
+v1 measurement and v2's first training pass. Oracle exists for
+the regime where teleop throughput is the binding constraint —
+typically when you're trying to scale beyond ~10k trajectories
+or ablate across many scene seeds. Don't build it preemptively.
+
+#### 3.6.d Caveats specific to all VLA distillation paths
+
+- **Distillation inherits demonstrator failures.** Teleop
+  inherits operator habits; bridge-driver inherits v1 stack
+  failures; oracle inherits scripted-policy idiosyncrasies.
+  Plan an explicit "RLHF-on-failures" phase regardless of source.
+- **Action-space tokenization is sticky.** Pick discrete bins
+  (256/axis is conventional) vs. action diffusion early.
+  Switching later is a from-scratch retrain.
+- **Data volume.** Even hundreds of missions per scene is small
+  relative to OpenVLA's training set (~970 k trajectories). Plan
+  to *adapt* an existing VLA checkpoint, not train from scratch.
+- **Sim-to-real gap.** Distilled-from-sim VLAs notoriously fail
+  on real-robot deployment without a transfer step. This applies
+  equally to all three sources.
+
+**Why this is the right shape for strafer specifically.** The
+existing planner + executor + RL policy is *already* a coarse
+dual-system architecture (slow planning at planner-call rate, fast
+control at 30 Hz). The gap to GR00T-style VLAs is that GR00T's two
+systems are jointly gradient-trained; strafer's share a *skill
+schema* (the plan JSON) instead. Closing that gap with teleop
+demos as the primary source — and bridge / oracle as supplements
+— is cheaper than rewriting the architecture from scratch.
 
 ## Section 4 — Recommendation
 
 **Recommendation: stage §3.1 + §3.5 in sequence, with §3.2 staged
-as a conditional escalation.** Do not attempt §3.3 until at least
-§3.1 has shipped and produced negative measurements.
+as a conditional escalation, and §3.6 (MVP-as-teacher distillation)
+opened in parallel once the integration round ships.** Do not
+attempt a from-scratch VLA (§3.3 in isolation) — only enter the VLA
+path via §3.6's distillation route.
+
+Two metric axes to measure against, not one:
+
+- **Per case** (room-grain, instance-grain, trajectory-shape) per
+  §2.3. The cheap CLIP path passes case 1 plausibly, must be
+  augmented with image-vs-text for case 2, and cannot do case 3
+  alone.
+- **Per stack layer** (tripwire, arbiter, end-to-end cascade). A
+  noisy tripwire is fine if the arbiter cleans it up; an isolated
+  tripwire metric without the arbiter pass is misleading.
 
 The sequence:
 
-1. **First, wire the existing CLIP path into production.** The
-   single most expensive finding in §1.3 is that none of the
-   semantic-map code runs in deployment. Until that's true, no
-   measurement of "is CLIP useful?" is meaningful. This is filed
-   as
-   [`docs/tasks/active/clip-mid-mission-validator-evaluation.md`](tasks/active/clip-mid-mission-validator-evaluation.md)
-   and is the prerequisite for everything else here.
+1. **Wire the existing CLIP path into production.** The single
+   most expensive finding in §1.3 is that none of the semantic-map
+   code runs in deployment. Until that's true, no measurement is
+   meaningful. Filed as
+   [`docs/tasks/active/clip-mid-mission-validator-evaluation.md`](tasks/active/clip-mid-mission-validator-evaluation.md);
+   prerequisite for everything else here.
 
-2. **Second, run a measurement pass against a populated harness
-   episode set.** Same brief — the wiring is the easy half; the
-   measurement is the deliverable. Pre-registered metrics:
-    - Frame-to-frame CLIP cosine σ on a same-leg subset.
-    - Top-1 flip rate per meter of travel.
-    - True-positive rate of `TransitMonitor.check` on mission legs
-      labelled `reachable=False, root_cause=wrong_locale`.
-    - False-positive rate on legs labelled `reachable=True`.
-    - Time-to-decision (median, p95) from leg start to first
-      `abort=True`.
+2. **Run a measurement pass against a populated harness episode
+   set, disaggregated by case.** Same brief. Pre-registered
+   metrics, **per case**:
+   - Frame-to-frame CLIP cosine σ on a same-leg subset (case-1
+     diagnostic).
+   - Top-1 flip rate per meter of travel (case-1 diagnostic).
+   - **Case-1 TPR / FPR**: `TransitMonitor.check`'s
+     decision on legs labelled `wrong_room` vs. `on_course`.
+   - **Case-2 TPR / FPR**: same metric on legs labelled
+     `wrong_instance` vs. `on_course`. Image-vs-image retrieval is
+     expected to perform near-random here; that's the point of
+     measuring it before adding image-vs-text.
+   - Time-to-decision (median, p95) from leg start to first
+     `abort=True`, per case.
+   - Cascade-end-to-end TPR / FPR (after the §3.5 arbiter pass)
+     for both cases.
 
 3. **Apply the §3.1 cheap fixes** — letterbox preprocess,
-   same-region contrastive head, MobileCLIP / SigLIP backbone
-   swap, TRT-EP FP16 — and re-measure with the same metric set.
+   same-region contrastive head for case 1, image-vs-target-text
+   alignment for case 2, MobileCLIP / SigLIP backbone swap, TRT-EP
+   FP16 — and re-measure per-case.
 
-4. **If the §3.1-tuned tripwire's true-positive rate ≥ 0.7 at a
-   false-positive rate ≤ 0.1 on the harness set**, escalate to
-   §3.5: wire a single `/describe` arbiter on tripwire fire and
-   re-measure the false-positive rate end-to-end.
+4. **If the §3.1-tuned cascade's per-case TPR ≥ 0.7 at FPR ≤ 0.1
+   on both cases**, ship §3.5 in production. Case 3 stays
+   unaddressed (see prerequisite below).
 
-5. **If the §3.1-tuned tripwire's true-positive rate stays below
-   0.5 at any sensible false-positive rate**, escalate to §3.2:
-   train a small frozen-DINOv2 + temporal-head validator on the
-   harness output. Re-evaluate the cascade with §3.2 as the
-   tripwire.
+5. **If either case's TPR stays below 0.5 at any sensible FPR**,
+   escalate to §3.2: train a frozen-DINOv2 + temporal-head
+   validator with mission-text fusion and the five-way label.
+   Re-evaluate the cascade with §3.2 as the tripwire.
+
+6. **In parallel with steps 1–5**, once
+   [`next-integration-round`](tasks/active/next-integration-round.md)
+   ships, open §3.6 (MVP-as-teacher distillation). The
+   MVP's deployment traces become the VLA training corpus
+   essentially for free; the resulting VLA is evaluated against
+   the same per-case metrics as a future drop-in replacement for
+   §3.2's validator and §3.5's arbiter.
+
+**Case-3 prerequisite.** Trajectory-shape constraints ("hug the
+wall," "approach from the east") cannot be validated until the
+*planner* decomposes them into a checkable spec. This is a
+planner-side change, not a perception change. Filed in §4.3 as a
+separate prerequisite brief; case-3 metrics are excluded from the
+§4.1 success criteria above until that brief ships.
 
 ### 4.1 Falsifiable success criteria for the next brief
 
@@ -710,28 +1005,51 @@ missions covering ≥ 3 distinct Infinigen scenes:
 - [ ] A measurement script (lives in
       `Scripts/eval_transit_monitor.py` per the conventions in
       [`source/strafer_lab/README.md`](../source/strafer_lab/README.md))
-      computes the five metrics above and writes a JSON report
-      under `data/transit_monitor_eval/<run_id>/report.json`.
-- [ ] The report's TPR and FPR numbers, bucketed by scene, support
-      one of two decisions:
-      - **Pass (escalate to §3.5):** TPR ≥ 0.7 at FPR ≤ 0.1 on the
-        full set; per-scene worst-case TPR ≥ 0.5.
-      - **Fail (escalate to §3.2):** TPR < 0.5 at any FPR ≤ 0.2.
+      labels each mission as `on_course` / `wrong_room` /
+      `wrong_instance` / `ambiguous` (the `--root-cause-pass`
+      mode), computes the per-case metrics above, and writes a
+      JSON report under `data/transit_monitor_eval/<run_id>/report.json`.
+- [ ] The report supports one of three decisions, **per case**:
+      - **Pass (case-1 + case-2 both meet the bar):** per-case
+        TPR ≥ 0.7 at FPR ≤ 0.1 on the full set; per-scene
+        worst-case TPR ≥ 0.5. Cascade ships to production.
+      - **Pass case-1, fail case-2:** the cheap CLIP path is fine
+        for room-grain validation, but instance-grain is not. Open
+        a follow-up brief to integrate the §3.1 image-vs-text
+        signal as a parallel tripwire and re-measure.
+      - **Fail (either case below 0.5 at any FPR ≤ 0.2):**
+        escalate to §3.2 — train the learned validator with
+        five-way categorical labels.
 - [ ] A short addendum to this design doc records which decision
       fired and links the run report.
 
 ### 4.2 What's explicitly *not* recommended
 
-- **Do not start a small VLA (§3.3) yet.** It's the most expensive
-  option and the §3.1 + §3.5 staged path may eliminate the need.
-  The Octo / TinyVLA backlog can sit in
-  [`docs/tasks/DEFERRED_WORK.md`](tasks/DEFERRED_WORK.md) until
-  §3.1 measurements come back.
+- **Do not start a from-scratch small VLA (§3.3 in isolation).**
+  Only enter the VLA path via §3.6's distillation route — the
+  training cost is otherwise prohibitive and the data corpus
+  doesn't exist outside the integration round's harness output.
 - **Do not lean on §3.4 (smarter VLM scheduling) as a primary
   validator.** It compounds the existing single-loaded-model
   bottleneck and turns the VLM service into a real-time critical
   path. It belongs as the §3.5 *arbiter*, not as a standalone
   validator.
+- **Do not train the §3.2 learned validator with vision-only
+  inputs.** The mission-text fusion is what gives the model a
+  chance at case 2. A vision-only validator is just a more
+  expensive case-1 tripwire.
+
+### 4.3 Prerequisite briefs filed alongside this recommendation
+
+Three follow-up briefs exist in the same PR; one more is named
+here as a prerequisite for the case-3 framing in §2.3:
+
+| Brief | Status | Prerequisite for |
+|---|---|---|
+| [`clip-mid-mission-validator-evaluation.md`](tasks/active/clip-mid-mission-validator-evaluation.md) | Filed | All case-1 / case-2 measurements; gates §3.5 ship vs. §3.2 escalation |
+| [`learned-mid-mission-validator.md`](tasks/active/learned-mid-mission-validator.md) | Filed (blocked) | Case-2 escalation if the eval brief shows the cheap CLIP path is below the bar |
+| **`planner-trajectory-constraint-decomposition.md`** | **To be filed when case 3 becomes live** | Case-3 (trajectory-shape) validation. Without the planner emitting decomposed trajectory constraints, no validator architecture can score case 3 — there's no spec to check against. Out of scope for the current PR; filed only when a real mission requires it. |
+| **`mvp-teacher-vla-distillation.md`** | **To be filed when [`next-integration-round`](tasks/active/next-integration-round.md) ships** | §3.6 distillation path. Depends on the integration round producing the action-labeled corpus; can run in parallel with the §3.2 escalation, not after it. |
 
 ## Cross-references
 

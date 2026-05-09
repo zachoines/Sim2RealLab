@@ -5,7 +5,12 @@
 `strafer_ros`; the measurement half is DGX-led against harness
 output)
 **Priority:** P1 (gates whether mid-mission validation graduates,
-becomes a learned-validator follow-up, or gets retired)
+becomes a learned-validator follow-up, or gets retired). Blocked
+on harness output existing from **any driver mode**
+(teleop via [`harness-teleop-driver`](harness-teleop-driver.md)
+is the fastest-to-produce; bridge via `next-integration-round`
+also works) and a CLIP ONNX existing under `~/.strafer/models/`
+(one-time prerequisite — see Prerequisites below).
 **Estimate:** L (~multi-day; small-but-broad implementation +
 calibration measurement + write-up)
 **Branch:** task/clip-mid-mission-validator-evaluation
@@ -39,6 +44,22 @@ measurement gap together are the work.
 
 ## Context
 
+### Prerequisites
+
+This brief assumes two artifacts exist on the DGX before the
+measurement step runs. Neither is the brief's job to produce; the
+brief work checks them at the start and stops with a clear error
+if missing.
+
+| Prerequisite | Why | How it gets there |
+|---|---|---|
+| Populated `data/{teleop,sim_in_the_loop}/<scene>/episode_NNNN/` for ≥ 3 scenes × ≥ 30 missions | Without harness episodes, no metrics can be computed | **Fastest path: teleop.** [`harness-teleop-driver`](harness-teleop-driver.md) gets to ≥ 3 scenes × 30 success + 30 hard-negative episodes in ~one operator-evening. **Slower path: bridge.** [`next-integration-round`](next-integration-round.md) produces bridge-driver output as part of its acceptance, blocked on MPPI / Nav2 stability. Either driver's output works — the eval script is schema-flexible. |
+| `~/.strafer/models/clip_visual.onnx` + `clip_text.onnx` | The eval script and the new image-vs-text tripwire both depend on the runtime ONNX | One-time `finetune_clip.py --no-export-onnx false` run, OR (faster) export the laion2b ViT-B/32 weights without fine-tuning so the eval can run against the unfinetuned baseline. The brief work owns this small step at the start; it is **not** a separate brief. |
+
+The brief's wiring + protocol-refactor work doesn't need either
+prerequisite — those steps land independently, and the
+measurement step gates on the prerequisites being satisfied.
+
 ### What's already in the repo
 
 The semantic-map package is complete-but-orphaned:
@@ -68,16 +89,40 @@ do emit it), the ranking part is dead code.
 
 ### What this brief produces
 
-Two artifacts in one PR:
+Three artifacts in one PR:
 
 1. **Wiring** in `executor/main.py` so the production executor
    constructs `SemanticMapManager` and `BackgroundMapper` and
    passes them through. Gated on env vars so a misconfigured
    Jetson degrades gracefully instead of hard-failing.
-2. **A measurement script** that walks
-   `data/sim_in_the_loop/<scene_name>/episode_NNNN/frames.jsonl`
-   trees, replays the CLIP path against them in offline mode (no
-   live executor needed for the metric pass), and emits
+2. **An image-vs-target-text parallel tripwire**
+   (`semantic_map/text_alignment_monitor.py`, parallel to
+   `transit_monitor.py`) that uses the existing CLIP text tower
+   to encode the mission target phrase at leg start, cosines
+   against each live frame from `BackgroundMapper`'s capture
+   loop, and fires `abort=True` when the cosine drops below a
+   baseline-relative threshold for N consecutive captures. **No
+   model fine-tune required** — the runtime artifact reuses the
+   already-loaded CLIP text encoder. The threshold's baseline is
+   the cosine score on the scan-found view (the moment the
+   target was last grounded), with a relative margin (default
+   `baseline − 0.15`).
+3. **A `Validator` protocol refactor.** `BackgroundMapper`
+   currently holds a concrete `TransitMonitor`. Replace with a
+   `Validator` protocol (lives in `semantic_map/protocols.py`)
+   that both `TransitMonitor` and the new
+   `TextAlignmentMonitor` implement. This is small (~30 lines)
+   but lets the downstream
+   [`learned-mid-mission-validator`](learned-mid-mission-validator.md)
+   brief plug in a learned validator without touching
+   `BackgroundMapper` again.
+4. **A measurement script** that consumes the harness's per-mission
+   output (file layout per
+   [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md)
+   when that brief has shipped; falls back to today's
+   `frames.jsonl` if not), replays the CLIP path (both signals)
+   against it in offline mode (no live executor needed for the
+   metric pass), and emits
    `data/transit_monitor_eval/<run_id>/report.json` with the
    pre-registered metrics from
    [`MISSION_VALIDATION_ARCHITECTURE.md` §4.1](../../MISSION_VALIDATION_ARCHITECTURE.md#41-falsifiable-success-criteria-for-the-next-brief).
@@ -85,49 +130,85 @@ Two artifacts in one PR:
 ### Pre-registered metrics
 
 Computed against a harness episode set covering ≥ 3 distinct
-Infinigen scenes and ≥ 30 missions total:
+Infinigen scenes and ≥ 30 missions total. Metrics are
+**disaggregated by failure case** per
+[`MISSION_VALIDATION_ARCHITECTURE.md` §2.3](../../MISSION_VALIDATION_ARCHITECTURE.md):
+case 1 (wrong-room), case 2 (wrong-instance, same room). Case 3
+(trajectory-shape) is excluded — it requires a planner-side
+prerequisite.
 
-| Metric | Definition |
-|---|---|
-| Frame-to-frame CLIP cosine σ | Std-dev of cosine similarity between consecutive same-leg embeddings, after L2-norm. Per-leg, then aggregated. |
-| Top-1 flip rate per meter | Fraction of consecutive embedding pairs whose top-1 ANN match in the map flips, normalized by the robot's traversed metric distance between captures. |
-| `TransitMonitor.check` true-positive rate | On legs labelled `reachable=False, root_cause=wrong_locale`, fraction where the monitor's `abort=True` fires before arrival. |
-| False-positive rate | On legs labelled `reachable=True`, fraction where the monitor's `abort=True` fires. |
-| Time-to-decision (median, p95) | From leg start to first `abort=True`. |
+| Metric | Definition | Case scope |
+|---|---|---|
+| Frame-to-frame CLIP cosine σ | Std-dev of cosine similarity between consecutive same-leg embeddings, after L2-norm. Per-leg, then aggregated. | Diagnostic (informs case 1) |
+| Top-1 flip rate per meter | Fraction of consecutive embedding pairs whose top-1 ANN match in the map flips, normalized by traversed metric distance. | Diagnostic (informs case 1) |
+| **Case-1 TPR / FPR** | On legs labelled `wrong_room` (TPR) vs. `on_course` (FPR), fraction where `TransitMonitor.check` fires `abort=True` before arrival. | Case 1 |
+| **Case-2 TPR / FPR (image-vs-image)** | On legs labelled `wrong_instance` vs. `on_course`, fraction where the existing `TransitMonitor.check` (image-vs-image ANN retrieval) fires `abort=True`. Expected to perform near-random here; this row is the structural baseline. | Case 2 |
+| **Case-2 TPR / FPR (image-vs-text)** | Same labels, but the tripwire signal is *image-vs-target-text alignment*: the mission's target phrase is encoded once at leg start by the existing CLIP text tower (no fine-tune); each live frame is cosine'd against it; the tripwire fires when the cosine drops below a baseline-relative threshold (calibrated from the scan-found view) for N consecutive captures. **This is the meaningful case-2 measurement.** | Case 2 |
+| Time-to-decision (median, p95) | From leg start to first `abort=True`. Reported per case. | Both |
+| Cascade-end-to-end TPR / FPR | After the §3.5 arbiter pass (VLM `/describe` + LLM-as-judge against mission text), per case. Only computed if the arbiter is implemented in this brief; otherwise deferred to the §3.5 follow-up. | Both |
 
-`root_cause=wrong_locale` is a new label; it requires
+The five-way mission label (`on_course` / `wrong_room` /
+`wrong_instance` / `trajectory_violation` / `ambiguous`) requires
 post-processing the harness output, not new sim runs. The
-measurement script appends a `root_cause` field to each
-`frames.jsonl` mission record by:
+measurement script's `--root-cause-pass` mode appends a
+`root_cause` field to each mission record. After the harness
+brief ships, the natural target is `mission.json`'s record (one
+per mission); for legacy harness output, `root_cause` is written
+into the per-mission summary in `frames.jsonl`. Either way, the
+labeling logic is:
 
-1. Comparing the final-pose `(x, y)` against the mission's
-   `target_position_3d`.
-2. Calling `strafer_vlm`'s `/describe` once per failed mission
-   on the final-pose frame and matching keyword presence against
-   `target_label`.
-3. Disagreement between (1) and (2) marks the mission `ambiguous`
-   and excludes it from TPR/FPR.
+1. **`on_course` vs. failed:** mission's `mission_state` +
+   `reachable` flags.
+2. **`wrong_room` vs. `wrong_instance` split (failed missions
+   only):** check whether the final pose `(x, y)` lies inside the
+   room polygon containing `target_position_3d` (room polygons
+   come from `scene_metadata.json`'s `rooms[]`). Outside the room ⇒
+   `wrong_room`; inside the room but > R m from
+   `target_position_3d` AND scene metadata shows ≥ 2 objects with
+   the same `target_label` ⇒ `wrong_instance`.
+3. **VLM cross-check (failed missions only):** call
+   `strafer_vlm`'s `/describe` on the final-pose frame and use
+   an LLM-as-judge prompt to compare against the mission target
+   phrase. Disagreement with step 2 ⇒ `ambiguous`; excluded from
+   TPR / FPR.
+4. **`trajectory_violation`:** **always empty** in this brief —
+   the planner does not yet emit trajectory constraints, so no
+   mission can be labelled here. Reserved field.
 
 ### Decision criteria
 
-Per [`MISSION_VALIDATION_ARCHITECTURE.md` §4](../../MISSION_VALIDATION_ARCHITECTURE.md#section-4--recommendation):
+Per [`MISSION_VALIDATION_ARCHITECTURE.md` §4](../../MISSION_VALIDATION_ARCHITECTURE.md#section-4--recommendation),
+**three decision branches**, evaluated per case:
 
-- **Pass (escalate to §3.5 — wrap with VLM arbiter):** TPR ≥ 0.7 at
-  FPR ≤ 0.1 on the full set; per-scene worst-case TPR ≥ 0.5.
-  Follow-up brief: a small "wrap `TransitMonitor.abort` with one
-  `/describe` call before actually canceling Nav2."
-- **Fail (escalate to §3.2 — train a learned validator):** TPR <
-  0.5 at any FPR ≤ 0.2. Follow-up brief:
+- **Pass (both cases meet the bar):** case-1 + case-2 TPR ≥ 0.7 at
+  FPR ≤ 0.1; per-scene worst-case TPR ≥ 0.5. Cascade ships to
+  production. Follow-up brief: wrap `TransitMonitor.abort` with
+  one `/describe` arbiter call before actually canceling Nav2.
+- **Pass case-1, fail case-2:** the cheap CLIP path is fine for
+  room-grain validation but instance-grain isn't. Open a
+  follow-up brief to add the §3.1 image-vs-target-text signal as a
+  parallel tripwire and re-measure with this same script (the
+  text-tower call is in addition to the existing image-tower path
+  — same harness, same metrics).
+- **Fail (either case TPR < 0.5 at any FPR ≤ 0.2):** escalate to
+  §3.2. Follow-up brief:
   [`learned-mid-mission-validator.md`](learned-mid-mission-validator.md)
-  takes over.
-- **In-between:** apply the §3.1 cheap fixes (letterbox preprocess,
-  same-region contrastive head, MobileCLIP / SigLIP backbone swap,
-  TRT-EP FP16) and re-measure once. If still in-between, fail to
-  §3.2.
+  takes over with the five-way categorical model.
+
+- **In-between (one case borderline, one case clear):** file
+  `clip-cheap-fix-and-remeasure.md` as a conditional follow-up
+  brief in this PR. That brief — *not this one* — owns the §3.1
+  cheap-fix work (letterbox preprocess, same-region contrastive
+  head for case 1, MobileCLIP / SigLIP backbone swap, TRT-EP
+  FP16) and the second measurement pass. Keeping the cheap-fix
+  cycle out of this brief preserves its scope as
+  *wire + measure + decide + file follow-up*; if folded in, the
+  brief balloons to XL and ships two model versions in one PR.
 
 The PR's write-up appends a one-section addendum to
 [`MISSION_VALIDATION_ARCHITECTURE.md`](../../MISSION_VALIDATION_ARCHITECTURE.md)
-recording which branch fired and linking the run report.
+recording which branch fired per case, linking the run report,
+and naming any follow-up brief filed.
 
 ## Acceptance criteria
 
@@ -139,6 +220,24 @@ recording which branch fired and linking the run report.
       successfully — the existing graceful-degrade in
       `clip_encoder.py:_load_models` should be visible in operator
       logs, not silent.
+- [ ] **`Validator` protocol.**
+      `source/strafer_autonomy/strafer_autonomy/semantic_map/protocols.py`
+      defines a `Validator` protocol with `activate`, `deactivate`,
+      `check`, `is_active` matching the existing
+      `TransitMonitor` shape. `TransitMonitor` declares
+      conformance. `BackgroundMapper` accepts a `Validator`
+      instead of a concrete `TransitMonitor`. Unit test under
+      `tests/` confirms the substitution works.
+- [ ] **Image-vs-target-text tripwire.**
+      `semantic_map/text_alignment_monitor.py` implements the
+      `Validator` protocol; encodes the mission target phrase
+      via `CLIPEncoder.encode_text` at `activate()`; computes
+      cosine on each `check()`; fires after `N=3` consecutive
+      below-threshold captures. The threshold is calibrated
+      from the first 3 captures of the leg (baseline) with a
+      relative margin from `STRAFER_TEXT_ALIGN_MARGIN` (default
+      `0.15`). Both monitors run in parallel; `BackgroundMapper`
+      OR-fires the `divergence_flag` if either trips.
 - [ ] **Smoke test.** A single-mission run on the Infinigen
       `scene_fast_singleroom_000_seed0` scene produces a
       non-zero-row `verify_arrival` outcome (verified or
@@ -149,35 +248,48 @@ recording which branch fired and linking the run report.
       `Scripts/eval_transit_monitor.py` (DGX-side) that:
   - Takes `--episodes-root data/sim_in_the_loop/<scene>` and
     `--clip-model ~/.strafer/models/`.
-  - Walks `frames.jsonl`, replays CLIP encoding offline against
-    each frame, populates an in-memory `SemanticMapManager`,
-    invokes `TransitMonitor` in the same loop the production
-    executor would.
+  - Walks the harness output and replays CLIP encoding offline
+    against each frame. Schema-flexible: prefers
+    `frames_skill.jsonl` + `frames_tick.jsonl` from
+    [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md)
+    when present; falls back to legacy `frames.jsonl`. Populates
+    an in-memory `SemanticMapManager`, runs both
+    `TransitMonitor` (image-vs-image) and `TextAlignmentMonitor`
+    (image-vs-text) in the same loop the production executor
+    would.
   - Computes the five metrics above and writes
     `data/transit_monitor_eval/<run_id>/report.json` with
     per-scene + aggregate breakdowns.
-  - Has a `--root-cause-pass` mode that calls `strafer_vlm` to
-    label `reachable=False` missions as `wrong_locale` /
-    `nav_timeout` / `ambiguous`.
+  - Has a `--root-cause-pass` mode that walks
+    `scene_metadata.json` room polygons + label inventory and
+    calls `strafer_vlm` to label each mission as `on_course` /
+    `wrong_room` / `wrong_instance` / `trajectory_violation`
+    (always-empty) / `ambiguous`. Per-case TPR / FPR are computed
+    from the resulting label, not from the binary `reachability`
+    flag alone.
 - [ ] **Run the script** against ≥ 3 Infinigen scenes and ≥ 30
       missions. Commit the run report under
       `data/transit_monitor_eval/<run_id>/report.json` (the
       directory is gitignored under `data/`, so the PR commits
       a copy under `docs/artifacts/transit_monitor_eval/` for the
       record).
-- [ ] **Decision addendum.** Append a §4.3 to
+- [ ] **Decision addendum.** Append a §4.4 to
       [`MISSION_VALIDATION_ARCHITECTURE.md`](../../MISSION_VALIDATION_ARCHITECTURE.md)
-      that names which decision branch fired (`pass`/`in-between`/`fail`),
-      links the run report under `docs/artifacts/transit_monitor_eval/`,
-      and either retires this option (fail → file the
-      learned-validator brief) or files the §3.5 arbiter brief
-      (pass).
-- [ ] If the in-between branch fires, run the §3.1 cheap-fix pass:
-      letterbox preprocess in `clip_encoder._preprocess_image`,
-      add a same-region contrastive head training script under
-      `source/strafer_lab/scripts/`, retrain, re-export, re-run
-      the eval script, and append the second-pass numbers to the
-      §4.3 addendum.
+      that names which decision branch fired **per case**
+      (`pass-both` / `pass-case-1-fail-case-2` / `fail-either` /
+      `in-between`), links the run report under
+      `docs/artifacts/transit_monitor_eval/`, and either retires
+      this option (fail → file the learned-validator brief), files
+      the §3.5 arbiter brief (pass-both), or files an
+      image-vs-target-text follow-up brief (pass-case-1-fail-case-2).
+- [ ] If the in-between branch fires, file
+      `clip-cheap-fix-and-remeasure.md` as a follow-up brief in
+      this PR (P1, conditional). That brief — not this one —
+      owns the §3.1 cheap-fix work (letterbox preprocess,
+      same-region contrastive head, MobileCLIP / SigLIP backbone
+      swap, TRT-EP FP16) and the second measurement pass. The
+      addendum to `MISSION_VALIDATION_ARCHITECTURE.md` links to
+      it.
 - [ ] If your work invalidates a fact in any referenced context
       module, package README, top-level `Readme.md`, or guide
       under `docs/`, update those in the same commit. See
@@ -224,8 +336,20 @@ recording which branch fired and linking the run report.
 - **Real-robot validation.** Sim-side only. A future brief may
   layer real-robot data in once the runtime path is calibrated.
 - **Replacing CLIP with a non-CLIP backbone (DINOv2, MobileCLIP,
-  SigLIP).** Reserve for the §3.1 cheap-fix pass *only* if
-  in-between fires; if pass or fail fires, the backbone choice
-  belongs to a separate brief.
+  SigLIP) and any CLIP fine-tune cycle.** Belongs to
+  `clip-cheap-fix-and-remeasure.md`, filed as a follow-up if the
+  in-between branch fires. This brief evaluates whatever ONNX
+  is currently in `~/.strafer/models/` — fine-tuning is a
+  downstream concern.
 - **Wrapping the abort with a VLM arbiter (§3.5).** That's the
-  follow-up brief filed if `pass` fires.
+  follow-up brief filed if `pass-both` fires.
+- **Validating trajectory-shape constraints (case 3).** Requires
+  the planner to decompose constraints like "hug the wall" into a
+  checkable spec. Filed as a future brief
+  (`planner-trajectory-constraint-decomposition.md`) only when a
+  real mission requires it; never measured by this brief.
+- **Distilling an MVP-as-teacher VLA (§3.6).** That's a separate
+  brief filed once
+  [`next-integration-round`](next-integration-round.md) ships and
+  the action-labeled corpus exists. Independent of this brief's
+  decision branches.

@@ -43,6 +43,7 @@ session.
 | [`policy-export-onnx-depth`](active/policy-export-onnx-depth.md) | DGX | M (~1–2 d) | Implement `_OnnxDepthGRUModel` so DEPTH gets ONNX export. Unblocks the Jetson TRT-EP latency target. Filed off `policy-export-tooling` ship. |
 | [`policy-loader-recurrent-state`](active/policy-loader-recurrent-state.md) | Either | S–M (~1 d) | Extend `strafer_shared.policy_interface.load_policy()` so recurrent artifacts expose `.reset()` and ONNX hidden state threads correctly. Prerequisite for stateful DEPTH inference on Jetson. |
 | [`clip-mid-mission-validator-evaluation`](active/clip-mid-mission-validator-evaluation.md) | Either | L | Wire the orphaned `SemanticMapManager` + `BackgroundMapper` + `TransitMonitor` path into the production executor and measure pre-registered TPR/FPR/time-to-decision on harness output. Gating brief for `MISSION_VALIDATION_ARCHITECTURE.md` §4 staged plan. Filed off `mid-mission-validation-investigation` ship. |
+| [`harness-teleop-driver`](active/harness-teleop-driver.md) | DGX | M | Gamepad teleop entry point for in-process Isaac Lab data capture. Bypasses MPPI / Nav2 / planner; reuses `collect_demos.py` mapping; emits the canonical harness schema. Unblocks v1 measurement (clip-eval, learned-validator) and v2 VLA training data without depending on bridge perf. |
 
 ### P2 — medium priority
 
@@ -53,6 +54,7 @@ session.
 | [`d555-distortion-model-explicit`](active/d555-distortion-model-explicit.md) | S | Quick win |
 | [`planner-rotate-direction-prompt`](active/planner-rotate-direction-prompt.md) | S | Quick win — prompt edit |
 | [`policy-goal-noise-training`](active/policy-goal-noise-training.md) | M | Targeted DEPTH-baseline training pass with goal-position noise; gates VLM-grounded mission quality for `strafer_direct` |
+| [`harness-behavior-cloning-data-expansion`](active/harness-behavior-cloning-data-expansion.md) | M–L | Per-tick capture + depth + actions + time alignment + paraphrase + hard-negative injection. Driver-agnostic schema; bridge-driver upgrades ship in this brief. |
 | [`planner-far-target-staging`](active/planner-far-target-staging.md) | M–L | World-state schema + planner prompt |
 | [`strafer-lab-subgoal-env`](active/strafer-lab-subgoal-env.md) | L (~1.5–2 wk) | New training env for `NOCAM_SUBGOAL` — sim-internal path planner + SubgoalCommand + path-tracking rewards + termination + training run. Unblocks hybrid mode |
 
@@ -78,6 +80,9 @@ session.
 |---|---|---|---|
 | [`strafer-inference-hybrid-mode`](active/strafer-inference-hybrid-mode.md) | Jetson | M (~3–4 d) | [`strafer-inference-package`](active/strafer-inference-package.md) shipped + [`strafer-lab-subgoal-env`](active/strafer-lab-subgoal-env.md) shipped (the latter produces the trained `NOCAM_SUBGOAL` checkpoint) |
 | [`learned-mid-mission-validator`](active/learned-mid-mission-validator.md) | DGX | L | [`clip-mid-mission-validator-evaluation`](active/clip-mid-mission-validator-evaluation.md) shipped with `fail` or post-cheap-fix `in-between` decision (per `MISSION_VALIDATION_ARCHITECTURE.md` §4) |
+| [`strafer-vla-v2-architecture`](active/strafer-vla-v2-architecture.md) | Either | XL | [`harness-teleop-driver`](active/harness-teleop-driver.md) (primary data path) + [`harness-behavior-cloning-data-expansion`](active/harness-behavior-cloning-data-expansion.md) (schema) shipped. Sim-first research arm; additive to v1, not replacing it |
+| [`harness-oracle-driver`](active/harness-oracle-driver.md) | DGX | L | Sketch — picked up only when teleop throughput is the binding scale constraint for VLA training. See trigger condition in brief. |
+| [`harness-procedural-path-shape-generator`](active/harness-procedural-path-shape-generator.md) | DGX | L | Sketch — picked up only when operator-typed path-shape demo volume is the binding constraint. See trigger condition in brief. |
 
 ---
 
@@ -102,6 +107,9 @@ Briefs that aren't pickable until something else lands.
 |---|---|---|
 | [`strafer-inference-hybrid-mode`](active/strafer-inference-hybrid-mode.md) | [`strafer-inference-package`](active/strafer-inference-package.md) (Jetson) **and** [`strafer-lab-subgoal-env`](active/strafer-lab-subgoal-env.md) (DGX) both shipped | Hybrid backend extends the inference package's runtime AND consumes the `NOCAM_SUBGOAL` checkpoint produced by the env brief. The two prerequisites can run in parallel since they're cross-lane |
 | [`learned-mid-mission-validator`](active/learned-mid-mission-validator.md) | [`clip-mid-mission-validator-evaluation`](active/clip-mid-mission-validator-evaluation.md) shipped with `fail` (or post-cheap-fix `in-between`) | Whether to train a new validator depends on the measurement that brief produces. If the CLIP path's TPR ≥ 0.7 / FPR ≤ 0.1 bar holds, this brief is retired without picking up. |
+| [`strafer-vla-v2-architecture`](active/strafer-vla-v2-architecture.md) | [`harness-teleop-driver`](active/harness-teleop-driver.md) **and** [`harness-behavior-cloning-data-expansion`](active/harness-behavior-cloning-data-expansion.md) shipped | Needs the action-labeled corpus (teleop primary, bridge supplement) before any VLA fine-tune is meaningful. Sim-first research arm; additive to v1. |
+| [`harness-oracle-driver`](active/harness-oracle-driver.md) | Trigger condition: teleop throughput is the binding scale constraint for VLA training (see brief) | Filed-on-trigger sketch. Don't pick up preemptively. |
+| [`harness-procedural-path-shape-generator`](active/harness-procedural-path-shape-generator.md) | Trigger condition: operator-typed path-shape demo volume is the binding constraint (see brief) | Filed-on-trigger sketch. Don't pick up preemptively. |
 
 ---
 

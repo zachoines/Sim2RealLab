@@ -14,12 +14,15 @@ augmentation, model export, eval reuse)
 ## Story
 
 As an **operator who has measured that the CLIP transit-monitor
-path doesn't reach the ≥ 0.7 TPR / ≤ 0.1 FPR bar even after the
+path doesn't reach the per-case TPR / FPR bar even after the §3.1
 cheap-fix pass**, I want **a small frozen-DINOv2 + temporal-head
-validator trained on the harness's `(frame_window, mission_text,
-on_course?)` tuples**, so that **mid-mission validation gets the
-purpose-built signal the open-vocab CLIP recipe could not provide,
-without paying the small-VLA training and co-tenancy cost**.
+validator with mission-text fusion, trained on the harness's
+five-way categorical labels (`on_course` / `wrong_room` /
+`wrong_instance` / `trajectory_violation` / `ambiguous`)**, so that
+**mid-mission validation gets the purpose-built signal the
+open-vocab CLIP recipe could not provide for case 2 (instance-grain)
+in particular, without paying the small-VLA training and co-tenancy
+cost**.
 
 ## Context bundle
 
@@ -59,21 +62,41 @@ fires only if it doesn't.
 - **Dataset assembly** at
   `source/strafer_lab/strafer_lab/tools/build_validator_dataset.py`
   that walks `data/sim_in_the_loop/<scene>/episode_NNNN/`,
-  consumes the `root_cause`-augmented `frames.jsonl` produced by
-  the prerequisite brief's `--root-cause-pass`, and emits
-  `(frame_window, mission_text, on_course)` tuples to a parquet
-  dataset. Same-mission frames within `R_window=5` consecutive
-  captures form a window. Negative examples come from
-  `wrong_locale` legs and from deliberately-perturbed missions
-  (the harness gets a new `--inject-bad-grounding` flag to
-  produce hard negatives).
+  consumes the `root_cause`-augmented harness output (the canonical
+  schema lives in
+  [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md);
+  reads `frames_skill.jsonl` + `frames_tick.jsonl` when present,
+  falls back to legacy `frames.jsonl`) produced by the
+  CLIP-eval brief's `--root-cause-pass`, and emits
+  `(frame_window, mission_text, category_label)` tuples to a
+  parquet dataset. The label is **five-way categorical**, not
+  binary: `on_course` / `wrong_room` / `wrong_instance` /
+  `trajectory_violation` (always-empty in this brief; reserved
+  field) / `ambiguous` (excluded from train / eval). Same-mission
+  frames within `R_window=5` consecutive captures form a window.
+  **Hard negatives** are consumed from deliberately-perturbed
+  missions produced by the harness's `--inject-bad-grounding`
+  flag — that flag is owned by
+  [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md),
+  not added here. This brief documents which submodes
+  (`wrong_room`, `wrong_instance`) it relies on and runs them
+  during dataset assembly.
 - **Training script** at
   `source/strafer_lab/scripts/train_validator.py`. Backbone =
   frozen DINOv2-S/14 (cached HuggingFace `facebook/dinov2-small`).
-  Temporal head = 3-layer Transformer over patch features, output
-  is a 2-class logit + a per-frame attention map for diagnostics.
-  AdamW, cross-entropy on the binary label, with class re-weighting
-  to compensate for the harness's mostly-succeeded mission mix.
+  **Mission-text fusion is mandatory** (a vision-only validator
+  collapses to the case-1 signal §3.1 already provides; see
+  [`MISSION_VALIDATION_ARCHITECTURE.md` §3.2](../../MISSION_VALIDATION_ARCHITECTURE.md)).
+  Mission text encoded by a frozen sentence encoder
+  (`sentence-transformers/all-MiniLM-L6-v2`, 22 M params, ~5 ms on
+  Orin Nano) — the runtime caches the embedding per mission so
+  the cost is paid once. Fusion head = 3-layer Transformer over
+  concatenated `(visual_patch_tokens, text_token)` sequence.
+  Output: 4-class logit (`on_course` / `wrong_room` /
+  `wrong_instance` / `trajectory_violation`; `ambiguous` is a
+  training-time exclusion only) + per-frame attention map for
+  diagnostics. AdamW, weighted cross-entropy with class weights
+  inversely proportional to class frequency in the dataset.
 - **Export** to ONNX (visual tower + head) under
   `~/.strafer/models/validator/` matching the path convention the
   CLIP encoder uses.
@@ -120,13 +143,25 @@ sweep.
       `source/strafer_autonomy/tests/` (mirroring how
       `dataset_export` is tested today) cover the window-construction
       + class-balancing logic.
-- [ ] **Hard-negative injection.**
-      `source/strafer_lab/scripts/run_sim_in_the_loop.py` gains a
-      `--inject-bad-grounding` flag that perturbs goal positions
-      by a sampled offset to produce labelled `wrong_locale`
-      missions deliberately. Behavior documented in
-      [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](../../INTEGRATION_SIM_IN_THE_LOOP.md)'s
-      Stage 5 section.
+- [ ] **Hard-negative consumption.** Two equally-valid sources;
+      either or both:
+  - **Teleop hard negatives** (cleanest, recommended).
+    [`harness-teleop-driver`](harness-teleop-driver.md)'s `X` and
+    `SELECT` buttons let the operator commit to specific
+    failure modes (`wrong_instance` / `wrong_room` /
+    `trajectory_violation`) at capture time, no post-hoc
+    inference needed. ≥ 30 tagged hard-negative episodes per
+    scene gets the dataset to a workable balance.
+  - **Bridge-injected hard negatives** via the harness's
+    `--inject-bad-grounding` flag (owned by
+    [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md)).
+    Useful for scaling beyond what an operator can demonstrate;
+    requires the v1 stack reliable enough to run.
+
+      Pipe whichever source(s) through the dataset builder so
+      train / eval class balance reflects them. **Do not
+      re-implement either flag here** — both are owned by
+      upstream briefs.
 - [ ] **Training script.**
       `source/strafer_lab/scripts/train_validator.py` trains the
       frozen-DINOv2 + temporal-head model, exports a checkpoint +
@@ -146,13 +181,15 @@ sweep.
 - [ ] **Eval reuse.** `Scripts/eval_transit_monitor.py` from the
       prerequisite brief is parameterized by `--backend
       {clip,learned}` so the same metrics are reported on both.
-- [ ] **Decision report.** Append a §4.4 to
+- [ ] **Decision report.** Append a §4.5 to
       [`MISSION_VALIDATION_ARCHITECTURE.md`](../../MISSION_VALIDATION_ARCHITECTURE.md)
-      with the learned validator's TPR/FPR/time-to-decision on
-      the same episode set, alongside the CLIP path's numbers
-      from §4.3. If TPR ≥ 0.85 at FPR ≤ 0.1, flip the runtime
-      default to `learned` in the same PR; otherwise leave the
-      default at `clip` and record the gap.
+      with the learned validator's **per-case** TPR / FPR /
+      time-to-decision (case 1: `wrong_room`; case 2:
+      `wrong_instance`) on the same episode set, alongside the
+      CLIP path's numbers from the eval brief's §4.4 addendum. If
+      both case-1 + case-2 TPR ≥ 0.85 at FPR ≤ 0.1, flip the
+      runtime default to `learned` in the same PR; otherwise
+      leave the default at `clip` and record the per-case gap.
 - [ ] If your work invalidates a fact in any referenced context
       module, package README, top-level `Readme.md`, or guide
       under `docs/`, update those in the same commit. See
@@ -167,10 +204,12 @@ sweep.
 
 - DINOv2 caching path: `~/.cache/huggingface/hub/models--facebook--dinov2-small/`.
   Avoid hard-coded HF tokens; the model is public.
-- Per-mission temporal grouping is by `mission_id` in
-  `frames.jsonl` — see the schema in
+- Per-mission temporal grouping is by `mission_id` in the
+  harness output. Canonical schema:
+  [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md)
+  (after that brief ships) or
   [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](../../INTEGRATION_SIM_IN_THE_LOOP.md)
-  Stage 5.
+  Stage 5 (legacy).
 - ONNX export pattern that exists in the codebase:
   [`finetune_clip.export_towers_to_onnx`](../../../source/strafer_lab/scripts/finetune_clip.py#L262).
   Mirror the structure (separate visual + head exports + a

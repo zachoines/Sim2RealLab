@@ -23,7 +23,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| _None._ | | | |
+| [`progress-aware-nav-timeouts`](active/progress-aware-nav-timeouts.md) | Jetson | — | Branch `task/progress-aware-nav-timeouts` open; implementing distance/angle-derived budgets + Nav2 stall watchdog in executor + ros_client |
 
 ---
 
@@ -69,7 +69,6 @@ session.
 | [`align-after-scan-grounding`](active/align-after-scan-grounding.md) | S–M | Executor + plan_compiler tweak |
 | [`real-d555-depth-range-survey`](active/real-d555-depth-range-survey.md) | S–M | Investigation — bench measurement + write-up |
 | [`nav2-startup-unknown-donut-path-noise`](active/nav2-startup-unknown-donut-path-noise.md) | M | Planner-side fix for the kinky-path-through-camera-donut symptom |
-| [`progress-aware-nav-timeouts`](active/progress-aware-nav-timeouts.md) | M (~1–2 d) | Replace the env-knob backstop with per-step distance/angle-derived budgets + Nav2 stall watchdog. Composes with `rotate-in-place-sim-clock-deadline` (either order). |
 
 #### Either lane
 

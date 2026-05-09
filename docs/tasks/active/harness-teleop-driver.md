@@ -146,20 +146,78 @@ bridge-driver hard negatives.
 
 ### Operator UX during driving
 
-- **Live view:** Isaac Sim editor viewport, headed (not
-  headless). The robot is visible third-person; first-person
-  D555 view available via Isaac Lab's camera-toggle.
-- **Mission text:** printed to console at episode start; on-screen
-  overlay if cheap to add via Isaac Lab's text-render path.
-- **Episode timer + distance-to-target:** printed to console once
-  per second.
-- **Mission queue position:** printed at episode advance ("Mission
-  7/40").
-- **Replay mode:** **out of scope for v1**; record gamepad events
-  alongside `actions.jsonl` so a future replay-with-perturbation
-  tool can reconstruct the trajectory under different lighting /
-  texture seeds. Building the replay tool itself is a future
-  brief.
+The operator drives third-person but the *training data* the
+robot will ever see is first-person. Operator UX has to bridge
+that gap and give enough cues that 60 episodes / hour translates
+to 60 *useful* episodes, not 60 quick-but-noisy ones.
+
+- **Live third-person view:** Isaac Sim editor viewport, headed
+  (not headless). The robot is visible from above / behind;
+  the operator gets full spatial awareness of the scene.
+- **First-person picture-in-picture (PIP):** a corner overlay
+  sourced from the perception camera's render-product
+  (`d555_camera_perception`, 640×360). Operator can confirm
+  the target is in the *robot's* FoV, not just the editor's.
+  Catches "the chair is visible third-person but blocked from
+  the D555's view" failures before they pollute the corpus.
+- **Suggested-path overlay (operator-only).** The mission
+  queue's `planned_path` waypoints (LLM-emitted for path-shape
+  missions, A*-shortest for endpoints — see
+  [`harness-mission-generator`](harness-mission-generator.md))
+  are rendered as a polyline in the editor viewport via Isaac
+  Sim debug-draw primitives. **Critically operator-visible
+  only — debug-draw renders into the editor viewport, not into
+  the camera-output captures the perception camera writes
+  to disk.** The acceptance criteria below verify this
+  separation.
+  - Color: solid for endpoint missions ("follow this exactly");
+    dashed-with-constraint-color for path-shape missions
+    ("follow this loosely, modify for the constraint").
+  - Behavior: traversed segments fade behind the robot; the
+    upcoming portion stays salient.
+  - **Deviation hint.** When the operator drifts > 1 m from
+    the polyline, a subtle color-bleed near the robot's
+    position cues the deviation. Useful for noticing
+    accidental drift on endpoint missions; expected behavior
+    on path-shape missions where the operator deliberately
+    differs.
+- **HUD mission text.** Persistent on-screen overlay showing
+  the current `mission_text` + the active paraphrase (operator
+  can cycle paraphrases via D-pad). Console echo stays for
+  log scrollback, but the on-screen text is what the operator
+  reads while driving.
+- **Recording status indicator.** Visual `REC` overlay (red
+  dot or similar) when capture is active; gray `PAUSED` when
+  not. Catches accidental "I drove for 30 seconds while not
+  recording" failures.
+- **Episode timer + distance-to-target + queue position:**
+  printed to console once per second; cheap, no overlay
+  needed.
+- **Replay mode:** **out of scope for v1**; record gamepad
+  events alongside `actions.jsonl` so a future
+  replay-with-perturbation tool can reconstruct the trajectory
+  under different lighting / texture seeds. Building the
+  replay tool itself is a future brief.
+
+### Operator UX additions filed-on-trigger
+
+The following are deliberately deferred to keep v1 scoped.
+Each gets a small follow-up brief if real teleop sessions
+surface the need:
+
+- **Constraint visualization** (highlight the south wall when
+  mission says "hug south wall"). Would require structured
+  constraint info that the renamed mission-generator brief
+  explicitly retired in favor of free-text. Don't regress
+  that decision; defer.
+- **Prev-trajectory ghosts** for replay-with-perturbation.
+  Depends on the replay tool itself; future brief.
+- **Quick-skip / mission-queue manipulation tools** (delete a
+  bad queue row mid-session, re-order, etc.). The `Back`
+  button + stdin override cover v1 use cases.
+- **Voice mission entry, AR / VR teleop, multi-camera live
+  view, multi-operator collaborative teleop.** Out of scope
+  for v1; named in the existing Out of scope section.
 
 ### Realistic data-volume budget
 
@@ -217,6 +275,22 @@ flags it openly.
 - [ ] **Episode-end buttons** map to `mission.json.outcome` per
       the table above. `Back` discards the episode without
       writing.
+- [ ] **Suggested-path overlay leak check.** With the path
+      overlay rendering in the editor viewport, run one episode
+      and inspect the saved `frame_*.jpg` captures: the polyline
+      must **not** appear in any captured frame. Verified by a
+      pixel-difference check between the overlay-on and
+      overlay-off variants of the same pose, OR by visual
+      inspection of N=10 captured frames. Failure here means the
+      perception camera is picking up debug-draw — the
+      implementation must move the overlay to an editor-only
+      render layer before this brief ships.
+- [ ] **First-person PIP, HUD mission text, REC indicator.**
+      All three render in the operator's editor viewport, not
+      in the perception camera's output. PIP shows live
+      `d555_camera_perception` output. HUD shows
+      `mission_text` + active paraphrase. REC shows capture
+      state.
 - [ ] **`teleop_meta.json` per session** with operator handle,
       gamepad model, repo SHA, capture wall-clock, scene seed.
 - [ ] **Acceptance run.** Capture ≥ 30 missions in ≥ 2 Infinigen

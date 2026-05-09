@@ -23,7 +23,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`plan-compiler-skill-timeouts`](active/plan-compiler-skill-timeouts.md) | DGX | — | Branch `task/plan-compiler-skill-timeouts` pushed; follow-up brief queued; awaiting DGX implementation of the compiler-side change |
+| _None._ | | | |
 
 ---
 
@@ -69,6 +69,7 @@ session.
 | [`align-after-scan-grounding`](active/align-after-scan-grounding.md) | S–M | Executor + plan_compiler tweak |
 | [`real-d555-depth-range-survey`](active/real-d555-depth-range-survey.md) | S–M | Investigation — bench measurement + write-up |
 | [`nav2-startup-unknown-donut-path-noise`](active/nav2-startup-unknown-donut-path-noise.md) | M | Planner-side fix for the kinky-path-through-camera-donut symptom |
+| [`progress-aware-nav-timeouts`](active/progress-aware-nav-timeouts.md) | M (~1–2 d) | Replace the env-knob backstop with per-step distance/angle-derived budgets + Nav2 stall watchdog. Composes with `rotate-in-place-sim-clock-deadline` (either order). |
 
 #### Either lane
 
@@ -112,7 +113,6 @@ Briefs that aren't pickable until something else lands.
 | [`strafer-vla-v2-architecture`](active/strafer-vla-v2-architecture.md) | [`harness-teleop-driver`](active/harness-teleop-driver.md) **and** [`harness-behavior-cloning-data-expansion`](active/harness-behavior-cloning-data-expansion.md) shipped | Needs the action-labeled corpus (teleop primary, bridge supplement) before any VLA fine-tune is meaningful. Sim-first research arm; additive to v1. |
 | [`harness-oracle-driver`](active/harness-oracle-driver.md) | [`strafer-lab-subgoal-env`](active/strafer-lab-subgoal-env.md) shipped (provides NoCam waypoint-follower checkpoint) **and** trigger condition: teleop throughput is the binding scale constraint for VLA training (see brief) | Filed-on-trigger sketch. Don't pick up preemptively. |
 | [`harness-mission-generator`](active/harness-mission-generator.md) | [`multi-room-scene-connectivity-validation`](active/multi-room-scene-connectivity-validation.md) shipped (provides connectivity graph) | Promoted from the previous filed-on-trigger sketch. Now the canonical mission-queue source for teleop / oracle drivers. |
-| [`progress-aware-nav-timeouts`](active/progress-aware-nav-timeouts.md) | [`plan-compiler-skill-timeouts`](active/plan-compiler-skill-timeouts.md) shipped (compiler must stop overriding `timeout_s` first; this brief replaces the env-knob backstop with per-step distance-derived budgets + Nav2 stall watchdog) | Jetson lane (executor + ros_client). Estimate M (~1–2 d). Composes with [`rotate-in-place-sim-clock-deadline`](active/rotate-in-place-sim-clock-deadline.md) which can land in either order. |
 
 ---
 

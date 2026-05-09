@@ -44,6 +44,8 @@ session.
 | [`policy-loader-recurrent-state`](active/policy-loader-recurrent-state.md) | Either | S–M (~1 d) | Extend `strafer_shared.policy_interface.load_policy()` so recurrent artifacts expose `.reset()` and ONNX hidden state threads correctly. Prerequisite for stateful DEPTH inference on Jetson. |
 | [`clip-mid-mission-validator-evaluation`](active/clip-mid-mission-validator-evaluation.md) | Either | L | Wire the orphaned `SemanticMapManager` + `BackgroundMapper` + `TransitMonitor` path into the production executor and measure pre-registered TPR/FPR/time-to-decision on harness output. Gating brief for `MISSION_VALIDATION_ARCHITECTURE.md` §4 staged plan. Filed off `mid-mission-validation-investigation` ship. |
 | [`harness-teleop-driver`](active/harness-teleop-driver.md) | DGX | M | Gamepad teleop entry point for in-process Isaac Lab data capture. Bypasses MPPI / Nav2 / planner; reuses `collect_demos.py` mapping; emits the canonical harness schema. Unblocks v1 measurement (clip-eval, learned-validator) and v2 VLA training data without depending on bridge perf. |
+| [`multi-room-autonomy-stack`](active/multi-room-autonomy-stack.md) | Either | M | Lifts §1.10.1's multi-room deferral. Stored-map fallback in `scan_for_target` + planner transit-step emission + plan-compiler updates. Required for multi-room as the MVP default. |
+| [`multi-room-scene-connectivity-validation`](active/multi-room-scene-connectivity-validation.md) | DGX | S | Computes room connectivity at scene-gen time + verifies door-open default in `prep_room_usds.py`. Hard prerequisite for `multi-room-autonomy-stack` and `harness-mission-generator`. |
 
 ### P2 — medium priority
 
@@ -82,7 +84,7 @@ session.
 | [`learned-mid-mission-validator`](active/learned-mid-mission-validator.md) | DGX | L | [`clip-mid-mission-validator-evaluation`](active/clip-mid-mission-validator-evaluation.md) shipped with `fail` or post-cheap-fix `in-between` decision (per `MISSION_VALIDATION_ARCHITECTURE.md` §4) |
 | [`strafer-vla-v2-architecture`](active/strafer-vla-v2-architecture.md) | Either | XL | [`harness-teleop-driver`](active/harness-teleop-driver.md) (primary data path) + [`harness-behavior-cloning-data-expansion`](active/harness-behavior-cloning-data-expansion.md) (schema) shipped. Sim-first research arm; additive to v1, not replacing it |
 | [`harness-oracle-driver`](active/harness-oracle-driver.md) | DGX | L | Sketch — picked up only when [`strafer-lab-subgoal-env`](active/strafer-lab-subgoal-env.md) has shipped the NoCam waypoint-following checkpoint AND teleop throughput is the binding scale constraint for VLA training. See trigger condition in brief. |
-| [`harness-procedural-path-shape-generator`](active/harness-procedural-path-shape-generator.md) | DGX | L | Sketch — picked up only when operator-typed path-shape demo volume is the binding constraint. See trigger condition in brief. |
+| [`harness-mission-generator`](active/harness-mission-generator.md) | DGX | L | Free-text mission generator with LLM-emitted waypoints (multi-room default). Renamed + restructured from the former `harness-procedural-path-shape-generator` sketch. Canonical mission queue source for teleop and oracle drivers. Blocked on `multi-room-scene-connectivity-validation` for the connectivity graph. |
 
 ---
 
@@ -109,7 +111,7 @@ Briefs that aren't pickable until something else lands.
 | [`learned-mid-mission-validator`](active/learned-mid-mission-validator.md) | [`clip-mid-mission-validator-evaluation`](active/clip-mid-mission-validator-evaluation.md) shipped with `fail` (or post-cheap-fix `in-between`) | Whether to train a new validator depends on the measurement that brief produces. If the CLIP path's TPR ≥ 0.7 / FPR ≤ 0.1 bar holds, this brief is retired without picking up. |
 | [`strafer-vla-v2-architecture`](active/strafer-vla-v2-architecture.md) | [`harness-teleop-driver`](active/harness-teleop-driver.md) **and** [`harness-behavior-cloning-data-expansion`](active/harness-behavior-cloning-data-expansion.md) shipped | Needs the action-labeled corpus (teleop primary, bridge supplement) before any VLA fine-tune is meaningful. Sim-first research arm; additive to v1. |
 | [`harness-oracle-driver`](active/harness-oracle-driver.md) | [`strafer-lab-subgoal-env`](active/strafer-lab-subgoal-env.md) shipped (provides NoCam waypoint-follower checkpoint) **and** trigger condition: teleop throughput is the binding scale constraint for VLA training (see brief) | Filed-on-trigger sketch. Don't pick up preemptively. |
-| [`harness-procedural-path-shape-generator`](active/harness-procedural-path-shape-generator.md) | Trigger condition: operator-typed path-shape demo volume is the binding constraint (see brief) | Filed-on-trigger sketch. Don't pick up preemptively. |
+| [`harness-mission-generator`](active/harness-mission-generator.md) | [`multi-room-scene-connectivity-validation`](active/multi-room-scene-connectivity-validation.md) shipped (provides connectivity graph) | Promoted from the previous filed-on-trigger sketch. Now the canonical mission-queue source for teleop / oracle drivers. |
 
 ---
 

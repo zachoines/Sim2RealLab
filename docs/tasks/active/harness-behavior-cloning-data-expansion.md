@@ -49,6 +49,13 @@ Sibling briefs covering the other driver modes:
 - [`harness-oracle-driver`](harness-oracle-driver.md) — future
   in-process scripted-policy driver, blocked on teleop shipping
   + scale becoming the bottleneck.
+- [`harness-mission-generator`](harness-mission-generator.md) —
+  the canonical mission queue source feeding all three drivers.
+
+Sibling brief covering multi-room defaulting:
+- [`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md) —
+  produces the room-connectivity graph that the bridge driver's
+  multi-room missions rely on for transit-step planning.
 
 Downstream briefs that depend on this:
 - [`strafer-vla-v2-architecture`](strafer-vla-v2-architecture.md) —
@@ -242,20 +249,23 @@ data/sim_in_the_loop/<scene_name>/episode_NNNN/
 
 ### Data volume sanity
 
-At 8 Hz × 30 s mission = ~240 ticks; per-mission overhead:
+Multi-room missions are longer than single-room (transit + scan +
+navigate per target). Realistic episode length: ~30 s for
+single-room, ~60–90 s for cross-room. Volume math at the
+high-end (90 s × 8 Hz = ~720 ticks per mission):
 
-| Stream | Per frame | Per mission |
+| Stream | Per frame | Per mission (90 s × 8 Hz = ~720 frames) |
 |---|---|---|
-| RGB JPEG @ q=85 | ~40 KB | ~10 MB |
-| Depth PNG (16UC1) | ~150 KB | ~36 MB |
-| `frames_tick.jsonl` row | ~0.5 KB | ~0.1 MB |
-| `actions.jsonl` row | ~0.1 KB | ~0.02 MB |
-| `progress.jsonl` row (post-proc) | ~0.1 KB | ~0.02 MB |
-| **Total** | | **~46 MB / mission** |
+| RGB JPEG @ q=85 | ~40 KB | ~28 MB |
+| Depth PNG (16UC1) | ~150 KB | ~108 MB |
+| `frames_tick.jsonl` row | ~0.5 KB | ~0.4 MB |
+| `actions.jsonl` row | ~0.1 KB | ~0.08 MB |
+| `progress.jsonl` row (post-proc) | ~0.1 KB | ~0.08 MB |
+| **Total** | | **~140 MB / mission** (cross-room worst case) |
 
-30 missions × 3 scenes ≈ 4 GB. Tractable on the DGX. The
-existing `data/` tree is gitignored, so commit footprint is
-unchanged.
+30 missions × 3 scenes × 140 MB ≈ 12 GB. Tractable on the DGX.
+Single-room missions remain at ~46 MB / mission. The existing
+`data/` tree is gitignored, so commit footprint is unchanged.
 
 ### Why this lives outside `next-integration-round`
 

@@ -330,9 +330,17 @@ and naming any follow-up brief filed.
   [`learned-mid-mission-validator.md`](learned-mid-mission-validator.md).
   This brief only re-exports the existing CLIP path with the §3.1
   cheap fixes if the in-between branch fires.
-- **Multi-room navigation evaluation.** Per
-  [`STRAFER_AUTONOMY_NEXT.md` §1.10.1](../../STRAFER_AUTONOMY_NEXT.md),
-  multi-room is deferred. Single-room scenes only.
+- **Multi-room navigation evaluation.** This brief's
+  *measurement* runs on single-room subsets of the (now
+  multi-room-default) harness corpus. The case-1 / case-2 TPR /
+  FPR bars in §4.1 are calibrated against single-room data
+  initially. A multi-room re-test follow-up brief
+  (`clip-multi-room-validator-remeasure.md`) is filed after
+  [`multi-room-autonomy-stack`](multi-room-autonomy-stack.md)
+  ships — it re-runs the same metrics on multi-room data and
+  recalibrates the bars. Keeping the v1 measurement single-room
+  is deliberate: it gives an achievable bar for the cheap CLIP
+  path before multi-room raises the difficulty.
 - **Real-robot validation.** Sim-side only. A future brief may
   layer real-robot data in once the runtime path is calibrated.
 - **Replacing CLIP with a non-CLIP backbone (DINOv2, MobileCLIP,

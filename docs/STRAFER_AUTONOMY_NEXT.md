@@ -1527,6 +1527,17 @@ makes it better.
 
 ### 1.10.1 Known limitation: multi-room navigation
 
+**Status:** This deferral is being lifted. See
+[`docs/tasks/active/multi-room-autonomy-stack.md`](tasks/active/multi-room-autonomy-stack.md)
+(stored-map fallback + planner transit-step emission) and
+[`docs/tasks/active/multi-room-scene-connectivity-validation.md`](tasks/active/multi-room-scene-connectivity-validation.md)
+(scene-side connectivity graph + door-open guarantee) for the
+work that ships multi-room as the project's MVP default.
+Frontier exploration / unmapped-environment multi-room remains
+deferred (option 3 in the original mitigation path).
+
+The original limitation is preserved below for context.
+
 **Problem.** `scan_for_target` only finds targets visible from the robot's
 current position. When a target is in a different room (e.g., "go to the
 kitchen table" while in the living room), the scan rotation exhausts all

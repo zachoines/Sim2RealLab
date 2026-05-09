@@ -113,16 +113,36 @@ fires only if it doesn't.
 
 ### Dataset budget
 
-The current single-room scene set
-(`scene_fast_singleroom_000_seed0`,
-`scene_high_quality_dgx_000_seed0`) plus 1–2 additional Infinigen
-seeds gives ~30 missions per scene at the harness's defaults. With
-`R_window=5` and one window per leg-second, that's ~5–10k labeled
-windows per scene — enough for a frozen-backbone fine-tune with
-class re-weighting but tight for a from-scratch backbone (which
-this brief avoids). The hard-negative injection flag on the
-harness multiplies effective negatives without re-running the full
-sweep.
+The harness corpus is multi-room by default (per
+[`multi-room-autonomy-stack`](multi-room-autonomy-stack.md) +
+[`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md)).
+This brief's *training* corpus uses both single-room and
+multi-room missions; the *eval* corpus is **single-room first**
+to match the single-room measurement scope of
+[`clip-mid-mission-validator-evaluation`](clip-mid-mission-validator-evaluation.md).
+
+Volume math:
+- Single-room scenes (`scene_fast_singleroom_000_seed0`,
+  `scene_high_quality_dgx_000_seed0` rendered single-room) plus
+  1–2 multi-room Infinigen seeds gives ~30 missions per scene at
+  the harness's defaults. With `R_window=5` and one window per
+  leg-second, that's ~5–10k labeled windows per scene —
+  enough for a frozen-backbone fine-tune with class re-weighting
+  but tight for a from-scratch backbone (which this brief
+  avoids).
+- Multi-room missions are longer (~60–90s vs. ~30s), so windows
+  per mission are 2–3× higher. Net dataset size grows roughly
+  proportionally.
+
+The hard-negative consumption from
+[`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md)'s
+`--inject-bad-grounding` flag plus teleop-tagged hard negatives
+multiply effective negatives without re-running the full sweep.
+
+A multi-room eval re-test is filed as a follow-up brief
+(`learned-validator-multi-room-remeasure.md`) once the
+clip-eval's multi-room re-test ships and a multi-room bar is
+established.
 
 ### Compute envelope
 

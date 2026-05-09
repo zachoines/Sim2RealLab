@@ -30,10 +30,16 @@ Read these before starting:
 Parent design doc:
 [`MISSION_VALIDATION_ARCHITECTURE.md` §3.6.c](../../MISSION_VALIDATION_ARCHITECTURE.md#36c-in-process-oracle-future-for-scale-supplements-only).
 
-Sibling drivers (read first to understand the schema this brief
-emits against):
+Sibling drivers + the mission generator (read first to
+understand the schema this brief consumes and emits against):
 - [`harness-teleop-driver`](harness-teleop-driver.md)
 - [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md)
+- [`harness-mission-generator`](harness-mission-generator.md) —
+  produces the `mission_queue.yaml` rows whose `planned_path`
+  this brief consumes.
+- [`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md) —
+  produces the connectivity graph the A* fallback consumes for
+  multi-room paths.
 
 ## Trigger condition — when to pick this brief up
 
@@ -71,26 +77,40 @@ The driver is **in-process Isaac Lab + the MVP RL controller +
 the existing `actions.jsonl` writer**, parallelizable via Isaac
 Lab's native multi-env infrastructure (`ManagerBasedRLEnv`
 already supports thousands of parallel envs on the DGX).
+Multi-room is supported by default — A* on the navigable mask
+handles cross-room paths through the connectivity graph from
+[`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md).
 
 Pipeline:
 
 ```
-scene metadata → A* path  → next waypoint  → NoCam RL controller → cmd_vel → env
-                (cost     (consumer of the   (loaded via
-                biased    waypoint, fed as   strafer_shared.policy_interface
-                by path_  the policy goal)   .load_policy())
-                constraints[])
+mission_queue.yaml row  → planned_path (LLM-emitted)  → next waypoint → NoCam RL controller → cmd_vel → env
+(from harness-mission-      (consumed directly,            (consumer of the    (loaded via
+generator)                  no in-oracle planning)         waypoint, fed as     strafer_shared.policy_interface
+                                                            the policy goal)    .load_policy())
 ```
 
-The split: **A\* owns the *what* (path planning); the RL
-controller owns the *how* (waypoint tracking).** Path-shape
-constraints from the procedural generator bias the A* cost
-function only — they don't touch the controller.
+The architectural split: **the mission generator owns the
+*what* (waypoint sequence, possibly path-shape-aware via the
+LLM); the RL controller owns the *how* (waypoint tracking).**
+Path-shape constraints affect waypoints only — they don't touch
+the controller.
+
+Fallback: when the mission generator has not pre-computed
+`planned_path` for a queue row (e.g., `--mode endpoint`), the
+oracle computes its own A* shortest-path on the navigable mask.
+This is the legacy oracle behavior and is retained for backward
+compatibility.
 
 Components:
 
-- **Path planning:** A* on the scene's navigable mask
-  (Infinigen metadata already exposes navigable space).
+- **Path source (primary):** `planned_path` from the mission
+  queue. Already validated against the navigable mask + scene
+  bounds + connectivity graph at generation time.
+- **Path source (fallback):** A* on the scene's navigable mask
+  when the queue row has no `planned_path`. Multi-room paths
+  use the connectivity graph from
+  [`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md).
 - **Path tracking:** the MVP NoCam RL controller produced by
   [`strafer-lab-subgoal-env`](strafer-lab-subgoal-env.md) — a
   goal-conditioned waypoint follower trained on the actual
@@ -100,26 +120,16 @@ Components:
   `actions.jsonl` rows are the controller's `(vx, vy, ωz)`
   output, which is what a deployed VLA would learn to emit at
   the controller-output level.
-  - **Fallback:** `--controller proportional` selects a simple
-    proportional `(vx, vy)` toward the next waypoint. Useful as
-    a debug option if the RL checkpoint has issues at pickup
-    time, or for sanity-check runs without the policy
-    dependency.
+  - **Controller fallback:** `--controller proportional`
+    selects a simple proportional `(vx, vy)` toward the next
+    waypoint. Useful as a debug option if the RL checkpoint has
+    issues at pickup time, or for sanity-check runs without the
+    policy dependency.
 - **Stop heuristic:** within R = 0.5 m of `target_position_3d`,
   emit `stop=True`.
 - **Hard-negative injection:** reuse the harness's
   `--inject-bad-grounding` flag — perturb the goal post-projection
   so the oracle drives to the wrong target deliberately.
-- **Path-shape constraint** (case 3, optional):
-  ingest `path_constraints[]` from the procedural generator
-  (filed as
-  [`harness-procedural-path-shape-generator`](harness-procedural-path-shape-generator.md))
-  and bias the A* cost function — wall-following becomes a soft
-  cost on distance-from-wall, "via room R" becomes a waypoint.
-  Constraints affect *path planning only*, not the controller —
-  if the RL controller has its own preferences (e.g., minimum
-  turning radius), they compose with the planner's biased
-  costs.
 
 The oracle is *intentionally a scale supplement, not a v1
 replacement*. Demos are tagged `source: "oracle"` in

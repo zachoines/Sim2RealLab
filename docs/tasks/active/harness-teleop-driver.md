@@ -5,7 +5,11 @@
 code; reuses `collect_demos.py`'s gamepad mapping)
 **Priority:** P1 (unblocks v1 measurement *and* v2 training data
 without waiting on bridge perf, MPPI tuning, or Nav2 path quirks
-to settle)
+to settle). Soft-blocks on
+[`harness-mission-generator`](harness-mission-generator.md) for
+the queue source — for an interim version of this brief, a
+hand-authored YAML queue is acceptable; the generator can ship
+in parallel.
 **Estimate:** M (~half-week — gamepad code reuse + writer wiring +
 mission-queue loader + UX polish + acceptance run)
 **Branch:** task/harness-teleop-driver
@@ -106,18 +110,21 @@ A new entry point at `Scripts/teleop_collect.py` that:
   var `STRAFER_OPERATOR`), gamepad model, `git rev-parse HEAD`,
   capture wall-clock start, scene seed.
 
-### Mission text — three sources, all first-class
+### Mission text — two sources, both first-class
 
 | Source | Mechanism | Volume per scene | Path-shape capable? |
 |---|---|---|---|
-| **Auto-generated endpoint queue** (default) | A new `tools/build_mission_queue.py` walks `scene_metadata.json`'s `objects[]` + `rooms[]`, emits one mission per object + per room, optionally paraphrased via the existing 7B Qwen2.5-VL pipeline ([`generate_descriptions.py`](../../../source/strafer_lab/scripts/generate_descriptions.py) Stage 2). Output: `mission_queue.yaml`. | Hundreds of variants | No — endpoints only |
-| **Operator-typed (stdin override)** | Operator presses `X` to swap from queue mode to typed mode; types the mission on stdin; presses Enter; episode begins. Used for path-shape demonstrations like "go to the kitchen by hugging the left wall" or "approach the chair from behind the table." | Operator-throughput-bottlenecked | **Yes — the only v1 source for path-shape data** |
-| **Procedural path-shape generator** *(future brief, not v1)* | A scene-graph annotator walks objects + rooms + wall geometries, computes A* candidate paths, annotates with descriptors ("passes near wall W," "stays in room R until step N," "via doorway D"), synthesizes path-shape mission text from the annotations. | Volume; minutes per scene after generator built | Yes |
+| **Mission queue YAML** (default) | The teleop driver loads `mission_queue.yaml` produced by [`harness-mission-generator`](harness-mission-generator.md). Each row contains `mission_text` (+ paraphrases) and optional `planned_path` (which teleop ignores — operator drives directly). Multi-room missions are included by default. | Tens to hundreds of variants per scene | **Yes** — generator emits endpoint + path-shape + cross-room rows |
+| **Operator-typed (stdin override)** | Operator presses `X` to swap from queue mode to typed mode; types the mission on stdin; presses Enter; episode begins. Used for ad-hoc missions the queue didn't cover, including path-shape variations the operator wants to demonstrate that day. | Operator-throughput-bottlenecked | Yes |
 
-The procedural generator is staked out in
-[`harness-procedural-path-shape-generator`](harness-procedural-path-shape-generator.md)
-and only fires when path-shape volume becomes the bottleneck.
-This brief ships sources 1 + 2.
+Multi-room is the default. Cross-room missions are present in
+the queue whenever the scene is multi-room (per the
+connectivity graph from
+[`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md)).
+This brief does **not** own queue generation; it consumes
+whatever
+[`harness-mission-generator`](harness-mission-generator.md)
+emits.
 
 ### Episode-end button mapping
 
@@ -199,11 +206,14 @@ flags it openly.
       schema bit-for-bit. A unit test loads a single episode and
       confirms `frames_tick.jsonl`, `actions.jsonl`,
       `mission.json`, JPEG, and PNG paths conform.
-- [ ] **Three mission-text sources.** Auto-queue loader walks
-      `scene_metadata.json` and emits a YAML queue;
-      operator stdin override switches to typed mode and back;
-      the procedural generator's hook is a no-op call to a
-      future module (the generator itself is filed separately).
+- [ ] **Two mission-text sources.** Mission queue YAML loader
+      consumes the canonical
+      `mission_queue.yaml` produced by
+      [`harness-mission-generator`](harness-mission-generator.md);
+      operator stdin override switches to typed mode and back.
+      Multi-room queue rows are accepted by default — no
+      teleop-side filtering needed; the generator owns
+      reachability gating.
 - [ ] **Episode-end buttons** map to `mission.json.outcome` per
       the table above. `Back` discards the episode without
       writing.
@@ -227,7 +237,8 @@ flags it openly.
       detected, scene fails to load, button-tag mismatch).
       [`source/strafer_lab/README.md`](../../../source/strafer_lab/README.md)
       "Scripts and tools inventory" gains
-      `teleop_collect.py` + `build_mission_queue.py`.
+      `teleop_collect.py`. (`build_mission_queue.py` is owned
+      by [`harness-mission-generator`](harness-mission-generator.md).)
 - [ ] If your work invalidates a fact in any referenced context
       module, package README, top-level `Readme.md`, or guide
       under `docs/`, update those in the same commit. See
@@ -276,9 +287,9 @@ flags it openly.
   lighting / texture seeds for data multiplication). Recording
   the gamepad event stream is in scope; the *replay tool* is
   a future brief.
-- **Procedural path-shape mission generation.** Filed as
-  [`harness-procedural-path-shape-generator`](harness-procedural-path-shape-generator.md)
-  for when path-shape volume becomes the bottleneck.
+- **Mission queue generation.** Filed as
+  [`harness-mission-generator`](harness-mission-generator.md);
+  this brief consumes the queue, doesn't author it.
 - **Voice mission entry, AR / VR teleop, multi-camera live view.**
   All over-scoped for v1.
 - **The `actions.jsonl` writer plumbing** itself.

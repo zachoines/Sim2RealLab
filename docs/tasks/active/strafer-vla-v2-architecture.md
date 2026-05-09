@@ -371,9 +371,12 @@ honest measurement**, not "v2 beats v1."
 - **Trajectory-shape language ("hug the wall," "via the dining
   room").** Family 3 work — separate brief if pursued. v2 is
   Family 2 (end-to-end actions).
-- **Multi-room navigation** per
-  [`STRAFER_AUTONOMY_NEXT.md` §1.10.1](../../STRAFER_AUTONOMY_NEXT.md).
-  Single-room scenes only.
+- **(Was) Multi-room navigation deferral.** No longer applies —
+  multi-room is the MVP default per
+  [`multi-room-autonomy-stack`](multi-room-autonomy-stack.md)
+  (which lifts §1.10.1) and
+  [`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md).
+  This brief's training corpus is multi-room by default.
 - **From-scratch VLA training.** Adapt an existing checkpoint
   only.
 - **Retiring `strafer_vlm` or the planner.** Both stay running;

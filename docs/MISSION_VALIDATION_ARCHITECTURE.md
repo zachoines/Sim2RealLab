@@ -246,9 +246,14 @@ The high-tier round-trip tabulated in §1.1 spends ~18–24 s on the
 pre-nav `scan_for_target` rotation **before** any locomotion. The
 gap that mid-mission validation closes is the post-scan, pre-arrival
 window — measured in tens of seconds for single-room missions and
-into minutes once multi-room navigation is in scope (and per
-[`STRAFER_AUTONOMY_NEXT.md` §1.10.1](STRAFER_AUTONOMY_NEXT.md)
-multi-room is explicitly out of scope today). This means:
+into minutes for multi-room missions, which are now the MVP
+default per
+[`multi-room-autonomy-stack`](tasks/active/multi-room-autonomy-stack.md)
+(which lifts §1.10.1's deferral) and
+[`multi-room-scene-connectivity-validation`](tasks/active/multi-room-scene-connectivity-validation.md).
+The v1 *measurement* in §4 below is calibrated against
+single-room data first; multi-room re-test is a follow-up after
+the v1 stack's multi-room work ships. This means:
 
 - The cheap-monitor budget should be sized against a 30–90 s
   navigation leg, not a 5–10 s leg. Aborting at the halfway mark
@@ -1048,15 +1053,22 @@ here as a prerequisite for the case-3 framing in §2.3:
 |---|---|---|
 | [`clip-mid-mission-validator-evaluation.md`](tasks/active/clip-mid-mission-validator-evaluation.md) | Filed | All case-1 / case-2 measurements; gates §3.5 ship vs. §3.2 escalation |
 | [`learned-mid-mission-validator.md`](tasks/active/learned-mid-mission-validator.md) | Filed (blocked) | Case-2 escalation if the eval brief shows the cheap CLIP path is below the bar |
+| [`multi-room-autonomy-stack.md`](tasks/active/multi-room-autonomy-stack.md) | Filed (P1) | Lifts §1.10.1's multi-room deferral. Stored-map fallback in `scan_for_target` + planner transit-step emission. |
+| [`multi-room-scene-connectivity-validation.md`](tasks/active/multi-room-scene-connectivity-validation.md) | Filed (P1) | Connectivity graph in `scene_metadata.json` + door-open guarantee at scene-gen time. Hard prerequisite for the runtime brief and the mission generator. |
+| **`clip-multi-room-validator-remeasure.md`** | **To be filed when [`multi-room-autonomy-stack`](tasks/active/multi-room-autonomy-stack.md) ships** | Re-runs the v1 clip-eval metrics on multi-room data; recalibrates per-case TPR / FPR bars. |
+| **`learned-validator-multi-room-remeasure.md`** | **To be filed after the clip multi-room re-test** | Same metric set for the learned validator. |
 | **`planner-trajectory-constraint-decomposition.md`** | **To be filed when case 3 becomes live** | Case-3 (trajectory-shape) validation. Without the planner emitting decomposed trajectory constraints, no validator architecture can score case 3 — there's no spec to check against. Out of scope for the current PR; filed only when a real mission requires it. |
-| **`mvp-teacher-vla-distillation.md`** | **To be filed when [`next-integration-round`](tasks/active/next-integration-round.md) ships** | §3.6 distillation path. Depends on the integration round producing the action-labeled corpus; can run in parallel with the §3.2 escalation, not after it. |
+| **`mvp-teacher-vla-distillation.md`** | **To be filed when [`next-integration-round`](tasks/active/next-integration-round.md) ships** | §3.6.b distillation path. Depends on the integration round producing the action-labeled corpus; can run in parallel with the §3.2 escalation, not after it. |
 
 ## Cross-references
 
 - Current-round design master:
   [`docs/STRAFER_AUTONOMY_NEXT.md`](STRAFER_AUTONOMY_NEXT.md), §0.1
   (verify_arrival), §0.6 (transit monitoring via BackgroundMapper),
-  §1.4 (unified CLIP embedding strategy), §1.10.1 (multi-room
+  §1.4 (unified CLIP embedding strategy), §1.10.1 (formerly
+  multi-room deferral; lifted by
+  [`multi-room-autonomy-stack`](tasks/active/multi-room-autonomy-stack.md);
+  multi-room is the MVP default going forward) for the original
   limitation).
 - System flow Flow 6 (real-robot execution) in
   [`docs/SYSTEM_FLOW_DIAGRAMS.md`](SYSTEM_FLOW_DIAGRAMS.md). The

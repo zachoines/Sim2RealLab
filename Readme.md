@@ -381,7 +381,7 @@ commands across DGX / Jetson / operator workstation):
 
 **The VLM stays narrow.** `strafer_vlm` does image-space grounding, description, and detection — nothing else. Depth projection, TF transforms, reachability, and motion execution remain robot-local. If any of those start accumulating inside `strafer_vlm`, the boundary has slipped.
 
-**Every navigation ends with `verify_arrival`.** A CLIP top-k ranking against the semantic map at the arrival pose confirms the robot is where it thinks it is. Decision is ranking-based (are 3 of 5 top neighbors within the goal radius?), not threshold-based, so it survives model changes and environment shifts.
+**Every navigation ends with a `verify_arrival` step in the compiled plan.** The skill executes a CLIP top-k ranking against the semantic map, ranking-based (are 3 of 5 top neighbors within the goal radius?) rather than threshold-based, so it survives model changes and environment shifts. The semantic-map kwargs that back this skill are not wired into the production executor's `main.py` today — `verify_arrival` returns `semantic_map_disabled` until that wiring lands. See [`docs/MISSION_VALIDATION_ARCHITECTURE.md`](docs/MISSION_VALIDATION_ARCHITECTURE.md) for the audit and the staged plan.
 
 **Sim-in-the-loop preserves topic names.** The Isaac Sim ROS 2 bridge publishes on the same topic names the real robot's Jetson stack publishes. Nav2, RTAB-Map, and the executor run unchanged against the simulator. Testing the Jetson side against sim costs zero code changes.
 

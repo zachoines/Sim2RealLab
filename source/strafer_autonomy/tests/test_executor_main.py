@@ -6,7 +6,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from strafer_autonomy.executor.main import _read_float_env
+from strafer_autonomy.executor.main import _read_bool_env, _read_float_env
 from strafer_autonomy.executor.mission_runner import MissionRunnerConfig
 
 
@@ -60,6 +60,60 @@ class TestNavigationTimeoutEnv(unittest.TestCase):
             )
             cfg = MissionRunnerConfig(**kwargs)
         self.assertEqual(cfg.default_navigation_timeout_s, 600.0)
+
+
+class TestReadBoolEnv(unittest.TestCase):
+    """``_read_bool_env`` recognizes 0/false/no/off as False; other values as True."""
+
+    def test_unset_skips(self) -> None:
+        target: dict = {}
+        env = {k: v for k, v in os.environ.items() if k != "BOOL_TEST"}
+        with patch.dict(os.environ, env, clear=True):
+            _read_bool_env("BOOL_TEST", "some_key", target)
+        self.assertEqual(target, {})
+
+    def test_empty_string_skips(self) -> None:
+        target: dict = {}
+        with patch.dict(os.environ, {"BOOL_TEST": ""}, clear=False):
+            _read_bool_env("BOOL_TEST", "some_key", target)
+        self.assertEqual(target, {})
+
+    def test_falsey_values_set_false(self) -> None:
+        for raw in ["0", "false", "FALSE", "no", "off", "False"]:
+            target: dict = {}
+            with patch.dict(os.environ, {"BOOL_TEST": raw}, clear=False):
+                _read_bool_env("BOOL_TEST", "some_key", target)
+            self.assertEqual(target, {"some_key": False}, f"raw={raw!r}")
+
+    def test_truthy_values_set_true(self) -> None:
+        for raw in ["1", "true", "TRUE", "yes", "on", "anything"]:
+            target: dict = {}
+            with patch.dict(os.environ, {"BOOL_TEST": raw}, clear=False):
+                _read_bool_env("BOOL_TEST", "some_key", target)
+            self.assertEqual(target, {"some_key": True}, f"raw={raw!r}")
+
+
+class TestProgressAwareEnv(unittest.TestCase):
+    """``STRAFER_NAV_PROGRESS_AWARE`` plumbs into ``MissionRunnerConfig``."""
+
+    def test_default_preserved_when_unset(self) -> None:
+        env = {k: v for k, v in os.environ.items() if k != "STRAFER_NAV_PROGRESS_AWARE"}
+        with patch.dict(os.environ, env, clear=True):
+            kwargs: dict = {}
+            _read_bool_env(
+                "STRAFER_NAV_PROGRESS_AWARE", "nav_progress_aware", kwargs,
+            )
+            cfg = MissionRunnerConfig(**kwargs) if kwargs else MissionRunnerConfig()
+        self.assertTrue(cfg.nav_progress_aware)
+
+    def test_disabled_via_env(self) -> None:
+        with patch.dict(os.environ, {"STRAFER_NAV_PROGRESS_AWARE": "0"}, clear=False):
+            kwargs: dict = {}
+            _read_bool_env(
+                "STRAFER_NAV_PROGRESS_AWARE", "nav_progress_aware", kwargs,
+            )
+            cfg = MissionRunnerConfig(**kwargs)
+        self.assertFalse(cfg.nav_progress_aware)
 
 
 if __name__ == "__main__":

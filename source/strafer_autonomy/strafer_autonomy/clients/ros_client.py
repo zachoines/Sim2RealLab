@@ -94,6 +94,50 @@ class RosClientConfig:
     default_rotate_timeout_s: float = 15.0
 
 
+class _ProgressTracker:
+    """Records (sim_time_s, distance_remaining_m) samples and reports stalls.
+
+    A stall is "the most recent ``stall_window_s`` of sim-time has not
+    seen ``distance_remaining`` decrease by at least ``stall_progress_m``."
+    Insufficient history (no sample at-or-before the window cutoff) is
+    never a stall — the watchdog only fires once the window is fully
+    populated, so the first ``stall_window_s`` of any navigation cannot
+    trip it.
+
+    Pure helper: no ROS / clock dependencies, so unit tests can drive it
+    by injecting samples directly.
+    """
+
+    def __init__(self, *, stall_progress_m: float, stall_window_s: float) -> None:
+        if stall_progress_m <= 0.0 or stall_window_s <= 0.0:
+            raise ValueError(
+                "stall_progress_m and stall_window_s must both be positive."
+            )
+        self.stall_progress_m = float(stall_progress_m)
+        self.stall_window_s = float(stall_window_s)
+        self._samples: list[tuple[float, float]] = []
+
+    def record(self, *, sim_time_s: float, distance_remaining_m: float) -> None:
+        """Append one feedback sample. Out-of-order samples are accepted as-is."""
+        self._samples.append((float(sim_time_s), float(distance_remaining_m)))
+
+    def is_stalled(self) -> bool:
+        if not self._samples:
+            return False
+        latest_t, latest_d = self._samples[-1]
+        cutoff = latest_t - self.stall_window_s
+        # Find the latest sample at-or-before the cutoff (the baseline).
+        baseline_d: float | None = None
+        for t, d in self._samples:
+            if t <= cutoff:
+                baseline_d = d
+            else:
+                break
+        if baseline_d is None:
+            return False
+        return (baseline_d - latest_d) < self.stall_progress_m
+
+
 @dataclass(frozen=True)
 class CostmapBounds:
     """Axis-aligned rectangle covered by the Nav2 global costmap, in the map frame."""
@@ -425,12 +469,23 @@ class JetsonRosClient:
         execution_backend: str = "nav2",
         behavior_tree: str | None = None,
         timeout_s: float | None = None,
+        stall_progress_m: float | None = None,
+        stall_window_s: float | None = None,
     ) -> SkillResult:
         """Send a goal to Nav2 and block until completion, timeout, or cancel.
 
         Creates a ``NavigateToPose`` action client on first call and
         reuses it for subsequent goals.  The active goal handle is tracked
         so ``cancel_active_navigation`` can abort it.
+
+        When both ``stall_progress_m`` and ``stall_window_s`` are provided,
+        a watchdog runs alongside the deadline: if Nav2's
+        ``distance_remaining`` feedback does not decrease by at least
+        ``stall_progress_m`` over the most recent ``stall_window_s`` of
+        sim-time, the goal is canceled with
+        ``error_code=navigation_stalled``. The watchdog only fires once
+        the window is fully populated, so the first ``stall_window_s`` of
+        any navigation cannot trip it.
         """
         from nav2_msgs.action import NavigateToPose as Nav2NavigateToPose
         from geometry_msgs.msg import PoseStamped
@@ -439,6 +494,13 @@ class JetsonRosClient:
 
         started_at = time.time()
         timeout = timeout_s or self._config.default_nav_timeout_s
+
+        tracker: _ProgressTracker | None = None
+        if stall_progress_m is not None and stall_window_s is not None:
+            tracker = _ProgressTracker(
+                stall_progress_m=stall_progress_m,
+                stall_window_s=stall_window_s,
+            )
 
         if not hasattr(self, "_nav2_client"):
             self._nav2_client = ActionClient(
@@ -475,7 +537,21 @@ class JetsonRosClient:
             goal_pose.qx, goal_pose.qy, goal_pose.qz, goal_pose.qw,
         )
 
-        send_future = self._nav2_client.send_goal_async(goal_msg)
+        def _on_feedback(feedback_msg: Any) -> None:
+            if tracker is None:
+                return
+            try:
+                distance = float(feedback_msg.feedback.distance_remaining)
+                sim_time_s = self._node.get_clock().now().nanoseconds * 1e-9
+                tracker.record(
+                    sim_time_s=sim_time_s, distance_remaining_m=distance,
+                )
+            except Exception:
+                logger.debug("Nav2 feedback handling failed", exc_info=True)
+
+        send_future = self._nav2_client.send_goal_async(
+            goal_msg, feedback_callback=_on_feedback,
+        )
         if not self._wait_for_future(send_future, 10.0):
             return SkillResult(
                 step_id=step_id, skill="navigate_to_pose", status="failed",
@@ -501,12 +577,25 @@ class JetsonRosClient:
             self._active_goal_handle = goal_handle
 
         result_future = goal_handle.get_result_async()
-        timed_out = not self._wait_for_future(result_future, timeout)
+        completed, stalled = self._wait_for_nav_result(
+            result_future, timeout_s=timeout, tracker=tracker,
+        )
 
         with self._nav_lock:
             self._active_goal_handle = None
 
-        if timed_out:
+        if stalled:
+            goal_handle.cancel_goal_async()
+            return SkillResult(
+                step_id=step_id, skill="navigate_to_pose", status="failed",
+                error_code="navigation_stalled",
+                message=(
+                    f"Navigation made no progress (>= {stall_progress_m:.2f} m) "
+                    f"in the last {stall_window_s:.0f} s; canceled."
+                ),
+                started_at=started_at, finished_at=time.time(),
+            )
+        if not completed:
             goal_handle.cancel_goal_async()
             return SkillResult(
                 step_id=step_id, skill="navigate_to_pose", status="timeout",
@@ -815,3 +904,49 @@ class JetsonRosClient:
             if done.wait(timeout=poll_dt):
                 return True
         return True
+
+    def _wait_for_nav_result(
+        self,
+        future: Any,
+        *,
+        timeout_s: float,
+        tracker: "_ProgressTracker | None",
+    ) -> tuple[bool, bool]:
+        """``_wait_for_future`` plus an optional progress watchdog.
+
+        Returns ``(completed, stalled)``:
+
+        - ``(True,  False)`` — the Nav2 result future resolved before the
+          deadline or stall watchdog fired.
+        - ``(False, False)`` — the sim-clock deadline (or wall-clock
+          safety cap) tripped first.
+        - ``(False, True)``  — the stall watchdog tripped first.
+
+        ``stalled`` and the deadline cannot both be true; the loop
+        returns on the first triggering condition.
+        """
+        from rclpy.duration import Duration
+
+        done = threading.Event()
+        future.add_done_callback(lambda _: done.set())
+
+        clock = self._node.get_clock()
+        deadline = clock.now() + Duration(seconds=timeout_s)
+        wall_cap = time.monotonic() + 2.0 * timeout_s
+
+        poll_dt = max(0.01, min(0.1, timeout_s / 10.0))
+        while not done.is_set():
+            if clock.now() >= deadline:
+                return (False, False)
+            if time.monotonic() >= wall_cap:
+                logger.warning(
+                    "Nav2 wait hit wall-clock safety cap (%.1fs) — "
+                    "is /clock advancing?",
+                    2.0 * timeout_s,
+                )
+                return (False, False)
+            if tracker is not None and tracker.is_stalled():
+                return (False, True)
+            if done.wait(timeout=poll_dt):
+                return (True, False)
+        return (True, False)

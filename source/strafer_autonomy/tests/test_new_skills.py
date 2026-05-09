@@ -301,8 +301,15 @@ class TestTranslate:
         assert result.status == "failed"
         assert result.error_code == "invalid_args"
 
-    def test_none_timeout_falls_back_to_config_default(self):
-        runner, ros = _make_runner()
+    def test_none_timeout_uses_default_in_legacy_mode(self):
+        """With progress-aware disabled, timeout falls back to default_navigation_timeout_s."""
+        runner = MissionRunner(
+            planner_client=MagicMock(),
+            grounding_client=MagicMock(),
+            ros_client=MagicMock(),
+            config=MissionRunnerConfig(nav_progress_aware=False),
+        )
+        ros = runner._ros_client
         ros.get_map_pose.return_value = {
             "x": 0.0, "y": 0.0, "z": 0.0,
             "qx": 0.0, "qy": 0.0, "qz": 0.0, "qw": 1.0,
@@ -322,12 +329,15 @@ class TestTranslate:
             == MissionRunnerConfig().default_navigation_timeout_s
         )
 
-    def test_none_timeout_picks_up_env_override(self):
+    def test_none_timeout_picks_up_env_override_in_legacy_mode(self):
         runner = MissionRunner(
             planner_client=MagicMock(),
             grounding_client=MagicMock(),
             ros_client=MagicMock(),
-            config=MissionRunnerConfig(default_navigation_timeout_s=180.0),
+            config=MissionRunnerConfig(
+                default_navigation_timeout_s=180.0,
+                nav_progress_aware=False,
+            ),
         )
         ros = runner._ros_client
         ros.get_map_pose.return_value = {
@@ -353,14 +363,21 @@ class TestTranslate:
 
 
 class TestNavigateToPoseTimeoutFallback:
-    """A SkillCall with ``timeout_s=None`` reaches the executor's
-    ``default_navigation_timeout_s`` (sourced from
-    ``STRAFER_NAVIGATION_TIMEOUT_S``) instead of being clamped by a
-    compiler-side hardcode.
+    """A SkillCall with ``timeout_s=None`` no longer carries a compiler-side
+    hardcode. Under the legacy (escape-hatch) mode the executor falls back
+    to ``default_navigation_timeout_s`` (sourced from
+    ``STRAFER_NAVIGATION_TIMEOUT_S``); progress-aware mode is covered in
+    ``test_progress_aware_timeouts``.
     """
 
-    def test_none_timeout_uses_config_default(self):
-        runner, ros = _make_runner()
+    def test_none_timeout_uses_config_default_in_legacy_mode(self):
+        runner = MissionRunner(
+            planner_client=MagicMock(),
+            grounding_client=MagicMock(),
+            ros_client=MagicMock(),
+            config=MissionRunnerConfig(nav_progress_aware=False),
+        )
+        ros = runner._ros_client
         ros.navigate_to_pose.return_value = SkillResult(
             step_id="step_03", skill="navigate_to_pose", status="succeeded",
         )
@@ -382,12 +399,15 @@ class TestNavigateToPoseTimeoutFallback:
             == MissionRunnerConfig().default_navigation_timeout_s
         )
 
-    def test_none_timeout_picks_up_env_override(self):
+    def test_none_timeout_picks_up_env_override_in_legacy_mode(self):
         runner = MissionRunner(
             planner_client=MagicMock(),
             grounding_client=MagicMock(),
             ros_client=MagicMock(),
-            config=MissionRunnerConfig(default_navigation_timeout_s=180.0),
+            config=MissionRunnerConfig(
+                default_navigation_timeout_s=180.0,
+                nav_progress_aware=False,
+            ),
         )
         ros = runner._ros_client
         ros.navigate_to_pose.return_value = SkillResult(

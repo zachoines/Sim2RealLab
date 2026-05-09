@@ -36,6 +36,31 @@ from strafer_autonomy.semantic_map.models import (
     DetectedObjectEntry,
     Pose2D,
 )
+from strafer_shared.constants import NAV_ANGULAR_VEL, NAV_LINEAR_VEL
+
+
+def compute_motion_budget_s(
+    *,
+    magnitude: float,
+    nominal_speed: float,
+    safety_factor: float,
+    setup_overhead_s: float,
+    ceiling_s: float,
+) -> float:
+    """Distance- or angle-derived per-step motion budget, capped by an operator ceiling.
+
+    ``magnitude`` is the unsigned distance (m) for translates or the
+    unsigned yaw delta (rad) for rotations; ``nominal_speed`` is the
+    matching ``NAV_LINEAR_VEL`` / ``NAV_ANGULAR_VEL`` from
+    ``strafer_shared.constants``. ``ceiling_s`` is the operator's
+    ``STRAFER_NAVIGATION_TIMEOUT_S`` knob, which the per-step budget
+    must not exceed — long traverses still respect the operator's
+    final-word cap.
+    """
+    if nominal_speed <= 0.0:
+        return ceiling_s
+    raw = abs(magnitude) / nominal_speed * safety_factor + setup_overhead_s
+    return min(ceiling_s, max(setup_overhead_s, raw))
 
 
 def clamp_goal_to_costmap_bounds(
@@ -136,6 +161,26 @@ class MissionRunnerConfig:
     # leaves a robot-footprint of slack between the goal and the
     # costmap boundary, keeping Nav2's planner away from edge cells.
     staging_footprint_radius_m: float = 0.3
+    # Progress-aware motion-timeout policy. When True (default), per-step
+    # budgets for translate / rotate_by_degrees / orient_to_direction /
+    # navigate_to_pose are derived from the requested displacement (or
+    # robot→goal straight-line distance) divided by NAV_LINEAR_VEL /
+    # NAV_ANGULAR_VEL, multiplied by ``nav_budget_safety_factor``, plus
+    # ``nav_budget_setup_overhead_s``. The operator's
+    # ``STRAFER_NAVIGATION_TIMEOUT_S`` (= ``default_navigation_timeout_s``)
+    # caps the result. Set ``STRAFER_NAV_PROGRESS_AWARE=0`` to fall back
+    # to the pre-progress-aware behavior (single env-knob deadline,
+    # no stall watchdog) for bisection.
+    nav_progress_aware: bool = True
+    nav_budget_safety_factor: float = 2.0
+    nav_budget_setup_overhead_s: float = 5.0
+    # Stall watchdog on Nav2 NavigateToPose feedback. Aborts the active
+    # goal with ``error_code=navigation_stalled`` when ``distance_remaining``
+    # has not decreased by at least ``nav_stall_progress_m`` over the last
+    # ``nav_stall_window_s`` of sim-time. Disabled when
+    # ``nav_progress_aware`` is False.
+    nav_stall_progress_m: float = 0.10
+    nav_stall_window_s: float = 20.0
 
 
 @dataclass
@@ -840,6 +885,68 @@ class MissionRunner(MissionCommandHandler):
         except Exception as exc:
             return self._failed_result(step, f"Goal projection failed: {exc}", "goal_projection_failed", started_at)
 
+    def _motion_timeout_s(
+        self, *, step: SkillCall, magnitude: float, kind: str,
+    ) -> float:
+        """Per-step motion timeout, honoring explicit overrides and the env knob.
+
+        Resolution order:
+        1. Explicit ``step.timeout_s`` (non-None, > 0) — the operator or
+           a future advanced compiler asked for a specific budget; honor it.
+        2. Progress-aware budget from ``compute_motion_budget_s`` when
+           ``nav_progress_aware`` is True. ``kind`` selects the nominal
+           speed: ``"linear"`` → ``NAV_LINEAR_VEL``, ``"angular"`` →
+           ``NAV_ANGULAR_VEL``.
+        3. ``default_navigation_timeout_s`` (the
+           ``STRAFER_NAVIGATION_TIMEOUT_S`` env knob) as the legacy / escape-
+           hatch fallback.
+        """
+        if step.timeout_s is not None and step.timeout_s > 0:
+            return float(step.timeout_s)
+        ceiling = float(self._config.default_navigation_timeout_s)
+        if not self._config.nav_progress_aware:
+            return ceiling
+        if kind == "linear":
+            nominal = NAV_LINEAR_VEL
+        elif kind == "angular":
+            nominal = NAV_ANGULAR_VEL
+        else:
+            raise ValueError(f"Unknown motion kind: {kind!r}")
+        return compute_motion_budget_s(
+            magnitude=magnitude,
+            nominal_speed=nominal,
+            safety_factor=self._config.nav_budget_safety_factor,
+            setup_overhead_s=self._config.nav_budget_setup_overhead_s,
+            ceiling_s=ceiling,
+        )
+
+    def _stall_watchdog_kwargs(self) -> dict[str, float]:
+        """Return ``{stall_progress_m, stall_window_s}`` for ros_client when
+        progress-aware mode is active; otherwise an empty dict so the
+        watchdog stays disabled."""
+        if not self._config.nav_progress_aware:
+            return {}
+        return {
+            "stall_progress_m": self._config.nav_stall_progress_m,
+            "stall_window_s": self._config.nav_stall_window_s,
+        }
+
+    def _straight_line_distance_to_goal_m(self, goal_pose: Pose3D) -> float:
+        """Distance from current map-frame robot pose to ``goal_pose``.
+
+        Returns 0.0 when the ``map -> base_link`` transform is unavailable;
+        the caller's progress-aware budget then degrades to the
+        ``setup_overhead_s`` floor (capped by ``ceiling_s``), and the
+        operator's env-knob ceiling still applies.
+        """
+        try:
+            pose = self._ros_client.get_map_pose()
+        except Exception:
+            pose = None
+        if pose is None:
+            return 0.0
+        return math.hypot(goal_pose.x - pose["x"], goal_pose.y - pose["y"])
+
     def _navigate_to_pose(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
         started_at = time.time()
         goal_source = str(step.args.get("goal_source", "projected_target"))
@@ -875,6 +982,7 @@ class MissionRunner(MissionCommandHandler):
 
         transit_monitor = self._activate_transit_monitor(goal_pose, step)
 
+        straight_line_m = self._straight_line_distance_to_goal_m(goal_pose)
         nav_kwargs = dict(
             step_id=step.step_id,
             goal_pose=goal_pose,
@@ -882,7 +990,10 @@ class MissionRunner(MissionCommandHandler):
                 step.args.get("execution_backend", self._config.default_navigation_backend)
             ),
             behavior_tree=str(step.args["behavior_tree"]) if step.args.get("behavior_tree") else None,
-            timeout_s=step.timeout_s or self._config.default_navigation_timeout_s,
+            timeout_s=self._motion_timeout_s(
+                step=step, magnitude=straight_line_m, kind="linear",
+            ),
+            **self._stall_watchdog_kwargs(),
         )
 
         # Without transit monitoring, call the blocking client directly.
@@ -1452,7 +1563,9 @@ class MissionRunner(MissionCommandHandler):
 
         yaw_delta = math.radians(degrees)
         tolerance = float(step.args.get("tolerance_rad", 0.1))
-        timeout_s = step.timeout_s or float(step.args.get("timeout_s", 30.0))
+        timeout_s = self._motion_timeout_s(
+            step=step, magnitude=yaw_delta, kind="angular",
+        )
         try:
             return self._ros_client.rotate_in_place(
                 step_id=step.step_id,
@@ -1510,7 +1623,11 @@ class MissionRunner(MissionCommandHandler):
             qw=qw,
         )
 
-        timeout_s = step.timeout_s or self._config.default_navigation_timeout_s
+        distance_m = math.hypot(dx_m, dy_m)
+        timeout_s = self._motion_timeout_s(
+            step=step, magnitude=distance_m, kind="linear",
+        )
+        stall_kwargs = self._stall_watchdog_kwargs()
         try:
             return self._ros_client.navigate_to_pose(
                 step_id=step.step_id,
@@ -1518,6 +1635,7 @@ class MissionRunner(MissionCommandHandler):
                 execution_backend=self._config.default_navigation_backend,
                 behavior_tree=None,
                 timeout_s=timeout_s,
+                **stall_kwargs,
             )
         except Exception as exc:
             return self._failed_result(
@@ -1569,7 +1687,9 @@ class MissionRunner(MissionCommandHandler):
             math.cos(target_yaw - current_yaw),
         )
         tolerance = float(step.args.get("tolerance_rad", 0.1))
-        timeout_s = step.timeout_s or float(step.args.get("timeout_s", 30.0))
+        timeout_s = self._motion_timeout_s(
+            step=step, magnitude=delta, kind="angular",
+        )
         try:
             return self._ros_client.rotate_in_place(
                 step_id=step.step_id,

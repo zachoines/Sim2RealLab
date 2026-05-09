@@ -349,7 +349,7 @@ post-processing passes need iteration.
       via A* on the local costmap; A* implementation can reuse
       Nav2's planner output if available, or use a simple grid
       A* on the scene's navigable mask.
-- [ ] **Hindsight relabel pass.**
+- [ ] **Hindsight relabel pass (narrow scope).**
       `source/strafer_lab/strafer_lab/tools/relabel_hindsight.py`
       consumes a finished episode and emits a parallel
       `frames_tick.jsonl.hindsight` with the mission text
@@ -357,7 +357,14 @@ post-processing passes need iteration.
       from `scene_metadata.json`). Conservative: only relabel
       when the final pose is within 1.0 m of a uniquely-named
       scene object; otherwise mark `hindsight=ambiguous` and
-      skip.
+      skip. **This item covers only the wrong-target case** —
+      a forward-generation mission ended at the wrong-but-still-known
+      object, so we relabel for that object. The broader
+      *trajectory-first captioning* pattern (random-trajectory
+      → speaker-model-generated mission text + synthesized
+      hard negatives) lives in
+      [`harness-trajectory-first-captioning`](harness-trajectory-first-captioning.md);
+      this item does **not** subsume that work.
 - [ ] **`--inject-bad-grounding` flag for hard-negative
       generation.**
       [`run_sim_in_the_loop.py`](../../../source/strafer_lab/scripts/run_sim_in_the_loop.py)

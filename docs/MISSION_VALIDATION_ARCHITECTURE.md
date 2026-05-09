@@ -813,10 +813,27 @@ steps underdeliver).
 ### 3.6 Data-path options for VLA training (the ones that make §3.3 affordable)
 
 §3.3 deferred a from-scratch VLA because training cost + data
-infra were prohibitive in isolation. Three data paths change that
-calculus, each with different cost / quality / scale trade-offs.
-**The §3.3 framing is data-source-agnostic; pick the path that
-fits.**
+infra were prohibitive in isolation. Four complementary data
+regimes change that calculus, each with different cost /
+quality / scale trade-offs. **The §3.3 framing is
+data-source-agnostic; pick the regimes that fit and combine
+them.**
+
+The four regimes:
+
+| Regime | Direction | Strength | Brief |
+|---|---|---|---|
+| **§3.6.a Teleop demos** | Forward (operator intent → trajectory) | Quality + operator hard negatives | [`harness-teleop-driver`](tasks/active/harness-teleop-driver.md) |
+| **§3.6.b MVP-as-teacher** | Forward (autonomy stack → trajectory) | Deployment-distribution match | bridge driver in [`harness-behavior-cloning-data-expansion`](tasks/active/harness-behavior-cloning-data-expansion.md) |
+| **§3.6.c In-process oracle** | Forward (mission queue → trajectory) | Parallel-env scale | [`harness-oracle-driver`](tasks/active/harness-oracle-driver.md) |
+| **§3.6.d Trajectory-first captioning** | Post-hoc (trajectory → mission text) | FoV-honest labels + bulk scale + synthesized hard negatives | [`harness-trajectory-first-captioning`](tasks/active/harness-trajectory-first-captioning.md) |
+
+The first three are *forward-generation* regimes: a mission
+exists first, the driver executes it, the trajectory is the
+output. The fourth is *post-hoc captioning*: the trajectory
+exists first (random-but-reachable A→B), and a speaker model
+generates the mission text after-the-fact. Both directions are
+needed; neither replaces the other.
 
 #### 3.6.a Teleop demos (primary; canonical)
 
@@ -898,21 +915,80 @@ the regime where teleop throughput is the binding constraint —
 typically when you're trying to scale beyond ~10k trajectories
 or ablate across many scene seeds. Don't build it preemptively.
 
-#### 3.6.d Caveats specific to all VLA distillation paths
+#### 3.6.d Trajectory-first captioning (complementary regime)
+
+**The candidate.** Drivers (typically the oracle in a "no
+mission, just navigate" mode) traverse random-but-reachable
+A→B paths. After-the-fact, a speaker model — Qwen2.5-VL-7B
+following an instructive-voice prompt — generates
+`mission_text` + paraphrases + synthesized failure-pair
+negatives from the captured frames. Filed in
+[`harness-trajectory-first-captioning`](tasks/active/harness-trajectory-first-captioning.md).
+
+**Why this is the right complement to §3.6.a–c.** The
+forward-generation regimes assume a mission text exists, then
+ask "did the trajectory satisfy it?" Trajectory-first reverses
+the question — "what mission text describes this trajectory?" —
+and gets two structural advantages:
+
+- **FoV-honest labels by construction.** The captioner sees
+  only the frames the camera actually saw. It cannot annotate
+  landmarks the camera missed because it has no signal that
+  they exist. The egocentric-FoV problem that breaks naive
+  forward-generation landmark annotation goes away.
+- **No LLM-waypoint hallucination.** Paths are real; the
+  speaker's hallucinations are bounded to language and
+  recoverable via paraphrase ensembling. Forward-generation's
+  LLM-as-planner pass has to invent waypoints that are then
+  validated post-hoc; trajectory-first never invents
+  waypoints.
+- **Scale.** Random-A→B sampling produces trajectories at
+  parallel-env throughput; the captioner runs in offline VLM
+  batches. Realistic single-day output: ~10k trajectories ×
+  ~15 mission-row variants each = ~150k training tuples.
+
+**Literature precedent.** Speaker-Follower (Fried et al.,
+NeurIPS 2018) is the canonical reference; HER (Andrychowicz et
+al. 2017), R2R-EnvDrop, NaVid's data path, RT-2's hindsight
+relabeling, and OpenVLA's caption pipeline all variants of the
+same pattern. Strafer is in well-trodden territory here.
+
+**The critical engineering constraint.** Speaker models must
+generate *instructive* text (imperative voice, second-person,
+future / present tense), not *descriptive* text (past tense,
+third-person). A VLA trained on descriptive captions learns to
+*describe* trajectories rather than *execute* operator intent
+— it fails at runtime because operator inputs ("go to the
+chair") look out-of-distribution. The brief gates on a held-out
+instructive-quality eval before scaling.
+
+**What it doesn't replace.** Operator-intent demos (teleop's
+strength) and path-shape demonstrations (operator-typed teleop
+or path-shape-biased oracle) — random A*-shortest doesn't
+naturally produce wall-hugging or "via the dining room"
+trajectories. Trajectory-first scales bulk and produces hard
+negatives; teleop carries the operator-intent and path-shape
+distributions that bulk captioning can't reach.
+
+#### 3.6.e Caveats specific to all VLA distillation paths
 
 - **Distillation inherits demonstrator failures.** Teleop
   inherits operator habits; bridge-driver inherits v1 stack
-  failures; oracle inherits scripted-policy idiosyncrasies.
-  Plan an explicit "RLHF-on-failures" phase regardless of source.
+  failures; oracle inherits scripted-policy idiosyncrasies;
+  trajectory-first inherits speaker-model phrasing biases.
+  Plan an explicit "RLHF-on-failures" phase regardless of
+  source.
 - **Action-space tokenization is sticky.** Pick discrete bins
   (256/axis is conventional) vs. action diffusion early.
   Switching later is a from-scratch retrain.
 - **Data volume.** Even hundreds of missions per scene is small
   relative to OpenVLA's training set (~970 k trajectories). Plan
   to *adapt* an existing VLA checkpoint, not train from scratch.
+  Trajectory-first captioning multiplies effective volume by ~10×
+  via positive + negative + paraphrase variants per trajectory.
 - **Sim-to-real gap.** Distilled-from-sim VLAs notoriously fail
-  on real-robot deployment without a transfer step. This applies
-  equally to all three sources.
+  on real-robot deployment without a transfer step. Applies
+  equally to all four sources.
 
 **Why this is the right shape for strafer specifically.** The
 existing planner + executor + RL policy is *already* a coarse
@@ -920,8 +996,9 @@ dual-system architecture (slow planning at planner-call rate, fast
 control at 30 Hz). The gap to GR00T-style VLAs is that GR00T's two
 systems are jointly gradient-trained; strafer's share a *skill
 schema* (the plan JSON) instead. Closing that gap with teleop
-demos as the primary source — and bridge / oracle as supplements
-— is cheaper than rewriting the architecture from scratch.
+demos as the primary source, trajectory-first as the bulk
+multiplier, and bridge / oracle as supplements is cheaper than
+rewriting the architecture from scratch.
 
 ## Section 4 — Recommendation
 

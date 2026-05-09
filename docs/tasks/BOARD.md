@@ -85,6 +85,7 @@ session.
 | [`strafer-vla-v2-architecture`](active/strafer-vla-v2-architecture.md) | Either | XL | [`harness-teleop-driver`](active/harness-teleop-driver.md) (primary data path) + [`harness-behavior-cloning-data-expansion`](active/harness-behavior-cloning-data-expansion.md) (schema) shipped. Sim-first research arm; additive to v1, not replacing it |
 | [`harness-oracle-driver`](active/harness-oracle-driver.md) | DGX | L | Sketch — picked up only when [`strafer-lab-subgoal-env`](active/strafer-lab-subgoal-env.md) has shipped the NoCam waypoint-following checkpoint AND teleop throughput is the binding scale constraint for VLA training. See trigger condition in brief. |
 | [`harness-mission-generator`](active/harness-mission-generator.md) | DGX | L | Free-text mission generator with LLM-emitted waypoints (multi-room default). Renamed + restructured from the former `harness-procedural-path-shape-generator` sketch. Canonical mission queue source for teleop and oracle drivers. Blocked on `multi-room-scene-connectivity-validation` for the connectivity graph. |
+| [`harness-trajectory-first-captioning`](active/harness-trajectory-first-captioning.md) | DGX | M–L | Speaker-model post-hoc captioning regime (Speaker-Follower / hindsight-relabeling pattern). Random-A→B drivers + Qwen2.5-VL-7B speaker → instructive-voice mission text + synthesized hard negatives. FoV-honest by construction; complements teleop / bridge / oracle. |
 
 ---
 

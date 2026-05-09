@@ -1,5 +1,29 @@
 # Train a small learned mid-mission validator
 
+**Status:** Retired 2026-05-09. Never picked up. Reason: the
+proposed architecture (frozen DINOv2-S/14 + frozen sentence
+encoder + ~5 M trainable fusion head) is structurally
+underpowered against the CLIP cascade-arbiter alternative the
+project is shipping via
+[`clip-mid-mission-validator-evaluation`](clip-mid-mission-validator-evaluation.md).
+The cascade includes Qwen2.5-VL-3B as the arbiter plus the
+planner LLM as judge — ~75× more pretrained capacity and 3
+orders of magnitude more pretraining data than a small frozen-head
+fine-tune. Empirical literature (Cao et al. 2023, OpenVLA,
+Speaker-Follower analysis) consistently shows small-from-scratch
+heads losing to large pretrained zero-shot baselines in this
+regime. Retiring the brief reduces complexity without losing
+capability — the alternative escalation path is now the
+end-to-end VLA research arm
+([`strafer-vla-v2-architecture`](strafer-vla-v2-architecture.md)),
+which has billions of pretrained parameters as starting capital
+and is already filed for sim-side exploration.
+**Replaced-by:** [`clip-cotrained-retrieval-augmented`](clip-cotrained-retrieval-augmented.md)
+captures the directions for *improving* the CLIP cascade
+itself (co-trained speaker integration + retrieval-augmented
+inference) which dominate the small-head-validator approach
+on the same evaluation metrics.
+
 **Type:** task / new feature
 **Owner:** DGX agent (training pipeline + dataset assembly are
 DGX-side; deployment lives behind the same env-var the CLIP path

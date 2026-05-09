@@ -5,8 +5,10 @@ This document is the deliverable of
 once that brief ships. It is an architectural audit + literature
 survey + recommendation, written so that downstream briefs
 ([`clip-mid-mission-validator-evaluation.md`](tasks/active/clip-mid-mission-validator-evaluation.md),
-[`learned-mid-mission-validator.md`](tasks/active/learned-mid-mission-validator.md))
-have a defensible build-or-defer baseline.
+[`clip-cotrained-retrieval-augmented.md`](tasks/active/clip-cotrained-retrieval-augmented.md))
+have a defensible build-or-defer baseline. (A previously-named
+`learned-mid-mission-validator` brief was retired — see
+[`completed/learned-mid-mission-validator.md`](tasks/completed/learned-mid-mission-validator.md).)
 
 The framing question: **between the moment the executor commits to a
 goal pose and the moment Nav2 reports `arrived`, what should be
@@ -522,9 +524,41 @@ infra, no new runtime budget. The case-1 + case-2 split is what
 makes this serious — current deployment doesn't even attempt
 case 2.
 
-### 3.2 Small learned validator
+### 3.2 Small learned validator (retired)
 
-**The candidate.** A purpose-built ~30–80 M parameter
+**Retired 2026-05-09.** The proposed architecture (frozen
+DINOv2-S/14 + frozen sentence encoder + ~5 M trainable fusion
+head) is structurally underpowered against the §3.5 cascade
+alternative this project is shipping. The cascade includes
+Qwen2.5-VL-3B as the arbiter plus the planner LLM as judge —
+~75× more pretrained capacity and 3 orders of magnitude more
+pretraining data than a small frozen-head fine-tune. Empirical
+literature (Cao et al. 2023 "Vision-Language Models are Strong
+Generalists"; OpenVLA 2024; Speaker-Follower analysis 2018) is
+consistent: at 5 M trainable parameters trained on thousands of
+examples, you don't outperform billions of pretrained
+parameters even when those are zero-shot.
+
+The original brief is preserved at
+[`completed/learned-mid-mission-validator.md`](tasks/completed/learned-mid-mission-validator.md)
+with its retirement stamp and rationale. The case-2 / case-3
+coverage that motivated this option is now addressed by:
+
+- **CLIP cascade improvements** —
+  [`clip-cotrained-retrieval-augmented`](tasks/active/clip-cotrained-retrieval-augmented.md)
+  files the path for improving the cascade itself
+  (co-trained CLIP with the trajectory-first speaker model;
+  retrieval-augmented inference using the
+  SemanticMapManager's existing memory primitive).
+- **End-to-end VLA research arm** —
+  [`strafer-vla-v2-architecture`](tasks/active/strafer-vla-v2-architecture.md)
+  for an alternative that has billions of pretrained
+  parameters as starting capital.
+
+The historical content of §3.2 is preserved below for context.
+None of it is recommended going forward.
+
+**(Historical) The candidate.** A purpose-built ~30–80 M parameter
 vision + mission-text fusion model that takes the recent N frames
 and the mission text and emits a categorical signal over the §2.3
 hierarchy: `{on_course, wrong_room, wrong_instance, trajectory_violation, ambiguous}`.
@@ -1044,27 +1078,37 @@ The sequence:
    - Cascade-end-to-end TPR / FPR (after the §3.5 arbiter pass)
      for both cases.
 
-3. **Apply the §3.1 cheap fixes** — letterbox preprocess,
-   same-region contrastive head for case 1, image-vs-target-text
-   alignment for case 2, MobileCLIP / SigLIP backbone swap, TRT-EP
-   FP16 — and re-measure per-case.
+3. **Score the cascade against industry-standard
+   binary-classifier statistics.** Per the eval brief's
+   simplified §4.1 framework: ROC-AUC + 95% bootstrap CI per
+   case + signal; PR-AUC + CI; confusion matrix at production
+   threshold; Brier score for calibration; McNemar's test
+   comparing image-vs-image and image-vs-text tripwires; time-
+   to-decision CDF; cascade end-to-end (post-arbiter) numbers.
 
-4. **If the §3.1-tuned cascade's per-case TPR ≥ 0.7 at FPR ≤ 0.1
-   on both cases**, ship §3.5 in production. Case 3 stays
-   unaddressed (see prerequisite below).
+4. **If the cascade meets ≥ 0.85 ROC-AUC lower-bound per case**,
+   ship §3.5 in production. The arbiter wraps the abort with a
+   single VLM `/describe` + LLM-as-judge call against mission
+   text. Case 3 stays unaddressed (see prerequisite below).
 
-5. **If either case's TPR stays below 0.5 at any sensible FPR**,
-   escalate to §3.2: train a frozen-DINOv2 + temporal-head
-   validator with mission-text fusion and the five-way label.
-   Re-evaluate the cascade with §3.2 as the tripwire.
+5. **If the cascade fails the AUC bar**, file
+   [`clip-cotrained-retrieval-augmented`](tasks/active/clip-cotrained-retrieval-augmented.md)
+   to push improvements: a co-training step that fine-tunes
+   CLIP with the trajectory-first speaker model, plus a
+   retrieval-augmented inference step that uses the
+   SemanticMapManager's memory primitive. Both steps re-run
+   the same industry-standard statistics for clean ablation.
+   **No "small learned validator" escalation** — that path was
+   retired (§3.2 above for rationale).
 
 6. **In parallel with steps 1–5**, once
    [`next-integration-round`](tasks/active/next-integration-round.md)
-   ships, open §3.6 (MVP-as-teacher distillation). The
+   ships, open §3.6.b (MVP-as-teacher distillation). The
    MVP's deployment traces become the VLA training corpus
-   essentially for free; the resulting VLA is evaluated against
-   the same per-case metrics as a future drop-in replacement for
-   §3.2's validator and §3.5's arbiter.
+   essentially for free; the resulting VLA in
+   [`strafer-vla-v2-architecture`](tasks/active/strafer-vla-v2-architecture.md)
+   is evaluated against the same per-case statistics as an
+   end-to-end alternative to the cascade.
 
 **Case-3 prerequisite.** Trajectory-shape constraints ("hug the
 wall," "approach from the east") cannot be validated until the
@@ -1091,22 +1135,35 @@ missions covering ≥ 3 distinct Infinigen scenes:
       `wrong_instance` / `ambiguous` (the `--root-cause-pass`
       mode), computes the per-case metrics above, and writes a
       JSON report under `data/transit_monitor_eval/<run_id>/report.json`.
-- [ ] The report supports one of three decisions, **per case**:
-      - **Pass (case-1 + case-2 both meet the bar):** per-case
-        TPR ≥ 0.7 at FPR ≤ 0.1 on the full set; per-scene
-        worst-case TPR ≥ 0.5. Cascade ships to production.
-      - **Pass case-1, fail case-2:** the cheap CLIP path is fine
-        for room-grain validation, but instance-grain is not. Open
-        a follow-up brief to integrate the §3.1 image-vs-text
-        signal as a parallel tripwire and re-measure.
-      - **Fail (either case below 0.5 at any FPR ≤ 0.2):**
-        escalate to §3.2 — train the learned validator with
-        five-way categorical labels.
-- [ ] A short addendum to this design doc records which decision
-      fired and links the run report.
+- [ ] **The report uses industry-standard binary-classifier
+      statistics**: ROC-AUC + 95% bootstrap CI per case + signal,
+      PR-AUC + CI, confusion matrix at production threshold,
+      Brier score for calibration, McNemar's test comparing
+      image-vs-image and image-vs-text tripwires, time-to-decision
+      CDF, cascade end-to-end (post-arbiter) numbers. The
+      acceptance bar is **ROC-AUC ≥ 0.85 (lower 95% CI bound)
+      per case** (≥ 0.90 for cascade end-to-end).
+- [ ] One of two outcomes, recorded in a §4.4 addendum to this
+      design doc:
+      - **Cascade meets the bar.** Cascade ships to production
+        behind `STRAFER_SEMANTIC_MAP_ENABLED`; arbiter wrapper
+        is implemented inside the same brief.
+      - **Cascade fails the bar.**
+        [`clip-cotrained-retrieval-augmented`](tasks/active/clip-cotrained-retrieval-augmented.md)
+        is filed as a research follow-up for improvements;
+        no "small learned validator" escalation.
 
 ### 4.2 What's explicitly *not* recommended
 
+- **Do not train a small frozen-head learned validator (the
+  retired §3.2).** Empirically dominated by the §3.5 cascade's
+  pretrained-VLM arbiter. Filed in
+  [`completed/learned-mid-mission-validator`](tasks/completed/learned-mid-mission-validator.md)
+  with retirement rationale. Improvements to the cascade live
+  in
+  [`clip-cotrained-retrieval-augmented`](tasks/active/clip-cotrained-retrieval-augmented.md);
+  end-to-end alternatives live in
+  [`strafer-vla-v2-architecture`](tasks/active/strafer-vla-v2-architecture.md).
 - **Do not start a from-scratch small VLA (§3.3 in isolation).**
   Only enter the VLA path via §3.6's distillation route — the
   training cost is otherwise prohibitive and the data corpus
@@ -1128,14 +1185,14 @@ here as a prerequisite for the case-3 framing in §2.3:
 
 | Brief | Status | Prerequisite for |
 |---|---|---|
-| [`clip-mid-mission-validator-evaluation.md`](tasks/active/clip-mid-mission-validator-evaluation.md) | Filed | All case-1 / case-2 measurements; gates §3.5 ship vs. §3.2 escalation |
-| [`learned-mid-mission-validator.md`](tasks/active/learned-mid-mission-validator.md) | Filed (blocked) | Case-2 escalation if the eval brief shows the cheap CLIP path is below the bar |
+| [`clip-mid-mission-validator-evaluation.md`](tasks/active/clip-mid-mission-validator-evaluation.md) | Filed | All case-1 / case-2 measurements; gates §3.5 ship vs. cascade-improvements follow-up |
+| [`completed/learned-mid-mission-validator.md`](tasks/completed/learned-mid-mission-validator.md) | **Retired** | Was scoped as the case-2 escalation; retired because the small-frozen-head design is structurally underpowered against the §3.5 cascade. See file for full rationale. |
+| [`clip-cotrained-retrieval-augmented.md`](tasks/active/clip-cotrained-retrieval-augmented.md) | Filed (research) | Cascade improvement path. A co-training step (CLIP fine-tune with the trajectory-first speaker) plus a retrieval-augmented inference step (cross-attention over the SemanticMapManager memory). Replaces the retired learned-validator as the "what to do if the cascade underdelivers" path. |
 | [`multi-room-autonomy-stack.md`](tasks/active/multi-room-autonomy-stack.md) | Filed (P1) | Lifts §1.10.1's multi-room deferral. Stored-map fallback in `scan_for_target` + planner transit-step emission. |
 | [`multi-room-scene-connectivity-validation.md`](tasks/active/multi-room-scene-connectivity-validation.md) | Filed (P1) | Connectivity graph in `scene_metadata.json` + door-open guarantee at scene-gen time. Hard prerequisite for the runtime brief and the mission generator. |
-| **`clip-multi-room-validator-remeasure.md`** | **To be filed when [`multi-room-autonomy-stack`](tasks/active/multi-room-autonomy-stack.md) ships** | Re-runs the v1 clip-eval metrics on multi-room data; recalibrates per-case TPR / FPR bars. |
-| **`learned-validator-multi-room-remeasure.md`** | **To be filed after the clip multi-room re-test** | Same metric set for the learned validator. |
+| **`clip-multi-room-validator-remeasure.md`** | **To be filed when [`multi-room-autonomy-stack`](tasks/active/multi-room-autonomy-stack.md) ships** | Re-runs the v1 clip-eval metrics on multi-room data; recalibrates per-case ROC-AUC bars. |
 | **`planner-trajectory-constraint-decomposition.md`** | **To be filed when case 3 becomes live** | Case-3 (trajectory-shape) validation. Without the planner emitting decomposed trajectory constraints, no validator architecture can score case 3 — there's no spec to check against. Out of scope for the current PR; filed only when a real mission requires it. |
-| **`mvp-teacher-vla-distillation.md`** | **To be filed when [`next-integration-round`](tasks/active/next-integration-round.md) ships** | §3.6.b distillation path. Depends on the integration round producing the action-labeled corpus; can run in parallel with the §3.2 escalation, not after it. |
+| **`mvp-teacher-vla-distillation.md`** | **To be filed when [`next-integration-round`](tasks/active/next-integration-round.md) ships** | §3.6.b distillation path. Depends on the integration round producing the action-labeled corpus; can run in parallel with cascade improvements. |
 
 ## Cross-references
 
@@ -1157,4 +1214,6 @@ here as a prerequisite for the case-3 framing in §2.3:
 - Downstream briefs:
   [`clip-mid-mission-validator-evaluation.md`](tasks/active/clip-mid-mission-validator-evaluation.md)
   and
-  [`learned-mid-mission-validator.md`](tasks/active/learned-mid-mission-validator.md).
+  [`clip-cotrained-retrieval-augmented.md`](tasks/active/clip-cotrained-retrieval-augmented.md).
+  (`learned-mid-mission-validator` retired; see
+  [`completed/learned-mid-mission-validator.md`](tasks/completed/learned-mid-mission-validator.md).)

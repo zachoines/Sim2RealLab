@@ -112,9 +112,9 @@ Three artifacts in one PR:
    `Validator` protocol (lives in `semantic_map/protocols.py`)
    that both `TransitMonitor` and the new
    `TextAlignmentMonitor` implement. This is small (~30 lines)
-   but lets the downstream
-   [`learned-mid-mission-validator`](learned-mid-mission-validator.md)
-   brief plug in a learned validator without touching
+   but lets the future
+   [`clip-cotrained-retrieval-augmented`](clip-cotrained-retrieval-augmented.md)
+   brief plug in enhanced cascade variants without touching
    `BackgroundMapper` again.
 4. **A measurement script** that consumes the harness's per-mission
    output (file layout per
@@ -127,7 +127,7 @@ Three artifacts in one PR:
    pre-registered metrics from
    [`MISSION_VALIDATION_ARCHITECTURE.md` §4.1](../../MISSION_VALIDATION_ARCHITECTURE.md#41-falsifiable-success-criteria-for-the-next-brief).
 
-### Pre-registered metrics
+### Pre-registered metrics — industry-standard binary-classifier statistics
 
 Computed against a harness episode set covering ≥ 3 distinct
 Infinigen scenes and ≥ 30 missions total. Metrics are
@@ -137,15 +137,20 @@ case 1 (wrong-room), case 2 (wrong-instance, same room). Case 3
 (trajectory-shape) is excluded — it requires a planner-side
 prerequisite.
 
+The reporting framework follows standard practice for
+binary-classifier evaluation in the perception-cascade
+literature, *not* an arbitrary TPR-at-fixed-FPR threshold:
+
 | Metric | Definition | Case scope |
 |---|---|---|
-| Frame-to-frame CLIP cosine σ | Std-dev of cosine similarity between consecutive same-leg embeddings, after L2-norm. Per-leg, then aggregated. | Diagnostic (informs case 1) |
-| Top-1 flip rate per meter | Fraction of consecutive embedding pairs whose top-1 ANN match in the map flips, normalized by traversed metric distance. | Diagnostic (informs case 1) |
-| **Case-1 TPR / FPR** | On legs labelled `wrong_room` (TPR) vs. `on_course` (FPR), fraction where `TransitMonitor.check` fires `abort=True` before arrival. | Case 1 |
-| **Case-2 TPR / FPR (image-vs-image)** | On legs labelled `wrong_instance` vs. `on_course`, fraction where the existing `TransitMonitor.check` (image-vs-image ANN retrieval) fires `abort=True`. Expected to perform near-random here; this row is the structural baseline. | Case 2 |
-| **Case-2 TPR / FPR (image-vs-text)** | Same labels, but the tripwire signal is *image-vs-target-text alignment*: the mission's target phrase is encoded once at leg start by the existing CLIP text tower (no fine-tune); each live frame is cosine'd against it; the tripwire fires when the cosine drops below a baseline-relative threshold (calibrated from the scan-found view) for N consecutive captures. **This is the meaningful case-2 measurement.** | Case 2 |
-| Time-to-decision (median, p95) | From leg start to first `abort=True`. Reported per case. | Both |
-| Cascade-end-to-end TPR / FPR | After the §3.5 arbiter pass (VLM `/describe` + LLM-as-judge against mission text), per case. Only computed if the arbiter is implemented in this brief; otherwise deferred to the §3.5 follow-up. | Both |
+| **ROC-AUC + 95% bootstrap CI** | Area under the ROC curve over the tripwire's confidence-output sweep, with bootstrap-resampled confidence intervals (1000 resamples). | Per case, per signal (image-vs-image, image-vs-text, OR-fused) |
+| **PR-AUC + 95% bootstrap CI** | Area under the precision-recall curve. More informative than ROC-AUC when the positive class (failure) is rare, which it is here. | Per case, per signal |
+| **Confusion matrix at production threshold** | Confusion matrix at whatever operating threshold the cascade ships with in production. Sets the operational TPR / FPR for the running system, but as a *report*, not a *bar*. | Per case, per signal |
+| **Brier score** | Probability calibration of the tripwire's soft signal. The cascade emits a continuous score; we want it well-calibrated so the arbiter's threshold is principled. | Per case, per signal |
+| **McNemar's test** | Compares the image-vs-image and image-vs-text tripwires on the same trial set. Tests whether they catch *overlapping* failures or *distinct* ones — informs whether OR-fusion is justified. | Per case |
+| **Time-to-decision CDF** | From leg start to first `abort=True`. Reported as a CDF; median + p95 callouts. | Per case |
+| **Cascade end-to-end** (after VLM `/describe` arbiter + LLM-as-judge against mission text) | All of the above, computed on the cascade's final decision (post-arbiter) rather than the tripwire alone. Reports lift from the arbiter pass over tripwire-only. | Per case |
+| **Frame-to-frame CLIP cosine σ + top-1 flip rate per meter** | Diagnostic only; sanity-check of the cascade's signal stability. Not a primary acceptance metric. | Diagnostic |
 
 The five-way mission label (`on_course` / `wrong_room` /
 `wrong_instance` / `trajectory_violation` / `ambiguous`) requires
@@ -175,40 +180,44 @@ labeling logic is:
    the planner does not yet emit trajectory constraints, so no
    mission can be labelled here. Reserved field.
 
-### Decision criteria
+### Acceptance — single-bar pass / fail with the statistics framework
 
-Per [`MISSION_VALIDATION_ARCHITECTURE.md` §4](../../MISSION_VALIDATION_ARCHITECTURE.md#section-4--recommendation),
-**three decision branches**, evaluated per case:
+The brief ships when **all of the above metrics are computed,
+reported with confidence intervals, and the cascade meets a
+**published-baseline-comparable** ROC-AUC threshold per case.**
 
-- **Pass (both cases meet the bar):** case-1 + case-2 TPR ≥ 0.7 at
-  FPR ≤ 0.1; per-scene worst-case TPR ≥ 0.5. Cascade ships to
-  production. Follow-up brief: wrap `TransitMonitor.abort` with
-  one `/describe` arbiter call before actually canceling Nav2.
-- **Pass case-1, fail case-2:** the cheap CLIP path is fine for
-  room-grain validation but instance-grain isn't. Open a
-  follow-up brief to add the §3.1 image-vs-target-text signal as a
-  parallel tripwire and re-measure with this same script (the
-  text-tower call is in addition to the existing image-tower path
-  — same harness, same metrics).
-- **Fail (either case TPR < 0.5 at any FPR ≤ 0.2):** escalate to
-  §3.2. Follow-up brief:
-  [`learned-mid-mission-validator.md`](learned-mid-mission-validator.md)
-  takes over with the five-way categorical model.
+Per the perception-cascade literature, ROC-AUC ≥ 0.85 at the
+**lower 95 % confidence bound** is the standard "this signal is
+useful" bar; ROC-AUC ≥ 0.90 lower-bound is a strong signal.
+This brief targets ≥ 0.85 lower-bound on case-1 image-vs-image
+and case-2 image-vs-text, with the cascade end-to-end ≥ 0.90
+lower-bound on both. Below ≥ 0.85 the cascade is documented as
+not-yet-useful and the brief defers to follow-ups for
+improvements rather than escalating to a different validator
+class.
 
-- **In-between (one case borderline, one case clear):** file
-  `clip-cheap-fix-and-remeasure.md` as a conditional follow-up
-  brief in this PR. That brief — *not this one* — owns the §3.1
-  cheap-fix work (letterbox preprocess, same-region contrastive
-  head for case 1, MobileCLIP / SigLIP backbone swap, TRT-EP
-  FP16) and the second measurement pass. Keeping the cheap-fix
-  cycle out of this brief preserves its scope as
-  *wire + measure + decide + file follow-up*; if folded in, the
-  brief balloons to XL and ships two model versions in one PR.
+Decision branches collapse to two:
 
-The PR's write-up appends a one-section addendum to
+- **Cascade meets the bar.** Ships to production behind
+  `STRAFER_SEMANTIC_MAP_ENABLED`. The §4.4 addendum records the
+  ROC/PR-AUC numbers, McNemar's test outcome, calibration
+  curve, and time-to-decision CDF.
+- **Cascade fails the bar.** Recorded honestly in the addendum.
+  Improvements are filed via
+  [`clip-cotrained-retrieval-augmented`](clip-cotrained-retrieval-augmented.md)
+  (research-flavored follow-up; co-trained CLIP + speaker +
+  retrieval-augmented inference). The end-to-end VLA research
+  arm at
+  [`strafer-vla-v2-architecture`](strafer-vla-v2-architecture.md)
+  also remains as an alternative path. **No "small learned
+  validator" escalation** — that path was retired (see
+  [`completed/learned-mid-mission-validator`](../completed/learned-mid-mission-validator.md)
+  for the rationale).
+
+The PR's write-up appends a §4.4 to
 [`MISSION_VALIDATION_ARCHITECTURE.md`](../../MISSION_VALIDATION_ARCHITECTURE.md)
-recording which branch fired per case, linking the run report,
-and naming any follow-up brief filed.
+with the full statistics report, the cascade decision, and any
+follow-up brief filed.
 
 ## Acceptance criteria
 
@@ -275,21 +284,20 @@ and naming any follow-up brief filed.
       record).
 - [ ] **Decision addendum.** Append a §4.4 to
       [`MISSION_VALIDATION_ARCHITECTURE.md`](../../MISSION_VALIDATION_ARCHITECTURE.md)
-      that names which decision branch fired **per case**
-      (`pass-both` / `pass-case-1-fail-case-2` / `fail-either` /
-      `in-between`), links the run report under
-      `docs/artifacts/transit_monitor_eval/`, and either retires
-      this option (fail → file the learned-validator brief), files
-      the §3.5 arbiter brief (pass-both), or files an
-      image-vs-target-text follow-up brief (pass-case-1-fail-case-2).
-- [ ] If the in-between branch fires, file
-      `clip-cheap-fix-and-remeasure.md` as a follow-up brief in
-      this PR (P1, conditional). That brief — not this one —
-      owns the §3.1 cheap-fix work (letterbox preprocess,
-      same-region contrastive head, MobileCLIP / SigLIP backbone
-      swap, TRT-EP FP16) and the second measurement pass. The
-      addendum to `MISSION_VALIDATION_ARCHITECTURE.md` links to
-      it.
+      with the full statistics report:
+  - ROC curves + 95% CIs per case + signal.
+  - PR curves + 95% CIs per case + signal.
+  - McNemar's test result comparing image-vs-image vs.
+    image-vs-text on the same trial set.
+  - Calibration diagram + Brier score per signal.
+  - Time-to-decision CDF.
+  - Cascade end-to-end (post-arbiter) numbers vs. tripwire-only.
+  Links the run report under
+  `docs/artifacts/transit_monitor_eval/`. Names whether the
+  cascade meets the ≥ 0.85 ROC-AUC lower-bound bar; if so, the
+  cascade ships. If not, files
+  [`clip-cotrained-retrieval-augmented`](clip-cotrained-retrieval-augmented.md)
+  as a follow-up for improvements; no other escalation.
 - [ ] If your work invalidates a fact in any referenced context
       module, package README, top-level `Readme.md`, or guide
       under `docs/`, update those in the same commit. See
@@ -326,10 +334,13 @@ and naming any follow-up brief filed.
 
 ## Out of scope
 
-- **Training a new validator.** That's
-  [`learned-mid-mission-validator.md`](learned-mid-mission-validator.md).
-  This brief only re-exports the existing CLIP path with the §3.1
-  cheap fixes if the in-between branch fires.
+- **Training a new validator class.** The
+  small-frozen-head learned-validator option was retired (see
+  [`completed/learned-mid-mission-validator`](../completed/learned-mid-mission-validator.md)).
+  CLIP cascade improvements live in
+  [`clip-cotrained-retrieval-augmented`](clip-cotrained-retrieval-augmented.md);
+  end-to-end VLA exploration lives in
+  [`strafer-vla-v2-architecture`](strafer-vla-v2-architecture.md).
 - **Multi-room navigation evaluation.** This brief's
   *measurement* runs on single-room subsets of the (now
   multi-room-default) harness corpus. The case-1 / case-2 TPR /
@@ -345,12 +356,16 @@ and naming any follow-up brief filed.
   layer real-robot data in once the runtime path is calibrated.
 - **Replacing CLIP with a non-CLIP backbone (DINOv2, MobileCLIP,
   SigLIP) and any CLIP fine-tune cycle.** Belongs to
-  `clip-cheap-fix-and-remeasure.md`, filed as a follow-up if the
-  in-between branch fires. This brief evaluates whatever ONNX
-  is currently in `~/.strafer/models/` — fine-tuning is a
-  downstream concern.
-- **Wrapping the abort with a VLM arbiter (§3.5).** That's the
-  follow-up brief filed if `pass-both` fires.
+  [`clip-cotrained-retrieval-augmented`](clip-cotrained-retrieval-augmented.md),
+  filed as a follow-up if the cascade fails the AUC bar or the
+  team wants to push improvements regardless. This brief
+  evaluates whatever ONNX is currently in
+  `~/.strafer/models/` — fine-tuning is a downstream concern.
+- **Wrapping the abort with a VLM arbiter (§3.5).** Implemented
+  inside this brief if the cascade-end-to-end metrics need
+  arbiter post-processing to clear the AUC bar; otherwise filed
+  as a small follow-up. Either way the implementation is small
+  (one `/describe` call + LLM-as-judge call per tripwire fire).
 - **Validating trajectory-shape constraints (case 3).** Requires
   the planner to decompose constraints like "hug the wall" into a
   checkable spec. Filed as a future brief

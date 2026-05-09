@@ -894,10 +894,14 @@ target are tabulated in
 recommended-tier in the harness brief).
 
 **Limitations.** Operator-paced; reflects operator play style;
-path-shape data is operator-bottlenecked. The procedural
-path-shape generator
-([`harness-procedural-path-shape-generator`](tasks/active/harness-procedural-path-shape-generator.md))
-is filed against this exact bottleneck.
+path-shape data is operator-bottlenecked. The free-text mission
+generator
+([`harness-mission-generator`](tasks/active/harness-mission-generator.md))
+emits queue files (including path-shape variants with
+LLM-derived waypoints) that the operator can drive against; the
+trajectory-first captioning regime
+([`harness-trajectory-first-captioning`](tasks/active/harness-trajectory-first-captioning.md))
+is filed for bulk corpus scale.
 
 #### 3.6.b MVP-as-teacher distillation (secondary; conditional on v1 stability)
 

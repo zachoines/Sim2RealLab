@@ -45,9 +45,10 @@ specifically §3.3 (small VLA — integration depth, model choices,
 Orin Nano feasibility), §3.6 (MVP-as-teacher distillation), §4.2
 (why no from-scratch VLA in isolation).
 
-Sibling brief — a smaller VLA-as-validator on-ramp the operator
-explicitly chose **not** to take first:
-[`learned-mid-mission-validator.md`](learned-mid-mission-validator.md).
+Retired sibling brief — a smaller VLA-as-validator on-ramp that
+was considered and explicitly retired in favor of this end-to-end
+research arm + the cascade-improvements path:
+[`completed/learned-mid-mission-validator.md`](../completed/learned-mid-mission-validator.md).
 
 ## Context
 

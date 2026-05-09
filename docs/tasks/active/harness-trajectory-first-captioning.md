@@ -163,11 +163,14 @@ captioner runs in two modes per trajectory:
   negative_caption)` tuple as `category: wrong_instance` or
   `wrong_room` in `mission.json`.
 
-This gives the same five-way label distribution the validator
-training pipeline expects (per
-[`learned-mid-mission-validator`](learned-mid-mission-validator.md)),
-without needing operator-tagged failures. Trajectory-first
-becomes a strong source of hard negatives at scale.
+This gives the same five-way label distribution the cascade
+improvements brief
+([`clip-cotrained-retrieval-augmented`](clip-cotrained-retrieval-augmented.md))
+expects, without needing operator-tagged failures.
+Trajectory-first becomes a strong source of hard negatives at
+scale. (The previously-named small-learned-validator brief was
+retired; see
+[`completed/learned-mid-mission-validator`](../completed/learned-mid-mission-validator.md).)
 
 ### Output schema
 

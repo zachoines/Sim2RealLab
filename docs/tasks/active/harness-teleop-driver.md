@@ -53,7 +53,8 @@ Downstream consumers:
 - [`clip-mid-mission-validator-evaluation`](clip-mid-mission-validator-evaluation.md)
   (relaxes its hard `Blocked on: next-integration-round` once
   teleop output exists).
-- [`learned-mid-mission-validator`](learned-mid-mission-validator.md)
+- [`completed/learned-mid-mission-validator`](../completed/learned-mid-mission-validator.md)
+  (retired — see brief for rationale)
   (teleop's wrong-instance / wrong-room / wrong-path-shape
   buttons are the cleanest hard-negative source).
 - [`strafer-vla-v2-architecture`](strafer-vla-v2-architecture.md)

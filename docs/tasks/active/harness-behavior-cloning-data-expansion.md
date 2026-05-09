@@ -60,10 +60,10 @@ Sibling brief covering multi-room defaulting:
 Downstream briefs that depend on this:
 - [`strafer-vla-v2-architecture`](strafer-vla-v2-architecture.md) —
   hard prerequisite (no behavior cloning without an action stream).
-- [`learned-mid-mission-validator`](learned-mid-mission-validator.md) —
-  benefits significantly from per-step `progress` and
-  language-augmented `mission_text`, but does not strictly require
-  this brief to ship first.
+- [`clip-cotrained-retrieval-augmented`](clip-cotrained-retrieval-augmented.md) —
+  the cascade-improvements brief consumes this brief's per-step
+  `progress` labels and language-augmented mission text; soft
+  dependency.
 - A future `mvp-teacher-vla-distillation` brief.
 
 ## Context
@@ -385,11 +385,11 @@ post-processing passes need iteration.
   downstream consumers (the learned-validator brief, the
   CLIP-eval brief's `--root-cause-pass`) can label them as
   hard negatives without re-deriving the perturbation. **This
-  flag is consumed by both
+  flag is consumed by
   [`clip-mid-mission-validator-evaluation`](clip-mid-mission-validator-evaluation.md)
-  and
-  [`learned-mid-mission-validator`](learned-mid-mission-validator.md);
-  this brief owns its definition.**
+  and the
+  [`clip-cotrained-retrieval-augmented`](clip-cotrained-retrieval-augmented.md)
+  improvements brief; this brief owns its definition.**
 - [ ] **HDF5 / RLDS export converter for downstream VLA pipelines.**
       `source/strafer_lab/strafer_lab/tools/export_bc_dataset.py`
       consumes a finished episode (or a directory of episodes)

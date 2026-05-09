@@ -84,7 +84,6 @@ def _compile_single_target_steps(
             step_id=f"step_{base + 2:02d}",
             skill="navigate_to_pose",
             args={"goal_source": "projected_target", "execution_backend": "nav2"},
-            timeout_s=90.0,
             retry_limit=0,
         ),
         _make_verify_arrival_step(
@@ -155,7 +154,6 @@ def _compile_translate(intent: MissionIntent) -> list[SkillCall]:
             step_id="step_01",
             skill="translate",
             args={"dx_m": float(dx), "dy_m": float(dy)},
-            timeout_s=60.0,
             retry_limit=0,
         ),
     ]
@@ -177,7 +175,6 @@ def _compile_rotate(intent: MissionIntent) -> list[SkillCall]:
                 step_id="step_01",
                 skill="rotate_by_degrees",
                 args={"degrees": degrees},
-                timeout_s=30.0,
                 retry_limit=0,
             ),
         ]

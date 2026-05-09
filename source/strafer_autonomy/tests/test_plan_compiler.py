@@ -82,6 +82,12 @@ class TestGoToTarget:
         assert nav_step.args["execution_backend"] == "nav2"
         assert nav_step.args["goal_source"] == "projected_target"
 
+    def test_navigate_to_pose_defers_timeout_to_executor(self):
+        intent = _make_intent("go_to_target", target_label="door", requires_grounding=True)
+        plan = compile_plan(intent)
+        nav_step = [s for s in plan.steps if s.skill == "navigate_to_pose"][0]
+        assert nav_step.timeout_s is None
+
     def test_mission_type(self):
         intent = _make_intent("go_to_target", target_label="door", requires_grounding=True)
         plan = compile_plan(intent)
@@ -171,6 +177,11 @@ class TestRotate:
         assert plan.steps[0].skill == "rotate_by_degrees"
         assert plan.steps[0].args["degrees"] == 90.0
 
+    def test_rotate_by_degrees_defers_timeout_to_executor(self):
+        intent = _make_intent("rotate", orientation_mode="90")
+        plan = compile_plan(intent)
+        assert plan.steps[0].timeout_s is None
+
     def test_negative_degrees(self):
         intent = _make_intent("rotate", orientation_mode="-45")
         plan = compile_plan(intent)
@@ -199,6 +210,11 @@ class TestTranslate:
         assert step.skill == "translate"
         assert step.args == {"dx_m": 1.0, "dy_m": 0.0}
         _validate(plan)
+
+    def test_translate_defers_timeout_to_executor(self):
+        intent = _make_intent("translate", translation_xy=(1.0, 0.0))
+        plan = compile_plan(intent)
+        assert plan.steps[0].timeout_s is None
 
     def test_back_and_left(self):
         intent = _make_intent("translate", translation_xy=(-0.5, 0.3))

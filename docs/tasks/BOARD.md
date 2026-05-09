@@ -69,12 +69,13 @@ session.
 | [`align-after-scan-grounding`](active/align-after-scan-grounding.md) | S–M | Executor + plan_compiler tweak |
 | [`real-d555-depth-range-survey`](active/real-d555-depth-range-survey.md) | S–M | Investigation — bench measurement + write-up |
 | [`nav2-startup-unknown-donut-path-noise`](active/nav2-startup-unknown-donut-path-noise.md) | M | Planner-side fix for the kinky-path-through-camera-donut symptom |
+| [`progress-aware-nav-timeouts`](active/progress-aware-nav-timeouts.md) | M (~1–2 d) | Replace the env-knob backstop with per-step distance/angle-derived budgets + Nav2 stall watchdog. Composes with `rotate-in-place-sim-clock-deadline` (either order). |
 
 #### Either lane
 
 | Brief | Estimate | Note |
 |---|---|---|
-| [`plan-compiler-skill-timeouts`](active/plan-compiler-skill-timeouts.md) | S | Quick win — drop hardcoded timeouts so `STRAFER_NAVIGATION_TIMEOUT_S` takes effect |
+| _None currently._ | | |
 
 ### P3 — has dependencies
 
@@ -95,7 +96,6 @@ Briefs estimated **S** that any agent can knock out in <1 day. Useful
 for fresh-session pickup. Cross-cut — these also appear above.
 
 - [`d555-distortion-model-explicit`](active/d555-distortion-model-explicit.md) (DGX, P2)
-- [`plan-compiler-skill-timeouts`](active/plan-compiler-skill-timeouts.md) (Either, P2)
 - [`planner-rotate-direction-prompt`](active/planner-rotate-direction-prompt.md) (DGX, P2)
 - [`rotate-in-place-sim-clock-deadline`](active/rotate-in-place-sim-clock-deadline.md) (Jetson, P2)
 - [`vlm-bbox-overlay`](active/vlm-bbox-overlay.md) (Jetson, P2)

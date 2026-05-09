@@ -42,6 +42,10 @@ session.
 | [`strafer-inference-package`](active/strafer-inference-package.md) | Jetson | L (~1.5 wk) | DEPTH MVP — `strafer_direct` mode with the trained ProcRoom-Depth policy. Phases 1–4 land without a deployable checkpoint; Phase 5 gates on DGX-side export+training. Architectural answer to MPPI's plateau |
 | [`policy-export-onnx-depth`](active/policy-export-onnx-depth.md) | DGX | M (~1–2 d) | Implement `_OnnxDepthGRUModel` so DEPTH gets ONNX export. Unblocks the Jetson TRT-EP latency target. Filed off `policy-export-tooling` ship. |
 | [`policy-loader-recurrent-state`](active/policy-loader-recurrent-state.md) | Either | S–M (~1 d) | Extend `strafer_shared.policy_interface.load_policy()` so recurrent artifacts expose `.reset()` and ONNX hidden state threads correctly. Prerequisite for stateful DEPTH inference on Jetson. |
+| [`clip-mid-mission-validator-evaluation`](active/clip-mid-mission-validator-evaluation.md) | Either | L | Wire the orphaned `SemanticMapManager` + `BackgroundMapper` + `TransitMonitor` path into the production executor and measure pre-registered TPR/FPR/time-to-decision on harness output. Gating brief for `MISSION_VALIDATION_ARCHITECTURE.md` §4 staged plan. Filed off `mid-mission-validation-investigation` ship. |
+| [`harness-teleop-driver`](active/harness-teleop-driver.md) | DGX | M | Gamepad teleop entry point for in-process Isaac Lab data capture. Bypasses MPPI / Nav2 / planner; reuses `collect_demos.py` mapping; emits the canonical harness schema. Unblocks v1 measurement (clip-eval, learned-validator) and v2 VLA training data without depending on bridge perf. |
+| [`multi-room-autonomy-stack`](active/multi-room-autonomy-stack.md) | Either | M | Lifts §1.10.1's multi-room deferral. Stored-map fallback in `scan_for_target` + planner transit-step emission + plan-compiler updates. Required for multi-room as the MVP default. |
+| [`multi-room-scene-connectivity-validation`](active/multi-room-scene-connectivity-validation.md) | DGX | S | Computes room connectivity at scene-gen time + verifies door-open default in `prep_room_usds.py`. Hard prerequisite for `multi-room-autonomy-stack` and `harness-mission-generator`. |
 
 ### P2 — medium priority
 
@@ -52,6 +56,7 @@ session.
 | [`d555-distortion-model-explicit`](active/d555-distortion-model-explicit.md) | S | Quick win |
 | [`planner-rotate-direction-prompt`](active/planner-rotate-direction-prompt.md) | S | Quick win — prompt edit |
 | [`policy-goal-noise-training`](active/policy-goal-noise-training.md) | M | Targeted DEPTH-baseline training pass with goal-position noise; gates VLM-grounded mission quality for `strafer_direct` |
+| [`harness-behavior-cloning-data-expansion`](active/harness-behavior-cloning-data-expansion.md) | M–L | Per-tick capture + depth + actions + time alignment + paraphrase + hard-negative injection. Driver-agnostic schema; bridge-driver upgrades ship in this brief. |
 | [`planner-far-target-staging`](active/planner-far-target-staging.md) | M–L | World-state schema + planner prompt |
 | [`strafer-lab-subgoal-env`](active/strafer-lab-subgoal-env.md) | L (~1.5–2 wk) | New training env for `NOCAM_SUBGOAL` — sim-internal path planner + SubgoalCommand + path-tracking rewards + termination + training run. Unblocks hybrid mode |
 
@@ -70,13 +75,17 @@ session.
 | Brief | Estimate | Note |
 |---|---|---|
 | [`plan-compiler-skill-timeouts`](active/plan-compiler-skill-timeouts.md) | S | Quick win — drop hardcoded timeouts so `STRAFER_NAVIGATION_TIMEOUT_S` takes effect |
-| [`mid-mission-validation-investigation`](active/mid-mission-validation-investigation.md) | L | Architecture investigation — audit current CLIP usage, characterise its limits, survey alternatives (better CLIP, small learned validator, small VLA, smarter VLM scheduling), recommend a direction with falsifiable success criteria |
 
 ### P3 — has dependencies
 
 | Brief | Owner | Estimate | Blocks on |
 |---|---|---|---|
 | [`strafer-inference-hybrid-mode`](active/strafer-inference-hybrid-mode.md) | Jetson | M (~3–4 d) | [`strafer-inference-package`](active/strafer-inference-package.md) shipped + [`strafer-lab-subgoal-env`](active/strafer-lab-subgoal-env.md) shipped (the latter produces the trained `NOCAM_SUBGOAL` checkpoint) |
+| [`clip-cotrained-retrieval-augmented`](active/clip-cotrained-retrieval-augmented.md) | DGX | XL | Cascade-improvements research follow-up. A co-training step fine-tunes CLIP with the trajectory-first speaker model; a retrieval-augmented inference step adds cross-attention over the SemanticMapManager memory primitive. Filed-on-trigger after [`clip-mid-mission-validator-evaluation`](active/clip-mid-mission-validator-evaluation.md) ships. |
+| [`strafer-vla-v2-architecture`](active/strafer-vla-v2-architecture.md) | Either | XL | [`harness-teleop-driver`](active/harness-teleop-driver.md) (primary data path) + [`harness-behavior-cloning-data-expansion`](active/harness-behavior-cloning-data-expansion.md) (schema) shipped. Sim-first research arm; additive to v1, not replacing it |
+| [`harness-oracle-driver`](active/harness-oracle-driver.md) | DGX | L | Sketch — picked up only when [`strafer-lab-subgoal-env`](active/strafer-lab-subgoal-env.md) has shipped the NoCam waypoint-following checkpoint AND teleop throughput is the binding scale constraint for VLA training. See trigger condition in brief. |
+| [`harness-mission-generator`](active/harness-mission-generator.md) | DGX | L | Free-text mission generator with LLM-emitted waypoints (multi-room default). Renamed + restructured from the former `harness-procedural-path-shape-generator` sketch. Canonical mission queue source for teleop and oracle drivers. Blocked on `multi-room-scene-connectivity-validation` for the connectivity graph. |
+| [`harness-trajectory-first-captioning`](active/harness-trajectory-first-captioning.md) | DGX | M–L | Speaker-model post-hoc captioning regime (Speaker-Follower / hindsight-relabeling pattern). Random-A→B drivers + Qwen2.5-VL-7B speaker → instructive-voice mission text + synthesized hard negatives. FoV-honest by construction; complements teleop / bridge / oracle. |
 
 ---
 
@@ -100,6 +109,10 @@ Briefs that aren't pickable until something else lands.
 | Brief | Blocks on | Why |
 |---|---|---|
 | [`strafer-inference-hybrid-mode`](active/strafer-inference-hybrid-mode.md) | [`strafer-inference-package`](active/strafer-inference-package.md) (Jetson) **and** [`strafer-lab-subgoal-env`](active/strafer-lab-subgoal-env.md) (DGX) both shipped | Hybrid backend extends the inference package's runtime AND consumes the `NOCAM_SUBGOAL` checkpoint produced by the env brief. The two prerequisites can run in parallel since they're cross-lane |
+| [`clip-cotrained-retrieval-augmented`](active/clip-cotrained-retrieval-augmented.md) | [`clip-mid-mission-validator-evaluation`](active/clip-mid-mission-validator-evaluation.md) shipped + [`harness-trajectory-first-captioning`](active/harness-trajectory-first-captioning.md) shipped (provides the speaker corpus) | Replaces the retired `learned-mid-mission-validator` as the cascade-improvement path. The co-training step and retrieval-augmented step compound; both compose with the existing cascade. |
+| [`strafer-vla-v2-architecture`](active/strafer-vla-v2-architecture.md) | [`harness-teleop-driver`](active/harness-teleop-driver.md) **and** [`harness-behavior-cloning-data-expansion`](active/harness-behavior-cloning-data-expansion.md) shipped | Needs the action-labeled corpus (teleop primary, bridge supplement) before any VLA fine-tune is meaningful. Sim-first research arm; additive to v1. |
+| [`harness-oracle-driver`](active/harness-oracle-driver.md) | [`strafer-lab-subgoal-env`](active/strafer-lab-subgoal-env.md) shipped (provides NoCam waypoint-follower checkpoint) **and** trigger condition: teleop throughput is the binding scale constraint for VLA training (see brief) | Filed-on-trigger sketch. Don't pick up preemptively. |
+| [`harness-mission-generator`](active/harness-mission-generator.md) | [`multi-room-scene-connectivity-validation`](active/multi-room-scene-connectivity-validation.md) shipped (provides connectivity graph) | Promoted from the previous filed-on-trigger sketch. Now the canonical mission-queue source for teleop / oracle drivers. |
 
 ---
 

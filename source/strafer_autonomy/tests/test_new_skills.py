@@ -301,6 +301,107 @@ class TestTranslate:
         assert result.status == "failed"
         assert result.error_code == "invalid_args"
 
+    def test_none_timeout_falls_back_to_config_default(self):
+        runner, ros = _make_runner()
+        ros.get_map_pose.return_value = {
+            "x": 0.0, "y": 0.0, "z": 0.0,
+            "qx": 0.0, "qy": 0.0, "qz": 0.0, "qw": 1.0,
+        }
+        ros.navigate_to_pose.return_value = SkillResult(
+            step_id="t1", skill="translate", status="succeeded",
+        )
+        runtime = _make_runtime()
+        step = SkillCall(
+            skill="translate", step_id="t1",
+            args={"dx_m": 1.0, "dy_m": 0.0},
+            timeout_s=None,
+        )
+        runner._translate(runtime, step)
+        assert (
+            ros.navigate_to_pose.call_args.kwargs["timeout_s"]
+            == MissionRunnerConfig().default_navigation_timeout_s
+        )
+
+    def test_none_timeout_picks_up_env_override(self):
+        runner = MissionRunner(
+            planner_client=MagicMock(),
+            grounding_client=MagicMock(),
+            ros_client=MagicMock(),
+            config=MissionRunnerConfig(default_navigation_timeout_s=180.0),
+        )
+        ros = runner._ros_client
+        ros.get_map_pose.return_value = {
+            "x": 0.0, "y": 0.0, "z": 0.0,
+            "qx": 0.0, "qy": 0.0, "qz": 0.0, "qw": 1.0,
+        }
+        ros.navigate_to_pose.return_value = SkillResult(
+            step_id="t1", skill="translate", status="succeeded",
+        )
+        runtime = _make_runtime()
+        step = SkillCall(
+            skill="translate", step_id="t1",
+            args={"dx_m": 1.0, "dy_m": 0.0},
+            timeout_s=None,
+        )
+        runner._translate(runtime, step)
+        assert ros.navigate_to_pose.call_args.kwargs["timeout_s"] == 180.0
+
+
+# ---------------------------------------------------------------------------
+# navigate_to_pose timeout fallback (_dispatch_nav_goal path)
+# ---------------------------------------------------------------------------
+
+
+class TestNavigateToPoseTimeoutFallback:
+    """A SkillCall with ``timeout_s=None`` reaches the executor's
+    ``default_navigation_timeout_s`` (sourced from
+    ``STRAFER_NAVIGATION_TIMEOUT_S``) instead of being clamped by a
+    compiler-side hardcode.
+    """
+
+    def test_none_timeout_uses_config_default(self):
+        runner, ros = _make_runner()
+        ros.navigate_to_pose.return_value = SkillResult(
+            step_id="step_03", skill="navigate_to_pose", status="succeeded",
+        )
+        runtime = _make_runtime()
+        runtime.latest_goal_pose = GoalPoseCandidate(
+            request_id="g", found=True, goal_frame="map",
+            goal_pose=Pose3D(x=2.0, y=1.0),
+            standoff_m=0.0, depth_valid=True,
+        )
+        step = SkillCall(
+            step_id="step_03",
+            skill="navigate_to_pose",
+            args={"goal_source": "explicit", "execution_backend": "nav2"},
+            timeout_s=None,
+        )
+        runner._dispatch_nav_goal(step, runtime.latest_goal_pose.goal_pose, 0.0)
+        assert (
+            ros.navigate_to_pose.call_args.kwargs["timeout_s"]
+            == MissionRunnerConfig().default_navigation_timeout_s
+        )
+
+    def test_none_timeout_picks_up_env_override(self):
+        runner = MissionRunner(
+            planner_client=MagicMock(),
+            grounding_client=MagicMock(),
+            ros_client=MagicMock(),
+            config=MissionRunnerConfig(default_navigation_timeout_s=180.0),
+        )
+        ros = runner._ros_client
+        ros.navigate_to_pose.return_value = SkillResult(
+            step_id="step_03", skill="navigate_to_pose", status="succeeded",
+        )
+        step = SkillCall(
+            step_id="step_03",
+            skill="navigate_to_pose",
+            args={"goal_source": "explicit", "execution_backend": "nav2"},
+            timeout_s=None,
+        )
+        runner._dispatch_nav_goal(step, Pose3D(x=2.0, y=1.0), 0.0)
+        assert ros.navigate_to_pose.call_args.kwargs["timeout_s"] == 180.0
+
 
 # ---------------------------------------------------------------------------
 # orient_to_direction

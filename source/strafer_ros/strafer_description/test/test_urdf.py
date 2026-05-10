@@ -82,6 +82,7 @@ def test_expected_links(urdf_root):
         "wheel_3_link",
         "wheel_4_link",
         "d555_link",
+        "d555_color_optical_frame",
     }
     assert expected == link_names
 

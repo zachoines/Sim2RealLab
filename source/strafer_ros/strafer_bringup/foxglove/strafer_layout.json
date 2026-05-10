@@ -29,9 +29,9 @@
         "poseEstimateThetaDeviation": 0.26
       },
       "imageMode": {
-        "imageTopic": "/d555/color/image_raw",
-        "calibrationTopic": "/d555/color/camera_info",
-        "synchronize": false,
+        "imageTopic": "/d555/color/image_sync",
+        "calibrationTopic": "/d555/color/camera_info_sync",
+        "synchronize": true,
         "rotation": 0,
         "flipHorizontal": false,
         "flipVertical": false,

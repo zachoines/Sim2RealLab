@@ -23,7 +23,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`progress-aware-nav-timeouts`](active/progress-aware-nav-timeouts.md) | Jetson | — | Branch `task/progress-aware-nav-timeouts` open; implementing distance/angle-derived budgets + Nav2 stall watchdog in executor + ros_client |
+| _None._ | | | |
 
 ---
 

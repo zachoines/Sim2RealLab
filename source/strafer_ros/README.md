@@ -96,6 +96,7 @@ Commanded / driven:
 | `/cmd_vel` | `geometry_msgs/Twist` | Nav2 / executor output → driver input |
 | `/strafer/cmd_vel` | `geometry_msgs/Twist` | Driver subscribes here; Nav2 `cmd_vel` is remapped to this in the driver launch |
 | `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | Driver connection state + error counts |
+| `/d555/color/detections` | `vision_msgs/Detection2DArray` | Executor-published VLM grounding bbox (pixel coords, source-image stamp) — Foxglove RGB panel uses it as an annotation overlay. Empty array clears the previous overlay. |
 
 ### Default interface names (match `strafer_autonomy` CLI defaults)
 
@@ -142,6 +143,7 @@ Prerequisites:
 - `strafer_shared` and `strafer_autonomy` pip-installed into the ROS Python environment: `pip install -e source/strafer_shared source/strafer_autonomy`.
 - udev rules: `sudo cp source/strafer_ros/99-strafer.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules`.
 - `ros-humble-foxglove-bridge` for the headless visualizer in `bringup_sim_in_the_loop.launch.py`: `sudo apt install ros-humble-foxglove-bridge`. Skip if you always launch with `viewer:=false`.
+- `ros-humble-vision-msgs` for the executor's `Detection2DArray` overlay publisher: `sudo apt install ros-humble-vision-msgs`. Required by `strafer_autonomy.clients.ros_client.JetsonRosClient.publish_detections()`.
 
 From the repo root, `make build` runs the colcon build and `make udev` installs the rules.
 

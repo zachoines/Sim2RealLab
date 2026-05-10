@@ -1,5 +1,7 @@
 # Publish VLM detections as a ROS topic + overlay them on the Foxglove RGB feed
 
+**Status:** Shipped 2026-05-09 (Jetson). Commit hash + PR URL stamped post-merge.
+
 **Type:** task / new feature
 **Owner:** Jetson agent
 **Priority:** P2
@@ -26,7 +28,7 @@ Read these before starting:
 ## Context
 
 The headless visualizer
-([`completed/jetson-headless-viewer.md`](../completed/jetson-headless-viewer.md),
+([`completed/jetson-headless-viewer.md`](jetson-headless-viewer.md),
 shipped in `179275e`) brought the live RGB / depth / TF / map state
 to Foxglove Studio over an SSH-tunneled WebSocket. It deliberately
 deferred one acceptance bullet — bbox overlay on the RGB feed — because

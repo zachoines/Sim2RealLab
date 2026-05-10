@@ -8,7 +8,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Iterable, Protocol, runtime_checkable
 
 from strafer_autonomy.schemas import GoalPoseCandidate, Pose3D, SceneObservation, SkillResult
 
@@ -185,6 +185,11 @@ class JetsonRosClient:
     TOPIC_DEPTH = "/d555/aligned_depth_to_color/image_sync"
     TOPIC_CAM_INFO = "/d555/color/camera_info_sync"
     TOPIC_ODOM = "/strafer/odom"
+
+    # VLM detection overlay topic — published by `publish_detections()` when a
+    # grounding skill resolves. Foxglove's Image panel attaches this as an
+    # annotation source on the RGB feed.
+    TOPIC_DETECTIONS = "/d555/color/detections"
 
     def __init__(self, config: RosClientConfig | None = None) -> None:
         import rclpy
@@ -738,6 +743,89 @@ class JetsonRosClient:
             self._active_goal_handle = None
 
         return True
+
+    # ------------------------------------------------------------------
+    # Detection overlay publisher (vision_msgs/Detection2DArray)
+    # ------------------------------------------------------------------
+
+    def publish_detections(
+        self,
+        *,
+        image_stamp_sec: float,
+        image_frame_id: str,
+        image_width: int,
+        image_height: int,
+        detections: "Iterable[tuple[tuple[int, int, int, int], str | None, float | None]]" = (),
+    ) -> None:
+        """Publish a ``vision_msgs/Detection2DArray`` for Foxglove overlay.
+
+        ``detections`` is an iterable of ``(bbox_qwen_1000, label, confidence)``
+        tuples where ``bbox_qwen_1000`` is ``(x1, y1, x2, y2)`` in the VLM's
+        normalized [0, 1000] coordinate space (see
+        ``strafer_msgs/srv/ProjectDetectionToGoalPose`` and
+        ``goal_projection_node`` for the same convention). Each bbox is
+        rescaled to pixel coordinates against the source image's dimensions
+        before publishing — Foxglove's Image annotation overlay expects
+        pixel coords.
+
+        ``header.stamp`` is set from ``image_stamp_sec`` (the source image's
+        stamp) so Foxglove can pair the overlay with the right RGB frame.
+        Empty ``detections`` publishes an empty array, which clears any
+        stale overlay from a previous grounding call.
+        """
+        from builtin_interfaces.msg import Time as TimeMsg
+        from vision_msgs.msg import (
+            BoundingBox2D,
+            Detection2D,
+            Detection2DArray,
+            ObjectHypothesisWithPose,
+        )
+
+        if not hasattr(self, "_detections_pub"):
+            self._detections_pub = self._node.create_publisher(
+                Detection2DArray, self.TOPIC_DETECTIONS, 10,
+            )
+
+        sec = int(image_stamp_sec)
+        nanosec = int(round((image_stamp_sec - sec) * 1e9))
+        # Round-up edge case: e.g. 1.9999999999 → sec=1, nanosec=1e9.
+        if nanosec >= 1_000_000_000:
+            sec += 1
+            nanosec -= 1_000_000_000
+
+        msg = Detection2DArray()
+        msg.header.stamp = TimeMsg(sec=sec, nanosec=nanosec)
+        msg.header.frame_id = image_frame_id
+
+        scale_x = float(image_width) / 1000.0
+        scale_y = float(image_height) / 1000.0
+
+        for bbox_qwen, label, confidence in detections:
+            x1, y1, x2, y2 = (float(v) for v in bbox_qwen)
+            cx_px = (x1 + x2) * 0.5 * scale_x
+            cy_px = (y1 + y2) * 0.5 * scale_y
+            size_x_px = abs(x2 - x1) * scale_x
+            size_y_px = abs(y2 - y1) * scale_y
+
+            det = Detection2D()
+            det.header = msg.header
+
+            bbox = BoundingBox2D()
+            bbox.center.x = cx_px
+            bbox.center.y = cy_px
+            bbox.center.theta = 0.0
+            bbox.size_x = size_x_px
+            bbox.size_y = size_y_px
+            det.bbox = bbox
+
+            hyp = ObjectHypothesisWithPose()
+            hyp.hypothesis.class_id = label or ""
+            hyp.hypothesis.score = float(confidence) if confidence is not None else 0.0
+            det.results.append(hyp)
+
+            msg.detections.append(det)
+
+        self._detections_pub.publish(msg)
 
     # ------------------------------------------------------------------
     # Task 6: get_robot_state

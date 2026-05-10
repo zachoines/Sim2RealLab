@@ -7,9 +7,12 @@ message objects are replaced with lightweight MagicMocks.
 
 from __future__ import annotations
 
+import sys
 import threading
 import time
+import types
 import unittest
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -704,3 +707,175 @@ class TestWaitForFuture(unittest.TestCase):
         # Cap is 2 * 0.05 = 0.1s. Allow generous headroom for CI jitter.
         self.assertGreaterEqual(elapsed, 0.05)
         self.assertLess(elapsed, 1.0)
+
+
+# ------------------------------------------------------------------
+# Tests — publish_detections (vision_msgs/Detection2DArray overlay)
+# ------------------------------------------------------------------
+
+
+class _StubMsg:
+    """Minimal stand-in for a generated ROS message — accepts arbitrary attrs."""
+
+    def __init__(self) -> None:
+        self.header = SimpleNamespace(stamp=None, frame_id="")
+        self.detections: list[Any] = []
+        self.results: list[Any] = []
+        self.bbox: Any = None
+        # BoundingBox2D members
+        self.center = SimpleNamespace(x=0.0, y=0.0, theta=0.0)
+        self.size_x = 0.0
+        self.size_y = 0.0
+        # ObjectHypothesisWithPose members
+        self.hypothesis = SimpleNamespace(class_id="", score=0.0)
+        self.pose = SimpleNamespace()
+
+
+@contextmanager
+def _stub_vision_msgs():
+    """Inject vision_msgs / builtin_interfaces stubs for the duration of a test.
+
+    The publisher does ``from vision_msgs.msg import (...)`` at call time, so
+    we register lightweight modules in ``sys.modules`` that expose the same
+    class names. Parametrized stamp construction is delegated to a dataclass-
+    style ``Time`` stub mirroring ``builtin_interfaces.msg.Time``.
+    """
+    saved = {k: sys.modules.get(k) for k in (
+        "vision_msgs", "vision_msgs.msg", "builtin_interfaces", "builtin_interfaces.msg",
+    )}
+    try:
+        vm_pkg = types.ModuleType("vision_msgs")
+        vm_msg = types.ModuleType("vision_msgs.msg")
+        vm_msg.Detection2D = _StubMsg
+        vm_msg.Detection2DArray = _StubMsg
+        vm_msg.BoundingBox2D = _StubMsg
+        vm_msg.ObjectHypothesisWithPose = _StubMsg
+        vm_pkg.msg = vm_msg  # type: ignore[attr-defined]
+        sys.modules["vision_msgs"] = vm_pkg
+        sys.modules["vision_msgs.msg"] = vm_msg
+
+        bi_pkg = types.ModuleType("builtin_interfaces")
+        bi_msg = types.ModuleType("builtin_interfaces.msg")
+
+        class _StubTime:
+            def __init__(self, sec: int = 0, nanosec: int = 0) -> None:
+                self.sec = int(sec)
+                self.nanosec = int(nanosec)
+
+        bi_msg.Time = _StubTime
+        bi_pkg.msg = bi_msg  # type: ignore[attr-defined]
+        sys.modules["builtin_interfaces"] = bi_pkg
+        sys.modules["builtin_interfaces.msg"] = bi_msg
+
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+
+
+class TestPublishDetections(unittest.TestCase):
+    """publish_detections converts Qwen [0,1000] bboxes → pixels and stamps."""
+
+    def _captured(self, client: JetsonRosClient) -> Any:
+        pub = client._detections_pub  # type: ignore[attr-defined]
+        self.assertEqual(pub.publish.call_count, 1)
+        return pub.publish.call_args[0][0]
+
+    def test_publishes_single_detection_with_pixel_bbox(self) -> None:
+        with _stub_vision_msgs():
+            client = _make_client()
+            pub = MagicMock()
+            client._node.create_publisher.return_value = pub
+
+            client.publish_detections(
+                image_stamp_sec=100.5,
+                image_frame_id="d555_color_optical_frame",
+                image_width=640,
+                image_height=360,
+                detections=[((100, 200, 500, 600), "door", 0.91)],
+            )
+
+            client._node.create_publisher.assert_called_once()
+            args, _ = client._node.create_publisher.call_args
+            self.assertEqual(args[1], JetsonRosClient.TOPIC_DETECTIONS)
+
+            msg = self._captured(client)
+            self.assertEqual(msg.header.frame_id, "d555_color_optical_frame")
+            # 100.5s → sec=100, nanosec=500_000_000.
+            self.assertEqual(msg.header.stamp.sec, 100)
+            self.assertEqual(msg.header.stamp.nanosec, 500_000_000)
+            self.assertEqual(len(msg.detections), 1)
+
+            det = msg.detections[0]
+            # Center: ((100+500)/2, (200+600)/2) = (300, 400) in [0,1000].
+            #   pixel_x = 300 * 640 / 1000 = 192.0
+            #   pixel_y = 400 * 360 / 1000 = 144.0
+            # Size: (400 * 640/1000, 400 * 360/1000) = (256, 144).
+            self.assertAlmostEqual(det.bbox.center.x, 192.0)
+            self.assertAlmostEqual(det.bbox.center.y, 144.0)
+            self.assertAlmostEqual(det.bbox.size_x, 256.0)
+            self.assertAlmostEqual(det.bbox.size_y, 144.0)
+            self.assertEqual(det.results[0].hypothesis.class_id, "door")
+            self.assertAlmostEqual(det.results[0].hypothesis.score, 0.91)
+
+    def test_empty_detections_publishes_empty_array(self) -> None:
+        """An empty detection list must still publish — clears stale overlay."""
+        with _stub_vision_msgs():
+            client = _make_client()
+            pub = MagicMock()
+            client._node.create_publisher.return_value = pub
+
+            client.publish_detections(
+                image_stamp_sec=0.0,
+                image_frame_id="d555_color_optical_frame",
+                image_width=640,
+                image_height=360,
+                detections=[],
+            )
+
+            msg = self._captured(client)
+            self.assertEqual(msg.detections, [])
+            self.assertEqual(msg.header.stamp.sec, 0)
+            self.assertEqual(msg.header.stamp.nanosec, 0)
+
+    def test_publisher_is_reused_across_calls(self) -> None:
+        """create_publisher fires once; subsequent calls reuse the publisher."""
+        with _stub_vision_msgs():
+            client = _make_client()
+            pub = MagicMock()
+            client._node.create_publisher.return_value = pub
+
+            for _ in range(3):
+                client.publish_detections(
+                    image_stamp_sec=1.0,
+                    image_frame_id="frame",
+                    image_width=100,
+                    image_height=100,
+                    detections=[],
+                )
+
+            client._node.create_publisher.assert_called_once()
+            self.assertEqual(pub.publish.call_count, 3)
+
+    def test_handles_label_and_confidence_none(self) -> None:
+        """Missing label / confidence default to '' / 0.0 (not crash)."""
+        with _stub_vision_msgs():
+            client = _make_client()
+            pub = MagicMock()
+            client._node.create_publisher.return_value = pub
+
+            client.publish_detections(
+                image_stamp_sec=1.0,
+                image_frame_id="frame",
+                image_width=640,
+                image_height=360,
+                detections=[((0, 0, 1000, 1000), None, None)],
+            )
+
+            msg = self._captured(client)
+            det = msg.detections[0]
+            self.assertEqual(det.results[0].hypothesis.class_id, "")
+            self.assertAlmostEqual(det.results[0].hypothesis.score, 0.0)

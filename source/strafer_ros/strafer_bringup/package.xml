@@ -14,6 +14,9 @@
   <exec_depend>strafer_slam</exec_depend>
   <exec_depend>strafer_navigation</exec_depend>
   <exec_depend>foxglove_bridge</exec_depend>
+  <!-- vision_msgs/Detection2DArray is published by the executor's
+       JetsonRosClient.publish_detections() for Foxglove bbox overlay. -->
+  <exec_depend>vision_msgs</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
 

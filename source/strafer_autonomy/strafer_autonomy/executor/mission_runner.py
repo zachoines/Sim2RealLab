@@ -592,6 +592,8 @@ class MissionRunner(MissionCommandHandler):
             with self._lock:
                 runtime.latest_grounding = grounding
 
+            self._publish_grounding_overlay(observation, grounding)
+
             if not grounding.found or grounding.bbox_2d is None:
                 return self._failed_result(
                     step,
@@ -680,6 +682,10 @@ class MissionRunner(MissionCommandHandler):
                     )
                 with self._lock:
                     runtime.latest_grounding = grounding
+
+                self._publish_grounding_overlay(
+                    observation, grounding if accepted else None,
+                )
 
                 # Store observation in semantic map (best-effort, never blocks scan).
                 self._store_scan_observation(
@@ -1270,6 +1276,8 @@ class MissionRunner(MissionCommandHandler):
 
             with self._lock:
                 runtime.latest_grounding = grounding
+
+            self._publish_grounding_overlay(observation, grounding)
 
             if not grounding.found or grounding.bbox_2d is None:
                 stage_entry["regrounding_status"] = "target_not_found"
@@ -2140,6 +2148,49 @@ class MissionRunner(MissionCommandHandler):
             return image[..., ::-1]
         except Exception:
             return image
+
+    def _publish_grounding_overlay(
+        self,
+        observation: SceneObservation,
+        grounding: GroundingResult | None,
+    ) -> None:
+        """Mirror a grounding result onto the detection overlay topic.
+
+        Best-effort: a failure to publish (missing ``vision_msgs``,
+        publisher race during shutdown, etc.) must never block a mission.
+        Empty / missing detections publish an empty array so Foxglove
+        clears any stale overlay from a prior grounding call.
+        """
+        publish = getattr(self._ros_client, "publish_detections", None)
+        if publish is None:
+            return
+        try:
+            shape = getattr(observation.color_image_bgr, "shape", None)
+            if shape is None or len(shape) < 2:
+                return
+            height, width = int(shape[0]), int(shape[1])
+
+            detections: list[tuple[tuple[int, int, int, int], str | None, float | None]] = []
+            if (
+                grounding is not None
+                and grounding.found
+                and grounding.bbox_2d is not None
+            ):
+                detections.append((
+                    tuple(int(v) for v in grounding.bbox_2d),  # type: ignore[arg-type]
+                    grounding.label,
+                    grounding.confidence,
+                ))
+
+            publish(
+                image_stamp_sec=observation.stamp_sec,
+                image_frame_id=observation.camera_frame,
+                image_width=width,
+                image_height=height,
+                detections=detections,
+            )
+        except Exception:
+            _logger.debug("publish_detections failed (best-effort)", exc_info=True)
 
     def _grounding_outputs(self, grounding: GroundingResult) -> dict[str, Any]:
         return {

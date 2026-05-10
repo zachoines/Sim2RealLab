@@ -96,7 +96,7 @@ Commanded / driven:
 | `/cmd_vel` | `geometry_msgs/Twist` | Nav2 / executor output → driver input |
 | `/strafer/cmd_vel` | `geometry_msgs/Twist` | Driver subscribes here; Nav2 `cmd_vel` is remapped to this in the driver launch |
 | `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | Driver connection state + error counts |
-| `/d555/color/detections` | `vision_msgs/Detection2DArray` | Executor-published VLM grounding bbox (pixel coords, source-image stamp) — Foxglove RGB panel uses it as an annotation overlay. Empty array clears the previous overlay. |
+| `/d555/color/detections` | `vision_msgs/Detection2DArray` | Executor-published VLM grounding bbox (pixel coords, source-image stamp) — Foxglove RGB panel uses it as an annotation overlay. Empty array clears the previous overlay. **Latched (`TRANSIENT_LOCAL`)** so late subscribers (Foxglove attaching mid-mission, `ros2 topic echo` opened after the scan finished) get the most recent overlay state. To inspect from the CLI: `ros2 topic echo /d555/color/detections --qos-durability transient_local`. |
 
 ### Default interface names (match `strafer_autonomy` CLI defaults)
 

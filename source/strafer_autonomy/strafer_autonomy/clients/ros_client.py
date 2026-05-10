@@ -278,6 +278,15 @@ class JetsonRosClient:
         no-ops, but every other skill keeps working. This is preferred to
         crashing the executor or hiding the missing-package failure behind
         the lazy-create path.
+
+        The detections topic uses ``TRANSIENT_LOCAL`` durability so DDS
+        replays the most recent message to late subscribers — Foxglove
+        attaching mid-mission, or ``ros2 topic echo`` opened after a scan
+        completed, still see the current overlay state instead of an
+        empty wire. Grounding fires for milliseconds at a time and then
+        the topic goes idle for the duration of navigation; without a
+        latched QoS, anyone who subscribes during that idle window sees
+        nothing.
         """
         try:
             from vision_msgs.msg import Detection2DArray
@@ -288,8 +297,20 @@ class JetsonRosClient:
                 self.TOPIC_DETECTIONS,
             )
             return
+        from rclpy.qos import (
+            QoSDurabilityPolicy,
+            QoSHistoryPolicy,
+            QoSProfile,
+            QoSReliabilityPolicy,
+        )
+        latched_qos = QoSProfile(
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+        )
         self._detections_pub = self._node.create_publisher(
-            Detection2DArray, self.TOPIC_DETECTIONS, 10,
+            Detection2DArray, self.TOPIC_DETECTIONS, latched_qos,
         )
 
     def _on_color(self, msg: Any) -> None:

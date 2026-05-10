@@ -580,6 +580,130 @@ def randomize_proc_room_difficulty(
     )
 
 
+def stamp_d555_perception_opencv_pinhole(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor | None,
+    camera_attr: str = "d555_camera_perception",
+    width: int | None = None,
+    height: int | None = None,
+    focal_length_mm: float | None = None,
+    horizontal_aperture_mm: float | None = None,
+) -> None:
+    """Stamp the ``opencvPinhole`` lens-distortion attributes on the perception camera prim.
+
+    Without this, ``isaacsim.ros2.bridge``'s ``read_camera_info`` falls into
+    its deprecated ``physicalDistortionModel`` branch and emits two warning
+    lines per camera at startup. Setting ``omni:lensdistortion:model`` plus
+    the ``opencvPinhole`` parameters directly steers it onto the supported
+    code path. The resulting ``CameraInfo`` is identical to what the
+    fallback produces today (plumb_bob with zeroed ``d``); the goal is to
+    remove the deprecation, not to model real lens distortion.
+
+    Authors the attributes as *custom* attributes rather than going through
+    ``prim.ApplyAPI("OmniLensDistortionOpenCvPinholeAPI")``. The schema
+    plugin (``omni.usd.schema.omni_lens_distortion``) is registered as a
+    Kit extension but the Tf-type registration that ``ApplyAPI`` needs
+    isn't available at this point in startup — and the bridge's
+    ``read_camera_info`` only inspects attribute *values* via
+    ``GetAttribute(name).Get()``, so authoring the same values as custom
+    attributes is functionally equivalent.
+
+    No-op if the env's scene does not include the perception camera (the
+    NoCam and depth-only Infinigen variants reuse the same EventsCfg).
+
+    Args:
+        env: The environment instance.
+        env_ids: Unused (mode="startup"); accepted to match the event signature.
+        camera_attr: The scene-config attribute name of the camera. Used as
+            both the SceneCfg attribute lookup and the leaf name of the USD
+            prim. Defaults to ``d555_camera_perception``.
+        width / height / focal_length_mm / horizontal_aperture_mm: Optional
+            overrides; defaults pull from ``strafer_shared.constants`` so
+            the stamped intrinsics match the real D555 spec.
+    """
+    del env_ids  # event signature only; the prim list is global per stage
+
+    if not hasattr(env.scene.cfg, camera_attr):
+        logger.debug(
+            "[stamp_d555_perception_opencv_pinhole] scene has no '%s'; skipping",
+            camera_attr,
+        )
+        return
+
+    from pxr import Gf, Sdf  # type: ignore
+
+    from strafer_shared.constants import (
+        D555_FOCAL_LENGTH_MM,
+        D555_HORIZONTAL_APERTURE_MM,
+        PERCEPTION_HEIGHT,
+        PERCEPTION_WIDTH,
+    )
+
+    width = int(width if width is not None else PERCEPTION_WIDTH)
+    height = int(height if height is not None else PERCEPTION_HEIGHT)
+    f_mm = float(focal_length_mm if focal_length_mm is not None else D555_FOCAL_LENGTH_MM)
+    h_aperture_mm = float(
+        horizontal_aperture_mm if horizontal_aperture_mm is not None else D555_HORIZONTAL_APERTURE_MM
+    )
+    fx = fy = width * f_mm / h_aperture_mm
+    cx = width / 2.0
+    cy = height / 2.0
+
+    stage = env.sim.stage
+    if stage is None:
+        logger.warning("[stamp_d555_perception_opencv_pinhole] sim.stage is None; skipping")
+        return
+
+    import isaaclab.sim as sim_utils
+
+    # Resolve the per-env prim paths via the SceneCfg. ``prim_path`` carries
+    # ``{ENV_REGEX_NS}`` which Isaac Lab swaps for ``env_<i>`` per env; the
+    # regex form ``env_.*`` is what ``find_matching_prims`` expects.
+    prim_path_pattern = getattr(env.scene.cfg, camera_attr).prim_path.replace(
+        "{ENV_REGEX_NS}", "/World/envs/env_.*"
+    )
+    prims = sim_utils.find_matching_prims(prim_path_pattern, stage=stage)
+    if not prims:
+        logger.warning(
+            "[stamp_d555_perception_opencv_pinhole] no prims matched %s; skipping",
+            prim_path_pattern,
+        )
+        return
+
+    image_size = Gf.Vec2i(width, height)
+    float_attrs: dict[str, float] = {
+        "omni:lensdistortion:opencvPinhole:cx": float(cx),
+        "omni:lensdistortion:opencvPinhole:cy": float(cy),
+        "omni:lensdistortion:opencvPinhole:fx": float(fx),
+        "omni:lensdistortion:opencvPinhole:fy": float(fy),
+    }
+    for coefficient in ("k1", "k2", "p1", "p2", "k3", "k4", "k5", "k6", "s1", "s2", "s3", "s4"):
+        float_attrs[f"omni:lensdistortion:opencvPinhole:{coefficient}"] = 0.0
+
+    def _author(prim, name: str, type_name, value) -> None:
+        """Set or create-then-set ``name`` on ``prim`` with ``type_name``."""
+        attr = prim.GetAttribute(name)
+        if not attr or not attr.IsDefined():
+            attr = prim.CreateAttribute(name, type_name, custom=True)
+        attr.Set(value)
+
+    for prim in prims:
+        _author(prim, "omni:lensdistortion:model", Sdf.ValueTypeNames.Token, "opencvPinhole")
+        _author(
+            prim,
+            "omni:lensdistortion:opencvPinhole:imageSize",
+            Sdf.ValueTypeNames.Int2,
+            image_size,
+        )
+        for name, value in float_attrs.items():
+            _author(prim, name, Sdf.ValueTypeNames.Float, value)
+    logger.info(
+        "[stamp_d555_perception_opencv_pinhole] stamped opencvPinhole on %d prim(s) "
+        "(fx=%.4f cx=%.1f cy=%.1f size=%dx%d)",
+        len(prims), fx, cx, cy, width, height,
+    )
+
+
 def lift_ground_plane_to_floor(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor | None,

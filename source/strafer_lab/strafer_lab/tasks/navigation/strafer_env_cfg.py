@@ -1040,12 +1040,24 @@ _LIFT_GROUND_INFINIGEN = EventTerm(
     params={"target_z": 0.0},  # populated in __post_init__
 )
 
+# Stamp opencvPinhole lens-distortion schema on the perception camera prim
+# so the ROS 2 bridge's CameraInfo publisher takes the supported code path
+# instead of the deprecated physicalDistortionModel fallback. Self-gates on
+# the perception camera being present, so it's a no-op for the depth-only
+# Infinigen variants that share these EventsCfg classes.
+_STAMP_D555_OPENCV_PINHOLE = EventTerm(
+    func=mdp.stamp_d555_perception_opencv_pinhole,
+    mode="startup",
+    params={},
+)
+
 
 @configclass
 class EventsCfg_Infinigen_Realistic:
     """Realistic DR for Infinigen — no obstacle randomization, tighter spawn."""
     reset_robot = _RESET_ROBOT_INFINIGEN
     lift_ground = _LIFT_GROUND_INFINIGEN
+    stamp_d555_opencv_pinhole = _STAMP_D555_OPENCV_PINHOLE
     randomize_friction = EventTerm(
         func=mdp.randomize_friction, mode="reset",
         params={"friction_range": (0.6, 1.2)},
@@ -1073,6 +1085,7 @@ class EventsCfg_Infinigen_Robust:
     """Robust DR for Infinigen — no obstacle randomization, tighter spawn."""
     reset_robot = _RESET_ROBOT_INFINIGEN
     lift_ground = _LIFT_GROUND_INFINIGEN
+    stamp_d555_opencv_pinhole = _STAMP_D555_OPENCV_PINHOLE
     randomize_friction = EventTerm(
         func=mdp.randomize_friction, mode="reset",
         params={"friction_range": (0.3, 1.5)},

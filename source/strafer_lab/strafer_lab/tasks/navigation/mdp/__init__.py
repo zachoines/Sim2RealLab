@@ -105,6 +105,7 @@ from .events import (
     randomize_d555_mount_offset,
     randomize_proc_room_difficulty,
     lift_ground_plane_to_floor,
+    stamp_d555_perception_opencv_pinhole,
 )
 
 # Custom commands

@@ -384,48 +384,97 @@ class TestProgressTracker:
 
     def test_insufficient_history_not_stalled(self):
         t = _ProgressTracker(stall_progress_m=0.1, stall_window_s=20.0)
-        # Only 5 s of history, window is 20 s.
+        # 5 s of monotonic-down progress, window is 20 s -> too soon to stall.
         for i in range(6):
-            t.record(sim_time_s=float(i), distance_remaining_m=10.0 - 0.05 * i)
+            t.record(t_s=float(i), distance_remaining_m=10.0 - 0.05 * i)
         assert not t.is_stalled()
 
     def test_steady_progress_not_stalled(self):
         t = _ProgressTracker(stall_progress_m=0.1, stall_window_s=10.0)
-        # Distance drops 1 m per second over 15 s — far more than 0.1 m/window.
+        # Distance drops 1 m per second over 15 s — every sample is a new best.
         for i in range(16):
-            t.record(sim_time_s=float(i), distance_remaining_m=20.0 - float(i))
+            t.record(t_s=float(i), distance_remaining_m=20.0 - float(i))
         assert not t.is_stalled()
 
     def test_flat_distance_over_window_is_stalled(self):
         t = _ProgressTracker(stall_progress_m=0.1, stall_window_s=10.0)
-        # Distance pinned at 5.0 for 15 s.
-        for i in range(16):
-            t.record(sim_time_s=float(i), distance_remaining_m=5.0)
+        # First sample sets best at 5.0 at t=0. Plateau holds it. At t=10, no
+        # improvement for the full window -> stalled.
+        for i in range(11):
+            t.record(t_s=float(i), distance_remaining_m=5.0)
         assert t.is_stalled()
 
     def test_progress_then_plateau_eventually_stalls(self):
         t = _ProgressTracker(stall_progress_m=0.1, stall_window_s=10.0)
-        # First 5 s of fast progress, then 15 s plateau.
+        # First 5 s of fast progress; best=5.0 at t=5. Then 15 s plateau.
         for i in range(6):
-            t.record(sim_time_s=float(i), distance_remaining_m=10.0 - float(i))
-        # Plateau at 5.0 from t=5 to t=20.
+            t.record(t_s=float(i), distance_remaining_m=10.0 - float(i))
         for i in range(6, 21):
-            t.record(sim_time_s=float(i), distance_remaining_m=5.0)
+            t.record(t_s=float(i), distance_remaining_m=5.0)
+        # Latest t = 20, best_t = 5, gap = 15 >= 10 -> stalled.
         assert t.is_stalled()
 
-    def test_at_or_above_threshold_not_stalled(self):
-        # Exact 1.0 m progress against a 1.0 m threshold (binary-exact values
-        # to dodge IEEE-754 boundary surprises). Condition is
-        # ``< stall_progress_m``, so equality is NOT stalled.
+    def test_at_or_above_threshold_keeps_resetting(self):
+        # Exact 1.0 m improvement against a 1.0 m threshold. Condition is
+        # ``d < best - stall_progress_m`` (strict), so equality does NOT
+        # count as improvement -> stalled. Use binary-exact values to dodge
+        # IEEE-754 surprises.
         t = _ProgressTracker(stall_progress_m=1.0, stall_window_s=10.0)
-        t.record(sim_time_s=0.0, distance_remaining_m=10.0)
-        t.record(sim_time_s=11.0, distance_remaining_m=9.0)
+        t.record(t_s=0.0, distance_remaining_m=10.0)   # best=10 at t=0
+        t.record(t_s=11.0, distance_remaining_m=9.0)   # 9.0 < 10.0 - 1.0 is False -> not an improvement
+        # 11 - 0 = 11 >= 10 -> stalled.
+        assert t.is_stalled()
+
+    def test_clear_improvement_resets_timer(self):
+        t = _ProgressTracker(stall_progress_m=1.0, stall_window_s=10.0)
+        t.record(t_s=0.0, distance_remaining_m=10.0)   # best=10 at t=0
+        t.record(t_s=5.0, distance_remaining_m=8.0)    # 8 < 10 - 1 -> improvement, best_t=5
+        t.record(t_s=14.0, distance_remaining_m=8.0)   # plateau
+        # Latest t = 14, best_t = 5, gap = 9 < 10 -> not stalled yet.
+        assert not t.is_stalled()
+        t.record(t_s=16.0, distance_remaining_m=8.0)   # gap = 11 >= 10 -> stalled
+        assert t.is_stalled()
+
+    def test_replan_jitter_does_not_false_stall(self):
+        """Sparse-map case: Nav2 re-plans bounce ``distance_remaining`` UP and
+        DOWN around a generally-decreasing trend. The tracker should ignore
+        the upward jitter and follow the descending best-ever envelope."""
+        t = _ProgressTracker(stall_progress_m=0.5, stall_window_s=10.0)
+        # Robot is closing on the goal, but path length jitters wildly each
+        # second as the planner re-plans on a sparse costmap.
+        # True best-ever envelope: 10, 8, 6, 4, 2 across t=0,3,6,9,12.
+        samples = [
+            (0.0, 10.0),
+            (1.0, 14.0),  # re-plan to longer path
+            (2.0, 11.5),
+            (3.0,  8.0),  # new best
+            (4.0, 12.0),  # re-plan jitter UP — must NOT count as stall
+            (5.0,  9.0),
+            (6.0,  6.0),  # new best
+            (7.0, 10.5),
+            (8.0,  7.0),
+            (9.0,  4.0),  # new best
+            (10.0, 8.5),
+            (11.0, 5.5),
+            (12.0, 2.0),  # new best
+        ]
+        for t_s, d in samples:
+            t.record(t_s=t_s, distance_remaining_m=d)
+        # Latest t = 12, best_t = 12, gap = 0 -> not stalled.
         assert not t.is_stalled()
 
-    def test_below_threshold_is_stalled(self):
-        t = _ProgressTracker(stall_progress_m=1.0, stall_window_s=10.0)
-        t.record(sim_time_s=0.0, distance_remaining_m=10.0)
-        t.record(sim_time_s=11.0, distance_remaining_m=9.5)  # 0.5 m < 1.0 m threshold
+    def test_replan_to_much_longer_path_eventually_stalls(self):
+        """Documents the known limitation: a single re-plan that lengthens
+        the path by more than ``stall_window_s * NAV_LINEAR_VEL`` worth of
+        meters will trip the watchdog because the robot can't drive fast
+        enough to beat the previous best within the window. This is the
+        edge case the multi-layer watchdog follow-up brief addresses."""
+        t = _ProgressTracker(stall_progress_m=0.5, stall_window_s=10.0)
+        t.record(t_s=0.0,  distance_remaining_m=2.0)   # best=2 at t=0
+        # Re-plan to a 50 m detour; robot drives steadily but never gets
+        # close to the previous 2 m best within the window.
+        for i in range(1, 12):
+            t.record(t_s=float(i), distance_remaining_m=50.0 - float(i))
         assert t.is_stalled()
 
     def test_invalid_positive_args_rejected(self):

@@ -95,14 +95,30 @@ class RosClientConfig:
 
 
 class _ProgressTracker:
-    """Records (sim_time_s, distance_remaining_m) samples and reports stalls.
+    """Tracks Nav2 ``distance_remaining`` and reports stalls on lack of improvement.
 
-    A stall is "the most recent ``stall_window_s`` of sim-time has not
-    seen ``distance_remaining`` decrease by at least ``stall_progress_m``."
-    Insufficient history (no sample at-or-before the window cutoff) is
-    never a stall — the watchdog only fires once the window is fully
-    populated, so the first ``stall_window_s`` of any navigation cannot
-    trip it.
+    Semantics: a sample "improves" if it beats the previous best by at
+    least ``stall_progress_m``. The tracker remembers ``best_distance``
+    and the timestamp ``best_t`` at which it was achieved. The mission is
+    stalled if no improvement has happened in the last ``stall_window_s``
+    of clock-time.
+
+    Why best-ever instead of first-sample-in-window: Nav2's
+    ``distance_remaining`` is the length of the *current* planned path,
+    not Euclidean distance to goal. The planner re-plans on costmap
+    updates and can produce a longer path than the previous tick (e.g.
+    when a new obstacle appears in a sparse / partially-mapped scene).
+    A first-vs-latest comparison would treat the post-re-plan jump as
+    "negative progress" and fire spuriously. Best-ever ignores upward
+    jumps and only resets the stall timer on genuine improvements.
+
+    Limitation: a re-plan that lengthens the path by more than
+    ``stall_window_s * NAV_LINEAR_VEL`` worth of meters can still
+    spuriously stall, because the robot has to drive that far before
+    beating its previous best. Single-room scenes don't hit this; large
+    multi-room re-plans might. The principled fix is a multi-layer
+    watchdog (chassis-motion + plan-health + goal-progress signals),
+    tracked in ``docs/tasks/active/nav-stall-multilayer-watchdog.md``.
 
     Pure helper: no ROS / clock dependencies, so unit tests can drive it
     by injecting samples directly.
@@ -115,27 +131,30 @@ class _ProgressTracker:
             )
         self.stall_progress_m = float(stall_progress_m)
         self.stall_window_s = float(stall_window_s)
-        self._samples: list[tuple[float, float]] = []
+        self._best_distance: float | None = None
+        self._best_t: float | None = None
+        self._latest_t: float | None = None
 
-    def record(self, *, sim_time_s: float, distance_remaining_m: float) -> None:
-        """Append one feedback sample. Out-of-order samples are accepted as-is."""
-        self._samples.append((float(sim_time_s), float(distance_remaining_m)))
+    def record(self, *, t_s: float, distance_remaining_m: float) -> None:
+        """Ingest one Nav2 feedback sample.
+
+        ``t_s`` is the executor node's clock — sim-time under
+        ``use_sim_time:=true`` (Isaac Sim bridge), wall-time on real
+        hardware. Out-of-order samples are accepted but only forward
+        time progression resets the stall timer correctly; in practice
+        Nav2 feedback arrives monotonically so this is a non-issue.
+        """
+        t = float(t_s)
+        d = float(distance_remaining_m)
+        self._latest_t = t
+        if self._best_distance is None or d < self._best_distance - self.stall_progress_m:
+            self._best_distance = d
+            self._best_t = t
 
     def is_stalled(self) -> bool:
-        if not self._samples:
+        if self._best_t is None or self._latest_t is None:
             return False
-        latest_t, latest_d = self._samples[-1]
-        cutoff = latest_t - self.stall_window_s
-        # Find the latest sample at-or-before the cutoff (the baseline).
-        baseline_d: float | None = None
-        for t, d in self._samples:
-            if t <= cutoff:
-                baseline_d = d
-            else:
-                break
-        if baseline_d is None:
-            return False
-        return (baseline_d - latest_d) < self.stall_progress_m
+        return (self._latest_t - self._best_t) >= self.stall_window_s
 
 
 @dataclass(frozen=True)
@@ -542,10 +561,10 @@ class JetsonRosClient:
                 return
             try:
                 distance = float(feedback_msg.feedback.distance_remaining)
-                sim_time_s = self._node.get_clock().now().nanoseconds * 1e-9
-                tracker.record(
-                    sim_time_s=sim_time_s, distance_remaining_m=distance,
-                )
+                # Executor node's clock: sim-time under use_sim_time:=true,
+                # wall-time on real hardware. Both flow through the same path.
+                t_s = self._node.get_clock().now().nanoseconds * 1e-9
+                tracker.record(t_s=t_s, distance_remaining_m=distance)
             except Exception:
                 logger.debug("Nav2 feedback handling failed", exc_info=True)
 

@@ -177,7 +177,7 @@
       "imageMode": {
         "imageTopic": "/d555/color/grounding_frame",
         "calibrationTopic": "/d555/color/camera_info_sync",
-        "synchronize": true,
+        "synchronize": false,
         "rotation": 0,
         "flipHorizontal": false,
         "flipVertical": false,

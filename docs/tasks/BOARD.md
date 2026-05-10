@@ -65,6 +65,7 @@ session.
 | Brief | Estimate | Note |
 |---|---|---|
 | [`rotate-in-place-sim-clock-deadline`](active/rotate-in-place-sim-clock-deadline.md) | S | Quick win |
+| [`grounding-publisher-extraction`](active/grounding-publisher-extraction.md) | S | Quick win — pure refactor follow-up to `vlm-bbox-overlay`; extracts the viz publishers out of `JetsonRosClient` |
 | [`align-after-scan-grounding`](active/align-after-scan-grounding.md) | S–M | Executor + plan_compiler tweak |
 | [`real-d555-depth-range-survey`](active/real-d555-depth-range-survey.md) | S–M | Investigation — bench measurement + write-up |
 | [`nav2-startup-unknown-donut-path-noise`](active/nav2-startup-unknown-donut-path-noise.md) | M | Planner-side fix for the kinky-path-through-camera-donut symptom |
@@ -97,6 +98,7 @@ for fresh-session pickup. Cross-cut — these also appear above.
 - [`d555-distortion-model-explicit`](active/d555-distortion-model-explicit.md) (DGX, P2)
 - [`planner-rotate-direction-prompt`](active/planner-rotate-direction-prompt.md) (DGX, P2)
 - [`rotate-in-place-sim-clock-deadline`](active/rotate-in-place-sim-clock-deadline.md) (Jetson, P2)
+- [`grounding-publisher-extraction`](active/grounding-publisher-extraction.md) (Jetson, P2)
 
 ---
 

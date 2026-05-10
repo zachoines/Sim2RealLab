@@ -197,6 +197,15 @@ class JetsonRosClient:
     # accepted detections so the last-grounded view persists between calls.
     TOPIC_GROUNDING_FRAME = "/d555/color/grounding_frame"
 
+    # Foxglove-native image-overlay companion. Foxglove Studio 2.x does not
+    # auto-decode `vision_msgs/Detection2DArray` for image annotations even
+    # though the topic exists on the graph — so we *also* publish
+    # `foxglove_msgs/ImageAnnotations`, which the Image panel renders
+    # natively. The Detection2DArray topic stays as the canonical semantic
+    # output (RViz, bag replay, downstream ROS consumers); this companion
+    # exists only for Foxglove rendering.
+    TOPIC_DETECTIONS_FG = "/d555/color/detections_fg"
+
     def __init__(self, config: RosClientConfig | None = None) -> None:
         import rclpy
         from rclpy.executors import SingleThreadedExecutor
@@ -235,6 +244,7 @@ class JetsonRosClient:
         # the same symptom as "no grounding has fired yet."
         self._detections_pub: Any = None
         self._grounding_frame_pub: Any = None
+        self._detections_fg_pub: Any = None
 
         self._setup_subscriptions()
         self._setup_publishers()
@@ -331,6 +341,27 @@ class JetsonRosClient:
         self._grounding_frame_pub = self._node.create_publisher(
             Image, self.TOPIC_GROUNDING_FRAME, latched_qos,
         )
+
+        # Foxglove-native ImageAnnotations companion. Foxglove Studio 2.x
+        # exposes Detection2DArray as a topic but does not render it as
+        # an image overlay — the Image panel's Annotations dropdown
+        # silently drops it. Publishing the same bbox data as
+        # ``foxglove_msgs/ImageAnnotations`` is the supported path. If
+        # ``foxglove_msgs`` is missing we degrade the same way as for
+        # ``vision_msgs``: warn loudly at startup, then keep the rest
+        # of the executor running.
+        try:
+            from foxglove_msgs.msg import ImageAnnotations
+        except ImportError:
+            self._node.get_logger().warning(
+                "foxglove_msgs not installed; %s Foxglove-native overlay disabled. "
+                "Install with: sudo apt install ros-humble-foxglove-msgs",
+                self.TOPIC_DETECTIONS_FG,
+            )
+        else:
+            self._detections_fg_pub = self._node.create_publisher(
+                ImageAnnotations, self.TOPIC_DETECTIONS_FG, latched_qos,
+            )
 
     def _on_color(self, msg: Any) -> None:
         with self._cache_lock:
@@ -902,6 +933,93 @@ class JetsonRosClient:
             msg.detections.append(det)
 
         self._detections_pub.publish(msg)
+
+        # Companion Foxglove-native overlay. Foxglove Studio 2.x doesn't
+        # render Detection2DArray as an image annotation; foxglove_msgs/
+        # ImageAnnotations is the supported schema. Same bbox data, just
+        # framed for the Foxglove Image panel's renderer.
+        self._publish_foxglove_annotations(
+            sec=sec,
+            nanosec=nanosec,
+            scale_x=scale_x,
+            scale_y=scale_y,
+            detections=list(msg.detections),  # already-built Detection2D objects
+            source=detections,                # original (bbox_qwen, label, conf) tuples
+        )
+
+    def _publish_foxglove_annotations(
+        self,
+        *,
+        sec: int,
+        nanosec: int,
+        scale_x: float,
+        scale_y: float,
+        detections: "list[Any]",  # noqa: ARG002 — kept for symmetry / future debug
+        source: "Iterable[tuple[tuple[int, int, int, int], str | None, float | None]]",
+    ) -> None:
+        """Emit the same bbox data as ``foxglove_msgs/ImageAnnotations``.
+
+        One ``PointsAnnotation`` (LINE_LOOP of four corners) per bbox plus
+        a label ``TextAnnotation`` above each box. The annotation
+        timestamp matches the Detection2DArray header so a Foxglove panel
+        configured with ``synchronize: true`` against the grounding-frame
+        topic pairs them exactly.
+
+        No-ops cleanly if ``foxglove_msgs`` was missing at startup.
+        """
+        if self._detections_fg_pub is None:
+            return
+        from builtin_interfaces.msg import Time as TimeMsg
+        from foxglove_msgs.msg import (
+            Color,
+            ImageAnnotations,
+            Point2,
+            PointsAnnotation,
+            TextAnnotation,
+        )
+
+        stamp = TimeMsg(sec=sec, nanosec=nanosec)
+        green = Color(r=0.2, g=1.0, b=0.4, a=1.0)
+        black = Color(r=0.0, g=0.0, b=0.0, a=0.0)
+        white = Color(r=1.0, g=1.0, b=1.0, a=1.0)
+        text_bg = Color(r=0.0, g=0.0, b=0.0, a=0.6)
+
+        anno = ImageAnnotations()
+        for bbox_qwen, label, confidence in source:
+            x1, y1, x2, y2 = (float(v) for v in bbox_qwen)
+            x1_px = x1 * scale_x
+            y1_px = y1 * scale_y
+            x2_px = x2 * scale_x
+            y2_px = y2 * scale_y
+
+            pa = PointsAnnotation()
+            pa.timestamp = stamp
+            pa.type = PointsAnnotation.LINE_LOOP
+            pa.points = [
+                Point2(x=x1_px, y=y1_px),
+                Point2(x=x2_px, y=y1_px),
+                Point2(x=x2_px, y=y2_px),
+                Point2(x=x1_px, y=y2_px),
+            ]
+            pa.outline_color = green
+            pa.fill_color = black  # transparent fill; outline only
+            pa.thickness = 2.0
+            anno.points.append(pa)
+
+            if label:
+                text = label
+                if confidence is not None:
+                    text = f"{label} {confidence:.2f}"
+                ta = TextAnnotation()
+                ta.timestamp = stamp
+                ta.position = Point2(x=x1_px, y=max(0.0, y1_px - 4.0))
+                ta.text = text
+                ta.font_size = 14.0
+                ta.text_color = white
+                ta.background_color = text_bg
+                anno.texts.append(ta)
+
+        self._detections_fg_pub.publish(anno)
 
     def publish_grounding_frame(
         self,

@@ -17,6 +17,10 @@
   <!-- vision_msgs/Detection2DArray is published by the executor's
        JetsonRosClient.publish_detections() for Foxglove bbox overlay. -->
   <exec_depend>vision_msgs</exec_depend>
+  <!-- foxglove_msgs/ImageAnnotations companion topic — Foxglove Studio 2.x
+       won't render Detection2DArray as image annotations, so we also
+       publish this schema natively for the Image panel. -->
+  <exec_depend>foxglove_msgs</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
 

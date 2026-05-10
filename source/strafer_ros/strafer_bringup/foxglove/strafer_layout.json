@@ -38,7 +38,7 @@
         "minValue": 0,
         "maxValue": 1,
         "annotations": {
-          "/d555/color/detections": {"visible": true}
+          "/d555/color/detections_fg": {"visible": true}
         }
       }
     },
@@ -184,7 +184,7 @@
         "minValue": 0,
         "maxValue": 1,
         "annotations": {
-          "/d555/color/detections": {"visible": true}
+          "/d555/color/detections_fg": {"visible": true}
         }
       }
     }

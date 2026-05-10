@@ -98,6 +98,7 @@ Commanded / driven:
 | `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | Driver connection state + error counts |
 | `/d555/color/detections` | `vision_msgs/Detection2DArray` | Executor-published VLM grounding bbox (pixel coords, source-image stamp) — Foxglove RGB panel uses it as an annotation overlay. Empty array clears the previous overlay. **Latched (`TRANSIENT_LOCAL`)** so late subscribers (Foxglove attaching mid-mission, `ros2 topic echo` opened after the scan finished) get the most recent overlay state. To inspect from the CLI: `ros2 topic echo /d555/color/detections --qos-durability transient_local`. |
 | `/d555/color/grounding_frame` | `sensor_msgs/Image` (`bgr8`) | The exact RGB frame the VLM grounded against, republished alongside `/d555/color/detections` so Foxglove can render a stable image+bbox overlay (the bbox is in pixel-space for *this* frame; the live camera has moved on by the time Foxglove draws). Refreshed only on accepted detections — empty / rejected grounding leaves the last-grounded view in place. **Latched (`TRANSIENT_LOCAL`)** for the same late-subscriber reason as the detections topic. |
+| `/d555/color/detections_fg` | `foxglove_msgs/ImageAnnotations` | Same bbox data as `/d555/color/detections`, encoded as Foxglove's native image-annotation schema (one LINE_LOOP per bbox + a label TextAnnotation). Exists only because Foxglove Studio 2.x lists `Detection2DArray` topics on the graph but does not render them as image overlays. Use `/d555/color/detections` (`Detection2DArray`) for any non-Foxglove consumer (RViz, bag replay, downstream analytics). **Latched (`TRANSIENT_LOCAL`)**. |
 
 ### Default interface names (match `strafer_autonomy` CLI defaults)
 
@@ -145,6 +146,7 @@ Prerequisites:
 - udev rules: `sudo cp source/strafer_ros/99-strafer.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules`.
 - `ros-humble-foxglove-bridge` for the headless visualizer in `bringup_sim_in_the_loop.launch.py`: `sudo apt install ros-humble-foxglove-bridge`. Skip if you always launch with `viewer:=false`.
 - `ros-humble-vision-msgs` for the executor's `Detection2DArray` overlay publisher: `sudo apt install ros-humble-vision-msgs`. Required by `strafer_autonomy.clients.ros_client.JetsonRosClient.publish_detections()`.
+- `ros-humble-foxglove-msgs` for the Foxglove-native `ImageAnnotations` companion publisher (renders the bbox overlay in Foxglove Studio's Image panel): `sudo apt install ros-humble-foxglove-msgs`. Optional — if missing, the executor logs a warning at startup and the canonical `/d555/color/detections` topic still publishes; only the Foxglove overlay is disabled.
 
 From the repo root, `make build` runs the colcon build and `make udev` installs the rules.
 

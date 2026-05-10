@@ -46,6 +46,7 @@ def _make_client(config: RosClientConfig | None = None) -> JetsonRosClient:
     client._active_goal_handle = None
     client._detections_pub = None  # Tests opt in via TestPublishDetections.
     client._grounding_frame_pub = None  # Tests opt in via TestPublishGroundingFrame.
+    client._detections_fg_pub = None  # Tests opt in via TestPublishDetectionsFG.
     # Mock the ROS node — use a real rclpy.time.Time advancing with the
     # monotonic wall clock so Time + Duration arithmetic and Time
     # comparisons in _wait_for_future work, and ``.to_msg()`` returns a
@@ -1032,3 +1033,179 @@ class TestPublishGroundingFrame(unittest.TestCase):
             image_stamp_sec=1.0,
             image_frame_id="frame",
         )
+
+
+# ------------------------------------------------------------------
+# Tests — foxglove_msgs/ImageAnnotations companion publisher
+# ------------------------------------------------------------------
+
+
+def _add_foxglove_msgs_stub(stack: dict[str, Any]) -> None:
+    """Inject a foxglove_msgs.msg stub into sys.modules.
+
+    Saves prior bindings into ``stack`` so the caller's finally-block can
+    restore them. Mirrors the pattern used by ``_stub_vision_msgs``.
+    """
+    stack["foxglove_msgs"] = sys.modules.get("foxglove_msgs")
+    stack["foxglove_msgs.msg"] = sys.modules.get("foxglove_msgs.msg")
+
+    fg_pkg = types.ModuleType("foxglove_msgs")
+    fg_msg = types.ModuleType("foxglove_msgs.msg")
+
+    class _StubPointsAnnotation:
+        UNKNOWN = 0
+        POINTS = 1
+        LINE_LOOP = 2
+        LINE_STRIP = 3
+        LINE_LIST = 4
+
+        def __init__(self) -> None:
+            self.timestamp = None
+            self.type = 0
+            self.points: list[Any] = []
+            self.outline_color = None
+            self.outline_colors: list[Any] = []
+            self.fill_color = None
+            self.thickness = 0.0
+
+    class _StubTextAnnotation:
+        def __init__(self) -> None:
+            self.timestamp = None
+            self.position = None
+            self.text = ""
+            self.font_size = 0.0
+            self.text_color = None
+            self.background_color = None
+
+    class _StubImageAnnotations:
+        def __init__(self) -> None:
+            self.circles: list[Any] = []
+            self.points: list[Any] = []
+            self.texts: list[Any] = []
+
+    class _StubColor:
+        def __init__(self, r=0.0, g=0.0, b=0.0, a=0.0) -> None:
+            self.r = r
+            self.g = g
+            self.b = b
+            self.a = a
+
+    class _StubPoint2:
+        def __init__(self, x=0.0, y=0.0) -> None:
+            self.x = x
+            self.y = y
+
+    fg_msg.ImageAnnotations = _StubImageAnnotations
+    fg_msg.PointsAnnotation = _StubPointsAnnotation
+    fg_msg.TextAnnotation = _StubTextAnnotation
+    fg_msg.Color = _StubColor
+    fg_msg.Point2 = _StubPoint2
+    fg_pkg.msg = fg_msg  # type: ignore[attr-defined]
+    sys.modules["foxglove_msgs"] = fg_pkg
+    sys.modules["foxglove_msgs.msg"] = fg_msg
+
+
+class TestPublishDetectionsFG(unittest.TestCase):
+    """Verifies publish_detections also emits the Foxglove-native overlay."""
+
+    def test_publishes_line_loop_and_text_annotation(self) -> None:
+        stack: dict[str, Any] = {}
+        with _stub_vision_msgs():
+            _add_foxglove_msgs_stub(stack)
+            try:
+                client = _make_client()
+                vm_pub = MagicMock()
+                fg_pub = MagicMock()
+                client._detections_pub = vm_pub
+                client._detections_fg_pub = fg_pub
+
+                client.publish_detections(
+                    image_stamp_sec=100.5,
+                    image_frame_id="d555_color_optical_frame",
+                    image_width=640,
+                    image_height=360,
+                    detections=[((100, 200, 500, 600), "door", 0.91)],
+                )
+
+                # Both pubs fire once for one detection.
+                self.assertEqual(vm_pub.publish.call_count, 1)
+                self.assertEqual(fg_pub.publish.call_count, 1)
+
+                anno = fg_pub.publish.call_args[0][0]
+                # One LINE_LOOP for the bbox.
+                self.assertEqual(len(anno.points), 1)
+                pa = anno.points[0]
+                self.assertEqual(pa.type, 2)  # LINE_LOOP
+                # 4 corners, all at pixel scale (1000-unit → 640x360).
+                # x: [100, 500] * 640/1000 = [64, 320]
+                # y: [200, 600] * 360/1000 = [72, 216]
+                xs = [p.x for p in pa.points]
+                ys = [p.y for p in pa.points]
+                self.assertEqual(sorted(set(xs)), [64.0, 320.0])
+                self.assertEqual(sorted(set(ys)), [72.0, 216.0])
+                self.assertEqual(pa.timestamp.sec, 100)
+                self.assertEqual(pa.timestamp.nanosec, 500_000_000)
+
+                # One TextAnnotation for the label.
+                self.assertEqual(len(anno.texts), 1)
+                ta = anno.texts[0]
+                self.assertIn("door", ta.text)
+                self.assertIn("0.91", ta.text)
+            finally:
+                for k, v in stack.items():
+                    if v is None:
+                        sys.modules.pop(k, None)
+                    else:
+                        sys.modules[k] = v
+
+    def test_no_publish_when_fg_pub_is_none(self) -> None:
+        """foxglove_msgs missing at startup → Detection2DArray still goes out."""
+        with _stub_vision_msgs():
+            client = _make_client()
+            vm_pub = MagicMock()
+            client._detections_pub = vm_pub
+            client._detections_fg_pub = None  # foxglove_msgs absent
+
+            # Should not raise even though no foxglove_msgs stub is registered.
+            client.publish_detections(
+                image_stamp_sec=1.0,
+                image_frame_id="frame",
+                image_width=640,
+                image_height=360,
+                detections=[((0, 0, 1000, 1000), "x", 0.5)],
+            )
+            self.assertEqual(vm_pub.publish.call_count, 1)
+
+    def test_empty_detections_publishes_empty_annotations(self) -> None:
+        """Empty detection list still publishes an empty ImageAnnotations.
+
+        That's the clear-overlay path — without an empty publish here,
+        Foxglove keeps drawing the last bbox after a mission ends or a
+        scan heading rejects all candidates.
+        """
+        stack: dict[str, Any] = {}
+        with _stub_vision_msgs():
+            _add_foxglove_msgs_stub(stack)
+            try:
+                client = _make_client()
+                client._detections_pub = MagicMock()
+                fg_pub = MagicMock()
+                client._detections_fg_pub = fg_pub
+
+                client.publish_detections(
+                    image_stamp_sec=0.0,
+                    image_frame_id="frame",
+                    image_width=640,
+                    image_height=360,
+                    detections=[],
+                )
+                self.assertEqual(fg_pub.publish.call_count, 1)
+                anno = fg_pub.publish.call_args[0][0]
+                self.assertEqual(anno.points, [])
+                self.assertEqual(anno.texts, [])
+            finally:
+                for k, v in stack.items():
+                    if v is None:
+                        sys.modules.pop(k, None)
+                    else:
+                        sys.modules[k] = v

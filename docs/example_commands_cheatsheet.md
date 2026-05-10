@@ -236,6 +236,7 @@ make launch-sim
 
 ## Jetson shell 2 — submit a mission
 ```bash
+source source/strafer_ros/strafer_bringup/config/env_sim_in_the_loop.env
 strafer-autonomy-cli submit "go to the couch"
 strafer-autonomy-cli status
 strafer-autonomy-cli cancel

@@ -1,5 +1,9 @@
 # Progress-aware nav timeouts in the executor
 
+**Status:** Shipped 2026-05-09 in `7065c6b` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/21
+**Follow-ups:** [`nav-stall-multilayer-watchdog.md`](../active/nav-stall-multilayer-watchdog.md) — multi-signal layered watchdog (chassis-wedge + Nav2 recovery-rate + the existing best-ever progress + absolute deadline). Filed-on-trigger; pick up only if the v1 best-ever-`distance_remaining` watchdog produces real-world false positives or false negatives.
+
 **Type:** task / enhancement
 **Owner:** Jetson agent
 **Priority:** P2

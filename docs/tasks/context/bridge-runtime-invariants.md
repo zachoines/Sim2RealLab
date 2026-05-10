@@ -118,12 +118,38 @@ The executor's nav-timeout enforcement uses
 sim-in-the-loop bringup launch (`use_sim_time:=true`), 90 s of
 sim-time wait is 90 s of `/clock` advance — not 90 s of wall
 clock. Real-robot bringup leaves `use_sim_time=False`, so the same
-code path uses the system wall clock natively. Set via
-`STRAFER_NAVIGATION_TIMEOUT_S` env var (default 90 s; bumped to
-600 in `env_sim_in_the_loop.env` for slow-RTF sim runs).
+code path uses the system wall clock natively.
 
-Source: commit `f60456e`, lives in
-[`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py).
+`STRAFER_NAVIGATION_TIMEOUT_S` (default 90 s; 180 s in
+`env_sim_in_the_loop.env`) is the operator's per-mission ceiling.
+Per-step budgets are derived in the executor:
+
+- **Progress-aware mode (default, `STRAFER_NAV_PROGRESS_AWARE=1`).**
+  `_translate`, `_rotate_by_degrees`, `_orient_to_direction`, and
+  `_dispatch_nav_goal` synthesize per-step budgets from the requested
+  displacement (or robot→goal straight-line distance) divided by
+  `NAV_LINEAR_VEL` / `NAV_ANGULAR_VEL`, scaled by `safety_factor`
+  and offset by `setup_overhead_s`. The result is capped at
+  `STRAFER_NAVIGATION_TIMEOUT_S`. Additionally,
+  `ros_client.navigate_to_pose` registers a `feedback_callback` and
+  runs a stall watchdog on Nav2's `distance_remaining`: if no
+  ≥ `nav_stall_progress_m` of progress occurs over
+  `nav_stall_window_s` of sim-time, the goal is canceled with
+  `error_code=navigation_stalled`. Tunables (env / dataclass default):
+  - `STRAFER_NAV_BUDGET_SAFETY_FACTOR` / `nav_budget_safety_factor` (2.0)
+  - `STRAFER_NAV_BUDGET_SETUP_OVERHEAD_S` / `nav_budget_setup_overhead_s` (5.0)
+  - `STRAFER_NAV_STALL_PROGRESS_M` / `nav_stall_progress_m` (0.10 m)
+  - `STRAFER_NAV_STALL_WINDOW_S` / `nav_stall_window_s` (20.0 s)
+- **Legacy mode (`STRAFER_NAV_PROGRESS_AWARE=0`).** Every motion
+  step uses `STRAFER_NAVIGATION_TIMEOUT_S` as the single deadline,
+  no stall watchdog. Bisection escape hatch only.
+
+Sources: commit `f60456e` (sim-clock deadline), the
+`progress-aware-nav-timeouts` brief (per-step budgets + watchdog).
+Live in
+[`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
+and
+[`source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py`](../../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py).
 
 ## Phase-level profiler (`--profile`)
 

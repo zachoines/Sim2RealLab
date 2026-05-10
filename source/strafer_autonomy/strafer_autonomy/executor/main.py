@@ -15,10 +15,48 @@ ROTATE_TIMEOUT_S       : Override the default rotate_in_place timeout (optional,
                          scan_for_target uses this default for its inter-heading rotations. Raise it when
                          sim real-time factor is sub-unity or the chassis rotates slowly under the
                          configured angular velocity.
-STRAFER_NAVIGATION_TIMEOUT_S : Override the default navigate_to_pose timeout (optional, seconds; default 90.0).
-                         The executor's nav timeout ticks on the executor node's clock, so under
-                         use_sim_time:=true this is a sim-time budget. Raise it on sub-unity-RTF sim
-                         scenes where 90 s of sim time can correspond to several minutes of wall time.
+STRAFER_NAVIGATION_TIMEOUT_S : Operator's per-mission navigation timeout ceiling (optional, seconds;
+                         default 90.0). With ``STRAFER_NAV_PROGRESS_AWARE`` enabled (default), the
+                         executor synthesizes per-step budgets from the requested displacement and
+                         caps them at this value — short translates / rotations get tight budgets,
+                         long traverses still respect this ceiling. With ``STRAFER_NAV_PROGRESS_AWARE=0``
+                         this becomes the single deadline applied to every motion step, matching the
+                         pre-progress-aware behavior. The executor's nav timeout ticks on the executor
+                         node's clock, so under use_sim_time:=true this is a sim-time budget. Raise
+                         it on sub-unity-RTF sim scenes where 90 s of sim time can correspond to
+                         several minutes of wall time.
+STRAFER_NAV_PROGRESS_AWARE : Toggle progress-aware motion timeouts (optional; default 1 / enabled).
+                         When 1, per-step budgets for translate / rotate_by_degrees /
+                         orient_to_direction / navigate_to_pose are derived from the requested
+                         displacement (or robot→goal straight-line distance) divided by NAV_LINEAR_VEL
+                         / NAV_ANGULAR_VEL, scaled by ``nav_budget_safety_factor`` (default 2.0)
+                         and offset by ``nav_budget_setup_overhead_s`` (default 5.0), capped at
+                         ``STRAFER_NAVIGATION_TIMEOUT_S``. Additionally, a stall watchdog on Nav2's
+                         ``distance_remaining`` feedback aborts the active goal with
+                         ``error_code=navigation_stalled`` if no progress is made for
+                         ``nav_stall_window_s`` (default 20 s) of sim-time. Set to 0 to fall back
+                         to the legacy single-deadline behavior for bisection.
+STRAFER_NAV_BUDGET_SAFETY_FACTOR : Override the multiplier on the (distance / nominal_speed) term in
+                         the progress-aware budget formula (optional, float; default 2.0). Raise on
+                         cluttered sim scenes where Nav2 plans a longer path than the straight-line
+                         estimate; lower on real-robot deployments with smoother planning.
+                         No effect when STRAFER_NAV_PROGRESS_AWARE=0.
+STRAFER_NAV_BUDGET_SETUP_OVERHEAD_S : Override the additive setup term in the progress-aware budget
+                         formula (optional, seconds; default 5.0). Covers Nav2 plan + accel/decel
+                         that don't scale with distance. Raise on slow-RTF sim where the planner
+                         takes a noticeable fraction of a sim-second to converge.
+                         No effect when STRAFER_NAV_PROGRESS_AWARE=0.
+STRAFER_NAV_STALL_PROGRESS_M : Override the minimum distance_remaining decrease required within
+                         STRAFER_NAV_STALL_WINDOW_S to consider Nav2 making progress (optional,
+                         meters; default 0.10). Raise to be more permissive of slow approaches /
+                         physics jitter; lower to fast-fail on hangs sooner.
+                         No effect when STRAFER_NAV_PROGRESS_AWARE=0.
+STRAFER_NAV_STALL_WINDOW_S : Override the rolling sim-time window over which the stall watchdog
+                         measures progress (optional, seconds; default 20.0). The watchdog cannot
+                         fire before the window is fully populated, so this is also the minimum
+                         duration of any navigation attempt. Raise on noisy / oscillating planners;
+                         lower for tighter dead-man behavior.
+                         No effect when STRAFER_NAV_PROGRESS_AWARE=0.
 STRAFER_NAV_STAGING_BUDGET : Override the maximum number of clamped intermediate Nav2 goals issued
                          by `_navigate_via_staging` when the projected target lands outside the global
                          costmap (optional, integer; default 4). One additional final Nav2 goal fires
@@ -49,6 +87,20 @@ def _read_float_env(name: str, config_key: str, target: dict) -> None:
         logger.info("%s overridden to %s via env", config_key, raw)
     except ValueError:
         logger.warning("Ignoring non-numeric %s=%r", name, raw)
+
+
+def _read_bool_env(name: str, config_key: str, target: dict) -> None:
+    """Copy ``$name`` into ``target[config_key]`` as a bool, if set.
+
+    Recognizes ``"0"`` / ``"false"`` / ``"no"`` / ``"off"`` (case-insensitive)
+    as False; any other non-empty value as True. Unset preserves the
+    dataclass default.
+    """
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return
+    target[config_key] = raw.strip().lower() not in {"0", "false", "no", "off"}
+    logger.info("%s overridden to %s via env", config_key, target[config_key])
 
 
 def _read_positive_int_env(name: str, config_key: str, target: dict) -> None:
@@ -132,6 +184,31 @@ def main() -> None:
     _read_positive_int_env(
         "STRAFER_NAV_STAGING_BUDGET",
         "staging_budget",
+        mission_config_kwargs,
+    )
+    _read_bool_env(
+        "STRAFER_NAV_PROGRESS_AWARE",
+        "nav_progress_aware",
+        mission_config_kwargs,
+    )
+    _read_float_env(
+        "STRAFER_NAV_BUDGET_SAFETY_FACTOR",
+        "nav_budget_safety_factor",
+        mission_config_kwargs,
+    )
+    _read_float_env(
+        "STRAFER_NAV_BUDGET_SETUP_OVERHEAD_S",
+        "nav_budget_setup_overhead_s",
+        mission_config_kwargs,
+    )
+    _read_float_env(
+        "STRAFER_NAV_STALL_PROGRESS_M",
+        "nav_stall_progress_m",
+        mission_config_kwargs,
+    )
+    _read_float_env(
+        "STRAFER_NAV_STALL_WINDOW_S",
+        "nav_stall_window_s",
         mission_config_kwargs,
     )
     runner_config = (

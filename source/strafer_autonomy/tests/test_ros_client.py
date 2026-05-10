@@ -716,20 +716,37 @@ class TestWaitForFuture(unittest.TestCase):
 
 
 class _StubMsg:
-    """Minimal stand-in for a generated ROS message — accepts arbitrary attrs."""
+    """Minimal stand-in for a generated ROS message — accepts arbitrary attrs.
+
+    ``center`` mirrors the vision_msgs 4.x (Humble) ``Pose2D`` shape:
+    ``position.x/.y`` + ``theta``. The fallback path for older builds
+    that expose ``.x/.y`` directly is exercised by a dedicated test that
+    swaps ``BoundingBox2D`` for ``_StubMsgLegacyBbox``.
+    """
 
     def __init__(self) -> None:
         self.header = SimpleNamespace(stamp=None, frame_id="")
         self.detections: list[Any] = []
         self.results: list[Any] = []
         self.bbox: Any = None
-        # BoundingBox2D members
-        self.center = SimpleNamespace(x=0.0, y=0.0, theta=0.0)
+        # BoundingBox2D members — Humble schema (Pose2D w/ nested position)
+        self.center = SimpleNamespace(
+            position=SimpleNamespace(x=0.0, y=0.0),
+            theta=0.0,
+        )
         self.size_x = 0.0
         self.size_y = 0.0
         # ObjectHypothesisWithPose members
         self.hypothesis = SimpleNamespace(class_id="", score=0.0)
         self.pose = SimpleNamespace()
+
+
+class _StubMsgLegacyBbox(_StubMsg):
+    """BoundingBox2D stub with legacy geometry_msgs/Pose2D shape (x/y direct)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.center = SimpleNamespace(x=0.0, y=0.0, theta=0.0)
 
 
 @contextmanager
@@ -811,12 +828,38 @@ class TestPublishDetections(unittest.TestCase):
             #   pixel_x = 300 * 640 / 1000 = 192.0
             #   pixel_y = 400 * 360 / 1000 = 144.0
             # Size: (400 * 640/1000, 400 * 360/1000) = (256, 144).
-            self.assertAlmostEqual(det.bbox.center.x, 192.0)
-            self.assertAlmostEqual(det.bbox.center.y, 144.0)
+            # Humble's vision_msgs/Pose2D nests x/y under .position.
+            self.assertAlmostEqual(det.bbox.center.position.x, 192.0)
+            self.assertAlmostEqual(det.bbox.center.position.y, 144.0)
             self.assertAlmostEqual(det.bbox.size_x, 256.0)
             self.assertAlmostEqual(det.bbox.size_y, 144.0)
             self.assertEqual(det.results[0].hypothesis.class_id, "door")
             self.assertAlmostEqual(det.results[0].hypothesis.score, 0.91)
+
+    def test_falls_back_to_legacy_pose2d_shape(self) -> None:
+        """Pre-Humble vision_msgs (geometry_msgs/Pose2D) exposes x/y directly."""
+        with _stub_vision_msgs():
+            # Swap in the legacy bbox stub for this one test.
+            sys.modules["vision_msgs.msg"].BoundingBox2D = _StubMsgLegacyBbox  # type: ignore[attr-defined]
+
+            client = _make_client()
+            pub = MagicMock()
+            client._detections_pub = pub
+
+            client.publish_detections(
+                image_stamp_sec=1.0,
+                image_frame_id="frame",
+                image_width=640,
+                image_height=360,
+                detections=[((0, 0, 1000, 1000), "door", 0.5)],
+            )
+
+            msg = self._captured(client)
+            det = msg.detections[0]
+            self.assertAlmostEqual(det.bbox.center.x, 320.0)
+            self.assertAlmostEqual(det.bbox.center.y, 180.0)
+            # Sanity: legacy stub doesn't grow a .position attr behind our back.
+            self.assertFalse(hasattr(det.bbox.center, "position"))
 
     def test_empty_detections_publishes_empty_array(self) -> None:
         """An empty detection list must still publish — clears stale overlay."""

@@ -861,8 +861,15 @@ class JetsonRosClient:
             det.header = msg.header
 
             bbox = BoundingBox2D()
-            bbox.center.x = cx_px
-            bbox.center.y = cy_px
+            # vision_msgs 4.x (Humble) replaced geometry_msgs/Pose2D with
+            # vision_msgs/Pose2D, which nests x/y under .position. Older
+            # builds expose .x/.y directly. Branch so we work on both.
+            if hasattr(bbox.center, "position"):
+                bbox.center.position.x = cx_px
+                bbox.center.position.y = cy_px
+            else:
+                bbox.center.x = cx_px
+                bbox.center.y = cy_px
             bbox.center.theta = 0.0
             bbox.size_x = size_x_px
             bbox.size_y = size_y_px

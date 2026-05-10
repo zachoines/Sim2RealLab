@@ -45,6 +45,7 @@ def _make_client(config: RosClientConfig | None = None) -> JetsonRosClient:
     client._nav_lock = threading.Lock()
     client._active_goal_handle = None
     client._detections_pub = None  # Tests opt in via TestPublishDetections.
+    client._grounding_frame_pub = None  # Tests opt in via TestPublishGroundingFrame.
     # Mock the ROS node — use a real rclpy.time.Time advancing with the
     # monotonic wall clock so Time + Duration arithmetic and Time
     # comparisons in _wait_for_future work, and ``.to_msg()`` returns a
@@ -934,3 +935,100 @@ class TestPublishDetections(unittest.TestCase):
             det = msg.detections[0]
             self.assertEqual(det.results[0].hypothesis.class_id, "")
             self.assertAlmostEqual(det.results[0].hypothesis.score, 0.0)
+
+
+# ------------------------------------------------------------------
+# Tests — publish_grounding_frame (latched source-image companion)
+# ------------------------------------------------------------------
+
+
+@contextmanager
+def _stub_grounding_frame_deps():
+    """Inject cv_bridge / builtin_interfaces stubs for grounding-frame tests."""
+    saved = {k: sys.modules.get(k) for k in (
+        "cv_bridge", "builtin_interfaces", "builtin_interfaces.msg",
+    )}
+    try:
+        # cv_bridge stub: CvBridge().cv2_to_imgmsg(arr, encoding=...) → stub Image.
+        class _StubImage:
+            def __init__(self) -> None:
+                self.header = SimpleNamespace(stamp=None, frame_id="")
+                self.encoding = ""
+                self.data = b""
+                self.height = 0
+                self.width = 0
+
+        class _StubBridge:
+            def cv2_to_imgmsg(self, arr, encoding="bgr8"):  # noqa: D401
+                msg = _StubImage()
+                msg.encoding = encoding
+                shape = getattr(arr, "shape", (0, 0))
+                msg.height = int(shape[0]) if len(shape) >= 1 else 0
+                msg.width = int(shape[1]) if len(shape) >= 2 else 0
+                return msg
+
+        cb_mod = types.ModuleType("cv_bridge")
+        cb_mod.CvBridge = _StubBridge  # type: ignore[attr-defined]
+        sys.modules["cv_bridge"] = cb_mod
+
+        bi_pkg = types.ModuleType("builtin_interfaces")
+        bi_msg = types.ModuleType("builtin_interfaces.msg")
+
+        class _StubTime:
+            def __init__(self, sec: int = 0, nanosec: int = 0) -> None:
+                self.sec = int(sec)
+                self.nanosec = int(nanosec)
+
+        bi_msg.Time = _StubTime
+        bi_pkg.msg = bi_msg  # type: ignore[attr-defined]
+        sys.modules["builtin_interfaces"] = bi_pkg
+        sys.modules["builtin_interfaces.msg"] = bi_msg
+
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+
+
+class TestPublishGroundingFrame(unittest.TestCase):
+    """publish_grounding_frame encodes the source image and stamps it."""
+
+    def test_publishes_image_with_source_stamp_and_frame(self) -> None:
+        with _stub_grounding_frame_deps():
+            client = _make_client()
+            pub = MagicMock()
+            client._grounding_frame_pub = pub
+
+            image = np.zeros((360, 640, 3), dtype=np.uint8)
+            client.publish_grounding_frame(
+                image_bgr=image,
+                image_stamp_sec=100.5,
+                image_frame_id="d555_color_optical_frame",
+            )
+
+            self.assertEqual(pub.publish.call_count, 1)
+            img_msg = pub.publish.call_args[0][0]
+            self.assertEqual(img_msg.encoding, "bgr8")
+            self.assertEqual(img_msg.height, 360)
+            self.assertEqual(img_msg.width, 640)
+            self.assertEqual(img_msg.header.frame_id, "d555_color_optical_frame")
+            # 100.5s → sec=100, nanosec=500_000_000.
+            self.assertEqual(img_msg.header.stamp.sec, 100)
+            self.assertEqual(img_msg.header.stamp.nanosec, 500_000_000)
+
+    def test_no_publish_when_frame_pub_is_none(self) -> None:
+        """Missing publisher → no-op, no crash (mirrors detections path)."""
+        # No stub context here — proves the guard short-circuits before any
+        # cv_bridge / builtin_interfaces import is attempted.
+        client = _make_client()
+        # _make_client doesn't initialize _grounding_frame_pub; do it ourselves.
+        client._grounding_frame_pub = None
+
+        client.publish_grounding_frame(
+            image_bgr=np.zeros((10, 10, 3), dtype=np.uint8),
+            image_stamp_sec=1.0,
+            image_frame_id="frame",
+        )

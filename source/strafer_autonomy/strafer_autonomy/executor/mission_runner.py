@@ -2204,6 +2204,27 @@ class MissionRunner(MissionCommandHandler):
                 image_height=height,
                 detections=detections,
             )
+
+            # When we have a real detection, also republish the exact image
+            # the bbox was computed against so Foxglove can render a stable
+            # image+annotation pair (the bbox is pixel-space for *this*
+            # frame; the live camera has moved on). Empty grounding calls
+            # don't refresh the frozen frame — the last-grounded view
+            # should persist until the next accepted detection.
+            if detections:
+                publish_frame = getattr(self._ros_client, "publish_grounding_frame", None)
+                if publish_frame is not None:
+                    try:
+                        publish_frame(
+                            image_bgr=observation.color_image_bgr,
+                            image_stamp_sec=observation.stamp_sec,
+                            image_frame_id=observation.camera_frame,
+                        )
+                    except Exception:
+                        _logger.warning(
+                            "publish_grounding_frame failed (best-effort)",
+                            exc_info=True,
+                        )
         except Exception:
             # Best-effort: never block a mission, but make the failure visible.
             # publish_detections() can raise on a vision_msgs schema mismatch,

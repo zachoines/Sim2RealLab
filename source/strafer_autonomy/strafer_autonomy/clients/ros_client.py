@@ -191,6 +191,12 @@ class JetsonRosClient:
     # annotation source on the RGB feed.
     TOPIC_DETECTIONS = "/d555/color/detections"
 
+    # Frozen source frame for the most recent successful grounding. Lets
+    # Foxglove draw a stable image+bbox overlay (the bbox is in pixel coords
+    # for *this* frame, not the live camera). Latched; refreshed only on
+    # accepted detections so the last-grounded view persists between calls.
+    TOPIC_GROUNDING_FRAME = "/d555/color/grounding_frame"
+
     def __init__(self, config: RosClientConfig | None = None) -> None:
         import rclpy
         from rclpy.executors import SingleThreadedExecutor
@@ -228,6 +234,7 @@ class JetsonRosClient:
         # otherwise lazy creation hides "vision_msgs not installed" behind
         # the same symptom as "no grounding has fired yet."
         self._detections_pub: Any = None
+        self._grounding_frame_pub: Any = None
 
         self._setup_subscriptions()
         self._setup_publishers()
@@ -311,6 +318,18 @@ class JetsonRosClient:
         )
         self._detections_pub = self._node.create_publisher(
             Detection2DArray, self.TOPIC_DETECTIONS, latched_qos,
+        )
+
+        # Companion frozen-source-frame publisher. The bbox in a
+        # Detection2DArray is in pixel-space against the exact image that
+        # was sent to the VLM; publishing that image alongside lets a
+        # Foxglove panel paired to this topic render a stable
+        # image+overlay even as the robot keeps moving past the moment
+        # of capture. Latched with the same QoS so late subscribers get
+        # the most recent grounded view.
+        from sensor_msgs.msg import Image
+        self._grounding_frame_pub = self._node.create_publisher(
+            Image, self.TOPIC_GROUNDING_FRAME, latched_qos,
         )
 
     def _on_color(self, msg: Any) -> None:
@@ -883,6 +902,45 @@ class JetsonRosClient:
             msg.detections.append(det)
 
         self._detections_pub.publish(msg)
+
+    def publish_grounding_frame(
+        self,
+        *,
+        image_bgr: Any,
+        image_stamp_sec: float,
+        image_frame_id: str,
+    ) -> None:
+        """Publish the exact source image used for the most recent grounding.
+
+        Pairs with ``publish_detections``: the bbox lives in pixel coords
+        against this specific image, so Foxglove can pair the frozen frame
+        + Detection2DArray (`synchronize: true`) and render a stable
+        image+overlay that doesn't drift as the robot moves. Latched
+        ``TRANSIENT_LOCAL`` so the most recent grounded view is always
+        available to late subscribers.
+
+        Caller is expected to invoke this only for accepted detections —
+        the frozen frame should *not* refresh on empty publishes
+        (rejection / not-found), so the operator keeps seeing the
+        last-grounded view until the next real detection.
+        """
+        if self._grounding_frame_pub is None:
+            return
+
+        from builtin_interfaces.msg import Time as TimeMsg
+        from cv_bridge import CvBridge
+
+        sec = int(image_stamp_sec)
+        nanosec = int(round((image_stamp_sec - sec) * 1e9))
+        if nanosec >= 1_000_000_000:
+            sec += 1
+            nanosec -= 1_000_000_000
+
+        bridge = CvBridge()
+        img_msg = bridge.cv2_to_imgmsg(image_bgr, encoding="bgr8")
+        img_msg.header.stamp = TimeMsg(sec=sec, nanosec=nanosec)
+        img_msg.header.frame_id = image_frame_id
+        self._grounding_frame_pub.publish(img_msg)
 
     # ------------------------------------------------------------------
     # Task 6: get_robot_state

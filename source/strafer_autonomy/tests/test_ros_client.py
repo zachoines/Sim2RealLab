@@ -7,9 +7,12 @@ message objects are replaced with lightweight MagicMocks.
 
 from __future__ import annotations
 
+import sys
 import threading
 import time
+import types
 import unittest
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -41,6 +44,9 @@ def _make_client(config: RosClientConfig | None = None) -> JetsonRosClient:
     client._latest_odom = None
     client._nav_lock = threading.Lock()
     client._active_goal_handle = None
+    client._detections_pub = None  # Tests opt in via TestPublishDetections.
+    client._grounding_frame_pub = None  # Tests opt in via TestPublishGroundingFrame.
+    client._detections_fg_pub = None  # Tests opt in via TestPublishDetectionsFG.
     # Mock the ROS node — use a real rclpy.time.Time advancing with the
     # monotonic wall clock so Time + Duration arithmetic and Time
     # comparisons in _wait_for_future work, and ``.to_msg()`` returns a
@@ -704,3 +710,502 @@ class TestWaitForFuture(unittest.TestCase):
         # Cap is 2 * 0.05 = 0.1s. Allow generous headroom for CI jitter.
         self.assertGreaterEqual(elapsed, 0.05)
         self.assertLess(elapsed, 1.0)
+
+
+# ------------------------------------------------------------------
+# Tests — publish_detections (vision_msgs/Detection2DArray overlay)
+# ------------------------------------------------------------------
+
+
+class _StubMsg:
+    """Minimal stand-in for a generated ROS message — accepts arbitrary attrs.
+
+    ``center`` mirrors the vision_msgs 4.x (Humble) ``Pose2D`` shape:
+    ``position.x/.y`` + ``theta``. The fallback path for older builds
+    that expose ``.x/.y`` directly is exercised by a dedicated test that
+    swaps ``BoundingBox2D`` for ``_StubMsgLegacyBbox``.
+    """
+
+    def __init__(self) -> None:
+        self.header = SimpleNamespace(stamp=None, frame_id="")
+        self.detections: list[Any] = []
+        self.results: list[Any] = []
+        self.bbox: Any = None
+        # BoundingBox2D members — Humble schema (Pose2D w/ nested position)
+        self.center = SimpleNamespace(
+            position=SimpleNamespace(x=0.0, y=0.0),
+            theta=0.0,
+        )
+        self.size_x = 0.0
+        self.size_y = 0.0
+        # ObjectHypothesisWithPose members
+        self.hypothesis = SimpleNamespace(class_id="", score=0.0)
+        self.pose = SimpleNamespace()
+
+
+class _StubMsgLegacyBbox(_StubMsg):
+    """BoundingBox2D stub with legacy geometry_msgs/Pose2D shape (x/y direct)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.center = SimpleNamespace(x=0.0, y=0.0, theta=0.0)
+
+
+@contextmanager
+def _stub_vision_msgs():
+    """Inject vision_msgs / builtin_interfaces stubs for the duration of a test.
+
+    The publisher does ``from vision_msgs.msg import (...)`` at call time, so
+    we register lightweight modules in ``sys.modules`` that expose the same
+    class names. Parametrized stamp construction is delegated to a dataclass-
+    style ``Time`` stub mirroring ``builtin_interfaces.msg.Time``.
+    """
+    saved = {k: sys.modules.get(k) for k in (
+        "vision_msgs", "vision_msgs.msg", "builtin_interfaces", "builtin_interfaces.msg",
+    )}
+    try:
+        vm_pkg = types.ModuleType("vision_msgs")
+        vm_msg = types.ModuleType("vision_msgs.msg")
+        vm_msg.Detection2D = _StubMsg
+        vm_msg.Detection2DArray = _StubMsg
+        vm_msg.BoundingBox2D = _StubMsg
+        vm_msg.ObjectHypothesisWithPose = _StubMsg
+        vm_pkg.msg = vm_msg  # type: ignore[attr-defined]
+        sys.modules["vision_msgs"] = vm_pkg
+        sys.modules["vision_msgs.msg"] = vm_msg
+
+        bi_pkg = types.ModuleType("builtin_interfaces")
+        bi_msg = types.ModuleType("builtin_interfaces.msg")
+
+        class _StubTime:
+            def __init__(self, sec: int = 0, nanosec: int = 0) -> None:
+                self.sec = int(sec)
+                self.nanosec = int(nanosec)
+
+        bi_msg.Time = _StubTime
+        bi_pkg.msg = bi_msg  # type: ignore[attr-defined]
+        sys.modules["builtin_interfaces"] = bi_pkg
+        sys.modules["builtin_interfaces.msg"] = bi_msg
+
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+
+
+class TestPublishDetections(unittest.TestCase):
+    """publish_detections converts Qwen [0,1000] bboxes → pixels and stamps."""
+
+    def _captured(self, client: JetsonRosClient) -> Any:
+        pub = client._detections_pub  # type: ignore[attr-defined]
+        self.assertEqual(pub.publish.call_count, 1)
+        return pub.publish.call_args[0][0]
+
+    def test_publishes_single_detection_with_pixel_bbox(self) -> None:
+        with _stub_vision_msgs():
+            client = _make_client()
+            pub = MagicMock()
+            client._detections_pub = pub
+
+            client.publish_detections(
+                image_stamp_sec=100.5,
+                image_frame_id="d555_color_optical_frame",
+                image_width=640,
+                image_height=360,
+                detections=[((100, 200, 500, 600), "door", 0.91)],
+            )
+
+            msg = self._captured(client)
+            self.assertEqual(msg.header.frame_id, "d555_color_optical_frame")
+            # 100.5s → sec=100, nanosec=500_000_000.
+            self.assertEqual(msg.header.stamp.sec, 100)
+            self.assertEqual(msg.header.stamp.nanosec, 500_000_000)
+            self.assertEqual(len(msg.detections), 1)
+
+            det = msg.detections[0]
+            # Center: ((100+500)/2, (200+600)/2) = (300, 400) in [0,1000].
+            #   pixel_x = 300 * 640 / 1000 = 192.0
+            #   pixel_y = 400 * 360 / 1000 = 144.0
+            # Size: (400 * 640/1000, 400 * 360/1000) = (256, 144).
+            # Humble's vision_msgs/Pose2D nests x/y under .position.
+            self.assertAlmostEqual(det.bbox.center.position.x, 192.0)
+            self.assertAlmostEqual(det.bbox.center.position.y, 144.0)
+            self.assertAlmostEqual(det.bbox.size_x, 256.0)
+            self.assertAlmostEqual(det.bbox.size_y, 144.0)
+            self.assertEqual(det.results[0].hypothesis.class_id, "door")
+            self.assertAlmostEqual(det.results[0].hypothesis.score, 0.91)
+
+    def test_falls_back_to_legacy_pose2d_shape(self) -> None:
+        """Pre-Humble vision_msgs (geometry_msgs/Pose2D) exposes x/y directly."""
+        with _stub_vision_msgs():
+            # Swap in the legacy bbox stub for this one test.
+            sys.modules["vision_msgs.msg"].BoundingBox2D = _StubMsgLegacyBbox  # type: ignore[attr-defined]
+
+            client = _make_client()
+            pub = MagicMock()
+            client._detections_pub = pub
+
+            client.publish_detections(
+                image_stamp_sec=1.0,
+                image_frame_id="frame",
+                image_width=640,
+                image_height=360,
+                detections=[((0, 0, 1000, 1000), "door", 0.5)],
+            )
+
+            msg = self._captured(client)
+            det = msg.detections[0]
+            self.assertAlmostEqual(det.bbox.center.x, 320.0)
+            self.assertAlmostEqual(det.bbox.center.y, 180.0)
+            # Sanity: legacy stub doesn't grow a .position attr behind our back.
+            self.assertFalse(hasattr(det.bbox.center, "position"))
+
+    def test_empty_detections_publishes_empty_array(self) -> None:
+        """An empty detection list must still publish — clears stale overlay."""
+        with _stub_vision_msgs():
+            client = _make_client()
+            pub = MagicMock()
+            client._detections_pub = pub
+
+            client.publish_detections(
+                image_stamp_sec=0.0,
+                image_frame_id="d555_color_optical_frame",
+                image_width=640,
+                image_height=360,
+                detections=[],
+            )
+
+            msg = self._captured(client)
+            self.assertEqual(msg.detections, [])
+            self.assertEqual(msg.header.stamp.sec, 0)
+            self.assertEqual(msg.header.stamp.nanosec, 0)
+
+    def test_publisher_is_reused_across_calls(self) -> None:
+        """The eagerly created publisher is reused across publish calls."""
+        with _stub_vision_msgs():
+            client = _make_client()
+            pub = MagicMock()
+            client._detections_pub = pub
+
+            for _ in range(3):
+                client.publish_detections(
+                    image_stamp_sec=1.0,
+                    image_frame_id="frame",
+                    image_width=100,
+                    image_height=100,
+                    detections=[],
+                )
+
+            self.assertEqual(pub.publish.call_count, 3)
+
+    def test_no_publish_when_vision_msgs_missing(self) -> None:
+        """Missing vision_msgs at startup → publisher None → no-op + no crash."""
+        # Note: no _stub_vision_msgs() here so the import path stays "real".
+        client = _make_client()
+        # _make_client already sets _detections_pub = None.
+
+        # Should not raise even though vision_msgs may not be installed —
+        # the early-return guards the subsequent imports.
+        client.publish_detections(
+            image_stamp_sec=1.0,
+            image_frame_id="frame",
+            image_width=100,
+            image_height=100,
+            detections=[((0, 0, 1000, 1000), "door", 0.9)],
+        )
+
+    def test_handles_label_and_confidence_none(self) -> None:
+        """Missing label / confidence default to '' / 0.0 (not crash)."""
+        with _stub_vision_msgs():
+            client = _make_client()
+            pub = MagicMock()
+            client._detections_pub = pub
+
+            client.publish_detections(
+                image_stamp_sec=1.0,
+                image_frame_id="frame",
+                image_width=640,
+                image_height=360,
+                detections=[((0, 0, 1000, 1000), None, None)],
+            )
+
+            msg = self._captured(client)
+            det = msg.detections[0]
+            self.assertEqual(det.results[0].hypothesis.class_id, "")
+            self.assertAlmostEqual(det.results[0].hypothesis.score, 0.0)
+
+
+# ------------------------------------------------------------------
+# Tests — publish_grounding_frame (latched source-image companion)
+# ------------------------------------------------------------------
+
+
+@contextmanager
+def _stub_grounding_frame_deps():
+    """Inject cv_bridge / builtin_interfaces stubs for grounding-frame tests."""
+    saved = {k: sys.modules.get(k) for k in (
+        "cv_bridge", "builtin_interfaces", "builtin_interfaces.msg",
+    )}
+    try:
+        # cv_bridge stub: CvBridge().cv2_to_imgmsg(arr, encoding=...) → stub Image.
+        class _StubImage:
+            def __init__(self) -> None:
+                self.header = SimpleNamespace(stamp=None, frame_id="")
+                self.encoding = ""
+                self.data = b""
+                self.height = 0
+                self.width = 0
+
+        class _StubBridge:
+            def cv2_to_imgmsg(self, arr, encoding="bgr8"):  # noqa: D401
+                msg = _StubImage()
+                msg.encoding = encoding
+                shape = getattr(arr, "shape", (0, 0))
+                msg.height = int(shape[0]) if len(shape) >= 1 else 0
+                msg.width = int(shape[1]) if len(shape) >= 2 else 0
+                return msg
+
+        cb_mod = types.ModuleType("cv_bridge")
+        cb_mod.CvBridge = _StubBridge  # type: ignore[attr-defined]
+        sys.modules["cv_bridge"] = cb_mod
+
+        bi_pkg = types.ModuleType("builtin_interfaces")
+        bi_msg = types.ModuleType("builtin_interfaces.msg")
+
+        class _StubTime:
+            def __init__(self, sec: int = 0, nanosec: int = 0) -> None:
+                self.sec = int(sec)
+                self.nanosec = int(nanosec)
+
+        bi_msg.Time = _StubTime
+        bi_pkg.msg = bi_msg  # type: ignore[attr-defined]
+        sys.modules["builtin_interfaces"] = bi_pkg
+        sys.modules["builtin_interfaces.msg"] = bi_msg
+
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+
+
+class TestPublishGroundingFrame(unittest.TestCase):
+    """publish_grounding_frame encodes the source image and stamps it."""
+
+    def test_publishes_image_with_source_stamp_and_frame(self) -> None:
+        with _stub_grounding_frame_deps():
+            client = _make_client()
+            pub = MagicMock()
+            client._grounding_frame_pub = pub
+
+            image = np.zeros((360, 640, 3), dtype=np.uint8)
+            client.publish_grounding_frame(
+                image_bgr=image,
+                image_stamp_sec=100.5,
+                image_frame_id="d555_color_optical_frame",
+            )
+
+            self.assertEqual(pub.publish.call_count, 1)
+            img_msg = pub.publish.call_args[0][0]
+            self.assertEqual(img_msg.encoding, "bgr8")
+            self.assertEqual(img_msg.height, 360)
+            self.assertEqual(img_msg.width, 640)
+            self.assertEqual(img_msg.header.frame_id, "d555_color_optical_frame")
+            # 100.5s → sec=100, nanosec=500_000_000.
+            self.assertEqual(img_msg.header.stamp.sec, 100)
+            self.assertEqual(img_msg.header.stamp.nanosec, 500_000_000)
+
+    def test_no_publish_when_frame_pub_is_none(self) -> None:
+        """Missing publisher → no-op, no crash (mirrors detections path)."""
+        # No stub context here — proves the guard short-circuits before any
+        # cv_bridge / builtin_interfaces import is attempted.
+        client = _make_client()
+        # _make_client doesn't initialize _grounding_frame_pub; do it ourselves.
+        client._grounding_frame_pub = None
+
+        client.publish_grounding_frame(
+            image_bgr=np.zeros((10, 10, 3), dtype=np.uint8),
+            image_stamp_sec=1.0,
+            image_frame_id="frame",
+        )
+
+
+# ------------------------------------------------------------------
+# Tests — foxglove_msgs/ImageAnnotations companion publisher
+# ------------------------------------------------------------------
+
+
+def _add_foxglove_msgs_stub(stack: dict[str, Any]) -> None:
+    """Inject a foxglove_msgs.msg stub into sys.modules.
+
+    Saves prior bindings into ``stack`` so the caller's finally-block can
+    restore them. Mirrors the pattern used by ``_stub_vision_msgs``.
+    """
+    stack["foxglove_msgs"] = sys.modules.get("foxglove_msgs")
+    stack["foxglove_msgs.msg"] = sys.modules.get("foxglove_msgs.msg")
+
+    fg_pkg = types.ModuleType("foxglove_msgs")
+    fg_msg = types.ModuleType("foxglove_msgs.msg")
+
+    class _StubPointsAnnotation:
+        UNKNOWN = 0
+        POINTS = 1
+        LINE_LOOP = 2
+        LINE_STRIP = 3
+        LINE_LIST = 4
+
+        def __init__(self) -> None:
+            self.timestamp = None
+            self.type = 0
+            self.points: list[Any] = []
+            self.outline_color = None
+            self.outline_colors: list[Any] = []
+            self.fill_color = None
+            self.thickness = 0.0
+
+    class _StubTextAnnotation:
+        def __init__(self) -> None:
+            self.timestamp = None
+            self.position = None
+            self.text = ""
+            self.font_size = 0.0
+            self.text_color = None
+            self.background_color = None
+
+    class _StubImageAnnotations:
+        def __init__(self) -> None:
+            self.circles: list[Any] = []
+            self.points: list[Any] = []
+            self.texts: list[Any] = []
+
+    class _StubColor:
+        def __init__(self, r=0.0, g=0.0, b=0.0, a=0.0) -> None:
+            self.r = r
+            self.g = g
+            self.b = b
+            self.a = a
+
+    class _StubPoint2:
+        def __init__(self, x=0.0, y=0.0) -> None:
+            self.x = x
+            self.y = y
+
+    fg_msg.ImageAnnotations = _StubImageAnnotations
+    fg_msg.PointsAnnotation = _StubPointsAnnotation
+    fg_msg.TextAnnotation = _StubTextAnnotation
+    fg_msg.Color = _StubColor
+    fg_msg.Point2 = _StubPoint2
+    fg_pkg.msg = fg_msg  # type: ignore[attr-defined]
+    sys.modules["foxglove_msgs"] = fg_pkg
+    sys.modules["foxglove_msgs.msg"] = fg_msg
+
+
+class TestPublishDetectionsFG(unittest.TestCase):
+    """Verifies publish_detections also emits the Foxglove-native overlay."""
+
+    def test_publishes_line_loop_and_text_annotation(self) -> None:
+        stack: dict[str, Any] = {}
+        with _stub_vision_msgs():
+            _add_foxglove_msgs_stub(stack)
+            try:
+                client = _make_client()
+                vm_pub = MagicMock()
+                fg_pub = MagicMock()
+                client._detections_pub = vm_pub
+                client._detections_fg_pub = fg_pub
+
+                client.publish_detections(
+                    image_stamp_sec=100.5,
+                    image_frame_id="d555_color_optical_frame",
+                    image_width=640,
+                    image_height=360,
+                    detections=[((100, 200, 500, 600), "door", 0.91)],
+                )
+
+                # Both pubs fire once for one detection.
+                self.assertEqual(vm_pub.publish.call_count, 1)
+                self.assertEqual(fg_pub.publish.call_count, 1)
+
+                anno = fg_pub.publish.call_args[0][0]
+                # One LINE_LOOP for the bbox.
+                self.assertEqual(len(anno.points), 1)
+                pa = anno.points[0]
+                self.assertEqual(pa.type, 2)  # LINE_LOOP
+                # 4 corners, all at pixel scale (1000-unit → 640x360).
+                # x: [100, 500] * 640/1000 = [64, 320]
+                # y: [200, 600] * 360/1000 = [72, 216]
+                xs = [p.x for p in pa.points]
+                ys = [p.y for p in pa.points]
+                self.assertEqual(sorted(set(xs)), [64.0, 320.0])
+                self.assertEqual(sorted(set(ys)), [72.0, 216.0])
+                self.assertEqual(pa.timestamp.sec, 100)
+                self.assertEqual(pa.timestamp.nanosec, 500_000_000)
+
+                # One TextAnnotation for the label.
+                self.assertEqual(len(anno.texts), 1)
+                ta = anno.texts[0]
+                self.assertIn("door", ta.text)
+                self.assertIn("0.91", ta.text)
+            finally:
+                for k, v in stack.items():
+                    if v is None:
+                        sys.modules.pop(k, None)
+                    else:
+                        sys.modules[k] = v
+
+    def test_no_publish_when_fg_pub_is_none(self) -> None:
+        """foxglove_msgs missing at startup → Detection2DArray still goes out."""
+        with _stub_vision_msgs():
+            client = _make_client()
+            vm_pub = MagicMock()
+            client._detections_pub = vm_pub
+            client._detections_fg_pub = None  # foxglove_msgs absent
+
+            # Should not raise even though no foxglove_msgs stub is registered.
+            client.publish_detections(
+                image_stamp_sec=1.0,
+                image_frame_id="frame",
+                image_width=640,
+                image_height=360,
+                detections=[((0, 0, 1000, 1000), "x", 0.5)],
+            )
+            self.assertEqual(vm_pub.publish.call_count, 1)
+
+    def test_empty_detections_publishes_empty_annotations(self) -> None:
+        """Empty detection list still publishes an empty ImageAnnotations.
+
+        That's the clear-overlay path — without an empty publish here,
+        Foxglove keeps drawing the last bbox after a mission ends or a
+        scan heading rejects all candidates.
+        """
+        stack: dict[str, Any] = {}
+        with _stub_vision_msgs():
+            _add_foxglove_msgs_stub(stack)
+            try:
+                client = _make_client()
+                client._detections_pub = MagicMock()
+                fg_pub = MagicMock()
+                client._detections_fg_pub = fg_pub
+
+                client.publish_detections(
+                    image_stamp_sec=0.0,
+                    image_frame_id="frame",
+                    image_width=640,
+                    image_height=360,
+                    detections=[],
+                )
+                self.assertEqual(fg_pub.publish.call_count, 1)
+                anno = fg_pub.publish.call_args[0][0]
+                self.assertEqual(anno.points, [])
+                self.assertEqual(anno.texts, [])
+            finally:
+                for k, v in stack.items():
+                    if v is None:
+                        sys.modules.pop(k, None)
+                    else:
+                        sys.modules[k] = v

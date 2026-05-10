@@ -29,8 +29,8 @@
         "poseEstimateThetaDeviation": 0.26
       },
       "imageMode": {
-        "imageTopic": "/d555/color/image_raw",
-        "calibrationTopic": "/d555/color/camera_info",
+        "imageTopic": "/d555/color/image_sync",
+        "calibrationTopic": "/d555/color/camera_info_sync",
         "synchronize": false,
         "rotation": 0,
         "flipHorizontal": false,
@@ -143,12 +143,47 @@
         "poseEstimateThetaDeviation": 0.26
       }
     },
-    "RawMessages!odom": {
-      "diffEnabled": false,
-      "diffMethod": "custom",
-      "diffTopicPath": "",
-      "showFullMessageForDiff": false,
-      "topicPath": "/strafer/odom"
+    "Image!grounding_frame": {
+      "cameraState": {
+        "perspective": false,
+        "distance": 20,
+        "phi": 60,
+        "thetaOffset": 45,
+        "targetOffset": [0, 0, 0],
+        "target": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "followTf": "base_link",
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26
+      },
+      "imageMode": {
+        "imageTopic": "/d555/color/grounding_frame",
+        "calibrationTopic": "/d555/color/camera_info_sync",
+        "synchronize": false,
+        "rotation": 0,
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "minValue": 0,
+        "maxValue": 1,
+        "annotations": {
+          "/d555/color/detections_fg": {"visible": true}
+        }
+      }
     }
   },
   "globalVariables": {},
@@ -165,7 +200,7 @@
     },
     "second": {
       "first": "3D!scene",
-      "second": "RawMessages!odom",
+      "second": "Image!grounding_frame",
       "direction": "row",
       "splitPercentage": 65
     },

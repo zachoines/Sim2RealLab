@@ -592,6 +592,8 @@ class MissionRunner(MissionCommandHandler):
             with self._lock:
                 runtime.latest_grounding = grounding
 
+            self._publish_grounding_overlay(observation, grounding)
+
             if not grounding.found or grounding.bbox_2d is None:
                 return self._failed_result(
                     step,
@@ -680,6 +682,10 @@ class MissionRunner(MissionCommandHandler):
                     )
                 with self._lock:
                     runtime.latest_grounding = grounding
+
+                self._publish_grounding_overlay(
+                    observation, grounding if accepted else None,
+                )
 
                 # Store observation in semantic map (best-effort, never blocks scan).
                 self._store_scan_observation(
@@ -1270,6 +1276,8 @@ class MissionRunner(MissionCommandHandler):
 
             with self._lock:
                 runtime.latest_grounding = grounding
+
+            self._publish_grounding_overlay(observation, grounding)
 
             if not grounding.found or grounding.bbox_2d is None:
                 stage_entry["regrounding_status"] = "target_not_found"
@@ -2140,6 +2148,89 @@ class MissionRunner(MissionCommandHandler):
             return image[..., ::-1]
         except Exception:
             return image
+
+    def _publish_grounding_overlay(
+        self,
+        observation: SceneObservation,
+        grounding: GroundingResult | None,
+    ) -> None:
+        """Mirror a grounding result onto the detection overlay topic.
+
+        Best-effort: a failure to publish (missing ``vision_msgs``,
+        publisher race during shutdown, etc.) must never block a mission.
+        Empty / missing detections publish an empty array so Foxglove
+        clears any stale overlay from a prior grounding call.
+        """
+        publish = getattr(self._ros_client, "publish_detections", None)
+        if publish is None:
+            _logger.warning(
+                "publish_detections() unavailable on ros_client; overlay disabled"
+            )
+            return
+        try:
+            shape = getattr(observation.color_image_bgr, "shape", None)
+            if shape is None or len(shape) < 2:
+                _logger.warning(
+                    "Cannot publish overlay: observation has no usable image shape"
+                )
+                return
+            height, width = int(shape[0]), int(shape[1])
+
+            detections: list[tuple[tuple[int, int, int, int], str | None, float | None]] = []
+            if (
+                grounding is not None
+                and grounding.found
+                and grounding.bbox_2d is not None
+            ):
+                detections.append((
+                    tuple(int(v) for v in grounding.bbox_2d),  # type: ignore[arg-type]
+                    grounding.label,
+                    grounding.confidence,
+                ))
+
+            _logger.info(
+                "publish_grounding_overlay: %d detection(s), stamp=%.3f frame=%s img=%dx%d",
+                len(detections),
+                observation.stamp_sec,
+                observation.camera_frame,
+                width,
+                height,
+            )
+
+            publish(
+                image_stamp_sec=observation.stamp_sec,
+                image_frame_id=observation.camera_frame,
+                image_width=width,
+                image_height=height,
+                detections=detections,
+            )
+
+            # When we have a real detection, also republish the exact image
+            # the bbox was computed against so Foxglove can render a stable
+            # image+annotation pair (the bbox is pixel-space for *this*
+            # frame; the live camera has moved on). Empty grounding calls
+            # don't refresh the frozen frame — the last-grounded view
+            # should persist until the next accepted detection.
+            if detections:
+                publish_frame = getattr(self._ros_client, "publish_grounding_frame", None)
+                if publish_frame is not None:
+                    try:
+                        publish_frame(
+                            image_bgr=observation.color_image_bgr,
+                            image_stamp_sec=observation.stamp_sec,
+                            image_frame_id=observation.camera_frame,
+                        )
+                    except Exception:
+                        _logger.warning(
+                            "publish_grounding_frame failed (best-effort)",
+                            exc_info=True,
+                        )
+        except Exception:
+            # Best-effort: never block a mission, but make the failure visible.
+            # publish_detections() can raise on a vision_msgs schema mismatch,
+            # a numpy slice that doesn't expose .shape, or a publisher state
+            # race. Surface at WARNING with the traceback so it's findable.
+            _logger.warning("publish_detections failed (best-effort)", exc_info=True)
 
     def _grounding_outputs(self, grounding: GroundingResult) -> dict[str, Any]:
         return {

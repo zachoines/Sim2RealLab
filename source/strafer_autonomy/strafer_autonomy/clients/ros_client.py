@@ -8,7 +8,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Iterable, Protocol, runtime_checkable
 
 from strafer_autonomy.schemas import GoalPoseCandidate, Pose3D, SceneObservation, SkillResult
 
@@ -186,6 +186,26 @@ class JetsonRosClient:
     TOPIC_CAM_INFO = "/d555/color/camera_info_sync"
     TOPIC_ODOM = "/strafer/odom"
 
+    # VLM detection overlay topic — published by `publish_detections()` when a
+    # grounding skill resolves. Foxglove's Image panel attaches this as an
+    # annotation source on the RGB feed.
+    TOPIC_DETECTIONS = "/d555/color/detections"
+
+    # Frozen source frame for the most recent successful grounding. Lets
+    # Foxglove draw a stable image+bbox overlay (the bbox is in pixel coords
+    # for *this* frame, not the live camera). Latched; refreshed only on
+    # accepted detections so the last-grounded view persists between calls.
+    TOPIC_GROUNDING_FRAME = "/d555/color/grounding_frame"
+
+    # Foxglove-native image-overlay companion. Foxglove Studio 2.x does not
+    # auto-decode `vision_msgs/Detection2DArray` for image annotations even
+    # though the topic exists on the graph — so we *also* publish
+    # `foxglove_msgs/ImageAnnotations`, which the Image panel renders
+    # natively. The Detection2DArray topic stays as the canonical semantic
+    # output (RViz, bag replay, downstream ROS consumers); this companion
+    # exists only for Foxglove rendering.
+    TOPIC_DETECTIONS_FG = "/d555/color/detections_fg"
+
     def __init__(self, config: RosClientConfig | None = None) -> None:
         import rclpy
         from rclpy.executors import SingleThreadedExecutor
@@ -219,7 +239,15 @@ class JetsonRosClient:
         self._nav_lock = threading.Lock()
         self._active_goal_handle = None
 
+        # Eagerly created so the topic appears on the graph from boot —
+        # otherwise lazy creation hides "vision_msgs not installed" behind
+        # the same symptom as "no grounding has fired yet."
+        self._detections_pub: Any = None
+        self._grounding_frame_pub: Any = None
+        self._detections_fg_pub: Any = None
+
         self._setup_subscriptions()
+        self._setup_publishers()
 
         self._spin_thread = threading.Thread(
             target=self._executor.spin,
@@ -257,6 +285,83 @@ class JetsonRosClient:
             self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self._node)
         except Exception:
             logger.debug("tf2_ros not available; SLAM tracking checks disabled")
+
+    def _setup_publishers(self) -> None:
+        """Create publishers up front so topics are discoverable from boot.
+
+        ``vision_msgs`` is an optional runtime dep (installed via
+        ``ros-humble-vision-msgs``). When it is missing we log a loud
+        warning and leave the publisher unset — ``publish_detections`` then
+        no-ops, but every other skill keeps working. This is preferred to
+        crashing the executor or hiding the missing-package failure behind
+        the lazy-create path.
+
+        The detections topic uses ``TRANSIENT_LOCAL`` durability so DDS
+        replays the most recent message to late subscribers — Foxglove
+        attaching mid-mission, or ``ros2 topic echo`` opened after a scan
+        completed, still see the current overlay state instead of an
+        empty wire. Grounding fires for milliseconds at a time and then
+        the topic goes idle for the duration of navigation; without a
+        latched QoS, anyone who subscribes during that idle window sees
+        nothing.
+        """
+        try:
+            from vision_msgs.msg import Detection2DArray
+        except ImportError:
+            self._node.get_logger().warning(
+                "vision_msgs not installed; %s overlay disabled. "
+                "Install with: sudo apt install ros-humble-vision-msgs",
+                self.TOPIC_DETECTIONS,
+            )
+            return
+        from rclpy.qos import (
+            QoSDurabilityPolicy,
+            QoSHistoryPolicy,
+            QoSProfile,
+            QoSReliabilityPolicy,
+        )
+        latched_qos = QoSProfile(
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self._detections_pub = self._node.create_publisher(
+            Detection2DArray, self.TOPIC_DETECTIONS, latched_qos,
+        )
+
+        # Companion frozen-source-frame publisher. The bbox in a
+        # Detection2DArray is in pixel-space against the exact image that
+        # was sent to the VLM; publishing that image alongside lets a
+        # Foxglove panel paired to this topic render a stable
+        # image+overlay even as the robot keeps moving past the moment
+        # of capture. Latched with the same QoS so late subscribers get
+        # the most recent grounded view.
+        from sensor_msgs.msg import Image
+        self._grounding_frame_pub = self._node.create_publisher(
+            Image, self.TOPIC_GROUNDING_FRAME, latched_qos,
+        )
+
+        # Foxglove-native ImageAnnotations companion. Foxglove Studio 2.x
+        # exposes Detection2DArray as a topic but does not render it as
+        # an image overlay — the Image panel's Annotations dropdown
+        # silently drops it. Publishing the same bbox data as
+        # ``foxglove_msgs/ImageAnnotations`` is the supported path. If
+        # ``foxglove_msgs`` is missing we degrade the same way as for
+        # ``vision_msgs``: warn loudly at startup, then keep the rest
+        # of the executor running.
+        try:
+            from foxglove_msgs.msg import ImageAnnotations
+        except ImportError:
+            self._node.get_logger().warning(
+                "foxglove_msgs not installed; %s Foxglove-native overlay disabled. "
+                "Install with: sudo apt install ros-humble-foxglove-msgs",
+                self.TOPIC_DETECTIONS_FG,
+            )
+        else:
+            self._detections_fg_pub = self._node.create_publisher(
+                ImageAnnotations, self.TOPIC_DETECTIONS_FG, latched_qos,
+            )
 
     def _on_color(self, msg: Any) -> None:
         with self._cache_lock:
@@ -738,6 +843,222 @@ class JetsonRosClient:
             self._active_goal_handle = None
 
         return True
+
+    # ------------------------------------------------------------------
+    # Detection overlay publisher (vision_msgs/Detection2DArray)
+    # ------------------------------------------------------------------
+
+    def publish_detections(
+        self,
+        *,
+        image_stamp_sec: float,
+        image_frame_id: str,
+        image_width: int,
+        image_height: int,
+        detections: "Iterable[tuple[tuple[int, int, int, int], str | None, float | None]]" = (),
+    ) -> None:
+        """Publish a ``vision_msgs/Detection2DArray`` for Foxglove overlay.
+
+        ``detections`` is an iterable of ``(bbox_qwen_1000, label, confidence)``
+        tuples where ``bbox_qwen_1000`` is ``(x1, y1, x2, y2)`` in the VLM's
+        normalized [0, 1000] coordinate space (see
+        ``strafer_msgs/srv/ProjectDetectionToGoalPose`` and
+        ``goal_projection_node`` for the same convention). Each bbox is
+        rescaled to pixel coordinates against the source image's dimensions
+        before publishing — Foxglove's Image annotation overlay expects
+        pixel coords.
+
+        ``header.stamp`` is set from ``image_stamp_sec`` (the source image's
+        stamp) so Foxglove can pair the overlay with the right RGB frame.
+        Empty ``detections`` publishes an empty array, which clears any
+        stale overlay from a previous grounding call.
+        """
+        if self._detections_pub is None:
+            # vision_msgs missing at startup — already logged once; stay
+            # silent here so we don't spam the log on every grounding call.
+            return
+
+        from builtin_interfaces.msg import Time as TimeMsg
+        from vision_msgs.msg import (
+            BoundingBox2D,
+            Detection2D,
+            Detection2DArray,
+            ObjectHypothesisWithPose,
+        )
+
+        sec = int(image_stamp_sec)
+        nanosec = int(round((image_stamp_sec - sec) * 1e9))
+        # Round-up edge case: e.g. 1.9999999999 → sec=1, nanosec=1e9.
+        if nanosec >= 1_000_000_000:
+            sec += 1
+            nanosec -= 1_000_000_000
+
+        msg = Detection2DArray()
+        msg.header.stamp = TimeMsg(sec=sec, nanosec=nanosec)
+        msg.header.frame_id = image_frame_id
+
+        scale_x = float(image_width) / 1000.0
+        scale_y = float(image_height) / 1000.0
+
+        for bbox_qwen, label, confidence in detections:
+            x1, y1, x2, y2 = (float(v) for v in bbox_qwen)
+            cx_px = (x1 + x2) * 0.5 * scale_x
+            cy_px = (y1 + y2) * 0.5 * scale_y
+            size_x_px = abs(x2 - x1) * scale_x
+            size_y_px = abs(y2 - y1) * scale_y
+
+            det = Detection2D()
+            det.header = msg.header
+
+            bbox = BoundingBox2D()
+            # vision_msgs 4.x (Humble) replaced geometry_msgs/Pose2D with
+            # vision_msgs/Pose2D, which nests x/y under .position. Older
+            # builds expose .x/.y directly. Branch so we work on both.
+            if hasattr(bbox.center, "position"):
+                bbox.center.position.x = cx_px
+                bbox.center.position.y = cy_px
+            else:
+                bbox.center.x = cx_px
+                bbox.center.y = cy_px
+            bbox.center.theta = 0.0
+            bbox.size_x = size_x_px
+            bbox.size_y = size_y_px
+            det.bbox = bbox
+
+            hyp = ObjectHypothesisWithPose()
+            hyp.hypothesis.class_id = label or ""
+            hyp.hypothesis.score = float(confidence) if confidence is not None else 0.0
+            det.results.append(hyp)
+
+            msg.detections.append(det)
+
+        self._detections_pub.publish(msg)
+
+        # Companion Foxglove-native overlay. Foxglove Studio 2.x doesn't
+        # render Detection2DArray as an image annotation; foxglove_msgs/
+        # ImageAnnotations is the supported schema. Same bbox data, just
+        # framed for the Foxglove Image panel's renderer.
+        self._publish_foxglove_annotations(
+            sec=sec,
+            nanosec=nanosec,
+            scale_x=scale_x,
+            scale_y=scale_y,
+            detections=list(msg.detections),  # already-built Detection2D objects
+            source=detections,                # original (bbox_qwen, label, conf) tuples
+        )
+
+    def _publish_foxglove_annotations(
+        self,
+        *,
+        sec: int,
+        nanosec: int,
+        scale_x: float,
+        scale_y: float,
+        detections: "list[Any]",  # noqa: ARG002 — kept for symmetry / future debug
+        source: "Iterable[tuple[tuple[int, int, int, int], str | None, float | None]]",
+    ) -> None:
+        """Emit the same bbox data as ``foxglove_msgs/ImageAnnotations``.
+
+        One ``PointsAnnotation`` (LINE_LOOP of four corners) per bbox plus
+        a label ``TextAnnotation`` above each box. The annotation
+        timestamp matches the Detection2DArray header so a Foxglove panel
+        configured with ``synchronize: true`` against the grounding-frame
+        topic pairs them exactly.
+
+        No-ops cleanly if ``foxglove_msgs`` was missing at startup.
+        """
+        if self._detections_fg_pub is None:
+            return
+        from builtin_interfaces.msg import Time as TimeMsg
+        from foxglove_msgs.msg import (
+            Color,
+            ImageAnnotations,
+            Point2,
+            PointsAnnotation,
+            TextAnnotation,
+        )
+
+        stamp = TimeMsg(sec=sec, nanosec=nanosec)
+        green = Color(r=0.2, g=1.0, b=0.4, a=1.0)
+        black = Color(r=0.0, g=0.0, b=0.0, a=0.0)
+        white = Color(r=1.0, g=1.0, b=1.0, a=1.0)
+        text_bg = Color(r=0.0, g=0.0, b=0.0, a=0.6)
+
+        anno = ImageAnnotations()
+        for bbox_qwen, label, confidence in source:
+            x1, y1, x2, y2 = (float(v) for v in bbox_qwen)
+            x1_px = x1 * scale_x
+            y1_px = y1 * scale_y
+            x2_px = x2 * scale_x
+            y2_px = y2 * scale_y
+
+            pa = PointsAnnotation()
+            pa.timestamp = stamp
+            pa.type = PointsAnnotation.LINE_LOOP
+            pa.points = [
+                Point2(x=x1_px, y=y1_px),
+                Point2(x=x2_px, y=y1_px),
+                Point2(x=x2_px, y=y2_px),
+                Point2(x=x1_px, y=y2_px),
+            ]
+            pa.outline_color = green
+            pa.fill_color = black  # transparent fill; outline only
+            pa.thickness = 2.0
+            anno.points.append(pa)
+
+            if label:
+                text = label
+                if confidence is not None:
+                    text = f"{label} {confidence:.2f}"
+                ta = TextAnnotation()
+                ta.timestamp = stamp
+                ta.position = Point2(x=x1_px, y=max(0.0, y1_px - 4.0))
+                ta.text = text
+                ta.font_size = 14.0
+                ta.text_color = white
+                ta.background_color = text_bg
+                anno.texts.append(ta)
+
+        self._detections_fg_pub.publish(anno)
+
+    def publish_grounding_frame(
+        self,
+        *,
+        image_bgr: Any,
+        image_stamp_sec: float,
+        image_frame_id: str,
+    ) -> None:
+        """Publish the exact source image used for the most recent grounding.
+
+        Pairs with ``publish_detections``: the bbox lives in pixel coords
+        against this specific image, so Foxglove can pair the frozen frame
+        + Detection2DArray (`synchronize: true`) and render a stable
+        image+overlay that doesn't drift as the robot moves. Latched
+        ``TRANSIENT_LOCAL`` so the most recent grounded view is always
+        available to late subscribers.
+
+        Caller is expected to invoke this only for accepted detections —
+        the frozen frame should *not* refresh on empty publishes
+        (rejection / not-found), so the operator keeps seeing the
+        last-grounded view until the next real detection.
+        """
+        if self._grounding_frame_pub is None:
+            return
+
+        from builtin_interfaces.msg import Time as TimeMsg
+        from cv_bridge import CvBridge
+
+        sec = int(image_stamp_sec)
+        nanosec = int(round((image_stamp_sec - sec) * 1e9))
+        if nanosec >= 1_000_000_000:
+            sec += 1
+            nanosec -= 1_000_000_000
+
+        bridge = CvBridge()
+        img_msg = bridge.cv2_to_imgmsg(image_bgr, encoding="bgr8")
+        img_msg.header.stamp = TimeMsg(sec=sec, nanosec=nanosec)
+        img_msg.header.frame_id = image_frame_id
+        self._grounding_frame_pub.publish(img_msg)
 
     # ------------------------------------------------------------------
     # Task 6: get_robot_state

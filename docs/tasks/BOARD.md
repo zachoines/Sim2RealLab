@@ -86,6 +86,7 @@ session.
 | [`harness-oracle-driver`](active/harness-oracle-driver.md) | DGX | L | Sketch — picked up only when [`strafer-lab-subgoal-env`](active/strafer-lab-subgoal-env.md) has shipped the NoCam waypoint-following checkpoint AND teleop throughput is the binding scale constraint for VLA training. See trigger condition in brief. |
 | [`harness-mission-generator`](active/harness-mission-generator.md) | DGX | L | Free-text mission generator with LLM-emitted waypoints (multi-room default). Renamed + restructured from the former `harness-procedural-path-shape-generator` sketch. Canonical mission queue source for teleop and oracle drivers. Blocked on `multi-room-scene-connectivity-validation` for the connectivity graph. |
 | [`harness-trajectory-first-captioning`](active/harness-trajectory-first-captioning.md) | DGX | M–L | Speaker-model post-hoc captioning regime (Speaker-Follower / hindsight-relabeling pattern). Random-A→B drivers + Qwen2.5-VL-7B speaker → instructive-voice mission text + synthesized hard negatives. FoV-honest by construction; complements teleop / bridge / oracle. |
+| [`nav-stall-multilayer-watchdog`](active/nav-stall-multilayer-watchdog.md) | Jetson | M–L | Filed-on-trigger follow-up to `progress-aware-nav-timeouts`. Adds chassis-wedge (Layer 1) + Nav2 recovery-rate (Layer 2) signals on top of the v1 best-ever-`distance_remaining` watchdog (Layer 3). Pick up only when v1 produces real false-positives in cluttered sim or false-negatives in a wedge incident. |
 
 ---
 
@@ -112,6 +113,7 @@ Briefs that aren't pickable until something else lands.
 | [`strafer-vla-v2-architecture`](active/strafer-vla-v2-architecture.md) | [`harness-teleop-driver`](active/harness-teleop-driver.md) **and** [`harness-behavior-cloning-data-expansion`](active/harness-behavior-cloning-data-expansion.md) shipped | Needs the action-labeled corpus (teleop primary, bridge supplement) before any VLA fine-tune is meaningful. Sim-first research arm; additive to v1. |
 | [`harness-oracle-driver`](active/harness-oracle-driver.md) | [`strafer-lab-subgoal-env`](active/strafer-lab-subgoal-env.md) shipped (provides NoCam waypoint-follower checkpoint) **and** trigger condition: teleop throughput is the binding scale constraint for VLA training (see brief) | Filed-on-trigger sketch. Don't pick up preemptively. |
 | [`harness-mission-generator`](active/harness-mission-generator.md) | [`multi-room-scene-connectivity-validation`](active/multi-room-scene-connectivity-validation.md) shipped (provides connectivity graph) | Promoted from the previous filed-on-trigger sketch. Now the canonical mission-queue source for teleop / oracle drivers. |
+| [`nav-stall-multilayer-watchdog`](active/nav-stall-multilayer-watchdog.md) | Trigger condition: v1 stall watchdog from `progress-aware-nav-timeouts` produces real-world false-positives (cluttered-sim re-plans) or false-negatives (chassis wedge incident) | Filed-on-trigger sketch. Adds chassis-wedge + Nav2 recovery-rate signals on top of the v1 best-ever-distance watchdog. Don't pick up preemptively — v1 may be sufficient. |
 
 ---
 

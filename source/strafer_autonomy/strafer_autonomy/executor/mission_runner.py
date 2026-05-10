@@ -2163,10 +2163,16 @@ class MissionRunner(MissionCommandHandler):
         """
         publish = getattr(self._ros_client, "publish_detections", None)
         if publish is None:
+            _logger.warning(
+                "publish_detections() unavailable on ros_client; overlay disabled"
+            )
             return
         try:
             shape = getattr(observation.color_image_bgr, "shape", None)
             if shape is None or len(shape) < 2:
+                _logger.warning(
+                    "Cannot publish overlay: observation has no usable image shape"
+                )
                 return
             height, width = int(shape[0]), int(shape[1])
 
@@ -2182,6 +2188,15 @@ class MissionRunner(MissionCommandHandler):
                     grounding.confidence,
                 ))
 
+            _logger.info(
+                "publish_grounding_overlay: %d detection(s), stamp=%.3f frame=%s img=%dx%d",
+                len(detections),
+                observation.stamp_sec,
+                observation.camera_frame,
+                width,
+                height,
+            )
+
             publish(
                 image_stamp_sec=observation.stamp_sec,
                 image_frame_id=observation.camera_frame,
@@ -2190,7 +2205,11 @@ class MissionRunner(MissionCommandHandler):
                 detections=detections,
             )
         except Exception:
-            _logger.debug("publish_detections failed (best-effort)", exc_info=True)
+            # Best-effort: never block a mission, but make the failure visible.
+            # publish_detections() can raise on a vision_msgs schema mismatch,
+            # a numpy slice that doesn't expose .shape, or a publisher state
+            # race. Surface at WARNING with the traceback so it's findable.
+            _logger.warning("publish_detections failed (best-effort)", exc_info=True)
 
     def _grounding_outputs(self, grounding: GroundingResult) -> dict[str, Any]:
         return {

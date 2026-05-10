@@ -44,6 +44,7 @@ def _make_client(config: RosClientConfig | None = None) -> JetsonRosClient:
     client._latest_odom = None
     client._nav_lock = threading.Lock()
     client._active_goal_handle = None
+    client._detections_pub = None  # Tests opt in via TestPublishDetections.
     # Mock the ROS node — use a real rclpy.time.Time advancing with the
     # monotonic wall clock so Time + Duration arithmetic and Time
     # comparisons in _wait_for_future work, and ``.to_msg()`` returns a
@@ -788,7 +789,7 @@ class TestPublishDetections(unittest.TestCase):
         with _stub_vision_msgs():
             client = _make_client()
             pub = MagicMock()
-            client._node.create_publisher.return_value = pub
+            client._detections_pub = pub
 
             client.publish_detections(
                 image_stamp_sec=100.5,
@@ -797,10 +798,6 @@ class TestPublishDetections(unittest.TestCase):
                 image_height=360,
                 detections=[((100, 200, 500, 600), "door", 0.91)],
             )
-
-            client._node.create_publisher.assert_called_once()
-            args, _ = client._node.create_publisher.call_args
-            self.assertEqual(args[1], JetsonRosClient.TOPIC_DETECTIONS)
 
             msg = self._captured(client)
             self.assertEqual(msg.header.frame_id, "d555_color_optical_frame")
@@ -826,7 +823,7 @@ class TestPublishDetections(unittest.TestCase):
         with _stub_vision_msgs():
             client = _make_client()
             pub = MagicMock()
-            client._node.create_publisher.return_value = pub
+            client._detections_pub = pub
 
             client.publish_detections(
                 image_stamp_sec=0.0,
@@ -842,11 +839,11 @@ class TestPublishDetections(unittest.TestCase):
             self.assertEqual(msg.header.stamp.nanosec, 0)
 
     def test_publisher_is_reused_across_calls(self) -> None:
-        """create_publisher fires once; subsequent calls reuse the publisher."""
+        """The eagerly created publisher is reused across publish calls."""
         with _stub_vision_msgs():
             client = _make_client()
             pub = MagicMock()
-            client._node.create_publisher.return_value = pub
+            client._detections_pub = pub
 
             for _ in range(3):
                 client.publish_detections(
@@ -857,15 +854,30 @@ class TestPublishDetections(unittest.TestCase):
                     detections=[],
                 )
 
-            client._node.create_publisher.assert_called_once()
             self.assertEqual(pub.publish.call_count, 3)
+
+    def test_no_publish_when_vision_msgs_missing(self) -> None:
+        """Missing vision_msgs at startup → publisher None → no-op + no crash."""
+        # Note: no _stub_vision_msgs() here so the import path stays "real".
+        client = _make_client()
+        # _make_client already sets _detections_pub = None.
+
+        # Should not raise even though vision_msgs may not be installed —
+        # the early-return guards the subsequent imports.
+        client.publish_detections(
+            image_stamp_sec=1.0,
+            image_frame_id="frame",
+            image_width=100,
+            image_height=100,
+            detections=[((0, 0, 1000, 1000), "door", 0.9)],
+        )
 
     def test_handles_label_and_confidence_none(self) -> None:
         """Missing label / confidence default to '' / 0.0 (not crash)."""
         with _stub_vision_msgs():
             client = _make_client()
             pub = MagicMock()
-            client._node.create_publisher.return_value = pub
+            client._detections_pub = pub
 
             client.publish_detections(
                 image_stamp_sec=1.0,

@@ -224,7 +224,13 @@ class JetsonRosClient:
         self._nav_lock = threading.Lock()
         self._active_goal_handle = None
 
+        # Eagerly created so the topic appears on the graph from boot —
+        # otherwise lazy creation hides "vision_msgs not installed" behind
+        # the same symptom as "no grounding has fired yet."
+        self._detections_pub: Any = None
+
         self._setup_subscriptions()
+        self._setup_publishers()
 
         self._spin_thread = threading.Thread(
             target=self._executor.spin,
@@ -262,6 +268,29 @@ class JetsonRosClient:
             self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self._node)
         except Exception:
             logger.debug("tf2_ros not available; SLAM tracking checks disabled")
+
+    def _setup_publishers(self) -> None:
+        """Create publishers up front so topics are discoverable from boot.
+
+        ``vision_msgs`` is an optional runtime dep (installed via
+        ``ros-humble-vision-msgs``). When it is missing we log a loud
+        warning and leave the publisher unset — ``publish_detections`` then
+        no-ops, but every other skill keeps working. This is preferred to
+        crashing the executor or hiding the missing-package failure behind
+        the lazy-create path.
+        """
+        try:
+            from vision_msgs.msg import Detection2DArray
+        except ImportError:
+            self._node.get_logger().warning(
+                "vision_msgs not installed; %s overlay disabled. "
+                "Install with: sudo apt install ros-humble-vision-msgs",
+                self.TOPIC_DETECTIONS,
+            )
+            return
+        self._detections_pub = self._node.create_publisher(
+            Detection2DArray, self.TOPIC_DETECTIONS, 10,
+        )
 
     def _on_color(self, msg: Any) -> None:
         with self._cache_lock:
@@ -773,6 +802,11 @@ class JetsonRosClient:
         Empty ``detections`` publishes an empty array, which clears any
         stale overlay from a previous grounding call.
         """
+        if self._detections_pub is None:
+            # vision_msgs missing at startup — already logged once; stay
+            # silent here so we don't spam the log on every grounding call.
+            return
+
         from builtin_interfaces.msg import Time as TimeMsg
         from vision_msgs.msg import (
             BoundingBox2D,
@@ -780,11 +814,6 @@ class JetsonRosClient:
             Detection2DArray,
             ObjectHypothesisWithPose,
         )
-
-        if not hasattr(self, "_detections_pub"):
-            self._detections_pub = self._node.create_publisher(
-                Detection2DArray, self.TOPIC_DETECTIONS, 10,
-            )
 
         sec = int(image_stamp_sec)
         nanosec = int(round((image_stamp_sec - sec) * 1e9))

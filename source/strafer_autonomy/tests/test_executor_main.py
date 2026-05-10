@@ -116,5 +116,29 @@ class TestProgressAwareEnv(unittest.TestCase):
         self.assertFalse(cfg.nav_progress_aware)
 
 
+class TestProgressAwareTuningEnv(unittest.TestCase):
+    """The four progress-aware tuning knobs each plumb into ``MissionRunnerConfig``."""
+
+    _ENV_TO_FIELD = {
+        "STRAFER_NAV_BUDGET_SAFETY_FACTOR":   ("nav_budget_safety_factor",   2.0),
+        "STRAFER_NAV_BUDGET_SETUP_OVERHEAD_S": ("nav_budget_setup_overhead_s", 5.0),
+        "STRAFER_NAV_STALL_PROGRESS_M":       ("nav_stall_progress_m",       0.10),
+        "STRAFER_NAV_STALL_WINDOW_S":         ("nav_stall_window_s",         20.0),
+    }
+
+    def test_dataclass_defaults_match_documentation(self) -> None:
+        cfg = MissionRunnerConfig()
+        for _, (field, default) in self._ENV_TO_FIELD.items():
+            self.assertAlmostEqual(getattr(cfg, field), default, msg=field)
+
+    def test_each_env_overrides_its_field(self) -> None:
+        for env_name, (field, _) in self._ENV_TO_FIELD.items():
+            kwargs: dict = {}
+            with patch.dict(os.environ, {env_name: "42.5"}, clear=False):
+                _read_float_env(env_name, field, kwargs)
+            cfg = MissionRunnerConfig(**kwargs)
+            self.assertEqual(getattr(cfg, field), 42.5, f"{env_name} -> {field}")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -129,13 +129,17 @@ Per-step budgets are derived in the executor:
   `_dispatch_nav_goal` synthesize per-step budgets from the requested
   displacement (or robot→goal straight-line distance) divided by
   `NAV_LINEAR_VEL` / `NAV_ANGULAR_VEL`, scaled by `safety_factor`
-  (default 2.0) and offset by `setup_overhead_s` (default 5.0). The
-  result is capped at `STRAFER_NAVIGATION_TIMEOUT_S`. Additionally,
+  and offset by `setup_overhead_s`. The result is capped at
+  `STRAFER_NAVIGATION_TIMEOUT_S`. Additionally,
   `ros_client.navigate_to_pose` registers a `feedback_callback` and
   runs a stall watchdog on Nav2's `distance_remaining`: if no
-  ≥ `nav_stall_progress_m` (default 0.10 m) of progress occurs over
-  `nav_stall_window_s` (default 20 s) of sim-time, the goal is
-  canceled with `error_code=navigation_stalled`.
+  ≥ `nav_stall_progress_m` of progress occurs over
+  `nav_stall_window_s` of sim-time, the goal is canceled with
+  `error_code=navigation_stalled`. Tunables (env / dataclass default):
+  - `STRAFER_NAV_BUDGET_SAFETY_FACTOR` / `nav_budget_safety_factor` (2.0)
+  - `STRAFER_NAV_BUDGET_SETUP_OVERHEAD_S` / `nav_budget_setup_overhead_s` (5.0)
+  - `STRAFER_NAV_STALL_PROGRESS_M` / `nav_stall_progress_m` (0.10 m)
+  - `STRAFER_NAV_STALL_WINDOW_S` / `nav_stall_window_s` (20.0 s)
 - **Legacy mode (`STRAFER_NAV_PROGRESS_AWARE=0`).** Every motion
   step uses `STRAFER_NAVIGATION_TIMEOUT_S` as the single deadline,
   no stall watchdog. Bisection escape hatch only.

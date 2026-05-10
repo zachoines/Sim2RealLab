@@ -36,6 +36,27 @@ STRAFER_NAV_PROGRESS_AWARE : Toggle progress-aware motion timeouts (optional; de
                          ``error_code=navigation_stalled`` if no progress is made for
                          ``nav_stall_window_s`` (default 20 s) of sim-time. Set to 0 to fall back
                          to the legacy single-deadline behavior for bisection.
+STRAFER_NAV_BUDGET_SAFETY_FACTOR : Override the multiplier on the (distance / nominal_speed) term in
+                         the progress-aware budget formula (optional, float; default 2.0). Raise on
+                         cluttered sim scenes where Nav2 plans a longer path than the straight-line
+                         estimate; lower on real-robot deployments with smoother planning.
+                         No effect when STRAFER_NAV_PROGRESS_AWARE=0.
+STRAFER_NAV_BUDGET_SETUP_OVERHEAD_S : Override the additive setup term in the progress-aware budget
+                         formula (optional, seconds; default 5.0). Covers Nav2 plan + accel/decel
+                         that don't scale with distance. Raise on slow-RTF sim where the planner
+                         takes a noticeable fraction of a sim-second to converge.
+                         No effect when STRAFER_NAV_PROGRESS_AWARE=0.
+STRAFER_NAV_STALL_PROGRESS_M : Override the minimum distance_remaining decrease required within
+                         STRAFER_NAV_STALL_WINDOW_S to consider Nav2 making progress (optional,
+                         meters; default 0.10). Raise to be more permissive of slow approaches /
+                         physics jitter; lower to fast-fail on hangs sooner.
+                         No effect when STRAFER_NAV_PROGRESS_AWARE=0.
+STRAFER_NAV_STALL_WINDOW_S : Override the rolling sim-time window over which the stall watchdog
+                         measures progress (optional, seconds; default 20.0). The watchdog cannot
+                         fire before the window is fully populated, so this is also the minimum
+                         duration of any navigation attempt. Raise on noisy / oscillating planners;
+                         lower for tighter dead-man behavior.
+                         No effect when STRAFER_NAV_PROGRESS_AWARE=0.
 STRAFER_NAV_STAGING_BUDGET : Override the maximum number of clamped intermediate Nav2 goals issued
                          by `_navigate_via_staging` when the projected target lands outside the global
                          costmap (optional, integer; default 4). One additional final Nav2 goal fires
@@ -168,6 +189,26 @@ def main() -> None:
     _read_bool_env(
         "STRAFER_NAV_PROGRESS_AWARE",
         "nav_progress_aware",
+        mission_config_kwargs,
+    )
+    _read_float_env(
+        "STRAFER_NAV_BUDGET_SAFETY_FACTOR",
+        "nav_budget_safety_factor",
+        mission_config_kwargs,
+    )
+    _read_float_env(
+        "STRAFER_NAV_BUDGET_SETUP_OVERHEAD_S",
+        "nav_budget_setup_overhead_s",
+        mission_config_kwargs,
+    )
+    _read_float_env(
+        "STRAFER_NAV_STALL_PROGRESS_M",
+        "nav_stall_progress_m",
+        mission_config_kwargs,
+    )
+    _read_float_env(
+        "STRAFER_NAV_STALL_WINDOW_S",
+        "nav_stall_window_s",
         mission_config_kwargs,
     )
     runner_config = (

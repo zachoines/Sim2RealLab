@@ -1,7 +1,7 @@
 # Publish VLM detections as a ROS topic + overlay them on the Foxglove RGB feed
 
 **Status:** Shipped 2026-05-09 in `ec323c5` (Jetson).
-**PR:** _stamped after merge_
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/22
 
 **Type:** task / new feature
 **Owner:** Jetson agent

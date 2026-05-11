@@ -1146,8 +1146,25 @@ class JetsonRosClient:
         speed = self._config.default_rotate_speed_rad_s
         direction = 1.0 if yaw_delta_rad >= 0 else -1.0
 
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
+        # Sim-clock deadline (mirrors `_wait_for_future` / `navigate_to_pose`).
+        # Honors `use_sim_time`: at sub-unity RTF, `timeout` sim-seconds is
+        # `timeout / RTF` wall-seconds, which the wall cap below bounds at
+        # `2 * timeout` so a stalled `/clock` cannot wedge the executor.
+        from rclpy.duration import Duration
+
+        clock = self._node.get_clock()
+        deadline = clock.now() + Duration(seconds=timeout)
+        wall_cap = time.monotonic() + 2.0 * timeout
+        while True:
+            if clock.now() >= deadline:
+                break
+            if time.monotonic() >= wall_cap:
+                logger.warning(
+                    "rotate_in_place hit wall-clock safety cap (%.1fs) — "
+                    "is /clock advancing?",
+                    2.0 * timeout,
+                )
+                break
             with self._cache_lock:
                 odom_msg = self._latest_odom
             if odom_msg is None:

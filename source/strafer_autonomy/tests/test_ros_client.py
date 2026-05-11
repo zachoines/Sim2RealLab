@@ -656,6 +656,114 @@ class TestRotateInPlace(unittest.TestCase):
 
 
 # ------------------------------------------------------------------
+# Tests — rotate_in_place deadline source (sim-clock vs wall-clock)
+# ------------------------------------------------------------------
+
+
+class TestRotateInPlaceDeadlineSource(unittest.TestCase):
+    """The deadline must come from ``node.get_clock().now()`` (sim-aware),
+    not ``time.monotonic()`` (wall). At sub-unity RTF a wall deadline trips
+    in fractional sim-seconds and rotates always fail.
+    """
+
+    def _unconverged_client(self) -> JetsonRosClient:
+        """Client with odom yaw=0 but a non-zero rotation request, so the
+        loop never converges and is forced onto the deadline path."""
+        client = _make_client()
+        client._latest_odom = _make_odom_msg()  # yaw=0
+        client._cmd_vel_pub = MagicMock()
+        return client
+
+    def test_use_sim_time_true_pinned_clock_falls_back_to_wall_cap(self) -> None:
+        """``use_sim_time:=true`` analog: ``/clock`` frozen.
+
+        With the buggy wall-clock deadline this would trip at ``timeout``.
+        With the sim-clock deadline the sim deadline never trips (sim time
+        never advances), so the ``2 * timeout`` wall safety cap is what
+        ends the loop. Observing the loop run for >= ~timeout wall-seconds
+        proves the sim-clock deadline is the primary source.
+        """
+        from rclpy.time import Time
+
+        client = self._unconverged_client()
+        # Sim clock pinned at t=0 → sim deadline never trips.
+        client._node.get_clock.return_value.now.side_effect = (
+            lambda: Time(seconds=0)
+        )
+
+        timeout = 0.05
+        start = time.monotonic()
+        result = client.rotate_in_place(
+            step_id="rot-sim-pinned", yaw_delta_rad=1.0,
+            tolerance_rad=0.001, timeout_s=timeout,
+        )
+        elapsed = time.monotonic() - start
+
+        self.assertEqual(result.status, "timeout")
+        # Wall cap is 2 * timeout. Buggy wall deadline would trip at ~timeout.
+        # Allow the lower bound to be just under timeout for CI jitter.
+        self.assertGreaterEqual(elapsed, timeout * 0.8)
+        self.assertLess(elapsed, 2.0 * timeout + 0.5)
+        # Clock was polled by the loop, not just consulted once.
+        self.assertGreater(
+            client._node.get_clock.return_value.now.call_count, 2
+        )
+
+    def test_use_sim_time_true_sim_deadline_trips_before_wall(self) -> None:
+        """``use_sim_time:=true`` analog: ``/clock`` jumps ahead of wall.
+
+        Stubs ``clock.now`` so the second read crosses the deadline while
+        wall time has barely moved. With a wall-clock deadline this would
+        wait the full ``timeout`` wall-seconds; with the sim-clock
+        deadline the loop exits as soon as sim crosses.
+        """
+        from rclpy.time import Time
+
+        client = self._unconverged_client()
+        # First read sets deadline at 0 + timeout. Subsequent reads return
+        # values past the deadline so the loop trips on the first iteration.
+        sim_seconds = iter([0.0, 100.0, 200.0, 300.0])
+        client._node.get_clock.return_value.now.side_effect = (
+            lambda: Time(seconds=next(sim_seconds))
+        )
+
+        timeout = 5.0  # large wall budget; sim trip should fire well before
+        start = time.monotonic()
+        result = client.rotate_in_place(
+            step_id="rot-sim-jump", yaw_delta_rad=1.0,
+            tolerance_rad=0.001, timeout_s=timeout,
+        )
+        elapsed = time.monotonic() - start
+
+        self.assertEqual(result.status, "timeout")
+        # Sim deadline trips on the first loop iteration → well under wall.
+        self.assertLess(elapsed, 1.0)
+
+    def test_use_sim_time_false_uses_wall_clock_natively(self) -> None:
+        """Real-robot bringup: ``use_sim_time=False``.
+
+        ``node.get_clock().now()`` returns wall-rate time, so the sim-clock
+        deadline behaves identically to the old wall-clock deadline.
+        ``_make_client``'s default already wires the mocked clock to
+        ``time.monotonic``, which is the wall-clock case.
+        """
+        client = self._unconverged_client()  # uses _make_client default
+
+        timeout = 0.05
+        start = time.monotonic()
+        result = client.rotate_in_place(
+            step_id="rot-real", yaw_delta_rad=1.0,
+            tolerance_rad=0.001, timeout_s=timeout,
+        )
+        elapsed = time.monotonic() - start
+
+        self.assertEqual(result.status, "timeout")
+        # Wall-rate clock → deadline trips at ~timeout, not 2 * timeout.
+        self.assertGreaterEqual(elapsed, timeout * 0.8)
+        self.assertLess(elapsed, 2.0 * timeout)
+
+
+# ------------------------------------------------------------------
 # Tests — _wait_for_future
 # ------------------------------------------------------------------
 

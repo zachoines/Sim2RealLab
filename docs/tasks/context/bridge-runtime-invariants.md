@@ -120,6 +120,13 @@ sim-time wait is 90 s of `/clock` advance — not 90 s of wall
 clock. Real-robot bringup leaves `use_sim_time=False`, so the same
 code path uses the system wall clock natively.
 
+This convention is project-wide for motion deadlines:
+`navigate_to_pose` (via `_wait_for_future` / `_wait_for_nav_result`)
+and `rotate_in_place` both compute their deadline as
+`clock.now() + Duration(seconds=timeout)` and bound the wait with a
+`2 * timeout` wall-clock safety cap so a stalled `/clock` cannot
+wedge the executor.
+
 `STRAFER_NAVIGATION_TIMEOUT_S` (default 90 s; 180 s in
 `env_sim_in_the_loop.env`) is the operator's per-mission ceiling.
 Per-step budgets are derived in the executor:
@@ -144,8 +151,10 @@ Per-step budgets are derived in the executor:
   step uses `STRAFER_NAVIGATION_TIMEOUT_S` as the single deadline,
   no stall watchdog. Bisection escape hatch only.
 
-Sources: commit `f60456e` (sim-clock deadline), the
-`progress-aware-nav-timeouts` brief (per-step budgets + watchdog).
+Sources: commit `f60456e` (sim-clock deadline for `navigate_to_pose`),
+the `progress-aware-nav-timeouts` brief (per-step budgets + watchdog),
+and `rotate-in-place-sim-clock-deadline` (sim-clock deadline for
+`rotate_in_place`, completing the convention).
 Live in
 [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
 and

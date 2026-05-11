@@ -53,6 +53,7 @@ from __future__ import annotations
 import math
 import os
 import sys
+import time
 
 import rclpy
 from geometry_msgs.msg import Twist
@@ -72,13 +73,19 @@ class DonutWarmup(Node):
         super().__init__("donut_warmup")
 
         self.declare_parameter("enabled", True)
-        self.declare_parameter("angular_vel", 0.4)         # rad/s
+        self.declare_parameter("angular_vel", 0.6)         # rad/s
         self.declare_parameter("total_rotation", 2.0 * math.pi)  # rad
         self.declare_parameter("ramp_s", 0.75)             # ramp up + ramp down each
         self.declare_parameter("startup_delay_s", 5.0)     # wait for stack to settle
         self.declare_parameter("odom_wait_timeout_s", 20.0)
         self.declare_parameter("publish_hz", 20.0)
         self.declare_parameter("cmd_vel_topic", "/cmd_vel")
+        # Sanity cap so the loop can't run forever if sim time hangs
+        # (e.g., the bridge stops publishing /clock mid-warmup). The
+        # main loop terminates on whichever fires first: target rotation
+        # reached, or wall-clock duration exceeded. Default 3x the
+        # expected sim duration leaves plenty of slack for sub-unity RTF.
+        self.declare_parameter("wall_clock_safety_factor", 3.0)
 
         env_disable = os.environ.get("STRAFER_DONUT_WARMUP_DISABLE", "")
         if env_disable.strip() in ("1", "true", "True", "yes"):
@@ -111,6 +118,11 @@ class DonutWarmup(Node):
         self._publish_hz = float(
             self.get_parameter("publish_hz").get_parameter_value().double_value
         )
+        self._wall_safety_factor = float(
+            self.get_parameter("wall_clock_safety_factor")
+            .get_parameter_value()
+            .double_value
+        )
         cmd_vel_topic = (
             self.get_parameter("cmd_vel_topic").get_parameter_value().string_value
         )
@@ -126,22 +138,46 @@ class DonutWarmup(Node):
 
     def _wait_for_odom(self) -> bool:
         """Block (spinning rclpy) until /strafer/odom is publishing or
-        the timeout expires. Returns True iff at least one message was
-        received.
+        the wall-clock timeout expires. Wall-clock here because if the
+        bridge is up enough to publish /clock it's almost certainly
+        publishing /strafer/odom too — and if not, we want to bail out
+        cleanly, not hang on a stuck sim clock.
         """
-        deadline = self.get_clock().now().nanoseconds + int(
-            self._odom_wait_timeout_s * 1e9,
-        )
+        deadline = time.monotonic() + self._odom_wait_timeout_s
         while rclpy.ok() and not self._odom_seen:
-            if self.get_clock().now().nanoseconds >= deadline:
+            if time.monotonic() >= deadline:
                 return False
             rclpy.spin_once(self, timeout_sec=0.1)
         return self._odom_seen
 
+    def _sleep_dt(self, seconds: float) -> None:
+        """Sleep one publish period while servicing rclpy callbacks.
+
+        Uses wall-clock duration via rclpy.spin_once's timeout — so a
+        stuck sim clock can never wedge this sleep. Returns promptly if
+        a callback fires.
+        """
+        rclpy.spin_once(self, timeout_sec=max(seconds, 0.0))
+
     def _sleep_simtime(self, seconds: float) -> None:
-        """Sleep using the node's clock so use_sim_time is honored."""
-        end = self.get_clock().now().nanoseconds + int(seconds * 1e9)
-        while rclpy.ok() and self.get_clock().now().nanoseconds < end:
+        """Sleep `seconds` of sim time while servicing callbacks.
+
+        Caps the wait at ``wall_clock_safety_factor * seconds`` of wall
+        time so a paused or never-publishing /clock can't wedge the
+        node. Returns early on cap with a logger warning so the caller
+        can decide what to do.
+        """
+        sim_end = self.get_clock().now().nanoseconds + int(seconds * 1e9)
+        wall_cap_s = self._wall_safety_factor * max(seconds, 0.0)
+        wall_end = time.monotonic() + wall_cap_s
+        while rclpy.ok() and self.get_clock().now().nanoseconds < sim_end:
+            if time.monotonic() >= wall_end:
+                self.get_logger().warn(
+                    f"Sim-time sleep capped at {wall_cap_s:.1f}s wall "
+                    f"(expected {seconds:.1f}s sim) — /clock may be "
+                    f"paused."
+                )
+                return
             rclpy.spin_once(self, timeout_sec=0.05)
 
     def _target_rate_at(self, elapsed_s: float, hold_s: float) -> float:
@@ -196,23 +232,58 @@ class DonutWarmup(Node):
             f"total {total_duration_s:.2f}s."
         )
 
-        start_ns = self.get_clock().now().nanoseconds
+        # Two clocks govern loop termination:
+        #   - Sim clock drives elapsed_s for the velocity profile and for
+        #     deciding rotation completeness. With use_sim_time=True the
+        #     /clock-driven advance is what makes the integrated rotation
+        #     match total_rotation in the sim view.
+        #   - Wall clock guards against a hung sim clock. If /clock stops
+        #     advancing (bridge throttled, paused, disconnected), the
+        #     sim-clock elapsed never grows and the loop would spin
+        #     forever. The wall-clock cap forces termination at
+        #     wall_clock_safety_factor x total_duration_s of real time
+        #     regardless of sim time state.
+        sim_start_ns = self.get_clock().now().nanoseconds
+        wall_start_s = time.monotonic()
+        wall_cap_s = self._wall_safety_factor * total_duration_s
+
         msg = Twist()
+        terminated_by = "sim_time_complete"
         while rclpy.ok():
-            elapsed_s = (self.get_clock().now().nanoseconds - start_ns) / 1e9
-            if elapsed_s >= total_duration_s:
+            sim_elapsed_s = (
+                self.get_clock().now().nanoseconds - sim_start_ns
+            ) / 1e9
+            wall_elapsed_s = time.monotonic() - wall_start_s
+
+            if sim_elapsed_s >= total_duration_s:
                 break
-            msg.angular.z = self._target_rate_at(elapsed_s, hold_s)
-            self._cmd_pub.publish(msg)
-            self._sleep_simtime(dt)
+            if wall_elapsed_s >= wall_cap_s:
+                terminated_by = "wall_clock_safety_cap"
+                self.get_logger().warn(
+                    f"Warmup hit wall-clock safety cap at "
+                    f"{wall_elapsed_s:.1f}s (sim elapsed only "
+                    f"{sim_elapsed_s:.1f}s of expected "
+                    f"{total_duration_s:.1f}s — /clock likely paused or "
+                    f"stalled). Stopping the spin."
+                )
+                break
 
-        # Explicit zero hold so the smoother / bridge sees the stop.
+            msg.angular.z = self._target_rate_at(sim_elapsed_s, hold_s)
+            self._cmd_pub.publish(msg)
+            self._sleep_dt(dt)
+
+        # Explicit zero hold so anything sampling /cmd_vel sees the
+        # stop. Uses wall-clock sleeping so it always terminates even
+        # if sim time is paused.
         msg.angular.z = 0.0
-        for _ in range(int(self._publish_hz)):
+        zero_hold_iters = max(int(self._publish_hz), 5)
+        for _ in range(zero_hold_iters):
             self._cmd_pub.publish(msg)
-            self._sleep_simtime(dt)
+            self._sleep_dt(dt)
 
-        self.get_logger().info("Warmup complete.")
+        self.get_logger().info(
+            f"Warmup complete (terminated_by={terminated_by})."
+        )
         return 0
 
     def _estimate_total_duration_s(self) -> float:

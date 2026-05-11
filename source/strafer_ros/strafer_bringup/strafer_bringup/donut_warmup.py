@@ -80,12 +80,17 @@ class DonutWarmup(Node):
         self.declare_parameter("odom_wait_timeout_s", 20.0)
         self.declare_parameter("publish_hz", 20.0)
         self.declare_parameter("cmd_vel_topic", "/cmd_vel")
-        # Sanity cap so the loop can't run forever if sim time hangs
-        # (e.g., the bridge stops publishing /clock mid-warmup). The
-        # main loop terminates on whichever fires first: target rotation
-        # reached, or wall-clock duration exceeded. Default 3x the
-        # expected sim duration leaves plenty of slack for sub-unity RTF.
-        self.declare_parameter("wall_clock_safety_factor", 3.0)
+        # Sim-clock stall detector. The warmup integrates rotation in
+        # sim time, so at sub-unity RTF (e.g., ~0.04-0.1 for headless
+        # Isaac Sim with cameras) the wall-clock wait per rotation grows
+        # proportionally. An absolute wall-clock cap would cut the
+        # rotation short in low-RTF runs. Instead we bail only if /clock
+        # stops advancing AT ALL over a wall window — that catches a
+        # genuinely paused / disconnected bridge without penalizing slow
+        # RTF. Default 15s wall is generous: at RTF=0.01 sim still
+        # advances 0.15s per 15s wall, well above the 0.001s "essentially
+        # zero" threshold.
+        self.declare_parameter("clock_stall_bail_wall_s", 15.0)
 
         env_disable = os.environ.get("STRAFER_DONUT_WARMUP_DISABLE", "")
         if env_disable.strip() in ("1", "true", "True", "yes"):
@@ -118,8 +123,8 @@ class DonutWarmup(Node):
         self._publish_hz = float(
             self.get_parameter("publish_hz").get_parameter_value().double_value
         )
-        self._wall_safety_factor = float(
-            self.get_parameter("wall_clock_safety_factor")
+        self._clock_stall_bail_s = float(
+            self.get_parameter("clock_stall_bail_wall_s")
             .get_parameter_value()
             .double_value
         )
@@ -159,25 +164,17 @@ class DonutWarmup(Node):
         """
         rclpy.spin_once(self, timeout_sec=max(seconds, 0.0))
 
-    def _sleep_simtime(self, seconds: float) -> None:
-        """Sleep `seconds` of sim time while servicing callbacks.
+    def _sleep_wall(self, seconds: float) -> None:
+        """Sleep ``seconds`` of wall time while servicing callbacks.
 
-        Caps the wait at ``wall_clock_safety_factor * seconds`` of wall
-        time so a paused or never-publishing /clock can't wedge the
-        node. Returns early on cap with a logger warning so the caller
-        can decide what to do.
+        Wall clock by design: the warmup's startup delay and final
+        zero-publish hold don't need to scale with sim RTF. At RTF=0.1,
+        a 5-second sim-time startup delay would block the operator for
+        50 wall seconds before the rotation begins — that's worse UX
+        than just waiting 5 real seconds.
         """
-        sim_end = self.get_clock().now().nanoseconds + int(seconds * 1e9)
-        wall_cap_s = self._wall_safety_factor * max(seconds, 0.0)
-        wall_end = time.monotonic() + wall_cap_s
-        while rclpy.ok() and self.get_clock().now().nanoseconds < sim_end:
-            if time.monotonic() >= wall_end:
-                self.get_logger().warn(
-                    f"Sim-time sleep capped at {wall_cap_s:.1f}s wall "
-                    f"(expected {seconds:.1f}s sim) — /clock may be "
-                    f"paused."
-                )
-                return
+        end = time.monotonic() + max(seconds, 0.0)
+        while rclpy.ok() and time.monotonic() < end:
             rclpy.spin_once(self, timeout_sec=0.05)
 
     def _target_rate_at(self, elapsed_s: float, hold_s: float) -> float:
@@ -215,7 +212,7 @@ class DonutWarmup(Node):
                 "Timed out waiting for /strafer/odom — skipping warmup."
             )
             return 0
-        self._sleep_simtime(self._startup_delay_s)
+        self._sleep_wall(self._startup_delay_s)
 
         # Compute hold duration to deliver the full rotation. Integral
         # of the trapezoid: angular_vel * (hold_s + ramp_s) = total_rotation
@@ -232,39 +229,51 @@ class DonutWarmup(Node):
             f"total {total_duration_s:.2f}s."
         )
 
-        # Two clocks govern loop termination:
-        #   - Sim clock drives elapsed_s for the velocity profile and for
-        #     deciding rotation completeness. With use_sim_time=True the
-        #     /clock-driven advance is what makes the integrated rotation
-        #     match total_rotation in the sim view.
-        #   - Wall clock guards against a hung sim clock. If /clock stops
-        #     advancing (bridge throttled, paused, disconnected), the
-        #     sim-clock elapsed never grows and the loop would spin
-        #     forever. The wall-clock cap forces termination at
-        #     wall_clock_safety_factor x total_duration_s of real time
-        #     regardless of sim time state.
+        # Loop termination policy:
+        #   - Primary: sim-clock elapsed reaches total_duration_s. The
+        #     rotation is integrated in sim time so the robot covers
+        #     `total_rotation` rad in the sim view regardless of RTF.
+        #     At low RTF this just means the wall-clock wait is longer
+        #     (Isaac Sim headless with cameras at ~0.04-0.1 RTF takes
+        #     2-5 minutes for a 360 deg sweep — that's the cost of the
+        #     warmup at this performance envelope).
+        #   - Safety: if /clock stops advancing for clock_stall_bail_wall_s
+        #     of wall time, bail. This catches a paused or disconnected
+        #     bridge without falsely tripping on slow RTF.
         sim_start_ns = self.get_clock().now().nanoseconds
-        wall_start_s = time.monotonic()
-        wall_cap_s = self._wall_safety_factor * total_duration_s
+        last_sim_progress_ns = sim_start_ns
+        last_sim_progress_wall_s = time.monotonic()
+        # Tiny threshold for "did sim time advance at all" — sub-millisecond
+        # noise from /clock republish jitter shouldn't count as progress.
+        sim_progress_epsilon_ns = 1_000_000  # 1 ms
 
         msg = Twist()
         terminated_by = "sim_time_complete"
         while rclpy.ok():
-            sim_elapsed_s = (
-                self.get_clock().now().nanoseconds - sim_start_ns
-            ) / 1e9
-            wall_elapsed_s = time.monotonic() - wall_start_s
+            now_sim_ns = self.get_clock().now().nanoseconds
+            sim_elapsed_s = (now_sim_ns - sim_start_ns) / 1e9
 
             if sim_elapsed_s >= total_duration_s:
                 break
-            if wall_elapsed_s >= wall_cap_s:
-                terminated_by = "wall_clock_safety_cap"
+
+            # Stall detection on sim time. If now_sim has advanced past
+            # the last-seen mark, update the high-water mark and reset
+            # the stall window. If it hasn't, check whether wall clock
+            # has run past the bail window since the last advance.
+            if now_sim_ns > last_sim_progress_ns + sim_progress_epsilon_ns:
+                last_sim_progress_ns = now_sim_ns
+                last_sim_progress_wall_s = time.monotonic()
+            elif (
+                time.monotonic() - last_sim_progress_wall_s
+                >= self._clock_stall_bail_s
+            ):
+                terminated_by = "clock_stall"
                 self.get_logger().warn(
-                    f"Warmup hit wall-clock safety cap at "
-                    f"{wall_elapsed_s:.1f}s (sim elapsed only "
-                    f"{sim_elapsed_s:.1f}s of expected "
-                    f"{total_duration_s:.1f}s — /clock likely paused or "
-                    f"stalled). Stopping the spin."
+                    f"/clock stalled — no sim-time progress in the "
+                    f"last {self._clock_stall_bail_s:.1f}s of wall "
+                    f"clock. Sim elapsed {sim_elapsed_s:.2f}s of "
+                    f"{total_duration_s:.2f}s. Stopping the spin so "
+                    f"the launch isn't wedged."
                 )
                 break
 

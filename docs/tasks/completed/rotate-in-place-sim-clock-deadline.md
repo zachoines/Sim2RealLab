@@ -1,7 +1,7 @@
 # `rotate_in_place` enforces its deadline on wall-clock, not sim-clock
 
 **Status:** Shipped 2026-05-10 in `4f63699` (Jetson).
-**PR:** _pending — populated when `gh pr create` runs._
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/24
 
 **Type:** task / bug
 **Owner:** Jetson agent

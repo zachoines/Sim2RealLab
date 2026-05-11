@@ -470,35 +470,34 @@ class TestSmoothingBT:
             "on actual robot motion"
         )
 
-    def test_bt_runs_single_shot_donut_warmup_spin(self, pkg_dir):
-        """A SingleTrigger-wrapped Spin 6.28 rad runs at bt_navigator
-        activation to fill in the camera-blind-spot donut around the
-        start pose with depth observations at varied yaws. Wrapped in
-        a Fallback with AlwaysSuccess so the SingleTrigger's FAILURE
-        on subsequent goal ticks doesn't propagate up through
-        PipelineSequence.
+    def test_bt_does_not_warmup_per_goal(self, pkg_dir):
+        """The donut-coverage warmup runs once per launch from
+        strafer_bringup.donut_warmup, NOT once per Nav2 goal. Nav2's
+        BtActionServer halts and re-ticks the tree between goals in a
+        way that doesn't reliably preserve BT decorator state — so a
+        BT-internal SingleTrigger fires on every goal in practice, not
+        once per session. Keep the warmup out of this BT to avoid that
+        trap.
         """
+        import xml.etree.ElementTree as ET
+
         path = os.path.join(pkg_dir, "config", _SMOOTHING_BT_FILENAME)
-        with open(path) as f:
-            xml = f.read()
-        assert "<SingleTrigger" in xml, "Missing <SingleTrigger> decorator"
-        assert 'spin_dist="6.28"' in xml, (
-            "Donut-warmup Spin must request a full 6.28 rad rotation "
-            "so the camera sweeps every yaw at the start pose"
+        tree = ET.parse(path)
+        root = tree.getroot()
+        tags = {el.tag for el in root.iter()}
+        assert "SingleTrigger" not in tags, (
+            "Per-launch warmup must live in strafer_bringup, not in the "
+            "navigate-to-pose BT — BT decorator state isn't preserved "
+            "across goal halts so SingleTrigger fires every goal"
         )
-        assert "<AlwaysSuccess" in xml, (
-            "Donut-warmup Fallback must include <AlwaysSuccess/> so "
-            "subsequent goals don't fail when SingleTrigger has already "
-            "fired"
-        )
-        # Sanity: the donut Spin must precede the planner in the
-        # PipelineSequence — otherwise the camera donut isn't covered
-        # before the first plan.
-        warmup_idx = xml.find('spin_dist="6.28"')
-        plan_idx = xml.find("<ComputePathToPose")
-        assert 0 < warmup_idx < plan_idx, (
-            "Donut-warmup Spin must appear before ComputePathToPose "
-            "in the XML so it runs first at the session-start tick"
+        # The recovery branch's <Spin spin_dist="1.57"/> is still there
+        # by design (Nav2 stock recovery); only the top-of-tree warmup
+        # spin is forbidden.
+        spin_attrs = [
+            el.get("spin_dist") for el in root.iter() if el.tag == "Spin"
+        ]
+        assert "6.28" not in spin_attrs, (
+            "Full 6.28 rad warmup spin must not appear in this BT"
         )
 
     def test_bt_keeps_planner_and_follower(self, pkg_dir):

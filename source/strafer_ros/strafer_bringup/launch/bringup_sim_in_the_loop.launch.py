@@ -152,6 +152,27 @@ def _launch_setup(context, *args, **kwargs):
             },
         ),
 
+        # ── One-shot donut-coverage warmup ────────────────────────────
+        # Publishes a slow 360 rotation on /cmd_vel once at bringup so
+        # RTAB-Map gets ~20 depth frames at varied yaws at the spawn
+        # pose. The node exits after one rotation; that's the
+        # once-per-session guarantee. Operator should wait for the
+        # warmup to complete before submitting the first nav goal —
+        # the spin and the autonomy executor share /cmd_vel.
+        #
+        # Override angular_vel via:
+        #   ros2 launch ... donut_warmup:=true \
+        #     -p donut_warmup.angular_vel:=0.6
+        # or disable entirely with donut_warmup:=false.
+        Node(
+            package="strafer_bringup",
+            executable="donut_warmup",
+            name="donut_warmup",
+            output="screen",
+            condition=IfCondition(LaunchConfiguration("donut_warmup")),
+            parameters=[{"use_sim_time": True}],
+        ),
+
         # ── Headless visual debugger (Foxglove WebSocket) ─────────────
         Node(
             package="foxglove_bridge",
@@ -208,6 +229,17 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "viewer_port", default_value="8765",
             description="Foxglove WebSocket TCP port.",
+        ),
+        DeclareLaunchArgument(
+            "donut_warmup", default_value="true",
+            description=(
+                "Run a one-shot 360 rotation at bringup so RTAB-Map "
+                "collects depth frames at varied yaws and the camera "
+                "blind-spot donut around base_link is covered before "
+                "the first nav goal. Set false to skip — useful when "
+                "the operator already has a populated map or doesn't "
+                "want the startup spin."
+            ),
         ),
         OpaqueFunction(function=_launch_setup),
     ])

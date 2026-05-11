@@ -27,6 +27,7 @@ setup(
     entry_points={
         "console_scripts": [
             "validate_drive = strafer_bringup.validate_drive:main",
+            "donut_warmup = strafer_bringup.donut_warmup:main",
         ],
     },
 )

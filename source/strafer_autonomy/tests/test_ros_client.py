@@ -663,8 +663,7 @@ class TestRotateInPlace(unittest.TestCase):
 class TestRotateInPlaceDeadlineSource(unittest.TestCase):
     """The deadline must come from ``node.get_clock().now()`` (sim-aware),
     not ``time.monotonic()`` (wall). At sub-unity RTF a wall deadline trips
-    in fractional sim-seconds and rotates always fail — see brief
-    ``rotate-in-place-sim-clock-deadline``.
+    in fractional sim-seconds and rotates always fail.
     """
 
     def _unconverged_client(self) -> JetsonRosClient:

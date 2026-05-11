@@ -13,9 +13,10 @@ This module replaces those specific OmniGraph nodes with a Python
 Messages are serialized and dispatched to DDS inside
 ``publish_state(...)``, which is called from the main bridge loop after
 ``env.step()`` and does not depend on ``simulation_app.update()`` to
-fire. The camera publishers stay on OmniGraph — they are bound to
-Isaac Sim render products and cannot be driven from Python without
-re-implementing the render-buffer → ROS Image serialization.
+fire. The camera publishers are likewise Python-side now (see
+:mod:`strafer_lab.bridge.async_camera_publisher`); the OmniGraph the
+bridge builds only carries the residual ``OnPlaybackTick`` /
+``ROS2Context`` scaffolding.
 
 Only importable inside a Kit process that has activated
 ``isaacsim.ros2.bridge`` (which transitively loads the bundled 3.12

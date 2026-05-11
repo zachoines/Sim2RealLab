@@ -46,6 +46,7 @@ session.
 | [`harness-teleop-driver`](active/harness-teleop-driver.md) | DGX | M | Gamepad teleop entry point for in-process Isaac Lab data capture. Bypasses MPPI / Nav2 / planner; reuses `collect_demos.py` mapping; emits the canonical harness schema. Unblocks v1 measurement (clip-eval, learned-validator) and v2 VLA training data without depending on bridge perf. |
 | [`multi-room-autonomy-stack`](active/multi-room-autonomy-stack.md) | Either | M | Lifts §1.10.1's multi-room deferral. Stored-map fallback in `scan_for_target` + planner transit-step emission + plan-compiler updates. Required for multi-room as the MVP default. |
 | [`multi-room-scene-connectivity-validation`](active/multi-room-scene-connectivity-validation.md) | DGX | S | Computes room connectivity at scene-gen time + verifies door-open default in `prep_room_usds.py`. Hard prerequisite for `multi-room-autonomy-stack` and `harness-mission-generator`. |
+| [`rotate-in-place-sim-clock-deadline`](active/rotate-in-place-sim-clock-deadline.md) | Jetson | S | Bumped from P2 → P1: PR #21 tightened rotation budgets, and the wall-clock deadline in `rotate_in_place` now fails any rotation skill in single-digit sim-seconds at sub-unity RTF. Mirror `f60456e`'s sim-clock pattern. |
 
 ### P2 — medium priority
 
@@ -63,7 +64,6 @@ session.
 
 | Brief | Estimate | Note |
 |---|---|---|
-| [`rotate-in-place-sim-clock-deadline`](active/rotate-in-place-sim-clock-deadline.md) | S | Quick win |
 | [`grounding-publisher-extraction`](active/grounding-publisher-extraction.md) | S | Quick win — pure refactor follow-up to `vlm-bbox-overlay`; extracts the viz publishers out of `JetsonRosClient` |
 | [`align-after-scan-grounding`](active/align-after-scan-grounding.md) | S–M | Executor + plan_compiler tweak |
 | [`real-d555-depth-range-survey`](active/real-d555-depth-range-survey.md) | S–M | Investigation — bench measurement + write-up |
@@ -95,7 +95,7 @@ Briefs estimated **S** that any agent can knock out in <1 day. Useful
 for fresh-session pickup. Cross-cut — these also appear above.
 
 - [`planner-rotate-direction-prompt`](active/planner-rotate-direction-prompt.md) (DGX, P2)
-- [`rotate-in-place-sim-clock-deadline`](active/rotate-in-place-sim-clock-deadline.md) (Jetson, P2)
+- [`rotate-in-place-sim-clock-deadline`](active/rotate-in-place-sim-clock-deadline.md) (Jetson, **P1** — bumped after PR #21)
 - [`grounding-publisher-extraction`](active/grounding-publisher-extraction.md) (Jetson, P2)
 
 ---

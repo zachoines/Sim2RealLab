@@ -1,5 +1,8 @@
 # D555 perception camera — set explicit `opencvPinhole` distortion model
 
+**Status:** Shipped 2026-05-10 in `3be32d3` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/23
+
 **Type:** task
 **Owner:** DGX agent
 **Priority:** P2

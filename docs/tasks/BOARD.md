@@ -53,7 +53,6 @@ session.
 
 | Brief | Estimate | Note |
 |---|---|---|
-| [`d555-distortion-model-explicit`](active/d555-distortion-model-explicit.md) | S | Quick win |
 | [`planner-rotate-direction-prompt`](active/planner-rotate-direction-prompt.md) | S | Quick win — prompt edit |
 | [`policy-goal-noise-training`](active/policy-goal-noise-training.md) | M | Targeted DEPTH-baseline training pass with goal-position noise; gates VLM-grounded mission quality for `strafer_direct` |
 | [`harness-behavior-cloning-data-expansion`](active/harness-behavior-cloning-data-expansion.md) | M–L | Per-tick capture + depth + actions + time alignment + paraphrase + hard-negative injection. Driver-agnostic schema; bridge-driver upgrades ship in this brief. |
@@ -95,7 +94,6 @@ session.
 Briefs estimated **S** that any agent can knock out in <1 day. Useful
 for fresh-session pickup. Cross-cut — these also appear above.
 
-- [`d555-distortion-model-explicit`](active/d555-distortion-model-explicit.md) (DGX, P2)
 - [`planner-rotate-direction-prompt`](active/planner-rotate-direction-prompt.md) (DGX, P2)
 - [`rotate-in-place-sim-clock-deadline`](active/rotate-in-place-sim-clock-deadline.md) (Jetson, P2)
 - [`grounding-publisher-extraction`](active/grounding-publisher-extraction.md) (Jetson, P2)

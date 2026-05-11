@@ -209,6 +209,37 @@ class TestSimInTheLoopBringup:
                 return
         raise AssertionError("donut_warmup arg not found")
 
+    def test_real_robot_navigation_declares_donut_warmup_arg(self, pkg_dir):
+        """Real-robot bringup must declare the toggle so operators can
+        opt in on a cold-start session.
+        """
+        from launch.actions import DeclareLaunchArgument
+
+        ld = self._load(pkg_dir, "navigation.launch.py")
+        arg_names = [
+            e.name for e in ld.entities if isinstance(e, DeclareLaunchArgument)
+        ]
+        assert "donut_warmup" in arg_names
+
+    def test_real_robot_donut_warmup_default_disabled(self, pkg_dir):
+        """Default must be 'false' on the real-robot lane. The donut
+        symptom is amplified by the sim's cold-mapped workflow; in
+        steady-state real-robot ops the rtabmap.db persists across
+        sessions and a startup spin is unnecessary motion (and a real
+        safety concern on hardware).
+        """
+        from launch.actions import DeclareLaunchArgument
+
+        ld = self._load(pkg_dir, "navigation.launch.py")
+        for e in ld.entities:
+            if isinstance(e, DeclareLaunchArgument) and e.name == "donut_warmup":
+                assert e.default_value[0].text.lower() == "false", (
+                    "donut_warmup must default to false on real-robot "
+                    "bringup; opt-in via donut_warmup:=true per session"
+                )
+                return
+        raise AssertionError("donut_warmup arg not found on real-robot bringup")
+
 
 class TestDonutWarmupNode:
     """Smoke tests for the donut_warmup node — importable and exposes

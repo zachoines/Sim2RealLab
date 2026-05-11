@@ -1,5 +1,8 @@
 # `rotate_in_place` enforces its deadline on wall-clock, not sim-clock
 
+**Status:** Shipped 2026-05-10 in `4f63699` (Jetson).
+**PR:** _pending — populated when `gh pr create` runs._
+
 **Type:** task / bug
 **Owner:** Jetson agent
 **Priority:** P1 — bumped from P2 after `progress-aware-nav-timeouts`

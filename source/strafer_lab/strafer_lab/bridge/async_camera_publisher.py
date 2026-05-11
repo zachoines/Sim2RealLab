@@ -50,6 +50,7 @@ will fail at the ``rclpy`` line.
 
 from __future__ import annotations
 
+import array
 import threading
 import time
 from dataclasses import dataclass
@@ -100,6 +101,34 @@ class _PendingFrame:
     rgb_gpu: torch.Tensor | None  # (H, W, 3) uint8, on CUDA
     depth_gpu: torch.Tensor | None  # (H, W) float32 metres, on CUDA
     ready_event: Any  # torch.cuda.Event recorded after the clones
+
+
+def _as_uint8_array(buf: np.ndarray) -> "array.array[int]":
+    """Wrap a numpy buffer in ``array.array('B', ...)`` for the Image.data fast path.
+
+    The rclpy-generated ``sensor_msgs/Image`` setter (see
+    ``isaacsim.ros2.core/humble/rclpy/sensor_msgs/msg/_image.py``)
+    has a single-branch fast path that accepts ``array.array`` with
+    typecode ``'B'`` and assigns it in O(1). **Every other input type**
+    — including ``bytes`` — falls through to a debug-mode assert chain
+    that iterates the entire buffer twice (``all(isinstance(v, int) for v in value)``
+    + ``all(0 <= val < 256 for val in value)``) before constructing the
+    same ``array.array`` internally. For a 640×360×3 uint8 RGB image
+    that is ~1.4 M Python-level operations per frame; for 640×360×4
+    float-as-bytes depth, ~1.8 M. Measured cost in this codebase: ~80–100 ms
+    per stream, i.e. ~180 ms for a (color + depth) pair — which is what
+    ``camera :: rclpy publish`` was reporting before this helper landed.
+
+    ``array.array('B', bytes_obj)`` uses the buffer protocol to memcpy
+    the payload in C, bypassing the Python iteration entirely. Passing
+    the result to ``img.data`` keeps the setter on its fast path.
+
+    Accepts any contiguous numpy buffer; reads it as raw bytes
+    (encoding interpretation lives in ``img.encoding``, not in the data
+    type — sensor_msgs/Image's ``data`` field is always ``uint8[]``
+    regardless of whether the payload is ``rgb8``, ``32FC1``, etc.).
+    """
+    return array.array("B", buf.tobytes())
 
 
 def _build_camera_info(
@@ -394,7 +423,7 @@ class StraferCameraAsyncPublisher:
         img.encoding = "rgb8"
         img.is_bigendian = 0
         img.step = int(w * 3)
-        img.data = rgb.tobytes()
+        img.data = _as_uint8_array(rgb)
         self._color_image_pub.publish(img)
 
         info = self._color_info_template
@@ -424,7 +453,7 @@ class StraferCameraAsyncPublisher:
         img.encoding = "32FC1"
         img.is_bigendian = 0
         img.step = int(w * 4)
-        img.data = depth.tobytes()
+        img.data = _as_uint8_array(depth)
         self._depth_image_pub.publish(img)
 
         info = self._depth_info_template

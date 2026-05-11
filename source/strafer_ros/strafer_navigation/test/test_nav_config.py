@@ -443,6 +443,64 @@ class TestSmoothingBT:
         assert 'unsmoothed_path="{path}"' in xml
         assert 'smoothed_path="{path}"' in xml
 
+    def test_bt_uses_distance_controller_not_rate_controller(self, pkg_dir):
+        """Replan gate must be motion-based, not time-based. A 1 Hz
+        RateController emits a slightly different path every second
+        through a noisy costmap; DistanceController 0.5m defers
+        replanning until the robot has actually moved, so the path the
+        controller is tracking stays stable between updates.
+        """
+        import xml.etree.ElementTree as ET
+
+        path = os.path.join(pkg_dir, "config", _SMOOTHING_BT_FILENAME)
+        tree = ET.parse(path)
+        root = tree.getroot()
+        # Inspect element tags (skips comments, which ElementTree drops).
+        tags = {el.tag for el in root.iter()}
+        assert "DistanceController" in tags, (
+            "Missing <DistanceController> wrapping ComputePathToPose"
+        )
+        assert "RateController" not in tags, (
+            "<RateController> must not appear — replanning is gated on "
+            "distance, not on a wall-clock rate"
+        )
+        dist_el = next(el for el in root.iter() if el.tag == "DistanceController")
+        assert dist_el.get("distance") == "0.5", (
+            "DistanceController distance must be 0.5m to gate replan "
+            "on actual robot motion"
+        )
+
+    def test_bt_runs_single_shot_donut_warmup_spin(self, pkg_dir):
+        """A SingleTrigger-wrapped Spin 6.28 rad runs at bt_navigator
+        activation to fill in the camera-blind-spot donut around the
+        start pose with depth observations at varied yaws. Wrapped in
+        a Fallback with AlwaysSuccess so the SingleTrigger's FAILURE
+        on subsequent goal ticks doesn't propagate up through
+        PipelineSequence.
+        """
+        path = os.path.join(pkg_dir, "config", _SMOOTHING_BT_FILENAME)
+        with open(path) as f:
+            xml = f.read()
+        assert "<SingleTrigger" in xml, "Missing <SingleTrigger> decorator"
+        assert 'spin_dist="6.28"' in xml, (
+            "Donut-warmup Spin must request a full 6.28 rad rotation "
+            "so the camera sweeps every yaw at the start pose"
+        )
+        assert "<AlwaysSuccess" in xml, (
+            "Donut-warmup Fallback must include <AlwaysSuccess/> so "
+            "subsequent goals don't fail when SingleTrigger has already "
+            "fired"
+        )
+        # Sanity: the donut Spin must precede the planner in the
+        # PipelineSequence — otherwise the camera donut isn't covered
+        # before the first plan.
+        warmup_idx = xml.find('spin_dist="6.28"')
+        plan_idx = xml.find("<ComputePathToPose")
+        assert 0 < warmup_idx < plan_idx, (
+            "Donut-warmup Spin must appear before ComputePathToPose "
+            "in the XML so it runs first at the session-start tick"
+        )
+
     def test_bt_keeps_planner_and_follower(self, pkg_dir):
         """Sanity: the BT still issues ComputePathToPose and FollowPath
         — smoothing is additive, not a replacement.

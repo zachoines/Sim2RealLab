@@ -1,22 +1,36 @@
 <!--
-  Strafer BT: mirrors Nav2's default
-  navigate_to_pose_w_replanning_and_recovery.xml with a <SmoothPath>
-  step injected between ComputePathToPose and FollowPath.
+  Strafer sim-lane BT. Differs from Nav2's stock
+  navigate_to_pose_w_replanning_and_recovery.xml in three places:
 
-  Motivation: on a cold-mapped session the global costmap has an
-  unknown-cell donut around the robot footprint (no D555 frames
-  observe the cells inside ~0.4-0.5 m of base_link yet). NavFn with
-  allow_unknown=true picks a grid-discrete shortest path through the
-  uniform-cost donut, producing visible jaggies that PathAlignCritic
-  then forces MPPI to track laterally - the lateral-overrides-forward
-  oscillation the sim mission starts with. Running the planner output
-  through simple_smoother (max_its=1000, tolerance=1e-10 from
-  smoother_server) collapses the jaggies into a clean curve before
-  FollowPath sees it.
+  1. <SingleTrigger><Spin spin_dist="6.28"/></SingleTrigger> warmup
+     fires exactly once per bt_navigator activation (i.e. per launch,
+     not per goal — BT.CPP keeps the SingleTrigger's first_time_ flag
+     across goal-tick cycles since there's no halt() override). The
+     360 rotation gives RTAB-Map ~20 depth frames at varied yaws at
+     the start pose so the camera-blind-spot donut around base_link
+     (cells inside the D555's ~0.4 m min range) gets covered before
+     the first plan runs. Wrapped in a Fallback with <AlwaysSuccess/>
+     so subsequent goals don't see the SingleTrigger FAILURE turn
+     into a PipelineSequence FAILURE.
+
+  2. <DistanceController distance="0.5"> replaces Nav2's
+     <RateController hz="1.0"> around ComputePathToPose. Replanning
+     gated on robot motion (replan after 0.5 m of travel) rather than
+     wall time prevents the planner from emitting a slightly
+     different path every second through a noisy costmap — which the
+     controller would otherwise be forced to track laterally. Path
+     continuity bias by deferral, not by a critic.
+
+  3. <SmoothPath unsmoothed_path="{path}" smoothed_path="{path}"
+     smoother_id="simple_smoother"/> runs between ComputePathToPose
+     and FollowPath. simple_smoother (configured under smoother_server
+     with max_its=1000, tolerance=1e-10) crushes the grid jaggies
+     NavFn emits through residual unknown cells into a clean curve
+     before the controller sees the path.
 
   Selected via bt_navigator.default_nav_to_pose_bt_xml in the patched
   params, gated on envelope_factor > 1.0 (sim lane). Real-robot
-  bringup keeps the Nav2 default BT untouched.
+  bringup keeps Nav2's stock BT untouched.
 
   The unsmoothed_path / smoothed_path ports both bind {path} so the
   blackboard variable FollowPath reads is the smoothed one; the
@@ -26,7 +40,13 @@
   <BehaviorTree ID="MainTree">
     <RecoveryNode number_of_retries="6" name="NavigateRecovery">
       <PipelineSequence name="NavigateWithReplanning">
-        <RateController hz="1.0">
+        <Fallback name="DonutWarmup">
+          <SingleTrigger>
+            <Spin spin_dist="6.28"/>
+          </SingleTrigger>
+          <AlwaysSuccess/>
+        </Fallback>
+        <DistanceController distance="0.5">
           <RecoveryNode number_of_retries="1" name="ComputePathToPose">
             <Sequence name="PlanAndSmooth">
               <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
@@ -34,7 +54,7 @@
             </Sequence>
             <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
           </RecoveryNode>
-        </RateController>
+        </DistanceController>
         <RecoveryNode number_of_retries="1" name="FollowPath">
           <FollowPath path="{path}" controller_id="FollowPath"/>
           <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>

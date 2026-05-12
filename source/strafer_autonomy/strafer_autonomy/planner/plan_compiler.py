@@ -13,11 +13,21 @@ from typing import Callable
 from strafer_autonomy.schemas import MissionIntent, MissionPlan, SkillCall
 
 # Every compiler that ends in ``navigate_to_pose`` appends a
-# ``verify_arrival`` step for a total of four steps per target:
-# scan → project → navigate → verify. The verify step runs a
+# ``verify_arrival`` step for a total of five steps per target:
+# scan → project → align → navigate → verify. The align step
+# rotates the robot to face the projected goal pose's yaw before
+# Nav2/MPPI is asked to plan, so the navigate leg drives forward
+# into the goal instead of strafing diagonally from a half-FOV
+# heading offset left over from scan. The verify step runs a
 # CLIP top-k ranking against the semantic map at the arrival pose
 # to confirm the robot reached the intended target region.
-_STEPS_PER_TARGET = 4
+_STEPS_PER_TARGET = 5
+
+# Yaw tolerance for the pre-navigate alignment step. Tight enough
+# that the residual heading offset at navigate-start is below the
+# threshold where MPPI's critic landscape resolves into a strafe-
+# while-turn on a mecanum chassis. ~5° in radians.
+_ALIGN_TOLERANCE_RAD = 0.087
 
 
 class CompilationError(Exception):
@@ -61,7 +71,7 @@ def _make_verify_arrival_step(*, step_id: str, target_label: str) -> SkillCall:
 def _compile_single_target_steps(
     *, label: str, base: int, standoff_m: float = 0.7,
 ) -> list[SkillCall]:
-    """Return the 4-step scan→project→navigate→verify sequence.
+    """Return the 5-step scan→project→align→navigate→verify sequence.
 
     ``base`` is the 1-indexed step number of the first step.
     """
@@ -82,12 +92,18 @@ def _compile_single_target_steps(
         ),
         SkillCall(
             step_id=f"step_{base + 2:02d}",
+            skill="align_to_goal_yaw",
+            args={"tolerance_rad": _ALIGN_TOLERANCE_RAD},
+            retry_limit=0,
+        ),
+        SkillCall(
+            step_id=f"step_{base + 3:02d}",
             skill="navigate_to_pose",
             args={"goal_source": "projected_target", "execution_backend": "nav2"},
             retry_limit=0,
         ),
         _make_verify_arrival_step(
-            step_id=f"step_{base + 3:02d}",
+            step_id=f"step_{base + 4:02d}",
             target_label=label,
         ),
     ]
@@ -193,7 +209,7 @@ def _compile_rotate(intent: MissionIntent) -> list[SkillCall]:
 
 
 def _compile_go_to_targets(intent: MissionIntent) -> list[SkillCall]:
-    """Chain scan→project→navigate→verify per target in the ``targets`` list."""
+    """Chain scan→project→align→navigate→verify per target in the ``targets`` list."""
     if not intent.targets:
         raise CompilationError("go_to_targets requires a non-empty targets list.")
     steps: list[SkillCall] = []

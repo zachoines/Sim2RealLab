@@ -472,6 +472,113 @@ class TestOrientToDirection:
 
 
 # ---------------------------------------------------------------------------
+# align_to_goal_yaw
+# ---------------------------------------------------------------------------
+
+
+def _goal_pose_with_yaw(yaw: float, x: float = 1.0, y: float = 0.0) -> Pose3D:
+    return Pose3D(
+        x=x, y=y, z=0.0,
+        qx=0.0, qy=0.0,
+        qz=math.sin(yaw / 2.0),
+        qw=math.cos(yaw / 2.0),
+    )
+
+
+def _goal_pose_candidate(yaw: float) -> GoalPoseCandidate:
+    return GoalPoseCandidate(
+        request_id="g1", found=True, goal_frame="map",
+        goal_pose=_goal_pose_with_yaw(yaw),
+    )
+
+
+class TestAlignToGoalYaw:
+    def test_missing_goal_pose_fails_with_prereq_code(self):
+        runner, ros = _make_runner()
+        runtime = _make_runtime()
+        step = SkillCall(skill="align_to_goal_yaw", step_id="a1")
+        result = runner._align_to_goal_yaw(runtime, step)
+        assert result.status == "failed"
+        assert result.error_code == "align_prereq_missing"
+
+    def test_candidate_without_goal_pose_fails_with_prereq_code(self):
+        runner, ros = _make_runner()
+        runtime = _make_runtime()
+        runtime.latest_goal_pose = GoalPoseCandidate(
+            request_id="g1", found=False, goal_frame="map", goal_pose=None,
+        )
+        step = SkillCall(skill="align_to_goal_yaw", step_id="a1")
+        result = runner._align_to_goal_yaw(runtime, step)
+        assert result.status == "failed"
+        assert result.error_code == "align_prereq_missing"
+
+    def test_no_robot_pose_fails(self):
+        runner, ros = _make_runner()
+        ros.get_robot_state.return_value = {"pose": None}
+        runtime = _make_runtime()
+        runtime.latest_goal_pose = _goal_pose_candidate(yaw=0.0)
+        step = SkillCall(skill="align_to_goal_yaw", step_id="a1")
+        result = runner._align_to_goal_yaw(runtime, step)
+        assert result.status == "failed"
+        assert result.error_code == "no_pose"
+
+    def test_off_axis_delta_passed_to_rotate(self):
+        runner, ros = _make_runner()
+        ros.get_robot_state.return_value = {"pose": {"qz": 0.0, "qw": 1.0}}
+        ros.rotate_in_place.return_value = SkillResult(
+            step_id="a1", skill="rotate_in_place", status="succeeded",
+        )
+        runtime = _make_runtime()
+        runtime.latest_goal_pose = _goal_pose_candidate(yaw=math.radians(30.0))
+        step = SkillCall(
+            skill="align_to_goal_yaw", step_id="a1",
+            args={"tolerance_rad": 0.087},
+        )
+        runner._align_to_goal_yaw(runtime, step)
+        kwargs = ros.rotate_in_place.call_args.kwargs
+        assert abs(kwargs["yaw_delta_rad"] - math.radians(30.0)) < 1e-6
+        assert kwargs["tolerance_rad"] == pytest.approx(0.087)
+        assert kwargs["step_id"] == "a1"
+
+    def test_shortest_arc_across_pi(self):
+        runner, ros = _make_runner()
+        # Robot at +170°, goal at -170° → shortest path is +20° (not -340°).
+        robot_yaw = math.radians(170.0)
+        ros.get_robot_state.return_value = {
+            "pose": {
+                "qz": math.sin(robot_yaw / 2.0),
+                "qw": math.cos(robot_yaw / 2.0),
+            },
+        }
+        ros.rotate_in_place.return_value = SkillResult(
+            step_id="a1", skill="rotate_in_place", status="succeeded",
+        )
+        runtime = _make_runtime()
+        runtime.latest_goal_pose = _goal_pose_candidate(yaw=math.radians(-170.0))
+        step = SkillCall(skill="align_to_goal_yaw", step_id="a1")
+        runner._align_to_goal_yaw(runtime, step)
+        delta = ros.rotate_in_place.call_args.kwargs["yaw_delta_rad"]
+        assert abs(delta - math.radians(20.0)) < 1e-6
+
+    def test_already_aligned_still_calls_rotate_for_pass_through(self):
+        runner, ros = _make_runner()
+        # Robot and goal both at yaw=0 → delta ~ 0.
+        ros.get_robot_state.return_value = {"pose": {"qz": 0.0, "qw": 1.0}}
+        ros.rotate_in_place.return_value = SkillResult(
+            step_id="a1", skill="rotate_in_place", status="succeeded",
+        )
+        runtime = _make_runtime()
+        runtime.latest_goal_pose = _goal_pose_candidate(yaw=0.0)
+        step = SkillCall(skill="align_to_goal_yaw", step_id="a1")
+        result = runner._align_to_goal_yaw(runtime, step)
+        assert result.status == "succeeded"
+        # rotate_in_place is invoked even when within tolerance — it short-
+        # circuits internally, keeping cmd_vel/log telemetry consistent.
+        ros.rotate_in_place.assert_called_once()
+        assert abs(ros.rotate_in_place.call_args.kwargs["yaw_delta_rad"]) < 1e-6
+
+
+# ---------------------------------------------------------------------------
 # query_environment
 # ---------------------------------------------------------------------------
 
@@ -524,6 +631,20 @@ class TestDispatch:
         assert "orient_to_direction" in DEFAULT_AVAILABLE_SKILLS
         assert "translate" in DEFAULT_AVAILABLE_SKILLS
         assert "query_environment" in DEFAULT_AVAILABLE_SKILLS
+        assert "align_to_goal_yaw" in DEFAULT_AVAILABLE_SKILLS
+
+    def test_execute_step_dispatches_align_to_goal_yaw(self):
+        runner, ros = _make_runner()
+        ros.get_robot_state.return_value = {"pose": {"qz": 0.0, "qw": 1.0}}
+        ros.rotate_in_place.return_value = SkillResult(
+            step_id="a1", skill="rotate_in_place", status="succeeded",
+        )
+        runtime = _make_runtime()
+        runtime.latest_goal_pose = _goal_pose_candidate(yaw=math.radians(10.0))
+        step = SkillCall(skill="align_to_goal_yaw", step_id="a1")
+        result = runner._execute_step(runtime, step)
+        assert result.status == "succeeded"
+        ros.rotate_in_place.assert_called_once()
 
     def test_execute_step_dispatches_verify_arrival(self):
         mock_map = _make_semantic_map(top_results=[])

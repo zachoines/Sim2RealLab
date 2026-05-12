@@ -404,7 +404,7 @@ The current queue is itself a useful set of examples:
 
 - **Investigation** ([`real-d555-depth-range-survey.md`](active/real-d555-depth-range-survey.md))
   — open-ended diagnostic with a clear done-definition.
-- **Refactor** ([`async-camera-publishers.md`](active/async-camera-publishers.md))
+- **Refactor** ([`async-camera-publishers.md`](completed/async-camera-publishers.md))
   — larger surgical change with risks and out-of-scope explicit.
 - **New feature** ([`jetson-headless-viewer.md`](completed/jetson-headless-viewer.md))
   — green-field work with a recommended approach + lighter alternative.

@@ -1528,9 +1528,9 @@ makes it better.
 ### 1.10.1 Known limitation: multi-room navigation
 
 **Status:** This deferral is being lifted. See
-[`docs/tasks/active/multi-room-autonomy-stack.md`](tasks/active/multi-room-autonomy-stack.md)
+[`docs/tasks/active/multi-room/autonomy-stack.md`](tasks/active/multi-room/autonomy-stack.md)
 (stored-map fallback + planner transit-step emission) and
-[`docs/tasks/active/multi-room-scene-connectivity-validation.md`](tasks/active/multi-room-scene-connectivity-validation.md)
+[`docs/tasks/active/multi-room/scene-connectivity-validation.md`](tasks/active/multi-room/scene-connectivity-validation.md)
 (scene-side connectivity graph + door-open guarantee) for the
 work that ships multi-room as the project's MVP default.
 Frontier exploration / unmapped-environment multi-room remains

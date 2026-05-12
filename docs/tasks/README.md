@@ -56,7 +56,75 @@ Lowercase kebab-case, descriptive of the work, no leading numbers:
 Avoid prefixes like `001-`, dates, or owner initials. The `Owner` /
 `Priority` / `Estimate` fields in the frontmatter convey ordering and
 ownership; the filename should still read sensibly when you scan
-`ls docs/tasks/active/`.
+the active queue.
+
+When a brief lives inside an epic subdir (see
+[`## Directory layout`](#directory-layout) below), the filename may
+elide a prefix that the subdir already conveys —
+`harness/teleop-driver.md` rather than `harness/harness-teleop-driver.md`.
+This is opportunistic: shorten when the result reads naturally,
+otherwise keep the longer form.
+
+---
+
+## Directory layout
+
+`docs/tasks/` has four siblings:
+
+| Path | What lives here |
+|---|---|
+| [`active/<epic>/`](active/) | Pickable briefs, grouped by feature epic |
+| top-level `active/<brief>.md` (rare) | Meta exception: a brief that defines the layout itself sits at top-level rather than inside an epic. The current pattern was set by [`completed/task-board-epic-structure.md`](completed/task-board-epic-structure.md). Use sparingly. |
+| [`parked/<epic>/`](parked/) | Filed-on-trigger or blocked-on-deps briefs, mirroring `active/`'s subdir structure |
+| [`completed/`](completed/) | Historical record, kept **flat** (no epic subdirs) — completed briefs are browsed by date / search, not by feature area |
+| [`context/`](context/) | Cross-epic context modules referenced by brief `## Context bundle` sections; flat by design (modules don't belong to epics) |
+
+### Epic dirs
+
+The nine epics are a fixed small set, decided per
+[`context/conventions.md`'s task-board section](context/conventions.md#task-board-structure).
+Adding a new epic is a convention change, not an ad-hoc decision —
+file a brief that amends this layout. Do **not** invent a `misc/`
+bucket.
+
+Current epics:
+
+- `multi-room/` — cross-room navigation
+- `trained-policy/` — RL training + Jetson policy deployment
+- `harness/` — training-data pipeline
+- `clip-validation/` — mid-mission validation via CLIP
+- `sim-performance/` — bridge throughput, renderer
+- `reliability/` — nav + executor bugs + autonomy refactors
+- `tooling/` — testing, CI, workstation bringup
+- `experimental/` — long-horizon research bets
+- `investigations/` — one-shot measurements that spawn follow-ups
+
+### Parked sibling
+
+`parked/<epic>/<brief>.md` is the home for briefs that are filed
+but **not pickable right now**. Two common reasons:
+
+- **Filed-on-trigger.** Pickup gated on a condition the operator
+  decides (e.g., "pick up only when the v1 watchdog produces
+  real-world false positives").
+- **Blocked-on-deps.** Pickup gated on another brief shipping.
+
+Un-park is one `git mv`:
+
+```
+git mv parked/<epic>/<brief>.md active/<epic>/<brief>.md
+```
+
+This goes in the PR that picks the brief up; update the brief's
+row in [`BOARD.md`](BOARD.md) in the same commit (state: `parked`
+→ `in flight`).
+
+### Branch naming
+
+`task/<basename>` — the epic subdir does **not** leak into the
+branch name. `active/harness/teleop-driver.md` → branch
+`task/teleop-driver`. The path organizes the filesystem; the
+branch organizes the worktree.
 
 ---
 
@@ -245,15 +313,22 @@ your task branch:
       commit — the merge commit doesn't exist yet. `<host>` is
       `Jetson` / `DGX` / `Either` per the brief's `Owner` field.
 
-   b. `git mv docs/tasks/active/<brief>.md docs/tasks/completed/<brief>.md`.
+   b. `git mv docs/tasks/active/<epic>/<brief>.md
+      docs/tasks/completed/<brief>.md`. `completed/` is flat — the
+      epic subdir is dropped on ship. If the brief was parked when
+      picked up, the source path is `docs/tasks/parked/<epic>/<brief>.md`
+      (un-park to active first, then ship per the normal flow).
 
    c. Update [`BOARD.md`](BOARD.md):
       - Remove the brief's row from **In flight**. If In flight is
         now empty, leave a single `_None._` row.
+      - Remove the brief's row from **By epic** and from **Ready
+        to pick up**.
       - If the brief's validation surfaced follow-ups that you
         filed during this PR, ensure they're listed under
-        **Ready to pick up** (or **Blocked** if they have
-        unshipped dependencies).
+        **Ready to pick up** (or **Parked** if they have
+        unshipped dependencies / filed-on-trigger semantics), and
+        added under the right epic in **By epic**.
 
 3. **Request review and merge.** The PR cannot merge without the
    housekeeping commit. Reviewers should treat its absence as a
@@ -308,7 +383,7 @@ this agent or you want them to choose from the queue.
 ```
 You are the [DGX | Jetson]-side coding agent. Your task brief is at:
 
-    docs/tasks/active/<brief-name>.md
+    docs/tasks/active/<epic>/<brief-name>.md
 
 Start by reading the brief and the context modules it links to from
 its "## Context bundle" section. Workspace is already set up
@@ -402,16 +477,17 @@ on session-fit.
 
 The current queue is itself a useful set of examples:
 
-- **Investigation** ([`real-d555-depth-range-survey.md`](active/real-d555-depth-range-survey.md))
+- **Investigation** ([`real-d555-depth-range-survey.md`](active/investigations/real-d555-depth-range-survey.md))
   — open-ended diagnostic with a clear done-definition.
 - **Refactor** ([`async-camera-publishers.md`](completed/async-camera-publishers.md))
   — larger surgical change with risks and out-of-scope explicit.
 - **New feature** ([`jetson-headless-viewer.md`](completed/jetson-headless-viewer.md))
   — green-field work with a recommended approach + lighter alternative.
-- **Docs** ([`integration-prompts-refresh.md`](active/integration-prompts-refresh.md))
-  — refresh of existing artifacts, with concrete drift listed.
 - **Bug fix** ([`completed/bridge-render-product-resolution.md`](completed/bridge-render-product-resolution.md),
   [`completed/goal-projection-depth-range.md`](completed/goal-projection-depth-range.md))
   — symptom + root-cause + acceptance criteria.
+- **Convention amendment** ([`task-board-epic-structure.md`](completed/task-board-epic-structure.md))
+  — meta-brief that landed at top-level `active/` rather than inside
+  an epic dir; defines the layout the rest of the board uses.
 
 Match the closest one for the kind of work you're queuing.

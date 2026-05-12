@@ -11,13 +11,13 @@ semantic-map package is complete-but-orphaned in production
 and `background_mapper=None`), which moved the framing from "is CLIP
 useful?" to "wire it in, measure it, then decide."
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/19
-**Follow-ups:** [`clip-mid-mission-validator-evaluation`](../active/clip-mid-mission-validator-evaluation.md)
+**Follow-ups:** [`clip-mid-mission-validator-evaluation`](../active/clip-validation/validator-evaluation.md)
 — P1 wire-and-measure brief (the gating prerequisite). The
 originally-listed `learned-mid-mission-validator` follow-up was
 retired during PR review in favor of
-[`clip-cotrained-retrieval-augmented`](../active/clip-cotrained-retrieval-augmented.md)
+[`clip-cotrained-retrieval-augmented`](../parked/clip-validation/cotrained-retrieval-augmented.md)
 (cascade-improvements path) and
-[`strafer-vla-v2-architecture`](../active/strafer-vla-v2-architecture.md)
+[`strafer-vla-v2-architecture`](../parked/experimental/vla-v2-architecture.md)
 (end-to-end VLA research arm); see
 [`learned-mid-mission-validator`](learned-mid-mission-validator.md)
 in this same `completed/` directory for the retirement
@@ -71,7 +71,7 @@ The current architecture is a deliberate two-tier split:
   policy on Isaac Lab's `Isaac-Strafer-Nav-Real-*` envs; the
   deployable artifact is consumed by Nav2 (or, eventually, by the
   `strafer_direct` and `hybrid_nav2_strafer` backends in
-  [`strafer-inference-package`](../active/strafer-inference-package.md)). At
+  [`strafer-inference-package`](../active/trained-policy/inference-package.md)). At
   steady state this layer runs at ~30 Hz on the Jetson.
 - **High-level autonomy.** `strafer_autonomy` (planner + executor)
   + `strafer_vlm` (Qwen2.5-VL grounding + description) translate a
@@ -335,5 +335,5 @@ script that doesn't get merged.
 - **Long-horizon planning improvements.** Mission-validation
   (mid-mission self-correction) is distinct from the planner's
   ability to compose far-target plans
-  ([`planner-far-target-staging`](../active/planner-far-target-staging.md)).
+  ([`planner-far-target-staging`](../active/multi-room/planner-far-target-staging.md)).
   Don't conflate them.

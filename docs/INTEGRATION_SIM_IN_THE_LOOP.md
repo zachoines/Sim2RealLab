@@ -780,7 +780,7 @@ shutdown.
   policies were trained without goal noise; VLM-grounded goals
   carry ±0.2-0.5 m localization error. Expect some goal-pose
   oscillation near the target. Tracked under
-  [`docs/tasks/active/policy-goal-noise-training.md`](tasks/active/policy-goal-noise-training.md).
+  [`docs/tasks/active/trained-policy/goal-noise-training.md`](tasks/active/trained-policy/goal-noise-training.md).
 - **Electronics masses are missing from the USD.** The chassis
   inertia underestimates the real robot. Fine control behaves
   differently in sim vs. real until this is fixed. See

@@ -8,10 +8,10 @@
   `env_sim_in_the_loop.env`; the export was disabled on 2026-04-28
   pending this task because the wider projection cap surfaced an
   off-costmap-goal failure at the Nav2 planner.
-- [`planner-far-target-staging.md`](../active/planner-far-target-staging.md)
+- [`planner-far-target-staging.md`](../active/multi-room/planner-far-target-staging.md)
   — DGX planner-side multi-hop plans for cross-room targets;
   layers on top of the Jetson staging loop.
-- [`real-d555-depth-range-survey.md`](../active/real-d555-depth-range-survey.md)
+- [`real-d555-depth-range-survey.md`](../active/investigations/real-d555-depth-range-survey.md)
   — informs whether the conservative 6 m default should rise
   stack-wide.
 

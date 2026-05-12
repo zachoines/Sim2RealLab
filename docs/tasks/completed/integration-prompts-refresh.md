@@ -12,7 +12,7 @@ deleted the `INTEGRATION_PROMPT_DGX/JETSON.md` agent-bootstrap docs,
 and stripped lingering `phase_15-isaaclab3` references from active
 docs.
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/18
-**Follow-ups:** [`next-integration-round`](../active/next-integration-round.md)
+**Follow-ups:** [`next-integration-round`](../active/investigations/next-integration-round.md)
 — consolidates the deleted prompts' operational essence into a
 trackable "schedule a sim-in-the-loop round" brief.
 

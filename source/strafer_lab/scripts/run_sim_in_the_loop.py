@@ -3,8 +3,12 @@
 This is the DGX-side entry point for sim-in-the-loop runs. It launches
 Isaac Sim via ``AppLauncher``, instantiates a perception-camera task at
 ``num_envs=1``, enables the bundled ``isaacsim.ros2.bridge`` extension,
-builds the Strafer OmniGraph (cameras, odom, TF, /cmd_vel subscribe),
-and then runs in one of two modes:
+builds the residual bridge OmniGraph scaffolding (``OnPlaybackTick`` +
+``ROS2Context``; the chassis telemetry and camera publishers all run on
+Python rclpy threads now — see
+``strafer_lab.bridge.async_publisher`` and
+``strafer_lab.bridge.async_camera_publisher``), and then runs in one of
+two modes:
 
   - ``--mode bridge``: drive the env step loop reading /cmd_vel from the
     bridge and injecting it into the action tensor. Used for manual ops
@@ -204,8 +208,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-camera-bridge",
         action="store_true",
-        help="Skip wiring camera streams into the bridge OmniGraph. "
-             "Useful for a cameras-off perf baseline (paired with "
+        help="Skip constructing the async camera publisher. Useful for a "
+             "cameras-off perf baseline (paired with "
              "--task Isaac-Strafer-Nav-Real-NoCam-Play-v0). Default off; "
              "the standard bridge publishes color + depth.",
     )
@@ -213,12 +217,12 @@ def _parse_args() -> argparse.Namespace:
         "--camera-frame-skip",
         type=int,
         default=3,
-        help="Number of simulation frames ROS2CameraHelper skips between "
-             "each Image/CameraInfo publish. 0 = publish every tick "
-             "(matches pre-optimization behavior). Default 3 = publish "
-             "once every 4 physics ticks, matching sim.render_interval so "
-             "we don't serialize + push duplicate frames when the "
-             "underlying render has not advanced.",
+        help="Number of bridge ticks the async camera publisher drops "
+             "between each Image/CameraInfo publish. 0 = publish every "
+             "tick (matches pre-optimization behavior). Default 3 = "
+             "publish once every 4 physics ticks, matching "
+             "sim.render_interval so we don't serialize + push duplicate "
+             "frames when the underlying render has not advanced.",
     )
     parser.add_argument(
         "--profile",
@@ -453,10 +457,11 @@ def main() -> None:
         graph_path=args.graph_path,
         camera_frame_skip=args.camera_frame_skip,
     )
-    # Telemetry (/clock, /odom, TF, /cmd_vel) is handled by a Python
-    # rclpy thread; only the cameras stay on the OmniGraph because they
-    # are bound to Isaac Sim render products.
-    build_bridge_graph(config, skip_cameras=args.no_camera_bridge, skip_telemetry=True)
+    # Both telemetry (/clock, /odom, TF, /cmd_vel) and cameras
+    # (/d555/color/..., /d555/depth/...) run on Python rclpy threads now.
+    # The OmniGraph this builds is just the OnPlaybackTick + ROS2Context
+    # scaffolding that other Kit-bound bridge nodes may attach to later.
+    build_bridge_graph(config)
     print(f"[sim_in_the_loop] bridge graph built at {args.graph_path}")
     if args.no_camera_bridge:
         print("[sim_in_the_loop] camera streams skipped (--no-camera-bridge)")
@@ -482,7 +487,9 @@ def main() -> None:
 def _run_bridge_mode(simulation_app, env, args, config) -> None:
     import torch
 
+    from strafer_lab.bridge.async_camera_publisher import StraferCameraAsyncPublisher
     from strafer_lab.bridge.async_publisher import StraferAsyncPublisher
+    from strafer_shared.constants import D555_FOCAL_LENGTH_MM, D555_HORIZONTAL_APERTURE_MM
 
     unwrapped = env.unwrapped
     env.reset()
@@ -490,14 +497,13 @@ def _run_bridge_mode(simulation_app, env, args, config) -> None:
     # Eliminate the redundant Kit pump under --viz kit. Without this, env.step
     # calls sim.render() → KitVisualizer.step → app.update(playSimulations=False)
     # to refresh the editor viewport, then this loop calls simulation_app.update()
-    # below with playSimulations=True to fire OnPlaybackTick and drive the camera
-    # OmniGraph publish chain. Both pumps RTX-render the editor viewport, paying
-    # ~80 ms of duplicated work per loop.
+    # below with playSimulations=True to fire OnPlaybackTick. Both pumps RTX-
+    # render the editor viewport, paying ~80 ms of duplicated work per loop.
     #
     # Setting render_enabled=False makes env.step() invoke sim.render() with
     # skip_app_pumping=True, which short-circuits KitVisualizer (no app.update).
     # The simulation_app.update() below then becomes the SOLE Kit pump per loop
-    # and drives BOTH the viewport refresh AND the camera OmniGraph in one pass.
+    # and refreshes the viewport / fires OnPlaybackTick in one pass.
     # No-op in headless mode (no Kit visualizer registered).
     unwrapped.render_enabled = False
 
@@ -533,6 +539,40 @@ def _run_bridge_mode(simulation_app, env, args, config) -> None:
         print(
             f"[sim_in_the_loop] --profile on: window={args.profile_window} steps, "
             f"reporting every {args.profile_interval:.1f}s"
+        )
+
+    camera_publisher: StraferCameraAsyncPublisher | None = None
+    if not args.no_camera_bridge:
+        # Camera-thread phase metrics are recorded by the worker thread
+        # itself (post-step); the profiler reads them on the bridge thread
+        # when reporting. Threading-safe because collections.deque.append
+        # is atomic in CPython.
+        if profiler is not None:
+            readback_cb = lambda ms, _p=profiler: _p.record(  # noqa: E731
+                "camera :: GPU→CPU readback", ms / 1000.0,
+            )
+            publish_cb = lambda ms, _p=profiler: _p.record(  # noqa: E731
+                "camera :: rclpy publish", ms / 1000.0,
+            )
+        else:
+            readback_cb = None
+            publish_cb = None
+        camera_publisher = StraferCameraAsyncPublisher(
+            camera_sensor=unwrapped.scene["d555_camera_perception"],
+            color_stream=config.color_camera,
+            depth_stream=config.depth_camera,
+            focal_length_mm=D555_FOCAL_LENGTH_MM,
+            horizontal_aperture_mm=D555_HORIZONTAL_APERTURE_MM,
+            frame_skip=config.camera_frame_skip,
+            on_readback_ms=readback_cb,
+            on_publish_ms=publish_cb,
+        )
+        print(
+            "[sim_in_the_loop] async camera publisher up: "
+            f"{config.color_camera.image_topic}, "
+            f"{config.color_camera.camera_info_topic}, "
+            f"{config.depth_camera.image_topic}, "
+            f"{config.depth_camera.camera_info_topic}"
         )
 
     last_cmd_time = time.monotonic()
@@ -573,6 +613,9 @@ def _run_bridge_mode(simulation_app, env, args, config) -> None:
                 sim_time_s += step_dt
                 with profiler.time("loop :: publish_state"):
                     publisher.publish_state(sim_time_s)
+                if camera_publisher is not None:
+                    with profiler.time("loop :: camera notify_frame"):
+                        camera_publisher.notify_frame(sim_time_s)
                 with profiler.time("loop :: simulation_app.update"):
                     simulation_app.update()
                 profiler.tick()
@@ -580,12 +623,17 @@ def _run_bridge_mode(simulation_app, env, args, config) -> None:
                 env.step(action)
                 sim_time_s += step_dt
                 publisher.publish_state(sim_time_s)
+                if camera_publisher is not None:
+                    camera_publisher.notify_frame(sim_time_s)
                 # Sole Kit pump per loop iteration (render_enabled=False above
                 # disables KitVisualizer's pump inside env.step). One app.update
-                # per env.step refreshes the editor viewport, fires OnPlaybackTick,
-                # and drives the camera OmniGraph publish chain in one pass.
+                # per env.step refreshes the editor viewport and fires
+                # OnPlaybackTick for whatever residual nodes the bridge graph
+                # still hosts.
                 simulation_app.update()
     finally:
+        if camera_publisher is not None:
+            camera_publisher.shutdown()
         publisher.shutdown()
 
 

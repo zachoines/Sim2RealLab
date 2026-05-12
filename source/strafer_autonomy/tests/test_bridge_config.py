@@ -126,14 +126,14 @@ class TestCameraStreamTypes:
 
 
 class TestCameraStreamResolution:
-    """Render-product resolution must match the perception-camera spec.
+    """Published-image resolution must match the perception-camera spec.
 
-    ``IsaacCreateRenderProduct`` defaults to Hydra's 1280×720 when
-    ``inputs:width`` / ``inputs:height`` are not set; the bridge has to
-    populate them from ``PERCEPTION_WIDTH`` / ``PERCEPTION_HEIGHT`` so
-    ``camera_info`` width/height + fx/fy stay consistent with the
-    TiledCameraCfg the env spawns and with the real D555's 640×360
-    native stream.
+    ``StraferCameraAsyncPublisher`` reads the GPU render product the
+    ``TiledCameraCfg`` spawns at ``PERCEPTION_WIDTH × PERCEPTION_HEIGHT``
+    and uses :attr:`CameraStreamConfig.width` / :attr:`height` to size the
+    published ``sensor_msgs/Image`` and to derive the ``CameraInfo`` fx /
+    fy. A drift between the two would publish a wrong ``CameraInfo`` even
+    though the underlying render product is correct.
     """
 
     def test_color_width_matches_perception_constant(self, default_cfg):

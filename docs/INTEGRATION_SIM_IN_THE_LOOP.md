@@ -278,10 +278,10 @@ forward at ~0.2 m/s in the Kit viewport.
 | Symptom | Most likely cause | What to check |
 |---|---|---|
 | `run_sim_in_the_loop.py` crashes on `enable_extension("isaacsim.ros2.bridge")` | Extension not bundled with the Isaac Sim build | `ls $ISAACSIM_PATH/exts/isaacsim.ros2.bridge/` — directory must exist. |
-| `build_bridge_graph` crashes on a missing camera prim | env not fully spawned when graph is built | Inspect the `chassis_prim=...` and `color camera prim=...` lines — both must point at prims that exist in the stage. |
-| `/d555/color/image_raw` not in `ros2 topic list` | Bridge extension enabled but graph not evaluated | Check `[sim_in_the_loop] bridge graph built at ...` appeared. If not, graph build silently failed — re-run with full Kit logs. |
-| `ros2 topic hz` returns 0 Hz | Isaac Sim is stuck at iteration 0 | The camera render is not executing. Try `make sim-bridge-gui` once to confirm a frame renders in the viewport. |
-| `/strafer/odom` pose doesn't advance under `/cmd_vel` | Bridge's `SubscribeTwist` node not wired or env action layout mismatch | Read the action-tensor shape line — must be `(1, 3)`. If it's `(1, 4)` the env config has changed and the launcher's injection map in `_run_bridge_mode` needs updating. |
+| `build_bridge_graph` crashes on a missing chassis prim | env not fully spawned when graph is built | Inspect the `chassis_prim=...` line — it must point at a prim that exists in the stage. The camera prim is consumed by `StraferCameraAsyncPublisher` (via `env.scene["d555_camera_perception"]`), not by the OmniGraph builder. |
+| `/d555/color/image_raw` not in `ros2 topic list` | Async camera publisher not constructed | Check the `[sim_in_the_loop] async camera publisher up: ...` log line appeared. If not, `--no-camera-bridge` was passed or the perception camera is not in the scene. |
+| `ros2 topic hz` returns 0 Hz | Bridge mainloop is stuck or the camera worker thread crashed | The TiledCamera tensor is not populating. Inspect Kit logs for camera-worker exceptions; try `make sim-bridge-gui` once to confirm a frame renders in the viewport. |
+| `/strafer/odom` pose doesn't advance under `/cmd_vel` | env action layout mismatch | Read the action-tensor shape line — must be `(1, 3)`. If it's `(1, 4)` the env config has changed and the launcher's injection map in `_run_bridge_mode` needs updating. |
 
 For perf attribution (when bridge throughput regresses):
 
@@ -293,8 +293,10 @@ $ISAACLAB -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
 ```
 
 `--profile` rolls p50/p99 across `cmd_vel read`, `env.step (total)`,
-`publish_state`, `simulation_app.update`, plus per-tick `sim.step`
-and `sim.render`. Compare to the per-phase reference numbers in
+`publish_state`, `camera notify_frame`, `simulation_app.update`, plus
+per-tick `sim.step` / `sim.render` and the camera-worker phases
+`camera :: GPU→CPU readback` / `camera :: rclpy publish`. Compare to
+the per-phase reference numbers in
 [`bridge-runtime-invariants.md`](tasks/context/bridge-runtime-invariants.md#phase-level-profiler---profile)
 to see which phase regressed.
 

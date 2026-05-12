@@ -47,16 +47,22 @@ Nav2 command by ~1.57× linearly / ~4.19× angularly and saturates
 the per-wheel motor cap on diagonal motion (the bug commits
 `d642bff` + `70c4ba9` fixed).
 
-## Telemetry vs. cameras (split publishers)
+## Telemetry vs. cameras (both on Python publishers)
 
 | Channel | Publisher | Tick driver | Why |
 |---------|-----------|-------------|-----|
 | `/clock` (50 Hz), `/odom`, `/tf`, `/cmd_vel` (subscribe) | `StraferAsyncPublisher` (Python rclpy thread) | independent of `env.step` | Decouples telemetry rate from env throughput; lets `/clock` advance smoothly even at low bridge FPS |
-| `/d555/color/image_raw`, `/d555/color/camera_info`, `/d555/depth/image_rect_raw`, `/d555/depth/camera_info` | OmniGraph nodes inside `isaacsim.ros2.bridge` | `OnPlaybackTick`, fired by `simulation_app.update()` after each `env.step` | Camera publish requires the render product, which lives on the GPU and ticks with Kit's main loop |
+| `/d555/color/image_raw`, `/d555/color/camera_info`, `/d555/depth/image_rect_raw`, `/d555/depth/camera_info` | `StraferCameraAsyncPublisher` (Python rclpy thread + dedicated CUDA stream) | bridge mainloop calls `notify_frame(sim_time_s)` after each `env.step`; worker thread does the GPU→CPU readback + serialize + publish | Same architecture as the real-robot driver (camera frames published on their own thread). Decouples readback wall time from `simulation_app.update`. |
 
-Moving cameras off `OnPlaybackTick` onto a Python thread is open
-work, tracked at
-[`async-camera-publishers.md`](../active/async-camera-publishers.md).
+Per-frame protocol for cameras: the bridge mainloop snapshots the
+TiledCamera output tensors with a same-stream `clone()` (microseconds
+for 640×360) and records a CUDA event; the worker waits on that event
+from its own `torch.cuda.Stream`, runs the D→H copy, and publishes
+the four ROS 2 messages. The next `env.step`'s GPU work queues onto
+the renderer stream in parallel with the readback. `--camera-frame-skip`
+is honored on the publish side: `frame_skip=N` means the publisher
+queues a frame once every `N+1` bridge ticks (default 3, matching
+`sim.render_interval`).
 
 ## Camera resolutions (sim mirrors real)
 
@@ -71,14 +77,19 @@ Lowering it sim-side introduces a deliberate sim-to-real gap, not an
 optimization — the camera-publish OmniGraph cost (~74 ms/loop on
 this stack) is a fact of the bridge, not an axis to tune away.
 
-Bridge enforcement: the resolution flows through
-`CameraStreamConfig.width` / `height` →
-`IsaacCreateRenderProduct.inputs:width` / `inputs:height` in
-`bridge/graph.py`. Setting these explicitly is mandatory —
-`IsaacCreateRenderProduct` does NOT inherit resolution from the
-camera prim, so an unset render product silently falls through to
-Hydra's 1280×720 default and publishes a wrong `camera_info`
-(width/height + fx/fy all 2× the configured pinhole intrinsics).
+Bridge enforcement: the perception camera prim itself is spawned at
+`PERCEPTION_WIDTH × PERCEPTION_HEIGHT` by the `TiledCameraCfg` in
+[`d555_cfg.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/d555_cfg.py)
+(`make_d555_perception_camera_cfg`), so the GPU render product the
+async camera publisher reads from is already at the right resolution.
+`StraferCameraAsyncPublisher` reuses the same `PERCEPTION_WIDTH` /
+`PERCEPTION_HEIGHT` (via `CameraStreamConfig.width` / `height`) to
+populate `CameraInfo` and to size the published `sensor_msgs/Image`,
+so width / height / fx / fy stay consistent end-to-end. The historic
+`IsaacCreateRenderProduct` resolution footgun (silent fall-through to
+Hydra's 1280×720, doubling fx / fy) is moot now that the bridge no
+longer creates a second render product — the migration off OmniGraph
+deleted that code path.
 
 ## Renderer frustum vs. depth-sensor saturation
 
@@ -172,7 +183,7 @@ regression hunt — added in `70c4ba9`.
 
 Reference per-phase numbers on this stack
 (InfinigenPerception, decimation=1, render_interval=1, no DISPLAY
-attached) at the time the headless default was chosen:
+attached), measured before the camera-publisher migration:
 
 | Configuration | `sim.step` p50 | `sim.render` p50 | `simulation_app.update` p50 | Loop total p50 | Throughput |
 |---|---|---|---|---|---|
@@ -180,11 +191,19 @@ attached) at the time the headless default was chosen:
 | `make sim-bridge-gui` (cameras off) | 21.7 ms | 88.6 ms | 40.8 ms | ~125 ms | 8.0 Hz |
 | `make sim-bridge` headless (cameras on) | 22.3 ms | 0.05 ms | 74.2 ms | ~117 ms | 8.5 Hz |
 
-Read: `sim.render`'s 88 ms is editor-viewport RTX work (vanishes
-headless); `simulation_app.update`'s ~74 ms is the camera-publish
-OmniGraph evaluation; PhysX (`sim.step`) is rock-stable at ~22 ms
-across configs. The bridge's bottleneck is rendering pipeline cost,
-not physics.
+Pre-migration read: `sim.render`'s 88 ms is editor-viewport RTX work
+(vanishes headless); `simulation_app.update`'s ~74 ms was the
+camera-publish OmniGraph evaluation; PhysX (`sim.step`) is rock-stable
+at ~22 ms across configs.
+
+After moving cameras to `StraferCameraAsyncPublisher`, the
+camera-publish work no longer runs inside `simulation_app.update` —
+that phase collapses to a small Kit-pump cost (~few ms; the
+`OnPlaybackTick` + `ROS2Context` scaffolding only). The GPU→CPU
+readback and rclpy serialization run on the camera worker thread,
+overlapping with the next `env.step`. Use `--profile` to confirm —
+new phases `camera :: GPU→CPU readback` and `camera :: rclpy publish`
+report camera-worker p50/p99 alongside the bridge mainloop phases.
 
 ## Scene-side prerequisites the bridge assumes
 

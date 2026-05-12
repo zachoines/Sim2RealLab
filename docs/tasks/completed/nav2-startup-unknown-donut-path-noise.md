@@ -14,11 +14,11 @@ distance="0.5">` so replanning is motion-gated, and inserts
 Sub-unity-RTF safety in the warmup loop uses a sim-time stall
 detector rather than an absolute wall-clock cap. Validation runs
 pending on live sim. Follow-ups filed in the same PR:
-[`nav-deadline-sim-time-audit`](../active/nav-deadline-sim-time-audit.md),
-[`executor-prefer-rotate-then-translate`](../active/executor-prefer-rotate-then-translate.md),
-[`rtabmap-cold-start-determinism`](../active/rtabmap-cold-start-determinism.md),
-[`windows-workstation-bringup`](../active/windows-workstation-bringup.md),
-[`isaac-sim-rt-2-default-renderer`](../active/isaac-sim-rt-2-default-renderer.md).
+[`nav-deadline-sim-time-audit`](../active/reliability/nav-deadline-sim-time-audit.md),
+[`executor-prefer-rotate-then-translate`](../active/reliability/executor-prefer-rotate-then-translate.md),
+[`rtabmap-cold-start-determinism`](../active/reliability/rtabmap-cold-start-determinism.md),
+[`windows-workstation-bringup`](../active/tooling/windows-workstation-bringup.md),
+[`isaac-sim-rt-2-default-renderer`](../active/sim-performance/isaac-sim-rt-2-default-renderer.md).
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/25
 
 **Type:** task / bug

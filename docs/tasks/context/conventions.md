@@ -116,11 +116,14 @@ commit's SHA). Stamp the top of the moved brief with:
 ```
 **Status:** Shipped <YYYY-MM-DD> in `<commit-sha>` (<host>).
 **PR:** <github-pr-url>
-**Follow-ups:** [`<follow-up.md>`](../active/<follow-up.md>) — short hook.
+**Follow-ups:** [`<follow-up.md>`](../active/<epic>/<follow-up.md>) — short hook.
 ```
 
 `<host>` is `DGX`, `Jetson`, or `Either`. `<follow-up.md>` is
-optional. The `**PR:**` line is mandatory if the work landed via
+optional and lives under whichever `active/<epic>/` or
+`parked/<epic>/` subdir is appropriate — see
+[`README.md`'s directory layout](../README.md#directory-layout).
+The `**PR:**` line is mandatory if the work landed via
 the [task → branch → PR convention](branching-and-prs.md); omit it
 only for briefs whose work pre-dates that convention. See
 `docs/tasks/completed/goal-projection-depth-range.md` for the
@@ -134,6 +137,40 @@ Do **not** delete the brief outright. Git history records what
 changed; the brief records what we set out to do, the acceptance
 criteria we held the change to, and which follow-ups it spawned —
 those are different artifacts and both are useful.
+
+---
+
+## Task board structure
+
+Active and parked briefs live under epic subdirs. `completed/` and
+`context/` stay flat. Full layout, naming rules, and the un-park
+workflow are documented in
+[`docs/tasks/README.md`'s `## Directory layout`](../README.md#directory-layout).
+
+**The fixed epic set.** The nine epics in use today are
+`multi-room`, `trained-policy`, `harness`, `clip-validation`,
+`sim-performance`, `reliability`, `tooling`, `experimental`,
+`investigations`. This is a **fixed small set**, not free-form
+tagging. Adding a tenth epic — or splitting / merging an existing
+one — is itself a convention change: file a brief that amends the
+layout in [`README.md`](../README.md), gets reviewed like any
+other PR, and ships with the rename commits inside it. Do **not**
+invent a `misc/` bucket; the urge to do so is the signal that the
+brief might belong somewhere else, or that a new epic is genuinely
+needed.
+
+**Un-parking is a `git mv`.** A brief in `parked/<epic>/` becomes
+pickable by `git mv parked/<epic>/<brief>.md
+active/<epic>/<brief>.md` in the PR that picks it up, plus a
+[`BOARD.md`](../BOARD.md) row update in the same commit. No
+frontmatter status field, no separate ceremony — the path is the
+state.
+
+**Branch naming is unchanged.** Per
+[`branching-and-prs.md`](branching-and-prs.md), branches are
+`task/<basename>`. The epic subdir does **not** leak into the
+branch name. `active/harness/teleop-driver.md` → branch
+`task/teleop-driver`.
 
 ---
 

@@ -4,8 +4,8 @@ This document is the deliverable of
 [`docs/tasks/completed/mid-mission-validation-investigation.md`](tasks/completed/mid-mission-validation-investigation.md)
 once that brief ships. It is an architectural audit + literature
 survey + recommendation, written so that downstream briefs
-([`clip-mid-mission-validator-evaluation.md`](tasks/active/clip-mid-mission-validator-evaluation.md),
-[`clip-cotrained-retrieval-augmented.md`](tasks/active/clip-cotrained-retrieval-augmented.md))
+([`clip-mid-mission-validator-evaluation.md`](tasks/active/clip-validation/validator-evaluation.md),
+[`clip-cotrained-retrieval-augmented.md`](tasks/parked/clip-validation/cotrained-retrieval-augmented.md))
 have a defensible build-or-defer baseline. (A previously-named
 `learned-mid-mission-validator` brief was retired — see
 [`completed/learned-mid-mission-validator.md`](tasks/completed/learned-mid-mission-validator.md).)
@@ -250,9 +250,9 @@ gap that mid-mission validation closes is the post-scan, pre-arrival
 window — measured in tens of seconds for single-room missions and
 into minutes for multi-room missions, which are now the MVP
 default per
-[`multi-room-autonomy-stack`](tasks/active/multi-room-autonomy-stack.md)
+[`multi-room-autonomy-stack`](tasks/active/multi-room/autonomy-stack.md)
 (which lifts §1.10.1's deferral) and
-[`multi-room-scene-connectivity-validation`](tasks/active/multi-room-scene-connectivity-validation.md).
+[`multi-room-scene-connectivity-validation`](tasks/active/multi-room/scene-connectivity-validation.md).
 The v1 *measurement* in §4 below is calibrated against
 single-room data first; multi-room re-test is a follow-up after
 the v1 stack's multi-room work ships. This means:
@@ -545,13 +545,13 @@ with its retirement stamp and rationale. The case-2 / case-3
 coverage that motivated this option is now addressed by:
 
 - **CLIP cascade improvements** —
-  [`clip-cotrained-retrieval-augmented`](tasks/active/clip-cotrained-retrieval-augmented.md)
+  [`clip-cotrained-retrieval-augmented`](tasks/parked/clip-validation/cotrained-retrieval-augmented.md)
   files the path for improving the cascade itself
   (co-trained CLIP with the trajectory-first speaker model;
   retrieval-augmented inference using the
   SemanticMapManager's existing memory primitive).
 - **End-to-end VLA research arm** —
-  [`strafer-vla-v2-architecture`](tasks/active/strafer-vla-v2-architecture.md)
+  [`strafer-vla-v2-architecture`](tasks/parked/experimental/vla-v2-architecture.md)
   for an alternative that has billions of pretrained
   parameters as starting capital.
 
@@ -857,10 +857,10 @@ The four regimes:
 
 | Regime | Direction | Strength | Brief |
 |---|---|---|---|
-| **§3.6.a Teleop demos** | Forward (operator intent → trajectory) | Quality + operator hard negatives | [`harness-teleop-driver`](tasks/active/harness-teleop-driver.md) |
-| **§3.6.b MVP-as-teacher** | Forward (autonomy stack → trajectory) | Deployment-distribution match | bridge driver in [`harness-behavior-cloning-data-expansion`](tasks/active/harness-behavior-cloning-data-expansion.md) |
-| **§3.6.c In-process oracle** | Forward (mission queue → trajectory) | Parallel-env scale | [`harness-oracle-driver`](tasks/active/harness-oracle-driver.md) |
-| **§3.6.d Trajectory-first captioning** | Post-hoc (trajectory → mission text) | FoV-honest labels + bulk scale + synthesized hard negatives | [`harness-trajectory-first-captioning`](tasks/active/harness-trajectory-first-captioning.md) |
+| **§3.6.a Teleop demos** | Forward (operator intent → trajectory) | Quality + operator hard negatives | [`harness-teleop-driver`](tasks/active/harness/teleop-driver.md) |
+| **§3.6.b MVP-as-teacher** | Forward (autonomy stack → trajectory) | Deployment-distribution match | bridge driver in [`harness-behavior-cloning-data-expansion`](tasks/active/harness/behavior-cloning-data-expansion.md) |
+| **§3.6.c In-process oracle** | Forward (mission queue → trajectory) | Parallel-env scale | [`harness-oracle-driver`](tasks/parked/harness/oracle-driver.md) |
+| **§3.6.d Trajectory-first captioning** | Post-hoc (trajectory → mission text) | FoV-honest labels + bulk scale + synthesized hard negatives | [`harness-trajectory-first-captioning`](tasks/active/harness/trajectory-first-captioning.md) |
 
 The first three are *forward-generation* regimes: a mission
 exists first, the driver executes it, the trajectory is the
@@ -872,13 +872,13 @@ needed; neither replaces the other.
 #### 3.6.a Teleop demos (primary; canonical)
 
 **The candidate.** Run the harness's
-[`harness-teleop-driver`](tasks/active/harness-teleop-driver.md)
+[`harness-teleop-driver`](tasks/active/harness/teleop-driver.md)
 mode. Operator drives the robot via gamepad through Infinigen
 scenes; episodes are tagged at capture time as
 `succeeded` / `failed` / `wrong_instance` / `wrong_room` /
 `trajectory_violation` via dedicated buttons. Output is the
 canonical schema from
-[`harness-behavior-cloning-data-expansion`](tasks/active/harness-behavior-cloning-data-expansion.md).
+[`harness-behavior-cloning-data-expansion`](tasks/active/harness/behavior-cloning-data-expansion.md).
 
 **Why this is the recommended primary source.** Every published
 wheeled-VLA (RT-2 navigation derivatives, NaVid, VLN-CE models,
@@ -888,7 +888,7 @@ paradigm; "MVP-as-teacher distillation" is a specialty case.
 **Throughput.** Single-operator, ~60 success episodes / hour;
 ~30 path-shape episodes / hour. Honest budgets per training
 target are tabulated in
-[`harness-teleop-driver`](tasks/active/harness-teleop-driver.md);
+[`harness-teleop-driver`](tasks/active/harness/teleop-driver.md);
 ~30–40 hours of operator time gets to a v2 VLA endpoint corpus
 (with hindsight-relabel + replay-perturbation multipliers, both
 recommended-tier in the harness brief).
@@ -896,11 +896,11 @@ recommended-tier in the harness brief).
 **Limitations.** Operator-paced; reflects operator play style;
 path-shape data is operator-bottlenecked. The free-text mission
 generator
-([`harness-mission-generator`](tasks/active/harness-mission-generator.md))
+([`harness-mission-generator`](tasks/active/harness/mission-generator.md))
 emits queue files (including path-shape variants with
 LLM-derived waypoints) that the operator can drive against; the
 trajectory-first captioning regime
-([`harness-trajectory-first-captioning`](tasks/active/harness-trajectory-first-captioning.md))
+([`harness-trajectory-first-captioning`](tasks/active/harness/trajectory-first-captioning.md))
 is filed for bulk corpus scale.
 
 #### 3.6.b MVP-as-teacher distillation (secondary; conditional on v1 stability)
@@ -909,7 +909,7 @@ is filed for bulk corpus scale.
 controller + Nav2 + `strafer_autonomy` + `strafer_vlm`) as the
 *demonstrator* once the integration round ships. Harvest its
 deployment trajectories — bridge-driver mode of
-[`harness-behavior-cloning-data-expansion`](tasks/active/harness-behavior-cloning-data-expansion.md)
+[`harness-behavior-cloning-data-expansion`](tasks/active/harness/behavior-cloning-data-expansion.md)
 — as `(frame_sequence, mission_text, action_sequence, outcome)`
 tuples and use them to fine-tune a small VLA.
 
@@ -930,9 +930,9 @@ outcomes are a free reward signal for RLHF / DPO after SFT.
 
 **Sequencing (when this path becomes viable).**
 
-1. Ship [`next-integration-round`](tasks/active/next-integration-round.md).
+1. Ship [`next-integration-round`](tasks/active/investigations/next-integration-round.md).
 2. Ship the bridge-driver upgrades in
-   [`harness-behavior-cloning-data-expansion`](tasks/active/harness-behavior-cloning-data-expansion.md)
+   [`harness-behavior-cloning-data-expansion`](tasks/active/harness/behavior-cloning-data-expansion.md)
    so the action stream is captured.
 3. File `mvp-teacher-vla-distillation.md` to build the dataset
    assembly tooling and run the supplementary SFT pass against an
@@ -941,7 +941,7 @@ outcomes are a free reward signal for RLHF / DPO after SFT.
 #### 3.6.c In-process oracle (future; for scale supplements only)
 
 **The candidate.**
-[`harness-oracle-driver`](tasks/active/harness-oracle-driver.md)
+[`harness-oracle-driver`](tasks/parked/harness/oracle-driver.md)
 — a scripted policy in-process Isaac Lab that uses A* on the
 navigable mask plus heuristics for "stop near target." Crude but
 viable; trades demo quality for massive parallel throughput
@@ -961,7 +961,7 @@ A→B paths. After-the-fact, a speaker model — Qwen2.5-VL-7B
 following an instructive-voice prompt — generates
 `mission_text` + paraphrases + synthesized failure-pair
 negatives from the captured frames. Filed in
-[`harness-trajectory-first-captioning`](tasks/active/harness-trajectory-first-captioning.md).
+[`harness-trajectory-first-captioning`](tasks/active/harness/trajectory-first-captioning.md).
 
 **Why this is the right complement to §3.6.a–c.** The
 forward-generation regimes assume a mission text exists, then
@@ -1062,7 +1062,7 @@ The sequence:
    most expensive finding in §1.3 is that none of the semantic-map
    code runs in deployment. Until that's true, no measurement is
    meaningful. Filed as
-   [`docs/tasks/active/clip-mid-mission-validator-evaluation.md`](tasks/active/clip-mid-mission-validator-evaluation.md);
+   [`docs/tasks/active/clip-validation/validator-evaluation.md`](tasks/active/clip-validation/validator-evaluation.md);
    prerequisite for everything else here.
 
 2. **Run a measurement pass against a populated harness episode
@@ -1096,7 +1096,7 @@ The sequence:
    text. Case 3 stays unaddressed (see prerequisite below).
 
 5. **If the cascade fails the AUC bar**, file
-   [`clip-cotrained-retrieval-augmented`](tasks/active/clip-cotrained-retrieval-augmented.md)
+   [`clip-cotrained-retrieval-augmented`](tasks/parked/clip-validation/cotrained-retrieval-augmented.md)
    to push improvements: a co-training step that fine-tunes
    CLIP with the trajectory-first speaker model, plus a
    retrieval-augmented inference step that uses the
@@ -1106,11 +1106,11 @@ The sequence:
    retired (§3.2 above for rationale).
 
 6. **In parallel with steps 1–5**, once
-   [`next-integration-round`](tasks/active/next-integration-round.md)
+   [`next-integration-round`](tasks/active/investigations/next-integration-round.md)
    ships, open §3.6.b (MVP-as-teacher distillation). The
    MVP's deployment traces become the VLA training corpus
    essentially for free; the resulting VLA in
-   [`strafer-vla-v2-architecture`](tasks/active/strafer-vla-v2-architecture.md)
+   [`strafer-vla-v2-architecture`](tasks/parked/experimental/vla-v2-architecture.md)
    is evaluated against the same per-case statistics as an
    end-to-end alternative to the cascade.
 
@@ -1124,7 +1124,7 @@ separate prerequisite brief; case-3 metrics are excluded from the
 ### 4.1 Falsifiable success criteria for the next brief
 
 The downstream brief
-[`clip-mid-mission-validator-evaluation.md`](tasks/active/clip-mid-mission-validator-evaluation.md)
+[`clip-mid-mission-validator-evaluation.md`](tasks/active/clip-validation/validator-evaluation.md)
 ships when **all** of the following are produced against ≥ 30 harness
 missions covering ≥ 3 distinct Infinigen scenes:
 
@@ -1153,7 +1153,7 @@ missions covering ≥ 3 distinct Infinigen scenes:
         behind `STRAFER_SEMANTIC_MAP_ENABLED`; arbiter wrapper
         is implemented inside the same brief.
       - **Cascade fails the bar.**
-        [`clip-cotrained-retrieval-augmented`](tasks/active/clip-cotrained-retrieval-augmented.md)
+        [`clip-cotrained-retrieval-augmented`](tasks/parked/clip-validation/cotrained-retrieval-augmented.md)
         is filed as a research follow-up for improvements;
         no "small learned validator" escalation.
 
@@ -1165,9 +1165,9 @@ missions covering ≥ 3 distinct Infinigen scenes:
   [`completed/learned-mid-mission-validator`](tasks/completed/learned-mid-mission-validator.md)
   with retirement rationale. Improvements to the cascade live
   in
-  [`clip-cotrained-retrieval-augmented`](tasks/active/clip-cotrained-retrieval-augmented.md);
+  [`clip-cotrained-retrieval-augmented`](tasks/parked/clip-validation/cotrained-retrieval-augmented.md);
   end-to-end alternatives live in
-  [`strafer-vla-v2-architecture`](tasks/active/strafer-vla-v2-architecture.md).
+  [`strafer-vla-v2-architecture`](tasks/parked/experimental/vla-v2-architecture.md).
 - **Do not start a from-scratch small VLA (§3.3 in isolation).**
   Only enter the VLA path via §3.6's distillation route — the
   training cost is otherwise prohibitive and the data corpus
@@ -1189,14 +1189,14 @@ here as a prerequisite for the case-3 framing in §2.3:
 
 | Brief | Status | Prerequisite for |
 |---|---|---|
-| [`clip-mid-mission-validator-evaluation.md`](tasks/active/clip-mid-mission-validator-evaluation.md) | Filed | All case-1 / case-2 measurements; gates §3.5 ship vs. cascade-improvements follow-up |
+| [`clip-mid-mission-validator-evaluation.md`](tasks/active/clip-validation/validator-evaluation.md) | Filed | All case-1 / case-2 measurements; gates §3.5 ship vs. cascade-improvements follow-up |
 | [`completed/learned-mid-mission-validator.md`](tasks/completed/learned-mid-mission-validator.md) | **Retired** | Was scoped as the case-2 escalation; retired because the small-frozen-head design is structurally underpowered against the §3.5 cascade. See file for full rationale. |
-| [`clip-cotrained-retrieval-augmented.md`](tasks/active/clip-cotrained-retrieval-augmented.md) | Filed (research) | Cascade improvement path. A co-training step (CLIP fine-tune with the trajectory-first speaker) plus a retrieval-augmented inference step (cross-attention over the SemanticMapManager memory). Replaces the retired learned-validator as the "what to do if the cascade underdelivers" path. |
-| [`multi-room-autonomy-stack.md`](tasks/active/multi-room-autonomy-stack.md) | Filed (P1) | Lifts §1.10.1's multi-room deferral. Stored-map fallback in `scan_for_target` + planner transit-step emission. |
-| [`multi-room-scene-connectivity-validation.md`](tasks/active/multi-room-scene-connectivity-validation.md) | Filed (P1) | Connectivity graph in `scene_metadata.json` + door-open guarantee at scene-gen time. Hard prerequisite for the runtime brief and the mission generator. |
-| **`clip-multi-room-validator-remeasure.md`** | **To be filed when [`multi-room-autonomy-stack`](tasks/active/multi-room-autonomy-stack.md) ships** | Re-runs the v1 clip-eval metrics on multi-room data; recalibrates per-case ROC-AUC bars. |
+| [`clip-cotrained-retrieval-augmented.md`](tasks/parked/clip-validation/cotrained-retrieval-augmented.md) | Filed (research) | Cascade improvement path. A co-training step (CLIP fine-tune with the trajectory-first speaker) plus a retrieval-augmented inference step (cross-attention over the SemanticMapManager memory). Replaces the retired learned-validator as the "what to do if the cascade underdelivers" path. |
+| [`multi-room-autonomy-stack.md`](tasks/active/multi-room/autonomy-stack.md) | Filed (P1) | Lifts §1.10.1's multi-room deferral. Stored-map fallback in `scan_for_target` + planner transit-step emission. |
+| [`multi-room-scene-connectivity-validation.md`](tasks/active/multi-room/scene-connectivity-validation.md) | Filed (P1) | Connectivity graph in `scene_metadata.json` + door-open guarantee at scene-gen time. Hard prerequisite for the runtime brief and the mission generator. |
+| **`clip-multi-room-validator-remeasure.md`** | **To be filed when [`multi-room-autonomy-stack`](tasks/active/multi-room/autonomy-stack.md) ships** | Re-runs the v1 clip-eval metrics on multi-room data; recalibrates per-case ROC-AUC bars. |
 | **`planner-trajectory-constraint-decomposition.md`** | **To be filed when case 3 becomes live** | Case-3 (trajectory-shape) validation. Without the planner emitting decomposed trajectory constraints, no validator architecture can score case 3 — there's no spec to check against. Out of scope for the current PR; filed only when a real mission requires it. |
-| **`mvp-teacher-vla-distillation.md`** | **To be filed when [`next-integration-round`](tasks/active/next-integration-round.md) ships** | §3.6.b distillation path. Depends on the integration round producing the action-labeled corpus; can run in parallel with cascade improvements. |
+| **`mvp-teacher-vla-distillation.md`** | **To be filed when [`next-integration-round`](tasks/active/investigations/next-integration-round.md) ships** | §3.6.b distillation path. Depends on the integration round producing the action-labeled corpus; can run in parallel with cascade improvements. |
 
 ## Cross-references
 
@@ -1205,7 +1205,7 @@ here as a prerequisite for the case-3 framing in §2.3:
   (verify_arrival), §0.6 (transit monitoring via BackgroundMapper),
   §1.4 (unified CLIP embedding strategy), §1.10.1 (formerly
   multi-room deferral; lifted by
-  [`multi-room-autonomy-stack`](tasks/active/multi-room-autonomy-stack.md);
+  [`multi-room-autonomy-stack`](tasks/active/multi-room/autonomy-stack.md);
   multi-room is the MVP default going forward) for the original
   limitation).
 - System flow Flow 6 (real-robot execution) in
@@ -1216,8 +1216,8 @@ here as a prerequisite for the case-3 framing in §2.3:
 - Bridge perf reference numbers:
   [`docs/tasks/context/bridge-runtime-invariants.md`](tasks/context/bridge-runtime-invariants.md#phase-level-profiler---profile).
 - Downstream briefs:
-  [`clip-mid-mission-validator-evaluation.md`](tasks/active/clip-mid-mission-validator-evaluation.md)
+  [`clip-mid-mission-validator-evaluation.md`](tasks/active/clip-validation/validator-evaluation.md)
   and
-  [`clip-cotrained-retrieval-augmented.md`](tasks/active/clip-cotrained-retrieval-augmented.md).
+  [`clip-cotrained-retrieval-augmented.md`](tasks/parked/clip-validation/cotrained-retrieval-augmented.md).
   (`learned-mid-mission-validator` retired; see
   [`completed/learned-mid-mission-validator.md`](tasks/completed/learned-mid-mission-validator.md).)

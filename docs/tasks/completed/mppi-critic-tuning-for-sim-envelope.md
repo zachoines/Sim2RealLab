@@ -4,7 +4,7 @@
 sustained median odom vx 0.632 m/s — ~63% of the literal acceptance
 threshold; remaining gap split across two filed follow-up briefs
 ([`nav2-startup-unknown-donut-path-noise`](nav2-startup-unknown-donut-path-noise.md)
-and [`strafer-inference-package`](../active/strafer-inference-package.md)).
+and [`strafer-inference-package`](../active/trained-policy/inference-package.md)).
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/15
 
 **Type:** task / tuning

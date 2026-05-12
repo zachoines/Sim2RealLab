@@ -6,13 +6,15 @@ piece of planned work lives on its own short-lived task branch off
 
 ## Naming
 
-Branch name is the brief's filename minus the `.md`, prefixed with
-`task/`:
+Branch name is the brief's filename (basename, minus the `.md`),
+prefixed with `task/`. The epic subdirectory does **not** leak into
+the branch name:
 
 | Brief | Branch |
 |---|---|
-| [`docs/tasks/active/vlm-bbox-overlay.md`](../active/vlm-bbox-overlay.md) | `task/vlm-bbox-overlay` |
-| [`docs/tasks/active/async-camera-publishers.md`](../active/async-camera-publishers.md) | `task/async-camera-publishers` |
+| [`docs/tasks/active/harness/teleop-driver.md`](../active/harness/teleop-driver.md) | `task/teleop-driver` |
+| [`docs/tasks/active/multi-room/autonomy-stack.md`](../active/multi-room/autonomy-stack.md) | `task/autonomy-stack` |
+| [`docs/tasks/active/task-board-epic-structure.md`](../active/task-board-epic-structure.md) | `task/task-board-epic-structure` |
 | [`docs/tasks/completed/branch-per-task-convention.md`](../completed/branch-per-task-convention.md) | `task/branch-per-task-convention` |
 
 The brief's frontmatter carries the predetermined name on a `**Branch:**`

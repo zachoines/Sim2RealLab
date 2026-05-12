@@ -159,7 +159,7 @@ pixel→pose mapper.
 
 - **Smarter planner-side staging.** The LLM planner emitting
   explicit multi-hop plans is the parallel DGX-side task
-  [`planner-far-target-staging.md`](../active/planner-far-target-staging.md).
+  [`planner-far-target-staging.md`](../active/multi-room/planner-far-target-staging.md).
   It assumes this brief has shipped (and uses this loop as its
   safety net). Plan/code coordination between the two tasks goes
   through the operator, not directly.
@@ -171,7 +171,7 @@ pixel→pose mapper.
   defaults shipped in `35018b1` stay. This brief only re-enables
   the sim-side env override that admits 15 m.
 - **Real-D555 depth range survey** — orthogonal; tracked at
-  [`real-d555-depth-range-survey.md`](../active/real-d555-depth-range-survey.md).
+  [`real-d555-depth-range-survey.md`](../active/investigations/real-d555-depth-range-survey.md).
   Affects how often staging triggers on the real robot, not whether
   staging is correct.
 - **Plan validation against the static map.** Checking whether

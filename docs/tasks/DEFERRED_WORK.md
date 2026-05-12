@@ -216,7 +216,7 @@ strafer-inference brief's ≤ 10 ms p95 end-to-end target depends on.
 the NoCam variant; the Jetson-side sweep is operator-side execution
 (deployment-environment specific) and gates on a deployable DEPTH
 checkpoint plus
-[`policy-export-onnx-depth.md`](active/policy-export-onnx-depth.md)
+[`policy-export-onnx-depth.md`](active/trained-policy/export-onnx-depth.md)
 landing the DEPTH ONNX path. Capturing it as a runbook step rather
 than a separate brief — the work is `<1 hour` of operator time and
 slots into the strafer-inference brief's Phase 3 latency table.

@@ -194,11 +194,11 @@ def _patch_params(params, footprint, nav_vel, nav_omega, nav_reverse,
 
         # Un-scale vy_std back to YAML baseline. The envelope-factor
         # scaling above doubled it to 0.4, but the lifted velocity
-        # envelope is for forward + rotation, not lateral. Wider
+        # envelope is for forward + rotation, not lateral. A wider
         # vy_std gives MPPI more strafe-rollouts to weight against a
-        # noisy global path (see nav2-startup-unknown-donut-path-noise.md),
-        # letting the cost minimum drift sideways. vx_std and wz_std
-        # stay scaled.
+        # noisy global path, which lets the cost minimum drift
+        # sideways instead of staying on the planned forward line.
+        # vx_std and wz_std stay scaled.
         if "vy_std" in ctrl:
             yaml_baseline_vy_std = round(float(ctrl["vy_std"]) / envelope_factor, 4)
             ctrl["vy_std"] = yaml_baseline_vy_std

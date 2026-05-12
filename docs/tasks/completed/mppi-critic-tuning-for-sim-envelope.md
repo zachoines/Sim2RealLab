@@ -3,7 +3,7 @@
 **Status:** Shipped 2026-05-03 in `4b55093` (Jetson). Converged at
 sustained median odom vx 0.632 m/s — ~63% of the literal acceptance
 threshold; remaining gap split across two filed follow-up briefs
-([`nav2-startup-unknown-donut-path-noise`](../active/nav2-startup-unknown-donut-path-noise.md)
+([`nav2-startup-unknown-donut-path-noise`](nav2-startup-unknown-donut-path-noise.md)
 and [`strafer-inference-package`](../active/strafer-inference-package.md)).
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/15
 

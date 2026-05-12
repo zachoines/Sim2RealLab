@@ -68,7 +68,6 @@ session.
 | [`grounding-publisher-extraction`](active/grounding-publisher-extraction.md) | S | Quick win — pure refactor follow-up to `vlm-bbox-overlay`; extracts the viz publishers out of `JetsonRosClient` |
 | [`align-after-scan-grounding`](active/align-after-scan-grounding.md) | S–M | Executor + plan_compiler tweak |
 | [`real-d555-depth-range-survey`](active/real-d555-depth-range-survey.md) | S–M | Investigation — bench measurement + write-up |
-| [`nav2-startup-unknown-donut-path-noise`](active/nav2-startup-unknown-donut-path-noise.md) | M | Planner-side fix for the kinky-path-through-camera-donut symptom |
 | [`rtabmap-cold-start-determinism`](active/rtabmap-cold-start-determinism.md) | M | Cold-start signature on populated DB: `Not found word N` burst + `Increment map id to 4`; triage bridge-teleport vs Mem/* config + ship the chosen disposition |
 | [`nav-deadline-sim-time-audit`](active/nav-deadline-sim-time-audit.md) | M | Audit executor + Nav2 wall-clock safety caps; replace absolute caps with sim-time-progress stall detectors so rotations don't abort partway at RTF ≤ 0.1 |
 | [`executor-prefer-rotate-then-translate`](active/executor-prefer-rotate-then-translate.md) | M | Decompose non-cardinal translations into rotate-to-face + forward translate at the executor layer; preserves cardinal strafe |

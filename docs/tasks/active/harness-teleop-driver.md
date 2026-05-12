@@ -75,7 +75,7 @@ costs of using it as the training-data factory:
   A 30 s mission produces ~180 frames at best.
 - **Reliability.** Mission outcome depends on Nav2's local planner
   (currently funky in Infinigen scenes,
-  [`nav2-startup-unknown-donut-path-noise`](nav2-startup-unknown-donut-path-noise.md))
+  [`nav2-startup-unknown-donut-path-noise`](../completed/nav2-startup-unknown-donut-path-noise.md))
   and MPPI's controller (plateaued, motivating the
   [`strafer-inference-package`](strafer-inference-package.md)
   rebuild). Many missions fail for stack reasons unrelated to

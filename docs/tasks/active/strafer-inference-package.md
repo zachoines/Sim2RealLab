@@ -560,7 +560,7 @@ do as part of the five phases above and shouldn't be.)
   [`completed/mppi-critic-tuning-for-sim-envelope.md`](../completed/mppi-critic-tuning-for-sim-envelope.md);
   this brief's existence presupposes that ceiling.
 - **The planner-side wavy-path issue.** That's
-  [`nav2-startup-unknown-donut-path-noise.md`](nav2-startup-unknown-donut-path-noise.md).
+  [`nav2-startup-unknown-donut-path-noise.md`](../completed/nav2-startup-unknown-donut-path-noise.md).
   Affects the `nav2` backend's startup behavior; orthogonal to
   RL policy execution.
 - **`hybrid_nav2_strafer` mode.** Filed as

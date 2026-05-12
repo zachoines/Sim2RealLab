@@ -6,7 +6,7 @@ code; reuses `collect_demos.py`'s gamepad mapping)
 **Priority:** P1 (unblocks v1 measurement *and* v2 training data
 without waiting on bridge perf, MPPI tuning, or Nav2 path quirks
 to settle). Soft-blocks on
-[`harness-mission-generator`](harness-mission-generator.md) for
+[`mission-generator`](mission-generator.md) for
 the queue source — for an interim version of this brief, a
 hand-authored YAML queue is acceptable; the generator can ship
 in parallel.
@@ -45,19 +45,25 @@ Parent design doc:
 recommendation).
 
 Sibling brief — schema definition:
-[`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md).
+[`behavior-cloning-data-expansion`](behavior-cloning-data-expansion.md).
 This brief reuses that schema verbatim; the only difference is
-the driver.
+the driver. Note: an audit pass filed
+[`output-format-alignment`](../../parked/harness/output-format-alignment.md)
+proposing the canonical schema move to LeRobot v2 / Isaac Lab
+`RecorderManager`-compatible HDF5; this brief's "emit the canonical
+schema" criterion adopts whatever that brief lands on if it ships
+first, otherwise it emits the JSONL schema from
+[`behavior-cloning-data-expansion`](behavior-cloning-data-expansion.md).
 
 Downstream consumers:
-- [`clip-mid-mission-validator-evaluation`](clip-mid-mission-validator-evaluation.md)
+- [`validator-evaluation`](../clip-validation/validator-evaluation.md)
   (relaxes its hard `Blocked on: next-integration-round` once
   teleop output exists).
 - [`completed/learned-mid-mission-validator`](../../completed/learned-mid-mission-validator.md)
   (retired — see brief for rationale)
   (teleop's wrong-instance / wrong-room / wrong-path-shape
   buttons are the cleanest hard-negative source).
-- [`strafer-vla-v2-architecture`](strafer-vla-v2-architecture.md)
+- [`vla-v2-architecture`](../../parked/experimental/vla-v2-architecture.md)
   (training data; teleop is the default per §3.6).
 
 ## Context
@@ -77,7 +83,7 @@ costs of using it as the training-data factory:
   (currently funky in Infinigen scenes,
   [`nav2-startup-unknown-donut-path-noise`](../../completed/nav2-startup-unknown-donut-path-noise.md))
   and MPPI's controller (plateaued, motivating the
-  [`strafer-inference-package`](strafer-inference-package.md)
+  [`inference-package`](../trained-policy/inference-package.md)
   rebuild). Many missions fail for stack reasons unrelated to
   what the training data should reflect.
 - **Distribution.** Bridge harness output reflects the v1 stack's
@@ -100,10 +106,10 @@ A new entry point at `Scripts/teleop_collect.py` that:
   Left stick → `(vx, vy)`; right stick → `ωz`; triggers as
   speed modulators.
 - Writes the same schema
-  [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md)
+  [`behavior-cloning-data-expansion`](behavior-cloning-data-expansion.md)
   defines: `frames_tick.jsonl`, `actions.jsonl`, `mission.json`,
-  `frame_*.jpg`, `depth_*.png` per episode. The `actions.jsonl`
-  rows are tagged `source: "teleop"`.
+  `frame_*.jpg`, `frame_*.depth.npy` per episode. The
+  `actions.jsonl` rows are tagged `source: "teleop"`.
 - Exposes a console + on-screen mission text + episode timer +
   distance-to-target indicator.
 - Listens for episode-boundary buttons (see below).
@@ -115,16 +121,16 @@ A new entry point at `Scripts/teleop_collect.py` that:
 
 | Source | Mechanism | Volume per scene | Path-shape capable? |
 |---|---|---|---|
-| **Mission queue YAML** (default) | The teleop driver loads `mission_queue.yaml` produced by [`harness-mission-generator`](harness-mission-generator.md). Each row contains `mission_text` (+ paraphrases) and optional `planned_path` (which teleop ignores — operator drives directly). Multi-room missions are included by default. | Tens to hundreds of variants per scene | **Yes** — generator emits endpoint + path-shape + cross-room rows |
+| **Mission queue YAML** (default) | The teleop driver loads `mission_queue.yaml` produced by [`mission-generator`](mission-generator.md). Each row contains `mission_text` (+ paraphrases) and optional `planned_path` (which teleop ignores — operator drives directly). Multi-room missions are included by default. | Tens to hundreds of variants per scene | **Yes** — generator emits endpoint + path-shape + cross-room rows |
 | **Operator-typed (stdin override)** | Operator presses `X` to swap from queue mode to typed mode; types the mission on stdin; presses Enter; episode begins. Used for ad-hoc missions the queue didn't cover, including path-shape variations the operator wants to demonstrate that day. | Operator-throughput-bottlenecked | Yes |
 
 Multi-room is the default. Cross-room missions are present in
 the queue whenever the scene is multi-room (per the
 connectivity graph from
-[`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md)).
+[`scene-connectivity-validation`](../multi-room/scene-connectivity-validation.md)).
 This brief does **not** own queue generation; it consumes
 whatever
-[`harness-mission-generator`](harness-mission-generator.md)
+[`mission-generator`](mission-generator.md)
 emits.
 
 ### Episode-end button mapping
@@ -164,7 +170,7 @@ to 60 *useful* episodes, not 60 quick-but-noisy ones.
 - **Suggested-path overlay (operator-only).** The mission
   queue's `planned_path` waypoints (LLM-emitted for path-shape
   missions, A*-shortest for endpoints — see
-  [`harness-mission-generator`](harness-mission-generator.md))
+  [`mission-generator`](mission-generator.md))
   are rendered as a polyline in the editor viewport via Isaac
   Sim debug-draw primitives. **Critically operator-visible
   only — debug-draw renders into the editor viewport, not into
@@ -223,24 +229,34 @@ surface the need:
 ### Realistic data-volume budget
 
 Honest numbers operators reading this brief should plan against,
-**single operator, single session**:
+**single operator, single session**. Earlier drafts of this brief
+quoted ~60 endpoint-episodes/hour; an audit pass calibrated the
+table downward against peer data-collection studies (DROID
+recorded ~30–40 demos/hr per operator with a comparable UX
+overhead). The numbers below reflect the heavier UX surface this
+brief specifies (PiP, suggested-path overlay, HUD, REC indicator,
+button-tag selection, queue-position console) plus the reset
+cost of re-spawning the env at a new start pose. Treat as a soft
+upper bound; the acceptance run (≥30 missions across ≥2 scenes)
+is the calibration measurement that should update this table:
 
 | Episode type | Time per episode | Episodes / hour |
 |---|---|---|
-| Auto-queue endpoint mission, success | ~1 min (5s read + 30s drive + 25s reset) | ~60 |
-| Operator-typed path-shape mission | ~2 min (20s type + 50s drive + 50s reset/think) | ~30 |
-| `X`-tagged hard negative (wrong instance / room) | ~1.5 min | ~40 |
-| `SELECT`-tagged path-shape negative | ~2 min | ~30 |
+| Auto-queue endpoint mission, success | ~1.5–2 min (10s read + 30–45s drive + 30–45s reset) | ~30–40 |
+| Operator-typed path-shape mission | ~2.5–3 min (20s type + 50s drive + 60s reset/think) | ~20–25 |
+| `X`-tagged hard negative (wrong instance / room) | ~2 min | ~25–30 |
+| `SELECT`-tagged path-shape negative | ~2.5–3 min | ~20–25 |
 
-Per-target volume the brief expects to support:
+Per-target volume the brief expects to support, **using the
+calibrated ~30 ep/hr endpoint rate above**:
 
 | Training target | Volume needed | Estimated operator time |
 |---|---|---|
-| CLIP fine-tune, 1 scene | ~1k frames (~30 episodes) | ~30 min |
-| VLM SFT, 1 scene | ~5k frames (~50 episodes) | ~50 min |
-| Learned-validator (frozen-DINOv2 + temporal head), 1 scene | ~5k labeled windows (~30 success + 30 hard-negative) | ~75 min |
-| v2 VLA endpoint missions (Octo / TinyVLA frozen-tower fine-tune), 3 scenes total | ~10k trajectories with hindsight relabel + replay-perturbation multipliers (~5×) ⇒ ~2k actual demos | ~30–40 hours |
-| v2 VLA path-shape missions (per constraint type) | ~1k path-shape demos | ~30 hours per constraint type — **bottleneck for path-shape; motivates the procedural generator** |
+| CLIP fine-tune, 1 scene | ~1k frames (~30 episodes) | ~1 hour |
+| VLM SFT, 1 scene | ~5k frames (~50 episodes) | ~1.5–2 hours |
+| Learned-validator (frozen-DINOv2 + temporal head), 1 scene | ~5k labeled windows (~30 success + 30 hard-negative) | ~2 hours |
+| v2 VLA endpoint missions (Octo / TinyVLA frozen-tower fine-tune), 3 scenes total | ~10k trajectories with hindsight relabel + replay-perturbation multipliers (~5×) ⇒ ~2k actual demos | ~60–80 hours |
+| v2 VLA path-shape missions (per constraint type) | ~1k path-shape demos | ~50 hours per constraint type — **bottleneck for path-shape; motivates the procedural generator** |
 
 The v1 measurement corpus (3 scenes × 30 success + 30
 hard-negative) is one operator-evening of work. The v2 VLA
@@ -261,14 +277,17 @@ flags it openly.
       verbatim (or via a shared module if light refactoring is
       needed). No re-tuning of axis mappings.
 - [ ] **Output schema parity.** Per-episode output matches
-      [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md)'s
-      schema bit-for-bit. A unit test loads a single episode and
-      confirms `frames_tick.jsonl`, `actions.jsonl`,
-      `mission.json`, JPEG, and PNG paths conform.
+      [`behavior-cloning-data-expansion`](behavior-cloning-data-expansion.md)'s
+      schema bit-for-bit (or the format
+      [`output-format-alignment`](../../parked/harness/output-format-alignment.md)
+      lands on, whichever is canonical when this brief is
+      picked up). A unit test loads a single episode and
+      confirms the per-tick rows, action rows, mission record,
+      and image / depth paths conform.
 - [ ] **Two mission-text sources.** Mission queue YAML loader
       consumes the canonical
       `mission_queue.yaml` produced by
-      [`harness-mission-generator`](harness-mission-generator.md);
+      [`mission-generator`](mission-generator.md);
       operator stdin override switches to typed mode and back.
       Multi-room queue rows are accepted by default — no
       teleop-side filtering needed; the generator owns
@@ -313,7 +332,7 @@ flags it openly.
       [`source/strafer_lab/README.md`](../../../../source/strafer_lab/README.md)
       "Scripts and tools inventory" gains
       `teleop_collect.py`. (`build_mission_queue.py` is owned
-      by [`harness-mission-generator`](harness-mission-generator.md).)
+      by [`mission-generator`](mission-generator.md).)
 - [ ] If your work invalidates a fact in any referenced context
       module, package README, top-level `Readme.md`, or guide
       under `docs/`, update those in the same commit. See
@@ -346,8 +365,9 @@ flags it openly.
   (lives in the harness brief's `compute_progress.py`
   post-processor).
 - The Foxglove visualization referenced in
-  [`vlm-bbox-overlay`](vlm-bbox-overlay.md) is *not* needed for
-  teleop UX; the Isaac Sim editor viewport is sufficient for v1.
+  [`completed/vlm-bbox-overlay.md`](../../completed/vlm-bbox-overlay.md)
+  is *not* needed for teleop UX; the Isaac Sim editor viewport
+  is sufficient for v1.
 
 ## Out of scope
 
@@ -363,12 +383,12 @@ flags it openly.
   the gamepad event stream is in scope; the *replay tool* is
   a future brief.
 - **Mission queue generation.** Filed as
-  [`harness-mission-generator`](harness-mission-generator.md);
+  [`mission-generator`](mission-generator.md);
   this brief consumes the queue, doesn't author it.
 - **Voice mission entry, AR / VR teleop, multi-camera live view.**
   All over-scoped for v1.
 - **The `actions.jsonl` writer plumbing** itself.
-  [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md)
+  [`behavior-cloning-data-expansion`](behavior-cloning-data-expansion.md)
   ships the writer; this brief just emits actions through it
   with `source: "teleop"`.
 - **Action-tokenization / VLA-side dataset format conversion.**

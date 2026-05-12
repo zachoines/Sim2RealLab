@@ -43,24 +43,37 @@ specifically §3.2 (learned validator's training-data needs) and
 §3.6 (MVP-as-teacher distillation).
 
 Sibling briefs covering the other driver modes:
-- [`harness-teleop-driver`](harness-teleop-driver.md) — gamepad
+- [`teleop-driver`](teleop-driver.md) — gamepad
   driver running in-process Isaac Lab. Reuses this brief's
   schema; ships independently.
-- [`harness-oracle-driver`](harness-oracle-driver.md) — future
+- [`oracle-driver`](../../parked/harness/oracle-driver.md) — future
   in-process scripted-policy driver, blocked on teleop shipping
   + scale becoming the bottleneck.
-- [`harness-mission-generator`](harness-mission-generator.md) —
+- [`mission-generator`](mission-generator.md) —
   the canonical mission queue source feeding all three drivers.
 
 Sibling brief covering multi-room defaulting:
-- [`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md) —
+- [`scene-connectivity-validation`](../multi-room/scene-connectivity-validation.md) —
   produces the room-connectivity graph that the bridge driver's
   multi-room missions rely on for transit-step planning.
 
+Filed alongside this brief by the harness-epic audit:
+- [`output-format-alignment`](../../parked/harness/output-format-alignment.md) —
+  proposes that the canonical on-disk schema move to LeRobot v2
+  / Isaac Lab `RecorderManager`-compatible HDF5 so the corpus is
+  consumable by GR00T, OpenVLA, π0, and Octo training scripts
+  without a custom converter. This brief currently specifies a
+  JSONL+JPEG+PNG schema; if the alignment brief lands first,
+  this brief's strict-tier output adopts the aligned format.
+- [`harness-throughput-measurement`](../../parked/harness/harness-throughput-measurement.md) —
+  one-off investigation that grounds per-tick capture-rate +
+  parallel-env assumptions in measurement before further
+  scale-out briefs commit to throughput targets.
+
 Downstream briefs that depend on this:
-- [`strafer-vla-v2-architecture`](strafer-vla-v2-architecture.md) —
+- [`vla-v2-architecture`](../../parked/experimental/vla-v2-architecture.md) —
   hard prerequisite (no behavior cloning without an action stream).
-- [`clip-cotrained-retrieval-augmented`](clip-cotrained-retrieval-augmented.md) —
+- [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md) —
   the cascade-improvements brief consumes this brief's per-step
   `progress` labels and language-augmented mission text; soft
   dependency.
@@ -76,13 +89,26 @@ a different data-collection regime:
 | Driver | Action source | Throughput | Distribution match | Ship status |
 |---|---|---|---|---|
 | **`bridge`** | Jetson autonomy stack via ROS 2 (planner + executor + Nav2 + RL controller) | ~6–15 FPS, single mission at a time | Matches deployment | Current direction; this brief upgrades it |
-| **`teleop`** | Human gamepad via in-process Isaac Lab, no ROS | ~30–60 FPS, single mission at a time, ~60 episodes / hr operator-paced | Matches *human-driven* deployment, which is what published wheeled VLAs train on | Filed as [`harness-teleop-driver`](harness-teleop-driver.md) |
-| **`oracle`** *(future)* | Scripted policy in-process (A* on navigable mask + heuristic stop) | ~Hundreds of FPS, parallel envs | Synthetic; intended for scale supplements | Filed as [`harness-oracle-driver`](harness-oracle-driver.md) (sketch); not picked up until teleop throughput is the bottleneck |
+| **`teleop`** | Human gamepad via in-process Isaac Lab, no ROS | ~30–60 FPS, single mission at a time, ~30–40 episodes / hr operator-paced (audit-calibrated; see [`teleop-driver`](teleop-driver.md)) | Matches *human-driven* deployment, which is what published wheeled VLAs train on | Filed as [`teleop-driver`](teleop-driver.md) |
+| **`oracle`** *(future)* | Scripted policy in-process (A* on navigable mask + heuristic stop) | Parallel envs — actual throughput on the 640×360 perception scene config is bounded by Isaac Sim's per-env memory budget; see [`harness-throughput-measurement`](../../parked/harness/harness-throughput-measurement.md) for the measurement | Synthetic; intended for scale supplements | Filed as [`oracle-driver`](../../parked/harness/oracle-driver.md) (sketch); not picked up until teleop throughput is the bottleneck |
 
 **This brief ships the schema + the bridge driver upgrades.** The
 teleop and oracle drivers are sibling briefs that emit the same
 schema. Downstream consumers (clip-eval, learned-validator, v2
 VLA) are agnostic to which driver produced the data.
+
+**Schema-choice caveat.** The strict-tier schema below is JSONL +
+JPEG + PNG. The harness-epic audit filed
+[`output-format-alignment`](../../parked/harness/output-format-alignment.md)
+proposing the canonical on-disk format move to LeRobot v2
+(parquet + MP4 + `meta/modality.json`) or Isaac Lab
+`RecorderManager`-compatible HDF5 — both are what GR00T,
+OpenVLA, π0, and Octo training scripts ingest natively. Picking
+the wrong canonical format now means every downstream training
+brief writes its own converter (and converters drift). If the
+alignment brief ships first, this brief's strict-tier output
+adopts that format and the JSONL layout below becomes the legacy
+debug side-channel.
 
 ### What the bridge harness emits today
 
@@ -131,8 +157,16 @@ sufficient to score the model offline. Six gaps to close:
    doesn't have to interpolate.
 3. **Per-tick capture + depth.** Capture every bridge tick
    (~125 ms headless w/ cameras → ~8 Hz). Capture aligned depth
-   (`/d555/depth/image_rect_raw`, 16UC1 mm) as PNG alongside the
-   RGB JPEG.
+   from the perception camera. **Depth format choice:** the
+   existing `perception_writer.py:248-252` writes depth as
+   float32 `.depth.npy` (lossless, ~1.4× the bytes of a 16UC1
+   PNG but no encode/decode cost). Earlier drafts of this brief
+   proposed switching to 16UC1 PNG millimeters; the audit pass
+   re-defaulted to keeping `.depth.npy` float32 (lossless,
+   matches existing writer, no back-compat break with consumers
+   that already load `.depth.npy`). Switch to PNG only if
+   storage is the binding constraint and the precision loss is
+   benchmarked against downstream policy training.
 4. **Mission-text augmentation.** Use the existing 7B Qwen2.5-VL
    in [`generate_descriptions.py`](../../../../source/strafer_lab/scripts/generate_descriptions.py)
    to paraphrase each harness mission in N styles. Keep the
@@ -159,6 +193,52 @@ gates the strict ones in acceptance. The brief also adds a
 under the recommended tier — both the CLIP-eval brief and the
 learned-validator brief consume it, so it lives here rather than
 in either downstream brief.
+
+### Image quality + multi-camera capture
+
+Two audit-driven additions:
+
+- **JPEG quality.** Existing `PerceptionFrameWriter` defaults to
+  q=90; the harness-epic audit recommends raising to **q=95** (or
+  switching to PNG / MP4 at LeRobot-v2 alignment time). The
+  rationale: a VLA trained on heavily quantized JPEG features
+  through a lossy bottleneck that's not present at deployment
+  (real D555 publishes raw sensor output), and recent
+  wheeled-VLA work (NaVid, OpenVLA, π0) uses higher-quality
+  RGB encoding (PNG / MP4 at high CRF). Cost: ~30% larger files
+  for visibly fewer compression artifacts.
+- **Multi-camera capture.** The
+  `StraferSceneCfg_InfinigenPerception` scene already carries
+  *two* cameras: `d555_camera` (80×60 policy cam, what the
+  deployed RL policy consumes) and `d555_camera_perception`
+  (640×360, what this brief captures). Capturing both per tick
+  costs ~5% more wall-time per step and lets training scripts
+  pick which resolution to consume (or train at both — OFT-style
+  multi-resolution training). Brief should add an optional
+  `--capture-policy-cam` flag (default off for v1 storage
+  reasons; on for training corpora).
+
+### Action representation: per-tick + chunk-aligned slices
+
+`actions.jsonl` records per-tick `(vx_cmd, vy_cmd, omega_z_cmd)`,
+which is *sufficient* to train any modern VLA — but published
+recipes consume action chunks, not per-tick rows:
+
+- π0 / openpi predicts **50-step chunks** (1 second at 50 Hz).
+- OpenVLA / RT-2 predict **single-step** discrete actions over a
+  7-DoF chunk.
+- Octo predicts variable horizons via a diffusion head.
+
+The strict-tier output is unchanged (per-tick); the recommended
+**`export_bc_dataset.py`** converter (below) must commit to a
+canonical chunk size when emitting RLDS / LeRobot v2 / Mimic
+HDF5. Default chunk length: **30 ticks** (the trained policy's
+30 Hz command rate × 1 second = the deployed-stack control
+window). Stride: 1 (overlapping windows for training data
+multiplication). Document the chunk size in
+`mission.json.generator_metadata.action_chunk_length` so
+downstream consumers know what slicing the JSONL was packed
+into.
 
 ### Why custom over Isaac Lab's native BC frameworks
 
@@ -220,8 +300,9 @@ data/sim_in_the_loop/<scene_name>/episode_NNNN/
 ├── frames_tick.jsonl        # NEW: per-bridge-tick records
 ├── actions.jsonl            # NEW: per-tick (timestamp, vx, vy, omega_z, source)
 ├── mission.json             # NEW: mission_text + paraphrases + final outcome
-├── frame_*.jpg              # RGB JPEGs (now denser)
-├── depth_*.png              # NEW: 16UC1 PNGs
+├── frame_*.jpg              # RGB JPEGs (q=95 — see "Image quality" above)
+├── frame_*.policycam.jpg    # NEW (optional): 80x60 policy-cam RGB if --capture-policy-cam
+├── frame_*.depth.npy        # NEW: float32 distance-to-image-plane (matches existing writer)
 └── progress.jsonl           # NEW (post-processing pass): per-tick progress + stop_target
 ```
 
@@ -256,20 +337,33 @@ high-end (90 s × 8 Hz = ~720 ticks per mission):
 
 | Stream | Per frame | Per mission (90 s × 8 Hz = ~720 frames) |
 |---|---|---|
-| RGB JPEG @ q=85 | ~40 KB | ~28 MB |
-| Depth PNG (16UC1) | ~150 KB | ~108 MB |
+| RGB JPEG @ q=95 (640×360) | ~55 KB | ~40 MB |
+| Policy-cam JPEG @ q=95 (80×60), optional | ~3 KB | ~2 MB |
+| Depth `.npy` float32 (640×360) | ~920 KB | ~660 MB |
 | `frames_tick.jsonl` row | ~0.5 KB | ~0.4 MB |
 | `actions.jsonl` row | ~0.1 KB | ~0.08 MB |
 | `progress.jsonl` row (post-proc) | ~0.1 KB | ~0.08 MB |
-| **Total** | | **~140 MB / mission** (cross-room worst case) |
+| **Total** | | **~700 MB / mission** (cross-room worst case, depth dominates) |
 
-30 missions × 3 scenes × 140 MB ≈ 12 GB. Tractable on the DGX.
-Single-room missions remain at ~46 MB / mission. The existing
-`data/` tree is gitignored, so commit footprint is unchanged.
+Depth dominates the budget — float32 ×640×360 is unavoidable
+without compression. Two compaction options the brief should
+benchmark before scale-out: (a) 16UC1 PNG depth (~150 KB / frame,
+~5× smaller, 1 mm precision); (b) per-episode depth bundled into
+a single `.npz` (similar bytes, single-file open). The trade
+depends on training-time loader latency; revisit at
+[`output-format-alignment`](../../parked/harness/output-format-alignment.md)
+ship time.
+
+30 missions × 3 scenes × 700 MB ≈ 65 GB at the new depth-as-float32
+default. Tractable on the DGX. If float32 depth is the storage
+bottleneck once corpus scale grows past a few hundred missions per
+scene, switch to 16UC1 PNG (~5× smaller) per the depth-format
+benchmark above. The existing `data/` tree is gitignored, so
+commit footprint is unchanged.
 
 ### Why this lives outside `next-integration-round`
 
-[`next-integration-round`](next-integration-round.md) validates
+[`next-integration-round`](../investigations/next-integration-round.md) validates
 that the v1 stack composes end-to-end against
 [`INTEGRATION_SIM_IN_THE_LOOP.md`](../../../INTEGRATION_SIM_IN_THE_LOOP.md).
 That brief's job is to *exercise* the pipeline at its current
@@ -307,9 +401,9 @@ post-processing passes need iteration.
       `run_sim_in_the_loop.py --mode harness` writes one
       `frames_tick.jsonl` row per bridge tick while a mission is
       active, with the bridge's `/clock` timestamp as `sim_time`.
-      RGB JPEG and depth PNG written alongside. (The teleop
-      driver's per-tick capture is in-process Isaac Lab; lives
-      in [`harness-teleop-driver`](harness-teleop-driver.md);
+      RGB JPEG (q=95) and float32 depth `.npy` written alongside.
+      (The teleop driver's per-tick capture is in-process Isaac
+      Lab; lives in [`teleop-driver`](teleop-driver.md);
       this brief covers the bridge path only.)
 - [ ] **Action stream.** `actions.jsonl` written with
       `(sim_time, vx_cmd, vy_cmd, omega_z_cmd, vx_achieved,
@@ -363,7 +457,7 @@ post-processing passes need iteration.
       *trajectory-first captioning* pattern (random-trajectory
       → speaker-model-generated mission text + synthesized
       hard negatives) lives in
-      [`harness-trajectory-first-captioning`](harness-trajectory-first-captioning.md);
+      [`trajectory-first-captioning`](trajectory-first-captioning.md);
       this item does **not** subsume that work.
 - [ ] **`--inject-bad-grounding` flag for hard-negative
       generation.**
@@ -379,32 +473,50 @@ post-processing passes need iteration.
   - `wrong_instance` swaps the goal to another scene-metadata
     object with the same `target_label` if one exists in the
     same room; falls back to `wrong_room` if no same-label
-    sibling exists.
+    sibling exists, **and records `injection_mode_actual:
+    "wrong_room_fallback"` in `mission.json` so consumers see
+    the actual mode, not just the requested one**. (The earlier
+    silent-fallback behavior would have produced ambiguous
+    `wrong_instance` labels in the dataset.)
   Perturbed missions are tagged in `mission.json` with
-  `injection_mode` and `original_target_position_3d` so
-  downstream consumers (the learned-validator brief, the
-  CLIP-eval brief's `--root-cause-pass`) can label them as
-  hard negatives without re-deriving the perturbation. **This
-  flag is consumed by
-  [`clip-mid-mission-validator-evaluation`](clip-mid-mission-validator-evaluation.md)
+  `injection_mode`, `injection_mode_actual`, and
+  `original_target_position_3d` so downstream consumers (the
+  learned-validator brief, the CLIP-eval brief's
+  `--root-cause-pass`) can label them as hard negatives without
+  re-deriving the perturbation. **This flag is consumed by
+  [`validator-evaluation`](../clip-validation/validator-evaluation.md)
   and the
-  [`clip-cotrained-retrieval-augmented`](clip-cotrained-retrieval-augmented.md)
+  [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md)
   improvements brief; this brief owns its definition.**
-- [ ] **HDF5 / RLDS export converter for downstream VLA pipelines.**
+- [ ] **HDF5 / RLDS / LeRobot v2 export converter for downstream
+      VLA pipelines.**
       `source/strafer_lab/strafer_lab/tools/export_bc_dataset.py`
       consumes a finished episode (or a directory of episodes)
-      and emits one of two formats, selected by `--format`:
+      and emits one of these formats, selected by `--format`:
   - `--format mimic-hdf5`: per-mission HDF5 conforming to the
-    Isaac Lab Mimic schema (one HDF5 per scene, one episode-group
-    per mission, with `obs/`, `actions/`, and `meta/` subgroups).
-    Lets downstream consumers reuse Mimic's dataset inspectors,
-    replay tools, and trajectory visualizers.
+    Isaac Lab Mimic / robomimic schema (one HDF5 per scene, one
+    episode-group per mission, with `obs/`, `actions/`, and
+    `meta/` subgroups). Lets downstream consumers reuse Mimic's
+    dataset inspectors, replay tools, and trajectory
+    visualizers. Compatible with `scripts/imitation_learning/
+    robomimic/train.py` in Isaac Lab.
   - `--format rlds`: TFDS-style RLDS shards consumable by the
-    Octo training pipeline directly.
-  The strict-tier JSONL output stays the source of truth — the
-  HDF5 / RLDS files are derived artifacts, regenerable from
+    Octo / OpenVLA training pipelines directly.
+  - `--format lerobot-v2`: HF parquet + MP4 + `meta/info.json` +
+    `meta/episodes.jsonl` + `meta/tasks.jsonl` +
+    `meta/modality.json`. This is what NVIDIA GR00T and the HF
+    `lerobot` library both consume natively. Action and
+    observation key layouts go in `modality.json` (e.g.,
+    `action: [vx, vy, omega_z]`, `observation.image: [d555]`).
+  All exports slice the per-tick stream into 30-tick action
+  chunks (1 s at the deployed 30 Hz command rate; see "Action
+  representation" above). The strict-tier JSONL output stays the
+  source of truth — the derived files are regenerable from
   JSONL, not committed. Document which downstream consumer each
-  format targets in the export script's help text.
+  format targets in the export script's help text. Pre-emption:
+  if [`output-format-alignment`](../../parked/harness/output-format-alignment.md)
+  has shipped, the strict-tier source of truth is already
+  LeRobot v2 and the exporter is the legacy JSONL emitter.
 
 ### Doc surfaces
 
@@ -478,7 +590,7 @@ post-processing passes need iteration.
   brief if needed. (Single-host RLDS / Mimic-HDF5 conversion
   *is* in scope as a recommended-tier item — see acceptance.)
 - **Action-tokenization decisions.** Belongs to the v2 VLA brief
-  ([`strafer-vla-v2-architecture`](strafer-vla-v2-architecture.md)),
+  ([`vla-v2-architecture`](../../parked/experimental/vla-v2-architecture.md)),
   not here. This brief produces continuous-valued action records;
   whether the VLA quantizes them into 256 bins or feeds a
   diffusion head is a downstream choice.

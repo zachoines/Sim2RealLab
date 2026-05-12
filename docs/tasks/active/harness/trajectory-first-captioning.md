@@ -42,24 +42,28 @@ Parent design doc:
 the architectural relationship to teleop, bridge, and oracle.
 
 Sibling briefs:
-- [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md) —
+- [`behavior-cloning-data-expansion`](behavior-cloning-data-expansion.md) —
   defines the canonical schema this brief emits; its
   "Hindsight relabel pass" item is now scoped narrowly to
   wrong-target relabeling and points here for the broader
   pattern.
-- [`harness-mission-generator`](harness-mission-generator.md) —
+- [`mission-generator`](mission-generator.md) —
   the *forward-generation* counterpart (mission text → driver
   → trajectory). This brief is the *post-hoc* counterpart
   (driver → trajectory → mission text).
-- [`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md) —
+- [`scene-connectivity-validation`](../multi-room/scene-connectivity-validation.md) —
   produces the connectivity graph used to filter random
   targets to reachable pairs.
-- All three drivers ([`harness-teleop-driver`](harness-teleop-driver.md),
-  [`harness-oracle-driver`](harness-oracle-driver.md), bridge
+- All three drivers ([`teleop-driver`](teleop-driver.md),
+  [`oracle-driver`](../../parked/harness/oracle-driver.md), bridge
   driver in
-  [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md))
+  [`behavior-cloning-data-expansion`](behavior-cloning-data-expansion.md))
   — any of them can run in trajectory-first mode and feed this
   brief's captioner.
+- [`harness-throughput-measurement`](../../parked/harness/harness-throughput-measurement.md) —
+  filed alongside this brief by the audit; the parallel-env
+  count this brief plans against is asserted, not measured.
+  Measure before scale-out.
 
 ## Context
 
@@ -89,9 +93,11 @@ canonical schema.
   landmarks that are visible in-frame because that's the only
   signal it has. The egocentric-FoV problem that breaks
   forward-generation landmark annotation
-  ([`harness-mission-generator`](harness-mission-generator.md)
+  ([`mission-generator`](mission-generator.md)
   has to reason about scene topology and may annotate
-  landmarks the camera never sees) goes away.
+  landmarks the camera never sees — the audit also added a
+  start-frame VLM grounding pass there to close part of this
+  gap from the forward-generation side) goes away.
 - **No LLM-waypoint hallucination.** Paths are real; the LLM's
   job is captioning, not planning. Hallucinations get bounded
   to the language side, recoverable via paraphrase ensembling.
@@ -165,7 +171,7 @@ captioner runs in two modes per trajectory:
 
 This gives the same five-way label distribution the cascade
 improvements brief
-([`clip-cotrained-retrieval-augmented`](clip-cotrained-retrieval-augmented.md))
+([`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md))
 expects, without needing operator-tagged failures.
 Trajectory-first becomes a strong source of hard negatives at
 scale. (The previously-named small-learned-validator brief was
@@ -175,7 +181,10 @@ retired; see
 ### Output schema
 
 Same canonical schema as
-[`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md);
+[`behavior-cloning-data-expansion`](behavior-cloning-data-expansion.md)
+(or whatever
+[`output-format-alignment`](../../parked/harness/output-format-alignment.md)
+lands on);
 each captioned trajectory produces *multiple* `mission.json`
 variants per trajectory (positive + N negatives + paraphrases):
 
@@ -215,19 +224,94 @@ mission rows are the multipliers. One trajectory typically
 becomes 1 positive + 2–3 negatives + N paraphrases per row =
 ~10–20 training tuples per trajectory.
 
-### Throughput sanity
+### Throughput sanity (and the asterisk)
 
 Reachable random A→B sampling on a multi-room scene + RL
 controller execution → ~30 trajectories / hour per env.
-Parallel envs (Isaac Lab supports thousands; budget 64 minimum
-on the DGX) → ~2k trajectories / hour. Captioner pass: 7B
-Qwen2.5-VL at ~3 s / trajectory × 2k trajectories = ~1.5 hours
-of GPU time. Cacheable.
 
-Realistic single-day output: ~10k trajectories × ~15 mission
-rows each = ~150k training tuples. That's the same order of
-magnitude as published wheeled-VLA corpora and roughly matches
-what hindsight-augmented R2R looks like.
+**Parallel-env claim, asterisked.** Earlier drafts of this
+brief asserted "Isaac Lab supports thousands; budget 64 minimum
+on the DGX." That asserts a number Isaac Lab can support
+**in general**, not what the
+`Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0` scene
+config supports specifically. The Infinigen Perception scene
+deliberately disables `replicate_physics` and carries a 640×360
+perception camera; the scene config's own docstring
+(`strafer_env_cfg.py:335-337`) flags this scene as capping at
+**~1–8 parallel envs** versus the 256+ envs the
+80×60-policy-cam variants run. Trajectory-first captioning
+*needs* the perception cam to caption, so the assertion of
+64 envs without measurement is unsafe.
+
+Two paths the brief can take, decided at pickup time once
+[`harness-throughput-measurement`](../../parked/harness/harness-throughput-measurement.md)
+measures real numbers:
+
+- **Single-config path:** accept 1–8 envs on the perception
+  scene, scale `trajectories / hour` accordingly (~30–240 /
+  hour, not ~2k), spread captioning over hours-to-days. Still
+  faster than teleop's 30 ep/hr per operator at the high end.
+- **Two-pass path:** run the *driver* at high parallelism on
+  the NoCam config (`Isaac-Strafer-Nav-Real-NoCam-Play-v0`) to
+  generate reachable A→B trajectories cheaply; *replay* each
+  trajectory under the perception scene afterwards to harvest
+  camera frames. Captioner pass is unchanged. This trades
+  perception-scene memory pressure for a replay step;
+  feasibility depends on deterministic replay under the
+  perception config.
+
+Realistic single-day output is therefore **bounded by
+measurement, not by the 2k/hr assertion**. The captioner pass
+itself: 7B Qwen2.5-VL at ~3 s / trajectory; with the realistic
+~240 trajectories / hour (8 envs, single-config) that's ~12
+minutes of GPU time per hour of driving. Cacheable.
+
+### Speaker-instructive evaluation rubric
+
+Section "the critical engineering issue" above commits to an
+instructive-quality eval at < 10% failure rate. Define the
+rubric explicitly so future operators don't have to guess:
+
+- **Sample.** 50 captions drawn uniformly at random from a
+  multi-scene first run (≥ 2 scenes, ≥ 25 per scene).
+- **Rubric.** Each caption is scored against four binary
+  checks; a caption *fails* if any is violated.
+  1. **Voice.** Imperative ("Go to the chair") not declarative
+     ("The robot went to the chair").
+  2. **Tense.** Future / present, not past.
+  3. **Perspective.** Second-person addressing the robot, not
+     third-person describing it.
+  4. **Groundedness.** The named target is visible in at least
+     one frame of the captioned trajectory (per the FoV-honest
+     claim).
+- **Inspectors.** Two human inspectors score independently;
+  disagreements are adjudicated to the conservative ("fail")
+  call. Inspector identities recorded in the PR for
+  reproducibility.
+- **Threshold.** Fewer than 5 of 50 captions fail (10%).
+  Iterate on the captioner prompt until threshold met, then
+  freeze the prompt and document it in the script's docstring.
+- **Re-evaluation trigger.** If the captioner prompt or model
+  version changes, re-run the rubric before re-batching the
+  corpus.
+
+### Captioner VRAM / scheduling budget
+
+The DGX runs concurrent workloads (training, scene generation,
+the bridge mainloop). 7B Qwen2.5-VL at FP16 is ~14 GB of
+weights; with 32-frame trajectory inputs and a kv-cache
+allocated for a few hundred output tokens, total per-call VRAM
+sits around ~22 GB. **Implications:**
+
+- Captioner runs as a *batch job, offline*, not interleaved
+  with collection. The collection driver writes JSONL +
+  frames; the captioner pass consumes them later.
+- Captioner job is queued behind any training run; brief PR
+  should record the expected wall-clock-to-corpus delay
+  (~hours, not minutes).
+- Smaller model (Qwen2.5-VL-3B) is an option if VRAM is
+  contested. Document the quality trade in the captioner-eval
+  rubric outputs.
 
 ## Acceptance criteria
 
@@ -246,11 +330,14 @@ what hindsight-augmented R2R looks like.
       (imperative, second-person, future/present tense),
       emits a positive caption + N=2 negative captions
       (sampled hard negatives) + N=3 paraphrases per caption.
-- [ ] **Speaker-instructive eval.** Hand-inspect ≥ 50 captions
-      from the captioner's first run. Failure rate (descriptive
-      vs. instructive) reported in the PR; iterate on prompt
-      until < 10% failure rate. Document the final prompt in
-      the script's docstring.
+- [ ] **Speaker-instructive eval.** Score 50 captions using the
+      four-check rubric in "Speaker-instructive evaluation
+      rubric" above (voice, tense, perspective, groundedness),
+      two independent inspectors, conservative adjudication.
+      Iterate on the prompt until fewer than 5 of 50 fail
+      (10%). Document the final prompt in the script's
+      docstring + report the per-check failure breakdown in the
+      PR.
 - [ ] **Failure-pair synthesis.** Negatives sampled from
       same-room same-label (case-2 `wrong_instance`) and
       different-room (case-1 `wrong_room`) objects per
@@ -260,6 +347,14 @@ what hindsight-augmented R2R looks like.
       positive + a wrong-instance negative + a wrong-room
       negative are produced with consistent
       `trajectory_id` and distinct `mission_id`.
+- [ ] **Parallel-env count grounded in measurement.** The
+      driver's `num_envs` argument and the resulting trajectories/
+      hour are reported against the measurement landed by
+      [`harness-throughput-measurement`](../../parked/harness/harness-throughput-measurement.md),
+      not the legacy 64-env assertion. If the throughput
+      brief hasn't shipped yet, smoke at `num_envs=1`, report
+      single-env throughput, and file a follow-up to scale up
+      once the measurement exists.
 - [ ] **Caching.** Captioner outputs cached by
       `(trajectory_id, speaker_model, speaker_seed,
       caption_mode)`. Re-runs against cached input are free;
@@ -267,7 +362,7 @@ what hindsight-augmented R2R looks like.
       `data/trajectory_first_cache/<scene>/<trajectory_id>.json`.
 - [ ] **Schema parity.** `mission.json` rows match the canonical
       schema from
-      [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md);
+      [`behavior-cloning-data-expansion`](behavior-cloning-data-expansion.md);
       `actions.jsonl` rows tagged
       `source: "oracle"` (or whichever driver actually ran)
       and `generator_metadata.source: "trajectory-first-captioning"`
@@ -288,8 +383,8 @@ what hindsight-augmented R2R looks like.
       module, package README, top-level `Readme.md`, or guide
       under `docs/`, update those in the same commit.
 - [ ] No regression on forward-generation drivers
-      ([`harness-teleop-driver`](harness-teleop-driver.md),
-      [`harness-mission-generator`](harness-mission-generator.md),
+      ([`teleop-driver`](teleop-driver.md),
+      [`mission-generator`](mission-generator.md),
       bridge harness): they continue to emit the same schema
       unchanged. Smoke this in the PR description.
 
@@ -304,10 +399,10 @@ what hindsight-augmented R2R looks like.
   Stage 2; reuse the model-loading path. Cached at
   `~/.cache/huggingface/hub/models--Qwen--Qwen2.5-VL-7B-Instruct`.
 - Random-target sampling: reuse the connectivity graph from
-  [`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md);
+  [`scene-connectivity-validation`](../multi-room/scene-connectivity-validation.md);
   same A* helper for reachability checks.
 - The oracle driver brief
-  ([`harness-oracle-driver`](harness-oracle-driver.md)) covers
+  ([`oracle-driver`](../../parked/harness/oracle-driver.md)) covers
   the parallel-env + RL-controller path-tracking layer this
   brief drives in trajectory-first mode. Coordinate
   `--controller rl` defaults across both briefs.
@@ -326,7 +421,7 @@ what hindsight-augmented R2R looks like.
   "via the dining room" trajectories. Path-shape data
   continues to come from operator teleop or a
   path-shape-biased oracle (the latter is in
-  [`harness-mission-generator`](harness-mission-generator.md)'s
+  [`mission-generator`](mission-generator.md)'s
   scope, not this brief's).
 - **Fine-grained captioning beyond mission text.** Per-frame
   language captions ("the robot is approaching the doorway")
@@ -337,7 +432,7 @@ what hindsight-augmented R2R looks like.
   real-side. A future brief layers in real-robot captioning.
 - **Replacing the existing narrow "Hindsight relabel pass"**
   in
-  [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md).
+  [`behavior-cloning-data-expansion`](behavior-cloning-data-expansion.md).
   That item now points here for the broader pattern but stays
   scoped to its narrower wrong-target case for backward
   compatibility.

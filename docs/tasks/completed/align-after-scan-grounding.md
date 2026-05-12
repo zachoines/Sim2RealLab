@@ -10,7 +10,7 @@
 Isaac Sim is DGX-only so the Jetson agent cannot run the sim lap
 itself.
 
-**PR:** _pending_
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/28
 
 **Type:** task
 **Owner:** Jetson agent

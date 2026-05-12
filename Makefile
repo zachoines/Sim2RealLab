@@ -71,12 +71,14 @@ launch-autonomy: ## Launch full autonomy stack (nav + executor → DGX services)
 		ros2 launch strafer_bringup autonomy.launch.py \
 			vlm_url:=$$VLM_URL planner_url:=$$PLANNER_URL
 
-launch-sim: ## Launch Jetson sim-in-the-loop bringup (consumes DGX bridge topics; foxglove on :8765)
+launch-sim: ## Launch Jetson sim-in-the-loop bringup (consumes DGX bridge topics; foxglove on :8765). Env: DONUT_WARMUP=false skips the startup spin; LAUNCH_ARGS="k:=v ..." passes arbitrary extras.
 	source $(COLCON_WS)/install/setup.bash && \
 		source source/strafer_ros/strafer_bringup/config/env_sim_in_the_loop.env && \
 		ros2 launch strafer_bringup bringup_sim_in_the_loop.launch.py \
 			vlm_url:=$${VLM_URL:-http://192.168.50.196:8100} \
-			planner_url:=$${PLANNER_URL:-http://192.168.50.196:8200}
+			planner_url:=$${PLANNER_URL:-http://192.168.50.196:8200} \
+			donut_warmup:=$${DONUT_WARMUP:-true} \
+			$(LAUNCH_ARGS)
 
 # ---------- Clean ----------
 

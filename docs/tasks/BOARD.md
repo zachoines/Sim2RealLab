@@ -53,11 +53,13 @@ session.
 
 | Brief | Estimate | Note |
 |---|---|---|
+| [`isaac-sim-rt-2-default-renderer`](active/isaac-sim-rt-2-default-renderer.md) | S | Flip default renderer to Real-Time 2.0 + 4× FPS multiplier + Performance mode; re-measure bridge perf |
 | [`planner-rotate-direction-prompt`](active/planner-rotate-direction-prompt.md) | S | Quick win — prompt edit |
 | [`policy-goal-noise-training`](active/policy-goal-noise-training.md) | M | Targeted DEPTH-baseline training pass with goal-position noise; gates VLM-grounded mission quality for `strafer_direct` |
 | [`harness-behavior-cloning-data-expansion`](active/harness-behavior-cloning-data-expansion.md) | M–L | Per-tick capture + depth + actions + time alignment + paraphrase + hard-negative injection. Driver-agnostic schema; bridge-driver upgrades ship in this brief. |
 | [`planner-far-target-staging`](active/planner-far-target-staging.md) | M–L | World-state schema + planner prompt |
 | [`strafer-lab-subgoal-env`](active/strafer-lab-subgoal-env.md) | L (~1.5–2 wk) | New training env for `NOCAM_SUBGOAL` — sim-internal path planner + SubgoalCommand + path-tracking rewards + termination + training run. Unblocks hybrid mode |
+| [`windows-workstation-bringup`](active/windows-workstation-bringup.md) | L (~1 wk) | Investigation + port — run `make sim-bridge` on Windows (RTX 4080) against the Jetson stack. Isaac Lab 3 Windows support is experimental; phase the feasibility spike before committing to a full port |
 
 #### Jetson lane
 
@@ -67,6 +69,9 @@ session.
 | [`align-after-scan-grounding`](active/align-after-scan-grounding.md) | S–M | Executor + plan_compiler tweak |
 | [`real-d555-depth-range-survey`](active/real-d555-depth-range-survey.md) | S–M | Investigation — bench measurement + write-up |
 | [`nav2-startup-unknown-donut-path-noise`](active/nav2-startup-unknown-donut-path-noise.md) | M | Planner-side fix for the kinky-path-through-camera-donut symptom |
+| [`rtabmap-cold-start-determinism`](active/rtabmap-cold-start-determinism.md) | M | Cold-start signature on populated DB: `Not found word N` burst + `Increment map id to 4`; triage bridge-teleport vs Mem/* config + ship the chosen disposition |
+| [`nav-deadline-sim-time-audit`](active/nav-deadline-sim-time-audit.md) | M | Audit executor + Nav2 wall-clock safety caps; replace absolute caps with sim-time-progress stall detectors so rotations don't abort partway at RTF ≤ 0.1 |
+| [`executor-prefer-rotate-then-translate`](active/executor-prefer-rotate-then-translate.md) | M | Decompose non-cardinal translations into rotate-to-face + forward translate at the executor layer; preserves cardinal strafe |
 
 #### Either lane
 
@@ -95,6 +100,7 @@ for fresh-session pickup. Cross-cut — these also appear above.
 
 - [`planner-rotate-direction-prompt`](active/planner-rotate-direction-prompt.md) (DGX, P2)
 - [`grounding-publisher-extraction`](active/grounding-publisher-extraction.md) (Jetson, P2)
+- [`isaac-sim-rt-2-default-renderer`](active/isaac-sim-rt-2-default-renderer.md) (DGX, P2)
 
 ---
 

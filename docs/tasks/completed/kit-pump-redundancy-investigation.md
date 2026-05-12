@@ -145,5 +145,5 @@ $ISAACLAB -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
 - Lowering perception camera resolution (creates a sim-to-real gap;
   see resolution analysis in `STRAFER_AUTONOMY_NEXT` thread).
 - Moving camera publish off OnPlaybackTick onto a Python rclpy thread —
-  that's the [async-camera-publishers task](../active/async-camera-publishers.md);
+  that's the [async-camera-publishers task](async-camera-publishers.md);
   larger refactor, complementary to this one.

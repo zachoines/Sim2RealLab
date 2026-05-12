@@ -46,7 +46,7 @@ class TestGoToTarget:
     def test_step_count(self):
         intent = _make_intent("go_to_target", target_label="door", requires_grounding=True)
         plan = compile_plan(intent)
-        assert len(plan.steps) == 4
+        assert len(plan.steps) == 5
 
     def test_skill_sequence(self):
         intent = _make_intent("go_to_target", target_label="chair", requires_grounding=True)
@@ -55,9 +55,28 @@ class TestGoToTarget:
         assert skills == [
             "scan_for_target",
             "project_detection_to_goal_pose",
+            "align_to_goal_yaw",
             "navigate_to_pose",
             "verify_arrival",
         ]
+
+    def test_align_between_project_and_navigate(self):
+        intent = _make_intent("go_to_target", target_label="chair", requires_grounding=True)
+        plan = compile_plan(intent)
+        skills = [s.skill for s in plan.steps]
+        align_idx = skills.index("align_to_goal_yaw")
+        assert skills.index("project_detection_to_goal_pose") < align_idx
+        assert align_idx < skills.index("navigate_to_pose")
+
+    def test_align_tolerance_under_six_degrees(self):
+        intent = _make_intent("go_to_target", target_label="chair", requires_grounding=True)
+        plan = compile_plan(intent)
+        align_step = [s for s in plan.steps if s.skill == "align_to_goal_yaw"][0]
+        tol_rad = float(align_step.args["tolerance_rad"])
+        assert 0.0 < tol_rad <= 0.105, (
+            "alignment tolerance must be tight enough (<= ~6°) to prevent "
+            "the post-align heading offset from re-introducing strafe-while-turn"
+        )
 
     def test_verify_arrival_target_label(self):
         intent = _make_intent("go_to_target", target_label="chair", requires_grounding=True)
@@ -109,7 +128,7 @@ class TestWaitByTarget:
             requires_grounding=True,
         )
         plan = compile_plan(intent)
-        assert len(plan.steps) == 5
+        assert len(plan.steps) == 6
 
     def test_ends_with_wait(self):
         intent = _make_intent(
@@ -236,18 +255,19 @@ class TestGoToTargets:
             requires_grounding=True,
         )
 
-    def test_four_steps_per_target(self):
+    def test_five_steps_per_target(self):
         intent = self._intent([{"label": "cup"}, {"label": "door"}])
         plan = compile_plan(intent)
-        assert len(plan.steps) == 8
+        assert len(plan.steps) == 10
         skills = [s.skill for s in plan.steps]
-        assert skills[:4] == [
+        assert skills[:5] == [
             "scan_for_target",
             "project_detection_to_goal_pose",
+            "align_to_goal_yaw",
             "navigate_to_pose",
             "verify_arrival",
         ]
-        assert skills[4:] == skills[:4]
+        assert skills[5:] == skills[:5]
 
     def test_targets_labels_wired_through(self):
         intent = self._intent([{"label": "cup"}, {"label": "door"}])
@@ -272,7 +292,7 @@ class TestGoToTargets:
         ids = [s.step_id for s in plan.steps]
         assert len(ids) == len(set(ids))
         assert ids[0] == "step_01"
-        assert ids[-1] == "step_12"
+        assert ids[-1] == "step_15"
 
     def test_empty_targets_raises(self):
         intent = _make_intent("go_to_targets", targets=())
@@ -299,18 +319,19 @@ class TestQuery:
 
 
 class TestPatrol:
-    def test_four_steps_per_waypoint(self):
+    def test_five_steps_per_waypoint(self):
         intent = _make_intent(
             "patrol",
             targets=({"label": "kitchen"}, {"label": "living room"}),
             requires_grounding=True,
         )
         plan = compile_plan(intent)
-        assert len(plan.steps) == 8
+        assert len(plan.steps) == 10
         assert all(
             s.skill in {
                 "scan_for_target",
                 "project_detection_to_goal_pose",
+                "align_to_goal_yaw",
                 "navigate_to_pose",
                 "verify_arrival",
             }

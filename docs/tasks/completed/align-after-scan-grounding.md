@@ -1,5 +1,17 @@
 # Align robot to grounded target before navigate, to eliminate strafe-toward-goal
 
+**Status:** Shipped 2026-05-11 (Jetson) — Option A: new
+`align_to_goal_yaw` skill emitted between
+`project_detection_to_goal_pose` and `navigate_to_pose` in
+`_compile_single_target_steps`. Executor handler reads
+`runtime.latest_goal_pose` and dispatches to
+`ros_client.rotate_in_place` with shortest-arc delta. Tolerance
+~5°. Sim-side `cmd_vel.vy` verification deferred to operator —
+Isaac Sim is DGX-only so the Jetson agent cannot run the sim lap
+itself.
+
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/28
+
 **Type:** task
 **Owner:** Jetson agent
 **Priority:** P2

@@ -80,11 +80,12 @@ class TestPlanEndpoint:
         body = resp.json()
         assert body["mission_type"] == "go_to_target"
         assert body["raw_command"] == "go to the door"
-        assert len(body["steps"]) == 4
+        assert len(body["steps"]) == 5
         skills = [s["skill"] for s in body["steps"]]
         assert skills == [
             "scan_for_target",
             "project_detection_to_goal_pose",
+            "align_to_goal_yaw",
             "navigate_to_pose",
             "verify_arrival",
         ]
@@ -107,7 +108,7 @@ class TestPlanEndpoint:
         assert resp.status_code == 200
         body = resp.json()
         assert body["mission_type"] == "wait_by_target"
-        assert len(body["steps"]) == 5
+        assert len(body["steps"]) == 6
         assert body["steps"][-1]["skill"] == "wait"
         assert body["steps"][-2]["skill"] == "verify_arrival"
 

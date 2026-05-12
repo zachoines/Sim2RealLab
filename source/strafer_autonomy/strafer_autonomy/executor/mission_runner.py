@@ -124,6 +124,7 @@ DEFAULT_AVAILABLE_SKILLS = (
     "scan_for_target",
     "describe_scene",
     "project_detection_to_goal_pose",
+    "align_to_goal_yaw",
     "navigate_to_pose",
     "verify_arrival",
     "rotate_by_degrees",
@@ -506,6 +507,8 @@ class MissionRunner(MissionCommandHandler):
             return self._describe_scene(runtime, step)
         if step.skill == "project_detection_to_goal_pose":
             return self._project_detection_to_goal_pose(runtime, step)
+        if step.skill == "align_to_goal_yaw":
+            return self._align_to_goal_yaw(runtime, step)
         if step.skill == "navigate_to_pose":
             return self._navigate_to_pose(runtime, step)
         if step.skill == "verify_arrival":
@@ -1660,6 +1663,60 @@ class MissionRunner(MissionCommandHandler):
         "southeast": -math.pi / 4,
         "southwest": -3 * math.pi / 4,
     }
+
+    def _align_to_goal_yaw(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
+        started_at = time.time()
+        candidate = runtime.latest_goal_pose
+        if candidate is None or candidate.goal_pose is None:
+            return self._failed_result(
+                step,
+                "align_to_goal_yaw requires a prior successful projection.",
+                "align_prereq_missing", started_at,
+            )
+
+        gp = candidate.goal_pose
+        target_yaw = math.atan2(
+            2.0 * gp.qw * gp.qz,
+            1.0 - 2.0 * gp.qz * gp.qz,
+        )
+
+        try:
+            robot_state = self._ros_client.get_robot_state()
+        except Exception as exc:
+            return self._failed_result(
+                step, f"align_to_goal_yaw could not read robot state: {exc}",
+                "robot_state_failed", started_at,
+            )
+        pose = robot_state.get("pose") if robot_state else None
+        if pose is None:
+            return self._failed_result(
+                step, "align_to_goal_yaw requires a robot pose.",
+                "no_pose", started_at,
+            )
+
+        current_yaw = math.atan2(
+            2.0 * pose.get("qw", 1.0) * pose.get("qz", 0.0),
+            1.0 - 2.0 * pose.get("qz", 0.0) ** 2,
+        )
+        delta = math.atan2(
+            math.sin(target_yaw - current_yaw),
+            math.cos(target_yaw - current_yaw),
+        )
+        tolerance = float(step.args.get("tolerance_rad", 0.087))
+        timeout_s = self._motion_timeout_s(
+            step=step, magnitude=delta, kind="angular",
+        )
+        try:
+            return self._ros_client.rotate_in_place(
+                step_id=step.step_id,
+                yaw_delta_rad=delta,
+                tolerance_rad=tolerance,
+                timeout_s=timeout_s,
+            )
+        except Exception as exc:
+            return self._failed_result(
+                step, f"align_to_goal_yaw failed: {exc}", "rotation_failed", started_at,
+            )
 
     def _orient_to_direction(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
         started_at = time.time()

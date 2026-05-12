@@ -1,0 +1,66 @@
+<!--
+  Strafer sim-lane BT. Differs from Nav2's stock
+  navigate_to_pose_w_replanning_and_recovery.xml in two places:
+
+  1. <DistanceController distance="0.5"> replaces Nav2's
+     <RateController hz="1.0"> around ComputePathToPose. Replanning
+     gated on robot motion (replan after 0.5 m of travel) rather than
+     wall time prevents the planner from emitting a slightly
+     different path every second through a noisy costmap — which the
+     controller would otherwise be forced to track laterally. Path
+     continuity bias by deferral, not by a critic.
+
+  2. <SmoothPath unsmoothed_path="{path}" smoothed_path="{path}"
+     smoother_id="simple_smoother"/> runs between ComputePathToPose
+     and FollowPath. simple_smoother (configured under smoother_server
+     with max_its=1000, tolerance=1e-10) crushes the grid jaggies
+     NavFn emits through residual unknown cells into a clean curve
+     before the controller sees the path.
+
+  Selected via bt_navigator.default_nav_to_pose_bt_xml in the patched
+  params, gated on envelope_factor > 1.0 (sim lane). Real-robot
+  bringup keeps Nav2's stock BT untouched.
+
+  The unsmoothed_path / smoothed_path ports both bind {path} so the
+  blackboard variable FollowPath reads is the smoothed one; the
+  unsmoothed intermediate is discarded.
+
+  Donut-coverage warmup at session start lives outside this BT in
+  strafer_bringup's donut_warmup node — it runs once per launch as a
+  separate process (the only reliable way to get once-per-session
+  semantics; BT.CPP doesn't preserve decorator state across the
+  halt/reset that Nav2's BtActionServer applies between goals).
+-->
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+      <PipelineSequence name="NavigateWithReplanning">
+        <DistanceController distance="0.5">
+          <RecoveryNode number_of_retries="1" name="ComputePathToPose">
+            <Sequence name="PlanAndSmooth">
+              <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+              <SmoothPath unsmoothed_path="{path}" smoothed_path="{path}" smoother_id="simple_smoother"/>
+            </Sequence>
+            <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
+          </RecoveryNode>
+        </DistanceController>
+        <RecoveryNode number_of_retries="1" name="FollowPath">
+          <FollowPath path="{path}" controller_id="FollowPath"/>
+          <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>
+        </RecoveryNode>
+      </PipelineSequence>
+      <ReactiveFallback name="RecoveryFallback">
+        <GoalUpdated/>
+        <RoundRobin name="RecoveryActions">
+          <Sequence name="ClearingActions">
+            <ClearEntireCostmap name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_entirely_local_costmap"/>
+            <ClearEntireCostmap name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_entirely_global_costmap"/>
+          </Sequence>
+          <Spin spin_dist="1.57"/>
+          <Wait wait_duration="5"/>
+          <BackUp backup_dist="0.30" backup_speed="0.05"/>
+        </RoundRobin>
+      </ReactiveFallback>
+    </RecoveryNode>
+  </BehaviorTree>
+</root>

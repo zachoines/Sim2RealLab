@@ -52,6 +52,17 @@ class TestRtabmapParams:
         ftype = params["Vis/FeatureType"]
         assert str(ftype) == "8"
 
+    def test_ray_tracing_enabled(self, params):
+        """Grid/RayTracing must be true so the depth-based occupancy
+        grid marks cells along each ray as free, not just the obstacle
+        endpoint. Without it, the angular spacing between depth pixels
+        at 5-6m range exceeds Grid/CellSize and the resulting static
+        map alternates known/unknown in stripes — Nav2's planner then
+        threads a wavy path through the gaps, which the controller
+        chases laterally.
+        """
+        assert params["Grid/RayTracing"] == "true"
+
 
 class TestDepthimageParams:
     """Validate depthimage_to_laserscan.yaml."""

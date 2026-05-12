@@ -1,5 +1,26 @@
 # Tame Nav2's wavy global path through the camera-blind-spot donut at mission start
 
+**Status:** Shipped 2026-05-11 in `973e0a8` (Jetson). Multi-layer fix:
+SLAM `Grid/RayTracing: "true"` fills depth-projection gaps that caused
+the striated static map; a one-shot bringup-time `donut_warmup` node
+in `strafer_bringup` (separate process, not in the navigate-to-pose BT,
+because BT.CPP decorator state doesn't survive Nav2's halt/reset
+between goals) rotates the chassis 360° once per launch to populate
+the donut around `base_link`; the custom navigate-to-pose BT swaps
+Nav2's stock `<RateController hz="1.0">` for `<DistanceController
+distance="0.5">` so replanning is motion-gated, and inserts
+`<SmoothPath smoother_id="simple_smoother">` between
+`ComputePathToPose` and `FollowPath` to crush residual NavFn jaggies.
+Sub-unity-RTF safety in the warmup loop uses a sim-time stall
+detector rather than an absolute wall-clock cap. Validation runs
+pending on live sim. Follow-ups filed in the same PR:
+[`nav-deadline-sim-time-audit`](../active/nav-deadline-sim-time-audit.md),
+[`executor-prefer-rotate-then-translate`](../active/executor-prefer-rotate-then-translate.md),
+[`rtabmap-cold-start-determinism`](../active/rtabmap-cold-start-determinism.md),
+[`windows-workstation-bringup`](../active/windows-workstation-bringup.md),
+[`isaac-sim-rt-2-default-renderer`](../active/isaac-sim-rt-2-default-renderer.md).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/25
+
 **Type:** task / bug
 **Owner:** Jetson (Nav2 + costmap config + BT live in `strafer_navigation`)
 **Priority:** P2

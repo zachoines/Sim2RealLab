@@ -12,8 +12,10 @@ Usage:
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
 import os
@@ -61,6 +63,19 @@ def generate_launch_description():
             "nav_log_level", default_value="warn",
             description="Log level for Nav2 nodes.",
         ),
+        DeclareLaunchArgument(
+            "donut_warmup", default_value="false",
+            description=(
+                "Opt-in 360 deg rotation at bringup to fill in the "
+                "camera blind-spot donut around base_link. Default off "
+                "on real-robot: in steady-state ops the rtabmap.db "
+                "carries the donut fill-in from prior sessions, and a "
+                "startup spin has chassis/safety implications on real "
+                "hardware. Pass donut_warmup:=true on a cold-start "
+                "session (fresh rtabmap.db or new environment) where "
+                "the first mission would otherwise oscillate."
+            ),
+        ),
 
         # ── SLAM (base + perception + RTAB-Map) ────────────────────────
         IncludeLaunchDescription(
@@ -85,5 +100,17 @@ def generate_launch_description():
             launch_arguments={
                 "log_level": nav_log_level,
             }.items(),
+        ),
+
+        # ── Opt-in donut warmup (real-robot, default off) ──────────────
+        # Off by default — see the launch arg description for the
+        # rationale. The node spins, then exits; can't fire on
+        # subsequent goals.
+        Node(
+            package="strafer_bringup",
+            executable="donut_warmup",
+            name="donut_warmup",
+            output="screen",
+            condition=IfCondition(LaunchConfiguration("donut_warmup")),
         ),
     ])

@@ -398,6 +398,192 @@ class TestConstantsInjection:
 
 
 # =============================================================================
+# Custom BT (SmoothPath injection for the sim lane)
+# =============================================================================
+
+
+_SMOOTHING_BT_FILENAME = "navigate_to_pose_w_smoothing_and_recovery.xml"
+
+
+class TestSmoothingBT:
+    """Validate the custom navigate-to-pose BT and its launch wiring.
+
+    The BT mirrors Nav2's default navigate_to_pose_w_replanning_and_recovery
+    with a <SmoothPath> step inserted between ComputePathToPose and
+    FollowPath. simple_smoother (configured under smoother_server)
+    crushes the grid jaggies NavFn emits through the camera-blind-spot
+    donut on a cold-mapped session before the controller sees the path.
+
+    The launch wires this BT into bt_navigator only on the sim lane
+    (envelope_factor > 1.0); the real-robot lane keeps Nav2's stock BT,
+    which means bt_navigator's params dict has no
+    default_nav_to_pose_bt_xml key — Nav2 then loads its package-share
+    default.
+    """
+
+    def test_bt_file_shipped(self, pkg_dir):
+        path = os.path.join(pkg_dir, "config", _SMOOTHING_BT_FILENAME)
+        assert os.path.isfile(path), (
+            f"Custom BT XML missing from share dir: {path}"
+        )
+
+    def test_bt_contains_smoothpath_with_simple_smoother(self, pkg_dir):
+        """The BT must call SmoothPath with smoother_id="simple_smoother"
+        and bind both unsmoothed and smoothed ports to the {path}
+        blackboard variable so FollowPath consumes the smoothed result.
+        """
+        path = os.path.join(pkg_dir, "config", _SMOOTHING_BT_FILENAME)
+        with open(path) as f:
+            xml = f.read()
+        assert "<SmoothPath" in xml, "Missing <SmoothPath> node"
+        assert 'smoother_id="simple_smoother"' in xml, (
+            'SmoothPath must reference smoother_id="simple_smoother" '
+            "(the plugin instance configured under smoother_server)"
+        )
+        assert 'unsmoothed_path="{path}"' in xml
+        assert 'smoothed_path="{path}"' in xml
+
+    def test_bt_uses_distance_controller_not_rate_controller(self, pkg_dir):
+        """Replan gate must be motion-based, not time-based. A 1 Hz
+        RateController emits a slightly different path every second
+        through a noisy costmap; DistanceController 0.5m defers
+        replanning until the robot has actually moved, so the path the
+        controller is tracking stays stable between updates.
+        """
+        import xml.etree.ElementTree as ET
+
+        path = os.path.join(pkg_dir, "config", _SMOOTHING_BT_FILENAME)
+        tree = ET.parse(path)
+        root = tree.getroot()
+        # Inspect element tags (skips comments, which ElementTree drops).
+        tags = {el.tag for el in root.iter()}
+        assert "DistanceController" in tags, (
+            "Missing <DistanceController> wrapping ComputePathToPose"
+        )
+        assert "RateController" not in tags, (
+            "<RateController> must not appear — replanning is gated on "
+            "distance, not on a wall-clock rate"
+        )
+        dist_el = next(el for el in root.iter() if el.tag == "DistanceController")
+        assert dist_el.get("distance") == "0.5", (
+            "DistanceController distance must be 0.5m to gate replan "
+            "on actual robot motion"
+        )
+
+    def test_bt_does_not_warmup_per_goal(self, pkg_dir):
+        """The donut-coverage warmup runs once per launch from
+        strafer_bringup.donut_warmup, NOT once per Nav2 goal. Nav2's
+        BtActionServer halts and re-ticks the tree between goals in a
+        way that doesn't reliably preserve BT decorator state — so a
+        BT-internal SingleTrigger fires on every goal in practice, not
+        once per session. Keep the warmup out of this BT to avoid that
+        trap.
+        """
+        import xml.etree.ElementTree as ET
+
+        path = os.path.join(pkg_dir, "config", _SMOOTHING_BT_FILENAME)
+        tree = ET.parse(path)
+        root = tree.getroot()
+        tags = {el.tag for el in root.iter()}
+        assert "SingleTrigger" not in tags, (
+            "Per-launch warmup must live in strafer_bringup, not in the "
+            "navigate-to-pose BT — BT decorator state isn't preserved "
+            "across goal halts so SingleTrigger fires every goal"
+        )
+        # The recovery branch's <Spin spin_dist="1.57"/> is still there
+        # by design (Nav2 stock recovery); only the top-of-tree warmup
+        # spin is forbidden.
+        spin_attrs = [
+            el.get("spin_dist") for el in root.iter() if el.tag == "Spin"
+        ]
+        assert "6.28" not in spin_attrs, (
+            "Full 6.28 rad warmup spin must not appear in this BT"
+        )
+
+    def test_bt_keeps_planner_and_follower(self, pkg_dir):
+        """Sanity: the BT still issues ComputePathToPose and FollowPath
+        — smoothing is additive, not a replacement.
+        """
+        path = os.path.join(pkg_dir, "config", _SMOOTHING_BT_FILENAME)
+        with open(path) as f:
+            xml = f.read()
+        assert "<ComputePathToPose" in xml
+        assert "<FollowPath" in xml
+
+    def test_bt_is_well_formed_xml(self, pkg_dir):
+        import xml.etree.ElementTree as ET
+
+        path = os.path.join(pkg_dir, "config", _SMOOTHING_BT_FILENAME)
+        tree = ET.parse(path)
+        root = tree.getroot()
+        assert root.tag == "root"
+        assert root.get("main_tree_to_execute") == "MainTree"
+
+    def test_patch_wires_smoothing_bt_when_envelope_lifted(self, pkg_dir):
+        """On the sim lane (envelope_factor > 1.0), _patch_params sets
+        bt_navigator.default_nav_to_pose_bt_xml to the absolute path of
+        the shipped smoothing BT XML — and the file must actually exist
+        at that path.
+        """
+        import importlib.util
+
+        launch_path = os.path.join(pkg_dir, "launch", "navigation.launch.py")
+        spec = importlib.util.spec_from_file_location("nav_launch", launch_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
+        with open(yaml_path) as f:
+            p = yaml.safe_load(f)
+        footprint = mod._build_footprint(CHASSIS_LENGTH, TRACK_WIDTH)
+        bt_path = os.path.join(pkg_dir, "config", _SMOOTHING_BT_FILENAME)
+        mod._patch_params(
+            p, footprint,
+            round(MAX_LINEAR_VEL, 4),
+            round(MAX_ANGULAR_VEL, 4),
+            round(MAX_LINEAR_VEL * NAV_REVERSE_SCALE, 4),
+            2.0,
+            MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX,
+            smoothing_bt_xml_path=bt_path,
+        )
+        bt_nav = p["bt_navigator"]["ros__parameters"]
+        assert bt_nav.get("default_nav_to_pose_bt_xml") == bt_path
+        assert os.path.isfile(bt_path)
+
+    def test_patch_leaves_real_robot_bt_untouched(self, pkg_dir):
+        """On the real-robot lane (envelope_factor == 1.0), _patch_params
+        must NOT set default_nav_to_pose_bt_xml — Nav2 loads its stock BT
+        when the key is absent. Anchors the gate so future tuners can't
+        silently swap the real-robot BT.
+        """
+        import importlib.util
+
+        launch_path = os.path.join(pkg_dir, "launch", "navigation.launch.py")
+        spec = importlib.util.spec_from_file_location("nav_launch", launch_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
+        bt_path = os.path.join(pkg_dir, "config", _SMOOTHING_BT_FILENAME)
+        for factor in (1.0, 0.75):
+            with open(yaml_path) as f:
+                p = yaml.safe_load(f)
+            footprint = mod._build_footprint(CHASSIS_LENGTH, TRACK_WIDTH)
+            mod._patch_params(
+                p, footprint, NAV_LINEAR_VEL, NAV_ANGULAR_VEL,
+                NAV_REVERSE_VEL, factor,
+                MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX,
+                smoothing_bt_xml_path=bt_path,
+            )
+            bt_nav = p["bt_navigator"]["ros__parameters"]
+            assert "default_nav_to_pose_bt_xml" not in bt_nav, (
+                f"BT override leaked into real-robot lane at "
+                f"envelope_factor={factor}: "
+                f"{bt_nav.get('default_nav_to_pose_bt_xml')!r}"
+            )
+
+
+# =============================================================================
 # STRAFER_NAV_VEL_SCALE override
 # =============================================================================
 

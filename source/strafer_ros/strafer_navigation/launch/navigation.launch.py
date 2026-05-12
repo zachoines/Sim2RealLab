@@ -118,8 +118,16 @@ def _build_footprint(length, width):
 
 
 def _patch_params(params, footprint, nav_vel, nav_omega, nav_reverse,
-                  envelope_factor, resolution, depth_min, depth_max):
-    """Inject constants into the loaded nav2_params dict."""
+                  envelope_factor, resolution, depth_min, depth_max,
+                  *, smoothing_bt_xml_path=None):
+    """Inject constants into the loaded nav2_params dict.
+
+    ``smoothing_bt_xml_path`` selects a custom BT for navigate-to-pose
+    that runs simple_smoother on the global path before FollowPath sees
+    it. Applied only on the sim lane (envelope_factor > 1.0); the
+    real-robot lane keeps Nav2's stock BT (loaded when
+    ``default_nav_to_pose_bt_xml`` is absent from bt_navigator params).
+    """
 
     # ── Controller (MPPI) ───────────────────────────────────────────────
     ctrl = params["controller_server"]["ros__parameters"]["FollowPath"]
@@ -171,13 +179,26 @@ def _patch_params(params, footprint, nav_vel, nav_omega, nav_reverse,
         # faster instead of being filtered toward the prior step.
         ctrl["gamma"] = 0.008
 
+        # Swap in the custom navigate-to-pose BT that runs simple_smoother
+        # on the global path between planner and follower. Crushes the
+        # grid jaggies NavFn emits through the camera-blind-spot donut on
+        # a cold-mapped session into a clean curve, so PathAlignCritic
+        # isn't telling MPPI to track a wavy reference. Stock Nav2 BT is
+        # kept on the real-robot lane (envelope_factor == 1.0) where
+        # RTAB-Map state typically persists across sessions and the
+        # unknown-cell donut is filled in from prior runs.
+        if smoothing_bt_xml_path:
+            params["bt_navigator"]["ros__parameters"][
+                "default_nav_to_pose_bt_xml"
+            ] = smoothing_bt_xml_path
+
         # Un-scale vy_std back to YAML baseline. The envelope-factor
         # scaling above doubled it to 0.4, but the lifted velocity
-        # envelope is for forward + rotation, not lateral. Wider
+        # envelope is for forward + rotation, not lateral. A wider
         # vy_std gives MPPI more strafe-rollouts to weight against a
-        # noisy global path (see nav2-startup-unknown-donut-path-noise.md),
-        # letting the cost minimum drift sideways. vx_std and wz_std
-        # stay scaled.
+        # noisy global path, which lets the cost minimum drift
+        # sideways instead of staying on the planned forward line.
+        # vx_std and wz_std stay scaled.
         if "vy_std" in ctrl:
             yaml_baseline_vy_std = round(float(ctrl["vy_std"]) / envelope_factor, 4)
             ctrl["vy_std"] = yaml_baseline_vy_std
@@ -229,9 +250,14 @@ def _launch_setup(context, *args, **kwargs):
         _resolved_nav_velocities()
     )
 
+    smoothing_bt_xml_path = os.path.join(
+        pkg_dir, "config", "navigate_to_pose_w_smoothing_and_recovery.xml"
+    )
+
     _patch_params(params, footprint, nav_linear_vel, nav_angular_vel,
                   nav_reverse_vel, envelope_factor,
-                  MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX)
+                  MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX,
+                  smoothing_bt_xml_path=smoothing_bt_xml_path)
 
     # ── Write patched YAML to temp file ─────────────────────────────────
     # Nav2's navigation_launch.py expects a file path.

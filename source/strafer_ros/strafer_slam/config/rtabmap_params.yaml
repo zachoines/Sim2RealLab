@@ -60,6 +60,16 @@ Grid/MaxObstacleHeight: "1.5"   # Ignore points above 1.5m
 Grid/MaxGroundHeight: "0.05"    # Points below 5cm = ground (Grid/Sensor=1 only)
 Grid/NormalsSegmentation: "true" # Use surface normals to find ground
 Grid/ClusterRadius: "0.1"
+Grid/RayTracing: "true"         # Mark cells along each depth ray as free, not
+                                  # just the obstacle endpoint. Without this the
+                                  # angular spacing between depth pixels at 5-6m
+                                  # range exceeds Grid/CellSize, leaving 5cm
+                                  # cells along the ray unknown — produces a
+                                  # striated alternating known/unknown pattern
+                                  # in the published occupancy grid that the
+                                  # Nav2 planner has to traverse. Ray tracing
+                                  # fills the gaps and gives NavFn a uniform-cost
+                                  # free corridor to plan through.
 
 # ---------------------------------------------------------------------------
 # Optimizer

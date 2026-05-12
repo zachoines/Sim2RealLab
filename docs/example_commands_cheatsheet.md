@@ -228,6 +228,10 @@ make launch-sim
 #
 # Override service URLs if the DGX moves:
 #   VLM_URL=http://other:8100 PLANNER_URL=http://other:8200 make launch-sim
+# Skip the ~one-rotation startup warmup spin (iteration sessions):
+#   DONUT_WARMUP=false make launch-sim
+# Pass arbitrary extra launch args (e.g. open RTAB-Map viz, wipe DB):
+#   LAUNCH_ARGS="rtabmap_viz:=true rtabmap_args:=-d" make launch-sim
 # Disable the headless visualizer:
 #   ros2 launch strafer_bringup bringup_sim_in_the_loop.launch.py viewer:=false
 # Wipe the RTAB-Map database before launching (fresh map):

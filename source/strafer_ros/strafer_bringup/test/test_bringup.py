@@ -151,3 +151,120 @@ class TestArguments:
         assert "front_port" in args
         assert "localization" in args
         assert "nav_log_level" in args
+
+
+# =============================================================================
+# Sim-in-the-loop bringup — donut warmup wiring
+# =============================================================================
+
+
+class TestSimInTheLoopBringup:
+    """Sim-only bringup wires the donut_warmup node and its toggle arg.
+
+    The warmup publishes a slow 360 deg rotation on /cmd_vel once at
+    bringup so RTAB-Map gets ~20 depth frames at varied yaws at the
+    spawn pose. Lives in a separate process (not in the navigate-to-pose
+    BT) because once-per-session semantics are reliable only when the
+    lifecycle is process-scoped — BT.CPP decorator state doesn't survive
+    the halt/reset that Nav2 applies between goals.
+    """
+
+    def _load(self, pkg_dir, filename):
+        import importlib.util
+
+        path = os.path.join(pkg_dir, "launch", filename)
+        spec = importlib.util.spec_from_file_location(filename, path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.generate_launch_description()
+
+    def test_sim_launch_file_exists(self, pkg_dir):
+        path = os.path.join(pkg_dir, "launch", "bringup_sim_in_the_loop.launch.py")
+        assert os.path.isfile(path)
+
+    def test_sim_launch_declares_donut_warmup_arg(self, pkg_dir):
+        from launch.actions import DeclareLaunchArgument
+
+        ld = self._load(pkg_dir, "bringup_sim_in_the_loop.launch.py")
+        arg_names = [
+            e.name for e in ld.entities if isinstance(e, DeclareLaunchArgument)
+        ]
+        assert "donut_warmup" in arg_names, (
+            "Sim bringup must declare a donut_warmup toggle so the "
+            "operator can skip the startup spin when working off a "
+            "populated map."
+        )
+
+    def test_donut_warmup_default_enabled(self, pkg_dir):
+        """Default must be 'true' on the sim lane — the symptom this
+        guards against is a cold-mapped first mission. Operators who
+        don't want the spin pass donut_warmup:=false explicitly.
+        """
+        from launch.actions import DeclareLaunchArgument
+
+        ld = self._load(pkg_dir, "bringup_sim_in_the_loop.launch.py")
+        for e in ld.entities:
+            if isinstance(e, DeclareLaunchArgument) and e.name == "donut_warmup":
+                assert e.default_value[0].text.lower() == "true"
+                return
+        raise AssertionError("donut_warmup arg not found")
+
+    def test_real_robot_navigation_declares_donut_warmup_arg(self, pkg_dir):
+        """Real-robot bringup must declare the toggle so operators can
+        opt in on a cold-start session.
+        """
+        from launch.actions import DeclareLaunchArgument
+
+        ld = self._load(pkg_dir, "navigation.launch.py")
+        arg_names = [
+            e.name for e in ld.entities if isinstance(e, DeclareLaunchArgument)
+        ]
+        assert "donut_warmup" in arg_names
+
+    def test_real_robot_donut_warmup_default_disabled(self, pkg_dir):
+        """Default must be 'false' on the real-robot lane. The donut
+        symptom is amplified by the sim's cold-mapped workflow; in
+        steady-state real-robot ops the rtabmap.db persists across
+        sessions and a startup spin is unnecessary motion (and a real
+        safety concern on hardware).
+        """
+        from launch.actions import DeclareLaunchArgument
+
+        ld = self._load(pkg_dir, "navigation.launch.py")
+        for e in ld.entities:
+            if isinstance(e, DeclareLaunchArgument) and e.name == "donut_warmup":
+                assert e.default_value[0].text.lower() == "false", (
+                    "donut_warmup must default to false on real-robot "
+                    "bringup; opt-in via donut_warmup:=true per session"
+                )
+                return
+        raise AssertionError("donut_warmup arg not found on real-robot bringup")
+
+
+class TestDonutWarmupNode:
+    """Smoke tests for the donut_warmup node — importable and exposes
+    the parameter surface that the launch and operators rely on.
+    """
+
+    def test_module_importable(self):
+        from strafer_bringup import donut_warmup  # noqa: F401
+
+    def test_main_callable(self):
+        from strafer_bringup.donut_warmup import main
+
+        assert callable(main)
+
+    def test_node_class_exposed(self):
+        from strafer_bringup.donut_warmup import DonutWarmup
+
+        assert DonutWarmup.__name__ == "DonutWarmup"
+
+    def test_console_script_registered(self):
+        """The package's setup.py must register donut_warmup as a
+        console script so `ros2 run strafer_bringup donut_warmup` works.
+        """
+        import importlib.metadata as md
+
+        eps = md.entry_points(group="console_scripts")
+        names = {ep.name for ep in eps}
+        assert "donut_warmup" in names

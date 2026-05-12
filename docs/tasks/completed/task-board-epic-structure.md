@@ -1,5 +1,8 @@
 # Reorganize the task board into epic subdirectories with a parked sibling
 
+**Status:** Shipped 2026-05-12 in `b32537f` (Either).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/29
+
 **Type:** task / convention
 **Owner:** Either (the change is to `docs/tasks/` structure — no source-tree work — but lands in this PR with cross-host implications since both agents pick from this board)
 **Priority:** P2 (active-queue growth is making `ls active/` hard to scan; left untreated, the trend continues. Not blocking any feature today, but the cost of fixing it grows with brief count.)

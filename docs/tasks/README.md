@@ -74,7 +74,7 @@ otherwise keep the longer form.
 | Path | What lives here |
 |---|---|
 | [`active/<epic>/`](active/) | Pickable briefs, grouped by feature epic |
-| [`active/task-board-epic-structure.md`](active/task-board-epic-structure.md) | Top-level exception: the brief that defines the epic-subdir convention itself, sitting outside any epic |
+| top-level `active/<brief>.md` (rare) | Meta exception: a brief that defines the layout itself sits at top-level rather than inside an epic. The current pattern was set by [`completed/task-board-epic-structure.md`](completed/task-board-epic-structure.md). Use sparingly. |
 | [`parked/<epic>/`](parked/) | Filed-on-trigger or blocked-on-deps briefs, mirroring `active/`'s subdir structure |
 | [`completed/`](completed/) | Historical record, kept **flat** (no epic subdirs) — completed briefs are browsed by date / search, not by feature area |
 | [`context/`](context/) | Cross-epic context modules referenced by brief `## Context bundle` sections; flat by design (modules don't belong to epics) |
@@ -486,8 +486,8 @@ The current queue is itself a useful set of examples:
 - **Bug fix** ([`completed/bridge-render-product-resolution.md`](completed/bridge-render-product-resolution.md),
   [`completed/goal-projection-depth-range.md`](completed/goal-projection-depth-range.md))
   — symptom + root-cause + acceptance criteria.
-- **Convention amendment** ([`task-board-epic-structure.md`](active/task-board-epic-structure.md))
-  — meta-brief that lands at top-level `active/` rather than inside
+- **Convention amendment** ([`task-board-epic-structure.md`](completed/task-board-epic-structure.md))
+  — meta-brief that landed at top-level `active/` rather than inside
   an epic dir; defines the layout the rest of the board uses.
 
 Match the closest one for the kind of work you're queuing.

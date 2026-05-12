@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`task-board-epic-structure`](active/task-board-epic-structure.md) | Either | _(this PR)_ | In review |
+| _None._ | | | |
 
 ---
 
@@ -95,7 +95,6 @@ explicit dependencies.
 
 | Brief | Pri | State | Owner |
 |---|---|---|---|
-| [`task-board-epic-structure`](active/task-board-epic-structure.md) | P2 | in flight | Either |
 | [`unify-test-targets-and-ci`](active/tooling/unify-test-targets-and-ci.md) | P3 | active | Either |
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | P2 | active | DGX |
 

@@ -14,7 +14,7 @@ the branch name:
 |---|---|
 | [`docs/tasks/active/harness/teleop-driver.md`](../active/harness/teleop-driver.md) | `task/teleop-driver` |
 | [`docs/tasks/active/multi-room/autonomy-stack.md`](../active/multi-room/autonomy-stack.md) | `task/autonomy-stack` |
-| [`docs/tasks/active/task-board-epic-structure.md`](../active/task-board-epic-structure.md) | `task/task-board-epic-structure` |
+| [`docs/tasks/completed/task-board-epic-structure.md`](../completed/task-board-epic-structure.md) | `task/task-board-epic-structure` |
 | [`docs/tasks/completed/branch-per-task-convention.md`](../completed/branch-per-task-convention.md) | `task/branch-per-task-convention` |
 
 The brief's frontmatter carries the predetermined name on a `**Branch:**`

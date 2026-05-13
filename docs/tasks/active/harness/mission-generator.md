@@ -35,17 +35,17 @@ Parent design context:
 [`MISSION_VALIDATION_ARCHITECTURE.md` §3.6.a](../../../MISSION_VALIDATION_ARCHITECTURE.md#36a-teleop-demos-primary-canonical) — teleop is the canonical primary corpus for VLA training; this brief produces mission queues at scale beyond what teleop alone can author.
 
 Sibling briefs:
-- [`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md) —
+- [`scene-connectivity-validation`](../multi-room/scene-connectivity-validation.md) —
   produces the `connectivity[]` graph this brief consumes. Hard
   prerequisite.
-- [`harness-teleop-driver`](harness-teleop-driver.md) —
+- [`teleop-driver`](teleop-driver.md) —
   consumes the queue (operator picks missions to drive); the
   teleop brief's previously-described auto-queue is replaced by
   this brief's output.
-- [`harness-oracle-driver`](harness-oracle-driver.md) —
+- [`oracle-driver`](../../parked/harness/oracle-driver.md) —
   consumes `planned_path` (the LLM-emitted waypoints) as the
   oracle's path-tracking input.
-- [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md) —
+- [`behavior-cloning-data-expansion`](behavior-cloning-data-expansion.md) —
   defines the schema downstream of mission execution; this
   brief's `mission.json` plugs into that schema.
 
@@ -119,7 +119,7 @@ Teleop consumes `mission_text` for operator display.
 
 Per the project's MVP-multi-room decision: this brief generates
 cross-room missions by default. The connectivity graph from
-[`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md)
+[`scene-connectivity-validation`](../multi-room/scene-connectivity-validation.md)
 gates which `(start_room, target_room)` pairs are reachable; the
 LLM is told the connectivity graph as part of its scene prompt so
 it doesn't propose paths through closed doors / unreachable rooms.
@@ -159,6 +159,15 @@ One LLM call per mission at generation time. Components:
      navigable space)
    - connectivity check (cross-room paths use known doorways)
    - target-proximity check (final waypoint within 0.5 m of target)
+   - **start-frame VLM grounding** (see "Start-frame grounding"
+     section below) — the perception camera at the proposed
+     `start_pose` must be able to *see* the target (or the
+     transit landmark for cross-room missions) before the mission
+     is committed to the queue. This is the FoV-honest counterpart
+     to the trajectory-first regime's structural grounding
+     guarantee; without it, forward-generation queues silently
+     accumulate "go to the chair" missions where the chair is
+     occluded by another object at the start pose.
 4. **Retry on failure.** Up to 3 retries per mission, re-prompted
    with the failure mode named. On persistent failure, fall back
    to mechanical A* shortest-path; tag in metadata as
@@ -166,7 +175,11 @@ One LLM call per mission at generation time. Components:
    the queue (label is the more useful supervision signal than
    structured constraint enforcement).
 5. **Caching.** Key by
-   `(scene_seed, start_pose, mission_text, llm_seed)`. First run
+   `(scene_seed, start_pose, mission_text, llm_seed,
+   prompt_template_hash, generator_version)`. The
+   `prompt_template_hash` + `generator_version` keys are the
+   guard against silent staleness when the few-shot template or
+   the validator code change without an LLM-seed bump. First run
    pays the cost; re-runs are free. Cache lives at
    `data/mission_queue_cache/<scene>/<scene_seed>.json`.
 6. **Model choice.** Benchmark Qwen3-4B (already cached on the
@@ -175,20 +188,67 @@ One LLM call per mission at generation time. Components:
    models work since the input is structured metadata, not
    images.
 
+### Start-frame grounding
+
+The forward-generation regime's structural blind spot is that an
+LLM reading `scene_metadata.json` can name targets the camera
+will *never see* from the proposed start pose (occluded by
+nearer objects, hidden behind a doorway not yet traversed,
+backside of furniture). The trajectory-first regime
+([`trajectory-first-captioning`](trajectory-first-captioning.md))
+sidesteps this because the captioner only sees frames the camera
+actually captured. Forward generation has to enforce it
+explicitly.
+
+This brief adds one pass:
+
+- After waypoint validation, render a single frame at
+  `start_pose` from the perception camera's pose budget.
+- Pass `(frame, mission_text)` to a 7B Qwen2.5-VL grounding
+  prompt: "Is the target named in the instruction visible in
+  this image? Answer yes / partial / no."
+- **Yes / partial** → mission ships in the queue.
+- **No** → either (a) the target is intended to be discovered
+  via scan / transit, in which case the LLM rationale already
+  records the transit step and the mission is kept with
+  `start_frame_grounded: false` set; or (b) the target is
+  same-room and unreachable from this start, in which case the
+  mission is rejected with `rejected_reason:
+  "target_not_visible_at_start"` and the start-pose seed is
+  re-rolled.
+
+This is a generation-time check; runtime behavior of the
+operator / oracle is independent. The intent is to keep the
+forward-generation corpus FoV-comparable to trajectory-first.
+
 ### Corpus composition
 
 A single `mission_queue.yaml` is **per-scene + per-generation-pass**,
 not a complete training corpus. The full corpus comes from the
 cross-product:
 
-| Axis | Typical count |
-|---|---|
-| Scenes (Infinigen seeds, multi-room by default) | ~10 |
-| Targets per scene (`objects[]` entries) | ~30 |
-| Paraphrase variants per target | ~5 |
-| Constraint-bias variants per target (no-bias / wall-follow / via-room / etc.) | ~3 |
-| Start-pose seeds per target | ~5 |
-| **Total missions** | ~22.5k |
+| Axis | Typical count | Note |
+|---|---|---|
+| Scenes (Infinigen seeds, multi-room by default) | ~10 | See "Scene count vs. mission density" caveat below |
+| Targets per scene (`objects[]` entries) | ~30 | |
+| Paraphrase variants per target | ~5 | |
+| Constraint-bias variants per target (no-bias / wall-follow / via-room / etc.) | ~3 | |
+| Start-pose seeds per target | ~5 | |
+| **Total missions** | ~22.5k | |
+
+**Scene count vs. mission density.** HSSD (2023) found that
+agents trained on 122 high-quality scenes outperformed agents
+trained on 10,000 ProcTHOR scenes for ObjectNav generalization to
+real environments — scene realism / quality dominated over scene
+count once a threshold was crossed. Infinigen-generated scenes
+take ~30 min apiece on the DGX, so the ~10-scene anchor in the
+table above is reasonable for v1; the next scale-up step is
+**adding missions per existing scene** (more paraphrases, more
+start-pose seeds, more constraint variants) before adding more
+scenes. Don't burn weeks generating 100 shallow Infinigen seeds
+when 10× more missions per existing seed gets better
+generalization. Revisit the scene-count axis only once
+per-scene mission diversity has plateaued.
 
 The brief ships the per-scene generator; corpus assembly is a
 small wrapper script that runs the generator across scenes +
@@ -202,7 +262,7 @@ their union.
       `source/strafer_lab/strafer_lab/tools/build_mission_queue.py`
       consumes `scene_metadata.json` (with `connectivity[]`
       block from
-      [`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md))
+      [`scene-connectivity-validation`](../multi-room/scene-connectivity-validation.md))
       and emits `mission_queue.yaml` with the schema above. Per
       `--mode {endpoint, path-shape, mixed}`:
   - `endpoint`: one mission per object, no path-shape language;
@@ -224,10 +284,20 @@ their union.
 - [ ] **Paraphrase pass** reuses the 7B Qwen2.5-VL pipeline from
       [`generate_descriptions.py`](../../../../source/strafer_lab/scripts/generate_descriptions.py)
       Stage 2.
+- [ ] **Start-frame grounding pass.** Each generated mission is
+      run through the start-frame VLM check described above;
+      same-room missions where the target is invisible at the
+      start pose are either re-rolled (new start-pose seed) or
+      rejected. Report `start_frame_grounded` rate per scene in
+      the PR.
+- [ ] **Cache key includes prompt_template_hash +
+      generator_version.** Re-running the generator against a
+      cache built under a changed template invalidates rather
+      than silently reuses.
 - [ ] **Driver consumption.** Both
-      [`harness-teleop-driver`](harness-teleop-driver.md)
+      [`teleop-driver`](teleop-driver.md)
       (operator-display) and
-      [`harness-oracle-driver`](harness-oracle-driver.md)
+      [`oracle-driver`](../../parked/harness/oracle-driver.md)
       (waypoint-following) accept the generated
       `mission_queue.yaml` unchanged.
 - [ ] **Hallucination benchmark.** Brief PR includes a small
@@ -252,7 +322,9 @@ their union.
 ## Investigation pointers
 
 - LLM caching: Qwen3-4B is in `~/.cache/huggingface/hub/`;
-  Qwen2.5-VL-3B and -7B too. Pick text-only first.
+  Qwen2.5-VL-3B and -7B too. Pick text-only first for the
+  waypoint-planning pass; the start-frame grounding pass needs a
+  VL model (Qwen2.5-VL-7B).
 - JSON-schema-constrained generation: most modern LLM APIs
   support this directly (OpenAI-compatible
   `response_format: {"type": "json_schema", ...}`). For
@@ -279,8 +351,10 @@ their union.
   risks hallucinating constraints the scene can't satisfy.
 - **Replay-with-perturbation.** Recording the gamepad event
   stream is in scope per
-  [`harness-teleop-driver`](harness-teleop-driver.md); the
-  *replay tool* is a future brief.
+  [`teleop-driver`](teleop-driver.md); the
+  *replay tool* is a future brief
+  ([`cosmos-replay-perturbation`](../../parked/harness/cosmos-replay-perturbation.md)
+  filed by the audit).
 - **Real-robot mission generation.** Sim-only; depends on
   Infinigen scene metadata not available in real deployments.
 - **Validating waypoint quality at runtime.** Post-validation

@@ -64,6 +64,9 @@ explicit dependencies.
 | [`mission-generator`](active/harness/mission-generator.md) | P2 | active | DGX |
 | [`trajectory-first-captioning`](active/harness/trajectory-first-captioning.md) | P2 | active | DGX |
 | [`oracle-driver`](parked/harness/oracle-driver.md) | P3 | parked | DGX |
+| [`harness-throughput-measurement`](parked/harness/harness-throughput-measurement.md) | P2 | parked | DGX |
+| [`output-format-alignment`](parked/harness/output-format-alignment.md) | P2 | parked | DGX |
+| [`cosmos-replay-perturbation`](parked/harness/cosmos-replay-perturbation.md) | P3 | parked | DGX |
 
 ### CLIP mid-mission validation
 
@@ -97,6 +100,7 @@ explicit dependencies.
 |---|---|---|---|
 | [`unify-test-targets-and-ci`](active/tooling/unify-test-targets-and-ci.md) | P3 | active | Either |
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | P2 | active | DGX |
+| [`brief-cross-reference-sweep`](active/tooling/brief-cross-reference-sweep.md) | P2 | active | Either |
 
 ### Experimental (long-horizon bets)
 
@@ -151,6 +155,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`mission-generator`](active/harness/mission-generator.md) | L | Free-text mission generator with LLM-emitted waypoints (multi-room default). Canonical mission queue source for teleop and oracle drivers. Blocks on `scene-connectivity-validation`. |
 | [`trajectory-first-captioning`](active/harness/trajectory-first-captioning.md) | M–L | Speaker-model post-hoc captioning regime. Random-A→B drivers + Qwen2.5-VL-7B speaker → instructive-voice mission text + synthesized hard negatives. |
 | [`training-throughput-profile-and-investigate`](active/investigations/training-throughput-profile-and-investigate.md) | S–M | Phase profiler in the training loop; files follow-up briefs from results. |
+| [`brief-cross-reference-sweep`](active/tooling/brief-cross-reference-sweep.md) | S | Mechanical sweep + lint: every legacy `<epic>-<basename>` brief link is broken post-reorg. Filed by the harness-audit pass. |
 
 #### Jetson lane
 
@@ -201,6 +206,9 @@ picks them up.
 | [`cotrained-retrieval-augmented`](parked/clip-validation/cotrained-retrieval-augmented.md) | [`validator-evaluation`](active/clip-validation/validator-evaluation.md) shipped + [`trajectory-first-captioning`](active/harness/trajectory-first-captioning.md) shipped (provides the speaker corpus) | Replaces the retired `learned-mid-mission-validator` as the cascade-improvement path. The co-training step and retrieval-augmented step compound; both compose with the existing cascade. |
 | [`vla-v2-architecture`](parked/experimental/vla-v2-architecture.md) | [`teleop-driver`](active/harness/teleop-driver.md) **and** [`behavior-cloning-data-expansion`](active/harness/behavior-cloning-data-expansion.md) shipped | Needs the action-labeled corpus (teleop primary, bridge supplement) before any VLA fine-tune is meaningful. Sim-first research arm; additive to v1. |
 | [`oracle-driver`](parked/harness/oracle-driver.md) | [`subgoal-env`](active/trained-policy/subgoal-env.md) shipped (provides NoCam waypoint-follower checkpoint) **and** trigger: teleop throughput is the binding scale constraint for VLA training (see brief) | Filed-on-trigger sketch. Don't pick up preemptively. |
+| [`harness-throughput-measurement`](parked/harness/harness-throughput-measurement.md) | Trigger: [`oracle-driver`](parked/harness/oracle-driver.md) or [`trajectory-first-captioning`](active/harness/trajectory-first-captioning.md) about to commit to a `num_envs` target | Audit-filed: every parallel-env claim in the harness epic is asserted, not measured. Run this before either scale-out brief picks a throughput acceptance bar. |
+| [`output-format-alignment`](parked/harness/output-format-alignment.md) | Trigger: first downstream training brief about to consume the harness corpus, OR the harness about to ship the first 1k+ trajectories | Audit-filed: the current JSONL output schema doesn't match what GR00T / OpenVLA / π0 / Octo consume natively (LeRobot v2 / RLDS / robomimic HDF5). Pick the canonical format deliberately before the corpus grows. |
+| [`cosmos-replay-perturbation`](parked/harness/cosmos-replay-perturbation.md) | Trigger: teleop corpus ≥ 500 trajectories **and** NVIDIA Cosmos Predict / Transfer accessible on the DGX | Audit-filed: corpus multiplier via NVIDIA Cosmos world-model re-rendering (lighting / texture / weather variants per captured trajectory). Replaces / extends the design-doc's "replay-with-perturbation" item. |
 | [`nav-stall-multilayer-watchdog`](parked/reliability/nav-stall-multilayer-watchdog.md) | Trigger: v1 stall watchdog from `progress-aware-nav-timeouts` produces real-world false-positives (cluttered-sim re-plans) or false-negatives (chassis wedge incident) | Filed-on-trigger sketch. Adds chassis-wedge + Nav2 recovery-rate signals on top of the v1 best-ever-distance watchdog. Don't pick up preemptively — v1 may be sufficient. |
 | [`perception-side-bearing-service`](parked/reliability/perception-side-bearing-service.md) | Trigger: at least one bearing-varying behavior (approach-from-angle, look-at-while-driving, face-target-while-translating, etc.) is on the active roadmap | Filed-on-trigger refactor surfaced by `align-after-scan-grounding`'s shipped Option A. Moves bearing math from autonomy executor into `strafer_perception` so future bearing-varying features don't have to thread quaternion math through the executor. |
 

@@ -32,20 +32,23 @@ Parent design doc:
 
 Sibling drivers + the mission generator (read first to
 understand the schema this brief consumes and emits against):
-- [`harness-teleop-driver`](harness-teleop-driver.md)
-- [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md)
-- [`harness-mission-generator`](harness-mission-generator.md) —
+- [`teleop-driver`](../../active/harness/teleop-driver.md)
+- [`behavior-cloning-data-expansion`](../../active/harness/behavior-cloning-data-expansion.md)
+- [`mission-generator`](../../active/harness/mission-generator.md) —
   produces the `mission_queue.yaml` rows whose `planned_path`
   this brief consumes.
-- [`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md) —
+- [`scene-connectivity-validation`](../../active/multi-room/scene-connectivity-validation.md) —
   produces the connectivity graph the A* fallback consumes for
   multi-room paths.
+- [`harness-throughput-measurement`](harness-throughput-measurement.md) —
+  audit-filed; the parallel-env count this brief plans against
+  must be grounded in the measurement before pickup.
 
 ## Trigger condition — when to pick this brief up
 
 **Do not pick up this brief until BOTH:**
 
-1. [`strafer-lab-subgoal-env`](strafer-lab-subgoal-env.md) has
+1. [`subgoal-env`](../../active/trained-policy/subgoal-env.md) has
    shipped, producing the NoCam RL waypoint-following checkpoint
    the oracle uses as its tracking layer.
 2. **And** at least one of:
@@ -58,6 +61,18 @@ understand the schema this brief consumes and emits against):
    - A specific downstream brief (e.g.,
      `mvp-teacher-vla-distillation.md`) explicitly requires
      parallel-env data collection.
+3. **Recommended:**
+   [`harness-throughput-measurement`](harness-throughput-measurement.md)
+   has shipped or is shipping in the same PR, so this brief's
+   `num_envs` argument and the "≥ 100× teleop throughput"
+   acceptance criterion are anchored to a measured per-env
+   throughput, not the legacy "Isaac Lab supports thousands"
+   assertion. The perception scene config caps at ~1–8 parallel
+   envs by Isaac Sim's per-env memory budget
+   (`strafer_env_cfg.py:335-337`); the 100× factor is unreachable
+   at that env count unless paired with a NoCam-driver + replay
+   architecture (see throughput-measurement brief for the
+   options).
 
 If neither side of the AND has fired, this brief stays parked.
 The sketch exists to claim the slot so that when the triggers do
@@ -67,25 +82,27 @@ fire, the brief slot is ready.
 fallback exists for debugging, but the *actual* value of the
 oracle is producing demos whose action distribution matches
 deployment. That requires the trained NoCam waypoint follower
-from `strafer-lab-subgoal-env`. Picking up this brief without
-that prerequisite produces low-quality demos that don't justify
-the implementation effort.
+from `subgoal-env`. Picking up this brief without that
+prerequisite produces low-quality demos that don't justify the
+implementation effort.
 
 ## Architectural sketch
 
 The driver is **in-process Isaac Lab + the MVP RL controller +
 the existing `actions.jsonl` writer**, parallelizable via Isaac
 Lab's native multi-env infrastructure (`ManagerBasedRLEnv`
-already supports thousands of parallel envs on the DGX).
-Multi-room is supported by default — A* on the navigable mask
-handles cross-room paths through the connectivity graph from
-[`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md).
+supports many parallel envs in general; **on the specific
+640×360-perception scene the cap is ~1–8 envs** per
+`strafer_env_cfg.py:335-337`). Multi-room is supported by
+default — A* on the navigable mask handles cross-room paths
+through the connectivity graph from
+[`scene-connectivity-validation`](../../active/multi-room/scene-connectivity-validation.md).
 
 Pipeline:
 
 ```
 mission_queue.yaml row  → planned_path (LLM-emitted)  → next waypoint → NoCam RL controller → cmd_vel → env
-(from harness-mission-      (consumed directly,            (consumer of the    (loaded via
+(from mission-              (consumed directly,            (consumer of the    (loaded via
 generator)                  no in-oracle planning)         waypoint, fed as     strafer_shared.policy_interface
                                                             the policy goal)    .load_policy())
 ```
@@ -110,9 +127,9 @@ Components:
 - **Path source (fallback):** A* on the scene's navigable mask
   when the queue row has no `planned_path`. Multi-room paths
   use the connectivity graph from
-  [`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md).
+  [`scene-connectivity-validation`](../../active/multi-room/scene-connectivity-validation.md).
 - **Path tracking:** the MVP NoCam RL controller produced by
-  [`strafer-lab-subgoal-env`](strafer-lab-subgoal-env.md) — a
+  [`subgoal-env`](../../active/trained-policy/subgoal-env.md) — a
   goal-conditioned waypoint follower trained on the actual
   mecanum dynamics. Loaded via
   `strafer_shared.policy_interface.load_policy()` from
@@ -140,11 +157,16 @@ teleop; scale comes from oracle.
 ## Acceptance criteria (preliminary; expand at pickup time)
 
 - [ ] **Parallel-env orchestration.** Driver runs N parallel
-      Isaac Lab envs (target N=64 minimum on the DGX); each env
-      gets its own scene seed and mission queue.
+      Isaac Lab envs; **target N is set by
+      [`harness-throughput-measurement`](harness-throughput-measurement.md)'s
+      measured ceiling for the chosen scene config**, not by
+      assertion. Each env gets its own scene seed and mission
+      queue.
 - [ ] **Schema parity.** Output matches the
-      [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md)
-      schema bit-for-bit; `actions.jsonl` rows tagged
+      [`behavior-cloning-data-expansion`](../../active/harness/behavior-cloning-data-expansion.md)
+      schema bit-for-bit (or whatever
+      [`output-format-alignment`](output-format-alignment.md)
+      lands on); `actions.jsonl` rows tagged
       `source: "oracle"`.
 - [ ] **RL controller integration.** Default `--controller rl`
       loads the NoCam waypoint-following checkpoint from
@@ -158,16 +180,32 @@ teleop; scale comes from oracle.
       runs a simple proportional `(vx, vy)` controller toward
       the next waypoint, no policy load. Smoke test: 1 episode
       per scene completes.
-- [ ] **Throughput target.** ≥ 100× teleop throughput in
-      success-episodes-per-hour (single operator vs. parallel
-      DGX run, with the RL controller). Measured + reported in
-      the PR. Proportional-fallback throughput reported
-      separately for reference.
-- [ ] **Honest quality assessment.** Brief PR includes a
-      side-by-side comparison: 30 oracle demos vs. 30 teleop
-      demos on the same missions. Operator notes which
-      qualitative differences are visible (path smoothness,
-      stop accuracy, hesitation patterns).
+- [ ] **Throughput target.** Reach the *measured ceiling*
+      reported by
+      [`harness-throughput-measurement`](harness-throughput-measurement.md).
+      The legacy "≥ 100× teleop" target was not grounded in
+      measurement and the perception-scene memory budget caps
+      single-process parallelism at single-digit envs; the
+      honest target is "reach what the scene config allows,"
+      not "100×." Report measured throughput in the PR;
+      proportional-fallback throughput reported separately for
+      reference.
+- [ ] **Quality assessment with falsifiable metrics.** Brief PR
+      includes a side-by-side comparison: 30 oracle demos vs.
+      30 teleop demos on the same missions, scored on:
+  - **Path smoothness.** Trajectory curvature variance (sum of
+    squared angular accelerations along the path, lower is
+    smoother). Report mean ± std for both sources.
+  - **Stop accuracy.** Distance from final pose to
+    `target_position_3d` (lower is better). Report mean ± std.
+  - **Hesitation.** Count of `|cmd_vel| < 0.05` ticks during
+    the navigation phase divided by total navigation ticks
+    (lower means fewer pauses).
+  - **Action smoothness.** Mean ‖cmd_vel(t) − cmd_vel(t-1)‖
+    over the episode (lower is smoother control).
+  Report each metric per source as a table; flag where oracle
+  diverges from teleop by >2σ as evidence that oracle demos
+  should be filtered or weighted lower in downstream training.
 - [ ] **Doc surface.**
       [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](../../../INTEGRATION_SIM_IN_THE_LOOP.md)
       gains a Stage 5c — Oracle data collection section.
@@ -183,7 +221,7 @@ teleop; scale comes from oracle.
   full scene metadata that's only available in sim.
 - **Training a new controller.** This brief reuses the NoCam
   waypoint-following policy from
-  [`strafer-lab-subgoal-env`](strafer-lab-subgoal-env.md);
+  [`subgoal-env`](../../active/trained-policy/subgoal-env.md);
   it does not retrain the controller. If the trained controller
   underperforms, the proportional fallback is the safety net,
   and a separate brief decides whether to retrain.

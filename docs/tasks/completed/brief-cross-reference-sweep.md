@@ -1,6 +1,7 @@
 # Sweep legacy flat-slug brief cross-references after the epic-structure reorg
 
 **Status:** Shipped 2026-05-13 in `700779e` (Either).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/31
 
 **Type:** bug / docs hygiene
 **Owner:** Either (mechanical sweep + manual sanity check on

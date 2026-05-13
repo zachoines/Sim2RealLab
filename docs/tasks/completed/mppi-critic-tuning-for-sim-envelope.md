@@ -4,7 +4,7 @@
 sustained median odom vx 0.632 m/s — ~63% of the literal acceptance
 threshold; remaining gap split across two filed follow-up briefs
 ([`nav2-startup-unknown-donut-path-noise`](nav2-startup-unknown-donut-path-noise.md)
-and [`strafer-inference-package`](../active/trained-policy/inference-package.md)).
+and [`inference-package`](../active/trained-policy/inference-package.md)).
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/15
 
 **Type:** task / tuning
@@ -177,7 +177,7 @@ A is the recommended starting point.
   physics, not control. Separate brief if it ever becomes a
   blocker.
 - **`plan_compiler` per-skill timeout hardcodes.** That's
-  [`plan-compiler-skill-timeouts.md`](../active/plan-compiler-skill-timeouts.md);
+  [`plan-compiler-skill-timeouts.md`](plan-compiler-skill-timeouts.md);
   unrelated path. Validation of the acceptance criteria here may
   need that brief landed first if mission-level deadlines matter
   during the validation runs (the controller-level acceptance does

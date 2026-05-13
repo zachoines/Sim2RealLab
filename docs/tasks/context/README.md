@@ -103,7 +103,7 @@ In practice:
 
 A secondary safety net: when the operator stages a fresh integration
 round (currently tracked as
-[`docs/tasks/active/integration-prompts-refresh.md`](../active/integration-prompts-refresh.md)),
+[`docs/tasks/active/integration-prompts-refresh.md`](../completed/integration-prompts-refresh.md)),
 that audit task should re-read context modules end-to-end and flag
 anything stale.
 

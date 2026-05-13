@@ -1,5 +1,8 @@
 # Sweep legacy flat-slug brief cross-references after the epic-structure reorg
 
+**Status:** Shipped 2026-05-13 in `700779e` (Either).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/31
+
 **Type:** bug / docs hygiene
 **Owner:** Either (mechanical sweep + manual sanity check on
 ambiguous cases)
@@ -25,15 +28,15 @@ the queue stops being a low-grade time tax**.
 ## Context bundle
 
 Read these before starting:
-- [`context/repo-topology.md`](../../context/repo-topology.md)
-- [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
-- [`context/conventions.md`](../../context/conventions.md)
-- [`../README.md`](../../README.md) §"Directory layout" —
+- [`context/repo-topology.md`](../context/repo-topology.md)
+- [`context/branching-and-prs.md`](../context/branching-and-prs.md)
+- [`context/conventions.md`](../context/conventions.md)
+- [`../README.md`](../README.md) §"Directory layout" —
   defines the post-reorg `<epic>/<basename>.md` convention
   these links should target.
 
 Sibling briefs that show the reorg's tip-of-iceberg breakage:
-- [`teleop-driver`](../harness/teleop-driver.md) (and its
+- [`teleop-driver`](../active/harness/teleop-driver.md) (and its
   harness epic peers) — every cross-brief link previously
   referenced `<epic>-<basename>` slugs; the harness-audit PR
   fixed them in place but the same pattern exists in
@@ -44,7 +47,7 @@ Sibling briefs that show the reorg's tip-of-iceberg breakage:
 
 ### The breakage
 
-[`completed/task-board-epic-structure.md`](../../completed/task-board-epic-structure.md)
+[`completed/task-board-epic-structure.md`](task-board-epic-structure.md)
 moved every active / parked brief from `docs/tasks/<flat>.md`
 to `docs/tasks/<active|parked>/<epic>/<basename>.md` in a single
 PR. The brief contents themselves were not rewritten — they
@@ -119,7 +122,7 @@ cleaner.
 - [ ] **Lint helper.** A `tools/check_brief_links.sh` (or
       similar) script that re-runs the broken-link enumeration
       in CI / locally, with a non-zero exit on breakage.
-      Documented in [`docs/tasks/README.md`](../../README.md)'s
+      Documented in [`docs/tasks/README.md`](../README.md)'s
       "How to write a good brief" section.
 - [ ] **Sweep verification.** Re-run the lint after rename;
       report zero broken links.

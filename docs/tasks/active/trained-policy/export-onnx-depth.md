@@ -3,7 +3,7 @@
 **Type:** task / feature
 **Owner:** DGX (`strafer_lab` lane — RL agent code)
 **Priority:** P1 — gates the Jetson TRT-EP path for the DEPTH MVP in
-[`strafer-inference-package.md`](strafer-inference-package.md). Without
+[`inference-package`](inference-package.md). Without
 ONNX, DEPTH inference on Jetson Orin Nano falls back to TorchScript-CPU,
 which misses the latency target.
 **Estimate:** M (~1–2 days: write `_OnnxDepthGRUModel` mirror of
@@ -29,7 +29,7 @@ Read these before starting:
 - [policy-export-tooling.md](../../completed/policy-export-tooling.md) — the export
   tooling whose `--formats pt,onnx` path errors today on DEPTH
   variants because of the gap this brief closes.
-- [strafer-inference-package.md](strafer-inference-package.md) — the
+- [strafer-inference-package.md](inference-package.md) — the
   Jetson consumer whose Phase 3 latency target gates on the TRT-EP
   path, which gates on this brief.
 
@@ -129,7 +129,7 @@ Extend
   holds when `h_in` is reset between calls.
 - Verify the multi-input ONNX file is loadable via ORT-CPU on the DGX
   (TRT EP verification stays Jetson-side per
-  [`strafer-inference-package.md`](strafer-inference-package.md)).
+  [`inference-package`](inference-package.md)).
 
 ### Phase 4 — Real-checkpoint smoke test
 
@@ -209,7 +209,7 @@ sweep happens after rsync per the strafer-inference brief.
   to LSTM, this brief's `as_onnx()` raises and a follow-up adds the
   LSTM path. Don't speculatively implement it.
 - **Loader-side stateful inference contract.** That's
-  [`policy-loader-recurrent-state.md`](policy-loader-recurrent-state.md).
+  [`loader-recurrent-state`](loader-recurrent-state.md).
   This brief produces the artifact; the loader brief consumes it.
 - **Re-validating NoCam ONNX.** NoCam ONNX export already works through
   the rsl_rl stock path; don't refactor that surface as part of this

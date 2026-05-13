@@ -32,7 +32,7 @@ Read these before starting:
 - [`context/conventions.md`](../../context/conventions.md)
 
 Adjacent perf work:
-- [`bridge-throughput-toward-25hz`](bridge-throughput-toward-25hz.md) —
+- [`bridge-throughput-toward-25hz`](../sim-performance/bridge-throughput-toward-25hz.md) —
   the companion brief for *bridge* throughput. This brief is the
   *training* counterpart; the two paths share only the in-`env.step`
   IsaacLab manager loop, and the binding constraints differ
@@ -154,7 +154,7 @@ The deliverables are:
       mistake (e.g. an obs term that's accidentally expensive),
       that's a finding to file, not a fix to land here.
 - [ ] **Docs surface.** Add a short note to
-      [`docs/INTEGRATION_DGX_SPARK.md`](../../../INTEGRATION_DGX_SPARK.md)
+      [`docs/DGX_SPARK_SETUP.md`](../../../DGX_SPARK_SETUP.md)
       (or wherever training operator docs live) on how to invoke
       `--profile` and how to read the output. Reuse the bridge
       runner's docs as the template.
@@ -214,7 +214,7 @@ The deliverables are:
   the brief filed against it is the one that touches the render
   path; this brief just files that follow-up.
 - **Bridge-mode work.** The companion brief
-  [`bridge-throughput-toward-25hz`](bridge-throughput-toward-25hz.md)
+  [`bridge-throughput-toward-25hz`](../sim-performance/bridge-throughput-toward-25hz.md)
   covers bridge perf. The bridge `--profile` harness already
   exists; reuse it there.
 - **Cross-env comparisons.** "Procroom is slower than Plane" is

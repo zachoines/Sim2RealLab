@@ -86,9 +86,9 @@ Strengthen the rotate section of the system prompt:
   `source/strafer_autonomy/strafer_autonomy/planner/`.
 - For the rotation **timeout** issue the same operator session
   surfaced, see
-  [`rotate-in-place-sim-clock-deadline.md`](rotate-in-place-sim-clock-deadline.md)
+  [`rotate-in-place-sim-clock-deadline.md`](../../completed/rotate-in-place-sim-clock-deadline.md)
   and
-  [`plan-compiler-skill-timeouts.md`](plan-compiler-skill-timeouts.md)
+  [`plan-compiler-skill-timeouts.md`](../../completed/plan-compiler-skill-timeouts.md)
   — orthogonal, different lanes.
 
 ## Out of scope

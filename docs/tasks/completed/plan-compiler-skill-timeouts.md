@@ -2,7 +2,7 @@
 
 **Status:** Shipped 2026-05-09 in `1ae9ffc` (DGX).
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/20
-**Follow-ups:** [`progress-aware-nav-timeouts.md`](../active/progress-aware-nav-timeouts.md) — per-step distance/angle-derived budgets + Nav2 stall watchdog (replaces the env-knob backstop with work-proportional deadlines).
+**Follow-ups:** [`progress-aware-nav-timeouts.md`](progress-aware-nav-timeouts.md) — per-step distance/angle-derived budgets + Nav2 stall watchdog (replaces the env-knob backstop with work-proportional deadlines).
 
 **Type:** task / bug
 **Owner:** Either (planner module is DGX-lane; executor consumer is

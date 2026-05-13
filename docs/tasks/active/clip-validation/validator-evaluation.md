@@ -7,7 +7,7 @@ output)
 **Priority:** P1 (gates whether mid-mission validation graduates,
 becomes a learned-validator follow-up, or gets retired). Blocked
 on harness output existing from **any driver mode**
-(teleop via [`harness-teleop-driver`](harness-teleop-driver.md)
+(teleop via [`teleop-driver`](../harness/teleop-driver.md)
 is the fastest-to-produce; bridge via `next-integration-round`
 also works) and a CLIP ONNX existing under `~/.strafer/models/`
 (one-time prerequisite — see Prerequisites below).
@@ -53,7 +53,7 @@ if missing.
 
 | Prerequisite | Why | How it gets there |
 |---|---|---|
-| Populated `data/{teleop,sim_in_the_loop}/<scene>/episode_NNNN/` for ≥ 3 scenes × ≥ 30 missions | Without harness episodes, no metrics can be computed | **Fastest path: teleop.** [`harness-teleop-driver`](harness-teleop-driver.md) gets to ≥ 3 scenes × 30 success + 30 hard-negative episodes in ~one operator-evening. **Slower path: bridge.** [`next-integration-round`](next-integration-round.md) produces bridge-driver output as part of its acceptance, blocked on MPPI / Nav2 stability. Either driver's output works — the eval script is schema-flexible. |
+| Populated `data/{teleop,sim_in_the_loop}/<scene>/episode_NNNN/` for ≥ 3 scenes × ≥ 30 missions | Without harness episodes, no metrics can be computed | **Fastest path: teleop.** [`teleop-driver`](../harness/teleop-driver.md) gets to ≥ 3 scenes × 30 success + 30 hard-negative episodes in ~one operator-evening. **Slower path: bridge.** [`next-integration-round`](../investigations/next-integration-round.md) produces bridge-driver output as part of its acceptance, blocked on MPPI / Nav2 stability. Either driver's output works — the eval script is schema-flexible. |
 | `~/.strafer/models/clip_visual.onnx` + `clip_text.onnx` | The eval script and the new image-vs-text tripwire both depend on the runtime ONNX | One-time `finetune_clip.py --no-export-onnx false` run, OR (faster) export the laion2b ViT-B/32 weights without fine-tuning so the eval can run against the unfinetuned baseline. The brief work owns this small step at the start; it is **not** a separate brief. |
 
 The brief's wiring + protocol-refactor work doesn't need either
@@ -113,12 +113,12 @@ Three artifacts in one PR:
    that both `TransitMonitor` and the new
    `TextAlignmentMonitor` implement. This is small (~30 lines)
    but lets the future
-   [`clip-cotrained-retrieval-augmented`](clip-cotrained-retrieval-augmented.md)
+   [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md)
    brief plug in enhanced cascade variants without touching
    `BackgroundMapper` again.
 4. **A measurement script** that consumes the harness's per-mission
    output (file layout per
-   [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md)
+   [`behavior-cloning-data-expansion`](../harness/behavior-cloning-data-expansion.md)
    when that brief has shipped; falls back to today's
    `frames.jsonl` if not), replays the CLIP path (both signals)
    against it in offline mode (no live executor needed for the
@@ -204,11 +204,11 @@ Decision branches collapse to two:
   curve, and time-to-decision CDF.
 - **Cascade fails the bar.** Recorded honestly in the addendum.
   Improvements are filed via
-  [`clip-cotrained-retrieval-augmented`](clip-cotrained-retrieval-augmented.md)
+  [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md)
   (research-flavored follow-up; co-trained CLIP + speaker +
   retrieval-augmented inference). The end-to-end VLA research
   arm at
-  [`strafer-vla-v2-architecture`](strafer-vla-v2-architecture.md)
+  [`vla-v2-architecture`](../../parked/experimental/vla-v2-architecture.md)
   also remains as an alternative path. **No "small learned
   validator" escalation** — that path was retired (see
   [`completed/learned-mid-mission-validator`](../../completed/learned-mid-mission-validator.md)
@@ -260,7 +260,7 @@ follow-up brief filed.
   - Walks the harness output and replays CLIP encoding offline
     against each frame. Schema-flexible: prefers
     `frames_skill.jsonl` + `frames_tick.jsonl` from
-    [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md)
+    [`behavior-cloning-data-expansion`](../harness/behavior-cloning-data-expansion.md)
     when present; falls back to legacy `frames.jsonl`. Populates
     an in-memory `SemanticMapManager`, runs both
     `TransitMonitor` (image-vs-image) and `TextAlignmentMonitor`
@@ -296,7 +296,7 @@ follow-up brief filed.
   `docs/artifacts/transit_monitor_eval/`. Names whether the
   cascade meets the ≥ 0.85 ROC-AUC lower-bound bar; if so, the
   cascade ships. If not, files
-  [`clip-cotrained-retrieval-augmented`](clip-cotrained-retrieval-augmented.md)
+  [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md)
   as a follow-up for improvements; no other escalation.
 - [ ] If your work invalidates a fact in any referenced context
       module, package README, top-level `Readme.md`, or guide
@@ -338,16 +338,16 @@ follow-up brief filed.
   small-frozen-head learned-validator option was retired (see
   [`completed/learned-mid-mission-validator`](../../completed/learned-mid-mission-validator.md)).
   CLIP cascade improvements live in
-  [`clip-cotrained-retrieval-augmented`](clip-cotrained-retrieval-augmented.md);
+  [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md);
   end-to-end VLA exploration lives in
-  [`strafer-vla-v2-architecture`](strafer-vla-v2-architecture.md).
+  [`vla-v2-architecture`](../../parked/experimental/vla-v2-architecture.md).
 - **Multi-room navigation evaluation.** This brief's
   *measurement* runs on single-room subsets of the (now
   multi-room-default) harness corpus. The case-1 / case-2 TPR /
   FPR bars in §4.1 are calibrated against single-room data
   initially. A multi-room re-test follow-up brief
   (`clip-multi-room-validator-remeasure.md`) is filed after
-  [`multi-room-autonomy-stack`](multi-room-autonomy-stack.md)
+  [`autonomy-stack`](../multi-room/autonomy-stack.md)
   ships — it re-runs the same metrics on multi-room data and
   recalibrates the bars. Keeping the v1 measurement single-room
   is deliberate: it gives an achievable bar for the cheap CLIP
@@ -356,7 +356,7 @@ follow-up brief filed.
   layer real-robot data in once the runtime path is calibrated.
 - **Replacing CLIP with a non-CLIP backbone (DINOv2, MobileCLIP,
   SigLIP) and any CLIP fine-tune cycle.** Belongs to
-  [`clip-cotrained-retrieval-augmented`](clip-cotrained-retrieval-augmented.md),
+  [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md),
   filed as a follow-up if the cascade fails the AUC bar or the
   team wants to push improvements regardless. This brief
   evaluates whatever ONNX is currently in
@@ -373,6 +373,6 @@ follow-up brief filed.
   real mission requires it; never measured by this brief.
 - **Distilling an MVP-as-teacher VLA (§3.6).** That's a separate
   brief filed once
-  [`next-integration-round`](next-integration-round.md) ships and
+  [`next-integration-round`](../investigations/next-integration-round.md) ships and
   the action-labeled corpus exists. Independent of this brief's
   decision branches.

@@ -100,7 +100,6 @@ explicit dependencies.
 |---|---|---|---|
 | [`unify-test-targets-and-ci`](active/tooling/unify-test-targets-and-ci.md) | P3 | active | Either |
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | P2 | active | DGX |
-| [`brief-cross-reference-sweep`](active/tooling/brief-cross-reference-sweep.md) | P2 | active | Either |
 
 ### Experimental (long-horizon bets)
 
@@ -155,7 +154,6 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`mission-generator`](active/harness/mission-generator.md) | L | Free-text mission generator with LLM-emitted waypoints (multi-room default). Canonical mission queue source for teleop and oracle drivers. Blocks on `scene-connectivity-validation`. |
 | [`trajectory-first-captioning`](active/harness/trajectory-first-captioning.md) | M–L | Speaker-model post-hoc captioning regime. Random-A→B drivers + Qwen2.5-VL-7B speaker → instructive-voice mission text + synthesized hard negatives. |
 | [`training-throughput-profile-and-investigate`](active/investigations/training-throughput-profile-and-investigate.md) | S–M | Phase profiler in the training loop; files follow-up briefs from results. |
-| [`brief-cross-reference-sweep`](active/tooling/brief-cross-reference-sweep.md) | S | Mechanical sweep + lint: every legacy `<epic>-<basename>` brief link is broken post-reorg. Filed by the harness-audit pass. |
 
 #### Jetson lane
 

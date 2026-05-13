@@ -170,7 +170,7 @@ final-meter corrections.
   This brief assumes that brief has shipped first and uses its
   reactive loop as a safety net.
 - **Real-D555 depth range survey** — tracked at
-  [`real-d555-depth-range-survey.md`](real-d555-depth-range-survey.md).
+  [`real-d555-depth-range-survey.md`](../investigations/real-d555-depth-range-survey.md).
   Orthogonal: it informs the projection cap and how often staging
   triggers, not how the planner stages.
 - **Semantic-map integration.** Using the persistent semantic map

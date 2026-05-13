@@ -265,6 +265,13 @@ A few rules of thumb that hold up in practice:
 - **Don't over-spec the implementation.** "Use a Python rclpy
   thread mirroring `StraferAsyncPublisher`" is fine guidance;
   prescribing the line-by-line refactor isn't.
+- **Keep cross-brief links resolvable.** When you reference a
+  sibling brief, use its post-reorg path (`active/<epic>/<basename>.md`
+  or `parked/<epic>/<basename>.md`) — not the legacy flat slug.
+  Run `tools/check_brief_links.sh` from the repo root before
+  pushing; it greps every markdown link under `docs/tasks/` and
+  exits non-zero if any target doesn't resolve. Cheap to run
+  locally; intended for pre-commit or CI.
 
 ### Anti-patterns
 

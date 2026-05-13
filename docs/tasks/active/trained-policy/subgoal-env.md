@@ -4,7 +4,7 @@
 **Owner:** DGX (`strafer_lab` lane — env config + path planner +
 training run)
 **Priority:** P2 — blocks
-[`strafer-inference-hybrid-mode.md`](strafer-inference-hybrid-mode.md)
+[`hybrid-mode`](../../parked/trained-policy/hybrid-mode.md)
 end-to-end validation but not the strafer_direct MVP path.
 **Estimate:** L (~1.5–2 weeks: path generator + subgoal command term
 + reward shaping + termination events + initial training run).
@@ -25,10 +25,10 @@ shapes reward around tracking that subgoal**, so that **a trained
 Read these before starting:
 - [context/repo-topology.md](../../context/repo-topology.md)
 - [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [strafer-inference-hybrid-mode.md](strafer-inference-hybrid-mode.md)
+- [strafer-inference-hybrid-mode.md](../../parked/trained-policy/hybrid-mode.md)
   — the consumer-side brief; this brief produces the trainable env
   and the deployable checkpoint that brief loads.
-- [strafer-inference-package.md](strafer-inference-package.md) —
+- [strafer-inference-package.md](inference-package.md) —
   the DEPTH-MVP sibling. Useful as a reference for how the
   observation contract, decimation, and reward conventions are
   structured in the existing ProcRoom-Depth env.
@@ -41,7 +41,7 @@ Read these before starting:
 ### Why `hybrid_nav2_strafer` needs a different policy
 
 The `strafer_direct` mode (in
-[`strafer-inference-package.md`](strafer-inference-package.md))
+[`inference-package`](inference-package.md))
 consumes a **final goal pose** — the RL agent's job is to converge
 on it, with depth perception for obstacle avoidance.
 
@@ -375,7 +375,7 @@ deployed policy should be trained against it.
 ## Out of scope
 
 - **The Jetson-side hybrid runtime.** That's
-  [`strafer-inference-hybrid-mode.md`](strafer-inference-hybrid-mode.md).
+  [`hybrid-mode`](../../parked/trained-policy/hybrid-mode.md).
   This brief produces the trainable env and the deployable
   checkpoint; the hybrid brief consumes them.
 - **DEPTH variant of subgoal-following.** First subgoal target
@@ -385,7 +385,7 @@ deployed policy should be trained against it.
   follow-up brief once both this brief and `strafer-inference-package.md`'s
   DEPTH path have shipped.
 - **Goal-position noise on subgoals.** The
-  [`policy-goal-noise-training.md`](policy-goal-noise-training.md)
+  [`goal-noise-training`](goal-noise-training.md)
   pattern likely applies (subgoals from Nav2's path have
   planner-resolution noise of ~5 cm, smaller than VLM noise but
   non-zero). Evaluate after the baseline subgoal checkpoint

@@ -30,22 +30,22 @@ Read these before starting:
 - [`context/conventions.md`](../../context/conventions.md)
 
 Sibling briefs whose contract this brief must not break:
-- [`harness-teleop-driver`](harness-teleop-driver.md) — in-process
+- [`teleop-driver`](../harness/teleop-driver.md) — in-process
   driver that calls `env.step()` from a gamepad. Captures
   `(frame, depth, pose, cmd_vel, mission_text)` via direct scene-
   handle access (not via the observation tensor). Trimming the
   observation manager is safe **for this driver**.
-- [`harness-oracle-driver`](harness-oracle-driver.md) — in-process
+- [`oracle-driver`](../../parked/harness/oracle-driver.md) — in-process
   driver that runs the `NOCAM_SUBGOAL` RL policy. **Consumes the
   observation tensor.** Trimming the observation manager is NOT
   safe for this driver. Any manager-loop trim must be scoped so
   the oracle's env cfg keeps the full observation pipeline.
-- [`harness-trajectory-first-captioning`](harness-trajectory-first-captioning.md) —
+- [`trajectory-first-captioning`](../harness/trajectory-first-captioning.md) —
   random-target driver. Captures via scene handles like teleop.
   Safe.
-- [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md) —
+- [`behavior-cloning-data-expansion`](../harness/behavior-cloning-data-expansion.md) —
   schema definition. Per-tick capture cadence must not regress.
-- [`strafer-lab-subgoal-env`](strafer-lab-subgoal-env.md) — the
+- [`subgoal-env`](../trained-policy/subgoal-env.md) — the
   training env that produces the NoCam waypoint policy the oracle
   consumes. Training cfg must not be touched.
 
@@ -172,7 +172,7 @@ question.
 - **Training (RL)**: untouched. `train_strafer_navigation.py` does
   not invoke `simulation_app.update` and depends on the full
   manager loop. See companion brief
-  [`training-throughput-profile-and-investigate`](training-throughput-profile-and-investigate.md)
+  [`training-throughput-profile-and-investigate`](../investigations/training-throughput-profile-and-investigate.md)
   for training-side perf work.
 - **Real-robot deployment**: zero impact (no bridge in the loop).
 
@@ -193,7 +193,7 @@ question.
       skip. No frame drops introduced.
 - [ ] A `navigate_to_pose` mission completes against the bridge
       with at least the same success rate as today. Run the
-      [`next-integration-round`](next-integration-round.md)
+      [`next-integration-round`](../investigations/next-integration-round.md)
       sequence to validate.
 - [ ] Harness driver coverage:
   - [ ] `harness-teleop-driver` (or `collect_demos.py` smoke as a
@@ -276,7 +276,7 @@ question.
   `timestamp_fixer` subscribes RELIABLE; switching requires a
   paired Jetson-side change.
 - **Training throughput.** Companion brief
-  [`training-throughput-profile-and-investigate`](training-throughput-profile-and-investigate.md)
+  [`training-throughput-profile-and-investigate`](../investigations/training-throughput-profile-and-investigate.md)
   covers RL training perf separately. The two paths share only
   the in-`env.step` IsaacLab manager loop, and even there the
   binding constraints differ (training is dominated by GPU

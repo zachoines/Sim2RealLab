@@ -29,8 +29,39 @@ Read these before starting:
 - [`nav2-far-goal-staging.md`](../../completed/nav2-far-goal-staging.md) — the
   Jetson-side reactive staging loop this brief layers on top of.
   **Must ship first.**
+- [`planner-architecture-alignment`](planner-architecture-alignment.md)
+  — decides whether the planner stays a thin intent classifier
+  or is promoted to a multi-step planner. The acceptance
+  criteria of this brief change depending on the outcome.
+  **Must ship first.**
+- [`autonomy-stack`](autonomy-stack.md) — also adds a
+  `world_state`-shaped prompt input (room-level). Co-design the
+  schema so the two briefs share one field, not two competing
+  ones.
 
 ## Context
+
+### Current planner state (verified 2026-05-13)
+
+The DGX planner today is a thin **intent classifier**, not a
+multi-step planner. It emits a single
+`{intent_type, target_label, ...}` object per
+[`planner/prompt_builder.py`](../../../../source/strafer_autonomy/strafer_autonomy/planner/prompt_builder.py);
+the deterministic
+[`plan_compiler.py`](../../../../source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py)
+then expands every `go_to_target` intent into the same
+5-step `scan → project → align → navigate → verify` sequence
+via `_compile_single_target_steps`.
+
+This brief proposes a real architecture shift — teaching the
+LLM to emit multi-hop sequences. The
+[`planner-architecture-alignment`](planner-architecture-alignment.md)
+brief decides whether that shift is the right move at all, or
+whether the staging logic should live in the compiler instead.
+Until that brief lands, treat the "LLM emits multi-hop plans"
+language below as one option, not a foregone conclusion.
+
+### Why staging is needed regardless of where it lives
 
 The Jetson-side reactive staging loop in
 [`nav2-far-goal-staging.md`](../../completed/nav2-far-goal-staging.md) catches
@@ -61,62 +92,97 @@ mispredicts.
 
 ## Approach
 
-Two pieces:
+Three pieces, in dependency order:
 
-**1. Give the planner enough world-state context to decide.**
+**1. Co-design the `world_state` schema with autonomy-stack.**
 
-The planner needs to know, at minimum:
+Both this brief and
+[`autonomy-stack`](autonomy-stack.md) propose adding a
+`world_state` block to the planner request. They must share one
+schema. Proposed shape:
 
-- Current robot pose in the `map` frame.
-- Current global-costmap extent (the SLAM horizon as a rectangle).
-- Last VLM grounding result for this target if the executor has one
-  cached (depth distance, bbox stability, frame age).
+```python
+class PlannerWorldState(BaseModel):
+    # Pose / costmap (this brief's primary need)
+    robot_pose_map: Pose2D
+    global_costmap_extent: Rectangle  # min_x, min_y, max_x, max_y
+    last_grounding: GroundingSummary | None  # depth, stability, age
 
-Add a `world_state` field to the planner request payload (or
-augment whatever already exists in `schemas/`). The Jetson-side
-`mission_runner.py` populates it from existing telemetry; the
-DGX-side `planner_client.py` request schema accepts and forwards
-it. The planner backend reads it during prompt assembly.
+    # Room-level (autonomy-stack's primary need; observation-derived
+    # only — see autonomy-stack's "Sim-to-real boundary")
+    current_room: str | None
+    known_rooms: list[RoomSummary]
+    connectivity: list[tuple[str, str]]
+```
 
-The Jetson populate-side is small enough that it can ship in this
-brief's commit (the call site is `mission_runner.py`, but the
-schema and payload shape are owned DGX-side). Coordinate via the
-operator if Jetson-side review is preferred.
+The Jetson-side `mission_runner.py` populates pose + costmap +
+last-grounding; the DGX-side `SemanticMapManager` populates the
+room block (see
+[`observation-derived-room-state`](observation-derived-room-state.md)).
+Both sides must populate **all** fields they own — partial
+`world_state` is a footgun for the LLM.
 
-**2. Teach the LLM to emit multi-hop plans when warranted.**
+**2. Decide where staging lives (planner-architecture-alignment).**
 
-Prompt updates + few-shot examples. The pattern: when the target is
-past a "near" threshold (configurable, say 5 m given the 6 m
-SLAM horizon), emit
+If the planner stays an intent classifier: the compiler emits
+staging hops from `world_state.global_costmap_extent` +
+target-pose geometry. No LLM prompt-engineering needed for
+staging; far-target staging becomes deterministic.
+
+If the planner is promoted to a multi-step planner: the LLM
+emits the staging sequence directly. More flexible (the
+intermediate landmark can leverage the LLM's spatial reasoning
+over the operator's description), more brittle (prompt
+regressions can corrupt unrelated mission shapes).
+
+This brief does not decide; it ships acceptance criteria for
+both outcomes.
+
+**3. Teach the chosen planner to emit multi-hop plans for far
+targets.** Pattern: when the target is past a "near" threshold
+(configurable, say 5 m given the 6 m SLAM horizon), emit
 `scan_for_target → navigate(intermediate) → scan_for_target → navigate(final)`
-instead of a single `navigate(target)`. The intermediate pose comes
-from the LLM's spatial reasoning over the operator's description and
-`world_state`, not a geometric formula.
-
-Validate against a small set of test missions (cross-room,
-down-hallway, around-corner). The acceptance bar is that the Jetson
-reactive staging loop fires ≤1 time on these missions in the happy
-path — once the plan is good, reactive staging only catches
-final-meter corrections.
+instead of a single `navigate(target)`. Validate against a small
+set of test missions (cross-room, down-hallway, around-corner).
+The acceptance bar is that the Jetson reactive staging loop fires
+≤1 time on these missions in the happy path — once the plan is
+good, reactive staging only catches final-meter corrections.
 
 ## Acceptance criteria
 
-- [ ] `world_state` schema in `source/strafer_autonomy/strafer_autonomy/schemas/`
-      carries (at minimum) robot pose in `map`, current
-      global-costmap extent rectangle, and a slot for the last
-      grounding result. Documented as part of the planner request
-      schema. Existing planner requests without `world_state`
-      remain valid (additive change).
+- [ ] **One `world_state` schema, shared with autonomy-stack.**
+      `source/strafer_autonomy/strafer_autonomy/schemas/`
+      carries the combined room + pose + costmap +
+      last-grounding schema co-designed with
+      [`autonomy-stack`](autonomy-stack.md). Whichever of the
+      two briefs lands second uses the schema the first one
+      shipped — no parallel `PlannerWorldState` variants.
+      Existing planner requests without `world_state` remain
+      valid (additive change).
+- [ ] **No `scene_metadata.json` access.** The DGX planner
+      backend reads only `world_state` (observation-derived) +
+      semantic-map state. A grep of
+      `source/strafer_autonomy/strafer_autonomy/planner/` for
+      `scene_metadata`, `scene_labels`, `room_adjacency`
+      returns zero hits.
 - [ ] `clients/planner_client.py` accepts and forwards `world_state`
       to the planner service. The Jetson-side populate is wired in
       `mission_runner.py` so the field is filled on every
       `planner.plan(...)` call (small, can ship in this commit;
       coordinate with the operator if Jetson lane review is
       preferred).
-- [ ] The planner backend's prompt + few-shot set is updated to emit
-      multi-hop plans for far targets. New plans pass the existing
-      schema validator unchanged (no new step types — just
-      compositions of `scan_for_target` and `navigate`).
+- [ ] **Multi-hop emission lives where
+      `planner-architecture-alignment` says it lives.**
+      - If "intent classifier (status quo)": the
+        `plan_compiler` grows a `_compile_far_target_staging`
+        helper that decomposes `go_to_target` into the
+        multi-hop sequence when `world_state` flags the
+        target as off-costmap. The LLM prompt is unchanged.
+        New step compositions only — no new step types.
+      - If "multi-step planner": the LLM prompt + few-shot
+        set is updated to emit the multi-hop sequence
+        directly. New plans pass the existing schema
+        validator unchanged.
 - [ ] On a representative sim mission to a >6 m cross-room target —
       the 2026-04-27 reproducer "Navigate to the open wood door on
       other side of the room" is canonical — the planner emits ≥3
@@ -178,7 +244,11 @@ final-meter corrections.
   not required here. Prompt-only reasoning over `world_state` is
   the bar for this brief. If plan quality plateaus from
   prompt-only reasoning, file a follow-up to feed semantic-map
-  excerpts into `world_state`.
+  excerpts into `world_state`. Note that
+  [`autonomy-stack`](autonomy-stack.md) already feeds
+  observation-derived room state via `world_state` —
+  intermediate-landmark choice from the semantic map is the
+  natural next extension after both briefs land.
 - **Plan validation against the static map.** Checking that
   intermediate landmarks are reachable before sending the plan.
   The Jetson reactive loop covers the unreachable-leg case as a

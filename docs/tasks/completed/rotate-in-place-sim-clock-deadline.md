@@ -33,7 +33,7 @@ Read these before starting:
   comply with.
 - [completed/sim-velocity-attenuation.md](../completed/sim-velocity-attenuation.md)
   — surfaced this during rotation-timeout debugging.
-- [completed/progress-aware-nav-timeouts.md](../completed/progress-aware-nav-timeouts.md)
+- [completed/progress-aware-nav-timeouts.md](progress-aware-nav-timeouts.md)
   — immediate predecessor. Switched `_rotate_by_degrees` and
   `_orient_to_direction` from a flat 30 s timeout to a per-step budget
   derived from `|yaw_delta_rad| / NAV_ANGULAR_VEL * safety_factor +
@@ -157,15 +157,15 @@ Mirror the navigation-side fix:
 ## Out of scope
 
 - **Rotation direction-sign bug.** Different brief —
-  [`planner-rotate-direction-prompt.md`](planner-rotate-direction-prompt.md).
+  [`planner-rotate-direction-prompt.md`](../active/reliability/planner-rotate-direction-prompt.md).
   That's a planner-prompt issue; this brief is purely about the
   deadline source.
 - **Plan-compiler-side timeout hardcodes.** Shipped — see
-  [`completed/plan-compiler-skill-timeouts.md`](../completed/plan-compiler-skill-timeouts.md)
+  [`completed/plan-compiler-skill-timeouts.md`](plan-compiler-skill-timeouts.md)
   (PR #20). That removed the compiler's hardcoded `timeout_s` so the
   executor's per-skill policy could take effect.
 - **Per-step budget computation.** Shipped — see
-  [`completed/progress-aware-nav-timeouts.md`](../completed/progress-aware-nav-timeouts.md)
+  [`completed/progress-aware-nav-timeouts.md`](progress-aware-nav-timeouts.md)
   (PR #21). That added the distance/angle-derived budget formula and
   the Nav2 stall watchdog. The `_rotate_by_degrees` and
   `_orient_to_direction` paths get sim-time-correct *budget values*

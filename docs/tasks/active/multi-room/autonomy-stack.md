@@ -41,7 +41,7 @@ section already names (short-term stored-map fallback + medium-term
 room-level transit) is what this brief ships.
 
 Sibling brief:
-[`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md)
+[`multi-room-scene-connectivity-validation`](scene-connectivity-validation.md)
 — produces the connectivity graph in `scene_metadata.json` that
 this brief consumes.
 
@@ -98,7 +98,7 @@ The planner needs room-level knowledge to emit transit steps for
 out-of-room targets. The strafer pipeline has it in
 `scene_metadata.json`'s `objects[]` (each object is in a room
 polygon) plus the connectivity graph from
-[`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md).
+[`multi-room-scene-connectivity-validation`](scene-connectivity-validation.md).
 
 The plan-compiler change in [`planner/plan_compiler.py`](../../../../source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py):
 when the LLM emits a `go_to_target` intent and the target's
@@ -134,7 +134,7 @@ in the sequence.
   environments. §1.10.1's option 3. Out of scope; future brief.
 - **Door-state handling.** Doors are assumed open at scene-gen
   time per
-  [`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md);
+  [`multi-room-scene-connectivity-validation`](scene-connectivity-validation.md);
   runtime door-opening is a future brief.
 - **Plan repair.** When a transit step itself fails, the mission
   fails — no automatic re-plan with new transit. Plan-repair
@@ -154,7 +154,7 @@ in the sequence.
       scene metadata's `rooms[]`) and `objects_by_room[]`
       (target candidates grouped by room) and the connectivity
       graph from
-      [`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md).
+      [`multi-room-scene-connectivity-validation`](scene-connectivity-validation.md).
 - [ ] **Plan compiler emits transit steps.** `_compile_go_to_target`,
       `_compile_go_to_targets`, `_compile_patrol`, and
       `_compile_wait_by_target` consult the LLM's emitted target
@@ -198,9 +198,9 @@ in the sequence.
 - The plan compiler:
   [`planner/plan_compiler.py`](../../../../source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py).
 - The planner prompt construction:
-  [`planner/planner_service.py`](../../../../source/strafer_autonomy/strafer_autonomy/planner/planner_service.py).
+  [`planner/prompt_builder.py`](../../../../source/strafer_autonomy/strafer_autonomy/planner/prompt_builder.py).
 - Connectivity graph schema:
-  [`multi-room-scene-connectivity-validation`](multi-room-scene-connectivity-validation.md)
+  [`multi-room-scene-connectivity-validation`](scene-connectivity-validation.md)
   defines it; this brief consumes it via the planner prompt and
   the plan-compiler's room-lookup helpers.
 - The semantic map query is already exposed via

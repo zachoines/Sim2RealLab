@@ -177,7 +177,7 @@ A is the recommended starting point.
   physics, not control. Separate brief if it ever becomes a
   blocker.
 - **`plan_compiler` per-skill timeout hardcodes.** That's
-  [`plan-compiler-skill-timeouts.md`](../active/plan-compiler-skill-timeouts.md);
+  [`plan-compiler-skill-timeouts.md`](plan-compiler-skill-timeouts.md);
   unrelated path. Validation of the acceptance criteria here may
   need that brief landed first if mission-level deadlines matter
   during the validation runs (the controller-level acceptance does

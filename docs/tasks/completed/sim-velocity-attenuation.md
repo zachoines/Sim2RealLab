@@ -75,7 +75,7 @@ balance, not noise scale, and is the territory of the follow-up.
   — the deeper tuning pass (PathAlign / PreferForward weights,
   PathFollow offset, iteration_count, temperature) needed to push
   median commanded vel toward the cap. Picks up where this v1 ends.
-- [`plan-compiler-skill-timeouts.md`](../active/plan-compiler-skill-timeouts.md)
+- [`plan-compiler-skill-timeouts.md`](plan-compiler-skill-timeouts.md)
   — `plan_compiler.py:56-233` hardcodes per-skill `timeout_s`
   values that silently override the executor's
   `STRAFER_NAVIGATION_TIMEOUT_S=180` sim-time budget. Generalizes

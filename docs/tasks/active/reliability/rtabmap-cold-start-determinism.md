@@ -53,7 +53,7 @@ Capture two consecutive sim sessions (kill between them) with `ros2 topic echo /
 
 ### B. Tame cause (2) — visual word dictionary noise
 
-Inspect [`config/rtabmap_params.yaml`](../../../source/strafer_ros/strafer_slam/config/rtabmap_params.yaml) memory settings. `Mem/STMSize: "30"` is aggressive. Candidates:
+Inspect [`config/rtabmap_params.yaml`](../../../../source/strafer_ros/strafer_slam/config/rtabmap_params.yaml) memory settings. `Mem/STMSize: "30"` is aggressive. Candidates:
 - Raise `Mem/STMSize` (e.g., 60) so words live longer.
 - Set `Mem/InitWMWithAllNodes: "true"` so all nodes preload into WM on start and word references resolve cleanly.
 
@@ -73,8 +73,8 @@ Set `Mem/SaveDepth16Format: "true"` OR `Mem/DepthCompressionFormat: ".png"` to s
 
 ## Investigation pointers
 
-- [`source/strafer_ros/strafer_slam/config/rtabmap_params.yaml`](../../../source/strafer_ros/strafer_slam/config/rtabmap_params.yaml) — Memory and Grid settings.
-- [`source/strafer_ros/strafer_slam/launch/slam.launch.py`](../../../source/strafer_ros/strafer_slam/launch/slam.launch.py) — the launch invocation, including the `localization:=` argument that's currently unused on the sim lane.
+- [`source/strafer_ros/strafer_slam/config/rtabmap_params.yaml`](../../../../source/strafer_ros/strafer_slam/config/rtabmap_params.yaml) — Memory and Grid settings.
+- [`source/strafer_ros/strafer_slam/launch/slam.launch.py`](../../../../source/strafer_ros/strafer_slam/launch/slam.launch.py) — the launch invocation, including the `localization:=` argument that's currently unused on the sim lane.
 - The "Increment map id" log line in `Rtabmap.cpp:1441` is RTAB-Map's standard response to identity-pose-after-existing-graph; if the bridge teleports, that branch fires every session.
 - RTAB-Map reference: [Parameters](https://rtabmap.github.io/Parameters.html), `Mem/*` and `RGBD/*` knobs.
 

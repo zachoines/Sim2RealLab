@@ -98,9 +98,10 @@ moved on:
 - **New artifacts the prompts should reference**:
   - [`docs/example_commands_cheatsheet.md`](../../example_commands_cheatsheet.md)
     for the exact one-liners operators run on the DGX.
-  - [`docs/PERF_INVESTIGATION_SIM_IN_THE_LOOP.md`](../../PERF_INVESTIGATION_SIM_IN_THE_LOOP.md)
+  - `docs/PERF_INVESTIGATION_SIM_IN_THE_LOOP.md`
     Findings 8-10 — current bridge perf attribution + recommended
-    knobs.
+    knobs. (Retired post-ship; load-bearing facts folded into
+    [`context/bridge-runtime-invariants.md`](../context/bridge-runtime-invariants.md).)
   - [`docs/tasks/`](..) — the queue of follow-up work the agents
     should know about (so they don't independently rediscover the
     same issues).

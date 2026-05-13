@@ -8,7 +8,7 @@ dedicated CUDA stream for the GPU→CPU readback; the bridge OmniGraph's
 camera chain is gone. Headless `--profile` p50: bridge loop 117 ms
 → 74 ms (8.5 Hz → 13.5 Hz); `simulation_app.update` 74 ms → 31 ms
 (camera work eliminated; the 31 ms residual is Kit-pump scaffolding,
-addressed in the [`bridge-throughput-toward-25hz`](bridge-throughput-toward-25hz.md)
+addressed in the [`bridge-throughput-toward-25hz`](../active/sim-performance/bridge-throughput-toward-25hz.md)
 follow-up). Camera-worker phases (`camera :: GPU→CPU readback`
 0.2 ms, `camera :: rclpy publish` 0.7 ms) confirm the readback is off
 the critical path and the worker has ~1400 Hz publish-rate headroom

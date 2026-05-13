@@ -5,7 +5,7 @@
 deployment via `clip_encoder.py` ONNX swap; minimal Jetson-side
 glue for the new module)
 **Priority:** P3 (research follow-up; filed-on-trigger after
-[`clip-mid-mission-validator-evaluation`](clip-mid-mission-validator-evaluation.md)
+[`clip-mid-mission-validator-evaluation`](../../active/clip-validation/validator-evaluation.md)
 ships, regardless of whether the cascade meets its AUC bar.
 Mandatory if the bar fails; optional but well-motivated if it
 passes — both phases compound on top of a passing baseline.)
@@ -44,13 +44,13 @@ Parent design doc:
 follow-up).
 
 Sibling briefs this brief depends on or composes with:
-- [`clip-mid-mission-validator-evaluation`](clip-mid-mission-validator-evaluation.md) —
+- [`clip-mid-mission-validator-evaluation`](../../active/clip-validation/validator-evaluation.md) —
   the v1 cascade ships first; its statistics framework is the
   baseline this brief improves on.
-- [`harness-trajectory-first-captioning`](harness-trajectory-first-captioning.md) —
+- [`harness-trajectory-first-captioning`](../../active/harness/trajectory-first-captioning.md) —
   produces the speaker model + caption corpus this brief
   co-trains against.
-- [`harness-behavior-cloning-data-expansion`](harness-behavior-cloning-data-expansion.md) —
+- [`harness-behavior-cloning-data-expansion`](../../active/harness/behavior-cloning-data-expansion.md) —
   defines the canonical harness output schema both phases
   consume.
 - The SemanticMapManager's ChromaDB infrastructure already
@@ -149,7 +149,7 @@ ONNX-loading path. No runtime code changes needed for Step A
 alone.
 
 **Acceptance:** re-run the cascade statistics from
-[`clip-mid-mission-validator-evaluation`](clip-mid-mission-validator-evaluation.md)
+[`clip-mid-mission-validator-evaluation`](../../active/clip-validation/validator-evaluation.md)
 on the same episode set. Report ROC-AUC + 95 % CI per case
 + signal, comparing the Phase-1 model against the v1 baseline.
 Step A ships if it improves both case-1 and case-2 ROC-AUC by
@@ -282,7 +282,7 @@ results justify it. This brief stops at sim eval.
       training scripts emit).
 - [ ] **Cascade re-eval with Phase-1 ONNX** using the same
       script + statistics framework as
-      [`clip-mid-mission-validator-evaluation`](clip-mid-mission-validator-evaluation.md).
+      [`clip-mid-mission-validator-evaluation`](../../active/clip-validation/validator-evaluation.md).
       Report ROC-AUC + CI per case + signal alongside v1
       baseline.
 - [ ] **Phase-1 ship decision** recorded in addendum: ships iff
@@ -335,7 +335,7 @@ results justify it. This brief stops at sim eval.
   [`finetune_clip.py`](../../../../source/strafer_lab/scripts/finetune_clip.py).
   Most of the multi-task recipe extends this.
 - The trajectory-first speaker (and its caption corpus):
-  [`harness-trajectory-first-captioning`](harness-trajectory-first-captioning.md).
+  [`harness-trajectory-first-captioning`](../../active/harness/trajectory-first-captioning.md).
 - The retrieval primitive:
   [`SemanticMapManager.query_by_embedding`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/manager.py).
 - LoRA implementation: PEFT library is the standard choice;
@@ -357,7 +357,7 @@ results justify it. This brief stops at sim eval.
   online learning during deployment.
 - **Replacing the cascade architecture with a single end-to-end
   validator.** That's the
-  [`strafer-vla-v2-architecture`](strafer-vla-v2-architecture.md)
+  [`strafer-vla-v2-architecture`](../experimental/vla-v2-architecture.md)
   brief's territory; this one stays inside the
   cascade-with-arbiter pattern.
 - **Training a new speaker model.** This brief consumes

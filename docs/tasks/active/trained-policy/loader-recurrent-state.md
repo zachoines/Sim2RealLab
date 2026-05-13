@@ -32,9 +32,9 @@ Read these before starting:
   with the operator.
 - [policy-export-tooling.md](../../completed/policy-export-tooling.md) — the producer
   side. Sidecar already records `is_recurrent` and (post-
-  [`policy-export-onnx-depth.md`](policy-export-onnx-depth.md)) ONNX
+  [`policy-export-onnx-depth.md`](export-onnx-depth.md)) ONNX
   artifacts will carry `(obs, h_in[, c_in]) → (actions, h_out[, c_out])`.
-- [strafer-inference-package.md](strafer-inference-package.md) — the
+- [strafer-inference-package.md](inference-package.md) — the
   consumer that calls `load_policy()` at startup and asserts
   determinism per tick.
 
@@ -180,7 +180,7 @@ keeps things in one place):
 
 - [ ] If your work invalidates a fact in any referenced context
       module, update that module in the same commit. In particular,
-      [`strafer-inference-package.md`](strafer-inference-package.md)'s
+      [`strafer-inference-package.md`](inference-package.md)'s
       Phase 3 references the loader contract — update it if the
       surface differs from what that brief assumed.
 
@@ -200,7 +200,7 @@ keeps things in one place):
 ## Out of scope
 
 - **The producer of recurrent ONNX artifacts.** Filed as
-  [`policy-export-onnx-depth.md`](policy-export-onnx-depth.md) (DGX
+  [`policy-export-onnx-depth.md`](export-onnx-depth.md) (DGX
   lane). This brief is the *consumer* side: it can be authored before
   that brief ships, since stateless ONNX + recurrent TorchScript paths
   are independently useful.
@@ -209,7 +209,7 @@ keeps things in one place):
   Prefer additive APIs (a new class beside the existing function, with
   the function preserved as a thin wrapper if needed).
 - **Inference-node integration of `reset()` at episode boundaries.**
-  That's [`strafer-inference-package.md`](strafer-inference-package.md)
+  That's [`strafer-inference-package.md`](inference-package.md)
   Phase 3's responsibility; this brief makes the surface available,
   the inference brief calls it.
 - **Multi-env / batched inference.** The exported recurrent modules

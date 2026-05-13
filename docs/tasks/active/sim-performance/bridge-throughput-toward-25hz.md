@@ -30,22 +30,22 @@ Read these before starting:
 - [`context/conventions.md`](../../context/conventions.md)
 
 Sibling briefs whose contract this brief must not break:
-- [`harness-teleop-driver`](../harness/teleop-driver.md) — in-process
+- [`teleop-driver`](../harness/teleop-driver.md) — in-process
   driver that calls `env.step()` from a gamepad. Captures
   `(frame, depth, pose, cmd_vel, mission_text)` via direct scene-
   handle access (not via the observation tensor). Trimming the
   observation manager is safe **for this driver**.
-- [`harness-oracle-driver`](../../parked/harness/oracle-driver.md) — in-process
+- [`oracle-driver`](../../parked/harness/oracle-driver.md) — in-process
   driver that runs the `NOCAM_SUBGOAL` RL policy. **Consumes the
   observation tensor.** Trimming the observation manager is NOT
   safe for this driver. Any manager-loop trim must be scoped so
   the oracle's env cfg keeps the full observation pipeline.
-- [`harness-trajectory-first-captioning`](../harness/trajectory-first-captioning.md) —
+- [`trajectory-first-captioning`](../harness/trajectory-first-captioning.md) —
   random-target driver. Captures via scene handles like teleop.
   Safe.
-- [`harness-behavior-cloning-data-expansion`](../harness/behavior-cloning-data-expansion.md) —
+- [`behavior-cloning-data-expansion`](../harness/behavior-cloning-data-expansion.md) —
   schema definition. Per-tick capture cadence must not regress.
-- [`strafer-lab-subgoal-env`](../trained-policy/subgoal-env.md) — the
+- [`subgoal-env`](../trained-policy/subgoal-env.md) — the
   training env that produces the NoCam waypoint policy the oracle
   consumes. Training cfg must not be touched.
 

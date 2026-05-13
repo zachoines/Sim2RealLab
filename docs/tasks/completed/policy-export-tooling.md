@@ -9,10 +9,10 @@ the Jetson TRT-EP path for the DEPTH variant is blocked on the
 follow-up brief.
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/17
 **Follow-ups:**
-- [`policy-export-onnx-depth.md`](../active/trained-policy/export-onnx-depth.md)
+- [`export-onnx-depth`](../active/trained-policy/export-onnx-depth.md)
   — closes the MVP-DEPTH-ONNX gap by authoring `_OnnxDepthGRUModel` in
   `source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py`.
-- [`policy-loader-recurrent-state.md`](../active/trained-policy/loader-recurrent-state.md)
+- [`loader-recurrent-state`](../active/trained-policy/loader-recurrent-state.md)
   — extends `strafer_shared.policy_interface.load_policy()` so recurrent
   artifacts (DEPTH GRU today, NoCam LSTM in the future) expose
   `.reset()` and ONNX hidden state threads across calls. Required for
@@ -21,7 +21,7 @@ follow-up brief.
 **Type:** task / feature
 **Owner:** DGX (`strafer_lab` lane — training + export tooling)
 **Priority:** P1 — hard dependency for
-[`strafer-inference-package.md`](../active/trained-policy/inference-package.md)
+[`inference-package`](../active/trained-policy/inference-package.md)
 end-to-end validation. **Both TorchScript and ONNX paths are
 MVP-required** since the DEPTH variant in the inference brief is
 too slow on CPU and depends on the TensorRT execution provider
@@ -146,7 +146,7 @@ Tests in `source/strafer_lab/tests/test_export_policy.py`:
 ### Phase 2 — ONNX export (MVP-required for DEPTH)
 
 The DEPTH variant in
-[`strafer-inference-package.md`](../active/trained-policy/inference-package.md) is
+[`inference-package`](../active/trained-policy/inference-package.md) is
 too slow on CPU/CUDA-EP alone — the TRT execution provider is
 required for the latency target. ONNX is the path TensorRT
 consumes, so this phase is part of the MVP, not deferred.
@@ -223,7 +223,7 @@ JetPack-version-coupled and not testable on the DGX.
 - For DEPTH variant, target median latency ≤ 6 ms via TRT (so
   the Jetson inference node's wrapping infrastructure has budget
   to clear the ≤ 10 ms p95 end-to-end target in
-  [`strafer-inference-package.md`](../active/trained-policy/inference-package.md)
+  [`inference-package`](../active/trained-policy/inference-package.md)
   Phase 3).
 - Surface a clear warning if the TRT EP is unavailable — that's
   the failure mode the inference node's launch-time benchmark
@@ -239,7 +239,7 @@ JetPack-version-coupled and not testable on the DGX.
       passes — exports a tiny dummy actor, round-trips through
       `load_policy()`, asserts dimensions + determinism + metadata.
 
-### Determinism contract (load-bearing for [`strafer-inference-package.md`](../active/trained-policy/inference-package.md))
+### Determinism contract (load-bearing for [`inference-package`](../active/trained-policy/inference-package.md))
 
 - [ ] Exported `.pt` produces byte-identical output for the same input
       across two consecutive `load_policy()` calls. The export script
@@ -255,7 +255,7 @@ JetPack-version-coupled and not testable on the DGX.
       listed in Phase 1. Variant + obs_dim are validated against
       `PolicyVariant.<variant>` at export time.
 - [ ] Loading code on the Jetson side
-      ([`strafer-inference-package.md`](../active/trained-policy/inference-package.md))
+      ([`inference-package`](../active/trained-policy/inference-package.md))
       reads the sidecar and asserts it matches the configured
       `PolicyVariant`. Mismatch is fatal at startup. *(Cross-brief
       invariant — owned by the inference brief but enforced here at
@@ -305,16 +305,16 @@ JetPack-version-coupled and not testable on the DGX.
   operator-side work. This brief takes whatever checkpoint is provided
   as input and converts it.
 - **Goal-position noise training.** That's
-  [`policy-goal-noise-training.md`](../active/trained-policy/goal-noise-training.md).
+  [`goal-noise-training`](../active/trained-policy/goal-noise-training.md).
   Orthogonal — happens *before* export, produces the checkpoint this
   brief consumes.
 - **Subgoal-following training env.** That's
-  [`strafer-lab-subgoal-env.md`](../active/trained-policy/subgoal-env.md).
+  [`subgoal-env`](../active/trained-policy/subgoal-env.md).
   Produces the `NOCAM_SUBGOAL` checkpoint that this export tooling
   will then convert with `--variant NOCAM_SUBGOAL`.
 - **Model registry / Databricks Model Serving.** Separate
   operator-side deployment work; not blocking for the LAN-HTTP /
   rsync path used by this brief.
 - **Inference-side integration.** That's
-  [`strafer-inference-package.md`](../active/trained-policy/inference-package.md).
+  [`inference-package`](../active/trained-policy/inference-package.md).
   This brief's output is rsync'd onto the Jetson by the operator.

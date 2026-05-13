@@ -4,7 +4,7 @@
 **Owner:** DGX (`strafer_lab` lane — env config + training run)
 **Priority:** P2 — gates *deployable-policy quality* for VLM-grounded
 goals; not blocking the inference plumbing in
-[`strafer-inference-package.md`](inference-package.md), which
+[`inference-package`](inference-package.md), which
 validates against direct-pose goals.
 **Estimate:** M (~1–2 days: config + training resume + evaluation
 sweep). Depends on a converged baseline checkpoint already existing.
@@ -111,7 +111,7 @@ In [`commands.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/m
 ### Phase 2 — Identify or train baseline checkpoint
 
 **MVP target: DEPTH variant** (since
-[`strafer-inference-package.md`](inference-package.md) ships
+[`inference-package`](inference-package.md) ships
 `strafer_direct` against `PolicyVariant.DEPTH`). Skip if a converged
 DEPTH baseline already exists from the ProcRoom-Depth env. Otherwise:
 
@@ -125,7 +125,7 @@ met). Save baseline as
 `logs/rsl_rl/strafer_navigation/baseline_depth_no_noise/model_<step>.pt`.
 
 NOCAM_SUBGOAL has its own baseline produced by
-[`strafer-lab-subgoal-env.md`](subgoal-env.md) Phase 5
+[`subgoal-env`](subgoal-env.md) Phase 5
 — if/when that brief ships and a goal-noise pass is wanted for the
 hybrid mode policy too, file a `policy-subgoal-noise-training.md`
 follow-up. Subgoal noise from Nav2 path resolution (~5 cm at
@@ -233,7 +233,7 @@ baseline wasn't actually converged. Investigate before declaring done.
   briefs run sequentially: train baseline → train noised → export
   → deploy.
 - **Inference-side integration.** That's
-  [`strafer-inference-package.md`](inference-package.md).
+  [`inference-package`](inference-package.md).
   The Jetson consumes whatever artifact is exported; this brief
   ensures the artifact it gets behaves well under VLM-noise.
 - **Other domain-randomization knobs** (sensor noise, friction
@@ -241,6 +241,6 @@ baseline wasn't actually converged. Investigate before declaring done.
   pass; file separate briefs as needed. Goal-position noise is the
   one with measured deployment evidence behind it.
 - **Hybrid-mode subgoal-noise training.** That's
-  [`strafer-inference-hybrid-mode.md`](../../parked/trained-policy/hybrid-mode.md);
+  [`hybrid-mode`](../../parked/trained-policy/hybrid-mode.md);
   hybrid trains a different `PolicyVariant` against subgoal poses and
   has its own noise considerations.

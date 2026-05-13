@@ -2,11 +2,11 @@
 
 **Type:** task / feature
 **Owner:** Jetson (extends `strafer_inference` from
-[`strafer-inference-package.md`](../../active/trained-policy/inference-package.md))
+[`inference-package`](../../active/trained-policy/inference-package.md))
 **Priority:** P3 — blocks on **two** other briefs:
-[`strafer-inference-package.md`](../../active/trained-policy/inference-package.md)
+[`inference-package`](../../active/trained-policy/inference-package.md)
 (produces the `strafer_inference` package this brief extends) and
-[`strafer-lab-subgoal-env.md`](../../active/trained-policy/subgoal-env.md) (produces
+[`subgoal-env`](../../active/trained-policy/subgoal-env.md) (produces
 the trained `NOCAM_SUBGOAL` policy this brief loads). Lifts mission
 quality on long-horizon / cross-room navigation but isn't blocking
 any current mission shape.
@@ -25,7 +25,7 @@ continuous control — neither backend has to solve the entire problem
 alone**.
 
 The DEPTH `strafer_direct` mode (in
-[`strafer-inference-package.md`](../../active/trained-policy/inference-package.md))
+[`inference-package`](../../active/trained-policy/inference-package.md))
 solves direct-pose-goal navigation with the policy's own depth-based
 obstacle avoidance, but in environments where Nav2's costmap-aware
 global plan is preferable (long known-map traversals, missions
@@ -36,7 +36,7 @@ This brief is intentionally **Jetson-only**. The DGX-side work that
 makes hybrid mode possible — defining `PolicyVariant.NOCAM_SUBGOAL`,
 building the subgoal-following training env, and producing a
 deployable checkpoint — lives in
-[`strafer-lab-subgoal-env.md`](../../active/trained-policy/subgoal-env.md). That
+[`subgoal-env`](../../active/trained-policy/subgoal-env.md). That
 brief must ship first.
 
 ## Context bundle
@@ -60,7 +60,7 @@ Read these before starting:
 
 ### What's in scope here vs. delegated to the prerequisite brief
 
-| Concern | This brief (Jetson) | [`strafer-lab-subgoal-env.md`](../../active/trained-policy/subgoal-env.md) (DGX) |
+| Concern | This brief (Jetson) | [`subgoal-env`](../../active/trained-policy/subgoal-env.md) (DGX) |
 |---|---|---|
 | `PolicyVariant.NOCAM_SUBGOAL` definition | consumes | defines |
 | Subgoal-following training env | consumes outputs | builds |
@@ -107,7 +107,7 @@ If `STRAFER_NAV_BACKEND=hybrid_nav2_strafer` is set but the
 strafer_inference action server isn't running (e.g. the trained
 checkpoint is missing), the dispatch falls back to `nav2` per the
 pattern set by
-[`strafer-inference-package.md`](../../active/trained-policy/inference-package.md)
+[`inference-package`](../../active/trained-policy/inference-package.md)
 Phase 4.
 
 ## Approach
@@ -157,7 +157,7 @@ In [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../.
 - Update `JetsonRosClient.navigate_to_pose` dispatch (currently
   recognizes `nav2` and `strafer_direct`, falls back to `nav2`
   on unknown values per
-  [`strafer-inference-package.md`](../../active/trained-policy/inference-package.md)
+  [`inference-package`](../../active/trained-policy/inference-package.md)
   Phase 4) to recognize `hybrid_nav2_strafer` as a third value.
 - For hybrid, the dispatch sends the goal to **both**:
   - Nav2's planner — to populate `/plan`. The action client
@@ -259,10 +259,10 @@ real-world variables that warrant their own scope.
 ### Sequencing notes
 
 - This brief blocks on **two** prerequisites:
-  - [`strafer-inference-package.md`](../../active/trained-policy/inference-package.md)
+  - [`inference-package`](../../active/trained-policy/inference-package.md)
     must ship first (provides the `strafer_inference` package
     this brief extends).
-  - [`strafer-lab-subgoal-env.md`](../../active/trained-policy/subgoal-env.md)
+  - [`subgoal-env`](../../active/trained-policy/subgoal-env.md)
     must ship first (defines `PolicyVariant.NOCAM_SUBGOAL`,
     builds the training env, and produces the deployable
     checkpoint).
@@ -274,13 +274,13 @@ real-world variables that warrant their own scope.
 ### Not addressed here
 
 - **Pure-RL execution (`strafer_direct`).** That's
-  [`strafer-inference-package.md`](../../active/trained-policy/inference-package.md).
+  [`inference-package`](../../active/trained-policy/inference-package.md).
   Hybrid coexists with both pure modes; this brief doesn't
   change them.
 - **The training environment.** That's
-  [`strafer-lab-subgoal-env.md`](../../active/trained-policy/subgoal-env.md).
+  [`subgoal-env`](../../active/trained-policy/subgoal-env.md).
 - **The trained NOCAM_SUBGOAL checkpoint.** Produced by Phase 5
-  of [`strafer-lab-subgoal-env.md`](../../active/trained-policy/subgoal-env.md).
+  of [`subgoal-env`](../../active/trained-policy/subgoal-env.md).
 - **Replacing Nav2 entirely.** Nav2 stays as the default backend
   and as the global planner in hybrid mode.
 - **Costmap-aware local control.** Hybrid here uses Nav2 for

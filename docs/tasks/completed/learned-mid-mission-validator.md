@@ -5,7 +5,7 @@ proposed architecture (frozen DINOv2-S/14 + frozen sentence
 encoder + ~5 M trainable fusion head) is structurally
 underpowered against the CLIP cascade-arbiter alternative the
 project is shipping via
-[`clip-mid-mission-validator-evaluation`](../active/clip-validation/validator-evaluation.md).
+[`validator-evaluation`](../active/clip-validation/validator-evaluation.md).
 The cascade includes Qwen2.5-VL-3B as the arbiter plus the
 planner LLM as judge — ~75× more pretrained capacity and 3
 orders of magnitude more pretraining data than a small frozen-head
@@ -15,10 +15,10 @@ heads losing to large pretrained zero-shot baselines in this
 regime. Retiring the brief reduces complexity without losing
 capability — the alternative escalation path is now the
 end-to-end VLA research arm
-([`strafer-vla-v2-architecture`](../parked/experimental/vla-v2-architecture.md)),
+([`vla-v2-architecture`](../parked/experimental/vla-v2-architecture.md)),
 which has billions of pretrained parameters as starting capital
 and is already filed for sim-side exploration.
-**Replaced-by:** [`clip-cotrained-retrieval-augmented`](../parked/clip-validation/cotrained-retrieval-augmented.md)
+**Replaced-by:** [`cotrained-retrieval-augmented`](../parked/clip-validation/cotrained-retrieval-augmented.md)
 captures the directions for *improving* the CLIP cascade
 itself (co-trained speaker integration + retrieval-augmented
 inference) which dominate the small-head-validator approach
@@ -29,7 +29,7 @@ on the same evaluation metrics.
 DGX-side; deployment lives behind the same env-var the CLIP path
 uses, no Jetson code changes beyond a model swap)
 **Priority:** P2 (gated on
-[`clip-mid-mission-validator-evaluation.md`](../active/clip-validation/validator-evaluation.md)
+[`validator-evaluation`](../active/clip-validation/validator-evaluation.md)
 shipping `fail` or `in-between` after the §3.1 cheap-fix re-run)
 **Estimate:** L (~multi-day; new training script, harness label
 augmentation, model export, eval reuse)
@@ -62,7 +62,7 @@ Parent design doc:
 §3.2 (small learned validator) and §4 (recommendation).
 
 Prerequisite brief (must ship first):
-[`clip-mid-mission-validator-evaluation.md`](../active/clip-validation/validator-evaluation.md).
+[`validator-evaluation`](../active/clip-validation/validator-evaluation.md).
 
 ## Context
 
@@ -88,7 +88,7 @@ fires only if it doesn't.
   that walks `data/sim_in_the_loop/<scene>/episode_NNNN/`,
   consumes the `root_cause`-augmented harness output (the canonical
   schema lives in
-  [`harness-behavior-cloning-data-expansion`](../active/harness/behavior-cloning-data-expansion.md);
+  [`behavior-cloning-data-expansion`](../active/harness/behavior-cloning-data-expansion.md);
   reads `frames_skill.jsonl` + `frames_tick.jsonl` when present,
   falls back to legacy `frames.jsonl`) produced by the
   CLIP-eval brief's `--root-cause-pass`, and emits
@@ -101,7 +101,7 @@ fires only if it doesn't.
   **Hard negatives** are consumed from deliberately-perturbed
   missions produced by the harness's `--inject-bad-grounding`
   flag — that flag is owned by
-  [`harness-behavior-cloning-data-expansion`](../active/harness/behavior-cloning-data-expansion.md),
+  [`behavior-cloning-data-expansion`](../active/harness/behavior-cloning-data-expansion.md),
   not added here. This brief documents which submodes
   (`wrong_room`, `wrong_instance`) it relies on and runs them
   during dataset assembly.
@@ -138,12 +138,12 @@ fires only if it doesn't.
 ### Dataset budget
 
 The harness corpus is multi-room by default (per
-[`multi-room-autonomy-stack`](../active/multi-room/autonomy-stack.md) +
-[`multi-room-scene-connectivity-validation`](../active/multi-room/scene-connectivity-validation.md)).
+[`autonomy-stack`](../active/multi-room/autonomy-stack.md) +
+[`scene-connectivity-validation`](../active/multi-room/scene-connectivity-validation.md)).
 This brief's *training* corpus uses both single-room and
 multi-room missions; the *eval* corpus is **single-room first**
 to match the single-room measurement scope of
-[`clip-mid-mission-validator-evaluation`](../active/clip-validation/validator-evaluation.md).
+[`validator-evaluation`](../active/clip-validation/validator-evaluation.md).
 
 Volume math:
 - Single-room scenes (`scene_fast_singleroom_000_seed0`,
@@ -159,7 +159,7 @@ Volume math:
   proportionally.
 
 The hard-negative consumption from
-[`harness-behavior-cloning-data-expansion`](../active/harness/behavior-cloning-data-expansion.md)'s
+[`behavior-cloning-data-expansion`](../active/harness/behavior-cloning-data-expansion.md)'s
 `--inject-bad-grounding` flag plus teleop-tagged hard negatives
 multiply effective negatives without re-running the full sweep.
 
@@ -190,7 +190,7 @@ established.
 - [ ] **Hard-negative consumption.** Two equally-valid sources;
       either or both:
   - **Teleop hard negatives** (cleanest, recommended).
-    [`harness-teleop-driver`](../active/harness/teleop-driver.md)'s `X` and
+    [`teleop-driver`](../active/harness/teleop-driver.md)'s `X` and
     `SELECT` buttons let the operator commit to specific
     failure modes (`wrong_instance` / `wrong_room` /
     `trajectory_violation`) at capture time, no post-hoc
@@ -198,7 +198,7 @@ established.
     scene gets the dataset to a workable balance.
   - **Bridge-injected hard negatives** via the harness's
     `--inject-bad-grounding` flag (owned by
-    [`harness-behavior-cloning-data-expansion`](../active/harness/behavior-cloning-data-expansion.md)).
+    [`behavior-cloning-data-expansion`](../active/harness/behavior-cloning-data-expansion.md)).
     Useful for scaling beyond what an operator can demonstrate;
     requires the v1 stack reliable enough to run.
 
@@ -250,7 +250,7 @@ established.
   Avoid hard-coded HF tokens; the model is public.
 - Per-mission temporal grouping is by `mission_id` in the
   harness output. Canonical schema:
-  [`harness-behavior-cloning-data-expansion`](../active/harness/behavior-cloning-data-expansion.md)
+  [`behavior-cloning-data-expansion`](../active/harness/behavior-cloning-data-expansion.md)
   (after that brief ships) or
   [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](../../INTEGRATION_SIM_IN_THE_LOOP.md)
   Stage 5 (legacy).

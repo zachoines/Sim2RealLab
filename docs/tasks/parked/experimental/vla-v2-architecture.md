@@ -5,9 +5,9 @@
 training, eval; the executor-side change to route missions to the
 new backend is a small Jetson-lane edit)
 **Priority:** P3 (research direction; depends on
-[`harness-teleop-driver`](../../active/harness/teleop-driver.md) (primary data
+[`teleop-driver`](../../active/harness/teleop-driver.md) (primary data
 path) and
-[`harness-behavior-cloning-data-expansion`](../../active/harness/behavior-cloning-data-expansion.md)
+[`behavior-cloning-data-expansion`](../../active/harness/behavior-cloning-data-expansion.md)
 (schema definition) shipping to provide the action-labeled
 corpus; explicitly *additive* to the v1 MVP — does not block any
 in-flight feature)
@@ -180,13 +180,13 @@ behavior-cloning-grade.
    schema. **Default data source: teleop demos** (per
    [`MISSION_VALIDATION_ARCHITECTURE.md` §3.6.a](../../../MISSION_VALIDATION_ARCHITECTURE.md#36a-teleop-demos-primary-canonical))
    captured by
-   [`harness-teleop-driver`](../../active/harness/teleop-driver.md) — this
+   [`teleop-driver`](../../active/harness/teleop-driver.md) — this
    matches how every published wheeled VLA is trained.
    Bridge-harness data
-   ([`harness-behavior-cloning-data-expansion`](../../active/harness/behavior-cloning-data-expansion.md))
+   ([`behavior-cloning-data-expansion`](../../active/harness/behavior-cloning-data-expansion.md))
    is a permissible *supplement* once the v1 stack is reliable
    (§3.6.b). Future scale-out via
-   [`harness-oracle-driver`](../harness/oracle-driver.md)
+   [`oracle-driver`](../harness/oracle-driver.md)
    if teleop throughput becomes the bottleneck (§3.6.c).
    Strafer is **mecanum holonomic**, not differential drive,
    which is unusual relative to most VLA training data — the
@@ -242,7 +242,7 @@ behavior-cloning-grade.
 7. **Sim-eval.** The harness drives the v2 backend via the
    toggle and emits its post-expansion output (`frames_skill.jsonl`
    + `frames_tick.jsonl` + `mission.json` per
-   [`harness-behavior-cloning-data-expansion`](../../active/harness/behavior-cloning-data-expansion.md)).
+   [`behavior-cloning-data-expansion`](../../active/harness/behavior-cloning-data-expansion.md)).
    Compare outcome metrics (reachability, time-to-arrival,
    false-stop / false-continue rates) against the v1 baseline
    on the same scenes.
@@ -374,9 +374,9 @@ honest measurement**, not "v2 beats v1."
   Family 2 (end-to-end actions).
 - **(Was) Multi-room navigation deferral.** No longer applies —
   multi-room is the MVP default per
-  [`multi-room-autonomy-stack`](../../active/multi-room/autonomy-stack.md)
+  [`autonomy-stack`](../../active/multi-room/autonomy-stack.md)
   (which lifts §1.10.1) and
-  [`multi-room-scene-connectivity-validation`](../../active/multi-room/scene-connectivity-validation.md).
+  [`scene-connectivity-validation`](../../active/multi-room/scene-connectivity-validation.md).
   This brief's training corpus is multi-room by default.
 - **From-scratch VLA training.** Adapt an existing checkpoint
   only.

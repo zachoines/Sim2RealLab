@@ -31,10 +31,10 @@ Read these before starting:
 - [`context/conventions.md`](../../context/conventions.md)
 
 Sibling briefs depending on this:
-- [`multi-room-autonomy-stack`](autonomy-stack.md) —
+- [`autonomy-stack`](autonomy-stack.md) —
   planner consumes the connectivity graph for transit-step
   emission.
-- [`harness-mission-generator`](../harness/mission-generator.md)
+- [`mission-generator`](../harness/mission-generator.md)
   *(formerly path-shape-generator)* — LLM-as-planner consumes
   the graph as part of its scene prompt; mission queue filters
   cross-room missions to reachable pairs.
@@ -153,7 +153,7 @@ multi-room-incompatible (don't add cross-room missions for it).
       seeds. Connectivity matrix in each is non-trivial (≥ 1
       `reachable: true` cross-room pair).
 - [ ] **Smoke test.** A mission generator
-      ([`harness-mission-generator`](../harness/mission-generator.md))
+      ([`mission-generator`](../harness/mission-generator.md))
       consumes the new connectivity block and emits cross-room
       missions only between reachable pairs. Verified by
       inspecting the generated `mission_queue.yaml`.

@@ -40,9 +40,9 @@ behavior. That's what makes `strafer_direct` actually deployable.
 NOCAM's place in the system is **hybrid mode** — Nav2 supplies the
 obstacle-aware global path, the NOCAM_SUBGOAL policy follows rolling
 subgoals along it. That's
-[`strafer-inference-hybrid-mode.md`](../../parked/trained-policy/hybrid-mode.md)
+[`hybrid-mode`](../../parked/trained-policy/hybrid-mode.md)
 + the prerequisite training-env work in
-[`strafer-lab-subgoal-env.md`](subgoal-env.md).
+[`subgoal-env`](subgoal-env.md).
 
 ### Why DEPTH-MVP is counter-intuitively the smaller path
 
@@ -139,16 +139,16 @@ with documented preprocessing (RAW depth → nearfield fill →
 ### Two execution modes
 
 `hybrid_nav2_strafer` is filed separately
-([`strafer-inference-hybrid-mode.md`](../../parked/trained-policy/hybrid-mode.md))
+([`hybrid-mode`](../../parked/trained-policy/hybrid-mode.md))
 and depends on a different `PolicyVariant` (`NOCAM_SUBGOAL`) plus
 new training env work
-([`strafer-lab-subgoal-env.md`](subgoal-env.md)).
+([`subgoal-env`](subgoal-env.md)).
 
 | Mode | Global plan | Local control | Filed as |
 |------|-------------|---------------|----------|
 | `nav2` (default) | Nav2 GridBased | Nav2 MPPI | Shipped today |
 | `strafer_direct` | none — direct goal | trained DEPTH policy via `strafer_inference` | **This brief** |
-| `hybrid_nav2_strafer` | Nav2 GridBased | trained `NOCAM_SUBGOAL` policy via `strafer_inference` | [`strafer-inference-hybrid-mode.md`](../../parked/trained-policy/hybrid-mode.md) |
+| `hybrid_nav2_strafer` | Nav2 GridBased | trained `NOCAM_SUBGOAL` policy via `strafer_inference` | [`hybrid-mode`](../../parked/trained-policy/hybrid-mode.md) |
 
 The mode is a *robot-side* execution choice; the autonomy / planner
 layer doesn't change. Operator-facing surface stays
@@ -362,7 +362,7 @@ Update
   action server (same action type, different node namespace).
 - Unknown values: log a clear error naming the value, fall back to
   `"nav2"`. Includes `"hybrid_nav2_strafer"` (filed in
-  [`strafer-inference-hybrid-mode.md`](../../parked/trained-policy/hybrid-mode.md))
+  [`hybrid-mode`](../../parked/trained-policy/hybrid-mode.md))
   — the fallback prevents typos from silently failing.
 
 The env-var default is the conservative choice — real-robot
@@ -552,7 +552,7 @@ do as part of the five phases above and shouldn't be.)
   [`policy-export-tooling.md`](../../completed/policy-export-tooling.md) (DGX-lane).
   Now MVP-required for both TorchScript and ONNX-with-TRT-EP paths.
 - **Pre-deployment training with goal-position noise.** Filed as
-  [`policy-goal-noise-training.md`](goal-noise-training.md)
+  [`goal-noise-training`](goal-noise-training.md)
   (DGX-lane). Required for VLM-grounded mission quality;
   deployment-prep training pass on top of a converged DEPTH
   baseline checkpoint.
@@ -564,10 +564,10 @@ do as part of the five phases above and shouldn't be.)
   Affects the `nav2` backend's startup behavior; orthogonal to
   RL policy execution.
 - **`hybrid_nav2_strafer` mode.** Filed as
-  [`strafer-inference-hybrid-mode.md`](../../parked/trained-policy/hybrid-mode.md)
+  [`hybrid-mode`](../../parked/trained-policy/hybrid-mode.md)
   (cross-lane). Requires a new `PolicyVariant.NOCAM_SUBGOAL`
   trained against a subgoal-following env that doesn't exist yet
-  ([`strafer-lab-subgoal-env.md`](subgoal-env.md)).
+  ([`subgoal-env`](subgoal-env.md)).
   Hybrid coexists with `strafer_direct`; this brief doesn't block
   on it.
 - **Real-robot DEPTH validation.** File as a separate brief

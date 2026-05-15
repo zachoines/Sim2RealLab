@@ -55,9 +55,13 @@ explicit dependencies.
 | [`export-onnx-depth`](active/trained-policy/export-onnx-depth.md) | P1 | active | DGX |
 | [`loader-recurrent-state`](active/trained-policy/loader-recurrent-state.md) | P1 | active | Either |
 | [`inference-package`](active/trained-policy/inference-package.md) | P1 | active | Jetson |
+| [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | P1 | active | Either |
+| [`observation-contract-cleanup`](active/trained-policy/observation-contract-cleanup.md) | P1 | active | DGX |
+| [`domain-randomization-audit`](active/trained-policy/domain-randomization-audit.md) | P1 | active | DGX |
 | [`goal-noise-training`](active/trained-policy/goal-noise-training.md) | P2 | active | DGX |
 | [`subgoal-env`](active/trained-policy/subgoal-env.md) | P2 | active | DGX |
 | [`hybrid-mode`](parked/trained-policy/hybrid-mode.md) | P3 | parked | Jetson |
+| [`rl-global-nav2-local`](parked/trained-policy/rl-global-nav2-local.md) | P3 | parked | Either |
 
 ### Harness & training data
 
@@ -143,6 +147,9 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`frontier-exploration-primitive`](active/multi-room/frontier-exploration-primitive.md) | Either | M | `explore_until_visible(label)` skill. Closes the cold-start cross-room gap §1.10.1 option 3 named. Hard prerequisite for `autonomy-stack`'s cold-start smoke test. |
 | [`autonomy-stack`](active/multi-room/autonomy-stack.md) | Either | M | Lifts §1.10.1's multi-room deferral. Stored-map fallback in `scan_for_target` + planner transit-step emission + plan-compiler updates. Now blocks on `planner-architecture-alignment`, `observation-derived-room-state`, `frontier-exploration-primitive`. |
 | [`scene-connectivity-validation`](active/multi-room/scene-connectivity-validation.md) | DGX | S | Verified-and-enriched `connectivity[]` block + door-open guarantee. Sim/harness-only; runtime equivalent is `observation-derived-room-state`. |
+| [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | Either | S–M | End-to-end spec for hidden-state shape, reset semantics, thread-safety across train/export/inference. Three existing recurrent briefs each describe their side; this brief pins the contract at the seams. Filed off the 2026-05-15 trained-policy audit. |
+| [`observation-contract-cleanup`](active/trained-policy/observation-contract-cleanup.md) | DGX | S–M | Re-implement `body_velocity_xy` as encoder-derived FK so the sim signal chain matches what the real robot computes via `/strafer/odom`. Closes a silent sim-to-real bug before the DEPTH MVP ships. Filed off the 2026-05-15 trained-policy audit. |
+| [`domain-randomization-audit`](active/trained-policy/domain-randomization-audit.md) | DGX | M | Bench-measure real-chassis variability (mass, battery, D555 latency, Jetson jitter) and widen REAL_ROBOT_CONTRACT to match. Resume-train DEPTH baseline against the audited DR. Filed off the 2026-05-15 trained-policy audit. |
 
 ### P2 — medium priority
 
@@ -208,6 +215,7 @@ picks them up.
 | Brief | Trigger / blocks on | Why |
 |---|---|---|
 | [`hybrid-mode`](parked/trained-policy/hybrid-mode.md) | [`inference-package`](active/trained-policy/inference-package.md) (Jetson) **and** [`subgoal-env`](active/trained-policy/subgoal-env.md) (DGX) both shipped | Hybrid backend extends the inference package's runtime AND consumes the `NOCAM_SUBGOAL` checkpoint produced by the env brief. The two prerequisites can run in parallel since they're cross-lane |
+| [`rl-global-nav2-local`](parked/trained-policy/rl-global-nav2-local.md) | Trigger: first end-to-end deployment of `strafer_direct` (DEPTH MVP) or `hybrid_nav2_strafer` reveals that local-control RL is insufficient for VLM-grounded missions and the global-plan layer is the issue | Alternative architecture corner: RL as global waypoint planner, Nav2 as local controller. Filed off the 2026-05-15 trained-policy audit. Don't pick up preemptively — needs deployment evidence first |
 | [`cotrained-retrieval-augmented`](parked/clip-validation/cotrained-retrieval-augmented.md) | [`validator-evaluation`](active/clip-validation/validator-evaluation.md) shipped + [`trajectory-first-captioning`](active/harness/trajectory-first-captioning.md) shipped (provides the speaker corpus) | Replaces the retired `learned-mid-mission-validator` as the cascade-improvement path. The co-training step and retrieval-augmented step compound; both compose with the existing cascade. |
 | [`vla-v2-architecture`](parked/experimental/vla-v2-architecture.md) | [`teleop-driver`](active/harness/teleop-driver.md) **and** [`behavior-cloning-data-expansion`](active/harness/behavior-cloning-data-expansion.md) shipped | Needs the action-labeled corpus (teleop primary, bridge supplement) before any VLA fine-tune is meaningful. Sim-first research arm; additive to v1. |
 | [`oracle-driver`](parked/harness/oracle-driver.md) | [`subgoal-env`](active/trained-policy/subgoal-env.md) shipped (provides NoCam waypoint-follower checkpoint) **and** trigger: teleop throughput is the binding scale constraint for VLA training (see brief) | Filed-on-trigger sketch. Don't pick up preemptively. |

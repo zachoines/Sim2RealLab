@@ -68,6 +68,17 @@ Read these before starting:
 - [context/bridge-runtime-invariants.md](../../context/bridge-runtime-invariants.md)
   — particularly the "Camera resolutions (sim mirrors real)" section,
   which is load-bearing for Phase 2's depth-downsample stage.
+- [recurrent-state-contract.md](recurrent-state-contract.md) — the
+  canonical spec for when `policy.reset()` fires at episode
+  boundaries. Read before writing the Phase 3 `reset()` call sites;
+  do not redefine the trigger set in this brief — consume it from
+  the contract.
+- [observation-contract-cleanup.md](observation-contract-cleanup.md)
+  — load-bearing predecessor for the Phase 2 NOCAM-fields obs-parity
+  acceptance (≤ 1e-5 max abs delta). Today `body_velocity_xy` is
+  sim ground truth on the training side and encoder-derived odom on
+  the inference side; that brief closes the gap so this brief's
+  parity test is meaningful.
 - [completed/mppi-critic-tuning-for-sim-envelope.md](../../completed/mppi-critic-tuning-for-sim-envelope.md)
   — the predecessor whose validation surfaced the MPPI plateau and
   motivated this work as the architectural alternative.
@@ -197,17 +208,22 @@ Wire the observation side end-to-end against `PolicyVariant.DEPTH`:
     frame (consistent with Nav2's input)
 
 - **Inference rate is derived, not hardcoded:**
+  The Jetson cannot import `strafer_lab` (Isaac Lab dep). Promote
+  the two relevant constants to `strafer_shared.constants` in the
+  same commit (additive-only — per the narrow strafer_shared
+  exception in the ownership-boundaries module) and read from
+  there on both sides:
   ```python
-  # Match the training env exactly.
-  from strafer_lab.tasks.navigation.strafer_env_cfg import (
-      _DEFAULT_NAV_SIM_DT, _DEFAULT_NAV_DECIMATION,
-  )
-  infer_period_s = _DEFAULT_NAV_SIM_DT * _DEFAULT_NAV_DECIMATION
-  # Currently 1/120 * 4 = 1/30 s = 30 Hz.
+  # In strafer_shared.constants
+  POLICY_SIM_DT = 1.0 / 120.0
+  POLICY_DECIMATION = 4
+  POLICY_PERIOD_S = POLICY_SIM_DT * POLICY_DECIMATION  # 1/30 s = 30 Hz
   ```
-  If `strafer_lab` isn't installed on the Jetson, re-export the
-  constants via `strafer_shared` in the same commit. Either way, do
-  not duplicate the constant.
+  In `strafer_env_cfg.py` re-export the same module-level constants
+  so `_DEFAULT_NAV_SIM_DT` / `_DEFAULT_NAV_DECIMATION` are now
+  delegations rather than originals. The inference node imports
+  `POLICY_PERIOD_S` directly. Either way, do not duplicate the
+  constant — sim and real read from one source of truth.
 
 - **Depth downsample stage (load-bearing for sim-real parity):**
 
@@ -304,6 +320,18 @@ guarantee — if it doesn't hold, the policy will not transfer.
   chain handles missing TRT on a dev workstation; production must
   load via TRT and the launch-time benchmark surfaces a warning
   if not.
+
+  **Engine cold-start.** Without a pre-built `.engine` shipped
+  alongside (the export brief's optional `tensorrt_engine_path`),
+  ONNX Runtime's TRT EP builds the engine on first inference. On
+  Jetson Orin Nano this takes 10–30 s for EfficientNet-B0-class
+  graphs. During that build the node *appears* to hang to any
+  external observer (no logs, no twist publish). Surface the build
+  with a startup log line ("Building TensorRT engine, may take
+  ~30 s…") and a `node.declare_parameter("ready", False)` that
+  flips to `True` after the first successful inference, so
+  operator-side health checks can distinguish "still warming up"
+  from "wedged."
 - On each tick, feed the assembled obs to the loaded callable,
   get back a 3-vector action. Cache it as `last_action` for the
   next tick (raw, pre-`interpret_action` — see Phase 2).
@@ -326,15 +354,27 @@ guarantee — if it doesn't hold, the policy will not transfer.
 - Publish to `/strafer/cmd_vel` (real-robot path — driver remaps
   it) or `/cmd_vel` (sim-in-the-loop path matches Nav2's
   publisher contract).
-- **Watchdog (5-source for DEPTH):** publish zero twist + log a
+- **Watchdog (6-source for DEPTH):** publish zero twist + log a
   warning if ANY of:
   - No goal received for `goal_timeout_s` (default 1.0 s).
   - No IMU sample for `obs_timeout_s` (default 0.2 s).
+  - No `/strafer/joint_states` for `obs_timeout_s` (encoder
+    feedback drives the `encoder_vels_ticks` obs term).
   - No `/strafer/odom` for `obs_timeout_s`.
   - No `/d555/depth/image_rect_raw` for `depth_timeout_s` (default
     0.5 s — depth publish rate is slower than IMU).
   - TF lookup `map → base_link` is older than `tf_max_age_s`
     (default 0.5 s).
+
+  The earlier draft of this brief listed five sources and folded
+  joint_states under "encoder_vels comes from joint_states." That's
+  correct upstream but joint_states is published by the chassis
+  driver on its own topic with potentially different rate / latency
+  from odom — they're correlated but not the same. A frozen
+  joint_states with a fresh odom would zero the encoder field on
+  one tick while leaving the body-velocity field fresh, which is
+  exactly the kind of half-fresh obs that produces silent
+  inference garbage. Independent watchdog source.
 
 Phase 3 acceptance: with a hand-exported `.onnx` test artifact
 (any small DEPTH-shaped network — e.g. 4819-dim input → 3-dim
@@ -360,6 +400,18 @@ Update
   path.
 - For `"strafer_direct"`: send to the new `strafer_inference`
   action server (same action type, different node namespace).
+  **Server-unavailable fallback:** if the operator selected
+  `strafer_direct` but the strafer_inference action server is not
+  advertised (Phase 3 makes model-load failure fatal at the
+  inference node, so the action server never starts → the autonomy
+  client sees no server within the
+  `wait_for_server(timeout_sec=10.0)` window), log a clear error
+  and fall back to `nav2` for *this mission*. Subsequent missions
+  re-attempt the lookup in case the operator manually restarted the
+  inference node. This is the same pattern as the existing
+  `nav2_unavailable` error path in
+  [`ros_client.py`](../../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
+  `navigate_to_pose`.
 - Unknown values: log a clear error naming the value, fall back to
   `"nav2"`. Includes `"hybrid_nav2_strafer"` (filed in
   [`hybrid-mode`](../../parked/trained-policy/hybrid-mode.md))
@@ -475,13 +527,20 @@ do as part of the five phases above and shouldn't be.)
       `(0.99, 0.99, 0.99)` and asserts the published `/cmd_vel`
       satisfies `|vx| + |vy| ≤ NAV_VEL_SCALE * MAX_LINEAR_VEL` and
       `|wz| ≤ NAV_VEL_SCALE * MAX_ANGULAR_VEL`.
-- [ ] **Watchdog (5-source)**: unit test using mocked clocks
+- [ ] **Watchdog (6-source)**: unit test using mocked clocks
       asserts zero twist on each independent failure: stale goal,
-      stale IMU, stale odom, stale depth, stale `map → base_link`
-      TF.
+      stale IMU, stale joint_states, stale odom, stale depth, stale
+      `map → base_link` TF.
 - [ ] **Model-load failure**: unit test points `model_path` at a
       non-existent file; node logs a clear error and the action
-      server is not advertised.
+      server is not advertised. The autonomy client must observe
+      `wait_for_server` timeout and fall back to `nav2` for that
+      mission per the Phase 4 fallback rule.
+- [ ] **TRT-EP cold-start surfacing**: with a fresh ONNX (no
+      pre-built engine), the node logs a "Building TensorRT engine"
+      line at startup and the `ready` parameter flips to `True`
+      only after the first successful inference. Operator health
+      check can distinguish "warming up" from "wedged."
 - [ ] **`(obs_summary, action)` debug logging**: with
       `--ros-args --log-level debug` enabled, every tick emits a
       structured log line containing the obs summary

@@ -30,6 +30,12 @@ Read these before starting:
   — particularly the **Shared boundary** section: `strafer_shared`
   edits should be append-friendly; coordinate any signature changes
   with the operator.
+- [recurrent-state-contract.md](recurrent-state-contract.md) — the
+  canonical spec for hidden-state shape, reset semantics, and the
+  determinism contract this brief implements. Read before authoring
+  `LoadedPolicy`; the contract pins what `reset()` is called for, how
+  byte-identity behaves with vs. without reset, and the thread-safety
+  expectation the loader must surface to callers.
 - [policy-export-tooling.md](../../completed/policy-export-tooling.md) — the producer
   side. Sidecar already records `is_recurrent` and (post-
   [`export-onnx-depth`](export-onnx-depth.md)) ONNX
@@ -127,6 +133,31 @@ where it actually gets called from `inference_node.py`. Update the
 inference brief in the same commit if the contract surface (method
 names, return type) ends up different from what that brief assumed.
 
+The episode-boundary trigger set (when the inference node should
+fire `reset()`) is defined in
+[`recurrent-state-contract`](recurrent-state-contract.md) — *not* in
+this brief. The loader just makes the surface available; the
+inference node decides when to call it.
+
+### Thread safety contract surface
+
+Both formats produce a stateful object:
+
+- TorchScript: hidden state is a `register_buffer` inside the
+  scripted module — module-level state, not per-call. Parallel
+  `policy(obs)` calls from different threads race on this buffer.
+- ONNX: the new `LoadedPolicy` holds persistent numpy buffers for
+  `h_in` / `c_in` between `__call__` invocations. Same race
+  condition under parallel calls.
+
+The loader is therefore **NOT thread-safe by design**. Document this
+on `LoadedPolicy`'s class docstring. The inference node is expected
+to serialize all policy calls through a single thread; if it ever
+uses `MultiThreadedExecutor`, a mutex around the policy call is the
+caller's responsibility. See
+[`recurrent-state-contract`](recurrent-state-contract.md) for the
+end-to-end picture.
+
 ### Phase 5 — Tests
 
 Extend
@@ -175,6 +206,17 @@ keeps things in one place):
       `variant` arg passed to `load_policy()` raises a clear startup
       error (the cross-brief invariant the inference node enforces —
       enforce it at the loader so all consumers benefit).
+
+### Thread safety
+
+- [ ] `LoadedPolicy.__call__` and `LoadedPolicy.reset()` are
+      documented as **not thread-safe** for recurrent variants
+      (TorchScript hidden buffer + ONNX persistent numpy buffer both
+      race under concurrent calls). Class docstring includes this
+      contract surface so callers know they must serialize through a
+      single thread (or mutex). See
+      [`recurrent-state-contract`](recurrent-state-contract.md) for
+      the cross-brief picture.
 
 ### Maintenance
 

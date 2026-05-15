@@ -24,6 +24,29 @@ get Nav2's global geometry awareness and the RL policy's smooth
 continuous control — neither backend has to solve the entire problem
 alone**.
 
+### Architecture choice: this is one of four corners
+
+This brief's "Nav2-global + RL-local" split is one of four possible
+corners of the four-architecture matrix:
+
+|  | Local control by Nav2 | Local control by RL |
+|---|---|---|
+| **Global planning by Nav2** | shipped today (Nav2-only) | **THIS BRIEF** (`hybrid_nav2_strafer`) |
+| **Global planning by RL** | [`rl-global-nav2-local`](rl-global-nav2-local.md) (parked) | `strafer_direct` ([inference-package](../../active/trained-policy/inference-package.md), DEPTH MVP — shipping) |
+
+The current direction (this brief + DEPTH MVP) is well-grounded: RL
+is good at smooth continuous control under noise, Nav2 is good at
+costmap-aware path planning on known maps. But the inverse corner
+(RL as the *global* planner emitting waypoints + Nav2's controller
+following them) might be a better fit for VLM-grounded missions
+where the planning decision involves *intent* (which way around the
+chair, whether to back up and re-approach a doorway, etc.) rather
+than just geometry. Filed as a parked alternative in
+[`rl-global-nav2-local`](rl-global-nav2-local.md) — pick up only
+if/when this brief's deployment surfaces a "RL is doing local
+control but the issue is global plan quality" failure mode. Don't
+implement preemptively.
+
 The DEPTH `strafer_direct` mode (in
 [`inference-package`](../../active/trained-policy/inference-package.md))
 solves direct-pose-goal navigation with the policy's own depth-based

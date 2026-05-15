@@ -26,6 +26,11 @@ plateauing well above the budget on the 4819-dim observation vector**.
 Read these before starting:
 - [context/repo-topology.md](../../context/repo-topology.md)
 - [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
+- [recurrent-state-contract.md](recurrent-state-contract.md) — the
+  canonical spec for hidden-state shape, reset semantics, and the
+  determinism contract this brief's producer side must satisfy. Read
+  before writing `_OnnxDepthGRUModel`; the contract pins what `h_in`
+  / `h_out` look like at the seam.
 - [policy-export-tooling.md](../../completed/policy-export-tooling.md) — the export
   tooling whose `--formats pt,onnx` path errors today on DEPTH
   variants because of the gap this brief closes.
@@ -70,11 +75,64 @@ The blockers behind that `NotImplementedError`:
    etc.) that may need opset-18 support. Need to verify the encoder is
    ONNX-traceable as-is and the resulting graph is consumable by both
    ORT-CPU (DGX validation) and ORT-TRT (Jetson deployment).
+
+   **Sub-blockers under the DeFM encoder specifically**
+   ([`depth_encoders.py:103-131`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_encoders.py)):
+
+   - **Runtime preprocessing pipeline.** `DeFMDepthEncoder.forward()`
+     calls `_preprocess(...)` (a function loaded via
+     `_get_defm_preprocess()` which mutates `sys.path` at module load
+     time to import from the `torch.hub` cache directory). This is
+     not script-friendly; tracing should still work because the
+     function is just a tensor pipeline at runtime, but verify the
+     traced graph captures the upsample 60×80 → 224×224 + 3-channel
+     log-normalization steps as expected. If the function contains
+     Python-level control flow, trace will silently bake in the
+     branch taken on the dummy input.
+   - **Frozen backbone with dict output.** The backbone is wrapped in
+     `with torch.no_grad():` and returns `out["global_backbone"]`. The
+     tracer should follow the `global_backbone` key only; verify the
+     resulting ONNX graph has the expected single-output backbone
+     (not the full dict). The official DeFM repo
+     ([leggedrobotics/defm](https://github.com/leggedrobotics/defm))
+     does NOT publish ONNX export examples — verify locally on a
+     1-batch dummy before relying on TensorRT consumption.
+   - **EfficientNet-B0 SE blocks** require opset 17+ to export
+     cleanly; `_DEFAULT_ONNX_OPSET = 18` in `export_policy.py` is
+     sufficient.
+
 2. **Recurrent I/O signature.** rsl_rl's stock `_OnnxRNNModel` uses
    `(obs, h_in[, c_in]) → (actions, h_out[, c_out])`. The DEPTH ONNX
    wrapper needs the same signature + the depth-encoder split inside
    `forward`, since hidden state can't live in an internal buffer once
    the model is ONNX (ONNX nodes are stateless by construction).
+
+3. **The existing export pipeline can't handle multi-input ONNX
+   today — and this is not DEPTH-specific.** `Scripts/export_policy.py
+   :export_onnx` hardcodes
+   `torch.onnx.export(module, (dummy_obs,), ..., input_names=["obs"],
+   output_names=["actions"])` and `_verify_onnx_determinism` only
+   feeds `sess.get_inputs()[0].name`. This means even the existing
+   rsl_rl stock `_OnnxRNNModel` (used by `STRAFER_PPO_LSTM_RUNNER_CFG`
+   for NoCam LSTM) would fail to export through this script — its
+   `(obs, h_in, c_in)` signature wouldn't be satisfied by the
+   hardcoded single-input dummy. The Phase 2 work in this brief
+   therefore unlocks BOTH the DEPTH GRU path AND the NoCam LSTM path,
+   not just DEPTH. Make the export pipeline consult
+   `module.input_names` / `module.output_names` /
+   `module.get_dummy_inputs()` when present, fall back to the current
+   stateless signature otherwise.
+
+4. **The deterministic head is Beta-distribution.** Unlike rsl_rl's
+   stock Gaussian-based `_BetaDeterministicOutput` is composed of
+   `softplus`, division, scalar multiply, scalar subtract — all
+   standard ONNX ops in opset 17+. But the MLP outputs shape
+   `[..., 2, output_dim]` (see
+   [`distributions.py:96`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/distributions.py))
+   which is reshaped from a flat `2 * output_dim` linear output. Verify
+   the reshape exports as a concrete `Reshape` op, not an opaque
+   `Constant + Reshape` chain that TensorRT might struggle with. Spot
+   check the ONNX graph in Netron after export.
 
 ## Approach
 
@@ -97,7 +155,7 @@ add `_OnnxDepthGRUModel` mirroring `_DepthGRUExportModel` but:
   for GRU + depth, raise for unsupported (LSTM, no-depth + non-MLPModel
   fallthroughs).
 
-### Phase 2 — Update the export pipeline
+### Phase 2 — Update the export pipeline (applies to all recurrent ONNX, not just DEPTH)
 
 `Scripts/export_policy.py` currently expects `as_onnx()` to return a
 stateless module with `input_names = ["obs"]` /
@@ -106,17 +164,27 @@ multi-input/output signature, so `export_onnx()` and the round-trip
 verifier need to handle:
 
 - `policy_model.as_onnx()` returning `_OnnxDepthGRUModel`
-  (multi-input/output), an `_OnnxRNNModel` (multi-input/output), OR a
-  stateless `_OnnxMLPModel`.
+  (multi-input/output), an `_OnnxRNNModel` (multi-input/output — used
+  today by the existing NoCam LSTM config that has no shipping ONNX
+  path either), OR a stateless `_OnnxMLPModel`.
 - ONNX export call: forward `dummy_inputs = onnx_module.get_dummy_inputs()`
   and `input_names` / `output_names` from the wrapper instead of
-  hardcoding.
+  hardcoding. The contract surface for both `_OnnxRNNModel` and the
+  new `_OnnxDepthGRUModel` exposes these as attributes — consult the
+  module rather than treating DEPTH as a special case.
 - Round-trip verification needs to feed both `obs` and `h_in` (zeros)
   to `ort.InferenceSession.run(...)`, assert determinism with `h_in`
-  reset between calls.
+  reset between calls. Read the input/output names from
+  `sess.get_inputs()` rather than hardcoding `"obs"`.
 
 The `is_recurrent` flag in the sidecar already records the contract;
 this brief just makes the artifact actually loadable.
+
+The "fixes NoCam LSTM too" property is a free win, not a goal — the
+NoCam LSTM ONNX path was never in active use because the existing
+NoCam MLP config is faster on CPU. Don't expand scope to validate
+NoCam LSTM end-to-end here; that's a separate brief if/when the LSTM
+config becomes a deployment target.
 
 ### Phase 3 — Tests
 
@@ -189,13 +257,29 @@ sweep happens after rsync per the strafer-inference brief.
   — `_DepthGRUExportModel` is the TorchScript reference; the new
   ONNX wrapper mirrors its forward path with hidden state lifted to
   inputs / outputs.
+- [`source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_encoders.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_encoders.py)
+  — `DeFMDepthEncoder` and `_get_defm_preprocess`; the runtime-loaded
+  preprocessing function and the dict-returning frozen backbone. Trace
+  this submodule alone first (`torch.onnx.export` on a 1-batch dummy
+  depth tensor) to confirm the encoder is ONNX-exportable in
+  isolation before integrating into the full DEPTH wrapper.
 - `rsl_rl.models.rnn_model._OnnxRNNModel` (vendored at
   `~/miniconda3/envs/env_isaaclab3/lib/python3.12/site-packages/rsl_rl/models/rnn_model.py:180`)
   — the canonical recurrent-ONNX template (no depth encoder; same I/O
-  shape).
+  shape). Exposes `get_dummy_inputs()`, `input_names`, `output_names`
+  as the contract for `export_policy.py` to consume.
+- `rsl_rl` upstream issue
+  [isaac-sim/IsaacLab#3008](https://github.com/isaac-sim/IsaacLab/issues/3008)
+  — historical GRU-export bug in Isaac Lab's exporter (hardcoded LSTM
+  assumption). Confirm the pinned `rsl_rl` version on
+  `env_isaaclab3` has the GRU fix; the in-repo `_DepthGRUExportModel`
+  works around the TorchScript side already.
 - [`Scripts/export_policy.py`](../../../../Scripts/export_policy.py)
   `export_onnx()` and `_verify_onnx_determinism()` — the export and
   round-trip helpers that need to handle the multi-input signature.
+- [`source/strafer_lab/strafer_lab/tasks/navigation/agents/distributions.py:114-124`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/distributions.py)
+  — `_BetaDeterministicOutput`; the export-friendly Beta-mean module
+  that sits at the head of the DEPTH ONNX graph.
 
 ## Out of scope
 

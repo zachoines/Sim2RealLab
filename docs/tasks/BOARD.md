@@ -40,9 +40,13 @@ explicit dependencies.
 
 | Brief | Pri | State | Owner |
 |---|---|---|---|
+| [`planner-architecture-alignment`](active/multi-room/planner-architecture-alignment.md) | P1 | active | DGX |
+| [`observation-derived-room-state`](active/multi-room/observation-derived-room-state.md) | P1 | active | DGX |
+| [`frontier-exploration-primitive`](active/multi-room/frontier-exploration-primitive.md) | P1 | active | Either |
 | [`autonomy-stack`](active/multi-room/autonomy-stack.md) | P1 | active | Either |
 | [`scene-connectivity-validation`](active/multi-room/scene-connectivity-validation.md) | P1 | active | DGX |
 | [`planner-far-target-staging`](active/multi-room/planner-far-target-staging.md) | P2 | active | DGX |
+| [`llm-guided-frontier-gain`](parked/multi-room/llm-guided-frontier-gain.md) | P2 | parked | DGX |
 
 ### Trained-policy backend
 
@@ -134,8 +138,11 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`loader-recurrent-state`](active/trained-policy/loader-recurrent-state.md) | Either | S–M (~1 d) | Extend `strafer_shared.policy_interface.load_policy()` so recurrent artifacts expose `.reset()` and ONNX hidden state threads correctly. Prerequisite for stateful DEPTH inference on Jetson. |
 | [`validator-evaluation`](active/clip-validation/validator-evaluation.md) | Either | L | Wire the orphaned `SemanticMapManager` + `BackgroundMapper` + `TransitMonitor` path into the production executor and measure pre-registered TPR/FPR/time-to-decision on harness output. Gating brief for `MISSION_VALIDATION_ARCHITECTURE.md` §4 staged plan. Filed off `mid-mission-validation-investigation` ship. |
 | [`teleop-driver`](active/harness/teleop-driver.md) | DGX | M | Gamepad teleop entry point for in-process Isaac Lab data capture. Bypasses MPPI / Nav2 / planner; reuses `collect_demos.py` mapping; emits the canonical harness schema. Unblocks v1 measurement (clip-eval, learned-validator) and v2 VLA training data without depending on bridge perf. |
-| [`autonomy-stack`](active/multi-room/autonomy-stack.md) | Either | M | Lifts §1.10.1's multi-room deferral. Stored-map fallback in `scan_for_target` + planner transit-step emission + plan-compiler updates. Required for multi-room as the MVP default. |
-| [`scene-connectivity-validation`](active/multi-room/scene-connectivity-validation.md) | DGX | S | Computes room connectivity at scene-gen time + verifies door-open default in `prep_room_usds.py`. Hard prerequisite for `autonomy-stack` and `mission-generator`. |
+| [`planner-architecture-alignment`](active/multi-room/planner-architecture-alignment.md) | DGX | S | Docs-only decision: keep planner as intent classifier or promote to multi-step. Blocks `autonomy-stack` and `planner-far-target-staging`. Filed off the 2026-05-13 multi-room audit. |
+| [`observation-derived-room-state`](active/multi-room/observation-derived-room-state.md) | DGX | M | Runtime-legal `current_room` / `known_rooms` / `connectivity` on `SemanticMapManager`. Replaces the `scene_metadata.json` leak path in `autonomy-stack`. Hard prerequisite. |
+| [`frontier-exploration-primitive`](active/multi-room/frontier-exploration-primitive.md) | Either | M | `explore_until_visible(label)` skill. Closes the cold-start cross-room gap §1.10.1 option 3 named. Hard prerequisite for `autonomy-stack`'s cold-start smoke test. |
+| [`autonomy-stack`](active/multi-room/autonomy-stack.md) | Either | M | Lifts §1.10.1's multi-room deferral. Stored-map fallback in `scan_for_target` + planner transit-step emission + plan-compiler updates. Now blocks on `planner-architecture-alignment`, `observation-derived-room-state`, `frontier-exploration-primitive`. |
+| [`scene-connectivity-validation`](active/multi-room/scene-connectivity-validation.md) | DGX | S | Verified-and-enriched `connectivity[]` block + door-open guarantee. Sim/harness-only; runtime equivalent is `observation-derived-room-state`. |
 
 ### P2 — medium priority
 
@@ -209,6 +216,7 @@ picks them up.
 | [`cosmos-replay-perturbation`](parked/harness/cosmos-replay-perturbation.md) | Trigger: teleop corpus ≥ 500 trajectories **and** NVIDIA Cosmos Predict / Transfer accessible on the DGX | Audit-filed: corpus multiplier via NVIDIA Cosmos world-model re-rendering (lighting / texture / weather variants per captured trajectory). Replaces / extends the design-doc's "replay-with-perturbation" item. |
 | [`nav-stall-multilayer-watchdog`](parked/reliability/nav-stall-multilayer-watchdog.md) | Trigger: v1 stall watchdog from `progress-aware-nav-timeouts` produces real-world false-positives (cluttered-sim re-plans) or false-negatives (chassis wedge incident) | Filed-on-trigger sketch. Adds chassis-wedge + Nav2 recovery-rate signals on top of the v1 best-ever-distance watchdog. Don't pick up preemptively — v1 may be sufficient. |
 | [`perception-side-bearing-service`](parked/reliability/perception-side-bearing-service.md) | Trigger: at least one bearing-varying behavior (approach-from-angle, look-at-while-driving, face-target-while-translating, etc.) is on the active roadmap | Filed-on-trigger refactor surfaced by `align-after-scan-grounding`'s shipped Option A. Moves bearing math from autonomy executor into `strafer_perception` so future bearing-varying features don't have to thread quaternion math through the executor. |
+| [`llm-guided-frontier-gain`](parked/multi-room/llm-guided-frontier-gain.md) | [`frontier-exploration-primitive`](active/multi-room/frontier-exploration-primitive.md) shipped (no skill to extend) **and** [`observation-derived-room-state`](active/multi-room/observation-derived-room-state.md) shipped (no language-shaped frontier descriptions) | Extension to v1 frontier primitive — multiplies an LFG-style scalar LLM prior onto the geometric gain. `gain_weights.llm = 0.0` recovers v1 exactly. Cites LFG (arXiv:2310.10103) as the design precedent; CogNav state machine deferred to v3. |
 
 ---
 

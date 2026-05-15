@@ -38,6 +38,49 @@ Read these before starting:
 
 ## Context
 
+### NOCAM_SUBGOAL safety: it trusts Nav2's costmap absolutely
+
+This brief's MVP target is `PolicyVariant.NOCAM_SUBGOAL` — same 19
+proprioceptive dims as NOCAM, no perception. The deployment story
+is: Nav2 plans a path through the costmap (which is up-to-date and
+obstacle-aware), the policy follows the path.
+
+**This is only safe when the costmap is trustworthy.** Failure
+modes the NOCAM_SUBGOAL policy cannot detect or recover from:
+
+- **Stale costmap.** RTAB-Map or the costmap layer hasn't seen a
+  recent obstacle (moved chair, person, dropped object). The path
+  goes through it. Policy follows; collision.
+- **TF lag between costmap and policy.** Costmap planned at t=0,
+  obstacle appeared at t=1, policy is at t=1.5. The path it sees
+  is from before the obstacle existed.
+- **SLAM jump.** Loop-closure snaps the `map` frame. The path was
+  in old-map coordinates; in new-map coordinates it now goes
+  through a wall.
+
+The `strafer_direct` DEPTH MVP exists precisely because NOCAM-direct
+is unsafe. NOCAM_SUBGOAL is safer than NOCAM-direct (Nav2 handles
+global obstacle awareness for it) but strictly less safe than
+DEPTH_SUBGOAL (where the policy itself can see late-arriving
+obstacles).
+
+Two implications:
+
+1. **Document the trust boundary in the variant docstring.** The
+   `PolicyVariant.NOCAM_SUBGOAL` definition added in Phase 2 must
+   call out: this variant trusts Nav2's costmap absolutely; the
+   deployment lane must include a costmap freshness watchdog and
+   must not use it in dynamic-obstacle scenarios.
+2. **Consider DEPTH_SUBGOAL as the actual MVP target.** This brief
+   currently parks DEPTH_SUBGOAL "as a follow-up brief once both
+   this brief and inference-package's DEPTH path have shipped."
+   That ordering makes sense for code reuse but defers the
+   architectural call. Worth re-evaluating at planning time
+   whether DEPTH_SUBGOAL (Nav2 plans the route, RL handles
+   late-arriving obstacles with depth) is the safer MVP and
+   NOCAM_SUBGOAL is the speed-optimization follow-up. See
+   `## Out of scope` for the parked DEPTH_SUBGOAL placeholder.
+
 ### Why `hybrid_nav2_strafer` needs a different policy
 
 The `strafer_direct` mode (in
@@ -164,19 +207,61 @@ def plan_path(
     ...
 ```
 
-- Recommended starting method: A* on a discretized grid matching
-  Nav2's `MAP_RESOLUTION = 0.05 m` (parity with what the
-  Jetson-side hybrid backend will see from Nav2's `/plan`).
-- Obstacle geometry input: scene metadata already produced by
-  Infinigen + the room-prep pipeline; surface as a list of
-  obstacle polygons in env-local frame.
+#### Planner choice: minimize distributional gap with deployment
+
+The deployed hybrid backend consumes paths from Nav2's actual
+planner. The training-time planner produces a *distribution* of
+paths against which the policy learns to track. A custom A* / RRT
+written for this brief will differ from Nav2's GridBased or
+SmacHybrid planner in heuristic choice, tie-breaking, smoothing,
+and exact discretization rule. The differences are subtle but the
+policy learns to track the training planner's quirks; at
+deployment Nav2's quirks differ and the policy may oscillate,
+shortcut, or hesitate on path segments where the two planners
+disagree.
+
+Two options to mitigate, in order of preference:
+
+**Option A (recommended) — Use Nav2's planner offline at training
+time.** `nav2_simple_commander` ships Python bindings to
+NavFn / GridBased planners. Import directly from the
+`env_isaaclab3` Python environment:
+```python
+from nav2_simple_commander.line_iterator import LineIterator
+# plus relevant planner bindings
+```
+Pre-bake paths per scene at episode reset (the same scene is
+used for many episodes, so the cost amortizes). The policy
+trains against the exact paths Nav2 will produce at deployment.
+Verify the Python bindings work on the DGX before committing —
+Nav2 is ROS-stack-coupled and may need apt-installed deps.
+
+**Option B (fallback) — Custom A* + path noise.** If Option A
+proves infeasible, ship the custom A* but add per-tick path
+*perturbation* during training: shift each waypoint by
+`N(0, MAP_RESOLUTION/2)`. This trains the policy to be robust
+to any planner-quirk-level disagreement up to ~2.5 cm. The
+acceptance criterion's "≤ MAP_RESOLUTION * 2 median deviation"
+sanity check becomes the noise envelope, not a parity bar.
+
+The original framing of this brief assumed Option B implicitly. The
+choice matters because: at deployment, the dominant failure mode of
+"training planner ≠ Nav2 planner" is the kind of bug that surfaces
+only after a checkpoint is shipped and a real-robot mission goes
+wrong — the cheapest place to catch it is at the env-design
+decision, not at the post-deployment debugging stage.
+
 - Output shape matches `nav_msgs/Path` waypoint semantics so the
   inference-time hybrid backend can consume identical structure.
 
 Tests in `source/strafer_lab/tests/test_path_planner.py`:
-- A* finds an optimal path through a known obstacle config.
-- RRT finds *a* path (not necessarily optimal) and the test asserts
-  it's collision-free + bounded length.
+- Chosen planner (Option A or B) finds a path through a known
+  obstacle config (collision-free + bounded length).
+- For Option A: a parity test that the offline Nav2 call produces
+  the same path the inference-side `/plan` topic publishes for the
+  same scene + endpoints (within ROS-side numerical noise).
+- For Option B: a noise-envelope test that perturbation magnitude
+  is bounded and doesn't put waypoints in obstacles.
 - Pathological cases (no path exists, start == goal, start in
   obstacle) raise meaningful exceptions.
 

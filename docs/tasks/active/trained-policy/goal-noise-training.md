@@ -38,21 +38,54 @@ Read these before starting:
 
 ### The sim-to-deployment gap
 
-VLM grounding produces goal poses with ~0.2–0.5 m localization error
-(measured on Qwen2.5-VL-3B real-camera grounds; see
-[`strafer_vlm/`](../../../../source/strafer_vlm/) ground-truth-vs-observed
-analysis if available). The current PPO training pipeline uses zero
-goal noise — the policy sees pixel-perfect goal positions throughout
-training.
+Deployment goal-pose error has *three* sources, with distinct
+distributions. The original framing of this brief covered only the
+first; this revision adds the other two so the training distribution
+matches what the policy actually sees on the real robot.
 
-At deployment, the policy receives a noisy goal and converges to the
-*wrong* point with high precision. Once the goal updates (next VLM
-ground), the policy has to re-converge from scratch, producing
-visible oscillation around the true target.
+1. **VLM-grounding noise** (per-regrounding-event, large magnitude).
+   Qwen2.5-VL-3B real-camera grounds exhibit ~0.2–0.5 m localization
+   error per ground (see [`strafer_vlm/`](../../../../source/strafer_vlm/)
+   ground-truth-vs-observed analysis). Each regrounding step is an
+   ~independent draw from that distribution.
+2. **SLAM continuous drift** (per-tick, small magnitude). RTAB-Map's
+   `map → base_link` TF drifts continuously during long traversals
+   at ~1 cm/s typical. Well-modeled by per-tick Gaussian goal noise
+   in the policy's body frame (since the policy sees the goal
+   through that TF chain).
+3. **SLAM loop-closure jump** (per-event, large magnitude,
+   discrete). RTAB-Map occasionally detects a loop closure and
+   *snaps* the `map` frame, producing a 10–50 cm discrete goal
+   shift visible to the policy as a sudden goal-pose change. Not
+   modeled by Gaussian noise — this is an event distribution.
 
-This is a textbook training-distribution-shift problem with a textbook
-fix: add Gaussian noise to the goal position during training, std
-matching the deployment-noise distribution.
+The current PPO training pipeline addresses none of these — the
+`policy` group's `goal_relative` / `goal_distance` /
+`goal_heading_to_goal` are derived from `command[:, :2]` which is
+the exact ground-truth goal in sim, fixed per episode.
+
+There IS an existing `randomize_goal_noise` event in
+[`events.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py)
+referenced by `EventsCfg_Realistic` with `noise_std=0.15` and
+`mode="reset"`. That's a per-episode-reset offset — the policy sees
+*the same* noisy goal for the entire episode. The brief's analysis
+correctly identifies this as the "wrong" pattern: the policy learns
+to converge precisely on the wrong point, then re-converge when the
+episode resets. The fix must produce per-tick variation, not just
+per-reset.
+
+### Why all three noise types matter for deployment
+
+At deployment with VLM-grounded missions:
+- The mission emits a goal pose at start (VLM ground).
+- Mid-mission, the VLM re-grounds every ~5–10 s (event of type 1).
+- Between re-grounds, the SLAM frame drifts (event of type 2).
+- Occasionally SLAM closes a loop (event of type 3).
+
+A policy trained only with per-tick Gaussian noise (type 2) handles
+the slow drift but discovers types 1 and 3 at deployment. A policy
+trained only with per-reset noise (the current `randomize_goal_noise`
+event) doesn't handle any of them.
 
 ### What's missing
 
@@ -79,19 +112,38 @@ noise distribution without forgetting the base navigation behavior.
 
 ## Approach
 
-### Phase 1 — Add the config knob (½ day)
+### Phase 1 — Add the config knobs (½ day)
 
 In [`commands.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/commands.py):
 
-- Add a field to `GoalCommandCfg` (and the `GoalCommandProcRoom`
-  subclass config):
+- Add three fields to `GoalCommandCfg` (and the `GoalCommandProcRoom`
+  subclass config), one per deployment noise source:
   ```python
+  # Type 2 — per-tick continuous drift (SLAM continuous drift)
   goal_position_noise_std: float = 0.0
   """Per-step Gaussian noise (meters, isotropic xy) applied to the
-  goal position seen by observation terms. 0.0 disables (training
-  default). 0.25 m matches measured VLM grounding noise on
-  Qwen2.5-VL-3B; deployment-prep training uses this value."""
+  goal position seen by observation terms. Models SLAM continuous
+  drift in the map → base_link TF. 0.0 disables (training default).
+  0.05 m typical."""
+
+  # Type 3 — per-event discrete jumps (SLAM loop closure)
+  goal_jump_probability_per_step: float = 0.0
+  """Per-step probability of a discrete goal jump event (SLAM loop
+  closure). 0.0 disables. ~0.001 (so a jump every ~30 s at 30 Hz)
+  matches RTAB-Map loop-closure cadence on a typical traversal."""
+  goal_jump_std: float = 0.0
+  """Std of the discrete jump (meters, isotropic xy) when a jump
+  fires. 0.3 m typical for loop-closure-class events. Independent
+  of goal_position_noise_std (events compose additively)."""
   ```
+
+  Type 1 (VLM re-grounding) is intentionally NOT added as a new knob.
+  Re-grounding events look identical in the policy's observation to
+  loop-closure events from a model standpoint (a sudden ~0.2–0.5 m
+  goal shift). Tune `goal_jump_probability_per_step` and
+  `goal_jump_std` to cover both. A separate `vlm_reground_*` knob
+  pair would over-specify the model.
+
 - In `GoalCommand` (and `GoalCommandProcRoom`): the `command` property
   returns the *base* goal pose. Add a `noisy_command` property — or
   modify `command` to add per-step noise — that observation terms
@@ -99,14 +151,37 @@ In [`commands.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/m
   - **Per-step noise (correct):** policy sees a different noisy goal
     every observation tick → trains to be robust to per-tick goal
     drift, which matches deployment.
-  - **Per-resample noise (wrong):** policy sees the same noisy goal
+  - **Per-resample noise (wrong, current behavior of
+    `randomize_goal_noise` event):** policy sees the same noisy goal
     for the entire resample window → trains to converge to the wrong
     point precisely, doesn't help.
+  Implementation: maintain a per-env persistent goal offset that
+  evolves per-tick (drift + occasional jump). Sampling pattern:
+  ```python
+  # per env, per tick
+  goal_offset += N(0, goal_position_noise_std)        # type 2 drift
+  if rand() < goal_jump_probability_per_step:
+      goal_offset += N(0, goal_jump_std)              # type 3 jump
+  noisy_goal = base_goal + goal_offset
+  ```
+  The offset is persistent within an episode but resets at episode
+  reset. The drift component is integrated, not re-sampled — that
+  matches SLAM drift (cumulative), not white noise.
 - Unit test in `source/strafer_lab/tests/test_commands.py` (or where
-  command tests live): instantiate `GoalCommand` with
-  `goal_position_noise_std=0.25`, assert the published goal pose
-  varies across consecutive ticks with the expected variance, assert
-  it equals the base goal when std=0.
+  command tests live): three cases:
+  - At `goal_position_noise_std=0.0` and `goal_jump_probability_per_step=0.0`,
+    the published goal is byte-identical to the base goal across
+    ticks.
+  - At `goal_position_noise_std=0.05`, `goal_jump_probability_per_step=0.0`,
+    the published goal *integrates* per-tick (cumulative shift),
+    with variance matching expected Brownian-motion bound.
+  - At `goal_position_noise_std=0.0`, `goal_jump_probability_per_step=0.001`,
+    `goal_jump_std=0.3`, the published goal stays at base for most
+    ticks and exhibits discrete ~0.3 m jumps at the expected
+    frequency over a long horizon.
+
+  Cross-reference: this brief consumes Finding 3 in
+  [`observation-contract-cleanup.md`](observation-contract-cleanup.md).
 
 ### Phase 2 — Identify or train baseline checkpoint
 
@@ -174,14 +249,14 @@ baseline wasn't actually converged. Investigate before declaring done.
 ## Acceptance criteria
 
 ### Config + runtime
-- [ ] `goal_position_noise_std` field exists on `GoalCommandCfg` and
-      `GoalCommandProcRoomCfg`, defaults to `0.0` (training default
-      preserves current behavior; explicit opt-in for the noise pass).
-- [ ] Unit test confirms:
-      - At `std=0.0`, the published goal is byte-identical to the base
-        goal across ticks.
-      - At `std=0.25`, the published goal varies per-tick with the
-        expected variance.
+- [ ] Three fields exist on `GoalCommandCfg` and
+      `GoalCommandProcRoomCfg`: `goal_position_noise_std`,
+      `goal_jump_probability_per_step`, `goal_jump_std`. All default to
+      `0.0` (training default preserves current behavior; explicit
+      opt-in for the noise pass).
+- [ ] Unit test confirms all three modes per Phase 1's case list
+      (zero noise = byte-identical; per-tick drift integrates;
+      per-step jumps fire at expected frequency).
 
 ### Checkpoints
 - [ ] Noised DEPTH checkpoint exists at

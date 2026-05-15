@@ -69,6 +69,7 @@ deployment target) trains against `REAL_ROBOT_CONTRACT`.
 | Depth latency | 1 step (33 ms) | Intel D555 datasheet: stereo matching alone adds ~30–66 ms; add ROS transport. | **Too tight.** Real D555 publish-to-subscribe latency on Jetson is 60–120 ms measured. Widen to `(2, 4)` steps. |
 | Control rate jitter | ±5% | ROS on Jetson under load: P99 jitter is 20–50% per [`rtabmap-cold-start-determinism`](../reliability/rtabmap-cold-start-determinism.md). | **Too tight.** Widen to ±15% for REAL, ±25% for ROBUST. |
 | D555 mount angle | ±1° | Hand-mounted hardware, screw tolerances, chassis flex | Reasonable but probably understated; ±3° (ROBUST today) more realistic. |
+| **D555 mount POSITION** | **not randomized** — fixed at `(CAMERA_OFFSET_X, CAMERA_OFFSET_Y, CAMERA_OFFSET_Z) = (0.20, 0.0, 0.25)` m | Hand-mounted bracket, screw-hole tolerance ~±2 mm, cable strain, operator unbolt/rebolt during dev | **Whole axis not randomized.** Every time the operator removes the D555 (e.g. for the IMU kernel fix from `docs/D555_IMU_KERNEL_FIX.md`, lens cleaning, or transport) and rebolts it, the position shifts by ~1–3 cm. The existing `randomize_d555_mount_offset` event in [`events.py:450`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py) handles orientation (`_d555_mount_quat`) and the IMU obs path rotates readings through it; nothing parallel exists for position. |
 | ProcRoom difficulty | `min_level=7, max_level=7` (fixed) | Curriculum literature: progressive difficulty during training. | **Fixed at one level.** Policy never sees easier or harder rooms. Doesn't generalize to deployment scene variance. |
 | Goal-pose noise | ~0.15 m at reset only (`randomize_goal_noise` event, mode="reset") | [`goal-noise-training`](goal-noise-training.md) covers per-tick; this brief defers to it. | Covered separately — out of scope here, cross-ref only. |
 | Encoder noise | velocity_noise_std=0.02 | Reasonable for GoBilda 5203 (quadrature) | Looks OK. |
@@ -104,7 +105,7 @@ is a resume training run + comparative evaluation.
 
 ### Phase 1 — Bench measurement (1 day)
 
-Measure on the real Strafer (Jetson, real chassis, D555) the four
+Measure on the real Strafer (Jetson, real chassis, D555) the five
 knobs where peer references suggest the current config is mis-tuned:
 
 1. **Payload mass variance.** Weigh the chassis in three configurations:
@@ -123,8 +124,23 @@ knobs where peer references suggest the current config is mis-tuned:
    every tick; measure P50/P95/P99 inter-tick spacing under the same
    conditions as Phase 3. Compute jitter percentage vs.
    `_DEFAULT_NAV_DECIMATION * _DEFAULT_NAV_SIM_DT`.
+5. **D555 mount position vs. nominal.** With the camera mounted in its
+   current deployed configuration, measure the actual `(x, y, z)`
+   offset of the D555 lens optical center relative to
+   `body_link` and compare against the constants
+   `CAMERA_OFFSET_X = 0.20`, `CAMERA_OFFSET_Y = 0.0`,
+   `CAMERA_OFFSET_Z = 0.25` m in
+   [`strafer_shared.constants`](../../../../source/strafer_shared/strafer_shared/constants.py).
+   Use a steel ruler / digital caliper at the chassis frame fiducials.
+   Then **unbolt the D555, rebolt without intentional re-alignment, and
+   re-measure** — the *delta* across that rebolt cycle is the
+   distribution width the policy must be robust to. Record both the
+   absolute offset (does `strafer_shared.constants` need to be
+   updated?) and the rebolt delta (what's the variance the policy
+   needs to handle).
 
-Record measurements in the PR description as a single table.
+Record measurements in the PR description as a single table. Phase 1
+item 5 is the input for Phase 2's new position-randomization config.
 
 ### Phase 2 — Update REAL_ROBOT_CONTRACT
 
@@ -160,6 +176,85 @@ TimingCfg(
 )
 ```
 
+#### D555 mount position randomization (new — addresses Phase 1 item 5)
+
+The existing `randomize_d555_mount_offset` event handles orientation
+only. Extend it to also sample a per-environment translation offset:
+
+```python
+# In events.py — extend randomize_d555_mount_offset
+def randomize_d555_mount_offset(
+    env, env_ids,
+    max_angle_deg: float = 1.0,
+    max_translation_m: tuple[float, float, float] = (0.0, 0.0, 0.0),  # new
+) -> None:
+    ...
+    # Existing: roll/pitch/yaw quaternion stored on env._d555_mount_quat
+    # Existing IMU obs path: ang_vel = quat_apply(env._d555_mount_quat, ang_vel)
+
+    # NEW: per-env translation offset (meters, body frame)
+    if not hasattr(env, "_d555_mount_translation"):
+        env._d555_mount_translation = torch.zeros(env.num_envs, 3, device=device)
+    tx = (torch.rand(num_resets, device=device) * 2.0 - 1.0) * max_translation_m[0]
+    ty = (torch.rand(num_resets, device=device) * 2.0 - 1.0) * max_translation_m[1]
+    tz = (torch.rand(num_resets, device=device) * 2.0 - 1.0) * max_translation_m[2]
+    env._d555_mount_translation[env_ids] = torch.stack([tx, ty, tz], dim=-1)
+```
+
+And in the contracts:
+
+```python
+# REAL_ROBOT_CONTRACT — Phase 1 measurement informs ranges
+randomize_d555_mount=EventTerm(
+    func=mdp.randomize_d555_mount_offset, mode="reset",
+    params={
+        "max_angle_deg": 3.0,                     # was 1.0 — see angle row in gap table
+        "max_translation_m": (0.02, 0.02, 0.01),  # NEW — ±2 cm xy, ±1 cm z
+    },
+)
+# ROBUST_TRAINING_CONTRACT widens further: (0.03, 0.03, 0.015)
+```
+
+#### Where the position offset must propagate
+
+Both IMU and depth-camera observation paths read from the camera
+housing — both must reflect the position offset to avoid the policy
+training against an inconsistent contract:
+
+- **IMU lever-arm correction (cheap fix, do in this brief).** The
+  IMU at offset `r` from the body center, under angular velocity `ω`
+  and angular acceleration `α`, reads an additional
+  `α × r + ω × (ω × r)` term beyond the body-frame acceleration. For
+  Strafer's max rotation (~4 rad/s) at the nominal `r = (0.20, 0,
+  0.25)` lever, the centripetal term is ~4 cm/s² — small but not
+  zero, and crucially it *varies* with `r`. The randomized offset
+  needs to flow into `imu_linear_acceleration` in
+  [`observations.py:242`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py)
+  — add the lever-arm contribution against `env._d555_mount_translation`.
+- **Depth camera prim translation (harder, defer to follow-up if
+  Isaac Sim runtime authoring is non-trivial).** Isaac Sim's
+  `TiledCameraCfg.offset.pos` is set at scene-build time. Per-env
+  runtime translation of the camera prim requires USD authoring at
+  reset, which `mode="prestartup"` events can do for global edits
+  but per-env requires a different pattern. **Two options:**
+  1. **Per-env build-time sample.** Each parallel environment has
+     its own camera prim under `{ENV_REGEX_NS}/Robot/...`. Sample
+     translation once per env at scene build (extend
+     `make_d555_camera_cfg` to accept an explicit offset and
+     iterate over envs). The whole training run sees a *distribution*
+     of camera positions across envs but each env is fixed for the
+     run. Matches the real-robot semantics (fixed per mounting).
+  2. **Skip depth-side position randomization; rely on IMU-side
+     only.** If Option 1 turns out to be infeasible in a 1-day
+     budget, drop the depth position randomization and accept the
+     remaining gap — the IMU lever-arm correction is the higher-
+     value piece (it shows up in every IMU tick), and the depth-
+     camera 1-3 cm offset is partially absorbed by the depth
+     encoder's spatial tolerance.
+  Pick Option 1 if Phase 1 measurement shows >2 cm rebolt-delta on
+  the real chassis; pick Option 2 otherwise. Document the choice in
+  the PR description.
+
 Also widen the ProcRoom difficulty range from `(7, 7)` fixed to a
 graduated `(5, 9)` so the policy sees a span. Stay within the
 solvable-room range — if `max_level=9` produces unsolvable layouts,
@@ -189,6 +284,7 @@ evaluation time:
 | Eval at +50% mass | success rate | success rate | DR-audit > baseline |
 | Eval at +50% depth latency | success rate | success rate | DR-audit > baseline |
 | Eval at +50% jitter | success rate | success rate | DR-audit > baseline |
+| Eval at +1 cm D555 offset on each axis | success rate | success rate | DR-audit > baseline |
 
 Per-cell metrics: median final-distance-to-goal, success rate (reach
 goal within episode), collision rate.
@@ -209,7 +305,15 @@ Investigate before declaring done.
 
 - [ ] PR description includes a Phase 1 measurement table with median
       + range for: payload mass, battery voltage range, D555 latency
-      (median + p95), control-loop jitter (P50/P95/P99).
+      (median + p95), control-loop jitter (P50/P95/P99), and **D555
+      mount position** (absolute `(x, y, z)` vs.
+      `strafer_shared.constants` nominal, plus rebolt-cycle delta).
+- [ ] If the measured absolute D555 position differs from the
+      `CAMERA_OFFSET_X/Y/Z` constants by more than the rebolt-delta
+      itself, update `strafer_shared.constants` in the same commit
+      (the nominal is the wrong center for the randomization
+      distribution). This is the additive-only `strafer_shared`
+      exception path; values cannot be removed or renamed.
 
 ### Config
 
@@ -218,6 +322,19 @@ Investigate before declaring done.
       with each change citing a Phase 1 row.
 - [ ] `_RANDOMIZE_PROC_ROOM_DIFFICULTY` extended from
       `(7, 7)` to a graduated range covering at least 3 levels.
+- [ ] `randomize_d555_mount_offset` extended in
+      [`events.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py)
+      to accept `max_translation_m: tuple[float, float, float]` and
+      store the per-env offset on `env._d555_mount_translation`.
+- [ ] `imu_linear_acceleration` in
+      [`observations.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py)
+      adds the lever-arm contribution
+      (`α × r + ω × (ω × r)` against `env._d555_mount_translation`)
+      so the IMU obs reflects the randomized mount position.
+- [ ] Depth-camera position randomization implemented per Option 1
+      (per-env build-time sample) OR Option 2 (skip; rely on IMU side
+      only) per the Phase 2 decision rule; choice documented in the
+      PR description.
 - [ ] All unit tests under `source/strafer_lab/tests/` still pass —
       contract changes are config-only; no API change.
 
@@ -248,6 +365,21 @@ Investigate before declaring done.
 - [`source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py)
   `_RANDOMIZE_PROC_ROOM_DIFFICULTY` (around line 1649) — the proc-room
   level config.
+- [`source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py:450`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py)
+  — `randomize_d555_mount_offset` (orientation only today; extension
+  site for position).
+- [`source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py:242`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py)
+  — `imu_linear_acceleration` (the IMU obs path that consumes the
+  current `_d555_mount_quat`; needs to also consume
+  `_d555_mount_translation` for the lever-arm correction).
+- [`source/strafer_shared/strafer_shared/constants.py`](../../../../source/strafer_shared/strafer_shared/constants.py)
+  — `CAMERA_OFFSET_X/Y/Z` — the nominal position the Phase 1
+  measurement compares against; the additive-only edit site if the
+  nominal is wrong.
+- [`source/strafer_lab/strafer_lab/tasks/navigation/d555_cfg.py:120`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/d555_cfg.py)
+  — `make_d555_camera_cfg` — where the camera's `OffsetCfg.pos` is
+  fixed at scene-build time (relevant for Option 1 of the depth-camera
+  position randomization decision).
 - Wheeled Lab paper [arxiv:2502.07380](https://arxiv.org/html/2502.07380v2) —
   the closest peer pipeline (low-cost wheeled robots, Isaac Lab,
   rsl_rl). Section on visual navigation domain randomization.

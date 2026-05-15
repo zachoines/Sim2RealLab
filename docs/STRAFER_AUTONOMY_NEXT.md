@@ -1527,14 +1527,28 @@ makes it better.
 
 ### 1.10.1 Known limitation: multi-room navigation
 
-**Status:** This deferral is being lifted. See
-[`docs/tasks/active/multi-room/autonomy-stack.md`](tasks/active/multi-room/autonomy-stack.md)
-(stored-map fallback + planner transit-step emission) and
-[`docs/tasks/active/multi-room/scene-connectivity-validation.md`](tasks/active/multi-room/scene-connectivity-validation.md)
-(scene-side connectivity graph + door-open guarantee) for the
-work that ships multi-room as the project's MVP default.
-Frontier exploration / unmapped-environment multi-room remains
-deferred (option 3 in the original mitigation path).
+**Status:** This deferral is being lifted. See the multi-room
+epic at [`docs/tasks/active/multi-room/`](tasks/active/multi-room/)
+for the work that ships multi-room as the project's MVP default.
+The 2026-05-13 audit decomposed the original
+autonomy-stack + scene-connectivity-validation pair into six
+briefs:
+[`planner-architecture-alignment`](tasks/active/multi-room/planner-architecture-alignment.md)
+(architecture decision — intent classifier vs multi-step
+planner),
+[`observation-derived-room-state`](tasks/active/multi-room/observation-derived-room-state.md)
+(runtime room labeling + connectivity — replaces the
+training-time `scene_metadata.json` leak path),
+[`frontier-exploration-primitive`](tasks/active/multi-room/frontier-exploration-primitive.md)
+(option 3's `explore_until_visible` skill),
+[`autonomy-stack`](tasks/active/multi-room/autonomy-stack.md)
+(stored-map fallback + planner transit-step emission),
+[`scene-connectivity-validation`](tasks/active/multi-room/scene-connectivity-validation.md)
+(sim/harness-only connectivity graph + door-open guarantee),
+and
+[`planner-far-target-staging`](tasks/active/multi-room/planner-far-target-staging.md)
+(world-state schema + multi-hop staging). Plan repair remains
+deferred (no brief filed).
 
 The original limitation is preserved below for context.
 

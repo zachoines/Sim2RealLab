@@ -289,9 +289,12 @@ room.
       the PR description.
 - [ ] **Doc surface updates.**
   - [`STRAFER_AUTONOMY_NEXT.md` §1.10.1](../../../STRAFER_AUTONOMY_NEXT.md#1101-known-limitation-multi-room-navigation):
-    update from "deferred" to "stored-map fallback +
-    planner transit steps shipped in `<this commit>`; frontier
-    exploration + plan repair remain future work."
+    update the audit-era brief list to stamp this brief as
+    shipped in `<this commit>`. Other briefs in the
+    decomposition (frontier-exploration-primitive,
+    observation-derived-room-state, etc.) update §1.10.1
+    independently as they ship. Plan repair remains deferred
+    (no brief filed) until that changes.
   - [`source/strafer_autonomy/README.md`](../../../../source/strafer_autonomy/README.md):
     skill table's `scan_for_target` row gains a note about the
     fallback path; planner section mentions room-level world

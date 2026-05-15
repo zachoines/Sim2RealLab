@@ -98,15 +98,61 @@ Three artifacts in one PR:
 2. **An image-vs-target-text parallel tripwire**
    (`semantic_map/text_alignment_monitor.py`, parallel to
    `transit_monitor.py`) that uses the existing CLIP text tower
-   to encode the mission target phrase at leg start, cosines
-   against each live frame from `BackgroundMapper`'s capture
-   loop, and fires `abort=True` when the cosine drops below a
-   baseline-relative threshold for N consecutive captures. **No
-   model fine-tune required** — the runtime artifact reuses the
-   already-loaded CLIP text encoder. The threshold's baseline is
-   the cosine score on the scan-found view (the moment the
-   target was last grounded), with a relative margin (default
-   `baseline − 0.15`).
+   to encode **both the mission target phrase and a set of
+   alternate phrases**, then runs CLIP zero-shot
+   classification on each live frame from `BackgroundMapper`'s
+   capture loop. The monitor emits both a **continuous
+   softmax-probability score** for `p(target)` (calibrated, for
+   ROC-AUC) and a **discrete top-1 classification** (for
+   threshold-free time-to-decision). Fires `abort=True` when
+   `argmax != target` for N consecutive captures **and** the
+   softmax-probability of the target stays below a
+   baseline-relative threshold. **No model fine-tune required**
+   — the runtime artifact reuses the already-loaded CLIP text
+   encoder.
+
+   **Why multi-text contrast, not single-cosine.** Single-text
+   cosine is dominated by visual content unrelated to the
+   target (lighting, viewpoint, camera distance), and the
+   "below baseline by 0.15" threshold the earlier draft
+   proposed bakes those nuisance variables into the signal. CLIP
+   was originally designed for *zero-shot classification* — encode
+   N candidate texts, take argmax — and that is exactly the
+   case-2 instance-discrimination question this tripwire is
+   trying to answer ([Radford et al., 2021](https://arxiv.org/abs/2103.00020),
+   §3.1 zero-shot transfer protocol). Multi-text contrast also
+   produces a calibrated probability (the softmax) that the
+   §4.1 Brier-calibration metric can score, which a bare cosine
+   cannot.
+
+   **Where the alternates come from.**
+
+   | Source | When | What |
+   |---|---|---|
+   | **VLM grounding context** (primary, real-deployment safe) | At `scan_for_target` start, the planner submits the target + any sibling labels the operator's mission text mentions; the VLM grounder returns multiple bboxes when same-label siblings are visible. The monitor consumes the **other** detection labels as alternate phrasings. | "the south window" + alternates ["the north window", "the doorway", "the bookshelf"] from the same `scan_for_target` rotation. |
+   | **Semantic-map prior observations** (secondary, deployment-safe; degrades on first visit) | When `SemanticMapManager` has prior observations of same-label objects with different `text_description` fields, those alternates feed the contrast pool. Falls back to (1) on cold-start. | Adds historical room-context phrasings without depending on the current `scan_for_target` having found siblings in-frame. |
+   | **`scene_metadata.json`** (sim-eval only, **not deployment**) | The measurement script's eval pass draws alternates from `scene_metadata.json`'s `objects[]` with the same `target_label` but a different instance, or with a different label in the same room. | Eval-time ground truth for case-2 alternates; **never** consumed by the live executor on the real robot. The runtime monitor uses only sources (1) and (2). |
+
+   **Cold-start behavior.** If no alternates can be sourced at
+   `activate()` — fresh deployment, no `scan_for_target` siblings,
+   empty semantic map — the monitor falls back to a fixed
+   "negative anchor pool" of `STRAFER_TEXT_ALIGN_FALLBACK_ANCHORS`
+   (default: a small list of common indoor categories the target
+   is **not**, e.g., `["a blank wall", "an empty hallway", "a
+   closed door"]`). The fallback gives the monitor a non-trivial
+   contrast even on the first leg in a new house, at the cost of
+   weaker discrimination than scene-grounded alternates.
+
+   **Threshold calibration.** The fire condition is **dual-gated**:
+   `argmax != target` for `N=3` consecutive captures AND
+   `p(target) < baseline − STRAFER_TEXT_ALIGN_MARGIN`
+   (default margin 0.10 on the softmax probability, not on the
+   raw cosine). Baseline is the softmax `p(target)` on the
+   scan-found view, the moment the target was last grounded.
+   The dual gate prevents the tripwire from firing when both the
+   target and a near-synonym alternate are highly probable
+   (which would manifest as argmax flipping under viewpoint
+   noise but the target probability staying high).
 3. **A `Validator` protocol refactor.** `BackgroundMapper`
    currently holds a concrete `TransitMonitor`. Replace with a
    `Validator` protocol (lives in `semantic_map/protocols.py`)
@@ -174,11 +220,121 @@ labeling logic is:
 3. **VLM cross-check (failed missions only):** call
    `strafer_vlm`'s `/describe` on the final-pose frame and use
    an LLM-as-judge prompt to compare against the mission target
-   phrase. Disagreement with step 2 ⇒ `ambiguous`; excluded from
-   TPR / FPR.
+   phrase, **with the bias-mitigation protocol in the next
+   subsection — single-shot Qwen-VL-3B-as-judge against
+   Qwen-VL-3B-as-grounder is self-enhancement-biased**.
+   Disagreement with step 2 (after the bias-mitigated protocol
+   converges) ⇒ `ambiguous`; excluded from TPR / FPR.
 4. **`trajectory_violation`:** **always empty** in this brief —
    the planner does not yet emit trajectory constraints, so no
    mission can be labelled here. Reserved field.
+
+### Per-window labels alongside per-leg labels
+
+The mission-level label above answers "did the mission end in the
+right place?" The tripwire fires *mid-leg*, so the right TPR /
+FPR pairing for the tripwire's actual decision is **per-window**,
+not per-leg. A mission can be on-course for 80 % of its leg and
+drift off at the last 20 %; another can be off-course from t = 0
+because the planner emitted a wrong goal. Collapsing both into a
+single mission-level boolean costs the eval its time-resolved
+signal.
+
+Precedent for per-subgoal / per-window robotic eval: StepEval
+([ElMallah et al., 2025](https://arxiv.org/abs/2509.19524)) makes
+the case that "single binary success rate obscures where a
+policy succeeds or fails along a multi-step task" and uses a
+VLM as judge of per-subgoal outcomes. The same critique applies
+to mid-mission tripwire eval — `reachability` is the leg outcome,
+not the per-tick truth.
+
+The measurement script computes both:
+
+| Granularity | Label source | What it measures |
+|---|---|---|
+| **Per-leg** | `root_cause` from the labeling pipeline above | "Did the tripwire fire at any point during a failed leg?" — the user-visible save-the-mission signal. |
+| **Per-window** | A 5-capture rolling window is `on_course` if the **robot's pose** at the end of the window is on the geodesic-A* path from leg-start to the mission target with ≤ R lateral deviation (default R = 1.5 m in single-room, 2.0 m in multi-room). Otherwise `off_course`. Geodesic distances come from A* on the global costmap, computable post-hoc on the DGX, no new sim runs. | "Was the robot actually off-course at this tick?" — the tripwire's actual decision boundary. |
+
+Per-window TPR / FPR / time-to-decision are reported alongside
+per-leg metrics. Per-window is the *primary* signal for choosing
+the tripwire's operating threshold; per-leg is the user-facing
+"did we save the mission" signal.
+
+### Eval-set construction — scene holdout, cold-start protocol, label authority
+
+The §4.1 success bar is meaningless if the eval set is drawn
+from the same distribution the validator was trained on (Step A
+of [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md)
+trains on harness frames; if cotrained's *eval* is also drawn
+from harness frames without a holdout split, the reported AUC
+double-counts). Three explicit holdout protocols, anchored to
+peer practice (RoboCasa task splits, Habitat-Lab eval methodology,
+StepEval's policy-and-model-agnostic design):
+
+1. **Scene-seed holdout.** The eval set's scene seeds are
+   declared at the top of `report.json` (a `held_out_seeds`
+   field). Any downstream training brief that consumes the
+   harness corpus **must** exclude these seeds from training.
+   The cotrained brief's Step A and Step B both reference this
+   field at training time. Default split: **2 / 3 scenes for
+   training, 1 / 3 scenes for eval**, by seed not by scene name
+   (so the room layouts differ, not just the lighting). Run the
+   v1 eval on the held-out seeds only; the report records
+   per-seed disaggregation so cross-seed generalization is
+   legible.
+
+2. **Cold-start vs. warm-map disaggregation.** The
+   `TransitMonitor`'s image-vs-image retrieval signal is
+   structurally near-random on an empty map (per
+   [`MISSION_VALIDATION_ARCHITECTURE.md` §2.4](../../../MISSION_VALIDATION_ARCHITECTURE.md#24-structural-the-transitmonitors-decision-rule-has-known-cold-start-sparse-map-and-dead-locale-failure-modes)
+   — `sparse_map` returns `on_track=True` permanently until
+   the map is populated). Computing a single ROC-AUC across
+   both cold-start and warm-map legs measures the wrong
+   distribution. The script's labeling pipeline emits a
+   `map_state ∈ {cold, warming, warm}` field per leg based on
+   ChromaDB node count at leg-start:
+   `cold` if 0 nodes, `warming` if 1 – 4 nodes,
+   `warm` if ≥ 5 nodes. Per-case AUC is reported separately
+   for `warm` and (`warming` + `cold`) legs. The acceptance
+   bar in §4.1 applies to **`warm`-leg case-1 AUC** specifically
+   — the cold-start case is reported as a fixed-degradation
+   diagnostic, not gated. The image-vs-text tripwire is
+   map-free and does **not** need this split for case 2 (it
+   passes everywhere).
+
+3. **Label-authority audit on a held-out human-scored
+   subsample.** The five-way `root_cause` labeling pipeline
+   (room-polygon check + VLM `/describe` + LLM-as-judge) is
+   itself a model output and inherits the biases in the next
+   subsection. Before its labels are treated as ground truth
+   for TPR / FPR, **at least 50 missions** (stratified across
+   `on_course` / `wrong_room` / `wrong_instance` /
+   `ambiguous`) are inspected by a human and the agreement rate
+   is reported as a `label_authority_cohens_kappa` in the §4.4
+   addendum. Below Cohen's κ ≈ 0.7 (substantial agreement, per
+   the Landis-Koch scale), the cascade's reported AUC is
+   flagged as label-noise-bounded and a refinement to the
+   labeling pipeline is filed as a follow-up.
+
+### Arbiter and LLM-as-judge bias mitigation
+
+The cascade end-to-end pass (tripwire fires → `/describe` +
+LLM-as-judge against mission text → final decision) is a binary
+classifier whose head is the LLM judge. The 2025 LLM-as-judge
+literature has documented at least four biases that the brief
+must mitigate, not handwave:
+
+| Bias | Documented magnitude | Mitigation this brief adopts |
+|---|---|---|
+| **Position bias** | ~40 % GPT-4 inconsistency on swapped (A, B) vs. (B, A) prompts ([Wang et al. 2024](https://arxiv.org/abs/2406.07791)) | Every judge call runs twice with `[mission_text, scene_description]` and `[scene_description, mission_text]` orderings. Accept the call as valid only if both orderings agree; otherwise the leg is `ambiguous` and excluded from TPR / FPR. |
+| **Self-enhancement bias** | LLM judges score their own-family outputs higher; mitigated by cross-family ensemble ([Zheng et al. 2024](https://arxiv.org/abs/2306.05685), [LLM-Judge-bias survey 2025](https://arxiv.org/abs/2406.22891)) | The arbiter judge is **not the same model as the grounder**. The grounder is Qwen2.5-VL-3B at port 8100 (`strafer_vlm`); the judge is the planner-LLM at port 8200 (a different model family — see `strafer_autonomy.planner` config). If the judge can be switched to a *third* model family (e.g., the local Qwen3-4B already cached on the DGX per `vla-v2-architecture` § Investigation pointers, *but* not the deployed VLM), do so for the eval pass; document the choice. |
+| **Verbosity / style bias** | ~15 % score inflation for verbose answers; style bias 0.76 – 0.92 across judge models (the dominant bias overall per [the 2025 survey](https://arxiv.org/abs/2406.23178)) | The judge prompt uses a fixed 1 – 4 calibration scale (1 = clearly off-target, 4 = clearly on-target) with single-token output (no free-form rationale; the rationale lives in a separate prompt that the eval ignores for binary classification). |
+| **Tier-1A vs. small-judge gap** | [Tier-1A judge analysis 2025](https://arxiv.org/abs/2510.09738) places Qwen2.5-72B in "human-like" tier with Cohen's κ z-score 0.14 — but the deployed **3B** model is not Tier 1A. | If the deployed Qwen2.5-VL-3B is the only available judge, **report a Cohen's κ against the held-out human-scored subsample** (item 3 in the previous subsection) and flag the cascade-end-to-end AUC as judge-bound if κ < 0.7. The brief does **not** ship if the judge agreement is below this floor — the §4.4 addendum either reports a passing judge or files a follow-up to swap in a stronger judge. |
+
+The cascade end-to-end ROC-AUC bar (≥ 0.90 lower 95 % CI) is
+computed *after* these mitigations; numbers without the
+mitigations are reported as a diagnostic but not against the
+bar.
 
 ### Acceptance — single-bar pass / fail with the statistics framework
 
@@ -237,16 +393,76 @@ follow-up brief filed.
       conformance. `BackgroundMapper` accepts a `Validator`
       instead of a concrete `TransitMonitor`. Unit test under
       `tests/` confirms the substitution works.
-- [ ] **Image-vs-target-text tripwire.**
+- [ ] **Image-vs-target-text tripwire (multi-text contrast).**
       `semantic_map/text_alignment_monitor.py` implements the
-      `Validator` protocol; encodes the mission target phrase
-      via `CLIPEncoder.encode_text` at `activate()`; computes
-      cosine on each `check()`; fires after `N=3` consecutive
-      below-threshold captures. The threshold is calibrated
-      from the first 3 captures of the leg (baseline) with a
-      relative margin from `STRAFER_TEXT_ALIGN_MARGIN` (default
-      `0.15`). Both monitors run in parallel; `BackgroundMapper`
-      OR-fires the `divergence_flag` if either trips.
+      `Validator` protocol. At `activate()` it encodes the
+      mission target phrase **and** an alternate phrasings pool
+      sourced (in order) from: VLM grounding's sibling-detection
+      labels from the latest `scan_for_target`, the
+      `SemanticMapManager`'s prior same-label observations,
+      and a fixed fallback anchor pool from
+      `STRAFER_TEXT_ALIGN_FALLBACK_ANCHORS` if (1) and (2) are
+      empty. On each `check()` the monitor emits both a
+      softmax `p(target)` over the contrast pool (continuous,
+      for ROC-AUC + Brier scoring) and a top-1 argmax
+      (discrete, for tripwire decisions). Fires after `N=3`
+      consecutive captures with `argmax != target` **and**
+      `p(target) < baseline − STRAFER_TEXT_ALIGN_MARGIN` (default
+      `0.10` on softmax probability, not raw cosine).
+      `STRAFER_TEXT_ALIGN_FALLBACK_ANCHORS` defaults to a
+      three-item list (`["a blank wall", "an empty hallway", "a
+      closed door"]`) and is operator-overridable for
+      site-specific tuning. The eval pass populates alternates
+      from `scene_metadata.json`; the runtime monitor never
+      reads `scene_metadata.json` and degrades to the fallback
+      anchor pool on cold-start. Both monitors run in parallel;
+      `BackgroundMapper` OR-fires the `divergence_flag` if
+      either trips.
+- [ ] **Per-window labels in addition to per-leg.** The
+      measurement script emits a `per_window` table alongside
+      the per-leg `root_cause` table, each window labelled
+      `on_course` / `off_course` from the geodesic-A* deviation
+      rule above. The §4.4 addendum reports per-window ROC-AUC
+      separately from per-leg ROC-AUC and names per-window as
+      the *primary* signal for threshold selection.
+- [ ] **Scene holdout protocol.** `report.json` declares a
+      `held_out_seeds` field listing which Infinigen seeds the
+      eval drew from. Default split is 2 / 3 seeds for the
+      training pool (consumed by future cotrained briefs)
+      and 1 / 3 for eval. Per-seed AUC disaggregation is
+      reported. The held-out seeds list is committed into the
+      §4.4 addendum so downstream briefs can reference it.
+- [ ] **Cold-start vs. warm-map disaggregation.** Each leg in
+      `report.json` carries a `map_state ∈ {cold, warming, warm}`
+      field based on ChromaDB node count at leg-start (0,
+      1 – 4, ≥ 5). Per-case AUC is reported separately for
+      `warm` and (`warming` + `cold`) legs. The §4.1 acceptance
+      bar applies to **warm-leg case-1 AUC**; cold-start is a
+      diagnostic, not gated. The image-vs-text tripwire is
+      map-free and reports a single AUC across all map states.
+- [ ] **Label-authority audit.** ≥ 50 missions drawn from the
+      held-out eval set, stratified across `on_course` /
+      `wrong_room` / `wrong_instance` / `ambiguous`, are
+      inspected by a human and the agreement against the
+      automated `root_cause` labeling pipeline is reported as
+      `label_authority_cohens_kappa` in the addendum. The
+      cascade-end-to-end AUC is treated as label-noise-bounded
+      below κ = 0.7; below this floor the brief files a
+      follow-up to refine the labeling pipeline before
+      committing to a ship decision.
+- [ ] **Arbiter bias mitigation.** Every LLM-as-judge call in
+      `--root-cause-pass` and in the cascade-end-to-end arbiter
+      pass uses the position-swap protocol (call twice with
+      swapped argument order; accept only on agreement). The
+      arbiter judge is *not* `strafer_vlm`'s Qwen2.5-VL-3B
+      (which is also the grounder; using it as judge invites
+      self-enhancement bias); it is instead the planner-LLM at
+      port 8200 or, if available on the DGX, a third-family
+      model documented in the addendum. The judge prompt uses a
+      fixed 1 – 4 scale with single-token output. Judge–human
+      agreement on the label-authority subsample is reported as
+      Cohen's κ; below 0.7 the brief defers the ship decision
+      to a follow-up that swaps in a stronger judge.
 - [ ] **Smoke test.** A single-mission run on the Infinigen
       `scene_fast_singleroom_000_seed0` scene produces a
       non-zero-row `verify_arrival` outcome (verified or
@@ -354,13 +570,22 @@ follow-up brief filed.
   path before multi-room raises the difficulty.
 - **Real-robot validation.** Sim-side only. A future brief may
   layer real-robot data in once the runtime path is calibrated.
-- **Replacing CLIP with a non-CLIP backbone (DINOv2, MobileCLIP,
-  SigLIP) and any CLIP fine-tune cycle.** Belongs to
-  [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md),
-  filed as a follow-up if the cascade fails the AUC bar or the
-  team wants to push improvements regardless. This brief
-  evaluates whatever ONNX is currently in
-  `~/.strafer/models/` — fine-tuning is a downstream concern.
+- **Replacing CLIP with a non-CLIP backbone (DINOv2, DINOv3,
+  MobileCLIP-2, SigLIP-2, ...) and any CLIP fine-tune cycle.**
+  Backbone selection is filed separately as
+  [`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md)
+  (parked; triggered when this brief ships). Fine-tune cycles
+  belong to
+  [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md).
+  This brief evaluates whatever ONNX is currently in
+  `~/.strafer/models/` — backbone and fine-tuning are downstream
+  concerns. The choice to ship the v1 cascade on OpenCLIP
+  ViT-B/32 is *not* a recommendation that this backbone is
+  best; it is the artifact that already exists in the codebase
+  per [`finetune_clip.py`](../../../../source/strafer_lab/scripts/finetune_clip.py)
+  and [`clip_encoder.py`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/clip_encoder.py).
+  The backbone-bakeoff brief is the alternative-considered-and-
+  measured trail.
 - **Wrapping the abort with a VLM arbiter (§3.5).** Implemented
   inside this brief if the cascade-end-to-end metrics need
   arbiter post-processing to clear the AUC bar; otherwise filed

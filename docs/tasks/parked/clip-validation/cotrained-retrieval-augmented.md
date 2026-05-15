@@ -64,7 +64,82 @@ Retired brief this one replaces:
   against the cascade; cascade improvements are the better
   investment.
 
+Sibling research arm this brief is *not* duplicated by:
+- [`vla-v2-architecture`](../experimental/vla-v2-architecture.md) —
+  end-to-end VLA. See "Relationship to VLA v2" below for why
+  the two efforts are kept separate even though both consume
+  the trajectory-first speaker corpus.
+
+Backbone-selection brief that gates the choice of visual /
+text towers this brief fine-tunes:
+- [`backbone-bakeoff`](backbone-bakeoff.md) — measures the
+  competing 2025-era backbones (DINOv3-S, MobileCLIP-2-S,
+  SigLIP-2-B, OpenCLIP ViT-B/32) on the same case-1 / case-2
+  eval set. **This brief inherits whichever backbone the
+  bakeoff picks; it does not pre-commit to ViT-B/32.**
+
 ## Context
+
+### Relationship to VLA v2
+
+Once [`vla-v2-architecture`](../experimental/vla-v2-architecture.md)
+has a working speaker model and a fine-tuned VLA backbone on
+the harness corpus, the natural question is: *does the v2 VLA's
+visual+text tower deliver the case-1 / case-2 discrimination
+this brief is fine-tuning for, "for free"?* Reading both briefs
+together, the answer is **no** — the two efforts are
+structurally distinct and the cascade still wants the
+contrastive-objective tower this brief produces:
+
+| Axis | VLA v2 (action-prediction) | This brief (contrastive-discrimination) |
+|---|---|---|
+| Training loss | Behavior cloning on `(frame, text, action)` tuples; SFT objective is `argmax P(action_t)` | Three InfoNCE / contrastive heads (image-vs-caption, same-region, hard-negative target-text); objective is `argmin distance(positive_pair) - distance(negative_pair)` |
+| What the visual tower learns | Features that predict "drive forward", "turn", "stop" given context | Features that **discriminate** same-room-different-instance ("the south window" vs. "the north window") |
+| Inference role | Drives `cmd_vel` end-to-end | Scores a tripwire signal that wakes the arbiter |
+| Failure modes shared with the other | Sim-to-real gap; corpus distribution shift; action-space drift (v2 only) | None — different objectives mean different overfit failures |
+
+A VLA's visual tower may **incidentally** acquire instance
+discrimination if the action-prediction loss correlates strongly
+with target identity, but the literature is clear that
+action-prediction does not guarantee zero-shot
+instance-discrimination ([OpenVLA §4 fine-tune ablations](https://arxiv.org/abs/2406.09246)
+report that OpenVLA's frozen visual tower scores below SigLIP
+on object-classification-style retrieval; the action head's
+gradients pull representations toward control, not toward
+contrastive separation). The cascade tripwire wants the second
+behavior, not the first.
+
+**Shared infrastructure, separate models.** The two briefs
+genuinely overlap in two places:
+
+1. **Dataset pipeline.** Both consume the trajectory-first
+   speaker corpus from
+   [`trajectory-first-captioning`](../../active/harness/trajectory-first-captioning.md)
+   and the canonical schema from
+   [`behavior-cloning-data-expansion`](../../active/harness/behavior-cloning-data-expansion.md).
+   This brief commits to **sharing the dataset assembly tooling
+   with v2** — the loader at
+   `source/strafer_lab/strafer_lab/tools/dataset_export.py`
+   gains a `dump_contrastive_pairs()` method alongside v2's
+   `build_vla_dataset.py`, and both consume the same on-disk
+   schema.
+
+2. **Backbone choice.** If v2 ships first with DINOv2+SigLIP
+   (OpenVLA's default), this brief's fine-tune should target
+   the **same backbone** rather than diverge to a different
+   visual tower. Sharing the backbone keeps the runtime memory
+   footprint manageable (one tower loaded, two heads consume it)
+   and makes the cascade-end-to-end vs. v2-end-to-end ablation
+   comparable. The
+   [`backbone-bakeoff`](backbone-bakeoff.md) brief is the
+   coordinated decision point; both briefs reference its
+   chosen backbone at execution time.
+
+**What this brief is NOT doing:** training a VLA. Step A and
+Step B both produce a CLIP-style tower with contrastive heads;
+no action head, no `cmd_vel` decoder. If the cascade
+underdelivers even after Step A + Step B, the escalation path
+is v2 (end-to-end VLA), not "make this brief produce one."
 
 ### Why two steps, why combine
 
@@ -135,12 +210,19 @@ loss_3` and tune via per-loss validation curves. Standard
 multi-task balancing (gradient surgery, uncertainty weighting)
 applies if losses fight.
 
-Backbone: continue from OpenCLIP ViT-B/32 + `laion2b_s34b_b79k`
-weights (the existing fine-tune init). LoRA adapters on
-attention + projection layers; full towers stay frozen by
-default. ~50 M trainable params via LoRA vs. ~150 M for full
-fine-tune. Choice between LoRA and full is a brief-execution
-decision; document it.
+Backbone: **inherited from
+[`backbone-bakeoff`](backbone-bakeoff.md)** — defaults to
+whatever that brief selected for production at the time this
+brief picks up. If the bakeoff has not shipped, the fallback is
+OpenCLIP ViT-B/32 + `laion2b_s34b_b79k` weights (the existing
+fine-tune init), but the brief execution must record the
+divergence in the training-config sidecar and run a one-shot
+backbone-comparison head-to-head before committing the
+Phase-1 ship decision. LoRA adapters on attention + projection
+layers; full towers stay frozen by default. ~50 M trainable
+params via LoRA vs. ~150 M for full fine-tune (numbers scale
+with the chosen backbone). Choice between LoRA and full is a
+brief-execution decision; document it.
 
 **Deployment:** the resulting `clip_visual.onnx` +
 `clip_text.onnx` drop in via the existing
@@ -211,6 +293,39 @@ the cross-attention layer learns), or be jointly fine-tuned
 execution picks based on Phase-1's measured ROC-AUC; if
 Step A already converges cleanly, freeze; if not, joint
 fine-tune.
+
+**Retrieval-pool-size augmentation (deploy-distribution match).**
+The training-time retrieval pool is the full harness corpus
+(minus the held-out trajectory). The *deployment-time* retrieval
+pool is whatever the SemanticMapManager has accumulated **on
+this house so far** — empty on a fresh deployment, ~3 – 5
+nodes after the first scan, growing to ~50 – 200 nodes across
+typical operation. Training only against a fully-populated pool
+produces a cross-attention layer that **collapses** when the
+pool is small, because the attention pattern that was useful at
+K = 8 with a dense index has no analogue at K = 0 (no keys to
+attend over) or K = 1 (degenerate softmax).
+
+Mitigation, drawn from the retrieval-aware-training pattern in
+[Atlas (Izacard et al., 2022)](https://arxiv.org/abs/2208.03299)
+and [RA-DIT (Lin et al., ICLR 2024)](https://arxiv.org/abs/2310.01352):
+**vary the retrieved-pool size during training**. For each
+training batch sample a `K_train ∈ {0, 1, 2, 4, 8}` uniformly,
+truncate the retrieved set to that size (or pad with learned
+"no-retrieval" tokens at K = 0), and forward through the
+cross-attention layer. The model learns to function across the
+full pool-size range; the inference path picks `K` per the
+SemanticMapManager's current node count.
+
+The combined-system acceptance gains an additional
+**cold-deployment-eval bullet**: run the v2 cascade statistics
+with the retrieval index **forcibly empty** (`map_state = cold`
+per the validator-evaluation brief's disaggregation). The
+cascade-end-to-end ROC-AUC must **degrade gracefully** to
+Step-A-alone performance (within one CI-width); if Step B's
+cold-eval falls *below* Step A's bare-encoder performance, the
+cross-attention layer has overfit to the warm-map regime and
+ships disabled until the augmentation is re-tuned.
 
 **Deployment.** A new ONNX file
 `~/.strafer/models/cross_attn.onnx` consumed by an extended
@@ -313,6 +428,39 @@ results justify it. This brief stops at sim eval.
 
 ### Cross-cutting
 
+- [ ] **Backbone inherited from [`backbone-bakeoff`](backbone-bakeoff.md).**
+      The visual + text tower this brief fine-tunes is whichever
+      the bakeoff selects. The Phase-1 init weights come from
+      that brief's chosen public checkpoint (e.g.,
+      `dinov3-small`, `siglip-2-base`, or `mobileclip-2-s`).
+      If the bakeoff has not shipped at brief pickup, default
+      to whatever
+      [`validator-evaluation`](../../active/clip-validation/validator-evaluation.md)
+      shipped to production and document the divergence in the
+      training-config sidecar.
+- [ ] **Dataset pipeline shared with v2.** Both Step A's
+      contrastive-pairs loader and
+      [`vla-v2-architecture`](../experimental/vla-v2-architecture.md)'s
+      action-tuple loader live alongside each other in
+      `source/strafer_lab/strafer_lab/tools/dataset_export.py`.
+      Adding `dump_contrastive_pairs()` does not break the
+      existing `export_clip_csv()` consumers; smoke-test by
+      running both loaders against the same harness episode
+      directory.
+- [ ] **Retrieval-pool-size augmentation (Step B).** Training
+      samples `K_train ∈ {0, 1, 2, 4, 8}` uniformly per batch
+      and truncates the retrieval pool accordingly. The model
+      consumes a learned `no-retrieval` token at K = 0 so the
+      forward pass is well-defined on a cold map.
+- [ ] **Cold-deployment eval (Step B).** Combined-system
+      statistics are re-run with the SemanticMapManager
+      forcibly cold (no prior nodes). Cascade-end-to-end
+      ROC-AUC must degrade to within one CI-width of
+      Step-A-alone on cold maps; below that floor, the
+      cross-attention layer ships disabled until the
+      augmentation is re-tuned. Reported in the §4.5 addendum
+      as a "cold vs. warm" disaggregated row alongside the
+      v1 baseline / Step A / Step A+B columns.
 - [ ] **Latency budget verified.** Total encoder forward pass
       stays under 200 ms on Orin Nano FP16; total
       tripwire-decision latency stays under 500 ms (encoder +
@@ -370,3 +518,11 @@ results justify it. This brief stops at sim eval.
   beyond ~5–10 M.** Optimization for tighter Jetson budgets is
   a future concern; v1 of this brief picks a conservative size
   and verifies it fits.
+- **Choosing the visual / text backbone.** Backbone selection
+  (OpenCLIP ViT-B/32 vs. DINOv3-S vs. SigLIP-2-B vs.
+  MobileCLIP-2-S vs. ...) lives in
+  [`backbone-bakeoff`](backbone-bakeoff.md), filed parked and
+  triggered when
+  [`validator-evaluation`](../../active/clip-validation/validator-evaluation.md)
+  ships. This brief inherits whichever backbone the bakeoff
+  selects; it does not re-run the comparison.

@@ -2,7 +2,7 @@
 
 **Type:** task / refactor
 **Owner:** Jetson agent (`source/strafer_ros/strafer_perception/`, `source/strafer_ros/strafer_msgs/`, `source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`, `source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py`)
-**Priority:** P3 (filed-on-trigger; do not pick up until at least one of the bearing-varying behaviors below is on the active roadmap — `approach-from-angle`, `look-at-while-driving`, `face-target-while-translating`, or similar)
+**Priority:** P3 (filed-on-trigger; pickup gated on **the first** bearing-varying behavior landing on the roadmap — `approach-from-angle`, `look-at-while-driving`, `face-target-while-translating`, or similar. The refactor is the *foundation* of a perception-owned geometry-primitives layer in `strafer_perception`; the first dependent feature is the right trigger because it gives the refactor a concrete consumer, not because subsequent features need it more than the first.)
 **Estimate:** S–M (~half to one day; one new `.srv` + ~15-line perception handler + ros_client method + ~10-line executor handler replacement + tests + colcon rebuild on both hosts)
 **Branch:** task/perception-side-bearing-service
 
@@ -17,6 +17,18 @@ translating)**, I want **the bearing-to-target math to live in
 so that **the next feature that varies the alignment policy doesn't
 have to thread or duplicate quaternion/yaw math through the
 autonomy/executor layer.**
+
+This refactor is the start of a broader **perception-owned geometry
+primitives** layer in `strafer_perception`. Today the bearing math
+in `_align_to_goal_yaw` is the only such primitive that landed
+executor-side; the future briefs in the operator-stated trigger set
+(`approach-from-angle`, `look-at-while-driving`,
+`face-target-while-translating`) each need a small geometry primitive
+of similar shape (computed against fresh TF, returning a delta to the
+executor). Building one well-shaped service now — `.srv` definition
+with `offset_yaw_rad` already in the request — makes those follow-ups
+small additions to one node rather than a recurring "thread new args
+through the compiler + executor" pattern.
 
 ## Context bundle
 

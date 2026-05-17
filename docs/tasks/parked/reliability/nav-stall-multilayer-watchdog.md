@@ -89,6 +89,57 @@ Layer 3 implementation. Layers 1 and 2 add new helpers (e.g.
 `_ChassisStallTracker`, `_RecoveryRateTracker`) with the same pure-
 helper unit-testable shape.
 
+### Existing Nav2 primitives worth using before re-implementing
+
+Two Nav2 packages already ship related primitives. Inspect both
+before writing custom watchdog code — they may cover Layer 1 / Layer
+2 with less risk than a custom implementation:
+
+- **[`nav2_collision_monitor`](https://docs.nav2.org/configuration/packages/collision_monitor/configuring-collision-monitor-node.html)**
+  is primarily an *emergency-stop* layer that bypasses costmap and
+  trajectory planners, with Stop / Slowdown / Limit / Approach safety
+  models driven by sensor footprint intersection. Not a stall
+  watchdog per se, but Layer 1's "chassis_wedged" overlaps with its
+  Stop model when the wedge is *into a known obstacle*. The collision
+  monitor will not catch wedge-into-unknown (motor failure, e-stop
+  with no obstacle in front), so Layer 1 still needs to exist as a
+  separate signal — but the collision monitor may handle the
+  common-case wedge cheaper. Document the gap in the PR.
+- **[`nav2_velocity_smoother`](https://docs.nav2.org/configuration/packages/configuring-velocity-smoother.html)**
+  has a `velocity_timeout` param that publishes a zero `Twist` if no
+  `cmd_vel` arrives within the wall-clock window. Currently set to
+  `1.0 s` in
+  [`nav2_params.yaml:373`](../../../../source/strafer_ros/strafer_navigation/config/nav2_params.yaml).
+  This is a defense-in-depth backstop for the "executor crashed"
+  case, **not** a stall watchdog — it requires the publisher to
+  *stop publishing* first, which our `_dispatch_nav_goal` and
+  `rotate_in_place` loops never do during an active goal.
+- **`nav2_behavior_server`** ships `IsStuck` / `BackUp` / `Spin` /
+  `Wait` recovery primitives in its BehaviorTree. The current
+  [`navigate_to_pose_w_smoothing_and_recovery.xml`](../../../../source/strafer_ros/strafer_navigation/config/navigate_to_pose_w_smoothing_and_recovery.xml)
+  already includes some of these. Before this brief picks up, audit
+  which recovery branches actually fire on a wedged chassis (BT
+  trace, `nav_log_level: debug`); some of Layer 1's behavior may be
+  expressible by tightening the BT rather than adding executor code.
+
+**Discipline:** for each layer the implementation PR introduces,
+explicitly state *why* the existing Nav2 primitives don't cover it.
+The watchdog brief's value is in the gaps the upstream stack
+genuinely doesn't fill — not in re-implementing what's already
+shipped.
+
+### Cross-references to active reliability briefs
+
+- [`active/reliability/executor-cancel-mid-motion-cmd-vel-zero.md`](../../active/reliability/executor-cancel-mid-motion-cmd-vel-zero.md)
+  — Layer 1 (`chassis_wedged`) does *not* substitute for the cancel
+  bug. A cancel from the operator must zero `cmd_vel` synchronously,
+  not wait for a 3 s wedge-detection window. Both briefs land
+  independently.
+- [`active/reliability/executor-slam-tracking-precheck-mid-mission.md`](../../active/reliability/executor-slam-tracking-precheck-mid-mission.md)
+  — a Layer 5 ("tracking lost") naturally extends from that brief's
+  in-flight monitoring once the precheck pattern ships. File a small
+  follow-up rather than enlarging this brief.
+
 ## Acceptance criteria
 
 - [ ] Each new layer is implemented as a pure helper class with

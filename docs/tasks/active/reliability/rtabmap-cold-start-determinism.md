@@ -34,11 +34,20 @@ Foxglove confirmed a fresh occupancy grid getting built — the "Increment map i
 
 **Three suspected root causes, ordered by likelihood:**
 
-1. **Bridge teleports `/strafer/odom` back to identity on every launch.** RTAB-Map's `Odom is reset (identity pose detected)` log is its standard response to an odom message with pose ≈ (0,0,0) when the previous session's last node was at some other pose. Sim teleports the robot to spawn on every launch, so this will fire on every cold start. The "Increment map id" branch is RTAB-Map behaving correctly given that signal — but the operator-visible effect is "my map disappeared."
+1. **Bridge teleports `/strafer/odom` back to identity on every launch.** RTAB-Map's `Odom is reset (identity pose detected)` log is its standard response to an odom message with pose ≈ (0,0,0) when the previous session's last node was at some other pose. Sim teleports the robot to spawn on every launch, so this will fire on every cold start. The "Increment map id" branch is RTAB-Map behaving correctly given that signal — but the operator-visible effect is "my map disappeared." This branch is well-documented upstream as [introlab/rtabmap_ros#80](https://github.com/introlab/rtabmap_ros/issues/80) ("when odometry recovers from being lost, RTAB-Map cannot know there is a discontinuity — it only detects if odometry is reset to Identity, creating a new map"). The fix is either (a) prevent the identity-reset signal at the source, or (b) tell RTAB-Map this is the same map by entering localization mode.
 
 2. **Stale Working Memory references vs Short-Term Memory pruning.** The `Not found word N (dict size=31735)` burst prints as nodes are loaded from the DB into Working Memory. References inside those nodes point at visual words that have been pruned from the dictionary (e.g., via aggressive `Mem/STMSize=30`). Each missing word is non-fatal but the burst is noisy and may degrade descriptor matching on the first frames.
 
 3. **Depth-compression format mismatch.** `Mem/SaveDepth16Format=false` + `Mem/DepthCompressionFormat=.rvl` is incompatible. RTAB-Map silently falls back to `.png` and emits a one-shot warning. Config cleanup; not a behavioral root cause.
+
+**Launch-default context that confirms cause (1) is structural:**
+[`bringup_sim_in_the_loop.launch.py:62, 206-208`](../../../../source/strafer_ros/strafer_bringup/launch/bringup_sim_in_the_loop.launch.py)
+defaults `localization:=false`. So every `make launch-sim` against an
+existing DB *starts in mapping mode*, which is exactly the "identity-
+pose teleport interpreted as discontinuity → increment map id" path.
+The fix isn't ambiguous: it's disposition **A2** below — flip the
+launch default so a populated DB triggers localization mode
+automatically.
 
 ## Approach
 
@@ -47,9 +56,9 @@ Triage in order:
 ### A. Confirm cause (1) — is the teleport structural?
 
 Capture two consecutive sim sessions (kill between them) with `ros2 topic echo /strafer/odom --once` at the start of each. If both report identity pose, the increment-map-id is fundamentally a consequence of the bridge's spawn behavior. Decide between:
-- **A1.** Add an auto-relocalization step at RTAB-Map startup — run loop-closure detection against the existing DB before accepting an identity-pose reset as a new map id.
-- **A2.** Run RTAB-Map in localization mode (`localization:=true`) by default on the sim lane after the first session has produced a usable DB. Document the workflow: `make launch-sim` first time → mapping; subsequent launches → localization unless `make clean-map` is run.
-- **A3.** Accept the new-map-id behavior, document it as expected for `make kill && make launch-sim`, and update the operator-facing runbooks accordingly.
+- **A1.** Add an auto-relocalization step at RTAB-Map startup — run loop-closure detection against the existing DB before accepting an identity-pose reset as a new map id. Possible via `Rtabmap/StartNewMapOnLoopClosure=true` + manual seeding, but RTAB-Map's natural startup pose handling doesn't quite express this — non-trivial integration work.
+- **A2.** *(Recommended)* Default `localization:=true` in `bringup_sim_in_the_loop.launch.py` *when a populated DB exists at `database_path`*, falling back to mapping mode only when the DB is missing or `rtabmap_args:=-d` is passed. Document the workflow: first `make launch-sim` against an empty DB → mapping; subsequent launches → localization unless the operator explicitly runs `make clean-map`. This matches the RTAB-Map upstream recommendation for "robots after a first map is created" (see [Official RTAB-Map Forum on localization mode best practices](http://official-rtab-map-forum.206.s1.nabble.com/Memory-management-in-localization-mode-td9886.html)). The same launch path already wires `Mem/IncrementalMemory=false` + `Mem/InitWMWithAllNodes=true` when `localization:=true` ([`slam.launch.py:53-55`](../../../../source/strafer_ros/strafer_slam/launch/slam.launch.py)), so the structural change is one block of launch-time logic, not a config rewrite.
+- **A3.** Accept the new-map-id behavior, document it as expected for `make kill && make launch-sim`, and update the operator-facing runbooks accordingly. Rejected as the primary path — the operator-visible "my map disappeared" experience is bad UX even with a runbook.
 
 ### B. Tame cause (2) — visual word dictionary noise
 
@@ -74,9 +83,12 @@ Set `Mem/SaveDepth16Format: "true"` OR `Mem/DepthCompressionFormat: ".png"` to s
 ## Investigation pointers
 
 - [`source/strafer_ros/strafer_slam/config/rtabmap_params.yaml`](../../../../source/strafer_ros/strafer_slam/config/rtabmap_params.yaml) — Memory and Grid settings.
-- [`source/strafer_ros/strafer_slam/launch/slam.launch.py`](../../../../source/strafer_ros/strafer_slam/launch/slam.launch.py) — the launch invocation, including the `localization:=` argument that's currently unused on the sim lane.
+- [`source/strafer_ros/strafer_slam/launch/slam.launch.py:36, 53-55`](../../../../source/strafer_ros/strafer_slam/launch/slam.launch.py) — the `localization:=` argument plumbed in but defaulting to `false`. The localization-mode body already sets `Mem/IncrementalMemory=false` and `Mem/InitWMWithAllNodes=true`; A2's work is one DB-existence check, not a config rewrite.
+- [`source/strafer_ros/strafer_bringup/launch/bringup_sim_in_the_loop.launch.py:62, 206-208`](../../../../source/strafer_ros/strafer_bringup/launch/bringup_sim_in_the_loop.launch.py) — the bringup-level `localization` arg, also defaulting to `false`. A2 flips this default.
 - The "Increment map id" log line in `Rtabmap.cpp:1441` is RTAB-Map's standard response to identity-pose-after-existing-graph; if the bridge teleports, that branch fires every session.
-- RTAB-Map reference: [Parameters](https://rtabmap.github.io/Parameters.html), `Mem/*` and `RGBD/*` knobs.
+- Cross-reference: [`executor-slam-tracking-precheck-mid-mission.md`](executor-slam-tracking-precheck-mid-mission.md) — if A2 lands, the precheck mostly catches kidnapped-robot / featureless-corridor cases; if A2 lands *after* the precheck brief, the precheck *is* the cold-start workaround.
+- RTAB-Map reference: [Parameters](https://rtabmap.github.io/Parameters.html), `Mem/*` and `RGBD/*` knobs. Upstream issue documenting the identity-reset → new-map branch: [introlab/rtabmap_ros#80](https://github.com/introlab/rtabmap_ros/issues/80).
+- Best-practices reference for localization-mode workflow: [Official RTAB-Map Forum thread](http://official-rtab-map-forum.206.s1.nabble.com/Memory-management-in-localization-mode-td9886.html).
 
 ## Out of scope
 

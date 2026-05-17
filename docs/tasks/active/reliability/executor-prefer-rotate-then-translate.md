@@ -40,7 +40,29 @@ In the executor's `_translate` / `_navigate_via_staging` paths:
 
 Pros: localized change in `executor/`; minimal risk to MPPI tuning; preserves cardinal strafe.
 
-Cons: extra wall-clock time per mission step (one rotation per leg).
+Cons:
+- Extra time per mission step (one rotation per leg). Under sub-unity
+  RTF this costs *real* operator-time: at RTF 0.05–0.1, a typical
+  45° pre-rotation is `~5–8 s` sim-time =
+  `100–160 s` wall — non-trivial on a 4-stage staging mission. The
+  `heading_threshold` should be set high enough (≥ 17°) that small
+  deltas don't trigger the rotation; below threshold, MPPI's lateral
+  cost is acceptable.
+- Visibility shift: the planner's emitted plan today is one
+  `translate` step; after decomposition it becomes
+  `rotate_in_place` + `navigate_to_pose`. Two interpretation choices:
+  (1) keep the decomposition *inside* the `_translate` handler — the
+  operator sees one step in their mission log, behavior changes only
+  in the executor's internal cmd_vel trace; (2) expose the
+  decomposition in the compiler so the operator sees two steps. (1)
+  is the recommended default — the decomposition is a controller
+  policy decision, not a semantic plan change. The planner's
+  intent is "translate to that pose"; the executor decides how.
+- Interaction with the cancel path: a cancel arriving during the
+  pre-rotation must zero `/cmd_vel` immediately —
+  [`executor-cancel-mid-motion-cmd-vel-zero.md`](executor-cancel-mid-motion-cmd-vel-zero.md)
+  must land before this brief, or the pre-rotation becomes a new
+  uncancellable hold time.
 
 ### B. Controller-level policy via MPPI critic
 

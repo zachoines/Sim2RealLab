@@ -50,17 +50,64 @@ already accesses these methods via `getattr(self._ros_client,
 None)` — i.e., the caller is duck-typing what should be a real
 contract because the methods aren't part of the `RosClient` Protocol.
 
-`JetsonRosClient` now mixes three orthogonal concerns:
+`JetsonRosClient` is currently ~1310 lines and mixes three orthogonal
+concerns (line counts from the file as of this brief's audit):
 
 | Concern | Lines (rough) | Optional deps |
 |---|---|---|
-| Sensor caching + TF + costmap + observation capture | ~250 | `cv_bridge`, `tf2_ros` |
-| Skills (Nav2 client, projection service, rotate_in_place) | ~350 | none beyond core ROS |
-| Viz publishers (Detection2DArray, ImageAnnotations, Image) | ~250 | `vision_msgs`, `foxglove_msgs` |
+| Sensor caching + TF + costmap + observation capture | ~120 | `cv_bridge`, `tf2_ros` |
+| Skills (Nav2 client, projection service, rotate_in_place, cancel) | ~510 | none beyond core ROS |
+| Viz publishers (Detection2DArray, ImageAnnotations, Image) | ~274 | `vision_msgs`, `foxglove_msgs` |
+| Safety pre-checks (costmap bounds, SLAM tracking, map pose) | ~81 | none |
+| Internal helpers (`_ProgressTracker`, `_wait_for_future`, etc.) | ~165 | none |
+| Infrastructure (Protocol, config, `__init__`, properties) | ~160 | core ROS |
 
-The third row is the cleanest seam to extract — it's the newest, the
+The viz row is the cleanest seam to extract — it's the newest, the
 least entangled with the rest, and the one with the heaviest
 test-stub overhead.
+
+### Should `JetsonRosClient` split further? (no — keep the scope narrow)
+
+The operator-flagged question is whether the rest of `JetsonRosClient`
+is still a coherent abstraction or a dumping ground that deserves a
+broader split into `JetsonNavClient` / `JetsonPerceptionClient` /
+`JetsonOdomClient`. Audit answer: **the class is approaching but not
+crossing the line.** Extract viz now (this brief); don't split the
+remaining concerns. Rationale:
+
+- The `RosClient` Protocol at
+  [`ros_client.py:18-82`](../../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
+  is the *executor-facing contract*. Splitting `JetsonRosClient` into
+  three peers would force the executor to hold three handles where it
+  holds one today, with no functional gain. The protocol *is* the
+  abstraction; the class is just its concrete implementation.
+- The skill methods share infrastructure that doesn't naturally
+  separate: a single `rclpy.node.Node`, a single `_cache_lock`, a
+  single `_nav_lock`, a single executor-thread. Splitting into
+  per-concern classes either duplicates these or forces a base class
+  that re-aggregates everything.
+- The viz seam is genuinely different — three publishers, optional
+  deps (`vision_msgs`, `foxglove_msgs`, `cv_bridge`), heavy test-stub
+  overhead, no mission-criticality. That's a real seam and this brief
+  cuts it.
+- The other "smells" the audit found are smaller: lazy
+  `hasattr(self, "_nav2_client")` / `hasattr(self, "_projection_client")`
+  / `hasattr(self, "_cmd_vel_pub")` initialization
+  ([`ros_client.py:629, 772, 1128`](../../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py))
+  is fragile but a separate, lower-priority cleanup. **Cross-reference
+  follow-up** at the end of this brief; do not bundle.
+
+### Follow-up worth flagging (lazy `hasattr` initialization)
+
+When this brief lands, file a small follow-up (P3, ~half day): replace
+the lazy `hasattr(self, "_nav2_client")` /
+`hasattr(self, "_projection_client")` /
+`hasattr(self, "_cmd_vel_pub")` pattern with explicit `None` defaults
+in `__init__` and explicit guard checks. A typo in any of those three
+identifiers today silently re-creates the client/publisher on every
+call; explicit `None` makes typos crash loudly. Don't do this in
+*this* brief — keep this PR a pure structural move with no behavioral
+diff. Sample brief slug: `ros-client-lazy-init-cleanup.md`.
 
 ## Approach
 

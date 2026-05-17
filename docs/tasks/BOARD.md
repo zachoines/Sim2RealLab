@@ -95,13 +95,20 @@ explicit dependencies.
 
 | Brief | Pri | State | Owner |
 |---|---|---|---|
+| [`executor-cancel-mid-motion-cmd-vel-zero`](active/reliability/executor-cancel-mid-motion-cmd-vel-zero.md) | P1 | active | Jetson |
 | [`nav-deadline-sim-time-audit`](active/reliability/nav-deadline-sim-time-audit.md) | P2 | active | Jetson |
 | [`executor-prefer-rotate-then-translate`](active/reliability/executor-prefer-rotate-then-translate.md) | P2 | active | Jetson |
 | [`rtabmap-cold-start-determinism`](active/reliability/rtabmap-cold-start-determinism.md) | P2 | active | Jetson |
+| [`executor-grounding-loss-mid-mission-recovery`](active/reliability/executor-grounding-loss-mid-mission-recovery.md) | P2 | active | Jetson |
+| [`executor-slam-tracking-precheck-mid-mission`](active/reliability/executor-slam-tracking-precheck-mid-mission.md) | P2 | active | Jetson |
+| [`verify-arrival-occlusion-robustness`](active/reliability/verify-arrival-occlusion-robustness.md) | P2 | active | Jetson |
 | [`planner-rotate-direction-prompt`](active/reliability/planner-rotate-direction-prompt.md) | P2 | active | DGX |
 | [`grounding-publisher-extraction`](active/reliability/grounding-publisher-extraction.md) | P2 | active | Jetson |
 | [`nav-stall-multilayer-watchdog`](parked/reliability/nav-stall-multilayer-watchdog.md) | P3 | parked | Jetson |
 | [`perception-side-bearing-service`](parked/reliability/perception-side-bearing-service.md) | P3 | parked | Jetson |
+| [`d555-usb-dropout-framerate-collapse`](parked/reliability/d555-usb-dropout-framerate-collapse.md) | P2 | parked | Jetson |
+| [`roboclaw-error-visibility-and-low-battery`](parked/reliability/roboclaw-error-visibility-and-low-battery.md) | P2 | parked | Jetson |
+| [`imu-yaw-drift-no-magnetometer`](parked/reliability/imu-yaw-drift-no-magnetometer.md) | P2 | parked | Either |
 
 ### Tooling & ops
 
@@ -151,6 +158,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | Either | S–M | End-to-end spec for hidden-state shape, reset semantics, thread-safety across train/export/inference. Three existing recurrent briefs each describe their side; this brief pins the contract at the seams. Filed off the 2026-05-15 trained-policy audit. |
 | [`observation-contract-cleanup`](active/trained-policy/observation-contract-cleanup.md) | DGX | S–M | Re-implement `body_velocity_xy` as encoder-derived FK so the sim signal chain matches what the real robot computes via `/strafer/odom`. Closes a silent sim-to-real bug before the DEPTH MVP ships. Filed off the 2026-05-15 trained-policy audit. |
 | [`domain-randomization-audit`](active/trained-policy/domain-randomization-audit.md) | DGX | M | Bench-measure real-chassis variability (mass, battery, D555 latency, Jetson jitter) and widen REAL_ROBOT_CONTRACT to match. Resume-train DEPTH baseline against the audited DR. Filed off the 2026-05-15 trained-policy audit. |
+| [`executor-cancel-mid-motion-cmd-vel-zero`](active/reliability/executor-cancel-mid-motion-cmd-vel-zero.md) | Jetson | S (~½ d) | Cancel-correctness bug — `rotate_in_place` doesn't observe a cancel event, so canceling a mid-rotation mission ignores the cancel until tolerance or timeout. Real-robot blocker. Filed off the 2026-05-17 reliability audit. |
 
 ### P2 — medium priority
 
@@ -176,9 +184,12 @@ session. Parked briefs are not listed here — see **By epic** or
 |---|---|---|
 | [`grounding-publisher-extraction`](active/reliability/grounding-publisher-extraction.md) | S | Quick win — pure refactor follow-up to `vlm-bbox-overlay`; extracts the viz publishers out of `JetsonRosClient` |
 | [`real-d555-depth-range-survey`](active/investigations/real-d555-depth-range-survey.md) | S–M | Investigation — bench measurement + write-up |
-| [`rtabmap-cold-start-determinism`](active/reliability/rtabmap-cold-start-determinism.md) | M | Cold-start signature on populated DB: `Not found word N` burst + `Increment map id to 4`; triage bridge-teleport vs Mem/* config + ship the chosen disposition |
-| [`nav-deadline-sim-time-audit`](active/reliability/nav-deadline-sim-time-audit.md) | M | Audit executor + Nav2 wall-clock safety caps; replace absolute caps with sim-time-progress stall detectors so rotations don't abort partway at RTF ≤ 0.1 |
+| [`rtabmap-cold-start-determinism`](active/reliability/rtabmap-cold-start-determinism.md) | M | Cold-start signature on populated DB: `Not found word N` burst + `Increment map id to 4`; triage bridge-teleport vs Mem/* config + ship the chosen disposition. After audit: A2 recommended — flip `localization:=true` default when populated DB exists. |
+| [`nav-deadline-sim-time-audit`](active/reliability/nav-deadline-sim-time-audit.md) | M | Audit executor + Nav2 wall-clock safety caps; replace absolute caps with sim-time-progress stall detectors so rotations don't abort partway at RTF ≤ 0.1. Also: verify Nav2's `use_sim_time` launch override is actually flowing through to the per-server YAML defaults. |
 | [`executor-prefer-rotate-then-translate`](active/reliability/executor-prefer-rotate-then-translate.md) | M | Decompose non-cardinal translations into rotate-to-face + forward translate at the executor layer; preserves cardinal strafe |
+| [`executor-grounding-loss-mid-mission-recovery`](active/reliability/executor-grounding-loss-mid-mission-recovery.md) | M | `_navigate_via_staging` re-grounding failure terminates immediately. Add mini-scan + semantic-map fallback with bounded recovery budget. Filed off the 2026-05-17 reliability audit. |
+| [`executor-slam-tracking-precheck-mid-mission`](active/reliability/executor-slam-tracking-precheck-mid-mission.md) | S–M | Executor never queries `check_slam_tracking()`; silent failure when RTAB-Map loses tracking mid-mission. Add bounded precheck before each motion step. Filed off the 2026-05-17 reliability audit. |
+| [`verify-arrival-occlusion-robustness`](active/reliability/verify-arrival-occlusion-robustness.md) | S–M | `_verify_arrival` false-negatives under partial occlusion. Add multi-frame voting + tilt-recovery + `arrival_occluded` soft-failure code. Filed off the 2026-05-17 reliability audit. |
 
 #### Either lane
 
@@ -225,7 +236,10 @@ picks them up.
 | [`output-format-alignment`](parked/harness/output-format-alignment.md) | Trigger: first downstream training brief about to consume the harness corpus, OR the harness about to ship the first 1k+ trajectories | Audit-filed: the current JSONL output schema doesn't match what GR00T / OpenVLA / π0 / Octo consume natively (LeRobot v2 / RLDS / robomimic HDF5). Pick the canonical format deliberately before the corpus grows. |
 | [`cosmos-replay-perturbation`](parked/harness/cosmos-replay-perturbation.md) | Trigger: teleop corpus ≥ 500 trajectories **and** NVIDIA Cosmos Predict / Transfer accessible on the DGX | Audit-filed: corpus multiplier via NVIDIA Cosmos world-model re-rendering (lighting / texture / weather variants per captured trajectory). Replaces / extends the design-doc's "replay-with-perturbation" item. |
 | [`nav-stall-multilayer-watchdog`](parked/reliability/nav-stall-multilayer-watchdog.md) | Trigger: v1 stall watchdog from `progress-aware-nav-timeouts` produces real-world false-positives (cluttered-sim re-plans) or false-negatives (chassis wedge incident) | Filed-on-trigger sketch. Adds chassis-wedge + Nav2 recovery-rate signals on top of the v1 best-ever-distance watchdog. Don't pick up preemptively — v1 may be sufficient. |
-| [`perception-side-bearing-service`](parked/reliability/perception-side-bearing-service.md) | Trigger: at least one bearing-varying behavior (approach-from-angle, look-at-while-driving, face-target-while-translating, etc.) is on the active roadmap | Filed-on-trigger refactor surfaced by `align-after-scan-grounding`'s shipped Option A. Moves bearing math from autonomy executor into `strafer_perception` so future bearing-varying features don't have to thread quaternion math through the executor. |
+| [`perception-side-bearing-service`](parked/reliability/perception-side-bearing-service.md) | Trigger: **the first** bearing-varying behavior (approach-from-angle, look-at-while-driving, face-target-while-translating, etc.) lands on the active roadmap | Filed-on-trigger refactor surfaced by `align-after-scan-grounding`'s shipped Option A. Start of the perception-owned geometry-primitives layer in `strafer_perception`. |
+| [`d555-usb-dropout-framerate-collapse`](parked/reliability/d555-usb-dropout-framerate-collapse.md) | Trigger: real D555 connected to Jetson **and** either (a) multi-hour mission completed where dropouts could surface, or (b) the first tegra-xusb stall observed on real-robot bringup | Filed-on-trigger off the 2026-05-17 reliability audit. Adds `/perception/health` topic + framerate watchdog + executor gate. Not exercised in sim. |
+| [`roboclaw-error-visibility-and-low-battery`](parked/reliability/roboclaw-error-visibility-and-low-battery.md) | Trigger: real-robot bringup begins (chassis powered and RoboClaws actually communicating over USB) | Filed-on-trigger off the 2026-05-17 reliability audit. Exposes CRC-error count + battery voltage + low-battery degraded mode. Not exercised in sim (`HARDWARE_PRESENT=false` bypasses driver). |
+| [`imu-yaw-drift-no-magnetometer`](parked/reliability/imu-yaw-drift-no-magnetometer.md) | Trigger: real-robot multi-room mission shows yaw-drift between RTAB-Map closures > 2° p95 **or** RTAB-Map loop closure becomes unreliable on lab carpet | Filed-on-trigger investigation off the 2026-05-17 reliability audit. Decides between SLAM-anchored telemetry-only (option A) vs. external magnetometer add (option B) vs. VIO (option C). |
 | [`llm-guided-frontier-gain`](parked/multi-room/llm-guided-frontier-gain.md) | [`frontier-exploration-primitive`](active/multi-room/frontier-exploration-primitive.md) shipped (no skill to extend) **and** [`observation-derived-room-state`](active/multi-room/observation-derived-room-state.md) shipped (no language-shaped frontier descriptions) | Extension to v1 frontier primitive — multiplies an LFG-style scalar LLM prior onto the geometric gain. `gain_weights.llm = 0.0` recovers v1 exactly. Cites LFG (arXiv:2310.10103) as the design precedent; CogNav state machine deferred to v3. |
 
 ---

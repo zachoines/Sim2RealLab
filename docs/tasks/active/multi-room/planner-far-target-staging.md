@@ -113,11 +113,16 @@ first defines the wire types in
 [`source/strafer_autonomy/strafer_autonomy/schemas/`](../../../../source/strafer_autonomy/strafer_autonomy/schemas/);
 this brief consumes them.
 
-Jetson-side `mission_runner.py` populates pose + costmap +
-last-grounding; DGX-side `SemanticMapManager` populates the room
-block (see
-[`observation-derived-room-state`](observation-derived-room-state.md)).
-Both sides must populate **all** fields they own — partial
+The Jetson populates the entire `world_state` block in
+`mission_runner.py`: pose + costmap + last-grounding from its ROS
+clients, and the room block from the Jetson-resident
+`SemanticMapManager` (see
+[`observation-derived-room-state`](observation-derived-room-state.md)
+for the runtime room-state methods, and
+[`validator-evaluation`](../clip-validation/validator-evaluation.md)
+for the wiring that puts the manager into the production
+executor process). The DGX planner service is a pure consumer.
+The Jetson must populate **all** fields it can fill — a partial
 `world_state` is a footgun.
 
 **2. Add `_compile_far_target_staging` to the compiler.** Pattern:

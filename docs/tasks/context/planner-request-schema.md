@@ -11,6 +11,21 @@ the far-target staging path
 Whichever consuming brief lands first defines the wire shape; later
 briefs reuse it.
 
+## Status — none of this exists yet
+
+This module documents the target contract. As of writing, **none
+of the pieces are wired**:
+
+| Piece | Current state | Brief that lands it |
+|---|---|---|
+| `SemanticMapManager` class | Exists, but **orphaned in production** — only constructed in tests. | [`validator-evaluation`](../active/clip-validation/validator-evaluation.md) wires `SemanticMapManager` + `BackgroundMapper` + `TransitMonitor` into `executor/main.py` on the Jetson. |
+| `current_room` / `known_rooms` / `connectivity` / `room_anchor` on the manager | Not implemented. | [`observation-derived-room-state`](../active/multi-room/observation-derived-room-state.md) adds the four methods + CLIP zero-shot room classifier + graph clustering. |
+| `world_state` field on `PlanRequest` wire type + Jetson populate + DGX consume | Not present. Today's request carries only `robot_state: dict \| None` and `active_mission_summary: dict \| None` (both opaque). | Either [`autonomy-stack`](../active/multi-room/autonomy-stack.md) or [`planner-far-target-staging`](../active/multi-room/planner-far-target-staging.md) — whichever ships first defines the wire shape; the second consumes it. |
+| Compiler reads `world_state` and emits transit / staging steps | `_compile_single_target_steps` is intent-blind. | Compiler grows room-aware logic in [`autonomy-stack`](../active/multi-room/autonomy-stack.md); off-costmap staging helper lands in [`planner-far-target-staging`](../active/multi-room/planner-far-target-staging.md). |
+
+Treat the rest of this module as the contract those briefs ship
+against, not as a description of running code.
+
 ## Architecture
 
 Per the decision recorded in
@@ -34,47 +49,59 @@ and the brief at
 
 ## `world_state` block
 
-Lives on the planner request as an optional block. Populated by
-the executor (`mission_runner.py`) plus the DGX-side
-`SemanticMapManager`. Absent or `None` → planner runs with no
-world knowledge (legacy behavior; still valid).
+Lives on the planner request as an optional block. **Populated
+entirely on the Jetson** by the executor (`mission_runner.py`) —
+pose + costmap fields directly from ROS clients, room-block
+fields from the Jetson-resident `SemanticMapManager`. The DGX
+planner service is a pure consumer over HTTP. Absent or `None`
+→ planner runs with no world knowledge (legacy behavior; still
+valid).
 
 ```python
 class PlannerWorldState(BaseModel):
-    # Pose + costmap (populated Jetson-side from mission_runner)
+    # Pose + costmap (from ROS clients in mission_runner)
     robot_pose_map: Pose2D
     global_costmap_extent: Rectangle | None  # min_x, min_y, max_x, max_y
     last_grounding: GroundingSummary | None  # depth, stability, age_s
 
-    # Room-level (populated DGX-side from SemanticMapManager;
-    # observation-derived only — see the sim-to-real boundary
-    # in autonomy-stack)
+    # Room-level (from SemanticMapManager; observation-derived only —
+    # see the sim-to-real boundary in autonomy-stack)
     current_room: str | None
     known_rooms: list[RoomSummary]
     connectivity: list[tuple[str, str]]
 ```
 
-Component shapes:
+Component shapes (all populated Jetson-side):
 
 | Field | Shape | Source | Notes |
 |---|---|---|---|
-| `robot_pose_map` | `Pose2D(x, y, yaw)` | mission_runner | `map` frame. |
-| `global_costmap_extent` | `Rectangle(min_x, min_y, max_x, max_y)` or `None` | mission_runner | `None` if Nav2 not yet running. |
-| `last_grounding` | `GroundingSummary(depth_m, stability, age_s)` or `None` | mission_runner | Most recent `scan_for_target` result; lets the planner reason about staleness. |
-| `current_room` | `str` or `None` | SemanticMapManager.current_room() | `None` at cold-start. |
-| `known_rooms` | `list[RoomSummary(label, member_node_ids, centroid_xy, confidence)]` | SemanticMapManager.known_rooms() | Empty at cold-start. |
-| `connectivity` | `list[(room_a, room_b)]` | SemanticMapManager.connectivity() | Pessimistic — absence ≠ unreachable. |
+| `robot_pose_map` | `Pose2D(x, y, yaw)` | mission_runner via ROS client | `map` frame. |
+| `global_costmap_extent` | `Rectangle(min_x, min_y, max_x, max_y)` or `None` | mission_runner via Nav2 client | `None` if Nav2 not yet running. |
+| `last_grounding` | `GroundingSummary(depth_m, stability, age_s)` or `None` | mission_runner from prior `scan_for_target` | Lets the planner reason about staleness. |
+| `current_room` | `str` or `None` | `SemanticMapManager.current_room()` | `None` at cold-start. |
+| `known_rooms` | `list[RoomSummary(label, member_node_ids, centroid_xy, confidence)]` | `SemanticMapManager.known_rooms()` | Empty at cold-start. |
+| `connectivity` | `list[(room_a, room_b)]` | `SemanticMapManager.connectivity()` | Pessimistic — absence ≠ unreachable. |
 
-**Population contract.** Both sides must populate **all** fields they
-own. A partial `world_state` is a footgun: the LLM treats absent
-fields as "unknown" but the compiler treats them as
-"caller-asserted absent." When a side cannot yet populate a field
-(e.g., Nav2 not running), send `None` for that field rather than
+**Why the Jetson owns the whole block.** Observations arrive at
+the executor (Jetson reads the D555 + ROS topics), and the
+`SemanticMapManager` + `BackgroundMapper` are wired into the
+production executor by
+[`validator-evaluation`](../active/clip-validation/validator-evaluation.md)
+— they run alongside the executor on the Jetson, in the same
+process tree. Keeping the map state Jetson-resident means the
+planner request crosses the LAN with a self-contained snapshot,
+and the DGX planner service stays stateless w.r.t. the map.
+
+**Population contract.** The Jetson must populate **all** fields
+it can fill. A partial `world_state` is a footgun: the compiler
+on the DGX treats absent fields as "caller-asserted absent."
+When a field cannot be filled (e.g., Nav2 not yet running, map
+empty at cold-start), send `None` for that field rather than
 omitting it.
 
-**No `scene_metadata.json` reads.** The runtime planner backend
-must never read Infinigen sim-side metadata. The
-sim-to-real-boundary subsection of
+**No `scene_metadata.json` reads.** Neither the Jetson populator
+nor the DGX planner backend may read Infinigen sim-side metadata.
+The sim-to-real-boundary subsection of
 [`autonomy-stack`](../active/multi-room/autonomy-stack.md#sim-to-real-boundary-read-this-first)
 is the binding constraint; the room block on this schema comes
 from `SemanticMapManager`, not from `scene_metadata.json`.

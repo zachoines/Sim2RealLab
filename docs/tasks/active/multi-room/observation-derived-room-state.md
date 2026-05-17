@@ -1,9 +1,17 @@
 # Runtime room labeling and connectivity from observations
 
 **Type:** new feature
-**Owner:** DGX agent (`SemanticMapManager` lives in
-`strafer_autonomy.semantic_map`; runs on the DGX planner/grounding
-host)
+**Owner:** DGX agent edits the code (`SemanticMapManager` lives
+under `source/strafer_autonomy/strafer_autonomy/semantic_map/`,
+which is in the DGX edit lane per
+[`ownership-boundaries.md`](../../context/ownership-boundaries.md)).
+**Runtime host: Jetson** — the manager is instantiated by the
+production executor on the Jetson per
+[`validator-evaluation`](../clip-validation/validator-evaluation.md),
+so smoke tests and integration runs of this brief require the
+Jetson executor process. Coordinate with the operator on Jetson
+verification before shipping; the DGX agent cannot exercise the
+end-to-end path alone.
 **Priority:** P1 (hard prerequisite for `autonomy-stack`'s
 planner room-state input; the runtime counterpart of
 `scene-connectivity-validation`)

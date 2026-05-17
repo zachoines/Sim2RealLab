@@ -1619,7 +1619,11 @@ slot for advisory LLM hops we can promote later.
 - Both briefs co-design a single `world_state` schema. Whichever
   lands first defines the wire shape in
   [`source/strafer_autonomy/strafer_autonomy/schemas/`](../source/strafer_autonomy/strafer_autonomy/schemas/);
-  the second one consumes it.
+  the second one consumes it. The Jetson executor populates the
+  full block (pose + costmap from ROS clients, room block from
+  the Jetson-resident `SemanticMapManager` per §4.1 and
+  [`validator-evaluation`](tasks/active/clip-validation/validator-evaluation.md)).
+  The DGX planner service is a pure consumer over HTTP.
 
 **Why C, not A or B.** Three considerations dominate:
 

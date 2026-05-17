@@ -55,11 +55,15 @@ Sibling briefs:
   map + RTAB-Map graph + Nav2 costmap). Hard prerequisite for
   the planner transit-step path. **Must ship first.**
 - [`planner-architecture-alignment`](planner-architecture-alignment.md)
-  — decides whether the planner stays an intent classifier
-  (compiler emits transit steps) or is promoted to a multi-step
-  planner (LLM emits transit steps). The compiler-vs-LLM split
-  in this brief is contingent on that decision. **Must ship
-  first.**
+  — recorded Option C: planner stays an intent classifier, the
+  compiler grows room-aware logic, an advisory `staging_hops`
+  slot is reserved on the response schema but not consumed in
+  this brief. The compiler-side acceptance criteria below
+  match that decision. Decision lives in
+  [`STRAFER_AUTONOMY_NEXT.md` §1.10.2](../../../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c);
+  shared schema lives in
+  [`context/planner-request-schema.md`](../../context/planner-request-schema.md).
+  **Must ship first.**
 
 ## Context
 
@@ -163,39 +167,40 @@ is the **observation-derived room state** filed at
   between. Pessimistic by default — absence of an edge means
   "not yet proven reachable," not "unreachable."
 
-The plan-compiler change in [`planner/plan_compiler.py`](../../../../source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py)
-depends on the resolution of
-[`planner-architecture-alignment`](planner-architecture-alignment.md):
+Per the Option C decision in
+[`STRAFER_AUTONOMY_NEXT.md` §1.10.2](../../../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c),
+the multi-room logic lives in the compiler — the LLM prompt is
+unchanged. The plan-compiler change in
+[`planner/plan_compiler.py`](../../../../source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py)
+grows room-aware logic: when the LLM emits a `go_to_target` intent
+and the target's *inferred* room differs from the robot's current
+room, the compiler prepends a navigation step toward the cross-room
+threshold:
 
-- **If the planner stays an intent classifier (status quo):** the
-  compiler grows room-aware logic. When the LLM emits a
-  `go_to_target` intent and the target's *inferred* room differs
-  from the robot's current room, the compiler prepends a
-  navigation step toward the cross-room threshold:
+```
+Standard plan:
+  step_01: scan_for_target(label)
+  step_02: project_detection_to_goal_pose
+  step_03: align_to_goal_yaw
+  step_04: navigate_to_pose
+  step_05: verify_arrival
 
-  ```
-  Standard plan:
-    step_01: scan_for_target(label)
-    step_02: project_detection_to_goal_pose
-    step_03: align_to_goal_yaw
-    step_04: navigate_to_pose
-    step_05: verify_arrival
+Multi-room plan (target room known + reachable):
+  step_01: navigate_to_pose(<doorway-or-room-anchor>)
+  step_02: scan_for_target(label)
+  ...
 
-  Multi-room plan (target room known + reachable):
-    step_01: navigate_to_pose(<doorway-or-room-anchor>)
-    step_02: scan_for_target(label)
-    ...
+Multi-room plan (target room unknown):
+  step_01: explore_until_visible(label)   ← see frontier-exploration brief
+  ...
+```
 
-  Multi-room plan (target room unknown):
-    step_01: explore_until_visible(label)   ← see frontier-exploration brief
-    ...
-  ```
-
-- **If the planner is promoted to a multi-step planner:** the LLM
-  itself emits the transit step (see
-  [`planner-far-target-staging`](planner-far-target-staging.md)
-  for the precedent on multi-hop LLM output). The compiler
-  validates the sequence.
+If the LLM emits an advisory `staging_hops` field per
+[`context/planner-request-schema.md`](../../context/planner-request-schema.md),
+the compiler **ignores it** in this brief — that field is reserved
+for the C → B migration filed in
+[`STRAFER_AUTONOMY_NEXT.md` §1.10.2](../../../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c)
+and is not consumed yet.
 
 The "room-anchor" for the transit step is **not** a Infinigen
 room-centroid (that's privileged info). It is the most recent
@@ -220,10 +225,15 @@ room.
   [`observation-derived-room-state`](observation-derived-room-state.md).
   Hard prerequisite — this brief consumes the manager API
   defined there.
-- **Planner architecture choice.** Filed separately at
-  [`planner-architecture-alignment`](planner-architecture-alignment.md).
-  Hard prerequisite — the compiler-vs-LLM split in this brief
-  is contingent on that decision.
+- **Planner architecture choice.** Recorded as Option C in
+  [`planner-architecture-alignment`](planner-architecture-alignment.md)
+  /
+  [`STRAFER_AUTONOMY_NEXT.md` §1.10.2](../../../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c).
+  This brief ships the compiler-side multi-room work that
+  decision implies. The C → B migration (shadow-mode
+  `staging_hops`, advisory read, authoritative promotion) is
+  out of scope and will be filed as separate briefs at each
+  step.
 - **Door-state handling.** Doors are assumed open at scene-gen
   time per
   [`scene-connectivity-validation`](scene-connectivity-validation.md);
@@ -252,12 +262,16 @@ room.
       and Nav2's costmaps; neither may read Infinigen
       training-time metadata.
 - [ ] **Planner room-level world state — observation-derived
-      only.** The planner prompt receives `current_room`,
-      `known_rooms`, and `connectivity` from the runtime
-      `SemanticMapManager` API defined in
+      only.** The planner request carries the `world_state` block
+      per
+      [`context/planner-request-schema.md`](../../context/planner-request-schema.md);
+      `current_room`, `known_rooms`, and `connectivity` come from
+      the runtime `SemanticMapManager` API defined in
       [`observation-derived-room-state`](observation-derived-room-state.md).
-      No field on the prompt traces back to
-      `scene_metadata.json`.
+      No field on the block traces back to
+      `scene_metadata.json`. The prompt itself stays unchanged
+      under Option C — the compiler consumes the block, not the
+      LLM.
 - [ ] **Plan compiler emits transit-or-explore steps.**
       `_compile_go_to_target`, `_compile_go_to_targets`,
       `_compile_patrol`, and `_compile_wait_by_target` consult

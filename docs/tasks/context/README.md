@@ -163,6 +163,10 @@ accurate.
 - [`branching-and-prs.md`](branching-and-prs.md) — one brief = one
   branch = one PR; naming, branch-off point (always `main`), per-task
   workflow, PR composition rules, merge style.
+- [`planner-request-schema.md`](planner-request-schema.md) —
+  canonical `world_state` block + `MissionIntent` extension shape
+  shared across the multi-room briefs; planner-stays-intent-classifier
+  architecture commitment.
 
 One more candidate flagged for Pass 3 if duplication shows up:
 

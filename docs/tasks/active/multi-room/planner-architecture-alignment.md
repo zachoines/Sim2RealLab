@@ -200,30 +200,31 @@ defensible; before is premature optimization.
 
 ## Acceptance criteria
 
-- [ ] **Decision recorded.** One of A / B / C is selected, with
-      a one-paragraph rationale, and added to
-      [`STRAFER_AUTONOMY_NEXT.md`](../../../STRAFER_AUTONOMY_NEXT.md)
-      under §1.11 (Implementation plan) or a new sub-section
-      near the multi-room section. The text names the briefs
-      that depend on this decision.
-- [ ] **`autonomy-stack` updated.** Its compiler-vs-LLM
-      branching language is replaced with concrete acceptance
-      criteria matching the chosen option. Acceptance bullet
-      about "implementation contingent on planner-architecture-
-      alignment" is removed; replaced with concrete steps.
-- [ ] **`planner-far-target-staging` updated.** Same as above
-      for its branching language. The brief's primary acceptance
-      criterion ("the LLM emits multi-hop plans") is rewritten
-      to match the chosen option.
-- [ ] **One `world_state` schema, agreed.** The combined room +
-      pose + costmap + last-grounding schema co-designed
-      between this brief, `autonomy-stack`, and
-      `planner-far-target-staging` is documented in this brief
-      (or in a new `context/planner-request-schema.md` module)
-      as the canonical reference.
-- [ ] **No code changes.** This brief is docs-only. Code lands
+- [x] **Decision recorded.** Option **C** selected (planner stays
+      a thin intent classifier, compiler is the staging authority,
+      LLM gets an advisory `staging_hops` slot reserved for a
+      future migration step). Rationale + C → B migration plan
+      added to
+      [`STRAFER_AUTONOMY_NEXT.md` §1.10.2](../../../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c).
+      The text names
+      [`autonomy-stack`](autonomy-stack.md) and
+      [`planner-far-target-staging`](planner-far-target-staging.md)
+      as the dependents.
+- [x] **`autonomy-stack` updated.** Compiler-vs-LLM branching
+      language replaced with concrete Option-C acceptance
+      criteria; the room-aware compiler change is the only
+      planner-side work in that brief.
+- [x] **`planner-far-target-staging` updated.** "LLM emits
+      multi-hop plans" language replaced with the compiler
+      helper `_compile_far_target_staging`; the LLM prompt
+      stays unchanged.
+- [x] **One `world_state` schema, agreed.** Documented in
+      [`context/planner-request-schema.md`](../../context/planner-request-schema.md)
+      as the canonical reference, linked from this brief and
+      both dependents.
+- [x] **No code changes.** This brief is docs-only. Code lands
       via the consuming briefs.
-- [ ] If your work invalidates a fact in any referenced context
+- [x] If your work invalidates a fact in any referenced context
       module, package README, top-level `Readme.md`, or guide
       under `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance

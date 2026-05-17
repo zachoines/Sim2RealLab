@@ -1590,6 +1590,80 @@ works for:
 - **Long term:** Plan repair (Section 3.6) where the planner receives
   failure context and re-plans with room-level transit.
 
+### 1.10.2 Planner architecture decision: Option C
+
+**Decision.** The DGX planner stays a thin **intent classifier**.
+The plan compiler is the **staging authority** — it reads the
+runtime `world_state` block (defined in
+[`docs/tasks/context/planner-request-schema.md`](tasks/context/planner-request-schema.md))
+and inflates the LLM's single-intent output into the executable
+plan, including any multi-room transit, far-target staging, or
+frontier-exploration steps. The LLM does **not** emit
+skill-sequences in this iteration. This is "Option C" as filed in
+[`planner-architecture-alignment`](tasks/active/multi-room/planner-architecture-alignment.md):
+status-quo intent classifier today, with a forward-compatible
+slot for advisory LLM hops we can promote later.
+
+**What that means for the multi-room briefs.**
+
+- [`autonomy-stack`](tasks/active/multi-room/autonomy-stack.md)
+  ships its multi-room transit logic in the compiler
+  (`_compile_go_to_target`, `_compile_go_to_targets`,
+  `_compile_patrol`, `_compile_wait_by_target` grow room-aware
+  branches). The LLM prompt is unchanged.
+- [`planner-far-target-staging`](tasks/active/multi-room/planner-far-target-staging.md)
+  ships its far-target staging logic as a new compiler helper
+  (`_compile_far_target_staging`) that fires when the target
+  pose is outside `world_state.global_costmap_extent`. The LLM
+  prompt is unchanged.
+- Both briefs co-design a single `world_state` schema. Whichever
+  lands first defines the wire shape in
+  [`source/strafer_autonomy/strafer_autonomy/schemas/`](../source/strafer_autonomy/strafer_autonomy/schemas/);
+  the second one consumes it.
+
+**Why C, not A or B.** Three considerations dominate:
+
+1. *Risk surface.* A is the status quo (compiler-only spatial
+   reasoning, capped by the compiler programmer's imagination). B
+   is the literature-frontier move (LLM emits multi-step plans),
+   but B-quality is dominated by *grounded scene-state quality*,
+   not prompt quality — and we are mid-flight on three
+   grounded-input shifts simultaneously
+   ([`observation-derived-room-state`](tasks/active/multi-room/observation-derived-room-state.md),
+   [`frontier-exploration-primitive`](tasks/active/multi-room/frontier-exploration-primitive.md),
+   semantic-map room clustering). Stacking a multi-step LLM planner
+   concurrently means debugging four moving systems with
+   overlapping failure modes.
+2. *Required infrastructure.* B needs a prompt-test harness, a
+   constrained-output decoder, and a plan-validator for non-trivial
+   multi-step outputs. None of that exists today.
+3. *Upgrade lane.* C is upgrade-compatible to B in four bounded
+   steps (advisory-only → shadow → advisory-read → authoritative;
+   see the migration plan in the planner-architecture-alignment
+   brief). The operator can stop the migration at any step if the
+   prompt-engineering cost outweighs the gains.
+
+**Migration path (C → B).** Each step is a separate brief with
+its own rollback:
+
+1. **Land C as specified.** Compiler is staging authority; LLM
+   emits a single intent. No `staging_hops` field consumed yet.
+2. **Add an optional `staging_hops` field to the LLM output
+   schema; compiler ignores it.** Shadow-mode rollout — measure
+   how often the LLM emits hops that match what the compiler
+   picks, where they disagree, and which is better.
+3. **Promote `staging_hops` to advisory.** Compiler reads them,
+   uses them when they pass legality checks, falls back to its
+   own logic when they don't.
+4. **Promote `staging_hops` to authoritative for compositional
+   intents.** Compiler shrinks to a validator. At this point the
+   system is functionally Option B for the cases that matter.
+
+No single step asks the project to commit to LLM-as-planner
+before the grounded inputs are proven.
+
+**Recorded:** `task/planner-architecture-alignment` (docs-only).
+
 ### 1.11 Implementation plan
 
 | Step | Description | Effort | Dependencies |

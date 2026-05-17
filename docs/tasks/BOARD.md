@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`planner-architecture-alignment`](active/multi-room/planner-architecture-alignment.md) | DGX | TBD | open |
+| [`planner-architecture-alignment`](active/multi-room/planner-architecture-alignment.md) | DGX | [#36](https://github.com/zachoines/Sim2RealLab/pull/36) | open |
 
 ---
 

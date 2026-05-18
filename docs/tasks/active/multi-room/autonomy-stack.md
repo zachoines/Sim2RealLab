@@ -54,7 +54,7 @@ Sibling briefs:
   signal that this brief consumes (derived from the semantic
   map + RTAB-Map graph + Nav2 costmap). Hard prerequisite for
   the planner transit-step path. **Must ship first.**
-- [`planner-architecture-alignment`](planner-architecture-alignment.md)
+- [`planner-architecture-alignment`](../../completed/planner-architecture-alignment.md)
   — recorded Option C: planner stays an intent classifier, the
   compiler grows room-aware logic, an advisory `staging_hops`
   slot is reserved on the response schema but not consumed in
@@ -236,7 +236,7 @@ room.
   Hard prerequisite — this brief consumes the manager API
   defined there.
 - **Planner architecture choice.** Recorded as Option C in
-  [`planner-architecture-alignment`](planner-architecture-alignment.md)
+  [`planner-architecture-alignment`](../../completed/planner-architecture-alignment.md)
   /
   [`STRAFER_AUTONOMY_NEXT.md` §1.10.2](../../../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c).
   This brief ships the compiler-side multi-room work that
@@ -372,7 +372,7 @@ room.
   the CLIP zero-shot room classifier, the graph clustering,
   or the connectivity inference.
 - **Planner architecture choice.** Filed at
-  [`planner-architecture-alignment`](planner-architecture-alignment.md).
+  [`planner-architecture-alignment`](../../completed/planner-architecture-alignment.md).
   This brief assumes a decision has been made and writes
   acceptance criteria for both outcomes (compiler-side OR
   LLM-side transit emission).

@@ -13,13 +13,14 @@ populator + prompt + few-shot pass + token-budget measurement
 + A/B against the compiler's deterministic plan).
 **Branch:** task/planner-scene-graph-expansion
 
-**Pickup gate:** Blocked on the C → B migration step that adds
-shadow-mode `staging_hops` logging (step 2 in
+**Pickup gate:** Blocked on
+[`staging-hops-shadow-mode`](staging-hops-shadow-mode.md)
+shipping (step 2 in
 [`STRAFER_AUTONOMY_NEXT.md` §1.10.2](../../../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c)).
-That step must ship first AND produce ≥ a week of shadow data
-showing the LLM emits `staging_hops` that **disagree with the
-compiler's plan**. Triage of those disagreements is the
-trigger condition — see "Trigger detail" below. Un-park by
+That brief must produce ≥ a week of shadow data showing the
+LLM emits `staging_hops` that **disagree with the compiler's
+plan**. Triage of those disagreements is the trigger
+condition — see "Trigger detail" below. Un-park by
 `git mv parked/multi-room/<this>.md
 active/multi-room/<this>.md` in the PR that picks it up, per
 [`README.md`'s Directory layout](../../README.md#directory-layout).
@@ -46,7 +47,7 @@ Read these before starting:
 - [`context/conventions.md`](../../context/conventions.md)
 - [`context/planner-request-schema.md`](../../context/planner-request-schema.md)
   — the canonical `world_state` shape this brief extends.
-- [`planner-architecture-alignment`](../../active/multi-room/planner-architecture-alignment.md)
+- [`planner-architecture-alignment`](../../completed/planner-architecture-alignment.md)
   — the Option C decision and the C → B migration plan this
   brief slots into.
 - [`observation-derived-room-state`](../../active/multi-room/observation-derived-room-state.md)
@@ -110,7 +111,7 @@ Option B is supposed to handle well.
 ### What B-shaped planners want (literature)
 
 All three planner-LLM systems cited as
-[`planner-architecture-alignment`](../../active/multi-room/planner-architecture-alignment.md)
+[`planner-architecture-alignment`](../../completed/planner-architecture-alignment.md)
 precedents use hierarchical scene graphs with object poses:
 
 - **CogNav** (ICCV 2025) — LLM emits state-aware transitions

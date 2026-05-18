@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`planner-architecture-alignment`](active/multi-room/planner-architecture-alignment.md) | DGX | [#36](https://github.com/zachoines/Sim2RealLab/pull/36) | open |
+| _None._ | | | |
 
 ---
 
@@ -40,13 +40,13 @@ explicit dependencies.
 
 | Brief | Pri | State | Owner |
 |---|---|---|---|
-| [`planner-architecture-alignment`](active/multi-room/planner-architecture-alignment.md) | P1 | active | DGX |
 | [`observation-derived-room-state`](active/multi-room/observation-derived-room-state.md) | P1 | active | DGX |
 | [`frontier-exploration-primitive`](active/multi-room/frontier-exploration-primitive.md) | P1 | active | Either |
 | [`autonomy-stack`](active/multi-room/autonomy-stack.md) | P1 | active | Either |
 | [`scene-connectivity-validation`](active/multi-room/scene-connectivity-validation.md) | P1 | active | DGX |
 | [`planner-far-target-staging`](active/multi-room/planner-far-target-staging.md) | P2 | active | DGX |
 | [`llm-guided-frontier-gain`](parked/multi-room/llm-guided-frontier-gain.md) | P2 | parked | DGX |
+| [`staging-hops-shadow-mode`](parked/multi-room/staging-hops-shadow-mode.md) | P3 | parked | DGX |
 | [`planner-scene-graph-expansion`](parked/multi-room/planner-scene-graph-expansion.md) | P3 | parked | DGX |
 
 ### Trained-policy backend
@@ -153,7 +153,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`teleop-driver`](active/harness/teleop-driver.md) | DGX | M | Gamepad teleop entry point for in-process Isaac Lab data capture. Bypasses MPPI / Nav2 / planner; reuses `collect_demos.py` mapping; emits the canonical harness schema. Unblocks v1 measurement (clip-eval, learned-validator) and v2 VLA training data without depending on bridge perf. |
 | [`observation-derived-room-state`](active/multi-room/observation-derived-room-state.md) | DGX | M | Runtime-legal `current_room` / `known_rooms` / `connectivity` on `SemanticMapManager`. Replaces the `scene_metadata.json` leak path in `autonomy-stack`. Hard prerequisite. |
 | [`frontier-exploration-primitive`](active/multi-room/frontier-exploration-primitive.md) | Either | M | `explore_until_visible(label)` skill. Closes the cold-start cross-room gap §1.10.1 option 3 named. Hard prerequisite for `autonomy-stack`'s cold-start smoke test. |
-| [`autonomy-stack`](active/multi-room/autonomy-stack.md) | Either | M | Lifts §1.10.1's multi-room deferral. Stored-map fallback in `scan_for_target` + planner transit-step emission + plan-compiler updates. Now blocks on `planner-architecture-alignment`, `observation-derived-room-state`, `frontier-exploration-primitive`. |
+| [`autonomy-stack`](active/multi-room/autonomy-stack.md) | Either | M | Lifts §1.10.1's multi-room deferral. Stored-map fallback in `scan_for_target` + planner transit-step emission + plan-compiler updates. Blocks on `observation-derived-room-state` and `frontier-exploration-primitive` (`planner-architecture-alignment` shipped in #36 as Option C). |
 | [`scene-connectivity-validation`](active/multi-room/scene-connectivity-validation.md) | DGX | S | Verified-and-enriched `connectivity[]` block + door-open guarantee. Sim/harness-only; runtime equivalent is `observation-derived-room-state`. |
 | [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | Either | S–M | End-to-end spec for hidden-state shape, reset semantics, thread-safety across train/export/inference. Three existing recurrent briefs each describe their side; this brief pins the contract at the seams. Filed off the 2026-05-15 trained-policy audit. |
 | [`observation-contract-cleanup`](active/trained-policy/observation-contract-cleanup.md) | DGX | S–M | Re-implement `body_velocity_xy` as encoder-derived FK so the sim signal chain matches what the real robot computes via `/strafer/odom`. Closes a silent sim-to-real bug before the DEPTH MVP ships. Filed off the 2026-05-15 trained-policy audit. |
@@ -241,7 +241,8 @@ picks them up.
 | [`roboclaw-error-visibility-and-low-battery`](parked/reliability/roboclaw-error-visibility-and-low-battery.md) | Trigger: real-robot bringup begins (chassis powered and RoboClaws actually communicating over USB) | Filed-on-trigger off the 2026-05-17 reliability audit. Exposes CRC-error count + battery voltage + low-battery degraded mode. Not exercised in sim (`HARDWARE_PRESENT=false` bypasses driver). |
 | [`imu-yaw-drift-no-magnetometer`](parked/reliability/imu-yaw-drift-no-magnetometer.md) | Trigger: real-robot multi-room mission shows yaw-drift between RTAB-Map closures > 2° p95 **or** RTAB-Map loop closure becomes unreliable on lab carpet | Filed-on-trigger investigation off the 2026-05-17 reliability audit. Decides between SLAM-anchored telemetry-only (option A) vs. external magnetometer add (option B) vs. VIO (option C). |
 | [`llm-guided-frontier-gain`](parked/multi-room/llm-guided-frontier-gain.md) | [`frontier-exploration-primitive`](active/multi-room/frontier-exploration-primitive.md) shipped (no skill to extend) **and** [`observation-derived-room-state`](active/multi-room/observation-derived-room-state.md) shipped (no language-shaped frontier descriptions) | Extension to v1 frontier primitive — multiplies an LFG-style scalar LLM prior onto the geometric gain. `gain_weights.llm = 0.0` recovers v1 exactly. Cites LFG (arXiv:2310.10103) as the design precedent; CogNav state machine deferred to v3. |
-| [`planner-scene-graph-expansion`](parked/multi-room/planner-scene-graph-expansion.md) | Trigger: the C → B migration's shadow-mode `staging_hops` step ships AND ≥ a week of shadow data shows the LLM's hops disagree with the compiler for reasons object poses / room inventories would fix (target disambiguation, intra-room landmark choice). See the "Trigger detail" section of the brief. | Extends `world_state` with `ObjectEntry` + per-room object inventories so the planner LLM has the spatial context to make `staging_hops` better than the Option C compiler. Prerequisite for promoting `staging_hops` from advisory to authoritative in [§1.10.2 step 3](../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c). |
+| [`staging-hops-shadow-mode`](parked/multi-room/staging-hops-shadow-mode.md) | [`autonomy-stack`](active/multi-room/autonomy-stack.md) shipped (need the room-aware compiler to compare against) **and** [`planner-far-target-staging`](active/multi-room/planner-far-target-staging.md) shipped (need the far-target helper). | Migration step 2 from [§1.10.2](../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c) — populate `MissionIntent.staging_hops` from the LLM, log the agreement-rate against the compiler's plan, ship a weekly report. Compiler still ignores the field. The report is the trigger signal for `planner-scene-graph-expansion`. |
+| [`planner-scene-graph-expansion`](parked/multi-room/planner-scene-graph-expansion.md) | [`staging-hops-shadow-mode`](parked/multi-room/staging-hops-shadow-mode.md) shipped AND its ≥ a week of shadow data shows the LLM's hops disagree with the compiler for reasons object poses / room inventories would fix (target disambiguation, intra-room landmark choice). See the "Trigger detail" section of the brief. | Extends `world_state` with `ObjectEntry` + per-room object inventories so the planner LLM has the spatial context to make `staging_hops` better than the Option C compiler. Prerequisite for promoting `staging_hops` from advisory to authoritative in [§1.10.2 step 3](../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c). |
 
 ---
 

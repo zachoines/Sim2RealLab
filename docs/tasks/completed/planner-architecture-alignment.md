@@ -1,12 +1,22 @@
 # Decide: keep the planner as an intent classifier, or promote it to a multi-step planner
 
+**Status:** Shipped 2026-05-18 in `<merge sha for #36>` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/36
+**Follow-ups:**
+- [`staging-hops-shadow-mode`](../parked/multi-room/staging-hops-shadow-mode.md)
+  — migration step 2 (parked on the two Option-C compiler briefs
+  shipping).
+- [`planner-scene-graph-expansion`](../parked/multi-room/planner-scene-graph-expansion.md)
+  — migration step 3 prerequisite (parked on shadow-mode data).
+
 **Type:** investigation / docs
-**Owner:** DGX agent (writes the decision); operator approves
-**Priority:** P1 (hard prerequisite for `autonomy-stack` and
-`planner-far-target-staging`; both depend on this decision and
-neither can land cleanly without it)
+**Owner:** DGX agent (wrote the decision); operator approved.
+**Priority:** P1 — was a hard prerequisite for
+[`autonomy-stack`](../active/multi-room/autonomy-stack.md) and
+[`planner-far-target-staging`](../active/multi-room/planner-far-target-staging.md);
+both depended on this decision.
 **Estimate:** S (~half a day; write-up + decision call + brief
-edits cascading from it)
+edits cascading from it).
 **Branch:** task/planner-architecture-alignment
 
 ## Story
@@ -26,14 +36,14 @@ next quarter of work commits to it**.
 ## Context bundle
 
 Read these before starting:
-- [`context/repo-topology.md`](../../context/repo-topology.md)
-- [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
-- [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
-- [`context/conventions.md`](../../context/conventions.md)
-- [`autonomy-stack`](autonomy-stack.md) — wants the compiler to
+- [`context/repo-topology.md`](../context/repo-topology.md)
+- [`context/ownership-boundaries.md`](../context/ownership-boundaries.md)
+- [`context/branching-and-prs.md`](../context/branching-and-prs.md)
+- [`context/conventions.md`](../context/conventions.md)
+- [`autonomy-stack`](../active/multi-room/autonomy-stack.md) — wants the compiler to
   emit room-transit steps OR the LLM to emit them. Acceptance
   criteria branch on this decision.
-- [`planner-far-target-staging`](planner-far-target-staging.md)
+- [`planner-far-target-staging`](../active/multi-room/planner-far-target-staging.md)
   — wants the compiler to emit staging hops OR the LLM to emit
   them. Acceptance criteria branch on this decision.
 
@@ -44,17 +54,17 @@ Read these before starting:
 Verified against the codebase on 2026-05-13:
 
 - The LLM is a **strict intent classifier**. Prompt at
-  [`planner/prompt_builder.py`](../../../../source/strafer_autonomy/strafer_autonomy/planner/prompt_builder.py)
+  [`planner/prompt_builder.py`](../../../source/strafer_autonomy/strafer_autonomy/planner/prompt_builder.py)
   emits one of `{go_to_target, wait_by_target, go_to_targets,
   patrol, rotate, translate, describe, query, cancel, status}`
   with a few structured fields. No multi-step output.
 - The **plan compiler** at
-  [`planner/plan_compiler.py`](../../../../source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py)
+  [`planner/plan_compiler.py`](../../../source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py)
   is deterministic. Every `go_to_target` becomes the same
   5-step `scan → project → align → navigate → verify` sequence
   via `_compile_single_target_steps`.
 - The executor at
-  [`executor/mission_runner.py`](../../../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py)
+  [`executor/mission_runner.py`](../../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py)
   runs the compiled steps in order, with cancel + retry
   handling per step.
 
@@ -83,7 +93,7 @@ one driven by the LLM — that don't compose.
 
 - The LLM continues to emit a single intent. The compiler
   inspects `world_state` + the inferred target room (from
-  [`observation-derived-room-state`](observation-derived-room-state.md))
+  [`observation-derived-room-state`](../active/multi-room/observation-derived-room-state.md))
   and prepends transit / staging / exploration steps when
   needed.
 - Pros: deterministic; testable in isolation; no prompt-
@@ -205,10 +215,10 @@ defensible; before is premature optimization.
       LLM gets an advisory `staging_hops` slot reserved for a
       future migration step). Rationale + C → B migration plan
       added to
-      [`STRAFER_AUTONOMY_NEXT.md` §1.10.2](../../../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c).
+      [`STRAFER_AUTONOMY_NEXT.md` §1.10.2](../../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c).
       The text names
-      [`autonomy-stack`](autonomy-stack.md) and
-      [`planner-far-target-staging`](planner-far-target-staging.md)
+      [`autonomy-stack`](../active/multi-room/autonomy-stack.md) and
+      [`planner-far-target-staging`](../active/multi-room/planner-far-target-staging.md)
       as the dependents.
 - [x] **`autonomy-stack` updated.** Compiler-vs-LLM branching
       language replaced with concrete Option-C acceptance
@@ -219,7 +229,7 @@ defensible; before is premature optimization.
       helper `_compile_far_target_staging`; the LLM prompt
       stays unchanged.
 - [x] **One `world_state` schema, agreed.** Documented in
-      [`context/planner-request-schema.md`](../../context/planner-request-schema.md)
+      [`context/planner-request-schema.md`](../context/planner-request-schema.md)
       as the canonical reference, linked from this brief and
       both dependents.
 - [x] **No code changes.** This brief is docs-only. Code lands
@@ -228,15 +238,15 @@ defensible; before is premature optimization.
       module, package README, top-level `Readme.md`, or guide
       under `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance
-      section](../../context/conventions.md#user-facing-documentation-maintenance)
+      section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
 
 ## Investigation pointers
 
 - Current planner prompt:
-  [`planner/prompt_builder.py`](../../../../source/strafer_autonomy/strafer_autonomy/planner/prompt_builder.py).
+  [`planner/prompt_builder.py`](../../../source/strafer_autonomy/strafer_autonomy/planner/prompt_builder.py).
 - Current compiler:
-  [`planner/plan_compiler.py`](../../../../source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py).
+  [`planner/plan_compiler.py`](../../../source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py).
 - Recent literature on LLM-as-multi-step-planner for navigation:
   - CogNav (ICCV 2025) — LLM emits state-aware transitions
     between exploration and identification.

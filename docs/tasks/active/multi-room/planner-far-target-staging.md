@@ -29,7 +29,7 @@ Read these before starting:
 - [`nav2-far-goal-staging.md`](../../completed/nav2-far-goal-staging.md) — the
   Jetson-side reactive staging loop this brief layers on top of.
   **Must ship first.**
-- [`planner-architecture-alignment`](planner-architecture-alignment.md)
+- [`planner-architecture-alignment`](../../completed/planner-architecture-alignment.md)
   — recorded Option C: planner stays a thin intent classifier,
   the compiler is the staging authority, the LLM prompt is
   unchanged. The compiler-side acceptance criteria below match
@@ -59,7 +59,7 @@ then expands every `go_to_target` intent into the same
 via `_compile_single_target_steps`.
 
 Per the Option C decision in
-[`planner-architecture-alignment`](planner-architecture-alignment.md)
+[`planner-architecture-alignment`](../../completed/planner-architecture-alignment.md)
 /
 [`STRAFER_AUTONOMY_NEXT.md` §1.10.2](../../../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c),
 this brief ships its far-target staging logic in the compiler:

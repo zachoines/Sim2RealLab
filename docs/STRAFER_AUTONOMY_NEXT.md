@@ -1533,7 +1533,7 @@ for the work that ships multi-room as the project's MVP default.
 The 2026-05-13 audit decomposed the original
 autonomy-stack + scene-connectivity-validation pair into six
 briefs:
-[`planner-architecture-alignment`](tasks/active/multi-room/planner-architecture-alignment.md)
+[`planner-architecture-alignment`](tasks/completed/planner-architecture-alignment.md)
 (architecture decision — intent classifier vs multi-step
 planner),
 [`observation-derived-room-state`](tasks/active/multi-room/observation-derived-room-state.md)
@@ -1600,7 +1600,7 @@ and inflates the LLM's single-intent output into the executable
 plan, including any multi-room transit, far-target staging, or
 frontier-exploration steps. The LLM does **not** emit
 skill-sequences in this iteration. This is "Option C" as filed in
-[`planner-architecture-alignment`](tasks/active/multi-room/planner-architecture-alignment.md):
+[`planner-architecture-alignment`](tasks/completed/planner-architecture-alignment.md):
 status-quo intent classifier today, with a forward-compatible
 slot for advisory LLM hops we can promote later.
 
@@ -1657,7 +1657,12 @@ its own rollback:
 2. **Add an optional `staging_hops` field to the LLM output
    schema; compiler ignores it.** Shadow-mode rollout — measure
    how often the LLM emits hops that match what the compiler
-   picks, where they disagree, and which is better.
+   picks, where they disagree, and which is better. Filed as
+   [`staging-hops-shadow-mode`](tasks/parked/multi-room/staging-hops-shadow-mode.md)
+   (parked on
+   [`autonomy-stack`](tasks/active/multi-room/autonomy-stack.md)
+   + [`planner-far-target-staging`](tasks/active/multi-room/planner-far-target-staging.md)
+   shipping).
 3. **Promote `staging_hops` to advisory.** Compiler reads them,
    uses them when they pass legality checks, falls back to its
    own logic when they don't. Prerequisite for this step is

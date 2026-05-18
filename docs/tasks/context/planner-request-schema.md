@@ -31,7 +31,7 @@ against, not as a description of running code.
 Per the decision recorded in
 [`STRAFER_AUTONOMY_NEXT.md` §1.10.2](../../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c)
 and the brief at
-[`planner-architecture-alignment`](../active/multi-room/planner-architecture-alignment.md):
+[`planner-architecture-alignment`](../completed/planner-architecture-alignment.md):
 
 - The LLM remains a **thin intent classifier**. It emits one
   `MissionIntent` per request (no skill-sequence output).

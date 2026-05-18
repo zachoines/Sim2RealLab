@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`export-onnx-depth`](active/trained-policy/export-onnx-depth.md) | DGX | _pending_ | in flight |
+| [`export-onnx-depth`](active/trained-policy/export-onnx-depth.md) | DGX | [#38](https://github.com/zachoines/Sim2RealLab/pull/38) | in flight |
 
 ---
 

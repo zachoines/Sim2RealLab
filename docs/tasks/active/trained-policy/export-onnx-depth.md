@@ -298,3 +298,22 @@ sweep happens after rsync per the strafer-inference brief.
 - **Re-validating NoCam ONNX.** NoCam ONNX export already works through
   the rsl_rl stock path; don't refactor that surface as part of this
   brief.
+- **DEPTH TorchScript export on real checkpoints.** The brief's Phase 4
+  smoke test surfaced that `--formats pt` for DEPTH fails on
+  `torch.jit.script` because DeFM's `BiFPN.WeightedFusion.forward` uses
+  `sum(generator)`. ONNX traces (not scripts) so the brief's primary
+  goal is unaffected; the TorchScript residual ships separately as
+  [`export-torchscript-depth`](export-torchscript-depth.md).
+- **Matching the antialiased DeFM preprocessing exactly.**
+  `_onnx_safe_defm_preprocess` substitutes
+  `F.interpolate(..., antialias=False)` for the torchvision Resize
+  because `aten::_upsample_bilinear2d_aa` isn't ONNX-supported through
+  opset 21. The bounded projection-space delta and the alignment
+  decision (leave / align deployment / align training) are owned by
+  [`defm-preprocess-antialias-audit`](../investigations/defm-preprocess-antialias-audit.md).
+- **Sidecar `training_preset` correctness.** The smoke-test sidecar
+  records the configclass name (`RslRlOnPolicyRunnerCfg`) instead of
+  the rsl_rl preset variable (`STRAFER_PPO_DEPTH_RUNNER_CFG`); this is
+  a pre-existing bug in `policy-export-tooling`'s call site, surfaced
+  by this brief and filed separately as
+  [`export-sidecar-training-preset`](export-sidecar-training-preset.md).

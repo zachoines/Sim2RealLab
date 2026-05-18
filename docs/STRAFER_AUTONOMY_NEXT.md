@@ -1660,7 +1660,12 @@ its own rollback:
    picks, where they disagree, and which is better.
 3. **Promote `staging_hops` to advisory.** Compiler reads them,
    uses them when they pass legality checks, falls back to its
-   own logic when they don't.
+   own logic when they don't. Prerequisite for this step is
+   [`planner-scene-graph-expansion`](tasks/parked/multi-room/planner-scene-graph-expansion.md)
+   (parked) — the LLM needs object-pose context to emit hops
+   the compiler can defensibly accept. That brief un-parks
+   when step 2's shadow data shows the LLM is bottlenecked on
+   scene state, not on prompt engineering.
 4. **Promote `staging_hops` to authoritative for compositional
    intents.** Compiler shrinks to a validator. At this point the
    system is functionally Option B for the cases that matter.

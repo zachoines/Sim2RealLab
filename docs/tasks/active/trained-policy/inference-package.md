@@ -100,7 +100,7 @@ ships:
 | `assemble_observation(raw, variant)` | Normalize + concatenate raw sensor dict → flat float32 obs |
 | `interpret_action(action_normalized)` | Denormalize `[-1, 1]` policy output → `(vx, vy, omega)` in m/s, rad/s |
 | `action_to_wheel_ticks(action_normalized)` | Convenience: action → wheel ticks/sec via `mecanum_kinematics` |
-| `load_policy(path, variant)` | Load `.pt` (TorchScript) or `.onnx` (ONNX Runtime, including TRT EP); returns `(obs) → action` callable |
+| `load_policy(path, variant)` | Load `.pt` (TorchScript) or `.onnx` (ONNX Runtime, including TRT EP); returns a `LoadedPolicy` (callable `(obs) → action`, with `.reset()` for episode boundaries and `.is_recurrent`) |
 | `benchmark_policy(policy, variant, n_iters)` | Inference-latency stats |
 
 The Isaac Lab side keeps the env aligned via

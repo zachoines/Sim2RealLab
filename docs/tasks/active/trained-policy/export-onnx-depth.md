@@ -293,8 +293,8 @@ sweep happens after rsync per the strafer-inference brief.
   to LSTM, this brief's `as_onnx()` raises and a follow-up adds the
   LSTM path. Don't speculatively implement it.
 - **Loader-side stateful inference contract.** That's
-  [`loader-recurrent-state`](loader-recurrent-state.md).
-  This brief produces the artifact; the loader brief consumes it.
+  [`loader-recurrent-state`](../../completed/loader-recurrent-state.md)
+  (shipped). This brief produces the artifact; the loader brief consumes it.
 - **Re-validating NoCam ONNX.** NoCam ONNX export already works through
   the rsl_rl stock path; don't refactor that surface as part of this
   brief.

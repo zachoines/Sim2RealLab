@@ -1,5 +1,8 @@
 # `load_policy()`: recurrent / stateful artifact support
 
+**Status:** Shipped 2026-05-18 (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/37
+
 **Type:** task / feature
 **Owner:** Either (`strafer_shared` shared boundary — append-friendly
 edits to `policy_interface.py`; coordinate with the operator if a

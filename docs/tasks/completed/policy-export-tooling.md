@@ -12,7 +12,7 @@ follow-up brief.
 - [`export-onnx-depth`](../active/trained-policy/export-onnx-depth.md)
   — closes the MVP-DEPTH-ONNX gap by authoring `_OnnxDepthGRUModel` in
   `source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py`.
-- [`loader-recurrent-state`](../active/trained-policy/loader-recurrent-state.md)
+- [`loader-recurrent-state`](loader-recurrent-state.md)
   — extends `strafer_shared.policy_interface.load_policy()` so recurrent
   artifacts (DEPTH GRU today, NoCam LSTM in the future) expose
   `.reset()` and ONNX hidden state threads across calls. Required for

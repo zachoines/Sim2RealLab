@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`loader-recurrent-state`](active/trained-policy/loader-recurrent-state.md) | Jetson | [#37](https://github.com/zachoines/Sim2RealLab/pull/37) | implementing |
+| _None._ | | | |
 
 ---
 
@@ -54,7 +54,6 @@ explicit dependencies.
 | Brief | Pri | State | Owner |
 |---|---|---|---|
 | [`export-onnx-depth`](active/trained-policy/export-onnx-depth.md) | P1 | active | DGX |
-| [`loader-recurrent-state`](active/trained-policy/loader-recurrent-state.md) | P1 | in flight | Jetson |
 | [`inference-package`](active/trained-policy/inference-package.md) | P1 | active | Jetson |
 | [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | P1 | active | Either |
 | [`observation-contract-cleanup`](active/trained-policy/observation-contract-cleanup.md) | P1 | active | DGX |

@@ -5,7 +5,7 @@
 + `strafer_inference`)
 **Priority:** P1 — three sibling briefs
 ([`export-onnx-depth`](export-onnx-depth.md),
-[`loader-recurrent-state`](loader-recurrent-state.md),
+[`loader-recurrent-state`](../../completed/loader-recurrent-state.md),
 [`inference-package`](inference-package.md)) each describe *their side*
 of the recurrent contract. The whole-pipeline shape (hidden-state
 allocation, reset semantics, episode boundary, thread-safety, byte
@@ -36,7 +36,7 @@ Read these before starting:
 - [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
 - [export-onnx-depth.md](export-onnx-depth.md) — DGX-side producer of
   recurrent ONNX.
-- [loader-recurrent-state.md](loader-recurrent-state.md) — Either-side
+- [loader-recurrent-state.md](../../completed/loader-recurrent-state.md) — Either-side
   consumer that exposes `.reset()` and threads hidden state.
 - [inference-package.md](inference-package.md) — Jetson-side caller
   that decides *when* `.reset()` fires.
@@ -158,7 +158,7 @@ multiple briefs.
 
 Update each of:
 - [`export-onnx-depth.md`](export-onnx-depth.md)
-- [`loader-recurrent-state.md`](loader-recurrent-state.md)
+- [`loader-recurrent-state.md`](../../completed/loader-recurrent-state.md)
 - [`inference-package.md`](inference-package.md)
 
 with one line in the Context bundle pointing at
@@ -197,7 +197,7 @@ mode this brief exists to catch.
 - [ ] `docs/tasks/context/recurrent-policy-contract.md` exists and
       summarizes the same spec.
 - [ ] [`export-onnx-depth.md`](export-onnx-depth.md),
-      [`loader-recurrent-state.md`](loader-recurrent-state.md), and
+      [`loader-recurrent-state.md`](../../completed/loader-recurrent-state.md), and
       [`inference-package.md`](inference-package.md) each reference the
       context module in their Context bundle.
 
@@ -236,7 +236,7 @@ mode this brief exists to catch.
   [`export-onnx-depth`](export-onnx-depth.md). This brief documents
   the contract that producer must satisfy.
 - **Implementing the consumer side.** That's
-  [`loader-recurrent-state`](loader-recurrent-state.md). Same.
+  [`loader-recurrent-state`](../../completed/loader-recurrent-state.md). Same.
 - **Implementing the caller side.** That's
   [`inference-package`](inference-package.md). Same.
 - **Mutex around policy calls in `strafer_inference`.** Mentioned in

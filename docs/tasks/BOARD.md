@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`loader-recurrent-state`](active/trained-policy/loader-recurrent-state.md) | Jetson | _pending_ | implementing |
+| [`loader-recurrent-state`](active/trained-policy/loader-recurrent-state.md) | Jetson | [#37](https://github.com/zachoines/Sim2RealLab/pull/37) | implementing |
 
 ---
 

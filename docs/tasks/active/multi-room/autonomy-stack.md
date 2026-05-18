@@ -160,12 +160,22 @@ is the **observation-derived room state** filed at
   cross-checked against semantic-map node clusters).
 - `known_rooms: list[RoomEntry]` — clusters discovered in the
   semantic map so far. Empty at cold-start; populated as the
-  robot explores.
+  robot explores. Each `RoomEntry.observed_objects: list[str]`
+  is the deduplicated set of object labels seen in that cluster
+  — the compiler's primary target-room inference signal
+  (`intent.target_label in known_rooms[X].observed_objects` →
+  target room is X).
 - `connectivity: list[(room_a, room_b)]` — pairs the robot has
   traversed between (derived from the RTAB-Map / semantic-map
   graph), plus pairs Nav2's global costmap can plan a path
   between. Pessimistic by default — absence of an edge means
   "not yet proven reachable," not "unreachable."
+- `target_known_poses: list[Pose2D]` — prior sightings of
+  `intent.target_label` from the semantic map, populated per
+  request via `SemanticMapManager.query_by_label`. Empty list
+  means cold-start; the compiler routes those through
+  `explore_until_visible`. See
+  [`context/planner-request-schema.md`](../../context/planner-request-schema.md).
 
 Per the Option C decision in
 [`STRAFER_AUTONOMY_NEXT.md` §1.10.2](../../../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c),
@@ -274,19 +284,21 @@ room.
       LLM.
 - [ ] **Plan compiler emits transit-or-explore steps.**
       `_compile_go_to_target`, `_compile_go_to_targets`,
-      `_compile_patrol`, and `_compile_wait_by_target` consult
-      the observation-derived target-room inference. Three cases:
+      `_compile_patrol`, and `_compile_wait_by_target` infer the
+      target's room by scanning
+      `world_state.known_rooms[*].observed_objects` for
+      `intent.target_label`. Three cases:
       target room == current room → unchanged 5-step plan;
       target room ≠ current room AND target room is in
       `known_rooms` with a `connectivity` edge → prepend
       `navigate_to_pose(<semantic-map-anchor>)`; target room is
-      unknown OR unreachable from current room in
-      `connectivity` → prepend
-      `explore_until_visible(label)` (see
+      unknown (label not found in any room's `observed_objects`)
+      OR unreachable from current room in `connectivity` →
+      prepend `explore_until_visible(label)` (see
       [`frontier-exploration-primitive`](frontier-exploration-primitive.md)).
-      Anchor pose comes from the most recent semantic-map node
-      tagged with the target room — **never** a
-      scene-metadata centroid. Unit-tested under
+      Anchor pose comes from `SemanticMapManager.room_anchor(
+      target_room)` — **never** a scene-metadata centroid.
+      Unit-tested under
       [`source/strafer_autonomy/tests/`](../../../../source/strafer_autonomy/tests/).
 - [ ] **Smoke test — cold-start.** A mission in a multi-room
       Infinigen scene where the target lives in a different

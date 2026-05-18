@@ -137,9 +137,16 @@ class SemanticMapManager:
 ```
 
 `RoomEntry` carries `(label: str, member_node_ids: list[str],
-centroid_xy: tuple[float, float], confidence: float)`. The
-centroid is computed from the cluster's node poses — observation-
-derived, not metadata-derived.
+centroid_xy: tuple[float, float], confidence: float,
+observed_objects: list[str])`. The centroid is computed from the
+cluster's node poses — observation-derived, not metadata-derived.
+`observed_objects` is the deduplicated set of object labels seen
+in any node of the cluster (from each node's
+`detected_objects[*].label`); the
+[`autonomy-stack`](autonomy-stack.md) compiler uses it as the
+primary target-room-inference signal (`"sink" in
+known_rooms["kitchen"].observed_objects` → target room is
+kitchen).
 
 ### Tie-in to state-of-the-art
 
@@ -177,7 +184,12 @@ Nav2 reachability) maps onto current literature:
       growth.
 - [ ] **Manager API.** `current_room`, `known_rooms`,
       `connectivity`, and `room_anchor` are implemented and
-      documented in the package README.
+      documented in the package README. `known_rooms()` returns
+      `RoomEntry` values whose `observed_objects` field is the
+      deduplicated set of object labels seen in any member node
+      (derived from `SemanticNode.detected_objects[*].label`);
+      the [`autonomy-stack`](autonomy-stack.md) compiler reads
+      this for target-room inference.
 - [ ] **Connectivity uses Nav2 reachability.** The
       `connectivity` method queries the Nav2 global planner to
       add edges for rooms connectable on the costmap but not

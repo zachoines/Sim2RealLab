@@ -59,16 +59,33 @@ valid).
 
 ```python
 class PlannerWorldState(BaseModel):
-    # Pose + costmap (from ROS clients in mission_runner)
+    # Robot pose (from ROS clients in mission_runner)
     robot_pose_map: Pose2D
-    global_costmap_extent: Rectangle | None  # min_x, min_y, max_x, max_y
     last_grounding: GroundingSummary | None  # depth, stability, age_s
+
+    # Target-label semantic-map lookup (populated per request
+    # against the MissionIntent's target_label — empty list if
+    # the manager has no prior sightings)
+    target_known_poses: list[Pose2D]
 
     # Room-level (from SemanticMapManager; observation-derived only —
     # see the sim-to-real boundary in autonomy-stack)
     current_room: str | None
-    known_rooms: list[RoomSummary]
+    known_rooms: list[RoomEntry]
     connectivity: list[tuple[str, str]]
+```
+
+`RoomEntry` matches the manager's return type defined in
+[`observation-derived-room-state`](../active/multi-room/observation-derived-room-state.md),
+extended with a per-room object inventory:
+
+```python
+class RoomEntry(BaseModel):
+    label: str
+    member_node_ids: list[str]
+    centroid_xy: tuple[float, float]
+    confidence: float
+    observed_objects: list[str]   # deduplicated labels seen in this room
 ```
 
 Component shapes (all populated Jetson-side):
@@ -76,11 +93,21 @@ Component shapes (all populated Jetson-side):
 | Field | Shape | Source | Notes |
 |---|---|---|---|
 | `robot_pose_map` | `Pose2D(x, y, yaw)` | mission_runner via ROS client | `map` frame. |
-| `global_costmap_extent` | `Rectangle(min_x, min_y, max_x, max_y)` or `None` | mission_runner via Nav2 client | `None` if Nav2 not yet running. |
 | `last_grounding` | `GroundingSummary(depth_m, stability, age_s)` or `None` | mission_runner from prior `scan_for_target` | Lets the planner reason about staleness. |
+| `target_known_poses` | `list[Pose2D]` | `SemanticMapManager.query_by_label(intent.target_label)` | Empty list if no prior sighting. One entry per distinct sighting pose. The compiler picks the nearest for the warm-start transit path. |
 | `current_room` | `str` or `None` | `SemanticMapManager.current_room()` | `None` at cold-start. |
-| `known_rooms` | `list[RoomSummary(label, member_node_ids, centroid_xy, confidence)]` | `SemanticMapManager.known_rooms()` | Empty at cold-start. |
+| `known_rooms` | `list[RoomEntry]` (see above) | `SemanticMapManager.known_rooms()` | Empty at cold-start. `observed_objects` is the compiler's primary signal for target-room inference. |
 | `connectivity` | `list[(room_a, room_b)]` | `SemanticMapManager.connectivity()` | Pessimistic — absence ≠ unreachable. |
+
+**Note: no `global_costmap_extent`.** The compiler has no use for
+costmap geometry at compile time — it doesn't have the target pose
+until `project_detection_to_goal_pose` runs (step 02 of the compiled
+plan). Far-target detection at *compile* time is room-shaped and
+uses `target_known_poses` for distance estimation; far-target
+detection at *run* time stays in the Jetson reactive staging loop
+shipped by
+[`nav2-far-goal-staging`](../completed/nav2-far-goal-staging.md),
+which queries the actual costmap (not a bounding box).
 
 **Why the Jetson owns the whole block.** Observations arrive at
 the executor (Jetson reads the D555 + ROS topics), and the

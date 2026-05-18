@@ -1613,9 +1613,11 @@ slot for advisory LLM hops we can promote later.
   branches). The LLM prompt is unchanged.
 - [`planner-far-target-staging`](tasks/active/multi-room/planner-far-target-staging.md)
   ships its far-target staging logic as a new compiler helper
-  (`_compile_far_target_staging`) that fires when the target
-  pose is outside `world_state.global_costmap_extent`. The LLM
-  prompt is unchanged.
+  (`_compile_far_target_staging`) that fires when the nearest
+  entry in `world_state.target_known_poses` is past a configurable
+  near-threshold. The LLM prompt is unchanged. Run-time
+  costmap-shape decisions stay in the Jetson reactive staging
+  loop ([`nav2-far-goal-staging`](tasks/completed/nav2-far-goal-staging.md)).
 - Both briefs co-design a single `world_state` schema. Whichever
   lands first defines the wire shape in
   [`source/strafer_autonomy/strafer_autonomy/schemas/`](../source/strafer_autonomy/strafer_autonomy/schemas/);

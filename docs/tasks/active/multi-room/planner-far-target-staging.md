@@ -125,17 +125,37 @@ executor process). The DGX planner service is a pure consumer.
 The Jetson must populate **all** fields it can fill — a partial
 `world_state` is a footgun.
 
-**2. Add `_compile_far_target_staging` to the compiler.** Pattern:
-when the target pose is outside `world_state.global_costmap_extent`
-(or its in-costmap projection is past a "near" threshold —
-configurable, say 5 m given the 6 m SLAM horizon), the compiler
-decomposes `go_to_target` into
+**2. Add `_compile_far_target_staging` to the compiler.** The
+compile-time signal is `world_state.target_known_poses` — the
+Jetson populates this by calling
+`SemanticMapManager.query_by_label(intent.target_label)` before
+the request. If the nearest stored pose is past a "near"
+threshold (configurable, say 5 m given the 6 m SLAM horizon),
+the compiler decomposes `go_to_target` into
 `scan_for_target → navigate(intermediate) → scan_for_target → navigate(final)`
-instead of a single 5-step plan. The intermediate pose is chosen
-geometrically: cap the approach vector at the inside-costmap
-boundary, or at the nearest semantic-map node tagged with the
-target room if `world_state.current_room` and the target's
-inferred room differ.
+instead of a single 5-step plan. The intermediate is the
+nearest semantic-map node tagged with the target's inferred
+room (looked up via the
+[`observation-derived-room-state`](observation-derived-room-state.md)
+`room_anchor()` API) when the target's inferred room differs
+from `world_state.current_room`; otherwise it's the midpoint
+along the approach vector clipped to a sensible standoff.
+
+When `target_known_poses` is empty (cold-start — never seen the
+label), the compiler defers to
+[`autonomy-stack`](autonomy-stack.md)'s
+`explore_until_visible(label)` path; the far-target helper
+fires only on the warm-start case.
+
+Geometric run-time corrections — including the actual
+costmap-shape constraint — stay in the Jetson reactive staging
+loop shipped by
+[`nav2-far-goal-staging`](../../completed/nav2-far-goal-staging.md).
+The compiler doesn't need (and previously asked for) a
+`global_costmap_extent` field on `world_state`: the executor
+sees the real costmap at run time and the compile-time
+distance question is answered by `target_known_poses` more
+sharply than a rectangle could.
 
 The LLM prompt is **unchanged** under Option C. No few-shot
 multi-step examples; no constrained-output decoder; no
@@ -150,8 +170,8 @@ good, reactive staging only catches final-meter corrections.
 
 - [ ] **One `world_state` schema, shared with autonomy-stack.**
       `source/strafer_autonomy/strafer_autonomy/schemas/`
-      carries the combined room + pose + costmap +
-      last-grounding schema documented in
+      carries the combined room + pose + last-grounding +
+      target-known-poses schema documented in
       [`context/planner-request-schema.md`](../../context/planner-request-schema.md).
       Whichever of the two briefs lands second uses the schema
       the first one shipped — no parallel `PlannerWorldState`
@@ -222,10 +242,11 @@ good, reactive staging only catches final-meter corrections.
   the transition (server treats absent `world_state` as empty).
 - `source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py`
   — Jetson-lane call site for `planner_client.plan(...)`. Where the
-  populated `world_state` goes in. The Jetson reactive staging loop
-  shipping in [`nav2-far-goal-staging.md`](../../completed/nav2-far-goal-staging.md)
-  already needs to query the global-costmap bounds; reuse that
-  helper to populate `world_state.costmap_extent`.
+  populated `world_state` goes in. `target_known_poses` is filled
+  per request by calling `SemanticMapManager.query_by_label(
+  intent.target_label)`; the executor's existing
+  `_try_query_before_scan` already uses the same call for the
+  scan-skip optimization, so reuse that lookup helper.
 - The failing run from 2026-04-27 reproduces the cross-room
   scenario. Once the Jetson staging task ships and the env override
   is re-enabled, the same scenario becomes the multi-hop test

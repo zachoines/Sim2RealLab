@@ -163,6 +163,14 @@ accurate.
 - [`branching-and-prs.md`](branching-and-prs.md) — one brief = one
   branch = one PR; naming, branch-off point (always `main`), per-task
   workflow, PR composition rules, merge style.
+- [`planner-request-schema.md`](planner-request-schema.md) —
+  canonical `world_state` block (Jetson-populated, DGX-consumed)
+  including `target_known_poses` and per-room `observed_objects`
+  for compile-time target-room inference; `MissionIntent`
+  extension shape shared across the multi-room briefs;
+  planner-stays-intent-classifier architecture commitment.
+  Includes a "Status — none of this exists yet" section pointing
+  at the briefs that land each piece.
 
 One more candidate flagged for Pass 3 if duplication shows up:
 

@@ -54,12 +54,16 @@ Sibling briefs:
   signal that this brief consumes (derived from the semantic
   map + RTAB-Map graph + Nav2 costmap). Hard prerequisite for
   the planner transit-step path. **Must ship first.**
-- [`planner-architecture-alignment`](planner-architecture-alignment.md)
-  — decides whether the planner stays an intent classifier
-  (compiler emits transit steps) or is promoted to a multi-step
-  planner (LLM emits transit steps). The compiler-vs-LLM split
-  in this brief is contingent on that decision. **Must ship
-  first.**
+- [`planner-architecture-alignment`](../../completed/planner-architecture-alignment.md)
+  — recorded Option C: planner stays an intent classifier, the
+  compiler grows room-aware logic, an advisory `staging_hops`
+  slot is reserved on the response schema but not consumed in
+  this brief. The compiler-side acceptance criteria below
+  match that decision. Decision lives in
+  [`STRAFER_AUTONOMY_NEXT.md` §1.10.2](../../../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c);
+  shared schema lives in
+  [`context/planner-request-schema.md`](../../context/planner-request-schema.md).
+  **Must ship first.**
 
 ## Context
 
@@ -156,46 +160,57 @@ is the **observation-derived room state** filed at
   cross-checked against semantic-map node clusters).
 - `known_rooms: list[RoomEntry]` — clusters discovered in the
   semantic map so far. Empty at cold-start; populated as the
-  robot explores.
+  robot explores. Each `RoomEntry.observed_objects: list[str]`
+  is the deduplicated set of object labels seen in that cluster
+  — the compiler's primary target-room inference signal
+  (`intent.target_label in known_rooms[X].observed_objects` →
+  target room is X).
 - `connectivity: list[(room_a, room_b)]` — pairs the robot has
   traversed between (derived from the RTAB-Map / semantic-map
   graph), plus pairs Nav2's global costmap can plan a path
   between. Pessimistic by default — absence of an edge means
   "not yet proven reachable," not "unreachable."
+- `target_known_poses: list[Pose2D]` — prior sightings of
+  `intent.target_label` from the semantic map, populated per
+  request via `SemanticMapManager.query_by_label`. Empty list
+  means cold-start; the compiler routes those through
+  `explore_until_visible`. See
+  [`context/planner-request-schema.md`](../../context/planner-request-schema.md).
 
-The plan-compiler change in [`planner/plan_compiler.py`](../../../../source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py)
-depends on the resolution of
-[`planner-architecture-alignment`](planner-architecture-alignment.md):
+Per the Option C decision in
+[`STRAFER_AUTONOMY_NEXT.md` §1.10.2](../../../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c),
+the multi-room logic lives in the compiler — the LLM prompt is
+unchanged. The plan-compiler change in
+[`planner/plan_compiler.py`](../../../../source/strafer_autonomy/strafer_autonomy/planner/plan_compiler.py)
+grows room-aware logic: when the LLM emits a `go_to_target` intent
+and the target's *inferred* room differs from the robot's current
+room, the compiler prepends a navigation step toward the cross-room
+threshold:
 
-- **If the planner stays an intent classifier (status quo):** the
-  compiler grows room-aware logic. When the LLM emits a
-  `go_to_target` intent and the target's *inferred* room differs
-  from the robot's current room, the compiler prepends a
-  navigation step toward the cross-room threshold:
+```
+Standard plan:
+  step_01: scan_for_target(label)
+  step_02: project_detection_to_goal_pose
+  step_03: align_to_goal_yaw
+  step_04: navigate_to_pose
+  step_05: verify_arrival
 
-  ```
-  Standard plan:
-    step_01: scan_for_target(label)
-    step_02: project_detection_to_goal_pose
-    step_03: align_to_goal_yaw
-    step_04: navigate_to_pose
-    step_05: verify_arrival
+Multi-room plan (target room known + reachable):
+  step_01: navigate_to_pose(<doorway-or-room-anchor>)
+  step_02: scan_for_target(label)
+  ...
 
-  Multi-room plan (target room known + reachable):
-    step_01: navigate_to_pose(<doorway-or-room-anchor>)
-    step_02: scan_for_target(label)
-    ...
+Multi-room plan (target room unknown):
+  step_01: explore_until_visible(label)   ← see frontier-exploration brief
+  ...
+```
 
-  Multi-room plan (target room unknown):
-    step_01: explore_until_visible(label)   ← see frontier-exploration brief
-    ...
-  ```
-
-- **If the planner is promoted to a multi-step planner:** the LLM
-  itself emits the transit step (see
-  [`planner-far-target-staging`](planner-far-target-staging.md)
-  for the precedent on multi-hop LLM output). The compiler
-  validates the sequence.
+If the LLM emits an advisory `staging_hops` field per
+[`context/planner-request-schema.md`](../../context/planner-request-schema.md),
+the compiler **ignores it** in this brief — that field is reserved
+for the C → B migration filed in
+[`STRAFER_AUTONOMY_NEXT.md` §1.10.2](../../../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c)
+and is not consumed yet.
 
 The "room-anchor" for the transit step is **not** a Infinigen
 room-centroid (that's privileged info). It is the most recent
@@ -220,10 +235,15 @@ room.
   [`observation-derived-room-state`](observation-derived-room-state.md).
   Hard prerequisite — this brief consumes the manager API
   defined there.
-- **Planner architecture choice.** Filed separately at
-  [`planner-architecture-alignment`](planner-architecture-alignment.md).
-  Hard prerequisite — the compiler-vs-LLM split in this brief
-  is contingent on that decision.
+- **Planner architecture choice.** Recorded as Option C in
+  [`planner-architecture-alignment`](../../completed/planner-architecture-alignment.md)
+  /
+  [`STRAFER_AUTONOMY_NEXT.md` §1.10.2](../../../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c).
+  This brief ships the compiler-side multi-room work that
+  decision implies. The C → B migration (shadow-mode
+  `staging_hops`, advisory read, authoritative promotion) is
+  out of scope and will be filed as separate briefs at each
+  step.
 - **Door-state handling.** Doors are assumed open at scene-gen
   time per
   [`scene-connectivity-validation`](scene-connectivity-validation.md);
@@ -252,27 +272,33 @@ room.
       and Nav2's costmaps; neither may read Infinigen
       training-time metadata.
 - [ ] **Planner room-level world state — observation-derived
-      only.** The planner prompt receives `current_room`,
-      `known_rooms`, and `connectivity` from the runtime
-      `SemanticMapManager` API defined in
+      only.** The planner request carries the `world_state` block
+      per
+      [`context/planner-request-schema.md`](../../context/planner-request-schema.md);
+      `current_room`, `known_rooms`, and `connectivity` come from
+      the runtime `SemanticMapManager` API defined in
       [`observation-derived-room-state`](observation-derived-room-state.md).
-      No field on the prompt traces back to
-      `scene_metadata.json`.
+      No field on the block traces back to
+      `scene_metadata.json`. The prompt itself stays unchanged
+      under Option C — the compiler consumes the block, not the
+      LLM.
 - [ ] **Plan compiler emits transit-or-explore steps.**
       `_compile_go_to_target`, `_compile_go_to_targets`,
-      `_compile_patrol`, and `_compile_wait_by_target` consult
-      the observation-derived target-room inference. Three cases:
+      `_compile_patrol`, and `_compile_wait_by_target` infer the
+      target's room by scanning
+      `world_state.known_rooms[*].observed_objects` for
+      `intent.target_label`. Three cases:
       target room == current room → unchanged 5-step plan;
       target room ≠ current room AND target room is in
       `known_rooms` with a `connectivity` edge → prepend
       `navigate_to_pose(<semantic-map-anchor>)`; target room is
-      unknown OR unreachable from current room in
-      `connectivity` → prepend
-      `explore_until_visible(label)` (see
+      unknown (label not found in any room's `observed_objects`)
+      OR unreachable from current room in `connectivity` →
+      prepend `explore_until_visible(label)` (see
       [`frontier-exploration-primitive`](frontier-exploration-primitive.md)).
-      Anchor pose comes from the most recent semantic-map node
-      tagged with the target room — **never** a
-      scene-metadata centroid. Unit-tested under
+      Anchor pose comes from `SemanticMapManager.room_anchor(
+      target_room)` — **never** a scene-metadata centroid.
+      Unit-tested under
       [`source/strafer_autonomy/tests/`](../../../../source/strafer_autonomy/tests/).
 - [ ] **Smoke test — cold-start.** A mission in a multi-room
       Infinigen scene where the target lives in a different
@@ -346,7 +372,7 @@ room.
   the CLIP zero-shot room classifier, the graph clustering,
   or the connectivity inference.
 - **Planner architecture choice.** Filed at
-  [`planner-architecture-alignment`](planner-architecture-alignment.md).
+  [`planner-architecture-alignment`](../../completed/planner-architecture-alignment.md).
   This brief assumes a decision has been made and writes
   acceptance criteria for both outcomes (compiler-side OR
   LLM-side transit emission).

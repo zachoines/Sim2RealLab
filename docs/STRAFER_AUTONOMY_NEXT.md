@@ -1533,7 +1533,7 @@ for the work that ships multi-room as the project's MVP default.
 The 2026-05-13 audit decomposed the original
 autonomy-stack + scene-connectivity-validation pair into six
 briefs:
-[`planner-architecture-alignment`](tasks/active/multi-room/planner-architecture-alignment.md)
+[`planner-architecture-alignment`](tasks/completed/planner-architecture-alignment.md)
 (architecture decision — intent classifier vs multi-step
 planner),
 [`observation-derived-room-state`](tasks/active/multi-room/observation-derived-room-state.md)
@@ -1589,6 +1589,96 @@ works for:
   emit transit steps like "navigate to kitchen area coordinates."
 - **Long term:** Plan repair (Section 3.6) where the planner receives
   failure context and re-plans with room-level transit.
+
+### 1.10.2 Planner architecture decision: Option C
+
+**Decision.** The DGX planner stays a thin **intent classifier**.
+The plan compiler is the **staging authority** — it reads the
+runtime `world_state` block (defined in
+[`docs/tasks/context/planner-request-schema.md`](tasks/context/planner-request-schema.md))
+and inflates the LLM's single-intent output into the executable
+plan, including any multi-room transit, far-target staging, or
+frontier-exploration steps. The LLM does **not** emit
+skill-sequences in this iteration. This is "Option C" as filed in
+[`planner-architecture-alignment`](tasks/completed/planner-architecture-alignment.md):
+status-quo intent classifier today, with a forward-compatible
+slot for advisory LLM hops we can promote later.
+
+**What that means for the multi-room briefs.**
+
+- [`autonomy-stack`](tasks/active/multi-room/autonomy-stack.md)
+  ships its multi-room transit logic in the compiler
+  (`_compile_go_to_target`, `_compile_go_to_targets`,
+  `_compile_patrol`, `_compile_wait_by_target` grow room-aware
+  branches). The LLM prompt is unchanged.
+- [`planner-far-target-staging`](tasks/active/multi-room/planner-far-target-staging.md)
+  ships its far-target staging logic as a new compiler helper
+  (`_compile_far_target_staging`) that fires when the nearest
+  entry in `world_state.target_known_poses` is past a configurable
+  near-threshold. The LLM prompt is unchanged. Run-time
+  costmap-shape decisions stay in the Jetson reactive staging
+  loop ([`nav2-far-goal-staging`](tasks/completed/nav2-far-goal-staging.md)).
+- Both briefs co-design a single `world_state` schema. Whichever
+  lands first defines the wire shape in
+  [`source/strafer_autonomy/strafer_autonomy/schemas/`](../source/strafer_autonomy/strafer_autonomy/schemas/);
+  the second one consumes it. The Jetson executor populates the
+  full block (pose + costmap from ROS clients, room block from
+  the Jetson-resident `SemanticMapManager` per §4.1 and
+  [`validator-evaluation`](tasks/active/clip-validation/validator-evaluation.md)).
+  The DGX planner service is a pure consumer over HTTP.
+
+**Why C, not A or B.** Three considerations dominate:
+
+1. *Risk surface.* A is the status quo (compiler-only spatial
+   reasoning, capped by the compiler programmer's imagination). B
+   is the literature-frontier move (LLM emits multi-step plans),
+   but B-quality is dominated by *grounded scene-state quality*,
+   not prompt quality — and we are mid-flight on three
+   grounded-input shifts simultaneously
+   ([`observation-derived-room-state`](tasks/active/multi-room/observation-derived-room-state.md),
+   [`frontier-exploration-primitive`](tasks/active/multi-room/frontier-exploration-primitive.md),
+   semantic-map room clustering). Stacking a multi-step LLM planner
+   concurrently means debugging four moving systems with
+   overlapping failure modes.
+2. *Required infrastructure.* B needs a prompt-test harness, a
+   constrained-output decoder, and a plan-validator for non-trivial
+   multi-step outputs. None of that exists today.
+3. *Upgrade lane.* C is upgrade-compatible to B in four bounded
+   steps (advisory-only → shadow → advisory-read → authoritative;
+   see the migration plan in the planner-architecture-alignment
+   brief). The operator can stop the migration at any step if the
+   prompt-engineering cost outweighs the gains.
+
+**Migration path (C → B).** Each step is a separate brief with
+its own rollback:
+
+1. **Land C as specified.** Compiler is staging authority; LLM
+   emits a single intent. No `staging_hops` field consumed yet.
+2. **Add an optional `staging_hops` field to the LLM output
+   schema; compiler ignores it.** Shadow-mode rollout — measure
+   how often the LLM emits hops that match what the compiler
+   picks, where they disagree, and which is better. Filed as
+   [`staging-hops-shadow-mode`](tasks/parked/multi-room/staging-hops-shadow-mode.md)
+   (parked on
+   [`autonomy-stack`](tasks/active/multi-room/autonomy-stack.md)
+   + [`planner-far-target-staging`](tasks/active/multi-room/planner-far-target-staging.md)
+   shipping).
+3. **Promote `staging_hops` to advisory.** Compiler reads them,
+   uses them when they pass legality checks, falls back to its
+   own logic when they don't. Prerequisite for this step is
+   [`planner-scene-graph-expansion`](tasks/parked/multi-room/planner-scene-graph-expansion.md)
+   (parked) — the LLM needs object-pose context to emit hops
+   the compiler can defensibly accept. That brief un-parks
+   when step 2's shadow data shows the LLM is bottlenecked on
+   scene state, not on prompt engineering.
+4. **Promote `staging_hops` to authoritative for compositional
+   intents.** Compiler shrinks to a validator. At this point the
+   system is functionally Option B for the cases that matter.
+
+No single step asks the project to commit to LLM-as-planner
+before the grounded inputs are proven.
+
+**Recorded:** `task/planner-architecture-alignment` (docs-only).
 
 ### 1.11 Implementation plan
 

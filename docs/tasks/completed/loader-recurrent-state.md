@@ -1,6 +1,6 @@
 # `load_policy()`: recurrent / stateful artifact support
 
-**Status:** Shipped 2026-05-18 in `<merge sha for #37>` (Jetson).
+**Status:** Shipped 2026-05-18 (Jetson).
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/37
 
 **Type:** task / feature

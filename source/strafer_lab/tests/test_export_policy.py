@@ -234,3 +234,226 @@ def test_torchscript_determinism_check_catches_stochastic_head(
             obs_dim=PolicyVariant.NOCAM.obs_dim,
             is_recurrent=False,
         )
+
+
+# ---------------------------------------------------------------------------
+# Recurrent ONNX (depth + GRU) export
+# ---------------------------------------------------------------------------
+
+
+class _TinyDepthGRU(nn.Module):
+    """Stand-in for ``_OnnxDepthGRUModel`` sized for unit tests.
+
+    Mirrors the wrapper's surface -- ``forward(obs, h_in) -> (actions,
+    h_out)`` plus ``get_dummy_inputs`` / ``input_names`` / ``output_names``
+    -- without dragging in Isaac Lab or the real DeFM backbone. The body
+    is the same shape (depth split, encoder, concat, GRU, MLP) so the
+    export pipeline is exercised against representative ONNX ops.
+    """
+
+    is_recurrent: bool = True
+
+    def __init__(
+        self,
+        scalar_obs_dim: int = 8,
+        depth_obs_dim: int = 16,
+        depth_embedding_dim: int = 4,
+        hidden_size: int = 6,
+        num_layers: int = 1,
+        action_dim: int = 3,
+    ) -> None:
+        super().__init__()
+        self.scalar_obs_dim = scalar_obs_dim
+        self.depth_obs_dim = depth_obs_dim
+        self.input_size = scalar_obs_dim + depth_obs_dim
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.depth_encoder = nn.Linear(depth_obs_dim, depth_embedding_dim)
+        self.rnn = nn.GRU(scalar_obs_dim + depth_embedding_dim, hidden_size, num_layers)
+        self.head = nn.Linear(hidden_size, action_dim)
+
+    def forward(
+        self, obs: torch.Tensor, h_in: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        scalar = obs[:, : self.scalar_obs_dim]
+        depth = obs[:, self.scalar_obs_dim : self.scalar_obs_dim + self.depth_obs_dim]
+        depth_emb = self.depth_encoder(depth)
+        x = torch.cat([scalar, depth_emb], dim=-1)
+        x, h_out = self.rnn(x.unsqueeze(0), h_in)
+        x = x.squeeze(0)
+        return torch.tanh(self.head(x)), h_out
+
+    def get_dummy_inputs(self) -> tuple[torch.Tensor, ...]:
+        obs = torch.zeros(1, self.input_size, dtype=torch.float32)
+        h_in = torch.zeros(self.num_layers, 1, self.hidden_size, dtype=torch.float32)
+        return (obs, h_in)
+
+    @property
+    def input_names(self) -> list[str]:
+        return ["obs", "h_in"]
+
+    @property
+    def output_names(self) -> list[str]:
+        return ["actions", "h_out"]
+
+
+@pytest.fixture
+def tiny_depth_gru() -> _TinyDepthGRU:
+    """Reproducibly-initialised tiny recurrent depth wrapper."""
+    torch.manual_seed(0)
+    return _TinyDepthGRU().eval()
+
+
+def test_recurrent_onnx_export_writes_multi_input_artifact(
+    tmp_path: Path, tiny_depth_gru: _TinyDepthGRU
+) -> None:
+    """Recurrent ONNX export advertises ``(obs, h_in)`` -> ``(actions, h_out)``."""
+    pytest.importorskip("onnxruntime")
+    import onnxruntime as ort
+
+    output_path = tmp_path / "tiny_depth.onnx"
+    export_policy.export_onnx(
+        tiny_depth_gru,
+        output_path,
+        obs_dim=tiny_depth_gru.input_size,
+    )
+    assert output_path.is_file(), "recurrent ONNX artifact was not written"
+
+    sess = ort.InferenceSession(str(output_path), providers=["CPUExecutionProvider"])
+    input_names = [inp.name for inp in sess.get_inputs()]
+    output_names = [out.name for out in sess.get_outputs()]
+    assert input_names == ["obs", "h_in"], (
+        f"expected multi-input ONNX with names ['obs', 'h_in'], got {input_names}"
+    )
+    assert output_names == ["actions", "h_out"], (
+        f"expected multi-output ONNX with names ['actions', 'h_out'], "
+        f"got {output_names}"
+    )
+
+
+def test_recurrent_onnx_round_trip_is_deterministic_with_reset(
+    tmp_path: Path, tiny_depth_gru: _TinyDepthGRU
+) -> None:
+    """Same (obs, h_in=0) twice → byte-identical actions and h_out."""
+    pytest.importorskip("onnxruntime")
+    import onnxruntime as ort
+
+    output_path = tmp_path / "tiny_depth.onnx"
+    export_policy.export_onnx(
+        tiny_depth_gru,
+        output_path,
+        obs_dim=tiny_depth_gru.input_size,
+    )
+
+    sess = ort.InferenceSession(str(output_path), providers=["CPUExecutionProvider"])
+    obs = _synthetic_obs(tiny_depth_gru.input_size).reshape(1, -1)
+    h_in = np.zeros(
+        (tiny_depth_gru.num_layers, 1, tiny_depth_gru.hidden_size), dtype=np.float32
+    )
+
+    actions_a, h_out_a = sess.run(None, {"obs": obs, "h_in": h_in})
+    actions_b, h_out_b = sess.run(None, {"obs": obs, "h_in": h_in})
+
+    assert np.array_equal(actions_a, actions_b), (
+        "recurrent ONNX is non-deterministic across two calls with h_in reset "
+        "to zeros -- the inference node's reset-bounded determinism contract "
+        "would fail on robot."
+    )
+    assert np.array_equal(h_out_a, h_out_b), (
+        "recurrent ONNX h_out diverged across two calls with h_in reset -- the "
+        "hidden-state propagation path is non-deterministic."
+    )
+
+
+def test_recurrent_onnx_state_evolves_when_h_in_carried(
+    tmp_path: Path, tiny_depth_gru: _TinyDepthGRU
+) -> None:
+    """No-reset case: feeding the prior h_out back must change the action.
+
+    Pins the other half of the recurrent contract -- the policy is *not*
+    Markovian, so an inference node that forgets to thread h_out → h_in
+    would degrade silently to a feedforward MLP.
+    """
+    pytest.importorskip("onnxruntime")
+    import onnxruntime as ort
+
+    output_path = tmp_path / "tiny_depth.onnx"
+    export_policy.export_onnx(
+        tiny_depth_gru,
+        output_path,
+        obs_dim=tiny_depth_gru.input_size,
+    )
+
+    sess = ort.InferenceSession(str(output_path), providers=["CPUExecutionProvider"])
+    obs = _synthetic_obs(tiny_depth_gru.input_size).reshape(1, -1)
+    h_in = np.zeros(
+        (tiny_depth_gru.num_layers, 1, tiny_depth_gru.hidden_size), dtype=np.float32
+    )
+
+    actions_a, h_out_a = sess.run(None, {"obs": obs, "h_in": h_in})
+    actions_b, _ = sess.run(None, {"obs": obs, "h_in": h_out_a})
+
+    assert not np.array_equal(actions_a, actions_b), (
+        "recurrent ONNX produced identical actions despite a non-zero h_in "
+        "on the second call -- the GRU is being bypassed."
+    )
+
+
+def test_recurrent_onnx_sidecar_marks_is_recurrent(
+    tmp_path: Path, tiny_depth_gru: _TinyDepthGRU
+) -> None:
+    """Sidecar must record ``is_recurrent: true`` + the ONNX opset for DEPTH."""
+    pytest.importorskip("onnxruntime")
+
+    output_stem = tmp_path / "tiny_depth"
+    export_policy.export_onnx(
+        tiny_depth_gru,
+        output_stem.with_suffix(".onnx"),
+        obs_dim=tiny_depth_gru.input_size,
+    )
+
+    sidecar_path = export_policy.write_metadata_sidecar(
+        output_stem,
+        policy_variant="DEPTH",
+        obs_dim=PolicyVariant.DEPTH.obs_dim,
+        action_dim=3,
+        env_id="Isaac-Strafer-Nav-Real-ProcRoom-Depth-Play-v0",
+        training_preset="STRAFER_PPO_DEPTH_RUNNER_CFG",
+        source_checkpoint="logs/rsl_rl/strafer_navigation/run_test/model_999.pt",
+        formats=["onnx"],
+        is_recurrent=True,
+    )
+    payload = json.loads(sidecar_path.read_text())
+    assert payload["policy_variant"] == "DEPTH"
+    assert payload["is_recurrent"] is True
+    assert payload["formats"] == ["onnx"]
+    assert "onnx_opset" in payload
+
+
+def test_recurrent_onnx_determinism_check_catches_stochastic_head(
+    tmp_path: Path,
+) -> None:
+    """A stochastic recurrent wrapper must trip the determinism probe.
+
+    Mirrors the TorchScript stochastic-head test for the multi-input ONNX
+    path; the export helper must refuse to write a model whose forward
+    pass is non-deterministic even with h_in reset to zeros.
+    """
+    pytest.importorskip("onnxruntime")
+
+    class _StochasticDepthGRU(_TinyDepthGRU):
+        def forward(
+            self, obs: torch.Tensor, h_in: torch.Tensor
+        ) -> tuple[torch.Tensor, torch.Tensor]:
+            actions, h_out = super().forward(obs, h_in)
+            return actions + torch.randn_like(actions) * 0.5, h_out
+
+    torch.manual_seed(0)
+    bad = _StochasticDepthGRU().eval()
+
+    with pytest.raises(RuntimeError, match="non-deterministic"):
+        export_policy.export_onnx(
+            bad,
+            tmp_path / "stochastic_depth.onnx",
+            obs_dim=bad.input_size,
+        )

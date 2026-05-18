@@ -24,13 +24,14 @@ CLI examples (DGX, ``env_isaaclab3`` conda env)::
         --output models/strafer_nocam_v0 \\
         --variant NOCAM
 
-    # Depth (RNN + depth encoder) -- TorchScript only today; ONNX export for
-    # the depth-aware actor is filed as a follow-up brief because the depth
-    # encoder is not yet ONNX-exportable (see depth_rnn_model.py:as_onnx).
+    # Depth (RNN + depth encoder) -- both TorchScript and ONNX are
+    # supported; ONNX uses the recurrent (obs, h_in) -> (actions, h_out)
+    # signature, with hidden state owned by the inference loader.
     $ISAACLAB -p Scripts/export_policy.py \\
         --checkpoint logs/rsl_rl/strafer_navigation/<run>/model_<step>.pt \\
         --output models/strafer_depth_v0 \\
-        --variant DEPTH
+        --variant DEPTH \\
+        --formats pt,onnx
 
     # NoCam, both formats.
     $ISAACLAB -p Scripts/export_policy.py \\
@@ -51,6 +52,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -138,22 +140,30 @@ def export_onnx(
 ) -> Path:
     """Export ``module`` to ONNX and write it to ``output_path``.
 
-    Only stateless modules are supported through this path -- the resulting
-    ``.onnx`` advertises a single ``obs`` input and a single ``actions``
-    output, matching the contract that ``strafer_shared.policy_interface
-    .load_policy()`` expects from an ONNX artifact.
+    Handles both stateless single-input modules and the multi-input
+    recurrent wrappers (``_OnnxRNNModel``, ``_OnnxDepthGRUModel``). When the
+    module exposes ``get_dummy_inputs()`` / ``input_names`` / ``output_names``,
+    those drive the export; otherwise the single ``obs`` / ``actions``
+    signature is used.
 
-    Round-trip verifies byte-identical action output across two ONNX
-    Runtime calls with the same synthetic observation. Raises
-    ``RuntimeError`` if determinism is violated.
+    Round-trip verifies byte-identical output across two ONNX Runtime calls
+    with the same synthetic observation. For recurrent modules the auxiliary
+    inputs (``h_in``, ``c_in``) are zero-reset on each call so the
+    determinism statement matches the recurrent contract: same observation
+    + reset hidden state → byte-identical actions. Raises ``RuntimeError``
+    if determinism is violated.
 
     Args:
-        module: Stateless ``torch.nn.Module`` whose ``forward(x)`` takes
-            a ``(1, obs_dim)`` tensor and returns ``(1, action_dim)``.
+        module: ``torch.nn.Module`` whose ``forward`` matches one of the two
+            supported signatures. Stateless: ``forward(x: (1, obs_dim)) ->
+            (1, action_dim)``. Recurrent: ``forward(obs, h_in[, c_in]) ->
+            (actions, h_out[, c_out])`` with ``get_dummy_inputs()`` /
+            ``input_names`` / ``output_names`` published as attributes.
         output_path: Destination ``.onnx`` path. Parent directory is
             created if missing.
-        obs_dim: Observation dimensionality used for the dummy input
-            and the round-trip probe.
+        obs_dim: Observation dimensionality used for the round-trip probe's
+            primary input. Ignored when the module supplies its own
+            ``get_dummy_inputs()``.
         opset: ONNX opset version (default 18, matching rsl_rl).
 
     Returns:
@@ -167,15 +177,25 @@ def export_onnx(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     module = module.eval().cpu()
-    dummy_obs = torch.zeros(1, obs_dim, dtype=torch.float32)
+
+    get_dummy_inputs = getattr(module, "get_dummy_inputs", None)
+    if callable(get_dummy_inputs):
+        dummy_inputs = tuple(get_dummy_inputs())
+        input_names = list(getattr(module, "input_names", ["obs"]))
+        output_names = list(getattr(module, "output_names", ["actions"]))
+    else:
+        dummy_inputs = (torch.zeros(1, obs_dim, dtype=torch.float32),)
+        input_names = ["obs"]
+        output_names = ["actions"]
+
     torch.onnx.export(
         module,
-        (dummy_obs,),
+        dummy_inputs,
         str(output_path),
         export_params=True,
         opset_version=opset,
-        input_names=["obs"],
-        output_names=["actions"],
+        input_names=input_names,
+        output_names=output_names,
         dynamo=False,
     )
 
@@ -323,7 +343,14 @@ def _verify_torchscript_determinism(
 
 
 def _verify_onnx_determinism(model_path: Path, *, obs_dim: int) -> None:
-    """Load and assert the exported ``.onnx`` produces deterministic output."""
+    """Load and assert the exported ``.onnx`` produces deterministic output.
+
+    For stateless ONNX (single input) this is the historical "same obs →
+    same actions" probe. For recurrent ONNX (additional ``h_in`` / ``c_in``
+    inputs) the auxiliary inputs are zero-reset on each call so the probe
+    measures the deterministic forward pass alone, not hidden-state
+    evolution — matching the contract the inference node asserts.
+    """
     import onnxruntime as ort
 
     rng = np.random.default_rng(seed=0)
@@ -332,22 +359,40 @@ def _verify_onnx_determinism(model_path: Path, *, obs_dim: int) -> None:
     sess = ort.InferenceSession(
         str(model_path), providers=["CPUExecutionProvider"]
     )
-    input_name = sess.get_inputs()[0].name
-    out_a = sess.run(None, {input_name: obs})[0]
-    out_b = sess.run(None, {input_name: obs})[0]
+    inputs = sess.get_inputs()
+    obs_name = inputs[0].name
 
-    if not np.array_equal(out_a, out_b):
-        max_abs = float(np.abs(out_a - out_b).max())
-        raise RuntimeError(
-            f"ONNX export at {model_path} is non-deterministic: same "
-            f"observation produced different actions across two calls "
-            f"(max abs delta = {max_abs:.6e})."
-        )
+    def _resolved_shape(shape) -> list[int]:
+        # ORT reports symbolic dims as strings (or None) when the model
+        # was exported with dynamic axes. The export path here does not
+        # set dynamic axes, so dims should be concrete ints; fall back to
+        # 1 for any non-integer so the zero-init feed still goes through.
+        return [int(d) if isinstance(d, int) else 1 for d in shape]
 
-    squeezed = out_a.squeeze(0)
+    def _feed() -> dict[str, np.ndarray]:
+        feed = {obs_name: obs}
+        for inp in inputs[1:]:
+            feed[inp.name] = np.zeros(_resolved_shape(inp.shape), dtype=np.float32)
+        return feed
+
+    outs_a = sess.run(None, _feed())
+    outs_b = sess.run(None, _feed())
+
+    output_names = [o.name for o in sess.get_outputs()]
+    for name, a, b in zip(output_names, outs_a, outs_b):
+        if not np.array_equal(a, b):
+            max_abs = float(np.abs(a - b).max())
+            raise RuntimeError(
+                f"ONNX export at {model_path} is non-deterministic: output "
+                f"'{name}' differs across two calls with reset auxiliary "
+                f"inputs (max abs delta = {max_abs:.6e})."
+            )
+
+    actions = outs_a[0]
+    squeezed = actions.squeeze(0)
     if squeezed.ndim != 1:
         raise RuntimeError(
-            f"ONNX export at {model_path} returned shape {out_a.shape}; "
+            f"ONNX export at {model_path} returned actions shape {actions.shape}; "
             f"expected (1, action_dim) so squeeze yields a 1-D vector."
         )
 
@@ -531,6 +576,7 @@ def main() -> None:
     app_launcher = AppLauncher(args)
     simulation_app = app_launcher.app
 
+    import traceback as _traceback
     try:
         import gymnasium as gym
         import importlib.metadata as _metadata
@@ -582,10 +628,17 @@ def main() -> None:
                 f"contract is (vx, vy, omega); check the env registration."
             )
 
-        # Validate variant.obs_dim matches the env's actor input width. We
-        # reconstruct what rsl_rl will consume by summing the actor's
-        # configured obs groups.
-        obs_dim = int(getattr(policy_model, "obs_dim", variant.obs_dim))
+        # Validate variant.obs_dim matches the env's actor input width.
+        # ``StraferDepthRNNModel`` reports ``obs_dim`` as the *compressed*
+        # width (scalar + depth embedding), since that's what the
+        # normalizer / RNN / MLP see. The export contract needs the raw
+        # input width the policy callable accepts, which the depth model
+        # exposes as ``_raw_obs_dim``. Fall back to ``obs_dim`` for plain
+        # MLP/RNN policies that don't have the compression seam.
+        obs_dim = int(
+            getattr(policy_model, "_raw_obs_dim", None)
+            or getattr(policy_model, "obs_dim", variant.obs_dim)
+        )
         if obs_dim != variant.obs_dim:
             raise SystemExit(
                 f"Variant '{args.variant}' has obs_dim={variant.obs_dim} but "
@@ -639,6 +692,16 @@ def main() -> None:
         print(f"[INFO] Wrote sidecar: {sidecar_path}")
         print("[INFO] Export complete.")
 
+    except BaseException:
+        # ``simulation_app.close()`` below calls ``os._exit(0)`` on some
+        # Isaac Sim builds, which swallows the traceback and reports a
+        # zero exit code. Print + flush before the finally clause runs so
+        # the operator actually sees what went wrong.
+        print("[ERROR] Export aborted with the following traceback:", flush=True)
+        _traceback.print_exc()
+        sys.stdout.flush()
+        sys.stderr.flush()
+        raise
     finally:
         simulation_app.close()
 

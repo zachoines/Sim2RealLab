@@ -12,9 +12,11 @@ through to plain ``RNNModel`` behavior.
 from __future__ import annotations
 
 import copy
+import math
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from tensordict import TensorDict
 
 from rsl_rl.models.rnn_model import RNNModel
@@ -23,7 +25,15 @@ from rsl_rl.modules import HiddenState
 from isaaclab.utils import configclass
 from isaaclab_rl.rsl_rl import RslRlRNNModelCfg
 
-from .depth_encoders import create_depth_encoder
+from .depth_encoders import create_depth_encoder, DeFMDepthEncoder
+
+# DeFM normalization stats — must mirror ``DEFM_MEAN`` / ``DEFM_STD`` in
+# ``defm.utils.utils`` so the ONNX-safe preprocessing replacement below
+# stays numerically equivalent to the training-time pipeline (modulo the
+# antialiasing swap).
+_DEFM_MEAN = (0.248880, 0.495620, 0.492858)
+_DEFM_STD = (0.139357, 0.271314, 0.297177)
+_DEFM_INPUT_SIZE = 224
 
 # Depth image dimensions in the flattened observation
 _DEFAULT_DEPTH_OBS_DIM = 60 * 80  # 4800
@@ -236,9 +246,11 @@ class StraferDepthRNNModel(RNNModel):
         """Return an ONNX-exportable version of this model."""
         if not self._has_depth:
             return super().as_onnx(verbose)
+        if isinstance(self.rnn.rnn, nn.GRU):
+            return _OnnxDepthGRUModel(self, verbose)
         raise NotImplementedError(
-            "ONNX export not yet implemented for StraferDepthRNNModel with depth. "
-            "Use as_jit() for deployment."
+            f"ONNX export not yet implemented for StraferDepthRNNModel with "
+            f"{type(self.rnn.rnn).__name__}. Only GRU is supported."
         )
 
 
@@ -282,6 +294,172 @@ class _DepthGRUExportModel(nn.Module):
     def reset(self) -> None:
         """Reset GRU hidden state."""
         self.hidden_state[:] = 0.0  # type: ignore
+
+
+# ---------------------------------------------------------------------------
+# ONNX export wrapper for GRU + depth encoder
+# ---------------------------------------------------------------------------
+
+
+def _onnx_safe_defm_preprocess(
+    depth_flat: torch.Tensor,
+    *,
+    target_size: int = _DEFM_INPUT_SIZE,
+    max_depth_c1: float = 100.0,
+    max_depth_c2: float = 9.0,
+) -> torch.Tensor:
+    """ONNX-traceable DeFM preprocessing.
+
+    Functional equivalent of ``defm.utils.utils.preprocess_depth_batch`` with
+    two deliberate differences for the export path:
+
+    1. Resize uses ``F.interpolate(mode='bilinear', antialias=False)`` instead
+       of ``torchvision.transforms.v2.Resize`` (which is antialiased and traces
+       to ``aten::_upsample_bilinear2d_aa``, unsupported through opset 21).
+    2. Operates on a flat depth tensor of shape ``(batch, 60*80)``.
+
+    Disabling antialiasing introduces a small per-pixel delta when upscaling
+    60×80 → 224×224 (~1–2% absolute on average for high-frequency content).
+    Depth images on this robot are nearly piecewise-smooth, so the impact on
+    the projected DeFM embedding is bounded; the alternative is no ONNX path
+    at all on the current TRT/ORT op set. The training-time pipeline remains
+    antialiased — match-or-document is the follow-up.
+    """
+    x = depth_flat.view(-1, 1, 60, 80).to(torch.float32)
+    x = torch.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+    x_clamped = torch.clamp(x, min=0.0, max=max_depth_c1)
+    log_depth = torch.log1p(x_clamped)
+
+    c1 = log_depth / math.log1p(max_depth_c1)
+    c2 = torch.clamp(log_depth / math.log1p(max_depth_c2), min=0.0, max=1.0)
+
+    # Per-image min-max over spatial dims for the relative channel.
+    flat = log_depth.view(log_depth.shape[0], -1)
+    min_log = flat.min(dim=1)[0].view(-1, 1, 1, 1)
+    max_log = flat.max(dim=1)[0].view(-1, 1, 1, 1)
+    denom = max_log - min_log
+    denom_safe = torch.where(denom > 0.0, denom, torch.ones_like(denom))
+    c3 = (log_depth - min_log) / denom_safe
+    c3 = torch.where(denom > 0.0, c3, torch.zeros_like(c3))
+
+    x3 = torch.cat([c1, c2, c3], dim=1)
+    x3 = F.interpolate(
+        x3, size=(target_size, target_size), mode="bilinear", align_corners=False, antialias=False
+    )
+    mean = torch.tensor(_DEFM_MEAN, dtype=x3.dtype, device=x3.device).view(1, 3, 1, 1)
+    std = torch.tensor(_DEFM_STD, dtype=x3.dtype, device=x3.device).view(1, 3, 1, 1)
+    x3 = (x3 - mean) / std
+
+    # BiFPN expects spatial dims that are multiples of 32; 224 already
+    # satisfies this, so the pad is a no-op for the default target. Keep
+    # the formula explicit so a future operator changing target_size sees
+    # the same shape contract preprocess_depth_batch published.
+    pad_h = (32 - (target_size % 32)) % 32
+    pad_w = (32 - (target_size % 32)) % 32
+    if pad_h or pad_w:
+        x3 = F.pad(x3, (0, pad_w, 0, pad_h), mode="constant", value=0.0)
+    return x3
+
+
+class _OnnxSafeDeFMDepthEncoder(nn.Module):
+    """ONNX-exportable mirror of ``DeFMDepthEncoder`` for the export wrapper.
+
+    Replaces the runtime ``DeFMDepthEncoder.forward()`` with a pipeline that
+    feeds ``_onnx_safe_defm_preprocess`` instead of DeFM's torchvision-based
+    ``preprocess_depth_batch``. Reuses the frozen backbone + projection
+    weights from the trained encoder so the embedding stays anchored to the
+    checkpoint.
+    """
+
+    def __init__(self, encoder: DeFMDepthEncoder) -> None:
+        super().__init__()
+        self.backbone = copy.deepcopy(encoder.backbone)
+        self.projection = copy.deepcopy(encoder.projection)
+
+    def forward(self, depth_flat: torch.Tensor) -> torch.Tensor:
+        x = _onnx_safe_defm_preprocess(depth_flat)
+        with torch.no_grad():
+            out = self.backbone(x)
+            features = out["global_backbone"]
+        return self.projection(features)
+
+
+class _OnnxDepthGRUModel(nn.Module):
+    """Exportable GRU model with integrated depth encoder for ONNX.
+
+    Mirrors ``_DepthGRUExportModel`` but lifts hidden state from a
+    ``register_buffer`` to an explicit ``h_in`` / ``h_out`` tensor pair, since
+    ONNX nodes are stateless by construction. Signature matches rsl_rl's
+    stock ``_OnnxRNNModel`` (``(obs, h_in) -> (actions, h_out)``) so the
+    multi-input export path in ``Scripts/export_policy.py`` consumes both
+    wrappers through one code path.
+    """
+
+    is_recurrent: bool = True
+
+    def __init__(self, model: StraferDepthRNNModel, verbose: bool) -> None:
+        super().__init__()
+        self.verbose = verbose
+        self.scalar_obs_dim = model._scalar_obs_dim
+        self.depth_obs_dim = model._depth_obs_dim
+        # Swap DeFM's antialiased resize for an ONNX-traceable equivalent
+        # when the underlying encoder uses DeFM; pure-tensor CNNs trace as-is.
+        if isinstance(model.depth_encoder, DeFMDepthEncoder):
+            self.depth_encoder = _OnnxSafeDeFMDepthEncoder(model.depth_encoder)
+        else:
+            self.depth_encoder = copy.deepcopy(model.depth_encoder)
+        self.obs_normalizer = copy.deepcopy(model.obs_normalizer)
+        self.rnn = copy.deepcopy(model.rnn.rnn)
+        self.mlp = copy.deepcopy(model.mlp)
+        if model.distribution is not None:
+            self.deterministic_output = model.distribution.as_deterministic_output_module()
+        else:
+            self.deterministic_output = nn.Identity()
+        if not isinstance(self.rnn, nn.GRU):
+            raise NotImplementedError(
+                f"_OnnxDepthGRUModel only supports GRU; got {type(self.rnn).__name__}"
+            )
+        self.rnn.cpu()
+        self.input_size = self.scalar_obs_dim + self.depth_obs_dim
+        self.hidden_size = self.rnn.hidden_size
+        self.num_layers = self.rnn.num_layers
+
+    def forward(
+        self, obs: torch.Tensor, h_in: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """One inference step with externalized GRU state.
+
+        Args:
+            obs: Flat observation, shape ``(1, scalar_obs_dim + depth_obs_dim)``.
+            h_in: GRU hidden state, shape ``(num_layers, 1, hidden_size)``.
+
+        Returns:
+            ``(actions, h_out)`` — deterministic action vector and the
+            updated GRU hidden state to feed back on the next tick.
+        """
+        scalar = obs[:, : self.scalar_obs_dim]
+        depth = obs[:, self.scalar_obs_dim : self.scalar_obs_dim + self.depth_obs_dim]
+        depth_emb = self.depth_encoder(depth)
+        x = torch.cat([scalar, depth_emb], dim=-1)
+        x = self.obs_normalizer(x)
+        x, h_out = self.rnn(x.unsqueeze(0), h_in)
+        x = x.squeeze(0)
+        out = self.mlp(x)
+        return self.deterministic_output(out), h_out
+
+    def get_dummy_inputs(self) -> tuple[torch.Tensor, ...]:
+        """Representative inputs for ONNX tracing."""
+        obs = torch.zeros(1, self.input_size, dtype=torch.float32)
+        h_in = torch.zeros(self.num_layers, 1, self.hidden_size, dtype=torch.float32)
+        return (obs, h_in)
+
+    @property
+    def input_names(self) -> list[str]:
+        return ["obs", "h_in"]
+
+    @property
+    def output_names(self) -> list[str]:
+        return ["actions", "h_out"]
 
 
 # ---------------------------------------------------------------------------

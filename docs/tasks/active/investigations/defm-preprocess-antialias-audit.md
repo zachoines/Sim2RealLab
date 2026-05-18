@@ -8,7 +8,7 @@ decides whether to (a) leave preprocessing asymmetric, (b) align
 deployment to training (re-enable antialias in deployment), or (c)
 align training to deployment (turn off antialias in training and
 re-train the projection head). Filed off
-[`export-onnx-depth`](../trained-policy/export-onnx-depth.md)'s
+[`export-onnx-depth`](../../completed/export-onnx-depth.md)'s
 landing — the ONNX-side preprocessing disables antialiasing because
 `aten::_upsample_bilinear2d_aa` isn't supported through opset 21.
 **Estimate:** S–M (~½–1 day: extract held-out depth corpus, run both
@@ -30,7 +30,7 @@ than a hand-wave**.
 Read these before starting:
 - [context/repo-topology.md](../../context/repo-topology.md)
 - [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [export-onnx-depth.md](../trained-policy/export-onnx-depth.md) — the
+- [export-onnx-depth.md](../../completed/export-onnx-depth.md) — the
   shipped ONNX path that introduced the asymmetry. Read
   `_onnx_safe_defm_preprocess` and the inline comment about the
   precision delta.

@@ -212,14 +212,14 @@ Confirm TRT EP is actually selected (not silently falling back to CUDA
 EP) and that DEPTH median ≤ 6 ms via TRT — the budget the
 strafer-inference brief's ≤ 10 ms p95 end-to-end target depends on.
 
-**Why deferred**: The benchmark script and ONNX export already work for
-the NoCam variant; the Jetson-side sweep is operator-side execution
-(deployment-environment specific) and gates on a deployable DEPTH
-checkpoint plus
-[`export-onnx-depth`](active/trained-policy/export-onnx-depth.md)
-landing the DEPTH ONNX path. Capturing it as a runbook step rather
-than a separate brief — the work is `<1 hour` of operator time and
-slots into the strafer-inference brief's Phase 3 latency table.
+**Why deferred**: The benchmark script and ONNX export work for both
+NoCam and DEPTH variants (DEPTH ONNX shipped via
+[`export-onnx-depth`](completed/export-onnx-depth.md)); the Jetson-side
+sweep is operator-side execution (deployment-environment specific) and
+the remaining precondition is a deployable DEPTH checkpoint. Capturing
+it as a runbook step rather than a separate brief — the work is
+`<1 hour` of operator time and slots into the strafer-inference brief's
+Phase 3 latency table.
 
 **Packages**: `strafer_lab` (export tooling), strafer-inference brief's
 PR description (where the latency table lands).

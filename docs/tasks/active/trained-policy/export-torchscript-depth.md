@@ -2,7 +2,7 @@
 
 **Type:** bug / refactor
 **Owner:** DGX (`strafer_lab` lane)
-**Priority:** P2 — DEPTH ONNX ships via [`export-onnx-depth`](export-onnx-depth.md);
+**Priority:** P2 — DEPTH ONNX ships via [`export-onnx-depth`](../../completed/export-onnx-depth.md);
 TorchScript is the redundant deployment path (CPU-EP fallback on the
 Jetson). The brief still has consumers — `play_strafer_navigation.py`'s
 `--policy_path` smoke test currently expects a `.pt` for sim-side
@@ -29,7 +29,7 @@ path**.
 Read these before starting:
 - [context/repo-topology.md](../../context/repo-topology.md)
 - [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [export-onnx-depth.md](export-onnx-depth.md) — sibling brief that
+- [export-onnx-depth.md](../../completed/export-onnx-depth.md) — sibling brief that
   shipped the ONNX path and the export-pipeline plumbing; the same
   encoder-substitution pattern (`_OnnxSafeDeFMDepthEncoder`) is the
   template for this brief's TorchScript-safe variant.

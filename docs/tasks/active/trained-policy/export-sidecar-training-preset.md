@@ -8,7 +8,7 @@ reads to verify "did this artifact come from the right runner config";
 right now it reads `RslRlOnPolicyRunnerCfg` (the class name common to
 all variants) instead of `STRAFER_PPO_DEPTH_RUNNER_CFG` /
 `STRAFER_PPO_RUNNER_CFG` (the per-variant preset variable). Filed off
-[`export-onnx-depth`](export-onnx-depth.md)'s real-checkpoint smoke
+[`export-onnx-depth`](../../completed/export-onnx-depth.md)'s real-checkpoint smoke
 test.
 **Estimate:** S (~1–2 hours: read the registry entry instead of
 `type(agent_cfg).__name__`, update existing test fixture's literal,

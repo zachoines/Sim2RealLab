@@ -109,12 +109,11 @@ briefs, READMEs).
 ## Closed task brief lifecycle
 
 When a brief in `docs/tasks/` ships, **move it into
-`docs/tasks/completed/`** in the same commit (or in an immediate
-follow-up commit so the Shipped stamp can carry the implementation
-commit's SHA). Stamp the top of the moved brief with:
+`docs/tasks/completed/`** in the same commit that closes out the
+PR. Stamp the top of the moved brief with:
 
 ```
-**Status:** Shipped <YYYY-MM-DD> in `<commit-sha>` (<host>).
+**Status:** Shipped <YYYY-MM-DD> (<host>).
 **PR:** <github-pr-url>
 **Follow-ups:** [`<follow-up.md>`](../active/<epic>/<follow-up.md>) — short hook.
 ```
@@ -125,9 +124,15 @@ optional and lives under whichever `active/<epic>/` or
 [`README.md`'s directory layout](../README.md#directory-layout).
 The `**PR:**` line is mandatory if the work landed via
 the [task → branch → PR convention](branching-and-prs.md); omit it
-only for briefs whose work pre-dates that convention. See
-`docs/tasks/completed/goal-projection-depth-range.md` for the
-canonical example.
+only for briefs whose work pre-dates that convention.
+
+The PR URL is the canonical reference. The merge SHA used to be
+stamped too, but it's recoverable from the PR page on GitHub or via
+`git log --grep "Merge pull request #N"` — so the stamp dropped it
+to avoid the recurring "backfill the SHA after merge" follow-up step
+that kept getting forgotten. Historical entries that still carry
+`` in `<sha>` `` are fine — don't churn them just for format
+consistency.
 
 Update `docs/tasks/README.md`'s Examples section if it linked the
 brief at the top level — the link should now point at

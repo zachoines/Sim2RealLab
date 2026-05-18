@@ -1,6 +1,6 @@
 # Decide: keep the planner as an intent classifier, or promote it to a multi-step planner
 
-**Status:** Shipped 2026-05-18 in `<merge sha for #36>` (DGX).
+**Status:** Shipped 2026-05-18 in `d07f4db` (DGX).
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/36
 **Follow-ups:**
 - [`staging-hops-shadow-mode`](../parked/multi-room/staging-hops-shadow-mode.md)

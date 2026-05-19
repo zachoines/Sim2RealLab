@@ -253,3 +253,65 @@ class TestRankFrontiers:
             max_distance_m=10.0,
         )
         assert ranked == []
+
+    def test_uniform_llm_prior_is_a_noop(self):
+        """``llm_prior_fn`` returning 1.0 must produce identical
+        rankings to the default (None) — the v1-baseline contract."""
+        a = self._make_cluster(key=(0, 0), cell_count=10, centroid_xy=(1.0, 0.0))
+        b = self._make_cluster(key=(1, 1), cell_count=200, centroid_xy=(5.0, 0.0))
+        baseline = rank_frontiers(
+            clusters=[a, b],
+            robot_xy=(0.0, 0.0),
+            max_distance_m=10.0,
+        )
+        with_prior = rank_frontiers(
+            clusters=[a, b],
+            robot_xy=(0.0, 0.0),
+            max_distance_m=10.0,
+            llm_prior_fn=lambda _cluster: 1.0,
+        )
+        assert [r.cluster.cluster_key for r in baseline] == [
+            r.cluster.cluster_key for r in with_prior
+        ]
+        for base, primed in zip(baseline, with_prior):
+            assert base.score == pytest.approx(primed.score)
+
+    def test_llm_prior_can_flip_ranking(self):
+        """A strong LLM prior must be able to override the geometric
+        preference — the v2 acceptance contract."""
+        # Geometrically, ``big_far`` wins (200/5 = 40 vs 10/1 = 10).
+        small_near = self._make_cluster(
+            key=(0, 0), cell_count=10, centroid_xy=(1.0, 0.0)
+        )
+        big_far = self._make_cluster(
+            key=(1, 1), cell_count=200, centroid_xy=(5.0, 0.0)
+        )
+        # Prior reverses the preference (e.g. LLM thinks the small
+        # nearby frontier is the kitchen doorway, the big far one is
+        # the bedroom).
+        prior = {(0, 0): 1.0, (1, 1): 0.1}
+        ranked = rank_frontiers(
+            clusters=[small_near, big_far],
+            robot_xy=(0.0, 0.0),
+            max_distance_m=10.0,
+            llm_prior_fn=lambda c: prior[c.cluster_key],
+        )
+        # 200/5 * 0.1 = 4 < 10/1 * 1.0 = 10 → small_near wins now.
+        assert ranked[0].cluster.cluster_key == (0, 0)
+        assert ranked[1].cluster.cluster_key == (1, 1)
+
+    def test_llm_prior_zero_does_not_drop_cluster(self):
+        """A prior of 0 produces a score of 0 but keeps the cluster in
+        the ranking — drop semantics belong to the caller, not the
+        ranker. This matters because the v2 brief's ``llm = 0.0``
+        knob disables the LLM term entirely; it shouldn't also
+        accidentally drop frontiers from candidacy."""
+        a = self._make_cluster(key=(0, 0), cell_count=10, centroid_xy=(1.0, 0.0))
+        ranked = rank_frontiers(
+            clusters=[a],
+            robot_xy=(0.0, 0.0),
+            max_distance_m=10.0,
+            llm_prior_fn=lambda _cluster: 0.0,
+        )
+        assert len(ranked) == 1
+        assert ranked[0].score == pytest.approx(0.0)

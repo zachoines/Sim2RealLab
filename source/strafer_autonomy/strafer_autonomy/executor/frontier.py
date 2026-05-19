@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -160,6 +160,7 @@ def rank_frontiers(
     robot_xy: tuple[float, float],
     max_distance_m: float,
     visited_keys: set[tuple[int, int]] | None = None,
+    llm_prior_fn: Callable[[FrontierCluster], float] | None = None,
 ) -> list[RankedFrontier]:
     """Filter and rank frontier clusters by gain/cost.
 
@@ -168,6 +169,13 @@ def rank_frontiers(
     Clusters whose centroid is farther than ``max_distance_m`` from
     the robot, or whose key is in ``visited_keys``, are dropped.
     Higher score is better; the returned list is sorted accordingly.
+
+    ``llm_prior_fn``, when supplied, returns a non-negative
+    multiplier per cluster — the seam for an LFG-style LLM-guided
+    prior layered on top of the geometric score. The default
+    (``None``) recovers the geometric-only ranking exactly, which is
+    also the contract a feature flag like ``gain_weights.llm = 0.0``
+    must preserve when the upstream consumer opts out.
     """
     rx, ry = robot_xy
     visited = visited_keys or set()
@@ -186,6 +194,8 @@ def rank_frontiers(
         # purely by proximity. 0.5 m matches a typical free-space
         # tolerance and keeps the score finite.
         score = cluster.cell_count / max(distance, 0.5)
+        if llm_prior_fn is not None:
+            score *= float(llm_prior_fn(cluster))
         ranked.append(
             RankedFrontier(cluster=cluster, distance_m=distance, score=score)
         )

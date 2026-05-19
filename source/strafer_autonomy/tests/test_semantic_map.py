@@ -579,6 +579,105 @@ class TestLogFailure:
         assert len(manifest) == 2
 
 
+class TestRoomStateAPIs:
+    """Manager-level wiring for current_room / known_rooms / connectivity."""
+
+    def test_known_rooms_empty_on_cold_start(self, manager):
+        assert manager.known_rooms() == []
+
+    def test_current_room_none_on_cold_start(self, manager):
+        assert manager.current_room(_make_pose(0.0, 0.0)) is None
+
+    def test_room_anchor_unknown_label_none(self, manager):
+        assert manager.room_anchor("kitchen") is None
+
+    def test_connectivity_empty_on_cold_start(self, manager):
+        assert manager.connectivity() == []
+
+    def test_add_observation_stamps_room_metadata(self, manager):
+        """Random mocked CLIP embeddings still produce a label/conf pair."""
+        node = manager.add_observation(
+            pose=_make_pose(),
+            timestamp=time.time(),
+            clip_embedding=_random_embedding(),
+        )
+        meta = manager.graph.nodes[node.node_id]["data"]["metadata"]
+        # Mocked encode_text returns random unit vectors, so a non-zero
+        # cosine similarity argmax always yields *some* label.
+        assert "room_label" in meta
+        assert "room_conf" in meta
+
+    def test_caller_room_label_not_overwritten(self, manager):
+        node = manager.add_observation(
+            pose=_make_pose(),
+            timestamp=time.time(),
+            clip_embedding=_random_embedding(),
+            metadata={"room_label": "library"},
+        )
+        meta = manager.graph.nodes[node.node_id]["data"]["metadata"]
+        assert meta["room_label"] == "library"
+
+    def test_room_anchor_picks_most_recent(self, manager):
+        manager.add_observation(
+            pose=_make_pose(1.0, 1.0),
+            timestamp=1000.0,
+            clip_embedding=_random_embedding(),
+            metadata={"room_label": "kitchen", "room_conf": 0.8},
+        )
+        manager.add_observation(
+            pose=_make_pose(5.0, 5.0),
+            timestamp=2000.0,
+            clip_embedding=_random_embedding(),
+            metadata={"room_label": "kitchen", "room_conf": 0.7},
+        )
+        anchor = manager.room_anchor("kitchen")
+        assert anchor is not None
+        assert anchor.x == 5.0
+        assert anchor.y == 5.0
+
+    def test_room_anchor_case_insensitive(self, manager):
+        manager.add_observation(
+            pose=_make_pose(1.0, 1.0),
+            timestamp=1000.0,
+            clip_embedding=_random_embedding(),
+            metadata={"room_label": "Kitchen"},
+        )
+        assert manager.room_anchor("kitchen") is not None
+        assert manager.room_anchor("KITCHEN") is not None
+
+    def test_set_nav2_reachable_toggle(self, manager):
+        manager.add_observation(
+            pose=_make_pose(0.0, 0.0),
+            timestamp=time.time(),
+            clip_embedding=_random_embedding(),
+            metadata={"room_label": "kitchen", "room_conf": 0.9},
+        )
+        manager.add_observation(
+            pose=_make_pose(50.0, 50.0),
+            timestamp=time.time(),
+            clip_embedding=_random_embedding(),
+            metadata={"room_label": "bedroom", "room_conf": 0.9},
+        )
+
+        manager.set_nav2_reachable(lambda a, b: True, enabled=True)
+        edges = manager.connectivity()
+        assert ("bedroom", "kitchen") in edges
+
+        manager.set_nav2_reachable(None, enabled=False)
+        assert manager.connectivity() == []
+
+    def test_cluster_cache_invalidated_on_clear(self, manager):
+        manager.add_observation(
+            pose=_make_pose(),
+            timestamp=time.time(),
+            clip_embedding=_random_embedding(),
+            metadata={"room_label": "kitchen", "room_conf": 0.9},
+        )
+        assert manager.known_rooms() != []
+        manager.clear()
+        assert manager.known_rooms() == []
+
+
 class TestCLIPEncoder:
     def test_disabled_when_no_models(self, tmp_path):
         from strafer_autonomy.semantic_map.clip_encoder import CLIPEncoder

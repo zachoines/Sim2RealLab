@@ -117,3 +117,22 @@ class SemanticEdge:
     distance_m: float
     traversal_verified: bool = False
     last_traversed: float | None = None
+
+
+@dataclass(frozen=True)
+class RoomEntry:
+    """A clustered room derived from the semantic map.
+
+    Returned by `SemanticMapManager.known_rooms`. Membership is the set of
+    `SemanticNode.node_id` strings the clusterer assigned to this room.
+    Centroid is the mean xy of the member nodes (observation-derived, not
+    metadata-derived). `observed_objects` is the deduplicated set of object
+    labels seen in any member node's `detected_objects` — used by the
+    autonomy-stack compiler as the primary target-room-inference signal.
+    """
+
+    label: str
+    member_node_ids: tuple[str, ...]
+    centroid_xy: tuple[float, float]
+    confidence: float
+    observed_objects: tuple[str, ...]

@@ -33,7 +33,7 @@ Sibling packages it interacts with:
 - **Jetson executor** (`executor/mission_runner.py`, `executor/command_server.py`) — 13 implemented skills, mission state machine, cancel / timeout / retry, parallel VLM + planner health checks at startup.
 - **Operator CLI** (`cli.py`) — `submit` / `status` / `cancel` commands over the ROS action / service interfaces.
 - **Service clients** (`clients/`) — `HttpPlannerClient`, `HttpGroundingClient` for LAN HTTP; `DatabricksServingPlannerClient`, `DatabricksServingGroundingClient` for Databricks Model Serving; `JetsonRosClient` for local ROS interactions.
-- **Semantic spatial map** (`semantic_map/`) — NetworkX graph + ChromaDB vector store + OpenCLIP encoder backing the `verify_arrival` and `query_environment` skills.
+- **Semantic spatial map** (`semantic_map/`) — NetworkX graph + ChromaDB vector store + OpenCLIP encoder backing the `verify_arrival` and `query_environment` skills, plus runtime room-state inference (`current_room`, `known_rooms`, `connectivity`, `room_anchor`) derived from CLIP zero-shot room labeling, graph clustering, and an optional Nav2 reachability hook. See [Semantic-map room state](#semantic-map-room-state) below.
 - **Databricks deployment tooling** (`databricks/`) — MLflow pyfunc wrappers (`StraferPlannerModel`, `StraferVLMModel`) and a `register.py` CLI for logging both models to a Databricks workspace.
 
 ## Contracts
@@ -144,6 +144,34 @@ At startup, `build_command_server()` runs parallel health checks against the pla
 | `report_status` | Produce operator-facing status | Mission runtime snapshot |
 
 Every compiler that terminates in `navigate_to_pose` appends a `verify_arrival` step, so single-target missions are 4 steps (`scan → project → navigate → verify`), `wait_by_target` is 5, and `go_to_targets` / `patrol` emit 4 steps per target.
+
+### Semantic-map room state
+
+The `SemanticMapManager` exposes four observation-derived APIs that the
+planner / executor consume for cross-room reasoning. They depend only
+on signals the real robot has: the semantic-map graph (NetworkX),
+CLIP image and text embeddings, and an optional Nav2 reachability
+callable injected by the runtime. They never read Infinigen
+`scene_metadata.json`.
+
+| Method | Returns | Purpose |
+|---|---|---|
+| `known_rooms()` | `list[RoomEntry]` | Clusters of semantic-map nodes labeled via CLIP zero-shot. Each `RoomEntry` carries `label`, `member_node_ids`, `centroid_xy`, `confidence`, and `observed_objects` (deduplicated detected-object labels). Same-label clusters are merged in v1. |
+| `current_room(pose)` | `RoomEntry \| None` | Room containing the nearest captured node within ~3 m; `None` if the map is empty or no node is close enough. |
+| `connectivity()` | `list[tuple[str, str]]` | Pessimistic pairs of room labels proven reachable from each other. An edge appears iff the proximity graph already connects them OR the injected Nav2 hook returns `True` for their centroids. |
+| `room_anchor(label)` | `Pose2D \| None` | Most recent captured node tagged `label`; used by the autonomy-stack compiler as the cross-room transit destination. |
+
+Per-node room labels are stamped onto `SemanticNode.metadata` as
+`room_label` / `room_conf` at `add_observation` time using a fixed
+prompt set (`a kitchen`, `a living room`, `a bedroom`, `a bathroom`,
+`a hallway`, `an office`, `a garage`). Override the prompt set by
+passing `room_prompts=` to the manager constructor. The cluster
+cache refreshes when the live node count drifts by ≥10 % from its
+last-computed size.
+
+The Nav2 hook is injected via `set_nav2_reachable(fn, enabled=True)`
+where `fn` takes `(Pose2D, Pose2D) → bool`. When omitted or disabled,
+`connectivity()` reports only graph-traversed pairs.
 
 ### Client protocols
 

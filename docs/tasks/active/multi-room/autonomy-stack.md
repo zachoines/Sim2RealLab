@@ -217,7 +217,7 @@ room-centroid (that's privileged info). It is the most recent
 semantic-map node tagged with the target room (if any), falling
 back to a frontier pose toward unexplored space. The frontier
 fallback ties to
-[`frontier-exploration-primitive`](frontier-exploration-primitive.md).
+[`frontier-exploration-primitive`](../../completed/frontier-exploration-primitive.md).
 
 For `go_to_targets` and `patrol` (multi-target intents), the
 same transit-or-explore step is prepended per target whenever
@@ -228,7 +228,7 @@ room.
 
 - **Frontier exploration / room-hopping** for unmapped
   environments. §1.10.1's option 3. Filed separately at
-  [`frontier-exploration-primitive`](frontier-exploration-primitive.md).
+  [`frontier-exploration-primitive`](../../completed/frontier-exploration-primitive.md).
   This brief *invokes* the primitive when the target room is
   not yet known, but does not implement the primitive itself.
 - **Observation-derived room labeling.** Filed separately at
@@ -295,7 +295,7 @@ room.
       unknown (label not found in any room's `observed_objects`)
       OR unreachable from current room in `connectivity` →
       prepend `explore_until_visible(label)` (see
-      [`frontier-exploration-primitive`](frontier-exploration-primitive.md)).
+      [`frontier-exploration-primitive`](../../completed/frontier-exploration-primitive.md)).
       Anchor pose comes from `SemanticMapManager.room_anchor(
       target_room)` — **never** a scene-metadata centroid.
       Unit-tested under
@@ -361,7 +361,7 @@ room.
 
 - **Frontier exploration implementation.** §1.10.1 option 3.
   Filed at
-  [`frontier-exploration-primitive`](frontier-exploration-primitive.md).
+  [`frontier-exploration-primitive`](../../completed/frontier-exploration-primitive.md).
   This brief invokes the primitive; it does not implement the
   exploration policy, the frontier detector, or the gain
   function.

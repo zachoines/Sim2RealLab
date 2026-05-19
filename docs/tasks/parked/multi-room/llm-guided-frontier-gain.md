@@ -14,7 +14,7 @@ queue)
 **Branch:** task/llm-guided-frontier-gain
 
 **Pickup gate:** Blocked-on-deps until
-[`frontier-exploration-primitive`](../../active/multi-room/frontier-exploration-primitive.md)
+[`frontier-exploration-primitive`](../../completed/frontier-exploration-primitive.md)
 ships (no skill to extend) AND
 [`observation-derived-room-state`](../../active/multi-room/observation-derived-room-state.md)
 ships (no language-shaped frontier descriptions to give the
@@ -42,7 +42,7 @@ Read these before starting:
 - [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
 - [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
 - [`context/conventions.md`](../../context/conventions.md)
-- [`frontier-exploration-primitive`](../../active/multi-room/frontier-exploration-primitive.md)
+- [`frontier-exploration-primitive`](../../completed/frontier-exploration-primitive.md)
   — the v1 skill this brief extends. The skill interface,
   detector, navigation loop, and termination conditions are
   unchanged; only the gain function gains an LLM multiplier.
@@ -61,7 +61,7 @@ Read these before starting:
 ### Why this is an extension, not a different direction
 
 The v1 `explore_until_visible(label)` skill in
-[`frontier-exploration-primitive`](../../active/multi-room/frontier-exploration-primitive.md)
+[`frontier-exploration-primitive`](../../completed/frontier-exploration-primitive.md)
 ranks frontiers by a geometric gain function:
 
 ```
@@ -278,7 +278,7 @@ worse.
 ## Investigation pointers
 
 - v1 skill structure:
-  [`frontier-exploration-primitive`](../../active/multi-room/frontier-exploration-primitive.md)
+  [`frontier-exploration-primitive`](../../completed/frontier-exploration-primitive.md)
   — read its skill shape + frontier-source choice first.
   This brief's wire-up depends on whether v1 vendored
   `m-explore-ros2` or pulled the wavefront detector inline.

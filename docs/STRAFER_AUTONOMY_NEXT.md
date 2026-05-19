@@ -1539,7 +1539,7 @@ planner),
 [`observation-derived-room-state`](tasks/active/multi-room/observation-derived-room-state.md)
 (runtime room labeling + connectivity — replaces the
 training-time `scene_metadata.json` leak path),
-[`frontier-exploration-primitive`](tasks/active/multi-room/frontier-exploration-primitive.md)
+[`frontier-exploration-primitive`](tasks/completed/frontier-exploration-primitive.md)
 (option 3's `explore_until_visible` skill),
 [`autonomy-stack`](tasks/active/multi-room/autonomy-stack.md)
 (stored-map fallback + planner transit-step emission),
@@ -1636,7 +1636,7 @@ slot for advisory LLM hops we can promote later.
    not prompt quality — and we are mid-flight on three
    grounded-input shifts simultaneously
    ([`observation-derived-room-state`](tasks/active/multi-room/observation-derived-room-state.md),
-   [`frontier-exploration-primitive`](tasks/active/multi-room/frontier-exploration-primitive.md),
+   [`frontier-exploration-primitive`](tasks/completed/frontier-exploration-primitive.md),
    semantic-map room clustering). Stacking a multi-step LLM planner
    concurrently means debugging four moving systems with
    overlapping failure modes.

@@ -1,5 +1,12 @@
 # Add a frontier-exploration skill for cross-room target discovery
 
+**Status:** Shipped 2026-05-19 (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/40
+**Follow-ups:**
+[`autonomy-stack`](../active/multi-room/autonomy-stack.md) — picks up the cold-start / warm-start sim smoke tests this brief deferred (acceptance criteria for the compiler-emitted plan path depend on the room-aware plan-compiler emission shipping there);
+[`llm-guided-frontier-gain`](../parked/multi-room/llm-guided-frontier-gain.md) — v2 LFG-style scalar LLM prior on the frontier gain; plugs into the `llm_prior_fn` seam landed in this PR;
+[`frontier-cognitive-fsm`](../parked/multi-room/frontier-cognitive-fsm.md) — v3 CogNav-style cognitive-state FSM filed parked-on-trigger after v2's plateau characterization.
+
 **Type:** new feature
 **Owner:** Either (skill lives on Jetson executor lane; frontier
 detector + costmap interaction is Nav2-side. The cross-lane

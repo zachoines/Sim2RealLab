@@ -128,7 +128,7 @@ on top of (A1).
 
 Drive to the nearest unexplored frontier cell within
 `goal_radius_m` and re-scan. This is a multi-room-epic primitive
-([`frontier-exploration-primitive.md`](../multi-room/frontier-exploration-primitive.md)),
+([`frontier-exploration-primitive.md`](../../completed/frontier-exploration-primitive.md)),
 not a single-room recovery. Out of scope here; a target that's
 genuinely *not visible from anywhere on the current costmap* is a
 multi-room mission planning problem.

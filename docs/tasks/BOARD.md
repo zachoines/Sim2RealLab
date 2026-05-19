@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`observation-derived-room-state`](active/multi-room/observation-derived-room-state.md) | DGX | _TBD_ | implementing |
+| [`observation-derived-room-state`](active/multi-room/observation-derived-room-state.md) | DGX | [#41](https://github.com/zachoines/Sim2RealLab/pull/41) | implementing |
 
 ---
 

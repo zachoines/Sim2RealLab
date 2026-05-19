@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`frontier-exploration-primitive`](active/multi-room/frontier-exploration-primitive.md) | Jetson | _pending_ | implementing |
+| [`frontier-exploration-primitive`](active/multi-room/frontier-exploration-primitive.md) | Jetson | [#40](https://github.com/zachoines/Sim2RealLab/pull/40) | review |
 
 ---
 

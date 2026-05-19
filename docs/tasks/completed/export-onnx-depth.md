@@ -1,9 +1,16 @@
 # DEPTH-aware actor: ONNX export support for `StraferDepthRNNModel`
 
+**Status:** Shipped 2026-05-18 (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/38
+**Follow-ups:**
+[`export-torchscript-depth`](../active/trained-policy/export-torchscript-depth.md) — DEPTH TorchScript export on real checkpoints still fails on DeFM's `BiFPN` scriptability bug;
+[`defm-preprocess-antialias-audit`](../active/investigations/defm-preprocess-antialias-audit.md) — measure projection-space delta between training-time antialiased preprocessing and the deployment ONNX-safe non-antialiased version, then decide alignment;
+[`export-sidecar-training-preset`](../active/trained-policy/export-sidecar-training-preset.md) — sidecar `training_preset` records the configclass name instead of the rsl_rl preset variable.
+
 **Type:** task / feature
 **Owner:** DGX (`strafer_lab` lane — RL agent code)
 **Priority:** P1 — gates the Jetson TRT-EP path for the DEPTH MVP in
-[`inference-package`](inference-package.md). Without
+[`inference-package`](../active/trained-policy/inference-package.md). Without
 ONNX, DEPTH inference on Jetson Orin Nano falls back to TorchScript-CPU,
 which misses the latency target.
 **Estimate:** M (~1–2 days: write `_OnnxDepthGRUModel` mirror of
@@ -24,17 +31,17 @@ plateauing well above the budget on the 4819-dim observation vector**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [recurrent-state-contract.md](recurrent-state-contract.md) — the
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [recurrent-state-contract.md](../active/trained-policy/recurrent-state-contract.md) — the
   canonical spec for hidden-state shape, reset semantics, and the
   determinism contract this brief's producer side must satisfy. Read
   before writing `_OnnxDepthGRUModel`; the contract pins what `h_in`
   / `h_out` look like at the seam.
-- [policy-export-tooling.md](../../completed/policy-export-tooling.md) — the export
+- [policy-export-tooling.md](policy-export-tooling.md) — the export
   tooling whose `--formats pt,onnx` path errors today on DEPTH
   variants because of the gap this brief closes.
-- [strafer-inference-package.md](inference-package.md) — the
+- [strafer-inference-package.md](../active/trained-policy/inference-package.md) — the
   Jetson consumer whose Phase 3 latency target gates on the TRT-EP
   path, which gates on this brief.
 
@@ -43,7 +50,7 @@ Read these before starting:
 ### What already exists
 
 - The TorchScript export path for `StraferDepthRNNModel` is shipped:
-  [`source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py)
+  [`source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py)
   defines `_DepthGRUExportModel`, a scriptable wrapper that fuses the
   depth encoder + GRU + MLP + deterministic-output module into a single
   module with hidden state in a `register_buffer`.
@@ -54,7 +61,7 @@ Read these before starting:
 ### What's missing
 
 `StraferDepthRNNModel.as_onnx()` raises `NotImplementedError`
-([source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py:235-242](../../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py)):
+([source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py:235-242](../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py)):
 
 ```python
 def as_onnx(self, verbose: bool = False) -> nn.Module:
@@ -77,7 +84,7 @@ The blockers behind that `NotImplementedError`:
    ORT-CPU (DGX validation) and ORT-TRT (Jetson deployment).
 
    **Sub-blockers under the DeFM encoder specifically**
-   ([`depth_encoders.py:103-131`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_encoders.py)):
+   ([`depth_encoders.py:103-131`](../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_encoders.py)):
 
    - **Runtime preprocessing pipeline.** `DeFMDepthEncoder.forward()`
      calls `_preprocess(...)` (a function loaded via
@@ -128,7 +135,7 @@ The blockers behind that `NotImplementedError`:
    `softplus`, division, scalar multiply, scalar subtract — all
    standard ONNX ops in opset 17+. But the MLP outputs shape
    `[..., 2, output_dim]` (see
-   [`distributions.py:96`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/distributions.py))
+   [`distributions.py:96`](../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/distributions.py))
    which is reshaped from a flat `2 * output_dim` linear output. Verify
    the reshape exports as a concrete `Reshape` op, not an opaque
    `Constant + Reshape` chain that TensorRT might struggle with. Spot
@@ -139,7 +146,7 @@ The blockers behind that `NotImplementedError`:
 ### Phase 1 — Author `_OnnxDepthGRUModel`
 
 In
-[`source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py),
+[`source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py),
 add `_OnnxDepthGRUModel` mirroring `_DepthGRUExportModel` but:
 
 - `forward(obs, h_in)` → `(actions, h_out)` (GRU only — LSTM raises
@@ -189,7 +196,7 @@ config becomes a deployment target.
 ### Phase 3 — Tests
 
 Extend
-[`source/strafer_lab/tests/test_export_policy.py`](../../../../source/strafer_lab/tests/test_export_policy.py):
+[`source/strafer_lab/tests/test_export_policy.py`](../../../source/strafer_lab/tests/test_export_policy.py):
 
 - Build a tiny `_OnnxDepthGRUModel`-shaped dummy (depth encoder = 1
   linear layer; GRU = `nn.GRU(...)`; MLP = `nn.Linear`). Verify ONNX
@@ -197,7 +204,7 @@ Extend
   holds when `h_in` is reset between calls.
 - Verify the multi-input ONNX file is loadable via ORT-CPU on the DGX
   (TRT EP verification stays Jetson-side per
-  [`inference-package`](inference-package.md)).
+  [`inference-package`](../active/trained-policy/inference-package.md)).
 
 ### Phase 4 — Real-checkpoint smoke test
 
@@ -248,16 +255,16 @@ sweep happens after rsync per the strafer-inference brief.
 ### Maintenance
 
 - [ ] If your work invalidates a fact in any referenced context module
-      or in [`policy-export-tooling.md`](../../completed/policy-export-tooling.md)'s
+      or in [`policy-export-tooling.md`](policy-export-tooling.md)'s
       out-of-scope notes, update those in the same commit.
 
 ## Investigation pointers
 
-- [`source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py)
+- [`source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py)
   — `_DepthGRUExportModel` is the TorchScript reference; the new
   ONNX wrapper mirrors its forward path with hidden state lifted to
   inputs / outputs.
-- [`source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_encoders.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_encoders.py)
+- [`source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_encoders.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_encoders.py)
   — `DeFMDepthEncoder` and `_get_defm_preprocess`; the runtime-loaded
   preprocessing function and the dict-returning frozen backbone. Trace
   this submodule alone first (`torch.onnx.export` on a 1-batch dummy
@@ -274,10 +281,10 @@ sweep happens after rsync per the strafer-inference brief.
   assumption). Confirm the pinned `rsl_rl` version on
   `env_isaaclab3` has the GRU fix; the in-repo `_DepthGRUExportModel`
   works around the TorchScript side already.
-- [`Scripts/export_policy.py`](../../../../Scripts/export_policy.py)
+- [`Scripts/export_policy.py`](../../../Scripts/export_policy.py)
   `export_onnx()` and `_verify_onnx_determinism()` — the export and
   round-trip helpers that need to handle the multi-input signature.
-- [`source/strafer_lab/strafer_lab/tasks/navigation/agents/distributions.py:114-124`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/distributions.py)
+- [`source/strafer_lab/strafer_lab/tasks/navigation/agents/distributions.py:114-124`](../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/distributions.py)
   — `_BetaDeterministicOutput`; the export-friendly Beta-mean module
   that sits at the head of the DEPTH ONNX graph.
 
@@ -293,8 +300,27 @@ sweep happens after rsync per the strafer-inference brief.
   to LSTM, this brief's `as_onnx()` raises and a follow-up adds the
   LSTM path. Don't speculatively implement it.
 - **Loader-side stateful inference contract.** That's
-  [`loader-recurrent-state`](../../completed/loader-recurrent-state.md)
+  [`loader-recurrent-state`](loader-recurrent-state.md)
   (shipped). This brief produces the artifact; the loader brief consumes it.
 - **Re-validating NoCam ONNX.** NoCam ONNX export already works through
   the rsl_rl stock path; don't refactor that surface as part of this
   brief.
+- **DEPTH TorchScript export on real checkpoints.** The brief's Phase 4
+  smoke test surfaced that `--formats pt` for DEPTH fails on
+  `torch.jit.script` because DeFM's `BiFPN.WeightedFusion.forward` uses
+  `sum(generator)`. ONNX traces (not scripts) so the brief's primary
+  goal is unaffected; the TorchScript residual ships separately as
+  [`export-torchscript-depth`](../active/trained-policy/export-torchscript-depth.md).
+- **Matching the antialiased DeFM preprocessing exactly.**
+  `_onnx_safe_defm_preprocess` substitutes
+  `F.interpolate(..., antialias=False)` for the torchvision Resize
+  because `aten::_upsample_bilinear2d_aa` isn't ONNX-supported through
+  opset 21. The bounded projection-space delta and the alignment
+  decision (leave / align deployment / align training) are owned by
+  [`defm-preprocess-antialias-audit`](../active/investigations/defm-preprocess-antialias-audit.md).
+- **Sidecar `training_preset` correctness.** The smoke-test sidecar
+  records the configclass name (`RslRlOnPolicyRunnerCfg`) instead of
+  the rsl_rl preset variable (`STRAFER_PPO_DEPTH_RUNNER_CFG`); this is
+  a pre-existing bug in `policy-export-tooling`'s call site, surfaced
+  by this brief and filed separately as
+  [`export-sidecar-training-preset`](../active/trained-policy/export-sidecar-training-preset.md).

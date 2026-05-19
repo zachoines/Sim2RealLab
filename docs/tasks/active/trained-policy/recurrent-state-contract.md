@@ -4,7 +4,7 @@
 **Owner:** Either (anchored in `strafer_shared`, surfaces in `strafer_lab`
 + `strafer_inference`)
 **Priority:** P1 — three sibling briefs
-([`export-onnx-depth`](export-onnx-depth.md),
+([`export-onnx-depth`](../../completed/export-onnx-depth.md),
 [`loader-recurrent-state`](../../completed/loader-recurrent-state.md),
 [`inference-package`](inference-package.md)) each describe *their side*
 of the recurrent contract. The whole-pipeline shape (hidden-state
@@ -34,7 +34,7 @@ other two assume**.
 Read these before starting:
 - [context/repo-topology.md](../../context/repo-topology.md)
 - [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [export-onnx-depth.md](export-onnx-depth.md) — DGX-side producer of
+- [export-onnx-depth.md](../../completed/export-onnx-depth.md) — DGX-side producer of
   recurrent ONNX.
 - [loader-recurrent-state.md](../../completed/loader-recurrent-state.md) — Either-side
   consumer that exposes `.reset()` and threads hidden state.
@@ -157,7 +157,7 @@ multiple briefs.
 ### Phase 3 — Edit the three implementer briefs to reference the contract
 
 Update each of:
-- [`export-onnx-depth.md`](export-onnx-depth.md)
+- [`export-onnx-depth.md`](../../completed/export-onnx-depth.md)
 - [`loader-recurrent-state.md`](../../completed/loader-recurrent-state.md)
 - [`inference-package.md`](inference-package.md)
 
@@ -196,7 +196,7 @@ mode this brief exists to catch.
       hidden-state contract" section covering the six points in Phase 1.
 - [ ] `docs/tasks/context/recurrent-policy-contract.md` exists and
       summarizes the same spec.
-- [ ] [`export-onnx-depth.md`](export-onnx-depth.md),
+- [ ] [`export-onnx-depth.md`](../../completed/export-onnx-depth.md),
       [`loader-recurrent-state.md`](../../completed/loader-recurrent-state.md), and
       [`inference-package.md`](inference-package.md) each reference the
       context module in their Context bundle.
@@ -233,7 +233,7 @@ mode this brief exists to catch.
 ## Out of scope
 
 - **Implementing the producer side.** That's
-  [`export-onnx-depth`](export-onnx-depth.md). This brief documents
+  [`export-onnx-depth`](../../completed/export-onnx-depth.md). This brief documents
   the contract that producer must satisfy.
 - **Implementing the consumer side.** That's
   [`loader-recurrent-state`](../../completed/loader-recurrent-state.md). Same.

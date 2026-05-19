@@ -155,16 +155,23 @@ $ISAACLAB -p Scripts/export_policy.py \
     --formats pt,onnx
 ```
 
-## Depth — TorchScript only
-ONNX export for the Depth actor's depth encoder is not yet implemented
-(see `source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py`'s
-`as_onnx`); Depth deployment uses TorchScript today.
+## Depth — ONNX (recurrent multi-input)
+Depth ONNX export uses the recurrent `(obs, h_in) -> (actions, h_out)`
+signature; the loader threads hidden state across ticks. Sidecar records
+`is_recurrent: true` so the inference node knows to call `.reset()` on
+episode boundaries.
 ```bash
 $ISAACLAB -p Scripts/export_policy.py \
     --checkpoint logs/rsl_rl/strafer_navigation/run_<timestamp>/model_<step>.pt \
     --output models/strafer_depth_v0 \
-    --variant DEPTH
+    --variant DEPTH \
+    --formats onnx
 ```
+
+The TorchScript path for Depth is not yet wired end-to-end on real
+checkpoints — DeFM's `BiFPN` uses `sum(generator)` which trips
+`torch.jit.script`; tracking as a follow-up. Use `--formats onnx` for
+Depth deployment today.
 
 ## Smoke-test the exported artifact in sim
 Re-runs `play_strafer_navigation.py` against the exported `.pt` instead

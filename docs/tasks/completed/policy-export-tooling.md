@@ -9,7 +9,7 @@ the Jetson TRT-EP path for the DEPTH variant is blocked on the
 follow-up brief.
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/17
 **Follow-ups:**
-- [`export-onnx-depth`](../active/trained-policy/export-onnx-depth.md)
+- [`export-onnx-depth`](export-onnx-depth.md) (shipped)
   — closes the MVP-DEPTH-ONNX gap by authoring `_OnnxDepthGRUModel` in
   `source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py`.
 - [`loader-recurrent-state`](loader-recurrent-state.md)

@@ -122,6 +122,7 @@ DEFAULT_AVAILABLE_SKILLS = (
     "capture_scene_observation",
     "locate_semantic_target",
     "scan_for_target",
+    "explore_until_visible",
     "describe_scene",
     "project_detection_to_goal_pose",
     "align_to_goal_yaw",
@@ -503,6 +504,8 @@ class MissionRunner(MissionCommandHandler):
             return self._locate_semantic_target(runtime, step)
         if step.skill == "scan_for_target":
             return self._scan_for_target(runtime, step)
+        if step.skill == "explore_until_visible":
+            return self._explore_until_visible(runtime, step)
         if step.skill == "describe_scene":
             return self._describe_scene(runtime, step)
         if step.skill == "project_detection_to_goal_pose":
@@ -771,6 +774,239 @@ class MissionRunner(MissionCommandHandler):
             error_code="target_not_found_after_scan",
             started_at=started_at,
             outputs=scan_outputs,
+        )
+
+    def _explore_until_visible(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
+        """Drive toward unmapped frontiers until the target is grounded.
+
+        Runtime-legal: reads only the Nav2 global costmap, the robot's
+        ``map -> base_link`` TF, and the existing grounding service.
+        Cold-start cross-room discovery uses the robot's own sensors;
+        no privileged training-time scene metadata is consulted.
+
+        Per attempt:
+            1. Snapshot the global costmap + robot pose.
+            2. Detect frontier clusters; rank by gain (cell count) /
+               Euclidean distance (a Nav2-plan-cost proxy).
+            3. Navigate to the top-ranked candidate via Nav2.
+            4. Run a bounded mini-scan at the arrival pose.
+            5. If grounded, return success with the grounding outputs.
+               Otherwise mark the frontier visited and retry.
+
+        Bounded by ``max_frontiers``, ``timeout_s``, and the available
+        frontier set — whichever runs out first ends the search with
+        ``frontier_set_exhausted``.
+
+        Args passed through ``step.args``:
+            label (str): target to search for (required)
+            max_frontiers (int): cap on frontier attempts (default 5)
+            max_distance_m (float): only consider frontier centroids
+                within this Euclidean radius of the robot (default 6.0)
+            timeout_s (float): hard wall-time budget across all
+                attempts (default 180.0)
+            min_frontier_cells (int): cluster-size floor (default 8)
+            scan_arc_deg (float): mini-scan arc at each arrival (default 360)
+            max_scan_steps (int): mini-scan rotation count (default 4)
+            standoff_m (float): leg-end standoff passed to nav (default 0.7)
+        """
+        from strafer_autonomy.executor.frontier import (
+            detect_frontier_clusters,
+            rank_frontiers,
+        )
+
+        started_at = time.time()
+        label = str(step.args.get("label", "")).strip()
+        if not label:
+            return self._failed_result(
+                step, "explore_until_visible is missing 'label'.", "invalid_args", started_at,
+            )
+
+        max_frontiers = int(step.args.get("max_frontiers", 5))
+        max_distance_m = float(step.args.get("max_distance_m", 6.0))
+        timeout_s = float(step.args.get("timeout_s", 180.0))
+        min_cluster_cells = int(step.args.get("min_frontier_cells", 8))
+        scan_arc_deg = float(step.args.get("scan_arc_deg", 360))
+        max_scan_steps = int(step.args.get("max_scan_steps", 4))
+        standoff_m = float(step.args.get("standoff_m", self._config.default_standoff_m))
+
+        deadline = started_at + timeout_s
+        visited_keys: set[tuple[int, int]] = set()
+        attempts: list[dict[str, Any]] = []
+
+        for attempt_idx in range(max_frontiers):
+            if runtime.cancel_event.is_set():
+                return SkillResult(
+                    step_id=step.step_id,
+                    skill=step.skill,
+                    status="canceled",
+                    outputs={"attempts": attempts},
+                    error_code="mission_canceled",
+                    message="Frontier exploration canceled.",
+                    started_at=started_at,
+                    finished_at=time.time(),
+                )
+
+            now = time.time()
+            if now >= deadline:
+                return self._failed_result(
+                    step,
+                    message=(
+                        f"Frontier exploration timed out after {now - started_at:.1f}s "
+                        f"({len(attempts)} attempt(s); budget {timeout_s:.0f}s)."
+                    ),
+                    error_code="frontier_set_exhausted",
+                    started_at=started_at,
+                    outputs={"attempts": attempts, "reason": "timeout"},
+                )
+
+            snapshot = self._safe_get_costmap_snapshot()
+            if snapshot is None:
+                return self._failed_result(
+                    step,
+                    "Global costmap not yet available; cannot detect frontiers.",
+                    "no_costmap",
+                    started_at,
+                    outputs={"attempts": attempts},
+                )
+            robot_xy = self._safe_get_robot_xy()
+            if robot_xy is None:
+                return self._failed_result(
+                    step,
+                    "Robot pose unavailable; cannot rank frontiers.",
+                    "no_robot_pose",
+                    started_at,
+                    outputs={"attempts": attempts},
+                )
+
+            clusters = detect_frontier_clusters(
+                data=snapshot.data,
+                origin_xy=(snapshot.bounds.min_x, snapshot.bounds.min_y),
+                resolution=snapshot.bounds.resolution,
+                min_cluster_cells=min_cluster_cells,
+            )
+            ranked = rank_frontiers(
+                clusters=clusters,
+                robot_xy=robot_xy,
+                max_distance_m=max_distance_m,
+                visited_keys=visited_keys,
+            )
+
+            if not ranked:
+                return self._failed_result(
+                    step,
+                    message=(
+                        f"No reachable frontiers within {max_distance_m:.1f} m "
+                        f"after {len(attempts)} attempt(s); frontier set exhausted."
+                    ),
+                    error_code="frontier_set_exhausted",
+                    started_at=started_at,
+                    outputs={"attempts": attempts, "reason": "no_candidates"},
+                )
+
+            top = ranked[0]
+            visited_keys.add(top.cluster.cluster_key)
+            cx, cy = top.cluster.centroid_xy
+            stage_yaw = math.atan2(cy - robot_xy[1], cx - robot_xy[0])
+            goal_pose = Pose3D(
+                x=cx,
+                y=cy,
+                z=0.0,
+                qx=0.0,
+                qy=0.0,
+                qz=math.sin(stage_yaw / 2.0),
+                qw=math.cos(stage_yaw / 2.0),
+            )
+
+            attempt_entry: dict[str, Any] = {
+                "attempt": attempt_idx + 1,
+                "cluster_key": list(top.cluster.cluster_key),
+                "centroid_xy": [cx, cy],
+                "cell_count": top.cluster.cell_count,
+                "distance_m": top.distance_m,
+                "score": top.score,
+            }
+
+            nav_step = SkillCall(
+                step_id=f"{step.step_id}:frontier_{attempt_idx + 1}",
+                skill="navigate_to_pose",
+                args={
+                    "goal_source": "explicit",
+                    "standoff_m": standoff_m,
+                    # Disable transit divergence monitoring on
+                    # exploration legs — there's no grounded target
+                    # for the BackgroundMapper to compare against, so
+                    # the monitor would either no-op or false-trigger.
+                    "transit_goal_radius_m": 0.0,
+                },
+                timeout_s=step.timeout_s,
+                retry_limit=0,
+            )
+            nav_result = self._dispatch_nav_goal(nav_step, goal_pose, time.time())
+            attempt_entry["nav_status"] = nav_result.status
+            attempt_entry["nav_error_code"] = nav_result.error_code
+            if nav_result.status != "succeeded":
+                attempts.append(attempt_entry)
+                _logger.info(
+                    "Frontier attempt %d: nav failed (%s); marking visited and continuing.",
+                    attempt_idx + 1, nav_result.error_code,
+                )
+                continue
+
+            scan_step = SkillCall(
+                step_id=f"{step.step_id}:scan_{attempt_idx + 1}",
+                skill="scan_for_target",
+                args={
+                    "label": label,
+                    "max_scan_steps": max_scan_steps,
+                    "scan_arc_deg": scan_arc_deg,
+                },
+                timeout_s=step.timeout_s,
+                retry_limit=0,
+            )
+            scan_result = self._scan_for_target(runtime, scan_step)
+            attempt_entry["scan_status"] = scan_result.status
+            attempts.append(attempt_entry)
+
+            if scan_result.status == "succeeded":
+                outputs = dict(scan_result.outputs)
+                outputs["frontier_index"] = attempt_idx
+                outputs["attempts"] = attempts
+                outputs["arrival_xy"] = [cx, cy]
+                return SkillResult(
+                    step_id=step.step_id,
+                    skill=step.skill,
+                    status="succeeded",
+                    outputs=outputs,
+                    message=(
+                        f"Target '{label}' found after frontier exploration "
+                        f"(attempt {attempt_idx + 1}/{max_frontiers})."
+                    ),
+                    started_at=started_at,
+                    finished_at=time.time(),
+                )
+            if scan_result.status == "canceled":
+                return SkillResult(
+                    step_id=step.step_id,
+                    skill=step.skill,
+                    status="canceled",
+                    outputs={"attempts": attempts},
+                    error_code="mission_canceled",
+                    message="Frontier exploration canceled during scan.",
+                    started_at=started_at,
+                    finished_at=time.time(),
+                )
+            # scan_result.status == "failed" → not grounded at this
+            # frontier; loop to the next candidate.
+
+        return self._failed_result(
+            step,
+            message=(
+                f"Frontier budget exhausted after {max_frontiers} attempt(s); "
+                f"target '{label}' not grounded."
+            ),
+            error_code="frontier_set_exhausted",
+            started_at=started_at,
+            outputs={"attempts": attempts, "reason": "max_frontiers"},
         )
 
     def _describe_scene(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
@@ -1369,6 +1605,13 @@ class MissionRunner(MissionCommandHandler):
             return self._ros_client.get_global_costmap_bounds()
         except Exception:
             _logger.debug("get_global_costmap_bounds failed", exc_info=True)
+            return None
+
+    def _safe_get_costmap_snapshot(self) -> Any:
+        try:
+            return self._ros_client.get_global_costmap_snapshot()
+        except Exception:
+            _logger.debug("get_global_costmap_snapshot failed", exc_info=True)
             return None
 
     def _safe_get_robot_xy(self) -> tuple[float, float] | None:

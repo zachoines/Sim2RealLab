@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| _None._ | | | |
+| [`frontier-exploration-primitive`](active/multi-room/frontier-exploration-primitive.md) | Jetson | _pending_ | implementing |
 
 ---
 
@@ -151,7 +151,6 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`validator-evaluation`](active/clip-validation/validator-evaluation.md) | Either | L | Wire the orphaned `SemanticMapManager` + `BackgroundMapper` + `TransitMonitor` path into the production executor and measure pre-registered TPR/FPR/time-to-decision on harness output. Gating brief for `MISSION_VALIDATION_ARCHITECTURE.md` §4 staged plan. Filed off `mid-mission-validation-investigation` ship. |
 | [`teleop-driver`](active/harness/teleop-driver.md) | DGX | M | Gamepad teleop entry point for in-process Isaac Lab data capture. Bypasses MPPI / Nav2 / planner; reuses `collect_demos.py` mapping; emits the canonical harness schema. Unblocks v1 measurement (clip-eval, learned-validator) and v2 VLA training data without depending on bridge perf. |
 | [`observation-derived-room-state`](active/multi-room/observation-derived-room-state.md) | DGX | M | Runtime-legal `current_room` / `known_rooms` / `connectivity` on `SemanticMapManager`. Replaces the `scene_metadata.json` leak path in `autonomy-stack`. Hard prerequisite. |
-| [`frontier-exploration-primitive`](active/multi-room/frontier-exploration-primitive.md) | Either | M | `explore_until_visible(label)` skill. Closes the cold-start cross-room gap §1.10.1 option 3 named. Hard prerequisite for `autonomy-stack`'s cold-start smoke test. |
 | [`autonomy-stack`](active/multi-room/autonomy-stack.md) | Either | M | Lifts §1.10.1's multi-room deferral. Stored-map fallback in `scan_for_target` + planner transit-step emission + plan-compiler updates. Blocks on `observation-derived-room-state` and `frontier-exploration-primitive` (`planner-architecture-alignment` shipped in #36 as Option C). |
 | [`scene-connectivity-validation`](active/multi-room/scene-connectivity-validation.md) | DGX | S | Verified-and-enriched `connectivity[]` block + door-open guarantee. Sim/harness-only; runtime equivalent is `observation-derived-room-state`. |
 | [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | Either | S–M | End-to-end spec for hidden-state shape, reset semantics, thread-safety across train/export/inference. Three existing recurrent briefs each describe their side; this brief pins the contract at the seams. Filed off the 2026-05-15 trained-policy audit. |

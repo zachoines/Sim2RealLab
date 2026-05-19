@@ -58,6 +58,10 @@ class RosClient(Protocol):
         """Return the map-frame extent of the global costmap, or ``None``
         if no costmap message has been received yet."""
 
+    def get_global_costmap_snapshot(self) -> "CostmapSnapshot | None":
+        """Return the latest global costmap cells alongside their map-frame
+        bounds, or ``None`` if no costmap message has been received yet."""
+
     def rotate_in_place(
         self,
         *,
@@ -166,6 +170,23 @@ class CostmapBounds:
     max_x: float
     max_y: float
     resolution: float
+
+
+@dataclass(frozen=True)
+class CostmapSnapshot:
+    """Map-frame snapshot of the Nav2 global costmap.
+
+    ``data`` is an int8 numpy array shape ``(height, width)`` with cell
+    semantics: ``-1`` is unknown, ``0..occupied_threshold - 1`` is free,
+    values ``>= occupied_threshold`` are occupied. The Nav2 default
+    ``occupied_threshold`` is 65. Row-major indexing: ``data[row, col]``
+    maps to map-frame ``(bounds.min_x + col*res, bounds.min_y + row*res)``.
+    """
+
+    bounds: CostmapBounds
+    width: int
+    height: int
+    data: Any  # numpy int8 ndarray shape (height, width)
 
 
 class JetsonRosClient:
@@ -408,6 +429,42 @@ class JetsonRosClient:
             max_x=origin_x + info.width * info.resolution,
             max_y=origin_y + info.height * info.resolution,
             resolution=info.resolution,
+        )
+
+    def get_global_costmap_snapshot(self) -> CostmapSnapshot | None:
+        """Return the latest global costmap cells plus their bounds.
+
+        The returned ``CostmapSnapshot.data`` is a numpy int8 array shape
+        ``(height, width)`` with Nav2 cell semantics (``-1`` unknown,
+        ``< 65`` free, ``>= 65`` occupied). Returns ``None`` if the
+        costmap subscription has not seen a message yet — frontier
+        callers should treat this as "no exploration possible yet."
+        """
+        import numpy as np
+
+        with self._cache_lock:
+            costmap = self._latest_costmap
+        if costmap is None:
+            return None
+        info = costmap.info
+        origin_x = info.origin.position.x
+        origin_y = info.origin.position.y
+        bounds = CostmapBounds(
+            min_x=origin_x,
+            min_y=origin_y,
+            max_x=origin_x + info.width * info.resolution,
+            max_y=origin_y + info.height * info.resolution,
+            resolution=info.resolution,
+        )
+        # ``data`` arrives as a flat list/array of int8 cells in row-major
+        # order from Nav2; reshape into (H, W) for spatial indexing.
+        flat = np.asarray(costmap.data, dtype=np.int8)
+        grid = flat.reshape(info.height, info.width)
+        return CostmapSnapshot(
+            bounds=bounds,
+            width=int(info.width),
+            height=int(info.height),
+            data=grid,
         )
 
     def check_costmap_at_pose(self, x: float, y: float) -> str:

@@ -131,6 +131,7 @@ At startup, `build_command_server()` runs parallel health checks against the pla
 | `capture_scene_observation` | Pull newest synced RGB + depth + pose from ROS cache | `JetsonRosClient` |
 | `locate_semantic_target` | Single VLM grounding call | `HttpGroundingClient.locate_semantic_target()` |
 | `scan_for_target` | Rotate and ground at each heading until found | Composite: ROS rotate + grounding loop |
+| `explore_until_visible` | Drive toward unmapped frontiers and re-scan until the labelled target is grounded or the frontier set is exhausted. Used by the planner compiler for cold-start cross-room missions when the target's room is unknown. | Composite: wavefront frontier detector over `/global_costmap/costmap` + Nav2 leg + `scan_for_target` per arrival |
 | `describe_scene` | VLM free-text description | `HttpGroundingClient.describe_scene()` |
 | `project_detection_to_goal_pose` | 2D bbox → map-frame goal pose | Local `/strafer/project_detection_to_goal_pose` service |
 | `navigate_to_pose` | Drive to goal via selectable local backend | `nav2` (shipped), `strafer_direct` / `hybrid_nav2_strafer` (deferred) |

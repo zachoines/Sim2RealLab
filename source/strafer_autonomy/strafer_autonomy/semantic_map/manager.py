@@ -386,16 +386,22 @@ class SemanticMapManager:
         """
         return self._get_known_rooms_cached()
 
-    def current_room(self, pose: Pose2D) -> RoomEntry | None:
+    def current_room(
+        self,
+        pose: Pose2D,
+        *,
+        max_distance_m: float = _CURRENT_ROOM_NEAREST_RADIUS_M,
+    ) -> RoomEntry | None:
         """Return the `RoomEntry` containing the nearest semantic-map node.
 
         Returns `None` if the map is empty, has no labeled rooms, or
-        the nearest node is farther than the lookup radius. The lookup
-        radius is tuned to the proximity-edge radius so a robot near a
-        captured node is consistently placed in its room.
+        the nearest node is farther than `max_distance_m`. The default
+        is tuned to the proximity-edge radius so a robot near a
+        captured node is consistently placed in its room; callers with
+        a frontier centroid in unmapped territory can widen the radius.
         """
         nearest = self.query_nearest(
-            pose.x, pose.y, max_distance_m=_CURRENT_ROOM_NEAREST_RADIUS_M,
+            pose.x, pose.y, max_distance_m=max_distance_m,
         )
         if nearest is None:
             return None

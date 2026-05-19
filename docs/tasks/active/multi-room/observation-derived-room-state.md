@@ -46,8 +46,8 @@ Read these before starting:
   — sim-side ground-truth counterpart. This brief's output is
   scored against that brief's `connectivity[]` block in the
   multi-room grader.
-- [`frontier-exploration-primitive`](frontier-exploration-primitive.md)
-  — sibling. The frontier-exploration skill populates
+- [`frontier-exploration-primitive`](../../completed/frontier-exploration-primitive.md)
+  — sibling (shipped). The frontier-exploration skill populates
   semantic-map nodes; this brief turns those nodes into rooms.
 
 ## Context
@@ -214,6 +214,12 @@ Nav2 reachability) maps onto current literature:
 - [ ] **Cold-start handling.** With an empty semantic map,
       `known_rooms` is empty and `current_room` returns `None`.
       No exceptions.
+- [ ] **Pose outside any known cluster.** With a non-empty map but
+      a pose farther than the configurable lookup radius from every
+      captured node, `current_room` returns `None`; callers fall
+      back to unknown semantics. The radius is exposed as a keyword
+      argument (`max_distance_m`) so consumers reasoning about far
+      frontier centroids can widen it.
 - [ ] **Unit tests.** Clustering tested against synthetic
       graphs (two well-separated rings, one chain). Classifier
       tested against a small image fixture set with expected
@@ -259,6 +265,16 @@ Nav2 reachability) maps onto current literature:
   tuning a small classifier on Infinigen renderings (a logical
   extension once the zero-shot baseline is stable) is a P2
   follow-up.
+- **Multi-instance same-label disambiguation.** When two clusters
+  are both classified e.g. `"bedroom"` (legitimately distinct
+  rooms in a multi-bedroom home), v1 merges them into one
+  `RoomEntry`. The `RoomEntry.label` is the room identifier in the
+  API surface (`room_anchor(label)` indexes by it); two-bedroom
+  scenes therefore lose instance information and `room_anchor(
+  "bedroom")` may return the wrong-instance pose. Acceptable for
+  the v1 single-instance home assumption; a v2 follow-up can
+  promote the API to instance-aware identifiers if real homes
+  exercise the limitation.
 - **Multi-floor handling.** Strafer cannot climb stairs;
   `story` is not in the runtime room model.
 - **Stale-cluster invalidation.** Cluster cache is refreshed by

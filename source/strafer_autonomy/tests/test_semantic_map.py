@@ -666,6 +666,31 @@ class TestRoomStateAPIs:
         manager.set_nav2_reachable(None, enabled=False)
         assert manager.connectivity() == []
 
+    def test_current_room_returns_none_when_pose_outside_radius(self, manager):
+        """Non-empty map but pose far from any cluster -> None."""
+        manager.add_observation(
+            pose=_make_pose(0.0, 0.0),
+            timestamp=time.time(),
+            clip_embedding=_random_embedding(),
+            metadata={"room_label": "kitchen", "room_conf": 0.9},
+        )
+        far_pose = _make_pose(100.0, 100.0)
+        assert manager.current_room(far_pose) is None
+
+    def test_current_room_radius_override(self, manager):
+        """Caller can widen the lookup radius for far frontier centroids."""
+        manager.add_observation(
+            pose=_make_pose(0.0, 0.0),
+            timestamp=time.time(),
+            clip_embedding=_random_embedding(),
+            metadata={"room_label": "kitchen", "room_conf": 0.9},
+        )
+        far_pose = _make_pose(5.0, 0.0)
+        assert manager.current_room(far_pose) is None
+        wide = manager.current_room(far_pose, max_distance_m=10.0)
+        assert wide is not None
+        assert wide.label == "kitchen"
+
     def test_cluster_cache_invalidated_on_clear(self, manager):
         manager.add_observation(
             pose=_make_pose(),

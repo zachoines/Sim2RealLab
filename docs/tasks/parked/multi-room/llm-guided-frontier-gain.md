@@ -215,6 +215,51 @@ The `gain_weights.llm = 0.0` knob is the operator-side
 emergency fallback if the LLM is consistently making things
 worse.
 
+### v1.5 extension — known-room re-visitation gain
+
+The v1 brief above scores **unmapped frontiers** in the
+exploration phase. A natural extension, gated on
+[`room-state-uncertainty-calibration`](../../active/multi-room/room-state-uncertainty-calibration.md)
+shipping the `RoomEntry.uncertainty` field: extend the same
+scalar prior to score **known-room re-visitation**, so that
+when the room-state agent has a labeled room but is uncertain
+about it (high entropy), the LLM can promote re-entry of
+that room for active disambiguation rather than blindly
+committing to `room_anchor(label)`.
+
+The shape is the same — LFG-style scalar prior multiplied
+onto a gain — only the candidate set changes. Candidates are
+the union of:
+
+- Unmapped frontier poses (v1 behavior).
+- High-uncertainty `RoomEntry` centroids
+  (`RoomEntry.uncertainty ≥ threshold`).
+
+The endpoint payload gains an `uncertain_rooms` field
+alongside the existing frontier list. Returned scores are
+multiplied onto the geometric gain for frontiers and onto a
+constant disambiguation-gain for uncertain rooms; the global
+gain function is `max(frontier_score, uncertain_room_score)`.
+
+This composes with the v1 fallback: `gain_weights.llm = 0.0`
+recovers v1 (no LLM consultation); `gain_weights.uncertain_rooms
+= 0.0` recovers the v1-frontier-only behavior with the LLM
+still on for frontiers. Two independent knobs.
+
+Architectural rationale: this is where Concept-Graphs and
+HOV-SG's "active information-gain exploration" pattern
+lands — the v1 frontier exploration handles "unknown
+unknowns"; this v1.5 layer handles "known unknowns." Filing
+as an extension of this brief (not a sibling) keeps the
+scalar-prior infrastructure (LLM endpoint, frontier-
+description schema, A/B eval scaffolding) shared.
+
+Pickup gate for the v1.5 layer: requires both this brief's
+v1 to ship AND
+[`room-state-uncertainty-calibration`](../../active/multi-room/room-state-uncertainty-calibration.md)
+to ship (no `RoomEntry.uncertainty` field to act on until
+then).
+
 ## Acceptance criteria
 
 - [ ] **Endpoint shipped.** `POST /rank_frontiers` is
@@ -274,6 +319,23 @@ worse.
       [`conventions.md`'s user-facing documentation maintenance
       section](../../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
+
+### v1.5 acceptance (gated on `room-state-uncertainty-calibration`)
+
+- [ ] **`uncertain_rooms` payload.** `FrontierRankRequest`
+      gains an `uncertain_rooms: list[UncertainRoomDescription]`
+      field. The Jetson-side caller populates it from
+      `manager.known_rooms()` filtered by
+      `RoomEntry.uncertainty ≥ threshold`.
+- [ ] **`gain_weights.uncertain_rooms` knob.** Independent of
+      `gain_weights.llm`; `0.0` recovers frontier-only
+      behavior. Documented alongside the v1 weights.
+- [ ] **A/B eval on uncertain-room scenarios.** Add to the
+      eval set at least 5 missions where the v1 baseline
+      blindly commits to a low-confidence room anchor and
+      fails verify_arrival. v1.5 should reduce this failure
+      mode measurably (≥ 50% fewer wrong-room arrivals on
+      those missions).
 
 ## Investigation pointers
 

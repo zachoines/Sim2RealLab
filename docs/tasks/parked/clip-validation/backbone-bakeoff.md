@@ -153,6 +153,85 @@ ROC-AUC, AND stay inside the same latency budget, to displace
 the default. Otherwise the default stays put and the brief
 records "OpenCLIP not displaced; reasons here" as the outcome.
 
+### Extension — open-vocab labeling API for room-state
+
+Filed alongside the v2 room-state roadmap. The
+[`observation-derived-room-state`](../../active/multi-room/observation-derived-room-state.md)
+v1 implementation uses a fixed prompt set
+(`DEFAULT_ROOM_PROMPTS = ("a kitchen", "a living room", …)`)
+and `argmax(cosine)` for room classification. That choice is
+the 2021-era zero-shot pattern — the same root cause this
+brief diagnoses at the backbone layer. The 2025-era replacement
+is **open-vocab labeling**: encode the image once, then let the
+consumer query free-form text against the embedding store
+(`SemanticMapManager.query_by_text` already exists for this
+shape).
+
+This brief is the natural home for the API surface change
+because:
+
+- Backbone choice and classification-head choice retire
+  together. Switching to SigLIP-2 / DINOv3 without
+  modernizing the head leaves the room-state agent stuck in
+  the same fixed-label regime.
+- The eval harness this brief uses (validator-evaluation)
+  already measures the case-1 / case-2 embeddings at the
+  embedding-space level, not via the fixed prompt set —
+  open-vocab is a strictly more flexible consumer of the same
+  measurements.
+- The runtime backbone switch (`STRAFER_CLIP_BACKEND`) is the
+  natural place to expose the open-vocab path; the discrete
+  prompt set becomes one supported consumer alongside
+  `query_by_text`.
+
+API shape added by this extension (over the v1 room-state
+API):
+
+```python
+class SemanticMapManager:
+    # Existing v1, preserved:
+    def known_rooms(self) -> list[RoomEntry]: ...
+
+    # New open-vocab path:
+    def query_room_by_text(
+        self, text: str, n_results: int = 5,
+    ) -> list[tuple[RoomEntry, float]]:
+        """Score known rooms by CLIP text→room-centroid-embedding
+        similarity. Returns the top-n rooms with similarity
+        scores. Bypasses the fixed prompt set entirely."""
+```
+
+The v1 `RoomEntry.label` field remains for backward compat —
+the planner can either consume the discrete label (v1 path)
+or query the embedding store directly (open-vocab path). v1
+consumers do not break; v2 consumers get the more flexible
+surface.
+
+Acceptance criteria for the extension (additive to the v1
+bakeoff acceptance below):
+
+- [ ] **`query_room_by_text` API.** Lives on
+      `SemanticMapManager`, returns ranked
+      `(RoomEntry, similarity)` pairs. Implementation: for
+      each known room, compute the mean CLIP embedding of its
+      member nodes; query the text embedding against those
+      centroids. Cached alongside the cluster cache.
+- [ ] **Per-backbone open-vocab eval.** Each candidate
+      backbone's bakeoff report includes a precision@5 /
+      MRR measurement of `query_room_by_text` against
+      ground-truth room labels on the eval set. The
+      open-vocab path's quality is reported per backbone, not
+      assumed.
+- [ ] **Documentation.** The
+      [`source/strafer_autonomy/README.md`](../../../../source/strafer_autonomy/README.md)
+      "Semantic-map room state" subsection gains a brief
+      note on the open-vocab path alongside the v1
+      fixed-label table.
+
+This extension does NOT block on the v1 bakeoff: a backbone
+swap and an API addition can ship in the same PR or be split
+if the API work proves heavier.
+
 ### Latency budget
 
 | Backbone | Expected FP16 latency on Orin Nano (per-frame visual encode) | Source |

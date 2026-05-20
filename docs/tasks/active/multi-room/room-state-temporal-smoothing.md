@@ -99,25 +99,74 @@ def smooth_labels(
     n_passes: int = 2,
     neighbor_weight: float = 0.3,
 ) -> None:
-    """Belief-propagation pass over per-node room_label/room_conf.
+    """Belief-propagation pass over per-node room labels.
 
-    Mutates `metadata["room_label"]` and `metadata["room_conf"]`
-    in place. Each pass replaces each node's label distribution
-    with a weighted mix of its own and its neighbors'. Two
-    passes is usually enough for the hallway-pinch fix.
+    READS `metadata["room_label"]` / `metadata["room_label_dist"]`
+    (raw CLIP stamps, set at `add_observation` time).
+    WRITES `metadata["room_label_smoothed"]` /
+    `metadata["room_conf_smoothed"]` (and the full distribution
+    in `metadata["room_label_dist_smoothed"]`). The raw stamps
+    are NEVER overwritten. Each pass replaces each node's
+    smoothed-label distribution with a weighted mix of its own
+    raw distribution and its neighbors' (previous-pass)
+    smoothed distributions. Two passes is usually enough for
+    the hallway-pinch fix.
     """
-    # Stage 1: build per-node label distributions from current
-    # top-1 stamp (one-hot at `room_label`, weight `room_conf`).
-    # Stage 2: for n_passes, replace each node's distribution
-    # with (1 - neighbor_weight) * self + neighbor_weight *
-    # mean(neighbors). Re-stamp top-1 label + new confidence.
+    # Stage 1: read per-node raw distributions from
+    # `metadata["room_label_dist"]` (one-hot fallback at
+    # `metadata["room_label"]` with weight `room_conf` if the
+    # distribution isn't stored — see "Per-node distribution"
+    # below).
+    # Stage 2: for n_passes, set node.smoothed_dist =
+    # (1 - neighbor_weight) * node.raw_dist + neighbor_weight *
+    # mean(neighbor.smoothed_dist).
+    # Stage 3: write top-1 of smoothed_dist to
+    # `metadata["room_label_smoothed"]`; stamp confidence +
+    # full distribution alongside.
 ```
+
+`aggregate_room_entries` then reads
+`metadata["room_label_smoothed"]` if present, else falls back
+to `metadata["room_label"]`. Downstream consumers (the
+autonomy-stack compiler, `current_room`, `room_anchor`) see
+the smoothed label transparently — no API change.
+
+**Why read-raw / write-smoothed, not in-place.** Mutating
+`metadata["room_label"]` in place was the v0 sketch and is
+*wrong*. Two reasons:
+
+1. **The smoother becomes non-idempotent.** Each cache rebuild
+   re-runs `smooth_labels`. If pass N reads from already-
+   smoothed labels (because they overwrote the raw stamp on
+   the previous rebuild), the BP recurrence stops converging
+   to the local-neighborhood posterior and slides toward the
+   connected-component majority. After 5–10 cache rebuilds
+   (~50 new nodes on a typical home) all nodes inside the
+   same connected component carry the same label — exactly
+   the failure mode the brief is trying to avoid.
+2. **The growth-fraction cache invalidation only fires on
+   node-count drift.** v1's `_cluster_cache_stale()`
+   (manager.py) triggers on growth ≥ 10%, never on label-
+   content drift. An in-place mutator that runs at cache
+   rebuild but *also* races against other writers (the
+   [`room-label-vlm-refinement`](room-label-vlm-refinement.md)
+   path mutates labels too) ends up with a cache built from
+   a mix of "smoothed once" and "raw" labels. Keeping the
+   raw stamp authoritative means every cache rebuild starts
+   from the same fixed point.
+
+The raw stamp also doubles as the inspectability lane the
+eval harness needs: per-node "did smoothing flip this label?"
+is a one-liner over `(room_label, room_label_smoothed)`
+pairs.
 
 The pass runs as a hook in `aggregate_room_entries` (before
 the majority vote) rather than at `add_observation` time, so
-late-arriving neighbors keep refining earlier labels. Cluster
-cache invalidation already triggers re-smoothing via the
-existing growth-fraction check.
+late-arriving neighbors keep refining earlier nodes' smoothed
+labels. Cluster cache invalidation via the existing growth-
+fraction check is now sufficient — re-smoothing on rebuild is
+idempotent because each pass starts from the raw stamps, not
+from the previous rebuild's output.
 
 ### Per-node distribution: where it comes from
 
@@ -177,10 +226,24 @@ discrete-label analogue of Laplacian smoothing on a graph.
       pure on the graph snapshot (no manager state).
 - [ ] **Wired into clustering.** Called from
       `aggregate_room_entries` (or the manager's
-      `_get_known_rooms_cached`) before majority vote. The
-      pre-smoothing per-node stamp is preserved on the node
-      metadata; the smoothed value lives alongside as
-      `metadata["room_label_smoothed"]` for inspectability.
+      `_get_known_rooms_cached`) before majority vote.
+      Aggregation reads `metadata["room_label_smoothed"]`
+      when present, falling back to `metadata["room_label"]`.
+- [ ] **Read-raw / write-smoothed (idempotence).** The
+      smoother NEVER overwrites `metadata["room_label"]` /
+      `metadata["room_conf"]` / `metadata["room_label_dist"]`
+      (the raw stamps). It writes to
+      `metadata["room_label_smoothed"]` /
+      `metadata["room_conf_smoothed"]` /
+      `metadata["room_label_dist_smoothed"]`. Each invocation
+      reads only the raw stamps, so re-smoothing on cache
+      rebuild is idempotent and the existing growth-fraction
+      cache invalidation check is sufficient — no
+      label-content-drift signal needs to be added to v1's
+      `_cluster_cache_stale()`. Unit-tested: invoke
+      `smooth_labels` twice on the same graph snapshot; assert
+      the second invocation's outputs match the first
+      byte-for-byte.
 - [ ] **No API change.** `known_rooms` / `current_room` /
       `connectivity` / `room_anchor` signatures unchanged.
       Downstream consumers see better labels, not different

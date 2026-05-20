@@ -126,30 +126,49 @@ Note: hallways legitimately have no signature objects;
 prototype map handles this by returning zero confidence,
 falling back to CLIP.
 
-### Refinement scoring
+### Refinement scoring — Jaccard, not `hits / |prototypes|`
 
 ```python
 def refine_label_from_objects(
     detected_objects, prototype_map,
-) -> tuple[str, float]:
-    """Score each candidate room by observed-prototype overlap."""
-    seen_labels = {o.label.lower() for o in detected_objects}
-    best_label = None
-    best_score = 0.0
+) -> tuple[str | None, float]:
+    """Score each candidate room by Jaccard of observed vs.
+    prototype labels."""
+    seen = {o.label.lower() for o in detected_objects}
+    best_label, best_score = None, 0.0
     for room, prototypes in prototype_map.items():
         if not prototypes:
             continue
-        hits = sum(1 for p in prototypes if p in seen_labels)
-        score = hits / len(prototypes)
+        proto_set = {p.lower() for p in prototypes}
+        intersection = seen & proto_set
+        union = seen | proto_set
+        if not union:
+            continue
+        score = len(intersection) / len(union)
         if score > best_score:
             best_score = score
             best_label = room
     return (best_label, best_score)
 ```
 
-Score is the fraction of the room's prototype set observed in
-this node. Tunable via the dict — operators can add
-home-specific object→room hints by editing the constant.
+**Why Jaccard, not `hits / len(prototypes)`.** The brief's
+earlier sketch normalized by the prototype set size only.
+That biases against rooms with longer prototype lists (a
+kitchen with 7 prototypes scores `6/7 ≈ 0.86` for one
+missing object; a bathroom with 6 prototypes scores
+`5/6 ≈ 0.83` for the same one-missing case — same evidence,
+different score). It also ignores the *other* labels in the
+observation: a node that sees `{couch, tv, sink}` should
+*penalize* the kitchen candidate for the unexplained `couch`,
+not just count the `sink` hit. Jaccard penalizes both
+missing prototypes and unexplained observations symmetrically,
+matches what ConceptGraphs and HOV-SG use, and is what the
+[`semantic-graph-object-centric-hierarchical`](semantic-graph-object-centric-hierarchical.md)
+brief's `place_label_map` heuristic should also use — see
+that brief's "Sub-room hot-spot clustering" finding.
+
+Tunable via the dict — operators can add home-specific
+object→room hints by editing the constant.
 
 ### Why heuristic, not learned
 
@@ -248,7 +267,11 @@ reasons:
   parked
   [`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md)
   extension. This brief preserves the v1 label-set API
-  shape.
+  shape. **Prototype-map sunset:** when the open-vocab API
+  ships, the hand-set `DEFAULT_ROOM_PROTOTYPES` is replaced by
+  an LLM-derived (or operator-supplied) object→room-prompt
+  mapping that the open-vocab path consumes directly. The
+  Jaccard scorer survives the swap; the dict goes away.
 - **Learned prototypes.** v1.5 is hand-set. Learned weights
   fit against the eval harness is a v2.5 follow-up.
 - **VLM-call-on-demand.** The brief explicitly does NOT add

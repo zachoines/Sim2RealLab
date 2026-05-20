@@ -108,6 +108,19 @@ room  ─── place ─── object
   with covariance, observation count, last-seen). Connected
   upward to its containing `PlaceNode`. Identifier:
   `obj_<label>_<seq>` (e.g. `obj_sink_001`).
+
+  **Identity contract w.r.t. `reinforce_or_add_object`.**
+  v1's `SemanticMapManager.reinforce_or_add_object` already
+  merges multiple `DetectedObjectEntry`s of the same label
+  into one via Mahalanobis-distance matching, but stores the
+  merged entry on the **first** observation node only via
+  `target_node_id`. The promotion to `ObjectNode` must
+  preserve this 1-to-1 identity — one Kalman-cluster
+  produces exactly one `ObjectNode`, and every
+  `SemanticNode` that contributed an observation gets an
+  `obs_node → object_node` edge. Otherwise the maintenance
+  pass creates one `ObjectNode` per appearance and the
+  hierarchy fragments. The brief acceptance below pins this.
 - **`PlaceNode`**: a sub-room landmark — a small spatial
   region that contains a coherent object cluster ("the kitchen
   counter", "the couch + tv area"). Derived from spatial
@@ -187,6 +200,20 @@ Implementation:
    [`room-label-vlm-refinement`](room-label-vlm-refinement.md);
    the LLM-derived label path is filed as a follow-up.
 
+   **Match by Jaccard, not by frozenset equality.** The
+   acceptance criterion below specifies
+   `place_label_map: dict[frozenset[str], str]`. Naïvely
+   looking up `place_label_map[frozenset(member_labels)]`
+   misses any subset / superset match: a place with
+   `{couch, tv, lamp}` won't hit the `frozenset({couch, tv})`
+   key. The lookup must rank dict keys by Jaccard of
+   `member_labels` against each key, then take the
+   highest-scoring key above a tunable threshold (default
+   `≥ 0.5`), falling back to `None` (singleton-link to
+   room). This matches the
+   [`room-label-vlm-refinement`](room-label-vlm-refinement.md)
+   brief's scorer — same primitive, same code path.
+
 ### Tie-in to state-of-the-art
 
 - **FSR-VLN** (arXiv:2509.13733) — 4-level floor / room /
@@ -204,6 +231,35 @@ Implementation:
 - **OK-Robot** (arXiv:2401.12202) — object-grounded
   navigation. The `object_anchor` API directly enables
   OK-Robot-style mission grounding.
+
+### Explicit vs. implicit map conditioning — the path to VLA v2
+
+The hierarchical graph this brief builds is the *explicit*
+scene-graph path (FSR-VLN / Hydra / HOV-SG / ConceptGraphs
+lineage). There is also an *implicit* path: OpenScene
+(CVPR 2023), VLMaps (ICRA 2023), CLIP-Fields (ICRA 2023),
+LERF (ICCV 2023) and the
+[OpenSceneGraph / 3D-VLA (CVPR 2024)](https://arxiv.org/pdf/2403.17846)
+line, where the consumer reads a *feature field* (or a
+memory bank of past CLIP embeddings via cross-attention)
+without materializing explicit `ObjectNode`/`PlaceNode`/
+`RoomNode` objects. The
+[`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md)
+brief already proposes the implicit path for the cascade
+validator.
+
+These two paths *can* coexist — the hierarchy is the
+**training-time annotation** the implicit path's
+cross-attention learns to attend over — but the contract
+needs writing. The vla-v2 conditioning brief
+([`parked/experimental/vla-v2-map-conditioning`](../../parked/experimental/vla-v2-map-conditioning.md))
+spells out how this brief's hierarchical layer feeds the
+v2 VLA at inference. If that contract lands as
+"hierarchy is sim-eval-only; VLA reads a flat memory bank"
+the call to ship this brief still stands (interpretability,
+planner-side reasoning) but the "biggest single brief"
+framing softens — the hierarchy stops being load-bearing
+for the v2 stack. Cross-reference it from the v2 VLA brief.
 
 ## Acceptance criteria
 
@@ -232,13 +288,27 @@ Implementation:
       `place_anchor(place_id)` all live on
       `SemanticMapManager` and are documented in the package
       README.
-- [ ] **Place-label heuristic.** A configurable
-      `place_label_map: dict[frozenset[str], str]` maps
-      object-set signatures to place labels (e.g.
+- [ ] **Place-label heuristic — Jaccard ranking.** A
+      configurable `place_label_map: dict[frozenset[str], str]`
+      maps object-set signatures to place labels (e.g.
       `frozenset({"couch", "tv"}): "media area"`). Default
       lives in
       [`semantic_map/room_state.py`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/room_state.py).
-      Operator can extend per-home.
+      Operator can extend per-home. Lookup ranks dict keys
+      by Jaccard of `member_labels` vs. each key (not
+      frozenset equality); highest-score key wins above a
+      tunable threshold (default `≥ 0.5`), else `None`.
+      Reuses the scorer from
+      [`room-label-vlm-refinement`](room-label-vlm-refinement.md).
+- [ ] **`ObjectNode` identity preservation.** The
+      maintenance pass produces exactly one `ObjectNode`
+      per existing v1 Kalman-cluster (one
+      `DetectedObjectEntry` after `reinforce_or_add_object`
+      merging). Every `SemanticNode` that contributed any
+      observation to the cluster gets an
+      `obs_node → object_node` edge. Unit-tested with a
+      seeded multi-observation Kalman cluster + asserted
+      `ObjectNode` count of 1.
 - [ ] **Object localization measured.** PR description
       carries object localization precision/recall on the
       [`room-state-eval-harness`](room-state-eval-harness.md)

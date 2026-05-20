@@ -13,7 +13,12 @@ re-aggregation hook + tests)
 
 **Pickup gate:** Becomes pickable once
 [`observation-derived-room-state`](observation-derived-room-state.md)
-merges. Recommended ordering: file alongside or after
+AND
+[`room-state-uncertainty-calibration`](room-state-uncertainty-calibration.md)
+merge — the latter ships the per-node
+`metadata["room_label_dist"]` field this brief consumes, see
+"Per-node distribution: where it comes from" below.
+Recommended ordering: file alongside or after
 [`room-state-eval-harness`](room-state-eval-harness.md) so the
 quality lift can be reported as a delta against the v1
 baseline.
@@ -113,6 +118,39 @@ the majority vote) rather than at `add_observation` time, so
 late-arriving neighbors keep refining earlier labels. Cluster
 cache invalidation already triggers re-smoothing via the
 existing growth-fraction check.
+
+### Per-node distribution: where it comes from
+
+The "(1 - α) * self + α * neighbors" formulation is a mix
+over **label distributions**, not over scalar top-1 labels.
+v1 stamps `metadata["room_label"]` (a string) and
+`metadata["room_conf"]` (a scalar) — that's a one-hot at
+`room_label` with weight `room_conf`, the remaining mass
+spread uniformly over the other prompts. Smoothing over
+this degenerate distribution is **much weaker** than
+smoothing over the true softmax — a single misclassified
+neighbor on the hallway pinch can still flip the top-1.
+
+Two viable shapes for the brief:
+
+- **(Recommended) Pickup-gate on
+  [`room-state-uncertainty-calibration`](room-state-uncertainty-calibration.md).**
+  That brief stamps `metadata["room_label_dist"]` (the full
+  softmax vector) on every node. Smoothing reads it directly
+  and the BP formulation works as written. Net cost:
+  smoothing ships after calibration ships. Recommended
+  ordering already implies this; making it a hard pickup-gate
+  removes the foot-gun.
+- **(Alternative) One-hot fallback when no distribution is
+  stored.** Smoothing still runs; the brief explicitly
+  documents that the lift over baseline is bounded by the
+  one-hot information loss. Quality lift target drops from
+  "≥0.05 V-measure" to "≥0.02 V-measure" until calibration
+  ships. Useful if calibration slips; not the default.
+
+The brief picks (a) — the eval-harness measurement bar in
+the acceptance criteria assumes the per-node distribution
+is present.
 
 ### When NOT to smooth
 

@@ -167,6 +167,20 @@ spatially close AND visually similar.
 - [ ] **Spatial pooling within long-term layer.** Bounded by
       `long_term_pool_radius_m`. Pool members are merged
       into one anchor; visualization metadata preserved.
+- [ ] **Pooled anchor CLIP embedding is L2-normalized.**
+      The mean of two L2-normalized CLIP vectors is **not**
+      L2-normalized; without renormalization the pooled
+      anchor's stored embedding breaks the cosine-similarity
+      contract that
+      [`query_by_embedding`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/manager.py)
+      and the
+      [`semantic-graph-loop-closure`](../../active/multi-room/semantic-graph-loop-closure.md)
+      detection pass both rely on. After merging, normalize:
+      `anchor_emb = mean(member_embs); anchor_emb /=
+      max(np.linalg.norm(anchor_emb), 1e-8)`. Unit-tested
+      against a synthetic pool — pre-merge member embeddings
+      are L2-normalized; post-merge anchor embedding is
+      L2-normalized.
 - [ ] **Transient detection decay preserved.** v1's
       single-sighting / few-sighting / many-sighting TTL
       tiers still apply to detected objects on long-term

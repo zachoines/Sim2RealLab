@@ -214,8 +214,24 @@ bakeoff acceptance below):
       `SemanticMapManager`, returns ranked
       `(RoomEntry, similarity)` pairs. Implementation: for
       each known room, compute the mean CLIP embedding of its
-      member nodes; query the text embedding against those
-      centroids. Cached alongside the cluster cache.
+      member nodes (L2-normalized after averaging — see the
+      [`semantic-map-lifecycle-merge`](../../multi-room/semantic-map-lifecycle-merge.md)
+      finding on pooled anchors); query the text embedding
+      against those centroids. Cached alongside the cluster
+      cache.
+- [ ] **Vision-only backbone fallback.** DINOv3-S has no
+      text tower. When `STRAFER_CLIP_BACKEND` selects a
+      vision-only backbone, `query_room_by_text` either (a)
+      raises `NotImplementedError` with a clear log message,
+      or (b) falls back to the *paired* text tower from the
+      bakeoff's winning text-capable backbone (e.g.,
+      vision: DINOv3-S, text: SigLIP-2-Base) — embeddings
+      from heterogeneous towers are NOT directly comparable
+      via cosine, so option (b) requires a learned
+      projection head trained on the eval set's paired
+      `(image, room_label)` data, which is out of scope for
+      v1 of this brief. Default to (a) and document the
+      pairing-projection follow-up here.
 - [ ] **Per-backbone open-vocab eval.** Each candidate
       backbone's bakeoff report includes a precision@5 /
       MRR measurement of `query_room_by_text` against

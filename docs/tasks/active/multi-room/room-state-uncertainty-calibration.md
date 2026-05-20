@@ -86,6 +86,25 @@ set to minimize ECE (Expected Calibration Error). Output is a
 proper probability vector over the prompt set; `confidence`
 becomes the top-1 probability.
 
+**Initialize `T` from CLIP's `logit_scale`, not from `1.0`.**
+OpenCLIP ViT-B/32 ships a learned scalar `logit_scale ≈ 1/0.07
+≈ 14.3` (clipped to a max of 100, i.e., `T_min ≈ 0.01`) that
+the model was trained to use when converting cosine
+similarities to logits. Raw cosine similarities for room
+prompts on the existing backbone sit in `[0.15, 0.30]`;
+softmax over that range with `T = 1.0` produces an almost
+uniform distribution and ECE is uninformative. Start the
+ECE search from `T_init = 0.07` (equivalently, multiply
+sims by `1/T = 14.3`), bracket the search in
+`T ∈ [0.01, 0.5]`, and report whether the optimum is
+materially different from the CLIP-trained value — if not,
+the calibration step is a one-line constant and the
+follow-ups (deep ensemble, MC-dropout) can be retired
+faster. Source for the `logit_scale` value:
+[OpenCLIP](https://github.com/mlfoundations/open_clip/discussions/763);
+the clip-to-100 detail is documented in
+[openai/CLIP#46](https://github.com/openai/CLIP/issues/46).
+
 **(b) Entropy-based uncertainty field.**
 Expose `RoomEntry.uncertainty: float` populated from the
 entropy of the cluster's aggregated label distribution
@@ -160,8 +179,10 @@ manager's per-observation latency budget can't absorb.
 ## Acceptance criteria
 
 - [ ] **Temperature scaling in `RoomClassifier`.** Constructor
-      accepts a `temperature: float = 1.0` argument. The
-      `classify` method's confidence output is the
+      accepts a `temperature: float = 0.07` argument
+      (initialized to CLIP's trained `logit_scale ≈ 1/0.07`;
+      see "Initialize `T` from CLIP's `logit_scale`" above).
+      The `classify` method's confidence output is the
       top-1 probability of the temperature-scaled softmax,
       not the raw cosine similarity.
 - [ ] **`RoomEntry.uncertainty` field.** A new float field

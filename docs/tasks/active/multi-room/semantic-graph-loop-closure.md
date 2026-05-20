@@ -147,12 +147,49 @@ explicit API call.
   BoW + inverted file.
 - **NetVLAD** (Arandjelović et al. 2016) — learned descriptors
   for place recognition. Our use of CLIP embeddings is a
-  zero-shot analogue.
+  zero-shot analogue — but NetVLAD itself is dated for 2025
+  VPR; see the modern-VPR row below.
+- **Modern VPR (2023–2025): CosPlace, EigenPlaces, MixVPR,
+  SALAD, MegaLoc, AnyLoc.** CosPlace (CVPR 2022) and
+  EigenPlaces (ICCV 2023) frame place recognition as
+  classification over geocell partitions; MixVPR (WACV 2023)
+  is a feature-mixer global descriptor; SALAD (CVPR 2024) is
+  the current strong supervised baseline; AnyLoc (ICRA 2024)
+  and MegaLoc (2024) are foundation-model-driven and lift
+  raw DINOv2 / CLIP into VPR-grade descriptors without
+  fine-tuning. Survey context:
+  [Improving VPR with Sequence-Matching Receptiveness
+  Prediction (arXiv:2503.06840)](https://arxiv.org/abs/2503.06840)
+  and the
+  [VPR pair-retrieval evaluation (arXiv:2603.13917)](https://arxiv.org/abs/2603.13917).
+  v1.5's raw-CLIP cosine is the *floor*; if the eval-harness
+  measurement (see calibration criterion below) shows the
+  similarity-only signal is noise-bound on the multi-bedroom
+  adversarial scene, the v3 follow-up is SALAD or AnyLoc as a
+  drop-in descriptor — same ANN store, different embeddings,
+  no architectural change.
 - **Kimera-Multi** (arXiv:2106.14367) — explicit loop closure
   at the scene-graph layer. Same shape as this brief.
 - **ConceptGraphs** (arXiv:2309.16650) — uses CLIP similarity
   + spatial proximity for object-node merging; the
   room-level case here is structurally identical.
+
+### Threshold calibration is part of acceptance
+
+The `similarity_threshold = 0.80` default in the algorithm
+sketch is a placeholder. OpenCLIP ViT-B/32 cosine
+similarities for "same physical spot, different heading"
+typically sit in `[0.60, 0.85]` — and for "two bedrooms"
+(distinct rooms, same furniture vocabulary) often exceed
+`0.75` because CLIP's image embedding is dominated by
+visible objects. **The threshold cannot be set blind**; it
+must be calibrated against the
+[`room-state-eval-harness`](room-state-eval-harness.md) eval
+set's multi-bedroom adversarial scene, sweeping the
+threshold to maximize the precision-recall trade and
+documenting the operating point in the PR description. The
+brief acceptance below now requires this; the spatial filter
+`distance_threshold_m` is calibrated jointly.
 
 ## Acceptance criteria
 
@@ -188,6 +225,17 @@ explicit API call.
       spaces, similar CLIP embeddings). Tune
       `distance_threshold_m` to prevent this; document the
       tuning rationale in the brief's commit message.
+- [ ] **Threshold calibration on the eval set.** PR
+      description carries a precision-recall sweep over
+      `similarity_threshold ∈ [0.60, 0.90]` and
+      `distance_threshold_m ∈ [0.5, 3.0]` on the
+      [`room-state-eval-harness`](room-state-eval-harness.md)
+      eval set, identifying the operating point. The
+      0.80/1.0 m defaults in the algorithm sketch are
+      placeholders; ship whichever pair the sweep selects.
+      Documented in the brief's commit message AND surfaced
+      as module-level constants with a comment pointing at
+      the run report.
 - [ ] **Unit tests.** Synthetic graph with seeded duplicate
       nodes; verify detection produces expected pairs;
       verify spatial-threshold filtering rejects far
@@ -229,6 +277,8 @@ explicit API call.
   lifecycle brief defines how cross-session graphs are
   persisted; out of scope here.
 - **Learned place recognition descriptors.** v1.5 uses raw
-  CLIP. NetVLAD-style learned descriptors are a v3
-  alternative if the zero-shot CLIP similarity proves
-  insufficient.
+  CLIP. Modern VPR descriptors (SALAD, MegaLoc, AnyLoc,
+  CosPlace, EigenPlaces, MixVPR — see Tie-in above) are a
+  v3 alternative if the calibrated CLIP-cosine signal proves
+  insufficient on the eval harness. Drop-in: same ANN store,
+  different embedding tower; no architectural change.

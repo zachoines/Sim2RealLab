@@ -116,9 +116,62 @@ separate mission-grading harness.
 - A small `aggregate_eval.py` companion that reads
   `<git_sha>.json` files and produces a Markdown table.
 - The harness should be `python` runnable; no Isaac Sim
-  required (semantic-map manager runs on cached CLIP
-  embeddings — Isaac Sim is needed only to *capture* the
-  trajectories, not to *replay* them through the manager).
+  required for *replay* (Isaac Sim is needed only to
+  *capture* the trajectories).
+
+### Trajectory storage — raw RGB, not pre-encoded embeddings
+
+Each trajectory frame is stored as **raw RGB** (a path to the
+captured PNG/JPEG plus pose + timestamp), **not** as a
+pre-computed CLIP embedding. Rationale: the
+[`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md)
+brief and the
+[`room-state-uncertainty-calibration`](room-state-uncertainty-calibration.md)
+brief both need to re-encode the same trajectories under a
+different backbone (DINOv3, SigLIP-2, MobileCLIP-2) or a
+different fitted temperature. Embedding-baked trajectories
+would force a re-capture per backbone, defeating the
+held-out-set contract. The eval script re-encodes through
+whichever `CLIPEncoder` backbone is loaded at eval time
+(reads `~/.strafer/models/`).
+
+Storage layout:
+
+```
+logs/eval/room_state/<scene>/
+  trajectory.jsonl       # one record per frame: pose, ts, rgb_path
+  rgb/0000.png ...       # raw RGB captures
+  scene_metadata.json    # symlink or copy of the sim-side GT
+```
+
+### Ground-truth `room_idx` per pose — point-in-polygon
+
+The cluster-purity metric requires a ground-truth `room_idx`
+per captured pose. Use the existing helper at
+[`scene_labels.py:get_room_at_position`](../../../../source/strafer_lab/strafer_lab/tools/scene_labels.py#L148)
+to map `(x, y)` to the containing room's index against
+`scene_metadata.json`'s `rooms[].footprint_xy` polygons.
+Poses that fall outside every polygon (corridor pinches,
+doorway crossings) are labelled `room_idx = None` and
+excluded from per-node cluster-purity counts — they remain
+in the time-to-converge and connectivity metrics so the
+eval still scores doorway behavior. The helper is sim-side
+only, lives in `strafer_lab`, and is the canonical source
+for this lookup; do not re-derive in `strafer_autonomy`.
+
+### Geodesic-A* utility — share with `validator-evaluation`
+
+The [`validator-evaluation`](../clip-validation/validator-evaluation.md)
+brief ships a geodesic-A* helper (per-window on-course /
+off-course labeling against the global costmap). The
+room-state eval's time-to-correct-classification metric
+benefits from the same geodesic distance — "the robot is
+approaching the kitchen along a path that passes through the
+living room" needs the geodesic path, not the Euclidean
+midpoint. Whichever brief ships first lifts the helper to
+`source/strafer_lab/strafer_lab/tools/geodesic.py`; the
+other consumes it. **Do not** copy the A* implementation
+across briefs.
 
 ### Tie-in to state-of-the-art
 
@@ -151,6 +204,21 @@ scene-understanding evaluation:
       `collect_demos.py` or harness replay via
       `run_sim_in_the_loop.py --mode harness`). Trajectories
       stored alongside scene metadata.
+- [ ] **Raw-RGB storage.** Each trajectory frame stores the
+      raw RGB capture (PNG/JPEG path + pose + ts), **not** a
+      pre-encoded CLIP embedding. The eval script re-encodes
+      at run time through whichever `CLIPEncoder` backbone is
+      loaded — required for
+      [`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md)
+      and
+      [`room-state-uncertainty-calibration`](room-state-uncertainty-calibration.md)
+      to re-run against the same trajectories without
+      re-capture.
+- [ ] **Ground-truth `room_idx` lookup.** The cluster-purity
+      metric pulls ground-truth per-pose `room_idx` from
+      [`scene_labels.py:get_room_at_position`](../../../../source/strafer_lab/strafer_lab/tools/scene_labels.py#L148).
+      Poses outside every polygon are labelled `room_idx =
+      None` and excluded from per-node purity counts.
 - [ ] **Metrics implemented.** Cluster purity (V-measure),
       label precision/recall, time-to-correct-classification,
       connectivity precision/recall, cold-start None rate.

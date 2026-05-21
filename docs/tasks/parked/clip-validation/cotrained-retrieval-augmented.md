@@ -1,4 +1,4 @@
-# Co-trained CLIP fine-tune with retrieval-augmented inference (cascade improvements)
+# Co-trained CLIP + retrieval-augmented inference (the project's implicit-mapping primitive)
 
 **Type:** investigation / research / new feature
 **Owner:** DGX agent (training pipeline + cross-attention layer
@@ -14,20 +14,69 @@ multi-task training, retrieval-aware training, deployment
 integration, and ablation reports)
 **Branch:** task/clip-cotrained-retrieval-augmented
 
+## What this brief actually is — the project's implicit-mapping primitive
+
+This brief sells itself as "cascade-validator improvements,"
+but architecturally it **is** the project's implicit-mapping
+primitive — the sub-symbolic counterpart to the explicit
+semantic-graph work in the
+[multi-room epic](../../active/multi-room/). Reading the brief
+that way clarifies its scope and its downstream consumers:
+
+- **Step B's cross-attention over a memory bank IS implicit
+  mapping.** The 2025 production pattern for sub-symbolic
+  scene representation is "indexed bank of past CLIP /
+  DINOv2 / SigLIP embeddings consumed via cross-attention
+  on the live query," not a learned dense feature field
+  (CLIP-Fields / VLMaps / LERF). See
+  [OpenScene (CVPR 2023)](https://arxiv.org/abs/2211.15654),
+  [3D-VLA (CVPR 2024)](https://arxiv.org/pdf/2403.17846),
+  [HOV-SG (RSS 2024)](https://arxiv.org/pdf/2403.17846),
+  [OK-Robot (ICRA 2024)](https://arxiv.org/abs/2401.12202).
+  This brief's Step B is the memory-bank-with-cross-attention
+  shape — same pattern, applied to validator scoring as the
+  first consumer.
+- **The cascade validator is consumer #1; the v2 VLA is
+  consumer #2.** When
+  [`vla-v2-map-conditioning`](../experimental/vla-v2-map-conditioning.md)
+  picks **Option B** (cross-attention over a memory bank),
+  it inherits this brief's infrastructure verbatim — same
+  ChromaDB index, same cross-attention module, same RAG-
+  aware training pattern (the `K_train ∈ {0, 1, 2, 4, 8}`
+  augmentation for cold-deployment robustness). Building it
+  here first means the VLA path lands as a swap of the
+  consumer head, not a from-scratch implementation.
+- **Symbolic vs. sub-symbolic layer split.** The MVP's LLM
+  planner needs the *explicit* semantic graph (it can't
+  reason over a feature field); the v2 VLA stretch needs
+  the *implicit* memory bank (an end-to-end policy doesn't
+  consume discrete `RoomEntry` objects). The two coexist,
+  share the ANN store, and serve different consumers. This
+  brief is the implicit half of that split.
+
+The framing changes nothing about the acceptance criteria
+below — they were already correct. It changes how the brief
+fits into the project's architecture story, which the
+multi-room v2 audit (PR #43) surfaced as a gap.
+
 ## Story
 
 As an **operator who has shipped the v1 CLIP cascade and wants
 to push its statistics higher using the harness corpus and
-SemanticMapManager memory primitive we've built**, I want **a
-two-step research effort that (Step A) co-trains the CLIP
-fine-tune with the trajectory-first speaker model on the
-harness corpus and (Step B) adds a retrieval-augmented
-cross-attention layer that uses the SemanticMapManager's
-ChromaDB index at inference**, so that **the cascade's case-1
-and case-2 ROC-AUC improve by leveraging the same data and
-memory primitives the rest of the project already produces,
-with clean ablation between co-training and retrieval
-contributions**.
+SemanticMapManager memory primitive we've built — while
+laying the implicit-mapping foundation the v2 VLA's
+map-conditioning path will inherit**, I want **a two-step
+research effort that (Step A) co-trains the CLIP fine-tune
+with the trajectory-first speaker model on the harness corpus
+and (Step B) adds a retrieval-augmented cross-attention layer
+that uses the SemanticMapManager's ChromaDB index at
+inference**, so that **the cascade's case-1 and case-2
+ROC-AUC improve by leveraging the same data and memory
+primitives the rest of the project already produces, the
+implicit-mapping primitive is in place when the VLA stretch
+goal picks it up, and the project has a clean symbolic-vs-
+sub-symbolic split rather than two parallel sub-symbolic
+efforts**.
 
 ## Context bundle
 

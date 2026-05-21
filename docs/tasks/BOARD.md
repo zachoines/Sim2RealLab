@@ -47,6 +47,7 @@ explicit dependencies.
 | [`room-state-temporal-smoothing`](active/multi-room/room-state-temporal-smoothing.md) | P2 | active | DGX |
 | [`room-state-uncertainty-calibration`](active/multi-room/room-state-uncertainty-calibration.md) | P2 | active | DGX |
 | [`room-label-vlm-refinement`](active/multi-room/room-label-vlm-refinement.md) | P2 | active | DGX |
+| [`query-room-by-text-v1`](active/multi-room/query-room-by-text-v1.md) | P2 | active | DGX |
 | [`semantic-graph-object-centric-hierarchical`](active/multi-room/semantic-graph-object-centric-hierarchical.md) | P2 | active | DGX |
 | [`planner-far-target-staging`](active/multi-room/planner-far-target-staging.md) | P2 | active | DGX |
 | [`semantic-graph-loop-closure`](active/multi-room/semantic-graph-loop-closure.md) | P3 | active | DGX |
@@ -56,6 +57,8 @@ explicit dependencies.
 | [`semantic-map-lifecycle-merge`](parked/multi-room/semantic-map-lifecycle-merge.md) | P3 | parked | DGX |
 | [`staging-hops-shadow-mode`](parked/multi-room/staging-hops-shadow-mode.md) | P3 | parked | DGX |
 | [`planner-scene-graph-expansion`](parked/multi-room/planner-scene-graph-expansion.md) | P3 | parked | DGX |
+| [`learned-region-head`](parked/multi-room/learned-region-head.md) | P3 | parked | DGX |
+| [`learned-vpr-loop-closure`](parked/multi-room/learned-vpr-loop-closure.md) | P3 | parked | DGX |
 
 ### Trained-policy backend
 
@@ -188,6 +191,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`room-state-temporal-smoothing`](active/multi-room/room-state-temporal-smoothing.md) | S | v2 room-state series L2 — belief-propagation smoothing of per-node room labels across graph neighbors. Fixes the v1 "hallway pinch" by removing transient-misclassification poisoning. No API change. |
 | [`room-state-uncertainty-calibration`](active/multi-room/room-state-uncertainty-calibration.md) | S | v2 room-state series L2 — temperature-scaled softmax for calibrated `RoomEntry.confidence` + new `RoomEntry.uncertainty` field. Unblocks the v1.5 known-room re-visitation extension on `llm-guided-frontier-gain`. |
 | [`room-label-vlm-refinement`](active/multi-room/room-label-vlm-refinement.md) | M | v2 room-state series L2 — refine per-node CLIP zero-shot labels with VLM-detected `DetectedObjectEntry` payload + a label→prototype-objects map. No new VLM calls; reuses mission-driven detections. The headline accuracy lift of the v2 series. |
+| [`query-room-by-text-v1`](active/multi-room/query-room-by-text-v1.md) | S | Open-vocab room-state queries on the existing OpenCLIP ViT-B/32 backbone. Adds `SemanticMapManager.query_room_by_text(text)`; retires the fixed-prompt brittleness at the planner-query boundary without waiting for `backbone-bakeoff`. v1 `RoomEntry.label` preserved for backward compat. |
 | [`semantic-graph-object-centric-hierarchical`](active/multi-room/semantic-graph-object-centric-hierarchical.md) | L (~1.5–2 wk) | v2 room-state series L5 — promote objects + sub-room places to first-class graph nodes (room → place → object hierarchy). Backward-compat for v1 `known_rooms` API; map-side substrate for the v3 `vla-v2-architecture` bet. |
 
 #### Jetson lane
@@ -262,6 +266,8 @@ picks them up.
 | [`semantic-map-lifecycle-merge`](parked/multi-room/semantic-map-lifecycle-merge.md) | [`semantic-graph-loop-closure`](active/multi-room/semantic-graph-loop-closure.md) shipped (no merge candidates without it) | v2 room-state series L4 follow-up — replace v1's time-based `prune()` with hierarchical decay (recent / long-term layers + spatial pooling). Preserves static geometry across multi-day operation. Capacity-bounded by home area, not by time. |
 | [`staging-hops-shadow-mode`](parked/multi-room/staging-hops-shadow-mode.md) | [`autonomy-stack`](active/multi-room/autonomy-stack.md) shipped (need the room-aware compiler to compare against) **and** [`planner-far-target-staging`](active/multi-room/planner-far-target-staging.md) shipped (need the far-target helper). | Migration step 2 from [§1.10.2](../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c) — populate `MissionIntent.staging_hops` from the LLM, log the agreement-rate against the compiler's plan, ship a weekly report. Compiler still ignores the field. The report is the trigger signal for `planner-scene-graph-expansion`. |
 | [`planner-scene-graph-expansion`](parked/multi-room/planner-scene-graph-expansion.md) | [`staging-hops-shadow-mode`](parked/multi-room/staging-hops-shadow-mode.md) shipped AND its ≥ a week of shadow data shows the LLM's hops disagree with the compiler for reasons object poses / room inventories would fix (target disambiguation, intra-room landmark choice). See the "Trigger detail" section of the brief. | Extends `world_state` with `ObjectEntry` + per-room object inventories so the planner LLM has the spatial context to make `staging_hops` better than the Option C compiler. Prerequisite for promoting `staging_hops` from advisory to authoritative in [§1.10.2 step 3](../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c). |
+| [`learned-region-head`](parked/multi-room/learned-region-head.md) | v2 room-state series shipped AND eval-harness V-measure on the multi-bedroom adversarial scene stays below 0.6 after smoothing + calibration + VLM-refinement land; OR a real-deployment room type doesn't fit `DEFAULT_ROOM_PROMPTS`; OR per-node classification is i.i.d.-bound after smoothing. See the brief's "Trigger detail." | Symbolic-layer brittleness-killer audit-filed off PR #43 review. One learned head replaces v2's prompt-set classifier + clustering + smoothing + calibration + VLM-refinement pipeline; trained on the eval-harness corpus; head's threshold-tuning surface area is zero at the consumer boundary. Sunsets ≥3 v2 briefs if it works. XL — don't pre-empt the v2 ship. |
+| [`learned-vpr-loop-closure`](parked/multi-room/learned-vpr-loop-closure.md) | [`semantic-graph-loop-closure`](active/multi-room/semantic-graph-loop-closure.md) shipped AND its calibration sweep can't find an operating point that meets the precision-recall floor on the multi-bedroom scene; OR the calibrated point fails sim-to-real transfer; OR lifecycle-merge's pooled anchors merge distinct places. See the brief's "Trigger detail." | Drop-in VPR descriptor (MegaLoc / SALAD / AnyLoc) replaces raw CLIP cosine inside `detect_loop_closures`. Same ANN store, same `same_place` edge protocol; only the embedding tower changes. CLIP keeps serving room labeling + text queries + validator cosine. Audit-filed off PR #43 review; the 0.80 default that the v1.5 brief had as a placeholder gets replaced by a descriptor trained for instance discrimination. |
 
 ---
 

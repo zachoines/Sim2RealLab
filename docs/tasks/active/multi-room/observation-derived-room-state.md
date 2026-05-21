@@ -263,8 +263,13 @@ Nav2 reachability) maps onto current literature:
 
 - **Learned room classifier.** v1 uses CLIP zero-shot. Fine-
   tuning a small classifier on Infinigen renderings (a logical
-  extension once the zero-shot baseline is stable) is a P2
-  follow-up.
+  extension once the zero-shot baseline is stable) is filed
+  parked-on-trigger at
+  [`learned-region-head`](../../parked/multi-room/learned-region-head.md)
+  — pickup gated on v2's threshold tuning provably falling
+  short on the eval harness. The v1 path stays as a fallback
+  (`STRAFER_REGION_HEAD_ENABLED=0`) even after the head
+  ships.
 - **Multi-instance same-label disambiguation.** When two clusters
   are both classified e.g. `"bedroom"` (legitimately distinct
   rooms in a multi-bedroom home), v1 merges them into one

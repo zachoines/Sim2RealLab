@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`observation-derived-room-state`](active/multi-room/observation-derived-room-state.md) | DGX | [#41](https://github.com/zachoines/Sim2RealLab/pull/41) | implementing |
+| _None._ | | | |
 
 ---
 
@@ -40,7 +40,7 @@ explicit dependencies.
 
 | Brief | Pri | State | Owner |
 |---|---|---|---|
-| [`observation-derived-room-state`](active/multi-room/observation-derived-room-state.md) | P1 | in flight | DGX |
+| [`observation-derived-room-state`](active/multi-room/observation-derived-room-state.md) | P1 | active | DGX |
 | [`autonomy-stack`](active/multi-room/autonomy-stack.md) | P1 | active | Either |
 | [`scene-connectivity-validation`](active/multi-room/scene-connectivity-validation.md) | P1 | active | DGX |
 | [`room-state-eval-harness`](active/multi-room/room-state-eval-harness.md) | P2 | active | DGX |

@@ -85,6 +85,7 @@ Read these before starting:
 - [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
 - [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
 - [`context/conventions.md`](../../context/conventions.md)
+- [`context/multi-room-architecture.md`](../../context/multi-room-architecture.md) — the symbolic vs. sub-symbolic split this brief sits inside; this brief is the implicit-mapping primitive that the multi-room version stack treats as its parallel track.
 
 Parent design doc:
 [`docs/MISSION_VALIDATION_ARCHITECTURE.md`](../../../MISSION_VALIDATION_ARCHITECTURE.md)

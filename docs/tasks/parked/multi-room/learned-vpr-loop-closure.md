@@ -42,6 +42,7 @@ Read these before starting:
 - [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
 - [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
 - [`context/conventions.md`](../../context/conventions.md)
+- [`context/multi-room-architecture.md`](../../context/multi-room-architecture.md) — where this brief sits in the v1 / v1.5 / v2 / v2.5 / v3 / escape-valve stack, and which planner-side consumers depend on its output.
 - [`semantic-graph-loop-closure`](../../active/multi-room/semantic-graph-loop-closure.md)
   — the v1.5 substrate. This brief swaps its
   `detect_loop_closures` descriptor while preserving the

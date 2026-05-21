@@ -38,6 +38,8 @@ explicit dependencies.
 
 ### Multi-room navigation
 
+For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how the multi-room work relates to the implicit-mapping track in the clip-validation epic, see [`context/multi-room-architecture.md`](context/multi-room-architecture.md).
+
 | Brief | Pri | State | Owner |
 |---|---|---|---|
 | [`autonomy-stack`](active/multi-room/autonomy-stack.md) | P1 | active | Either |

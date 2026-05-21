@@ -42,6 +42,7 @@ Read these before starting:
 - [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
 - [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
 - [`context/conventions.md`](../../context/conventions.md)
+- [`context/multi-room-architecture.md`](../../context/multi-room-architecture.md) — the symbolic vs. sub-symbolic split. This brief decides how the v2 VLA consumes the multi-room map; Option B reuses `cotrained-retrieval-augmented` as the implicit-mapping primitive.
 - [`vla-v2-architecture`](vla-v2-architecture.md) — the v2 VLA
   itself. This brief is its map-conditioning contract.
 - [`semantic-graph-object-centric-hierarchical`](../../active/multi-room/semantic-graph-object-centric-hierarchical.md)

@@ -46,6 +46,7 @@ Read these before starting:
 - [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
 - [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
 - [`context/conventions.md`](../../context/conventions.md)
+- [`context/multi-room-architecture.md`](../../context/multi-room-architecture.md) — where this brief sits in the v1 / v1.5 / v2 / v2.5 / v3 / escape-valve stack, and which planner-side consumers depend on its output.
 - [`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
   — v1 implementation. This brief extends its graph schema
   while preserving its API surface.

@@ -12,7 +12,7 @@ re-aggregation hook + tests)
 **Branch:** task/room-state-temporal-smoothing
 
 **Pickup gate:** Becomes pickable once
-[`observation-derived-room-state`](observation-derived-room-state.md)
+[`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
 AND
 [`room-state-uncertainty-calibration`](room-state-uncertainty-calibration.md)
 merge — the latter ships the per-node
@@ -40,7 +40,7 @@ Read these before starting:
 - [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
 - [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
 - [`context/conventions.md`](../../context/conventions.md)
-- [`observation-derived-room-state`](observation-derived-room-state.md)
+- [`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
   — v1 implementation. This brief modifies its
   classifier/clustering path.
 - [`room-state-eval-harness`](room-state-eval-harness.md) —

@@ -14,7 +14,7 @@ field + calibration measurement against the eval harness)
 **Branch:** task/room-state-uncertainty-calibration
 
 **Pickup gate:** Becomes pickable once
-[`observation-derived-room-state`](observation-derived-room-state.md)
+[`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
 merges. Recommended ordering: file alongside
 [`room-state-eval-harness`](room-state-eval-harness.md) so
 calibration can be measured (ECE requires the harness).
@@ -38,7 +38,7 @@ Read these before starting:
 - [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
 - [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
 - [`context/conventions.md`](../../context/conventions.md)
-- [`observation-derived-room-state`](observation-derived-room-state.md)
+- [`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
   — v1 implementation. This brief modifies its
   `RoomClassifier` and `RoomEntry`.
 - [`room-state-eval-harness`](room-state-eval-harness.md) —

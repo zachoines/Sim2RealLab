@@ -49,7 +49,7 @@ Read these before starting:
   — v1, the substrate. The detector, costmap snapshot
   plumbing, and skill registration are unchanged across all
   three versions.
-- [`observation-derived-room-state`](../../active/multi-room/observation-derived-room-state.md)
+- [`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
   — supplies the same room-membership / connectivity signals
   v2 consumes; v3's per-state prompts also depend on them.
 

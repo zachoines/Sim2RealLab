@@ -1536,7 +1536,7 @@ briefs:
 [`planner-architecture-alignment`](tasks/completed/planner-architecture-alignment.md)
 (architecture decision — intent classifier vs multi-step
 planner),
-[`observation-derived-room-state`](tasks/active/multi-room/observation-derived-room-state.md)
+[`observation-derived-room-state`](tasks/completed/observation-derived-room-state.md)
 (runtime room labeling + connectivity — replaces the
 training-time `scene_metadata.json` leak path),
 [`frontier-exploration-primitive`](tasks/completed/frontier-exploration-primitive.md)
@@ -1635,7 +1635,7 @@ slot for advisory LLM hops we can promote later.
    but B-quality is dominated by *grounded scene-state quality*,
    not prompt quality — and we are mid-flight on three
    grounded-input shifts simultaneously
-   ([`observation-derived-room-state`](tasks/active/multi-room/observation-derived-room-state.md),
+   ([`observation-derived-room-state`](tasks/completed/observation-derived-room-state.md),
    [`frontier-exploration-primitive`](tasks/completed/frontier-exploration-primitive.md),
    semantic-map room clustering). Stacking a multi-step LLM planner
    concurrently means debugging four moving systems with

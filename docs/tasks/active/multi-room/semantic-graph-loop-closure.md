@@ -14,7 +14,7 @@ edge type + tests + eval lift measurement)
 **Branch:** task/semantic-graph-loop-closure
 
 **Pickup gate:** Becomes pickable once
-[`observation-derived-room-state`](observation-derived-room-state.md)
+[`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
 merges. Strongly recommended ordering:
 [`room-state-eval-harness`](room-state-eval-harness.md)
 ships first so the cluster-fragmentation fix can be measured
@@ -39,7 +39,7 @@ Read these before starting:
 - [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
 - [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
 - [`context/conventions.md`](../../context/conventions.md)
-- [`observation-derived-room-state`](observation-derived-room-state.md)
+- [`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
   — v1 implementation. This brief extends its proximity
   graph.
 - [`semantic-map-lifecycle-merge`](../../parked/multi-room/semantic-map-lifecycle-merge.md)

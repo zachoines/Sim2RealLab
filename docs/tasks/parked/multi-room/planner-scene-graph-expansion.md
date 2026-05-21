@@ -50,7 +50,7 @@ Read these before starting:
 - [`planner-architecture-alignment`](../../completed/planner-architecture-alignment.md)
   — the Option C decision and the C → B migration plan this
   brief slots into.
-- [`observation-derived-room-state`](../../active/multi-room/observation-derived-room-state.md)
+- [`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
   — the runtime room-state APIs whose `RoomEntry` shape this
   brief extends with object-level detail.
 

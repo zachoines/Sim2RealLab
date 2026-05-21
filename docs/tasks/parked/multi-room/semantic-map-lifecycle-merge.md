@@ -43,7 +43,7 @@ Read these before starting:
 - [`semantic-graph-loop-closure`](../../active/multi-room/semantic-graph-loop-closure.md)
   — hard prerequisite. Supplies the same-place edges this
   brief consolidates.
-- [`observation-derived-room-state`](../../active/multi-room/observation-derived-room-state.md)
+- [`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
   — v1 implementation. This brief replaces v1's `prune()`
   with `consolidate()`.
 - [`room-state-eval-harness`](../../active/multi-room/room-state-eval-harness.md)

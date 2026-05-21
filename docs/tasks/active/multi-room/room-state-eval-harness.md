@@ -15,7 +15,7 @@ baseline report against v1)
 **Branch:** task/room-state-eval-harness
 
 **Pickup gate:** Becomes pickable once
-[`observation-derived-room-state`](observation-derived-room-state.md)
+[`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
 merges (this brief scores that brief's output). Not parked —
 file as active and pick up directly when #41 lands.
 
@@ -40,7 +40,7 @@ Read these before starting:
 - [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
 - [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
 - [`context/conventions.md`](../../context/conventions.md)
-- [`observation-derived-room-state`](observation-derived-room-state.md)
+- [`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
   — the v1 baseline. This harness scores its
   `known_rooms` / `current_room` / `connectivity` outputs.
 - [`scene-connectivity-validation`](scene-connectivity-validation.md)

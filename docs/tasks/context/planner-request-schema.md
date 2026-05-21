@@ -3,7 +3,7 @@
 Canonical reference for the `world_state` block carried on every
 planner request, and for how the planner emits plans. The schema is
 shared by the runtime room-state path
-([`observation-derived-room-state`](../active/multi-room/observation-derived-room-state.md)),
+([`observation-derived-room-state`](../completed/observation-derived-room-state.md)),
 the multi-room compiler path
 ([`autonomy-stack`](../active/multi-room/autonomy-stack.md)), and
 the far-target staging path
@@ -13,13 +13,12 @@ briefs reuse it.
 
 ## Status — none of this exists yet
 
-This module documents the target contract. As of writing, **none
-of the pieces are wired**:
+This module documents the target contract. Wiring status:
 
 | Piece | Current state | Brief that lands it |
 |---|---|---|
 | `SemanticMapManager` class | Exists, but **orphaned in production** — only constructed in tests. | [`validator-evaluation`](../active/clip-validation/validator-evaluation.md) wires `SemanticMapManager` + `BackgroundMapper` + `TransitMonitor` into `executor/main.py` on the Jetson. |
-| `current_room` / `known_rooms` / `connectivity` / `room_anchor` on the manager | Not implemented. | [`observation-derived-room-state`](../active/multi-room/observation-derived-room-state.md) adds the four methods + CLIP zero-shot room classifier + graph clustering. |
+| `current_room` / `known_rooms` / `connectivity` / `room_anchor` on the manager | **Shipped in #41** via [`observation-derived-room-state`](../completed/observation-derived-room-state.md). The four methods + CLIP zero-shot room classifier + graph clustering are live in `SemanticMapManager`. Quality work in flight via the v2 series (smoothing / calibration / VLM-refinement / loop-closure). |
 | `world_state` field on `PlanRequest` wire type + Jetson populate + DGX consume | Not present. Today's request carries only `robot_state: dict \| None` and `active_mission_summary: dict \| None` (both opaque). | Either [`autonomy-stack`](../active/multi-room/autonomy-stack.md) or [`planner-far-target-staging`](../active/multi-room/planner-far-target-staging.md) — whichever ships first defines the wire shape; the second consumes it. |
 | Compiler reads `world_state` and emits transit / staging steps | `_compile_single_target_steps` is intent-blind. | Compiler grows room-aware logic in [`autonomy-stack`](../active/multi-room/autonomy-stack.md); off-costmap staging helper lands in [`planner-far-target-staging`](../active/multi-room/planner-far-target-staging.md). |
 
@@ -76,7 +75,7 @@ class PlannerWorldState(BaseModel):
 ```
 
 `RoomEntry` matches the manager's return type defined in
-[`observation-derived-room-state`](../active/multi-room/observation-derived-room-state.md),
+[`observation-derived-room-state`](../completed/observation-derived-room-state.md),
 extended with a per-room object inventory:
 
 ```python

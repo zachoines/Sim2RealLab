@@ -14,7 +14,7 @@ combiner + A/B eval against the harness + tests)
 **Branch:** task/room-label-vlm-refinement
 
 **Pickup gate:** Becomes pickable once
-[`observation-derived-room-state`](observation-derived-room-state.md)
+[`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
 merges. Strongly recommended ordering:
 [`room-state-eval-harness`](room-state-eval-harness.md)
 ships first so the label-quality lift can be measured.
@@ -38,7 +38,7 @@ Read these before starting:
 - [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
 - [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
 - [`context/conventions.md`](../../context/conventions.md)
-- [`observation-derived-room-state`](observation-derived-room-state.md)
+- [`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
   — v1 implementation. This brief extends its `RoomClassifier`.
 - [`room-state-eval-harness`](room-state-eval-harness.md) —
   required to measure the label-precision lift.

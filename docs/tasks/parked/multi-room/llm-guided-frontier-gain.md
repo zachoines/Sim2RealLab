@@ -16,7 +16,7 @@ queue)
 **Pickup gate:** Blocked-on-deps until
 [`frontier-exploration-primitive`](../../completed/frontier-exploration-primitive.md)
 ships (no skill to extend) AND
-[`observation-derived-room-state`](../../active/multi-room/observation-derived-room-state.md)
+[`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
 ships (no language-shaped frontier descriptions to give the
 LLM). Un-park by `git mv` per
 [`README.md`'s Directory layout](../../README.md#directory-layout).
@@ -46,7 +46,7 @@ Read these before starting:
   — the v1 skill this brief extends. The skill interface,
   detector, navigation loop, and termination conditions are
   unchanged; only the gain function gains an LLM multiplier.
-- [`observation-derived-room-state`](../../active/multi-room/observation-derived-room-state.md)
+- [`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
   — provides the nearest-room inference used to turn each
   frontier into a language-shaped description.
 - [`autonomy-stack`](../../active/multi-room/autonomy-stack.md)
@@ -135,7 +135,7 @@ runtime:
 
 | Field | Source | Example |
 |---|---|---|
-| `nearest_known_room` | [`observation-derived-room-state`](../../active/multi-room/observation-derived-room-state.md)'s `current_room` at the frontier's projected pose | `"living_room"` |
+| `nearest_known_room` | [`observation-derived-room-state`](../../completed/observation-derived-room-state.md)'s `current_room` at the frontier's projected pose | `"living_room"` |
 | `boundary_with` | room-state's `connectivity` lookup — what room the frontier opens into if it leaves a known room | `"unknown"` or `"kitchen"` |
 | `nearest_object_in_map` | semantic-map `query_nearest` on the frontier's pose; top-1 label + distance | `("lamp", 1.4 m)` |
 | `bearing_from_robot_deg`, `distance_from_robot_m` | trivial geometry | `(45.0, 3.2)` |
@@ -274,7 +274,7 @@ then).
       `nearest_object_in_map`, `bearing_from_robot_deg`,
       `distance_from_robot_m`, `leads_into_unknown` per the
       table above. Reuses
-      [`observation-derived-room-state`](../../active/multi-room/observation-derived-room-state.md)
+      [`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
       and semantic-map APIs — does not duplicate room
       inference.
 - [ ] **`explore_until_visible` calls the endpoint** and

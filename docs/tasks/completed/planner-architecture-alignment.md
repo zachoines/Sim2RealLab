@@ -93,7 +93,7 @@ one driven by the LLM — that don't compose.
 
 - The LLM continues to emit a single intent. The compiler
   inspects `world_state` + the inferred target room (from
-  [`observation-derived-room-state`](../active/multi-room/observation-derived-room-state.md))
+  [`observation-derived-room-state`](../observation-derived-room-state.md))
   and prepends transit / staging / exploration steps when
   needed.
 - Pros: deterministic; testable in isolation; no prompt-

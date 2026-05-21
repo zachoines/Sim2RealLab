@@ -53,7 +53,7 @@ Read these before starting:
   — sibling research arm that already proposes a memory-bank +
   cross-attention layer for the cascade validator. Same primitive,
   different consumer.
-- [`observation-derived-room-state`](../../active/multi-room/observation-derived-room-state.md)
+- [`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
   — the v1 flat-graph + room API the contract must remain valid
   against if the operator picks the "no consumption" branch and
   the v2 VLA reads only `current_room` + `known_rooms` as a

@@ -1,13 +1,21 @@
 # Runtime room labeling and connectivity from observations
 
+**Status:** Shipped 2026-05-21 (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/41
+**Follow-ups:**
+[`room-state-eval-harness`](../active/multi-room/room-state-eval-harness.md) — L1 measurement harness that pins v2 quality claims against the v1 baseline;
+[`room-state-runtime-ergonomics`](../parked/multi-room/room-state-runtime-ergonomics.md) — parked-on-trigger manager-internal cleanups (`room_anchor` index, `RoomClassifier` sticky-disable retry) surfaced by the audit;
+[`query-room-by-text-v1`](../active/multi-room/query-room-by-text-v1.md) — open-vocab room queries on the v1 backbone, retires the fixed-prompt brittleness at the planner-query boundary;
+[`learned-region-head`](../parked/multi-room/learned-region-head.md) — parked-on-trigger escape valve that retires the prompt-set + clustering + smoothing pipeline if v2 threshold tuning falls short.
+
 **Type:** new feature
 **Owner:** DGX agent edits the code (`SemanticMapManager` lives
 under `source/strafer_autonomy/strafer_autonomy/semantic_map/`,
 which is in the DGX edit lane per
-[`ownership-boundaries.md`](../../context/ownership-boundaries.md)).
+[`ownership-boundaries.md`](../context/ownership-boundaries.md)).
 **Runtime host: Jetson** — the manager is instantiated by the
 production executor on the Jetson per
-[`validator-evaluation`](../clip-validation/validator-evaluation.md),
+[`validator-evaluation`](../active/clip-validation/validator-evaluation.md),
 so smoke tests and integration runs of this brief require the
 Jetson executor process. Coordinate with the operator on Jetson
 verification before shipping; the DGX agent cannot exercise the
@@ -35,18 +43,18 @@ multi-room audit on 2026-05-13 surfaced**.
 ## Context bundle
 
 Read these before starting:
-- [`context/repo-topology.md`](../../context/repo-topology.md)
-- [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
-- [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
-- [`context/conventions.md`](../../context/conventions.md)
-- [`autonomy-stack`](autonomy-stack.md) — primary consumer.
+- [`context/repo-topology.md`](../context/repo-topology.md)
+- [`context/ownership-boundaries.md`](../context/ownership-boundaries.md)
+- [`context/branching-and-prs.md`](../context/branching-and-prs.md)
+- [`context/conventions.md`](../context/conventions.md)
+- [`autonomy-stack`](../active/multi-room/autonomy-stack.md) — primary consumer.
   Reads `current_room`, `known_rooms`, `connectivity` from this
   brief's manager API.
-- [`scene-connectivity-validation`](scene-connectivity-validation.md)
+- [`scene-connectivity-validation`](../active/multi-room/scene-connectivity-validation.md)
   — sim-side ground-truth counterpart. This brief's output is
   scored against that brief's `connectivity[]` block in the
   multi-room grader.
-- [`frontier-exploration-primitive`](../../completed/frontier-exploration-primitive.md)
+- [`frontier-exploration-primitive`](frontier-exploration-primitive.md)
   — sibling (shipped). The frontier-exploration skill populates
   semantic-map nodes; this brief turns those nodes into rooms.
 
@@ -55,13 +63,13 @@ Read these before starting:
 ### Sim-to-real boundary (read this first)
 
 This brief is the runtime counterpart of
-[`scene-connectivity-validation`](scene-connectivity-validation.md).
+[`scene-connectivity-validation`](../active/multi-room/scene-connectivity-validation.md).
 The sim-side connectivity brief uses Infinigen room polygons +
 the occupancy grid + ground-truth `room_adjacency`; this brief
 uses only signals available on the real D555 + Jetson stack.
 The two outputs have the same *shape* — `current_room`,
 `known_rooms`, `connectivity` — so the
-[`autonomy-stack`'s planner](autonomy-stack.md) consumes one
+[`autonomy-stack`'s planner](../active/multi-room/autonomy-stack.md) consumes one
 interface regardless of where it runs. The sim grader compares
 the two as a behavioral metric for the runtime room-state agent.
 
@@ -69,7 +77,7 @@ the two as a behavioral metric for the runtime room-state agent.
 
 | Signal | Source | Notes |
 |---|---|---|
-| Visual room evidence | Current observation (RGB) → CLIP image embedding | Existing `CLIPEncoder` at [`semantic_map/clip_encoder.py`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/clip_encoder.py). |
+| Visual room evidence | Current observation (RGB) → CLIP image embedding | Existing `CLIPEncoder` at [`semantic_map/clip_encoder.py`](../../../source/strafer_autonomy/strafer_autonomy/semantic_map/clip_encoder.py). |
 | Room label candidates | A fixed prompt set: `"a kitchen"`, `"a living room"`, `"a bedroom"`, `"a bathroom"`, `"a hallway"`, `"an office"`, `"a garage"` | Zero-shot text encoder. No training data required. Set is configurable. |
 | Pose history | RTAB-Map `/rtabmap/mapPath`, or the existing semantic-map node graph | Connectivity inference: rooms the robot has traversed between are connected. |
 | Reachability of stored poses | Nav2 global planner | If `nav2_msgs/ComputePathToPose` succeeds, the start-room and goal-room are connectable from the current robot state. |
@@ -143,7 +151,7 @@ cluster's node poses — observation-derived, not metadata-derived.
 `observed_objects` is the deduplicated set of object labels seen
 in any node of the cluster (from each node's
 `detected_objects[*].label`); the
-[`autonomy-stack`](autonomy-stack.md) compiler uses it as the
+[`autonomy-stack`](../active/multi-room/autonomy-stack.md) compiler uses it as the
 primary target-room-inference signal (`"sink" in
 known_rooms["kitchen"].observed_objects` → target room is
 kitchen).
@@ -188,7 +196,7 @@ Nav2 reachability) maps onto current literature:
       `RoomEntry` values whose `observed_objects` field is the
       deduplicated set of object labels seen in any member node
       (derived from `SemanticNode.detected_objects[*].label`);
-      the [`autonomy-stack`](autonomy-stack.md) compiler reads
+      the [`autonomy-stack`](../active/multi-room/autonomy-stack.md) compiler reads
       this for target-room inference.
 - [ ] **Connectivity uses Nav2 reachability.** The
       `connectivity` method queries the Nav2 global planner to
@@ -206,7 +214,7 @@ Nav2 reachability) maps onto current literature:
       contains a cluster per Infinigen room (allowing 1
       false-merge for short hallways), the connectivity graph
       matches the sim-side connectivity from
-      [`scene-connectivity-validation`](scene-connectivity-validation.md)
+      [`scene-connectivity-validation`](../active/multi-room/scene-connectivity-validation.md)
       on the traversed subset (precision ≥ 0.9 against the
       ground-truth edges), and `current_room(robot_pose)`
       returns the correct label at 5 sample poses (one per
@@ -229,7 +237,7 @@ Nav2 reachability) maps onto current literature:
       module, package README, top-level `Readme.md`, or guide
       under `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance
-      section](../../context/conventions.md#user-facing-documentation-maintenance)
+      section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
 - [ ] **No regression** in existing semantic-map workflows.
       `query_by_label`, `query_by_text`, `query_nearest`,
@@ -239,20 +247,20 @@ Nav2 reachability) maps onto current literature:
 ## Investigation pointers
 
 - Existing semantic-map state:
-  [`semantic_map/manager.py`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/manager.py)
+  [`semantic_map/manager.py`](../../../source/strafer_autonomy/strafer_autonomy/semantic_map/manager.py)
   — `SemanticMapManager` already has the graph, CLIP encoder,
   add_observation, and proximity-edge insertion. The new APIs
   layer on top.
 - CLIP encoder API:
-  [`semantic_map/clip_encoder.py`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/clip_encoder.py).
+  [`semantic_map/clip_encoder.py`](../../../source/strafer_autonomy/strafer_autonomy/semantic_map/clip_encoder.py).
 - NetworkX community detection:
   `networkx.community.greedy_modularity_communities`. Already
   in the dependency set via `networkx`.
 - Nav2 planner client: see how the
-  [`nav2-far-goal-staging.md`](../../completed/nav2-far-goal-staging.md)
+  [`nav2-far-goal-staging.md`](nav2-far-goal-staging.md)
   staging loop calls Nav2 — same `ComputePathToPose` action.
 - Ground-truth source for the smoke test:
-  [`scene-connectivity-validation`](scene-connectivity-validation.md)'s
+  [`scene-connectivity-validation`](../active/multi-room/scene-connectivity-validation.md)'s
   emitted `connectivity[]` block on the same scene.
 - Reference architectures to cross-check against:
   - osmAG-LLM (arXiv:2507.12753)
@@ -265,7 +273,7 @@ Nav2 reachability) maps onto current literature:
   tuning a small classifier on Infinigen renderings (a logical
   extension once the zero-shot baseline is stable) is filed
   parked-on-trigger at
-  [`learned-region-head`](../../parked/multi-room/learned-region-head.md)
+  [`learned-region-head`](../parked/multi-room/learned-region-head.md)
   — pickup gated on v2's threshold tuning provably falling
   short on the eval harness. The v1 path stays as a fallback
   (`STRAFER_REGION_HEAD_ENABLED=0`) even after the head

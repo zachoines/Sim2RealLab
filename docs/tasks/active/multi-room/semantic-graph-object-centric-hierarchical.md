@@ -16,7 +16,7 @@ measurement)
 **Branch:** task/semantic-graph-object-centric-hierarchical
 
 **Pickup gate:** Becomes pickable once
-[`observation-derived-room-state`](observation-derived-room-state.md)
+[`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
 merges. Recommended sequencing: pick up after the L2 quality
 briefs
 ([`room-state-temporal-smoothing`](room-state-temporal-smoothing.md),
@@ -46,7 +46,7 @@ Read these before starting:
 - [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
 - [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
 - [`context/conventions.md`](../../context/conventions.md)
-- [`observation-derived-room-state`](observation-derived-room-state.md)
+- [`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
   — v1 implementation. This brief extends its graph schema
   while preserving its API surface.
 - [`autonomy-stack`](autonomy-stack.md) — primary consumer.

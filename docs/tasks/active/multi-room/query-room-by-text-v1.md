@@ -15,7 +15,7 @@ harness + README documentation)
 **Branch:** task/query-room-by-text-v1
 
 **Pickup gate:** Becomes pickable once
-[`observation-derived-room-state`](observation-derived-room-state.md)
+[`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
 merges. Does NOT block on
 [`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md)
 — the API surface works on whichever CLIP backbone is loaded
@@ -42,7 +42,7 @@ Read these before starting:
 - [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
 - [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
 - [`context/conventions.md`](../../context/conventions.md)
-- [`observation-derived-room-state`](observation-derived-room-state.md)
+- [`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
   — v1 implementation. This brief adds one method to the
   manager; the existing `known_rooms` / `current_room` /
   `connectivity` / `room_anchor` API surface is unchanged.

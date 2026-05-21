@@ -49,7 +49,7 @@ Sibling briefs:
   `scene_metadata.json`. Consumed by the harness / mission
   generator / grader, **not** by the live planner emitted from
   this brief. See "Sim-to-real boundary" below.
-- [`observation-derived-room-state`](observation-derived-room-state.md)
+- [`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
   — produces the *runtime* room-membership + connectivity
   signal that this brief consumes (derived from the semantic
   map + RTAB-Map graph + Nav2 costmap). Hard prerequisite for
@@ -93,7 +93,7 @@ Concretely, in this brief:
 - The **executor-side stored-map fallback** is fine — the
   semantic map is built from the robot's own observations.
 - The **planner-side room-level world state** must come from
-  [`observation-derived-room-state`](observation-derived-room-state.md)
+  [`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
   (semantic-map clustering + CLIP room labeling + RTAB-Map
   graph reachability), not from
   [`scene-connectivity-validation`](scene-connectivity-validation.md).
@@ -153,7 +153,7 @@ per mission.
 The planner needs room-level knowledge to emit transit steps for
 out-of-room targets. The runtime-legal source of that knowledge
 is the **observation-derived room state** filed at
-[`observation-derived-room-state`](observation-derived-room-state.md):
+[`observation-derived-room-state`](../../completed/observation-derived-room-state.md):
 
 - `current_room: str | None` — best-guess label for the robot's
   current pose (CLIP zero-shot over the latest observation,
@@ -232,7 +232,7 @@ room.
   This brief *invokes* the primitive when the target room is
   not yet known, but does not implement the primitive itself.
 - **Observation-derived room labeling.** Filed separately at
-  [`observation-derived-room-state`](observation-derived-room-state.md).
+  [`observation-derived-room-state`](../../completed/observation-derived-room-state.md).
   Hard prerequisite — this brief consumes the manager API
   defined there.
 - **Planner architecture choice.** Recorded as Option C in
@@ -277,7 +277,7 @@ room.
       [`context/planner-request-schema.md`](../../context/planner-request-schema.md);
       `current_room`, `known_rooms`, and `connectivity` come from
       the runtime `SemanticMapManager` API defined in
-      [`observation-derived-room-state`](observation-derived-room-state.md).
+      [`observation-derived-room-state`](../../completed/observation-derived-room-state.md).
       No field on the block traces back to
       `scene_metadata.json`. The prompt itself stays unchanged
       under Option C — the compiler consumes the block, not the
@@ -367,7 +367,7 @@ room.
   function.
 - **Observation-derived room labeling implementation.** Filed
   at
-  [`observation-derived-room-state`](observation-derived-room-state.md).
+  [`observation-derived-room-state`](../../completed/observation-derived-room-state.md).
   This brief consumes the manager API; it does not implement
   the CLIP zero-shot room classifier, the graph clustering,
   or the connectivity inference.

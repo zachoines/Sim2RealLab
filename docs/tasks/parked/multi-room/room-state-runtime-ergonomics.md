@@ -31,7 +31,7 @@ As an **operator running long-duration deployments where the
 semantic map grows past v1 home sizes**, I want
 **`SemanticMapManager`'s room-state runtime to handle the two
 ergonomic gaps surfaced by the
-[`observation-derived-room-state`](../../active/multi-room/observation-derived-room-state.md)
+[`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
 ship audit** (linear `room_anchor` scans at scale, and a
 sticky `classifier.enabled = False` state when CLIP loads
 late), so that **scaling to longer missions and recovering
@@ -45,7 +45,7 @@ Read these before starting:
 - [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
 - [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
 - [`context/conventions.md`](../../context/conventions.md)
-- [`observation-derived-room-state`](../../active/multi-room/observation-derived-room-state.md)
+- [`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
   — v1 ship; the audit on its PR surfaced these two
   ergonomic gaps.
 - [`semantic-map-lifecycle-merge`](semantic-map-lifecycle-merge.md)

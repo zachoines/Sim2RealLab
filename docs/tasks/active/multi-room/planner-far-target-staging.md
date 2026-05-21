@@ -117,7 +117,7 @@ The Jetson populates the entire `world_state` block in
 `mission_runner.py`: pose + costmap + last-grounding from its ROS
 clients, and the room block from the Jetson-resident
 `SemanticMapManager` (see
-[`observation-derived-room-state`](observation-derived-room-state.md)
+[`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
 for the runtime room-state methods, and
 [`validator-evaluation`](../clip-validation/validator-evaluation.md)
 for the wiring that puts the manager into the production
@@ -136,7 +136,7 @@ the compiler decomposes `go_to_target` into
 instead of a single 5-step plan. The intermediate is the
 nearest semantic-map node tagged with the target's inferred
 room (looked up via the
-[`observation-derived-room-state`](observation-derived-room-state.md)
+[`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
 `room_anchor()` API) when the target's inferred room differs
 from `world_state.current_room`; otherwise it's the midpoint
 along the approach vector clipped to a sensible standoff.

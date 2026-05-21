@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`observation-derived-room-state`](active/multi-room/observation-derived-room-state.md) | DGX | [#41](https://github.com/zachoines/Sim2RealLab/pull/41) | implementing |
+| _None._ | | | |
 
 ---
 
@@ -40,15 +40,24 @@ explicit dependencies.
 
 | Brief | Pri | State | Owner |
 |---|---|---|---|
-| [`observation-derived-room-state`](active/multi-room/observation-derived-room-state.md) | P1 | in flight | DGX |
 | [`autonomy-stack`](active/multi-room/autonomy-stack.md) | P1 | active | Either |
 | [`scene-connectivity-validation`](active/multi-room/scene-connectivity-validation.md) | P1 | active | DGX |
+| [`room-state-eval-harness`](active/multi-room/room-state-eval-harness.md) | P2 | active | DGX |
+| [`room-state-temporal-smoothing`](active/multi-room/room-state-temporal-smoothing.md) | P2 | active | DGX |
+| [`room-state-uncertainty-calibration`](active/multi-room/room-state-uncertainty-calibration.md) | P2 | active | DGX |
+| [`room-label-vlm-refinement`](active/multi-room/room-label-vlm-refinement.md) | P2 | active | DGX |
+| [`query-room-by-text-v1`](active/multi-room/query-room-by-text-v1.md) | P2 | active | DGX |
+| [`semantic-graph-object-centric-hierarchical`](active/multi-room/semantic-graph-object-centric-hierarchical.md) | P2 | active | DGX |
 | [`planner-far-target-staging`](active/multi-room/planner-far-target-staging.md) | P2 | active | DGX |
+| [`semantic-graph-loop-closure`](active/multi-room/semantic-graph-loop-closure.md) | P3 | active | DGX |
 | [`llm-guided-frontier-gain`](parked/multi-room/llm-guided-frontier-gain.md) | P2 | parked | DGX |
 | [`frontier-cognitive-fsm`](parked/multi-room/frontier-cognitive-fsm.md) | P3 | parked | Either |
 | [`room-state-runtime-ergonomics`](parked/multi-room/room-state-runtime-ergonomics.md) | P3 | parked | DGX |
+| [`semantic-map-lifecycle-merge`](parked/multi-room/semantic-map-lifecycle-merge.md) | P3 | parked | DGX |
 | [`staging-hops-shadow-mode`](parked/multi-room/staging-hops-shadow-mode.md) | P3 | parked | DGX |
 | [`planner-scene-graph-expansion`](parked/multi-room/planner-scene-graph-expansion.md) | P3 | parked | DGX |
+| [`learned-region-head`](parked/multi-room/learned-region-head.md) | P3 | parked | DGX |
+| [`learned-vpr-loop-closure`](parked/multi-room/learned-vpr-loop-closure.md) | P3 | parked | DGX |
 
 ### Trained-policy backend
 
@@ -124,6 +133,7 @@ explicit dependencies.
 | Brief | Pri | State | Owner |
 |---|---|---|---|
 | [`vla-v2-architecture`](parked/experimental/vla-v2-architecture.md) | P3 | parked | Either |
+| [`vla-v2-map-conditioning`](parked/experimental/vla-v2-map-conditioning.md) | P3 | parked | DGX |
 
 ### Investigations (measurement / knowledge work)
 
@@ -176,6 +186,12 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`trajectory-first-captioning`](active/harness/trajectory-first-captioning.md) | M–L | Speaker-model post-hoc captioning regime. Random-A→B drivers + Qwen2.5-VL-7B speaker → instructive-voice mission text + synthesized hard negatives. |
 | [`training-throughput-profile-and-investigate`](active/investigations/training-throughput-profile-and-investigate.md) | S–M | Phase profiler in the training loop; files follow-up briefs from results. |
 | [`export-torchscript-depth`](active/trained-policy/export-torchscript-depth.md) | S–M | DEPTH TorchScript export on real checkpoints — work around DeFM `BiFPN`'s un-scriptable `sum(generator)` via traced backbone. Sibling of [`export-onnx-depth`](completed/export-onnx-depth.md); ONNX already ships, this closes the redundant TorchScript path. |
+| [`room-state-eval-harness`](active/multi-room/room-state-eval-harness.md) | M | v2 room-state series L1 — measurement harness for cluster purity / label precision / time-to-converge / connectivity P-R on a fixed multi-room scene set. Must ship before subsequent v2 quality claims are falsifiable. Blocks pickup on `observation-derived-room-state` shipping. |
+| [`room-state-temporal-smoothing`](active/multi-room/room-state-temporal-smoothing.md) | S | v2 room-state series L2 — belief-propagation smoothing of per-node room labels across graph neighbors. Fixes the v1 "hallway pinch" by removing transient-misclassification poisoning. No API change. |
+| [`room-state-uncertainty-calibration`](active/multi-room/room-state-uncertainty-calibration.md) | S | v2 room-state series L2 — temperature-scaled softmax for calibrated `RoomEntry.confidence` + new `RoomEntry.uncertainty` field. Unblocks the v1.5 known-room re-visitation extension on `llm-guided-frontier-gain`. |
+| [`room-label-vlm-refinement`](active/multi-room/room-label-vlm-refinement.md) | M | v2 room-state series L2 — refine per-node CLIP zero-shot labels with VLM-detected `DetectedObjectEntry` payload + a label→prototype-objects map. No new VLM calls; reuses mission-driven detections. The headline accuracy lift of the v2 series. |
+| [`query-room-by-text-v1`](active/multi-room/query-room-by-text-v1.md) | S | Open-vocab room-state queries on the existing OpenCLIP ViT-B/32 backbone. Adds `SemanticMapManager.query_room_by_text(text)`; retires the fixed-prompt brittleness at the planner-query boundary without waiting for `backbone-bakeoff`. v1 `RoomEntry.label` preserved for backward compat. |
+| [`semantic-graph-object-centric-hierarchical`](active/multi-room/semantic-graph-object-centric-hierarchical.md) | L (~1.5–2 wk) | v2 room-state series L5 — promote objects + sub-room places to first-class graph nodes (room → place → object hierarchy). Backward-compat for v1 `known_rooms` API; map-side substrate for the v3 `vla-v2-architecture` bet. |
 
 #### Jetson lane
 
@@ -203,6 +219,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`unify-test-targets-and-ci`](active/tooling/unify-test-targets-and-ci.md) | Either | M | Makefile unification + stretch CI workflow. Doesn't block features; bumps to P2 once a second drift incident shows up. |
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | DGX | S | Sidecar `training_preset` records the configclass name instead of the rsl_rl preset variable; cosmetic but the field is operator-facing. Filed off [`export-onnx-depth`](completed/export-onnx-depth.md). |
 | [`defm-preprocess-antialias-audit`](active/investigations/defm-preprocess-antialias-audit.md) | DGX | S–M | Measure projection-space delta between training-time DeFM antialiased preprocessing and the deployment ONNX-safe non-antialiased version, then decide alignment (leave / align deploy / align training). Filed off [`export-onnx-depth`](completed/export-onnx-depth.md). |
+| [`semantic-graph-loop-closure`](active/multi-room/semantic-graph-loop-closure.md) | DGX | M | v2 room-state series L4 — detect duplicate-place nodes via CLIP-similarity + spatial proximity, annotate as `same_place` edges. Quiet long-horizon quality lift; required infrastructure for the parked `semantic-map-lifecycle-merge`. |
 
 ---
 
@@ -232,6 +249,7 @@ picks them up.
 | [`cotrained-retrieval-augmented`](parked/clip-validation/cotrained-retrieval-augmented.md) | [`validator-evaluation`](active/clip-validation/validator-evaluation.md) shipped + [`trajectory-first-captioning`](active/harness/trajectory-first-captioning.md) shipped (provides the speaker corpus) **and** [`backbone-bakeoff`](parked/clip-validation/backbone-bakeoff.md) shipped (selects the backbone) | Replaces the retired `learned-mid-mission-validator` as the cascade-improvement path. The co-training step and retrieval-augmented step compound; both compose with the existing cascade. |
 | [`backbone-bakeoff`](parked/clip-validation/backbone-bakeoff.md) | [`validator-evaluation`](active/clip-validation/validator-evaluation.md) shipped | Audit-filed off the 2026-05-15 clip-validation review. Measures DINOv3-S / SigLIP-2-Base / MobileCLIP-2-S head-to-head against the v1 OpenCLIP ViT-B/32 baseline on the same eval set, so the cascade-improvement and v2 VLA briefs inherit a backbone with the alternative-considered trail in writing rather than defaulting to a 2021-era ViT-B/32. |
 | [`vla-v2-architecture`](parked/experimental/vla-v2-architecture.md) | [`teleop-driver`](active/harness/teleop-driver.md) **and** [`behavior-cloning-data-expansion`](active/harness/behavior-cloning-data-expansion.md) shipped | Needs the action-labeled corpus (teleop primary, bridge supplement) before any VLA fine-tune is meaningful. Sim-first research arm; additive to v1. |
+| [`vla-v2-map-conditioning`](parked/experimental/vla-v2-map-conditioning.md) | [`semantic-graph-object-centric-hierarchical`](active/multi-room/semantic-graph-object-centric-hierarchical.md) shipped **and** [`vla-v2-architecture`](parked/experimental/vla-v2-architecture.md) has a working training run | Audit-filed off the 2026-05-20 multi-room + clip-validation review. Closes the unwritten "map-side substrate" handshake between the hierarchical-graph brief and the v2 VLA — picks one of {text serialization, cross-attention over memory bank, no consumption} via a three-row ablation on cross-room mission success, then re-anchors both briefs against the result. |
 | [`oracle-driver`](parked/harness/oracle-driver.md) | [`subgoal-env`](active/trained-policy/subgoal-env.md) shipped (provides NoCam waypoint-follower checkpoint) **and** trigger: teleop throughput is the binding scale constraint for VLA training (see brief) | Filed-on-trigger sketch. Don't pick up preemptively. |
 | [`harness-throughput-measurement`](parked/harness/harness-throughput-measurement.md) | Trigger: [`oracle-driver`](parked/harness/oracle-driver.md) or [`trajectory-first-captioning`](active/harness/trajectory-first-captioning.md) about to commit to a `num_envs` target | Audit-filed: every parallel-env claim in the harness epic is asserted, not measured. Run this before either scale-out brief picks a throughput acceptance bar. |
 | [`output-format-alignment`](parked/harness/output-format-alignment.md) | Trigger: first downstream training brief about to consume the harness corpus, OR the harness about to ship the first 1k+ trajectories | Audit-filed: the current JSONL output schema doesn't match what GR00T / OpenVLA / π0 / Octo consume natively (LeRobot v2 / RLDS / robomimic HDF5). Pick the canonical format deliberately before the corpus grows. |
@@ -241,11 +259,14 @@ picks them up.
 | [`d555-usb-dropout-framerate-collapse`](parked/reliability/d555-usb-dropout-framerate-collapse.md) | Trigger: real D555 connected to Jetson **and** either (a) multi-hour mission completed where dropouts could surface, or (b) the first tegra-xusb stall observed on real-robot bringup | Filed-on-trigger off the 2026-05-17 reliability audit. Adds `/perception/health` topic + framerate watchdog + executor gate. Not exercised in sim. |
 | [`roboclaw-error-visibility-and-low-battery`](parked/reliability/roboclaw-error-visibility-and-low-battery.md) | Trigger: real-robot bringup begins (chassis powered and RoboClaws actually communicating over USB) | Filed-on-trigger off the 2026-05-17 reliability audit. Exposes CRC-error count + battery voltage + low-battery degraded mode. Not exercised in sim (`HARDWARE_PRESENT=false` bypasses driver). |
 | [`imu-yaw-drift-no-magnetometer`](parked/reliability/imu-yaw-drift-no-magnetometer.md) | Trigger: real-robot multi-room mission shows yaw-drift between RTAB-Map closures > 2° p95 **or** RTAB-Map loop closure becomes unreliable on lab carpet | Filed-on-trigger investigation off the 2026-05-17 reliability audit. Decides between SLAM-anchored telemetry-only (option A) vs. external magnetometer add (option B) vs. VIO (option C). |
-| [`llm-guided-frontier-gain`](parked/multi-room/llm-guided-frontier-gain.md) | [`observation-derived-room-state`](active/multi-room/observation-derived-room-state.md) shipped (no language-shaped frontier descriptions); v1 frontier primitive shipped in #40 | Extension to v1 frontier primitive — multiplies an LFG-style scalar LLM prior onto the geometric gain. `gain_weights.llm = 0.0` recovers v1 exactly. Cites LFG (arXiv:2310.10103) as the design precedent; CogNav-style state machine deferred to v3 ([`frontier-cognitive-fsm`](parked/multi-room/frontier-cognitive-fsm.md)). |
+| [`llm-guided-frontier-gain`](parked/multi-room/llm-guided-frontier-gain.md) | [`observation-derived-room-state`](completed/observation-derived-room-state.md) shipped (no language-shaped frontier descriptions); v1 frontier primitive shipped in #40 | Extension to v1 frontier primitive — multiplies an LFG-style scalar LLM prior onto the geometric gain. `gain_weights.llm = 0.0` recovers v1 exactly. Cites LFG (arXiv:2310.10103) as the design precedent; CogNav-style state machine deferred to v3 ([`frontier-cognitive-fsm`](parked/multi-room/frontier-cognitive-fsm.md)). |
 | [`frontier-cognitive-fsm`](parked/multi-room/frontier-cognitive-fsm.md) | [`llm-guided-frontier-gain`](parked/multi-room/llm-guided-frontier-gain.md) shipped **and** v2 shows a measurable plateau on long-horizon (≥ 3-room) missions per the brief's "Trigger detail" | v3 frontier-exploration upgrade — CogNav-style cognitive FSM (broad / contextual / identification / verification states) on top of v2's scalar prior. Filed-on-trigger: do not pick up preemptively. The detector, snapshot plumbing, and skill registration survive both v1→v2 and v2→v3; only the per-step loop rewrites. Cites CogNav, ICCV 2025. |
 | [`room-state-runtime-ergonomics`](parked/multi-room/room-state-runtime-ergonomics.md) | Trigger: deployment regularly exceeds ~1K nodes (Finding A scaling) OR a real-robot CLIP late-bind failure surfaces (Finding B) | Two manager-internal ergonomic gaps surfaced by the `observation-derived-room-state` ship audit: `room_anchor`'s linear scan over all graph nodes (v1-acceptable; index follow-up at scale) and `RoomClassifier`'s sticky `enabled = False` latch (silent failure if CLIP late-binds). Both have clear filed-on-trigger conditions. |
+| [`semantic-map-lifecycle-merge`](parked/multi-room/semantic-map-lifecycle-merge.md) | [`semantic-graph-loop-closure`](active/multi-room/semantic-graph-loop-closure.md) shipped (no merge candidates without it) | v2 room-state series L4 follow-up — replace v1's time-based `prune()` with hierarchical decay (recent / long-term layers + spatial pooling). Preserves static geometry across multi-day operation. Capacity-bounded by home area, not by time. |
 | [`staging-hops-shadow-mode`](parked/multi-room/staging-hops-shadow-mode.md) | [`autonomy-stack`](active/multi-room/autonomy-stack.md) shipped (need the room-aware compiler to compare against) **and** [`planner-far-target-staging`](active/multi-room/planner-far-target-staging.md) shipped (need the far-target helper). | Migration step 2 from [§1.10.2](../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c) — populate `MissionIntent.staging_hops` from the LLM, log the agreement-rate against the compiler's plan, ship a weekly report. Compiler still ignores the field. The report is the trigger signal for `planner-scene-graph-expansion`. |
 | [`planner-scene-graph-expansion`](parked/multi-room/planner-scene-graph-expansion.md) | [`staging-hops-shadow-mode`](parked/multi-room/staging-hops-shadow-mode.md) shipped AND its ≥ a week of shadow data shows the LLM's hops disagree with the compiler for reasons object poses / room inventories would fix (target disambiguation, intra-room landmark choice). See the "Trigger detail" section of the brief. | Extends `world_state` with `ObjectEntry` + per-room object inventories so the planner LLM has the spatial context to make `staging_hops` better than the Option C compiler. Prerequisite for promoting `staging_hops` from advisory to authoritative in [§1.10.2 step 3](../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c). |
+| [`learned-region-head`](parked/multi-room/learned-region-head.md) | v2 room-state series shipped AND eval-harness V-measure on the multi-bedroom adversarial scene stays below 0.6 after smoothing + calibration + VLM-refinement land; OR a real-deployment room type doesn't fit `DEFAULT_ROOM_PROMPTS`; OR per-node classification is i.i.d.-bound after smoothing. See the brief's "Trigger detail." | Symbolic-layer brittleness-killer audit-filed off PR #43 review. One learned head replaces v2's prompt-set classifier + clustering + smoothing + calibration + VLM-refinement pipeline; trained on the eval-harness corpus; head's threshold-tuning surface area is zero at the consumer boundary. Sunsets ≥3 v2 briefs if it works. XL — don't pre-empt the v2 ship. |
+| [`learned-vpr-loop-closure`](parked/multi-room/learned-vpr-loop-closure.md) | [`semantic-graph-loop-closure`](active/multi-room/semantic-graph-loop-closure.md) shipped AND its calibration sweep can't find an operating point that meets the precision-recall floor on the multi-bedroom scene; OR the calibrated point fails sim-to-real transfer; OR lifecycle-merge's pooled anchors merge distinct places. See the brief's "Trigger detail." | Drop-in VPR descriptor (MegaLoc / SALAD / AnyLoc) replaces raw CLIP cosine inside `detect_loop_closures`. Same ANN store, same `same_place` edge protocol; only the embedding tower changes. CLIP keeps serving room labeling + text queries + validator cosine. Audit-filed off PR #43 review; the 0.80 default that the v1.5 brief had as a placeholder gets replaced by a descriptor trained for instance discrimination. |
 
 ---
 

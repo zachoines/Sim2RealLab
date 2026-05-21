@@ -12,8 +12,24 @@ from typing import Any
 
 import numpy as np
 
+from collections.abc import Callable
+
 from .clip_encoder import CLIPEncoder
-from .models import DetectedObjectEntry, Pose2D, SemanticEdge, SemanticNode
+from .models import (
+    DetectedObjectEntry,
+    Pose2D,
+    RoomEntry,
+    SemanticEdge,
+    SemanticNode,
+)
+from .room_state import (
+    DEFAULT_ROOM_PROMPTS,
+    Nav2Reachable,
+    RoomClassifier,
+    aggregate_room_entries,
+    cluster_nodes,
+    infer_connectivity,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -24,6 +40,17 @@ _OBJECT_TTL_FEW = 21600.0  # 6 hours
 _NODE_TTL_DEFAULT = 86400.0  # 24 hours
 
 _CHROMA_COLLECTION = "semantic_map_embeddings"
+
+# Cluster cache is refreshed whenever the live node count drifts by more
+# than this fraction from the size at which the cache was built.
+_CLUSTER_CACHE_GROWTH_FRACTION = 0.10
+
+# `current_room(pose)` looks for the nearest node within this radius; if
+# nothing is close enough the robot is treated as being in no known
+# room (returns None). Tuned to the proximity-edge radius (2 m) plus
+# a small slack to capture the case where the robot just stepped off a
+# captured node.
+_CURRENT_ROOM_NEAREST_RADIUS_M = 3.0
 
 
 def initial_object_covariance(
@@ -50,7 +77,14 @@ def initial_object_covariance(
 class SemanticMapManager:
     """Semantic spatial map combining a NetworkX graph with ChromaDB vector search."""
 
-    def __init__(self, storage_dir: str = "~/.strafer/semantic_map") -> None:
+    def __init__(
+        self,
+        storage_dir: str = "~/.strafer/semantic_map",
+        *,
+        room_prompts: tuple[str, ...] | None = None,
+        nav2_reachable: Nav2Reachable | None = None,
+        use_nav2_reach: bool = True,
+    ) -> None:
         import chromadb
         import networkx as nx
 
@@ -72,6 +106,13 @@ class SemanticMapManager:
         self._clip_encoder = CLIPEncoder()
         self._node_counter = 0
 
+        self._room_classifier: RoomClassifier | None = None
+        self._room_prompts = room_prompts
+        self._nav2_reachable = nav2_reachable
+        self._use_nav2_reach = use_nav2_reach
+        self._cluster_cache: list[RoomEntry] | None = None
+        self._cluster_cache_node_count: int = 0
+
     @property
     def clip_encoder(self) -> CLIPEncoder:
         return self._clip_encoder
@@ -82,6 +123,59 @@ class SemanticMapManager:
 
     def node_count(self) -> int:
         return self._graph.number_of_nodes()
+
+    def set_nav2_reachable(
+        self,
+        nav2_reachable: Nav2Reachable | None,
+        *,
+        enabled: bool = True,
+    ) -> None:
+        """Inject (or remove) the Nav2 reachability callable.
+
+        `connectivity()` consults this when two clusters are not graph-
+        connected. Pass `None` or `enabled=False` to disable the Nav2
+        enrichment (e.g., when Nav2 is not running).
+        """
+        self._nav2_reachable = nav2_reachable
+        self._use_nav2_reach = enabled
+        self._invalidate_cluster_cache()
+
+    def _classify_room(
+        self, clip_embedding: np.ndarray,
+    ) -> tuple[str | None, float]:
+        if self._room_classifier is None:
+            self._room_classifier = RoomClassifier(
+                self._clip_encoder,
+                prompts=self._room_prompts or DEFAULT_ROOM_PROMPTS,
+            )
+        return self._room_classifier.classify(clip_embedding)
+
+    def _invalidate_cluster_cache(self) -> None:
+        self._cluster_cache = None
+        self._cluster_cache_node_count = 0
+
+    def _cluster_cache_stale(self) -> bool:
+        if self._cluster_cache is None:
+            return True
+        current = self._graph.number_of_nodes()
+        cached = self._cluster_cache_node_count
+        if current == 0 and cached > 0:
+            return True
+        if current < cached:
+            return True
+        if cached == 0:
+            return True
+        growth = (current - cached) / max(cached, 1)
+        return growth >= _CLUSTER_CACHE_GROWTH_FRACTION
+
+    def _get_known_rooms_cached(self) -> list[RoomEntry]:
+        if self._cluster_cache_stale():
+            clusters = cluster_nodes(self._graph)
+            self._cluster_cache = aggregate_room_entries(
+                self._graph, clusters,
+            )
+            self._cluster_cache_node_count = self._graph.number_of_nodes()
+        return list(self._cluster_cache or [])
 
     def add_observation(
         self,
@@ -110,6 +204,13 @@ class SemanticMapManager:
                 target_node_id=node_id,
             )
 
+        merged_metadata = dict(metadata or {})
+        if "room_label" not in merged_metadata:
+            label, conf = self._classify_room(clip_embedding)
+            if label is not None:
+                merged_metadata["room_label"] = label
+                merged_metadata["room_conf"] = conf
+
         node = SemanticNode(
             node_id=node_id,
             pose=pose,
@@ -117,7 +218,7 @@ class SemanticMapManager:
             clip_embedding_id=embedding_id,
             text_description=text_description,
             detected_objects=list(detected_objects or []),
-            metadata=metadata or {},
+            metadata=merged_metadata,
             source=source,
         )
 
@@ -136,6 +237,7 @@ class SemanticMapManager:
         )
 
         self._add_proximity_edges(node)
+        self._invalidate_cluster_cache()
         self.save()
         return node
 
@@ -271,6 +373,88 @@ class SemanticMapManager:
                 output.append((node, dist))
         return output
 
+    def known_rooms(self) -> list[RoomEntry]:
+        """Return the deduplicated set of rooms inferred from the map.
+
+        Clusters the proximity graph (greedy modularity for dense maps,
+        connected components for sparse ones), classifies each cluster
+        via majority vote over per-node CLIP zero-shot labels, then
+        merges clusters that share a label. Cached; refreshes when the
+        live node count drifts by `_CLUSTER_CACHE_GROWTH_FRACTION` or
+        more from the size at which the cache was built. Empty list if
+        the map has no nodes or no nodes carry room labels.
+        """
+        return self._get_known_rooms_cached()
+
+    def current_room(
+        self,
+        pose: Pose2D,
+        *,
+        max_distance_m: float = _CURRENT_ROOM_NEAREST_RADIUS_M,
+    ) -> RoomEntry | None:
+        """Return the `RoomEntry` containing the nearest semantic-map node.
+
+        Returns `None` if the map is empty, has no labeled rooms, or
+        the nearest node is farther than `max_distance_m`. The default
+        is tuned to the proximity-edge radius so a robot near a
+        captured node is consistently placed in its room; callers with
+        a frontier centroid in unmapped territory can widen the radius.
+        """
+        nearest = self.query_nearest(
+            pose.x, pose.y, max_distance_m=max_distance_m,
+        )
+        if nearest is None:
+            return None
+        for room in self._get_known_rooms_cached():
+            if nearest.node_id in room.member_node_ids:
+                return room
+        return None
+
+    def connectivity(self) -> list[tuple[str, str]]:
+        """Pairs of room labels proven reachable from each other.
+
+        A pair is present iff (1) the proximity graph already connects
+        them via traversal, or (2) the injected Nav2 reachability hook
+        returns `True` for their centroids. Absence is *pessimistic* —
+        "not yet proven reachable," not "unreachable." Disabled when
+        `use_nav2_reach` is False or no callable was injected.
+        """
+        entries = self._get_known_rooms_cached()
+        nav2 = (
+            self._nav2_reachable
+            if self._use_nav2_reach
+            else None
+        )
+        return infer_connectivity(
+            self._graph, entries, nav2_reachable=nav2,
+        )
+
+    def room_anchor(self, room_label: str) -> Pose2D | None:
+        """Return the most recent semantic-map node's pose tagged `room_label`.
+
+        Used by the autonomy-stack compiler as the transit destination
+        for cross-room missions. Returns `None` when no node carries
+        the requested label.
+        """
+        best_pose: Pose2D | None = None
+        best_time = -1.0
+        target = room_label.strip().lower()
+        for nid in self._graph.nodes:
+            data = self._graph.nodes[nid].get("data", {})
+            meta = data.get("metadata", {}) or {}
+            label = meta.get("room_label")
+            if not label or str(label).strip().lower() != target:
+                continue
+            ts = float(data.get("timestamp", 0.0))
+            if ts > best_time:
+                best_time = ts
+                best_pose = Pose2D(
+                    x=float(data.get("pose_x", 0.0)),
+                    y=float(data.get("pose_y", 0.0)),
+                    yaw=float(data.get("pose_yaw", 0.0)),
+                )
+        return best_pose
+
     def get_clip_embedding(self, embedding_id: str) -> np.ndarray:
         """Retrieve a stored CLIP embedding by its ID."""
         result = self._collection.get(
@@ -387,6 +571,7 @@ class SemanticMapManager:
                     pass
 
         if nodes_to_remove:
+            self._invalidate_cluster_cache()
             self.save()
         return len(nodes_to_remove)
 
@@ -414,6 +599,7 @@ class SemanticMapManager:
             self._node_counter = max_counter
         else:
             self._graph = self._nx.DiGraph()
+        self._invalidate_cluster_cache()
 
     def log_failure(
         self,
@@ -486,6 +672,7 @@ class SemanticMapManager:
         """Full reset of graph and vector store."""
         self._graph.clear()
         self._node_counter = 0
+        self._invalidate_cluster_cache()
         try:
             self._chroma_client.delete_collection(_CHROMA_COLLECTION)
             self._collection = self._chroma_client.get_or_create_collection(

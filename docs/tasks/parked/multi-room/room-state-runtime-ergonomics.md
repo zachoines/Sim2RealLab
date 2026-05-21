@@ -215,3 +215,11 @@ matmul that the enabled path runs.
   merge is v1-by-design; disambiguation work is filed
   elsewhere when it surfaces real failures (e.g., a
   multi-bedroom adversarial mission).
+- **Finding B obsolescence.** If
+  [`learned-region-head`](learned-region-head.md) ships and
+  retires the v1 `RoomClassifier` entirely, Finding B
+  (sticky-disable retry) becomes moot — there's no
+  `RoomClassifier` left to fix. Until then, the finding
+  stands. Finding A (`room_anchor` index) survives the
+  head ship; `room_anchor()` is still O(N) regardless of
+  what populates `metadata["room_label"]`.

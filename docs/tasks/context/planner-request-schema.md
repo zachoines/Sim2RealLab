@@ -11,9 +11,10 @@ the far-target staging path
 Whichever consuming brief lands first defines the wire shape; later
 briefs reuse it.
 
-## Status — none of this exists yet
+## Wiring status
 
-This module documents the target contract. Wiring status:
+The `SemanticMapManager` room-state API is shipped; the `world_state`
+wire type and the compiler's room-aware logic are not. Per-piece:
 
 | Piece | Current state | Brief that lands it |
 |---|---|---|

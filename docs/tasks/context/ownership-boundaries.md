@@ -51,8 +51,8 @@ ad-hoc edits create sim-to-real drift.
 
 ## Off-limits, regardless of lane
 
-- `docs/archive/` — does not exist anymore (deleted in `ded56ea`).
-  Don't recreate it. Closed task briefs are deleted, not archived.
+- `docs/archive/` — does not exist; don't recreate it. Shipped task
+  briefs move to `docs/tasks/completed/`, they are not archived.
 - Raw Infinigen-generated USDC files under `Assets/generated/scenes/`
   — outputs of `prep_room_usds.py`, not source. Treat as build
   artifacts.

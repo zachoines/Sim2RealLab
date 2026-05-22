@@ -36,7 +36,8 @@ Verify from inside the repo with `git remote -v` + `git rev-parse --show-topleve
 | `env_isaaclab3` | 3.12 | Isaac Sim 6 + Isaac Lab develop, the main DGX env. Used for training, bridge, smoke tests, demo collection. |
 | `env_infinigen` | 3.11 | Infinigen scene generation only. Pinned to 3.11 because Infinigen's deps don't all support 3.12 yet. |
 
-The Jetson uses system Python 3.12 + a colcon workspace.
+The Jetson uses system Python 3.10 (Ubuntu 22.04 / ROS 2 Humble
+default) + a colcon workspace.
 
 `env_setup.sh` sources `.env` (operator-tuned) and exports
 `STRAFER_ISAACLAB_PYTHON`, `STRAFER_INFINIGEN_PYTHON`, `ISAACLAB`,

@@ -1,5 +1,8 @@
 # Cancel-mid-motion must zero `/cmd_vel` for direct-publish skills
 
+**Status:** Shipped 2026-05-22 in `df30150` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/48
+
 **Type:** task / bug
 **Owner:** Jetson agent (`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`, `source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py`)
 **Priority:** P1 — correctness bug; real-robot blocker. The current behavior is "user pressed cancel, robot keeps rotating until tolerance or wall-cap." That's not acceptable on hardware near humans / furniture.

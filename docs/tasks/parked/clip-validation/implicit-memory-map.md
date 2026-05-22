@@ -129,8 +129,10 @@ from the lineage (Re-CLIP, MemoryBank-CLIP, Atlas, RA-DIT):
 training-with-retrieval beats inference-only retrieval.
 
 **Cold-deployment collapse + mitigation.** The training-time
-pool is the full harness corpus (minus the held-out
-trajectory); the deployment-time pool is whatever the
+pool is the full harness corpus (the
+[`validator-evaluation`](../../active/clip-validation/validator-evaluation.md)
+episode set — same `held_out_seeds` protocol, minus the
+held-out trajectory); the deployment-time pool is whatever the
 `SemanticMapManager` has accumulated on this house — empty on
 a fresh deployment, growing to ~50–200 nodes. A layer trained
 only against a dense pool collapses at K=0 (no keys) or K=1

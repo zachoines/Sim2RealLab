@@ -213,13 +213,13 @@ brief acceptance below now requires this; the spatial filter
       regions as one cluster. (Modularity supports weighted
       edges natively.)
 - [ ] **Fragmentation measured.** PR description carries
-      cluster purity on a repeated-traversal trajectory
-      (added to the
-      [`room-state-eval-harness`](room-state-eval-harness.md)
-      scene set) — v1 baseline vs. v2-with-loop-closure.
-      Cluster purity should hold steady (≤ 0.05 V-measure
-      drop) across 2× / 3× repeated traversals, where v1
-      currently degrades.
+      cluster purity on the repeated-traversal trajectory
+      (`trajectory_repeat.jsonl`, produced by
+      [`room-state-eval-harness`](room-state-eval-harness.md))
+      — v1 baseline vs. v2-with-loop-closure. Cluster purity
+      should hold steady (≤ 0.05 V-measure drop) across
+      2× / 3× repeated traversals, where v1 currently
+      degrades.
 - [ ] **No false positives on adversarial scenes.** The
       multi-bedroom eval scene must NOT have its two
       bedrooms loop-closed into one (different physical

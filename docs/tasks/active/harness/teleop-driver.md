@@ -58,11 +58,11 @@ first, otherwise it emits the JSONL schema from
 Downstream consumers:
 - [`validator-evaluation`](../clip-validation/validator-evaluation.md)
   (relaxes its hard `Blocked on: next-integration-round` once
-  teleop output exists).
-- [`completed/learned-mid-mission-validator`](../../completed/learned-mid-mission-validator.md)
-  (retired — see brief for rationale)
-  (teleop's wrong-instance / wrong-room / wrong-path-shape
-  buttons are the cleanest hard-negative source).
+  teleop output exists; teleop's wrong-instance / wrong-room /
+  wrong-path-shape buttons are the cleanest hard-negative
+  source for the CLIP cascade eval and the co-trained
+  validator
+  [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md)).
 - [`vla-v2-architecture`](../../parked/experimental/vla-v2-architecture.md)
   (training data; teleop is the default per §3.6).
 
@@ -254,7 +254,7 @@ calibrated ~30 ep/hr endpoint rate above**:
 |---|---|---|
 | CLIP fine-tune, 1 scene | ~1k frames (~30 episodes) | ~1 hour |
 | VLM SFT, 1 scene | ~5k frames (~50 episodes) | ~1.5–2 hours |
-| Learned-validator (frozen-DINOv2 + temporal head), 1 scene | ~5k labeled windows (~30 success + 30 hard-negative) | ~2 hours |
+| CLIP cascade eval + co-trained validator hard negatives, 1 scene | ~30 success + 30 `X`-tagged hard-negative episodes | ~2 hours |
 | v2 VLA endpoint missions (Octo / TinyVLA frozen-tower fine-tune), 3 scenes total | ~10k trajectories with hindsight relabel + replay-perturbation multipliers (~5×) ⇒ ~2k actual demos | ~60–80 hours |
 | v2 VLA path-shape missions (per constraint type) | ~1k path-shape demos | ~50 hours per constraint type — **bottleneck for path-shape; motivates the procedural generator** |
 

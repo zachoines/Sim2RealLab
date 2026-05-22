@@ -387,5 +387,6 @@ room.
   at scene-gen time per the connectivity-validation brief.
   Articulated runtime doors are a separate brief if pursued.
 - **Cross-room semantic map cold-start improvements.** The
-  validator briefs (clip-eval, learned-validator) handle the
-  measurement implications; the *map* mechanics stay as-is.
+  validator briefs (the CLIP cascade eval + the co-trained
+  validator) handle the measurement implications; the *map*
+  mechanics stay as-is.

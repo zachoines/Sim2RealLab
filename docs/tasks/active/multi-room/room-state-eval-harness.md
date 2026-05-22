@@ -65,28 +65,74 @@ order becomes guesswork. Filing this brief first sets the
 contract: every subsequent v2+ brief reports its delta against
 the metrics defined here, in its PR description.
 
+### Dual use — eval set AND training corpus
+
+This harness is the **trajectory-capture owner for the whole
+symbolic room-state stack**. Its trajectories are consumed two
+ways:
+
+- **Eval** (this brief): replay through `SemanticMapManager`,
+  score against ground truth.
+- **Training corpus** (downstream): the same trajectories +
+  ground-truth labels are the training set for
+  [`semantic-region-partition`](semantic-region-partition.md)'s
+  `α` calibration and, when un-parked,
+  [`learned-spatial-encoder`](../../parked/multi-room/learned-spatial-encoder.md)'s
+  region head (supervised on per-pose `room_idx`) and
+  place-recognition head (same-place pairs). Because of this,
+  the scene set and trajectory spec below must cover the
+  *training* needs (repeated traversals, open-plan + multi-
+  bedroom adversarials, raw RGB), not just single-pass eval.
+
 ### Eval set
 
 A fixed set of Infinigen multi-room scenes with ground-truth
 `scene_metadata.json` (room polygons, `room_adjacency`, and
 the enriched `connectivity[]` block from
-[`scene-connectivity-validation`](scene-connectivity-validation.md))
-plus a teleop trajectory through each scene that visits every
-room. Minimum:
+[`scene-connectivity-validation`](scene-connectivity-validation.md)).
+Minimum:
 
 - `scene_high_quality_dgx_000_seed0` (existing, the v1 smoke
   scene)
 - 2 additional multi-room seeds generated via
   [`prep_room_usds.py`](../../../../source/strafer_lab/scripts/prep_room_usds.py)
   with `--seed 1 --seed 2`
-- 1 adversarial scene: multi-bedroom (two rooms with the same
-  `room_type`) to exercise the v1 same-label merge limitation
-  documented in `observation-derived-room-state`'s
-  Out-of-scope
+- 1 **multi-bedroom** adversarial scene (two rooms with the same
+  `room_type`) — exercises same-label disambiguation; the
+  hard-negative case for both clustering and place recognition.
+- 1 **open-plan** adversarial scene (kitchen + dining + living
+  with no demarcating walls) — the case where wall geometry
+  can't define regions, which
+  [`semantic-region-partition`](semantic-region-partition.md)
+  and
+  [`learned-spatial-encoder`](../../parked/multi-room/learned-spatial-encoder.md)
+  both must split by visual content. Without it, the v2
+  open-plan claim is untestable.
+
+### Trajectories — single AND repeated traversals
+
+Two trajectory kinds per scene, both stored under
+`logs/eval/room_state/<scene>/`:
+
+- **Single traversal** (`trajectory.jsonl`): one teleop pass
+  that visits every room. The baseline eval trajectory.
+- **Repeated traversal** (`trajectory_repeat.jsonl`): the same
+  scene walked **2×–3×**, revisiting spots from different
+  headings. This is **required infrastructure**, not optional:
+  [`semantic-graph-loop-closure`](semantic-graph-loop-closure.md)
+  measures cluster-fragmentation on it, and
+  [`learned-spatial-encoder`](../../parked/multi-room/learned-spatial-encoder.md)'s
+  place-recognition head mines its same-place pairs from it
+  (two captures of one physical spot from different headings =
+  a positive VPR pair; far-apart captures = negatives). Both
+  downstream briefs previously assumed this trajectory was
+  "added to the eval-harness scene set" — this brief is where
+  it's actually produced.
 
 Trajectories captured by the sim-bridge harness or replay
-from `collect_demos.py`; stored under
-`logs/eval/room_state/<scene>/trajectory.jsonl`.
+from `collect_demos.py`. Raw RGB + pose + timestamp per frame
+(see "Trajectory storage" below); sim ground-truth pose is the
+same-place authority (cleaner than RTAB-Map in sim).
 
 ### Metrics
 
@@ -199,13 +245,23 @@ scene-understanding evaluation:
       metrics defined above to a JSON file.
 - [ ] **Scene set.** At least 3 multi-room scenes (existing
       `scene_high_quality_dgx_000_seed0` + 2 new seeds) plus
-      1 adversarial multi-bedroom scene staged under
-      `logs/eval/room_state/`.
-- [ ] **Trajectory capture.** Document the trajectory-capture
-      procedure in the script's module docstring (teleop via
-      `collect_demos.py` or harness replay via
-      `run_sim_in_the_loop.py --mode harness`). Trajectories
-      stored alongside scene metadata.
+      **two** adversarial scenes — multi-bedroom (same-label
+      disambiguation) AND open-plan (kitchen + dining + living,
+      no walls) — staged under `logs/eval/room_state/`. The
+      open-plan scene is what makes the v2 open-plan-split claim
+      testable.
+- [ ] **Trajectory capture — single + repeated.** Document the
+      capture procedure in the script's module docstring (teleop
+      via `collect_demos.py` or harness replay via
+      `run_sim_in_the_loop.py --mode harness`). Each scene gets
+      a single-traversal `trajectory.jsonl` AND a 2×–3×
+      repeated-traversal `trajectory_repeat.jsonl` (revisits
+      from different headings) — the latter is required by
+      [`semantic-graph-loop-closure`](semantic-graph-loop-closure.md)
+      and
+      [`learned-spatial-encoder`](../../parked/multi-room/learned-spatial-encoder.md),
+      which mine same-place pairs from it. Trajectories stored
+      alongside scene metadata.
 - [ ] **Raw-RGB storage.** Each trajectory frame stores the
       raw RGB capture (PNG/JPEG path + pose + ts), **not** a
       pre-encoded CLIP embedding. The eval script re-encodes

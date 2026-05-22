@@ -50,6 +50,16 @@ was considered and explicitly retired in favor of this end-to-end
 research arm + the cascade-improvements path:
 [`completed/learned-mid-mission-validator.md`](../../completed/learned-mid-mission-validator.md).
 
+Map-conditioning contract (decides whether/how this VLA reads
+the semantic map):
+[`vla-v2-map-conditioning`](vla-v2-map-conditioning.md) — picks
+one of {serialize the symbolic regions / consume the implicit
+memory map / no consumption} via a three-row ablation. **Read it
+before adding any map input to this VLA's `(frame, text,
+action)` tuple** — the conditioning shape is decided there, not
+here. Default (this brief, no map conditioning) is the
+ablation's baseline.
+
 ## Context
 
 ### Sim-first by design

@@ -1,5 +1,8 @@
 # Audit nav-side deadlines for wall-clock leakage under sub-unity RTF
 
+**Status:** Shipped 2026-05-22 in `d68602b` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/45
+
 **Type:** task / bug
 **Owner:** Jetson agent (`source/strafer_autonomy/strafer_autonomy/executor/`, `source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`, `source/strafer_ros/strafer_navigation/config/nav2_params.yaml`)
 **Priority:** P2
@@ -13,16 +16,16 @@ As a **mission operator running sim-in-the-loop at ~15 fps on DGX (RTF ≈ 0.05�
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [context/bridge-runtime-invariants.md](../../context/bridge-runtime-invariants.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md)
   — "Sim-time-aware navigation timeout" section.
-- [completed/rotate-in-place-sim-clock-deadline.md](../../completed/rotate-in-place-sim-clock-deadline.md)
-- [completed/progress-aware-nav-timeouts.md](../../completed/progress-aware-nav-timeouts.md)
+- [completed/rotate-in-place-sim-clock-deadline.md](rotate-in-place-sim-clock-deadline.md)
+- [completed/progress-aware-nav-timeouts.md](progress-aware-nav-timeouts.md)
 
 ## Context
 
-Operator observation (2026-05-11): rotations issued via the executor's `rotate_by_degrees` skill (and equivalents) terminate before the robot has completed the requested arc when running on the sim bridge. The bridge currently runs at ~15 fps on the DGX in headless mode, which means RTF ≈ 0.05–0.1 (see [bridge-runtime-invariants.md](../../context/bridge-runtime-invariants.md) "Phase-level profiler" reference numbers).
+Operator observation (2026-05-11): rotations issued via the executor's `rotate_by_degrees` skill (and equivalents) terminate before the robot has completed the requested arc when running on the sim bridge. The bridge currently runs at ~15 fps on the DGX in headless mode, which means RTF ≈ 0.05–0.1 (see [bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md) "Phase-level profiler" reference numbers).
 
 Two prior briefs already converted the most obvious deadlines to sim-time (`rotate-in-place-sim-clock-deadline`, `progress-aware-nav-timeouts`). The bridge-runtime-invariants doc explicitly calls out the convention:
 
@@ -31,7 +34,7 @@ Two prior briefs already converted the most obvious deadlines to sim-time (`rota
 The `2 * timeout` wall-clock safety cap is the most likely culprit: at RTF=0.05, a 90 s sim-time deadline corresponds to 1800 s of wall time, but the safety cap fires at `2 * 90 = 180` wall seconds. That cap was designed to bound a *stalled* `/clock`; it's now firing in a *slow* `/clock` regime. The recent `donut_warmup` brief on this same PR hit and fixed the same class of bug (`5939a03` and predecessors) by replacing the absolute wall-clock cap with a sim-time stall detector.
 
 The same pattern almost certainly leaks through any other deadline-with-wall-cap pair in the stack:
-- Executor `_wait_for_future`, `_wait_for_nav_result`, `rotate_in_place` wall-clock safety caps. **Already located** — the `2 * timeout` pattern fires at exactly three call sites: [`ros_client.py:1157`](../../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py) (rotate_in_place), [`ros_client.py:1247`](../../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py) (_wait_for_future), [`ros_client.py:1292`](../../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py) (_wait_for_nav_result).
+- Executor `_wait_for_future`, `_wait_for_nav_result`, `rotate_in_place` wall-clock safety caps. **Already located** — the `2 * timeout` pattern fires at exactly three call sites: [`ros_client.py:1157`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py) (rotate_in_place), [`ros_client.py:1247`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py) (_wait_for_future), [`ros_client.py:1292`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py) (_wait_for_nav_result).
 - Nav2 Spin behavior `time_allowance` (parametrized per-goal; default 10 s is sim-time but the Spin behavior internally may use wall clock for some bounds).
 - `behavior_server` `transform_tolerance` and `cycle_frequency`.
 - `controller_server` `failure_tolerance` window.
@@ -41,11 +44,11 @@ The same pattern almost certainly leaks through any other deadline-with-wall-cap
 ### Verify that Nav2's `use_sim_time` override is actually flowing through
 
 A separate `use_sim_time` confusion exists in
-[`nav2_params.yaml`](../../../../source/strafer_ros/strafer_navigation/config/nav2_params.yaml):
+[`nav2_params.yaml`](../../../source/strafer_ros/strafer_navigation/config/nav2_params.yaml):
 every Nav2 server has `use_sim_time: false` hardcoded (lines 20, 91,
 208, 223, 237, 271, 310, 346, 361). The launch chain
-([`bringup_sim_in_the_loop.launch.py:128`](../../../../source/strafer_ros/strafer_bringup/launch/bringup_sim_in_the_loop.launch.py),
-[`navigation.launch.py:277`](../../../../source/strafer_ros/strafer_navigation/launch/navigation.launch.py))
+([`bringup_sim_in_the_loop.launch.py:128`](../../../source/strafer_ros/strafer_bringup/launch/bringup_sim_in_the_loop.launch.py),
+[`navigation.launch.py:277`](../../../source/strafer_ros/strafer_navigation/launch/navigation.launch.py))
 passes `use_sim_time:=true` which `RewrittenYaml` inside
 `nav2_bringup/navigation_launch.py` should override at runtime. Confirm
 this is actually happening — the audit's first step should be:
@@ -94,8 +97,8 @@ Stand up the bridge in headless mode (target RTF ~0.05–0.1) and run the smoke 
 - [ ] A `translate forward 3 m` mission at RTF ≤ 0.1 completes without spurious termination.
 - [ ] No regression on cold-start without a DB (`make clean-map && make launch-sim`): smoke missions still complete end-to-end.
 - [ ] Real-robot bringup unaffected: at RTF = 1.0 the stall detector and the previous absolute cap fire at indistinguishable times, modulo the configured `clock_stall_bail_wall_s` slack. Unit-test this where feasible.
-- [ ] Update the "Sim-time-aware navigation timeout" section of [`context/bridge-runtime-invariants.md`](../../context/bridge-runtime-invariants.md) to describe the stall-detector pattern instead of the `2 * timeout` cap.
-- [ ] If your work invalidates a fact in any referenced context module, package README, top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance) for the surface list and trigger heuristics.
+- [ ] Update the "Sim-time-aware navigation timeout" section of [`context/bridge-runtime-invariants.md`](../context/bridge-runtime-invariants.md) to describe the stall-detector pattern instead of the `2 * timeout` cap.
+- [ ] If your work invalidates a fact in any referenced context module, package README, top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance) for the surface list and trigger heuristics.
 
 ## Investigation pointers
 
@@ -109,6 +112,6 @@ Stand up the bridge in headless mode (target RTF ~0.05–0.1) and run the smoke 
 
 - **Speeding up the bridge.** Sub-unity RTF is a perf reality (camera-publish OmniGraph dominates per the bridge-runtime-invariants doc); this brief is about tolerating low RTF, not eliminating it. Bridge perf work tracks separately under `async-camera-publishers.md`.
 - **Real-robot deadline tuning.** Real-robot runs at RTF = 1.0; current bounds are appropriate. If real-robot regressions surface from a stall-detector substitution, file a follow-up.
-- **Do NOT bundle with [`nav-stall-multilayer-watchdog.md`](../../parked/reliability/nav-stall-multilayer-watchdog.md).** The two briefs target different work despite naming overlap: this audit is a *correctness pass* on existing deadlines (mostly grep + small targeted conversions); the multilayer watchdog is a *feature add* (new abort signals + new tests + new env knobs). They share zero code modules. Bundling makes this audit's PR larger without making the watchdog easier to land. Keep them sequenced: audit first to confirm the sim-time baseline; watchdog only if v1 false-positives surface.
-- **Cancel-mid-rotation correctness.** The `rotate_in_place` loop doesn't observe a cancel event today — that's [`executor-cancel-mid-motion-cmd-vel-zero.md`](executor-cancel-mid-motion-cmd-vel-zero.md). The audit will likely *notice* the bug; do not fix it in this PR. If a fix is trivial, file the brief and let it land separately.
+- **Do NOT bundle with [`nav-stall-multilayer-watchdog.md`](../parked/reliability/nav-stall-multilayer-watchdog.md).** The two briefs target different work despite naming overlap: this audit is a *correctness pass* on existing deadlines (mostly grep + small targeted conversions); the multilayer watchdog is a *feature add* (new abort signals + new tests + new env knobs). They share zero code modules. Bundling makes this audit's PR larger without making the watchdog easier to land. Keep them sequenced: audit first to confirm the sim-time baseline; watchdog only if v1 false-positives surface.
+- **Cancel-mid-rotation correctness.** The `rotate_in_place` loop doesn't observe a cancel event today — that's [`executor-cancel-mid-motion-cmd-vel-zero.md`](../active/reliability/executor-cancel-mid-motion-cmd-vel-zero.md). The audit will likely *notice* the bug; do not fix it in this PR. If a fix is trivial, file the brief and let it land separately.
 - **Nav2's own collision-monitor / velocity-smoother safety primitives.** The Nav2 stack ships [`nav2_collision_monitor`](https://docs.nav2.org/configuration/packages/collision_monitor/configuring-collision-monitor-node.html) (Stop/Slowdown/Limit/Approach safety models) and [`nav2_velocity_smoother`](https://docs.nav2.org/configuration/packages/configuring-velocity-smoother.html)'s `velocity_timeout` (zero-Twist on cmd_vel staleness). Those are fail-safe primitives, not sim-time fixes; cross-reference them in the multilayer-watchdog brief instead.

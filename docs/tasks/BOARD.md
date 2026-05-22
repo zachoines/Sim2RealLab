@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`nav-deadline-sim-time-audit`](active/reliability/nav-deadline-sim-time-audit.md) | Jetson | [#45](https://github.com/zachoines/Sim2RealLab/pull/45) | Open — unit-tested (73 passing); validated end-to-end on the DGX bridge at RTF≈0.085 (`use_sim_time` live=True on all Nav2 servers; rotate 180° + translate 1 m run 5–6× past the old `2*timeout` cap, no spurious abort). Surfaced two pre-existing out-of-scope bugs → [`rotate-in-place-large-angle-correctness`](active/reliability/rotate-in-place-large-angle-correctness.md) filed. |
+| _None._ | | | |
 
 ---
 
@@ -107,7 +107,6 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | Brief | Pri | State | Owner |
 |---|---|---|---|
 | [`executor-cancel-mid-motion-cmd-vel-zero`](active/reliability/executor-cancel-mid-motion-cmd-vel-zero.md) | P1 | active | Jetson |
-| [`nav-deadline-sim-time-audit`](active/reliability/nav-deadline-sim-time-audit.md) | P2 | active | Jetson |
 | [`executor-prefer-rotate-then-translate`](active/reliability/executor-prefer-rotate-then-translate.md) | P2 | active | Jetson |
 | [`rtabmap-cold-start-determinism`](active/reliability/rtabmap-cold-start-determinism.md) | P2 | active | Jetson |
 | [`executor-grounding-loss-mid-mission-recovery`](active/reliability/executor-grounding-loss-mid-mission-recovery.md) | P2 | active | Jetson |
@@ -198,7 +197,6 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`grounding-publisher-extraction`](active/reliability/grounding-publisher-extraction.md) | S | Quick win — pure refactor follow-up to `vlm-bbox-overlay`; extracts the viz publishers out of `JetsonRosClient` |
 | [`real-d555-depth-range-survey`](active/investigations/real-d555-depth-range-survey.md) | S–M | Investigation — bench measurement + write-up |
 | [`rtabmap-cold-start-determinism`](active/reliability/rtabmap-cold-start-determinism.md) | M | Cold-start signature on populated DB: `Not found word N` burst + `Increment map id to 4`; triage bridge-teleport vs Mem/* config + ship the chosen disposition. After audit: A2 recommended — flip `localization:=true` default when populated DB exists. |
-| [`nav-deadline-sim-time-audit`](active/reliability/nav-deadline-sim-time-audit.md) | M | Audit executor + Nav2 wall-clock safety caps; replace absolute caps with sim-time-progress stall detectors so rotations don't abort partway at RTF ≤ 0.1. Also: verify Nav2's `use_sim_time` launch override is actually flowing through to the per-server YAML defaults. |
 | [`executor-prefer-rotate-then-translate`](active/reliability/executor-prefer-rotate-then-translate.md) | M | Decompose non-cardinal translations into rotate-to-face + forward translate at the executor layer; preserves cardinal strafe |
 | [`rotate-in-place-large-angle-correctness`](active/reliability/rotate-in-place-large-angle-correctness.md) | S–M | `rotate_in_place` closes the loop on a single normalized target yaw: `rotate 360` no-ops (2π→0 target) and `>180°` takes the short way. Track accumulated traversal instead. Surfaced in PR #45 e2e (rotate 360 vs 180 at RTF≈0.085). |
 | [`executor-grounding-loss-mid-mission-recovery`](active/reliability/executor-grounding-loss-mid-mission-recovery.md) | M | `_navigate_via_staging` re-grounding failure terminates immediately. Add mini-scan + semantic-map fallback with bounded recovery budget. Filed off the 2026-05-17 reliability audit. |

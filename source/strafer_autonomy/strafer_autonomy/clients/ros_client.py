@@ -96,15 +96,6 @@ class RosClientConfig:
     default_orientation_tolerance_rad: float = 0.1
     default_rotate_speed_rad_s: float = 0.5
     default_rotate_timeout_s: float = 15.0
-    # Wall-clock window after which a non-advancing ``/clock`` is treated
-    # as a stalled / crashed bridge and the motion wait bails out. This
-    # replaces the old absolute ``2 * timeout`` wall cap, which fired
-    # mid-motion at sub-unity RTF (a 90 s sim deadline maps to ~1800 s of
-    # wall time at RTF=0.05, but a ``2 * 90 = 180`` s wall cap tripped long
-    # before the rotation finished). The stall detector instead bails only
-    # when sim time stops advancing AT ALL for this many wall seconds, so a
-    # slow ``/clock`` is tolerated while a frozen one is still caught.
-    # Mirrors ``donut_warmup``'s ``clock_stall_bail_wall_s`` (default 15 s).
     clock_stall_bail_wall_s: float = 15.0
 
 
@@ -172,30 +163,13 @@ class _ProgressTracker:
 
 
 class _ClockStallDetector:
-    """Detects a stalled ``/clock`` by watching sim-time for progress.
+    """Flags a stalled ``/clock``: bails only when sim time fails to advance
+    at all for ``bail_wall_s`` of wall time, tolerating a slow-but-live clock
+    at sub-unity RTF. ``bail_wall_s <= 0`` disables it.
 
-    Replaces the old absolute ``2 * timeout`` wall-clock safety cap on the
-    executor's motion waits. That cap existed to stop a *crashed* bridge
-    from wedging the executor, but it was an absolute wall bound: at
-    sub-unity RTF it fired mid-motion while ``/clock`` was still advancing
-    legitimately (e.g. RTF=0.05 turns a 90 s sim deadline into ~1800 s of
-    wall time, but the ``2 * 90 = 180`` s cap tripped first). This detector
-    instead distinguishes "no progress" from "slow progress": it bails only
-    when sim time fails to advance AT ALL for ``bail_wall_s`` of wall time,
-    which catches a genuinely paused / disconnected bridge without
-    penalizing a slow-but-live ``/clock``.
-
-    Caller protocol (mirrors ``donut_warmup.DonutWarmup.run``): on each
-    poll, ``update`` with the current ``(sim_now_ns, wall_now_s)`` then
-    check ``is_stalled``. A real sim clock advancing at any rate keeps the
-    high-water mark fresh and never trips. On real hardware
-    (``use_sim_time=False``) ``/clock`` tracks wall time, so sim time always
-    advances and the detector never fires — the primary sim==wall deadline
-    governs, identical to today's behavior.
-
-    Pure helper: callers feed it ``(sim_ns, wall_s)`` pairs so unit tests
-    drive it without a real clock. ``bail_wall_s <= 0`` disables the
-    detector (it never reports stalled).
+    Caller protocol: each poll, ``update`` with ``(sim_now_ns, wall_now_s)``
+    then check ``is_stalled``. Pure helper — unit tests feed ``(sim_ns,
+    wall_s)`` pairs directly.
     """
 
     # Sub-millisecond ``/clock`` republish jitter shouldn't count as
@@ -1264,11 +1238,8 @@ class JetsonRosClient:
         speed = self._config.default_rotate_speed_rad_s
         direction = 1.0 if yaw_delta_rad >= 0 else -1.0
 
-        # Sim-clock deadline (mirrors `_wait_for_future` / `navigate_to_pose`).
-        # Honors `use_sim_time`: at sub-unity RTF, `timeout` sim-seconds is
-        # `timeout / RTF` wall-seconds. A sim-time stall detector (not an
-        # absolute wall cap) guards against a frozen `/clock` wedging the
-        # executor — it bails only if sim time stops advancing entirely.
+        # Sim-clock deadline (honors `use_sim_time`) plus a stall detector
+        # that bails only if `/clock` freezes — see `_wait_for_future`.
         from rclpy.duration import Duration
 
         clock = self._node.get_clock()
@@ -1357,13 +1328,9 @@ class JetsonRosClient:
         RTAB-Map, and the BT navigator, all of which already tick on
         the same clock.
 
-        A sim-time stall detector bounds the wait if ``/clock`` stops
-        advancing (e.g. sim bridge crash mid-mission) so the executor
-        cannot wedge waiting on a frozen sim clock. Unlike the old
-        ``2 * timeout_s`` absolute wall cap, it tolerates a slow-but-live
-        ``/clock`` at sub-unity RTF and fires only on genuine stalls. On
-        real hardware the system clock advances at wall rate, so the
-        detector never trips before the primary timeout fires.
+        A ``_ClockStallDetector`` bounds the wait if ``/clock`` freezes
+        (e.g. bridge crash) so a stalled sim clock can't wedge the
+        executor; a slow-but-live clock at sub-unity RTF is tolerated.
 
         Returns ``True`` if the future completed, ``False`` on timeout.
         """
@@ -1416,14 +1383,9 @@ class JetsonRosClient:
         - ``(False, True)``  — the progress watchdog tripped first.
 
         ``stalled`` and the deadline cannot both be true; the loop
-        returns on the first triggering condition.
-
-        Two distinct stall signals coexist here: ``tracker`` watches Nav2
-        ``distance_remaining`` for *goal* progress (no closer in
-        ``nav_stall_window_s`` → ``navigation_stalled``), while the
-        ``_ClockStallDetector`` watches ``/clock`` itself for *sim-time*
-        progress (frozen bridge → deadline-class failure). A slow RTF
-        trips neither.
+        returns on the first triggering condition. ``tracker`` watches
+        Nav2 ``distance_remaining`` for goal progress; the
+        ``_ClockStallDetector`` watches ``/clock`` for sim-time progress.
         """
         from rclpy.duration import Duration
 

@@ -1198,6 +1198,36 @@ class JetsonRosClient:
     # rotate_in_place (needed by scan_for_target)
     # ------------------------------------------------------------------
 
+    def _ensure_cmd_vel_pub(self):
+        """Lazily create the ``/cmd_vel`` publisher and return it.
+
+        Shared by ``rotate_in_place`` and ``publish_zero_cmd_vel`` so both
+        the active rotation loop and the cancel-path fail-safe publish on
+        the same publisher.
+        """
+        from geometry_msgs.msg import Twist  # noqa: F401  (caller imports too)
+
+        if not hasattr(self, "_cmd_vel_pub"):
+            from geometry_msgs.msg import Twist as _Twist
+            self._cmd_vel_pub = self._node.create_publisher(
+                _Twist, "/cmd_vel", 10
+            )
+        return self._cmd_vel_pub
+
+    def publish_zero_cmd_vel(self) -> None:
+        """Publish a single zero ``Twist`` to ``/cmd_vel``.
+
+        Called from the executor's cancel path as a belt-and-braces
+        fail-safe after ``cancel_active_navigation``: Nav2's cancel
+        handler zeroes ``/cmd_vel`` for ``navigate_to_pose`` goals, but
+        direct-publish skills (``rotate_in_place``) bypass Nav2 entirely.
+        Publishing zero here guarantees the chassis stops even when the
+        cancel races a rotate that hasn't entered its loop yet.
+        """
+        from geometry_msgs.msg import Twist
+
+        self._ensure_cmd_vel_pub().publish(Twist())
+
     def rotate_in_place(
         self,
         *,
@@ -1205,22 +1235,27 @@ class JetsonRosClient:
         yaw_delta_rad: float,
         tolerance_rad: float = 0.1,
         timeout_s: float | None = None,
+        cancel_event: "threading.Event | None" = None,
     ) -> SkillResult:
         """Rotate in place by publishing ``cmd_vel`` angular-Z.
 
         Reads current yaw from odometry, computes a target yaw, and
         publishes angular velocity until the error is within tolerance
         or the timeout expires.
+
+        If ``cancel_event`` is provided and gets set mid-rotation, the
+        loop publishes a zero ``Twist`` and returns
+        ``status="canceled"`` within one publish period. Without this,
+        a cancel arriving via the executor's cancel path is invisible
+        to the rotate loop and the chassis keeps rotating until
+        tolerance or timeout — a real-robot safety bug.
         """
         from geometry_msgs.msg import Twist
 
         started_at = time.time()
         timeout = timeout_s or self._config.default_rotate_timeout_s
 
-        if not hasattr(self, "_cmd_vel_pub"):
-            self._cmd_vel_pub = self._node.create_publisher(
-                Twist, "/cmd_vel", 10
-            )
+        self._ensure_cmd_vel_pub()
 
         with self._cache_lock:
             odom_msg = self._latest_odom
@@ -1250,6 +1285,14 @@ class JetsonRosClient:
             wall_now_s=time.monotonic(),
         )
         while True:
+            if cancel_event is not None and cancel_event.is_set():
+                self._cmd_vel_pub.publish(Twist())  # stop
+                return SkillResult(
+                    step_id=step_id, skill="rotate_in_place", status="canceled",
+                    error_code="rotation_canceled",
+                    message="Rotation canceled by mission cancel.",
+                    started_at=started_at, finished_at=time.time(),
+                )
             now = clock.now()
             if now >= deadline:
                 break

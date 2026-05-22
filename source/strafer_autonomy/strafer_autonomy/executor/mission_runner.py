@@ -739,6 +739,7 @@ class MissionRunner(MissionCommandHandler):
                     rotate_result = self._ros_client.rotate_in_place(
                         step_id=f"{step.step_id}:rotate_{i}",
                         yaw_delta_rad=step_angle_rad,
+                        cancel_event=runtime.cancel_event,
                     )
                     if rotate_result.status != "succeeded":
                         return self._failed_result(
@@ -1826,6 +1827,7 @@ class MissionRunner(MissionCommandHandler):
                 yaw_delta_rad=yaw_delta,
                 tolerance_rad=tolerance,
                 timeout_s=timeout_s,
+                cancel_event=runtime.cancel_event,
             )
         except Exception as exc:
             return self._failed_result(
@@ -1955,6 +1957,7 @@ class MissionRunner(MissionCommandHandler):
                 yaw_delta_rad=delta,
                 tolerance_rad=tolerance,
                 timeout_s=timeout_s,
+                cancel_event=runtime.cancel_event,
             )
         except Exception as exc:
             return self._failed_result(
@@ -2004,6 +2007,7 @@ class MissionRunner(MissionCommandHandler):
                 yaw_delta_rad=delta,
                 tolerance_rad=tolerance,
                 timeout_s=timeout_s,
+                cancel_event=runtime.cancel_event,
             )
         except Exception as exc:
             return self._failed_result(
@@ -2261,7 +2265,17 @@ class MissionRunner(MissionCommandHandler):
         try:
             self._ros_client.cancel_active_navigation()
         except Exception:
-            return
+            pass
+        # Belt-and-braces: zero /cmd_vel for direct-publish skills
+        # (rotate_in_place) that bypass Nav2's cancel handler entirely,
+        # and to cover the race where cancel arrives before the rotate
+        # loop reads its cancel_event for the first time.
+        publish_zero = getattr(self._ros_client, "publish_zero_cmd_vel", None)
+        if publish_zero is not None:
+            try:
+                publish_zero()
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # Semantic map helpers

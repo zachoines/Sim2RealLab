@@ -771,6 +771,152 @@ class TestRotateInPlaceDeadlineSource(unittest.TestCase):
 
 
 # ------------------------------------------------------------------
+# Tests — rotate_in_place cancel_event
+# ------------------------------------------------------------------
+
+
+class TestRotateInPlaceCancelEvent(unittest.TestCase):
+    """``rotate_in_place`` honors a ``cancel_event`` mid-rotation.
+
+    Without this, a cancel arriving via the executor's cancel path is
+    invisible to the rotate loop and the chassis keeps rotating until
+    tolerance or timeout — a real-robot safety bug.
+    """
+
+    def test_cancel_mid_rotation_publishes_zero_and_returns_canceled(self) -> None:
+        from geometry_msgs.msg import Twist
+
+        client = _make_client()
+        client._latest_odom = _make_odom_msg()  # yaw=0
+        pub = MagicMock()
+        client._cmd_vel_pub = pub
+
+        cancel = threading.Event()
+
+        def _trip_cancel() -> None:
+            time.sleep(0.05)
+            cancel.set()
+
+        tripper = threading.Thread(target=_trip_cancel, daemon=True)
+        tripper.start()
+
+        start = time.monotonic()
+        # Request a 1-rad rotation we'll never converge on (odom is pinned
+        # at yaw=0) with a 5 s timeout — the cancel must trip first.
+        result = client.rotate_in_place(
+            step_id="rot-cancel",
+            yaw_delta_rad=1.0,
+            tolerance_rad=0.001,
+            timeout_s=5.0,
+            cancel_event=cancel,
+        )
+        elapsed = time.monotonic() - start
+        tripper.join(timeout=1.0)
+
+        self.assertEqual(result.status, "canceled")
+        self.assertEqual(result.error_code, "rotation_canceled")
+        # Returns within one publish period of the check (loop sleeps
+        # 20 ms between iterations; allow generous wall budget).
+        self.assertLess(elapsed, 0.5)
+
+        # The final publish must be a zero Twist (angular.z == 0).
+        self.assertGreater(pub.publish.call_count, 0)
+        last_twist = pub.publish.call_args_list[-1].args[0]
+        self.assertIsInstance(last_twist, Twist)
+        self.assertEqual(last_twist.angular.z, 0.0)
+        self.assertEqual(last_twist.linear.x, 0.0)
+        self.assertEqual(last_twist.linear.y, 0.0)
+
+    def test_cancel_already_set_returns_immediately(self) -> None:
+        """A cancel that arrives before the loop's first iteration still
+        zeroes the publisher and returns canceled — the rotate-loop
+        publish path is the same regardless of when the event trips."""
+        from geometry_msgs.msg import Twist
+
+        client = _make_client()
+        client._latest_odom = _make_odom_msg()
+        pub = MagicMock()
+        client._cmd_vel_pub = pub
+
+        cancel = threading.Event()
+        cancel.set()
+
+        start = time.monotonic()
+        result = client.rotate_in_place(
+            step_id="rot-pre-cancel",
+            yaw_delta_rad=1.0,
+            tolerance_rad=0.001,
+            timeout_s=5.0,
+            cancel_event=cancel,
+        )
+        elapsed = time.monotonic() - start
+
+        self.assertEqual(result.status, "canceled")
+        self.assertEqual(result.error_code, "rotation_canceled")
+        self.assertLess(elapsed, 0.1)
+        last_twist = pub.publish.call_args_list[-1].args[0]
+        self.assertIsInstance(last_twist, Twist)
+        self.assertEqual(last_twist.angular.z, 0.0)
+
+    def test_no_cancel_event_kwarg_keeps_legacy_behavior(self) -> None:
+        """Backward compat: callers that don't pass ``cancel_event`` still
+        get the converged-on-target success path."""
+        client = _make_client()
+        client._latest_odom = _make_odom_msg()
+        client._cmd_vel_pub = MagicMock()
+
+        result = client.rotate_in_place(
+            step_id="rot-no-cancel", yaw_delta_rad=0.0, tolerance_rad=0.2,
+        )
+        self.assertEqual(result.status, "succeeded")
+
+
+# ------------------------------------------------------------------
+# Tests — publish_zero_cmd_vel (cancel-path fail-safe)
+# ------------------------------------------------------------------
+
+
+class TestPublishZeroCmdVel(unittest.TestCase):
+    """The executor's cancel path publishes a zero ``Twist`` directly,
+    independent of any active ``rotate_in_place`` loop, to handle the
+    race where cancel arrives before a rotate has entered its loop."""
+
+    def test_publish_zero_creates_publisher_and_publishes_zero(self) -> None:
+        from geometry_msgs.msg import Twist
+
+        client = _make_client()
+        pub = MagicMock()
+        client._node.create_publisher.return_value = pub
+
+        client.publish_zero_cmd_vel()
+
+        # Publisher created with the right topic + type.
+        args, _ = client._node.create_publisher.call_args
+        self.assertEqual(args[0], Twist)
+        self.assertEqual(args[1], "/cmd_vel")
+
+        # A single zero Twist published.
+        self.assertEqual(pub.publish.call_count, 1)
+        twist = pub.publish.call_args.args[0]
+        self.assertIsInstance(twist, Twist)
+        self.assertEqual(twist.angular.z, 0.0)
+        self.assertEqual(twist.linear.x, 0.0)
+        self.assertEqual(twist.linear.y, 0.0)
+
+    def test_publish_zero_reuses_existing_publisher(self) -> None:
+        client = _make_client()
+        pub = MagicMock()
+        client._cmd_vel_pub = pub
+
+        client.publish_zero_cmd_vel()
+        client.publish_zero_cmd_vel()
+
+        # Already-existing publisher reused; create_publisher never invoked.
+        self.assertFalse(client._node.create_publisher.called)
+        self.assertEqual(pub.publish.call_count, 2)
+
+
+# ------------------------------------------------------------------
 # Tests — _wait_for_future
 # ------------------------------------------------------------------
 

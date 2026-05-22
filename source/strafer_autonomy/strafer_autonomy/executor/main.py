@@ -15,6 +15,15 @@ ROTATE_TIMEOUT_S       : Override the default rotate_in_place timeout (optional,
                          scan_for_target uses this default for its inter-heading rotations. Raise it when
                          sim real-time factor is sub-unity or the chassis rotates slowly under the
                          configured angular velocity.
+STRAFER_CLOCK_STALL_BAIL_WALL_S : Override the wall-clock window after which a non-advancing ``/clock``
+                         is treated as a stalled / crashed bridge and the executor's motion waits
+                         (``rotate_in_place``, ``_wait_for_future``, ``_wait_for_nav_result``) bail out
+                         (optional, seconds; default 15.0). This replaces the old absolute ``2 * timeout``
+                         wall cap, which fired mid-motion at sub-unity RTF. The detector measures
+                         *sim-time progress*, so a slow-but-live ``/clock`` is tolerated; only a frozen
+                         clock trips it. Set to 0 to disable the stall detector entirely (the sim-clock
+                         deadline then becomes the sole bound). On real hardware (``use_sim_time=False``)
+                         the detector never fires regardless of this value.
 STRAFER_NAVIGATION_TIMEOUT_S : Operator's per-mission navigation timeout ceiling (optional, seconds;
                          default 90.0). With ``STRAFER_NAV_PROGRESS_AWARE`` enabled (default), the
                          executor synthesizes per-step budgets from the requested displacement and
@@ -171,6 +180,11 @@ def main() -> None:
     ros_config_kwargs: dict = {}
     _read_float_env("OBSERVATION_MAX_AGE_S", "observation_max_age_s", ros_config_kwargs)
     _read_float_env("ROTATE_TIMEOUT_S", "default_rotate_timeout_s", ros_config_kwargs)
+    _read_float_env(
+        "STRAFER_CLOCK_STALL_BAIL_WALL_S",
+        "clock_stall_bail_wall_s",
+        ros_config_kwargs,
+    )
     ros_client = JetsonRosClient(
         config=RosClientConfig(**ros_config_kwargs) if ros_config_kwargs else None,
     )

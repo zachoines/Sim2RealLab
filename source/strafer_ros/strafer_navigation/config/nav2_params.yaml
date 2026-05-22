@@ -10,6 +10,22 @@
 # strafer_shared.constants by navigation.launch.py.
 #
 # Values marked "TUNE:" are likely candidates for real-world adjustment.
+#
+# `use_sim_time: false` on every server below is INTENTIONAL scaffolding,
+# not a real-vs-sim mistake. nav2_bringup/navigation_launch.py wraps this
+# file in RewrittenYaml with `param_rewrites={'use_sim_time': <launch arg>}`.
+# Under Humble, RewrittenYaml only rewrites leaf keys that ALREADY EXIST in
+# the YAML — it does not inject absent keys (see
+# nav2_common/launch/rewritten_yaml.py `substitute_params`). So each server
+# needs a literal `use_sim_time` key here for the launch arg to land on.
+# `bringup_sim_in_the_loop.launch.py` passes `use_sim_time:=true`, which
+# flips all of these to true at runtime; real-robot bringup leaves it false.
+# DO NOT delete these lines (sim-time propagation breaks) or set them to
+# true (real-robot bringup would then tick on a /clock that isn't published).
+# Internal Nav2 deadlines below (controller_frequency, *_tolerance,
+# cycle_frequency, movement_time_allowance, failure_tolerance, …) are all
+# measured against each node's clock, so once use_sim_time is true they
+# tick on /clock automatically — no per-value sim-time conversion needed.
 
 # =============================================================================
 # BT Navigator

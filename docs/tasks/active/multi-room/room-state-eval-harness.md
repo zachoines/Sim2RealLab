@@ -22,16 +22,16 @@ file as active and pick up directly when #41 lands.
 ## Story
 
 As an **engineer measuring v2 room-state improvements
-(temporal smoothing, uncertainty calibration, VLM-refined
-labels, open-vocab labeling) against the v1 baseline shipped
-in `observation-derived-room-state`**, I want **a reproducible
-eval harness that scores `SemanticMapManager`'s room-state
-output against Infinigen ground-truth on a fixed multi-room
-scene set**, so that **each v2 quality brief has a
-quantitative bar to clear, v2 changes can be ranked
-head-to-head rather than vibe-checked, and the operator can
-read off whether a given improvement actually improved
-anything**.
+(feature+space region partitioning, open-vocab labeling, and
+the learned-region-head / VPR escape valves) against the v1
+baseline shipped in `observation-derived-room-state`**, I want
+**a reproducible eval harness that scores
+`SemanticMapManager`'s room-state output against Infinigen
+ground-truth on a fixed multi-room scene set**, so that **each
+v2 quality brief has a quantitative bar to clear, v2 changes
+can be ranked head-to-head rather than vibe-checked, and the
+operator can read off whether a given improvement actually
+improved anything**.
 
 ## Context bundle
 
@@ -55,13 +55,14 @@ Read these before starting:
 
 ### Why measurement-first
 
-The v2 room-state series proposes ~6 quality improvements
-(temporal smoothing, uncertainty calibration, VLM-refined
-labels, open-vocab labeling, loop closure, hierarchical
-object-centric graph). Without a harness, every "this should
-help" claim is unfalsifiable, and merge order across the
-series becomes guesswork. Filing this brief first sets the
-contract: every subsequent v2 brief reports its delta against
+The v2 room-state work (feature+space region partitioning per
+[`semantic-region-partition`](semantic-region-partition.md),
+open-vocab labeling, loop closure) and the parked escape
+valves (learned region head, learned VPR, CLIO-style dynamic
+granularity) each claim a quality lift. Without a harness,
+every "this should help" claim is unfalsifiable, and merge
+order becomes guesswork. Filing this brief first sets the
+contract: every subsequent v2+ brief reports its delta against
 the metrics defined here, in its PR description.
 
 ### Eval set
@@ -127,10 +128,10 @@ captured PNG/JPEG plus pose + timestamp), **not** as a
 pre-computed CLIP embedding. Rationale: the
 [`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md)
 brief and the
-[`room-state-uncertainty-calibration`](room-state-uncertainty-calibration.md)
-brief both need to re-encode the same trajectories under a
+[`semantic-region-partition`](semantic-region-partition.md)
+v2 work both need to re-encode the same trajectories under a
 different backbone (DINOv3, SigLIP-2, MobileCLIP-2) or a
-different fitted temperature. Embedding-baked trajectories
+re-clustered partition. Embedding-baked trajectories
 would force a re-capture per backbone, defeating the
 held-out-set contract. The eval script re-encodes through
 whichever `CLIPEncoder` backbone is loaded at eval time
@@ -212,7 +213,7 @@ scene-understanding evaluation:
       loaded — required for
       [`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md)
       and
-      [`room-state-uncertainty-calibration`](room-state-uncertainty-calibration.md)
+      [`semantic-region-partition`](semantic-region-partition.md)
       to re-run against the same trajectories without
       re-capture.
 - [ ] **Ground-truth `room_idx` lookup.** The cluster-purity

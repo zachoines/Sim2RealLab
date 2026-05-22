@@ -103,7 +103,7 @@ weight = similarity) to the graph. Both nodes survive;
 downstream clustering treats `same_place` edges as
 high-weight. Preserves provenance. No node-count reduction.
 
-**Recommended: (b) for v1.5.** Preserves the ability to audit
+**Recommended: (b) for v2.** Preserves the ability to audit
 where the detection came from, and matches what RTAB-Map does
 internally (loop-closure constraints, not node deletion).
 The merge variant becomes the natural fit when the
@@ -163,7 +163,7 @@ explicit API call.
   Prediction (arXiv:2503.06840)](https://arxiv.org/abs/2503.06840)
   and the
   [VPR pair-retrieval evaluation (arXiv:2603.13917)](https://arxiv.org/abs/2603.13917).
-  v1.5's raw-CLIP cosine is the *floor*; if the eval-harness
+  v2's raw-CLIP cosine is the *floor*; if the eval-harness
   measurement (see calibration criterion below) shows the
   similarity-only signal is noise-bound on the multi-bedroom
   adversarial scene, the v3 follow-up is SALAD or AnyLoc as a
@@ -216,7 +216,7 @@ brief acceptance below now requires this; the spatial filter
       cluster purity on a repeated-traversal trajectory
       (added to the
       [`room-state-eval-harness`](room-state-eval-harness.md)
-      scene set) — v1 baseline vs. v1.5-with-loop-closure.
+      scene set) — v1 baseline vs. v2-with-loop-closure.
       Cluster purity should hold steady (≤ 0.05 V-measure
       drop) across 2× / 3× repeated traversals, where v1
       currently degrades.
@@ -277,7 +277,7 @@ brief acceptance below now requires this; the spatial filter
   session vs. today's session can't be matched until the
   lifecycle brief defines how cross-session graphs are
   persisted; out of scope here.
-- **Learned place recognition descriptors.** v1.5 uses raw
+- **Learned place recognition descriptors.** v2 uses raw
   CLIP. Modern VPR descriptors (SALAD, MegaLoc, AnyLoc,
   CosPlace, EigenPlaces, MixVPR — see Tie-in above) are a
   v3 alternative if the calibrated CLIP-cosine signal proves

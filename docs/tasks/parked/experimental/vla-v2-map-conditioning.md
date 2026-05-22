@@ -7,8 +7,8 @@ lane edit, same cross-lane shape as
 [`vla-v2-architecture`](vla-v2-architecture.md))
 **Priority:** P3 — filed-on-trigger. Becomes pickable when
 **both**
-[`semantic-graph-object-centric-hierarchical`](../../active/multi-room/semantic-graph-object-centric-hierarchical.md)
-ships (the hierarchy this brief might condition on exists) and
+[`semantic-region-partition`](../../active/multi-room/semantic-region-partition.md)
+ships (the symbolic regions Option A serializes exist) and
 [`vla-v2-architecture`](vla-v2-architecture.md) has a working
 training run on the harness corpus (we have a model to condition).
 File this brief if v2's first ablations show the bare
@@ -23,17 +23,20 @@ plumbing + retrofit of one v2 ablation row + write-up)
 As an **operator running the v2 VLA on cross-room missions where
 the model has access to a persistent
 [`SemanticMapManager`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/manager.py)
-+ hierarchical scene graph at inference**, I want **a concrete
-decision on how the v2 VLA consumes that map state (text
-serialization in the prompt, learned cross-attention over a memory
-bank, or no consumption at all — the hierarchy stays sim-eval
-only)**, so that **the v2 VLA's training corpus, inference
-adapter, and the
-[`semantic-graph-object-centric-hierarchical`](../../active/multi-room/semantic-graph-object-centric-hierarchical.md)
-brief's "map-side substrate" framing are anchored by a written
-contract instead of an unstated assumption, and the cross-room
-mission-success number the v2 ablation reports is interpretable
-against the room-state quality the v1 graph layer delivers**.
+(symbolic regions + an implicit memory bank) at inference**, I
+want **a concrete decision on how the v2 VLA consumes that map
+state (text serialization of the symbolic regions, learned
+cross-attention over the implicit memory bank, or no
+consumption at all)**, so that **the v2 VLA's training corpus,
+inference adapter, and the relationship between the symbolic
+region work
+([`semantic-region-partition`](../../active/multi-room/semantic-region-partition.md))
+and the sub-symbolic primitive
+([`implicit-memory-map`](../clip-validation/implicit-memory-map.md))
+are anchored by a written contract instead of an unstated
+assumption, and the cross-room mission-success number the v2
+ablation reports is interpretable against the room-state
+quality the map layers deliver**.
 
 ## Context bundle
 
@@ -42,18 +45,20 @@ Read these before starting:
 - [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
 - [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
 - [`context/conventions.md`](../../context/conventions.md)
-- [`context/multi-room-architecture.md`](../../context/multi-room-architecture.md) — the symbolic vs. sub-symbolic split. This brief decides how the v2 VLA consumes the multi-room map; Option B reuses `cotrained-retrieval-augmented` as the implicit-mapping primitive.
+- [`context/multi-room-architecture.md`](../../context/multi-room-architecture.md) — the symbolic vs. sub-symbolic split. This brief decides how the v2 VLA consumes the multi-room map; Option A serializes the symbolic regions, Option B consumes the implicit memory bank.
 - [`vla-v2-architecture`](vla-v2-architecture.md) — the v2 VLA
   itself. This brief is its map-conditioning contract.
-- [`semantic-graph-object-centric-hierarchical`](../../active/multi-room/semantic-graph-object-centric-hierarchical.md)
-  — the hierarchical substrate this brief decides whether and how
-  to feed into the VLA. That brief calls itself the "map-side
-  substrate for the parked vla-v2-architecture bet"; this brief
-  is the missing other half.
-- [`cotrained-retrieval-augmented`](../../clip-validation/cotrained-retrieval-augmented.md)
-  — sibling research arm that already proposes a memory-bank +
-  cross-attention layer for the cascade validator. Same primitive,
-  different consumer.
+- [`semantic-region-partition`](../../active/multi-room/semantic-region-partition.md)
+  — the symbolic v2 region map. Option A serializes its
+  `RoomEntry` list into the VLA prompt.
+- [`implicit-memory-map`](../clip-validation/implicit-memory-map.md)
+  — the sub-symbolic primitive (memory bank + cross-attention).
+  Option B makes the v2 VLA **consumer #2** of it (the cascade
+  validator is consumer #1). Same primitive, different consumer.
+- [`cotrained-retrieval-augmented`](../clip-validation/cotrained-retrieval-augmented.md)
+  — consumer #1 of the implicit memory map (the cascade
+  validator). Reading it shows how the primitive is wired to a
+  cosine head; Option B wires it to the VLA policy instead.
 - [`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
   — the v1 flat-graph + room API the contract must remain valid
   against if the operator picks the "no consumption" branch and
@@ -64,22 +69,23 @@ Read these before starting:
 
 ### The gap this brief closes
 
-The active brief at
-[`semantic-graph-object-centric-hierarchical`](../../active/multi-room/semantic-graph-object-centric-hierarchical.md)
-positions itself as "the map-side substrate for the parked
-[`vla-v2-architecture`](vla-v2-architecture.md) bet" — but
-`vla-v2-architecture.md` does **not** mention the semantic map,
-hierarchical graph, room state, or any conditioning shape that
-consumes them. The two briefs share a stated dependency that is
-unwritten on the v2 side. Without a contract:
+The symbolic map work
+([`semantic-region-partition`](../../active/multi-room/semantic-region-partition.md)
+v2, [`dynamic-region-granularity`](../multi-room/dynamic-region-granularity.md)
+v3) and the sub-symbolic primitive
+([`implicit-memory-map`](../clip-validation/implicit-memory-map.md))
+both produce map state — but
+[`vla-v2-architecture`](vla-v2-architecture.md) does **not**
+mention which (if any) the VLA consumes, or in what shape. The
+dependency is unwritten on the VLA side. Without a contract:
 
 - The v2 VLA training script doesn't know which conditioning
   tensor to expect alongside `(frame, text, action)`.
 - The
-  [`cotrained-retrieval-augmented`](../../clip-validation/cotrained-retrieval-augmented.md)
-  cross-attention layer and the hierarchical-graph nodes both
-  exist but neither knows whether they are siblings (one
-  conditioning shape) or alternatives (two conditioning shapes).
+  [`implicit-memory-map`](../clip-validation/implicit-memory-map.md)
+  primitive and the symbolic region nodes both exist but
+  neither knows whether they are siblings (the VLA consumes
+  both) or alternatives (the VLA consumes one).
 - The
   [`room-state-eval-harness`](../../active/multi-room/room-state-eval-harness.md)
   metrics (cluster purity, label precision, connectivity) are
@@ -92,11 +98,10 @@ unwritten on the v2 side. Without a contract:
 
 | Option | Shape | Training cost | Inference cost | When it fits |
 |---|---|---|---|---|
-| **A. Text serialization** | The v1 `RoomEntry` and (optionally) the hierarchical layer are flattened into a short string ("Robot is in living_room; known_rooms include kitchen (sink, stove), bedroom (bed); kitchen reachable from living_room.") and prepended to the mission text. | None — the existing planner-LLM-pattern already serializes scene context into prompts; v2 reuses the same shape. | A few hundred tokens per request. | Quickest to test; matches how [GraphPilot (arXiv:2511.11266)](https://arxiv.org/pdf/2511.11266) conditions a driving VLA on a scene graph. |
-| **B. Cross-attention over a memory bank** | Past observations' CLIP embeddings (or
-[`cotrained-retrieval-augmented`](../../clip-validation/cotrained-retrieval-augmented.md)'s memory-augmented embeddings) are retrieved per-step and consumed via a cross-attention layer in the VLA. The hierarchical layer is *not* a runtime input — it's a training-time annotation that shapes which memories the retrieval pool returns. | New cross-attention layer; new dataset plumbing for `(frame, text, retrieved, action)` quads. | ~5–10 ms cross-attention + ChromaDB top-K. | Most flexible long-term; aligns with the [HOV-SG (arXiv:2403.17846)](https://arxiv.org/pdf/2403.17846) and OpenScene / VLMaps / CLIP-Fields lineage where the consumer reads an *implicit* feature field. Composes with the cascade validator's memory bank. |
+| **A. Text serialization (symbolic)** | The v2 `RoomEntry` list is flattened into a short string ("Robot is in living_area; known regions include kitchen (sink, stove), bedroom (bed); kitchen reachable from living_area.") and prepended to the mission text. Consumes [`semantic-region-partition`](../../active/multi-room/semantic-region-partition.md). | None — the existing planner-LLM pattern already serializes scene context into prompts; v2 reuses the same shape. | A few hundred tokens per request. | Quickest to test; matches how [GraphPilot (arXiv:2511.11266)](https://arxiv.org/pdf/2511.11266) conditions a driving VLA on a scene graph. |
+| **B. Cross-attention over the implicit memory bank** | The VLA becomes **consumer #2** of [`implicit-memory-map`](../clip-validation/implicit-memory-map.md): retrieved memory-augmented embeddings are consumed via cross-attention in the policy. The symbolic regions are *not* a runtime input here — the implicit bank is. | New consumer head on the shared primitive; dataset plumbing for `(frame, text, retrieved, action)` quads. | ~5–10 ms cross-attention + ChromaDB top-K. | Most flexible long-term; aligns with the [HOV-SG (arXiv:2403.17846)](https://arxiv.org/pdf/2403.17846) and OpenScene / VLMaps / CLIP-Fields lineage. Reuses the validator's memory-bank infrastructure verbatim. |
 | **C. No consumption** | The v2 VLA reads only `(frame, text, action)` as in
-[OpenVLA (arXiv:2406.09246)](https://arxiv.org/abs/2406.09246). The semantic map is sim-eval / planner-side reasoning only. The hierarchical brief's "map-side substrate" framing is downgraded to "interpretability + planner-side queries"; the VLA path is untouched. | None. | None. | Best baseline; ships v2 with the smallest moving parts. If A and B both fail to lift cross-room mission success above this baseline, the hierarchy is not load-bearing for the VLA path. |
+[OpenVLA (arXiv:2406.09246)](https://arxiv.org/abs/2406.09246). The map is planner-side / sim-eval only; the VLA path is untouched. | None. | None. | Best baseline; ships v2 with the smallest moving parts. If A and B both fail to lift cross-room mission success above this baseline, neither map layer is load-bearing for the VLA path. |
 
 The brief's job is to pick **one** by running a measurement, not
 to default to A or B because they sound smarter.
@@ -104,7 +109,7 @@ to default to A or B because they sound smarter.
 ### Why B is *not* obviously the right answer
 
 The
-[`cotrained-retrieval-augmented`](../../clip-validation/cotrained-retrieval-augmented.md)
+[`cotrained-retrieval-augmented`](../clip-validation/cotrained-retrieval-augmented.md)
 brief already proposes B for the cascade validator and reports
 the literature evidence (Re-CLIP, MemoryBank-CLIP, Atlas, RA-DIT)
 that **training-time retrieval beats inference-only retrieval**.
@@ -141,12 +146,12 @@ failure modes specific to map conditioning:
   to ignore the prefix.
 - **Memory-bank (B)** is fragile: the v2 VLA trained against
   a fully-populated sim retrieval pool may collapse when the
-  real-robot pool is empty (cold-deployment problem already
-  flagged in
-  [`cotrained-retrieval-augmented`](../../clip-validation/cotrained-retrieval-augmented.md)'s
-  retrieval-pool-size augmentation). Re-use that brief's
-  `K_train ∈ {0, 1, 2, 4, 8}` augmentation here if Option B is
-  selected.
+  real-robot pool is empty. This cold-deployment problem is
+  solved once in
+  [`implicit-memory-map`](../clip-validation/implicit-memory-map.md)
+  (the `K_train ∈ {0, 1, 2, 4, 8}` pool-size augmentation +
+  graceful-degradation requirement); Option B inherits it by
+  consuming that primitive, rather than re-implementing it.
 - **No-consumption (C)** has no map-conditioning failure modes
   by construction. The v2 mission-success bar IS the cross-room
   number — if it's good enough, ship.
@@ -173,9 +178,12 @@ Single ablation row added to
    CI-width. Ties default to the simpler shape (C > A > B).
 4. **Append a §4.7 addendum** to
    [`MISSION_VALIDATION_ARCHITECTURE.md`](../../../MISSION_VALIDATION_ARCHITECTURE.md)
-   documenting the chosen shape and re-anchoring the
-   [`semantic-graph-object-centric-hierarchical`](../../active/multi-room/semantic-graph-object-centric-hierarchical.md)
-   brief's "substrate" framing against the result.
+   documenting the chosen shape and recording which map layer
+   (symbolic
+   [`semantic-region-partition`](../../active/multi-room/semantic-region-partition.md)
+   or implicit
+   [`implicit-memory-map`](../clip-validation/implicit-memory-map.md))
+   the VLA actually consumes, against the result.
 
 ## Acceptance criteria
 
@@ -184,10 +192,7 @@ Single ablation row added to
       [`vla-v2-architecture`](vla-v2-architecture.md) (added
       in this brief's PR) names the chosen Option (A / B / C),
       the conditioning tensor shape if any, and the
-      dataset-pipeline change required. Same PR updates the
-      cross-references in
-      [`semantic-graph-object-centric-hierarchical`](../../active/multi-room/semantic-graph-object-centric-hierarchical.md)
-      so the "substrate" claim points at the contract section.
+      dataset-pipeline change required.
 - [ ] **Three-row ablation table** in the PR description and
       in the §4.7 addendum, scoring cross-room mission-success
       on the held-out scene seeds for each of A / B / C.
@@ -195,28 +200,28 @@ Single ablation row added to
 - [ ] **CI-width rule for shape selection.** The brief picks
       A or B only if its cross-room mission-success lift over
       C is at least one bootstrap CI-width on the eval set's
-      multi-room scenes. Otherwise C is the contract and the
-      hierarchical-graph brief's "substrate" framing is
-      downgraded in the same PR.
+      multi-room scenes. Otherwise C is the contract and
+      neither map layer is recorded as load-bearing for the
+      VLA path.
 - [ ] **Cold-deployment carry-over (Option B only).** If
-      Option B wins, the training pipeline inherits the
-      `K_train ∈ {0, 1, 2, 4, 8}` retrieval-pool-size
-      augmentation from
-      [`cotrained-retrieval-augmented`](../../clip-validation/cotrained-retrieval-augmented.md);
-      the cold-deployment row of the v2 eval table must show
-      no regression vs. Option C on empty-map missions.
+      Option B wins, it consumes
+      [`implicit-memory-map`](../clip-validation/implicit-memory-map.md)
+      (the VLA becomes consumer #2), inheriting that brief's
+      `K_train ∈ {0, 1, 2, 4, 8}` augmentation + cold-
+      deployment graceful-degradation by construction; the
+      cold-deployment row of the v2 eval table must show no
+      regression vs. Option C on empty-map missions.
 - [ ] **Runtime-legal inputs only.** A grep of the v2 VLA
       adapter for `scene_metadata`, `scene_labels`,
       `room_adjacency`, `infinigen` returns zero hits.
       Conditioning consumes only `SemanticMapManager` outputs
-      (`known_rooms`, `current_room`, `connectivity`,
-      `hierarchical_graph` if it ships) and on-board
-      perception. Same sim-to-real rule as every other v2
-      brief.
+      (`known_rooms`, `current_room`, `connectivity`, the
+      implicit memory bank) and on-board perception. Same
+      sim-to-real rule as every other v2 brief.
 - [ ] **§4.7 addendum** to
       [`MISSION_VALIDATION_ARCHITECTURE.md`](../../../MISSION_VALIDATION_ARCHITECTURE.md)
       with the chosen shape, the ablation table, and a
-      one-paragraph re-anchoring of the hierarchical brief's
+      one-paragraph re-anchoring of the symbolic region map's role in
       framing.
 - [ ] If your work invalidates a fact in any referenced
       context module, package README, top-level `Readme.md`,
@@ -231,13 +236,17 @@ Single ablation row added to
 - v2 VLA training pipeline (when it exists):
   [`vla-v2-architecture`](vla-v2-architecture.md) §
   "Training pipeline".
-- Hierarchical graph API (when it exists):
-  [`semantic-graph-object-centric-hierarchical`](../../active/multi-room/semantic-graph-object-centric-hierarchical.md)
-  — `hierarchical_graph()`, `known_objects()`, etc.
-- Retrieval-augmented training reference recipe:
-  [`cotrained-retrieval-augmented`](../../clip-validation/cotrained-retrieval-augmented.md)
-  — Step B's RAG-aware training pattern is the direct
-  template for Option B here.
+- Symbolic region API (Option A serializes this):
+  [`semantic-region-partition`](../../active/multi-room/semantic-region-partition.md)
+  — `known_rooms()`, `RoomEntry`, etc. Finer object-level
+  granularity (if a mission needs it) at
+  [`dynamic-region-granularity`](../multi-room/dynamic-region-granularity.md).
+- Implicit memory bank (Option B consumes this):
+  [`implicit-memory-map`](../clip-validation/implicit-memory-map.md)
+  — the `augment(query, retrieved)` entry point + RAG-aware
+  training. The VLA is consumer #2;
+  [`cotrained-retrieval-augmented`](../clip-validation/cotrained-retrieval-augmented.md)
+  (consumer #1) shows how it wires to a cosine head.
 - Reference architectures to cross-check against:
   - **GraphPilot** ([arXiv:2511.11266](https://arxiv.org/pdf/2511.11266))
     — scene-graph conditioning for a driving VLA via prompt
@@ -260,7 +269,7 @@ Single ablation row added to
   brief.
 - **A new VLA backbone.** Backbone choice is inherited from
   [`vla-v2-architecture`](vla-v2-architecture.md) and
-  [`backbone-bakeoff`](../../clip-validation/backbone-bakeoff.md).
+  [`backbone-bakeoff`](../clip-validation/backbone-bakeoff.md).
 - **Replacing the cascade validator.** If Option B ships, the
   cascade validator's memory bank and the VLA's memory bank
   *can* share infrastructure — but co-tenancy work is a

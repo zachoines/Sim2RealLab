@@ -6,7 +6,7 @@
 brief)
 **Priority:** P3 — filed-on-trigger. Becomes pickable only if
 [`semantic-graph-loop-closure`](../../active/multi-room/semantic-graph-loop-closure.md)
-v1.5 ships AND its calibration sweep (now an acceptance
+v2 ships AND its calibration sweep (now an acceptance
 criterion on that brief) either can't find an operating point
 that meets the precision-recall floor on the multi-bedroom
 adversarial scene, OR finds one too narrow to survive sim-to-
@@ -20,7 +20,7 @@ chosen descriptor + bakeoff-style eval + runtime swap behind
 
 ## Story
 
-As an **operator running the v1.5 semantic-graph loop closure
+As an **operator running the v2 semantic-graph loop closure
 on a real home where two physically-distinct bedrooms with
 similar furniture vocabulary keep getting loop-closed into one
 cluster (CLIP cosine ≥ 0.75 between them) AND the calibration
@@ -31,7 +31,7 @@ OpenCLIP cosine to a learned Visual Place Recognition
 descriptor (SALAD / MegaLoc / AnyLoc)**, so that **the
 `same_place` edge set becomes instance-discriminating by
 construction rather than by threshold tuning, the brittleness
-v1.5 papered over with `distance_threshold_m` goes away, and
+v2 papered over with `distance_threshold_m` goes away, and
 the same ANN store and `same_place` edge protocol continue
 to work — only the embedding tower changes**.
 
@@ -44,7 +44,7 @@ Read these before starting:
 - [`context/conventions.md`](../../context/conventions.md)
 - [`context/multi-room-architecture.md`](../../context/multi-room-architecture.md) — where this brief sits in the v1 / v1.5 / v2 / v2.5 / v3 / escape-valve stack, and which planner-side consumers depend on its output.
 - [`semantic-graph-loop-closure`](../../active/multi-room/semantic-graph-loop-closure.md)
-  — the v1.5 substrate. This brief swaps its
+  — the v2 substrate. This brief swaps its
   `detect_loop_closures` descriptor while preserving the
   detection contract (candidate pairs in,
   `same_place` edges annotated). The
@@ -71,19 +71,19 @@ to maintain. Pre-empting it doubles the ONNX surface area
 without evidence it's needed. File active only when **at least
 one** of:
 
-1. **v1.5 calibration sweep fails on the multi-bedroom
+1. **v2 calibration sweep fails on the multi-bedroom
    scene.** The sweep over
    `similarity_threshold ∈ [0.60, 0.90]` and
    `distance_threshold_m ∈ [0.5, 3.0]` (per
    [`semantic-graph-loop-closure`](../../active/multi-room/semantic-graph-loop-closure.md)'s
    amended acceptance criterion) returns no operating point
    where multi-bedroom precision and same-room recall both
-   exceed 0.7. v1.5's "tune the spatial filter" remediation
+   exceed 0.7. v2's "tune the spatial filter" remediation
    ran out of room.
 2. **Real-robot deployment shows the calibrated operating
-   point doesn't transfer.** v1.5 ships an operating point
+   point doesn't transfer.** v2 ships an operating point
    tuned in sim; the real-robot D555 + lighting + clutter
-   shift pushes the optimal point outside what v1.5's
+   shift pushes the optimal point outside what v2's
    thresholds cover. The sim→real degradation on the same
    home is measurable (precision drops > 20% on the same
    topology).
@@ -95,7 +95,7 @@ one** of:
    and produce visibly wrong long-term anchors on the
    eval-harness 7-day replay.
 
-If none of these fire within ~3 months of v1.5 shipping, the
+If none of these fire within ~3 months of v2 shipping, the
 likely correct action is to **delete this brief** and accept
 raw CLIP cosine as the floor. Don't pre-empt.
 
@@ -111,7 +111,7 @@ different layout." Two physically-distinct rooms with similar
 furniture (the multi-bedroom adversarial case) routinely
 produce cosine similarities in `[0.75, 0.85]` — overlapping
 the range that "same physical spot from different headings"
-also occupies. The v1.5 brief acknowledges this and adds a
+also occupies. The v2 brief acknowledges this and adds a
 spatial filter (`distance_threshold_m`) as the
 discrimination knob; the spatial filter does most of the
 work because CLIP cosine alone is too coarse.
@@ -130,7 +130,7 @@ Tokyo24/7, MSLS, GSV-Cities). The 2025 generation:
   features + clustering. Lightest deployment cost.
 
 All three produce a single per-image descriptor that supports
-cosine ranking; the ANN-store contract is identical to v1.5's
+cosine ranking; the ANN-store contract is identical to v2's
 CLIP path.
 
 ### Why this doesn't replace the CLIP backbone
@@ -168,7 +168,7 @@ ONNX-exportable, and the closest fit for "drop in and
 measure." SALAD is the supervised baseline if MegaLoc
 underperforms on the eval set. AnyLoc is the lightest-weight
 fallback. All three are evaluated head-to-head against the
-v1.5 raw-CLIP baseline on the same multi-bedroom adversarial
+v2 raw-CLIP baseline on the same multi-bedroom adversarial
 scene.
 
 **2. ONNX export + runtime swap.** A new ONNX file at
@@ -177,11 +177,11 @@ extended `clip_encoder.py` runtime path. The loop-closure
 detector calls a new `encode_for_loop_closure(image_rgb)`
 method that returns the VPR descriptor when
 `STRAFER_VPR_DESCRIPTOR` is set, falling back to the existing
-`encode_image` (raw CLIP) when not. v1.5's detection pass
+`encode_image` (raw CLIP) when not. v2's detection pass
 needs no other changes — `detect_loop_closures` is
 descriptor-agnostic.
 
-**3. Re-run the v1.5 calibration sweep.** Same sweep over
+**3. Re-run the v2 calibration sweep.** Same sweep over
 `similarity_threshold ∈ [0.60, 0.90]`, but the threshold
 shifts (VPR descriptors typically sit in `[0.4, 0.8]` for
 same-place pairs, much lower for distinct places). Report
@@ -204,7 +204,7 @@ the spatial-filter dependency.
 - **CosPlace** (CVPR 2022) — classification-over-geocells
   approach; mature baseline.
 - **EigenPlaces** (ICCV 2023) — viewpoint-tolerant; useful
-  for the "same room different heading" case the v1.5
+  for the "same room different heading" case the v2
   detector targets.
 - **MixVPR** (WACV 2023) — feature-mixer global descriptor.
 - **Survey context:** [Improving VPR with Sequence-Matching
@@ -222,7 +222,7 @@ fires.
 - [ ] **Trigger condition met before pickup.** The PR
       description names which of the three triggers
       (`a`, `b`, `c` in "Trigger detail" above) motivated the
-      un-park. Numbers attached: v1.5's calibration-sweep
+      un-park. Numbers attached: v2's calibration-sweep
       operating-point coverage OR the sim-to-real
       degradation measurement OR the lifecycle-merge wrong-
       anchor count.
@@ -250,20 +250,20 @@ fires.
       includes the precision-recall sweep on the
       [`room-state-eval-harness`](../../active/multi-room/room-state-eval-harness.md)
       multi-bedroom adversarial scene with the new
-      descriptor, comparing v1.5 raw-CLIP baseline vs. the
+      descriptor, comparing v2 raw-CLIP baseline vs. the
       VPR descriptor. The VPR path ships if it lifts the
       operating-point precision by ≥ one CI-width AND
       recovers same-room recall to ≥ 0.85 at that
       precision.
 - [ ] **`distance_threshold_m` re-tuning.** PR description
       reports whether the spatial filter can be relaxed
-      (or removed entirely) under the VPR descriptor. v1.5
+      (or removed entirely) under the VPR descriptor. v2
       used the spatial filter to compensate for CLIP's
       poor instance discrimination; VPR may make the
       filter optional.
 - [ ] **No regression** in non-loop-closure consumers of
       `encode_image`. Smoke test: with
-      `STRAFER_VPR_DESCRIPTOR` unset, all v1.5 behavior is
+      `STRAFER_VPR_DESCRIPTOR` unset, all v2 behavior is
       byte-for-byte identical.
 - [ ] **Latency budget.** Per-frame VPR encode latency on
       the Jetson (Orin Nano FP16) reported as median + p95
@@ -281,9 +281,9 @@ fires.
 
 ## Investigation pointers
 
-- v1.5 loop-closure detector:
+- v2 loop-closure detector:
   [`semantic_map/room_state.py`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/room_state.py)
-  — `detect_loop_closures` (lands with the v1.5 brief).
+  — `detect_loop_closures` (lands with the v2 brief).
 - CLIP encoder pattern to mirror:
   [`semantic_map/clip_encoder.py`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/clip_encoder.py)
   — graceful-degrade, ONNX loading, preprocessing.
@@ -298,7 +298,7 @@ fires.
   - AnyLoc (ICRA 2024, arXiv:2308.00688) — zero-shot.
   - CosPlace (CVPR 2022), EigenPlaces (ICCV 2023),
     MixVPR (WACV 2023) — supervised baselines.
-- Calibration-sweep procedure: same shape as v1.5's
+- Calibration-sweep procedure: same shape as v2's
   amended acceptance criterion in
   [`semantic-graph-loop-closure`](../../active/multi-room/semantic-graph-loop-closure.md).
 

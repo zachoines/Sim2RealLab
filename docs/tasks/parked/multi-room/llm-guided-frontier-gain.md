@@ -219,7 +219,7 @@ worse.
 
 The v1 brief above scores **unmapped frontiers** in the
 exploration phase. A natural extension, gated on
-[`room-state-uncertainty-calibration`](../../active/multi-room/room-state-uncertainty-calibration.md)
+[`semantic-region-partition`](../../active/multi-room/semantic-region-partition.md)
 shipping the `RoomEntry.uncertainty` field: extend the same
 scalar prior to score **known-room re-visitation**, so that
 when the room-state agent has a labeled room but is uncertain
@@ -256,7 +256,7 @@ description schema, A/B eval scaffolding) shared.
 
 Pickup gate for the v1.5 layer: requires both this brief's
 v1 to ship AND
-[`room-state-uncertainty-calibration`](../../active/multi-room/room-state-uncertainty-calibration.md)
+[`semantic-region-partition`](../../active/multi-room/semantic-region-partition.md)
 to ship (no `RoomEntry.uncertainty` field to act on until
 then).
 
@@ -320,7 +320,7 @@ then).
       section](../../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
 
-### v1.5 acceptance (gated on `room-state-uncertainty-calibration`)
+### v1.5 acceptance (gated on `semantic-region-partition` shipping `RoomEntry.uncertainty`)
 
 - [ ] **`uncertain_rooms` payload.** `FrontierRankRequest`
       gains an `uncertain_rooms: list[UncertainRoomDescription]`

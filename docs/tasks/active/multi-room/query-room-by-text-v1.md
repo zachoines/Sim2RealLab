@@ -47,18 +47,19 @@ Read these before starting:
   — v1 implementation. This brief adds one method to the
   manager; the existing `known_rooms` / `current_room` /
   `connectivity` / `room_anchor` API surface is unchanged.
-- [`room-label-vlm-refinement`](room-label-vlm-refinement.md)
-  — sibling. That brief refines per-node labels via
-  detected-object prototypes. This brief is the *query-time*
-  complement: planners and operators ask in free-form text
-  instead of inspecting `RoomEntry.label`.
+- [`semantic-region-partition`](semantic-region-partition.md)
+  — v2 sibling. That brief produces the region centroids this
+  query API aims at (and labels them open-vocab at
+  construction). This brief is the *query-time* complement:
+  planners and operators ask in free-form text against the
+  region centroids rather than inspecting `RoomEntry.label`.
+  The two compose — ship either order.
 - [`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md)
   — formerly housed this API as an extension. Pulled out so it
   can ship on v1's backbone without waiting. The backbone brief
   retains the per-backbone *quality* measurement of this API.
 - [`room-state-eval-harness`](room-state-eval-harness.md) —
-  measures the open-vocab precision@5 / MRR; ECE measurement
-  carries through from the uncertainty-calibration brief.
+  measures the open-vocab precision@5 / MRR.
 
 ## Context
 
@@ -76,10 +77,12 @@ class vocabulary:
   pick a transit destination via `room_anchor(label)`.
 - The planner-LLM serializes `current_room` + `known_rooms`
   into its prompt as the seven discrete labels.
-- The
-  [`room-label-vlm-refinement`](room-label-vlm-refinement.md)
-  brief's `DEFAULT_ROOM_PROTOTYPES` dict mirrors the same
-  seven classes with hand-set object→room mappings.
+
+(v2's [`semantic-region-partition`](semantic-region-partition.md)
+retires the fixed-prompt-set classifier outright in favor of
+open-vocab region labels; this brief delivers the *query-side*
+half of that on the v1 backbone immediately, independent of
+when v2's partition lands.)
 
 Two failure modes:
 
@@ -312,18 +315,16 @@ to the modern standard *without* changing the backbone.
 ## Out of scope
 
 - **Open-vocab labeling of per-node `room_label`.** This
-  brief is query-time, not stamp-time. Per-node labels stay
-  on the seven-class
+  brief is query-time, not stamp-time. Per-node stamps stay
+  on the v1 seven-class
   [`DEFAULT_ROOM_PROMPTS`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/room_state.py)
-  set until [`learned-region-head`](../../parked/multi-room/learned-region-head.md)
-  retires both the prompt set and the clustering pipeline.
-- **Retiring `DEFAULT_ROOM_PROMPTS`.** Same reason. v1
-  per-node stamps continue; the API addition is additive.
-- **Retiring `DEFAULT_ROOM_PROTOTYPES`** from
-  [`room-label-vlm-refinement`](room-label-vlm-refinement.md).
-  That brief is per-node refinement; this brief is
-  per-room-query. They sunset together when learned-region-
-  head ships, not when this brief ships.
+  set until v2's
+  [`semantic-region-partition`](semantic-region-partition.md)
+  replaces the classifier with open-vocab region labels.
+- **Retiring `DEFAULT_ROOM_PROMPTS`.** That's v2's
+  [`semantic-region-partition`](semantic-region-partition.md);
+  this brief's API addition is additive and ships on the v1
+  per-node stamps in the meantime.
 - **Backbone choice.** Backbone selection stays at
   [`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md).
   This brief works on whichever backbone is loaded.

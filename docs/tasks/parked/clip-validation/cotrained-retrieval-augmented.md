@@ -1,4 +1,4 @@
-# Co-trained CLIP + retrieval-augmented inference (the project's implicit-mapping primitive)
+# Co-trained CLIP + retrieval-augmented inference (consumer #1 of the implicit memory map)
 
 **Type:** investigation / research / new feature
 **Owner:** DGX agent (training pipeline + cross-attention layer
@@ -14,50 +14,44 @@ multi-task training, retrieval-aware training, deployment
 integration, and ablation reports)
 **Branch:** task/clip-cotrained-retrieval-augmented
 
-## What this brief actually is — the project's implicit-mapping primitive
+## What this brief is — Step A co-training + consumer #1 of the implicit memory map
 
-This brief sells itself as "cascade-validator improvements,"
-but architecturally it **is** the project's implicit-mapping
-primitive — the sub-symbolic counterpart to the explicit
-semantic-graph work in the
-[multi-room epic](../../active/multi-room/). Reading the brief
-that way clarifies its scope and its downstream consumers:
+Two halves, kept distinct after the PR #43 architecture review:
 
-- **Step B's cross-attention over a memory bank IS implicit
-  mapping.** The 2025 production pattern for sub-symbolic
-  scene representation is "indexed bank of past CLIP /
-  DINOv2 / SigLIP embeddings consumed via cross-attention
-  on the live query," not a learned dense feature field
-  (CLIP-Fields / VLMaps / LERF). See
-  [OpenScene (CVPR 2023)](https://arxiv.org/abs/2211.15654),
-  [3D-VLA (CVPR 2024)](https://arxiv.org/pdf/2403.17846),
-  [HOV-SG (RSS 2024)](https://arxiv.org/pdf/2403.17846),
-  [OK-Robot (ICRA 2024)](https://arxiv.org/abs/2401.12202).
-  This brief's Step B is the memory-bank-with-cross-attention
-  shape — same pattern, applied to validator scoring as the
-  first consumer.
-- **The cascade validator is consumer #1; the v2 VLA is
-  consumer #2.** When
+- **Step A — co-trained CLIP fine-tune** (the contrastive
+  tower this brief owns end-to-end). Shapes representations
+  via multi-task losses on the harness corpus.
+- **Step B — consume the
+  [`implicit-memory-map`](implicit-memory-map.md) primitive.**
+  The memory bank + cross-attention module + RAG-aware
+  training is **factored out** into that standalone brief, so
+  the same primitive serves both this cascade validator
+  (consumer #1) and the v2 VLA via
   [`vla-v2-map-conditioning`](../experimental/vla-v2-map-conditioning.md)
-  picks **Option B** (cross-attention over a memory bank),
-  it inherits this brief's infrastructure verbatim — same
-  ChromaDB index, same cross-attention module, same RAG-
-  aware training pattern (the `K_train ∈ {0, 1, 2, 4, 8}`
-  augmentation for cold-deployment robustness). Building it
-  here first means the VLA path lands as a swap of the
-  consumer head, not a from-scratch implementation.
-- **Symbolic vs. sub-symbolic layer split.** The MVP's LLM
-  planner needs the *explicit* semantic graph (it can't
-  reason over a feature field); the v2 VLA stretch needs
-  the *implicit* memory bank (an end-to-end policy doesn't
-  consume discrete `RoomEntry` objects). The two coexist,
-  share the ANN store, and serve different consumers. This
-  brief is the implicit half of that split.
+  Option B (consumer #2). This brief's Step B is the
+  validator-specific loss head on top of the shared
+  augmented embedding.
 
-The framing changes nothing about the acceptance criteria
-below — they were already correct. It changes how the brief
-fits into the project's architecture story, which the
-multi-room v2 audit (PR #43) surfaced as a gap.
+**The sub-symbolic layer.** The implicit memory map is the
+*sub-symbolic* counterpart to the *symbolic* region work in
+the [multi-room epic](../../active/multi-room/) — see the
+split in
+[`context/multi-room-architecture.md`](../../context/multi-room-architecture.md).
+The 2025 production pattern for sub-symbolic scene
+representation is an indexed bank of past CLIP / DINOv2 /
+SigLIP embeddings consumed via cross-attention on the live
+query, not a learned dense feature field (CLIP-Fields /
+VLMaps / LERF). Precedents:
+[OpenScene (CVPR 2023)](https://arxiv.org/abs/2211.15654),
+[3D-VLA (CVPR 2024)](https://arxiv.org/pdf/2403.17846),
+[HOV-SG (RSS 2024)](https://arxiv.org/pdf/2403.17846),
+[OK-Robot (ICRA 2024)](https://arxiv.org/abs/2401.12202).
+
+The MVP's LLM planner needs the *explicit* region graph (it
+can't reason over a feature field); the v2 VLA stretch needs
+the *implicit* memory bank (an end-to-end policy doesn't
+consume discrete `RoomEntry` objects). The two coexist, share
+the ANN store, serve different consumers.
 
 ## Story
 
@@ -288,104 +282,70 @@ Step A ships if it improves both case-1 and case-2 ROC-AUC by
 at least one CI-width on the v1 baseline; it regresses (does
 not ship) if either case worsens.
 
-### Step B — Retrieval-augmented cross-attention layer
+### Step B — consume the implicit memory map
 
-**The candidate.** A cross-attention module placed between the
-visual tower's output and the cosine head. At inference:
+**The candidate.** Step B is the cascade validator becoming
+**consumer #1 of the shared
+[`implicit-memory-map`](implicit-memory-map.md)
+primitive.** That brief owns the memory bank + cross-attention
+module + RAG-aware training + cold-deployment augmentation;
+this step wires the validator's cosine head onto the
+augmented embedding it produces. At inference:
 
 ```
 live frame → CLIP visual tower (Phase-1 fine-tuned) → query embedding
-  → ChromaDB retrieval: top-K past observations near current pose
-                        and high-cosine to the query embedding
-  → cross-attention(query, retrieved) → augmented embedding
+  → implicit-memory-map.augment(query, retrieved) → augmented embedding
   → cosine vs. semantic-map nodes (case-1) OR
     cosine vs. mission-text embedding (case-2)
 ```
 
-**Cross-attention module.** Standard transformer cross-attention
-block: query ∈ R^512 (the live frame's CLIP embedding); keys +
-values ∈ R^(K × 512) from the retrieved past observations.
-~5–10 M trainable parameters. Output is a 512-dim
-"memory-augmented embedding" that replaces the bare query in
-the downstream cosine.
+The cross-attention module, the `K_train ∈ {0, 1, 2, 4, 8}`
+pool-size augmentation, and the cold-deployment graceful-
+degradation requirement all live in
+[`implicit-memory-map`](implicit-memory-map.md) — they are NOT
+re-specified here. Step B's scope is the validator-specific
+loss head + the validator's re-eval. When this brief reaches
+Step B, it un-parks `implicit-memory-map` (it's the first
+consumer per that brief's trigger).
 
-**Retrieval.** Reuses
-[`SemanticMapManager.query_by_embedding`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/manager.py)
-to fetch top-K = 8 (default; tunable) past observations from
-ChromaDB. Each observation contributes its CLIP embedding +
-metadata (pose, timestamp, source). Both at training time and
-at inference time the retrieval pull comes from the same kind
-of index — no train-test distribution mismatch on the memory
-side.
+**Why the split.** The same memory-bank + cross-attention is
+consumed by the v2 VLA via
+[`vla-v2-map-conditioning`](../experimental/vla-v2-map-conditioning.md)'s
+Option B. Building it once as a shared primitive — rather than
+inline in this validator brief — is why
+[`implicit-memory-map`](implicit-memory-map.md) was factored
+out. See
+[`context/multi-room-architecture.md`](../../context/multi-room-architecture.md)'s
+symbolic-vs-sub-symbolic split.
 
-**Training (RAG-aware).** The cross-attention layer trains
-*with retrieval in the forward pass*. For each training-time
-sample `(frame, label, scene)`:
+**The module + RAG-aware training + cold-deployment
+augmentation are owned by
+[`implicit-memory-map`](implicit-memory-map.md), not
+re-specified here.** That brief covers: the cross-attention
+module shape, retrieval via
+`SemanticMapManager.query_by_embedding`, the `K_train ∈ {0,
+1, 2, 4, 8}` pool-size augmentation that prevents
+cold-deployment collapse, the held-out-trajectory holdout
+protocol, and the ONNX export
+(`~/.strafer/models/memory_map.onnx`).
 
-1. Sample top-K retrievals from a "scene-snapshot" ChromaDB
-   index built from the harness corpus minus the held-out
-   trajectory. Holdout protocol: the trajectory the training
-   sample comes from is excluded from the retrieval pool to
-   avoid leakage.
-2. Forward pass: Phase-1 encoder → query embedding →
-   cross-attention(query, retrieved) → augmented embedding →
-   loss head.
-3. Loss head: same as Step A (case-1 contrastive or case-2
-   target-text alignment) but with the augmented embedding as
-   the query. Optionally, an additional **retrieval-aware
-   InfoNCE** that contrasts augmented vs. bare query —
-   encourages the layer to *use* the memory rather than ignore
-   it.
+**What Step B adds on top of the primitive:** the
+validator-specific loss head. The augmented embedding feeds
+the same loss as Step A (case-1 contrastive or case-2
+target-text alignment), optionally with a **retrieval-aware
+InfoNCE** that contrasts augmented vs. bare query so the layer
+*uses* the memory. The Phase-1 encoder may stay frozen during
+this step or be jointly fine-tuned — brief execution picks
+based on Phase-1's measured ROC-AUC.
 
-Phase-1 encoder can stay frozen during Phase-2 training (only
-the cross-attention layer learns), or be jointly fine-tuned
-(harder, more data-hungry, potentially higher ceiling). Brief
-execution picks based on Phase-1's measured ROC-AUC; if
-Step A already converges cleanly, freeze; if not, joint
-fine-tune.
-
-**Retrieval-pool-size augmentation (deploy-distribution match).**
-The training-time retrieval pool is the full harness corpus
-(minus the held-out trajectory). The *deployment-time* retrieval
-pool is whatever the SemanticMapManager has accumulated **on
-this house so far** — empty on a fresh deployment, ~3 – 5
-nodes after the first scan, growing to ~50 – 200 nodes across
-typical operation. Training only against a fully-populated pool
-produces a cross-attention layer that **collapses** when the
-pool is small, because the attention pattern that was useful at
-K = 8 with a dense index has no analogue at K = 0 (no keys to
-attend over) or K = 1 (degenerate softmax).
-
-Mitigation, drawn from the retrieval-aware-training pattern in
-[Atlas (Izacard et al., 2022)](https://arxiv.org/abs/2208.03299)
-and [RA-DIT (Lin et al., ICLR 2024)](https://arxiv.org/abs/2310.01352):
-**vary the retrieved-pool size during training**. For each
-training batch sample a `K_train ∈ {0, 1, 2, 4, 8}` uniformly,
-truncate the retrieved set to that size (or pad with learned
-"no-retrieval" tokens at K = 0), and forward through the
-cross-attention layer. The model learns to function across the
-full pool-size range; the inference path picks `K` per the
-SemanticMapManager's current node count.
-
-The combined-system acceptance gains an additional
-**cold-deployment-eval bullet**: run the v2 cascade statistics
-with the retrieval index **forcibly empty** (`map_state = cold`
-per the validator-evaluation brief's disaggregation). The
-cascade-end-to-end ROC-AUC must **degrade gracefully** to
-Step-A-alone performance (within one CI-width); if Step B's
-cold-eval falls *below* Step A's bare-encoder performance, the
-cross-attention layer has overfit to the warm-map regime and
-ships disabled until the augmentation is re-tuned.
-
-**Deployment.** A new ONNX file
-`~/.strafer/models/cross_attn.onnx` consumed by an extended
-`clip_encoder.py` (or a sibling
-`semantic_map/retrieval_augmented_encoder.py`). The
-SemanticMapManager's existing query path is reused; the
-cross-attention call adds ~5–10 ms latency at FP16. Total
-encoder budget: ~150 ms (Step A) + ~5–10 ms (cross-attention)
-+ ~5 ms (ChromaDB top-K). Comfortably under the
-`BackgroundMapper`'s 2 s poll interval.
+**Cold-deployment eval (validator-specific).** Re-run the
+cascade statistics with the retrieval index forcibly empty
+(`map_state = cold`). The cascade-end-to-end ROC-AUC must
+degrade gracefully to Step-A-alone performance (within one
+CI-width); below that floor, the augmentation per
+[`implicit-memory-map`](implicit-memory-map.md) is re-tuned
+before Step B ships. (The graceful-degradation *requirement*
+is the primitive's; this is its validator-side measurement.)
 
 **Acceptance:** re-run cascade statistics. Report ROC-AUC + CIs
 comparing:
@@ -454,24 +414,27 @@ results justify it. This brief stops at sim eval.
       ≥ one-CI-width improvement on both case-1 and case-2
       vs. v1.
 
-### Step B
+### Step B (as consumer #1 of `implicit-memory-map`)
 
-- [ ] **Cross-attention layer module** at
-      `source/strafer_autonomy/strafer_autonomy/semantic_map/retrieval_augmented_encoder.py`
-      implementing the cross-attention(query, retrieved) →
-      augmented embedding forward pass.
-- [ ] **RAG-aware training script** at
-      `source/strafer_lab/scripts/train_retrieval_augmented_clip.py`
-      that trains the cross-attention layer with retrieval in
-      the forward pass. Holdout protocol prevents
-      same-trajectory leakage.
-- [ ] **ONNX export** of the cross-attention module to
-      `~/.strafer/models/cross_attn.onnx`; consumable by the
-      extended `clip_encoder.py` runtime path.
+- [ ] **`implicit-memory-map` un-parked + built.** Step B
+      triggers
+      [`implicit-memory-map`](implicit-memory-map.md) (this
+      brief is its consumer #1). The cross-attention module,
+      RAG-aware training, `K_train` augmentation, and ONNX
+      export (`~/.strafer/models/memory_map.onnx`) are
+      delivered by that brief, not duplicated here.
+- [ ] **Validator loss head on the augmented embedding.** The
+      Step-A loss (case-1 contrastive / case-2 target-text
+      alignment), optionally a retrieval-aware InfoNCE, applied
+      to the augmented embedding the primitive produces.
 - [ ] **Cascade re-eval with combined system.** Same statistics
       framework, comparing:
       v1 baseline / Step A / Step A + Step B / cascade
       end-to-end (with arbiter on top of each).
+- [ ] **Cold-deployment eval.** Cascade-end-to-end ROC-AUC
+      with the retrieval index forcibly empty degrades to
+      within one CI-width of Step-A-alone (the primitive's
+      graceful-degradation requirement, measured validator-side).
 - [ ] **Phase-2 ship decision** recorded in addendum: ships iff
       ≥ one-CI-width improvement on both case-1 and case-2
       vs. Step A.
@@ -497,20 +460,13 @@ results justify it. This brief stops at sim eval.
       existing `export_clip_csv()` consumers; smoke-test by
       running both loaders against the same harness episode
       directory.
-- [ ] **Retrieval-pool-size augmentation (Step B).** Training
-      samples `K_train ∈ {0, 1, 2, 4, 8}` uniformly per batch
-      and truncates the retrieval pool accordingly. The model
-      consumes a learned `no-retrieval` token at K = 0 so the
-      forward pass is well-defined on a cold map.
-- [ ] **Cold-deployment eval (Step B).** Combined-system
-      statistics are re-run with the SemanticMapManager
-      forcibly cold (no prior nodes). Cascade-end-to-end
-      ROC-AUC must degrade to within one CI-width of
-      Step-A-alone on cold maps; below that floor, the
-      cross-attention layer ships disabled until the
-      augmentation is re-tuned. Reported in the §4.5 addendum
-      as a "cold vs. warm" disaggregated row alongside the
-      v1 baseline / Step A / Step A+B columns.
+- [ ] **`K_train` augmentation + cold-deployment robustness**
+      are delivered by
+      [`implicit-memory-map`](implicit-memory-map.md) (the
+      shared primitive), not re-specified here. Step B's
+      cold-deployment *eval* (validator-side) is in the Step B
+      criteria above; the augmentation *mechanism* is the
+      primitive's.
 - [ ] **Latency budget verified.** Total encoder forward pass
       stays under 200 ms on Orin Nano FP16; total
       tripwire-decision latency stays under 500 ms (encoder +

@@ -5,7 +5,9 @@
 `strafer_ros`; the measurement half is DGX-led against harness
 output)
 **Priority:** P1 (gates whether mid-mission validation graduates,
-becomes a learned-validator follow-up, or gets retired). Blocked
+becomes a co-trained-validator follow-up
+([`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md)),
+or gets retired). Blocked
 on harness output existing from **any driver mode**
 (teleop via [`teleop-driver`](../harness/teleop-driver.md)
 is the fastest-to-produce; bridge via `next-integration-round`

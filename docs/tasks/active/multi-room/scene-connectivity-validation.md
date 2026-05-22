@@ -30,7 +30,7 @@ harness consumption only**. The live planner does not read
 `scene_metadata.json` — see
 [`autonomy-stack`'s Sim-to-real boundary](autonomy-stack.md#sim-to-real-boundary-read-this-first)
 for the rule and
-[`observation-derived-room-state`](observation-derived-room-state.md)
+[`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
 for the runtime equivalent.
 
 ## Context bundle
@@ -55,7 +55,7 @@ Sibling briefs depending on this:
   ground-truth IS used to *score* the runtime agent's
   connectivity inference in sim grading, but never to *drive*
   the runtime agent.
-- [`observation-derived-room-state`](observation-derived-room-state.md)
+- [`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
   — runtime counterpart of this brief. Scored against this
   brief's ground-truth.
 
@@ -372,7 +372,7 @@ subset.
 - **Sim-to-real connectivity.** This brief operates on Infinigen
   metadata only. Real-robot connectivity from RTAB-Map's actual
   occupancy grid is filed at
-  [`observation-derived-room-state`](observation-derived-room-state.md).
+  [`observation-derived-room-state`](../../completed/observation-derived-room-state.md).
 - **Live-autonomy consumption.** Explicitly out of scope and
   explicitly forbidden. The autonomy-stack brief reads the
   observation-derived equivalent only; see

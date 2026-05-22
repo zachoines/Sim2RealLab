@@ -31,7 +31,7 @@ As an **operator running long-duration deployments where the
 semantic map grows past v1 home sizes**, I want
 **`SemanticMapManager`'s room-state runtime to handle the two
 ergonomic gaps surfaced by the
-[`observation-derived-room-state`](../../active/multi-room/observation-derived-room-state.md)
+[`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
 ship audit** (linear `room_anchor` scans at scale, and a
 sticky `classifier.enabled = False` state when CLIP loads
 late), so that **scaling to longer missions and recovering
@@ -45,7 +45,7 @@ Read these before starting:
 - [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
 - [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
 - [`context/conventions.md`](../../context/conventions.md)
-- [`observation-derived-room-state`](../../active/multi-room/observation-derived-room-state.md)
+- [`observation-derived-room-state`](../../completed/observation-derived-room-state.md)
   — v1 ship; the audit on its PR surfaced these two
   ergonomic gaps.
 - [`semantic-map-lifecycle-merge`](semantic-map-lifecycle-merge.md)
@@ -126,11 +126,12 @@ matmul that the enabled path runs.
 - [ ] **Updated incrementally.** `add_observation` appends
       to the index when `merged_metadata["room_label"]` is
       stamped. `prune` (if it exists) removes entries.
-      `clear` resets the index. The smoothing brief's
-      in-place label mutation (per
-      [`room-state-temporal-smoothing`](../../active/multi-room/room-state-temporal-smoothing.md))
-      also updates the index — coordinate with that brief if
-      it ships first.
+      `clear` resets the index. v2's region partition
+      (per
+      [`semantic-region-partition`](../../active/multi-room/semantic-region-partition.md))
+      recomputes region labels on cache rebuild — coordinate
+      with that brief if it ships first (the index keys on
+      the region label v2 assigns).
 - [ ] **`room_anchor` rewritten.** The public method becomes
       a constant-time index lookup followed by a sorted-list
       pick of the most-recent entry. Behaviour is
@@ -190,8 +191,9 @@ matmul that the enabled path runs.
   [`semantic_map/room_state.py`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/room_state.py)
   — `RoomClassifier._ensure_text_embeddings` is where the
   sticky-disable lives.
-- Smoothing brief's in-place label mutation:
-  [`room-state-temporal-smoothing`](../../active/multi-room/room-state-temporal-smoothing.md)
+- v2 region partition (recomputes region labels the index
+  keys on):
+  [`semantic-region-partition`](../../active/multi-room/semantic-region-partition.md)
   — coordinate the index-update hook with that brief if it
   ships first.
 
@@ -199,24 +201,24 @@ matmul that the enabled path runs.
 
 - **Cluster cache redesign.** The growth-fraction cache
   invalidation for `known_rooms` / `current_room` /
-  `connectivity` is fine for v1 and is already addressed
-  by the temporal-smoothing brief's "cluster cache
-  invalidation already triggers re-smoothing" disposition.
-  Don't fold cache-design work into this brief.
+  `connectivity` is fine for v1 and carries into v2's
+  [`semantic-region-partition`](../../active/multi-room/semantic-region-partition.md)
+  unchanged. Don't fold cache-design work into this brief.
 - **`current_room` lookup-radius parameterisation.** A
-  separate concern that may or may not surface from v2's
-  frontier-enrichment work — the v2 brief
-  ([`llm-guided-frontier-gain`](llm-guided-frontier-gain.md))
-  is the right home if it does.
-- **`RoomEntry.confidence` calibration.** Owned by
-  [`room-state-uncertainty-calibration`](../../active/multi-room/room-state-uncertainty-calibration.md);
+  separate concern that may or may not surface from the
+  frontier-enrichment work — the
+  [`llm-guided-frontier-gain`](llm-guided-frontier-gain.md)
+  brief is the right home if it does.
+- **`RoomEntry.confidence` semantics.** Owned by
+  [`semantic-region-partition`](../../active/multi-room/semantic-region-partition.md)
+  (v2 derives confidence from the label-similarity margin);
   not a runtime ergonomics concern.
 - **Multi-instance room disambiguation.** Same-label cluster
   merge is v1-by-design; disambiguation work is filed
   elsewhere when it surfaces real failures (e.g., a
   multi-bedroom adversarial mission).
 - **Finding B obsolescence.** If
-  [`learned-region-head`](learned-region-head.md) ships and
+  [`learned-spatial-encoder`](learned-spatial-encoder.md) ships and
   retires the v1 `RoomClassifier` entirely, Finding B
   (sticky-disable retry) becomes moot — there's no
   `RoomClassifier` left to fix. Until then, the finding

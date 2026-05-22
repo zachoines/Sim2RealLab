@@ -153,6 +153,36 @@ ROC-AUC, AND stay inside the same latency budget, to displace
 the default. Otherwise the default stays put and the brief
 records "OpenCLIP not displaced; reasons here" as the outcome.
 
+### Open-vocab room-state API — measured here, owned elsewhere
+
+The `query_room_by_text` API surface ships on v1's OpenCLIP
+ViT-B/32 via
+[`query-room-by-text-v1`](../../active/multi-room/query-room-by-text-v1.md);
+it does NOT block on this bakeoff and the API itself is
+backbone-agnostic. This brief retains the **per-backbone
+quality measurement** of that API:
+
+- [ ] **Per-backbone open-vocab eval.** Each candidate
+      backbone's bakeoff report includes a precision@5 /
+      MRR measurement of `query_room_by_text` against
+      ground-truth room labels on the eval set. The
+      open-vocab path's quality is reported per backbone,
+      not assumed; the v1 brief sets the floor and this
+      brief measures whether SigLIP-2 / MobileCLIP-2 /
+      DINOv3 lift it.
+- [ ] **Vision-only backbone fallback.** DINOv3-S has no
+      text tower. When `STRAFER_CLIP_BACKEND` selects a
+      vision-only backbone, `query_room_by_text` raises
+      `NotImplementedError` with a clear log message (the
+      contract is pinned in the v1 brief's acceptance
+      criteria). A *paired* text tower path (vision:
+      DINOv3-S, text: SigLIP-2-Base) requires a learned
+      projection head trained on the eval set's paired
+      `(image, room_label)` data — embeddings from
+      heterogeneous towers are not directly comparable via
+      cosine. Filed as a follow-up here only if the bakeoff
+      picks a vision-only backbone.
+
 ### Latency budget
 
 | Backbone | Expected FP16 latency on Orin Nano (per-frame visual encode) | Source |

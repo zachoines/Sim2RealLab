@@ -5,8 +5,8 @@
 extensions; no Jetson-side code changes — the bridge already
 publishes everything we need to capture)
 **Priority:** P2 (foundational data-pipeline upgrade; unblocks
-the v2 VLA research path and sharpens the v1 learned-validator
-brief)
+the v2 VLA research path and the CLIP cascade / co-trained
+validator measurement)
 **Estimate:** M–L (~half-week to a week; bridge-tick-rate writer +
 new fields + post-processing + docs sweep)
 **Branch:** task/harness-behavior-cloning-data-expansion
@@ -20,11 +20,11 @@ modes (bridge / teleop / oracle)**, I want **per-tick capture of
 id)` with shared timestamps, plus per-step labels (`stop_target`,
 `progress`) and language augmentation, all written to a
 **driver-agnostic schema**, so that **downstream training
-pipelines (the v2 VLA brief, the learned-validator brief, the
-clip-eval brief, the future MVP-as-teacher distillation brief)
-all consume the same dataset shape regardless of whether it came
-from the autonomy stack, a human teleoperator, or an in-process
-oracle policy**.
+pipelines (the v2 VLA brief, the CLIP cascade eval +
+co-trained validator, the future MVP-as-teacher distillation
+brief) all consume the same dataset shape regardless of whether
+it came from the autonomy stack, a human teleoperator, or an
+in-process oracle policy**.
 
 ## Context bundle
 
@@ -94,8 +94,9 @@ a different data-collection regime:
 
 **This brief ships the schema + the bridge driver upgrades.** The
 teleop and oracle drivers are sibling briefs that emit the same
-schema. Downstream consumers (clip-eval, learned-validator, v2
-VLA) are agnostic to which driver produced the data.
+schema. Downstream consumers (the CLIP cascade eval +
+co-trained validator, the v2 VLA) are agnostic to which driver
+produced the data.
 
 **Schema-choice caveat.** The strict-tier schema below is JSONL +
 JPEG + PNG. The harness-epic audit filed
@@ -190,9 +191,12 @@ work. Items 4–6 are recommended; the brief ships all six but
 gates the strict ones in acceptance. The brief also adds a
 **hard-negative injection flag**
 (`--inject-bad-grounding {wrong_room, wrong_instance, off}`)
-under the recommended tier — both the CLIP-eval brief and the
-learned-validator brief consume it, so it lives here rather than
-in either downstream brief.
+under the recommended tier — both the CLIP cascade eval
+([`validator-evaluation`](../clip-validation/validator-evaluation.md))
+and the co-trained validator
+([`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md))
+consume it, so it lives here rather than in either downstream
+brief.
 
 ### Image quality + multi-camera capture
 
@@ -481,9 +485,10 @@ post-processing passes need iteration.
   Perturbed missions are tagged in `mission.json` with
   `injection_mode`, `injection_mode_actual`, and
   `original_target_position_3d` so downstream consumers (the
-  learned-validator brief, the CLIP-eval brief's
-  `--root-cause-pass`) can label them as hard negatives without
-  re-deriving the perturbation. **This flag is consumed by
+  CLIP cascade eval's `--root-cause-pass`, the co-trained
+  validator's hard-negative set) can label them as hard
+  negatives without re-deriving the perturbation. **This flag
+  is consumed by
   [`validator-evaluation`](../clip-validation/validator-evaluation.md)
   and the
   [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md)

@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| _None._ | | | |
+| [`nav-deadline-sim-time-audit`](active/reliability/nav-deadline-sim-time-audit.md) | Jetson | [#45](https://github.com/zachoines/Sim2RealLab/pull/45) | Open — unit-tested (73 passing) + `use_sim_time` flow-through proven statically; low-RTF integration retest still needs a DGX-attached session. |
 
 ---
 

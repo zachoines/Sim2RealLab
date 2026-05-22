@@ -41,3 +41,6 @@ demos/
 # Per-machine environment configuration (.env.example IS committed)
 .env
 
+# Exclude ROS Colcon build/install artifacts
+build/*
+install/*

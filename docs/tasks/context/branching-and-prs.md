@@ -41,11 +41,12 @@ defeats the point of small, independently-mergable PRs.
 7. After review, **merge with a merge commit** (not squash, not rebase).
    The granular history per change is what makes blame, bisect, and
    revert work the way you'd expect.
-8. Move the brief into `docs/tasks/completed/` in the same PR (or in a
-   tiny follow-up PR if you only got the implementation hash after
-   merge). Stamp the brief per [`conventions.md`'s closed-brief
-   lifecycle](conventions.md#closed-task-brief-lifecycle), and add the
-   PR URL on a `**PR:**` line below `**Status:**`.
+8. Move the brief into `docs/tasks/completed/` **inside this PR, before
+   merge** — not as a follow-up afterward. Stamp it (using the branch's
+   work commit as `<ship-commit>`) per [`conventions.md`'s closed-brief
+   lifecycle](conventions.md#closed-task-brief-lifecycle); the full
+   sequence is [`docs/tasks/README.md`'s "Shipping a brief: order of
+   operations"](../README.md#shipping-a-brief-order-of-operations).
 
 ## PR composition
 

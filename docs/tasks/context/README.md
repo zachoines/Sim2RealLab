@@ -169,13 +169,17 @@ accurate.
   for compile-time target-room inference; `MissionIntent`
   extension shape shared across the multi-room briefs;
   planner-stays-intent-classifier architecture commitment.
-  Includes a "Status — none of this exists yet" section pointing
-  at the briefs that land each piece.
+  Includes a wiring-status table marking which pieces are shipped
+  vs. owned by an unshipped brief.
+- [`multi-room-architecture.md`](multi-room-architecture.md) — index
+  of how the multi-room epic's briefs layer (v1 → v2 → v3 escape
+  valves), the orthogonal sub-symbolic / backbone tracks, and the
+  planner-side consumers of the room-state API.
 
-One more candidate flagged for Pass 3 if duplication shows up:
-
-- `end-to-end-flow.md` — operator → planner → executor → grounding →
-  goal projection → Nav2 → bridge → Isaac Sim arrow chain.
+The operator → planner → executor → grounding → goal projection →
+Nav2 → bridge → Isaac Sim arrow chain is documented in
+[`docs/SYSTEM_FLOW_DIAGRAMS.md`](../../SYSTEM_FLOW_DIAGRAMS.md); no
+separate context module duplicates it.
 
 ---
 

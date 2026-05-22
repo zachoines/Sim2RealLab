@@ -109,30 +109,29 @@ briefs, READMEs).
 ## Closed task brief lifecycle
 
 When a brief in `docs/tasks/` ships, **move it into
-`docs/tasks/completed/`** in the same commit that closes out the
-PR. Stamp the top of the moved brief with:
+`docs/tasks/completed/` and stamp it inside the shipping PR, before
+merge** — never as a follow-up afterward. The exact sequence is
+[`docs/tasks/README.md`'s "Shipping a brief: order of operations"](../README.md#shipping-a-brief-order-of-operations);
+this section is the cross-cutting summary, that section is canonical.
+
+Stamp the top of the moved brief with:
 
 ```
-**Status:** Shipped <YYYY-MM-DD> (<host>).
+**Status:** Shipped <YYYY-MM-DD> in `<ship-commit>` (<host>).
 **PR:** <github-pr-url>
 **Follow-ups:** [`<follow-up.md>`](../active/<epic>/<follow-up.md>) — short hook.
 ```
 
-`<host>` is `DGX`, `Jetson`, or `Either`. `<follow-up.md>` is
-optional and lives under whichever `active/<epic>/` or
-`parked/<epic>/` subdir is appropriate — see
-[`README.md`'s directory layout](../README.md#directory-layout).
-The `**PR:**` line is mandatory if the work landed via
+`<ship-commit>` is the **work commit on the branch** (the one that
+lands the substantive change), not the merge commit — the merge
+commit doesn't exist at PR-creation time, and stamping it was the
+recurring "backfill the SHA after merge" step that kept getting
+forgotten. `<host>` is `DGX`, `Jetson`, or `Either`. `<follow-up.md>`
+is optional. The `**PR:**` line is mandatory for work that landed via
 the [task → branch → PR convention](branching-and-prs.md); omit it
-only for briefs whose work pre-dates that convention.
-
-The PR URL is the canonical reference. The merge SHA used to be
-stamped too, but it's recoverable from the PR page on GitHub or via
-`git log --grep "Merge pull request #N"` — so the stamp dropped it
-to avoid the recurring "backfill the SHA after merge" follow-up step
-that kept getting forgotten. Historical entries that still carry
-`` in `<sha>` `` are fine — don't churn them just for format
-consistency.
+only for briefs whose work pre-dates that convention. Historical
+entries that carry a merge SHA, or none, are fine — don't churn them
+for format consistency.
 
 Update `docs/tasks/README.md`'s Examples section if it linked the
 brief at the top level — the link should now point at

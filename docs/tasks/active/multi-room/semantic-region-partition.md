@@ -182,7 +182,7 @@ No external repo is cloned; no weights are trained. The
 "learned" content is the pretrained CLIP features — same as
 ConceptGraphs / HOV-SG, which also don't train a region head.
 The genuinely-trained head is the parked escape valve at
-[`learned-region-head`](../../parked/multi-room/learned-region-head.md),
+[`learned-spatial-encoder`](../../parked/multi-room/learned-spatial-encoder.md),
 un-parked only if this brief's `α` knob or its sim-to-real
 transfer proves insufficient on the eval harness.
 
@@ -295,7 +295,7 @@ the new region centroids without modification.
 ## Out of scope
 
 - **Trained region head.** Filed parked at
-  [`learned-region-head`](../../parked/multi-room/learned-region-head.md)
+  [`learned-spatial-encoder`](../../parked/multi-room/learned-spatial-encoder.md)
   as the escape valve — un-park only if this brief's `α` knob
   or sim-to-real transfer proves insufficient. The harness
   epic supplies the training corpus when that fires.

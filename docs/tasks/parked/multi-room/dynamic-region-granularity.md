@@ -51,7 +51,7 @@ Read these before starting:
   — primary consumer. This brief's finer granularity enables
   object-level mission grounding the compiler can't express
   against region-level state alone.
-- [`learned-region-head`](learned-region-head.md) — sibling
+- [`learned-spatial-encoder`](learned-spatial-encoder.md) — sibling
   escape valve on the *partition* (v2 → trained head). This
   brief is orthogonal: it's about *granularity* (how deep the
   hierarchy goes per task), not about *how the partition is
@@ -249,7 +249,7 @@ part survives.
   this brief consumes its regions and expands them.
 - **How the partition is computed** (fixed metric vs. learned
   head). Orthogonal — see
-  [`learned-region-head`](learned-region-head.md). This brief
+  [`learned-spatial-encoder`](learned-spatial-encoder.md). This brief
   is about granularity, not the partition algorithm.
 - **Object-pose `world_state` for the planner-LLM.** That's
   [`planner-scene-graph-expansion`](planner-scene-graph-expansion.md);

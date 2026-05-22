@@ -23,7 +23,7 @@ file as active and pick up directly when #41 lands.
 
 As an **engineer measuring v2 room-state improvements
 (feature+space region partitioning, open-vocab labeling, and
-the learned-region-head / VPR escape valves) against the v1
+the learned-spatial-encoder escape valve) against the v1
 baseline shipped in `observation-derived-room-state`**, I want
 **a reproducible eval harness that scores
 `SemanticMapManager`'s room-state output against Infinigen

@@ -6,7 +6,7 @@
 [`room-state-eval-harness`](../active/multi-room/room-state-eval-harness.md) — L1 measurement harness that pins v2 quality claims against the v1 baseline;
 [`room-state-runtime-ergonomics`](../parked/multi-room/room-state-runtime-ergonomics.md) — parked-on-trigger manager-internal cleanups (`room_anchor` index, `RoomClassifier` sticky-disable retry) surfaced by the audit;
 [`query-room-by-text-v1`](../active/multi-room/query-room-by-text-v1.md) — open-vocab room queries on the v1 backbone, retires the fixed-prompt brittleness at the planner-query boundary;
-[`learned-region-head`](../parked/multi-room/learned-region-head.md) — parked-on-trigger escape valve that retires the prompt-set + clustering + smoothing pipeline if v2 threshold tuning falls short.
+[`learned-spatial-encoder`](../parked/multi-room/learned-spatial-encoder.md) — parked-on-trigger escape valve that replaces v2's unsupervised region clustering + raw-CLIP loop closure with a learned encoder (frozen trunk + region head + place-recognition head) if either falls short.
 
 **Type:** new feature
 **Owner:** DGX agent edits the code (`SemanticMapManager` lives
@@ -269,14 +269,15 @@ Nav2 reachability) maps onto current literature:
 
 ## Out of scope
 
-- **Learned room classifier.** v1 uses CLIP zero-shot. Fine-
-  tuning a small classifier on Infinigen renderings (a logical
-  extension once the zero-shot baseline is stable) is filed
-  parked-on-trigger at
-  [`learned-region-head`](../parked/multi-room/learned-region-head.md)
-  — pickup gated on v2's threshold tuning provably falling
-  short on the eval harness. The v1 path stays as a fallback
-  (`STRAFER_REGION_HEAD_ENABLED=0`) even after the head
+- **Learned room classifier.** v1 uses CLIP zero-shot; v2
+  ([`semantic-region-partition`](../active/multi-room/semantic-region-partition.md))
+  moves to unsupervised feature+space clustering. A
+  *trained* region head (+ a learned place-recognition head)
+  is filed parked-on-trigger at
+  [`learned-spatial-encoder`](../parked/multi-room/learned-spatial-encoder.md)
+  — pickup gated on v2's unsupervised clustering or raw-CLIP
+  loop closure provably falling short on the eval harness. The
+  v2 clustering stays as the fallback even after the encoder
   ships.
 - **Multi-instance same-label disambiguation.** When two clusters
   are both classified e.g. `"bedroom"` (legitimately distinct

@@ -218,7 +218,7 @@ matmul that the enabled path runs.
   elsewhere when it surfaces real failures (e.g., a
   multi-bedroom adversarial mission).
 - **Finding B obsolescence.** If
-  [`learned-region-head`](learned-region-head.md) ships and
+  [`learned-spatial-encoder`](learned-spatial-encoder.md) ships and
   retires the v1 `RoomClassifier` entirely, Finding B
   (sticky-disable retry) becomes moot — there's no
   `RoomClassifier` left to fix. Until then, the finding

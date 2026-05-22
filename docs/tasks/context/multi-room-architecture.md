@@ -37,8 +37,7 @@ the eval harness.
 | **v2** active | [`semantic-graph-loop-closure`](../active/multi-room/semantic-graph-loop-closure.md) | `same_place` edge type; consumed by v2's joint clustering metric | API surface |
 | **v2.5** parked | [`semantic-map-lifecycle-merge`](../parked/multi-room/semantic-map-lifecycle-merge.md) | `consolidate()` replaces v1's `prune()`; hierarchical decay (recent / long-term + spatial pooling) | Query API; `RoomEntry` shape |
 | **v3 escape (granularity)** parked | [`dynamic-region-granularity`](../parked/multi-room/dynamic-region-granularity.md) | CLIO-style task-driven granularity — region expands to place / object on demand per mission. Un-park if v2 regions too coarse | All v2 + v1 methods (additive) |
-| **v3 escape (partition)** parked | [`learned-region-head`](../parked/multi-room/learned-region-head.md) | Trained partition replacing v2's HDBSCAN+`α`. Un-park if the single `α` can't hold both open-plan and multi-bedroom splits, or doesn't transfer sim→real | `RoomEntry` shape; v2 clustering is the fallback under `STRAFER_REGION_HEAD_ENABLED=0` |
-| **v3 escape (loop closure)** parked | [`learned-vpr-loop-closure`](../parked/multi-room/learned-vpr-loop-closure.md) | Drop-in VPR descriptor (SALAD / MegaLoc / AnyLoc) for `detect_loop_closures`. Un-park if raw-CLIP loop-closure calibration fails | All other CLIP consumers (labeling, text queries, validator cosine) |
+| **v3 escape (learned encoder)** parked | [`learned-spatial-encoder`](../parked/multi-room/learned-spatial-encoder.md) | One frozen DINOv2 trunk + a place-recognition head (replaces raw-CLIP loop closure) + a region head (replaces v2's HDBSCAN+`α`). Un-park if **either** v2 mechanism falls short. The two heads are functionally coupled (cleaner place recognition → cleaner `same_place` edges → more aggressive region splits) — one brief, one trunk, two heads | `RoomEntry` shape + `same_place` protocol; v2 clustering and v2 raw-CLIP loop closure are the fallbacks |
 
 **Escape valves are filed-on-trigger only.** Read their `## Trigger detail`
 sections before un-parking. v2's unsupervised clustering may
@@ -129,9 +128,9 @@ Same maintenance rule as [`../BOARD.md`](../BOARD.md):
   room-state layer**: add a row to the relevant table in the same
   PR.
 - **Un-parking an escape valve**: flip its row to active and
-  note what it supersedes (e.g., `learned-region-head` becomes
-  the partition and `semantic-region-partition`'s HDBSCAN
-  becomes its fallback).
+  note what it supersedes (e.g., `learned-spatial-encoder`'s
+  region head becomes the partition and
+  `semantic-region-partition`'s HDBSCAN becomes its fallback).
 - **Shipping a brief**: update its status column; if it was a
   layer brief, the next layer's pickup-gate may now be open —
   reflect that in the table.

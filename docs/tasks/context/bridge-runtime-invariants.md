@@ -133,10 +133,27 @@ code path uses the system wall clock natively.
 
 This convention is project-wide for motion deadlines:
 `navigate_to_pose` (via `_wait_for_future` / `_wait_for_nav_result`)
-and `rotate_in_place` both compute their deadline as
-`clock.now() + Duration(seconds=timeout)` and bound the wait with a
-`2 * timeout` wall-clock safety cap so a stalled `/clock` cannot
-wedge the executor.
+and `rotate_in_place` compute their primary deadline as
+`clock.now() + Duration(seconds=timeout)`. To stop a *frozen* `/clock`
+(crashed / paused bridge) from wedging the executor, each wait also
+runs a sim-time stall detector (`_ClockStallDetector` in
+[`ros_client.py`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)):
+it bails only if `/clock` fails to advance for
+`clock_stall_bail_wall_s` (`STRAFER_CLOCK_STALL_BAIL_WALL_S`, default
+15 s; `0` disables) of wall time — tolerating a slow-but-live clock at
+sub-unity RTF, never firing on real hardware where `/clock` tracks
+wall. Mirrors the loop in
+[`donut_warmup.py`](../../../source/strafer_ros/strafer_bringup/strafer_bringup/donut_warmup.py).
+
+Nav2's own internal deadlines (`controller_frequency`,
+`*_tolerance`, `cycle_frequency`, `movement_time_allowance`,
+`failure_tolerance`, …) tick on each server's node clock, so they
+follow `/clock` once `use_sim_time` is true. The per-server
+`use_sim_time: false` lines in
+[`nav2_params.yaml`](../../../source/strafer_ros/strafer_navigation/config/nav2_params.yaml)
+are required scaffolding, not a bug: `RewrittenYaml` only rewrites keys
+that already exist, and the launch arg (`use_sim_time:=true`) flips them
+to true at runtime. Don't delete them or hardcode them `true`.
 
 `STRAFER_NAVIGATION_TIMEOUT_S` (default 90 s; 180 s in
 `env_sim_in_the_loop.env`) is the operator's per-mission ceiling.
@@ -164,8 +181,11 @@ Per-step budgets are derived in the executor:
 
 Sources: commit `f60456e` (sim-clock deadline for `navigate_to_pose`),
 the `progress-aware-nav-timeouts` brief (per-step budgets + watchdog),
-and `rotate-in-place-sim-clock-deadline` (sim-clock deadline for
-`rotate_in_place`, completing the convention).
+`rotate-in-place-sim-clock-deadline` (sim-clock deadline for
+`rotate_in_place`, completing the convention), and
+`nav-deadline-sim-time-audit` (replaced the `2 * timeout` wall caps
+with the `_ClockStallDetector`, confirmed the Nav2 `use_sim_time`
+flow-through).
 Live in
 [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
 and

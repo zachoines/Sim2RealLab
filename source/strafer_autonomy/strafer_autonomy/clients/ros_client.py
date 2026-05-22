@@ -96,6 +96,7 @@ class RosClientConfig:
     default_orientation_tolerance_rad: float = 0.1
     default_rotate_speed_rad_s: float = 0.5
     default_rotate_timeout_s: float = 15.0
+    clock_stall_bail_wall_s: float = 15.0
 
 
 class _ProgressTracker:
@@ -159,6 +160,40 @@ class _ProgressTracker:
         if self._best_t is None or self._latest_t is None:
             return False
         return (self._latest_t - self._best_t) >= self.stall_window_s
+
+
+class _ClockStallDetector:
+    """Flags a stalled ``/clock``: bails only when sim time fails to advance
+    at all for ``bail_wall_s`` of wall time, tolerating a slow-but-live clock
+    at sub-unity RTF. ``bail_wall_s <= 0`` disables it.
+
+    Caller protocol: each poll, ``update`` with ``(sim_now_ns, wall_now_s)``
+    then check ``is_stalled``. Pure helper — unit tests feed ``(sim_ns,
+    wall_s)`` pairs directly.
+    """
+
+    # Sub-millisecond ``/clock`` republish jitter shouldn't count as
+    # progress; require at least 1 ms of advance to reset the stall timer.
+    _SIM_PROGRESS_EPSILON_NS = 1_000_000  # 1 ms
+
+    def __init__(
+        self, *, bail_wall_s: float, sim_now_ns: int, wall_now_s: float
+    ) -> None:
+        self.bail_wall_s = float(bail_wall_s)
+        self._last_sim_progress_ns = int(sim_now_ns)
+        self._last_sim_progress_wall_s = float(wall_now_s)
+
+    def update(self, *, sim_now_ns: int, wall_now_s: float) -> None:
+        """Record a poll. Resets the stall timer if sim time advanced."""
+        if sim_now_ns > self._last_sim_progress_ns + self._SIM_PROGRESS_EPSILON_NS:
+            self._last_sim_progress_ns = int(sim_now_ns)
+            self._last_sim_progress_wall_s = float(wall_now_s)
+
+    def is_stalled(self, *, wall_now_s: float) -> bool:
+        """True if sim time hasn't advanced for ``bail_wall_s`` wall sec."""
+        if self.bail_wall_s <= 0.0:
+            return False
+        return (wall_now_s - self._last_sim_progress_wall_s) >= self.bail_wall_s
 
 
 @dataclass(frozen=True)
@@ -1203,23 +1238,29 @@ class JetsonRosClient:
         speed = self._config.default_rotate_speed_rad_s
         direction = 1.0 if yaw_delta_rad >= 0 else -1.0
 
-        # Sim-clock deadline (mirrors `_wait_for_future` / `navigate_to_pose`).
-        # Honors `use_sim_time`: at sub-unity RTF, `timeout` sim-seconds is
-        # `timeout / RTF` wall-seconds, which the wall cap below bounds at
-        # `2 * timeout` so a stalled `/clock` cannot wedge the executor.
+        # Sim-clock deadline (honors `use_sim_time`) plus a stall detector
+        # that bails only if `/clock` freezes — see `_wait_for_future`.
         from rclpy.duration import Duration
 
         clock = self._node.get_clock()
         deadline = clock.now() + Duration(seconds=timeout)
-        wall_cap = time.monotonic() + 2.0 * timeout
+        stall = _ClockStallDetector(
+            bail_wall_s=self._config.clock_stall_bail_wall_s,
+            sim_now_ns=clock.now().nanoseconds,
+            wall_now_s=time.monotonic(),
+        )
         while True:
-            if clock.now() >= deadline:
+            now = clock.now()
+            if now >= deadline:
                 break
-            if time.monotonic() >= wall_cap:
+            wall_now = time.monotonic()
+            stall.update(sim_now_ns=now.nanoseconds, wall_now_s=wall_now)
+            if stall.is_stalled(wall_now_s=wall_now):
                 logger.warning(
-                    "rotate_in_place hit wall-clock safety cap (%.1fs) — "
-                    "is /clock advancing?",
-                    2.0 * timeout,
+                    "rotate_in_place: /clock stalled — no sim-time progress "
+                    "in %.1fs of wall clock; stopping so the executor isn't "
+                    "wedged.",
+                    self._config.clock_stall_bail_wall_s,
                 )
                 break
             with self._cache_lock:
@@ -1287,11 +1328,9 @@ class JetsonRosClient:
         RTAB-Map, and the BT navigator, all of which already tick on
         the same clock.
 
-        A wall-clock safety cap of ``2 * timeout_s`` bounds the wait if
-        ``/clock`` stops advancing (e.g. sim bridge crash mid-mission)
-        so the executor cannot wedge waiting on a stalled sim clock.
-        On real hardware the system clock advances at wall rate, so the
-        cap never trips before the primary timeout fires.
+        A ``_ClockStallDetector`` bounds the wait if ``/clock`` freezes
+        (e.g. bridge crash) so a stalled sim clock can't wedge the
+        executor; a slow-but-live clock at sub-unity RTF is tolerated.
 
         Returns ``True`` if the future completed, ``False`` on timeout.
         """
@@ -1302,17 +1341,24 @@ class JetsonRosClient:
 
         clock = self._node.get_clock()
         deadline = clock.now() + Duration(seconds=timeout_s)
-        wall_cap = time.monotonic() + 2.0 * timeout_s
+        stall = _ClockStallDetector(
+            bail_wall_s=self._config.clock_stall_bail_wall_s,
+            sim_now_ns=clock.now().nanoseconds,
+            wall_now_s=time.monotonic(),
+        )
 
         poll_dt = max(0.01, min(0.1, timeout_s / 10.0))
         while not done.is_set():
-            if clock.now() >= deadline:
+            now = clock.now()
+            if now >= deadline:
                 return False
-            if time.monotonic() >= wall_cap:
+            wall_now = time.monotonic()
+            stall.update(sim_now_ns=now.nanoseconds, wall_now_s=wall_now)
+            if stall.is_stalled(wall_now_s=wall_now):
                 logger.warning(
-                    "Future wait hit wall-clock safety cap (%.1fs) — "
-                    "is /clock advancing?",
-                    2.0 * timeout_s,
+                    "Future wait: /clock stalled — no sim-time progress in "
+                    "%.1fs of wall clock; is the bridge alive?",
+                    self._config.clock_stall_bail_wall_s,
                 )
                 return False
             if done.wait(timeout=poll_dt):
@@ -1332,12 +1378,14 @@ class JetsonRosClient:
 
         - ``(True,  False)`` — the Nav2 result future resolved before the
           deadline or stall watchdog fired.
-        - ``(False, False)`` — the sim-clock deadline (or wall-clock
-          safety cap) tripped first.
-        - ``(False, True)``  — the stall watchdog tripped first.
+        - ``(False, False)`` — the sim-clock deadline (or the ``/clock``
+          stall detector) tripped first.
+        - ``(False, True)``  — the progress watchdog tripped first.
 
         ``stalled`` and the deadline cannot both be true; the loop
-        returns on the first triggering condition.
+        returns on the first triggering condition. ``tracker`` watches
+        Nav2 ``distance_remaining`` for goal progress; the
+        ``_ClockStallDetector`` watches ``/clock`` for sim-time progress.
         """
         from rclpy.duration import Duration
 
@@ -1346,17 +1394,24 @@ class JetsonRosClient:
 
         clock = self._node.get_clock()
         deadline = clock.now() + Duration(seconds=timeout_s)
-        wall_cap = time.monotonic() + 2.0 * timeout_s
+        stall = _ClockStallDetector(
+            bail_wall_s=self._config.clock_stall_bail_wall_s,
+            sim_now_ns=clock.now().nanoseconds,
+            wall_now_s=time.monotonic(),
+        )
 
         poll_dt = max(0.01, min(0.1, timeout_s / 10.0))
         while not done.is_set():
-            if clock.now() >= deadline:
+            now = clock.now()
+            if now >= deadline:
                 return (False, False)
-            if time.monotonic() >= wall_cap:
+            wall_now = time.monotonic()
+            stall.update(sim_now_ns=now.nanoseconds, wall_now_s=wall_now)
+            if stall.is_stalled(wall_now_s=wall_now):
                 logger.warning(
-                    "Nav2 wait hit wall-clock safety cap (%.1fs) — "
-                    "is /clock advancing?",
-                    2.0 * timeout_s,
+                    "Nav2 wait: /clock stalled — no sim-time progress in "
+                    "%.1fs of wall clock; is the bridge alive?",
+                    self._config.clock_stall_bail_wall_s,
                 )
                 return (False, False)
             if tracker is not None and tracker.is_stalled():

@@ -19,7 +19,11 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from strafer_autonomy.clients.ros_client import JetsonRosClient, RosClientConfig
+from strafer_autonomy.clients.ros_client import (
+    JetsonRosClient,
+    RosClientConfig,
+    _ClockStallDetector,
+)
 from strafer_autonomy.schemas import GoalPoseCandidate, Pose3D, SceneObservation, SkillResult
 
 pytestmark = pytest.mark.requires_ros
@@ -674,36 +678,39 @@ class TestRotateInPlaceDeadlineSource(unittest.TestCase):
         client._cmd_vel_pub = MagicMock()
         return client
 
-    def test_use_sim_time_true_pinned_clock_falls_back_to_wall_cap(self) -> None:
-        """``use_sim_time:=true`` analog: ``/clock`` frozen.
+    def test_use_sim_time_true_frozen_clock_trips_stall_detector(self) -> None:
+        """``use_sim_time:=true`` analog: ``/clock`` frozen (crashed bridge).
 
-        With the buggy wall-clock deadline this would trip at ``timeout``.
-        With the sim-clock deadline the sim deadline never trips (sim time
-        never advances), so the ``2 * timeout`` wall safety cap is what
-        ends the loop. Observing the loop run for >= ~timeout wall-seconds
-        proves the sim-clock deadline is the primary source.
+        The sim-clock deadline never trips (sim time never advances), so
+        the sim-time stall detector ends the loop after
+        ``clock_stall_bail_wall_s`` of wall time with no /clock progress.
+        Crucially the bail window is independent of ``timeout`` (here 5 s),
+        so a frozen clock is caught fast even with a large sim budget —
+        whereas the old ``2 * timeout`` wall cap would have waited 10 s.
         """
         from rclpy.time import Time
 
-        client = self._unconverged_client()
-        # Sim clock pinned at t=0 → sim deadline never trips.
+        bail = 0.15
+        client = _make_client(RosClientConfig(clock_stall_bail_wall_s=bail))
+        client._latest_odom = _make_odom_msg()  # yaw=0
+        client._cmd_vel_pub = MagicMock()
+        # Sim clock pinned at t=0 → sim deadline never trips, never advances.
         client._node.get_clock.return_value.now.side_effect = (
             lambda: Time(seconds=0)
         )
 
-        timeout = 0.05
+        timeout = 5.0  # large sim budget; the stall detector should win
         start = time.monotonic()
         result = client.rotate_in_place(
-            step_id="rot-sim-pinned", yaw_delta_rad=1.0,
+            step_id="rot-frozen", yaw_delta_rad=1.0,
             tolerance_rad=0.001, timeout_s=timeout,
         )
         elapsed = time.monotonic() - start
 
         self.assertEqual(result.status, "timeout")
-        # Wall cap is 2 * timeout. Buggy wall deadline would trip at ~timeout.
-        # Allow the lower bound to be just under timeout for CI jitter.
-        self.assertGreaterEqual(elapsed, timeout * 0.8)
-        self.assertLess(elapsed, 2.0 * timeout + 0.5)
+        # Fires ~bail wall-seconds in, independent of (and far below) timeout.
+        self.assertGreaterEqual(elapsed, bail * 0.8)
+        self.assertLess(elapsed, bail + 1.0)
         # Clock was polled by the loop, not just consulted once.
         self.assertGreater(
             client._node.get_clock.return_value.now.call_count, 2
@@ -801,23 +808,128 @@ class TestWaitForFuture(unittest.TestCase):
         # Sim-time deadline trips before the 2.0s wall cap.
         self.assertLess(elapsed, 1.5)
 
-    def test_wall_clock_safety_cap(self) -> None:
-        """A frozen sim clock must not wedge the executor — wall cap fires."""
+    def test_frozen_clock_trips_stall_detector(self) -> None:
+        """A frozen sim clock must not wedge the executor — the stall
+        detector fires after ``clock_stall_bail_wall_s`` of wall time with
+        no /clock progress, independent of the (large) sim ``timeout_s``.
+        """
         from rclpy.time import Time
 
-        client = _make_client()
+        bail = 0.15
+        client = _make_client(RosClientConfig(clock_stall_bail_wall_s=bail))
         # Sim clock never advances past 0.
         client._node.get_clock.return_value.now.side_effect = (
             lambda: Time(seconds=0)
         )
         future = _make_future(done=False)
-        # timeout_s=0.05 -> wall cap = 0.1s, well under any test runtime.
         start = time.monotonic()
-        self.assertFalse(client._wait_for_future(future, 0.05))
+        # Large sim budget; with the old 2*timeout cap this would wait 10 s.
+        self.assertFalse(client._wait_for_future(future, 5.0))
         elapsed = time.monotonic() - start
-        # Cap is 2 * 0.05 = 0.1s. Allow generous headroom for CI jitter.
-        self.assertGreaterEqual(elapsed, 0.05)
-        self.assertLess(elapsed, 1.0)
+        self.assertGreaterEqual(elapsed, bail * 0.8)
+        self.assertLess(elapsed, bail + 1.0)
+
+    def test_slow_but_live_clock_does_not_trip_detector(self) -> None:
+        """Sub-unity RTF: /clock advances slowly but never freezes. With a
+        tiny bail window that would trip a *frozen* clock immediately, the
+        future still completes because every poll shows sim-time progress.
+        This is the regression the audit fixes — the old wall cap aborted
+        here. (Multi-poll slow-clock behavior is proved deterministically
+        in ``TestClockStallDetector``.)
+        """
+        from rclpy.time import Time
+
+        # Sim advancing, all reads well under the 100 s deadline.
+        sim_seconds = iter([0.0, 0.5, 1.0, 1.5, 2.0])
+        client = _make_client(RosClientConfig(clock_stall_bail_wall_s=0.01))
+        client._node.get_clock.return_value.now.side_effect = (
+            lambda: Time(seconds=next(sim_seconds))
+        )
+        future = _make_future(done=True)
+        self.assertTrue(client._wait_for_future(future, 100.0))
+
+
+# ------------------------------------------------------------------
+# Tests — _ClockStallDetector (sim-time-progress stall detector)
+# ------------------------------------------------------------------
+
+
+class TestClockStallDetector(unittest.TestCase):
+    """The detector replaces the absolute ``2 * timeout`` wall cap. It must
+    tolerate a slow-but-live ``/clock`` (sub-unity RTF) and fire only when
+    sim time stops advancing entirely for ``bail_wall_s`` of wall time.
+    """
+
+    @staticmethod
+    def _ns(seconds: float) -> int:
+        return int(seconds * 1e9)
+
+    def test_frozen_clock_stalls_after_bail_window(self) -> None:
+        """Sim time pinned: stalls exactly once wall passes the bail window."""
+        det = _ClockStallDetector(
+            bail_wall_s=15.0, sim_now_ns=self._ns(0.0), wall_now_s=100.0
+        )
+        # 14.9 s of wall with no sim progress — not yet stalled.
+        det.update(sim_now_ns=self._ns(0.0), wall_now_s=114.9)
+        self.assertFalse(det.is_stalled(wall_now_s=114.9))
+        # 15.0 s of wall with no sim progress — stalled.
+        det.update(sim_now_ns=self._ns(0.0), wall_now_s=115.0)
+        self.assertTrue(det.is_stalled(wall_now_s=115.0))
+
+    def test_slow_but_live_clock_never_stalls(self) -> None:
+        """Sub-unity RTF: 1 ms of sim per 1 s of wall (RTF≈0.001) for a
+        wall span that dwarfs the bail window. Each advance resets the
+        timer, so the detector never fires — the core regression fix.
+        """
+        det = _ClockStallDetector(
+            bail_wall_s=15.0, sim_now_ns=self._ns(0.0), wall_now_s=0.0
+        )
+        # 60 polls × 1 s wall = 60 s wall (4× the 15 s bail), sim creeps
+        # forward 2 ms each poll (above the 1 ms progress epsilon).
+        for i in range(1, 61):
+            sim_ns = self._ns(0.002 * i)
+            wall = float(i)
+            det.update(sim_now_ns=sim_ns, wall_now_s=wall)
+            self.assertFalse(
+                det.is_stalled(wall_now_s=wall),
+                f"spurious stall at poll {i}",
+            )
+
+    def test_rtf_one_parity_never_stalls(self) -> None:
+        """Real-robot analog: sim advances at wall rate. Never stalls, so
+        on real hardware the primary deadline governs — indistinguishable
+        from the old wall cap (which also never fired before the deadline).
+        """
+        det = _ClockStallDetector(
+            bail_wall_s=15.0, sim_now_ns=self._ns(1000.0), wall_now_s=1000.0
+        )
+        for t in range(1001, 1100):
+            det.update(sim_now_ns=self._ns(t), wall_now_s=float(t))
+            self.assertFalse(det.is_stalled(wall_now_s=float(t)))
+
+    def test_sub_epsilon_jitter_is_not_progress(self) -> None:
+        """A frozen clock that only jitters sub-millisecond must still
+        stall — republish noise below the 1 ms epsilon isn't progress.
+        """
+        det = _ClockStallDetector(
+            bail_wall_s=10.0, sim_now_ns=self._ns(5.0), wall_now_s=0.0
+        )
+        # +0.5 ms jitter each poll, never crossing the 1 ms epsilon.
+        det.update(sim_now_ns=self._ns(5.0) + 500_000, wall_now_s=9.9)
+        self.assertFalse(det.is_stalled(wall_now_s=9.9))
+        det.update(sim_now_ns=self._ns(5.0) + 500_000, wall_now_s=10.0)
+        self.assertTrue(det.is_stalled(wall_now_s=10.0))
+
+    def test_nonpositive_bail_disables_detector(self) -> None:
+        """``clock_stall_bail_wall_s <= 0`` opts out: never reports stalled
+        even with a frozen clock, leaving the sim-clock deadline as the
+        sole bound (documented escape hatch).
+        """
+        det = _ClockStallDetector(
+            bail_wall_s=0.0, sim_now_ns=self._ns(0.0), wall_now_s=0.0
+        )
+        det.update(sim_now_ns=self._ns(0.0), wall_now_s=10_000.0)
+        self.assertFalse(det.is_stalled(wall_now_s=10_000.0))
 
 
 # ------------------------------------------------------------------

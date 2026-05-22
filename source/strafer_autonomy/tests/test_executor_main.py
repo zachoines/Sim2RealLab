@@ -6,6 +6,7 @@ import os
 import unittest
 from unittest.mock import patch
 
+from strafer_autonomy.clients.ros_client import RosClientConfig
 from strafer_autonomy.executor.main import _read_bool_env, _read_float_env
 from strafer_autonomy.executor.mission_runner import MissionRunnerConfig
 
@@ -138,6 +139,26 @@ class TestProgressAwareTuningEnv(unittest.TestCase):
                 _read_float_env(env_name, field, kwargs)
             cfg = MissionRunnerConfig(**kwargs)
             self.assertEqual(getattr(cfg, field), 42.5, f"{env_name} -> {field}")
+
+
+class TestClockStallBailEnv(unittest.TestCase):
+    """``STRAFER_CLOCK_STALL_BAIL_WALL_S`` plumbs into ``RosClientConfig``."""
+
+    def test_default_is_fifteen_seconds(self) -> None:
+        self.assertEqual(RosClientConfig().clock_stall_bail_wall_s, 15.0)
+
+    def test_env_overrides_field(self) -> None:
+        kwargs: dict = {}
+        with patch.dict(
+            os.environ, {"STRAFER_CLOCK_STALL_BAIL_WALL_S": "30.0"}, clear=False
+        ):
+            _read_float_env(
+                "STRAFER_CLOCK_STALL_BAIL_WALL_S",
+                "clock_stall_bail_wall_s",
+                kwargs,
+            )
+        cfg = RosClientConfig(**kwargs)
+        self.assertEqual(cfg.clock_stall_bail_wall_s, 30.0)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,11 @@
 # strafer_shared.constants by navigation.launch.py.
 #
 # Values marked "TUNE:" are likely candidates for real-world adjustment.
+#
+# `use_sim_time: false` on every server below is INTENTIONAL scaffolding:
+# RewrittenYaml only rewrites keys that already exist, and
+# `bringup_sim_in_the_loop.launch.py` passes `use_sim_time:=true`, which
+# flips all of these to true at runtime (real-robot bringup leaves them false).
 
 # =============================================================================
 # BT Navigator

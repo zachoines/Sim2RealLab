@@ -118,7 +118,7 @@ Either way:
   [`planner-rotate-direction-prompt.md`](planner-rotate-direction-prompt.md)
   (DGX prompt). This brief is purely the executor-side arc tracking.
 - **Cancel-mid-rotation.** Separate brief
-  [`executor-cancel-mid-motion-cmd-vel-zero.md`](executor-cancel-mid-motion-cmd-vel-zero.md).
+  [`executor-cancel-mid-motion-cmd-vel-zero.md`](../../completed/executor-cancel-mid-motion-cmd-vel-zero.md).
 - **Sim-clock deadline / stall detector.** Shipped in PR #45
   (`nav-deadline-sim-time-audit`); do not re-touch the deadline path.
 - **MPPI / Nav2 traverse-speed tuning.** Tracked under

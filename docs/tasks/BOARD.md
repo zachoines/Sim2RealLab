@@ -106,7 +106,6 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 
 | Brief | Pri | State | Owner |
 |---|---|---|---|
-| [`executor-cancel-mid-motion-cmd-vel-zero`](active/reliability/executor-cancel-mid-motion-cmd-vel-zero.md) | P1 | active | Jetson |
 | [`executor-prefer-rotate-then-translate`](active/reliability/executor-prefer-rotate-then-translate.md) | P2 | active | Jetson |
 | [`rtabmap-cold-start-determinism`](active/reliability/rtabmap-cold-start-determinism.md) | P2 | active | Jetson |
 | [`executor-grounding-loss-mid-mission-recovery`](active/reliability/executor-grounding-loss-mid-mission-recovery.md) | P2 | active | Jetson |
@@ -166,7 +165,6 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | Either | S–M | End-to-end spec for hidden-state shape, reset semantics, thread-safety across train/export/inference. Three existing recurrent briefs each describe their side; this brief pins the contract at the seams. Filed off the 2026-05-15 trained-policy audit. |
 | [`observation-contract-cleanup`](active/trained-policy/observation-contract-cleanup.md) | DGX | S–M | Re-implement `body_velocity_xy` as encoder-derived FK so the sim signal chain matches what the real robot computes via `/strafer/odom`. Closes a silent sim-to-real bug before the DEPTH MVP ships. Filed off the 2026-05-15 trained-policy audit. |
 | [`domain-randomization-audit`](active/trained-policy/domain-randomization-audit.md) | DGX | M | Bench-measure real-chassis variability (mass, battery, D555 latency, Jetson jitter) and widen REAL_ROBOT_CONTRACT to match. Resume-train DEPTH baseline against the audited DR. Filed off the 2026-05-15 trained-policy audit. |
-| [`executor-cancel-mid-motion-cmd-vel-zero`](active/reliability/executor-cancel-mid-motion-cmd-vel-zero.md) | Jetson | S (~½ d) | Cancel-correctness bug — `rotate_in_place` doesn't observe a cancel event, so canceling a mid-rotation mission ignores the cancel until tolerance or timeout. Real-robot blocker. Filed off the 2026-05-17 reliability audit. |
 
 ### P2 — medium priority
 

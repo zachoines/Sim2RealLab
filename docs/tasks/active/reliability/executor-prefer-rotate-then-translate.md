@@ -59,10 +59,13 @@ Cons:
   policy decision, not a semantic plan change. The planner's
   intent is "translate to that pose"; the executor decides how.
 - Interaction with the cancel path: a cancel arriving during the
-  pre-rotation must zero `/cmd_vel` immediately —
-  [`executor-cancel-mid-motion-cmd-vel-zero.md`](executor-cancel-mid-motion-cmd-vel-zero.md)
-  must land before this brief, or the pre-rotation becomes a new
-  uncancellable hold time.
+  pre-rotation must zero `/cmd_vel` immediately. The required
+  prerequisite
+  [`executor-cancel-mid-motion-cmd-vel-zero.md`](../../completed/executor-cancel-mid-motion-cmd-vel-zero.md)
+  has shipped — `rotate_in_place` now honors `cancel_event` and
+  `_cancel_robot_actions` zeroes `/cmd_vel` as a belt-and-braces
+  fail-safe. The pre-rotation step inherits that behavior; no new
+  cancel work is needed here.
 
 ### B. Controller-level policy via MPPI critic
 

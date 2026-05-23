@@ -1,5 +1,18 @@
 # Cancel-mid-motion must zero `/cmd_vel` for direct-publish skills
 
+**Status:** Shipped 2026-05-22 in `df30150` (Jetson). End-to-end cancel
+was blocked by a second pre-existing bug: `AutonomyCommandServer`
+used single-threaded `rclpy.spin` with the default
+`MutuallyExclusiveCallbackGroup`, so the long-running
+`execute_callback` held the only callback thread and the cancel-goal
+service never fired (CLI hung indefinitely). Fixed in-PR alongside
+the original work — `ActionServer` and the status service share a
+`ReentrantCallbackGroup`; the node is spun via a
+`MultiThreadedExecutor` (4 threads). Without this second fix the
+acceptance smoke (`submit` + `cancel` → zero `/cmd_vel`) was
+literally unobservable.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/48
+
 **Type:** task / bug
 **Owner:** Jetson agent (`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`, `source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py`)
 **Priority:** P1 — correctness bug; real-robot blocker. The current behavior is "user pressed cancel, robot keeps rotating until tolerance or wall-cap." That's not acceptable on hardware near humans / furniture.

@@ -128,13 +128,13 @@ The watchdog brief's value is in the gaps the upstream stack
 genuinely doesn't fill — not in re-implementing what's already
 shipped.
 
-### Cross-references to active reliability briefs
+### Cross-references to reliability briefs
 
-- [`active/reliability/executor-cancel-mid-motion-cmd-vel-zero.md`](../../active/reliability/executor-cancel-mid-motion-cmd-vel-zero.md)
+- [`completed/executor-cancel-mid-motion-cmd-vel-zero.md`](../../completed/executor-cancel-mid-motion-cmd-vel-zero.md)
   — Layer 1 (`chassis_wedged`) does *not* substitute for the cancel
-  bug. A cancel from the operator must zero `cmd_vel` synchronously,
-  not wait for a 3 s wedge-detection window. Both briefs land
-  independently.
+  fix that shipped there. A cancel from the operator zeroes `cmd_vel`
+  synchronously; the watchdog catches a different failure (wedge /
+  e-stop / jam) that has no cancel to honor.
 - [`active/reliability/executor-slam-tracking-precheck-mid-mission.md`](../../active/reliability/executor-slam-tracking-precheck-mid-mission.md)
   — a Layer 5 ("tracking lost") naturally extends from that brief's
   in-flight monitoring once the precheck pattern ships. File a small

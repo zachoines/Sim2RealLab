@@ -111,7 +111,7 @@ Peer references on production RoboClaw integration:
   missions get rejected with `error_code="battery_critical"`,
   in-flight missions are canceled (reusing the existing cancel path
   patched by
-  [`executor-cancel-mid-motion-cmd-vel-zero.md`](../../active/reliability/executor-cancel-mid-motion-cmd-vel-zero.md)).
+  [`executor-cancel-mid-motion-cmd-vel-zero.md`](../../completed/executor-cancel-mid-motion-cmd-vel-zero.md)).
 - Hysteresis: once `ERROR`, stay there until battery recovers above
   `STRAFER_BATTERY_OK_V` (default 11.7 V) for 30 wall-seconds.
 
@@ -188,6 +188,6 @@ Peer references on production RoboClaw integration:
   [`imu-yaw-drift-no-magnetometer.md`](imu-yaw-drift-no-magnetometer.md).
 - **`/cmd_vel` zero on `battery_critical`.** Handled by the existing
   cancel path patched by
-  [`executor-cancel-mid-motion-cmd-vel-zero.md`](../../active/reliability/executor-cancel-mid-motion-cmd-vel-zero.md).
+  [`executor-cancel-mid-motion-cmd-vel-zero.md`](../../completed/executor-cancel-mid-motion-cmd-vel-zero.md).
   This brief only asserts the halt signal; the cancel path takes it
   from there.

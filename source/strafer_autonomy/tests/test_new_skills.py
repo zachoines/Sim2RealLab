@@ -659,3 +659,84 @@ class TestDispatch:
         result = runner._execute_step(runtime, step)
         # Empty map by default passes (fallback_on_empty_map=pass)
         assert result.status == "succeeded"
+
+
+# ---------------------------------------------------------------------------
+# cancel_event forwarding from executor rotate sites + _cancel_robot_actions
+# ---------------------------------------------------------------------------
+
+
+class TestRotateCancelEventForwarding:
+    """Each direct ``rotate_in_place`` caller in the executor passes
+    ``runtime.cancel_event`` so a mid-rotation cancel actually stops
+    the chassis. Without this, rotates ignore cancel until tolerance
+    or timeout — a real-robot safety bug.
+    """
+
+    def test_rotate_by_degrees_forwards_cancel_event(self):
+        runner, ros = _make_runner()
+        ros.rotate_in_place.return_value = SkillResult(
+            step_id="r1", skill="rotate_in_place", status="succeeded",
+        )
+        runtime = _make_runtime()
+        step = SkillCall(skill="rotate_by_degrees", step_id="r1", args={"degrees": 30})
+        runner._rotate_by_degrees(runtime, step)
+        assert ros.rotate_in_place.call_args.kwargs["cancel_event"] is runtime.cancel_event
+
+    def test_align_to_goal_yaw_forwards_cancel_event(self):
+        runner, ros = _make_runner()
+        ros.get_robot_state.return_value = {"pose": {"qz": 0.0, "qw": 1.0}}
+        ros.rotate_in_place.return_value = SkillResult(
+            step_id="a1", skill="rotate_in_place", status="succeeded",
+        )
+        runtime = _make_runtime()
+        runtime.latest_goal_pose = _goal_pose_candidate(yaw=math.radians(15.0))
+        step = SkillCall(skill="align_to_goal_yaw", step_id="a1")
+        runner._align_to_goal_yaw(runtime, step)
+        assert ros.rotate_in_place.call_args.kwargs["cancel_event"] is runtime.cancel_event
+
+    def test_orient_to_direction_forwards_cancel_event(self):
+        runner, ros = _make_runner()
+        ros.get_robot_state.return_value = {"pose": {"qz": 0.0, "qw": 1.0}}
+        ros.rotate_in_place.return_value = SkillResult(
+            step_id="o1", skill="rotate_in_place", status="succeeded",
+        )
+        runtime = _make_runtime()
+        step = SkillCall(
+            skill="orient_to_direction", step_id="o1",
+            args={"direction": "north"},
+        )
+        runner._orient_to_direction(runtime, step)
+        assert ros.rotate_in_place.call_args.kwargs["cancel_event"] is runtime.cancel_event
+
+
+class TestCancelRobotActions:
+    """``_cancel_robot_actions`` zeroes ``/cmd_vel`` after canceling
+    Nav2 — belt-and-braces fail-safe for direct-publish skills
+    (rotate_in_place) that bypass Nav2 entirely, and to catch the
+    race where cancel arrives before a rotate enters its loop.
+    """
+
+    def test_publishes_zero_cmd_vel_after_canceling_nav(self):
+        runner, ros = _make_runner()
+        runner._cancel_robot_actions()
+        ros.cancel_active_navigation.assert_called_once()
+        ros.publish_zero_cmd_vel.assert_called_once()
+
+    def test_zero_publish_runs_even_when_nav_cancel_raises(self):
+        runner, ros = _make_runner()
+        ros.cancel_active_navigation.side_effect = RuntimeError("boom")
+        runner._cancel_robot_actions()
+        ros.publish_zero_cmd_vel.assert_called_once()
+
+    def test_no_publish_when_client_lacks_method(self):
+        """Older RosClient impls (Protocol-only stubs) without
+        ``publish_zero_cmd_vel`` must not raise — the Nav2 cancel
+        stays the primary mechanism.
+        """
+        runner, _ = _make_runner()
+        # ``spec=[...]`` makes getattr return None for the missing
+        # method instead of auto-creating a MagicMock attribute.
+        runner._ros_client = MagicMock(spec=["cancel_active_navigation"])
+        runner._cancel_robot_actions()  # must not raise
+        runner._ros_client.cancel_active_navigation.assert_called_once()

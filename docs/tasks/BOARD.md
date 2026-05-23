@@ -106,6 +106,7 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 
 | Brief | Pri | State | Owner |
 |---|---|---|---|
+| [`nav2-scan-ground-filter-and-mppi-mecanum-tuning`](active/reliability/nav2-scan-ground-filter-and-mppi-mecanum-tuning.md) | P2 | active | Jetson |
 | [`rtabmap-cold-start-determinism`](active/reliability/rtabmap-cold-start-determinism.md) | P2 | active | Jetson |
 | [`executor-grounding-loss-mid-mission-recovery`](active/reliability/executor-grounding-loss-mid-mission-recovery.md) | P2 | active | Jetson |
 | [`executor-slam-tracking-precheck-mid-mission`](active/reliability/executor-slam-tracking-precheck-mid-mission.md) | P2 | active | Jetson |
@@ -123,6 +124,7 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 
 | Brief | Pri | State | Owner |
 |---|---|---|---|
+| [`nav2-sim-real-promotion-architecture`](active/tooling/nav2-sim-real-promotion-architecture.md) | P2 | active | Jetson |
 | [`unify-test-targets-and-ci`](active/tooling/unify-test-targets-and-ci.md) | P3 | active | Either |
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | P2 | active | DGX |
 
@@ -194,6 +196,8 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`grounding-publisher-extraction`](active/reliability/grounding-publisher-extraction.md) | S | Quick win — pure refactor follow-up to `vlm-bbox-overlay`; extracts the viz publishers out of `JetsonRosClient` |
 | [`real-d555-depth-range-survey`](active/investigations/real-d555-depth-range-survey.md) | S–M | Investigation — bench measurement + write-up |
 | [`rtabmap-cold-start-determinism`](active/reliability/rtabmap-cold-start-determinism.md) | M | Cold-start signature on populated DB: `Not found word N` burst + `Increment map id to 4`; triage bridge-teleport vs Mem/* config + ship the chosen disposition. After audit: A2 recommended — flip `localization:=true` default when populated DB exists. |
+| [`nav2-scan-ground-filter-and-mppi-mecanum-tuning`](active/reliability/nav2-scan-ground-filter-and-mppi-mecanum-tuning.md) | M | Swap depthimage_to_laserscan → pointcloud_to_laserscan with Z-axis ground filter to kill the phantom ~3.5 m floor arc in `/scan`; dial down real-robot `PathAlignCritic` + raise `PreferForwardCritic` so MPPI stops strafing on each replan. Filed off lap-test symptoms after `nav2-commit-and-follow-path-stability`. |
+| [`nav2-sim-real-promotion-architecture`](active/tooling/nav2-sim-real-promotion-architecture.md) | M | Split `_patch_params` into "constants injection / velocity-coupled / behavioral overrides" sections, document the sim→real promotion process in a context module, and run validation laps for the remaining `envelope_factor > 1.0`-gated MPPI knobs (PreferForward, PathFollow, gamma, PathAlign) so each either graduates to the universal default or carries a refreshed justification for staying gated. Closes the latent sim-to-real gap created by pattern-matching onto the envelope-factor gate. |
 | [`rotate-in-place-large-angle-correctness`](active/reliability/rotate-in-place-large-angle-correctness.md) | S–M | `rotate_in_place` closes the loop on a single normalized target yaw: `rotate 360` no-ops (2π→0 target) and `>180°` takes the short way. Track accumulated traversal instead. Surfaced in PR #45 e2e (rotate 360 vs 180 at RTF≈0.085). |
 | [`executor-grounding-loss-mid-mission-recovery`](active/reliability/executor-grounding-loss-mid-mission-recovery.md) | M | `_navigate_via_staging` re-grounding failure terminates immediately. Add mini-scan + semantic-map fallback with bounded recovery budget. Filed off the 2026-05-17 reliability audit. |
 | [`executor-slam-tracking-precheck-mid-mission`](active/reliability/executor-slam-tracking-precheck-mid-mission.md) | S–M | Executor never queries `check_slam_tracking()`; silent failure when RTAB-Map loses tracking mid-mission. Add bounded precheck before each motion step. Filed off the 2026-05-17 reliability audit. |

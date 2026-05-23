@@ -54,6 +54,18 @@ class RosClient(Protocol):
     def cancel_active_navigation(self) -> bool:
         """Cancel the currently active motion backend if one exists."""
 
+    def compute_path_to_pose(
+        self,
+        *,
+        goal_pose: Pose3D,
+        timeout_s: float = 5.0,
+    ) -> list[tuple[float, float]] | None:
+        """Plan a path to ``goal_pose`` without executing it.
+
+        Returns the path waypoints as map-frame ``(x, y)`` tuples, or
+        ``None`` if planning failed / timed out.
+        """
+
     def get_global_costmap_bounds(self) -> "CostmapBounds | None":
         """Return the map-frame extent of the global costmap, or ``None``
         if no costmap message has been received yet."""
@@ -910,9 +922,54 @@ class JetsonRosClient:
             message=resp.message,
         )
 
-    # ------------------------------------------------------------------
-    # Task 5: cancel_active_navigation
-    # ------------------------------------------------------------------
+    def compute_path_to_pose(
+        self,
+        *,
+        goal_pose: Pose3D,
+        timeout_s: float = 5.0,
+    ) -> list[tuple[float, float]] | None:
+        """Plan-only query against Nav2's ``compute_path_to_pose`` action."""
+        from nav2_msgs.action import ComputePathToPose
+        from geometry_msgs.msg import PoseStamped
+        from rclpy.action import ActionClient
+
+        if not hasattr(self, "_compute_path_client"):
+            self._compute_path_client = ActionClient(
+                self._node, ComputePathToPose, "compute_path_to_pose",
+            )
+
+        if not self._compute_path_client.wait_for_server(timeout_sec=2.0):
+            logger.warning("compute_path_to_pose action server unavailable")
+            return None
+
+        goal_msg = ComputePathToPose.Goal()
+        goal_msg.goal = PoseStamped()
+        goal_msg.goal.header.frame_id = self._config.default_goal_frame
+        goal_msg.goal.header.stamp = self._node.get_clock().now().to_msg()
+        goal_msg.goal.pose.position.x = goal_pose.x
+        goal_msg.goal.pose.position.y = goal_pose.y
+        goal_msg.goal.pose.position.z = goal_pose.z
+        goal_msg.goal.pose.orientation.x = goal_pose.qx
+        goal_msg.goal.pose.orientation.y = goal_pose.qy
+        goal_msg.goal.pose.orientation.z = goal_pose.qz
+        goal_msg.goal.pose.orientation.w = goal_pose.qw
+        goal_msg.use_start = False
+
+        send_future = self._compute_path_client.send_goal_async(goal_msg)
+        if not self._wait_for_future(send_future, timeout_s):
+            logger.warning("compute_path_to_pose: send timeout")
+            return None
+        goal_handle = send_future.result()
+        if not goal_handle.accepted:
+            logger.warning("compute_path_to_pose: action rejected")
+            return None
+
+        result_future = goal_handle.get_result_async()
+        if not self._wait_for_future(result_future, timeout_s):
+            logger.warning("compute_path_to_pose: result timeout")
+            return None
+        path = result_future.result().result.path
+        return [(p.pose.position.x, p.pose.position.y) for p in path.poses]
 
     def cancel_active_navigation(self) -> bool:
         """Cancel the active Nav2 goal, if one is in progress.

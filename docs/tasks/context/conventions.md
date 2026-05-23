@@ -33,6 +33,53 @@ lives in.
 
 ---
 
+## Comment style
+
+**Default to no comments.** Only write one when the WHY is non-obvious
+and wouldn't be recovered by a careful read of the surrounding code.
+When a comment is warranted, one short sentence (rarely two) is the
+target — a hidden constraint, a subtle invariant, a workaround for a
+specific bug, or behavior that would surprise a reader.
+
+**Comments must not contain:**
+
+- History (`replaced the old DistanceController`, `previously gated on
+  envelope_factor`, `this used to use stock Nav2 BT`).
+- Brief / task / PR / commit references — covered by
+  [`#no-transient-documentation-references-in-code`](#no-transient-documentation-references-in-code).
+- Broad architectural explanations — those belong in a context
+  module under `docs/tasks/context/` or the relevant design doc.
+- Restatement of what the code does. Identifier names already do that.
+- Speculation about future work (`could later be extended to ...`).
+
+**Why:** comments rot. Architecture prose that names absent files,
+knobs, or briefs goes stale silently and misleads the next reader.
+Short comments scoped to local non-obvious facts age gracefully
+because they're tied to the code immediately below them.
+
+**How to apply:**
+
+- When in doubt, delete the comment. The diff should be smaller than
+  what you'd reflexively write.
+- If you find yourself describing the design, stop. Move the prose
+  to a context module (or omit it — the design likely speaks for
+  itself once the comment is gone).
+- The XML / YAML / docstring at the top of a config file follows the
+  same rule as inline code comments. A file header isn't a free pass
+  to paste architecture.
+- Counter-example pattern to keep handy: instead of "this BT
+  differs from Nav2's stock in two places: <history>", write a
+  single line on the one BT.CPP gotcha a future tuner would
+  re-introduce if not warned. Same content density, fraction of
+  the prose.
+
+This is the project-wide rule; section
+[`#no-transient-documentation-references-in-code`](#no-transient-documentation-references-in-code)
+below is the narrower, older sibling that called out one specific
+kind of rot.
+
+---
+
 ## No transient documentation references in code
 
 **Docstrings, comments, CLI `--help` text, error messages, log

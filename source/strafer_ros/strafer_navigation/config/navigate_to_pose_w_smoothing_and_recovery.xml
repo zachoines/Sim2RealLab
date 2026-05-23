@@ -1,41 +1,31 @@
 <!--
-  Strafer sim-lane BT. Differs from Nav2's stock
-  navigate_to_pose_w_replanning_and_recovery.xml in two places:
+  Both <SmoothPath> ports bind to {path} so FollowPath consumes the
+  smoothed result; the unsmoothed intermediate is discarded.
 
-  1. <DistanceController distance="0.5"> replaces Nav2's
-     <RateController hz="1.0"> around ComputePathToPose. Replanning
-     gated on robot motion (replan after 0.5 m of travel) rather than
-     wall time prevents the planner from emitting a slightly
-     different path every second through a noisy costmap — which the
-     controller would otherwise be forced to track laterally. Path
-     continuity bias by deferral, not by a critic.
+  The path-validity gate uses <GlobalUpdatedGoal/>, not
+  <GoalUpdated/>: GoalUpdated's state resets on BT halt, so a new
+  navigate_to_pose action call would miss the goal-change and keep
+  following the previous goal's {path}. (The XML name has a single
+  "Global" — that's Nav2's registered alias for the class
+  GloballyUpdatedGoalCondition; "GloballyUpdatedGoal" silently
+  fails to resolve and bt_navigator rejects every goal.)
 
-  2. <SmoothPath unsmoothed_path="{path}" smoothed_path="{path}"
-     smoother_id="simple_smoother"/> runs between ComputePathToPose
-     and FollowPath. simple_smoother (configured under smoother_server
-     with max_its=1000, tolerance=1e-10) crushes the grid jaggies
-     NavFn emits through residual unknown cells into a clean curve
-     before the controller sees the path.
-
-  Selected via bt_navigator.default_nav_to_pose_bt_xml in the patched
-  params, gated on envelope_factor > 1.0 (sim lane). Real-robot
-  bringup keeps Nav2's stock BT untouched.
-
-  The unsmoothed_path / smoothed_path ports both bind {path} so the
-  blackboard variable FollowPath reads is the smoothed one; the
-  unsmoothed intermediate is discarded.
-
-  Donut-coverage warmup at session start lives outside this BT in
-  strafer_bringup's donut_warmup node — it runs once per launch as a
-  separate process (the only reliable way to get once-per-session
-  semantics; BT.CPP doesn't preserve decorator state across the
-  halt/reset that Nav2's BtActionServer applies between goals).
+  Per-session warmup behavior must live outside this BT: Nav2's
+  BtActionServer halts and re-ticks between goals in a way that
+  doesn't preserve BT.CPP decorator state, so a <SingleTrigger>
+  here would fire every goal instead of once per launch.
 -->
 <root main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
     <RecoveryNode number_of_retries="6" name="NavigateRecovery">
       <PipelineSequence name="NavigateWithReplanning">
-        <DistanceController distance="0.5">
+        <Fallback name="ReplanIfNeeded">
+          <Sequence name="PathStillValid">
+            <Inverter>
+              <GlobalUpdatedGoal/>
+            </Inverter>
+            <IsPathValid path="{path}"/>
+          </Sequence>
           <RecoveryNode number_of_retries="1" name="ComputePathToPose">
             <Sequence name="PlanAndSmooth">
               <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
@@ -43,7 +33,7 @@
             </Sequence>
             <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
           </RecoveryNode>
-        </DistanceController>
+        </Fallback>
         <RecoveryNode number_of_retries="1" name="FollowPath">
           <FollowPath path="{path}" controller_id="FollowPath"/>
           <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>

@@ -69,6 +69,9 @@ def _make_runner(*, semantic_map=None, background_mapper=None):
     ros.rotate_in_place.return_value = SkillResult(
         step_id="rotate", skill="rotate_in_place", status="succeeded",
     )
+    # align_to_goal_yaw queries the planner first; default to None so the
+    # existing tests get the goal-pose-yaw fallback verbatim.
+    ros.compute_path_to_pose.return_value = None
     runner = MissionRunner(
         planner_client=planner,
         grounding_client=grounding,
@@ -582,6 +585,91 @@ class TestAlignToGoalYaw:
         # circuits internally, keeping cmd_vel/log telemetry consistent.
         ros.rotate_in_place.assert_called_once()
         assert abs(ros.rotate_in_place.call_args.kwargs["yaw_delta_rad"]) < 1e-6
+
+    def test_align_uses_first_waypoint_past_lookahead(self):
+        """Curved path: align to the bearing of the first waypoint
+        beyond ``lookahead_m``, not the goal pose's yaw.
+        """
+        runner, ros = _make_runner()
+        ros.get_robot_state.return_value = {
+            "pose": {"x": 0.0, "y": 0.0, "qz": 0.0, "qw": 1.0},
+        }
+        ros.rotate_in_place.return_value = SkillResult(
+            step_id="a1", skill="rotate_in_place", status="succeeded",
+        )
+        # Planned path heads north for ~1 m, then east. Robot is facing
+        # east (yaw=0). At lookahead_m=1.0 the first waypoint past
+        # 1 m sits at (0, 1.0) → bearing = +90°.
+        ros.compute_path_to_pose.return_value = [
+            (0.0, 0.2), (0.0, 0.6), (0.0, 1.2), (1.0, 1.2), (2.0, 1.2),
+        ]
+        runtime = _make_runtime()
+        # Goal yaw is east (0); lookahead bearing should override it.
+        runtime.latest_goal_pose = _goal_pose_candidate(yaw=0.0)
+        step = SkillCall(
+            skill="align_to_goal_yaw", step_id="a1",
+            args={"lookahead_m": 1.0},
+        )
+        runner._align_to_goal_yaw(runtime, step)
+        delta = ros.rotate_in_place.call_args.kwargs["yaw_delta_rad"]
+        assert delta == pytest.approx(math.pi / 2, abs=1e-6)
+
+    def test_align_falls_back_to_goal_yaw_when_path_too_short(self):
+        """All waypoints within lookahead_m → use the last waypoint's
+        bearing (closest available approximation).
+        """
+        runner, ros = _make_runner()
+        ros.get_robot_state.return_value = {
+            "pose": {"x": 0.0, "y": 0.0, "qz": 0.0, "qw": 1.0},
+        }
+        ros.rotate_in_place.return_value = SkillResult(
+            step_id="a1", skill="rotate_in_place", status="succeeded",
+        )
+        # All path points are within 0.3 m of the robot.
+        ros.compute_path_to_pose.return_value = [(0.1, 0.0), (0.2, 0.1)]
+        runtime = _make_runtime()
+        runtime.latest_goal_pose = _goal_pose_candidate(yaw=math.radians(90))
+        step = SkillCall(
+            skill="align_to_goal_yaw", step_id="a1",
+            args={"lookahead_m": 1.0},
+        )
+        runner._align_to_goal_yaw(runtime, step)
+        delta = ros.rotate_in_place.call_args.kwargs["yaw_delta_rad"]
+        # Last waypoint (0.2, 0.1) → bearing atan2(0.1, 0.2) ≈ 0.4636 rad.
+        assert delta == pytest.approx(math.atan2(0.1, 0.2), abs=1e-6)
+
+    def test_align_falls_back_when_planner_returns_none(self):
+        runner, ros = _make_runner()
+        ros.get_robot_state.return_value = {
+            "pose": {"x": 0.0, "y": 0.0, "qz": 0.0, "qw": 1.0},
+        }
+        ros.rotate_in_place.return_value = SkillResult(
+            step_id="a1", skill="rotate_in_place", status="succeeded",
+        )
+        ros.compute_path_to_pose.return_value = None
+        runtime = _make_runtime()
+        # Goal yaw is 30° — fallback must rotate to that.
+        runtime.latest_goal_pose = _goal_pose_candidate(yaw=math.radians(30))
+        step = SkillCall(skill="align_to_goal_yaw", step_id="a1")
+        runner._align_to_goal_yaw(runtime, step)
+        delta = ros.rotate_in_place.call_args.kwargs["yaw_delta_rad"]
+        assert delta == pytest.approx(math.radians(30), abs=1e-6)
+
+    def test_align_falls_back_when_planner_raises(self):
+        runner, ros = _make_runner()
+        ros.get_robot_state.return_value = {
+            "pose": {"x": 0.0, "y": 0.0, "qz": 0.0, "qw": 1.0},
+        }
+        ros.rotate_in_place.return_value = SkillResult(
+            step_id="a1", skill="rotate_in_place", status="succeeded",
+        )
+        ros.compute_path_to_pose.side_effect = RuntimeError("planner down")
+        runtime = _make_runtime()
+        runtime.latest_goal_pose = _goal_pose_candidate(yaw=math.radians(45))
+        step = SkillCall(skill="align_to_goal_yaw", step_id="a1")
+        runner._align_to_goal_yaw(runtime, step)
+        delta = ros.rotate_in_place.call_args.kwargs["yaw_delta_rad"]
+        assert delta == pytest.approx(math.radians(45), abs=1e-6)
 
 
 # ---------------------------------------------------------------------------

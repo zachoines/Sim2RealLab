@@ -1991,12 +1991,6 @@ class MissionRunner(MissionCommandHandler):
                 "align_prereq_missing", started_at,
             )
 
-        gp = candidate.goal_pose
-        target_yaw = math.atan2(
-            2.0 * gp.qw * gp.qz,
-            1.0 - 2.0 * gp.qz * gp.qz,
-        )
-
         try:
             robot_state = self._ros_client.get_robot_state()
         except Exception as exc:
@@ -2010,11 +2004,26 @@ class MissionRunner(MissionCommandHandler):
                 step, "align_to_goal_yaw requires a robot pose.",
                 "no_pose", started_at,
             )
-
+        robot_x = float(pose.get("x", 0.0))
+        robot_y = float(pose.get("y", 0.0))
         current_yaw = math.atan2(
             2.0 * pose.get("qw", 1.0) * pose.get("qz", 0.0),
             1.0 - 2.0 * pose.get("qz", 0.0) ** 2,
         )
+
+        # Bearing to a path waypoint ~lookahead_m ahead, so curved paths
+        # don't get a goal-yaw alignment that forces MPPI to strafe.
+        lookahead_m = float(step.args.get("lookahead_m", 1.0))
+        target_yaw = self._path_lookahead_yaw(
+            candidate.goal_pose, robot_x, robot_y, lookahead_m,
+        )
+        if target_yaw is None:
+            gp = candidate.goal_pose
+            target_yaw = math.atan2(
+                2.0 * gp.qw * gp.qz,
+                1.0 - 2.0 * gp.qz * gp.qz,
+            )
+
         delta = math.atan2(
             math.sin(target_yaw - current_yaw),
             math.cos(target_yaw - current_yaw),
@@ -2035,6 +2044,43 @@ class MissionRunner(MissionCommandHandler):
             return self._failed_result(
                 step, f"align_to_goal_yaw failed: {exc}", "rotation_failed", started_at,
             )
+
+    def _path_lookahead_yaw(
+        self,
+        goal_pose: Pose3D,
+        robot_x: float,
+        robot_y: float,
+        lookahead_m: float,
+    ) -> float | None:
+        """Bearing from the robot to the first planned waypoint at
+        ``lookahead_m``. Returns ``None`` if planning is unavailable
+        or no usable waypoint exists; the caller falls back to the
+        goal pose's yaw.
+        """
+        try:
+            waypoints = self._ros_client.compute_path_to_pose(
+                goal_pose=goal_pose,
+            )
+        except Exception:
+            _logger.debug(
+                "compute_path_to_pose raised; falling back to goal yaw",
+                exc_info=True,
+            )
+            return None
+        if not waypoints:
+            return None
+        target_xy: tuple[float, float] | None = None
+        for x, y in waypoints:
+            if math.hypot(x - robot_x, y - robot_y) >= lookahead_m:
+                target_xy = (x, y)
+                break
+        if target_xy is None:
+            target_xy = waypoints[-1]
+        dx = target_xy[0] - robot_x
+        dy = target_xy[1] - robot_y
+        if math.hypot(dx, dy) < 1e-3:
+            return None
+        return math.atan2(dy, dx)
 
     def _orient_to_direction(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
         started_at = time.time()

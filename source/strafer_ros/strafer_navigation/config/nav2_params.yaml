@@ -214,10 +214,20 @@ planner_server:
     expected_planner_frequency: 20.0
     planner_plugins: ["GridBased"]
     GridBased:
-      plugin: "nav2_navfn_planner/NavfnPlanner"
+      plugin: "nav2_smac_planner/SmacPlanner2D"
       tolerance: 0.5
-      use_astar: false
+      downsample_costmap: false
+      downsampling_factor: 1
       allow_unknown: true
+      max_iterations: 1000000
+      max_on_approach_iterations: 1000
+      max_planning_time: 2.0
+      # Soft prefer known-free: each cell's costmap value is multiplied
+      # by this factor in the A* cost. Unknown cells at NEUTRAL_COST
+      # (~50) become 100; free cells stay near 0. Path through unknown
+      # is allowed but heavily weighted.
+      cost_travel_multiplier: 2.0
+      use_final_approach_orientation: false
 
 # =============================================================================
 # Smoother Server (SimpleSmoother — defaults)

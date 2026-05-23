@@ -357,46 +357,19 @@ class TestConstantsInjection:
             == b_path_follow_offset
         )
 
-    def test_yaml_disallows_unknown_universally(self, pkg_dir):
-        """YAML pins ``planner_server.GridBased.allow_unknown`` False
-        so the planner stays inside known-free cells on every lane.
+    def test_planner_is_smac_2d_with_soft_unknown_prefer(self, pkg_dir):
+        """SmacPlanner2D with cost_travel_multiplier > 1 and
+        allow_unknown True is what gives us "prefer known-free without
+        refusing unknown" — NavfnPlanner's binary allow_unknown was
+        too brittle to small unknown gaps in the costmap.
         """
         yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
         with open(yaml_path) as f:
             baseline = yaml.safe_load(f)
-        assert (
-            baseline["planner_server"]["ros__parameters"]["GridBased"][
-                "allow_unknown"
-            ]
-            is False
-        )
-
-    def test_patch_does_not_re_enable_allow_unknown(self, pkg_dir):
-        """``_patch_params`` keeps ``allow_unknown`` False at every
-        ``envelope_factor`` so it never reverts the YAML default.
-        """
-        import importlib.util
-
-        launch_path = os.path.join(pkg_dir, "launch", "navigation.launch.py")
-        spec = importlib.util.spec_from_file_location("nav_launch", launch_path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-
-        yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
-        footprint = mod._build_footprint(CHASSIS_LENGTH, TRACK_WIDTH)
-        for factor in (0.75, 1.0, 2.0):
-            with open(yaml_path) as f:
-                p = yaml.safe_load(f)
-            mod._patch_params(
-                p, footprint, NAV_LINEAR_VEL, NAV_ANGULAR_VEL,
-                NAV_REVERSE_VEL, factor,
-                MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX,
-            )
-            planner = p["planner_server"]["ros__parameters"]["GridBased"]
-            assert planner["allow_unknown"] is False, (
-                f"_patch_params re-enabled allow_unknown at "
-                f"envelope_factor={factor}: planner={planner['allow_unknown']!r}"
-            )
+        planner = baseline["planner_server"]["ros__parameters"]["GridBased"]
+        assert planner["plugin"] == "nav2_smac_planner/SmacPlanner2D"
+        assert planner["allow_unknown"] is True
+        assert planner["cost_travel_multiplier"] > 1.0
 
     def test_patch_critic_overrides_skipped_just_below_unity_envelope(self, pkg_dir):
         """The critic rebalance is gated strictly on envelope_factor>1.0.

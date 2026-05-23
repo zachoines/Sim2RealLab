@@ -69,36 +69,30 @@ that formalizes this split (and graduates the other currently-gated
 knobs) is tracked in
 [`nav2-sim-real-promotion-architecture`](../tooling/nav2-sim-real-promotion-architecture.md).
 
-### A. `allow_unknown: false` as the universal YAML default
+### A. SmacPlanner2D with soft-prefer-known via `cost_travel_multiplier`
 
-Flip the YAML baseline at
-`planner_server.ros__parameters.GridBased.allow_unknown` from `true`
-to `false`. NavfnPlanner then treats `NO_INFORMATION` as
-untraversable, so the emitted path can only use cells the costmap
-has observed at least once. Already-mapped free space wins over
-unknown bands by construction on every lane.
+Swap the planner plugin from `nav2_navfn_planner/NavfnPlanner` to
+`nav2_smac_planner/SmacPlanner2D`. NavFn's binary `allow_unknown`
+proved too brittle in practice — even on a costmap that's visually
+"fully filled in," the camera blind-spot donut and gaps between
+depth-projected scan beams leave small unknown patches that NavFn
+refuses to traverse, so far goals fail planning outright even though
+known-free paths exist within the operator's mental model. SmacPlanner2D
+exposes `cost_travel_multiplier`, which scales each cell's costmap
+value in the A* cost. With `allow_unknown: true` + `cost_travel_multiplier:
+2.0`, unknown cells (NEUTRAL_COST ≈ 50) cost ~100 to traverse while
+free cells stay near 0 — the planner prefers free but allows unknown
+when needed.
 
-Caveat — cross-room cold-start: if the goal sits in unmapped space,
-planning fails outright. The executor already has the
-`explore_until_visible` skill for that flow (frontier-driven discovery
-before a final `navigate_to_pose`), so the cold-start path is covered.
-A goal that's reachable only through unknown space *without* a prior
-explore is a planner-level failure with `goal_unreachable` as the
-error code — the operator can either issue an `explore` first or
-relax `allow_unknown` per-launch if blocked.
+Pros: closes the prefer-known-free intent without the
+goal-rejection brittleness. SmacPlanner2D is already shipped in
+`nav2_smac_planner`; no extra packages.
 
-Pros: one source of truth in YAML; closes the sim-to-real gap for
-this knob immediately; aligns with the operator's "prefer verified
-empty regions" intent on real *and* sim.
-
-Cons: a goal projected just outside the known-free footprint (e.g.
-right against the camera-blind-spot donut) becomes unreachable until
-the executor's chassis-side rotation or a deliberate explore widens
-the known footprint. Symptom is "no plan available" rather than a
-wonky path, which is the easier failure mode to diagnose. Real-robot
-sessions with persisted RTAB-Map state are unlikely to hit this in
-practice (the cold-start unknown footprint is small); fresh real
-sessions will hit it the same way sim does.
+Cons: SmacPlanner is somewhat slower than NavFn on identical
+costmaps. We don't see this as a blocker (planning runs once per
+goal-change rather than every BT tick, courtesy of the IsPathValid
+gate from change B), but if real-robot planner latency surfaces, a
+`max_planning_time` cap is already set in the YAML.
 
 ### B. IsPathValid-gated `Fallback` as the universal BT
 
@@ -160,6 +154,28 @@ work that comes out of it.
 same operator complaint. A on its own leaves symptom 2; B on its own
 leaves symptom 1.
 
+### C. `align_to_goal_yaw` rotates to a path lookahead, not the goal pose's yaw
+
+`_align_to_goal_yaw` previously rotated the chassis to the goal
+pose's yaw (= "face the target from the standoff"). On straight
+paths this matches the immediate path direction so MPPI drives
+forward cleanly. On curved paths (Nav2 routing around obstacles)
+the goal yaw and the path direction diverge — MPPI's PathAlignCritic
+then commands lateral `vy` to track the curve while the chassis is
+oriented toward the goal, i.e. the chassis strafes.
+
+Reworked: `_align_to_goal_yaw` calls `ros_client.compute_path_to_pose`
+(plan-only Nav2 action), finds the first waypoint at least
+`lookahead_m` (default 1.0 m) along the planned path, and rotates
+the chassis to the bearing of that waypoint. Falls back to the goal
+pose's yaw when planning is unavailable or no usable waypoint
+exists.
+
+A new method `JetsonRosClient.compute_path_to_pose(goal_pose=...)`
+wraps the `compute_path_to_pose` action and returns the path as a
+list of `(x, y)` tuples in the map frame; the executor consumes that
+without any ROS imports of its own.
+
 ## Acceptance criteria
 
 - [ ] On a sim mission whose goal has a known-free path AND an
@@ -185,21 +201,31 @@ leaves symptom 1.
       lands within `xy_goal_tolerance=0.15` /
       `yaw_goal_tolerance=0.20`.
 - [ ] Real-robot bringup *intentionally inherits* the new behavior:
-      `_patch_params` injects the smoothing BT and YAML pins
-      `allow_unknown: false` at every `envelope_factor`. The
-      validation lap for the real-robot side lives in
+      `_patch_params` injects the smoothing BT and YAML pins the
+      SmacPlanner2D plugin at every `envelope_factor`. The validation
+      lap for the real-robot side lives in
       [`nav2-sim-real-promotion-architecture`](../tooling/nav2-sim-real-promotion-architecture.md);
       that brief tracks observed regressions and any rollback or
       debouncer follow-ups.
+- [ ] On a sim mission whose Nav2 plan curves around an obstacle,
+      `align_to_goal_yaw` rotates to the bearing of a waypoint ~1 m
+      along the path (not the goal pose's yaw), and the resulting
+      traverse keeps `/cmd_vel.vy` peak ≤ 0.3 × `/cmd_vel.vx` peak
+      during the early-path phase. Operator can confirm in Foxglove
+      by inspecting the chassis yaw at the start of `navigate_to_pose`
+      vs the `/plan` direction at the same instant.
 - [ ] `test_nav_config.py::TestConstantsInjection` MPPI assertions
       still pass — the velocity-coupled critic / sampling overrides
       stay gated on `envelope_factor > 1.0` and are unchanged here.
-- [ ] Unit tests cover both knobs: YAML baseline asserts
-      `allow_unknown=False` and `_patch_params` doesn't re-enable it
-      at any `envelope_factor`; the BT swap fires at every
-      `envelope_factor`; the BT structure parses and contains
-      `IsPathValid` + `GlobalUpdatedGoal` + `Inverter` + no
-      `DistanceController` + keeps `SmoothPath` and `ComputePathToPose`.
+- [ ] Unit tests cover all three changes: YAML baseline pins the
+      SmacPlanner2D plugin + `allow_unknown=True` +
+      `cost_travel_multiplier > 1`; the BT swap fires at every
+      `envelope_factor`; the BT structure contains `IsPathValid` +
+      `GlobalUpdatedGoal` + `Inverter` + no `DistanceController` +
+      keeps `SmoothPath` and `ComputePathToPose`; `_align_to_goal_yaw`
+      uses the first lookahead waypoint when the planner returns one
+      and falls back to the goal pose's yaw when planning is
+      unavailable.
 - [ ] If your work invalidates a fact in any referenced context
       module, package README, top-level `Readme.md`, or guide under
       `docs/`, update those in the same commit. See
@@ -210,23 +236,26 @@ leaves symptom 1.
 ## Investigation pointers
 
 - `source/strafer_ros/strafer_navigation/config/nav2_params.yaml`
-  — `planner_server.GridBased.allow_unknown`. Universal YAML default
-  is now `false`.
+  — `planner_server.GridBased`. SmacPlanner2D + `allow_unknown: true`
+  + `cost_travel_multiplier: 2.0`.
 - `source/strafer_ros/strafer_navigation/launch/navigation.launch.py`
-  — `_patch_params`. The BT swap is now applied unconditionally
-  (lifted out of the `envelope_factor > 1.0` block); the MPPI
-  sampling / critic rebalance stays gated.
+  — `_patch_params`. The BT swap is applied unconditionally; the
+  MPPI sampling / critic rebalance stays gated on
+  `envelope_factor > 1.0`.
 - `source/strafer_ros/strafer_navigation/config/navigate_to_pose_w_smoothing_and_recovery.xml`
   — the project's canonical navigate-to-pose BT, applied on every
   lane.
-- `source/strafer_ros/strafer_navigation/test/test_nav_config.py`
-  — `TestSmoothingBT` + the `TestConstantsInjection` knob tests pin
-  the universal-vs-gated split.
+- `source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`
+  — `JetsonRosClient.compute_path_to_pose` wraps Nav2's plan-only
+  action; consumed by `_align_to_goal_yaw`.
+- `source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py`
+  — `_align_to_goal_yaw` + the `_path_lookahead_yaw` helper.
 
 ## Out of scope
 
-- **Switching planners** (SmacPlanner2D, ThetaStar, SmacHybrid).
-  NavfnPlanner is current; planner-swap requires its own validation.
+- **Switching planners** to SmacPlannerHybrid / SmacPlannerLattice.
+  SmacPlanner2D is the right fit for the omni mecanum chassis;
+  Hybrid/Lattice add kinematic constraints we don't need.
 - **Costmap layer tuning** (inflation_radius, cost_scaling_factor).
   Untouched here — the path-shape problem is the planner's cost
   evaluation, not the underlying costmap.

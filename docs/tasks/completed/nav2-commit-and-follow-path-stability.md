@@ -1,5 +1,16 @@
 # Commit-and-follow Nav2 global paths: prefer known-free, replan on invalidation
 
+**Status:** Shipped 2026-05-23 in `42245b5` (Jetson). Global planner is
+now `nav2_smac_planner/SmacPlanner2D` with `allow_unknown: true` +
+`cost_travel_multiplier: 2.0` (soft-prefer known cells). BT replans
+only when `IsPathValid` fails or `GlobalUpdatedGoal` fires, on every
+lane. `_align_to_goal_yaw` rotates to a path lookahead via a new
+`JetsonRosClient.compute_path_to_pose` plan-only query (falls back to
+goal pose's yaw on planner failure). Follow-up
+[`nav2-scan-ground-filter-and-mppi-mecanum-tuning`](../active/reliability/nav2-scan-ground-filter-and-mppi-mecanum-tuning.md)
+covers real-robot symptoms surfaced during lap tests.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/50
+
 **Type:** task / tuning
 **Owner:** Jetson agent (`source/strafer_ros/strafer_navigation/`)
 **Priority:** P2
@@ -20,9 +31,9 @@ behavior I get on real**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [completed/nav2-startup-unknown-donut-path-noise.md](../../completed/nav2-startup-unknown-donut-path-noise.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [completed/nav2-startup-unknown-donut-path-noise.md](nav2-startup-unknown-donut-path-noise.md)
   — the predecessor that swapped Nav2's `<RateController hz="1.0">`
   for `<DistanceController distance="0.5">` and inserted SmoothPath
   on the sim lane.
@@ -67,7 +78,7 @@ MPPI critic rebalance); these path-shape changes don't, so they go in
 the project's universal default instead. The architectural cleanup
 that formalizes this split (and graduates the other currently-gated
 knobs) is tracked in
-[`nav2-sim-real-promotion-architecture`](../tooling/nav2-sim-real-promotion-architecture.md).
+[`nav2-sim-real-promotion-architecture`](../active/tooling/nav2-sim-real-promotion-architecture.md).
 
 ### A. SmacPlanner2D with soft-prefer-known via `cost_travel_multiplier`
 
@@ -146,7 +157,7 @@ costmap clearing recovery in the existing BT covers the recovery
 branch already. Real lidars are noisier than sim virtual lidars, so
 real-robot is the side where flapping is more likely to surface —
 the
-[`nav2-sim-real-promotion-architecture`](../tooling/nav2-sim-real-promotion-architecture.md)
+[`nav2-sim-real-promotion-architecture`](../active/tooling/nav2-sim-real-promotion-architecture.md)
 follow-up tracks the real-robot validation lap and any debouncer
 work that comes out of it.
 
@@ -189,14 +200,14 @@ without any ROS imports of its own.
       obstacles), not once per 0.5 m of robot motion. Operator can
       visually confirm in Foxglove that the path doesn't jitter.
 - [ ] Cardinal far-goal regression on
-      [`completed/nav2-far-goal-staging.md`](../../completed/nav2-far-goal-staging.md)'s
+      [`completed/nav2-far-goal-staging.md`](nav2-far-goal-staging.md)'s
       reference mission: mission still completes end-to-end with
       ≥ 2 staging legs. Plan stability + known-free preference may
       slow the path discovery in the worst case (planning fails until
       `explore_until_visible` widens known free); document any
       slowdown in the PR description.
 - [ ] No regression on cornering smoke from
-      [`completed/mppi-critic-tuning-for-sim-envelope.md`](../../completed/mppi-critic-tuning-for-sim-envelope.md):
+      [`completed/mppi-critic-tuning-for-sim-envelope.md`](mppi-critic-tuning-for-sim-envelope.md):
       `translate forward 1 m → rotate 90° → translate forward 1 m`
       lands within `xy_goal_tolerance=0.15` /
       `yaw_goal_tolerance=0.20`.
@@ -204,7 +215,7 @@ without any ROS imports of its own.
       `_patch_params` injects the smoothing BT and YAML pins the
       SmacPlanner2D plugin at every `envelope_factor`. The validation
       lap for the real-robot side lives in
-      [`nav2-sim-real-promotion-architecture`](../tooling/nav2-sim-real-promotion-architecture.md);
+      [`nav2-sim-real-promotion-architecture`](../active/tooling/nav2-sim-real-promotion-architecture.md);
       that brief tracks observed regressions and any rollback or
       debouncer follow-ups.
 - [ ] On a sim mission whose Nav2 plan curves around an obstacle,
@@ -230,7 +241,7 @@ without any ROS imports of its own.
       module, package README, top-level `Readme.md`, or guide under
       `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance
-      section](../../context/conventions.md#user-facing-documentation-maintenance)
+      section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
 
 ## Investigation pointers
@@ -261,7 +272,7 @@ without any ROS imports of its own.
   evaluation, not the underlying costmap.
 - **Real-robot validation lap** for the universal BT + YAML defaults.
   Tracked in
-  [`nav2-sim-real-promotion-architecture`](../tooling/nav2-sim-real-promotion-architecture.md),
+  [`nav2-sim-real-promotion-architecture`](../active/tooling/nav2-sim-real-promotion-architecture.md),
   along with the migration plan for the remaining
   `envelope_factor > 1.0`-gated MPPI tuning.
 - **A debouncer on `IsPathValid`**. Only file if real-robot or sim

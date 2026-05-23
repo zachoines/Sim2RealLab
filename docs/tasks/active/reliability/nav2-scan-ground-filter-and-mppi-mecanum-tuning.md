@@ -2,7 +2,7 @@
 
 ## Why
 Three real-robot symptoms surfaced during lap tests after
-[nav2-commit-and-follow-path-stability](nav2-commit-and-follow-path-stability.md)
+[nav2-commit-and-follow-path-stability](../../completed/nav2-commit-and-follow-path-stability.md)
 landed:
 
 1. A phantom flat arc at ~3.5 m appears in `/scan` (Foxglove). It
@@ -96,6 +96,36 @@ controller biases toward forward motion.
   acceptance (reject a new path whose first-waypoint heading deviates
   < N° from current heading when time-since-last-plan < M s).
 
+### D. Decide: is path-lookahead pre-rotation still needed?
+
+The `_path_lookahead_yaw` + `compute_path_to_pose` work in
+[nav2-commit-and-follow-path-stability](../../completed/nav2-commit-and-follow-path-stability.md)
+was diagnosed under an over-weighted `PathAlignCritic` (14.0). If
+section B's dial-down lands the real-robot lane in a regime where MPPI
+naturally rotates to face each waypoint as Nav2 dishes them out, the
+pre-rotation becomes a band-aid for a problem that's already fixed.
+
+Protocol on the same lap test as section C:
+
+1. Baseline lap with current code (path-lookahead pre-rotation active).
+2. Temporarily disable the lookahead in `_align_to_goal_yaw` (return the
+   goal pose's yaw directly, or skip pre-alignment entirely behind a
+   feature flag) and run the same lap.
+3. Compare during the first 1 m of each navigate-to-pose call:
+   chassis-yaw vs `/plan` direction; `|/cmd_vel.vy|` peak vs
+   `|/cmd_vel.vx|` peak.
+
+Decision tree:
+
+- If lap 2 tracks paths as cleanly as lap 1 (vy/vx ratio comparable,
+  no extra strafe), file follow-up to simplify `_align_to_goal_yaw`
+  (drop the lookahead; possibly drop pre-alignment entirely) and
+  retire `JetsonRosClient.compute_path_to_pose` if it has no other
+  consumer.
+- If lap 2 shows materially worse path-following, keep the current
+  pre-rotation. Note the lap evidence in the follow-up so the
+  decision is replayable.
+
 ## Acceptance
 - Foxglove `/scan` shows no flat arc following the robot in known-empty
   space, robot stationary or moving.
@@ -105,6 +135,10 @@ controller biases toward forward motion.
 - 5 of 5 lap-test goals reach `succeeded` without `aborted` from the
   progress checker.
 - `test_slam_config.py` updated to cover pointcloud_to_laserscan params.
+- Section D protocol ran on at least one lap and recorded the
+  vy/vx-with vs without-pre-rotation comparison in the PR description.
+  The follow-up to simplify or keep `_align_to_goal_yaw` is filed
+  (either direction) with the lap evidence cited.
 
 ## Risks
 - pointcloud_to_laserscan CPU cost is higher than depthimage variant.

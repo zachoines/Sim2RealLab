@@ -6,7 +6,8 @@ Requires (launched separately or via strafer_bringup):
   - strafer_description: robot_state_publisher (TF tree)
 
 This launch file:
-  1. Starts depthimage_to_laserscan (depth → /scan for occupancy grid)
+  1. Starts pointcloud_to_laserscan (depth pointcloud → /scan with a
+     base_link Z-axis filter that excludes floor + above-body returns)
   2. Starts RTAB-Map in mapping or localization mode
 
 Modes:
@@ -54,8 +55,8 @@ def _launch_setup(context, *args, **kwargs):
         rtabmap_cfg["Mem/IncrementalMemory"] = "false"
         rtabmap_cfg["Mem/InitWMWithAllNodes"] = "true"
 
-    depthimage_params_path = os.path.join(
-        pkg_dir, "config", "depthimage_to_laserscan.yaml"
+    pc_to_scan_params_path = os.path.join(
+        pkg_dir, "config", "pointcloud_to_laserscan.yaml"
     )
 
     # Parse user's extra RTAB-Map CLI args (e.g. "-d")
@@ -63,24 +64,25 @@ def _launch_setup(context, *args, **kwargs):
 
     # ── Nodes ───────────────────────────────────────────────────────────
     nodes = [
-        # Virtual 2D laser scan from aligned depth image
+        # Virtual 2D laser scan from the timestamp-fixed D555 depth cloud.
+        # base_link Z filter drops floor + above-body returns so the scan
+        # doesn't contain a phantom arc tracking the camera's downward
+        # FOV cone.
         Node(
-            package="depthimage_to_laserscan",
-            executable="depthimage_to_laserscan_node",
-            name="depthimage_to_laserscan",
+            package="pointcloud_to_laserscan",
+            executable="pointcloud_to_laserscan_node",
+            name="pointcloud_to_laserscan",
             output="screen",
             parameters=[
-                depthimage_params_path,
+                pc_to_scan_params_path,
                 {
                     "range_min": DEPTH_MIN,
                     "range_max": DEPTH_MAX,
-                    "output_frame": "d555_link",
                     "use_sim_time": use_sim_time,
                 },
             ],
             remappings=[
-                ("depth", "/d555/aligned_depth_to_color/image_sync"),
-                ("depth_camera_info", "/d555/aligned_depth_to_color/camera_info_sync"),
+                ("cloud_in", "/d555/depth/color/points_sync"),
                 ("scan", "/scan"),
             ],
         ),

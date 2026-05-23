@@ -16,19 +16,21 @@ Subscriptions (from RealSense, HW-stamped):
     /d555/aligned_depth_to_color/image_raw
     /d555/color/camera_info
     /d555/aligned_depth_to_color/camera_info
+    /d555/depth/color/points
 
 Publications (re-stamped with system time):
     /d555/color/image_sync
     /d555/aligned_depth_to_color/image_sync
     /d555/color/camera_info_sync
     /d555/aligned_depth_to_color/camera_info_sync
+    /d555/depth/color/points_sync
 """
 
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
-from sensor_msgs.msg import Image, CameraInfo
+from sensor_msgs.msg import Image, CameraInfo, PointCloud2
 
 
 class TimestampFixer(Node):
@@ -64,6 +66,11 @@ class TimestampFixer(Node):
                 "/d555/aligned_depth_to_color/camera_info",
                 "/d555/aligned_depth_to_color/camera_info_sync",
                 CameraInfo,
+            ),
+            (
+                "/d555/depth/color/points",
+                "/d555/depth/color/points_sync",
+                PointCloud2,
             ),
         ]
 

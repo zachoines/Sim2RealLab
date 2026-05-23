@@ -64,36 +64,69 @@ class TestRtabmapParams:
         assert params["Grid/RayTracing"] == "true"
 
 
-class TestDepthimageParams:
-    """Validate depthimage_to_laserscan.yaml."""
+class TestPointcloudToLaserscanParams:
+    """Validate pointcloud_to_laserscan.yaml.
+
+    The Z-axis ground filter is the central change vs the previous
+    depthimage_to_laserscan setup — it kills the phantom 3.5 m arc that
+    came from per-column min depth catching floor pixels.
+    """
 
     @pytest.fixture
     def params(self, pkg_dir):
-        path = os.path.join(pkg_dir, "config", "depthimage_to_laserscan.yaml")
+        path = os.path.join(pkg_dir, "config", "pointcloud_to_laserscan.yaml")
         with open(path) as f:
             return yaml.safe_load(f)
 
     def test_file_exists(self, pkg_dir):
-        path = os.path.join(pkg_dir, "config", "depthimage_to_laserscan.yaml")
+        path = os.path.join(pkg_dir, "config", "pointcloud_to_laserscan.yaml")
         assert os.path.isfile(path)
 
-    def test_scan_height_positive(self, params):
-        h = params["depthimage_to_laserscan"]["ros__parameters"]["scan_height"]
-        assert h > 0
+    def test_target_frame_is_base_link(self, params):
+        """Cloud must be transformed to base_link so the Z filter is in
+        the chassis frame (true vertical), not the camera optical frame
+        (where Z is forward).
+        """
+        frame = params["pointcloud_to_laserscan"]["ros__parameters"]["target_frame"]
+        assert frame == "base_link"
+
+    def test_height_filter_excludes_floor(self, params):
+        """min_height must be > 0 so the floor in base_link Z=0 is filtered.
+        That's the whole point of the swap.
+        """
+        p = params["pointcloud_to_laserscan"]["ros__parameters"]
+        assert float(p["min_height"]) > 0.0
+
+    def test_height_filter_within_body(self, params):
+        """max_height should cap at roughly the chassis body height so
+        ceiling fixtures and people heads don't end up in /scan as
+        obstacles the robot won't collide with.
+        """
+        p = params["pointcloud_to_laserscan"]["ros__parameters"]
+        assert float(p["max_height"]) > float(p["min_height"])
+        assert float(p["max_height"]) <= 0.5
 
     def test_range_min_less_than_max(self, params):
-        p = params["depthimage_to_laserscan"]["ros__parameters"]
+        p = params["pointcloud_to_laserscan"]["ros__parameters"]
         assert p["range_min"] < p["range_max"]
 
     def test_range_matches_constants(self, params):
         """YAML defaults must stay in sync with constants.py."""
-        p = params["depthimage_to_laserscan"]["ros__parameters"]
+        p = params["pointcloud_to_laserscan"]["ros__parameters"]
         assert float(p["range_min"]) == DEPTH_MIN
         assert float(p["range_max"]) == DEPTH_MAX
 
-    def test_output_frame(self, params):
-        frame = params["depthimage_to_laserscan"]["ros__parameters"]["output_frame"]
-        assert frame == "d555_link"
+    def test_angle_range_symmetric_about_zero(self, params):
+        """The forward-facing D555 produces a cone of returns symmetric
+        about the camera's optical axis (= base_link X after the static
+        TF). The scan sweep should be symmetric around 0 rad.
+        """
+        p = params["pointcloud_to_laserscan"]["ros__parameters"]
+        assert float(p["angle_min"]) == -float(p["angle_max"])
+
+    def test_angle_increment_positive(self, params):
+        p = params["pointcloud_to_laserscan"]["ros__parameters"]
+        assert float(p["angle_increment"]) > 0.0
 
 
 class TestLaunchFile:

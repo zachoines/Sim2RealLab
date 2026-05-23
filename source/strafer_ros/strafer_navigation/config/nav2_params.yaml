@@ -165,7 +165,7 @@ controller_server:
       PreferForwardCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 3.0               # Real-robot baseline; bumped to 10.0 at launch when envelope_factor>1.0 (sim) to dominate PathAlign's lateral pull on noisy global paths
+        cost_weight: 6.0               # Real-robot baseline; sim overrides to 10.0 when envelope_factor>1.0
         threshold_to_consider: 0.5
       CostCritic:
         enabled: true
@@ -179,7 +179,7 @@ controller_server:
       PathAlignCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 14.0              # Real-robot baseline; lowered to 9.0 at launch when envelope_factor>1.0 (sim) — at higher velocity, integration noise puts rollouts off-path even on straights and 14.0 suppresses speed
+        cost_weight: 8.0               # Real-robot baseline; sim overrides to 9.0 when envelope_factor>1.0
         max_path_occupancy_ratio: 0.05
         trajectory_point_step: 4
         threshold_to_consider: 0.5

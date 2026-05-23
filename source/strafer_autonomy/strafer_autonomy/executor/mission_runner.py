@@ -183,6 +183,19 @@ class MissionRunnerConfig:
     # ``nav_progress_aware`` is False.
     nav_stall_progress_m: float = 0.10
     nav_stall_window_s: float = 20.0
+    # Rotate-then-translate decomposition for non-cardinal ``translate``
+    # legs. The mecanum chassis technically supports arbitrary planar
+    # velocity vectors, but at MPPI's exploration envelope a diagonal
+    # commanded direction produces sustained sideways oscillation. For
+    # body-frame diagonal translates we set the Nav2 goal yaw to the
+    # goal-bearing (so MPPI drives forward, not sideways, into the goal)
+    # and, when the heading delta exceeds ``translate_heading_threshold_rad``,
+    # prepend a ``rotate_in_place`` to align the chassis first. Pure
+    # body-frame cardinal motion (one of ``dx_m`` / ``dy_m`` within
+    # ``translate_cardinal_epsilon_m`` of zero) bypasses the decomposition
+    # — the operator's "strafe left 1 m" still strafes sideways.
+    translate_heading_threshold_rad: float = 0.3
+    translate_cardinal_epsilon_m: float = 1e-3
 
 
 @dataclass
@@ -1869,17 +1882,76 @@ class MissionRunner(MissionCommandHandler):
         dx_map = cos_y * dx_m - sin_y * dy_m
         dy_map = sin_y * dx_m + cos_y * dy_m
 
+        distance_m = math.hypot(dx_m, dy_m)
+
+        # Rotate-then-translate decomposition. A body-frame diagonal
+        # translate is dispatched as "face the goal, then drive forward"
+        # because MPPI's sampled trajectories produce sustained vy
+        # oscillation when the commanded direction is non-axis-aligned.
+        # Pure body-frame cardinal translates (one of dx_m / dy_m within
+        # epsilon of zero) keep the operator's intent verbatim — strafe
+        # left 1 m still strafes sideways without re-orienting.
+        eps = self._config.translate_cardinal_epsilon_m
+        is_cardinal = abs(dx_m) <= eps or abs(dy_m) <= eps
+        apply_decomposition = (not is_cardinal) and distance_m > eps
+
+        goal_qz = qz
+        goal_qw = qw
+        if apply_decomposition:
+            goal_bearing_yaw = math.atan2(dy_map, dx_map)
+            goal_qz = math.sin(goal_bearing_yaw / 2.0)
+            goal_qw = math.cos(goal_bearing_yaw / 2.0)
+            heading_delta = math.atan2(
+                math.sin(goal_bearing_yaw - yaw),
+                math.cos(goal_bearing_yaw - yaw),
+            )
+            if abs(heading_delta) >= self._config.translate_heading_threshold_rad:
+                rotate_timeout_s = self._motion_timeout_s(
+                    step=step, magnitude=heading_delta, kind="angular",
+                )
+                try:
+                    rotate_result = self._ros_client.rotate_in_place(
+                        step_id=f"{step.step_id}:pre_rotate",
+                        yaw_delta_rad=heading_delta,
+                        tolerance_rad=0.1,
+                        timeout_s=rotate_timeout_s,
+                        cancel_event=runtime.cancel_event,
+                    )
+                except Exception as exc:
+                    return self._failed_result(
+                        step,
+                        f"translate pre-rotation failed: {exc}",
+                        "rotation_failed",
+                        started_at,
+                    )
+                if rotate_result.status != "succeeded":
+                    return SkillResult(
+                        step_id=step.step_id,
+                        skill=step.skill,
+                        status=rotate_result.status,
+                        outputs={
+                            "pre_rotate_yaw_rad": heading_delta,
+                            **rotate_result.outputs,
+                        },
+                        error_code=rotate_result.error_code,
+                        message=(
+                            "translate pre-rotation did not succeed: "
+                            f"{rotate_result.message}"
+                        ),
+                        started_at=started_at,
+                        finished_at=time.time(),
+                    )
+
         goal = Pose3D(
             x=pose["x"] + dx_map,
             y=pose["y"] + dy_map,
             z=pose["z"],
             qx=pose["qx"],
             qy=pose["qy"],
-            qz=qz,
-            qw=qw,
+            qz=goal_qz,
+            qw=goal_qw,
         )
 
-        distance_m = math.hypot(dx_m, dy_m)
         timeout_s = self._motion_timeout_s(
             step=step, magnitude=distance_m, kind="linear",
         )

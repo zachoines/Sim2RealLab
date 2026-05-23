@@ -51,43 +51,55 @@ fixing the artifact at its source rather than masking it.
 - Enable native pointcloud output in
   [perception.launch.py](../../../../source/strafer_ros/strafer_perception/launch/perception.launch.py):
   add `"pointcloud.enable": "true"` to the realsense `rs_launch.py`
-  args. The driver will publish `/d555/depth/color/points`
-  (PointCloud2).
+  args. The driver publishes `/d555/depth/color/points` (PointCloud2)
+  with HW-clock timestamps, same drift problem as the raw image topics.
+- Extend
+  [timestamp_fixer.py](../../../../source/strafer_ros/strafer_perception/strafer_perception/timestamp_fixer.py)
+  to handle PointCloud2 — add the pointcloud topic to the relay pairs
+  so it republishes as `/d555/depth/color/points_sync` with system-time
+  stamps. Required so RTAB-Map's approx_sync can match the new /scan
+  with odom.
 - Replace the `depthimage_to_laserscan_node` block in
-  [slam.launch.py:67-86](../../../../source/strafer_ros/strafer_slam/launch/slam.launch.py)
-  with a `pointcloud_to_laserscan_node`. Required params:
+  [slam.launch.py](../../../../source/strafer_ros/strafer_slam/launch/slam.launch.py)
+  with a `pointcloud_to_laserscan_node`. Required params (file at
+  `source/strafer_ros/strafer_slam/config/pointcloud_to_laserscan.yaml`):
   - `target_frame: base_link` (transform → robot frame; Z is true vertical)
   - `min_height: 0.05` (skip floor)
   - `max_height: 0.30` (Strafer body height; skip ceiling / people heads)
-  - `range_min: DEPTH_MIN`, `range_max: DEPTH_MAX` (from constants)
-  - `angle_min`/`angle_max`/`angle_increment` matching prior scan resolution
-  - Remap input cloud → `/d555/depth/color/points`, output → `/scan`
-- Delete
-  [depthimage_to_laserscan.yaml](../../../../source/strafer_ros/strafer_slam/config/depthimage_to_laserscan.yaml).
+  - `range_min: DEPTH_MIN`, `range_max: DEPTH_MAX` (overridden at launch)
+  - `angle_min`/`angle_max` = ±0.873 rad (~±50°) covers D555's ~87° H-FOV
+  - Remap input cloud → `/d555/depth/color/points_sync`, output → `/scan`
+- Delete the old depthimage yaml.
 - Swap `depthimage_to_laserscan` → `pointcloud_to_laserscan` in
   [strafer_slam/package.xml](../../../../source/strafer_ros/strafer_slam/package.xml)
   exec_depend.
+- Install on the Jetson:
+  `sudo apt install ros-humble-pointcloud-to-laserscan ros-humble-depth-image-proc`.
 - Update
   [test_slam_config.py](../../../../source/strafer_ros/strafer_slam/test/test_slam_config.py)
   to assert pointcloud_to_laserscan params (target frame, height
-  bounds, ranges) instead of the depth-window params.
+  bounds, ranges, symmetric angle sweep) instead of the depth-window params.
 
 ### B. MPPI critic dial-down on the real-robot lane
 
-The 14.0 PathAlignCritic real-robot baseline pre-dates the
-rotate-then-translate executor work and over-weights lateral
+The 14.0 PathAlignCritic real-robot baseline over-weights lateral
 convergence for mecanum. Reduce it; raise PreferForwardCritic so the
 controller biases toward forward motion.
 
 - In [nav2_params.yaml](../../../../source/strafer_ros/strafer_navigation/config/nav2_params.yaml):
   - `PathAlignCritic.cost_weight: 14.0 → 8.0`
   - `PreferForwardCritic.cost_weight: 3.0 → 6.0`
-- In
+- The sim absolute overrides in
   [navigation.launch.py](../../../../source/strafer_ros/strafer_navigation/launch/navigation.launch.py)
-  `_patch_params`: adjust the sim overrides so the *effective* sim
-  values stay where they are today (PathAlign 9.0,
-  PreferForward 10.0). New baselines + new overrides produce the same
-  sim numbers as before, only the real-robot lane shifts.
+  `_patch_params` (`PathAlignCritic.cost_weight = 9.0`,
+  `PreferForwardCritic.cost_weight = 10.0`) are absolute values, not
+  derived from baselines, so they remain unchanged. Effective sim
+  values stay where they are today; only the real-robot lane shifts.
+  Refresh the stale inline comments referencing the old "14 → 9" /
+  "3 → 10" arrows.
+- Add a `TestMPPIController::test_real_robot_critic_baselines` test
+  that pins the new baselines (8.0 / 6.0) so future drifts are caught
+  by CI.
 
 ### C. Verify
 

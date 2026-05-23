@@ -1,6 +1,6 @@
 # Commit-and-follow Nav2 global paths: prefer known-free, replan on invalidation
 
-**Status:** Shipped 2026-05-23 in `42245b5` (Jetson). Global planner is
+**Status:** Shipped 2026-05-23 in `fdf02bd` (Jetson). Global planner is
 now `nav2_smac_planner/SmacPlanner2D` with `allow_unknown: true` +
 `cost_travel_multiplier: 2.0` (soft-prefer known cells). BT replans
 only when `IsPathValid` fails or `GlobalUpdatedGoal` fires, on every

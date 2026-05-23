@@ -357,6 +357,80 @@ class TestConstantsInjection:
             == b_path_follow_offset
         )
 
+    def test_patch_disallows_unknown_on_sim_lane(self, pkg_dir):
+        """At envelope_factor > 1.0 (sim STRAFER_NAV_VEL_SCALE=1.0),
+        ``planner_server.GridBased.allow_unknown`` is forced to False so
+        NavfnPlanner stays inside known-free cells and won't slice
+        through unknown bands when an already-mapped path of similar
+        length exists. Cross-room cold-start is covered by the
+        executor's ``explore_until_visible`` skill — a goal in
+        unmapped space surfaces as a planner failure rather than a
+        wonky path.
+        """
+        import importlib.util
+
+        launch_path = os.path.join(pkg_dir, "launch", "navigation.launch.py")
+        spec = importlib.util.spec_from_file_location("nav_launch", launch_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
+        with open(yaml_path) as f:
+            p = yaml.safe_load(f)
+        footprint = mod._build_footprint(CHASSIS_LENGTH, TRACK_WIDTH)
+        mod._patch_params(
+            p, footprint,
+            round(MAX_LINEAR_VEL, 4),
+            round(MAX_ANGULAR_VEL, 4),
+            round(MAX_LINEAR_VEL * NAV_REVERSE_SCALE, 4),
+            2.0,
+            MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX,
+        )
+        planner = p["planner_server"]["ros__parameters"]["GridBased"]
+        assert planner["allow_unknown"] is False
+
+    def test_patch_keeps_allow_unknown_on_real_robot_lane(self, pkg_dir):
+        """Real-robot bringup (envelope_factor <= 1.0) keeps the YAML
+        baseline ``allow_unknown: true``. RTAB-Map state often persists
+        across sessions on the real robot and the cold-start unknown
+        footprint is small; flipping the planner to known-free-only
+        before that lane has run is gated behind sim validation.
+        Anchors the gate so future changes don't drift the threshold
+        and silently re-tune real-robot bringup.
+        """
+        import importlib.util
+
+        launch_path = os.path.join(pkg_dir, "launch", "navigation.launch.py")
+        spec = importlib.util.spec_from_file_location("nav_launch", launch_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
+        with open(yaml_path) as f:
+            baseline = yaml.safe_load(f)
+        b_allow_unknown = baseline["planner_server"]["ros__parameters"][
+            "GridBased"
+        ]["allow_unknown"]
+        assert b_allow_unknown is True, (
+            "YAML baseline must keep allow_unknown=true so real-robot "
+            "bringup's planner stays permissive when envelope_factor<=1.0"
+        )
+
+        footprint = mod._build_footprint(CHASSIS_LENGTH, TRACK_WIDTH)
+        for factor in (1.0, 0.75):
+            with open(yaml_path) as f:
+                p = yaml.safe_load(f)
+            mod._patch_params(
+                p, footprint, NAV_LINEAR_VEL, NAV_ANGULAR_VEL,
+                NAV_REVERSE_VEL, factor,
+                MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX,
+            )
+            planner = p["planner_server"]["ros__parameters"]["GridBased"]
+            assert planner["allow_unknown"] is True, (
+                f"allow_unknown override leaked into real-robot lane at "
+                f"envelope_factor={factor}: planner={planner['allow_unknown']!r}"
+            )
+
     def test_patch_critic_overrides_skipped_just_below_unity_envelope(self, pkg_dir):
         """The critic rebalance is gated strictly on envelope_factor>1.0.
         A scale of 1.0 (real-robot) and any sub-unity factor leave the
@@ -443,12 +517,21 @@ class TestSmoothingBT:
         assert 'unsmoothed_path="{path}"' in xml
         assert 'smoothed_path="{path}"' in xml
 
-    def test_bt_uses_distance_controller_not_rate_controller(self, pkg_dir):
-        """Replan gate must be motion-based, not time-based. A 1 Hz
-        RateController emits a slightly different path every second
-        through a noisy costmap; DistanceController 0.5m defers
-        replanning until the robot has actually moved, so the path the
-        controller is tracking stays stable between updates.
+    def test_bt_replans_only_when_invalidated(self, pkg_dir):
+        """Replanning must be event-driven, not motion-driven.
+
+        Time- or distance-gated replanning (RateController /
+        DistanceController) re-runs ComputePathToPose on a fixed
+        cadence even when the current path is still valid, which
+        produces a slightly different shortest path through a noisy
+        costmap on each replan and forces the controller to track a
+        reference whose topology shifts. The fix is a
+        <Fallback name="ReplanIfNeeded"> whose first child is a
+        sequence of <Inverter><GoalUpdated/></Inverter> +
+        <IsPathValid path="{path}"/>: when both succeed (no fresh
+        goal AND the current path is still collision-free) the
+        fallback short-circuits and ComputePathToPose is not re-run.
+        Replanning falls through only when either condition fails.
         """
         import xml.etree.ElementTree as ET
 
@@ -457,17 +540,49 @@ class TestSmoothingBT:
         root = tree.getroot()
         # Inspect element tags (skips comments, which ElementTree drops).
         tags = {el.tag for el in root.iter()}
-        assert "DistanceController" in tags, (
-            "Missing <DistanceController> wrapping ComputePathToPose"
+        assert "DistanceController" not in tags, (
+            "<DistanceController> must not appear — replanning is "
+            "gated on path validity, not on travelled distance"
         )
         assert "RateController" not in tags, (
-            "<RateController> must not appear — replanning is gated on "
-            "distance, not on a wall-clock rate"
+            "<RateController> must not appear — replanning is gated "
+            "on path validity, not on a wall-clock rate"
         )
-        dist_el = next(el for el in root.iter() if el.tag == "DistanceController")
-        assert dist_el.get("distance") == "0.5", (
-            "DistanceController distance must be 0.5m to gate replan "
-            "on actual robot motion"
+        # The Fallback wrapping the planner must be named so the gate
+        # is searchable; future tuners shouldn't accidentally bury the
+        # IsPathValid check inside an unrelated Fallback elsewhere in
+        # the tree (e.g. the recovery branch).
+        replan_fallback = next(
+            (
+                el for el in root.iter()
+                if el.tag == "Fallback" and el.get("name") == "ReplanIfNeeded"
+            ),
+            None,
+        )
+        assert replan_fallback is not None, (
+            "Missing <Fallback name=\"ReplanIfNeeded\"> around the "
+            "planner block — the IsPathValid gate must be the first "
+            "child of the planner's Fallback"
+        )
+        gate_tags = [child.tag for child in replan_fallback]
+        assert gate_tags[0] == "Sequence", (
+            "First child of ReplanIfNeeded must be the path-validity "
+            "Sequence, otherwise ComputePathToPose runs unconditionally"
+        )
+        gate_seq = replan_fallback[0]
+        inner_tags = {el.tag for el in gate_seq.iter()}
+        assert "IsPathValid" in inner_tags, (
+            "Path-validity Sequence must contain <IsPathValid> so the "
+            "planner only re-runs when the current path becomes invalid"
+        )
+        assert "GoalUpdated" in inner_tags, (
+            "Path-validity Sequence must contain <GoalUpdated> (inside "
+            "an <Inverter>) so a fresh operator goal forces a replan"
+        )
+        assert "Inverter" in inner_tags, (
+            "<Inverter> must wrap <GoalUpdated> — GoalUpdated returns "
+            "SUCCESS when a new goal arrived, which (un-inverted) would "
+            "short-circuit the fallback into skipping the replan"
         )
 
     def test_bt_does_not_warmup_per_goal(self, pkg_dir):

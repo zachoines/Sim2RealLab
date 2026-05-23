@@ -107,6 +107,7 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | Brief | Pri | State | Owner |
 |---|---|---|---|
 | [`executor-prefer-rotate-then-translate`](active/reliability/executor-prefer-rotate-then-translate.md) | P2 | active | Jetson |
+| [`nav2-commit-and-follow-path-stability`](active/reliability/nav2-commit-and-follow-path-stability.md) | P2 | active | Jetson |
 | [`rtabmap-cold-start-determinism`](active/reliability/rtabmap-cold-start-determinism.md) | P2 | active | Jetson |
 | [`executor-grounding-loss-mid-mission-recovery`](active/reliability/executor-grounding-loss-mid-mission-recovery.md) | P2 | active | Jetson |
 | [`executor-slam-tracking-precheck-mid-mission`](active/reliability/executor-slam-tracking-precheck-mid-mission.md) | P2 | active | Jetson |
@@ -196,6 +197,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`real-d555-depth-range-survey`](active/investigations/real-d555-depth-range-survey.md) | S–M | Investigation — bench measurement + write-up |
 | [`rtabmap-cold-start-determinism`](active/reliability/rtabmap-cold-start-determinism.md) | M | Cold-start signature on populated DB: `Not found word N` burst + `Increment map id to 4`; triage bridge-teleport vs Mem/* config + ship the chosen disposition. After audit: A2 recommended — flip `localization:=true` default when populated DB exists. |
 | [`executor-prefer-rotate-then-translate`](active/reliability/executor-prefer-rotate-then-translate.md) | M | Decompose non-cardinal translations into rotate-to-face + forward translate at the executor layer; preserves cardinal strafe |
+| [`nav2-commit-and-follow-path-stability`](active/reliability/nav2-commit-and-follow-path-stability.md) | S–M | Sim-lane Nav2 prefers known-free over unknown (`allow_unknown: false`) and the BT replans only when `IsPathValid` fails or the goal changes — replaces the motion-gated `DistanceController` so MPPI tracks a stable reference. |
 | [`rotate-in-place-large-angle-correctness`](active/reliability/rotate-in-place-large-angle-correctness.md) | S–M | `rotate_in_place` closes the loop on a single normalized target yaw: `rotate 360` no-ops (2π→0 target) and `>180°` takes the short way. Track accumulated traversal instead. Surfaced in PR #45 e2e (rotate 360 vs 180 at RTF≈0.085). |
 | [`executor-grounding-loss-mid-mission-recovery`](active/reliability/executor-grounding-loss-mid-mission-recovery.md) | M | `_navigate_via_staging` re-grounding failure terminates immediately. Add mini-scan + semantic-map fallback with bounded recovery budget. Filed off the 2026-05-17 reliability audit. |
 | [`executor-slam-tracking-precheck-mid-mission`](active/reliability/executor-slam-tracking-precheck-mid-mission.md) | S–M | Executor never queries `check_slam_tracking()`; silent failure when RTAB-Map loses tracking mid-mission. Add bounded precheck before each motion step. Filed off the 2026-05-17 reliability audit. |

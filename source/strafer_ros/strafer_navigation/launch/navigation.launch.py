@@ -192,6 +192,22 @@ def _patch_params(params, footprint, nav_vel, nav_omega, nav_reverse,
                 "default_nav_to_pose_bt_xml"
             ] = smoothing_bt_xml_path
 
+        # Force the global planner to stay inside known-free cells.
+        # NavfnPlanner with allow_unknown=true assigns NO_INFORMATION a
+        # uniform NEUTRAL_COST that the shortest-distance search happily
+        # routes through, so the emitted plan cuts across unknown bands
+        # even when an already-mapped path of similar length exists.
+        # Real-robot keeps the permissive default because RTAB-Map state
+        # often persists across sessions and the cold-start unknown-cell
+        # footprint is small; sim sessions start with a wide unknown
+        # region around the robot that NavFn would otherwise slice
+        # through. Cross-room cold-start nav is covered by the
+        # executor's explore_until_visible skill — a goal in unmapped
+        # space surfaces as a planner failure rather than a wonky path.
+        planner = params["planner_server"]["ros__parameters"]
+        if "GridBased" in planner:
+            planner["GridBased"]["allow_unknown"] = False
+
         # Un-scale vy_std back to YAML baseline. The envelope-factor
         # scaling above doubled it to 0.4, but the lifted velocity
         # envelope is for forward + rotation, not lateral. A wider

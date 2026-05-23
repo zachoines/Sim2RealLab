@@ -2,13 +2,18 @@
   Strafer sim-lane BT. Differs from Nav2's stock
   navigate_to_pose_w_replanning_and_recovery.xml in two places:
 
-  1. <DistanceController distance="0.5"> replaces Nav2's
-     <RateController hz="1.0"> around ComputePathToPose. Replanning
-     gated on robot motion (replan after 0.5 m of travel) rather than
-     wall time prevents the planner from emitting a slightly
-     different path every second through a noisy costmap — which the
-     controller would otherwise be forced to track laterally. Path
-     continuity bias by deferral, not by a critic.
+  1. A <Fallback name="ReplanIfNeeded"> wraps the planner instead of
+     Nav2's stock <RateController hz="1.0"> (and this BT's earlier
+     <DistanceController distance="0.5">). The fallback's first child
+     is a <Sequence> of <Inverter><GoalUpdated/></Inverter> +
+     <IsPathValid path="{path}"/>: when both succeed (no new goal AND
+     the current path is still collision-free) the fallback
+     short-circuits without re-planning. When either fails — path
+     invalidated by a new obstacle, or a fresh goal arrived — the
+     fallback falls through to ComputePathToPose. The result is a
+     "commit and follow" plan: the controller tracks a stable
+     reference until something concrete invalidates it, instead of
+     re-tracking a slightly-different shortest path every 0.5 m.
 
   2. <SmoothPath unsmoothed_path="{path}" smoothed_path="{path}"
      smoother_id="simple_smoother"/> runs between ComputePathToPose
@@ -35,7 +40,13 @@
   <BehaviorTree ID="MainTree">
     <RecoveryNode number_of_retries="6" name="NavigateRecovery">
       <PipelineSequence name="NavigateWithReplanning">
-        <DistanceController distance="0.5">
+        <Fallback name="ReplanIfNeeded">
+          <Sequence name="PathStillValid">
+            <Inverter>
+              <GoalUpdated/>
+            </Inverter>
+            <IsPathValid path="{path}"/>
+          </Sequence>
           <RecoveryNode number_of_retries="1" name="ComputePathToPose">
             <Sequence name="PlanAndSmooth">
               <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
@@ -43,7 +54,7 @@
             </Sequence>
             <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
           </RecoveryNode>
-        </DistanceController>
+        </Fallback>
         <RecoveryNode number_of_retries="1" name="FollowPath">
           <FollowPath path="{path}" controller_id="FollowPath"/>
           <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>

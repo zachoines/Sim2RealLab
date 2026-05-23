@@ -29,7 +29,7 @@ Publications (re-stamped with system time):
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
-from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import Image, CameraInfo, PointCloud2
 
 
@@ -48,41 +48,43 @@ class TimestampFixer(Node):
 
         self._first_logged = False
 
-        qos = QoSProfile(
+        reliable_qos = QoSProfile(
             depth=10,
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.VOLATILE,
         )
 
+        # Per-topic (sub_qos, pub_qos). The realsense pointcloud publisher
+        # defaults to SENSOR_DATA (BEST_EFFORT, depth 5); a RELIABLE sub
+        # never matches it and we get an empty /scan. Publish RELIABLE so
+        # downstream consumers (pointcloud_to_laserscan, rosbag) match
+        # the default subscriber QoS.
         pairs = [
-            ("/d555/color/image_raw", "/d555/color/image_sync", Image),
-            (
-                "/d555/aligned_depth_to_color/image_raw",
-                "/d555/aligned_depth_to_color/image_sync",
-                Image,
-            ),
-            ("/d555/color/camera_info", "/d555/color/camera_info_sync", CameraInfo),
-            (
-                "/d555/aligned_depth_to_color/camera_info",
-                "/d555/aligned_depth_to_color/camera_info_sync",
-                CameraInfo,
-            ),
-            (
-                "/d555/depth/color/points",
-                "/d555/depth/color/points_sync",
-                PointCloud2,
-            ),
+            ("/d555/color/image_raw",
+             "/d555/color/image_sync", Image, reliable_qos, reliable_qos),
+            ("/d555/aligned_depth_to_color/image_raw",
+             "/d555/aligned_depth_to_color/image_sync", Image,
+             reliable_qos, reliable_qos),
+            ("/d555/color/camera_info",
+             "/d555/color/camera_info_sync", CameraInfo,
+             reliable_qos, reliable_qos),
+            ("/d555/aligned_depth_to_color/camera_info",
+             "/d555/aligned_depth_to_color/camera_info_sync", CameraInfo,
+             reliable_qos, reliable_qos),
+            ("/d555/depth/color/points",
+             "/d555/depth/color/points_sync", PointCloud2,
+             qos_profile_sensor_data, reliable_qos),
         ]
 
         self._pubs: dict[str, rclpy.publisher.Publisher] = {}
-        for in_topic, out_topic, msg_type in pairs:
-            pub = self.create_publisher(msg_type, out_topic, qos)
+        for in_topic, out_topic, msg_type, sub_qos, pub_qos in pairs:
+            pub = self.create_publisher(msg_type, out_topic, pub_qos)
             self._pubs[in_topic] = pub
             self.create_subscription(
                 msg_type,
                 in_topic,
                 lambda msg, p=pub: self._relay(msg, p),
-                qos,
+                sub_qos,
             )
 
         mode = "restamp" if self._restamp else "passthrough"

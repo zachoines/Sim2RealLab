@@ -63,6 +63,12 @@ def _make_runner(*, semantic_map=None, background_mapper=None):
     planner = MagicMock()
     grounding = MagicMock()
     ros = MagicMock()
+    # Diagonal translates decompose into rotate_in_place + navigate_to_pose,
+    # so any translate test must hand back a real SkillResult here or the
+    # executor will propagate the bare MagicMock as a "failed" rotation.
+    ros.rotate_in_place.return_value = SkillResult(
+        step_id="rotate", skill="rotate_in_place", status="succeeded",
+    )
     runner = MissionRunner(
         planner_client=planner,
         grounding_client=grounding,

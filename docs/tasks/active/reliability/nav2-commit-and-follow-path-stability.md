@@ -105,14 +105,20 @@ sessions will hit it the same way sim does.
 In `navigate_to_pose_w_smoothing_and_recovery.xml`, replace the
 `<DistanceController distance="0.5">` decorator with a
 `<Fallback name="ReplanIfNeeded">` whose first child is a
-`<Sequence>` of `<Inverter><GoalUpdated/></Inverter>` and
+`<Sequence>` of `<Inverter><GloballyUpdatedGoal/></Inverter>` and
 `<IsPathValid path="{path}"/>`. `IsPathValid` succeeds when the
 current `{path}` is still collision-free against the latest costmap;
-the inverted `GoalUpdated` succeeds when no new goal has arrived
-since the last tick. When both succeed the `Fallback` short-circuits
-without re-planning. When either fails (path blocked or new goal),
-the fallback falls through to the existing
+the inverted `GloballyUpdatedGoal` succeeds when no new goal has
+arrived since the last tick. When both succeed the `Fallback`
+short-circuits without re-planning. When either fails (path blocked
+or new goal), the fallback falls through to the existing
 `ComputePathToPose → SmoothPath` sequence.
+
+Use `GloballyUpdatedGoal`, **not** `GoalUpdated` — the latter resets
+its remembered-goal state when the BT is halted between
+back-to-back `navigate_to_pose` action calls, so the new goal is
+treated as the "initial" goal on the first tick after halt and the
+gate falls back on the stale `{path}` from the previous call.
 
 Lift the BT swap in `_patch_params` out of the `if envelope_factor
 > 1.0:` block so the BT path is injected unconditionally — sim and
@@ -127,7 +133,7 @@ Net BT shape (universal):
 PipelineSequence
 ├─ Fallback (ReplanIfNeeded)
 │  ├─ Sequence
-│  │   ├─ Inverter(GoalUpdated)
+│  │   ├─ Inverter(GloballyUpdatedGoal)
 │  │   └─ IsPathValid(path)
 │  └─ RecoveryNode(ComputePathToPose → SmoothPath, ClearGlobalCostmap)
 └─ RecoveryNode(FollowPath, ClearLocalCostmap)
@@ -192,7 +198,7 @@ leaves symptom 1.
       `allow_unknown=False` and `_patch_params` doesn't re-enable it
       at any `envelope_factor`; the BT swap fires at every
       `envelope_factor`; the BT structure parses and contains
-      `IsPathValid` + `GoalUpdated` + `Inverter` + no
+      `IsPathValid` + `GloballyUpdatedGoal` + `Inverter` + no
       `DistanceController` + keeps `SmoothPath` and `ComputePathToPose`.
 - [ ] If your work invalidates a fact in any referenced context
       module, package README, top-level `Readme.md`, or guide under

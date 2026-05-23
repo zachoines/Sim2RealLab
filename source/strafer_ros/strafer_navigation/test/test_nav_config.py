@@ -473,8 +473,12 @@ class TestSmoothingBT:
 
     def test_bt_replans_only_when_invalidated(self, pkg_dir):
         """Replanning fires only via <Fallback name="ReplanIfNeeded">
-        gated on <IsPathValid> + inverted <GoalUpdated>, never on a
-        time- or distance-decorator.
+        gated on <IsPathValid> + inverted <GloballyUpdatedGoal>,
+        never on a time- or distance-decorator.
+
+        <GloballyUpdatedGoal/> is load-bearing — <GoalUpdated/>
+        resets on BT halt and misses goal changes between
+        back-to-back navigate_to_pose action calls.
         """
         import xml.etree.ElementTree as ET
 
@@ -500,10 +504,18 @@ class TestSmoothingBT:
         gate_seq = replan_fallback[0]
         inner_tags = {el.tag for el in gate_seq.iter()}
         assert "IsPathValid" in inner_tags
-        assert "GoalUpdated" in inner_tags
+        assert "GloballyUpdatedGoal" in inner_tags, (
+            "Use <GloballyUpdatedGoal/>, not <GoalUpdated/>: the "
+            "latter resets on BT halt and misses goal changes "
+            "between back-to-back navigate_to_pose action calls."
+        )
+        assert "GoalUpdated" not in inner_tags, (
+            "<GoalUpdated/> in the path-validity gate is the bug — "
+            "use <GloballyUpdatedGoal/> instead."
+        )
         assert "Inverter" in inner_tags, (
-            "Inverter must wrap GoalUpdated; un-inverted it short-"
-            "circuits the fallback into skipping the replan."
+            "Inverter must wrap GloballyUpdatedGoal; un-inverted it "
+            "short-circuits the fallback into skipping the replan."
         )
 
     def test_bt_does_not_warmup_per_goal(self, pkg_dir):

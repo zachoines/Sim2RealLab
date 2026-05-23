@@ -2,6 +2,11 @@
   Both <SmoothPath> ports bind to {path} so FollowPath consumes the
   smoothed result; the unsmoothed intermediate is discarded.
 
+  The path-validity gate uses <GloballyUpdatedGoal/>, not
+  <GoalUpdated/>: GoalUpdated's state resets on BT halt, so a new
+  navigate_to_pose action call would miss the goal-change and keep
+  following the previous goal's {path}.
+
   Per-session warmup behavior must live outside this BT: Nav2's
   BtActionServer halts and re-ticks between goals in a way that
   doesn't preserve BT.CPP decorator state, so a <SingleTrigger>
@@ -14,7 +19,7 @@
         <Fallback name="ReplanIfNeeded">
           <Sequence name="PathStillValid">
             <Inverter>
-              <GoalUpdated/>
+              <GloballyUpdatedGoal/>
             </Inverter>
             <IsPathValid path="{path}"/>
           </Sequence>

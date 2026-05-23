@@ -48,6 +48,10 @@ class CommandServerConfig:
     action_name: str = DEFAULT_EXECUTE_MISSION_ACTION
     status_service_name: str = DEFAULT_STATUS_SERVICE
     feedback_period_s: float = 0.5
+    # Threads available to the rclpy MultiThreadedExecutor that drives
+    # the action server. Must be ≥ 2: execute_callback holds one for
+    # the entire mission lifetime, the other serves cancel + status.
+    executor_num_threads: int = 4
 
 
 @runtime_checkable
@@ -88,6 +92,7 @@ class AutonomyCommandServer:
         self._execute_mission = None
         self._goal_response = None
         self._cancel_response = None
+        self._executor = None
 
     @property
     def config(self) -> CommandServerConfig:
@@ -96,12 +101,25 @@ class AutonomyCommandServer:
         return self._config
 
     def spin(self) -> None:
-        """Create ROS entities and block until shutdown."""
+        """Create ROS entities and block until shutdown.
+
+        Uses a ``MultiThreadedExecutor`` so the cancel-goal service can
+        fire while a mission's ``execute_callback`` is still in its
+        feedback-publish loop. With the default single-threaded spin the
+        execute callback held the only callback thread for the entire
+        mission and ``strafer-autonomy-cli cancel`` hung indefinitely
+        because the cancel-service callback never got scheduled.
+        """
 
         self._ensure_ros_entities()
         assert self._rclpy is not None
         assert self._node is not None
-        self._rclpy.spin(self._node)
+        assert self._executor is not None
+        self._executor.add_node(self._node)
+        try:
+            self._executor.spin()
+        finally:
+            self._executor.remove_node(self._node)
 
     def destroy(self) -> None:
         """Destroy ROS entities created by this command server."""
@@ -112,6 +130,9 @@ class AutonomyCommandServer:
         if self._status_service is not None:
             self._status_service.destroy()
             self._status_service = None
+        if self._executor is not None:
+            self._executor.shutdown()
+            self._executor = None
         if self._node is not None:
             self._node.destroy_node()
             self._node = None
@@ -123,6 +144,8 @@ class AutonomyCommandServer:
         try:
             import rclpy
             from rclpy.action import ActionServer, CancelResponse, GoalResponse
+            from rclpy.callback_groups import ReentrantCallbackGroup
+            from rclpy.executors import MultiThreadedExecutor
             from rclpy.node import Node
             from strafer_msgs.action import ExecuteMission
             from strafer_msgs.srv import GetMissionStatus
@@ -138,6 +161,11 @@ class AutonomyCommandServer:
         self._cancel_response = CancelResponse
 
         self._node = Node(self._config.node_name)
+        # Reentrant group lets execute / cancel / status callbacks run
+        # concurrently — required because execute_callback blocks for
+        # the entire mission in its feedback loop, and cancel + status
+        # have to remain responsive during that window.
+        callback_group = ReentrantCallbackGroup()
         self._action_server = ActionServer(
             self._node,
             ExecuteMission,
@@ -145,11 +173,18 @@ class AutonomyCommandServer:
             execute_callback=self._execute_callback,
             goal_callback=self._goal_callback,
             cancel_callback=self._cancel_callback,
+            callback_group=callback_group,
         )
         self._status_service = self._node.create_service(
             GetMissionStatus,
             self._config.status_service_name,
             self._handle_status_request,
+            callback_group=callback_group,
+        )
+        # Two-thread minimum: execute_callback occupies one for the
+        # mission lifetime, the other serves cancel + status.
+        self._executor = MultiThreadedExecutor(
+            num_threads=self._config.executor_num_threads,
         )
 
     def _goal_callback(self, goal_request):  # type: ignore[no-untyped-def]

@@ -7,7 +7,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from strafer_autonomy.clients.vlm_client import GroundingServiceUnavailable
-from strafer_autonomy.executor.command_server import build_command_server
+from strafer_autonomy.executor.command_server import (
+    AutonomyCommandServer,
+    CommandServerConfig,
+    build_command_server,
+)
 
 
 def _make_grounding_client(*, health_response=None, health_raises=None):
@@ -105,3 +109,57 @@ class TestBuildCommandServerHealth:
                 grounding_client=vlm,
                 ros_client=MagicMock(),
             )
+
+
+# ------------------------------------------------------------------
+# Tests — concurrent callback scheduling for cancel during execute
+# ------------------------------------------------------------------
+
+
+class TestCommandServerConcurrency:
+    """The action server must keep the cancel + status callbacks
+    responsive while ``execute_callback`` is in its mission-feedback
+    loop. Single-threaded ``rclpy.spin`` + the default
+    ``MutuallyExclusiveCallbackGroup`` lets the execute callback hold
+    the only callback thread for the entire mission — so the cancel
+    service never fires and ``strafer-autonomy-cli cancel`` hangs.
+    """
+
+    def test_config_default_executor_threads_supports_concurrent_cancel(self):
+        """At least two executor threads are required: one for the
+        long-running execute_callback, one for cancel + status."""
+        assert CommandServerConfig().executor_num_threads >= 2
+
+    @pytest.mark.requires_ros
+    def test_ensure_ros_entities_wires_multithreaded_executor(self):
+        """``_ensure_ros_entities`` constructs a ``MultiThreadedExecutor``
+        and a ``ReentrantCallbackGroup``, shared by the action server
+        and the status service. Without this wiring, cancel during an
+        active mission hangs because execute_callback blocks the only
+        callback thread.
+        """
+        import rclpy
+        from rclpy.callback_groups import ReentrantCallbackGroup
+        from rclpy.executors import MultiThreadedExecutor
+
+        rclpy.init()
+        try:
+            handler = MagicMock()
+            server = AutonomyCommandServer(handler=handler)
+            try:
+                server._ensure_ros_entities()
+                assert isinstance(server._executor, MultiThreadedExecutor)
+                assert (
+                    server._action_server.callback_group.__class__
+                    is ReentrantCallbackGroup
+                )
+                # Status service shares the same reentrant group so a
+                # status query during execute_callback also resolves.
+                assert (
+                    server._status_service.callback_group
+                    is server._action_server.callback_group
+                )
+            finally:
+                server.destroy()
+        finally:
+            rclpy.shutdown()

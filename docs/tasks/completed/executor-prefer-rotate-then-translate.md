@@ -1,5 +1,14 @@
 # Prefer rotate-then-translate over diagonal strafe for non-cardinal motion
 
+**Status:** Shipped 2026-05-22 in `c2ec8a9` (Jetson). Diagonal
+body-frame translates now pre-rotate to the goal bearing and drive
+forward; cardinal body-frame commands (forward / backward / strafe
+left / strafe right) still strafe sideways verbatim. Heading
+threshold and cardinal epsilon are exposed as
+`MissionRunnerConfig.translate_heading_threshold_rad` (default
+0.3 rad ≈ 17°) and `translate_cardinal_epsilon_m` (default 1e-3 m).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/49
+
 **Type:** task / enhancement
 **Owner:** Jetson agent (`source/strafer_autonomy/strafer_autonomy/executor/`, with possibly minor changes under `source/strafer_ros/strafer_navigation/`)
 **Priority:** P2
@@ -13,9 +22,9 @@ As a **mission operator**, I want **the executor (or controller) to decompose a 
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [completed/mppi-critic-tuning-for-sim-envelope.md](../../completed/mppi-critic-tuning-for-sim-envelope.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [completed/mppi-critic-tuning-for-sim-envelope.md](mppi-critic-tuning-for-sim-envelope.md)
   — what's already been tuned in the MPPI critic landscape.
 
 ## Context
@@ -61,7 +70,7 @@ Cons:
 - Interaction with the cancel path: a cancel arriving during the
   pre-rotation must zero `/cmd_vel` immediately. The required
   prerequisite
-  [`executor-cancel-mid-motion-cmd-vel-zero.md`](../../completed/executor-cancel-mid-motion-cmd-vel-zero.md)
+  [`executor-cancel-mid-motion-cmd-vel-zero.md`](executor-cancel-mid-motion-cmd-vel-zero.md)
   has shipped — `rotate_in_place` now honors `cancel_event` and
   `_cancel_robot_actions` zeroes `/cmd_vel` as a belt-and-braces
   fail-safe. The pre-rotation step inherits that behavior; no new
@@ -92,7 +101,7 @@ Cons: not natively supported; significant engineering effort.
 - [ ] No regression on the cornering smoke check from `mppi-critic-tuning-for-sim-envelope.md`: `translate forward 1 m → rotate 90° → translate forward 1 m` lands within `xy_goal_tolerance=0.15` / `yaw_goal_tolerance=0.20`.
 - [ ] No regression on `nav2-far-goal-staging.md`'s reference far-goal mission.
 - [ ] Unit tests cover the executor-level decision (heading-threshold gating, cardinal-translate bypass).
-- [ ] If your work invalidates a fact in any referenced context module, package README, top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance) for the surface list and trigger heuristics.
+- [ ] If your work invalidates a fact in any referenced context module, package README, top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance) for the surface list and trigger heuristics.
 
 ## Investigation pointers
 

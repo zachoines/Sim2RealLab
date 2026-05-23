@@ -106,7 +106,6 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 
 | Brief | Pri | State | Owner |
 |---|---|---|---|
-| [`executor-prefer-rotate-then-translate`](active/reliability/executor-prefer-rotate-then-translate.md) | P2 | active | Jetson |
 | [`nav2-commit-and-follow-path-stability`](active/reliability/nav2-commit-and-follow-path-stability.md) | P2 | active | Jetson |
 | [`nav2-scan-ground-filter-and-mppi-mecanum-tuning`](active/reliability/nav2-scan-ground-filter-and-mppi-mecanum-tuning.md) | P2 | active | Jetson |
 | [`rtabmap-cold-start-determinism`](active/reliability/rtabmap-cold-start-determinism.md) | P2 | active | Jetson |
@@ -198,7 +197,6 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`grounding-publisher-extraction`](active/reliability/grounding-publisher-extraction.md) | S | Quick win — pure refactor follow-up to `vlm-bbox-overlay`; extracts the viz publishers out of `JetsonRosClient` |
 | [`real-d555-depth-range-survey`](active/investigations/real-d555-depth-range-survey.md) | S–M | Investigation — bench measurement + write-up |
 | [`rtabmap-cold-start-determinism`](active/reliability/rtabmap-cold-start-determinism.md) | M | Cold-start signature on populated DB: `Not found word N` burst + `Increment map id to 4`; triage bridge-teleport vs Mem/* config + ship the chosen disposition. After audit: A2 recommended — flip `localization:=true` default when populated DB exists. |
-| [`executor-prefer-rotate-then-translate`](active/reliability/executor-prefer-rotate-then-translate.md) | M | Decompose non-cardinal translations into rotate-to-face + forward translate at the executor layer; preserves cardinal strafe |
 | [`nav2-commit-and-follow-path-stability`](active/reliability/nav2-commit-and-follow-path-stability.md) | S–M | Nav2 prefers known-free over unknown (`allow_unknown: false` as universal YAML default) and the BT replans only when `IsPathValid` fails or the goal changes — replaces the motion-gated `DistanceController` so MPPI tracks a stable reference. Applies on both sim and real lanes. |
 | [`nav2-scan-ground-filter-and-mppi-mecanum-tuning`](active/reliability/nav2-scan-ground-filter-and-mppi-mecanum-tuning.md) | M | Swap depthimage_to_laserscan → pointcloud_to_laserscan with Z-axis ground filter to kill the phantom ~3.5 m floor arc in `/scan`; dial down real-robot `PathAlignCritic` + raise `PreferForwardCritic` so MPPI stops strafing on each replan. Filed off lap-test symptoms after `nav2-commit-and-follow-path-stability`. |
 | [`nav2-sim-real-promotion-architecture`](active/tooling/nav2-sim-real-promotion-architecture.md) | M | Split `_patch_params` into "constants injection / velocity-coupled / behavioral overrides" sections, document the sim→real promotion process in a context module, and run validation laps for the remaining `envelope_factor > 1.0`-gated MPPI knobs (PreferForward, PathFollow, gamma, PathAlign) so each either graduates to the universal default or carries a refreshed justification for staying gated. Closes the latent sim-to-real gap created by pattern-matching onto the envelope-factor gate. |

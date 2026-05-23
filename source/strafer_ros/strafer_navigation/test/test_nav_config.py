@@ -473,12 +473,13 @@ class TestSmoothingBT:
 
     def test_bt_replans_only_when_invalidated(self, pkg_dir):
         """Replanning fires only via <Fallback name="ReplanIfNeeded">
-        gated on <IsPathValid> + inverted <GloballyUpdatedGoal>,
-        never on a time- or distance-decorator.
+        gated on <IsPathValid> + inverted <GlobalUpdatedGoal>, never
+        on a time- or distance-decorator.
 
-        <GloballyUpdatedGoal/> is load-bearing — <GoalUpdated/>
-        resets on BT halt and misses goal changes between
-        back-to-back navigate_to_pose action calls.
+        The XML name is "GlobalUpdatedGoal" (single "Global"); that
+        is Nav2's registered alias for the class
+        GloballyUpdatedGoalCondition. "GloballyUpdatedGoal" silently
+        fails to resolve and bt_navigator rejects every goal.
         """
         import xml.etree.ElementTree as ET
 
@@ -488,6 +489,12 @@ class TestSmoothingBT:
         tags = {el.tag for el in root.iter()}
         assert "DistanceController" not in tags
         assert "RateController" not in tags
+        assert "GloballyUpdatedGoal" not in tags, (
+            "Nav2 registers the node as 'GlobalUpdatedGoal' (single "
+            "'Global'); the longer 'GloballyUpdatedGoal' silently "
+            "fails to resolve, bt_navigator's loadBehaviorTree "
+            "returns false, and every action goal is rejected."
+        )
         replan_fallback = next(
             (
                 el for el in root.iter()
@@ -504,17 +511,17 @@ class TestSmoothingBT:
         gate_seq = replan_fallback[0]
         inner_tags = {el.tag for el in gate_seq.iter()}
         assert "IsPathValid" in inner_tags
-        assert "GloballyUpdatedGoal" in inner_tags, (
-            "Use <GloballyUpdatedGoal/>, not <GoalUpdated/>: the "
-            "latter resets on BT halt and misses goal changes "
-            "between back-to-back navigate_to_pose action calls."
+        assert "GlobalUpdatedGoal" in inner_tags, (
+            "Use <GlobalUpdatedGoal/>, not <GoalUpdated/>: the latter "
+            "resets on BT halt and misses goal changes between "
+            "back-to-back navigate_to_pose action calls."
         )
         assert "GoalUpdated" not in inner_tags, (
             "<GoalUpdated/> in the path-validity gate is the bug — "
-            "use <GloballyUpdatedGoal/> instead."
+            "use <GlobalUpdatedGoal/> instead."
         )
         assert "Inverter" in inner_tags, (
-            "Inverter must wrap GloballyUpdatedGoal; un-inverted it "
+            "Inverter must wrap GlobalUpdatedGoal; un-inverted it "
             "short-circuits the fallback into skipping the replan."
         )
 

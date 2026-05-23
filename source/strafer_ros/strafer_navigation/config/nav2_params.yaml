@@ -217,16 +217,8 @@ planner_server:
       plugin: "nav2_navfn_planner/NavfnPlanner"
       tolerance: 0.5
       use_astar: false
-      # NavfnPlanner with allow_unknown=true assigns NO_INFORMATION a
-      # uniform NEUTRAL_COST that the shortest-distance search happily
-      # routes through, so the emitted plan cuts across unknown bands
-      # even when an already-mapped path of similar length exists.
-      # Keeping the planner inside known-free cells is a project-wide
-      # default (sim AND real); cross-room cold-start nav is covered
-      # by the executor's `explore_until_visible` skill, which fills
-      # the costmap before the final `navigate_to_pose` fires. A goal
-      # in unmapped space surfaces as a planner failure rather than a
-      # wonky path.
+      # Goals in unmapped cells fail planning instead of producing a
+      # route through unknown space; use explore_until_visible first.
       allow_unknown: false
 
 # =============================================================================

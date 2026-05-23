@@ -122,17 +122,8 @@ def _patch_params(params, footprint, nav_vel, nav_omega, nav_reverse,
                   *, smoothing_bt_xml_path=None):
     """Inject constants into the loaded nav2_params dict.
 
-    ``smoothing_bt_xml_path`` selects the project's custom
-    navigate-to-pose BT (event-driven replanning via IsPathValid +
-    GoalUpdated, with SmoothPath on the resulting path). Applied
-    universally — sim and real — because the BT is a behavioral
-    default, not a velocity-coupled one. Only knobs that genuinely
-    depend on the lifted velocity envelope stay gated on
-    ``envelope_factor > 1.0`` (the MPPI sampling stds and critic
-    rebalance); see
-    ``docs/tasks/active/tooling/nav2-sim-real-promotion-architecture.md``
-    for the migration plan that's graduating other knobs off the
-    envelope gate.
+    ``smoothing_bt_xml_path``, when provided, wires the custom
+    navigate-to-pose BT into ``bt_navigator``.
     """
 
     # ── Controller (MPPI) ───────────────────────────────────────────────
@@ -196,14 +187,8 @@ def _patch_params(params, footprint, nav_vel, nav_omega, nav_reverse,
             yaml_baseline_vy_std = round(float(ctrl["vy_std"]) / envelope_factor, 4)
             ctrl["vy_std"] = yaml_baseline_vy_std
 
-    # ── Custom BT (always applied) ──────────────────────────────────────
-    # The smoothing + IsPathValid BT is the project's canonical
-    # navigate-to-pose tree on both lanes. Its tradeoffs are
-    # behavioral (commit-and-follow vs. constant replanning, smoothed
-    # path vs. grid jaggies) and not velocity-coupled, so it doesn't
-    # belong behind the envelope_factor gate. The path is injected
-    # here rather than in YAML because it's resolved from
-    # ament_index_python at launch time.
+    # The BT path is resolved from ament_index at launch time, so
+    # the injection lives here rather than in YAML.
     if smoothing_bt_xml_path:
         params["bt_navigator"]["ros__parameters"][
             "default_nav_to_pose_bt_xml"

@@ -1,43 +1,11 @@
 <!--
-  Strafer's canonical navigate-to-pose BT — applied universally (sim
-  and real). Differs from Nav2's stock
-  navigate_to_pose_w_replanning_and_recovery.xml in two places:
+  Both <SmoothPath> ports bind to {path} so FollowPath consumes the
+  smoothed result; the unsmoothed intermediate is discarded.
 
-  1. A <Fallback name="ReplanIfNeeded"> wraps the planner instead of
-     Nav2's stock <RateController hz="1.0"> (and this BT's earlier
-     <DistanceController distance="0.5">). The fallback's first child
-     is a <Sequence> of <Inverter><GoalUpdated/></Inverter> +
-     <IsPathValid path="{path}"/>: when both succeed (no new goal AND
-     the current path is still collision-free) the fallback
-     short-circuits without re-planning. When either fails — path
-     invalidated by a new obstacle, or a fresh goal arrived — the
-     fallback falls through to ComputePathToPose. The result is a
-     "commit and follow" plan: the controller tracks a stable
-     reference until something concrete invalidates it, instead of
-     re-tracking a slightly-different shortest path every 0.5 m.
-
-  2. <SmoothPath unsmoothed_path="{path}" smoothed_path="{path}"
-     smoother_id="simple_smoother"/> runs between ComputePathToPose
-     and FollowPath. simple_smoother (configured under smoother_server
-     with max_its=1000, tolerance=1e-10) crushes the grid jaggies
-     NavFn emits through residual unknown cells into a clean curve
-     before the controller sees the path.
-
-  Selected via bt_navigator.default_nav_to_pose_bt_xml in the patched
-  params on every lane — the BT path is resolved from ament_index at
-  launch time and injected unconditionally. Genuinely
-  velocity-coupled knobs (MPPI sampling stds and critic rebalance)
-  stay gated on envelope_factor > 1.0; this BT does not.
-
-  The unsmoothed_path / smoothed_path ports both bind {path} so the
-  blackboard variable FollowPath reads is the smoothed one; the
-  unsmoothed intermediate is discarded.
-
-  Donut-coverage warmup at session start lives outside this BT in
-  strafer_bringup's donut_warmup node — it runs once per launch as a
-  separate process (the only reliable way to get once-per-session
-  semantics; BT.CPP doesn't preserve decorator state across the
-  halt/reset that Nav2's BtActionServer applies between goals).
+  Per-session warmup behavior must live outside this BT: Nav2's
+  BtActionServer halts and re-ticks between goals in a way that
+  doesn't preserve BT.CPP decorator state, so a <SingleTrigger>
+  here would fire every goal instead of once per launch.
 -->
 <root main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">

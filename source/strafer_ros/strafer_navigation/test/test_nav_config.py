@@ -358,16 +358,8 @@ class TestConstantsInjection:
         )
 
     def test_yaml_disallows_unknown_universally(self, pkg_dir):
-        """``planner_server.GridBased.allow_unknown`` is False in the
-        YAML baseline so NavfnPlanner stays inside known-free cells on
-        every lane (sim AND real). The motivating tradeoff (NavFn
-        slices through NO_INFORMATION bands at NEUTRAL_COST when a
-        known-free path of comparable length exists) is behavioral,
-        not velocity-coupled, so it belongs in the YAML default
-        rather than behind the envelope_factor gate. Cross-room
-        cold-start is covered by the executor's
-        ``explore_until_visible`` skill — a goal in unmapped space
-        surfaces as a planner failure rather than a wonky path.
+        """YAML pins ``planner_server.GridBased.allow_unknown`` False
+        so the planner stays inside known-free cells on every lane.
         """
         yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
         with open(yaml_path) as f:
@@ -380,11 +372,8 @@ class TestConstantsInjection:
         )
 
     def test_patch_does_not_re_enable_allow_unknown(self, pkg_dir):
-        """``_patch_params`` must not flip ``allow_unknown`` back to
-        True on any lane. Anchors the universal default so a future
-        tuner can't silently re-introduce the previous sim-only
-        ``allow_unknown=False`` override (which would imply a True
-        default on the other lane and re-create the sim-to-real gap).
+        """``_patch_params`` keeps ``allow_unknown`` False at every
+        ``envelope_factor`` so it never reverts the YAML default.
         """
         import importlib.util
 
@@ -458,28 +447,7 @@ _SMOOTHING_BT_FILENAME = "navigate_to_pose_w_smoothing_and_recovery.xml"
 
 
 class TestSmoothingBT:
-    """Validate the custom navigate-to-pose BT and its launch wiring.
-
-    The BT differs from Nav2's default
-    navigate_to_pose_w_replanning_and_recovery in two places:
-
-    1. A <Fallback name="ReplanIfNeeded"> wraps the planner with a
-       <Sequence> of <Inverter><GoalUpdated/></Inverter> +
-       <IsPathValid path="{path}"/>. ComputePathToPose re-runs only
-       when the current plan is invalidated by an obstacle or the
-       operator issues a fresh goal — replanning is event-driven, not
-       time- or distance-gated.
-    2. A <SmoothPath> step runs between ComputePathToPose and
-       FollowPath; simple_smoother (configured under smoother_server)
-       crushes the grid jaggies NavFn emits through residual unknown
-       cells before the controller sees the path.
-
-    The launch wires this BT into bt_navigator on every lane (sim AND
-    real) — the BT's tradeoffs are behavioral, not velocity-coupled.
-    Only knobs that genuinely depend on the lifted velocity envelope
-    (MPPI sampling stds, MPPI critic rebalance) stay gated on
-    ``envelope_factor > 1.0``.
-    """
+    """Structural invariants of the custom navigate-to-pose BT."""
 
     def test_bt_file_shipped(self, pkg_dir):
         path = os.path.join(pkg_dir, "config", _SMOOTHING_BT_FILENAME)
@@ -504,40 +472,18 @@ class TestSmoothingBT:
         assert 'smoothed_path="{path}"' in xml
 
     def test_bt_replans_only_when_invalidated(self, pkg_dir):
-        """Replanning must be event-driven, not motion-driven.
-
-        Time- or distance-gated replanning (RateController /
-        DistanceController) re-runs ComputePathToPose on a fixed
-        cadence even when the current path is still valid, which
-        produces a slightly different shortest path through a noisy
-        costmap on each replan and forces the controller to track a
-        reference whose topology shifts. The fix is a
-        <Fallback name="ReplanIfNeeded"> whose first child is a
-        sequence of <Inverter><GoalUpdated/></Inverter> +
-        <IsPathValid path="{path}"/>: when both succeed (no fresh
-        goal AND the current path is still collision-free) the
-        fallback short-circuits and ComputePathToPose is not re-run.
-        Replanning falls through only when either condition fails.
+        """Replanning fires only via <Fallback name="ReplanIfNeeded">
+        gated on <IsPathValid> + inverted <GoalUpdated>, never on a
+        time- or distance-decorator.
         """
         import xml.etree.ElementTree as ET
 
         path = os.path.join(pkg_dir, "config", _SMOOTHING_BT_FILENAME)
         tree = ET.parse(path)
         root = tree.getroot()
-        # Inspect element tags (skips comments, which ElementTree drops).
         tags = {el.tag for el in root.iter()}
-        assert "DistanceController" not in tags, (
-            "<DistanceController> must not appear — replanning is "
-            "gated on path validity, not on travelled distance"
-        )
-        assert "RateController" not in tags, (
-            "<RateController> must not appear — replanning is gated "
-            "on path validity, not on a wall-clock rate"
-        )
-        # The Fallback wrapping the planner must be named so the gate
-        # is searchable; future tuners shouldn't accidentally bury the
-        # IsPathValid check inside an unrelated Fallback elsewhere in
-        # the tree (e.g. the recovery branch).
+        assert "DistanceController" not in tags
+        assert "RateController" not in tags
         replan_fallback = next(
             (
                 el for el in root.iter()
@@ -545,30 +491,19 @@ class TestSmoothingBT:
             ),
             None,
         )
-        assert replan_fallback is not None, (
-            "Missing <Fallback name=\"ReplanIfNeeded\"> around the "
-            "planner block — the IsPathValid gate must be the first "
-            "child of the planner's Fallback"
-        )
+        assert replan_fallback is not None
         gate_tags = [child.tag for child in replan_fallback]
         assert gate_tags[0] == "Sequence", (
             "First child of ReplanIfNeeded must be the path-validity "
-            "Sequence, otherwise ComputePathToPose runs unconditionally"
+            "Sequence; the planner sits after it."
         )
         gate_seq = replan_fallback[0]
         inner_tags = {el.tag for el in gate_seq.iter()}
-        assert "IsPathValid" in inner_tags, (
-            "Path-validity Sequence must contain <IsPathValid> so the "
-            "planner only re-runs when the current path becomes invalid"
-        )
-        assert "GoalUpdated" in inner_tags, (
-            "Path-validity Sequence must contain <GoalUpdated> (inside "
-            "an <Inverter>) so a fresh operator goal forces a replan"
-        )
+        assert "IsPathValid" in inner_tags
+        assert "GoalUpdated" in inner_tags
         assert "Inverter" in inner_tags, (
-            "<Inverter> must wrap <GoalUpdated> — GoalUpdated returns "
-            "SUCCESS when a new goal arrived, which (un-inverted) would "
-            "short-circuit the fallback into skipping the replan"
+            "Inverter must wrap GoalUpdated; un-inverted it short-"
+            "circuits the fallback into skipping the replan."
         )
 
     def test_bt_does_not_warmup_per_goal(self, pkg_dir):
@@ -621,14 +556,8 @@ class TestSmoothingBT:
         assert root.get("main_tree_to_execute") == "MainTree"
 
     def test_patch_wires_smoothing_bt_on_every_lane(self, pkg_dir):
-        """``_patch_params`` sets ``default_nav_to_pose_bt_xml`` to the
-        absolute path of the shipped smoothing BT XML on every lane
-        (sim AND real). The BT's tradeoffs are behavioral
-        (commit-and-follow vs. constant replanning, smoothed path vs.
-        grid jaggies) and not velocity-coupled, so it lives outside
-        the ``envelope_factor > 1.0`` gate. The path is injected here
-        rather than in YAML because ``ament_index_python.get_package_share_directory``
-        is only available at launch time.
+        """``_patch_params`` wires the smoothing BT into bt_navigator
+        at every ``envelope_factor``.
         """
         import importlib.util
 
@@ -660,11 +589,9 @@ class TestSmoothingBT:
             )
 
     def test_patch_skips_bt_swap_when_path_omitted(self, pkg_dir):
-        """``smoothing_bt_xml_path=None`` keeps ``default_nav_to_pose_bt_xml``
-        absent so Nav2 falls back to its packaged default. Used by the
-        tests that exercise ``_patch_params`` without a BT path; never
-        used at runtime — ``generate_launch_description`` always passes
-        the resolved path.
+        """Omitting ``smoothing_bt_xml_path`` leaves
+        ``default_nav_to_pose_bt_xml`` absent. Test seam only —
+        ``generate_launch_description`` always passes the path.
         """
         import importlib.util
 

@@ -122,11 +122,17 @@ def _patch_params(params, footprint, nav_vel, nav_omega, nav_reverse,
                   *, smoothing_bt_xml_path=None):
     """Inject constants into the loaded nav2_params dict.
 
-    ``smoothing_bt_xml_path`` selects a custom BT for navigate-to-pose
-    that runs simple_smoother on the global path before FollowPath sees
-    it. Applied only on the sim lane (envelope_factor > 1.0); the
-    real-robot lane keeps Nav2's stock BT (loaded when
-    ``default_nav_to_pose_bt_xml`` is absent from bt_navigator params).
+    ``smoothing_bt_xml_path`` selects the project's custom
+    navigate-to-pose BT (event-driven replanning via IsPathValid +
+    GoalUpdated, with SmoothPath on the resulting path). Applied
+    universally — sim and real — because the BT is a behavioral
+    default, not a velocity-coupled one. Only knobs that genuinely
+    depend on the lifted velocity envelope stay gated on
+    ``envelope_factor > 1.0`` (the MPPI sampling stds and critic
+    rebalance); see
+    ``docs/tasks/active/tooling/nav2-sim-real-promotion-architecture.md``
+    for the migration plan that's graduating other knobs off the
+    envelope gate.
     """
 
     # ── Controller (MPPI) ───────────────────────────────────────────────
@@ -179,35 +185,6 @@ def _patch_params(params, footprint, nav_vel, nav_omega, nav_reverse,
         # faster instead of being filtered toward the prior step.
         ctrl["gamma"] = 0.008
 
-        # Swap in the custom navigate-to-pose BT that runs simple_smoother
-        # on the global path between planner and follower. Crushes the
-        # grid jaggies NavFn emits through the camera-blind-spot donut on
-        # a cold-mapped session into a clean curve, so PathAlignCritic
-        # isn't telling MPPI to track a wavy reference. Stock Nav2 BT is
-        # kept on the real-robot lane (envelope_factor == 1.0) where
-        # RTAB-Map state typically persists across sessions and the
-        # unknown-cell donut is filled in from prior runs.
-        if smoothing_bt_xml_path:
-            params["bt_navigator"]["ros__parameters"][
-                "default_nav_to_pose_bt_xml"
-            ] = smoothing_bt_xml_path
-
-        # Force the global planner to stay inside known-free cells.
-        # NavfnPlanner with allow_unknown=true assigns NO_INFORMATION a
-        # uniform NEUTRAL_COST that the shortest-distance search happily
-        # routes through, so the emitted plan cuts across unknown bands
-        # even when an already-mapped path of similar length exists.
-        # Real-robot keeps the permissive default because RTAB-Map state
-        # often persists across sessions and the cold-start unknown-cell
-        # footprint is small; sim sessions start with a wide unknown
-        # region around the robot that NavFn would otherwise slice
-        # through. Cross-room cold-start nav is covered by the
-        # executor's explore_until_visible skill — a goal in unmapped
-        # space surfaces as a planner failure rather than a wonky path.
-        planner = params["planner_server"]["ros__parameters"]
-        if "GridBased" in planner:
-            planner["GridBased"]["allow_unknown"] = False
-
         # Un-scale vy_std back to YAML baseline. The envelope-factor
         # scaling above doubled it to 0.4, but the lifted velocity
         # envelope is for forward + rotation, not lateral. A wider
@@ -218,6 +195,19 @@ def _patch_params(params, footprint, nav_vel, nav_omega, nav_reverse,
         if "vy_std" in ctrl:
             yaml_baseline_vy_std = round(float(ctrl["vy_std"]) / envelope_factor, 4)
             ctrl["vy_std"] = yaml_baseline_vy_std
+
+    # ── Custom BT (always applied) ──────────────────────────────────────
+    # The smoothing + IsPathValid BT is the project's canonical
+    # navigate-to-pose tree on both lanes. Its tradeoffs are
+    # behavioral (commit-and-follow vs. constant replanning, smoothed
+    # path vs. grid jaggies) and not velocity-coupled, so it doesn't
+    # belong behind the envelope_factor gate. The path is injected
+    # here rather than in YAML because it's resolved from
+    # ament_index_python at launch time.
+    if smoothing_bt_xml_path:
+        params["bt_navigator"]["ros__parameters"][
+            "default_nav_to_pose_bt_xml"
+        ] = smoothing_bt_xml_path
 
     # ── Behavior server ─────────────────────────────────────────────────
     beh = params["behavior_server"]["ros__parameters"]

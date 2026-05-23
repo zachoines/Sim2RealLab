@@ -8,12 +8,14 @@
 
 ## Story
 
-As a **mission operator running sim-in-the-loop missions**, I want
-**Nav2's global plan to (a) prefer already-mapped free space over
-unknown cells and (b) stay committed to the chosen path until a real
-obstacle invalidates it**, so that **the robot drives obvious routes
-instead of cutting through unknown bands, and MPPI tracks a stable
-reference instead of a path that jitters every replan tick**.
+As a **mission operator running both sim-in-the-loop and real-robot
+missions**, I want **Nav2's global plan to (a) prefer already-mapped
+free space over unknown cells and (b) stay committed to the chosen
+path until a real obstacle invalidates it — on every lane**, so that
+**the robot drives obvious routes instead of cutting through unknown
+bands, MPPI tracks a stable reference instead of a path that jitters
+every replan tick, and behavior I validate in sim is the same
+behavior I get on real**.
 
 ## Context bundle
 
@@ -58,19 +60,23 @@ replanning to events, not timers*.
 
 ## Approach
 
-Two changes, both sim-lane only — real-robot bringup keeps stock Nav2
-behavior verbatim. Mirror the existing `_patch_params` pattern that
-gates the smoothing BT and MPPI critic overrides on `envelope_factor >
-1.0`.
+Two changes, both applied **universally** (sim AND real). The
+existing `envelope_factor > 1.0` gate exists for changes that
+genuinely depend on the lifted velocity envelope (MPPI sampling stds,
+MPPI critic rebalance); these path-shape changes don't, so they go in
+the project's universal default instead. The architectural cleanup
+that formalizes this split (and graduates the other currently-gated
+knobs) is tracked in
+[`nav2-sim-real-promotion-architecture`](../tooling/nav2-sim-real-promotion-architecture.md).
 
-### A. `allow_unknown: false` on the sim lane
+### A. `allow_unknown: false` as the universal YAML default
 
-In `_patch_params`, when `envelope_factor > 1.0`, set
-`planner_server.ros__parameters.GridBased.allow_unknown = false`.
-NavfnPlanner then treats `NO_INFORMATION` as untraversable, so the
-emitted path can only use cells that have been observed at least
-once. Already-mapped free space wins over unknown bands by
-construction.
+Flip the YAML baseline at
+`planner_server.ros__parameters.GridBased.allow_unknown` from `true`
+to `false`. NavfnPlanner then treats `NO_INFORMATION` as
+untraversable, so the emitted path can only use cells the costmap
+has observed at least once. Already-mapped free space wins over
+unknown bands by construction on every lane.
 
 Caveat — cross-room cold-start: if the goal sits in unmapped space,
 planning fails outright. The executor already has the
@@ -81,36 +87,46 @@ explore is a planner-level failure with `goal_unreachable` as the
 error code — the operator can either issue an `explore` first or
 relax `allow_unknown` per-launch if blocked.
 
-Pros: surgical YAML diff in `_patch_params`; real-robot lane keeps
-the permissive default; aligns with the operator's "prefer verified
-empty regions" intent literally.
+Pros: one source of truth in YAML; closes the sim-to-real gap for
+this knob immediately; aligns with the operator's "prefer verified
+empty regions" intent on real *and* sim.
 
 Cons: a goal projected just outside the known-free footprint (e.g.
 right against the camera-blind-spot donut) becomes unreachable until
 the executor's chassis-side rotation or a deliberate explore widens
 the known footprint. Symptom is "no plan available" rather than a
-wonky path, which is the easier failure mode to diagnose.
+wonky path, which is the easier failure mode to diagnose. Real-robot
+sessions with persisted RTAB-Map state are unlikely to hit this in
+practice (the cold-start unknown footprint is small); fresh real
+sessions will hit it the same way sim does.
 
-### B. IsPathValid-gated `Fallback` replaces `DistanceController`
+### B. IsPathValid-gated `Fallback` as the universal BT
 
 In `navigate_to_pose_w_smoothing_and_recovery.xml`, replace the
 `<DistanceController distance="0.5">` decorator with a
-`<ReactiveFallback>` whose first child is a `<ReactiveSequence>` of
-`<Inverter><GoalUpdated/></Inverter>` and
+`<Fallback name="ReplanIfNeeded">` whose first child is a
+`<Sequence>` of `<Inverter><GoalUpdated/></Inverter>` and
 `<IsPathValid path="{path}"/>`. `IsPathValid` succeeds when the
 current `{path}` is still collision-free against the latest costmap;
 the inverted `GoalUpdated` succeeds when no new goal has arrived
-since the last tick. When both succeed the `ReactiveFallback`
-short-circuits without re-planning. When either fails (path blocked
-or new goal), the fallback falls through to the existing
+since the last tick. When both succeed the `Fallback` short-circuits
+without re-planning. When either fails (path blocked or new goal),
+the fallback falls through to the existing
 `ComputePathToPose → SmoothPath` sequence.
 
-Net BT shape (sim lane only):
+Lift the BT swap in `_patch_params` out of the `if envelope_factor
+> 1.0:` block so the BT path is injected unconditionally — sim and
+real bringup both load this BT. (The injection itself must stay in
+launch code rather than YAML because the absolute path is resolved
+from `ament_index_python.get_package_share_directory` at launch
+time.)
+
+Net BT shape (universal):
 
 ```
 PipelineSequence
-├─ ReactiveFallback (ReplanIfNeeded)
-│  ├─ ReactiveSequence
+├─ Fallback (ReplanIfNeeded)
+│  ├─ Sequence
 │  │   ├─ Inverter(GoalUpdated)
 │  │   └─ IsPathValid(path)
 │  └─ RecoveryNode(ComputePathToPose → SmoothPath, ClearGlobalCostmap)
@@ -119,7 +135,7 @@ PipelineSequence
 
 Pros: replanning is event-driven (path invalid / goal changed) rather
 than motion-driven; the path the controller tracks is now stable
-between invalidation events. The plugin
+between invalidation events on every lane. The plugin
 (`nav2_is_path_valid_condition_bt_node`) is already linked in
 `bt_navigator.plugin_lib_names` from the predecessor.
 
@@ -127,12 +143,16 @@ Cons: a transient sensor blip (one scan that briefly marks a cell
 lethal across the current path) can trigger a one-shot replan that
 mostly reverts on the next tick once the blip clears. The local
 costmap clearing recovery in the existing BT covers the recovery
-branch already. If the operator sees pathological flapping the fix
-is a debouncer on `IsPathValid` (out of scope for this brief).
+branch already. Real lidars are noisier than sim virtual lidars, so
+real-robot is the side where flapping is more likely to surface —
+the
+[`nav2-sim-real-promotion-architecture`](../tooling/nav2-sim-real-promotion-architecture.md)
+follow-up tracks the real-robot validation lap and any debouncer
+work that comes out of it.
 
-**Sequence:** A first to fix the route shape, then B to fix the path
-stability. Either can ship without the other, but A on its own leaves
-symptom 2, and B on its own leaves symptom 1.
+**Sequence:** ship both at once — they're complementary fixes for the
+same operator complaint. A on its own leaves symptom 2; B on its own
+leaves symptom 1.
 
 ## Acceptance criteria
 
@@ -158,16 +178,22 @@ symptom 2, and B on its own leaves symptom 1.
       `translate forward 1 m → rotate 90° → translate forward 1 m`
       lands within `xy_goal_tolerance=0.15` /
       `yaw_goal_tolerance=0.20`.
-- [ ] Real-robot bringup is unaffected: the
-      `test_nav_config.py::TestConstantsInjection` test still
-      asserts that `envelope_factor=1.0` leaves the controller config
-      byte-identical to the YAML baseline, and a new assertion pins
-      `default_nav_to_pose_bt_xml` absent + `allow_unknown=true`
-      on the real-robot lane.
-- [ ] Unit tests cover both knobs: the YAML override is gated on
-      `envelope_factor > 1.0`, the new BT structure parses + contains
-      `IsPathValid` + `GoalUpdated` + no `DistanceController` +
-      keeps `SmoothPath` and `ComputePathToPose`.
+- [ ] Real-robot bringup *intentionally inherits* the new behavior:
+      `_patch_params` injects the smoothing BT and YAML pins
+      `allow_unknown: false` at every `envelope_factor`. The
+      validation lap for the real-robot side lives in
+      [`nav2-sim-real-promotion-architecture`](../tooling/nav2-sim-real-promotion-architecture.md);
+      that brief tracks observed regressions and any rollback or
+      debouncer follow-ups.
+- [ ] `test_nav_config.py::TestConstantsInjection` MPPI assertions
+      still pass — the velocity-coupled critic / sampling overrides
+      stay gated on `envelope_factor > 1.0` and are unchanged here.
+- [ ] Unit tests cover both knobs: YAML baseline asserts
+      `allow_unknown=False` and `_patch_params` doesn't re-enable it
+      at any `envelope_factor`; the BT swap fires at every
+      `envelope_factor`; the BT structure parses and contains
+      `IsPathValid` + `GoalUpdated` + `Inverter` + no
+      `DistanceController` + keeps `SmoothPath` and `ComputePathToPose`.
 - [ ] If your work invalidates a fact in any referenced context
       module, package README, top-level `Readme.md`, or guide under
       `docs/`, update those in the same commit. See
@@ -177,19 +203,19 @@ symptom 2, and B on its own leaves symptom 1.
 
 ## Investigation pointers
 
-- `source/strafer_ros/strafer_navigation/config/nav2_params.yaml:211–220`
-  — `planner_server.GridBased.allow_unknown`. Currently `true`.
-- `source/strafer_ros/strafer_navigation/launch/navigation.launch.py:120–193`
-  — `_patch_params`. The sim-lane override block at
-  `envelope_factor > 1.0` is the pattern to mirror for the new
-  `allow_unknown` override.
+- `source/strafer_ros/strafer_navigation/config/nav2_params.yaml`
+  — `planner_server.GridBased.allow_unknown`. Universal YAML default
+  is now `false`.
+- `source/strafer_ros/strafer_navigation/launch/navigation.launch.py`
+  — `_patch_params`. The BT swap is now applied unconditionally
+  (lifted out of the `envelope_factor > 1.0` block); the MPPI
+  sampling / critic rebalance stays gated.
 - `source/strafer_ros/strafer_navigation/config/navigate_to_pose_w_smoothing_and_recovery.xml`
-  — the sim BT. Today's `DistanceController distance="0.5"` is the
-  knob to replace.
-- `source/strafer_ros/strafer_navigation/test/test_nav_config.py:408–584`
-  — `TestSmoothingBT`. `test_bt_uses_distance_controller_not_rate_controller`
-  pins the predecessor's choice; rename + replace its assertions for
-  the IsPathValid-gated structure.
+  — the project's canonical navigate-to-pose BT, applied on every
+  lane.
+- `source/strafer_ros/strafer_navigation/test/test_nav_config.py`
+  — `TestSmoothingBT` + the `TestConstantsInjection` knob tests pin
+  the universal-vs-gated split.
 
 ## Out of scope
 
@@ -198,12 +224,14 @@ symptom 2, and B on its own leaves symptom 1.
 - **Costmap layer tuning** (inflation_radius, cost_scaling_factor).
   Untouched here — the path-shape problem is the planner's cost
   evaluation, not the underlying costmap.
-- **Real-robot path-stability**. Stock Nav2 BT stays on the
-  real-robot lane until sim validation lands; a follow-up brief can
-  promote the IsPathValid pattern after that.
-- **A debouncer on `IsPathValid`**. Only file if sim runs surface
-  observable flapping on transient sensor blips.
-- **Replacing `_patch_params`'s envelope_factor gate with a
-  separate sim YAML**. The predecessor briefs evaluated and rejected
-  this; option (C) in `mppi-critic-tuning-for-sim-envelope.md` is
-  the canonical write-up.
+- **Real-robot validation lap** for the universal BT + YAML defaults.
+  Tracked in
+  [`nav2-sim-real-promotion-architecture`](../tooling/nav2-sim-real-promotion-architecture.md),
+  along with the migration plan for the remaining
+  `envelope_factor > 1.0`-gated MPPI tuning.
+- **A debouncer on `IsPathValid`**. Only file if real-robot or sim
+  runs surface observable flapping on transient sensor blips.
+- **Replacing `_patch_params`'s envelope_factor gate with a separate
+  sim YAML**. The predecessor briefs evaluated and rejected this;
+  option (C) in `mppi-critic-tuning-for-sim-envelope.md` is the
+  canonical write-up.

@@ -357,67 +357,45 @@ class TestConstantsInjection:
             == b_path_follow_offset
         )
 
-    def test_patch_disallows_unknown_on_sim_lane(self, pkg_dir):
-        """At envelope_factor > 1.0 (sim STRAFER_NAV_VEL_SCALE=1.0),
-        ``planner_server.GridBased.allow_unknown`` is forced to False so
-        NavfnPlanner stays inside known-free cells and won't slice
-        through unknown bands when an already-mapped path of similar
-        length exists. Cross-room cold-start is covered by the
-        executor's ``explore_until_visible`` skill — a goal in
-        unmapped space surfaces as a planner failure rather than a
-        wonky path.
+    def test_yaml_disallows_unknown_universally(self, pkg_dir):
+        """``planner_server.GridBased.allow_unknown`` is False in the
+        YAML baseline so NavfnPlanner stays inside known-free cells on
+        every lane (sim AND real). The motivating tradeoff (NavFn
+        slices through NO_INFORMATION bands at NEUTRAL_COST when a
+        known-free path of comparable length exists) is behavioral,
+        not velocity-coupled, so it belongs in the YAML default
+        rather than behind the envelope_factor gate. Cross-room
+        cold-start is covered by the executor's
+        ``explore_until_visible`` skill — a goal in unmapped space
+        surfaces as a planner failure rather than a wonky path.
         """
-        import importlib.util
-
-        launch_path = os.path.join(pkg_dir, "launch", "navigation.launch.py")
-        spec = importlib.util.spec_from_file_location("nav_launch", launch_path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-
-        yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
-        with open(yaml_path) as f:
-            p = yaml.safe_load(f)
-        footprint = mod._build_footprint(CHASSIS_LENGTH, TRACK_WIDTH)
-        mod._patch_params(
-            p, footprint,
-            round(MAX_LINEAR_VEL, 4),
-            round(MAX_ANGULAR_VEL, 4),
-            round(MAX_LINEAR_VEL * NAV_REVERSE_SCALE, 4),
-            2.0,
-            MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX,
-        )
-        planner = p["planner_server"]["ros__parameters"]["GridBased"]
-        assert planner["allow_unknown"] is False
-
-    def test_patch_keeps_allow_unknown_on_real_robot_lane(self, pkg_dir):
-        """Real-robot bringup (envelope_factor <= 1.0) keeps the YAML
-        baseline ``allow_unknown: true``. RTAB-Map state often persists
-        across sessions on the real robot and the cold-start unknown
-        footprint is small; flipping the planner to known-free-only
-        before that lane has run is gated behind sim validation.
-        Anchors the gate so future changes don't drift the threshold
-        and silently re-tune real-robot bringup.
-        """
-        import importlib.util
-
-        launch_path = os.path.join(pkg_dir, "launch", "navigation.launch.py")
-        spec = importlib.util.spec_from_file_location("nav_launch", launch_path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-
         yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
         with open(yaml_path) as f:
             baseline = yaml.safe_load(f)
-        b_allow_unknown = baseline["planner_server"]["ros__parameters"][
-            "GridBased"
-        ]["allow_unknown"]
-        assert b_allow_unknown is True, (
-            "YAML baseline must keep allow_unknown=true so real-robot "
-            "bringup's planner stays permissive when envelope_factor<=1.0"
+        assert (
+            baseline["planner_server"]["ros__parameters"]["GridBased"][
+                "allow_unknown"
+            ]
+            is False
         )
 
+    def test_patch_does_not_re_enable_allow_unknown(self, pkg_dir):
+        """``_patch_params`` must not flip ``allow_unknown`` back to
+        True on any lane. Anchors the universal default so a future
+        tuner can't silently re-introduce the previous sim-only
+        ``allow_unknown=False`` override (which would imply a True
+        default on the other lane and re-create the sim-to-real gap).
+        """
+        import importlib.util
+
+        launch_path = os.path.join(pkg_dir, "launch", "navigation.launch.py")
+        spec = importlib.util.spec_from_file_location("nav_launch", launch_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
         footprint = mod._build_footprint(CHASSIS_LENGTH, TRACK_WIDTH)
-        for factor in (1.0, 0.75):
+        for factor in (0.75, 1.0, 2.0):
             with open(yaml_path) as f:
                 p = yaml.safe_load(f)
             mod._patch_params(
@@ -426,8 +404,8 @@ class TestConstantsInjection:
                 MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX,
             )
             planner = p["planner_server"]["ros__parameters"]["GridBased"]
-            assert planner["allow_unknown"] is True, (
-                f"allow_unknown override leaked into real-robot lane at "
+            assert planner["allow_unknown"] is False, (
+                f"_patch_params re-enabled allow_unknown at "
                 f"envelope_factor={factor}: planner={planner['allow_unknown']!r}"
             )
 
@@ -472,7 +450,7 @@ class TestConstantsInjection:
 
 
 # =============================================================================
-# Custom BT (SmoothPath injection for the sim lane)
+# Custom BT (event-driven replan + SmoothPath, universal)
 # =============================================================================
 
 
@@ -482,17 +460,25 @@ _SMOOTHING_BT_FILENAME = "navigate_to_pose_w_smoothing_and_recovery.xml"
 class TestSmoothingBT:
     """Validate the custom navigate-to-pose BT and its launch wiring.
 
-    The BT mirrors Nav2's default navigate_to_pose_w_replanning_and_recovery
-    with a <SmoothPath> step inserted between ComputePathToPose and
-    FollowPath. simple_smoother (configured under smoother_server)
-    crushes the grid jaggies NavFn emits through the camera-blind-spot
-    donut on a cold-mapped session before the controller sees the path.
+    The BT differs from Nav2's default
+    navigate_to_pose_w_replanning_and_recovery in two places:
 
-    The launch wires this BT into bt_navigator only on the sim lane
-    (envelope_factor > 1.0); the real-robot lane keeps Nav2's stock BT,
-    which means bt_navigator's params dict has no
-    default_nav_to_pose_bt_xml key — Nav2 then loads its package-share
-    default.
+    1. A <Fallback name="ReplanIfNeeded"> wraps the planner with a
+       <Sequence> of <Inverter><GoalUpdated/></Inverter> +
+       <IsPathValid path="{path}"/>. ComputePathToPose re-runs only
+       when the current plan is invalidated by an obstacle or the
+       operator issues a fresh goal — replanning is event-driven, not
+       time- or distance-gated.
+    2. A <SmoothPath> step runs between ComputePathToPose and
+       FollowPath; simple_smoother (configured under smoother_server)
+       crushes the grid jaggies NavFn emits through residual unknown
+       cells before the controller sees the path.
+
+    The launch wires this BT into bt_navigator on every lane (sim AND
+    real) — the BT's tradeoffs are behavioral, not velocity-coupled.
+    Only knobs that genuinely depend on the lifted velocity envelope
+    (MPPI sampling stds, MPPI critic rebalance) stay gated on
+    ``envelope_factor > 1.0``.
     """
 
     def test_bt_file_shipped(self, pkg_dir):
@@ -634,11 +620,51 @@ class TestSmoothingBT:
         assert root.tag == "root"
         assert root.get("main_tree_to_execute") == "MainTree"
 
-    def test_patch_wires_smoothing_bt_when_envelope_lifted(self, pkg_dir):
-        """On the sim lane (envelope_factor > 1.0), _patch_params sets
-        bt_navigator.default_nav_to_pose_bt_xml to the absolute path of
-        the shipped smoothing BT XML — and the file must actually exist
-        at that path.
+    def test_patch_wires_smoothing_bt_on_every_lane(self, pkg_dir):
+        """``_patch_params`` sets ``default_nav_to_pose_bt_xml`` to the
+        absolute path of the shipped smoothing BT XML on every lane
+        (sim AND real). The BT's tradeoffs are behavioral
+        (commit-and-follow vs. constant replanning, smoothed path vs.
+        grid jaggies) and not velocity-coupled, so it lives outside
+        the ``envelope_factor > 1.0`` gate. The path is injected here
+        rather than in YAML because ``ament_index_python.get_package_share_directory``
+        is only available at launch time.
+        """
+        import importlib.util
+
+        launch_path = os.path.join(pkg_dir, "launch", "navigation.launch.py")
+        spec = importlib.util.spec_from_file_location("nav_launch", launch_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
+        footprint = mod._build_footprint(CHASSIS_LENGTH, TRACK_WIDTH)
+        bt_path = os.path.join(pkg_dir, "config", _SMOOTHING_BT_FILENAME)
+        assert os.path.isfile(bt_path)
+        for factor in (0.75, 1.0, 2.0):
+            with open(yaml_path) as f:
+                p = yaml.safe_load(f)
+            mod._patch_params(
+                p, footprint,
+                round(MAX_LINEAR_VEL, 4),
+                round(MAX_ANGULAR_VEL, 4),
+                round(MAX_LINEAR_VEL * NAV_REVERSE_SCALE, 4),
+                factor,
+                MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX,
+                smoothing_bt_xml_path=bt_path,
+            )
+            bt_nav = p["bt_navigator"]["ros__parameters"]
+            assert bt_nav.get("default_nav_to_pose_bt_xml") == bt_path, (
+                f"BT swap did not apply at envelope_factor={factor}: "
+                f"{bt_nav.get('default_nav_to_pose_bt_xml')!r}"
+            )
+
+    def test_patch_skips_bt_swap_when_path_omitted(self, pkg_dir):
+        """``smoothing_bt_xml_path=None`` keeps ``default_nav_to_pose_bt_xml``
+        absent so Nav2 falls back to its packaged default. Used by the
+        tests that exercise ``_patch_params`` without a BT path; never
+        used at runtime — ``generate_launch_description`` always passes
+        the resolved path.
         """
         import importlib.util
 
@@ -651,51 +677,13 @@ class TestSmoothingBT:
         with open(yaml_path) as f:
             p = yaml.safe_load(f)
         footprint = mod._build_footprint(CHASSIS_LENGTH, TRACK_WIDTH)
-        bt_path = os.path.join(pkg_dir, "config", _SMOOTHING_BT_FILENAME)
         mod._patch_params(
-            p, footprint,
-            round(MAX_LINEAR_VEL, 4),
-            round(MAX_ANGULAR_VEL, 4),
-            round(MAX_LINEAR_VEL * NAV_REVERSE_SCALE, 4),
-            2.0,
+            p, footprint, NAV_LINEAR_VEL, NAV_ANGULAR_VEL,
+            NAV_REVERSE_VEL, 1.0,
             MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX,
-            smoothing_bt_xml_path=bt_path,
         )
         bt_nav = p["bt_navigator"]["ros__parameters"]
-        assert bt_nav.get("default_nav_to_pose_bt_xml") == bt_path
-        assert os.path.isfile(bt_path)
-
-    def test_patch_leaves_real_robot_bt_untouched(self, pkg_dir):
-        """On the real-robot lane (envelope_factor == 1.0), _patch_params
-        must NOT set default_nav_to_pose_bt_xml — Nav2 loads its stock BT
-        when the key is absent. Anchors the gate so future tuners can't
-        silently swap the real-robot BT.
-        """
-        import importlib.util
-
-        launch_path = os.path.join(pkg_dir, "launch", "navigation.launch.py")
-        spec = importlib.util.spec_from_file_location("nav_launch", launch_path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-
-        yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
-        bt_path = os.path.join(pkg_dir, "config", _SMOOTHING_BT_FILENAME)
-        for factor in (1.0, 0.75):
-            with open(yaml_path) as f:
-                p = yaml.safe_load(f)
-            footprint = mod._build_footprint(CHASSIS_LENGTH, TRACK_WIDTH)
-            mod._patch_params(
-                p, footprint, NAV_LINEAR_VEL, NAV_ANGULAR_VEL,
-                NAV_REVERSE_VEL, factor,
-                MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX,
-                smoothing_bt_xml_path=bt_path,
-            )
-            bt_nav = p["bt_navigator"]["ros__parameters"]
-            assert "default_nav_to_pose_bt_xml" not in bt_nav, (
-                f"BT override leaked into real-robot lane at "
-                f"envelope_factor={factor}: "
-                f"{bt_nav.get('default_nav_to_pose_bt_xml')!r}"
-            )
+        assert "default_nav_to_pose_bt_xml" not in bt_nav
 
 
 # =============================================================================

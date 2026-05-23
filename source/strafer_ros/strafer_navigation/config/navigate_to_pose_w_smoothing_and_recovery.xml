@@ -1,5 +1,6 @@
 <!--
-  Strafer sim-lane BT. Differs from Nav2's stock
+  Strafer's canonical navigate-to-pose BT — applied universally (sim
+  and real). Differs from Nav2's stock
   navigate_to_pose_w_replanning_and_recovery.xml in two places:
 
   1. A <Fallback name="ReplanIfNeeded"> wraps the planner instead of
@@ -23,8 +24,10 @@
      before the controller sees the path.
 
   Selected via bt_navigator.default_nav_to_pose_bt_xml in the patched
-  params, gated on envelope_factor > 1.0 (sim lane). Real-robot
-  bringup keeps Nav2's stock BT untouched.
+  params on every lane — the BT path is resolved from ament_index at
+  launch time and injected unconditionally. Genuinely
+  velocity-coupled knobs (MPPI sampling stds and critic rebalance)
+  stay gated on envelope_factor > 1.0; this BT does not.
 
   The unsmoothed_path / smoothed_path ports both bind {path} so the
   blackboard variable FollowPath reads is the smoothed one; the

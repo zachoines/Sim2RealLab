@@ -1,5 +1,8 @@
 # Open-vocab room labeling on v1 — `query_room_by_text`
 
+**Status:** Shipped 2026-05-24 in `135a610` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/54
+
 **Type:** new feature
 **Owner:** DGX agent (lives in
 `source/strafer_autonomy/strafer_autonomy/semantic_map/`,

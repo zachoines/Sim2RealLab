@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`query-room-by-text-v1`](active/multi-room/query-room-by-text-v1.md) | DGX | [#54](https://github.com/zachoines/Sim2RealLab/pull/54) | review |
+| _None._ | | | |
 
 ---
 
@@ -46,7 +46,6 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | [`scene-connectivity-validation`](active/multi-room/scene-connectivity-validation.md) | P1 | active | DGX |
 | [`room-state-eval-harness`](active/multi-room/room-state-eval-harness.md) | P2 | active | DGX |
 | [`semantic-region-partition`](active/multi-room/semantic-region-partition.md) | P2 | active | DGX |
-| [`query-room-by-text-v1`](active/multi-room/query-room-by-text-v1.md) | P2 | in flight | DGX |
 | [`planner-far-target-staging`](active/multi-room/planner-far-target-staging.md) | P2 | active | DGX |
 | [`semantic-graph-loop-closure`](active/multi-room/semantic-graph-loop-closure.md) | P3 | active | DGX |
 | [`llm-guided-frontier-gain`](parked/multi-room/llm-guided-frontier-gain.md) | P2 | parked | DGX |

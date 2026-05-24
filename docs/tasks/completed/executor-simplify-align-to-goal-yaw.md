@@ -3,14 +3,14 @@
 ## Why
 
 The path-lookahead pre-rotation in `_align_to_goal_yaw` was added in
-[completed/nav2-commit-and-follow-path-stability](../../completed/nav2-commit-and-follow-path-stability.md)
+[completed/nav2-commit-and-follow-path-stability](nav2-commit-and-follow-path-stability.md)
 to avoid MPPI commanding `vy` strafe on curved paths. It rotates the
 chassis to a 1 m-ahead path waypoint before starting `navigate_to_pose`,
 querying Nav2's planner via a new
 `JetsonRosClient.compute_path_to_pose` wrapper.
 
 The Section D protocol in
-[nav2-scan-ground-filter-and-mppi-mecanum-tuning](../../completed/nav2-scan-ground-filter-and-mppi-mecanum-tuning.md)
+[nav2-scan-ground-filter-and-mppi-mecanum-tuning](nav2-scan-ground-filter-and-mppi-mecanum-tuning.md)
 disabled the pre-rotation (via `STRAFER_SKIP_ALIGN_TO_GOAL_YAW=1`)
 and the operator observed identical tracking quality on
 sim-in-the-loop after the CPU-starvation issues were resolved. MPPI
@@ -27,7 +27,7 @@ codebase reflects the actual production behavior.
 ### A. Simplify `_align_to_goal_yaw`
 
 In
-[mission_runner.py](../../../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py)
+[mission_runner.py](../../../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py)
 `_align_to_goal_yaw`:
 
 - Pick one of (operator decision in the implementing PR):
@@ -51,7 +51,7 @@ entry point so plans don't break.
 ### B. Retire `compute_path_to_pose` if unused
 
 Audit consumers of
-[`JetsonRosClient.compute_path_to_pose`](../../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py):
+[`JetsonRosClient.compute_path_to_pose`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py):
 
 - Only consumer today is `_path_lookahead_yaw` (deleted in A).
 - If no other consumer surfaces, remove the method, its Protocol
@@ -61,7 +61,7 @@ Audit consumers of
 
 - Remove `TestAlignToGoalYaw` tests for path-lookahead and goal-yaw
   fallback in
-  [test_new_skills.py](../../../../source/strafer_autonomy/tests/test_new_skills.py).
+  [test_new_skills.py](../../../source/strafer_autonomy/tests/test_new_skills.py).
 - Keep / update `test_align_skipped_when_env_set` and
   `test_align_runs_when_env_unset` as appropriate for the chosen
   simplification — or remove them if the env knob is retired.

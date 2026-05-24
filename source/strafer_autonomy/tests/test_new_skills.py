@@ -671,6 +671,41 @@ class TestAlignToGoalYaw:
         delta = ros.rotate_in_place.call_args.kwargs["yaw_delta_rad"]
         assert delta == pytest.approx(math.radians(45), abs=1e-6)
 
+    def test_align_skipped_when_env_set(self, monkeypatch):
+        """STRAFER_SKIP_ALIGN_TO_GOAL_YAW=1 returns success without
+        calling rotate_in_place or compute_path_to_pose. Lets the
+        operator A/B-test whether MPPI handles starting heading natively.
+        """
+        monkeypatch.setenv("STRAFER_SKIP_ALIGN_TO_GOAL_YAW", "1")
+        runner, ros = _make_runner()
+        runtime = _make_runtime()
+        runtime.latest_goal_pose = _goal_pose_candidate(yaw=math.radians(45))
+        step = SkillCall(skill="align_to_goal_yaw", step_id="a1")
+        result = runner._align_to_goal_yaw(runtime, step)
+        assert result.status == "succeeded"
+        assert result.outputs.get("skipped") is True
+        ros.rotate_in_place.assert_not_called()
+        ros.compute_path_to_pose.assert_not_called()
+
+    def test_align_runs_when_env_unset(self, monkeypatch):
+        """Default (env unset) preserves the path-lookahead behavior —
+        compute_path_to_pose is queried and rotate_in_place is called.
+        """
+        monkeypatch.delenv("STRAFER_SKIP_ALIGN_TO_GOAL_YAW", raising=False)
+        runner, ros = _make_runner()
+        ros.get_robot_state.return_value = {
+            "pose": {"x": 0.0, "y": 0.0, "qz": 0.0, "qw": 1.0},
+        }
+        ros.rotate_in_place.return_value = SkillResult(
+            step_id="a1", skill="rotate_in_place", status="succeeded",
+        )
+        runtime = _make_runtime()
+        runtime.latest_goal_pose = _goal_pose_candidate(yaw=math.radians(45))
+        step = SkillCall(skill="align_to_goal_yaw", step_id="a1")
+        runner._align_to_goal_yaw(runtime, step)
+        ros.compute_path_to_pose.assert_called_once()
+        ros.rotate_in_place.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # query_environment

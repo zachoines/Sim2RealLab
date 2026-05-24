@@ -95,7 +95,11 @@ def _launch_setup(context, *args, **kwargs):
             executable="timestamp_fixer",
             name="timestamp_fixer",
             output="screen",
-            parameters=[{"use_sim_time": True}],
+            # restamp=False — bridge already publishes with /clock-derived
+            # sim time; restamping rewrites each message with the current
+            # sim time at relay, which advances between depth + camera_info
+            # callbacks and breaks depth_image_proc's exact synchronizer.
+            parameters=[{"use_sim_time": True, "restamp": False}],
             remappings=[
                 ("/d555/aligned_depth_to_color/image_raw",
                  "/d555/depth/image_rect_raw"),

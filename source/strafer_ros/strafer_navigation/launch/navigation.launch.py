@@ -143,37 +143,35 @@ def _patch_params(params, footprint, nav_vel, nav_omega, nav_reverse,
         if key in ctrl:
             ctrl[key] = round(float(ctrl[key]) * envelope_factor, 4)
 
-    # Sim-only critic + convergence rebalance. Real-robot critic weights
-    # leave MPPI's chosen mean hugging the path tightly at median
-    # commanded vx ≈ 0.4 m/s, well below the 1.5683 m/s sim cap. Gated
-    # on envelope_factor > 1.0 so real-robot bringup keeps the YAML
-    # defaults verbatim; test_nav_config.py asserts that gate.
+    # Sim-only critic + convergence rebalance. Sim's 2x velocity envelope
+    # wants tighter path tracking and stronger forward bias to reach the
+    # lifted cap; real-robot baselines stay light to avoid mecanum-strafe
+    # at goal-tracking time. Gated on envelope_factor > 1.0;
+    # test_nav_config.py asserts the gate.
     #
     # NOTE for future tuners: iteration_count > 1 is CPU-bound on the
-    # Jetson Orin Nano at controller_frequency=20 Hz (verified
-    # empirically); raising it makes controller_server miss its 50 ms
-    # deadline. Optimize the cost landscape, not the iteration depth.
+    # Jetson Orin Nano at controller_frequency=20 Hz; raising it makes
+    # controller_server miss its 50 ms deadline. Optimize the cost
+    # landscape, not the iteration depth.
     if envelope_factor > 1.0:
-        # PathAlign 14 → 9: at higher velocity, integration noise puts
-        # rollouts off-path on straights; the 14.0 weight suppresses
-        # speed to track the path exactly.
         if "PathAlignCritic" in ctrl:
             ctrl["PathAlignCritic"]["cost_weight"] = 9.0
-        # PreferForward 3 → 10: bias the sampled distribution's center
-        # of mass strongly toward forward motion. Lower values lost to
-        # PathAlign's lateral pull on noisy global paths.
         if "PreferForwardCritic" in ctrl:
+            # 10.0 is above Nav2's default 5.0 because the Omni motion model
+            # samples vy/reverse trajectories diff-drive doesn't. Empirically
+            # in sim: below this weight the robot moves tangent to the path
+            # or in reverse along it.
             ctrl["PreferForwardCritic"]["cost_weight"] = 10.0
-        # PathFollow look-ahead 5 → 20 (~25 cm → ~1 m past furthest
-        # visited at MAP_RESOLUTION=0.05): high-speed rollouts win on
-        # cost when the look-ahead target sits far enough ahead.
+        # offset_from_furthest 5 → 20 (~25 cm → ~1 m past furthest at
+        # MAP_RESOLUTION=0.05): high-speed rollouts win on cost when the
+        # look-ahead target sits far enough ahead.
         if "PathFollowCritic" in ctrl:
             ctrl["PathFollowCritic"]["offset_from_furthest"] = 20
 
-        # gamma 0.015 → 0.008: Nav2 MPPI doc describes gamma as the
-        # smoothness/lag trade-off between sampled and previous controls;
-        # lower lets the commanded mean track the high-vx optimum
-        # faster instead of being filtered toward the prior step.
+        # gamma is the smoothness/lag trade-off between sampled and
+        # previous controls; lower lets the commanded mean track the
+        # high-vx optimum faster instead of being filtered toward the
+        # prior step.
         ctrl["gamma"] = 0.008
 
         # Un-scale vy_std back to YAML baseline. The envelope-factor

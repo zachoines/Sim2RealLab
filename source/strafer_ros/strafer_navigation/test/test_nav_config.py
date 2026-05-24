@@ -98,6 +98,16 @@ class TestMPPIController:
         """Omni robots need TwirlingCritic to penalize unnecessary spinning."""
         assert "TwirlingCritic" in mppi["critics"]
 
+    def test_real_robot_critic_baselines(self, mppi):
+        """Pin the real-robot MPPI critic baselines. PathAlign and
+        PreferForward are tuned for lossy mecanum strafe — too high
+        a PathAlign weight makes MPPI command lateral vy to converge
+        on curved paths and the chassis strafes; PreferForward biases
+        the sampling distribution toward forward motion to compensate.
+        """
+        assert mppi["PathAlignCritic"]["cost_weight"] == 8.0
+        assert mppi["PreferForwardCritic"]["cost_weight"] == 6.0
+
 
 # =============================================================================
 # Costmap tests
@@ -295,10 +305,9 @@ class TestConstantsInjection:
         assert scan["raytrace_max_range"] == DEPTH_MAX
 
     def test_patch_rebalances_mppi_critics_when_envelope_lifted(self, pkg_dir):
-        """At envelope_factor>1.0 (sim), three critic knobs shift the cost
-        landscape toward higher-velocity straight rollouts so the median
-        commanded vx climbs into the lifted envelope instead of plateauing
-        at ~0.4 m/s under the real-robot critic balance.
+        """At envelope_factor>1.0 (sim), MPPI critic weights and gamma
+        shift to absolute sim values; PathFollow look-ahead lifts above
+        the real baseline so high-speed rollouts win on cost.
 
         Real-robot bringup (envelope_factor=1.0) inherits the YAML
         baselines untouched — that's the byte-identical guarantee the
@@ -331,16 +340,17 @@ class TestConstantsInjection:
                           2.0,
                           MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX)
         ctrl = p["controller_server"]["ros__parameters"]["FollowPath"]
+        # Sim values are absolute (not derived from baselines).
         assert ctrl["PathAlignCritic"]["cost_weight"] == 9.0
-        assert ctrl["PathAlignCritic"]["cost_weight"] < b_path_align_w
         assert ctrl["PreferForwardCritic"]["cost_weight"] == 10.0
-        assert ctrl["PreferForwardCritic"]["cost_weight"] > b_prefer_fwd_w
         assert ctrl["PathFollowCritic"]["offset_from_furthest"] == 20
+        assert ctrl["gamma"] == 0.008
+        # PathFollow look-ahead lifts above the baseline; the others are
+        # tuned independently per lane and may sit either side of real.
         assert (
             ctrl["PathFollowCritic"]["offset_from_furthest"]
             > b_path_follow_offset
         )
-        assert ctrl["gamma"] == 0.008
         assert ctrl["gamma"] < baseline_mppi["gamma"]
 
         # Real-robot lane: critics untouched at envelope_factor=1.0.

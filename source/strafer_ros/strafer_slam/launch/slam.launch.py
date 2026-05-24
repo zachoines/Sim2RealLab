@@ -6,8 +6,13 @@ Requires (launched separately or via strafer_bringup):
   - strafer_description: robot_state_publisher (TF tree)
 
 This launch file:
-  1. Starts depthimage_to_laserscan (depth → /scan for occupancy grid)
-  2. Starts RTAB-Map in mapping or localization mode
+  1. Projects the timestamp-fixed depth image into a PointCloud2 via
+     depth_image_proc::point_cloud_xyz_node. Works for both lanes —
+     real D555 (perception.launch.py) and the DGX sim bridge feed the
+     same `_sync` depth + camera_info topics.
+  2. Runs pointcloud_to_laserscan on that cloud to publish /scan with
+     a base_link Z-axis filter that excludes floor + above-body returns.
+  3. Starts RTAB-Map in mapping or localization mode.
 
 Modes:
   - Mapping (default):  ros2 launch strafer_slam slam.launch.py
@@ -54,8 +59,8 @@ def _launch_setup(context, *args, **kwargs):
         rtabmap_cfg["Mem/IncrementalMemory"] = "false"
         rtabmap_cfg["Mem/InitWMWithAllNodes"] = "true"
 
-    depthimage_params_path = os.path.join(
-        pkg_dir, "config", "depthimage_to_laserscan.yaml"
+    pc_to_scan_params_path = os.path.join(
+        pkg_dir, "config", "pointcloud_to_laserscan.yaml"
     )
 
     # Parse user's extra RTAB-Map CLI args (e.g. "-d")
@@ -63,24 +68,40 @@ def _launch_setup(context, *args, **kwargs):
 
     # ── Nodes ───────────────────────────────────────────────────────────
     nodes = [
-        # Virtual 2D laser scan from aligned depth image
+        # Project depth + intrinsics into a PointCloud2. Both lanes feed
+        # /d555/aligned_depth_to_color/image_sync — real D555 via the
+        # realsense driver + timestamp_fixer, sim via the DGX bridge +
+        # timestamp_fixer's remap — so the same projector works for both.
         Node(
-            package="depthimage_to_laserscan",
-            executable="depthimage_to_laserscan_node",
-            name="depthimage_to_laserscan",
+            package="depth_image_proc",
+            executable="point_cloud_xyz_node",
+            name="depth_to_pointcloud",
+            output="screen",
+            parameters=[{"use_sim_time": use_sim_time}],
+            remappings=[
+                ("image_rect", "/d555/aligned_depth_to_color/image_sync"),
+                ("camera_info", "/d555/aligned_depth_to_color/camera_info_sync"),
+                ("points", "/d555/aligned_depth_to_color/points"),
+            ],
+        ),
+        # Virtual 2D laser scan from the projected depth cloud. base_link
+        # Z filter drops floor + above-body returns so the scan doesn't
+        # contain a phantom arc tracking the camera's downward FOV cone.
+        Node(
+            package="pointcloud_to_laserscan",
+            executable="pointcloud_to_laserscan_node",
+            name="pointcloud_to_laserscan",
             output="screen",
             parameters=[
-                depthimage_params_path,
+                pc_to_scan_params_path,
                 {
                     "range_min": DEPTH_MIN,
                     "range_max": DEPTH_MAX,
-                    "output_frame": "d555_link",
                     "use_sim_time": use_sim_time,
                 },
             ],
             remappings=[
-                ("depth", "/d555/aligned_depth_to_color/image_sync"),
-                ("depth_camera_info", "/d555/aligned_depth_to_color/camera_info_sync"),
+                ("cloud_in", "/d555/aligned_depth_to_color/points"),
                 ("scan", "/scan"),
             ],
         ),
@@ -113,8 +134,19 @@ def _launch_setup(context, *args, **kwargs):
                     "approx_sync": True,
                     "topic_queue_size": 100,
                     "sync_queue_size": 100,
+                    # Wider than the default (0.0 = unrestricted but
+                    # message_filters' policy struggles when one topic
+                    # is at ~1 Hz with 0.5 s jitter while others are
+                    # faster). Sim-in-the-loop bridge clocking sees the
+                    # tail; real-robot rates are higher and the wider
+                    # window is a no-op.
+                    "approx_sync_max_interval": 2.0,
                     "qos_image": 1,
-                    "qos_scan": 1,
+                    # pointcloud_to_laserscan hard-codes SensorDataQoS
+                    # (BEST_EFFORT) on its publisher. Match it on the
+                    # sub side; the prior RELIABLE setting silently
+                    # discarded every scan via incompatible-QoS.
+                    "qos_scan": 2,
                     "qos_odom": 1,
                     "qos_camera_info": 1,
                     "qos_imu": 1,

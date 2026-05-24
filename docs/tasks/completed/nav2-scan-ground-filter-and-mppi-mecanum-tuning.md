@@ -1,8 +1,24 @@
 # Nav2 scan ground filter and MPPI mecanum dial-down
 
+**Status:** Shipped 2026-05-23 in `8e7ce63` (Jetson). Sections A
+(pointcloud_to_laserscan + base_link Z ground filter via
+depth_image_proc) and B (real-robot MPPI dial-down: PathAlign 14→8,
+PreferForward 3→6) shipped. Section D protocol established
+pre-rotation is unnecessary post-CPU-relief; sim PreferForwardCritic
+validated at 10.0 via 0/5/10 bisection (Omni motion model needs
+stronger forward bias than diff-drive Nav2 defaults assume).
+A residual mild veer-off-and-pull-back pattern remains and is
+tracked in the follow-up
+[nav2-mppi-motion-model-investigation](../active/reliability/nav2-mppi-motion-model-investigation.md)
+brief; root cause hypothesis is the Omni 3-DoF sampling space
+producing commands that don't translate smoothly to wheel motion.
+Section D cleanup is tracked in
+[executor-simplify-align-to-goal-yaw](../active/reliability/executor-simplify-align-to-goal-yaw.md).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/52
+
 ## Why
 Three real-robot symptoms surfaced during lap tests after
-[nav2-commit-and-follow-path-stability](../../completed/nav2-commit-and-follow-path-stability.md)
+[nav2-commit-and-follow-path-stability](nav2-commit-and-follow-path-stability.md)
 landed:
 
 1. A phantom flat arc at ~3.5 m appears in `/scan` (Foxglove). It
@@ -17,10 +33,10 @@ landed:
 
 ## Root cause
 The `/scan` publisher is
-[`depthimage_to_laserscan_node`](../../../../source/strafer_ros/strafer_slam/launch/slam.launch.py)
+[`depthimage_to_laserscan_node`](../../../source/strafer_ros/strafer_slam/launch/slam.launch.py)
 (slam.launch.py:67-86), which takes the **per-column min depth**
 across a 60-row window centered on the image principal point
-([depthimage_to_laserscan.yaml:15](../../../../source/strafer_ros/strafer_slam/config/depthimage_to_laserscan.yaml#L15)).
+([depthimage_to_laserscan.yaml:15](../../../source/strafer_ros/strafer_slam/config/depthimage_to_laserscan.yaml#L15)).
 
 With the D555 mounted at `CAMERA_OFFSET_Z = 0.25 m` and a small
 downward tilt, the bottom rows of that 60-row window project to the
@@ -36,58 +52,79 @@ Items 2 and 3 cascade from item 1:
   path → SmacPlanner2D returns a fresh path biased around the new arc
   position.
 - Omni motion model + `PathAlignCritic: 14.0`
-  ([nav2_params.yaml:182](../../../../source/strafer_ros/strafer_navigation/config/nav2_params.yaml#L182))
+  ([nav2_params.yaml:182](../../../source/strafer_ros/strafer_navigation/config/nav2_params.yaml#L182))
   makes MPPI strafe to converge laterally on each new path. On
   real-robot mecanum, strafing is lossy/slow → forward progress stalls
   → progress-checker timeout.
 
 ## What
 
-### A. Replace depth-to-laserscan with pointcloud-to-laserscan + ground filter
+### A. Replace depth-to-laserscan with depth_image_proc + pointcloud-to-laserscan + ground filter
 
 A proper Z filter prevents the floor from ever entering the scan,
-fixing the artifact at its source rather than masking it.
+fixing the artifact at its source rather than masking it. The depth
+source must work on both lanes: real-robot
+([perception.launch.py](../../../source/strafer_ros/strafer_perception/launch/perception.launch.py)
+starts the realsense node) and sim-in-the-loop
+([bringup_sim_in_the_loop.launch.py](../../../source/strafer_ros/strafer_bringup/launch/bringup_sim_in_the_loop.launch.py)
+skips it; the DGX bridge publishes depth + color images directly).
+Both lanes already feed the existing `_sync` depth topics via
+[timestamp_fixer](../../../source/strafer_ros/strafer_perception/strafer_perception/timestamp_fixer.py),
+so the projection step lives downstream of those topics in
+slam.launch.py.
 
-- Enable native pointcloud output in
-  [perception.launch.py](../../../../source/strafer_ros/strafer_perception/launch/perception.launch.py):
-  add `"pointcloud.enable": "true"` to the realsense `rs_launch.py`
-  args. The driver will publish `/d555/depth/color/points`
-  (PointCloud2).
-- Replace the `depthimage_to_laserscan_node` block in
-  [slam.launch.py:67-86](../../../../source/strafer_ros/strafer_slam/launch/slam.launch.py)
-  with a `pointcloud_to_laserscan_node`. Required params:
+- In
+  [slam.launch.py](../../../source/strafer_ros/strafer_slam/launch/slam.launch.py),
+  before the scan publisher, add a `depth_image_proc::point_cloud_xyz_node`:
+  - `image_rect` ← `/d555/aligned_depth_to_color/image_sync`
+  - `camera_info` ← `/d555/aligned_depth_to_color/camera_info_sync`
+  - `points` → `/d555/aligned_depth_to_color/points`
+- Replace the `depthimage_to_laserscan_node` block with a
+  `pointcloud_to_laserscan_node`. Required params (file at
+  `source/strafer_ros/strafer_slam/config/pointcloud_to_laserscan.yaml`):
   - `target_frame: base_link` (transform → robot frame; Z is true vertical)
   - `min_height: 0.05` (skip floor)
   - `max_height: 0.30` (Strafer body height; skip ceiling / people heads)
-  - `range_min: DEPTH_MIN`, `range_max: DEPTH_MAX` (from constants)
-  - `angle_min`/`angle_max`/`angle_increment` matching prior scan resolution
-  - Remap input cloud → `/d555/depth/color/points`, output → `/scan`
-- Delete
-  [depthimage_to_laserscan.yaml](../../../../source/strafer_ros/strafer_slam/config/depthimage_to_laserscan.yaml).
-- Swap `depthimage_to_laserscan` → `pointcloud_to_laserscan` in
-  [strafer_slam/package.xml](../../../../source/strafer_ros/strafer_slam/package.xml)
+  - `range_min: DEPTH_MIN`, `range_max: DEPTH_MAX` (overridden at launch)
+  - `angle_min`/`angle_max` = ±0.873 rad (~±50°) covers D555's ~87° H-FOV
+  - Remap input cloud → `/d555/aligned_depth_to_color/points`, output → `/scan`
+- Delete the old depthimage yaml.
+- Swap `depthimage_to_laserscan` → `pointcloud_to_laserscan` and add
+  `depth_image_proc` to
+  [strafer_slam/package.xml](../../../source/strafer_ros/strafer_slam/package.xml)
   exec_depend.
+- Install on the Jetson:
+  `sudo apt install ros-humble-pointcloud-to-laserscan ros-humble-depth-image-proc`.
 - Update
-  [test_slam_config.py](../../../../source/strafer_ros/strafer_slam/test/test_slam_config.py)
+  [test_slam_config.py](../../../source/strafer_ros/strafer_slam/test/test_slam_config.py)
   to assert pointcloud_to_laserscan params (target frame, height
-  bounds, ranges) instead of the depth-window params.
+  bounds, ranges, symmetric angle sweep) instead of the depth-window params.
+
+`perception.launch.py` and `timestamp_fixer.py` are unchanged by this
+brief — the existing `_sync` depth pipeline is the right source for
+both lanes, so enabling the realsense native pointcloud would only
+work on real-robot.
 
 ### B. MPPI critic dial-down on the real-robot lane
 
-The 14.0 PathAlignCritic real-robot baseline pre-dates the
-rotate-then-translate executor work and over-weights lateral
+The 14.0 PathAlignCritic real-robot baseline over-weights lateral
 convergence for mecanum. Reduce it; raise PreferForwardCritic so the
 controller biases toward forward motion.
 
-- In [nav2_params.yaml](../../../../source/strafer_ros/strafer_navigation/config/nav2_params.yaml):
+- In [nav2_params.yaml](../../../source/strafer_ros/strafer_navigation/config/nav2_params.yaml):
   - `PathAlignCritic.cost_weight: 14.0 → 8.0`
   - `PreferForwardCritic.cost_weight: 3.0 → 6.0`
-- In
-  [navigation.launch.py](../../../../source/strafer_ros/strafer_navigation/launch/navigation.launch.py)
-  `_patch_params`: adjust the sim overrides so the *effective* sim
-  values stay where they are today (PathAlign 9.0,
-  PreferForward 10.0). New baselines + new overrides produce the same
-  sim numbers as before, only the real-robot lane shifts.
+- The sim absolute overrides in
+  [navigation.launch.py](../../../source/strafer_ros/strafer_navigation/launch/navigation.launch.py)
+  `_patch_params` (`PathAlignCritic.cost_weight = 9.0`,
+  `PreferForwardCritic.cost_weight = 10.0`) are absolute values, not
+  derived from baselines, so they remain unchanged. Effective sim
+  values stay where they are today; only the real-robot lane shifts.
+  Refresh the stale inline comments referencing the old "14 → 9" /
+  "3 → 10" arrows.
+- Add a `TestMPPIController::test_real_robot_critic_baselines` test
+  that pins the new baselines (8.0 / 6.0) so future drifts are caught
+  by CI.
 
 ### C. Verify
 
@@ -99,7 +136,7 @@ controller biases toward forward motion.
 ### D. Decide: is path-lookahead pre-rotation still needed?
 
 The `_path_lookahead_yaw` + `compute_path_to_pose` work in
-[nav2-commit-and-follow-path-stability](../../completed/nav2-commit-and-follow-path-stability.md)
+[nav2-commit-and-follow-path-stability](nav2-commit-and-follow-path-stability.md)
 was diagnosed under an over-weighted `PathAlignCritic` (14.0). If
 section B's dial-down lands the real-robot lane in a regime where MPPI
 naturally rotates to face each waypoint as Nav2 dishes them out, the
@@ -152,7 +189,7 @@ Decision tree:
 
 ## Out of scope
 - Architectural cleanup of `_patch_params` sim/real split — covered by
-  [nav2-sim-real-promotion-architecture](../tooling/nav2-sim-real-promotion-architecture.md).
+  [nav2-sim-real-promotion-architecture](../active/tooling/nav2-sim-real-promotion-architecture.md).
 - Camera mount/tilt changes (hardware).
 - Path-acceptance hysteresis (filed as follow-up only if items 2/3
   persist after A+B).

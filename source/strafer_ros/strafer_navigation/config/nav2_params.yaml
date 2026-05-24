@@ -26,7 +26,7 @@ bt_navigator:
     global_frame: map
     robot_base_frame: base_link
     odom_topic: /strafer/odom
-    bt_loop_duration: 10
+    bt_loop_duration: 50              # ms — 20Hz matches controller_frequency; 100Hz default starved Jetson Orin Nano (IsPathValid raycast per tick)
     default_server_timeout: 20
     wait_for_service_timeout: 1000
     # Real-robot bringup uses Nav2's stock BT
@@ -118,7 +118,7 @@ controller_server:
       plugin: "nav2_mppi_controller::MPPIController"
       time_steps: 56
       model_dt: 0.05
-      batch_size: 2000                  # TUNE: reduce to ~1000 if Jetson CPU is overloaded
+      batch_size: 1000                  # Reduced from 2000 — Jetson Orin Nano can't sustain 20Hz controller rate at 2000 with the depth_image_proc pipeline alongside
       vx_std: 0.2                       # Real-robot baseline; scaled at launch by envelope_factor (= NAV_VEL_SCALE override / 0.5)
       vy_std: 0.2                       # Real-robot baseline; envelope_factor scaling un-done at launch when envelope_factor>1.0 (sim) — lifted envelope is for forward+rotation, not lateral
       wz_std: 0.4                       # Real-robot baseline; scaled at launch by envelope_factor
@@ -132,7 +132,7 @@ controller_server:
       temperature: 0.3                  # TUNE: lower = greedier trajectory selection
       gamma: 0.015                      # Real-robot baseline; lowered to 0.008 at launch when envelope_factor>1.0 (sim) — less smoothing on commanded controls so the running mean reaches the high-vx optimum faster
       motion_model: "Omni"              # mecanum / holonomic
-      visualize: false
+      visualize: false                 # Flip true for /optimal_trajectory + /trajectories Foxglove debugging; costs ~5-10% CPU
       retry_attempt_limit: 1
       regenerate_noises: false
       TrajectoryVisualizer:
@@ -165,7 +165,7 @@ controller_server:
       PreferForwardCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 3.0               # Real-robot baseline; bumped to 10.0 at launch when envelope_factor>1.0 (sim) to dominate PathAlign's lateral pull on noisy global paths
+        cost_weight: 6.0               # Real-robot baseline; sim overrides to 10.0 when envelope_factor>1.0
         threshold_to_consider: 0.5
       CostCritic:
         enabled: true
@@ -179,7 +179,7 @@ controller_server:
       PathAlignCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 14.0              # Real-robot baseline; lowered to 9.0 at launch when envelope_factor>1.0 (sim) — at higher velocity, integration noise puts rollouts off-path even on straights and 14.0 suppresses speed
+        cost_weight: 8.0               # Real-robot baseline; sim overrides to 9.0 when envelope_factor>1.0
         max_path_occupancy_ratio: 0.05
         trajectory_point_step: 4
         threshold_to_consider: 0.5
@@ -211,13 +211,13 @@ controller_server:
 planner_server:
   ros__parameters:
     use_sim_time: false
-    expected_planner_frequency: 20.0
+    expected_planner_frequency: 5.0   # Planner only runs when BT requests; 20Hz idle-loop was a CPU drain
     planner_plugins: ["GridBased"]
     GridBased:
       plugin: "nav2_smac_planner/SmacPlanner2D"
       tolerance: 0.5
-      downsample_costmap: false
-      downsampling_factor: 1
+      downsample_costmap: true        # 5cm → 10cm cells for planning; 2-4× faster, doorway-sized passages still resolvable
+      downsampling_factor: 2
       allow_unknown: true
       max_iterations: 1000000
       max_on_approach_iterations: 1000

@@ -26,7 +26,7 @@ bt_navigator:
     global_frame: map
     robot_base_frame: base_link
     odom_topic: /strafer/odom
-    bt_loop_duration: 10
+    bt_loop_duration: 50              # ms — 20Hz matches controller_frequency; 100Hz default starved Jetson Orin Nano (IsPathValid raycast per tick)
     default_server_timeout: 20
     wait_for_service_timeout: 1000
     # Real-robot bringup uses Nav2's stock BT
@@ -211,13 +211,13 @@ controller_server:
 planner_server:
   ros__parameters:
     use_sim_time: false
-    expected_planner_frequency: 20.0
+    expected_planner_frequency: 5.0   # Planner only runs when BT requests; 20Hz idle-loop was a CPU drain
     planner_plugins: ["GridBased"]
     GridBased:
       plugin: "nav2_smac_planner/SmacPlanner2D"
       tolerance: 0.5
-      downsample_costmap: false
-      downsampling_factor: 1
+      downsample_costmap: true        # 5cm → 10cm cells for planning; 2-4× faster, doorway-sized passages still resolvable
+      downsampling_factor: 2
       allow_unknown: true
       max_iterations: 1000000
       max_on_approach_iterations: 1000

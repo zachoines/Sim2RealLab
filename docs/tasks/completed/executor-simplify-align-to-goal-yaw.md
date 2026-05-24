@@ -1,5 +1,15 @@
 # Simplify `_align_to_goal_yaw` — remove the path-lookahead pre-rotation
 
+**Status:** Shipped 2026-05-24 in `bb4fcad` (Jetson). Option 1 chosen:
+`_align_to_goal_yaw` is a no-op kept in the skill registry; the
+`_path_lookahead_yaw` helper, the `STRAFER_SKIP_ALIGN_TO_GOAL_YAW` env
+knob, and `JetsonRosClient.compute_path_to_pose` (Protocol + impl +
+lazy `ComputePathToPose` ActionClient) are all deleted. Real-robot
+validation lap deferred — sim-in-the-loop covered by PR #52's Section D
+evidence; real-robot lap tracked as follow-up if it surfaces.
+
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/53
+
 ## Why
 
 The path-lookahead pre-rotation in `_align_to_goal_yaw` was added in

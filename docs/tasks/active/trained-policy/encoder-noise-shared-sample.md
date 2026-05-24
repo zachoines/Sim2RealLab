@@ -3,7 +3,7 @@
 **Type:** refactor
 **Owner:** DGX (`strafer_lab` env config + `mdp/observations.py`)
 **Priority:** P2 — picks up after
-[`observation-contract-cleanup`](observation-contract-cleanup.md) ships.
+[`observation-contract-cleanup`](../../completed/observation-contract-cleanup.md) ships.
 That brief lands the primary fix (encoder-derived FK replaces
 `root_lin_vel_b`) but cannot honor its own acceptance criterion #3
 ("`body_velocity_xy` carries the *same* encoder noise sample as
@@ -32,8 +32,7 @@ Read these before starting:
 - [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
 - [observation-contract-cleanup.md](../../completed/observation-contract-cleanup.md) —
   predecessor that landed the FK rewrite and documented this gap
-  honestly in `body_velocity_xy`'s docstring. **Move the path to
-  `completed/` after that brief ships.**
+  honestly in `body_velocity_xy`'s docstring.
 - [inference-package.md](inference-package.md) — Phase 2's NOCAM-fields
   obs-parity acceptance becomes tighter once the policy sees the same
   noise structure the inference node sees.

@@ -1,5 +1,15 @@
 # Audit and close sim-vs-real gaps in the policy observation contract
 
+**Status:** Shipped 2026-05-24 in `781b636` (DGX). `body_velocity_xy`
+now does encoder-derived FK from the same joint-velocity tensor the
+real chassis driver reads when producing `/strafer/odom`. The "same
+encoder noise *sample*" subgoal (acceptance criterion #3) requires a
+per-tick noised-ticks cache plus a policy/critic obs-function split;
+filed as the [`encoder-noise-shared-sample`](encoder-noise-shared-sample.md)
+follow-up rather than expanded in scope here.
+
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/56
+
 **Type:** bug / refactor
 **Owner:** DGX (`strafer_lab` env config) + Either
 (`strafer_shared.policy_interface` field list)

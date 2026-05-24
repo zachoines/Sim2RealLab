@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`observation-contract-cleanup`](active/trained-policy/observation-contract-cleanup.md) | DGX | _pending_ | task/observation-contract-cleanup |
+| _None._ | | | |
 
 ---
 
@@ -65,7 +65,6 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | P3 | active | DGX |
 | [`inference-package`](active/trained-policy/inference-package.md) | P1 | active | Jetson |
 | [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | P1 | active | Either |
-| [`observation-contract-cleanup`](active/trained-policy/observation-contract-cleanup.md) | P1 | active | DGX |
 | [`encoder-noise-shared-sample`](active/trained-policy/encoder-noise-shared-sample.md) | P2 | active | DGX |
 | [`domain-randomization-audit`](active/trained-policy/domain-randomization-audit.md) | P1 | active | DGX |
 | [`goal-noise-training`](active/trained-policy/goal-noise-training.md) | P2 | active | DGX |

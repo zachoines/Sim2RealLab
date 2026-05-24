@@ -6,7 +6,6 @@ import math
 from unittest.mock import MagicMock
 
 import numpy as np
-import pytest
 
 from strafer_autonomy.executor.mission_runner import (
     MissionRunner,
@@ -69,9 +68,6 @@ def _make_runner(*, semantic_map=None, background_mapper=None):
     ros.rotate_in_place.return_value = SkillResult(
         step_id="rotate", skill="rotate_in_place", status="succeeded",
     )
-    # align_to_goal_yaw queries the planner first; default to None so the
-    # existing tests get the goal-pose-yaw fallback verbatim.
-    ros.compute_path_to_pose.return_value = None
     runner = MissionRunner(
         planner_client=planner,
         grounding_client=grounding,
@@ -502,181 +498,7 @@ def _goal_pose_candidate(yaw: float) -> GoalPoseCandidate:
 
 
 class TestAlignToGoalYaw:
-    def test_missing_goal_pose_fails_with_prereq_code(self):
-        runner, ros = _make_runner()
-        runtime = _make_runtime()
-        step = SkillCall(skill="align_to_goal_yaw", step_id="a1")
-        result = runner._align_to_goal_yaw(runtime, step)
-        assert result.status == "failed"
-        assert result.error_code == "align_prereq_missing"
-
-    def test_candidate_without_goal_pose_fails_with_prereq_code(self):
-        runner, ros = _make_runner()
-        runtime = _make_runtime()
-        runtime.latest_goal_pose = GoalPoseCandidate(
-            request_id="g1", found=False, goal_frame="map", goal_pose=None,
-        )
-        step = SkillCall(skill="align_to_goal_yaw", step_id="a1")
-        result = runner._align_to_goal_yaw(runtime, step)
-        assert result.status == "failed"
-        assert result.error_code == "align_prereq_missing"
-
-    def test_no_robot_pose_fails(self):
-        runner, ros = _make_runner()
-        ros.get_robot_state.return_value = {"pose": None}
-        runtime = _make_runtime()
-        runtime.latest_goal_pose = _goal_pose_candidate(yaw=0.0)
-        step = SkillCall(skill="align_to_goal_yaw", step_id="a1")
-        result = runner._align_to_goal_yaw(runtime, step)
-        assert result.status == "failed"
-        assert result.error_code == "no_pose"
-
-    def test_off_axis_delta_passed_to_rotate(self):
-        runner, ros = _make_runner()
-        ros.get_robot_state.return_value = {"pose": {"qz": 0.0, "qw": 1.0}}
-        ros.rotate_in_place.return_value = SkillResult(
-            step_id="a1", skill="rotate_in_place", status="succeeded",
-        )
-        runtime = _make_runtime()
-        runtime.latest_goal_pose = _goal_pose_candidate(yaw=math.radians(30.0))
-        step = SkillCall(
-            skill="align_to_goal_yaw", step_id="a1",
-            args={"tolerance_rad": 0.087},
-        )
-        runner._align_to_goal_yaw(runtime, step)
-        kwargs = ros.rotate_in_place.call_args.kwargs
-        assert abs(kwargs["yaw_delta_rad"] - math.radians(30.0)) < 1e-6
-        assert kwargs["tolerance_rad"] == pytest.approx(0.087)
-        assert kwargs["step_id"] == "a1"
-
-    def test_shortest_arc_across_pi(self):
-        runner, ros = _make_runner()
-        # Robot at +170°, goal at -170° → shortest path is +20° (not -340°).
-        robot_yaw = math.radians(170.0)
-        ros.get_robot_state.return_value = {
-            "pose": {
-                "qz": math.sin(robot_yaw / 2.0),
-                "qw": math.cos(robot_yaw / 2.0),
-            },
-        }
-        ros.rotate_in_place.return_value = SkillResult(
-            step_id="a1", skill="rotate_in_place", status="succeeded",
-        )
-        runtime = _make_runtime()
-        runtime.latest_goal_pose = _goal_pose_candidate(yaw=math.radians(-170.0))
-        step = SkillCall(skill="align_to_goal_yaw", step_id="a1")
-        runner._align_to_goal_yaw(runtime, step)
-        delta = ros.rotate_in_place.call_args.kwargs["yaw_delta_rad"]
-        assert abs(delta - math.radians(20.0)) < 1e-6
-
-    def test_already_aligned_still_calls_rotate_for_pass_through(self):
-        runner, ros = _make_runner()
-        # Robot and goal both at yaw=0 → delta ~ 0.
-        ros.get_robot_state.return_value = {"pose": {"qz": 0.0, "qw": 1.0}}
-        ros.rotate_in_place.return_value = SkillResult(
-            step_id="a1", skill="rotate_in_place", status="succeeded",
-        )
-        runtime = _make_runtime()
-        runtime.latest_goal_pose = _goal_pose_candidate(yaw=0.0)
-        step = SkillCall(skill="align_to_goal_yaw", step_id="a1")
-        result = runner._align_to_goal_yaw(runtime, step)
-        assert result.status == "succeeded"
-        # rotate_in_place is invoked even when within tolerance — it short-
-        # circuits internally, keeping cmd_vel/log telemetry consistent.
-        ros.rotate_in_place.assert_called_once()
-        assert abs(ros.rotate_in_place.call_args.kwargs["yaw_delta_rad"]) < 1e-6
-
-    def test_align_uses_first_waypoint_past_lookahead(self):
-        """Curved path: align to the bearing of the first waypoint
-        beyond ``lookahead_m``, not the goal pose's yaw.
-        """
-        runner, ros = _make_runner()
-        ros.get_robot_state.return_value = {
-            "pose": {"x": 0.0, "y": 0.0, "qz": 0.0, "qw": 1.0},
-        }
-        ros.rotate_in_place.return_value = SkillResult(
-            step_id="a1", skill="rotate_in_place", status="succeeded",
-        )
-        # Planned path heads north for ~1 m, then east. Robot is facing
-        # east (yaw=0). At lookahead_m=1.0 the first waypoint past
-        # 1 m sits at (0, 1.0) → bearing = +90°.
-        ros.compute_path_to_pose.return_value = [
-            (0.0, 0.2), (0.0, 0.6), (0.0, 1.2), (1.0, 1.2), (2.0, 1.2),
-        ]
-        runtime = _make_runtime()
-        # Goal yaw is east (0); lookahead bearing should override it.
-        runtime.latest_goal_pose = _goal_pose_candidate(yaw=0.0)
-        step = SkillCall(
-            skill="align_to_goal_yaw", step_id="a1",
-            args={"lookahead_m": 1.0},
-        )
-        runner._align_to_goal_yaw(runtime, step)
-        delta = ros.rotate_in_place.call_args.kwargs["yaw_delta_rad"]
-        assert delta == pytest.approx(math.pi / 2, abs=1e-6)
-
-    def test_align_falls_back_to_goal_yaw_when_path_too_short(self):
-        """All waypoints within lookahead_m → use the last waypoint's
-        bearing (closest available approximation).
-        """
-        runner, ros = _make_runner()
-        ros.get_robot_state.return_value = {
-            "pose": {"x": 0.0, "y": 0.0, "qz": 0.0, "qw": 1.0},
-        }
-        ros.rotate_in_place.return_value = SkillResult(
-            step_id="a1", skill="rotate_in_place", status="succeeded",
-        )
-        # All path points are within 0.3 m of the robot.
-        ros.compute_path_to_pose.return_value = [(0.1, 0.0), (0.2, 0.1)]
-        runtime = _make_runtime()
-        runtime.latest_goal_pose = _goal_pose_candidate(yaw=math.radians(90))
-        step = SkillCall(
-            skill="align_to_goal_yaw", step_id="a1",
-            args={"lookahead_m": 1.0},
-        )
-        runner._align_to_goal_yaw(runtime, step)
-        delta = ros.rotate_in_place.call_args.kwargs["yaw_delta_rad"]
-        # Last waypoint (0.2, 0.1) → bearing atan2(0.1, 0.2) ≈ 0.4636 rad.
-        assert delta == pytest.approx(math.atan2(0.1, 0.2), abs=1e-6)
-
-    def test_align_falls_back_when_planner_returns_none(self):
-        runner, ros = _make_runner()
-        ros.get_robot_state.return_value = {
-            "pose": {"x": 0.0, "y": 0.0, "qz": 0.0, "qw": 1.0},
-        }
-        ros.rotate_in_place.return_value = SkillResult(
-            step_id="a1", skill="rotate_in_place", status="succeeded",
-        )
-        ros.compute_path_to_pose.return_value = None
-        runtime = _make_runtime()
-        # Goal yaw is 30° — fallback must rotate to that.
-        runtime.latest_goal_pose = _goal_pose_candidate(yaw=math.radians(30))
-        step = SkillCall(skill="align_to_goal_yaw", step_id="a1")
-        runner._align_to_goal_yaw(runtime, step)
-        delta = ros.rotate_in_place.call_args.kwargs["yaw_delta_rad"]
-        assert delta == pytest.approx(math.radians(30), abs=1e-6)
-
-    def test_align_falls_back_when_planner_raises(self):
-        runner, ros = _make_runner()
-        ros.get_robot_state.return_value = {
-            "pose": {"x": 0.0, "y": 0.0, "qz": 0.0, "qw": 1.0},
-        }
-        ros.rotate_in_place.return_value = SkillResult(
-            step_id="a1", skill="rotate_in_place", status="succeeded",
-        )
-        ros.compute_path_to_pose.side_effect = RuntimeError("planner down")
-        runtime = _make_runtime()
-        runtime.latest_goal_pose = _goal_pose_candidate(yaw=math.radians(45))
-        step = SkillCall(skill="align_to_goal_yaw", step_id="a1")
-        runner._align_to_goal_yaw(runtime, step)
-        delta = ros.rotate_in_place.call_args.kwargs["yaw_delta_rad"]
-        assert delta == pytest.approx(math.radians(45), abs=1e-6)
-
-    def test_align_skipped_when_env_set(self, monkeypatch):
-        """STRAFER_SKIP_ALIGN_TO_GOAL_YAW=1 returns success without
-        calling rotate_in_place or compute_path_to_pose. Lets the
-        operator A/B-test whether MPPI handles starting heading natively.
-        """
-        monkeypatch.setenv("STRAFER_SKIP_ALIGN_TO_GOAL_YAW", "1")
+    def test_align_is_noop_succeeded_without_rotation(self):
         runner, ros = _make_runner()
         runtime = _make_runtime()
         runtime.latest_goal_pose = _goal_pose_candidate(yaw=math.radians(45))
@@ -685,26 +507,7 @@ class TestAlignToGoalYaw:
         assert result.status == "succeeded"
         assert result.outputs.get("skipped") is True
         ros.rotate_in_place.assert_not_called()
-        ros.compute_path_to_pose.assert_not_called()
-
-    def test_align_runs_when_env_unset(self, monkeypatch):
-        """Default (env unset) preserves the path-lookahead behavior —
-        compute_path_to_pose is queried and rotate_in_place is called.
-        """
-        monkeypatch.delenv("STRAFER_SKIP_ALIGN_TO_GOAL_YAW", raising=False)
-        runner, ros = _make_runner()
-        ros.get_robot_state.return_value = {
-            "pose": {"x": 0.0, "y": 0.0, "qz": 0.0, "qw": 1.0},
-        }
-        ros.rotate_in_place.return_value = SkillResult(
-            step_id="a1", skill="rotate_in_place", status="succeeded",
-        )
-        runtime = _make_runtime()
-        runtime.latest_goal_pose = _goal_pose_candidate(yaw=math.radians(45))
-        step = SkillCall(skill="align_to_goal_yaw", step_id="a1")
-        runner._align_to_goal_yaw(runtime, step)
-        ros.compute_path_to_pose.assert_called_once()
-        ros.rotate_in_place.assert_called_once()
+        ros.get_robot_state.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -764,16 +567,11 @@ class TestDispatch:
 
     def test_execute_step_dispatches_align_to_goal_yaw(self):
         runner, ros = _make_runner()
-        ros.get_robot_state.return_value = {"pose": {"qz": 0.0, "qw": 1.0}}
-        ros.rotate_in_place.return_value = SkillResult(
-            step_id="a1", skill="rotate_in_place", status="succeeded",
-        )
         runtime = _make_runtime()
-        runtime.latest_goal_pose = _goal_pose_candidate(yaw=math.radians(10.0))
         step = SkillCall(skill="align_to_goal_yaw", step_id="a1")
         result = runner._execute_step(runtime, step)
         assert result.status == "succeeded"
-        ros.rotate_in_place.assert_called_once()
+        ros.rotate_in_place.assert_not_called()
 
     def test_execute_step_dispatches_verify_arrival(self):
         mock_map = _make_semantic_map(top_results=[])
@@ -810,18 +608,6 @@ class TestRotateCancelEventForwarding:
         runtime = _make_runtime()
         step = SkillCall(skill="rotate_by_degrees", step_id="r1", args={"degrees": 30})
         runner._rotate_by_degrees(runtime, step)
-        assert ros.rotate_in_place.call_args.kwargs["cancel_event"] is runtime.cancel_event
-
-    def test_align_to_goal_yaw_forwards_cancel_event(self):
-        runner, ros = _make_runner()
-        ros.get_robot_state.return_value = {"pose": {"qz": 0.0, "qw": 1.0}}
-        ros.rotate_in_place.return_value = SkillResult(
-            step_id="a1", skill="rotate_in_place", status="succeeded",
-        )
-        runtime = _make_runtime()
-        runtime.latest_goal_pose = _goal_pose_candidate(yaw=math.radians(15.0))
-        step = SkillCall(skill="align_to_goal_yaw", step_id="a1")
-        runner._align_to_goal_yaw(runtime, step)
         assert ros.rotate_in_place.call_args.kwargs["cancel_event"] is runtime.cancel_event
 
     def test_orient_to_direction_forwards_cancel_event(self):

@@ -11,12 +11,11 @@ from the URDF (with constants from strafer_shared).  Do not add a
 duplicate static_transform_publisher here.
 
 Published topics (matching the sim-to-real perception contract):
-  /d555/color/image_raw       - sensor_msgs/Image       @ 30 Hz
-  /d555/depth/image_rect_raw  - sensor_msgs/Image       @ 30 Hz
-  /d555/depth/color/points    - sensor_msgs/PointCloud2 @ 30 Hz (HW-stamped; timestamp_fixer republishes as _sync)
-  /d555/imu                   - sensor_msgs/Imu         @ 200 Hz (raw, no orientation)
-  /d555/imu/filtered          - sensor_msgs/Imu         @ 200 Hz (with orientation quaternion)
-  /d555/depth/downsampled     - sensor_msgs/Image       @ 30 Hz (80x60 32FC1)
+  /d555/color/image_raw       - sensor_msgs/Image   @ 30 Hz
+  /d555/depth/image_rect_raw  - sensor_msgs/Image   @ 30 Hz
+  /d555/imu                   - sensor_msgs/Imu     @ 200 Hz (raw, no orientation)
+  /d555/imu/filtered          - sensor_msgs/Imu     @ 200 Hz (with orientation quaternion)
+  /d555/depth/downsampled     - sensor_msgs/Image   @ 30 Hz (80x60 32FC1)
 
 NOTE: IMU requires the
 hid-sensor-hub kernel modules (see /etc/modules-load.d/hid-sensor-imu.conf).
@@ -63,12 +62,6 @@ def generate_launch_description():
 
                 # Align depth frame to color frame
                 "align_depth.enable": "true",
-
-                # Project depth → PointCloud2 inside the realsense driver
-                # (publishes /d555/depth/color/points when align_depth is on).
-                # Consumed by pointcloud_to_laserscan via timestamp_fixer's
-                # _sync republish for the Z-axis ground filter on /scan.
-                "pointcloud.enable": "true",
 
                 # Reset USB device on startup (helps with reconnections)
                 # NOTE: Disabled — causes tegra-xusb transfer errors on

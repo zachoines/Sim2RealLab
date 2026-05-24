@@ -43,34 +43,38 @@ Items 2 and 3 cascade from item 1:
 
 ## What
 
-### A. Replace depth-to-laserscan with pointcloud-to-laserscan + ground filter
+### A. Replace depth-to-laserscan with depth_image_proc + pointcloud-to-laserscan + ground filter
 
 A proper Z filter prevents the floor from ever entering the scan,
-fixing the artifact at its source rather than masking it.
+fixing the artifact at its source rather than masking it. The depth
+source must work on both lanes: real-robot
+([perception.launch.py](../../../../source/strafer_ros/strafer_perception/launch/perception.launch.py)
+starts the realsense node) and sim-in-the-loop
+([bringup_sim_in_the_loop.launch.py](../../../../source/strafer_ros/strafer_bringup/launch/bringup_sim_in_the_loop.launch.py)
+skips it; the DGX bridge publishes depth + color images directly).
+Both lanes already feed the existing `_sync` depth topics via
+[timestamp_fixer](../../../../source/strafer_ros/strafer_perception/strafer_perception/timestamp_fixer.py),
+so the projection step lives downstream of those topics in
+slam.launch.py.
 
-- Enable native pointcloud output in
-  [perception.launch.py](../../../../source/strafer_ros/strafer_perception/launch/perception.launch.py):
-  add `"pointcloud.enable": "true"` to the realsense `rs_launch.py`
-  args. The driver publishes `/d555/depth/color/points` (PointCloud2)
-  with HW-clock timestamps, same drift problem as the raw image topics.
-- Extend
-  [timestamp_fixer.py](../../../../source/strafer_ros/strafer_perception/strafer_perception/timestamp_fixer.py)
-  to handle PointCloud2 — add the pointcloud topic to the relay pairs
-  so it republishes as `/d555/depth/color/points_sync` with system-time
-  stamps. Required so RTAB-Map's approx_sync can match the new /scan
-  with odom.
-- Replace the `depthimage_to_laserscan_node` block in
-  [slam.launch.py](../../../../source/strafer_ros/strafer_slam/launch/slam.launch.py)
-  with a `pointcloud_to_laserscan_node`. Required params (file at
+- In
+  [slam.launch.py](../../../../source/strafer_ros/strafer_slam/launch/slam.launch.py),
+  before the scan publisher, add a `depth_image_proc::point_cloud_xyz_node`:
+  - `image_rect` ← `/d555/aligned_depth_to_color/image_sync`
+  - `camera_info` ← `/d555/aligned_depth_to_color/camera_info_sync`
+  - `points` → `/d555/aligned_depth_to_color/points`
+- Replace the `depthimage_to_laserscan_node` block with a
+  `pointcloud_to_laserscan_node`. Required params (file at
   `source/strafer_ros/strafer_slam/config/pointcloud_to_laserscan.yaml`):
   - `target_frame: base_link` (transform → robot frame; Z is true vertical)
   - `min_height: 0.05` (skip floor)
   - `max_height: 0.30` (Strafer body height; skip ceiling / people heads)
   - `range_min: DEPTH_MIN`, `range_max: DEPTH_MAX` (overridden at launch)
   - `angle_min`/`angle_max` = ±0.873 rad (~±50°) covers D555's ~87° H-FOV
-  - Remap input cloud → `/d555/depth/color/points_sync`, output → `/scan`
+  - Remap input cloud → `/d555/aligned_depth_to_color/points`, output → `/scan`
 - Delete the old depthimage yaml.
-- Swap `depthimage_to_laserscan` → `pointcloud_to_laserscan` in
+- Swap `depthimage_to_laserscan` → `pointcloud_to_laserscan` and add
+  `depth_image_proc` to
   [strafer_slam/package.xml](../../../../source/strafer_ros/strafer_slam/package.xml)
   exec_depend.
 - Install on the Jetson:
@@ -79,6 +83,11 @@ fixing the artifact at its source rather than masking it.
   [test_slam_config.py](../../../../source/strafer_ros/strafer_slam/test/test_slam_config.py)
   to assert pointcloud_to_laserscan params (target frame, height
   bounds, ranges, symmetric angle sweep) instead of the depth-window params.
+
+`perception.launch.py` and `timestamp_fixer.py` are unchanged by this
+brief — the existing `_sync` depth pipeline is the right source for
+both lanes, so enabling the realsense native pointcloud would only
+work on real-robot.
 
 ### B. MPPI critic dial-down on the real-robot lane
 

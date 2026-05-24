@@ -6,9 +6,13 @@ Requires (launched separately or via strafer_bringup):
   - strafer_description: robot_state_publisher (TF tree)
 
 This launch file:
-  1. Starts pointcloud_to_laserscan (depth pointcloud → /scan with a
-     base_link Z-axis filter that excludes floor + above-body returns)
-  2. Starts RTAB-Map in mapping or localization mode
+  1. Projects the timestamp-fixed depth image into a PointCloud2 via
+     depth_image_proc::point_cloud_xyz_node. Works for both lanes —
+     real D555 (perception.launch.py) and the DGX sim bridge feed the
+     same `_sync` depth + camera_info topics.
+  2. Runs pointcloud_to_laserscan on that cloud to publish /scan with
+     a base_link Z-axis filter that excludes floor + above-body returns.
+  3. Starts RTAB-Map in mapping or localization mode.
 
 Modes:
   - Mapping (default):  ros2 launch strafer_slam slam.launch.py
@@ -64,10 +68,25 @@ def _launch_setup(context, *args, **kwargs):
 
     # ── Nodes ───────────────────────────────────────────────────────────
     nodes = [
-        # Virtual 2D laser scan from the timestamp-fixed D555 depth cloud.
-        # base_link Z filter drops floor + above-body returns so the scan
-        # doesn't contain a phantom arc tracking the camera's downward
-        # FOV cone.
+        # Project depth + intrinsics into a PointCloud2. Both lanes feed
+        # /d555/aligned_depth_to_color/image_sync — real D555 via the
+        # realsense driver + timestamp_fixer, sim via the DGX bridge +
+        # timestamp_fixer's remap — so the same projector works for both.
+        Node(
+            package="depth_image_proc",
+            executable="point_cloud_xyz_node",
+            name="depth_to_pointcloud",
+            output="screen",
+            parameters=[{"use_sim_time": use_sim_time}],
+            remappings=[
+                ("image_rect", "/d555/aligned_depth_to_color/image_sync"),
+                ("camera_info", "/d555/aligned_depth_to_color/camera_info_sync"),
+                ("points", "/d555/aligned_depth_to_color/points"),
+            ],
+        ),
+        # Virtual 2D laser scan from the projected depth cloud. base_link
+        # Z filter drops floor + above-body returns so the scan doesn't
+        # contain a phantom arc tracking the camera's downward FOV cone.
         Node(
             package="pointcloud_to_laserscan",
             executable="pointcloud_to_laserscan_node",
@@ -82,7 +101,7 @@ def _launch_setup(context, *args, **kwargs):
                 },
             ],
             remappings=[
-                ("cloud_in", "/d555/depth/color/points_sync"),
+                ("cloud_in", "/d555/aligned_depth_to_color/points"),
                 ("scan", "/scan"),
             ],
         ),

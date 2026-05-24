@@ -132,7 +132,7 @@ controller_server:
       temperature: 0.3                  # TUNE: lower = greedier trajectory selection
       gamma: 0.015                      # Real-robot baseline; lowered to 0.008 at launch when envelope_factor>1.0 (sim) — less smoothing on commanded controls so the running mean reaches the high-vx optimum faster
       motion_model: "Omni"              # mecanum / holonomic
-      visualize: false
+      visualize: true                  # MPPI publishes /optimal_trajectory + /trajectories for Foxglove debugging
       retry_attempt_limit: 1
       regenerate_noises: false
       TrajectoryVisualizer:

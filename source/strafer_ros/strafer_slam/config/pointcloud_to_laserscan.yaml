@@ -13,7 +13,10 @@
 pointcloud_to_laserscan:
   ros__parameters:
     target_frame: base_link
-    transform_tolerance: 0.05
+    # Wide enough to tolerate sim-in-the-loop bridge jitter; the cloud
+    # frame's TF chain to base_link is fully static so this only relaxes
+    # the wall-clock window, not the kinematic validity.
+    transform_tolerance: 0.5
 
     # Z-axis filter in target_frame.
     min_height: 0.05

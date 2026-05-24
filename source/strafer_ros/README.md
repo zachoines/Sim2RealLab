@@ -22,6 +22,7 @@ talks to these packages through ROS topics, services, and actions.
 | `strafer_description` | URDF + Python | Robot URDF, `robot_state_publisher`, TF frames |
 | `strafer_slam` | Launch / config | RTAB-Map SLAM + `depthimage_to_laserscan` (no custom nodes) |
 | `strafer_navigation` | Launch / config | Nav2 with MPPI holonomic controller (no custom nodes) |
+| `strafer_inference` | Python | Trained-policy execution backend for `strafer_direct` missions (skeleton — topic / action surface only; observation assembly, model loading, action interpretation, and safety logic ship in follow-on commits on the same branch) |
 | `strafer_bringup` | Launch-only | Layered composition: `base` → `perception` → `slam` → `navigation` → `autonomy` |
 
 Sibling packages it interacts with:

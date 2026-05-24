@@ -1,0 +1,22 @@
+strafer_inference:
+  ros__parameters:
+    # TODO: point at an exported policy artifact once one is available.
+    # Empty string is the "no model loaded" sentinel; consumed once
+    # load_policy() is wired in.
+    model_path: ""
+
+    policy_variant: "DEPTH"
+
+    infer_period_s: 0.0333333
+
+    goal_topic: "/strafer/goal"
+    cmd_vel_topic: "/strafer/cmd_vel"
+    depth_topic: "/d555/depth/image_rect_raw"
+    imu_topic: "/d555/imu/filtered"
+    joint_states_topic: "/strafer/joint_states"
+    odom_topic: "/strafer/odom"
+
+    tf_max_age_s: 0.5
+    goal_timeout_s: 1.0
+    obs_timeout_s: 0.2
+    depth_timeout_s: 0.5

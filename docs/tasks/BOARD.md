@@ -46,7 +46,6 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | [`scene-connectivity-validation`](active/multi-room/scene-connectivity-validation.md) | P1 | active | DGX |
 | [`room-state-eval-harness`](active/multi-room/room-state-eval-harness.md) | P2 | active | DGX |
 | [`semantic-region-partition`](active/multi-room/semantic-region-partition.md) | P2 | active | DGX |
-| [`query-room-by-text-v1`](active/multi-room/query-room-by-text-v1.md) | P2 | active | DGX |
 | [`planner-far-target-staging`](active/multi-room/planner-far-target-staging.md) | P2 | active | DGX |
 | [`semantic-graph-loop-closure`](active/multi-room/semantic-graph-loop-closure.md) | P3 | active | DGX |
 | [`llm-guided-frontier-gain`](parked/multi-room/llm-guided-frontier-gain.md) | P2 | parked | DGX |
@@ -188,7 +187,6 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`export-torchscript-depth`](active/trained-policy/export-torchscript-depth.md) | S–M | DEPTH TorchScript export on real checkpoints — work around DeFM `BiFPN`'s un-scriptable `sum(generator)` via traced backbone. Sibling of [`export-onnx-depth`](completed/export-onnx-depth.md); ONNX already ships, this closes the redundant TorchScript path. |
 | [`room-state-eval-harness`](active/multi-room/room-state-eval-harness.md) | M | v2 room-state — measurement harness for cluster purity / label precision / time-to-converge / connectivity P-R on a fixed multi-room scene set (incl. open-plan + multi-bedroom adversarials). Ships first; also the training corpus for the escape valves. Blocks pickup on `observation-derived-room-state` (shipped). |
 | [`semantic-region-partition`](active/multi-room/semantic-region-partition.md) | M | **The v2 quality work** — feature+space HDBSCAN clustering + open-vocab labels, replacing v1's greedy-modularity + 7-class argmax. One `α` knob (SOTA-aligned, ConceptGraphs / HOV-SG shape); no training. Handles open-plan + multi-bedroom by construction. `RoomEntry` shape preserved (+`uncertainty`). |
-| [`query-room-by-text-v1`](active/multi-room/query-room-by-text-v1.md) | S | Open-vocab room-state queries on the existing OpenCLIP ViT-B/32 backbone. Adds `SemanticMapManager.query_room_by_text(text)`; the query-side half of v2's open-vocab move, ships on the v1 backbone without waiting for `semantic-region-partition` or `backbone-bakeoff`. |
 
 #### Jetson lane
 

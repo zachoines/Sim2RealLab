@@ -120,6 +120,30 @@ def _prompt_to_label(prompt: str) -> str:
     return prompt.strip()
 
 
+def pool_clip(embeddings: Iterable[np.ndarray]) -> np.ndarray:
+    """Pool a sequence of CLIP embeddings into a single L2-normalized centroid.
+
+    Mean of unit vectors is not a unit vector — averaging first and
+    normalizing after is the standard pattern (CLIP-Fields, HOV-SG,
+    OpenScene). Embeddings whose norm is zero are skipped so a partially
+    populated room (some unembedded nodes) still produces a sane centroid.
+    Returns a zero vector when no usable embeddings are provided.
+    """
+    rows = [
+        np.asarray(emb, dtype=np.float32)
+        for emb in embeddings
+        if emb is not None and np.linalg.norm(np.asarray(emb)) > 0
+    ]
+    if not rows:
+        return np.zeros(0, dtype=np.float32)
+    stacked = np.stack(rows, axis=0)
+    centroid = stacked.mean(axis=0)
+    norm = float(np.linalg.norm(centroid))
+    if norm > 0:
+        centroid = centroid / norm
+    return centroid.astype(np.float32)
+
+
 def _node_payload(graph: Any, node_id: str) -> dict[str, Any]:
     return graph.nodes[node_id].get("data", {})
 

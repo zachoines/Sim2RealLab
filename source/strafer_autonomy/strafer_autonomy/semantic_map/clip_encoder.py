@@ -64,6 +64,18 @@ class CLIPEncoder:
     def enabled(self) -> bool:
         return self._enabled
 
+    @property
+    def has_text_encoder(self) -> bool:
+        """Whether a text tower is loaded.
+
+        Tracks `enabled` for OpenCLIP ViT-B/32 (both towers ship together).
+        A future vision-only backbone (DINOv3-S) can keep `enabled=True`
+        while reporting `has_text_encoder=False`, which lets text-query
+        callers raise `NotImplementedError` instead of silently returning
+        zero embeddings.
+        """
+        return self._enabled and self._text_session is not None
+
     def _load_models(self) -> None:
         try:
             import onnxruntime as ort

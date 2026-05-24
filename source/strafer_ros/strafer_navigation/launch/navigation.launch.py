@@ -157,7 +157,12 @@ def _patch_params(params, footprint, nav_vel, nav_omega, nav_reverse,
         if "PathAlignCritic" in ctrl:
             ctrl["PathAlignCritic"]["cost_weight"] = 9.0
         if "PreferForwardCritic" in ctrl:
-            ctrl["PreferForwardCritic"]["cost_weight"] = 10.0
+            # Diagnostic: temporarily disabled in sim. Was elevated to 10.0
+            # during prior MPPI troubleshooting that is now better diagnosed
+            # (PathAlign=14 over-tracking + CPU starvation, both fixed).
+            # Re-enable with a justified weight if the bisection confirms
+            # it was masking a real need.
+            ctrl["PreferForwardCritic"]["enabled"] = False
         # offset_from_furthest 5 → 20 (~25 cm → ~1 m past furthest at
         # MAP_RESOLUTION=0.05): high-speed rollouts win on cost when the
         # look-ahead target sits far enough ahead.

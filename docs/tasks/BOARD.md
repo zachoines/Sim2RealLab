@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`query-room-by-text-v1`](active/multi-room/query-room-by-text-v1.md) | DGX | TBD | task branch |
+| [`query-room-by-text-v1`](active/multi-room/query-room-by-text-v1.md) | DGX | [#54](https://github.com/zachoines/Sim2RealLab/pull/54) | review |
 
 ---
 

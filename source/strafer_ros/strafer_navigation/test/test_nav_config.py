@@ -342,7 +342,7 @@ class TestConstantsInjection:
         ctrl = p["controller_server"]["ros__parameters"]["FollowPath"]
         # Sim values are absolute (not derived from baselines).
         assert ctrl["PathAlignCritic"]["cost_weight"] == 9.0
-        assert ctrl["PreferForwardCritic"]["cost_weight"] == 5.0
+        assert ctrl["PreferForwardCritic"]["cost_weight"] == 10.0
         assert ctrl["PathFollowCritic"]["offset_from_furthest"] == 20
         assert ctrl["gamma"] == 0.008
         # PathFollow look-ahead lifts above the baseline; the others are

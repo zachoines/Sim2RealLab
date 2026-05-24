@@ -157,12 +157,11 @@ def _patch_params(params, footprint, nav_vel, nav_omega, nav_reverse,
         if "PathAlignCritic" in ctrl:
             ctrl["PathAlignCritic"]["cost_weight"] = 9.0
         if "PreferForwardCritic" in ctrl:
-            # Sim Omni motion model genuinely needs a forward bias — without
-            # one MPPI samples spin/strafe trajectories at similar cost to
-            # forward. Nav2's default 5.0 is enough to prevent that without
-            # overshooting (the prior 10.0 was elevated during a misdiagnosed
-            # troubleshooting pass).
-            ctrl["PreferForwardCritic"]["cost_weight"] = 5.0
+            # 10.0 is above Nav2's default 5.0 because the Omni motion model
+            # samples vy/reverse trajectories diff-drive doesn't. Empirically
+            # in sim: below this weight the robot moves tangent to the path
+            # or in reverse along it.
+            ctrl["PreferForwardCritic"]["cost_weight"] = 10.0
         # offset_from_furthest 5 → 20 (~25 cm → ~1 m past furthest at
         # MAP_RESOLUTION=0.05): high-speed rollouts win on cost when the
         # look-ahead target sits far enough ahead.

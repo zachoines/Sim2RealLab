@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 _logger = logging.getLogger(__name__)
 
@@ -1983,6 +1984,22 @@ class MissionRunner(MissionCommandHandler):
 
     def _align_to_goal_yaw(self, runtime: _MissionRuntime, step: SkillCall) -> SkillResult:
         started_at = time.time()
+
+        # Set ``STRAFER_SKIP_ALIGN_TO_GOAL_YAW=1`` to skip pre-rotation
+        # so MPPI handles the starting heading via its critic landscape.
+        if os.environ.get(
+            "STRAFER_SKIP_ALIGN_TO_GOAL_YAW", ""
+        ).strip().lower() in ("1", "true", "yes", "on"):
+            return SkillResult(
+                step_id=step.step_id,
+                skill=step.skill,
+                status="succeeded",
+                outputs={"skipped": True, "reason": "STRAFER_SKIP_ALIGN_TO_GOAL_YAW"},
+                message="align_to_goal_yaw skipped via STRAFER_SKIP_ALIGN_TO_GOAL_YAW.",
+                started_at=started_at,
+                finished_at=time.time(),
+            )
+
         candidate = runtime.latest_goal_pose
         if candidate is None or candidate.goal_pose is None:
             return self._failed_result(

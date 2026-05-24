@@ -116,7 +116,7 @@ controller_server:
 
     FollowPath:
       plugin: "nav2_mppi_controller::MPPIController"
-      time_steps: 56
+      time_steps: 40                    # Reduced from 56 for Jetson CPU headroom; still ~2 s lookahead at model_dt=0.05
       model_dt: 0.05
       batch_size: 1000                  # Reduced from 2000 — Jetson Orin Nano can't sustain 20Hz controller rate at 2000 with the depth_image_proc pipeline alongside
       vx_std: 0.2                       # Real-robot baseline; scaled at launch by envelope_factor (= NAV_VEL_SCALE override / 0.5)

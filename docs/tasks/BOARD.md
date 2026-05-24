@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`inference-package`](active/trained-policy/inference-package.md) | Jetson | _pending_ | Phase 1 package skeleton landing; Phases 2–5 follow on the same branch |
+| [`inference-package`](active/trained-policy/inference-package.md) | Jetson | [#55](https://github.com/zachoines/Sim2RealLab/pull/55) (draft) | Phase 1 package skeleton landed; Phase 2 gates on DGX `observation-contract-cleanup`, Phases 3–5 follow on the same branch |
 
 ---
 

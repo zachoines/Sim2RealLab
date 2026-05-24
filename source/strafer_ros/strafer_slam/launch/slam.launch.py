@@ -142,7 +142,11 @@ def _launch_setup(context, *args, **kwargs):
                     # window is a no-op.
                     "approx_sync_max_interval": 2.0,
                     "qos_image": 1,
-                    "qos_scan": 1,
+                    # pointcloud_to_laserscan hard-codes SensorDataQoS
+                    # (BEST_EFFORT) on its publisher. Match it on the
+                    # sub side; the prior RELIABLE setting silently
+                    # discarded every scan via incompatible-QoS.
+                    "qos_scan": 2,
                     "qos_odom": 1,
                     "qos_camera_info": 1,
                     "qos_imu": 1,

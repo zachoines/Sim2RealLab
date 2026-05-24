@@ -134,6 +134,13 @@ def _launch_setup(context, *args, **kwargs):
                     "approx_sync": True,
                     "topic_queue_size": 100,
                     "sync_queue_size": 100,
+                    # Wider than the default (0.0 = unrestricted but
+                    # message_filters' policy struggles when one topic
+                    # is at ~1 Hz with 0.5 s jitter while others are
+                    # faster). Sim-in-the-loop bridge clocking sees the
+                    # tail; real-robot rates are higher and the wider
+                    # window is a no-op.
+                    "approx_sync_max_interval": 2.0,
                     "qos_image": 1,
                     "qos_scan": 1,
                     "qos_odom": 1,

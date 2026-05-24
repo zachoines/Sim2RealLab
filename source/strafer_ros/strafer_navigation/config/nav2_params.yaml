@@ -118,7 +118,7 @@ controller_server:
       plugin: "nav2_mppi_controller::MPPIController"
       time_steps: 56
       model_dt: 0.05
-      batch_size: 2000                  # TUNE: reduce to ~1000 if Jetson CPU is overloaded
+      batch_size: 1000                  # Reduced from 2000 — Jetson Orin Nano can't sustain 20Hz controller rate at 2000 with the depth_image_proc pipeline alongside
       vx_std: 0.2                       # Real-robot baseline; scaled at launch by envelope_factor (= NAV_VEL_SCALE override / 0.5)
       vy_std: 0.2                       # Real-robot baseline; envelope_factor scaling un-done at launch when envelope_factor>1.0 (sim) — lifted envelope is for forward+rotation, not lateral
       wz_std: 0.4                       # Real-robot baseline; scaled at launch by envelope_factor
@@ -132,7 +132,7 @@ controller_server:
       temperature: 0.3                  # TUNE: lower = greedier trajectory selection
       gamma: 0.015                      # Real-robot baseline; lowered to 0.008 at launch when envelope_factor>1.0 (sim) — less smoothing on commanded controls so the running mean reaches the high-vx optimum faster
       motion_model: "Omni"              # mecanum / holonomic
-      visualize: true                  # MPPI publishes /optimal_trajectory + /trajectories for Foxglove debugging
+      visualize: false                 # Flip true for /optimal_trajectory + /trajectories Foxglove debugging; costs ~5-10% CPU
       retry_attempt_limit: 1
       regenerate_noises: false
       TrajectoryVisualizer:

@@ -341,7 +341,7 @@ class TestConstantsInjection:
                           MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX)
         ctrl = p["controller_server"]["ros__parameters"]["FollowPath"]
         # Sim values are absolute (not derived from baselines).
-        assert ctrl["PathAlignCritic"]["cost_weight"] == 9.0
+        assert ctrl["PathAlignCritic"]["cost_weight"] == 4.0
         assert ctrl["PreferForwardCritic"]["cost_weight"] == 10.0
         assert ctrl["PathFollowCritic"]["offset_from_furthest"] == 20
         assert ctrl["gamma"] == 0.008

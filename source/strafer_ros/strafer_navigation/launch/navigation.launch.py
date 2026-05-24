@@ -155,7 +155,7 @@ def _patch_params(params, footprint, nav_vel, nav_omega, nav_reverse,
     # landscape, not the iteration depth.
     if envelope_factor > 1.0:
         if "PathAlignCritic" in ctrl:
-            ctrl["PathAlignCritic"]["cost_weight"] = 9.0
+            ctrl["PathAlignCritic"]["cost_weight"] = 4.0
         if "PreferForwardCritic" in ctrl:
             ctrl["PreferForwardCritic"]["cost_weight"] = 10.0
         # offset_from_furthest 5 → 20 (~25 cm → ~1 m past furthest at

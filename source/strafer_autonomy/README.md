@@ -160,6 +160,7 @@ callable injected by the runtime. They never read Infinigen
 | `current_room(pose)` | `RoomEntry \| None` | Room containing the nearest captured node within ~3 m; `None` if the map is empty or no node is close enough. |
 | `connectivity()` | `list[tuple[str, str]]` | Pessimistic pairs of room labels proven reachable from each other. An edge appears iff the proximity graph already connects them OR the injected Nav2 hook returns `True` for their centroids. |
 | `room_anchor(label)` | `Pose2D \| None` | Most recent captured node tagged `label`; used by the autonomy-stack compiler as the cross-room transit destination. |
+| `query_room_by_text(text, n_results=5)` | `list[tuple[RoomEntry, float]]` | Open-vocab room ranking: encodes `text` via the CLIP text tower and scores each known room by cosine similarity against its mean-pooled member-embedding centroid. Bypasses the fixed seven-class prompt set. Returns `[]` when the encoder is disabled; raises `NotImplementedError` on a vision-only backbone. |
 
 Per-node room labels are stamped onto `SemanticNode.metadata` as
 `room_label` / `room_conf` at `add_observation` time using a fixed
@@ -167,7 +168,22 @@ prompt set (`a kitchen`, `a living room`, `a bedroom`, `a bathroom`,
 `a hallway`, `an office`, `a garage`). Override the prompt set by
 passing `room_prompts=` to the manager constructor. The cluster
 cache refreshes when the live node count drifts by ≥10 % from its
-last-computed size.
+last-computed size; the room-centroid cache shares the same
+invalidation trigger.
+
+```python
+# Free-form room queries beyond the fixed seven-class label set.
+results = manager.query_room_by_text("the room with the cooking surface")
+for room, similarity in results:
+    print(f"{room.label}: {similarity:.3f}")
+# kitchen: 0.812
+# hallway: 0.214
+# ...
+```
+
+The query API is backbone-agnostic — it works on the v1 OpenCLIP
+ViT-B/32 today and lifts behind whichever backbone the bakeoff
+eventually selects, with no caller changes.
 
 The Nav2 hook is injected via `set_nav2_reachable(fn, enabled=True)`
 where `fn` takes `(Pose2D, Pose2D) → bool`. When omitted or disabled,

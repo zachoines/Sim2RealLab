@@ -29,6 +29,7 @@ from .room_state import (
     aggregate_room_entries,
     cluster_nodes,
     infer_connectivity,
+    pool_clip,
 )
 
 _logger = logging.getLogger(__name__)
@@ -112,6 +113,7 @@ class SemanticMapManager:
         self._use_nav2_reach = use_nav2_reach
         self._cluster_cache: list[RoomEntry] | None = None
         self._cluster_cache_node_count: int = 0
+        self._room_centroid_cache: dict[str, np.ndarray] = {}
 
     @property
     def clip_encoder(self) -> CLIPEncoder:
@@ -153,6 +155,7 @@ class SemanticMapManager:
     def _invalidate_cluster_cache(self) -> None:
         self._cluster_cache = None
         self._cluster_cache_node_count = 0
+        self._room_centroid_cache = {}
 
     def _cluster_cache_stale(self) -> bool:
         if self._cluster_cache is None:
@@ -175,6 +178,9 @@ class SemanticMapManager:
                 self._graph, clusters,
             )
             self._cluster_cache_node_count = self._graph.number_of_nodes()
+            # Centroids depend on per-room membership; rebuilding the
+            # cluster cache means the centroid cache is also stale.
+            self._room_centroid_cache = {}
         return list(self._cluster_cache or [])
 
     def add_observation(
@@ -454,6 +460,123 @@ class SemanticMapManager:
                     yaw=float(data.get("pose_yaw", 0.0)),
                 )
         return best_pose
+
+    def _room_centroid_embedding(self, room: RoomEntry) -> np.ndarray:
+        """Mean of member-node CLIP embeddings, L2-normalized.
+
+        Looks up each member node's ``clip_embedding_id`` via the graph,
+        batch-fetches embeddings from ChromaDB, then pools via
+        :func:`pool_clip`. Returns a zero-length vector when no member
+        embedding is usable (rare; e.g. all nodes lack stored vectors).
+        """
+        cached = self._room_centroid_cache.get(room.label)
+        if cached is not None:
+            return cached
+        embedding_ids: list[str] = []
+        for nid in room.member_node_ids:
+            data = self._graph.nodes.get(nid, {}).get("data", {})
+            emb_id = data.get("clip_embedding_id")
+            if emb_id:
+                embedding_ids.append(str(emb_id))
+        if not embedding_ids:
+            centroid = np.zeros(0, dtype=np.float32)
+            self._room_centroid_cache[room.label] = centroid
+            return centroid
+        try:
+            result = self._collection.get(
+                ids=embedding_ids, include=["embeddings"],
+            )
+        except Exception:
+            _logger.debug(
+                "centroid embedding fetch failed for room %s",
+                room.label, exc_info=True,
+            )
+            return np.zeros(0, dtype=np.float32)
+        raw_embeddings = result.get("embeddings")
+        if raw_embeddings is None or len(raw_embeddings) == 0:
+            centroid = np.zeros(0, dtype=np.float32)
+        else:
+            centroid = pool_clip(
+                np.asarray(row, dtype=np.float32) for row in raw_embeddings
+            )
+        self._room_centroid_cache[room.label] = centroid
+        return centroid
+
+    def query_room_by_text(
+        self, text: str, n_results: int = 5,
+    ) -> list[tuple[RoomEntry, float]]:
+        """Score known rooms by CLIP text→room-centroid similarity.
+
+        Returns up to ``n_results`` ``(RoomEntry, similarity)`` tuples
+        sorted by descending cosine similarity. Bypasses the fixed
+        :data:`DEFAULT_ROOM_PROMPTS` set: rooms are ranked against the
+        free-form query text rather than against the seven-class label
+        argmax.
+
+        Implementation: for each known room, the centroid is the
+        L2-normalized mean of its member nodes' CLIP image embeddings
+        (see :func:`pool_clip`). The text is encoded by the same
+        backbone via :meth:`CLIPEncoder.encode_text`. Centroids are
+        cached alongside the cluster cache and invalidated on the same
+        growth-fraction trigger.
+
+        Returns ``[]`` (and logs at INFO) when the CLIP encoder is
+        disabled, when the map has no labeled rooms, or when the query
+        text fails to encode. Raises ``NotImplementedError`` if the
+        backbone provides a visual encoder but no text tower (a future
+        vision-only backbone configuration).
+        """
+        encoder = self._clip_encoder
+        if not encoder.enabled:
+            _logger.info(
+                "query_room_by_text: CLIP encoder disabled; returning []",
+            )
+            return []
+        if not getattr(encoder, "has_text_encoder", True):
+            raise NotImplementedError(
+                "query_room_by_text requires a CLIP text tower; the "
+                "loaded backbone is vision-only. Switch to a "
+                "text-capable backbone or query rooms by image instead.",
+            )
+
+        rooms = self._get_known_rooms_cached()
+        if not rooms:
+            return []
+
+        text_embedding = encoder.encode_text(text)
+        if text_embedding is None or np.linalg.norm(text_embedding) == 0:
+            _logger.info(
+                "query_room_by_text: text encoding returned zero vector "
+                "for %r; returning []", text,
+            )
+            return []
+        text_vec = np.asarray(text_embedding, dtype=np.float32)
+        # `encode_text` L2-normalizes, but pin it here for robustness
+        # against backbone implementations that don't.
+        norm = float(np.linalg.norm(text_vec))
+        if norm == 0:
+            return []
+        text_vec = text_vec / norm
+
+        scored: list[tuple[RoomEntry, float]] = []
+        for room in rooms:
+            centroid = self._room_centroid_embedding(room)
+            if centroid.size == 0 or np.linalg.norm(centroid) == 0:
+                continue
+            if centroid.shape != text_vec.shape:
+                _logger.warning(
+                    "query_room_by_text: shape mismatch for room %s "
+                    "(centroid %s vs text %s); skipping",
+                    room.label, centroid.shape, text_vec.shape,
+                )
+                continue
+            similarity = float(centroid @ text_vec)
+            scored.append((room, similarity))
+
+        scored.sort(key=lambda pair: pair[1], reverse=True)
+        if n_results <= 0:
+            return []
+        return scored[:n_results]
 
     def get_clip_embedding(self, embedding_id: str) -> np.ndarray:
         """Retrieve a stored CLIP embedding by its ID."""

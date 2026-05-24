@@ -715,3 +715,221 @@ class TestCLIPEncoder:
         emb = encoder.encode_image(np.zeros((224, 224, 3), dtype=np.uint8))
         assert emb.shape == (512,)
         assert np.allclose(emb, 0)
+
+    def test_has_text_encoder_tracks_enabled_on_disabled_encoder(self, tmp_path):
+        from strafer_autonomy.semantic_map.clip_encoder import CLIPEncoder
+        encoder = CLIPEncoder(model_dir=str(tmp_path / "nonexistent"))
+        assert not encoder.has_text_encoder
+
+
+# ---------------------------------------------------------------------------
+# query_room_by_text
+# ---------------------------------------------------------------------------
+
+
+def _unit_vector(dim: int, axis: int) -> np.ndarray:
+    """One-hot unit vector of length ``dim`` along ``axis``."""
+    v = np.zeros(dim, dtype=np.float32)
+    v[axis] = 1.0
+    return v
+
+
+@pytest.fixture()
+def room_query_manager(tmp_storage):
+    """Manager with two well-separated rooms and known per-axis embeddings.
+
+    Embedding space is 4-dim:
+      - axis 0  → "kitchen" centroid
+      - axis 1  → "bedroom" centroid
+      - axis 2  → unrelated probe
+      - axis 3  → unrelated probe
+
+    The encoder mock encodes images by axis lookup and encodes text by a
+    `text -> unit-vector` table the test injects.
+    """
+    mgr = SemanticMapManager(storage_dir=tmp_storage)
+    mock_encoder = MagicMock()
+    mock_encoder.enabled = True
+    mock_encoder.has_text_encoder = True
+    # Image side never gets called during query (we feed embeddings
+    # directly to add_observation), but the room classifier might invoke
+    # encode_text during stamping if the test omits room_label metadata.
+    mock_encoder.encode_image.return_value = _unit_vector(4, 0)
+
+    # Default text table — tests override via mock_encoder.encode_text.side_effect.
+    text_table: dict[str, np.ndarray] = {
+        "the room with the cooking surface": _unit_vector(4, 0),
+        "the room with the bed": _unit_vector(4, 1),
+    }
+
+    def _encode_text(text: str) -> np.ndarray:
+        return text_table.get(text, np.zeros(4, dtype=np.float32))
+
+    mock_encoder.encode_text.side_effect = _encode_text
+    mgr._clip_encoder = mock_encoder
+
+    # Two kitchen nodes near origin; two bedroom nodes far away. No
+    # cross edges because of the 2 m proximity threshold.
+    kitchen_emb = _unit_vector(4, 0)
+    bedroom_emb = _unit_vector(4, 1)
+    ts = time.time()
+    mgr.add_observation(
+        pose=_make_pose(0.0, 0.0),
+        timestamp=ts,
+        clip_embedding=kitchen_emb,
+        metadata={"room_label": "kitchen", "room_conf": 0.9},
+    )
+    mgr.add_observation(
+        pose=_make_pose(1.0, 0.0),
+        timestamp=ts,
+        clip_embedding=kitchen_emb,
+        metadata={"room_label": "kitchen", "room_conf": 0.9},
+    )
+    mgr.add_observation(
+        pose=_make_pose(50.0, 50.0),
+        timestamp=ts,
+        clip_embedding=bedroom_emb,
+        metadata={"room_label": "bedroom", "room_conf": 0.9},
+    )
+    mgr.add_observation(
+        pose=_make_pose(51.0, 50.0),
+        timestamp=ts,
+        clip_embedding=bedroom_emb,
+        metadata={"room_label": "bedroom", "room_conf": 0.9},
+    )
+    return mgr
+
+
+class TestQueryRoomByText:
+    def test_ranking_top1_correct(self, room_query_manager):
+        results = room_query_manager.query_room_by_text(
+            "the room with the cooking surface",
+        )
+        assert results
+        top_room, top_sim = results[0]
+        assert top_room.label == "kitchen"
+        assert top_sim == pytest.approx(1.0, abs=1e-5)
+        # All rooms ranked, descending by similarity.
+        sims = [s for _, s in results]
+        assert sims == sorted(sims, reverse=True)
+
+    def test_ranking_swaps_with_query(self, room_query_manager):
+        results = room_query_manager.query_room_by_text(
+            "the room with the bed",
+        )
+        assert results
+        assert results[0][0].label == "bedroom"
+
+    def test_n_results_truncates(self, room_query_manager):
+        results = room_query_manager.query_room_by_text(
+            "the room with the cooking surface", n_results=1,
+        )
+        assert len(results) == 1
+        assert results[0][0].label == "kitchen"
+
+    def test_zero_n_results_returns_empty(self, room_query_manager):
+        assert room_query_manager.query_room_by_text(
+            "anything", n_results=0,
+        ) == []
+
+    def test_unknown_text_returns_empty(self, room_query_manager):
+        # The text table returns zeros for any key not in it; treated as
+        # an encode failure, returns [].
+        assert room_query_manager.query_room_by_text(
+            "totally unknown query phrase",
+        ) == []
+
+    def test_disabled_encoder_returns_empty(self, tmp_storage):
+        mgr = SemanticMapManager(storage_dir=tmp_storage)
+        disabled = MagicMock()
+        disabled.enabled = False
+        disabled.has_text_encoder = False
+        mgr._clip_encoder = disabled
+        assert mgr.query_room_by_text("the kitchen") == []
+
+    def test_vision_only_backbone_raises(self, tmp_storage):
+        mgr = SemanticMapManager(storage_dir=tmp_storage)
+        vision_only = MagicMock()
+        vision_only.enabled = True
+        vision_only.has_text_encoder = False
+        mgr._clip_encoder = vision_only
+        with pytest.raises(NotImplementedError, match="vision-only"):
+            mgr.query_room_by_text("the kitchen")
+
+    def test_empty_map_returns_empty(self, tmp_storage):
+        mgr = SemanticMapManager(storage_dir=tmp_storage)
+        ok = MagicMock()
+        ok.enabled = True
+        ok.has_text_encoder = True
+        ok.encode_text.return_value = _unit_vector(4, 0)
+        mgr._clip_encoder = ok
+        assert mgr.query_room_by_text("anything") == []
+
+    def test_room_entry_label_unchanged_by_query(self, room_query_manager):
+        labels_before = {r.label for r in room_query_manager.known_rooms()}
+        _ = room_query_manager.query_room_by_text(
+            "the room with the cooking surface",
+        )
+        labels_after = {r.label for r in room_query_manager.known_rooms()}
+        assert labels_before == labels_after == {"kitchen", "bedroom"}
+
+    def test_centroid_cache_invalidated_on_add(self, room_query_manager):
+        """Adding nodes past the growth-fraction trigger refreshes centroids."""
+        # Warm the centroid cache.
+        first = room_query_manager.query_room_by_text(
+            "the room with the cooking surface",
+        )
+        assert first
+        cached_kitchen = room_query_manager._room_centroid_cache.get("kitchen")
+        assert cached_kitchen is not None and cached_kitchen.size > 0
+
+        # Add enough kitchen-axis nodes to push past the 10 % growth gate
+        # AND a single off-axis ringer that should drift the centroid.
+        ringer_emb = _unit_vector(4, 2)  # orthogonal to the kitchen axis.
+        ts = time.time()
+        for i in range(6):
+            room_query_manager.add_observation(
+                pose=_make_pose(0.2 * i, 0.0),
+                timestamp=ts,
+                clip_embedding=ringer_emb,
+                metadata={"room_label": "kitchen", "room_conf": 0.5},
+            )
+
+        # The centroid cache must have been invalidated (either by
+        # add_observation's explicit reset OR by the growth-fraction
+        # refresh inside _get_known_rooms_cached).
+        results = room_query_manager.query_room_by_text(
+            "the room with the cooking surface",
+        )
+        assert results
+        # Kitchen now has a mix of axis-0 and axis-2 embeddings, so its
+        # similarity to the pure axis-0 query must be < 1.0.
+        kitchen_sim = next(
+            sim for room, sim in results if room.label == "kitchen"
+        )
+        assert kitchen_sim < 1.0
+
+    def test_cache_hit_on_repeat_call(self, room_query_manager):
+        """Two back-to-back calls should hit the centroid cache."""
+        with patch.object(
+            room_query_manager._collection,
+            "get",
+            wraps=room_query_manager._collection.get,
+        ) as spy:
+            room_query_manager.query_room_by_text("the room with the bed")
+            calls_first = spy.call_count
+            room_query_manager.query_room_by_text("the room with the bed")
+            calls_second = spy.call_count
+        # Second call must not re-fetch embeddings from ChromaDB.
+        assert calls_second == calls_first
+
+    def test_known_rooms_label_preserved_after_query(self, room_query_manager):
+        rooms_before = room_query_manager.known_rooms()
+        _ = room_query_manager.query_room_by_text("the room with the bed")
+        rooms_after = room_query_manager.known_rooms()
+        for before, after in zip(
+            sorted(rooms_before, key=lambda r: r.label),
+            sorted(rooms_after, key=lambda r: r.label),
+        ):
+            assert before.label == after.label
+            assert before.member_node_ids == after.member_node_ids

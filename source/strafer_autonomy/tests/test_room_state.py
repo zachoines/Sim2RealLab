@@ -20,6 +20,7 @@ from strafer_autonomy.semantic_map.room_state import (
     aggregate_room_entries,
     cluster_nodes,
     infer_connectivity,
+    pool_clip,
 )
 
 
@@ -350,3 +351,50 @@ class TestInferConnectivity:
         nav2 = MagicMock(side_effect=RuntimeError("Nav2 server unavailable"))
         # Should not raise.
         assert infer_connectivity(g, entries, nav2_reachable=nav2) == []
+
+
+# ---------------------------------------------------------------------------
+# pool_clip
+# ---------------------------------------------------------------------------
+
+
+class TestPoolClip:
+    def test_empty_returns_zero_length(self):
+        out = pool_clip([])
+        assert out.shape == (0,)
+
+    def test_all_zero_inputs_returns_zero_length(self):
+        out = pool_clip([np.zeros(4), np.zeros(4)])
+        assert out.shape == (0,)
+
+    def test_mean_then_normalize(self):
+        # Two distinct unit vectors at 90 degrees: mean has norm 1/sqrt(2);
+        # normalizing yields the bisector unit vector.
+        a = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+        b = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+        out = pool_clip([a, b])
+        expected = np.array([1.0, 1.0, 0.0]) / np.sqrt(2)
+        assert out.shape == (3,)
+        assert np.allclose(out, expected, atol=1e-6)
+        assert float(np.linalg.norm(out)) == pytest.approx(1.0, abs=1e-6)
+
+    def test_zero_rows_skipped(self):
+        # Mix of valid + zero embeddings — zeros must be ignored, not
+        # averaged in (averaging them would pull the centroid toward 0).
+        valid = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+        out = pool_clip([valid, np.zeros(3, dtype=np.float32)])
+        assert np.allclose(out, valid, atol=1e-6)
+
+    def test_single_input(self):
+        v = np.array([0.6, 0.8, 0.0], dtype=np.float32)  # already unit
+        out = pool_clip([v])
+        assert np.allclose(out, v, atol=1e-6)
+
+    def test_none_entries_skipped(self):
+        valid = np.array([1.0, 0.0], dtype=np.float32)
+        out = pool_clip([None, valid, None])  # type: ignore[list-item]
+        assert np.allclose(out, valid, atol=1e-6)
+
+    def test_returns_float32(self):
+        out = pool_clip([np.array([1.0, 0.0], dtype=np.float64)])
+        assert out.dtype == np.float32

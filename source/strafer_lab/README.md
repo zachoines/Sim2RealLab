@@ -346,7 +346,7 @@ Jetson side (either mode) launches `bringup_sim_in_the_loop.launch.py` from [`st
 The package has two test trees with different runtime assumptions:
 
 - **`test/`** — env / sensor / reward / observation suites that need Isaac Sim. The root `test/conftest.py` boots Kit headlessly once per session; use `run_tests.py` for clean output (direct pytest is drowned by Kit startup noise, and the root conftest calls `os._exit()` before pytest can print its summary).
-- **`tests/`** — pure-Python suites that exercise plumbing without Isaac Sim (today: `test_export_policy.py` for the export tooling helpers). Run via plain `pytest`; no Kit boot, sub-second iteration.
+- **`tests/`** — pure-Python suites that exercise plumbing without Isaac Sim (today: `test_export_policy.py` for the export tooling helpers, `test_load_policy.py` for the `strafer_shared.policy_interface` loader contract, `test_obs_contract_parity.py` for the policy observation contract). Run via plain `pytest`; no Kit boot, sub-second iteration.
 
 ```bash
 cd /home/zachoines/Workspace/Sim2RealLab/source/strafer_lab

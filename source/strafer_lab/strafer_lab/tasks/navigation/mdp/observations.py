@@ -20,8 +20,29 @@ if TYPE_CHECKING:
     from isaaclab.sensors import TiledCamera, Camera, Imu
 import warp as wp
 
+from strafer_shared.mecanum_kinematics import INVERSE_KINEMATIC_MATRIX
+
 # XYZW quaternion component indices (Isaac Lab 3.0 convention)
 QX, QY, QZ, QW = 0, 1, 2, 3
+
+
+# Cache the torch-tensor form of the inverse mecanum kinematic matrix
+# keyed by (device, dtype). The matrix maps wheel angular velocities
+# [FL, FR, RL, RR] (rad/s) -> body twist [vx, vy, omega] (m/s, m/s, rad/s).
+_INVERSE_KINEMATIC_TORCH_CACHE: dict[tuple[str, torch.dtype], torch.Tensor] = {}
+
+
+def _get_inverse_kinematic_matrix_torch(
+    device: torch.device, dtype: torch.dtype
+) -> torch.Tensor:
+    key = (str(device), dtype)
+    cached = _INVERSE_KINEMATIC_TORCH_CACHE.get(key)
+    if cached is None:
+        cached = torch.from_numpy(INVERSE_KINEMATIC_MATRIX).to(
+            device=device, dtype=dtype
+        )
+        _INVERSE_KINEMATIC_TORCH_CACHE[key] = cached
+    return cached
 
 
 def _to_torch(x: object) -> torch.Tensor:
@@ -440,10 +461,27 @@ def goal_heading_to_goal(env: ManagerBasedEnv, command_name: str) -> torch.Tenso
 
 
 def body_velocity_xy(env: ManagerBasedEnv) -> torch.Tensor:
-    """Get body-frame linear velocity (vx, vy) from simulation ground truth.
+    """Get body-frame (vx, vy) from encoder-derived forward kinematics.
 
-    Equivalent to running forward kinematics on encoder readings in the real
-    system (``encoder_ticks_to_body_velocity``).
+    Mirrors the real-robot signal chain: USD wheel-joint velocities (the
+    sim's encoder proxy) -> mecanum inverse kinematics -> body twist. On
+    the Jetson, ``/strafer/odom`` is produced by the chassis driver from
+    ``/strafer/joint_states.velocity`` via the same inverse-FK math; using
+    that chain here keeps the policy's training-time signal distribution
+    aligned with the deployment-time signal distribution rather than
+    biased toward sim ground truth.
+
+    Encoder noise: this function returns the clean FK of the raw joint
+    velocity tensor. The ``wheel_encoder_velocities`` policy obs term
+    applies its ``noise=`` (an ``EncoderNoiseModel``) via Isaac Lab's
+    obs-manager AFTER the function returns, so that noise sample does
+    NOT propagate into ``body_velocity_xy``. The two policy-side terms
+    therefore see independent encoder noise channels even though both
+    are derived from the same upstream joint velocities. On the real
+    robot encoder noise and odom noise are the SAME physical noise
+    (one signal chain); closing that gap requires a per-tick noised-
+    ticks cache plus a policy/critic obs-function split, tracked as a
+    separate follow-up.
 
     Args:
         env: The environment instance.
@@ -451,9 +489,13 @@ def body_velocity_xy(env: ManagerBasedEnv) -> torch.Tensor:
     Returns:
         Body velocity (vx, vy) in m/s. Shape: (num_envs, 2)
     """
-    robot = env.scene["robot"]
-    # root_lin_vel_b is body-frame linear velocity (x, y, z)
-    return wp.to_torch(robot.data.root_lin_vel_b)[:, :2]
+    raw_ticks = wheel_encoder_velocities(env)  # (num_envs, 4) ticks/s
+    wheel_rad_s = raw_ticks * ENCODER_TICKS_TO_RADIANS  # (num_envs, 4) rad/s
+    inverse_k = _get_inverse_kinematic_matrix_torch(
+        raw_ticks.device, raw_ticks.dtype
+    )  # (3, 4) maps wheel rad/s -> [vx, vy, omega]
+    body_twist = wheel_rad_s @ inverse_k.T  # (num_envs, 3)
+    return body_twist[:, :2]
 
 
 def privileged_ground_truth(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:

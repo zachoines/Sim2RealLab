@@ -21,7 +21,10 @@ from strafer_shared.constants import (
     PERCEPTION_WIDTH,
     WHEEL_JOINT_NAMES,
 )
-from strafer_shared.mecanum_kinematics import wheel_vels_to_ticks_per_sec
+from strafer_shared.mecanum_kinematics import (
+    l1_clamp_twist as l1_clamp_velocity,
+    wheel_vels_to_ticks_per_sec,
+)
 
 
 _BLOCK_H = PERCEPTION_HEIGHT // DEPTH_HEIGHT  # 6
@@ -134,31 +137,6 @@ def joint_state_to_wheel_vels(
     return np.array(
         [lookup[n] for n in WHEEL_JOINT_NAMES], dtype=np.float64
     )
-
-
-def l1_clamp_velocity(
-    vx: float, vy: float, omega: float,
-    *,
-    vel_cap_linear_m_s: float,
-    vel_cap_angular_rad_s: float,
-) -> tuple[float, float, float]:
-    """Cap (vx, vy) jointly under an L1 budget; cap omega independently.
-
-    The chassis can't reach max forward + max lateral simultaneously
-    (per-wheel motor cap). Scaling vx and vy by the same factor keeps
-    the commanded heading; clipping each axis independently would
-    skew it.
-    """
-    l1 = abs(vx) + abs(vy)
-    if l1 > vel_cap_linear_m_s and l1 > 0.0:
-        scale = vel_cap_linear_m_s / l1
-        vx *= scale
-        vy *= scale
-    if omega > vel_cap_angular_rad_s:
-        omega = vel_cap_angular_rad_s
-    elif omega < -vel_cap_angular_rad_s:
-        omega = -vel_cap_angular_rad_s
-    return float(vx), float(vy), float(omega)
 
 
 def build_raw_obs_dict(

@@ -307,7 +307,10 @@ Re-training implication:
   Phase 5's training run, file as its own brief if the PPO trainer
   doesn't fire `reset()` on the mid-episode goal-update path. Not
   this brief's scope.
-- **TF staleness in sim training.** Likely covered by
-  [`domain-randomization-audit`](domain-randomization-audit.md)'s
-  "Jetson jitter" scope; confirm with the DGX agent before
-  duplicating.
+- **TF staleness in sim training.** Folded into
+  [`domain-randomization-audit`](domain-randomization-audit.md) as a
+  dedicated gap-table row + Phase 1 measurement step + Phase 2
+  config update (sibling to the control-rate-jitter knob — jitter
+  randomizes *when* the policy ticks, TF staleness randomizes
+  *when* the policy's spatial reference frame last updated). Pick
+  it up there, not here.

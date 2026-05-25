@@ -266,7 +266,13 @@ class _DepthGRUExportModel(nn.Module):
         super().__init__()
         self.scalar_obs_dim = model._scalar_obs_dim
         self.depth_obs_dim = model._depth_obs_dim
-        self.depth_encoder = copy.deepcopy(model.depth_encoder)
+        # Swap DeFM's un-scriptable backbone (BiFPN's sum-generator) for a
+        # pre-traced pipeline when the underlying encoder is DeFM; pure-tensor
+        # CNNs script as-is. Mirrors the ONNX-side conditional below.
+        if isinstance(model.depth_encoder, DeFMDepthEncoder):
+            self.depth_encoder = _TorchSafeDeFMDepthEncoder(model.depth_encoder)
+        else:
+            self.depth_encoder = copy.deepcopy(model.depth_encoder)
         self.obs_normalizer = copy.deepcopy(model.obs_normalizer)
         self.rnn = copy.deepcopy(model.rnn.rnn)
         self.mlp = copy.deepcopy(model.mlp)
@@ -307,6 +313,8 @@ def _onnx_safe_defm_preprocess(
     target_size: int = _DEFM_INPUT_SIZE,
     max_depth_c1: float = 100.0,
     max_depth_c2: float = 9.0,
+    mean: torch.Tensor | None = None,
+    std: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """ONNX-traceable DeFM preprocessing.
 
@@ -346,8 +354,16 @@ def _onnx_safe_defm_preprocess(
     x3 = F.interpolate(
         x3, size=(target_size, target_size), mode="bilinear", align_corners=False, antialias=False
     )
-    mean = torch.tensor(_DEFM_MEAN, dtype=x3.dtype, device=x3.device).view(1, 3, 1, 1)
-    std = torch.tensor(_DEFM_STD, dtype=x3.dtype, device=x3.device).view(1, 3, 1, 1)
+    # Callers can pass mean/std as pre-allocated tensors (e.g. module
+    # buffers) so the trace path records buffer accesses instead of
+    # creating fresh tensors. Trace-baked ``torch.tensor(...)`` pins to the
+    # trace-time device and breaks ``torch.jit.load(map_location=...)``;
+    # buffers move with the module. ONNX export tolerates either form
+    # because ONNX Runtime EPs normalise device at session init.
+    if mean is None:
+        mean = torch.tensor(_DEFM_MEAN, dtype=x3.dtype, device=x3.device).view(1, 3, 1, 1)
+    if std is None:
+        std = torch.tensor(_DEFM_STD, dtype=x3.dtype, device=x3.device).view(1, 3, 1, 1)
     x3 = (x3 - mean) / std
 
     # BiFPN expects spatial dims that are multiples of 32; 224 already
@@ -382,6 +398,84 @@ class _OnnxSafeDeFMDepthEncoder(nn.Module):
             out = self.backbone(x)
             features = out["global_backbone"]
         return self.projection(features)
+
+
+class _DeFMTracePipeline(nn.Module):
+    """Pure-Python ``preprocess -> backbone -> projection`` wrapper for tracing.
+
+    Folded into a single ``forward`` so ``torch.jit.trace`` captures the full
+    pipeline -- including the ``out["global_backbone"]`` dict index (un-
+    scriptable as a free expression) and the keyword-only args on
+    ``_onnx_safe_defm_preprocess`` -- as one static computation graph. The
+    traced ``ScriptModule`` is then opaque to ``torch.jit.script`` callers
+    on the outer wrapper.
+    """
+
+    def __init__(self, backbone: nn.Module, projection: nn.Module) -> None:
+        super().__init__()
+        self.backbone = backbone
+        self.projection = projection
+        # Register the DeFM normalisation constants as buffers so the trace
+        # records buffer accesses (which follow ``torch.jit.load(map_location
+        # =cuda)``) rather than baked CPU constants from ``torch.tensor(...)``.
+        self.register_buffer(
+            "defm_mean",
+            torch.tensor(_DEFM_MEAN, dtype=torch.float32).view(1, 3, 1, 1),
+        )
+        self.register_buffer(
+            "defm_std",
+            torch.tensor(_DEFM_STD, dtype=torch.float32).view(1, 3, 1, 1),
+        )
+
+    def forward(self, depth_flat: torch.Tensor) -> torch.Tensor:
+        x = _onnx_safe_defm_preprocess(
+            depth_flat, mean=self.defm_mean, std=self.defm_std
+        )
+        with torch.no_grad():
+            features = self.backbone(x)["global_backbone"]
+        return self.projection(features)
+
+
+class _TorchSafeDeFMDepthEncoder(nn.Module):
+    """TorchScript-exportable mirror of ``DeFMDepthEncoder``.
+
+    ``torch.jit.script(_DepthGRUExportModel)`` fails when the depth encoder
+    is a ``DeFMDepthEncoder`` because DeFM's
+    ``BiFPN.WeightedFusion.forward`` uses ``sum(generator)`` over a list of
+    tensors, which TorchScript's static-type inference cannot resolve. This
+    wrapper pre-traces the full ``preprocess -> backbone -> projection``
+    pipeline at ``__init__`` so the scripter on the enclosing module
+    encounters an opaque ``ScriptModule`` rather than the un-scriptable
+    Python below.
+
+    Trace is at the fixed input shape ``(1, _DEFAULT_DEPTH_OBS_DIM)`` --
+    matches the batch-1 deployment-inference contract; the resulting
+    artifact is not reusable at other batch sizes, which is consistent with
+    the rest of the export path.
+
+    Mirrors the ONNX-side ``_OnnxSafeDeFMDepthEncoder`` pattern. The
+    backbone + projection weights are deep-copied from the trained encoder
+    before tracing, so the embedding stays anchored to the checkpoint.
+    """
+
+    def __init__(self, encoder: DeFMDepthEncoder) -> None:
+        super().__init__()
+        # Trace on CPU. The trained encoder is typically on CUDA but the
+        # exported artifact targets CPU inference (export_torchscript /
+        # export_onnx do ``module.eval().cpu()``); tracing on CPU avoids
+        # a device-mismatch crash inside the trace and matches the device
+        # the downstream save/load round-trip operates on.
+        pipeline = _DeFMTracePipeline(
+            copy.deepcopy(encoder.backbone),
+            copy.deepcopy(encoder.projection),
+        )
+        pipeline.cpu().eval()
+        dummy = torch.zeros(1, _DEFAULT_DEPTH_OBS_DIM, dtype=torch.float32)
+        with torch.no_grad():
+            self.traced = torch.jit.trace(pipeline, dummy)
+
+    def forward(self, depth_flat: torch.Tensor) -> torch.Tensor:
+        return self.traced(depth_flat)
 
 
 class _OnnxDepthGRUModel(nn.Module):

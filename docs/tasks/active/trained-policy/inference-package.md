@@ -68,11 +68,12 @@ Read these before starting:
 - [context/bridge-runtime-invariants.md](../../context/bridge-runtime-invariants.md)
   — particularly the "Camera resolutions (sim mirrors real)" section,
   which is load-bearing for Phase 2's depth-downsample stage.
-- [recurrent-state-contract.md](recurrent-state-contract.md) — the
-  canonical spec for when `policy.reset()` fires at episode
-  boundaries. Read before writing the Phase 3 `reset()` call sites;
-  do not redefine the trigger set in this brief — consume it from
-  the contract.
+- [context/recurrent-policy-contract.md](../../context/recurrent-policy-contract.md)
+  — the canonical spec for hidden-state shape, reset semantics,
+  per-tick state threading, determinism, and thread-safety across
+  the train -> export -> inference chain. Read before writing the
+  Phase 3 `reset()` call sites; do not redefine the trigger set in
+  this brief — consume it from the contract (point 4).
 - [observation-contract-cleanup.md](../../completed/observation-contract-cleanup.md)
   — load-bearing predecessor for the Phase 2 NOCAM-fields obs-parity
   acceptance (≤ 1e-5 max abs delta). `body_velocity_xy` now does
@@ -303,14 +304,18 @@ guarantee — if it doesn't hold, the policy will not transfer.
   launch-time failure, not silent degradation. The autonomy-side
   `JetsonRosClient` then sees the action server as unavailable
   and falls back to `nav2`.
-- **Determinism contract:** the loaded callable must be
-  deterministic — same observation → same action across calls.
-  PPO trained via rsl_rl produces a Gaussian policy (mean + std);
-  the export step (DGX-lane,
-  [`policy-export-tooling.md`](../../completed/policy-export-tooling.md)) freezes
-  the deterministic head. Phase 3 asserts this with a unit test:
-  feed the same obs vector twice, assert byte-identical action
-  outputs.
+- **Determinism contract:** per
+  [`context/recurrent-policy-contract.md`](../../context/recurrent-policy-contract.md)
+  point 5 — for a recurrent artifact (the DEPTH variant), the
+  determinism assertion is "two same-obs calls with `reset()` between
+  them are byte-identical." Do NOT assert byte-identity between
+  consecutive calls without reset; that asserts the model is
+  stateless and would force a false-positive failure on the
+  recurrent path. PPO trained via rsl_rl produces a Gaussian policy
+  (mean + std); the export step
+  ([`policy-export-tooling.md`](../../completed/policy-export-tooling.md))
+  freezes the deterministic head, so on top of the reset+same-obs
+  case, the action stream is fully reproducible.
 - **TRT execution provider is required** (DEPTH inference on the
   Jetson Orin Nano is too slow on CPU/CUDA-EP alone). The export
   brief produces `.onnx` + (optionally) a pre-built `.engine`

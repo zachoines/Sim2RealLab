@@ -33,11 +33,11 @@ plateauing well above the budget on the 4819-dim observation vector**.
 Read these before starting:
 - [context/repo-topology.md](../context/repo-topology.md)
 - [context/ownership-boundaries.md](../context/ownership-boundaries.md)
-- [recurrent-state-contract.md](../active/trained-policy/recurrent-state-contract.md) — the
+- [context/recurrent-policy-contract.md](../context/recurrent-policy-contract.md) — the
   canonical spec for hidden-state shape, reset semantics, and the
   determinism contract this brief's producer side must satisfy. Read
   before writing `_OnnxDepthGRUModel`; the contract pins what `h_in`
-  / `h_out` look like at the seam.
+  / `h_out` look like at the seam (points 1 + 3).
 - [policy-export-tooling.md](policy-export-tooling.md) — the export
   tooling whose `--formats pt,onnx` path errors today on DEPTH
   variants because of the gap this brief closes.

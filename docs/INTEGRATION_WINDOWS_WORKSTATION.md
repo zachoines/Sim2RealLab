@@ -215,12 +215,22 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   software-properties-common locales pkg-config cmake \
   libglu1-mesa libxi6 libxrandr2 libxcursor1 libxinerama1 \
   libgl1 libegl1 libxkbcommon0 libxrender1 libsm6 libice6 \
+  libvulkan1 vulkan-tools mesa-vulkan-drivers \
   iputils-ping net-tools
 sudo locale-gen en_US.UTF-8
+
+# WSL2 ships nvidia-smi at /usr/lib/wsl/lib/nvidia-smi; some Kit plugins
+# look in /usr/bin. Symlink to silence the noise.
+if [ ! -e /usr/bin/nvidia-smi ] && [ -e /usr/lib/wsl/lib/nvidia-smi ]; then
+  sudo ln -sf /usr/lib/wsl/lib/nvidia-smi /usr/bin/nvidia-smi
+fi
 ```
 
 The X11/GL libs are required by Isaac Sim's Kit runtime even on
-headless launches (Kit dynamically loads them).
+headless launches (Kit dynamically loads them). The Vulkan loader
+package (`libvulkan1`) is required by Kit's renderer; see the
+"Vulkan-on-WSL2" gotcha below for the NVIDIA ICD setup that
+`libvulkan1` alone doesn't cover.
 
 ---
 
@@ -542,6 +552,49 @@ From a Windows PowerShell prompt without first opening a WSL shell:
   pub` and `rclpy` clients run under system Python 3.10 from
   `/opt/ros/humble`. Don't `pip install rclpy` into `env_isaaclab3` —
   use Kit's bundled rclpy when inside Kit, system rclpy when outside.
+
+- **Vulkan-on-WSL2 with NVIDIA: ICD JSON not auto-installed.**
+  CUDA-on-WSL2 works out of the box (Isaac Sim's compute kernels run
+  on the RTX 4080 fine), but Isaac Sim's *Kit renderer* uses Vulkan.
+  Out of the box, `vulkaninfo` inside the WSL distro only sees
+  `llvmpipe` (software Vulkan), not the host NVIDIA GPU — so Kit
+  errors `vkCreateInstance failed. Vulkan 1.1 is not supported, or
+  your driver requires an update.` and `Failed to create any GPU
+  devices`.
+
+  The reason is that the Linux NVIDIA Vulkan ICD JSON (e.g.
+  `/etc/vulkan/icd.d/nvidia_icd.json`) is not part of the
+  CUDA-on-WSL2 shim that NVIDIA ships at `/usr/lib/wsl/lib/`.
+  Driver-version-dependent: some Windows NVIDIA driver builds carry
+  the Linux Vulkan support in their WSL package; some don't. The
+  bringup reference host (driver 595.97) is in the latter category.
+
+  Workarounds (in order of preference):
+
+  1. **Upgrade the Windows-side NVIDIA driver** to a 600.x+ build
+     that ships the WSL Linux Vulkan ICD. Confirmed by checking
+     `/etc/vulkan/icd.d/nvidia_icd.json` after `wsl --shutdown` +
+     re-launch.
+  2. **Install `libnvidia-gl-<branch>` from NVIDIA's CUDA-on-WSL apt
+     repo** per [NVIDIA's CUDA-on-WSL user
+     guide](https://docs.nvidia.com/cuda/wsl-user-guide/index.html);
+     that package historically delivered the ICD JSON to the right
+     path.
+  3. **Software Vulkan (LLVMpipe)** for contract / import smoke
+     only: `export
+     VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json`
+     before launching Kit. Kit boots and the bridge OmniGraph
+     constructs, but rendering is CPU-bound and unrepresentative of
+     RTX 4080 perf. Not suitable for the brief's perf-baseline
+     bullet.
+
+  Until one of the workarounds is in place, the bridge cold-starts
+  to the renderer-init stage then aborts; the install path itself
+  (imports, conda env, Isaac Sim, IsaacLab, strafer_lab) is
+  otherwise validated. The Vulkan-on-WSL2 setup investigation is
+  tracked in
+  [`docs/tasks/active/tooling/windows-workstation-bringup.md`](tasks/active/tooling/windows-workstation-bringup.md)'s
+  decision log.
 
 ---
 

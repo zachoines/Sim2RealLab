@@ -119,9 +119,55 @@ architecture for the rest of the brief.
   `~/.wslconfig.pre-bringup.bak`.
 - **Phase 1 acceptance — viable**: `nvidia-smi -L` inside the new
   distro reports the RTX 4080, confirming CUDA-on-WSL2 works.
-- **Phase 2 deferral**: end-to-end mission validation against the
-  Jetson is gated on the Jetson being powered up on the LAN. At spike
-  time the Jetson was unreachable from both the Windows host and the
-  WSL2 distro. Standalone install + bridge perf capture proceed
-  unblocked; cross-host mission validation must run when the Jetson is
-  back up.
+- **Phase 2 deferral — Jetson reachability**: end-to-end mission
+  validation against the Jetson is gated on the Jetson being powered
+  up on the LAN. At spike time the Jetson was unreachable from both
+  the Windows host and the WSL2 distro. Standalone install + bridge
+  perf capture proceed unblocked; cross-host mission validation must
+  run when the Jetson is back up.
+
+- **Phase 2 blocker — Vulkan-on-WSL2 with NVIDIA driver 595.97.**
+  Isaac Sim's Kit renderer requires Vulkan 1.1+. Inside the
+  bringup-spike WSL2 distro:
+  - CUDA works (`nvidia-smi -L` returns the RTX 4080; Warp can
+    detect `cuda:0`; the conda env's `isaacsim>=6.0.0` imports
+    cleanly).
+  - Vulkan loader is installed (`libvulkan1` 1.3.204), but **no
+    NVIDIA ICD JSON is present**. `/usr/share/vulkan/icd.d/` only
+    has Intel / radeon / lvp (LLVMpipe software) / virtio entries;
+    `/etc/vulkan/icd.d/` is empty.
+  - `/usr/lib/wsl/lib/` ships the NVIDIA CUDA shim libs
+    (libnvcuvid, libnvidia-gpucomp, libnvidia-ml, libnvoptix, etc.)
+    but **no `libnvidia-vulkan-producer.so` or `libGLX_nvidia.so`**
+    — Vulkan support is not in this driver's WSL shim.
+  - `/usr/lib/wsl/drivers/nv_dispi.inf_amd64_*/` only contains
+    *Windows* DLLs (`vulkan-1-x64.dll`, `vulkaninfo-x64.exe`),
+    which are useful inside the Windows host but not callable
+    from a Linux ELF binary inside WSL2.
+  Result: `make sim-bridge` reaches Kit cold start successfully then
+  errors with `vkCreateInstance failed. Vulkan 1.1 is not supported,
+  or your driver requires an update.` and `Failed to create any GPU
+  devices, including an attempt with compatibility mode.`
+  Workarounds to investigate (next session):
+  1. Upgrade the host Windows NVIDIA driver to a build that ships a
+     Linux Vulkan shim (some 600.x+ branches do; verify against
+     NVIDIA's [CUDA-on-WSL user
+     guide](https://docs.nvidia.com/cuda/wsl-user-guide/index.html)).
+  2. Install `libnvidia-gl-<branch>` from NVIDIA's CUDA repo (per
+     CUDA-on-WSL doc); historically this was the package that
+     delivered `nvidia_icd.json` to `/etc/vulkan/icd.d/`.
+  3. Author the ICD JSON manually pointing at whichever WSL-shipped
+     lib actually exports the Vulkan ABI (`libnvoptix_loader.so.1`
+     is the most promising candidate name but unverified).
+  Workaround for unblocking standalone tests in the meantime:
+  `export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json`
+  forces LLVMpipe software Vulkan — Kit will boot but rendering is
+  CPU-bound and unrepresentative of RTX 4080 perf. Suitable for
+  contract / import smoke only.
+
+- **Drift blocker (separate brief)**: strafer_lab's bridge imports
+  also drift against IsaacLab `develop` tip after PR #4741 and
+  against `rsl-rl-lib` 3.x. Tracked in
+  [`isaaclab-develop-upgrade.md`](isaaclab-develop-upgrade.md). The
+  runbook handles both via SHA pin (`ae41e2aca68`) + manual rsl_rl
+  upgrade — when the upgrade brief ships, drop both workarounds.

@@ -31,6 +31,31 @@ API-breaking refactors. The Windows-workstation bringup (commit
   `source/strafer_lab/strafer_lab/tasks/navigation/agents/distributions.py:22`
   and any other `from isaaclab.utils import <name>` in `strafer_lab/`.
 
+- **`rsl_rl-lib` version drift.** At commit `ae41e2aca68`,
+  `./isaaclab.sh --install rl` pins `rsl-rl-lib==3.1.2`. strafer_lab's
+  `distributions.py` (docstring: "Affine-Beta distribution for
+  rsl_rl 5.0") imports `from rsl_rl.modules.distribution import
+  Distribution` — that submodule first appears in `rsl-rl-lib` 4.x+
+  (latest is 5.3.0). New installs must `pip install --upgrade
+  rsl-rl-lib` after IsaacLab's installer or strafer_lab won't import.
+  The Windows runbook documents this manual step; pulling rsl_rl
+  into IsaacLab's own pin (or pinning it in `strafer_lab/pyproject.toml`)
+  removes the foot-gun.
+
+- **PhysX-on-WSL2 GPU integration is currently broken.** Spike via
+  `test_strafer_env.py --env Isaac-Strafer-Nav-Real-NoCam-v0
+  --num_envs 1 --duration 5` on the Windows-via-WSL2 bringup logs
+  `omni.physx.plugin: No CUDA context manager available; forcing CPU
+  simulation` then `PhysX warning: GPU Bp pipeline failed, switching
+  to software`, followed by `Warp` kernel device mismatch
+  (`cuda:0` vs `cpu`) when `articulation_data.body_com_pose_w` tries
+  to read PhysX state. CUDA itself works (`nvidia-smi -L` and Warp
+  cuda device detection are fine inside WSL2); the issue is
+  specifically PhysX's CUDA-context handshake. Likely related to the
+  Kit experience file or a missing env var on WSL2-x86_64 — needs
+  investigation. This affects the Windows bringup's acceptance bullet
+  "`make sim-bridge` runs end-to-end" until resolved.
+
 The Windows bringup pinned IsaacLab to `ae41e2aca68` to ship; this
 brief is the follow-up that actually catches up.
 

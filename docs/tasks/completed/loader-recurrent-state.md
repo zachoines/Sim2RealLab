@@ -33,7 +33,7 @@ Read these before starting:
   — particularly the **Shared boundary** section: `strafer_shared`
   edits should be append-friendly; coordinate any signature changes
   with the operator.
-- [recurrent-state-contract.md](recurrent-state-contract.md) — the
+- [context/recurrent-policy-contract.md](../context/recurrent-policy-contract.md) — the
   canonical spec for hidden-state shape, reset semantics, and the
   determinism contract this brief implements. Read before authoring
   `LoadedPolicy`; the contract pins what `reset()` is called for, how

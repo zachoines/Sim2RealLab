@@ -8,6 +8,92 @@ Observation specs must match the simulation's observation groups in:
   source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py (L249-258)
 Normalization scales must match:
   source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py (L225-234)
+
+Recurrent hidden-state contract
+-------------------------------
+
+A recurrent policy's hidden state is owned at three places along the
+train -> export -> inference chain (rsl_rl trainer, the export wrapper
+in ``Scripts/export_policy.py``, the inference-side loader below).
+This section pins the seam-level contract so each layer can be edited
+without re-deriving what the other two assume.
+
+1. **Hidden-state tensor shape.** ``(rnn_num_layers, 1, rnn_hidden_dim)``
+   for batch-1 deployment inference. The trailing-1 is a fixed batch
+   axis: ONNX exports with a symbolic batch dim are collapsed to 1 by
+   ``_resolve_hidden_shape`` below; TorchScript exports are scripted
+   against a buffer of the same shape. ``rnn_num_layers`` and
+   ``rnn_hidden_dim`` come from the rsl_rl runner config (e.g.
+   ``STRAFER_PPO_DEPTH_RUNNER_CFG.actor.rnn_hidden_dim=128``,
+   ``rnn_num_layers=1``). LSTM artifacts carry the pair ``(h, c)`` of
+   identically-shaped tensors; GRU carries ``h`` only.
+
+2. **Initial state.** Always zero on ``load_policy()`` return.
+   TorchScript artifacts initialize via ``register_buffer(...,
+   torch.zeros(...))`` at module load. ONNX artifacts initialize via
+   ``np.zeros(...)`` in :class:`_RecurrentOnnxPolicy.__init__`. There
+   is no warm-start codepath; if an episode benefits from carried
+   state, the caller is responsible for not calling ``reset()``.
+
+3. **Per-tick state threading.**
+   - **TorchScript**: the scripted module owns the state buffer
+     (``register_buffer("hidden_state", ...)``). ``forward(obs)``
+     reads the buffer, runs the RNN, and writes the new state back
+     in-place. The loader holds a reference to the module and never
+     copies the buffer.
+   - **ONNX**: the loader owns persistent ``np.ndarray`` buffers for
+     ``h_in`` (and ``c_in`` on LSTM). Each ``__call__`` feeds the
+     cached state into the session, reads ``h_out`` (and ``c_out``)
+     from the output, and writes them back. If the loader skipped the
+     write-back, the policy would reset every tick and behave like a
+     feedforward MLP with no error raised — a silent-failure mode
+     this contract exists to prevent.
+
+4. **Reset trigger.** :meth:`LoadedPolicy.reset` must be called by
+   the inference node on every "mission episode" boundary. A mission
+   episode is the policy's view of a single contiguous decision
+   problem; the trigger set the inference-side caller commits to:
+
+   - **Action-server goal accepted** (a NEW ``/navigate_to_pose``
+     goal handle, not a re-statement of the current one). The
+     hidden state from the previous mission is no longer relevant.
+   - **Mid-mission goal pose update** (VLM re-grounding produces a
+     new goal). Controlled by an ``is_mid_mission_reset`` config flag
+     in the inference node (default: True). Rationale: the hidden
+     state learned to expect monotonic progress toward the *old*
+     goal; carrying it into a re-grounded mission biases the policy.
+   - **Watchdog trip** (any of the contracted-stale topic sources):
+     the policy is paused. Hidden state stays frozen until the
+     watchdog clears, then the *next* mission boundary calls
+     ``reset()`` as normal. The pause itself does not reset.
+
+   Stateless policies expose a no-op ``reset()`` so callers can
+   invoke it unconditionally without an ``is_recurrent`` branch.
+
+5. **Determinism contract.** Two consecutive calls with the same
+   ``obs`` produce byte-identical actions **iff** ``reset()`` is
+   called between them. Without an intervening ``reset()``, the
+   hidden state has evolved by construction and the two actions
+   differ — that is the recurrent-model definition, not a bug.
+   Determinism probes (e.g.
+   ``Scripts/export_policy.py::_verify_torchscript_determinism``)
+   must condition on this; "byte-identical between consecutive calls"
+   is the wrong assertion for a recurrent artifact and would force
+   the scripted module into a stateless mode that defeats its purpose.
+
+6. **Thread safety.** :class:`LoadedPolicy` and all its subclasses
+   are **NOT thread-safe**. TorchScript recurrent modules mutate
+   ``register_buffer("hidden_state", ...)`` in ``forward``; the ONNX
+   variant mutates ``self._h_in`` (and ``self._c_in``) in
+   ``__call__``. Concurrent ``policy(obs)`` calls from multiple
+   threads race on those buffers. Callers must serialize all policy
+   calls through a single thread, or guard with a mutex if the
+   rclpy executor is a ``MultiThreadedExecutor``.
+
+This docstring is the authoritative in-code statement of the
+contract. Task briefs that touch any seam in the train -> export ->
+inference chain cite it as a single load-bearing reference rather
+than re-deriving the rules per brief.
 """
 
 from __future__ import annotations
@@ -162,14 +248,10 @@ class LoadedPolicy:
     ``reset()``; recurrent artifacts get a ``reset()`` that zeros hidden
     state.
 
-    Thread safety: recurrent variants are **not thread-safe**. TorchScript
-    recurrent modules carry hidden state in a ``register_buffer`` and the
-    ONNX recurrent variant holds persistent numpy buffers for ``h_in`` (and
-    ``c_in`` on LSTM); concurrent ``__call__`` from multiple threads races
-    on that state. Callers must serialize all policy calls through a
-    single thread, or guard with a mutex if they use a multi-threaded
-    rclpy executor. The cross-brief picture lives in the
-    ``recurrent-state-contract`` task brief.
+    Hidden-state shape, reset semantics, determinism, and thread-safety
+    rules are pinned in the "Recurrent hidden-state contract" section of
+    this module's top-level docstring. Loader, exporter, and inference-
+    node edits must hold that contract.
     """
 
     is_recurrent: bool = False

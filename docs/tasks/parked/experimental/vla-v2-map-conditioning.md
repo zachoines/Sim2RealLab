@@ -275,8 +275,10 @@ Single ablation row added to
   *can* share infrastructure — but co-tenancy work is a
   follow-up, not this brief.
 - **Speaker / caption-corpus changes.** This brief consumes
-  whatever
-  [`trajectory-first-captioning`](../../active/harness/trajectory-first-captioning.md)
+  whatever the
+  [Scripted × captioner](../../active/harness/harness-architecture.md#scripted--captioner-trajectory-first-path)
+  mission source in
+  [`harness-architecture`](../../active/harness/harness-architecture.md)
   produces; speaker fine-tuning is its own work.
 - **Multi-floor scene graphs.** Single-story constraint
   carries over from every other multi-room brief.

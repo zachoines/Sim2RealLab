@@ -3,8 +3,8 @@
 **Type:** new feature
 **Owner:** DGX agent
 **Priority:** P2 (data-side foundation for VLA training scale-out
-and oracle-driver consumption; canonical mission queue source for
-multi-room missions, including path-shape language)
+and scripted-driver consumption; canonical mission queue source
+for multi-room missions, including path-shape language)
 **Estimate:** L (~week+; LLM-as-planner pipeline + scene-summary
 formatter + post-validation + caching + corpus-composition tooling)
 **Branch:** task/harness-mission-generator
@@ -38,16 +38,18 @@ Sibling briefs:
 - [`scene-connectivity-validation`](../multi-room/scene-connectivity-validation.md) —
   produces the `connectivity[]` graph this brief consumes. Hard
   prerequisite.
-- [`teleop-driver`](teleop-driver.md) —
-  consumes the queue (operator picks missions to drive); the
-  teleop brief's previously-described auto-queue is replaced by
-  this brief's output.
-- [`oracle-driver`](../../parked/harness/oracle-driver.md) —
-  consumes `planned_path` (the LLM-emitted waypoints) as the
-  oracle's path-tracking input.
-- [`behavior-cloning-data-expansion`](behavior-cloning-data-expansion.md) —
-  defines the schema downstream of mission execution; this
-  brief's `mission.json` plugs into that schema.
+- [`harness-architecture`](harness-architecture.md) —
+  consumes this brief's `mission_queue.yaml` via the `queue`
+  mission source. The
+  [Driver: teleop](harness-architecture.md#driver-teleop) +
+  [Driver: bridge](harness-architecture.md#driver-bridge) display
+  `mission_text` to the operator / dispatch via the autonomy
+  stack respectively; the
+  [Driver: scripted](harness-architecture.md#driver-scripted)
+  consumes `planned_path` as the waypoint-tracking input. Schema
+  downstream of mission execution (LeRobot v3) is defined in the
+  harness brief; this brief's per-row metadata maps onto
+  `meta/episodes.jsonl` fields.
 
 ## Context
 
@@ -195,7 +197,8 @@ LLM reading `scene_metadata.json` can name targets the camera
 will *never see* from the proposed start pose (occluded by
 nearer objects, hidden behind a doorway not yet traversed,
 backside of furniture). The trajectory-first regime
-([`trajectory-first-captioning`](trajectory-first-captioning.md))
+([Scripted × captioner](harness-architecture.md#scripted--captioner-trajectory-first-path)
+in `harness-architecture`)
 sidesteps this because the captioner only sees frames the camera
 actually captured. Forward generation has to enforce it
 explicitly.
@@ -294,12 +297,16 @@ their union.
       generator_version.** Re-running the generator against a
       cache built under a changed template invalidates rather
       than silently reuses.
-- [ ] **Driver consumption.** Both
-      [`teleop-driver`](teleop-driver.md)
-      (operator-display) and
-      [`oracle-driver`](../../parked/harness/oracle-driver.md)
-      (waypoint-following) accept the generated
-      `mission_queue.yaml` unchanged.
+- [ ] **Driver consumption.** All three drivers in
+      [`harness-architecture`](harness-architecture.md) accept
+      the generated `mission_queue.yaml` unchanged when run with
+      `--mission-source queue`:
+      [Driver: teleop](harness-architecture.md#driver-teleop)
+      (operator-display),
+      [Driver: bridge](harness-architecture.md#driver-bridge)
+      (autonomy-stack dispatch), and
+      [Driver: scripted](harness-architecture.md#driver-scripted)
+      (waypoint-following).
 - [ ] **Hallucination benchmark.** Brief PR includes a small
       benchmark: 50 generated missions, manually inspect for
       LLM-hallucinated waypoints (off-mesh, through walls,
@@ -351,8 +358,8 @@ their union.
   risks hallucinating constraints the scene can't satisfy.
 - **Replay-with-perturbation.** Recording the gamepad event
   stream is in scope per
-  [`teleop-driver`](teleop-driver.md); the
-  *replay tool* is a future brief
+  [Driver: teleop](harness-architecture.md#driver-teleop)
+  in `harness-architecture`; the *replay tool* is a future brief
   ([`cosmos-replay-perturbation`](../../parked/harness/cosmos-replay-perturbation.md)
   filed by the audit).
 - **Real-robot mission generation.** Sim-only; depends on

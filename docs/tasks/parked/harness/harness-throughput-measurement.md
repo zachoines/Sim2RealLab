@@ -3,28 +3,27 @@
 **Type:** investigation
 **Owner:** DGX agent
 **Priority:** P2 (blocks
-[`oracle-driver`](oracle-driver.md) acceptance bar +
-[`trajectory-first-captioning`](../../active/harness/trajectory-first-captioning.md)
-acceptance bar; not strictly required before teleop ships but
-should ship before any "scale up to thousands of trajectories"
-work begins)
+[`harness-architecture`](../../active/harness/harness-architecture.md)
+Tier 3 (scripted driver) acceptance bar; not strictly required
+before Tier 1 (teleop) ships but should ship before any "scale up
+to thousands of trajectories" work begins)
 **Estimate:** S–M (~1–2 days; phase profiler + parallel-env sweep
 + VRAM measurement + writeup; no implementation of new drivers)
 **Branch:** task/harness-throughput-measurement
 
 ## Story
 
-As a **DGX operator about to commit weeks of compute to either
-the oracle driver or trajectory-first captioning at "thousands of
-parallel envs" scale**, I want **a single measurement pass that
-characterizes actual harness throughput across realistic env
-counts on the actual scene configs (NoCam vs. perception cam),
-GPU memory, and concurrent-load conditions**, so that **the
-scale-out briefs' `num_envs` arguments and trajectories/hour
-acceptance criteria are anchored to measurement, not assertion,
-and so the operator can pick between the single-config vs.
-two-pass (NoCam-driver + perception-replay) architectures with
-real numbers**.
+As a **DGX operator about to commit weeks of compute to the
+scripted harness driver (oracle or trajectory-first captioner or
+coverage modes) at "thousands of parallel envs" scale**, I want
+**a single measurement pass that characterizes actual harness
+throughput across realistic env counts on the actual scene
+configs (NoCam vs. perception cam), GPU memory, and concurrent-
+load conditions**, so that **the scripted driver's `num_envs`
+argument and trajectories/hour acceptance criteria are anchored
+to measurement, not assertion, and so the operator can pick
+between the single-config vs. two-pass (NoCam-driver +
+perception-replay) architectures with real numbers**.
 
 ## Context bundle
 
@@ -45,18 +44,25 @@ Adjacent perf work:
   parallel throughput, not the cross-host bridge path.
 
 Sibling briefs whose acceptance depends on this:
-- [`oracle-driver`](oracle-driver.md) — `num_envs` target +
-  "100× teleop" target are unmeasured assertions today.
-- [`trajectory-first-captioning`](../../active/harness/trajectory-first-captioning.md) —
-  "64 parallel envs → 2k trajectories / hour" is asserted.
+- [`harness-architecture`](../../active/harness/harness-architecture.md) Tier 3 —
+  the scripted driver's `num_envs` target + per-mode
+  trajectories/hour bars are unmeasured assertions today.
+  The retired
+  [`oracle-driver`](../../completed/oracle-driver.md) and
+  [`trajectory-first-captioning`](../../completed/trajectory-first-captioning.md)
+  briefs are the historical context.
 
 ## Context
 
 ### The assertion the audit can't verify
 
-The current oracle-driver and trajectory-first briefs both
-assume **≥ 64 parallel envs on the DGX**, producing **~2k
-trajectories / hour**. Neither has measurement to back this up.
+The retired oracle-driver and trajectory-first briefs both
+assumed **≥ 64 parallel envs on the DGX**, producing **~2k
+trajectories / hour**, with neither having measurement to back
+it up; the consolidated
+[`harness-architecture`](../../active/harness/harness-architecture.md)
+brief inherits the same gap on its Tier 3 (scripted driver)
+implementation.
 The scene config they'd actually run against —
 `Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0` — flags
 itself in
@@ -75,8 +81,9 @@ There are two scene configs the brief should measure:
    variant used for RL training. Expected to support 256+ envs
    per the same scene-config comment. Useful for the
    "drive-then-replay" two-pass architecture
-   ([`trajectory-first-captioning`](../../active/harness/trajectory-first-captioning.md)
-   names this option).
+   ([`harness-architecture`](../../active/harness/harness-architecture.md)'s
+   Tier 3 scripted-driver design references this option as a
+   parallel-scale path).
 
 Two architectures sit downstream of the measurement:
 
@@ -161,12 +168,12 @@ Plus:
       with the measurement table, the dominant-bottleneck call
       per env count, and a recommendation for the scale-out
       briefs (single-config vs. two-pass).
-- [ ] **Update the scale-out briefs** in the same PR (or file a
-      follow-up if the recommendation requires architectural
-      changes). Specifically, the `num_envs` target and the
-      throughput-acceptance bullet in
-      [`oracle-driver`](oracle-driver.md) and
-      [`trajectory-first-captioning`](../../active/harness/trajectory-first-captioning.md)
+- [ ] **Update the scripted driver's spec** in the same PR (or
+      file a follow-up if the recommendation requires
+      architectural changes). Specifically, the `num_envs` target
+      and the per-mode throughput-acceptance bullets in
+      [`harness-architecture`](../../active/harness/harness-architecture.md)'s
+      [Tier 3](../../active/harness/harness-architecture.md#tier-3--scripted-driver--queuecaptionercoverage-mission-sources-pr-d)
       are reset to the measured ceiling.
 - [ ] If your work invalidates a fact in any referenced context
       module, package README, top-level `Readme.md`, or guide

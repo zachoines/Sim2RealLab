@@ -63,6 +63,7 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 |---|---|---|---|
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | P3 | active | DGX |
 | [`strafer-direct-sim-validation`](active/trained-policy/strafer-direct-sim-validation.md) | P2 | active | Either |
+| [`sim-l1-velocity-clamp`](active/trained-policy/sim-l1-velocity-clamp.md) | P2 | active | DGX |
 | [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | P1 | active | Either |
 | [`encoder-noise-shared-sample`](active/trained-policy/encoder-noise-shared-sample.md) | P2 | active | DGX |
 | [`policy-rate-shared-constants`](active/trained-policy/policy-rate-shared-constants.md) | P2 | active | DGX |
@@ -177,6 +178,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`planner-rotate-direction-prompt`](active/reliability/planner-rotate-direction-prompt.md) | S | Quick win — prompt edit |
 | [`goal-noise-training`](active/trained-policy/goal-noise-training.md) | M | Targeted DEPTH-baseline training pass with goal-position noise; gates VLM-grounded mission quality for `strafer_direct` |
 | [`policy-rate-shared-constants`](active/trained-policy/policy-rate-shared-constants.md) | S (~1 hr) | Delegate `_DEFAULT_NAV_SIM_DT` / `_DEFAULT_NAV_DECIMATION` in `strafer_env_cfg.py` to the new `strafer_shared.constants.POLICY_SIM_DT` / `POLICY_DECIMATION`. Jetson side already consumes the shared constants; this closes the duplication so a future training-rate experiment can't silently desync sim from real |
+| [`sim-l1-velocity-clamp`](active/trained-policy/sim-l1-velocity-clamp.md) | S (~1 day) | Lift `l1_clamp_velocity` from `strafer_inference/obs_pipeline.py` into `strafer_shared.mecanum_kinematics`, wire it into sim's `MecanumWheelAction.process_actions` between denormalization and per-wheel kinematics. Closes a sim-to-real contract gap PR #55 surfaced: the Jetson clamps body-frame `(vx, vy)` jointly (heading-preserving) before publish, but sim only caps per-wheel (heading-distorting). Worth landing before the next DGX training run so the converged checkpoint trains against the deployed command-shaping. |
 | [`behavior-cloning-data-expansion`](active/harness/behavior-cloning-data-expansion.md) | M–L | Per-tick capture + depth + actions + time alignment + paraphrase + hard-negative injection. Driver-agnostic schema; bridge-driver upgrades ship in this brief. |
 | [`planner-far-target-staging`](active/multi-room/planner-far-target-staging.md) | M–L | World-state schema + planner prompt |
 | [`subgoal-env`](active/trained-policy/subgoal-env.md) | L (~1.5–2 wk) | New training env for `NOCAM_SUBGOAL` — sim-internal path planner + SubgoalCommand + path-tracking rewards + termination + training run. Unblocks hybrid mode |

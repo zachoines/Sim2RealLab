@@ -3,7 +3,7 @@
 **Status:** Shipped 2026-05-18 (DGX).
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/38
 **Follow-ups:**
-[`export-torchscript-depth`](../active/trained-policy/export-torchscript-depth.md) — DEPTH TorchScript export on real checkpoints still fails on DeFM's `BiFPN` scriptability bug;
+[`export-torchscript-depth`](export-torchscript-depth.md) — DEPTH TorchScript export on real checkpoints still fails on DeFM's `BiFPN` scriptability bug;
 [`defm-preprocess-antialias-audit`](../active/investigations/defm-preprocess-antialias-audit.md) — measure projection-space delta between training-time antialiased preprocessing and the deployment ONNX-safe non-antialiased version, then decide alignment;
 [`export-sidecar-training-preset`](../active/trained-policy/export-sidecar-training-preset.md) — sidecar `training_preset` records the configclass name instead of the rsl_rl preset variable.
 
@@ -310,7 +310,7 @@ sweep happens after rsync per the strafer-inference brief.
   `torch.jit.script` because DeFM's `BiFPN.WeightedFusion.forward` uses
   `sum(generator)`. ONNX traces (not scripts) so the brief's primary
   goal is unaffected; the TorchScript residual ships separately as
-  [`export-torchscript-depth`](../active/trained-policy/export-torchscript-depth.md).
+  [`export-torchscript-depth`](export-torchscript-depth.md).
 - **Matching the antialiased DeFM preprocessing exactly.**
   `_onnx_safe_defm_preprocess` substitutes
   `F.interpolate(..., antialias=False)` for the torchvision Resize

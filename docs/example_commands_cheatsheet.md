@@ -155,23 +155,21 @@ $ISAACLAB -p Scripts/export_policy.py \
     --formats pt,onnx
 ```
 
-## Depth — ONNX (recurrent multi-input)
-Depth ONNX export uses the recurrent `(obs, h_in) -> (actions, h_out)`
+## Depth — both formats (recurrent multi-input)
+Depth export uses the recurrent `(obs, h_in) -> (actions, h_out)`
 signature; the loader threads hidden state across ticks. Sidecar records
 `is_recurrent: true` so the inference node knows to call `.reset()` on
-episode boundaries.
+episode boundaries. DeFM's `BiFPN.WeightedFusion` uses `sum(generator)`
+which `torch.jit.script` cannot type-infer; the TorchScript path
+substitutes a pre-traced pipeline (`_TorchSafeDeFMDepthEncoder`) so
+the same export call emits both artifacts.
 ```bash
 $ISAACLAB -p Scripts/export_policy.py \
     --checkpoint logs/rsl_rl/strafer_navigation/run_<timestamp>/model_<step>.pt \
     --output models/strafer_depth_v0 \
     --variant DEPTH \
-    --formats onnx
+    --formats pt,onnx
 ```
-
-The TorchScript path for Depth is not yet wired end-to-end on real
-checkpoints — DeFM's `BiFPN` uses `sum(generator)` which trips
-`torch.jit.script`; tracking as a follow-up. Use `--formats onnx` for
-Depth deployment today.
 
 ## Smoke-test the exported artifact in sim
 Re-runs `play_strafer_navigation.py` against the exported `.pt` instead

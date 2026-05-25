@@ -1,5 +1,14 @@
 # DEPTH TorchScript export — work around DeFM `BiFPN` scriptability
 
+**Status:** Shipped 2026-05-25 in `e55f911` (DGX). `_TorchSafeDeFMDepthEncoder`
+pre-traces the full preprocess → backbone → projection pipeline (with
+`_DEFM_MEAN` / `_DEFM_STD` as buffers so `map_location=cuda` works),
+swapped in by a conditional in `_DepthGRUExportModel.__init__` mirroring
+the ONNX side. Verified against `model_1000.pt`: both artifacts ship,
+cross-format parity max-abs-delta 3.58e-07.
+
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/60
+
 **Type:** bug / refactor
 **Owner:** DGX (`strafer_lab` lane)
 **Priority:** P2 — DEPTH ONNX ships via [`export-onnx-depth`](../../completed/export-onnx-depth.md);

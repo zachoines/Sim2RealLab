@@ -379,7 +379,6 @@ python -m pytest source/strafer_autonomy/tests/test_scene_labels.py \
 Tracked in [`docs/DEFERRED_WORK.md`](../../docs/DEFERRED_WORK.md). Items currently open:
 
 - **Electronics masses in the USD** — RoboClaws, Jetson, buck converter, D555 camera meshes + masses are TODO in `Scripts/setup_physics.py`. Without them, the simulated chassis inertia underestimates the real robot.
-- **DEPTH TorchScript export on real checkpoints** — DEPTH ONNX export ships via the recurrent `_OnnxDepthGRUModel` wrapper (multi-input `(obs, h_in) → (actions, h_out)`), and the loader threads recurrent hidden state with `.reset()` at episode boundaries. DEPTH TorchScript export still fails on real checkpoints: DeFM's `BiFPN` uses `sum(generator)` which trips `torch.jit.script`. Tracked by [`export-torchscript-depth`](../../docs/tasks/active/trained-policy/export-torchscript-depth.md). Use `--formats onnx` for DEPTH deployment today.
 - **`strafer_inference` Jetson package** — the deployment target for trained policies does not exist yet; see [`strafer_ros`](../strafer_ros/README.md) for the interface side.
 - **Goal position noise during final pre-deployment training** — for VLM-sourced goals, retrain with `goal_position_noise_std: 0.2-0.3 m` in `commands.py` to match Qwen2.5-VL-3B localization error; without this, the policy oscillates at deployment.
 

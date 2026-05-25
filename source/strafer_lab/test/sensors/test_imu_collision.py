@@ -2,23 +2,27 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 """Tests that collision events produce statistically detectable signals
-in IMU and body velocity observations.
+in IMU observations, and that the encoder-derived body-velocity
+observation correctly reflects wheel-slip behaviour on collision.
 
-The depth camera has a 0.4m near-field blind zone.  Once an obstacle is
-closer than 0.4m, the policy must rely on proprioceptive signals to
-detect and react to contact.  These tests verify two such signals:
+The depth camera has a 0.4 m near-field blind zone.  Once an obstacle
+is closer than 0.4 m, the policy must rely on proprioceptive signals
+to detect and react to contact.  IMU acceleration is the load-bearing
+signal: motor forces + vibrations produce a high mean IMU magnitude
+under free driving (~40+ m/s²), which drops closer to gravity when the
+body is stuck against an obstacle (~25 m/s²).
 
-1. **IMU jerk at impact**: The moment of collision produces a sudden change
-   in IMU acceleration magnitude (deceleration transient).  We compare
-   the maximum per-step IMU change during collision vs during free driving.
+``body_velocity_xy`` is NOT a collision signal.  It reads encoder-
+derived forward kinematics (the same chain ``/strafer/odom`` produces
+on the real robot via the chassis driver), so when the body is stuck
+against an obstacle but the wheels keep spinning, FK over-reports
+motion rather than dropping to zero.  The test for this field pins
+that behaviour so a future change that silently reverts to a ground-
+truth body-velocity source is caught.
 
-2. **Body velocity drop**: During collision the robot's body velocity drops
-   to near-zero even though the action commands full forward.  We compare
-   body velocity distributions between free driving and collision.
-
-Note: Wheel encoder velocity is NOT a reliable collision signal with
-kinematic obstacles — the wheels continue spinning against the immovable
-surface.  Body velocity (derived from root state) captures the stall.
+Critic-side privileged observations (``mdp.privileged_ground_truth``)
+still surface ground-truth body velocity to the value function, but
+that signal is by design unavailable to the deployed policy.
 
 Usage:
     cd source/strafer_lab
@@ -332,14 +336,26 @@ class TestCollisionProprioception:
             f"p={result['p_value']:.4f} (need < {1 - CONFIDENCE_LEVEL})"
         )
 
-    def test_body_velocity_drops_on_collision(self, collision_env):
-        """Body velocity during collision must be statistically lower than
-        during free driving (Welch's t-test, one-sided).
+    def test_body_velocity_xy_does_not_drop_on_collision(self, collision_env):
+        """``body_velocity_xy`` must NOT drop to near-zero during collision.
 
-        When the robot hits a kinematic obstacle, its body velocity drops
-        to near-zero even though the action commands full forward and the
-        wheels continue spinning.  This velocity-action mismatch is a
-        strong proprioceptive collision signal available to the policy.
+        ``body_velocity_xy`` is the encoder-derived FK observation —
+        the same signal chain ``/strafer/odom`` produces on the real
+        robot via the chassis driver. When the chassis is stuck against
+        a kinematic obstacle but the motors keep commanding full
+        forward, the wheels keep spinning (slip), so encoder-FK
+        reports motion proportional to the wheel angular velocity
+        rather than zero.
+
+        This test pins that behaviour. A future change that silently
+        reverts ``body_velocity_xy`` to a ground-truth body-velocity
+        source (the pre-`observation-contract-cleanup` behaviour, which
+        DID drop to zero on collision) would be caught here.
+
+        The proprioceptive collision signal the policy CAN use is IMU
+        deceleration — covered by ``test_collision_imu_mean_differs_from_free``
+        in the same class. ``body_velocity_xy`` is deliberately not a
+        collision signal under the deployment contract.
         """
         env = collision_env
         env.reset()
@@ -347,7 +363,7 @@ class TestCollisionProprioception:
         drive_action = torch.zeros(env.num_envs, 3, device=env.device)
         drive_action[:, 0] = 1.0
 
-        # --- Free driving: reach cruising speed, then collect ---
+        # --- Free driving baseline: reach cruising speed, then collect ---
         _move_obstacle_far_away(env)
         for _ in range(40):
             env.step(drive_action)
@@ -355,43 +371,57 @@ class TestCollisionProprioception:
         free_obs = _collect_obs_per_step(env, drive_action, n_steps=30)
         free_speed = _body_speed_from_obs(free_obs).flatten()
 
-        # --- Collision: drive into obstacle, collect after impact ---
+        # --- Collision: drive into obstacle, collect stuck phase ---
         env.reset()
         _place_obstacle_in_front(env, distance=0.4)
         zero_action = torch.zeros(env.num_envs, 3, device=env.device)
         for _ in range(5):
             env.step(zero_action)
 
-        # Drive into obstacle — first 15 steps include approach + impact,
-        # collect the last 25 steps where robot should be stuck
+        # First 15 steps: approach + impact. Last 25 steps: stuck against wall.
         for _ in range(15):
             env.step(drive_action)
 
         collision_obs = _collect_obs_per_step(env, drive_action, n_steps=25)
         collision_speed = _body_speed_from_obs(collision_obs).flatten()
 
-        # --- Welch's t-test: free speed > collision speed (one-sided) ---
-        result = welch_t_test(free_speed, collision_speed, alternative="greater")
+        # --- Welch's t-test: collision speed >= free speed (one-sided).
+        # Under encoder-FK, stuck wheels still report motion (often slightly
+        # higher than cruise since there is no chassis load fighting the
+        # commanded wheel rate). Pre-contract-cleanup this assertion ran
+        # the OTHER way (free > collision) and the failure mode of THIS
+        # assertion would be "body_velocity_xy stopped tracking wheel
+        # encoders" — which is the regression we want to catch.
+        result = welch_t_test(
+            collision_speed, free_speed, alternative="greater"
+        )
 
-        print(f"\n  Body velocity drop on collision (Welch's t-test):")
+        print(f"\n  body_velocity_xy slip signature on collision (Welch's t-test):")
         print(f"    Free driving speed:  mean={result['mean_a']:.4f}, std={result['std_a']:.4f} m/s "
               f"(n={result['n_a']})")
         print(f"    Collision speed:     mean={result['mean_b']:.4f}, std={result['std_b']:.4f} m/s "
               f"(n={result['n_b']})")
         print(f"    t-statistic: {result['t_statistic']:.2f}")
         print(f"    p-value: {result['p_value']:.2e}")
-        print(f"    Cohen's d: {result['cohens_d']:.2f}")
-        print(f"    Reject null (free <= collision): {result['reject_null']}")
+        print(f"    Reject null (collision <= free): {result['reject_null']}")
 
         assert result["reject_null"], (
-            f"Body velocity drop not statistically significant. "
-            f"Free speed: {result['mean_a']:.4f} m/s, "
-            f"Collision speed: {result['mean_b']:.4f} m/s, "
-            f"p={result['p_value']:.4f} (need < {1 - CONFIDENCE_LEVEL})"
+            f"body_velocity_xy did NOT remain elevated during collision; "
+            f"this looks like a regression to ground-truth body velocity. "
+            f"Collision speed: {result['mean_a']:.4f} m/s, "
+            f"Free speed: {result['mean_b']:.4f} m/s, "
+            f"p={result['p_value']:.4f} (need < {1 - CONFIDENCE_LEVEL}). "
+            f"Encoder-FK should report wheel-slip motion when the chassis "
+            f"is stuck; see observations.body_velocity_xy docstring."
         )
 
-        # Effect size should be large — body fully stops vs cruising
-        assert result["cohens_d"] > 0.5, (
-            f"Body velocity drop has weak effect size: "
-            f"Cohen's d = {result['cohens_d']:.2f} (need > 0.5)"
+        # Absolute floor: even if free vs collision are statistically
+        # indistinguishable for any reason, collision speed must be well
+        # above noise (wheels are commanded to spin and ARE spinning).
+        mean_collision = float(np.mean(collision_speed))
+        assert mean_collision > 0.01, (
+            f"body_velocity_xy collapsed to near-zero during collision "
+            f"(mean={mean_collision:.4f} m/s); encoder-FK signal chain is "
+            f"broken. Expected slip motion proportional to commanded "
+            f"wheel rate."
         )

@@ -63,7 +63,6 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 |---|---|---|---|
 | [`export-torchscript-depth`](active/trained-policy/export-torchscript-depth.md) | P2 | active | DGX |
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | P3 | active | DGX |
-| [`body-velocity-collision-test-rewrite`](active/trained-policy/body-velocity-collision-test-rewrite.md) | P2 | active | DGX |
 | [`inference-package`](active/trained-policy/inference-package.md) | P1 | active | Jetson |
 | [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | P1 | active | Either |
 | [`encoder-noise-shared-sample`](active/trained-policy/encoder-noise-shared-sample.md) | P2 | active | DGX |
@@ -187,7 +186,6 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`export-torchscript-depth`](active/trained-policy/export-torchscript-depth.md) | S–M | DEPTH TorchScript export on real checkpoints — work around DeFM `BiFPN`'s un-scriptable `sum(generator)` via traced backbone. Sibling of [`export-onnx-depth`](completed/export-onnx-depth.md); ONNX already ships, this closes the redundant TorchScript path. |
 | [`room-state-eval-harness`](active/multi-room/room-state-eval-harness.md) | M | v2 room-state — measurement harness for cluster purity / label precision / time-to-converge / connectivity P-R on a fixed multi-room scene set (incl. open-plan + multi-bedroom adversarials). Ships first; also the training corpus for the escape valves. Blocks pickup on `observation-derived-room-state` (shipped). |
 | [`semantic-region-partition`](active/multi-room/semantic-region-partition.md) | M | **The v2 quality work** — feature+space HDBSCAN clustering + open-vocab labels, replacing v1's greedy-modularity + 7-class argmax. One `α` knob (SOTA-aligned, ConceptGraphs / HOV-SG shape); no training. Handles open-plan + multi-bedroom by construction. `RoomEntry` shape preserved (+`uncertainty`). |
-| [`body-velocity-collision-test-rewrite`](active/trained-policy/body-velocity-collision-test-rewrite.md) | S–M | Audit + rewrite the `test_body_velocity_drops_on_collision` test under the new encoder-FK contract. Failing on `main` after `observation-contract-cleanup` shipped — same root cause, test premise was sim-ground-truth-only. Restores CI signal. |
 
 #### Jetson lane
 

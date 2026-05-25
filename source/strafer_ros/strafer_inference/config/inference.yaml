@@ -1,8 +1,10 @@
 strafer_inference:
   ros__parameters:
     # TODO: point at an exported policy artifact once one is available.
-    # Empty string is the "no model loaded" sentinel; consumed once
-    # load_policy() is wired in.
+    # Empty string is the "no model loaded" sentinel; load_policy() is
+    # skipped, the navigate_to_pose action server is NOT advertised,
+    # and the autonomy-side JetsonRosClient falls back to nav2 for any
+    # mission that selects strafer_direct.
     model_path: ""
 
     policy_variant: "DEPTH"
@@ -15,8 +17,30 @@ strafer_inference:
     imu_topic: "/d555/imu/filtered"
     joint_states_topic: "/strafer/joint_states"
     odom_topic: "/strafer/odom"
+    map_frame: "map"
+    base_frame: "base_link"
 
     tf_max_age_s: 0.5
     goal_timeout_s: 1.0
     obs_timeout_s: 0.2
     depth_timeout_s: 0.5
+
+    # vel_cap_* defaults are resolved by the node at startup against
+    # STRAFER_NAV_VEL_SCALE (same pattern as strafer_navigation's
+    # _resolved_nav_velocities), so unset env var keeps the indoor-
+    # safety cap and STRAFER_NAV_VEL_SCALE=1.0 lifts to hardware max
+    # for sim. Setting an explicit cap here would shadow the env var,
+    # so leave it unset unless an operator override is intentional.
+
+    is_mid_mission_reset: true
+    mid_mission_reset_distance_m: 0.05
+    goal_reached_distance_m: 0.25
+    mission_timeout_s: 60.0
+
+    # ONNX Runtime provider preference. TRT EP is required for DEPTH
+    # inference on Jetson Orin Nano (CPU/CUDA-EP alone is too slow);
+    # the fallback chain lets a dev workstation without TRT still load.
+    onnx_providers:
+      - "TensorrtExecutionProvider"
+      - "CUDAExecutionProvider"
+      - "CPUExecutionProvider"

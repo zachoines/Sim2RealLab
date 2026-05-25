@@ -523,8 +523,18 @@ do as part of the five phases above and shouldn't be.)
       `map → base_link` to a known yaw rotation, places a known
       goal in `map`, asserts the obs's `goal_relative` matches the
       body-frame transform.
-- [ ] **Deterministic inference**: feed the loaded policy the same
-      obs vector twice; assert byte-identical action outputs.
+- [ ] **Deterministic inference (recurrent-aware)**: per
+      [`context/recurrent-policy-contract.md`](../../context/recurrent-policy-contract.md)
+      point 5, two same-obs calls produce byte-identical actions
+      *iff* `policy.reset()` is called between them; without an
+      intervening `reset()`, the actions differ by construction
+      (hidden state evolved). The unit test asserts both prongs at
+      the inference-node-fake-policy seam; cross-format parity is
+      pinned at
+      [`source/strafer_lab/tests/test_recurrent_contract_e2e.py`](../../../../source/strafer_lab/tests/test_recurrent_contract_e2e.py).
+      The naive "two consecutive calls byte-identical" assertion is
+      wrong for a recurrent artifact and would silently force the
+      scripted module into a stateless mode.
 
 ### Safety / robustness
 

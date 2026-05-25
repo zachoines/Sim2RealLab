@@ -12,6 +12,7 @@ from strafer_inference.obs_pipeline import (
     build_raw_obs_dict,
     downsample_depth,
     joint_state_to_wheel_vels,
+    l1_clamp_velocity,
     quaternion_to_yaw,
 )
 from strafer_shared.constants import (
@@ -306,3 +307,100 @@ class TestRawDictAssembly:
                 return
             offset += field.dims
         pytest.fail("last_action field not found in DEPTH variant")
+
+
+# =============================================================================
+# l1_clamp_velocity
+# =============================================================================
+
+
+class TestL1ClampVelocity:
+    """Brief's safety bound: per-wheel motor cap means the chassis can't
+    reach max forward + max strafe simultaneously. The L1 clamp scales
+    (vx, vy) jointly so the commanded heading is preserved; clipping
+    each axis independently would skew it. omega clamps independently
+    because it routes through a different per-wheel sign-correction
+    pathway.
+    """
+
+    LIN_CAP = 1.0
+    ANG_CAP = 2.0
+
+    def _clamp(self, vx, vy, omega):
+        return l1_clamp_velocity(
+            vx, vy, omega,
+            vel_cap_linear_m_s=self.LIN_CAP,
+            vel_cap_angular_rad_s=self.ANG_CAP,
+        )
+
+    def test_within_budget_passthrough(self):
+        vx, vy, omega = self._clamp(0.3, 0.4, 1.5)
+        assert (vx, vy, omega) == (pytest.approx(0.3), pytest.approx(0.4), pytest.approx(1.5))
+
+    def test_l1_at_budget_unchanged(self):
+        vx, vy, omega = self._clamp(0.4, 0.6, 0.0)
+        assert vx + vy == pytest.approx(self.LIN_CAP)
+
+    def test_l1_over_budget_scales_proportionally(self):
+        vx, vy, omega = self._clamp(2.0, 2.0, 0.0)
+        # 2.0 + 2.0 = 4.0, scale = 1.0/4.0 = 0.25 → (0.5, 0.5)
+        assert vx == pytest.approx(0.5)
+        assert vy == pytest.approx(0.5)
+        assert abs(vx) + abs(vy) == pytest.approx(self.LIN_CAP)
+
+    def test_signs_preserved_under_scaling(self):
+        vx, vy, _ = self._clamp(-0.9, 0.3, 0.0)
+        # L1 = 1.2, scale = 1/1.2 → vx = -0.75, vy = 0.25
+        assert vx == pytest.approx(-0.75)
+        assert vy == pytest.approx(0.25)
+        # Heading is preserved: atan2 ratio unchanged.
+        assert (vy / vx) == pytest.approx(0.25 / -0.75)
+
+    def test_heading_preserved_under_scaling(self):
+        """The brief's correctness anchor: scaling (vx, vy) jointly
+        keeps the commanded heading. Clip-per-axis would skew it.
+        """
+        original_heading = math.atan2(0.7, 0.9)
+        vx, vy, _ = self._clamp(0.9, 0.7, 0.0)
+        clamped_heading = math.atan2(vy, vx)
+        assert clamped_heading == pytest.approx(original_heading)
+
+    def test_brief_worst_case_0p99_triplet(self):
+        """The brief's literal example: policy emits (0.99, 0.99, 0.99)
+        denormalized to ~(1.55, 1.55, 4.15). With caps at
+        NAV_VEL_SCALE * MAX_LINEAR_VEL / NAV_VEL_SCALE * MAX_ANGULAR_VEL,
+        the L1 sum is capped and the heading at 45° survives.
+        """
+        from strafer_shared.constants import (
+            MAX_ANGULAR_VEL, MAX_LINEAR_VEL, NAV_VEL_SCALE,
+        )
+        lin_cap = NAV_VEL_SCALE * MAX_LINEAR_VEL
+        ang_cap = NAV_VEL_SCALE * MAX_ANGULAR_VEL
+        vx_in, vy_in, omega_in = 0.99 * MAX_LINEAR_VEL, 0.99 * MAX_LINEAR_VEL, 0.99 * MAX_ANGULAR_VEL
+        vx, vy, omega = l1_clamp_velocity(
+            vx_in, vy_in, omega_in,
+            vel_cap_linear_m_s=lin_cap,
+            vel_cap_angular_rad_s=ang_cap,
+        )
+        assert abs(vx) + abs(vy) <= lin_cap + 1e-9
+        assert abs(omega) <= ang_cap + 1e-9
+        # 45° heading preserved (vx ≈ vy after clamp).
+        assert vx == pytest.approx(vy)
+
+    def test_omega_positive_clamp(self):
+        _, _, omega = self._clamp(0.0, 0.0, 5.0)
+        assert omega == pytest.approx(self.ANG_CAP)
+
+    def test_omega_negative_clamp(self):
+        _, _, omega = self._clamp(0.0, 0.0, -5.0)
+        assert omega == pytest.approx(-self.ANG_CAP)
+
+    def test_zero_input_zero_output(self):
+        assert self._clamp(0.0, 0.0, 0.0) == (0.0, 0.0, 0.0)
+
+    def test_l1_clamp_independent_of_omega(self):
+        """omega clamping does not modify (vx, vy)."""
+        vx, vy, omega = self._clamp(0.4, 0.5, 5.0)
+        assert vx == pytest.approx(0.4)
+        assert vy == pytest.approx(0.5)
+        assert omega == pytest.approx(self.ANG_CAP)

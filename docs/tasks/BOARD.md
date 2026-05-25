@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`sim-l1-velocity-clamp`](active/trained-policy/sim-l1-velocity-clamp.md) | DGX | #61 | In flight |
+| _None._ | | | |
 
 ---
 
@@ -63,7 +63,6 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 |---|---|---|---|
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | P3 | active | DGX |
 | [`strafer-direct-sim-validation`](active/trained-policy/strafer-direct-sim-validation.md) | P2 | active | Either |
-| [`sim-l1-velocity-clamp`](active/trained-policy/sim-l1-velocity-clamp.md) | P2 | active | DGX |
 | [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | P1 | active | Either |
 | [`encoder-noise-shared-sample`](active/trained-policy/encoder-noise-shared-sample.md) | P2 | active | DGX |
 | [`policy-rate-shared-constants`](active/trained-policy/policy-rate-shared-constants.md) | P2 | active | DGX |

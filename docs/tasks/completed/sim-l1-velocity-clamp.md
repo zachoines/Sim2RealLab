@@ -1,5 +1,18 @@
 # Apply the L1 velocity clamp in sim's action pipeline to match the deployment safety clamp
 
+**Status:** Shipped 2026-05-25 in `cb3ca36` (DGX). `l1_clamp_twist`
++ torch-batched sibling live in
+`strafer_shared.mecanum_kinematics`; `MecanumWheelAction.process_actions`
+applies the L1 clamp between denormalization and per-wheel kinematics.
+`strafer_inference.obs_pipeline` re-exports the scalar form under the
+original `l1_clamp_velocity` name via an alias, so the Jetson
+inference node and its test suite consume the shared helper without
+a call-site change. TF-staleness disposition (called out in this
+brief's Out-of-Scope) folded into
+[`domain-randomization-audit`](domain-randomization-audit.md) in
+the same PR.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/61
+
 **Type:** task / sim-to-real contract tightening
 **Owner:** DGX (`strafer_lab` lane — modifies the action processing path in
 `mdp/actions.py` and lifts the helper into `strafer_shared`)

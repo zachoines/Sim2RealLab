@@ -304,10 +304,14 @@ they ride as a follow-up rather than blocking this brief's PR.
   global planning *only*; local obstacle avoidance is the
   trained policy's responsibility (implicit in its training
   distribution — but NOCAM_SUBGOAL has no perception, so the
-  policy relies on the path being valid). If a depth-aware
-  subgoal-following variant is wanted later (Nav2 plans the
-  global route, RL handles late-arriving obstacles via depth),
-  file a `DEPTH_SUBGOAL` follow-up.
+  policy relies on the path being valid). The depth-aware
+  subgoal-following variant (Nav2 plans the global route, RL
+  handles late-arriving obstacles via depth) is filed as
+  [`depth-subgoal-env`](depth-subgoal-env.md) (DGX, training)
+  and
+  [`depth-subgoal-hybrid-runtime`](depth-subgoal-hybrid-runtime.md)
+  (Jetson, runtime extension). Both parked alongside this brief;
+  un-park when this one + their other prerequisites ship.
 - **Operator-driven sim validation.** Lives in
   [`strafer-hybrid-sim-validation`](strafer-hybrid-sim-validation.md)
   (parked alongside this brief); un-parks when this one ships.

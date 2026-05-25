@@ -463,12 +463,15 @@ deployed policy should be trained against it.
   [`hybrid-mode`](../../parked/trained-policy/hybrid-mode.md).
   This brief produces the trainable env and the deployable
   checkpoint; the hybrid brief consumes them.
-- **DEPTH variant of subgoal-following.** First subgoal target
-  is NOCAM-shaped. If a `DEPTH_SUBGOAL` variant is wanted later
-  (say, for environments where Nav2's path doesn't see all the
-  obstacles and the local controller needs perception), file a
-  follow-up brief once both this brief and `strafer-inference-package.md`'s
-  DEPTH path have shipped.
+- **DEPTH variant of subgoal-following.** Filed (parked) as
+  [`depth-subgoal-env`](../../parked/trained-policy/depth-subgoal-env.md)
+  and the runtime side as
+  [`depth-subgoal-hybrid-runtime`](../../parked/trained-policy/depth-subgoal-hybrid-runtime.md).
+  Un-park triggers are spelled out in those briefs — primarily
+  "this brief shipped AND NOCAM_SUBGOAL deployment evidence shows
+  costmap-staleness / dynamic-obstacle failures depth would solve."
+  Don't pre-empt; the NOCAM_SUBGOAL path may be sufficient for the
+  deployment shapes that actually arise.
 - **Goal-position noise on subgoals.** The
   [`goal-noise-training`](goal-noise-training.md)
   pattern likely applies (subgoals from Nav2's path have

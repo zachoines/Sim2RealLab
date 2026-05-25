@@ -26,7 +26,7 @@ real-robot validation runs against sensor-noise distribution shift,
 lighting variance, and dynamic obstacles**.
 
 These five acceptance items lived in
-[`inference-package.md`](inference-package.md) originally; they were
+[`inference-package.md`](../../completed/inference-package.md) originally; they were
 extracted into this brief so PR #55 could merge with all unit-testable
 acceptance closed. Each item gates on operator-driven sim work that
 has no unit-test analog.
@@ -35,7 +35,7 @@ has no unit-test analog.
 
 Read these before starting:
 
-- [inference-package.md](inference-package.md) — the source of the
+- [inference-package.md](../../completed/inference-package.md) — the source of the
   five acceptance items; the implementation of every piece this brief
   validates ships in PR #55.
 - [context/recurrent-policy-contract.md](../../context/recurrent-policy-contract.md)
@@ -209,7 +209,7 @@ artifact) only flows one way.
 
 ## Investigation pointers
 
-- [`inference-package.md`](inference-package.md) — the source brief.
+- [`inference-package.md`](../../completed/inference-package.md) — the source brief.
   All implementation lives in PR #55; this brief validates that
   implementation in sim.
 - [`source/strafer_ros/strafer_inference/`](../../../../source/strafer_ros/strafer_inference/)

@@ -4,7 +4,7 @@
 **Owner:** DGX (`strafer_lab` lane — env config + training run)
 **Priority:** P1 — sim-to-real transfer quality is the entire premise
 of the `strafer_direct` MVP in
-[`inference-package`](inference-package.md). The current
+[`inference-package`](../../completed/inference-package.md). The current
 `sim_real_cfg.py` was tuned in isolation against the brief's authors'
 intuition; comparing the knob values to what peer teams (Isaac Lab
 official envs, Wheeled Lab, ANYmal locomotion, GR00T sim-to-real
@@ -32,7 +32,7 @@ exposes**.
 Read these before starting:
 - [context/repo-topology.md](../../context/repo-topology.md)
 - [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [inference-package.md](inference-package.md) — Phase 5's
+- [inference-package.md](../../completed/inference-package.md) — Phase 5's
   acceptance metric (1.0 m/s sustained vx with obstacle avoidance) is
   the criterion this brief's training resume must defend on the real
   robot, not just in sim.
@@ -54,7 +54,7 @@ defines three presets:
   `*-Robust-*` envs.
 
 The `*-Real-ProcRoom-Depth-v0` env (the
-[`inference-package`](inference-package.md)
+[`inference-package`](../../completed/inference-package.md)
 deployment target) trains against `REAL_ROBOT_CONTRACT`.
 
 ### What peer pipelines randomize

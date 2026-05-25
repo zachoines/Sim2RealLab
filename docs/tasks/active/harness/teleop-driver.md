@@ -83,7 +83,7 @@ costs of using it as the training-data factory:
   (currently funky in Infinigen scenes,
   [`nav2-startup-unknown-donut-path-noise`](../../completed/nav2-startup-unknown-donut-path-noise.md))
   and MPPI's controller (plateaued, motivating the
-  [`inference-package`](../trained-policy/inference-package.md)
+  [`inference-package`](../../completed/inference-package.md)
   rebuild). Many missions fail for stack reasons unrelated to
   what the training data should reflect.
 - **Distribution.** Bridge harness output reflects the v1 stack's

@@ -20,7 +20,7 @@ between sim and real**.
 ## Context
 
 The Jetson-side trained-policy backend (the
-[`inference-package`](inference-package.md) brief, Phase 2) needs the
+[`inference-package`](../../completed/inference-package.md) brief, Phase 2) needs the
 policy step period to drive its inference loop at the same rate the
 policy was trained on. The brief asks for the value to be **derived,
 not hardcoded**, by promoting the two underlying constants to

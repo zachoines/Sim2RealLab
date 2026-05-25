@@ -2,9 +2,9 @@
 
 **Type:** task / feature
 **Owner:** Jetson (extends `strafer_inference` from
-[`inference-package`](../../active/trained-policy/inference-package.md))
+[`inference-package`](../../completed/inference-package.md))
 **Priority:** P3 — blocks on **two** other briefs:
-[`inference-package`](../../active/trained-policy/inference-package.md)
+[`inference-package`](../../completed/inference-package.md)
 (produces the `strafer_inference` package this brief extends) and
 [`subgoal-env`](../../active/trained-policy/subgoal-env.md) (produces
 the trained `NOCAM_SUBGOAL` policy this brief loads). Lifts mission
@@ -32,7 +32,7 @@ corners of the four-architecture matrix:
 |  | Local control by Nav2 | Local control by RL |
 |---|---|---|
 | **Global planning by Nav2** | shipped today (Nav2-only) | **THIS BRIEF** (`hybrid_nav2_strafer`) |
-| **Global planning by RL** | [`rl-global-nav2-local`](rl-global-nav2-local.md) (parked) | `strafer_direct` ([inference-package](../../active/trained-policy/inference-package.md), DEPTH MVP — shipping) |
+| **Global planning by RL** | [`rl-global-nav2-local`](rl-global-nav2-local.md) (parked) | `strafer_direct` ([inference-package](../../completed/inference-package.md), DEPTH MVP — shipping) |
 
 The current direction (this brief + DEPTH MVP) is well-grounded: RL
 is good at smooth continuous control under noise, Nav2 is good at
@@ -48,7 +48,7 @@ control but the issue is global plan quality" failure mode. Don't
 implement preemptively.
 
 The DEPTH `strafer_direct` mode (in
-[`inference-package`](../../active/trained-policy/inference-package.md))
+[`inference-package`](../../completed/inference-package.md))
 solves direct-pose-goal navigation with the policy's own depth-based
 obstacle avoidance, but in environments where Nav2's costmap-aware
 global plan is preferable (long known-map traversals, missions
@@ -67,7 +67,7 @@ brief must ship first.
 Read these before starting:
 - [context/repo-topology.md](../../context/repo-topology.md)
 - [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [strafer-inference-package.md](../../active/trained-policy/inference-package.md) —
+- [strafer-inference-package.md](../../completed/inference-package.md) —
   the predecessor; this brief extends its `execution_backend`
   dispatch with a third mode and reuses its observation-pipeline
   infrastructure.
@@ -130,7 +130,7 @@ If `STRAFER_NAV_BACKEND=hybrid_nav2_strafer` is set but the
 strafer_inference action server isn't running (e.g. the trained
 checkpoint is missing), the dispatch falls back to `nav2` per the
 pattern set by
-[`inference-package`](../../active/trained-policy/inference-package.md)
+[`inference-package`](../../completed/inference-package.md)
 Phase 4.
 
 ## Approach
@@ -142,7 +142,7 @@ assumed shipped (see Context bundle).
 
 In `source/strafer_ros/strafer_inference/`
 (must exist — i.e.
-[`inference-package.md`](../../active/trained-policy/inference-package.md) has
+[`inference-package.md`](../../completed/inference-package.md) has
 shipped):
 
 - Add a `mode: "strafer_direct" | "hybrid"` runtime config flag
@@ -180,7 +180,7 @@ In [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../.
 - Update `JetsonRosClient.navigate_to_pose` dispatch (currently
   recognizes `nav2` and `strafer_direct`, falls back to `nav2`
   on unknown values per
-  [`inference-package`](../../active/trained-policy/inference-package.md)
+  [`inference-package`](../../completed/inference-package.md)
   Phase 4) to recognize `hybrid_nav2_strafer` as a third value.
 - For hybrid, the dispatch sends the goal to **both**:
   - Nav2's planner — to populate `/plan`. The action client
@@ -258,7 +258,7 @@ real-world variables that warrant their own scope.
 ## Investigation pointers
 
 - `source/strafer_ros/strafer_inference/` — once
-  [`inference-package.md`](../../active/trained-policy/inference-package.md)
+  [`inference-package.md`](../../completed/inference-package.md)
   ships, this is the extension point. Phase 1 adds a hybrid mode
   flag and the Nav2 `/plan` subscription alongside the existing
   observation pipeline.
@@ -282,7 +282,7 @@ real-world variables that warrant their own scope.
 ### Sequencing notes
 
 - This brief blocks on **two** prerequisites:
-  - [`inference-package`](../../active/trained-policy/inference-package.md)
+  - [`inference-package`](../../completed/inference-package.md)
     must ship first (provides the `strafer_inference` package
     this brief extends).
   - [`subgoal-env`](../../active/trained-policy/subgoal-env.md)
@@ -297,7 +297,7 @@ real-world variables that warrant their own scope.
 ### Not addressed here
 
 - **Pure-RL execution (`strafer_direct`).** That's
-  [`inference-package`](../../active/trained-policy/inference-package.md).
+  [`inference-package`](../../completed/inference-package.md).
   Hybrid coexists with both pure modes; this brief doesn't
   change them.
 - **The training environment.** That's

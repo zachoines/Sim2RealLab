@@ -28,7 +28,7 @@ Read these before starting:
 - [strafer-inference-hybrid-mode.md](../../parked/trained-policy/hybrid-mode.md)
   — the consumer-side brief; this brief produces the trainable env
   and the deployable checkpoint that brief loads.
-- [strafer-inference-package.md](inference-package.md) —
+- [strafer-inference-package.md](../../completed/inference-package.md) —
   the DEPTH-MVP sibling. Useful as a reference for how the
   observation contract, decimation, and reward conventions are
   structured in the existing ProcRoom-Depth env.
@@ -84,7 +84,7 @@ Two implications:
 ### Why `hybrid_nav2_strafer` needs a different policy
 
 The `strafer_direct` mode (in
-[`inference-package`](inference-package.md))
+[`inference-package`](../../completed/inference-package.md))
 consumes a **final goal pose** — the RL agent's job is to converge
 on it, with depth perception for obstacle avoidance.
 

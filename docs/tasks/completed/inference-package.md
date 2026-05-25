@@ -1,5 +1,9 @@
 # Build the `strafer_inference` Jetson runtime for trained-DEPTH policy execution
 
+**Status:** Shipped 2026-05-25 in `4b5315e` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/55
+**Follow-ups:** [`strafer-direct-sim-validation`](../active/trained-policy/strafer-direct-sim-validation.md) — operator-driven sim validation (rosbag parity + TRT-EP latency + architectural-win mission); runs when the sim-in-the-loop rig + a deployable DEPTH checkpoint are both in hand. [`policy-rate-shared-constants`](../active/trained-policy/policy-rate-shared-constants.md) — DGX-side delegation of `_DEFAULT_NAV_SIM_DT` / `_DEFAULT_NAV_DECIMATION` to the new shared constants this brief added.
+
 **Type:** task / feature
 **Owner:** Jetson (new ROS package lives in `strafer_ros/`)
 **Priority:** P1 — the trained-policy backend is the architectural answer

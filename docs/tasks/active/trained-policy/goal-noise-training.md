@@ -4,7 +4,7 @@
 **Owner:** DGX (`strafer_lab` lane — env config + training run)
 **Priority:** P2 — gates *deployable-policy quality* for VLM-grounded
 goals; not blocking the inference plumbing in
-[`inference-package`](inference-package.md), which
+[`inference-package`](../../completed/inference-package.md), which
 validates against direct-pose goals.
 **Estimate:** M (~1–2 days: config + training resume + evaluation
 sweep). Depends on a converged baseline checkpoint already existing.
@@ -25,7 +25,7 @@ positions and the deployment distribution doesn't**.
 Read these before starting:
 - [context/repo-topology.md](../../context/repo-topology.md)
 - [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [strafer-inference-package.md](inference-package.md) — the
+- [strafer-inference-package.md](../../completed/inference-package.md) — the
   inference brief whose Phase 5 (end-to-end acceptance) becomes
   reliable once this training pass lands. Without goal-noise
   training, deployment with VLM-grounded goals shows oscillation that
@@ -186,7 +186,7 @@ In [`commands.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/m
 ### Phase 2 — Identify or train baseline checkpoint
 
 **MVP target: DEPTH variant** (since
-[`inference-package`](inference-package.md) ships
+[`inference-package`](../../completed/inference-package.md) ships
 `strafer_direct` against `PolicyVariant.DEPTH`). Skip if a converged
 DEPTH baseline already exists from the ProcRoom-Depth env. Otherwise:
 
@@ -308,7 +308,7 @@ baseline wasn't actually converged. Investigate before declaring done.
   briefs run sequentially: train baseline → train noised → export
   → deploy.
 - **Inference-side integration.** That's
-  [`inference-package`](inference-package.md).
+  [`inference-package`](../../completed/inference-package.md).
   The Jetson consumes whatever artifact is exported; this brief
   ensures the artifact it gets behaves well under VLM-noise.
 - **Other domain-randomization knobs** (sensor noise, friction

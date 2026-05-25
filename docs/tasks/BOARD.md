@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`inference-package`](active/trained-policy/inference-package.md) | Jetson | [#55](https://github.com/zachoines/Sim2RealLab/pull/55) | Phases 1–4 landed; operator-driven sim validation extracted into [`strafer-direct-sim-validation`](active/trained-policy/strafer-direct-sim-validation.md); ready for merge |
+| _None._ | | | |
 
 ---
 
@@ -62,7 +62,6 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | Brief | Pri | State | Owner |
 |---|---|---|---|
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | P3 | active | DGX |
-| [`inference-package`](active/trained-policy/inference-package.md) | P1 | active | Jetson |
 | [`strafer-direct-sim-validation`](active/trained-policy/strafer-direct-sim-validation.md) | P2 | active | Either |
 | [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | P1 | active | Either |
 | [`encoder-noise-shared-sample`](active/trained-policy/encoder-noise-shared-sample.md) | P2 | active | DGX |
@@ -205,7 +204,7 @@ session. Parked briefs are not listed here — see **By epic** or
 
 | Brief | Estimate | Note |
 |---|---|---|
-| [`strafer-direct-sim-validation`](active/trained-policy/strafer-direct-sim-validation.md) | M (1–2 days, rig-dependent) | Operator-driven sim validation extracted from the [`inference-package`](active/trained-policy/inference-package.md) PR so it could merge with unit-testable acceptance closed. Three independent runs: rosbag parity (≤1e-5 NOCAM / ≤1e-3 depth), TRT-EP latency p95 < 10 ms, and the architectural-win mission (≥ 1.0 m/s sustained + obstacle avoidance). Last item gates on a deployable DEPTH checkpoint; the first two only need the sim-in-the-loop rig. |
+| [`strafer-direct-sim-validation`](active/trained-policy/strafer-direct-sim-validation.md) | M (1–2 days, rig-dependent) | Operator-driven sim validation extracted from the [`inference-package`](completed/inference-package.md) PR so it could merge with unit-testable acceptance closed. Three independent runs: rosbag parity (≤1e-5 NOCAM / ≤1e-3 depth), TRT-EP latency p95 < 10 ms, and the architectural-win mission (≥ 1.0 m/s sustained + obstacle avoidance). Last item gates on a deployable DEPTH checkpoint; the first two only need the sim-in-the-loop rig. |
 
 ### P3 — pickable, low priority
 
@@ -239,7 +238,7 @@ picks them up.
 
 | Brief | Trigger / blocks on | Why |
 |---|---|---|
-| [`hybrid-mode`](parked/trained-policy/hybrid-mode.md) | [`inference-package`](active/trained-policy/inference-package.md) (Jetson) **and** [`subgoal-env`](active/trained-policy/subgoal-env.md) (DGX) both shipped | Hybrid backend extends the inference package's runtime AND consumes the `NOCAM_SUBGOAL` checkpoint produced by the env brief. The two prerequisites can run in parallel since they're cross-lane |
+| [`hybrid-mode`](parked/trained-policy/hybrid-mode.md) | [`subgoal-env`](active/trained-policy/subgoal-env.md) (DGX) shipped — [`inference-package`](completed/inference-package.md) already shipped, so this brief is gated only on the new training env producing a `NOCAM_SUBGOAL` checkpoint | Hybrid backend extends the inference package's runtime AND consumes the `NOCAM_SUBGOAL` checkpoint produced by the env brief |
 | [`rl-global-nav2-local`](parked/trained-policy/rl-global-nav2-local.md) | Trigger: first end-to-end deployment of `strafer_direct` (DEPTH MVP) or `hybrid_nav2_strafer` reveals that local-control RL is insufficient for VLM-grounded missions and the global-plan layer is the issue | Alternative architecture corner: RL as global waypoint planner, Nav2 as local controller. Filed off the 2026-05-15 trained-policy audit. Don't pick up preemptively — needs deployment evidence first |
 | [`cotrained-retrieval-augmented`](parked/clip-validation/cotrained-retrieval-augmented.md) | [`validator-evaluation`](active/clip-validation/validator-evaluation.md) shipped + [`trajectory-first-captioning`](active/harness/trajectory-first-captioning.md) shipped (provides the speaker corpus) **and** [`backbone-bakeoff`](parked/clip-validation/backbone-bakeoff.md) shipped (selects the backbone) | Replaces the retired `learned-mid-mission-validator` as the cascade-improvement path. The co-training step and retrieval-augmented step compound; both compose with the existing cascade. |
 | [`backbone-bakeoff`](parked/clip-validation/backbone-bakeoff.md) | [`validator-evaluation`](active/clip-validation/validator-evaluation.md) shipped | Audit-filed off the 2026-05-15 clip-validation review. Measures DINOv3-S / SigLIP-2-Base / MobileCLIP-2-S head-to-head against the v1 OpenCLIP ViT-B/32 baseline on the same eval set, so the cascade-improvement and v2 VLA briefs inherit a backbone with the alternative-considered trail in writing rather than defaulting to a 2021-era ViT-B/32. |

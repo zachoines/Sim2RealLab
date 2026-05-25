@@ -360,6 +360,13 @@ guarantee — if it doesn't hold, the policy will not transfer.
   # omega clamp is independent: |omega| <= NAV_VEL_SCALE * MAX_ANGULAR_VEL
   ```
 
+  (Post-ship: this math now lives in
+  [`strafer_shared.mecanum_kinematics.l1_clamp_twist`](../../../source/strafer_shared/strafer_shared/mecanum_kinematics.py)
+  with a torch-batched sibling `l1_clamp_twist_batched` that the sim
+  action term consumes. `strafer_inference.obs_pipeline` re-exports
+  the scalar form under the original `l1_clamp_velocity` name via an
+  alias.)
+
 - Publish to `/strafer/cmd_vel` (real-robot path — driver remaps
   it) or `/cmd_vel` (sim-in-the-loop path matches Nav2's
   publisher contract).

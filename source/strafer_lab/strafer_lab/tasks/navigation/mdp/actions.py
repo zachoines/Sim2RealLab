@@ -16,7 +16,10 @@ import torch
 from isaaclab.managers.action_manager import ActionTerm, ActionTermCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.buffers import DelayBuffer
-from strafer_shared.mecanum_kinematics import KINEMATIC_MATRIX
+from strafer_shared.mecanum_kinematics import (
+    KINEMATIC_MATRIX,
+    l1_clamp_twist_batched,
+)
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
@@ -288,11 +291,25 @@ class MecanumWheelAction(ActionTerm):
         
         # Clamp to valid range
         clamped_actions = torch.clamp(actions, -1.0, 1.0)
-        
+
         # Scale normalized actions to physical velocities
         # [vx, vy, omega] in [m/s, m/s, rad/s]
         body_velocities = clamped_actions * self._velocity_scale
-        
+
+        # L1 clamp on (vx, vy) to match the deployment-time command
+        # shaping: the chassis cannot deliver max-forward + max-strafe
+        # simultaneously (per-wheel motor cap), so the Jetson scales
+        # body-frame (vx, vy) jointly before publishing /cmd_vel. Without
+        # this clamp, sim's per-wheel torch.clamp below saturates each
+        # wheel independently and distorts the commanded heading on
+        # diagonal motions — a contract gap the Jetson side closes via
+        # strafer_inference.obs_pipeline.l1_clamp_velocity.
+        body_velocities = l1_clamp_twist_batched(
+            body_velocities,
+            vel_cap_linear_m_s=self._max_linear_vel,
+            vel_cap_angular_rad_s=self._max_angular_vel,
+        )
+
         # Convert to wheel angular velocities using mecanum kinematics
         # wheel_vels_kinematic is in kinematic order: [wheel_1, wheel_2, wheel_3, wheel_4]
         wheel_vels_kinematic = torch.matmul(body_velocities, self._kinematic_matrix.T)

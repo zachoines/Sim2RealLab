@@ -1,5 +1,18 @@
 # Apply the L1 velocity clamp in sim's action pipeline to match the deployment safety clamp
 
+**Status:** Shipped 2026-05-25 in `cb3ca36` (DGX). `l1_clamp_twist`
++ torch-batched sibling live in
+`strafer_shared.mecanum_kinematics`; `MecanumWheelAction.process_actions`
+applies the L1 clamp between denormalization and per-wheel kinematics.
+`strafer_inference.obs_pipeline` re-exports the scalar form under the
+original `l1_clamp_velocity` name via an alias, so the Jetson
+inference node and its test suite consume the shared helper without
+a call-site change. TF-staleness disposition (called out in this
+brief's Out-of-Scope) folded into
+[`domain-randomization-audit`](domain-randomization-audit.md) in
+the same PR.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/61
+
 **Type:** task / sim-to-real contract tightening
 **Owner:** DGX (`strafer_lab` lane — modifies the action processing path in
 `mdp/actions.py` and lifts the helper into `strafer_shared`)
@@ -307,7 +320,10 @@ Re-training implication:
   Phase 5's training run, file as its own brief if the PPO trainer
   doesn't fire `reset()` on the mid-episode goal-update path. Not
   this brief's scope.
-- **TF staleness in sim training.** Likely covered by
-  [`domain-randomization-audit`](domain-randomization-audit.md)'s
-  "Jetson jitter" scope; confirm with the DGX agent before
-  duplicating.
+- **TF staleness in sim training.** Folded into
+  [`domain-randomization-audit`](domain-randomization-audit.md) as a
+  dedicated gap-table row + Phase 1 measurement step + Phase 2
+  config update (sibling to the control-rate-jitter knob — jitter
+  randomizes *when* the policy ticks, TF staleness randomizes
+  *when* the policy's spatial reference frame last updated). Pick
+  it up there, not here.

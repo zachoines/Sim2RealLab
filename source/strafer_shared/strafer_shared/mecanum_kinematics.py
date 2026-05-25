@@ -101,6 +101,87 @@ def twist_to_wheel_velocities(vx: float, vy: float, omega: float) -> np.ndarray:
     return wheel_vels
 
 
+def l1_clamp_twist(
+    vx: float, vy: float, omega: float,
+    *,
+    vel_cap_linear_m_s: float,
+    vel_cap_angular_rad_s: float,
+) -> tuple[float, float, float]:
+    """Cap (vx, vy) jointly under an L1 budget; cap omega independently.
+
+    The chassis cannot reach max forward + max lateral simultaneously
+    because each mecanum wheel has a single motor with a per-wheel cap
+    (``MAX_WHEEL_ANGULAR_VEL``). At ``(vx, vy) = (MAX_LINEAR_VEL,
+    MAX_LINEAR_VEL)`` the FL wheel inverse kinematics demand
+    ``(vx + vy) / WHEEL_RADIUS`` rad/s — roughly 2× the cap.
+
+    Scaling ``(vx, vy)`` by the same factor keeps the commanded
+    heading; clipping each axis independently would skew it. omega
+    clamps independently because it routes through a different
+    per-wheel sign-correction pathway.
+
+    Scalar form for single-tick callers (deployment-time inference
+    node, unit tests). Sim's num_envs-parallel path uses
+    ``l1_clamp_twist_batched`` below; the two forms must produce
+    identical outputs for identical inputs (asserted in
+    strafer_lab/tests/test_action_clamp.py).
+    """
+    l1 = abs(vx) + abs(vy)
+    if l1 > vel_cap_linear_m_s and l1 > 0.0:
+        scale = vel_cap_linear_m_s / l1
+        vx *= scale
+        vy *= scale
+    if omega > vel_cap_angular_rad_s:
+        omega = vel_cap_angular_rad_s
+    elif omega < -vel_cap_angular_rad_s:
+        omega = -vel_cap_angular_rad_s
+    return float(vx), float(vy), float(omega)
+
+
+def l1_clamp_twist_batched(
+    body_velocities,
+    *,
+    vel_cap_linear_m_s: float,
+    vel_cap_angular_rad_s: float,
+):
+    """Torch-vectorized form of :func:`l1_clamp_twist` for sim training.
+
+    Args:
+        body_velocities: Tensor of shape ``(..., 3)`` whose last axis is
+            ``(vx, vy, omega)`` in (m/s, m/s, rad/s).
+        vel_cap_linear_m_s: L1 budget shared by ``vx``/``vy``.
+        vel_cap_angular_rad_s: Independent clamp on ``omega``.
+
+    Returns:
+        Tensor with the same shape and dtype as ``body_velocities``,
+        clamped element-wise along the leading axes.
+
+    The math is identical to the scalar form: ``(vx, vy)`` are scaled
+    jointly when ``|vx| + |vy|`` exceeds the linear cap (heading
+    preserved); ``omega`` is clamped per-element. Returned tensor is a
+    new allocation; the input is not modified.
+    """
+    import torch  # local import keeps torch optional at module load
+
+    vx = body_velocities[..., 0]
+    vy = body_velocities[..., 1]
+    omega = body_velocities[..., 2]
+
+    l1 = vx.abs() + vy.abs()
+    safe_l1 = l1.clamp(min=torch.finfo(l1.dtype).tiny)
+    scale = torch.where(
+        l1 > vel_cap_linear_m_s,
+        vel_cap_linear_m_s / safe_l1,
+        torch.ones_like(l1),
+    )
+    vx_out = vx * scale
+    vy_out = vy * scale
+    omega_out = omega.clamp(
+        min=-vel_cap_angular_rad_s, max=vel_cap_angular_rad_s
+    )
+    return torch.stack([vx_out, vy_out, omega_out], dim=-1)
+
+
 def wheel_vels_to_ticks_per_sec(wheel_vels_rad_s: np.ndarray) -> np.ndarray:
     """Convert wheel angular velocities (rad/s) to encoder ticks per second.
 

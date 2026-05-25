@@ -142,7 +142,9 @@ Use `source/strafer_ros/tune_pid.py` to re-run characterization and adjust if ne
 
 ## 3. Layer 2: Motor Dynamics Filter
 
-The sim-to-real processing pipeline in [actions.py:309-326](source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py#L309-L326) applies three stages before the velocity target reaches PhysX. These model real-world imperfections that exist naturally in hardware.
+The sim-to-real processing pipeline in [actions.py:327-348](source/strafer_lab/strafer_lab/tasks/navigation/mdp/actions.py#L327-L348) applies three stages before the velocity target reaches PhysX. These model real-world imperfections that exist naturally in hardware.
+
+(Upstream of these three stages, `process_actions` applies an L1 body-frame velocity clamp on `(vx, vy)` to match the deployment-time command shaping the Jetson inference node performs before publishing `/cmd_vel`. That clamp is deterministic — not a DR knob — and preserves the commanded heading on diagonal motions where the per-wheel motor cap would otherwise force per-axis saturation. See [`strafer_shared.mecanum_kinematics.l1_clamp_twist`](source/strafer_shared/strafer_shared/mecanum_kinematics.py).)
 
 ### 2a. Command Delay
 

@@ -192,3 +192,86 @@ class TestEntryPoint:
             f"console_script wrapper missing at {script}; "
             "the entry_points entry in setup.py is not installed."
         )
+
+
+# =============================================================================
+# infer_period_s derived from strafer_shared.constants
+# =============================================================================
+
+
+class TestInferPeriodDerivation:
+    """``infer_period_s`` must come from ``strafer_shared.constants`` so
+    a future training-rate experiment can't silently leave the
+    deployment loop at the old rate. Anchored as a mock-patch test
+    against the underlying ``POLICY_SIM_DT`` / ``POLICY_DECIMATION``
+    rather than against the derived ``POLICY_PERIOD_S`` so the test
+    fails the moment someone hardcodes a literal back into the node.
+    """
+
+    def test_default_matches_shared_constants_product(self):
+        from strafer_inference.inference_node import _default_infer_period
+        from strafer_shared.constants import (
+            POLICY_DECIMATION, POLICY_SIM_DT,
+        )
+
+        assert _default_infer_period() == POLICY_SIM_DT * POLICY_DECIMATION
+
+    def test_mock_patched_sim_dt_changes_default(self, monkeypatch):
+        from strafer_inference import inference_node
+        from strafer_shared import constants
+
+        monkeypatch.setattr(constants, "POLICY_SIM_DT", 1.0 / 60.0)
+        monkeypatch.setattr(constants, "POLICY_DECIMATION", 8)
+        assert inference_node._default_infer_period() == (1.0 / 60.0) * 8
+
+    def test_default_is_30_hz_today(self):
+        from strafer_inference.inference_node import _default_infer_period
+
+        # 1/30 s = 30 Hz. The product is exact in float64 but the
+        # round-trip through float comparison wants a tolerance.
+        assert _default_infer_period() == pytest.approx(1.0 / 30.0)
+
+
+# =============================================================================
+# PolicyVariant parsing
+# =============================================================================
+
+
+class TestPolicyVariantParsing:
+    """The string param resolves to a PolicyVariant; unknown values
+    must fail loudly at init time, not silently substitute a default.
+    """
+
+    def test_known_variants_resolve(self):
+        from strafer_shared.policy_interface import PolicyVariant
+
+        assert PolicyVariant["DEPTH"] is PolicyVariant.DEPTH
+        assert PolicyVariant["NOCAM"] is PolicyVariant.NOCAM
+
+    def test_unknown_variant_raises_keyerror(self):
+        from strafer_shared.policy_interface import PolicyVariant
+
+        with pytest.raises(KeyError):
+            PolicyVariant["RGB"]
+
+
+# =============================================================================
+# Topic + frame defaults the obs pipeline depends on
+# =============================================================================
+
+
+class TestObsPipelineConfigDefaults:
+    """Defaults in the YAML must agree with the canonical names in
+    ``strafer_shared.constants`` so a rename over there flushes
+    through here without operator overrides.
+    """
+
+    def test_depth_topic_matches_perception_camera(self, node_params):
+        from strafer_shared.constants import TOPIC_DEPTH_IMAGE
+
+        assert node_params["depth_topic"] == TOPIC_DEPTH_IMAGE
+
+    def test_odom_topic_matches_strafer_shared(self, node_params):
+        from strafer_shared.constants import TOPIC_ODOM
+
+        assert node_params["odom_topic"] == TOPIC_ODOM

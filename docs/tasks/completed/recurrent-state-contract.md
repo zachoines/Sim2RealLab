@@ -1,5 +1,17 @@
 # Pin the end-to-end recurrent hidden-state contract across train / export / inference
 
+**Status:** Shipped 2026-05-25 in `406766b` (DGX). Six-point contract
+pinned in `policy_interface.py`'s module docstring + mirrored at
+`docs/tasks/context/recurrent-policy-contract.md`. The three implementer
+briefs (`inference-package`, completed `export-onnx-depth`, completed
+`loader-recurrent-state`) cite the context module from their Context
+bundles. End-to-end integration test
+`source/strafer_lab/tests/test_recurrent_contract_e2e.py` pins the
+load-bearing cross-format parity check (`.pt` ↔ `.onnx` shared-weight
+sequence, ≤ 1e-5 max abs delta).
+
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/57
+
 **Type:** docs / refactor
 **Owner:** Either (anchored in `strafer_shared`, surfaces in `strafer_lab`
 + `strafer_inference`)

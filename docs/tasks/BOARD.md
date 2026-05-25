@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | DGX | _pending_ | task/recurrent-state-contract |
+| _None._ | | | |
 
 ---
 

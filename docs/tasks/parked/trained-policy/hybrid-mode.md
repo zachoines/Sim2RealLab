@@ -195,28 +195,24 @@ In [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../.
 - The hybrid action completes when strafer_inference reports
   success (final subgoal reached, within `xy_goal_tolerance`).
 
-### Phase 3 — End-to-end sim validation (1 day)
+### Phase 3 — End-to-end sim validation (extracted)
 
-- Cross-room sim mission: pick the reference mission from
-  [`completed/nav2-far-goal-staging.md`](../../completed/nav2-far-goal-staging.md)
-  ("Navigate to the open wood door on other side of the room").
-  Verify hybrid mode completes it with Nav2 publishing the path
-  and the policy executing local control between subgoals.
-- Capture run-table via
-  [`tune_capture.py`](../../../../source/strafer_ros/strafer_navigation/scripts/tune_capture.py).
-  Expected: sustained median odom vx ≥ 1.0 m/s on straight
-  segments (the metric the MPPI brief plateaued under at 0.632
-  m/s).
-- No-regression on `strafer_direct` (translate forward 3 m
-  acceptance from the strafer-inference-package brief).
-- No-regression on `nav2` (same translate mission with default
-  backend).
+The cross-room sim mission, the per-tick / mission-start latency
+benchmarks, the rig parity bounds, and the no-regression checks
+against `strafer_direct` and `nav2` live in
+[`strafer-hybrid-sim-validation`](strafer-hybrid-sim-validation.md)
+(parked alongside this brief). Mirrors the
+[`inference-package`](../../completed/inference-package.md) →
+[`strafer-direct-sim-validation`](../../active/trained-policy/strafer-direct-sim-validation.md)
+extraction precedent so this brief's runtime PR can ship with
+unit-testable acceptance closed and the operator-driven validation
+rides as a follow-up.
 
-Real-robot validation is out of scope here — file a separate
-brief (`strafer-inference-hybrid-real-robot-validation.md`) once
-sim validation passes. Real-robot hybrid mode introduces TF
-freshness concerns (SLAM stalls), Nav2 replan latency, and other
-real-world variables that warrant their own scope.
+Real-robot hybrid validation is filed as a separate brief
+(`strafer-inference-hybrid-real-robot-validation.md`) once the sim
+validation brief ships. Real-robot hybrid introduces TF freshness
+concerns (SLAM stalls), Nav2 replan latency under load, and
+moved-obstacle distribution shift that warrant their own scope.
 
 ## Acceptance criteria
 
@@ -239,16 +235,14 @@ real-world variables that warrant their own scope.
 - [ ] No regression on `strafer_direct` or `nav2` modes — same
       mission tests pass with their respective backends.
 
-### End-to-end
+### Operator-driven sim validation (extracted)
 
-- [ ] Sim reference mission ("Navigate to the open wood door on
-      other side of the room") completes under hybrid mode. PR
-      description includes:
-      - Nav2 path summary (length, # subgoals tracked, # replans
-        if any).
-      - `tune_capture.py` run-table covering the active translation
-        portion. Sustained median odom vx ≥ 1.0 m/s on straight
-        segments.
+The reference-mission, rosbag parity, latency, and no-regression
+acceptance items live in
+[`strafer-hybrid-sim-validation`](strafer-hybrid-sim-validation.md).
+That brief gates on this one shipping + a trained checkpoint +
+the sim-in-the-loop rig; none of those items are unit-testable, so
+they ride as a follow-up rather than blocking this brief's PR.
 
 ### Maintenance
 
@@ -314,8 +308,14 @@ real-world variables that warrant their own scope.
   subgoal-following variant is wanted later (Nav2 plans the
   global route, RL handles late-arriving obstacles via depth),
   file a `DEPTH_SUBGOAL` follow-up.
+- **Operator-driven sim validation.** Lives in
+  [`strafer-hybrid-sim-validation`](strafer-hybrid-sim-validation.md)
+  (parked alongside this brief); un-parks when this one ships.
+  Carries the rosbag parity, latency benchmarks, and the
+  cross-room reference mission.
 - **Real-robot hybrid validation.** File as
-  `strafer-inference-hybrid-real-robot-validation.md` once sim
-  validation passes.
+  `strafer-inference-hybrid-real-robot-validation.md` once
+  [`strafer-hybrid-sim-validation`](strafer-hybrid-sim-validation.md)
+  passes.
 - **Performance comparison vs. Nav2-MPPI on the same mission.**
   Evaluation activity, not a controller-design brief.

@@ -7,6 +7,7 @@ message objects are replaced with lightweight MagicMocks.
 
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import time
@@ -1575,3 +1576,241 @@ class TestPublishDetectionsFG(unittest.TestCase):
                         sys.modules.pop(k, None)
                     else:
                         sys.modules[k] = v
+
+
+# ------------------------------------------------------------------
+# Tests — Phase 4: navigate_to_pose backend dispatch
+# ------------------------------------------------------------------
+
+
+class TestResolveExecutionBackend(unittest.TestCase):
+    """`_resolve_execution_backend` resolves per-step > env var > default
+    and falls back to nav2 on unknown values rather than failing the
+    mission silently.
+    """
+
+    def test_per_step_takes_precedence_over_env(self) -> None:
+        from strafer_autonomy.clients.ros_client import _resolve_execution_backend
+
+        with patch.dict(
+            "os.environ",
+            {"STRAFER_NAV_BACKEND": "strafer_direct"},
+            clear=False,
+        ):
+            self.assertEqual(
+                _resolve_execution_backend("nav2"), "nav2",
+            )
+
+    def test_env_var_picked_up_when_per_step_none(self) -> None:
+        from strafer_autonomy.clients.ros_client import _resolve_execution_backend
+
+        with patch.dict(
+            "os.environ",
+            {"STRAFER_NAV_BACKEND": "strafer_direct"},
+            clear=False,
+        ):
+            self.assertEqual(
+                _resolve_execution_backend(None), "strafer_direct",
+            )
+
+    def test_unset_env_var_defaults_to_nav2(self) -> None:
+        """Real-robot bringup leaves the env var unset and must keep
+        nav2 unchanged — the brief's compatibility anchor."""
+        from strafer_autonomy.clients.ros_client import _resolve_execution_backend
+
+        env = {
+            k: v for k, v in os.environ.items()
+            if k != "STRAFER_NAV_BACKEND"
+        }
+        with patch.dict("os.environ", env, clear=True):
+            self.assertEqual(_resolve_execution_backend(None), "nav2")
+
+    def test_unknown_value_falls_back_to_nav2(self) -> None:
+        """Typo in the env var (e.g. ``strafer-direct`` with a dash) or
+        a future-only backend name (``hybrid_nav2_strafer``) must NOT
+        silently fail; falls back to nav2 with a logged error."""
+        from strafer_autonomy.clients.ros_client import _resolve_execution_backend
+
+        with patch.dict(
+            "os.environ",
+            {"STRAFER_NAV_BACKEND": "hybrid_nav2_strafer"},
+            clear=False,
+        ):
+            self.assertEqual(_resolve_execution_backend(None), "nav2")
+
+    def test_unknown_per_step_falls_back(self) -> None:
+        from strafer_autonomy.clients.ros_client import _resolve_execution_backend
+
+        self.assertEqual(
+            _resolve_execution_backend("strafer-direct"), "nav2",
+        )
+
+
+class TestNavigateToPoseDispatch(unittest.TestCase):
+    """The public navigate_to_pose dispatches between Nav2 and
+    strafer_direct backends. With strafer_direct selected and the
+    inference action server unavailable, the call falls back to nav2
+    *for this mission* per the brief's per-mission fallback rule.
+    """
+
+    def _patch_clean_env(self):
+        env = {
+            k: v for k, v in os.environ.items()
+            if k != "STRAFER_NAV_BACKEND"
+        }
+        return patch.dict("os.environ", env, clear=True)
+
+    def test_unset_env_routes_to_nav2(self) -> None:
+        with self._patch_clean_env():
+            client = _make_client()
+            nav2_called: dict[str, bool] = {"called": False}
+            direct_called: dict[str, bool] = {"called": False}
+
+            def fake_nav2(**kw):
+                nav2_called["called"] = True
+                return SkillResult(
+                    step_id=kw["step_id"], skill="navigate_to_pose",
+                    status="succeeded",
+                    started_at=0.0, finished_at=0.0,
+                )
+
+            def fake_direct(**kw):
+                direct_called["called"] = True
+                return None
+
+            client._navigate_via_nav2 = fake_nav2  # type: ignore
+            client._navigate_via_strafer_direct = fake_direct  # type: ignore
+
+            result = client.navigate_to_pose(
+                step_id="s1",
+                goal_pose=Pose3D(x=1.0, y=0.0, z=0.0, qx=0, qy=0, qz=0, qw=1),
+            )
+            self.assertTrue(nav2_called["called"])
+            self.assertFalse(direct_called["called"])
+            self.assertEqual(result.status, "succeeded")
+
+    def test_strafer_direct_routes_to_inference_then_returns(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"STRAFER_NAV_BACKEND": "strafer_direct"},
+            clear=False,
+        ):
+            client = _make_client()
+
+            def fake_direct(**kw):
+                return SkillResult(
+                    step_id=kw["step_id"], skill="navigate_to_pose",
+                    status="succeeded",
+                    message="strafer_direct navigation completed successfully.",
+                    started_at=0.0, finished_at=0.0,
+                )
+
+            def fake_nav2(**kw):
+                raise AssertionError(
+                    "nav2 path must not be called when strafer_direct succeeds"
+                )
+
+            client._navigate_via_strafer_direct = fake_direct  # type: ignore
+            client._navigate_via_nav2 = fake_nav2  # type: ignore
+
+            result = client.navigate_to_pose(
+                step_id="s2",
+                goal_pose=Pose3D(x=1.0, y=0.0, z=0.0, qx=0, qy=0, qz=0, qw=1),
+            )
+            self.assertEqual(result.status, "succeeded")
+            self.assertIn("strafer_direct", result.message)
+
+    def test_strafer_direct_unavailable_falls_back_to_nav2(self) -> None:
+        """Inference action server unavailable (None return) →
+        per-mission fallback to nav2 per the brief."""
+        with patch.dict(
+            "os.environ",
+            {"STRAFER_NAV_BACKEND": "strafer_direct"},
+            clear=False,
+        ):
+            client = _make_client()
+
+            def fake_direct(**kw):
+                return None  # action server unavailable
+
+            def fake_nav2(**kw):
+                return SkillResult(
+                    step_id=kw["step_id"], skill="navigate_to_pose",
+                    status="succeeded",
+                    message="Navigation completed successfully.",
+                    started_at=0.0, finished_at=0.0,
+                )
+
+            client._navigate_via_strafer_direct = fake_direct  # type: ignore
+            client._navigate_via_nav2 = fake_nav2  # type: ignore
+
+            result = client.navigate_to_pose(
+                step_id="s3",
+                goal_pose=Pose3D(x=1.0, y=0.0, z=0.0, qx=0, qy=0, qz=0, qw=1),
+            )
+            self.assertEqual(result.status, "succeeded")
+            self.assertNotIn("strafer_direct", result.message)
+
+    def test_per_step_argument_overrides_env_var(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"STRAFER_NAV_BACKEND": "strafer_direct"},
+            clear=False,
+        ):
+            client = _make_client()
+            nav2_called: dict[str, bool] = {"called": False}
+            direct_called: dict[str, bool] = {"called": False}
+
+            def fake_nav2(**kw):
+                nav2_called["called"] = True
+                return SkillResult(
+                    step_id=kw["step_id"], skill="navigate_to_pose",
+                    status="succeeded",
+                    started_at=0.0, finished_at=0.0,
+                )
+
+            def fake_direct(**kw):
+                direct_called["called"] = True
+                return SkillResult(
+                    step_id=kw["step_id"], skill="navigate_to_pose",
+                    status="succeeded",
+                    started_at=0.0, finished_at=0.0,
+                )
+
+            client._navigate_via_nav2 = fake_nav2  # type: ignore
+            client._navigate_via_strafer_direct = fake_direct  # type: ignore
+
+            client.navigate_to_pose(
+                step_id="s4",
+                goal_pose=Pose3D(x=1.0, y=0.0, z=0.0, qx=0, qy=0, qz=0, qw=1),
+                execution_backend="nav2",
+            )
+            self.assertTrue(nav2_called["called"])
+            self.assertFalse(direct_called["called"])
+
+    def test_unknown_backend_falls_back_to_nav2(self) -> None:
+        with self._patch_clean_env():
+            client = _make_client()
+            nav2_called: dict[str, bool] = {"called": False}
+
+            def fake_nav2(**kw):
+                nav2_called["called"] = True
+                return SkillResult(
+                    step_id=kw["step_id"], skill="navigate_to_pose",
+                    status="succeeded",
+                    started_at=0.0, finished_at=0.0,
+                )
+
+            client._navigate_via_nav2 = fake_nav2  # type: ignore
+            client._navigate_via_strafer_direct = (  # type: ignore
+                lambda **kw: (_ for _ in ()).throw(
+                    AssertionError("strafer_direct must not run for unknown backends")
+                )
+            )
+
+            client.navigate_to_pose(
+                step_id="s5",
+                goal_pose=Pose3D(x=1.0, y=0.0, z=0.0, qx=0, qy=0, qz=0, qw=1),
+                execution_backend="hybrid_nav2_strafer",
+            )
+            self.assertTrue(nav2_called["called"])

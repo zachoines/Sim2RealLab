@@ -65,7 +65,7 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | P3 | active | DGX |
 | [`inference-package`](active/trained-policy/inference-package.md) | P1 | active | Jetson |
 | [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | P1 | active | Either |
-| [`observation-contract-cleanup`](active/trained-policy/observation-contract-cleanup.md) | P1 | active | DGX |
+| [`encoder-noise-shared-sample`](active/trained-policy/encoder-noise-shared-sample.md) | P2 | active | DGX |
 | [`domain-randomization-audit`](active/trained-policy/domain-randomization-audit.md) | P1 | active | DGX |
 | [`goal-noise-training`](active/trained-policy/goal-noise-training.md) | P2 | active | DGX |
 | [`subgoal-env`](active/trained-policy/subgoal-env.md) | P2 | active | DGX |
@@ -163,7 +163,6 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`autonomy-stack`](active/multi-room/autonomy-stack.md) | Either | M | Lifts §1.10.1's multi-room deferral. Stored-map fallback in `scan_for_target` + planner transit-step emission + plan-compiler updates. Blocks on `observation-derived-room-state` and `frontier-exploration-primitive` (`planner-architecture-alignment` shipped in #36 as Option C). |
 | [`scene-connectivity-validation`](active/multi-room/scene-connectivity-validation.md) | DGX | S | Verified-and-enriched `connectivity[]` block + door-open guarantee. Sim/harness-only; runtime equivalent is `observation-derived-room-state`. |
 | [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | Either | S–M | End-to-end spec for hidden-state shape, reset semantics, thread-safety across train/export/inference. Three existing recurrent briefs each describe their side; this brief pins the contract at the seams. Filed off the 2026-05-15 trained-policy audit. |
-| [`observation-contract-cleanup`](active/trained-policy/observation-contract-cleanup.md) | DGX | S–M | Re-implement `body_velocity_xy` as encoder-derived FK so the sim signal chain matches what the real robot computes via `/strafer/odom`. Closes a silent sim-to-real bug before the DEPTH MVP ships. Filed off the 2026-05-15 trained-policy audit. |
 | [`domain-randomization-audit`](active/trained-policy/domain-randomization-audit.md) | DGX | M | Bench-measure real-chassis variability (mass, battery, D555 latency, Jetson jitter) and widen REAL_ROBOT_CONTRACT to match. Resume-train DEPTH baseline against the audited DR. Filed off the 2026-05-15 trained-policy audit. |
 
 ### P2 — medium priority
@@ -180,6 +179,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`subgoal-env`](active/trained-policy/subgoal-env.md) | L (~1.5–2 wk) | New training env for `NOCAM_SUBGOAL` — sim-internal path planner + SubgoalCommand + path-tracking rewards + termination + training run. Unblocks hybrid mode |
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | L (~1 wk) | Investigation + port — run `make sim-bridge` on Windows (RTX 4080) against the Jetson stack. Isaac Lab 3 Windows support is experimental; phase the feasibility spike before committing to a full port |
 | [`bridge-throughput-toward-25hz`](active/sim-performance/bridge-throughput-toward-25hz.md) | M | Follow-up to `async-camera-publishers`. Lift the bridge toward the predicted 25 Hz ceiling. |
+| [`encoder-noise-shared-sample`](active/trained-policy/encoder-noise-shared-sample.md) | M | Filed off `observation-contract-cleanup` ship. Per-tick noised-ticks cache + policy/critic obs-function split so `wheel_encoder_velocities` and `body_velocity_xy` share a single encoder noise sample (matches real-robot signal chain). Closes the correlation gap that observation-contract-cleanup flagged as out of scope. |
 | [`mission-generator`](active/harness/mission-generator.md) | L | Free-text mission generator with LLM-emitted waypoints (multi-room default). Canonical mission queue source for teleop and oracle drivers. Blocks on `scene-connectivity-validation`. |
 | [`trajectory-first-captioning`](active/harness/trajectory-first-captioning.md) | M–L | Speaker-model post-hoc captioning regime. Random-A→B drivers + Qwen2.5-VL-7B speaker → instructive-voice mission text + synthesized hard negatives. |
 | [`training-throughput-profile-and-investigate`](active/investigations/training-throughput-profile-and-investigate.md) | S–M | Phase profiler in the training loop; files follow-up briefs from results. |

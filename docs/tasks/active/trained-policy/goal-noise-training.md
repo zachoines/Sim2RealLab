@@ -181,7 +181,7 @@ In [`commands.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/m
     frequency over a long horizon.
 
   Cross-reference: this brief consumes Finding 3 in
-  [`observation-contract-cleanup.md`](observation-contract-cleanup.md).
+  [`observation-contract-cleanup.md`](../../completed/observation-contract-cleanup.md).
 
 ### Phase 2 — Identify or train baseline checkpoint
 

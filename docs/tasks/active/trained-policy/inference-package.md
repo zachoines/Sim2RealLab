@@ -73,11 +73,11 @@ Read these before starting:
   boundaries. Read before writing the Phase 3 `reset()` call sites;
   do not redefine the trigger set in this brief — consume it from
   the contract.
-- [observation-contract-cleanup.md](observation-contract-cleanup.md)
+- [observation-contract-cleanup.md](../../completed/observation-contract-cleanup.md)
   — load-bearing predecessor for the Phase 2 NOCAM-fields obs-parity
-  acceptance (≤ 1e-5 max abs delta). Today `body_velocity_xy` is
-  sim ground truth on the training side and encoder-derived odom on
-  the inference side; that brief closes the gap so this brief's
+  acceptance (≤ 1e-5 max abs delta). `body_velocity_xy` now does
+  encoder-derived FK over the same joint-velocity tensor the Jetson
+  reads from `/strafer/joint_states.velocity`, so this brief's
   parity test is meaningful.
 - [completed/mppi-critic-tuning-for-sim-envelope.md](../../completed/mppi-critic-tuning-for-sim-envelope.md)
   — the predecessor whose validation surfaced the MPPI plateau and

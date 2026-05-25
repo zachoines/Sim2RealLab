@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`inference-package`](active/trained-policy/inference-package.md) | Jetson | [#55](https://github.com/zachoines/Sim2RealLab/pull/55) (draft) | Phase 1 package skeleton landed; Phase 2 gates on DGX `observation-contract-cleanup`, Phases 3–5 follow on the same branch |
+| [`inference-package`](active/trained-policy/inference-package.md) | Jetson | [#55](https://github.com/zachoines/Sim2RealLab/pull/55) (draft) | Phase 1 skeleton landed; Phase 2 (DEPTH obs pipeline) in progress; Phase 3 gates on DGX `recurrent-state-contract`; Phases 4–5 follow on the same branch |
 
 ---
 
@@ -65,6 +65,7 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | [`inference-package`](active/trained-policy/inference-package.md) | P1 | active | Jetson |
 | [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | P1 | active | Either |
 | [`encoder-noise-shared-sample`](active/trained-policy/encoder-noise-shared-sample.md) | P2 | active | DGX |
+| [`policy-rate-shared-constants`](active/trained-policy/policy-rate-shared-constants.md) | P2 | active | DGX |
 | [`domain-randomization-audit`](active/trained-policy/domain-randomization-audit.md) | P1 | active | DGX |
 | [`goal-noise-training`](active/trained-policy/goal-noise-training.md) | P2 | active | DGX |
 | [`subgoal-env`](active/trained-policy/subgoal-env.md) | P2 | active | DGX |
@@ -172,6 +173,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`isaac-sim-rt-2-default-renderer`](active/sim-performance/isaac-sim-rt-2-default-renderer.md) | S | Flip default renderer to Real-Time 2.0 + 4× FPS multiplier + Performance mode; re-measure bridge perf |
 | [`planner-rotate-direction-prompt`](active/reliability/planner-rotate-direction-prompt.md) | S | Quick win — prompt edit |
 | [`goal-noise-training`](active/trained-policy/goal-noise-training.md) | M | Targeted DEPTH-baseline training pass with goal-position noise; gates VLM-grounded mission quality for `strafer_direct` |
+| [`policy-rate-shared-constants`](active/trained-policy/policy-rate-shared-constants.md) | S (~1 hr) | Delegate `_DEFAULT_NAV_SIM_DT` / `_DEFAULT_NAV_DECIMATION` in `strafer_env_cfg.py` to the new `strafer_shared.constants.POLICY_SIM_DT` / `POLICY_DECIMATION`. Jetson side already consumes the shared constants; this closes the duplication so a future training-rate experiment can't silently desync sim from real |
 | [`behavior-cloning-data-expansion`](active/harness/behavior-cloning-data-expansion.md) | M–L | Per-tick capture + depth + actions + time alignment + paraphrase + hard-negative injection. Driver-agnostic schema; bridge-driver upgrades ship in this brief. |
 | [`planner-far-target-staging`](active/multi-room/planner-far-target-staging.md) | M–L | World-state schema + planner prompt |
 | [`subgoal-env`](active/trained-policy/subgoal-env.md) | L (~1.5–2 wk) | New training env for `NOCAM_SUBGOAL` — sim-internal path planner + SubgoalCommand + path-tracking rewards + termination + training run. Unblocks hybrid mode |

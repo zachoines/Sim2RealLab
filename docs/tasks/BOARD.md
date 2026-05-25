@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`inference-package`](active/trained-policy/inference-package.md) | Jetson | [#55](https://github.com/zachoines/Sim2RealLab/pull/55) (draft) | Phase 1 skeleton landed; Phase 2 (DEPTH obs pipeline) in progress; Phase 3 gates on DGX `recurrent-state-contract`; Phases 4–5 follow on the same branch |
+| [`inference-package`](active/trained-policy/inference-package.md) | Jetson | [#55](https://github.com/zachoines/Sim2RealLab/pull/55) | Phases 1–4 landed; operator-driven sim validation extracted into [`strafer-direct-sim-validation`](active/trained-policy/strafer-direct-sim-validation.md); ready for merge |
 
 ---
 
@@ -63,6 +63,7 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 |---|---|---|---|
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | P3 | active | DGX |
 | [`inference-package`](active/trained-policy/inference-package.md) | P1 | active | Jetson |
+| [`strafer-direct-sim-validation`](active/trained-policy/strafer-direct-sim-validation.md) | P2 | active | Either |
 | [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | P1 | active | Either |
 | [`encoder-noise-shared-sample`](active/trained-policy/encoder-noise-shared-sample.md) | P2 | active | DGX |
 | [`policy-rate-shared-constants`](active/trained-policy/policy-rate-shared-constants.md) | P2 | active | DGX |
@@ -204,7 +205,7 @@ session. Parked briefs are not listed here — see **By epic** or
 
 | Brief | Estimate | Note |
 |---|---|---|
-| _None currently._ | | |
+| [`strafer-direct-sim-validation`](active/trained-policy/strafer-direct-sim-validation.md) | M (1–2 days, rig-dependent) | Operator-driven sim validation extracted from the [`inference-package`](active/trained-policy/inference-package.md) PR so it could merge with unit-testable acceptance closed. Three independent runs: rosbag parity (≤1e-5 NOCAM / ≤1e-3 depth), TRT-EP latency p95 < 10 ms, and the architectural-win mission (≥ 1.0 m/s sustained + obstacle avoidance). Last item gates on a deployable DEPTH checkpoint; the first two only need the sim-in-the-loop rig. |
 
 ### P3 — pickable, low priority
 

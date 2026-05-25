@@ -136,7 +136,7 @@ over LAN. HTTP goes over the same LAN (DGX `192.168.50.196`, Jetson
 | Motor controllers | 2× RoboClaw ST 2x45A | USB serial, dual-controller addressing (0x80 / 0x81) |
 | Chassis | GoBilda Strafer v4 | 4-wheel mecanum platform |
 
-Windows GPU workstations can stand in for the DGX for Isaac Lab + VLM fine-tuning, though Isaac Sim on aarch64 only officially supports DGX Spark.
+Windows GPU workstations can stand in for the DGX on the sim-bridge side via WSL2 Ubuntu-22.04 — see [`docs/INTEGRATION_WINDOWS_WORKSTATION.md`](docs/INTEGRATION_WINDOWS_WORKSTATION.md). Native Windows is not supported because NVIDIA's Isaac Sim 6 docs limit CycloneDDS (the project's cross-host RMW) to Linux.
 
 ## Repository structure
 
@@ -239,16 +239,11 @@ Must be redone if `nvidia-cuda-nvrtc` is upgraded or the venv is recreated. `mak
 
 For the Isaac Lab 3.0 source build that backs `env_isaaclab3` and the aarch64 `bpy` wheel (`env_infinigen`), see the `README.md` inside the sibling `~/Workspace/blender-build/` directory and the upstream Isaac Lab install instructions.
 
-### Windows workstation (fallback for Isaac Lab)
+### Windows workstation (sim-bridge via WSL2)
 
-```powershell
-& C:\Workspace\venv_isaac\Scripts\Activate.ps1
-cd C:\Workspace
-python -m pip install -e source/strafer_lab source/strafer_shared
-python -m pip install -e "source/strafer_vlm[qwen,live,service]"
-```
+Windows can stand in for the DGX on the sim-bridge side — useful when the DGX is reserved for training and a gaming-class GPU (RTX 4080 reference) suffices for iteration. The bridge runs inside a WSL2 Ubuntu-22.04 distro, not native Windows, because NVIDIA's Isaac Sim 6 docs limit CycloneDDS (the project's cross-host RMW) to Linux.
 
-Windows does not run the planner / VLM services or Isaac Sim on ARM, but it works for PPO training and live VLM evaluation.
+The full recipe — WSL2 install, mirrored networking, conda env, Isaac Sim + Isaac Lab pin, ROS 2, smoke tests — lives in [`docs/INTEGRATION_WINDOWS_WORKSTATION.md`](docs/INTEGRATION_WINDOWS_WORKSTATION.md). From a Windows PowerShell prompt after that runbook, `Scripts\Open-Sim2RealLab-Wsl.ps1` opens a positioned WSL shell and the existing Linux Makefile targets (`make sim-bridge`, `make sim-harness`, ...) work unchanged.
 
 ### Jetson Orin Nano
 

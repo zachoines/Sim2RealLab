@@ -224,6 +224,14 @@ make sim-bridge          # headless (daily-driver, ~85 ms/loop faster)
 make sim-bridge-gui      # editor viewport open (visual debug, slower)
 ```
 
+On a **Windows workstation** the bridge runs inside a WSL2 Ubuntu-22.04 shell — see [`docs/INTEGRATION_WINDOWS_WORKSTATION.md`](INTEGRATION_WINDOWS_WORKSTATION.md). From a Windows PowerShell prompt:
+
+```powershell
+.\Scripts\Open-Sim2RealLab-Wsl.ps1 -Command "make sim-bridge"
+# or interactively:
+.\Scripts\Open-Sim2RealLab-Wsl.ps1   # opens a positioned WSL shell; then `make sim-bridge`
+```
+
 ## Jetson shell 1 — full bringup (perception + SLAM + Nav2 + executor + foxglove_bridge)
 ```bash
 make launch-sim

@@ -71,7 +71,7 @@ The current architecture is a deliberate two-tier split:
   policy on Isaac Lab's `Isaac-Strafer-Nav-Real-*` envs; the
   deployable artifact is consumed by Nav2 (or, eventually, by the
   `strafer_direct` and `hybrid_nav2_strafer` backends in
-  [`inference-package`](../active/trained-policy/inference-package.md)). At
+  [`inference-package`](inference-package.md)). At
   steady state this layer runs at ~30 Hz on the Jetson.
 - **High-level autonomy.** `strafer_autonomy` (planner + executor)
   + `strafer_vlm` (Qwen2.5-VL grounding + description) translate a

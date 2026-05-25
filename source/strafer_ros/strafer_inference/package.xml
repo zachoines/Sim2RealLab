@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>strafer_inference</name>
+  <version>0.1.0</version>
+  <description>Trained-policy execution backend for the Strafer robot. Loads an exported policy and drives /strafer/cmd_vel from a /navigate_to_pose goal, providing the strafer_direct alternative to the Nav2 backend.</description>
+  <maintainer email="jetson@localhost.local">jetson</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>ros2launch</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>nav2_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>strafer_shared</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

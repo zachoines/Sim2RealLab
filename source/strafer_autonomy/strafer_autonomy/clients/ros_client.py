@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import threading
 import time
 import uuid
@@ -13,6 +14,32 @@ from typing import Any, Iterable, Protocol, runtime_checkable
 from strafer_autonomy.schemas import GoalPoseCandidate, Pose3D, SceneObservation, SkillResult
 
 logger = logging.getLogger(__name__)
+
+
+_BACKEND_NAV2 = "nav2"
+_BACKEND_STRAFER_DIRECT = "strafer_direct"
+_SUPPORTED_BACKENDS = (_BACKEND_NAV2, _BACKEND_STRAFER_DIRECT)
+
+
+def _resolve_execution_backend(per_step: str | None) -> str:
+    """Pick the backend for this mission.
+
+    Precedence: per-step argument > ``STRAFER_NAV_BACKEND`` env var >
+    ``nav2``. Unknown values fall back to ``nav2`` with a logged
+    error so a typo (e.g. ``"strafer-direct"`` with a dash) cannot
+    silently leave the operator stranded on no backend.
+    """
+    candidate = per_step or os.environ.get(
+        "STRAFER_NAV_BACKEND", _BACKEND_NAV2
+    )
+    if candidate in _SUPPORTED_BACKENDS:
+        return candidate
+    logger.error(
+        "Unknown execution_backend=%r; falling back to %s. "
+        "Supported values: %s.",
+        candidate, _BACKEND_NAV2, list(_SUPPORTED_BACKENDS),
+    )
+    return _BACKEND_NAV2
 
 
 @runtime_checkable
@@ -45,11 +72,15 @@ class RosClient(Protocol):
         *,
         step_id: str,
         goal_pose: Pose3D,
-        execution_backend: str = "nav2",
+        execution_backend: str | None = None,
         behavior_tree: str | None = None,
         timeout_s: float | None = None,
     ) -> SkillResult:
-        """Execute goal-directed motion through the selected local backend."""
+        """Execute goal-directed motion through the selected local backend.
+
+        ``execution_backend=None`` defers to the ``STRAFER_NAV_BACKEND``
+        env var and ultimately to ``"nav2"``.
+        """
 
     def cancel_active_navigation(self) -> bool:
         """Cancel the currently active motion backend if one exists."""
@@ -682,27 +713,71 @@ class JetsonRosClient:
         *,
         step_id: str,
         goal_pose: Pose3D,
-        execution_backend: str = "nav2",
+        execution_backend: str | None = None,
         behavior_tree: str | None = None,
         timeout_s: float | None = None,
         stall_progress_m: float | None = None,
         stall_window_s: float | None = None,
     ) -> SkillResult:
-        """Send a goal to Nav2 and block until completion, timeout, or cancel.
+        """Dispatch a goal to the selected local-motion backend.
 
-        Creates a ``NavigateToPose`` action client on first call and
-        reuses it for subsequent goals.  The active goal handle is tracked
-        so ``cancel_active_navigation`` can abort it.
+        ``execution_backend`` selects between Nav2 (``"nav2"``) and the
+        trained-policy backend (``"strafer_direct"``). The effective
+        value comes from (in precedence order) the per-step argument,
+        the ``STRAFER_NAV_BACKEND`` env var, and a final default of
+        ``"nav2"``. Unknown values fall back to Nav2 with a logged
+        error.
 
-        When both ``stall_progress_m`` and ``stall_window_s`` are provided,
-        a watchdog runs alongside the deadline: if Nav2's
+        For ``strafer_direct``: the call targets the
+        ``strafer_inference/navigate_to_pose`` action server. If the
+        inference node refused to advertise (model-load failed at its
+        startup), ``wait_for_server`` times out and this method falls
+        back to Nav2 *for this mission*. Subsequent missions re-attempt
+        the lookup so an operator who manually restarts the inference
+        node recovers without a process restart here.
+
+        When both ``stall_progress_m`` and ``stall_window_s`` are
+        provided (Nav2 path only today), a watchdog cancels the goal
+        with ``error_code=navigation_stalled`` if Nav2's
         ``distance_remaining`` feedback does not decrease by at least
         ``stall_progress_m`` over the most recent ``stall_window_s`` of
-        sim-time, the goal is canceled with
-        ``error_code=navigation_stalled``. The watchdog only fires once
-        the window is fully populated, so the first ``stall_window_s`` of
-        any navigation cannot trip it.
+        sim-time.
         """
+        backend = _resolve_execution_backend(execution_backend)
+        if backend == _BACKEND_STRAFER_DIRECT:
+            result = self._navigate_via_strafer_direct(
+                step_id=step_id, goal_pose=goal_pose,
+                behavior_tree=behavior_tree, timeout_s=timeout_s,
+            )
+            if result is not None:
+                return result
+            # Inference server unavailable / load-failed; fall back to
+            # Nav2 for this mission. Subsequent missions re-attempt
+            # the lookup so a manually-restarted inference node
+            # recovers without a JetsonRosClient process restart.
+            logger.warning(
+                "strafer_direct backend selected but the "
+                "strafer_inference action server is unavailable; "
+                "falling back to nav2 for step_id=%s.", step_id,
+            )
+
+        return self._navigate_via_nav2(
+            step_id=step_id, goal_pose=goal_pose,
+            behavior_tree=behavior_tree, timeout_s=timeout_s,
+            stall_progress_m=stall_progress_m,
+            stall_window_s=stall_window_s,
+        )
+
+    def _navigate_via_nav2(
+        self,
+        *,
+        step_id: str,
+        goal_pose: Pose3D,
+        behavior_tree: str | None,
+        timeout_s: float | None,
+        stall_progress_m: float | None,
+        stall_window_s: float | None,
+    ) -> SkillResult:
         from nav2_msgs.action import NavigateToPose as Nav2NavigateToPose
         from geometry_msgs.msg import PoseStamped
         from rclpy.action import ActionClient
@@ -838,6 +913,121 @@ class JetsonRosClient:
             step_id=step_id, skill="navigate_to_pose", status="failed",
             error_code="navigation_failed",
             message=f"Navigation failed (GoalStatus {status}).",
+            started_at=started_at, finished_at=time.time(),
+        )
+
+    def _navigate_via_strafer_direct(
+        self,
+        *,
+        step_id: str,
+        goal_pose: Pose3D,
+        behavior_tree: str | None,
+        timeout_s: float | None,
+    ) -> SkillResult | None:
+        """Route the mission through the strafer_inference action server.
+
+        Returns ``None`` when the action server is unavailable
+        (model-load failed at the inference node's startup, or the
+        node is not running). The caller falls back to Nav2 in that
+        case.
+        """
+        from nav2_msgs.action import NavigateToPose as Nav2NavigateToPose
+        from geometry_msgs.msg import PoseStamped
+        from rclpy.action import ActionClient
+        from action_msgs.msg import GoalStatus
+
+        started_at = time.time()
+        timeout = timeout_s or self._config.default_nav_timeout_s
+
+        if not hasattr(self, "_strafer_direct_client"):
+            self._strafer_direct_client = ActionClient(
+                self._node, Nav2NavigateToPose,
+                "/strafer_inference/navigate_to_pose",
+            )
+
+        if not self._strafer_direct_client.wait_for_server(timeout_sec=10.0):
+            return None
+
+        goal_msg = Nav2NavigateToPose.Goal()
+        goal_msg.pose = PoseStamped()
+        goal_msg.pose.header.frame_id = self._config.default_goal_frame
+        goal_msg.pose.header.stamp = self._node.get_clock().now().to_msg()
+        goal_msg.pose.pose.position.x = goal_pose.x
+        goal_msg.pose.pose.position.y = goal_pose.y
+        goal_msg.pose.pose.position.z = goal_pose.z
+        goal_msg.pose.pose.orientation.x = goal_pose.qx
+        goal_msg.pose.pose.orientation.y = goal_pose.qy
+        goal_msg.pose.pose.orientation.z = goal_pose.qz
+        goal_msg.pose.pose.orientation.w = goal_pose.qw
+        if behavior_tree:
+            goal_msg.behavior_tree = behavior_tree
+
+        logger.info(
+            "Sending strafer_direct goal: frame=%s pos=(%.3f, %.3f, %.3f)",
+            goal_msg.pose.header.frame_id,
+            goal_pose.x, goal_pose.y, goal_pose.z,
+        )
+
+        send_future = self._strafer_direct_client.send_goal_async(goal_msg)
+        if not self._wait_for_future(send_future, 10.0):
+            return SkillResult(
+                step_id=step_id, skill="navigate_to_pose", status="failed",
+                error_code="goal_send_timeout",
+                message="Timed out sending goal to strafer_inference.",
+                started_at=started_at, finished_at=time.time(),
+            )
+
+        goal_handle = send_future.result()
+        if not goal_handle.accepted:
+            logger.error(
+                "strafer_inference REJECTED goal: pos=(%.3f, %.3f, %.3f)",
+                goal_pose.x, goal_pose.y, goal_pose.z,
+            )
+            return SkillResult(
+                step_id=step_id, skill="navigate_to_pose", status="failed",
+                error_code="goal_rejected",
+                message="strafer_inference rejected the navigation goal.",
+                started_at=started_at, finished_at=time.time(),
+            )
+
+        with self._nav_lock:
+            self._active_goal_handle = goal_handle
+
+        result_future = goal_handle.get_result_async()
+        completed, _stalled = self._wait_for_nav_result(
+            result_future, timeout_s=timeout, tracker=None,
+        )
+
+        with self._nav_lock:
+            self._active_goal_handle = None
+
+        if not completed:
+            goal_handle.cancel_goal_async()
+            return SkillResult(
+                step_id=step_id, skill="navigate_to_pose", status="timeout",
+                error_code="navigation_timeout",
+                message=f"strafer_direct navigation timed out after {timeout:.0f}s.",
+                started_at=started_at, finished_at=time.time(),
+            )
+
+        status = result_future.result().status
+        if status == GoalStatus.STATUS_SUCCEEDED:
+            return SkillResult(
+                step_id=step_id, skill="navigate_to_pose", status="succeeded",
+                message="strafer_direct navigation completed successfully.",
+                started_at=started_at, finished_at=time.time(),
+            )
+        if status == GoalStatus.STATUS_CANCELED:
+            return SkillResult(
+                step_id=step_id, skill="navigate_to_pose", status="canceled",
+                error_code="navigation_canceled",
+                message="strafer_direct navigation was canceled.",
+                started_at=started_at, finished_at=time.time(),
+            )
+        return SkillResult(
+            step_id=step_id, skill="navigate_to_pose", status="failed",
+            error_code="navigation_failed",
+            message=f"strafer_direct navigation failed (GoalStatus {status}).",
             started_at=started_at, finished_at=time.time(),
         )
 

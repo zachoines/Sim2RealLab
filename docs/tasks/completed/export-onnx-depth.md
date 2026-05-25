@@ -10,7 +10,7 @@
 **Type:** task / feature
 **Owner:** DGX (`strafer_lab` lane — RL agent code)
 **Priority:** P1 — gates the Jetson TRT-EP path for the DEPTH MVP in
-[`inference-package`](../active/trained-policy/inference-package.md). Without
+[`inference-package`](inference-package.md). Without
 ONNX, DEPTH inference on Jetson Orin Nano falls back to TorchScript-CPU,
 which misses the latency target.
 **Estimate:** M (~1–2 days: write `_OnnxDepthGRUModel` mirror of
@@ -41,7 +41,7 @@ Read these before starting:
 - [policy-export-tooling.md](policy-export-tooling.md) — the export
   tooling whose `--formats pt,onnx` path errors today on DEPTH
   variants because of the gap this brief closes.
-- [strafer-inference-package.md](../active/trained-policy/inference-package.md) — the
+- [strafer-inference-package.md](inference-package.md) — the
   Jetson consumer whose Phase 3 latency target gates on the TRT-EP
   path, which gates on this brief.
 
@@ -204,7 +204,7 @@ Extend
   holds when `h_in` is reset between calls.
 - Verify the multi-input ONNX file is loadable via ORT-CPU on the DGX
   (TRT EP verification stays Jetson-side per
-  [`inference-package`](../active/trained-policy/inference-package.md)).
+  [`inference-package`](inference-package.md)).
 
 ### Phase 4 — Real-checkpoint smoke test
 

@@ -34,7 +34,7 @@ performs adequately on short segments**.
 Read these before starting:
 - [context/repo-topology.md](../../context/repo-topology.md)
 - [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [inference-package.md](../../active/trained-policy/inference-package.md)
+- [inference-package.md](../../completed/inference-package.md)
   — the `strafer_direct` baseline this brief is the inverse of (RL =
   local control, Nav2 = no planner).
 - [hybrid-mode.md](hybrid-mode.md) — the *Nav2-global + RL-local*

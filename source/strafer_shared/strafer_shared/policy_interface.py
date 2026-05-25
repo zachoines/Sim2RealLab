@@ -394,7 +394,12 @@ def _read_sidecar(path: Path) -> dict | None:
     return json.loads(sidecar.read_text())
 
 
-def load_policy(path: str | Path, variant: PolicyVariant) -> LoadedPolicy:
+def load_policy(
+    path: str | Path,
+    variant: PolicyVariant,
+    *,
+    onnx_providers: list[str] | None = None,
+) -> LoadedPolicy:
     """Load a trained policy model and return a :class:`LoadedPolicy`.
 
     Supports:
@@ -418,6 +423,13 @@ def load_policy(path: str | Path, variant: PolicyVariant) -> LoadedPolicy:
         path: Path to the model file.
         variant: Policy variant. Validated against the sidecar's
             ``policy_variant`` when the sidecar is present.
+        onnx_providers: Optional ONNX Runtime execution-provider preference
+            list, e.g. ``["TensorrtExecutionProvider",
+            "CUDAExecutionProvider", "CPUExecutionProvider"]``. Ignored for
+            ``.pt`` artifacts. Defaults to ``None`` which leaves the
+            session-wide default (CPU on a stock install). Deployment
+            callers on Jetson must pass the TRT preference here — DEPTH
+            inference is too slow on CPU/CUDA-EP alone.
 
     Returns:
         :class:`LoadedPolicy` (callable; ``obs -> action``).
@@ -465,7 +477,10 @@ def load_policy(path: str | Path, variant: PolicyVariant) -> LoadedPolicy:
     if path.suffix == ".onnx":
         import onnxruntime as ort
 
-        sess = ort.InferenceSession(str(path))
+        if onnx_providers is not None:
+            sess = ort.InferenceSession(str(path), providers=onnx_providers)
+        else:
+            sess = ort.InferenceSession(str(path))
         input_names = {inp.name for inp in sess.get_inputs()}
 
         if sidecar is not None and "is_recurrent" in sidecar:

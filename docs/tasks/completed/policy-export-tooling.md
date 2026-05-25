@@ -21,7 +21,7 @@ follow-up brief.
 **Type:** task / feature
 **Owner:** DGX (`strafer_lab` lane — training + export tooling)
 **Priority:** P1 — hard dependency for
-[`inference-package`](../active/trained-policy/inference-package.md)
+[`inference-package`](inference-package.md)
 end-to-end validation. **Both TorchScript and ONNX paths are
 MVP-required** since the DEPTH variant in the inference brief is
 too slow on CPU and depends on the TensorRT execution provider
@@ -50,7 +50,7 @@ robot**.
 Read these before starting:
 - [context/repo-topology.md](../context/repo-topology.md)
 - [context/ownership-boundaries.md](../context/ownership-boundaries.md)
-- [strafer-inference-package.md](../active/trained-policy/inference-package.md) — the
+- [strafer-inference-package.md](inference-package.md) — the
   Jetson-side consumer that gates on this brief. The brief's Phase 3
   asserts byte-identical action outputs across two same-obs calls;
   that assertion is only meaningful if the export tooling actually
@@ -146,7 +146,7 @@ Tests in `source/strafer_lab/tests/test_export_policy.py`:
 ### Phase 2 — ONNX export (MVP-required for DEPTH)
 
 The DEPTH variant in
-[`inference-package`](../active/trained-policy/inference-package.md) is
+[`inference-package`](inference-package.md) is
 too slow on CPU/CUDA-EP alone — the TRT execution provider is
 required for the latency target. ONNX is the path TensorRT
 consumes, so this phase is part of the MVP, not deferred.
@@ -223,7 +223,7 @@ JetPack-version-coupled and not testable on the DGX.
 - For DEPTH variant, target median latency ≤ 6 ms via TRT (so
   the Jetson inference node's wrapping infrastructure has budget
   to clear the ≤ 10 ms p95 end-to-end target in
-  [`inference-package`](../active/trained-policy/inference-package.md)
+  [`inference-package`](inference-package.md)
   Phase 3).
 - Surface a clear warning if the TRT EP is unavailable — that's
   the failure mode the inference node's launch-time benchmark
@@ -239,7 +239,7 @@ JetPack-version-coupled and not testable on the DGX.
       passes — exports a tiny dummy actor, round-trips through
       `load_policy()`, asserts dimensions + determinism + metadata.
 
-### Determinism contract (load-bearing for [`inference-package`](../active/trained-policy/inference-package.md))
+### Determinism contract (load-bearing for [`inference-package`](inference-package.md))
 
 - [ ] Exported `.pt` produces byte-identical output for the same input
       across two consecutive `load_policy()` calls. The export script
@@ -255,7 +255,7 @@ JetPack-version-coupled and not testable on the DGX.
       listed in Phase 1. Variant + obs_dim are validated against
       `PolicyVariant.<variant>` at export time.
 - [ ] Loading code on the Jetson side
-      ([`inference-package`](../active/trained-policy/inference-package.md))
+      ([`inference-package`](inference-package.md))
       reads the sidecar and asserts it matches the configured
       `PolicyVariant`. Mismatch is fatal at startup. *(Cross-brief
       invariant — owned by the inference brief but enforced here at
@@ -316,5 +316,5 @@ JetPack-version-coupled and not testable on the DGX.
   operator-side deployment work; not blocking for the LAN-HTTP /
   rsync path used by this brief.
 - **Inference-side integration.** That's
-  [`inference-package`](../active/trained-policy/inference-package.md).
+  [`inference-package`](inference-package.md).
   This brief's output is rsync'd onto the Jetson by the operator.

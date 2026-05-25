@@ -62,13 +62,18 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | Brief | Pri | State | Owner |
 |---|---|---|---|
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | P3 | active | DGX |
-| [`inference-package`](active/trained-policy/inference-package.md) | P1 | active | Jetson |
+| [`strafer-direct-sim-validation`](active/trained-policy/strafer-direct-sim-validation.md) | P2 | active | Either |
+| [`sim-l1-velocity-clamp`](active/trained-policy/sim-l1-velocity-clamp.md) | P2 | active | DGX |
 | [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | P1 | active | Either |
 | [`encoder-noise-shared-sample`](active/trained-policy/encoder-noise-shared-sample.md) | P2 | active | DGX |
+| [`policy-rate-shared-constants`](active/trained-policy/policy-rate-shared-constants.md) | P2 | active | DGX |
 | [`domain-randomization-audit`](active/trained-policy/domain-randomization-audit.md) | P1 | active | DGX |
 | [`goal-noise-training`](active/trained-policy/goal-noise-training.md) | P2 | active | DGX |
 | [`subgoal-env`](active/trained-policy/subgoal-env.md) | P2 | active | DGX |
 | [`hybrid-mode`](parked/trained-policy/hybrid-mode.md) | P3 | parked | Jetson |
+| [`strafer-hybrid-sim-validation`](parked/trained-policy/strafer-hybrid-sim-validation.md) | P3 | parked | Either |
+| [`depth-subgoal-env`](parked/trained-policy/depth-subgoal-env.md) | P3 | parked | DGX |
+| [`depth-subgoal-hybrid-runtime`](parked/trained-policy/depth-subgoal-hybrid-runtime.md) | P3 | parked | Jetson |
 | [`rl-global-nav2-local`](parked/trained-policy/rl-global-nav2-local.md) | P3 | parked | Either |
 
 ### Harness & training data
@@ -157,7 +162,6 @@ session. Parked briefs are not listed here — see **By epic** or
 | Brief | Owner | Estimate | Note |
 |---|---|---|---|
 | [`next-integration-round`](active/investigations/next-integration-round.md) | Either | M–L | Full end-to-end sim-in-the-loop run against `INTEGRATION_SIM_IN_THE_LOOP.md`; gating signal that bridge + autonomy + VLM/CLIP compose end-to-end |
-| [`inference-package`](active/trained-policy/inference-package.md) | Jetson | L (~1.5 wk) | DEPTH MVP — `strafer_direct` mode with the trained ProcRoom-Depth policy. Phases 1–4 land without a deployable checkpoint; Phase 5 gates on DGX-side export+training. Architectural answer to MPPI's plateau |
 | [`validator-evaluation`](active/clip-validation/validator-evaluation.md) | Either | L | Wire the orphaned `SemanticMapManager` + `BackgroundMapper` + `TransitMonitor` path into the production executor and measure pre-registered TPR/FPR/time-to-decision on harness output. Gating brief for `MISSION_VALIDATION_ARCHITECTURE.md` §4 staged plan. Filed off `mid-mission-validation-investigation` ship. |
 | [`teleop-driver`](active/harness/teleop-driver.md) | DGX | M | Gamepad teleop entry point for in-process Isaac Lab data capture. Bypasses MPPI / Nav2 / planner; reuses `collect_demos.py` mapping; emits the canonical harness schema. Unblocks v1 measurement (CLIP cascade eval + co-trained validator) and v2 VLA training data without depending on bridge perf. |
 | [`autonomy-stack`](active/multi-room/autonomy-stack.md) | Either | M | Lifts §1.10.1's multi-room deferral. Stored-map fallback in `scan_for_target` + planner transit-step emission + plan-compiler updates. Blocks on `observation-derived-room-state` and `frontier-exploration-primitive` (`planner-architecture-alignment` shipped in #36 as Option C). |
@@ -173,6 +177,8 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`isaac-sim-rt-2-default-renderer`](active/sim-performance/isaac-sim-rt-2-default-renderer.md) | S | Flip default renderer to Real-Time 2.0 + 4× FPS multiplier + Performance mode; re-measure bridge perf |
 | [`planner-rotate-direction-prompt`](active/reliability/planner-rotate-direction-prompt.md) | S | Quick win — prompt edit |
 | [`goal-noise-training`](active/trained-policy/goal-noise-training.md) | M | Targeted DEPTH-baseline training pass with goal-position noise; gates VLM-grounded mission quality for `strafer_direct` |
+| [`policy-rate-shared-constants`](active/trained-policy/policy-rate-shared-constants.md) | S (~1 hr) | Delegate `_DEFAULT_NAV_SIM_DT` / `_DEFAULT_NAV_DECIMATION` in `strafer_env_cfg.py` to the new `strafer_shared.constants.POLICY_SIM_DT` / `POLICY_DECIMATION`. Jetson side already consumes the shared constants; this closes the duplication so a future training-rate experiment can't silently desync sim from real |
+| [`sim-l1-velocity-clamp`](active/trained-policy/sim-l1-velocity-clamp.md) | S (~1 day) | Lift `l1_clamp_velocity` from `strafer_inference/obs_pipeline.py` into `strafer_shared.mecanum_kinematics`, wire it into sim's `MecanumWheelAction.process_actions` between denormalization and per-wheel kinematics. Closes a sim-to-real contract gap PR #55 surfaced: the Jetson clamps body-frame `(vx, vy)` jointly (heading-preserving) before publish, but sim only caps per-wheel (heading-distorting). Worth landing before the next DGX training run so the converged checkpoint trains against the deployed command-shaping. |
 | [`behavior-cloning-data-expansion`](active/harness/behavior-cloning-data-expansion.md) | M–L | Per-tick capture + depth + actions + time alignment + paraphrase + hard-negative injection. Driver-agnostic schema; bridge-driver upgrades ship in this brief. |
 | [`planner-far-target-staging`](active/multi-room/planner-far-target-staging.md) | M–L | World-state schema + planner prompt |
 | [`subgoal-env`](active/trained-policy/subgoal-env.md) | L (~1.5–2 wk) | New training env for `NOCAM_SUBGOAL` — sim-internal path planner + SubgoalCommand + path-tracking rewards + termination + training run. Unblocks hybrid mode |
@@ -203,7 +209,7 @@ session. Parked briefs are not listed here — see **By epic** or
 
 | Brief | Estimate | Note |
 |---|---|---|
-| _None currently._ | | |
+| [`strafer-direct-sim-validation`](active/trained-policy/strafer-direct-sim-validation.md) | M (1–2 days, rig-dependent) | Operator-driven sim validation extracted from the [`inference-package`](completed/inference-package.md) PR so it could merge with unit-testable acceptance closed. Three independent runs: rosbag parity (≤1e-5 NOCAM / ≤1e-3 depth), TRT-EP latency p95 < 10 ms, and the architectural-win mission (≥ 1.0 m/s sustained + obstacle avoidance). Last item gates on a deployable DEPTH checkpoint; the first two only need the sim-in-the-loop rig. |
 
 ### P3 — pickable, low priority
 
@@ -237,7 +243,10 @@ picks them up.
 
 | Brief | Trigger / blocks on | Why |
 |---|---|---|
-| [`hybrid-mode`](parked/trained-policy/hybrid-mode.md) | [`inference-package`](active/trained-policy/inference-package.md) (Jetson) **and** [`subgoal-env`](active/trained-policy/subgoal-env.md) (DGX) both shipped | Hybrid backend extends the inference package's runtime AND consumes the `NOCAM_SUBGOAL` checkpoint produced by the env brief. The two prerequisites can run in parallel since they're cross-lane |
+| [`hybrid-mode`](parked/trained-policy/hybrid-mode.md) | [`subgoal-env`](active/trained-policy/subgoal-env.md) (DGX) shipped — [`inference-package`](completed/inference-package.md) already shipped, so this brief is gated only on the new training env producing a `NOCAM_SUBGOAL` checkpoint | Hybrid backend extends the inference package's runtime AND consumes the `NOCAM_SUBGOAL` checkpoint produced by the env brief |
+| [`strafer-hybrid-sim-validation`](parked/trained-policy/strafer-hybrid-sim-validation.md) | [`subgoal-env`](active/trained-policy/subgoal-env.md) shipped **and** [`hybrid-mode`](parked/trained-policy/hybrid-mode.md) shipped **and** sim-in-the-loop rig usable | Operator-driven sim validation for the `hybrid_nav2_strafer` backend — rosbag parity (19-dim NOCAM-fields + subgoal-pose pick), per-tick + mission-start latency, the cross-room reference mission, hybrid-specific safety (plan-freshness watchdog, costmap-trust documentation). Parallel to [`strafer-direct-sim-validation`](active/trained-policy/strafer-direct-sim-validation.md); pre-filed so hybrid-mode's runtime PR can ship with unit-testable acceptance closed, same precedent as [`inference-package`](completed/inference-package.md) → strafer-direct-sim-validation. |
+| [`depth-subgoal-env`](parked/trained-policy/depth-subgoal-env.md) | [`inference-package`](completed/inference-package.md) ✅ **and** [`subgoal-env`](active/trained-policy/subgoal-env.md) shipped **and** soft-prereq NOCAM_SUBGOAL deployment shows a depth-recoverable failure | Closes the 2×2 deployment matrix (direct/hybrid × NOCAM/DEPTH). `PolicyVariant.DEPTH_SUBGOAL` + depth-aware reward shaping + DEPTH-rate training run. Lifts the NOCAM_SUBGOAL costmap-trust caveat — depth lets the policy detect late-arriving obstacles. Filed pre-emptively so the design questions (architecture share with DEPTH-direct, reward composition for path-tracking vs obstacle-avoidance) stay visible. |
+| [`depth-subgoal-hybrid-runtime`](parked/trained-policy/depth-subgoal-hybrid-runtime.md) | [`hybrid-mode`](parked/trained-policy/hybrid-mode.md) shipped **and** [`depth-subgoal-env`](parked/trained-policy/depth-subgoal-env.md) shipped | Jetson-side runtime extension that composes the existing DEPTH observation pipeline with the hybrid-mode rolling-subgoal selection. Recommends a variant-agnostic refactor of the four hardcoded-DEPTH paths in PR #55's `strafer_inference` rather than a DEPTH_SUBGOAL-specific branch — the refactor becomes a durable substrate for any future variant the loader can produce. |
 | [`rl-global-nav2-local`](parked/trained-policy/rl-global-nav2-local.md) | Trigger: first end-to-end deployment of `strafer_direct` (DEPTH MVP) or `hybrid_nav2_strafer` reveals that local-control RL is insufficient for VLM-grounded missions and the global-plan layer is the issue | Alternative architecture corner: RL as global waypoint planner, Nav2 as local controller. Filed off the 2026-05-15 trained-policy audit. Don't pick up preemptively — needs deployment evidence first |
 | [`cotrained-retrieval-augmented`](parked/clip-validation/cotrained-retrieval-augmented.md) | [`validator-evaluation`](active/clip-validation/validator-evaluation.md) shipped + [`trajectory-first-captioning`](active/harness/trajectory-first-captioning.md) shipped (provides the speaker corpus) **and** [`backbone-bakeoff`](parked/clip-validation/backbone-bakeoff.md) shipped (selects the backbone) | Replaces the retired `learned-mid-mission-validator` as the cascade-improvement path. The co-training step and retrieval-augmented step compound; both compose with the existing cascade. |
 | [`backbone-bakeoff`](parked/clip-validation/backbone-bakeoff.md) | [`validator-evaluation`](active/clip-validation/validator-evaluation.md) shipped | Audit-filed off the 2026-05-15 clip-validation review. Measures DINOv3-S / SigLIP-2-Base / MobileCLIP-2-S head-to-head against the v1 OpenCLIP ViT-B/32 baseline on the same eval set, so the cascade-improvement and v2 VLA briefs inherit a backbone with the alternative-considered trail in writing rather than defaulting to a 2021-era ViT-B/32. |

@@ -1,5 +1,14 @@
 # Rewrite `test_body_velocity_drops_on_collision` for the encoder-FK contract
 
+**Status:** Shipped 2026-05-25 in `732d7dd` (DGX). Test renamed to
+`test_body_velocity_xy_does_not_drop_on_collision`; Welch direction
+flipped (collision > free) + absolute lower bound on collision speed.
+Module docstring updated to document the new contract. Phase 1 audit
+confirmed bounded scope — only the one test carried the old assumption.
+`run_tests.py imu` runs 4/4 passing.
+
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/59
+
 **Type:** bug / test refactor
 **Owner:** DGX (`strafer_lab/test/sensors/`)
 **Priority:** P2 — the test fails on `main` after

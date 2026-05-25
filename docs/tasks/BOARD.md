@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`body-velocity-collision-test-rewrite`](active/trained-policy/body-velocity-collision-test-rewrite.md) | DGX | _pending_ | task/body-velocity-collision-test-rewrite |
+| _None._ | | | |
 
 ---
 
@@ -63,7 +63,6 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 |---|---|---|---|
 | [`export-torchscript-depth`](active/trained-policy/export-torchscript-depth.md) | P2 | active | DGX |
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | P3 | active | DGX |
-| [`body-velocity-collision-test-rewrite`](active/trained-policy/body-velocity-collision-test-rewrite.md) | P2 | active | DGX |
 | [`inference-package`](active/trained-policy/inference-package.md) | P1 | active | Jetson |
 | [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | P1 | active | Either |
 | [`encoder-noise-shared-sample`](active/trained-policy/encoder-noise-shared-sample.md) | P2 | active | DGX |

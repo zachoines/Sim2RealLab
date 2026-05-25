@@ -34,7 +34,7 @@ Read these before starting:
 - [`observation-contract-cleanup.md`](../../completed/observation-contract-cleanup.md)
   — the predecessor that landed encoder-FK `body_velocity_xy`. Its
   docstring + the
-  [`body-velocity-collision-test-rewrite`](../../active/trained-policy/body-velocity-collision-test-rewrite.md)
+  [`body-velocity-collision-test-rewrite`](../../completed/body-velocity-collision-test-rewrite.md)
   follow-up document the wheel-slip case explicitly.
 - [`inference-package.md`](../../active/trained-policy/inference-package.md)
   Phase 2 — the obs-pipeline section that reads `body_velocity_xy`

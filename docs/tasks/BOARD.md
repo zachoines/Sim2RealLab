@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| _None._ | | | |
+| [`harness-architecture`](active/harness/harness-architecture.md) Tier 1 (writer + teleop) | DGX | TBD | task branch (`task/harness-writer-teleop`) |
 
 ---
 

@@ -756,17 +756,25 @@ def main() -> int:
         # scene center, but Infinigen scenes are authored with their
         # origin at a corner — leaving the operator looking at empty
         # space outside the room.
+        #
+        # The lookat is nudged slightly along +Y (5 cm) to break the
+        # gimbal-lock degeneracy when eye and lookat share an XY axis:
+        # an unbroken straight-down view leaves the camera's "up"
+        # vector undefined and Kit fills in an arbitrary rotation
+        # (operator sees the scene rotated by some non-zero yaw). The
+        # nudge keeps the view ~99.999% top-down but with a defined
+        # "up" pointing toward world +Y (so screen-up = world-north).
         cx, cy = scene_centroid_xy
         env_cfg.viewer = ViewerCfg(
             eye=(cx, cy, 12.0),
-            lookat=(cx, cy, 0.0),
+            lookat=(cx, cy + 0.05, 0.0),
             origin_type="world",
             env_index=0,
             resolution=(1280, 720),
         )
         print(
             f"[teleop_capture] world_arcade viewport centered at "
-            f"({cx:+.2f}, {cy:+.2f}, 12.00) looking down.",
+            f"({cx:+.2f}, {cy:+.2f}, 12.00) looking down (screen-up = world +Y).",
             flush=True,
         )
 

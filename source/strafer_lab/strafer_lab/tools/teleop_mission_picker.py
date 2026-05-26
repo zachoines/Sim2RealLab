@@ -110,8 +110,20 @@ def load_candidates_from_data(
     *,
     allowed_labels: Iterable[str] | None = None,
     blocked_labels: Iterable[str] | None = None,
+    dedup_by_instance: bool = True,
 ) -> list[MissionCandidate]:
-    """Pure-data variant of :func:`load_candidates` — for tests."""
+    """Pure-data variant of :func:`load_candidates` — for tests.
+
+    ``dedup_by_instance`` (default True): Infinigen authors multi-part
+    objects as several sub-prims, each picked up as its own row by
+    ``extract_scene_metadata.py``. A "bed" might appear as 3 rows at
+    slightly different XY positions (mattress, frame, footboard). The
+    picker is much friendlier when one logical object = one entry. We
+    collapse by ``(normalized_label, instance_id)``, keeping the row
+    with the median Z (a heuristic that lands on the object's centroid
+    rather than its top or floor-contact point). Pass False to see all
+    sub-prims (debug only).
+    """
     rooms = list(data.get("rooms") or [])
     objects = list(data.get("objects") or [])
     room_types_by_idx = _build_room_lookup(rooms)
@@ -125,16 +137,9 @@ def load_candidates_from_data(
         for l in (blocked_labels if blocked_labels is not None else _DEFAULT_BLOCKED_LABELS)
     }
 
-    ordered = sorted(
-        objects,
-        key=lambda o: (
-            _normalize_label(o.get("label", "")),
-            int(o.get("instance_id", 0)),
-        ),
-    )
-
-    out: list[MissionCandidate] = []
-    for obj in ordered:
+    # First pass: filter to acceptable objects + parse into normalized form.
+    raw_rows: list[dict] = []
+    for obj in objects:
         label = str(obj.get("label", "")).strip()
         if not label:
             continue
@@ -153,19 +158,54 @@ def load_candidates_from_data(
         room_idx = obj.get("room_idx")
         room_idx_int = int(room_idx) if room_idx is not None else None
 
+        raw_rows.append({
+            "label": label,
+            "normalized": normalized,
+            "instance_id": instance_id,
+            "pos_3d": pos_3d,
+            "room_idx_int": room_idx_int,
+            "prim_path": obj.get("prim_path"),
+        })
+
+    # Second pass: optional dedup by (normalized_label, instance_id).
+    # Multiple rows with the same (label, instance) are sub-prims of one
+    # logical object — keep the median-Z row as canonical.
+    if dedup_by_instance:
+        from collections import defaultdict
+        groups: dict[tuple[str, int], list[dict]] = defaultdict(list)
+        for row in raw_rows:
+            groups[(row["normalized"], row["instance_id"])].append(row)
+        deduped: list[dict] = []
+        for key, members in groups.items():
+            if len(members) == 1:
+                deduped.append(members[0])
+                continue
+            # Pick the row with median Z. With an odd count this is the
+            # middle one; with even, the lower-middle one (stable sort).
+            members_sorted = sorted(members, key=lambda r: r["pos_3d"][2])
+            mid = len(members_sorted) // 2
+            deduped.append(members_sorted[mid])
+        raw_rows = deduped
+
+    # Third pass: sort + assign dense indices.
+    raw_rows.sort(key=lambda r: (r["normalized"], r["instance_id"]))
+
+    out: list[MissionCandidate] = []
+    for row in raw_rows:
+        room_idx_int = row["room_idx_int"]
         out.append(
             MissionCandidate(
                 index=len(out),
-                instance_id=instance_id,
-                label=label,
-                target_position_3d=pos_3d,
+                instance_id=row["instance_id"],
+                label=row["label"],
+                target_position_3d=row["pos_3d"],
                 target_room_idx=room_idx_int,
                 target_room_type=(
                     room_types_by_idx.get(room_idx_int) or None
                     if room_idx_int is not None else None
                 ),
-                prim_path=obj.get("prim_path"),
-                mission_text=f"go to the {normalized}",
+                prim_path=row["prim_path"],
+                mission_text=f"go to the {row['normalized']}",
             ),
         )
     return out

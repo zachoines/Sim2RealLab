@@ -325,6 +325,51 @@ so they stay isolated from the runtime stack:
 make test-harness   # 116 tests, ~2 s
 ```
 
+## Clean-slate scene regeneration
+
+When the picker offers objects that aren't actually present in the
+loaded scene (e.g. selecting a "bed" places the target marker into
+mid-air), the per-scene `scene_metadata.json` is stale relative to the
+USDC. Regenerate from a clean slate:
+
+```bash
+cd ~/Workspace/Sim2RealLab
+
+# 1. Archive the existing scenes/ tree (don't delete — easy rollback)
+mv Assets/generated/scenes Assets/generated/scenes.old.$(date +%Y%m%d)
+
+# 2. Regenerate one high-quality scene from a fresh seed
+python source/strafer_lab/scripts/prep_room_usds.py generate \
+    --config high_quality_dgx \
+    --num-scenes 1 \
+    --output Assets/generated/scenes
+# ~tens of minutes; Infinigen scene synthesis is single-threaded
+
+# 3. Extract per-scene metadata (objects[])
+SCENE=$(ls -d Assets/generated/scenes/scene_*/ | head -1 | xargs basename)
+$ISAACLAB -p source/strafer_lab/scripts/extract_scene_metadata.py \
+    --from-usd \
+    --usd    Assets/generated/scenes/${SCENE}.usdc \
+    --output Assets/generated/scenes/${SCENE}
+
+# 4. Author the combined scenes_metadata.json (spawn_points_xy + floor_top_z)
+python source/strafer_lab/scripts/generate_scenes_metadata.py \
+    --scenes-dir Assets/generated/scenes
+
+# 5. Sanity check
+python -c "
+import json
+d = json.load(open(f'Assets/generated/scenes/${SCENE}/scene_metadata.json'))
+print(f'rooms={len(d.get(\"rooms\",[]))}  objects={len(d.get(\"objects\",[]))}')
+c = json.load(open('Assets/generated/scenes/scenes_metadata.json'))
+print(f'scenes_metadata entries: {sorted(c[\"scenes\"].keys())}')"
+```
+
+Use the new `$SCENE` for your subsequent capture sessions. If the
+picker still offers "missing" objects after this clean-slate, the
+issue is in `extract_scene_metadata.py --from-usd`'s prim-name parser
+(file follow-up; not a teleop-driver bug).
+
 ## Extract scene_metadata.json (one-time per scene)
 
 The mission picker reads `Assets/generated/scenes/<scene>/scene_metadata.json`.

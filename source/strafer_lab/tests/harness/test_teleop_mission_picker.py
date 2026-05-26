@@ -116,6 +116,62 @@ class TestLoadCandidatesFromData:
         assert [c.label for c in cands] == ["Lamp"]
 
 
+class TestDedupByInstance:
+    def test_default_collapses_subprims_to_one(self):
+        # Infinigen authors multi-part objects (e.g. a cabinet has top,
+        # body, and door sub-prims) as multiple rows sharing
+        # (label, instance_id). Picker should show one entry per
+        # logical object by default.
+        data = {
+            "objects": [
+                {"instance_id": 70173, "label": "cabinet", "position_3d": [9.10, 5.49, 0.88]},
+                {"instance_id": 70173, "label": "cabinet", "position_3d": [8.92, 5.49, 0.92]},
+                {"instance_id": 70173, "label": "cabinet", "position_3d": [9.10, 5.49, 0.92]},
+                {"instance_id": 999,   "label": "chair",   "position_3d": [1.0, 1.0, 0.5]},
+            ],
+        }
+        cands = load_candidates_from_data(data)
+        cabinets = [c for c in cands if c.label == "cabinet"]
+        assert len(cabinets) == 1
+
+    def test_dedup_keeps_median_z_subprim(self):
+        # Three rows with Z = 0.88, 0.92, 0.92 → median pick is the
+        # middle of the sorted list (0.92, second occurrence).
+        data = {
+            "objects": [
+                {"instance_id": 70173, "label": "cabinet", "position_3d": [9.10, 5.49, 0.88]},
+                {"instance_id": 70173, "label": "cabinet", "position_3d": [8.92, 5.49, 0.92]},
+                {"instance_id": 70173, "label": "cabinet", "position_3d": [9.10, 5.49, 0.92]},
+            ],
+        }
+        cands = load_candidates_from_data(data)
+        assert len(cands) == 1
+        assert cands[0].target_position_3d[2] == pytest.approx(0.92)
+
+    def test_dedup_off_preserves_all_subprims(self):
+        data = {
+            "objects": [
+                {"instance_id": 70173, "label": "cabinet", "position_3d": [9.10, 5.49, 0.88]},
+                {"instance_id": 70173, "label": "cabinet", "position_3d": [8.92, 5.49, 0.92]},
+            ],
+        }
+        cands = load_candidates_from_data(data, dedup_by_instance=False)
+        assert len(cands) == 2
+
+    def test_dedup_does_not_collapse_distinct_instances(self):
+        # Two cabinets with DIFFERENT instance_ids must stay as two rows
+        # even though they share a label.
+        data = {
+            "objects": [
+                {"instance_id": 1, "label": "cabinet", "position_3d": [1.0, 1.0, 1.0]},
+                {"instance_id": 2, "label": "cabinet", "position_3d": [5.0, 5.0, 1.0]},
+            ],
+        }
+        cands = load_candidates_from_data(data)
+        assert len(cands) == 2
+        assert {c.instance_id for c in cands} == {1, 2}
+
+
 class TestSelectByIndex:
     @pytest.fixture
     def cands(self):

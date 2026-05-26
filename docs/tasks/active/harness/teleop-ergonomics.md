@@ -117,6 +117,52 @@ The active-scene spawn-point override is being applied (`using 101 spawn points`
 
 Driver now prints `start_pose=(x, y, yaw) — IN/OUTSIDE spawn-pool bbox` per reset. **Outcome (1)** surfaces as in-bbox = True but the visual position is still wrong (means scenes_metadata.json needs regeneration). **Outcome (2)** surfaces as in-bbox = False with a warning pointing at the env_cfg side. Each suggests its own next step.
 
+### scene_metadata.json staleness (2026-05-26, round 2)
+
+Smoking-gun observation from round-2 session: **the operator's picker offered 406 items, but many ("bed", "blanket", and others) had no corresponding mesh in the loaded scene's prim hierarchy.** Selecting one of these "missing" items placed the green target-marker sphere at the recorded coordinates — perfectly into mid-air with no visible object. Internal consistency proves the marker plumbing is correct; the bug is that `scene_metadata.json` describes objects that the USDC actually rendered does NOT contain.
+
+Most likely cause: `scene_metadata.json` was extracted from a scene whose USDC has since been regenerated, OR the `--from-usd` prim-name parser picked up Xform prims that wrap empty / failed Infinigen placement passes (named prims that never received their visual mesh). Either way the metadata is stale relative to what Kit loads.
+
+**Picker dedup also lands in this brief** (sub-fix): Infinigen authors multi-part objects as several rows sharing `(label, instance_id)` — e.g. a cabinet appearing as 3 rows for top / body / door, each at a slightly different XY. Picker now collapses by `(normalized_label, instance_id)` keeping the median-Z row as canonical. 406 → ~150 expected for a typical scene. Pass `dedup_by_instance=False` (no CLI flag yet; debug-only) to see all sub-prims.
+
+**Clean-slate scene-regeneration procedure** (filed here so operators can reproduce):
+
+```bash
+# 1. Archive the existing scenes/ tree
+cd ~/Workspace/Sim2RealLab
+mv Assets/generated/scenes Assets/generated/scenes.old.$(date +%Y%m%d)
+
+# 2. Regenerate a single high-quality scene from a fresh seed
+python source/strafer_lab/scripts/prep_room_usds.py generate \
+    --config high_quality_dgx \
+    --num-scenes 1 \
+    --output Assets/generated/scenes
+# Takes ~tens of minutes; Infinigen scene synthesis is single-threaded
+
+# 3. Extract per-scene metadata (objects[]). Use --from-usd path
+#    because the Blender path requires the State to still be in memory.
+SCENE=$(ls -d Assets/generated/scenes/scene_*/ | head -1 | xargs basename)
+$ISAACLAB -p source/strafer_lab/scripts/extract_scene_metadata.py \
+    --from-usd \
+    --usd    Assets/generated/scenes/${SCENE}.usdc \
+    --output Assets/generated/scenes/${SCENE}
+
+# 4. Author the combined scenes_metadata.json (spawn points + floor_top_z)
+python source/strafer_lab/scripts/generate_scenes_metadata.py \
+    --scenes-dir Assets/generated/scenes
+
+# 5. Sanity check — should report rooms=0 (--from-usd doesn't get rooms)
+#    but objects > 50, AND scenes_metadata.json should have one entry for the new scene
+python -c "
+import json
+d = json.load(open(f'Assets/generated/scenes/${SCENE}/scene_metadata.json'))
+print(f'rooms={len(d.get(\"rooms\",[]))}  objects={len(d.get(\"objects\",[]))}')
+c = json.load(open('Assets/generated/scenes/scenes_metadata.json'))
+print(f'scenes_metadata entries: {sorted(c[\"scenes\"].keys())}')"
+```
+
+If after this clean-slate run, the picker still shows "missing" objects, the root cause is in `extract_scene_metadata.py --from-usd`'s prim-name parsing — file a follow-up against that script. If the picker correctly reflects what's actually rendered, the round-2 issue was indeed staleness in the previously-committed metadata.
+
 ## Implementation outline
 
 1. **Spawn-point fix** in `teleop_capture.py`:

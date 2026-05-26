@@ -425,6 +425,42 @@ def main() -> int:
         scene_metadata_path,
         allowed_labels=args.target_label_filter,
     )
+    # Drop degenerate (0, 0, 0) targets. Infinigen spawns creature
+    # prims (carnivore / herbivore / etc.) at origin until placement
+    # finalizes; --from-usd extraction keeps their entries but the
+    # position is meaningless. Picker offering them sends the operator
+    # toward 0,0 and surfaces nothing usable.
+    pre_drop = len(candidates)
+    candidates = [
+        c for c in candidates
+        if (
+            abs(c.target_position_3d[0]) > 1e-3
+            or abs(c.target_position_3d[1]) > 1e-3
+            or abs(c.target_position_3d[2]) > 1e-3
+        )
+    ]
+    # Reindex so indices are dense again after the filter.
+    candidates = [
+        type(c)(
+            index=i,
+            instance_id=c.instance_id,
+            label=c.label,
+            target_position_3d=c.target_position_3d,
+            target_room_idx=c.target_room_idx,
+            target_room_type=c.target_room_type,
+            prim_path=c.prim_path,
+            mission_text=c.mission_text,
+        )
+        for i, c in enumerate(candidates)
+    ]
+    dropped = pre_drop - len(candidates)
+    if dropped:
+        print(
+            f"[teleop_capture] dropped {dropped} target(s) at origin "
+            "(Infinigen pre-placement prims); "
+            f"{len(candidates)} remain after filter.",
+            flush=True,
+        )
     if not candidates:
         print(
             f"[teleop_capture] ERROR: scene_metadata at {scene_metadata_path} "
@@ -468,14 +504,17 @@ def main() -> int:
 
     output_root = Path(args.output).resolve()
     if output_root.exists():
+        # LeRobotDataset.create refuses to overwrite. Auto-suffix with a
+        # session timestamp so a half-baked previous run doesn't block
+        # the next attempt — operator pattern would otherwise be to
+        # always re-export $RUN_ID, which they don't always remember.
+        suffix = time.strftime("_%Y%m%dT%H%M%S")
+        output_root = output_root.with_name(output_root.name + suffix)
         print(
-            f"[teleop_capture] ERROR: --output {output_root} already exists. "
-            "LeRobotDataset.create refuses to overwrite; pick a fresh path.",
-            file=sys.stderr,
+            f"[teleop_capture] requested --output already exists; using "
+            f"auto-suffixed path → {output_root}",
+            flush=True,
         )
-        env.close()
-        simulation_app.close()
-        return 2
 
     session_id = args.session_id or time.strftime("%Y%m%dT%H%M%S")
     repo_id = args.repo_id or f"strafer/{args.scene}"
@@ -505,9 +544,13 @@ def main() -> int:
     print(f"  fps               : {args.fps}")
     print(f"  max episodes      : {args.max_episodes}")
     print(f"  max steps/episode : {args.max_steps_per_episode}")
+    print(f"  headless          : {bool(args_cli.headless)}  "
+          f"(False means Isaac Sim editor viewport should be visible)")
+    print(f"  enable_cameras    : {bool(args_cli.enable_cameras)}")
+    print(f"  simulation_app.is_running(): {simulation_app.is_running()}")
     print("-" * 64)
     print(describe_button_layout())
-    print("=" * 64 + "\n")
+    print("=" * 64 + "\n", flush=True)
 
     obs, info = env.reset()
 
@@ -526,8 +569,14 @@ def main() -> int:
         if cand is None:
             return None
         current_candidate = cand
+        # Each step prints + flushes so an exception is attributable.
+        print(f"[teleop_capture] resetting env for target={cand.label!r} "
+              f"id={cand.instance_id}", flush=True)
         env.reset()
+        print("[teleop_capture] env.reset OK; sampling robot pose...", flush=True)
         pose, _yaw = _robot_pose(unwrapped)
+        print(f"[teleop_capture] start_pose=({pose[0]:+.2f}, {pose[1]:+.2f}, "
+              f"yaw={_yaw:+.2f})", flush=True)
         start_xy_yaw = (pose[0], pose[1], _yaw)
         leg_dist = math.sqrt(
             (cand.target_position_3d[0] - pose[0]) ** 2
@@ -550,17 +599,35 @@ def main() -> int:
             f"pos=({cand.target_position_3d[0]:+.2f}, "
             f"{cand.target_position_3d[1]:+.2f}) "
             f"distance={leg_dist:.2f} m",
+            flush=True,
         )
         return cand
 
     try:
         # Open the first episode by prompting the operator.
         if _begin_next_episode() is None:
-            print("[teleop_capture] operator quit at first prompt; exiting cleanly.")
+            print("[teleop_capture] operator quit at first prompt; exiting cleanly.",
+                  flush=True)
             return 0
 
         episode_step = 0
         last_hud_t = 0.0
+
+        # Hard check Kit's state before entering the loop. A False here
+        # means the Sim window never came up (or Kit shut down during
+        # env.reset), and entering the while loop would exit immediately
+        # with no observable reason — a silent-exit failure mode that
+        # has bitten the operator before. Be loud instead.
+        if not simulation_app.is_running():
+            print(
+                "[teleop_capture] ERROR: simulation_app.is_running() is False "
+                "before the capture loop. Kit did not start a viewport or "
+                "shut down during env setup. Check that --headless is not "
+                "set, that DISPLAY is exported, and that the Isaac Sim "
+                "editor window is reachable on this X session.",
+                file=sys.stderr, flush=True,
+            )
+            return 3
 
         while simulation_app.is_running() and not quit_requested:
             frame = gamepad.read()
@@ -706,7 +773,24 @@ def main() -> int:
                     break
 
     except KeyboardInterrupt:
-        print("\n[teleop_capture] interrupted — saving collected episodes.")
+        print("\n[teleop_capture] interrupted — saving collected episodes.",
+              flush=True)
+
+    except BaseException as exc:
+        # Print and flush BEFORE the finally block runs env.close() /
+        # simulation_app.close() — otherwise the Kit shutdown can mask
+        # the traceback by collapsing the terminal. The user has been
+        # bitten by silent exits ("session vanished after picker") and
+        # the symptom is always a missing print here.
+        import traceback as _tb
+        sys.stderr.write(
+            f"\n[teleop_capture] UNCAUGHT EXCEPTION in main loop: "
+            f"{type(exc).__name__}: {exc}\n",
+        )
+        _tb.print_exc(file=sys.stderr)
+        sys.stderr.flush()
+        sys.stdout.flush()
+        raise
 
     finally:
         try:
@@ -721,11 +805,33 @@ def main() -> int:
             pip.close()
         except Exception:
             pass
-        env.close()
-        simulation_app.close()
+        try:
+            env.close()
+        except Exception as exc:
+            print(f"[teleop_capture] env.close raised: {exc}", file=sys.stderr)
+        try:
+            simulation_app.close()
+        except Exception as exc:
+            print(f"[teleop_capture] simulation_app.close raised: {exc}",
+                  file=sys.stderr)
+        sys.stdout.flush()
+        sys.stderr.flush()
 
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        rc = main()
+    except BaseException as exc:
+        # Final-line backstop: print + flush before Python exits so the
+        # operator always sees the failure reason.
+        import traceback as _tb
+        sys.stderr.write(
+            f"\n[teleop_capture] PROCESS EXIT via {type(exc).__name__}\n",
+        )
+        _tb.print_exc(file=sys.stderr)
+        sys.stderr.flush()
+        sys.stdout.flush()
+        sys.exit(1)
+    sys.exit(rc)

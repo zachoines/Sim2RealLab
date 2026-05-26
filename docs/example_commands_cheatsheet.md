@@ -359,8 +359,17 @@ Infinigen `State`. Tracked in
 
 ## Validation capture (small batch — driver wiring works)
 
+**Important:** the `--output` path must NOT exist (LeRobot v3
+`LeRobotDataset.create()` refuses to overwrite). Use a fresh timestamp
+on every invocation, OR rely on the driver's auto-suffix fallback
+(if the path exists, the driver appends `_YYYYMMDDTHHMMSS` and prints
+the resolved path it actually used).
+
 ```bash
 SCENE=scene_high_quality_dgx_000_seed0
+
+# Re-stamp $RUN_ID + $OUT on every invocation — bash variables persist
+# across runs in the same shell, so a stale $OUT is the #1 trip-up.
 RUN_ID=$(date +%Y%m%dT%H%M%S)
 OUT=data/sim_in_the_loop/${SCENE}_validation_${RUN_ID}
 

@@ -31,8 +31,11 @@ Implementation status (this is Tier 1 / PR B scaffolding):
 from __future__ import annotations
 
 import argparse
+import os
+import subprocess
 import sys
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Sequence
 
 
 # Valid (driver, mission_source) combinations from
@@ -41,11 +44,20 @@ VALID_COMBINATIONS: dict[tuple[str, str], tuple[str, str]] = {
     ("bridge", "scene-metadata"): ("Tier 2", "pending"),
     ("bridge", "queue"): ("Tier 2", "pending"),
     ("teleop", "queue"): ("Tier 1 follow-up", "pending"),
-    ("teleop", "scene-metadata"): ("Tier 1", "scaffolding"),
+    ("teleop", "scene-metadata"): ("Tier 1", "wired"),
     ("scripted", "queue"): ("Tier 3", "pending"),
     ("scripted", "captioner"): ("Tier 3", "pending"),
     ("scripted", "coverage"): ("Tier 3", "pending"),
 }
+
+
+# Driver script lookup. The teleop driver lives alongside collect_demos.py
+# in source/strafer_lab/scripts/ — it boots its own AppLauncher so capture.py
+# stays Isaac-Sim-free and importable from .venv_harness for unit tests.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_TELEOP_DRIVER_SCRIPT = (
+    _REPO_ROOT / "source" / "strafer_lab" / "scripts" / "teleop_capture.py"
+)
 
 
 VALID_DRIVERS = sorted({d for d, _ in VALID_COMBINATIONS})
@@ -172,33 +184,62 @@ def _validate(args: argparse.Namespace) -> None:
         )
 
 
-def _dispatch(args: argparse.Namespace) -> int:
+def _build_teleop_subprocess_argv(
+    args: argparse.Namespace,
+    extra_args: Sequence[str],
+) -> list[str]:
+    """Translate ``capture.py`` args into the teleop driver's argv.
+
+    The teleop driver script (``source/strafer_lab/scripts/teleop_capture.py``)
+    boots its own AppLauncher and parses its own CLI; we just forward
+    the cross-product-validated args plus any unknown extras (e.g.
+    ``--headless`` / AppLauncher flags) the operator passed through.
+    """
+    argv: list[str] = [
+        sys.executable, str(_TELEOP_DRIVER_SCRIPT),
+        "--scene", args.scene,
+        "--output", args.output,
+        "--fps", str(args.fps),
+        "--vcodec", args.vcodec,
+    ]
+    if args.capture_policy_cam:
+        argv.append("--capture-policy-cam")
+    else:
+        argv.append("--no-capture-policy-cam")
+    if extra_args:
+        argv.extend(extra_args)
+    return argv
+
+
+def _dispatch(
+    args: argparse.Namespace,
+    *,
+    extra_args: Sequence[str] = (),
+    runner=subprocess.run,
+) -> int:
     """Route to the driver implementation for this (driver, mission-source).
 
-    Returns process exit code.
+    Returns process exit code. ``runner`` is injected so unit tests can
+    swap in a mock that captures argv without spawning Isaac Sim.
     """
     cell = (args.driver, args.mission_source)
     tier_label, status = VALID_COMBINATIONS[cell]
 
     if cell == ("teleop", "scene-metadata"):
-        # Tier 1 entry point. Driver implementation lands as the next
-        # commit on this branch; for now this scaffolding commit
-        # validates the CLI surface end-to-end.
         print(
             f"[capture] selected: driver={args.driver}, "
             f"mission_source={args.mission_source} ({tier_label}, {status})",
             file=sys.stderr,
         )
-        print(
-            "[capture] Tier 1 driver implementation is not yet wired in "
-            "this scaffolding commit.\n"
-            "[capture] Writer + depth sidecar + LeRobot v3 round-trip are "
-            "tested in source/strafer_lab/tests/harness/ (`make "
-            "test-harness`); the teleop driver follows in the next commit "
-            "on task/harness-writer-teleop.",
-            file=sys.stderr,
-        )
-        return 0
+        if not _TELEOP_DRIVER_SCRIPT.is_file():
+            raise SystemExit(
+                f"teleop driver script missing at {_TELEOP_DRIVER_SCRIPT}. "
+                "This is a packaging bug.",
+            )
+        argv = _build_teleop_subprocess_argv(args, extra_args)
+        print(f"[capture] dispatching → {' '.join(argv)}", file=sys.stderr)
+        result = runner(argv, check=False)
+        return int(getattr(result, "returncode", 0) or 0)
 
     raise NotImplementedError(
         f"--driver {args.driver} --mission-source {args.mission_source} "
@@ -209,9 +250,9 @@ def _dispatch(args: argparse.Namespace) -> int:
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = _build_parser()
-    args = parser.parse_args(argv)
+    args, extra = parser.parse_known_args(argv)
     _validate(args)
-    return _dispatch(args)
+    return _dispatch(args, extra_args=tuple(extra))
 
 
 if __name__ == "__main__":

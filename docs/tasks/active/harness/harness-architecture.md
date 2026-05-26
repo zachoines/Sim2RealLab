@@ -214,13 +214,13 @@ Consumers MUST pin the split they use and record the name in their training-run 
 
 `StraferSceneCfg_InfinigenPerception` ships two cameras (`d555_camera` at 80×60 policy-cam resolution, `d555_camera_perception` at 640×360). Default is `--capture-policy-cam` ON for v1 training corpora (~5% extra wall-time per step, ~3 KB/frame extra storage, lets training scripts choose resolution). Operator can disable for storage-constrained sessions. Both cameras are LeRobot v3 native `video` features (MP4 H.264).
 
-### Depth representation — custom feature class
+### Depth representation — sidecar PNG sequence
 
 Depth is captured as 16UC1 PNG sequences (1mm precision; the D555's noise floor at 3m is ~10–20mm, so 1mm quantization sits below the sensor floor — `harness-throughput-measurement` confirmed this is sim-real-comparable). PNG matches `depth_downsampler.py`'s 16UC1 convention used by the real-robot perception stack, preserving sim-real format match.
 
-**LeRobot v3's video pipeline is MP4-only**; standard codecs don't support 16-bit depth video, so depth ships as a **strafer custom feature class** (`StraferDepthSequenceFeature`) registered against the LeRobot v3 dataset at load time. Per the v3 feature-extension docs, this is a Python class subclassing LeRobot's feature base, reading `videos/.../observation.depth.perception/episode-NNNN/<frame>.png` and decoding 16UC1 → float32 meters.
+**LeRobot v3's video pipeline is MP4-only**; standard codecs don't support 16-bit depth video. Implementation in PR B (Tier 1) chose a **sidecar-PNG layout** over the originally-sketched `StraferDepthSequenceFeature` LeRobot subclass: the HF datasets feature-extension API (`register_feature`) is marked experimental, and 16UC1 depth doesn't fit any native dtype cleanly. PNG frames live under `videos/observation.depth.perception/episode-NNNNNN/NNNNNN.png` at deterministic paths keyed off `(episode_index, frame_index)` from the parquet rows; pure-Python read/write helpers ship in [`strafer_lab.tools.lerobot_depth`](../../../../source/strafer_lab/strafer_lab/tools/lerobot_depth.py). Stock LeRobot v3 consumers load every other column normally and ignore the sidecar tree; sim-side consumers import the helpers directly.
 
-Ships in PR B as the writer's first custom feature; loader is symmetric (also in PR B for sim-side consumers; ecosystem-external consumers need the loader shipped alongside whatever conversion they use). Stock LeRobot v3 consumers without the strafer custom feature will load every other column normally and skip depth.
+This is a less-elegant-looking layout than registering a feature subclass, but it has zero upstream coupling, ships without monkey-patching LeRobot, and is round-trip-tested against synthetic + real arrays (`test_lerobot_depth.py`). If a future ecosystem consumer demands a registered feature, that's a small adapter built around the same on-disk format — the format is the contract, not the loader API.
 
 ### Action chunk encoding
 

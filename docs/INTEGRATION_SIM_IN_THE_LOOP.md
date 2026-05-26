@@ -644,6 +644,133 @@ Expected fields: `frame_id`, `image_path`, `robot_pos`,
 
 ---
 
+## Stage 5b — Teleop data collection (harness `--driver teleop`)
+
+**Goal**: a single operator drives the Strafer through one or more
+Infinigen scenes with a gamepad, picking targets from
+`scene_metadata.json`, and the harness writes a LeRobot v3 dataset
+under `data/sim_in_the_loop/<scene_name>/`. No Jetson, no ROS — Isaac
+Sim runs in-process with the gamepad reading actions directly.
+
+**Prerequisites**
+- Stages 1-4 green.
+- A generated Infinigen scene under
+  `Assets/generated/scenes/<scene_name>/` containing `scene.usdc` +
+  `scene_metadata.json` (same prerequisite as Stage 5).
+- A USB or wireless gamepad attached to the DGX. Xbox One/Series, PS5
+  DualSense, and Switch Pro are auto-detected; the family-aware button
+  table lives in `strafer_lab.tools.gamepad_reader`.
+- `.venv_harness` is bootstrapped (`make test-harness` exits clean).
+
+**Invoke**
+
+```bash
+isaaclab -p Scripts/capture.py \
+    --driver teleop --mission-source scene-metadata \
+    --scene scene_high_quality_dgx_000_seed0 \
+    --output data/sim_in_the_loop/scene_high_quality_dgx_000_seed0 \
+    --fps 8
+```
+
+`Scripts/capture.py` validates the `(driver, mission-source)` cell and
+subprocesses `source/strafer_lab/scripts/teleop_capture.py`, which
+boots its own AppLauncher (headed, `enable_cameras=True`), loads the
+`Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0` task, and starts
+the capture loop. Pass-through AppLauncher flags (`--device cpu`,
+`--headless` when you only want the cv2 PIP, etc.) flow through
+`capture.py` to the child driver via `parse_known_args`.
+
+**Operator UX**
+
+| Surface | What it shows | Source |
+|---|---|---|
+| Isaac Sim editor viewport | Overhead third-person view of the env | `ViewerCfg(eye=(0,0,12), origin_type='env')` |
+| `perception-PIP` cv2 window | First-person `d555_camera_perception` 640×360 stream + HUD (`REC` / step / distance) | Separate Qt window — **does not** appear in captured LeRobot frames |
+| Console | Active `mission_text`, episode-end announcements, target picker prompt | stdout |
+
+The PIP cv2 window is a top-level X surface — it draws on top of the
+operator's screen, not into the Isaac Sim render product, so the
+640×360 RGB frames the writer persists are clean. Disable the PIP with
+`--no-pip-window` if your X session can't allocate the additional
+surface; capture still works and the console HUD remains.
+
+**Button mapping** (from
+[`harness-architecture.md` §Episode-end button mapping](tasks/active/harness/harness-architecture.md#episode-end-button-mapping-teleop-only))
+
+| Button | `outcome` | `outcome_category` | `hard_negative_category` | Kept? |
+|---|---|---|---|---|
+| `Y` (triangle / north) | `succeeded` | `on_course` | — | yes |
+| `B` (circle / east) | `failed` | `on_course` | — | yes |
+| `X` + D-pad ↑/↓ | `wrong_instance` | `wrong_instance` | `wrong_instance` | yes |
+| `X` + D-pad ←/→ | `wrong_room` | `wrong_room` | `wrong_room` | yes |
+| `SELECT` (share / minus) | `trajectory_violation` | `trajectory_violation` | `trajectory_violation` | yes |
+| `Back` (view / minus alias) | — | — | — | **no** (discard) |
+| `A` (tap) | toggle `REC` ↔ `PAUSED` | — | — | — |
+| `Start` (hold ≥ 1 s) | save + quit cleanly | — | — | — |
+
+`X` alone (no D-pad direction) is not committal — the operator must
+push the D-pad in one of the four cardinals before the episode closes.
+
+**Mission target picker** — between every episode the driver prints
+the filtered `objects[]` list and waits for a numeric index on stdin
+(`target index> 5<enter>`). Default filter drops `wall`, `floor`,
+`ceiling` to match the bridge harness; the operator can scope further
+with `--target-label-filter chair table`. Ctrl-D at the picker quits
+cleanly (finalizes the writer + closes the env).
+
+**Output layout** (per
+[`harness-architecture.md` §Repository layout per scene](tasks/active/harness/harness-architecture.md#repository-layout-per-scene))
+
+```
+data/sim_in_the_loop/<scene_name>/
+├── meta/
+│   ├── info.json                     # LeRobot v3 features dict + strafer cameras block
+│   ├── tasks.jsonl
+│   ├── episodes/chunk-000/episodes-NNNN.parquet
+│   ├── strafer_episodes.parquet      # strafer per-episode sidecar (outcome / scene_id / hashes / ...)
+│   └── ...
+├── data/chunk-000/file-NNNN.parquet  # concatenated per-tick rows
+└── videos/
+    ├── chunk-000/observation.images.perception/file-NNNN.mp4
+    ├── chunk-000/observation.images.policy/file-NNNN.mp4   (when --capture-policy-cam)
+    └── observation.depth.perception/episode-NNNNNN/NNNNNN.png  # 16UC1 sidecar
+```
+
+The depth sidecar's 16UC1 PNG layout matches
+`strafer_perception/depth_downsampler.py` so the real-robot perception
+stack and sim corpus share one format.
+
+**Round-trip check**
+
+```bash
+.venv_harness/bin/python -c "
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+d = LeRobotDataset(repo_id='strafer/scene_high_quality_dgx_000_seed0',
+                   root='data/sim_in_the_loop/scene_high_quality_dgx_000_seed0')
+print(f'episodes={d.num_episodes} frames={len(d)}')
+"
+```
+
+The numbers should equal what `[teleop_capture]` printed at end of
+session.
+
+**Acceptance run artifact** — commit a small summary under
+`docs/artifacts/teleop_acceptance/<run_id>/` (operator handle, gamepad
+model, repo SHA, scene seeds, episode counts by outcome). Datasets
+themselves live under `data/` and are git-ignored.
+
+**Troubleshooting**
+
+| Symptom | Most likely cause | What to check |
+|---|---|---|
+| `No gamepad detected` | pygame can't find the joystick device | `ls /dev/input/js*`; replug; `sudo apt install joystick && jstest /dev/input/js0` |
+| Wrong button does the wrong thing | Family auto-detect picked the wrong family | Pass `--family-override ps5` (or `xbox` / `switch`) — the family detect is name-based and falls back to xbox |
+| `--output already exists` | LeRobotDataset.create refuses to overwrite | Pick a fresh path per session (run_id timestamp in the path works well) |
+| Operator's HUD overlay shows up in saved frames | Should not happen by construction — the cv2 PIP is a separate Qt surface | Confirm the render product output (under `videos/.../observation.images.perception/`) is clean; if not, file a bug — the brief makes this a hard acceptance criterion |
+| Round-trip via HF `LeRobotDataset` fails with codec error | `torchcodec` absent on aarch64 | The wheel marker excludes aarch64; LeRobot falls back to PyAV which works. If you've manually pinned `torchcodec`, uninstall it |
+
+---
+
 ## Stage 6 — VLM/CLIP data-collection sweep through the bridge
 
 **Goal**: produce VLM SFT data (grounding JSONL) and CLIP CSV from

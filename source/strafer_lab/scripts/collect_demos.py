@@ -89,8 +89,15 @@ import strafer_lab.tasks  # noqa: F401 — registers Strafer tasks
 from isaaclab.envs.common import ViewerCfg
 from isaaclab_tasks.utils import parse_env_cfg
 
+from strafer_lab.tools.gamepad_reader import (
+    GamepadReader as _SharedGamepadReader,
+    legacy_tuple_from_frame,
+)
+
 # ---------------------------------------------------------------------------
-# Pygame gamepad (lazy import — not available in headless servers)
+# Pygame gamepad — the shared reader handles the import + family detection;
+# we re-export pygame here only for the QUIT-event filter the loop reads
+# directly.
 # ---------------------------------------------------------------------------
 
 _PYGAME_AVAILABLE = False
@@ -114,103 +121,28 @@ except (ImportError, Exception):
 
 
 # ---------------------------------------------------------------------------
-# Gamepad wrapper
+# Gamepad wrapper — thin adapter around the shared reader so this script's
+# loop keeps the ``(lx, ly, rx, buttons)`` tuple shape it has always read.
+# The shared reader lives at ``strafer_lab.tools.gamepad_reader`` and is
+# also used by the harness teleop driver (``teleop_capture.py``).
 # ---------------------------------------------------------------------------
 
-class GamepadReader:
-    """Thin wrapper around pygame joystick for gamepad input.
 
-    Auto-detects Xbox vs PS5 DualSense controllers and maps buttons
-    accordingly.  Stick axes are identical across both (0=LX, 1=LY, 3=RX).
+class GamepadReader:
+    """Adapter exposing the legacy ``read() -> (lx, ly, rx, buttons)`` API.
+
+    Delegates to :class:`strafer_lab.tools.gamepad_reader.GamepadReader`
+    so family auto-detection and button mapping live in one place.
     """
 
-    # Stick axes per controller family
-    _AXIS_MAPS = {
-        "xbox": {"lx": 0, "ly": 1, "rx": 2},
-        "ps5":  {"lx": 0, "ly": 1, "rx": 2},
-        "switch": {"lx": 0, "ly": 1, "rx": 2},
-    }
-
-    # Button mappings per controller family
-    _BUTTON_MAPS = {
-        "xbox": {"a": 0, "b": 1, "start": 7},
-        "ps5":  {"a": 0, "b": 1, "start": 9},  # Cross, Circle, Options
-        "switch": {"a": 0, "b": 1, "start": 9},  # B(east), A(south), Plus
-    }
-
     def __init__(self, deadzone: float = 0.12):
-        if not _PYGAME_AVAILABLE:
-            raise RuntimeError(
-                "pygame is required for gamepad input.  Install with: pip install pygame"
-            )
-        pygame.init()
-        pygame.joystick.init()
-        if pygame.joystick.get_count() == 0:
-            raise RuntimeError("No gamepad detected.  Connect a controller and retry.")
-        self.joystick = pygame.joystick.Joystick(0)
-        self.joystick.init()
-        self.deadzone = deadzone
+        self._inner = _SharedGamepadReader(deadzone=deadzone)
 
-        # Auto-detect controller type from name
-        name = self.joystick.get_name().lower()
-        if "dualsense" in name or "ps5" in name or "sony" in name or "wireless controller" in name:
-            self._family = "ps5"
-        elif "pro controller" in name or "switch" in name or "nintendo" in name:
-            self._family = "switch"
-        else:
-            self._family = "xbox"
-        bmap = self._BUTTON_MAPS[self._family]
-        self.BTN_A = bmap["a"]
-        self.BTN_B = bmap["b"]
-        self.BTN_START = bmap["start"]
-        amap = self._AXIS_MAPS[self._family]
-        self.AXIS_LX = amap["lx"]
-        self.AXIS_LY = amap["ly"]
-        self.AXIS_RX = amap["rx"]
+    def read(self) -> tuple[float, float, float, dict[str, bool]]:
+        return legacy_tuple_from_frame(self._inner.read())
 
-        # Prevent pygame from generating QUIT events (which can interfere
-        # with the Kit/Omniverse application lifecycle)
-        pygame.event.set_blocked(pygame.QUIT)
-
-        print(f"[Gamepad] Connected: {self.joystick.get_name()} (detected: {self._family})")
-        print(f"[Gamepad] Axes: {self.joystick.get_numaxes()}, "
-              f"Buttons: {self.joystick.get_numbuttons()}")
-        print(f"[Gamepad] Mapping: A/Cross={self.BTN_A}, B/Circle={self.BTN_B}, "
-              f"Start/Options={self.BTN_START}")
-
-    def _apply_deadzone(self, value: float) -> float:
-        if abs(value) < self.deadzone:
-            return 0.0
-        # Remap [deadzone, 1] → [0, 1] preserving sign
-        sign = 1.0 if value > 0 else -1.0
-        return sign * (abs(value) - self.deadzone) / (1.0 - self.deadzone)
-
-    def read(self) -> tuple[float, float, float, float, dict[str, bool]]:
-        """Read raw gamepad stick values.
-
-        Returns:
-            (lx, ly, rx, ry) raw stick axes in [-1, 1] and dict of button states.
-            lx/ly: left stick (world-frame velocity direction).
-            rx: right stick X (heading target).
-            ry: right stick Y (unused, reserved).
-        """
-        pygame.event.pump()
-        # Block QUIT events so pygame doesn't signal the process to exit
-        pygame.event.set_blocked(pygame.QUIT)
-        lx = self._apply_deadzone(self.joystick.get_axis(self.AXIS_LX))
-        ly = self._apply_deadzone(self.joystick.get_axis(self.AXIS_LY))
-        rx = self._apply_deadzone(self.joystick.get_axis(self.AXIS_RX))
-
-        buttons = {
-            "a": self.joystick.get_button(self.BTN_A),
-            "b": self.joystick.get_button(self.BTN_B),
-            "start": self.joystick.get_button(self.BTN_START),
-        }
-        return lx, ly, rx, buttons
-
-    def close(self):
-        pygame.joystick.quit()
-        pygame.quit()
+    def close(self) -> None:
+        self._inner.close()
 
 
 # ---------------------------------------------------------------------------

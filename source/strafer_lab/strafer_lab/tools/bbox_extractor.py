@@ -341,9 +341,9 @@ class ReplicatorBboxExtractor:
     def extract_as_dicts(self) -> list[dict[str, Any]]:
         """Convenience: return the extracted bboxes as plain dicts.
 
-        Use this when passing the bboxes straight into
-        ``frame_data["bboxes"]`` for
-        :mod:`strafer_lab.scripts.collect_perception_data`'s JSONL output,
-        or for any JSON serialization.
+        Use this when passing the bboxes straight into a frame-data
+        payload or any JSON serialization. Both the run_sim_in_the_loop
+        harness mode and any consumer that ingests bbox JSON take the
+        flat-dict shape.
         """
         return [bbox.to_dict() for bbox in self.extract()]

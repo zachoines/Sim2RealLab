@@ -1,14 +1,18 @@
 """CLI validation tests for Scripts/capture.py.
 
 Exercise argparse + the (driver, mission-source) cross-product validator
-without launching Isaac Sim. The scaffolding commit's Tier 1 path
-returns 0; all other cells raise NotImplementedError.
+without launching Isaac Sim. The wired Tier 1 path (``teleop ×
+scene-metadata``) subprocesses ``teleop_capture.py``; we inject a stub
+runner so the test never spawns Isaac Sim. Other cells either raise
+``NotImplementedError`` (pending tiers) or ``SystemExit`` (invalid
+cross-product cells).
 """
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -50,13 +54,75 @@ class TestValidCombinations:
         }
 
 
-class TestTier1ScaffoldingPath:
-    def test_teleop_scene_metadata_returns_zero(self, capsys):
-        rc = capture.main(_base_args("teleop", "scene-metadata"))
+class _StubRunner:
+    """Captures the argv that would be subprocessed; returns rc=0."""
+
+    def __init__(self, returncode: int = 0) -> None:
+        self.calls: list[list[str]] = []
+        self.returncode = returncode
+
+    def __call__(self, argv, check: bool = False):
+        self.calls.append(list(argv))
+        return SimpleNamespace(returncode=self.returncode)
+
+
+class TestTier1DispatchPath:
+    def _run(self, runner, *args, **kwargs):
+        # Re-implements capture.main with the runner override so the
+        # test never spawns a real subprocess.
+        parser = capture._build_parser()
+        ns, extra = parser.parse_known_args(_base_args(*args, **kwargs))
+        capture._validate(ns)
+        return capture._dispatch(ns, extra_args=tuple(extra), runner=runner)
+
+    def test_teleop_scene_metadata_dispatches_to_teleop_driver(self, capsys):
+        runner = _StubRunner()
+        rc = self._run(runner, "teleop", "scene-metadata")
         assert rc == 0
-        err = capsys.readouterr().err
-        assert "Tier 1" in err
-        assert "scaffolding" in err
+        assert len(runner.calls) == 1
+        argv = runner.calls[0]
+        # Subprocess targets the teleop driver script with translated args.
+        assert argv[0] == sys.executable
+        assert argv[1].endswith("teleop_capture.py")
+        # Required forwarded args are present.
+        assert "--scene" in argv and "scene_test" in argv
+        assert "--output" in argv and "/tmp/test_dataset_doesnotexist" in argv
+        # fps + vcodec defaults flow through.
+        assert "--fps" in argv and "--vcodec" in argv
+        # Default --capture-policy-cam is forwarded as the boolean flag.
+        assert "--capture-policy-cam" in argv
+
+    def test_no_capture_policy_cam_propagates(self):
+        runner = _StubRunner()
+        # parse_known_args lets the --no-capture-policy-cam flag through.
+        parser = capture._build_parser()
+        argv_in = _base_args("teleop", "scene-metadata")
+        argv_in.append("--no-capture-policy-cam")
+        ns, extra = parser.parse_known_args(argv_in)
+        capture._validate(ns)
+        capture._dispatch(ns, extra_args=tuple(extra), runner=runner)
+        assert "--no-capture-policy-cam" in runner.calls[0]
+
+    def test_subprocess_nonzero_propagates(self):
+        runner = _StubRunner(returncode=7)
+        rc = self._run(runner, "teleop", "scene-metadata")
+        assert rc == 7
+
+    def test_unknown_args_are_forwarded_to_child(self):
+        # AppLauncher / pass-through flags must survive parse_known_args
+        # and land on the child script's argv.
+        runner = _StubRunner()
+        parser = capture._build_parser()
+        argv_in = _base_args("teleop", "scene-metadata") + [
+            "--headless",
+            "--device", "cpu",
+        ]
+        ns, extra = parser.parse_known_args(argv_in)
+        capture._validate(ns)
+        capture._dispatch(ns, extra_args=tuple(extra), runner=runner)
+        child_argv = runner.calls[0]
+        assert "--headless" in child_argv
+        assert "--device" in child_argv and "cpu" in child_argv
 
 
 class TestPendingCellsRaise:

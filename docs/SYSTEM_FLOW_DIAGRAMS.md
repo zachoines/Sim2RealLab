@@ -288,13 +288,11 @@ perception camera and Replicator stamps semantic bboxes on every frame.
 gamepad connected. Isaac Sim runs at `num_envs=1` (the 640×360 render
 caps throughput).
 
-**Produces**: per-episode directories under `data/perception/episode_NNNN/`
-containing `frames.jsonl` + `frame_NNNN.jpg` + optional
-`frame_NNNN.depth.npy`. Layout exactly matches what
-[`generate_descriptions.py`](../source/strafer_lab/scripts/generate_descriptions.py)
-and
-[`prepare_vlm_finetune_data.py`](../source/strafer_lab/scripts/prepare_vlm_finetune_data.py)
-consume — no translation step.
+**Produces**: a LeRobot v3 dataset at `data/sim_in_the_loop/<scene>/`
+written by `StraferLeRobotWriter`. Per-frame RGB + state + action ride
+the upstream LeRobot writer; per-episode strafer extensions
+(`outcome`, `scene_id`, `capture_git_sha`, ...) and 16UC1 depth ship as
+sidecars alongside the dataset.
 
 ```mermaid
 flowchart TB
@@ -303,56 +301,60 @@ flowchart TB
     subgraph DGX["DGX Spark — env_isaaclab3"]
         direction TB
 
-        Collect["collect_perception_data.py<br/>(scripts/)"]
+        Capture["Scripts/capture.py<br/>--driver teleop<br/>--mission-source scene-metadata"]
+        Teleop["scripts/teleop_capture.py<br/>(AppLauncher + env loop)"]
         AppLauncher["AppLauncher<br/>Isaac Sim Kit"]
         Env["Isaac-Strafer-Nav-Real-<br/>InfinigenPerception-Play-v0"]
-        SceneUSD[("Assets/generated/scenes/<br/>kitchen_NN/scene.usdc")]
+        SceneUSD[("Assets/generated/scenes/<br/>scene_NN/scene.usdc")]
         Robot["StraferRobot<br/>ArticulationCfg"]
         Camera["d555_camera_perception<br/>640×360 RGB + depth"]
+        PolicyCam["d555_camera<br/>80×60 RGB"]
 
-        Replicator["Replicator annotator<br/>bounding_box_2d_tight"]
-        BBoxExtractor["ReplicatorBboxExtractor<br/>parse rows + labels"]
+        Picker["TeleopMissionPicker<br/>reads scene_metadata.json"]
+        Writer["StraferLeRobotWriter<br/>LeRobot v3 + sidecars"]
 
-        Writer["PerceptionFrameWriter<br/>per-episode dirs"]
-
-        EpisodeDir[("data/perception/<br/>episode_NNNN/<br/>frames.jsonl + frame_*.jpg +<br/>frame_*.depth.npy")]
-        Stats[("data/perception/<br/>writer_stats.json")]
+        Dataset[("data/sim_in_the_loop/scene_NN/<br/>meta/ data/ videos/")]
+        DepthSidecar[("videos/observation.depth.perception/<br/>episode-NNNNNN/NNNNNN.png")]
+        StraferSidecar[("meta/strafer_episodes.parquet")]
     end
 
-    Operator -->|bash $ isaaclab -p scripts/collect_perception_data.py<br/>--scene scene_001 --output data/perception/<br/>--max-episodes 20| Collect
+    Operator -->|isaaclab -p Scripts/capture.py<br/>--scene scene_NN --output ...| Capture
 
-    Collect --> AppLauncher
+    Capture --> Teleop
+    Teleop --> AppLauncher
     AppLauncher --> Env
     SceneUSD --> Env
     Env --> Robot
     Env --> Camera
+    Env --> PolicyCam
 
-    Operator -->|gamepad<br/>twist| Collect
-    Collect -->|action tensor| Env
+    Operator -->|gamepad twist + Y/B/X/SELECT/Back| Teleop
+    Teleop -->|action tensor| Env
+    Picker -->|MissionCandidate| Teleop
+    Teleop --> Picker
 
-    Camera --> Replicator
-    Replicator --> BBoxExtractor
-    Camera -->|RGB JPEG| Writer
-    Camera -->|depth npy| Writer
-    BBoxExtractor --> Writer
+    Camera -->|RGB uint8| Writer
+    Camera -->|depth float32 m| Writer
+    PolicyCam -->|RGB uint8 80x60| Writer
 
-    Writer --> EpisodeDir
-    Writer --> Stats
+    Writer --> Dataset
+    Writer --> DepthSidecar
+    Writer --> StraferSidecar
 
-    click Collect "../source/strafer_lab/scripts/collect_perception_data.py" "Gamepad teleop perception collection"
+    click Capture "../Scripts/capture.py" "Harness data-capture entry point"
+    click Teleop "../source/strafer_lab/scripts/teleop_capture.py" "Gamepad teleop driver"
     click Env "../source/strafer_lab/strafer_lab/tasks/navigation" "Infinigen perception env"
-    click Replicator "../source/strafer_lab/strafer_lab/tools/bbox_extractor.py" "Replicator bbox annotator wrapper"
-    click BBoxExtractor "../source/strafer_lab/strafer_lab/tools/bbox_extractor.py" "DetectedBbox parser"
-    click Writer "../source/strafer_lab/strafer_lab/tools/perception_writer.py" "Per-episode writer"
+    click Picker "../source/strafer_lab/strafer_lab/tools/teleop_mission_picker.py" "Scene-metadata mission picker"
+    click Writer "../source/strafer_lab/strafer_lab/tools/lerobot_writer.py" "LeRobot v3 writer + strafer sidecars"
 ```
 
-**Notes.** `A` = keep episode, `B` = discard, `Start` = save & quit. The
-env always advances; after keep/discard the script calls `env.reset()`
-and starts the next episode. Replicator's `bounding_box_2d_tight`
-annotator needs `semanticLabel` USD prim attributes to exist on scene
-objects — those are written by
-[`extract_scene_metadata.py`](../source/strafer_lab/scripts/extract_scene_metadata.py)
-before any collection run.
+**Notes.** `Y` = succeed, `B` = fail, `X + D-pad` = `wrong_instance` or
+`wrong_room` hard negative, `SELECT` = `trajectory_violation`, `Back` =
+discard, `Start` (held ≥ 1 s) = save and quit. Between episodes the
+driver re-prompts via the console mission picker (numeric index against
+the filtered `scene_metadata.json:objects[]`). Per-episode metadata
+populates from the picker + the buttons + the writer's own
+`capture_git_sha` / `scene_metadata_hash`.
 
 ---
 

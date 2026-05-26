@@ -1484,8 +1484,8 @@ class StraferNavEnvCfg_Robust_InfinigenDepth_PLAY(_PlayEnvCfgMixin, StraferNavEn
 # -----------------------------------------------------------------------------
 # INFINIGEN PERCEPTION: 640x360 RGB + depth perception camera on Infinigen
 # scenes. Used by:
-#   - scripts/collect_perception_data.py   (gamepad teleop + Replicator bbox)
-#   - scripts/sim_in_the_loop.py           (Nav2 + ROS2 bridge harness)
+#   - scripts/teleop_capture.py        (gamepad teleop, LeRobot v3 writer)
+#   - scripts/run_sim_in_the_loop.py   (Nav2 + ROS2 bridge harness)
 # Never used for RL training — the resolution caps env count at 1-8.
 # -----------------------------------------------------------------------------
 

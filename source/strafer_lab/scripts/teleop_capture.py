@@ -160,12 +160,27 @@ def _build_parser() -> argparse.ArgumentParser:
         "the operator needs to see what the robot sees.",
     )
     parser.add_argument(
+        "--hide-overhead",
+        action="store_true",
+        help="Set overhead structure prims (ceilings / roof / exterior hull) "
+        "to invisible at startup so the top-down view is unobstructed. "
+        "Matches the Infinigen *_ceiling_*, *_roof_*, *_attic_*, "
+        "*_exterior_* naming conventions. Does NOT modify the scene USDC "
+        "on disk; visibility is reset on next launch.",
+    )
+    parser.add_argument(
         "--hide-ceilings",
         action="store_true",
-        help="Set ceiling prims (matching the Infinigen *_ceiling_* naming "
-        "convention) to invisible at startup. Useful in world_arcade mode "
-        "where ceilings occlude the top-down view. Does NOT modify the "
-        "scene USDC on disk.",
+        help="(Alias) — same as --hide-overhead. Kept for back-compat with "
+        "the previous cheatsheet command.",
+    )
+    parser.add_argument(
+        "--overhead-regex",
+        type=str,
+        default=None,
+        help="Custom regex (re.search semantics, case-insensitive) used by "
+        "--hide-overhead. Override when the default pattern misses your "
+        "scene's specific structure prim naming.",
     )
     parser.add_argument(
         "--no-target-marker",
@@ -303,30 +318,47 @@ def _resolve_active_spawn_points(scene: str) -> list[list[float]]:
     return [list(map(float, pt)) for pt in pool if len(pt) >= 2]
 
 
-_CEILING_PRIM_RE = re.compile(r"_ceiling(_\d+)?$", re.IGNORECASE)
+# Hide ANY of these overhead structure tokens. Infinigen's room-structure
+# regex (generate_scenes_metadata.py:62) uses ceiling | exterior | floor |
+# wall | staircase as the trailing label. For top-down operator UX, the
+# operator needs ceiling + exterior (roof hull) hidden, NOT walls/floors.
+# Some scenes also expose attic / roof labels.
+_OVERHEAD_PRIM_RE = re.compile(
+    r"(?:^|_)(ceiling|roof|attic|exterior)(?:_\d+)?$",
+    re.IGNORECASE,
+)
 
 
-def _hide_ceiling_prims(unwrapped) -> int:
-    """Set every ``*_ceiling_*`` prim to invisible. Returns the count.
+def _hide_overhead_prims(unwrapped, custom_regex: str | None = None) -> tuple[int, list[str]]:
+    """Set every overhead structure prim (ceiling / roof / exterior) to invisible.
+
+    Returns ``(count_hidden, sample_paths)`` where ``sample_paths`` is up
+    to 20 paths matched — used for diagnostics so the operator can see
+    exactly what got hidden.
 
     Operator-only effect: invisible prims still collide (UsdGeom
-    visibility doesn't affect physics), so the robot still respects the
-    ceiling for collision purposes. The cameras' render product also
-    skips invisible prims — which is fine here since the perception
-    camera looks horizontally and ceilings are rarely in-frame.
+    visibility is a render attribute, not a physics one), so the robot
+    still respects the ceiling for collision. Perception camera output
+    similarly skips invisible prims — which is fine since the
+    horizontally-looking camera rarely sees them anyway.
     """
     from pxr import UsdGeom  # type: ignore
 
+    pattern = re.compile(custom_regex, re.IGNORECASE) if custom_regex else _OVERHEAD_PRIM_RE
+
     stage = unwrapped.scene.stage
     hidden = 0
+    sample_paths: list[str] = []
     for prim in stage.Traverse():
         name = prim.GetName()
-        if _CEILING_PRIM_RE.search(name):
+        if pattern.search(name):
             imageable = UsdGeom.Imageable(prim)
             if imageable:
                 imageable.MakeInvisible()
                 hidden += 1
-    return hidden
+                if len(sample_paths) < 20:
+                    sample_paths.append(str(prim.GetPath()))
+    return hidden, sample_paths
 
 
 def _as_torch(arr):
@@ -662,13 +694,25 @@ def main() -> int:
     # coordinates roughly half the time when more than one scene is
     # present. Resolved by name from --scene.
     active_spawn_points = _resolve_active_spawn_points(args.scene)
+    scene_centroid_xy: tuple[float, float] = (0.0, 0.0)
+    spawn_bbox: tuple[float, float, float, float] | None = None  # (xmin, ymin, xmax, ymax)
     if active_spawn_points:
         env_cfg.events.reset_robot.params["spawn_points_xy"] = active_spawn_points
         if hasattr(env_cfg.commands, "goal_command"):
             env_cfg.commands.goal_command.spawn_points_xy = active_spawn_points
+        xs = [p[0] for p in active_spawn_points]
+        ys = [p[1] for p in active_spawn_points]
+        scene_centroid_xy = (sum(xs) / len(xs), sum(ys) / len(ys))
+        spawn_bbox = (min(xs), min(ys), max(xs), max(ys))
         print(
             f"[teleop_capture] using {len(active_spawn_points)} spawn points "
             f"for active scene {args.scene!r} (overriding pooled default)",
+            flush=True,
+        )
+        print(
+            f"[teleop_capture]   spawn-pool centroid=({scene_centroid_xy[0]:+.2f}, "
+            f"{scene_centroid_xy[1]:+.2f})  bbox=x[{spawn_bbox[0]:+.2f}, "
+            f"{spawn_bbox[2]:+.2f}] y[{spawn_bbox[1]:+.2f}, {spawn_bbox[3]:+.2f}]",
             flush=True,
         )
     else:
@@ -678,6 +722,21 @@ def main() -> int:
             "Falling back to the env_cfg default (pooled across all scenes), "
             "which may spawn the robot outside this scene's room.",
             file=sys.stderr, flush=True,
+        )
+
+    # Suppress the env's RL goal marker (sphere + cone). Teleop isn't
+    # using the RL goal signal; the operator decides episode end via
+    # buttons. The marker is operator-confusing residue from the
+    # underlying training env. Also lock goal resampling so the env
+    # doesn't keep teleporting a goal we're not tracking (avoids any
+    # cost from goal_command's per-tick work).
+    if hasattr(env_cfg.commands, "goal_command"):
+        env_cfg.commands.goal_command.debug_vis = False
+        env_cfg.commands.goal_command.resampling_time_range = (1.0e6, 1.0e6)
+        print(
+            "[teleop_capture] suppressed env goal_command.debug_vis + locked "
+            "resampling — the sphere/cone marker is a training-side residue.",
+            flush=True,
         )
 
     if args.control_mode == "egocentric":
@@ -691,12 +750,24 @@ def main() -> int:
             resolution=(1280, 720),
         )
     else:  # world_arcade
+        # Center the editor camera over the scene's actual XY extent
+        # (the pooled spawn-points' centroid). Default ViewerCfg sits
+        # at (0, 0, 12) which is fine when the env's origin is the
+        # scene center, but Infinigen scenes are authored with their
+        # origin at a corner — leaving the operator looking at empty
+        # space outside the room.
+        cx, cy = scene_centroid_xy
         env_cfg.viewer = ViewerCfg(
-            eye=(0.0, 0.0, 12.0),
-            lookat=(0.0, 0.0, 0.0),
-            origin_type="env",
+            eye=(cx, cy, 12.0),
+            lookat=(cx, cy, 0.0),
+            origin_type="world",
             env_index=0,
             resolution=(1280, 720),
+        )
+        print(
+            f"[teleop_capture] world_arcade viewport centered at "
+            f"({cx:+.2f}, {cy:+.2f}, 12.00) looking down.",
+            flush=True,
         )
 
     env = gym.make(args.task, cfg=env_cfg)
@@ -717,13 +788,33 @@ def main() -> int:
     perception_camera = scene.sensors["d555_camera_perception"]
     policy_camera = scene.sensors.get("d555_camera") if args.capture_policy_cam else None
 
-    if args.hide_ceilings:
+    if args.hide_overhead or args.hide_ceilings:
         try:
-            n_hidden = _hide_ceiling_prims(unwrapped)
-            print(f"[teleop_capture] hid {n_hidden} ceiling prim(s) "
-                  f"(--hide-ceilings).", flush=True)
+            n_hidden, sample_paths = _hide_overhead_prims(
+                unwrapped, custom_regex=args.overhead_regex,
+            )
+            print(
+                f"[teleop_capture] hid {n_hidden} overhead prim(s) "
+                f"(--hide-overhead, regex={args.overhead_regex or '(default)'}).",
+                flush=True,
+            )
+            if sample_paths:
+                print(
+                    f"[teleop_capture]   first up to 20 paths:",
+                    flush=True,
+                )
+                for path in sample_paths:
+                    print(f"[teleop_capture]     {path}", flush=True)
+            if n_hidden == 0:
+                print(
+                    "[teleop_capture]   WARNING: nothing matched the regex. "
+                    "Roof / exterior prims may use a different naming "
+                    "convention in this scene. Pass --overhead-regex to "
+                    "customize.",
+                    file=sys.stderr, flush=True,
+                )
         except Exception as exc:
-            print(f"[teleop_capture] --hide-ceilings failed: "
+            print(f"[teleop_capture] --hide-overhead failed: "
                   f"{exc.__class__.__name__}: {exc}", file=sys.stderr, flush=True)
 
     target_marker = _TargetMarker(enabled=not args.no_target_marker)
@@ -826,8 +917,31 @@ def main() -> int:
         env.reset()
         print("[teleop_capture] env.reset OK; sampling robot pose...", flush=True)
         pose, _yaw = _robot_pose(unwrapped)
-        print(f"[teleop_capture] start_pose=({pose[0]:+.2f}, {pose[1]:+.2f}, "
-              f"yaw={_yaw:+.2f})", flush=True)
+        # Classify the pose against the active spawn-pool bbox. If the
+        # actual pose lands OUTSIDE the bbox, either the env's reset
+        # transformed the spawn point (env_origin offset?) or the pool
+        # itself includes points outside the room. Either way the
+        # operator sees a quantitative signal in the log.
+        in_bbox = False
+        if spawn_bbox is not None:
+            in_bbox = (
+                spawn_bbox[0] - 0.5 <= pose[0] <= spawn_bbox[2] + 0.5
+                and spawn_bbox[1] - 0.5 <= pose[1] <= spawn_bbox[3] + 0.5
+            )
+        bbox_marker = "IN spawn-pool bbox" if in_bbox else "OUTSIDE spawn-pool bbox"
+        print(
+            f"[teleop_capture] start_pose=({pose[0]:+.2f}, {pose[1]:+.2f}, "
+            f"yaw={_yaw:+.2f}) — {bbox_marker}",
+            flush=True,
+        )
+        if spawn_bbox is not None and not in_bbox:
+            print(
+                "[teleop_capture]   WARNING: robot landed outside the active "
+                "spawn pool. Either scenes_metadata.json is stale (regenerate "
+                "via `generate_scenes_metadata.py`) or env_cfg applies an "
+                "env-origin offset the override doesn't account for.",
+                file=sys.stderr, flush=True,
+            )
         start_xy_yaw = (pose[0], pose[1], _yaw)
         leg_dist = math.sqrt(
             (cand.target_position_3d[0] - pose[0]) ** 2

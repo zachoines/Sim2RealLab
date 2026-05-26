@@ -69,6 +69,54 @@ Add: "Doors in generated scenes are open by default, OR a postprocess pass rotat
 - **Multi-camera live view** (PIP via cv2 was already attempted; degraded to no-op against `opencv-python-headless`). Re-attempt via Isaac Sim secondary viewport would be a sibling brief if the egocentric mode doesn't close the UX gap.
 - **Anything Jetson-side.** All scope is DGX in-process Isaac Lab.
 
+## Live observations to fold in (2026-05-26)
+
+### Goal marker is RL-side residue, NOT a teleop artifact
+
+`env_cfg.commands.goal_command.debug_vis = True` in the InfinigenPerception env cfg renders a sphere + cone marker for the (RL training) goal target. Teleop ignores the RL goal signal — the operator decides episode end via buttons, and the picker's target is the only goal we care about. **Decision: teleop driver suppresses `goal_command.debug_vis` + locks `resampling_time_range` to effectively-never.** Shipped in this brief's bundle.
+
+### env auto-termination during teleop
+
+The InfinigenPerception env has three terminations active per `TerminationsCfg`:
+- `time_out` — episode-length timeout.
+- `robot_flipped` — `mdp.robot_flipped` threshold 0.5.
+- `sustained_collision` — 5 ticks of sustained contact.
+
+When any of these fire mid-teleop, the driver currently auto-closes the episode with `outcome="failed"`. This is acceptable for the first three because:
+- The driver already has its own `--max-steps-per-episode` cap, so `time_out` won't fire first in practice.
+- `robot_flipped` from a teleop session genuinely is a failure; operator was going to mark it `B` anyway.
+- `sustained_collision` likewise — operator stuck against geometry.
+
+**Decision: keep terminations as-is in this driver.** If operators want to keep driving past a sustained collision (e.g., to back out manually), file a follow-up. For now an auto-close-as-failed is a reasonable default.
+
+### Perf observation: 7-8 FPS observed
+
+Bridge-runtime-invariants predicts ~11-13 FPS without DLSS / RT 2.0 / FPS Multiplier ([`isaac-sim-rt-2-default-renderer.md`](../sim-performance/isaac-sim-rt-2-default-renderer.md)). Measured: 7-8 FPS during teleop sessions. Likely sources beyond raw render cost:
+- 640×360 perception RGB + depth + 80×60 policy RGB rendered every env step.
+- env_step_hz = 30 (sim_dt=1/120, decimation=4); writer captures at 8 Hz but env steps at 30 — wasted renders between captures.
+
+**Mitigations available without a new render path:**
+- Lower decimation in teleop only (e.g. `decimation=2` → env_step_hz=60). Trades physics fidelity for smoothness; documented in the existing sim-perf brief as a tuning knob.
+- Render at lower res on the non-captured ticks — not supported by Isaac Sim's current camera API; would require [`isaac-sim-rt-2-default-renderer.md`](../sim-performance/isaac-sim-rt-2-default-renderer.md)'s FPS Multiplier work.
+
+**Decision: do not touch render perf in this brief.** Cross-reference the sim-performance brief; if the user wants to experiment, file a sibling teleop-perf-tuning brief.
+
+### Overhead regex too narrow (10 prims hidden, roofs still visible)
+
+The first `--hide-ceilings` regex `_ceiling(_\d+)?$` matched only the per-room ceiling meshes. Infinigen scenes ALSO author `*_exterior_*` prims for the building's outer hull (visible from above as the roof) and occasionally `*_roof_*` / `*_attic_*`. Renamed `--hide-ceilings` → `--hide-overhead` (alias retained), broadened regex to `(?:^|_)(ceiling|roof|attic|exterior)(?:_\d+)?$`, and added a `--overhead-regex` override for scene-specific tuning. Driver now prints the first 20 matched prim paths so the operator can verify what's hidden.
+
+### Scene-centroid camera
+
+`ViewerCfg(eye=(0,0,12), origin_type="env")` placed the world_arcade camera at the env origin, which Infinigen scenes set to a corner — the operator was looking at the floor outside the room. Driver now computes the spawn-pool centroid and places the camera over that, in `origin_type="world"`. Should put the scene under the operator on first launch.
+
+### Spawn-outside-room debug surface
+
+The active-scene spawn-point override is being applied (`using 101 spawn points` in the log), but the operator still reports robot-outside-room. Two possible root causes that this brief's instrumentation distinguishes:
+1. The spawn points themselves are bad (sampled on floor mesh extending outside walls, or a stale scenes_metadata.json).
+2. The env's `reset_robot_state` is applying an unexpected transform (env_origin offset?) so the actual world-frame pose differs from the sampled point.
+
+Driver now prints `start_pose=(x, y, yaw) — IN/OUTSIDE spawn-pool bbox` per reset. **Outcome (1)** surfaces as in-bbox = True but the visual position is still wrong (means scenes_metadata.json needs regeneration). **Outcome (2)** surfaces as in-bbox = False with a warning pointing at the env_cfg side. Each suggests its own next step.
+
 ## Implementation outline
 
 1. **Spawn-point fix** in `teleop_capture.py`:

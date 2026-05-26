@@ -255,8 +255,8 @@ behavior-cloning-grade.
    [`harness-architecture`](../../active/harness/harness-architecture.md).
    Compare outcome metrics (reachability, time-to-arrival,
    false-stop / false-continue rates) against the v1 baseline
-   on the same scenes; outcome labels live in
-   `meta/episodes.jsonl.outcome`.
+   on the same scenes; outcome labels live in the per-episode
+   `outcome` column under `meta/episodes/`.
 
 ### Technical considerations and risks
 

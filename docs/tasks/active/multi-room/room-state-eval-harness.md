@@ -98,8 +98,9 @@ The eval reads any LeRobot v3 dataset that satisfies:
 
 1. Covers every room in the scene at least once (or the eval
    skips uncovered rooms and reports partial coverage).
-2. Carries `episodes.jsonl.scene_id` resolving to
-   `meta/scenes/<scene_id>/scene_metadata.json` (per
+2. Carries the strafer per-episode `scene_id` column (in
+   `meta/episodes/`'s chunked Parquet per LeRobot v3) resolving
+   to `meta/scenes/<scene_id>/scene_metadata.json` (per
    [`scene-connectivity-validation`](scene-connectivity-validation.md)'s
    `connectivity[]` block + Infinigen room polygons + objects).
 3. Captures per-frame pose in `observation.state.pose` and per-

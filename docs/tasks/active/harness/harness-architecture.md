@@ -40,7 +40,7 @@ Before this brief: 4 active + 1 parked driver briefs (`behavior-cloning-data-exp
 
 1. **Theoretical back-compat.** None of the current data-capture entry points (`run_sim_in_the_loop.py --mode harness`, `collect_perception_data.py`) have ever been run against real data. The "preserve `frames.jsonl` for legacy consumers" plan in the original BC-expansion brief was protecting code that has never produced production data. The downstream consumers (`generate_descriptions.py`, `prepare_vlm_finetune_data.py`, `dataset_export.py`, `finetune_clip.py`) have also never run against real data. The migration cost of changing format is genuinely zero today; later it compounds.
 
-2. **Format alignment was deferred-on-trigger** even though every downstream consumer in 2026 (GR00T, π0/openpi, OpenVLA, Octo) consumes either LeRobot v2/v3 or RLDS natively, and 1k-trajectory re-export is multi-hour. The trigger ("until first downstream brief commits") is firing right now — the four named exploration briefs (`vla-v2-architecture`, `vla-v2-map-conditioning`, `cotrained-retrieval-augmented`, `implicit-memory-map`) plus `backbone-bakeoff` plus `room-state-eval-harness` are all the trigger.
+2. **Format alignment was deferred-on-trigger** even though every downstream consumer in 2026 consumes some variant of the LeRobot family (GR00T currently v2, π0 / openpi following, others tracking the upstream) or RLDS (OpenVLA / Octo, exportable from LeRobot in one pass), and 1k-trajectory re-export is multi-hour. The trigger ("until first downstream brief commits") is firing right now — the four named exploration briefs (`vla-v2-architecture`, `vla-v2-map-conditioning`, `cotrained-retrieval-augmented`, `implicit-memory-map`) plus `backbone-bakeoff` plus `room-state-eval-harness` are all the trigger. Picking LeRobot v3 today targets the upstream-current shape; ecosystem-specific converters get filed-on-trigger when each fine-tune actually gets picked up.
 
 3. **Four driver entry points was a design smell.** Bridge / teleop / oracle / trajectory-first each had a separate script with its own argv surface. The cross-product (driver × mission source) was implicit and under-specified — for example, "coverage capture for room-state eval" had no home in the driver taxonomy. Operator's mental model was a 2-D matrix the briefs flattened to a 1-D list.
 
@@ -79,109 +79,152 @@ The `(driver, mission_source)` cells that exist:
 
 ## Output format — LeRobot v3
 
-The canonical on-disk format is the [LeRobot dataset format](https://huggingface.co/docs/lerobot/), current major version at PR-pickup time (v3 as of 2026-05). The HF `lerobot` library is the canonical writer + loader; we author via `LeRobotDataset` append rather than writing a custom file recorder. The format is what GR00T, π0/openpi consume natively; OpenVLA / Octo consume RLDS, which is a one-pass export from LeRobot v3.
+The canonical on-disk format is the [LeRobot dataset format v3](https://huggingface.co/docs/lerobot/lerobot-dataset-v3), the current upstream major. The HF `lerobot` library is the canonical writer (via `LeRobotDataset.create()` → `add_frame()` → `save_episode()` → `finalize()`) and loader.
+
+### Why v3, given the ecosystem state
+
+LeRobot v3 is the **modern reference format** for wheeled / mobile-manipulation BC corpora — it's where the upstream ecosystem is moving and what new pipelines target. The downstream training stacks the project draws inspiration from (NVIDIA GR00T, Physical Intelligence π0, OpenVLA, Octo, Isaac Lab Mimic / robomimic) are **reference architectures we design *after*, not models currently consumed in-repo** (verified 2026-05-26: `grep -ri gr00t source/` returns zero matches; same for π0 / OpenVLA / Octo / Mimic).
+
+| Consumer | Currently needs | Trigger to add an adapter |
+|---|---|---|
+| HF `lerobot` library + any LeRobot-compatible training script | LeRobot v3 | None — stock, ships day one. |
+| NVIDIA GR00T (aspirational) | LeRobot v2 + GR00T-style `meta/modality.json` | File a v3→v2 converter brief if/when the project commits to fine-tuning GR00T. LeRobot ships a documented v3→v2 conversion script; this is a small follow-up, not foundational. |
+| π0 / openpi (aspirational) | Tracks GR00T's v2 requirement today; should converge to v3 as upstream catches up | Same converter as GR00T. |
+| OpenVLA / Octo (aspirational) | RLDS (TFDS tfrecord) | File a LeRobot v3 → RLDS export brief at pickup time. |
+| Isaac Lab Mimic / robomimic (aspirational) | HDF5 (robomimic schema) | File a converter brief at pickup time. |
+
+Converters get filed on the trigger that the project actually commits to fine-tuning a specific model — **not preemptively**. This keeps PR B's writer simple (one stock LeRobot v3 pattern) and defers ecosystem-specific complexity to the brief that picks up each fine-tune.
 
 ### Repository layout per scene
 
 ```
-data/sim_in_the_loop/<scene_name>/                  ← one LeRobot dataset per scene
+data/sim_in_the_loop/<scene_name>/                  ← one LeRobot v3 dataset per scene
 ├── meta/
-│   ├── info.json                                   # LeRobot dataset metadata (version, fps, etc.)
-│   ├── modality.json                               # strafer embodiment spec — see below
-│   ├── tasks.jsonl                                 # unique task strings (mission_text de-duplicated)
-│   ├── episodes.jsonl                              # per-episode metadata + harness extensions
-│   └── scenes/<scene_id>/scene_metadata.json       # per-scene static GT (room polygons, connectivity, objects)
-├── data/chunk-NNN/
-│   └── episode_NNNN.parquet                        # per-tick records
-└── videos/chunk-NNN/episode_NNNN/
-    ├── observation.images.perception.mp4           # 640×360 RGB
-    ├── observation.images.policy.mp4               # 80×60 RGB (optional, --capture-policy-cam)
-    └── observation.depth.perception/               # 16UC1 PNG sequence (per-frame depth)
-        ├── 0000.png
+│   ├── info.json                                   # LeRobot v3 dataset metadata (codebase_version, fps, features dict, strafer cameras block)
+│   ├── tasks.jsonl                                 # unique task strings (mission_text deduplicated)
+│   ├── episodes/                                   # LeRobot v3 chunked Parquet per-episode metadata + strafer extensions
+│   │   ├── chunk-000/
+│   │   │   └── episodes-0000.parquet
+│   │   └── ...
+│   ├── splits.jsonl                                # optional sidecar — named splits beyond defaults (held-out trajectories, adversarial sets)
+│   └── scenes/<scene_id>/scene_metadata.json       # strafer custom — per-scene static GT (room polygons, connectivity, objects)
+├── data/chunk-000/
+│   ├── file-0000.parquet                           # LeRobot v3 per-shard concatenated frame data (many episodes per shard)
+│   └── ...
+└── videos/chunk-000/
+    ├── observation.images.perception/
+    │   ├── file-0000.mp4                           # MP4 H.264, multiple episodes per file
+    │   └── ...
+    ├── observation.images.policy/                  # optional (--capture-policy-cam)
+    │   └── file-0000.mp4
+    └── observation.depth.perception/               # strafer custom — 16UC1 PNG per-episode sequences (see Depth representation)
+        ├── episode-0000/
+        │   ├── 0000.png
+        │   └── ...
         └── ...
 ```
 
-### Per-tick parquet schema
+Per-episode metadata lives in chunked Parquet under `meta/episodes/`, **not** in a flat `episodes.jsonl` — this is the v3 shape. Frame data is concatenated per shard (`file-0000.parquet`), **not** per-episode files. Videos are also per-shard MP4s with many episodes concatenated. Depth is the one strafer custom: 16UC1 PNG sequences per episode, served via a custom feature class (see [Depth representation](#depth-representation--custom-feature-class)).
 
-| Column | Type | Notes |
-|---|---|---|
-| `timestamp` | float64 | Sim time from `/clock` (bridge) or `env.episode_length_buf` × dt (in-process) |
-| `frame_index` | int64 | LeRobot-required monotonic index |
-| `episode_index` | int64 | LeRobot-required |
-| `task_index` | int64 | Index into `meta/tasks.jsonl` |
-| `observation.state` | float32[N] | `(x, y, z, qx, qy, qz, qw, vx_achieved, vy_achieved, omega_z_achieved)` |
-| `action` | float32[3] | `(vx_cmd, vy_cmd, omega_z_cmd)` |
-| `observation.images.perception` | reference | Resolved by LeRobot loader to MP4 frame |
-| `observation.images.policy` | reference (optional) | Same |
-| `observation.depth.perception` | reference | Resolved to 16UC1 PNG; LeRobot supports image-sequence references |
+### Per-frame `features` schema (declared in `meta/info.json`)
 
-### `meta/modality.json` for strafer
+LeRobot v3's `info.json` declares each column via the `features` dict, per the v3 spec:
+
+| Column | dtype | shape | Notes |
+|---|---|---|---|
+| `timestamp` | float64 | () | Sim time from `/clock` (bridge) or `env.episode_length_buf` × dt (in-process). LeRobot v3 required. |
+| `frame_index` | int64 | () | LeRobot v3 required. |
+| `episode_index` | int64 | () | LeRobot v3 required. |
+| `task_index` | int64 | () | Index into `meta/tasks.jsonl`. |
+| `observation.state.pose` | float32 | (7,) | `(x, y, z, qx, qy, qz, qw)` |
+| `observation.state.achieved_vel` | float32 | (3,) | `(vx, vy, omega_z)` from `/odom`-derived encoder FK |
+| `action` | float32 | (3,) | `(vx_cmd, vy_cmd, omega_z_cmd)` |
+| `observation.images.perception` | video | (360, 640, 3) | MP4 H.264; LeRobot v3 native video feature |
+| `observation.images.policy` | video (optional) | (60, 80, 3) | MP4 H.264 |
+| `observation.depth.perception` | strafer custom | (360, 640) | 16UC1 PNG sequence via strafer custom feature class — see [Depth representation](#depth-representation--custom-feature-class) |
+
+### Camera intrinsics + preprocessing block (strafer extension to `info.json`)
+
+Strafer-specific extension to `info.json`, lives under a `cameras` key alongside LeRobot v3 native fields. Consumers that need preprocessing or geometric reasoning read this block directly; LeRobot's stock loader ignores it.
 
 ```json
-{
-  "state": {
-    "pose": {"absolute": true, "rotation_type": "quaternion", "indices": [0, 1, 2, 3, 4, 5, 6]},
-    "achieved_vel": {"absolute": false, "indices": [7, 8, 9], "components": ["vx", "vy", "omega_z"]}
+"cameras": {
+  "perception": {
+    "raw_resolution": [640, 360],
+    "fov_h_deg": 87.0, "fov_v_deg": 58.0,
+    "fx": null, "fy": null, "cx": null, "cy": null,
+    "preprocessing_hint": "letterbox-to-square for ViT inputs; sensor intrinsics are post-undistortion"
   },
-  "action": {
-    "cmd_vel": {"absolute": false, "indices": [0, 1, 2], "components": ["vx", "vy", "omega_z"]}
-  },
-  "video": {
-    "perception": {"original_key": "observation.images.perception", "fps": 8, "resolution": [640, 360]},
-    "policy":     {"original_key": "observation.images.policy",     "fps": 8, "resolution": [80, 60]}
-  },
-  "depth": {
-    "perception": {"original_key": "observation.depth.perception", "format": "png16uc1_mm", "scale": 0.001}
-  },
-  "annotation": {
-    "mission_text": "annotation.tasks.mission_text"
+  "policy": {
+    "raw_resolution": [80, 60],
+    "fov_h_deg": 87.0, "fov_v_deg": 58.0,
+    "fx": null, "fy": null, "cx": null, "cy": null,
+    "preprocessing_hint": "policy cam consumed at native resolution"
   }
 }
 ```
 
-### Harness extensions to `meta/episodes.jsonl`
+`backbone-bakeoff` reads `raw_resolution` + `preprocessing_hint` to decide resize-vs-letterbox per candidate; `vla-v2-map-conditioning` Option B reads `fx/fy/cx/cy` for any depth-back-projection work. Intrinsics are populated by the bridge / scripted driver from Isaac Sim's render-product calibration at capture time; `null` means not-yet-populated (acceptable for early teleop captures before the intrinsics-extraction pass lands).
 
-Every episode row carries the standard LeRobot fields (`episode_index`, `tasks`, `length`) plus strafer-specific extensions:
+### Harness extensions to `meta/episodes/` per-episode rows
 
-```jsonl
-{"episode_index": 17, "tasks": ["Go to the chair by the south wall."], "length": 312,
- "scene_id": "scene_high_quality_dgx_000_seed0",
- "target_label": "chair", "target_object_id": "chair_3", "target_position_3d": [4.2, 1.8, 0.0],
- "start_pose": {"x": 0.5, "y": 0.5, "yaw": 0.0},
- "outcome": "succeeded",
- "outcome_category": "on_course",
- "paraphrases": ["Approach the chair near the south wall.", "..."],
- "source_driver": "teleop",
- "source_mission_source": "queue",
- "hard_negative_category": null,
- "injection_mode": null, "injection_mode_actual": null, "original_target_position_3d": null,
- "operator_handle": "z", "session_id": "20260524_153000",
- "generator_metadata": {"llm_model": "Qwen3-4B", "llm_seed": 42, "speaker_model": null, "speaker_seed": null},
- "leg_initial_distance_m": 3.42}
-```
+Every per-episode row carries the standard LeRobot v3 columns (`episode_index`, `tasks`, `length`, `dataset_from_index`, `dataset_to_index`, `data/chunk_index`, `data/file_index`, `videos/.../chunk_index`, `videos/.../file_index`) plus strafer-specific extension columns:
 
-Field-by-field semantics:
+| Column | Type | Notes |
+|---|---|---|
+| `scene_id` | string | Resolves to `meta/scenes/<scene_id>/scene_metadata.json`. **Strafer custom extension** — LeRobot loaders see this as an opaque string; consumers that need scene context look it up themselves. |
+| `target_label` | string | Semantic class of the mission's primary target (e.g. `"chair"`). |
+| `target_object_id` | string | Specific instance ID into `scene_metadata.objects[]`. |
+| `target_position_3d` | float32[3] | `(x, y, z)` in scene frame. |
+| `start_pose` | float32[3] | `(x, y, yaw)` of the episode's start. |
+| `outcome` | string | `{succeeded, failed, wrong_instance, wrong_room, trajectory_violation, discarded}`. |
+| `outcome_category` | string | `{on_course, wrong_instance, wrong_room, trajectory_violation}` — collapses success/failure into `on_course`; surfaces deliberate-failure modes as hard negatives. |
+| `paraphrases` | list[string] | Populated by `--paraphrase-missions N`; empty array when disabled. |
+| `source_driver` | string | `{bridge, teleop, scripted}`. |
+| `source_mission_source` | string | `{queue, captioner, coverage, scene-metadata}`. |
+| `hard_negative_category` | string \| null | `{wrong_instance, wrong_room, trajectory_violation}` or null. |
+| `injection_mode` | string \| null | Requested mode for `--inject-bad-grounding`; null if no injection requested. |
+| `injection_mode_actual` | string \| null | Resolved mode after fallback. **Downstream training MUST filter / weight on this column, not `injection_mode`** — see [Hard-negative injection](#hard-negative-injection---inject-bad-grounding). Null means "no injection" *or* "perturbation requested but fallback dropped it" (`injection_mode` non-null disambiguates the two). |
+| `original_target_position_3d` | float32[3] \| null | Pre-injection goal; null when `injection_mode_actual` is null. |
+| `operator_handle` | string \| null | Per-teleop session. |
+| `session_id` | string | Capture wall-clock start; identifies a teleop session or scripted batch. |
+| `generator_metadata` | json | `{llm_model, llm_seed, speaker_model, speaker_seed, cosmos_seed}` — non-null when an LLM was involved. |
+| `leg_initial_distance_m` | float32 | For progress / time-to-arrival computation. |
+| `episode_split` | string | `{train, val, held_out_seeds, multi_bedroom_adversarial, open_plan_adversarial}` — see [Train / val / held-out splits](#train--val--held-out-splits). |
+| `capture_git_sha` | string | `git rev-parse HEAD` of the repo at capture time. **Reproducibility anchor.** |
+| `scene_metadata_hash` | string | sha256 of `scene_metadata.json` at capture time. Detects scene mutations across captures. |
 
-- `scene_id` → resolves to `meta/scenes/<scene_id>/scene_metadata.json` for per-scene static GT (room polygons, connectivity, object inventories). Per-frame GT room_idx is **not stored** — eval scripts compute it on demand via [`scene_labels.get_room_at_position(pose)`](../../../../source/strafer_lab/strafer_lab/tools/scene_labels.py#L148) reading scene_metadata. Caching at eval time is a consumer concern.
-- `outcome ∈ {succeeded, failed, wrong_instance, wrong_room, trajectory_violation, discarded}` — what the operator / scripted driver / bridge reported at episode end.
-- `outcome_category ∈ {on_course, wrong_instance, wrong_room, trajectory_violation}` — the cascade-validator-facing label (drops the success/failure distinction; collapses `succeeded` and `failed` cleanly-finished episodes into `on_course` and surfaces the deliberate-failure modes as hard negatives).
-- `paraphrases` — populated by an optional `--paraphrase-missions N` Qwen2.5-VL pass (subsumes the BC-expansion brief's paraphrase generator). Empty array if disabled.
-- `source_driver` / `source_mission_source` — which `(--driver, --mission-source)` cell produced this episode. Lets downstream training filter or weight by source.
-- `hard_negative_category` — non-null when the episode is a deliberate hard negative (operator `X` / `SELECT` button, scripted `--inject-bad-grounding`, or captioner-synthesized negative).
-- `injection_*` fields — non-null when `--inject-bad-grounding` perturbed the goal. `injection_mode_actual` records the resolved mode (so a `wrong_instance` request that fell back to `wrong_room` is visible in the data, not silent).
-- `generator_metadata` — non-null when an LLM was involved (mission-generator's planner LLM or the captioner's speaker model). Carries model name + seed for reproducibility.
+Per-frame GT room_idx is **not stored** — eval scripts compute it on demand via [`scene_labels.get_room_at_position(pose)`](../../../../source/strafer_lab/strafer_lab/tools/scene_labels.py#L148) reading `scene_metadata.json`. Caching at eval time is a consumer concern.
+
+### Train / val / held-out splits
+
+Three named consumers need hold-out semantics: [`validator-evaluation`](../clip-validation/validator-evaluation.md)'s `held_out_seeds`, [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md)'s held-out-trajectory protocol, [`implicit-memory-map`](../../parked/clip-validation/implicit-memory-map.md)'s per-trajectory exclusion. The schema defines two layers:
+
+1. **`episode_split` column** in per-episode metadata. Default values populated at capture time:
+   - `train` — most episodes (default).
+   - `val` — 10% randomly sampled by `episode_index % 10 == 0` (deterministic given a stable index sequence).
+   - `multi_bedroom_adversarial`, `open_plan_adversarial` — named sets owned by [`room-state-eval-harness`](../multi-room/room-state-eval-harness.md); set explicitly per scene.
+   - `held_out_seeds` — for `validator-evaluation`; set explicitly per scene seed.
+
+2. **`meta/splits.jsonl`** sidecar. Optional. Each row: `{name, episode_indices, scope, description}`. Consumers needing a hold-out protocol beyond the defaults (e.g., `implicit-memory-map`'s per-trajectory exclusion at training-script setup) append a row and rewrite the sidecar; the per-episode `episode_split` column remains source of truth for the original capture-time assignment, and the sidecar carries derived/named splits.
+
+Consumers MUST pin the split they use and record the name in their training-run report so eval numbers are comparable across briefs.
 
 ### Multi-camera capture
 
-`StraferSceneCfg_InfinigenPerception` ships two cameras (`d555_camera` at 80×60 policy-cam resolution, `d555_camera_perception` at 640×360). Default is `--capture-policy-cam` ON for v1 training corpora (~5% extra wall-time per step, ~3 KB/frame extra storage, lets training scripts choose resolution). Operator can disable for storage-constrained sessions.
+`StraferSceneCfg_InfinigenPerception` ships two cameras (`d555_camera` at 80×60 policy-cam resolution, `d555_camera_perception` at 640×360). Default is `--capture-policy-cam` ON for v1 training corpora (~5% extra wall-time per step, ~3 KB/frame extra storage, lets training scripts choose resolution). Operator can disable for storage-constrained sessions. Both cameras are LeRobot v3 native `video` features (MP4 H.264).
 
-### Depth representation
+### Depth representation — custom feature class
 
-16UC1 PNG in millimeters per frame, stored as an image sequence under `videos/.../observation.depth.perception/`. Chosen over float32 `.npy` (~5× smaller, 1mm precision, matches `depth_downsampler.py` 16UC1 convention used by the real-robot perception stack — sim-real format match). Loader-side: LeRobot's image-sequence reference resolves these; the `meta/modality.json` `depth.perception` block declares the format + scale.
+Depth is captured as 16UC1 PNG sequences (1mm precision; the D555's noise floor at 3m is ~10–20mm, so 1mm quantization sits below the sensor floor — `harness-throughput-measurement` confirmed this is sim-real-comparable). PNG matches `depth_downsampler.py`'s 16UC1 convention used by the real-robot perception stack, preserving sim-real format match.
+
+**LeRobot v3's video pipeline is MP4-only**; standard codecs don't support 16-bit depth video, so depth ships as a **strafer custom feature class** (`StraferDepthSequenceFeature`) registered against the LeRobot v3 dataset at load time. Per the v3 feature-extension docs, this is a Python class subclassing LeRobot's feature base, reading `videos/.../observation.depth.perception/episode-NNNN/<frame>.png` and decoding 16UC1 → float32 meters.
+
+Ships in PR B as the writer's first custom feature; loader is symmetric (also in PR B for sim-side consumers; ecosystem-external consumers need the loader shipped alongside whatever conversion they use). Stock LeRobot v3 consumers without the strafer custom feature will load every other column normally and skip depth.
 
 ### Action chunk encoding
 
-The strict schema stores per-tick actions. Action chunks (π0/openpi expects 50-step chunks at 50 Hz; OpenVLA single-step; Octo variable) are a **loader-side concern**. LeRobot v3's loader builds chunks at load time from the per-tick parquet. We do not pre-chunk in the dataset.
+Per-tick action records live in the parquet data; action chunks (π0/openpi expects 50-step chunks at 50 Hz; OpenVLA single-step; Octo variable) are a **loader-side concern**. LeRobot v3's loader builds chunks at load time from the per-tick rows. We do not pre-chunk in the dataset.
 
 Default policy command rate is 30 Hz (the deployed RL policy rate), so a 1-second action chunk is 30 ticks. This goes in `meta/info.json` as the dataset's `fps`.
 
@@ -189,7 +232,7 @@ Default policy command rate is 30 Hz (the deployed RL policy rate), so a 1-secon
 
 Action source: the Jetson autonomy stack (planner + executor + Nav2 + RL controller) via ROS 2 publishing `/cmd_vel`. Bridge mode brings up Isaac Sim headless on the DGX, instantiates the env, and reads `/cmd_vel` over CycloneDDS each tick. Same code path as today's `run_sim_in_the_loop.py --mode bridge`, plus per-tick writer hooks.
 
-**Why bridge is structurally different from teleop and scripted:** the action source is on a different machine, and `/clock` is the only authority both sides see. Isaac Lab's in-process recorder APIs (`RecorderManager`, Isaac Lab Mimic) cannot represent this. The bridge driver writes via a custom recorder that pulls `/cmd_vel` from the ROS graph each tick and hands it to `LeRobotDataset.append`. The in-process drivers (teleop, scripted) can use `LeRobotDataset.append` directly inside the env loop.
+**Why bridge is structurally different from teleop and scripted:** the action source is on a different machine, and `/clock` is the only authority both sides see. Isaac Lab's in-process recorder APIs (`RecorderManager`, Isaac Lab Mimic) cannot represent this. The bridge driver writes via a custom recorder that pulls `/cmd_vel` from the ROS graph each tick and hands it to `LeRobotDataset.add_frame()`. The in-process drivers (teleop, scripted) call `add_frame()` directly inside the env loop. All three drivers share the same writer lifecycle: `LeRobotDataset.create()` at start → `add_frame()` per tick → `save_episode()` at each episode boundary → `finalize()` at process exit.
 
 **Throughput:** ~6–15 FPS headless; drops to ~6 FPS when planner + VLM are in the loop. A 30s mission produces ~180 frames at best. This is fine for end-to-end validation runs but is **not** the bulk training-data path; use teleop or scripted for that.
 
@@ -202,6 +245,10 @@ The bridge driver walks `scene_metadata.json` targets directly: enumerate `objec
 ### Bridge × queue
 
 The bridge driver consumes `mission_queue.yaml` rows produced by [`mission-generator`](mission-generator.md): pop a row, dispatch the mission, capture the episode, advance. Multi-room missions, paraphrases, planned_path all available; the bridge ignores `planned_path` (its planner emits its own).
+
+### Discard semantics (bridge)
+
+When the bridge mainloop loses ROS connectivity, `/cmd_vel` times out for longer than `--cmd-vel-grace`, a planner / executor crash kills the mission mid-episode, or Nav2 returns a non-recoverable failure code, the current episode is marked `outcome = discarded`. The episode is **not** saved to the dataset (`save_episode()` is skipped); `episode_index` advances so the next clean episode lands at the expected slot. Discards are logged but not analyzed by the consumer table — they're operational noise, not training signal.
 
 ## Driver: teleop
 
@@ -292,7 +339,9 @@ After capture, a post-hoc captioner pass runs the 7B Qwen2.5-VL with an **instru
 - 1 positive caption + N=3 paraphrases (assigned to `tasks` / `paraphrases`)
 - N=2 negative captions sampled from `wrong_instance` (same-room same-label) and `wrong_room` (different-room) targets — emitted as **additional episode rows referencing the same parquet trajectory data** but with different `episode_index` + `tasks` + `hard_negative_category` fields.
 
-**Speaker-instructive eval rubric (gate before any captioned corpus is shipped):**
+**Speaker-instructive eval rubric (project policy; gate before any captioned corpus is shipped):**
+
+This rubric is **project policy** — Speaker-Follower (Fried et al., NeurIPS 2018) introduced the instructive-vs-descriptive distinction but did not publish a quantitative quality threshold. The 50-caption / <10% failure bar is the project's empirical anchor; revisit if real captioner output systematically clears or fails the bar by a wide margin.
 
 Sample 50 captions uniformly at random from ≥ 2 scenes (≥ 25 per scene). Score each against four binary checks:
 1. **Voice.** Imperative ("Go to the chair") not declarative ("The robot went to...").
@@ -309,6 +358,10 @@ Two independent inspectors; disagreements adjudicated to the conservative ("fail
 The driver runs a coverage-biased target sampler: ensure every room in the scene gets visited ≥ N=2 times across the dataset (configurable via `--coverage-visits-per-room`). After base coverage, **repeated traversals** sample previously-visited locations and approach from different headings (random rotation offset) — these produce the same-place / different-heading pairs that [`learned-spatial-encoder`](../../parked/multi-room/learned-spatial-encoder.md)'s place-recognition head mines as positive VPR pairs.
 
 Episodes from coverage mode get `source_mission_source = "coverage"`, `outcome = "succeeded"` (no mission to fail), and no `tasks` (empty mission text). Downstream consumers that need labels (backbone-bakeoff, room-state-eval) compute per-frame GT room_idx on demand from `(pose, scene_metadata)`.
+
+### Discard semantics (scripted)
+
+When Isaac Sim env reset fails for one of the parallel envs, a per-env crash terminates a trajectory mid-flight, the RL controller (or proportional fallback) fails to converge within `--controller-timeout` seconds, or the path-tracker exceeds `--max-replan-attempts` without making progress, the affected episode is marked `outcome = discarded` and is **not** saved to the dataset. Other parallel envs continue independently. `episode_index` advances cleanly for the surviving envs; the discarded slot is not reused.
 
 ## Mission source: queue
 
@@ -342,13 +395,13 @@ How each downstream brief reads from a unified LeRobot v3 dataset:
 | Consumer | Fields read | `(driver, mission_source)` pairs that produce useful data | Per-consumer notes |
 |---|---|---|---|
 | [`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md) | `observation.images.*`, `scene_id` → `meta/scenes/<id>/scene_metadata.json` for per-frame GT room_idx | Any | Re-encodes images under each candidate backbone; scores against per-frame GT room_idx computed on demand |
-| [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md) Step A | `observation.images.perception`, `tasks`, `episodes.jsonl.hard_negative_category`, `episodes.jsonl.scene_id` (for same-region positives) | bridge/teleop × queue, scripted × captioner | Multi-task fine-tune: image-vs-caption InfoNCE + same-region contrastive + hard-negative target-text |
-| [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md) Step B | Above + `episodes.jsonl.episode_index` for held-out-trajectory protocol | Same | RAG-aware training against the SemanticMapManager-built retrieval index |
-| [`implicit-memory-map`](../../parked/clip-validation/implicit-memory-map.md) | `observation.images.perception`, `observation.state.pose`, `episodes.jsonl.scene_id`, `episodes.jsonl.episode_index` | Any | Memory-bank training with `K_train ∈ {0,1,2,4,8}` augmentation; cross-attention training |
-| [`vla-v2-architecture`](../../parked/experimental/vla-v2-architecture.md) | `observation.images.*`, `observation.depth.perception`, `observation.state.pose`, `action`, `tasks`, `episodes.jsonl.paraphrases` | teleop × queue (primary per §3.6.a), bridge supplements, scripted × queue at scale | LeRobot v3 is GR00T/π0's native loader format — direct consumption |
-| [`vla-v2-map-conditioning`](../../parked/experimental/vla-v2-map-conditioning.md) Option A | Above + `episodes.jsonl.scene_id` → `meta/scenes/<id>/scene_metadata.json` (text-serialized into prompt) | Same | Symbolic regions serialized into the prompt |
+| [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md) Step A | `observation.images.perception`, `tasks`, per-episode `hard_negative_category`, per-episode `scene_id` (for same-region positives) | bridge/teleop × queue, scripted × captioner | Multi-task fine-tune: image-vs-caption InfoNCE + same-region contrastive + hard-negative target-text |
+| [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md) Step B | Above + `episode_index` for held-out-trajectory protocol (via `episode_split` or `meta/splits.jsonl`) | Same | RAG-aware training against the SemanticMapManager-built retrieval index |
+| [`implicit-memory-map`](../../parked/clip-validation/implicit-memory-map.md) | `observation.images.perception`, `observation.state.pose`, per-episode `scene_id`, `episode_index` (for per-trajectory exclusion) | Any | Memory-bank training with `K_train ∈ {0,1,2,4,8}` augmentation; cross-attention training |
+| [`vla-v2-architecture`](../../parked/experimental/vla-v2-architecture.md) | `observation.images.*`, `observation.depth.perception` (via strafer custom feature), `observation.state.pose`, `action`, `tasks`, per-episode `paraphrases` | teleop × queue (primary per §3.6.a), bridge supplements, scripted × queue at scale | LeRobot v3 native columns + the strafer depth feature class |
+| [`vla-v2-map-conditioning`](../../parked/experimental/vla-v2-map-conditioning.md) Option A | Above + per-episode `scene_id` → `meta/scenes/<id>/scene_metadata.json` (text-serialized into prompt) | Same | Symbolic regions serialized into the prompt |
 | [`vla-v2-map-conditioning`](../../parked/experimental/vla-v2-map-conditioning.md) Option B | Above + the implicit memory bank (built post-capture from the same dataset) | Same | Consumer #2 of `implicit-memory-map` |
-| [`room-state-eval-harness`](../multi-room/room-state-eval-harness.md) | `observation.images.perception`, `observation.state.pose`, `episodes.jsonl.scene_id`, `episodes.jsonl.episode_index` | scripted × coverage (canonical), bridge/teleop × any | Replays through `SemanticMapManager.add_observation`; scores against per-scene GT |
+| [`room-state-eval-harness`](../multi-room/room-state-eval-harness.md) | `observation.images.perception`, `observation.state.pose`, per-episode `scene_id`, `episode_index` | scripted × coverage (canonical), bridge/teleop × any | Replays through `SemanticMapManager.add_observation`; scores against per-scene GT |
 
 Field divergence: every consumer reads from one dataset. Differences are which fields each loader projects, not which dataset they consume.
 
@@ -360,13 +413,17 @@ Bridge and scripted drivers accept `--inject-bad-grounding {off, wrong_room, wro
 - `wrong_room`: swap the goal to a randomly-selected object in a different room polygon.
 - `wrong_instance`: swap to another same-label object in the same room if one exists; fall back to `wrong_room` if no same-label sibling.
 
-Perturbed episodes record `injection_mode + injection_mode_actual + original_target_position_3d` in `episodes.jsonl` so downstream consumers see the actual mode, not just the requested one (silent fallback was a 2026-05-15 audit finding). The cascade validator's `--root-cause-pass` and the co-trained validator's hard-negative set both consume these fields.
+Perturbed episodes record `injection_mode + injection_mode_actual + original_target_position_3d` in per-episode metadata so downstream consumers see the actual mode, not just the requested one (silent fallback was a 2026-05-15 audit finding). The cascade validator's `--root-cause-pass` and the co-trained validator's hard-negative set both consume these fields.
+
+**Downstream training filters and weights MUST key off `injection_mode_actual`, not `injection_mode`.** When `wrong_instance` is requested at p=0.3 on a scene with few duplicate labels, the actual `wrong_instance` rate may be much lower because the fallback to `wrong_room` fires often. Filtering by the requested mode would mis-weight the corpus; filtering by the actual mode produces an honest split.
+
+**When no fallback candidate exists** (single-room scene where the requested target is the only same-label instance AND no different-room candidate exists): the perturbation silently drops. Recorded as `injection_mode_actual = null` and `original_target_position_3d = null` while `injection_mode` remains set to the requested mode. This lets a consumer audit how often the drop happens per scene without flooding the dataset with mislabeled negatives.
 
 Teleop has no `--inject-bad-grounding`; teleop hard negatives come from the `X` and `SELECT` buttons.
 
 ### Mission-text paraphrasing (`--paraphrase-missions N`)
 
-Optional post-capture pass that runs the 7B Qwen2.5-VL on each episode's `(target_label, scene_name)` and emits N paraphrases into `episodes.jsonl.paraphrases`. Default `N=0` (off). Reuses the model-loading scaffold from [`generate_descriptions.py`](../../../../source/strafer_lab/scripts/generate_descriptions.py) Stage 2 (or its successor — see [Retired downstream scripts](#retired-downstream-scripts)).
+Optional post-capture pass that runs the 7B Qwen2.5-VL on each episode's `(target_label, scene_name)` and writes N paraphrases into the per-episode `paraphrases` column. Default `N=0` (off). Reuses the model-loading scaffold from [`generate_descriptions.py`](../../../../source/strafer_lab/scripts/generate_descriptions.py) Stage 2 (or its successor — see [Retired downstream scripts](#retired-downstream-scripts)).
 
 ### Throughput
 
@@ -374,20 +431,27 @@ Optional post-capture pass that runs the 7B Qwen2.5-VL on each episode's `(targe
 
 ### LeRobot ecosystem alignment
 
-Direct consumers (no conversion):
-- GR00T (NVIDIA's wheeled / humanoid foundation model) — LeRobot v3 with `meta/modality.json` is the canonical input format.
-- π0 / openpi (Physical Intelligence's flow-matching VLA) — LeRobot v3 native.
-- HF `lerobot` library — for loading and any LeRobot-compatible policy fine-tune.
+**What's stock-loadable from a LeRobot v3 dataset** (no strafer-side adapter required): the `(observation.images.*, observation.state.*, action, tasks, episode_index, frame_index, timestamp)` columns via HF `LeRobotDataset` directly. LeRobot's own training scripts and any LeRobot-v3-compatible policy fine-tune get this for free.
 
-One-pass exports:
-- OpenVLA / Octo (RLDS / TFDS tfrecord) — LeRobot v3 → RLDS is a documented one-pass conversion.
-- Isaac Lab Mimic / robomimic (HDF5) — LeRobot v3 → robomimic HDF5 is a one-pass conversion if we ever want to train an Isaac Lab Mimic baseline.
+**What requires strafer-side custom plumbing** (ships with the harness package, so any in-repo consumer sees it automatically):
 
-Conversion scripts live in `source/strafer_lab/strafer_lab/tools/export_*.py` as derived files (regenerable; not committed to the dataset).
+- `observation.depth.perception` — custom feature class registered against LeRobot v3 (see [Depth representation](#depth-representation--custom-feature-class)).
+- `meta/episodes/`'s strafer extension columns (`scene_id`, `outcome`, `outcome_category`, `paraphrases`, `hard_negative_category`, `injection_mode_actual`, `episode_split`, `capture_git_sha`, `scene_metadata_hash`, etc.) — LeRobot's stock loader exposes these as extra parquet columns but doesn't interpret them. Consumers read them directly.
+- `meta/scenes/<scene_id>/scene_metadata.json` — strafer custom, not a LeRobot v3 concept. Consumers resolve `scene_id` → file path themselves.
+- `cameras` block in `info.json` — strafer custom for intrinsics + preprocessing hints.
+
+**What requires a follow-up converter brief, filed-on-trigger when the project commits to fine-tuning a specific ecosystem model**:
+
+- **GR00T** (aspirational): LeRobot v3 → v2 conversion (LeRobot ships the script) + GR00T-style `meta/modality.json` adapter. File at the point we actually pick up GR00T fine-tuning.
+- **π0 / openpi** (aspirational): tracks GR00T's v2 requirement today; should converge to v3 as upstream catches up. Same converter as GR00T.
+- **OpenVLA / Octo** (aspirational): LeRobot v3 → RLDS export.
+- **Isaac Lab Mimic / robomimic** (aspirational): LeRobot v3 → robomimic HDF5 export.
+
+**None of these are currently consumed in-repo** (verified 2026-05-26 by grep). They are reference architectures the project designs *after*; the brief lists them so a future agent doesn't have to re-derive the conversion landscape. Converters live at `source/strafer_lab/strafer_lab/tools/export_*.py` when they ship, as derived files (regenerable; not committed to the dataset).
 
 ### Cosmos replay-perturbation
 
-Filed-on-trigger at [`cosmos-replay-perturbation`](../../parked/harness/cosmos-replay-perturbation.md); not in scope for the initial implementation. When picked up, Cosmos outputs land as additional MP4s under `videos/.../observation.images.perception_cosmos_{seed}.mp4` referencing the same parquet rows + `episodes.jsonl` entries with `generator_metadata.cosmos_seed` set.
+Filed-on-trigger at [`cosmos-replay-perturbation`](../../parked/harness/cosmos-replay-perturbation.md); not in scope for the initial implementation. When picked up, Cosmos outputs land as additional MP4s under `videos/.../observation.images.perception_cosmos_{seed}.mp4` referencing the same parquet rows + per-episode metadata entries with `generator_metadata.cosmos_seed` set.
 
 ## Retired downstream scripts
 
@@ -400,6 +464,15 @@ The following scripts have never been run against production data (verified 2026
 
 The retirement happens in the implementation PRs that supersede each script's function, not in this docs-only PR.
 
+### Per-tick labels carried forward as loader-side computation
+
+The retired BC-expansion brief specified per-tick `progress` and `stop_target` columns in the parquet schema. These **do not** appear in the per-frame `features` schema above; they are intentionally **loader-side computable** from existing fields rather than baked into the dataset:
+
+- `progress(t) = 1 - geodesic(state.pose(t), target_position_3d) / leg_initial_distance_m` — where `geodesic` uses the shared geodesic-A* helper called out in [`room-state-eval-harness`](../multi-room/room-state-eval-harness.md)'s "Geodesic-A* utility" section. `target_position_3d` and `leg_initial_distance_m` live in per-episode metadata.
+- `stop_target(t) = True` for the last K ticks of an `outcome=succeeded` episode (default K=5; configurable per loader), False elsewhere.
+
+A consumer that wants these columns at training time computes them in the dataset loader rather than reading them from the parquet. This keeps the strict schema minimal; consumers that don't need them don't pay storage cost. The shared loader-side helper can live alongside the geodesic-A* utility in `source/strafer_lab/strafer_lab/tools/loader_helpers.py` when first needed.
+
 ## Implementation tiers
 
 Each tier ships as a separate PR with its own branch. This brief stays open (in flight) until the last tier ships.
@@ -409,11 +482,13 @@ Each tier ships as a separate PR with its own branch. This brief stays open (in 
 Branch: `task/harness-writer-teleop`. Estimate: M.
 
 - Implement `Scripts/capture.py --driver teleop --mission-source scene-metadata`.
-- Wire `LeRobotDataset.append` writer for the in-process path.
+- Wire the LeRobot v3 writer using the documented API: `LeRobotDataset.create()` at startup → `add_frame()` per tick within an episode → `save_episode()` at episode boundaries → **`finalize()` at process exit** to consolidate shard parquet and write the per-shard concatenated layout. Forgetting `finalize()` corrupts the dataset (per LeRobot v3 docs); the writer must guarantee `finalize()` runs even on exceptional exit (atexit handler or context manager).
+- Implement `StraferDepthSequenceFeature` custom feature class for 16UC1 PNG depth (writer + loader symmetric); register against the LeRobot v3 dataset at `create()` time.
 - Subsume `collect_perception_data.py` (refactor or rewrite, no parallel scripts).
-- Episode-end button mapping (`Y/B/X/SELECT/Back`).
+- Episode-end button mapping (`Y/B/X/SELECT/Back`); set `outcome`, `outcome_category`, `hard_negative_category` per the [Episode-end button mapping](#episode-end-button-mapping-teleop-only) table.
+- Populate `capture_git_sha` + `scene_metadata_hash` + `episode_split` (defaults to `train` for ordinary captures; `val` for `episode_index % 10 == 0`) on every saved episode.
 - Operator UX baseline: PIP, HUD mission text, REC indicator.
-- Acceptance run: capture ≥ 30 episodes on ≥ 2 scenes; verify schema by loading via HF `LeRobotDataset` round-trip.
+- Acceptance run: capture ≥ 30 episodes on ≥ 2 scenes; verify schema by loading via HF `LeRobotDataset` round-trip; confirm `meta/info.json` declares all features correctly; confirm the depth custom feature loads + decodes 16UC1 → float32 meters correctly.
 
 Suggested-path overlay + paraphrase pass + queue support deferred to Tier 1.5 if needed (the queue mission source doesn't ship until `mission-generator` ships; sequence Tier 1.5 after mission-generator).
 
@@ -421,10 +496,10 @@ Suggested-path overlay + paraphrase pass + queue support deferred to Tier 1.5 if
 
 Branch: `task/harness-bridge-driver`. Estimate: M.
 
-- Rewire `run_sim_in_the_loop.py --mode harness` to write LeRobot v3 via the same `LeRobotDataset.append` path.
+- Rewire `run_sim_in_the_loop.py --mode harness` to write LeRobot v3 via the same `create()` / `add_frame()` / `save_episode()` / `finalize()` lifecycle as Tier 1.
 - Cross-host action source: custom `RecorderTerm` that pulls `/cmd_vel` from the ROS graph each tick.
 - `--inject-bad-grounding` flag wired here (bridge is the primary consumer; scripted gets it in Tier 3).
-- Acceptance: bridge mode captures a multi-room mission end-to-end; LeRobot dataset round-trips; smoke test confirms `episodes.jsonl` extensions populated.
+- Acceptance: bridge mode captures a multi-room mission end-to-end; LeRobot dataset round-trips; smoke test confirms per-episode metadata columns (under `meta/episodes/`) populate correctly, including the strafer extensions (`outcome`, `outcome_category`, `injection_mode_actual` when injection ran, `capture_git_sha`, `scene_metadata_hash`, `episode_split`).
 
 ### Tier 3 — Scripted driver + queue/captioner/coverage mission sources (PR D)
 

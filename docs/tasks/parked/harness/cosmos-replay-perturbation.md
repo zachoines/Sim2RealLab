@@ -190,8 +190,9 @@ augmented trajectories per original). With a teleop corpus of
       the same HF `LeRobotDataset` loader that consumes the
       original corpus — Cosmos outputs land as additional MP4s
       under `videos/.../observation.images.perception_cosmos_{seed}.mp4`
-      referencing the same parquet rows with new `episodes.jsonl`
-      entries (`generator_metadata.cosmos_seed` set), per
+      referencing the same parquet rows with new per-episode
+      metadata entries (under `meta/episodes/`) carrying
+      `generator_metadata.cosmos_seed`, per
       [`harness-architecture`](../../active/harness/harness-architecture.md)'s
       output format.
 - [ ] **Doc surface.**

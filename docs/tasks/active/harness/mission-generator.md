@@ -48,8 +48,8 @@ Sibling briefs:
   [Driver: scripted](harness-architecture.md#driver-scripted)
   consumes `planned_path` as the waypoint-tracking input. Schema
   downstream of mission execution (LeRobot v3) is defined in the
-  harness brief; this brief's per-row metadata maps onto
-  `meta/episodes.jsonl` fields.
+  harness brief; this brief's per-row metadata maps onto the
+  per-episode metadata columns under `meta/episodes/`.
 
 ## Context
 

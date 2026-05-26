@@ -408,8 +408,8 @@ picker (numeric index; Ctrl-D quits cleanly).
 | `--operator-handle <name>` | none | Stamped on every episode for multi-operator runs |
 | `--target-label-filter chair table` | none | Narrow the picker list |
 | `--max-steps-per-episode 1500` | 1500 | Auto-close cap (logs `outcome=failed`) |
-| `--headless` | (headed) | AppLauncher pass-through; cv2 PIP still works |
-| `--device cpu` | gpu | AppLauncher pass-through |
+| `--viz kit,rerun` | `kit` (forced) | AppLauncher pass-through. The driver forces `--viz kit` if you don't pass one — the editor viewport is required for teleop. `--headless` is deprecated; setting `--viz` is the new contract for "show me a window" |
+| `--device cpu` | `cuda:0` | AppLauncher pass-through |
 
 ## Round-trip verification
 

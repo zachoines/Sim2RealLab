@@ -158,8 +158,14 @@ args_cli, hydra_args = _PARSER.parse_known_args()
 sys.argv = [sys.argv[0]] + hydra_args
 
 # Force headed + cameras — these are non-negotiable for the teleop UX.
+# AppLauncher's --headless flag is deprecated in current Isaac Lab; the
+# new contract is --visualizer (alias --viz), a CSV like "kit,rerun".
+# Without one of those the Kit window never comes up, even if
+# headless=False — that bit the operator on the first validation run.
 args_cli.enable_cameras = True
 args_cli.headless = False
+if not getattr(args_cli, "visualizer", None):
+    args_cli.visualizer = "kit"
 
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
@@ -566,8 +572,9 @@ def main() -> int:
     print(f"  fps               : {args.fps}")
     print(f"  max episodes      : {args.max_episodes}")
     print(f"  max steps/episode : {args.max_steps_per_episode}")
-    print(f"  headless          : {bool(args_cli.headless)}  "
-          f"(False means Isaac Sim editor viewport should be visible)")
+    print(f"  visualizer        : {getattr(args_cli, 'visualizer', None)!r}  "
+          f"(kit = editor viewport; required for teleop)")
+    print(f"  headless          : {bool(args_cli.headless)}")
     print(f"  enable_cameras    : {bool(args_cli.enable_cameras)}")
     print(f"  simulation_app.is_running(): {simulation_app.is_running()}")
     print("-" * 64)

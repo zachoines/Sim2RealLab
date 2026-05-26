@@ -122,8 +122,8 @@ row in [`BOARD.md`](BOARD.md) in the same commit (state: `parked`
 ### Branch naming
 
 `task/<basename>` — the epic subdir does **not** leak into the
-branch name. `active/harness/teleop-driver.md` → branch
-`task/teleop-driver`. The path organizes the filesystem; the
+branch name. `active/harness/mission-generator.md` → branch
+`task/mission-generator`. The path organizes the filesystem; the
 branch organizes the worktree.
 
 ---

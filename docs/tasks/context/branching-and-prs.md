@@ -12,7 +12,7 @@ the branch name:
 
 | Brief | Branch |
 |---|---|
-| [`docs/tasks/active/harness/teleop-driver.md`](../active/harness/teleop-driver.md) | `task/teleop-driver` |
+| [`docs/tasks/active/harness/mission-generator.md`](../active/harness/mission-generator.md) | `task/mission-generator` |
 | [`docs/tasks/active/multi-room/autonomy-stack.md`](../active/multi-room/autonomy-stack.md) | `task/autonomy-stack` |
 | [`docs/tasks/completed/task-board-epic-structure.md`](../completed/task-board-epic-structure.md) | `task/task-board-epic-structure` |
 | [`docs/tasks/completed/branch-per-task-convention.md`](../completed/branch-per-task-convention.md) | `task/branch-per-task-convention` |

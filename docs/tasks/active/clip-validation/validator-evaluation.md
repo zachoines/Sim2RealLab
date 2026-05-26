@@ -9,7 +9,9 @@ becomes a co-trained-validator follow-up
 ([`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md)),
 or gets retired). Blocked
 on harness output existing from **any driver mode**
-(teleop via [`teleop-driver`](../harness/teleop-driver.md)
+(teleop via
+[`harness-architecture`](../harness/harness-architecture.md)'s
+[Driver: teleop](../harness/harness-architecture.md#driver-teleop)
 is the fastest-to-produce; bridge via `next-integration-round`
 also works) and a CLIP ONNX existing under `~/.strafer/models/`
 (one-time prerequisite — see Prerequisites below).
@@ -55,7 +57,7 @@ if missing.
 
 | Prerequisite | Why | How it gets there |
 |---|---|---|
-| Populated `data/{teleop,sim_in_the_loop}/<scene>/episode_NNNN/` for ≥ 3 scenes × ≥ 30 missions | Without harness episodes, no metrics can be computed | **Fastest path: teleop.** [`teleop-driver`](../harness/teleop-driver.md) gets to ≥ 3 scenes × 30 success + 30 hard-negative episodes in ~one operator-evening. **Slower path: bridge.** [`next-integration-round`](../investigations/next-integration-round.md) produces bridge-driver output as part of its acceptance, blocked on MPPI / Nav2 stability. Either driver's output works — the eval script is schema-flexible. |
+| Populated LeRobot v3 dataset at `data/sim_in_the_loop/<scene>/` for ≥ 3 scenes × ≥ 30 missions | Without harness episodes, no metrics can be computed | **Fastest path: teleop.** [`harness-architecture`](../harness/harness-architecture.md)'s [Driver: teleop](../harness/harness-architecture.md#driver-teleop) gets to ≥ 3 scenes × 30 success + 30 hard-negative episodes in ~one operator-evening. **Slower path: bridge.** [`next-integration-round`](../investigations/next-integration-round.md) produces bridge-driver output as part of its acceptance, blocked on MPPI / Nav2 stability. Either driver's output works — the eval script consumes via HF `LeRobotDataset` regardless of source. |
 | `~/.strafer/models/clip_visual.onnx` + `clip_text.onnx` | The eval script and the new image-vs-text tripwire both depend on the runtime ONNX | One-time `finetune_clip.py --no-export-onnx false` run, OR (faster) export the laion2b ViT-B/32 weights without fine-tuning so the eval can run against the unfinetuned baseline. The brief work owns this small step at the start; it is **not** a separate brief. |
 
 The brief's wiring + protocol-refactor work doesn't need either
@@ -165,10 +167,9 @@ Three artifacts in one PR:
    brief plug in enhanced cascade variants without touching
    `BackgroundMapper` again.
 4. **A measurement script** that consumes the harness's per-mission
-   output (file layout per
-   [`behavior-cloning-data-expansion`](../harness/behavior-cloning-data-expansion.md)
-   when that brief has shipped; falls back to today's
-   `frames.jsonl` if not), replays the CLIP path (both signals)
+   output (LeRobot v3 schema per
+   [`harness-architecture`](../harness/harness-architecture.md)),
+   replays the CLIP path (both signals)
    against it in offline mode (no live executor needed for the
    metric pass), and emits
    `data/transit_monitor_eval/<run_id>/report.json` with the
@@ -476,10 +477,9 @@ follow-up brief filed.
   - Takes `--episodes-root data/sim_in_the_loop/<scene>` and
     `--clip-model ~/.strafer/models/`.
   - Walks the harness output and replays CLIP encoding offline
-    against each frame. Schema-flexible: prefers
-    `frames_skill.jsonl` + `frames_tick.jsonl` from
-    [`behavior-cloning-data-expansion`](../harness/behavior-cloning-data-expansion.md)
-    when present; falls back to legacy `frames.jsonl`. Populates
+    against each frame. Consumes LeRobot v3 datasets per
+    [`harness-architecture`](../harness/harness-architecture.md)
+    via HF `LeRobotDataset`. Populates
     an in-memory `SemanticMapManager`, runs both
     `TransitMonitor` (image-vs-image) and `TextAlignmentMonitor`
     (image-vs-text) in the same loop the production executor

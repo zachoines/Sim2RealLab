@@ -857,10 +857,10 @@ The four regimes:
 
 | Regime | Direction | Strength | Brief |
 |---|---|---|---|
-| **§3.6.a Teleop demos** | Forward (operator intent → trajectory) | Quality + operator hard negatives | [`harness-teleop-driver`](tasks/active/harness/teleop-driver.md) |
-| **§3.6.b MVP-as-teacher** | Forward (autonomy stack → trajectory) | Deployment-distribution match | bridge driver in [`harness-behavior-cloning-data-expansion`](tasks/active/harness/behavior-cloning-data-expansion.md) |
-| **§3.6.c In-process oracle** | Forward (mission queue → trajectory) | Parallel-env scale | [`harness-oracle-driver`](tasks/parked/harness/oracle-driver.md) |
-| **§3.6.d Trajectory-first captioning** | Post-hoc (trajectory → mission text) | FoV-honest labels + bulk scale + synthesized hard negatives | [`harness-trajectory-first-captioning`](tasks/active/harness/trajectory-first-captioning.md) |
+| **§3.6.a Teleop demos** | Forward (operator intent → trajectory) | Quality + operator hard negatives | [Driver: teleop](tasks/active/harness/harness-architecture.md#driver-teleop) in [`harness-architecture`](tasks/active/harness/harness-architecture.md) |
+| **§3.6.b MVP-as-teacher** | Forward (autonomy stack → trajectory) | Deployment-distribution match | [Driver: bridge](tasks/active/harness/harness-architecture.md#driver-bridge) in [`harness-architecture`](tasks/active/harness/harness-architecture.md) |
+| **§3.6.c In-process oracle** | Forward (mission queue → trajectory) | Parallel-env scale | [Driver: scripted](tasks/active/harness/harness-architecture.md#driver-scripted) in [`harness-architecture`](tasks/active/harness/harness-architecture.md) |
+| **§3.6.d Trajectory-first captioning** | Post-hoc (trajectory → mission text) | FoV-honest labels + bulk scale + synthesized hard negatives | [Scripted × captioner](tasks/active/harness/harness-architecture.md#scripted--captioner-trajectory-first-path) in [`harness-architecture`](tasks/active/harness/harness-architecture.md) |
 
 The first three are *forward-generation* regimes: a mission
 exists first, the driver executes it, the trajectory is the
@@ -872,26 +872,26 @@ needed; neither replaces the other.
 #### 3.6.a Teleop demos (primary; canonical)
 
 **The candidate.** Run the harness's
-[`harness-teleop-driver`](tasks/active/harness/teleop-driver.md)
+[Driver: teleop](tasks/active/harness/harness-architecture.md#driver-teleop)
 mode. Operator drives the robot via gamepad through Infinigen
 scenes; episodes are tagged at capture time as
 `succeeded` / `failed` / `wrong_instance` / `wrong_room` /
 `trajectory_violation` via dedicated buttons. Output is the
-canonical schema from
-[`harness-behavior-cloning-data-expansion`](tasks/active/harness/behavior-cloning-data-expansion.md).
+canonical LeRobot v3 schema from
+[`harness-architecture`](tasks/active/harness/harness-architecture.md).
 
 **Why this is the recommended primary source.** Every published
 wheeled-VLA (RT-2 navigation derivatives, NaVid, VLN-CE models,
 NaVILA) trains on human teleop demos. This is the *canonical*
 paradigm; "MVP-as-teacher distillation" is a specialty case.
 
-**Throughput.** Single-operator, ~60 success episodes / hour;
-~30 path-shape episodes / hour. Honest budgets per training
-target are tabulated in
-[`harness-teleop-driver`](tasks/active/harness/teleop-driver.md);
-~30–40 hours of operator time gets to a v2 VLA endpoint corpus
-(with hindsight-relabel + replay-perturbation multipliers, both
-recommended-tier in the harness brief).
+**Throughput.** Single-operator, ~30–40 success episodes / hour
+(audit-calibrated; honest budgets per training target are
+tabulated in [`harness-architecture`](tasks/active/harness/harness-architecture.md)
+under its teleop data-volume section); ~30–40 hours of operator
+time gets to a v2 VLA endpoint corpus (with hindsight-relabel +
+replay-perturbation multipliers, both recommended-tier in the
+harness brief).
 
 **Limitations.** Operator-paced; reflects operator play style;
 path-shape data is operator-bottlenecked. The free-text mission
@@ -900,8 +900,8 @@ generator
 emits queue files (including path-shape variants with
 LLM-derived waypoints) that the operator can drive against; the
 trajectory-first captioning regime
-([`harness-trajectory-first-captioning`](tasks/active/harness/trajectory-first-captioning.md))
-is filed for bulk corpus scale.
+([Scripted × captioner](tasks/active/harness/harness-architecture.md#scripted--captioner-trajectory-first-path)
+in `harness-architecture`) is filed for bulk corpus scale.
 
 #### 3.6.b MVP-as-teacher distillation (secondary; conditional on v1 stability)
 
@@ -909,7 +909,7 @@ is filed for bulk corpus scale.
 controller + Nav2 + `strafer_autonomy` + `strafer_vlm`) as the
 *demonstrator* once the integration round ships. Harvest its
 deployment trajectories — bridge-driver mode of
-[`harness-behavior-cloning-data-expansion`](tasks/active/harness/behavior-cloning-data-expansion.md)
+[`harness-architecture`](tasks/active/harness/harness-architecture.md)
 — as `(frame_sequence, mission_text, action_sequence, outcome)`
 tuples and use them to fine-tune a small VLA.
 
@@ -932,20 +932,22 @@ outcomes are a free reward signal for RLHF / DPO after SFT.
 
 1. Ship [`next-integration-round`](tasks/active/investigations/next-integration-round.md).
 2. Ship the bridge-driver upgrades in
-   [`harness-behavior-cloning-data-expansion`](tasks/active/harness/behavior-cloning-data-expansion.md)
-   so the action stream is captured.
+   [`harness-architecture`](tasks/active/harness/harness-architecture.md)
+   (Tier 2) so the action stream is captured.
 3. File `mvp-teacher-vla-distillation.md` to build the dataset
    assembly tooling and run the supplementary SFT pass against an
    existing teleop-trained checkpoint.
 
 #### 3.6.c In-process oracle (future; for scale supplements only)
 
-**The candidate.**
-[`harness-oracle-driver`](tasks/parked/harness/oracle-driver.md)
+**The candidate.** The
+[Driver: scripted](tasks/active/harness/harness-architecture.md#driver-scripted)
+mode in [`harness-architecture`](tasks/active/harness/harness-architecture.md)
 — a scripted policy in-process Isaac Lab that uses A* on the
-navigable mask plus heuristics for "stop near target." Crude but
-viable; trades demo quality for massive parallel throughput
-(1000s of envs simultaneously).
+navigable mask plus the NoCam waypoint-following RL controller
+(from `subgoal-env`) for path tracking, with a proportional
+fallback for debug. Trades demo quality for parallel throughput
+(env count bounded by `harness-throughput-measurement`).
 
 **Why this is filed-on-trigger, not now.** Teleop + bridge cover
 v1 measurement and v2's first training pass. Oracle exists for
@@ -955,13 +957,15 @@ or ablate across many scene seeds. Don't build it preemptively.
 
 #### 3.6.d Trajectory-first captioning (complementary regime)
 
-**The candidate.** Drivers (typically the oracle in a "no
-mission, just navigate" mode) traverse random-but-reachable
-A→B paths. After-the-fact, a speaker model — Qwen2.5-VL-7B
-following an instructive-voice prompt — generates
-`mission_text` + paraphrases + synthesized failure-pair
-negatives from the captured frames. Filed in
-[`harness-trajectory-first-captioning`](tasks/active/harness/trajectory-first-captioning.md).
+**The candidate.** The scripted driver in a "no mission, just
+navigate" mode traverses random-but-reachable A→B paths.
+After-the-fact, a speaker model — Qwen2.5-VL-7B following an
+instructive-voice prompt — generates `mission_text` +
+paraphrases + synthesized failure-pair negatives from the
+captured frames. Filed as the
+[Scripted × captioner](tasks/active/harness/harness-architecture.md#scripted--captioner-trajectory-first-path)
+cell in
+[`harness-architecture`](tasks/active/harness/harness-architecture.md).
 
 **Why this is the right complement to §3.6.a–c.** The
 forward-generation regimes assume a mission text exists, then

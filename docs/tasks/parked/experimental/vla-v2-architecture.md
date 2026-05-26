@@ -5,11 +5,10 @@
 training, eval; the executor-side change to route missions to the
 new backend is a small Jetson-lane edit)
 **Priority:** P3 (research direction; depends on
-[`teleop-driver`](../../active/harness/teleop-driver.md) (primary data
-path) and
-[`behavior-cloning-data-expansion`](../../active/harness/behavior-cloning-data-expansion.md)
-(schema definition) shipping to provide the action-labeled
-corpus; explicitly *additive* to the v1 MVP — does not block any
+[`harness-architecture`](../../active/harness/harness-architecture.md)
+Tier 1 (teleop, primary data path) + Tier 2 (bridge, supplement)
+shipping to provide the action-labeled LeRobot v3 corpus;
+explicitly *additive* to the v1 MVP — does not block any
 in-flight feature)
 **Estimate:** XL (~multi-week; new service + training pipeline +
 eval methodology + a realistic-but-research-flavored success bar,
@@ -186,17 +185,19 @@ behavior-cloning-grade.
 
 1. **Data harvest (out of scope; prerequisite briefs).** The
    harness emits per-tick `(frame, depth, pose, last_cmd_vel,
-   mission_text, mission_id, …)` records via a driver-agnostic
-   schema. **Default data source: teleop demos** (per
+   mission_text, mission_id, …)` records via the LeRobot v3
+   schema defined in
+   [`harness-architecture`](../../active/harness/harness-architecture.md).
+   **Default data source: teleop demos** (per
    [`MISSION_VALIDATION_ARCHITECTURE.md` §3.6.a](../../../MISSION_VALIDATION_ARCHITECTURE.md#36a-teleop-demos-primary-canonical))
-   captured by
-   [`teleop-driver`](../../active/harness/teleop-driver.md) — this
-   matches how every published wheeled VLA is trained.
-   Bridge-harness data
-   ([`behavior-cloning-data-expansion`](../../active/harness/behavior-cloning-data-expansion.md))
+   captured by harness
+   [Driver: teleop](../../active/harness/harness-architecture.md#driver-teleop) —
+   this matches how every published wheeled VLA is trained.
+   Bridge-driver data
+   ([Driver: bridge](../../active/harness/harness-architecture.md#driver-bridge))
    is a permissible *supplement* once the v1 stack is reliable
-   (§3.6.b). Future scale-out via
-   [`oracle-driver`](../harness/oracle-driver.md)
+   (§3.6.b). Future scale-out via the scripted driver
+   ([Driver: scripted](../../active/harness/harness-architecture.md#driver-scripted))
    if teleop throughput becomes the bottleneck (§3.6.c).
    Strafer is **mecanum holonomic**, not differential drive,
    which is unusual relative to most VLA training data — the
@@ -250,12 +251,12 @@ behavior-cloning-grade.
    research-grade scope.
 
 7. **Sim-eval.** The harness drives the v2 backend via the
-   toggle and emits its post-expansion output (`frames_skill.jsonl`
-   + `frames_tick.jsonl` + `mission.json` per
-   [`behavior-cloning-data-expansion`](../../active/harness/behavior-cloning-data-expansion.md)).
+   toggle and emits its LeRobot v3 dataset per
+   [`harness-architecture`](../../active/harness/harness-architecture.md).
    Compare outcome metrics (reachability, time-to-arrival,
    false-stop / false-continue rates) against the v1 baseline
-   on the same scenes.
+   on the same scenes; outcome labels live in the per-episode
+   `outcome` column under `meta/episodes/`.
 
 ### Technical considerations and risks
 

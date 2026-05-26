@@ -1,5 +1,23 @@
 # In-process oracle-policy driver for parallel scale-out data capture
 
+**Status:** Retired 2026-05-24. Never picked up. Reason: folded
+into the consolidated
+[`harness-architecture`](../../active/harness/harness-architecture.md)
+brief as
+[Driver: scripted](../../active/harness/harness-architecture.md#driver-scripted)
++ the
+[Scripted × queue](../../active/harness/harness-architecture.md#scripted--queue-oracle-path)
+mission-source cell. The 2026-05-24 audit found that this driver
+shares its action source (scripted RL controller + proportional
+fallback) with the trajectory-first regime and the new "coverage"
+regime for room-state eval — three mission sources, one driver.
+Treating them as one driver with three mission-source variants is
+the simplification. The `subgoal-env` pickup gate, the
+proportional fallback, the quality-assessment metrics
+(curvature variance / stop accuracy / hesitation / action
+smoothness), and the parallel-env throughput-measurement gate
+are preserved in the consolidated brief.
+
 **Type:** new feature (sketch — not yet ready to pick up)
 **Owner:** DGX agent
 **Priority:** P3 (filed-on-trigger; do not pick up until the

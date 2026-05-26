@@ -1,5 +1,25 @@
 # Align the harness output schema with LeRobot v2 / Isaac Lab `RecorderManager`
 
+**Status:** Retired 2026-05-24. Never picked up. Reason: the
+format decision (LeRobot v3, with `meta/modality.json` for the
+strafer embodiment and `meta/episodes.jsonl` extensions for
+outcome/paraphrases/hard-negative/source-driver fields) is now
+specified directly in the consolidated
+[`harness-architecture`](../../active/harness/harness-architecture.md)
+brief's
+[Output format](../../active/harness/harness-architecture.md#output-format--lerobot-v3)
+section. The 2026-05-24 audit confirmed the trigger condition
+for this brief had fired — every named downstream consumer
+(GR00T / π0 / OpenVLA / Octo / room-state-eval / backbone-bakeoff)
+consumes LeRobot v3 natively or via one-pass export — so the
+filed-on-trigger sketch is replaced by the canonical decision in
+the harness-architecture brief. Path A (LeRobot v3) was picked
+over Path B (Mimic HDF5) per the audit; Mimic HDF5 export remains
+a derived format (`tools/export_*.py`) for any robomimic baseline
+training. The `meta/modality.json` strafer-embodiment block and
+cross-host bridge recorder pattern are both spec'd in the
+consolidated brief.
+
 **Type:** investigation + refactor (filed-on-trigger)
 **Owner:** DGX agent
 **Priority:** P2 (filed-on-trigger; pick up when the first

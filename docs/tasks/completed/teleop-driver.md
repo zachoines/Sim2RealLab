@@ -1,5 +1,20 @@
 # Add a gamepad teleop driver to the harness for behavior-cloning data capture
 
+**Status:** Retired 2026-05-24. Never picked up. Reason: folded
+into the consolidated
+[`harness-architecture`](../active/harness/harness-architecture.md)
+brief as
+[Driver: teleop](../active/harness/harness-architecture.md#driver-teleop).
+The 2026-05-24 audit also surfaced that the existing
+[`scripts/collect_perception_data.py`](../../../source/strafer_lab/scripts/collect_perception_data.py)
+is the v0 of this brief's `teleop_collect.py` — the implementation
+work was running parallel to existing untested infrastructure
+without naming it. The consolidated brief commits to subsuming
+`collect_perception_data.py` rather than shipping alongside.
+The button-mapping table, operator UX surface (PIP, suggested-path
+overlay, HUD, REC), and data-volume budget are preserved in the
+consolidated brief.
+
 **Type:** new feature
 **Owner:** DGX agent (in-process Isaac Lab entry point; no Jetson
 code; reuses `collect_demos.py`'s gamepad mapping)

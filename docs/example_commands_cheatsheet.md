@@ -441,6 +441,7 @@ and `--max-steps-per-episode`, and commit a summary under
 | `--output already exists` | LeRobotDataset.create refuses to overwrite | Pick a fresh path per session (timestamp helps) |
 | `No gamepad detected` | pygame can't find the joystick | `jstest /dev/input/js0` to confirm the kernel sees it |
 | Wrong button does the wrong thing | family auto-detect picked wrong | Add `--family-override ps5` (or `xbox` / `switch`) — TODO if needed |
+| `cv2.error: ... The function is not implemented. Rebuild the library with ... GTK+ ...` on `cv2.namedWindow` | `opencv-python-headless` (env_isaaclab3's variant) has no GUI backend by design | The driver now degrades to "PIP off" automatically — capture continues; use the Isaac Sim editor viewport as your live view. Pass `--no-pip-window` to silence the warning |
 | PIP HUD overlay leaks into saved frames | cv2 putText is rendering into the perception render product | **Hard acceptance fail per the brief.** File a bug; the cv2 window must be a separate top-level surface |
 | Round-trip via HF `LeRobotDataset` fails with codec error | torchcodec missing on aarch64 | The wheel marker excludes aarch64; LeRobot falls back to PyAV which works. If you've manually installed torchcodec, uninstall it |
 

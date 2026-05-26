@@ -352,13 +352,43 @@ def _build_writer(
 
 
 class _PipWindow:
-    """Wraps the cv2 PIP window with no-op fallbacks if cv2 is absent."""
+    """Wraps the cv2 PIP window with no-op fallbacks.
+
+    Three states:
+    - disabled by flag (``enabled=False``) → never opens, no-op everywhere.
+    - cv2 not importable → no-op + one-shot warning.
+    - cv2 importable but the build has no GUI backend
+      (``opencv-python-headless`` ships without GTK / Qt — env_isaaclab3
+      installs this variant) → no-op + one-shot warning naming the
+      culprit so the operator knows the editor viewport is their only
+      live view.
+    """
 
     def __init__(self, enabled: bool) -> None:
-        self._enabled = bool(enabled and _CV2_AVAILABLE)
-        if self._enabled:
+        self._enabled = False
+        if not enabled:
+            return
+        if not _CV2_AVAILABLE:
+            print(
+                "[teleop_capture] cv2 not installed; PIP disabled. "
+                "Use the Isaac Sim editor viewport for the live view.",
+            )
+            return
+        try:
             cv2.namedWindow("perception-PIP", cv2.WINDOW_NORMAL)
             cv2.resizeWindow("perception-PIP", 640, 360)
+            self._enabled = True
+        except cv2.error as exc:
+            # The 'not implemented' / 'Rebuild the library with Windows,
+            # GTK+ 2.x or Cocoa support' family — opencv-python-headless
+            # has no GUI bindings by design.
+            print(
+                f"[teleop_capture] cv2.namedWindow failed ({exc.__class__.__name__}): "
+                "the installed opencv has no GUI backend (likely "
+                "opencv-python-headless). PIP disabled — the Isaac Sim "
+                "editor viewport is your only live view this session. "
+                "Pass --no-pip-window to silence this warning.",
+            )
 
     def show(self, rgb_hwc_uint8: np.ndarray, status_text: str) -> None:
         if not self._enabled:

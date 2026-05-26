@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`harness-architecture`](active/harness/harness-architecture.md) Tier 1 (writer + teleop) | DGX | TBD | task branch (`task/harness-writer-teleop`) |
+| [`harness-architecture`](active/harness/harness-architecture.md) Tier 1 (writer + teleop) | DGX | [#63](https://github.com/zachoines/Sim2RealLab/pull/63) | draft (scaffolding landed; teleop driver wiring pending) |
 
 ---
 

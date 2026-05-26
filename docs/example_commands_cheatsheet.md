@@ -266,6 +266,173 @@ WebSocket** → `ws://localhost:8765`. First-time setup: **Layout** →
 make kill           # Jetson — clear stale ros2 / nav2 / executor / foxglove_bridge
 ```
 
+# Harness data capture (`Scripts/capture.py`)
+
+The unified harness data-capture entry point per
+[`harness-architecture.md`](tasks/active/harness/harness-architecture.md).
+One CLI, two flags (`--driver` × `--mission-source`), one LeRobot v3
+dataset per scene under `data/sim_in_the_loop/<scene_name>/`.
+
+Tier 1 wires `(teleop, scene-metadata)` end-to-end. Other cells raise
+`NotImplementedError` with a pointer to the tier that ships them.
+
+## One-time env setup
+
+`env_isaaclab3` ships with `torch 2.10.0+cu130` + `numpy 2.3.1` +
+`huggingface-hub 0.36`. `lerobot 0.5.1` pins are mostly compatible
+except for `numpy`, `huggingface-hub`, and `rerun-sdk` — a normal
+`pip install lerobot` would downgrade numpy (risks breaking
+Isaac Sim) and major-bump huggingface-hub (risks breaking
+transformers). Install `--no-deps` and layer only the runtime deps the
+writer actually uses:
+
+```bash
+conda activate env_isaaclab3
+
+# 1. Install lerobot core without dragging its strict pins in
+$ISAACLAB -m pip install --no-deps "lerobot==0.5.1"
+
+# 2. Install only the runtime deps StraferLeRobotWriter uses, refusing
+#    to upgrade anything that's already installed and satisfies the new pin
+$ISAACLAB -m pip install --upgrade-strategy only-if-needed \
+    "datasets>=4.0.0,<5.0.0" \
+    "av>=15.0.0,<16.0.0" \
+    "jsonlines>=4.0.0,<5.0.0"
+
+# 3. Verify lerobot imports + Isaac Sim's torch still has CUDA
+$ISAACLAB -p -c "import torch, lerobot; print('torch', torch.__version__, 'lerobot', lerobot.__version__, 'cuda', torch.cuda.is_available())"
+# Expected: torch 2.10.0+cu130 lerobot 0.5.1 cuda True
+```
+
+Pure-Python unit tests (writer / depth / mission picker / button
+translator / CLI dispatch) run in `.venv_harness`, NOT `env_isaaclab3`,
+so they stay isolated from the runtime stack:
+
+```bash
+make test-harness   # 116 tests, ~2 s
+```
+
+## Extract scene_metadata.json (one-time per scene)
+
+The mission picker reads `Assets/generated/scenes/<scene>/scene_metadata.json`.
+If you have only the `.usdc` (no Blender / in-process Infinigen
+`State`), parse it from prim names:
+
+```bash
+SCENE=scene_high_quality_dgx_000_seed0
+
+$ISAACLAB -p source/strafer_lab/scripts/extract_scene_metadata.py \
+    --from-usd \
+    --usd    Assets/generated/scenes/${SCENE}.usdc \
+    --output Assets/generated/scenes/${SCENE}
+
+# Sanity check — should be non-empty
+python -c "
+import json
+d = json.load(open('Assets/generated/scenes/${SCENE}/scene_metadata.json'))
+print(f'rooms={len(d.get(\"rooms\",[]))}  objects={len(d.get(\"objects\",[]))}')
+for o in d['objects'][:10]:
+    print(' -', o.get('label'), o.get('instance_id'))
+"
+```
+
+**Known limitation:** `--from-usd` cannot recover room polygons, so
+the picker shows `rooms=0` for these scenes. Room semantics (which
+hard-negative button chord maps to "wrong_room") still work; the
+operator commits to the failure mode at capture time. For full room
+geometry, run from a Blender stage or extract from the in-process
+Infinigen `State`. Tracked in
+[`docs/tasks/active/harness/infinigen-scene-corpus.md`](tasks/active/harness/infinigen-scene-corpus.md).
+
+## Validation capture (small batch — driver wiring works)
+
+```bash
+SCENE=scene_high_quality_dgx_000_seed0
+RUN_ID=$(date +%Y%m%dT%H%M%S)
+OUT=data/sim_in_the_loop/${SCENE}_validation_${RUN_ID}
+
+$ISAACLAB -p Scripts/capture.py \
+    --driver teleop --mission-source scene-metadata \
+    --scene  ${SCENE} \
+    --output ${OUT} \
+    --fps 8 \
+    --max-episodes 5
+```
+
+### Button mapping (per
+[`harness-architecture.md` §Episode-end button mapping](tasks/active/harness/harness-architecture.md#episode-end-button-mapping-teleop-only))
+
+| Button | `outcome` | Kept? |
+|---|---|---|
+| `Y` (triangle / north) | `succeeded` | yes |
+| `B` (circle / east) | `failed` | yes |
+| `X` + D-pad ↑/↓ | `wrong_instance` hard negative | yes |
+| `X` + D-pad ←/→ | `wrong_room` hard negative | yes |
+| `SELECT` (share / minus) | `trajectory_violation` | yes |
+| `Back` (view) | discard | **no** |
+| `A` (tap) | toggle `REC` ↔ `PAUSED` | — |
+| `Start` (hold ≥ 1 s) | save + quit cleanly | — |
+
+`X` alone (no D-pad direction) is not committal — push the D-pad to
+commit. Between episodes the driver re-prompts via the console mission
+picker (numeric index; Ctrl-D quits cleanly).
+
+### Optional flags
+
+| Flag | Default | Use |
+|---|---|---|
+| `--no-pip-window` | (PIP on) | Suppress the cv2 first-person preview window |
+| `--no-capture-policy-cam` | (policy cam on) | Drop the 80×60 policy camera (smaller dataset) |
+| `--operator-handle <name>` | none | Stamped on every episode for multi-operator runs |
+| `--target-label-filter chair table` | none | Narrow the picker list |
+| `--max-steps-per-episode 1500` | 1500 | Auto-close cap (logs `outcome=failed`) |
+| `--headless` | (headed) | AppLauncher pass-through; cv2 PIP still works |
+| `--device cpu` | gpu | AppLauncher pass-through |
+
+## Round-trip verification
+
+```bash
+# Re-open the dataset via stock LeRobotDataset + read the strafer sidecar
+$ISAACLAB -p -c "
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+from strafer_lab.tools.lerobot_writer import read_strafer_episodes
+from pathlib import Path
+root = Path('${OUT}')
+d = LeRobotDataset(repo_id='strafer/${SCENE}', root=root)
+print(f'episodes={d.num_episodes}  frames={len(d)}')
+for row in read_strafer_episodes(root):
+    print(f'  ep{row[\"episode_index\"]}  outcome={row[\"outcome\"]:22s}  '
+          f'target={row[\"target_label\"]:20s}  git_sha={row[\"capture_git_sha\"][:8]}')
+"
+
+# Spot-check a saved frame for PIP-overlay contamination (CRITICAL: per the brief)
+ffmpeg -y -i ${OUT}/videos/chunk-000/observation.images.perception/file-000000.mp4 \
+       -frames:v 1 /tmp/capture_smoke_frame.png
+xdg-open /tmp/capture_smoke_frame.png   # must NOT show [REC] / step / distance overlay
+```
+
+## Production capture (≥ 30 episodes, multi-scene)
+
+Per the brief's acceptance bar — run after the
+[Infinigen scene-corpus brief](tasks/active/harness/infinigen-scene-corpus.md)
+generates richer scenes. Same command pattern; raise `--max-episodes`
+and `--max-steps-per-episode`, and commit a summary under
+`docs/artifacts/teleop_acceptance/<run_id>/`.
+
+## Troubleshooting
+
+| Symptom | Most likely cause | What to check |
+|---|---|---|
+| `ModuleNotFoundError: No module named 'lerobot'` | env_isaaclab3 doesn't have lerobot | Run the one-time env setup above |
+| `scene_metadata.json not found` | Scene hasn't been extracted | Run the extraction step above |
+| `--output already exists` | LeRobotDataset.create refuses to overwrite | Pick a fresh path per session (timestamp helps) |
+| `No gamepad detected` | pygame can't find the joystick | `jstest /dev/input/js0` to confirm the kernel sees it |
+| Wrong button does the wrong thing | family auto-detect picked wrong | Add `--family-override ps5` (or `xbox` / `switch`) — TODO if needed |
+| PIP HUD overlay leaks into saved frames | cv2 putText is rendering into the perception render product | **Hard acceptance fail per the brief.** File a bug; the cv2 window must be a separate top-level surface |
+| Round-trip via HF `LeRobotDataset` fails with codec error | torchcodec missing on aarch64 | The wheel marker excludes aarch64; LeRobot falls back to PyAV which works. If you've manually installed torchcodec, uninstall it |
+
+---
+
 # Sim-in-the-loop bridge + DDS bench
 ## Shell 1 — start the bridge with viewport
 ```bash

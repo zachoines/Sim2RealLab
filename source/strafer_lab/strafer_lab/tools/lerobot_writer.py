@@ -225,7 +225,20 @@ class StraferLeRobotWriter:
         # Lazy import — keeps the module importable in environments
         # without lerobot installed (tests that only exercise the depth
         # sidecar, for example).
-        from lerobot.datasets.lerobot_dataset import LeRobotDataset
+        try:
+            from lerobot.datasets.lerobot_dataset import LeRobotDataset
+        except ModuleNotFoundError as exc:
+            raise ModuleNotFoundError(
+                "lerobot is required to construct StraferLeRobotWriter. "
+                "If you're running under Isaac Sim (env_isaaclab3), install it "
+                "without disturbing the existing torch/numpy/hf-hub stack:\n\n"
+                "  $ISAACLAB -m pip install --no-deps 'lerobot==0.5.1'\n"
+                "  $ISAACLAB -m pip install --upgrade-strategy only-if-needed \\\n"
+                "      'datasets>=4.0.0,<5.0.0' 'av>=15.0.0,<16.0.0' "
+                "'jsonlines>=4.0.0,<5.0.0'\n\n"
+                "See docs/example_commands_cheatsheet.md → Harness data capture "
+                "for the full setup.",
+            ) from exc
 
         self._root = Path(root)
         self._capture_policy_cam = bool(capture_policy_cam)

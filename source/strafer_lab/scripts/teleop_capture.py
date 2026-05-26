@@ -54,6 +54,7 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import re
 import subprocess
 import sys
 import time
@@ -148,6 +149,40 @@ def _build_parser() -> argparse.ArgumentParser:
         "--target-label-filter", nargs="*", default=None,
         help="If set, only objects whose label is in this list appear in "
         "the mission-picker.",
+    )
+    parser.add_argument(
+        "--control-mode",
+        choices=("world_arcade", "egocentric"),
+        default="world_arcade",
+        help="world_arcade (default): overhead viewport, stick = world-frame "
+        "velocity (today's behavior). egocentric: viewport follows the robot, "
+        "stick = body-frame velocity. Useful for CLIP-style coverage where "
+        "the operator needs to see what the robot sees.",
+    )
+    parser.add_argument(
+        "--hide-ceilings",
+        action="store_true",
+        help="Set ceiling prims (matching the Infinigen *_ceiling_* naming "
+        "convention) to invisible at startup. Useful in world_arcade mode "
+        "where ceilings occlude the top-down view. Does NOT modify the "
+        "scene USDC on disk.",
+    )
+    parser.add_argument(
+        "--no-target-marker",
+        action="store_true",
+        help="Suppress the debug-draw target marker (operator-only sphere "
+        "at the active target's position). Marker never enters captured "
+        "frames either way; this flag is for operators who find the marker "
+        "visually noisy.",
+    )
+    parser.add_argument(
+        "--capture-rate-hz",
+        type=float,
+        default=None,
+        help="Writer sample rate in Hz, decoupled from the env step rate. "
+        "Defaults to --fps (back-compat). Env still steps at full sim "
+        "tick rate; writer.add_frame is called every "
+        "round(env_step_hz / capture_rate_hz) ticks.",
     )
     AppLauncher.add_app_launcher_args(parser)
     return parser
@@ -245,6 +280,55 @@ def _resolve_scene_metadata_path(scene: str, override: str | None) -> Path:
     return path
 
 
+def _resolve_active_spawn_points(scene: str) -> list[list[float]]:
+    """Return spawn_points_xy ONLY for the active scene, not pooled.
+
+    ``_get_infinigen_spawn_points_xy()`` in strafer_env_cfg.py pools spawn
+    points across every scene listed in scenes_metadata.json. With two
+    scenes loaded but only one active USDC, ~half the resets place the
+    robot at the wrong scene's coordinates ("outside the room" symptom).
+    The teleop driver knows which scene is active (via --scene), so it
+    can override the pooled spawn list with the active-scene-only list.
+    """
+    combined = Path("Assets/generated/scenes/scenes_metadata.json")
+    if not combined.is_file():
+        return []
+    try:
+        import json as _json
+        data = _json.loads(combined.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    scene_block = data.get("scenes", {}).get(scene, {})
+    pool = scene_block.get("spawn_points_xy", [])
+    return [list(map(float, pt)) for pt in pool if len(pt) >= 2]
+
+
+_CEILING_PRIM_RE = re.compile(r"_ceiling(_\d+)?$", re.IGNORECASE)
+
+
+def _hide_ceiling_prims(unwrapped) -> int:
+    """Set every ``*_ceiling_*`` prim to invisible. Returns the count.
+
+    Operator-only effect: invisible prims still collide (UsdGeom
+    visibility doesn't affect physics), so the robot still respects the
+    ceiling for collision purposes. The cameras' render product also
+    skips invisible prims — which is fine here since the perception
+    camera looks horizontally and ceilings are rarely in-frame.
+    """
+    from pxr import UsdGeom  # type: ignore
+
+    stage = unwrapped.scene.stage
+    hidden = 0
+    for prim in stage.Traverse():
+        name = prim.GetName()
+        if _CEILING_PRIM_RE.search(name):
+            imageable = UsdGeom.Imageable(prim)
+            if imageable:
+                imageable.MakeInvisible()
+                hidden += 1
+    return hidden
+
+
 def _as_torch(arr):
     """Coerce a ``wp.array`` or ``torch.Tensor`` to a ``torch.Tensor``.
 
@@ -288,13 +372,36 @@ def _achieved_vel(unwrapped) -> tuple[float, float, float]:
 
 def _stick_to_body_action(
     lx: float, ly: float, rx: float, heading: float,
+    *,
+    control_mode: str = "world_arcade",
 ) -> tuple[float, float, float]:
-    """World-frame stick → body-frame ``(vx, vy, omega_z)``.
+    """Stick → body-frame ``(vx, vy, omega_z)``.
 
-    Mirrors ``collect_demos.py``: overhead viewport convention,
-    right-stick X = angular vel (negated so stick-left = CCW positive
-    omega).
+    ``control_mode``:
+
+    - ``world_arcade``: today's behavior. Stick is interpreted in the
+      world frame (overhead-viewport convention); we rotate into the
+      robot's body frame using its current heading. Right-stick X =
+      yaw rate, negated so stick-left = CCW positive omega.
+    - ``egocentric``: stick is interpreted directly in the body frame
+      (no heading rotation). Push the left stick forward and the robot
+      moves forward regardless of which way it's facing — classic
+      first-person controls. Right-stick X still maps to yaw rate.
     """
+    if control_mode == "egocentric":
+        body_vx = -ly  # stick-up = forward
+        body_vy = -lx  # stick-left = strafe left
+        stick_mag = min(1.0, math.sqrt(body_vx ** 2 + body_vy ** 2))
+        norm_mag = math.sqrt(body_vx ** 2 + body_vy ** 2)
+        if norm_mag > 0.0 and stick_mag > 0.01:
+            body_vx *= stick_mag / norm_mag
+            body_vy *= stick_mag / norm_mag
+        omega = -rx
+        if stick_mag < 0.01 and abs(omega) < 0.01:
+            return 0.0, 0.0, 0.0
+        return body_vx, body_vy, omega
+
+    # world_arcade (default)
     world_vx = lx
     world_vy = -ly
     stick_mag = min(1.0, math.sqrt(world_vx ** 2 + world_vy ** 2))
@@ -312,6 +419,50 @@ def _stick_to_body_action(
     if stick_mag < 0.01 and abs(omega) < 0.01:
         return 0.0, 0.0, 0.0
     return body_vx, body_vy, omega
+
+
+class _TargetMarker:
+    """Operator-only debug-draw marker at the active target position.
+
+    Uses Isaac Sim's ``isaacsim.util.debug_draw`` interface which draws
+    to the editor viewport but NOT into Replicator render products — so
+    the marker never enters captured RGB frames. Lifetime is one
+    episode: ``set_target`` on begin_episode, ``clear`` on end_episode.
+    """
+
+    def __init__(self, enabled: bool) -> None:
+        self._enabled = bool(enabled)
+        self._iface = None
+        if not self._enabled:
+            return
+        try:
+            from isaacsim.util.debug_draw import _debug_draw  # type: ignore
+            self._iface = _debug_draw.acquire_debug_draw_interface()
+        except Exception as exc:
+            print(
+                f"[teleop_capture] target marker disabled (debug-draw "
+                f"unavailable: {exc.__class__.__name__}).",
+                flush=True,
+            )
+            self._enabled = False
+
+    def set_target(self, xyz: tuple[float, float, float]) -> None:
+        if not self._enabled or self._iface is None:
+            return
+        # Clear any previous marker before drawing the next one.
+        self._iface.clear_points()
+        self._iface.draw_points(
+            [(float(xyz[0]), float(xyz[1]), float(xyz[2]) + 0.30)],
+            [(0.1, 1.0, 0.1, 1.0)],  # bright green RGBA
+            [40.0],  # point size
+        )
+
+    def clear(self) -> None:
+        if self._enabled and self._iface is not None:
+            try:
+                self._iface.clear_points()
+            except Exception:
+                pass
 
 
 def _rgb_to_uint8_hwc(tensor) -> np.ndarray:
@@ -504,13 +655,49 @@ def main() -> int:
     if args.scene_usd:
         env_cfg.scene.scene_geometry.spawn.usd_path = str(Path(args.scene_usd).resolve())
         print(f"[teleop_capture] scene USD override → {env_cfg.scene.scene_geometry.spawn.usd_path}")
-    env_cfg.viewer = ViewerCfg(
-        eye=(0.0, 0.0, 12.0),
-        lookat=(0.0, 0.0, 0.0),
-        origin_type="env",
-        env_index=0,
-        resolution=(1280, 720),
-    )
+
+    # Override the spawn-point pool to use only the ACTIVE scene's
+    # points. The env_cfg default pools across every scene listed in
+    # scenes_metadata.json, which sends the robot to the wrong scene's
+    # coordinates roughly half the time when more than one scene is
+    # present. Resolved by name from --scene.
+    active_spawn_points = _resolve_active_spawn_points(args.scene)
+    if active_spawn_points:
+        env_cfg.events.reset_robot.params["spawn_points_xy"] = active_spawn_points
+        if hasattr(env_cfg.commands, "goal_command"):
+            env_cfg.commands.goal_command.spawn_points_xy = active_spawn_points
+        print(
+            f"[teleop_capture] using {len(active_spawn_points)} spawn points "
+            f"for active scene {args.scene!r} (overriding pooled default)",
+            flush=True,
+        )
+    else:
+        print(
+            f"[teleop_capture] WARNING: no active-scene spawn_points_xy found "
+            f"for {args.scene!r} in Assets/generated/scenes/scenes_metadata.json. "
+            "Falling back to the env_cfg default (pooled across all scenes), "
+            "which may spawn the robot outside this scene's room.",
+            file=sys.stderr, flush=True,
+        )
+
+    if args.control_mode == "egocentric":
+        # Follow-cam behind + above the robot, looking forward.
+        env_cfg.viewer = ViewerCfg(
+            eye=(-2.5, 0.0, 1.4),
+            lookat=(2.0, 0.0, 0.5),
+            origin_type="asset_root",
+            asset_name="robot",
+            env_index=0,
+            resolution=(1280, 720),
+        )
+    else:  # world_arcade
+        env_cfg.viewer = ViewerCfg(
+            eye=(0.0, 0.0, 12.0),
+            lookat=(0.0, 0.0, 0.0),
+            origin_type="env",
+            env_index=0,
+            resolution=(1280, 720),
+        )
 
     env = gym.make(args.task, cfg=env_cfg)
     unwrapped = env.unwrapped
@@ -530,6 +717,17 @@ def main() -> int:
     perception_camera = scene.sensors["d555_camera_perception"]
     policy_camera = scene.sensors.get("d555_camera") if args.capture_policy_cam else None
 
+    if args.hide_ceilings:
+        try:
+            n_hidden = _hide_ceiling_prims(unwrapped)
+            print(f"[teleop_capture] hid {n_hidden} ceiling prim(s) "
+                  f"(--hide-ceilings).", flush=True)
+        except Exception as exc:
+            print(f"[teleop_capture] --hide-ceilings failed: "
+                  f"{exc.__class__.__name__}: {exc}", file=sys.stderr, flush=True)
+
+    target_marker = _TargetMarker(enabled=not args.no_target_marker)
+
     output_root = Path(args.output).resolve()
     if output_root.exists():
         # LeRobotDataset.create refuses to overwrite. Auto-suffix with a
@@ -547,10 +745,30 @@ def main() -> int:
     session_id = args.session_id or time.strftime("%Y%m%dT%H%M%S")
     repo_id = args.repo_id or f"strafer/{args.scene}"
 
+    # Resolve writer fps + capture cadence. --capture-rate-hz, when set,
+    # decouples the writer's add_frame cadence from the env step rate:
+    # env still steps every tick (smoothness preserved); writer samples
+    # every `round(env_step_hz / capture_rate_hz)` ticks. When unset,
+    # we fall back to --fps and add_frame on every tick (today's
+    # behavior).
+    env_step_dt = float(getattr(env_cfg.sim, "dt", 1.0 / 60.0)) * int(
+        getattr(env_cfg, "decimation", 1),
+    )
+    env_step_hz = 1.0 / max(env_step_dt, 1e-6)
+    capture_rate_hz = float(args.capture_rate_hz or args.fps)
+    ticks_per_capture = max(1, round(env_step_hz / max(capture_rate_hz, 1e-6)))
+    writer_fps = int(round(capture_rate_hz))
+    print(
+        f"[teleop_capture] env_step_hz={env_step_hz:.2f}  "
+        f"capture_rate_hz={capture_rate_hz:.2f}  "
+        f"ticks_per_capture={ticks_per_capture}",
+        flush=True,
+    )
+
     writer = _build_writer(
         output_root=output_root,
         repo_id=repo_id,
-        fps=int(args.fps),
+        fps=writer_fps,
         vcodec=args.vcodec,
         capture_policy_cam=bool(args.capture_policy_cam),
         capture_git_sha=capture_git_sha,
@@ -569,7 +787,11 @@ def main() -> int:
     print("HARNESS TELEOP — scene-metadata mission source")
     print(f"  scene_id          : {args.scene}")
     print(f"  output            : {output_root}")
-    print(f"  fps               : {args.fps}")
+    print(f"  fps (writer)      : {writer_fps}  "
+          f"(capture cadence; env_step_hz={env_step_hz:.1f})")
+    print(f"  control_mode      : {args.control_mode}")
+    print(f"  hide_ceilings     : {bool(args.hide_ceilings)}")
+    print(f"  target_marker     : {not bool(args.no_target_marker)}")
     print(f"  max episodes      : {args.max_episodes}")
     print(f"  max steps/episode : {args.max_steps_per_episode}")
     print(f"  visualizer        : {getattr(args_cli, 'visualizer', None)!r}  "
@@ -622,6 +844,11 @@ def main() -> int:
             source_mission_source="scene-metadata",
             leg_initial_distance_m=leg_dist,
         )
+        # Drop the operator-only target marker into the viewport so the
+        # operator can see where the chosen object is. Debug-draw is
+        # outside Replicator's render product capture, so the marker
+        # never enters saved frames.
+        target_marker.set_target(cand.target_position_3d)
         print(
             f"\n[teleop_capture] episode {writer.num_episodes} opened: "
             f"target={cand.label!r} id={cand.instance_id} "
@@ -710,6 +937,7 @@ def main() -> int:
                         f"  [episode {kept_episodes}] outcome={decision.outcome} "
                         f"(target={label_hint!r}, {episode_step} steps)",
                     )
+                target_marker.clear()
                 episode_step = 0
                 time.sleep(0.3)  # debounce
 
@@ -725,10 +953,13 @@ def main() -> int:
                     break
                 continue
 
-            # Stick → action.
+            # Stick → action. Control mode picks world-frame vs body-frame
+            # interpretation of the left stick (yaw rate is body-frame in
+            # both modes).
             pose, yaw = _robot_pose(unwrapped)
             body_vx, body_vy, omega = _stick_to_body_action(
                 frame.lx, frame.ly, frame.rx, yaw,
+                control_mode=args.control_mode,
             )
             action = torch.tensor(
                 [[body_vx, body_vy, omega]], dtype=torch.float32, device=device,
@@ -737,20 +968,32 @@ def main() -> int:
             obs, reward, terminated, truncated, info = env.step(action)
             episode_step += 1
 
-            # Pull frames + write to LeRobot.
-            rgb_perception = _rgb_to_uint8_hwc(perception_camera.data.output["rgb"])
-            depth_m = _depth_to_float32_hw(
-                perception_camera.data.output["distance_to_image_plane"],
+            # Only sample for the writer at the chosen capture cadence.
+            # env.step ran every loop iteration (full sim tick rate),
+            # but writer.add_frame is gated to capture_rate_hz so the
+            # operator sees smooth motion in the viewport without
+            # inflating the dataset's effective sample rate.
+            should_capture = (
+                not rec_paused and (episode_step % ticks_per_capture == 0)
             )
-            rgb_policy = None
-            if policy_camera is not None:
-                rgb_policy = _rgb_to_uint8_hwc(policy_camera.data.output["rgb"])
 
-            if not rec_paused:
+            # Pull frames + write to LeRobot only when we're capturing.
+            if should_capture:
+                rgb_perception = _rgb_to_uint8_hwc(
+                    perception_camera.data.output["rgb"],
+                )
+                depth_m = _depth_to_float32_hw(
+                    perception_camera.data.output["distance_to_image_plane"],
+                )
+                rgb_policy = None
+                if policy_camera is not None:
+                    rgb_policy = _rgb_to_uint8_hwc(
+                        policy_camera.data.output["rgb"],
+                    )
                 achieved = _achieved_vel(unwrapped)
                 pose_after, _ = _robot_pose(unwrapped)
                 writer.add_frame(
-                    sim_time=float(episode_step) / float(args.fps),
+                    sim_time=float(episode_step) / env_step_hz,
                     pose=list(pose_after),
                     achieved_vel=list(achieved),
                     action=[body_vx, body_vy, omega],
@@ -758,6 +1001,16 @@ def main() -> int:
                     rgb_policy=rgb_policy,
                     depth_m=depth_m,
                 )
+            else:
+                # Still need an RGB to feed the PIP / HUD distance — but
+                # cheap: just grab perception camera output without depth
+                # + policy cam decode. Falls back if PIP is off.
+                if not pip._enabled:
+                    rgb_perception = None
+                else:
+                    rgb_perception = _rgb_to_uint8_hwc(
+                        perception_camera.data.output["rgb"],
+                    )
 
             # PIP overlay (cosmetic; never reaches LeRobot frames).
             target_xy = (
@@ -769,7 +1022,8 @@ def main() -> int:
             )
             rec_label = "PAUSED" if rec_paused else "REC"
             hud = f"[{rec_label}]  ep={writer.num_episodes}  step={episode_step}  d={dist:.2f}m"
-            pip.show(rgb_perception, hud)
+            if rgb_perception is not None:
+                pip.show(rgb_perception, hud)
 
             # Console HUD once per second.
             now = time.monotonic()
@@ -789,6 +1043,7 @@ def main() -> int:
                     f"{episode_step} steps ({reason}); marking failed.",
                 )
                 writer.end_episode(outcome="failed", outcome_category="on_course")
+                target_marker.clear()
                 kept_episodes = writer.num_episodes
                 episode_step = 0
                 if kept_episodes >= args.max_episodes:

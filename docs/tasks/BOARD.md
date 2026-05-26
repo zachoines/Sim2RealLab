@@ -83,6 +83,7 @@ Five briefs (`behavior-cloning-data-expansion`, `teleop-driver`, `trajectory-fir
 |---|---|---|---|
 | [`harness-architecture`](active/harness/harness-architecture.md) | P1 | active (architecture doc; ships across PRs B/C/D) | DGX |
 | [`infinigen-scene-corpus`](active/harness/infinigen-scene-corpus.md) | P1 | active | DGX |
+| [`teleop-ergonomics`](active/harness/teleop-ergonomics.md) | P1 | active (in-flight; core lands in PR #63) | DGX |
 | [`mission-generator`](active/harness/mission-generator.md) | P2 | active | DGX |
 | [`harness-throughput-measurement`](parked/harness/harness-throughput-measurement.md) | P2 | parked | DGX |
 | [`cosmos-replay-perturbation`](parked/harness/cosmos-replay-perturbation.md) | P3 | parked | DGX |

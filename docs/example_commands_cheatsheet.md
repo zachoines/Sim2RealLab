@@ -373,13 +373,31 @@ SCENE=scene_high_quality_dgx_000_seed0
 RUN_ID=$(date +%Y%m%dT%H%M%S)
 OUT=data/sim_in_the_loop/${SCENE}_validation_${RUN_ID}
 
+# World-arcade twin-stick (default), ceilings hidden, target marker on
 $ISAACLAB -p Scripts/capture.py \
     --driver teleop --mission-source scene-metadata \
     --scene  ${SCENE} \
     --output ${OUT} \
     --fps 8 \
-    --max-episodes 5
+    --max-episodes 5 \
+    --hide-ceilings
 ```
+
+### Egocentric mode (first-person classic controls)
+
+```bash
+$ISAACLAB -p Scripts/capture.py \
+    --driver teleop --mission-source scene-metadata \
+    --scene  ${SCENE} \
+    --output ${OUT} \
+    --fps 8 \
+    --max-episodes 5 \
+    --control-mode egocentric
+```
+
+The Isaac Sim viewport follows the robot from behind+above. Stick-up
+moves the robot forward in whatever direction it's facing, regardless
+of world frame.
 
 ### Button mapping (per
 [`harness-architecture.md` §Episode-end button mapping](tasks/active/harness/harness-architecture.md#episode-end-button-mapping-teleop-only))
@@ -403,6 +421,11 @@ picker (numeric index; Ctrl-D quits cleanly).
 
 | Flag | Default | Use |
 |---|---|---|
+| `--control-mode world_arcade` | `world_arcade` | Top-down editor viewport, stick = world-frame velocity (today's default; arcade twin-stick) |
+| `--control-mode egocentric` | — | Viewport follows the robot (eye behind+above, looking forward); stick = body-frame velocity (classic first-person controls). Useful for CLIP-style coverage where the operator needs to see what the robot sees |
+| `--hide-ceilings` | off | At startup, set all `*_ceiling_*` prims to invisible in the editor viewport. Use with `--control-mode world_arcade` — ceilings otherwise occlude the top-down view. Does NOT modify the scene USDC on disk; reset on restart |
+| `--no-target-marker` | (marker on) | Suppress the green debug-draw sphere at the active target's position. Marker is operator-only (debug-draw is outside Replicator's render product) so it never enters captured frames; this flag is just for visual quiet |
+| `--capture-rate-hz 8` | matches `--fps` | Writer sample rate, decoupled from the env step rate. Env still steps every sim tick; writer only calls `add_frame` every `round(env_step_hz / capture_rate_hz)` ticks. Raise env_step_hz for smoother viewport without inflating dataset sample count |
 | `--no-pip-window` | (PIP on) | Suppress the cv2 first-person preview window |
 | `--no-capture-policy-cam` | (policy cam on) | Drop the 80×60 policy camera (smaller dataset) |
 | `--operator-handle <name>` | none | Stamped on every episode for multi-operator runs |
@@ -451,6 +474,9 @@ and `--max-steps-per-episode`, and commit a summary under
 | `No gamepad detected` | pygame can't find the joystick | `jstest /dev/input/js0` to confirm the kernel sees it |
 | Wrong button does the wrong thing | family auto-detect picked wrong | Add `--family-override ps5` (or `xbox` / `switch`) — TODO if needed |
 | `cv2.error: ... The function is not implemented. Rebuild the library with ... GTK+ ...` on `cv2.namedWindow` | `opencv-python-headless` (env_isaaclab3's variant) has no GUI backend by design | The driver now degrades to "PIP off" automatically — capture continues; use the Isaac Sim editor viewport as your live view. Pass `--no-pip-window` to silence the warning |
+| Robot spawns outside the room (drives in empty space) | `_get_infinigen_spawn_points_xy()` pools spawn points across ALL scenes in `scenes_metadata.json`; with two scenes loaded, ~half of resets place the robot at the wrong scene's coords | The teleop driver now overrides this to use only the `--scene`'s spawn points. If you still see this, check the startup log for `using N spawn points for active scene` — `N` should be the per-scene count from `scenes_metadata.json`. If the message says "no active-scene spawn_points_xy found", run `generate_scenes_metadata.py` to repopulate |
+| Top-down view shows roof / can't see the robot | Infinigen exports the full ceiling mesh by default | Add `--hide-ceilings` |
+| No idea where the target is, just coordinates | Picker prints `pos=(x, y, z)` but it's hard to mentally place | The driver now drops a green debug-draw sphere at the target position when the episode opens. If it's not appearing, check the startup log for the `target_marker: True` line, and confirm `[teleop_capture] target marker disabled (debug-draw unavailable: ...)` doesn't appear |
 | PIP HUD overlay leaks into saved frames | cv2 putText is rendering into the perception render product | **Hard acceptance fail per the brief.** File a bug; the cv2 window must be a separate top-level surface |
 | Round-trip via HF `LeRobotDataset` fails with codec error | torchcodec missing on aarch64 | The wheel marker excludes aarch64; LeRobot falls back to PyAV which works. If you've manually installed torchcodec, uninstall it |
 

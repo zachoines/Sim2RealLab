@@ -173,6 +173,7 @@ simulation_app = app_launcher.app
 import gymnasium as gym
 import numpy as np
 import torch
+import warp as wp
 
 import isaaclab_tasks  # noqa: F401 — registers Isaac Lab task metadata
 import strafer_lab.tasks  # noqa: F401 — registers Strafer envs
@@ -238,6 +239,21 @@ def _resolve_scene_metadata_path(scene: str, override: str | None) -> Path:
     return path
 
 
+def _as_torch(arr):
+    """Coerce a ``wp.array`` or ``torch.Tensor`` to a ``torch.Tensor``.
+
+    Isaac Lab sometimes returns warp arrays (sensor outputs, articulation
+    data) and sometimes torch tensors depending on the field. Warp's
+    recent API drops ``__getitem__`` on wp.array, so indexing without
+    a conversion raises ``RuntimeError: Item indexing is not supported
+    on wp.array objects``. This helper centralizes the conversion so the
+    caller can always do ``_as_torch(x)[0].cpu().numpy()``.
+    """
+    if isinstance(arr, torch.Tensor):
+        return arr
+    return wp.to_torch(arr)
+
+
 def _robot_pose(unwrapped) -> tuple[tuple[float, float, float, float, float, float, float], float]:
     """Return ``(pose_xyzqxqyqzqw, yaw_rad)`` for env 0.
 
@@ -245,8 +261,8 @@ def _robot_pose(unwrapped) -> tuple[tuple[float, float, float, float, float, flo
     ``(qx, qy, qz, qw)`` layout the LeRobot writer expects.
     """
     scene = unwrapped.scene
-    pos = scene["robot"].data.root_pos_w[0].cpu().numpy()
-    quat_wxyz = scene["robot"].data.root_quat_w[0].cpu().numpy()
+    pos = _as_torch(scene["robot"].data.root_pos_w)[0].cpu().numpy()
+    quat_wxyz = _as_torch(scene["robot"].data.root_quat_w)[0].cpu().numpy()
     w, x, y, z = (float(quat_wxyz[i]) for i in range(4))
     yaw = math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
     pose = (
@@ -259,8 +275,8 @@ def _robot_pose(unwrapped) -> tuple[tuple[float, float, float, float, float, flo
 def _achieved_vel(unwrapped) -> tuple[float, float, float]:
     """Return ``(vx, vy, omega_z)`` from the robot's body-frame velocities."""
     robot = unwrapped.scene["robot"]
-    lin_b = robot.data.root_lin_vel_b[0].cpu().numpy()
-    ang_w = robot.data.root_ang_vel_w[0].cpu().numpy()
+    lin_b = _as_torch(robot.data.root_lin_vel_b)[0].cpu().numpy()
+    ang_w = _as_torch(robot.data.root_ang_vel_w)[0].cpu().numpy()
     return float(lin_b[0]), float(lin_b[1]), float(ang_w[2])
 
 
@@ -296,12 +312,14 @@ def _rgb_to_uint8_hwc(tensor) -> np.ndarray:
     """Isaac Sim ``(N, H, W, C)`` RGB → ``(H, W, 3)`` uint8.
 
     Drops the alpha channel if present. Replicator camera outputs are
-    typically uint8 already; clamp + cast just in case.
+    typically uint8 already; clamp + cast just in case. Accepts
+    ``wp.array`` or ``torch.Tensor``.
     """
-    if tensor.dim() == 4:
-        arr = tensor[0].cpu().numpy()
+    t = _as_torch(tensor)
+    if t.dim() == 4:
+        arr = t[0].cpu().numpy()
     else:
-        arr = tensor.cpu().numpy()
+        arr = t.cpu().numpy()
     if arr.ndim == 3 and arr.shape[-1] == 4:
         arr = arr[..., :3]
     if arr.dtype != np.uint8:
@@ -310,11 +328,15 @@ def _rgb_to_uint8_hwc(tensor) -> np.ndarray:
 
 
 def _depth_to_float32_hw(tensor) -> np.ndarray:
-    """Isaac Sim ``(N, H, W, 1)`` distance → ``(H, W)`` float32 meters."""
-    if tensor.dim() == 4:
-        arr = tensor[0].cpu().numpy()
+    """Isaac Sim ``(N, H, W, 1)`` distance → ``(H, W)`` float32 meters.
+
+    Accepts ``wp.array`` or ``torch.Tensor``.
+    """
+    t = _as_torch(tensor)
+    if t.dim() == 4:
+        arr = t[0].cpu().numpy()
     else:
-        arr = tensor.cpu().numpy()
+        arr = t.cpu().numpy()
     if arr.ndim == 3 and arr.shape[-1] == 1:
         arr = arr[..., 0]
     return arr.astype(np.float32)

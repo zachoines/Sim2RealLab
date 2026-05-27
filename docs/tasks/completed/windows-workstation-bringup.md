@@ -1,6 +1,6 @@
 # Windows workstation bringup
 
-**Status:** Shipped 2026-05-26 in `4f0c93f` (Windows).
+**Status:** Shipped 2026-05-27 in `4f0c93f` (Windows).
 **PR:** TBD
 **Follow-ups:** [`windows-workstation-bringup-sim-bridge.md`](../active/tooling/windows-workstation-bringup-sim-bridge.md) — Path B sim-bridge work, deferred until NVIDIA fixes Vulkan-on-WSL2. [`isaaclab-develop-upgrade.md`](../active/tooling/isaaclab-develop-upgrade.md) — pull the IsaacLab fcntl / configclass / rsl_rl drift fixes upstream and drop the manual patches the runbook documents.
 

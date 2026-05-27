@@ -1,52 +1,36 @@
 """In-process Isaac Lab teleop driver for the harness data-capture system.
 
-The implementation of ``Scripts/capture.py --driver teleop
---mission-source scene-metadata`` per
-``docs/tasks/active/harness/harness-architecture.md`` (Tier 1). Boots
-Isaac Sim headed, loads the InfinigenPerception env, reads a gamepad,
-drives ``env.step()``, captures frames via
+Boots Isaac Sim headed, loads the InfinigenPerception env, reads a
+gamepad, drives ``env.step()``, captures frames via
 :class:`strafer_lab.tools.lerobot_writer.StraferLeRobotWriter`, and
 writes a LeRobot v3 dataset under the supplied output root.
 
-Operator UX baseline (per the brief's "Operator UX" section):
+Operator UX surfaces:
 
-- **Live third-person view**: Isaac Sim editor viewport with an
-  overhead camera (eye=(0,0,12), origin at env 0). Same setup as
-  ``collect_demos.py`` so operators don't have to relearn the camera.
-- **First-person PIP**: an OpenCV ``cv2.imshow`` window showing the
-  ``d555_camera_perception`` 640×360 stream. Catches "target visible to
-  operator but blocked from D555 FoV" failures before they pollute the
-  corpus. **The window is a separate top-level Qt/X surface; the
-  perception camera's render product writes to disk before any
-  viewport-side overlay drawing**, so the PIP does NOT leak into
-  captured frames. The brief explicitly calls this out as an acceptance
-  criterion.
-- **HUD mission text**: console echo of the active ``mission_text``
-  once per second + when it changes.
-- **REC indicator**: ``[REC]`` / ``[PAUSED]`` console banner each tick;
-  the operator can hold ``A`` to pause capture (keeps the env stepping
-  but the writer's ``add_frame`` is skipped) when they want to
-  reposition without recording.
+- Live third-person view via the Isaac Sim editor viewport.
+- First-person PIP via an OpenCV window showing the
+  ``d555_camera_perception`` stream. The PIP renders to a separate
+  top-level Qt/X surface; the camera's render product writes to disk
+  before any viewport-side overlay, so the PIP never leaks into
+  captured frames.
+- Console HUD echoing the active ``mission_text`` and a
+  ``[REC]`` / ``[PAUSED]`` banner each tick. Hold ``A`` to pause the
+  writer (env keeps stepping; ``add_frame`` is skipped).
 
 Invocation (preferred — via the unified entry point)::
 
     isaaclab -p Scripts/capture.py \\
         --driver teleop --mission-source scene-metadata \\
-        --scene scene_high_quality_dgx_000_seed0 \\
-        --output data/sim_in_the_loop/scene_high_quality_dgx_000_seed0
+        --scene <scene_id> --output <dataset_root>
 
-Direct invocation (rarely needed; ``capture.py`` is the canonical entry
-point)::
+Direct invocation (rarely needed)::
 
     isaaclab -p source/strafer_lab/scripts/teleop_capture.py \\
-        --scene scene_high_quality_dgx_000_seed0 \\
-        --scene-metadata Assets/generated/scenes/.../scene_metadata.json \\
-        --output data/sim_in_the_loop/scene_high_quality_dgx_000_seed0
+        --scene <scene_id> --output <dataset_root>
 
 This script must NOT live under ``source/strafer_lab/strafer_lab/`` —
 that namespace is for non-Isaac-Sim-importable code (see
-``strafer_lab/__init__.py`` docstring). It belongs alongside
-``collect_demos.py`` in ``source/strafer_lab/scripts/``.
+``strafer_lab/__init__.py`` docstring).
 """
 
 from __future__ import annotations
@@ -104,8 +88,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--fps", type=int, default=8,
-        help="Capture rate in Hz. Default 8 matches the bridge mainloop's "
-        "post-decimation rate (see harness brief).",
+        help="Capture rate in Hz.",
     )
     parser.add_argument(
         "--vcodec", type=str, default="h264",
@@ -169,12 +152,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "on disk; visibility is reset on next launch.",
     )
     parser.add_argument(
-        "--hide-ceilings",
-        action="store_true",
-        help="(Alias) — same as --hide-overhead. Kept for back-compat with "
-        "the previous cheatsheet command.",
-    )
-    parser.add_argument(
         "--overhead-regex",
         type=str,
         default=None,
@@ -195,8 +172,8 @@ def _build_parser() -> argparse.ArgumentParser:
         type=float,
         default=None,
         help="Writer sample rate in Hz, decoupled from the env step rate. "
-        "Defaults to --fps (back-compat). Env still steps at full sim "
-        "tick rate; writer.add_frame is called every "
+        "Defaults to --fps. Env still steps at full sim tick rate; "
+        "writer.add_frame is called every "
         "round(env_step_hz / capture_rate_hz) ticks.",
     )
     AppLauncher.add_app_launcher_args(parser)
@@ -207,13 +184,9 @@ _PARSER = _build_parser()
 args_cli, hydra_args = _PARSER.parse_known_args()
 sys.argv = [sys.argv[0]] + hydra_args
 
-# Force headed + cameras — these are non-negotiable for the teleop UX.
-# AppLauncher's --headless flag is deprecated in current Isaac Lab; the
-# new contract is --visualizer (alias --viz), a CSV like "kit,rerun".
-# Without one of those the Kit window never comes up, even if
-# headless=False — that bit the operator on the first validation run.
+# Force headed + cameras — non-negotiable for the teleop UX. Pass
+# --visualizer kit so the Kit editor viewport opens.
 args_cli.enable_cameras = True
-args_cli.headless = False
 if not getattr(args_cli, "visualizer", None):
     args_cli.visualizer = "kit"
 
@@ -296,15 +269,7 @@ def _resolve_scene_metadata_path(scene: str, override: str | None) -> Path:
 
 
 def _resolve_active_spawn_points(scene: str) -> list[list[float]]:
-    """Return spawn_points_xy ONLY for the active scene, not pooled.
-
-    ``_get_infinigen_spawn_points_xy()`` in strafer_env_cfg.py pools spawn
-    points across every scene listed in scenes_metadata.json. With two
-    scenes loaded but only one active USDC, ~half the resets place the
-    robot at the wrong scene's coordinates ("outside the room" symptom).
-    The teleop driver knows which scene is active (via --scene), so it
-    can override the pooled spawn list with the active-scene-only list.
-    """
+    """Return spawn_points_xy ONLY for the active scene, not pooled across all scenes."""
     combined = Path("Assets/generated/scenes/scenes_metadata.json")
     if not combined.is_file():
         return []
@@ -569,9 +534,8 @@ class _PipWindow:
     - disabled by flag (``enabled=False``) → never opens, no-op everywhere.
     - cv2 not importable → no-op + one-shot warning.
     - cv2 importable but the build has no GUI backend
-      (``opencv-python-headless`` ships without GTK / Qt — env_isaaclab3
-      installs this variant) → no-op + one-shot warning naming the
-      culprit so the operator knows the editor viewport is their only
+      (``opencv-python-headless`` ships without GTK / Qt) → no-op + one-shot
+      warning so the operator knows the editor viewport is their only
       live view.
     """
 
@@ -690,9 +654,8 @@ def main() -> int:
 
     # Override the spawn-point pool to use only the ACTIVE scene's
     # points. The env_cfg default pools across every scene listed in
-    # scenes_metadata.json, which sends the robot to the wrong scene's
-    # coordinates roughly half the time when more than one scene is
-    # present. Resolved by name from --scene.
+    # scenes_metadata.json, which can place the robot in a non-active
+    # scene's coordinates when more than one scene is registered.
     active_spawn_points = _resolve_active_spawn_points(args.scene)
     scene_centroid_xy: tuple[float, float] = (0.0, 0.0)
     spawn_bbox: tuple[float, float, float, float] | None = None  # (xmin, ymin, xmax, ymax)
@@ -895,7 +858,6 @@ def main() -> int:
     print(f"  max steps/episode : {args.max_steps_per_episode}")
     print(f"  visualizer        : {getattr(args_cli, 'visualizer', None)!r}  "
           f"(kit = editor viewport; required for teleop)")
-    print(f"  headless          : {bool(args_cli.headless)}")
     print(f"  enable_cameras    : {bool(args_cli.enable_cameras)}")
     print(f"  simulation_app.is_running(): {simulation_app.is_running()}")
     print("-" * 64)
@@ -994,8 +956,7 @@ def main() -> int:
         # Hard check Kit's state before entering the loop. A False here
         # means the Sim window never came up (or Kit shut down during
         # env.reset), and entering the while loop would exit immediately
-        # with no observable reason — a silent-exit failure mode that
-        # has bitten the operator before. Be loud instead.
+        # with no observable reason. Be loud instead.
         if not simulation_app.is_running():
             print(
                 "[teleop_capture] ERROR: simulation_app.is_running() is False "

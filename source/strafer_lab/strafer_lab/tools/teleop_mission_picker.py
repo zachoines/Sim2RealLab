@@ -1,24 +1,14 @@
 """Mission target picker for ``--driver teleop --mission-source scene-metadata``.
 
 Reads ``scene_metadata.json``, enumerates the ``objects[]`` array, and
-exposes both:
+exposes both a :class:`MissionCandidate` list (for the console picker)
+and a pure-Python ``select_by_index`` (for unit-testing the filter,
+sort, and lookup paths without a TTY).
 
-- A :class:`MissionCandidate` list for the console picker the driver
-  presents to the operator (numeric prompt, prints labels and rooms).
-- A pure-Python ``select_by_index`` so unit tests can exercise the
-  filter / sort / lookup paths without a TTY.
-
-UX choice (v1, documented in the harness brief): **numeric-prompt
-console picker**. The operator types ``5<enter>`` on the terminal to
-select index 5. Cycle-through-D-pad was the alternative; the brief
-explicitly says "v1 design choice yours — document it" and notes that
-free-form mission text is a follow-up (Tier 1.5). Numeric prompt is
-strictly simpler to implement and to test, and the operator already has
-a hand free between episodes — they're not driving while picking.
-
-This module is pure-Python and importable from ``.venv_harness``. The
-console-IO portion is isolated behind :func:`prompt_for_target` so the
-unit tests can exercise the picker logic without faking stdin.
+The picker presents a numeric prompt: the operator types ``5<enter>`` on
+the terminal to select index 5. Console I/O is isolated behind
+:func:`prompt_for_target` so the rest of the module is importable +
+testable without stdin.
 """
 
 from __future__ import annotations

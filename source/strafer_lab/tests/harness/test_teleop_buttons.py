@@ -1,8 +1,14 @@
 """Tests for the episode-end button-to-outcome translator.
 
-The translator is the single source of truth for the brief's
-"Episode-end button mapping" table. Drift here would silently relabel
-hard negatives, so the table is exercised exhaustively.
+The translator is the single source of truth for the episode-end button
+mapping. Drift here would silently relabel hard negatives, so the table
+is exercised exhaustively.
+
+Button names (``y``, ``b``, ``x``, ``select``, ``dpad_*``) are the
+canonical family-agnostic identifiers from
+:func:`strafer_lab.tools.gamepad_reader.GamepadReader.read` — the reader
+normalizes Xbox / PlayStation / Switch layouts onto these names, so the
+button-to-outcome table is the same for every supported controller.
 """
 
 from __future__ import annotations

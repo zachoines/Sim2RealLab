@@ -324,15 +324,10 @@ class StraferLeRobotWriter:
         except ModuleNotFoundError as exc:
             raise ModuleNotFoundError(
                 "lerobot is required to construct StraferLeRobotWriter. "
-                "If you're running under Isaac Sim (env_isaaclab3), install it "
-                "without disturbing the existing torch/numpy/hf-hub stack:\n\n"
-                "  conda activate env_isaaclab3\n"
-                "  python -m pip install --no-deps 'lerobot==0.5.1'\n"
-                "  python -m pip install --upgrade-strategy only-if-needed \\\n"
-                "      'datasets>=4.0.0,<5.0.0' 'av>=15.0.0,<16.0.0' "
-                "'jsonlines>=4.0.0,<5.0.0'\n\n"
-                "See docs/example_commands_cheatsheet.md → Harness data capture "
-                "for the full setup.",
+                "Install with `pip install --no-deps 'lerobot==0.5.1'` plus "
+                "the matching `datasets`, `av`, and `jsonlines` pins. "
+                "See docs/example_commands_cheatsheet.md → Harness data "
+                "capture for the full instructions.",
             ) from exc
 
         self._root = Path(root)

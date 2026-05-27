@@ -215,6 +215,7 @@ from strafer_lab.tools.lerobot_writer import (
     StraferLeRobotWriter,
     hash_scene_metadata,
 )
+from strafer_lab.tools.scene_paths import resolve_scene_metadata_path
 from strafer_lab.tools.teleop_buttons import (
     button_state_to_episode_outcome,
     describe_button_layout,
@@ -252,20 +253,6 @@ def _git_rev_parse_head(repo_root: Path) -> str:
         return out.decode("utf-8").strip()
     except Exception:
         return ""
-
-
-def _resolve_scene_metadata_path(scene: str, override: str | None) -> Path:
-    """Resolve the scene_metadata.json path from --scene + optional override."""
-    if override:
-        path = Path(override)
-    else:
-        path = Path("Assets/generated/scenes") / scene / "scene_metadata.json"
-    if not path.is_file():
-        raise FileNotFoundError(
-            f"scene_metadata.json not found: {path}. Pass --scene-metadata "
-            "explicitly if the scene lives outside Assets/generated/scenes/.",
-        )
-    return path
 
 
 def _resolve_active_spawn_points(scene: str) -> list[list[float]]:
@@ -326,6 +313,34 @@ def _hide_overhead_prims(unwrapped, custom_regex: str | None = None) -> tuple[in
     return hidden, sample_paths
 
 
+def _possess_d555_viewport(prim_path: str) -> bool:
+    """Point Kit's active viewport at the d555 camera prim.
+
+    Egocentric control mode does not need a separate ViewerCfg
+    follow-cam (a second render pass). Reusing the perception camera's
+    render product keeps the viewport in lock-step with what the
+    writer sees and avoids the duplicate render. Returns True if the
+    repoint succeeded.
+    """
+    try:
+        import omni.kit.viewport.utility as vp_util  # type: ignore
+    except ImportError:
+        return False
+    try:
+        viewport = vp_util.get_active_viewport()
+        if viewport is None:
+            return False
+        viewport.camera_path = prim_path
+        return True
+    except Exception as exc:
+        print(
+            f"[teleop_capture] viewport possession failed "
+            f"({exc.__class__.__name__}: {exc}); using default viewer cam.",
+            file=sys.stderr, flush=True,
+        )
+        return False
+
+
 def _as_torch(arr):
     """Coerce a ``wp.array`` or ``torch.Tensor`` to a ``torch.Tensor``.
 
@@ -384,6 +399,12 @@ def _stick_to_body_action(
       (no heading rotation). Push the left stick forward and the robot
       moves forward regardless of which way it's facing — classic
       first-person controls. Right-stick X still maps to yaw rate.
+
+    The 0.01 noise floor below is the post-normalization
+    "anything actually pressed" threshold (well below the operator-
+    tunable ``--deadzone`` applied at the gamepad reader); it exists
+    to keep floating-point jitter from emitting non-zero commands when
+    the stick is at rest.
     """
     if control_mode == "egocentric":
         body_vx = -ly  # stick-up = forward
@@ -590,7 +611,11 @@ def main() -> int:
     repo_root = Path(__file__).resolve().parents[3]
     capture_git_sha = _git_rev_parse_head(repo_root)
 
-    scene_metadata_path = _resolve_scene_metadata_path(args.scene, args.scene_metadata)
+    scene_metadata_path = resolve_scene_metadata_path(
+        scene=args.scene,
+        metadata_override=args.scene_metadata,
+        usd_override=args.scene_usd,
+    )
     scene_metadata_sha = hash_scene_metadata(scene_metadata_path)
     print(f"[teleop_capture] scene_metadata: {scene_metadata_path}")
     print(f"[teleop_capture] scene_metadata sha256: {scene_metadata_sha[:16]}...")
@@ -600,42 +625,6 @@ def main() -> int:
         scene_metadata_path,
         allowed_labels=args.target_label_filter,
     )
-    # Drop degenerate (0, 0, 0) targets. Infinigen spawns creature
-    # prims (carnivore / herbivore / etc.) at origin until placement
-    # finalizes; --from-usd extraction keeps their entries but the
-    # position is meaningless. Picker offering them sends the operator
-    # toward 0,0 and surfaces nothing usable.
-    pre_drop = len(candidates)
-    candidates = [
-        c for c in candidates
-        if (
-            abs(c.target_position_3d[0]) > 1e-3
-            or abs(c.target_position_3d[1]) > 1e-3
-            or abs(c.target_position_3d[2]) > 1e-3
-        )
-    ]
-    # Reindex so indices are dense again after the filter.
-    candidates = [
-        type(c)(
-            index=i,
-            instance_id=c.instance_id,
-            label=c.label,
-            target_position_3d=c.target_position_3d,
-            target_room_idx=c.target_room_idx,
-            target_room_type=c.target_room_type,
-            prim_path=c.prim_path,
-            mission_text=c.mission_text,
-        )
-        for i, c in enumerate(candidates)
-    ]
-    dropped = pre_drop - len(candidates)
-    if dropped:
-        print(
-            f"[teleop_capture] dropped {dropped} target(s) at origin "
-            "(Infinigen pre-placement prims); "
-            f"{len(candidates)} remain after filter.",
-            flush=True,
-        )
     if not candidates:
         print(
             f"[teleop_capture] ERROR: scene_metadata at {scene_metadata_path} "
@@ -703,15 +692,12 @@ def main() -> int:
         )
 
     if args.control_mode == "egocentric":
-        # Follow-cam behind + above the robot, looking forward.
-        env_cfg.viewer = ViewerCfg(
-            eye=(-2.5, 0.0, 1.4),
-            lookat=(2.0, 0.0, 0.5),
-            origin_type="asset_root",
-            asset_name="robot",
-            env_index=0,
-            resolution=(1280, 720),
-        )
+        # Don't author a follow-cam ViewerCfg here — a separate
+        # ViewerCfg costs an extra render pass. After env.reset()
+        # we instead re-point Kit's active viewport at the
+        # d555_camera_perception prim, sharing the Replicator camera
+        # render that the writer already consumes.
+        pass
     else:  # world_arcade
         # Center the editor camera over the scene's actual XY extent
         # (the pooled spawn-points' centroid). Default ViewerCfg sits
@@ -759,7 +745,7 @@ def main() -> int:
     perception_camera = scene.sensors["d555_camera_perception"]
     policy_camera = scene.sensors.get("d555_camera") if args.capture_policy_cam else None
 
-    if args.hide_overhead or args.hide_ceilings:
+    if args.hide_overhead:
         try:
             n_hidden, sample_paths = _hide_overhead_prims(
                 unwrapped, custom_regex=args.overhead_regex,
@@ -865,6 +851,19 @@ def main() -> int:
     print("=" * 64 + "\n", flush=True)
 
     obs, info = env.reset()
+
+    if args.control_mode == "egocentric":
+        # Possess the perception-camera prim now that env.reset has
+        # instantiated it. Saves a render pass vs a follow-cam
+        # ViewerCfg by sharing the Replicator camera the writer
+        # already consumes.
+        d555_prim = "/World/envs/env_0/Robot/strafer/body_link/d555_camera_perception"
+        if _possess_d555_viewport(d555_prim):
+            print(
+                f"[teleop_capture] egocentric viewport now possessing "
+                f"{d555_prim} (no follow-cam render pass).",
+                flush=True,
+            )
 
     quit_requested = False
     start_hold_frames = 0
@@ -1069,9 +1068,13 @@ def main() -> int:
                     perception_camera.data.output["distance_to_image_plane"],
                 )
                 rgb_policy = None
+                depth_policy_m = None
                 if policy_camera is not None:
                     rgb_policy = _rgb_to_uint8_hwc(
                         policy_camera.data.output["rgb"],
+                    )
+                    depth_policy_m = _depth_to_float32_hw(
+                        policy_camera.data.output["distance_to_image_plane"],
                     )
                 achieved = _achieved_vel(unwrapped)
                 pose_after, _ = _robot_pose(unwrapped)
@@ -1083,6 +1086,7 @@ def main() -> int:
                     rgb_perception=rgb_perception,
                     rgb_policy=rgb_policy,
                     depth_m=depth_m,
+                    depth_policy_m=depth_policy_m,
                 )
             else:
                 # Still need an RGB to feed the PIP / HUD distance — but

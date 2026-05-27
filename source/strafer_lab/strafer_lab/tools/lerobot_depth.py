@@ -32,32 +32,45 @@ import numpy as np
 from PIL import Image
 
 
-_DEPTH_DIR_NAME = "observation.depth.perception"
+# Default feature-name for the perception-camera depth sidecar. Other
+# cameras (e.g. the policy camera) ship under their own feature-name —
+# pass it explicitly to ``depth_root`` / ``episode_dir`` / ``frame_path``.
+PERCEPTION_DEPTH = "observation.depth.perception"
+POLICY_DEPTH = "observation.depth.policy"
+
 _DEPTH_SCALE_M_PER_UNIT = 0.001  # 16UC1 unit = 1 mm = 0.001 m
 
 
-def depth_root(dataset_root: Path | str) -> Path:
-    """Return ``<root>/videos/observation.depth.perception/``."""
-    return Path(dataset_root) / "videos" / _DEPTH_DIR_NAME
+def depth_root(
+    dataset_root: Path | str,
+    feature: str = PERCEPTION_DEPTH,
+) -> Path:
+    """Return ``<root>/videos/<feature>/``."""
+    return Path(dataset_root) / "videos" / feature
 
 
-def episode_dir(dataset_root: Path | str, episode_index: int) -> Path:
+def episode_dir(
+    dataset_root: Path | str,
+    episode_index: int,
+    feature: str = PERCEPTION_DEPTH,
+) -> Path:
     """Return the per-episode depth directory.
 
     Naming convention: ``episode-{episode_index:06d}``. The 6-digit width
     matches LeRobot v3's per-shard file naming convention and stays
     sortable up to ~1M episodes.
     """
-    return depth_root(dataset_root) / f"episode-{int(episode_index):06d}"
+    return depth_root(dataset_root, feature) / f"episode-{int(episode_index):06d}"
 
 
 def frame_path(
     dataset_root: Path | str,
     episode_index: int,
     frame_index: int,
+    feature: str = PERCEPTION_DEPTH,
 ) -> Path:
     """Return the depth PNG path for one frame."""
-    return episode_dir(dataset_root, episode_index) / f"{int(frame_index):06d}.png"
+    return episode_dir(dataset_root, episode_index, feature) / f"{int(frame_index):06d}.png"
 
 
 def write_depth_png(
@@ -99,9 +112,10 @@ def read_depth_png(path: Path | str) -> np.ndarray:
 def episode_frame_paths(
     dataset_root: Path | str,
     episode_index: int,
+    feature: str = PERCEPTION_DEPTH,
 ) -> Iterable[Path]:
     """Yield depth PNG paths for one episode in frame order."""
-    ep_dir = episode_dir(dataset_root, episode_index)
+    ep_dir = episode_dir(dataset_root, episode_index, feature)
     if not ep_dir.is_dir():
         return iter(())
     return iter(sorted(ep_dir.glob("*.png")))

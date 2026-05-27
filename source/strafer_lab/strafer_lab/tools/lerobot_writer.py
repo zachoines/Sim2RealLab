@@ -69,6 +69,13 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from .lerobot_depth import (
+    PERCEPTION_DEPTH,
+    POLICY_DEPTH,
+    frame_path as depth_frame_path,
+    write_depth_png,
+)
+
 
 # Resolution constants for the InfinigenPerception scene. Kept here so
 # the writer's features dict is deterministic without importing the
@@ -164,13 +171,26 @@ class _DepthWriterPool:
     queued depth at <=2MB/frame is harmless on the DGX), drain-at-
     episode-boundary via :meth:`wait_until_done`.
 
+    **Episode-boundary semantics**:
+    :meth:`StraferLeRobotWriter.end_episode` calls :meth:`wait_until_done`
+    *before* either ``save_episode`` (the kept path) or
+    ``clear_episode_buffer`` (the discarded path). The next
+    ``begin_episode`` therefore can never see queued frames from the
+    previous episode, so an episode-index reuse on discard is safe.
+
+    **Ctrl+C semantics**: workers are daemon threads. A normal Ctrl+C
+    unwinds through the writer's context manager, which calls
+    :meth:`StraferLeRobotWriter.finalize` and drains the queue cleanly.
+    A *second* Ctrl+C during that drain kills the daemon workers
+    mid-flush and a handful of in-flight frames are lost — which is
+    the "abort everything now" intent. The in-flight episode is
+    discarded in either case, so partial data never reaches disk.
+
     Worker exceptions are captured and re-raised on the next drain so a
     bad disk doesn't get silently swallowed.
     """
 
     def __init__(self, num_workers: int) -> None:
-        from .lerobot_depth import write_depth_png
-
         self._write_depth_png = write_depth_png
         self._queue: queue.Queue[tuple[Path, np.ndarray] | None] = queue.Queue()
         self._workers: list[threading.Thread] = []
@@ -326,8 +346,8 @@ class StraferLeRobotWriter:
                 "lerobot is required to construct StraferLeRobotWriter. "
                 "Install with `pip install --no-deps 'lerobot==0.5.1'` plus "
                 "the matching `datasets`, `av`, and `jsonlines` pins. "
-                "See docs/example_commands_cheatsheet.md → Harness data "
-                "capture for the full instructions.",
+                "See docs/HARNESS_DATA_CAPTURE.md → One-time env setup "
+                "for the full instructions.",
             ) from exc
 
         self._root = Path(root)
@@ -438,12 +458,15 @@ class StraferLeRobotWriter:
         rgb_perception: np.ndarray,
         rgb_policy: np.ndarray | None = None,
         depth_m: np.ndarray | None = None,
+        depth_policy_m: np.ndarray | None = None,
     ) -> None:
         """Append a tick to the current episode buffer.
 
         ``rgb_*`` arrays are uint8 ``(H, W, 3)``. ``depth_m`` is
-        float32 ``(H, W)`` in meters (optional; sidecar PNG written when
-        provided).
+        float32 ``(H, W)`` in meters for the perception camera (640x360);
+        ``depth_policy_m`` is the same for the policy camera (80x60).
+        Both are optional and ride as 16UC1 PNG sidecars next to the
+        LeRobot dataset proper.
         """
         if self._finalized:
             raise RuntimeError("add_frame called after finalize()")
@@ -498,22 +521,25 @@ class StraferLeRobotWriter:
 
         self._dataset.add_frame(frame)
 
-        # Depth sidecar — written outside the LeRobot dataset proper.
-        # When a worker pool is configured, hand the array off and let a
+        # Depth sidecars — written outside the LeRobot dataset proper.
+        # When a worker pool is configured, hand each array off and let a
         # background thread do the PIL encode + fsync; that keeps the
         # ~5–15 ms 16-bit PNG write off the env-step thread. The pool
         # copies the array because Isaac Sim recycles its render buffer
         # on the next step.
-        if depth_m is not None:
-            ep_idx = self._open_episode["episode_index"]
+        ep_idx = self._open_episode["episode_index"]
+        frame_idx = self._frame_count_this_episode
+        for arr, feature in (
+            (depth_m, PERCEPTION_DEPTH),
+            (depth_policy_m, POLICY_DEPTH),
+        ):
+            if arr is None:
+                continue
+            png_path = depth_frame_path(self._root, ep_idx, frame_idx, feature)
             if self._depth_pool is not None:
-                from .lerobot_depth import frame_path
-                png_path = frame_path(self._root, ep_idx, self._frame_count_this_episode)
-                self._depth_pool.submit(png_path, depth_m)
+                self._depth_pool.submit(png_path, arr)
             else:
-                from .lerobot_depth import frame_path, write_depth_png
-                png_path = frame_path(self._root, ep_idx, self._frame_count_this_episode)
-                write_depth_png(png_path, depth_m)
+                write_depth_png(png_path, arr)
 
         self._frame_count_this_episode += 1
 

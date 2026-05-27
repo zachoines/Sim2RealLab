@@ -17,7 +17,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from strafer_lab.tools.lerobot_depth import frame_path, read_depth_png
+from strafer_lab.tools.lerobot_depth import (
+    POLICY_DEPTH,
+    frame_path,
+    read_depth_png,
+)
 from strafer_lab.tools.lerobot_writer import (
     StraferLeRobotWriter,
     _DepthWriterPool,
@@ -354,6 +358,77 @@ class TestAsyncDepthWriting:
 
         recovered = read_depth_png(frame_path(writer_root, 0, 0))
         assert np.allclose(recovered, 1.25, atol=1e-3)
+
+
+class TestPolicyDepthSidecar:
+    """Policy-camera depth rides as its own feature-named sidecar."""
+
+    def test_policy_depth_lands_under_policy_feature_dir(self, writer_root):
+        with StraferLeRobotWriter(
+            root=writer_root,
+            repo_id="strafer-test/policy-depth",
+            fps=8,
+            capture_git_sha="x",
+            scene_metadata_hash="y",
+            capture_policy_cam=True,
+        ) as writer:
+            writer.begin_episode(
+                mission_text="t",
+                scene_id="s",
+                source_driver="teleop",
+                source_mission_source="scene-metadata",
+            )
+            for t in range(2):
+                writer.add_frame(
+                    sim_time=float(t),
+                    pose=[0.0] * 7,
+                    achieved_vel=[0.0] * 3,
+                    action=[0.0] * 3,
+                    rgb_perception=_make_rgb(360, 640),
+                    rgb_policy=_make_rgb(60, 80),
+                    depth_m=_make_depth(360, 640, base_m=2.0),
+                    depth_policy_m=_make_depth(60, 80, base_m=1.25),
+                )
+            writer.end_episode()
+
+        for f in range(2):
+            policy_png = frame_path(writer_root, 0, f, POLICY_DEPTH)
+            perception_png = frame_path(writer_root, 0, f)  # default = perception
+            assert policy_png.is_file(), f"missing policy depth PNG: {policy_png}"
+            assert perception_png.is_file()
+            # The two feature dirs are distinct so frames don't collide.
+            assert policy_png.parent != perception_png.parent
+            assert np.allclose(read_depth_png(policy_png), 1.25, atol=1e-3)
+            assert np.allclose(read_depth_png(perception_png), 2.0, atol=1e-3)
+
+    def test_policy_depth_is_optional(self, writer_root):
+        """Without depth_policy_m, no policy-depth dir is created."""
+        with StraferLeRobotWriter(
+            root=writer_root,
+            repo_id="strafer-test/policy-depth-skip",
+            fps=8,
+            capture_git_sha="x",
+            scene_metadata_hash="y",
+            capture_policy_cam=True,
+        ) as writer:
+            writer.begin_episode(
+                mission_text="t",
+                scene_id="s",
+                source_driver="teleop",
+                source_mission_source="scene-metadata",
+            )
+            writer.add_frame(
+                sim_time=0.0,
+                pose=[0.0] * 7,
+                achieved_vel=[0.0] * 3,
+                action=[0.0] * 3,
+                rgb_perception=_make_rgb(360, 640),
+                rgb_policy=_make_rgb(60, 80),
+                depth_m=_make_depth(360, 640),
+            )
+            writer.end_episode()
+
+        assert not (writer_root / "videos" / POLICY_DEPTH).exists()
 
 
 class TestDepthWriterPool:

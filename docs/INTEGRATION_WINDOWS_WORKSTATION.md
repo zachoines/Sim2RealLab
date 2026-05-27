@@ -88,7 +88,7 @@ python -c "import isaacsim; print(isaacsim.__version__)"
 # → 6.0.0.0 (or newer)
 ```
 
-## Step A4: Clone + install Isaac Lab pinned to the DGX commit
+## Step A4: Clone Isaac Lab pinned to the DGX commit + run `isaaclab.bat --install rl`
 
 ```powershell
 Set-Location C:\Workspace\Sim2RealLab
@@ -97,54 +97,31 @@ Set-Location IsaacLab
 git checkout ae41e2aca68    # VERSION 3.0.0 pre-release; matches what env_isaaclab3 on the DGX runs as of 2026-05
 $env:ACCEPT_EULA = "Y"; $env:OMNI_KIT_ACCEPT_EULA = "Y"; $env:PRIVACY_CONSENT = "Y"
 .\isaaclab.bat --install rl
-# .bat installs isaaclab + isaaclab_rl + isaaclab_mimic; the rest of the
-# submodules strafer_lab depends on are not auto-installed on the Windows
-# .bat path (Linux .sh installs more by default — drift between the two).
-# Install them explicitly with --no-deps so pip doesn't try to fetch them
-# from PyPI (they're source-only):
 Set-Location ..
-pip install -e IsaacLab\source\isaaclab_assets --no-deps
-pip install -e IsaacLab\source\isaaclab_tasks --no-deps
 ```
 
 `IsaacLab/` is in `.gitignore`. The clone lives inside the repo for path-locality but is not tracked.
 
 **Why the SHA pin.** As of 2026-05 strafer_lab's bridge imports break against IsaacLab `develop` tip — PR #4741 lazy-loaded `isaaclab.utils`, so `from isaaclab.utils import configclass` resolves to a submodule instead of the function. The DGX is on commit `ae41e2aca68` (`VERSION = 3.0.0`); pinning the Windows checkout to the same commit keeps the two hosts behaviorally identical. The drift catch-up is tracked in [`docs/tasks/active/tooling/isaaclab-develop-upgrade.md`](tasks/active/tooling/isaaclab-develop-upgrade.md); when that brief ships, drop this pin.
 
-**Then upgrade rsl_rl to 5.x.** `isaaclab.bat --install rl` at this commit pins `rsl-rl-lib==3.1.2`, but strafer_lab uses the rsl_rl 5.x distribution API (`from rsl_rl.modules.distribution import Distribution`). Force-upgrade after the IsaacLab install:
+## Step A5: Apply Windows-native patches in one command
+
+`isaaclab.bat --install rl` on Windows leaves four documented gaps vs the DGX `./isaaclab.sh --install rl` baseline. Run the bundled patcher to close all four in one shot (each patch is idempotent + per-clone; safe to re-run after a `git pull` of IsaacLab or a recreate of `venv_isaac`):
 
 ```powershell
-pip install --upgrade "rsl-rl-lib"   # ⇒ 5.3.0 or newer
-python -c "from rsl_rl.modules.distribution import Distribution; print('ok')"
+.\Scripts\Install-IsaacLab-WindowsPatches.ps1
 ```
 
-**Then patch IsaacLab's USD spawner for Windows.** At commit
-`ae41e2aca68`, `IsaacLab/source/isaaclab/isaaclab/sim/spawners/from_files/from_files.py`
-unconditionally `import fcntl` at line 8 — Unix-only — so any env that
-spawns a USD asset (i.e. every strafer_lab env) crashes on Windows.
-The `fcntl` is only actually called when `LOCAL_WORLD_SIZE > 1` (multi-rank
-distributed training), so the fix is a conditional import:
+What it does:
 
-```powershell
-# In IsaacLab/source/isaaclab/isaaclab/sim/spawners/from_files/from_files.py,
-# replace `import fcntl` (line 8) with:
-#
-#   import sys
-#   if sys.platform != "win32":
-#       import fcntl
-#   else:
-#       fcntl = None  # type: ignore[assignment]
-#
-# Single-process runs never enter the _world_size > 1 branch that uses
-# fcntl, so this is safe.
-```
+1. **Guards IsaacLab's `import fcntl` (Unix-only)** in `IsaacLab/source/isaaclab/isaaclab/sim/spawners/from_files/from_files.py` behind a `sys.platform != "win32"` check. Without this, every USD spawn crashes on Windows. (The fcntl runtime use is gated on `LOCAL_WORLD_SIZE > 1` — multi-rank distributed training — so single-process Windows never hits the guarded code.)
+2. **Editable-installs the IsaacLab submodules `.bat` skips.** `.\isaaclab.bat --install rl` installs only `isaaclab + isaaclab_rl`; the Linux `.sh` also installs `isaaclab_assets`, `isaaclab_tasks`, `isaaclab_mimic`, `isaaclab_visualizers`. strafer_lab needs the first two; the headed Kit visualizer (`--video` / `play_strafer_navigation.py --viz kit`) needs the fourth.
+3. **Upgrades `rsl-rl-lib` to 5.x.** `.\isaaclab.bat --install rl` pins `rsl-rl-lib==3.1.2`; strafer_lab's `distributions.py` imports `from rsl_rl.modules.distribution import Distribution`, which is a 5.x-only API.
+4. **Creates a name-only `omni.kit.pip_archive` stub extension.** The Windows isaacsim 6.0.0 pip wheel doesn't ship that extension, but Kit's solver expects it as a transitive dep when the headed `exp.full.kit` experience loads `omni.kit.telemetry`. Without the stub, headed `--video` / `--viz kit` runs crash Kit's renderer init with `No versions of omni.kit.pip_archive that satisfies`. The stub is name-only (the actual pip-bundled wheels are in `omni.services.pip_archive`, which IS shipped).
 
-This patch lives in the (gitignored) IsaacLab clone — re-apply after any
-`git pull` of IsaacLab. Tracked in
-[`docs/tasks/active/tooling/isaaclab-develop-upgrade.md`](tasks/active/tooling/isaaclab-develop-upgrade.md)
-for upstream resolution.
+All four gaps are upstream IsaacLab / NVIDIA-Isaac-Sim issues (not project bugs). When they're resolved upstream this script becomes a no-op and can be deleted; progress tracked in [`docs/tasks/active/tooling/isaaclab-develop-upgrade.md`](tasks/active/tooling/isaaclab-develop-upgrade.md).
 
-## Step A5: Install strafer packages in editable mode
+## Step A6: Install strafer packages in editable mode
 
 ```powershell
 Set-Location C:\Workspace\Sim2RealLab
@@ -154,16 +131,16 @@ pip install -e source\strafer_lab
 # this Windows host. The data-collection path does not require them.
 ```
 
-## Step A6: Smoke tests
+## Step A7: Smoke tests
 
-### A6a — Isaac Sim Kit boots headed (WSLg-free, runs on RTX 4080 directly)
+### A7a — Isaac Sim Kit boots headed (WSLg-free, runs on RTX 4080 directly)
 
 ```powershell
 .\Scripts\launch_isaac_sim.ps1
 # → Kit editor viewport opens. Ctrl+C in PowerShell to exit.
 ```
 
-### A6b — Env smoke through the launcher
+### A7b — Env smoke through the launcher
 
 ```powershell
 .\Scripts\launch_isaac_lab.ps1 Scripts\test_strafer_env.py `
@@ -172,7 +149,7 @@ pip install -e source\strafer_lab
 
 NoCam variant — fastest, no scene-asset dependencies. Expect a clean exit after 10 seconds. PhysX runs on the GPU natively (no WSL2 indirection), so no `No CUDA context manager` warnings.
 
-### A6c — The actual use case: gamepad demo collection
+### A7c — The actual use case: gamepad demo collection
 
 ```powershell
 .\Scripts\launch_isaac_lab.ps1 source\strafer_lab\scripts\collect_demos.py `

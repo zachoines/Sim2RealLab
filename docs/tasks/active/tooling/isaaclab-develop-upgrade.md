@@ -2,7 +2,7 @@
 
 **Type:** investigation + task
 **Owner:** DGX agent (lane: `source/strafer_lab/`)
-**Priority:** P3
+**Priority:** P2 (raised from P3 by the Windows bringup spike — drift now blocks the Windows-native data-collection path without per-clone manual patches; user flagged catch-up as a priority once the in-flight harness epic on DGX stabilizes)
 **Estimate:** M (~2-3 days; bisect + fix import drift, validate bridge + training smoke, re-publish pin)
 **Branch:** task/isaaclab-develop-upgrade
 
@@ -50,8 +50,41 @@ API-breaking refactors. The Windows-workstation bringup (commit
   (every strafer_lab env spawns USDs). The runtime use is guarded by
   `if _world_size > 1` (multi-rank distributed training only), so the
   fix is a `sys.platform != "win32"` guard around the import. The
-  Windows bringup runbook documents the per-clone patch; upstream
-  resolution would let new operators skip that step.
+  Windows bringup ships `Scripts\Install-IsaacLab-WindowsPatches.ps1`
+  to apply the patch per-clone; upstream resolution would let new
+  operators skip that step.
+
+- **`isaaclab.bat --install rl` is incomplete on Windows.** `.bat`
+  installs only `isaaclab + isaaclab_rl`; the Linux `.sh` also
+  installs `isaaclab_assets`, `isaaclab_tasks`, `isaaclab_mimic`,
+  `isaaclab_visualizers`. strafer_lab depends on `_assets` and
+  `_tasks` (errors at import: `Could not find a version that
+  satisfies the requirement isaaclab_assets`); the headed Kit
+  visualizer triggered by `--video` and `play_strafer_navigation.py
+  --viz kit` depends on `_visualizers` (errors at runtime:
+  `Visualizer 'kit' skipped: isaaclab_visualizers is not installed.
+  Install with: pip install isaaclab_visualizers[kit]`). The
+  Windows-patches script does the `pip install -e
+  IsaacLab/source/<submod> --no-deps` for all four. Upstream fix:
+  align `.bat` install tokens with `.sh`.
+
+- **`omni.kit.pip_archive` missing from `isaacsim[all,extscache]>=6.0.0`
+  on Windows.** The Windows isaacsim pip wheel doesn't ship that
+  extension, but Kit's solver expects it as a transitive dep from
+  `omni.kit.telemetry` (which is loaded by `isaacsim.exp.full.kit`,
+  the headed `--viz kit` experience). Without it, headed runs crash
+  Kit's renderer init with `No versions of omni.kit.pip_archive that
+  satisfies`, cascading into a follow-up
+  `ModuleNotFoundError: omni.physxfabric` when fabric tries to
+  enable transitively. Headless training is unaffected (a different
+  Kit experience is used). The Windows-patches script drops a
+  name-only stub extension at
+  `venv_isaac/Lib/site-packages/isaacsim/extscache/omni.kit.pip_archive-0.0.1-stub/`
+  to satisfy the dep solver — runtime use of pip_archive is for
+  pip-bundled boto3/etc which strafer training doesn't touch.
+  Upstream fix: include `omni.kit.pip_archive` in the
+  `isaacsim-extscache-kit` wheel for Windows, or remove the
+  transitive dep from `omni.kit.telemetry`.
 
 - **PhysX-on-WSL2 GPU integration is currently broken.** Spike via
   `test_strafer_env.py --env Isaac-Strafer-Nav-Real-NoCam-v0
@@ -99,7 +132,15 @@ brief is the follow-up that actually catches up.
 
 ## Approach
 
-### Phase 1 — Map the drift (½ day)
+**Ordering: DGX-first, Windows-second.** The DGX is the canonical
+training / bridge host and the operator's reference for "does this
+upgrade hold." Land + validate the upgrade there on a stable
+checkpoint, then port the resulting baseline to Windows (which has
+its own additional drift items captured in the Decision log section
+above). Don't try to fix both at once — Windows-specific gaps will
+mask Linux-specific drift if mixed.
+
+### Phase 1 — DGX: map the drift (½ day)
 
 - `cd ~/Documents/repos/IsaacLab && git log ae41e2aca68..origin/develop
   --oneline -- source/isaaclab/isaaclab/utils/` — enumerate the
@@ -111,21 +152,36 @@ brief is the follow-up that actually catches up.
   then) OR a known-good commit on develop. Capture rationale in
   the PR.
 
-### Phase 2 — Fix the imports (1 day)
+### Phase 2 — DGX: fix the imports + validate Linux baseline (1-2 days)
 
 - Mechanical changes: `from isaaclab.utils import X` →
   `from isaaclab.utils.X import X` for any X now lazy-loaded as a
   submodule. Probably `configclass`, possibly `string_utils`,
   `math_utils`, `dict_utils`.
 - Run `python -c "import strafer_lab"` until it imports cleanly.
-
-### Phase 3 — Validate (1 day)
-
 - `make sim-bridge` end-to-end (cross-host with the Jetson).
 - `make sim-harness` for one scene.
 - `Scripts/train_strafer_navigation.py --num_envs 16` for one iter.
 - Re-derive bridge per-phase numbers, update
   `bridge-runtime-invariants.md` if anything drifted.
+
+### Phase 3 — Windows: port baseline + retire `Install-IsaacLab-WindowsPatches.ps1` items that newer IsaacLab resolves (½-1 day)
+
+- On the Windows workstation: pull the new IsaacLab pin (per the
+  updated runbook), recreate `venv_isaac`, re-run
+  `Scripts\Install-IsaacLab-WindowsPatches.ps1`, check which of the
+  four patches the script reports as "already patched" / "already
+  installed" — those are the ones newer IsaacLab fixed upstream.
+- For each gap that the upgrade closed, drop that section from the
+  Windows-patches script and update the runbook Step A5 to remove
+  it from the documented list.
+- If all four are closed: delete `Scripts\Install-IsaacLab-WindowsPatches.ps1`
+  outright and collapse Step A5 to a note that it used to be needed.
+- Re-run the Path A smoke (`launch_isaac_lab.ps1
+  Scripts\test_strafer_env.py --env Isaac-Strafer-Nav-Real-NoCam-v0
+  --num_envs 8 --duration 10`) and the headed `--video` training
+  smoke captured under Step A7b/A7c. If either regresses, file a
+  new follow-up brief rather than scoping into this one.
 
 ## Out of scope
 

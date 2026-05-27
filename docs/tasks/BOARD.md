@@ -127,7 +127,7 @@ Five briefs (`behavior-cloning-data-expansion`, `teleop-driver`, `trajectory-fir
 |---|---|---|---|
 | [`nav2-sim-real-promotion-architecture`](active/tooling/nav2-sim-real-promotion-architecture.md) | P2 | active | Jetson |
 | [`unify-test-targets-and-ci`](active/tooling/unify-test-targets-and-ci.md) | P3 | active | Either |
-| [`isaaclab-develop-upgrade`](active/tooling/isaaclab-develop-upgrade.md) | P3 | active | DGX |
+| [`isaaclab-develop-upgrade`](active/tooling/isaaclab-develop-upgrade.md) | P2 | active | DGX |
 | [`windows-workstation-bringup-sim-bridge`](active/tooling/windows-workstation-bringup-sim-bridge.md) | P3 | active | DGX |
 
 ### Experimental (long-horizon bets)

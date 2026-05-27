@@ -1,5 +1,25 @@
 # Expand the harness data path for behavior-cloning-grade output
 
+**Status:** Retired 2026-05-24. Never picked up. Reason: folded
+into the consolidated
+[`harness-architecture`](../active/harness/harness-architecture.md)
+brief alongside the teleop, oracle, and trajectory-first driver
+briefs and the output-format-alignment spec. The 2026-05-24
+harness audit found that (a) the JSONL+JPEG+depth.npy schema this
+brief specified had never been written to production data, so
+preserving back-compat was protecting purely theoretical surface,
+and (b) the per-driver schema-extension approach across 4
+separate briefs duplicated context. The consolidated brief
+commits to LeRobot v3 from the first capture and merges all four
+driver paths into one `Scripts/capture.py` entry point with
+`--driver` × `--mission-source` flags. The per-tick schema, the
+action-stream / time-alignment / depth requirements, the
+`--inject-bad-grounding` flag, and the multi-camera capture
+section all live in the consolidated brief's
+[Output format](../active/harness/harness-architecture.md#output-format--lerobot-v3)
++ [Cross-cutting concerns](../active/harness/harness-architecture.md#cross-cutting-concerns)
+sections.
+
 **Type:** refactor / new feature
 **Owner:** DGX agent (`strafer_lab` harness + `perception_writer`
 extensions; no Jetson-side code changes — the bridge already

@@ -457,3 +457,167 @@ def test_recurrent_onnx_determinism_check_catches_stochastic_head(
             tmp_path / "stochastic_depth.onnx",
             obs_dim=bad.input_size,
         )
+
+
+# ---------------------------------------------------------------------------
+# TorchScript-safe DeFM depth encoder
+# ---------------------------------------------------------------------------
+
+
+# The DEPTH variant's ``_DepthGRUExportModel`` is scripted via
+# ``torch.jit.script``. DeFM's ``BiFPN.WeightedFusion.forward`` uses
+# ``sum(generator)`` over a list of tensors, which TorchScript cannot type-
+# infer. ``_TorchSafeDeFMDepthEncoder`` pre-traces the full preprocess ->
+# backbone -> projection pipeline so the scripter encounters an opaque
+# ScriptModule at that attribute slot rather than recursing into the
+# un-scriptable Python. These tests pin the pattern against a synthetic
+# DeFM-shaped stub so a future regression in the wrapper (e.g. someone
+# unconditionally deep-copying the encoder again) trips here, not at the
+# next real-checkpoint export.
+
+
+class _StubBifpnFusion(nn.Module):
+    """Mimics DeFM's ``BiFPN.WeightedFusion.forward`` un-scriptable construct."""
+
+    def __init__(self, n_features: int = 3) -> None:
+        super().__init__()
+        self.weights = nn.Parameter(torch.ones(n_features))
+
+    def forward(self, features: list) -> torch.Tensor:
+        import torch.nn.functional as F
+
+        w = F.relu(self.weights)
+        w = w / (w.sum() + 1e-6)
+        # The exact pattern torch.jit.script cannot infer the return type of:
+        return sum(w[i] * f for i, f in enumerate(features))
+
+
+class _StubDeFMBackbone(nn.Module):
+    """DeFM-shaped backbone: ``(N, 3, 224, 224)`` -> ``{"global_backbone": (N, C)}``.
+
+    Returns a dict to exercise the dict-index access pattern the real
+    backbone exposes and that the trace must capture concretely.
+    """
+
+    def __init__(self, channels: int = 8) -> None:
+        super().__init__()
+        self.conv = nn.Conv2d(3, channels, 3, padding=1)
+        self.fusion = _StubBifpnFusion(3)
+
+    def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
+        a = self.conv(x)
+        b = a * 0.5
+        c = a + b
+        fused = self.fusion([a, b, c])
+        pooled = fused.mean(dim=(2, 3))
+        return {"global_backbone": pooled}
+
+
+def _make_stub_defm_encoder(
+    backbone_channels: int = 8, output_dim: int = 16
+) -> "DeFMDepthEncoder":  # noqa: F821 — runtime import below
+    """Build a ``DeFMDepthEncoder``-typed instance without hitting torch.hub.
+
+    The real ``DeFMDepthEncoder.__init__`` downloads ~100 MB from torch.hub
+    on first call; that's wrong-shaped overhead for a unit test. We skip
+    the parent init and slot the stub backbone + a fresh projection so
+    ``isinstance(stub, DeFMDepthEncoder)`` is still True (the conditional
+    swap in ``_DepthGRUExportModel.__init__`` keys on that).
+    """
+    from strafer_lab.tasks.navigation.agents.depth_encoders import DeFMDepthEncoder
+
+    stub = DeFMDepthEncoder.__new__(DeFMDepthEncoder)
+    nn.Module.__init__(stub)
+    stub.backbone = _StubDeFMBackbone(channels=backbone_channels)
+    stub.projection = nn.Linear(backbone_channels, output_dim)
+    return stub
+
+
+def test_torch_safe_defm_encoder_wraps_unscriptable_backbone(
+    tmp_path: Path,
+) -> None:
+    """The TS-safe wrapper around a DeFM-shaped stub:
+
+    1. Builds without raising (trace captures the BiFPN sum-generator).
+    2. The inner ``traced`` attribute IS a ScriptModule (opaque to outer
+       scripter).
+    3. The outer wrapper scripts cleanly via ``torch.jit.script``.
+    4. The scripted artifact round-trips through save+load and produces
+       byte-identical embeddings on two same-input calls.
+    """
+    from strafer_lab.tasks.navigation.agents.depth_rnn_model import (
+        _TorchSafeDeFMDepthEncoder,
+        _DEFAULT_DEPTH_OBS_DIM,
+    )
+
+    torch.manual_seed(0)
+    stub_encoder = _make_stub_defm_encoder(output_dim=16).eval()
+
+    wrapper = _TorchSafeDeFMDepthEncoder(stub_encoder).eval()
+    assert isinstance(wrapper.traced, torch.jit.ScriptModule), (
+        "trace did not produce a ScriptModule -- outer scripter would still "
+        "recurse into the un-scriptable BiFPN sum-generator"
+    )
+
+    scripted = torch.jit.script(wrapper)
+
+    out_path = tmp_path / "wrapper.pt"
+    scripted.save(str(out_path))
+    reloaded = torch.jit.load(str(out_path))
+
+    dummy = torch.randn(1, _DEFAULT_DEPTH_OBS_DIM, dtype=torch.float32)
+    out_a = reloaded(dummy)
+    out_b = reloaded(dummy)
+    assert out_a.shape == (1, 16), f"expected (1, 16), got {tuple(out_a.shape)}"
+    assert torch.equal(out_a, out_b), (
+        "save+reload TS DeFM-safe wrapper non-deterministic across same-input calls"
+    )
+
+
+def test_torch_safe_defm_encoder_matches_eager_within_trace_tolerance() -> None:
+    """The traced pipeline must agree with the eager wrapper's pipeline on
+    the trace shape. This guards against silent embedding drift if the
+    pre-/post-processing in ``_DeFMTracePipeline`` is ever reordered."""
+    from strafer_lab.tasks.navigation.agents.depth_rnn_model import (
+        _TorchSafeDeFMDepthEncoder,
+        _DeFMTracePipeline,
+        _DEFAULT_DEPTH_OBS_DIM,
+    )
+
+    torch.manual_seed(0)
+    stub_encoder = _make_stub_defm_encoder().eval()
+
+    wrapper = _TorchSafeDeFMDepthEncoder(stub_encoder).eval()
+    # Build a separate eager-Python pipeline with weight-identical copies.
+    eager = _DeFMTracePipeline(
+        backbone=stub_encoder.backbone,
+        projection=stub_encoder.projection,
+    ).eval()
+
+    dummy = torch.randn(1, _DEFAULT_DEPTH_OBS_DIM, dtype=torch.float32)
+    with torch.no_grad():
+        traced_out = wrapper(dummy)
+        eager_out = eager(dummy)
+    # Trace records concrete graphs; on float32 the agreement is exact.
+    assert torch.equal(traced_out, eager_out), (
+        "traced and eager DeFM pipelines diverge -- the trace captured a "
+        "different graph than the eager forward expects"
+    )
+
+
+def test_torch_safe_defm_encoder_only_used_for_defm_subclass() -> None:
+    """The substitution in ``_DepthGRUExportModel.__init__`` keys on
+    ``isinstance(model.depth_encoder, DeFMDepthEncoder)``. A non-DeFM
+    encoder (e.g. the legacy CNN) must NOT be wrapped -- it scripts as
+    a plain ``nn.Module`` and a needless trace would burn build time
+    plus pin the artifact to a single batch size unnecessarily."""
+    from strafer_lab.tasks.navigation.agents.depth_encoders import (
+        DeFMDepthEncoder,
+        DepthEncoder,
+    )
+
+    plain = DepthEncoder()
+    assert not isinstance(plain, DeFMDepthEncoder), (
+        "legacy DepthEncoder must not be a DeFMDepthEncoder subclass; "
+        "the substitution conditional would over-fire and trace it"
+    )

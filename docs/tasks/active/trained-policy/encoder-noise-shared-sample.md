@@ -33,7 +33,7 @@ Read these before starting:
 - [observation-contract-cleanup.md](../../completed/observation-contract-cleanup.md) —
   predecessor that landed the FK rewrite and documented this gap
   honestly in `body_velocity_xy`'s docstring.
-- [inference-package.md](inference-package.md) — Phase 2's NOCAM-fields
+- [inference-package.md](../../completed/inference-package.md) — Phase 2's NOCAM-fields
   obs-parity acceptance becomes tighter once the policy sees the same
   noise structure the inference node sees.
 

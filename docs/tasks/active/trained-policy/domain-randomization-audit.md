@@ -4,7 +4,7 @@
 **Owner:** DGX (`strafer_lab` lane — env config + training run)
 **Priority:** P1 — sim-to-real transfer quality is the entire premise
 of the `strafer_direct` MVP in
-[`inference-package`](inference-package.md). The current
+[`inference-package`](../../completed/inference-package.md). The current
 `sim_real_cfg.py` was tuned in isolation against the brief's authors'
 intuition; comparing the knob values to what peer teams (Isaac Lab
 official envs, Wheeled Lab, ANYmal locomotion, GR00T sim-to-real
@@ -32,7 +32,7 @@ exposes**.
 Read these before starting:
 - [context/repo-topology.md](../../context/repo-topology.md)
 - [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [inference-package.md](inference-package.md) — Phase 5's
+- [inference-package.md](../../completed/inference-package.md) — Phase 5's
   acceptance metric (1.0 m/s sustained vx with obstacle avoidance) is
   the criterion this brief's training resume must defend on the real
   robot, not just in sim.
@@ -54,7 +54,7 @@ defines three presets:
   `*-Robust-*` envs.
 
 The `*-Real-ProcRoom-Depth-v0` env (the
-[`inference-package`](inference-package.md)
+[`inference-package`](../../completed/inference-package.md)
 deployment target) trains against `REAL_ROBOT_CONTRACT`.
 
 ### What peer pipelines randomize
@@ -68,6 +68,7 @@ deployment target) trains against `REAL_ROBOT_CONTRACT`.
 | Action latency | 0–2 steps (0–66 ms) | Wheeled Lab: "actuator delays randomized per roll-out" — typically 10–100 ms for serial/CAN bus. | OK for ROS-over-LAN; **too generous for real on-chassis serial**, which is closer to 5–15 ms. If sim-in-the-loop uses ROS but real chassis uses RoboClaw direct, these diverge. |
 | Depth latency | 1 step (33 ms) | Intel D555 datasheet: stereo matching alone adds ~30–66 ms; add ROS transport. | **Too tight.** Real D555 publish-to-subscribe latency on Jetson is 60–120 ms measured. Widen to `(2, 4)` steps. |
 | Control rate jitter | ±5% | ROS on Jetson under load: P99 jitter is 20–50% per [`rtabmap-cold-start-determinism`](../reliability/rtabmap-cold-start-determinism.md). | **Too tight.** Widen to ±15% for REAL, ±25% for ROBUST. |
+| **TF staleness (goal pose / base pose age)** | **not randomized** — sim re-reads the goal pose from the command term at every tick, fresh in body frame; the policy never sees an age-distribution on its goal observation | Real Jetson reads goal pose in body frame via the chain `(map→odom)` ⊗ `(odom→base_link)` from a TF buffer that's only as fresh as the slowest publisher in the chain. RTAB-Map's `map→odom` updates at 1–10 Hz; under tracking loss or cold-start ([`rtabmap-cold-start-determinism`](../reliability/rtabmap-cold-start-determinism.md)) it can stall for 100 ms+ at a time. The policy's `body_frame_goal` reading then references a *stale* base pose, so the goal-in-body-frame drifts as the robot moves even though the goal hasn't. | **Whole axis not randomized.** This is the per-tick "data staleness" companion to the per-tick control-rate jitter row above — control-jitter randomizes when *the policy ticks*, but TF-staleness randomizes when *the policy's spatial reference frame last updated*. Two-step approach: (1) measure per Phase 1 item 6 below; (2) extend `randomize_d555_mount_offset`'s sibling (or file a new event term) to age the body-frame goal observation by a sampled latency drawn from the measured distribution. Same `mode="interval"` cadence as the existing jitter randomization so the staleness drifts within an episode. |
 | D555 mount angle | ±1° | Hand-mounted hardware, screw tolerances, chassis flex | Reasonable but probably understated; ±3° (ROBUST today) more realistic. |
 | **D555 mount POSITION** | **not randomized** — fixed at `(CAMERA_OFFSET_X, CAMERA_OFFSET_Y, CAMERA_OFFSET_Z) = (0.20, 0.0, 0.25)` m | Hand-mounted bracket, screw-hole tolerance ~±2 mm, cable strain, operator unbolt/rebolt during dev | **Whole axis not randomized.** Every time the operator removes the D555 (e.g. for the IMU kernel fix from `docs/D555_IMU_KERNEL_FIX.md`, lens cleaning, or transport) and rebolts it, the position shifts by ~1–3 cm. The existing `randomize_d555_mount_offset` event in [`events.py:450`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py) handles orientation (`_d555_mount_quat`) and the IMU obs path rotates readings through it; nothing parallel exists for position. |
 | ProcRoom difficulty | `min_level=7, max_level=7` (fixed) | Curriculum literature: progressive difficulty during training. | **Fixed at one level.** Policy never sees easier or harder rooms. Doesn't generalize to deployment scene variance. |
@@ -138,9 +139,21 @@ knobs where peer references suggest the current config is mis-tuned:
    absolute offset (does `strafer_shared.constants` need to be
    updated?) and the rebolt delta (what's the variance the policy
    needs to handle).
+6. **TF buffer staleness on the goal-pose body-frame transform.** On
+   the running Jetson stack with RTAB-Map publishing `map→odom`,
+   subscribe to the same goal topic the inference node consumes and at
+   every tick log `(now - tf_buffer.lookup_transform(...).stamp)` for
+   the `map→base_link` lookup the goal-pose body-frame projection
+   uses. Run two regimes: (a) RTAB-Map nominally tracking; (b) the
+   cold-start window of [`rtabmap-cold-start-determinism`](../reliability/rtabmap-cold-start-determinism.md)
+   (immediately post DB-load, before first `localized` event). Report
+   median + P95 + P99 staleness for both, in `physics_dt` units. The
+   distribution from (a) feeds the steady-state randomization; the
+   tail of (b) informs the upper bound of the ROBUST tier.
 
 Record measurements in the PR description as a single table. Phase 1
-item 5 is the input for Phase 2's new position-randomization config.
+items 5 and 6 are the inputs for Phase 2's new randomization configs
+(camera position and TF staleness, respectively).
 
 ### Phase 2 — Update REAL_ROBOT_CONTRACT
 
@@ -174,7 +187,42 @@ TimingCfg(
 TimingCfg(
     control_frequency_jitter_pct=0.15,  # was 0.05
 )
+
+# NEW: TF staleness on the goal-pose body-frame projection.
+# Models the gap between when the goal pose was last updated in
+# map frame and when the policy reads the body-frame projection
+# (RTAB-Map map→odom only refreshes at 1–10 Hz). Sampled per
+# `mode="interval"` so the staleness drifts within an episode.
+TimingCfg(
+    goal_tf_staleness_steps=2,         # ~66 ms median (Phase 1 item 6)
+    goal_tf_staleness_steps_range=(0, 6),  # ~0–200 ms span; widen
+                                       # to (0, 12) in ROBUST tier
+                                       # to cover cold-start tail
+)
 ```
+
+#### TF staleness implementation (new — addresses Phase 1 item 6)
+
+The sim today projects the goal pose into body frame every tick via
+the command term (fresh per tick by construction). Real consumes a
+TF buffer, which can be 0–200 ms stale depending on RTAB-Map's
+`map→odom` publish cadence. Two options for closing the gap:
+
+1. **Sampled per-tick replay of a delayed base pose.** Cache a short
+   ring of past base-poses (length matching the upper jitter step
+   range); per env, per interval, sample a staleness step `k` and
+   use base-pose-from-`k`-ticks-ago when projecting the goal pose
+   into body frame for the policy observation. Cheap, additive, and
+   matches the steady-state RTAB-Map cadence.
+2. **Full TF buffer simulation.** Spin up a sim-side TF buffer
+   mirror with publish-rate latency injected. Higher fidelity but
+   significant scaffolding for a knob the policy primarily sees as a
+   delay on its goal observation.
+
+Pick Option 1 unless Phase 1 measurement shows the staleness
+distribution is bimodal in a way the simple delay can't capture
+(e.g. cold-start tail behaves qualitatively differently from
+steady-state). Document the choice in the PR description.
 
 #### D555 mount position randomization (new — addresses Phase 1 item 5)
 
@@ -305,9 +353,12 @@ Investigate before declaring done.
 
 - [ ] PR description includes a Phase 1 measurement table with median
       + range for: payload mass, battery voltage range, D555 latency
-      (median + p95), control-loop jitter (P50/P95/P99), and **D555
+      (median + p95), control-loop jitter (P50/P95/P99), **D555
       mount position** (absolute `(x, y, z)` vs.
-      `strafer_shared.constants` nominal, plus rebolt-cycle delta).
+      `strafer_shared.constants` nominal, plus rebolt-cycle delta),
+      and **TF staleness on the goal-pose body-frame transform**
+      (median + P95 + P99, for both nominal-tracking and cold-start
+      regimes).
 - [ ] If the measured absolute D555 position differs from the
       `CAMERA_OFFSET_X/Y/Z` constants by more than the rebolt-delta
       itself, update `strafer_shared.constants` in the same commit
@@ -335,6 +386,12 @@ Investigate before declaring done.
       (per-env build-time sample) OR Option 2 (skip; rely on IMU side
       only) per the Phase 2 decision rule; choice documented in the
       PR description.
+- [ ] TF staleness randomization implemented per Option 1 (sampled
+      per-tick replay of a delayed base pose) OR Option 2 (full TF
+      buffer simulation) per the Phase 2 decision rule; choice
+      documented in the PR description. Affects the policy
+      observation path that consumes the goal-pose body-frame
+      projection, NOT the depth or IMU obs paths.
 - [ ] All unit tests under `source/strafer_lab/tests/` still pass —
       contract changes are config-only; no API change.
 

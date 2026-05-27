@@ -3,14 +3,14 @@
 **Status:** Shipped 2026-05-18 (DGX).
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/38
 **Follow-ups:**
-[`export-torchscript-depth`](../active/trained-policy/export-torchscript-depth.md) — DEPTH TorchScript export on real checkpoints still fails on DeFM's `BiFPN` scriptability bug;
+[`export-torchscript-depth`](export-torchscript-depth.md) — DEPTH TorchScript export on real checkpoints still fails on DeFM's `BiFPN` scriptability bug;
 [`defm-preprocess-antialias-audit`](../active/investigations/defm-preprocess-antialias-audit.md) — measure projection-space delta between training-time antialiased preprocessing and the deployment ONNX-safe non-antialiased version, then decide alignment;
 [`export-sidecar-training-preset`](../active/trained-policy/export-sidecar-training-preset.md) — sidecar `training_preset` records the configclass name instead of the rsl_rl preset variable.
 
 **Type:** task / feature
 **Owner:** DGX (`strafer_lab` lane — RL agent code)
 **Priority:** P1 — gates the Jetson TRT-EP path for the DEPTH MVP in
-[`inference-package`](../active/trained-policy/inference-package.md). Without
+[`inference-package`](inference-package.md). Without
 ONNX, DEPTH inference on Jetson Orin Nano falls back to TorchScript-CPU,
 which misses the latency target.
 **Estimate:** M (~1–2 days: write `_OnnxDepthGRUModel` mirror of
@@ -33,15 +33,15 @@ plateauing well above the budget on the 4819-dim observation vector**.
 Read these before starting:
 - [context/repo-topology.md](../context/repo-topology.md)
 - [context/ownership-boundaries.md](../context/ownership-boundaries.md)
-- [recurrent-state-contract.md](../active/trained-policy/recurrent-state-contract.md) — the
+- [context/recurrent-policy-contract.md](../context/recurrent-policy-contract.md) — the
   canonical spec for hidden-state shape, reset semantics, and the
   determinism contract this brief's producer side must satisfy. Read
   before writing `_OnnxDepthGRUModel`; the contract pins what `h_in`
-  / `h_out` look like at the seam.
+  / `h_out` look like at the seam (points 1 + 3).
 - [policy-export-tooling.md](policy-export-tooling.md) — the export
   tooling whose `--formats pt,onnx` path errors today on DEPTH
   variants because of the gap this brief closes.
-- [strafer-inference-package.md](../active/trained-policy/inference-package.md) — the
+- [strafer-inference-package.md](inference-package.md) — the
   Jetson consumer whose Phase 3 latency target gates on the TRT-EP
   path, which gates on this brief.
 
@@ -204,7 +204,7 @@ Extend
   holds when `h_in` is reset between calls.
 - Verify the multi-input ONNX file is loadable via ORT-CPU on the DGX
   (TRT EP verification stays Jetson-side per
-  [`inference-package`](../active/trained-policy/inference-package.md)).
+  [`inference-package`](inference-package.md)).
 
 ### Phase 4 — Real-checkpoint smoke test
 
@@ -310,7 +310,7 @@ sweep happens after rsync per the strafer-inference brief.
   `torch.jit.script` because DeFM's `BiFPN.WeightedFusion.forward` uses
   `sum(generator)`. ONNX traces (not scripts) so the brief's primary
   goal is unaffected; the TorchScript residual ships separately as
-  [`export-torchscript-depth`](../active/trained-policy/export-torchscript-depth.md).
+  [`export-torchscript-depth`](export-torchscript-depth.md).
 - **Matching the antialiased DeFM preprocessing exactly.**
   `_onnx_safe_defm_preprocess` substitutes
   `F.interpolate(..., antialias=False)` for the torchvision Resize

@@ -1,5 +1,19 @@
 # Trajectory-first captioning: post-hoc speaker-model data augmentation
 
+**Status:** Retired 2026-05-24. Never picked up. Reason: folded
+into the consolidated
+[`harness-architecture`](../active/harness/harness-architecture.md)
+brief as the
+[Scripted × captioner](../active/harness/harness-architecture.md#scripted--captioner-trajectory-first-path)
+cell of the driver × mission-source matrix. The 2026-05-24 audit
+re-framed this brief's "trajectory-first regime" as a mission
+source (post-hoc speaker labels) rather than as a separate
+driver — it shares the scripted driver with the oracle path,
+differing only in how missions/labels are assigned. The
+Speaker-Follower context, instructive-voice rubric (the four
+binary checks), failure-pair synthesis logic, and captioner
+VRAM budget are preserved verbatim in the consolidated brief.
+
 **Type:** new feature
 **Owner:** DGX agent (in-process Isaac Lab driver wrapper +
 captioner pipeline; no Jetson code)

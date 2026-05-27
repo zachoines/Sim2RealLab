@@ -1,5 +1,9 @@
 # Build the `strafer_inference` Jetson runtime for trained-DEPTH policy execution
 
+**Status:** Shipped 2026-05-25 in `4b5315e` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/55
+**Follow-ups:** [`strafer-direct-sim-validation`](../active/trained-policy/strafer-direct-sim-validation.md) — operator-driven sim validation (rosbag parity + TRT-EP latency + architectural-win mission); runs when the sim-in-the-loop rig + a deployable DEPTH checkpoint are both in hand. [`policy-rate-shared-constants`](../active/trained-policy/policy-rate-shared-constants.md) — DGX-side delegation of `_DEFAULT_NAV_SIM_DT` / `_DEFAULT_NAV_DECIMATION` to the new shared constants this brief added.
+
 **Type:** task / feature
 **Owner:** Jetson (new ROS package lives in `strafer_ros/`)
 **Priority:** P1 — the trained-policy backend is the architectural answer
@@ -68,11 +72,12 @@ Read these before starting:
 - [context/bridge-runtime-invariants.md](../../context/bridge-runtime-invariants.md)
   — particularly the "Camera resolutions (sim mirrors real)" section,
   which is load-bearing for Phase 2's depth-downsample stage.
-- [recurrent-state-contract.md](recurrent-state-contract.md) — the
-  canonical spec for when `policy.reset()` fires at episode
-  boundaries. Read before writing the Phase 3 `reset()` call sites;
-  do not redefine the trigger set in this brief — consume it from
-  the contract.
+- [context/recurrent-policy-contract.md](../../context/recurrent-policy-contract.md)
+  — the canonical spec for hidden-state shape, reset semantics,
+  per-tick state threading, determinism, and thread-safety across
+  the train -> export -> inference chain. Read before writing the
+  Phase 3 `reset()` call sites; do not redefine the trigger set in
+  this brief — consume it from the contract (point 4).
 - [observation-contract-cleanup.md](../../completed/observation-contract-cleanup.md)
   — load-bearing predecessor for the Phase 2 NOCAM-fields obs-parity
   acceptance (≤ 1e-5 max abs delta). `body_velocity_xy` now does
@@ -303,14 +308,18 @@ guarantee — if it doesn't hold, the policy will not transfer.
   launch-time failure, not silent degradation. The autonomy-side
   `JetsonRosClient` then sees the action server as unavailable
   and falls back to `nav2`.
-- **Determinism contract:** the loaded callable must be
-  deterministic — same observation → same action across calls.
-  PPO trained via rsl_rl produces a Gaussian policy (mean + std);
-  the export step (DGX-lane,
-  [`policy-export-tooling.md`](../../completed/policy-export-tooling.md)) freezes
-  the deterministic head. Phase 3 asserts this with a unit test:
-  feed the same obs vector twice, assert byte-identical action
-  outputs.
+- **Determinism contract:** per
+  [`context/recurrent-policy-contract.md`](../../context/recurrent-policy-contract.md)
+  point 5 — for a recurrent artifact (the DEPTH variant), the
+  determinism assertion is "two same-obs calls with `reset()` between
+  them are byte-identical." Do NOT assert byte-identity between
+  consecutive calls without reset; that asserts the model is
+  stateless and would force a false-positive failure on the
+  recurrent path. PPO trained via rsl_rl produces a Gaussian policy
+  (mean + std); the export step
+  ([`policy-export-tooling.md`](../../completed/policy-export-tooling.md))
+  freezes the deterministic head, so on top of the reset+same-obs
+  case, the action stream is fully reproducible.
 - **TRT execution provider is required** (DEPTH inference on the
   Jetson Orin Nano is too slow on CPU/CUDA-EP alone). The export
   brief produces `.onnx` + (optionally) a pre-built `.engine`
@@ -350,6 +359,13 @@ guarantee — if it doesn't hold, the policy will not transfer.
       vx *= scale; vy *= scale
   # omega clamp is independent: |omega| <= NAV_VEL_SCALE * MAX_ANGULAR_VEL
   ```
+
+  (Post-ship: this math now lives in
+  [`strafer_shared.mecanum_kinematics.l1_clamp_twist`](../../../source/strafer_shared/strafer_shared/mecanum_kinematics.py)
+  with a torch-batched sibling `l1_clamp_twist_batched` that the sim
+  action term consumes. `strafer_inference.obs_pipeline` re-exports
+  the scalar form under the original `l1_clamp_velocity` name via an
+  alias.)
 
 - Publish to `/strafer/cmd_vel` (real-robot path — driver remaps
   it) or `/cmd_vel` (sim-in-the-loop path matches Nav2's
@@ -421,39 +437,17 @@ The env-var default is the conservative choice — real-robot
 bringup keeps Nav2 unchanged unless the operator explicitly opts
 in. Mirrors the `STRAFER_NAV_VEL_SCALE` pattern.
 
-### Phase 5 — End-to-end sim validation against the real DEPTH checkpoint (2–3 days, gates on DGX-side dependencies)
+### Phase 5 — sim-in-the-loop validation (extracted)
 
-This phase only starts once
-[`policy-export-tooling.md`](../../completed/policy-export-tooling.md) has shipped
-AND a deployable DEPTH checkpoint exists. Until then, Phases 1–4
-land against a hand-built dummy artifact for plumbing-only
-validation.
-
-- Operator exports a real DEPTH checkpoint via
-  `Scripts/export_policy.py --variant DEPTH --checkpoint <ckpt> --output models/strafer_depth_v0.onnx`.
-- Rsync to the Jetson under
-  `~/strafer_ws/install/strafer_inference/share/strafer_inference/models/`
-  or wherever `inference.yaml`'s `model_path` is configured.
-- Validate the deterministic-mean export: same obs vector twice
-  produces byte-identical actions (already a Phase 3 unit test;
-  re-confirm with the real artifact).
-- Run the architectural-win acceptance: a `translate forward 3 m`
-  sim mission with `STRAFER_NAV_BACKEND=strafer_direct`, in a
-  ProcRoom-like pre-warmed sim scene with a single obstacle in the
-  path. Expected:
-  - `/strafer/odom.linear.x` 1 s sustained median ≥ 1.0 m/s on
-    the open segments (the metric the MPPI brief plateaued under
-    at 0.632 m/s).
-  - The robot AVOIDS the obstacle without colliding (the safety
-    win that NOCAM in `strafer_direct` cannot deliver).
-
-If sim validation passes, real-robot validation is filed as a
-**separate follow-up brief**
-(`strafer-inference-real-robot-validation.md`, drafted out of the
-PR description as a queue addition). Real-robot DEPTH inference
-introduces sensor-noise distribution shift, lighting variance, and
-dynamic obstacles that sim doesn't fully capture; the validation
-deserves its own scope and acceptance criteria.
+The end-to-end sim validation (parity bounds, latency benchmark,
+architectural-win mission) was originally a Phase 5 here. It now
+lives in [`strafer-direct-sim-validation.md`](strafer-direct-sim-validation.md)
+so the inference-package PR can merge with all unit-testable
+acceptance closed; the operator-driven sim validation runs as a
+follow-up once a deployable checkpoint and the sim-in-the-loop rig
+are both in hand. Real-robot DEPTH validation gates on the
+follow-up's sim validation passing and lives in a brief filed at
+that point.
 
 ### What's intentionally NOT in scope here
 
@@ -495,16 +489,14 @@ do as part of the five phases above and shouldn't be.)
 
 ### Contract parity (sim-to-real load-bearing)
 
-- [ ] **NOCAM-fields obs parity**: with a recorded sim-in-the-loop
-      rosbag, the inference node's assembled NOCAM-portion (first
-      19 dims) matches the gym-env obs at the same sim timestamp
-      within float32 noise (≤ 1e-5 max abs delta).
-- [ ] **DEPTH downsample parity**: the 4800-dim depth portion of
-      the assembled obs, after the 640×360 → 80×60 resize +
-      nearfield-fill + scale pipeline, matches the gym-env
-      `depth_image` output for the same scene state within
-      ≤ 1e-3 max abs delta. (Higher tolerance than NOCAM because
-      area-resampling vs. native-render isn't pixel-identical.)
+The two rosbag-driven parity bounds (≤ 1e-5 NOCAM, ≤ 1e-3 DEPTH)
+were extracted into
+[`strafer-direct-sim-validation.md`](strafer-direct-sim-validation.md)
+alongside Phase 5's other operator-validation items so the
+inference-package PR can merge with the unit-testable contract-
+parity acceptance below closed and the rig-gated acceptance tracked
+in a single follow-up.
+
 - [ ] **`infer_period_s` derived, not hardcoded**: anchored by a
       unit test that asserts the value changes when
       `_DEFAULT_NAV_SIM_DT` / `_DEFAULT_NAV_DECIMATION` change
@@ -518,8 +510,18 @@ do as part of the five phases above and shouldn't be.)
       `map → base_link` to a known yaw rotation, places a known
       goal in `map`, asserts the obs's `goal_relative` matches the
       body-frame transform.
-- [ ] **Deterministic inference**: feed the loaded policy the same
-      obs vector twice; assert byte-identical action outputs.
+- [ ] **Deterministic inference (recurrent-aware)**: per
+      [`context/recurrent-policy-contract.md`](../../context/recurrent-policy-contract.md)
+      point 5, two same-obs calls produce byte-identical actions
+      *iff* `policy.reset()` is called between them; without an
+      intervening `reset()`, the actions differ by construction
+      (hidden state evolved). The unit test asserts both prongs at
+      the inference-node-fake-policy seam; cross-format parity is
+      pinned at
+      [`source/strafer_lab/tests/test_recurrent_contract_e2e.py`](../../../../source/strafer_lab/tests/test_recurrent_contract_e2e.py).
+      The naive "two consecutive calls byte-identical" assertion is
+      wrong for a recurrent artifact and would silently force the
+      scripted module into a stateless mode.
 
 ### Safety / robustness
 
@@ -556,26 +558,17 @@ do as part of the five phases above and shouldn't be.)
       unknown values.
 - [ ] **Real-robot bringup is unaffected** when
       `STRAFER_NAV_BACKEND` is unset.
-- [ ] **Latency p95 < 10 ms** (obs receive → cmd_vel publish) on
-      Jetson Orin Nano via the TRT execution provider. Recorded
-      in the PR via the
-      [`tune_capture.py`](../../../../source/strafer_ros/strafer_navigation/scripts/tune_capture.py)
-      harness extended to also capture inference-side timestamps,
-      OR a dedicated `benchmark_inference_node.py`. CPU-only
-      fallback latency surfaced separately for context but not
-      gating.
 
-### End-to-end (gates on the deployable checkpoint dependency)
+### Operator-driven sim validation (extracted)
 
-- [ ] On a `translate forward 3 m` sim mission with
-      `STRAFER_NAV_BACKEND=strafer_direct` and the trained DEPTH
-      checkpoint loaded, observed `/strafer/odom.linear.x` 1 s
-      sustained median ≥ 1.0 m/s. This is the architectural-win
-      metric the MPPI brief plateaued under at 0.632 m/s.
-- [ ] On a sim mission with one obstacle in the path, the robot
-      reaches the goal *without colliding*. This is the safety
-      win that NOCAM in `strafer_direct` cannot deliver and the
-      reason DEPTH is the MVP variant.
+The TRT-EP latency benchmark and the architectural-win sim mission
+acceptance (sustained ≥ 1.0 m/s; reach-without-colliding with a
+single obstacle) were extracted into
+[`strafer-direct-sim-validation.md`](strafer-direct-sim-validation.md).
+That brief gates on the sim-in-the-loop rig (rosbag parity, latency
+benchmark) and on a deployable DEPTH checkpoint (architectural-win
+mission); none of those items are unit-testable, so they merge as a
+follow-up rather than blocking this brief's PR.
 
 ## Investigation pointers
 
@@ -629,11 +622,16 @@ do as part of the five phases above and shouldn't be.)
   ([`subgoal-env`](subgoal-env.md)).
   Hybrid coexists with `strafer_direct`; this brief doesn't block
   on it.
+- **Sim-in-the-loop validation against a trained checkpoint.** Lives
+  in [`strafer-direct-sim-validation.md`](strafer-direct-sim-validation.md);
+  carries the rosbag parity bounds, the TRT-EP latency benchmark,
+  and the architectural-win mission acceptance.
 - **Real-robot DEPTH validation.** File as a separate brief
-  (`strafer-inference-real-robot-validation.md`) once Phase 5
-  sim validation passes. Real-robot DEPTH introduces
-  sensor-noise distribution shift, lighting variance, and
-  dynamic obstacles that warrant their own scope.
+  (`strafer-inference-real-robot-validation.md`) once
+  [`strafer-direct-sim-validation.md`](strafer-direct-sim-validation.md)
+  ships. Real-robot DEPTH introduces sensor-noise distribution
+  shift, lighting variance, and dynamic obstacles that warrant
+  their own scope.
 - **NOCAM in `strafer_direct` as a deployable mode.** Hand-built
   NOCAM dummy artifacts are fine for plumbing-only smoke tests
   during Phases 1–3 (the action server / dispatch / watchdog

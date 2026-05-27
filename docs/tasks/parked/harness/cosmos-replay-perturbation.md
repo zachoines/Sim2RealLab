@@ -37,27 +37,29 @@ teleop budgets explicitly include a ~5× replay-perturbation
 multiplier; this brief is the implementation.
 
 Sibling briefs:
-- [`teleop-driver`](../../active/harness/teleop-driver.md) —
-  teleop already records the gamepad event stream specifically
-  to enable replay; this brief is the replay-pass implementation.
-  Hard prerequisite.
-- [`behavior-cloning-data-expansion`](../../active/harness/behavior-cloning-data-expansion.md) —
-  defines the canonical schema this brief emits augmented
-  variants against.
-- [`trajectory-first-captioning`](../../active/harness/trajectory-first-captioning.md) —
-  related complementary corpus multiplier; this brief and that
-  one stack (a captioned trajectory can also be replayed).
-- [`output-format-alignment`](output-format-alignment.md) —
-  Cosmos outputs need to land in whatever canonical format is
-  chosen.
+- [`harness-architecture`](../../active/harness/harness-architecture.md) —
+  defines the LeRobot v3 canonical schema this brief emits
+  augmented variants against, the
+  [Driver: teleop](../../active/harness/harness-architecture.md#driver-teleop)
+  that records the gamepad event stream this brief needs for
+  replay, and the
+  [Scripted × captioner](../../active/harness/harness-architecture.md#scripted--captioner-trajectory-first-path)
+  complementary multiplier this brief stacks with. Subsumes the
+  retired
+  [`teleop-driver`](../../completed/teleop-driver.md),
+  [`behavior-cloning-data-expansion`](../../completed/behavior-cloning-data-expansion.md),
+  [`trajectory-first-captioning`](../../completed/trajectory-first-captioning.md),
+  and
+  [`output-format-alignment`](../../completed/output-format-alignment.md)
+  briefs.
 
 ## Trigger condition — when to pick this brief up
 
 Pick up only when **all** of:
 
-1. [`teleop-driver`](../../active/harness/teleop-driver.md) has
-   shipped and the teleop corpus has ≥ 500 trajectories. Smaller
-   corpora aren't worth augmenting yet.
+1. [`harness-architecture`](../../active/harness/harness-architecture.md)
+   Tier 1 (teleop) has shipped and the teleop corpus has ≥ 500
+   trajectories. Smaller corpora aren't worth augmenting yet.
 2. **Cosmos Predict 2.5 (or successor) is accessible on the DGX.**
    Either via Cosmos's HF release, NVIDIA NIM, or a local
    checkpoint. As of audit (2026-05), Cosmos Predict 2.5 /
@@ -185,10 +187,14 @@ augmented trajectories per original). With a teleop corpus of
       corpus's worth of augmentations; VRAM peak; concurrent-
       DGX-load impact.
 - [ ] **Schema parity.** Augmented variants are consumable by
-      whatever downstream training script consumes the
-      original corpus (i.e., the
-      [`output-format-alignment`](output-format-alignment.md)
-      canonical format).
+      the same HF `LeRobotDataset` loader that consumes the
+      original corpus — Cosmos outputs land as additional MP4s
+      under `videos/.../observation.images.perception_cosmos_{seed}.mp4`
+      referencing the same parquet rows with new per-episode
+      metadata entries (under `meta/episodes/`) carrying
+      `generator_metadata.cosmos_seed`, per
+      [`harness-architecture`](../../active/harness/harness-architecture.md)'s
+      output format.
 - [ ] **Doc surface.**
       [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](../../../INTEGRATION_SIM_IN_THE_LOOP.md)
       gains a Stage 5d — Cosmos replay-with-perturbation

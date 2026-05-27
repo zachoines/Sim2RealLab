@@ -220,8 +220,8 @@ state.
 **Branch naming is unchanged.** Per
 [`branching-and-prs.md`](branching-and-prs.md), branches are
 `task/<basename>`. The epic subdir does **not** leak into the
-branch name. `active/harness/teleop-driver.md` → branch
-`task/teleop-driver`.
+branch name. `active/harness/mission-generator.md` → branch
+`task/mission-generator`.
 
 ---
 

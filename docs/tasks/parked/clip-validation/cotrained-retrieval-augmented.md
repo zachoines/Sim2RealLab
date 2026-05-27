@@ -91,12 +91,15 @@ Sibling briefs this brief depends on or composes with:
 - [`validator-evaluation`](../../active/clip-validation/validator-evaluation.md) —
   the v1 cascade ships first; its statistics framework is the
   baseline this brief improves on.
-- [`trajectory-first-captioning`](../../active/harness/trajectory-first-captioning.md) —
-  produces the speaker model + caption corpus this brief
-  co-trains against.
-- [`behavior-cloning-data-expansion`](../../active/harness/behavior-cloning-data-expansion.md) —
-  defines the canonical harness output schema both phases
-  consume.
+- [`harness-architecture`](../../active/harness/harness-architecture.md) —
+  defines the LeRobot v3 schema both phases consume + the
+  [Scripted × captioner](../../active/harness/harness-architecture.md#scripted--captioner-trajectory-first-path)
+  mission source that produces the speaker model + caption
+  corpus this brief co-trains against. Subsumes the retired
+  [`trajectory-first-captioning`](../../completed/trajectory-first-captioning.md)
+  and
+  [`behavior-cloning-data-expansion`](../../completed/behavior-cloning-data-expansion.md)
+  briefs.
 - The SemanticMapManager's ChromaDB infrastructure already
   exists in
   [`source/strafer_autonomy/strafer_autonomy/semantic_map/`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/)
@@ -156,17 +159,15 @@ behavior, not the first.
 **Shared infrastructure, separate models.** The two briefs
 genuinely overlap in two places:
 
-1. **Dataset pipeline.** Both consume the trajectory-first
-   speaker corpus from
-   [`trajectory-first-captioning`](../../active/harness/trajectory-first-captioning.md)
-   and the canonical schema from
-   [`behavior-cloning-data-expansion`](../../active/harness/behavior-cloning-data-expansion.md).
-   This brief commits to **sharing the dataset assembly tooling
-   with v2** — the loader at
-   `source/strafer_lab/strafer_lab/tools/dataset_export.py`
-   gains a `dump_contrastive_pairs()` method alongside v2's
-   `build_vla_dataset.py`, and both consume the same on-disk
-   schema.
+1. **Dataset pipeline.** Both consume the LeRobot v3 corpus
+   produced by [`harness-architecture`](../../active/harness/harness-architecture.md)'s
+   capture pipeline — the speaker captions live in the
+   `tasks` / `paraphrases` fields populated by the
+   [Scripted × captioner](../../active/harness/harness-architecture.md#scripted--captioner-trajectory-first-path)
+   mission source. Since the harness retires
+   `dataset_export.py` in favor of direct LeRobot v3 loading,
+   this brief and v2 both load via HF `LeRobotDataset` directly
+   rather than through a shared `dataset_export.py` helper.
 
 2. **Backbone choice.** If v2 ships first with DINOv2+SigLIP
    (OpenVLA's default), this brief's fine-tune should target
@@ -486,10 +487,13 @@ results justify it. This brief stops at sim eval.
 ## Investigation pointers
 
 - The OpenCLIP fine-tune scaffold:
-  [`finetune_clip.py`](../../../../source/strafer_lab/scripts/finetune_clip.py).
-  Most of the multi-task recipe extends this.
-- The trajectory-first speaker (and its caption corpus):
-  [`trajectory-first-captioning`](../../active/harness/trajectory-first-captioning.md).
+  [`finetune_clip.py`](../../../../source/strafer_lab/scripts/finetune_clip.py)
+  (retired by [`harness-architecture`](../../active/harness/harness-architecture.md);
+  the multi-task recipe lives here from scratch on LeRobot v3
+  loading).
+- The trajectory-first speaker (and its caption corpus): the
+  [Scripted × captioner](../../active/harness/harness-architecture.md#scripted--captioner-trajectory-first-path)
+  mission source in the harness architecture brief.
 - The retrieval primitive:
   [`SemanticMapManager.query_by_embedding`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/manager.py).
 - LoRA implementation: PEFT library is the standard choice;

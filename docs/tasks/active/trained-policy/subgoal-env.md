@@ -28,7 +28,7 @@ Read these before starting:
 - [strafer-inference-hybrid-mode.md](../../parked/trained-policy/hybrid-mode.md)
   — the consumer-side brief; this brief produces the trainable env
   and the deployable checkpoint that brief loads.
-- [strafer-inference-package.md](inference-package.md) —
+- [strafer-inference-package.md](../../completed/inference-package.md) —
   the DEPTH-MVP sibling. Useful as a reference for how the
   observation contract, decimation, and reward conventions are
   structured in the existing ProcRoom-Depth env.
@@ -84,7 +84,7 @@ Two implications:
 ### Why `hybrid_nav2_strafer` needs a different policy
 
 The `strafer_direct` mode (in
-[`inference-package`](inference-package.md))
+[`inference-package`](../../completed/inference-package.md))
 consumes a **final goal pose** — the RL agent's job is to converge
 on it, with depth perception for obstacle avoidance.
 
@@ -463,12 +463,15 @@ deployed policy should be trained against it.
   [`hybrid-mode`](../../parked/trained-policy/hybrid-mode.md).
   This brief produces the trainable env and the deployable
   checkpoint; the hybrid brief consumes them.
-- **DEPTH variant of subgoal-following.** First subgoal target
-  is NOCAM-shaped. If a `DEPTH_SUBGOAL` variant is wanted later
-  (say, for environments where Nav2's path doesn't see all the
-  obstacles and the local controller needs perception), file a
-  follow-up brief once both this brief and `strafer-inference-package.md`'s
-  DEPTH path have shipped.
+- **DEPTH variant of subgoal-following.** Filed (parked) as
+  [`depth-subgoal-env`](../../parked/trained-policy/depth-subgoal-env.md)
+  and the runtime side as
+  [`depth-subgoal-hybrid-runtime`](../../parked/trained-policy/depth-subgoal-hybrid-runtime.md).
+  Un-park triggers are spelled out in those briefs — primarily
+  "this brief shipped AND NOCAM_SUBGOAL deployment evidence shows
+  costmap-staleness / dynamic-obstacle failures depth would solve."
+  Don't pre-empt; the NOCAM_SUBGOAL path may be sufficient for the
+  deployment shapes that actually arise.
 - **Goal-position noise on subgoals.** The
   [`goal-noise-training`](goal-noise-training.md)
   pattern likely applies (subgoals from Nav2's path have

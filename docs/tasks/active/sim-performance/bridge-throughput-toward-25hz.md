@@ -29,22 +29,24 @@ Read these before starting:
 - [`context/bridge-runtime-invariants.md`](../../context/bridge-runtime-invariants.md)
 - [`context/conventions.md`](../../context/conventions.md)
 
-Sibling briefs whose contract this brief must not break:
-- [`teleop-driver`](../harness/teleop-driver.md) — in-process
-  driver that calls `env.step()` from a gamepad. Captures
-  `(frame, depth, pose, cmd_vel, mission_text)` via direct scene-
-  handle access (not via the observation tensor). Trimming the
-  observation manager is safe **for this driver**.
-- [`oracle-driver`](../../parked/harness/oracle-driver.md) — in-process
-  driver that runs the `NOCAM_SUBGOAL` RL policy. **Consumes the
-  observation tensor.** Trimming the observation manager is NOT
-  safe for this driver. Any manager-loop trim must be scoped so
-  the oracle's env cfg keeps the full observation pipeline.
-- [`trajectory-first-captioning`](../harness/trajectory-first-captioning.md) —
-  random-target driver. Captures via scene handles like teleop.
-  Safe.
-- [`behavior-cloning-data-expansion`](../harness/behavior-cloning-data-expansion.md) —
-  schema definition. Per-tick capture cadence must not regress.
+Sibling briefs whose contract this brief must not break — all
+folded into [`harness-architecture`](../harness/harness-architecture.md):
+- [Driver: teleop](../harness/harness-architecture.md#driver-teleop) —
+  in-process driver that calls `env.step()` from a gamepad.
+  Captures `(frame, depth, pose, cmd_vel, mission_text)` via
+  direct scene-handle access (not via the observation tensor).
+  Trimming the observation manager is safe **for this driver**.
+- [Driver: scripted](../harness/harness-architecture.md#driver-scripted) —
+  in-process driver that runs the `NOCAM_SUBGOAL` RL policy.
+  **Consumes the observation tensor.** Trimming the observation
+  manager is NOT safe for this driver. Any manager-loop trim must
+  be scoped so the scripted driver's env cfg keeps the full
+  observation pipeline. The trajectory-first regime (the
+  scripted driver in `--mission-source captioner` mode) captures
+  via scene handles like teleop and is safe.
+- The LeRobot v3 per-tick capture cadence defined in
+  [`harness-architecture`](../harness/harness-architecture.md)
+  must not regress.
 - [`subgoal-env`](../trained-policy/subgoal-env.md) — the
   training env that produces the NoCam waypoint policy the oracle
   consumes. Training cfg must not be touched.

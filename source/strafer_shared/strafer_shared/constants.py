@@ -176,6 +176,17 @@ NAV_ANGULAR_VEL = round(MAX_ANGULAR_VEL * NAV_VEL_SCALE, 4)
 NAV_REVERSE_VEL = round(NAV_LINEAR_VEL * NAV_REVERSE_SCALE, 4)
 
 # =============================================================================
+# Policy step rate
+# =============================================================================
+# Single source of truth for the trained-policy step period. The Isaac Lab
+# task config (strafer_env_cfg.py: cfg.sim.dt, cfg.decimation) and the
+# Jetson inference node both consume these so sim and real cannot drift.
+
+POLICY_SIM_DT = 1.0 / 120.0
+POLICY_DECIMATION = 4
+POLICY_PERIOD_S = POLICY_SIM_DT * POLICY_DECIMATION  # 1/30 s = 30 Hz
+
+# =============================================================================
 # RoboClaw Motor Controllers
 # =============================================================================
 

@@ -127,7 +127,8 @@ Five briefs (`behavior-cloning-data-expansion`, `teleop-driver`, `trajectory-fir
 |---|---|---|---|
 | [`nav2-sim-real-promotion-architecture`](active/tooling/nav2-sim-real-promotion-architecture.md) | P2 | active | Jetson |
 | [`unify-test-targets-and-ci`](active/tooling/unify-test-targets-and-ci.md) | P3 | active | Either |
-| [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | P2 | active | DGX |
+| [`isaaclab-develop-upgrade`](active/tooling/isaaclab-develop-upgrade.md) | P3 | active | DGX |
+| [`windows-workstation-bringup-sim-bridge`](active/tooling/windows-workstation-bringup-sim-bridge.md) | P3 | active | DGX |
 
 ### Experimental (long-horizon bets)
 
@@ -177,7 +178,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`policy-rate-shared-constants`](active/trained-policy/policy-rate-shared-constants.md) | S (~1 hr) | Delegate `_DEFAULT_NAV_SIM_DT` / `_DEFAULT_NAV_DECIMATION` in `strafer_env_cfg.py` to the new `strafer_shared.constants.POLICY_SIM_DT` / `POLICY_DECIMATION`. Jetson side already consumes the shared constants; this closes the duplication so a future training-rate experiment can't silently desync sim from real |
 | [`planner-far-target-staging`](active/multi-room/planner-far-target-staging.md) | M–L | World-state schema + planner prompt |
 | [`subgoal-env`](active/trained-policy/subgoal-env.md) | L (~1.5–2 wk) | New training env for `NOCAM_SUBGOAL` — sim-internal path planner + SubgoalCommand + path-tracking rewards + termination + training run. Unblocks hybrid mode |
-| [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | L (~1 wk) | Investigation + port — run `make sim-bridge` on Windows (RTX 4080) against the Jetson stack. Isaac Lab 3 Windows support is experimental; phase the feasibility spike before committing to a full port |
+| [`windows-workstation-bringup-sim-bridge`](active/tooling/windows-workstation-bringup-sim-bridge.md) | M (~2-3 d once unblocked) | Path-B WSL2 bringup of `make sim-bridge` against the Jetson, gated on NVIDIA fixing the Vulkan-on-WSL2 ICD gap. Follow-up to the shipped `windows-workstation-bringup` brief, which landed the native-Windows data-collection path |
 | [`bridge-throughput-toward-25hz`](active/sim-performance/bridge-throughput-toward-25hz.md) | M | Follow-up to `async-camera-publishers`. Lift the bridge toward the predicted 25 Hz ceiling. |
 | [`encoder-noise-shared-sample`](active/trained-policy/encoder-noise-shared-sample.md) | M | Filed off `observation-contract-cleanup` ship. Per-tick noised-ticks cache + policy/critic obs-function split so `wheel_encoder_velocities` and `body_velocity_xy` share a single encoder noise sample (matches real-robot signal chain). Closes the correlation gap that observation-contract-cleanup flagged as out of scope. |
 | [`mission-generator`](active/harness/mission-generator.md) | L | Free-text mission generator with LLM-emitted waypoints (multi-room default). Canonical mission queue source for teleop and oracle drivers. Blocks on `scene-connectivity-validation`. |

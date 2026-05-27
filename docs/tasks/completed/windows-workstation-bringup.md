@@ -1,5 +1,9 @@
 # Windows workstation bringup
 
+**Status:** Shipped 2026-05-26 in `4f0c93f` (Windows).
+**PR:** TBD
+**Follow-ups:** [`windows-workstation-bringup-sim-bridge.md`](../active/tooling/windows-workstation-bringup-sim-bridge.md) — Path B sim-bridge work, deferred until NVIDIA fixes Vulkan-on-WSL2. [`isaaclab-develop-upgrade.md`](../active/tooling/isaaclab-develop-upgrade.md) — pull the IsaacLab fcntl / configclass / rsl_rl drift fixes upstream and drop the manual patches the runbook documents.
+
 **Type:** investigation + task
 **Owner:** DGX agent (lane: `source/strafer_lab/`, `Scripts/`, `env_setup.sh`, top-level `Makefile`, `docs/INTEGRATION_*.md`)
 **Priority:** P2
@@ -10,14 +14,14 @@
 
 As a **DGX/sim developer with an i9-14900K + RTX 4080 Windows workstation**, I want **a documented, reproducible install path that puts Isaac Sim + Isaac Lab + the strafer_* packages onto the Windows host** so that **the gaming-class GPU can run data-collection / harness / teleop workflows (freeing the DGX for training), AND so that there is a known-good architectural path for `make sim-bridge` against the Jetson once external blockers clear**.
 
-The original framing was bridge-only; Phase 2 of the spike forced a split into two paths because (a) CycloneDDS is Linux-only per NVIDIA's docs (rules out native-Windows bridge) and (b) NVIDIA Vulkan on WSL2 is currently broken per NVIDIA's own developer forum (rules out WSL2 for any Isaac Sim renderer use case today). The data-collection use case doesn't need cross-host DDS, so a native-Windows install handles it. The bridge use case is preserved on a WSL2 install that runs cleanly except for renderer init, gated on the upstream Vulkan fix tracked in [`windows-workstation-bringup-sim-bridge.md`](windows-workstation-bringup-sim-bridge.md).
+The original framing was bridge-only; Phase 2 of the spike forced a split into two paths because (a) CycloneDDS is Linux-only per NVIDIA's docs (rules out native-Windows bridge) and (b) NVIDIA Vulkan on WSL2 is currently broken per NVIDIA's own developer forum (rules out WSL2 for any Isaac Sim renderer use case today). The data-collection use case doesn't need cross-host DDS, so a native-Windows install handles it. The bridge use case is preserved on a WSL2 install that runs cleanly except for renderer init, gated on the upstream Vulkan fix tracked in [`windows-workstation-bringup-sim-bridge.md`](../active/tooling/windows-workstation-bringup-sim-bridge.md).
 
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](../../context/repo-topology.md) — hosts, repo paths, the conda env contract.
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [context/bridge-runtime-invariants.md](../../context/bridge-runtime-invariants.md) — bridge mainloop assumptions; some likely don't port cleanly to Windows.
+- [context/repo-topology.md](../context/repo-topology.md) — hosts, repo paths, the conda env contract.
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md) — bridge mainloop assumptions; some likely don't port cleanly to Windows.
 
 ## Context
 
@@ -71,7 +75,7 @@ This brief ships the **data-collection path (Path A — Native Windows)** end-to
 - [x] **Path A smoke:** headed `Scripts\test_strafer_env.py --env Isaac-Strafer-Nav-Real-NoCam-v0 --num_envs 1 --duration 5` boots Kit via `launch_isaac_lab.ps1`, env steps run to completion.
 - [x] **Path A use case:** `Scripts\launch_isaac_lab.ps1 source\strafer_lab\scripts\collect_demos.py --viz kit ...` is the documented operator entry for gamepad teleop / behavior-cloning capture (the user's actual goal).
 - [x] **Path B install:** WSL2 Ubuntu-22.04 + mirrored networking + miniconda + env_isaaclab3 + isaacsim 6.0.0 + IsaacLab pinned + ROS 2 Humble + cyclonedds + strafer_lab editable — all stages run cleanly; imports succeed.
-- [ ] **Path B smoke (deferred to follow-up):** `make sim-bridge` end-to-end against the Jetson, mission validation, perf numbers in `bridge-runtime-invariants.md`. Gated on NVIDIA Vulkan-on-WSL2 unblock — tracked in [`windows-workstation-bringup-sim-bridge.md`](windows-workstation-bringup-sim-bridge.md).
+- [ ] **Path B smoke (deferred to follow-up):** `make sim-bridge` end-to-end against the Jetson, mission validation, perf numbers in `bridge-runtime-invariants.md`. Gated on NVIDIA Vulkan-on-WSL2 unblock — tracked in [`windows-workstation-bringup-sim-bridge.md`](../active/tooling/windows-workstation-bringup-sim-bridge.md).
 - [x] The Linux DGX path continues to work byte-identically — no DGX-side files were touched in this PR.
 - [x] User-facing surfaces swept: top-level `Readme.md`, `docs/example_commands_cheatsheet.md` updated to mention both Windows paths.
 
@@ -88,7 +92,7 @@ This brief ships the **data-collection path (Path A — Native Windows)** end-to
 - **Real-robot bringup on Windows.** The Jetson stays on Jetson; this brief is only about the sim-side host.
 - **Training large models on Windows.** Training stays on the Linux DGX where memory and CUDA driver maturity favor it. The RTX 4080 can iterate on small `num_envs` for sanity, but production training runs stay on DGX.
 - **Cross-OS shared-filesystem mounts.** Each host clones its own copy of the repo and rsyncs / git-pulls; we are NOT relying on a network filesystem shared between Windows and Linux. Path A operates out of `C:\Workspace\Sim2RealLab\`; Path B out of `~/Workspace/Sim2RealLab/` inside the WSL distro. The two checkouts sync via git, not via `/mnt/c`.
-- **`make sim-bridge` end-to-end via Path B.** Deferred to [`windows-workstation-bringup-sim-bridge.md`](windows-workstation-bringup-sim-bridge.md) because the NVIDIA Vulkan-on-WSL2 bug blocks Kit's renderer init. Path B install is otherwise complete and ready to flip when the upstream fix lands.
+- **`make sim-bridge` end-to-end via Path B.** Deferred to [`windows-workstation-bringup-sim-bridge.md`](../active/tooling/windows-workstation-bringup-sim-bridge.md) because the NVIDIA Vulkan-on-WSL2 bug blocks Kit's renderer init. Path B install is otherwise complete and ready to flip when the upstream fix lands.
 - **A full PowerShell port of `env_setup.sh` / `Makefile` to Windows native.** The data-collection use case doesn't need them — `Scripts\launch_isaac_lab.ps1 <script> [args]` is the documented entry point and is enough. Porting the rest is over-scope for the current use case.
 
 ## Decision log
@@ -175,7 +179,7 @@ architecture for the rest of the brief.
 - **Drift blocker (separate brief)**: strafer_lab's bridge imports
   also drift against IsaacLab `develop` tip after PR #4741 and
   against `rsl-rl-lib` 3.x. Tracked in
-  [`isaaclab-develop-upgrade.md`](isaaclab-develop-upgrade.md). The
+  [`isaaclab-develop-upgrade.md`](../active/tooling/isaaclab-develop-upgrade.md). The
   runbook handles both via SHA pin (`ae41e2aca68`) + manual rsl_rl
   upgrade — when the upgrade brief ships, drop both workarounds.
 
@@ -198,6 +202,6 @@ architecture for the rest of the brief.
   - **Path B — WSL2 Ubuntu-22.04** stays scaffolded end-to-end (every
     layer below Kit's renderer works) and is parked as the future
     `make sim-bridge` home for when NVIDIA fixes WSL2-Vulkan. Tracked
-    as [`windows-workstation-bringup-sim-bridge.md`](windows-workstation-bringup-sim-bridge.md).
+    as [`windows-workstation-bringup-sim-bridge.md`](../active/tooling/windows-workstation-bringup-sim-bridge.md).
   - The runbook's "Cross-cutting: which architecture for which use
     case" table is the operator-facing version of this split.

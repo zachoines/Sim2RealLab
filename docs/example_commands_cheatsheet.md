@@ -222,12 +222,17 @@ make sim-bridge          # headless (daily-driver, ~85 ms/loop faster)
 make sim-bridge-gui      # editor viewport open (visual debug, slower)
 ```
 
-On a **Windows workstation** the bridge runs inside a WSL2 Ubuntu-22.04 shell — see [`docs/INTEGRATION_WINDOWS_WORKSTATION.md`](INTEGRATION_WINDOWS_WORKSTATION.md). From a Windows PowerShell prompt:
+On a **Windows workstation** the bridge use case runs inside a WSL2 Ubuntu-22.04 shell — but currently blocked on an open NVIDIA-Vulkan-on-WSL2 bug; see [`docs/INTEGRATION_WINDOWS_WORKSTATION.md`](INTEGRATION_WINDOWS_WORKSTATION.md) Path B. For the **data-collection / harness / teleop** use case there's a native-Windows path (Path A) that works today:
 
 ```powershell
+# Native Windows (Path A) — data collection / headed inspection / teleop
+.\Scripts\launch_isaac_sim.ps1                          # opens Kit editor viewport
+.\Scripts\launch_isaac_lab.ps1 Scripts\test_strafer_env.py --env Isaac-Strafer-Nav-Real-NoCam-v0 --num_envs 8 --duration 10
+.\Scripts\launch_isaac_lab.ps1 source\strafer_lab\scripts\collect_demos.py --task Isaac-Strafer-Nav-Real-ProcRoom-Depth-Play-v0 --output demos\ --viz kit
+
+# WSL2 (Path B) — sim-bridge; blocked on Vulkan today, scaffolded for the future
 .\Scripts\Open-Sim2RealLab-Wsl.ps1 -Command "make sim-bridge"
-# or interactively:
-.\Scripts\Open-Sim2RealLab-Wsl.ps1   # opens a positioned WSL shell; then `make sim-bridge`
+.\Scripts\Open-Sim2RealLab-Wsl.ps1                      # interactive WSL shell
 ```
 
 ## Jetson shell 1 — full bringup (perception + SLAM + Nav2 + executor + foxglove_bridge)

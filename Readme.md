@@ -239,11 +239,20 @@ Must be redone if `nvidia-cuda-nvrtc` is upgraded or the venv is recreated. `mak
 
 For the Isaac Lab 3.0 source build that backs `env_isaaclab3` and the aarch64 `bpy` wheel (`env_infinigen`), see the `README.md` inside the sibling `~/Workspace/blender-build/` directory and the upstream Isaac Lab install instructions.
 
-### Windows workstation (sim-bridge via WSL2)
+### Windows workstation
 
-Windows can stand in for the DGX on the sim-bridge side — useful when the DGX is reserved for training and a gaming-class GPU (RTX 4080 reference) suffices for iteration. The bridge runs inside a WSL2 Ubuntu-22.04 distro, not native Windows, because NVIDIA's Isaac Sim 6 docs limit CycloneDDS (the project's cross-host RMW) to Linux.
+Two install paths exist for two distinct use cases; full recipes in [`docs/INTEGRATION_WINDOWS_WORKSTATION.md`](docs/INTEGRATION_WINDOWS_WORKSTATION.md).
 
-The full recipe — WSL2 install, mirrored networking, conda env, Isaac Sim + Isaac Lab pin, ROS 2, smoke tests — lives in [`docs/INTEGRATION_WINDOWS_WORKSTATION.md`](docs/INTEGRATION_WINDOWS_WORKSTATION.md). From a Windows PowerShell prompt after that runbook, `Scripts\Open-Sim2RealLab-Wsl.ps1` opens a positioned WSL shell and the existing Linux Makefile targets (`make sim-bridge`, `make sim-harness`, ...) work unchanged.
+**Path A — Native Windows** (works today): for data collection / gamepad teleop / `collect_demos.py` / headed env inspection. Isaac Sim 6 runs natively against the RTX 4080 with no WSL bridging.
+
+```powershell
+.\Scripts\launch_isaac_sim.ps1                         # opens Kit editor viewport
+.\Scripts\launch_isaac_lab.ps1 <script> [args]         # drop-in for `$ISAACLAB -p` on Linux
+.\Scripts\launch_isaac_lab.ps1 source\strafer_lab\scripts\collect_demos.py `
+    --task Isaac-Strafer-Nav-Real-ProcRoom-Depth-Play-v0 --output demos\ --viz kit
+```
+
+**Path B — WSL2 Ubuntu-22.04** (scaffolded, currently blocked on an open NVIDIA-Vulkan-on-WSL2 upstream bug): the only architecturally viable home for `make sim-bridge` on a Windows host, since NVIDIA's Isaac Sim 6 docs limit CycloneDDS (the project's cross-host RMW) to Linux. Tracked in [`docs/tasks/active/tooling/windows-workstation-bringup-sim-bridge.md`](docs/tasks/active/tooling/windows-workstation-bringup-sim-bridge.md). From a Windows PowerShell prompt after the WSL2 recipe: `.\Scripts\Open-Sim2RealLab-Wsl.ps1` opens a positioned WSL shell and the existing Linux Makefile targets (`make sim-bridge`, `make sim-harness`, ...) work unchanged once the Vulkan blocker clears.
 
 ### Jetson Orin Nano
 

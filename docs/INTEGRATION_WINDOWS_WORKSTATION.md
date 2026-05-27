@@ -118,6 +118,32 @@ pip install --upgrade "rsl-rl-lib"   # ⇒ 5.3.0 or newer
 python -c "from rsl_rl.modules.distribution import Distribution; print('ok')"
 ```
 
+**Then patch IsaacLab's USD spawner for Windows.** At commit
+`ae41e2aca68`, `IsaacLab/source/isaaclab/isaaclab/sim/spawners/from_files/from_files.py`
+unconditionally `import fcntl` at line 8 — Unix-only — so any env that
+spawns a USD asset (i.e. every strafer_lab env) crashes on Windows.
+The `fcntl` is only actually called when `LOCAL_WORLD_SIZE > 1` (multi-rank
+distributed training), so the fix is a conditional import:
+
+```powershell
+# In IsaacLab/source/isaaclab/isaaclab/sim/spawners/from_files/from_files.py,
+# replace `import fcntl` (line 8) with:
+#
+#   import sys
+#   if sys.platform != "win32":
+#       import fcntl
+#   else:
+#       fcntl = None  # type: ignore[assignment]
+#
+# Single-process runs never enter the _world_size > 1 branch that uses
+# fcntl, so this is safe.
+```
+
+This patch lives in the (gitignored) IsaacLab clone — re-apply after any
+`git pull` of IsaacLab. Tracked in
+[`docs/tasks/active/tooling/isaaclab-develop-upgrade.md`](tasks/active/tooling/isaaclab-develop-upgrade.md)
+for upstream resolution.
+
 ## Step A5: Install strafer packages in editable mode
 
 ```powershell

@@ -42,6 +42,17 @@ API-breaking refactors. The Windows-workstation bringup (commit
   into IsaacLab's own pin (or pinning it in `strafer_lab/pyproject.toml`)
   removes the foot-gun.
 
+- **Windows incompatibility: unconditional `import fcntl` in
+  `isaaclab.sim.spawners.from_files`.** At commit `ae41e2aca68`,
+  `IsaacLab/source/isaaclab/isaaclab/sim/spawners/from_files/from_files.py`
+  line 8 imports the Unix-only `fcntl` module unconditionally, so any
+  USD-spawning env crashes on Windows native at `gym.make()` time
+  (every strafer_lab env spawns USDs). The runtime use is guarded by
+  `if _world_size > 1` (multi-rank distributed training only), so the
+  fix is a `sys.platform != "win32"` guard around the import. The
+  Windows bringup runbook documents the per-clone patch; upstream
+  resolution would let new operators skip that step.
+
 - **PhysX-on-WSL2 GPU integration is currently broken.** Spike via
   `test_strafer_env.py --env Isaac-Strafer-Nav-Real-NoCam-v0
   --num_envs 1 --duration 5` on the Windows-via-WSL2 bringup logs

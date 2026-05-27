@@ -35,7 +35,8 @@ Param(
     [string[]]$ExtraArgs
 )
 
-$ErrorActionPreference = "Stop"
+# ErrorActionPreference stays "Continue" — Kit emits informational lines to
+# stderr; "Stop" would treat each as fatal.
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $workspaceRoot = Split-Path -Parent $scriptDir
@@ -49,6 +50,7 @@ Could not find isaacsim.exe at $isaacExe.
 Run the Windows-native install first; see
 docs/INTEGRATION_WINDOWS_WORKSTATION.md (Path A) for the recipe.
 "@
+    exit 1
 }
 
 # Accept the EULA non-interactively. The trio is what Kit's

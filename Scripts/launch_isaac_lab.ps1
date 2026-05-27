@@ -35,7 +35,10 @@ Param(
     [string[]]$ScriptArgs
 )
 
-$ErrorActionPreference = "Stop"
+# NOTE: ErrorActionPreference stays "Continue" (the default). Kit emits
+# informational lines to stderr, and "Stop" makes PowerShell abort on
+# every stderr line as if it were a fatal error. We rely on $LASTEXITCODE
+# at the end of the script for the real success/failure signal.
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $workspaceRoot = Split-Path -Parent $scriptDir
@@ -49,6 +52,7 @@ Could not find python interpreter at $pythonExe.
 Run the Windows-native install first; see
 docs/INTEGRATION_WINDOWS_WORKSTATION.md (Path A) for the recipe.
 "@
+    exit 1
 }
 
 # Resolve the script path: absolute as-given, else relative to repo root.

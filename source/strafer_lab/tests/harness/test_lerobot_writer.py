@@ -20,6 +20,7 @@ import pytest
 from strafer_lab.tools.lerobot_depth import frame_path, read_depth_png
 from strafer_lab.tools.lerobot_writer import (
     StraferLeRobotWriter,
+    _DepthWriterPool,
     build_features,
     read_strafer_episodes,
 )
@@ -267,6 +268,127 @@ class TestRoundTrip:
         episodes = read_strafer_episodes(writer_root)
         assert len(episodes) == 1
         assert episodes[0]["episode_index"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Async depth writer
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncDepthWriting:
+    """End-to-end behaviour of the depth-sidecar worker pool through the writer."""
+
+    def test_synchronous_depth_path_still_works(self, writer_root):
+        """``depth_writer_threads=0`` should fall back to the inline encode.
+
+        The fully-synchronous path is the debugging mode (e.g., when
+        chasing a frame-ordering bug) — exercise it so it doesn't bit-rot.
+        """
+        with StraferLeRobotWriter(
+            root=writer_root,
+            repo_id="strafer-test/depth-sync",
+            fps=8,
+            capture_git_sha="x",
+            scene_metadata_hash="y",
+            capture_policy_cam=False,
+            depth_writer_threads=0,
+        ) as writer:
+            writer.begin_episode(
+                mission_text="t",
+                scene_id="s",
+                source_driver="teleop",
+                source_mission_source="scene-metadata",
+            )
+            for t in range(3):
+                writer.add_frame(
+                    sim_time=float(t),
+                    pose=[0.0] * 7,
+                    achieved_vel=[0.0] * 3,
+                    action=[0.0] * 3,
+                    rgb_perception=_make_rgb(),
+                    depth_m=_make_depth(base_m=0.75 + t * 0.25),
+                )
+            writer.end_episode()
+
+        for f in range(3):
+            png = frame_path(writer_root, 0, f)
+            assert png.is_file()
+            recovered = read_depth_png(png)
+            assert np.allclose(recovered, 0.75 + f * 0.25, atol=1e-3)
+
+    def test_async_depth_pool_captures_post_mutation_snapshot(self, writer_root):
+        """Submitting a depth array then mutating it must not corrupt the PNG.
+
+        The worker copies on submit precisely so the env-step thread can
+        reuse Isaac Sim's render buffer for the next frame. This test
+        proves the copy is happening.
+        """
+        with StraferLeRobotWriter(
+            root=writer_root,
+            repo_id="strafer-test/depth-mutate",
+            fps=8,
+            capture_git_sha="x",
+            scene_metadata_hash="y",
+            capture_policy_cam=False,
+            depth_writer_threads=2,
+        ) as writer:
+            writer.begin_episode(
+                mission_text="t",
+                scene_id="s",
+                source_driver="teleop",
+                source_mission_source="scene-metadata",
+            )
+            shared_buf = _make_depth(base_m=1.25)
+            writer.add_frame(
+                sim_time=0.0,
+                pose=[0.0] * 7,
+                achieved_vel=[0.0] * 3,
+                action=[0.0] * 3,
+                rgb_perception=_make_rgb(),
+                depth_m=shared_buf,
+            )
+            # Mimic Isaac Sim recycling the render buffer before the
+            # worker thread gets scheduled.
+            shared_buf.fill(99.0)
+            writer.end_episode()
+
+        recovered = read_depth_png(frame_path(writer_root, 0, 0))
+        assert np.allclose(recovered, 1.25, atol=1e-3)
+
+
+class TestDepthWriterPool:
+    """Unit tests for the depth worker pool in isolation."""
+
+    def test_worker_exception_resurfaces_on_drain(self, tmp_path):
+        """A bad disk write should not be silently swallowed."""
+        pool = _DepthWriterPool(num_workers=1)
+        try:
+            bad_path = tmp_path / "ok.png"
+            bad_array = np.zeros((4, 4, 3), dtype=np.float32)  # rank 3 → invalid
+            pool.submit(bad_path, bad_array)
+            with pytest.raises(ValueError, match="depth_m must be"):
+                pool.wait_until_done()
+        finally:
+            pool.stop()
+
+    def test_drain_clears_error_state(self, tmp_path):
+        """After a drain re-raises an exception, the next drain is clean."""
+        pool = _DepthWriterPool(num_workers=1)
+        try:
+            pool.submit(tmp_path / "bad.png", np.zeros((4, 4, 3), dtype=np.float32))
+            with pytest.raises(ValueError):
+                pool.wait_until_done()
+            good = np.full((4, 4), 1.0, dtype=np.float32)
+            pool.submit(tmp_path / "good.png", good)
+            pool.wait_until_done()
+            assert (tmp_path / "good.png").is_file()
+        finally:
+            pool.stop()
+
+    def test_stop_is_idempotent(self):
+        pool = _DepthWriterPool(num_workers=2)
+        pool.stop()
+        pool.stop()  # second stop should be a no-op, not block forever
 
 
 # ---------------------------------------------------------------------------

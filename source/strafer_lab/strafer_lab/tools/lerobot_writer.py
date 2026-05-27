@@ -60,6 +60,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import queue
+import threading
+import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
@@ -147,6 +150,80 @@ class StraferEpisodeExtensions:
 
 
 # ---------------------------------------------------------------------------
+# Depth sidecar worker pool
+# ---------------------------------------------------------------------------
+
+
+class _DepthWriterPool:
+    """Background workers that PNG-encode depth frames off the hot path.
+
+    Mirrors lerobot's :class:`AsyncImageWriter` semantics so the rest of
+    the writer can stay synchronous-looking: unbounded queue (no
+    backpressure on the env step — the operator-perceived smoothness of
+    teleop matters more than tight queue bounds, and a few hundred MB of
+    queued depth at <=2MB/frame is harmless on the DGX), drain-at-
+    episode-boundary via :meth:`wait_until_done`.
+
+    Worker exceptions are captured and re-raised on the next drain so a
+    bad disk doesn't get silently swallowed.
+    """
+
+    def __init__(self, num_workers: int) -> None:
+        from .lerobot_depth import write_depth_png
+
+        self._write_depth_png = write_depth_png
+        self._queue: queue.Queue[tuple[Path, np.ndarray] | None] = queue.Queue()
+        self._workers: list[threading.Thread] = []
+        self._exc_lock = threading.Lock()
+        self._first_exc: BaseException | None = None
+        for i in range(max(1, int(num_workers))):
+            t = threading.Thread(
+                target=self._worker_loop,
+                name=f"strafer-depth-writer-{i}",
+                daemon=True,
+            )
+            t.start()
+            self._workers.append(t)
+
+    def _worker_loop(self) -> None:
+        while True:
+            item = self._queue.get()
+            try:
+                if item is None:
+                    return
+                path, arr = item
+                try:
+                    self._write_depth_png(path, arr)
+                except BaseException as exc:
+                    with self._exc_lock:
+                        if self._first_exc is None:
+                            self._first_exc = exc
+                    traceback.print_exc()
+            finally:
+                self._queue.task_done()
+
+    def submit(self, path: Path, depth_m: np.ndarray) -> None:
+        # Copy the array — the caller's buffer may be reused by Isaac Sim
+        # on the next step. np.array(..., copy=True) is the cheap path.
+        self._queue.put((path, np.array(depth_m, copy=True)))
+
+    def wait_until_done(self) -> None:
+        """Block until the queue is drained; re-raise the first worker error."""
+        self._queue.join()
+        with self._exc_lock:
+            exc, self._first_exc = self._first_exc, None
+        if exc is not None:
+            raise exc
+
+    def stop(self) -> None:
+        """Signal all workers to exit and wait for them."""
+        for _ in self._workers:
+            self._queue.put(None)
+        for t in self._workers:
+            t.join(timeout=10.0)
+
+
+# ---------------------------------------------------------------------------
 # Writer
 # ---------------------------------------------------------------------------
 
@@ -207,6 +284,21 @@ class StraferLeRobotWriter:
       capture_git_sha:         git rev-parse HEAD of the repo at capture
                                time; recorded in per-episode metadata.
       scene_metadata_hash:     sha256 of the active scene_metadata.json.
+
+    Async writers (defaults tuned for in-process teleop capture):
+
+      image_writer_threads:    Threads for lerobot's :class:`AsyncImageWriter`.
+                               Default 4 (≈2 per camera at our two-camera
+                               configuration) so per-step PIL PNG encodes
+                               run off the env-step thread. ``save_episode``
+                               drains the queue, preserving episode bounds.
+      depth_writer_threads:    Threads for the strafer depth-sidecar pool.
+                               The depth PNG is authored outside the lerobot
+                               dataset features, so lerobot's pool can't see
+                               it — we run our own. Default 2 (depth is one
+                               write per step, single-camera).
+                               Set both to 0 for fully synchronous behaviour
+                               (useful when debugging frame ordering).
     """
 
     def __init__(
@@ -221,6 +313,8 @@ class StraferLeRobotWriter:
         vcodec: str = "h264",
         operator_handle: str | None = None,
         session_id: str | None = None,
+        image_writer_threads: int = 4,
+        depth_writer_threads: int = 2,
     ) -> None:
         # Lazy import — keeps the module importable in environments
         # without lerobot installed (tests that only exercise the depth
@@ -258,6 +352,11 @@ class StraferLeRobotWriter:
             robot_type="strafer",
             use_videos=True,
             vcodec=vcodec,
+            image_writer_threads=int(image_writer_threads),
+        )
+        self._depth_pool: _DepthWriterPool | None = (
+            _DepthWriterPool(int(depth_writer_threads))
+            if depth_writer_threads and depth_writer_threads > 0 else None
         )
         self._open_episode: dict[str, Any] | None = None
         self._frame_count_this_episode = 0
@@ -405,12 +504,21 @@ class StraferLeRobotWriter:
         self._dataset.add_frame(frame)
 
         # Depth sidecar — written outside the LeRobot dataset proper.
+        # When a worker pool is configured, hand the array off and let a
+        # background thread do the PIL encode + fsync; that keeps the
+        # ~5–15 ms 16-bit PNG write off the env-step thread. The pool
+        # copies the array because Isaac Sim recycles its render buffer
+        # on the next step.
         if depth_m is not None:
-            from .lerobot_depth import frame_path, write_depth_png
-
             ep_idx = self._open_episode["episode_index"]
-            png_path = frame_path(self._root, ep_idx, self._frame_count_this_episode)
-            write_depth_png(png_path, depth_m)
+            if self._depth_pool is not None:
+                from .lerobot_depth import frame_path
+                png_path = frame_path(self._root, ep_idx, self._frame_count_this_episode)
+                self._depth_pool.submit(png_path, depth_m)
+            else:
+                from .lerobot_depth import frame_path, write_depth_png
+                png_path = frame_path(self._root, ep_idx, self._frame_count_this_episode)
+                write_depth_png(png_path, depth_m)
 
         self._frame_count_this_episode += 1
 
@@ -441,6 +549,11 @@ class StraferLeRobotWriter:
         self._open_episode = None
 
         if discard or self._frame_count_this_episode == 0:
+            # Drain queued depth writes before clearing — otherwise a
+            # worker could land a PNG into a directory whose episode index
+            # is about to be reused, polluting the next episode.
+            if self._depth_pool is not None:
+                self._depth_pool.wait_until_done()
             # Clear LeRobot's per-frame buffer without persisting.
             try:
                 self._dataset.clear_episode_buffer()
@@ -450,6 +563,11 @@ class StraferLeRobotWriter:
                 self._dataset.writer.clear_episode_buffer()
             return
 
+        # Drain depth before lerobot's save_episode so both the MP4
+        # consolidation and the depth PNG sequence reach disk before
+        # the episode-index counter advances.
+        if self._depth_pool is not None:
+            self._depth_pool.wait_until_done()
         self._dataset.save_episode()
 
         ext = StraferEpisodeExtensions(
@@ -497,6 +615,14 @@ class StraferLeRobotWriter:
             # An episode is open at finalize time → discard rather than
             # persist a partial.
             self.end_episode(discard=True)
+        # Drain + stop the depth pool before lerobot's finalize so any
+        # in-flight depth PNGs land before the dataset is consolidated.
+        if self._depth_pool is not None:
+            try:
+                self._depth_pool.wait_until_done()
+            finally:
+                self._depth_pool.stop()
+                self._depth_pool = None
         self._dataset.finalize()
         self._write_strafer_sidecar()
         self._finalized = True

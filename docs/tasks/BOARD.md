@@ -85,6 +85,7 @@ Five briefs (`behavior-cloning-data-expansion`, `teleop-driver`, `trajectory-fir
 | [`infinigen-scene-corpus`](active/harness/infinigen-scene-corpus.md) | P1 | active | DGX |
 | [`teleop-ergonomics`](active/harness/teleop-ergonomics.md) | P1 | active (in-flight; core lands in PR #63) | DGX |
 | [`mission-generator`](active/harness/mission-generator.md) | P2 | active | DGX |
+| [`scene-metadata-in-usd`](active/harness/scene-metadata-in-usd.md) | P2 | active | TBD |
 | [`harness-throughput-measurement`](parked/harness/harness-throughput-measurement.md) | P2 | parked | DGX |
 | [`cosmos-replay-perturbation`](parked/harness/cosmos-replay-perturbation.md) | P3 | parked | DGX |
 
@@ -184,6 +185,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`bridge-throughput-toward-25hz`](active/sim-performance/bridge-throughput-toward-25hz.md) | M | Follow-up to `async-camera-publishers`. Lift the bridge toward the predicted 25 Hz ceiling. |
 | [`encoder-noise-shared-sample`](active/trained-policy/encoder-noise-shared-sample.md) | M | Filed off `observation-contract-cleanup` ship. Per-tick noised-ticks cache + policy/critic obs-function split so `wheel_encoder_velocities` and `body_velocity_xy` share a single encoder noise sample (matches real-robot signal chain). Closes the correlation gap that observation-contract-cleanup flagged as out of scope. |
 | [`mission-generator`](active/harness/mission-generator.md) | L | Free-text mission generator with LLM-emitted waypoints (multi-room default). Canonical mission queue source for teleop and oracle drivers. Blocks on `scene-connectivity-validation`. |
+| [`scene-metadata-in-usd`](active/harness/scene-metadata-in-usd.md) | M | Embed scene metadata inside the USD via `customData` so it travels with the geometry; deprecates `scene_metadata.json` sidecar + the path-resolution logic in `scene_paths.py`. Filed from PR #63 review; two-phase migration. |
 | [`training-throughput-profile-and-investigate`](active/investigations/training-throughput-profile-and-investigate.md) | S–M | Phase profiler in the training loop; files follow-up briefs from results. |
 | [`room-state-eval-harness`](active/multi-room/room-state-eval-harness.md) | M | v2 room-state — measurement harness for cluster purity / label precision / time-to-converge / connectivity P-R on a fixed multi-room scene set (incl. open-plan + multi-bedroom adversarials). Pure-eval brief; consumes LeRobot v3 datasets from [`harness-architecture`](active/harness/harness-architecture.md)'s scripted × coverage path. Blocks pickup on harness Tier 3 + `observation-derived-room-state` (shipped). |
 | [`semantic-region-partition`](active/multi-room/semantic-region-partition.md) | M | **The v2 quality work** — feature+space HDBSCAN clustering + open-vocab labels, replacing v1's greedy-modularity + 7-class argmax. One `α` knob (SOTA-aligned, ConceptGraphs / HOV-SG shape); no training. Handles open-plan + multi-bedroom by construction. `RoomEntry` shape preserved (+`uncertainty`). |

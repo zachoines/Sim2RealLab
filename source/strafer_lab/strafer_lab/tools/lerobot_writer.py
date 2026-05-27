@@ -345,9 +345,10 @@ class StraferLeRobotWriter:
             raise ModuleNotFoundError(
                 "lerobot is required to construct StraferLeRobotWriter. "
                 "Install with `pip install --no-deps 'lerobot==0.5.1'` plus "
-                "the matching `datasets`, `av`, and `jsonlines` pins. "
-                "See docs/HARNESS_DATA_CAPTURE.md → One-time env setup "
-                "for the full instructions.",
+                "the matching `datasets`, `av`, and `jsonlines` pins, "
+                "inside the Isaac Lab Python env. See "
+                "docs/HARNESS_DATA_CAPTURE.md → One-time env setup for "
+                "the full instructions.",
             ) from exc
 
         self._root = Path(root)

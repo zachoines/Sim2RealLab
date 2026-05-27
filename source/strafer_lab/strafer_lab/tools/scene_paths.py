@@ -27,28 +27,41 @@ _METADATA_NAME = "scene_metadata.json"
 
 
 def find_metadata_for_usd(usd_path: Path | str) -> Path | None:
-    """Walk up from a USD file to find a sibling ``scene_metadata.json``.
+    """Derive ``scene_metadata.json`` from a USD path — deterministic, no walk.
 
-    Handles both the symlink-at-scenes-root layout and the
-    inside-scene-dir layout. Returns ``None`` when nothing is found
-    within five parent levels (a safety cap so we never traverse to ``/``).
+    Two layouts are recognized, both checked at exactly one candidate
+    path each (no recursive ancestor crawl):
+
+    1. **Symlink at the scenes root**: ``<scenes>/<X>.usdc`` →
+       ``<scenes>/<X>/scene_metadata.json``. This is the canonical
+       operator-facing form authored by ``prep_room_usds.py``.
+    2. **Deep export inside the scene dir**: ``<scenes>/<X>/<...>/<X>.usdc``
+       → ``<scenes>/<X>/scene_metadata.json``. We require an ancestor
+       directory whose name matches the USD stem (i.e. the scene name)
+       so we never resolve via an unrelated ``scene_metadata.json`` that
+       happens to live further up the tree.
+
+    Returns ``None`` when neither candidate exists; the caller should
+    error loudly and tell the operator to pass ``--scene-metadata``
+    explicitly. Bounded depth: at most four ancestors are inspected.
     """
     path = Path(usd_path).resolve()
-    # If the USD is a symlink at the scenes root, the sibling directory
-    # named after the symlink stem is the scene dir.
-    if path.is_symlink() or path.parent.name == _DEFAULT_SEARCH_ROOT.name:
-        sibling = path.with_suffix("") / _METADATA_NAME
-        if sibling.is_file():
-            return sibling
-    # Otherwise walk up looking for the metadata file in any ancestor.
-    current = path.parent
-    for _ in range(5):
-        candidate = current / _METADATA_NAME
-        if candidate.is_file():
-            return candidate
-        if current.parent == current:
-            break
-        current = current.parent
+    stem = path.stem
+
+    # Layout 1: sibling dir named after the USD stem, at the same level
+    # as the USD itself (covers the scenes-root symlink case).
+    candidate = path.with_suffix("") / _METADATA_NAME
+    if candidate.is_file():
+        return candidate
+
+    # Layout 2: an ancestor directory whose name == USD stem holds the
+    # metadata. Cap at depth 4 — Infinigen's deepest export pattern is
+    # ``<scene>/coarse/exports/<scene>.usdc``, which puts the stem dir
+    # exactly 3 parents above the USD.
+    for ancestor in list(path.parents)[:4]:
+        if ancestor.name == stem:
+            candidate = ancestor / _METADATA_NAME
+            return candidate if candidate.is_file() else None
     return None
 
 

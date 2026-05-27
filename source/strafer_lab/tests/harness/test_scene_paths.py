@@ -59,6 +59,31 @@ class TestFindMetadataForUsd:
         orphan.write_text("(stub)")
         assert find_metadata_for_usd(orphan) is None
 
+    def test_ignores_unrelated_ancestor_metadata(self, tmp_path):
+        """A scene_metadata.json in a non-stem-named ancestor must NOT match.
+
+        Regression for the original loose walk-up: an ancestor whose name
+        differs from the USD stem could resolve via a coincidentally-placed
+        scene_metadata.json from an unrelated scene.
+        """
+        rogue_root = tmp_path / "some_other_scene"
+        (rogue_root / "subdir").mkdir(parents=True)
+        (rogue_root / "scene_metadata.json").write_text("{}")  # WRONG one
+        usd = rogue_root / "subdir" / "scene_X.usdc"  # stem != ancestor name
+        usd.write_text("(stub)")
+        assert find_metadata_for_usd(usd) is None
+
+    def test_stem_match_but_missing_sidecar_returns_none(self, tmp_path):
+        """Stem-named ancestor exists but holds no sidecar — fail, don't walk further."""
+        scene_dir = tmp_path / "scene_X"
+        (scene_dir / "coarse" / "exports").mkdir(parents=True)
+        # NO scene_metadata.json at scene_X/
+        usd = scene_dir / "coarse" / "exports" / "scene_X.usdc"
+        usd.write_text("(stub)")
+        # An unrelated metadata file higher up must NOT be picked.
+        (tmp_path / "scene_metadata.json").write_text("{}")
+        assert find_metadata_for_usd(usd) is None
+
 
 class TestResolveSceneMetadataPath:
     def test_metadata_override_wins(self, scene_tree):

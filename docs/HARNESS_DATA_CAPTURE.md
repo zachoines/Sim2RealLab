@@ -18,19 +18,24 @@ procedure.
 
 ## One-time env setup
 
-`env_isaaclab3` ships with `torch 2.10.0+cu130` + `numpy 2.3.1` +
-`huggingface-hub 0.36`. `lerobot 0.5.1` pins are mostly compatible
-except for `numpy`, `huggingface-hub`, and `rerun-sdk` — a normal
-`pip install lerobot` would downgrade numpy (risks breaking
+First bring up the Isaac Lab Python env per
+[`docs/DGX_SPARK_SETUP.md`](DGX_SPARK_SETUP.md) — that runbook covers
+Miniconda, Isaac Sim 5.1, the aarch64 PyTorch wheel, and Isaac Lab
+itself. The harness layers `lerobot` into that env.
+
+Why `--no-deps`: the Isaac Lab env ships with `torch 2.10.0+cu130` +
+`numpy 2.3.1` + `huggingface-hub 0.36`. `lerobot 0.5.1` pins are mostly
+compatible except for `numpy`, `huggingface-hub`, and `rerun-sdk` — a
+normal `pip install lerobot` would downgrade numpy (risks breaking
 Isaac Sim) and major-bump huggingface-hub (risks breaking
 transformers). Install `--no-deps` and layer only the runtime deps the
 writer actually uses:
 
 ```bash
-conda activate env_isaaclab3
+conda activate <your-isaac-lab-env>   # the one created in DGX_SPARK_SETUP.md
 
 # Note: $ISAACLAB is an Isaac Lab wrapper that only forwards args after
-# its own flags — it can't run `-m pip` directly. Use the conda env's
+# its own flags — it can't run `-m pip` directly. Use the env's
 # Python (`python -m pip` works once you're inside the env).
 
 # 1. Install lerobot core without dragging its strict pins in
@@ -59,7 +64,7 @@ install and works.
 
 Pure-Python unit tests (writer / depth / mission picker / button
 translator / CLI dispatch / scene-path resolver) run in `.venv_harness`,
-NOT `env_isaaclab3`, so they stay isolated from the runtime stack:
+isolated from the Isaac Lab runtime stack:
 
 ```bash
 make test-harness
@@ -278,16 +283,11 @@ and `--max-steps-per-episode`, and commit a summary under
 
 | Symptom | Most likely cause | What to check |
 |---|---|---|
-| `ModuleNotFoundError: No module named 'lerobot'` | The active env doesn't have lerobot | Run the one-time env setup above |
+| `ModuleNotFoundError: No module named 'lerobot'` | The Isaac Lab env doesn't have lerobot yet | Run the one-time env setup above |
 | `scene_metadata.json not found` | Scene hasn't been extracted | Run the extraction step above |
-| `--output already exists` | LeRobotDataset.create refuses to overwrite | Pick a fresh path per session (timestamp helps) |
+| `--output already exists` | `LeRobotDataset.create` refuses to overwrite; bash variables persist across runs in the same shell, so a stale `$OUT` is the usual culprit | Re-stamp `$RUN_ID`/`$OUT` per run, or rely on the driver's auto-suffix fallback |
 | `No gamepad detected` | pygame can't find the joystick | `jstest /dev/input/js0` to confirm the kernel sees it |
-| Wrong button does the wrong thing | family auto-detect picked wrong | Add `--family-override ps5` (or `xbox` / `switch`) — TODO if needed |
-| `cv2.error: ... The function is not implemented. Rebuild the library with ... GTK+ ...` on `cv2.namedWindow` | `opencv-python-headless` has no GUI backend by design | The driver degrades to "PIP off" automatically — capture continues; use the Isaac Sim editor viewport as your live view. Pass `--no-pip-window` to silence the warning |
-| Robot spawns outside the room (drives in empty space) | The env's default pools spawn points across ALL scenes in `scenes_metadata.json`; with two scenes loaded, some resets place the robot at the wrong scene's coords | The teleop driver overrides this to use only the `--scene`'s spawn points. If you still see this, check the startup log for `using N spawn points for active scene` — `N` should be the per-scene count from `scenes_metadata.json`. If the message says "no active-scene spawn_points_xy found", run `generate_scenes_metadata.py` to repopulate |
-| Top-down view shows roof / can't see the robot | Infinigen exports ceiling + exterior-hull prims | Add `--hide-overhead`. If you still see roof geometry, check the startup log for `hid N overhead prim(s)` — `N=0` means the regex didn't match this scene's naming; override with `--overhead-regex 'your_pattern'` |
-| Editor viewport shows empty space outside the room | Default ViewerCfg was at env origin (a corner of Infinigen scenes) | The driver centers on the spawn-pool centroid in world_arcade mode. The startup log prints `world_arcade viewport centered at (cx, cy, 12.00)` |
-| Spurious sphere + cone goal marker in the viewport | RL env's `goal_command.debug_vis=True` | The driver suppresses this. If you still see it, check the startup log for `suppressed env goal_command.debug_vis` |
-| No idea where the target is, just coordinates | Picker prints `pos=(x, y, z)` but it's hard to mentally place | The driver drops a green debug-draw sphere at the target position when the episode opens. If it's not appearing, check the startup log for the `target_marker: True` line, and confirm `[teleop_capture] target marker disabled (debug-draw unavailable: ...)` doesn't appear |
-| PIP HUD overlay leaks into saved frames | cv2 putText is rendering into the perception render product | **Hard acceptance fail.** File a bug; the cv2 window must be a separate top-level surface |
-| Round-trip via HF `LeRobotDataset` fails with codec error | torchcodec missing on aarch64 | The wheel marker excludes aarch64; LeRobot falls back to PyAV which works. If you've manually installed torchcodec, uninstall it |
+| Wrong button does the wrong thing | Controller-family auto-detect picked wrong | Add `--family-override ps5` (or `xbox` / `switch`) |
+| `cv2.error: ... The function is not implemented. Rebuild the library with ... GTK+ ...` on `cv2.namedWindow` | The installed opencv has no GUI backend (the `-headless` variant) | The driver degrades to "PIP off" automatically — capture continues; use the Isaac Sim editor viewport as your live view. Pass `--no-pip-window` to silence the warning |
+| Top-down view shows roof / can't see the robot | Infinigen exports ceiling + exterior-hull prims | Add `--hide-overhead`. If geometry still occludes, override the matcher with `--overhead-regex 'your_pattern'` |
+| Round-trip via HF `LeRobotDataset` fails with a codec error | `torchcodec` missing on aarch64 | The wheel marker excludes aarch64; LeRobot falls back to PyAV which works. If you've manually installed `torchcodec`, uninstall it |

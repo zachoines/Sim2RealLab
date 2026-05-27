@@ -185,10 +185,15 @@ mask Linux-specific drift if mixed.
 
 ## Out of scope
 
-- **Switching off rsl_rl.** If a newer Isaac Lab release renames its
-  RL bundle (`rsl_rl` token already became `rl` between the pin and
-  develop tip), update the install command — but don't migrate
-  strafer_lab to a different RL framework.
+- **Switching off rsl_rl.** The `rsl_rl` library itself is alive and
+  maintained (`rsl-rl-lib==5.3.0+` on pypi.nvidia.com; strafer_lab's
+  `distributions.py` is built against the 5.x API). What changed is
+  the IsaacLab installer TOKEN: at commit `ae41e2aca68`, the valid
+  `./isaaclab.sh --install <token>` set is `{mimic, teleop, contrib,
+  newton, ov, rl, visualizer, isaacsim}` — `rsl_rl` was renamed to
+  `rl` (which now bundles rsl_rl + skrl + sb3). If a future release
+  renames the token again, update the install command — but don't
+  migrate strafer_lab to a different RL framework.
 - **Isaac Sim binary version upgrade beyond 6.0.x.** Isaac Sim 6.x
   is the validated runtime; this brief is about Isaac Lab only.
 - **Re-architecting `env_isaaclab3` as a non-conda venv.** That's a

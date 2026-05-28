@@ -838,7 +838,7 @@ def main() -> int:
     print(f"  fps (writer)      : {writer_fps}  "
           f"(capture cadence; env_step_hz={env_step_hz:.1f})")
     print(f"  control_mode      : {args.control_mode}")
-    print(f"  hide_ceilings     : {bool(args.hide_ceilings)}")
+    print(f"  hide_overhead     : {bool(args.hide_overhead)}")
     print(f"  target_marker     : {not bool(args.no_target_marker)}")
     print(f"  max episodes      : {args.max_episodes}")
     print(f"  max steps/episode : {args.max_steps_per_episode}")

@@ -199,6 +199,12 @@ def generate_scenes(
     silently produced no file, the result is flagged with a nonzero
     ``returncode`` instead of being reported as success.
     """
+    # Fail-fast: validate every env var the pipeline will eventually
+    # need BEFORE kicking off potentially multi-hour Infinigen runs.
+    # Otherwise a missing STRAFER_ISAACLAB_PYTHON would crash after
+    # coarse + export finished, throwing away a day's compute.
+    validate_required_env_for_generate()
+
     infinigen_python = infinigen_python or _resolve_infinigen_python()
     # Resolve to absolute paths: the subprocess runs with cwd=infinigen_root,
     # so any relative output path would land inside Infinigen's source tree
@@ -397,6 +403,25 @@ def _resolve_infinigen_python() -> str:
 def _resolve_isaaclab_python() -> str:
     """Return the Python interpreter with ``pxr`` available (for USDC post-processing)."""
     return _resolve_env_python(_ISAACLAB_PYTHON_ENV_VAR)
+
+
+def validate_required_env_for_generate() -> None:
+    """Fail-fast check that every env var ``generate_scenes`` will need is set.
+
+    The wrapper's pipeline takes multi-hour Infinigen runs before it
+    needs ``STRAFER_ISAACLAB_PYTHON`` in :func:`_run_postprocess`. Without
+    this upfront check, a missing var would crash after coarse + export
+    completed and discard a day's worth of compute. Call this from the
+    top of :func:`generate_scenes` and from any entry point that calls
+    :func:`generate_scenes`.
+
+    Raises the same :class:`RuntimeError` types the underlying resolvers
+    raise, so existing error messages (with the ``source env_setup.sh``
+    hint) are preserved.
+    """
+    _resolve_infinigen_root()
+    _resolve_infinigen_python()
+    _resolve_isaaclab_python()
 
 
 def _build_generate_command(

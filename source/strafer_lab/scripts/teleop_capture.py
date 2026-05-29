@@ -825,6 +825,28 @@ def main() -> int:
             resolution=(1280, 720),
         )
 
+    # Skip wasted perception/policy camera renders on non-capture steps.
+    # The env's default makes both cameras update every env.step (30 Hz),
+    # but the writer only consumes them every ticks_per_capture steps.
+    # On a high_quality_dgx Infinigen scene the 640x360 perception RTX
+    # render is ~100 ms per pass — at 30 Hz that single render dominates
+    # the env step and caps operator FPS around 10 Hz. Lowering the
+    # camera update_period to match the writer cadence renders only when
+    # needed and gives the env step headroom for ~30 Hz operator
+    # smoothness without changing the captured dataset at all.
+    _render_rate_hz = float(args.capture_rate_hz or args.fps)
+    _render_period_s = 1.0 / max(_render_rate_hz, 1e-3)
+    for _cam_attr in ("d555_camera_perception", "d555_camera"):
+        _cam_cfg = getattr(env_cfg.scene, _cam_attr, None)
+        if _cam_cfg is not None and hasattr(_cam_cfg, "update_period"):
+            _cam_cfg.update_period = _render_period_s
+    print(
+        f"[teleop_capture] cameras lowered to update_period={_render_period_s:.4f}s "
+        f"(={_render_rate_hz:.1f} Hz, matches writer cadence) — skips renders "
+        f"on non-capture steps.",
+        flush=True,
+    )
+
     env = gym.make(args.task, cfg=env_cfg)
     unwrapped = env.unwrapped
     device = unwrapped.device

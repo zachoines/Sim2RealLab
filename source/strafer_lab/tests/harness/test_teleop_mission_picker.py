@@ -172,6 +172,166 @@ class TestDedupByInstance:
         assert {c.instance_id for c in cands} == {1, 2}
 
 
+class TestDedupBySpawnAsset:
+    """Dedup is keyed on the per-instance spawn_asset token, not instance_id.
+
+    Infinigen's ``instance_id`` in scene_metadata.json is the factory
+    class id — shared across every instance of a given factory. The
+    per-physical-instance discriminator is ``__spawn_asset_<N>_`` in
+    the prim_path. Dedup-by-instance_id silently collapsed 23 distinct
+    bowls into one row AND failed to collapse the bed+mattress+pillow
+    cluster that all share one spawn token.
+    """
+
+    def test_collapses_multi_label_spawn_asset_to_canonical(self):
+        """A bed authored as bed + mattress + pillow + blanket + box_comforter +
+        towel sub-prims (sharing one spawn token) collapses to one entry
+        labeled 'bed' — the highest-priority structural label."""
+        data = {
+            "objects": [
+                {"instance_id": 3153459, "label": "bed",
+                 "position_3d": [5.79, 16.09, 0.79],
+                 "prim_path": "/World/BedFactory_3153459__spawn_asset_3093183_/x"},
+                {"instance_id": 3153459, "label": "mattress",
+                 "position_3d": [5.80, 16.09, 0.75],
+                 "prim_path": "/World/MattressFactory_3153459__spawn_asset_3093183_/x"},
+                {"instance_id": 3153459, "label": "pillow",
+                 "position_3d": [5.03, 15.91, 1.18],
+                 "prim_path": "/World/PillowFactory_3153459__spawn_asset_3093183_/x"},
+                {"instance_id": 3153459, "label": "blanket",
+                 "position_3d": [6.15, 16.12, 0.97],
+                 "prim_path": "/World/BlanketFactory_3153459__spawn_asset_3093183_/x"},
+                {"instance_id": 3153459, "label": "box_comforter",
+                 "position_3d": [5.79, 16.09, 0.77],
+                 "prim_path": "/World/BoxComforterFactory_3153459__spawn_asset_3093183_/x"},
+                {"instance_id": 3153459, "label": "towel",
+                 "position_3d": [5.94, 16.59, 1.11],
+                 "prim_path": "/World/TowelFactory_3153459__spawn_asset_3093183_/x"},
+            ],
+        }
+        cands = load_candidates_from_data(data)
+        assert len(cands) == 1
+        assert cands[0].label == "bed"
+
+    def test_keeps_distinct_spawn_assets_separate_under_same_factory(self):
+        """Three bowls all share BowlFactory_6738208 (factory id) but each
+        has its own spawn_asset token. They must remain 3 entries, NOT
+        be collapsed by the legacy instance_id dedup."""
+        data = {
+            "objects": [
+                {"instance_id": 6738208, "label": "bowl",
+                 "position_3d": [-0.05, 10.61, 0.96],
+                 "prim_path": "/World/BowlFactory_6738208__spawn_asset_321270_/x"},
+                {"instance_id": 6738208, "label": "bowl",
+                 "position_3d": [9.78, 5.20, 0.96],
+                 "prim_path": "/World/BowlFactory_6738208__spawn_asset_8624297_/x"},
+                {"instance_id": 6738208, "label": "bowl",
+                 "position_3d": [15.58, 18.30, 0.96],
+                 "prim_path": "/World/BowlFactory_6738208__spawn_asset_557774_/x"},
+            ],
+        }
+        cands = load_candidates_from_data(data)
+        assert len(cands) == 3, "expected 3 distinct bowls; not to collapse on shared factory id"
+
+    def test_desk_lamp_pair_collapses_to_desk(self):
+        data = {
+            "objects": [
+                {"instance_id": 5603986, "label": "desk",
+                 "position_3d": [13.61, 9.84, 1.06],
+                 "prim_path": "/World/DeskFactory_5603986__spawn_asset_77_/x"},
+                {"instance_id": 5603986, "label": "lamp",
+                 "position_3d": [13.61, 9.84, 1.20],
+                 "prim_path": "/World/LampFactory_5603986__spawn_asset_77_/x"},
+            ],
+        }
+        cands = load_candidates_from_data(data)
+        assert len(cands) == 1
+        assert cands[0].label == "desk"
+
+    def test_sink_tap_pair_collapses_to_sink(self):
+        data = {
+            "objects": [
+                {"instance_id": 6496361, "label": "sink",
+                 "position_3d": [11.08, 6.30, 1.08],
+                 "prim_path": "/World/SinkFactory_6496361__spawn_asset_2_/x"},
+                {"instance_id": 6496361, "label": "tap",
+                 "position_3d": [11.08, 6.51, 1.40],
+                 "prim_path": "/World/TapFactory_6496361__spawn_asset_2_/x"},
+            ],
+        }
+        cands = load_candidates_from_data(data)
+        assert len(cands) == 1
+        assert cands[0].label == "sink"
+
+    def test_blender_duplicate_suffix_treated_as_same_instance(self):
+        """``__spawn_asset_3093183__001`` and ``__spawn_asset_3093183_`` are
+        the same physical asset (Blender re-export duplicate suffix)."""
+        data = {
+            "objects": [
+                {"instance_id": 1, "label": "bed",
+                 "position_3d": [5.79, 16.09, 0.79],
+                 "prim_path": "/World/BedFactory_1__spawn_asset_3093183_/x"},
+                {"instance_id": 1, "label": "bed",
+                 "position_3d": [5.80, 16.09, 0.80],
+                 "prim_path": "/World/BedFactory_1__spawn_asset_3093183__001/x"},
+            ],
+        }
+        cands = load_candidates_from_data(data)
+        assert len(cands) == 1
+
+    def test_legacy_fallback_when_no_spawn_token(self):
+        """Prims without spawn_asset in prim_path still use legacy
+        (label, instance_id) dedup — preserves the legacy contract for
+        non-Factory prims and older captures."""
+        data = {
+            "objects": [
+                {"instance_id": 70173, "label": "cabinet",
+                 "position_3d": [9.10, 5.49, 0.88],
+                 "prim_path": "/World/Cabinet_1"},
+                {"instance_id": 70173, "label": "cabinet",
+                 "position_3d": [8.92, 5.49, 0.92],
+                 "prim_path": "/World/Cabinet_1"},
+            ],
+        }
+        cands = load_candidates_from_data(data)
+        assert len(cands) == 1, "legacy dedup should collapse same-(label,id) rows"
+
+    def test_id_minus_one_windows_disambiguated_by_prim_path(self):
+        """Two windows with ``instance_id=-1`` and different prim_paths
+        stay as two entries — the legacy key includes prim_path so the
+        -1 wildcard doesn't coalesce unrelated arch prims."""
+        data = {
+            "objects": [
+                {"instance_id": -1, "label": "window",
+                 "position_3d": [6.00, 12.00, 1.46],
+                 "prim_path": "/World/window_north"},
+                {"instance_id": -1, "label": "window",
+                 "position_3d": [-3.35, 15.13, 1.49],
+                 "prim_path": "/World/window_south"},
+            ],
+        }
+        cands = load_candidates_from_data(data)
+        assert len(cands) == 2
+
+    def test_dedup_off_preserves_all_subprims_under_one_spawn_token(self):
+        """dedup_by_instance=False bypasses spawn-token grouping entirely."""
+        data = {
+            "objects": [
+                {"instance_id": 1, "label": "bed",
+                 "position_3d": [5.0, 5.0, 1.0],
+                 "prim_path": "/World/BedFactory_1__spawn_asset_42_/x"},
+                {"instance_id": 1, "label": "mattress",
+                 "position_3d": [5.0, 5.0, 0.5],
+                 "prim_path": "/World/MattressFactory_1__spawn_asset_42_/x"},
+                {"instance_id": 1, "label": "pillow",
+                 "position_3d": [5.0, 5.5, 1.2],
+                 "prim_path": "/World/PillowFactory_1__spawn_asset_42_/x"},
+            ],
+        }
+        cands = load_candidates_from_data(data, dedup_by_instance=False)
+        assert len(cands) == 3
+
+
 class TestSelectByIndex:
     @pytest.fixture
     def cands(self):

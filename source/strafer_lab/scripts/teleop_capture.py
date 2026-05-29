@@ -409,15 +409,20 @@ def _arcade_camera_init(
         return False
 
 
-def _arcade_follow_tick(unwrapped) -> None:
-    """Per-tick follow: re-pose /OmniverseKit_Persp above the robot's XY.
+def _arcade_follow_tick(unwrapped, robot_xy: tuple[float, float]) -> None:
+    """Per-tick follow: re-pose /OmniverseKit_Persp above ``robot_xy``.
 
     Reads the viewport camera's current world-Z before re-setting eye so
     the operator's scroll-wheel zoom is preserved between ticks (we only
     overwrite X/Y). Eye and target share XY so set_camera_view hits the
     explicit looking-down quat branch (see _compute_arcade_eye), keeping
-    screen-up locked to world +Y across all calls. Silent on failure (so
-    a one-shot Kit hiccup doesn't break the loop).
+    screen-up locked to world +Y across all calls.
+
+    ``robot_xy`` is supplied by the caller rather than re-fetched here,
+    so the loop only triggers ONE ``.cpu()`` CUDA sync per step on the
+    robot pose (saved by sharing _robot_pose's result instead of an
+    independent ``root_pos_w`` read). Silent on failure (so a one-shot
+    Kit hiccup doesn't break the loop).
     """
     try:
         import omni.kit.viewport.utility as vp_util  # type: ignore
@@ -436,9 +441,7 @@ def _arcade_follow_tick(unwrapped) -> None:
             Usd.TimeCode.Default(),
         ).ExtractTranslation()[2]
         altitude = max(1.5, float(cur_z))  # clamp floor so we don't sink into geometry
-        # Robot pose (env 0).
-        pos = _as_torch(unwrapped.scene["robot"].data.root_pos_w)[0].cpu().numpy()
-        eye, target = _compute_arcade_eye((float(pos[0]), float(pos[1])), altitude)
+        eye, target = _compute_arcade_eye(robot_xy, altitude)
         set_camera_view(
             eye=list(eye), target=list(target),
             camera_prim_path=_KIT_PERSP_CAM_PRIM,
@@ -824,15 +827,23 @@ def main() -> int:
             resolution=(1280, 720),
         )
 
-    # Skip wasted perception/policy camera renders on non-capture steps.
-    # The env's default makes both cameras update every env.step (30 Hz),
-    # but the writer only consumes them every ticks_per_capture steps.
-    # On a high_quality_dgx Infinigen scene the 640x360 perception RTX
-    # render is ~100 ms per pass — at 30 Hz that single render dominates
-    # the env step and caps operator FPS around 10 Hz. Lowering the
-    # camera update_period to match the writer cadence renders only when
-    # needed and gives the env step headroom for ~30 Hz operator
-    # smoothness without changing the captured dataset at all.
+    # Match camera update_period to the writer cadence.
+    #
+    # NOTE: this is a smaller win than originally advertised — it gates
+    # Isaac Lab's per-sensor ``_is_outdated`` flag and the lazy
+    # ``_update_buffers_impl`` render trigger (sensor_base.py:186-205,
+    # camera.py:188-193, 439-442), NOT Kit's viewport pump. The
+    # dominant cost on a cluttered Infinigen scene is the
+    # ``KitVisualizer.step → app.update`` call that
+    # ``manager_based_rl_env.step`` invokes every env step
+    # (manager_based_rl_env.py:214-215), which still renders the
+    # editor viewport + every active TiledCamera regardless of
+    # ``update_period``. We keep the override because the buffer-stitch
+    # warp kernel + implicit CUDA sync on lazy buffer access are real
+    # (small but non-zero) savings, and because at the writer cadence
+    # the camera's ``.data`` reads at capture time don't trigger a
+    # mid-step re-render. The heavy lifting for operator FPS lives in
+    # the teleop-perf-architecture brief (sim-performance epic).
     _render_rate_hz = float(args.capture_rate_hz or args.fps)
     _render_period_s = 1.0 / max(_render_rate_hz, 1e-3)
     for _cam_attr in ("d555_camera_perception", "d555_camera"):
@@ -841,8 +852,8 @@ def main() -> int:
             _cam_cfg.update_period = _render_period_s
     print(
         f"[teleop_capture] cameras lowered to update_period={_render_period_s:.4f}s "
-        f"(={_render_rate_hz:.1f} Hz, matches writer cadence) — skips renders "
-        f"on non-capture steps.",
+        f"(={_render_rate_hz:.1f} Hz, matches writer cadence) — saves buffer "
+        f"trigger only; Kit viewport pump still fires every env.step.",
         flush=True,
     )
 
@@ -1183,10 +1194,11 @@ def main() -> int:
             episode_step += 1
 
             # World-arcade follow: re-pose /OmniverseKit_Persp over the
-            # robot's XY each step (no-op in egocentric mode). Reads
-            # current viewport altitude so operator scroll-zoom persists.
+            # robot's XY each step (no-op in egocentric mode). Reuses
+            # the pose tuple we already fetched above so we don't pay
+            # a second .cpu() CUDA sync on root_pos_w.
             if args.control_mode == "world_arcade":
-                _arcade_follow_tick(unwrapped)
+                _arcade_follow_tick(unwrapped, (pose[0], pose[1]))
 
             # Only sample for the writer at the chosen capture cadence.
             # env.step ran every loop iteration (full sim tick rate),
@@ -1227,17 +1239,16 @@ def main() -> int:
                     depth_policy_m=depth_policy_m,
                 )
             else:
-                # Still need an RGB to feed the PIP / HUD distance — but
-                # cheap: just grab perception camera output without depth
-                # + policy cam decode. Falls back if PIP is off.
-                if not pip._enabled:
-                    rgb_perception = None
-                else:
-                    rgb_perception = _rgb_to_uint8_hwc(
-                        perception_camera.data.output["rgb"],
-                    )
+                # No PIP fetch on non-capture steps. PIP redraws at the
+                # writer cadence (8 Hz default) — plenty for an operator
+                # preview, and saves a cv2.cvtColor + cv2.imshow round
+                # trip per env.step that doesn't capture (~3 of every 4
+                # ticks at 30 Hz env / 8 Hz writer).
+                rgb_perception = None
 
-            # PIP overlay (cosmetic; never reaches LeRobot frames).
+            # PIP overlay (cosmetic; never reaches LeRobot frames). Only
+            # shown on capture steps so we never read perception RGB just
+            # to feed PIP.
             target_xy = (
                 current_candidate.target_position_3d[:2]
                 if current_candidate is not None else (0.0, 0.0)
@@ -1247,7 +1258,7 @@ def main() -> int:
             )
             rec_label = "PAUSED" if rec_paused else "REC"
             hud = f"[{rec_label}]  ep={writer.num_episodes}  step={episode_step}  d={dist:.2f}m"
-            if rgb_perception is not None:
+            if should_capture and rgb_perception is not None:
                 pip.show(rgb_perception, hud)
 
             # Console HUD once per second.

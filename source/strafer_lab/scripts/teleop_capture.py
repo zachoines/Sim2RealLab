@@ -176,6 +176,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "writer.add_frame is called every "
         "round(env_step_hz / capture_rate_hz) ticks.",
     )
+    parser.add_argument(
+        "--diag-stick",
+        action="store_true",
+        help="Print a once-per-second diagnostic line in world_arcade mode "
+        "showing robot yaw, world-frame stick intent, and the body-frame "
+        "command actually sent to the env. Use to confirm the world→body "
+        "rotation is firing as expected when the operator reports "
+        "direction issues.",
+    )
     AppLauncher.add_app_launcher_args(parser)
     return parser
 
@@ -346,6 +355,18 @@ def _possess_d555_viewport(prim_path: str) -> bool:
 # session that left the viewport pointing at d555_camera_perception
 # doesn't leak into a fresh world_arcade run.
 _KIT_PERSP_CAM_PRIM = "/OmniverseKit_Persp"
+
+# Only re-pose the follow-cam when the robot has translated more than
+# this many meters since the last set_camera_view call. Calling
+# set_camera_view EVERY env step clobbers any pending scroll-wheel
+# input the operator applied — Kit's input event for the wheel modifies
+# the camera prim's transform, but our next set_camera_view overwrites
+# that change before Kit can flush its scroll handler's pending writes
+# into the displayed pose. With a translation threshold the operator
+# gets quiet intervals where Kit can apply scroll-wheel zoom safely.
+# 0.30 m ≈ one robot half-width — small enough that the operator
+# perceives "always following" without losing scroll responsiveness.
+_ARCADE_FOLLOW_XY_DELTA_M = 0.30
 
 
 def _compute_arcade_eye(
@@ -1015,6 +1036,11 @@ def main() -> int:
     a_was_down = False  # rising-edge detect for the A button (pause toggle)
     kept_episodes = 0
     current_candidate: MissionCandidate | None = None
+    # Last robot XY at which the follow-cam was repositioned. Seeded
+    # far away so the first qualifying step always re-poses, then
+    # updated on each successful follow tick. See the gate inside the
+    # env-step loop + _ARCADE_FOLLOW_XY_DELTA_M.
+    _last_arcade_follow_xy: tuple[float, float] = (float("-inf"), float("-inf"))
 
     def _begin_next_episode() -> MissionCandidate | None:
         """Prompt operator, reset env, open writer's episode buffer."""
@@ -1186,6 +1212,31 @@ def main() -> int:
                 frame.lx, frame.ly, frame.rx, yaw,
                 control_mode=args.control_mode,
             )
+
+            # Once-per-second diagnostic to confirm the world→body rotation
+            # is actually happening when the operator pushes the stick.
+            # Set --diag-stick to enable. Operator should rotate the robot
+            # via right-stick yaw and confirm:
+            #   (a) yaw degrees DOES change as the robot rotates
+            #   (b) for the same stick direction, body_cmd should change
+            #       as yaw rotates (sign + magnitude differ across headings)
+            # If yaw is stuck at 0 or body_cmd doesn't track yaw, the world
+            # rotation is broken — file the symptom against this output.
+            if (
+                args.diag_stick
+                and args.control_mode == "world_arcade"
+                and episode_step % 30 == 0
+                and (abs(frame.lx) > 0.05 or abs(frame.ly) > 0.05)
+            ):
+                world_vx_intent = frame.lx
+                world_vy_intent = -frame.ly
+                print(
+                    f"  [diag-stick] yaw={math.degrees(yaw):+7.1f}°  "
+                    f"world_intent=({world_vx_intent:+.2f}, {world_vy_intent:+.2f})  "
+                    f"body_cmd=({body_vx:+.2f}, {body_vy:+.2f})",
+                    flush=True,
+                )
+
             action = torch.tensor(
                 [[body_vx, body_vy, omega]], dtype=torch.float32, device=device,
             )
@@ -1194,11 +1245,18 @@ def main() -> int:
             episode_step += 1
 
             # World-arcade follow: re-pose /OmniverseKit_Persp over the
-            # robot's XY each step (no-op in egocentric mode). Reuses
-            # the pose tuple we already fetched above so we don't pay
-            # a second .cpu() CUDA sync on root_pos_w.
+            # robot's XY ONLY when it has moved enough to matter. Calling
+            # set_camera_view every env step clobbers operator scroll-wheel
+            # input (Kit hasn't flushed the wheel's pending xform write
+            # before our overwrite lands). The XY-delta gate gives Kit
+            # quiet intervals where scroll handles cleanly. Reuses the
+            # pose already fetched above (no extra CUDA sync).
             if args.control_mode == "world_arcade":
-                _arcade_follow_tick(unwrapped, (pose[0], pose[1]))
+                _dx = pose[0] - _last_arcade_follow_xy[0]
+                _dy = pose[1] - _last_arcade_follow_xy[1]
+                if (_dx * _dx + _dy * _dy) >= (_ARCADE_FOLLOW_XY_DELTA_M ** 2):
+                    _arcade_follow_tick(unwrapped, (pose[0], pose[1]))
+                    _last_arcade_follow_xy = (pose[0], pose[1])
 
             # Only sample for the writer at the chosen capture cadence.
             # env.step ran every loop iteration (full sim tick rate),

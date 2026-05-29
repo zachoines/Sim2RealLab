@@ -60,15 +60,16 @@ _CEILING_LIGHT_NAME_RE = re.compile(r"^CeilingLightFactory_\d+__spawn_asset_\d+_
 _DEFAULT_FLOOR_PRIM_PATTERN = r"^/World/[^/]+_floor(?:/[^/]+_floor)?$"
 
 # Structural geometry — walls, ceilings, exterior hull, attic. These
-# Infinigen prims are typically NON-convex (L/U-shaped wall segments
-# wrap room corners), so a single convex hull would fill the room
-# interior and trap the robot at spawn. We use convexDecomposition
-# for these instead — PhysX (via V-HACD) breaks the mesh into ~3-10
-# convex parts that follow the actual surface. Slightly more memory
-# than a single hull, bounded by the small structural-prim count
-# (~10-50 per scene vs ~700-900 furniture prims). Floors are still
-# stripped separately so the robot doesn't catch on tessellated
-# floor triangles.
+# Infinigen prims have door / window cutouts that downstream code MUST
+# preserve: convex hulls (or convexDecomposition with default V-HACD
+# params) heal the small openings with a single hull, filling doorways
+# and trapping the robot. We use meshSimplification instead — PhysX
+# keeps the actual triangle topology, just decimated. Infinigen exports
+# one wall mesh per room (~200 tris/room × ~11 rooms ≈ 2.2 K tris
+# total on a high-quality scene), so the triangle-mesh cost concern
+# that motivated convex hulls for the ~900 furniture prims doesn't
+# apply at this scale. Floors are still stripped separately so the
+# robot doesn't catch on tessellated floor triangles.
 _DEFAULT_STRUCTURAL_PRIM_PATTERN = (
     r"^/World/[^/]+_(?:wall|ceiling|roof|attic|exterior)"
     r"(?:_\d+)?(?:/.+)?$"
@@ -94,7 +95,7 @@ _VALID_APPROXIMATIONS: tuple[str, ...] = (
     "none",
 )
 _DEFAULT_APPROXIMATION = "convexHull"
-_DEFAULT_STRUCTURAL_APPROXIMATION = "convexDecomposition"
+_DEFAULT_STRUCTURAL_APPROXIMATION = "meshSimplification"
 
 
 def _compile_floor_pattern(pattern: str) -> re.Pattern[str]:

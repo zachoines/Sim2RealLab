@@ -94,11 +94,17 @@ class TestDefaultApproximation:
             assert _approximation_of(prim) == "convexHull"
 
     def test_module_default_constants(self):
-        """A reader scanning the module should see the documented defaults."""
+        """A reader scanning the module should see the documented defaults.
+
+        Structural default is meshSimplification, NOT convexDecomposition:
+        Infinigen exports one wall mesh per room with door cutouts done via
+        Boolean DIFFERENCE; V-HACD with default params heals the small
+        cutouts and traps the robot at the doorway.
+        """
         assert postprocess_scene_usd._DEFAULT_APPROXIMATION == "convexHull"
         assert (
             postprocess_scene_usd._DEFAULT_STRUCTURAL_APPROXIMATION
-            == "convexDecomposition"
+            == "meshSimplification"
         )
 
 
@@ -139,11 +145,13 @@ class TestMigrationFromNone:
 
 
 class TestStructuralDispatch:
-    """Walls / ceilings / etc. must get convexDecomposition, furniture convexHull.
+    """Walls / ceilings / etc. must get meshSimplification, furniture convexHull.
 
-    Without this split, the convexHull of L/U-shaped wall geometry fills
-    the room interior and traps the robot at spawn — sustained_collision
-    fires after 5 steps. See `_DEFAULT_STRUCTURAL_PRIM_PATTERN`.
+    convexHull (or convexDecomposition with default V-HACD params) heals
+    door cutouts on Infinigen wall meshes — the cutouts are volumetrically
+    small relative to the room shell, so V-HACD merges them into a single
+    hull that fills the doorway. meshSimplification preserves the actual
+    triangle topology including cutouts. See `_DEFAULT_STRUCTURAL_PRIM_PATTERN`.
     """
 
     def _structural_re(self):
@@ -160,8 +168,8 @@ class TestStructuralDispatch:
         for path in paths:
             approx = _approximation_of(stage.GetPrimAtPath(path))
             if "wall" in path or "ceiling" in path:
-                assert approx == "convexDecomposition", (
-                    f"{path} should be convexDecomposition, got {approx}"
+                assert approx == "meshSimplification", (
+                    f"{path} should be meshSimplification, got {approx}"
                 )
             else:
                 assert approx == "convexHull", (
@@ -204,7 +212,7 @@ class TestStructuralDispatch:
     def test_migration_from_old_uniform_convex_hull(self, tmp_path):
         """A USDC postprocessed BEFORE the hybrid split (everything was
         convexHull, including walls) gets walls upgraded to
-        convexDecomposition on re-run with the new default."""
+        meshSimplification on re-run with the new default."""
         stage, _ = _make_mixed_stage(tmp_path)
         # Simulate the pre-hybrid state: all convexHull, no pattern.
         postprocess_scene_usd.attach_mesh_colliders(
@@ -215,7 +223,7 @@ class TestStructuralDispatch:
             stage, structural_pattern=self._structural_re(),
         )
         assert structural == 3, (
-            "expected 3 wall/ceiling prims to migrate convexHull → convexDecomposition"
+            "expected 3 wall/ceiling prims to migrate convexHull → meshSimplification"
         )
         assert furniture == 0, "furniture was already convexHull; should be no-op"
 

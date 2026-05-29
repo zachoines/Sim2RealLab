@@ -1213,27 +1213,23 @@ def main() -> int:
                 control_mode=args.control_mode,
             )
 
-            # Once-per-second diagnostic to confirm the world→body rotation
-            # is actually happening when the operator pushes the stick.
-            # Set --diag-stick to enable. Operator should rotate the robot
-            # via right-stick yaw and confirm:
-            #   (a) yaw degrees DOES change as the robot rotates
-            #   (b) for the same stick direction, body_cmd should change
-            #       as yaw rotates (sign + magnitude differ across headings)
-            # If yaw is stuck at 0 or body_cmd doesn't track yaw, the world
-            # rotation is broken — file the symptom against this output.
+            # Once-per-second diagnostic. Set --diag-stick to enable.
+            # Prints whenever EITHER stick is engaged so pure-rotation
+            # (right-stick only) tests still surface.
             if (
                 args.diag_stick
                 and args.control_mode == "world_arcade"
                 and episode_step % 30 == 0
-                and (abs(frame.lx) > 0.05 or abs(frame.ly) > 0.05)
+                and (abs(frame.lx) > 0.05 or abs(frame.ly) > 0.05
+                     or abs(frame.rx) > 0.05)
             ):
                 world_vx_intent = frame.lx
                 world_vy_intent = -frame.ly
                 print(
                     f"  [diag-stick] yaw={math.degrees(yaw):+7.1f}°  "
+                    f"world_pos=({pose[0]:+6.2f}, {pose[1]:+6.2f})  "
                     f"world_intent=({world_vx_intent:+.2f}, {world_vy_intent:+.2f})  "
-                    f"body_cmd=({body_vx:+.2f}, {body_vy:+.2f})",
+                    f"body_cmd=({body_vx:+.2f}, {body_vy:+.2f}, ω={omega:+.2f})",
                     flush=True,
                 )
 

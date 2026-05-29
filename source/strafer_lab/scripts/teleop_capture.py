@@ -341,6 +341,115 @@ def _possess_d555_viewport(prim_path: str) -> bool:
         return False
 
 
+# Kit's persp camera prim, used by both the arcade init + follow tick.
+# Set this BEFORE the per-tick follower runs so a prior egocentric
+# session that left the viewport pointing at d555_camera_perception
+# doesn't leak into a fresh world_arcade run.
+_KIT_PERSP_CAM_PRIM = "/OmniverseKit_Persp"
+
+# Lookat Y-offset is 0.5 m (not the 0.05 m gimbal-lock nudge that was
+# too small at 12 m altitude for Kit to robustly define "up"). At 12 m
+# eye Z, 0.5 m / 12 m = 2.4° tilt — visually identical to top-down but
+# unambiguous to the viewport controller.
+_ARCADE_LOOKAT_Y_OFFSET = 0.5
+
+
+def _compute_arcade_eye(
+    robot_xy: tuple[float, float], altitude_z: float,
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    """Return ``(eye, target)`` for the top-down follow-cam.
+
+    Pure function for unit-testing — the Kit-side ``set_camera_view``
+    call lives in :func:`_arcade_camera_init` / :func:`_arcade_follow_tick`.
+    Eye sits directly above the robot at ``altitude_z``; target sits on
+    the floor with a small +Y offset so Kit can define "up" without
+    arbitrary yaw.
+    """
+    rx, ry = float(robot_xy[0]), float(robot_xy[1])
+    z = float(altitude_z)
+    return (
+        (rx, ry, z),
+        (rx, ry + _ARCADE_LOOKAT_Y_OFFSET, 0.0),
+    )
+
+
+def _arcade_camera_init(
+    scene_centroid_xy: tuple[float, float], altitude_z: float = 12.0,
+) -> bool:
+    """Pin the Kit viewport to /OmniverseKit_Persp at a top-down arcade pose.
+
+    Called once after ``env.reset()`` for world_arcade mode. Resets
+    ``camera_path`` first to defend against a prior egocentric session
+    leaving the viewport possessed by ``d555_camera_perception``. Then
+    drives the persp camera through ``isaacsim.core.utils.viewports.
+    set_camera_view`` (Kit's FSD-safe ``TransformPrimCommand`` path) —
+    necessary because Isaac Lab's :class:`ViewportCameraController`
+    doesn't reliably apply :class:`ViewerCfg` to the active viewport
+    after env.reset. The mirror of ``collect_demos.py:282-311``.
+    """
+    try:
+        import omni.kit.viewport.utility as vp_util  # type: ignore
+        from isaacsim.core.utils.viewports import set_camera_view  # type: ignore
+    except ImportError:
+        return False
+    try:
+        viewport = vp_util.get_active_viewport()
+        if viewport is not None:
+            viewport.camera_path = _KIT_PERSP_CAM_PRIM
+        eye, target = _compute_arcade_eye(scene_centroid_xy, altitude_z)
+        set_camera_view(
+            eye=list(eye), target=list(target),
+            camera_prim_path=_KIT_PERSP_CAM_PRIM,
+        )
+        return True
+    except Exception as exc:
+        print(
+            f"[teleop_capture] arcade camera init failed "
+            f"({exc.__class__.__name__}: {exc}); using default viewer cam.",
+            file=sys.stderr, flush=True,
+        )
+        return False
+
+
+def _arcade_follow_tick(unwrapped) -> None:
+    """Per-tick follow: re-pose /OmniverseKit_Persp above the robot's XY.
+
+    Reads the viewport camera's current world-Z before re-setting eye so
+    the operator's scroll-wheel zoom is preserved between ticks (we only
+    overwrite X/Y). Yaw never changes — the lookat keeps its +0.5 m Y
+    offset so "up" is always world +Y. Silent on failure (so a one-shot
+    Kit hiccup doesn't break the loop).
+    """
+    try:
+        import omni.kit.viewport.utility as vp_util  # type: ignore
+        from isaacsim.core.utils.viewports import set_camera_view  # type: ignore
+        from pxr import Usd, UsdGeom  # type: ignore
+    except ImportError:
+        return
+    try:
+        viewport = vp_util.get_active_viewport()
+        if viewport is None or viewport.camera_path != _KIT_PERSP_CAM_PRIM:
+            return
+        # Read current viewport altitude so operator scroll-zoom persists.
+        stage = unwrapped.scene.stage
+        cam_prim = stage.GetPrimAtPath(viewport.camera_path)
+        cur_z = UsdGeom.Xformable(cam_prim).ComputeLocalToWorldTransform(
+            Usd.TimeCode.Default(),
+        ).ExtractTranslation()[2]
+        altitude = max(1.5, float(cur_z))  # clamp floor so we don't sink into geometry
+        # Robot pose (env 0).
+        pos = _as_torch(unwrapped.scene["robot"].data.root_pos_w)[0].cpu().numpy()
+        eye, target = _compute_arcade_eye((float(pos[0]), float(pos[1])), altitude)
+        set_camera_view(
+            eye=list(eye), target=list(target),
+            camera_prim_path=_KIT_PERSP_CAM_PRIM,
+        )
+    except Exception:
+        # Per-tick path — swallow to avoid breaking the env step loop on
+        # transient Kit state. A persistent issue surfaces on init.
+        pass
+
+
 def _as_torch(arr):
     """Coerce a ``wp.array`` or ``torch.Tensor`` to a ``torch.Tensor``.
 
@@ -699,32 +808,21 @@ def main() -> int:
         # render that the writer already consumes.
         pass
     else:  # world_arcade
-        # Center the editor camera over the scene's actual XY extent
-        # (the pooled spawn-points' centroid). Default ViewerCfg sits
-        # at (0, 0, 12) which is fine when the env's origin is the
-        # scene center, but Infinigen scenes are authored with their
-        # origin at a corner — leaving the operator looking at empty
-        # space outside the room.
-        #
-        # The lookat is nudged slightly along +Y (5 cm) to break the
-        # gimbal-lock degeneracy when eye and lookat share an XY axis:
-        # an unbroken straight-down view leaves the camera's "up"
-        # vector undefined and Kit fills in an arbitrary rotation
-        # (operator sees the scene rotated by some non-zero yaw). The
-        # nudge keeps the view ~99.999% top-down but with a defined
-        # "up" pointing toward world +Y (so screen-up = world-north).
+        # ViewerCfg here is only the initial seed — after env.reset()
+        # we drive /OmniverseKit_Persp directly via
+        # ``isaacsim.core.utils.viewports.set_camera_view`` because
+        # Isaac Lab's ViewportCameraController doesn't reliably apply
+        # ViewerCfg to the active viewport in this launch mode (see
+        # _arcade_camera_init + collect_demos.py:282-311). The per-tick
+        # follower then re-poses the camera over the robot's XY each
+        # step so the operator never has to chase the robot or the goal.
         cx, cy = scene_centroid_xy
         env_cfg.viewer = ViewerCfg(
             eye=(cx, cy, 12.0),
-            lookat=(cx, cy + 0.05, 0.0),
+            lookat=(cx, cy + _ARCADE_LOOKAT_Y_OFFSET, 0.0),
             origin_type="world",
             env_index=0,
             resolution=(1280, 720),
-        )
-        print(
-            f"[teleop_capture] world_arcade viewport centered at "
-            f"({cx:+.2f}, {cy:+.2f}, 12.00) looking down (screen-up = world +Y).",
-            flush=True,
         )
 
     env = gym.make(args.task, cfg=env_cfg)
@@ -862,6 +960,19 @@ def main() -> int:
             print(
                 f"[teleop_capture] egocentric viewport now possessing "
                 f"{d555_prim} (no follow-cam render pass).",
+                flush=True,
+            )
+    else:  # world_arcade
+        # Drive the Kit persp camera through set_camera_view (FSD-safe)
+        # because ViewerCfg may not have stuck post-env.reset. The
+        # per-tick _arcade_follow_tick below re-poses it over the robot
+        # each step while preserving the operator's scroll-zoom altitude.
+        if _arcade_camera_init(scene_centroid_xy, altitude_z=12.0):
+            print(
+                f"[teleop_capture] world_arcade viewport pinned to "
+                f"/OmniverseKit_Persp; centered at "
+                f"({scene_centroid_xy[0]:+.2f}, {scene_centroid_xy[1]:+.2f}, 12.00); "
+                f"per-tick follower will track robot XY (zoom preserved).",
                 flush=True,
             )
 
@@ -1049,6 +1160,12 @@ def main() -> int:
 
             obs, reward, terminated, truncated, info = env.step(action)
             episode_step += 1
+
+            # World-arcade follow: re-pose /OmniverseKit_Persp over the
+            # robot's XY each step (no-op in egocentric mode). Reads
+            # current viewport altitude so operator scroll-zoom persists.
+            if args.control_mode == "world_arcade":
+                _arcade_follow_tick(unwrapped)
 
             # Only sample for the writer at the chosen capture cadence.
             # env.step ran every loop iteration (full sim tick rate),

@@ -347,30 +347,28 @@ def _possess_d555_viewport(prim_path: str) -> bool:
 # doesn't leak into a fresh world_arcade run.
 _KIT_PERSP_CAM_PRIM = "/OmniverseKit_Persp"
 
-# Lookat Y-offset is 0.5 m (not the 0.05 m gimbal-lock nudge that was
-# too small at 12 m altitude for Kit to robustly define "up"). At 12 m
-# eye Z, 0.5 m / 12 m = 2.4° tilt — visually identical to top-down but
-# unambiguous to the viewport controller.
-_ARCADE_LOOKAT_Y_OFFSET = 0.5
-
 
 def _compute_arcade_eye(
     robot_xy: tuple[float, float], altitude_z: float,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
     """Return ``(eye, target)`` for the top-down follow-cam.
 
-    Pure function for unit-testing — the Kit-side ``set_camera_view``
-    call lives in :func:`_arcade_camera_init` / :func:`_arcade_follow_tick`.
-    Eye sits directly above the robot at ``altitude_z``; target sits on
-    the floor with a small +Y offset so Kit can define "up" without
-    arbitrary yaw.
+    Eye sits directly above the robot at ``altitude_z``; target sits
+    directly below on the floor. Eye and target intentionally SHARE
+    XY: ``isaacsim.core.utils.viewports.set_camera_view`` has a
+    branch at viewports.py:73-95 that detects the equal-XY case and
+    routes to an explicit-quat path with a hard-coded
+    looking-down orientation (``[0, 0, 1, 0]``). Adding any XY offset
+    (e.g. the earlier +0.5 m Y-nudge meant to break gimbal lock)
+    bypasses that path and falls into a lookat resolver whose
+    screen-up axis depends on Kit's world-up reference — empirically
+    rotating screen-up 90° away from the expected world +Y direction
+    and breaking the operator's stick-up/stick-right mental model.
+    Mirrors the working reference in ``collect_demos.py:282-311``.
     """
     rx, ry = float(robot_xy[0]), float(robot_xy[1])
     z = float(altitude_z)
-    return (
-        (rx, ry, z),
-        (rx, ry + _ARCADE_LOOKAT_Y_OFFSET, 0.0),
-    )
+    return ((rx, ry, z), (rx, ry, 0.0))
 
 
 def _arcade_camera_init(
@@ -416,9 +414,10 @@ def _arcade_follow_tick(unwrapped) -> None:
 
     Reads the viewport camera's current world-Z before re-setting eye so
     the operator's scroll-wheel zoom is preserved between ticks (we only
-    overwrite X/Y). Yaw never changes — the lookat keeps its +0.5 m Y
-    offset so "up" is always world +Y. Silent on failure (so a one-shot
-    Kit hiccup doesn't break the loop).
+    overwrite X/Y). Eye and target share XY so set_camera_view hits the
+    explicit looking-down quat branch (see _compute_arcade_eye), keeping
+    screen-up locked to world +Y across all calls. Silent on failure (so
+    a one-shot Kit hiccup doesn't break the loop).
     """
     try:
         import omni.kit.viewport.utility as vp_util  # type: ignore
@@ -819,7 +818,7 @@ def main() -> int:
         cx, cy = scene_centroid_xy
         env_cfg.viewer = ViewerCfg(
             eye=(cx, cy, 12.0),
-            lookat=(cx, cy + _ARCADE_LOOKAT_Y_OFFSET, 0.0),
+            lookat=(cx, cy, 0.0),  # eye and lookat share XY — see _compute_arcade_eye
             origin_type="world",
             env_index=0,
             resolution=(1280, 720),

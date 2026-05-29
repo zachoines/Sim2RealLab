@@ -187,7 +187,14 @@ class TestStructuralDispatch:
             assert _approximation_of(stage.GetPrimAtPath(path)) == "convexHull"
 
     def test_default_pattern_matches_expected_prim_names(self):
-        """Lock in the canonical Infinigen structural prim naming."""
+        """Lock in the canonical Infinigen structural prim naming.
+
+        Includes door prims (PanelDoor / LiteDoor / LouverDoor factories):
+        Infinigen exports each door as TWO prims — a thin __001 leaf and
+        a hollow non-001 frame. The frame's convex hull fills the entire
+        doorway AABB and traps the robot; meshSimplification preserves
+        the actual hollow topology.
+        """
         import re
         pat = re.compile(postprocess_scene_usd._DEFAULT_STRUCTURAL_PRIM_PATTERN)
         for path in (
@@ -199,6 +206,15 @@ class TestStructuralDispatch:
             "/World/something_roof",
             # nested Mesh leaves should also match
             "/World/bedroom_0_0_wall/bedroom_0_0_wall",
+            # Door factory prims — frame variant (no __001)
+            "/World/PanelDoorFactory_9952204__spawn_asset_3_",
+            # Door factory prims — leaf variant (__001)
+            "/World/PanelDoorFactory_9952204__spawn_asset_3__001",
+            # Other Infinigen door factories
+            "/World/LiteDoorFactory_123__spawn_asset_5_",
+            "/World/LouverDoorFactory_456__spawn_asset_7__001",
+            # Nested Mesh leaves under door prims
+            "/World/PanelDoorFactory_9952204__spawn_asset_3_/x",
         ):
             assert pat.match(path), f"expected match: {path}"
         for path in (
@@ -206,6 +222,7 @@ class TestStructuralDispatch:
             "/World/BedFactory_456",
             "/World/bedroom_0_0_floor",   # floors handled separately
             "/World/Wallpaper_789",       # naming collision: 'wall' substring
+            "/World/Door_misc_123",       # door substring but not a Factory prim
         ):
             assert not pat.match(path), f"expected no-match: {path}"
 

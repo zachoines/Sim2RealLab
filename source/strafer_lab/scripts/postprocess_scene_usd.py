@@ -59,20 +59,26 @@ _CEILING_LIGHT_NAME_RE = re.compile(r"^CeilingLightFactory_\d+__spawn_asset_\d+_
 # outer Xform and the inner Mesh leaf match so we can strip / skip either.
 _DEFAULT_FLOOR_PRIM_PATTERN = r"^/World/[^/]+_floor(?:/[^/]+_floor)?$"
 
-# Structural geometry — walls, ceilings, exterior hull, attic. These
-# Infinigen prims have door / window cutouts that downstream code MUST
-# preserve: convex hulls (or convexDecomposition with default V-HACD
-# params) heal the small openings with a single hull, filling doorways
-# and trapping the robot. We use meshSimplification instead — PhysX
-# keeps the actual triangle topology, just decimated. Infinigen exports
-# one wall mesh per room (~200 tris/room × ~11 rooms ≈ 2.2 K tris
-# total on a high-quality scene), so the triangle-mesh cost concern
-# that motivated convex hulls for the ~900 furniture prims doesn't
-# apply at this scale. Floors are still stripped separately so the
-# robot doesn't catch on tessellated floor triangles.
+# Structural geometry — walls, ceilings, exterior hull, attic + the
+# two-prim door pair (frame + leaf). These Infinigen prims have
+# door / window cutouts that downstream code MUST preserve: convex
+# hulls (or convexDecomposition with default V-HACD params) heal the
+# small openings with a single hull, filling doorways and trapping the
+# robot. The door frame is the worst case — it's a hollow shell
+# (lintel + jambs, no vertices at robot-body height) whose convex hull
+# is a solid brick filling the entire doorway AABB. We use
+# meshSimplification instead — PhysX keeps the actual triangle
+# topology, just decimated. Total triangle budget is modest
+# (~2.2 K wall tris + ~22 K across 16 door prims), two orders of
+# magnitude smaller than the ~900 furniture prims that motivated
+# convex hulls in the first place. Floors are still stripped
+# separately so the robot doesn't catch on tessellated floor
+# triangles.
 _DEFAULT_STRUCTURAL_PRIM_PATTERN = (
     r"^/World/[^/]+_(?:wall|ceiling|roof|attic|exterior)"
     r"(?:_\d+)?(?:/.+)?$"
+    r"|^/World/(?:PanelDoor|LiteDoor|LouverDoor)Factory_\d+"
+    r"__spawn_asset_\d+_(?:_\d+)?(?:/.+)?$"
 )
 
 # PhysX collider approximations the USD MeshCollisionAPI accepts. Ordered

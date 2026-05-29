@@ -185,6 +185,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "rotation is firing as expected when the operator reports "
         "direction issues.",
     )
+    parser.add_argument(
+        "--no-axes-swap",
+        action="store_true",
+        help="Disable the empirical body_vx ↔ body_vy axes swap on the "
+        "action tensor. The env's MecanumWheelAction interprets slot 0 as "
+        "lateral / slot 1 as longitudinal — opposite of the ROS REP-103 "
+        "(body +X forward, body +Y left) convention our world→body math "
+        "uses. We swap on send so the operator sees the right motion. "
+        "Pass this flag to disable the swap if it ever proves wrong on "
+        "a new scene or env variant.",
+    )
     AppLauncher.add_app_launcher_args(parser)
     return parser
 
@@ -1213,6 +1224,20 @@ def main() -> int:
                 control_mode=args.control_mode,
             )
 
+            # The env's MecanumWheelAction interprets action[0] as
+            # lateral velocity and action[1] as longitudinal velocity,
+            # which is opposite of the ROS REP-103 convention our
+            # world→body math computes. Swap on send so the operator's
+            # world-frame intent realizes correctly. Empirically derived
+            # from controlled isolation tests (see PR #63 round 4):
+            # body_vx=-1 at heading=180° produced east motion (correct
+            # for env's vx-as-lateral), body_vy=-1 ALSO produced east
+            # motion (= body backward, confirming the axis swap).
+            if args.no_axes_swap:
+                action_vx, action_vy = body_vx, body_vy
+            else:
+                action_vx, action_vy = body_vy, body_vx
+
             # Once-per-second diagnostic. Set --diag-stick to enable.
             # Prints whenever EITHER stick is engaged so pure-rotation
             # (right-stick only) tests still surface.
@@ -1229,12 +1254,13 @@ def main() -> int:
                     f"  [diag-stick] yaw={math.degrees(yaw):+7.1f}°  "
                     f"world_pos=({pose[0]:+6.2f}, {pose[1]:+6.2f})  "
                     f"world_intent=({world_vx_intent:+.2f}, {world_vy_intent:+.2f})  "
-                    f"body_cmd=({body_vx:+.2f}, {body_vy:+.2f}, ω={omega:+.2f})",
+                    f"body_cmd=({body_vx:+.2f}, {body_vy:+.2f}, ω={omega:+.2f})  "
+                    f"action_sent=({action_vx:+.2f}, {action_vy:+.2f}, ω={omega:+.2f})",
                     flush=True,
                 )
 
             action = torch.tensor(
-                [[body_vx, body_vy, omega]], dtype=torch.float32, device=device,
+                [[action_vx, action_vy, omega]], dtype=torch.float32, device=device,
             )
 
             obs, reward, terminated, truncated, info = env.step(action)

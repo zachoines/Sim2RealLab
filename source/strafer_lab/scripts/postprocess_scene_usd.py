@@ -59,15 +59,32 @@ _CEILING_LIGHT_NAME_RE = re.compile(r"^CeilingLightFactory_\d+__spawn_asset_\d+_
 # outer Xform and the inner Mesh leaf match so we can strip / skip either.
 _DEFAULT_FLOOR_PRIM_PATTERN = r"^/World/[^/]+_floor(?:/[^/]+_floor)?$"
 
+# Structural geometry — walls, ceilings, exterior hull, attic. These
+# Infinigen prims are typically NON-convex (L/U-shaped wall segments
+# wrap room corners), so a single convex hull would fill the room
+# interior and trap the robot at spawn. We use convexDecomposition
+# for these instead — PhysX (via V-HACD) breaks the mesh into ~3-10
+# convex parts that follow the actual surface. Slightly more memory
+# than a single hull, bounded by the small structural-prim count
+# (~10-50 per scene vs ~700-900 furniture prims). Floors are still
+# stripped separately so the robot doesn't catch on tessellated
+# floor triangles.
+_DEFAULT_STRUCTURAL_PRIM_PATTERN = (
+    r"^/World/[^/]+_(?:wall|ceiling|roof|attic|exterior)"
+    r"(?:_\d+)?(?:/.+)?$"
+)
+
 # PhysX collider approximations the USD MeshCollisionAPI accepts. Ordered
-# cheapest → most accurate. ``convexHull`` is the default because raw
-# triangle meshes (``none``) made PhysX allocate per-prim BVH + SDF data
-# proportional to triangle count — a high-quality multi-room Infinigen
-# scene (~900 mesh prims, often with 10K+ tris each from plants /
-# decor) consumed 100+ GB of unified memory before the env even
-# finished booting. Convex hulls collapse each mesh to a single
-# convex shape; for static furniture that the robot only contacts at
-# its outer surface, that's plenty.
+# cheapest → most accurate. ``convexHull`` is the default for
+# furniture because raw triangle meshes (``none``) made PhysX allocate
+# per-prim BVH + SDF data proportional to triangle count — a
+# high-quality multi-room Infinigen scene (~900 mesh prims, often
+# with 10K+ tris each from plants / decor) consumed 100+ GB of unified
+# memory before the env even finished booting. Convex hulls collapse
+# each mesh to a single convex shape; for static furniture that the
+# robot only contacts at its outer surface, that's plenty.
+# Structural prims (walls / ceilings / etc.) get convexDecomposition
+# instead — see ``_DEFAULT_STRUCTURAL_PRIM_PATTERN`` above.
 _VALID_APPROXIMATIONS: tuple[str, ...] = (
     "boundingCube",
     "boundingSphere",
@@ -77,6 +94,7 @@ _VALID_APPROXIMATIONS: tuple[str, ...] = (
     "none",
 )
 _DEFAULT_APPROXIMATION = "convexHull"
+_DEFAULT_STRUCTURAL_APPROXIMATION = "convexDecomposition"
 
 
 def _compile_floor_pattern(pattern: str) -> re.Pattern[str]:
@@ -88,15 +106,26 @@ def attach_mesh_colliders(
     floor_pattern: re.Pattern[str] | None = None,
     *,
     approximation: str = _DEFAULT_APPROXIMATION,
-) -> int:
+    structural_pattern: re.Pattern[str] | None = None,
+    structural_approximation: str = _DEFAULT_STRUCTURAL_APPROXIMATION,
+) -> tuple[int, int]:
     """Attach ``CollisionAPI`` + ``MeshCollisionAPI`` to every scene ``Mesh``.
 
-    The ``approximation`` argument controls how PhysX represents the
-    collider — see :data:`_VALID_APPROXIMATIONS` for valid values. The
-    default is ``"convexHull"``; ``"none"`` (raw triangle mesh) is the
-    accurate-but-expensive choice and should only be used on small
-    debug scenes — it can multiply PhysX's GPU memory cost by 10-100×
-    on a full Infinigen house and OOM the box before the env boots.
+    Per-prim approximation dispatch:
+
+    * If the prim's path matches ``structural_pattern``, use
+      ``structural_approximation`` (default ``convexDecomposition``).
+      Non-convex world geometry like L/U-shaped walls needs this —
+      a single convex hull would fill the room interior and trap the
+      robot at spawn (the ``sustained_collision`` termination fires
+      after 5 steps of contact).
+    * Otherwise use ``approximation`` (default ``convexHull``) — cheap
+      and accurate enough for static furniture.
+
+    Both approximations must appear in :data:`_VALID_APPROXIMATIONS`.
+    ``"none"`` (raw triangle mesh) is accurate but can multiply PhysX's
+    GPU memory cost by 10-100× and OOM the box on a full Infinigen
+    house — use only for small debug scenes.
 
     Skips:
 
@@ -107,18 +136,22 @@ def attach_mesh_colliders(
 
     Idempotent + approximation-correcting: re-running on an already-
     postprocessed USDC keeps any existing ``CollisionAPI`` but rewrites
-    the approximation attribute to match ``approximation``. The return
-    value counts every prim whose collision authoring was added or
-    changed, so a no-op pass (same approximation as before) returns 0.
+    the approximation attribute to match the (per-prim) target.
+
+    Returns ``(furniture_changed, structural_changed)`` — counts of
+    prims whose authored approximation was added or migrated, split by
+    which bucket they fell into. A no-op pass returns ``(0, 0)``.
     """
-    if approximation not in _VALID_APPROXIMATIONS:
-        raise ValueError(
-            f"unknown approximation {approximation!r}; "
-            f"valid: {_VALID_APPROXIMATIONS}",
-        )
+    for name, approx in (("approximation", approximation),
+                         ("structural_approximation", structural_approximation)):
+        if approx not in _VALID_APPROXIMATIONS:
+            raise ValueError(
+                f"unknown {name}={approx!r}; valid: {_VALID_APPROXIMATIONS}",
+            )
     from pxr import UsdPhysics  # type: ignore
 
-    count = 0
+    furniture_changed = 0
+    structural_changed = 0
     for prim in stage.Traverse():
         if not prim.IsValid():
             continue
@@ -129,6 +162,10 @@ def attach_mesh_colliders(
             continue
         if floor_pattern is not None and floor_pattern.match(path):
             continue
+        is_structural = (
+            structural_pattern is not None and structural_pattern.match(path)
+        )
+        target = structural_approximation if is_structural else approximation
         # Ensure the APIs are present; both Apply() calls are no-ops
         # if already authored.
         UsdPhysics.CollisionAPI.Apply(prim)
@@ -144,10 +181,13 @@ def attach_mesh_colliders(
             if approx_attr.IsValid() and approx_attr.HasAuthoredValue()
             else None
         )
-        if previous != approximation:
-            mesh_api.CreateApproximationAttr().Set(approximation)
-            count += 1
-    return count
+        if previous != target:
+            mesh_api.CreateApproximationAttr().Set(target)
+            if is_structural:
+                structural_changed += 1
+            else:
+                furniture_changed += 1
+    return furniture_changed, structural_changed
 
 
 def strip_floor_colliders(stage: Any, floor_pattern: re.Pattern[str]) -> int:
@@ -220,6 +260,8 @@ def postprocess_usdc(
     floor_pattern: re.Pattern[str],
     keep_floor_colliders: bool,
     collider_approximation: str = _DEFAULT_APPROXIMATION,
+    structural_pattern: re.Pattern[str] | None = None,
+    structural_approximation: str = _DEFAULT_STRUCTURAL_APPROXIMATION,
 ) -> None:
     from pxr import Usd  # type: ignore
 
@@ -232,14 +274,21 @@ def postprocess_usdc(
     stripped = (
         0 if keep_floor_colliders else strip_floor_colliders(stage, floor_pattern)
     )
-    colliders = attach_mesh_colliders(
-        stage, floor_pattern=floor_skip, approximation=collider_approximation,
+    furniture, structural = attach_mesh_colliders(
+        stage,
+        floor_pattern=floor_skip,
+        approximation=collider_approximation,
+        structural_pattern=structural_pattern,
+        structural_approximation=structural_approximation,
     )
     lights = inject_ceiling_light_emitters(stage, light_intensity)
     stage.Save()
     logger.info(
-        "%s: stripped %d floor collider(s), attached %d %s collider(s), injected %d light(s)",
-        resolved, stripped, colliders, collider_approximation, lights,
+        "%s: stripped %d floor collider(s), attached %d %s + %d %s collider(s), injected %d light(s)",
+        resolved, stripped,
+        furniture, collider_approximation,
+        structural, structural_approximation,
+        lights,
     )
 
 
@@ -278,12 +327,32 @@ def main(argv: list[str] | None = None) -> int:
         "--collider-approximation",
         choices=_VALID_APPROXIMATIONS,
         default=_DEFAULT_APPROXIMATION,
-        help="PhysX collider representation for each Mesh. Default "
-             "convexHull is cheap (one convex shape per mesh) and accurate "
-             "enough for static furniture. Use boundingCube/boundingSphere "
-             "for even cheaper colliders, or none/convexDecomposition "
-             "only on small debug scenes — raw triangle meshes can OOM the "
-             "box on a full Infinigen house.",
+        help="PhysX collider representation for furniture / freestanding "
+             "meshes. Default convexHull is cheap (one convex shape per "
+             "mesh) and accurate enough for static furniture. Use "
+             "boundingCube/boundingSphere for even cheaper colliders, or "
+             "none only on small debug scenes — raw triangle meshes can "
+             "OOM the box on a full Infinigen house.",
+    )
+    parser.add_argument(
+        "--structural-prim-pattern",
+        type=str,
+        default=_DEFAULT_STRUCTURAL_PRIM_PATTERN,
+        help="Regex matched against full USD prim paths to identify "
+             "structural Infinigen prims (walls, ceilings, roof, attic, "
+             "exterior hulls). Matching prims get "
+             "--structural-approximation. Pass an empty string to disable "
+             "the structural dispatch (all prims get "
+             "--collider-approximation).",
+    )
+    parser.add_argument(
+        "--structural-approximation",
+        choices=_VALID_APPROXIMATIONS,
+        default=_DEFAULT_STRUCTURAL_APPROXIMATION,
+        help="PhysX collider representation for structural Infinigen "
+             "prims. Default convexDecomposition handles L/U-shaped wall "
+             "geometry that a single convex hull would fill (trapping "
+             "the robot at spawn and firing sustained_collision).",
     )
     args = parser.parse_args(argv)
 
@@ -292,12 +361,18 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     floor_pattern = _compile_floor_pattern(args.floor_prim_pattern)
+    structural_pattern = (
+        re.compile(args.structural_prim_pattern)
+        if args.structural_prim_pattern else None
+    )
     postprocess_usdc(
         args.usdc,
         light_intensity=args.light_intensity,
         floor_pattern=floor_pattern,
         keep_floor_colliders=args.keep_floor_colliders,
         collider_approximation=args.collider_approximation,
+        structural_pattern=structural_pattern,
+        structural_approximation=args.structural_approximation,
     )
     return 0
 

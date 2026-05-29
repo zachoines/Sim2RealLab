@@ -185,17 +185,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "rotation is firing as expected when the operator reports "
         "direction issues.",
     )
-    parser.add_argument(
-        "--no-axes-swap",
-        action="store_true",
-        help="Disable the empirical body_vx ↔ body_vy axes swap on the "
-        "action tensor. The env's MecanumWheelAction interprets slot 0 as "
-        "lateral / slot 1 as longitudinal — opposite of the ROS REP-103 "
-        "(body +X forward, body +Y left) convention our world→body math "
-        "uses. We swap on send so the operator sees the right motion. "
-        "Pass this flag to disable the swap if it ever proves wrong on "
-        "a new scene or env variant.",
-    )
     AppLauncher.add_app_launcher_args(parser)
     return parser
 
@@ -502,13 +491,21 @@ def _as_torch(arr):
 def _robot_pose(unwrapped) -> tuple[tuple[float, float, float, float, float, float, float], float]:
     """Return ``(pose_xyzqxqyqzqw, yaw_rad)`` for env 0.
 
-    Isaac Lab quaternions are ``(w, x, y, z)``; we re-order to the
-    ``(qx, qy, qz, qw)`` layout the LeRobot writer expects.
+    Isaac Lab 3 / Isaac Sim 5's ``Articulation.data.root_quat_w`` returns
+    the quaternion in **XYZW** order, NOT the WXYZ this function
+    originally assumed. The wrong unpacking happened to give the correct
+    answer for the spawn yaw=π pose (by symmetry of yaw-only quats) but
+    collapsed to a step function (≈ 0 east, ≈ π west, NaN at north/south)
+    for every other heading — making the world_arcade world→body
+    rotation compute against a frozen-looking yaw and the robot move in
+    body-frame relative to its actual (unmeasured) orientation. The
+    canonical reference here is collect_demos.py:395-399 which gets this
+    right and works correctly under the same env stack.
     """
     scene = unwrapped.scene
     pos = _as_torch(scene["robot"].data.root_pos_w)[0].cpu().numpy()
-    quat_wxyz = _as_torch(scene["robot"].data.root_quat_w)[0].cpu().numpy()
-    w, x, y, z = (float(quat_wxyz[i]) for i in range(4))
+    quat_xyzw = _as_torch(scene["robot"].data.root_quat_w)[0].cpu().numpy()
+    x, y, z, w = (float(quat_xyzw[i]) for i in range(4))
     yaw = math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
     pose = (
         float(pos[0]), float(pos[1]), float(pos[2]),
@@ -1224,23 +1221,11 @@ def main() -> int:
                 control_mode=args.control_mode,
             )
 
-            # The env's MecanumWheelAction interprets action[0] as
-            # lateral velocity and action[1] as longitudinal velocity,
-            # which is opposite of the ROS REP-103 convention our
-            # world→body math computes. Swap on send so the operator's
-            # world-frame intent realizes correctly. Empirically derived
-            # from controlled isolation tests (see PR #63 round 4):
-            # body_vx=-1 at heading=180° produced east motion (correct
-            # for env's vx-as-lateral), body_vy=-1 ALSO produced east
-            # motion (= body backward, confirming the axis swap).
-            if args.no_axes_swap:
-                action_vx, action_vy = body_vx, body_vy
-            else:
-                action_vx, action_vy = body_vy, body_vx
-
             # Once-per-second diagnostic. Set --diag-stick to enable.
             # Prints whenever EITHER stick is engaged so pure-rotation
-            # (right-stick only) tests still surface.
+            # (right-stick only) tests still surface. Includes the raw
+            # quaternion in XYZW order so we can re-verify the unpacking
+            # if yaw ever looks suspicious again.
             if (
                 args.diag_stick
                 and args.control_mode == "world_arcade"
@@ -1250,17 +1235,18 @@ def main() -> int:
             ):
                 world_vx_intent = frame.lx
                 world_vy_intent = -frame.ly
+                qx, qy, qz, qw = pose[3], pose[4], pose[5], pose[6]
                 print(
                     f"  [diag-stick] yaw={math.degrees(yaw):+7.1f}°  "
+                    f"quat_xyzw=({qx:+.2f},{qy:+.2f},{qz:+.2f},{qw:+.2f})  "
                     f"world_pos=({pose[0]:+6.2f}, {pose[1]:+6.2f})  "
                     f"world_intent=({world_vx_intent:+.2f}, {world_vy_intent:+.2f})  "
-                    f"body_cmd=({body_vx:+.2f}, {body_vy:+.2f}, ω={omega:+.2f})  "
-                    f"action_sent=({action_vx:+.2f}, {action_vy:+.2f}, ω={omega:+.2f})",
+                    f"body_cmd=({body_vx:+.2f}, {body_vy:+.2f}, ω={omega:+.2f})",
                     flush=True,
                 )
 
             action = torch.tensor(
-                [[action_vx, action_vy, omega]], dtype=torch.float32, device=device,
+                [[body_vx, body_vy, omega]], dtype=torch.float32, device=device,
             )
 
             obs, reward, terminated, truncated, info = env.step(action)

@@ -25,6 +25,9 @@ shapes reward around tracking that subgoal**, so that **a trained
 Read these before starting:
 - [context/repo-topology.md](../../context/repo-topology.md)
 - [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
+- [context/env-composition-contract.md](../../context/env-composition-contract.md)
+  — this brief adds a new RL env variant; compose it over the axes and
+  add a golden-hash gate, don't write a new subclass.
 - [strafer-inference-hybrid-mode.md](../../parked/trained-policy/hybrid-mode.md)
   — the consumer-side brief; this brief produces the trainable env
   and the deployable checkpoint that brief loads.

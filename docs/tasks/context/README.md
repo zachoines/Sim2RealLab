@@ -175,6 +175,15 @@ accurate.
   of how the multi-room epic's briefs layer (v1 → v2 → v3 escape
   valves), the orthogonal sub-symbolic / backbone tracks, and the
   planner-side consumers of the room-state API.
+- [`env-composition-contract.md`](env-composition-contract.md) — the
+  3-axis (sensor stack × scene source × realism) navigation env-cfg
+  composition, the composed gym-ID scheme (RL fixed-stack vs
+  operator-selectable capture), the preserved-RL-obs invariant + its
+  golden-hash gate, and the single `cameras_required` parameter that
+  drives both env render and LeRobot writer schema.
+- [`recurrent-policy-contract.md`](recurrent-policy-contract.md) — the
+  DEPTH policy's recurrent hidden-state seam across train → export →
+  inference (tensor shape, reset semantics, ownership at each layer).
 
 The operator → planner → executor → grounding → goal projection →
 Nav2 → bridge → Isaac Sim arrow chain is documented in

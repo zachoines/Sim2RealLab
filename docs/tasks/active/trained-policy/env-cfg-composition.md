@@ -8,6 +8,38 @@
 **Recommended ordering, not a hard block:** Land [`scene-provider-contract`](../harness/scene-provider-contract.md) first so this brief can commit to the contract's storage-agnostic artifact shape without retroactive design drift. The two can ship in parallel if needed — neither blocks the other at the code level — but minimal rework is contract-first.
 **Subsumes:** the **per-env-variant camera toggle** deliverable in [`teleop-perf-architecture.md` §C](../sim-performance/teleop-perf-architecture.md#c-per-env-variant-camera-configuration-design). That item is the narrowest version of the composition this brief proposes; doing it twice would be rework. The perf brief is amended in the same PR that ships this brief's first commit to defer that item here.
 
+## Decision (2026-05-30): clean break, no legacy aliases
+
+The operator's explicit call, overriding this brief's original
+backward-compat-first framing: **do not preserve the old gym IDs or
+the 39-class hierarchy.** A maximally clean composed interface
+(sensors × scene source × realism × any future axis) replaces them
+outright, and **every caller is migrated to the new IDs in the same
+PR.** We pay the migration cost once, now, rather than carry an
+alias layer forward as tech debt.
+
+This inverts the original "all existing gym IDs continue to resolve
+under the same names" gate. Two consequences:
+
+1. **Names change freely; the observation/action *contract* does
+   not.** What the env emits per step — obs tensor shape, key
+   ordering, action layout, DR/noise semantics — must stay
+   **byte-identical** for the composition that replaces each old RL
+   config, so the in-flight DEPTH inference package
+   ([`completed/inference-package.md`](../../completed/inference-package.md))
+   keeps working and any trained checkpoint stays valid. Changing
+   the obs/action contract is a *different* brief's lane
+   ([`observation-contract-cleanup`](../../completed/observation-contract-cleanup.md)
+   / [`recurrent-state-contract`](recurrent-state-contract.md)) and
+   is explicitly out of scope here. The snapshot gate is re-keyed
+   from "old gym ID resolves identically" to "the new composition
+   equivalent to old config X emits an identical obs/action tensor."
+
+2. **Complete caller migration is part of acceptance, not a
+   follow-up.** The clean break means no caller can keep using an
+   old ID. The full inventory (verified by grep 2026-05-30) is in
+   [the migration acceptance section](#full-caller--reference-inventory-must-all-migrate-in-this-pr).
+
 ## Story
 
 As a **harness operator and a future RL / VLA contributor** I want **env configurations to compose along the orthogonal axes they actually vary on — sensor stack × scene source × realism level — instead of inheriting a monolithic `_BaseInfinigenPerceptionNavEnvCfg` that bakes all three together** so that **a teleop run can ask for "RGB only, Infinigen, realistic" without paying for depth cameras it discards, an RL training run can ask for "RGB+depth, ProcRoom or no-cam, three realism levels" without forking the env class hierarchy, and a hypothetical future scene source (ProcTHOR / Habitat / hand-authored USD per `scene-provider-contract`) can plug in by parameter rather than by writing a new env subclass.**
@@ -33,7 +65,7 @@ The cost is two-fold:
 
 Ship a refactor that meets all of:
 
-- [ ] Rename `_BaseInfinigenPerceptionNavEnvCfg` → `_BaseStraferNavEnvCfg` (or similar — the Infinigen + Perception labels move into the composition dimensions, not the class name).
+- [ ] Collapse the env-cfg hierarchy into the composed interface. Note: `_BaseStraferNavEnvCfg` **already exists** as a parent of `_BaseInfinigenPerceptionNavEnvCfg` (`strafer_env_cfg.py:1296`), and there are **39** `NavEnvCfg` classes today (PLAY variants double the count), not the ~15 this brief originally assumed. The task is not a rename — it is to re-express the whole tree as compositions over the three axis-cfgs and **delete the per-combination subclasses** (no thin shims left behind; the clean-break decision above forbids an alias layer). Reconcile the actual current hierarchy before implementing and report the mapping.
 - [ ] Introduce three orthogonal mixin-style configurations the variants compose from:
   - `SensorStackCfg` enumerating `cameras_required` (the proposal from the perf brief's §C — `rgb_full`, `depth_full`, `rgb_policy`, `depth_policy`)
   - `SceneSourceCfg` parameterizing the scene-USD discovery / metadata loading (Infinigen today; ProcRoom + foreign-USD via `scene-provider-contract` once that brief ships)
@@ -48,21 +80,67 @@ Ship a refactor that meets all of:
   | `_RLNoCam` | `()` | None / minimal | Real | RL no-cam baseline |
   | `_Coverage` (future) | `("rgb_full", "depth_full")` | Infinigen | Real | scripted driver + coverage mission |
 - [ ] Matching writer-side update: `lerobot_writer.build_features` takes the same `cameras_required` tuple and conditionally declares feature columns. `add_frame` validates args match the declared schema (no zero-padding for absent cameras — frames not captured aren't authored at all). This is the perf brief's §C deliverable, owned here.
-- [ ] All existing Gym IDs continue to resolve. Today's named entry points (e.g. `Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0`) get registered as the composed variants under the same names so no downstream consumer needs to update import paths in the same PR.
+- [ ] **Clean gym-ID scheme + complete caller migration (no aliases).** Register a small set of gym IDs for the named composed variants under a new composition-legible scheme; **do not** re-register the old names. Every caller below migrates to the new IDs in this same PR. Propose the new naming scheme in the reconciliation note (composition-legible, e.g. encodes sensor/scene/realism); orchestrator reviews it.
+- [ ] **Obs/action contract preserved per composition (the snapshot gate).** For each old RL/teleop/bridge config, snapshot the observation-space shape + action-space + a deterministic-seed first observation **before** the refactor; assert the **new composition that replaces it** produces a byte-identical snapshot **after**. Names change; the contract does not. If any composition diverges, STOP and report — a divergent obs contract breaks the DEPTH inference package and any checkpoint.
+- [ ] **Training-works smoke.** Launch a short run of `train_strafer_navigation.py` against the renamed RL-depth config and confirm it initializes + steps without error (a few iterations is enough). This is the operator-facing proof that "training works as expected." Autonomous (no gamepad); needs Isaac Sim + GPU.
 - [ ] Scene source as parameter: passing `--scene-usd <path>` to `capture.py` (already the operator-facing override per `scene_paths.py`) bypasses the Infinigen-specific spawn-points pool when the USD conforms to `scene-provider-contract`. Lays the wiring so a foreign-source adapter only needs to ship the artifacts, not a new env subclass.
 - [ ] Tests:
   - One per axis: a `SensorStackCfg` selecting one camera produces an env with only that camera registered.
   - Composition: a `_TeleopCapture` instance has the rgb_full camera, lacks the depth cameras, has Real DR active, loads from Infinigen scene-source.
-  - Backward compat: the legacy Gym IDs round-trip the env construction.
-- [ ] Migration note in `docs/INTEGRATION_SIM_IN_THE_LOOP.md` describing the new composition shape + the legacy-ID guarantee.
+  - Registration: `test_env_registration.py` updated to the new gym IDs and passing — no old ID resolves (the clean-break proof at the test layer).
 
-## Approach — incremental, two-phase
+### Full caller / reference inventory (must all migrate in this PR)
 
-**Phase 1**: Introduce the three mixin cfgs alongside the existing class hierarchy. Re-implement `_BaseInfinigenPerceptionNavEnvCfg` as the composition that produces the same shape; verify no consumer breakage. The legacy class becomes a thin shim that calls the composition.
+Grep-verified 2026-05-30. Every code reference to a gym ID moves to
+the new scheme; every doc reference updates.
 
-**Phase 2**: Add the trimmed variants (`_TeleopCapture`, `_RLDepth_Real`, etc.) so consumers can opt into the narrower configs. Update `capture.py` to use `_TeleopCapture` by default. Update the bridge driver to use `_BridgeAutonomy`. Delete the now-unused legacy class after a deprecation window.
+**Code (migrate — break if missed):**
+- `source/strafer_lab/strafer_lab/tasks/navigation/__init__.py` (the registration table)
+- `source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py`
+- `source/strafer_lab/strafer_lab/sim_in_the_loop/runtime_env.py`
+- `Scripts/train_strafer_navigation.py`, `Scripts/test_strafer_env.py`, `Scripts/play_strafer_navigation.py`, `Scripts/export_policy.py`
+- `source/strafer_lab/scripts/collect_demos.py`, `source/strafer_lab/scripts/run_sim_in_the_loop.py`, `source/strafer_lab/scripts/teleop_capture.py`
+- Tests: `source/strafer_lab/test/env/test_env_registration.py`, `source/strafer_lab/tests/test_export_policy.py`, `source/strafer_lab/test/sensors/test_d555_perception_cfg.py`
 
-The legacy Gym ID re-registration is the gate — until that's solid, no consumer needs to change anything.
+**User-facing docs (update):** `Readme.md`, `source/strafer_lab/README.md`, `docs/INTEGRATION_SIM_IN_THE_LOOP.md`, `docs/example_commands_cheatsheet.md`, `docs/SYSTEM_FLOW_DIAGRAMS.md`, `docs/STRAFER_AUTONOMY_NEXT.md`, `docs/DGX_SPARK_SETUP.md`.
+
+**Active/parked task briefs (update the IDs they reference):** `subgoal-env.md`, `depth-subgoal-env.md`, `strafer-direct-sim-validation.md`, `strafer-hybrid-sim-validation.md`, `goal-noise-training.md`, `harness-throughput-measurement.md`, `rl-global-nav2-local.md`, `bridge-throughput-toward-25hz.md`.
+
+**Completed briefs — do NOT edit** (historical record per `branching-and-prs.md`): `inference-package.md`, `trajectory-first-captioning.md`, `mid-mission-validation-investigation.md`. They describe what was true at ship time; leave them.
+
+- [ ] **Doc sweep verified.** After migration, `grep -rl "Isaac-Strafer-Nav" --include="*.py" --include="*.md"` returns only the new-scheme IDs (in code + active docs) and the untouched completed briefs. No active code/doc references a retired ID.
+- [ ] Migration note in `docs/INTEGRATION_SIM_IN_THE_LOOP.md` describing the new composition shape + the old→new gym-ID mapping table (so a returning operator can translate muscle-memory commands).
+
+## Approach — clean cutover, snapshot-gated
+
+The clean-break decision means there is **no deprecation window and no
+shim layer**. The two-phase shape still helps as a *safety sequence*,
+but the end state has zero legacy classes:
+
+**Phase 1 — build the composition + prove the contract.** Introduce the
+three axis-cfgs (`SensorStackCfg`, `SceneSourceCfg`, `RealismCfg`) and a
+`_BaseStraferNavEnvCfg` that composes them (composition via attribute-typed
+sub-cfgs, **not** diamond inheritance — see Risks). Re-express each old
+config as a composition. Before touching anything, capture the obs/action
+snapshot for every old config; after, assert the equivalent composition is
+byte-identical. **This snapshot-identity proof is the gate.** If it can't be
+made green, STOP — do not proceed to the cutover on a divergent contract.
+
+**Phase 2 — cut over + delete.** Register the new gym IDs for the named
+variants (`_TeleopCapture`, `_RLDepth_Real`, `_RLNoCam`, etc.), migrate
+every caller in the inventory to the new IDs, **delete the 39 old
+subclasses and their old gym-ID registrations** (no shims), update all
+active docs + the migration note, run the training-works smoke. The clean
+break lands whole — there is no intermediate state where both old and new
+IDs resolve.
+
+Because the cutover is atomic (old IDs gone, callers migrated, in one PR),
+the gate is the obs/action snapshot identity + the full test suite +
+`test_env_registration.py` green on the new IDs. If session budget can't
+fit the whole cutover, it is acceptable to ship Phase 1 (composition built,
+snapshot-proven, old hierarchy still present) and do the delete-and-migrate
+cutover in an immediate follow-up — but the *brief does not ship* until the
+old hierarchy is gone, per the clean-break decision.
 
 ## Out of scope
 
@@ -73,8 +151,9 @@ The legacy Gym ID re-registration is the gate — until that's solid, no consume
 
 ## Risks
 
-- **Gym ID re-registration regression**: if a composed variant produces a subtly different env (e.g. different observation key ordering, different DR seed sequence), a trained checkpoint could behave differently when re-loaded. Mitigation: snapshot one episode's observation tensor from a stock checkpoint under each existing Gym ID before refactor; assert byte-identical after refactor.
-- **Mixin ordering matters in `@configclass`**: Python's MRO is well-defined but Isaac Lab's `@configclass` decorator has historically had subtle interactions with multiple inheritance. Mitigation: use composition (a `_BaseStraferNavEnvCfg` with attribute-typed sub-cfgs) rather than diamond inheritance.
+- **Obs/action contract divergence (the load-bearing risk under the clean break).** With names changing freely, the danger is no longer "an ID stops resolving" — it's a composed variant emitting a *subtly different* obs tensor (key ordering, DR seed sequence, noise term) than the config it replaces, which would silently break the DEPTH inference package and any checkpoint while every test still "passes." Mitigation: the snapshot-identity gate, keyed by old-config → new-composition equivalence, run before the cutover. This is the gate, not a nice-to-have.
+- **A missed caller.** The clean break means a caller still pointing at a retired gym ID is a hard failure (training script won't launch, bridge won't start). Mitigation: the grep-verified inventory in acceptance + `test_env_registration.py` rewritten to the new IDs (a stale reference fails the test) + the doc-sweep grep assertion.
+- **Mixin ordering in `@configclass`**: Python's MRO is well-defined but Isaac Lab's `@configclass` has historically had subtle interactions with multiple inheritance. Mitigation: composition (a `_BaseStraferNavEnvCfg` with attribute-typed sub-cfgs) rather than diamond inheritance.
 
 ## Triggered by
 

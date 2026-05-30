@@ -1,5 +1,9 @@
 # Teleop ergonomics: control modes + target visibility + scene polish
 
+**Status:** Shipped 2026-05-26 in `21bdf84` (DGX). The ship-now bundle (active-scene spawn fix, `--hide-overhead`, target marker, `--control-mode {world_arcade, egocentric}`, `--capture-rate-hz` decouple, RL goal-marker suppression, scene-centroid camera, debug spawn-bbox surface) landed alongside the Tier 1 teleop driver in PR #63. Brief was filed retroactively during PR #63 review to document the operator-UX scope expansion beyond the original Tier 1 baseline.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/63
+**Follow-ups:** `teleop-in-sim-target-picker` (point-click target + robot placement) was named in the brief's follow-up section but not filed — defer the file-vs-skip decision until operators have used the console picker + target marker for a session or two, per the brief's own framing.
+
 **Type:** new feature (operator UX) + bug-fix bundle
 **Owner:** DGX agent
 **Priority:** P1 — blocking productive teleop sessions on the harness driver shipping in PR #63.

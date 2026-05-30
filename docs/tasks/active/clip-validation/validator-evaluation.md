@@ -570,6 +570,29 @@ follow-up brief filed.
   recalibrates the bars. Keeping the v1 measurement single-room
   is deliberate: it gives an achievable bar for the cheap CLIP
   path before multi-room raises the difficulty.
+
+  **Coordination flag (exploration ≠ deviation).** The
+  per-window `off_course` rule above measures deviation as
+  lateral distance from the geodesic-A* path *to the mission
+  target*. That rule assumes a **committed navigate-to-target
+  leg**; it does not yet distinguish legitimate **exploration**
+  from genuine deviation. The multi-room runtime deliberately
+  leaves the geodesic line:
+  `explore_until_visible` from
+  [`autonomy-stack`](../multi-room/autonomy-stack.md) walks
+  ranked frontiers, and the frontier-ranking variants
+  ([`llm-guided-frontier-gain`](../../parked/multi-room/llm-guided-frontier-gain.md),
+  [`frontier-cognitive-fsm`](../../parked/multi-room/frontier-cognitive-fsm.md))
+  visit plausible-but-wrong frontiers and re-verify candidate
+  rooms by design. Scoring those legs with the geodesic rule
+  would label normal autonomy as off-course. The multi-room
+  re-test brief must make the deviation definition
+  **per-leg / sub-goal-aware** — validate against the *current*
+  navigate-to-pose leg's destination (a staging hop from
+  [`planner-far-target-staging`](../multi-room/planner-far-target-staging.md)
+  or the final target) and suppress the tripwire during
+  explore / transit legs — rather than against a single
+  final-goal geodesic.
 - **Real-robot validation.** Sim-side only. A future brief may
   layer real-robot data in once the runtime path is calibrated.
 - **Replacing CLIP with a non-CLIP backbone (DINOv2, DINOv3,

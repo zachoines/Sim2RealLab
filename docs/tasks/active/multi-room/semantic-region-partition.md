@@ -115,7 +115,9 @@ Replaces `cluster_nodes` + `RoomClassifier` +
 ```python
 def known_rooms():
     # Inputs per observation node (all already exist in v1):
-    #   - CLIP embedding (512-d, in ChromaDB)
+    #   - CLIP embedding (backbone-dim, in ChromaDB; 512 for
+    #     OpenCLIP ViT-B/32, but backbone-bakeoff may pick a
+    #     non-512 tower — the joint metric below is dim-agnostic)
     #   - pose (x, y)
     #   - detected_objects (VLM, mission-driven nodes)
     #   - proximity + same_place edges

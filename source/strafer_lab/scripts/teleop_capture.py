@@ -92,10 +92,18 @@ def _build_parser() -> argparse.ArgumentParser:
         "choice on ARM64.",
     )
     parser.add_argument(
+        "--sensors",
+        type=str, default=None,
+        help="Per-session sensor stack as a comma-separated token list over "
+        "rgb_full,depth_full,rgb_policy,depth_policy. The writer records "
+        "exactly this stack. Falls back to --capture-policy-cam when omitted.",
+    )
+    parser.add_argument(
         "--capture-policy-cam",
         action=argparse.BooleanOptionalAction, default=True,
-        help="Capture the 80×60 policy camera alongside the 640×360 "
-        "perception camera.",
+        help="Deprecated — prefer --sensors. Capture the 80×60 policy camera "
+        "alongside the 640×360 perception camera. Used only when --sensors "
+        "is omitted.",
     )
     parser.add_argument(
         "--operator-handle", type=str, default=None,
@@ -209,6 +217,7 @@ from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry
 from strafer_lab.tools.gamepad_reader import GamepadReader
 from strafer_lab.tools.lerobot_writer import (
     StraferLeRobotWriter,
+    _normalize_cameras_required,
     hash_scene_metadata,
 )
 from strafer_lab.tools.scene_paths import resolve_scene_metadata_path
@@ -622,7 +631,7 @@ def _build_writer(
     repo_id: str,
     fps: int,
     vcodec: str,
-    capture_policy_cam: bool,
+    cameras_required: tuple[str, ...],
     capture_git_sha: str,
     scene_metadata_hash: str,
     operator_handle: str | None,
@@ -635,7 +644,7 @@ def _build_writer(
         fps=fps,
         capture_git_sha=capture_git_sha,
         scene_metadata_hash=scene_metadata_hash,
-        capture_policy_cam=capture_policy_cam,
+        cameras_required=cameras_required,
         vcodec=vcodec,
         operator_handle=operator_handle,
         session_id=session_id,
@@ -842,8 +851,21 @@ def main() -> int:
         simulation_app.close()
         return 2
 
+    # Resolve the per-session sensor stack once. The writer records exactly
+    # this stack; we read (and pass) only the camera channels it declares.
+    _sensor_tokens = (
+        [t.strip() for t in args.sensors.split(",") if t.strip()]
+        if args.sensors else None
+    )
+    cameras_required = _normalize_cameras_required(
+        _sensor_tokens, args.capture_policy_cam,
+    )
+    needs_policy = (
+        "rgb_policy" in cameras_required or "depth_policy" in cameras_required
+    )
+
     perception_camera = scene.sensors["d555_camera_perception"]
-    policy_camera = scene.sensors.get("d555_camera") if args.capture_policy_cam else None
+    policy_camera = scene.sensors.get("d555_camera") if needs_policy else None
 
     if args.hide_overhead:
         try:
@@ -918,7 +940,7 @@ def main() -> int:
         repo_id=repo_id,
         fps=writer_fps,
         vcodec=args.vcodec,
-        capture_policy_cam=bool(args.capture_policy_cam),
+        cameras_required=cameras_required,
         capture_git_sha=capture_git_sha,
         scene_metadata_hash=scene_metadata_sha,
         operator_handle=args.operator_handle,
@@ -926,7 +948,7 @@ def main() -> int:
     )
     print(f"[teleop_capture] writer ready → {output_root}")
     print(f"[teleop_capture] repo_id={repo_id} session_id={session_id}")
-    print(f"[teleop_capture] capture_policy_cam={bool(args.capture_policy_cam)}")
+    print(f"[teleop_capture] cameras_required={cameras_required}")
 
     gamepad = GamepadReader(deadzone=args.deadzone)
     pip = _PipWindow(enabled=not args.no_pip_window)
@@ -1191,21 +1213,28 @@ def main() -> int:
 
             # Pull frames + write to LeRobot only when we're capturing.
             if should_capture:
-                rgb_perception = _rgb_to_uint8_hwc(
-                    perception_camera.data.output["rgb"],
+                # Read + pass only the channels the declared stack records,
+                # so the writer's per-frame validation stays satisfied.
+                rgb_perception = (
+                    _rgb_to_uint8_hwc(perception_camera.data.output["rgb"])
+                    if "rgb_full" in cameras_required else None
                 )
-                depth_m = _depth_to_float32_hw(
-                    perception_camera.data.output["distance_to_image_plane"],
+                depth_m = (
+                    _depth_to_float32_hw(
+                        perception_camera.data.output["distance_to_image_plane"])
+                    if "depth_full" in cameras_required else None
                 )
                 rgb_policy = None
                 depth_policy_m = None
                 if policy_camera is not None:
-                    rgb_policy = _rgb_to_uint8_hwc(
-                        policy_camera.data.output["rgb"],
-                    )
-                    depth_policy_m = _depth_to_float32_hw(
-                        policy_camera.data.output["distance_to_image_plane"],
-                    )
+                    if "rgb_policy" in cameras_required:
+                        rgb_policy = _rgb_to_uint8_hwc(
+                            policy_camera.data.output["rgb"],
+                        )
+                    if "depth_policy" in cameras_required:
+                        depth_policy_m = _depth_to_float32_hw(
+                            policy_camera.data.output["distance_to_image_plane"],
+                        )
                 achieved = _achieved_vel(unwrapped)
                 pose_after, _ = _robot_pose(unwrapped)
                 writer.add_frame(

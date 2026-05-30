@@ -491,5 +491,3 @@ def prep_scene(acme_scene, scene_name: str) -> None:
 - [`mission-text-enrichment`](tasks/parked/harness/mission-text-enrichment.md)
   — the first consumer of the `descriptors` namespace + populated
   `rooms[]` reserved here.
-</content>
-</invoke>

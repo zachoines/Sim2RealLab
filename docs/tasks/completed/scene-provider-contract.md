@@ -1,5 +1,8 @@
 # Scene-provider contract documentation + extensibility hooks
 
+**Status:** Shipped 2026-05-30 in `75db2d0` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/66
+
 **Type:** documentation + small refactor (un-baking the last Infinigen-specific seams)
 **Owner:** DGX agent
 **Priority:** P2 — not gating any current acceptance bar; soft-blocks operator's stated intent to add other USD sources for data variety.

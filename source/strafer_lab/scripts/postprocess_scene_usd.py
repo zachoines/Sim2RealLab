@@ -46,7 +46,11 @@ from typing import Any
 logger = logging.getLogger("postprocess_scene_usd")
 
 
-_CEILING_LIGHT_NAME_RE = re.compile(r"^CeilingLightFactory_\d+__spawn_asset_\d+_$")
+# Matched against the prim *name* (leaf), not the full path — unlike the
+# floor / structural patterns below, which match the full prim path. A foreign
+# source whose light fixtures use a different naming scheme overrides this via
+# ``--ceiling-light-prim-pattern``.
+_DEFAULT_CEILING_LIGHT_PRIM_PATTERN = r"^CeilingLightFactory_\d+__spawn_asset_\d+_$"
 
 # Floor meshes Infinigen exports are tessellated and have triangle edges /
 # T-junctions that catch the Strafer mecanum rollers. Infinigen emits an
@@ -83,6 +87,10 @@ _DEFAULT_STRUCTURAL_APPROXIMATION = "meshSimplification"
 
 
 def _compile_floor_pattern(pattern: str) -> re.Pattern[str]:
+    return re.compile(pattern)
+
+
+def _compile_ceiling_light_pattern(pattern: str) -> re.Pattern[str]:
     return re.compile(pattern)
 
 
@@ -188,8 +196,17 @@ def strip_floor_colliders(stage: Any, floor_pattern: re.Pattern[str]) -> int:
     return count
 
 
-def inject_ceiling_light_emitters(stage: Any, intensity: float) -> int:
-    """Create a ``UsdLux.SphereLight`` at every ``CeilingLightFactory_*`` prim.
+def inject_ceiling_light_emitters(
+    stage: Any,
+    intensity: float,
+    ceiling_light_pattern: re.Pattern[str] | None = None,
+) -> int:
+    """Create a ``UsdLux.SphereLight`` at every matching light-fixture prim.
+
+    Matches each prim's *name* (leaf, not full path) against
+    ``ceiling_light_pattern``; ``None`` falls back to
+    :data:`_DEFAULT_CEILING_LIGHT_PRIM_PATTERN` (Infinigen's
+    ``CeilingLightFactory_*`` naming).
 
     Infinigen exports the fixture mesh but not the emitter. Without
     this, dome / directional / area lights can't reach the interior and
@@ -199,14 +216,24 @@ def inject_ceiling_light_emitters(stage: Any, intensity: float) -> int:
     parent fixture, so a second light would just double up). Re-uses an
     existing ``AutoSphereLight`` child when present instead of creating
     a duplicate.
+
+    A foreign-source adapter whose fixtures need different emitters
+    (e.g. ``UsdLux.DiskLight`` at floor-up positions) can import this
+    function and call it with a custom pattern, or bypass it entirely
+    and author its own lights — the rest of :func:`postprocess_usdc`
+    does not depend on it.
     """
     from pxr import UsdLux  # type: ignore
+
+    pattern = ceiling_light_pattern or _compile_ceiling_light_pattern(
+        _DEFAULT_CEILING_LIGHT_PRIM_PATTERN,
+    )
 
     count = 0
     for prim in stage.Traverse():
         if not prim.IsValid():
             continue
-        if not _CEILING_LIGHT_NAME_RE.match(prim.GetName()):
+        if not pattern.match(prim.GetName()):
             continue
         parent = prim.GetParent()
         if parent is None or not parent.IsValid():
@@ -232,6 +259,7 @@ def postprocess_usdc(
     collider_approximation: str = _DEFAULT_APPROXIMATION,
     structural_pattern: re.Pattern[str] | None = None,
     structural_approximation: str = _DEFAULT_STRUCTURAL_APPROXIMATION,
+    ceiling_light_pattern: re.Pattern[str] | None = None,
 ) -> None:
     from pxr import Usd  # type: ignore
 
@@ -251,7 +279,9 @@ def postprocess_usdc(
         structural_pattern=structural_pattern,
         structural_approximation=structural_approximation,
     )
-    lights = inject_ceiling_light_emitters(stage, light_intensity)
+    lights = inject_ceiling_light_emitters(
+        stage, light_intensity, ceiling_light_pattern,
+    )
     stage.Save()
     logger.info(
         "%s: stripped %d floor collider(s), attached %d %s + %d %s collider(s), injected %d light(s)",
@@ -315,6 +345,15 @@ def main(argv: list[str] | None = None) -> int:
         default=_DEFAULT_STRUCTURAL_APPROXIMATION,
         help="PhysX collider representation for structural prims.",
     )
+    parser.add_argument(
+        "--ceiling-light-prim-pattern",
+        type=str,
+        default=_DEFAULT_CEILING_LIGHT_PRIM_PATTERN,
+        help="Regex matched against each prim's NAME (the leaf, not the full "
+             "path) to identify light-fixture prims that need a SphereLight "
+             "emitter authored under them. Override if your source names "
+             "light fixtures differently than Infinigen.",
+    )
     args = parser.parse_args(argv)
 
     if not args.usdc.exists():
@@ -326,6 +365,9 @@ def main(argv: list[str] | None = None) -> int:
         re.compile(args.structural_prim_pattern)
         if args.structural_prim_pattern else None
     )
+    ceiling_light_pattern = _compile_ceiling_light_pattern(
+        args.ceiling_light_prim_pattern,
+    )
     postprocess_usdc(
         args.usdc,
         light_intensity=args.light_intensity,
@@ -334,6 +376,7 @@ def main(argv: list[str] | None = None) -> int:
         collider_approximation=args.collider_approximation,
         structural_pattern=structural_pattern,
         structural_approximation=args.structural_approximation,
+        ceiling_light_pattern=ceiling_light_pattern,
     )
     return 0
 

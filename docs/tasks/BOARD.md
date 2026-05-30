@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`harness-architecture`](active/harness/harness-architecture.md) Tier 1 (writer + teleop) | DGX | [#63](https://github.com/zachoines/Sim2RealLab/pull/63) | draft (scaffolding landed; teleop driver wiring pending) |
+| [`harness-architecture`](active/harness/harness-architecture.md) Tier 1 acceptance run | DGX | post-merge follow-up (PR #63 merged 2026-05-26) | pending operator capture; gated on [`teleop-perf-architecture`](active/sim-performance/teleop-perf-architecture.md) landing (current ~5 FPS is unusable for ≥30 episodes × ≥2 scenes). Tier 1 ✓ on harness-architecture.md stays unchecked until artifact lands at `docs/artifacts/teleop_acceptance/<run_id>/`. |
 
 ---
 
@@ -84,7 +84,6 @@ Five briefs (`behavior-cloning-data-expansion`, `teleop-driver`, `trajectory-fir
 |---|---|---|---|
 | [`harness-architecture`](active/harness/harness-architecture.md) | P1 | active (architecture doc; ships across PRs B/C/D) | DGX |
 | [`infinigen-scene-corpus`](active/harness/infinigen-scene-corpus.md) | P1 | active | DGX |
-| [`teleop-ergonomics`](active/harness/teleop-ergonomics.md) | P1 | active (in-flight; core lands in PR #63) | DGX |
 | [`mission-generator`](active/harness/mission-generator.md) | P2 | active | DGX |
 | [`scene-provider-contract`](active/harness/scene-provider-contract.md) | P2 | active | DGX |
 | [`mission-text-enrichment`](parked/harness/mission-text-enrichment.md) | P2 | parked (blocked on `scene-provider-contract`) | DGX |

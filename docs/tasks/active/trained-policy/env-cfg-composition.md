@@ -51,6 +51,29 @@ under the same names" gate. Two consequences:
    old ID. The full inventory (verified by grep 2026-05-30) is in
    [the migration acceptance section](#full-caller--reference-inventory-must-all-migrate-in-this-pr).
 
+3. **The capture-side sensor stack is operator-selectable per
+   session; the writer grows/shrinks to match. This IS the refactor.**
+   (Operator framing, 2026-05-30.) There is no single fixed "teleop
+   stack" baked into a variant. The sensor stack is chosen at
+   `capture.py` invocation — RGB-only for CLIP mid-mission-validation
+   training + grounding-VLM finetune (the common case: one full-res
+   egocentric RGB is all those need), expandable to RGB+depth (and the
+   policy cams) for future VLA capture. The LeRobot v3 writer's
+   `build_features` declares **exactly** the columns for the selected
+   stack — modalities are genuinely optional, the on-disk schema grows
+   or shrinks per algorithmic need, and absent modalities produce **no
+   columns at all** (never zero-filled). The env sensor stack and the
+   writer feature set are driven by **one** parameter (`cameras_required`)
+   so they cannot drift. This end-to-end composability — env renders
+   only what's asked, writer records only what's rendered, operator
+   picks per session — is the point of the refactor, not a side
+   feature.
+
+   This applies to the **capture** consumers (teleop, bridge, future
+   scripted). The **RL gym IDs keep fixed stacks** — a policy was
+   trained against a specific obs shape, so its sensor stack is part
+   of the preserved contract (point 1), not runtime-selectable.
+
 ## Story
 
 As a **harness operator and a future RL / VLA contributor** I want **env configurations to compose along the orthogonal axes they actually vary on — sensor stack × scene source × realism level — instead of inheriting a monolithic `_BaseInfinigenPerceptionNavEnvCfg` that bakes all three together** so that **a teleop run can ask for "RGB only, Infinigen, realistic" without paying for depth cameras it discards, an RL training run can ask for "RGB+depth, ProcRoom or no-cam, three realism levels" without forking the env class hierarchy, and a hypothetical future scene source (ProcTHOR / Habitat / hand-authored USD per `scene-provider-contract`) can plug in by parameter rather than by writing a new env subclass.**
@@ -81,16 +104,16 @@ Ship a refactor that meets all of:
   - `SensorStackCfg` enumerating `cameras_required` (the proposal from the perf brief's §C — `rgb_full`, `depth_full`, `rgb_policy`, `depth_policy`)
   - `SceneSourceCfg` parameterizing the scene-USD discovery / metadata loading (Infinigen today; ProcRoom + foreign-USD via `scene-provider-contract` once that brief ships)
   - `RealismCfg` selecting Ideal / Real / Robust DR + noise (already mostly factored — confirm the split is clean)
-- [ ] Concrete composed variants (replacing today's classes):
-  | Variant | sensors | scene source | realism | Consumer |
+- [ ] Concrete composed variants (replacing today's classes). For the **capture** rows the `sensors` column is the *default preset* — operator-overridable per session per the selectable-stack acceptance above; for the **RL** rows it is *fixed* by the preserved obs contract.
+  | Variant | sensors (RL=fixed, capture=default preset) | scene source | realism | Consumer |
   |---|---|---|---|---|
-  | `_TeleopCapture` | `("rgb_full",)` | Infinigen (or contract-conformant) | Real | `capture.py --driver teleop` |
-  | `_BridgeAutonomy` | `("rgb_full", "depth_full", "depth_policy")` | Infinigen | Real | bridge sim-in-the-loop |
-  | `_RLDepth_Real` | `("depth_policy",)` | ProcRoom | Real | RL depth training |
-  | `_RLDepth_Robust` | `("depth_policy",)` | ProcRoom | Robust | RL depth training (DR pass) |
-  | `_RLNoCam` | `()` | None / minimal | Real | RL no-cam baseline |
-  | `_Coverage` (future) | `("rgb_full", "depth_full")` | Infinigen | Real | scripted driver + coverage mission |
-- [ ] Matching writer-side update: `lerobot_writer.build_features` takes the same `cameras_required` tuple and conditionally declares feature columns. `add_frame` validates args match the declared schema (no zero-padding for absent cameras — frames not captured aren't authored at all). This is the perf brief's §C deliverable, owned here.
+  | `_TeleopCapture` | `("rgb_full",)` default; `--sensors` overrides (e.g. `+depth_full` for VLA capture) | Infinigen (or contract-conformant) | Real | `capture.py --driver teleop` |
+  | `_BridgeAutonomy` | `("rgb_full", "depth_full", "depth_policy")` default; `--sensors` overrides | Infinigen | Real | bridge sim-in-the-loop |
+  | `_RLDepth_Real` | `("depth_policy",)` **fixed** | ProcRoom | Real | RL depth training |
+  | `_RLDepth_Robust` | `("depth_policy",)` **fixed** | ProcRoom | Robust | RL depth training (DR pass) |
+  | `_RLNoCam` | `()` **fixed** | None / minimal | Real | RL no-cam baseline |
+  | `_Coverage` (future) | `("rgb_full", "depth_full")` default; `--sensors` overrides | Infinigen | Real | scripted driver + coverage mission |
+- [ ] **Operator-selectable capture stack + matching writer schema (the core deliverable).** `capture.py` exposes the sensor stack as a per-session choice (e.g. `--sensors rgb_full[,depth_full[,...]]`, or named presets that resolve to a `cameras_required` tuple) for the teleop / bridge / scripted capture paths. Default teleop preset = RGB-only (`("rgb_full",)`) — all CLIP mid-mission-validation + grounding-VLM finetune need; expandable to RGB+depth per session for VLA capture. `lerobot_writer.build_features` takes that same `cameras_required` tuple and declares **exactly** the matching feature columns — absent modalities produce **no columns at all** (never zero-filled). `add_frame` validates the frame against the declared stack (rejects a camera not in the stack; rejects a missing declared one). The env sensor stack and the writer schema are driven by the **one** `cameras_required` parameter so they cannot drift. Subsumes the perf brief's §C deliverable. **RL gym IDs are exempt — their stack is fixed by the preserved obs contract, not selectable.**
 - [ ] **Clean gym-ID scheme + complete caller migration (no aliases).** Register a small set of gym IDs for the named composed variants under a new composition-legible scheme; **do not** re-register the old names. Every caller below migrates to the new IDs in this same PR. Propose the new naming scheme in the reconciliation note (composition-legible, e.g. encodes sensor/scene/realism); orchestrator reviews it.
 - [ ] **Obs/action contract preserved — RL configs ONLY (the snapshot gate).** The contract is preserved exactly where a trained policy consumes it: the **RL training configs** (DEPTH, NoCam, and any other policy-facing variant). For each such config, snapshot the observation-space shape + action-space + a deterministic-seed first observation **before** the refactor; assert the **new composition that replaces it** produces a byte-identical snapshot **after**. Names change; the RL contract does not. If any RL composition diverges, STOP and report — a divergent obs contract breaks the DEPTH inference package and any checkpoint.
 

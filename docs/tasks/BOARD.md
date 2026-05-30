@@ -107,6 +107,7 @@ Five briefs (`behavior-cloning-data-expansion`, `teleop-driver`, `trajectory-fir
 | [`isaac-sim-rt-2-default-renderer`](active/sim-performance/isaac-sim-rt-2-default-renderer.md) | P2 | active | DGX |
 | [`bridge-throughput-toward-25hz`](active/sim-performance/bridge-throughput-toward-25hz.md) | P2 | active | DGX |
 | [`teleop-perf-architecture`](active/sim-performance/teleop-perf-architecture.md) | P2 | active | DGX |
+| [`mecanum-action-throughput`](active/sim-performance/mecanum-action-throughput.md) | P2 | active | DGX |
 
 ### Reliability (nav + executor + refactors)
 

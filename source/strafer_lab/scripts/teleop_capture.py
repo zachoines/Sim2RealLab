@@ -176,15 +176,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "writer.add_frame is called every "
         "round(env_step_hz / capture_rate_hz) ticks.",
     )
-    parser.add_argument(
-        "--diag-stick",
-        action="store_true",
-        help="Print a once-per-second diagnostic line in world_arcade mode "
-        "showing robot yaw, world-frame stick intent, and the body-frame "
-        "command actually sent to the env. Use to confirm the world→body "
-        "rotation is firing as expected when the operator reports "
-        "direction issues.",
-    )
     AppLauncher.add_app_launcher_args(parser)
     return parser
 
@@ -350,22 +341,12 @@ def _possess_d555_viewport(prim_path: str) -> bool:
         return False
 
 
-# Kit's persp camera prim, used by both the arcade init + follow tick.
-# Set this BEFORE the per-tick follower runs so a prior egocentric
-# session that left the viewport pointing at d555_camera_perception
-# doesn't leak into a fresh world_arcade run.
 _KIT_PERSP_CAM_PRIM = "/OmniverseKit_Persp"
 
-# Only re-pose the follow-cam when the robot has translated more than
-# this many meters since the last set_camera_view call. Calling
-# set_camera_view EVERY env step clobbers any pending scroll-wheel
-# input the operator applied — Kit's input event for the wheel modifies
-# the camera prim's transform, but our next set_camera_view overwrites
-# that change before Kit can flush its scroll handler's pending writes
-# into the displayed pose. With a translation threshold the operator
-# gets quiet intervals where Kit can apply scroll-wheel zoom safely.
-# 0.30 m ≈ one robot half-width — small enough that the operator
-# perceives "always following" without losing scroll responsiveness.
+# Only re-pose the follow-cam after the robot has translated this far.
+# Calling set_camera_view every env step clobbers operator scroll-wheel
+# input before Kit can flush its scroll-handler's pending writes;
+# the gate gives Kit quiet intervals to apply zoom.
 _ARCADE_FOLLOW_XY_DELTA_M = 0.30
 
 
@@ -374,18 +355,10 @@ def _compute_arcade_eye(
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
     """Return ``(eye, target)`` for the top-down follow-cam.
 
-    Eye sits directly above the robot at ``altitude_z``; target sits
-    directly below on the floor. Eye and target intentionally SHARE
-    XY: ``isaacsim.core.utils.viewports.set_camera_view`` has a
-    branch at viewports.py:73-95 that detects the equal-XY case and
-    routes to an explicit-quat path with a hard-coded
-    looking-down orientation (``[0, 0, 1, 0]``). Adding any XY offset
-    (e.g. the earlier +0.5 m Y-nudge meant to break gimbal lock)
-    bypasses that path and falls into a lookat resolver whose
-    screen-up axis depends on Kit's world-up reference — empirically
-    rotating screen-up 90° away from the expected world +Y direction
-    and breaking the operator's stick-up/stick-right mental model.
-    Mirrors the working reference in ``collect_demos.py:282-311``.
+    Eye and target intentionally share XY so set_camera_view hits its
+    explicit looking-down quat branch; any XY offset routes to a
+    lookat resolver whose screen-up depends on Kit's world-up
+    reference and rotates 90° away from world +Y.
     """
     rx, ry = float(robot_xy[0]), float(robot_xy[1])
     z = float(altitude_z)
@@ -397,14 +370,13 @@ def _arcade_camera_init(
 ) -> bool:
     """Pin the Kit viewport to /OmniverseKit_Persp at a top-down arcade pose.
 
-    Called once after ``env.reset()`` for world_arcade mode. Resets
-    ``camera_path`` first to defend against a prior egocentric session
-    leaving the viewport possessed by ``d555_camera_perception``. Then
+    Resets ``camera_path`` first to defend against a prior egocentric
+    session that left the viewport possessed by the d555 prim, then
     drives the persp camera through ``isaacsim.core.utils.viewports.
     set_camera_view`` (Kit's FSD-safe ``TransformPrimCommand`` path) —
-    necessary because Isaac Lab's :class:`ViewportCameraController`
-    doesn't reliably apply :class:`ViewerCfg` to the active viewport
-    after env.reset. The mirror of ``collect_demos.py:282-311``.
+    necessary because :class:`ViewportCameraController` doesn't
+    reliably apply :class:`ViewerCfg` to the active viewport after
+    env.reset.
     """
     try:
         import omni.kit.viewport.utility as vp_util  # type: ignore
@@ -433,17 +405,10 @@ def _arcade_camera_init(
 def _arcade_follow_tick(unwrapped, robot_xy: tuple[float, float]) -> None:
     """Per-tick follow: re-pose /OmniverseKit_Persp above ``robot_xy``.
 
-    Reads the viewport camera's current world-Z before re-setting eye so
-    the operator's scroll-wheel zoom is preserved between ticks (we only
-    overwrite X/Y). Eye and target share XY so set_camera_view hits the
-    explicit looking-down quat branch (see _compute_arcade_eye), keeping
-    screen-up locked to world +Y across all calls.
-
-    ``robot_xy`` is supplied by the caller rather than re-fetched here,
-    so the loop only triggers ONE ``.cpu()`` CUDA sync per step on the
-    robot pose (saved by sharing _robot_pose's result instead of an
-    independent ``root_pos_w`` read). Silent on failure (so a one-shot
-    Kit hiccup doesn't break the loop).
+    Reads the viewport camera's current world-Z before re-setting eye
+    so the operator's scroll-wheel zoom is preserved between ticks (we
+    only overwrite XY). Silent on failure so a one-shot Kit hiccup
+    doesn't break the loop.
     """
     try:
         import omni.kit.viewport.utility as vp_util  # type: ignore
@@ -491,16 +456,9 @@ def _as_torch(arr):
 def _robot_pose(unwrapped) -> tuple[tuple[float, float, float, float, float, float, float], float]:
     """Return ``(pose_xyzqxqyqzqw, yaw_rad)`` for env 0.
 
-    Isaac Lab 3 / Isaac Sim 5's ``Articulation.data.root_quat_w`` returns
-    the quaternion in **XYZW** order, NOT the WXYZ this function
-    originally assumed. The wrong unpacking happened to give the correct
-    answer for the spawn yaw=π pose (by symmetry of yaw-only quats) but
-    collapsed to a step function (≈ 0 east, ≈ π west, NaN at north/south)
-    for every other heading — making the world_arcade world→body
-    rotation compute against a frozen-looking yaw and the robot move in
-    body-frame relative to its actual (unmeasured) orientation. The
-    canonical reference here is collect_demos.py:395-399 which gets this
-    right and works correctly under the same env stack.
+    ``Articulation.data.root_quat_w`` returns the quaternion in XYZW
+    order — a yaw formula that assumes WXYZ happens to coincide at the
+    spawn yaw=π pose but collapses to a step function elsewhere.
     """
     scene = unwrapped.scene
     pos = _as_torch(scene["robot"].data.root_pos_w)[0].cpu().numpy()
@@ -856,23 +814,10 @@ def main() -> int:
             resolution=(1280, 720),
         )
 
-    # Match camera update_period to the writer cadence.
-    #
-    # NOTE: this is a smaller win than originally advertised — it gates
-    # Isaac Lab's per-sensor ``_is_outdated`` flag and the lazy
-    # ``_update_buffers_impl`` render trigger (sensor_base.py:186-205,
-    # camera.py:188-193, 439-442), NOT Kit's viewport pump. The
-    # dominant cost on a cluttered Infinigen scene is the
-    # ``KitVisualizer.step → app.update`` call that
-    # ``manager_based_rl_env.step`` invokes every env step
-    # (manager_based_rl_env.py:214-215), which still renders the
-    # editor viewport + every active TiledCamera regardless of
-    # ``update_period``. We keep the override because the buffer-stitch
-    # warp kernel + implicit CUDA sync on lazy buffer access are real
-    # (small but non-zero) savings, and because at the writer cadence
-    # the camera's ``.data`` reads at capture time don't trigger a
-    # mid-step re-render. The heavy lifting for operator FPS lives in
-    # the teleop-perf-architecture brief (sim-performance epic).
+    # Match camera update_period to the writer cadence. Gates Isaac
+    # Lab's lazy buffer-render trigger; does NOT gate Kit's viewport
+    # pump (which fires every env.step regardless). Small but real
+    # savings on the warp kernel + CUDA sync at lazy buffer access.
     _render_rate_hz = float(args.capture_rate_hz or args.fps)
     _render_period_s = 1.0 / max(_render_rate_hz, 1e-3)
     for _cam_attr in ("d555_camera_perception", "d555_camera"):
@@ -1221,30 +1166,6 @@ def main() -> int:
                 control_mode=args.control_mode,
             )
 
-            # Once-per-second diagnostic. Set --diag-stick to enable.
-            # Prints whenever EITHER stick is engaged so pure-rotation
-            # (right-stick only) tests still surface. Includes the raw
-            # quaternion in XYZW order so we can re-verify the unpacking
-            # if yaw ever looks suspicious again.
-            if (
-                args.diag_stick
-                and args.control_mode == "world_arcade"
-                and episode_step % 30 == 0
-                and (abs(frame.lx) > 0.05 or abs(frame.ly) > 0.05
-                     or abs(frame.rx) > 0.05)
-            ):
-                world_vx_intent = frame.lx
-                world_vy_intent = -frame.ly
-                qx, qy, qz, qw = pose[3], pose[4], pose[5], pose[6]
-                print(
-                    f"  [diag-stick] yaw={math.degrees(yaw):+7.1f}°  "
-                    f"quat_xyzw=({qx:+.2f},{qy:+.2f},{qz:+.2f},{qw:+.2f})  "
-                    f"world_pos=({pose[0]:+6.2f}, {pose[1]:+6.2f})  "
-                    f"world_intent=({world_vx_intent:+.2f}, {world_vy_intent:+.2f})  "
-                    f"body_cmd=({body_vx:+.2f}, {body_vy:+.2f}, ω={omega:+.2f})",
-                    flush=True,
-                )
-
             action = torch.tensor(
                 [[body_vx, body_vy, omega]], dtype=torch.float32, device=device,
             )
@@ -1252,13 +1173,10 @@ def main() -> int:
             obs, reward, terminated, truncated, info = env.step(action)
             episode_step += 1
 
-            # World-arcade follow: re-pose /OmniverseKit_Persp over the
-            # robot's XY ONLY when it has moved enough to matter. Calling
-            # set_camera_view every env step clobbers operator scroll-wheel
-            # input (Kit hasn't flushed the wheel's pending xform write
-            # before our overwrite lands). The XY-delta gate gives Kit
-            # quiet intervals where scroll handles cleanly. Reuses the
-            # pose already fetched above (no extra CUDA sync).
+            # World-arcade follow: re-pose /OmniverseKit_Persp only
+            # after the robot has moved past the gate (see the
+            # _ARCADE_FOLLOW_XY_DELTA_M comment). Reuses the pose
+            # fetched above so we don't pay an extra .cpu() sync.
             if args.control_mode == "world_arcade":
                 _dx = pose[0] - _last_arcade_follow_xy[0]
                 _dy = pose[1] - _last_arcade_follow_xy[1]

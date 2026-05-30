@@ -22,8 +22,9 @@ INFINIGEN (Phase 6 - offline Infinigen scene geometry):
 - ``Isaac-Strafer-Nav-Robust-InfinigenDepth-v0``: Robust depth + Infinigen scenes
 - ``Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0``: perception
   data-collection env. 640x360 RGB + depth from ``d555_camera_perception``,
-  single-env by default (resolution caps throughput). Used by
-  ``scripts/collect_perception_data.py`` and the Isaac Sim ROS2 bridge.
+  single-env by default (resolution caps throughput). Used by the harness
+  teleop driver (``scripts/teleop_capture.py``, dispatched from
+  ``Scripts/capture.py``) and the Isaac Sim ROS2 bridge.
 
 PROCROOM (Phase 7 - procedural primitive rooms):
 - ``Isaac-Strafer-Nav-Real-ProcRoom-NoCam-v0``: Realistic NoCam + proc rooms (256 envs)

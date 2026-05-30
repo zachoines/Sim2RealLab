@@ -133,9 +133,10 @@ If the Isaac-side observation layout changes, `strafer_shared.policy_interface` 
 | `scripts/generate_descriptions.py` | 4-stage description pipeline: programmatic spatial → Qwen2.5-VL-7B standalone → ground-truth filter → reservoir sampling for human spot-check | `scene_metadata.json`, `transformers`, Qwen2.5-VL-7B |
 | `scripts/prepare_vlm_finetune_data.py` | Comprehensive VLM LoRA SFT prep: single-object grounding + 1:3 negatives + ~20% multi-object + ~10% description preservation | Perception frames, scene metadata, Stage-2 descriptions |
 | `scripts/finetune_clip.py` | OpenCLIP ViT-B/32 contrastive fine-tune with MLflow tracking, exports `clip_visual.onnx` + `clip_text.onnx` for the Jetson semantic map | `open_clip_torch`, CSV from `dataset_export` |
-| `scripts/collect_demos.py` | Gamepad teleop for RL demo collection (DAPG / GAIL sources) | Isaac Sim |
-| `scripts/collect_perception_data.py` | Gamepad teleop for perception-data collection through the Infinigen perception env. Writes per-episode dirs matching what `generate_descriptions.py` consumes | Isaac Sim, Replicator |
-| `scripts/run_sim_in_the_loop.py` | Launch Isaac Sim with the ROS 2 bridge, run in `--mode bridge` (manual Nav2 drive) or `--mode harness` (harness runs Jetson missions, captures reachability-labelled dataset) | Isaac Sim, `isaacsim.ros2.bridge`, Jetson on LAN |
+| `scripts/collect_demos.py` | Gamepad teleop for RL demo collection (DAPG / GAIL sources). Shares the family-aware reader at `strafer_lab.tools.gamepad_reader` with the harness teleop driver | Isaac Sim |
+| `Scripts/capture.py` | Unified harness data-capture entry point (`--driver × --mission-source` cross-product per `harness-architecture.md`). Today wires `(teleop, scene-metadata)` end-to-end via the in-process Isaac Lab driver in `scripts/teleop_capture.py`; other cells raise `NotImplementedError` pointing at the tier that ships them | Isaac Sim (for `teleop`); pure-Python for argv validation |
+| `scripts/teleop_capture.py` | In-process Isaac Lab teleop driver. Boots `AppLauncher`, loads `Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0`, reads gamepad, drives `env.step()`, and writes a LeRobot v3 dataset via `StraferLeRobotWriter`. Subsumes the retired `collect_perception_data.py` | Isaac Sim, pygame, lerobot, optional OpenCV (for PIP) |
+| `scripts/run_sim_in_the_loop.py` | Launch Isaac Sim with the ROS 2 bridge, run in `--mode bridge` (manual Nav2 drive) or `--mode harness` (harness runs Jetson missions, captures reachability-labelled dataset). Bridge LeRobot-v3 migration tracked in Tier 2 of the harness brief | Isaac Sim, `isaacsim.ros2.bridge`, Jetson on LAN |
 
 **Runtime helpers** (`strafer_lab.tools.*`, plain Python, no Isaac Sim):
 
@@ -282,9 +283,12 @@ python scripts/prep_room_usds.py generate --preset dgx
 # 2. Label USD prims + extract metadata
 python scripts/extract_scene_metadata.py --scene Assets/generated/scenes/kitchen_01
 
-# 3. Collect teleop perception data (requires Isaac Sim)
-isaaclab -p scripts/collect_perception_data.py \
-    --scene scene_001 --output data/perception/ --max-episodes 20
+# 3. Collect teleop perception data via the harness entry point (requires Isaac Sim)
+isaaclab -p Scripts/capture.py \
+    --driver teleop --mission-source scene-metadata \
+    --scene scene_001 \
+    --output data/sim_in_the_loop/scene_001 \
+    --fps 8
 
 # 4. Run description pipeline
 python scripts/generate_descriptions.py \

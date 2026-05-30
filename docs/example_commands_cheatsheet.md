@@ -266,6 +266,15 @@ WebSocket** → `ws://localhost:8765`. First-time setup: **Layout** →
 make kill           # Jetson — clear stale ros2 / nav2 / executor / foxglove_bridge
 ```
 
+# Harness data capture (`Scripts/capture.py`)
+
+Moved to its own guide — see
+[`docs/HARNESS_DATA_CAPTURE.md`](HARNESS_DATA_CAPTURE.md). The guide
+covers `env_isaaclab3` lerobot setup, the Infinigen scene-corpus
+clean-slate regen procedure, validation + production capture commands,
+the operator button mapping, optional flags, round-trip verification,
+and a troubleshooting table.
+
 # Sim-in-the-loop bridge + DDS bench
 ## Shell 1 — start the bridge with viewport
 ```bash

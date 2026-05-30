@@ -39,7 +39,7 @@ except ModuleNotFoundError as _exc:
     # runtime not being active. Any other missing dependency is a real
     # bug that should surface loudly.
     _missing = str(_exc.name or "")
-    if _missing.startswith(("omni", "pxr", "isaacsim", "carb", "warp")):
+    if _missing.startswith(("omni", "pxr", "isaacsim", "isaaclab", "carb", "warp")):
         _logger.debug(
             "Skipping strafer_lab.tasks / strafer_lab.assets imports: "
             "Isaac Sim Kit runtime not active (missing module %r). "

@@ -3,6 +3,7 @@
 
 SHELL := /bin/bash
 VENV_VLM := .venv_vlm
+VENV_HARNESS := .venv_harness
 
 # Host-specific paths. Override per-host by setting these in .env (see
 # .env.example for the documented list); `source env_setup.sh` exports
@@ -13,7 +14,7 @@ ISAACLAB ?= $(HOME)/Documents/repos/IsaacLab/isaaclab.sh
 CONDA_ROOT ?= $(HOME)/miniconda3
 CONDA_ENV ?= env_isaaclab3
 
-.PHONY: build test test-unit test-dgx lint lint-fix format format-check clean kill \
+.PHONY: build test test-unit test-dgx test-harness lint lint-fix format format-check clean kill \
         launch launch-nav launch-autonomy launch-sim clean-map \
         install-tools udev serve-vlm serve-planner check-nvrtc help \
         sim-bridge sim-bridge-gui sim-harness
@@ -126,6 +127,15 @@ test-dgx: ## Run autonomy + VLM tests (skips ROS-dependent tests)
 	PYTHONPATH= $(VENV_VLM)/bin/python -m pytest \
 		source/strafer_autonomy/tests/ source/strafer_vlm/tests/ \
 		-m "not requires_ros" -v
+
+test-harness: ## Run harness writer / capture tooling tests (uses .venv_harness — separate from .venv_vlm to avoid lerobot downgrading torch to CPU)
+	@# .venv_harness is a separate Python 3.12 venv carrying the
+	@# lerobot stack (which pins torch<2.11.0 and downgrades the VLM
+	@# venv's CUDA torch to CPU if installed alongside). Keep it
+	@# isolated. Bootstrap: python3.12 -m venv .venv_harness &&
+	@# .venv_harness/bin/pip install lerobot pytest.
+	PYTHONPATH= $(VENV_HARNESS)/bin/python -m pytest \
+		source/strafer_lab/tests/harness/ -v
 
 check-nvrtc: ## Verify NVRTC symlinks point to system CUDA 13.0
 	@NVRTC_DIR="$(VENV_VLM)/lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib"; \

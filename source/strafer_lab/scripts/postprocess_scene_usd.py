@@ -59,33 +59,69 @@ _CEILING_LIGHT_NAME_RE = re.compile(r"^CeilingLightFactory_\d+__spawn_asset_\d+_
 # outer Xform and the inner Mesh leaf match so we can strip / skip either.
 _DEFAULT_FLOOR_PRIM_PATTERN = r"^/World/[^/]+_floor(?:/[^/]+_floor)?$"
 
+# Matches the room shell prims (walls, ceilings, exterior, attic) and
+# the two-prim door pair (frame `_` + leaf `__001`). These prims need
+# an approximation that preserves the actual triangle topology of
+# door / window cutouts.
+_DEFAULT_STRUCTURAL_PRIM_PATTERN = (
+    r"^/World/[^/]+_(?:wall|ceiling|roof|attic|exterior)"
+    r"(?:_\d+)?(?:/.+)?$"
+    r"|^/World/(?:PanelDoor|LiteDoor|LouverDoor)Factory_\d+"
+    r"__spawn_asset_\d+_(?:_\d+)?(?:/.+)?$"
+)
+
+_VALID_APPROXIMATIONS: tuple[str, ...] = (
+    "boundingCube",
+    "boundingSphere",
+    "convexHull",
+    "convexDecomposition",
+    "meshSimplification",
+    "none",
+)
+_DEFAULT_APPROXIMATION = "convexHull"
+_DEFAULT_STRUCTURAL_APPROXIMATION = "meshSimplification"
+
 
 def _compile_floor_pattern(pattern: str) -> re.Pattern[str]:
     return re.compile(pattern)
 
 
 def attach_mesh_colliders(
-    stage: Any, floor_pattern: re.Pattern[str] | None = None
-) -> int:
+    stage: Any,
+    floor_pattern: re.Pattern[str] | None = None,
+    *,
+    approximation: str = _DEFAULT_APPROXIMATION,
+    structural_pattern: re.Pattern[str] | None = None,
+    structural_approximation: str = _DEFAULT_STRUCTURAL_APPROXIMATION,
+) -> tuple[int, int]:
     """Attach ``CollisionAPI`` + ``MeshCollisionAPI`` to every scene ``Mesh``.
 
-    Applies the ``none`` approximation (use the raw triangle mesh as the
-    collider). This is the accurate choice for static world geometry;
-    dynamic bodies would need ``convexHull`` / ``convexDecomposition``
-    but nothing in an Infinigen indoor scene moves on its own.
+    Prims matching ``structural_pattern`` get ``structural_approximation``;
+    everything else gets ``approximation``. In practice
+    ``meshSimplification`` works better than convex shapes for
+    structural components (preserves door / window cutouts).
 
-    Skips:
+    Skips material subtrees and floor meshes matching ``floor_pattern``
+    (robot collision goes to ``/World/ground`` instead). Pass
+    ``floor_pattern=None`` to disable the floor skip.
 
-    * Material subtrees.
-    * Prims that already carry ``CollisionAPI`` so repeated invocations
-      are a no-op.
-    * Floor meshes matching ``floor_pattern`` — robot collision goes to
-      the clean ``/World/ground`` plane the env config lifts to floor
-      height. Pass ``None`` to disable the skip (debugging only).
+    Idempotent + approximation-correcting: re-running on an already-
+    postprocessed USDC rewrites the approximation attribute to match
+    the (per-prim) target.
+
+    Returns ``(furniture_changed, structural_changed)`` — counts of
+    prims whose authored approximation was added or migrated.
     """
+    for name, approx in (("approximation", approximation),
+                         ("structural_approximation", structural_approximation)):
+        if approx not in _VALID_APPROXIMATIONS:
+            raise ValueError(
+                f"unknown {name}={approx!r}; valid: {_VALID_APPROXIMATIONS}",
+            )
     from pxr import UsdPhysics  # type: ignore
 
-    count = 0
+    furniture_changed = 0
+    structural_changed = 0
     for prim in stage.Traverse():
         if not prim.IsValid():
             continue
@@ -96,13 +132,32 @@ def attach_mesh_colliders(
             continue
         if floor_pattern is not None and floor_pattern.match(path):
             continue
-        if prim.HasAPI(UsdPhysics.CollisionAPI):
-            continue
+        is_structural = (
+            structural_pattern is not None and structural_pattern.match(path)
+        )
+        target = structural_approximation if is_structural else approximation
+        # Ensure the APIs are present; both Apply() calls are no-ops
+        # if already authored.
         UsdPhysics.CollisionAPI.Apply(prim)
         mesh_api = UsdPhysics.MeshCollisionAPI.Apply(prim)
-        mesh_api.CreateApproximationAttr().Set("none")
-        count += 1
-    return count
+        # Migrate any prior approximation to the desired one. USD's
+        # schema default for an unauthored attribute is ``"none"``,
+        # so we compare only against the *authored* value — otherwise
+        # a fresh prim with approximation=none would be skipped as a
+        # "no-op" and never get the attribute written.
+        approx_attr = mesh_api.GetApproximationAttr()
+        previous = (
+            approx_attr.Get()
+            if approx_attr.IsValid() and approx_attr.HasAuthoredValue()
+            else None
+        )
+        if previous != target:
+            mesh_api.CreateApproximationAttr().Set(target)
+            if is_structural:
+                structural_changed += 1
+            else:
+                furniture_changed += 1
+    return furniture_changed, structural_changed
 
 
 def strip_floor_colliders(stage: Any, floor_pattern: re.Pattern[str]) -> int:
@@ -174,6 +229,9 @@ def postprocess_usdc(
     light_intensity: float,
     floor_pattern: re.Pattern[str],
     keep_floor_colliders: bool,
+    collider_approximation: str = _DEFAULT_APPROXIMATION,
+    structural_pattern: re.Pattern[str] | None = None,
+    structural_approximation: str = _DEFAULT_STRUCTURAL_APPROXIMATION,
 ) -> None:
     from pxr import Usd  # type: ignore
 
@@ -186,12 +244,21 @@ def postprocess_usdc(
     stripped = (
         0 if keep_floor_colliders else strip_floor_colliders(stage, floor_pattern)
     )
-    colliders = attach_mesh_colliders(stage, floor_pattern=floor_skip)
+    furniture, structural = attach_mesh_colliders(
+        stage,
+        floor_pattern=floor_skip,
+        approximation=collider_approximation,
+        structural_pattern=structural_pattern,
+        structural_approximation=structural_approximation,
+    )
     lights = inject_ceiling_light_emitters(stage, light_intensity)
     stage.Save()
     logger.info(
-        "%s: stripped %d floor collider(s), attached %d collider(s), injected %d light(s)",
-        resolved, stripped, colliders, lights,
+        "%s: stripped %d floor collider(s), attached %d %s + %d %s collider(s), injected %d light(s)",
+        resolved, stripped,
+        furniture, collider_approximation,
+        structural, structural_approximation,
+        lights,
     )
 
 
@@ -226,6 +293,28 @@ def main(argv: list[str] | None = None) -> int:
         help="Keep floor mesh colliders (debugging only). Reintroduces "
              "the wheel-catching behavior the floor strip was added to fix.",
     )
+    parser.add_argument(
+        "--collider-approximation",
+        choices=_VALID_APPROXIMATIONS,
+        default=_DEFAULT_APPROXIMATION,
+        help="PhysX collider representation for furniture / freestanding "
+             "meshes.",
+    )
+    parser.add_argument(
+        "--structural-prim-pattern",
+        type=str,
+        default=_DEFAULT_STRUCTURAL_PRIM_PATTERN,
+        help="Regex matched against full USD prim paths to identify "
+             "structural prims (walls, ceilings, doors, etc.). "
+             "Matching prims get --structural-approximation. Pass an "
+             "empty string to disable the structural dispatch.",
+    )
+    parser.add_argument(
+        "--structural-approximation",
+        choices=_VALID_APPROXIMATIONS,
+        default=_DEFAULT_STRUCTURAL_APPROXIMATION,
+        help="PhysX collider representation for structural prims.",
+    )
     args = parser.parse_args(argv)
 
     if not args.usdc.exists():
@@ -233,11 +322,18 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     floor_pattern = _compile_floor_pattern(args.floor_prim_pattern)
+    structural_pattern = (
+        re.compile(args.structural_prim_pattern)
+        if args.structural_prim_pattern else None
+    )
     postprocess_usdc(
         args.usdc,
         light_intensity=args.light_intensity,
         floor_pattern=floor_pattern,
         keep_floor_colliders=args.keep_floor_colliders,
+        collider_approximation=args.collider_approximation,
+        structural_pattern=structural_pattern,
+        structural_approximation=args.structural_approximation,
     )
     return 0
 

@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| _None._ | | | |
+| [`harness-architecture`](active/harness/harness-architecture.md) Tier 1 (writer + teleop) | DGX | [#63](https://github.com/zachoines/Sim2RealLab/pull/63) | draft (scaffolding landed; teleop driver wiring pending) |
 
 ---
 
@@ -69,6 +69,7 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | [`domain-randomization-audit`](active/trained-policy/domain-randomization-audit.md) | P1 | active | DGX |
 | [`goal-noise-training`](active/trained-policy/goal-noise-training.md) | P2 | active | DGX |
 | [`subgoal-env`](active/trained-policy/subgoal-env.md) | P2 | active | DGX |
+| [`env-cfg-composition`](active/trained-policy/env-cfg-composition.md) | P2 | active | DGX |
 | [`hybrid-mode`](parked/trained-policy/hybrid-mode.md) | P3 | parked | Jetson |
 | [`strafer-hybrid-sim-validation`](parked/trained-policy/strafer-hybrid-sim-validation.md) | P3 | parked | Either |
 | [`depth-subgoal-env`](parked/trained-policy/depth-subgoal-env.md) | P3 | parked | DGX |
@@ -82,7 +83,12 @@ Five briefs (`behavior-cloning-data-expansion`, `teleop-driver`, `trajectory-fir
 | Brief | Pri | State | Owner |
 |---|---|---|---|
 | [`harness-architecture`](active/harness/harness-architecture.md) | P1 | active (architecture doc; ships across PRs B/C/D) | DGX |
+| [`infinigen-scene-corpus`](active/harness/infinigen-scene-corpus.md) | P1 | active | DGX |
+| [`teleop-ergonomics`](active/harness/teleop-ergonomics.md) | P1 | active (in-flight; core lands in PR #63) | DGX |
 | [`mission-generator`](active/harness/mission-generator.md) | P2 | active | DGX |
+| [`scene-provider-contract`](active/harness/scene-provider-contract.md) | P2 | active | DGX |
+| [`mission-text-enrichment`](parked/harness/mission-text-enrichment.md) | P2 | parked (blocked on `scene-provider-contract`) | DGX |
+| [`scene-metadata-in-usd`](parked/harness/scene-metadata-in-usd.md) | P2 | parked (blocked on `scene-provider-contract`) | TBD |
 | [`harness-throughput-measurement`](parked/harness/harness-throughput-measurement.md) | P2 | parked | DGX |
 | [`cosmos-replay-perturbation`](parked/harness/cosmos-replay-perturbation.md) | P3 | parked | DGX |
 
@@ -101,6 +107,8 @@ Five briefs (`behavior-cloning-data-expansion`, `teleop-driver`, `trajectory-fir
 |---|---|---|---|
 | [`isaac-sim-rt-2-default-renderer`](active/sim-performance/isaac-sim-rt-2-default-renderer.md) | P2 | active | DGX |
 | [`bridge-throughput-toward-25hz`](active/sim-performance/bridge-throughput-toward-25hz.md) | P2 | active | DGX |
+| [`teleop-perf-architecture`](active/sim-performance/teleop-perf-architecture.md) | P2 | active | DGX |
+| [`mecanum-action-throughput`](active/sim-performance/mecanum-action-throughput.md) | P2 | active | DGX |
 
 ### Reliability (nav + executor + refactors)
 
@@ -128,6 +136,7 @@ Five briefs (`behavior-cloning-data-expansion`, `teleop-driver`, `trajectory-fir
 | [`nav2-sim-real-promotion-architecture`](active/tooling/nav2-sim-real-promotion-architecture.md) | P2 | active | Jetson |
 | [`unify-test-targets-and-ci`](active/tooling/unify-test-targets-and-ci.md) | P3 | active | Either |
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | P2 | active | DGX |
+| [`install-docs-consolidation`](parked/tooling/install-docs-consolidation.md) | P2 | parked (blocked on `windows-workstation-bringup`) | Coordinator (DGX) + per-host agents |
 
 ### Experimental (long-horizon bets)
 
@@ -161,6 +170,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`next-integration-round`](active/investigations/next-integration-round.md) | Either | M–L | Full end-to-end sim-in-the-loop run against `INTEGRATION_SIM_IN_THE_LOOP.md`; gating signal that bridge + autonomy + VLM/CLIP compose end-to-end |
 | [`validator-evaluation`](active/clip-validation/validator-evaluation.md) | Either | L | Wire the orphaned `SemanticMapManager` + `BackgroundMapper` + `TransitMonitor` path into the production executor and measure pre-registered TPR/FPR/time-to-decision on harness output. Gating brief for `MISSION_VALIDATION_ARCHITECTURE.md` §4 staged plan. Filed off `mid-mission-validation-investigation` ship. |
 | [`harness-architecture`](active/harness/harness-architecture.md) | DGX | XL (split across PRs B/C/D — see brief's Implementation tiers) | Architecture spec for the consolidated harness: one `Scripts/capture.py` entry point with `--driver` × `--mission-source` flags + LeRobot v3 canonical output. **Next pickable slice: Tier 1 (writer + teleop driver)** unblocks v1 measurement and v2 VLA training data without depending on bridge perf. Subsumes the retired teleop-driver / behavior-cloning-data-expansion / trajectory-first-captioning / oracle-driver / output-format-alignment briefs. |
+| [`infinigen-scene-corpus`](active/harness/infinigen-scene-corpus.md) | DGX | M | Generate ≥ 4 Infinigen scenes under `Assets/generated/scenes/` with full per-scene `scene_metadata.json`. Gates the harness teleop driver's "≥ 30 episodes on ≥ 2 scenes" acceptance run — current state is one usable scene (seed 0). |
 | [`autonomy-stack`](active/multi-room/autonomy-stack.md) | Either | M | Lifts §1.10.1's multi-room deferral. Stored-map fallback in `scan_for_target` + planner transit-step emission + plan-compiler updates. Blocks on `observation-derived-room-state` and `frontier-exploration-primitive` (`planner-architecture-alignment` shipped in #36 as Option C). |
 | [`scene-connectivity-validation`](active/multi-room/scene-connectivity-validation.md) | DGX | S | Verified-and-enriched `connectivity[]` block + door-open guarantee. Sim/harness-only; runtime equivalent is `observation-derived-room-state`. |
 | [`domain-randomization-audit`](active/trained-policy/domain-randomization-audit.md) | DGX | M | Bench-measure real-chassis variability (mass, battery, D555 latency, Jetson jitter) and widen REAL_ROBOT_CONTRACT to match. Resume-train DEPTH baseline against the audited DR. Filed off the 2026-05-15 trained-policy audit. |
@@ -179,8 +189,11 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`subgoal-env`](active/trained-policy/subgoal-env.md) | L (~1.5–2 wk) | New training env for `NOCAM_SUBGOAL` — sim-internal path planner + SubgoalCommand + path-tracking rewards + termination + training run. Unblocks hybrid mode |
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | L (~1 wk) | Investigation + port — run `make sim-bridge` on Windows (RTX 4080) against the Jetson stack. Isaac Lab 3 Windows support is experimental; phase the feasibility spike before committing to a full port |
 | [`bridge-throughput-toward-25hz`](active/sim-performance/bridge-throughput-toward-25hz.md) | M | Follow-up to `async-camera-publishers`. Lift the bridge toward the predicted 25 Hz ceiling. |
+| [`teleop-perf-architecture`](active/sim-performance/teleop-perf-architecture.md) | L | Teleop-side perf — three heavier-hitting levers (drop perception render on non-capture steps, background env.step thread, lower env_step_hz) + per-env-variant `cameras_required` toggle. Operator-measured ~5.5 FPS on `high_quality_dgx` Infinigen scenes today; target ≥ 15 FPS sustained. Closes the 5 questions the operator raised after the PR #63 `update_period` lever under-delivered. |
 | [`encoder-noise-shared-sample`](active/trained-policy/encoder-noise-shared-sample.md) | M | Filed off `observation-contract-cleanup` ship. Per-tick noised-ticks cache + policy/critic obs-function split so `wheel_encoder_velocities` and `body_velocity_xy` share a single encoder noise sample (matches real-robot signal chain). Closes the correlation gap that observation-contract-cleanup flagged as out of scope. |
 | [`mission-generator`](active/harness/mission-generator.md) | L | Free-text mission generator with LLM-emitted waypoints (multi-room default). Canonical mission queue source for teleop and oracle drivers. Blocks on `scene-connectivity-validation`. |
+| [`scene-provider-contract`](active/harness/scene-provider-contract.md) | M | Document the artifact contract any scene source must satisfy to feed the teleop harness (`scene_metadata.json` + USDC + combined manifest schemas, postprocess CLI surface). Pull the last Infinigen-specific knob (`_CEILING_LIGHT_NAME_RE`) behind a CLI flag. Foundational doc — `scene-metadata-in-usd`, `mission-text-enrichment`, and `env-cfg-composition` all consume the contract this brief defines. |
+| [`env-cfg-composition`](active/trained-policy/env-cfg-composition.md) | M | Split `_BaseInfinigenPerceptionNavEnvCfg` along its three orthogonal axes (sensor stack × scene source × realism level). Subsumes `teleop-perf-architecture`'s per-env-variant camera toggle. Recommended ordering: land `scene-provider-contract` first so this brief commits to the contract's storage-agnostic shape (not a hard block — the two can ship in parallel). |
 | [`training-throughput-profile-and-investigate`](active/investigations/training-throughput-profile-and-investigate.md) | S–M | Phase profiler in the training loop; files follow-up briefs from results. |
 | [`room-state-eval-harness`](active/multi-room/room-state-eval-harness.md) | M | v2 room-state — measurement harness for cluster purity / label precision / time-to-converge / connectivity P-R on a fixed multi-room scene set (incl. open-plan + multi-bedroom adversarials). Pure-eval brief; consumes LeRobot v3 datasets from [`harness-architecture`](active/harness/harness-architecture.md)'s scripted × coverage path. Blocks pickup on harness Tier 3 + `observation-derived-room-state` (shipped). |
 | [`semantic-region-partition`](active/multi-room/semantic-region-partition.md) | M | **The v2 quality work** — feature+space HDBSCAN clustering + open-vocab labels, replacing v1's greedy-modularity + 7-class argmax. One `α` knob (SOTA-aligned, ConceptGraphs / HOV-SG shape); no training. Handles open-plan + multi-bedroom by construction. `RoomEntry` shape preserved (+`uncertainty`). |
@@ -263,6 +276,9 @@ picks them up.
 | [`staging-hops-shadow-mode`](parked/multi-room/staging-hops-shadow-mode.md) | [`autonomy-stack`](active/multi-room/autonomy-stack.md) shipped (need the room-aware compiler to compare against) **and** [`planner-far-target-staging`](active/multi-room/planner-far-target-staging.md) shipped (need the far-target helper). | Migration step 2 from [§1.10.2](../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c) — populate `MissionIntent.staging_hops` from the LLM, log the agreement-rate against the compiler's plan, ship a weekly report. Compiler still ignores the field. The report is the trigger signal for `planner-scene-graph-expansion`. |
 | [`planner-scene-graph-expansion`](parked/multi-room/planner-scene-graph-expansion.md) | [`staging-hops-shadow-mode`](parked/multi-room/staging-hops-shadow-mode.md) shipped AND its ≥ a week of shadow data shows the LLM's hops disagree with the compiler for reasons object poses / room inventories would fix (target disambiguation, intra-room landmark choice). See the "Trigger detail" section of the brief. | Extends `world_state` with `ObjectEntry` + per-room object inventories so the planner LLM has the spatial context to make `staging_hops` better than the Option C compiler. Prerequisite for promoting `staging_hops` from advisory to authoritative in [§1.10.2 step 3](../STRAFER_AUTONOMY_NEXT.md#1102-planner-architecture-decision-option-c). |
 | [`learned-spatial-encoder`](parked/multi-room/learned-spatial-encoder.md) | EITHER [`semantic-region-partition`](active/multi-room/semantic-region-partition.md)'s single `α` can't hold both open-plan and multi-bedroom splits / fails sim→real, OR [`semantic-graph-loop-closure`](active/multi-room/semantic-graph-loop-closure.md)'s raw-CLIP calibration can't meet the precision-recall floor / fails sim→real. See the brief's "Trigger detail." | v3 escape valve for BOTH v2 unsupervised mechanisms — one frozen DINOv2 trunk + place-recognition head (AnyLoc/SALAD; replaces raw-CLIP loop closure) + region head (learned partition; replaces HDBSCAN+`α`). The heads are functionally coupled (better place recognition → cleaner `same_place` edges → more aggressive region splits), which is why they're one brief. v2 mechanisms are the fallbacks. Collapsed `learned-region-head` + `learned-vpr-loop-closure` per the PR #43 architecture review. |
+| [`install-docs-consolidation`](parked/tooling/install-docs-consolidation.md) | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) shipped — its authoritative Windows install path is required input for the package READMEs' Windows subsections | Single canonical place per package for install + run, refreshed via multi-agent audit (per-host Claude Code sessions audit a fresh install; coordinator integrates). Retires `docs/DGX_SPARK_SETUP.md`; prunes the cheatsheet to live-demo one-liners. Filed off PR #63 review observation. |
+| [`scene-metadata-in-usd`](parked/harness/scene-metadata-in-usd.md) | [`scene-provider-contract`](active/harness/scene-provider-contract.md) shipped — the contract is the storage-agnostic interface this brief implements with a USD `customData` backend | Move scene metadata from sidecar JSON into USD `customData` so it travels with the geometry. Two-phase migration. Filed from PR #63 review. |
+| [`mission-text-enrichment`](parked/harness/mission-text-enrichment.md) | [`scene-provider-contract`](active/harness/scene-provider-contract.md) shipped — the disambiguator consumes contract-conformant metadata; landing it against the implicit-contract status quo would force rewrite when the contract lands | Disambiguate `mission_text` against many-of-a-kind clutter (263 shelves / 179 bottles / 23 bowls on `scene_high_quality_dgx_000_seed1` all emitting the same naive "go to the {label}" string). Two-phase: v1 spatial + conjunctive disambiguator, v2 vendored Infinigen extension adding color/material descriptors. Filed from PR #63 review pushback. |
 
 ---
 

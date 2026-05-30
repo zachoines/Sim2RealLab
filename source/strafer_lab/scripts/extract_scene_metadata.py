@@ -77,6 +77,28 @@ class ObjectRecord:
     materials: list[str]
 
 
+# Objects whose recorded position is the world origin are unplaceable
+# fallbacks: Infinigen seeds creature prims (carnivore / herbivore /
+# fish / etc.) at (0,0,0) before final placement, and the three USD /
+# Blender / State extractors all fall back to (0,0,0) when a prim has
+# no resolvable bbox. Both classes carry no useful spatial information
+# for downstream pickers, so drop them here at metadata-author time
+# rather than re-filtering at every consumer.
+_ORIGIN_EPS = 1e-3
+
+
+def _is_at_origin(record: ObjectRecord) -> bool:
+    return all(abs(c) < _ORIGIN_EPS for c in record.position_3d[:3])
+
+
+def _drop_origin_records(
+    records: list[ObjectRecord],
+) -> tuple[list[ObjectRecord], int]:
+    """Return ``(kept_records, dropped_count)``."""
+    kept = [r for r in records if not _is_at_origin(r)]
+    return kept, len(records) - len(kept)
+
+
 # ---------------------------------------------------------------------------
 # In-process extraction (called from Infinigen generation pipeline)
 # ---------------------------------------------------------------------------
@@ -119,6 +141,7 @@ def extract_from_state(state: Any, output_dir: Path) -> Path:
     objects: list[ObjectRecord] = []
     for obj in getattr(state, "objects", None) or []:
         objects.append(_record_object(obj))
+    objects, dropped = _drop_origin_records(objects)
 
     room_adjacency = _serialize_room_graph(getattr(state, "room_graph", None))
 
@@ -132,8 +155,8 @@ def extract_from_state(state: Any, output_dir: Path) -> Path:
     with output_path.open("w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)
     logger.info(
-        "Wrote %s with %d rooms, %d objects",
-        output_path, len(rooms), len(objects),
+        "Wrote %s with %d rooms, %d objects (dropped %d at origin)",
+        output_path, len(rooms), len(objects), dropped,
     )
     return output_path
 
@@ -449,6 +472,7 @@ def extract_from_usd(usd_path: Path, output_dir: Path) -> Path:
             )
         )
 
+    objects, dropped = _drop_origin_records(objects)
     metadata = {
         "rooms": [],
         "objects": [o.__dict__ for o in objects],
@@ -459,8 +483,9 @@ def extract_from_usd(usd_path: Path, output_dir: Path) -> Path:
     with output_path.open("w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)
     logger.info(
-        "Wrote %s from %s with %d objects (rooms NOT recoverable from USD alone)",
-        output_path, usd_path, len(objects),
+        "Wrote %s from %s with %d objects (dropped %d at origin; "
+        "rooms NOT recoverable from USD alone)",
+        output_path, usd_path, len(objects), dropped,
     )
     return output_path
 
@@ -579,6 +604,7 @@ def extract_from_blend(blend_path: Path, output_dir: Path) -> Path:
             )
         )
 
+    objects, dropped = _drop_origin_records(objects)
     metadata = {
         "rooms": [],  # Blender-only fallback cannot recover room polygons.
         "objects": [o.__dict__ for o in objects],
@@ -588,8 +614,9 @@ def extract_from_blend(blend_path: Path, output_dir: Path) -> Path:
     with output_path.open("w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)
     logger.info(
-        "Wrote %s from %s with %d objects (rooms NOT recoverable from blend)",
-        output_path, blend_path, len(objects),
+        "Wrote %s from %s with %d objects (dropped %d at origin; "
+        "rooms NOT recoverable from blend)",
+        output_path, blend_path, len(objects), dropped,
     )
     return output_path
 

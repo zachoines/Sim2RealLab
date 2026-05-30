@@ -21,19 +21,30 @@ alias layer forward as tech debt.
 This inverts the original "all existing gym IDs continue to resolve
 under the same names" gate. Two consequences:
 
-1. **Names change freely; the observation/action *contract* does
-   not.** What the env emits per step — obs tensor shape, key
-   ordering, action layout, DR/noise semantics — must stay
-   **byte-identical** for the composition that replaces each old RL
-   config, so the in-flight DEPTH inference package
-   ([`completed/inference-package.md`](../../completed/inference-package.md))
-   keeps working and any trained checkpoint stays valid. Changing
-   the obs/action contract is a *different* brief's lane
+1. **Three contract scopes by consumer (operator framing, 2026-05-30):**
+   - **RL training → contract *remains*.** The obs tensor shape, key
+     ordering, action layout, DR/noise semantics stay **byte-identical**
+     for the composition that replaces each old RL config, so the
+     in-flight DEPTH inference package
+     ([`completed/inference-package.md`](../../completed/inference-package.md))
+     keeps working and any trained checkpoint stays valid. This is the
+     snapshot gate, and it applies **only here**.
+   - **Bridge sim-in-loop → *expanded* stack.** A wider sensor set
+     (`rgb_full` + `depth_full` + `depth_policy`) than any single RL
+     config, so the harness captures the full data product. Not a
+     preservation — a deliberately larger new shape.
+   - **Teleop → *reduced* stack.** Fewer rendered cameras than today's
+     `_Perception` cell — the render-cost reduction that
+     [`teleop-perf-architecture`](../sim-performance/teleop-perf-architecture.md)
+     builds on. Deliberately smaller; **not** snapshot-gated against the
+     old behavior.
+
+   Changing the *RL* obs/action contract is a different brief's lane
    ([`observation-contract-cleanup`](../../completed/observation-contract-cleanup.md)
-   / [`recurrent-state-contract`](recurrent-state-contract.md)) and
-   is explicitly out of scope here. The snapshot gate is re-keyed
-   from "old gym ID resolves identically" to "the new composition
-   equivalent to old config X emits an identical obs/action tensor."
+   / [`recurrent-state-contract`](recurrent-state-contract.md)) and is
+   out of scope here. The snapshot gate is re-keyed from "old gym ID
+   resolves identically" to "the new composition equivalent to old **RL**
+   config X emits an identical obs/action tensor."
 
 2. **Complete caller migration is part of acceptance, not a
    follow-up.** The clean break means no caller can keep using an
@@ -81,7 +92,9 @@ Ship a refactor that meets all of:
   | `_Coverage` (future) | `("rgb_full", "depth_full")` | Infinigen | Real | scripted driver + coverage mission |
 - [ ] Matching writer-side update: `lerobot_writer.build_features` takes the same `cameras_required` tuple and conditionally declares feature columns. `add_frame` validates args match the declared schema (no zero-padding for absent cameras — frames not captured aren't authored at all). This is the perf brief's §C deliverable, owned here.
 - [ ] **Clean gym-ID scheme + complete caller migration (no aliases).** Register a small set of gym IDs for the named composed variants under a new composition-legible scheme; **do not** re-register the old names. Every caller below migrates to the new IDs in this same PR. Propose the new naming scheme in the reconciliation note (composition-legible, e.g. encodes sensor/scene/realism); orchestrator reviews it.
-- [ ] **Obs/action contract preserved per composition (the snapshot gate).** For each old RL/teleop/bridge config, snapshot the observation-space shape + action-space + a deterministic-seed first observation **before** the refactor; assert the **new composition that replaces it** produces a byte-identical snapshot **after**. Names change; the contract does not. If any composition diverges, STOP and report — a divergent obs contract breaks the DEPTH inference package and any checkpoint.
+- [ ] **Obs/action contract preserved — RL configs ONLY (the snapshot gate).** The contract is preserved exactly where a trained policy consumes it: the **RL training configs** (DEPTH, NoCam, and any other policy-facing variant). For each such config, snapshot the observation-space shape + action-space + a deterministic-seed first observation **before** the refactor; assert the **new composition that replaces it** produces a byte-identical snapshot **after**. Names change; the RL contract does not. If any RL composition diverges, STOP and report — a divergent obs contract breaks the DEPTH inference package and any checkpoint.
+
+  **Teleop and bridge are intentionally NEW shapes, NOT snapshot-gated.** Per the operator's three-way framing (2026-05-30): RL = contract *remains*; bridge sim-in-loop = *expanded* stack; teleop = *reduced* stack. Teleop and bridge do not consume a policy obs contract (teleop is gamepad-driven; bridge is autonomy-stack-driven, and both capture via scene-handle access, not the obs tensor). So their gate is **not** "identical to a prior config" — it is "the composed variant renders exactly the intended `cameras_required` stack, the LeRobot writer's `build_features` declares matching columns, and (teleop) the reduced render set is the perf win `teleop-perf-architecture` builds on." Do not snapshot-gate teleop/bridge against their old `_Perception`-cell behavior — they are *deliberately* different from it.
 - [ ] **Training-works smoke.** Launch a short run of `train_strafer_navigation.py` against the renamed RL-depth config and confirm it initializes + steps without error (a few iterations is enough). This is the operator-facing proof that "training works as expected." Autonomous (no gamepad); needs Isaac Sim + GPU.
 - [ ] Scene source as parameter: passing `--scene-usd <path>` to `capture.py` (already the operator-facing override per `scene_paths.py`) bypasses the Infinigen-specific spawn-points pool when the USD conforms to `scene-provider-contract`. Lays the wiring so a foreign-source adapter only needs to ship the artifacts, not a new env subclass.
 - [ ] Tests:

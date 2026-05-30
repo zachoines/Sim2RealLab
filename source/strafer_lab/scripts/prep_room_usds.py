@@ -199,10 +199,8 @@ def generate_scenes(
     silently produced no file, the result is flagged with a nonzero
     ``returncode`` instead of being reported as success.
     """
-    # Fail-fast: validate every env var the pipeline will eventually
-    # need BEFORE kicking off potentially multi-hour Infinigen runs.
-    # Otherwise a missing STRAFER_ISAACLAB_PYTHON would crash after
-    # coarse + export finished, throwing away a day's compute.
+    # Verify every downstream subprocess's env var is set before we
+    # start the expensive coarse stage.
     validate_required_env_for_generate()
 
     infinigen_python = infinigen_python or _resolve_infinigen_python()

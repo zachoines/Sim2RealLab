@@ -59,21 +59,10 @@ _CEILING_LIGHT_NAME_RE = re.compile(r"^CeilingLightFactory_\d+__spawn_asset_\d+_
 # outer Xform and the inner Mesh leaf match so we can strip / skip either.
 _DEFAULT_FLOOR_PRIM_PATTERN = r"^/World/[^/]+_floor(?:/[^/]+_floor)?$"
 
-# Structural geometry — walls, ceilings, exterior hull, attic + the
-# two-prim door pair (frame + leaf). These Infinigen prims have
-# door / window cutouts that downstream code MUST preserve: convex
-# hulls (or convexDecomposition with default V-HACD params) heal the
-# small openings with a single hull, filling doorways and trapping the
-# robot. The door frame is the worst case — it's a hollow shell
-# (lintel + jambs, no vertices at robot-body height) whose convex hull
-# is a solid brick filling the entire doorway AABB. We use
-# meshSimplification instead — PhysX keeps the actual triangle
-# topology, just decimated. Total triangle budget is modest
-# (~2.2 K wall tris + ~22 K across 16 door prims), two orders of
-# magnitude smaller than the ~900 furniture prims that motivated
-# convex hulls in the first place. Floors are still stripped
-# separately so the robot doesn't catch on tessellated floor
-# triangles.
+# Matches the room shell prims (walls, ceilings, exterior, attic) and
+# the two-prim door pair (frame `_` + leaf `__001`). These prims need
+# an approximation that preserves the actual triangle topology of
+# door / window cutouts.
 _DEFAULT_STRUCTURAL_PRIM_PATTERN = (
     r"^/World/[^/]+_(?:wall|ceiling|roof|attic|exterior)"
     r"(?:_\d+)?(?:/.+)?$"
@@ -81,17 +70,6 @@ _DEFAULT_STRUCTURAL_PRIM_PATTERN = (
     r"__spawn_asset_\d+_(?:_\d+)?(?:/.+)?$"
 )
 
-# PhysX collider approximations the USD MeshCollisionAPI accepts. Ordered
-# cheapest → most accurate. ``convexHull`` is the default for
-# furniture because raw triangle meshes (``none``) made PhysX allocate
-# per-prim BVH + SDF data proportional to triangle count — a
-# high-quality multi-room Infinigen scene (~900 mesh prims, often
-# with 10K+ tris each from plants / decor) consumed 100+ GB of unified
-# memory before the env even finished booting. Convex hulls collapse
-# each mesh to a single convex shape; for static furniture that the
-# robot only contacts at its outer surface, that's plenty.
-# Structural prims (walls / ceilings / etc.) get convexDecomposition
-# instead — see ``_DEFAULT_STRUCTURAL_PRIM_PATTERN`` above.
 _VALID_APPROXIMATIONS: tuple[str, ...] = (
     "boundingCube",
     "boundingSphere",
@@ -118,36 +96,21 @@ def attach_mesh_colliders(
 ) -> tuple[int, int]:
     """Attach ``CollisionAPI`` + ``MeshCollisionAPI`` to every scene ``Mesh``.
 
-    Per-prim approximation dispatch:
+    Prims matching ``structural_pattern`` get ``structural_approximation``;
+    everything else gets ``approximation``. In practice
+    ``meshSimplification`` works better than convex shapes for
+    structural components (preserves door / window cutouts).
 
-    * If the prim's path matches ``structural_pattern``, use
-      ``structural_approximation`` (default ``convexDecomposition``).
-      Non-convex world geometry like L/U-shaped walls needs this —
-      a single convex hull would fill the room interior and trap the
-      robot at spawn (the ``sustained_collision`` termination fires
-      after 5 steps of contact).
-    * Otherwise use ``approximation`` (default ``convexHull``) — cheap
-      and accurate enough for static furniture.
-
-    Both approximations must appear in :data:`_VALID_APPROXIMATIONS`.
-    ``"none"`` (raw triangle mesh) is accurate but can multiply PhysX's
-    GPU memory cost by 10-100× and OOM the box on a full Infinigen
-    house — use only for small debug scenes.
-
-    Skips:
-
-    * Material subtrees.
-    * Floor meshes matching ``floor_pattern`` — robot collision goes to
-      the clean ``/World/ground`` plane the env config lifts to floor
-      height. Pass ``None`` to disable the skip (debugging only).
+    Skips material subtrees and floor meshes matching ``floor_pattern``
+    (robot collision goes to ``/World/ground`` instead). Pass
+    ``floor_pattern=None`` to disable the floor skip.
 
     Idempotent + approximation-correcting: re-running on an already-
-    postprocessed USDC keeps any existing ``CollisionAPI`` but rewrites
-    the approximation attribute to match the (per-prim) target.
+    postprocessed USDC rewrites the approximation attribute to match
+    the (per-prim) target.
 
     Returns ``(furniture_changed, structural_changed)`` — counts of
-    prims whose authored approximation was added or migrated, split by
-    which bucket they fell into. A no-op pass returns ``(0, 0)``.
+    prims whose authored approximation was added or migrated.
     """
     for name, approx in (("approximation", approximation),
                          ("structural_approximation", structural_approximation)):
@@ -335,31 +298,22 @@ def main(argv: list[str] | None = None) -> int:
         choices=_VALID_APPROXIMATIONS,
         default=_DEFAULT_APPROXIMATION,
         help="PhysX collider representation for furniture / freestanding "
-             "meshes. Default convexHull is cheap (one convex shape per "
-             "mesh) and accurate enough for static furniture. Use "
-             "boundingCube/boundingSphere for even cheaper colliders, or "
-             "none only on small debug scenes — raw triangle meshes can "
-             "OOM the box on a full Infinigen house.",
+             "meshes.",
     )
     parser.add_argument(
         "--structural-prim-pattern",
         type=str,
         default=_DEFAULT_STRUCTURAL_PRIM_PATTERN,
         help="Regex matched against full USD prim paths to identify "
-             "structural Infinigen prims (walls, ceilings, roof, attic, "
-             "exterior hulls). Matching prims get "
-             "--structural-approximation. Pass an empty string to disable "
-             "the structural dispatch (all prims get "
-             "--collider-approximation).",
+             "structural prims (walls, ceilings, doors, etc.). "
+             "Matching prims get --structural-approximation. Pass an "
+             "empty string to disable the structural dispatch.",
     )
     parser.add_argument(
         "--structural-approximation",
         choices=_VALID_APPROXIMATIONS,
         default=_DEFAULT_STRUCTURAL_APPROXIMATION,
-        help="PhysX collider representation for structural Infinigen "
-             "prims. Default convexDecomposition handles L/U-shaped wall "
-             "geometry that a single convex hull would fill (trapping "
-             "the robot at spawn and firing sustained_collision).",
+        help="PhysX collider representation for structural prims.",
     )
     args = parser.parse_args(argv)
 

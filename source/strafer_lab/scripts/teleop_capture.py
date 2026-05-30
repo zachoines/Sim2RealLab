@@ -27,10 +27,6 @@ Direct invocation (rarely needed)::
 
     isaaclab -p source/strafer_lab/scripts/teleop_capture.py \\
         --scene <scene_id> --output <dataset_root>
-
-This script must NOT live under ``source/strafer_lab/strafer_lab/`` —
-that namespace is for non-Isaac-Sim-importable code (see
-``strafer_lab/__init__.py`` docstring).
 """
 
 from __future__ import annotations

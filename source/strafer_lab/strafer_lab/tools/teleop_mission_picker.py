@@ -32,25 +32,6 @@ _DEFAULT_BLOCKED_LABELS: frozenset[str] = frozenset({"wall", "floor", "ceiling"}
 # right grouping key.
 _SPAWN_ASSET_RE = re.compile(r"__spawn_asset_(\d+)")
 
-# Within a spawn_asset group (e.g. a bed authored as bed+mattress+pillow+
-# blanket+box_comforter+towel sub-prims sharing one spawn token), prefer
-# the structural label. Lower rank wins. Labels not listed get rank 100
-# so the more-specific label still surfaces only if no canonical exists.
-_LABEL_PRIORITY: dict[str, int] = {
-    # Tier 0 — major furniture / fixtures
-    "bed": 0, "desk": 0, "sink": 0, "cabinet": 0, "table": 0, "chair": 0,
-    "toilet": 0, "bathtub": 0, "dishwasher": 0, "oven": 0,
-    # Tier 1 — secondary furniture / appliances
-    "sofa": 1, "shelf": 1, "simple_bookcase": 1, "mirror": 1,
-    "drawer": 2,
-    # Tier 10 — accessories mounted on / part of tier-0 items
-    "mattress": 10, "lamp": 10, "tap": 10, "faucet": 10,
-    # Tier 20+ — soft furnishings layered on a bed
-    "pillow": 20, "blanket": 21, "box_comforter": 22, "comforter": 22,
-    "towel": 30,
-}
-
-
 def _spawn_token(prim_path: str | None) -> str | None:
     """Return the per-instance discriminator from a prim path, or None.
 
@@ -145,20 +126,14 @@ def load_candidates_from_data(
 ) -> list[MissionCandidate]:
     """Pure-data variant of :func:`load_candidates` — for tests.
 
-    ``dedup_by_instance`` (default True): Infinigen authors multi-part
-    objects as several sub-prims (a bed = bed + mattress + pillow +
-    blanket + box_comforter + towel sub-prims sharing one ``spawn_asset``
-    token), each picked up as its own row by ``extract_scene_metadata.py``.
-    The picker is much friendlier when one logical object = one entry. We
-    collapse by the per-instance ``spawn_asset`` token in ``prim_path``
-    (the right discriminator — ``instance_id`` in Infinigen USD is the
-    factory CLASS id, shared across all instances of a given factory).
-    Within each group, we pick the canonical structural label via
-    ``_LABEL_PRIORITY`` (``bed`` beats ``mattress`` beats ``pillow``,
-    etc.) and the median-Z position. When ``prim_path`` lacks a
-    ``spawn_asset`` token (legacy captures, non-Factory prims), we fall
-    back to ``(label, instance_id)`` dedup. Pass False to see all
-    sub-prims (debug only).
+    ``dedup_by_instance`` (default True): multi-part objects often appear
+    as several sub-prims sharing one ``__spawn_asset_<N>_`` token in
+    ``prim_path``. The picker is much friendlier when one logical object
+    = one entry, so we collapse by that token; the alphabetically-first
+    label in the group becomes canonical and the position is the median
+    Z. When ``prim_path`` lacks the token, we fall back to
+    ``(label, instance_id)`` dedup. Pass False to see all sub-prims
+    (debug only).
     """
     rooms = list(data.get("rooms") or [])
     objects = list(data.get("objects") or [])
@@ -204,12 +179,11 @@ def load_candidates_from_data(
         })
 
     # Second pass: optional dedup, primarily by spawn_asset token.
-    # Sub-prims of one logical object share that token (a bed and its
-    # mattress + pillow + blanket all sit under
-    # ``__spawn_asset_3093183_``), so the token is the right grouping
-    # key. ``(label, instance_id)`` is a legacy fallback for prim_paths
-    # that lack the token. Within a group: canonical label via
-    # ``_LABEL_PRIORITY``, median-Z position.
+    # Sub-prims of one logical object share that token, so the token
+    # is the grouping key. ``(label, instance_id)`` is a legacy
+    # fallback for prim_paths that lack the token. Within a group we
+    # pick the alphabetically-first label as canonical (deterministic
+    # + source-agnostic) and the median-Z position.
     if dedup_by_instance:
         from collections import defaultdict
         groups: dict[tuple, list[dict]] = defaultdict(list)
@@ -229,13 +203,9 @@ def load_candidates_from_data(
             if len(members) == 1:
                 deduped.append(members[0])
                 continue
-            # Canonical label by priority, then median Z within ties.
             members_sorted = sorted(
                 members,
-                key=lambda r: (
-                    _LABEL_PRIORITY.get(r["normalized"], 100),
-                    r["pos_3d"][2],
-                ),
+                key=lambda r: (r["normalized"], r["pos_3d"][2]),
             )
             canonical = dict(members_sorted[0])
             zs = sorted(r["pos_3d"][2] for r in members)

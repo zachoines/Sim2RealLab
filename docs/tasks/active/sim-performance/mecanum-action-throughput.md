@@ -14,7 +14,7 @@ As a **teleop operator commanding the strafer through Isaac Sim** I want **comma
 
 After the world_arcade stick direction fix (`teleop_capture.py:_robot_pose` quaternion XYZW unpacking), the rotation command path was traceable end-to-end. Two related symptoms surfaced:
 
-1. **Rotation is ~70× slower than the documented cap.** With `omega = +1.0` (normalized max) the env's MecanumWheelAction docstring + init log advertise `Max angular vel: 4.19 rad/s ≈ 240°/sec`. The operator's diag output during a controlled pure-rotation test showed yaw moving from +179.3° to -177.3° over one `--diag-stick` sample (30 sim steps = 1 second at 30 Hz env_step_hz) — a +3.4° wrap, i.e. ~3.4°/sec sustained angular velocity. **Two orders of magnitude under spec.**
+1. **Rotation is ~70× slower than the documented cap.** With `omega = +1.0` (normalized max) the env's MecanumWheelAction docstring + init log advertise `Max angular vel: 4.19 rad/s ≈ 240°/sec`. A controlled pure-rotation test (right-stick only) measured ~3.4°/sec sustained angular velocity. **Two orders of magnitude under spec.**
 
 2. **Diagonal translation feels sluggish.** Operator did not quantify but reported this as the same family of complaint. Plausibly the L1 clamp in `MecanumWheelAction.process_actions` (`actions.py:299-311`) scales `(|vx| + |vy|)` jointly under a single linear-velocity cap, so any non-axis-aligned stick reduces effective per-axis throughput.
 
@@ -58,7 +58,7 @@ PR #63 round-of-rounds operator testing on the harness teleop driver. The quater
 
 ## Hints for the implementer
 
-- The diag output to reproduce the measurement: `$ISAACLAB -p Scripts/capture.py --driver teleop --mission-source scene-metadata --scene <scene> --output <dir> --diag-stick`. Pure rotation test = push right-stick only, observe yaw delta per diag line (one diag line ≈ 1 second).
+- To reproduce the measurement: re-add a once-per-second `[diag]` print in `teleop_capture.py`'s env-step loop that logs `(yaw_deg, body_cmd, world_pos)`. Push right-stick only; the yaw delta between consecutive diag prints divided by the print interval gives sustained angular velocity.
 - To A/B individual pipeline stages, the cleanest approach is to temporarily comment out one block at a time in `MecanumWheelAction.process_actions` lines 307-348 and re-measure. Don't edit those defaults in tree until the dominant damper is named.
 - If `randomize_motor_strength` is the culprit, the distribution lives in the `EventsCfg` for the active env variant — `_BaseInfinigenPerceptionNavEnvCfg` for teleop.
 - The `policy-rate-shared-constants` brief lives in trained-policy and proposes the policy's training-side dt as a shared constant — if (a) is chosen and decimation changes, cross-reference that brief.

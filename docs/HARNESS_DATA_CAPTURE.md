@@ -78,6 +78,21 @@ The mission picker reads `Assets/generated/scenes/<scene>/scene_metadata.json`.
 A scene's USDC export and its metadata sidecar are siblings inside the
 scene directory; `prep_room_usds.py` authors both.
 
+**Infinigen is one provider, not the only one.** The teleop harness
+consumes three artifacts (`scene_metadata.json`, a `<scene>.usdc`, the
+combined `scenes_metadata.json`) and never imports Infinigen at runtime.
+See [`SCENE_PROVIDER_CONTRACT.md`](SCENE_PROVIDER_CONTRACT.md) for the
+general interface — the field-by-field schemas, the postprocess CLI
+override surface, and the adapter-writer's checklist for bringing in a
+second source (downloaded packs, hand-authored maps, ProcTHOR /
+Habitat / Cosmos exports). The contract was written to accommodate two
+in-flight consumers without re-shipping:
+[`mission-text-enrichment`](tasks/parked/harness/mission-text-enrichment.md)
+(reserves the `objects[].descriptors` namespace + a populated `rooms[]`
+block) and
+[`scene-metadata-in-usd`](tasks/parked/harness/scene-metadata-in-usd.md)
+(the same contract with a USD `customData` storage backend).
+
 ### Clean-slate scene regeneration
 
 When the picker offers objects that aren't actually present in the

@@ -289,3 +289,45 @@ class TestCLI:
             assert choice in out
         assert "--structural-approximation" in out
         assert "--structural-prim-pattern" in out
+        assert "--ceiling-light-prim-pattern" in out
+
+
+class TestCeilingLightInjection:
+    """The parameterized ceiling-light pattern controls which prims get lights.
+
+    Default keeps Infinigen's ``CeilingLightFactory_*`` behaviour; a
+    foreign source overrides the pattern to author lights under its own
+    fixture naming. Matched against the prim NAME, not the full path.
+    """
+
+    def _make_light_stage(self, tmp_path):
+        from pxr import Usd, UsdGeom
+
+        stage = Usd.Stage.CreateNew(str(tmp_path / "lights.usda"))
+        UsdGeom.Xform.Define(stage, "/World")
+        UsdGeom.Xform.Define(stage, "/World/CeilingLightFactory_5__spawn_asset_2_")
+        UsdGeom.Xform.Define(stage, "/World/MyCeilingLight_7")
+        return stage
+
+    def _has_light_child(self, stage, prim_path: str) -> bool:
+        prim = stage.GetPrimAtPath(prim_path)
+        return prim.GetChild("AutoSphereLight").IsValid()
+
+    def test_default_lights_only_infinigen_fixture(self, tmp_path):
+        stage = self._make_light_stage(tmp_path)
+        count = postprocess_scene_usd.inject_ceiling_light_emitters(stage, 1000.0)
+        assert count == 1
+        assert self._has_light_child(stage, "/World/CeilingLightFactory_5__spawn_asset_2_")
+        assert not self._has_light_child(stage, "/World/MyCeilingLight_7")
+
+    def test_override_lights_only_foreign_fixture(self, tmp_path):
+        import re
+
+        stage = self._make_light_stage(tmp_path)
+        pattern = re.compile(r"^MyCeilingLight_\d+$")
+        count = postprocess_scene_usd.inject_ceiling_light_emitters(
+            stage, 1000.0, pattern,
+        )
+        assert count == 1
+        assert self._has_light_child(stage, "/World/MyCeilingLight_7")
+        assert not self._has_light_child(stage, "/World/CeilingLightFactory_5__spawn_asset_2_")

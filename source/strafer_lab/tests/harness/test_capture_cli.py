@@ -89,19 +89,47 @@ class TestTier1DispatchPath:
         assert "--output" in argv and "/tmp/test_dataset_doesnotexist" in argv
         # fps + vcodec defaults flow through.
         assert "--fps" in argv and "--vcodec" in argv
-        # Default --capture-policy-cam is forwarded as the boolean flag.
-        assert "--capture-policy-cam" in argv
+        # The resolved sensor stack is forwarded. The default
+        # --capture-policy-cam=True resolves to perception + policy RGB.
+        assert "--sensors" in argv
+        assert argv[argv.index("--sensors") + 1] == "rgb_full,rgb_policy"
 
-    def test_no_capture_policy_cam_propagates(self):
+    def test_no_capture_policy_cam_resolves_to_rgb_only(self):
         runner = _StubRunner()
-        # parse_known_args lets the --no-capture-policy-cam flag through.
+        # --no-capture-policy-cam falls back to the RGB-only stack.
         parser = capture._build_parser()
         argv_in = _base_args("teleop", "scene-metadata")
         argv_in.append("--no-capture-policy-cam")
         ns, extra = parser.parse_known_args(argv_in)
         capture._validate(ns)
         capture._dispatch(ns, extra_args=tuple(extra), runner=runner)
-        assert "--no-capture-policy-cam" in runner.calls[0]
+        argv = runner.calls[0]
+        assert argv[argv.index("--sensors") + 1] == "rgb_full"
+
+    def test_sensors_preset_forwarded(self):
+        runner = _StubRunner()
+        rc = self._run(runner, "teleop", "scene-metadata", sensors="vla")
+        assert rc == 0
+        argv = runner.calls[0]
+        assert argv[argv.index("--sensors") + 1] == "rgb_full,depth_full"
+
+    def test_sensors_token_list_canonicalized(self):
+        runner = _StubRunner()
+        # Order-insensitive: tokens are normalized to canonical order.
+        self._run(runner, "teleop", "scene-metadata", sensors="depth_full,rgb_full")
+        argv = runner.calls[0]
+        assert argv[argv.index("--sensors") + 1] == "rgb_full,depth_full"
+
+    def test_sensors_takes_precedence_over_bool(self):
+        runner = _StubRunner()
+        parser = capture._build_parser()
+        argv_in = _base_args("teleop", "scene-metadata", sensors="rgb_full")
+        argv_in.append("--capture-policy-cam")  # ignored when --sensors given
+        ns, extra = parser.parse_known_args(argv_in)
+        capture._validate(ns)
+        capture._dispatch(ns, extra_args=tuple(extra), runner=runner)
+        argv = runner.calls[0]
+        assert argv[argv.index("--sensors") + 1] == "rgb_full"
 
     def test_subprocess_nonzero_propagates(self):
         runner = _StubRunner(returncode=7)
@@ -123,6 +151,27 @@ class TestTier1DispatchPath:
         child_argv = runner.calls[0]
         assert "--headless" in child_argv
         assert "--device" in child_argv and "cpu" in child_argv
+
+
+class TestSensorStackResolution:
+    def test_preset_resolves(self):
+        assert capture.resolve_sensor_stack("bridge", capture_policy_cam=True) == (
+            "rgb_full", "depth_full", "depth_policy")
+
+    def test_token_list_resolves_and_dedups(self):
+        assert capture.resolve_sensor_stack(
+            "depth_policy,rgb_full,rgb_full", capture_policy_cam=False,
+        ) == ("rgb_full", "depth_policy")
+
+    def test_none_falls_back_to_bool(self):
+        assert capture.resolve_sensor_stack(None, capture_policy_cam=True) == (
+            "rgb_full", "rgb_policy")
+        assert capture.resolve_sensor_stack(None, capture_policy_cam=False) == (
+            "rgb_full",)
+
+    def test_unknown_token_raises(self):
+        with pytest.raises(SystemExit, match="unknown token"):
+            capture.resolve_sensor_stack("lidar", capture_policy_cam=False)
 
 
 class TestPendingCellsRaise:

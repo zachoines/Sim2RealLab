@@ -74,6 +74,102 @@ class TestBuildFeatures:
         assert "pose_x" in feats["observation.state"]["names"]
         assert feats["action"]["names"] == ["vx_cmd", "vy_cmd", "omega_z_cmd"]
 
+    def test_cameras_required_rgb_only_default(self):
+        """Default stack is RGB-only — perception video, no policy video."""
+        feats = build_features(cameras_required=("rgb_full",))
+        assert "observation.images.perception" in feats
+        assert "observation.images.policy" not in feats
+
+    def test_cameras_required_grows_to_policy_rgb(self):
+        feats = build_features(cameras_required=("rgb_full", "rgb_policy"))
+        assert "observation.images.policy" in feats
+
+    def test_depth_tokens_add_no_lerobot_column(self):
+        """Depth modalities ride as sidecars, never as a LeRobot column."""
+        feats = build_features(cameras_required=("rgb_full", "depth_full", "depth_policy"))
+        cols = set(feats)
+        assert cols == {"observation.state", "action", "observation.images.perception"}
+
+    def test_unknown_token_rejected(self):
+        with pytest.raises(ValueError, match="Unknown camera token"):
+            build_features(cameras_required=("lidar",))
+
+    def test_capture_policy_cam_bool_shim(self):
+        """The deprecated bool still drives the RGB video columns."""
+        assert build_features(capture_policy_cam=False) == build_features(
+            cameras_required=("rgb_full",))
+        assert build_features(capture_policy_cam=True) == build_features(
+            cameras_required=("rgb_full", "rgb_policy"))
+
+
+class TestStackValidation:
+    """add_frame enforces the declared sensor stack."""
+
+    def test_rejects_undeclared_camera(self, writer_root):
+        """Supplying a modality not in the stack is a hard error."""
+        with StraferLeRobotWriter(
+            root=writer_root,
+            repo_id="strafer-test/reject-undeclared",
+            fps=8,
+            capture_git_sha="x",
+            scene_metadata_hash="y",
+            cameras_required=("rgb_full",),
+        ) as writer:
+            writer.begin_episode(
+                mission_text="t",
+                scene_id="s",
+                source_driver="teleop",
+                source_mission_source="scene-metadata",
+            )
+            with pytest.raises(ValueError, match="not in the declared sensor stack"):
+                writer.add_frame(
+                    sim_time=0.0,
+                    pose=[0.0] * 7,
+                    achieved_vel=[0.0] * 3,
+                    action=[0.0] * 3,
+                    rgb_perception=_make_rgb(360, 640),
+                    depth_m=_make_depth(360, 640),  # depth_full not declared
+                )
+            writer.end_episode(discard=True)
+
+    def test_rejects_missing_declared_camera(self, writer_root):
+        """Omitting a modality that the stack declares is a hard error."""
+        with StraferLeRobotWriter(
+            root=writer_root,
+            repo_id="strafer-test/reject-missing",
+            fps=8,
+            capture_git_sha="x",
+            scene_metadata_hash="y",
+            cameras_required=("rgb_full", "depth_full"),
+        ) as writer:
+            writer.begin_episode(
+                mission_text="t",
+                scene_id="s",
+                source_driver="teleop",
+                source_mission_source="scene-metadata",
+            )
+            with pytest.raises(ValueError, match="is required"):
+                writer.add_frame(
+                    sim_time=0.0,
+                    pose=[0.0] * 7,
+                    achieved_vel=[0.0] * 3,
+                    action=[0.0] * 3,
+                    rgb_perception=_make_rgb(360, 640),  # depth_m omitted
+                )
+            writer.end_episode(discard=True)
+
+    def test_writer_exposes_cameras_required(self, writer_root):
+        with StraferLeRobotWriter(
+            root=writer_root,
+            repo_id="strafer-test/introspect",
+            fps=8,
+            capture_git_sha="x",
+            scene_metadata_hash="y",
+            cameras_required=("depth_policy", "rgb_full"),
+        ) as writer:
+            # Normalized to canonical token order.
+            assert writer.cameras_required == ("rgb_full", "depth_policy")
+
 
 # ---------------------------------------------------------------------------
 # Writer end-to-end round-trip
@@ -91,7 +187,7 @@ class TestRoundTrip:
             fps=8,
             capture_git_sha="deadbeef",
             scene_metadata_hash="hash123",
-            capture_policy_cam=True,
+            cameras_required=("rgb_full", "rgb_policy", "depth_full"),
             operator_handle="z",
             session_id="20260524_120000",
         ) as writer:
@@ -194,7 +290,7 @@ class TestRoundTrip:
             fps=8,
             capture_git_sha="x",
             scene_metadata_hash="y",
-            capture_policy_cam=False,
+            cameras_required=("rgb_full", "depth_full"),
         ) as writer:
             writer.begin_episode(
                 mission_text="t",
@@ -294,7 +390,7 @@ class TestAsyncDepthWriting:
             fps=8,
             capture_git_sha="x",
             scene_metadata_hash="y",
-            capture_policy_cam=False,
+            cameras_required=("rgb_full", "depth_full"),
             depth_writer_threads=0,
         ) as writer:
             writer.begin_episode(
@@ -333,7 +429,7 @@ class TestAsyncDepthWriting:
             fps=8,
             capture_git_sha="x",
             scene_metadata_hash="y",
-            capture_policy_cam=False,
+            cameras_required=("rgb_full", "depth_full"),
             depth_writer_threads=2,
         ) as writer:
             writer.begin_episode(
@@ -370,7 +466,7 @@ class TestPolicyDepthSidecar:
             fps=8,
             capture_git_sha="x",
             scene_metadata_hash="y",
-            capture_policy_cam=True,
+            cameras_required=("rgb_full", "rgb_policy", "depth_full", "depth_policy"),
         ) as writer:
             writer.begin_episode(
                 mission_text="t",
@@ -409,7 +505,7 @@ class TestPolicyDepthSidecar:
             fps=8,
             capture_git_sha="x",
             scene_metadata_hash="y",
-            capture_policy_cam=True,
+            cameras_required=("rgb_full", "rgb_policy", "depth_full"),
         ) as writer:
             writer.begin_episode(
                 mission_text="t",

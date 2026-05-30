@@ -17,7 +17,8 @@ a capture session that writes a LeRobot v3 dataset.
       [--n-trajectories N]                            ← captioner / coverage
       [--inject-bad-grounding {off, wrong_room, wrong_instance}]
       [--paraphrase-missions N]                       ← post-capture pass
-      [--capture-policy-cam / --no-capture-policy-cam]
+      [--sensors rgb_full[,depth_full,...] | <preset>] ← per-session stack
+      [--capture-policy-cam / --no-capture-policy-cam]  (deprecated)
 
 Implementation status (this is Tier 1 / PR B scaffolding):
 
@@ -62,6 +63,54 @@ _TELEOP_DRIVER_SCRIPT = (
 
 VALID_DRIVERS = sorted({d for d, _ in VALID_COMBINATIONS})
 VALID_MISSION_SOURCES = sorted({m for _, m in VALID_COMBINATIONS})
+
+
+# Sensor-stack tokens shared with the env composition's SensorStackCfg and the
+# LeRobot writer's build_features — one ``cameras_required`` vocabulary so the
+# rendered cameras and the recorded columns cannot drift. ``*_full`` ride the
+# 640x360 perception camera, ``*_policy`` the 80x60 policy camera.
+SENSOR_TOKENS: tuple[str, ...] = ("rgb_full", "depth_full", "rgb_policy", "depth_policy")
+
+# Named presets that resolve to a cameras_required tuple. RGB-only is the
+# common teleop case (CLIP mid-mission-validation + grounding-VLM finetune all
+# need just one full-res egocentric RGB); the wider presets are for VLA capture
+# and the bridge's full data product.
+SENSOR_PRESETS: dict[str, tuple[str, ...]] = {
+    "teleop": ("rgb_full",),
+    "vla": ("rgb_full", "depth_full"),
+    "coverage": ("rgb_full", "depth_full"),
+    "bridge": ("rgb_full", "depth_full", "depth_policy"),
+}
+
+
+def resolve_sensor_stack(
+    spec: str | None,
+    *,
+    capture_policy_cam: bool,
+) -> tuple[str, ...]:
+    """Resolve a ``--sensors`` spec to a canonical cameras_required tuple.
+
+    ``spec`` is either a named preset (``teleop`` / ``vla`` / ``coverage`` /
+    ``bridge``) or a comma-separated token list (``rgb_full,depth_full``). When
+    ``spec`` is ``None`` the stack falls back to the deprecated
+    ``--capture-policy-cam`` bool so existing invocations keep working.
+    """
+    if spec is None:
+        return ("rgb_full", "rgb_policy") if capture_policy_cam else ("rgb_full",)
+    spec = spec.strip()
+    if spec in SENSOR_PRESETS:
+        tokens: tuple[str, ...] = SENSOR_PRESETS[spec]
+    else:
+        tokens = tuple(t.strip() for t in spec.split(",") if t.strip())
+    if not tokens:
+        raise SystemExit("--sensors: empty sensor stack")
+    unknown = set(tokens) - set(SENSOR_TOKENS)
+    if unknown:
+        raise SystemExit(
+            f"--sensors: unknown token(s) {sorted(unknown)}. "
+            f"Valid tokens: {SENSOR_TOKENS}; presets: {sorted(SENSOR_PRESETS)}",
+        )
+    return tuple(t for t in SENSOR_TOKENS if t in set(tokens))
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -135,11 +184,21 @@ def _build_parser() -> argparse.ArgumentParser:
              "paraphrases per episode. Default 0 (off).",
     )
     parser.add_argument(
+        "--sensors",
+        default=None,
+        help="Per-session sensor stack: a preset (teleop / vla / coverage / "
+             "bridge) or a comma-separated token list over "
+             f"{','.join(SENSOR_TOKENS)} (e.g. 'rgb_full,depth_full'). The env "
+             "renders and the writer records exactly this stack. Defaults to "
+             "the deprecated --capture-policy-cam behavior when omitted.",
+    )
+    parser.add_argument(
         "--capture-policy-cam",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Capture the 80×60 policy camera alongside the 640×360 "
-             "perception camera. Default on for v1 training corpora.",
+        help="Deprecated — prefer --sensors. Capture the 80×60 policy camera "
+             "alongside the 640×360 perception camera. Used only when "
+             "--sensors is omitted.",
     )
     parser.add_argument(
         "--vcodec",
@@ -195,17 +254,17 @@ def _build_teleop_subprocess_argv(
     the cross-product-validated args plus any unknown extras (e.g.
     ``--headless`` / AppLauncher flags) the operator passed through.
     """
+    stack = resolve_sensor_stack(
+        args.sensors, capture_policy_cam=args.capture_policy_cam,
+    )
     argv: list[str] = [
         sys.executable, str(_TELEOP_DRIVER_SCRIPT),
         "--scene", args.scene,
         "--output", args.output,
         "--fps", str(args.fps),
         "--vcodec", args.vcodec,
+        "--sensors", ",".join(stack),
     ]
-    if args.capture_policy_cam:
-        argv.append("--capture-policy-cam")
-    else:
-        argv.append("--no-capture-policy-cam")
     if extra_args:
         argv.extend(extra_args)
     return argv

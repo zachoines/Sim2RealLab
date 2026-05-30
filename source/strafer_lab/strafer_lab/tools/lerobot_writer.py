@@ -21,7 +21,7 @@ Lifecycle::
         root="data/sim_in_the_loop/<scene>",
         repo_id="strafer/<scene>",
         fps=8,
-        capture_policy_cam=True,
+        cameras_required=("rgb_full", "rgb_policy", "depth_full"),
         capture_git_sha="abc123",
         scene_metadata_hash="sha256...",
     )
@@ -82,6 +82,37 @@ from .lerobot_depth import (
 # Isaac Lab scene config.
 _PERCEPTION_RES = (360, 640)  # (H, W)
 _POLICY_RES = (60, 80)
+
+# Sensor-stack tokens shared with the env composition's SensorStackCfg. The
+# env render set and this writer's schema are both driven from one
+# ``cameras_required`` tuple so the rendered cameras and the recorded columns
+# cannot drift. ``*_full`` ride the 640x360 perception camera, ``*_policy``
+# the 80x60 policy camera; RGB tokens are LeRobot video columns, depth tokens
+# ride as 16UC1 PNG sidecars.
+CAMERA_TOKENS: tuple[str, ...] = ("rgb_full", "depth_full", "rgb_policy", "depth_policy")
+
+
+def _normalize_cameras_required(
+    cameras_required: Sequence[str] | None,
+    capture_policy_cam: bool | None,
+) -> tuple[str, ...]:
+    """Resolve + validate the requested sensor stack.
+
+    ``capture_policy_cam`` is the deprecated bool that only ever toggled the
+    policy RGB video column; it maps to a ``cameras_required`` tuple when no
+    explicit stack is given.
+    """
+    if capture_policy_cam is not None and cameras_required is None:
+        cameras_required = ("rgb_full", "rgb_policy") if capture_policy_cam else ("rgb_full",)
+    if cameras_required is None:
+        cameras_required = ("rgb_full",)
+    requested = set(cameras_required)
+    unknown = requested - set(CAMERA_TOKENS)
+    if unknown:
+        raise ValueError(
+            f"Unknown camera token(s) {sorted(unknown)}; valid: {CAMERA_TOKENS}",
+        )
+    return tuple(t for t in CAMERA_TOKENS if t in requested)
 
 
 # ---------------------------------------------------------------------------
@@ -249,20 +280,26 @@ class _DepthWriterPool:
 
 
 def build_features(
-    capture_policy_cam: bool = True,
+    cameras_required: Sequence[str] | None = None,
     state_dim: int = 10,  # pose (7) + achieved_vel (3)
     action_dim: int = 3,
+    *,
+    capture_policy_cam: bool | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Return the LeRobot v3 features dict for strafer captures.
+    """Return the LeRobot v3 features dict for the selected sensor stack.
 
-    Centralized so tests + writer + future consumers agree on the schema.
+    Declares **exactly** the columns the requested ``cameras_required`` stack
+    needs — an absent RGB modality produces no column at all (never zero-
+    filled). Depth modalities ride as PNG sidecars outside the LeRobot schema,
+    so they add no feature column here; they are still validated per frame
+    against the same stack. Centralized so tests + writer + future consumers
+    agree on the schema.
+
+    ``capture_policy_cam`` is the deprecated bool form (RGB video columns only);
+    prefer ``cameras_required``.
     """
+    stack = _normalize_cameras_required(cameras_required, capture_policy_cam)
     features: dict[str, dict[str, Any]] = {
-        "observation.images.perception": {
-            "dtype": "video",
-            "shape": (*_PERCEPTION_RES, 3),
-            "names": ["height", "width", "channels"],
-        },
         "observation.state": {
             "dtype": "float32",
             "shape": (state_dim,),
@@ -278,7 +315,13 @@ def build_features(
             "names": ["vx_cmd", "vy_cmd", "omega_z_cmd"],
         },
     }
-    if capture_policy_cam:
+    if "rgb_full" in stack:
+        features["observation.images.perception"] = {
+            "dtype": "video",
+            "shape": (*_PERCEPTION_RES, 3),
+            "names": ["height", "width", "channels"],
+        }
+    if "rgb_policy" in stack:
         features["observation.images.policy"] = {
             "dtype": "video",
             "shape": (*_POLICY_RES, 3),
@@ -301,6 +344,13 @@ class StraferLeRobotWriter:
       root:                    output dataset root (must not exist yet).
       repo_id:                  LeRobot repo_id (used in metadata).
       fps:                     capture rate in Hz.
+      cameras_required:        the sensor stack the on-disk schema declares —
+                               a tuple over ``rgb_full`` / ``depth_full`` /
+                               ``rgb_policy`` / ``depth_policy``. The schema
+                               grows or shrinks to exactly this stack; absent
+                               modalities produce no columns. Defaults to
+                               ``("rgb_full",)`` (RGB-only). ``capture_policy_cam``
+                               is the deprecated bool alias (RGB columns only).
       capture_git_sha:         git rev-parse HEAD of the repo at capture
                                time; recorded in per-episode metadata.
       scene_metadata_hash:     sha256 of the active scene_metadata.json.
@@ -329,7 +379,8 @@ class StraferLeRobotWriter:
         fps: int,
         capture_git_sha: str,
         scene_metadata_hash: str,
-        capture_policy_cam: bool = True,
+        cameras_required: Sequence[str] | None = None,
+        capture_policy_cam: bool | None = None,
         vcodec: str = "h264",
         operator_handle: str | None = None,
         session_id: str | None = None,
@@ -352,8 +403,10 @@ class StraferLeRobotWriter:
             ) from exc
 
         self._root = Path(root)
-        self._capture_policy_cam = bool(capture_policy_cam)
-        self._features = build_features(capture_policy_cam=self._capture_policy_cam)
+        self._cameras_required = _normalize_cameras_required(
+            cameras_required, capture_policy_cam,
+        )
+        self._features = build_features(cameras_required=self._cameras_required)
         self._capture_git_sha = str(capture_git_sha)
         self._scene_metadata_hash = str(scene_metadata_hash)
         self._operator_handle = operator_handle
@@ -449,6 +502,35 @@ class StraferLeRobotWriter:
         self._frame_count_this_episode = 0
         return episode_index
 
+    def _validate_camera_arg(
+        self,
+        token: str,
+        arr: np.ndarray | None,
+        res: tuple[int, int],
+        argname: str,
+        *,
+        require_uint8: bool,
+    ) -> None:
+        """Enforce the declared sensor stack: a declared modality must be
+        present (right dtype/shape); an undeclared one must be absent."""
+        if token in self._cameras_required:
+            if arr is None:
+                raise ValueError(
+                    f"{argname} is required: '{token}' is in the declared "
+                    f"sensor stack {self._cameras_required}",
+                )
+            if require_uint8 and arr.dtype != np.uint8:
+                raise ValueError(f"{argname} must be uint8; got {arr.dtype}")
+            if arr.shape[:2] != res:
+                raise ValueError(
+                    f"{argname} shape {arr.shape[:2]} != expected {res}",
+                )
+        elif arr is not None:
+            raise ValueError(
+                f"{argname} provided but '{token}' is not in the declared "
+                f"sensor stack {self._cameras_required}",
+            )
+
     def add_frame(
         self,
         *,
@@ -456,18 +538,20 @@ class StraferLeRobotWriter:
         pose: Sequence[float],
         achieved_vel: Sequence[float],
         action: Sequence[float],
-        rgb_perception: np.ndarray,
+        rgb_perception: np.ndarray | None = None,
         rgb_policy: np.ndarray | None = None,
         depth_m: np.ndarray | None = None,
         depth_policy_m: np.ndarray | None = None,
     ) -> None:
         """Append a tick to the current episode buffer.
 
-        ``rgb_*`` arrays are uint8 ``(H, W, 3)``. ``depth_m`` is
-        float32 ``(H, W)`` in meters for the perception camera (640x360);
-        ``depth_policy_m`` is the same for the policy camera (80x60).
-        Both are optional and ride as 16UC1 PNG sidecars next to the
-        LeRobot dataset proper.
+        Each camera argument is validated against the declared
+        ``cameras_required`` stack: a declared modality must be supplied, an
+        undeclared one must be omitted. ``rgb_*`` arrays are uint8
+        ``(H, W, 3)``. ``depth_m`` is float32 ``(H, W)`` in meters for the
+        perception camera (640x360); ``depth_policy_m`` the same for the
+        policy camera (80x60). Declared depth modalities ride as 16UC1 PNG
+        sidecars next to the LeRobot dataset proper.
         """
         if self._finalized:
             raise RuntimeError("add_frame called after finalize()")
@@ -476,24 +560,33 @@ class StraferLeRobotWriter:
                 "add_frame called outside of an open episode; "
                 "call begin_episode first",
             )
-        if rgb_perception.dtype != np.uint8:
-            raise ValueError(
-                f"rgb_perception must be uint8; got {rgb_perception.dtype}",
-            )
-        if rgb_perception.shape[:2] != _PERCEPTION_RES:
-            raise ValueError(
-                f"rgb_perception shape {rgb_perception.shape[:2]} != "
-                f"expected {_PERCEPTION_RES}",
-            )
+
+        self._validate_camera_arg(
+            "rgb_full", rgb_perception, _PERCEPTION_RES, "rgb_perception",
+            require_uint8=True,
+        )
+        self._validate_camera_arg(
+            "rgb_policy", rgb_policy, _POLICY_RES, "rgb_policy",
+            require_uint8=True,
+        )
+        self._validate_camera_arg(
+            "depth_full", depth_m, _PERCEPTION_RES, "depth_m",
+            require_uint8=False,
+        )
+        self._validate_camera_arg(
+            "depth_policy", depth_policy_m, _POLICY_RES, "depth_policy_m",
+            require_uint8=False,
+        )
 
         state = np.asarray(list(pose) + list(achieved_vel), dtype=np.float32)
         action_arr = np.asarray(list(action), dtype=np.float32)
         frame: dict[str, Any] = {
-            "observation.images.perception": rgb_perception,
             "observation.state": state,
             "action": action_arr,
             "task": self._open_episode["mission_text"],
         }
+        if "rgb_full" in self._cameras_required:
+            frame["observation.images.perception"] = rgb_perception
         # LeRobot's add_frame uses its own internal monotonic time
         # reference; we record sim_time separately by injecting it as
         # a metadata-side field on save_episode (not as a per-frame
@@ -504,37 +597,24 @@ class StraferLeRobotWriter:
         # needed.
         _ = sim_time
 
-        if self._capture_policy_cam:
-            if rgb_policy is None:
-                raise ValueError(
-                    "capture_policy_cam=True but rgb_policy is None",
-                )
-            if rgb_policy.dtype != np.uint8:
-                raise ValueError(
-                    f"rgb_policy must be uint8; got {rgb_policy.dtype}",
-                )
-            if rgb_policy.shape[:2] != _POLICY_RES:
-                raise ValueError(
-                    f"rgb_policy shape {rgb_policy.shape[:2]} != "
-                    f"expected {_POLICY_RES}",
-                )
+        if "rgb_policy" in self._cameras_required:
             frame["observation.images.policy"] = rgb_policy
 
         self._dataset.add_frame(frame)
 
-        # Depth sidecars — written outside the LeRobot dataset proper.
-        # When a worker pool is configured, hand each array off and let a
-        # background thread do the PIL encode + fsync; that keeps the
-        # ~5–15 ms 16-bit PNG write off the env-step thread. The pool
-        # copies the array because Isaac Sim recycles its render buffer
-        # on the next step.
+        # Depth sidecars — written outside the LeRobot dataset proper, only
+        # for the declared depth modalities. When a worker pool is configured,
+        # hand each array off and let a background thread do the PIL encode +
+        # fsync; that keeps the ~5–15 ms 16-bit PNG write off the env-step
+        # thread. The pool copies the array because Isaac Sim recycles its
+        # render buffer on the next step.
         ep_idx = self._open_episode["episode_index"]
         frame_idx = self._frame_count_this_episode
-        for arr, feature in (
-            (depth_m, PERCEPTION_DEPTH),
-            (depth_policy_m, POLICY_DEPTH),
+        for token, arr, feature in (
+            ("depth_full", depth_m, PERCEPTION_DEPTH),
+            ("depth_policy", depth_policy_m, POLICY_DEPTH),
         ):
-            if arr is None:
+            if token not in self._cameras_required:
                 continue
             png_path = depth_frame_path(self._root, ep_idx, frame_idx, feature)
             if self._depth_pool is not None:
@@ -664,6 +744,11 @@ class StraferLeRobotWriter:
     @property
     def features(self) -> dict[str, dict[str, Any]]:
         return dict(self._features)
+
+    @property
+    def cameras_required(self) -> tuple[str, ...]:
+        """The declared sensor stack this writer's schema was built for."""
+        return self._cameras_required
 
     # ------------------------------------------------------------------
     # Internals

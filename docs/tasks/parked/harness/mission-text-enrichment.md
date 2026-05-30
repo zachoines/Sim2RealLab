@@ -11,6 +11,7 @@ metadata already in `scene_metadata.json`, and (v2) the Infinigen
 extension that adds color / material / size descriptors per object
 so the disambiguator's conjunctive language has more axes to bind to.
 **Branch:** `task/mission-text-enrichment`
+**Blocked on:** [`scene-provider-contract`](../../active/harness/scene-provider-contract.md) shipped — this brief's disambiguator consumes contract-conformant metadata; landing it against the implicit-contract status quo would force a rewrite when the contract lands.
 
 ## Story
 

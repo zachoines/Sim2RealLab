@@ -5,6 +5,7 @@
 **Priority:** P2 — quality-of-life + correctness improvement; not gating any current acceptance bar.
 **Estimate:** M (touches authoring + ~3 consumer paths; bounded test surface).
 **Branch:** `task/scene-metadata-in-usd`
+**Blocked on:** [`scene-provider-contract`](../../active/harness/scene-provider-contract.md) shipped — that brief documents the storage-agnostic artifact interface this brief implements with a USD `customData` backend.
 
 ## Story
 

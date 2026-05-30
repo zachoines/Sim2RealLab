@@ -37,9 +37,10 @@ Read these before starting:
 
 Consumer briefs whose camera schema this brief must not break:
 - [`harness-architecture` → Output format](../harness/harness-architecture.md#output-format--lerobot-v3) —
-  the per-variant camera toggle proposed below MUST emit a LeRobot v3
-  `features` dict that consumers can read without a custom adapter
-  per (driver, mission-source) cell.
+  the per-variant camera toggle (owned by
+  [`env-cfg-composition`](../trained-policy/env-cfg-composition.md))
+  MUST emit a LeRobot v3 `features` dict that consumers can read
+  without a custom adapter per (driver, mission-source) cell.
 - [`infinigen-scene-corpus`](../harness/infinigen-scene-corpus.md) —
   the corpus this brief unblocks.
 - [`vla-v2-architecture`](../../parked/experimental/vla-v2-architecture.md) —
@@ -152,8 +153,9 @@ levers below attack the actual binding constraints.
    80×60 depth for the continuous-control policy. A per-variant
    camera toggle would let the teleop env declare
    `cameras_required = ["rgb_full"]` and skip the depth + policy
-   camera renders entirely. Covered in
-   [Operator FAQ → C](#c-per-env-variant-camera-configuration-design).
+   camera renders entirely. Owned by
+   [`env-cfg-composition`](../trained-policy/env-cfg-composition.md);
+   FAQ → C below for the consumer-by-camera matrix that motivates it.
 
 ## Operator FAQ
 
@@ -226,8 +228,9 @@ the matching acceptance bullet below.
 
 ### C. Per-env-variant camera configuration design
 
-The operator's observation: different consumers need different
-camera outputs. Concrete shapes:
+**This deliverable is now owned by [`env-cfg-composition`](../trained-policy/env-cfg-composition.md).** That brief generalizes the camera-toggle proposed here into a 3-axis composition (sensor stack × scene source × realism level), which is the right shape for the change — the per-consumer camera-toggle was a narrow slice of the same architectural cleanup. Doing it here would force rework when the broader refactor lands.
+
+The motivating per-consumer matrix from this brief's original draft stays useful as the consumer-by-camera reference for the env-cfg-composition brief's planning:
 
 | Consumer | RGB full (640×360) | Depth full (640×360) | Depth policy (80×60) | Policy RGB (80×60) |
 |---|:-:|:-:|:-:|:-:|
@@ -237,68 +240,7 @@ camera outputs. Concrete shapes:
 | Room-state eval (future scripted driver + coverage mission) | yes | yes (for VPR depth back-projection) | no | no |
 | RL training (parallel scripted driver) | no (NOCAM variant) | no | no | no |
 
-The current `_BaseInfinigenPerceptionNavEnvCfg`
-(strafer_env_cfg.py:1295-1316) instantiates ALL of them
-unconditionally because it was designed around "one env cfg = one
-deployed config." That conflates two concerns: **what robot
-dynamics the env simulates** (the cfg's true purpose) and **what
-data products the env exposes** (a per-consumer concern).
-
-**Proposed shape — `cameras_required` env_cfg field:**
-
-```python
-@configclass
-class _BaseInfinigenPerceptionNavEnvCfg(_BaseStraferNavEnvCfg):
-    # Which camera outputs this env produces. Drives both:
-    #   (a) which TiledCameraCfg objects get registered into the scene
-    #   (b) which features the writer declares + which add_frame args
-    #       are required vs. optional.
-    cameras_required: tuple[str, ...] = (
-        "rgb_full",
-        "depth_full",
-        "rgb_policy",
-        "depth_policy",
-    )
-
-    def __post_init__(self):
-        super().__post_init__()
-        _apply_infinigen_scene_setup(self)
-        self._apply_camera_required_pruning()
-
-    def _apply_camera_required_pruning(self):
-        # Strip the TiledCameraCfg attrs not in cameras_required so
-        # Isaac Lab's scene builder never instantiates them.
-        if "rgb_full" not in self.cameras_required and \
-           "depth_full" not in self.cameras_required:
-            self.scene.d555_camera_perception = None
-        # ... similar for the policy camera
-        # rgb_full + depth_full share the perception camera (single
-        # render product, two channels), so the toggle is over data_types
-        # not over the camera itself when both are off
-```
-
-Concrete env variants this enables:
-
-| Variant | `cameras_required` | Consumer |
-|---|---|---|
-| `_Teleop` (this brief) | `("rgb_full",)` | `capture.py --driver teleop` |
-| `_BridgeAutonomy` (existing default) | `("rgb_full", "depth_full", "rgb_policy", "depth_policy")` | bridge sim-in-the-loop |
-| `_Coverage` (future) | `("rgb_full", "depth_full")` | scripted driver + coverage mission (room-state eval) |
-| `_Captioner` (future) | `("rgb_full",)` | scripted driver + captioner mission (trajectory-first) |
-
-Matching writer-side toggle in `lerobot_writer.py`: extend
-`build_features` (lerobot_writer.py:251-287) so it takes the same
-`cameras_required` tuple and conditionally adds each feature
-column. `add_frame` then validates that args match the declared
-schema (no zero-padding for absent cameras — frames that weren't
-captured aren't authored at all).
-
-**Boundary respected:** the camera toggle is **what the env
-exposes**, not **how the env simulates** — the underlying robot
-dynamics, action space, observation pipeline (for the trained
-policy paths) stay identical. So a `_Teleop` variant with only
-rgb_full is still distributionally close to the RL-deployment
-config for the trajectory data it produces.
+What stays in this brief's scope: the perf consequences of the camera-toggle (skipping renders for cameras the active variant doesn't require — see lever A above) and the writer-side schema follow-on (so non-captured frames aren't authored as zero-padded entries).
 
 ### D. Background env.step thread — concurrency hazards
 
@@ -435,24 +377,10 @@ Infinigen scenes at `--capture-rate-hz 8`.
       varies).
 
 **Lever 4 — Per-env-variant camera configuration:**
-- [ ] `_BaseInfinigenPerceptionNavEnvCfg` (or a sibling
-      class) gains a `cameras_required` field. Teleop driver
-      registers a `_Teleop` variant with
-      `cameras_required=("rgb_full",)`; the existing default
-      (used by bridge + scripted) keeps the full quartet.
-- [ ] `lerobot_writer.build_features` accepts a
-      `cameras_required` arg and conditionally emits feature
-      columns; `add_frame` validates kwargs against the declared
-      schema (clean error, not silent zero-padding, when an
-      undeclared camera arg is passed).
-- [ ] Teleop session's writer no longer encodes the policy
-      camera MP4 stream when only RGB full is requested
-      (verifiable: `videos/observation.images.policy/` dir
-      absent in the output).
-- [ ] Bridge sim-in-the-loop env path is unchanged
-      (regression check: a `run_sim_in_the_loop.py` smoke
-      against the existing default cfg produces the same
-      camera publications).
+Deliverable owned by [`env-cfg-composition`](../trained-policy/env-cfg-composition.md). See that brief's acceptance for the env-cfg refactor + the matching `lerobot_writer.build_features` schema toggle.
+
+The perf-side acceptance kept here:
+- [ ] Once a `_Teleop` variant exists (per env-cfg-composition), the perception camera's RTX render is skipped on non-capture steps as proposed in lever 1 above. This is the perf win that motivates the camera-toggle in the first place.
 
 **Cleanup acceptance (independent of levers above):**
 - [ ] `postprocess_scene_usd.py` is extended with an

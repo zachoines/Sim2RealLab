@@ -135,7 +135,7 @@ If you have only the `.usdc` (no Blender / in-process Infinigen
 `State`), parse it from prim names:
 
 ```bash
-SCENE=scene_high_quality_dgx_000_seed0
+SCENE=scene_high_quality_dgx_000_seed1
 
 $ISAACLAB -p source/strafer_lab/scripts/extract_scene_metadata.py \
     --from-usd \
@@ -171,7 +171,7 @@ on every invocation, OR rely on the driver's auto-suffix fallback
 the resolved path it actually used).
 
 ```bash
-SCENE=scene_high_quality_dgx_000_seed0
+SCENE=scene_high_quality_dgx_000_seed1
 
 # Re-stamp $RUN_ID + $OUT on every invocation — bash variables persist
 # across runs in the same shell, so a stale $OUT is the #1 trip-up.

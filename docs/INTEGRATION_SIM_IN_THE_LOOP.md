@@ -667,8 +667,8 @@ Sim runs in-process with the gamepad reading actions directly.
 ```bash
 isaaclab -p Scripts/capture.py \
     --driver teleop --mission-source scene-metadata \
-    --scene scene_high_quality_dgx_000_seed0 \
-    --output data/sim_in_the_loop/scene_high_quality_dgx_000_seed0 \
+    --scene scene_high_quality_dgx_000_seed1 \
+    --output data/sim_in_the_loop/scene_high_quality_dgx_000_seed1 \
     --fps 8
 ```
 
@@ -676,9 +676,12 @@ isaaclab -p Scripts/capture.py \
 subprocesses `source/strafer_lab/scripts/teleop_capture.py`, which
 boots its own AppLauncher (headed, `enable_cameras=True`), loads the
 `Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0` task, and starts
-the capture loop. Pass-through AppLauncher flags (`--device cpu`,
-`--headless` when you only want the cv2 PIP, etc.) flow through
-`capture.py` to the child driver via `parse_known_args`.
+the capture loop. AppLauncher pass-through flags (`--device cpu`,
+`--viz kit,rerun` to add a Rerun stream alongside the editor viewport,
+etc.) flow through `capture.py` to the child driver via
+`parse_known_args`. Note `--headless` is deprecated in current Isaac
+Lab and the teleop driver forces `--viz kit` so an editor viewport is
+always available; suppress the cv2 PIP with `--no-pip-window` instead.
 
 **Operator UX**
 
@@ -745,8 +748,8 @@ stack and sim corpus share one format.
 ```bash
 .venv_harness/bin/python -c "
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
-d = LeRobotDataset(repo_id='strafer/scene_high_quality_dgx_000_seed0',
-                   root='data/sim_in_the_loop/scene_high_quality_dgx_000_seed0')
+d = LeRobotDataset(repo_id='strafer/scene_high_quality_dgx_000_seed1',
+                   root='data/sim_in_the_loop/scene_high_quality_dgx_000_seed1')
 print(f'episodes={d.num_episodes} frames={len(d)}')
 "
 ```

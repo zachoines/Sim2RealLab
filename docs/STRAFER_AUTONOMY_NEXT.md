@@ -3451,7 +3451,7 @@ class PerceptionDataCollector:
 
 ```bash
 python scripts/collect_perception_data.py \
-  --task Isaac-Strafer-Nav-Real-Infinigen-Depth-Play-v0 \
+  --task Isaac-Strafer-Nav-RLDepth-Real-Play-v0 \
   --scene scene_001 \
   --output data/perception/ \
   --max_episodes 20 \

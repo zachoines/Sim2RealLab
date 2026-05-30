@@ -69,8 +69,8 @@ import torch.nn as nn
 # ``--env`` default and as the ``env_id`` field in the metadata sidecar
 # when the operator does not pass ``--env`` explicitly.
 _DEFAULT_ENV_BY_VARIANT = {
-    "NOCAM": "Isaac-Strafer-Nav-Real-ProcRoom-NoCam-Play-v0",
-    "DEPTH": "Isaac-Strafer-Nav-Real-ProcRoom-Depth-Play-v0",
+    "NOCAM": "Isaac-Strafer-Nav-RLNoCam-Play-v0",
+    "DEPTH": "Isaac-Strafer-Nav-RLDepth-Real-Play-v0",
 }
 
 # ONNX opset 18 matches what rsl_rl's built-in exporter emits. Jetson's

@@ -14,27 +14,12 @@ SimRealContractCfg presets for consistency:
   - REALISTIC: Matches real hardware (sim-to-real target)
   - ROBUST: Aggressive noise (stress-testing)
 
-Environment Matrix (30 registered = 15 configs x Train/Play):
-
-    | Realism   | Sensors          | Train ID                                    |
-    |-----------|------------------|---------------------------------------------|
-    | Ideal     | Full             | Isaac-Strafer-Nav-v0                        |
-    | Ideal     | Depth-only       | Isaac-Strafer-Nav-Depth-v0                  |
-    | Ideal     | NoCam            | Isaac-Strafer-Nav-NoCam-v0                  |
-    | Realistic | Full             | Isaac-Strafer-Nav-Real-v0                   |
-    | Realistic | Depth-only       | Isaac-Strafer-Nav-Real-Depth-v0             |
-    | Realistic | NoCam            | Isaac-Strafer-Nav-Real-NoCam-v0             |
-    | Realistic | InfinigenDepth   | Isaac-Strafer-Nav-Real-InfinigenDepth-v0    |
-    | Realistic | ProcRoom NoCam   | Isaac-Strafer-Nav-Real-ProcRoom-NoCam-v0    |
-    | Realistic | ProcRoom Depth   | Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0    |
-    | Robust    | Full             | Isaac-Strafer-Nav-Robust-v0                 |
-    | Robust    | Depth-only       | Isaac-Strafer-Nav-Robust-Depth-v0           |
-    | Robust    | NoCam            | Isaac-Strafer-Nav-Robust-NoCam-v0           |
-    | Robust    | InfinigenDepth   | Isaac-Strafer-Nav-Robust-InfinigenDepth-v0  |
-    | Robust    | ProcRoom NoCam   | Isaac-Strafer-Nav-Robust-ProcRoom-NoCam-v0  |
-    | Robust    | ProcRoom Depth   | Isaac-Strafer-Nav-Robust-ProcRoom-Depth-v0  |
-
-Each has a -Play-v0 variant for evaluation (fewer envs).
+This module holds the shared building blocks — scene cfgs, per-realism
+observation / action / event cfgs, commands / rewards / terminations /
+curriculum, and the sizing constants and scene-setup helpers. The concrete
+navigation environments are not hand-written here per matrix cell; they are
+composed over the sensor / scene-source / realism axes in
+``composed_env_cfg.py`` and registered in ``__init__.py``.
 """
 
 import json
@@ -95,7 +80,6 @@ _ASSET_ROOT = Path(__file__).resolve().parents[5] / "Assets"
 SCENE_USD_DIR = _ASSET_ROOT / "generated" / "scenes"
 
 
-
 def _get_scene_usd_paths() -> list[str]:
     """Discover composed scene USDC files for Infinigen training (offline pipeline).
 
@@ -139,9 +123,6 @@ def _get_scenes_metadata() -> dict | None:
     if not meta_path.is_file():
         return None
     return json.loads(meta_path.read_text())
-
-
-
 
 
 # =============================================================================
@@ -393,7 +374,6 @@ class StraferSceneCfg_InfinigenPerception(InteractiveSceneCfg):
         update_period=0.0,
         history_length=1,
     )
-
 
 
 # =============================================================================
@@ -890,7 +870,6 @@ class TerminationsCfg:
     )
 
 
-
 # ---------------------------------------------------------------------------
 # Events: tiered domain randomization (Ideal / Realistic / Robust)
 #
@@ -1124,9 +1103,11 @@ class CurriculumCfg_Infinigen:
     )
 
 
-
 # =============================================================================
-# Environment Configurations - 30 Variants (15 configs × Train/Play)
+# Shared runtime defaults, sizing constants, and scene-setup helpers
+#
+# Consumed by the composition root (composed_env_cfg.py) when it materializes
+# a variant from the sensor / scene-source / realism axes.
 # =============================================================================
 
 _DEFAULT_NAV_SIM_DT = 1.0 / 120.0
@@ -1228,16 +1209,6 @@ def _apply_infinigen_scene_setup(cfg: ManagerBasedRLEnvCfg) -> None:
         cfg.events.lift_ground.params["target_z"] = float(active_floor_top_z) - 0.002
 
 
-class _PlayEnvCfgMixin:
-    """Shared play-mode override that only reduces the scene env count."""
-
-    play_num_envs = _STANDARD_PLAY_NUM_ENVS
-
-    def __post_init__(self):
-        super().__post_init__()
-        _apply_play_num_envs(self, num_envs=self.play_num_envs)
-
-
 @configclass
 class _BaseStraferNavEnvCfg(ManagerBasedRLEnvCfg):
     """Shared runtime defaults for all navigation environment configs."""
@@ -1248,270 +1219,11 @@ class _BaseStraferNavEnvCfg(ManagerBasedRLEnvCfg):
         _apply_default_nav_runtime(self)
 
 
-@configclass
-class _BaseStandardCameraNavEnvCfg(_BaseStraferNavEnvCfg):
-    """Common train-time config for camera-equipped plane navigation envs."""
-
-    scene: StraferSceneCfg = StraferSceneCfg(num_envs=_STANDARD_TRAIN_NUM_ENVS, env_spacing=_STANDARD_ENV_SPACING)
-    commands: CommandsCfg = CommandsCfg()
-    rewards: RewardsCfg = RewardsCfg()
-    terminations: TerminationsCfg = TerminationsCfg()
-    curriculum: CurriculumCfg = CurriculumCfg()
-
-
-@configclass
-class _BaseStandardNoCamNavEnvCfg(_BaseStraferNavEnvCfg):
-    """Common train-time config for NoCam plane navigation envs."""
-
-    scene: StraferSceneCfg_NoCam = StraferSceneCfg_NoCam(num_envs=_STANDARD_TRAIN_NUM_ENVS, env_spacing=_STANDARD_ENV_SPACING)
-    commands: CommandsCfg = CommandsCfg()
-    rewards: RewardsCfg = RewardsCfg()
-    terminations: TerminationsCfg = TerminationsCfg()
-    curriculum: CurriculumCfg = CurriculumCfg()
-
-
-@configclass
-class _BaseInfinigenDepthNavEnvCfg(_BaseStraferNavEnvCfg):
-    """Common train-time config for depth-only Infinigen scene variants."""
-
-    scene: StraferSceneCfg_Infinigen = StraferSceneCfg_Infinigen(num_envs=_INFINIGEN_TRAIN_NUM_ENVS, env_spacing=0.0)
-    commands: CommandsCfg_Infinigen = CommandsCfg_Infinigen()
-    rewards: RewardsCfg = RewardsCfg()
-    terminations: TerminationsCfg = TerminationsCfg()
-    curriculum: CurriculumCfg_Infinigen = CurriculumCfg_Infinigen()
-
-    def __post_init__(self):
-        super().__post_init__()
-        _apply_infinigen_scene_setup(self)
-
-
 # Perception data-collection envs run at 640x360 and therefore cap parallel
 # env count at 1-8. Start at 1 — the Isaac Sim ROS2 bridge and gamepad
 # teleop are both single-env workflows. The play override below can bump
 # this for batch captures.
 _INFINIGEN_PERCEPTION_TRAIN_NUM_ENVS = 1
-
-
-@configclass
-class _BaseInfinigenPerceptionNavEnvCfg(_BaseStraferNavEnvCfg):
-    """Common config for perception data-collection envs on Infinigen scenes.
-
-    Uses :class:`StraferSceneCfg_InfinigenPerception` (both the 80x60 policy
-    camera AND the 640x360 perception camera) with a single default env.
-    Not intended for RL training — the perception camera resolution caps
-    throughput.
-    """
-
-    scene: StraferSceneCfg_InfinigenPerception = StraferSceneCfg_InfinigenPerception(
-        num_envs=_INFINIGEN_PERCEPTION_TRAIN_NUM_ENVS,
-        env_spacing=0.0,
-    )
-    commands: CommandsCfg_Infinigen = CommandsCfg_Infinigen()
-    rewards: RewardsCfg = RewardsCfg()
-    terminations: TerminationsCfg = TerminationsCfg()
-    curriculum: CurriculumCfg_Infinigen = CurriculumCfg_Infinigen()
-
-    def __post_init__(self):
-        super().__post_init__()
-        _apply_infinigen_scene_setup(self)
-
-
-# -----------------------------------------------------------------------------
-# IDEAL: No noise, no motor dynamics (debugging/baselines)
-# -----------------------------------------------------------------------------
-
-@configclass
-class StraferNavEnvCfg(_BaseStandardCameraNavEnvCfg):
-    """Ideal Full (RGB+Depth) - baseline for debugging."""
-    actions: ActionsCfg_Ideal = ActionsCfg_Ideal()
-    observations: ObsCfg_Full_Ideal = ObsCfg_Full_Ideal()
-    events: EventsCfg_Ideal = EventsCfg_Ideal()
-
-
-@configclass
-class StraferNavEnvCfg_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg):
-    """Play/eval config for Ideal Full."""
-
-
-@configclass
-class StraferNavEnvCfg_Depth(_BaseStandardCameraNavEnvCfg):
-    """Ideal Depth-only."""
-    actions: ActionsCfg_Ideal = ActionsCfg_Ideal()
-    observations: ObsCfg_Depth_Ideal = ObsCfg_Depth_Ideal()
-    events: EventsCfg_Ideal = EventsCfg_Ideal()
-
-
-@configclass
-class StraferNavEnvCfg_Depth_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Depth):
-    """Play/eval config for Ideal Depth-only."""
-
-
-@configclass
-class StraferNavEnvCfg_NoCam(_BaseStandardNoCamNavEnvCfg):
-    """Ideal Proprioceptive-only (fastest training)."""
-    actions: ActionsCfg_Ideal = ActionsCfg_Ideal()
-    observations: ObsCfg_NoCam_Ideal = ObsCfg_NoCam_Ideal()
-    events: EventsCfg_Ideal = EventsCfg_Ideal()
-
-
-@configclass
-class StraferNavEnvCfg_NoCam_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_NoCam):
-    """Play/eval config for Ideal Proprioceptive-only."""
-
-
-# -----------------------------------------------------------------------------
-# REALISTIC: Realistic noise + motor dynamics (sim-to-real target)
-# -----------------------------------------------------------------------------
-
-@configclass
-class StraferNavEnvCfg_Real(_BaseStandardCameraNavEnvCfg):
-    """Realistic Full (RGB+Depth) - main sim-to-real target."""
-    actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
-    observations: ObsCfg_Full_Realistic = ObsCfg_Full_Realistic()
-    events: EventsCfg_Realistic = EventsCfg_Realistic()
-
-
-@configclass
-class StraferNavEnvCfg_Real_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Real):
-    """Play/eval config for Realistic Full; keeps noise enabled."""
-
-
-@configclass
-class StraferNavEnvCfg_Real_Depth(_BaseStandardCameraNavEnvCfg):
-    """Realistic Depth-only - balanced sim-to-real."""
-    actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
-    observations: ObsCfg_Depth_Realistic = ObsCfg_Depth_Realistic()
-    events: EventsCfg_Realistic = EventsCfg_Realistic()
-
-
-@configclass
-class StraferNavEnvCfg_Real_Depth_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Real_Depth):
-    """Play/eval config for Realistic Depth-only."""
-
-
-@configclass
-class StraferNavEnvCfg_Real_NoCam(_BaseStandardNoCamNavEnvCfg):
-    """Realistic Proprioceptive-only - fast training with realistic dynamics."""
-    actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
-    observations: ObsCfg_NoCam_Realistic = ObsCfg_NoCam_Realistic()
-    events: EventsCfg_Realistic = EventsCfg_Realistic()
-
-
-@configclass
-class StraferNavEnvCfg_Real_NoCam_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Real_NoCam):
-    """Play/eval config for Realistic Proprioceptive-only."""
-
-
-# -----------------------------------------------------------------------------
-# ROBUST: Aggressive noise + dynamics for stress-testing
-# -----------------------------------------------------------------------------
-
-@configclass
-class StraferNavEnvCfg_Robust(_BaseStandardCameraNavEnvCfg):
-    """Robust Full (RGB+Depth) - aggressive noise for worst-case robustness."""
-    actions: ActionsCfg_Robust = ActionsCfg_Robust()
-    observations: ObsCfg_Full_Robust = ObsCfg_Full_Robust()
-    events: EventsCfg_Robust = EventsCfg_Robust()
-
-
-@configclass
-class StraferNavEnvCfg_Robust_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Robust):
-    """Play/eval config for Robust Full."""
-
-
-@configclass
-class StraferNavEnvCfg_Robust_Depth(_BaseStandardCameraNavEnvCfg):
-    """Robust Depth-only - aggressive noise for worst-case robustness."""
-    actions: ActionsCfg_Robust = ActionsCfg_Robust()
-    observations: ObsCfg_Depth_Robust = ObsCfg_Depth_Robust()
-    events: EventsCfg_Robust = EventsCfg_Robust()
-
-
-@configclass
-class StraferNavEnvCfg_Robust_Depth_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Robust_Depth):
-    """Play/eval config for Robust Depth-only."""
-
-
-@configclass
-class StraferNavEnvCfg_Robust_NoCam(_BaseStandardNoCamNavEnvCfg):
-    """Robust Proprioceptive-only - aggressive noise for worst-case robustness."""
-    actions: ActionsCfg_Robust = ActionsCfg_Robust()
-    observations: ObsCfg_NoCam_Robust = ObsCfg_NoCam_Robust()
-    events: EventsCfg_Robust = EventsCfg_Robust()
-
-
-@configclass
-class StraferNavEnvCfg_Robust_NoCam_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Robust_NoCam):
-    """Play/eval config for Robust Proprioceptive-only."""
-
-
-# =============================================================================
-# INFINIGEN: Procedural Infinigen scene geometry
-#
-# These variants use StraferSceneCfg_Infinigen (Infinigen room USD scenes)
-# instead of box obstacles. Uses net_forces_w for collision detection,
-# tighter spawn/goal ranges to fit within rooms, and no obstacle curriculum.
-# =============================================================================
-
-@configclass
-class StraferNavEnvCfg_Real_InfinigenDepth(_BaseInfinigenDepthNavEnvCfg):
-    """Realistic Depth with procedural Infinigen scene geometry."""
-    actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
-    observations: ObsCfg_Depth_Realistic = ObsCfg_Depth_Realistic()
-    events: EventsCfg_Infinigen_Realistic = EventsCfg_Infinigen_Realistic()
-
-
-@configclass
-class StraferNavEnvCfg_Real_InfinigenDepth_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Real_InfinigenDepth):
-    """Play/eval config for Realistic InfinigenDepth."""
-    play_num_envs = _INFINIGEN_PLAY_NUM_ENVS
-
-
-@configclass
-class StraferNavEnvCfg_Robust_InfinigenDepth(_BaseInfinigenDepthNavEnvCfg):
-    """Robust Depth with procedural Infinigen scene geometry."""
-    actions: ActionsCfg_Robust = ActionsCfg_Robust()
-    observations: ObsCfg_Depth_Robust = ObsCfg_Depth_Robust()
-    events: EventsCfg_Infinigen_Robust = EventsCfg_Infinigen_Robust()
-
-
-@configclass
-class StraferNavEnvCfg_Robust_InfinigenDepth_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Robust_InfinigenDepth):
-    """Play/eval config for Robust InfinigenDepth."""
-    play_num_envs = _INFINIGEN_PLAY_NUM_ENVS
-
-
-# -----------------------------------------------------------------------------
-# INFINIGEN PERCEPTION: 640x360 RGB + depth perception camera on Infinigen
-# scenes. Used by:
-#   - scripts/teleop_capture.py        (gamepad teleop, LeRobot v3 writer)
-#   - scripts/run_sim_in_the_loop.py   (Nav2 + ROS2 bridge harness)
-# Never used for RL training — the resolution caps env count at 1-8.
-# -----------------------------------------------------------------------------
-
-@configclass
-class StraferNavEnvCfg_Real_InfinigenPerception(_BaseInfinigenPerceptionNavEnvCfg):
-    """Realistic perception data-collection env on Infinigen scenes.
-
-    Observations, actions, and events are copied from the Realistic Depth
-    variant so the robot dynamics match what the RL policy was trained on —
-    this keeps trajectories collected here distributionally close to
-    deployment trajectories.
-    """
-    actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
-    observations: ObsCfg_Depth_Realistic = ObsCfg_Depth_Realistic()
-    events: EventsCfg_Infinigen_Realistic = EventsCfg_Infinigen_Realistic()
-
-
-@configclass
-class StraferNavEnvCfg_Real_InfinigenPerception_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Real_InfinigenPerception):
-    """Play/eval config for Realistic InfinigenPerception.
-
-    `play_num_envs` stays at the single-env default for data collection —
-    higher counts would OOM the renderer at 640x360. Increase cautiously if
-    targeting batch capture on a high-VRAM host.
-    """
-    play_num_envs = _INFINIGEN_PERCEPTION_TRAIN_NUM_ENVS
 
 
 # =============================================================================
@@ -1759,95 +1471,5 @@ def _apply_procroom_physx_buffers(cfg) -> None:
 
 
 # --- ProcRoom environment configs ---
-
-@configclass
-class _BaseProcRoomNoCamNavEnvCfg(_BaseStraferNavEnvCfg):
-    """Common train-time config for NoCam ProcRoom scene variants."""
-
-    scene: StraferSceneCfg_ProcRoom_NoCam = StraferSceneCfg_ProcRoom_NoCam(
-        num_envs=_PROCROOM_NOCAM_TRAIN_NUM_ENVS,
-        env_spacing=_PROCROOM_ENV_SPACING,
-    )
-    commands: CommandsCfg_ProcRoom = CommandsCfg_ProcRoom()
-    rewards: RewardsCfg_ProcRoom = RewardsCfg_ProcRoom()
-    terminations: TerminationsCfg_ProcRoom = TerminationsCfg_ProcRoom()
-    curriculum: CurriculumCfg_ProcRoom = CurriculumCfg_ProcRoom()
-
-    def __post_init__(self):
-        super().__post_init__()
-        _apply_procroom_physx_buffers(self)
-
-
-@configclass
-class _BaseProcRoomDepthNavEnvCfg(_BaseStraferNavEnvCfg):
-    """Common train-time config for depth ProcRoom scene variants."""
-
-    scene: StraferSceneCfg_ProcRoom = StraferSceneCfg_ProcRoom(
-        num_envs=_PROCROOM_DEPTH_TRAIN_NUM_ENVS,
-        env_spacing=_PROCROOM_ENV_SPACING,
-    )
-    commands: CommandsCfg_ProcRoom = CommandsCfg_ProcRoom()
-    rewards: RewardsCfg_ProcRoom = RewardsCfg_ProcRoom()
-    terminations: TerminationsCfg_ProcRoom = TerminationsCfg_ProcRoom()
-    curriculum: CurriculumCfg_ProcRoom = CurriculumCfg_ProcRoom()
-
-    def __post_init__(self):
-        super().__post_init__()
-        _apply_procroom_physx_buffers(self)
-
-@configclass
-class StraferNavEnvCfg_Real_ProcRoom_NoCam(_BaseProcRoomNoCamNavEnvCfg):
-    """Realistic NoCam ProcRoom — high env count for fast training."""
-    actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
-    observations: ObsCfg_NoCam_Realistic = ObsCfg_NoCam_Realistic()
-    events: EventsCfg_ProcRoom_Realistic = EventsCfg_ProcRoom_Realistic()
-
-
-@configclass
-class StraferNavEnvCfg_Real_ProcRoom_NoCam_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Real_ProcRoom_NoCam):
-    """Play/eval config for Realistic ProcRoom NoCam."""
-    play_num_envs = _PROCROOM_NOCAM_PLAY_NUM_ENVS
-
-
-@configclass
-class StraferNavEnvCfg_Real_ProcRoom_Depth(_BaseProcRoomDepthNavEnvCfg):
-    """Realistic Depth ProcRoom — depth training with room geometry."""
-    actions: ActionsCfg_Realistic = ActionsCfg_Realistic()
-    observations: ObsCfg_Depth_Realistic = ObsCfg_Depth_Realistic()
-    events: EventsCfg_ProcRoom_Realistic = EventsCfg_ProcRoom_Realistic()
-
-
-@configclass
-class StraferNavEnvCfg_Real_ProcRoom_Depth_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Real_ProcRoom_Depth):
-    """Play/eval config for Realistic ProcRoom Depth."""
-    play_num_envs = _PROCROOM_DEPTH_PLAY_NUM_ENVS
-
-
-@configclass
-class StraferNavEnvCfg_Robust_ProcRoom_NoCam(_BaseProcRoomNoCamNavEnvCfg):
-    """Robust NoCam ProcRoom — aggressive noise with high env count."""
-    actions: ActionsCfg_Robust = ActionsCfg_Robust()
-    observations: ObsCfg_NoCam_Robust = ObsCfg_NoCam_Robust()
-    events: EventsCfg_ProcRoom_Robust = EventsCfg_ProcRoom_Robust()
-
-
-@configclass
-class StraferNavEnvCfg_Robust_ProcRoom_NoCam_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Robust_ProcRoom_NoCam):
-    """Play/eval config for Robust ProcRoom NoCam."""
-    play_num_envs = _PROCROOM_NOCAM_PLAY_NUM_ENVS
-
-
-@configclass
-class StraferNavEnvCfg_Robust_ProcRoom_Depth(_BaseProcRoomDepthNavEnvCfg):
-    """Robust Depth ProcRoom — aggressive noise with depth camera."""
-    actions: ActionsCfg_Robust = ActionsCfg_Robust()
-    observations: ObsCfg_Depth_Robust = ObsCfg_Depth_Robust()
-    events: EventsCfg_ProcRoom_Robust = EventsCfg_ProcRoom_Robust()
-
-
-@configclass
-class StraferNavEnvCfg_Robust_ProcRoom_Depth_PLAY(_PlayEnvCfgMixin, StraferNavEnvCfg_Robust_ProcRoom_Depth):
-    """Play/eval config for Robust ProcRoom Depth."""
-    play_num_envs = _PROCROOM_DEPTH_PLAY_NUM_ENVS
 
 

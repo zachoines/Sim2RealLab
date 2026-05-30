@@ -513,3 +513,28 @@ class StraferNavCfg_Coverage(_ComposedStraferNavEnvCfg):
     sensors = SensorStackCfg(cameras_required=("rgb_full", "depth_full"))
     scene_source = SceneSourceCfg(kind="infinigen")
     realism = RealismCfg(level="real")
+
+
+# ---------------------------------------------------------------------------
+# Minimal plane bases (not registered). These compose the simplest scaffold —
+# plane scene, no domain randomization — for the MDP-component unit tests,
+# which build one of these and then override the manager under test.
+# ---------------------------------------------------------------------------
+
+
+@configclass
+class StraferNavCfg_NoCam_Ideal(_ComposedStraferNavEnvCfg):
+    """Proprioceptive plane env, no DR. Unit-test scaffold."""
+
+    sensors = SensorStackCfg(cameras_required=())
+    scene_source = SceneSourceCfg(kind="plane")
+    realism = RealismCfg(level="ideal")
+
+
+@configclass
+class StraferNavCfg_Depth_Ideal(_ComposedStraferNavEnvCfg):
+    """Depth-policy plane env, no DR. Unit-test scaffold."""
+
+    sensors = SensorStackCfg(cameras_required=("depth_policy",))
+    scene_source = SceneSourceCfg(kind="plane")
+    realism = RealismCfg(level="ideal")

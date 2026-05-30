@@ -773,13 +773,13 @@ def create_depth_test_env(noise_cfg, num_envs: int = NUM_ENVS, use_test_scene: b
     """
     # These imports require Isaac Sim to be running
     from isaaclab.envs import ManagerBasedRLEnv
+    from strafer_lab.tasks.navigation.composed_env_cfg import StraferNavCfg_Depth_Ideal
     from strafer_lab.tasks.navigation.strafer_env_cfg import (
-        StraferNavEnvCfg_Depth,
         ActionsCfg_Ideal,
         ObsCfg_Depth_Realistic,
     )
 
-    cfg = StraferNavEnvCfg_Depth()
+    cfg = StraferNavCfg_Depth_Ideal()
     cfg.scene.num_envs = num_envs
     cfg.actions = ActionsCfg_Ideal()  # Ideal actions for predictability
     cfg.observations = ObsCfg_Depth_Realistic()

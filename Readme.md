@@ -318,7 +318,7 @@ strafer-autonomy-cli cancel
 ```bash
 cd /home/zachoines/Workspace/Sim2RealLab
 ../IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-Real-NoCam-v0 --num_envs 512 --headless
+    --env Isaac-Strafer-Nav-RLNoCam-v0 --num_envs 512 --headless
 
 tensorboard --logdir logs/rsl_rl/strafer_navigation
 ```

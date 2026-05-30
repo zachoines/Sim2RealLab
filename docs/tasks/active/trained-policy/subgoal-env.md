@@ -135,7 +135,7 @@ ships:
 - `agents/rsl_rl_ppo_cfg.py` + `agents/__init__.py` — runner config
   + registered task IDs. New IDs get registered alongside the
   existing ProcRoom variants (e.g.
-  `Isaac-Strafer-Nav-Real-ProcRoom-Subgoal-NoCam-v0`).
+  `Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-v0`).
 
 ### What's missing
 
@@ -173,8 +173,8 @@ ships:
 6. **Registered task IDs** in
    [`navigation/__init__.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/__init__.py).
    Following the existing pattern:
-   `Isaac-Strafer-Nav-Real-ProcRoom-Subgoal-NoCam-v0`,
-   `Isaac-Strafer-Nav-Robust-ProcRoom-Subgoal-NoCam-v0`,
+   `Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-v0`,
+   `Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-v0`,
    plus `-Play-v0` variants for visualization.
 
 7. **A trained checkpoint** at convergence on the new task. The
@@ -341,14 +341,14 @@ In [`source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py`](../../
 In [`source/strafer_lab/strafer_lab/tasks/navigation/__init__.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/__init__.py):
 
 - Register new task IDs:
-  - `Isaac-Strafer-Nav-Real-ProcRoom-Subgoal-NoCam-v0`
-  - `Isaac-Strafer-Nav-Real-ProcRoom-Subgoal-NoCam-Play-v0`
-  - `Isaac-Strafer-Nav-Robust-ProcRoom-Subgoal-NoCam-v0`
-  - `Isaac-Strafer-Nav-Robust-ProcRoom-Subgoal-NoCam-Play-v0`
+  - `Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-v0`
+  - `Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-v0`
+  - `Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-v0`
+  - `Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-Play-v0`
 
 Smoke test:
 ```
-python Scripts/test_strafer_env.py --task Isaac-Strafer-Nav-Real-ProcRoom-Subgoal-NoCam-Play-v0
+python Scripts/test_strafer_env.py --task Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-v0
 ```
 runs without errors, displays the path + subgoal markers in the
 Kit viewport, robot follows the path at the configured policy
@@ -356,7 +356,7 @@ rate.
 
 ### Phase 5 — Training run + checkpoint (3–5 days wall, depending on convergence)
 
-- Train against `Isaac-Strafer-Nav-Real-ProcRoom-Subgoal-NoCam-v0`
+- Train against `Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-v0`
   with PPO (existing `agents/rsl_rl_ppo_cfg.py`, possibly with
   re-tuned learning rate / clip range).
 - Target convergence metrics (record in PR description):
@@ -414,7 +414,7 @@ deployed policy should be trained against it.
 
 - [ ] All four task IDs registered (`Real`/`Robust` × non-play /
       play). `gym.make(<id>)` succeeds for each.
-- [ ] `python Scripts/test_strafer_env.py --task Isaac-Strafer-Nav-Real-ProcRoom-Subgoal-NoCam-Play-v0`
+- [ ] `python Scripts/test_strafer_env.py --task Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-v0`
       runs to completion without errors, with path + subgoal
       markers visible in the viewport.
 

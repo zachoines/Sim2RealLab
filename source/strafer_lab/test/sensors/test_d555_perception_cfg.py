@@ -209,14 +209,14 @@ class TestPerceptionGymRegistration:
         # Force the task package to register its envs.
         import strafer_lab.tasks.navigation  # noqa: F401
 
-        env_id = "Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0"
+        env_id = "Isaac-Strafer-Nav-Capture-Bridge-v0"
         assert env_id in gym.envs.registry, (
             f"{env_id!r} not registered. Check "
             "source/strafer_lab/strafer_lab/tasks/navigation/__init__.py"
         )
 
     def test_perception_env_cfg_importable(self):
-        from strafer_lab.tasks.navigation.strafer_env_cfg import (
-            StraferNavEnvCfg_Real_InfinigenPerception_PLAY,
+        from strafer_lab.tasks.navigation.composed_env_cfg import (
+            StraferNavCfg_BridgeAutonomy,
         )
-        assert StraferNavEnvCfg_Real_InfinigenPerception_PLAY is not None
+        assert StraferNavCfg_BridgeAutonomy is not None

@@ -64,7 +64,7 @@ it up; the consolidated
 brief inherits the same gap on its Tier 3 (scripted driver)
 implementation.
 The scene config they'd actually run against —
-`Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0` — flags
+`Isaac-Strafer-Nav-Capture-Teleop-v0` — flags
 itself in
 [`strafer_env_cfg.py:335-337`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py#L335-L337)
 as capping at **~1–8 envs** because `replicate_physics: bool =
@@ -73,11 +73,11 @@ perception camera VRAM footprint dominates.
 
 There are two scene configs the brief should measure:
 
-1. **`Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0`** —
+1. **`Isaac-Strafer-Nav-Capture-Teleop-v0`** —
    what the captioning + perception-feature consumers actually
    need camera frames from. Expected to top out at single-digit
    envs.
-2. **`Isaac-Strafer-Nav-Real-NoCam-Play-v0`** — the NoCam
+2. **`Isaac-Strafer-Nav-RLNoCam-Play-v0`** — the NoCam
    variant used for RL training. Expected to support 256+ envs
    per the same scene-config comment. Useful for the
    "drive-then-replay" two-pass architecture
@@ -141,10 +141,10 @@ Plus:
       (`Scripts/measure_harness_throughput.py` or similar).
 - [ ] **Sweep across scene configs and env counts.** Measure
       at least:
-      - `Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0`:
+      - `Isaac-Strafer-Nav-Capture-Teleop-v0`:
         `num_envs ∈ {1, 2, 4, 8, 16}` (continue until OOM /
         crash; report failure point).
-      - `Isaac-Strafer-Nav-Real-NoCam-Play-v0`:
+      - `Isaac-Strafer-Nav-RLNoCam-Play-v0`:
         `num_envs ∈ {1, 16, 64, 256, 1024}` (continue until
         OOM / crash).
 - [ ] **Per-env metrics.** Steps/sec/env (mean + p99), aggregate

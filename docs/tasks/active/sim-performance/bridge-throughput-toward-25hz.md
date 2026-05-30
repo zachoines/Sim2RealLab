@@ -220,11 +220,12 @@ question.
   `simulation_app.update()` every N iterations. Default N=1 (no
   change); promote to N=4 once Kit liveness is verified.
 - **Manager-loop scoping** —
-  [`source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py):
-  look at the `Realistic` env cfg variants. Either subclass with
-  `observations = None` for the bridge path, or expose a
-  "lean_bridge" env cfg registered as a separate task name
-  (`Isaac-Strafer-Nav-Real-InfinigenPerception-LeanBridge-v0`).
+  [`source/strafer_lab/strafer_lab/tasks/navigation/composed_env_cfg.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/composed_env_cfg.py):
+  the bridge runs `Isaac-Strafer-Nav-Capture-Bridge-v0`. A leaner bridge
+  path is now an axis choice, not a new task name — narrow its
+  `SensorStackCfg` / `--sensors` stack so the env renders only the
+  channels the bridge reads, and/or trim the observation managers the
+  bridge path doesn't consume.
 - **OmniGraph deletion** —
   [`source/strafer_lab/strafer_lab/bridge/graph.py`](../../../../source/strafer_lab/strafer_lab/bridge/graph.py)
   in `build_bridge_graph`: drop the function body or make it a

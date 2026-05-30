@@ -120,7 +120,7 @@ scripts:
 - [ ] **NOCAM-fields obs parity (19 dims)**: with a recorded
       sim-in-the-loop rosbag, the inference node's assembled obs
       under hybrid mode matches the
-      `Isaac-Strafer-Nav-Real-ProcRoom-Subgoal-NoCam-v0` env's obs
+      `Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-v0` env's obs
       at the same sim timestamp within ≤ 1e-5 max abs delta.
       Meaningful because both sides derive
       `body_velocity_xy` from the same encoder-FK signal chain (post-
@@ -247,7 +247,7 @@ Identical scaffolding to
 parity runs, with two hybrid-specific deltas:
 
 1. The gym-env dump instruments the
-   `Isaac-Strafer-Nav-Real-ProcRoom-Subgoal-NoCam-v0` env, not
+   `Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-v0` env, not
    ProcRoom-Depth. Dump the assembled obs vector AND the
    `SubgoalCommand`'s subgoal pose at every step.
 2. The inference-side dump records the obs AND the rolling-subgoal

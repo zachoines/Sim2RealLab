@@ -240,7 +240,7 @@ flowchart TB
         Videos[("logs/rsl_rl/<br/>strafer_navigation/&lt;ts&gt;/videos/train/<br/>*.mp4")]
     end
 
-    Operator -->|bash $ ../IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py<br/>--env Isaac-Strafer-Nav-Real-ProcRoom-NoCam-v0<br/>--num_envs 512 --max_iterations 3000 --headless| Launcher
+    Operator -->|bash $ ../IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py<br/>--env Isaac-Strafer-Nav-RLNoCam-v0<br/>--num_envs 512 --max_iterations 3000 --headless| Launcher
 
     Launcher --> AppLauncher
     AppLauncher --> TasksInit
@@ -304,7 +304,7 @@ flowchart TB
         Capture["Scripts/capture.py<br/>--driver teleop<br/>--mission-source scene-metadata"]
         Teleop["scripts/teleop_capture.py<br/>(AppLauncher + env loop)"]
         AppLauncher["AppLauncher<br/>Isaac Sim Kit"]
-        Env["Isaac-Strafer-Nav-Real-<br/>InfinigenPerception-Play-v0"]
+        Env["Isaac-Strafer-Nav-Capture-Teleop-v0"]
         SceneUSD[("Assets/generated/scenes/<br/>scene_NN/scene.usdc")]
         Robot["StraferRobot<br/>ArticulationCfg"]
         Camera["d555_camera_perception<br/>640×360 RGB + depth"]
@@ -386,7 +386,7 @@ flowchart TB
 
         RunSIL["run_sim_in_the_loop.py<br/>--mode harness"]
         AppLauncher["AppLauncher<br/>Isaac Sim Kit"]
-        Env["Isaac-Strafer-Nav-Real-<br/>InfinigenPerception-Play-v0"]
+        Env["Isaac-Strafer-Nav-Capture-Bridge-v0"]
         SceneUSD[("Assets/generated/scenes/<br/>scene.usdc + scene_metadata.json")]
 
         BridgeGraph["bridge/graph.py<br/>OmniGraph builder"]

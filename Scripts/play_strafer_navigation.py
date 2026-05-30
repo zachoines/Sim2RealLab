@@ -7,13 +7,13 @@ can watch the policy in the Kit viewport (or record a video).
 Examples:
     # Headed rollout against the play variant (8 envs):
     $ISAACLAB -p Scripts/play_strafer_navigation.py \\
-        --env Isaac-Strafer-Nav-Real-ProcRoom-Depth-Play-v0 \\
+        --env Isaac-Strafer-Nav-RLDepth-Real-Play-v0 \\
         --checkpoint logs/rsl_rl/strafer_navigation/run_20260425_035916/model_600.pt \\
         --viz kit
 
     # Headless rollout that records a single MP4 of the rollout:
     $ISAACLAB -p Scripts/play_strafer_navigation.py \\
-        --env Isaac-Strafer-Nav-Real-ProcRoom-Depth-Play-v0 \\
+        --env Isaac-Strafer-Nav-RLDepth-Real-Play-v0 \\
         --checkpoint logs/rsl_rl/strafer_navigation/run_20260425_035916/model_600.pt \\
         --headless --video --video_length 600
 """

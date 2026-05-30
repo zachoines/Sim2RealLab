@@ -1,6 +1,6 @@
 """Runtime ``EnvAdapter`` that drives a live Isaac Lab env.
 
-This wraps a single instantiated ``Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0``
+This wraps a single instantiated ``Isaac-Strafer-Nav-Capture-Bridge-v0``
 env (or compatible variant carrying a ``d555_camera_perception`` sensor)
 and exposes the :class:`strafer_lab.sim_in_the_loop.harness.EnvAdapter`
 protocol the orchestrator expects.

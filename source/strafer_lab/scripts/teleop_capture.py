@@ -47,7 +47,7 @@ from isaaclab.app import AppLauncher
 # flags before it brings up the simulation app.
 # ---------------------------------------------------------------------------
 
-_DEFAULT_TASK = "Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0"
+_DEFAULT_TASK = "Isaac-Strafer-Nav-Capture-Teleop-v0"
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -740,6 +740,24 @@ def main() -> int:
 
     # Resolve env cfg + scene-USD override
     env_cfg = load_cfg_from_registry(args.task, "env_cfg_entry_point")
+
+    # Resolve the per-session sensor stack and apply it to the env so it
+    # renders exactly the selected cameras (the render-cost lever), then
+    # re-compose. The writer is built from the same stack below, so the
+    # rendered cameras and the recorded columns cannot drift.
+    _sensor_tokens = (
+        [t.strip() for t in args.sensors.split(",") if t.strip()]
+        if args.sensors else None
+    )
+    cameras_required = _normalize_cameras_required(
+        _sensor_tokens, args.capture_policy_cam,
+    )
+    if hasattr(env_cfg, "sensors"):
+        from strafer_lab.tasks.navigation.composed_env_cfg import SensorStackCfg
+
+        env_cfg.sensors = SensorStackCfg(cameras_required=cameras_required)
+        env_cfg.__post_init__()
+
     if args.scene_usd:
         env_cfg.scene.scene_geometry.spawn.usd_path = str(Path(args.scene_usd).resolve())
         print(f"[teleop_capture] scene USD override → {env_cfg.scene.scene_geometry.spawn.usd_path}")
@@ -851,19 +869,11 @@ def main() -> int:
         simulation_app.close()
         return 2
 
-    # Resolve the per-session sensor stack once. The writer records exactly
-    # this stack; we read (and pass) only the camera channels it declares.
-    _sensor_tokens = (
-        [t.strip() for t in args.sensors.split(",") if t.strip()]
-        if args.sensors else None
-    )
-    cameras_required = _normalize_cameras_required(
-        _sensor_tokens, args.capture_policy_cam,
-    )
+    # cameras_required was resolved + applied to the env above; read only the
+    # camera channels the declared stack records.
     needs_policy = (
         "rgb_policy" in cameras_required or "depth_policy" in cameras_required
     )
-
     perception_camera = scene.sensors["d555_camera_perception"]
     policy_camera = scene.sensors.get("d555_camera") if needs_policy else None
 

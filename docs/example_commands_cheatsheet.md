@@ -14,7 +14,7 @@ make test-dgx
 ## (a) Fast, no video
 ```bash
 $ISAACLAB -p Scripts/train_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0 \
+    --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
     --num_envs 64 \
     --max_iterations 10 --headless
 ```
@@ -22,7 +22,7 @@ $ISAACLAB -p Scripts/train_strafer_navigation.py \
 ## (b) Longer, with video
 ```bash
 $ISAACLAB -p Scripts/train_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0 \
+    --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
     --num_envs 64 \
     --max_iterations 1000 \
     --headless --video --video_length 200 \
@@ -37,7 +37,7 @@ tensorboard --logdir ~/Workspace/Sim2RealLab/logs/rsl_rl/strafer_navigation
 ## Evaluate Policy
 ```bash
 $ISAACLAB -p Scripts/play_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-Real-ProcRoom-Depth-Play-v0 \
+    --env Isaac-Strafer-Nav-RLDepth-Real-Play-v0 \
     --checkpoint logs/rsl_rl/strafer_navigation/run_20260425_035916/model_999.pt \
     --viz kit --real_time --steps 2000
 ```
@@ -45,23 +45,23 @@ $ISAACLAB -p Scripts/play_strafer_navigation.py \
 # Env smoke tests 
 ## Quick test of the perception env (what the bridge uses)
 ```bash
-$ISAACLAB -p Scripts/test_strafer_env.py --env Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0 --num_envs 1 --duration 5 --headless
+$ISAACLAB -p Scripts/test_strafer_env.py --env Isaac-Strafer-Nav-Capture-Teleop-v0 --num_envs 1 --duration 5 --headless
 ```
 
 ## ProcRoom-Depth smoke (the variant you want full training on)
 ```bash
-$ISAACLAB -p Scripts/test_strafer_env.py --env Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0 --num_envs 2 --duration 5 --headless
+$ISAACLAB -p Scripts/test_strafer_env.py --env Isaac-Strafer-Nav-RLDepth-Real-v0 --num_envs 2 --duration 5 --headless
 ```
 
 ## NoCam smoke (fastest, guaranteed to run)
 ```bash
-$ISAACLAB -p Scripts/test_strafer_env.py --env Isaac-Strafer-Nav-Real-NoCam-v0 --num_envs 8 --duration 10 --headless
+$ISAACLAB -p Scripts/test_strafer_env.py --env Isaac-Strafer-Nav-RLNoCam-v0 --num_envs 8 --duration 10 --headless
 ```
 
 ## (b) Fast, video recorded but camera sits at world origin (frames multiple envs)
 ```bash
 $ISAACLAB -p Scripts/train_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0 \
+    --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
     --num_envs 64 --max_iterations 50 \
     --headless --video --video_length 200 --video_interval 2000
 ```
@@ -70,14 +70,14 @@ $ISAACLAB -p Scripts/train_strafer_navigation.py \
 ```bash
 source env_setup.sh
 $ISAACLAB -p source/strafer_lab/scripts/collect_demos.py \
-    --task Isaac-Strafer-Nav-Real-ProcRoom-Depth-Play-v0 \
+    --task Isaac-Strafer-Nav-RLDepth-Real-Play-v0 \
     --output demos/ --max_episodes 100 --viz kit
 ```
 
 # DAPG smoke (50 iters, fresh policy):
 ```bash
 $ISAACLAB -p Scripts/train_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0 \
+    --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
     --num_envs 64 --max_iterations 50 \
     --aux dapg --dapg_demos demos/ \
     --dapg_weight 0.03 --dapg_decay 30 --dapg_batch_size 128
@@ -86,7 +86,7 @@ $ISAACLAB -p Scripts/train_strafer_navigation.py \
 # GAIL smoke (50 iters, fresh policy):
 ```bash
 $ISAACLAB -p Scripts/train_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0 \
+    --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
     --num_envs 64 --max_iterations 50 \
     --aux gail --gail_demos demos/ \
     --gail_reward_weight 1.0 --gail_disc_lr 3e-4 --gail_disc_batch_size 256
@@ -97,7 +97,7 @@ Watch TB for `dapg_nll`, `dapg_weight`, `gail_reward`, `gail_disc_loss`, `gail_d
 # Fine-tune a live checkpoint with demos:
 ```bash
 $ISAACLAB -p Scripts/train_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0 \
+    --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
     --num_envs 128 --max_iterations 6000 \
     --resume logs/rsl_rl/strafer_navigation/run_20260425_035916/model_999.pt \
     --seed 1337 \
@@ -117,7 +117,7 @@ policy in the Kit viewport. Use the Play variant (8 envs by default).
 ## (a) Headed, watch in the viewport, real-time pacing
 ```bash
 $ISAACLAB -p Scripts/play_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-Real-ProcRoom-Depth-Play-v0 \
+    --env Isaac-Strafer-Nav-RLDepth-Real-Play-v0 \
     --checkpoint logs/rsl_rl/strafer_navigation/run_20260425_035916/model_600.pt \
     --viz kit --real_time --steps 2000
 ```
@@ -125,7 +125,7 @@ $ISAACLAB -p Scripts/play_strafer_navigation.py \
 ## (b) Headless rollout that records a single MP4 over env_0
 ```bash
 $ISAACLAB -p Scripts/play_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-Real-ProcRoom-Depth-Play-v0 \
+    --env Isaac-Strafer-Nav-RLDepth-Real-Play-v0 \
     --checkpoint logs/rsl_rl/strafer_navigation/run_20260425_035916/model_600.pt \
     --headless --video --video_length 600
 ```
@@ -177,7 +177,7 @@ of the rsl_rl checkpoint; verifies the export didn't break the policy.
 Single-env only (the export is deployment-shape).
 ```bash
 $ISAACLAB -p Scripts/play_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-Real-ProcRoom-NoCam-Play-v0 \
+    --env Isaac-Strafer-Nav-RLNoCam-Play-v0 \
     --policy models/strafer_nocam_v0.pt \
     --num_envs 1 --viz kit --real_time --steps 2000
 ```

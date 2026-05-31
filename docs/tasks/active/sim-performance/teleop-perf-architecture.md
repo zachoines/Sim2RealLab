@@ -443,14 +443,50 @@ The perf-side acceptance kept here:
 
 **Measure first.** The teleop driver carries a `--profile` flag that
 prints a rolling per-phase wall-time breakdown of the env-step loop
-(driver read / `env.step` split into render vs sim+manager / writer /
-viewport+HUD+PIP overhead) plus render-calls-per-tick. The original
-50 ms-render / 135 ms-env.step split in the Motivation is an *estimate*;
-run `--profile` on the target scene + DGX and let the measured dominant
-phase pick the next lever, rather than reasoning off the estimate. (This
-is why Lever 3 was withdrawn — measurement showed the loop is
+(driver read / `env.step` split into render vs physics vs manager loop /
+writer / viewport+HUD+PIP overhead) plus render- and physics-calls-per-tick.
+The original 50 ms-render / 135 ms-env.step split in the Motivation is an
+*estimate*; run `--profile` on the target scene + DGX and let the measured
+dominant phase pick the next lever, rather than reasoning off the estimate.
+(This is why Lever 3 was withdrawn — measurement showed the loop is
 render-once-per-step and free-running, so the step-rate dial reclaims no
 wall-time.)
+
+> **Measured result (operator, `scene_high_quality_dgx_000_seed1`,
+> high_quality_dgx density).** Steady-state per env.step ≈ **181 ms
+> (~5.5 FPS)**, all inside `env.step`: **physics ≈ 93 ms (4 PhysX
+> substeps), render ≈ 67 ms (Kit viewport pump), manager loop ≈ 21 ms**;
+> writer/driver/overhead ≈ 1 ms. So the loop is **PhysX-bound** — physics
+> alone exceeds the 15 FPS frame budget (66 ms), which means **no
+> render-only lever reaches the bar**: Lever 1 (drop render on non-capture
+> ticks) caps ~8 FPS, and even render + manager driven to zero leaves
+> physics at ~93 ms ≈ 10.7 FPS. The render estimate was close; the
+> non-render term is ~114 ms (physics + manager), and physics is the part
+> that bites.
+>
+> The only levers that touch physics are **fewer substeps** or **lighter
+> colliders** — both outside the original lever set. Per the operator
+> decision the driver now exposes two perf knobs:
+>
+> - **`--decimation N`** — overrides the PhysX substeps per env.step and
+>   rescales `sim.dt` to hold the env step / control / capture rate
+>   constant (captured dataset unchanged; only per-substep
+>   contact-resolution fidelity drops). This is the lever the withdrawn
+>   `--env-step-hz` was reaching for but got wrong — `--env-step-hz` held
+>   decimation, so it changed nothing. **Lowering decimation coarsens
+>   collision; the operator must verify the robot does not tunnel through
+>   scene geometry.**
+> - **`--viewport-resolution WxH`** — shrinks the operator-only editor
+>   viewport (default 1280×720) to cut the render term. In scope: not the
+>   perception/dataset camera (fixed at 640×360), the third-person view
+>   that never enters a captured frame.
+>
+> The residual gap to a hard 15 FPS is a **physics-fidelity-vs-FPS trade
+> the operator owns**, not a code lever — the knobs expose it, they do not
+> decide it. Standing follow-up if 15 proves unreachable at acceptable
+> fidelity: a static-collider audit on the Infinigen scene (~23 ms per
+> substep for one robot in a static room is high) — surfaced here, not
+> filed as a new brief.
 
 Implementation order, picked for win-per-risk:
 

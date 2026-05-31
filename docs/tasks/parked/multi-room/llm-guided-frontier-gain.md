@@ -55,6 +55,15 @@ Read these before starting:
 - [`mission-generator`](../../active/harness/mission-generator.md)
   — supplies the canonical cross-room mission queue used in
   the A/B eval.
+- [`validator-evaluation`](../../active/clip-validation/validator-evaluation.md)
+  — the CLIP mid-mission tripwire. Its per-window deviation
+  rule measures lateral distance from the geodesic path to the
+  mission target; the frontiers this skill ranks deliberately
+  leave that line, so the validator's deviation definition must
+  be leg / sub-goal-aware (and the tripwire suppressed during
+  exploration legs) or this skill's normal behavior is scored
+  as off-course. See that brief's "Coordination flag
+  (exploration ≠ deviation)" note.
 
 ## Context
 

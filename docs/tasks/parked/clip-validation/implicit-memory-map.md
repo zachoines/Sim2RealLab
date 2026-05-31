@@ -101,18 +101,25 @@ consumed twice.
 ### The primitive
 
 ```
-live frame → backbone visual tower → query embedding (R^512)
+live frame → backbone visual tower → query embedding (R^D)
   → ChromaDB retrieval: top-K past observations near current
                         pose and high-cosine to the query
-  → cross-attention(query, retrieved) → augmented embedding (R^512)
+  → cross-attention(query, retrieved) → augmented embedding (R^D)
   → consumer head (validator cosine OR VLA policy)
 ```
 
 **Cross-attention module.** Standard transformer cross-attention
-block: query ∈ R^512 (live frame embedding); keys + values ∈
-R^(K × 512) from retrieved past observations. ~5–10 M trainable
+block: query ∈ R^D (live frame embedding); keys + values ∈
+R^(K × D) from retrieved past observations. ~5–10 M trainable
 parameters at hidden_dim=256, 4 heads. Output replaces the bare
-query in the downstream consumer.
+query in the downstream consumer. **D is the loaded backbone's
+embedding dimension, read from the tower at build time — not a
+fixed 512.** OpenCLIP ViT-B/32 is 512, but
+[`backbone-bakeoff`](backbone-bakeoff.md) can select DINOv3-S
+(384) or SigLIP-2-B (768); the module, the ChromaDB collection,
+and the consumer head must all be dimensioned from the loaded
+tower so a backbone swap does not silently break the
+cross-attention or the cosine path.
 
 **Retrieval.** Reuses
 [`SemanticMapManager.query_by_embedding`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/manager.py)

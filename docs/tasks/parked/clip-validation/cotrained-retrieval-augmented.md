@@ -452,15 +452,41 @@ results justify it. This brief stops at sim eval.
       [`validator-evaluation`](../../active/clip-validation/validator-evaluation.md)
       shipped to production and document the divergence in the
       training-config sidecar.
-- [ ] **Dataset pipeline shared with v2.** Both Step A's
-      contrastive-pairs loader and
+- [ ] **Text tower required for two of the three Step-A heads.**
+      Step A's image-vs-instructive-caption InfoNCE (head 1) and
+      hard-negative target-text alignment (head 3) both train a
+      **text** tower against the visual tower; only the
+      same-region image-image contrastive (head 2) is vision-only.
+      `dinov3-small` is a **vision-only** backbone, and the
+      bakeoff explicitly treats DINOv3 as a *hybrid* candidate
+      (DINOv3 vision + a SigLIP-2 / MobileCLIP-2 text tower; see
+      [`backbone-bakeoff`](backbone-bakeoff.md)'s "Vision-only
+      backbone fallback"). If the bakeoff selects a vision-only or
+      hybrid tower, this brief inherits the **paired** tower
+      decision, not the visual tower alone: heads 1 and 3 need a
+      text tower, and cross-family (vision-from-one-family,
+      text-from-another) embeddings are not cosine-comparable
+      without a **learned projection head** trained on paired
+      `(image, text)` data. A pure-vision DINOv3 with no paired
+      text tower can train only head 2 and degenerates the
+      multi-task recipe to a case-1-only fine-tune — record this
+      in the training-config sidecar if the bakeoff hands over a
+      vision-only backbone.
+- [ ] **Dataset pipeline shared with v2 via direct LeRobot v3
+      loading.** Both Step A's contrastive-pairs loader and
       [`vla-v2-architecture`](../experimental/vla-v2-architecture.md)'s
-      action-tuple loader live alongside each other in
-      `source/strafer_lab/strafer_lab/tools/dataset_export.py`.
-      Adding `dump_contrastive_pairs()` does not break the
-      existing `export_clip_csv()` consumers; smoke-test by
-      running both loaders against the same harness episode
-      directory.
+      action-tuple loader read the harness LeRobot v3 corpus
+      directly via HF `LeRobotDataset`.
+      [`harness-architecture`](../../active/harness/harness-architecture.md)
+      retires `dataset_export.py` (and its `export_clip_csv()` /
+      `dump_contrastive_pairs()` helpers) in favor of direct
+      loading, so there is **no** shared `dataset_export.py` to
+      extend — this matches the "Relationship to VLA v2" section
+      above. Step A's contrastive-pairs assembly lives in its own
+      training script
+      (`cotrain_clip_with_speaker.py`); smoke-test by running both
+      the contrastive-pairs and action-tuple loaders against the
+      same harness episode directory.
 - [ ] **`K_train` augmentation + cold-deployment robustness**
       are delivered by
       [`implicit-memory-map`](implicit-memory-map.md) (the

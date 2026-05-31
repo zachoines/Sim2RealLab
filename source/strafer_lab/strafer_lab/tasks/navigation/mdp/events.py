@@ -766,3 +766,73 @@ def lift_ground_plane_to_floor(
         "[lift_ground_plane_to_floor] %s translate -> (0, 0, %.4f)",
         ground_prim_path, float(target_z),
     )
+
+
+def neutralize_wheel_material_restitution(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    material_path_substring: str = "mecanum_wheels",
+    restitution: float = 0.0,
+) -> int:
+    """Zero restitution on the robot's mecanum wheel/roller physics materials.
+
+    The robot USD authors one ``RubberMaterial`` per mecanum roller with
+    restitution ~0.12. PhysX's default restitution combine mode is *average*,
+    so against the restitution-0 ground plane the effective restitution is
+    ~0.06 — bouncy enough that at high body-rotation rates the 40 passive
+    roller contacts accumulate energy and the chassis visibly jumps (the
+    jump builds in intensity, a contact-energy limit cycle). Real mecanum
+    rollers do not trampoline; zeroing the authored restitution and pinning
+    the per-material combine mode to ``min`` removes the spurious bounce
+    while leaving the rollers' friction (static 1.0 / dynamic 0.9) intact.
+
+    Startup event (``mode="startup"``); ``env_ids`` is unused. Walks the
+    stage for ``UsdPhysics.MaterialAPI`` prims whose path contains
+    ``material_path_substring`` (the wheel subtree) and rewrites their
+    restitution. Returns the number of materials modified.
+
+    Note on parallel envs: this mutates the materials present on the stage
+    at startup. For ``replicate_physics=False`` scenes (Infinigen capture,
+    bridge) every env's materials are real stage prims and are all covered.
+    For GPU-replicated training scenes, confirm the change reaches every
+    clone with a training smoke run before relying on it at scale.
+    """
+    import omni.usd
+    from pxr import Sdf, UsdPhysics
+
+    stage = env.sim.stage if hasattr(env, "sim") else None
+    if stage is None:
+        stage = omni.usd.get_context().get_stage()
+    if stage is None:
+        logger.warning(
+            "[neutralize_wheel_material_restitution] stage is None; skipping",
+        )
+        return 0
+
+    count = 0
+    for prim in stage.Traverse():
+        if not prim.HasAPI(UsdPhysics.MaterialAPI):
+            continue
+        if material_path_substring not in str(prim.GetPath()):
+            continue
+        api = UsdPhysics.MaterialAPI(prim)
+        attr = api.GetRestitutionAttr()
+        if not attr or not attr.IsValid():
+            attr = api.CreateRestitutionAttr()
+        attr.Set(float(restitution))
+        # Pin combine mode to 'min' so the lower of the two contacting
+        # materials' restitution wins — belt-and-suspenders against any
+        # nonzero partner surface.
+        cm = prim.GetAttribute("physxMaterial:restitutionCombineMode")
+        if not cm or not cm.IsValid():
+            cm = prim.CreateAttribute(
+                "physxMaterial:restitutionCombineMode", Sdf.ValueTypeNames.Token,
+            )
+        cm.Set("min")
+        count += 1
+    logger.info(
+        "[neutralize_wheel_material_restitution] set restitution=%.3f + "
+        "combineMode=min on %d wheel material(s)",
+        float(restitution), count,
+    )
+    return count

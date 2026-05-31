@@ -49,6 +49,8 @@ class PhaseProfiler:
         self._phase_ns: dict[str, int] = {}
         self._render_ns: int = 0
         self._render_calls: int = 0
+        self._physics_ns: int = 0
+        self._physics_calls: int = 0
         self._ticks: int = 0
 
     @contextlib.contextmanager
@@ -71,6 +73,19 @@ class PhaseProfiler:
             return
         self._render_ns += int(elapsed_ns)
         self._render_calls += 1
+
+    def add_physics(self, elapsed_ns: int) -> None:
+        """Record one PhysX step call and its wall-time (a subset of env_step).
+
+        Called once per decimation substep; the manager-loop remainder is
+        ``env_step - render - physics``, which isolates the Python-side
+        manager dispatch (rewards / terminations / events / curriculum) from
+        the C++ PhysX cost.
+        """
+        if not self.enabled:
+            return
+        self._physics_ns += int(elapsed_ns)
+        self._physics_calls += 1
 
     def tick(self) -> None:
         """Mark one completed loop iteration."""
@@ -105,17 +120,22 @@ class PhaseProfiler:
 
         total_ms = sum(self._phase_ns.values()) * per
         render_ms = self._render_ns * per
+        physics_ms = self._physics_ns * per
         env_ms = ms("env_step")
-        sim_mgr_ms = max(0.0, env_ms - render_ms)
+        # Manager-loop remainder once render + physics are carved out of
+        # env.step. Clamped at 0 in case sub-timer wrappers were not installed.
+        mgr_ms = max(0.0, env_ms - render_ms - physics_ms)
         fps = 1000.0 / total_ms if total_ms > 0 else float("inf")
         rc = self._render_calls / ticks
+        pc = self._physics_calls / ticks
         ordered = ("driver", "env_step", "writer", "overhead")
         parts: list[str] = []
         for name in ordered:
             if name == "env_step":
                 parts.append(
                     f"env_step={env_ms:.1f} "
-                    f"[render={render_ms:.1f} sim+mgr={sim_mgr_ms:.1f}]"
+                    f"[render={render_ms:.1f} physics={physics_ms:.1f} "
+                    f"mgr={mgr_ms:.1f}]"
                 )
             else:
                 parts.append(f"{name}={ms(name):.1f}")
@@ -125,5 +145,5 @@ class PhaseProfiler:
         return (
             f"[profile] {ticks} ticks  total={total_ms:.1f}ms (~{fps:.1f} fps)  "
             + "  ".join(parts)
-            + f"  render_calls/tick={rc:.2f}"
+            + f"  render_calls/tick={rc:.2f}  physics_steps/tick={pc:.2f}"
         )

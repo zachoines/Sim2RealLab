@@ -78,17 +78,42 @@ class TestPhaseAccounting:
         # ~20 fps at 50ms/tick.
         assert "~20.0 fps" in line
 
-    def test_render_is_subset_of_env_step(self, clock):
+    def test_env_step_splits_into_render_physics_mgr(self, clock):
         p = PhaseProfiler(enabled=True)
         with p.phase("env_step"):
             clock.advance_ms(40)
-        # Of the 40ms env_step, 30ms was render.
-        p.add_render(30_000_000)
+        # Of the 40ms env_step: 12ms render, 22ms physics, 6ms manager loop.
+        p.add_render(12_000_000)
+        p.add_physics(22_000_000)
         p.tick()
         line = p.format_window()
-        assert "render=30.0" in line
-        assert "sim+mgr=10.0" in line
+        assert "render=12.0" in line
+        assert "physics=22.0" in line
+        assert "mgr=6.0" in line
         assert "render_calls/tick=1.00" in line
+
+    def test_physics_steps_per_tick_counts_substeps(self, clock):
+        p = PhaseProfiler(enabled=True)
+        with p.phase("env_step"):
+            clock.advance_ms(40)
+        # Decimation = 4 substeps, each 8ms physics.
+        for _ in range(4):
+            p.add_physics(8_000_000)
+        p.tick()
+        line = p.format_window()
+        assert "physics=32.0" in line
+        assert "physics_steps/tick=4.00" in line
+
+    def test_mgr_clamps_to_zero_without_subtimers(self, clock):
+        # If neither wrapper is installed, mgr must not go negative.
+        p = PhaseProfiler(enabled=True)
+        with p.phase("env_step"):
+            clock.advance_ms(40)
+        p.tick()
+        line = p.format_window()
+        assert "render=0.0" in line
+        assert "physics=0.0" in line
+        assert "mgr=40.0" in line
 
     def test_means_average_over_ticks(self, clock):
         p = PhaseProfiler(enabled=True)

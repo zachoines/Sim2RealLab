@@ -892,11 +892,12 @@ def main() -> int:
     perception_camera = scene.sensors["d555_camera_perception"]
     policy_camera = scene.sensors.get("d555_camera") if needs_policy else None
 
-    # Per-phase loop profiler (off unless --profile). The render happens
-    # inside env.step via the sim's render pump, so we attribute its
-    # wall-time by wrapping sim.render to accumulate into the profiler —
-    # that lets the breakdown split env.step into render vs sim+manager
-    # without a second render pass. No-op when profiling is disabled.
+    # Per-phase loop profiler (off unless --profile). Render and PhysX both
+    # happen inside env.step, so we attribute their wall-time by wrapping the
+    # sim's render pump and physics step to accumulate into the profiler —
+    # that lets the breakdown split env.step into render vs physics vs the
+    # Python manager-loop remainder, without a second render or step pass.
+    # No-op when profiling is disabled.
     profiler = PhaseProfiler(
         enabled=bool(getattr(args, "profile", False)),
         report_period_s=float(getattr(args, "profile_report_period_s", 2.0)),
@@ -904,6 +905,7 @@ def main() -> int:
     if profiler.enabled:
         _sim = unwrapped.sim
         _orig_render = _sim.render
+        _orig_step = _sim.step
 
         def _timed_render(*r_args, **r_kwargs):
             _t0 = time.perf_counter_ns()
@@ -912,11 +914,19 @@ def main() -> int:
             finally:
                 profiler.add_render(time.perf_counter_ns() - _t0)
 
+        def _timed_step(*s_args, **s_kwargs):
+            _t0 = time.perf_counter_ns()
+            try:
+                return _orig_step(*s_args, **s_kwargs)
+            finally:
+                profiler.add_physics(time.perf_counter_ns() - _t0)
+
         _sim.render = _timed_render
+        _sim.step = _timed_step
         print(
             "[teleop_capture] --profile on: per-phase loop breakdown every "
-            f"{profiler.report_period_s:.1f}s (render time attributed via "
-            "sim.render wrapper).",
+            f"{profiler.report_period_s:.1f}s (render + physics attributed via "
+            "sim.render / sim.step wrappers; mgr = env_step - render - physics).",
             flush=True,
         )
 

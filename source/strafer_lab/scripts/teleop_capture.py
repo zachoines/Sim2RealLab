@@ -209,6 +209,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "frames (the perception camera render product is a separate surface "
         "at its own fixed resolution). world_arcade mode only.",
     )
+    parser.add_argument(
+        "--render-interval",
+        type=int, default=None,
+        help="Override sim.render_interval (renders per env.step are issued "
+        "every render_interval physics substeps). INSPECTION KNOB: pass 1 to "
+        "render every physics substep so the viewport shows wheel/roller-vs-"
+        "ground contact at the true physics rate (decimation renders/step "
+        "instead of 1) — this is how to visually verify physics fidelity with "
+        "the --phys-* overrides. Costs FPS (more renders/step); not for "
+        "capture sessions. Default keeps the env value (matched to decimation).",
+    )
     # --- Teleop-only PhysX overrides (stable-AND-cheap experiment) -------
     # All applied to a COPY of the shared STRAFER_CFG via .replace(); the
     # shared articulation cfg and the RL-training physics contract are never
@@ -948,6 +959,28 @@ def main() -> int:
                 f"sim.dt={_new_dt:.6f}s, control rate held at {_ctrl_hz:.1f} Hz "
                 f"(PhysX does {_new_decim} substeps/step instead of {_old_decim}; "
                 "coarser contact resolution — watch for tunneling).",
+                flush=True,
+            )
+
+    # Render-interval inspection override. The decimation block above set
+    # render_interval = decimation (one render per env.step). Passing
+    # --render-interval explicitly wins, so --render-interval 1 renders every
+    # physics substep — the viewport then shows wheel/roller-vs-ground contact
+    # at the true physics rate, which is how to visually verify physics
+    # fidelity under the --phys-* overrides. Costs FPS; inspection only.
+    if args.render_interval is not None:
+        if args.render_interval < 1:
+            print(f"[teleop_capture] --render-interval must be >= 1 (got "
+                  f"{args.render_interval}); ignored.", file=sys.stderr, flush=True)
+        elif hasattr(env_cfg.sim, "render_interval"):
+            env_cfg.sim.render_interval = int(args.render_interval)
+            _decim_now = int(getattr(env_cfg, "decimation", 1))
+            _renders_per_step = max(1, _decim_now // int(args.render_interval))
+            print(
+                f"[teleop_capture] --render-interval={args.render_interval} "
+                f"(decimation={_decim_now} → ~{_renders_per_step} render(s) per "
+                "env.step). INSPECTION: viewport shows contact at the physics "
+                "rate; expect lower FPS.",
                 flush=True,
             )
 

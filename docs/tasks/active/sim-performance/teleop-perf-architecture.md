@@ -488,6 +488,73 @@ wall-time.)
 > substep for one robot in a static room is high) — surfaced here, not
 > filed as a new brief.
 
+### Decimation sweep + physics root-cause (operator-measured)
+
+The operator ran the `--decimation` knob and the result, plus a source
+read of the robot's physics config, explains why decimation is a dead end
+for the rollers and points at the real lever. **No physics change is made
+in this brief — this is the investigation that scopes one.**
+
+Steady-state per env.step, `scene_high_quality_dgx_000_seed1`:
+
+| `--decimation` | substep `sim.dt` | physics Hz | physics ms | total ms | FPS | stable? |
+|---|---|---|---:|---:|---:|---|
+| 4 (default) | 1/120 (8.3 ms) | 120 | ~93 | ~160 | ~5.5 | yes |
+| 2 | 1/60 (16.7 ms) | 60 | ~61 | ~140 | ~7.1 | yes |
+| 1 | 1/30 (33 ms) | 30 | ~28 | ~95 | ~10.5 | **NO — robot jumps / flips** |
+
+**Why decimation 1 is unstable.** `env.step` runs `decimation` PhysX
+substeps of `sim.dt` each; the `--decimation` knob holds the *control*
+rate fixed (`decimation × sim.dt` constant) so the dataset is unchanged,
+which means lowering decimation **lengthens each substep** (8.3 → 33 ms).
+The Strafer drivetrain is 4 mecanum wheels × 10 passive free-spinning
+rollers (40 roller contacts), rollers reaching 32.67 rad/s with tiny
+inertia. At a 33 ms substep PhysX cannot converge those roller contacts;
+the result is phantom constraint forces that throw and flip the robot —
+the **same divergence mode already documented at
+`assets/strafer.py:97-99`** (low roller damping caused "GPU TGS solver
+divergence … flipping the robot via phantom constraint forces"). So
+decimation 1 is physically wrong for this robot, not a tuning miss; the
+usable knob range is decimation ≥ 2.
+
+**The key measured invariant:** physics cost scales as
+`decimation × ~25 ms/substep` — the *per-substep* cost (~25 ms) is roughly
+constant across the sweep. The expensive thing is **one contact solve**,
+not the number of them. That is the lever.
+
+**Where the cost lives (source).** Per substep PhysX runs the robot's
+solver iterations, set on the shared articulation at
+[`assets/strafer.py:56-57`](../../../../source/strafer_lab/strafer_lab/assets/strafer.py#L56-L57):
+`solver_position_iteration_count=32`, `solver_velocity_iteration_count=16`
+— roughly 8× a typical Isaac Lab default (4/1), chosen to keep the 40
+roller contacts stable. The PhysX scene config with
+`enable_stabilization=True`
+([`strafer_env_cfg.py:1462-1470`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py#L1462-L1470))
+is applied **only on the ProcRoom path** (`_apply_procroom_physx_buffers`);
+the Infinigen capture env (`_apply_infinigen_scene_setup`) sets **no
+`sim.physics` override**, so teleop runs PhysX defaults — no stabilization.
+
+**The right (un-built) lever:** cut the *per-substep* cost while keeping
+`sim.dt = 1/120` (stable), by lowering the solver iteration counts
+(e.g. 32/16 → 8/4) and/or enabling stabilization — applied **only to the
+teleop capture variant**, never to `STRAFER_CFG` globally. `STRAFER_CFG`
+and its 32/16 + roller-damping values are the **shared RL-training
+physics contract**; changing them globally would silently alter every
+trained-policy env and is out of scope here. A teleop-variant-only solver
+override is the measurement-gated next step (same pattern as the
+decimation knob), **not done in this brief by operator decision —
+investigate first.**
+
+**Honest ceiling.** Even decimation 2 (physics ~61 ms, stable) plus the
+operator viewport shrink (render ~67 → ~40 ms) plus the manager-loop strip
+lands roughly in the **~9–11 FPS** band — about 2× baseline, not 15. A
+hard sustained 15 FPS on this collider density likely needs a cheaper
+**per-substep** solve (teleop solver override above), the RT 2.0 renderer
+flip (separate brief), or scene-collider simplification — and may not be
+reachable at safe roller fidelity on this scene at all. That "15 may be
+infeasible here without a physics/renderer change" is itself a finding,
+not a failure of the levers.
+
 Implementation order, picked for win-per-risk:
 
 1. **Cleanup first** (postprocess stage-camera stripper) — small,

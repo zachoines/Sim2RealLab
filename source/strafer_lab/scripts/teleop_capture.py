@@ -209,6 +209,45 @@ def _build_parser() -> argparse.ArgumentParser:
         "frames (the perception camera render product is a separate surface "
         "at its own fixed resolution). world_arcade mode only.",
     )
+    # --- Teleop-only PhysX overrides (stable-AND-cheap experiment) -------
+    # All applied to a COPY of the shared STRAFER_CFG via .replace(); the
+    # shared articulation cfg and the RL-training physics contract are never
+    # mutated. The roller pops persist even at the shared 32/16 solver
+    # iterations, so high iteration counts are not buying stability — these
+    # knobs let the operator trade brute-force iterations (cost) for the
+    # contact-stabilization settings that actually govern the pops.
+    phys = parser.add_argument_group(
+        "teleop physics (teleop-only; STRAFER_CFG untouched)",
+    )
+    phys.add_argument(
+        "--teleop-stable-physics", action="store_true",
+        help="Apply the STABLE_CHEAP_PRESET: solver iters 8/4 (cheaper than "
+        "the shared 32/16), enable_stabilization, capped depenetration "
+        "velocity, and tightened bounce / friction / sleep thresholds. A "
+        "starting point for the stable-AND-cheap experiment; individual "
+        "--phys-* flags below override any preset field.",
+    )
+    phys.add_argument("--phys-solver-pos-iters", type=int, default=None,
+                      help="solver_position_iteration_count (shared cfg: 32).")
+    phys.add_argument("--phys-solver-vel-iters", type=int, default=None,
+                      help="solver_velocity_iteration_count (shared cfg: 16).")
+    phys.add_argument("--phys-max-depenetration-vel", type=float, default=None,
+                      help="max_depenetration_velocity (m/s) — caps the 'kick' "
+                      "from an interpenetrating roller being ejected.")
+    phys.add_argument("--phys-stabilization-threshold", type=float, default=None,
+                      help="articulation stabilization_threshold.")
+    phys.add_argument("--phys-sleep-threshold", type=float, default=None,
+                      help="articulation sleep_threshold.")
+    phys.add_argument("--phys-enable-stabilization",
+                      action=argparse.BooleanOptionalAction, default=None,
+                      help="scene PhysX enable_stabilization (default off on "
+                      "the Infinigen path; on for ProcRoom).")
+    phys.add_argument("--phys-bounce-threshold-vel", type=float, default=None,
+                      help="scene bounce_threshold_velocity (m/s) — contacts "
+                      "above this restitute; the roller 'bounce'.")
+    phys.add_argument("--phys-friction-offset-threshold", type=float, default=None,
+                      help="scene friction_offset_threshold (m); default 0.04 "
+                      "is coarse for a 96mm wheel.")
     parser.add_argument(
         "--profile-report-period-s",
         type=float, default=2.0,
@@ -253,6 +292,13 @@ from strafer_lab.tools.phase_profiler import PhaseProfiler
 from strafer_lab.tools.teleop_perf_knobs import (
     resolve_decimation,
     resolve_viewport_resolution,
+)
+from strafer_lab.tools.teleop_physics import (
+    STABLE_CHEAP_PRESET,
+    TeleopPhysicsOverride,
+    articulation_prop_overrides,
+    rigid_prop_overrides,
+    scene_physx_overrides,
 )
 from strafer_lab.tools.lerobot_writer import (
     StraferLeRobotWriter,
@@ -480,6 +526,80 @@ def _arcade_follow_tick(unwrapped, robot_xy: tuple[float, float]) -> None:
         # Per-tick path — swallow to avoid breaking the env step loop on
         # transient Kit state. A persistent issue surfaces on init.
         pass
+
+
+def _teleop_physics_override_from_args(args) -> TeleopPhysicsOverride:
+    """Build the teleop PhysX override from CLI args.
+
+    Starts from the preset when ``--teleop-stable-physics`` is set (else an
+    empty no-op override), then applies any explicitly-passed ``--phys-*``
+    field on top so an individual flag overrides the corresponding preset
+    value.
+    """
+    from dataclasses import replace as _dc_replace
+
+    base = STABLE_CHEAP_PRESET if args.teleop_stable_physics else TeleopPhysicsOverride()
+    fields = {
+        "solver_position_iteration_count": args.phys_solver_pos_iters,
+        "solver_velocity_iteration_count": args.phys_solver_vel_iters,
+        "max_depenetration_velocity": args.phys_max_depenetration_vel,
+        "stabilization_threshold": args.phys_stabilization_threshold,
+        "sleep_threshold": args.phys_sleep_threshold,
+        "enable_stabilization": args.phys_enable_stabilization,
+        "bounce_threshold_velocity": args.phys_bounce_threshold_vel,
+        "friction_offset_threshold": args.phys_friction_offset_threshold,
+    }
+    explicit = {k: v for k, v in fields.items() if v is not None}
+    return _dc_replace(base, **explicit) if explicit else base
+
+
+def _apply_teleop_physics(env_cfg, override: TeleopPhysicsOverride) -> None:
+    """Apply a teleop-only PhysX override to ``env_cfg`` in place.
+
+    Touches only this env's robot-spawn props and ``sim.physics`` — both via
+    fresh ``.replace()`` copies — so the shared ``STRAFER_CFG`` and the
+    RL-training physics contract are never mutated. Logs exactly what
+    changed so the operator can correlate a sweep value with roller behavior.
+    """
+    import isaaclab.sim as sim_utils  # noqa: F401 — needs the Kit runtime
+
+    override.validate()
+    if override.is_noop():
+        return
+
+    robot = getattr(env_cfg.scene, "robot", None)
+
+    # Robot articulation-root + rigid-body props (solver iters, kick, sleep).
+    if override.touches_articulation() and robot is not None:
+        spawn = robot.spawn
+        art_kwargs = articulation_prop_overrides(override)
+        if art_kwargs and getattr(spawn, "articulation_props", None) is not None:
+            spawn.articulation_props = spawn.articulation_props.replace(**art_kwargs)
+        rb_kwargs = rigid_prop_overrides(override)
+        if rb_kwargs:
+            if getattr(spawn, "rigid_props", None) is not None:
+                spawn.rigid_props = spawn.rigid_props.replace(**rb_kwargs)
+            else:
+                spawn.rigid_props = sim_utils.RigidBodyPropertiesCfg(**rb_kwargs)
+
+    # Scene-level PhysX cfg (global stabilization, bounce, friction).
+    scene_kwargs = scene_physx_overrides(override)
+    if scene_kwargs:
+        cur = getattr(env_cfg.sim, "physics", None)
+        if cur is not None and hasattr(cur, "replace"):
+            env_cfg.sim.physics = cur.replace(**scene_kwargs)
+        else:
+            from isaaclab_physx.physics import PhysxCfg
+            env_cfg.sim.physics = PhysxCfg(**scene_kwargs)
+
+    print(
+        "[teleop_capture] teleop-only PhysX override applied "
+        "(STRAFER_CFG / RL training untouched): "
+        f"articulation={articulation_prop_overrides(override)} "
+        f"rigid={rigid_prop_overrides(override)} "
+        f"scene={scene_physx_overrides(override)}",
+        flush=True,
+    )
 
 
 def _as_torch(arr):
@@ -830,6 +950,20 @@ def main() -> int:
                 "coarser contact resolution — watch for tunneling).",
                 flush=True,
             )
+
+    # Teleop-only PhysX override (stable-AND-cheap experiment). Applied AFTER
+    # __post_init__ + the decimation block so it composes on the final env
+    # cfg. All edits go through .replace() on this env's own robot spawn /
+    # sim.physics — the shared STRAFER_CFG and the RL-training contract are
+    # never touched. No-op unless --teleop-stable-physics or a --phys-* flag
+    # is passed.
+    _phys_override = _teleop_physics_override_from_args(args)
+    if not _phys_override.is_noop():
+        try:
+            _apply_teleop_physics(env_cfg, _phys_override)
+        except ValueError as exc:
+            print(f"[teleop_capture] teleop physics override rejected: {exc}",
+                  file=sys.stderr, flush=True)
 
     if args.scene_usd:
         env_cfg.scene.scene_geometry.spawn.usd_path = str(Path(args.scene_usd).resolve())

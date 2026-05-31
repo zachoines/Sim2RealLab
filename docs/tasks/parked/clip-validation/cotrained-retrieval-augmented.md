@@ -268,6 +268,24 @@ loss_3` and tune via per-loss validation curves. Standard
 multi-task balancing (gradient surgery, uncertainty weighting)
 applies if losses fight.
 
+**Loss form on a SigLIP-2 trunk — sigmoid, not InfoNCE (for the
+image-text heads).** The shared trunk the spine selects (SigLIP-2-B
+per [`backbone-bakeoff`](backbone-bakeoff.md)) is pretrained with the
+**sigmoid (SigLIP) image-text loss**, not softmax/InfoNCE. So heads
+1 (image-vs-caption) and 3 (hard-negative target-text) — the two
+**image-text** heads — should train with the **sigmoid pairwise
+loss**, not the InfoNCE form inherited from the OpenCLIP-era draft:
+(a) it keeps the LoRA-adapted embeddings in the pretrained geometry,
+and (b) it is **batch-size-robust** (sigmoid scores each pair
+independently — no in-batch all-gather of negatives), which matters
+because the harness corpus is small and a batch carries few
+negatives — exactly the regime where InfoNCE degrades. Head 2
+(same-region **image-image** contrastive) is a SimCLR/triplet-style
+objective and is unaffected. Per
+[`context/perception-backbone-architecture.md`](../../context/perception-backbone-architecture.md)
+the base stays frozen; these heads ride on LoRA + the per-case
+projection heads.
+
 **The loss-geometry tension — and why the heads, not the trunk,
 specialize.** Heads 2 and 3 pull in opposite directions on the
 *same* same-room frames: head 2 (same-region image-image

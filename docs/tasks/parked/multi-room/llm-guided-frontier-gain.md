@@ -65,6 +65,25 @@ Read these before starting:
   as off-course. See that brief's "Coordination flag
   (exploration ≠ deviation)" note.
 
+### Exploration legs disarm the CLIP tripwire — by leg-type
+
+This skill's frontier-walking and (under the v1.5 extension)
+candidate-room re-visits deliberately leave the geodesic line to
+the mission target. The CLIP mid-mission tripwire must therefore be
+**disarmed on exploration legs by leg-type**, so that this skill's
+normal behavior is never scored as deviation. The per-leg deviation
+contract — which leg-types arm the tripwire and which disarm it —
+is owned by
+[`clip-multi-room-validator-remeasure`](../../parked/clip-validation/clip-multi-room-validator-remeasure.md);
+this brief does not re-encode that table, it only relies on the
+exploration leg-type being on the disarmed side of it.
+
+Frontier-vs-target consistency stays this skill's **soft LLM
+ranking prior** (the `llm_prior` gain term above) — it biases
+frontier *order*, it is **never a hard CLIP abort**. A frontier
+that the LLM ranks low is deprioritized, not aborted; only a
+committed navigate-to-target leg is in scope for the tripwire.
+
 ## Context
 
 ### Why this is an extension, not a different direction

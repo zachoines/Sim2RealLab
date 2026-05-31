@@ -69,9 +69,11 @@ entities the LLM planner can reason over.
 
 ### Backbone (clip-validation epic)
 
+The one shared backbone the whole perception-learning stack rides on is specified in [`perception-backbone-architecture.md`](perception-backbone-architecture.md) — one frozen text-capable trunk (SigLIP-2-B lead) with per-consumer LoRA/heads, one forward pass feeding the validator, region partition, VPR, and the implicit-memory cross-attention; a dedicated DINOv2 trunk is the escape valve only.
+
 | Brief | Role |
 |---|---|
-| [`backbone-bakeoff`](../parked/clip-validation/backbone-bakeoff.md) | Replaces OpenCLIP ViT-B/32 with DINOv3 / SigLIP-2 / MobileCLIP-2 across every CLIP consumer (room labeling, text queries, validator cosine, semantic-map retrieval). Orthogonal to the version stack — upgrades v1, v2, v3 transparently. |
+| [`backbone-bakeoff`](../parked/clip-validation/backbone-bakeoff.md) | Picks the one shared frozen trunk (SigLIP-2-B lead, MobileCLIP-2-S; OpenCLIP ViT-B/32 baseline; DINOv3-S only as a hybrid vision tower if single-tower VPR fails) across every consumer (room labeling, text queries, validator cosine, semantic-map retrieval, VPR, region). Runs *before* `validator-evaluation` v1. Orthogonal to the version stack — upgrades v1, v2, v3 transparently. |
 
 ---
 

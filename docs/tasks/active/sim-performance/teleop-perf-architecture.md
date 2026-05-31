@@ -148,6 +148,24 @@ levers below attack the actual binding constraints.
    in [Operator FAQ → E](#e-lower-env_step_hz-from-30-to-15--clip--vla-training-implications):
    does this hurt CLIP / VLA training?
 
+   > **Measurement correction — this lever does not improve FPS.** The
+   > "doubles every tick's compute budget" claim assumes a
+   > real-time-throttled loop with reclaimable slack. The teleop loop is
+   > free-running (no per-tick pacing — only an episode-boundary
+   > debounce), and `ManagerBasedRLEnv.step` issues exactly one
+   > `sim.render()` per env.step gated by `render_interval`, independent
+   > of `sim.dt`. Lowering `env_step_hz` by stretching `sim.dt` changes
+   > only how much sim-time a tick represents, not its wall-cost (same
+   > substep count, same single render). Operator measurement on
+   > `scene_high_quality_dgx_000_seed1` confirmed: lowering the step rate
+   > produced no notable FPS change. `--env-step-hz` remains meaningful
+   > only as an action-fidelity knob (FAQ → E), not a perf lever, and was
+   > dropped from the cheap-bundle PR. Before choosing among the
+   > remaining levers, the loop is now measured directly by the
+   > `--profile` per-phase instrumentation on the teleop driver (see
+   > Approach); the 50 ms-render / 135 ms-env.step split below is the
+   > original estimate that instrumentation exists to confirm or correct.
+
 4. **Per-env-variant camera configuration.** Different consumers
    need different camera outputs. Today the InfinigenPerception env
    instantiates both the 640×360 perception camera AND the 80×60
@@ -366,6 +384,15 @@ Infinigen scenes at `--capture-rate-hz 8`.
       via Start-held quit.
 
 **Lever 3 — Lower env_step_hz for teleop default:**
+
+> **Withdrawn as a perf lever (measurement).** The teleop loop is
+> free-running and renders once per `env.step` regardless of `sim.dt`,
+> so lowering `env_step_hz` does not change felt FPS — confirmed by
+> operator measurement and explained in the Motivation correction note
+> above. The items below are retained for history but no longer count
+> toward this brief's perf bar; a `--env-step-hz` knob may still ship
+> later purely as an action-fidelity control.
+
 - [ ] `Scripts/capture.py --driver teleop` exposes
       `--env-step-hz` with default 30 (back-compat). Operator
       can pass `--env-step-hz 15` for a perf-prioritized
@@ -413,6 +440,17 @@ The perf-side acceptance kept here:
       `(driver, mission_source)` matrix is unchanged.
 
 ## Approach
+
+**Measure first.** The teleop driver carries a `--profile` flag that
+prints a rolling per-phase wall-time breakdown of the env-step loop
+(driver read / `env.step` split into render vs sim+manager / writer /
+viewport+HUD+PIP overhead) plus render-calls-per-tick. The original
+50 ms-render / 135 ms-env.step split in the Motivation is an *estimate*;
+run `--profile` on the target scene + DGX and let the measured dominant
+phase pick the next lever, rather than reasoning off the estimate. (This
+is why Lever 3 was withdrawn — measurement showed the loop is
+render-once-per-step and free-running, so the step-rate dial reclaims no
+wall-time.)
 
 Implementation order, picked for win-per-risk:
 

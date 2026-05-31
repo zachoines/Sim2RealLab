@@ -141,6 +141,29 @@ Rough survivorship from PR #40 (v1) into v3: ~60% of lines. The
 detector, snapshot, and skill registration are stable; the loop
 body is rewritten.
 
+### Exploration legs disarm the CLIP tripwire — by leg-type
+
+The FSM's identification and verification states **revisit
+candidate rooms and re-ground from multiple poses by design** —
+they deliberately leave the geodesic line to the mission target
+even more than v2's flat per-step ranking does. The CLIP
+mid-mission tripwire from
+[`validator-evaluation`](../../active/clip-validation/validator-evaluation.md)
+must therefore be **disarmed on exploration legs by leg-type**, so
+that none of these states is scored as deviation. The per-leg
+deviation contract — which leg-types arm the tripwire and which
+disarm it — is owned by
+[`clip-multi-room-validator-remeasure`](../../parked/clip-validation/clip-multi-room-validator-remeasure.md);
+this brief does not re-encode that table, it only relies on the
+exploration / re-verification leg-types being on the disarmed side
+of it.
+
+Frontier-vs-target consistency — including the verification
+state's re-grounding decision — stays a **soft LLM ranking**
+(this skill inherits v2's `llm_prior` gain). It biases which
+frontier or candidate room the FSM investigates next; it is
+**never a hard CLIP abort**.
+
 ### Latency budget
 
 v3 fires the LLM 2–3× per exploration step vs. v2's 1×. Each

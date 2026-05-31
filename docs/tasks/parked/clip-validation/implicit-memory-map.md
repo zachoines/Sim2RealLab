@@ -7,7 +7,17 @@ module into the inference path)
 **Priority:** P3 — filed-on-trigger. The shared sub-symbolic
 primitive both the CLIP cascade validator and the v2 VLA
 consume. Build it when the first consumer commits to it (see
-"Trigger detail").
+"Trigger detail"). **This is a *planned warm-map consumer*, not a
+marginal parked-maybe.** Per the
+[`perception-backbone-architecture.md`](../../context/perception-backbone-architecture.md)
+spine's deployment context — one robot, one home, long-lived — the
+**warm map is the steady state** and cold-start is the first-hour
+transient. Retrieval-augmented embedding is therefore a steady-state
+booster on the dominant operating regime, which is why the spine
+elevates this from "maybe-marginal" to a planned consumer. It stays
+gated behind a real trigger only because it is *shared
+infrastructure built on first commit*, not because its value is in
+doubt.
 **Estimate:** L (~1–1.5 wk; cross-attention module + RAG-aware
 training loop + cold-deployment augmentation + ONNX export +
 ablation against the bare-encoder baseline)
@@ -43,6 +53,7 @@ Read these before starting:
 - [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
 - [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
 - [`context/conventions.md`](../../context/conventions.md)
+- [`context/perception-backbone-architecture.md`](../../context/perception-backbone-architecture.md) — the **frozen shared-trunk** spine. This brief is the "Step B memory cross-attention" consumer in that module's consumer table; it is a **shared-frozen-trunk consumer** (it augments embeddings from the one frozen trunk, never unfreezes it), and the spine's single-home / warm-map deployment context is why this primitive is a *planned* consumer rather than a marginal one.
 - [`context/multi-room-architecture.md`](../../context/multi-room-architecture.md) — the symbolic-vs-sub-symbolic split. This brief is the **sub-symbolic** primitive; the symbolic counterpart is [`semantic-region-partition`](../../active/multi-room/semantic-region-partition.md).
 - [`validator-evaluation`](../../active/clip-validation/validator-evaluation.md)
   — the v1 cascade + the ChromaDB retrieval primitive this
@@ -61,10 +72,25 @@ This is shared infrastructure; build it when the first
 consumer is ready to commit, not speculatively. Un-park when
 **either**:
 
-1. **[`cotrained-retrieval-augmented`](cotrained-retrieval-augmented.md)
-   reaches its Step B** (Step A co-training shipped; the
-   cascade wants retrieval-augmented inference). The validator
-   is consumer #1 and the most likely first mover.
+1. **[`cotrained-retrieval-augmented`](cotrained-retrieval-augmented.md)'s
+   Step A has shipped AND the warm-leg residual after Step A
+   justifies retrieval AND — for the case-2 memory head — the R1
+   per-frame detections column has landed in the harness.** All
+   three: Step A alone may already clear the bar (no retrieval
+   needed); retrieval is only worth building when a measured
+   warm-leg residual remains after co-training. The case-2 head
+   additionally needs per-frame instance visibility, which the
+   harness does **not** store today — that is the **R1 detections
+   column** (`observation.detections.{bbox,label_id,occlusion,valid}`,
+   where `occlusion` supplies per-frame visibility) the
+   orchestrator lands and that
+   [`vlm-grounding-finetune`](vlm-grounding-finetune.md) also waits
+   on. (Per-frame GT *room* is already derivable on demand from
+   `(pose, scene_metadata)` via
+   [`scene_labels.get_room_at_position`](../../../../source/strafer_lab/strafer_lab/tools/scene_labels.py#L148),
+   which is why the case-1 head needs no harness change — see the
+   case split below.) The validator is consumer #1 and the most
+   likely first mover.
 2. **[`vla-v2-map-conditioning`](../experimental/vla-v2-map-conditioning.md)
    picks Option B** (the ablation shows cross-attention over a
    memory bank beats text-serialization / no-consumption on
@@ -98,6 +124,30 @@ Same primitive (memory bank + cross-attention), same training
 pattern (RAG-aware), same cold-start problem — built once,
 consumed twice.
 
+### Case-1 memory head is prototypable now; case-2 waits on the harness
+
+The two validator memory heads are not equally ready, and the
+split matters for sequencing:
+
+- **Case-1 (region / place) head — prototypable NOW.** The
+  supervision is a region label derived from `pose →
+  scene_metadata` (room polygons via
+  [`scene_labels.get_room_at_position`](../../../../source/strafer_lab/strafer_lab/tools/scene_labels.py#L148)),
+  and the training-time retrieval index is rebuilt inside the
+  training script (see "two retrievals" below). **Zero harness
+  change** — every input already exists in the LeRobot v3 corpus.
+  A case-1-only prototype of this primitive can be built the
+  moment the warm-leg residual justifies it.
+- **Case-2 (instance / target-text) head — waits on R1.** It
+  needs **per-frame instance visibility** (which frames actually
+  show the focal instance), which the harness does not store today.
+  That signal arrives with the **R1 detections column**
+  (`observation.detections.occlusion`, landed by the orchestrator;
+  see [`vlm-grounding-finetune`](vlm-grounding-finetune.md)'s "R1
+  detections column" section) — the same per-frame-visibility
+  dependency in the un-park trigger above. Until R1 lands, only the
+  case-1 head is buildable and the case-2 head is deferred.
+
 ### The primitive
 
 ```
@@ -121,12 +171,33 @@ and the consumer head must all be dimensioned from the loaded
 tower so a backbone swap does not silently break the
 cross-attention or the cosine path.
 
-**Retrieval.** Reuses
-[`SemanticMapManager.query_by_embedding`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/manager.py)
-for top-K = 8 (default; tunable) past observations from
-ChromaDB. Each contributes its embedding + metadata (pose,
-timestamp, source). Same index at train and inference time —
-no train-test mismatch on the memory side.
+**Retrieval — two different indices, train vs. deploy.** The
+brief must keep these distinct; the prior "reuses
+`SemanticMapManager.query_by_embedding`" phrasing conflated them.
+
+- **At TRAINING the index is a RAM structure (exact top-K), not
+  ChromaDB.** It is rebuilt **per run** by re-encoding the harness
+  frames through the *current* (possibly co-trained) frozen
+  backbone, and held in memory for exact top-K = 8 (default;
+  tunable) lookup. **Do NOT persist these embeddings.** They are
+  backbone-specific, and Step A co-trains the tower, so a persisted
+  store would be stale the next run; persisting also re-introduces
+  the dim-pinning fragility the spine warns about (the live
+  `_EMBEDDING_DIM = 512` sentinel at
+  [`clip_encoder.py:17`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/clip_encoder.py)).
+  **Freeze the encoder during this step** so the RAM index is built
+  exactly once per run and every batch retrieves against a stable
+  set of keys.
+- **At DEPLOYMENT the index is the persistent ChromaDB / HNSW
+  store** reached via
+  [`SemanticMapManager.query_by_embedding`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/manager.py).
+  This is the warm map the robot accumulates on its one home.
+
+Each retrieved neighbor contributes its embedding + metadata
+(pose, timestamp, source) in both paths; what differs is the
+backing store (RAM, rebuilt-per-run, never persisted vs. on-disk
+ChromaDB/HNSW). The cross-attention module is identical across the
+two — only the retrieval substrate changes.
 
 ### RAG-aware training + the cold-deployment problem
 
@@ -139,9 +210,11 @@ training-with-retrieval beats inference-only retrieval.
 pool is the full harness corpus (the
 [`validator-evaluation`](../../active/clip-validation/validator-evaluation.md)
 episode set — same `held_out_seeds` protocol, minus the
-held-out trajectory); the deployment-time pool is whatever the
-`SemanticMapManager` has accumulated on this house — empty on
-a fresh deployment, growing to ~50–200 nodes. A layer trained
+held-out trajectory), held in the rebuilt-per-run RAM index
+above, never persisted; the deployment-time pool is whatever the
+`SemanticMapManager`'s persistent ChromaDB store has accumulated
+on this house — empty on a fresh deployment, growing to ~50–200
+nodes. A layer trained
 only against a dense pool collapses at K=0 (no keys) or K=1
 (degenerate softmax). Mitigation, from
 [Atlas (Izacard et al., 2022)](https://arxiv.org/abs/2208.03299)
@@ -171,7 +244,12 @@ inference path picks `K` per the current node count.
 2. **RAG-aware training script** at
    `source/strafer_lab/scripts/train_implicit_memory_map.py`.
    `K_train ∈ {0, 1, 2, 4, 8}` augmentation; held-out-trajectory
-   holdout protocol to prevent leakage.
+   holdout protocol to prevent leakage. The training-time
+   retrieval index is a **RAM structure (exact top-K) rebuilt
+   once per run** by re-encoding the harness frames through the
+   frozen backbone — **not** ChromaDB, and embeddings are **not**
+   persisted (see "Retrieval — two different indices"). Freeze the
+   encoder during this step so the index is built once.
 3. **ONNX export** to `~/.strafer/models/memory_map.onnx`,
    consumable by both the validator path and the VLA path.
 4. **Consumer interfaces** documented for both:

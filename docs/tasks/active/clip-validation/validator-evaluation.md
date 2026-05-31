@@ -7,14 +7,23 @@ output)
 **Priority:** P1 (gates whether mid-mission validation graduates,
 becomes a co-trained-validator follow-up
 ([`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md)),
-or gets retired). Blocked
+or gets retired). **Pickup gate: now AFTER
+[`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md)**
+— the cascade ships on the shared trunk the bake-off chooses (the
+frozen text-capable trunk per
+[`context/perception-backbone-architecture.md`](../../context/perception-backbone-architecture.md)),
+not on whatever ONNX happens to sit in `~/.strafer/models/`. The
+roadmap reorder (backbone chosen first, then v1) is recorded in the
+spine's Roadmap section; it is affordable because the project is
+greenfield on weights. Also blocked
 on harness output existing from **any driver mode**
 (teleop via
 [`harness-architecture`](../harness/harness-architecture.md)'s
 [Driver: teleop](../harness/harness-architecture.md#driver-teleop)
 is the fastest-to-produce; bridge via `next-integration-round`
-also works) and a CLIP ONNX existing under `~/.strafer/models/`
-(one-time prerequisite — see Prerequisites below).
+also works) and the chosen trunk's exported visual + text encoders
+existing under `~/.strafer/models/` (a bake-off output — see
+Prerequisites below).
 **Estimate:** L (~multi-day; small-but-broad implementation +
 calibration measurement + write-up)
 **Branch:** task/clip-mid-mission-validator-evaluation
@@ -40,6 +49,12 @@ Read these before starting:
 - [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
 - [`context/conventions.md`](../../context/conventions.md)
 - [`context/bridge-runtime-invariants.md`](../../context/bridge-runtime-invariants.md)
+- [`context/perception-backbone-architecture.md`](../../context/perception-backbone-architecture.md)
+  — the frozen-trunk spine. This brief's cascade is the validator
+  consumer (case-1 image-vs-image + case-2 image-vs-text) on the
+  shared trunk; the spine fixes the trunk family, the freeze
+  invariant, the backbone dimension, and the roadmap order this
+  brief sits in.
 
 Parent design doc:
 [`docs/MISSION_VALIDATION_ARCHITECTURE.md`](../../../MISSION_VALIDATION_ARCHITECTURE.md).
@@ -58,11 +73,119 @@ if missing.
 | Prerequisite | Why | How it gets there |
 |---|---|---|
 | Populated LeRobot v3 dataset at `data/sim_in_the_loop/<scene>/` for ≥ 3 scenes × ≥ 30 missions | Without harness episodes, no metrics can be computed | **Fastest path: teleop.** [`harness-architecture`](../harness/harness-architecture.md)'s [Driver: teleop](../harness/harness-architecture.md#driver-teleop) gets to ≥ 3 scenes × 30 success + 30 hard-negative episodes in ~one operator-evening. **Slower path: bridge.** [`next-integration-round`](../investigations/next-integration-round.md) produces bridge-driver output as part of its acceptance, blocked on MPPI / Nav2 stability. Either driver's output works — the eval script consumes via HF `LeRobotDataset` regardless of source. |
-| `~/.strafer/models/clip_visual.onnx` + `clip_text.onnx` | The eval script and the new image-vs-text tripwire both depend on the runtime ONNX | One-time `finetune_clip.py --no-export-onnx false` run, OR (faster) export the laion2b ViT-B/32 weights without fine-tuning so the eval can run against the unfinetuned baseline. The brief work owns this small step at the start; it is **not** a separate brief. |
+| The chosen shared trunk's exported visual + text encoders under `~/.strafer/models/` | The eval script and the image-vs-text tripwire both encode against the runtime trunk; the cascade must ship on the **bake-off's chosen trunk**, not on an arbitrary pre-existing ONNX | A [`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md) output. The bake-off picks the frozen text-capable trunk (SigLIP-2-B lead per the spine) and exports its encoders; that export is this brief's hard upstream, **not** a step this brief owns. The two live 512-dim sentinels and the dim-pinned ChromaDB store are made backbone-dim-aware inside the backbone-switch PR (see the spine's Backbone-dim hygiene section), so the eval inherits a dim-consistent runtime. The brief work checks the encoders exist at the start and stops with a clear error if missing. |
 
 The brief's wiring + protocol-refactor work doesn't need either
 prerequisite — those steps land independently, and the
 measurement step gates on the prerequisites being satisfied.
+
+### CLIP is the SEMANTIC validator — not a geometric one
+
+The single most important scoping decision in this brief: **the
+CLIP cascade answers "does the current view match the right
+*place/region* and the right *target description*?" — it does not
+answer "is the robot off the geometric path?"** Geometric deviation
+is owned elsewhere:
+
+- **No-progress / stuck detection** under the reactive
+  [`strafer_direct`](../trained-policy/strafer-direct-sim-validation.md)
+  backend (RL, no explicit planned path) is a locomotion watchdog —
+  pose-advance + yaw-rate over a window — not a perception job. See
+  [`nav-stall-multilayer-watchdog`](../../parked/reliability/nav-stall-multilayer-watchdog.md).
+- **Plan-freshness / off-path tracking** under the `hybrid` (Nav2)
+  backend is the Nav2 controller's own concern: Nav2 owns the path
+  and knows when the robot is off its own plan.
+
+A geodesic-A\* lateral-deviation rule is therefore **dropped from
+CLIP's scope.** The earlier draft's per-window `off_course`
+definition (lateral distance from the geodesic-A\* path to the
+mission target) is **retired** as a CLIP signal — it conflates
+legitimate exploration and "via the dining room" detours with
+genuine error, and it is a geometric question the backends already
+answer better. What remains for CLIP is purely semantic, validated
+**per leg against that leg's sub-goal**.
+
+### Per-leg sub-goal validation + leg-type suppression
+
+The validator no longer validates every frame against the
+*mission's final target*. It validates against the **current leg's
+sub-goal**, with a per-leg-type suppression flag the executor
+supplies:
+
+| Leg type | Validator state | Validates against |
+|---|---|---|
+| `scan` | **OFF** | nothing — no locomotion to validate |
+| `explore_until_visible` | **DISARMED** | exploration is not deviation; the robot is *meant* to leave the line toward the target |
+| `navigate` (staging hop) | **ARMED (semantic)** | the **hop's room**, not the final target's room |
+| `navigate` (final target) | **FULLY ARMED** | case-1 (target room) + case-2 (target instance) |
+
+This is the **same leg-type granularity** the multi-room re-test
+brief makes authoritative; the full, canonical DEVIATION CONTRACT
+(every primitive, both backends, the soft-ranking carve-out for
+exploration) is **owned by**
+[`clip-multi-room-validator-remeasure`](../../parked/clip-validation/clip-multi-room-validator-remeasure.md).
+This brief states only the v1 single-room subset it needs to wire
+the suppression flag; it does **not** duplicate the full contract.
+
+To do this, the cascade accepts a per-leg context tuple from the
+executor at `activate()`:
+`(leg_type, sub_goal_room, sub_goal_target_phrase)`. `leg_type`
+selects the suppression state above; `sub_goal_room` /
+`sub_goal_target_phrase` replace "the mission target" as the
+case-1 / case-2 reference for that leg.
+
+### Signal emphasis — image-vs-text is PRIMARY, image-vs-image is a WARM booster
+
+The earlier draft headlined the image-vs-image place-recognition
+signal (the `TransitMonitor`). **Invert this.** Per the spine's
+deployment-context section (one robot, one home, warm map is the
+steady state but cold-start is a real transient):
+
+- **Image-vs-text (case-2 instance discrimination)** is the
+  **PRIMARY** signal — it is **map-free and cold-start-safe**, the
+  only thing that works on a first visit, and it directly answers
+  the case-2 question. This is the `TextAlignmentMonitor`.
+- **Image-vs-image place recognition** (the `TransitMonitor`) and
+  **Step B implicit memory** are **WARM boosters** — they layer on
+  once the map has populated and degrade to their no-retrieval
+  baseline on a cold/empty map by construction (the `sparse_map`
+  permanent-`on_track=True` mode is the documented degradation, not
+  a bug). They sharpen case-1 when warm; they never replace the
+  primary.
+
+The acceptance metrics, the OR-fusion, and the McNemar test below
+are unchanged in mechanics, but the **framing** is flipped:
+image-vs-text carries the cold-start bar; image-vs-image is
+reported as the warm-leg booster.
+
+### Brier stratified by contrast-pool composition
+
+The image-vs-text softmax probability is taken over a contrast pool
+that is **sourced dynamically per leg** (VLM sibling labels, then
+semantic-map priors, then the fixed fallback anchors). A pool of
+scene-grounded siblings and a pool of generic fallback anchors
+produce **non-comparable** probabilities — a single aggregate Brier
+score mixes them. **Report Brier stratified by contrast-pool
+composition** (`grounded-siblings` / `map-prior` / `fallback-anchor`,
+matching the pool actually used at each leg's `activate()`), not as
+one aggregate number.
+
+### Letterbox-vs-center-crop reconciliation (flag)
+
+The runtime preprocessing in
+[`clip_encoder.py`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/clip_encoder.py)
+does **resize + center-crop**, but the harness `info.json` `cameras`
+block carries `preprocessing_hint: "letterbox-to-square for ViT
+inputs"` (see
+[`harness-architecture`](../harness/harness-architecture.md)). The
+eval re-encode and the runtime encode **must share one preprocessing
+path**, or the offline AUC measures a different input distribution
+than the robot sees. The `cameras` preprocessing-hint side is the
+**orchestrator's** to set; this brief flags the mismatch and pins
+both to one path (and the backbone-switch PR may move the runtime
+default to letterbox as part of choosing the trunk). Resolve before
+the metric pass — a preprocessing skew silently invalidates the
+calibration.
 
 ### What's already in the repo
 
@@ -256,12 +379,23 @@ The measurement script computes both:
 | Granularity | Label source | What it measures |
 |---|---|---|
 | **Per-leg** | `root_cause` from the labeling pipeline above | "Did the tripwire fire at any point during a failed leg?" — the user-visible save-the-mission signal. |
-| **Per-window** | A 5-capture rolling window is `on_course` if the **robot's pose** at the end of the window is on the geodesic-A* path from leg-start to the mission target with ≤ R lateral deviation (default R = 1.5 m in single-room, 2.0 m in multi-room). Otherwise `off_course`. Geodesic distances come from A* on the global costmap, computable post-hoc on the DGX, no new sim runs. | "Was the robot actually off-course at this tick?" — the tripwire's actual decision boundary. |
+| **Per-window** | A 5-capture rolling window is `on_target` if the **robot's view** at the end of the window is *semantically* consistent with the current leg's sub-goal — the room the leg is committed to (case-1) and, on a final-target leg, the target instance (case-2). Otherwise `off_target`. The window truth is sourced from the room-polygon / instance ground truth (`scene_metadata.json`, **eval-only**), per leg's sub-goal, **not** from a geodesic-A\* deviation. | "Was the robot's view actually wrong-room / wrong-instance at this tick?" — the tripwire's actual decision boundary. |
 
 Per-window TPR / FPR / time-to-decision are reported alongside
 per-leg metrics. Per-window is the *primary* signal for choosing
 the tripwire's operating threshold; per-leg is the user-facing
 "did we save the mission" signal.
+
+**Geometric off-path is deliberately not a per-window truth here.**
+The window label is a *semantic* room/instance match against the
+leg's sub-goal — not "is the robot off the A\* line." Geometric
+drift is the backends' job (the `strafer_direct` no-progress
+watchdog and the `hybrid` Nav2 plan-freshness tracker, per the
+CLIP-is-semantic scoping above), and scoring it here would label
+legitimate "via the dining room" detours and exploration as failures.
+On `scan` / `explore_until_visible` legs the window label is
+**suppressed** (no per-window row emitted), matching the
+leg-type suppression flag.
 
 ### Eval-set construction — scene holdout, cold-start protocol, label authority
 
@@ -297,13 +431,18 @@ StepEval's policy-and-model-agnostic design):
    `map_state ∈ {cold, warming, warm}` field per leg based on
    ChromaDB node count at leg-start:
    `cold` if 0 nodes, `warming` if 1 – 4 nodes,
-   `warm` if ≥ 5 nodes. Per-case AUC is reported separately
-   for `warm` and (`warming` + `cold`) legs. The acceptance
-   bar in §4.1 applies to **`warm`-leg case-1 AUC** specifically
-   — the cold-start case is reported as a fixed-degradation
-   diagnostic, not gated. The image-vs-text tripwire is
-   map-free and does **not** need this split for case 2 (it
-   passes everywhere).
+   `warm` if ≥ 5 nodes. This split applies to the **warm-booster**
+   image-vs-image signal, which is structurally degraded on a cold
+   map: per-case AUC for it is reported separately for `warm` and
+   (`warming` + `cold`) legs, and the warm-leg case-1 AUC is the
+   bar that signal is held to (cold-start is a fixed-degradation
+   diagnostic, not gated). The **primary** image-vs-text signal is
+   map-free and cold-start-safe by construction, so it is **not**
+   split by `map_state` — its case-2 AUC is reported as a single
+   number across all map states and carries the primary §4.1 bar.
+   This is the inversion in practice: the cold-start-safe primary
+   bar rides on image-vs-text; image-vs-image is gated only on the
+   warm legs where it is meant to contribute.
 
 3. **Label-authority audit on a held-out human-scored
    subsample.** The five-way `root_cause` labeling pipeline
@@ -388,14 +527,23 @@ follow-up brief filed.
       successfully — the existing graceful-degrade in
       `clip_encoder.py:_load_models` should be visible in operator
       logs, not silent.
-- [ ] **`Validator` protocol.**
+- [ ] **`Validator` protocol + per-leg context.**
       `source/strafer_autonomy/strafer_autonomy/semantic_map/protocols.py`
       defines a `Validator` protocol with `activate`, `deactivate`,
       `check`, `is_active` matching the existing
-      `TransitMonitor` shape. `TransitMonitor` declares
-      conformance. `BackgroundMapper` accepts a `Validator`
-      instead of a concrete `TransitMonitor`. Unit test under
-      `tests/` confirms the substitution works.
+      `TransitMonitor` shape. `activate()` accepts a per-leg
+      context tuple `(leg_type, sub_goal_room,
+      sub_goal_target_phrase)` from the executor: `leg_type`
+      selects the suppression state (`scan` → OFF;
+      `explore_until_visible` → DISARMED; staging-hop `navigate` →
+      ARMED semantic against the hop's room; final `navigate` →
+      FULLY ARMED case-1 + case-2), and `sub_goal_room` /
+      `sub_goal_target_phrase` replace the mission's final target
+      as the per-leg case-1 / case-2 reference. `TransitMonitor`
+      declares conformance. `BackgroundMapper` accepts a
+      `Validator` instead of a concrete `TransitMonitor`. Unit
+      test under `tests/` confirms the substitution and that a
+      `scan` / `explore_until_visible` leg never fires an abort.
 - [ ] **Image-vs-target-text tripwire (multi-text contrast).**
       `semantic_map/text_alignment_monitor.py` implements the
       `Validator` protocol. At `activate()` it encodes the
@@ -424,10 +572,28 @@ follow-up brief filed.
 - [ ] **Per-window labels in addition to per-leg.** The
       measurement script emits a `per_window` table alongside
       the per-leg `root_cause` table, each window labelled
-      `on_course` / `off_course` from the geodesic-A* deviation
-      rule above. The §4.4 addendum reports per-window ROC-AUC
-      separately from per-leg ROC-AUC and names per-window as
-      the *primary* signal for threshold selection.
+      `on_target` / `off_target` from the **semantic** sub-goal
+      match above (room match for case-1, instance match on a
+      final-target leg for case-2) — **not** from a geodesic-A\*
+      deviation rule, which is dropped from CLIP's scope. Windows
+      on `scan` / `explore_until_visible` legs are suppressed
+      (no row emitted). The §4.4 addendum reports per-window
+      ROC-AUC separately from per-leg ROC-AUC and names per-window
+      as the *primary* signal for threshold selection.
+- [ ] **Brier stratified by contrast-pool composition.** The
+      image-vs-text Brier score is reported per contrast-pool
+      kind (`grounded-siblings` / `map-prior` / `fallback-anchor`)
+      — the pool actually sourced at each leg's `activate()` — not
+      as one aggregate, because a dynamically-sourced pool mixes
+      non-comparable softmax probabilities.
+- [ ] **Letterbox-vs-center-crop reconciliation.** The eval
+      re-encode and the runtime `clip_encoder` preprocessing share
+      one path. `clip_encoder.py` does resize + center-crop; the
+      harness `cameras` `preprocessing_hint` says letterbox. The
+      brief pins both to a single path and records which (the
+      `cameras` hint is the orchestrator's to set; this brief flags
+      and resolves the mismatch before the metric pass, since a
+      preprocessing skew silently invalidates the calibration).
 - [ ] **Scene holdout protocol.** `report.json` declares a
       `held_out_seeds` field listing which Infinigen seeds the
       eval drew from. Default split is 2 / 3 seeds for the
@@ -438,11 +604,14 @@ follow-up brief filed.
 - [ ] **Cold-start vs. warm-map disaggregation.** Each leg in
       `report.json` carries a `map_state ∈ {cold, warming, warm}`
       field based on ChromaDB node count at leg-start (0,
-      1 – 4, ≥ 5). Per-case AUC is reported separately for
-      `warm` and (`warming` + `cold`) legs. The §4.1 acceptance
-      bar applies to **warm-leg case-1 AUC**; cold-start is a
-      diagnostic, not gated. The image-vs-text tripwire is
-      map-free and reports a single AUC across all map states.
+      1 – 4, ≥ 5). The split gates the **warm-booster**
+      image-vs-image signal: its case-1 AUC is reported separately
+      for `warm` and (`warming` + `cold`) legs, and only the
+      warm-leg case-1 AUC is held to a bar (cold-start is a
+      diagnostic, not gated). The **primary** map-free image-vs-text
+      signal reports a single case-2 AUC across all map states and
+      carries the primary §4.1 bar — the cold-start-safe primary,
+      warm booster framing from the inversion.
 - [ ] **Label-authority audit.** ≥ 50 missions drawn from the
       held-out eval set, stratified across `on_course` /
       `wrong_room` / `wrong_instance` / `ambiguous`, are
@@ -543,12 +712,14 @@ follow-up brief filed.
 - For the `--root-cause-pass`: re-use
   [`strafer_autonomy.clients.vlm_client.HttpGroundingClient`](../../../../source/strafer_autonomy/strafer_autonomy/clients/vlm_client.py)
   and the deployed Qwen2.5-VL-3B service.
-- CLIP fine-tune target's `pretrained` default is
-  `laion2b_s34b_b79k`; `--no-export-onnx` exists for offline
-  runs. The eval script wants the *same* ONNX as the production
-  executor — load from
-  `~/.strafer/models/clip_visual.onnx` + `clip_text.onnx` and
-  fail loudly if missing.
+- The eval script wants the *same* exported encoders as the
+  production executor — the **bake-off's chosen trunk** under
+  `~/.strafer/models/` (per
+  [`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md)
+  and the spine's Backbone-dim hygiene section) — and fails loudly
+  if missing. Do **not** hard-code a `laion2b` ViT-B/32 path; the
+  trunk family and embedding dim are the bake-off's output, not an
+  assumption baked into this brief.
 
 ## Out of scope
 
@@ -559,58 +730,61 @@ follow-up brief filed.
   [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md);
   end-to-end VLA exploration lives in
   [`vla-v2-architecture`](../../parked/experimental/vla-v2-architecture.md).
-- **Multi-room navigation evaluation.** This brief's
-  *measurement* runs on single-room subsets of the (now
-  multi-room-default) harness corpus. The case-1 / case-2 TPR /
-  FPR bars in §4.1 are calibrated against single-room data
-  initially. A multi-room re-test follow-up brief
-  (`clip-multi-room-validator-remeasure.md`) is filed after
-  [`autonomy-stack`](../multi-room/autonomy-stack.md)
-  ships — it re-runs the same metrics on multi-room data and
-  recalibrates the bars. Keeping the v1 measurement single-room
-  is deliberate: it gives an achievable bar for the cheap CLIP
-  path before multi-room raises the difficulty.
+- **Multi-room navigation evaluation AND the full deviation
+  contract.** This brief's *measurement* runs on single-room
+  subsets of the (now multi-room-default) harness corpus. The
+  case-1 / case-2 bars in §4.1 are calibrated against single-room
+  data initially; this brief wires only the v1 single-room subset
+  of the leg-type suppression flag. The **authoritative,
+  full DEVIATION CONTRACT** — every plan primitive
+  (`scan_for_target`, `explore_until_visible`, staging-hop
+  `navigate_to_pose`, final-target `navigate_to_pose`,
+  `verify_arrival`), both navigation backends, and the
+  soft-LLM-ranking carve-out for exploration — is **owned by**
+  [`clip-multi-room-validator-remeasure`](../../parked/clip-validation/clip-multi-room-validator-remeasure.md)
+  (parked, filed-on-trigger when
+  [`autonomy-stack`](../multi-room/autonomy-stack.md) ships). That
+  brief re-runs the per-case ROC-AUC metrics on multi-room data
+  and recalibrates the §4.1 bars. This brief **references** the
+  contract; it does **not** duplicate the full leg-type table here.
+  Keeping the v1 measurement single-room is deliberate: it gives
+  an achievable bar for the cheap CLIP path before multi-room
+  raises the difficulty.
 
-  **Coordination flag (exploration ≠ deviation).** The
-  per-window `off_course` rule above measures deviation as
-  lateral distance from the geodesic-A* path *to the mission
-  target*. That rule assumes a **committed navigate-to-target
-  leg**; it does not yet distinguish legitimate **exploration**
-  from genuine deviation. The multi-room runtime deliberately
-  leaves the geodesic line:
+  **Coordination flag (exploration ≠ deviation).** This is why CLIP
+  is scoped semantic-only and the geodesic-A\* rule is dropped: the
+  multi-room runtime deliberately leaves the geometric line toward
+  the final target.
   `explore_until_visible` from
   [`autonomy-stack`](../multi-room/autonomy-stack.md) walks
   ranked frontiers, and the frontier-ranking variants
   ([`llm-guided-frontier-gain`](../../parked/multi-room/llm-guided-frontier-gain.md),
   [`frontier-cognitive-fsm`](../../parked/multi-room/frontier-cognitive-fsm.md))
   visit plausible-but-wrong frontiers and re-verify candidate
-  rooms by design. Scoring those legs with the geodesic rule
-  would label normal autonomy as off-course. The multi-room
-  re-test brief must make the deviation definition
-  **per-leg / sub-goal-aware** — validate against the *current*
-  navigate-to-pose leg's destination (a staging hop from
+  rooms by design; a staging-hop `navigate_to_pose` from
   [`planner-far-target-staging`](../multi-room/planner-far-target-staging.md)
-  or the final target) and suppress the tripwire during
-  explore / transit legs — rather than against a single
-  final-goal geodesic.
+  routes "via the dining room." Scoring any of those legs with a
+  geodesic-to-final-target rule would label normal autonomy as
+  off-course. The deviation definition is therefore
+  **per-leg / sub-goal-aware** — validate against the *current*
+  leg's sub-goal and DISARM during exploration — and the canonical
+  form of that definition is the remeasure brief's contract above.
 - **Real-robot validation.** Sim-side only. A future brief may
   layer real-robot data in once the runtime path is calibrated.
-- **Replacing CLIP with a non-CLIP backbone (DINOv2, DINOv3,
-  MobileCLIP-2, SigLIP-2, ...) and any CLIP fine-tune cycle.**
-  Backbone selection is filed separately as
+- **Choosing the backbone, and any CLIP fine-tune cycle.**
+  Backbone selection is
   [`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md)
-  (parked; triggered when this brief ships). Fine-tune cycles
-  belong to
-  [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md).
-  This brief evaluates whatever ONNX is currently in
-  `~/.strafer/models/` — backbone and fine-tuning are downstream
-  concerns. The choice to ship the v1 cascade on OpenCLIP
-  ViT-B/32 is *not* a recommendation that this backbone is
-  best; it is the artifact that already exists in the codebase
-  per [`finetune_clip.py`](../../../../source/strafer_lab/scripts/finetune_clip.py)
-  and [`clip_encoder.py`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/clip_encoder.py).
-  The backbone-bakeoff brief is the alternative-considered-and-
-  measured trail.
+  — and per the spine's roadmap reorder it runs **before** this
+  brief, not after it (the prior "v1 on existing ONNX → bake-off
+  later" order is reversed; it is affordable because the project is
+  greenfield on weights). This brief ships the cascade on the trunk
+  the bake-off **already chose** (SigLIP-2-B lead per the spine),
+  not on whatever ONNX happens to sit in `~/.strafer/models/`, and
+  it does **not** hard-assume OpenCLIP ViT-B/32. Fine-tune /
+  co-training cycles belong to
+  [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md);
+  the freeze-the-base, LoRA-only adaptation invariant is the spine's
+  Training-discipline section.
 - **Wrapping the abort with a VLM arbiter (§3.5).** Implemented
   inside this brief if the cascade-end-to-end metrics need
   arbiter post-processing to clear the AUC bar; otherwise filed

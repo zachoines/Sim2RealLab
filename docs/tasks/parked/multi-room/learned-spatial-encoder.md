@@ -1,4 +1,4 @@
-# Learned spatial encoder — one frozen trunk, a place-recognition head and a region head
+# Learned spatial encoder — VPR + region heads on the shared text-capable trunk (dedicated DINOv2 trunk is the escape valve)
 
 **Type:** investigation / research / new feature (filed-on-trigger)
 **Owner:** DGX agent (trunk + heads + training + ONNX export are
@@ -32,11 +32,12 @@ a real home with long sessions**, where **(a) the region
 partition's single `α` knob can't simultaneously split the
 open-plan zones and keep revisited spots together, and/or
 (b) raw-CLIP loop closure can't tell two similar bedrooms apart
-without over-merging revisits**, I want **one learned spatial
-encoder — a frozen foundation trunk feeding a place-recognition
-head and a region-partition head — that produces
+without over-merging revisits**, I want **a learned spatial
+encoder — a place-recognition head and a region-partition head
+on the shared text-capable trunk the bake-off picks (a dedicated
+DINOv2 trunk only as the escape valve) — that produces
 viewpoint-invariant same-place descriptors and data-driven
-region assignments from the same forward pass**, so that
+region assignments from the shared frozen forward pass**, so that
 **better place recognition feeds cleaner `same_place` edges,
 those edges let the region partition be aggressive enough to
 split open-plan zones without fragmenting revisits, and the two
@@ -64,10 +65,19 @@ Read these before starting:
 - [`room-state-eval-harness`](../../active/multi-room/room-state-eval-harness.md)
   — training corpus + held-out eval set + the open-plan and
   multi-bedroom adversarial scenes.
+- [`context/perception-backbone-architecture.md`](../../context/perception-backbone-architecture.md)
+  — the FROZEN spine. By default this brief's VPR + region heads
+  run on the **shared text-capable trunk** the bake-off picks
+  (one trunk, many heads). The dedicated DINOv2 trunk below is
+  the spine's **escape valve**, un-parked only via trigger 2.
 - [`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md)
-  — the trunk decision point. DINOv2 is the natural pick (it is
-  what AnyLoc / SALAD / ConceptGraphs all build on); coordinate
-  the trunk choice there.
+  — the trunk decision point. It picks a **text-capable** shared
+  trunk (SigLIP-2-Base lead, MobileCLIP-2-S, OpenCLIP baseline);
+  it does **not** offer DINOv2. This brief's VPR Recall@K and
+  region V-measure jobs are folded into the bake-off so the
+  shared trunk is scored on them. A dedicated DINOv2 trunk is
+  reachable only if that shared trunk underdelivers on VPR
+  (trigger 2).
 - [`implicit-memory-map`](../../parked/clip-validation/implicit-memory-map.md)
   — the *sub-symbolic* sibling. That primitive is a memory bank
   + cross-attention for the validator / VLA; this brief is the
@@ -92,6 +102,11 @@ active when **at least one** of:
    loop-closure calibration sweep can't find an operating point
    where multi-bedroom precision and same-room recall both
    exceed 0.7, OR the calibrated point degrades > 20% sim→real.
+   This is also the trigger for the **dedicated DINOv2 escape
+   valve**: if the VPR head on the shared text-capable trunk
+   underdelivers on the bake-off's widened VPR Recall@K eval,
+   trigger 2 un-parks the second resident DINOv2 trunk per the
+   spine.
 3. **Either falls to long-session drift.** On the eval-harness
    repeated-traversal trajectory (≥ 3× the same scene), region
    V-measure or loop-closure recall degrades materially as nodes
@@ -113,21 +128,29 @@ brief**; the unsupervised v2 was sufficient.
 
 ## Context
 
-### Architecture — one frozen trunk, two heads
+### Architecture — three heads on the shared trunk; DINOv2 is the escape valve
 
 State-of-the-art spatial perception has converged on a single
 frozen foundation trunk feeding multiple lightweight task
-heads, rather than separate networks per task:
+heads, rather than separate networks per task. **The default
+trunk here is the shared text-capable trunk the bake-off
+picks** (per the spine): the VPR head and the region head are
+two more heads on the same frozen forward pass the validator
+and the co-trained CLIP already consume — "one trunk, three
+heads" means the *shared* trunk, not a new one. A **dedicated
+DINOv2 trunk is the escape valve** (a second resident trunk),
+un-parked only via trigger 2 when the shared trunk's visual
+features can't meet the VPR bar.
 
 ```
 RGB frame
    │
    ▼
-DINOv2 trunk (FROZEN)  ── one forward pass per frame
+SHARED text-capable trunk (FROZEN, bake-off's pick)  ── one forward pass per frame
    │   ├─ dense patch tokens  (N_patches × D)
    │   └─ CLS / pooled token  (D)
    │
-   ├──────────────► PLACE-RECOGNITION HEAD
+   ├──────────────► PLACE-RECOGNITION HEAD  (warm-map case-1 booster)
    │                  VLAD / SALAD aggregation over dense
    │                  tokens → global descriptor (R^d_vpr)
    │                  → ChromaDB ANN → same-place candidates
@@ -142,28 +165,54 @@ DINOv2 trunk (FROZEN)  ── one forward pass per frame
                         confidence → known_rooms
 ```
 
-Concrete shapes (DINOv2 ViT-S/14 at 224², the Jetson-budget
-pick; ViT-B/14 if latency allows):
+The VPR head is the **warm-map case-1 booster** on the shared
+trunk: per the spine, image-vs-text stays the cold-start safe
+primary; cleaner `same_place` retrieval is what the VPR head
+adds once the map has warmed.
 
-- **Trunk:** DINOv2 ViT-S/14 — 256 patch tokens × 384-d + a
-  384-d CLS token. **Frozen by default** (see training scheme).
-- **Place-recognition head:** AnyLoc-style VLAD aggregation
-  over the value-facet dense tokens against a vocabulary of
+**On the shared trunk (default).** The trunk is whatever the
+bake-off picks (SigLIP-2-Base lead). Its visual features feed
+both heads. The spine's load-bearing bet is that a text-capable
+trunk's visual features are good enough for VPR; **MegaLoc** is
+the backbone-flexible VPR-aggregation hedge that makes VPR on a
+non-DINOv2 shared trunk viable (AnyLoc/SALAD VLAD vocabularies
+are DINOv2-tuned, so a MegaLoc-style aggregation is the path
+when the trunk is not DINOv2). Concrete head shapes:
+
+- **Place-recognition head:** VLAD / SALAD-style aggregation
+  over the shared trunk's dense tokens against a vocabulary of
   K=64–128 cluster centers built unsupervised on indoor
-  frames → a `K×384`-d VLAD descriptor, PCA-whitened to
-  ~512–4096-d. Zero-shot at the floor; a learned Sinkhorn
-  aggregation (SALAD) is the escalation. Output replaces the
-  raw-CLIP embedding the v2 loop-closure detector ranks on —
-  same ANN-store + `same_place` contract, different descriptor.
-- **Region head:** a 2-layer MLP (`384 + |obj-vocab| → 256 →
+  frames → a `K×D`-d descriptor, PCA-whitened to ~512–4096-d.
+  Zero-shot at the floor; a learned Sinkhorn aggregation
+  (SALAD) or **MegaLoc** is the escalation when the trunk is
+  not DINOv2. Output replaces the raw-CLIP embedding the v2
+  loop-closure detector ranks on — same ANN-store +
+  `same_place` contract, different descriptor.
+- **Region head:** a 2-layer MLP (`D + |obj-vocab| → 256 →
   n_regions` logits) per node at the floor; a 2–3-layer GNN
   (GCN/GAT over the proximity + `same_place` edges) as the
-  escalation that bakes in neighbor context. Output per node:
-  region id + open-vocab-compatible label embedding +
-  confidence. Replaces v2's `partition_regions` HDBSCAN.
+  escalation that bakes in neighbor context. The object channel
+  (`detected_objects` one-hot) depends on the **R1 detections
+  column** — the harness per-frame detections the Tier-1 writer
+  emits; without it the region head trains **vision-only** (the
+  pooled token alone). Output per node: region id +
+  open-vocab-compatible label embedding + confidence. Replaces
+  v2's `partition_regions` HDBSCAN.
 
-Both heads consume the **same** frozen DINOv2 forward pass, so
-the per-frame cost is one trunk encode + two cheap heads.
+Both heads consume the **same** frozen shared-trunk forward
+pass, so the per-frame cost is one trunk encode (already paid
+by the validator / co-trained heads) + two cheap heads.
+
+**The DINOv2 escape valve (trigger 2 only).** If the shared
+trunk's VPR Recall@K underdelivers on the bake-off's widened
+eval, this brief un-parks a **dedicated frozen DINOv2 ViT-S/14
+trunk** as a *second* resident encoder, loaded behind
+`STRAFER_SPATIAL_ENCODER`. Concrete shapes for that fallback:
+DINOv2 ViT-S/14 at 224² — 256 patch tokens × 384-d + a 384-d
+CLS token; AnyLoc/SALAD VLAD over the value-facet tokens
+(`K×384`-d, PCA-whitened). This is the spine's escape valve and
+costs real Jetson memory (two foundation trunks resident), so
+it is a measured trade, not the baseline.
 
 ### Why the trunk is frozen (and when to unfreeze)
 
@@ -179,7 +228,12 @@ flags for action-vs-contrastive. AnyLoc demonstrates VPR works
 run their semantic *and* cross-view-merge tasks off one frozen
 trunk. So the clean v1 is **frozen trunk + two independently
 trained heads** — no multi-task balancing, no conflict, the
-heads don't share parameters beyond the frozen features.
+heads don't share parameters beyond the frozen features. The
+freeze invariant holds whether the trunk is the shared
+text-capable one (default) or the DINOv2 escape valve; it is
+the spine's training-discipline invariant, and unfreezing the
+shared trunk for one head would invalidate the ChromaDB index
+and every other consumer's features at once.
 
 Unfreezing (joint multi-task fine-tune of the trunk) is an
 **escalation only**, gated on heads-only plateauing. If
@@ -192,8 +246,8 @@ region accuracy climbs. Document the trade if pursued.
 
 | Regime | Trunk | VPR head | Region head | When |
 |---|---|---|---|---|
-| **R0 — zero-shot floor** | frozen | AnyLoc VLAD (no training; vocab built on indoor frames) | — (v2's HDBSCAN still runs) | Quick check: does a frozen DINOv2 VPR descriptor alone clear trigger 2 without any training? |
-| **R1 — heads-only (recommended v1)** | frozen | AnyLoc VLAD floor, or light SALAD aggregation fine-tune | learned MLP/GNN region head, supervised | The default. Two heads train independently on the frozen trunk; no multi-task balancing. |
+| **R0 — zero-shot floor** | frozen shared trunk | VLAD / MegaLoc aggregation (no training; vocab built on indoor frames) | — (v2's HDBSCAN still runs) | Quick check: does a frozen shared-trunk VPR descriptor alone clear trigger 2 without any training? (This is also the bake-off's VPR Recall@K signal.) |
+| **R1 — heads-only (recommended v1)** | frozen shared trunk | VLAD / MegaLoc floor, or light SALAD aggregation fine-tune | learned MLP/GNN region head, supervised | The default. Two heads train independently on the frozen shared trunk; no multi-task balancing. |
 | **R2 — co-fine-tune (escalation)** | unfrozen | SALAD | GNN | Only if R1 plateaus. Multi-task loss + gradient surgery + the VPR-recall guard above. |
 
 **Data + supervision:**
@@ -205,7 +259,12 @@ region accuracy climbs. Document the trade if pursued.
   with no demarcating wall that the planner should treat as one
   region get one label; the eval-harness open-plan adversarial
   defines the grouping). Loss: cross-entropy + an optional
-  intra-region contrastive term.
+  intra-region contrastive term. The head's **object-channel
+  input** (`detected_objects` one-hot) depends on the **R1
+  detections column** — the harness per-frame detections the
+  Tier-1 writer emits. If that column is absent, the region head
+  trains **vision-only** on the pooled token alone; the object
+  channel is additive, not required for a v1.
 - **VPR head (if trained, SALAD):** same-place pairs mined from
   the harness — two observation nodes within R metres whose
   RTAB-Map poses agree (true same-place), contrasted against
@@ -257,10 +316,14 @@ is what justifies one brief over two.
   brief can be re-split — but the SOTA prior is a clear positive
   lift, which is why this ships as one brief.
 
-**Latency:** one DINOv2 forward pass + VLAD + region head on the
-Jetson Orin; report median + p95 per frame. DINOv2 ViT-S/14 is
-~tens of ms at FP16; both heads are cheap. Budget: under the
-`BackgroundMapper` 2 s poll interval with comfortable margin.
+**Latency:** on the default shared-trunk path, the trunk encode
+is **already paid** by the validator / co-trained heads, so this
+brief adds only VLAD/MegaLoc + region head — both cheap. Report
+median + p95 per frame for the two heads. On the DINOv2
+escape-valve path, a *second* trunk encode is added (DINOv2
+ViT-S/14 is ~tens of ms at FP16) and is the resident-memory cost
+trigger 2 weighs. Budget either way: under the `BackgroundMapper`
+2 s poll interval with comfortable margin.
 
 ### Tie-in to state-of-the-art
 
@@ -272,40 +335,53 @@ Jetson Orin; report median + p95 per frame. DINOv2 ViT-S/14 is
 - **SALAD** (Izquierdo & Civera, CVPR 2024) — DINOv2 +
   optimal-transport (Sinkhorn) aggregation, lightly fine-tuned.
   The R1/R2 VPR-head upgrade.
-- **DINOv2** (Oquab et al. 2023) — the frozen trunk both heads
-  share.
+- **DINOv2** (Oquab et al. 2023) — the trunk AnyLoc/SALAD build
+  on; here it is the **escape-valve** second trunk (trigger 2),
+  not the default. The default trunk is the bake-off's
+  text-capable pick.
 - **ConceptGraphs** ([ICRA 2024](https://arxiv.org/abs/2309.16650)),
   **HOV-SG** ([RSS 2024](https://arxiv.org/abs/2403.17846)) —
   one foundation trunk feeding semantic region/object features
   AND cross-view merging; the precedent for "two tasks, one
   trunk."
-- **MegaLoc** (2024) — foundation-model-driven VPR; the
-  no-fine-tune alternative to SALAD if R1's VPR fine-tune
-  underdelivers.
+- **MegaLoc** (2024) — foundation-model-driven, **backbone-flexible**
+  VPR aggregation. This is the hedge that makes VPR viable on a
+  **non-DINOv2 shared trunk**: AnyLoc/SALAD vocabularies are
+  DINOv2-tuned, so MegaLoc-style aggregation is the path when the
+  shared trunk is SigLIP-2 / MobileCLIP-2. Also the no-fine-tune
+  alternative to a SALAD fine-tune if R1's VPR head underdelivers.
 
 ### Co-tenancy with the implicit memory map
 
 [`implicit-memory-map`](../../parked/clip-validation/implicit-memory-map.md)
-(the sub-symbolic primitive for the validator / VLA) can share
-**the same frozen DINOv2 trunk** loaded on the Jetson — one
-trunk, three heads total (VPR, region, memory-bank
-cross-attention). If both this brief and the implicit memory
-map ship, coordinate the trunk load so it's resident once. The
+(the sub-symbolic primitive for the validator / VLA) shares
+**the same frozen shared trunk** the bake-off picks — "one
+trunk, three heads" total (VPR, region, memory-bank
+cross-attention), all on the shared text-capable trunk by
+default per the spine's consumer table. If both this brief and
+the implicit memory map ship, coordinate the trunk load so it's
+resident once. The
 [`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md)
 brief is the single trunk-choice decision point for all three.
+(Only on the DINOv2 escape-valve path is a *second* trunk
+resident — and trigger 2 weighs that memory cost explicitly.)
 
 ## Approach — staged
 
 Ship only the head(s) the firing trigger demands; build the
 trunk + eval once.
 
-1. **Trunk wiring.** Load DINOv2 (from the bakeoff's pick) as a
-   second frozen ONNX session in `clip_encoder.py` behind
-   `STRAFER_SPATIAL_ENCODER`; expose the dense + pooled features
-   to both heads. CLIP stays the system backbone for room
-   labeling / text queries / validator cosine (the spatial
-   encoder is additive, same co-tenancy rule as the retired VPR
-   brief).
+1. **Trunk wiring.** *Default:* expose the **shared trunk's**
+   dense + pooled features (the bake-off's text-capable pick,
+   already loaded for the validator / co-trained heads) to both
+   the VPR head and the region head — no new trunk, no second
+   ONNX session. *Escape valve (trigger 2 only):* if the shared
+   trunk's VPR underdelivers, load a **dedicated frozen DINOv2
+   ONNX session** in `clip_encoder.py` behind
+   `STRAFER_SPATIAL_ENCODER` as a second resident trunk. The
+   shared text-capable trunk stays the system backbone for room
+   labeling / text queries / validator cosine in both cases; the
+   DINOv2 second trunk is additive and memory-weighed.
 2. **R0 zero-shot VPR check.** Build the VLAD vocabulary on
    harness indoor frames; measure VPR metrics. If R0 clears
    trigger 2 with no training, ship the VPR head as-is.
@@ -323,11 +399,16 @@ trunk + eval once.
       trigger(s) fired with the eval-harness numbers (region
       V-measure under `α` sweep / loop-closure PR / sim→real
       gap / long-session degradation).
-- [ ] **Frozen trunk, two heads.** DINOv2 (bakeoff's pick)
-      loaded once, frozen by default; VPR head + region head
-      consume the same forward pass. Trunk choice coordinated
-      with
-      [`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md).
+- [ ] **Frozen trunk, two heads.** By default the VPR head +
+      region head consume the **shared text-capable trunk** the
+      [`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md)
+      picks — the same frozen forward pass the validator already
+      runs, no second trunk. The dedicated DINOv2 trunk is loaded
+      **only** if trigger 2 fires (shared-trunk VPR below the
+      bake-off bar); when loaded it is frozen and resident
+      alongside the shared trunk. Trunk choice coordinated with
+      the bake-off and consistent with
+      [`context/perception-backbone-architecture.md`](../../context/perception-backbone-architecture.md).
 - [ ] **Place-recognition head.** VLAD (R0 floor) or SALAD
       (R1) aggregation → global descriptor → the existing
       ChromaDB ANN + `semantic-graph-loop-closure` `same_place`
@@ -336,7 +417,10 @@ trunk + eval once.
       false-merge rate.
 - [ ] **Region head.** Learned MLP/GNN per-node partition,
       supervised on the harness corpus with open-plan-regrouped
-      labels. Replaces v2's `partition_regions` behind
+      labels. The object channel (`detected_objects` one-hot)
+      consumes the **R1 detections column**; if that column is
+      absent the head trains vision-only on the pooled token and
+      the PR notes it. Replaces v2's `partition_regions` behind
       `STRAFER_REGION_HEAD_ENABLED`; v2 HDBSCAN is the fallback.
       Region metrics beat v2 clustering by ≥ 1 CI-width on the
       open-plan AND multi-bedroom scenes.
@@ -380,8 +464,9 @@ trunk + eval once.
 - v2 loop closure whose descriptor the VPR head replaces:
   [`semantic-graph-loop-closure`](../../active/multi-room/semantic-graph-loop-closure.md)
   — `detect_loop_closures`, the `same_place` edge protocol.
-- CLIP encoder co-tenancy pattern (load a second frozen ONNX
-  session):
+- CLIP encoder co-tenancy pattern (the escape-valve path loads
+  a second frozen ONNX session here; the default path reuses the
+  shared trunk's features):
   [`semantic_map/clip_encoder.py`](../../../../source/strafer_autonomy/strafer_autonomy/semantic_map/clip_encoder.py).
 - Training corpus + held-out seeds + adversarial scenes:
   [`room-state-eval-harness`](../../active/multi-room/room-state-eval-harness.md).
@@ -390,9 +475,9 @@ trunk + eval once.
 - Reference architectures:
   - AnyLoc (arXiv:2308.00688) — frozen-DINOv2 + VLAD, zero-shot VPR.
   - SALAD (CVPR 2024) — DINOv2 + Sinkhorn aggregation.
-  - DINOv2 (Oquab et al. 2023) — the shared trunk.
+  - DINOv2 (Oquab et al. 2023) — the escape-valve second trunk, not the default.
   - ConceptGraphs (arXiv:2309.16650), HOV-SG (arXiv:2403.17846) — one trunk, semantic + merge.
-  - MegaLoc (2024) — no-fine-tune VPR alternative.
+  - MegaLoc (2024) — backbone-flexible VPR aggregation; the hedge for VPR on a non-DINOv2 shared trunk.
 
 ## Out of scope
 
@@ -409,13 +494,13 @@ trunk + eval once.
   this brief changes *how regions and places are computed*.
 - **The sub-symbolic memory map.**
   [`implicit-memory-map`](../../parked/clip-validation/implicit-memory-map.md)
-  is the validator/VLA primitive; it can share this brief's
-  frozen trunk but has a different head and consumer.
-- **System-wide CLIP backbone swap.** Backbone selection stays
-  at
+  is the validator/VLA primitive; it shares the same shared
+  trunk but has a different head and consumer.
+- **Choosing the shared trunk.** Trunk selection stays at
   [`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md);
-  this brief consumes the trunk it picks and adds the spatial
-  encoder alongside CLIP.
+  this brief consumes the text-capable trunk it picks and adds
+  two heads on it. The only trunk this brief may *add* is the
+  dedicated DINOv2 escape valve, and only when trigger 2 fires.
 - **Multi-floor.** Strafer is single-story.
 - **Real-robot training data.** Sim-only training corpus +
   domain randomisation for transfer; real-robot fine-tune is a

@@ -79,6 +79,7 @@ Read these before starting:
 - [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
 - [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
 - [`context/conventions.md`](../../context/conventions.md)
+- [`context/perception-backbone-architecture.md`](../../context/perception-backbone-architecture.md) — the **frozen, text-capable shared-trunk** spine. This brief is the "LoRA + per-case projection heads (case-agnostic tower)" consumer in that module's consumer table; its freeze invariant and one-trunk decision govern this fine-tune. Read it before pre-committing any backbone or unfreeze choice here.
 - [`context/multi-room-architecture.md`](../../context/multi-room-architecture.md) — the symbolic vs. sub-symbolic split this brief sits inside; this brief is the implicit-mapping primitive that the multi-room version stack treats as its parallel track.
 
 Parent design doc:
@@ -186,6 +187,18 @@ no action head, no `cmd_vel` decoder. If the cascade
 underdelivers even after Step A + Step B, the escalation path
 is v2 (end-to-end VLA), not "make this brief produce one."
 
+**This is the *concentrated* improvement, by design.** When the
+v1 cascade falls short, this brief is the single, focused place
+the project pushes the validator's statistics higher — co-train
+the shared trunk's heads on the harness corpus, then add
+retrieval. It deliberately does **not** spread effort across a
+grab-bag of independent CLIP tricks; concentrating on one
+co-training + retrieval path (on the one frozen shared trunk the
+spine fixes) is what makes the ablation interpretable and the
+ship/no-ship gate clean. Resist widening scope into parallel
+techniques — the escalation lever past this brief is v2, not more
+side-quests inside it.
+
 ### Why two steps, why combine
 
 The two phases address different layers of the cascade:
@@ -255,6 +268,27 @@ loss_3` and tune via per-loss validation curves. Standard
 multi-task balancing (gradient surgery, uncertainty weighting)
 applies if losses fight.
 
+**The loss-geometry tension — and why the heads, not the trunk,
+specialize.** Heads 2 and 3 pull in opposite directions on the
+*same* same-room frames: head 2 (same-region image-image
+contrastive) pulls same-room views **together**, while head 3
+(hard-negative target-text) pushes same-room-different-instance
+**apart**. `MISSION_VALIDATION_ARCHITECTURE.md` §3.1 names this
+tension ("the two fine-tune targets are in tension … same-region
+contrastive pushes alternate-instance embeddings together, which
+destroys instance discrimination"). If both objectives shape one
+shared trainable tower directly, they fight. The
+[`perception-backbone-architecture.md`](../../context/perception-backbone-architecture.md)
+spine's mitigation is **per-case projection heads on a
+case-agnostic tower**: the tower stays neutral (frozen base; see
+the freeze invariant below), and each per-case head specializes on
+top of it, so the conflicting geometries live in the heads rather
+than colliding in the trunk. Gate the recipe on a **per-case
+validation curve** — each head's case metric must move the right
+way independently before the multi-task ship; a head that only
+improves on its own case while regressing the other is the signal
+the projection split is leaking back into shared parameters.
+
 Backbone: **inherited from
 [`backbone-bakeoff`](backbone-bakeoff.md)** — defaults to
 whatever that brief selected for production at the time this
@@ -263,11 +297,19 @@ OpenCLIP ViT-B/32 + `laion2b_s34b_b79k` weights (the existing
 fine-tune init), but the brief execution must record the
 divergence in the training-config sidecar and run a one-shot
 backbone-comparison head-to-head before committing the
-Phase-1 ship decision. LoRA adapters on attention + projection
-layers; full towers stay frozen by default. ~50 M trainable
-params via LoRA vs. ~150 M for full fine-tune (numbers scale
-with the chosen backbone). Choice between LoRA and full is a
-brief-execution decision; document it.
+Phase-1 ship decision. **Frozen base + LoRA, per the spine's freeze
+invariant.** The validator's discrimination comes via LoRA adapters
+on attention + projection layers **plus the per-case projection
+heads above, on top of a frozen shared trunk** — not by unfreezing
+the towers. This is not merely this brief's default; it is the
+[`perception-backbone-architecture.md`](../../context/perception-backbone-architecture.md)
+spine's stated invariant ("freeze the base trunk; train per-consumer
+LoRA + light heads"), because the same frozen trunk simultaneously
+serves VPR, the region head, and Step B, and unfreezing for any one
+head invalidates the others' features and the persisted index.
+~50 M trainable params via LoRA vs. ~150 M for a full fine-tune
+(numbers scale with the chosen backbone); full-tower fine-tuning is
+out of bounds under the invariant, not a brief-execution toggle.
 
 **Deployment:** the resulting `clip_visual.onnx` +
 `clip_text.onnx` drop in via the existing
@@ -471,7 +513,12 @@ results justify it. This brief stops at sim eval.
       text tower can train only head 2 and degenerates the
       multi-task recipe to a case-1-only fine-tune — record this
       in the training-config sidecar if the bakeoff hands over a
-      vision-only backbone.
+      vision-only backbone. Under the
+      [`perception-backbone-architecture.md`](../../context/perception-backbone-architecture.md)
+      spine's settled decision (one **text-capable** shared trunk),
+      the vision-only handover shouldn't arise — but this criterion
+      stays as a **defensive guard** against a future escape-valve /
+      hybrid-tower selection.
 - [ ] **Dataset pipeline shared with v2 via direct LeRobot v3
       loading.** Both Step A's contrastive-pairs loader and
       [`vla-v2-architecture`](../experimental/vla-v2-architecture.md)'s

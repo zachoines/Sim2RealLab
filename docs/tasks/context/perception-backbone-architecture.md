@@ -115,6 +115,16 @@ region / Step-B consume the same frozen base. Anyone who unfreezes
 for one head breaks the others — LoRA is the escape hatch and this is
 a stated invariant.
 
+**Contrastive loss form: sigmoid, not InfoNCE.** SigLIP-2 is
+pretrained with the **sigmoid (pairwise) image-text loss**, not
+softmax/InfoNCE. So the *image-text* heads (the validator's case-2
+and `cotrained` heads 1 & 3) train with the **sigmoid loss** — it
+keeps the LoRA-adapted embeddings in the pretrained geometry and is
+**batch-size-robust** (no in-batch all-gather of negatives), which
+matters for the small harness corpus where InfoNCE's few-negatives
+regime degrades. Image-image objectives (the same-region head, VPR)
+are unaffected.
+
 ---
 
 ## Deployment context — single-home, long-lived
@@ -152,9 +162,15 @@ fallback, not the baseline.
 ## The three risks (named, not buried)
 
 1. **The VPR bet.** AnyLoc/SALAD VPR is DINOv2-specific; VPR on
-   SigLIP-2 features is unproven. Hedge: **MegaLoc** is a more
-   backbone-flexible VPR aggregation. The widened bake-off measures
-   it; treat the shared-trunk-serves-VPR claim as a *principle with a
+   SigLIP-2 features is unproven. What makes the bet plausible
+   (rather than a long shot): SigLIP-2's pretraining adds
+   **self-distillation + masked prediction (SILC/TIPS-style)** — the
+   same DINO-family objective that gives DINOv2 the dense-feature
+   quality AnyLoc exploits — so its visual features carry more
+   place-discriminative signal than CLIP/SigLIP-1. Hedge: **MegaLoc**
+   is a more backbone-flexible VPR aggregation than AnyLoc's
+   DINOv2-specific facets. The widened bake-off still measures it;
+   treat the shared-trunk-serves-VPR claim as a *principle with a
    measured gate*, not a settled fact.
 2. **Freeze discipline.** The whole architecture holds only with a
    frozen base. Unfreezing for any single head breaks the rest (and

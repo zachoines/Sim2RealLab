@@ -205,6 +205,20 @@ evaluated **only if** a single text-capable trunk fails the VPR
 bar — i.e. the spine's escape valve / `learned-spatial-encoder`
 trigger 2. The hybrid is a fallback, not a default candidate.
 
+### Input resolution — evaluate the NaFlex variant
+
+SigLIP-2 ships **NaFlex** variants that ingest **native aspect ratio
+at a variable sequence length** instead of forcing a square
+center-crop. The perception camera is 640×360 (16:9), and the live
+`clip_encoder` center-crops to 224², dropping ~27% of the horizontal
+FoV (`MISSION_VALIDATION_ARCHITECTURE.md §2.2`) — the same loss
+behind the letterbox-vs-center-crop reconciliation. A NaFlex
+SigLIP-2 variant could take the 16:9 frame natively, **preserving the
+side context and making the preprocessing reconciliation moot.**
+Evaluate the NaFlex variant alongside the fixed-224 one on the same
+job set, report the FoV / preprocessing trade in the write-up, and if
+NaFlex clears the bars make it the preferred input path.
+
 ### Eval methodology — shared scaffolding, widened jobs
 
 This brief runs on the **shared eval scaffolding** — the

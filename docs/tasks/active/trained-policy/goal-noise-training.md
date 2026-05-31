@@ -192,7 +192,7 @@ DEPTH baseline already exists from the ProcRoom-Depth env. Otherwise:
 
 ```
 python Scripts/train_strafer_navigation.py \
-    --task Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0
+    --task Isaac-Strafer-Nav-RLDepth-Real-v0
 ```
 
 Train to convergence (target episode reward; episode-length-target
@@ -213,7 +213,7 @@ of the measured 0.2–0.5 m VLM noise). Resume from the DEPTH baseline:
 
 ```
 python Scripts/train_strafer_navigation.py \
-    --task Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0 \
+    --task Isaac-Strafer-Nav-RLDepth-Real-v0 \
     --resume logs/rsl_rl/strafer_navigation/baseline_depth_no_noise/model_<step>.pt \
     --max_iterations <baseline_iter * 0.15>
 ```

@@ -119,7 +119,7 @@ Expected: 30 environment IDs (15 train + 15 play).
 ```bash
 cd ~/Documents/repos/IsaacLab
 ./isaaclab.sh -p ../Sim2RealLab/Scripts/train_strafer_navigation.py \
-  --env Isaac-Strafer-Nav-Real-NoCam-v0 \
+  --env Isaac-Strafer-Nav-RLNoCam-v0 \
   --num_envs 64 \
   --max_iterations 10 \
   --headless
@@ -131,7 +131,7 @@ Validates: Isaac Sim physics, Isaac Lab RL pipeline, strafer_lab env registratio
 
 ```bash
 ./isaaclab.sh -p ../Sim2RealLab/Scripts/train_strafer_navigation.py \
-  --env Isaac-Strafer-Nav-Real-NoCam-v0 \
+  --env Isaac-Strafer-Nav-RLNoCam-v0 \
   --num_envs 512 \
   --max_iterations 100 \
   --headless
@@ -148,7 +148,7 @@ cd ~/Documents/repos/IsaacLab
 
 ```bash
 ./isaaclab.sh -p ../Sim2RealLab/Scripts/train_strafer_navigation.py \
-  --env Isaac-Strafer-Nav-Real-Depth-v0 \
+  --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
   --num_envs 16 \
   --max_iterations 10 \
   --headless
@@ -158,7 +158,7 @@ cd ~/Documents/repos/IsaacLab
 
 ```bash
 ./isaaclab.sh -p ../Sim2RealLab/Scripts/train_strafer_navigation.py \
-  --env Isaac-Strafer-Nav-Real-ProcRoom-NoCam-v0 \
+  --env Isaac-Strafer-Nav-RLNoCam-v0 \
   --num_envs 64 \
   --max_iterations 10 \
   --headless
@@ -189,28 +189,28 @@ export LD_PRELOAD="/lib/aarch64-linux-gnu/libgomp.so.1"
 
 ```bash
 ./isaaclab.sh -p ../Sim2RealLab/Scripts/train_strafer_navigation.py \
-  --env Isaac-Strafer-Nav-Real-NoCam-v0 --num_envs 512
+  --env Isaac-Strafer-Nav-RLNoCam-v0 --num_envs 512
 ```
 
 ### Depth Realistic
 
 ```bash
 ./isaaclab.sh -p ../Sim2RealLab/Scripts/train_strafer_navigation.py \
-  --env Isaac-Strafer-Nav-Real-Depth-v0 --num_envs 32
+  --env Isaac-Strafer-Nav-RLDepth-Real-v0 --num_envs 32
 ```
 
 ### Headless large-scale NoCam
 
 ```bash
 ./isaaclab.sh -p ../Sim2RealLab/Scripts/train_strafer_navigation.py \
-  --env Isaac-Strafer-Nav-Real-NoCam-v0 --num_envs 4096 --headless
+  --env Isaac-Strafer-Nav-RLNoCam-v0 --num_envs 4096 --headless
 ```
 
 ### ProcRoom Depth with video + LR schedule
 
 ```bash
 ./isaaclab.sh -p ../Sim2RealLab/Scripts/train_strafer_navigation.py \
-  --env Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0 \
+  --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
   --num_envs 64 \
   --num_steps 48 \
   --headless \
@@ -271,7 +271,7 @@ done interactively and is now cached.
 
 ## Smoke Test Results
 
-- **Environment:** `Isaac-Strafer-Nav-Real-NoCam-v0`
+- **Environment:** `Isaac-Strafer-Nav-RLNoCam-v0`
 - **Num envs:** 64
 - **Iterations:** 10
 - **Mode:** headless
@@ -379,7 +379,7 @@ conda activate env_isaaclab3
 export LD_PRELOAD="/lib/aarch64-linux-gnu/libgomp.so.1"
 
 ./isaaclab.sh -p ../Sim2RealLab/Scripts/train_strafer_navigation.py \
-  --env Isaac-Strafer-Nav-Real-NoCam-v0 \
+  --env Isaac-Strafer-Nav-RLNoCam-v0 \
   --num_envs 64 \
   --max_iterations 10 \
   --headless
@@ -426,7 +426,7 @@ robot.root_view.set_material_properties(
 
 ### Smoke Test Results (develop branch)
 
-- **Environment:** `Isaac-Strafer-Nav-Real-NoCam-v0`
+- **Environment:** `Isaac-Strafer-Nav-RLNoCam-v0`
 - **Stack:** Isaac Sim 6.0.0, Isaac Lab develop (v4.5.24), Python 3.12.13, PyTorch 2.10.0+cu130, rsl_rl 5.0.1
 - **Num envs:** 64
 - **Iterations:** 10

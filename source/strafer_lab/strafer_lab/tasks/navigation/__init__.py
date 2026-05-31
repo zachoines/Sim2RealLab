@@ -1,38 +1,24 @@
 """Navigation task for Strafer mecanum wheel robot.
 
-This module registers Gym environments organized by realism level and sensors:
+Environments are composed over three orthogonal axes — sensor stack, scene
+source, realism level — in ``composed_env_cfg.py`` and registered here under a
+composition-legible gym-ID scheme. Two families:
 
-IDEAL (no noise, no motor dynamics - debugging/baselines):
-- ``Isaac-Strafer-Nav-v0``: Full RGB+Depth
-- ``Isaac-Strafer-Nav-Depth-v0``: Depth-only
-- ``Isaac-Strafer-Nav-NoCam-v0``: Proprioceptive-only
+RL training (fixed sensor stack — the obs contract a trained policy was fit
+against):
 
-REALISTIC (motor dynamics + noise - sim-to-real target):
-- ``Isaac-Strafer-Nav-Real-v0``: Full RGB+Depth with realistic dynamics
-- ``Isaac-Strafer-Nav-Real-Depth-v0``: Depth-only with realistic dynamics
-- ``Isaac-Strafer-Nav-Real-NoCam-v0``: Proprioceptive-only with realistic dynamics
+- ``Isaac-Strafer-Nav-RLDepth-Real-v0``: depth-policy obs, ProcRoom, realistic
+- ``Isaac-Strafer-Nav-RLDepth-Robust-v0``: depth-policy obs, ProcRoom, robust DR
+- ``Isaac-Strafer-Nav-RLNoCam-v0``: proprioceptive obs, ProcRoom, realistic
 
-ROBUST (aggressive noise + dynamics - stress-testing):
-- ``Isaac-Strafer-Nav-Robust-v0``: Full sensors with extreme noise
-- ``Isaac-Strafer-Nav-Robust-Depth-v0``: Depth-only with extreme noise
-- ``Isaac-Strafer-Nav-Robust-NoCam-v0``: Proprioceptive-only with extreme noise
+Capture (operator-selectable stack via ``capture.py --sensors``; the default
+preset is shown):
 
-INFINIGEN (Phase 6 - offline Infinigen scene geometry):
-- ``Isaac-Strafer-Nav-Real-InfinigenDepth-v0``: Realistic depth + Infinigen scenes
-- ``Isaac-Strafer-Nav-Robust-InfinigenDepth-v0``: Robust depth + Infinigen scenes
-- ``Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0``: perception
-  data-collection env. 640x360 RGB + depth from ``d555_camera_perception``,
-  single-env by default (resolution caps throughput). Used by the harness
-  teleop driver (``scripts/teleop_capture.py``, dispatched from
-  ``Scripts/capture.py``) and the Isaac Sim ROS2 bridge.
+- ``Isaac-Strafer-Nav-Capture-Teleop-v0``: full RGB only, Infinigen, realistic
+- ``Isaac-Strafer-Nav-Capture-Bridge-v0``: full RGB+depth + policy depth, Infinigen
+- ``Isaac-Strafer-Nav-Capture-Coverage-v0``: full RGB+depth, Infinigen
 
-PROCROOM (Phase 7 - procedural primitive rooms):
-- ``Isaac-Strafer-Nav-Real-ProcRoom-NoCam-v0``: Realistic NoCam + proc rooms (256 envs)
-- ``Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0``: Realistic Depth + proc rooms (64 envs)
-- ``Isaac-Strafer-Nav-Robust-ProcRoom-NoCam-v0``: Robust NoCam + proc rooms (256 envs)
-- ``Isaac-Strafer-Nav-Robust-ProcRoom-Depth-v0``: Robust Depth + proc rooms (64 envs)
-
-Each has a -Play variant for evaluation (fewer envs).
+Each RL ID has a ``-Play-v0`` variant for evaluation (fewer envs).
 """
 
 import gymnasium as gym
@@ -40,7 +26,7 @@ import gymnasium as gym
 from . import agents
 
 ##
-# Register Gym environments - 30 total (15 configs x Train/Play)
+# Register Gym environments under the composed-variant scheme.
 ##
 
 _ENTRY_POINT = "isaaclab.envs:ManagerBasedRLEnv"
@@ -56,55 +42,27 @@ def _register_nav_env(env_id: str, env_cfg_name: str, runner_cfg_name: str) -> N
         entry_point=_ENTRY_POINT,
         disable_env_checker=True,
         kwargs={
-            "env_cfg_entry_point": f"{__name__}.strafer_env_cfg:{env_cfg_name}",
+            "env_cfg_entry_point": f"{__name__}.composed_env_cfg:{env_cfg_name}",
             "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:{runner_cfg_name}",
             "skrl_cfg_entry_point": _SKRL_CFG_ENTRY_POINT,
         },
     )
 
 
+# The runner cfg pairs with the observation profile: a depth-image obs needs
+# the CNN depth runner; a proprioceptive (no-image) obs uses the MLP runner.
 _ENV_REGISTRATIONS = [
-    # Ideal (no noise, no motor dynamics)
-    ("Isaac-Strafer-Nav-v0", "StraferNavEnvCfg", _DEPTH_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Play-v0", "StraferNavEnvCfg_PLAY", _DEPTH_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Depth-v0", "StraferNavEnvCfg_Depth", _DEPTH_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Depth-Play-v0", "StraferNavEnvCfg_Depth_PLAY", _DEPTH_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-NoCam-v0", "StraferNavEnvCfg_NoCam", _NOCAM_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-NoCam-Play-v0", "StraferNavEnvCfg_NoCam_PLAY", _NOCAM_RUNNER_CFG),
-    # Realistic (motor dynamics + noise)
-    ("Isaac-Strafer-Nav-Real-v0", "StraferNavEnvCfg_Real", _DEPTH_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Real-Play-v0", "StraferNavEnvCfg_Real_PLAY", _DEPTH_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Real-Depth-v0", "StraferNavEnvCfg_Real_Depth", _DEPTH_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Real-Depth-Play-v0", "StraferNavEnvCfg_Real_Depth_PLAY", _DEPTH_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Real-NoCam-v0", "StraferNavEnvCfg_Real_NoCam", _NOCAM_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Real-NoCam-Play-v0", "StraferNavEnvCfg_Real_NoCam_PLAY", _NOCAM_RUNNER_CFG),
-    # Robust (aggressive noise + dynamics)
-    ("Isaac-Strafer-Nav-Robust-v0", "StraferNavEnvCfg_Robust", _DEPTH_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Robust-Play-v0", "StraferNavEnvCfg_Robust_PLAY", _DEPTH_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Robust-Depth-v0", "StraferNavEnvCfg_Robust_Depth", _DEPTH_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Robust-Depth-Play-v0", "StraferNavEnvCfg_Robust_Depth_PLAY", _DEPTH_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Robust-NoCam-v0", "StraferNavEnvCfg_Robust_NoCam", _NOCAM_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Robust-NoCam-Play-v0", "StraferNavEnvCfg_Robust_NoCam_PLAY", _NOCAM_RUNNER_CFG),
-    # Infinigen scene variants
-    ("Isaac-Strafer-Nav-Real-InfinigenDepth-v0", "StraferNavEnvCfg_Real_InfinigenDepth", _DEPTH_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Real-InfinigenDepth-Play-v0", "StraferNavEnvCfg_Real_InfinigenDepth_PLAY", _DEPTH_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Robust-InfinigenDepth-v0", "StraferNavEnvCfg_Robust_InfinigenDepth", _DEPTH_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Robust-InfinigenDepth-Play-v0", "StraferNavEnvCfg_Robust_InfinigenDepth_PLAY", _DEPTH_RUNNER_CFG),
-    # Infinigen perception data-collection variant
-    (
-        "Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0",
-        "StraferNavEnvCfg_Real_InfinigenPerception_PLAY",
-        _DEPTH_RUNNER_CFG,
-    ),
-    # ProcRoom scene variants
-    ("Isaac-Strafer-Nav-Real-ProcRoom-NoCam-v0", "StraferNavEnvCfg_Real_ProcRoom_NoCam", _NOCAM_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Real-ProcRoom-NoCam-Play-v0", "StraferNavEnvCfg_Real_ProcRoom_NoCam_PLAY", _NOCAM_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0", "StraferNavEnvCfg_Real_ProcRoom_Depth", _DEPTH_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Real-ProcRoom-Depth-Play-v0", "StraferNavEnvCfg_Real_ProcRoom_Depth_PLAY", _DEPTH_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Robust-ProcRoom-NoCam-v0", "StraferNavEnvCfg_Robust_ProcRoom_NoCam", _NOCAM_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Robust-ProcRoom-NoCam-Play-v0", "StraferNavEnvCfg_Robust_ProcRoom_NoCam_PLAY", _NOCAM_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Robust-ProcRoom-Depth-v0", "StraferNavEnvCfg_Robust_ProcRoom_Depth", _DEPTH_RUNNER_CFG),
-    ("Isaac-Strafer-Nav-Robust-ProcRoom-Depth-Play-v0", "StraferNavEnvCfg_Robust_ProcRoom_Depth_PLAY", _DEPTH_RUNNER_CFG),
+    # RL training variants (fixed stack)
+    ("Isaac-Strafer-Nav-RLDepth-Real-v0", "StraferNavCfg_RLDepth_Real", _DEPTH_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-RLDepth-Real-Play-v0", "StraferNavCfg_RLDepth_Real_PLAY", _DEPTH_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-RLDepth-Robust-v0", "StraferNavCfg_RLDepth_Robust", _DEPTH_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-RLDepth-Robust-Play-v0", "StraferNavCfg_RLDepth_Robust_PLAY", _DEPTH_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-RLNoCam-v0", "StraferNavCfg_RLNoCam", _NOCAM_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-RLNoCam-Play-v0", "StraferNavCfg_RLNoCam_PLAY", _NOCAM_RUNNER_CFG),
+    # Capture variants (operator-selectable stack)
+    ("Isaac-Strafer-Nav-Capture-Teleop-v0", "StraferNavCfg_TeleopCapture", _NOCAM_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-Capture-Bridge-v0", "StraferNavCfg_BridgeAutonomy", _DEPTH_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-Capture-Coverage-v0", "StraferNavCfg_Coverage", _NOCAM_RUNNER_CFG),
 ]
 
 for env_id, env_cfg_name, runner_cfg_name in _ENV_REGISTRATIONS:

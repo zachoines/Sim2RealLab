@@ -18,8 +18,8 @@ from isaaclab.envs import ManagerBasedRLEnv
 
 from test.common import NUM_ENVS
 
+from strafer_lab.tasks.navigation.composed_env_cfg import StraferNavCfg_NoCam_Ideal
 from strafer_lab.tasks.navigation.strafer_env_cfg import (
-    StraferNavEnvCfg_NoCam,
     ActionsCfg_Ideal,
     ObsCfg_NoCam_Realistic,
 )
@@ -44,7 +44,7 @@ def _get_or_create_env():
     if _module_env is not None:
         return _module_env
 
-    cfg = StraferNavEnvCfg_NoCam()
+    cfg = StraferNavCfg_NoCam_Ideal()
     cfg.scene.num_envs = NUM_ENVS
     cfg.actions = ActionsCfg_Ideal()
     cfg.observations = ObsCfg_NoCam_Realistic()

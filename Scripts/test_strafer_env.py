@@ -9,17 +9,14 @@ This script runs predefined motion patterns to validate mecanum kinematics:
 - Figure-8 pattern
 
 Environments (--env):
-    Isaac-Strafer-Nav-v0          Ideal Full (no noise)
-    Isaac-Strafer-Nav-Depth-v0    Ideal Depth-only
-    Isaac-Strafer-Nav-NoCam-v0    Ideal Proprioceptive-only
-    Isaac-Strafer-Nav-Real-v0     Realistic Full (default)
-    Isaac-Strafer-Nav-Real-Depth-v0  Realistic Depth-only
-    Isaac-Strafer-Nav-Robust-v0   Robust Full (stress-test)
+    Isaac-Strafer-Nav-RLDepth-Real-v0     Depth policy, ProcRoom, realistic (default)
+    Isaac-Strafer-Nav-RLDepth-Robust-v0   Depth policy, ProcRoom, robust DR
+    Isaac-Strafer-Nav-RLNoCam-v0          Proprioceptive only, ProcRoom, realistic
 
 Usage:
     ./IsaacLab/isaaclab.sh -p Scripts/test_strafer_env.py
-    ./IsaacLab/isaaclab.sh -p Scripts/test_strafer_env.py --env Isaac-Strafer-Nav-v0
-    ./IsaacLab/isaaclab.sh -p Scripts/test_strafer_env.py --pattern circle --env Isaac-Strafer-Nav-Robust-v0
+    ./IsaacLab/isaaclab.sh -p Scripts/test_strafer_env.py --env Isaac-Strafer-Nav-RLDepth-Real-v0
+    ./IsaacLab/isaaclab.sh -p Scripts/test_strafer_env.py --pattern circle --env Isaac-Strafer-Nav-RLDepth-Robust-v0
 """
 
 import argparse
@@ -60,8 +57,8 @@ def main():
     parser.add_argument(
         "--env",
         type=str,
-        default="Isaac-Strafer-Nav-Real-v0",
-        help="Environment ID (default: Isaac-Strafer-Nav-Real-v0 = Realistic Full)",
+        default="Isaac-Strafer-Nav-RLDepth-Real-v0",
+        help="Environment ID (default: Isaac-Strafer-Nav-RLDepth-Real-v0 = depth policy, ProcRoom, realistic)",
     )
     parser.add_argument(
         "--video", action="store_true", default=False,
@@ -116,7 +113,7 @@ def main():
     env_name = args.env
     print(f"\nCreating environment: {env_name}")
     print(
-        f"Available: Isaac-Strafer-Nav-{{v0,Depth-v0,NoCam-v0,Real-v0,Real-Depth-v0,Robust-v0}}"
+        f"Available: Isaac-Strafer-Nav-{{RLDepth-Real-v0,RLDepth-Robust-v0,RLNoCam-v0}}"
     )
 
     try:

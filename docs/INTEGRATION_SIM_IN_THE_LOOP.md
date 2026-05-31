@@ -37,9 +37,32 @@ earlier ones work.
   diagnosing bridge issues.**
 - DGX prerequisite: Isaac Sim must boot under `AppLauncher` and a
   smoke-test env (e.g.
-  `Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0`) must reset
+  `Isaac-Strafer-Nav-RLDepth-Real-v0`) must reset
   cleanly before starting this runbook. If `AppLauncher` doesn't
   boot, nothing else here will work.
+
+---
+
+## Gym ID migration (composed-variant scheme)
+
+The env hierarchy was collapsed into a small set of variants composed over
+three axes — sensor stack × scene source × realism. The old per-cell gym IDs
+were retired (no aliases). Translate muscle-memory commands:
+
+| Old gym ID | New gym ID |
+|---|---|
+| `Isaac-Strafer-Nav-v0` / `-Real-v0` / `-Real-Depth-v0` / `-Real-InfinigenDepth-v0` / `-Real-ProcRoom-Depth-v0` | `Isaac-Strafer-Nav-RLDepth-Real-v0` |
+| `-Robust-v0` / `-Robust-Depth-v0` / `-Robust-InfinigenDepth-v0` / `-Robust-ProcRoom-Depth-v0` | `Isaac-Strafer-Nav-RLDepth-Robust-v0` |
+| `-NoCam-v0` / `-Real-NoCam-v0` / `-Real-ProcRoom-NoCam-v0` / `-Robust-ProcRoom-NoCam-v0` | `Isaac-Strafer-Nav-RLNoCam-v0` |
+| `-Real-InfinigenPerception-Play-v0` (teleop capture) | `Isaac-Strafer-Nav-Capture-Teleop-v0` |
+| `-Real-InfinigenPerception-Play-v0` (bridge / sim-in-the-loop) | `Isaac-Strafer-Nav-Capture-Bridge-v0` |
+
+Add `-Play-v0` to an RL ID for its evaluation variant. RL IDs keep a fixed
+sensor stack; capture IDs take an operator-selectable stack via
+`capture.py --sensors` (preset `teleop` / `vla` / `coverage` / `bridge`, or a
+token list over `rgb_full,depth_full,rgb_policy,depth_policy`). The Ideal tier
+and the Full RGB+depth-policy RL variants were dropped; the depth observation a
+checkpoint consumes is unchanged, so existing DEPTH checkpoints stay valid.
 
 ---
 
@@ -105,7 +128,7 @@ anything here is red, fix it first — do not paper over it later.
 - [ ] Isaac Sim boots under `AppLauncher` and a smoke-test env (e.g.
       `make sim-bridge` or
       `$ISAACLAB -p Scripts/test_strafer_env.py
-       --env Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0
+       --env Isaac-Strafer-Nav-RLDepth-Real-v0
        --num_envs 1 --duration 5 --headless`) reaches the env-step
       loop without errors.
 - [ ] `strafer_msgs` is importable from `env_isaaclab3` — the
@@ -675,7 +698,7 @@ isaaclab -p Scripts/capture.py \
 `Scripts/capture.py` validates the `(driver, mission-source)` cell and
 subprocesses `source/strafer_lab/scripts/teleop_capture.py`, which
 boots its own AppLauncher (headed, `enable_cameras=True`), loads the
-`Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0` task, and starts
+`Isaac-Strafer-Nav-Capture-Teleop-v0` task, and starts
 the capture loop. AppLauncher pass-through flags (`--device cpu`,
 `--viz kit,rerun` to add a Rerun stream alongside the editor viewport,
 etc.) flow through `capture.py` to the child driver via

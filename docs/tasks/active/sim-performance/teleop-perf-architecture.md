@@ -26,6 +26,10 @@ Read these before starting:
 - [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
 - [`context/bridge-runtime-invariants.md`](../../context/bridge-runtime-invariants.md)
 - [`context/conventions.md`](../../context/conventions.md)
+- [`context/env-composition-contract.md`](../../context/env-composition-contract.md) —
+  the `cameras_required` axis + `--sensors` render reduction this brief's
+  §C deferred to env-cfg-composition; the lever lands as a capture-variant
+  stack, not a new env subclass.
 - Sibling perf brief: [`bridge-throughput-toward-25hz`](bridge-throughput-toward-25hz.md) —
   bridge-driver-scoped levers. **This brief intentionally avoids
   overlapping** — teleop-side levers can ship independently because

@@ -31,7 +31,7 @@ Sibling packages it interacts with:
 
 ## What ships today
 
-- **31 registered Gym environments** across 3 realism levels (Ideal / Realistic / Robust) × 3 sensor modes (Full RGB+Depth / Depth-only / NoCam) + 4 Infinigen-scene depth variants + 1 Infinigen-perception Play variant + 8 ProcRoom variants, each with Train and Play flavors. See Contracts below.
+- **Composed Gym environments** over three orthogonal axes — sensor stack × scene source × realism — registered as a small set of named variants (RL training: depth / no-cam, realistic / robust; capture: teleop / bridge / coverage). Capture variants take an operator-selectable sensor stack via `capture.py --sensors`. See Contracts below.
 - **Sim-to-real contract presets** (`tasks/navigation/sim_real_cfg.py`) — `IDEAL_SIM_CONTRACT`, `REAL_ROBOT_CONTRACT`, `ROBUST_TRAINING_CONTRACT` covering motor time constant, command delay, slew rate, IMU / encoder / depth noise, and control jitter.
 - **Mecanum motor model** (`assets/strafer.py`) — `DCMotorCfg` with torque-speed curve, paired with the three-layer action pipeline (command delay → slew rate limit → first-order motor dynamics filter) in `tasks/navigation/mdp/actions.py`.
 - **Synthetic-data pipeline** — Infinigen scene generation orchestrator, scene metadata extractor, 4-stage description pipeline (programmatic spatial analysis → VLM description generation → ground-truth validation → human spot-check reservoir), OpenCLIP contrastive fine-tuning with ONNX export, comprehensive VLM LoRA SFT data prep.
@@ -43,24 +43,24 @@ Sibling packages it interacts with:
 
 ### Gym environment registry (`strafer_lab.tasks.navigation`)
 
-Registration happens in `tasks/navigation/__init__.py` via `gym.register`. Train and Play IDs share config; Play variants use fewer envs for evaluation.
+Registration happens in `tasks/navigation/__init__.py` via `gym.register`. Each
+variant is composed over three orthogonal axes — sensor stack × scene source ×
+realism — in `tasks/navigation/composed_env_cfg.py`. RL variants have a fixed
+sensor stack (the obs contract a trained policy was fit against); capture
+variants take an operator-selectable stack via `capture.py --sensors`.
 
-| Family | Realism | Sensors | Train ID | Obs dims |
-|---|---|---|---|---|
-| Base | Ideal | Full (RGB+Depth) | `Isaac-Strafer-Nav-v0` | 19,219 |
-| Base | Ideal | Depth-only | `Isaac-Strafer-Nav-Depth-v0` | 4,819 |
-| Base | Ideal | NoCam | `Isaac-Strafer-Nav-NoCam-v0` | 19 |
-| Base | Realistic | Full | `Isaac-Strafer-Nav-Real-v0` | 19,219 |
-| Base | Realistic | Depth-only | `Isaac-Strafer-Nav-Real-Depth-v0` | 4,819 |
-| Base | Realistic | NoCam | `Isaac-Strafer-Nav-Real-NoCam-v0` | 19 |
-| Base | Robust | Full | `Isaac-Strafer-Nav-Robust-v0` | 19,219 |
-| Base | Robust | Depth-only | `Isaac-Strafer-Nav-Robust-Depth-v0` | 4,819 |
-| Base | Robust | NoCam | `Isaac-Strafer-Nav-Robust-NoCam-v0` | 19 |
-| Infinigen depth | Realistic / Robust | Depth-only | `Isaac-Strafer-Nav-Real-InfinigenDepth-v0` / `Isaac-Strafer-Nav-Robust-InfinigenDepth-v0` | 4,819 |
-| Infinigen perception (Play only) | Realistic | 640×360 RGB + depth | `Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0` | — |
-| ProcRoom | Realistic / Robust | NoCam / Depth | 4 Train + 4 Play | 19 / 4,819 |
+| Family | Gym ID | sensors | scene | realism | Obs dims |
+|---|---|---|---|---|---|
+| RL | `Isaac-Strafer-Nav-RLDepth-Real-v0` | depth policy | ProcRoom | Realistic | 4,819 |
+| RL | `Isaac-Strafer-Nav-RLDepth-Robust-v0` | depth policy | ProcRoom | Robust | 4,819 |
+| RL | `Isaac-Strafer-Nav-RLNoCam-v0` | none | ProcRoom | Realistic | 19 |
+| Capture | `Isaac-Strafer-Nav-Capture-Teleop-v0` | rgb_full (default) | Infinigen | Realistic | — |
+| Capture | `Isaac-Strafer-Nav-Capture-Bridge-v0` | rgb_full+depth_full+depth_policy (default) | Infinigen | Realistic | — |
+| Capture | `Isaac-Strafer-Nav-Capture-Coverage-v0` | rgb_full+depth_full (default) | Infinigen | Realistic | — |
 
-Add each `-Play-v0` suffix to get the evaluation variant.
+Add the `-Play-v0` suffix to an RL ID to get its evaluation variant (fewer
+envs): `Isaac-Strafer-Nav-RLDepth-Real-Play-v0`,
+`Isaac-Strafer-Nav-RLDepth-Robust-Play-v0`, `Isaac-Strafer-Nav-RLNoCam-Play-v0`.
 
 ### Observation vector (15-19D proprioceptive base, optionally + depth + RGB)
 
@@ -135,7 +135,7 @@ If the Isaac-side observation layout changes, `strafer_shared.policy_interface` 
 | `scripts/finetune_clip.py` | OpenCLIP ViT-B/32 contrastive fine-tune with MLflow tracking, exports `clip_visual.onnx` + `clip_text.onnx` for the Jetson semantic map | `open_clip_torch`, CSV from `dataset_export` |
 | `scripts/collect_demos.py` | Gamepad teleop for RL demo collection (DAPG / GAIL sources). Shares the family-aware reader at `strafer_lab.tools.gamepad_reader` with the harness teleop driver | Isaac Sim |
 | `Scripts/capture.py` | Unified harness data-capture entry point (`--driver × --mission-source` cross-product per `harness-architecture.md`). Today wires `(teleop, scene-metadata)` end-to-end via the in-process Isaac Lab driver in `scripts/teleop_capture.py`; other cells raise `NotImplementedError` pointing at the tier that ships them | Isaac Sim (for `teleop`); pure-Python for argv validation |
-| `scripts/teleop_capture.py` | In-process Isaac Lab teleop driver. Boots `AppLauncher`, loads `Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0`, reads gamepad, drives `env.step()`, and writes a LeRobot v3 dataset via `StraferLeRobotWriter`. Subsumes the retired `collect_perception_data.py` | Isaac Sim, pygame, lerobot, optional OpenCV (for PIP) |
+| `scripts/teleop_capture.py` | In-process Isaac Lab teleop driver. Boots `AppLauncher`, loads `Isaac-Strafer-Nav-Capture-Teleop-v0`, reads gamepad, drives `env.step()`, and writes a LeRobot v3 dataset via `StraferLeRobotWriter`. Subsumes the retired `collect_perception_data.py` | Isaac Sim, pygame, lerobot, optional OpenCV (for PIP) |
 | `scripts/run_sim_in_the_loop.py` | Launch Isaac Sim with the ROS 2 bridge, run in `--mode bridge` (manual Nav2 drive) or `--mode harness` (harness runs Jetson missions, captures reachability-labelled dataset). Bridge LeRobot-v3 migration tracked in Tier 2 of the harness brief | Isaac Sim, `isaacsim.ros2.bridge`, Jetson on LAN |
 
 **Runtime helpers** (`strafer_lab.tools.*`, plain Python, no Isaac Sim):
@@ -222,25 +222,25 @@ cd /home/zachoines/Workspace/Sim2RealLab
 
 # NoCam Realistic (19 obs dims, fastest; recommended first run)
 ../IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-Real-NoCam-v0 --num_envs 512 --headless
+    --env Isaac-Strafer-Nav-RLNoCam-v0 --num_envs 512 --headless
 
 # Depth Realistic (4,819 obs dims; cameras auto-enabled)
 ../IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-Real-Depth-v0 --num_envs 32 --headless
+    --env Isaac-Strafer-Nav-RLDepth-Real-v0 --num_envs 32 --headless
 
 # Full Realistic
 ../IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-Real-v0 --num_envs 32 --headless
+    --env Isaac-Strafer-Nav-RLDepth-Real-v0 --num_envs 32 --headless
 
 # With video capture (overhead MP4 every 500 env steps)
 ../IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0 \
+    --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
     --num_envs 64 --max_iterations 3000 \
     --video --video_length 200 --video_interval 500 --headless
 
 # Resume from checkpoint
 ../IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-Real-NoCam-v0 \
+    --env Isaac-Strafer-Nav-RLNoCam-v0 \
     --resume logs/rsl_rl/strafer_navigation/run_XXXXX/model_500.pt
 ```
 
@@ -254,7 +254,7 @@ tensorboard --logdir logs/rsl_rl/strafer_navigation
 
 ```bash
 ../IsaacLab/isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/play.py \
-    --task Isaac-Strafer-Nav-Real-NoCam-Play-v0 --num_envs 50
+    --task Isaac-Strafer-Nav-RLNoCam-Play-v0 --num_envs 50
 ```
 
 Fast-path gym evaluation (no ROS overhead):
@@ -263,7 +263,7 @@ Fast-path gym evaluation (no ROS overhead):
 from strafer_shared.policy_interface import load_policy, PolicyVariant
 import gymnasium as gym, strafer_lab
 
-env = gym.make("Isaac-Strafer-Nav-Real-NoCam-v0", num_envs=1)
+env = gym.make("Isaac-Strafer-Nav-RLNoCam-v0", num_envs=1)
 policy = load_policy("logs/best_model.pt", PolicyVariant.NOCAM)
 obs, info = env.reset()
 done = False

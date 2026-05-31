@@ -2,16 +2,9 @@
 """Training script for Strafer navigation task using RSL-RL PPO.
 
 Environments (--env):
-    Isaac-Strafer-Nav-v0          Ideal Full (no noise, debugging)
-    Isaac-Strafer-Nav-Depth-v0    Ideal Depth-only
-    Isaac-Strafer-Nav-NoCam-v0    Ideal Proprioceptive-only (fastest)
-    Isaac-Strafer-Nav-Real-v0     Realistic Full (default, sim-to-real)
-    Isaac-Strafer-Nav-Real-Depth-v0  Realistic Depth-only
-    Isaac-Strafer-Nav-Robust-v0   Robust Full (stress-test training)
-    Isaac-Strafer-Nav-Real-InfinigenDepth-v0   Realistic + Infinigen scenes (Phase 6)
-    Isaac-Strafer-Nav-Robust-InfinigenDepth-v0 Robust + Infinigen scenes (Phase 6)
-    Isaac-Strafer-Nav-Real-ProcRoom-NoCam-v0   Realistic + Procedural rooms (Phase 7)
-    Isaac-Strafer-Nav-Robust-ProcRoom-NoCam-v0 Robust + Procedural rooms (Phase 7)
+    Isaac-Strafer-Nav-RLDepth-Real-v0     Depth policy, ProcRoom, realistic (default)
+    Isaac-Strafer-Nav-RLDepth-Robust-v0   Depth policy, ProcRoom, robust DR
+    Isaac-Strafer-Nav-RLNoCam-v0          Proprioceptive only, ProcRoom, realistic
 
 Auxiliary losses (--aux):
     dapg    Demo Augmented Policy Gradient (NLL on expert demos)
@@ -68,8 +61,8 @@ def main():
     parser.add_argument(
         "--env",
         type=str,
-        default="Isaac-Strafer-Nav-Real-v0",
-        help="Environment ID (default: Isaac-Strafer-Nav-Real-v0 = Realistic Full)",
+        default="Isaac-Strafer-Nav-RLDepth-Real-v0",
+        help="Environment ID (default: Isaac-Strafer-Nav-RLDepth-Real-v0 = depth policy, ProcRoom, realistic)",
     )
     # Video recording
     parser.add_argument(

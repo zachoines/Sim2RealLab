@@ -88,7 +88,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--task",
         type=str,
-        default="Isaac-Strafer-Nav-Real-InfinigenPerception-Play-v0",
+        default="Isaac-Strafer-Nav-Capture-Bridge-v0",
         help="Isaac Lab task carrying the 640x360 perception camera. "
         "num_envs is forced to 1 for sim-in-the-loop.",
     )
@@ -210,7 +210,7 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip constructing the async camera publisher. Useful for a "
              "cameras-off perf baseline (paired with "
-             "--task Isaac-Strafer-Nav-Real-NoCam-Play-v0). Default off; "
+             "--task Isaac-Strafer-Nav-RLNoCam-Play-v0). Default off; "
              "the standard bridge publishes color + depth.",
     )
     parser.add_argument(

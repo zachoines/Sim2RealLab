@@ -142,7 +142,7 @@ Sketch only — flesh out at un-park time.
 
 ### Phase 1 — Training-env design
 
-New training env `Isaac-Strafer-Nav-Real-ProcRoom-Waypoint-Depth-v0`.
+New training env `Isaac-Strafer-Nav-RLDepth-Waypoint-Real-v0`.
 Differences from existing ProcRoom-Depth:
 
 - Action space: N waypoint poses (N=8 likely; tune later) in body

@@ -74,7 +74,7 @@ plumbing produces the right numbers under load.
    `~/strafer_ws/install/strafer_inference/share/strafer_inference/models/`
    (or wherever `inference.yaml`'s `model_path` is configured). Gates
    on the DGX-side training pipeline producing a converged checkpoint
-   against `Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0` (or `-Robust-`)
+   against `Isaac-Strafer-Nav-RLDepth-Real-v0` (or `-Robust-`)
    and the export tooling emitting a `.onnx` (plus optional `.engine`
    sidecar to skip the TRT cold-start cost).
 3. **TRT runtime on Jetson**: ONNX Runtime built with the TensorRT

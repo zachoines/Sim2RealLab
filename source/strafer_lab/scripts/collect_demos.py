@@ -21,12 +21,12 @@ Output:
 Usage:
     # Single file (classic):
     isaaclab -p scripts/collect_demos.py \
-        --task Isaac-Strafer-Nav-Real-ProcRoom-Depth-Play-v0 \
+        --task Isaac-Strafer-Nav-RLDepth-Real-Play-v0 \
         --output demos.h5
 
     # Incremental folder (recommended):
     isaaclab -p scripts/collect_demos.py \
-        --task Isaac-Strafer-Nav-Real-ProcRoom-Depth-Play-v0 \
+        --task Isaac-Strafer-Nav-RLDepth-Real-Play-v0 \
         --output demos/ --max_episodes 40
 
     # Train on the folder:

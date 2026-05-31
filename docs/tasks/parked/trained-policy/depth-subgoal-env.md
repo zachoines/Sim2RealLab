@@ -72,7 +72,7 @@ Recommendation: A for the MVP. File the modulated version as a follow-up only if
 
 ### 4. Training cost estimate
 
-DEPTH training on `Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0` takes substantially longer per wall-clock hour than NOCAM (the 4800-dim depth + conv backbone is the bottleneck). DEPTH_SUBGOAL trains over the same input distribution but with a more complex reward landscape, so expect ≥ the same wall-clock budget. The PR description records the actual training-time + GPU-hours so future briefs can plan against measured cost, not assumed cost.
+DEPTH training on `Isaac-Strafer-Nav-RLDepth-Real-v0` takes substantially longer per wall-clock hour than NOCAM (the 4800-dim depth + conv backbone is the bottleneck). DEPTH_SUBGOAL trains over the same input distribution but with a more complex reward landscape, so expect ≥ the same wall-clock budget. The PR description records the actual training-time + GPU-hours so future briefs can plan against measured cost, not assumed cost.
 
 ## What's missing
 
@@ -82,7 +82,7 @@ DEPTH training on `Isaac-Strafer-Nav-Real-ProcRoom-Depth-v0` takes substantially
 
 2. **Reward functions** for the trade-off resolved per design question 2. If Option B, a new `depth_obstacle_proximity_penalty` term in `mdp/rewards.py`. If Option A, no new reward functions — just reuse NOCAM_SUBGOAL's set with the existing `collision` termination handling avoidance.
 
-3. **Env config** for `Isaac-Strafer-Nav-Real-ProcRoom-Subgoal-Depth-v0` (and `Robust` + `Play` variants) composing the existing ProcRoom-Depth scene + DEPTH observations + `SubgoalCommand` (or its successor) + the chosen reward.
+3. **Env config** for `Isaac-Strafer-Nav-RLDepth-Subgoal-Real-v0` (and `Robust` + `Play` variants) composing the existing ProcRoom-Depth scene + DEPTH observations + `SubgoalCommand` (or its successor) + the chosen reward.
 
 4. **Registered task IDs** in `navigation/__init__.py`, alongside the existing NoCam-Subgoal variants.
 
@@ -120,13 +120,13 @@ Unit tests in `source/strafer_lab/tests/test_depth_subgoal_rewards.py`:
 
 In `strafer_env_cfg.py`: `StraferNavEnvCfg_Real_ProcRoom_Subgoal_Depth` (and `_Robust_` + `_PLAY` variants). Composes the existing ProcRoom-Depth scene + DEPTH observations + `SubgoalCommand` (Phase 1's chosen variant) + new rewards from Phase 3.
 
-In `navigation/__init__.py`: register `Isaac-Strafer-Nav-Real-ProcRoom-Subgoal-Depth-v0`, `-Play-v0`, `Robust` variants.
+In `navigation/__init__.py`: register `Isaac-Strafer-Nav-RLDepth-Subgoal-Real-v0`, `-Play-v0`, `Robust` variants.
 
-Smoke test: `python Scripts/test_strafer_env.py --task Isaac-Strafer-Nav-Real-ProcRoom-Subgoal-Depth-Play-v0` runs without errors, path + subgoal markers + depth visualization visible in the Kit viewport.
+Smoke test: `python Scripts/test_strafer_env.py --task Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0` runs without errors, path + subgoal markers + depth visualization visible in the Kit viewport.
 
 ### Phase 5 — Training run + checkpoint (1–3 weeks wall, depending on architecture choice from design question 1)
 
-Train against `Isaac-Strafer-Nav-Real-ProcRoom-Subgoal-Depth-v0` per PPO. Target convergence metrics (record in PR description):
+Train against `Isaac-Strafer-Nav-RLDepth-Subgoal-Real-v0` per PPO. Target convergence metrics (record in PR description):
 
 - Episode reward at convergence.
 - Median cross-track error at convergence (target: ≤ 15 cm; looser than NOCAM_SUBGOAL's ≤ 10 cm because depth-driven detours from the path are expected).

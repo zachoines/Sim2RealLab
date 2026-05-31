@@ -184,10 +184,30 @@ def _build_parser() -> argparse.ArgumentParser:
         "--profile",
         action="store_true",
         help="Print a rolling per-phase wall-time breakdown of the env-step "
-        "loop (driver read / env.step [render vs sim+mgr] / writer / "
-        "viewport+HUD+PIP overhead) plus render-calls-per-tick. Measures "
-        "which phase dominates so the next perf lever attacks the real "
-        "bottleneck. Pure instrumentation; no behavior change.",
+        "loop (driver read / env.step [render vs physics vs mgr] / writer / "
+        "viewport+HUD+PIP overhead) plus render- and physics-calls-per-tick. "
+        "Measures which phase dominates so the next perf lever attacks the "
+        "real bottleneck. Pure instrumentation; no behavior change.",
+    )
+    parser.add_argument(
+        "--decimation",
+        type=int, default=None,
+        help="Override the env's physics decimation (substeps per env.step) "
+        "for a perf-prioritized teleop session. sim.dt is auto-rescaled to "
+        "hold the env step / control / capture rate constant, so the dataset "
+        "is unchanged; only PhysX cost and per-substep contact-resolution "
+        "fidelity change. On a PhysX-bound dense scene this is the only knob "
+        "that cuts the dominant cost — but lowering it (e.g. 4 to 2) coarsens "
+        "collision; verify the robot does not tunnel through scene geometry.",
+    )
+    parser.add_argument(
+        "--viewport-resolution",
+        type=str, default=None,
+        help="Operator editor-viewport resolution as WxH (e.g. 960x540). "
+        "Default 1280x720. Lower it to cut the Kit render cost — the viewport "
+        "is the operator-only third-person view and NEVER enters captured "
+        "frames (the perception camera render product is a separate surface "
+        "at its own fixed resolution). world_arcade mode only.",
     )
     parser.add_argument(
         "--profile-report-period-s",
@@ -230,6 +250,10 @@ from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry
 
 from strafer_lab.tools.gamepad_reader import GamepadReader
 from strafer_lab.tools.phase_profiler import PhaseProfiler
+from strafer_lab.tools.teleop_perf_knobs import (
+    resolve_decimation,
+    resolve_viewport_resolution,
+)
 from strafer_lab.tools.lerobot_writer import (
     StraferLeRobotWriter,
     _normalize_cameras_required,
@@ -773,6 +797,40 @@ def main() -> int:
         env_cfg.sensors = SensorStackCfg(cameras_required=cameras_required)
         env_cfg.__post_init__()
 
+    # Physics decimation knob (perf-prioritized teleop). Applied AFTER
+    # __post_init__, which re-runs the shared runtime defaults and would
+    # otherwise reset decimation / sim.dt. Profiling showed PhysX (the
+    # decimation substeps) is the dominant per-tick cost on dense Infinigen
+    # scenes; fewer substeps is the only lever that cuts it. sim.dt is
+    # rescaled to hold the env step / capture rate constant, so the dataset
+    # is unchanged — only contact-resolution fidelity drops. render_interval
+    # is matched to the new decimation so the viewport still renders once per
+    # env.step (smoothness unchanged).
+    if args.decimation is not None:
+        try:
+            _new_decim, _new_dt = resolve_decimation(
+                args.decimation,
+                default_decimation=int(getattr(env_cfg, "decimation", 1)),
+                default_sim_dt=float(getattr(env_cfg.sim, "dt", 1.0 / 120.0)),
+            )
+        except ValueError as exc:
+            print(f"[teleop_capture] --decimation ignored: {exc}",
+                  file=sys.stderr, flush=True)
+        else:
+            _old_decim = int(getattr(env_cfg, "decimation", 1))
+            env_cfg.decimation = _new_decim
+            env_cfg.sim.dt = _new_dt
+            if hasattr(env_cfg.sim, "render_interval"):
+                env_cfg.sim.render_interval = _new_decim
+            _ctrl_hz = 1.0 / (_new_dt * _new_decim)
+            print(
+                f"[teleop_capture] --decimation {_old_decim}→{_new_decim}: "
+                f"sim.dt={_new_dt:.6f}s, control rate held at {_ctrl_hz:.1f} Hz "
+                f"(PhysX does {_new_decim} substeps/step instead of {_old_decim}; "
+                "coarser contact resolution — watch for tunneling).",
+                flush=True,
+            )
+
     if args.scene_usd:
         env_cfg.scene.scene_geometry.spawn.usd_path = str(Path(args.scene_usd).resolve())
         print(f"[teleop_capture] scene USD override → {env_cfg.scene.scene_geometry.spawn.usd_path}")
@@ -844,12 +902,24 @@ def main() -> int:
         # follower then re-poses the camera over the robot's XY each
         # step so the operator never has to chase the robot or the goal.
         cx, cy = scene_centroid_xy
+        # Operator viewport resolution (perf knob). Lower it to cut the Kit
+        # render cost — this is the operator-only editor view and never
+        # enters captured frames. Default 1280x720.
+        _vp_w, _vp_h = resolve_viewport_resolution(
+            args.viewport_resolution, default=(1280, 720),
+        )
+        if args.viewport_resolution is not None:
+            print(
+                f"[teleop_capture] operator viewport resolution {_vp_w}x{_vp_h} "
+                "(editor view only; not captured).",
+                flush=True,
+            )
         env_cfg.viewer = ViewerCfg(
             eye=(cx, cy, 12.0),
             lookat=(cx, cy, 0.0),  # eye and lookat share XY — see _compute_arcade_eye
             origin_type="world",
             env_index=0,
-            resolution=(1280, 720),
+            resolution=(_vp_w, _vp_h),
         )
 
     # Match camera update_period to the writer cadence. Gates Isaac

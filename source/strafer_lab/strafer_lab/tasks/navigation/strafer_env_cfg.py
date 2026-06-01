@@ -1137,7 +1137,7 @@ def _apply_default_nav_runtime(cfg: ManagerBasedRLEnvCfg) -> None:
     cfg.episode_length_s = _DEFAULT_NAV_EPISODE_LENGTH_S
     # Enable PhysX's contact-stabilization pass on every nav env. This is the
     # scene-level companion to the robot's reduced solver-iteration count
-    # (STRAFER_CFG: 8/4 instead of 32/16) — together they are cheaper per
+    # (STRAFER_CFG: 4/1 instead of 32/16) — together they are cheaper per
     # substep and as-stable for the passive mecanum-roller contacts.
     # ProcRoom replaces cfg.sim.physics with its own PhysxCfg (which also
     # enables stabilization plus larger GPU contact buffers) in

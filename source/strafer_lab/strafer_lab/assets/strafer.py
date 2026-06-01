@@ -53,8 +53,24 @@ STRAFER_CFG = ArticulationCfg(
         usd_path=_STRAFER_USD_PATH,
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
             enabled_self_collisions=False,
-            solver_position_iteration_count=32,
-            solver_velocity_iteration_count=16,
+            # Solver iterations were 32/16 (~8x the typical default) to keep
+            # the 40 passive mecanum-roller contacts from diverging. Per-substep
+            # profiling on a high-density scene showed that high count was the
+            # dominant PhysX cost (~2.6x the physics wall-time of 8/4) and did
+            # NOT actually buy stability — the residual roller jitter is a
+            # contact-event problem, addressed instead by scene-level
+            # enable_stabilization (see _apply_default_nav_runtime) and the
+            # capped depenetration velocity below. 8/4 + stabilization is
+            # cheaper and as-stable at normal drive speeds, with roller-vs-ground
+            # contact verified accurate at the physics render rate.
+            solver_position_iteration_count=8,
+            solver_velocity_iteration_count=4,
+            stabilization_threshold=0.01,
+            sleep_threshold=0.005,
+        ),
+        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+            # Cap how violently an interpenetrating roller is ejected.
+            max_depenetration_velocity=1.0,
         ),
         activate_contact_sensors=True,
     ),

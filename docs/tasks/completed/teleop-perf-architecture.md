@@ -1,5 +1,11 @@
 # Teleop capture perf architecture — drop perception render, decouple env.step, per-variant cameras
 
+**Status:** Shipped 2026-06-01 in `6620b76` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/73
+**Follow-ups:** [`roller-contact-high-omega-bounce`](../active/sim-performance/roller-contact-high-omega-bounce.md) — residual chassis bounce at sustained near-max yaw rate; [`headless-training-video-black`](../active/sim-performance/headless-training-video-black.md) — black `--headless --video` training clips, bisected to the env-cfg-composition epic.
+
+**Outcome:** Shipped on the ≥2-levers bar (cleanup + `--profile` instrumentation + the shared physics win), not the ≥15 FPS bar. Profiling proved the teleop loop is **PhysX-bound** — physics alone exceeds the 15 FPS frame budget on high-density Infinigen, so 15 FPS is unreachable without a fidelity/renderer trade no teleop-side lever can make. The physics win (solver iters 32/16→4/1 + contact stabilization + roller restitution 0) cut physics ~2.6× (~93→~35 ms/tick, ~5.5→~10 FPS) and was promoted to the shared `STRAFER_CFG`; the original Levers 1/2 (drop non-capture render, background env.step thread) were not needed once the bottleneck was shown to be physics, not render. **Gate carried into the shared change:** the 4/1 iters + roller damping 0.01 reduce two stability margins at once — a full-env-count training smoke (`Episode_Termination/robot_flipped`) is the standing check before RL relies on it; cheap retreat is damping→0.5 then iters→8/4.
+
 **Type:** architecture + refactor (teleop driver + env cfg variants + writer)
 **Owner:** DGX agent (teleop-lane)
 **Priority:** P2 — teleop-blocking, not training-blocking. Operator

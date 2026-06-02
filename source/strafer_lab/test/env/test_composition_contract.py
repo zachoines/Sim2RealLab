@@ -12,12 +12,15 @@ shared runtime) as the hand-written class it replaced.
 
 The legacy classes are gone (the clean break deleted them), so the contract is
 guarded by **stored golden hashes** captured from those legacy classes before
-deletion. A drift in any composed variant flips its hash and fails here. The
-scene's *unused* camera channels are intentionally excluded from the hashed
-contract — a depth-only observation never reads RGB, so the composition is free
-to stop rendering it (a render-cost win) while the observation tensor stays
-identical. A separate check confirms every sensor an observation term reads is
-present with the channel it needs.
+deletion. A drift in any composed variant flips its hash and fails here. A
+camera's *rendered* channels are excluded from the hashed contract — a
+depth-only observation never reads RGB, so what a camera renders beyond the
+observed channels is invisible to the policy-facing contract. That exclusion is
+about the contract hash only; it does NOT license dropping the rgb channel. The
+policy camera still renders rgb regardless of the observation, because the RTX
+viewport / ``--video`` colour pipeline needs an rgb render product to come up
+at all (see ``_prune_scene_cameras``). A separate check confirms every sensor
+an observation term reads is present with the channel it needs.
 
 Purely inspects config dataclass attributes — no simulation stepping needed.
 
@@ -152,6 +155,32 @@ def test_composed_rl_variant_sensors_present(name):
         assert cam is not None and "distance_to_image_plane" in list(cam.data_types)
     if "rgb_image" in names:
         assert cam is not None and "rgb" in list(cam.data_types)
+
+
+@pytest.mark.parametrize(
+    "name", ["RLDepth_Real", "RLDepth_Robust"], ids=lambda n: n
+)
+def test_depth_policy_camera_still_renders_rgb_for_viewport(name):
+    """A depth-only RL variant's policy camera still renders the rgb channel.
+
+    The observation is depth-only (guarded byte-for-byte by the frozen contract
+    above), but the policy camera is also the scene's rgb render product: the
+    RTX viewport / ``--video`` colour pipeline only comes up when some camera
+    renders rgb. Drop it and clips are all-black and the headed viewport stalls.
+    Guards against pruning the policy camera down to only the observed channel,
+    which leaves the viewport / ``--video`` with no rgb render product.
+    """
+    cfg = _COMPOSED_RL[name]()
+    cam = cfg.scene.d555_camera
+    assert cam is not None, f"{name} has no policy camera"
+    channels = list(cam.data_types)
+    assert "rgb" in channels, (
+        f"{name} policy camera dropped rgb ({channels}) — viewport/--video "
+        f"will render black"
+    )
+    assert "distance_to_image_plane" in channels, (
+        f"{name} policy camera dropped depth ({channels})"
+    )
 
 
 # =====================================================================

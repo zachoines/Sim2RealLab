@@ -1110,9 +1110,15 @@ class CurriculumCfg_Infinigen:
 # a variant from the sensor / scene-source / realism axes.
 # =============================================================================
 
-_DEFAULT_NAV_SIM_DT = 1.0 / 120.0
-_DEFAULT_NAV_RENDER_INTERVAL = 4
-_DEFAULT_NAV_DECIMATION = 4
+# Physics runs at 240 Hz (sim.dt = 1/240) with decimation 8, holding the
+# control rate at 30 Hz (240 / 8). The doubled substep count resolves the
+# fast mecanum-roller contact at high yaw rate: at 120 Hz the contact patch
+# advances ~half an inter-roller spacing per substep, which under-integrates
+# the contact and pumps a growing chassis bounce above ~60% of max yaw.
+# render_interval = decimation keeps one render per control step.
+_DEFAULT_NAV_SIM_DT = 1.0 / 240.0
+_DEFAULT_NAV_RENDER_INTERVAL = 8
+_DEFAULT_NAV_DECIMATION = 8
 _DEFAULT_NAV_EPISODE_LENGTH_S = 20.0
 
 _STANDARD_TRAIN_NUM_ENVS = 4096

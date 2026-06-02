@@ -1,25 +1,29 @@
-# Headless training videos render black after the env-cfg-composition cutover
+# Training-scene render is broken after the env-cfg-composition cutover (blank + freeze headed; black video headless)
 
 **Type:** investigation + fix (render / env-cfg composition)
 **Owner:** DGX agent
-**Priority:** P3 — operator-facing diagnostics only; does NOT affect
-training itself (the policy consumes the depth-policy camera, not the
-recorded RGB viewport) or the `Episode_Termination/*` TensorBoard
-scalars used to judge stability. Cosmetic-but-real: the periodic
-training videos are the operator's only visual check that the robot is
-behaving during long headless runs.
+**Priority:** P2 — raised from P3 after a new observation (below): the
+break is **not** headless-only. Running **headed** `--video` opens the
+viewport to a **blank screen and then freezes** — so the rendered scene
+is not coming up at all under the composition, in *either* mode. That is
+more than a cosmetic video-recording gap: a headed render that hangs
+blocks the operator's normal "watch a training run" workflow and
+suggests the composed scene's render/materialization is genuinely
+broken, not just unlit in the headless path. Training itself (depth
+policy camera + `Episode_Termination/*` scalars) is still unaffected,
+which is why this didn't surface until a headed `--video` smoke run.
 **Estimate:** S–M — a bisect across the composition epic's render-path
-changes + the fix for whichever step drops the headless viewport
-illumination.
+changes + the fix for whichever step breaks the composed-scene render.
 **Branch:** `task/headless-training-video-black`
 
 ## Story
 
-As a **DGX operator running `train_strafer_navigation.py --headless
---video`** I want **the periodic MP4 clips to show the robot in the lit
-scene as they did before the env-cfg-composition cutover** so that **I
-can eyeball rollout behavior (flips, stalls, wall-hugging) during a long
-headless training run instead of staring at black frames**.
+As a **DGX operator running `train_strafer_navigation.py --video`
+(headed or headless)** I want **the training scene to render as it did
+before the env-cfg-composition cutover** so that **I can watch a headed
+run without the viewport coming up blank and freezing, and eyeball
+rollout behavior (flips, stalls, wall-hugging) in the recorded clips
+instead of staring at black frames**.
 
 ## Symptom
 
@@ -30,6 +34,21 @@ h264-decodable; the codec is not the issue (installing/forcing h264 made
 no difference). The robot's depth-policy camera (what the policy trains
 on) is unaffected; only the operator-facing RGB viewport recording is
 black.
+
+**Headed is worse, not better (new — the load-bearing observation).**
+The same run **headed** (drop `--headless`, keep `--video`, which
+auto-injects `--viz kit`) opens the editor viewport to a **blank screen
+and then freezes**. So this is not "the headless render path doesn't
+light the viewport" — the **composed scene does not render at all**, in
+either mode. The earlier headless-only framing was too narrow. Repro
+that exhibits the freeze:
+
+```bash
+$ISAACLAB -p Scripts/train_strafer_navigation.py \
+  --env Isaac-Strafer-Nav-RLDepth-Real-v0 --num_envs 64 \
+  --video --video_length 200 --video_interval 500 --max_iterations 50 \
+  --log_dir logs/rsl_rl/headed_repro_$(date +%s)
+```
 
 **Diagnostic caveat for whoever picks this up:** the *first* clip's
 *first frame* (`rl-video-step-0.mp4`, frame 0) is legitimately black on
@@ -75,40 +94,86 @@ env composition. This is the **env-cfg-composition lane**, not
 teleop-perf (the teleop-perf branch merely sits on top of it and
 surfaced the symptom while validating a training smoke).
 
+## Config-level checks that came back CLEAN (so the break is at render/build time)
+
+A headless construction of the composed ProcRoom RL variant
+(`StraferNavCfg_RLDepth_Real`, built without booting Kit) shows the
+**config materializes completely and correctly** — which *narrows* the
+bug to scene-build / render time, it does not exonerate the composition:
+
+- **Scene members all present:** `robot` (ArticulationCfg), `terrain`
+  (TerrainImporterCfg), `dome_light` (AssetBaseCfg at `/World/DomeLight`,
+  intensity 2000), `room_primitives` (RigidObjectCollectionCfg),
+  `d555_camera`, `contact_sensor`, `d555_imu`. `num_envs=64`,
+  `env_spacing=10`, `replicate_physics=False`.
+- **Events intact:** `generate_room` (`generate_proc_room`, reset),
+  `reset_robot_proc_room`, the DR terms — the room actually gets built.
+- **Room-building is unchanged from the good commit:** the pre-composition
+  `StraferSceneCfg_ProcRoom` used the *same* `room_primitives =
+  RigidObjectCollectionCfg` with the same 44-object palette + the same
+  `generate_proc_room` event. So the proc-room generation path is not the
+  regression.
+- **The shared physics change is exonerated:** the blank/freeze was
+  already present at `17efec7`, which predates the physics commits
+  (`c1c37cc`/`6620b76`); `_DEFAULT_NAV_SIM_DT` / `_RENDER_INTERVAL` /
+  `_DECIMATION` are byte-identical to the good commit, and the added
+  `cfg.sim.physics = PhysxCfg(enable_stabilization=True)` is physics-only.
+
+So: the composed env *config* is right, the *room* is built, the *physics*
+is fine — yet the headed viewport comes up blank and freezes. The break is
+in how the composition **materializes/renders** the scene at runtime, not
+in any cfg field this static dump can see.
+
 ## Likely mechanism (hypothesis, not yet confirmed)
 
-The composition cutover materializes the scene (lights, ground, robot,
-viewer) through `composed_env_cfg.py` /
-`_ComposedStraferNavEnvCfg.__post_init__` rather than the old
-hand-written per-cell scene classes. The headless `--video` path renders
-through Isaac Lab's `RecordVideo` wrapper on the env viewport (no live
-Kit viewport under `--headless`). The most probable cause is that the
-composed scene either (a) no longer attaches the `DomeLight` prim at a
-path the headless RTX viewport sees, (b) changed env-origin / prim
-nesting so the world-frame fallback camera frames an unlit region, or
-(c) drops a viewport/render setting the old classes set. The fact that
-the *config object* still lists a DomeLight (above) points at a
-materialization/prim-path issue at scene build time rather than a
-missing cfg field — confirm by dumping the live USD stage's lights +
-their world transforms under a composed env vs the old one.
+The composition cutover materializes the scene through
+`composed_env_cfg.py` / `_ComposedStraferNavEnvCfg.__post_init__` rather
+than the old hand-written per-cell scene classes. Since the config is
+verified complete (above) and the freeze happens at first render, the
+probable causes shift toward **runtime materialization / render order**:
+(a) env-origin / prim-path nesting changed so the viewport camera (or the
+`RecordVideo` world-frame fallback) frames an empty/unlit region; (b) the
+`DomeLight` is authored but ends up at a stage path or under an env-clone
+nesting the RTX viewport does not light; (c) a `sim`/render or
+`InteractiveSceneCfg` setting (clone-in-fabric, replicate_physics
+interaction, render product) that the old classes set is dropped or
+reordered, stalling the first render. The **freeze** specifically points
+at a render that never completes (a render-product/Fabric stall), not
+merely a dark frame — so capture *where* it hangs (during
+`gym.make`/scene clone, first `env.reset`, or first `RecordVideo`
+render).
 
-## Next step to localize (one bisect)
+## Next step to localize
 
-Split #69 vs #70: re-run the identical smoke at `57c19d6` (#69) and
-pixel-check a mid-run frame. If `57c19d6` renders, the break is in #70
-(`7d497e0`); if it is already black, it is in #69. Then diff that PR's
-scene-materialization path (lights / viewer / env-origin / prim paths)
-against the pre-epic scene classes.
+Two cheap, parallel angles — do whichever is faster on the box:
 
-Repro (identical to the smoke that surfaced it):
+**1. Bisect #69 vs #70.** Re-run the smoke at `57c19d6` (#69) and check a
+mid-run frame. If `57c19d6` renders, the break is in #70 (`7d497e0`); if
+already black, it is in #69. Then diff that PR's scene-materialization
+path (lights / viewer / env-origin / prim paths / clone settings) against
+the pre-epic classes.
+
+**2. Live USD-stage diff (settles the hypothesis directly).** Boot a
+composed ProcRoom env headed and dump the live stage's light prims +
+their *world* transforms and the active viewport camera path, then do the
+same on the pre-epic commit. The composed run should reveal either the
+`DomeLight` at an unexpected stage path / under an env-clone nesting, or
+the viewport camera pointed at an unlit region — whichever it is, that is
+the fix site. Since the headed run **freezes**, also note *where* it hangs
+(scene clone during `gym.make`, first `env.reset`, or first `RecordVideo`
+render) — the hang point localizes the materialization step.
+
+Repro (headed exhibits the freeze; headless gives the black clips):
 
 ```bash
 source env_setup.sh
+# headed — watch for blank viewport + freeze, note where it hangs:
 $ISAACLAB -p Scripts/train_strafer_navigation.py \
-  --env Isaac-Strafer-Nav-RLDepth-Real-v0 --num_envs 64 --headless \
+  --env Isaac-Strafer-Nav-RLDepth-Real-v0 --num_envs 64 \
   --video --video_length 100 --video_interval 100 --max_iterations 3 \
   --log_dir logs/rsl_rl/bisect_<commit>
-# inspect a MID-run frame, not step-0 frame-0:
+# headless variant for the pixel check (add --headless); inspect a
+# MID-run frame, not step-0 frame-0:
 #   logs/rsl_rl/bisect_<commit>/*/videos/rl-video-step-100.mp4
 ```
 

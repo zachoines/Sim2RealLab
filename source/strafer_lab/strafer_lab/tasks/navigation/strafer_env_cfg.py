@@ -1135,6 +1135,9 @@ def _apply_default_nav_runtime(cfg: ManagerBasedRLEnvCfg) -> None:
     cfg.sim.render_interval = _DEFAULT_NAV_RENDER_INTERVAL
     cfg.decimation = _DEFAULT_NAV_DECIMATION
     cfg.episode_length_s = _DEFAULT_NAV_EPISODE_LENGTH_S
+    # Contact stabilization for the passive mecanum rollers (ProcRoom
+    # overrides cfg.sim.physics with its own PhysxCfg afterward).
+    cfg.sim.physics = PhysxCfg(enable_stabilization=True)
 
 
 def _apply_play_num_envs(cfg: ManagerBasedRLEnvCfg, *, num_envs: int) -> None:

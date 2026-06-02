@@ -180,6 +180,26 @@ def _build_parser() -> argparse.ArgumentParser:
         "writer.add_frame is called every "
         "round(env_step_hz / capture_rate_hz) ticks.",
     )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Print a rolling per-phase wall-time breakdown of the env-step "
+        "loop (driver read / env.step [render vs physics vs mgr] / writer / "
+        "viewport+HUD+PIP overhead) plus render- and physics-calls-per-tick.",
+    )
+    parser.add_argument(
+        "--render-interval",
+        type=int, default=None,
+        help="Override sim.render_interval. INSPECTION KNOB: pass 1 to render "
+        "every physics substep so the viewport shows wheel/roller-vs-ground "
+        "contact at the true physics rate. Costs FPS; not for capture "
+        "sessions. Default keeps the env value.",
+    )
+    parser.add_argument(
+        "--profile-report-period-s",
+        type=float, default=2.0,
+        help="Seconds between --profile breakdown lines (default 2.0).",
+    )
     AppLauncher.add_app_launcher_args(parser)
     return parser
 
@@ -215,6 +235,7 @@ from isaaclab.envs.common import ViewerCfg
 from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry
 
 from strafer_lab.tools.gamepad_reader import GamepadReader
+from strafer_lab.tools.phase_profiler import PhaseProfiler
 from strafer_lab.tools.lerobot_writer import (
     StraferLeRobotWriter,
     _normalize_cameras_required,
@@ -758,6 +779,25 @@ def main() -> int:
         env_cfg.sensors = SensorStackCfg(cameras_required=cameras_required)
         env_cfg.__post_init__()
 
+    # Render-interval inspection override. --render-interval 1 renders every
+    # physics substep so the viewport shows wheel/roller-vs-ground contact at
+    # the true physics rate. Costs FPS; inspection only.
+    if args.render_interval is not None:
+        if args.render_interval < 1:
+            print(f"[teleop_capture] --render-interval must be >= 1 (got "
+                  f"{args.render_interval}); ignored.", file=sys.stderr, flush=True)
+        elif hasattr(env_cfg.sim, "render_interval"):
+            env_cfg.sim.render_interval = int(args.render_interval)
+            _decim_now = int(getattr(env_cfg, "decimation", 1))
+            _renders_per_step = max(1, _decim_now // int(args.render_interval))
+            print(
+                f"[teleop_capture] --render-interval={args.render_interval} "
+                f"(decimation={_decim_now} → ~{_renders_per_step} render(s) per "
+                "env.step). INSPECTION: viewport shows contact at the physics "
+                "rate; expect lower FPS.",
+                flush=True,
+            )
+
     if args.scene_usd:
         env_cfg.scene.scene_geometry.spawn.usd_path = str(Path(args.scene_usd).resolve())
         print(f"[teleop_capture] scene USD override → {env_cfg.scene.scene_geometry.spawn.usd_path}")
@@ -876,6 +916,44 @@ def main() -> int:
     )
     perception_camera = scene.sensors["d555_camera_perception"]
     policy_camera = scene.sensors.get("d555_camera") if needs_policy else None
+
+    # Per-phase loop profiler (off unless --profile). Render and PhysX both
+    # happen inside env.step, so we attribute their wall-time by wrapping the
+    # sim's render pump and physics step to accumulate into the profiler —
+    # that lets the breakdown split env.step into render vs physics vs the
+    # Python manager-loop remainder, without a second render or step pass.
+    # No-op when profiling is disabled.
+    profiler = PhaseProfiler(
+        enabled=bool(getattr(args, "profile", False)),
+        report_period_s=float(getattr(args, "profile_report_period_s", 2.0)),
+    )
+    if profiler.enabled:
+        _sim = unwrapped.sim
+        _orig_render = _sim.render
+        _orig_step = _sim.step
+
+        def _timed_render(*r_args, **r_kwargs):
+            _t0 = time.perf_counter_ns()
+            try:
+                return _orig_render(*r_args, **r_kwargs)
+            finally:
+                profiler.add_render(time.perf_counter_ns() - _t0)
+
+        def _timed_step(*s_args, **s_kwargs):
+            _t0 = time.perf_counter_ns()
+            try:
+                return _orig_step(*s_args, **s_kwargs)
+            finally:
+                profiler.add_physics(time.perf_counter_ns() - _t0)
+
+        _sim.render = _timed_render
+        _sim.step = _timed_step
+        print(
+            "[teleop_capture] --profile on: per-phase loop breakdown every "
+            f"{profiler.report_period_s:.1f}s (render + physics attributed via "
+            "sim.render / sim.step wrappers; mgr = env_step - render - physics).",
+            flush=True,
+        )
 
     if args.hide_overhead:
         try:
@@ -1188,29 +1266,32 @@ def main() -> int:
             # Stick → action. Control mode picks world-frame vs body-frame
             # interpretation of the left stick (yaw rate is body-frame in
             # both modes).
-            pose, yaw = _robot_pose(unwrapped)
-            body_vx, body_vy, omega = _stick_to_body_action(
-                frame.lx, frame.ly, frame.rx, yaw,
-                control_mode=args.control_mode,
-            )
+            with profiler.phase("driver"):
+                pose, yaw = _robot_pose(unwrapped)
+                body_vx, body_vy, omega = _stick_to_body_action(
+                    frame.lx, frame.ly, frame.rx, yaw,
+                    control_mode=args.control_mode,
+                )
 
-            action = torch.tensor(
-                [[body_vx, body_vy, omega]], dtype=torch.float32, device=device,
-            )
+                action = torch.tensor(
+                    [[body_vx, body_vy, omega]], dtype=torch.float32, device=device,
+                )
 
-            obs, reward, terminated, truncated, info = env.step(action)
+            with profiler.phase("env_step"):
+                obs, reward, terminated, truncated, info = env.step(action)
             episode_step += 1
 
             # World-arcade follow: re-pose /OmniverseKit_Persp only
             # after the robot has moved past the gate (see the
             # _ARCADE_FOLLOW_XY_DELTA_M comment). Reuses the pose
             # fetched above so we don't pay an extra .cpu() sync.
-            if args.control_mode == "world_arcade":
-                _dx = pose[0] - _last_arcade_follow_xy[0]
-                _dy = pose[1] - _last_arcade_follow_xy[1]
-                if (_dx * _dx + _dy * _dy) >= (_ARCADE_FOLLOW_XY_DELTA_M ** 2):
-                    _arcade_follow_tick(unwrapped, (pose[0], pose[1]))
-                    _last_arcade_follow_xy = (pose[0], pose[1])
+            with profiler.phase("overhead"):
+                if args.control_mode == "world_arcade":
+                    _dx = pose[0] - _last_arcade_follow_xy[0]
+                    _dy = pose[1] - _last_arcade_follow_xy[1]
+                    if (_dx * _dx + _dy * _dy) >= (_ARCADE_FOLLOW_XY_DELTA_M ** 2):
+                        _arcade_follow_tick(unwrapped, (pose[0], pose[1]))
+                        _last_arcade_follow_xy = (pose[0], pose[1])
 
             # Only sample for the writer at the chosen capture cadence.
             # env.step ran every loop iteration (full sim tick rate),
@@ -1223,6 +1304,7 @@ def main() -> int:
 
             # Pull frames + write to LeRobot only when we're capturing.
             if should_capture:
+              with profiler.phase("writer"):
                 # Read + pass only the channels the declared stack records,
                 # so the writer's per-frame validation stays satisfied.
                 rgb_perception = (
@@ -1268,26 +1350,36 @@ def main() -> int:
             # PIP overlay (cosmetic; never reaches LeRobot frames). Only
             # shown on capture steps so we never read perception RGB just
             # to feed PIP.
-            target_xy = (
-                current_candidate.target_position_3d[:2]
-                if current_candidate is not None else (0.0, 0.0)
-            )
-            dist = math.sqrt(
-                (target_xy[0] - pose[0]) ** 2 + (target_xy[1] - pose[1]) ** 2,
-            )
-            rec_label = "PAUSED" if rec_paused else "REC"
-            hud = f"[{rec_label}]  ep={writer.num_episodes}  step={episode_step}  d={dist:.2f}m"
-            if should_capture and rgb_perception is not None:
-                pip.show(rgb_perception, hud)
-
-            # Console HUD once per second.
-            now = time.monotonic()
-            if now - last_hud_t >= 1.0:
-                mission = current_candidate.mission_text if current_candidate else "?"
-                print(
-                    f"  {hud}  mission={mission!r}",
+            with profiler.phase("overhead"):
+                target_xy = (
+                    current_candidate.target_position_3d[:2]
+                    if current_candidate is not None else (0.0, 0.0)
                 )
-                last_hud_t = now
+                dist = math.sqrt(
+                    (target_xy[0] - pose[0]) ** 2 + (target_xy[1] - pose[1]) ** 2,
+                )
+                rec_label = "PAUSED" if rec_paused else "REC"
+                hud = f"[{rec_label}]  ep={writer.num_episodes}  step={episode_step}  d={dist:.2f}m"
+                if should_capture and rgb_perception is not None:
+                    pip.show(rgb_perception, hud)
+
+                # Console HUD once per second.
+                now = time.monotonic()
+                if now - last_hud_t >= 1.0:
+                    mission = current_candidate.mission_text if current_candidate else "?"
+                    print(
+                        f"  {hud}  mission={mission!r}",
+                    )
+                    last_hud_t = now
+
+            # End of one loop iteration: count it + emit a per-phase
+            # breakdown at the profiler's report cadence (no-op unless
+            # --profile). Done before the auto-close check below so the
+            # tick is counted even on the iteration that ends an episode.
+            profiler.tick()
+            _profile_line = profiler.maybe_report()
+            if _profile_line is not None:
+                print(_profile_line, flush=True)
 
             done = bool(terminated.any().item() or truncated.any().item())
             hit_cap = episode_step >= args.max_steps_per_episode

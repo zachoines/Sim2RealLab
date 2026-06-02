@@ -53,8 +53,18 @@ STRAFER_CFG = ArticulationCfg(
         usd_path=_STRAFER_USD_PATH,
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
             enabled_self_collisions=False,
-            solver_position_iteration_count=32,
-            solver_velocity_iteration_count=16,
+            # Passive mecanum-roller contact stability comes from
+            # enable_stabilization (see _apply_default_nav_runtime) + the capped
+            # depenetration velocity below, not from high solver-iteration
+            # counts. If roller instability ever returns, raise these iterations.
+            solver_position_iteration_count=4,
+            solver_velocity_iteration_count=1,
+            stabilization_threshold=0.01,
+            sleep_threshold=0.005,
+        ),
+        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+            # Cap how violently an interpenetrating roller is ejected.
+            max_depenetration_velocity=1.0,
         ),
         activate_contact_sensors=True,
     ),
@@ -94,9 +104,10 @@ STRAFER_CFG = ArticulationCfg(
             effort_limit_sim=0.0,       # No active drive
             velocity_limit_sim=1000.0,   # Allow free spinning (high limit)
             stiffness=0.0,
-            damping=0.5,                # Low friction for free rolling; 0.01 caused GPU
-                                        # TGS solver divergence at high env counts (>24),
-                                        # flipping the robot via phantom constraint forces.
+            # Low damping for near-free rolling. Revisit this (raise toward
+            # 0.5) and the solver iterations above if roller instability is
+            # ever a concern.
+            damping=0.01,
         ),
     },
 )

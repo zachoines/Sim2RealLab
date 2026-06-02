@@ -481,7 +481,7 @@ def apply_rubber_physics_material(
     mesh_path: str,
     static_friction: float = 1.0,
     dynamic_friction: float = 0.9,
-    restitution: float = 0.12,
+    restitution: float = 0.0,
 ) -> bool:
     """Apply a rubber-like physics material to a collision mesh.
 
@@ -489,12 +489,20 @@ def apply_rubber_physics_material(
     robot.  The material is bound directly to the mesh prim so PhysX
     uses it instead of the default (low-friction) material.
 
+    Restitution is 0: a nonzero value made the 40 passive rollers return
+    energy on every ground contact, and under PhysX's default 'average'
+    combine mode (against the restitution-0 ground plane) the chassis
+    accumulated that energy into a growing bounce at high body-rotation
+    rates. Real mecanum rollers do not trampoline, so restitution stays 0;
+    the combine mode is pinned to 'min' as well so the lower of the two
+    contacting surfaces' restitution always wins.
+
     Args:
         stage: USD stage.
         mesh_path: Prim path of the collision mesh.
         static_friction: Static friction coefficient (rubber on floor ~1.0).
         dynamic_friction: Dynamic friction coefficient (slightly below static).
-        restitution: Bounciness (low for rubber).
+        restitution: Bounciness. Keep 0 — see note above.
     """
     prim = stage.GetPrimAtPath(mesh_path)
     if not prim:
@@ -507,6 +515,12 @@ def apply_rubber_physics_material(
     mat_api.CreateStaticFrictionAttr(static_friction)
     mat_api.CreateDynamicFrictionAttr(dynamic_friction)
     mat_api.CreateRestitutionAttr(restitution)
+    # Pin restitution combine to 'min' so the lower of the two contacting
+    # surfaces' restitution wins, instead of PhysX's default 'average'
+    # (which would re-introduce a bounce against any nonzero partner).
+    mat_prim.CreateAttribute(
+        "physxMaterial:restitutionCombineMode", Sdf.ValueTypeNames.Token
+    ).Set("min")
 
     # Bind the material to the collision mesh
     UsdShade.MaterialBindingAPI.Apply(prim)

@@ -26,7 +26,7 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`harness-architecture`](active/harness/harness-architecture.md) Tier 1 acceptance run | DGX | post-merge follow-up (PR #63 merged 2026-05-26) | pending operator capture; gated on [`teleop-perf-architecture`](active/sim-performance/teleop-perf-architecture.md) landing (current ~5 FPS is unusable for ≥30 episodes × ≥2 scenes). Tier 1 ✓ on harness-architecture.md stays unchecked until artifact lands at `docs/artifacts/teleop_acceptance/<run_id>/`. |
+| [`harness-architecture`](active/harness/harness-architecture.md) Tier 1 acceptance run | DGX | post-merge follow-up (PR #63 merged 2026-05-26) | pending operator capture; gated on [`teleop-perf-architecture`](completed/teleop-perf-architecture.md) (shipped 2026-06-01; loop is PhysX-bound, ~10 FPS not the ≥15 target, so a ≥30 ep × ≥2 scene run is faster but still not one-evening). Tier 1 ✓ on harness-architecture.md stays unchecked until artifact lands at `docs/artifacts/teleop_acceptance/<run_id>/`. |
 
 ---
 
@@ -110,8 +110,9 @@ The learned components here share one frozen text-capable backbone — see [`con
 |---|---|---|---|
 | [`isaac-sim-rt-2-default-renderer`](active/sim-performance/isaac-sim-rt-2-default-renderer.md) | P2 | active | DGX |
 | [`bridge-throughput-toward-25hz`](active/sim-performance/bridge-throughput-toward-25hz.md) | P2 | active | DGX |
-| [`teleop-perf-architecture`](active/sim-performance/teleop-perf-architecture.md) | P2 | active | DGX |
 | [`mecanum-action-throughput`](active/sim-performance/mecanum-action-throughput.md) | P2 | active | DGX |
+| [`roller-contact-high-omega-bounce`](active/sim-performance/roller-contact-high-omega-bounce.md) | P3 | active | DGX |
+| [`headless-training-video-black`](active/sim-performance/headless-training-video-black.md) | P2 | active | DGX |
 
 ### Reliability (nav + executor + refactors)
 
@@ -139,6 +140,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 |---|---|---|---|
 | [`nav2-sim-real-promotion-architecture`](active/tooling/nav2-sim-real-promotion-architecture.md) | P2 | active | Jetson |
 | [`unify-test-targets-and-ci`](active/tooling/unify-test-targets-and-ci.md) | P3 | active | Either |
+| [`strafer-lab-test-tree-unification`](active/tooling/strafer-lab-test-tree-unification.md) | P3 | active | DGX |
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | P2 | active | DGX |
 | [`install-docs-consolidation`](parked/tooling/install-docs-consolidation.md) | P2 | parked (blocked on `windows-workstation-bringup`) | Coordinator (DGX) + per-host agents |
 
@@ -193,7 +195,8 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`subgoal-env`](active/trained-policy/subgoal-env.md) | L (~1.5–2 wk) | New training env for `NOCAM_SUBGOAL` — sim-internal path planner + SubgoalCommand + path-tracking rewards + termination + training run. Unblocks hybrid mode |
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | L (~1 wk) | Investigation + port — run `make sim-bridge` on Windows (RTX 4080) against the Jetson stack. Isaac Lab 3 Windows support is experimental; phase the feasibility spike before committing to a full port |
 | [`bridge-throughput-toward-25hz`](active/sim-performance/bridge-throughput-toward-25hz.md) | M | Follow-up to `async-camera-publishers`. Lift the bridge toward the predicted 25 Hz ceiling. |
-| [`teleop-perf-architecture`](active/sim-performance/teleop-perf-architecture.md) | L | Teleop-side perf — three heavier-hitting levers (drop perception render on non-capture steps, background env.step thread, lower env_step_hz) + per-env-variant `cameras_required` toggle. Operator-measured ~5.5 FPS on `high_quality_dgx` Infinigen scenes today; target ≥ 15 FPS sustained. Closes the 5 questions the operator raised after the PR #63 `update_period` lever under-delivered. |
+| [`roller-contact-high-omega-bounce`](active/sim-performance/roller-contact-high-omega-bounce.md) | M | Spun out of `teleop-perf-architecture`. Chassis develops a growing vertical bounce only at sustained near-max yaw rate; restitution, solver iters, depenetration, and stabilization all ruled out. Leading hypothesis: discrete-roller contact hand-off skipping inter-roller gaps. Investigate contact-offset / roller geometry or document as a modeling limit. |
+| [`headless-training-video-black`](active/sim-performance/headless-training-video-black.md) | S–M | Surfaced by `teleop-perf-architecture`'s training smoke. The composed training scene does not render: **headed `--video` opens a blank viewport and freezes**, headless `--video` clips are pure black. Bisected to the env-cfg-composition epic (#69/#70) — pre-composition renders, post-composition does not. Config materializes fine (lights/room/events all present) + room-building and physics ruled out, so the break is at runtime scene materialization/render. Next: split #69 vs #70 + live USD-stage light/viewport diff. Doesn't affect training or stability scalars, but blocks watching a headed run (raised to P2). |
 | [`encoder-noise-shared-sample`](active/trained-policy/encoder-noise-shared-sample.md) | M | Filed off `observation-contract-cleanup` ship. Per-tick noised-ticks cache + policy/critic obs-function split so `wheel_encoder_velocities` and `body_velocity_xy` share a single encoder noise sample (matches real-robot signal chain). Closes the correlation gap that observation-contract-cleanup flagged as out of scope. |
 | [`mission-generator`](active/harness/mission-generator.md) | L | Free-text mission generator with LLM-emitted waypoints (multi-room default). Canonical mission queue source for teleop and oracle drivers. Blocks on `scene-connectivity-validation`. |
 | [`env-cfg-composition`](active/trained-policy/env-cfg-composition.md) | M | Split `_BaseInfinigenPerceptionNavEnvCfg` along its three orthogonal axes (sensor stack × scene source × realism level). Subsumes `teleop-perf-architecture`'s per-env-variant camera toggle. `scene-provider-contract` shipped — commit this brief to the contract's storage-agnostic shape. |
@@ -226,6 +229,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | Brief | Owner | Estimate | Note |
 |---|---|---|---|
 | [`unify-test-targets-and-ci`](active/tooling/unify-test-targets-and-ci.md) | Either | M | Makefile unification + stretch CI workflow. Doesn't block features; bumps to P2 once a second drift incident shows up. |
+| [`strafer-lab-test-tree-unification`](active/tooling/strafer-lab-test-tree-unification.md) | S–M | Reorganize the strafer_lab test layout: rename the singular `test/` (Isaac-Sim tree) so it no longer reads as a typo of `tests/`, and fold the `tests/` root (policy export/load + action/obs/recurrent sim-real contracts) into intent-named subdirs. Five root files currently run by no `make` target. Layout seam to `unify-test-targets-and-ci`'s invocation seam. |
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | DGX | S | Sidecar `training_preset` records the configclass name instead of the rsl_rl preset variable; cosmetic but the field is operator-facing. Filed off [`export-onnx-depth`](completed/export-onnx-depth.md). |
 | [`defm-preprocess-antialias-audit`](active/investigations/defm-preprocess-antialias-audit.md) | DGX | S–M | Measure projection-space delta between training-time DeFM antialiased preprocessing and the deployment ONNX-safe non-antialiased version, then decide alignment (leave / align deploy / align training). Filed off [`export-onnx-depth`](completed/export-onnx-depth.md). |
 | [`semantic-graph-loop-closure`](active/multi-room/semantic-graph-loop-closure.md) | DGX | M | v2 room-state — detect duplicate-place nodes via CLIP-similarity + spatial proximity, annotate as `same_place` edges. Quiet long-horizon quality lift; required infrastructure for the parked `semantic-map-lifecycle-merge`. |

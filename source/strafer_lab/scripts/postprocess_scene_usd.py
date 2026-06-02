@@ -25,6 +25,12 @@ floor colliders the previous bake left behind and leaves all other
 state alone (skips meshes that already carry ``CollisionAPI``, leaves
 existing ``AutoSphereLight`` children alone).
 
+It also strips Infinigen's stage-shot authoring cameras
+(``camera_<room>_<index>`` under ``/World/Room``) as a cleanliness pass.
+Those cameras are runtime-inert — Isaac Sim binds no render product to
+them — so this is not a perf change; it just keeps ``usdview`` /
+Omniverse Composer uncluttered when an operator opens the scene.
+
 Requires ``pxr``. Runs under the interpreter at
 ``STRAFER_ISAACLAB_PYTHON`` — the same one Isaac Sim ships with.
 Invoked automatically by ``prep_room_usds.py`` after
@@ -72,6 +78,21 @@ _DEFAULT_STRUCTURAL_PRIM_PATTERN = (
     r"(?:_\d+)?(?:/.+)?$"
     r"|^/World/(?:PanelDoor|LiteDoor|LouverDoor)Factory_\d+"
     r"__spawn_asset_\d+_(?:_\d+)?(?:/.+)?$"
+)
+
+# Infinigen's generate_indoors pipeline authors one stage-shot camera per
+# room (named ``camera_<room>_<index>``) for its own offline Cycles render
+# passes. Isaac Sim binds no render product to them, so they evaluate no
+# per-tick RTX work — but they clutter ``usdview`` / Omniverse Composer when
+# an operator opens the scene to debug, and add tiny per-prim USD-traversal
+# overhead. They serve no role in the strafer runtime, so the scene-prep bake
+# strips them. Matches the full prim path (like the floor / structural
+# patterns above): the cameras sit directly under ``/World/Room``, and
+# Infinigen's Xform-with-same-name-child export nests an inner twin
+# (``/World/Room/camera_0_0/camera_0_0``), so the optional second group lets
+# the matcher catch either the outer group or the inner twin.
+_DEFAULT_STAGE_CAMERA_PRIM_PATTERN = (
+    r"^/World/Room/camera_\d+_\d+(?:/camera_\d+_\d+)?$"
 )
 
 _VALID_APPROXIMATIONS: tuple[str, ...] = (
@@ -250,6 +271,41 @@ def inject_ceiling_light_emitters(
     return count
 
 
+def strip_stage_cameras(
+    stage: Any,
+    stage_camera_pattern: re.Pattern[str],
+) -> int:
+    """Remove Infinigen stage-shot authoring cameras from the stage.
+
+    Infinigen authors one ``camera_<room>_<index>`` per room for its own
+    offline Cycles render passes (see ``_DEFAULT_STAGE_CAMERA_PRIM_PATTERN``).
+    Isaac Sim never binds a render product to them, so removing them is a
+    *cleanliness* pass — it declutters ``usdview`` / Composer and trims a
+    handful of prims from USD traversal, but it is **not** a perf lever and
+    yields no measurable FPS change (the operator confirmed disabling these
+    cameras in the editor produced no perf delta).
+
+    Walks every prim whose full path matches ``stage_camera_pattern`` and
+    removes it. Outermost-first removal means deleting an outer camera group
+    also drops its inner same-named twin; the per-prim validity guard keeps
+    the pass idempotent (a re-run finds nothing left to strip).
+
+    Returns the number of matching prims found (all of which are removed).
+    """
+    matched = [
+        str(prim.GetPath())
+        for prim in stage.Traverse()
+        if prim.IsValid() and stage_camera_pattern.match(str(prim.GetPath()))
+    ]
+    # Shortest path first = outermost group first; removing it drops the inner
+    # twin, which the validity guard then skips.
+    for path in sorted(matched, key=len):
+        prim = stage.GetPrimAtPath(path)
+        if prim.IsValid():
+            stage.RemovePrim(path)
+    return len(matched)
+
+
 def postprocess_usdc(
     usdc_path: Path,
     *,
@@ -260,6 +316,8 @@ def postprocess_usdc(
     structural_pattern: re.Pattern[str] | None = None,
     structural_approximation: str = _DEFAULT_STRUCTURAL_APPROXIMATION,
     ceiling_light_pattern: re.Pattern[str] | None = None,
+    stage_camera_pattern: re.Pattern[str] | None = None,
+    keep_stage_cameras: bool = False,
 ) -> None:
     from pxr import Usd  # type: ignore
 
@@ -282,13 +340,19 @@ def postprocess_usdc(
     lights = inject_ceiling_light_emitters(
         stage, light_intensity, ceiling_light_pattern,
     )
+    stage_cameras = (
+        0
+        if keep_stage_cameras or stage_camera_pattern is None
+        else strip_stage_cameras(stage, stage_camera_pattern)
+    )
     stage.Save()
     logger.info(
-        "%s: stripped %d floor collider(s), attached %d %s + %d %s collider(s), injected %d light(s)",
+        "%s: stripped %d floor collider(s), attached %d %s + %d %s "
+        "collider(s), injected %d light(s), stripped %d stage camera(s)",
         resolved, stripped,
         furniture, collider_approximation,
         structural, structural_approximation,
-        lights,
+        lights, stage_cameras,
     )
 
 
@@ -354,6 +418,26 @@ def main(argv: list[str] | None = None) -> int:
              "emitter authored under them. Override if your source names "
              "light fixtures differently than Infinigen.",
     )
+    parser.add_argument(
+        "--stage-camera-prim-pattern",
+        type=str,
+        default=_DEFAULT_STAGE_CAMERA_PRIM_PATTERN,
+        help="Regex matched against full USD prim paths to identify Infinigen "
+             "stage-shot authoring cameras (one camera_<room>_<index> per "
+             "room, authored for Infinigen's own offline Cycles passes) and "
+             "remove them. CLEANLINESS ONLY, NOT A PERF LEVER: Isaac Sim binds "
+             "no render product to these cameras, so stripping them declutters "
+             "usdview / Composer but yields no measurable FPS change. Pass an "
+             "empty string to disable, or override if your source names stage "
+             "cameras differently than Infinigen.",
+    )
+    parser.add_argument(
+        "--keep-stage-cameras",
+        action="store_true",
+        help="Keep the Infinigen stage-shot authoring cameras (skip the "
+             "stage-camera strip). Inspection / debugging only; the cameras "
+             "are runtime-inert either way.",
+    )
     args = parser.parse_args(argv)
 
     if not args.usdc.exists():
@@ -368,6 +452,10 @@ def main(argv: list[str] | None = None) -> int:
     ceiling_light_pattern = _compile_ceiling_light_pattern(
         args.ceiling_light_prim_pattern,
     )
+    stage_camera_pattern = (
+        re.compile(args.stage_camera_prim_pattern)
+        if args.stage_camera_prim_pattern else None
+    )
     postprocess_usdc(
         args.usdc,
         light_intensity=args.light_intensity,
@@ -377,6 +465,8 @@ def main(argv: list[str] | None = None) -> int:
         structural_pattern=structural_pattern,
         structural_approximation=args.structural_approximation,
         ceiling_light_pattern=ceiling_light_pattern,
+        stage_camera_pattern=stage_camera_pattern,
+        keep_stage_cameras=args.keep_stage_cameras,
     )
     return 0
 

@@ -77,7 +77,7 @@ bounce at the native 120 Hz — no substep-rate increase, and the RL
 composition contract stays green (`solver_type` is not hashed).**
 
 Measured with a scripted headless spin-in-place harness
-(`Scripts/roller_bounce_probe.py`): it loads the shared `STRAFER_CFG` on a
+(`source/strafer_lab/scripts/roller_bounce_probe.py`): it loads the shared `STRAFER_CFG` on a
 clean ground plane, drives a pure yaw spin (left/right wheels opposed) at a
 sweep of wheel speeds, and logs chassis z at the 120 Hz physics substep
 rate — the 30 Hz policy loop aliases the effect away, so substep-rate
@@ -191,7 +191,7 @@ throughput at or above the TGS baseline.
 
 ### Reusable artifact
 
-`Scripts/roller_bounce_probe.py` — the headless characterization harness;
+`source/strafer_lab/scripts/roller_bounce_probe.py` — the headless characterization harness;
 re-run for an objective before/after chassis-z trace and bounce-frequency
 readout at any wheel speed / substep rate / collider-offset / roller-damping
 setting.
@@ -217,7 +217,7 @@ setting.
 - [x] Reproduce the bounce headlessly or via a scripted max-yaw spin so
       it is measurable without a human at the stick (e.g. contact-force
       or chassis-z trace over a fixed spin), giving an objective
-      before/after signal. → `Scripts/roller_bounce_probe.py`.
+      before/after signal. → `source/strafer_lab/scripts/roller_bounce_probe.py`.
 - [x] Test the contact-offset experiment; record whether it removes or
       reduces the bounce. → only marginal (~13 %); does not remove it.
 - [x] Either land a fix (with a teleop spin confirming the bounce is gone

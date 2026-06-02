@@ -18,10 +18,10 @@ override to all 40 roller covers at load time, so the candidate geometry
 fix can be measured without regenerating the USD.
 
 Usage (from repo root, after `source env_setup.sh`):
-    $ISAACLAB -p Scripts/roller_bounce_probe.py --headless
-    $ISAACLAB -p Scripts/roller_bounce_probe.py --headless \
+    $ISAACLAB -p source/strafer_lab/scripts/roller_bounce_probe.py --headless
+    $ISAACLAB -p source/strafer_lab/scripts/roller_bounce_probe.py --headless \
         --omega-fracs 0.5,0.75,0.9,1.0 --duration 5.0
-    $ISAACLAB -p Scripts/roller_bounce_probe.py --headless \
+    $ISAACLAB -p source/strafer_lab/scripts/roller_bounce_probe.py --headless \
         --omega-fracs 1.0 --contact-offset 0.005 --rest-offset 0.001
 """
 

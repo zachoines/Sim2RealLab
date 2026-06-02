@@ -121,6 +121,7 @@ If the Isaac-side observation layout changes, `strafer_shared.policy_interface` 
 | `Scripts/test_strafer_env.py` | Motion-pattern smoke test (forward / strafe / rotate / circle / figure8) |
 | `Scripts/export_policy.py` | Convert an rsl_rl checkpoint to a deployable TorchScript `.pt` + (where supported) ONNX `.onnx`. Round-trips the artifact through `strafer_shared.policy_interface.load_policy()` and refuses to write if the deterministic-mean head wasn't frozen. Emits a JSON sidecar with variant, dimensions, source checkpoint, repo SHA, ONNX opset, and `is_recurrent` |
 | `Scripts/benchmark_policy.py` | Median / p95 / p99 inference-latency stats on an exported artifact. Accepts an ONNX execution-provider preference list so the Jetson lane can record TRT-EP latency after rsync |
+| `scripts/roller_bounce_probe.py` | Headless mecanum-roller contact diagnostic: spins the robot in place at a sweep of wheel speeds and logs chassis-z to quantify the high-yaw bounce. Exposes physics-rate (`--sim-hz`) and PhysX solver knobs (`--solver-type`, ...). Regression harness for the PGS roller fix |
 
 **Synthetic-data pipeline** (mostly plain Python, no Isaac Sim):
 

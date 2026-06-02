@@ -76,7 +76,7 @@ is ever worth it.
       plane and run a scripted **max-yaw spin-in-place** (left/right wheels
       opposed at the 32.67 rad/s wheel limit), logging chassis-z at the
       solver substep rate — mirroring the metrics in
-      `Scripts/roller_bounce_probe.py` (late peak-to-peak, growth ratio,
+      `source/strafer_lab/scripts/roller_bounce_probe.py` (late peak-to-peak, growth ratio,
       dominant frequency, achieved wheel + roller speeds).
 - [ ] Report the comparison vs the PhysX reference (PhysX TGS ≈ 16.7 mm
       growing bounce; PhysX PGS ≈ 1.1 mm flat at 120 Hz): does MuJoCo
@@ -101,7 +101,7 @@ is ever worth it.
 - [`roller-contact-high-omega-bounce`](../../active/sim-performance/roller-contact-high-omega-bounce.md)
   — the parent investigation: the TGS-velocity-noise mechanism, the PGS
   fix, and the ruled-out levers.
-- `Scripts/roller_bounce_probe.py` — the PhysX-side reference harness;
+- `source/strafer_lab/scripts/roller_bounce_probe.py` — the PhysX-side reference harness;
   reuse its spin pattern and metrics so the MuJoCo numbers are directly
   comparable. (Side map: wheel_1/wheel_3 = +y left, wheel_2/wheel_4 = −y
   right; rollers 10/wheel at 36°, ring radius 40 mm, wheel radius ~48 mm.)

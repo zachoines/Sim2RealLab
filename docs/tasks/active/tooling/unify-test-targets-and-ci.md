@@ -65,6 +65,47 @@ unification of the *backends*. `colcon test` for ROS packages and
 their domains. The Makefile should hide that distinction behind a
 predictable `make test-<thing>` interface.
 
+## Finding: `run_tests.py` can false-green on a missing `lark` dep
+
+*Surfaced while trying to run the Isaac-Sim `test/` contract suite during
+the [`roller-contact-high-omega-bounce`](../sim-performance/roller-contact-high-omega-bounce.md)
+work (PR #76); filed here because this brief owns runner + CI invocation.*
+
+`pytest` auto-loads every installed plugin via entry points. Isaac Sim's
+vendored ROS 2 (humble, under `~/.cache/packman/chk/nv_ros2/...`) ships
+`launch_testing`, which registers a pytest plugin. Loading it imports
+`launch` → `launch.frontend.parse_substitution` → `from lark import Lark`,
+and `lark` is **not installed** in `env_isaaclab3`. So when that vendored
+ROS 2 path is on `sys.path` at pytest startup, **collection aborts before
+any `strafer_lab` test runs**:
+
+```
+launch_testing/__init__.py → tools → process → import launch
+  → launch/frontend/__init__.py → .parser → parse_substitution.py
+  → from lark import Lark   ← ModuleNotFoundError: No module named 'lark'
+```
+
+Two properties make this a CI concern, not just an annoyance:
+
+1. **It can present as a false green.** A `run_tests.py <suite>` run was
+   observed reporting `0/0 passed … XML not generated … ALL PASSED` — the
+   shape you get when the pytest subprocess crashes (here, on the `lark`
+   import) before writing its JUnit XML and the wrapper reads the absence
+   of failures as success. A real CI gate must treat "no XML / 0 collected"
+   as an **error**, not a pass.
+2. **It is environment-path-dependent.** It fires only when the vendored
+   ROS 2 path is active at pytest startup (reproduced via direct `pytest`
+   from a worktree; did not fire from a `--collect-only` in the primary
+   checkout), so it surfaces intermittently — exactly the kind of flake CI
+   should pin down.
+
+Fix is small and external to `strafer_lab`: install `lark` into
+`env_isaaclab3`, **or** disable plugin autoload for the lab runs
+(`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`, or `-p no:launch_testing`) in
+`run_tests.py` / the `make test-lab` wrapper this brief adds. Whichever
+path is chosen, the runner should also **fail loudly on zero collected
+tests** so a future autoload break can't masquerade as green.
+
 ## Approach
 
 Land in two parts. **Part 1 is the locked scope; Part 2 is the

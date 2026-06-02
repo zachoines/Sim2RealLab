@@ -60,6 +60,14 @@ def main():
         "--sim-hz", type=float, default=120.0,
         help="Physics substep rate (default 120 = shared nav sim.dt)",
     )
+    parser.add_argument("--solver-type", type=int, default=1,
+                        help="PhysX solver: 1=TGS (default), 0=PGS")
+    parser.add_argument("--enable-ccd", action="store_true", default=False,
+                        help="Continuous collision detection")
+    parser.add_argument("--ext-forces-every-iter", action="store_true", default=False,
+                        help="Apply external forces every solver iteration")
+    parser.add_argument("--solve-art-contact-last", action="store_true", default=False,
+                        help="Solve articulation contacts last")
     parser.add_argument(
         "--csv", type=str, default="",
         help="Optional path to write per-substep (omega_frac,t,z,vz) CSV",
@@ -99,11 +107,18 @@ def main():
     omega_fracs = [float(x) for x in args.omega_fracs.split(",") if x.strip()]
 
     # --- Build a minimal scene: ground plane + the shared Strafer cfg ---
+    physx_kwargs = dict(
+        enable_stabilization=True,  # faithful to the shared nav runtime
+        solver_type=args.solver_type,
+        enable_ccd=args.enable_ccd,
+        enable_external_forces_every_iteration=args.ext_forces_every_iter,
+        solve_articulation_contact_last=args.solve_art_contact_last,
+    )
+    print(f"[probe] physx {physx_kwargs}")
     sim_cfg = SimulationCfg(
         dt=SIM_DT,
         device=args.device if hasattr(args, "device") else "cuda:0",
-        # Faithful to the shared nav runtime (enable_stabilization=True).
-        physics=PhysxCfg(enable_stabilization=True),
+        physics=PhysxCfg(**physx_kwargs),
     )
     sim = SimulationContext(sim_cfg)
 

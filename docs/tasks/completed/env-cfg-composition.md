@@ -1,5 +1,8 @@
 # Composable env_cfg axes — split sensor / scene / realism
 
+**Status:** Shipped 2026-05-30 in `7d497e0` (DGX). Landed across #69 (`57c19d6`, Phase 1 — composition + RL snapshot proof) and #70 (`7d497e0`, Phase 2 — clean-break cutover + caller migration).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/70
+
 **Type:** refactor (env_cfg tree)
 **Owner:** DGX agent
 **Priority:** P2 — cleans up an axis-conflation that's currently forcing every consumer (teleop, bridge, RL training, future scripted captioner / coverage) to take ALL camera outputs and the full Infinigen scene-loading stack even when they don't need them; also the boundary that makes "USD becomes a parameter" possible.

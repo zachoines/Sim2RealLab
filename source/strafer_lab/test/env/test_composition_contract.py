@@ -1,28 +1,19 @@
 # Copyright (c) 2025, Strafer Lab Project
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Contract + composition tests for the composable navigation env cfgs.
+"""Contract tests for the composable navigation env cfgs.
 
-The composable env cfg (``composed_env_cfg.py``) expresses each RL environment
-as a composition over three orthogonal axes — sensor stack, scene source,
-realism level. For a trained policy to keep working, the composed RL variant
-must emit the same policy-facing contract (observation terms in order with the
-same scales / noise, action layout, domain-randomization sequence, scene size,
-shared runtime) as the hand-written class it replaced.
+Each composed RL variant must keep the policy-facing contract a trained policy
+depends on — observation terms (order, scales, noise), action layout, DR
+sequence, scene size, shared runtime. Drift flips a stored golden hash and
+fails here.
 
-The legacy classes are gone (the clean break deleted them), so the contract is
-guarded by **stored golden hashes** captured from those legacy classes before
-deletion. A drift in any composed variant flips its hash and fails here. A
-camera's *rendered* channels are excluded from the hashed contract — a
-depth-only observation never reads RGB, so what a camera renders beyond the
-observed channels is invisible to the policy-facing contract. That exclusion is
-about the contract hash only; it does NOT license dropping the rgb channel. The
-policy camera still renders rgb regardless of the observation, because the RTX
-viewport / ``--video`` colour pipeline needs an rgb render product to come up
-at all (see ``_prune_scene_cameras``). A separate check confirms every sensor
-an observation term reads is present with the channel it needs.
+A camera's rendered channels are deliberately outside the hashed contract: a
+depth-only observation never reads rgb, so what a camera renders beyond the
+observed channels does not change the policy. A separate check confirms every
+sensor an observation term reads is present with the channel it needs.
 
-Purely inspects config dataclass attributes — no simulation stepping needed.
+Inspects config dataclass attributes only — no simulation stepping.
 
 Usage:
     cd source/strafer_lab

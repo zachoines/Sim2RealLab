@@ -64,11 +64,11 @@ STRAFER_CFG = ArticulationCfg(
             #
             # 4/1 is the PhysX engine default (floor: position>=1, velocity>=0).
             # Validated stable + contact-accurate in single-env teleop with
-            # stabilization on. NOTE: single-env teleop does not exercise the
-            # high-parallel-env contention (hundreds of envs) where loose
-            # constraint satisfaction historically diverged — gate trust on a
-            # training smoke run at full env count before relying on it for RL.
-            # The cheap retreat if it diverges is 8/4 (still well below 32/16).
+            # stabilization on, AND validated stable at full parallel-env count
+            # (a training run produced no robot_flipped terminations) — so it
+            # holds under the high-parallel-env contention where loose
+            # constraint satisfaction historically diverged. Retreat ladder if
+            # a future change regresses stability: 8/4 (still well below 32/16).
             solver_position_iteration_count=4,
             solver_velocity_iteration_count=1,
             stabilization_threshold=0.01,
@@ -121,10 +121,11 @@ STRAFER_CFG = ArticulationCfg(
             # flipping the robot via phantom constraint forces — which is why
             # this had been raised to 0.5. It is back at 0.01 now that
             # enable_stabilization + the capped depenetration velocity carry
-            # the roller stability; but this, combined with the 4/1 iteration
-            # floor above, reduces TWO stability margins at once, so the
-            # training smoke run at full env count is the gate before trusting
-            # it for RL. If divergence returns, raise this to 0.5 first (it is
+            # the roller stability. This + the 4/1 iteration floor above reduce
+            # TWO stability margins at once, so it was validated at full
+            # parallel-env count (a training run produced no robot_flipped
+            # terminations) before landing — stable, not just assumed. If a
+            # future change regresses stability, raise this to 0.5 first (it is
             # the change with the documented divergence history).
             damping=0.01,
         ),

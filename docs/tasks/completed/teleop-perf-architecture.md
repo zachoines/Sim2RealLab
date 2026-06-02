@@ -4,7 +4,7 @@
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/73
 **Follow-ups:** [`roller-contact-high-omega-bounce`](../active/sim-performance/roller-contact-high-omega-bounce.md) — residual chassis bounce at sustained near-max yaw rate; [`headless-training-video-black`](../active/sim-performance/headless-training-video-black.md) — black `--headless --video` training clips, bisected to the env-cfg-composition epic.
 
-**Outcome:** Shipped on the ≥2-levers bar (cleanup + `--profile` instrumentation + the shared physics win), not the ≥15 FPS bar. Profiling proved the teleop loop is **PhysX-bound** — physics alone exceeds the 15 FPS frame budget on high-density Infinigen, so 15 FPS is unreachable without a fidelity/renderer trade no teleop-side lever can make. The physics win (solver iters 32/16→4/1 + contact stabilization + roller restitution 0) cut physics ~2.6× (~93→~35 ms/tick, ~5.5→~10 FPS) and was promoted to the shared `STRAFER_CFG`; the original Levers 1/2 (drop non-capture render, background env.step thread) were not needed once the bottleneck was shown to be physics, not render. **Gate carried into the shared change:** the 4/1 iters + roller damping 0.01 reduce two stability margins at once — a full-env-count training smoke (`Episode_Termination/robot_flipped`) is the standing check before RL relies on it; cheap retreat is damping→0.5 then iters→8/4.
+**Outcome:** Shipped on the ≥2-levers bar (cleanup + `--profile` instrumentation + the shared physics win), not the ≥15 FPS bar. Profiling proved the teleop loop is **PhysX-bound** — physics alone exceeds the 15 FPS frame budget on high-density Infinigen, so 15 FPS is unreachable without a fidelity/renderer trade no teleop-side lever can make. The physics win (solver iters 32/16→4/1 + contact stabilization + roller restitution 0) cut physics ~2.6× (~93→~35 ms/tick, ~5.5→~10 FPS) and was promoted to the shared `STRAFER_CFG`; the original Levers 1/2 (drop non-capture render, background env.step thread) were not needed once the bottleneck was shown to be physics, not render. **Stability validated for the shared change:** the 4/1 iters + roller damping 0.01 reduce two stability margins at once, so the change was confirmed with a full-env-count training smoke — no `Episode_Termination/robot_flipped` events at full env count, i.e. stable under high-parallel-env contention, not just single-env teleop. Documented retreat ladder if a future change regresses it: roller damping → 0.5 first (the value with the documented divergence history), then solver iters → 8/4.
 
 **Type:** architecture + refactor (teleop driver + env cfg variants + writer)
 **Owner:** DGX agent (teleop-lane)
@@ -540,16 +540,21 @@ is applied **only on the ProcRoom path** (`_apply_procroom_physx_buffers`);
 the Infinigen capture env (`_apply_infinigen_scene_setup`) sets **no
 `sim.physics` override**, so teleop runs PhysX defaults — no stabilization.
 
-**The right (un-built) lever:** cut the *per-substep* cost while keeping
+**The right lever:** cut the *per-substep* cost while keeping
 `sim.dt = 1/120` (stable), by lowering the solver iteration counts
-(e.g. 32/16 → 8/4) and/or enabling stabilization — applied **only to the
-teleop capture variant**, never to `STRAFER_CFG` globally. `STRAFER_CFG`
-and its 32/16 + roller-damping values are the **shared RL-training
-physics contract**; changing them globally would silently alter every
-trained-policy env and is out of scope here. A teleop-variant-only solver
-override is the measurement-gated next step (same pattern as the
-decimation knob), **not done in this brief by operator decision —
-investigate first.**
+(32/16 → 4/1) and enabling contact stabilization.
+
+> **Superseded — promoted to shared `STRAFER_CFG`; see Outcome (top of
+> brief).** This section originally scoped the solver change as
+> teleop-variant-only and out of scope for `STRAFER_CFG`. That call was
+> reversed once the win was measured and validated: the iteration cut +
+> `enable_stabilization` + roller-restitution-0 were promoted to the
+> shared `STRAFER_CFG` and `_apply_default_nav_runtime` so every mode (RL
+> training, bridge, teleop) benefits. The RL obs/action/DR/event contract
+> is unaffected (solver iterations and `sim.physics` are not in the
+> hashed contract; `test_composition_contract` stays green), and the
+> change was confirmed stable at full env count. Read the Outcome block
+> for the shipped state — `STRAFER_CFG` *was* touched.
 
 **Honest ceiling.** Even decimation 2 (physics ~61 ms, stable) plus the
 operator viewport shrink (render ~67 → ~40 ms) plus the manager-loop strip

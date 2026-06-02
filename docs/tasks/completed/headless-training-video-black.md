@@ -1,5 +1,8 @@
 # Training-scene render is broken after the env-cfg-composition cutover (blank + freeze headed; black video headless)
 
+**Status:** Shipped 2026-06-02 in `207f2b8` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/75
+
 **Type:** investigation + fix (render / env-cfg composition)
 **Owner:** DGX agent
 **Priority:** P2 — raised from P3 after a new observation (below): the

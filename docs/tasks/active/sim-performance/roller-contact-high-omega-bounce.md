@@ -66,11 +66,15 @@ or refute it.
 
 ## Findings (investigation outcome)
 
-**Confirmed mechanism: temporal contact under-resolution at the shared
-`sim.dt = 1/120`. Discrete rollers are the excitation source, but the
-growing bounce is a time-integration instability of that excitation, not
-a contact parameter and not the inter-roller gaps. Disposition: documented
-modeling limit at high yaw rate; no shared-physics change landed.**
+**Confirmed mechanism: the TGS solver injects spurious velocity into the
+near-massless, free-spinning rollers (over-spinning them ~4×), and that
+excess energy pumps a growing chassis bounce at sustained high yaw rate.
+Discrete rollers are the excitation source; the growth is a
+solver/time-integration effect, not a contact parameter and not the
+inter-roller gaps. Fix landed: switch the shared nav solver to PGS
+(`solver_type=0`), which keeps roller velocities physical and removes the
+bounce at the native 120 Hz — no substep-rate increase, and the RL
+composition contract stays green (`solver_type` is not hashed).**
 
 Measured with a scripted headless spin-in-place harness
 (`Scripts/roller_bounce_probe.py`): it loads the shared `STRAFER_CFG` on a
@@ -134,27 +138,56 @@ bigger substep (decimation 1) made it worse.
   roller joint damping is a no-op, and the earlier 0.5 → 0.01 change was
   likewise inert.
 
-### Disposition: documented modeling limit + recommended mitigation
+### Root cause refined + fix landed: PGS solver
 
-The only effective fix is a smaller substep (≥ 240 Hz), but `sim.dt` is the
-**shared physics contract**: halving it doubles physics cost on every mode,
-undoing the per-substep cost win and adding 2× physics cost to RL training —
-not justified for a P3 teleop-cosmetic effect that leaves normal driving and
-capture untouched. No geometry change works; roller damping is inert. **No
-change is landed to `STRAFER_CFG` or the robot USD; the RL composition
-contract is unaffected (all 7 golden hashes verified green).**
+The substep-rate test pointed at time integration rather than a coefficient.
+A solver sweep then localized the cause precisely — at 120 Hz, full yaw:
 
-Recommended mitigations, cheapest first, neither touching the shared physics
-contract:
-1. **Teleop yaw clamp (recommended, zero cost).** Onset is ~60–65 % of max
-   wheel speed. Clamp the teleop yaw command to `|omega| ≤ ~0.6` in
-   `_stick_to_body_action`
-   ([`source/strafer_lab/scripts/teleop_capture.py`](../../../../source/strafer_lab/scripts/teleop_capture.py)) —
-   the teleop driver, **not** the mecanum action term. Only full-stick
-   top-spin is affected, and real missions rarely sustain it.
-2. **Teleop-only 240 Hz substep (only if full-yaw fidelity is ever needed).**
-   Fully suppresses the bounce at 2× physics cost; apply on a teleop
-   variant's `sim.dt` only, never the RL/shared default.
+| solver | chassis-z late p2p | growth | roller speed |
+|---|---:|---:|---:|
+| **TGS (default)** | 16.7 mm | 2.2× | 228 rad/s |
+| **PGS (`solver_type=0`)** | 1.1 mm | 0.4× | 55 rad/s |
+| TGS + `enable_external_forces_every_iteration` | 10.6 mm | 1.0× | 210 rad/s |
+| TGS + CCD | 16.7 mm | 2.2× | 228 rad/s (no effect) |
+
+TGS spins the near-massless free rollers to ~4× their physical speed (228 vs
+55 rad/s) — the "noisy velocities" PhysX warns about for TGS with
+`enable_external_forces_every_iteration=False` — and that excess energy pumps
+the bounce. PGS has no such pathology: rollers stay physical, the bounce
+drops to ~1 mm with no growth **across the whole speed range** (0.7–1.6 mm at
+50–100 %), and the wheels track better. The 240 Hz substep helped only
+because more substeps dilute the per-step TGS noise; PGS removes the cause at
+the native rate, with no perf penalty.
+
+**Fix landed:** the shared nav `PhysxCfg` is set to `solver_type=0` (PGS) in
+both `_apply_default_nav_runtime` and `_apply_procroom_physx_buffers`
+([`strafer_env_cfg.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py)).
+`solver_type` is not in the hashed policy contract, so all 6 composition
+goldens stay green — no re-baseline, no obs/action change. No `sim.dt`,
+`STRAFER_CFG`, or USD change. Validated so far: bounce gone in capture teleop
+with full-speed motion restored. **Remaining gate before close:** a
+full-length training-stability run at production env count (watch
+`Episode_Termination/robot_flipped`) and a hard-contact/penetration check,
+since PGS is off the Isaac Lab default solver (see Risks).
+
+**Superseded fallbacks** (kept on record if PGS shows instability at scale):
+- TGS + `enable_external_forces_every_iteration=True` — keeps the default
+  solver, partial fix (kills the growth, ~halves amplitude).
+- A teleop-only 240 Hz substep — works but at 2× physics cost.
+- A `MuJoCo-Warp`/Newton backend evaluation is filed as
+  [`mujoco-warp-physics-backend-spike`](../../parked/experimental/mujoco-warp-physics-backend-spike.md).
+
+### Risks of the PGS switch
+
+PGS is not the Isaac Lab default — TGS is, for general articulation
+stability (high mass ratios, stiff contacts, convergence at low iteration
+counts). PGS won here because the dominant difficulty is 40 near-massless
+free-spinning contacts, the exact regime TGS mishandles. The switch is
+global (training + bridge + teleop), so the close-out validation must
+confirm: no rise in `robot_flipped` over a full run at scale, acceptable
+hard-contact penetration at the current `pos=4 / vel=1` iteration counts
+(bump `pos` if contacts read soft — still far cheaper than 240 Hz), and
+throughput at or above the TGS baseline.
 
 ### Reusable artifact
 
@@ -187,12 +220,16 @@ setting.
       before/after signal. → `Scripts/roller_bounce_probe.py`.
 - [x] Test the contact-offset experiment; record whether it removes or
       reduces the bounce. → only marginal (~13 %); does not remove it.
-- [x] Either land a fix (USD regen + the offset/geometry change, with a
-      teleop spin confirming the bounce is gone and a check that normal
-      driving + the trained-policy contact behavior are unaffected) OR
-      document the high-omega regime as a known modeling limit with the
-      ruled-out causes above and a recommended yaw clamp. → documented as
-      a modeling limit (see Findings); recommended teleop yaw clamp.
+- [x] Either land a fix (with a teleop spin confirming the bounce is gone
+      and a check that normal driving + the trained-policy contact behavior
+      are unaffected) OR document the high-omega regime as a known modeling
+      limit. → **fix landed: PGS solver** (`solver_type=0`); teleop spin
+      confirms the bounce is gone with full-speed motion restored; RL
+      contract green.
+- [ ] Close-out validation for the PGS switch: full-length training run at
+      production env count with no rise in `Episode_Termination/robot_flipped`,
+      hard-contact/penetration check, and throughput ≥ TGS baseline (see
+      Risks). Brief stays open until this passes.
 
 ## Out of scope
 

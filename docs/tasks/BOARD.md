@@ -69,7 +69,6 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | [`domain-randomization-audit`](active/trained-policy/domain-randomization-audit.md) | P1 | active | DGX |
 | [`goal-noise-training`](active/trained-policy/goal-noise-training.md) | P2 | active | DGX |
 | [`subgoal-env`](active/trained-policy/subgoal-env.md) | P2 | active | DGX |
-| [`env-cfg-composition`](active/trained-policy/env-cfg-composition.md) | P2 | active | DGX |
 | [`hybrid-mode`](parked/trained-policy/hybrid-mode.md) | P3 | parked | Jetson |
 | [`strafer-hybrid-sim-validation`](parked/trained-policy/strafer-hybrid-sim-validation.md) | P3 | parked | Either |
 | [`depth-subgoal-env`](parked/trained-policy/depth-subgoal-env.md) | P3 | parked | DGX |
@@ -112,7 +111,6 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`bridge-throughput-toward-25hz`](active/sim-performance/bridge-throughput-toward-25hz.md) | P2 | active | DGX |
 | [`mecanum-action-throughput`](active/sim-performance/mecanum-action-throughput.md) | P2 | active | DGX |
 | [`roller-contact-high-omega-bounce`](active/sim-performance/roller-contact-high-omega-bounce.md) | P3 | active | DGX |
-| [`headless-training-video-black`](active/sim-performance/headless-training-video-black.md) | P2 | active | DGX |
 
 ### Reliability (nav + executor + refactors)
 
@@ -196,10 +194,8 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | L (~1 wk) | Investigation + port — run `make sim-bridge` on Windows (RTX 4080) against the Jetson stack. Isaac Lab 3 Windows support is experimental; phase the feasibility spike before committing to a full port |
 | [`bridge-throughput-toward-25hz`](active/sim-performance/bridge-throughput-toward-25hz.md) | M | Follow-up to `async-camera-publishers`. Lift the bridge toward the predicted 25 Hz ceiling. |
 | [`roller-contact-high-omega-bounce`](active/sim-performance/roller-contact-high-omega-bounce.md) | M | Spun out of `teleop-perf-architecture`. Chassis develops a growing vertical bounce only at sustained near-max yaw rate; restitution, solver iters, depenetration, and stabilization all ruled out. Leading hypothesis: discrete-roller contact hand-off skipping inter-roller gaps. Investigate contact-offset / roller geometry or document as a modeling limit. |
-| [`headless-training-video-black`](active/sim-performance/headless-training-video-black.md) | S–M | Surfaced by `teleop-perf-architecture`'s training smoke. The composed training scene does not render: **headed `--video` opens a blank viewport and freezes**, headless `--video` clips are pure black. Bisected to the env-cfg-composition epic (#69/#70) — pre-composition renders, post-composition does not. Config materializes fine (lights/room/events all present) + room-building and physics ruled out, so the break is at runtime scene materialization/render. Next: split #69 vs #70 + live USD-stage light/viewport diff. Doesn't affect training or stability scalars, but blocks watching a headed run (raised to P2). |
 | [`encoder-noise-shared-sample`](active/trained-policy/encoder-noise-shared-sample.md) | M | Filed off `observation-contract-cleanup` ship. Per-tick noised-ticks cache + policy/critic obs-function split so `wheel_encoder_velocities` and `body_velocity_xy` share a single encoder noise sample (matches real-robot signal chain). Closes the correlation gap that observation-contract-cleanup flagged as out of scope. |
 | [`mission-generator`](active/harness/mission-generator.md) | L | Free-text mission generator with LLM-emitted waypoints (multi-room default). Canonical mission queue source for teleop and oracle drivers. Blocks on `scene-connectivity-validation`. |
-| [`env-cfg-composition`](active/trained-policy/env-cfg-composition.md) | M | Split `_BaseInfinigenPerceptionNavEnvCfg` along its three orthogonal axes (sensor stack × scene source × realism level). Subsumes `teleop-perf-architecture`'s per-env-variant camera toggle. `scene-provider-contract` shipped — commit this brief to the contract's storage-agnostic shape. |
 | [`training-throughput-profile-and-investigate`](active/investigations/training-throughput-profile-and-investigate.md) | S–M | Phase profiler in the training loop; files follow-up briefs from results. |
 | [`room-state-eval-harness`](active/multi-room/room-state-eval-harness.md) | M | v2 room-state — measurement harness for cluster purity / label precision / time-to-converge / connectivity P-R on a fixed multi-room scene set (incl. open-plan + multi-bedroom adversarials). Pure-eval brief; consumes LeRobot v3 datasets from [`harness-architecture`](active/harness/harness-architecture.md)'s scripted × coverage path. Blocks pickup on harness Tier 3 + `observation-derived-room-state` (shipped). |
 | [`semantic-region-partition`](active/multi-room/semantic-region-partition.md) | M | **The v2 quality work** — feature+space HDBSCAN clustering + open-vocab labels, replacing v1's greedy-modularity + 7-class argmax. One `α` knob (SOTA-aligned, ConceptGraphs / HOV-SG shape); no training. Handles open-plan + multi-bedroom by construction. `RoomEntry` shape preserved (+`uncertainty`). |

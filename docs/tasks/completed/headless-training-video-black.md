@@ -1,5 +1,8 @@
 # Training-scene render is broken after the env-cfg-composition cutover (blank + freeze headed; black video headless)
 
+**Status:** Shipped 2026-06-02 in `207f2b8` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/75
+
 **Type:** investigation + fix (render / env-cfg composition)
 **Owner:** DGX agent
 **Priority:** P2 — raised from P3 after a new observation (below): the
@@ -177,18 +180,68 @@ $ISAACLAB -p Scripts/train_strafer_navigation.py \
 #   logs/rsl_rl/bisect_<commit>/*/videos/rl-video-step-100.mp4
 ```
 
+## Resolution
+
+**Root cause — RGB render product stripped from the depth-policy camera.**
+#69 (`57c19d6`) introduced `_prune_scene_cameras`, which regenerates the
+scene's policy camera from `sensors.policy_data_types()`. For the depth-only
+RL stack that resolves to `("distance_to_image_plane",)`, so the camera is
+rebuilt **without `rgb`** — defeating the reason the hand-written
+`StraferSceneCfg_ProcRoom` (reused unchanged by the composition) deliberately
+authored its `d555_camera` with `("rgb", "distance_to_image_plane")`: an rgb
+render product is what makes the RTX renderer bring up its colour pipeline, and
+without one the operator viewport / `--video` recording produce black frames
+(headed, the first render stalls). The depth policy obs is unaffected, so
+training kept working. The strip was deliberate — the pruner's docstring called
+it a no-op for RL scenes and the contract test framed dropping rgb as a
+"render-cost win" — and camera channels were intentionally excluded from the
+hashed contract, so the goldens stayed green and CI never caught it. This
+matches the bisect exactly: pre-epic the policy camera always rendered rgb+depth
+(renders, mean ≈ 75); post-#69 it is depth-only (black, mean 0).
+
+**Fix.** `_prune_scene_cameras` now always unions `rgb` into the policy
+camera's render data types — the policy camera doubles as the scene's RGB
+render product for viewport/video colour init, independent of which channels
+the observation consumes. The observation layer still selects its image terms
+separately, so the policy-facing contract is untouched. The fix lives in the
+shared pruner, so it is source-agnostic (plane / ProcRoom / Infinigen). The
+misleading "no-op for RL" / "render-cost win" comments were corrected, and a
+regression test (`test_depth_policy_camera_still_renders_rgb_for_viewport`)
+now asserts the depth-policy RL camera keeps its rgb channel.
+
+**Verification.** `test/env/test_composition_contract.py` 21/21 (6 frozen
+goldens + depth-obs golden green; 2 new regression cases). Cfg-level (no Kit):
+rgb+depth present on the plane scaffold, both ProcRoom RL variants, and the
+Infinigen Bridge variant; `policy_data_types()` still depth-only and the
+`RLDepth_Real` obs still exposes only `depth_image`. Headless `--video` smoke
+on `Isaac-Strafer-Nav-RLDepth-Real-v0` (`--num_envs 16 --max_iterations 3`):
+`rl-video-step-100.mp4` every sampled frame mean ≈ 78; `rl-video-step-0.mp4`
+frame 0 ≈ 0 (the documented spawn/reset frame) but frames 25/50/75/99 ≈ 78.
+
 ## Acceptance
 
-- [ ] Localize the regression to #69 or #70 (or a specific commit
+- [x] Localize the regression to #69 or #70 (or a specific commit
       within), and identify the scene-materialization change that drops
-      the headless viewport illumination.
-- [ ] `--headless --video` training clips show the lit robot/scene again
+      the headless viewport illumination. → **#69 (`57c19d6`)**, which
+      introduced `_prune_scene_cameras`; it regenerates the depth-policy
+      camera with only the observed channel, stripping the `rgb` channel
+      the reused `StraferSceneCfg_ProcRoom` carried for RTX colour init.
+- [x] `--headless --video` training clips show the lit robot/scene again
       (mid-run frame `array.mean()` > 0), verified on a composed env id.
-- [ ] No change to the policy-facing obs contract (the depth-policy
+      → `Isaac-Strafer-Nav-RLDepth-Real-v0`, `--num_envs 16`: mid-clip
+      frames mean ≈ **78** (was 0); frame 0 of the first clip still ~0
+      per the documented spawn/reset caveat.
+- [x] No change to the policy-facing obs contract (the depth-policy
       camera is unaffected; this is a viewport-render fix only) — the
-      `test_composition_contract` golden hashes stay green.
-- [ ] If the fix is a scene-cfg change, confirm it holds across the
-      plane / ProcRoom / Infinigen sources the composition serves.
+      `test_composition_contract` golden hashes stay green. → 21/21 pass,
+      all 6 frozen goldens green (camera render channels are excluded from
+      the hashed contract); `policy_data_types()` and the obs terms are
+      untouched.
+- [x] If the fix is a scene-cfg change, confirm it holds across the
+      plane / ProcRoom / Infinigen sources the composition serves. → the
+      fix is in the shared `_prune_scene_cameras`, so it is source-agnostic;
+      cfg-level checks confirm rgb+depth on the plane scaffold, both
+      ProcRoom RL variants, and the Infinigen Bridge variant.
 
 ## Out of scope
 

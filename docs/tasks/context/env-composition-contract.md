@@ -49,9 +49,13 @@ are retired — the old→new table is in
    frozen-golden-hash gate in
    [`test/env/test_composition_contract.py`](../../../source/strafer_lab/test/env/test_composition_contract.py);
    the depth observation a checkpoint consumes is also pinned by
-   [`recurrent-policy-contract.md`](recurrent-policy-contract.md). The scene's
-   *unused* camera channels are excluded from the gate — a depth-only obs never
-   reads RGB, so the composition may stop rendering it.
+   [`recurrent-policy-contract.md`](recurrent-policy-contract.md). A camera's
+   rendered channels are excluded from the gate — a depth-only obs never reads
+   RGB, so what a camera renders beyond the observed channels does not move the
+   hash. This is **not** license to drop RGB: the policy camera must still
+   render `rgb` for the RTX viewport / `--video` colour pipeline (no rgb render
+   product → black clips and a frozen headed viewport), enforced by
+   `_prune_scene_cameras` and a check in the same contract test.
 2. **The capture sensor stack and the writer schema are one parameter.**
    `cameras_required` drives both the rendered cameras and
    [`lerobot_writer.build_features`](../../../source/strafer_lab/strafer_lab/tools/lerobot_writer.py)

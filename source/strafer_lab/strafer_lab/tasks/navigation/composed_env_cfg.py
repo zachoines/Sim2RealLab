@@ -324,19 +324,19 @@ def _select_scene(scene_source: SceneSourceCfg, sensors: SensorStackCfg):
 
 
 def _prune_scene_cameras(scene, sensors: SensorStackCfg) -> None:
-    """Trim the scene's camera prims + data types to the requested stack.
+    """Trim the scene's cameras to the requested sensor stack.
 
-    Only meaningful for the capture-facing variants on the Infinigen
-    perception scene, which ships both cameras at full RGB+depth. RL scenes
-    request exactly the cameras the observation needs, so this is a no-op for
-    them.
+    The policy camera always keeps an ``rgb`` channel, even for a depth-only
+    policy: the RTX viewport / ``--video`` colour pipeline needs an rgb render
+    product to come up, independent of what the observation reads.
     """
-    # Policy camera (80x60).
+    # Policy camera (80x60): rgb (for the viewport) unioned with observed channels.
     if sensors.has_policy_camera():
         if hasattr(scene, "d555_camera"):
-            scene.d555_camera = make_d555_camera_cfg(
-                data_types=sensors.policy_data_types(),
-            )
+            data_types = sensors.policy_data_types()
+            if "rgb" not in data_types:
+                data_types = ("rgb",) + data_types
+            scene.d555_camera = make_d555_camera_cfg(data_types=data_types)
     elif hasattr(scene, "d555_camera"):
         scene.d555_camera = None
 

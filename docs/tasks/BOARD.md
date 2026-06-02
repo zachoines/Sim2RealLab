@@ -110,6 +110,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`isaac-sim-rt-2-default-renderer`](active/sim-performance/isaac-sim-rt-2-default-renderer.md) | P2 | active | DGX |
 | [`bridge-throughput-toward-25hz`](active/sim-performance/bridge-throughput-toward-25hz.md) | P2 | active | DGX |
 | [`mecanum-action-throughput`](active/sim-performance/mecanum-action-throughput.md) | P2 | active | DGX |
+| [`bridge-publish-rate-decouple`](active/sim-performance/bridge-publish-rate-decouple.md) | P2 | active | DGX |
 | [`roller-contact-high-omega-bounce`](active/sim-performance/roller-contact-high-omega-bounce.md) | P3 | active | DGX |
 
 ### Reliability (nav + executor + refactors)
@@ -194,6 +195,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`subgoal-env`](active/trained-policy/subgoal-env.md) | L (~1.5–2 wk) | New training env for `NOCAM_SUBGOAL` — sim-internal path planner + SubgoalCommand + path-tracking rewards + termination + training run. Unblocks hybrid mode |
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | L (~1 wk) | Investigation + port — run `make sim-bridge` on Windows (RTX 4080) against the Jetson stack. Isaac Lab 3 Windows support is experimental; phase the feasibility spike before committing to a full port |
 | [`bridge-throughput-toward-25hz`](active/sim-performance/bridge-throughput-toward-25hz.md) | M | Follow-up to `async-camera-publishers`. Lift the bridge toward the predicted 25 Hz ceiling. |
+| [`bridge-publish-rate-decouple`](active/sim-performance/bridge-publish-rate-decouple.md) | M | Spun out of `roller-contact-high-omega-bounce` (PR #76). Bridge runs `decimation 1` (untuned 120 Hz control) to keep the Jetson publish rate ~29 Hz; `decimation 4` fixes control fidelity but starves publish to ~8 Hz. Decouple publish cadence from control decimation so the bridge gets both. Coordinate with `bridge-throughput-toward-25hz`. |
 | [`roller-contact-high-omega-bounce`](active/sim-performance/roller-contact-high-omega-bounce.md) | M | Spun out of `teleop-perf-architecture`. Chassis develops a growing vertical bounce only at sustained near-max yaw rate; restitution, solver iters, depenetration, and stabilization all ruled out. Leading hypothesis: discrete-roller contact hand-off skipping inter-roller gaps. Investigate contact-offset / roller geometry or document as a modeling limit. |
 | [`encoder-noise-shared-sample`](active/trained-policy/encoder-noise-shared-sample.md) | M | Filed off `observation-contract-cleanup` ship. Per-tick noised-ticks cache + policy/critic obs-function split so `wheel_encoder_velocities` and `body_velocity_xy` share a single encoder noise sample (matches real-robot signal chain). Closes the correlation gap that observation-contract-cleanup flagged as out of scope. |
 | [`mission-generator`](active/harness/mission-generator.md) | L | Free-text mission generator with LLM-emitted waypoints (multi-room default). Canonical mission queue source for teleop and oracle drivers. Blocks on `scene-connectivity-validation`. |

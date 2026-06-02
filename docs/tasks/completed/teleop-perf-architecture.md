@@ -471,21 +471,18 @@ wall-time.)
 > that bites.
 >
 > The only levers that touch physics are **fewer substeps** or **lighter
-> colliders** — both outside the original lever set. Per the operator
-> decision the driver now exposes two perf knobs:
+> colliders** — both outside the original lever set. The investigation
+> used two short-lived diagnostic knobs on the driver (since removed —
+> the win landed in the shared config, not a teleop flag):
 >
-> - **`--decimation N`** — overrides the PhysX substeps per env.step and
->   rescales `sim.dt` to hold the env step / control / capture rate
->   constant (captured dataset unchanged; only per-substep
->   contact-resolution fidelity drops). This is the lever the withdrawn
->   `--env-step-hz` was reaching for but got wrong — `--env-step-hz` held
->   decimation, so it changed nothing. **Lowering decimation coarsens
->   collision; the operator must verify the robot does not tunnel through
->   scene geometry.**
-> - **`--viewport-resolution WxH`** — shrinks the operator-only editor
->   viewport (default 1280×720) to cut the render term. In scope: not the
->   perception/dataset camera (fixed at 640×360), the third-person view
->   that never enters a captured frame.
+> - **`--decimation N`** — overrode the PhysX substeps per env.step,
+>   rescaling `sim.dt` to hold the control / capture rate constant. The
+>   decimation sweep is what proved the loop is PhysX-bound; the durable
+>   fix was cheaper *per-substep* solving (reduced solver iterations in
+>   the shared `STRAFER_CFG`), not fewer substeps.
+> - **`--viewport-resolution WxH`** — attempted to shrink the operator
+>   viewport to cut the render term, but did not take effect in the headed
+>   Kit editor (the window stayed 1280×720), so it was dropped.
 >
 > The residual gap to a hard 15 FPS is a **physics-fidelity-vs-FPS trade
 > the operator owns**, not a code lever — the knobs expose it, they do not

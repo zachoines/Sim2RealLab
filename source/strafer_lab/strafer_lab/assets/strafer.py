@@ -53,22 +53,10 @@ STRAFER_CFG = ArticulationCfg(
         usd_path=_STRAFER_USD_PATH,
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
             enabled_self_collisions=False,
-            # Solver iterations were 32/16 (~8x the typical default) to keep
-            # the 40 passive mecanum-roller contacts from diverging. Per-substep
-            # profiling on a high-density scene showed that high count was the
-            # dominant PhysX cost (~2.6x the physics wall-time at the low end)
-            # and did NOT actually buy stability — the residual roller jitter
-            # is a contact-event problem, addressed instead by scene-level
-            # enable_stabilization (see _apply_default_nav_runtime) and the
-            # capped depenetration velocity below.
-            #
-            # 4/1 is the PhysX engine default (floor: position>=1, velocity>=0).
-            # Validated stable + contact-accurate in single-env teleop with
-            # stabilization on, AND validated stable at full parallel-env count
-            # (a training run produced no robot_flipped terminations) — so it
-            # holds under the high-parallel-env contention where loose
-            # constraint satisfaction historically diverged. Retreat ladder if
-            # a future change regresses stability: 8/4 (still well below 32/16).
+            # Passive mecanum-roller contact stability comes from
+            # enable_stabilization (see _apply_default_nav_runtime) + the capped
+            # depenetration velocity below, not from high solver-iteration
+            # counts. If roller instability ever returns, raise these iterations.
             solver_position_iteration_count=4,
             solver_velocity_iteration_count=1,
             stabilization_threshold=0.01,
@@ -116,17 +104,9 @@ STRAFER_CFG = ArticulationCfg(
             effort_limit_sim=0.0,       # No active drive
             velocity_limit_sim=1000.0,   # Allow free spinning (high limit)
             stiffness=0.0,
-            # Low damping for near-free rolling. HISTORY: 0.01 previously
-            # caused GPU TGS solver divergence at high env counts (>24),
-            # flipping the robot via phantom constraint forces — which is why
-            # this had been raised to 0.5. It is back at 0.01 now that
-            # enable_stabilization + the capped depenetration velocity carry
-            # the roller stability. This + the 4/1 iteration floor above reduce
-            # TWO stability margins at once, so it was validated at full
-            # parallel-env count (a training run produced no robot_flipped
-            # terminations) before landing — stable, not just assumed. If a
-            # future change regresses stability, raise this to 0.5 first (it is
-            # the change with the documented divergence history).
+            # Low damping for near-free rolling. Revisit this (raise toward
+            # 0.5) and the solver iterations above if roller instability is
+            # ever a concern.
             damping=0.01,
         ),
     },

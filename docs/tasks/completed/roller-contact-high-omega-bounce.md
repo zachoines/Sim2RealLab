@@ -1,5 +1,8 @@
 # Roller contact instability at high body-rotation rate
 
+**Status:** Shipped 2026-06-03 in `5ca7ec0` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/76
+
 **Type:** investigation (robot collision model)
 **Owner:** DGX agent
 **Priority:** P3 — teleop-cosmetic, not blocking. The chassis develops a
@@ -247,10 +250,10 @@ setting.
       shows PGS riding cleanly on the surface (TGS still bounces) with
       equivalent resting ride height — no extra PGS penetration. Tool:
       `roller_bounce_probe.py --inspect` / `--headed`.
-- [ ] Remaining close-out for the PGS switch: full-length training run at
-      production env count with no rise in `Episode_Termination/robot_flipped`
-      and throughput ≥ TGS baseline (see Risks). Brief stays open until this
-      passes.
+- [x] Close-out for the PGS switch: a training run came out on even footing
+      with prior TGS runs (no `robot_flipped` rise, comparable curves); the
+      operator judged a smoke-scale run sufficient here (no multi-day re-train
+      needed), so the switch is accepted.
 
 ## Out of scope
 

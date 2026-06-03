@@ -33,7 +33,7 @@ Read these before starting:
 ## Context
 
 Surfaced while making the nav physics shared/consistent in
-[`roller-contact-high-omega-bounce`](roller-contact-high-omega-bounce.md)
+[`roller-contact-high-omega-bounce`](../../completed/roller-contact-high-omega-bounce.md)
 (PR #76): the PGS solver fix is now shared across training, teleop-capture,
 and the bridge, but `run_sim_in_the_loop.py` still diverges on **control
 rate**. It defaults `--decimation 1` (and `--render-interval 1`), overriding

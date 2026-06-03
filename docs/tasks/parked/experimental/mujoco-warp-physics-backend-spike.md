@@ -28,7 +28,7 @@ Read these before starting:
 ## Context
 
 This brief was spun out of the
-[`roller-contact-high-omega-bounce`](../../active/sim-performance/roller-contact-high-omega-bounce.md)
+[`roller-contact-high-omega-bounce`](../../completed/roller-contact-high-omega-bounce.md)
 investigation. That work found the high-yaw chassis bounce is the **TGS
 solver injecting spurious velocity into the near-massless, free-spinning
 mecanum rollers** (over-spinning them several-fold), and fixed it by
@@ -98,7 +98,7 @@ is ever worth it.
 
 ## Investigation pointers
 
-- [`roller-contact-high-omega-bounce`](../../active/sim-performance/roller-contact-high-omega-bounce.md)
+- [`roller-contact-high-omega-bounce`](../../completed/roller-contact-high-omega-bounce.md)
   — the parent investigation: the TGS-velocity-noise mechanism, the PGS
   fix, and the ruled-out levers.
 - `source/strafer_lab/scripts/roller_bounce_probe.py` — the PhysX-side reference harness;

@@ -76,14 +76,22 @@ inter-roller gaps. Fix landed: switch the shared nav solver to PGS
 bounce at the native 120 Hz — no substep-rate increase, and the RL
 composition contract stays green (`solver_type` is not hashed).**
 
-Measured with a scripted headless spin-in-place harness
-(`source/strafer_lab/scripts/roller_bounce_probe.py`): it loads the shared `STRAFER_CFG` on a
-clean ground plane, drives a pure yaw spin (left/right wheels opposed) at a
-sweep of wheel speeds, and logs chassis z at the 120 Hz physics substep
-rate — the 30 Hz policy loop aliases the effect away, so substep-rate
-logging is required to see it. All runs use the shared nav physics
-(`sim.dt = 1/120`, `enable_stabilization=True`); chassis yaw is held ≈ 0
-so the vertical motion is purely drivetrain-induced.
+Measured with a scripted harness
+(`source/strafer_lab/scripts/roller_bounce_probe.py`): it loads the shared
+`STRAFER_CFG` on a clean ground plane, spins the wheels at a sweep of speeds,
+and logs chassis z at the 120 Hz physics substep rate — the 30 Hz policy loop
+aliases the effect away, so substep-rate logging is required to see it. All
+runs use the shared nav physics (`sim.dt = 1/120`, `enable_stabilization=True`).
+
+**Drive pattern.** The sweep and substep-rate tables below were taken with
+the wheels driven left/right-**opposed**, which on this mirror-mounted mecanum
+base *translates* (body yaw ≈ 0). The bounce is driven by wheel/roller speed
+against the ground, not by body yaw, so it reproduces regardless of pattern.
+The faithful high-yaw repro of the operator symptom ("spin at full stick")
+drives all wheels the **same** joint sign (`--motion spin`, the harness
+default), which spins the chassis at ~3.4 rad/s and shows the same bounce,
+slightly stronger (TGS 17.5 mm / 2.8× at full wheel speed → PGS 2.7 mm,
+no growth).
 
 ### What the bounce is — wheel-speed sweep (5 s each)
 
@@ -141,7 +149,8 @@ bigger substep (decimation 1) made it worse.
 ### Root cause refined + fix landed: PGS solver
 
 The substep-rate test pointed at time integration rather than a coefficient.
-A solver sweep then localized the cause precisely — at 120 Hz, full yaw:
+A solver sweep then localized the cause precisely — at 120 Hz, full wheel
+speed (left/right-opposed drive):
 
 | solver | chassis-z late p2p | growth | roller speed |
 |---|---:|---:|---:|
@@ -149,6 +158,10 @@ A solver sweep then localized the cause precisely — at 120 Hz, full yaw:
 | **PGS (`solver_type=0`)** | 1.1 mm | 0.4× | 55 rad/s |
 | TGS + `enable_external_forces_every_iteration` | 10.6 mm | 1.0× | 210 rad/s |
 | TGS + CCD | 16.7 mm | 2.2× | 228 rad/s (no effect) |
+
+The same ranking holds under the faithful **true yaw-spin** (`--motion spin`,
+full omega, chassis yawing ~3.4 rad/s): TGS 17.5 mm growing 2.8× → PGS 2.7 mm,
+no growth, chassis planted.
 
 TGS spins the near-massless free rollers to ~4× their physical speed (228 vs
 55 rad/s) — the "noisy velocities" PhysX warns about for TGS with
@@ -165,10 +178,14 @@ both `_apply_default_nav_runtime` and `_apply_procroom_physx_buffers`
 `solver_type` is not in the hashed policy contract, so all 6 composition
 goldens stay green — no re-baseline, no obs/action change. No `sim.dt`,
 `STRAFER_CFG`, or USD change. Validated so far: bounce gone in capture teleop
-with full-speed motion restored. **Remaining gate before close:** a
-full-length training-stability run at production env count (watch
-`Episode_Termination/robot_flipped`) and a hard-contact/penetration check,
-since PGS is off the Isaac Lab default solver (see Risks).
+with full-speed motion restored; a training smoke ran clean (no
+`robot_flipped`); and a flush-ground close-up inspection (`--inspect` /
+`--headed`) shows PGS rollers riding cleanly on the surface while TGS — even
+with `enable_external_forces_every_iteration` — still bounces, with
+equivalent resting ride height between solvers (no extra PGS penetration:
+47.99 vs 47.98 mm at rest). **Remaining gate before close:** a full-length
+training-stability run at production env count (watch `robot_flipped`), since
+PGS is off the Isaac Lab default solver (see Risks).
 
 **Superseded fallbacks** (kept on record if PGS shows instability at scale):
 - TGS + `enable_external_forces_every_iteration=True` — keeps the default
@@ -226,10 +243,14 @@ setting.
       limit. → **fix landed: PGS solver** (`solver_type=0`); teleop spin
       confirms the bounce is gone with full-speed motion restored; RL
       contract green.
-- [ ] Close-out validation for the PGS switch: full-length training run at
-      production env count with no rise in `Episode_Termination/robot_flipped`,
-      hard-contact/penetration check, and throughput ≥ TGS baseline (see
-      Risks). Brief stays open until this passes.
+- [x] Penetration / contact-realism check: flush-ground close-up inspection
+      shows PGS riding cleanly on the surface (TGS still bounces) with
+      equivalent resting ride height — no extra PGS penetration. Tool:
+      `roller_bounce_probe.py --inspect` / `--headed`.
+- [ ] Remaining close-out for the PGS switch: full-length training run at
+      production env count with no rise in `Episode_Termination/robot_flipped`
+      and throughput ≥ TGS baseline (see Risks). Brief stays open until this
+      passes.
 
 ## Out of scope
 

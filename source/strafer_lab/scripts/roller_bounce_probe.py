@@ -72,12 +72,58 @@ def main():
         "--csv", type=str, default="",
         help="Optional path to write per-substep (omega_frac,t,z,vz) CSV",
     )
+    parser.add_argument(
+        "--inspect", action="store_true", default=False,
+        help="Close-up capture of one wheel's roller-ground contact on a flush "
+             "ground plane, rendered every physics substep (render synced to "
+             "physics), to an MP4, plus a penetration trace. Skips the omega "
+             "sweep. Run once per --solver-type to compare PGS vs TGS.",
+    )
+    parser.add_argument("--inspect-out", type=str, default="/tmp/roller_inspect.mp4",
+                        help="MP4 path for --inspect capture")
+    parser.add_argument("--inspect-frac", type=float, default=0.4,
+                        help="Wheel-speed fraction for the inspection spin "
+                             "(keep below the ~0.65 bounce onset so penetration, "
+                             "not the bounce, is what's on screen)")
+    parser.add_argument("--inspect-fps", type=int, default=30,
+                        help="Playback fps; physics is --sim-hz, so the default "
+                             "30 yields ~4x slow motion for inspecting fast rollers")
+    parser.add_argument(
+        "--headed", action="store_true", default=False,
+        help="Open the Kit editor viewport and spin the robot gently so you can "
+             "orbit/zoom into the rollers live (needs a usable display for the "
+             "DGX). Uses --inspect-frac for spin speed (0 = sit still); skips "
+             "the omega sweep.",
+    )
+    parser.add_argument("--headed-seconds", type=float, default=0.0,
+                        help="Auto-close headed mode after N seconds "
+                             "(0 = run until you close the window)")
+    parser.add_argument(
+        "--motion", choices=["spin", "strafe"], default="spin",
+        help="Drive pattern. 'spin' = all wheels same joint sign -> body yaw "
+             "(spin in place like a top, the high-yaw symptom). 'strafe' = "
+             "left/right opposed -> translation, no body yaw.",
+    )
+    parser.add_argument(
+        "--headed-view", choices=["robot", "wheel"], default="robot",
+        help="Headed starting camera: 'robot' = whole-robot 3/4 view (watch the "
+             "top-spin + bounce), 'wheel' = close-up on a front wheel "
+             "(roller-ground contact). You can refine with the mouse either way.",
+    )
 
     from isaaclab.app import AppLauncher
 
     AppLauncher.add_app_launcher_args(parser)
     args = parser.parse_args()
-    args.headless = True
+    if args.headed:
+        # GUI on; AppLauncher uses --viz (the deprecated inverse of --headless).
+        args.headless = False
+        if getattr(args, "visualizer", None) in (None, "none"):
+            args.visualizer = "kit"
+    else:
+        args.headless = True
+    if args.inspect:
+        args.enable_cameras = True
 
     app_launcher = AppLauncher(args)
     simulation_app = app_launcher.app
@@ -158,6 +204,20 @@ def main():
         print(f"[probe] applied collision-offset override to {n} roller covers "
               f"(contact_offset={args.contact_offset}, rest_offset={args.rest_offset})")
 
+    # Close-up camera for --inspect (created before reset so it is in the
+    # render product; aimed at a wheel after the robot settles).
+    inspect_cam = None
+    if args.inspect:
+        from isaaclab.sensors import Camera, CameraCfg
+        inspect_cam = Camera(CameraCfg(
+            prim_path="/World/inspect_cam",
+            update_period=0.0,  # update every render
+            height=600, width=800,
+            data_types=["rgb"],
+            spawn=sim_utils.PinholeCameraCfg(
+                focal_length=24.0, clipping_range=(0.005, 20.0)),
+        ))
+
     sim.reset()
     # Body world poses are only populated after a step; take one before
     # reading wheel-core positions for left/right detection.
@@ -181,14 +241,131 @@ def main():
         [side_by_wheel[jn.replace("_drive", "")] for jn in drive_names],
         device=sim.device,
     )
+    # 'spin' = all wheels same joint sign -> body yaw (mirror-mounted left/right
+    # wheels turn opposite ways in world frame -> spin in place). 'strafe' =
+    # left/right opposed -> translation.
+    drive_sign = torch.ones_like(side_sign) if args.motion == "spin" else side_sign
     print(f"[probe] drive joints {drive_names}")
-    print(f"[probe] side signs {side_sign.tolist()}")
+    print(f"[probe] motion={args.motion} side signs {side_sign.tolist()} "
+          f"drive signs {drive_sign.tolist()}")
 
     csv_rows = []
     summary = []
 
     settle_steps = int(args.settle / SIM_DT)
     spin_steps = int(args.duration / SIM_DT)
+
+    # --- Headed mode: live viewport so the operator can orbit/zoom rollers ---
+    if args.headed:
+        zero = torch.zeros((1, len(drive_ids)), device=sim.device)
+        for _ in range(settle_steps):
+            robot.set_joint_velocity_target(zero, joint_ids=drive_ids)
+            robot.write_data_to_sim()
+            sim.step()
+            robot.update(SIM_DT)
+        # Starting viewport pose; the operator refines with the mouse.
+        rp = to_t(robot.data.root_pos_w)[0]
+        rx, ry, rz = float(rp[0]), float(rp[1]), float(rp[2])
+        try:
+            if args.headed_view == "wheel":
+                cov_ids, cov_names = robot.find_bodies(".*roller_cover.*")
+                bp = to_t(robot.data.body_pos_w)[0]
+                fl = [i for i, n in zip(cov_ids, cov_names)
+                      if "wheel_1" in n] or cov_ids
+                wc = bp[fl].mean(0)
+                wx, wy = float(wc[0]), float(wc[1])
+                sim.set_camera_view(eye=(wx + 0.15, wy + 0.25, 0.12),
+                                    target=(wx, wy, 0.0))
+            else:  # whole-robot 3/4 elevated view — good for watching the top-spin
+                sim.set_camera_view(eye=(rx + 0.55, ry + 0.55, 0.40),
+                                    target=(rx, ry, rz))
+        except Exception:
+            pass
+        vel_target = (drive_sign * MAX_WHEEL_RAD_S * args.inspect_frac).unsqueeze(0)
+        solver = "PGS" if args.solver_type == 0 else "TGS"
+        print(f"[probe] HEADED {solver} (frac={args.inspect_frac}) — orbit/zoom "
+              f"in the viewport; close the window or Ctrl-C to exit")
+        max_steps = int(args.headed_seconds / SIM_DT) if args.headed_seconds > 0 else None
+        i = 0
+        try:
+            while simulation_app.is_running():
+                robot.set_joint_velocity_target(vel_target, joint_ids=drive_ids)
+                robot.write_data_to_sim()
+                sim.step()
+                robot.update(SIM_DT)
+                i += 1
+                if max_steps is not None and i >= max_steps:
+                    break
+        except KeyboardInterrupt:
+            pass
+        simulation_app.close()
+        return
+
+    # --- Inspection mode: close-up roller-ground capture + penetration ---
+    if args.inspect:
+        import imageio
+        cover_ids, cover_names = robot.find_bodies(".*roller_cover.*")
+        if not cover_ids:
+            cover_ids, cover_names = robot.find_bodies(".*cover.*")
+
+        zero = torch.zeros((1, len(drive_ids)), device=sim.device)
+        # Penetration proxy = chassis ride height (root z): under the GPU
+        # pipeline the USD collision transforms are stale, so true contact
+        # geometry isn't cheaply readable; if the rollers penetrate the ground
+        # more, the whole chassis sits lower. The MP4 is the visual check.
+        # Settle onto the ground (no spin), then aim the camera at a wheel.
+        for _ in range(settle_steps):
+            robot.set_joint_velocity_target(zero, joint_ids=drive_ids)
+            robot.write_data_to_sim()
+            sim.step()
+            robot.update(SIM_DT)
+
+        bpos = to_t(robot.data.body_pos_w)[0]
+        front_left = [i for i, n in zip(cover_ids, cover_names) if "wheel_1" in n]
+        wheel_ids = front_left if front_left else cover_ids
+        wc = bpos[wheel_ids].mean(0)
+        wx, wy, wz = float(wc[0]), float(wc[1]), float(wc[2])
+        # wheel_1 is the +y side; view it from just outside (+y), near ground,
+        # looking at the contact patch (z≈0) so penetration is on screen.
+        eye = torch.tensor([[wx + 0.04, wy + 0.20, 0.045]], device=sim.device)
+        target = torch.tensor([[wx, wy, 0.0]], device=sim.device)
+        inspect_cam.set_world_poses_from_view(eye, target)
+
+        rest_root_z = float(to_t(robot.data.root_pos_w)[0, 2])
+
+        vel_target = (drive_sign * MAX_WHEEL_RAD_S * args.inspect_frac).unsqueeze(0)
+        frames = []
+        min_root_z = rest_root_z
+        mean_root_z_sum = 0.0
+        for _ in range(spin_steps):
+            robot.set_joint_velocity_target(vel_target, joint_ids=drive_ids)
+            robot.write_data_to_sim()
+            sim.step()
+            robot.update(SIM_DT)
+            inspect_cam.update(SIM_DT)
+            rgb = to_t(inspect_cam.data.output["rgb"])[0, ..., :3]
+            frames.append(rgb.detach().cpu().numpy().astype("uint8"))
+            rz = float(to_t(robot.data.root_pos_w)[0, 2])
+            min_root_z = min(min_root_z, rz)
+            mean_root_z_sum += rz
+
+        imageio.mimsave(args.inspect_out, frames, fps=args.inspect_fps,
+                        macro_block_size=1)
+        solver = "PGS" if args.solver_type == 0 else "TGS"
+        print("\n========== INSPECT ==========")
+        print(f"solver            {solver} (solver_type={args.solver_type})"
+              f"{' +ext-forces' if args.ext_forces_every_iter else ''}")
+        print(f"spin frac         {args.inspect_frac}  ({len(frames)} frames @ "
+              f"{args.sim_hz:.0f} Hz physics -> {args.inspect_fps} fps playback)")
+        print(f"chassis ride z    rest {rest_root_z*1000:6.2f} mm | "
+              f"spin-mean {mean_root_z_sum/max(1,len(frames))*1000:6.2f} mm | "
+              f"min {min_root_z*1000:6.2f} mm")
+        print("                  (ride height = penetration proxy; lower under "
+              "one solver = rollers sink more)")
+        print(f"video             {args.inspect_out}")
+        print("=============================")
+        simulation_app.close()
+        return
 
     for frac in omega_fracs:
         # Reset to spawn state.
@@ -202,7 +379,7 @@ def main():
 
         target_w = MAX_WHEEL_RAD_S * frac
         # Pure yaw: left wheels one way, right wheels the other.
-        vel_target = (side_sign * target_w).unsqueeze(0)  # (1, 4)
+        vel_target = (drive_sign * target_w).unsqueeze(0)  # (1, 4)
 
         # Settle (no spin command).
         zero = torch.zeros_like(vel_target)

@@ -3,9 +3,9 @@ Dump a tree view of the robot hierarchy and basic physics flags.
 Also list axle joint_frames meshes if needed.
 
 Usage examples:
-  python Scripts/inspect_robot_prim_layout.py --stage C:/Worspace/Assets/mechanum_robot_v1_collision.usd
-  python Scripts/inspect_robot_prim_layout.py --stage C:/Worspace/Assets/mechanum_robot_v1_collision.usd --root /World/mechanum_robot_v18 --max-depth 6
-  python Scripts/inspect_robot_prim_layout.py --stage Assets/3209-0001-0006-v6/3209-0001-0006.usd --tree-output ./robot_tree.txt
+  python source/strafer_lab/scripts/asset_authoring/inspect_robot_prim_layout.py --stage C:/Worspace/Assets/mechanum_robot_v1_collision.usd
+  python source/strafer_lab/scripts/asset_authoring/inspect_robot_prim_layout.py --stage C:/Worspace/Assets/mechanum_robot_v1_collision.usd --root /World/mechanum_robot_v18 --max-depth 6
+  python source/strafer_lab/scripts/asset_authoring/inspect_robot_prim_layout.py --stage Assets/3209-0001-0006-v6/3209-0001-0006.usd --tree-output ./robot_tree.txt
 """
 
 import argparse

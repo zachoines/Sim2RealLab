@@ -8,7 +8,7 @@ The operation mirrors manual "drag up and delete empty" cleanup:
   4) Remove the empty prim and rename the child back to the original parent name.
 
 Example:
-  python Scripts/collapse_redundant_xforms.py --stage Assets/3209-0001-0006-v6/3209-0001-0006.usd \\
+  python source/strafer_lab/scripts/asset_authoring/collapse_redundant_xforms.py --stage Assets/3209-0001-0006-v6/3209-0001-0006.usd \\
       --root /World/strafer --output ./collapse_log.txt --tree-output ./collapsed_tree.txt
 """
 

@@ -168,12 +168,12 @@ Invoke-RestMethod -Uri http://localhost:8100/ground -Method Post -Body $body -Co
 
 ```bash
 # Single-image smoke test (no service running):
-python -m strafer_vlm.tools.test_qwen25vl_grounding \
+python source/strafer_vlm/scripts/test_qwen25vl_grounding.py \
     --image docs/artifacts/strafer_top.jpeg \
     --prompt "the robot chassis"
 
 # Live camera/video grounding with runtime console prompts:
-python -m strafer_vlm.tools.live_qwen25vl_grounding --source 0 --prompt "Locate: the robot chassis"
+python source/strafer_vlm/scripts/live_qwen25vl_grounding.py --source 0 --prompt "Locate: the robot chassis"
 ```
 
 In live mode, typing any non-empty line swaps the active prompt; `status`, `clear`, `quit` are reserved.

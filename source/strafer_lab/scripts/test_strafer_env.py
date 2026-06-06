@@ -14,9 +14,9 @@ Environments (--env):
     Isaac-Strafer-Nav-RLNoCam-v0          Proprioceptive only, ProcRoom, realistic
 
 Usage:
-    ./IsaacLab/isaaclab.sh -p Scripts/test_strafer_env.py
-    ./IsaacLab/isaaclab.sh -p Scripts/test_strafer_env.py --env Isaac-Strafer-Nav-RLDepth-Real-v0
-    ./IsaacLab/isaaclab.sh -p Scripts/test_strafer_env.py --pattern circle --env Isaac-Strafer-Nav-RLDepth-Robust-v0
+    ./IsaacLab/isaaclab.sh -p source/strafer_lab/scripts/test_strafer_env.py
+    ./IsaacLab/isaaclab.sh -p source/strafer_lab/scripts/test_strafer_env.py --env Isaac-Strafer-Nav-RLDepth-Real-v0
+    ./IsaacLab/isaaclab.sh -p source/strafer_lab/scripts/test_strafer_env.py --pattern circle --env Isaac-Strafer-Nav-RLDepth-Robust-v0
 """
 
 import argparse

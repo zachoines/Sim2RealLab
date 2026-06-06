@@ -153,6 +153,50 @@ briefs, READMEs).
 
 ---
 
+## Script and tool placement
+
+Workstation/DGX-side, non-test Python belongs to a **package**, never to a
+top-level dir. There is no `Scripts/` (capital-S) for Python. Decide a
+file's home with two questions:
+
+1. **Is it imported, or run directly?**
+   - Something `import`s it (a library; no `if __name__ == "__main__"`) →
+     it's a **tool** → `source/<pkg>/<pkg>/tools/`.
+   - It's run directly (has a CLI / `__main__`; invoked via `$ISAACLAB -p`,
+     `python -m`, or a `make` target) and nothing imports it → it's a
+     **script** → `source/<pkg>/scripts/`.
+2. **(scripts only) operator/pipeline entry point, or one-shot asset
+   authoring?** Training / capture / scene-gen / eval / export → `scripts/`
+   (flat). Run-by-hand utilities that (re)build or inspect a robot/asset USD
+   → `scripts/asset_authoring/`.
+
+Tie-breaker: *does anything import this?* Yes → `tools/`. No, and it has a
+`__main__` → `scripts/`. Directories are always lowercase (`scripts/`,
+`tools/`) — never `Scripts/`.
+
+`strafer_lab`'s Kit scripts launch via `$ISAACLAB -p <path>`, so the package
+keeps a `scripts/` dir rather than adopting `[project.scripts]` console
+entries. A pure-Python package may instead expose console entry points
+(`strafer_autonomy` does — `strafer-autonomy-cli`, `strafer-executor`).
+
+**Deprecated-but-not-yet-deletable code** — a file another brief owns the
+deletion of, or that is kept only so its successor can mine it — lives in a
+sibling **`retired/`** under `scripts/` or `tools/`: *deprecated, retained
+for reference, not imported or invoked by any live entry point.* `retired/`
+is a holding area the owning brief empties on ship; nothing in a live
+`scripts/` / `tools/` may import from it. A `tools/retired/` needs an
+`__init__.py` (its modules are still importable from the owner that mines
+them); a `scripts/retired/` does not. Code with **no** future consumer is
+deleted outright (git history is the record), not parked in `retired/`.
+
+**Why:** non-test Python used to scatter across a top-level `Scripts/`,
+`source/<pkg>/scripts/`, and `source/<pkg>/<pkg>/tools/` with no rule, so
+every new `eval_*.py` / `build_*.py` was a coin flip. One question —
+*imported, or run?* — now decides, and the next person doesn't re-derive the
+convention by reading the existing layout.
+
+---
+
 ## Closed task brief lifecycle
 
 When a brief in `docs/tasks/` ships, **move it into

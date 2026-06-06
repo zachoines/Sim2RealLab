@@ -1,4 +1,4 @@
-"""Unit tests for ``Scripts/export_policy.py`` plumbing.
+"""Unit tests for ``source/strafer_lab/scripts/export_policy.py`` plumbing.
 
 These tests do not load a real rsl_rl checkpoint (that requires Isaac Sim
 and a converged training run). Instead, they build a tiny stateless

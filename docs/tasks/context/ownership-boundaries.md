@@ -23,7 +23,7 @@ You may read and modify:
 | `source/strafer_autonomy/strafer_autonomy/semantic_map/` | Semantic-map data structures |
 | `source/strafer_autonomy/strafer_autonomy/cli.py` | `strafer-autonomy-cli` entry point |
 | `source/strafer_autonomy/strafer_autonomy/schemas/` | Schema definitions |
-| `Scripts/` | Operator-facing DGX entry points |
+| `Scripts/` | Windows `.ps1` launchers (Python entry points now live under `source/<pkg>/scripts/`) |
 | `env_setup.sh`, `.env`, `.env.example` | Operator-tuned host paths |
 | Repo-root `Makefile` | DGX targets (test-dgx, sim-bridge, sim-bridge-gui, serve-vlm, serve-planner) |
 | `docs/` | Documentation (excluding the Jetson-specific runbooks below if any are added later) |

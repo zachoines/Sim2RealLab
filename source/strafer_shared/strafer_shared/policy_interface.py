@@ -14,7 +14,7 @@ Recurrent hidden-state contract
 
 A recurrent policy's hidden state is owned at three places along the
 train -> export -> inference chain (rsl_rl trainer, the export wrapper
-in ``Scripts/export_policy.py``, the inference-side loader below).
+in ``source/strafer_lab/scripts/export_policy.py``, the inference-side loader below).
 This section pins the seam-level contract so each layer can be edited
 without re-deriving what the other two assume.
 
@@ -76,7 +76,7 @@ without re-deriving what the other two assume.
    hidden state has evolved by construction and the two actions
    differ — that is the recurrent-model definition, not a bug.
    Determinism probes (e.g.
-   ``Scripts/export_policy.py::_verify_torchscript_determinism``)
+   ``source/strafer_lab/scripts/export_policy.py::_verify_torchscript_determinism``)
    must condition on this; "byte-identical between consecutive calls"
    is the wrong assertion for a recurrent artifact and would force
    the scripted module into a stateless mode that defeats its purpose.

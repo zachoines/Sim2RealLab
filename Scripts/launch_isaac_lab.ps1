@@ -9,7 +9,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $workspaceRoot = Split-Path -Parent $scriptDir
 $venvRoot = Join-Path $workspaceRoot "venv_isaac"
 $pythonExe = Join-Path $venvRoot "Scripts\python.exe"
-$scriptPath = Join-Path $scriptDir "run_empty_lab.py"
+$scriptPath = Join-Path $workspaceRoot "source\strafer_lab\scripts\asset_authoring\run_empty_lab.py"
 
 if (-not (Test-Path $pythonExe)) {
     Write-Error "Could not find python interpreter at $pythonExe. Ensure venv_isaac exists."

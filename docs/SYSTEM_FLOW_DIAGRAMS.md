@@ -219,7 +219,7 @@ flowchart TB
     subgraph DGX["DGX Spark — env_isaaclab3"]
         direction TB
 
-        Launcher["isaaclab.sh -p<br/>Scripts/train_strafer_navigation.py"]
+        Launcher["isaaclab.sh -p<br/>source/strafer_lab/scripts/train_strafer_navigation.py"]
         AppLauncher["AppLauncher<br/>Isaac Sim Kit boot"]
 
         TasksInit["strafer_lab.tasks.navigation<br/>__init__.py<br/>gym.register × 30"]
@@ -240,7 +240,7 @@ flowchart TB
         Videos[("logs/rsl_rl/<br/>strafer_navigation/&lt;ts&gt;/videos/train/<br/>*.mp4")]
     end
 
-    Operator -->|bash $ ../IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py<br/>--env Isaac-Strafer-Nav-RLNoCam-v0<br/>--num_envs 512 --max_iterations 3000 --headless| Launcher
+    Operator -->|bash $ ../IsaacLab/isaaclab.sh -p source/strafer_lab/scripts/train_strafer_navigation.py<br/>--env Isaac-Strafer-Nav-RLNoCam-v0<br/>--num_envs 512 --max_iterations 3000 --headless| Launcher
 
     Launcher --> AppLauncher
     AppLauncher --> TasksInit
@@ -258,7 +258,7 @@ flowchart TB
     PPO -.->|--video| VideoRec
     VideoRec -.-> Videos
 
-    click Launcher "../Scripts/train_strafer_navigation.py" "Training wrapper (RSL-RL / aux losses / video)"
+    click Launcher "../source/strafer_lab/scripts/train_strafer_navigation.py" "Training wrapper (RSL-RL / aux losses / video)"
     click TasksInit "../source/strafer_lab/strafer_lab/tasks/navigation" "30 registered gym environments"
     click EnvCfg "../source/strafer_lab/strafer_lab/tasks/navigation" "Env configs per realism × sensor"
     click SimRealCfg "../source/strafer_lab/strafer_lab/tasks/navigation" "Ideal / Realistic / Robust presets"

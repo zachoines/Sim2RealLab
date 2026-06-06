@@ -55,7 +55,7 @@ Sim2RealLab/
 │   ├── strafer_ros/         # all ROS 2 packages: bringup, slam, nav, perception, msgs
 │   ├── strafer_vlm/         # VLM service (DGX-side HTTP)
 │   └── strafer_shared/      # cross-host shared constants + utilities
-├── Scripts/                 # operator-facing entry points (training, play, smoke tests)
+├── Scripts/                 # Windows .ps1 launchers only — Python entry points live in source/<pkg>/scripts/
 ├── docs/                    # design + task briefs + perf doc + cheatsheet
 ├── env_setup.sh             # source me first
 ├── .env / .env.example      # operator-tuned host paths
@@ -80,11 +80,11 @@ Ownership boundaries are spelled out in
 
 | Path | Purpose |
 |------|---------|
-| `Scripts/train_strafer_navigation.py` | RL training (rsl_rl PPO, optional DAPG/GAIL aux losses, optional video) |
-| `Scripts/play_strafer_navigation.py` | Inference rollout from a checkpoint or an exported `.pt` (headed or headless+MP4) |
-| `Scripts/export_policy.py` | Export an rsl_rl checkpoint to a deployable `.pt` / `.onnx` (+ JSON sidecar) consumed by `strafer_shared.policy_interface.load_policy()` |
-| `Scripts/benchmark_policy.py` | Inference-latency stats on an exported artifact, with ONNX execution-provider preference for the Jetson TRT-EP path |
-| `Scripts/test_strafer_env.py` | Env smoke tests (no policy; predefined motion patterns) |
+| `source/strafer_lab/scripts/train_strafer_navigation.py` | RL training (rsl_rl PPO, optional DAPG/GAIL aux losses, optional video) |
+| `source/strafer_lab/scripts/play_strafer_navigation.py` | Inference rollout from a checkpoint or an exported `.pt` (headed or headless+MP4) |
+| `source/strafer_lab/scripts/export_policy.py` | Export an rsl_rl checkpoint to a deployable `.pt` / `.onnx` (+ JSON sidecar) consumed by `strafer_shared.policy_interface.load_policy()` |
+| `source/strafer_lab/scripts/benchmark_policy.py` | Inference-latency stats on an exported artifact, with ONNX execution-provider preference for the Jetson TRT-EP path |
+| `source/strafer_lab/scripts/test_strafer_env.py` | Env smoke tests (no policy; predefined motion patterns) |
 | `source/strafer_lab/scripts/run_sim_in_the_loop.py` | The sim bridge — `--mode bridge` (default) drives env from `/cmd_vel`; `--mode harness` walks scene metadata as missions |
 | `source/strafer_lab/scripts/collect_demos.py` | Gamepad-driven demo collection for DAPG/GAIL aux losses |
 | `source/strafer_lab/scripts/postprocess_scene_usd.py` | Bake colliders + lights into Infinigen-exported USDC |

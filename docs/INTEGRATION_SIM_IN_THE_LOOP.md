@@ -127,7 +127,7 @@ anything here is red, fix it first — do not paper over it later.
 - [ ] `conda activate env_isaaclab3` succeeds.
 - [ ] Isaac Sim boots under `AppLauncher` and a smoke-test env (e.g.
       `make sim-bridge` or
-      `$ISAACLAB -p Scripts/test_strafer_env.py
+      `$ISAACLAB -p source/strafer_lab/scripts/test_strafer_env.py
        --env Isaac-Strafer-Nav-RLDepth-Real-v0
        --num_envs 1 --duration 5 --headless`) reaches the env-step
       loop without errors.

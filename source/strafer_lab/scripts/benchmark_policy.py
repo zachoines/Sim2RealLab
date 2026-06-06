@@ -2,7 +2,7 @@
 """Benchmark inference latency on an exported policy artifact.
 
 Loads a ``.pt`` (TorchScript) or ``.onnx`` (ONNX Runtime) file produced by
-``Scripts/export_policy.py`` and prints median, p95, and p99 inference
+``source/strafer_lab/scripts/export_policy.py`` and prints median, p95, and p99 inference
 latency on a synthetic observation vector. The Jetson side runs this after
 ``rsync``-ing the artifact to verify deployment-time latency budgets; the
 DGX side uses it as a regression check on the export toolchain.
@@ -10,7 +10,7 @@ DGX side uses it as a regression check on the export toolchain.
 The execution-provider preference is configurable so the same script can
 report TensorRT-EP, CUDA-EP, and CPU-EP latencies on the Jetson::
 
-    python Scripts/benchmark_policy.py \\
+    python source/strafer_lab/scripts/benchmark_policy.py \\
         --model models/strafer_depth_v0.onnx \\
         --variant DEPTH \\
         --providers TensorrtExecutionProvider,CUDAExecutionProvider,CPUExecutionProvider \\

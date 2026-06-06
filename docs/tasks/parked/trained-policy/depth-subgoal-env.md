@@ -86,7 +86,7 @@ DEPTH training on `Isaac-Strafer-Nav-RLDepth-Real-v0` takes substantially longer
 
 4. **Registered task IDs** in `navigation/__init__.py`, alongside the existing NoCam-Subgoal variants.
 
-5. **A trained checkpoint** at convergence. Exported via `Scripts/export_policy.py --variant DEPTH_SUBGOAL` (the export path already supports any registered variant via the sidecar JSON contract; no new export-side work needed).
+5. **A trained checkpoint** at convergence. Exported via `source/strafer_lab/scripts/export_policy.py --variant DEPTH_SUBGOAL` (the export path already supports any registered variant via the sidecar JSON contract; no new export-side work needed).
 
 ## Approach
 
@@ -122,7 +122,7 @@ In `strafer_env_cfg.py`: `StraferNavEnvCfg_Real_ProcRoom_Subgoal_Depth` (and `_R
 
 In `navigation/__init__.py`: register `Isaac-Strafer-Nav-RLDepth-Subgoal-Real-v0`, `-Play-v0`, `Robust` variants.
 
-Smoke test: `python Scripts/test_strafer_env.py --task Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0` runs without errors, path + subgoal markers + depth visualization visible in the Kit viewport.
+Smoke test: `python source/strafer_lab/scripts/test_strafer_env.py --task Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0` runs without errors, path + subgoal markers + depth visualization visible in the Kit viewport.
 
 ### Phase 5 — Training run + checkpoint (1–3 weeks wall, depending on architecture choice from design question 1)
 
@@ -157,7 +157,7 @@ If `goal-noise-training` has shipped by this point, run a noise-resilience pass 
 
 - [ ] Converged checkpoint at `logs/rsl_rl/strafer_navigation/depth_subgoal_baseline/model_<step>.pt`. PR description records all five Phase 5 metrics.
 - [ ] Play-script rollout in a scene with a seeded obstacle: the robot reaches the goal *without colliding*, visibly deviating from the path to clear the obstacle. Operator records video / screenshots.
-- [ ] Export through `Scripts/export_policy.py --variant DEPTH_SUBGOAL` produces a working `.onnx` (+ `.engine` if the rig is available) that `load_policy()` consumes.
+- [ ] Export through `source/strafer_lab/scripts/export_policy.py --variant DEPTH_SUBGOAL` produces a working `.onnx` (+ `.engine` if the rig is available) that `load_policy()` consumes.
 
 ### Recurrent contract preservation
 

@@ -159,7 +159,7 @@ cover the CLI flow. Only needed if a UI layer wants streaming status.
 
 **What**: Add rigid-body meshes + catalog masses for 2× RoboClaw motor
 controllers, Jetson Orin Nano, buck converter, and Intel RealSense D555 to
-`Scripts/setup_physics.py`. Each should be positioned in the USD and given
+`source/strafer_lab/scripts/asset_authoring/setup_physics.py`. Each should be positioned in the USD and given
 its datasheet mass.
 
 **Why deferred**: Without these, the simulated chassis inertia
@@ -203,9 +203,9 @@ worth shipping, it lives in `bridge/graph.py`).
 
 ### Jetson TRT-EP latency sweep on exported policy artifacts
 
-**What**: After `Scripts/export_policy.py` produces a `.onnx` artifact
+**What**: After `source/strafer_lab/scripts/export_policy.py` produces a `.onnx` artifact
 and the operator rsyncs it to the Jetson, run
-`python3 Scripts/benchmark_policy.py --model <artifact>.onnx --providers
+`python3 source/strafer_lab/scripts/benchmark_policy.py --model <artifact>.onnx --providers
 TensorrtExecutionProvider,CUDAExecutionProvider,CPUExecutionProvider
 --iters 1000` to record median / p95 / p99 latency per provider.
 Confirm TRT EP is actually selected (not silently falling back to CUDA

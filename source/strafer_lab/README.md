@@ -116,11 +116,11 @@ If the Isaac-side observation layout changes, `strafer_shared.policy_interface` 
 
 | Path | Purpose |
 |---|---|
-| `Scripts/train_strafer_navigation.py` | PPO training wrapper with video capture, DAPG / GAIL auxiliary losses, resume, headless |
-| `Scripts/play_strafer_navigation.py` | Inference rollout from a checkpoint *or* an exported `.pt` (via `--policy`) — headed in the Kit viewport or headless with MP4 capture |
-| `Scripts/test_strafer_env.py` | Motion-pattern smoke test (forward / strafe / rotate / circle / figure8) |
-| `Scripts/export_policy.py` | Convert an rsl_rl checkpoint to a deployable TorchScript `.pt` + (where supported) ONNX `.onnx`. Round-trips the artifact through `strafer_shared.policy_interface.load_policy()` and refuses to write if the deterministic-mean head wasn't frozen. Emits a JSON sidecar with variant, dimensions, source checkpoint, repo SHA, ONNX opset, and `is_recurrent` |
-| `Scripts/benchmark_policy.py` | Median / p95 / p99 inference-latency stats on an exported artifact. Accepts an ONNX execution-provider preference list so the Jetson lane can record TRT-EP latency after rsync |
+| `source/strafer_lab/scripts/train_strafer_navigation.py` | PPO training wrapper with video capture, DAPG / GAIL auxiliary losses, resume, headless |
+| `source/strafer_lab/scripts/play_strafer_navigation.py` | Inference rollout from a checkpoint *or* an exported `.pt` (via `--policy`) — headed in the Kit viewport or headless with MP4 capture |
+| `source/strafer_lab/scripts/test_strafer_env.py` | Motion-pattern smoke test (forward / strafe / rotate / circle / figure8) |
+| `source/strafer_lab/scripts/export_policy.py` | Convert an rsl_rl checkpoint to a deployable TorchScript `.pt` + (where supported) ONNX `.onnx`. Round-trips the artifact through `strafer_shared.policy_interface.load_policy()` and refuses to write if the deterministic-mean head wasn't frozen. Emits a JSON sidecar with variant, dimensions, source checkpoint, repo SHA, ONNX opset, and `is_recurrent` |
+| `source/strafer_lab/scripts/benchmark_policy.py` | Median / p95 / p99 inference-latency stats on an exported artifact. Accepts an ONNX execution-provider preference list so the Jetson lane can record TRT-EP latency after rsync |
 | `scripts/roller_bounce_probe.py` | Headless mecanum-roller contact diagnostic: spins the robot in place at a sweep of wheel speeds and logs chassis-z to quantify the high-yaw bounce. Exposes physics-rate (`--sim-hz`) and PhysX solver knobs (`--solver-type`, ...). Regression harness for the PGS roller fix |
 
 **Synthetic-data pipeline** (mostly plain Python, no Isaac Sim):
@@ -222,25 +222,25 @@ python -c "import strafer_lab; import gymnasium as gym; \
 cd /home/zachoines/Workspace/Sim2RealLab
 
 # NoCam Realistic (19 obs dims, fastest; recommended first run)
-../IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py \
+../IsaacLab/isaaclab.sh -p source/strafer_lab/scripts/train_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLNoCam-v0 --num_envs 512 --headless
 
 # Depth Realistic (4,819 obs dims; cameras auto-enabled)
-../IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py \
+../IsaacLab/isaaclab.sh -p source/strafer_lab/scripts/train_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLDepth-Real-v0 --num_envs 32 --headless
 
 # Full Realistic
-../IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py \
+../IsaacLab/isaaclab.sh -p source/strafer_lab/scripts/train_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLDepth-Real-v0 --num_envs 32 --headless
 
 # With video capture (overhead MP4 every 500 env steps)
-../IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py \
+../IsaacLab/isaaclab.sh -p source/strafer_lab/scripts/train_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
     --num_envs 64 --max_iterations 3000 \
     --video --video_length 200 --video_interval 500 --headless
 
 # Resume from checkpoint
-../IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py \
+../IsaacLab/isaaclab.sh -p source/strafer_lab/scripts/train_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLNoCam-v0 \
     --resume logs/rsl_rl/strafer_navigation/run_XXXXX/model_500.pt
 ```
@@ -383,7 +383,7 @@ python -m pytest source/strafer_autonomy/tests/test_scene_labels.py \
 
 Tracked in [`docs/DEFERRED_WORK.md`](../../docs/DEFERRED_WORK.md). Items currently open:
 
-- **Electronics masses in the USD** — RoboClaws, Jetson, buck converter, D555 camera meshes + masses are TODO in `Scripts/setup_physics.py`. Without them, the simulated chassis inertia underestimates the real robot.
+- **Electronics masses in the USD** — RoboClaws, Jetson, buck converter, D555 camera meshes + masses are TODO in `source/strafer_lab/scripts/asset_authoring/setup_physics.py`. Without them, the simulated chassis inertia underestimates the real robot.
 - **`strafer_inference` Jetson package** — the deployment target for trained policies does not exist yet; see [`strafer_ros`](../strafer_ros/README.md) for the interface side.
 - **Goal position noise during final pre-deployment training** — for VLM-sourced goals, retrain with `goal_position_noise_std: 0.2-0.3 m` in `commands.py` to match Qwen2.5-VL-3B localization error; without this, the policy oscillates at deployment.
 

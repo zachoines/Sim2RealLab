@@ -102,7 +102,7 @@ Grep confirms no other call site instantiates `SemanticMapManager`,
 `BackgroundMapper`, or `TransitMonitor` outside tests:
 
 ```
-$ grep -rn "SemanticMapManager(\|BackgroundMapper(\|TransitMonitor(" source/ Scripts/ \
+$ grep -rn "SemanticMapManager(\|BackgroundMapper(\|TransitMonitor(" source/ \
     | grep -v /tests/
 # (no matches)
 ```

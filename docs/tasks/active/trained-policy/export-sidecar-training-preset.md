@@ -37,7 +37,7 @@ Read these before starting:
 
 ### Symptom
 
-`Scripts/export_policy.py --variant DEPTH ...` writes a sidecar with:
+`source/strafer_lab/scripts/export_policy.py --variant DEPTH ...` writes a sidecar with:
 
 ```json
 {
@@ -53,7 +53,7 @@ so the field carries no per-variant information.
 
 ### Root cause
 
-[`Scripts/export_policy.py`](../../../../Scripts/export_policy.py)
+[`source/strafer_lab/scripts/export_policy.py`](../../../../source/strafer_lab/scripts/export_policy.py)
 `main()` computes:
 
 ```python
@@ -83,7 +83,7 @@ the test pretended to.
 
 ## Approach
 
-In [`Scripts/export_policy.py`](../../../../Scripts/export_policy.py)
+In [`source/strafer_lab/scripts/export_policy.py`](../../../../source/strafer_lab/scripts/export_policy.py)
 `main()`, replace:
 
 ```python
@@ -100,7 +100,7 @@ entry shaped like the production strings.
 
 ## Acceptance criteria
 
-- [ ] A fresh `Scripts/export_policy.py --variant NOCAM` writes
+- [ ] A fresh `source/strafer_lab/scripts/export_policy.py --variant NOCAM` writes
       `"training_preset": "STRAFER_PPO_RUNNER_CFG"` in the sidecar.
 - [ ] `--variant DEPTH` writes
       `"training_preset": "STRAFER_PPO_DEPTH_RUNNER_CFG"`.
@@ -117,7 +117,7 @@ entry shaped like the production strings.
 
 ## Investigation pointers
 
-- [`Scripts/export_policy.py`](../../../../Scripts/export_policy.py)
+- [`source/strafer_lab/scripts/export_policy.py`](../../../../source/strafer_lab/scripts/export_policy.py)
   `main()` — the call site that builds `training_preset`.
 - [`source/strafer_lab/tests/test_export_policy.py`](../../../../source/strafer_lab/tests/test_export_policy.py)
   `test_metadata_sidecar_records_documented_fields` — the existing

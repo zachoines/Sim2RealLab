@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Single-image smoke test for Qwen2.5-VL grounding on Windows.
+"""Single-image smoke test for Qwen2.5-VL grounding.
 
 Example:
-    python -m strafer_vlm.test_qwen25vl_grounding ^
-      --image data/vlm/images/frame_0001.jpg ^
-      --prompt "the chair next to the couch" ^
+    python source/strafer_vlm/scripts/test_qwen25vl_grounding.py \
+      --image data/vlm/images/frame_0001.jpg \
+      --prompt "the chair next to the couch" \
       --output-image outputs/qwen_smoke_bbox.jpg
 """
 

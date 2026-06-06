@@ -6,7 +6,7 @@ The Strafer DEPTH policy is recurrent (rsl_rl PPO actor with `rnn_type="gru"`,
 Hidden state is owned at three places along the train → export → inference
 chain (rsl_rl trainer; the export wrappers in
 [`depth_rnn_model.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py)
-and [`Scripts/export_policy.py`](../../../Scripts/export_policy.py); the
+and [`source/strafer_lab/scripts/export_policy.py`](../../../source/strafer_lab/scripts/export_policy.py); the
 inference-side loader in
 [`strafer_shared.policy_interface`](../../../source/strafer_shared/strafer_shared/policy_interface.py)).
 This module pins the seam-level contract so each layer can be edited
@@ -87,7 +87,7 @@ actions **iff** `reset()` is called between them.
 Without an intervening `reset()`, the hidden state has evolved by
 construction and the two actions differ — that's the recurrent-model
 definition, not a bug. Determinism probes
-([`Scripts/export_policy.py`](../../../Scripts/export_policy.py)'s
+([`source/strafer_lab/scripts/export_policy.py`](../../../source/strafer_lab/scripts/export_policy.py)'s
 `_verify_torchscript_determinism` is the canonical example) must
 condition on this. "Byte-identical between consecutive calls" is the
 wrong assertion for a recurrent artifact and would force the scripted
@@ -130,7 +130,7 @@ The integration test that pins this is
 ## What this module is NOT
 
 - **Not the implementation.** The producer side is
-  [`Scripts/export_policy.py`](../../../Scripts/export_policy.py) +
+  [`source/strafer_lab/scripts/export_policy.py`](../../../source/strafer_lab/scripts/export_policy.py) +
   [`depth_rnn_model.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/agents/depth_rnn_model.py)
   (TorchScript) and the same export script + ONNX wrappers
   (`_OnnxDepthGRUModel`). The consumer side is

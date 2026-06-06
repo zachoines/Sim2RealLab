@@ -1135,9 +1135,16 @@ def _apply_default_nav_runtime(cfg: ManagerBasedRLEnvCfg) -> None:
     cfg.sim.render_interval = _DEFAULT_NAV_RENDER_INTERVAL
     cfg.decimation = _DEFAULT_NAV_DECIMATION
     cfg.episode_length_s = _DEFAULT_NAV_EPISODE_LENGTH_S
-    # Contact stabilization for the passive mecanum rollers (ProcRoom
+    # PGS solver (solver_type=0) instead of the TGS default. TGS injects
+    # spurious velocity into the near-massless, free-spinning mecanum rollers
+    # (over-spinning them several-fold), which pumps a growing chassis bounce
+    # at sustained high yaw rate. PGS keeps roller velocities physical and
+    # removes the bounce at the native rate, with no substep-count penalty.
+    # solver_type is not part of the hashed policy contract. Do not revert to
+    # TGS without re-checking the high-yaw roller bounce.
+    # Contact stabilization for the passive rollers stays on (ProcRoom
     # overrides cfg.sim.physics with its own PhysxCfg afterward).
-    cfg.sim.physics = PhysxCfg(enable_stabilization=True)
+    cfg.sim.physics = PhysxCfg(enable_stabilization=True, solver_type=0)
 
 
 def _apply_play_num_envs(cfg: ManagerBasedRLEnvCfg, *, num_envs: int) -> None:
@@ -1470,6 +1477,11 @@ def _apply_procroom_physx_buffers(cfg) -> None:
         gpu_max_num_partitions=1,                         # single solver partition
         enable_stabilization=True,
         bounce_threshold_velocity=2.0,
+        # PGS solver — see _apply_default_nav_runtime. Keeps the passive
+        # rollers from over-spinning (TGS velocity noise) and bouncing the
+        # chassis at high yaw rate. This override replaces the default-nav
+        # PhysxCfg, so it must carry solver_type=0 too.
+        solver_type=0,
     )
 
 

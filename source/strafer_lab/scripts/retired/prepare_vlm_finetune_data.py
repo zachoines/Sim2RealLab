@@ -1,6 +1,6 @@
 """Prepare the comprehensive VLM LoRA fine-tuning JSONL dataset.
 
-Unlike the minimal exporter in :mod:`strafer_lab.tools.dataset_export`
+Unlike the minimal exporter in :mod:`strafer_lab.tools.retired.dataset_export`
 this script is the production-quality data preparation stage. It emits
 four categories of examples that a Qwen2.5-VL LoRA fine-tune consumes:
 
@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
-from strafer_lab.tools.dataset_export import (
+from strafer_lab.tools.retired.dataset_export import (
     format_qwen_grounding_answer,
     iter_description_records,
     iter_perception_frames,

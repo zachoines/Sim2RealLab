@@ -49,7 +49,7 @@ Ship a corpus that meets all of:
 - [ ] Each scene has a complete `scene_metadata.json` next to its `.usdc`, ideally from the Blender path so `rooms[]` is populated. If only the `.usdc` survives, fall back to `--from-usd` and document the `rooms=0` limitation in the per-scene README — downstream consumers (`room-state-eval-harness`, `cotrained-retrieval-augmented`) must surface a clean error against rooms=0 rather than silently mislabeling.
 - [ ] `scenes_metadata.json` (combined) refreshed via `generate_scenes_metadata.py` so spawn points + floor top Z are present for every new scene.
 - [ ] Verification per scene: `python -c "import json; d=json.load(open('Assets/generated/scenes/<name>/scene_metadata.json')); assert len(d['objects']) > 50, len(d['objects'])"` passes.
-- [ ] A capture smoke against each new scene: `Scripts/capture.py --driver teleop --mission-source scene-metadata --scene <name> --output /tmp/smoke_<name> --max-episodes 1` runs end-to-end (1 episode is enough; we're verifying the scene + picker work).
+- [ ] A capture smoke against each new scene: `source/strafer_lab/scripts/capture.py --driver teleop --mission-source scene-metadata --scene <name> --output /tmp/smoke_<name> --max-episodes 1` runs end-to-end (1 episode is enough; we're verifying the scene + picker work).
 - [ ] `docs/example_commands_cheatsheet.md` "Extract scene_metadata.json" subsection refreshed to point at the new scene names + drop the "Known limitation: rooms=0" warning if the corpus is rooms-populated.
 
 ## Out of scope

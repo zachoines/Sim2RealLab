@@ -461,7 +461,7 @@ results justify it. This brief stops at sim eval.
       recipe; emits checkpoint + ONNX exports for visual + text
       towers; MLflow tracking via the same `--mlflow-experiment`
       flag pattern that
-      [`finetune_clip.py`](../../../../source/strafer_lab/scripts/finetune_clip.py)
+      [`finetune_clip.py`](../../../../source/strafer_lab/scripts/retired/finetune_clip.py)
       uses.
 - [ ] **LoRA vs. full fine-tune decision documented** in the
       training-config sidecar (the same JSON pattern existing
@@ -578,7 +578,7 @@ results justify it. This brief stops at sim eval.
 ## Investigation pointers
 
 - The OpenCLIP fine-tune scaffold:
-  [`finetune_clip.py`](../../../../source/strafer_lab/scripts/finetune_clip.py)
+  [`finetune_clip.py`](../../../../source/strafer_lab/scripts/retired/finetune_clip.py)
   (retired by [`harness-architecture`](../../active/harness/harness-architecture.md);
   the multi-task recipe lives here from scratch on LeRobot v3
   loading).

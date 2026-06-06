@@ -285,7 +285,7 @@ their union.
       connectivity graph filters unreachable pairs. For
       single-room scenes, all missions are same-room.
 - [ ] **Paraphrase pass** reuses the 7B Qwen2.5-VL pipeline from
-      [`generate_descriptions.py`](../../../../source/strafer_lab/scripts/generate_descriptions.py)
+      [`generate_descriptions.py`](../../../../source/strafer_lab/scripts/retired/generate_descriptions.py)
       Stage 2.
 - [ ] **Start-frame grounding pass.** Each generated mission is
       run through the start-frame VLM check described above;
@@ -343,7 +343,7 @@ their union.
 - Navigable-mask post-validation: reuse the connectivity-validation
   brief's A* helper; same code path.
 - Existing paraphrase pipeline:
-  [`generate_descriptions.py`](../../../../source/strafer_lab/scripts/generate_descriptions.py)
+  [`generate_descriptions.py`](../../../../source/strafer_lab/scripts/retired/generate_descriptions.py)
   Stage 2 prompt template — adapt for paraphrase generation
   (different prompt, same model loading).
 

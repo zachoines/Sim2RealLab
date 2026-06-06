@@ -266,7 +266,7 @@ WebSocket** → `ws://localhost:8765`. First-time setup: **Layout** →
 make kill           # Jetson — clear stale ros2 / nav2 / executor / foxglove_bridge
 ```
 
-# Harness data capture (`Scripts/capture.py`)
+# Harness data capture (`source/strafer_lab/scripts/capture.py`)
 
 Moved to its own guide — see
 [`docs/HARNESS_DATA_CAPTURE.md`](HARNESS_DATA_CAPTURE.md). The guide

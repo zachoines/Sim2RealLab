@@ -20,7 +20,7 @@ The four-PR audit that motivated this consolidation lives in conversation histor
 
 ## Story
 
-As a **DGX operator who needs the harness to produce one canonical training corpus consumable by every downstream consumer** (CLIP fine-tuning, VLM SFT, behavior cloning for VLAs, retrieval-augmented validators, room-state eval, future GR00T / π0 / OpenVLA fine-tunes), I want **one entry point (`Scripts/capture.py`), one on-disk schema (LeRobot v3), and a clear cross-product of action sources × mission sources**, so that **the project's data-collection surface is reasonable for a single operator to operate, the format survives the 2026 wheeled-VLA training ecosystem, and the harness is not a code-archaeology exercise the next time we need to reason about it**.
+As a **DGX operator who needs the harness to produce one canonical training corpus consumable by every downstream consumer** (CLIP fine-tuning, VLM SFT, behavior cloning for VLAs, retrieval-augmented validators, room-state eval, future GR00T / π0 / OpenVLA fine-tunes), I want **one entry point (`source/strafer_lab/scripts/capture.py`), one on-disk schema (LeRobot v3), and a clear cross-product of action sources × mission sources**, so that **the project's data-collection surface is reasonable for a single operator to operate, the format survives the 2026 wheeled-VLA training ecosystem, and the harness is not a code-archaeology exercise the next time we need to reason about it**.
 
 ## Context bundle
 
@@ -49,7 +49,7 @@ This brief's contribution: lock the format (LeRobot v3), specify one CLI entry p
 ## Architecture overview
 
 ```
-Scripts/capture.py
+source/strafer_lab/scripts/capture.py
   --driver        {bridge, teleop, scripted}      ← who provides the action
   --mission-source {queue, captioner, coverage,    ← where missions/labels come from
                     scene-metadata}
@@ -423,7 +423,7 @@ Teleop has no `--inject-bad-grounding`; teleop hard negatives come from the `X` 
 
 ### Mission-text paraphrasing (`--paraphrase-missions N`)
 
-Optional post-capture pass that runs the 7B Qwen2.5-VL on each episode's `(target_label, scene_name)` and writes N paraphrases into the per-episode `paraphrases` column. Default `N=0` (off). Reuses the model-loading scaffold from [`generate_descriptions.py`](../../../../source/strafer_lab/scripts/generate_descriptions.py) Stage 2 (or its successor — see [Retired downstream scripts](#retired-downstream-scripts)).
+Optional post-capture pass that runs the 7B Qwen2.5-VL on each episode's `(target_label, scene_name)` and writes N paraphrases into the per-episode `paraphrases` column. Default `N=0` (off). Reuses the model-loading scaffold from [`generate_descriptions.py`](../../../../source/strafer_lab/scripts/retired/generate_descriptions.py) Stage 2 (or its successor — see [Retired downstream scripts](#retired-downstream-scripts)).
 
 ### Throughput
 
@@ -457,10 +457,10 @@ Filed-on-trigger at [`cosmos-replay-perturbation`](../../parked/harness/cosmos-r
 
 The following scripts have never been run against production data (verified 2026-05-24: `~/.strafer/models/` does not exist on the DGX, the CLIP fine-tune has never been performed, no `data/sim_in_the_loop/` corpus has been produced). They will be **retired** in the implementation PRs:
 
-- [`scripts/generate_descriptions.py`](../../../../source/strafer_lab/scripts/generate_descriptions.py) — VLM SFT scene-description pipeline. Function moves into the captioner mission source (Qwen2.5-VL is the same model, the per-frame description prompt is recoverable from this script's Stage 2).
-- [`scripts/prepare_vlm_finetune_data.py`](../../../../source/strafer_lab/scripts/prepare_vlm_finetune_data.py) — VLM SFT prep. Replaced by direct LeRobot v3 loading.
-- [`scripts/finetune_clip.py`](../../../../source/strafer_lab/scripts/finetune_clip.py) — OpenCLIP fine-tune. Replaced by the multi-task recipe in [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md) Step A.
-- [`source/strafer_lab/strafer_lab/tools/dataset_export.py`](../../../../source/strafer_lab/strafer_lab/tools/dataset_export.py) — CLIP CSV exporter. Replaced by direct LeRobot v3 loading.
+- [`scripts/retired/generate_descriptions.py`](../../../../source/strafer_lab/scripts/retired/generate_descriptions.py) — VLM SFT scene-description pipeline. Function moves into the captioner mission source (Qwen2.5-VL is the same model, the per-frame description prompt is recoverable from this script's Stage 2).
+- [`scripts/retired/prepare_vlm_finetune_data.py`](../../../../source/strafer_lab/scripts/retired/prepare_vlm_finetune_data.py) — VLM SFT prep. Replaced by direct LeRobot v3 loading.
+- [`scripts/retired/finetune_clip.py`](../../../../source/strafer_lab/scripts/retired/finetune_clip.py) — OpenCLIP fine-tune. Replaced by the multi-task recipe in [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md) Step A.
+- [`source/strafer_lab/strafer_lab/tools/retired/dataset_export.py`](../../../../source/strafer_lab/strafer_lab/tools/retired/dataset_export.py) — CLIP CSV exporter. Replaced by direct LeRobot v3 loading.
 
 The retirement happens in the implementation PRs that supersede each script's function, not in this docs-only PR.
 
@@ -481,7 +481,7 @@ Each tier ships as a separate PR with its own branch. This brief stays open (in 
 
 Branch: `task/harness-writer-teleop`. Estimate: M.
 
-- Implement `Scripts/capture.py --driver teleop --mission-source scene-metadata`.
+- Implement `source/strafer_lab/scripts/capture.py --driver teleop --mission-source scene-metadata`.
 - Wire the LeRobot v3 writer using the documented API: `LeRobotDataset.create()` at startup → `add_frame()` per tick within an episode → `save_episode()` at episode boundaries → **`finalize()` at process exit** to consolidate shard parquet and write the per-shard concatenated layout. Forgetting `finalize()` corrupts the dataset (per LeRobot v3 docs); the writer must guarantee `finalize()` runs even on exceptional exit (atexit handler or context manager).
 - Implement `StraferDepthSequenceFeature` custom feature class for 16UC1 PNG depth (writer + loader symmetric); register against the LeRobot v3 dataset at `create()` time.
 - Subsume `collect_perception_data.py` (refactor or rewrite, no parallel scripts).
@@ -527,7 +527,7 @@ This brief is the architectural spec; it does not ship code. It is "complete" (m
 - [ ] Tier 3 shipped (PR D)
 - [ ] Retired downstream scripts (`generate_descriptions.py` etc.) deleted by the PR that supersedes each script's function (not necessarily in this brief's PRs).
 - [ ] Cross-references in all consumer briefs ([`vla-v2-architecture`](../../parked/experimental/vla-v2-architecture.md), [`vla-v2-map-conditioning`](../../parked/experimental/vla-v2-map-conditioning.md), [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md), [`implicit-memory-map`](../../parked/clip-validation/implicit-memory-map.md), [`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md), [`room-state-eval-harness`](../multi-room/room-state-eval-harness.md)) updated to point at this brief and the LeRobot v3 schema. This is checked in the docs-only PR (PR A) and re-verified at each tier's ship.
-- [ ] [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](../../../INTEGRATION_SIM_IN_THE_LOOP.md) updated to describe the unified `Scripts/capture.py` entry point + LeRobot v3 output tree.
+- [ ] [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](../../../INTEGRATION_SIM_IN_THE_LOOP.md) updated to describe the unified `source/strafer_lab/scripts/capture.py` entry point + LeRobot v3 output tree.
 - [ ] [`source/strafer_lab/README.md`](../../../../source/strafer_lab/README.md) "Scripts and tools inventory" reflects the new entry point + retired scripts.
 
 ## Investigation pointers

@@ -688,14 +688,14 @@ Sim runs in-process with the gamepad reading actions directly.
 **Invoke**
 
 ```bash
-isaaclab -p Scripts/capture.py \
+isaaclab -p source/strafer_lab/scripts/capture.py \
     --driver teleop --mission-source scene-metadata \
     --scene scene_high_quality_dgx_000_seed1 \
     --output data/sim_in_the_loop/scene_high_quality_dgx_000_seed1 \
     --fps 8
 ```
 
-`Scripts/capture.py` validates the `(driver, mission-source)` cell and
+`source/strafer_lab/scripts/capture.py` validates the `(driver, mission-source)` cell and
 subprocesses `source/strafer_lab/scripts/teleop_capture.py`, which
 boots its own AppLauncher (headed, `enable_cameras=True`), loads the
 `Isaac-Strafer-Nav-Capture-Teleop-v0` task, and starts
@@ -869,14 +869,14 @@ populated; `frame_*.jpg` files at 640×360.
 # DGX — single-object grounding + 1:3 negatives + ~20% multi-object +
 # ~10% description preservation. Output is the JSONL the VLM LoRA SFT
 # job consumes.
-$ISAACLAB -p source/strafer_lab/scripts/prepare_vlm_finetune_data.py \
+$ISAACLAB -p source/strafer_lab/scripts/retired/prepare_vlm_finetune_data.py \
     --frames data/sim_in_the_loop/<scene_name>/ \
     --scene-metadata Assets/generated/scenes/<scene_name>/scene_metadata.json \
     --output data/vlm_sft/<scene_name>/
 
 # DGX — CLIP contrastive fine-tune, exports clip_visual.onnx +
 # clip_text.onnx for the Jetson semantic map.
-$ISAACLAB -p source/strafer_lab/scripts/finetune_clip.py \
+$ISAACLAB -p source/strafer_lab/scripts/retired/finetune_clip.py \
     --csv data/vlm_sft/<scene_name>/clip_pairs.csv \
     --output models/clip_<scene_name>/
 ```

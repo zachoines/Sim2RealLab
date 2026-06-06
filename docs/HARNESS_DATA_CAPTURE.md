@@ -1,6 +1,6 @@
 # Harness data capture
 
-End-to-end setup + run guide for `Scripts/capture.py` — the unified
+End-to-end setup + run guide for `source/strafer_lab/scripts/capture.py` — the unified
 harness data-capture entry point per
 [`harness-architecture.md`](tasks/active/harness/harness-architecture.md).
 One CLI, two flags (`--driver` × `--mission-source`), one LeRobot v3
@@ -194,7 +194,7 @@ RUN_ID=$(date +%Y%m%dT%H%M%S)
 OUT=data/sim_in_the_loop/${SCENE}_validation_${RUN_ID}
 
 # World-arcade twin-stick (default), overhead structure hidden, target marker on
-$ISAACLAB -p Scripts/capture.py \
+$ISAACLAB -p source/strafer_lab/scripts/capture.py \
     --driver teleop --mission-source scene-metadata \
     --scene  ${SCENE} \
     --output ${OUT} \
@@ -206,7 +206,7 @@ $ISAACLAB -p Scripts/capture.py \
 ### Egocentric mode (first-person classic controls)
 
 ```bash
-$ISAACLAB -p Scripts/capture.py \
+$ISAACLAB -p source/strafer_lab/scripts/capture.py \
     --driver teleop --mission-source scene-metadata \
     --scene  ${SCENE} \
     --output ${OUT} \

@@ -61,7 +61,7 @@ are retired — the old→new table is in
    [`lerobot_writer.build_features`](../../../source/strafer_lab/strafer_lab/tools/lerobot_writer.py)
    — absent modalities produce **no columns** (never zero-filled), and
    `add_frame` validates each frame against the declared stack.
-   [`capture.py --sensors`](../../../Scripts/capture.py) (preset or token list)
+   [`capture.py --sensors`](../../../source/strafer_lab/scripts/capture.py) (preset or token list)
    resolves to that tuple and applies it to `env_cfg.sensors` before
    `gym.make`, so the env renders exactly what the writer records.
 

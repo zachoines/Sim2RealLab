@@ -112,6 +112,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`mecanum-action-throughput`](active/sim-performance/mecanum-action-throughput.md) | P2 | active | DGX |
 | [`bridge-publish-rate-decouple`](active/sim-performance/bridge-publish-rate-decouple.md) | P2 | active | DGX |
 | [`gpu-solver-partitions-default`](active/sim-performance/gpu-solver-partitions-default.md) | P3 | active | DGX |
+| [`bridge-scene-memory-budget-gb10`](active/sim-performance/bridge-scene-memory-budget-gb10.md) | P2 | active | DGX |
 
 ### Reliability (nav + executor + refactors)
 
@@ -189,6 +190,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | Brief | Estimate | Note |
 |---|---|---|
 | [`isaac-sim-rt-2-default-renderer`](active/sim-performance/isaac-sim-rt-2-default-renderer.md) | S | Flip default renderer to Real-Time 2.0 + 4× FPS multiplier + Performance mode; re-measure bridge perf |
+| [`bridge-scene-memory-budget-gb10`](active/sim-performance/bridge-scene-memory-budget-gb10.md) | M | Bridge/harness OOM on the GB10: `StraferNavCfg_BridgeAutonomy` loads the `sorted()`-first scene — currently a 29 GB `high_quality_dgx` room (1024-px tex / 5 rooms) — into the unified 121 GB pool → NVRM OOM-kill during render init. Add a deterministic scene-selection knob + a GB10 texture/room budget (or downscale-on-ingest); confirm the torch sm_121 build. `fast_singleroom` light-scene workaround exists. |
 | [`planner-rotate-direction-prompt`](active/reliability/planner-rotate-direction-prompt.md) | S | Quick win — prompt edit |
 | [`goal-noise-training`](active/trained-policy/goal-noise-training.md) | M | Targeted DEPTH-baseline training pass with goal-position noise; gates VLM-grounded mission quality for `strafer_direct` |
 | [`policy-rate-shared-constants`](active/trained-policy/policy-rate-shared-constants.md) | S (~1 hr) | Delegate `_DEFAULT_NAV_SIM_DT` / `_DEFAULT_NAV_DECIMATION` in `strafer_env_cfg.py` to the new `strafer_shared.constants.POLICY_SIM_DT` / `POLICY_DECIMATION`. Jetson side already consumes the shared constants; this closes the duplication so a future training-rate experiment can't silently desync sim from real |

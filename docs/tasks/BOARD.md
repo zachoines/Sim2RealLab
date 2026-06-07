@@ -140,6 +140,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`nav2-sim-real-promotion-architecture`](active/tooling/nav2-sim-real-promotion-architecture.md) | P2 | active | Jetson |
 | [`unify-test-targets-and-ci`](active/tooling/unify-test-targets-and-ci.md) | P3 | active | Either |
 | [`strafer-lab-test-tree-unification`](active/tooling/strafer-lab-test-tree-unification.md) | P3 | active | DGX |
+| [`script-tool-subsystem-grouping`](active/tooling/script-tool-subsystem-grouping.md) | P3 | active | DGX |
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | P2 | active | DGX |
 | [`install-docs-consolidation`](parked/tooling/install-docs-consolidation.md) | P2 | parked (blocked on `windows-workstation-bringup`) | Coordinator (DGX) + per-host agents |
 
@@ -229,6 +230,7 @@ session. Parked briefs are not listed here — see **By epic** or
 |---|---|---|---|
 | [`unify-test-targets-and-ci`](active/tooling/unify-test-targets-and-ci.md) | Either | M | Makefile unification + stretch CI workflow. Doesn't block features; bumps to P2 once a second drift incident shows up. |
 | [`strafer-lab-test-tree-unification`](active/tooling/strafer-lab-test-tree-unification.md) | S–M | Reorganize the strafer_lab test layout: rename the singular `test/` (Isaac-Sim tree) so it no longer reads as a typo of `tests/`, and fold the `tests/` root (policy export/load + action/obs/recurrent sim-real contracts) into intent-named subdirs. Five root files currently run by no `make` target. Layout seam to `unify-test-targets-and-ci`'s invocation seam. |
+| [`script-tool-subsystem-grouping`](active/tooling/script-tool-subsystem-grouping.md) | DGX | M | Sub-group `scripts/` + `tools/` by sub-system (policy/ infinigen/ diagnostics/ harness/; lerobot/ teleop/ scene/ perception/). Amends the flat-`scripts/` placement rule shipped by `script-tooling-layout-consolidation`. Part A (`scripts/`) is cheap; `scripts/harness/` is sequenced behind `harness-architecture`; Part B (`tools/`) lands last (wide importer + autonomy-test blast radius). |
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | DGX | S | Sidecar `training_preset` records the configclass name instead of the rsl_rl preset variable; cosmetic but the field is operator-facing. Filed off [`export-onnx-depth`](completed/export-onnx-depth.md). |
 | [`defm-preprocess-antialias-audit`](active/investigations/defm-preprocess-antialias-audit.md) | DGX | S–M | Measure projection-space delta between training-time DeFM antialiased preprocessing and the deployment ONNX-safe non-antialiased version, then decide alignment (leave / align deploy / align training). Filed off [`export-onnx-depth`](completed/export-onnx-depth.md). |
 | [`semantic-graph-loop-closure`](active/multi-room/semantic-graph-loop-closure.md) | DGX | M | v2 room-state — detect duplicate-place nodes via CLIP-similarity + spatial proximity, annotate as `same_place` edges. Quiet long-horizon quality lift; required infrastructure for the parked `semantic-map-lifecycle-merge`. |

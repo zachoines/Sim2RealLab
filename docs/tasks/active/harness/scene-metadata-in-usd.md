@@ -3,7 +3,7 @@
 **Type:** refactor (scene-metadata authoring + consumers)
 **Owner:** DGX (harness epic)
 **Priority:** P2 — quality-of-life + correctness improvement; not gating any current acceptance bar.
-**Estimate:** M (touches authoring + ~3 consumer paths; bounded test surface).
+**Estimate:** M–L (clean-break cutover: authoring + ~6 live consumers + a cross-lane test surface + the contract doc; bounded, but wider than a 3-consumer swap).
 **Branch:** `task/scene-metadata-in-usd`
 **Blocked on:** _Resolved_ — [`scene-provider-contract`](../../completed/scene-provider-contract.md) shipped (PR #66). That brief documents the storage-agnostic artifact interface — [`SCENE_PROVIDER_CONTRACT.md`](../../../SCENE_PROVIDER_CONTRACT.md) — that this brief implements with a USD `customData` backend.
 
@@ -43,75 +43,86 @@ portable, invariant (the bytes ship together), no path resolution.
 
 ## Acceptance
 
-Ship a refactor that meets all of:
+Ship a **clean-break cutover** — no dual-write, no deprecation window, no
+sidecar fallback, per the project's clean-break convention (cf.
+[`env-cfg-composition`](../../completed/env-cfg-composition.md): "no
+deprecation window and no shim"). Meets all of:
 
-- [ ] `extract_scene_metadata.py` is modified to write the metadata
-  payload to the scene USD's root-prim `customData` (key:
-  `strafer_scene_metadata`) IN ADDITION to the existing sidecar (the
-  sidecar is kept during the transition window for backwards
-  compatibility — see migration plan below).
-- [ ] **Generation authors metadata at USD-creation time.** `prep_room_usds.py`
-  (or the export path) runs/embeds the extractor so a single `generate`
-  yields a capture-ready scene — no separate manual `extract_scene_metadata`
-  step (closes the ergonomics gap in Motivation). Minimum bar if full
-  in-process authoring is too invasive: `generate` chains the post-hoc
-  extractor.
-- [ ] A new helper `strafer_lab.tools.scene_metadata_reader.load(scene_usd_path)`
-  prefers the embedded `customData` and falls back to the sibling
-  sidecar with a deprecation log line.
-- [ ] All in-tree consumers route through that helper:
+- [ ] **Authoring writes `customData` only.** `extract_scene_metadata.py`
+  writes the metadata payload to the scene USD's root-prim `customData`
+  (key `strafer_scene_metadata`, including `"strafer_scene_metadata_version": 1`)
+  and **no longer writes the `scene_metadata.json` sidecar**.
+- [ ] **Authored at USD-creation time.** `prep_room_usds.py generate`
+  runs/embeds the extractor (wire the in-process `extract_from_state` hook,
+  or chain the post-hoc extractor at export) so a single `generate` yields a
+  capture-ready scene — closes the ergonomics gap in Motivation.
+- [ ] **One reader, hard-fail.** New helper
+  `strafer_lab.tools.scene_metadata_reader.load(scene_usd_path)` reads the
+  embedded `customData` via `pxr` and **raises if it is absent** (no sidecar
+  fallback). It is the single `pxr` touch-point for scene metadata.
+- [ ] **Every live consumer cut over to the reader** — this is an *audit*, not
+  just the list below:
   - `strafer_lab.tools.teleop_mission_picker.load_candidates`
   - `strafer_lab.sim_in_the_loop.MissionGenerator` (bridge harness)
-  - `strafer_lab/scripts/generate_scenes_metadata.py` (when aggregating
-    per-scene metadata into the combined file)
-- [ ] `scene_paths.py` shrinks: `find_metadata_for_usd` is no longer
-  needed because the reader takes the USD path directly. The
-  resolver keeps `resolve_scene_metadata_path` only for the
-  explicit-sidecar-override case.
-- [ ] Tests:
-  - Round-trip test: write metadata into a USD's `customData`, re-open
-    via the reader, confirm the dict round-trips.
-  - Fallback test: USD with no `customData` + sibling sidecar → reader
-    falls back, logs deprecation once per process.
-  - Schema parity test: for every existing scene under
-    `Assets/generated/scenes/`, the embedded payload matches the
-    sidecar bit-for-bit after re-running the extractor.
-- [ ] Documentation:
-  - [`docs/HARNESS_DATA_CAPTURE.md`](../../../HARNESS_DATA_CAPTURE.md)
-    "Extract scene_metadata.json" section is updated to describe the
-    embedded form and note the sidecar is deprecated.
-  - A short note in the [`harness-architecture`](harness-architecture.md)
-    brief mentioning that "scene metadata" now refers to USD
-    customData rather than a sidecar file.
+  - **`strafer_lab.tools.scene_labels.get_scene_metadata`** — the typed-accessor
+    layer; **imported by `strafer_autonomy/tests/` (cross-lane)** — coordinate.
+  - `strafer_lab/scripts/generate_scenes_metadata.py` (reads each scene's
+    `customData` when aggregating the combined `scenes_metadata.json` manifest)
+  - `strafer_lab.tools.lerobot_writer` — `scene_metadata_hash` switches from
+    sha256 of the **sidecar file bytes** to sha256 of the canonical embedded
+    dict (`json.dumps(..., sort_keys=True)`).
+  - `--scene-metadata` CLI on `teleop_capture.py` / `run_sim_in_the_loop.py`
+    — derive from the USD path; drop the sidecar-path default.
+  - the retired `scripts/retired/*` readers are **not** updated (deprecated).
+- [ ] **`scene_paths.py` shrinks to USD-path derivation only.** The sidecar
+  resolver (`resolve_scene_metadata_path` / `find_metadata_for_usd`) is
+  deleted — the reader takes the USD path directly; nothing crawls for a
+  sibling JSON.
+- [ ] **Test strategy (keeps the fast venvs `pxr`-free):**
+  - Pure-data seams for the fast suites — `teleop_mission_picker` already has
+    `load_candidates_from_data`; add the equivalent for `scene_labels`. The
+    `.venv_harness` (`make test-harness`) and `.venv_vlm` (`make test-dgx`,
+    autonomy) suites test against in-memory dicts — no `pxr`.
+  - The reader's USD round-trip + `test_scene_provider_contract.py`'s parity
+    check are `pytest.importorskip("pxr")`-gated and run in the Kit suite
+    (`run_tests.py`). *(Alternative for fuller fast-suite coverage:
+    `pip install usd-core` into both venvs and run the reader there.)*
+  - `make test-dgx`, `make test-harness`, and the Kit suite all green; **no
+    test resolves a sidecar path** — the clean-break proof at the test layer.
+- [ ] **Regenerate the scene corpus** so every scene under
+  `Assets/generated/scenes/` carries `customData` and no sidecar (re-run the
+  extractor; the corpus is a small, regenerable build artifact).
+- [ ] **Docs updated in the same PR:** `SCENE_PROVIDER_CONTRACT.md` (§a/§b —
+  the per-scene metadata is USD `customData`; the sidecar is *gone*, not a
+  REQUIRED file) + its "Producing the artifacts" pipeline section, the
+  cheatsheet scene-gen recipe, [`docs/HARNESS_DATA_CAPTURE.md`](../../../HARNESS_DATA_CAPTURE.md),
+  and a one-line note in [`harness-architecture`](harness-architecture.md)
+  that "scene metadata" now means USD `customData`.
 
-## Migration plan
+## Cutover (clean break — no transition window)
 
-Two-phase rollout to avoid breaking in-flight datasets:
-
-**Phase 1 (this brief)** — Write to both. Reader prefers embedded,
-falls back to sidecar. Old datasets keep working unchanged.
-
-**Phase 2 (follow-up brief, filed after Phase 1 lands)** — Drop the
-sidecar from `extract_scene_metadata.py`. Reader emits a hard error if
-neither source is present. Regenerate the corpus.
+One PR: no dual-write, no reader fallback — matching the project's
+clean-break convention ([`env-cfg-composition`](../../completed/env-cfg-composition.md):
+"no deprecation window and no shim"). The only "migration" is **regenerating
+the scene corpus** so every USD carries `customData`. There are no production
+datasets to preserve — per [`harness-architecture`](harness-architecture.md)
+nothing has run against real data, and scenes are regenerable build
+artifacts. The reader **hard-errors** on a USD that lacks the embedded
+payload, so any un-regenerated scene surfaces immediately instead of silently
+falling back to a stale sidecar (the exact failure mode this brief kills).
 
 ## Risks
 
-- **USD file size**: the embedded dict adds tens of KB per scene
-  (mostly the `objects[]` array). Negligible vs the geometry payload.
-- **USD round-trip cost**: reading customData requires `pxr` (USD
-  runtime). The current sidecar is a 1-line JSON load. The reader
-  helper centralizes this so it's one cost site, not N. For the
-  `.venv_harness` test environment that doesn't have `pxr`, the
-  reader falls back to the sidecar — keeps unit tests fast.
-- **Schema versioning**: today's sidecar has no version field; if
-  we're rewriting the authoring path, this is the moment to add
-  `"strafer_scene_metadata_version": 1`. Phase 2 can require the
-  field; Phase 1 tolerates its absence.
-- **Tooling unaware of `customData`**: USD viewers (usdview, Omniverse
-  Composer) will show the embedded dict in the property panel; that's
-  benign. Replicator's annotators don't read `customData` so the
-  RL/perception pipelines are unaffected.
+- **USD file size**: the embedded dict adds tens of KB per scene (mostly
+  `objects[]`). Negligible vs the geometry payload.
+- **`pxr` in the fast test venvs**: reading `customData` needs `pxr`, which
+  `.venv_harness` and `.venv_vlm` lack — and with the sidecar gone there is no
+  JSON fallback for them. Mitigated by the pure-data seams + the
+  `pxr`-gated reader test (Acceptance): the reader is the *only* `pxr`-bound
+  path and the fast suites never hit it. (Or add `usd-core` to both venvs.)
+- **Tooling unaware of `customData`**: usdview / Omniverse Composer show the
+  embedded dict in the property panel (benign). Replicator's annotators don't
+  read `customData`, so RL / perception pipelines are unaffected.
 
 ## Coordination
 
@@ -136,8 +147,10 @@ coordinate before landing:
 - Migrating the per-frame `strafer_episodes.parquet` sidecar (lerobot
   dataset extension) into the LeRobot dataset proper. That's a
   separate `lerobot-extension-columns-as-features` brief.
-- Changing the schema of the metadata payload itself. The fields stay
-  identical to today's sidecar; only the storage location moves.
+- Changing the `objects[]` / `rooms[]` payload schema. Those fields stay
+  identical to today's sidecar; only the storage location moves (plus an
+  additive top-level `strafer_scene_metadata_version` key, allowed by the
+  contract's additive-fields policy).
 
 ## Triggered by
 

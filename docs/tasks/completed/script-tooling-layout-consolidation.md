@@ -1,5 +1,8 @@
 # Consolidate the workstation-side script / tooling layout
 
+**Status:** Shipped 2026-06-07 in `aba26ab` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/77
+
 **Type:** refactor / tooling (non-test script + tool reorganization)
 **Owner:** DGX agent (lane: top-level `Scripts/`, `source/strafer_lab/scripts/`, `source/strafer_lab/strafer_lab/tools/`, `source/strafer_vlm/`, top-level `Makefile`, the workstation-facing `docs/`)
 **Priority:** P3 — tooling polish; doesn't block features. The non-harness majority is pickable now; the harness-owned cluster is sequenced (see [Coordination & sequencing](#coordination--sequencing)).

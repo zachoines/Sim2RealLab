@@ -27,7 +27,6 @@ that ships them; see "Shipping a brief: order of operations" in
 | Brief | Owner | PR | State |
 |---|---|---|---|
 | [`harness-architecture`](active/harness/harness-architecture.md) Tier 1 acceptance run | DGX | post-merge follow-up (PR #63 merged 2026-05-26) | pending operator capture; gated on [`teleop-perf-architecture`](completed/teleop-perf-architecture.md) (shipped 2026-06-01; loop is PhysX-bound, ~10 FPS not the ≥15 target, so a ≥30 ep × ≥2 scene run is faster but still not one-evening). Tier 1 ✓ on harness-architecture.md stays unchecked until artifact lands at `docs/artifacts/teleop_acceptance/<run_id>/`. |
-| [`script-tooling-layout-consolidation`](active/tooling/script-tooling-layout-consolidation.md) | DGX | pending — branch `task/script-tooling-layout-consolidation` | Non-harness consolidation + placement rule landed; `capture.py` + `retired/` moves sequenced with `harness-architecture`. |
 
 ---
 
@@ -141,7 +140,6 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`nav2-sim-real-promotion-architecture`](active/tooling/nav2-sim-real-promotion-architecture.md) | P2 | active | Jetson |
 | [`unify-test-targets-and-ci`](active/tooling/unify-test-targets-and-ci.md) | P3 | active | Either |
 | [`strafer-lab-test-tree-unification`](active/tooling/strafer-lab-test-tree-unification.md) | P3 | active | DGX |
-| [`script-tooling-layout-consolidation`](active/tooling/script-tooling-layout-consolidation.md) | P3 | in flight | DGX |
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | P2 | active | DGX |
 | [`install-docs-consolidation`](parked/tooling/install-docs-consolidation.md) | P2 | parked (blocked on `windows-workstation-bringup`) | Coordinator (DGX) + per-host agents |
 

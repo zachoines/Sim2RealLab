@@ -29,6 +29,49 @@ not by static typing.
 
 ---
 
+## Producing the artifacts — the Infinigen pipeline
+
+Infinigen produces a conformant bundle in **three steps**. They are
+**not chained** today: running step 1 alone yields a USD that loads in
+the bridge but is **not capture-ready** — the teleop picker needs the
+per-scene `scene_metadata.json` from step 2, and the runtime only
+*discovers* a scene once it appears in the combined manifest from step 3.
+
+| # | Script | Produces | Runtime / env |
+|---|---|---|---|
+| 1 | `prep_room_usds.py generate` | room geometry: `<scene>.usdc` symlink + `scene_config.json` + the Blender export tree; bakes colliders via `postprocess_scene_usd.py`. **Does not write `scene_metadata.json`.** | orchestrator; spawns `STRAFER_INFINIGEN_PYTHON` (Infinigen/`bpy`) + `STRAFER_ISAACLAB_PYTHON` (`pxr`) |
+| 2 | `extract_scene_metadata.py` | per-scene `scene_metadata.json` (`objects[]` + `rooms[]`, §b) + USD `semanticLabel`/`instanceId` prim labels | `--blend` path runs in Blender; `--from-usd` path runs via `$ISAACLAB -p` (`pxr`) |
+| 3 | `generate_scenes_metadata.py` | combined `scenes_metadata.json` (spawn points + floor-Z, §c) — required for the runtime to discover the scene | `$ISAACLAB -p` (`pxr`) |
+
+```bash
+source env_setup.sh
+# 1) geometry  (--config: fast_singleroom = 512-px / 1 room; high_quality_dgx = 1024-px / <=5 rooms)
+python source/strafer_lab/scripts/prep_room_usds.py generate \
+    --config fast_singleroom --num-scenes 1 --output Assets/generated/scenes
+# 2) per-scene metadata — USD-only / no Blender (best-effort prim-name labels, rooms=[]):
+$ISAACLAB -p source/strafer_lab/scripts/extract_scene_metadata.py \
+    --from-usd --usd Assets/generated/scenes/<scene>.usdc \
+    --output Assets/generated/scenes/<scene> --label-from-prim-names
+#    …or richer (rooms + semantic tags) from the .blend, in Blender:
+#    $STRAFER_BLENDER_BIN --background --python source/strafer_lab/scripts/extract_scene_metadata.py -- \
+#        --blend Assets/generated/scenes/<scene>/coarse/scene.blend \
+#        --usd  Assets/generated/scenes/<scene>.usdc \
+#        --output Assets/generated/scenes/<scene>
+# 3) combined manifest (discoverability)
+$ISAACLAB -p source/strafer_lab/scripts/generate_scenes_metadata.py
+```
+
+`<scene>` is the id printed by step 1 (e.g. `scene_fast_singleroom_000_seed0`).
+
+Step 2 also has an **in-process hook** — `extract_scene_metadata.extract_from_state()`,
+designed to be called from inside Infinigen generation — but
+`prep_room_usds` does not wire it, so per-scene metadata is currently a
+manual post-hoc step. Authoring the metadata at USD-creation time (one
+command → a capture-ready scene, with the data travelling in the USD) is
+the job of [`scene-metadata-in-usd`](tasks/active/harness/scene-metadata-in-usd.md).
+
+---
+
 ## a. On-disk layout
 
 Everything lives under the scenes root,
@@ -158,7 +201,7 @@ The contract is designed to absorb new consumers without re-shipping.
 Two consumers already exist on paper:
 [`mission-text-enrichment`](tasks/parked/harness/mission-text-enrichment.md)
 (parked, blocked on this brief) and
-[`scene-metadata-in-usd`](tasks/parked/harness/scene-metadata-in-usd.md)
+[`scene-metadata-in-usd`](tasks/active/harness/scene-metadata-in-usd.md)
 (parked, sibling). The rules below were written so they plug in
 cleanly.
 
@@ -484,7 +527,7 @@ def prep_scene(acme_scene, scene_name: str) -> None:
 
 - [`docs/HARNESS_DATA_CAPTURE.md`](HARNESS_DATA_CAPTURE.md) — operator
   workflow for capturing against a conformant scene.
-- [`scene-metadata-in-usd`](tasks/parked/harness/scene-metadata-in-usd.md)
+- [`scene-metadata-in-usd`](tasks/active/harness/scene-metadata-in-usd.md)
   — moves the `scene_metadata.json` payload into USD `customData`; same
   artifact contract, different storage backend. When it lands, this doc
   gains a reader-fallback-order note (sidecar JSON ↔ USD customData).

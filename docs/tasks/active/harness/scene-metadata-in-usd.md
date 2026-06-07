@@ -1,7 +1,7 @@
 # Move scene metadata inside the USD (drop the sidecar)
 
 **Type:** refactor (scene-metadata authoring + consumers)
-**Owner:** TBD
+**Owner:** DGX (harness epic)
 **Priority:** P2 — quality-of-life + correctness improvement; not gating any current acceptance bar.
 **Estimate:** M (touches authoring + ~3 consumer paths; bounded test surface).
 **Branch:** `task/scene-metadata-in-usd`
@@ -27,6 +27,14 @@ already seen during PR #63 review:
 - The bridge harness and the teleop picker each independently parse
   `scene_metadata.json` and trust the layout convention; a future
   consumer added without that knowledge would silently drift.
+- **Generation doesn't yield a capture-ready scene.** `prep_room_usds.py
+  generate` writes the room USD but **not** `scene_metadata.json` — the
+  extractor (`extract_scene_metadata.py`) is a separate, un-chained step,
+  and its in-process hook (`extract_from_state`) isn't wired in. So a
+  freshly generated scene loads in the bridge yet fails teleop capture
+  with `scene_metadata.json not found` (observed 2026-06-07 on a
+  `fast_singleroom` scene). Authoring the metadata at USD-creation time
+  fixes this **and** the staleness modes above in one move.
 
 USD has a first-class mechanism for this:
 [`customData`](https://docs.omniverse.nvidia.com/dev-guide/latest/programmer_ref/usd/properties/set-custom-metadata.html).
@@ -42,6 +50,12 @@ Ship a refactor that meets all of:
   `strafer_scene_metadata`) IN ADDITION to the existing sidecar (the
   sidecar is kept during the transition window for backwards
   compatibility — see migration plan below).
+- [ ] **Generation authors metadata at USD-creation time.** `prep_room_usds.py`
+  (or the export path) runs/embeds the extractor so a single `generate`
+  yields a capture-ready scene — no separate manual `extract_scene_metadata`
+  step (closes the ergonomics gap in Motivation). Minimum bar if full
+  in-process authoring is too invasive: `generate` chains the post-hoc
+  extractor.
 - [ ] A new helper `strafer_lab.tools.scene_metadata_reader.load(scene_usd_path)`
   prefers the embedded `customData` and falls back to the sibling
   sidecar with a deprecation log line.
@@ -98,6 +112,24 @@ neither source is present. Regenerate the corpus.
   Composer) will show the embedded dict in the property panel; that's
   benign. Replicator's annotators don't read `customData` so the
   RL/perception pipelines are unaffected.
+
+## Coordination
+
+This brief is **harness-epic-owned** and touches shared metadata surfaces —
+coordinate before landing:
+
+- **Producers + consumers are harness territory.**
+  `extract_scene_metadata.py` / `generate_scenes_metadata.py` (producers)
+  and `teleop_mission_picker` / `MissionGenerator` (consumers) — sequence
+  with [`harness-architecture`](harness-architecture.md).
+- **The schema is load-bearing downstream.** multi-room's room-graph
+  consumers read `rooms[]` / `room_adjacency`, and clip-validation's
+  [`mission-text-enrichment`](../../parked/harness/mission-text-enrichment.md) reserves
+  `objects[].descriptors` — both per
+  [`SCENE_PROVIDER_CONTRACT.md`](../../../SCENE_PROVIDER_CONTRACT.md). This
+  brief moves **storage + authoring timing only; it does NOT change the
+  schema** (kept out of scope below), so those consumers stay unaffected —
+  any schema change must go through the contract + its round-trip test.
 
 ## Out of scope
 

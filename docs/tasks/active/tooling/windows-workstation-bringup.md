@@ -1,7 +1,7 @@
 # Windows workstation bringup for sim-bridge
 
 **Type:** investigation + task
-**Owner:** DGX agent (lane: `source/strafer_lab/`, `Scripts/`, `env_setup.sh`, top-level `Makefile`, `docs/INTEGRATION_*.md`)
+**Owner:** DGX agent (lane: `source/strafer_lab/`, Windows launchers, `env_setup.sh`, top-level `Makefile`, `docs/INTEGRATION_*.md`)
 **Priority:** P2
 **Estimate:** L (~1 week; multi-day research + multi-host install scripting + cross-OS network testing)
 **Branch:** task/windows-workstation-bringup
@@ -19,7 +19,7 @@ Read these before starting:
 
 ## Context
 
-The current stack assumes Ubuntu on both hosts (DGX Spark and Jetson Orin Nano). The DGX side runs Isaac Sim 6 + Isaac Lab 3 under conda env `env_isaaclab3` on Linux; `Scripts/`, `env_setup.sh`, and the `Makefile` all assume bash + a Linux conda layout.
+The current stack assumes Ubuntu on both hosts (DGX Spark and Jetson Orin Nano). The DGX side runs Isaac Sim 6 + Isaac Lab 3 under conda env `env_isaaclab3` on Linux; `env_setup.sh` and the `Makefile` assume bash + a Linux conda layout, and the entry points under `source/<pkg>/scripts/` launch via `$ISAACLAB -p`. The legacy top-level `Scripts/*.ps1` Windows launchers were removed in the script-tooling layout consolidation — this brief authors the Windows launcher surface **fresh** against the current `source/<pkg>/scripts/` layout rather than porting the old ones.
 
 Windows complicates this on several axes:
 
@@ -33,7 +33,7 @@ Windows complicates this on several axes:
 
 4. **Bridge perf.** RTX 4080 has more raster + RT throughput than the DGX's iGPU, but Isaac Sim's perf on Windows-with-RTX has its own quirks. Bridge-runtime-invariants doc reference numbers were captured on Linux DGX — re-derive for Windows.
 
-5. **Asset / repo sharing.** Both hosts share one git repo via separate clones; Windows clones need to honor LF-only line endings for the scripts and the `Scripts/` entry points. Isaac Sim USD asset paths are case-sensitive — need to verify generated `Assets/generated/scenes/` paths resolve on Windows.
+5. **Asset / repo sharing.** Both hosts share one git repo via separate clones; Windows clones need to honor LF-only line endings for the scripts and the `source/<pkg>/scripts/` entry points. Isaac Sim USD asset paths are case-sensitive — need to verify generated `Assets/generated/scenes/` paths resolve on Windows.
 
 ## Approach
 
@@ -75,11 +75,11 @@ Phase the work so the early phases produce decision-grade evidence before commit
 - Isaac Sim 6 Windows docs (official): Omniverse Launcher install + Isaac Sim extension config.
 - ROS 2 Humble on Windows: chocolatey-based install instructions; rmw_cyclonedds_cpp availability on Windows.
 - WSL2 + CUDA: NVIDIA's CUDA-on-WSL2 docs; whether Isaac Sim runs inside WSL2 or needs native Windows.
-- `env_setup.sh`, `.env.example`, `Makefile`, `Scripts/` — the surfaces that will need Windows equivalents or WSL2-compatible refactors.
+- `env_setup.sh`, `.env.example`, `Makefile` — the surfaces that will need Windows equivalents or WSL2-compatible refactors, plus fresh Windows launchers for the `source/<pkg>/scripts/` entry points.
 
 ## Out of scope
 
 - **Real-robot bringup on Windows.** The Jetson stays on Jetson; this brief is only about the sim-side host.
 - **Training large models on Windows.** Training stays on the Linux DGX where memory and CUDA driver maturity favor it.
 - **Cross-OS shared-filesystem mounts.** Each host clones its own copy of the repo and rsyncs / git-pulls; we are NOT relying on a network filesystem shared between Windows and Linux.
-- **Rewriting `Scripts/` for native Windows if WSL2 is sufficient.** Pick the path that minimizes duplication.
+- **Authoring native-Windows launchers if WSL2 is sufficient.** Pick the path that minimizes duplication.

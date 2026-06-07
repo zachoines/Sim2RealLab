@@ -55,7 +55,6 @@ Sim2RealLab/
 │   ├── strafer_ros/         # all ROS 2 packages: bringup, slam, nav, perception, msgs
 │   ├── strafer_vlm/         # VLM service (DGX-side HTTP)
 │   └── strafer_shared/      # cross-host shared constants + utilities
-├── Scripts/                 # Windows .ps1 launchers only — Python entry points live in source/<pkg>/scripts/
 ├── docs/                    # design + task briefs + perf doc + cheatsheet
 ├── env_setup.sh             # source me first
 ├── .env / .env.example      # operator-tuned host paths

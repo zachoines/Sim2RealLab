@@ -2,9 +2,9 @@
 Bring up Isaac Lab with an empty stage using the installed pip build of Isaac Sim.
 
 Usage:
-    ./launch_isaac_lab.ps1
+    $ISAACLAB -p source/strafer_lab/scripts/asset_authoring/run_empty_lab.py
     # or forward any AppLauncher flags, e.g.:
-    ./launch_isaac_lab.ps1 -- --/renderer/multiGpu/enabled=false
+    $ISAACLAB -p source/strafer_lab/scripts/asset_authoring/run_empty_lab.py -- --/renderer/multiGpu/enabled=false
 """
 
 import argparse

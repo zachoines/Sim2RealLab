@@ -532,8 +532,11 @@ briefs touch. The non-overlap contract:
 
 - [ ] Top-level `Scripts/` holds **no Python** — every `.py` is moved
       (history-preserving `git mv`), retired-with-evidence, or (for the
-      scenegen pipeline) dispositioned per the human-confirmed call. The
-      `.ps1` launchers remain.
+      scenegen pipeline) dispositioned per the human-confirmed call.
+      **Updated during execution (operator decision):** the directory is
+      removed **entirely** — its three Windows `.ps1` launchers were
+      deleted too; `windows-workstation-bringup` authors fresh launchers
+      against the new `source/<pkg>/scripts/` layout.
 - [ ] `source/strafer_lab/scripts/` is the single home for runnable
       `strafer_lab` entry points; `source/strafer_lab/strafer_lab/tools/` is
       the single home for importable modules; one-shot USD-authoring
@@ -602,8 +605,10 @@ briefs touch. The non-overlap contract:
   gap). Minimal path correction only.
 - **`make` wrappers for `train`/`capture`** — invocation unification, not
   layout. File separately if wanted.
-- **Windows / `.ps1` redesign.** Leave launchers in place; `windows-workstation-bringup`
-  owns the residual `Scripts/` dir's fate and the PowerShell story.
+- **Windows / `.ps1` redesign.** (Updated during execution: the operator
+  chose to delete the three legacy launchers with the rest of `Scripts/`
+  rather than leave them; `windows-workstation-bringup` authors fresh
+  Windows launchers and owns the PowerShell story.)
 - **Retiring or rewriting the four harness-owned downstream scripts** —
   `harness-architecture` deletes them as it supersedes each.
 - **Rewriting package README Install/Run prose** — `install-docs-consolidation`.

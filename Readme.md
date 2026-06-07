@@ -145,7 +145,6 @@ Sim2RealLab/
 ├── Readme.md                         # this file
 ├── .env.example / env_setup.sh       # per-machine configuration loader
 ├── Makefile                          # colcon build, ROS launches, DGX service targets
-├── Scripts/                          # Windows .ps1 launchers only — Python entry points live in source/strafer_lab/scripts/
 ├── source/
 │   ├── strafer_lab/                  # Isaac Lab extension + synthetic-data pipeline
 │   ├── strafer_shared/               # Physical constants, kinematics, policy I/O

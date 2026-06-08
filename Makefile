@@ -206,7 +206,7 @@ check-nvrtc: ## Verify NVRTC symlinks point to system CUDA 13.0
 	@NVRTC_DIR="$(VENV_VLM)/lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib"; \
 	if [ ! -L "$$NVRTC_DIR/libnvrtc.so.12" ]; then \
 		echo "ERROR: $$NVRTC_DIR/libnvrtc.so.12 is not a symlink."; \
-		echo "Run the NVRTC fix from docs/INTEGRATION_DGX_SPARK.md"; \
+		echo "Run the NVRTC fix from source/strafer_vlm/README.md (Install)"; \
 		exit 1; \
 	fi; \
 	TARGET=$$(readlink -f "$$NVRTC_DIR/libnvrtc.so.12"); \
@@ -214,7 +214,7 @@ check-nvrtc: ## Verify NVRTC symlinks point to system CUDA 13.0
 		echo "NVRTC: OK ($$TARGET)"; \
 	else \
 		echo "ERROR: NVRTC symlink points to $$TARGET (expected cuda-13.x)"; \
-		echo "Run the NVRTC fix from docs/INTEGRATION_DGX_SPARK.md"; \
+		echo "Run the NVRTC fix from source/strafer_vlm/README.md (Install)"; \
 		exit 1; \
 	fi
 

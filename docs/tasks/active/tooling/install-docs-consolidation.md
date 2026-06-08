@@ -69,8 +69,12 @@ Ship a documentation pass that meets all of:
   - Smoke-test command + expected output
   - Known platform limitations (e.g. "DGX Spark: no SkillGen / OpenXR /
     JAX-GPU / Livestream"; "Windows: Isaac Lab 3 is experimental")
-  - **Freshness footer**: `_Last verified <YYYY-MM-DD> on <hostname or
-    spec>._`
+  - ~~**Freshness footer**: `_Last verified <YYYY-MM-DD> on <hostname or
+    spec>._`~~ — **dropped by operator decision** during the Linux +
+    env-topology slice: the footers were judged maintenance noise that
+    goes stale silently. Do **not** add `_Last verified ..._` footers in
+    the Windows pass either; the per-host audit method is the freshness
+    guarantee, not a stamp.
 - [ ] Each package README has (or gains) a `## Run` section right after
   `## Install` listing the package's main entry points + canonical
   invocations. The cheatsheet stops being the source of truth for

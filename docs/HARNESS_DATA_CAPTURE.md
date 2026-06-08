@@ -18,10 +18,11 @@ procedure.
 
 ## One-time env setup
 
-First bring up the Isaac Lab Python env per
-[`docs/DGX_SPARK_SETUP.md`](DGX_SPARK_SETUP.md) — that runbook covers
-Miniconda, Isaac Sim 5.1, the aarch64 PyTorch wheel, and Isaac Lab
-itself. The harness layers `lerobot` into that env.
+First bring up the `env_isaaclab3` conda env per
+[`source/strafer_lab/README.md` → Install (Linux / DGX Spark)](../source/strafer_lab/README.md#install)
+— Isaac Sim 6, CUDA torch 2.10, and Isaac Lab itself. The harness layers
+`lerobot` into that env; it ships in `env_isaaclab3` today, and the steps
+below are how it got there.
 
 Why `--no-deps`: the Isaac Lab env ships with `torch 2.10.0+cu130` +
 `numpy 2.3.1` + `huggingface-hub 0.36`. `lerobot 0.5.1` pins are mostly
@@ -32,7 +33,7 @@ transformers). Install `--no-deps` and layer only the runtime deps the
 writer actually uses:
 
 ```bash
-conda activate <your-isaac-lab-env>   # the one created in DGX_SPARK_SETUP.md
+conda activate env_isaaclab3   # the Isaac Lab env from strafer_lab/README.md
 
 # Note: $ISAACLAB is an Isaac Lab wrapper that only forwards args after
 # its own flags — it can't run `-m pip` directly. Use the env's

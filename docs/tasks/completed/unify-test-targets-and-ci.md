@@ -142,7 +142,7 @@ unified under `test-lab` and folded into the `test-dgx` composite above, `make t
 correct env — that the env-topology discussion raised. No separate
 `test-all` target is warranted; the full cross-host suite is `test-dgx` +
 `test-jetson`. **Which env each suite runs in** is documented by
-[`install-docs-consolidation`](../parked/tooling/install-docs-consolidation.md)
+[`install-docs-consolidation`](../active/tooling/install-docs-consolidation.md)
 (env topology) + `repo-topology.md`; this brief consumes that map rather than
 re-deriving it.
 

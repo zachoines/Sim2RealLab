@@ -29,15 +29,48 @@ Single git remote. `main` is the working line; per-task branches
 
 Verify from inside the repo with `git remote -v` + `git rev-parse --show-toplevel`.
 
-## Conda environments (DGX)
+## Python environments (DGX)
 
-| Env name | Python | Purpose |
-|----------|--------|---------|
-| `env_isaaclab3` | 3.12 | Isaac Sim 6 + Isaac Lab develop, the main DGX env. Used for training, bridge, smoke tests, demo collection. |
-| `env_infinigen` | 3.11 | Infinigen scene generation only. Pinned to 3.11 because Infinigen's deps don't all support 3.12 yet. |
+Three live environments partition the DGX stack — two conda envs and one
+venv. Each is forced apart by a hard constraint, not convenience, so this
+table names *what each is for and why it is separate*; the build recipe
+for each lives in exactly one place (linked under **Recreate** below).
 
-The Jetson uses system Python 3.10 (Ubuntu 22.04 / ROS 2 Humble
-default) + a colcon workspace.
+| Env | Kind | Python | For | Key contents |
+|-----|------|--------|-----|--------------|
+| `env_isaaclab3` | conda | 3.12 | Training, the sim bridge, **and all `strafer_lab` tests** (Kit + pure-Python) | Isaac Sim 6 + Isaac Lab develop, `pxr`, CUDA torch 2.10 (`+cu130`), lerobot 0.5.1, warp, onnx |
+| `.venv_vlm` | venv | 3.12 | The VLM + LLM-planner services and their test suites | CUDA torch 2.11 (`+cu128`, with the NVRTC swap), transformers 5.x, `strafer_vlm`, `strafer_autonomy` |
+| `env_infinigen` | conda | 3.11 | Infinigen procedural scene generation only | source-built `bpy==4.2.0`, Infinigen 1.19.x (editable, `--no-deps`) |
+
+**Why three — both splits are forced, not incidental:**
+
+- **`.venv_vlm` is kept by design — cadence isolation.** Isaac Sim's
+  *compiled* torch is a hard floor: `env_isaaclab3` cannot move off torch
+  2.10 without risking the sim. The VLM / LLM stack wants the fast-moving
+  ceiling (newer `transformers` / torch per newer models — currently torch
+  2.11 + transformers 5.x). One env can't satisfy both, so the services
+  keep their own venv.
+- **`env_infinigen` is pinned to 3.11** because Infinigen's deps don't all
+  support 3.12 yet.
+- **`.venv_harness` was retired.** Its only reason to exist was a CPU-torch
+  split for `lerobot`; lerobot 0.5.1 turned out to coexist with
+  `env_isaaclab3`'s CUDA torch 2.10, so the harness suite folded into
+  `env_isaaclab3` (and gained `pxr`). There is no separate harness env —
+  `make test-lab` / `make test-lab-pure` run the whole `strafer_lab` tree
+  in `env_isaaclab3`.
+
+**Recreate** (each recipe is documented once — link, don't duplicate):
+
+- `env_isaaclab3` — Isaac Sim 6 + Isaac Lab develop build:
+  [`source/strafer_lab/README.md` → Install (DGX Spark)](../../../source/strafer_lab/README.md#install).
+- `.venv_vlm` — venv + CUDA-torch + NVRTC-swap bootstrap:
+  [`Readme.md` → Install (DGX Spark)](../../../Readme.md#dgx-spark-grace--blackwell-aarch64-ubuntu).
+- `env_infinigen` — aarch64 `bpy` wheel + Infinigen: the `README.md` in the
+  sibling `~/Workspace/blender-build/` directory (machine-specific, outside
+  this repo).
+
+The Jetson uses system Python 3.10 (Ubuntu 22.04 / ROS 2 Humble default)
++ a colcon workspace; it uses none of the DGX envs above.
 
 `env_setup.sh` sources `.env` (operator-tuned) and exports
 `STRAFER_ISAACLAB_PYTHON`, `STRAFER_INFINIGEN_PYTHON`, `ISAACLAB`,

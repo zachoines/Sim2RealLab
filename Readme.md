@@ -36,11 +36,11 @@ The repository is five packages plus shared interfaces, spread across two hosts:
 
 | Package | Host | Responsibility | Deep dive |
 |---|---|---|---|
-| `strafer_lab` | DGX Spark (preferred) or Windows GPU | Isaac Lab environments, PPO training, Infinigen scene generation, synthetic-data pipeline, Isaac Sim ROS 2 bridge, sim-in-the-loop harness | [README](source/strafer_lab/README.md) |
-| `strafer_shared` | both | Physical constants, mecanum kinematics, policy I/O contract (the sim-to-real boundary) | — |
-| `strafer_ros` | Jetson Orin Nano | ROS 2 driver, perception, SLAM, Nav2, URDF, bringup launches, shared ROS interface types | [README](source/strafer_ros/README.md) |
-| `strafer_autonomy` | Jetson (executor + CLI) + DGX (planner service) | Mission planning, mission execution, shared schemas, service clients, semantic spatial map | [README](source/strafer_autonomy/README.md) |
-| `strafer_vlm` | DGX Spark | Qwen2.5-VL grounding / description / multi-object detection service + LoRA fine-tuning tooling | [README](source/strafer_vlm/README.md) |
+| `strafer_lab` | DGX Spark (preferred) or Windows GPU | Isaac Lab environments, PPO training, Infinigen scene generation, synthetic-data pipeline, Isaac Sim ROS 2 bridge, sim-in-the-loop harness | [README](source/strafer_lab/README.md) · [Install](source/strafer_lab/README.md#install) · [Run](source/strafer_lab/README.md#run) |
+| `strafer_shared` | both | Physical constants, mecanum kinematics, policy I/O contract (the sim-to-real boundary) | — (library; no install of its own) |
+| `strafer_ros` | Jetson Orin Nano | ROS 2 driver, perception, SLAM, Nav2, URDF, bringup launches, shared ROS interface types | [README](source/strafer_ros/README.md) · [Install](source/strafer_ros/README.md#install) · [Run](source/strafer_ros/README.md#run) |
+| `strafer_autonomy` | Jetson (executor + CLI) + DGX (planner service) | Mission planning, mission execution, shared schemas, service clients, semantic spatial map | [README](source/strafer_autonomy/README.md) · [Install](source/strafer_autonomy/README.md#install) · [Run](source/strafer_autonomy/README.md#run) |
+| `strafer_vlm` | DGX Spark | Qwen2.5-VL grounding / description / multi-object detection service + LoRA fine-tuning tooling | [README](source/strafer_vlm/README.md) · [Install](source/strafer_vlm/README.md#install) · [Run](source/strafer_vlm/README.md#run) |
 
 Each package README is the source of truth for that package's features,
 contracts, setup, commands, design, and testing. This top-level document
@@ -61,7 +61,7 @@ strafer_ros                                strafer_vlm (:8100)
   ├─ strafer_description (URDF + TF)        ├─ POST /plan
   └─ strafer_msgs                           └─ POST /plan_with_grounding
 strafer_autonomy.executor                  strafer_lab
-  ├─ AutonomyCommandServer                   ├─ Isaac Lab envs (30 registered)
+  ├─ AutonomyCommandServer                   ├─ Isaac Lab envs (9 registered)
   │   (ExecuteMission.action)                ├─ Synthetic-data pipeline
   ├─ MissionRunner                           ├─ Isaac Sim ROS 2 bridge
   │   (13 skills, verify_arrival)            └─ Sim-in-the-loop harness
@@ -108,7 +108,7 @@ over LAN. HTTP goes over the same LAN (DGX `192.168.50.196`, Jetson
 - **Fourteen executor skills** including the composite `scan_for_target` (rotate + ground loop), `explore_until_visible` (frontier-driven cross-room target discovery), `verify_arrival` (CLIP top-k ranking), `describe_scene`, and `query_environment`.
 - **Agentic `POST /plan_with_grounding`** endpoint — planner pre-grounds targets via a co-located VLM call, saving one LAN image round-trip per mission.
 - **Full Jetson ROS stack** — RoboClaw driver, RealSense D555 with timestamp-fixed `*_sync` topics, RTAB-Map SLAM, Nav2 MPPI holonomic controller, goal projection service.
-- **30 registered Isaac Lab environments** across Ideal / Realistic / Robust realism × Full / Depth / NoCam sensors, plus Infinigen-scene and ProcRoom variants.
+- **9 registered Isaac Lab environments** — three RL families (depth-real, depth-robust, no-cam), each with a `-Play` evaluation variant, plus three capture variants (teleop, bridge, coverage). Composed over sensor stack × scene source × realism; see [`strafer_lab` README](source/strafer_lab/README.md#contracts).
 - **Synthetic-data pipeline** — Infinigen procedural scene generation, scene metadata extraction with USD `semanticLabel` attributes, 4-stage description pipeline (programmatic spatial → Qwen2.5-VL-7B → ground-truth filter → human spot-check), OpenCLIP contrastive fine-tune with ONNX export, comprehensive VLM LoRA SFT data prep.
 - **Isaac Sim ROS 2 bridge + sim-in-the-loop harness** — drive the Jetson autonomy stack against simulated sensors on the DGX without changing any Jetson code; capture reachability-labelled datasets from Jetson-driven missions.
 - **Databricks Model Serving deployment path** — alternative to LAN HTTP for the planner + VLM services; executor swaps transport via env vars.

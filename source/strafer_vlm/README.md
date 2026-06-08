@@ -90,6 +90,13 @@ Image paths are resolved relative to the JSONL file's directory. Prompts without
 
 ## Install
 
+On the DGX, the VLM + planner services live in the `.venv_vlm` venv (kept
+on a faster-moving torch than Isaac Sim's — see
+[`repo-topology.md` → Python environments (DGX)](../../docs/tasks/context/repo-topology.md#python-environments-dgx)).
+Create and activate it via the bootstrap in
+[`Readme.md` → Install (DGX Spark)](../../Readme.md#dgx-spark-grace--blackwell-aarch64-ubuntu),
+then install this package into it with the extras below.
+
 ### Base package
 
 ```bash

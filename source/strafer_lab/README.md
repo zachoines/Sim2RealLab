@@ -175,24 +175,71 @@ runnable scripts under `scripts/`, importable modules under
 
 ## Install
 
-### DGX Spark (aarch64, preferred)
+### Linux (DGX Spark, aarch64 — preferred)
+
+`strafer_lab` runs in the `env_isaaclab3` conda env (Isaac Sim 6 + Isaac
+Lab develop on Python 3.12). This subsection is the canonical recreate
+recipe for that env — [`repo-topology.md`](../../docs/tasks/context/repo-topology.md#python-environments-dgx)
+links here.
+
+**Prereqs** (audited on `gx10-d1d8`):
+
+| Item | Value |
+|---|---|
+| OS | Ubuntu 24.04 LTS (aarch64) |
+| GPU / driver | NVIDIA GB10 (Blackwell) / 580.82.09 (NVIDIA recommends ≥ 580.95.05 for Spark) |
+| CUDA | 13.0 (`/usr/local/cuda-13.0`) |
+| Python | 3.12 (Isaac Sim 6 requires `==3.12.*`) |
+
+**Build `env_isaaclab3` from scratch.** Isaac Sim 6 builds its
+`imgui-bundle` dependency from source on aarch64, which needs the X11 / GL
+dev headers:
 
 ```bash
-# 1. Source the shell wrapper (loads .env: STRAFER_BLENDER_BIN, ISAACSIM_PATH, HF_HOME...)
-cd /home/zachoines/Workspace/Sim2RealLab
-source env_setup.sh
+sudo apt-get install -y libx11-dev libxrandr-dev libxinerama-dev \
+  libxcursor-dev libxi-dev libxkbcommon-dev libgl1-mesa-dev
 
-# 2. Activate the conda env created via `isaaclab.sh -c env_isaaclab3`
+conda create -n env_isaaclab3 python=3.12 -y
 conda activate env_isaaclab3
 
-# 3. Install strafer_lab editable. --no-build-isolation is required because
-#    a transitive dep (flatdict) uses legacy pkg_resources.
+# CUDA torch 2.10 — the version Isaac Sim is compiled against. This is a
+# hard floor; do not bump it (see env rationale in repo-topology.md).
+pip install torch==2.10.0 torchvision==0.25.0 torchaudio==2.10.0 \
+  --index-url https://download.pytorch.org/whl/cu130
+
+# Isaac Sim 6 (imgui-bundle compiles from source on aarch64, ~2 min)
+pip install "isaacsim[all]>=6.0.0" --extra-index-url https://pypi.nvidia.com
+
+# Isaac Sim's resolver pulls a CPU-only torch; force the CUDA build back in
+pip install --force-reinstall --no-deps \
+  torch==2.10.0 torchvision==0.25.0 torchaudio==2.10.0 \
+  --index-url https://download.pytorch.org/whl/cu130
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+# Expected: 2.10.0+cu130 True
+
+# Isaac Lab (develop branch) + rsl_rl, editable (the $ISAACLAB checkout)
+cd ~/Documents/repos/IsaacLab
+git fetch origin develop && git checkout develop
+./isaaclab.sh --install rsl_rl
+```
+
+**Install the strafer packages** into that env:
+
+```bash
+cd ~/Workspace/Sim2RealLab
+source env_setup.sh          # loads .env; exports LD_PRELOAD (libgomp) + $ISAACLAB
+conda activate env_isaaclab3
+
+pip install -e source/strafer_shared
+# --no-build-isolation: a transitive dep (flatdict) uses legacy pkg_resources
 pip install --no-build-isolation -e source/strafer_lab
 ```
 
-For the Infinigen-only conda env (`env_infinigen`) holding the aarch64 source-built `bpy==4.2.0` wheel, see the `README.md` inside the sibling `~/Workspace/blender-build/` directory — those artifacts live outside this repo because they are machine-specific.
+Isaac Lab's aarch64 installer requires `LD_PRELOAD=/lib/aarch64-linux-gnu/libgomp.so.1`;
+`env_setup.sh` exports it, so source that rather than setting it by hand
+before every Isaac Lab command.
 
-Smoke test:
+**Smoke test:**
 
 ```bash
 python -c "
@@ -202,7 +249,20 @@ from strafer_lab.tools.spatial_description import SpatialDescriptionBuilder
 from strafer_lab.tools.retired.dataset_export import run_export
 print('strafer_lab tools OK')
 "
+
+# Registered Strafer envs — 3 RL families × {train, play} + 3 capture = 9
+python -c "import strafer_lab, gymnasium as gym; \
+  print(sorted(e for e in gym.envs.registry if 'Strafer' in e))"
 ```
+
+**DGX Spark limitations** (Isaac Sim aarch64 build): no SkillGen, no
+OpenXR, no JAX-GPU, no Livestream — none affect `strafer_lab`. `nvidia-smi`
+reports VRAM as `[N/A]` because the GB10 shares unified memory with the
+CPU; watch `free -h` for memory pressure at high `--num_envs` instead.
+
+For the Infinigen-only conda env (`env_infinigen`, aarch64 source-built
+`bpy==4.2.0`), see the `README.md` in the sibling `~/Workspace/blender-build/`
+directory — those artifacts are machine-specific and live outside this repo.
 
 ### Windows workstation
 
@@ -213,13 +273,12 @@ cd C:\Workspace
 python -m pip install -e source/strafer_lab source/strafer_shared
 ```
 
-Three environments partition the DGX stack:
-
-| Env | Purpose | Key contents |
-|---|---|---|
-| `env_isaaclab3` | Isaac Sim + Isaac Lab + `strafer_lab` | Python 3.12, Isaac Sim 6 (bundled in Isaac Lab 3.0 develop), `pxr` via `.pth` |
-| `env_infinigen` | Infinigen procedural scene generation | Python 3.11, source-built `bpy==4.2.0` wheel, Infinigen 1.19.x editable `--no-deps` |
-| `.venv_vlm` | VLM / planner services, batch scripts, tests | Python 3.12, PyTorch cu128, transformers, `strafer_vlm`, `strafer_autonomy` |
+Three environments partition the DGX stack — `env_isaaclab3` (this
+package, Isaac Sim/Lab + CUDA torch 2.10), `.venv_vlm` (the VLM + planner
+services, on a faster-moving torch 2.11), and `env_infinigen` (scene-gen,
+Python 3.11). The full table, the why-separate rationale, and each
+recreate recipe live in
+[`repo-topology.md` → Python environments (DGX)](../../docs/tasks/context/repo-topology.md#python-environments-dgx).
 
 ## Run
 

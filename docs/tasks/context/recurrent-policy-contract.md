@@ -125,7 +125,7 @@ other, or one path emitting a different activation than the trained
 graph).
 
 The integration test that pins this is
-[`source/strafer_lab/tests/test_recurrent_contract_e2e.py`](../../../source/strafer_lab/tests/test_recurrent_contract_e2e.py).
+[`source/strafer_lab/tests/contracts/test_recurrent_contract_e2e.py`](../../../source/strafer_lab/tests/contracts/test_recurrent_contract_e2e.py).
 
 ## What this module is NOT
 

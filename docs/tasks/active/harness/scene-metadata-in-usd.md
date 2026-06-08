@@ -78,16 +78,17 @@ deprecation window and no shim"). Meets all of:
   resolver (`resolve_scene_metadata_path` / `find_metadata_for_usd`) is
   deleted — the reader takes the USD path directly; nothing crawls for a
   sibling JSON.
-- [ ] **Test strategy (keeps the fast venvs `pxr`-free):**
+- [ ] **Test strategy:**
   - Pure-data seams for the fast suites — `teleop_mission_picker` already has
     `load_candidates_from_data`; add the equivalent for `scene_labels`. The
-    `.venv_harness` (`make test-harness`) and `.venv_vlm` (`make test-dgx`,
-    autonomy) suites test against in-memory dicts — no `pxr`.
+    `.venv_vlm` (`make test-dgx`, autonomy) suite tests against in-memory
+    dicts — it has no `pxr`.
   - The reader's USD round-trip + `test_scene_provider_contract.py`'s parity
-    check are `pytest.importorskip("pxr")`-gated and run in the Kit suite
-    (`run_tests.py`). *(Alternative for fuller fast-suite coverage:
-    `pip install usd-core` into both venvs and run the reader there.)*
-  - `make test-dgx`, `make test-harness`, and the Kit suite all green; **no
+    check are `pytest.importorskip("pxr")`-gated. Since the harness fold,
+    `env_isaaclab3` carries `pxr`, so they now run under `make test-lab-pure`
+    (the strafer_lab pure-Python suite) as well as the Kit suite — no
+    `usd-core` side-install needed.
+  - `make test-dgx`, `make test-lab`, and the Kit suite all green; **no
     test resolves a sidecar path** — the clean-break proof at the test layer.
 - [ ] **Regenerate the scene corpus** so every scene under
   `Assets/generated/scenes/` carries `customData` and no sidecar (re-run the
@@ -115,11 +116,12 @@ falling back to a stale sidecar (the exact failure mode this brief kills).
 
 - **USD file size**: the embedded dict adds tens of KB per scene (mostly
   `objects[]`). Negligible vs the geometry payload.
-- **`pxr` in the fast test venvs**: reading `customData` needs `pxr`, which
-  `.venv_harness` and `.venv_vlm` lack — and with the sidecar gone there is no
-  JSON fallback for them. Mitigated by the pure-data seams + the
-  `pxr`-gated reader test (Acceptance): the reader is the *only* `pxr`-bound
-  path and the fast suites never hit it. (Or add `usd-core` to both venvs.)
+- **`pxr` outside `env_isaaclab3`**: reading `customData` needs `pxr`.
+  `env_isaaclab3` (which now hosts the strafer_lab pure-Python suite,
+  `make test-lab-pure`) has it, so the reader test runs there; only the
+  `.venv_vlm` autonomy suite lacks `pxr`, and with the sidecar gone there is
+  no JSON fallback for it. Mitigated by the pure-data seams: the reader is
+  the *only* `pxr`-bound path and the `.venv_vlm` suite never hits it.
 - **Tooling unaware of `customData`**: usdview / Omniverse Composer show the
   embedded dict in the property panel (benign). Replicator's annotators don't
   read `customData`, so RL / perception pipelines are unaffected.

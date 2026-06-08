@@ -196,7 +196,7 @@ config becomes a deployment target.
 ### Phase 3 — Tests
 
 Extend
-[`source/strafer_lab/tests/test_export_policy.py`](../../../source/strafer_lab/tests/test_export_policy.py):
+[`source/strafer_lab/tests/policy_tooling/test_export_policy.py`](../../../source/strafer_lab/tests/policy_tooling/test_export_policy.py):
 
 - Build a tiny `_OnnxDepthGRUModel`-shaped dummy (depth encoder = 1
   linear layer; GRU = `nn.GRU(...)`; MLP = `nn.Linear`). Verify ONNX
@@ -227,7 +227,7 @@ sweep happens after rsync per the strafer-inference brief.
 
 ### Build / structure
 
-- [ ] `python -m pytest source/strafer_lab/tests/test_export_policy.py`
+- [ ] `python -m pytest source/strafer_lab/tests/policy_tooling/test_export_policy.py`
       passes — including the new `_OnnxDepthGRUModel` tests.
 - [ ] `StraferDepthRNNModel.as_onnx()` no longer raises
       `NotImplementedError` for the GRU + depth case; LSTM still raises

@@ -16,7 +16,7 @@ __pycache__/
 *.pyd
 *.cpython-*.pyc
 *.egg-info/
-source/strafer_lab/test/sensors/depth_noise/debug_output/
+source/strafer_lab/test_sim/sensors/depth_noise/debug_output/
 
 # Test runner output
 test_results*.xml

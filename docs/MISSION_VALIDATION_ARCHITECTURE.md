@@ -269,7 +269,7 @@ the v1 stack's multi-room work ships. This means:
 ### 2.2 Structural: the bandwidth lost between perception camera and CLIP input
 
 `d555_camera_perception` publishes 640×360 RGB
-([`source/strafer_lab/test/sensors/test_d555_perception_cfg.py:50`](../source/strafer_lab/test/sensors/test_d555_perception_cfg.py#L50)).
+([`source/strafer_lab/test_sim/sensors/test_d555_perception_cfg.py:50`](../source/strafer_lab/test_sim/sensors/test_d555_perception_cfg.py#L50)).
 `clip_encoder._preprocess_image` shorter-side-resizes to 224 and
 center-crops to 224×224
 ([`clip_encoder.py:25-47`](../source/strafer_autonomy/strafer_autonomy/semantic_map/clip_encoder.py#L25-L47)).

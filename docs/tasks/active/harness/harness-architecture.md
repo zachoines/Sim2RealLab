@@ -537,7 +537,7 @@ Lifted from the source briefs:
 - Bridge mainloop tick boundary: [`run_sim_in_the_loop.py`](../../../../source/strafer_lab/scripts/run_sim_in_the_loop.py); phase-profiler scaffold at lines 258–350.
 - Current writer (to be replaced): [`source/strafer_lab/strafer_lab/tools/perception_writer.py`](../../../../source/strafer_lab/strafer_lab/tools/perception_writer.py).
 - Gamepad mapping: [`source/strafer_lab/scripts/collect_demos.py`](../../../../source/strafer_lab/scripts/collect_demos.py). Reused verbatim for teleop.
-- Camera resolutions: 640×360 perception, 80×60 policy; [`test_d555_perception_cfg.py:50`](../../../../source/strafer_lab/test/sensors/test_d555_perception_cfg.py#L50).
+- Camera resolutions: 640×360 perception, 80×60 policy; [`test_d555_perception_cfg.py:50`](../../../../source/strafer_lab/test_sim/sensors/test_d555_perception_cfg.py#L50).
 - Depth format reference (sim-real convention): [`depth_downsampler.py:3-7`](../../../../source/strafer_ros/strafer_perception/strafer_perception/depth_downsampler.py#L3-L7) — 16UC1 millimeters.
 - LeRobot v3 spec: [https://huggingface.co/docs/lerobot/](https://huggingface.co/docs/lerobot/) (current major at PR-pickup time).
 - GR00T modality.json examples: [https://github.com/NVIDIA/Isaac-GR00T](https://github.com/NVIDIA/Isaac-GR00T) under `getting_started/`.

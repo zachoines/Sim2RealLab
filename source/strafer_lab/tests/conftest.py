@@ -1,6 +1,6 @@
 """Pytest config for tests that don't require Isaac Sim.
 
-The sibling ``test/`` tree launches Isaac Sim once at session start; tests
+The sibling ``test_sim/`` tree launches Isaac Sim once at session start; tests
 in *this* tree exercise pure-Python helpers (e.g. the export plumbing
 verifies a torch -> .pt -> torch.jit.load round-trip without a sim env)
 and are intentionally isolated from that conftest.

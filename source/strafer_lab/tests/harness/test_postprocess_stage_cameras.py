@@ -7,7 +7,7 @@ cleanliness pass — it declutters ``usdview`` / Composer but is NOT a perf
 lever (the operator confirmed disabling them in the editor produced no FPS
 change). These tests lock the matcher and the strip behaviour.
 
-Runs in ``.venv_harness`` — needs ``pxr``, no Isaac Sim.
+Runs without Isaac Sim — needs ``pxr`` (present in env_isaaclab3).
 """
 
 from __future__ import annotations

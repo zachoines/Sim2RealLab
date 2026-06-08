@@ -52,8 +52,7 @@ Lifecycle::
     writer.finalize()  # call on exit; or use as context manager
 
 The class is pure-Python aside from the lerobot import — it does not
-touch Isaac Sim, ROS, or any sim-only state. Unit-testable from the
-.venv_harness venv.
+touch Isaac Sim, ROS, or any sim-only state. Unit-testable without Isaac Sim.
 """
 
 from __future__ import annotations
@@ -758,7 +757,7 @@ class StraferLeRobotWriter:
         """Persist the strafer per-episode extension parquet."""
         if not self._episode_extensions:
             return
-        # pyarrow is a lerobot dep, available in .venv_harness.
+        # pyarrow is a lerobot dep.
         import pyarrow as pa
         import pyarrow.parquet as pq
 

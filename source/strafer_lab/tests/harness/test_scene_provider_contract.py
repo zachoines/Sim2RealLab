@@ -17,7 +17,7 @@ Also covers the ``--ceiling-light-prim-pattern`` knob on
 the actual injection override is exercised in
 ``test_postprocess_collider_approx.py`` under ``pytest.importorskip``).
 
-Runs in ``.venv_harness`` (needs lerobot, not Isaac Sim).
+Runs without Isaac Sim (needs lerobot).
 """
 
 from __future__ import annotations

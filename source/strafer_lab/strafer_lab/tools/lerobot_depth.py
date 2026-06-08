@@ -18,8 +18,7 @@ real-robot perception stack's convention in
 ``strafer_perception/depth_downsampler.py`` so sim and real depth share
 one format.
 
-This module is pure-Python — no torch, no LeRobot. Unit-testable from
-``.venv_harness`` against synthetic arrays. Callers (writer +
+This module is pure-Python — no torch, no LeRobot. Unit-testable directly against synthetic arrays. Callers (writer +
 consumers) import from here.
 """
 

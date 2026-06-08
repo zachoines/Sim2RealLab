@@ -362,23 +362,26 @@ Jetson side (either mode) launches `bringup_sim_in_the_loop.launch.py` from [`st
 
 ## Testing
 
-The package has two test trees with different runtime assumptions:
+Both test trees run in `env_isaaclab3`; the split is whether they boot Kit:
 
-- **`test/`** — env / sensor / reward / observation suites that need Isaac Sim. The root `test/conftest.py` boots Kit headlessly once per session; use `run_tests.py` for clean output (direct pytest is drowned by Kit startup noise, and the root conftest calls `os._exit()` before pytest can print its summary).
-- **`tests/`** — pure-Python suites that exercise plumbing without Isaac Sim (today: `test_export_policy.py` for the export tooling helpers, `test_load_policy.py` for the `strafer_shared.policy_interface` loader contract, `test_obs_contract_parity.py` for the policy observation contract, `test_recurrent_contract_e2e.py` for the recurrent hidden-state contract across `.pt` ↔ `.onnx`). Run via plain `pytest`; no Kit boot, sub-second iteration.
+- **`test_sim/`** — env / sensor / reward / observation suites that need Isaac Sim. The root `test_sim/conftest.py` boots Kit headlessly once per session; use `run_tests.py` for clean output (direct pytest is drowned by Kit startup noise, and the root conftest calls `os._exit()` before pytest can print its summary).
+- **`tests/`** — suites that run without booting Kit, foldered by intent:
+  - **`tests/harness/`** — capture / writer / mission-picker / profiler tooling (lerobot + USD/`pxr`).
+  - **`tests/policy_tooling/`** — `test_export_policy.py`, `test_load_policy.py`: the `.pt`/`.onnx` export and `strafer_shared.policy_interface` loader round-trips.
+  - **`tests/contracts/`** — `test_action_clamp.py`, `test_obs_contract_parity.py`, `test_recurrent_contract_e2e.py`: the sim↔real boundary guards (action clamp, encoder-FK observation parity, recurrent hidden-state contract).
+
+`tests/` imports `lerobot` / `pxr` / `warp` / `isaaclab_tasks` / `onnx`, all of which `env_isaaclab3` already carries — so the whole pure-Python tree runs there (no separate `.venv_harness`).
 
 ```bash
-cd /home/zachoines/Workspace/Sim2RealLab/source/strafer_lab
+# Everything strafer_lab (Kit suites + pure-Python), from the repo root
+make test-lab
 
-# Isaac-Sim suites (test/) -- via run_tests.py
-python run_tests.py all
+# Fast iteration — pure-Python tests/ only, no Kit boot (~seconds)
+make test-lab-pure
 
-# Subset for fast iteration
-python run_tests.py noise_models depth_noise imu sensors
-python run_tests.py terminations events commands observations curriculums
-
-# Plain-Python suites (tests/) -- direct pytest, no Isaac Sim
-python -m pytest tests/
+# Kit suites directly, or a subset for fast iteration
+$ISAACLAB -p source/strafer_lab/run_tests.py all
+$ISAACLAB -p source/strafer_lab/run_tests.py noise_models depth_noise imu sensors
 ```
 
 Available suites: `terminations`, `events`, `commands`, `observations`, `curriculums`, `rewards`, `sensors`, `actions`, `env`, `noise_models`, `depth_noise`, `imu`.

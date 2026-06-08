@@ -63,11 +63,11 @@ save_episode / finalize`) was end-to-end smoke-tested against this
 install and works.
 
 Pure-Python unit tests (writer / depth / mission picker / button
-translator / CLI dispatch / scene-path resolver) run in `.venv_harness`,
-isolated from the Isaac Lab runtime stack:
+translator / CLI dispatch / scene-path resolver) run in `env_isaaclab3`
+without booting Kit:
 
 ```bash
-make test-harness
+make test-lab-pure
 ```
 
 ---

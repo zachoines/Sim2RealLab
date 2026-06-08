@@ -10,7 +10,7 @@ already relies on.
 
 The pygame import is deferred to :meth:`GamepadReader.__init__` so the
 module is importable from environments without pygame (the
-``.venv_harness`` unit tests use this to exercise the pure-Python
+unit tests use this to exercise the pure-Python
 ``button_state_to_episode_outcome`` translator and the static button-map
 table without instantiating a real reader).
 

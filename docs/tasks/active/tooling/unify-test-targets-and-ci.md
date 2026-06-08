@@ -121,11 +121,10 @@ list and the documented behavior converge:
 |---|---|
 | `make test-autonomy` | `python -m pytest source/strafer_autonomy/tests/ -m "not requires_ros"` — host-agnostic, no venv requirement beyond `pip install -e source/strafer_autonomy` |
 | `make test-vlm` | `$(VENV_VLM)/bin/python -m pytest source/strafer_vlm/tests/` — DGX-only (gated on `.venv_vlm` presence with a clear "run `make install-tools` first" error if missing) |
-| `make test-harness` | `$(VENV_HARNESS)/bin/python -m pytest source/strafer_lab/tests/harness/` — DGX-only; the lerobot writer/capture suite, isolated in `.venv_harness` only because lerobot pulls CPU torch. (This brief just *names* it in the umbrella; whether it can fold into `env_isaaclab3` is the env-consolidation probe in [`install-docs-consolidation`](../../parked/tooling/install-docs-consolidation.md).) |
 | `make test-ros` | `colcon test` over `strafer_ros/*` packages (alias of the current `make test`, but renamed so its scope is self-documenting) |
 | `make test-driver` | direct-pytest path for `strafer_driver/test/` (alias of the current `make test-unit`, renamed to reflect what it is) |
-| `make test-lab` | `isaaclab -p source/strafer_lab/run_tests.py all` — DGX-only (gated on `$ISAACLAB` resolving to an executable) |
-| `make test-dgx` | composite of `test-autonomy` + `test-vlm` + `test-harness` + `test-lab` — the **repo-wide DGX e2e umbrella** (each suite in its own env, from one command) |
+| `make test-lab` | **All strafer_lab tests in `env_isaaclab3`** — `isaaclab -p source/strafer_lab/run_tests.py all` (Kit suites) **+** `pytest source/strafer_lab/tests/` (pure-Python: harness + policy_tooling + contracts). DGX-only (gated on `$ISAACLAB`). Already shipped (test-tree-unification PR). It **absorbed the former `test-harness`**: the `.venv_harness` fold is confirmed + executed (lerobot coexists with `env_isaaclab3`'s CUDA torch; the harness suite also gained `pxr`). `make test-lab-pure` runs just the pure-Python half for fast iteration. |
+| `make test-dgx` | composite of `test-autonomy` + `test-vlm` + `test-lab` — the **repo-wide DGX e2e umbrella** (each suite in its env: `.venv_vlm` for vlm, `env_isaaclab3` for the lab umbrella, autonomy host-agnostic) |
 | `make test-jetson` | composite of `test-autonomy` + `test-ros` + `test-driver` — Jetson-friendly umbrella |
 | `make test` | dispatches to `test-jetson` or `test-dgx` based on host detection (preferred) or is left as today's colcon alias with a deprecation echo (acceptable) |
 
@@ -133,8 +132,8 @@ Back-compat aliases (`test-unit`) kept; new names are the preferred
 forms. The `help` target's auto-generated comment lines should make
 the per-host umbrellas the visible defaults.
 
-**On "a single `make test-all` orchestrator":** with `test-harness` folded
-into the `test-dgx` composite above, `make test-dgx` (and the host-dispatched
+**On "a single `make test-all` orchestrator":** with the strafer_lab suites
+unified under `test-lab` and folded into the `test-dgx` composite above, `make test-dgx` (and the host-dispatched
 `make test`) *is* the one-command repo-wide e2e — every suite runs in its
 correct env — that the env-topology discussion raised. No separate
 `test-all` target is warranted; the full cross-host suite is `test-dgx` +
@@ -170,16 +169,15 @@ locked-scope deliverable is Part 1.
       source/strafer_autonomy`, and exits 0 on a green tree.
 - [ ] `make test-jetson` runs successfully on Jetson and covers
       autonomy + ROS-package tests.
-- [ ] `make test-harness` exists (the `.venv_harness` lerobot writer/capture
-      suite) and is part of the `make test-dgx` composite.
 - [ ] `make test-dgx` runs successfully on DGX and covers
-      autonomy + VLM + harness + lab tests (with `lab` gateable behind an
-      env flag if the operator wants to skip the heavy suite) — i.e. it is
-      the single repo-wide DGX e2e command, each suite in its own env.
-- [ ] `make test-lab` exists and wraps `run_tests.py` — running
-      `make test-lab` from a fresh shell on the DGX (with
-      `env_setup.sh` sourced) produces the same JUnit XML output
-      the bespoke invocation produces today.
+      autonomy + VLM + lab tests (with `lab` gateable behind an
+      env flag if the operator wants to skip the heavy Kit suite) — i.e. it is
+      the single repo-wide DGX e2e command. Only two DGX test envs now:
+      `.venv_vlm` (vlm) and `env_isaaclab3` (the lab umbrella).
+- [ ] `make test-lab` (already shipped) is in the composite — it runs
+      `run_tests.py all` (Kit) + `pytest tests/` (pure-Python) in
+      `env_isaaclab3`. The former `make test-harness` is gone (folded in);
+      `make test-lab-pure` is the fast pure-Python-only iteration target.
 - [ ] `make help` lists the new targets with one-line descriptions;
       the deprecated `test-unit` either remains aliased or prints a
       one-line note pointing at `test-driver`.

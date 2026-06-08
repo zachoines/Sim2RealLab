@@ -62,6 +62,7 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | Brief | Pri | State | Owner |
 |---|---|---|---|
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | P3 | active | DGX |
+| [`policy-export-deprecation-migration`](active/trained-policy/policy-export-deprecation-migration.md) | P3 | active | DGX |
 | [`strafer-direct-sim-validation`](active/trained-policy/strafer-direct-sim-validation.md) | P2 | active | Either |
 | [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | P1 | active | Either |
 | [`encoder-noise-shared-sample`](active/trained-policy/encoder-noise-shared-sample.md) | P2 | active | DGX |
@@ -140,7 +141,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 |---|---|---|---|
 | [`nav2-sim-real-promotion-architecture`](active/tooling/nav2-sim-real-promotion-architecture.md) | P2 | active | Jetson |
 | [`unify-test-targets-and-ci`](active/tooling/unify-test-targets-and-ci.md) | P3 | active | Either |
-| [`strafer-lab-test-tree-unification`](active/tooling/strafer-lab-test-tree-unification.md) | P3 | active | DGX |
+| [`isaac-lab-upgrade`](active/tooling/isaac-lab-upgrade.md) | P3 | active | DGX |
 | [`script-tool-subsystem-grouping`](active/tooling/script-tool-subsystem-grouping.md) | P3 | active | DGX |
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | P2 | active | DGX |
 | [`install-docs-consolidation`](parked/tooling/install-docs-consolidation.md) | P2 | parked (blocked on `windows-workstation-bringup`) | Coordinator (DGX) + per-host agents |
@@ -162,6 +163,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`real-d555-depth-range-survey`](active/investigations/real-d555-depth-range-survey.md) | P2 | active | Jetson |
 | [`training-throughput-profile-and-investigate`](active/investigations/training-throughput-profile-and-investigate.md) | P2 | active | DGX |
 | [`defm-preprocess-antialias-audit`](active/investigations/defm-preprocess-antialias-audit.md) | P3 | active | DGX |
+| [`collision-imu-signal-flaky`](active/investigations/collision-imu-signal-flaky.md) | P3 | active | DGX |
 
 ---
 
@@ -233,10 +235,12 @@ session. Parked briefs are not listed here — see **By epic** or
 | Brief | Owner | Estimate | Note |
 |---|---|---|---|
 | [`unify-test-targets-and-ci`](active/tooling/unify-test-targets-and-ci.md) | Either | M | Makefile unification + stretch CI workflow. Doesn't block features; bumps to P2 once a second drift incident shows up. |
-| [`strafer-lab-test-tree-unification`](active/tooling/strafer-lab-test-tree-unification.md) | S–M | Reorganize the strafer_lab test layout: rename the singular `test/` (Isaac-Sim tree) so it no longer reads as a typo of `tests/`, and fold the `tests/` root (policy export/load + action/obs/recurrent sim-real contracts) into intent-named subdirs. Five root files currently run by no `make` target. Layout seam to `unify-test-targets-and-ci`'s invocation seam. |
 | [`script-tool-subsystem-grouping`](active/tooling/script-tool-subsystem-grouping.md) | DGX | M | Sub-group `scripts/` by sub-system (policy/ infinigen/ diagnostics/ harness/) **and** amend the conventions placement rule (flat → sub-system) — the shared rule that also governs `tools/`. `tools/` itself is owned by `tools-package-reorg` (deduped). `scripts/harness/` sequenced behind `harness-architecture`. |
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | DGX | S | Sidecar `training_preset` records the configclass name instead of the rsl_rl preset variable; cosmetic but the field is operator-facing. Filed off [`export-onnx-depth`](completed/export-onnx-depth.md). |
 | [`defm-preprocess-antialias-audit`](active/investigations/defm-preprocess-antialias-audit.md) | DGX | S–M | Measure projection-space delta between training-time DeFM antialiased preprocessing and the deployment ONNX-safe non-antialiased version, then decide alignment (leave / align deploy / align training). Filed off [`export-onnx-depth`](completed/export-onnx-depth.md). |
+| [`collision-imu-signal-flaky`](active/investigations/collision-imu-signal-flaky.md) | DGX | S–M | `test_collision_imu_mean_differs_from_free` flakes (~50%, same command) — post-restitution-0 collisions no longer clear the IMU-vs-free significance bar. Strengthen the scenario, re-frame the assertion, or retire it. Surfaced + un-masked by [`strafer-lab-test-tree-unification`](completed/strafer-lab-test-tree-unification.md). |
+| [`isaac-lab-upgrade`](active/tooling/isaac-lab-upgrade.md) | DGX | M–L | Bump the pinned Isaac Lab (develop @ 2026-04-23, ~6 wks stale) + recreate `env_isaaclab3`; re-validate the sim stack via `make test-lab` + training/bridge smokes. Records the torch delta for the `.venv_vlm` consolidation question. |
+| [`policy-export-deprecation-migration`](active/trained-policy/policy-export-deprecation-migration.md) | DGX | M–L | Move policy export off deprecated `torch.jit.*` / legacy `torch.onnx.export` (torch 2.9+ warnings) to a path the Jetson still loads, preserving determinism + the recurrent + cross-format-parity contracts. Gated by `isaac-lab-upgrade` (urgent once torch drops the legacy path). |
 | [`semantic-graph-loop-closure`](active/multi-room/semantic-graph-loop-closure.md) | DGX | M | v2 room-state — detect duplicate-place nodes via CLIP-similarity + spatial proximity, annotate as `same_place` edges. Quiet long-horizon quality lift; required infrastructure for the parked `semantic-map-lifecycle-merge`. |
 
 ---

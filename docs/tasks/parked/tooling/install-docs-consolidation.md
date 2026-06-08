@@ -35,18 +35,24 @@ package's features, contracts, setup, commands, design, and testing")
 right-hand column of that table. This brief realigns reality to that
 rule.
 
-**Environments are fragmented too.** "Install" today means choosing among
-**six** Python environments — `env_isaaclab3` (3.12; Isaac Sim/Lab + `pxr` +
-CUDA torch), `env_infinigen` (3.11; scene-gen), `.venv_vlm` (3.12; CUDA
-torch — VLM + autonomy tests), `.venv_harness` (3.12; **CPU** torch —
-lerobot tooling tests), plus two dead ones (`env_isaaclab` 3.11, superseded
-by `env_isaaclab3`; `blender-build-py311`, a one-time Blender-build env whose
-output binary is standalone). Some splits are forced (Infinigen needs 3.11;
-Isaac Sim's pinned stack + the vendored ROS2-3.11 `PYTHONPATH` leak), some
-are incidental (`.venv_harness` exists as a separate venv only because the
-installed lerobot pulled **CPU** torch and would downgrade `.venv_vlm`'s CUDA
-torch). A canonical install story must name which env is for what, why it's
-separate, and how to recreate it — and prune the dead ones.
+**Environments are fragmented too** — though one fork just closed. The live
+set is now **three**: `env_isaaclab3` (3.12; Isaac Sim/Lab + `pxr` + CUDA
+torch 2.10 + lerobot + warp/onnx — training, the sim bridge, **and all
+strafer_lab tests**), `env_infinigen` (3.11; scene-gen), and `.venv_vlm`
+(3.12; CUDA torch 2.11 + transformers 5.x — the VLM/planner service + its
+tests). Three others are gone or going: `env_isaaclab` (3.11, superseded by
+`env_isaaclab3`) and `blender-build-py311` (a one-time Blender-build env whose
+output binary is standalone) are dead; **`.venv_harness` is retired** — the
+test-tree-unification PR confirmed lerobot 0.5.1 coexists with
+`env_isaaclab3`'s CUDA torch (its old **CPU**-torch split was the only reason
+it existed), so the harness suite folded into `env_isaaclab3` and gained
+`pxr`. The two remaining splits are both **forced, not incidental**:
+Infinigen's 3.11 pin, and — the deeper one — `.venv_vlm` is kept **by design**
+because Isaac Sim's *compiled* torch is a hard floor (`env_isaaclab3` can't
+move off torch 2.10 without risking the sim) while the VLM/LLM stack wants the
+fast-moving ceiling (newer transformers/torch per newer models). A canonical
+install story must name which env is for what, why it's separate, and how to
+recreate it — and prune the dead ones.
 
 ## Acceptance
 
@@ -98,18 +104,19 @@ Ship a documentation pass that meets all of:
 - [ ] **Environment topology documented + rationalized.** `repo-topology.md`
   (and the relevant package READMEs) name the live conda/venv set, what each
   is for, the hard constraint that keeps it separate, and a copy-paste
-  recreate command. The two dead envs (`env_isaaclab`, `blender-build-py311`)
-  are deleted (after confirming nothing live references them). **Probe one
-  consolidation:** lerobot now ships CUDA support, so verify whether
-  `.venv_harness` can fold into `env_isaaclab3` (which already has CUDA torch
-  + `pxr`) instead of being a separate CPU-torch venv — if it can,
-  `make test-harness` runs in `env_isaaclab3`, the env count drops, and the
-  `scene-metadata-in-usd` reader gets
-  `pxr` in the harness suite for free. This `.venv_harness` probe needs no
-  Windows input — it can run ahead of the Windows-gated README pass. Record
-  the outcome; if no further consolidation is possible, that is the trigger
-  to file a standalone `python-env-topology` brief (prune + a `make test-all`
-  orchestrator + the env map only).
+  recreate command. **Prune:** delete the two dead envs (`env_isaaclab`,
+  `blender-build-py311`) **and** the now-retired `.venv_harness` dir (after
+  confirming nothing live references them — the Makefile/READMEs already
+  don't). The **`.venv_harness` consolidation probe is resolved + executed**
+  (test-tree-unification PR): lerobot 0.5.1 coexists with `env_isaaclab3`'s
+  CUDA torch 2.10, so the harness suite runs there (211 tests incl. the 27
+  `pxr` postprocess tests that previously skipped), the entry points are
+  `make test-lab` / `make test-lab-pure`, and the env count dropped to three.
+  **Record the `.venv_vlm` decision: kept by design** — cadence isolation
+  (Isaac Sim's compiled-torch floor vs the VLM/LLM stack's fast-moving
+  transformers/torch ceiling), so no further test-env consolidation is
+  pursued and the standalone `python-env-topology` fallback brief is **not**
+  needed.
 - [ ] If your work invalidates a fact in any referenced context module
   or guide, update those in the same commit (per
   [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)).

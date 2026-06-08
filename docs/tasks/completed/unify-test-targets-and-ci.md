@@ -1,5 +1,9 @@
 # Unify test invocation paradigms across Makefile + add CI/CD entry points
 
+**Status:** Shipped 2026-06-08 in `a0b3780` (DGX) — **Part 1 (Makefile unification) only.** Part 2 (CI/CD) was extracted to the follow-up below and is **not** shipped here.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/82
+**Follow-ups:** [`test-ci-workflow`](../active/tooling/test-ci-workflow.md) — the GitHub Actions matrix over `make test-*` (Part 2, carved out because it is outward-facing and needs the repo's Actions permissions + a self-hosted DGX runner).
+
 **Type:** task / tooling
 **Owner:** Either (Makefile + repo-root tooling lean DGX; `source/strafer_ros/*/test/` discovery touches Jetson lane; new GitHub Actions YAML is host-agnostic — primary owner picks based on which half is heavier when picked up)
 **Priority:** P3 (tooling polish; doesn't block features. Bumps to P2 once two or more independent test-paradigm drifts have been observed in flight.)
@@ -18,9 +22,9 @@ remembers to run the suite.**
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [context/conventions.md](../../context/conventions.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/conventions.md](../context/conventions.md)
 
 ## Context
 
@@ -68,7 +72,7 @@ predictable `make test-<thing>` interface.
 ## Finding: `run_tests.py` can false-green on a missing `lark` dep
 
 *Surfaced while trying to run the Isaac-Sim `test/` contract suite during
-the [`roller-contact-high-omega-bounce`](../sim-performance/roller-contact-high-omega-bounce.md)
+the [`roller-contact-high-omega-bounce`](roller-contact-high-omega-bounce.md)
 work (PR #76); filed here because this brief owns runner + CI invocation.*
 
 `pytest` auto-loads every installed plugin via entry points. Isaac Sim's
@@ -138,11 +142,16 @@ unified under `test-lab` and folded into the `test-dgx` composite above, `make t
 correct env — that the env-topology discussion raised. No separate
 `test-all` target is warranted; the full cross-host suite is `test-dgx` +
 `test-jetson`. **Which env each suite runs in** is documented by
-[`install-docs-consolidation`](../../parked/tooling/install-docs-consolidation.md)
+[`install-docs-consolidation`](../parked/tooling/install-docs-consolidation.md)
 (env topology) + `repo-topology.md`; this brief consumes that map rather than
 re-deriving it.
 
 ### Part 2: CI/CD on GitHub Actions (stretch)
+
+> **Extracted, not shipped here.** Part 2 moved to its own brief
+> [`test-ci-workflow`](../active/tooling/test-ci-workflow.md) when Part 1
+> shipped. The matrix below is preserved as the original plan; the follow-up
+> brief is the live home for it.
 
 A matrix workflow under `.github/workflows/test.yml`:
 
@@ -186,7 +195,7 @@ locked-scope deliverable is Part 1.
       output (suites run, PYTHONPATH handling, exit code) is the
       same modulo additionally running `lab` (which the env flag
       can suppress).
-- [ ] A short note in [`example_commands_cheatsheet.md`](../../../example_commands_cheatsheet.md)
+- [ ] A short note in [`example_commands_cheatsheet.md`](../../example_commands_cheatsheet.md)
       under a new **Testing** section documents the per-host
       umbrella commands.
 - [ ] (Stretch) `.github/workflows/test.yml` runs `autonomy` on

@@ -19,7 +19,7 @@ from the develop line, and learn whether a newer Isaac Sim reaches torch 2.11
 - [`context/conventions.md`](../../context/conventions.md)
 - Related: [`install-docs-consolidation`](../../parked/tooling/install-docs-consolidation.md)
   (env topology — this bump feeds its env map) and
-  [`unify-test-targets-and-ci`](unify-test-targets-and-ci.md) (`make test-lab`
+  [`unify-test-targets-and-ci`](../../completed/unify-test-targets-and-ci.md) (`make test-lab`
   is the re-validation gate).
 
 ## Context (measured)
@@ -81,7 +81,7 @@ wide blast radius, so the deliverable is dominated by re-validation.
 - The `.venv_vlm` fold itself (its own cadence call; this brief only measures
   the torch delta).
 - CI for the Kit suite (owned by
-  [`unify-test-targets-and-ci`](unify-test-targets-and-ci.md)).
+  [`unify-test-targets-and-ci`](../../completed/unify-test-targets-and-ci.md)).
 - Migrating policy export off deprecated APIs
   ([`policy-export-deprecation-migration`](../trained-policy/policy-export-deprecation-migration.md))
   — unless the new torch *removes* the legacy path, in which case that brief

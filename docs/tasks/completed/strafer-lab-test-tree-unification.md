@@ -26,7 +26,7 @@ Read these before starting:
 - [`context/ownership-boundaries.md`](../context/ownership-boundaries.md)
 - [`context/conventions.md`](../context/conventions.md)
 - **Sibling brief — coordinate, do not overlap:**
-  [`unify-test-targets-and-ci`](../active/tooling/unify-test-targets-and-ci.md). That brief
+  [`unify-test-targets-and-ci`](unify-test-targets-and-ci.md). That brief
   unifies **test *invocation*** (`make test-*` wrappers + CI) and treats
   `run_tests.py` as a black box; it explicitly excludes coverage/layout.
   This brief unifies the **physical *layout*** the wrappers point at. They
@@ -114,7 +114,7 @@ export mechanics — so they get their own `contracts/` home.
       Minimum: extend the harness target (or add a sibling) so
       `policy_tooling/` + `contracts/` are no longer orphaned — the five
       currently-unrun files execute and pass. (Coordinate the exact
-      target name with [`unify-test-targets-and-ci`](../active/tooling/unify-test-targets-and-ci.md).)
+      target name with [`unify-test-targets-and-ci`](unify-test-targets-and-ci.md).)
 - [ ] Imports / `conftest.py` / `pyproject` test-path globs updated so
       no test breaks on the move; `git mv` preserves history.
 - [ ] `make test-harness` (or its renamed successor) stays green at its
@@ -126,7 +126,7 @@ export mechanics — so they get their own `contracts/` home.
 ## Out of scope
 
 - **Test *invocation* unification + CI** — owned by
-  [`unify-test-targets-and-ci`](../active/tooling/unify-test-targets-and-ci.md). This brief
+  [`unify-test-targets-and-ci`](unify-test-targets-and-ci.md). This brief
   only moves files and ensures each tree is *reachable*; the polished
   `make test-<host>` umbrellas + GitHub Actions are that brief's.
 - **Folding `run_tests.py` into plain pytest.** Isaac Sim's `os._exit` /

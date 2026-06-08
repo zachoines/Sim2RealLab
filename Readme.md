@@ -381,19 +381,17 @@ commands across DGX / Jetson / operator workstation):
 
 ## Testing
 
+One command per host — `make test` auto-dispatches (DGX → `test-dgx`, Jetson → `test-jetson`); each suite runs in its own env:
+
 ```bash
-# DGX — all non-ROS tests (default in CI)
-python -m pytest source/strafer_autonomy/tests/ source/strafer_vlm/tests/ \
-    -m "not requires_ros" -v
-
-# DGX — Isaac Lab test suites (process-isolated)
-cd source/strafer_lab && python run_tests.py all
-
-# Jetson — ROS 2 package tests
-cd ~/strafer_ws && colcon test && colcon test-result --verbose
+make test            # auto-dispatch by host
+make test-dgx        # DGX e2e: autonomy + vlm + lab  (SKIP_KIT=1 skips the ~40-min Kit suite)
+make test-jetson     # Jetson e2e: autonomy + ros + driver
 ```
 
-The current test suite runs 350+ tests across autonomy + VLM without any service running; planner endpoint tests use an `autouse` fixture that points `PLANNER_MODEL` / `GROUNDING_MODEL` at `/nonexistent` to prevent model download during tests.
+Individual suites: `make test-autonomy` (planner/executor, host-agnostic), `make test-vlm` (VLM, `.venv_vlm`), `make test-lab` / `make test-lab-pure` (strafer_lab Kit + pure-Python, `env_isaaclab3`), `make test-ros` / `make test-driver` (Jetson colcon / driver). Full list: [`docs/example_commands_cheatsheet.md`](docs/example_commands_cheatsheet.md#run-test-cases).
+
+The autonomy + VLM suites run 800+ tests without any service running; planner endpoint tests use an `autouse` fixture that points `PLANNER_MODEL` / `GROUNDING_MODEL` at `/nonexistent` to prevent model download during tests.
 
 End-to-end validation: [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](docs/INTEGRATION_SIM_IN_THE_LOOP.md) is the gating cross-host runbook after every DGX rebuild.
 

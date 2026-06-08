@@ -362,25 +362,26 @@ Jetson side (either mode) launches `bringup_sim_in_the_loop.launch.py` from [`st
 
 ## Testing
 
-The package has two test trees, named for the interpreter they need:
+Both test trees run in `env_isaaclab3`; the split is whether they boot Kit:
 
 - **`test_sim/`** — env / sensor / reward / observation suites that need Isaac Sim. The root `test_sim/conftest.py` boots Kit headlessly once per session; use `run_tests.py` for clean output (direct pytest is drowned by Kit startup noise, and the root conftest calls `os._exit()` before pytest can print its summary).
 - **`tests/`** — suites that run without booting Kit, foldered by intent:
-  - **`tests/harness/`** — capture / writer / mission-picker / profiler tooling on the lerobot stack; runs in `.venv_harness` via `make test-harness`.
+  - **`tests/harness/`** — capture / writer / mission-picker / profiler tooling (lerobot + USD/`pxr`).
   - **`tests/policy_tooling/`** — `test_export_policy.py`, `test_load_policy.py`: the `.pt`/`.onnx` export and `strafer_shared.policy_interface` loader round-trips.
-  - **`tests/contracts/`** — `test_action_clamp.py`, `test_obs_contract_parity.py`, `test_recurrent_contract_e2e.py`: the sim↔real boundary guards (action clamp, encoder-FK observation parity, recurrent hidden-state contract). `policy_tooling/` and `contracts/` import `warp` / `isaaclab_tasks` / `onnx`, so they run in `env_isaaclab3` (no Kit boot) via `make test-lab-py`.
+  - **`tests/contracts/`** — `test_action_clamp.py`, `test_obs_contract_parity.py`, `test_recurrent_contract_e2e.py`: the sim↔real boundary guards (action clamp, encoder-FK observation parity, recurrent hidden-state contract).
+
+`tests/` imports `lerobot` / `pxr` / `warp` / `isaaclab_tasks` / `onnx`, all of which `env_isaaclab3` already carries — so the whole pure-Python tree runs there (no separate `.venv_harness`).
 
 ```bash
-# Isaac-Sim suites (test_sim/) -- via run_tests.py, from the repo root
+# Everything strafer_lab (Kit suites + pure-Python), from the repo root
+make test-lab
+
+# Fast iteration — pure-Python tests/ only, no Kit boot (~seconds)
+make test-lab-pure
+
+# Kit suites directly, or a subset for fast iteration
 $ISAACLAB -p source/strafer_lab/run_tests.py all
-
-# Subset for fast iteration
 $ISAACLAB -p source/strafer_lab/run_tests.py noise_models depth_noise imu sensors
-$ISAACLAB -p source/strafer_lab/run_tests.py terminations events commands observations curriculums
-
-# Pure-Python suites (no Kit boot), from the repo root
-make test-harness    # tests/harness/                          (.venv_harness)
-make test-lab-py     # tests/policy_tooling/ + tests/contracts/ (env_isaaclab3)
 ```
 
 Available suites: `terminations`, `events`, `commands`, `observations`, `curriculums`, `rewards`, `sensors`, `actions`, `env`, `noise_models`, `depth_noise`, `imu`.

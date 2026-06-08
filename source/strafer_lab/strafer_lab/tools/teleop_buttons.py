@@ -2,7 +2,7 @@
 
 Pure-Python — extracted from the in-process teleop loop so the mapping
 table from the harness brief's "Episode-end button mapping" section is
-unit-testable from ``.venv_harness`` without booting Isaac Sim.
+unit-testable without booting Isaac Sim.
 
 The translator takes a :class:`GamepadFrame`-shaped dict (buttons +
 D-pad) and returns a :class:`EpisodeEndDecision` carrying the

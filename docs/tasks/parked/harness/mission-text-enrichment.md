@@ -529,7 +529,7 @@ competitor set, so v2's color/material aren't appended unnecessarily
 - **v2's release gate.** Snapshot test from v1 still passes
   (uniqueness preserved); average mission_text length drops vs v1
   on the same scene (concision improved); no new
-  `make test-harness` failures.
+  `make test-lab-pure` failures.
 
 ## Out of scope
 

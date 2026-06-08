@@ -683,7 +683,7 @@ Sim runs in-process with the gamepad reading actions directly.
 - A USB or wireless gamepad attached to the DGX. Xbox One/Series, PS5
   DualSense, and Switch Pro are auto-detected; the family-aware button
   table lives in `strafer_lab.tools.gamepad_reader`.
-- `.venv_harness` is bootstrapped (`make test-harness` exits clean).
+- `env_isaaclab3` is set up (`make test-lab-pure` exits clean).
 
 **Invoke**
 
@@ -769,7 +769,7 @@ stack and sim corpus share one format.
 **Round-trip check**
 
 ```bash
-.venv_harness/bin/python -c "
+$STRAFER_ISAACLAB_PYTHON -c "
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 d = LeRobotDataset(repo_id='strafer/scene_high_quality_dgx_000_seed1',
                    root='data/sim_in_the_loop/scene_high_quality_dgx_000_seed1')

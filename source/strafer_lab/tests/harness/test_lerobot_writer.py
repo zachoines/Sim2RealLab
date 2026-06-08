@@ -5,7 +5,7 @@ Exercises the full lifecycle: ``create()`` → ``add_frame()`` →
 then re-loads the dataset via stock LeRobotDataset and confirms the
 schema, frame counts, and strafer sidecars all round-trip.
 
-Runs in ``.venv_harness`` only (requires lerobot, not Isaac Sim).
+Runs without Isaac Sim (requires lerobot).
 """
 
 from __future__ import annotations

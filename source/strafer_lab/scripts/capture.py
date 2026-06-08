@@ -54,7 +54,7 @@ VALID_COMBINATIONS: dict[tuple[str, str], tuple[str, str]] = {
 
 # Driver script lookup. The teleop driver is a sibling in this scripts/ dir —
 # it boots its own AppLauncher so capture.py stays Isaac-Sim-free and
-# importable from .venv_harness for unit tests.
+# importable without Isaac Sim for unit tests.
 _TELEOP_DRIVER_SCRIPT = Path(__file__).resolve().parent / "teleop_capture.py"
 
 

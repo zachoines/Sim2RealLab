@@ -1,6 +1,6 @@
 """Unit tests for the teleop-loop phase profiler.
 
-Pure stdlib — runs in ``.venv_harness`` with no Isaac Sim. Timings are
+Pure stdlib — runs with no Isaac Sim. Timings are
 exercised with monkeypatched clocks so assertions are deterministic
 rather than wall-clock-dependent.
 """

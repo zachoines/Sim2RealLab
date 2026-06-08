@@ -8,7 +8,7 @@ finished booting and OOM-killed the box. The default flip to
 ``convexHull`` is the fix; this test guards against a regression that
 would re-introduce the OOM.
 
-Runs in ``.venv_harness`` — needs ``pxr``, no Isaac Sim.
+Runs without Isaac Sim — needs ``pxr`` (present in env_isaaclab3).
 """
 
 from __future__ import annotations
@@ -20,9 +20,8 @@ from pathlib import Path
 import pytest
 
 
-# Skip cleanly when pxr isn't installed (e.g. on a fresh .venv_harness
-# without USD); CI configurations that pin the harness venv to pxr
-# will run the test for real.
+# Skip cleanly if pxr is absent; env_isaaclab3 (the canonical home)
+# ships it via Isaac Sim, so the test runs for real there.
 pytest.importorskip("pxr")
 
 

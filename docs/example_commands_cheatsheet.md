@@ -6,8 +6,24 @@ conda activate env_isaaclab3
 
 # Run test cases
 ```bash
-$ISAACLAB -p source/strafer_lab/run_tests.py all
+# One command per host — auto-dispatches (DGX -> test-dgx, Jetson -> test-jetson)
+make test
+
+# DGX e2e: autonomy + vlm + lab. SKIP_KIT=1 swaps the ~40-min Kit suite for
+# the fast pure-Python lab half.
 make test-dgx
+SKIP_KIT=1 make test-dgx
+
+# Jetson e2e: autonomy + ros + driver
+make test-jetson
+
+# Individual suites
+make test-autonomy   # planner/executor unit tests (host-agnostic)
+make test-vlm        # VLM service tests (.venv_vlm)
+make test-lab        # all strafer_lab: Kit (run_tests.py) + pure-Python, env_isaaclab3
+make test-lab-pure   # fast: strafer_lab pure-Python only, no Kit boot
+make test-ros        # ROS 2 packages via colcon (Jetson)
+make test-driver     # strafer_driver unit tests (Jetson)
 ```
 
 # Generate an Infinigen scene corpus (prerequisite for Infinigen training + harness capture)

@@ -91,14 +91,18 @@ def _run_subprocess(cmd: list[str], timeout: int, xml_path: Path) -> dict | None
     try:
         tree = ET.parse(xml_path)
     except (ET.ParseError, FileNotFoundError):
+        # No XML means the pytest subprocess died before writing it (a
+        # collection-time import error, a plugin-autoload crash, etc.). Count
+        # it as an error — never let an absent result read as a silent pass.
         return {"tests": 0, "passed": 0, "failed": 0,
-                "errors": 0, "skipped": 0, "details": ["  ERROR  XML not generated"]}
+                "errors": 1, "skipped": 0,
+                "details": ["  ERROR  XML not generated (subprocess crashed before writing results)"]}
 
     root = tree.getroot()
     suite = root.find(".//testsuite")
     if suite is None:
         return {"tests": 0, "passed": 0, "failed": 0,
-                "errors": 0, "skipped": 0, "details": ["  ERROR  No testsuite in XML"]}
+                "errors": 1, "skipped": 0, "details": ["  ERROR  No testsuite in XML"]}
 
     total = int(suite.get("tests", 0))
     errors = int(suite.get("errors", 0))
@@ -123,6 +127,12 @@ def _run_subprocess(cmd: list[str], timeout: int, xml_path: Path) -> dict | None
             details.append(f"  SKIP   {tc_name}")
         else:
             details.append(f"  PASS   {tc_name}  ({tc_time}s)")
+
+    if total == 0 and failures == 0 and errors == 0:
+        # Zero collected with nothing recorded is the false-green shape — a
+        # suite whose tests silently stopped matching/collecting. Fail loud.
+        errors = 1
+        details.append("  ERROR  0 tests collected")
 
     return {"tests": total, "passed": passed, "failed": failures,
             "errors": errors, "skipped": skipped, "details": details}

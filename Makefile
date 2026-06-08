@@ -13,7 +13,7 @@ ISAACLAB ?= $(HOME)/Documents/repos/IsaacLab/isaaclab.sh
 CONDA_ROOT ?= $(HOME)/miniconda3
 CONDA_ENV ?= env_isaaclab3
 
-.PHONY: build test test-unit test-dgx test-lab test-lab-pure lint lint-fix format format-check clean kill \
+.PHONY: build test test-unit test-driver test-ros test-autonomy test-vlm test-dgx test-jetson test-lab test-lab-pure lint lint-fix format format-check clean kill \
         launch launch-nav launch-autonomy launch-sim clean-map \
         install-tools udev serve-vlm serve-planner check-nvrtc help \
         sim-bridge sim-bridge-gui sim-harness
@@ -29,14 +29,71 @@ build: ## Build all ROS2 packages with colcon
 		colcon build --symlink-install
 
 # ---------- Test ----------
+# Per-suite building blocks, then per-host umbrellas. Run the umbrella for
+# your host — `make test` auto-dispatches (DGX -> test-dgx, Jetson ->
+# test-jetson); each suite runs in its own env. The strafer_lab Kit +
+# pure-Python suites are `test-lab` / `test-lab-pure`, defined further down.
 
-test: ## Run all colcon tests (requires build first)
+# Interpreter for the autonomy tests. Host-agnostic default (`python`); the
+# DGX umbrella overrides it to .venv_vlm, which carries strafer_autonomy.
+AUTONOMY_PY ?= python
+
+test-autonomy: ## Planner/executor unit tests — host-agnostic (needs `pip install -e source/strafer_autonomy`)
+	@# PYTHONPATH cleared so the vendored ROS 2 (3.11) site-packages
+	@# env_setup.sh adds for Isaac Sim can't leak launch_testing into
+	@# pytest's plugin autoload on the DGX.
+	PYTHONPATH= $(AUTONOMY_PY) -m pytest source/strafer_autonomy/tests/ \
+		-m "not requires_ros" -v
+
+test-vlm: ## VLM service tests — DGX-only (uses .venv_vlm)
+	@if [ ! -x "$(VENV_VLM)/bin/python" ]; then \
+		echo "ERROR: $(VENV_VLM) not found — bootstrap it first (see source/strafer_vlm/README.md)."; \
+		exit 1; \
+	fi
+	PYTHONPATH= $(VENV_VLM)/bin/python -m pytest source/strafer_vlm/tests/ -v
+
+test-ros: ## ROS 2 package tests via colcon — Jetson (run `make build` first)
 	cd $(COLCON_WS) && source /opt/ros/humble/setup.bash && \
 		colcon test && colcon test-result --verbose
 
-test-unit: ## Run strafer_driver unit tests directly with pytest
+test-driver: ## strafer_driver unit tests directly with pytest — Jetson
 	cd source/strafer_ros/strafer_driver && \
 		python -m pytest test/ -v
+
+test-dgx: ## DGX e2e umbrella — autonomy + vlm + lab, each in its env. SKIP_KIT=1 swaps the heavy Kit suite for the fast pure-Python lab half.
+	@rc=0; \
+	$(MAKE) --no-print-directory test-autonomy AUTONOMY_PY=$(VENV_VLM)/bin/python || rc=1; \
+	$(MAKE) --no-print-directory test-vlm || rc=1; \
+	if [ "$$SKIP_KIT" = "1" ]; then \
+		echo "[test-dgx] SKIP_KIT=1 — running test-lab-pure (no Kit boot) instead of test-lab"; \
+		$(MAKE) --no-print-directory test-lab-pure || rc=1; \
+	else \
+		$(MAKE) --no-print-directory test-lab || rc=1; \
+	fi; \
+	exit $$rc
+
+test-jetson: ## Jetson e2e umbrella — autonomy + ros + driver
+	@rc=0; \
+	$(MAKE) --no-print-directory test-autonomy || rc=1; \
+	$(MAKE) --no-print-directory test-ros || rc=1; \
+	$(MAKE) --no-print-directory test-driver || rc=1; \
+	exit $$rc
+
+test: ## Auto-dispatch to the per-host umbrella (DGX -> test-dgx, Jetson -> test-jetson)
+	@if [ -x "$(ISAACLAB)" ]; then \
+		echo "[test] Isaac Sim found ($(ISAACLAB)) — running test-dgx"; \
+		$(MAKE) --no-print-directory test-dgx; \
+	elif command -v colcon >/dev/null 2>&1; then \
+		echo "[test] colcon found — running test-jetson"; \
+		$(MAKE) --no-print-directory test-jetson; \
+	else \
+		echo "[test] Host not detected. Run 'make test-dgx' or 'make test-jetson' explicitly."; \
+		exit 1; \
+	fi
+
+test-unit: ## (deprecated) alias for test-driver
+	@echo "note: 'make test-unit' was renamed — use 'make test-driver'."
+	@$(MAKE) --no-print-directory test-driver
 
 # ---------- Lint / Format ----------
 
@@ -116,16 +173,6 @@ serve-vlm: check-nvrtc ## Start VLM grounding service on port 8100
 serve-planner: check-nvrtc ## Start LLM planner service on port 8200
 	$(VENV_VLM)/bin/uvicorn strafer_autonomy.planner.app:create_app \
 		--factory --host 0.0.0.0 --port $${PLANNER_PORT:-8200}
-
-test-dgx: ## Run autonomy + VLM tests (skips ROS-dependent tests)
-	@# Clear PYTHONPATH so the vendored ROS 2 Humble site-packages
-	@# (Python 3.11) env_setup.sh puts there for Isaac Sim don't leak
-	@# into .venv_vlm (Python 3.12). Pytest auto-discovers plugin entry
-	@# points across sys.path; with PYTHONPATH unset, launch_testing's
-	@# Python 3.11 modules aren't visible and pytest starts cleanly.
-	PYTHONPATH= $(VENV_VLM)/bin/python -m pytest \
-		source/strafer_autonomy/tests/ source/strafer_vlm/tests/ \
-		-m "not requires_ros" -v
 
 test-lab: ## Run ALL strafer_lab tests in env_isaaclab3 — Kit suites (run_tests.py) + pure-Python (tests/). The canonical strafer_lab gate.
 	@# Both halves live in env_isaaclab3: the Kit suites need the bespoke

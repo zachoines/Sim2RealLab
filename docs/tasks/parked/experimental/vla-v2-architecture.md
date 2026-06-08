@@ -242,7 +242,7 @@ behavior-cloning-grade.
    conservative LR (1e-5 to 1e-4 depending on which layers are
    unfrozen), MLflow tracking via the same
    `--mlflow-experiment` flag pattern that
-   [`finetune_clip.py`](../../../../source/strafer_lab/scripts/finetune_clip.py)
+   [`finetune_clip.py`](../../../../source/strafer_lab/scripts/retired/finetune_clip.py)
    uses.
 
 6. **Optional DPO/RLHF on outcomes.** Once SFT is stable, use

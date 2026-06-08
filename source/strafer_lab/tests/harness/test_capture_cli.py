@@ -1,4 +1,4 @@
-"""CLI validation tests for Scripts/capture.py.
+"""CLI validation tests for source/strafer_lab/scripts/capture.py.
 
 Exercise argparse + the (driver, mission-source) cross-product validator
 without launching Isaac Sim. The wired Tier 1 path (``teleop ×
@@ -17,8 +17,7 @@ from types import SimpleNamespace
 import pytest
 
 
-_REPO_ROOT = Path(__file__).resolve().parents[4]
-_SCRIPTS_DIR = _REPO_ROOT / "Scripts"
+_SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 

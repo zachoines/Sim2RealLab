@@ -19,7 +19,7 @@ Operator UX surfaces:
 
 Invocation (preferred — via the unified entry point)::
 
-    isaaclab -p Scripts/capture.py \\
+    isaaclab -p source/strafer_lab/scripts/capture.py \\
         --driver teleop --mission-source scene-metadata \\
         --scene <scene_id> --output <dataset_root>
 

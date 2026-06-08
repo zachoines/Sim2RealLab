@@ -106,7 +106,7 @@ sub-brief.
 
 The deliverables are:
 1. A `--profile` flag on
-   [`Scripts/train_strafer_navigation.py`](../../../../Scripts/train_strafer_navigation.py)
+   [`source/strafer_lab/scripts/train_strafer_navigation.py`](../../../../source/strafer_lab/scripts/train_strafer_navigation.py)
    that records per-phase p50 / p99 over a rolling window and
    prints periodic reports.
 2. A measurement report (committed alongside the profiler) of a
@@ -117,7 +117,7 @@ The deliverables are:
 
 ## Acceptance criteria
 
-- [ ] **Profiler implemented.** `Scripts/train_strafer_navigation.py`
+- [ ] **Profiler implemented.** `source/strafer_lab/scripts/train_strafer_navigation.py`
       gains a `--profile` flag mirroring the bridge runner's
       `--profile-interval` / `--profile-window` contract. Reuse
       `_PhaseProfiler` from
@@ -164,7 +164,7 @@ The deliverables are:
 ## Investigation pointers
 
 - **Training entry point** —
-  [`Scripts/train_strafer_navigation.py`](../../../../Scripts/train_strafer_navigation.py).
+  [`source/strafer_lab/scripts/train_strafer_navigation.py`](../../../../source/strafer_lab/scripts/train_strafer_navigation.py).
   The main loop is wrapped by `rsl_rl`'s `OnPolicyRunner`; the
   inner `env.step` call is what to instrument. The PPO update
   phase fires once every `num_steps_per_env` collection ticks

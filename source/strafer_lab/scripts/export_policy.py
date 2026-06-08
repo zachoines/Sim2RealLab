@@ -19,7 +19,7 @@ anchors at export time.
 CLI examples (DGX, ``env_isaaclab3`` conda env)::
 
     # NoCam (MLP) -- TorchScript only.
-    $ISAACLAB -p Scripts/export_policy.py \\
+    $ISAACLAB -p source/strafer_lab/scripts/export_policy.py \\
         --checkpoint logs/rsl_rl/strafer_navigation/<run>/model_<step>.pt \\
         --output models/strafer_nocam_v0 \\
         --variant NOCAM
@@ -27,14 +27,14 @@ CLI examples (DGX, ``env_isaaclab3`` conda env)::
     # Depth (RNN + depth encoder) -- both TorchScript and ONNX are
     # supported; ONNX uses the recurrent (obs, h_in) -> (actions, h_out)
     # signature, with hidden state owned by the inference loader.
-    $ISAACLAB -p Scripts/export_policy.py \\
+    $ISAACLAB -p source/strafer_lab/scripts/export_policy.py \\
         --checkpoint logs/rsl_rl/strafer_navigation/<run>/model_<step>.pt \\
         --output models/strafer_depth_v0 \\
         --variant DEPTH \\
         --formats pt,onnx
 
     # NoCam, both formats.
-    $ISAACLAB -p Scripts/export_policy.py \\
+    $ISAACLAB -p source/strafer_lab/scripts/export_policy.py \\
         --checkpoint logs/rsl_rl/strafer_navigation/<run>/model_<step>.pt \\
         --output models/strafer_nocam_v0 \\
         --variant NOCAM \\
@@ -477,7 +477,7 @@ def main() -> None:
         "--checkpoint",
         type=str,
         required=True,
-        help="Path to model_<step>.pt produced by Scripts/train_strafer_navigation.py.",
+        help="Path to model_<step>.pt produced by source/strafer_lab/scripts/train_strafer_navigation.py.",
     )
     parser.add_argument(
         "--output",
@@ -570,7 +570,7 @@ def main() -> None:
     output_stem, output_paths = _split_output(args.output, args.formats)
 
     # Launch Isaac Sim and reconstruct the rsl_rl runner exactly like
-    # Scripts/play_strafer_navigation.py does. We do not step the env --
+    # source/strafer_lab/scripts/play_strafer_navigation.py does. We do not step the env --
     # the runner is built only to deserialize the checkpoint into the
     # correctly-shaped actor model.
     app_launcher = AppLauncher(args)

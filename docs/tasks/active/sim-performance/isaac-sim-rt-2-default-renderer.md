@@ -79,6 +79,6 @@ Update the doc with the new numbers in the same commit.
 
 ## Out of scope
 
-- **Real-time policy training renderer.** Training default in `Scripts/train_strafer_navigation.py` is its own decision (Path-Tracing isn't used there anyway; just don't touch).
+- **Real-time policy training renderer.** Training default in `source/strafer_lab/scripts/train_strafer_navigation.py` is its own decision (Path-Tracing isn't used there anyway; just don't touch).
 - **DLSS quality / sharpness tuning.** Default presets are fine for v1; deeper DLSS tuning is a separate brief if it surfaces as a perception-side issue.
 - **Eliminating the bridge perf bottleneck entirely.** Camera-publish OmniGraph cost is tracked separately under `async-camera-publishers.md`. RT 2.0 chips at one piece of the loop; doesn't replace that work.

@@ -113,7 +113,7 @@ way.
 ### Why this brief exists
 
 The CLIP fine-tune target in
-[`finetune_clip.py`](../../../../source/strafer_lab/scripts/finetune_clip.py)
+[`finetune_clip.py`](../../../../source/strafer_lab/scripts/retired/finetune_clip.py)
 starts from OpenCLIP ViT-B/32 + `laion2b_s34b_b79k` weights —
 the same OpenAI-style 2021-era backbone the field has moved
 past on essentially every axis that matters for case-1 and
@@ -431,7 +431,7 @@ backbone loading changes, this is the gate.
 ## Investigation pointers
 
 - OpenCLIP export precedent:
-  [`finetune_clip.export_towers_to_onnx`](../../../../source/strafer_lab/scripts/finetune_clip.py#L262).
+  [`finetune_clip.export_towers_to_onnx`](../../../../source/strafer_lab/scripts/retired/finetune_clip.py#L262).
   Mirror the structure for the new backbones.
 - DINOv3 weights (hybrid fallback only): [`facebook/dinov3-small`](https://huggingface.co/facebook/dinov3-small)
   on HuggingFace; loads via `transformers` cleanly. Exported

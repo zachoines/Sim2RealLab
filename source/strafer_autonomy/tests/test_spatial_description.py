@@ -1,6 +1,6 @@
 """Tests for ``strafer_lab.tools.spatial_description`` and the
 description pipeline Stage-2/Stage-3 helpers in
-``source/strafer_lab/scripts/generate_descriptions.py``.
+``source/strafer_lab/scripts/retired/generate_descriptions.py``.
 
 These tests run in the strafer_autonomy test suite so the conftest's
 ``strafer_lab`` namespace stub applies.
@@ -29,7 +29,9 @@ from strafer_lab.tools.spatial_description import (
 # still resolve, but we don't require it to be installed.
 def _load_generate_descriptions():
     repo_root = Path(__file__).resolve().parents[3]
-    script_path = repo_root / "source" / "strafer_lab" / "scripts" / "generate_descriptions.py"
+    script_path = (
+        repo_root / "source" / "strafer_lab" / "scripts" / "retired" / "generate_descriptions.py"
+    )
     spec = importlib.util.spec_from_file_location("generate_descriptions", script_path)
     module = importlib.util.module_from_spec(spec)
     sys.modules["generate_descriptions"] = module

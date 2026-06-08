@@ -30,12 +30,12 @@ def _load_script(module_name: str, rel_path: str):
 
 @pytest.fixture(scope="module")
 def finetune_clip_mod():
-    return _load_script("finetune_clip", "finetune_clip.py")
+    return _load_script("finetune_clip", "retired/finetune_clip.py")
 
 
 @pytest.fixture(scope="module")
 def prepare_vlm_mod():
-    return _load_script("prepare_vlm_finetune_data", "prepare_vlm_finetune_data.py")
+    return _load_script("prepare_vlm_finetune_data", "retired/prepare_vlm_finetune_data.py")
 
 
 # ---------------------------------------------------------------------------

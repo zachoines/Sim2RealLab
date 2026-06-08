@@ -110,7 +110,7 @@ is ever worth it.
   `newton_actuators`.
 - MuJoCo solver options: `mujoco.mjtSolver` → `mjSOL_CG`, `mjSOL_NEWTON`,
   `mjSOL_PGS`.
-- `Scripts/setup_physics.py` — how the rollers are authored in PhysX
+- `source/strafer_lab/scripts/asset_authoring/setup_physics.py` — how the rollers are authored in PhysX
   (revolute joints, SDF collision on the barrel covers, rubber material);
   useful for judging what the USD→MuJoCo conversion should preserve.
 

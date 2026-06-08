@@ -351,7 +351,7 @@ In [`source/strafer_lab/strafer_lab/tasks/navigation/__init__.py`](../../../../s
 
 Smoke test:
 ```
-python Scripts/test_strafer_env.py --task Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-v0
+python source/strafer_lab/scripts/test_strafer_env.py --task Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-v0
 ```
 runs without errors, displays the path + subgoal markers in the
 Kit viewport, robot follows the path at the configured policy
@@ -417,7 +417,7 @@ deployed policy should be trained against it.
 
 - [ ] All four task IDs registered (`Real`/`Robust` × non-play /
       play). `gym.make(<id>)` succeeds for each.
-- [ ] `python Scripts/test_strafer_env.py --task Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-v0`
+- [ ] `python source/strafer_lab/scripts/test_strafer_env.py --task Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-v0`
       runs to completion without errors, with path + subgoal
       markers visible in the viewport.
 
@@ -450,10 +450,10 @@ deployed policy should be trained against it.
   variants).
 - [`source/strafer_shared/strafer_shared/policy_interface.py`](../../../../source/strafer_shared/strafer_shared/policy_interface.py)
   — `PolicyVariant` enum; pattern for adding new variants.
-- [`Scripts/train_strafer_navigation.py`](../../../../Scripts/train_strafer_navigation.py)
+- [`source/strafer_lab/scripts/train_strafer_navigation.py`](../../../../source/strafer_lab/scripts/train_strafer_navigation.py)
   — training entry point; should pick up the new task ID without
   changes if registration follows the existing pattern.
-- [`Scripts/play_strafer_navigation.py`](../../../../Scripts/play_strafer_navigation.py)
+- [`source/strafer_lab/scripts/play_strafer_navigation.py`](../../../../source/strafer_lab/scripts/play_strafer_navigation.py)
   — visualization entry point for Phase 5's qualitative check.
 - Reference implementations of A*/RRT in robotics-friendly form:
   `nav2_smac_planner` source (Apache 2.0, license-compatible),

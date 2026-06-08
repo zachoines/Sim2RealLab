@@ -191,7 +191,7 @@ In [`commands.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/m
 DEPTH baseline already exists from the ProcRoom-Depth env. Otherwise:
 
 ```
-python Scripts/train_strafer_navigation.py \
+python source/strafer_lab/scripts/train_strafer_navigation.py \
     --task Isaac-Strafer-Nav-RLDepth-Real-v0
 ```
 
@@ -212,7 +212,7 @@ Edit the env config to set `goal_position_noise_std=0.25` (mid-range
 of the measured 0.2–0.5 m VLM noise). Resume from the DEPTH baseline:
 
 ```
-python Scripts/train_strafer_navigation.py \
+python source/strafer_lab/scripts/train_strafer_navigation.py \
     --task Isaac-Strafer-Nav-RLDepth-Real-v0 \
     --resume logs/rsl_rl/strafer_navigation/baseline_depth_no_noise/model_<step>.pt \
     --max_iterations <baseline_iter * 0.15>
@@ -223,7 +223,7 @@ Save the noised checkpoint as
 
 ### Phase 4 — Comparative evaluation
 
-Run gym evaluation (`Scripts/play_strafer_navigation.py` with
+Run gym evaluation (`source/strafer_lab/scripts/play_strafer_navigation.py` with
 `--n-rollouts 100` or equivalent) on both checkpoints, sweeping
 `goal_position_noise_std` at evaluation time over `[0.0, 0.25, 0.5]` m:
 
@@ -295,7 +295,7 @@ baseline wasn't actually converged. Investigate before declaring done.
   `source/strafer_vlm/` if present; otherwise the `0.2–0.5 m` figure
   comes from the deferred-work entry's empirical estimate. Tighten
   this if better data exists.
-- [`Scripts/train_strafer_navigation.py`](../../../../Scripts/train_strafer_navigation.py)
+- [`source/strafer_lab/scripts/train_strafer_navigation.py`](../../../../source/strafer_lab/scripts/train_strafer_navigation.py)
   — training entry; check that it accepts `--resume` (or equivalent
   flag) for the Phase 3 resume.
 

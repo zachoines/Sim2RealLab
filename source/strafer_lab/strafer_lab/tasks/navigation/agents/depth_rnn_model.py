@@ -485,7 +485,7 @@ class _OnnxDepthGRUModel(nn.Module):
     ``register_buffer`` to an explicit ``h_in`` / ``h_out`` tensor pair, since
     ONNX nodes are stateless by construction. Signature matches rsl_rl's
     stock ``_OnnxRNNModel`` (``(obs, h_in) -> (actions, h_out)``) so the
-    multi-input export path in ``Scripts/export_policy.py`` consumes both
+    multi-input export path in ``source/strafer_lab/scripts/export_policy.py`` consumes both
     wrappers through one code path.
     """
 

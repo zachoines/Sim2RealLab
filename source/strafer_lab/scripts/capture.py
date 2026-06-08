@@ -7,7 +7,7 @@ a capture session that writes a LeRobot v3 dataset.
 
 ::
 
-    Scripts/capture.py
+    source/strafer_lab/scripts/capture.py
       --driver        {bridge, teleop, scripted}      ← who provides actions
       --mission-source {queue, captioner, coverage, scene-metadata}
       --scene         <scene_name>
@@ -52,13 +52,10 @@ VALID_COMBINATIONS: dict[tuple[str, str], tuple[str, str]] = {
 }
 
 
-# Driver script lookup. The teleop driver lives alongside collect_demos.py
-# in source/strafer_lab/scripts/ — it boots its own AppLauncher so capture.py
-# stays Isaac-Sim-free and importable from .venv_harness for unit tests.
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_TELEOP_DRIVER_SCRIPT = (
-    _REPO_ROOT / "source" / "strafer_lab" / "scripts" / "teleop_capture.py"
-)
+# Driver script lookup. The teleop driver is a sibling in this scripts/ dir —
+# it boots its own AppLauncher so capture.py stays Isaac-Sim-free and
+# importable from .venv_harness for unit tests.
+_TELEOP_DRIVER_SCRIPT = Path(__file__).resolve().parent / "teleop_capture.py"
 
 
 VALID_DRIVERS = sorted({d for d, _ in VALID_COMBINATIONS})

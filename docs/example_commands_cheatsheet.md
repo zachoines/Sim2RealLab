@@ -13,7 +13,7 @@ make test-dgx
 # Training fresh PPO policy
 ## (a) Fast, no video
 ```bash
-$ISAACLAB -p Scripts/train_strafer_navigation.py \
+$ISAACLAB -p source/strafer_lab/scripts/train_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
     --num_envs 64 \
     --max_iterations 10 --headless
@@ -21,7 +21,7 @@ $ISAACLAB -p Scripts/train_strafer_navigation.py \
 
 ## (b) Longer, with video
 ```bash
-$ISAACLAB -p Scripts/train_strafer_navigation.py \
+$ISAACLAB -p source/strafer_lab/scripts/train_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
     --num_envs 64 \
     --max_iterations 1000 \
@@ -36,7 +36,7 @@ tensorboard --logdir ~/Workspace/Sim2RealLab/logs/rsl_rl/strafer_navigation
 
 ## Evaluate Policy
 ```bash
-$ISAACLAB -p Scripts/play_strafer_navigation.py \
+$ISAACLAB -p source/strafer_lab/scripts/play_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLDepth-Real-Play-v0 \
     --checkpoint logs/rsl_rl/strafer_navigation/run_20260425_035916/model_999.pt \
     --viz kit --real_time --steps 2000
@@ -45,22 +45,22 @@ $ISAACLAB -p Scripts/play_strafer_navigation.py \
 # Env smoke tests 
 ## Quick test of the perception env (what the bridge uses)
 ```bash
-$ISAACLAB -p Scripts/test_strafer_env.py --env Isaac-Strafer-Nav-Capture-Teleop-v0 --num_envs 1 --duration 5 --headless
+$ISAACLAB -p source/strafer_lab/scripts/test_strafer_env.py --env Isaac-Strafer-Nav-Capture-Teleop-v0 --num_envs 1 --duration 5 --headless
 ```
 
 ## ProcRoom-Depth smoke (the variant you want full training on)
 ```bash
-$ISAACLAB -p Scripts/test_strafer_env.py --env Isaac-Strafer-Nav-RLDepth-Real-v0 --num_envs 2 --duration 5 --headless
+$ISAACLAB -p source/strafer_lab/scripts/test_strafer_env.py --env Isaac-Strafer-Nav-RLDepth-Real-v0 --num_envs 2 --duration 5 --headless
 ```
 
 ## NoCam smoke (fastest, guaranteed to run)
 ```bash
-$ISAACLAB -p Scripts/test_strafer_env.py --env Isaac-Strafer-Nav-RLNoCam-v0 --num_envs 8 --duration 10 --headless
+$ISAACLAB -p source/strafer_lab/scripts/test_strafer_env.py --env Isaac-Strafer-Nav-RLNoCam-v0 --num_envs 8 --duration 10 --headless
 ```
 
 ## (b) Fast, video recorded but camera sits at world origin (frames multiple envs)
 ```bash
-$ISAACLAB -p Scripts/train_strafer_navigation.py \
+$ISAACLAB -p source/strafer_lab/scripts/train_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
     --num_envs 64 --max_iterations 50 \
     --headless --video --video_length 200 --video_interval 2000
@@ -76,7 +76,7 @@ $ISAACLAB -p source/strafer_lab/scripts/collect_demos.py \
 
 # DAPG smoke (50 iters, fresh policy):
 ```bash
-$ISAACLAB -p Scripts/train_strafer_navigation.py \
+$ISAACLAB -p source/strafer_lab/scripts/train_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
     --num_envs 64 --max_iterations 50 \
     --aux dapg --dapg_demos demos/ \
@@ -85,7 +85,7 @@ $ISAACLAB -p Scripts/train_strafer_navigation.py \
 
 # GAIL smoke (50 iters, fresh policy):
 ```bash
-$ISAACLAB -p Scripts/train_strafer_navigation.py \
+$ISAACLAB -p source/strafer_lab/scripts/train_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
     --num_envs 64 --max_iterations 50 \
     --aux gail --gail_demos demos/ \
@@ -96,7 +96,7 @@ Watch TB for `dapg_nll`, `dapg_weight`, `gail_reward`, `gail_disc_loss`, `gail_d
 
 # Fine-tune a live checkpoint with demos:
 ```bash
-$ISAACLAB -p Scripts/train_strafer_navigation.py \
+$ISAACLAB -p source/strafer_lab/scripts/train_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
     --num_envs 128 --max_iterations 6000 \
     --resume logs/rsl_rl/strafer_navigation/run_20260425_035916/model_999.pt \
@@ -116,7 +116,7 @@ policy in the Kit viewport. Use the Play variant (8 envs by default).
 
 ## (a) Headed, watch in the viewport, real-time pacing
 ```bash
-$ISAACLAB -p Scripts/play_strafer_navigation.py \
+$ISAACLAB -p source/strafer_lab/scripts/play_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLDepth-Real-Play-v0 \
     --checkpoint logs/rsl_rl/strafer_navigation/run_20260425_035916/model_600.pt \
     --viz kit --real_time --steps 2000
@@ -124,7 +124,7 @@ $ISAACLAB -p Scripts/play_strafer_navigation.py \
 
 ## (b) Headless rollout that records a single MP4 over env_0
 ```bash
-$ISAACLAB -p Scripts/play_strafer_navigation.py \
+$ISAACLAB -p source/strafer_lab/scripts/play_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLDepth-Real-Play-v0 \
     --checkpoint logs/rsl_rl/strafer_navigation/run_20260425_035916/model_600.pt \
     --headless --video --video_length 600
@@ -140,7 +140,7 @@ git commit, and ONNX opset.
 
 ## NoCam — TorchScript only
 ```bash
-$ISAACLAB -p Scripts/export_policy.py \
+$ISAACLAB -p source/strafer_lab/scripts/export_policy.py \
     --checkpoint logs/rsl_rl/strafer_navigation/run_<timestamp>/model_<step>.pt \
     --output models/strafer_nocam_v0 \
     --variant NOCAM
@@ -148,7 +148,7 @@ $ISAACLAB -p Scripts/export_policy.py \
 
 ## NoCam — TorchScript + ONNX (TRT-EP path on Jetson)
 ```bash
-$ISAACLAB -p Scripts/export_policy.py \
+$ISAACLAB -p source/strafer_lab/scripts/export_policy.py \
     --checkpoint logs/rsl_rl/strafer_navigation/run_<timestamp>/model_<step>.pt \
     --output models/strafer_nocam_v0 \
     --variant NOCAM \
@@ -164,7 +164,7 @@ which `torch.jit.script` cannot type-infer; the TorchScript path
 substitutes a pre-traced pipeline (`_TorchSafeDeFMDepthEncoder`) so
 the same export call emits both artifacts.
 ```bash
-$ISAACLAB -p Scripts/export_policy.py \
+$ISAACLAB -p source/strafer_lab/scripts/export_policy.py \
     --checkpoint logs/rsl_rl/strafer_navigation/run_<timestamp>/model_<step>.pt \
     --output models/strafer_depth_v0 \
     --variant DEPTH \
@@ -176,7 +176,7 @@ Re-runs `play_strafer_navigation.py` against the exported `.pt` instead
 of the rsl_rl checkpoint; verifies the export didn't break the policy.
 Single-env only (the export is deployment-shape).
 ```bash
-$ISAACLAB -p Scripts/play_strafer_navigation.py \
+$ISAACLAB -p source/strafer_lab/scripts/play_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLNoCam-Play-v0 \
     --policy models/strafer_nocam_v0.pt \
     --num_envs 1 --viz kit --real_time --steps 2000
@@ -186,10 +186,10 @@ $ISAACLAB -p Scripts/play_strafer_navigation.py \
 Reports median / p95 / p99 over 1000 iterations on a synthetic obs.
 ```bash
 # DGX (CPU EP) -- regression check on the export toolchain.
-python Scripts/benchmark_policy.py --model models/strafer_nocam_v0.pt --iters 1000
+python source/strafer_lab/scripts/benchmark_policy.py --model models/strafer_nocam_v0.pt --iters 1000
 
 # Jetson (TRT EP preferred, then CUDA, then CPU fallback) -- run after rsync.
-python3 Scripts/benchmark_policy.py \
+python3 source/strafer_lab/scripts/benchmark_policy.py \
     --model models/strafer_depth_v0.onnx \
     --providers TensorrtExecutionProvider,CUDAExecutionProvider,CPUExecutionProvider \
     --iters 1000
@@ -266,7 +266,7 @@ WebSocket** → `ws://localhost:8765`. First-time setup: **Layout** →
 make kill           # Jetson — clear stale ros2 / nav2 / executor / foxglove_bridge
 ```
 
-# Harness data capture (`Scripts/capture.py`)
+# Harness data capture (`source/strafer_lab/scripts/capture.py`)
 
 Moved to its own guide — see
 [`docs/HARNESS_DATA_CAPTURE.md`](HARNESS_DATA_CAPTURE.md). The guide

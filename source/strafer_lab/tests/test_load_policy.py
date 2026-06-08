@@ -61,7 +61,7 @@ class _TinyRecurrentTorchActor(nn.Module):
 
     ``forward(obs) -> action``; the GRU consumes the in-module buffer and
     writes back the new hidden state. ``reset()`` zeros the buffer. This
-    matches what ``Scripts/export_policy.py::_verify_torchscript_determinism``
+    matches what ``source/strafer_lab/scripts/export_policy.py::_verify_torchscript_determinism``
     expects from a recurrent TorchScript module.
     """
 

@@ -18,7 +18,7 @@ for SDF collision. Use isaaclab.bat to run it.
 Run after add_additional_components.py and export to a new USD so the source stays intact.
 
 Example:
-.\IsaacLab\isaaclab.bat -p Scripts/setup_physics.py `
+.\IsaacLab\isaaclab.bat -p source/strafer_lab/scripts/asset_authoring/setup_physics.py `
     --stage Assets/strafer/3209-0001-0006-no-physics.usd `
     --output-usd Assets/strafer/3209-0001-0006-physics.usd `
     --log ./setup_physics_log.txt `

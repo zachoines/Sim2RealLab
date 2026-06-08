@@ -77,7 +77,7 @@ high-frequency content.
 ### Phase 1 — Extract held-out depth corpus
 
 Pick a representative sample of depth images from existing harness
-output (or from a one-shot `Scripts/test_strafer_env.py` capture if
+output (or from a one-shot `source/strafer_lab/scripts/test_strafer_env.py` capture if
 no harness corpus is on disk). Target ~500–2000 frames spanning
 indoor / hallway / cluttered scenes — proportional to the
 training distribution.

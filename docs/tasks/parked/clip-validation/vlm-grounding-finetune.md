@@ -58,8 +58,8 @@ but has **no brief and a retired data path**:
 The tooling currently reads the **legacy JSON/JSONL grounding-record
 path** that the harness consolidation retired. It has no consumer brief
 because its prior data feeders
-([`scripts/generate_descriptions.py`](../../../../source/strafer_lab/scripts/generate_descriptions.py),
-[`scripts/prepare_vlm_finetune_data.py`](../../../../source/strafer_lab/scripts/prepare_vlm_finetune_data.py))
+([`scripts/retired/generate_descriptions.py`](../../../../source/strafer_lab/scripts/retired/generate_descriptions.py),
+[`scripts/retired/prepare_vlm_finetune_data.py`](../../../../source/strafer_lab/scripts/retired/prepare_vlm_finetune_data.py))
 are slated for retirement in the harness implementation PRs (see
 [`harness-architecture.md`'s "Retired downstream scripts"](../../active/harness/harness-architecture.md#retired-downstream-scripts)).
 This brief re-homes the grounding fine-tune onto the harness corpus.

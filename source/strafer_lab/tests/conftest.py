@@ -9,8 +9,8 @@ and are intentionally isolated from that conftest.
 import sys
 from pathlib import Path
 
-# Make Scripts/ importable so tests can hit the export helpers directly.
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_SCRIPTS_DIR = _REPO_ROOT / "Scripts"
+# Make the strafer_lab scripts/ dir importable so tests can hit the export
+# helpers directly.
+_SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))

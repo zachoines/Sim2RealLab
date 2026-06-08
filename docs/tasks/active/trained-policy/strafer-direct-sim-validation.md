@@ -192,7 +192,7 @@ artifact) only flows one way.
 ### C. End-to-end mission (gates on the trained checkpoint)
 
 1. Operator exports a trained DEPTH checkpoint via
-   `Scripts/export_policy.py --variant DEPTH --checkpoint <ckpt> --output models/strafer_depth_v0.onnx`
+   `source/strafer_lab/scripts/export_policy.py --variant DEPTH --checkpoint <ckpt> --output models/strafer_depth_v0.onnx`
    (DGX-side). Rsync to the Jetson model path.
 2. Re-confirm the deterministic-mean export with a same-obs +
    reset() round-trip on the real artifact (already covered by the

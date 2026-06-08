@@ -90,7 +90,7 @@ in-flight consumers without re-shipping:
 [`mission-text-enrichment`](tasks/parked/harness/mission-text-enrichment.md)
 (reserves the `objects[].descriptors` namespace + a populated `rooms[]`
 block) and
-[`scene-metadata-in-usd`](tasks/parked/harness/scene-metadata-in-usd.md)
+[`scene-metadata-in-usd`](tasks/active/harness/scene-metadata-in-usd.md)
 (the same contract with a USD `customData` storage backend).
 
 ### Clean-slate scene regeneration

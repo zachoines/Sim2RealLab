@@ -10,6 +10,29 @@ $ISAACLAB -p source/strafer_lab/run_tests.py all
 make test-dgx
 ```
 
+# Generate an Infinigen scene corpus (prerequisite for Infinigen training + harness capture)
+A scene is only **capture-ready after all three steps** — `generate` alone
+does NOT write the per-scene `scene_metadata.json` the teleop picker needs,
+and the runtime only discovers a scene once step 3 adds it to the combined
+manifest. Full contract: `docs/SCENE_PROVIDER_CONTRACT.md`.
+```bash
+source env_setup.sh
+# 1) Room geometry (--config: fast_singleroom = fast/light, high_quality_dgx = full)
+python source/strafer_lab/scripts/prep_room_usds.py generate \
+    --config fast_singleroom --num-scenes 1 --output Assets/generated/scenes
+# note the printed <scene> id, e.g. scene_fast_singleroom_000_seed0
+
+# 2) Per-scene scene_metadata.json + USD prim labels (USD-only, no Blender)
+$ISAACLAB -p source/strafer_lab/scripts/extract_scene_metadata.py \
+    --from-usd --usd Assets/generated/scenes/<scene>.usdc \
+    --output Assets/generated/scenes/<scene> --label-from-prim-names
+
+# 3) Combined scenes_metadata.json (spawn points; makes the scene discoverable)
+$ISAACLAB -p source/strafer_lab/scripts/generate_scenes_metadata.py
+```
+After all three: usable by `make sim-bridge`, Infinigen-variant training, and
+`capture.py --scene <scene>`.
+
 # Training fresh PPO policy
 ## (a) Fast, no video
 ```bash

@@ -24,7 +24,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-TEST_ROOT = Path(__file__).parent / "test"
+TEST_ROOT = Path(__file__).parent / "test_sim"
 XML_DIR = Path(__file__).parent  # directory for junit-xml files
 
 # Per-suite timeout in seconds

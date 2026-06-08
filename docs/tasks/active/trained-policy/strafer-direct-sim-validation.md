@@ -40,7 +40,7 @@ Read these before starting:
   validates ships in PR #55.
 - [context/recurrent-policy-contract.md](../../context/recurrent-policy-contract.md)
   — point 5 (determinism) is exercised at the cross-format level in
-  [`source/strafer_lab/tests/test_recurrent_contract_e2e.py`](../../../../source/strafer_lab/tests/test_recurrent_contract_e2e.py)
+  [`source/strafer_lab/tests/contracts/test_recurrent_contract_e2e.py`](../../../../source/strafer_lab/tests/contracts/test_recurrent_contract_e2e.py)
   and at the inference-node-fake-policy seam in
   [`source/strafer_ros/strafer_inference/test/test_inference_runtime.py`](../../../../source/strafer_ros/strafer_inference/test/test_inference_runtime.py);
   this brief's E2E mission is the third leg of that triangle.

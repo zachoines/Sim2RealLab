@@ -69,7 +69,7 @@ preset identifier.
 
 ### Why the test missed it
 
-[`source/strafer_lab/tests/test_export_policy.py`](../../../../source/strafer_lab/tests/test_export_policy.py)
+[`source/strafer_lab/tests/policy_tooling/test_export_policy.py`](../../../../source/strafer_lab/tests/policy_tooling/test_export_policy.py)
 `test_metadata_sidecar_records_documented_fields` passes the
 preset name as a literal:
 
@@ -104,7 +104,7 @@ entry shaped like the production strings.
       `"training_preset": "STRAFER_PPO_RUNNER_CFG"` in the sidecar.
 - [ ] `--variant DEPTH` writes
       `"training_preset": "STRAFER_PPO_DEPTH_RUNNER_CFG"`.
-- [ ] `python -m pytest source/strafer_lab/tests/test_export_policy.py`
+- [ ] `python -m pytest source/strafer_lab/tests/policy_tooling/test_export_policy.py`
       passes — including a new test exercising the registry-derived
       preset name path (the existing test's literal stays as a
       consumer-side contract pin).
@@ -119,7 +119,7 @@ entry shaped like the production strings.
 
 - [`source/strafer_lab/scripts/export_policy.py`](../../../../source/strafer_lab/scripts/export_policy.py)
   `main()` — the call site that builds `training_preset`.
-- [`source/strafer_lab/tests/test_export_policy.py`](../../../../source/strafer_lab/tests/test_export_policy.py)
+- [`source/strafer_lab/tests/policy_tooling/test_export_policy.py`](../../../../source/strafer_lab/tests/policy_tooling/test_export_policy.py)
   `test_metadata_sidecar_records_documented_fields` — the existing
   contract pin; keep, augment.
 - `source/strafer_lab/strafer_lab/tasks/navigation/__init__.py`

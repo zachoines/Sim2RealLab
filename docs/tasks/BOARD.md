@@ -27,6 +27,7 @@ that ships them; see "Shipping a brief: order of operations" in
 | Brief | Owner | PR | State |
 |---|---|---|---|
 | [`harness-architecture`](active/harness/harness-architecture.md) Tier 1 acceptance run | DGX | post-merge follow-up (PR #63 merged 2026-05-26) | pending operator capture; gated on [`teleop-perf-architecture`](completed/teleop-perf-architecture.md) (shipped 2026-06-01; loop is PhysX-bound, ~10 FPS not the ≥15 target, so a ≥30 ep × ≥2 scene run is faster but still not one-evening). Tier 1 ✓ on harness-architecture.md stays unchecked until artifact lands at `docs/artifacts/teleop_acceptance/<run_id>/`. |
+| [`strafer-lab-test-tree-unification`](active/tooling/strafer-lab-test-tree-unification.md) | DGX | task/strafer-lab-test-tree-unification | reorg landed: `test/`→`test_sim/`, the 5 loose `tests/` files foldered into `policy_tooling/` + `contracts/`, `make test-lab-py` wired. Layout names are the contract [`unify-test-targets-and-ci`](active/tooling/unify-test-targets-and-ci.md) consumes. |
 
 ---
 
@@ -140,7 +141,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 |---|---|---|---|
 | [`nav2-sim-real-promotion-architecture`](active/tooling/nav2-sim-real-promotion-architecture.md) | P2 | active | Jetson |
 | [`unify-test-targets-and-ci`](active/tooling/unify-test-targets-and-ci.md) | P3 | active | Either |
-| [`strafer-lab-test-tree-unification`](active/tooling/strafer-lab-test-tree-unification.md) | P3 | active | DGX |
+| [`strafer-lab-test-tree-unification`](active/tooling/strafer-lab-test-tree-unification.md) | P3 | in flight | DGX |
 | [`script-tool-subsystem-grouping`](active/tooling/script-tool-subsystem-grouping.md) | P3 | active | DGX |
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | P2 | active | DGX |
 | [`install-docs-consolidation`](parked/tooling/install-docs-consolidation.md) | P2 | parked (blocked on `windows-workstation-bringup`) | Coordinator (DGX) + per-host agents |
@@ -233,7 +234,6 @@ session. Parked briefs are not listed here — see **By epic** or
 | Brief | Owner | Estimate | Note |
 |---|---|---|---|
 | [`unify-test-targets-and-ci`](active/tooling/unify-test-targets-and-ci.md) | Either | M | Makefile unification + stretch CI workflow. Doesn't block features; bumps to P2 once a second drift incident shows up. |
-| [`strafer-lab-test-tree-unification`](active/tooling/strafer-lab-test-tree-unification.md) | S–M | Reorganize the strafer_lab test layout: rename the singular `test/` (Isaac-Sim tree) so it no longer reads as a typo of `tests/`, and fold the `tests/` root (policy export/load + action/obs/recurrent sim-real contracts) into intent-named subdirs. Five root files currently run by no `make` target. Layout seam to `unify-test-targets-and-ci`'s invocation seam. |
 | [`script-tool-subsystem-grouping`](active/tooling/script-tool-subsystem-grouping.md) | DGX | M | Sub-group `scripts/` by sub-system (policy/ infinigen/ diagnostics/ harness/) **and** amend the conventions placement rule (flat → sub-system) — the shared rule that also governs `tools/`. `tools/` itself is owned by `tools-package-reorg` (deduped). `scripts/harness/` sequenced behind `harness-architecture`. |
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | DGX | S | Sidecar `training_preset` records the configclass name instead of the rsl_rl preset variable; cosmetic but the field is operator-facing. Filed off [`export-onnx-depth`](completed/export-onnx-depth.md). |
 | [`defm-preprocess-antialias-audit`](active/investigations/defm-preprocess-antialias-audit.md) | DGX | S–M | Measure projection-space delta between training-time DeFM antialiased preprocessing and the deployment ONNX-safe non-antialiased version, then decide alignment (leave / align deploy / align training). Filed off [`export-onnx-depth`](completed/export-onnx-depth.md). |

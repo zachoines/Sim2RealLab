@@ -164,7 +164,7 @@ now inside the function, applied via the cache.
 ### Phase 4 — Tests
 
 Extend
-[`source/strafer_lab/tests/test_obs_contract_parity.py`](../../../../source/strafer_lab/tests/test_obs_contract_parity.py)
+[`source/strafer_lab/tests/contracts/test_obs_contract_parity.py`](../../../../source/strafer_lab/tests/contracts/test_obs_contract_parity.py)
 or add a sibling, exercising the new functions against a stubbed env:
 
 1. **Same-sample invariant.** Two same-tick calls to
@@ -218,7 +218,7 @@ Comparative evaluation on the standard ProcRoom eval set:
 
 ### Tests
 
-- [ ] `python -m pytest source/strafer_lab/tests/test_obs_contract_parity.py`
+- [ ] `python -m pytest source/strafer_lab/tests/contracts/test_obs_contract_parity.py`
       passes — covers same-sample, correlation, cache-invalidation,
       critic-clean, and no-double-noise.
 

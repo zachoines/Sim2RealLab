@@ -47,7 +47,7 @@ are retired — the old→new table is in
    config a checkpoint trained against — a subtly different tensor breaks the
    DEPTH inference package and any checkpoint silently. The guard is the
    frozen-golden-hash gate in
-   [`test/env/test_composition_contract.py`](../../../source/strafer_lab/test/env/test_composition_contract.py);
+   [`test_sim/env/test_composition_contract.py`](../../../source/strafer_lab/test_sim/env/test_composition_contract.py);
    the depth observation a checkpoint consumes is also pinned by
    [`recurrent-policy-contract.md`](recurrent-policy-contract.md). A camera's
    rendered channels are excluded from the gate — a depth-only obs never reads

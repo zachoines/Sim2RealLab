@@ -353,7 +353,7 @@ honest measurement**, not "v2 beats v1."
   Qwen3-4B (verify via `ls ~/.cache/huggingface/hub/`).
   Octo / OpenVLA weights need a separate fetch.
 - The bridge's perception camera is 640×360
-  ([`test_d555_perception_cfg.py:50`](../../../../source/strafer_lab/test/sensors/test_d555_perception_cfg.py#L50)).
+  ([`test_d555_perception_cfg.py:50`](../../../../source/strafer_lab/test_sim/sensors/test_d555_perception_cfg.py#L50)).
   VLA visual towers usually expect 224² or 336²; preprocessing
   follows the
   [§2.2 letterbox-vs-center-crop discussion](../../../MISSION_VALIDATION_ARCHITECTURE.md#22-structural-the-bandwidth-lost-between-perception-camera-and-clip-input).

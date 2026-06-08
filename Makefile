@@ -14,7 +14,7 @@ ISAACLAB ?= $(HOME)/Documents/repos/IsaacLab/isaaclab.sh
 CONDA_ROOT ?= $(HOME)/miniconda3
 CONDA_ENV ?= env_isaaclab3
 
-.PHONY: build test test-unit test-dgx test-harness lint lint-fix format format-check clean kill \
+.PHONY: build test test-unit test-dgx test-harness test-lab-py lint lint-fix format format-check clean kill \
         launch launch-nav launch-autonomy launch-sim clean-map \
         install-tools udev serve-vlm serve-planner check-nvrtc help \
         sim-bridge sim-bridge-gui sim-harness
@@ -136,6 +136,17 @@ test-harness: ## Run harness writer / capture tooling tests (uses .venv_harness 
 	@# .venv_harness/bin/pip install lerobot pytest.
 	PYTHONPATH= $(VENV_HARNESS)/bin/python -m pytest \
 		source/strafer_lab/tests/harness/ -v
+
+test-lab-py: ## Run strafer_lab pure-Python lab tests (policy export/load + sim-real contracts) in env_isaaclab3 — no Kit boot
+	@# These exercise plumbing without booting Kit, but import warp /
+	@# isaaclab_tasks / onnx, so they need env_isaaclab3 rather than the
+	@# lerobot-pinned .venv_harness. env_setup.sh supplies LD_PRELOAD and
+	@# scrubs the vendored-ROS2 path off PYTHONPATH so pytest plugin
+	@# autoload stays clean.
+	@source env_setup.sh && \
+		$$STRAFER_ISAACLAB_PYTHON -m pytest \
+			source/strafer_lab/tests/policy_tooling/ \
+			source/strafer_lab/tests/contracts/ -v
 
 check-nvrtc: ## Verify NVRTC symlinks point to system CUDA 13.0
 	@NVRTC_DIR="$(VENV_VLM)/lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib"; \

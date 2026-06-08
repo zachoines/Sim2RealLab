@@ -35,6 +35,19 @@ package's features, contracts, setup, commands, design, and testing")
 right-hand column of that table. This brief realigns reality to that
 rule.
 
+**Environments are fragmented too.** "Install" today means choosing among
+**six** Python environments — `env_isaaclab3` (3.12; Isaac Sim/Lab + `pxr` +
+CUDA torch), `env_infinigen` (3.11; scene-gen), `.venv_vlm` (3.12; CUDA
+torch — VLM + autonomy tests), `.venv_harness` (3.12; **CPU** torch —
+lerobot tooling tests), plus two dead ones (`env_isaaclab` 3.11, superseded
+by `env_isaaclab3`; `blender-build-py311`, a one-time Blender-build env whose
+output binary is standalone). Some splits are forced (Infinigen needs 3.11;
+Isaac Sim's pinned stack + the vendored ROS2-3.11 `PYTHONPATH` leak), some
+are incidental (`.venv_harness` exists as a separate venv only because the
+installed lerobot pulled **CPU** torch and would downgrade `.venv_vlm`'s CUDA
+torch). A canonical install story must name which env is for what, why it's
+separate, and how to recreate it — and prune the dead ones.
+
 ## Acceptance
 
 Ship a documentation pass that meets all of:
@@ -82,6 +95,21 @@ Ship a documentation pass that meets all of:
 - [ ] No installation or run command is documented in more than one
   place after the pass. Where two sources would otherwise agree, one
   becomes the source and the other becomes a link.
+- [ ] **Environment topology documented + rationalized.** `repo-topology.md`
+  (and the relevant package READMEs) name the live conda/venv set, what each
+  is for, the hard constraint that keeps it separate, and a copy-paste
+  recreate command. The two dead envs (`env_isaaclab`, `blender-build-py311`)
+  are deleted (after confirming nothing live references them). **Probe one
+  consolidation:** lerobot now ships CUDA support, so verify whether
+  `.venv_harness` can fold into `env_isaaclab3` (which already has CUDA torch
+  + `pxr`) instead of being a separate CPU-torch venv — if it can,
+  `make test-harness` runs in `env_isaaclab3`, the env count drops, and the
+  `scene-metadata-in-usd` reader gets
+  `pxr` in the harness suite for free. This `.venv_harness` probe needs no
+  Windows input — it can run ahead of the Windows-gated README pass. Record
+  the outcome; if no further consolidation is possible, that is the trigger
+  to file a standalone `python-env-topology` brief (prune + a `make test-all`
+  orchestrator + the env map only).
 - [ ] If your work invalidates a fact in any referenced context module
   or guide, update those in the same commit (per
   [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)).

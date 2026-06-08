@@ -2,8 +2,8 @@
 """Live video grounding evaluation with runtime console prompt updates.
 
 Example:
-    python -m strafer_vlm.live_qwen25vl_grounding ^
-      --source 0 ^
+    python source/strafer_vlm/scripts/live_qwen25vl_grounding.py \
+      --source 0 \
       --prompt "Locate: TV on dresser."
 
 Console commands:

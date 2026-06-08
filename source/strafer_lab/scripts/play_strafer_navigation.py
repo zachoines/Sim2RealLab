@@ -6,13 +6,13 @@ can watch the policy in the Kit viewport (or record a video).
 
 Examples:
     # Headed rollout against the play variant (8 envs):
-    $ISAACLAB -p Scripts/play_strafer_navigation.py \\
+    $ISAACLAB -p source/strafer_lab/scripts/play_strafer_navigation.py \\
         --env Isaac-Strafer-Nav-RLDepth-Real-Play-v0 \\
         --checkpoint logs/rsl_rl/strafer_navigation/run_20260425_035916/model_600.pt \\
         --viz kit
 
     # Headless rollout that records a single MP4 of the rollout:
-    $ISAACLAB -p Scripts/play_strafer_navigation.py \\
+    $ISAACLAB -p source/strafer_lab/scripts/play_strafer_navigation.py \\
         --env Isaac-Strafer-Nav-RLDepth-Real-Play-v0 \\
         --checkpoint logs/rsl_rl/strafer_navigation/run_20260425_035916/model_600.pt \\
         --headless --video --video_length 600
@@ -84,7 +84,7 @@ def main() -> None:
                         help="Path to model_*.pt produced by train_strafer_navigation.py "
                              "(mutually exclusive with --policy).")
     parser.add_argument("--policy", type=str, default=None,
-                        help="Path to a TorchScript .pt produced by Scripts/export_policy.py. "
+                        help="Path to a TorchScript .pt produced by source/strafer_lab/scripts/export_policy.py. "
                              "Smoke-tests an exported deployment artifact (forces --num_envs 1).")
     parser.add_argument("--num_envs", type=int, default=None,
                         help="Override scene.num_envs (default: cfg's num_envs, e.g. 8 for ProcRoom-Depth-Play)")

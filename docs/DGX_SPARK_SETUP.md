@@ -118,7 +118,7 @@ Expected: 30 environment IDs (15 train + 15 play).
 
 ```bash
 cd ~/Documents/repos/IsaacLab
-./isaaclab.sh -p ../Sim2RealLab/Scripts/train_strafer_navigation.py \
+./isaaclab.sh -p ../Sim2RealLab/source/strafer_lab/scripts/train_strafer_navigation.py \
   --env Isaac-Strafer-Nav-RLNoCam-v0 \
   --num_envs 64 \
   --max_iterations 10 \
@@ -130,7 +130,7 @@ Validates: Isaac Sim physics, Isaac Lab RL pipeline, strafer_lab env registratio
 ### Second: Scale up NoCam
 
 ```bash
-./isaaclab.sh -p ../Sim2RealLab/Scripts/train_strafer_navigation.py \
+./isaaclab.sh -p ../Sim2RealLab/source/strafer_lab/scripts/train_strafer_navigation.py \
   --env Isaac-Strafer-Nav-RLNoCam-v0 \
   --num_envs 512 \
   --max_iterations 100 \
@@ -147,7 +147,7 @@ cd ~/Documents/repos/IsaacLab
 ### Fourth: Depth variant
 
 ```bash
-./isaaclab.sh -p ../Sim2RealLab/Scripts/train_strafer_navigation.py \
+./isaaclab.sh -p ../Sim2RealLab/source/strafer_lab/scripts/train_strafer_navigation.py \
   --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
   --num_envs 16 \
   --max_iterations 10 \
@@ -157,7 +157,7 @@ cd ~/Documents/repos/IsaacLab
 ### Fifth: ProcRoom NoCam
 
 ```bash
-./isaaclab.sh -p ../Sim2RealLab/Scripts/train_strafer_navigation.py \
+./isaaclab.sh -p ../Sim2RealLab/source/strafer_lab/scripts/train_strafer_navigation.py \
   --env Isaac-Strafer-Nav-RLNoCam-v0 \
   --num_envs 64 \
   --max_iterations 10 \
@@ -171,7 +171,7 @@ cd ~/Documents/repos/IsaacLab
 | `.\isaaclab.bat` | `./isaaclab.sh` |
 | `C:\Worspace\IsaacLab` | `~/Documents/repos/IsaacLab` |
 | `C:\Worspace\venv_isaac\Scripts\Activate.ps1` | `conda activate env_isaaclab` |
-| `..\Scripts\train_strafer_navigation.py` | `../Sim2RealLab/Scripts/train_strafer_navigation.py` |
+| `..\source\strafer_lab\scripts\train_strafer_navigation.py` | `../Sim2RealLab/source/strafer_lab/scripts/train_strafer_navigation.py` |
 | `..\source\strafer_lab\run_tests.py` | `../Sim2RealLab/source/strafer_lab/run_tests.py` |
 | Backslash paths `\` | Forward slash `/` |
 
@@ -188,28 +188,28 @@ export LD_PRELOAD="/lib/aarch64-linux-gnu/libgomp.so.1"
 ### NoCam Realistic (recommended first)
 
 ```bash
-./isaaclab.sh -p ../Sim2RealLab/Scripts/train_strafer_navigation.py \
+./isaaclab.sh -p ../Sim2RealLab/source/strafer_lab/scripts/train_strafer_navigation.py \
   --env Isaac-Strafer-Nav-RLNoCam-v0 --num_envs 512
 ```
 
 ### Depth Realistic
 
 ```bash
-./isaaclab.sh -p ../Sim2RealLab/Scripts/train_strafer_navigation.py \
+./isaaclab.sh -p ../Sim2RealLab/source/strafer_lab/scripts/train_strafer_navigation.py \
   --env Isaac-Strafer-Nav-RLDepth-Real-v0 --num_envs 32
 ```
 
 ### Headless large-scale NoCam
 
 ```bash
-./isaaclab.sh -p ../Sim2RealLab/Scripts/train_strafer_navigation.py \
+./isaaclab.sh -p ../Sim2RealLab/source/strafer_lab/scripts/train_strafer_navigation.py \
   --env Isaac-Strafer-Nav-RLNoCam-v0 --num_envs 4096 --headless
 ```
 
 ### ProcRoom Depth with video + LR schedule
 
 ```bash
-./isaaclab.sh -p ../Sim2RealLab/Scripts/train_strafer_navigation.py \
+./isaaclab.sh -p ../Sim2RealLab/source/strafer_lab/scripts/train_strafer_navigation.py \
   --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
   --num_envs 64 \
   --num_steps 48 \
@@ -254,7 +254,7 @@ export LD_PRELOAD="/lib/aarch64-linux-gnu/libgomp.so.1"
 `rsl_rl` v5.0.1 expects `cfg["actor"]["class_name"]` / `cfg["critic"]["class_name"]`
 instead of the old `cfg["policy"]["class_name"]`. Isaac Lab provides
 `handle_deprecated_rsl_rl_cfg()` to migrate configs, but
-`Scripts/train_strafer_navigation.py` did not call it.
+`source/strafer_lab/scripts/train_strafer_navigation.py` did not call it.
 
 **Fix applied:** Added `handle_deprecated_rsl_rl_cfg(agent_cfg, _rsl_rl_version)`
 before `agent_cfg.to_dict()` in the training script.
@@ -378,7 +378,7 @@ cd ~/Documents/repos/IsaacLab
 conda activate env_isaaclab3
 export LD_PRELOAD="/lib/aarch64-linux-gnu/libgomp.so.1"
 
-./isaaclab.sh -p ../Sim2RealLab/Scripts/train_strafer_navigation.py \
+./isaaclab.sh -p ../Sim2RealLab/source/strafer_lab/scripts/train_strafer_navigation.py \
   --env Isaac-Strafer-Nav-RLNoCam-v0 \
   --num_envs 64 \
   --max_iterations 10 \

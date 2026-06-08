@@ -102,7 +102,7 @@ Grep confirms no other call site instantiates `SemanticMapManager`,
 `BackgroundMapper`, or `TransitMonitor` outside tests:
 
 ```
-$ grep -rn "SemanticMapManager(\|BackgroundMapper(\|TransitMonitor(" source/ Scripts/ \
+$ grep -rn "SemanticMapManager(\|BackgroundMapper(\|TransitMonitor(" source/ \
     | grep -v /tests/
 # (no matches)
 ```
@@ -124,7 +124,7 @@ useful?" measurement needs the wiring step before it can run.
 
 The CLIP encoder consumed by the runtime is the OpenCLIP ViT-B/32
 exported by
-[`source/strafer_lab/scripts/finetune_clip.py`](../source/strafer_lab/scripts/finetune_clip.py),
+[`source/strafer_lab/scripts/retired/finetune_clip.py`](../source/strafer_lab/scripts/retired/finetune_clip.py),
 which performs symmetric InfoNCE contrastive training on
 `(image, description)` pairs.
 
@@ -179,7 +179,7 @@ End-to-end path:
    actually reach the target?"**
 
 5. **Description generation.**
-   [`generate_descriptions.py`](../source/strafer_lab/scripts/generate_descriptions.py)
+   [`generate_descriptions.py`](../source/strafer_lab/scripts/retired/generate_descriptions.py)
    runs Stage-1 spatial facts (programmatic, via
    `SpatialDescriptionBuilder`) + Stage-2 VLM descriptions (a 7B
    Qwen2.5-VL loaded standalone — intentionally separate from the
@@ -190,7 +190,7 @@ End-to-end path:
    `data/descriptions/<episode>/descriptions.jsonl`.
 
 6. **Dataset assembly.**
-   [`tools/dataset_export.py:export_clip_csv`](../source/strafer_lab/strafer_lab/tools/dataset_export.py#L166)
+   [`tools/retired/dataset_export.py:export_clip_csv`](../source/strafer_lab/strafer_lab/tools/retired/dataset_export.py#L166)
    walks the descriptions, emits `data/clip_descriptions/clip_descriptions.csv`
    with `(image_path, description)` rows. ProcRoom (primitive-shape)
    frames are **excluded** by design — they don't transfer to real
@@ -311,7 +311,7 @@ case 3.
 wrong for case 2 in a different way:**
 
 - For **case 1 (room-grain)**: the open-vocab InfoNCE in
-  [`finetune_clip.py`](../source/strafer_lab/scripts/finetune_clip.py)
+  [`finetune_clip.py`](../source/strafer_lab/scripts/retired/finetune_clip.py)
   trains image-vs-random-text-label similarity. There is no signal
   pushing two different views of the same room together unless their
   VLM-emitted captions happen to overlap in the in-batch contrast. A

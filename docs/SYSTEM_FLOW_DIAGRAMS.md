@@ -87,7 +87,7 @@ flowchart TB
         Adapter[("outputs/qwen25vl_lora_run*/<br/>adapter_config.json<br/>adapter_model.safetensors")]
     end
 
-    Operator -->|bash $ python scripts/generate_descriptions.py<br/>python scripts/prepare_vlm_finetune_data.py<br/>python -m strafer_vlm.training.train_qwen25vl_lora| GenDesc
+    Operator -->|bash $ python scripts/retired/generate_descriptions.py<br/>python scripts/retired/prepare_vlm_finetune_data.py<br/>python -m strafer_vlm.training.train_qwen25vl_lora| GenDesc
     PerceptionDir --> GenDesc
     SceneMeta --> GenDesc
     GenDesc --> Spatial
@@ -105,9 +105,9 @@ flowchart TB
     Adapter --> EvalLoRA
     SFTData -. val split .-> EvalLoRA
 
-    click GenDesc "../source/strafer_lab/scripts/generate_descriptions.py" "4-stage description pipeline"
+    click GenDesc "../source/strafer_lab/scripts/retired/generate_descriptions.py" "4-stage description pipeline"
     click Spatial "../source/strafer_lab/strafer_lab/tools/spatial_description.py" "Stage-1 factual relations"
-    click PrepVLM "../source/strafer_lab/scripts/prepare_vlm_finetune_data.py" "Comprehensive VLM SFT prep"
+    click PrepVLM "../source/strafer_lab/scripts/retired/prepare_vlm_finetune_data.py" "Comprehensive VLM SFT prep"
     click DatasetIO "../source/strafer_vlm/strafer_vlm/training/dataset_io.py" "Grounding dataset loader"
     click TrainLoRA "../source/strafer_vlm/strafer_vlm/training/train_qwen25vl_lora.py" "LoRA fine-tune"
     click EvalLoRA "../source/strafer_vlm/strafer_vlm/training/eval_qwen25vl_grounding.py" "Offline eval"
@@ -167,7 +167,7 @@ flowchart TB
         SemMap["SemanticMapManager<br/>uses encoder for verify_arrival +<br/>query_environment"]
     end
 
-    Operator -->|bash $ python -c 'from strafer_lab.tools.dataset_export import run_export; run_export ...'<br/>bash $ python scripts/finetune_clip.py| DatasetExport
+    Operator -->|bash $ python -c 'from strafer_lab.tools.retired.dataset_export import run_export; run_export ...'<br/>bash $ python scripts/retired/finetune_clip.py| DatasetExport
 
     PerceptionDir --> DatasetExport
     DescOut --> DatasetExport
@@ -185,8 +185,8 @@ flowchart TB
     CLIPTxt -.->|file copy to Jetson| CLIPEnc
     CLIPEnc --> SemMap
 
-    click DatasetExport "../source/strafer_lab/strafer_lab/tools/dataset_export.py" "CLIP CSV + basic VLM JSONL exporter"
-    click FinetuneClip "../source/strafer_lab/scripts/finetune_clip.py" "OpenCLIP contrastive fine-tune"
+    click DatasetExport "../source/strafer_lab/strafer_lab/tools/retired/dataset_export.py" "CLIP CSV + basic VLM JSONL exporter"
+    click FinetuneClip "../source/strafer_lab/scripts/retired/finetune_clip.py" "OpenCLIP contrastive fine-tune"
     click CLIPEnc "../source/strafer_autonomy/strafer_autonomy/semantic_map/clip_encoder.py" "Jetson-side ONNX encoder"
     click SemMap "../source/strafer_autonomy/strafer_autonomy/semantic_map/manager.py" "Semantic map manager"
 ```
@@ -219,7 +219,7 @@ flowchart TB
     subgraph DGX["DGX Spark — env_isaaclab3"]
         direction TB
 
-        Launcher["isaaclab.sh -p<br/>Scripts/train_strafer_navigation.py"]
+        Launcher["isaaclab.sh -p<br/>source/strafer_lab/scripts/train_strafer_navigation.py"]
         AppLauncher["AppLauncher<br/>Isaac Sim Kit boot"]
 
         TasksInit["strafer_lab.tasks.navigation<br/>__init__.py<br/>gym.register × 30"]
@@ -240,7 +240,7 @@ flowchart TB
         Videos[("logs/rsl_rl/<br/>strafer_navigation/&lt;ts&gt;/videos/train/<br/>*.mp4")]
     end
 
-    Operator -->|bash $ ../IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py<br/>--env Isaac-Strafer-Nav-RLNoCam-v0<br/>--num_envs 512 --max_iterations 3000 --headless| Launcher
+    Operator -->|bash $ ../IsaacLab/isaaclab.sh -p source/strafer_lab/scripts/train_strafer_navigation.py<br/>--env Isaac-Strafer-Nav-RLNoCam-v0<br/>--num_envs 512 --max_iterations 3000 --headless| Launcher
 
     Launcher --> AppLauncher
     AppLauncher --> TasksInit
@@ -258,7 +258,7 @@ flowchart TB
     PPO -.->|--video| VideoRec
     VideoRec -.-> Videos
 
-    click Launcher "../Scripts/train_strafer_navigation.py" "Training wrapper (RSL-RL / aux losses / video)"
+    click Launcher "../source/strafer_lab/scripts/train_strafer_navigation.py" "Training wrapper (RSL-RL / aux losses / video)"
     click TasksInit "../source/strafer_lab/strafer_lab/tasks/navigation" "30 registered gym environments"
     click EnvCfg "../source/strafer_lab/strafer_lab/tasks/navigation" "Env configs per realism × sensor"
     click SimRealCfg "../source/strafer_lab/strafer_lab/tasks/navigation" "Ideal / Realistic / Robust presets"
@@ -301,7 +301,7 @@ flowchart TB
     subgraph DGX["DGX Spark — env_isaaclab3"]
         direction TB
 
-        Capture["Scripts/capture.py<br/>--driver teleop<br/>--mission-source scene-metadata"]
+        Capture["source/strafer_lab/scripts/capture.py<br/>--driver teleop<br/>--mission-source scene-metadata"]
         Teleop["scripts/teleop_capture.py<br/>(AppLauncher + env loop)"]
         AppLauncher["AppLauncher<br/>Isaac Sim Kit"]
         Env["Isaac-Strafer-Nav-Capture-Teleop-v0"]
@@ -318,7 +318,7 @@ flowchart TB
         StraferSidecar[("meta/strafer_episodes.parquet")]
     end
 
-    Operator -->|isaaclab -p Scripts/capture.py<br/>--scene scene_NN --output ...| Capture
+    Operator -->|isaaclab -p source/strafer_lab/scripts/capture.py<br/>--scene scene_NN --output ...| Capture
 
     Capture --> Teleop
     Teleop --> AppLauncher
@@ -341,7 +341,7 @@ flowchart TB
     Writer --> DepthSidecar
     Writer --> StraferSidecar
 
-    click Capture "../Scripts/capture.py" "Harness data-capture entry point"
+    click Capture "../source/strafer_lab/scripts/capture.py" "Harness data-capture entry point"
     click Teleop "../source/strafer_lab/scripts/teleop_capture.py" "Gamepad teleop driver"
     click Env "../source/strafer_lab/strafer_lab/tasks/navigation" "Infinigen perception env"
     click Picker "../source/strafer_lab/strafer_lab/tools/teleop_mission_picker.py" "Scene-metadata mission picker"

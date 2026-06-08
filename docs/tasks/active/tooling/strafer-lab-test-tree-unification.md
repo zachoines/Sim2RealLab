@@ -56,7 +56,7 @@ Two concrete defects, not just an eyesore:
    currently run in **neither** runner:
    - `tests/test_action_clamp.py` — L1 body-velocity clamp vs the
      deployment `torch.clamp` contract (the Jetson/sim mecanum boundary)
-   - `tests/test_export_policy.py` — `Scripts/export_policy.py` TorchScript/ONNX round-trip
+   - `tests/test_export_policy.py` — `source/strafer_lab/scripts/export_policy.py` TorchScript/ONNX round-trip
    - `tests/test_load_policy.py` — stateless + recurrent `.pt`/`.onnx` loader round-trip
    - `tests/test_obs_contract_parity.py` — encoder-FK observation parity (the sim→real obs contract; imports `warp` but does not boot Kit)
    - `tests/test_recurrent_contract_e2e.py` — recurrent hidden-state contract across the export pipeline

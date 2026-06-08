@@ -42,18 +42,18 @@ test-unit: ## Run strafer_driver unit tests directly with pytest
 # ---------- Lint / Format ----------
 
 lint: ## Run flake8 on all Python source
-	python3 -m flake8 source/strafer_ros/ source/strafer_shared/ Scripts/ \
+	python3 -m flake8 source/strafer_ros/ source/strafer_shared/ source/strafer_lab/scripts/ \
 		--max-line-length 100 --extend-ignore=E203,W503
 
 lint-fix: ## Auto-fix lint issues with autopep8
 	python3 -m autopep8 --in-place --recursive --max-line-length 100 \
-		source/strafer_ros/ source/strafer_shared/ Scripts/
+		source/strafer_ros/ source/strafer_shared/ source/strafer_lab/scripts/
 
 format: ## Run black on all Python source
-	python3 -m black source/strafer_ros/ source/strafer_shared/ Scripts/
+	python3 -m black source/strafer_ros/ source/strafer_shared/ source/strafer_lab/scripts/
 
 format-check: ## Check formatting without modifying files
-	python3 -m black --check source/strafer_ros/ source/strafer_shared/ Scripts/
+	python3 -m black --check source/strafer_ros/ source/strafer_shared/ source/strafer_lab/scripts/
 
 # ---------- Launch ----------
 

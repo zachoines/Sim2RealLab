@@ -24,7 +24,7 @@ deployment target is Databricks Model Serving, wired through
 Sibling packages it interacts with:
 
 - **`strafer_autonomy`** — the executor's `HttpGroundingClient` is the primary caller of every endpoint. The planner's `/plan_with_grounding` also calls `POST /ground` internally for agentic pre-grounding. Both sides agree on the `GroundingRequest` / `GroundingResult` schemas defined in `strafer_autonomy.schemas`.
-- **`strafer_lab`** — consumes fine-tune datasets produced by `strafer_lab.scripts.prepare_vlm_finetune_data` (primary SFT prep) and `strafer_lab.tools.dataset_export` (basic grounding subset).
+- **`strafer_lab`** — consumes fine-tune datasets produced by `strafer_lab.scripts.retired.prepare_vlm_finetune_data` (primary SFT prep) and `strafer_lab.tools.retired.dataset_export` (basic grounding subset).
 
 `strafer_vlm` does **not** do depth projection, goal generation, reachability checks, or any robot-side reasoning. It stops at image-space bounding boxes and free text.
 
@@ -168,12 +168,12 @@ Invoke-RestMethod -Uri http://localhost:8100/ground -Method Post -Body $body -Co
 
 ```bash
 # Single-image smoke test (no service running):
-python -m strafer_vlm.tools.test_qwen25vl_grounding \
+python source/strafer_vlm/scripts/test_qwen25vl_grounding.py \
     --image docs/artifacts/strafer_top.jpeg \
     --prompt "the robot chassis"
 
 # Live camera/video grounding with runtime console prompts:
-python -m strafer_vlm.tools.live_qwen25vl_grounding --source 0 --prompt "Locate: the robot chassis"
+python source/strafer_vlm/scripts/live_qwen25vl_grounding.py --source 0 --prompt "Locate: the robot chassis"
 ```
 
 In live mode, typing any non-empty line swaps the active prompt; `status`, `clear`, `quit` are reserved.
@@ -210,7 +210,7 @@ python -m strafer_vlm.training.eval_qwen25vl_grounding \
 
 Produces per-example predictions with IoU scores and an `evaluation_summary.json`.
 
-The primary data prep for this training path lives in [`strafer_lab.scripts.prepare_vlm_finetune_data`](../strafer_lab/scripts/prepare_vlm_finetune_data.py) — it emits negatives, multi-object examples, and description-preservation examples that the minimal exporter in `strafer_lab.tools.dataset_export` does not.
+The primary data prep for this training path lives in [`strafer_lab.scripts.retired.prepare_vlm_finetune_data`](../strafer_lab/scripts/retired/prepare_vlm_finetune_data.py) — it emits negatives, multi-object examples, and description-preservation examples that the minimal exporter in `strafer_lab.tools.retired.dataset_export` does not.
 
 ## Design
 
@@ -222,7 +222,7 @@ The primary data prep for this training path lives in [`strafer_lab.scripts.prep
 
 **Bbox convention is normalized `[0, 1000]` for grounding, pixel coords for detection.** `/ground` stays normalized so the downstream projection service (which holds camera intrinsics) can convert to pixels exactly once. `/detect_objects` returns pixel coordinates of the inference image because the semantic map caller does not round-trip through the projection service.
 
-**The fine-tune target is the 3B model; the description generation pipeline in `strafer_lab` uses the 7B model.** Feeding the fine-tune target's own outputs back as training data causes collapse. See [`strafer_lab.scripts.generate_descriptions`](../strafer_lab/scripts/generate_descriptions.py) for the 7B description pipeline.
+**The fine-tune target is the 3B model; the description generation pipeline in `strafer_lab` uses the 7B model.** Feeding the fine-tune target's own outputs back as training data causes collapse. See [`strafer_lab.scripts.retired.generate_descriptions`](../strafer_lab/scripts/retired/generate_descriptions.py) for the 7B description pipeline.
 
 **`detect_objects()` is additive, not on the `GroundingClient` protocol.** Existing protocol implementations stay valid. Callers in `strafer_autonomy` use `hasattr(client, "detect_objects")` to detect the richer endpoint.
 

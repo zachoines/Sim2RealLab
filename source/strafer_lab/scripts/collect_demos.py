@@ -30,7 +30,7 @@ Usage:
         --output demos/ --max_episodes 40
 
     # Train on the folder:
-    isaaclab -p Scripts/train_strafer_navigation.py \
+    isaaclab -p source/strafer_lab/scripts/train_strafer_navigation.py \
         --aux dapg --dapg_demos demos/
 """
 

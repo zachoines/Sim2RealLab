@@ -1,4 +1,4 @@
-"""Tests for ``strafer_lab.tools.dataset_export``."""
+"""Tests for ``strafer_lab.tools.retired.dataset_export``."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from strafer_lab.tools.dataset_export import (
+from strafer_lab.tools.retired.dataset_export import (
     ExportOptions,
     ExportStats,
     export_clip_csv,

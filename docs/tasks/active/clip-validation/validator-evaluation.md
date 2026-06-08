@@ -705,9 +705,9 @@ follow-up brief filed.
   Decide and document.
 - Existing offline replay precedent: the perception-writer +
   harness format is consumed offline by
-  [`generate_descriptions.py`](../../../../source/strafer_lab/scripts/generate_descriptions.py)
+  [`generate_descriptions.py`](../../../../source/strafer_lab/scripts/retired/generate_descriptions.py)
   and
-  [`prepare_vlm_finetune_data.py`](../../../../source/strafer_lab/scripts/prepare_vlm_finetune_data.py).
+  [`prepare_vlm_finetune_data.py`](../../../../source/strafer_lab/scripts/retired/prepare_vlm_finetune_data.py).
   Mirror that pattern.
 - For the `--root-cause-pass`: re-use
   [`strafer_autonomy.clients.vlm_client.HttpGroundingClient`](../../../../source/strafer_autonomy/strafer_autonomy/clients/vlm_client.py)

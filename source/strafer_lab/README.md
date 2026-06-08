@@ -112,32 +112,38 @@ If the Isaac-side observation layout changes, `strafer_shared.policy_interface` 
 
 ### Scripts and tools inventory
 
-**RL training / evaluation** (require Isaac Sim + `AppLauncher`):
+Grouped by the placement rule (see
+[`conventions.md` → Script and tool placement](../../docs/tasks/context/conventions.md#script-and-tool-placement)):
+runnable scripts under `scripts/`, importable modules under
+`strafer_lab.tools.*`, deprecated code under a sibling `retired/`.
+
+**Runnable entry points** (`source/strafer_lab/scripts/`, launched via `$ISAACLAB -p <path>`):
+
+| Path | Purpose | Runtime |
+|---|---|---|
+| `scripts/train_strafer_navigation.py` | PPO training wrapper with video capture, DAPG / GAIL auxiliary losses, resume, headless | IsaacLab |
+| `scripts/play_strafer_navigation.py` | Inference rollout from a checkpoint *or* an exported `.pt` (via `--policy`) — headed in the Kit viewport or headless with MP4 capture | IsaacLab |
+| `scripts/test_strafer_env.py` | Motion-pattern smoke test (forward / strafe / rotate / circle / figure8) | IsaacLab |
+| `scripts/export_policy.py` | Convert an rsl_rl checkpoint to a deployable TorchScript `.pt` + (where supported) ONNX `.onnx`. Round-trips the artifact through `strafer_shared.policy_interface.load_policy()` and refuses to write if the deterministic-mean head wasn't frozen. Emits a JSON sidecar with variant, dimensions, source checkpoint, repo SHA, ONNX opset, and `is_recurrent` | IsaacLab |
+| `scripts/benchmark_policy.py` | Median / p95 / p99 inference-latency stats on an exported artifact. Accepts an ONNX execution-provider preference list so the Jetson lane can record TRT-EP latency after rsync | pure-Python |
+| `scripts/capture.py` | Unified harness data-capture entry point (`--driver × --mission-source` cross-product per `harness-architecture.md`). Today wires `(teleop, scene-metadata)` end-to-end via the in-process driver in `scripts/teleop_capture.py`; other cells raise `NotImplementedError` pointing at the tier that ships them | Isaac Sim (teleop); pure-Python for argv validation |
+| `scripts/teleop_capture.py` | In-process Isaac Lab teleop driver. Boots `AppLauncher`, loads `Isaac-Strafer-Nav-Capture-Teleop-v0`, reads gamepad, drives `env.step()`, and writes a LeRobot v3 dataset via `StraferLeRobotWriter` | Isaac Sim, pygame, lerobot |
+| `scripts/run_sim_in_the_loop.py` | Launch Isaac Sim with the ROS 2 bridge in `--mode bridge` (manual Nav2 drive) or `--mode harness` (walks Jetson missions, captures reachability-labelled dataset) | Isaac Sim, `isaacsim.ros2.bridge`, Jetson on LAN |
+| `scripts/collect_demos.py` | Gamepad teleop for RL demo collection (DAPG / GAIL sources). Shares the family-aware reader at `strafer_lab.tools.gamepad_reader` with the harness teleop driver | Isaac Sim |
+| `scripts/roller_bounce_probe.py` | Headless mecanum-roller contact diagnostic: spins in place across wheel speeds and logs chassis-z to quantify the high-yaw bounce. Exposes `--sim-hz` + PhysX solver knobs | IsaacLab |
+| `scripts/prep_room_usds.py` | Orchestrate Infinigen scene generation (`generate`, `ingest`, `presets` subcommands) | IsaacLab + `INFINIGEN_ROOT`, `STRAFER_INFINIGEN_PYTHON` |
+| `scripts/postprocess_scene_usd.py` | Bake colliders + ceiling-light emitters into an Infinigen-exported USDC (called by `prep_room_usds.py`, or run manually) | IsaacLab (`pxr`) |
+| `scripts/generate_scenes_metadata.py` | Walk `Assets/generated/scenes/` and author the combined `scenes_metadata.json` with per-scene spawn points + floor top Z | IsaacLab (`pxr`) |
+| `scripts/extract_scene_metadata.py` | Serialize Blender `State` (rooms, polygons, semantic tags, relations) into `scene_metadata.json`; label USD prims with `semanticLabel` | `bpy` (Blender subprocess) |
+
+**One-shot asset authoring** (`source/strafer_lab/scripts/asset_authoring/`, run by hand to (re)build or inspect the robot/asset USD):
 
 | Path | Purpose |
 |---|---|
-| `Scripts/train_strafer_navigation.py` | PPO training wrapper with video capture, DAPG / GAIL auxiliary losses, resume, headless |
-| `Scripts/play_strafer_navigation.py` | Inference rollout from a checkpoint *or* an exported `.pt` (via `--policy`) — headed in the Kit viewport or headless with MP4 capture |
-| `Scripts/test_strafer_env.py` | Motion-pattern smoke test (forward / strafe / rotate / circle / figure8) |
-| `Scripts/export_policy.py` | Convert an rsl_rl checkpoint to a deployable TorchScript `.pt` + (where supported) ONNX `.onnx`. Round-trips the artifact through `strafer_shared.policy_interface.load_policy()` and refuses to write if the deterministic-mean head wasn't frozen. Emits a JSON sidecar with variant, dimensions, source checkpoint, repo SHA, ONNX opset, and `is_recurrent` |
-| `Scripts/benchmark_policy.py` | Median / p95 / p99 inference-latency stats on an exported artifact. Accepts an ONNX execution-provider preference list so the Jetson lane can record TRT-EP latency after rsync |
-| `scripts/roller_bounce_probe.py` | Headless mecanum-roller contact diagnostic: spins the robot in place at a sweep of wheel speeds and logs chassis-z to quantify the high-yaw bounce. Exposes physics-rate (`--sim-hz`) and PhysX solver knobs (`--solver-type`, ...). Regression harness for the PGS roller fix |
-
-**Synthetic-data pipeline** (mostly plain Python, no Isaac Sim):
-
-| Path | Purpose | Depends on |
-|---|---|---|
-| `scripts/prep_room_usds.py` | Orchestrate Infinigen scene generation (`generate`, `ingest`, `presets` subcommands) | `INFINIGEN_ROOT`, `STRAFER_INFINIGEN_PYTHON`, `STRAFER_ISAACLAB_PYTHON` |
-| `scripts/postprocess_scene_usd.py` | Bake colliders + ceiling-light emitters into an Infinigen-exported USDC (called by `prep_room_usds.py` after export, or run manually on existing scenes) | `pxr` (env_isaaclab3) |
-| `scripts/generate_scenes_metadata.py` | Walk `Assets/generated/scenes/` and author the combined `scenes_metadata.json` with per-scene spawn points + floor top Z | `pxr` (env_isaaclab3) |
-| `scripts/extract_scene_metadata.py` | Serialize Blender `State` (rooms, polygons, semantic tags, relations) into `scene_metadata.json`; label USD prims with `semanticLabel` | `bpy` (inside Blender subprocess), optional `pxr` |
-| `scripts/generate_descriptions.py` | 4-stage description pipeline: programmatic spatial → Qwen2.5-VL-7B standalone → ground-truth filter → reservoir sampling for human spot-check | `scene_metadata.json`, `transformers`, Qwen2.5-VL-7B |
-| `scripts/prepare_vlm_finetune_data.py` | Comprehensive VLM LoRA SFT prep: single-object grounding + 1:3 negatives + ~20% multi-object + ~10% description preservation | Perception frames, scene metadata, Stage-2 descriptions |
-| `scripts/finetune_clip.py` | OpenCLIP ViT-B/32 contrastive fine-tune with MLflow tracking, exports `clip_visual.onnx` + `clip_text.onnx` for the Jetson semantic map | `open_clip_torch`, CSV from `dataset_export` |
-| `scripts/collect_demos.py` | Gamepad teleop for RL demo collection (DAPG / GAIL sources). Shares the family-aware reader at `strafer_lab.tools.gamepad_reader` with the harness teleop driver | Isaac Sim |
-| `Scripts/capture.py` | Unified harness data-capture entry point (`--driver × --mission-source` cross-product per `harness-architecture.md`). Today wires `(teleop, scene-metadata)` end-to-end via the in-process Isaac Lab driver in `scripts/teleop_capture.py`; other cells raise `NotImplementedError` pointing at the tier that ships them | Isaac Sim (for `teleop`); pure-Python for argv validation |
-| `scripts/teleop_capture.py` | In-process Isaac Lab teleop driver. Boots `AppLauncher`, loads `Isaac-Strafer-Nav-Capture-Teleop-v0`, reads gamepad, drives `env.step()`, and writes a LeRobot v3 dataset via `StraferLeRobotWriter`. Subsumes the retired `collect_perception_data.py` | Isaac Sim, pygame, lerobot, optional OpenCV (for PIP) |
-| `scripts/run_sim_in_the_loop.py` | Launch Isaac Sim with the ROS 2 bridge, run in `--mode bridge` (manual Nav2 drive) or `--mode harness` (harness runs Jetson missions, captures reachability-labelled dataset). Bridge LeRobot-v3 migration tracked in Tier 2 of the harness brief | Isaac Sim, `isaacsim.ros2.bridge`, Jetson on LAN |
+| `scripts/asset_authoring/setup_physics.py` | Author PhysX collision + articulation roots + masses onto the robot USD |
+| `scripts/asset_authoring/collapse_redundant_xforms.py` | Collapse redundant single-child Xform/Scope prims while preserving world transforms |
+| `scripts/asset_authoring/inspect_robot_prim_layout.py` | Dump a tree view of the robot prim hierarchy + basic physics flags |
+| `scripts/asset_authoring/run_empty_lab.py` | Launch an empty Isaac Lab world (asset staging / smoke) |
 
 **Runtime helpers** (`strafer_lab.tools.*`, plain Python, no Isaac Sim):
 
@@ -145,10 +151,18 @@ If the Isaac-side observation layout changes, `strafer_shared.policy_interface` 
 |---|---|
 | `scene_labels` | `get_scene_metadata`, `iter_rooms`, `iter_objects`, `get_scene_label_set`, `get_room_at_position`, `get_objects_in_room` — typed accessors over `scene_metadata.json` |
 | `spatial_description` | `SpatialDescriptionBuilder`, `quat_to_yaw`, `classify_region`, `classify_bearing` — Stage-1 factual spatial relations |
-| `dataset_export` | `export_clip_csv`, `export_vlm_grounding_jsonl`, `run_export`, `pixel_bbox_to_qwen`, `format_qwen_grounding_answer` — minimal CLIP CSV + VLM SFT JSONL (ProcRoom frames excluded) |
 | `bbox_extractor` | `ReplicatorBboxExtractor`, `parse_bbox_data`, `DetectedBbox` — wraps Replicator's `bounding_box_2d_tight` annotator |
-| `perception_writer` | `PerceptionFrameWriter`, `PerceptionWriterStats` — per-frame episode writer matching the layout `generate_descriptions.py` / `prepare_vlm_finetune_data.py` consume |
+| `perception_writer` | `PerceptionFrameWriter`, `PerceptionWriterStats` — per-frame episode writer |
 | `infinigen_label_parser` | Infinigen-specific semantic label normalization |
+
+**Deprecated** (`scripts/retired/`, `tools/retired/`) — retained for reference / mining, **not imported or invoked by any live entry point**; the harness brief deletes each as it supersedes it:
+
+| Path | Superseded by |
+|---|---|
+| `scripts/retired/generate_descriptions.py` | captioner mission source in `harness-architecture.md` |
+| `scripts/retired/prepare_vlm_finetune_data.py` | direct LeRobot v3 loading |
+| `scripts/retired/finetune_clip.py` | the `cotrained-retrieval-augmented` multi-task recipe |
+| `tools/retired/dataset_export.py` | direct LeRobot v3 loading |
 
 **Isaac Sim subpackages** (require Kit runtime):
 
@@ -185,7 +199,7 @@ python -c "
 import strafer_lab
 from strafer_lab.tools.scene_labels import get_scene_label_set
 from strafer_lab.tools.spatial_description import SpatialDescriptionBuilder
-from strafer_lab.tools.dataset_export import run_export
+from strafer_lab.tools.retired.dataset_export import run_export
 print('strafer_lab tools OK')
 "
 ```
@@ -222,25 +236,25 @@ python -c "import strafer_lab; import gymnasium as gym; \
 cd /home/zachoines/Workspace/Sim2RealLab
 
 # NoCam Realistic (19 obs dims, fastest; recommended first run)
-../IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py \
+../IsaacLab/isaaclab.sh -p source/strafer_lab/scripts/train_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLNoCam-v0 --num_envs 512 --headless
 
 # Depth Realistic (4,819 obs dims; cameras auto-enabled)
-../IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py \
+../IsaacLab/isaaclab.sh -p source/strafer_lab/scripts/train_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLDepth-Real-v0 --num_envs 32 --headless
 
 # Full Realistic
-../IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py \
+../IsaacLab/isaaclab.sh -p source/strafer_lab/scripts/train_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLDepth-Real-v0 --num_envs 32 --headless
 
 # With video capture (overhead MP4 every 500 env steps)
-../IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py \
+../IsaacLab/isaaclab.sh -p source/strafer_lab/scripts/train_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
     --num_envs 64 --max_iterations 3000 \
     --video --video_length 200 --video_interval 500 --headless
 
 # Resume from checkpoint
-../IsaacLab/isaaclab.sh -p Scripts/train_strafer_navigation.py \
+../IsaacLab/isaaclab.sh -p source/strafer_lab/scripts/train_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLNoCam-v0 \
     --resume logs/rsl_rl/strafer_navigation/run_XXXXX/model_500.pt
 ```
@@ -285,27 +299,27 @@ python scripts/prep_room_usds.py generate --preset dgx
 python scripts/extract_scene_metadata.py --scene Assets/generated/scenes/kitchen_01
 
 # 3. Collect teleop perception data via the harness entry point (requires Isaac Sim)
-isaaclab -p Scripts/capture.py \
+isaaclab -p source/strafer_lab/scripts/capture.py \
     --driver teleop --mission-source scene-metadata \
     --scene scene_001 \
     --output data/sim_in_the_loop/scene_001 \
     --fps 8
 
 # 4. Run description pipeline
-python scripts/generate_descriptions.py \
+python scripts/retired/generate_descriptions.py \
     --perception-root data/perception --output-root data/descriptions
 
 # 5a. Export CLIP + basic VLM datasets
-python -c "from strafer_lab.tools.dataset_export import run_export; \
+python -c "from strafer_lab.tools.retired.dataset_export import run_export; \
   run_export('data/perception', 'data/descriptions', 'data/clip_descriptions', 'data/vlm')"
 
 # 5b. Full VLM SFT prep
-python scripts/prepare_vlm_finetune_data.py \
+python scripts/retired/prepare_vlm_finetune_data.py \
     --perception-root data/perception --descriptions-root data/descriptions \
     --scene-metadata-dir Assets/generated/scenes --output data/vlm_finetune
 
 # 6. CLIP fine-tune (exports ONNX for the Jetson semantic map)
-python scripts/finetune_clip.py \
+python scripts/retired/finetune_clip.py \
     --data data/clip_descriptions/clip_descriptions.csv \
     --image-root data/perception --epochs 10 --output models/clip_finetuned/
 ```
@@ -383,7 +397,7 @@ python -m pytest source/strafer_autonomy/tests/test_scene_labels.py \
 
 Tracked in [`docs/DEFERRED_WORK.md`](../../docs/DEFERRED_WORK.md). Items currently open:
 
-- **Electronics masses in the USD** — RoboClaws, Jetson, buck converter, D555 camera meshes + masses are TODO in `Scripts/setup_physics.py`. Without them, the simulated chassis inertia underestimates the real robot.
+- **Electronics masses in the USD** — RoboClaws, Jetson, buck converter, D555 camera meshes + masses are TODO in `source/strafer_lab/scripts/asset_authoring/setup_physics.py`. Without them, the simulated chassis inertia underestimates the real robot.
 - **`strafer_inference` Jetson package** — the deployment target for trained policies does not exist yet; see [`strafer_ros`](../strafer_ros/README.md) for the interface side.
 - **Goal position noise during final pre-deployment training** — for VLM-sourced goals, retrain with `goal_position_noise_std: 0.2-0.3 m` in `commands.py` to match Qwen2.5-VL-3B localization error; without this, the policy oscillates at deployment.
 

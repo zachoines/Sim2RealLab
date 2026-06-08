@@ -6,11 +6,11 @@ Generate detailed type stub files (.pyi) for Python packages using runtime intro
 
 ```powershell
 # Generate stubs for pxr (USD) modules
-python Scripts/type_stubs/generate_stubs.py
+python source/strafer_lab/scripts/type_stubs/generate_stubs.py
 
 # Generate stubs for other packages
-python Scripts/type_stubs/generate_stubs.py isaaclab
-python Scripts/type_stubs/generate_stubs.py omni
+python source/strafer_lab/scripts/type_stubs/generate_stubs.py isaaclab
+python source/strafer_lab/scripts/type_stubs/generate_stubs.py omni
 ```
 
 ## What Are Type Stubs?
@@ -51,7 +51,7 @@ Pylance then reads these stub files to provide IntelliSense.
 ### Generate pxr (USD) Stubs
 
 ```powershell
-python Scripts/type_stubs/generate_stubs.py
+python source/strafer_lab/scripts/type_stubs/generate_stubs.py
 ```
 
 **Output:**
@@ -73,10 +73,10 @@ python Scripts/type_stubs/generate_stubs.py
 
 ```powershell
 # Try generating for isaaclab (may need omni modules loaded)
-python Scripts/type_stubs/generate_stubs.py isaaclab
+python source/strafer_lab/scripts/type_stubs/generate_stubs.py isaaclab
 
 # Generate for any installed package
-python Scripts/type_stubs/generate_stubs.py <package_name>
+python source/strafer_lab/scripts/type_stubs/generate_stubs.py <package_name>
 ```
 
 ## Setup Requirements
@@ -202,7 +202,7 @@ If available, use official type stubs:
 
 Regenerate after package updates:
 ```powershell
-python Scripts/type_stubs/generate_stubs.py pxr
+python source/strafer_lab/scripts/type_stubs/generate_stubs.py pxr
 ```
 
 The script overwrites existing stubs, so it's safe to rerun.

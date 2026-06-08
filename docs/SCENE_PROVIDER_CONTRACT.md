@@ -396,7 +396,7 @@ To add a new scene source **X**, ship these:
    Infinigen's, otherwise hand-write the `spawn_points_xy` +
    `floor_top_z` entry (§c). Manifest authoring is reusable; only the
    floor-detection step is Infinigen-coupled.
-5. **Capture** with `Scripts/capture.py --driver teleop
+5. **Capture** with `source/strafer_lab/scripts/capture.py --driver teleop
    --mission-source scene-metadata --scene <scene>`. Reusable as-is.
 
 Steps 1, 3, 4, 5 are source-agnostic. Only step 2 (and the
@@ -465,7 +465,7 @@ EOF
 
 # 5. Capture.
 RUN_ID=$(date +%Y%m%dT%H%M%S)
-$ISAACLAB -p Scripts/capture.py \
+$ISAACLAB -p source/strafer_lab/scripts/capture.py \
     --driver teleop --mission-source scene-metadata \
     --scene "$SCENE" \
     --output "data/sim_in_the_loop/${SCENE}_${RUN_ID}"

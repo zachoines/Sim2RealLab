@@ -38,10 +38,20 @@ build: ## Build all ROS2 packages with colcon
 # DGX umbrella overrides it to .venv_vlm, which carries strafer_autonomy.
 AUTONOMY_PY ?= python
 
-test-autonomy: ## Planner/executor unit tests — host-agnostic (needs `pip install -e source/strafer_autonomy`)
-	@# PYTHONPATH cleared so the vendored ROS 2 (3.11) site-packages
-	@# env_setup.sh adds for Isaac Sim can't leak launch_testing into
-	@# pytest's plugin autoload on the DGX.
+test-autonomy: ## Planner/executor unit tests — host-agnostic (needs strafer_autonomy + pytest in the chosen interpreter)
+	@# Host-agnostic: runs in $(AUTONOMY_PY) (the active `python` by default;
+	@# the DGX umbrella pins it to .venv_vlm). On the DGX, conda `base` has
+	@# neither pytest nor strafer_autonomy, so fail with guidance rather than
+	@# a cryptic "No module named pytest". PYTHONPATH cleared so the vendored
+	@# ROS 2 (3.11) site-packages env_setup.sh adds can't leak launch_testing
+	@# into pytest's plugin autoload.
+	@if ! PYTHONPATH= $(AUTONOMY_PY) -c "import pytest" >/dev/null 2>&1; then \
+		echo "ERROR: '$(AUTONOMY_PY)' has no pytest (likely conda base). Pick an env that carries strafer_autonomy + pytest:"; \
+		echo "  DGX:    make test-dgx   (pins .venv_vlm), or  make test-autonomy AUTONOMY_PY=$(VENV_VLM)/bin/python,"; \
+		echo "          or activate .venv_vlm / env_isaaclab3 first."; \
+		echo "  Jetson: pip install -e source/strafer_autonomy  into the active python first."; \
+		exit 1; \
+	fi
 	PYTHONPATH= $(AUTONOMY_PY) -m pytest source/strafer_autonomy/tests/ \
 		-m "not requires_ros" -v
 

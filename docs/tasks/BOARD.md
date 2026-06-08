@@ -135,6 +135,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`roboclaw-error-visibility-and-low-battery`](parked/reliability/roboclaw-error-visibility-and-low-battery.md) | P2 | parked | Jetson |
 | [`imu-yaw-drift-no-magnetometer`](parked/reliability/imu-yaw-drift-no-magnetometer.md) | P2 | parked | Either |
 | [`robot_localization-ekf-fused-odom`](parked/reliability/robot_localization-ekf-fused-odom.md) | P3 | parked | Jetson |
+| [`executor-startup-health-check-contract`](active/reliability/executor-startup-health-check-contract.md) | P3 | active | Jetson |
 
 ### Tooling & ops
 
@@ -146,6 +147,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`script-tool-subsystem-grouping`](active/tooling/script-tool-subsystem-grouping.md) | P3 | active | DGX |
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | P2 | active | DGX |
 | [`install-docs-consolidation`](active/tooling/install-docs-consolidation.md) | P2 | in flight (Linux + env-topology slice); Windows pass still blocked on `windows-workstation-bringup` | Coordinator (DGX) + per-host agents |
+| [`jetson-test-gate-cross-lane-deps`](active/tooling/jetson-test-gate-cross-lane-deps.md) | P3 | active | Either |
 | [`tools-package-reorg`](parked/tooling/tools-package-reorg.md) | P3 | parked (land when no large `tools/`-touching PR is in flight — after the R1 detections column + `depth-ffv1-video-column` settle) | DGX |
 
 ### Experimental (long-horizon bets)

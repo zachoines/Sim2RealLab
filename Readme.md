@@ -244,20 +244,27 @@ Windows does not run the planner / VLM services or Isaac Sim on ARM, but it work
 
 ### Jetson Orin Nano
 
+The Jetson checks the repo out at `~/workspaces/Sim2RealLab` — note the
+lowercase, plural `workspaces`, distinct from the DGX's `~/Workspace`.
+
 ```bash
 # ROS 2 packages via colcon
 mkdir -p ~/strafer_ws/src
-ln -s ~/Workspace/Sim2RealLab/source/strafer_ros/* ~/strafer_ws/src/
+ln -s ~/workspaces/Sim2RealLab/source/strafer_ros/* ~/strafer_ws/src/
 cd ~/strafer_ws
+source /opt/ros/humble/setup.bash        # required before colcon build
 colcon build --symlink-install
 source install/setup.bash
 
-# Autonomy Python package into the same environment
-pip install -e ~/Workspace/Sim2RealLab/source/strafer_shared \
-            -e ~/Workspace/Sim2RealLab/source/strafer_autonomy
+# Autonomy Python package into the same environment. --no-build-isolation
+# uses the system setuptools: PEP 660 editable installs need setuptools
+# >= 64, but the build-isolation default pulls an older one on stock pip.
+pip install --no-build-isolation \
+            -e ~/workspaces/Sim2RealLab/source/strafer_shared \
+            -e ~/workspaces/Sim2RealLab/source/strafer_autonomy
 
 # udev rules for stable RoboClaw paths + D555 IMU permissions
-sudo cp source/strafer_ros/99-strafer.rules /etc/udev/rules.d/
+sudo cp ~/workspaces/Sim2RealLab/source/strafer_ros/99-strafer.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 

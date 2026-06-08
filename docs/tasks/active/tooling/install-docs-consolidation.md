@@ -298,6 +298,63 @@ _Last verified 2026-MM-DD on `<hostname>` (`<spec>`)._
   potential follow-up (`docs-freshness-ci` brief if a drift incident
   surfaces) but not in scope here.
 
+## Progress log
+
+### DGX + env-topology slice — shipped (PR #83, branch `task/install-docs-consolidation`)
+
+Landed the Linux + env-topology work: `repo-topology.md` env table
+(3 live envs + rationale + recreate pointers), dead-env prune
+(`env_isaaclab`, `blender-build-py311`, `.venv_harness` removed from the
+host), `DGX_SPARK_SETUP.md` retired to a redirect stub with its durable
+knobs moved into `strafer_lab/README.md`'s Linux (DGX) Install, plus
+`Readme.md` / `HARNESS_DATA_CAPTURE.md` / Makefile correctness fixes.
+`_Last verified` footers intentionally omitted (see Acceptance note).
+
+### Jetson audit integrated — 2026-06-08
+
+The Jetson agent audited `strafer_ros`, the `strafer_autonomy` executor
+side, the Jetson VLM HTTP client, and the `Readme.md` Jetson subsection on
+`jetson-desktop` (Ubuntu 22.04.5 / L4T R36.5.0, ROS Humble, Python 3.10.12,
+pip 22.0.2). Integration split by lane:
+
+**Applied by the coordinator (DGX lane — done in PR #83):** `Readme.md`
+Jetson Install block — corrected `~/Workspace` → `~/workspaces` (Jetson's
+path; the wrong one silently built 0 packages), added the missing
+`source /opt/ros/humble/setup.bash`, and added `--no-build-isolation`
+(stock pip 22.0.2 fails PEP 660 editable installs without it). The DGX
+paths it also flagged (`Readme.md` blender-build + DGX training `cd`) are
+**correct as-is** — the DGX legitimately uses `~/Workspace`.
+
+**For the Jetson agent to apply in its lane** (Jetson README internals are
+off-limits to the DGX coordinator) — the audit's verified discrepancies:
+
+- `source/strafer_ros/README.md`: `~/Workspace` → `~/workspaces` (L133);
+  add `--no-build-isolation` + keep `-e A -e B` (L146); add
+  `source /opt/ros/humble/setup.bash` before `colcon build` (L130-138);
+  fix broken `docs/DEFERRED_WORK.md` → `docs/tasks/DEFERRED_WORK.md`
+  (L260); `make test-unit` (deprecated) → `make test-driver` (L253);
+  `make test` is the host-dispatch umbrella, colcon-only is `make test-ros`
+  (L252); package count six → seven runtime + `strafer_msgs` (L9); replace
+  the hand-rolled `colcon test --packages-select` list with `make test-ros`
+  (L245).
+- `source/strafer_autonomy/README.md` (executor side): the executor
+  **fails fast** when a service is unreachable (not "logs a warning" —
+  L123) and aborts startup, matching `command_server.py`'s own docstring;
+  reconcile L123/L256; add `--no-build-isolation` (L217-218); fix the CLI
+  common-flag list (L283 — only `--node-name` / `--wait-timeout` are common
+  to submit/status/cancel).
+
+**Filed as follow-ups** (cross-lane, beyond Install/Run docs):
+
+- [`jetson-test-gate-cross-lane-deps`](jetson-test-gate-cross-lane-deps.md)
+  — `make test-jetson` can't go green on a clean Jetson: `test-autonomy`
+  pulls cross-lane deps (`strafer_vlm`, `shapely` + `source/strafer_lab`)
+  it can't import there.
+- [`executor-startup-health-check-contract`](../reliability/executor-startup-health-check-contract.md)
+  — the executor's hard fail on an unreachable VLM/planner has no
+  operator-facing skip flag; decide doc-only (fail-fast is the contract)
+  vs. adding an advisory mode.
+
 ## Triggered by
 
 User observation during PR #63 review: "I'm noticing the

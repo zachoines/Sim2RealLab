@@ -1,5 +1,9 @@
 # Unify the strafer_lab test tree layout (test/ vs tests/, and the under-organized tests/ root)
 
+**Status:** Shipped 2026-06-08 in `a9a8f4e` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/81
+**Follow-ups:** [`collision-imu-signal-flaky`](../active/investigations/collision-imu-signal-flaky.md) — `test_collision_imu_mean_differs_from_free` flakes under restitution-0 collision physics (pre-existing; un-masked here when the stale `from test.*` imports were fixed).
+
 **Type:** task / tooling (test-tree reorganization)
 **Owner:** DGX agent (lane: `source/strafer_lab/test/`, `source/strafer_lab/tests/`, `source/strafer_lab/run_tests.py`, top-level `Makefile`)
 **Priority:** P3 — tooling polish; doesn't block features. Bumps to P2 if a test file gets lost / silently un-run a second time (one such gap already exists — see Context).
@@ -18,11 +22,11 @@ home.**
 ## Context bundle
 
 Read these before starting:
-- [`context/repo-topology.md`](../../context/repo-topology.md)
-- [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
-- [`context/conventions.md`](../../context/conventions.md)
+- [`context/repo-topology.md`](../context/repo-topology.md)
+- [`context/ownership-boundaries.md`](../context/ownership-boundaries.md)
+- [`context/conventions.md`](../context/conventions.md)
 - **Sibling brief — coordinate, do not overlap:**
-  [`unify-test-targets-and-ci`](unify-test-targets-and-ci.md). That brief
+  [`unify-test-targets-and-ci`](../active/tooling/unify-test-targets-and-ci.md). That brief
   unifies **test *invocation*** (`make test-*` wrappers + CI) and treats
   `run_tests.py` as a black box; it explicitly excludes coverage/layout.
   This brief unifies the **physical *layout*** the wrappers point at. They
@@ -110,7 +114,7 @@ export mechanics — so they get their own `contracts/` home.
       Minimum: extend the harness target (or add a sibling) so
       `policy_tooling/` + `contracts/` are no longer orphaned — the five
       currently-unrun files execute and pass. (Coordinate the exact
-      target name with [`unify-test-targets-and-ci`](unify-test-targets-and-ci.md).)
+      target name with [`unify-test-targets-and-ci`](../active/tooling/unify-test-targets-and-ci.md).)
 - [ ] Imports / `conftest.py` / `pyproject` test-path globs updated so
       no test breaks on the move; `git mv` preserves history.
 - [ ] `make test-harness` (or its renamed successor) stays green at its
@@ -122,7 +126,7 @@ export mechanics — so they get their own `contracts/` home.
 ## Out of scope
 
 - **Test *invocation* unification + CI** — owned by
-  [`unify-test-targets-and-ci`](unify-test-targets-and-ci.md). This brief
+  [`unify-test-targets-and-ci`](../active/tooling/unify-test-targets-and-ci.md). This brief
   only moves files and ensures each tree is *reachable*; the polished
   `make test-<host>` umbrellas + GitHub Actions are that brief's.
 - **Folding `run_tests.py` into plain pytest.** Isaac Sim's `os._exit` /

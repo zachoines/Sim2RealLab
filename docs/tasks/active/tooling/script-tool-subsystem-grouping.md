@@ -38,7 +38,7 @@ Read these before starting:
 - **Sibling briefs — coordinate:**
   - [`tools-package-reorg`](../../parked/tooling/tools-package-reorg.md) — the **`tools/`** half. Lands under the rule amended here. Sequence per its own brief (it's gated behind in-flight `tools/`-touching PRs).
   - [`../harness/harness-architecture.md`](../harness/harness-architecture.md) — owns `capture.py`, `teleop_capture.py`, `collect_demos.py`, `run_sim_in_the_loop.py`. The `scripts/harness/` group **must be sequenced behind it** (see [Coordination](#coordination--sequencing)).
-  - [`unify-test-targets-and-ci.md`](unify-test-targets-and-ci.md) / [`strafer-lab-test-tree-unification.md`](strafer-lab-test-tree-unification.md) — own `make test-*` + test files; this brief only updates import targets, never test files.
+  - [`unify-test-targets-and-ci.md`](unify-test-targets-and-ci.md) / [`strafer-lab-test-tree-unification.md`](../../completed/strafer-lab-test-tree-unification.md) — own `make test-*` + test files; this brief only updates import targets, never test files.
 
 ## The problem
 

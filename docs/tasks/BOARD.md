@@ -27,7 +27,6 @@ that ships them; see "Shipping a brief: order of operations" in
 | Brief | Owner | PR | State |
 |---|---|---|---|
 | [`harness-architecture`](active/harness/harness-architecture.md) Tier 1 acceptance run | DGX | post-merge follow-up (PR #63 merged 2026-05-26) | pending operator capture; gated on [`teleop-perf-architecture`](completed/teleop-perf-architecture.md) (shipped 2026-06-01; loop is PhysX-bound, ~10 FPS not the ≥15 target, so a ≥30 ep × ≥2 scene run is faster but still not one-evening). Tier 1 ✓ on harness-architecture.md stays unchecked until artifact lands at `docs/artifacts/teleop_acceptance/<run_id>/`. |
-| [`strafer-lab-test-tree-unification`](active/tooling/strafer-lab-test-tree-unification.md) | DGX | task/strafer-lab-test-tree-unification | reorg landed: `test/`→`test_sim/`, the 5 loose `tests/` files foldered into `policy_tooling/` + `contracts/`, `make test-lab-py` wired. Layout names are the contract [`unify-test-targets-and-ci`](active/tooling/unify-test-targets-and-ci.md) consumes. |
 
 ---
 
@@ -141,7 +140,6 @@ The learned components here share one frozen text-capable backbone — see [`con
 |---|---|---|---|
 | [`nav2-sim-real-promotion-architecture`](active/tooling/nav2-sim-real-promotion-architecture.md) | P2 | active | Jetson |
 | [`unify-test-targets-and-ci`](active/tooling/unify-test-targets-and-ci.md) | P3 | active | Either |
-| [`strafer-lab-test-tree-unification`](active/tooling/strafer-lab-test-tree-unification.md) | P3 | in flight | DGX |
 | [`script-tool-subsystem-grouping`](active/tooling/script-tool-subsystem-grouping.md) | P3 | active | DGX |
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | P2 | active | DGX |
 | [`install-docs-consolidation`](parked/tooling/install-docs-consolidation.md) | P2 | parked (blocked on `windows-workstation-bringup`) | Coordinator (DGX) + per-host agents |
@@ -163,6 +161,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`real-d555-depth-range-survey`](active/investigations/real-d555-depth-range-survey.md) | P2 | active | Jetson |
 | [`training-throughput-profile-and-investigate`](active/investigations/training-throughput-profile-and-investigate.md) | P2 | active | DGX |
 | [`defm-preprocess-antialias-audit`](active/investigations/defm-preprocess-antialias-audit.md) | P3 | active | DGX |
+| [`collision-imu-signal-flaky`](active/investigations/collision-imu-signal-flaky.md) | P3 | active | DGX |
 
 ---
 
@@ -237,6 +236,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`script-tool-subsystem-grouping`](active/tooling/script-tool-subsystem-grouping.md) | DGX | M | Sub-group `scripts/` by sub-system (policy/ infinigen/ diagnostics/ harness/) **and** amend the conventions placement rule (flat → sub-system) — the shared rule that also governs `tools/`. `tools/` itself is owned by `tools-package-reorg` (deduped). `scripts/harness/` sequenced behind `harness-architecture`. |
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | DGX | S | Sidecar `training_preset` records the configclass name instead of the rsl_rl preset variable; cosmetic but the field is operator-facing. Filed off [`export-onnx-depth`](completed/export-onnx-depth.md). |
 | [`defm-preprocess-antialias-audit`](active/investigations/defm-preprocess-antialias-audit.md) | DGX | S–M | Measure projection-space delta between training-time DeFM antialiased preprocessing and the deployment ONNX-safe non-antialiased version, then decide alignment (leave / align deploy / align training). Filed off [`export-onnx-depth`](completed/export-onnx-depth.md). |
+| [`collision-imu-signal-flaky`](active/investigations/collision-imu-signal-flaky.md) | DGX | S–M | `test_collision_imu_mean_differs_from_free` flakes (~50%, same command) — post-restitution-0 collisions no longer clear the IMU-vs-free significance bar. Strengthen the scenario, re-frame the assertion, or retire it. Surfaced + un-masked by [`strafer-lab-test-tree-unification`](completed/strafer-lab-test-tree-unification.md). |
 | [`semantic-graph-loop-closure`](active/multi-room/semantic-graph-loop-closure.md) | DGX | M | v2 room-state — detect duplicate-place nodes via CLIP-similarity + spatial proximity, annotate as `same_place` edges. Quiet long-horizon quality lift; required infrastructure for the parked `semantic-map-lifecycle-merge`. |
 
 ---

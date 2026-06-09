@@ -52,12 +52,6 @@ for each lives in exactly one place (linked under **Recreate** below).
   keep their own venv.
 - **`env_infinigen` is pinned to 3.11** because Infinigen's deps don't all
   support 3.12 yet.
-- **`.venv_harness` was retired.** Its only reason to exist was a CPU-torch
-  split for `lerobot`; lerobot 0.5.1 turned out to coexist with
-  `env_isaaclab3`'s CUDA torch 2.10, so the harness suite folded into
-  `env_isaaclab3` (and gained `pxr`). There is no separate harness env —
-  `make test-lab` / `make test-lab-pure` run the whole `strafer_lab` tree
-  in `env_isaaclab3`.
 
 **Recreate** (each recipe is documented once — link, don't duplicate):
 

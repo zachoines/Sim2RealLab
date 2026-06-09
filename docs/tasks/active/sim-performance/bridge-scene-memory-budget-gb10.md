@@ -21,7 +21,7 @@ Read these before starting:
 - [`../harness/harness-architecture.md`](../harness/harness-architecture.md) — **owns the bridge/harness env cfgs + `run_sim_in_the_loop.py`**; any scene-selection or env-cfg change here must coordinate.
 - [`../../completed/teleop-perf-architecture.md`](../../completed/teleop-perf-architecture.md) — prior bridge-perf work (loop is PhysX-bound ~10 FPS); this brief is the memory sibling.
 - [`../harness/infinigen-scene-corpus.md`](../harness/infinigen-scene-corpus.md) — the scene-generation corpus the bridge consumes.
-- [`docs/DGX_SPARK_SETUP.md`](../../../DGX_SPARK_SETUP.md) — DGX Spark / CUDA provisioning (NVRTC + the torch CUDA build).
+- [`Readme.md` → Install (DGX Spark)](../../../../Readme.md#dgx-spark-grace--blackwell-aarch64-ubuntu) — DGX Spark / CUDA provisioning (NVRTC + the torch CUDA build); the `env_isaaclab3` build is in [`source/strafer_lab/README.md` → Install](../../../../source/strafer_lab/README.md#install).
 
 ## The problem (measured 2026-06-07 on gx10-d1d8)
 

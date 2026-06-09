@@ -15,7 +15,7 @@
 
 ## The problem (measured)
 
-Filed off the Jetson-side audit for [`install-docs-consolidation`](install-docs-consolidation.md) (2026-06-08, `jetson-desktop`). `make test-jetson` runs `test-autonomy` + `test-ros` + `test-driver`. On a clean Jetson:
+Filed off the Jetson-side audit for [`install-docs-consolidation`](../../completed/install-docs-consolidation.md) (2026-06-08, `jetson-desktop`). `make test-jetson` runs `test-autonomy` + `test-ros` + `test-driver`. On a clean Jetson:
 
 - `test-ros` — **332/332 pass**.
 - `test-driver` — **60/60 pass**.

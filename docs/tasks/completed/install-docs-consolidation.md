@@ -1,11 +1,15 @@
 # Install + run documentation consolidation
 
+**Status:** Shipped 2026-06-09 in `d244190` (DGX) — the DGX coordinator slice (canonical Linux + env-topology docs, landing-page consolidation, `DGX_SPARK_SETUP.md` retire, Jetson-audit integration). Per-host README authoring delegated to the follow-ups below.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/83
+**Follow-ups:** [`jetson-readme-install-run-fixes`](../active/tooling/jetson-readme-install-run-fixes.md) — Jetson-lane README fixes; [`windows-workstation-bringup`](../active/tooling/windows-workstation-bringup.md) — the `### Windows` subsections (Phase 3 docs); [`jetson-test-gate-cross-lane-deps`](../active/tooling/jetson-test-gate-cross-lane-deps.md) + [`executor-startup-health-check-contract`](../active/reliability/executor-startup-health-check-contract.md) — cross-lane issues the audit surfaced.
+
 **Type:** documentation refresh + consolidation (multi-host audit)
 **Owner:** Coordinating agent (DGX) + per-host agents (DGX / Windows workstation / Jetson Orin Nano)
 **Priority:** P2
 **Estimate:** L (multi-host audit + 4 package READMEs + retire/merge of a handful of scattered docs; bounded by per-host availability)
 **Branch:** `task/install-docs-consolidation`
-**Windows delegated (not blocked):** the per-package `### Windows` Install/Run subsections are authored by [`windows-workstation-bringup`](windows-workstation-bringup.md) as part of its Phase 3 docs — the agent doing the live Windows port (PowerShell vs. WSL2, the bridge runbook) has the freshest knowledge, so it writes the Windows subsections directly instead of handing conclusions back to a coordinator. This brief therefore does **not** block on it: it ships the Linux + env-topology + Jetson passes; the Windows subsections land with the Windows port, following the `## Install / ### Linux / ### Windows / ## Run` shape and the no-footer + de-dup conventions this brief established.
+**Windows delegated (not blocked):** the per-package `### Windows` Install/Run subsections are authored by [`windows-workstation-bringup`](../active/tooling/windows-workstation-bringup.md) as part of its Phase 3 docs — the agent doing the live Windows port (PowerShell vs. WSL2, the bridge runbook) has the freshest knowledge, so it writes the Windows subsections directly instead of handing conclusions back to a coordinator. This brief therefore does **not** block on it: it ships the Linux + env-topology + Jetson passes; the Windows subsections land with the Windows port, following the `## Install / ### Linux / ### Windows / ## Run` shape and the no-footer + de-dup conventions this brief established.
 
 ## Story
 
@@ -17,16 +21,16 @@ Install + run knowledge is currently scattered:
 
 | Doc | What it covers | Freshness |
 |---|---|---|
-| [`Readme.md`](../../../../Readme.md) | Landing page + role-of-the-system table | OK as a landing page |
-| [`docs/DGX_SPARK_SETUP.md`](../../../DGX_SPARK_SETUP.md) | DGX-side Isaac Lab bringup | **Stale** — operator reports it does not match what works today |
-| [`docs/HARNESS_DATA_CAPTURE.md`](../../../HARNESS_DATA_CAPTURE.md) | Harness env setup + capture commands | Fresh (just landed in PR #63); duplicates some setup steps that should live in the package README |
-| [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](../../../INTEGRATION_SIM_IN_THE_LOOP.md) | Cross-host sim-in-the-loop runbook | Unknown freshness; some env setup overlaps with DGX_SPARK_SETUP |
-| [`docs/D555_IMU_KERNEL_FIX.md`](../../../D555_IMU_KERNEL_FIX.md) | Jetson camera kernel quirk | Standalone procedure; correct home — link from strafer_ros README |
-| [`docs/example_commands_cheatsheet.md`](../../../example_commands_cheatsheet.md) | One-liners across the whole stack | Mixed; each section ages independently |
-| [`source/strafer_lab/README.md`](../../../../source/strafer_lab/README.md) | strafer_lab features + contracts; has an `## Install` section already | Install section may be stale; no per-platform subsections |
-| [`source/strafer_ros/README.md`](../../../../source/strafer_ros/README.md) | strafer_ros bringup; has an `## Install` section | Same |
-| [`source/strafer_vlm/README.md`](../../../../source/strafer_vlm/README.md) | strafer_vlm service + fine-tuning; has an `## Install` section | Same |
-| [`source/strafer_autonomy/README.md`](../../../../source/strafer_autonomy/README.md) | Planner + executor; has an `## Install` section | Same |
+| [`Readme.md`](../../../Readme.md) | Landing page + role-of-the-system table | OK as a landing page |
+| `docs/DGX_SPARK_SETUP.md` *(deleted in this PR)* | DGX-side Isaac Lab bringup | **Stale** — content moved to `strafer_lab/README.md` + `Readme.md`; file removed |
+| [`docs/HARNESS_DATA_CAPTURE.md`](../../HARNESS_DATA_CAPTURE.md) | Harness env setup + capture commands | Fresh (just landed in PR #63); duplicates some setup steps that should live in the package README |
+| [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](../../INTEGRATION_SIM_IN_THE_LOOP.md) | Cross-host sim-in-the-loop runbook | Unknown freshness; some env setup overlaps with DGX_SPARK_SETUP |
+| [`docs/D555_IMU_KERNEL_FIX.md`](../../D555_IMU_KERNEL_FIX.md) | Jetson camera kernel quirk | Standalone procedure; correct home — link from strafer_ros README |
+| [`docs/example_commands_cheatsheet.md`](../../example_commands_cheatsheet.md) | One-liners across the whole stack | Mixed; each section ages independently |
+| [`source/strafer_lab/README.md`](../../../source/strafer_lab/README.md) | strafer_lab features + contracts; has an `## Install` section already | Install section may be stale; no per-platform subsections |
+| [`source/strafer_ros/README.md`](../../../source/strafer_ros/README.md) | strafer_ros bringup; has an `## Install` section | Same |
+| [`source/strafer_vlm/README.md`](../../../source/strafer_vlm/README.md) | strafer_vlm service + fine-tuning; has an `## Install` section | Same |
+| [`source/strafer_autonomy/README.md`](../../../source/strafer_autonomy/README.md) | Planner + executor; has an `## Install` section | Same |
 
 The "package README is the source of truth" rule is already stated in
 `Readme.md` ("Each package README is the source of truth for that
@@ -62,7 +66,7 @@ Ship a documentation pass that meets all of:
   a live install on each supported host** and now has an explicit
   `### Linux (DGX Spark / x86_64 workstation)` subsection. The
   `### Windows (workstation)` subsection (where the package runs on both)
-  is **delegated to [`windows-workstation-bringup`](windows-workstation-bringup.md)**
+  is **delegated to [`windows-workstation-bringup`](../active/tooling/windows-workstation-bringup.md)**
   — it follows the same shape and is **out of scope here**. Each
   subsection includes:
   - Prereqs (OS version verified, GPU + driver, Python version, conda or
@@ -87,11 +91,10 @@ Ship a documentation pass that meets all of:
   Run anchors specifically (e.g. `[Install](source/strafer_lab/README.md#install)`).
   Cross-host architecture and the call-path narrative stay on the
   landing page; install detail stays in the READMEs.
-- [ ] `docs/DGX_SPARK_SETUP.md` is **retired** — the content moves into
-  `strafer_lab/README.md`'s Linux subsection (the DGX-specific knobs
-  + caveats live there, alongside any other Linux info). Leave a
-  redirect note in the old file for one PR cycle, then delete in a
-  follow-up cleanup.
+- [x] `docs/DGX_SPARK_SETUP.md` is **retired** — the DGX-specific knobs +
+  caveats moved into `strafer_lab/README.md`'s Linux subsection. The file
+  was **deleted outright in this PR** (operator review opted to skip the
+  one-cycle redirect stub) and its inbound links repointed to the new homes.
 - [ ] `docs/INTEGRATION_SIM_IN_THE_LOOP.md` is reviewed and either
   refreshed in-place (if it stays a runbook) or merged into the
   strafer_lab + strafer_ros READMEs' Run sections. Same for
@@ -125,7 +128,7 @@ Ship a documentation pass that meets all of:
   needed.
 - [ ] If your work invalidates a fact in any referenced context module
   or guide, update those in the same commit (per
-  [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)).
+  [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)).
 
 ## Approach — multi-agent audit
 
@@ -225,7 +228,7 @@ When the coordinator integrates reports it MUST:
 2. **Flag silent assumptions** — if a per-host report says "I assumed
    git clone is already done", document that assumption in the README.
 3. **Do not author** Windows subsections here — they are owned by
-   [`windows-workstation-bringup`](windows-workstation-bringup.md)'s
+   [`windows-workstation-bringup`](../active/tooling/windows-workstation-bringup.md)'s
    Phase 3 docs (the live Windows port writes them directly). Author the
    Linux + Jetson parts; land that as a PR.
 4. **Drop the freshness footer at the bottom of each refreshed section**
@@ -292,7 +295,7 @@ _Last verified 2026-MM-DD on `<hostname>` (`<spec>`)._
 - Rewriting the package READMEs' Features / Contracts / Design / Testing
   sections. This pass only touches Install + Run.
 - Authoring the Windows install procedure itself — that's
-  [`windows-workstation-bringup`](windows-workstation-bringup.md)'s
+  [`windows-workstation-bringup`](../active/tooling/windows-workstation-bringup.md)'s
   job. This brief consumes the output.
 - Replacing `D555_IMU_KERNEL_FIX.md` — that's a specific procedure that
   earns its own file. We just link to it from `strafer_ros/README.md`.
@@ -307,17 +310,23 @@ _Last verified 2026-MM-DD on `<hostname>` (`<spec>`)._
 Landed the Linux + env-topology work: `repo-topology.md` env table
 (3 live envs + rationale + recreate pointers), dead-env prune
 (`env_isaaclab`, `blender-build-py311`, `.venv_harness` removed from the
-host), `DGX_SPARK_SETUP.md` retired to a redirect stub with its durable
-knobs moved into `strafer_lab/README.md`'s Linux (DGX) Install, plus
-`Readme.md` / `HARNESS_DATA_CAPTURE.md` / Makefile correctness fixes.
-`_Last verified` footers intentionally omitted (see Acceptance note).
+host), `DGX_SPARK_SETUP.md` **deleted** with its durable knobs moved into
+`strafer_lab/README.md`'s Linux (DGX) Install (incl. the `--no-deps`
+`lerobot` layering) and its inbound links repointed, plus `Readme.md` /
+`HARNESS_DATA_CAPTURE.md` / Makefile correctness fixes. `_Last verified`
+footers intentionally omitted (see Acceptance note).
 
-**Windows sliced out → [`windows-workstation-bringup`](windows-workstation-bringup.md).**
-The per-package `### Windows` Install/Run subsections moved to that brief's
-Phase 3 docs so the live Windows port authors them with first-hand
-knowledge. This brief is no longer blocked on it. Remaining open thread
-here: the Jetson-lane README fixes below (the Jetson agent applies them in
-its own lane); once those land this brief ships.
+**Both per-host slices delegated — this brief ships.** The DGX coordinator
+slice (the canonical Linux + env-topology docs, landing-page consolidation,
+and Jetson-audit integration into `Readme.md`) is complete in PR #83. The
+per-host README authoring is owned by sibling briefs:
+
+- **Windows** → [`windows-workstation-bringup`](../active/tooling/windows-workstation-bringup.md)'s
+  Phase 3 docs (the live Windows port authors the `### Windows` subsections
+  first-hand).
+- **Jetson-lane READMEs** → [`jetson-readme-install-run-fixes`](../active/tooling/jetson-readme-install-run-fixes.md)
+  (the Jetson agent applies the audited `strafer_ros` / `strafer_autonomy`-executor
+  fixes in its own lane, in a follow-up PR).
 
 ### Jetson audit integrated — 2026-06-08
 
@@ -334,32 +343,18 @@ path; the wrong one silently built 0 packages), added the missing
 paths it also flagged (`Readme.md` blender-build + DGX training `cd`) are
 **correct as-is** — the DGX legitimately uses `~/Workspace`.
 
-**For the Jetson agent to apply in its lane** (Jetson README internals are
-off-limits to the DGX coordinator) — the audit's verified discrepancies:
+**Filed as follow-ups** (the per-host README authoring + the cross-lane
+issues the audit surfaced):
 
-- `source/strafer_ros/README.md`: `~/Workspace` → `~/workspaces` (L133);
-  add `--no-build-isolation` + keep `-e A -e B` (L146); add
-  `source /opt/ros/humble/setup.bash` before `colcon build` (L130-138);
-  fix broken `docs/DEFERRED_WORK.md` → `docs/tasks/DEFERRED_WORK.md`
-  (L260); `make test-unit` (deprecated) → `make test-driver` (L253);
-  `make test` is the host-dispatch umbrella, colcon-only is `make test-ros`
-  (L252); package count six → seven runtime + `strafer_msgs` (L9); replace
-  the hand-rolled `colcon test --packages-select` list with `make test-ros`
-  (L245).
-- `source/strafer_autonomy/README.md` (executor side): the executor
-  **fails fast** when a service is unreachable (not "logs a warning" —
-  L123) and aborts startup, matching `command_server.py`'s own docstring;
-  reconcile L123/L256; add `--no-build-isolation` (L217-218); fix the CLI
-  common-flag list (L283 — only `--node-name` / `--wait-timeout` are common
-  to submit/status/cancel).
-
-**Filed as follow-ups** (cross-lane, beyond Install/Run docs):
-
-- [`jetson-test-gate-cross-lane-deps`](jetson-test-gate-cross-lane-deps.md)
+- [`jetson-readme-install-run-fixes`](../active/tooling/jetson-readme-install-run-fixes.md)
+  — the audited `strafer_ros` + `strafer_autonomy`-executor README fixes
+  (the two install blockers — wrong `~/workspaces` path, PEP 660 pip — plus
+  the stale Run/Test references), for the Jetson agent to apply in its lane.
+- [`jetson-test-gate-cross-lane-deps`](../active/tooling/jetson-test-gate-cross-lane-deps.md)
   — `make test-jetson` can't go green on a clean Jetson: `test-autonomy`
   pulls cross-lane deps (`strafer_vlm`, `shapely` + `source/strafer_lab`)
   it can't import there.
-- [`executor-startup-health-check-contract`](../reliability/executor-startup-health-check-contract.md)
+- [`executor-startup-health-check-contract`](../active/reliability/executor-startup-health-check-contract.md)
   — the executor's hard fail on an unreachable VLM/planner has no
   operator-facing skip flag; decide doc-only (fail-fast is the contract)
   vs. adding an advisory mode.

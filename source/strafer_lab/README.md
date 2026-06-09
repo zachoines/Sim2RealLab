@@ -217,9 +217,12 @@ pip install --force-reinstall --no-deps \
 python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 # Expected: 2.10.0+cu130 True
 
-# Isaac Lab (develop branch) + rsl_rl, editable (the $ISAACLAB checkout)
+# Isaac Lab — check out the develop branch in your $ISAACLAB clone and
+# install rsl_rl editable. The working tree is built against a known-good
+# develop revision and intentionally trails tip; advancing it is a
+# deliberate, separately-managed upgrade, not a blind pull to develop HEAD.
 cd ~/Documents/repos/IsaacLab
-git fetch origin develop && git checkout develop
+git checkout develop
 ./isaaclab.sh --install rsl_rl
 ```
 
@@ -238,6 +241,27 @@ pip install --no-build-isolation -e source/strafer_lab
 Isaac Lab's aarch64 installer requires `LD_PRELOAD=/lib/aarch64-linux-gnu/libgomp.so.1`;
 `env_setup.sh` exports it, so source that rather than setting it by hand
 before every Isaac Lab command.
+
+**Layer in `lerobot`** (the harness teleop/capture writer needs it). Install
+it `--no-deps` so it can't downgrade Isaac Sim's `numpy` / `huggingface-hub`,
+then add only the runtime deps the writer uses:
+
+```bash
+# $ISAACLAB can't run `-m pip` (it forwards args only after its own flags);
+# use the env's python directly.
+python -m pip install --no-deps "lerobot==0.5.1"
+python -m pip install --upgrade-strategy only-if-needed \
+    "datasets>=4.0.0,<5.0.0" "av>=15.0.0,<16.0.0" "jsonlines>=4.0.0,<5.0.0"
+python -c "import torch, lerobot; print('torch', torch.__version__, 'lerobot', lerobot.__version__, 'cuda', torch.cuda.is_available())"
+# Expected: torch 2.10.0+cu130 lerobot 0.5.1 cuda True
+```
+
+Pip warns that lerobot's strict `numpy` / `huggingface-hub` / `rerun-sdk`
+pins aren't satisfied — expected and safe: `--no-deps` skipped them to keep
+Isaac Sim's stack intact. The narrow LeRobot v3 writer surface the harness
+uses (`create` / `add_frame` / `save_episode` / `finalize`) is smoke-tested
+against this install. Capture workflow deep-dive:
+[`docs/HARNESS_DATA_CAPTURE.md`](../../docs/HARNESS_DATA_CAPTURE.md).
 
 **Smoke test:**
 

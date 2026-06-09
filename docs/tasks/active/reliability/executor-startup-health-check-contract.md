@@ -14,7 +14,7 @@
 
 ## The problem
 
-Filed off the Jetson-side audit for [`install-docs-consolidation`](../tooling/install-docs-consolidation.md) (2026-06-08). The README and the code disagree on what the executor does when the VLM/planner service is **unreachable** at startup:
+Filed off the Jetson-side audit for [`install-docs-consolidation`](../../completed/install-docs-consolidation.md) (2026-06-08). The README and the code disagree on what the executor does when the VLM/planner service is **unreachable** at startup:
 
 - `source/strafer_autonomy/README.md` L123: "runs parallel health checks … and **logs a warning if unreachable**." L256 implies only the `model_loaded=false` case aborts.
 - Reality (verified both directions on `jetson-desktop`): an unreachable service raises `GroundingServiceUnavailable` / `PlannerServiceUnavailable` out of `build_command_server`, which is **not** wrapped in a try/except in `main.py`, so the executor **exits 1** and `/execute_mission` never registers. The code's own docstring already says *"Unreachable services propagate their original exception."* A reachable-but-`model_loaded=false` service also fails fast.

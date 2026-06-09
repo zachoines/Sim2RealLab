@@ -27,7 +27,7 @@ that ships them; see "Shipping a brief: order of operations" in
 | Brief | Owner | PR | State |
 |---|---|---|---|
 | [`harness-architecture`](active/harness/harness-architecture.md) Tier 1 acceptance run | DGX | post-merge follow-up (PR #63 merged 2026-05-26) | pending operator capture; gated on [`teleop-perf-architecture`](completed/teleop-perf-architecture.md) (shipped 2026-06-01; loop is PhysX-bound, ~10 FPS not the ≥15 target, so a ≥30 ep × ≥2 scene run is faster but still not one-evening). Tier 1 ✓ on harness-architecture.md stays unchecked until artifact lands at `docs/artifacts/teleop_acceptance/<run_id>/`. |
-| [`install-docs-consolidation`](active/tooling/install-docs-consolidation.md) — Linux + env-topology slice | DGX | open | Un-parked; this PR ships only the unblocked slice (env-topology in `repo-topology.md` + dead-env prune, DGX Install/Run refresh, `DGX_SPARK_SETUP.md` retired to a redirect, Jetson audit prompt drafted). The Windows subsections stay **blocked on [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md)** — brief stays `active` after merge for that pass. |
+| [`install-docs-consolidation`](active/tooling/install-docs-consolidation.md) — Linux + env-topology slice | DGX | open | Un-parked; ships the env-topology (`repo-topology.md` + dead-env prune), DGX Install/Run refresh, `DGX_SPARK_SETUP.md` retire, and Jetson-audit integration. **Windows subsections sliced out to [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md)** (live port authors them first-hand) — no longer blocked. Stays `active` after merge only for the Jetson-lane README fixes the Jetson agent applies. |
 
 ---
 
@@ -146,7 +146,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`isaac-lab-upgrade`](active/tooling/isaac-lab-upgrade.md) | P3 | active | DGX |
 | [`script-tool-subsystem-grouping`](active/tooling/script-tool-subsystem-grouping.md) | P3 | active | DGX |
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | P2 | active | DGX |
-| [`install-docs-consolidation`](active/tooling/install-docs-consolidation.md) | P2 | in flight (Linux + env-topology slice); Windows pass still blocked on `windows-workstation-bringup` | Coordinator (DGX) + per-host agents |
+| [`install-docs-consolidation`](active/tooling/install-docs-consolidation.md) | P2 | in flight (Linux + env-topology + Jetson coordination); Windows subsections delegated to `windows-workstation-bringup` | Coordinator (DGX) + per-host agents |
 | [`jetson-test-gate-cross-lane-deps`](active/tooling/jetson-test-gate-cross-lane-deps.md) | P3 | active | Either |
 | [`tools-package-reorg`](parked/tooling/tools-package-reorg.md) | P3 | parked (land when no large `tools/`-touching PR is in flight — after the R1 detections column + `depth-ffv1-video-column` settle) | DGX |
 

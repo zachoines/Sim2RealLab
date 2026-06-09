@@ -5,7 +5,7 @@
 **Priority:** P2
 **Estimate:** L (multi-host audit + 4 package READMEs + retire/merge of a handful of scattered docs; bounded by per-host availability)
 **Branch:** `task/install-docs-consolidation`
-**Blocked on:** [`windows-workstation-bringup`](windows-workstation-bringup.md) — that brief produces the authoritative Windows install path (PowerShell vs. WSL2) and the bridge runbook. We need its conclusions before we can author the Windows subsections of the package READMEs.
+**Windows delegated (not blocked):** the per-package `### Windows` Install/Run subsections are authored by [`windows-workstation-bringup`](windows-workstation-bringup.md) as part of its Phase 3 docs — the agent doing the live Windows port (PowerShell vs. WSL2, the bridge runbook) has the freshest knowledge, so it writes the Windows subsections directly instead of handing conclusions back to a coordinator. This brief therefore does **not** block on it: it ships the Linux + env-topology + Jetson passes; the Windows subsections land with the Windows port, following the `## Install / ### Linux / ### Windows / ## Run` shape and the no-footer + de-dup conventions this brief established.
 
 ## Story
 
@@ -59,9 +59,11 @@ recreate it — and prune the dead ones.
 Ship a documentation pass that meets all of:
 
 - [ ] Each package README's `## Install` section is **refreshed against
-  a live install on each supported host** and now has explicit
-  `### Linux (DGX Spark / x86_64 workstation)` and `### Windows
-  (workstation)` subsections where the package runs on both. Each
+  a live install on each supported host** and now has an explicit
+  `### Linux (DGX Spark / x86_64 workstation)` subsection. The
+  `### Windows (workstation)` subsection (where the package runs on both)
+  is **delegated to [`windows-workstation-bringup`](windows-workstation-bringup.md)**
+  — it follows the same shape and is **out of scope here**. Each
   subsection includes:
   - Prereqs (OS version verified, GPU + driver, Python version, conda or
     venv name conventionally used)
@@ -222,10 +224,10 @@ When the coordinator integrates reports it MUST:
    Surface to user; don't silently pick one.
 2. **Flag silent assumptions** — if a per-host report says "I assumed
    git clone is already done", document that assumption in the README.
-3. **Refuse to author** Windows subsections until
-   [`windows-workstation-bringup`](windows-workstation-bringup.md) is
-   shipped. Author the Linux + Jetson parts first; land that as a PR;
-   pick up the Windows pass when its dependency clears.
+3. **Do not author** Windows subsections here — they are owned by
+   [`windows-workstation-bringup`](windows-workstation-bringup.md)'s
+   Phase 3 docs (the live Windows port writes them directly). Author the
+   Linux + Jetson parts; land that as a PR.
 4. **Drop the freshness footer at the bottom of each refreshed section**
    with the date and host hardware string copied verbatim from the
    per-host report's "Verified on" line. Future readers should be able
@@ -309,6 +311,13 @@ host), `DGX_SPARK_SETUP.md` retired to a redirect stub with its durable
 knobs moved into `strafer_lab/README.md`'s Linux (DGX) Install, plus
 `Readme.md` / `HARNESS_DATA_CAPTURE.md` / Makefile correctness fixes.
 `_Last verified` footers intentionally omitted (see Acceptance note).
+
+**Windows sliced out → [`windows-workstation-bringup`](windows-workstation-bringup.md).**
+The per-package `### Windows` Install/Run subsections moved to that brief's
+Phase 3 docs so the live Windows port authors them with first-hand
+knowledge. This brief is no longer blocked on it. Remaining open thread
+here: the Jetson-lane README fixes below (the Jetson agent applies them in
+its own lane); once those land this brief ships.
 
 ### Jetson audit integrated — 2026-06-08
 

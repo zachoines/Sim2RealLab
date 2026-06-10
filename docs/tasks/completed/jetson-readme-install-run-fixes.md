@@ -1,5 +1,8 @@
 # Jetson README Install/Run fixes from the install-docs audit
 
+**Status:** Shipped 2026-06-10 in `fd24a12` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/84
+
 **Type:** documentation refresh (Jetson lane)
 **Owner:** Jetson (`source/strafer_ros/README.md`, the executor side of `source/strafer_autonomy/README.md`)
 **Priority:** P2 (the two path/pip blockers make the documented install a silent no-op on a fresh Jetson)
@@ -38,25 +41,25 @@ Jetson, **no `_Last verified` footers**, de-dup via links.
 
 ### `source/strafer_ros/README.md`
 
-- [ ] **L133 [blocker]** — `ln -s ~/Workspace/Sim2RealLab/...` → `~/workspaces/...` (lowercase, plural). The wrong path leaves a dangling `*` symlink and `colcon build` reports "0 packages finished" — a silent no-op install.
-- [ ] **L146 [blocker]** — `pip install -e source/strafer_shared source/strafer_autonomy` fails on stock pip 22.0.2 (PEP 660, missing `build_editable` hook). Add `--no-build-isolation`, and use `-e A -e B` (a single `-e` only makes `strafer_shared` editable).
-- [ ] **L130-138 [major]** — the install block never `source /opt/ros/humble/setup.bash` before `colcon build` (works only because `.bashrc` auto-sources ROS; breaks under `--noprofile` / CI / sudo / cron).
-- [ ] **L260 [major]** — broken link `docs/DEFERRED_WORK.md` → `docs/tasks/DEFERRED_WORK.md`.
-- [ ] **L253 [major]** — documents `make test-unit` (a deprecated alias) → `make test-driver`.
-- [ ] **L252 [major]** — `make test  # all colcon tests` is wrong; on the Jetson `make test` auto-dispatches to `test-jetson`. The colcon-only path is `make test-ros`.
-- [ ] **L9 [minor]** — "six runtime ROS 2 packages" is stale → seven runtime (incl. `strafer_inference`) + `strafer_msgs` = 8.
-- [ ] **L245 [minor]** — the hand-rolled `colcon test --packages-select` list (5 pkgs) skips `strafer_msgs` / `description` / `inference` → use `make test-ros`.
+- [x] **L133 [blocker]** — `ln -s ~/Workspace/Sim2RealLab/...` → `~/workspaces/...` (lowercase, plural). The wrong path leaves a dangling `*` symlink and `colcon build` reports "0 packages finished" — a silent no-op install.
+- [x] **L146 [blocker]** — `pip install -e source/strafer_shared source/strafer_autonomy` fails on stock pip 22.0.2 (PEP 660, missing `build_editable` hook). Add `--no-build-isolation`, and use `-e A -e B` (a single `-e` only makes `strafer_shared` editable).
+- [x] **L130-138 [major]** — the install block never `source /opt/ros/humble/setup.bash` before `colcon build` (works only because `.bashrc` auto-sources ROS; breaks under `--noprofile` / CI / sudo / cron).
+- [x] **L260 [major]** — broken link `docs/DEFERRED_WORK.md` → `docs/tasks/DEFERRED_WORK.md`.
+- [x] **L253 [major]** — documents `make test-unit` (a deprecated alias) → `make test-driver`.
+- [x] **L252 [major]** — `make test  # all colcon tests` is wrong; on the Jetson `make test` auto-dispatches to `test-jetson`. The colcon-only path is `make test-ros`.
+- [x] **L9 [minor]** — "six runtime ROS 2 packages" is stale → seven runtime (incl. `strafer_inference`) + `strafer_msgs` = 8.
+- [x] **L245 [minor]** — the hand-rolled `colcon test --packages-select` list (5 pkgs) skips `strafer_msgs` / `description` / `inference` → use `make test-ros`.
 
 ### `source/strafer_autonomy/README.md` (executor side)
 
-- [ ] **L123 [blocker]** — "logs a warning if unreachable" is **false**: an unreachable VLM/planner propagates out of `build_command_server` and the executor exits 1 (`/execute_mission` never registers). Reconcile with the code's own docstring. *(The behavioral question — should there be an operator skip flag — is owned by [`executor-startup-health-check-contract`](../reliability/executor-startup-health-check-contract.md); this brief is the doc-wording reconcile.)*
-- [ ] **L256 [major]** — "fails fast if reachable but `model_loaded=false`" is true but, by omission, implies an unreachable service is tolerated; it isn't.
-- [ ] **L217-218 [major]** — `pip install -e source/strafer_autonomy` fails on pip 22.0.2 → add `--no-build-isolation`.
-- [ ] **L283 [major]** — the CLI common-flag list is wrong: only `--node-name` and `--wait-timeout` are common to submit/status/cancel; `--action-name` is submit+cancel only, `--service-name` is status only.
+- [x] **L123 [blocker]** — "logs a warning if unreachable" is **false**: an unreachable VLM/planner propagates out of `build_command_server` and the executor exits 1 (`/execute_mission` never registers). Reconcile with the code's own docstring. *(The behavioral question — should there be an operator skip flag — is owned by [`executor-startup-health-check-contract`](../reliability/executor-startup-health-check-contract.md); this brief is the doc-wording reconcile.)*
+- [x] **L256 [major]** — "fails fast if reachable but `model_loaded=false`" is true but, by omission, implies an unreachable service is tolerated; it isn't.
+- [x] **L217-218 [major]** — `pip install -e source/strafer_autonomy` fails on pip 22.0.2 → add `--no-build-isolation`.
+- [x] **L283 [major]** — the CLI common-flag list is wrong: only `--node-name` and `--wait-timeout` are common to submit/status/cancel; `--action-name` is submit+cancel only, `--service-name` is status only.
 
 ### Cross-check
 
-- [ ] If your work invalidates a fact in any referenced context module, package README, top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance).
+- [x] If your work invalidates a fact in any referenced context module, package README, top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance).
 
 ## Out of scope
 

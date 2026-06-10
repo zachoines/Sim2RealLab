@@ -145,7 +145,6 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`isaac-lab-upgrade`](active/tooling/isaac-lab-upgrade.md) | P3 | active | DGX |
 | [`script-tool-subsystem-grouping`](active/tooling/script-tool-subsystem-grouping.md) | P3 | active | DGX |
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | P2 | active | DGX |
-| [`jetson-readme-install-run-fixes`](active/tooling/jetson-readme-install-run-fixes.md) | P2 | active | Jetson |
 | [`jetson-test-gate-cross-lane-deps`](active/tooling/jetson-test-gate-cross-lane-deps.md) | P3 | active | Either |
 | [`tools-package-reorg`](parked/tooling/tools-package-reorg.md) | P3 | parked (land when no large `tools/`-touching PR is in flight — after the R1 detections column + `depth-ffv1-video-column` settle) | DGX |
 

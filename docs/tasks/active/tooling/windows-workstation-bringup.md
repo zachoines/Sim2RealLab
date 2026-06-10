@@ -1,7 +1,7 @@
 # Windows workstation bringup for sim-bridge
 
 **Type:** investigation + task
-**Owner:** DGX agent (lane: `source/strafer_lab/`, Windows launchers, `env_setup.sh`, top-level `Makefile`, `docs/INTEGRATION_*.md`)
+**Owner:** DGX agent (lane: `source/strafer_lab/`, Windows launchers, `env_setup.sh`, top-level `Makefile`, `docs/INTEGRATION_*.md`, and the `### Windows` Install/Run subsections of the `strafer_lab` / `strafer_vlm` / `strafer_autonomy` (planner) READMEs)
 **Priority:** P2
 **Estimate:** L (~1 week; multi-day research + multi-host install scripting + cross-OS network testing)
 **Branch:** task/windows-workstation-bringup
@@ -57,6 +57,7 @@ Phase the work so the early phases produce decision-grade evidence before commit
 ### Phase 3 — Docs (1 day)
 
 - Write `docs/INTEGRATION_WINDOWS_WORKSTATION.md` mirroring the structure of the existing `INTEGRATION_*.md` runbooks: prerequisites, install steps, env file equivalents, smoke-test commands, troubleshooting.
+- Author the `### Windows (workstation)` Install/Run subsections in the package READMEs that run on Windows (`strafer_lab`, `strafer_vlm`, `strafer_autonomy` planner side), following the canonical shape and conventions [`install-docs-consolidation`](../../completed/install-docs-consolidation.md) established: the `## Install / ### Linux / ### Windows / ## Run` template, audited against a live Windows install, **no `_Last verified` footers**, and de-dup (link the shared bits to the Linux subsection / the new runbook rather than re-pasting). Replace the existing placeholder `venv_isaac` Windows stubs in those READMEs and in `Readme.md`'s Windows subsection. (This responsibility was sliced out of `install-docs-consolidation` so the live Windows port writes it first-hand.)
 - Update top-level `Readme.md`'s "Repository structure" / "Run" sections to mention the Windows path as an alternative DGX-side host.
 - Update `docs/example_commands_cheatsheet.md` to note Windows-specific command variants (or PowerShell equivalents) where they differ.
 
@@ -66,6 +67,7 @@ Phase the work so the early phases produce decision-grade evidence before commit
 - [ ] A `translate forward 3 m` mission completes from the Jetson side against the Windows bridge without code changes to the Jetson lane.
 - [ ] Bridge perf numbers on Windows are committed to a new section of `bridge-runtime-invariants.md` (or a sibling runbook) for future reference.
 - [ ] `docs/INTEGRATION_WINDOWS_WORKSTATION.md` exists and walks a new developer from "fresh Windows workstation" to "running smoke missions" without verbal handoffs.
+- [ ] The `### Windows` Install/Run subsections in the `strafer_lab` / `strafer_vlm` / `strafer_autonomy` (planner) READMEs — and `Readme.md`'s Windows subsection — are authored against the live Windows install, replace the placeholder `venv_isaac` stubs, and match the shape/conventions `install-docs-consolidation` established (no `_Last verified` footers; de-dup via links).
 - [ ] The Linux DGX path continues to work byte-identically — verify by running the smoke missions on DGX before merging.
 - [ ] If your work invalidates a fact in any referenced context module, package README, top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance) for the surface list and trigger heuristics.
 

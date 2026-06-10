@@ -17,7 +17,7 @@ from the develop line, and learn whether a newer Isaac Sim reaches torch 2.11
 
 - [`context/repo-topology.md`](../../context/repo-topology.md) — the conda env set + `env_setup.sh`.
 - [`context/conventions.md`](../../context/conventions.md)
-- Related: [`install-docs-consolidation`](../../parked/tooling/install-docs-consolidation.md)
+- Related: [`install-docs-consolidation`](../../completed/install-docs-consolidation.md)
   (env topology — this bump feeds its env map) and
   [`unify-test-targets-and-ci`](../../completed/unify-test-targets-and-ci.md) (`make test-lab`
   is the re-validation gate).
@@ -72,7 +72,7 @@ wide blast radius, so the deliverable is dominated by re-validation.
       roller-bounce / teleop-perf physics or the `--video` render path.
 - [ ] The torch-version delta is recorded against the `.venv_vlm`
       consolidation question in
-      [`install-docs-consolidation`](../../parked/tooling/install-docs-consolidation.md);
+      [`install-docs-consolidation`](../../completed/install-docs-consolidation.md);
       if the bump changes any env fact, update `repo-topology.md` in the same
       commit.
 

@@ -18,49 +18,17 @@ procedure.
 
 ## One-time env setup
 
-First bring up the Isaac Lab Python env per
-[`docs/DGX_SPARK_SETUP.md`](DGX_SPARK_SETUP.md) — that runbook covers
-Miniconda, Isaac Sim 5.1, the aarch64 PyTorch wheel, and Isaac Lab
-itself. The harness layers `lerobot` into that env.
-
-Why `--no-deps`: the Isaac Lab env ships with `torch 2.10.0+cu130` +
-`numpy 2.3.1` + `huggingface-hub 0.36`. `lerobot 0.5.1` pins are mostly
-compatible except for `numpy`, `huggingface-hub`, and `rerun-sdk` — a
-normal `pip install lerobot` would downgrade numpy (risks breaking
-Isaac Sim) and major-bump huggingface-hub (risks breaking
-transformers). Install `--no-deps` and layer only the runtime deps the
-writer actually uses:
+Bring up the `env_isaaclab3` conda env per
+[`source/strafer_lab/README.md` → Install (Linux / DGX Spark)](../source/strafer_lab/README.md#install)
+— that recipe installs Isaac Sim 6, Isaac Lab, **and** the `--no-deps`
+`lerobot` layering the harness writer needs (with the rationale for why
+`lerobot` is installed `--no-deps`). Confirm the env is capture-ready:
 
 ```bash
-conda activate <your-isaac-lab-env>   # the one created in DGX_SPARK_SETUP.md
-
-# Note: $ISAACLAB is an Isaac Lab wrapper that only forwards args after
-# its own flags — it can't run `-m pip` directly. Use the env's
-# Python (`python -m pip` works once you're inside the env).
-
-# 1. Install lerobot core without dragging its strict pins in
-python -m pip install --no-deps "lerobot==0.5.1"
-
-# 2. Install only the runtime deps StraferLeRobotWriter uses, refusing
-#    to upgrade anything that's already installed and satisfies the new pin
-python -m pip install --upgrade-strategy only-if-needed \
-    "datasets>=4.0.0,<5.0.0" \
-    "av>=15.0.0,<16.0.0" \
-    "jsonlines>=4.0.0,<5.0.0"
-
-# 3. Verify lerobot imports + Isaac Sim's torch still has CUDA
+conda activate env_isaaclab3
 python -c "import torch, lerobot; print('torch', torch.__version__, 'lerobot', lerobot.__version__, 'cuda', torch.cuda.is_available())"
 # Expected: torch 2.10.0+cu130 lerobot 0.5.1 cuda True
 ```
-
-Pip will print warnings that lerobot's strict pins on `numpy`, `huggingface-hub`,
-`rerun-sdk`, `setuptools`, `packaging`, and a few `wandb` / `pynput` /
-`pyserial` / `termcolor` deps aren't satisfied. **Those warnings are
-expected and safe to ignore** — `--no-deps` deliberately skipped them
-to keep Isaac Sim's stack intact. The narrow LeRobot v3 writer surface
-the harness actually uses (`LeRobotDataset.create / add_frame /
-save_episode / finalize`) was end-to-end smoke-tested against this
-install and works.
 
 Pure-Python unit tests (writer / depth / mission picker / button
 translator / CLI dispatch / scene-path resolver) run in `env_isaaclab3`

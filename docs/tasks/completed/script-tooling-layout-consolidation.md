@@ -31,7 +31,7 @@ Read these before starting:
   - [`strafer-lab-test-tree-unification`](strafer-lab-test-tree-unification.md) — owns the `test/` + `tests/` *file* layout.
   - [`unify-test-targets-and-ci`](unify-test-targets-and-ci.md) — owns `make test-*` + CI; explicitly **punts `make lint`/`format` rework**.
   - [`windows-workstation-bringup`](windows-workstation-bringup.md) — lane-claims `Scripts/` + `env_setup.sh` + `Makefile`; owns the `.ps1` launchers' future.
-  - [`install-docs-consolidation`](../../parked/tooling/install-docs-consolidation.md) — will rewrite each package README's Install/Run sections. Parked.
+  - [`install-docs-consolidation`](install-docs-consolidation.md) — will rewrite each package README's Install/Run sections. Parked.
 
 ## The problem (measured against `main` @ `ac8253f`)
 

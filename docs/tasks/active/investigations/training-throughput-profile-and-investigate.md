@@ -153,11 +153,10 @@ The deliverables are:
       beyond adding the flag. If the profiler reveals a config
       mistake (e.g. an obs term that's accidentally expensive),
       that's a finding to file, not a fix to land here.
-- [ ] **Docs surface.** Add a short note to
-      [`docs/DGX_SPARK_SETUP.md`](../../../DGX_SPARK_SETUP.md)
-      (or wherever training operator docs live) on how to invoke
-      `--profile` and how to read the output. Reuse the bridge
-      runner's docs as the template.
+- [ ] **Docs surface.** Add a short note to the training operator docs
+      ([`source/strafer_lab/README.md` → Run](../../../../source/strafer_lab/README.md#run)
+      or the cheatsheet) on how to invoke `--profile` and how to read the
+      output. Reuse the bridge runner's docs as the template.
 - [ ] If your work invalidates a fact in any referenced context
       module, update that module in the same commit.
 

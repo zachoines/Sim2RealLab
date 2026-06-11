@@ -17,10 +17,19 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from strafer_lab.tools.bbox_extractor import DetectedBbox
 from strafer_lab.tools.lerobot_depth import (
     POLICY_DEPTH,
     frame_path,
     read_depth_png,
+)
+from strafer_lab.tools.lerobot_detections import (
+    DETECTIONS_BBOX,
+    DETECTIONS_LABEL_ID,
+    DETECTIONS_OCCLUSION,
+    DETECTIONS_VALID,
+    PAD_LABEL_ID,
+    read_detection_labels,
 )
 from strafer_lab.tools.lerobot_writer import (
     StraferLeRobotWriter,
@@ -664,3 +673,208 @@ class TestLifecycleGuards:
                     rgb_perception=_make_rgb(h=100, w=100),  # wrong shape
                 )
             writer.end_episode(discard=True)
+
+
+# ---------------------------------------------------------------------------
+# First-class detections columns
+# ---------------------------------------------------------------------------
+
+
+def _make_detection(
+    label: str,
+    bbox: tuple[int, int, int, int],
+    occlusion: float = 0.0,
+) -> DetectedBbox:
+    return DetectedBbox(
+        semantic_id=1,
+        label=label,
+        labels=(label,),
+        bbox_2d=bbox,
+        occlusion_ratio=occlusion,
+    )
+
+
+class TestDetectionsSchema:
+    def test_absent_by_default(self):
+        feats = build_features()
+        assert not any(k.startswith("observation.detections.") for k in feats)
+
+    def test_declared_with_detections_max(self):
+        feats = build_features(detections_max=8)
+        assert feats[DETECTIONS_BBOX]["shape"] == (8, 4)
+        assert feats[DETECTIONS_LABEL_ID]["dtype"] == "int64"
+        assert feats[DETECTIONS_OCCLUSION]["dtype"] == "float32"
+        assert feats[DETECTIONS_VALID]["dtype"] == "bool"
+
+
+class TestDetectionsValidation:
+    def test_required_when_declared(self, writer_root):
+        with StraferLeRobotWriter(
+            root=writer_root,
+            repo_id="strafer-test/det-required",
+            fps=8,
+            capture_git_sha="x",
+            scene_metadata_hash="y",
+            cameras_required=("rgb_full",),
+            detections_max=4,
+        ) as writer:
+            writer.begin_episode(
+                mission_text="t",
+                scene_id="s",
+                source_driver="bridge",
+                source_mission_source="scene-metadata",
+            )
+            with pytest.raises(ValueError, match="detections is required"):
+                writer.add_frame(
+                    sim_time=0.0,
+                    pose=[0.0] * 7,
+                    achieved_vel=[0.0] * 3,
+                    action=[0.0] * 3,
+                    rgb_perception=_make_rgb(360, 640),
+                )
+            writer.end_episode(discard=True)
+
+    def test_rejected_when_undeclared(self, writer_root):
+        with StraferLeRobotWriter(
+            root=writer_root,
+            repo_id="strafer-test/det-undeclared",
+            fps=8,
+            capture_git_sha="x",
+            scene_metadata_hash="y",
+            cameras_required=("rgb_full",),
+        ) as writer:
+            writer.begin_episode(
+                mission_text="t",
+                scene_id="s",
+                source_driver="teleop",
+                source_mission_source="scene-metadata",
+            )
+            with pytest.raises(ValueError, match="without\\s+detections_max"):
+                writer.add_frame(
+                    sim_time=0.0,
+                    pose=[0.0] * 7,
+                    achieved_vel=[0.0] * 3,
+                    action=[0.0] * 3,
+                    rgb_perception=_make_rgb(360, 640),
+                    detections=[_make_detection("chair", (0, 0, 10, 10))],
+                )
+            writer.end_episode(discard=True)
+
+    def test_writer_exposes_detections_max(self, writer_root):
+        with StraferLeRobotWriter(
+            root=writer_root,
+            repo_id="strafer-test/det-introspect",
+            fps=8,
+            capture_git_sha="x",
+            scene_metadata_hash="y",
+            cameras_required=("rgb_full",),
+            detections_max=4,
+        ) as writer:
+            assert writer.detections_max == 4
+            assert DETECTIONS_BBOX in writer.features
+
+
+class TestDetectionsRoundTrip:
+    def test_columns_and_vocab_round_trip(self, writer_root):
+        """Detections survive the stock LeRobotDataset round-trip."""
+        from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+        with StraferLeRobotWriter(
+            root=writer_root,
+            repo_id="strafer-test/det-roundtrip",
+            fps=8,
+            capture_git_sha="deadbeef",
+            scene_metadata_hash="hash123",
+            cameras_required=("rgb_full",),
+            detections_max=4,
+        ) as writer:
+            writer.begin_episode(
+                mission_text="go to the chair",
+                scene_id="scene_001",
+                source_driver="bridge",
+                source_mission_source="scene-metadata",
+            )
+            per_frame_detections = [
+                [
+                    _make_detection("chair", (10, 20, 110, 220), occlusion=0.25),
+                    _make_detection("sofa", (200, 30, 400, 200), occlusion=0.0),
+                ],
+                [],  # a frame with nothing visible packs as all-padding
+                [_make_detection("sofa", (210, 35, 410, 205), occlusion=0.1)],
+            ]
+            for t, dets in enumerate(per_frame_detections):
+                writer.add_frame(
+                    sim_time=float(t) / 8.0,
+                    pose=[float(t), 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+                    achieved_vel=[1.0, 0.0, 0.0],
+                    action=[1.0, 0.0, 0.0],
+                    rgb_perception=_make_rgb(360, 640),
+                    detections=dets,
+                )
+            writer.end_episode(outcome="succeeded", outcome_category="on_course")
+
+        # Vocab persisted in first-seen order.
+        assert read_detection_labels(writer_root) == ("chair", "sofa")
+
+        reloaded = LeRobotDataset(
+            repo_id="strafer-test/det-roundtrip",
+            root=writer_root,
+        )
+        assert len(reloaded) == 3
+
+        frame0 = reloaded[0]
+        bbox = np.asarray(frame0[DETECTIONS_BBOX])
+        label_id = np.asarray(frame0[DETECTIONS_LABEL_ID])
+        occlusion = np.asarray(frame0[DETECTIONS_OCCLUSION])
+        valid = np.asarray(frame0[DETECTIONS_VALID])
+        assert bbox.shape == (4, 4)
+        np.testing.assert_array_equal(bbox[0], [10.0, 20.0, 110.0, 220.0])
+        np.testing.assert_array_equal(bbox[1], [200.0, 30.0, 400.0, 200.0])
+        np.testing.assert_array_equal(bbox[2:], 0.0)
+        np.testing.assert_array_equal(label_id, [0, 1, PAD_LABEL_ID, PAD_LABEL_ID])
+        assert occlusion[0] == pytest.approx(0.25)
+        np.testing.assert_array_equal(
+            np.asarray(valid, dtype=bool), [True, True, False, False],
+        )
+
+        frame1 = reloaded[1]
+        assert not np.asarray(frame1[DETECTIONS_VALID], dtype=bool).any()
+        np.testing.assert_array_equal(
+            np.asarray(frame1[DETECTIONS_LABEL_ID]), [PAD_LABEL_ID] * 4,
+        )
+
+        frame2 = reloaded[2]
+        np.testing.assert_array_equal(
+            np.asarray(frame2[DETECTIONS_LABEL_ID]),
+            [1, PAD_LABEL_ID, PAD_LABEL_ID, PAD_LABEL_ID],
+        )
+
+    def test_empty_capture_still_writes_vocab(self, writer_root):
+        with StraferLeRobotWriter(
+            root=writer_root,
+            repo_id="strafer-test/det-empty-vocab",
+            fps=8,
+            capture_git_sha="x",
+            scene_metadata_hash="y",
+            cameras_required=("rgb_full",),
+            detections_max=2,
+        ) as writer:
+            writer.begin_episode(
+                mission_text="t",
+                scene_id="s",
+                source_driver="bridge",
+                source_mission_source="scene-metadata",
+            )
+            writer.add_frame(
+                sim_time=0.0,
+                pose=[0.0] * 7,
+                achieved_vel=[0.0] * 3,
+                action=[0.0] * 3,
+                rgb_perception=_make_rgb(360, 640),
+                detections=[],
+            )
+            writer.end_episode()
+
+        vocab_file = writer_root / "meta" / "detection_labels.json"
+        assert vocab_file.is_file()
+        assert read_detection_labels(writer_root) == ()

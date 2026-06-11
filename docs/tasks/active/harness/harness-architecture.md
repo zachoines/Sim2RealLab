@@ -107,6 +107,7 @@ data/sim_in_the_loop/<scene_name>/                  ← one LeRobot v3 dataset p
 │   │   │   └── episodes-0000.parquet
 │   │   └── ...
 │   ├── splits.jsonl                                # optional sidecar — named splits beyond defaults (held-out trajectories, adversarial sets)
+│   ├── detection_labels.json                       # strafer custom — id↔string vocab for observation.detections.label_id (present when detections captured)
 │   └── scenes/<scene_id>/scene_metadata.json       # strafer custom — per-scene static GT (room polygons, connectivity, objects)
 ├── data/chunk-000/
 │   ├── file-0000.parquet                           # LeRobot v3 per-shard concatenated frame data (many episodes per shard)
@@ -124,7 +125,7 @@ data/sim_in_the_loop/<scene_name>/                  ← one LeRobot v3 dataset p
         └── ...
 ```
 
-Per-episode metadata lives in chunked Parquet under `meta/episodes/`, **not** in a flat `episodes.jsonl` — this is the v3 shape. Frame data is concatenated per shard (`file-0000.parquet`), **not** per-episode files. Videos are also per-shard MP4s with many episodes concatenated. Depth is the one strafer custom: 16UC1 PNG sequences per episode, served via a custom feature class (see [Depth representation](#depth-representation--custom-feature-class)).
+Per-episode metadata lives in chunked Parquet under `meta/episodes/`, **not** in a flat `episodes.jsonl` — this is the v3 shape. Frame data is concatenated per shard (`file-0000.parquet`), **not** per-episode files. Videos are also per-shard MP4s with many episodes concatenated. Depth is the one strafer custom outside the LeRobot schema: 16UC1 PNG sequences per episode at deterministic sidecar paths (see [Depth representation](#depth-representation--sidecar-png-sequence)).
 
 ### Per-frame `features` schema (declared in `meta/info.json`)
 
@@ -141,7 +142,11 @@ LeRobot v3's `info.json` declares each column via the `features` dict, per the v
 | `action` | float32 | (3,) | `(vx_cmd, vy_cmd, omega_z_cmd)` |
 | `observation.images.perception` | video | (360, 640, 3) | MP4 H.264; LeRobot v3 native video feature |
 | `observation.images.policy` | video (optional) | (60, 80, 3) | MP4 H.264 |
-| `observation.depth.perception` | strafer custom | (360, 640) | 16UC1 PNG sequence via strafer custom feature class — see [Depth representation](#depth-representation--custom-feature-class) |
+| `observation.depth.perception` | strafer sidecar | (360, 640) | 16UC1 PNG sequence outside the LeRobot schema — see [Depth representation](#depth-representation--sidecar-png-sequence) |
+| `observation.detections.bbox` | float32 (optional) | (detections_max, 4) | Per-frame 2D boxes, pixel `(x_min, y_min, x_max, y_max)`, zero-padded — see [Detections](#detections--first-class-padded-columns) |
+| `observation.detections.label_id` | int64 (optional) | (detections_max,) | Index into `meta/detection_labels.json`; `-1` in padding rows |
+| `observation.detections.occlusion` | float32 (optional) | (detections_max,) | Replicator occlusion ratio, `0.0` visible → `1.0` occluded |
+| `observation.detections.valid` | bool (optional) | (detections_max,) | Padding mask — the only authority on which rows are real detections |
 
 ### Camera intrinsics + preprocessing block (strafer extension to `info.json`)
 
@@ -221,6 +226,25 @@ Depth is captured as 16UC1 PNG sequences (1mm precision; the D555's noise floor 
 **LeRobot v3's video pipeline is MP4-only**; standard codecs don't support 16-bit depth video. Implementation in PR B (Tier 1) chose a **sidecar-PNG layout** over the originally-sketched `StraferDepthSequenceFeature` LeRobot subclass: the HF datasets feature-extension API (`register_feature`) is marked experimental, and 16UC1 depth doesn't fit any native dtype cleanly. PNG frames live under `videos/observation.depth.perception/episode-NNNNNN/NNNNNN.png` at deterministic paths keyed off `(episode_index, frame_index)` from the parquet rows; pure-Python read/write helpers ship in [`strafer_lab.tools.lerobot_depth`](../../../../source/strafer_lab/strafer_lab/tools/lerobot_depth.py). Stock LeRobot v3 consumers load every other column normally and ignore the sidecar tree; sim-side consumers import the helpers directly.
 
 This is a less-elegant-looking layout than registering a feature subclass, but it has zero upstream coupling, ships without monkey-patching LeRobot, and is round-trip-tested against synthetic + real arrays (`test_lerobot_depth.py`). If a future ecosystem consumer demands a registered feature, that's a small adapter built around the same on-disk format — the format is the contract, not the loader API.
+
+### Detections — first-class padded columns
+
+Per-frame 2D object detections (Replicator ground truth in sim) are **first-class parquet columns, not a sidecar**. The size asymmetry against depth drives the split decision: a frame's detections are a few hundred bytes of numbers — exactly what a parquet column stores well — so first-classing them costs nothing, lets consumers read straight from the per-shard parquet rows (no sidecar walk), and avoids compounding the depth sidecar's small-files cost. Primary consumers: [`vlm-grounding-finetune`](../../parked/clip-validation/vlm-grounding-finetune.md) (bbox-grounding LoRA training pairs) and the validator's text-alignment contrast pool (sibling-detection labels).
+
+The columns are **operator-selectable like the camera stack**: a writer constructed with `detections_max=N` declares all four columns at `N` padded slots; one constructed without it declares none (the schema shrinks — never zero-filled columns). Default slot count is 32.
+
+| Column | dtype | shape | Semantics |
+|---|---|---|---|
+| `observation.detections.bbox` | float32 | (detections_max, 4) | Pixel `(x_min, y_min, x_max, y_max)` in the perception camera's render-product resolution, top-left origin — same convention as [`bbox_extractor.DetectedBbox`](../../../../source/strafer_lab/strafer_lab/tools/bbox_extractor.py). Zero in padding rows. |
+| `observation.detections.label_id` | int64 | (detections_max,) | Index into `meta/detection_labels.json`'s `labels[]`. `-1` in padding rows so an accidental vocab lookup fails loudly. |
+| `observation.detections.occlusion` | float32 | (detections_max,) | Replicator `occlusionRatio`: `0.0` fully visible → `1.0` fully occluded. `0.0` in padding rows. |
+| `observation.detections.valid` | bool | (detections_max,) | Padding mask. **The only authority on which rows are real** — consumers must mask on it, never on zero-bbox or label sentinels. |
+
+**Padding / truncation.** Degenerate boxes (zero-or-negative area) are dropped at pack time. When a frame's detection count exceeds `detections_max`, the largest-pixel-area boxes are kept (deterministic tie-break on label then bounds); at 32 slots truncation should be rare in our indoor scenes.
+
+**Label vocab.** `meta/detection_labels.json` holds `{"labels": [...]}`; `label_id` indexes that list. Ids accumulate in first-seen order at capture time and are **dataset-local** — stable within one dataset, not across datasets. Consumers merging corpora must join through the label strings.
+
+**Producer.** Replicator's `bbox_2d_tight` annotator on the perception camera → [`bbox_extractor.parse_bbox_data`](../../../../source/strafer_lab/strafer_lab/tools/bbox_extractor.py) → `DetectedBbox` → `add_frame(detections=...)`. The writer/schema support is in place from Tier 1's writer; the per-driver annotator wiring lands with the bridge (Tier 2) and scripted (Tier 3) drivers, which capture with detections **on by default**. Teleop sessions may run with detections off — the operator-perceived frame rate wins there, and the grounding consumers feed on bridge/scripted output.
 
 ### Action chunk encoding
 
@@ -431,11 +455,11 @@ Optional post-capture pass that runs the 7B Qwen2.5-VL on each episode's `(targe
 
 ### LeRobot ecosystem alignment
 
-**What's stock-loadable from a LeRobot v3 dataset** (no strafer-side adapter required): the `(observation.images.*, observation.state.*, action, tasks, episode_index, frame_index, timestamp)` columns via HF `LeRobotDataset` directly. LeRobot's own training scripts and any LeRobot-v3-compatible policy fine-tune get this for free.
+**What's stock-loadable from a LeRobot v3 dataset** (no strafer-side adapter required): the `(observation.images.*, observation.state.*, action, tasks, episode_index, frame_index, timestamp)` columns via HF `LeRobotDataset` directly, plus the `observation.detections.*` padded columns (plain parquet features — though interpreting `label_id` needs `meta/detection_labels.json`, which is strafer plumbing below). LeRobot's own training scripts and any LeRobot-v3-compatible policy fine-tune get this for free.
 
 **What requires strafer-side custom plumbing** (ships with the harness package, so any in-repo consumer sees it automatically):
 
-- `observation.depth.perception` — custom feature class registered against LeRobot v3 (see [Depth representation](#depth-representation--custom-feature-class)).
+- `observation.depth.perception` — sidecar PNG sequence outside the LeRobot schema; read via `strafer_lab.tools.lerobot_depth` (see [Depth representation](#depth-representation--sidecar-png-sequence)).
 - `meta/episodes/`'s strafer extension columns (`scene_id`, `outcome`, `outcome_category`, `paraphrases`, `hard_negative_category`, `injection_mode_actual`, `episode_split`, `capture_git_sha`, `scene_metadata_hash`, etc.) — LeRobot's stock loader exposes these as extra parquet columns but doesn't interpret them. Consumers read them directly.
 - `meta/scenes/<scene_id>/scene_metadata.json` — strafer custom, not a LeRobot v3 concept. Consumers resolve `scene_id` → file path themselves.
 - `cameras` block in `info.json` — strafer custom for intrinsics + preprocessing hints.
@@ -483,7 +507,7 @@ Branch: `task/harness-writer-teleop`. Estimate: M.
 
 - Implement `source/strafer_lab/scripts/capture.py --driver teleop --mission-source scene-metadata`.
 - Wire the LeRobot v3 writer using the documented API: `LeRobotDataset.create()` at startup → `add_frame()` per tick within an episode → `save_episode()` at episode boundaries → **`finalize()` at process exit** to consolidate shard parquet and write the per-shard concatenated layout. Forgetting `finalize()` corrupts the dataset (per LeRobot v3 docs); the writer must guarantee `finalize()` runs even on exceptional exit (atexit handler or context manager).
-- Implement `StraferDepthSequenceFeature` custom feature class for 16UC1 PNG depth (writer + loader symmetric); register against the LeRobot v3 dataset at `create()` time.
+- 16UC1 PNG depth (writer + loader symmetric). Shipped as the sidecar-PNG layout rather than the originally-sketched `StraferDepthSequenceFeature` registered feature class — see [Depth representation](#depth-representation--sidecar-png-sequence) for the recorded decision.
 - Subsume `collect_perception_data.py` (refactor or rewrite, no parallel scripts).
 - Episode-end button mapping (`Y/B/X/SELECT/Back`); set `outcome`, `outcome_category`, `hard_negative_category` per the [Episode-end button mapping](#episode-end-button-mapping-teleop-only) table.
 - Populate `capture_git_sha` + `scene_metadata_hash` + `episode_split` (defaults to `train` for ordinary captures; `val` for `episode_index % 10 == 0`) on every saved episode.
@@ -498,6 +522,7 @@ Branch: `task/harness-bridge-driver`. Estimate: M.
 
 - Rewire `run_sim_in_the_loop.py --mode harness` to write LeRobot v3 via the same `create()` / `add_frame()` / `save_episode()` / `finalize()` lifecycle as Tier 1.
 - Cross-host action source: custom `RecorderTerm` that pulls `/cmd_vel` from the ROS graph each tick.
+- Wire the perception camera's Replicator `bbox_2d_tight` annotator → `bbox_extractor.parse_bbox_data` → `add_frame(detections=...)` (detections on by default for bridge captures — see [Detections](#detections--first-class-padded-columns)).
 - `--inject-bad-grounding` flag wired here (bridge is the primary consumer; scripted gets it in Tier 3).
 - Acceptance: bridge mode captures a multi-room mission end-to-end; LeRobot dataset round-trips; smoke test confirms per-episode metadata columns (under `meta/episodes/`) populate correctly, including the strafer extensions (`outcome`, `outcome_category`, `injection_mode_actual` when injection ran, `capture_git_sha`, `scene_metadata_hash`, `episode_split`).
 
@@ -510,6 +535,7 @@ Branch: `task/harness-scripted-driver`. Estimate: L.
 - Implement `--driver scripted --controller {rl, proportional}`.
 - Parallel-env orchestration (target `num_envs` set by [`harness-throughput-measurement`](../../parked/harness/harness-throughput-measurement.md)).
 - Mission sources: `queue`, `captioner`, `coverage`.
+- Detections annotator wiring, same as Tier 2 (on by default for scripted captures).
 - Captioner: instructive-voice prompt + 4-check eval rubric + failure-pair synthesis.
 - Coverage: target sampler + repeated-traversal sampler.
 - Acceptance: oracle path completes 1 episode per scene via RL; captioner produces ≥ 100 positive + ≥ 200 negative rows from ≥ 2 multi-room scenes; coverage produces a dataset with every room visited ≥ 2× including repeated approaches.

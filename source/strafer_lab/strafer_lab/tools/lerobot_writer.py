@@ -14,6 +14,10 @@ Sidecars produced alongside the LeRobot v3 dataset root:
   columns (outcome, scene_id, capture_git_sha, scene_metadata_hash,
   injection_mode_actual, episode_split, ...). Joined to LeRobot's own
   ``meta/episodes/`` chunked Parquet via ``episode_index``.
+- ``<root>/meta/detection_labels.json`` — id↔string vocab for the
+  first-class ``observation.detections.*`` padded columns (present only
+  when the writer is constructed with ``detections_max``); see
+  :mod:`lerobot_detections`.
 
 Lifecycle::
 
@@ -68,11 +72,17 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from .bbox_extractor import DetectedBbox
 from .lerobot_depth import (
     PERCEPTION_DEPTH,
     POLICY_DEPTH,
     frame_path as depth_frame_path,
     write_depth_png,
+)
+from .lerobot_detections import (
+    DetectionLabelVocab,
+    detections_features,
+    pack_detections,
 )
 
 
@@ -284,6 +294,7 @@ def build_features(
     action_dim: int = 3,
     *,
     capture_policy_cam: bool | None = None,
+    detections_max: int | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Return the LeRobot v3 features dict for the selected sensor stack.
 
@@ -293,6 +304,10 @@ def build_features(
     so they add no feature column here; they are still validated per frame
     against the same stack. Centralized so tests + writer + future consumers
     agree on the schema.
+
+    ``detections_max`` declares the four ``observation.detections.*`` padded
+    columns at that slot count; ``None`` (default) declares none — the
+    schema shrinks like the camera stack.
 
     ``capture_policy_cam`` is the deprecated bool form (RGB video columns only);
     prefer ``cameras_required``.
@@ -326,6 +341,8 @@ def build_features(
             "shape": (*_POLICY_RES, 3),
             "names": ["height", "width", "channels"],
         }
+    if detections_max is not None:
+        features.update(detections_features(detections_max))
     return features
 
 
@@ -350,6 +367,13 @@ class StraferLeRobotWriter:
                                modalities produce no columns. Defaults to
                                ``("rgb_full",)`` (RGB-only). ``capture_policy_cam``
                                is the deprecated bool alias (RGB columns only).
+      detections_max:          when set, declares the four
+                               ``observation.detections.*`` padded columns at
+                               this slot count and requires ``detections`` on
+                               every ``add_frame``; ``None`` (default) declares
+                               none. ``lerobot_detections.DETECTIONS_MAX_DEFAULT``
+                               is the recommended count for drivers that
+                               capture detections.
       capture_git_sha:         git rev-parse HEAD of the repo at capture
                                time; recorded in per-episode metadata.
       scene_metadata_hash:     sha256 of the active scene_metadata.json.
@@ -380,6 +404,7 @@ class StraferLeRobotWriter:
         scene_metadata_hash: str,
         cameras_required: Sequence[str] | None = None,
         capture_policy_cam: bool | None = None,
+        detections_max: int | None = None,
         vcodec: str = "h264",
         operator_handle: str | None = None,
         session_id: str | None = None,
@@ -405,7 +430,16 @@ class StraferLeRobotWriter:
         self._cameras_required = _normalize_cameras_required(
             cameras_required, capture_policy_cam,
         )
-        self._features = build_features(cameras_required=self._cameras_required)
+        self._detections_max = (
+            int(detections_max) if detections_max is not None else None
+        )
+        self._detection_vocab = (
+            DetectionLabelVocab() if self._detections_max is not None else None
+        )
+        self._features = build_features(
+            cameras_required=self._cameras_required,
+            detections_max=self._detections_max,
+        )
         self._capture_git_sha = str(capture_git_sha)
         self._scene_metadata_hash = str(scene_metadata_hash)
         self._operator_handle = operator_handle
@@ -541,6 +575,7 @@ class StraferLeRobotWriter:
         rgb_policy: np.ndarray | None = None,
         depth_m: np.ndarray | None = None,
         depth_policy_m: np.ndarray | None = None,
+        detections: Sequence[DetectedBbox] | None = None,
     ) -> None:
         """Append a tick to the current episode buffer.
 
@@ -551,6 +586,14 @@ class StraferLeRobotWriter:
         perception camera (640x360); ``depth_policy_m`` the same for the
         policy camera (80x60). Declared depth modalities ride as 16UC1 PNG
         sidecars next to the LeRobot dataset proper.
+
+        ``detections`` follows the same declared-modality discipline keyed
+        on ``detections_max``: when declared it must be supplied every frame
+        (an empty sequence means "no detections this frame" and packs as
+        all-padding rows); when undeclared it must be omitted. Boxes are
+        padded / truncated to ``detections_max`` rows and labels accumulate
+        into ``meta/detection_labels.json`` — see
+        :mod:`strafer_lab.tools.lerobot_detections`.
         """
         if self._finalized:
             raise RuntimeError("add_frame called after finalize()")
@@ -576,6 +619,18 @@ class StraferLeRobotWriter:
             "depth_policy", depth_policy_m, _POLICY_RES, "depth_policy_m",
             require_uint8=False,
         )
+        if self._detections_max is not None:
+            if detections is None:
+                raise ValueError(
+                    "detections is required every frame: the writer was "
+                    f"constructed with detections_max={self._detections_max}; "
+                    "pass an empty sequence for a frame with no detections",
+                )
+        elif detections is not None:
+            raise ValueError(
+                "detections provided but the writer was constructed without "
+                "detections_max; the schema declares no detections columns",
+            )
 
         state = np.asarray(list(pose) + list(achieved_vel), dtype=np.float32)
         action_arr = np.asarray(list(action), dtype=np.float32)
@@ -598,6 +653,12 @@ class StraferLeRobotWriter:
 
         if "rgb_policy" in self._cameras_required:
             frame["observation.images.policy"] = rgb_policy
+        if self._detections_max is not None:
+            frame.update(
+                pack_detections(
+                    detections, self._detections_max, self._detection_vocab,
+                ),
+            )
 
         self._dataset.add_frame(frame)
 
@@ -726,6 +787,10 @@ class StraferLeRobotWriter:
                 self._depth_pool = None
         self._dataset.finalize()
         self._write_strafer_sidecar()
+        if self._detection_vocab is not None:
+            # Always written when detections are declared — an empty
+            # labels[] is the valid vocab for a capture that saw none.
+            self._detection_vocab.write(self._root)
         self._finalized = True
 
     # ------------------------------------------------------------------
@@ -748,6 +813,11 @@ class StraferLeRobotWriter:
     def cameras_required(self) -> tuple[str, ...]:
         """The declared sensor stack this writer's schema was built for."""
         return self._cameras_required
+
+    @property
+    def detections_max(self) -> int | None:
+        """Declared detections slot count; ``None`` when not captured."""
+        return self._detections_max
 
     # ------------------------------------------------------------------
     # Internals

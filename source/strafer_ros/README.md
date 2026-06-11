@@ -6,7 +6,7 @@ ROS 2 runtime for the Strafer robot on the Jetson Orin Nano — motor driver, pe
 safety-critical and real-time concern: wheel commands, odometry,
 synchronized sensor streams, SLAM localization, Nav2 navigation, TF, and
 the custom ROS interfaces the autonomy layer drives. It is a collection
-of six runtime ROS 2 packages plus one interface package, built with
+of seven runtime ROS 2 packages plus one interface package, built with
 `colcon` on the Jetson. The autonomy executor in
 [`strafer_autonomy`](../strafer_autonomy/README.md) is the primary
 caller; it runs in a separate Python environment on the same Jetson and
@@ -130,10 +130,12 @@ map ← odom ← base_link ← {chassis, wheel_*, d555_link}
 ```bash
 # Symlink packages into the colcon workspace
 mkdir -p ~/strafer_ws/src
-ln -s ~/Workspace/Sim2RealLab/source/strafer_ros/* ~/strafer_ws/src/
+ln -s ~/workspaces/Sim2RealLab/source/strafer_ros/* ~/strafer_ws/src/
 
-# Build
+# Build (source the ROS environment first — it is not auto-sourced under
+# `bash --noprofile`, CI, sudo, or cron)
 cd ~/strafer_ws
+source /opt/ros/humble/setup.bash
 colcon build --symlink-install
 source install/setup.bash
 ```
@@ -143,7 +145,7 @@ Prerequisites:
 - Jetson Orin Nano with ROS 2 Humble.
 - RealSense D555 on USB 3 with the IMU stack enabled (see [`docs/D555_IMU_KERNEL_FIX.md`](../../docs/D555_IMU_KERNEL_FIX.md) for the kernel module build required on Tegra kernels).
 - Two RoboClaw ST 2x45A controllers wired per [`docs/WIRING_GUIDE.md`](../../docs/WIRING_GUIDE.md).
-- `strafer_shared` and `strafer_autonomy` pip-installed into the ROS Python environment: `pip install -e source/strafer_shared source/strafer_autonomy`.
+- `strafer_shared` and `strafer_autonomy` pip-installed into the ROS Python environment: `pip install -e source/strafer_shared -e source/strafer_autonomy --no-build-isolation`. One `-e` per package (a lone `-e` makes only the first editable); `--no-build-isolation` reuses the host `setuptools`, since the stock Jetson pip 22.0.2 otherwise build-isolates a `setuptools` too old for PEP 660 and the editable install fails with a missing `build_editable` hook.
 - udev rules: `sudo cp source/strafer_ros/99-strafer.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules`.
 - `ros-humble-foxglove-bridge` for the headless visualizer in `bringup_sim_in_the_loop.launch.py`: `sudo apt install ros-humble-foxglove-bridge`. Skip if you always launch with `viewer:=false`.
 - `ros-humble-vision-msgs` for the executor's `Detection2DArray` overlay publisher: `sudo apt install ros-humble-vision-msgs`. Required by `strafer_autonomy.clients.ros_client.JetsonRosClient.publish_detections()`.
@@ -242,22 +244,24 @@ export ROS_DOMAIN_ID=42
 
 ```bash
 cd ~/strafer_ws
-colcon test --packages-select strafer_driver strafer_perception strafer_slam strafer_navigation strafer_bringup
+colcon test            # all packages — same set as `make test-ros`
 colcon test-result --verbose
 ```
 
 From the repo root:
 
 ```bash
-make test         # all colcon tests (requires a prior `make build`)
-make test-unit    # strafer_driver unit tests directly via pytest (no colcon)
+make test-ros     # all colcon package tests (run `make build` first)
+make test-driver  # strafer_driver unit tests directly via pytest (no colcon)
+make test         # Jetson host: auto-dispatches to the test-jetson umbrella
+                  # (test-autonomy + test-ros + test-driver)
 ```
 
 End-to-end smoke checks with real hardware run through the validation scripts in `source/strafer_ros/` (see Run section).
 
 ## Deferred / known limitations
 
-Tracked in [`docs/DEFERRED_WORK.md`](../../docs/DEFERRED_WORK.md). Items currently open:
+Tracked in [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md). Items currently open:
 
 - **`strafer_inference`** — planned Jetson package for Isaac-trained RL policy execution; not implemented. Once present, it becomes the backend for `execution_backend="strafer_direct"` and `"hybrid_nav2_strafer"` on the `navigate_to_pose` skill.
 - **`orient_relative_to_target` action** — `strafer_msgs/action/OrientRelativeToTarget.action` is defined in the design docs but not shipped. Executor-side handler is drafted but commented out.

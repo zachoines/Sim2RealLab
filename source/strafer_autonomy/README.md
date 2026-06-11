@@ -120,7 +120,7 @@ float32 elapsed_s
 
 `GetMissionStatus.srv` response includes `active`, `mission_id`, `state`, `raw_command`, `current_step_id`, `current_skill`, `message`, `elapsed_s`.
 
-At startup, `build_command_server()` runs parallel health checks against the planner and VLM clients with a 10 s timeout; it fails fast if either is reachable but has no model loaded, and logs a warning if unreachable. Disable with `check_vlm_health=False` for tests.
+At startup, `build_command_server()` runs parallel health checks against the planner and VLM clients with a 10 s timeout. It fails fast on **either** failure mode: a service that is reachable but reports `model_loaded=false`, or a service that is unreachable — the connection error propagates out of `build_command_server` and the executor exits before `/execute_mission` is registered. Bring the planner and VLM up first, or disable the probe with `check_vlm_health=False` (tests only).
 
 ### Skill registry (executor-side)
 
@@ -215,10 +215,10 @@ class RosClient(Protocol):
 ### Base package (all hosts)
 
 ```bash
-pip install -e source/strafer_autonomy
+pip install -e source/strafer_autonomy --no-build-isolation
 ```
 
-This installs the executor, CLI, schemas, clients, and semantic map modules. `rclpy` and ROS 2 message packages are sourced from the colcon workspace, not PyPI — the `[ros]` extra is intentionally empty.
+This installs the executor, CLI, schemas, clients, and semantic map modules. `rclpy` and ROS 2 message packages are sourced from the colcon workspace, not PyPI — the `[ros]` extra is intentionally empty. `--no-build-isolation` reuses the host `setuptools`; without it the stock Jetson pip 22.0.2 build-isolates a `setuptools` too old for PEP 660 and the editable install fails with a missing `build_editable` hook.
 
 ### Planner service (DGX Spark only)
 
@@ -253,7 +253,7 @@ PLANNER_URL=http://192.168.50.196:8200 \
     strafer-executor
 ```
 
-Both URLs are required — `executor/main.py` exits with an error message if either is unset. The executor probes both services' `/health` endpoints in parallel at startup and fails fast if either is reachable but reports `model_loaded=false`.
+Both URLs are required — `executor/main.py` exits with an error message if either is unset. The executor probes both services' `/health` endpoints in parallel at startup and fails fast if either service is **unreachable** or is reachable but reports `model_loaded=false`; in both cases it exits and `/execute_mission` never registers, so start the planner and VLM before launching the executor.
 
 Alternatively, from the repo root Makefile:
 
@@ -280,7 +280,7 @@ strafer-autonomy-cli status
 strafer-autonomy-cli cancel
 ```
 
-CLI flags common to submit / status / cancel: `--action-name`, `--service-name`, `--node-name`, `--wait-timeout`. `submit` adds `--request-id`, `--source`, `--replace-active`, `--detach`.
+CLI flags common to submit / status / cancel: `--node-name`, `--wait-timeout`. `--action-name` is on `submit` and `cancel` (the action interface); `--service-name` is on `status` only (the status service). `submit` adds `--request-id`, `--source`, `--replace-active`, `--detach`.
 
 ### Databricks deployment (alternative to LAN HTTP)
 

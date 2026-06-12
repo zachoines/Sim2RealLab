@@ -151,12 +151,53 @@ _DEPTH_FIELDS: tuple[ObsField, ...] = _NOCAM_FIELDS + (
     ObsField("depth_image", 4800, DEPTH_SCALE),
 )
 
+# Mirrors _NOCAM_FIELDS exactly in shape and scale (19 dims, identical
+# network architecture) — only the *referent* of the goal-shaped fields
+# changes: a rolling subgoal pose on a planned path instead of a final goal
+# pose. The keys are deliberately distinct ("subgoal_*"): an Enum member
+# whose value equals an existing member's collapses into an alias, and —
+# more importantly — the renamed keys force inference-side observation
+# assembly to wire subgoal data explicitly rather than silently reusing a
+# goal-pose pipeline with the wrong semantics.
+_NOCAM_SUBGOAL_FIELDS: tuple[ObsField, ...] = (
+    ObsField("imu_accel", 3, IMU_ACCEL_SCALE),
+    ObsField("imu_gyro", 3, IMU_GYRO_SCALE),
+    ObsField("encoder_vels_ticks", 4, ENCODER_VEL_SCALE),
+    ObsField("subgoal_relative", 2, GOAL_DIST_SCALE),
+    ObsField("subgoal_distance", 1, GOAL_DIST_SCALE),
+    ObsField("subgoal_heading_to_subgoal", 1, HEADING_SCALE),
+    ObsField("body_velocity_xy", 2, BODY_VEL_SCALE),
+    ObsField("last_action", 3, 1.0),
+)
+
 
 class PolicyVariant(Enum):
-    """Policy observation variants matching Isaac Lab environment configs."""
+    """Policy observation variants matching Isaac Lab environment configs.
+
+    NOCAM_SUBGOAL contract
+    ----------------------
+
+    ``NOCAM_SUBGOAL`` has the same observation dimensionality, field shapes,
+    and normalization scales as ``NOCAM`` — the network architecture is
+    identical — but the goal-shaped fields refer to a **rolling subgoal pose**
+    on a planner-provided path (advancing ~a fixed lookahead ahead of the
+    robot's progress), not a final goal pose. A checkpoint trained under one
+    referent is silent garbage under the other: consumers must pair the
+    variant with the matching command source at both training and inference
+    time, and the loader's sidecar variant check exists to catch mislabeled
+    artifacts.
+
+    Trust boundary: ``NOCAM_SUBGOAL`` has no perception and trusts the
+    upstream planner's costmap absolutely. It cannot detect stale costmaps,
+    TF lag between plan and execution, or map-frame jumps — if the path goes
+    through a real obstacle, the policy follows it. The deployment lane must
+    run a costmap freshness watchdog and must not use this variant in
+    dynamic-obstacle scenarios.
+    """
 
     NOCAM = _NOCAM_FIELDS  # 19 dims
     DEPTH = _DEPTH_FIELDS  # 4819 dims
+    NOCAM_SUBGOAL = _NOCAM_SUBGOAL_FIELDS  # 19 dims; see class docstring
 
     @property
     def obs_dim(self) -> int:

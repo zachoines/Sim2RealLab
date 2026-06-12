@@ -781,7 +781,7 @@ def generate_proc_room(
     # --- Phase 6: Extract spawn points ---
     spawn_xy, spawn_count = _extract_spawn_points(reachable)
 
-    # Store on env for robot reset and goal command
+    # Store on env for robot reset, goal command, and path planning
     if not hasattr(env, "_proc_room_spawn_pts"):
         env._proc_room_spawn_pts = torch.zeros(
             env.num_envs, NUM_SPAWN_POINTS, 2, device=device
@@ -792,10 +792,14 @@ def generate_proc_room(
         env._proc_room_active_mask = torch.zeros(
             env.num_envs, NUM_OBJECTS, dtype=torch.bool, device=device
         )
+        env._proc_room_free_space = torch.zeros(
+            env.num_envs, GRID_SIZE, GRID_SIZE, dtype=torch.bool, device=device
+        )
 
     env._proc_room_spawn_pts[env_ids] = spawn_xy
     env._proc_room_spawn_count[env_ids] = spawn_count
     env._proc_room_active_mask[env_ids] = active_mask
+    env._proc_room_free_space[env_ids] = free_space
 
     # --- Phase 7: Offset by env origins and write ---
     env_origins = env.scene.env_origins[env_ids]  # (B, 3)

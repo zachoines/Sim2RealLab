@@ -114,3 +114,45 @@ def sustained_collision(
     )
 
     return env._collision_step_count >= max_steps
+
+
+def path_complete(
+    env: ManagerBasedEnv,
+    command_name: str,
+) -> torch.Tensor:
+    """Terminate when the robot reaches the end of its planned path.
+
+    Reads the completion flag the subgoal command term maintains (robot
+    within its ``path_complete_threshold`` of the path's final point).
+
+    Args:
+        env: The environment instance.
+        command_name: Name of the subgoal command term.
+
+    Returns:
+        Boolean tensor indicating which environments completed their path.
+    """
+    return env.command_manager.get_term(command_name).path_complete
+
+
+def off_path_divergence(
+    env: ManagerBasedEnv,
+    command_name: str,
+    max_off_path_m: float = 0.5,
+) -> torch.Tensor:
+    """Terminate when the robot strays too far from its planned path.
+
+    The path is planned through known-free space, so a large cross-track
+    error means the policy abandoned the corridor the planner cleared —
+    the episode carries no further useful path-tracking signal.
+
+    Args:
+        env: The environment instance.
+        command_name: Name of the subgoal command term.
+        max_off_path_m: Cross-track distance threshold (meters).
+
+    Returns:
+        Boolean tensor indicating which environments diverged off-path.
+    """
+    term = env.command_manager.get_term(command_name)
+    return term.cross_track_error > max_off_path_m

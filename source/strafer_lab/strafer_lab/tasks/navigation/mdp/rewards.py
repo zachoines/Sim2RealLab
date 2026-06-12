@@ -668,3 +668,90 @@ def procroom_obstacle_proximity_penalty(
         sigma=sigma,
         distance_threshold=distance_threshold,
     )
+
+
+# ---------------------------------------------------------------------------
+# Path-tracking rewards (rolling-subgoal command)
+# ---------------------------------------------------------------------------
+#
+# These read the per-tick tracking state the subgoal command term maintains
+# (cross-track / along-track projection onto its planned path), so the
+# command term stays the single owner of the path geometry.
+
+
+def path_along_track_progress(
+    env: ManagerBasedEnv,
+    command_name: str,
+) -> torch.Tensor:
+    """Reward arc-length progress along the planned path.
+
+    The command term's cursor is monotonic and rewound when a new path is
+    installed, so this signal is non-negative and free of reset/resample
+    spikes by construction.
+
+    Args:
+        env: The environment instance.
+        command_name: Name of the subgoal command term.
+
+    Returns:
+        Arc-length advance (meters) this step. Shape: (num_envs,)
+    """
+    return env.command_manager.get_term(command_name).along_track_progress
+
+
+def path_cross_track_error(
+    env: ManagerBasedEnv,
+    command_name: str,
+) -> torch.Tensor:
+    """Penalize lateral deviation from the planned path.
+
+    Use with a negative weight.
+
+    Args:
+        env: The environment instance.
+        command_name: Name of the subgoal command term.
+
+    Returns:
+        Distance (meters) to the closest path point. Shape: (num_envs,)
+    """
+    return env.command_manager.get_term(command_name).cross_track_error
+
+
+def path_complete_reward(
+    env: ManagerBasedEnv,
+    command_name: str,
+) -> torch.Tensor:
+    """Sparse bonus for reaching the end of the planned path.
+
+    Args:
+        env: The environment instance.
+        command_name: Name of the subgoal command term.
+
+    Returns:
+        Binary reward: 1.0 when the path is complete. Shape: (num_envs,)
+    """
+    return env.command_manager.get_term(command_name).path_complete.float()
+
+
+def off_path_divergence_penalty(
+    env: ManagerBasedEnv,
+    command_name: str,
+    max_off_path_m: float = 0.5,
+) -> torch.Tensor:
+    """One-shot penalty for straying beyond the off-path divergence bound.
+
+    Pairs with the ``off_path_divergence`` termination (same threshold), so
+    the episode that ends by leaving the path corridor also pays a penalty.
+    Use with a negative weight.
+
+    Args:
+        env: The environment instance.
+        command_name: Name of the subgoal command term.
+        max_off_path_m: Cross-track distance (meters) beyond which the
+            penalty fires.
+
+    Returns:
+        Binary penalty signal. Shape: (num_envs,)
+    """
+    term = env.command_manager.get_term(command_name)
+    return (term.cross_track_error > max_off_path_m).float()

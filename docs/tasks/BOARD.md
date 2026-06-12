@@ -27,6 +27,7 @@ that ships them; see "Shipping a brief: order of operations" in
 | Brief | Owner | PR | State |
 |---|---|---|---|
 | [`harness-architecture`](active/harness/harness-architecture.md) Tier 1 acceptance run | DGX | post-merge follow-up (PR #63 merged 2026-05-26) | pending operator capture; gated on [`teleop-perf-architecture`](completed/teleop-perf-architecture.md) (shipped 2026-06-01; loop is PhysX-bound, ~10 FPS not the ≥15 target, so a ≥30 ep × ≥2 scene run is faster but still not one-evening). Tier 1 ✓ on harness-architecture.md stays unchecked until artifact lands at `docs/artifacts/teleop_acceptance/<run_id>/`. |
+| [`subgoal-env`](active/trained-policy/subgoal-env.md) dev phases (planner + SubgoalCommand + path-tracking MDP + composed variants) | DGX | [#87](https://github.com/zachoines/Sim2RealLab/pull/87) | PR open. Brief stays active until the operator-gated training run produces the converged `NOCAM_SUBGOAL` checkpoint (command in the PR). |
 
 ---
 
@@ -69,7 +70,7 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | [`policy-rate-shared-constants`](active/trained-policy/policy-rate-shared-constants.md) | P2 | active | DGX |
 | [`domain-randomization-audit`](active/trained-policy/domain-randomization-audit.md) | P1 | active | DGX |
 | [`goal-noise-training`](active/trained-policy/goal-noise-training.md) | P2 | active | DGX |
-| [`subgoal-env`](active/trained-policy/subgoal-env.md) | P2 | active | DGX |
+| [`subgoal-env`](active/trained-policy/subgoal-env.md) | P2 | in flight ([#87](https://github.com/zachoines/Sim2RealLab/pull/87)) | DGX |
 | [`hybrid-mode`](parked/trained-policy/hybrid-mode.md) | P3 | parked | Jetson |
 | [`strafer-hybrid-sim-validation`](parked/trained-policy/strafer-hybrid-sim-validation.md) | P3 | parked | Either |
 | [`depth-subgoal-env`](parked/trained-policy/depth-subgoal-env.md) | P3 | parked | DGX |

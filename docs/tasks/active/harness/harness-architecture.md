@@ -272,7 +272,9 @@ The bridge driver consumes `mission_queue.yaml` rows produced by [`mission-gener
 
 ### Discard semantics (bridge)
 
-When the bridge mainloop loses ROS connectivity, `/cmd_vel` times out for longer than `--cmd-vel-grace`, a planner / executor crash kills the mission mid-episode, or Nav2 returns a non-recoverable failure code, the current episode is marked `outcome = discarded`. The episode is **not** saved to the dataset (`save_episode()` is skipped); `episode_index` advances so the next clean episode lands at the expected slot. Discards are logged but not analyzed by the consumer table — they're operational noise, not training signal.
+When `/cmd_vel` goes silent mid-drive for longer than `--cmd-vel-grace`, the executor becomes unreachable (consecutive status-poll failures — a planner / executor crash mid-episode), the mission ends in an externally-killed terminal state (`cancelled` / `aborted`), or the harness crashes mid-mission, the current episode is discarded. The episode is **not** saved to the dataset (`save_episode()` is skipped); per the Tier 1 writer's discard contract the episode-index slot is **reused** by the next mission, so kept episodes stay contiguous. Discards are logged but not analyzed by the consumer table — they're operational noise, not training signal.
+
+Missions that run to a terminal `failed` / `timeout` through the full stack are **kept** with `outcome = failed`: the executor's status surface doesn't distinguish "Nav2 non-recoverable" from "genuinely couldn't reach the goal" cross-host, and a failed-but-real attempt is filterable signal where a half-captured episode is not.
 
 ## Driver: teleop
 
@@ -521,7 +523,7 @@ Suggested-path overlay + paraphrase pass + queue support deferred to Tier 1.5 if
 Branch: `task/harness-bridge-driver`. Estimate: M.
 
 - Rewire `run_sim_in_the_loop.py --mode harness` to write LeRobot v3 via the same `create()` / `add_frame()` / `save_episode()` / `finalize()` lifecycle as Tier 1.
-- Cross-host action source: custom `RecorderTerm` that pulls `/cmd_vel` from the ROS graph each tick.
+- Cross-host action source: custom recorder that pulls `/cmd_vel` from the ROS graph each tick. (Shipped as the `IsaacLabEnvAdapter` sampling the bridge's rclpy `/cmd_vel` subscription per step + `BridgeLeRobotRecorder` mapping the harness episode lifecycle onto the writer — a plain recorder class, not an Isaac Lab `RecorderTerm`, per the constraint noted under [Driver: bridge](#driver-bridge).)
 - Wire the perception camera's Replicator `bbox_2d_tight` annotator → `bbox_extractor.parse_bbox_data` → `add_frame(detections=...)` (detections on by default for bridge captures — see [Detections](#detections--first-class-padded-columns)).
 - `--inject-bad-grounding` flag wired here (bridge is the primary consumer; scripted gets it in Tier 3).
 - Acceptance: bridge mode captures a multi-room mission end-to-end; LeRobot dataset round-trips; smoke test confirms per-episode metadata columns (under `meta/episodes/`) populate correctly, including the strafer extensions (`outcome`, `outcome_category`, `injection_mode_actual` when injection ran, `capture_git_sha`, `scene_metadata_hash`, `episode_split`).
@@ -549,7 +551,7 @@ Lives in [`room-state-eval-harness`](../multi-room/room-state-eval-harness.md) (
 This brief is the architectural spec; it does not ship code. It is "complete" (move-to-completed-stamped) only when **all** of Tiers 1, 2, 3 have shipped. Until then it sits as the in-flight architecture doc that each implementation PR references.
 
 - [ ] Tier 1 shipped (PR B)
-- [ ] Tier 2 shipped (PR C)
+- [x] Tier 2 shipped (PR C)
 - [ ] Tier 3 shipped (PR D)
 - [ ] Retired downstream scripts (`generate_descriptions.py` etc.) deleted by the PR that supersedes each script's function (not necessarily in this brief's PRs).
 - [ ] Cross-references in all consumer briefs ([`vla-v2-architecture`](../../parked/experimental/vla-v2-architecture.md), [`vla-v2-map-conditioning`](../../parked/experimental/vla-v2-map-conditioning.md), [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md), [`implicit-memory-map`](../../parked/clip-validation/implicit-memory-map.md), [`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md), [`room-state-eval-harness`](../multi-room/room-state-eval-harness.md)) updated to point at this brief and the LeRobot v3 schema. This is checked in the docs-only PR (PR A) and re-verified at each tier's ship.
@@ -561,7 +563,7 @@ This brief is the architectural spec; it does not ship code. It is "complete" (m
 Lifted from the source briefs:
 
 - Bridge mainloop tick boundary: [`run_sim_in_the_loop.py`](../../../../source/strafer_lab/scripts/run_sim_in_the_loop.py); phase-profiler scaffold at lines 258–350.
-- Current writer (to be replaced): [`source/strafer_lab/strafer_lab/tools/perception_writer.py`](../../../../source/strafer_lab/strafer_lab/tools/perception_writer.py).
+- Legacy `frames.jsonl` writer (`tools/perception_writer.py`): deleted by Tier 2's PR when the bridge driver moved onto the LeRobot writer; recoverable from git history.
 - Gamepad mapping: [`source/strafer_lab/scripts/collect_demos.py`](../../../../source/strafer_lab/scripts/collect_demos.py). Reused verbatim for teleop.
 - Camera resolutions: 640×360 perception, 80×60 policy; [`test_d555_perception_cfg.py:50`](../../../../source/strafer_lab/test_sim/sensors/test_d555_perception_cfg.py#L50).
 - Depth format reference (sim-real convention): [`depth_downsampler.py:3-7`](../../../../source/strafer_ros/strafer_perception/strafer_perception/depth_downsampler.py#L3-L7) — 16UC1 millimeters.

@@ -427,3 +427,47 @@ class TestReplicatorBboxExtractor:
             annotator=mock,
         )
         assert extractor.semantic_types == ("class",)
+
+
+class TestResolveRenderProductPath:
+    """resolve_render_product_path handles both camera attribute layouts."""
+
+    def test_direct_attribute(self):
+        from strafer_lab.tools.bbox_extractor import resolve_render_product_path
+
+        class Cam:
+            render_product_paths = ["/rp/direct"]
+
+        assert resolve_render_product_path(Cam()) == "/rp/direct"
+
+    def test_renderer_render_data_attribute(self):
+        from strafer_lab.tools.bbox_extractor import resolve_render_product_path
+
+        class RenderData:
+            render_product_paths = ["/rp/tiled"]
+
+        class Cam:
+            _render_data = RenderData()
+
+        assert resolve_render_product_path(Cam()) == "/rp/tiled"
+
+    def test_direct_attribute_wins_over_render_data(self):
+        from strafer_lab.tools.bbox_extractor import resolve_render_product_path
+
+        class RenderData:
+            render_product_paths = ["/rp/tiled"]
+
+        class Cam:
+            render_product_paths = ["/rp/direct"]
+            _render_data = RenderData()
+
+        assert resolve_render_product_path(Cam()) == "/rp/direct"
+
+    def test_unresolvable_raises(self):
+        from strafer_lab.tools.bbox_extractor import resolve_render_product_path
+
+        class Cam:
+            _render_data = None
+
+        with pytest.raises(RuntimeError, match="render-product"):
+            resolve_render_product_path(Cam())

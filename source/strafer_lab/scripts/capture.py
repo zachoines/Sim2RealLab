@@ -20,42 +20,45 @@ a capture session that writes a LeRobot v3 dataset.
       [--sensors rgb_full[,depth_full,...] | <preset>] ← per-session stack
       [--capture-policy-cam / --no-capture-policy-cam]  (deprecated)
 
-Implementation status (this is Tier 1 / PR B scaffolding):
+Implementation status:
 
-- ``--driver teleop --mission-source scene-metadata`` → the only
-  combination Tier 1 wires; in-process Isaac Lab + gamepad. The
-  driver itself lands as the next commit on this branch.
-- All other ``(driver, mission-source)`` cells raise
-  ``NotImplementedError`` with a pointer to the tier that ships them.
+- ``--driver teleop --mission-source scene-metadata`` → in-process
+  Isaac Lab + gamepad (``teleop_capture.py``).
+- ``--driver bridge`` (``scene-metadata`` or ``queue``) → the Jetson
+  autonomy stack drives via /cmd_vel
+  (``run_sim_in_the_loop.py --mode harness``).
+- The ``scripted`` driver and the ``captioner`` / ``coverage`` mission
+  sources are not implemented yet and raise ``NotImplementedError``.
 """
 
 from __future__ import annotations
 
 import argparse
-import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import Optional, Sequence
 
 
-# Valid (driver, mission_source) combinations from
-# harness-architecture.md. Mapping value = (tier_label, status).
-VALID_COMBINATIONS: dict[tuple[str, str], tuple[str, str]] = {
-    ("bridge", "scene-metadata"): ("Tier 2", "pending"),
-    ("bridge", "queue"): ("Tier 2", "pending"),
-    ("teleop", "queue"): ("Tier 1 follow-up", "pending"),
-    ("teleop", "scene-metadata"): ("Tier 1", "wired"),
-    ("scripted", "queue"): ("Tier 3", "pending"),
-    ("scripted", "captioner"): ("Tier 3", "pending"),
-    ("scripted", "coverage"): ("Tier 3", "pending"),
+# Valid (driver, mission_source) combinations. Mapping value = status:
+# "wired" cells dispatch to a driver script; "pending" cells raise
+# NotImplementedError until their driver ships.
+VALID_COMBINATIONS: dict[tuple[str, str], str] = {
+    ("bridge", "scene-metadata"): "wired",
+    ("bridge", "queue"): "wired",
+    ("teleop", "queue"): "pending",
+    ("teleop", "scene-metadata"): "wired",
+    ("scripted", "queue"): "pending",
+    ("scripted", "captioner"): "pending",
+    ("scripted", "coverage"): "pending",
 }
 
 
-# Driver script lookup. The teleop driver is a sibling in this scripts/ dir —
-# it boots its own AppLauncher so capture.py stays Isaac-Sim-free and
+# Driver script lookup. Both drivers are siblings in this scripts/ dir —
+# each boots its own AppLauncher so capture.py stays Isaac-Sim-free and
 # importable without Isaac Sim for unit tests.
 _TELEOP_DRIVER_SCRIPT = Path(__file__).resolve().parent / "teleop_capture.py"
+_BRIDGE_DRIVER_SCRIPT = Path(__file__).resolve().parent / "run_sim_in_the_loop.py"
 
 
 VALID_DRIVERS = sorted({d for d, _ in VALID_COMBINATIONS})
@@ -181,6 +184,15 @@ def _build_parser() -> argparse.ArgumentParser:
              "paraphrases per episode. Default 0 (off).",
     )
     parser.add_argument(
+        "--detections",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Record per-frame 2D detections (Replicator ground truth) as "
+             "first-class dataset columns. Default: on for the bridge "
+             "driver, unavailable for teleop (the gamepad driver has no "
+             "annotator and prioritizes operator frame rate).",
+    )
+    parser.add_argument(
         "--sensors",
         default=None,
         help="Per-session sensor stack: a preset (teleop / vla / coverage / "
@@ -208,8 +220,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--fps",
         type=int,
         default=8,
-        help="Capture rate in Hz. Default 8 matches the bridge mainloop "
-             "post-decimation rate.",
+        help="Capture rate in Hz (teleop driver). The bridge driver "
+             "derives its rate from the env step dt × its "
+             "--capture-every-n-steps instead.",
     )
     return parser
 
@@ -235,8 +248,12 @@ def _validate(args: argparse.Namespace) -> None:
     if args.inject_bad_grounding != "off" and args.driver == "teleop":
         raise SystemExit(
             "--inject-bad-grounding is not valid for --driver teleop. "
-            "Teleop hard negatives come from the X / SELECT buttons. See "
-            "harness-architecture.md → Driver: teleop.",
+            "Teleop hard negatives come from the X / SELECT buttons.",
+        )
+    if args.detections and args.driver == "teleop":
+        raise SystemExit(
+            "--detections is not available for --driver teleop; the teleop "
+            "driver captures without the detections annotator.",
         )
 
 
@@ -267,6 +284,44 @@ def _build_teleop_subprocess_argv(
     return argv
 
 
+def _build_bridge_subprocess_argv(
+    args: argparse.Namespace,
+    extra_args: Sequence[str],
+) -> list[str]:
+    """Translate ``capture.py`` args into the bridge driver's argv.
+
+    The bridge driver is ``run_sim_in_the_loop.py --mode harness`` — it
+    boots its own AppLauncher, brings up the ROS 2 bridge publishers,
+    and walks the mission stream while the Jetson autonomy stack drives.
+    Unknown extras (``--headless``, ``--max-missions``, AppLauncher
+    flags, ...) pass through to the child.
+    """
+    stack = resolve_sensor_stack(
+        args.sensors if args.sensors is not None else "bridge",
+        capture_policy_cam=args.capture_policy_cam,
+    )
+    argv: list[str] = [
+        sys.executable, str(_BRIDGE_DRIVER_SCRIPT),
+        "--mode", "harness",
+        "--scene-name", args.scene,
+        "--output", args.output,
+        "--vcodec", args.vcodec,
+        "--sensors", ",".join(stack),
+    ]
+    if args.mission_source == "queue":
+        argv.extend(["--mission-queue", args.mission_queue])
+    if args.detections is False:
+        argv.append("--no-detections")
+    if args.inject_bad_grounding != "off":
+        argv.extend([
+            "--inject-bad-grounding", args.inject_bad_grounding,
+            "--inject-bad-grounding-prob", str(args.inject_bad_grounding_prob),
+        ])
+    if extra_args:
+        argv.extend(extra_args)
+    return argv
+
+
 def _dispatch(
     args: argparse.Namespace,
     *,
@@ -279,29 +334,35 @@ def _dispatch(
     swap in a mock that captures argv without spawning Isaac Sim.
     """
     cell = (args.driver, args.mission_source)
-    tier_label, status = VALID_COMBINATIONS[cell]
+    status = VALID_COMBINATIONS[cell]
 
-    if cell == ("teleop", "scene-metadata"):
-        print(
-            f"[capture] selected: driver={args.driver}, "
-            f"mission_source={args.mission_source} ({tier_label}, {status})",
-            file=sys.stderr,
+    if status != "wired":
+        raise NotImplementedError(
+            f"--driver {args.driver} --mission-source {args.mission_source} "
+            "is not implemented yet; this cell ships with its driver's "
+            "implementation.",
         )
-        if not _TELEOP_DRIVER_SCRIPT.is_file():
-            raise SystemExit(
-                f"teleop driver script missing at {_TELEOP_DRIVER_SCRIPT}. "
-                "This is a packaging bug.",
-            )
-        argv = _build_teleop_subprocess_argv(args, extra_args)
-        print(f"[capture] dispatching → {' '.join(argv)}", file=sys.stderr)
-        result = runner(argv, check=False)
-        return int(getattr(result, "returncode", 0) or 0)
 
-    raise NotImplementedError(
-        f"--driver {args.driver} --mission-source {args.mission_source} "
-        f"is gated on {tier_label}. See docs/tasks/active/harness/"
-        f"harness-architecture.md#implementation-tiers for the schedule.",
+    if args.driver == "teleop":
+        driver_script = _TELEOP_DRIVER_SCRIPT
+        argv = _build_teleop_subprocess_argv(args, extra_args)
+    else:  # bridge
+        driver_script = _BRIDGE_DRIVER_SCRIPT
+        argv = _build_bridge_subprocess_argv(args, extra_args)
+
+    print(
+        f"[capture] selected: driver={args.driver}, "
+        f"mission_source={args.mission_source} ({status})",
+        file=sys.stderr,
     )
+    if not driver_script.is_file():
+        raise SystemExit(
+            f"driver script missing at {driver_script}. "
+            "This is a packaging bug.",
+        )
+    print(f"[capture] dispatching → {' '.join(argv)}", file=sys.stderr)
+    result = runner(argv, check=False)
+    return int(getattr(result, "returncode", 0) or 0)
 
 
 def main(argv: Optional[list[str]] = None) -> int:

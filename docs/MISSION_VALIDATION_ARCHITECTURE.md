@@ -167,16 +167,19 @@ End-to-end path:
 
 4. **Harness capture.**
    [`run_sim_in_the_loop.py --mode harness`](../source/strafer_lab/scripts/run_sim_in_the_loop.py)
-   walks the `objects[]` list, dispatches one mission per target
-   to the Jetson executor over the `execute_mission` action, and
-   captures `frames.jsonl` + `frame_*.jpg` per episode under
-   `data/sim_in_the_loop/<scene_name>/episode_NNNN/`.
-   `frames.jsonl` records: `frame_id`, `image_path`, `scene_name`,
-   `scene_type`, `robot_pos`, `robot_quat`, `bboxes`, `mission_id`,
-   `target_label`, `target_position_3d`, `reachability`,
-   `mission_state`. **The reachability label is the only
-   ground-truth proxy this stack currently has for "did the robot
-   actually reach the target?"**
+   (dispatched via `capture.py --driver bridge`) walks the
+   `objects[]` list — or a `mission_queue.yaml` — dispatches one
+   mission per target to the Jetson executor over the
+   `execute_mission` action, and records one LeRobot v3 episode per
+   mission under `data/sim_in_the_loop/<scene_name>/`: perception
+   RGB video + 16UC1 depth sidecars + normalized `/cmd_vel` actions
+   + Replicator 2D detections columns, with per-episode `outcome` /
+   `outcome_category` / injection metadata in the strafer extension
+   columns (see
+   [`harness-architecture`](tasks/active/harness/harness-architecture.md)).
+   **The per-episode `outcome` is the only ground-truth proxy this
+   stack currently has for "did the robot actually reach the
+   target?"**
 
 5. **Description generation.**
    [`generate_descriptions.py`](../source/strafer_lab/scripts/retired/generate_descriptions.py)
@@ -209,11 +212,12 @@ Where each input field comes from:
 | `reachability` | Jetson executor's mission outcome | from Nav2 result, not a perception signal |
 
 **Implication for downstream alternatives.** The pipeline already
-emits everything a small validator would need — `frames.jsonl`
-anchors poses to images, `mission_id` groups frames by mission,
-`reachability` and `mission_state` give a weak label for
-"on-course vs. off-course." A learned validator can train against
-this without new infra. (The labels are weak — see §2.5.)
+emits everything a small validator would need — the LeRobot v3
+parquet anchors poses to frames, `episode_index` groups frames by
+mission, and the per-episode `outcome` / `outcome_category` columns
+give a weak label for "on-course vs. off-course." A learned
+validator can train against this without new infra. (The labels are
+weak — see §2.5.)
 
 ### 1.6 DGX-side infrastructure backing the pipeline
 
@@ -426,7 +430,7 @@ produce them in this session because the prerequisites aren't met:
 | Frame-to-frame CLIP cosine variance σ on a real harness-captured episode | Populated `data/sim_in_the_loop/<scene>/episode_NNNN/` + `clip_visual.onnx` in `~/.strafer/models/` | Neither exists on DGX; harness has not been run with the current scene set, and `finetune_clip.py` has not produced an ONNX export here. |
 | Top-k flip rate per meter of travel | same | same |
 | What `TransitMonitor` *actually catches* on a representative subset | same + the executor wired to `semantic_map=` and `background_mapper=` | §1.3: production wiring is absent. |
-| Bad-grounding fraction that mid-mission cancellation would have helped | Reachability outcomes disaggregated by failure mode | Harness records aggregate `reachable=True/False`; root-cause classification is not in `frames.jsonl`. |
+| Bad-grounding fraction that mid-mission cancellation would have helped | Mission outcomes disaggregated by failure mode | The harness records `outcome` ∈ {succeeded, failed, wrong_room, wrong_instance}; deliberate bad-grounding episodes exist only when captured with `--inject-bad-grounding`, and organic failures are not root-caused. |
 
 **These are not "future work" excuses; they're the recommendation.**
 The whole point of §4 is that the path forward is to do this
@@ -504,8 +508,8 @@ DINOv2-S/14 ~60–80 ms. Image-vs-text adds one text-tower call per
 mission (text encoded once; cached for the leg) — negligible.
 
 **Training data.** Case 1 uses harness output's
-`scene_name` + `robot_pos` keying directly. Case 2 uses the
-`target_label` already in `frames.jsonl` plus a synthetic
+`scene_id` + `observation.state.pose` keying directly. Case 2 uses
+the per-episode `target_label` plus a synthetic
 "alternate target description" pool (other labels in the same scene
 metadata) for negative mining. Open-vocab descriptions in
 `clip_descriptions.csv` become an auxiliary loss for the text-tower

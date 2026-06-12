@@ -226,6 +226,56 @@ picker (numeric index; Ctrl-D quits cleanly).
 
 ---
 
+## Bridge driver (autonomy stack in the loop)
+
+The bridge driver records the same LeRobot v3 schema while the
+**Jetson autonomy stack** drives over `/cmd_vel` — same Nav2 /
+RTAB-Map / executor that runs against the real D555. Prerequisites:
+the sim-in-the-loop bringup is healthy end-to-end
+([`INTEGRATION_SIM_IN_THE_LOOP.md`](INTEGRATION_SIM_IN_THE_LOOP.md)
+Stages 1–4: DDS discovery, Jetson `bringup_sim_in_the_loop.launch.py`,
+the executor, and the VLM/planner services).
+
+```bash
+RUN_ID=$(date +%Y%m%dT%H%M%S)
+OUT=data/sim_in_the_loop/${SCENE}_bridge_${RUN_ID}
+
+# Walk every scene_metadata.json target (one mission = one episode)
+$ISAACLAB -p source/strafer_lab/scripts/capture.py \
+    --driver bridge --mission-source scene-metadata \
+    --scene  ${SCENE} \
+    --output ${OUT} \
+    --headless --enable_cameras
+
+# Or walk a curated mission queue (bridge ignores planned_path)
+$ISAACLAB -p source/strafer_lab/scripts/capture.py \
+    --driver bridge --mission-source queue \
+    --mission-queue data/mission_queues/${SCENE}/queue.yaml \
+    --scene  ${SCENE} \
+    --output ${OUT} \
+    --headless --enable_cameras
+```
+
+Bridge-specific behavior and flags:
+
+| Flag | Default | Use |
+|---|---|---|
+| `--sensors` | `bridge` preset (`rgb_full,depth_full,depth_policy`) | Per-session sensor stack; `rgb_full` + `depth_full` are mandatory (the Jetson navigates on the bridged camera streams) |
+| `--detections` / `--no-detections` | on | Replicator `bbox_2d_tight` detections as first-class `observation.detections.*` columns + `meta/detection_labels.json` |
+| `--inject-bad-grounding {off,wrong_room,wrong_instance}` | `off` | Hard-negative goal perturbation: the dispatched goal is swapped while the recorded mission text keeps naming the original target. Pair with `--inject-bad-grounding-prob` (default 0.3). Downstream filters must key off the per-episode `injection_mode_actual`, not `injection_mode` |
+| `--max-missions N` (pass-through) | all | Cap the mission stream — use `--max-missions 1` for a single-mission smoke |
+| `--cmd-vel-grace S` (pass-through) | 30 | Mid-drive `/cmd_vel` silence beyond this discards the episode (`outcome` never reaches disk; the index slot is reused) |
+| `--mission-timeout-s S` (pass-through) | 60 | Per-mission ceiling before the harness cancels (kept as `outcome=failed`) |
+
+Episodes are **discarded** (never reach disk) on `/cmd_vel` silence
+past the grace, executor unreachability (5 consecutive status-poll
+failures), externally-killed terminal states (`cancelled` /
+`aborted`), or a mid-mission crash; the run aborts after 3
+consecutive crashed missions. `succeeded` / `failed` / `timeout`
+missions are kept and labelled.
+
+---
+
 ## Round-trip verification
 
 ```bash

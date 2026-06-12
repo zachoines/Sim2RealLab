@@ -27,7 +27,7 @@ Read these before starting:
 
 | Module | Domain |
 |---|---|
-| `lerobot_writer.py`, `lerobot_depth.py`, `perception_writer.py`, `bbox_extractor.py` | harness dataset capture |
+| `lerobot_writer.py`, `lerobot_depth.py`, `lerobot_detections.py`, `bbox_extractor.py`, `mission_queue.py`, `grounding_injection.py` | harness dataset capture |
 | `gamepad_reader.py`, `teleop_buttons.py`, `teleop_mission_picker.py` | teleop input / UI |
 | `scene_labels.py`, `scene_paths.py`, `infinigen_label_parser.py`, `spatial_description.py` | scene metadata |
 | `phase_profiler.py` | profiling |
@@ -41,7 +41,7 @@ The **principle** is purpose-grouping; the exact tree is the implementer's call.
 
 ```
 strafer_lab/tools/
-  harness/     lerobot_writer, lerobot_depth, perception_writer, bbox_extractor
+  harness/     lerobot_writer, lerobot_depth, lerobot_detections, bbox_extractor, mission_queue, grounding_injection
   teleop/      gamepad_reader, teleop_buttons, teleop_mission_picker
   scene/       scene_labels, scene_paths, infinigen_label_parser, spatial_description
   profiling/   phase_profiler

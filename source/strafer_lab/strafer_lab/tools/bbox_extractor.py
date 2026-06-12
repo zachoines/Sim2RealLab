@@ -252,6 +252,28 @@ def _iter_rows(data: Any) -> Iterable[Any]:
     return iter(data)
 
 
+def resolve_render_product_path(camera_sensor: Any) -> str:
+    """Return the render-product path backing an Isaac Lab camera sensor.
+
+    Two attribute layouts exist: older camera classes expose
+    ``render_product_paths`` directly, while the renderer-abstraction
+    cameras keep them on the backend render-data object
+    (``camera._render_data.render_product_paths``). Raises
+    :class:`RuntimeError` when neither is populated — e.g. before the
+    sensor is initialized, or under a renderer backend that doesn't
+    create Replicator render products.
+    """
+    for holder in (camera_sensor, getattr(camera_sensor, "_render_data", None)):
+        paths = getattr(holder, "render_product_paths", None)
+        if paths:
+            return str(paths[0])
+    raise RuntimeError(
+        f"Could not resolve a render-product path from {type(camera_sensor).__name__}; "
+        "the sensor is not initialized or its renderer backend exposes no "
+        "Replicator render product to attach annotators to.",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Replicator-backed extractor
 # ---------------------------------------------------------------------------

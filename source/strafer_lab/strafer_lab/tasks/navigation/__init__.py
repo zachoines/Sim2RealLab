@@ -1,8 +1,8 @@
 """Navigation task for Strafer mecanum wheel robot.
 
-Environments are composed over three orthogonal axes — sensor stack, scene
-source, realism level — in ``composed_env_cfg.py`` and registered here under a
-composition-legible gym-ID scheme. Two families:
+Environments are composed over orthogonal axes — sensor stack, scene source,
+realism level, objective — in ``composed_env_cfg.py`` and registered here
+under a composition-legible gym-ID scheme. Two families:
 
 RL training (fixed sensor stack — the obs contract a trained policy was fit
 against):
@@ -10,6 +10,10 @@ against):
 - ``Isaac-Strafer-Nav-RLDepth-Real-v0``: depth-policy obs, ProcRoom, realistic
 - ``Isaac-Strafer-Nav-RLDepth-Robust-v0``: depth-policy obs, ProcRoom, robust DR
 - ``Isaac-Strafer-Nav-RLNoCam-v0``: proprioceptive obs, ProcRoom, realistic
+- ``Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-v0``: proprioceptive obs, ProcRoom,
+  realistic, rolling-subgoal path tracking
+- ``Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-v0``: proprioceptive obs,
+  ProcRoom, robust DR, rolling-subgoal path tracking
 
 Capture (operator-selectable stack via ``capture.py --sensors``; the default
 preset is shown):
@@ -59,6 +63,10 @@ _ENV_REGISTRATIONS = [
     ("Isaac-Strafer-Nav-RLDepth-Robust-Play-v0", "StraferNavCfg_RLDepth_Robust_PLAY", _DEPTH_RUNNER_CFG),
     ("Isaac-Strafer-Nav-RLNoCam-v0", "StraferNavCfg_RLNoCam", _NOCAM_RUNNER_CFG),
     ("Isaac-Strafer-Nav-RLNoCam-Play-v0", "StraferNavCfg_RLNoCam_PLAY", _NOCAM_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-v0", "StraferNavCfg_RLNoCamSubgoal_Real", _NOCAM_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-v0", "StraferNavCfg_RLNoCamSubgoal_Real_PLAY", _NOCAM_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-v0", "StraferNavCfg_RLNoCamSubgoal_Robust", _NOCAM_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-Play-v0", "StraferNavCfg_RLNoCamSubgoal_Robust_PLAY", _NOCAM_RUNNER_CFG),
     # Capture variants (operator-selectable stack)
     ("Isaac-Strafer-Nav-Capture-Teleop-v0", "StraferNavCfg_TeleopCapture", _NOCAM_RUNNER_CFG),
     ("Isaac-Strafer-Nav-Capture-Bridge-v0", "StraferNavCfg_BridgeAutonomy", _DEPTH_RUNNER_CFG),

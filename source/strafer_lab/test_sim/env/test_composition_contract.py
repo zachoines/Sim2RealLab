@@ -86,6 +86,14 @@ _CONTRACT_GOLDENS = {
     "RLDepth_Real_PLAY": "3e340e6e46aa23aa54c7359ef204a39eaae55857b0474ebb66bf8ac648a0896d",
     "RLDepth_Robust_PLAY": "787221fd5f6ac819010311eafac0d79292f9800ad2b70c8286851ecc4fdf5659",
     "RLNoCam_PLAY": "7c60ad9bf35bcfaf3d0b5020d1e58479fefd4334035758f2400ab134e21f6345",
+    # Subgoal path-tracking variants: goldens snapshotted at variant
+    # introduction (no legacy class preceded them). Same do-not-edit rule —
+    # a mismatch means the contract a NOCAM_SUBGOAL checkpoint trains
+    # against has drifted.
+    "RLNoCamSubgoal_Real": "bee7b9b6b4d4f5bd647b96f261df6055083e223fdd32691b71aa061f0d9502c3",
+    "RLNoCamSubgoal_Robust": "12ba37a0650c703f5b269a84f5f8da3ae4f828f4945f7480235e3d2428cc22e3",
+    "RLNoCamSubgoal_Real_PLAY": "3adf25af5a93a82102fd235e1ec51a34d41a65d349ed2cfbb689ee61605ae023",
+    "RLNoCamSubgoal_Robust_PLAY": "8528df103688d4e6dff16a4c6e31b1f336f7b7d66c707d250133d64a34bc4b63",
 }
 
 # The depth observation a checkpoint consumes — captured identical across the
@@ -100,6 +108,10 @@ _COMPOSED_RL = {
     "RLDepth_Real_PLAY": composed.StraferNavCfg_RLDepth_Real_PLAY,
     "RLDepth_Robust_PLAY": composed.StraferNavCfg_RLDepth_Robust_PLAY,
     "RLNoCam_PLAY": composed.StraferNavCfg_RLNoCam_PLAY,
+    "RLNoCamSubgoal_Real": composed.StraferNavCfg_RLNoCamSubgoal_Real,
+    "RLNoCamSubgoal_Robust": composed.StraferNavCfg_RLNoCamSubgoal_Robust,
+    "RLNoCamSubgoal_Real_PLAY": composed.StraferNavCfg_RLNoCamSubgoal_Real_PLAY,
+    "RLNoCamSubgoal_Robust_PLAY": composed.StraferNavCfg_RLNoCamSubgoal_Robust_PLAY,
 }
 
 
@@ -200,6 +212,51 @@ def test_sensor_stack_depth_policy_is_depth_profile():
 def test_sensor_stack_rejects_unknown_token():
     with pytest.raises(ValueError):
         composed.SensorStackCfg(cameras_required=("lidar",)).normalized()
+
+
+# =====================================================================
+# Objective axis behavior
+# =====================================================================
+
+
+def test_subgoal_objective_swaps_task_blocks():
+    """The subgoal objective selects the path-tracking command / reward /
+    termination blocks while leaving the scene and obs selection alone."""
+    cfg = composed.StraferNavCfg_RLNoCamSubgoal_Real()
+    assert type(cfg.commands).__name__ == "CommandsCfg_ProcRoom_Subgoal"
+    assert hasattr(cfg.rewards, "along_track_progress")
+    assert hasattr(cfg.rewards, "cross_track_error")
+    assert hasattr(cfg.terminations, "path_complete")
+    assert hasattr(cfg.terminations, "off_path_divergence")
+
+
+def test_subgoal_observations_match_nocam_baseline():
+    """The subgoal variant's observation contract is byte-identical to the
+    no-cam baseline's: same network input layout, only the command term
+    behind the goal-shaped fields differs."""
+    sub = composed.StraferNavCfg_RLNoCamSubgoal_Real()
+    baseline = composed.StraferNavCfg_RLNoCam()
+    assert _hash(_canon(sub.observations)) == _hash(_canon(baseline.observations))
+
+
+def test_subgoal_robust_drops_goal_pose_noise_event():
+    """Goal-pose reset noise targets the fixed-goal command's state; the
+    subgoal composition disables it (waypoint noise on the command term is
+    the deployment-noise analog)."""
+    cfg = composed.StraferNavCfg_RLNoCamSubgoal_Robust()
+    assert cfg.events.randomize_goal_noise is None
+
+
+def test_subgoal_objective_requires_procroom_scene():
+    """The subgoal planner consumes the ProcRoom occupancy grids; other
+    scene sources are rejected at composition time."""
+    with pytest.raises(ValueError, match="subgoal"):
+        composed._ComposedStraferNavEnvCfg(
+            sensors=composed.SensorStackCfg(cameras_required=()),
+            scene_source=composed.SceneSourceCfg(kind="plane"),
+            realism=composed.RealismCfg(level="real"),
+            objective=composed.ObjectiveCfg(kind="subgoal"),
+        )
 
 
 # =====================================================================

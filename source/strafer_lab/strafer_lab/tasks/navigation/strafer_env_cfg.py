@@ -1244,8 +1244,9 @@ _INFINIGEN_PERCEPTION_TRAIN_NUM_ENVS = 1
 # guarantees solvable layouts.
 # =============================================================================
 
-# Import procedural room palette builder
-from .mdp.proc_room import build_proc_room_collection_cfg
+# Import procedural room palette builder + the planner inflation geometry the
+# subgoal off-path corridor is sized from.
+from .mdp.proc_room import GRID_RES, INFLATION_CELLS, build_proc_room_collection_cfg
 
 
 @configclass
@@ -1464,7 +1465,17 @@ class TerminationsCfg_ProcRoom(TerminationsCfg):
 
 # Maximum cross-track distance before the episode is cut. Shared by the
 # off-path termination and its paired one-shot reward penalty.
-_SUBGOAL_MAX_OFF_PATH_M = 0.5
+#
+# Sized to the planner's obstacle-inflation margin (INFLATION_CELLS * GRID_RES
+# = the robot radius A* clears around obstacles), NOT a looser hand-picked
+# value: at this cross-track the robot has reached the edge of the corridor
+# the planner cleared, so "on-path" stays equivalent to "inside cleared free
+# space." A wider tolerance would let a closely-tracking robot leave the
+# cleared corridor while still counting as on-path. This is a corridor bound,
+# not a collision guarantee — actual contacts are caught independently by the
+# sustained-collision termination — and tight passages (doorways) can clear a
+# narrower corridor than this maximum.
+_SUBGOAL_MAX_OFF_PATH_M = INFLATION_CELLS * GRID_RES  # 0.3 m
 
 # Lookahead-distance randomization band (meters) for the robust tier. The
 # realistic tier trains at the fixed deployment lookahead; the robust tier

@@ -90,10 +90,10 @@ _CONTRACT_GOLDENS = {
     # introduction (no legacy class preceded them). Same do-not-edit rule —
     # a mismatch means the contract a NOCAM_SUBGOAL checkpoint trains
     # against has drifted.
-    "RLNoCamSubgoal_Real": "8e9f4e81a0fecd5627805a94192cb289e2b9d91bfb04809a6b28557df0e0208d",
-    "RLNoCamSubgoal_Robust": "a931dbda67d60f34a7fa575a9441c6073b7d066b3d32a83807c4178d54616b82",
-    "RLNoCamSubgoal_Real_PLAY": "f72a02facf66f6e95e3c4770abd2581a913d96ef2e8c80a03ee5a681927e20f9",
-    "RLNoCamSubgoal_Robust_PLAY": "63e62060edae8f774b1195a4f14df91d1b0d0309ea739575507ba36b77665f8f",
+    "RLNoCamSubgoal_Real": "9a988a60d43386344d1332e7336ebee078e2747a94e4aa3e449dcf193419c409",
+    "RLNoCamSubgoal_Robust": "f241fdbe49274632a1c451b1563aac432d4e2dd65b73370680aae36d46dea260",
+    "RLNoCamSubgoal_Real_PLAY": "e9048ccb4fe754815e226c021e4c5a68ccf883afc72380b9b3d32d9d76ed7f10",
+    "RLNoCamSubgoal_Robust_PLAY": "618c8f55e071d215495730fe7f942bbc6d38d92c2a3e27928f160405df51d2ba",
 }
 
 # The depth observation a checkpoint consumes — captured identical across the

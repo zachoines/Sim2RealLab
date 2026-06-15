@@ -1492,6 +1492,11 @@ class CommandsCfg_ProcRoom_Subgoal:
         # One path per episode; episodes end via path_complete / off-path /
         # timeout terminations, mirroring the single-goal ProcRoom setup.
         resampling_time_range=(1.0e6, 1.0e6),
+        # Push goals farther than the 1 m default so episodes carry a longer
+        # path to track (the disc-inflated free space makes >=2 m endpoints
+        # readily reachable). Small rooms fall back to the farthest reachable
+        # point when no candidate clears this distance.
+        min_goal_distance=2.0,
         debug_vis=True,
     )
 

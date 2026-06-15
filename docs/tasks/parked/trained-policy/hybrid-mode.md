@@ -111,6 +111,32 @@ path's arc length. Standard pattern; matches what the training-env
 `SubgoalCommand` does internally so deployment-time observation
 matches training-time observation.
 
+**Lookahead parity (load-bearing — the policy's whole path view is
+this one distance).** The NOCAM_SUBGOAL policy observes only the
+resulting subgoal pose, never the Nav2 path's waypoints, so the
+single train↔deploy parity surface is the lookahead distance, not
+the path resolution. Two facts the training env (subgoal-env) fixed
+that this backend must honor:
+
+- The lookahead distance is the shared constant
+  `strafer_shared.constants.SUBGOAL_LOOKAHEAD_M` (1.0 m). Set
+  `hybrid_lookahead_m` *from that constant* rather than re-hardcoding
+  1.0, so the two lanes cannot drift.
+- The training env's robust tier randomizes its lookahead over a band
+  (0.7–1.3 m) so the policy tracks a subgoal at any distance in that
+  range. A NOCAM_SUBGOAL checkpoint trained on the robust tier is
+  therefore robust to a deployed lookahead anywhere in the band — it
+  does not require this backend to reproduce 1.0 m exactly.
+
+**Open decision for this brief to make** (record the choice + reason
+in its PR): either (a) fix `hybrid_lookahead_m` at
+`SUBGOAL_LOOKAHEAD_M` and treat the robust-tier band purely as
+training slack, or (b) let the backend advertise its actual lookahead
+so the `strafer-hybrid-sim-validation` rosbag parity check can assert
+it lands inside the band the checkpoint was trained against. (a) is
+simpler; (b) makes the parity machine-checkable. Pick one when this
+brief is picked up.
+
 Two alternatives considered and rejected for the MVP:
 
 - **Lookahead-time:** pick the point the robot would reach in

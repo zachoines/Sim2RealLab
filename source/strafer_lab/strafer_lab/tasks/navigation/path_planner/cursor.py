@@ -136,18 +136,26 @@ class PathCursor:
         else:
             lookahead = lookahead_m
 
+        # Slice the per-env buffers down to the selected envs.
         paths = self._paths[ids]            # (K, P, 2)
         arc = self._arc[ids]                # (K, P)
         plen = self._path_len[ids]          # (K,)
         cursor = self._cursor[ids]          # (K,)
         robot = robot_xy[ids]               # (K, 2)
 
+        # Per-segment geometry: start point ``a``, direction ``d``, length
+        # ``seg_len`` (from the arc table). ``valid`` masks the padded tail so
+        # only real segments are considered (>=1 segment even on a 1-pt path).
         a = paths[:, :-1, :]                # (K, P-1, 2)
         d = paths[:, 1:, :] - a             # (K, P-1, 2)
         seg_len = arc[:, 1:] - arc[:, :-1]  # (K, P-1)
         seg_idx = torch.arange(self.max_points - 1, device=self.device)
         valid = seg_idx.unsqueeze(0) < (plen - 1).clamp(min=1).unsqueeze(1)
 
+        # Project the robot onto every segment: ``t`` is the clamped [0,1]
+        # position along each segment, ``proj`` the foot of that projection,
+        # ``dist`` the robot's distance to it. Padded segments -> +inf so they
+        # never win the closest-segment search below.
         rel = robot.unsqueeze(1) - a        # (K, P-1, 2)
         t = (rel * d).sum(-1) / seg_len.square().clamp(min=_EPS)
         t = t.clamp(0.0, 1.0)
@@ -155,6 +163,8 @@ class PathCursor:
         dist = (robot.unsqueeze(1) - proj).norm(dim=-1)
         dist = torch.where(valid, dist, torch.full_like(dist, float("inf")))
 
+        # Closest segment -> cross-track error, and the robot's arc-length
+        # position on the path: arc to the segment start + fraction into it.
         closest = dist.argmin(dim=1)        # (K,)
         gather1 = closest.unsqueeze(1)
         cross_track = dist.gather(1, gather1).squeeze(1)
@@ -173,16 +183,20 @@ class PathCursor:
             )
             s_closest = torch.where(single, torch.zeros_like(s_closest), s_closest)
 
+        # Advance the cursor monotonically (never retreats if the robot backs
+        # up); the per-step delta is along-track progress.
         new_cursor = torch.maximum(cursor, s_closest)
         progress = new_cursor - cursor
         self._cursor[ids] = new_cursor
 
+        # Subgoal target = cursor + lookahead, clamped to the path's end.
         last = (plen - 1).clamp(min=0)
         total = arc.gather(1, last.unsqueeze(1)).squeeze(1)
         target = (new_cursor + lookahead).clamp(max=total)
 
-        # Locate the segment containing the target arc length. Padded arc
-        # entries repeat the total, so clamp into the valid segment range.
+        # Locate the segment containing the target arc length, then interpolate
+        # the subgoal point within it and read the segment tangent as heading.
+        # Padded arc entries repeat the total, so clamp into the valid range.
         j = (arc <= target.unsqueeze(1) + _EPS).sum(dim=1) - 1
         j = torch.minimum(j.clamp(min=0), (plen - 2).clamp(min=0))
         gj = j.unsqueeze(1)
@@ -193,9 +207,12 @@ class PathCursor:
         subgoal = a_j + frac.unsqueeze(-1) * d_j
         heading = torch.atan2(d_j[:, 1], d_j[:, 0])
 
+        # Distance to the final waypoint -> path-completion signal.
         end_pt = paths.gather(1, last.unsqueeze(1).unsqueeze(2).expand(-1, 1, 2)).squeeze(1)
         end_distance = (robot - end_pt).norm(dim=-1)
 
+        # Single-point paths: subgoal is the lone point; heading points the
+        # robot at it (there is no segment tangent to read).
         if single.any():
             p0 = paths[:, 0, :]
             subgoal = torch.where(single.unsqueeze(-1), p0, subgoal)

@@ -96,6 +96,11 @@ def _astar(
     g_score = np.full((rows, cols), np.inf, dtype=np.float64)
     came_from: dict[tuple[int, int], tuple[int, int]] = {}
     g_score[start] = 0.0
+    # Open set as a min-heap keyed by (f, h, counter, cell): f = g + h is the
+    # primary key; h breaks ties toward the goal; the monotone counter makes
+    # ordering fully deterministic and stands in for heapq's missing
+    # decrease-key — we push a fresh entry on each improvement and skip the
+    # now-stale earlier one via ``closed`` on pop.
     counter = 0
     open_heap: list[tuple[float, float, int, tuple[int, int]]] = [
         (_octile(start, goal), _octile(start, goal), counter, start)
@@ -105,9 +110,10 @@ def _astar(
     while open_heap:
         _, _, _, current = heapq.heappop(open_heap)
         if closed[current]:
-            continue
+            continue  # stale duplicate of an already-expanded cell
         closed[current] = True
         if current == goal:
+            # Walk came_from back to the start, then reverse to start->goal.
             path = [current]
             while current in came_from:
                 current = came_from[current]
@@ -197,16 +203,21 @@ def resample_polyline(points: np.ndarray, spacing: float) -> np.ndarray:
         raise ValueError(f"expected (N, 2) polyline, got shape {pts.shape}")
     if len(pts) == 1:
         return np.repeat(pts, 2, axis=0).astype(np.float32)
+    # Cumulative arc length at each input vertex.
     seg = np.diff(pts, axis=0)
     seg_len = np.hypot(seg[:, 0], seg[:, 1])
     arc = np.concatenate([[0.0], np.cumsum(seg_len)])
     total = float(arc[-1])
     if total <= 1e-9:
         return np.stack([pts[0], pts[-1]]).astype(np.float32)
+    # Target arc lengths 0, spacing, 2*spacing, ..., total. Interior samples
+    # within one eps of the end are dropped so they don't collide with it.
     n_interior = int(total / spacing)
     targets = np.arange(1, n_interior + 1, dtype=np.float64) * spacing
     targets = targets[targets < total - 1e-9]
     sample_arcs = np.concatenate([[0.0], targets, [total]])
+    # Map each target arc length back to XY by interpolating x and y
+    # independently against the arc-length parameter.
     x = np.interp(sample_arcs, arc, pts[:, 0])
     y = np.interp(sample_arcs, arc, pts[:, 1])
     return np.stack([x, y], axis=1).astype(np.float32)
@@ -243,6 +254,8 @@ def perturb_waypoints(
     if noise_std_m <= 0.0 or n <= 2:
         return out
 
+    # Control points every ~correlation_length_m of arc, always including the
+    # last waypoint so both ends are pinned.
     seg_len = np.linalg.norm(np.diff(out, axis=0), axis=1)
     mean_spacing = float(seg_len.mean())
     stride = max(1, int(round(correlation_length_m / max(mean_spacing, 1e-6))))
@@ -250,17 +263,22 @@ def perturb_waypoints(
     if control_idx[-1] != n - 1:
         control_idx = np.append(control_idx, n - 1)
 
+    # One truncated-2-sigma Gaussian offset per control point; endpoints zeroed.
     offsets = rng.normal(0.0, noise_std_m, size=(len(control_idx), 2))
     np.clip(offsets, -2.0 * noise_std_m, 2.0 * noise_std_m, out=offsets)
-    offsets[0] = 0.0   # endpoints stay exact
+    offsets[0] = 0.0
     offsets[-1] = 0.0
 
+    # Interpolate the sparse control offsets across every waypoint -> smooth,
+    # correlated displacement instead of per-waypoint jitter.
     all_idx = np.arange(n, dtype=np.float64)
     noise = np.stack(
         [np.interp(all_idx, control_idx, offsets[:, k]) for k in range(2)],
         axis=1,
     ).astype(np.float32)
 
+    # Apply per interior waypoint, keeping the perturbed position only if it
+    # stays in free space.
     candidate = out + noise
     rows, cols = free_space.shape
     for k in range(1, n - 1):

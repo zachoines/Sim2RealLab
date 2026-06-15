@@ -105,7 +105,7 @@ class PathCursor:
     def update(
         self,
         robot_xy: torch.Tensor,
-        lookahead_m: float,
+        lookahead_m: float | torch.Tensor,
         env_ids: torch.Tensor | None = None,
     ) -> PathCursorState:
         """Advance the cursor toward the robot's projection and emit the
@@ -115,7 +115,10 @@ class PathCursor:
             robot_xy: (B, 2) world/env-consistent robot positions for ALL
                 envs (same frame the paths were stored in).
             lookahead_m: subgoal distance ahead of the projection along arc
-                length (clamped to the path end).
+                length (clamped to the path end). A scalar applies one
+                distance to every env; a ``(num_envs,)`` tensor applies a
+                per-env distance (it is indexed by ``env_ids`` internally, so
+                always pass the full-width tensor).
             env_ids: optional (K,) subset to compute and mutate; other envs'
                 cursors are untouched. Returned tensors are restricted to the
                 subset when given.
@@ -127,6 +130,11 @@ class PathCursor:
             ids = torch.arange(self.num_envs, device=self.device)
         else:
             ids = env_ids.to(self.device)
+
+        if isinstance(lookahead_m, torch.Tensor):
+            lookahead = lookahead_m.to(self.device)[ids]
+        else:
+            lookahead = lookahead_m
 
         paths = self._paths[ids]            # (K, P, 2)
         arc = self._arc[ids]                # (K, P)
@@ -171,7 +179,7 @@ class PathCursor:
 
         last = (plen - 1).clamp(min=0)
         total = arc.gather(1, last.unsqueeze(1)).squeeze(1)
-        target = (new_cursor + lookahead_m).clamp(max=total)
+        target = (new_cursor + lookahead).clamp(max=total)
 
         # Locate the segment containing the target arc length. Padded arc
         # entries repeat the total, so clamp into the valid segment range.

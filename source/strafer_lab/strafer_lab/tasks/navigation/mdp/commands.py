@@ -16,7 +16,7 @@ from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.math import quat_from_euler_xyz, quat_mul
 
-from strafer_shared.constants import MAP_RESOLUTION
+from strafer_shared.constants import MAP_RESOLUTION, SUBGOAL_LOOKAHEAD_M
 
 from ..path_planner import PathCursor, PathPlanningError, perturb_waypoints, plan_path
 from .proc_room import GRID_RES, GRID_SIZE
@@ -535,12 +535,18 @@ class SubgoalCommand(CommandTerm):
         command[:, 0:2] = (x, y) subgoal position in world frame
         command[:, 2]   = path tangent heading (rad) at the subgoal
 
-    Deployment counterpart: the hybrid Nav2 backend derives the same rolling
-    subgoal from Nav2's global path. Both sides emit the pose ``lookahead_m``
-    ahead along arc length, so the tracking behavior trained here transfers
-    to paths planned by Nav2 — provided the train/deploy planner disagreement
-    stays inside the waypoint-noise envelope this term trains against
-    (``waypoint_noise_std_m``).
+    Deployment contract: the policy observes only the resulting subgoal pose
+    (relative position / distance / bearing), never the waypoints or the
+    cursor. So transfer to a real planner reduces to a single requirement —
+    a planner-follows backend tracking an externally published path (Nav2's
+    ``/plan``) must select its subgoal with the same rule used here: closest
+    point on the path, advanced ``lookahead_m`` along arc length. The shared
+    lookahead distance is ``SUBGOAL_LOOKAHEAD_M``; the path's waypoint spacing
+    is *not* part of the contract, because the policy never sees the
+    waypoints. ``lookahead_randomization_m`` widens the requirement from a
+    single distance the deployed selector must hit exactly into a band the
+    policy is trained to track across, and ``waypoint_noise_std_m`` covers the
+    residual train/deploy planner-shape disagreement.
 
     Public per-tick state read by path-tracking rewards and terminations:
 
@@ -568,7 +574,15 @@ class SubgoalCommand(CommandTerm):
         # 1.0 on envs whose last plan fell back to a straight segment.
         self._path_fallback = torch.zeros(env.num_envs, device=device)
 
-        # Waypoint-noise RNG, seeded from the torch seed for reproducibility.
+        # Per-env lookahead distance. Constant at ``lookahead_m`` unless
+        # ``lookahead_randomization_m`` is set, in which case it is resampled
+        # per env at each path reset. Held as a plain buffer (NOT a metric):
+        # the base reset() zeros every metric tensor, which would wipe the
+        # lookahead the same step it is sampled.
+        self._lookahead = torch.full((env.num_envs,), cfg.lookahead_m, device=device)
+
+        # Waypoint-noise / lookahead RNG, seeded from the torch seed for
+        # reproducibility.
         self._np_rng = np.random.default_rng(torch.initial_seed() % (2**32))
 
         super().__init__(cfg, env)
@@ -672,6 +686,17 @@ class SubgoalCommand(CommandTerm):
 
         self._path_cursor.set_paths(env_ids, paths_world)
 
+        # Resample the per-env lookahead distance when randomization is on, so
+        # the policy learns to track a subgoal at any distance in the band
+        # rather than only the deployment default. The deployed selector then
+        # needs only to land inside the band, not hit one exact distance.
+        band = self.cfg.lookahead_randomization_m
+        if band is not None:
+            lo, hi = band
+            self._lookahead[env_ids] = (
+                torch.rand(len(env_ids), device=self.device) * (hi - lo) + lo
+            )
+
         # Clear tracking state and emit the initial subgoal so observations
         # computed right after reset see a valid command. The cursor was just
         # rewound, so this restricted update cannot leak progress into the
@@ -679,7 +704,7 @@ class SubgoalCommand(CommandTerm):
         self.path_complete[env_ids] = False
         self.along_track_progress[env_ids] = 0.0
         state = self._path_cursor.update(
-            robot_xy_w, self.cfg.lookahead_m, env_ids=env_ids
+            robot_xy_w, self._lookahead, env_ids=env_ids
         )
         self._subgoal[env_ids, :2] = state.subgoal_xy
         self._subgoal[env_ids, 2] = state.subgoal_heading
@@ -689,7 +714,7 @@ class SubgoalCommand(CommandTerm):
         """Advance the cursor to the robot's projection and refresh the
         subgoal, cross-track / along-track state, and completion flag."""
         robot_xy_w = wp.to_torch(self._robot.data.root_pos_w)[:, :2]
-        state = self._path_cursor.update(robot_xy_w, self.cfg.lookahead_m)
+        state = self._path_cursor.update(robot_xy_w, self._lookahead)
         self._subgoal[:, :2] = state.subgoal_xy
         self._subgoal[:, 2] = state.subgoal_heading
         self.cross_track_error[:] = state.cross_track
@@ -810,9 +835,19 @@ class SubgoalCommandCfg(CommandTermCfg):
     to effectively never: one path per episode, episodes end via the
     path-complete / off-path / timeout terminations."""
 
-    lookahead_m: float = 1.0
+    lookahead_m: float = SUBGOAL_LOOKAHEAD_M
     """Arc-length distance (meters) the subgoal leads the robot's projection
-    onto the path."""
+    onto the path. The single quantity the policy actually observes about the
+    path, and the value the deployed planner-follows backend must reproduce —
+    pinned to the shared ``SUBGOAL_LOOKAHEAD_M`` so the two lanes cannot
+    drift."""
+
+    lookahead_randomization_m: tuple[float, float] | None = None
+    """When set, the per-env lookahead is resampled uniformly from this
+    ``(min, max)`` band at each path reset instead of held at ``lookahead_m``.
+    Trains the policy to track a subgoal across a range of distances so the
+    deployed selector only has to land inside the band, not hit one exact
+    distance. ``None`` keeps the fixed ``lookahead_m`` (baseline)."""
 
     min_goal_distance: float = 1.0
     """Minimum straight-line distance (meters) between the robot and the

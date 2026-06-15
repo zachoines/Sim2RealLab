@@ -1466,6 +1466,12 @@ class TerminationsCfg_ProcRoom(TerminationsCfg):
 # off-path termination and its paired one-shot reward penalty.
 _SUBGOAL_MAX_OFF_PATH_M = 0.5
 
+# Lookahead-distance randomization band (meters) for the robust tier. The
+# realistic tier trains at the fixed deployment lookahead; the robust tier
+# resamples per episode across this band so the policy tracks a subgoal at any
+# distance in it — the deployed selector then only has to land inside the band.
+_SUBGOAL_ROBUST_LOOKAHEAD_BAND = (0.7, 1.3)
+
 
 @configclass
 class CommandsCfg_ProcRoom_Subgoal:

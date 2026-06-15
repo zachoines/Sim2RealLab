@@ -90,10 +90,10 @@ _CONTRACT_GOLDENS = {
     # introduction (no legacy class preceded them). Same do-not-edit rule —
     # a mismatch means the contract a NOCAM_SUBGOAL checkpoint trains
     # against has drifted.
-    "RLNoCamSubgoal_Real": "bee7b9b6b4d4f5bd647b96f261df6055083e223fdd32691b71aa061f0d9502c3",
-    "RLNoCamSubgoal_Robust": "12ba37a0650c703f5b269a84f5f8da3ae4f828f4945f7480235e3d2428cc22e3",
-    "RLNoCamSubgoal_Real_PLAY": "3adf25af5a93a82102fd235e1ec51a34d41a65d349ed2cfbb689ee61605ae023",
-    "RLNoCamSubgoal_Robust_PLAY": "8528df103688d4e6dff16a4c6e31b1f336f7b7d66c707d250133d64a34bc4b63",
+    "RLNoCamSubgoal_Real": "abd4a9a4faae056e605779882860bd49e2c7e758c08712067ad7be2a2f5f4253",
+    "RLNoCamSubgoal_Robust": "b2786befa189470f2254a4b9ff13dd28604bd91a819bdb94ff4af35b5426ed73",
+    "RLNoCamSubgoal_Real_PLAY": "792561359ce2de6fe5763fa42ae92c0e8de52f2cee285c0dbb4736cfa4ca2cdb",
+    "RLNoCamSubgoal_Robust_PLAY": "3e85f14d875bcb360c1d9b8712a69478ebc48d7ada4570f7bbefd86c4ca45211",
 }
 
 # The depth observation a checkpoint consumes — captured identical across the
@@ -245,6 +245,26 @@ def test_subgoal_robust_drops_goal_pose_noise_event():
     the deployment-noise analog)."""
     cfg = composed.StraferNavCfg_RLNoCamSubgoal_Robust()
     assert cfg.events.randomize_goal_noise is None
+
+
+def test_subgoal_lookahead_pinned_to_shared_constant():
+    """The realistic subgoal variant tracks at the shared deployment lookahead
+    distance, with no randomization."""
+    from strafer_shared.constants import SUBGOAL_LOOKAHEAD_M
+
+    cmd = composed.StraferNavCfg_RLNoCamSubgoal_Real().commands.goal_command
+    assert cmd.lookahead_m == SUBGOAL_LOOKAHEAD_M
+    assert cmd.lookahead_randomization_m is None
+
+
+def test_subgoal_robust_randomizes_lookahead_distance():
+    """The robust tier widens the lookahead into a band so the policy is not
+    brittle to the deployed selector's exact lookahead distance."""
+    cmd = composed.StraferNavCfg_RLNoCamSubgoal_Robust().commands.goal_command
+    band = cmd.lookahead_randomization_m
+    assert band is not None
+    lo, hi = band
+    assert lo < cmd.lookahead_m < hi
 
 
 def test_subgoal_objective_requires_procroom_scene():

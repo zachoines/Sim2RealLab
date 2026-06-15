@@ -89,6 +89,17 @@ def test_subgoal_clamps_to_final_point_near_path_end():
     assert float(state.end_distance[0]) == pytest.approx(0.4, abs=1e-4)
 
 
+def test_per_env_lookahead_tensor_applies_distinct_distances():
+    """A (num_envs,) lookahead tensor places each env's subgoal at its own
+    distance; the cursor indexes it by env_ids."""
+    cursor = _make_cursor(_straight_path(), num_envs=2)
+    robot = torch.tensor([[1.0, 0.0], [1.0, 0.0]])
+    lookahead = torch.tensor([0.5, 1.5])
+    state = cursor.update(robot, lookahead)
+    assert float(state.subgoal_xy[0, 0]) == pytest.approx(1.5, abs=1e-3)  # 1.0 + 0.5
+    assert float(state.subgoal_xy[1, 0]) == pytest.approx(2.5, abs=1e-3)  # 1.0 + 1.5
+
+
 def test_set_paths_rewinds_cursor():
     cursor = _make_cursor(_straight_path())
     cursor.update(torch.tensor([[3.0, 0.0]]), LOOKAHEAD)
@@ -227,3 +238,32 @@ def test_waypoint_noise_keeps_path_in_free_space():
     rows = ((path[:, 0] - origin) / 0.1).long().clamp(0, 79)
     cols = ((path[:, 1] - origin) / 0.1).long().clamp(0, 79)
     assert env._proc_room_free_space[0][rows, cols].all()
+
+
+def test_fixed_lookahead_is_constant_across_envs():
+    """With no randomization band the per-env lookahead stays at the cfg
+    default for every env."""
+    env, _ = _make_stub_env(num_envs=4)
+    term = _make_term(env)
+    term.reset(env_ids=[0, 1, 2, 3])
+    assert torch.allclose(
+        term._lookahead, torch.full((4,), term.cfg.lookahead_m)
+    )
+
+
+def test_lookahead_randomization_samples_per_env_within_band():
+    """With a band set, each env draws its own lookahead inside the band, and
+    its initial subgoal sits at that env's distance."""
+    env, root_pos = _make_stub_env(num_envs=4)
+    cfg = SubgoalCommandCfg(
+        asset_name="robot", debug_vis=False,
+        lookahead_randomization_m=(0.7, 1.3),
+    )
+    term = SubgoalCommand(cfg, env)
+    term.reset(env_ids=[0, 1, 2, 3])
+    la = term._lookahead
+    assert (la >= 0.7).all() and (la <= 1.3).all()
+    assert la.unique().numel() > 1, "expected distinct per-env lookahead draws"
+    for b in range(4):
+        dist = float(torch.norm(term.command[b, :2] - root_pos[b, :2]))
+        assert dist == pytest.approx(float(la[b]), abs=0.1)

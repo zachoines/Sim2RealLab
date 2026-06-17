@@ -1477,10 +1477,15 @@ class TerminationsCfg_ProcRoom(TerminationsCfg):
 # narrower corridor than this maximum.
 _SUBGOAL_MAX_OFF_PATH_M = INFLATION_CELLS * GRID_RES  # 0.3 m
 
-# Lookahead-distance randomization band (meters) for the robust tier. The
-# realistic tier trains at the fixed deployment lookahead; the robust tier
-# resamples per episode across this band so the policy tracks a subgoal at any
-# distance in it — the deployed selector then only has to land inside the band.
+# Lookahead-distance randomization bands (meters), centered on the nominal
+# SUBGOAL_LOOKAHEAD_M. Both tiers randomize, following the same realistic-vs-
+# robust convention as the other DR knobs (friction, mass, motor strength):
+# realistic = a tight band, robust = a wider one — not fixed-vs-randomized.
+# The deployed pure-pursuit lookahead is a not-yet-finalized tunable and Nav2's
+# closest-point projection adds small realized jitter, so even the
+# realistic/eval tier should train over a band rather than assume one exact
+# distance. The training workflow is train-on-robust, evaluate-on-realistic.
+_SUBGOAL_REAL_LOOKAHEAD_BAND = (0.9, 1.1)
 _SUBGOAL_ROBUST_LOOKAHEAD_BAND = (0.7, 1.3)
 
 

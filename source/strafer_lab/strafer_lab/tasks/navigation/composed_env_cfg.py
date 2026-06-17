@@ -459,13 +459,15 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
             # per-waypoint perturbation, configured on the command term.
             if hasattr(self.events, "randomize_goal_noise"):
                 self.events.randomize_goal_noise = None
-            # Robust tier additionally randomizes the lookahead distance so the
-            # policy is not brittle to the deployed selector's exact lookahead;
-            # the realistic baseline trains at the fixed deployment distance.
-            if level == "robust":
-                self.commands.goal_command.lookahead_randomization_m = (
-                    base._SUBGOAL_ROBUST_LOOKAHEAD_BAND
-                )
+            # Randomize the lookahead distance per the realistic-vs-robust DR
+            # convention (both tiers range; robust is wider), so the policy is
+            # not brittle to the deployed selector's exact lookahead.
+            _lookahead_band = {
+                "real": base._SUBGOAL_REAL_LOOKAHEAD_BAND,
+                "robust": base._SUBGOAL_ROBUST_LOOKAHEAD_BAND,
+            }.get(level)
+            if _lookahead_band is not None:
+                self.commands.goal_command.lookahead_randomization_m = _lookahead_band
         else:
             self.commands = _COMMANDS_BY_SOURCE[kind]()
             self.rewards = _REWARDS_BY_SOURCE[kind]()

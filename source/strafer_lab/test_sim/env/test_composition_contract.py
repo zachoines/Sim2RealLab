@@ -90,9 +90,9 @@ _CONTRACT_GOLDENS = {
     # introduction (no legacy class preceded them). Same do-not-edit rule —
     # a mismatch means the contract a NOCAM_SUBGOAL checkpoint trains
     # against has drifted.
-    "RLNoCamSubgoal_Real": "9a988a60d43386344d1332e7336ebee078e2747a94e4aa3e449dcf193419c409",
+    "RLNoCamSubgoal_Real": "3507493080ab36ae2d1dcb7b41efe1eb75a04eff53b41a0c459f070d0da14f2c",
     "RLNoCamSubgoal_Robust": "f241fdbe49274632a1c451b1563aac432d4e2dd65b73370680aae36d46dea260",
-    "RLNoCamSubgoal_Real_PLAY": "e9048ccb4fe754815e226c021e4c5a68ccf883afc72380b9b3d32d9d76ed7f10",
+    "RLNoCamSubgoal_Real_PLAY": "c802f527d3e5f11fba6b2a12dafa85731f59ce23dd10f76e95df74343c2299ad",
     "RLNoCamSubgoal_Robust_PLAY": "618c8f55e071d215495730fe7f942bbc6d38d92c2a3e27928f160405df51d2ba",
 }
 
@@ -247,24 +247,29 @@ def test_subgoal_robust_drops_goal_pose_noise_event():
     assert cfg.events.randomize_goal_noise is None
 
 
-def test_subgoal_lookahead_pinned_to_shared_constant():
-    """The realistic subgoal variant tracks at the shared deployment lookahead
-    distance, with no randomization."""
+def test_subgoal_lookahead_band_centered_on_shared_constant():
+    """The realistic subgoal variant randomizes the lookahead over a tight
+    band centered on the shared deployment lookahead distance — both tiers
+    range (per the DR-tier convention), realistic just tighter than robust."""
     from strafer_shared.constants import SUBGOAL_LOOKAHEAD_M
 
     cmd = composed.StraferNavCfg_RLNoCamSubgoal_Real().commands.goal_command
     assert cmd.lookahead_m == SUBGOAL_LOOKAHEAD_M
-    assert cmd.lookahead_randomization_m is None
-
-
-def test_subgoal_robust_randomizes_lookahead_distance():
-    """The robust tier widens the lookahead into a band so the policy is not
-    brittle to the deployed selector's exact lookahead distance."""
-    cmd = composed.StraferNavCfg_RLNoCamSubgoal_Robust().commands.goal_command
     band = cmd.lookahead_randomization_m
     assert band is not None
     lo, hi = band
-    assert lo < cmd.lookahead_m < hi
+    assert lo < SUBGOAL_LOOKAHEAD_M < hi
+
+
+def test_subgoal_robust_lookahead_band_wider_than_realistic():
+    """Robust widens the lookahead band relative to realistic so the policy is
+    not brittle to the deployed selector's exact lookahead distance."""
+    real = composed.StraferNavCfg_RLNoCamSubgoal_Real().commands.goal_command
+    robust = composed.StraferNavCfg_RLNoCamSubgoal_Robust().commands.goal_command
+    r_lo, r_hi = real.lookahead_randomization_m
+    b_lo, b_hi = robust.lookahead_randomization_m
+    assert b_lo < r_lo and b_hi > r_hi  # robust strictly wider on both sides
+    assert b_lo < robust.lookahead_m < b_hi
 
 
 def test_subgoal_objective_requires_procroom_scene():

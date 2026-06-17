@@ -39,7 +39,7 @@ Read these before starting:
   local control, Nav2 = no planner).
 - [hybrid-mode.md](hybrid-mode.md) — the *Nav2-global + RL-local*
   hybrid this brief is the inverse of.
-- [subgoal-env.md](../../active/trained-policy/subgoal-env.md) — the
+- [subgoal-env.md](../../completed/subgoal-env.md) — the
   closest training-env precedent. The variant proposed here
   (`PolicyVariant.DEPTH_WAYPOINT`) is a sibling of NOCAM_SUBGOAL with
   a different output target.
@@ -210,7 +210,7 @@ deliberately-noisy goals.
   scale.
 - [Nav2 controller-only action API](https://docs.nav2.org/) —
   `/follow_path` action server is the inference-side consumer.
-- [`subgoal-env.md`](../../active/trained-policy/subgoal-env.md) —
+- [`subgoal-env.md`](../../completed/subgoal-env.md) —
   closest in-repo training-env precedent. The differences are in the
   reward shaping (path-tracking vs. waypoint-emission) and in the
   output dim.

@@ -1,5 +1,18 @@
 # Build the strafer_lab subgoal-following training env for `NOCAM_SUBGOAL` policy
 
+**Status:** Shipped 2026-06-17 in `9bfa438` (DGX). Phases 1–4 (sim-internal
+grid A\* planner + `PathCursor`, `SubgoalCommand` rolling-subgoal term,
+path-tracking rewards + off-path-divergence termination, composed
+`RLNoCam-Subgoal-{Real,Robust}` variants + registered task IDs) and Phase 5
+(the `NOCAM_SUBGOAL` baseline training run — converged checkpoint, rollout
+video + reward metrics recorded in the PR). Planner: Option B (custom A\* +
+bounded correlated waypoint noise) — Option A (offline Nav2 bindings) verified
+infeasible on the DGX. Lookahead pinned to shared `SUBGOAL_LOOKAHEAD_M`,
+randomized per realism tier; off-path corridor sized to the planner inflation
+margin; disc obstacle inflation. Follow-up filed (parked):
+[`batched-gpu-path-planner`](../../parked/trained-policy/batched-gpu-path-planner.md).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/87
+
 **Type:** task / new training environment
 **Owner:** DGX (`strafer_lab` lane — env config + path planner +
 training run)

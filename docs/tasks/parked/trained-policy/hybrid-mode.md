@@ -6,7 +6,7 @@
 **Priority:** P3 — blocks on **two** other briefs:
 [`inference-package`](../../completed/inference-package.md)
 (produces the `strafer_inference` package this brief extends) and
-[`subgoal-env`](../../active/trained-policy/subgoal-env.md) (produces
+[`subgoal-env`](../../completed/subgoal-env.md) (produces
 the trained `NOCAM_SUBGOAL` policy this brief loads). Lifts mission
 quality on long-horizon / cross-room navigation but isn't blocking
 any current mission shape.
@@ -59,7 +59,7 @@ This brief is intentionally **Jetson-only**. The DGX-side work that
 makes hybrid mode possible — defining `PolicyVariant.NOCAM_SUBGOAL`,
 building the subgoal-following training env, and producing a
 deployable checkpoint — lives in
-[`subgoal-env`](../../active/trained-policy/subgoal-env.md). That
+[`subgoal-env`](../../completed/subgoal-env.md). That
 brief must ship first.
 
 ## Context bundle
@@ -71,7 +71,7 @@ Read these before starting:
   the predecessor; this brief extends its `execution_backend`
   dispatch with a third mode and reuses its observation-pipeline
   infrastructure.
-- [strafer-lab-subgoal-env.md](../../active/trained-policy/subgoal-env.md) — the
+- [strafer-lab-subgoal-env.md](../../completed/subgoal-env.md) — the
   DGX-side prerequisite. Defines `PolicyVariant.NOCAM_SUBGOAL`,
   the `SubgoalCommand` term, the new training env, and produces
   the deployable checkpoint this brief loads.
@@ -83,7 +83,7 @@ Read these before starting:
 
 ### What's in scope here vs. delegated to the prerequisite brief
 
-| Concern | This brief (Jetson) | [`subgoal-env`](../../active/trained-policy/subgoal-env.md) (DGX) |
+| Concern | This brief (Jetson) | [`subgoal-env`](../../completed/subgoal-env.md) (DGX) |
 |---|---|---|
 | `PolicyVariant.NOCAM_SUBGOAL` definition | consumes | defines |
 | Subgoal-following training env | consumes outputs | builds |
@@ -305,7 +305,7 @@ they ride as a follow-up rather than blocking this brief's PR.
   - [`inference-package`](../../completed/inference-package.md)
     must ship first (provides the `strafer_inference` package
     this brief extends).
-  - [`subgoal-env`](../../active/trained-policy/subgoal-env.md)
+  - [`subgoal-env`](../../completed/subgoal-env.md)
     must ship first (defines `PolicyVariant.NOCAM_SUBGOAL`,
     builds the training env, and produces the deployable
     checkpoint).
@@ -321,9 +321,9 @@ they ride as a follow-up rather than blocking this brief's PR.
   Hybrid coexists with both pure modes; this brief doesn't
   change them.
 - **The training environment.** That's
-  [`subgoal-env`](../../active/trained-policy/subgoal-env.md).
+  [`subgoal-env`](../../completed/subgoal-env.md).
 - **The trained NOCAM_SUBGOAL checkpoint.** Produced by Phase 5
-  of [`subgoal-env`](../../active/trained-policy/subgoal-env.md).
+  of [`subgoal-env`](../../completed/subgoal-env.md).
 - **Replacing Nav2 entirely.** Nav2 stays as the default backend
   and as the global planner in hybrid mode.
 - **Costmap-aware local control.** Hybrid here uses Nav2 for

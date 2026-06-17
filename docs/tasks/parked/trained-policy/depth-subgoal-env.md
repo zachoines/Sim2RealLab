@@ -2,7 +2,7 @@
 
 **Type:** task / new training environment
 **Owner:** DGX (`strafer_lab` lane — env config + reward shaping + training run; reuses the path planner from
-[`subgoal-env`](../../active/trained-policy/subgoal-env.md))
+[`subgoal-env`](../../completed/subgoal-env.md))
 **Priority:** P3 — closes the 2×2 variant matrix (direct/hybrid × NOCAM/DEPTH). The architecturally maximally-useful hybrid corner: Nav2 plans the global route, the policy handles local control *and* sees depth so it can leave the path to avoid late-arriving obstacles. Not blocking any current mission shape; pre-filed so the design questions stay visible while the NOCAM_SUBGOAL path lands and teaches us what we actually need.
 **Estimate:** L (~2–3 weeks: design questions resolved + reward shaping iterated + DEPTH-rate training run)
 **Branch:** task/depth-subgoal-env
@@ -12,7 +12,7 @@
 This brief is parked until **all** of the following have shipped:
 
 1. [`inference-package`](../../completed/inference-package.md) ✅ shipped (provides the DEPTH observation pipeline + the recurrent-policy infrastructure this brief's checkpoint will deploy through).
-2. [`subgoal-env`](../../active/trained-policy/subgoal-env.md) shipped (provides the `SubgoalCommand` term, the path planner — Option A or B from its Phase 1 — and the registered NoCam-Subgoal task IDs this brief extends).
+2. [`subgoal-env`](../../completed/subgoal-env.md) shipped (provides the `SubgoalCommand` term, the path planner — Option A or B from its Phase 1 — and the registered NoCam-Subgoal task IDs this brief extends).
 
 A third soft prerequisite worth waiting on: NOCAM_SUBGOAL **deployed via** [`hybrid-mode`](hybrid-mode.md) and the [`strafer-hybrid-sim-validation`](strafer-hybrid-sim-validation.md) brief shipped. The deployment evidence is what tells us whether NOCAM_SUBGOAL's failure modes (dynamic obstacles, costmap staleness — the things the variant is documented unsafe in) actually bite in practice, and therefore whether DEPTH_SUBGOAL's training cost is justified. If the operator can confirm a deployment failure NOCAM_SUBGOAL cannot recover from, un-park immediately. If NOCAM_SUBGOAL works fine in all observed deployments, this brief stays parked.
 
@@ -20,17 +20,17 @@ Un-park by `git mv parked/trained-policy/depth-subgoal-env.md active/trained-pol
 
 ## Story
 
-As a **mission operator running cross-room navigation in environments where Nav2's global plan is geometrically correct but late-arriving obstacles exist** (moved chair, person walking through, dynamic-object encounter, costmap that hasn't refreshed since the last update), I want **a hybrid execution mode where Nav2 plans the route AND the policy can see depth**, so that **obstacle-aware local control and costmap-aware global planning compose into the maximally-capable hybrid backend** — and the NOCAM_SUBGOAL caveats in [`subgoal-env`](../../active/trained-policy/subgoal-env.md) (trusts costmap absolutely, unsafe in dynamic-obstacle scenarios) are lifted.
+As a **mission operator running cross-room navigation in environments where Nav2's global plan is geometrically correct but late-arriving obstacles exist** (moved chair, person walking through, dynamic-object encounter, costmap that hasn't refreshed since the last update), I want **a hybrid execution mode where Nav2 plans the route AND the policy can see depth**, so that **obstacle-aware local control and costmap-aware global planning compose into the maximally-capable hybrid backend** — and the NOCAM_SUBGOAL caveats in [`subgoal-env`](../../completed/subgoal-env.md) (trusts costmap absolutely, unsafe in dynamic-obstacle scenarios) are lifted.
 
 ## Context bundle
 
 Read these before starting:
 
-- [`subgoal-env.md`](../../active/trained-policy/subgoal-env.md) — the NOCAM_SUBGOAL predecessor. This brief reuses its path planner, `SubgoalCommand` term, reward functions (cross-track / along-track), and task-registration patterns. The only conceptual delta is "the policy now sees depth and the reward shaping must trade off path-tracking against obstacle-avoidance".
+- [`subgoal-env.md`](../../completed/subgoal-env.md) — the NOCAM_SUBGOAL predecessor. This brief reuses its path planner, `SubgoalCommand` term, reward functions (cross-track / along-track), and task-registration patterns. The only conceptual delta is "the policy now sees depth and the reward shaping must trade off path-tracking against obstacle-avoidance".
 - [`completed/inference-package.md`](../../completed/inference-package.md) — the DEPTH sibling. Useful as a reference for the conv-aware actor architecture (rsl_rl GRU 1×128 over a depth-aware backbone) and the noise model on the depth field. This brief's trained checkpoint deploys through the same `load_policy()` path inference-package shipped.
 - [`hybrid-mode.md`](hybrid-mode.md) — the consumer-side runtime brief; documents the variant-agnostic plumbing that [`depth-subgoal-hybrid-runtime`](depth-subgoal-hybrid-runtime.md) extends.
 - [context/recurrent-policy-contract.md](../../context/recurrent-policy-contract.md) — DEPTH_SUBGOAL inherits the recurrent contract verbatim from DEPTH; the variant change does not touch hidden-state shape, initial state, threading, reset trigger set, or determinism semantics.
-- [`subgoal-env`](../../active/trained-policy/subgoal-env.md)'s `## Context > NOCAM_SUBGOAL safety` section — the trust-boundary discussion this brief's variant explicitly lifts.
+- [`subgoal-env`](../../completed/subgoal-env.md)'s `## Context > NOCAM_SUBGOAL safety` section — the trust-boundary discussion this brief's variant explicitly lifts.
 
 ## Design questions (must be resolved during the picking-up PR)
 
@@ -63,7 +63,7 @@ Recommendation: start with B (matches DEPTH-direct's obstacle-aware shaping patt
 
 ### 3. SubgoalCommand reuse vs DEPTH-specific variant
 
-NOCAM_SUBGOAL's `SubgoalCommand` (from [`subgoal-env`](../../active/trained-policy/subgoal-env.md) Phase 2) computes a rolling subgoal at fixed `lookahead_m`. DEPTH_SUBGOAL with explicit obstacle awareness might want to *vary* the lookahead based on perceived clutter: shorter lookahead in cluttered scenes, longer in open. Two options:
+NOCAM_SUBGOAL's `SubgoalCommand` (from [`subgoal-env`](../../completed/subgoal-env.md) Phase 2) computes a rolling subgoal at fixed `lookahead_m`. DEPTH_SUBGOAL with explicit obstacle awareness might want to *vary* the lookahead based on perceived clutter: shorter lookahead in cluttered scenes, longer in open. Two options:
 
 - **A. Reuse `SubgoalCommand` unchanged.** Fixed lookahead. Variant difference is purely in obs assembly (depth in, same goal referent).
 - **B. New `DepthAwareSubgoalCommand` with depth-modulated lookahead.** More expressive; commits to a design choice the NOCAM_SUBGOAL training run did not test.
@@ -169,7 +169,7 @@ If `goal-noise-training` has shipped by this point, run a noise-resilience pass 
 
 ## Investigation pointers
 
-- [`subgoal-env.md`](../../active/trained-policy/subgoal-env.md) — the NOCAM_SUBGOAL predecessor. Phases 1, 4, and most of 2 transfer verbatim; Phase 3 (reward shaping) is the meaningful design work.
+- [`subgoal-env.md`](../../completed/subgoal-env.md) — the NOCAM_SUBGOAL predecessor. Phases 1, 4, and most of 2 transfer verbatim; Phase 3 (reward shaping) is the meaningful design work.
 - [`completed/inference-package.md`](../../completed/inference-package.md) — DEPTH-direct's runtime is the deployment target. The variant difference is at training-config and reward-function level, not network or contract level.
 - [`source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/observations.py) — `depth_image` term and the existing depth-aware preprocessing this brief inherits.
 - [`completed/policy-export-tooling.md`](../../completed/policy-export-tooling.md) — export path. No new export-side work needed; the variant flows through via the sidecar's `policy_variant` field.

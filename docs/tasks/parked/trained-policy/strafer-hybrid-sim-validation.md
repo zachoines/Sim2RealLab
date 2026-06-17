@@ -30,7 +30,7 @@ session on each new map**.
 
 This brief is parked until **all** of the following have shipped:
 
-1. [`subgoal-env`](../../active/trained-policy/subgoal-env.md) (DGX,
+1. [`subgoal-env`](../../completed/subgoal-env.md) (DGX,
    active P2) — supplies `PolicyVariant.NOCAM_SUBGOAL`, the
    `SubgoalCommand` term, the path planner, the trained checkpoint,
    and the registered task IDs.
@@ -69,7 +69,7 @@ Read these before starting:
   This validation's acceptance criteria refine its Phase 3 ("End-to-end
   sim validation"); pick this brief up only once that one has shipped
   or is in flight on the same branch.
-- [subgoal-env.md](../../active/trained-policy/subgoal-env.md) — the
+- [subgoal-env.md](../../completed/subgoal-env.md) — the
   DGX-side env + training brief. Its Phase 1 path-planner choice
   (Option A: Nav2 offline at training time, Option B: custom A* +
   per-tick noise) directly affects this brief's subgoal-parity
@@ -98,7 +98,7 @@ scripts:
 
 2. **The goal-related obs fields refer to a *rolling subgoal*, not
    a final goal pose.** Per
-   [`subgoal-env`](../../active/trained-policy/subgoal-env.md)
+   [`subgoal-env`](../../completed/subgoal-env.md)
    Phase 2's `PolicyVariant.NOCAM_SUBGOAL` definition. The
    inference-side referent comes from Nav2's `/plan` topic via the
    rolling-lookahead pick; the training-side referent comes from
@@ -136,7 +136,7 @@ scripts:
       subgoal it never saw in training.
 
       **Tolerance depends on the path-planner choice in
-      [`subgoal-env`](../../active/trained-policy/subgoal-env.md)
+      [`subgoal-env`](../../completed/subgoal-env.md)
       Phase 1.** Option A (Nav2 offline at training time) makes the
       training and deployment planners identical, so any disagreement
       is numerical noise — tighten to ≤ 5 cm if Option A is the
@@ -201,7 +201,7 @@ scripts:
       point 4, a new `/navigate_to_pose` goal accept fires
       `policy.reset()`. The `NOCAM_SUBGOAL` checkpoint is recurrent
       under the same GRU-1×128 architecture as DEPTH (per
-      [`subgoal-env`](../../active/trained-policy/subgoal-env.md)
+      [`subgoal-env`](../../completed/subgoal-env.md)
       Phase 5); the reset call sites must consume the canonical
       trigger set, not redefine it.
 
@@ -217,7 +217,7 @@ scripts:
 ### Trust-boundary documentation (NOCAM_SUBGOAL-specific)
 
 - [ ] **`PolicyVariant.NOCAM_SUBGOAL` docstring** (added by
-      [`subgoal-env`](../../active/trained-policy/subgoal-env.md)
+      [`subgoal-env`](../../completed/subgoal-env.md)
       Phase 2) calls out the costmap-trust caveat: "this variant
       trusts Nav2's costmap absolutely; the deployment lane must
       include a costmap freshness watchdog and must not use it in
@@ -291,7 +291,7 @@ assembly and the subgoal selection are.
   refines; pre-extracting it here means the hybrid-mode PR can
   ship its runtime with a pointer to this brief instead of
   carrying a half-validated Phase 3.
-- [`subgoal-env.md`](../../active/trained-policy/subgoal-env.md) —
+- [`subgoal-env.md`](../../completed/subgoal-env.md) —
   source of `PolicyVariant.NOCAM_SUBGOAL`, the training task IDs,
   the path-planner choice (Option A vs B), and the trained
   checkpoint. The "costmap-trust" caveat documented in subgoal-env
@@ -317,7 +317,7 @@ assembly and the subgoal selection are.
 
 - **`DEPTH_SUBGOAL` validation.** The MVP target for hybrid is
   `NOCAM_SUBGOAL`. `DEPTH_SUBGOAL` is parked in
-  [`subgoal-env`](../../active/trained-policy/subgoal-env.md)'s
+  [`subgoal-env`](../../completed/subgoal-env.md)'s
   Out of scope section as a follow-up; if it's picked up later it
   gets its own validation brief alongside.
 - **Real-robot hybrid validation.** File as
@@ -334,7 +334,7 @@ assembly and the subgoal selection are.
 - **Re-tuning the `NOCAM_SUBGOAL` checkpoint if validation surfaces
   a gap.** This brief is pass/fail against the bounds; tuning
   responses are filed as separate training-side briefs back in
-  [`subgoal-env`](../../active/trained-policy/subgoal-env.md)'s
+  [`subgoal-env`](../../completed/subgoal-env.md)'s
   follow-up queue.
 - **Comparing hybrid vs DEPTH-direct performance on the same
   mission.** Evaluation activity, useful for operator guidance but

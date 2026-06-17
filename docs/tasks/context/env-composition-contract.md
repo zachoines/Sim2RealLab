@@ -1,9 +1,9 @@
 # Navigation env-cfg composition contract
 
-Strafer navigation environments are **composed over three orthogonal axes** —
-sensor stack × scene source × realism — not hand-written one class per matrix
-cell. A new variant is a composition, not a subclass. The authoritative in-code
-statement is the
+Strafer navigation environments are **composed over four orthogonal axes** —
+sensor stack × scene source × realism × objective — not hand-written one class
+per matrix cell. A new variant is a composition, not a subclass. The
+authoritative in-code statement is the
 [`composed_env_cfg.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/composed_env_cfg.py)
 module docstring; the registration table is
 [`tasks/navigation/__init__.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/__init__.py).
@@ -12,7 +12,7 @@ observation / action / event cfgs, scene cfgs, commands / rewards /
 terminations / curriculum) live in
 [`strafer_env_cfg.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py).
 
-## The three axes
+## The four axes
 
 Set on a variant; `_ComposedStraferNavEnvCfg.__post_init__` materializes the
 standard manager cfgs from them.
@@ -24,12 +24,19 @@ standard manager cfgs from them.
 - **`SceneSourceCfg(kind=...)`** — `plane` / `infinigen` / `procroom` / `none`.
   The seam that makes a foreign USD a parameter, not a subclass.
 - **`RealismCfg(level=...)`** — `ideal` / `real` / `robust` DR + noise tier.
+- **`ObjectiveCfg(kind=...)`** — `goal` (fixed goal pose per episode) or
+  `subgoal` (rolling subgoal along a sim-planned path). Selects the command /
+  reward / termination blocks; observations are objective-agnostic because
+  the goal-shaped obs terms read whatever command term is registered under
+  `goal_command`. `subgoal` is composed for the `procroom` source only — its
+  planner consumes the occupancy grids the procedural-room generator builds.
 
 ## Gym-ID scheme
 
 Two families, prefix `Isaac-Strafer-Nav-`:
 
-- **RL** (`-RLDepth-Real-v0`, `-RLDepth-Robust-v0`, `-RLNoCam-v0`, each + `-Play`):
+- **RL** (`-RLDepth-Real-v0`, `-RLDepth-Robust-v0`, `-RLNoCam-v0`,
+  `-RLNoCam-Subgoal-Real-v0`, `-RLNoCam-Subgoal-Robust-v0`, each + `-Play`):
   **fixed** sensor stack — the obs contract a trained policy was fitted against.
 - **Capture** (`-Capture-Teleop-v0`, `-Capture-Bridge-v0`, `-Capture-Coverage-v0`):
   the registered stack is a **default preset**, operator-overridable per session.

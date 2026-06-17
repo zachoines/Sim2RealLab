@@ -125,6 +125,14 @@ over LAN. HTTP goes over the same LAN (DGX `192.168.50.196`, Jetson
   <em>Left: Isaac Lab test drive on the Strafer USD (<a href="docs/artifacts/strafer_isaac_lab_test_drive.mp4">watch</a>). Right: robot navigating a procedurally generated Infinigen apartment (<a href="docs/artifacts/strafer_infinitygen_scene.mp4">watch</a>).</em>
 </p>
 
+<p align="center">
+  <a href="docs/artifacts/NOCAM_GOAL_FOLLOW.mp4">
+    <img src="docs/artifacts/NOCAM_GOAL_FOLLOW_thumbnail.png" alt="Trained NOCAM_SUBGOAL policy following a planned path through a procedural room — click to play" width="66%"/>
+  </a>
+  <br/>
+  <em>Trained <code>NOCAM_SUBGOAL</code> RL policy tracking a sim-planned path through a procedural room — proprioception only (no camera), following a rolling subgoal a fixed lookahead ahead of the robot along the path (<a href="docs/artifacts/NOCAM_GOAL_FOLLOW.mp4">watch</a>).</em>
+</p>
+
 ## Hardware
 
 | Component | Model | Purpose |

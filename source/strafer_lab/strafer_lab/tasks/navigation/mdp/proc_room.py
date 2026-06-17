@@ -80,9 +80,12 @@ assert OBJECT_SIZES.shape[0] == NUM_OBJECTS
 # BFS grid parameters
 GRID_RES = 0.1          # meters per cell
 GRID_SIZE = 80           # cells per axis (covers 8m x 8m)
-ROBOT_HALF_WIDTH = 0.28  # meters (~max of 0.48x0.44 footprint diagonal / 2)
-INFLATION_CELLS = math.ceil(ROBOT_HALF_WIDTH / GRID_RES)  # 3
-INFLATION_KERNEL = 2 * INFLATION_CELLS + 1  # 7
+# Robot footprint modeled as a circle for configuration-space inflation.
+# 0.28 m is the chassis circumscribing radius (half the 0.432x0.360 footprint
+# diagonal), so a disc of this radius covers the holonomic chassis at any yaw.
+ROBOT_HALF_WIDTH = 0.28  # meters (chassis half-diagonal; rotation-invariant)
+INFLATION_CELLS = math.ceil(ROBOT_HALF_WIDTH / GRID_RES)  # 3 -> 0.3 m radius
+INFLATION_KERNEL = 2 * INFLATION_CELLS + 1  # 7 (disc structuring-element size)
 MIN_REACHABLE_CELLS = 100
 NUM_SPAWN_POINTS = 200   # per env
 
@@ -310,20 +313,45 @@ def _build_occupancy_grid(
     return occupancy
 
 
+# Disc (Euclidean) structuring element for obstacle inflation, cached per
+# device. A square max_pool kernel dilates obstacles in Chebyshev distance,
+# which over-inflates corners (a box obstacle grows square corners reaching
+# ~0.42 m diagonally for a 3-cell radius). A disc gives the true
+# configuration-space obstacle for a circular footprint — straight faces push
+# out by the radius, box corners round off — so the robot can legitimately
+# round obstacle corners instead of being pushed back a full diagonal.
+_DISC_KERNEL_CACHE: dict[torch.device, torch.Tensor] = {}
+
+
+def _disc_kernel(device: torch.device) -> torch.Tensor:
+    kern = _DISC_KERNEL_CACHE.get(device)
+    if kern is None:
+        offs = torch.arange(INFLATION_KERNEL, device=device) - INFLATION_CELLS
+        rr, cc = torch.meshgrid(offs, offs, indexing="ij")
+        kern = ((rr**2 + cc**2) <= INFLATION_CELLS**2).float().view(
+            1, 1, INFLATION_KERNEL, INFLATION_KERNEL
+        )
+        _DISC_KERNEL_CACHE[device] = kern
+    return kern
+
+
 def _inflate_obstacles(occupancy: torch.Tensor) -> torch.Tensor:
-    """Dilate occupancy grid by robot radius using max_pool2d.
+    """Dilate the occupancy grid by the robot radius with a DISC structuring
+    element — the Minkowski sum of obstacles with the robot's footprint circle.
+
+    A cell is blocked iff any obstacle cell lies within ``INFLATION_CELLS`` of
+    it in Euclidean distance (conv2d with the 0/1 disc kernel counts obstacle
+    cells inside the disc; >0 means blocked).
 
     Args:
-        occupancy: (B, Gx, Gy) float.
+        occupancy: (B, Gx, Gy) float — 1.0 = occupied.
 
     Returns:
         free_space: (B, Gx, Gy) bool — True = passable after inflation.
     """
-    inflated = F.max_pool2d(
-        occupancy.unsqueeze(1),
-        kernel_size=INFLATION_KERNEL,
-        stride=1,
-        padding=INFLATION_CELLS,
+    kern = _disc_kernel(occupancy.device)
+    inflated = F.conv2d(
+        occupancy.unsqueeze(1), kern, padding=INFLATION_CELLS
     ).squeeze(1)
     return inflated < 0.5
 
@@ -781,7 +809,7 @@ def generate_proc_room(
     # --- Phase 6: Extract spawn points ---
     spawn_xy, spawn_count = _extract_spawn_points(reachable)
 
-    # Store on env for robot reset and goal command
+    # Store on env for robot reset, goal command, and path planning
     if not hasattr(env, "_proc_room_spawn_pts"):
         env._proc_room_spawn_pts = torch.zeros(
             env.num_envs, NUM_SPAWN_POINTS, 2, device=device
@@ -792,10 +820,14 @@ def generate_proc_room(
         env._proc_room_active_mask = torch.zeros(
             env.num_envs, NUM_OBJECTS, dtype=torch.bool, device=device
         )
+        env._proc_room_free_space = torch.zeros(
+            env.num_envs, GRID_SIZE, GRID_SIZE, dtype=torch.bool, device=device
+        )
 
     env._proc_room_spawn_pts[env_ids] = spawn_xy
     env._proc_room_spawn_count[env_ids] = spawn_count
     env._proc_room_active_mask[env_ids] = active_mask
+    env._proc_room_free_space[env_ids] = free_space
 
     # --- Phase 7: Offset by env origins and write ---
     env_origins = env.scene.env_origins[env_ids]  # (B, 3)

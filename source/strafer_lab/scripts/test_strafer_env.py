@@ -9,9 +9,11 @@ This script runs predefined motion patterns to validate mecanum kinematics:
 - Figure-8 pattern
 
 Environments (--env):
-    Isaac-Strafer-Nav-RLDepth-Real-v0     Depth policy, ProcRoom, realistic (default)
-    Isaac-Strafer-Nav-RLDepth-Robust-v0   Depth policy, ProcRoom, robust DR
-    Isaac-Strafer-Nav-RLNoCam-v0          Proprioceptive only, ProcRoom, realistic
+    Isaac-Strafer-Nav-RLDepth-Real-v0             Depth policy, ProcRoom, realistic (default)
+    Isaac-Strafer-Nav-RLDepth-Robust-v0           Depth policy, ProcRoom, robust DR
+    Isaac-Strafer-Nav-RLNoCam-v0                  Proprioceptive only, ProcRoom, realistic
+    Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-v0     Proprioceptive subgoal tracking, ProcRoom, realistic
+    Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-v0   Proprioceptive subgoal tracking, ProcRoom, robust DR
 
 Usage:
     ./IsaacLab/isaaclab.sh -p source/strafer_lab/scripts/test_strafer_env.py

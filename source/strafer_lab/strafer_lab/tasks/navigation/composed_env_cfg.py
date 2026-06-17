@@ -1,14 +1,14 @@
 """Composable navigation environment configuration.
 
-Expresses a Strafer navigation environment as a composition over the three
+Expresses a Strafer navigation environment as a composition over the
 orthogonal axes it actually varies on — **sensor stack**, **scene source**,
-and **realism level** — rather than one hand-written class per populated cell
-of that matrix. A consumer asks for the combination it needs (e.g. "RGB only,
-Infinigen, realistic") and the composition root materializes the matching
-observation / action / event / scene managers from the shared building blocks
-defined in :mod:`strafer_env_cfg`.
+**realism level**, and **objective** — rather than one hand-written class per
+populated cell of that matrix. A consumer asks for the combination it needs
+(e.g. "RGB only, Infinigen, realistic") and the composition root materializes
+the matching observation / action / event / scene managers from the shared
+building blocks defined in :mod:`strafer_env_cfg`.
 
-Three axis configurations drive the composition:
+Four axis configurations drive the composition:
 
 - :class:`SensorStackCfg` — ``cameras_required`` over the tokens
   ``rgb_full`` / ``depth_full`` (the 640x360 perception camera channels) and
@@ -20,6 +20,11 @@ Three axis configurations drive the composition:
   that lets a foreign USD become a parameter instead of a new env subclass.
 - :class:`RealismCfg` — Ideal / Real / Robust domain-randomization and
   observation-noise tier.
+- :class:`ObjectiveCfg` — what the command term asks the policy to do:
+  converge on a fixed ``goal`` pose, or track a rolling ``subgoal`` along a
+  sim-planned path. The objective selects the command / reward / termination
+  blocks; observations are objective-agnostic because the goal-shaped terms
+  read whatever the active command term emits.
 
 The composition root selects among the *existing* MDP building blocks for the
 requested axes, so an RL variant composed here is structurally identical to
@@ -48,6 +53,7 @@ from .strafer_env_cfg import (
     CommandsCfg,
     CommandsCfg_Infinigen,
     CommandsCfg_ProcRoom,
+    CommandsCfg_ProcRoom_Subgoal,
     CurriculumCfg,
     CurriculumCfg_Infinigen,
     CurriculumCfg_ProcRoom,
@@ -69,6 +75,7 @@ from .strafer_env_cfg import (
     ObsCfg_NoCam_Robust,
     RewardsCfg,
     RewardsCfg_ProcRoom,
+    RewardsCfg_ProcRoom_Subgoal,
     StraferSceneCfg,
     StraferSceneCfg_Infinigen,
     StraferSceneCfg_InfinigenPerception,
@@ -77,6 +84,7 @@ from .strafer_env_cfg import (
     StraferSceneCfg_ProcRoom_NoCam,
     TerminationsCfg,
     TerminationsCfg_ProcRoom,
+    TerminationsCfg_ProcRoom_Subgoal,
     _apply_default_nav_runtime,
     _apply_infinigen_scene_setup,
     _apply_play_num_envs,
@@ -103,6 +111,9 @@ SCENE_SOURCES: tuple[str, ...] = ("plane", "infinigen", "procroom", "none")
 
 # Realism tiers.
 REALISM_LEVELS: tuple[str, ...] = ("ideal", "real", "robust")
+
+# Objectives.
+OBJECTIVE_KINDS: tuple[str, ...] = ("goal", "subgoal")
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +211,22 @@ class RealismCfg:
     level: str = "real"
 
 
+@configclass
+class ObjectiveCfg:
+    """What the command term asks the policy to do.
+
+    ``goal`` keeps the established setup: a fixed goal pose per episode, the
+    policy converges on it. ``subgoal`` swaps in the path-following task: a
+    sim-planned path per episode, a rolling subgoal command, path-tracking
+    rewards, and path-complete / off-path terminations. Observations are
+    unchanged across objectives — the goal-shaped terms read whatever the
+    active command term emits — so the obs/action contract is decided by the
+    other axes alone.
+    """
+
+    kind: str = "goal"
+
+
 # ---------------------------------------------------------------------------
 # Selector tables — (axis) -> existing building block
 # ---------------------------------------------------------------------------
@@ -253,6 +280,22 @@ _TERMINATIONS_BY_SOURCE = {
     "infinigen": TerminationsCfg,
     "procroom": TerminationsCfg_ProcRoom,
     "none": TerminationsCfg,
+}
+
+# The subgoal objective swaps the command / reward / termination blocks and
+# is composed for the ProcRoom source only: its planner consumes the
+# occupancy grids the procedural-room generator builds. Extending it to
+# another source means giving that source a free-space grid first.
+_COMMANDS_BY_SOURCE_SUBGOAL = {
+    "procroom": CommandsCfg_ProcRoom_Subgoal,
+}
+
+_REWARDS_BY_SOURCE_SUBGOAL = {
+    "procroom": RewardsCfg_ProcRoom_Subgoal,
+}
+
+_TERMINATIONS_BY_SOURCE_SUBGOAL = {
+    "procroom": TerminationsCfg_ProcRoom_Subgoal,
 }
 
 _CURRICULUM_BY_SOURCE = {
@@ -367,6 +410,7 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
     sensors: SensorStackCfg = SensorStackCfg()
     scene_source: SceneSourceCfg = SceneSourceCfg()
     realism: RealismCfg = RealismCfg()
+    objective: ObjectiveCfg = ObjectiveCfg()
 
     # When set, the env shrinks its scene to this many envs (play/eval preset).
     play_num_envs: int | None = None
@@ -377,6 +421,11 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
         level = self.realism.level
         if level not in REALISM_LEVELS:
             raise ValueError(f"Unknown realism {level!r}; valid: {REALISM_LEVELS}")
+        objective = self.objective.kind
+        if objective not in OBJECTIVE_KINDS:
+            raise ValueError(
+                f"Unknown objective {objective!r}; valid: {OBJECTIVE_KINDS}"
+            )
         profile = sensors.obs_profile()
         kind = source.kind
 
@@ -394,9 +443,35 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
             raise ValueError(
                 f"No event tier for scene_source={kind!r}, realism={level!r}",
             ) from exc
-        self.commands = _COMMANDS_BY_SOURCE[kind]()
-        self.rewards = _REWARDS_BY_SOURCE[kind]()
-        self.terminations = _TERMINATIONS_BY_SOURCE[kind]()
+        if objective == "subgoal":
+            try:
+                self.commands = _COMMANDS_BY_SOURCE_SUBGOAL[kind]()
+                self.rewards = _REWARDS_BY_SOURCE_SUBGOAL[kind]()
+                self.terminations = _TERMINATIONS_BY_SOURCE_SUBGOAL[kind]()
+            except KeyError as exc:
+                raise ValueError(
+                    f"The subgoal objective is not composed for "
+                    f"scene_source={kind!r}; valid: "
+                    f"{sorted(_COMMANDS_BY_SOURCE_SUBGOAL)}",
+                ) from exc
+            # Goal-pose reset noise targets the fixed-goal command's state;
+            # the subgoal task's deployment-noise analog is the planner's
+            # per-waypoint perturbation, configured on the command term.
+            if hasattr(self.events, "randomize_goal_noise"):
+                self.events.randomize_goal_noise = None
+            # Randomize the lookahead distance per the realistic-vs-robust DR
+            # convention (both tiers range; robust is wider), so the policy is
+            # not brittle to the deployed selector's exact lookahead.
+            _lookahead_band = {
+                "real": base._SUBGOAL_REAL_LOOKAHEAD_BAND,
+                "robust": base._SUBGOAL_ROBUST_LOOKAHEAD_BAND,
+            }.get(level)
+            if _lookahead_band is not None:
+                self.commands.goal_command.lookahead_randomization_m = _lookahead_band
+        else:
+            self.commands = _COMMANDS_BY_SOURCE[kind]()
+            self.rewards = _REWARDS_BY_SOURCE[kind]()
+            self.terminations = _TERMINATIONS_BY_SOURCE[kind]()
         self.curriculum = _CURRICULUM_BY_SOURCE[kind]()
 
         # --- Shared runtime defaults (dt / decimation / render / episode) ---
@@ -469,6 +544,42 @@ class StraferNavCfg_RLNoCam(_ComposedStraferNavEnvCfg):
 @configclass
 class StraferNavCfg_RLNoCam_PLAY(StraferNavCfg_RLNoCam):
     """Play/eval preset for RL no-cam baseline."""
+
+    play_num_envs = base._PROCROOM_NOCAM_PLAY_NUM_ENVS
+
+
+@configclass
+class StraferNavCfg_RLNoCamSubgoal_Real(_ComposedStraferNavEnvCfg):
+    """RL proprioceptive subgoal tracking (ProcRoom, realistic). Same obs/
+    action contract as the no-cam baseline; the goal-shaped observation
+    fields refer to a rolling subgoal on a sim-planned path."""
+
+    sensors = SensorStackCfg(cameras_required=())
+    scene_source = SceneSourceCfg(kind="procroom")
+    realism = RealismCfg(level="real")
+    objective = ObjectiveCfg(kind="subgoal")
+
+
+@configclass
+class StraferNavCfg_RLNoCamSubgoal_Real_PLAY(StraferNavCfg_RLNoCamSubgoal_Real):
+    """Play/eval preset for RL no-cam subgoal tracking (realistic)."""
+
+    play_num_envs = base._PROCROOM_NOCAM_PLAY_NUM_ENVS
+
+
+@configclass
+class StraferNavCfg_RLNoCamSubgoal_Robust(_ComposedStraferNavEnvCfg):
+    """RL proprioceptive subgoal tracking (ProcRoom, robust DR)."""
+
+    sensors = SensorStackCfg(cameras_required=())
+    scene_source = SceneSourceCfg(kind="procroom")
+    realism = RealismCfg(level="robust")
+    objective = ObjectiveCfg(kind="subgoal")
+
+
+@configclass
+class StraferNavCfg_RLNoCamSubgoal_Robust_PLAY(StraferNavCfg_RLNoCamSubgoal_Robust):
+    """Play/eval preset for RL no-cam subgoal tracking (robust)."""
 
     play_num_envs = base._PROCROOM_NOCAM_PLAY_NUM_ENVS
 

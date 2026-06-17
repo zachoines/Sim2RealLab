@@ -1244,8 +1244,9 @@ _INFINIGEN_PERCEPTION_TRAIN_NUM_ENVS = 1
 # guarantees solvable layouts.
 # =============================================================================
 
-# Import procedural room palette builder
-from .mdp.proc_room import build_proc_room_collection_cfg
+# Import procedural room palette builder + the planner inflation geometry the
+# subgoal off-path corridor is sized from.
+from .mdp.proc_room import GRID_RES, INFLATION_CELLS, build_proc_room_collection_cfg
 
 
 @configclass
@@ -1447,6 +1448,117 @@ class TerminationsCfg_ProcRoom(TerminationsCfg):
     goal_reached = DoneTerm(
         func=mdp.goal_reached,
         params={"command_name": "goal_command", "threshold": 0.3},
+    )
+    sustained_collision = DoneTerm(
+        func=mdp.sustained_collision,
+        params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0, "max_steps": 3},
+    )
+
+
+# --- ProcRoom subgoal-tracking building blocks ---
+#
+# The subgoal objective swaps the episode's task from "converge on a fixed
+# goal pose" to "track a rolling subgoal along a planned path": same scenes,
+# same observation/action/DR tiers, different command + reward + termination
+# blocks. The command term is registered under the same ``goal_command`` name
+# so the goal-shaped observation terms re-bind to the subgoal automatically.
+
+# Maximum cross-track distance before the episode is cut. Shared by the
+# off-path termination and its paired one-shot reward penalty.
+#
+# Sized to the planner's obstacle-inflation margin (INFLATION_CELLS * GRID_RES
+# = the robot radius A* clears around obstacles), NOT a looser hand-picked
+# value: at this cross-track the robot has reached the edge of the corridor
+# the planner cleared, so "on-path" stays equivalent to "inside cleared free
+# space." A wider tolerance would let a closely-tracking robot leave the
+# cleared corridor while still counting as on-path. This is a corridor bound,
+# not a collision guarantee — actual contacts are caught independently by the
+# sustained-collision termination — and tight passages (doorways) can clear a
+# narrower corridor than this maximum.
+_SUBGOAL_MAX_OFF_PATH_M = INFLATION_CELLS * GRID_RES  # 0.3 m
+
+# Lookahead-distance randomization bands (meters), centered on the nominal
+# SUBGOAL_LOOKAHEAD_M. Both tiers randomize, following the same realistic-vs-
+# robust convention as the other DR knobs (friction, mass, motor strength):
+# realistic = a tight band, robust = a wider one — not fixed-vs-randomized.
+# The deployed pure-pursuit lookahead is a not-yet-finalized tunable and Nav2's
+# closest-point projection adds small realized jitter, so even the
+# realistic/eval tier should train over a band rather than assume one exact
+# distance. The training workflow is train-on-robust, evaluate-on-realistic.
+_SUBGOAL_REAL_LOOKAHEAD_BAND = (0.9, 1.1)
+_SUBGOAL_ROBUST_LOOKAHEAD_BAND = (0.7, 1.3)
+
+
+@configclass
+class CommandsCfg_ProcRoom_Subgoal:
+    """Commands for ProcRoom subgoal tracking — one planned path per episode."""
+    goal_command = mdp.SubgoalCommandCfg(
+        asset_name="robot",
+        # One path per episode; episodes end via path_complete / off-path /
+        # timeout terminations, mirroring the single-goal ProcRoom setup.
+        resampling_time_range=(1.0e6, 1.0e6),
+        # Push goals farther than the 1 m default so episodes carry a longer
+        # path to track (the disc-inflated free space makes >=2 m endpoints
+        # readily reachable). Small rooms fall back to the farthest reachable
+        # point when no candidate clears this distance.
+        min_goal_distance=2.0,
+        debug_vis=True,
+    )
+
+
+@configclass
+class RewardsCfg_ProcRoom_Subgoal:
+    """Path-tracking rewards for the ProcRoom subgoal objective.
+
+    Weights are starting points for the training run, not tuned constants:
+    along-track progress mirrors the goal-progress scale, the sparse
+    completion bonus must dominate any shaping residual, and the collision /
+    backward-motion / clearance terms carry over from the goal-directed
+    ProcRoom setup unchanged.
+    """
+    # --- Primary task signal: track the planned path ---
+    along_track_progress = RewTerm(func=mdp.path_along_track_progress, weight=10.0, params={"command_name": "goal_command"})
+    cross_track_error = RewTerm(func=mdp.path_cross_track_error, weight=-2.0, params={"command_name": "goal_command"})
+    # --- Sparse completion bonus (LARGE — must dominate any shaping residual) ---
+    path_complete = RewTerm(func=mdp.path_complete_reward, weight=200.0, params={"command_name": "goal_command"})
+    # --- One-shot penalty paired with the off-path termination ---
+    off_path = RewTerm(
+        func=mdp.off_path_divergence_penalty, weight=-50.0,
+        params={"command_name": "goal_command", "max_off_path_m": _SUBGOAL_MAX_OFF_PATH_M},
+    )
+    # --- Collision avoidance (carried over from the goal-directed setup) ---
+    collision = RewTerm(func=mdp.collision_penalty_net, weight=-10.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
+    collision_sustained = RewTerm(func=mdp.collision_sustained_penalty_net, weight=-5.0, params={"sensor_cfg": SceneEntityCfg("contact_sensor"), "threshold": 1.0})
+    backward_motion = RewTerm(func=mdp.backward_motion_penalty, weight=-2.0)
+    obstacle_proximity = RewTerm(
+        func=mdp.procroom_obstacle_proximity_penalty,
+        weight=-1.0,
+        params={
+            "collection_name": "room_primitives",
+            "sigma": 0.12,
+            "distance_threshold": 0.35,
+        },
+    )
+    # --- Secondary signals (disabled by default; enable when tuning) ---
+    action_smoothness = RewTerm(func=mdp.action_smoothness_penalty, weight=0.0)
+    energy_penalty = RewTerm(func=mdp.energy_penalty, weight=0.0)
+
+
+@configclass
+class TerminationsCfg_ProcRoom_Subgoal(TerminationsCfg):
+    """Terminations for the ProcRoom subgoal objective.
+
+    Episodes end on path completion, off-path divergence, sustained
+    collision (ProcRoom-tight threshold), robot flip, or timeout.
+    """
+
+    path_complete = DoneTerm(
+        func=mdp.path_complete,
+        params={"command_name": "goal_command"},
+    )
+    off_path_divergence = DoneTerm(
+        func=mdp.off_path_divergence,
+        params={"command_name": "goal_command", "max_off_path_m": _SUBGOAL_MAX_OFF_PATH_M},
     )
     sustained_collision = DoneTerm(
         func=mdp.sustained_collision,

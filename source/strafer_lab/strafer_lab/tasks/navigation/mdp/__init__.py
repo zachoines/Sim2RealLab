@@ -87,10 +87,20 @@ from .rewards import (
     procroom_obstacle_proximity_penalty,
     speed_near_goal_penalty,
     alive_bonus,
+    path_along_track_progress,
+    path_cross_track_error,
+    path_complete_reward,
+    off_path_divergence_penalty,
 )
 
 # Custom terminations
-from .terminations import robot_flipped, goal_reached, sustained_collision
+from .terminations import (
+    robot_flipped,
+    goal_reached,
+    sustained_collision,
+    path_complete,
+    off_path_divergence,
+)
 
 # Custom events
 from .events import (
@@ -109,7 +119,7 @@ from .events import (
 )
 
 # Custom commands
-from .commands import GoalCommandCfg, GoalCommandProcRoomCfg
+from .commands import GoalCommandCfg, GoalCommandProcRoomCfg, SubgoalCommandCfg
 
 # Curriculum learning
 from .curriculums import GoalDistanceCurriculum, ObstacleCurriculum, RoomComplexityCurriculum

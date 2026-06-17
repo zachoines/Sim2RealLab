@@ -86,6 +86,14 @@ _CONTRACT_GOLDENS = {
     "RLDepth_Real_PLAY": "3e340e6e46aa23aa54c7359ef204a39eaae55857b0474ebb66bf8ac648a0896d",
     "RLDepth_Robust_PLAY": "787221fd5f6ac819010311eafac0d79292f9800ad2b70c8286851ecc4fdf5659",
     "RLNoCam_PLAY": "7c60ad9bf35bcfaf3d0b5020d1e58479fefd4334035758f2400ab134e21f6345",
+    # Subgoal path-tracking variants: goldens snapshotted at variant
+    # introduction (no legacy class preceded them). Same do-not-edit rule —
+    # a mismatch means the contract a NOCAM_SUBGOAL checkpoint trains
+    # against has drifted.
+    "RLNoCamSubgoal_Real": "3507493080ab36ae2d1dcb7b41efe1eb75a04eff53b41a0c459f070d0da14f2c",
+    "RLNoCamSubgoal_Robust": "f241fdbe49274632a1c451b1563aac432d4e2dd65b73370680aae36d46dea260",
+    "RLNoCamSubgoal_Real_PLAY": "c802f527d3e5f11fba6b2a12dafa85731f59ce23dd10f76e95df74343c2299ad",
+    "RLNoCamSubgoal_Robust_PLAY": "618c8f55e071d215495730fe7f942bbc6d38d92c2a3e27928f160405df51d2ba",
 }
 
 # The depth observation a checkpoint consumes — captured identical across the
@@ -100,6 +108,10 @@ _COMPOSED_RL = {
     "RLDepth_Real_PLAY": composed.StraferNavCfg_RLDepth_Real_PLAY,
     "RLDepth_Robust_PLAY": composed.StraferNavCfg_RLDepth_Robust_PLAY,
     "RLNoCam_PLAY": composed.StraferNavCfg_RLNoCam_PLAY,
+    "RLNoCamSubgoal_Real": composed.StraferNavCfg_RLNoCamSubgoal_Real,
+    "RLNoCamSubgoal_Robust": composed.StraferNavCfg_RLNoCamSubgoal_Robust,
+    "RLNoCamSubgoal_Real_PLAY": composed.StraferNavCfg_RLNoCamSubgoal_Real_PLAY,
+    "RLNoCamSubgoal_Robust_PLAY": composed.StraferNavCfg_RLNoCamSubgoal_Robust_PLAY,
 }
 
 
@@ -200,6 +212,76 @@ def test_sensor_stack_depth_policy_is_depth_profile():
 def test_sensor_stack_rejects_unknown_token():
     with pytest.raises(ValueError):
         composed.SensorStackCfg(cameras_required=("lidar",)).normalized()
+
+
+# =====================================================================
+# Objective axis behavior
+# =====================================================================
+
+
+def test_subgoal_objective_swaps_task_blocks():
+    """The subgoal objective selects the path-tracking command / reward /
+    termination blocks while leaving the scene and obs selection alone."""
+    cfg = composed.StraferNavCfg_RLNoCamSubgoal_Real()
+    assert type(cfg.commands).__name__ == "CommandsCfg_ProcRoom_Subgoal"
+    assert hasattr(cfg.rewards, "along_track_progress")
+    assert hasattr(cfg.rewards, "cross_track_error")
+    assert hasattr(cfg.terminations, "path_complete")
+    assert hasattr(cfg.terminations, "off_path_divergence")
+
+
+def test_subgoal_observations_match_nocam_baseline():
+    """The subgoal variant's observation contract is byte-identical to the
+    no-cam baseline's: same network input layout, only the command term
+    behind the goal-shaped fields differs."""
+    sub = composed.StraferNavCfg_RLNoCamSubgoal_Real()
+    baseline = composed.StraferNavCfg_RLNoCam()
+    assert _hash(_canon(sub.observations)) == _hash(_canon(baseline.observations))
+
+
+def test_subgoal_robust_drops_goal_pose_noise_event():
+    """Goal-pose reset noise targets the fixed-goal command's state; the
+    subgoal composition disables it (waypoint noise on the command term is
+    the deployment-noise analog)."""
+    cfg = composed.StraferNavCfg_RLNoCamSubgoal_Robust()
+    assert cfg.events.randomize_goal_noise is None
+
+
+def test_subgoal_lookahead_band_centered_on_shared_constant():
+    """The realistic subgoal variant randomizes the lookahead over a tight
+    band centered on the shared deployment lookahead distance — both tiers
+    range (per the DR-tier convention), realistic just tighter than robust."""
+    from strafer_shared.constants import SUBGOAL_LOOKAHEAD_M
+
+    cmd = composed.StraferNavCfg_RLNoCamSubgoal_Real().commands.goal_command
+    assert cmd.lookahead_m == SUBGOAL_LOOKAHEAD_M
+    band = cmd.lookahead_randomization_m
+    assert band is not None
+    lo, hi = band
+    assert lo < SUBGOAL_LOOKAHEAD_M < hi
+
+
+def test_subgoal_robust_lookahead_band_wider_than_realistic():
+    """Robust widens the lookahead band relative to realistic so the policy is
+    not brittle to the deployed selector's exact lookahead distance."""
+    real = composed.StraferNavCfg_RLNoCamSubgoal_Real().commands.goal_command
+    robust = composed.StraferNavCfg_RLNoCamSubgoal_Robust().commands.goal_command
+    r_lo, r_hi = real.lookahead_randomization_m
+    b_lo, b_hi = robust.lookahead_randomization_m
+    assert b_lo < r_lo and b_hi > r_hi  # robust strictly wider on both sides
+    assert b_lo < robust.lookahead_m < b_hi
+
+
+def test_subgoal_objective_requires_procroom_scene():
+    """The subgoal planner consumes the ProcRoom occupancy grids; other
+    scene sources are rejected at composition time."""
+    with pytest.raises(ValueError, match="subgoal"):
+        composed._ComposedStraferNavEnvCfg(
+            sensors=composed.SensorStackCfg(cameras_required=()),
+            scene_source=composed.SceneSourceCfg(kind="plane"),
+            realism=composed.RealismCfg(level="real"),
+            objective=composed.ObjectiveCfg(kind="subgoal"),
+        )
 
 
 # =====================================================================

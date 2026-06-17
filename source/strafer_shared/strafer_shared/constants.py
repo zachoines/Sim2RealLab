@@ -166,6 +166,17 @@ IMU_UPDATE_PERIOD_S = 1.0 / IMU_HZ
 
 MAP_RESOLUTION = 0.05  # meters per cell — shared by RTAB-Map grid and Nav2 costmap
 
+# Rolling-subgoal lookahead distance (meters). The single source of truth for
+# the pure-pursuit lookahead used on BOTH sides of the planner-follows seam:
+# the subgoal-tracking training env advances its subgoal this far along the
+# planned path's arc length, and the hybrid backend that follows Nav2's path
+# at deployment must select its subgoal at the same distance. The policy
+# observes only the resulting subgoal pose (relative position / distance /
+# bearing), so this distance — not the path's waypoint spacing — is what must
+# match across train and deploy. Pin both references here so the value cannot
+# drift between the two lanes.
+SUBGOAL_LOOKAHEAD_M = 1.0
+
 # Autonomous navigation velocity scaling (fraction of hardware max).
 # Hardware max is ~1.57 m/s / ~4.10 rad/s — too fast for indoor autonomy.
 NAV_VEL_SCALE = 0.5  # forward/strafe: 50% of MAX_LINEAR_VEL (~0.78 m/s)

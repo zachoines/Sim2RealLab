@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from dataclasses import MISSING
 from typing import TYPE_CHECKING
 
+import numpy as np
 import torch
 
 import isaaclab.sim as sim_utils
@@ -14,6 +15,11 @@ from isaaclab.managers import CommandTerm, CommandTermCfg
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.math import quat_from_euler_xyz, quat_mul
+
+from strafer_shared.constants import MAP_RESOLUTION, SUBGOAL_LOOKAHEAD_M
+
+from ..path_planner import PathCursor, PathPlanningError, perturb_waypoints, plan_path
+from .proc_room import GRID_RES, GRID_SIZE
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -502,3 +508,380 @@ class GoalCommandProcRoomCfg(GoalCommandCfg):
     """Configuration for goal command in procedural rooms."""
 
     class_type: type = GoalCommandProcRoom
+
+
+# ---------------------------------------------------------------------------
+# Subgoal command (path-following)
+# ---------------------------------------------------------------------------
+
+# Env-local XY of the occupancy grid's (0, 0) cell corner (grid centered on
+# the env origin, matching the procedural-room generator's rasterization).
+_PROC_ROOM_GRID_ORIGIN = (
+    -GRID_SIZE * GRID_RES / 2.0,
+    -GRID_SIZE * GRID_RES / 2.0,
+)
+
+
+class SubgoalCommand(CommandTerm):
+    """Command term emitting a rolling subgoal along a planned path.
+
+    At episode reset, plans a collision-free path from the robot's spawn
+    position to a sampled reachable goal on the env's inflated occupancy
+    grid (built by the procedural-room generator), then per tick projects
+    the robot onto the path and emits the pose ``lookahead_m`` ahead of the
+    projection along arc length. The command tensor has shape
+    ``(num_envs, 3)``::
+
+        command[:, 0:2] = (x, y) subgoal position in world frame
+        command[:, 2]   = path tangent heading (rad) at the subgoal
+
+    Deployment contract: the policy observes only the resulting subgoal pose
+    (relative position / distance / bearing), never the waypoints or the
+    cursor. So transfer to a real planner reduces to a single requirement —
+    a planner-follows backend tracking an externally published path (Nav2's
+    ``/plan``) must select its subgoal with the same rule used here: closest
+    point on the path, advanced ``lookahead_m`` along arc length. The shared
+    lookahead distance is ``SUBGOAL_LOOKAHEAD_M``; the path's waypoint spacing
+    is *not* part of the contract, because the policy never sees the
+    waypoints. ``lookahead_randomization_m`` widens the requirement from a
+    single distance the deployed selector must hit exactly into a band the
+    policy is trained to track across, and ``waypoint_noise_std_m`` covers the
+    residual train/deploy planner-shape disagreement.
+
+    Public per-tick state read by path-tracking rewards and terminations:
+
+    - ``cross_track_error`` (num_envs,): distance to the closest path point.
+    - ``along_track_progress`` (num_envs,): monotonic arc-length advance
+      since the previous step (zero on the step a new path is installed).
+    - ``path_complete`` (num_envs,) bool: robot within
+      ``path_complete_threshold`` of the path's final point.
+    """
+
+    cfg: SubgoalCommandCfg
+
+    def __init__(self, cfg: SubgoalCommandCfg, env: ManagerBasedRLEnv):
+        device = env.device
+        # Buffers used by reset() must exist before super().__init__.
+        self._subgoal = torch.zeros(env.num_envs, 3, device=device)
+        self._path_cursor = PathCursor(env.num_envs, cfg.max_path_points, device)
+
+        # Public per-tick path-tracking state.
+        self.cross_track_error = torch.zeros(env.num_envs, device=device)
+        self.along_track_progress = torch.zeros(env.num_envs, device=device)
+        self.path_complete = torch.zeros(env.num_envs, dtype=torch.bool, device=device)
+
+        self._distance_to_subgoal = torch.zeros(env.num_envs, device=device)
+        # 1.0 on envs whose last plan fell back to a straight segment.
+        self._path_fallback = torch.zeros(env.num_envs, device=device)
+
+        # Per-env lookahead distance. Constant at ``lookahead_m`` unless
+        # ``lookahead_randomization_m`` is set, in which case it is resampled
+        # per env at each path reset. Held as a plain buffer (NOT a metric):
+        # the base reset() zeros every metric tensor, which would wipe the
+        # lookahead the same step it is sampled.
+        self._lookahead = torch.full((env.num_envs,), cfg.lookahead_m, device=device)
+
+        # Waypoint-noise / lookahead RNG, seeded from the torch seed for
+        # reproducibility.
+        self._np_rng = np.random.default_rng(torch.initial_seed() % (2**32))
+
+        super().__init__(cfg, env)
+
+        self._robot = env.scene[cfg.asset_name]
+
+        self.metrics["cross_track_error"] = self.cross_track_error
+        self.metrics["along_track_progress"] = self.along_track_progress
+        self.metrics["distance_to_subgoal"] = self._distance_to_subgoal
+        self.metrics["path_fallback"] = self._path_fallback
+
+    """
+    Properties
+    """
+
+    @property
+    def command(self) -> torch.Tensor:
+        """The subgoal command. Shape is (num_envs, 3) for (x, y, heading)."""
+        return self._subgoal
+
+    @property
+    def path_cursor(self) -> PathCursor:
+        """The underlying per-env path buffers (read-only consumers only)."""
+        return self._path_cursor
+
+    """
+    Implementation of abstract methods
+    """
+
+    def _resample_command(self, env_ids: Sequence[int]):
+        """Plan a fresh path per env and emit its initial subgoal.
+
+        Reads the per-env free-space grids and reachable spawn points
+        populated by ``generate_proc_room`` (which runs as a reset event
+        before command resampling). Goal candidates are drawn from the
+        BFS-reachable spawn set at least ``min_goal_distance`` from the
+        robot; if every candidate fails to plan, falls back to a straight
+        segment to the last candidate (flagged in the ``path_fallback``
+        metric — the BFS solvability guarantee makes this rare).
+        """
+        if len(env_ids) == 0:
+            return
+        if not isinstance(env_ids, torch.Tensor):
+            env_ids = torch.tensor(env_ids, device=self.device)
+        env_ids = env_ids.to(dtype=torch.long)
+
+        robot_xy_w = wp.to_torch(self._robot.data.root_pos_w)[:, :2]
+        env_origins = self._env.scene.env_origins[:, :2]
+        start_local = (robot_xy_w[env_ids] - env_origins[env_ids]).cpu().numpy()
+        origins_np = env_origins[env_ids].cpu().numpy()
+
+        free_grids = self._env._proc_room_free_space[env_ids].cpu().numpy()
+        spawn_pts = self._env._proc_room_spawn_pts[env_ids].cpu().numpy()
+        spawn_count = self._env._proc_room_spawn_count[env_ids].cpu().numpy()
+
+        spacing = self.cfg.path_spacing_m
+        paths_world: list[torch.Tensor] = []
+        for k in range(len(env_ids)):
+            env_idx = int(env_ids[k])
+            count = max(int(spawn_count[k]), 1)
+            candidates = spawn_pts[k, :count]
+            dists = np.linalg.norm(candidates - start_local[k], axis=-1)
+            far_idx = np.flatnonzero(dists >= self.cfg.min_goal_distance)
+            if len(far_idx) == 0:
+                far_idx = np.array([int(dists.argmax())])
+            order = self._np_rng.permutation(far_idx)[: self.cfg.max_goal_attempts]
+
+            path = None
+            goal = candidates[order[-1]]
+            for cand_idx in order:
+                goal = candidates[cand_idx]
+                try:
+                    path = plan_path(
+                        start_local[k],
+                        goal,
+                        free_grids[k],
+                        grid_res=GRID_RES,
+                        grid_origin_xy=_PROC_ROOM_GRID_ORIGIN,
+                        discretization_m=spacing,
+                    )
+                    break
+                except PathPlanningError:
+                    continue
+
+            if path is None:
+                # Straight-segment fallback; flagged for monitoring.
+                path = np.stack([start_local[k], goal]).astype(np.float32)
+                self._path_fallback[env_idx] = 1.0
+            else:
+                self._path_fallback[env_idx] = 0.0
+                path = perturb_waypoints(
+                    path,
+                    self.cfg.waypoint_noise_std_m,
+                    free_grids[k],
+                    grid_res=GRID_RES,
+                    grid_origin_xy=_PROC_ROOM_GRID_ORIGIN,
+                    rng=self._np_rng,
+                )
+
+            paths_world.append(torch.as_tensor(path + origins_np[k], dtype=torch.float32))
+
+        self._path_cursor.set_paths(env_ids, paths_world)
+
+        # Resample the per-env lookahead distance when randomization is on, so
+        # the policy learns to track a subgoal at any distance in the band
+        # rather than only the deployment default. The deployed selector then
+        # needs only to land inside the band, not hit one exact distance.
+        band = self.cfg.lookahead_randomization_m
+        if band is not None:
+            lo, hi = band
+            self._lookahead[env_ids] = (
+                torch.rand(len(env_ids), device=self.device) * (hi - lo) + lo
+            )
+
+        # Clear tracking state and emit the initial subgoal so observations
+        # computed right after reset see a valid command. The cursor was just
+        # rewound, so this restricted update cannot leak progress into the
+        # next step's along-track reward.
+        self.path_complete[env_ids] = False
+        self.along_track_progress[env_ids] = 0.0
+        state = self._path_cursor.update(
+            robot_xy_w, self._lookahead, env_ids=env_ids
+        )
+        self._subgoal[env_ids, :2] = state.subgoal_xy
+        self._subgoal[env_ids, 2] = state.subgoal_heading
+        self.cross_track_error[env_ids] = state.cross_track
+
+    def _update_command(self):
+        """Advance the cursor to the robot's projection and refresh the
+        subgoal, cross-track / along-track state, and completion flag."""
+        robot_xy_w = wp.to_torch(self._robot.data.root_pos_w)[:, :2]
+        state = self._path_cursor.update(robot_xy_w, self._lookahead)
+        self._subgoal[:, :2] = state.subgoal_xy
+        self._subgoal[:, 2] = state.subgoal_heading
+        self.cross_track_error[:] = state.cross_track
+        self.along_track_progress[:] = state.along_track_progress
+        self.path_complete[:] = state.end_distance < self.cfg.path_complete_threshold
+
+    def _update_metrics(self):
+        robot_xy_w = wp.to_torch(self._robot.data.root_pos_w)[:, :2]
+        self._distance_to_subgoal[:] = torch.norm(
+            robot_xy_w - self._subgoal[:, :2], dim=-1
+        )
+
+    """
+    Debug visualization
+    """
+
+    def _set_debug_vis_impl(self, debug_vis: bool):
+        """Create or toggle subgoal + path waypoint markers."""
+        if debug_vis:
+            if not hasattr(self, "_subgoal_sphere_vis"):
+                self._subgoal_sphere_vis = VisualizationMarkers(
+                    self.cfg.subgoal_sphere_visualizer_cfg
+                )
+                self._subgoal_heading_vis = VisualizationMarkers(
+                    self.cfg.subgoal_heading_visualizer_cfg
+                )
+                self._path_points_vis = VisualizationMarkers(
+                    self.cfg.path_points_visualizer_cfg
+                )
+            self._subgoal_sphere_vis.set_visibility(True)
+            self._subgoal_heading_vis.set_visibility(True)
+            self._path_points_vis.set_visibility(True)
+        else:
+            if hasattr(self, "_subgoal_sphere_vis"):
+                self._subgoal_sphere_vis.set_visibility(False)
+                self._subgoal_heading_vis.set_visibility(False)
+                self._path_points_vis.set_visibility(False)
+
+    def _debug_vis_callback(self, event):
+        """Draw the rolling subgoal (sphere + tangent arrow) and the path."""
+        if not self._robot.is_initialized:
+            return
+
+        num_envs = self._subgoal.shape[0]
+
+        subgoal_pos = torch.zeros(num_envs, 3, device=self.device)
+        subgoal_pos[:, :2] = self._subgoal[:, :2]
+        subgoal_pos[:, 2] = 0.15
+        self._subgoal_sphere_vis.visualize(translations=subgoal_pos)
+
+        arrow_pos = subgoal_pos.clone()
+        arrow_pos[:, 2] += 0.2
+        zeros = torch.zeros(num_envs, device=self.device)
+        pitch_neg90 = torch.full((num_envs,), -math.pi / 2, device=self.device)
+        tip_quat = quat_from_euler_xyz(zeros, pitch_neg90, zeros)
+        heading_quat = quat_from_euler_xyz(zeros, zeros, self._subgoal[:, 2])
+        self._subgoal_heading_vis.visualize(
+            translations=arrow_pos,
+            orientations=quat_mul(heading_quat, tip_quat),
+        )
+
+        # Path waypoints, subsampled to ~one marker per 0.2 m of arc.
+        stride = max(1, int(round(0.2 / max(self.cfg.path_spacing_m, 1e-3))))
+        paths = self._path_cursor.paths[:, ::stride]            # (B, P', 2)
+        n_pts = paths.shape[1]
+        point_idx = torch.arange(0, n_pts * stride, stride, device=self.device)
+        valid = point_idx.unsqueeze(0) < self._path_cursor.path_len.unsqueeze(1)
+        pts = paths[valid]                                       # (N, 2)
+        translations = torch.zeros(pts.shape[0], 3, device=self.device)
+        translations[:, :2] = pts
+        translations[:, 2] = 0.05
+        self._path_points_vis.visualize(translations=translations)
+
+
+_SUBGOAL_SPHERE_CFG = VisualizationMarkersCfg(
+    prim_path="/Visuals/Command/subgoal_sphere",
+    markers={
+        "subgoal": sim_utils.SphereCfg(
+            radius=0.12,
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.8, 1.0)),
+        ),
+    },
+)
+
+_SUBGOAL_HEADING_CFG = VisualizationMarkersCfg(
+    prim_path="/Visuals/Command/subgoal_heading",
+    markers={
+        "arrow": sim_utils.ConeCfg(
+            radius=0.06,
+            height=0.25,
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.8, 1.0)),
+        ),
+    },
+)
+
+_PATH_POINTS_CFG = VisualizationMarkersCfg(
+    prim_path="/Visuals/Command/path_points",
+    markers={
+        "waypoint": sim_utils.SphereCfg(
+            radius=0.03,
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 1.0, 1.0)),
+        ),
+    },
+)
+
+
+@configclass
+class SubgoalCommandCfg(CommandTermCfg):
+    """Configuration for the rolling-subgoal command term."""
+
+    class_type: type = SubgoalCommand
+
+    asset_name: str = MISSING
+    """Name of the robot asset in the scene."""
+
+    resampling_time_range: tuple[float, float] = (1.0e6, 1.0e6)
+    """Time range for resampling a new path (min, max) in seconds. Defaults
+    to effectively never: one path per episode, episodes end via the
+    path-complete / off-path / timeout terminations."""
+
+    lookahead_m: float = SUBGOAL_LOOKAHEAD_M
+    """Arc-length distance (meters) the subgoal leads the robot's projection
+    onto the path. The single quantity the policy actually observes about the
+    path, and the value the deployed planner-follows backend must reproduce —
+    pinned to the shared ``SUBGOAL_LOOKAHEAD_M`` so the two lanes cannot
+    drift."""
+
+    lookahead_randomization_m: tuple[float, float] | None = None
+    """When set, the per-env lookahead is resampled uniformly from this
+    ``(min, max)`` band at each path reset instead of held at ``lookahead_m``.
+    Trains the policy to track a subgoal across a range of distances so the
+    deployed selector only has to land inside the band, not hit one exact
+    distance. ``None`` keeps the fixed ``lookahead_m`` (baseline)."""
+
+    min_goal_distance: float = 1.0
+    """Minimum straight-line distance (meters) between the robot and the
+    sampled path endpoint."""
+
+    max_goal_attempts: int = 10
+    """Goal candidates tried per env before falling back to a straight
+    segment."""
+
+    path_spacing_m: float = MAP_RESOLUTION
+    """Arc-length spacing (meters) of path waypoints. Defaults to the shared
+    deployment map resolution so training paths match the discretization of
+    the paths the deployed planner publishes."""
+
+    waypoint_noise_std_m: float = MAP_RESOLUTION / 2.0
+    """Std-dev (meters) of the truncated Gaussian perturbation applied to
+    interior waypoints at plan time. Bounds the train/deploy planner
+    disagreement the policy is robust to; see ``perturb_waypoints``."""
+
+    path_complete_threshold: float = 0.3
+    """Distance (meters) from the path's final point at which the path
+    counts as complete."""
+
+    max_path_points: int = 512
+    """Per-env waypoint buffer size; longer paths are truncated head-first."""
+
+    debug_vis: bool = False
+    """Whether to visualize the subgoal and path."""
+
+    subgoal_sphere_visualizer_cfg: VisualizationMarkersCfg = _SUBGOAL_SPHERE_CFG
+    """Marker config for the rolling subgoal."""
+
+    subgoal_heading_visualizer_cfg: VisualizationMarkersCfg = _SUBGOAL_HEADING_CFG
+    """Arrow marker config for the subgoal's path-tangent heading."""
+
+    path_points_visualizer_cfg: VisualizationMarkersCfg = _PATH_POINTS_CFG
+    """Marker config for the planned path's waypoints."""

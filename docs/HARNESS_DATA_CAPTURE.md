@@ -293,17 +293,21 @@ that the `observation.detections.*` columns are present. It does **not**
 bring up the ROS publishers or a live executor — that's the operator
 acceptance run above.
 
-**Detection-vocab caveat:** the smoke reports the detection vocab but
-treats an empty one as a **warning, not a failure** by default
-(`--require-detections` / `REQUIRE_DETECTIONS=1` makes it hard). An
-empty vocab is an upstream annotator/scene-semantics matter — the
-Replicator `bbox_2d_tight` annotator only emits boxes for prims whose
-semantic type matches its filter, and some scenes (including
-`scene_fast_singleroom_000_seed0`, which carries 156 semantically-
-attributed prims yet emits zero boxes through a full sweep) don't match
-the default filter. The writer/columns path is verified regardless; only
-populated boxes depend on the scene's semantics lining up with the
-annotator.
+**Detection-vocab caveat (known scene-authoring gap):** the smoke reports
+the detection vocab but treats an empty one as a **warning, not a
+failure** by default (`--require-detections` / `REQUIRE_DETECTIONS=1`
+makes it hard). On `scene_fast_singleroom_000_seed0` the vocab is empty,
+and the cause is verified: `extract_scene_metadata` stamps a custom
+`semanticLabel` string attribute on the object prims (what it reads back
+to build `scene_metadata.json`), but it never applies the USD `Semantics`
+schema (`semanticType=class` / `semanticData`) that the Replicator
+`bounding_box_2d_tight` annotator boxes on. So the annotator finds nothing
+to box even with furniture in frame. The capture path — annotator wiring,
+`parse_bbox_data`, the padded `observation.detections.*` columns, and the
+dataset round-trip — is exercised and verified regardless; **populated
+boxes depend on a scene-prep change** (authoring `Semantics` from the
+existing `semanticLabel`), tracked separately. Flip `--require-detections`
+on once captures run against a `Semantics`-authored scene.
 
 ---
 

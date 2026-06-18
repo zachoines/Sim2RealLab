@@ -1,10 +1,10 @@
 """Jetson-free Kit smoke for the bridge harness capture path.
 
-Boots the Capture-Bridge env headless, drives a scripted sweep ``/cmd_vel``
-(forward + yaw, so the perception camera pans across the room) through the
-real :class:`SimInTheLoopHarness` orchestrator + :class:`BridgeLeRobotRecorder`
-+ :class:`StraferLeRobotWriter` with detections on, then re-opens the written
-dataset and asserts it is well-formed.
+Boots the Capture-Bridge env headless, drives a short scripted ``/cmd_vel``
+(forward + yaw) through the real :class:`SimInTheLoopHarness` orchestrator +
+:class:`BridgeLeRobotRecorder` + :class:`StraferLeRobotWriter` with detections
+on, then re-opens the written dataset and asserts it is well-formed. The drive
+is brief by design — the smoke validates the capture path, not a room tour.
 
 What this exercises (the surface this driver owns):
   - env reset / step with a normalized ``/cmd_vel`` action,
@@ -331,16 +331,21 @@ def _verify(output_root: Path, cameras_required: tuple[str, ...]) -> int:
     if labels:
         print(f"[smoke] detection vocab ({len(labels)}): {list(labels)[:12]}", flush=True)
     else:
-        # An empty vocab is an upstream annotator/scene-semantics matter, not
-        # a writer defect: the detections columns + pack path are exercised
-        # above regardless. The Replicator bbox_2d_tight annotator only emits
-        # boxes for prims whose semantics match its type filter — some scenes
-        # carry semantic attrs the default filter does not pick up.
+        # An empty vocab is an upstream scene-authoring matter, not a writer
+        # defect: the detections columns + pack path are exercised above
+        # regardless. Root cause (verified on scene_fast_singleroom_000_seed0):
+        # extract_scene_metadata stamps a custom `semanticLabel` string attr on
+        # the object prims, but the Replicator `bounding_box_2d_tight` annotator
+        # only boxes prims carrying the applied USD `Semantics` schema
+        # (semanticType=class / semanticData). That schema is never authored, so
+        # the annotator sees nothing to box even with furniture in frame.
         msg = (
             "detection vocab is EMPTY — the bbox_2d_tight annotator emitted no "
             "boxes for this scene. The writer/columns path is still verified; "
-            "this is an annotator/scene-semantics issue (check the scene's "
-            "semantic type against the annotator's filter), not a capture bug."
+            "the scene's prims carry a custom `semanticLabel` attr but not the "
+            "applied Replicator `Semantics` schema the annotator reads, so there "
+            "is nothing to box. Authoring Semantics is a scene-prep concern, "
+            "not a capture bug."
         )
         if args.require_detections:
             _fail(msg)

@@ -35,6 +35,18 @@ already seen during PR #63 review:
   with `scene_metadata.json not found` (observed 2026-06-07 on a
   `fast_singleroom` scene). Authoring the metadata at USD-creation time
   fixes this **and** the staleness modes above in one move.
+- **Generated scenes are not detections-ready either.** A sibling authoring
+  gap in the same producer: `extract_scene_metadata.py` stamps a custom
+  `semanticLabel` string attr on the object prims (what it reads back to
+  build the metadata) but never applies the USD `Semantics` schema
+  (`semanticType=class` / `semanticData`) that Replicator's
+  `bounding_box_2d_tight` annotator boxes on. So the harness detections
+  producer emits **zero** boxes and `observation.detections.*` is empty on
+  bridge/scripted capture even with objects plainly in frame — verified
+  2026-06-18 on `scene_fast_singleroom_000_seed0` (156 prims carry
+  `semanticLabel`, zero carry `Semantics`; confirmed against the recorded
+  perception frames). Authoring `Semantics` alongside the metadata closes
+  this in the same `extract_scene_metadata` pass.
 
 USD has a first-class mechanism for this:
 [`customData`](https://docs.omniverse.nvidia.com/dev-guide/latest/programmer_ref/usd/properties/set-custom-metadata.html).
@@ -56,6 +68,17 @@ deprecation window and no shim"). Meets all of:
   runs/embeds the extractor (wire the in-process `extract_from_state` hook,
   or chain the post-hoc extractor at export) so a single `generate` yields a
   capture-ready scene — closes the ergonomics gap in Motivation.
+- [ ] **Applies Replicator `Semantics` for detections.** `extract_scene_metadata.py`
+  applies the USD `Semantics` schema (`semanticType="class"`,
+  `semanticData=<label>`) onto each labeled object prim — in addition to the
+  custom `semanticLabel` provenance attr it writes today. The harness
+  detections producer (`bbox_extractor`'s Replicator `bounding_box_2d_tight`
+  annotator) boxes prims by the applied `Semantics` schema, **not** by
+  `semanticLabel` or `customData`; without this, `observation.detections.*` is
+  empty on every capture (see the detections-readiness item in Motivation).
+  Acceptance proof: after regenerating the corpus, `make harness-smoke
+  REQUIRE_DETECTIONS=1` (the bridge driver's Jetson-free smoke) passes with a
+  non-empty detection vocab on a regenerated scene.
 - [ ] **One reader, hard-fail.** New helper
   `strafer_lab.tools.scene_metadata_reader.load(scene_usd_path)` reads the
   embedded `customData` via `pxr` and **raises if it is absent** (no sidecar
@@ -124,7 +147,10 @@ falling back to a stale sidecar (the exact failure mode this brief kills).
   the *only* `pxr`-bound path and the `.venv_vlm` suite never hits it.
 - **Tooling unaware of `customData`**: usdview / Omniverse Composer show the
   embedded dict in the property panel (benign). Replicator's annotators don't
-  read `customData`, so RL / perception pipelines are unaffected.
+  read `customData` — they read the applied `Semantics` schema, which is why
+  the detections-readiness acceptance bullet authors `Semantics` onto prims
+  directly rather than relying on the metadata payload. The metadata storage
+  move (sidecar → `customData`) is itself perception-neutral.
 
 ## Coordination
 

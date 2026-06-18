@@ -20,13 +20,13 @@ Windows workstation.
 | RL training environments | DGX Spark / Windows GPU | Gym reset → step loop | PPO checkpoints under `logs/rsl_rl/strafer_navigation/` |
 | Synthetic-data pipeline | DGX Spark | Infinigen + teleop frames | Perception frames, scene metadata, VLM / CLIP SFT datasets |
 | Isaac Sim ROS 2 bridge | DGX Spark | `/cmd_vel` from LAN (Nav2 / rqt) | Simulated D555 + `/strafer/odom` + TF on the wire |
-| Sim-in-the-loop harness | DGX Spark | Jetson executor via `execute_mission` + mission metadata | Reachability-labelled `frames.jsonl` datasets |
+| Sim-in-the-loop harness | DGX Spark | Jetson executor via `execute_mission` + mission metadata | LeRobot v3 datasets (one episode per mission, outcome-labelled) |
 
 Sibling packages it interacts with:
 
 - **`strafer_shared`** — physical constants, mecanum kinematics, policy I/O contract. `strafer_lab` and `strafer_ros` agree here so trained policies transfer unchanged.
 - **`strafer_autonomy`** — sim-in-the-loop harness submits missions to the Jetson executor's `execute_mission` action. Some synthetic-data tools (`scene_labels`, `spatial_description`, `dataset_export`) have unit tests under `source/strafer_autonomy/tests/` — the `strafer_autonomy` conftest installs a namespace stub so those tests can import `strafer_lab.tools.*` without loading the Isaac Sim-dependent `strafer_lab/__init__.py`.
-- **`strafer_vlm`** — consumes grounding-formatted JSONL from `prepare_vlm_finetune_data.py` for LoRA fine-tuning. The description pipeline uses Qwen2.5-VL-7B loaded standalone (NOT the 3B model `strafer_vlm` serves), so the fine-tune target is never fed its own outputs.
+- **`strafer_vlm`** — future fine-tune briefs load the harness's LeRobot v3 datasets directly (frames + detections columns + per-episode labels). Any description/paraphrase pass uses Qwen2.5-VL-7B loaded standalone (NOT the 3B model `strafer_vlm` serves), so the fine-tune target is never fed its own outputs.
 - **`strafer_ros`** — the sim-in-the-loop bridge publishes on the same topic names the real robot's Jetson stack publishes (`/d555/color/image_raw`, `/d555/depth/image_rect_raw`, `/strafer/odom`, TF), so the Jetson autonomy stack consumes sim sensors without code changes.
 
 ## What ships today
@@ -34,9 +34,9 @@ Sibling packages it interacts with:
 - **Composed Gym environments** over three orthogonal axes — sensor stack × scene source × realism — registered as a small set of named variants (RL training: depth / no-cam, realistic / robust; capture: teleop / bridge / coverage). Capture variants take an operator-selectable sensor stack via `capture.py --sensors`. See Contracts below.
 - **Sim-to-real contract presets** (`tasks/navigation/sim_real_cfg.py`) — `IDEAL_SIM_CONTRACT`, `REAL_ROBOT_CONTRACT`, `ROBUST_TRAINING_CONTRACT` covering motor time constant, command delay, slew rate, IMU / encoder / depth noise, and control jitter.
 - **Mecanum motor model** (`assets/strafer.py`) — `DCMotorCfg` with torque-speed curve, paired with the three-layer action pipeline (command delay → slew rate limit → first-order motor dynamics filter) in `tasks/navigation/mdp/actions.py`.
-- **Synthetic-data pipeline** — Infinigen scene generation orchestrator, scene metadata extractor, 4-stage description pipeline (programmatic spatial analysis → VLM description generation → ground-truth validation → human spot-check reservoir), OpenCLIP contrastive fine-tuning with ONNX export, comprehensive VLM LoRA SFT data prep.
+- **Synthetic-data pipeline** — Infinigen scene generation orchestrator, scene metadata extractor, and the harness capture drivers writing the canonical LeRobot v3 training corpus (the legacy description / SFT-prep / CLIP-CSV scripts are retired under `scripts/retired/`).
 - **Isaac Sim ROS 2 bridge** (`bridge/`) — config + OmniGraph builder that wires simulated sensors onto the real robot's ROS topic names. Runs inside Kit via `isaacsim.ros2.bridge`.
-- **Sim-in-the-loop harness** (`sim_in_the_loop/`) — pure-Python orchestrator with injectable env / mission-API adapters. Submits Jetson missions, captures reachability-labelled frames into `frames.jsonl` datasets that the existing description and SFT-prep pipelines consume unchanged.
+- **Sim-in-the-loop harness** (`sim_in_the_loop/`) — pure-Python orchestrator with injectable env / mission-API / recorder adapters. Submits Jetson missions and records one LeRobot v3 episode per mission (RGB video, depth sidecars, normalized `/cmd_vel` actions, Replicator detections columns, outcome + hard-negative metadata) via `BridgeLeRobotRecorder` → `StraferLeRobotWriter`.
 - **Graceful Isaac-Sim fallback** (`__init__.py`) — subpackages that need Kit (`tasks`, `assets`) fail quietly with `ModuleNotFoundError`, so `strafer_lab.tools.*` stays importable from plain Python envs without `AppLauncher`.
 
 ## Contracts
@@ -126,9 +126,10 @@ runnable scripts under `scripts/`, importable modules under
 | `scripts/test_strafer_env.py` | Motion-pattern smoke test (forward / strafe / rotate / circle / figure8) | IsaacLab |
 | `scripts/export_policy.py` | Convert an rsl_rl checkpoint to a deployable TorchScript `.pt` + (where supported) ONNX `.onnx`. Round-trips the artifact through `strafer_shared.policy_interface.load_policy()` and refuses to write if the deterministic-mean head wasn't frozen. Emits a JSON sidecar with variant, dimensions, source checkpoint, repo SHA, ONNX opset, and `is_recurrent` | IsaacLab |
 | `scripts/benchmark_policy.py` | Median / p95 / p99 inference-latency stats on an exported artifact. Accepts an ONNX execution-provider preference list so the Jetson lane can record TRT-EP latency after rsync | pure-Python |
-| `scripts/capture.py` | Unified harness data-capture entry point (`--driver × --mission-source` cross-product per `harness-architecture.md`). Today wires `(teleop, scene-metadata)` end-to-end via the in-process driver in `scripts/teleop_capture.py`; other cells raise `NotImplementedError` pointing at the tier that ships them | Isaac Sim (teleop); pure-Python for argv validation |
+| `scripts/capture.py` | Unified harness data-capture entry point (`--driver × --mission-source` cross-product per `harness-architecture.md`). Wires `(teleop, scene-metadata)` via `scripts/teleop_capture.py` and `(bridge, scene-metadata)` / `(bridge, queue)` via `scripts/run_sim_in_the_loop.py --mode harness`; the scripted cells raise `NotImplementedError` until that driver ships | Isaac Sim (drivers); pure-Python for argv validation |
 | `scripts/teleop_capture.py` | In-process Isaac Lab teleop driver. Boots `AppLauncher`, loads `Isaac-Strafer-Nav-Capture-Teleop-v0`, reads gamepad, drives `env.step()`, and writes a LeRobot v3 dataset via `StraferLeRobotWriter` | Isaac Sim, pygame, lerobot |
-| `scripts/run_sim_in_the_loop.py` | Launch Isaac Sim with the ROS 2 bridge in `--mode bridge` (manual Nav2 drive) or `--mode harness` (walks Jetson missions, captures reachability-labelled dataset) | Isaac Sim, `isaacsim.ros2.bridge`, Jetson on LAN |
+| `scripts/run_sim_in_the_loop.py` | Launch Isaac Sim with the ROS 2 bridge in `--mode bridge` (manual Nav2 drive) or `--mode harness` (walks scene-metadata targets or a `mission_queue.yaml` through the Jetson autonomy stack and records a LeRobot v3 dataset with detections + optional `--inject-bad-grounding` hard negatives) | Isaac Sim, `isaacsim.ros2.bridge`, lerobot, Jetson on LAN |
+| `scripts/bridge_harness_smoke.py` | Jetson-free Kit smoke of the bridge harness capture path: scripted-`/cmd_vel` sweep through the real harness + recorder + `StraferLeRobotWriter` (detections on), then asserts the round-tripped dataset (episodes/frames, depth sidecars, detections vocab, discard path). `make harness-smoke`. Does **not** exercise the ROS publishers or the live executor | Isaac Sim, lerobot |
 | `scripts/collect_demos.py` | Gamepad teleop for RL demo collection (DAPG / GAIL sources). Shares the family-aware reader at `strafer_lab.tools.gamepad_reader` with the harness teleop driver | Isaac Sim |
 | `scripts/roller_bounce_probe.py` | Headless mecanum-roller contact diagnostic: spins in place across wheel speeds and logs chassis-z to quantify the high-yaw bounce. Exposes `--sim-hz` + PhysX solver knobs | IsaacLab |
 | `scripts/prep_room_usds.py` | Orchestrate Infinigen scene generation (`generate`, `ingest`, `presets` subcommands) | IsaacLab + `INFINIGEN_ROOT`, `STRAFER_INFINIGEN_PYTHON` |
@@ -152,7 +153,8 @@ runnable scripts under `scripts/`, importable modules under
 | `scene_labels` | `get_scene_metadata`, `iter_rooms`, `iter_objects`, `get_scene_label_set`, `get_room_at_position`, `get_objects_in_room` — typed accessors over `scene_metadata.json` |
 | `spatial_description` | `SpatialDescriptionBuilder`, `quat_to_yaw`, `classify_region`, `classify_bearing` — Stage-1 factual spatial relations |
 | `bbox_extractor` | `ReplicatorBboxExtractor`, `parse_bbox_data`, `DetectedBbox` — wraps Replicator's `bounding_box_2d_tight` annotator |
-| `perception_writer` | `PerceptionFrameWriter`, `PerceptionWriterStats` — per-frame episode writer |
+| `mission_queue` | `load_mission_queue`, `QueueMissionRow`, `queue_row_to_mission_spec` — `mission_queue.yaml` parser for the `queue` mission source |
+| `grounding_injection` | `plan_injection`, `InjectionPlan`, `resolve_target_room_idx` — hard-negative goal perturbation for `--inject-bad-grounding` |
 | `infinigen_label_parser` | Infinigen-specific semantic label normalization |
 
 **Deprecated** (`scripts/retired/`, `tools/retired/`) — retained for reference / mining, **not imported or invoked by any live entry point**; the harness brief deletes each as it supersedes it:
@@ -388,24 +390,19 @@ isaaclab -p source/strafer_lab/scripts/capture.py \
     --output data/sim_in_the_loop/scene_001 \
     --fps 8
 
-# 4. Run description pipeline
-python scripts/retired/generate_descriptions.py \
-    --perception-root data/perception --output-root data/descriptions
-
-# 5a. Export CLIP + basic VLM datasets
-python -c "from strafer_lab.tools.retired.dataset_export import run_export; \
-  run_export('data/perception', 'data/descriptions', 'data/clip_descriptions', 'data/vlm')"
-
-# 5b. Full VLM SFT prep
-python scripts/retired/prepare_vlm_finetune_data.py \
-    --perception-root data/perception --descriptions-root data/descriptions \
-    --scene-metadata-dir Assets/generated/scenes --output data/vlm_finetune
-
-# 6. CLIP fine-tune (exports ONNX for the Jetson semantic map)
-python scripts/retired/finetune_clip.py \
-    --data data/clip_descriptions/clip_descriptions.csv \
-    --image-root data/perception --epochs 10 --output models/clip_finetuned/
+# 4. Capture through the autonomy stack as a side effect of
+#    integration testing (requires the Jetson stack on the LAN)
+isaaclab -p source/strafer_lab/scripts/capture.py \
+    --driver bridge --mission-source scene-metadata \
+    --scene scene_001 \
+    --output data/sim_in_the_loop/scene_001 \
+    --headless --enable_cameras
 ```
+
+Downstream fine-tunes load the captured LeRobot v3 dataset directly
+(HF `LeRobotDataset` + the `lerobot_depth` / `lerobot_detections` /
+`read_strafer_episodes` helpers). The legacy description → CSV → SFT
+prep chain lives under `scripts/retired/` for reference only.
 
 ### Sim-in-the-loop bridge / harness
 
@@ -415,11 +412,11 @@ source env_setup.sh
 # Manual / Nav2 mode: DGX publishes simulated sensors, Jetson drives via Nav2
 isaaclab -p source/strafer_lab/scripts/run_sim_in_the_loop.py
 
-# Reachability-labelled dataset capture (harness submits missions to Jetson)
+# LeRobot v3 dataset capture (harness submits missions to the Jetson;
+# preferred front door is capture.py --driver bridge, which dispatches here)
 isaaclab -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
-    --mode harness \
-    --scene-metadata Assets/generated/scenes/kitchen_01/scene_metadata.json \
-    --scene-usd Assets/generated/scenes/kitchen_01/scene.usdc \
+    --mode harness --headless --enable_cameras \
+    --scene-name kitchen_01 \
     --output data/sim_in_the_loop/kitchen_01
 ```
 

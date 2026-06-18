@@ -3,7 +3,7 @@
 Pure Python — runs in .venv_vlm via the strafer_lab namespace stub.
 The adapter is exercised against a fake env handle that mimics the
 Isaac Lab attribute surface (``unwrapped.scene[...]``, ``data.output``,
-``data.root_pos_w``, etc.) plus a fake ``cmd_vel_reader`` and a fake
+``data.root_pos_w``, etc.) plus a fake ``cmd_vel_source`` and a fake
 ``torch`` module.
 """
 
@@ -25,13 +25,7 @@ from strafer_shared.constants import MAX_ANGULAR_VEL, MAX_LINEAR_VEL
 
 
 class FakeTensor:
-    """Mimics the subset of torch.Tensor the adapter uses.
-
-    Supports ``[i]`` indexing, ``.shape``, ``.dim()``, ``.detach()``,
-    ``.cpu()``, ``.numpy()``, ``.tolist()``, scalar ``__setitem__``,
-    and ``.clone()``. Exposed via the FakeTorch.zeros / FakeTorch.tensor
-    factories below.
-    """
+    """Mimics the subset of torch.Tensor the adapter uses."""
 
     def __init__(self, data: np.ndarray) -> None:
         self.data = np.asarray(data)
@@ -78,26 +72,19 @@ class FakeTorch:
 @dataclass
 class FakeCameraData:
     output: dict = field(default_factory=dict)
-    pos_w: Any = None
-    quat_w_world: Any = None
-
-
-@dataclass
-class FakeCameraCfg:
-    width: int = 640
-    height: int = 360
 
 
 @dataclass
 class FakeCamera:
     data: FakeCameraData
-    cfg: FakeCameraCfg = field(default_factory=FakeCameraCfg)
 
 
 @dataclass
 class FakeRobotData:
     root_pos_w: Any = None
     root_quat_w: Any = None
+    root_lin_vel_b: Any = None
+    root_ang_vel_w: Any = None
 
 
 @dataclass
@@ -129,12 +116,14 @@ class FakeUnwrapped:
 class FakeEnv:
     unwrapped: FakeUnwrapped
     resets: int = 0
+    steps: int = 0
     last_action: Any = None
 
     def reset(self) -> None:
         self.resets += 1
 
     def step(self, action) -> None:
+        self.steps += 1
         self.last_action = action
 
 
@@ -143,7 +132,7 @@ class FakeEnv:
 # ---------------------------------------------------------------------------
 
 
-def _build_camera(width: int = 640, height: int = 360) -> FakeCamera:
+def _build_camera(width: int, height: int) -> FakeCamera:
     return FakeCamera(
         data=FakeCameraData(
             output={
@@ -154,12 +143,7 @@ def _build_camera(width: int = 640, height: int = 360) -> FakeCamera:
                     np.full((1, height, width, 1), 2.5, dtype=np.float32)
                 ),
             },
-            pos_w=FakeTensor(np.array([[0.2, 0.0, 0.25]], dtype=np.float32)),
-            quat_w_world=FakeTensor(
-                np.array([[0.5, -0.5, 0.5, -0.5]], dtype=np.float32)
-            ),
         ),
-        cfg=FakeCameraCfg(width=width, height=height),
     )
 
 
@@ -168,7 +152,13 @@ def _build_robot() -> FakeRobot:
         data=FakeRobotData(
             root_pos_w=FakeTensor(np.array([[1.0, 2.0, 0.05]], dtype=np.float32)),
             root_quat_w=FakeTensor(
-                np.array([[1.0, 0.0, 0.0, 0.0]], dtype=np.float32)
+                np.array([[0.0, 0.0, 0.0, 1.0]], dtype=np.float32)
+            ),
+            root_lin_vel_b=FakeTensor(
+                np.array([[0.4, -0.1, 0.0]], dtype=np.float32)
+            ),
+            root_ang_vel_w=FakeTensor(
+                np.array([[0.0, 0.0, 0.7]], dtype=np.float32)
             ),
         )
     )
@@ -177,7 +167,8 @@ def _build_robot() -> FakeRobot:
 def _build_env(*, action_dim: int = 3) -> FakeEnv:
     scene = FakeScene(
         sensors={
-            "d555_camera_perception": _build_camera(),
+            "d555_camera_perception": _build_camera(640, 360),
+            "d555_camera": _build_camera(80, 60),
             "robot": _build_robot(),
         }
     )
@@ -192,14 +183,17 @@ def _build_env(*, action_dim: int = 3) -> FakeEnv:
 
 def _build_adapter(env: FakeEnv, **overrides) -> IsaacLabEnvAdapter:
     cmd_vel = overrides.pop(
-        "cmd_vel_reader",
-        lambda _gp: ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
+        "cmd_vel_source",
+        lambda: ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
+    )
+    overrides.setdefault(
+        "cameras_required", ("rgb_full", "depth_full", "depth_policy"),
     )
     return IsaacLabEnvAdapter(
         env=env,
-        graph_path="/World/Bridge",
         scene_name="kitchen_01",
-        cmd_vel_reader=cmd_vel,
+        cmd_vel_source=cmd_vel,
+        step_dt=0.1,
         torch_module=FakeTorch,
         **overrides,
     )
@@ -211,11 +205,15 @@ def _build_adapter(env: FakeEnv, **overrides) -> IsaacLabEnvAdapter:
 
 
 class TestReset:
-    def test_matching_scene_calls_env_reset(self):
+    def test_matching_scene_resets_and_warms_up_cameras(self):
         env = _build_env()
         adapter = _build_adapter(env)
         adapter.reset(scene_name="kitchen_01")
         assert env.resets == 1
+        # One zero-action warm-up step renders a fresh camera frame.
+        assert env.steps == 1
+        assert np.allclose(env.last_action.data, 0.0)
+        assert adapter.sim_time_s == pytest.approx(0.1)
 
     def test_mismatched_scene_raises(self):
         env = _build_env()
@@ -230,7 +228,7 @@ class TestStep:
         env = _build_env()
         adapter = _build_adapter(
             env,
-            cmd_vel_reader=lambda _gp: ((0.5, 0.1, 0.0), (0.0, 0.0, -0.3)),
+            cmd_vel_source=lambda: ((0.5, 0.1, 0.0), (0.0, 0.0, -0.3)),
         )
         adapter.step()
         assert env.last_action is not None
@@ -255,7 +253,7 @@ class TestStep:
         env = _build_env()
         adapter = _build_adapter(
             env,
-            cmd_vel_reader=lambda _gp: (
+            cmd_vel_source=lambda: (
                 (MAX_LINEAR_VEL, -MAX_LINEAR_VEL, 0.0),
                 (0.0, 0.0, MAX_ANGULAR_VEL),
             ),
@@ -271,7 +269,7 @@ class TestStep:
         env = _build_env()
         adapter = _build_adapter(
             env,
-            cmd_vel_reader=lambda _gp: (
+            cmd_vel_source=lambda: (
                 (10.0 * MAX_LINEAR_VEL, 0.0, 0.0),
                 (0.0, 0.0, -10.0 * MAX_ANGULAR_VEL),
             ),
@@ -281,23 +279,28 @@ class TestStep:
         assert action_data[0, 0] == pytest.approx(1.0)
         assert action_data[0, 2] == pytest.approx(-1.0)
 
-    def test_step_passes_graph_path_to_reader(self):
+    def test_step_advances_sim_time_and_pumps_callback(self):
         env = _build_env()
-        seen = []
-
-        def reader(graph_path):
-            seen.append(graph_path)
-            return ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0))
-
-        adapter = _build_adapter(env, cmd_vel_reader=reader)
+        seen: list[float] = []
+        adapter = _build_adapter(env, on_stepped=seen.append)
         adapter.step()
-        assert seen == ["/World/Bridge"]
+        adapter.step()
+        assert seen == [pytest.approx(0.1), pytest.approx(0.2)]
+        assert adapter.sim_time_s == pytest.approx(0.2)
+
+    def test_sim_time_keeps_advancing_across_resets(self):
+        """/clock must stay monotonic — episode resets don't rewind it."""
+        env = _build_env()
+        adapter = _build_adapter(env)
+        adapter.step()
+        adapter.reset(scene_name="kitchen_01")
+        assert adapter.sim_time_s == pytest.approx(0.2)
 
     def test_action_dim_smaller_than_3_is_safely_skipped(self):
         env = _build_env(action_dim=2)
         adapter = _build_adapter(
             env,
-            cmd_vel_reader=lambda _gp: ((0.5, 0.1, 0.0), (0.0, 0.0, -0.3)),
+            cmd_vel_source=lambda: ((0.5, 0.1, 0.0), (0.0, 0.0, -0.3)),
         )
         # Should not raise; action stays zeros because the layout assumption
         # ``shape[-1] >= 3`` is not met.
@@ -307,18 +310,11 @@ class TestStep:
 
 
 class TestCapture:
-    def test_returns_frame_bundle_with_image_dims(self):
+    def test_rgb_drops_alpha_and_is_uint8(self):
         env = _build_env()
         adapter = _build_adapter(env)
         bundle = adapter.capture()
-        assert bundle.image_width == 640
-        assert bundle.image_height == 360
-
-    def test_rgb_is_2d_or_3d_numpy(self):
-        env = _build_env()
-        adapter = _build_adapter(env)
-        bundle = adapter.capture()
-        assert bundle.rgb.shape == (360, 640, 4)
+        assert bundle.rgb.shape == (360, 640, 3)
         assert bundle.rgb.dtype == np.uint8
 
     def test_depth_is_2d_float32(self):
@@ -329,38 +325,48 @@ class TestCapture:
         assert bundle.depth.shape == (360, 640)
         assert bundle.depth.dtype == np.float32
 
-    def test_depth_disabled_when_save_depth_false(self):
+    def test_policy_depth_read_when_declared(self):
         env = _build_env()
-        adapter = _build_adapter(env, save_depth=False)
+        adapter = _build_adapter(env)
         bundle = adapter.capture()
-        assert bundle.depth is None
+        assert bundle.depth_policy is not None
+        assert bundle.depth_policy.shape == (60, 80)
+        assert bundle.rgb_policy is None  # rgb_policy not in the stack
 
-    def test_robot_pose_extracted(self):
+    def test_undeclared_channels_stay_none(self):
+        env = _build_env()
+        adapter = _build_adapter(env, cameras_required=("rgb_full",))
+        bundle = adapter.capture()
+        assert bundle.rgb is not None
+        assert bundle.depth is None
+        assert bundle.depth_policy is None
+
+    def test_robot_pose_and_velocity_extracted(self):
         env = _build_env()
         adapter = _build_adapter(env)
         bundle = adapter.capture()
         assert bundle.robot_pos == pytest.approx((1.0, 2.0, 0.05))
-        assert bundle.robot_quat == pytest.approx((1.0, 0.0, 0.0, 0.0))
+        assert bundle.robot_quat == pytest.approx((0.0, 0.0, 0.0, 1.0))
+        assert bundle.achieved_vel == pytest.approx((0.4, -0.1, 0.7))
 
-    def test_camera_pose_extracted(self):
+    def test_action_reflects_last_cmd_vel(self):
         env = _build_env()
-        adapter = _build_adapter(env)
-        bundle = adapter.capture()
-        assert bundle.cam_pos == pytest.approx((0.2, 0.0, 0.25))
-        assert bundle.cam_quat == pytest.approx((0.5, -0.5, 0.5, -0.5))
-
-    def test_missing_depth_output_returns_none(self):
-        env = _build_env()
-        # Drop the depth channel from the camera output.
-        env.unwrapped.scene["d555_camera_perception"].data.output.pop(
-            "distance_to_image_plane",
+        adapter = _build_adapter(
+            env,
+            cmd_vel_source=lambda: ((0.5, 0.0, 0.0), (0.0, 0.0, 0.0)),
         )
-        adapter = _build_adapter(env)
+        adapter.step()
         bundle = adapter.capture()
-        assert bundle.depth is None
+        assert bundle.action == pytest.approx((0.5 / MAX_LINEAR_VEL, 0.0, 0.0))
 
-    def test_bboxes_default_to_empty_list(self):
+    def test_detections_none_without_source(self):
         env = _build_env()
         adapter = _build_adapter(env)
+        assert adapter.capture().detections is None
+
+    def test_detections_source_forwarded(self):
+        env = _build_env()
+        sentinel = [object(), object()]
+        adapter = _build_adapter(env, detections_source=lambda: sentinel)
         bundle = adapter.capture()
-        assert bundle.bboxes == []
+        assert list(bundle.detections) == sentinel

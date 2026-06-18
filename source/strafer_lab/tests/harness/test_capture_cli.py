@@ -1,10 +1,10 @@
 """CLI validation tests for source/strafer_lab/scripts/capture.py.
 
 Exercise argparse + the (driver, mission-source) cross-product validator
-without launching Isaac Sim. The wired Tier 1 path (``teleop ×
-scene-metadata``) subprocesses ``teleop_capture.py``; we inject a stub
+without launching Isaac Sim. Wired cells subprocess their driver script
+(``teleop_capture.py`` / ``run_sim_in_the_loop.py``); we inject a stub
 runner so the test never spawns Isaac Sim. Other cells either raise
-``NotImplementedError`` (pending tiers) or ``SystemExit`` (invalid
+``NotImplementedError`` (driver not shipped) or ``SystemExit`` (invalid
 cross-product cells).
 """
 
@@ -173,24 +173,107 @@ class TestSensorStackResolution:
             capture.resolve_sensor_stack("lidar", capture_policy_cam=False)
 
 
+class TestBridgeDispatchPath:
+    def _run(self, runner, *args, **kwargs):
+        parser = capture._build_parser()
+        ns, extra = parser.parse_known_args(_base_args(*args, **kwargs))
+        capture._validate(ns)
+        return capture._dispatch(ns, extra_args=tuple(extra), runner=runner)
+
+    def test_scene_metadata_cell_dispatches_to_bridge_driver(self):
+        runner = _StubRunner()
+        rc = self._run(runner, "bridge", "scene-metadata")
+        assert rc == 0
+        argv = runner.calls[0]
+        assert argv[0] == sys.executable
+        assert argv[1].endswith("run_sim_in_the_loop.py")
+        assert argv[argv.index("--mode") + 1] == "harness"
+        assert argv[argv.index("--scene-name") + 1] == "scene_test"
+        assert argv[argv.index("--output") + 1] == "/tmp/test_dataset_doesnotexist"
+        # Default sensor stack for the bridge driver is the bridge preset.
+        assert argv[argv.index("--sensors") + 1] == "rgb_full,depth_full,depth_policy"
+        # The queue flag is absent for the scene-metadata cell.
+        assert "--mission-queue" not in argv
+        # Detections default on → no --no-detections flag.
+        assert "--no-detections" not in argv
+
+    def test_queue_cell_forwards_mission_queue(self):
+        runner = _StubRunner()
+        rc = self._run(runner, "bridge", "queue", mission_queue="/tmp/q.yaml")
+        assert rc == 0
+        argv = runner.calls[0]
+        assert argv[argv.index("--mission-queue") + 1] == "/tmp/q.yaml"
+
+    def test_no_detections_forwarded(self):
+        runner = _StubRunner()
+        parser = capture._build_parser()
+        argv_in = _base_args("bridge", "scene-metadata") + ["--no-detections"]
+        ns, extra = parser.parse_known_args(argv_in)
+        capture._validate(ns)
+        capture._dispatch(ns, extra_args=tuple(extra), runner=runner)
+        assert "--no-detections" in runner.calls[0]
+
+    def test_injection_flags_forwarded(self):
+        runner = _StubRunner()
+        rc = self._run(
+            runner, "bridge", "scene-metadata",
+            inject_bad_grounding="wrong_instance",
+            inject_bad_grounding_prob=0.5,
+        )
+        assert rc == 0
+        argv = runner.calls[0]
+        assert argv[argv.index("--inject-bad-grounding") + 1] == "wrong_instance"
+        assert argv[argv.index("--inject-bad-grounding-prob") + 1] == "0.5"
+
+    def test_injection_off_not_forwarded(self):
+        runner = _StubRunner()
+        self._run(runner, "bridge", "scene-metadata")
+        assert "--inject-bad-grounding" not in runner.calls[0]
+
+    def test_sensors_override_forwarded(self):
+        runner = _StubRunner()
+        self._run(runner, "bridge", "scene-metadata", sensors="rgb_full,depth_full")
+        argv = runner.calls[0]
+        assert argv[argv.index("--sensors") + 1] == "rgb_full,depth_full"
+
+    def test_unknown_args_forwarded_to_child(self):
+        runner = _StubRunner()
+        parser = capture._build_parser()
+        argv_in = _base_args("bridge", "scene-metadata") + [
+            "--headless", "--max-missions", "3",
+        ]
+        ns, extra = parser.parse_known_args(argv_in)
+        capture._validate(ns)
+        capture._dispatch(ns, extra_args=tuple(extra), runner=runner)
+        child_argv = runner.calls[0]
+        assert "--headless" in child_argv
+        assert "--max-missions" in child_argv and "3" in child_argv
+
+
 class TestPendingCellsRaise:
     @pytest.mark.parametrize(
-        "driver,mission_source,tier",
+        "driver,mission_source",
         [
-            ("bridge", "scene-metadata", "Tier 2"),
-            ("bridge", "queue", "Tier 2"),
-            ("scripted", "captioner", "Tier 3"),
-            ("scripted", "coverage", "Tier 3"),
+            ("scripted", "queue"),
+            ("scripted", "captioner"),
+            ("scripted", "coverage"),
         ],
     )
-    def test_pending_cell_raises_notimplemented(self, driver, mission_source, tier):
+    def test_scripted_cells_raise_notimplemented(self, driver, mission_source):
         # Queue cells need --mission-queue to pass validation, so build
         # args accordingly.
         extra = {}
         if mission_source == "queue":
             extra["mission_queue"] = "/tmp/q.yaml"
-        with pytest.raises(NotImplementedError, match=tier):
+        with pytest.raises(NotImplementedError, match="not implemented yet"):
             capture.main(_base_args(driver, mission_source, **extra))
+
+    def test_teleop_queue_names_its_functional_gate(self):
+        # teleop x queue is pending for a specific reason: the teleop driver
+        # reads scene metadata, not a queue, and the queue producer is
+        # unshipped. The message must say so without naming a brief/tier.
+        with pytest.raises(NotImplementedError, match="reads targets from scene"):
+            capture.main(_base_args("teleop", "queue", mission_queue="/tmp/q.yaml"))
 
 
 class TestInvalidCombinations:
@@ -234,3 +317,9 @@ class TestFlagDependencies:
                 "teleop", "scene-metadata",
                 inject_bad_grounding="wrong_room",
             ))
+
+    def test_detections_rejected_for_teleop(self):
+        with pytest.raises(SystemExit, match="--detections"):
+            capture.main(
+                _base_args("teleop", "scene-metadata") + ["--detections"],
+            )

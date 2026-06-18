@@ -328,14 +328,14 @@ The five-way mission label (`on_course` / `wrong_room` /
 `wrong_instance` / `trajectory_violation` / `ambiguous`) requires
 post-processing the harness output, not new sim runs. The
 measurement script's `--root-cause-pass` mode appends a
-`root_cause` field to each mission record. After the harness
-brief ships, the natural target is `mission.json`'s record (one
-per mission); for legacy harness output, `root_cause` is written
-into the per-mission summary in `frames.jsonl`. Either way, the
+`root_cause` field per episode, keyed by `episode_index` against
+the harness's LeRobot v3 per-episode metadata (the strafer
+extension columns read via
+`strafer_lab.tools.lerobot_writer.read_strafer_episodes`). The
 labeling logic is:
 
-1. **`on_course` vs. failed:** mission's `mission_state` +
-   `reachable` flags.
+1. **`on_course` vs. failed:** the per-episode `outcome` /
+   `outcome_category` columns.
 2. **`wrong_room` vs. `wrong_instance` split (failed missions
    only):** check whether the final pose `(x, y)` lies inside the
    room polygon containing `target_position_3d` (room polygons

@@ -16,10 +16,14 @@ two modes:
     real Nav2 stack on the LAN, ``ros2 topic pub`` smoke checks).
 
   - ``--mode harness``: also instantiate the sim-in-the-loop harness,
-    walk every mission emitted by ``MissionGenerator`` for the configured
-    scene, submit each one to the Jetson autonomy executor over the
-    ``execute_mission`` action, and capture reachability-labeled frames
-    into a ``frames.jsonl`` dataset.
+    walk a mission stream (every ``scene_metadata.json`` target by
+    default, or a curated ``mission_queue.yaml`` via ``--mission-queue``),
+    submit each mission to the Jetson autonomy executor over the
+    ``execute_mission`` action, and record one LeRobot v3 episode per
+    mission via ``strafer_lab.tools.lerobot_writer.StraferLeRobotWriter``
+    — frames carry the perception camera RGB + depth sidecars, the
+    normalized ``/cmd_vel`` action, and (by default) the Replicator
+    ``bbox_2d_tight`` detections columns.
 
 The Jetson at ``STRAFER_JETSON_HOST`` consumes the same real-robot
 topics in either mode:
@@ -39,11 +43,11 @@ Usage:
     # Manual / Nav2 mode:
     isaaclab -p source/strafer_lab/scripts/run_sim_in_the_loop.py
 
-    # Reachability-labeled dataset capture:
+    # LeRobot v3 dataset capture through the autonomy stack (preferred
+    # entry point is capture.py --driver bridge, which dispatches here):
     isaaclab -p source/strafer_lab/scripts/run_sim_in_the_loop.py \\
-        --mode harness \\
-        --scene-metadata Assets/generated/scenes/kitchen_01/scene_metadata.json \\
-        --scene-usd Assets/generated/scenes/kitchen_01/scene.usdc \\
+        --mode harness --headless \\
+        --scene-name kitchen_01 \\
         --output data/sim_in_the_loop/kitchen_01
 
 Verify from another shell (Jetson or DGX):
@@ -63,6 +67,14 @@ from typing import Any
 
 from isaaclab.app import AppLauncher
 from strafer_shared.constants import MAX_ANGULAR_VEL, MAX_LINEAR_VEL
+
+
+# Consecutive whole-mission crashes in harness mode before the run aborts
+# rather than burning the remaining queue against a dead executor. Not a
+# CLI knob: it's a circuit-breaker for an unrecoverable peer, not a tuning
+# parameter — a single executor crash should not abort, three in a row is
+# a downed-stack signal.
+_MAX_CONSECUTIVE_MISSION_FAILURES = 3
 
 
 def _clamp_unit(value: float) -> float:
@@ -116,27 +128,43 @@ def _parse_args() -> argparse.Namespace:
         "--scene-metadata",
         type=Path,
         default=None,
-        help="Harness mode: path to scene_metadata.json describing the targets.",
+        help="Harness mode: path to scene_metadata.json describing the "
+             "targets. Optional when --scene-name resolves under "
+             "Assets/generated/scenes/<scene>/.",
     )
     parser.add_argument(
         "--scene-name",
         type=str,
         default=None,
-        help="Harness mode: scene_name for frames.jsonl. Defaults to the "
-             "parent dir name of --scene-metadata.",
+        help="Harness mode: scene_id recorded in per-episode metadata. "
+             "Defaults to the parent dir name of --scene-metadata; when "
+             "given without --scene-metadata, the metadata path resolves "
+             "to Assets/generated/scenes/<scene-name>/scene_metadata.json.",
     )
     parser.add_argument(
         "--output",
         type=Path,
         default=None,
-        help="Harness mode: output dir for the reachability dataset (one "
-             "episode_NNNN/ per mission).",
+        help="Harness mode: LeRobot dataset root. Auto-suffixed with a "
+             "timestamp if it already exists (LeRobotDataset.create "
+             "refuses to overwrite).",
+    )
+    parser.add_argument(
+        "--mission-queue",
+        type=Path,
+        default=None,
+        help="Harness mode: mission_queue.yaml to walk instead of "
+             "enumerating scene_metadata.json targets. The bridge "
+             "dispatches each row's mission_text through the autonomy "
+             "stack; planned_path is ignored (the Jetson planner emits "
+             "its own).",
     )
     parser.add_argument(
         "--max-missions",
         type=int,
         default=None,
-        help="Harness mode: cap on missions to run from the generator.",
+        help="Harness mode: cap on missions to run from the generator "
+             "or queue.",
     )
     parser.add_argument(
         "--allowed-labels",
@@ -160,7 +188,94 @@ def _parse_args() -> argparse.Namespace:
         "--capture-every-n-steps",
         type=int,
         default=5,
-        help="Harness mode: env-step interval for frame capture during nav.",
+        help="Harness mode: env-step interval for frame capture during nav. "
+             "The writer's fps is derived as 1 / (env step dt × this).",
+    )
+    parser.add_argument(
+        "--sensors",
+        type=str,
+        default=None,
+        help="Harness mode: per-session sensor stack as a comma-separated "
+             "token list over rgb_full,depth_full,rgb_policy,depth_policy. "
+             "The env renders and the writer records exactly this stack. "
+             "Defaults to the task's own stack (the bridge capture env "
+             "ships rgb_full,depth_full,depth_policy). rgb_full + "
+             "depth_full are mandatory unless --no-camera-bridge: the "
+             "Jetson stack navigates on those streams.",
+    )
+    parser.add_argument(
+        "--detections",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Harness mode: record per-frame 2D detections from the "
+             "perception camera's Replicator bounding-box annotator as "
+             "first-class dataset columns. On by default; "
+             "--no-detections shrinks the schema.",
+    )
+    parser.add_argument(
+        "--detections-max",
+        type=int,
+        default=None,
+        help="Harness mode: padded detection slots per frame. Defaults to "
+             "the writer's standard slot count.",
+    )
+    parser.add_argument(
+        "--inject-bad-grounding",
+        choices=("off", "wrong_room", "wrong_instance", "wrong_object"),
+        default="off",
+        help="Harness mode: hard-negative goal perturbation. With "
+             "--inject-bad-grounding-prob, a mission's dispatched goal is "
+             "swapped to a wrong object while the recorded mission text "
+             "keeps naming the original target. Modes: wrong_room (different "
+             "room), wrong_instance (same label, same room), wrong_object "
+             "(different label, same room). Per-episode metadata records "
+             "requested vs actual mode; downstream filters must key off the "
+             "actual mode.",
+    )
+    parser.add_argument(
+        "--inject-bad-grounding-prob",
+        type=float,
+        default=0.3,
+        help="Harness mode: per-mission perturbation probability when "
+             "--inject-bad-grounding is enabled.",
+    )
+    parser.add_argument(
+        "--injection-seed",
+        type=int,
+        default=0,
+        help="Harness mode: RNG seed for the injection coin flips + "
+             "candidate picks, so a capture run's injection sequence is "
+             "reproducible.",
+    )
+    parser.add_argument(
+        "--repo-id",
+        type=str,
+        default=None,
+        help="Harness mode: LeRobot repo_id. Defaults to 'strafer/<scene>'.",
+    )
+    parser.add_argument(
+        "--session-id",
+        type=str,
+        default=None,
+        help="Harness mode: session identifier saved on every episode; "
+             "defaults to a wall-clock timestamp.",
+    )
+    parser.add_argument(
+        "--vcodec",
+        type=str,
+        default="h264",
+        help="Harness mode: LeRobot v3 video codec. h264 is the "
+             "broadest-availability choice on ARM64.",
+    )
+    parser.add_argument(
+        "--cmd-vel-grace",
+        type=float,
+        default=30.0,
+        help="Harness mode: once the executor has started driving, this "
+             "many seconds of /cmd_vel silence discards the episode "
+             "(connectivity loss / executor crash). Silence before the "
+             "first command of a mission is governed by "
+             "--mission-timeout-s instead. 0 disables.",
     )
 
     # Bridge / harness overrides on the RL env cfg. Defaults match the
@@ -439,6 +554,11 @@ def main() -> None:
     simulation_app.update()
 
     env_cfg = parse_env_cfg(args.task, device="cuda:0", num_envs=1)
+
+    cameras_required: tuple[str, ...] = ()
+    if args.mode == "harness":
+        cameras_required = _resolve_harness_sensor_stack(env_cfg, args)
+
     if args.scene_usd is not None:
         env_cfg.scene.scene_geometry.spawn.usd_path = str(args.scene_usd.resolve())
         print(f"[sim_in_the_loop] scene USD override → {env_cfg.scene.scene_geometry.spawn.usd_path}")
@@ -473,10 +593,44 @@ def main() -> None:
     if args.mode == "bridge":
         _run_bridge_mode(simulation_app, env, args, config)
     else:
-        _run_harness_mode(simulation_app, env, args)
+        _run_harness_mode(simulation_app, env, args, config, cameras_required)
 
     env.close()
     simulation_app.close()
+
+
+def _resolve_harness_sensor_stack(env_cfg, args) -> tuple[str, ...]:
+    """Resolve + apply the harness capture stack to the env cfg.
+
+    Without ``--sensors`` the env keeps its registered stack and the
+    writer mirrors it, so the rendered cameras and the recorded columns
+    cannot drift. An explicit ``--sensors`` recomposes the env around
+    the requested stack (same mechanism as the teleop driver).
+    """
+    if getattr(env_cfg, "sensors", None) is None:
+        raise SystemExit(
+            f"--mode harness requires a composed capture task exposing a "
+            f"sensor stack; {args.task} has none.",
+        )
+    if args.sensors:
+        from strafer_lab.tasks.navigation.composed_env_cfg import SensorStackCfg
+
+        tokens = tuple(t.strip() for t in args.sensors.split(",") if t.strip())
+        env_cfg.sensors = SensorStackCfg(cameras_required=tokens)
+        env_cfg.__post_init__()
+        # Re-pin what parse_env_cfg already applied, in case recomposition
+        # rebuilt the scene cfg.
+        env_cfg.scene.num_envs = 1
+        print(f"[sim_in_the_loop] sensor stack override → {tokens}")
+    stack = tuple(env_cfg.sensors.cameras_required)
+    if not args.no_camera_bridge and not {"rgb_full", "depth_full"}.issubset(stack):
+        raise SystemExit(
+            f"--mode harness needs rgb_full + depth_full in the sensor stack "
+            f"(got {stack}): the Jetson stack navigates on the bridged "
+            f"perception camera streams. Pass --no-camera-bridge only for "
+            f"publisher-less debugging.",
+        )
+    return stack
 
 
 # ---------------------------------------------------------------------------
@@ -638,70 +792,314 @@ def _run_bridge_mode(simulation_app, env, args, config) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Mode: harness (walk MissionGenerator, capture reachability dataset)
+# Mode: harness (walk a mission stream, record a LeRobot v3 dataset)
 # ---------------------------------------------------------------------------
 
 
-def _run_harness_mode(simulation_app, env, args) -> None:
+def _git_rev_parse_head(repo_root: Path) -> str:
+    """Return ``git rev-parse HEAD`` for the repo, or an empty string."""
+    import subprocess
+
+    try:
+        out = subprocess.check_output(
+            ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+            stderr=subprocess.DEVNULL,
+        )
+        return out.decode("utf-8").strip()
+    except Exception:
+        return ""
+
+
+def _build_harness_missions(args, scene_name: str, scene_objects: list) -> list:
+    """Build the (spec, meta) stream: queue rows or scene-metadata targets,
+    each run through the hard-negative injection planner."""
+    import random
+
+    from strafer_lab.sim_in_the_loop import EpisodeMeta, MissionGenerator
+    from strafer_lab.tools.grounding_injection import (
+        plan_injection,
+        resolve_target_room_idx,
+    )
+    from strafer_lab.tools.mission_queue import (
+        load_mission_queue,
+        queue_row_to_mission_spec,
+    )
+
+    rng = random.Random(args.injection_seed)
+
+    sourced: list[tuple] = []  # (spec, mission_text, room_idx, paraphrases, generator_metadata, source)
+    if args.mission_queue is not None:
+        rows = load_mission_queue(args.mission_queue)
+        if args.max_missions is not None:
+            rows = rows[: args.max_missions]
+        for row in rows:
+            spec = queue_row_to_mission_spec(row, scene_name=scene_name)
+            room_idx = resolve_target_room_idx(
+                target_label=row.target_label,
+                target_position_3d=row.target_position_3d,
+                objects=scene_objects,
+            )
+            sourced.append(
+                (spec, row.mission_text, room_idx, row.paraphrases,
+                 row.generator_metadata, "queue"),
+            )
+    else:
+        generator = MissionGenerator.from_metadata_path(
+            scene_metadata_path=args.scene_metadata,
+            scene_name=scene_name,
+            max_missions=args.max_missions,
+            allowed_labels=args.allowed_labels,
+            blocked_labels=tuple(args.blocked_labels or ()),
+        )
+        for spec in generator:
+            sourced.append(
+                (spec, spec.raw_command, spec.target_room_idx, (), {},
+                 "scene-metadata"),
+            )
+
+    missions: list = []
+    for spec, mission_text, room_idx, paraphrases, generator_metadata, source in sourced:
+        plan = plan_injection(
+            mode=args.inject_bad_grounding,
+            probability=args.inject_bad_grounding_prob,
+            rng=rng,
+            target_label=spec.target_label,
+            target_instance_id=spec.target_instance_id,
+            target_position_3d=spec.target_position_3d,
+            target_room_idx=room_idx,
+            objects=scene_objects,
+        )
+        # Four distinct text axes, easy to conflate:
+        #   - mission_text: the RECORDED language. Always names the ORIGINAL
+        #     target, even under injection — that mismatch against where the
+        #     robot actually drove is the whole point of a grounding negative.
+        #   - dispatch_command: what the EXECUTOR is told to drive to. When
+        #     injected we hand it a simplified "go to the {label}" imperative
+        #     so it reliably grounds the *wrong* goal; honest missions pass
+        #     spec.raw_command through unchanged.
+        #   - spec.raw_command: the original rich natural-language mission.
+        #   - paraphrases: augmentations of the recorded text — a separate
+        #     axis, not a substitute for any of the above.
+        # Mild confound to be aware of downstream: injected episodes dispatch
+        # the simplified imperative while honest ones dispatch the richer
+        # raw_command, so dispatch phrasing is not i.i.d. across the two
+        # classes. The recorded mission_text is not affected.
+        dispatch_command = (
+            f"go to the {plan.target_label.strip().lower()}"
+            if plan.injected else spec.raw_command
+        )
+        meta = EpisodeMeta(
+            mission_text=mission_text,
+            dispatch_command=dispatch_command,
+            source_mission_source=source,
+            target_label=plan.target_label,
+            target_object_id=str(plan.target_instance_id),
+            target_position_3d=plan.target_position_3d,
+            injection_mode=plan.injection_mode,
+            injection_mode_actual=plan.injection_mode_actual,
+            original_target_position_3d=plan.original_target_position_3d,
+            paraphrases=tuple(paraphrases),
+            generator_metadata=dict(generator_metadata),
+        )
+        missions.append((spec, meta))
+    return missions
+
+
+def _run_harness_mode(simulation_app, env, args, config, cameras_required) -> None:
+    import json
+
+    from strafer_lab.bridge.async_camera_publisher import StraferCameraAsyncPublisher
+    from strafer_lab.bridge.async_publisher import StraferAsyncPublisher
     from strafer_lab.sim_in_the_loop import (
+        BridgeLeRobotRecorder,
+        CmdVelGraceWatch,
         HarnessConfig,
-        MissionGenerator,
         SimInTheLoopHarness,
     )
     from strafer_lab.sim_in_the_loop.runtime_env import IsaacLabEnvAdapter
     from strafer_lab.sim_in_the_loop.runtime_mission import Ros2MissionApi
-    from strafer_lab.tools.perception_writer import PerceptionFrameWriter
-
-    scene_name = args.scene_name or args.scene_metadata.parent.name
-
-    generator = MissionGenerator.from_metadata_path(
-        scene_metadata_path=args.scene_metadata,
-        scene_name=scene_name,
-        max_missions=args.max_missions,
-        allowed_labels=args.allowed_labels,
-        blocked_labels=tuple(args.blocked_labels or ()),
+    from strafer_lab.tools.bbox_extractor import (
+        ReplicatorBboxExtractor,
+        resolve_render_product_path,
     )
-    missions = list(generator)
+    from strafer_lab.tools.lerobot_detections import DETECTIONS_MAX_DEFAULT
+    from strafer_lab.tools.lerobot_writer import StraferLeRobotWriter, hash_scene_metadata
+    from strafer_lab.tools.scene_paths import resolve_scene_metadata_path
+    from strafer_shared.constants import D555_FOCAL_LENGTH_MM, D555_HORIZONTAL_APERTURE_MM
+
+    # --- mission stream -------------------------------------------------
+    metadata_path = resolve_scene_metadata_path(
+        scene=args.scene_name,
+        metadata_override=args.scene_metadata,
+        usd_override=args.scene_usd,
+    )
+    args.scene_metadata = metadata_path
+    scene_name = args.scene_name or metadata_path.parent.name
+    scene_objects = list(
+        json.loads(metadata_path.read_text(encoding="utf-8")).get("objects") or [],
+    )
+
+    missions = _build_harness_missions(args, scene_name, scene_objects)
     if not missions:
         print(f"[sim_in_the_loop] no missions to run for {scene_name}; exiting")
         return
-    print(f"[sim_in_the_loop] {len(missions)} missions queued for {scene_name}")
+    injected_count = sum(1 for _, meta in missions if meta.injection_mode_actual)
+    print(
+        f"[sim_in_the_loop] {len(missions)} missions queued for {scene_name} "
+        f"({injected_count} with injected bad grounding)"
+    )
 
-    args.output.mkdir(parents=True, exist_ok=True)
-    writer = PerceptionFrameWriter(output_root=args.output)
+    # --- env + publishers (same per-tick protocol as bridge mode) --------
+    unwrapped = env.unwrapped
+    env.reset()
+    # Same Kit-pump dedup as bridge mode: env.step skips KitVisualizer and
+    # the adapter's per-step simulation_app.update() is the sole pump.
+    unwrapped.render_enabled = False
+
+    publisher = StraferAsyncPublisher(
+        robot=unwrapped.scene["robot"],
+        clock_topic=config.clock_topic,
+        odom_topic=config.odom_topic,
+        cmd_vel_topic=config.cmd_vel_topic,
+        odom_frame_id=config.odom_frame_id,
+        base_frame_id=config.base_frame_id,
+    )
+    print("[sim_in_the_loop] async publisher up: /clock, /odom, TF, /cmd_vel")
+
+    camera_publisher: StraferCameraAsyncPublisher | None = None
+    if not args.no_camera_bridge:
+        camera_publisher = StraferCameraAsyncPublisher(
+            camera_sensor=unwrapped.scene["d555_camera_perception"],
+            color_stream=config.color_camera,
+            depth_stream=config.depth_camera,
+            focal_length_mm=D555_FOCAL_LENGTH_MM,
+            horizontal_aperture_mm=D555_HORIZONTAL_APERTURE_MM,
+            frame_skip=config.camera_frame_skip,
+        )
+        print(
+            "[sim_in_the_loop] async camera publisher up: "
+            f"{config.color_camera.image_topic}, {config.depth_camera.image_topic}"
+        )
+
+    def _on_stepped(sim_time_s: float) -> None:
+        publisher.publish_state(sim_time_s)
+        if camera_publisher is not None:
+            camera_publisher.notify_frame(sim_time_s)
+        simulation_app.update()
+
+    detections_source = None
+    if args.detections:
+        extractor = ReplicatorBboxExtractor(
+            camera_render_product_path=resolve_render_product_path(
+                unwrapped.scene["d555_camera_perception"],
+            ),
+        )
+        detections_source = extractor.extract
+        print("[sim_in_the_loop] detections annotator attached (perception camera)")
 
     env_adapter = IsaacLabEnvAdapter(
         env=env,
-        graph_path=args.graph_path,
         scene_name=scene_name,
+        cmd_vel_source=publisher.get_cmd_vel,
+        cameras_required=cameras_required,
+        detections_source=detections_source,
+        on_stepped=_on_stepped,
     )
 
+    # --- writer -----------------------------------------------------------
+    output_root = Path(args.output).resolve()
+    if output_root.exists():
+        suffix = time.strftime("_%Y%m%dT%H%M%S")
+        output_root = output_root.with_name(output_root.name + suffix)
+        print(
+            f"[sim_in_the_loop] requested --output already exists; using "
+            f"auto-suffixed path → {output_root}"
+        )
+
+    step_dt = float(unwrapped.sim.get_physics_dt()) * int(unwrapped.cfg.decimation)
+    writer_fps = max(1, round(1.0 / (step_dt * max(1, args.capture_every_n_steps))))
+    repo_root = Path(__file__).resolve().parents[3]
+    writer = StraferLeRobotWriter(
+        root=output_root,
+        repo_id=args.repo_id or f"strafer/{scene_name}",
+        fps=writer_fps,
+        capture_git_sha=_git_rev_parse_head(repo_root),
+        scene_metadata_hash=hash_scene_metadata(metadata_path),
+        cameras_required=cameras_required,
+        detections_max=(
+            (args.detections_max or DETECTIONS_MAX_DEFAULT) if args.detections else None
+        ),
+        vcodec=args.vcodec,
+        session_id=args.session_id or time.strftime("%Y%m%dT%H%M%S"),
+    )
+    print(
+        f"[sim_in_the_loop] writer ready → {output_root} "
+        f"(fps={writer_fps}, cameras={cameras_required}, "
+        f"detections={'on' if args.detections else 'off'})"
+    )
+
+    grace_watch = CmdVelGraceWatch(
+        last_cmd_time=publisher.last_cmd_monotonic,
+        grace_s=args.cmd_vel_grace,
+        now=time.monotonic,
+    )
     cfg = HarnessConfig(
         mission_timeout_s=args.mission_timeout_s,
         capture_every_n_steps=args.capture_every_n_steps,
-        scene_type="infinigen_sim_in_the_loop",
     )
 
-    with Ros2MissionApi() as mission_api:
-        harness = SimInTheLoopHarness(
-            env_adapter=env_adapter,
-            mission_api=mission_api,
-            writer=writer,
-            config=cfg,
-        )
-
-        for spec in missions:
-            if not simulation_app.is_running():
-                print("[sim_in_the_loop] simulation app shut down; aborting run")
-                break
-            outcome = harness.run_one_mission(spec)
-            print(
-                f"[sim_in_the_loop] {spec.mission_id} reachable={outcome.reachability} "
-                f"state={outcome.final_status.state} frames={outcome.frames_written} "
-                f"elapsed={outcome.elapsed_s:.1f}s"
+    recorder = BridgeLeRobotRecorder(writer=writer, scene_id=scene_name)
+    consecutive_failures = 0
+    try:
+        with writer, Ros2MissionApi() as mission_api:
+            harness = SimInTheLoopHarness(
+                env_adapter=env_adapter,
+                mission_api=mission_api,
+                recorder=recorder,
+                config=cfg,
+                abort_signal=grace_watch,
             )
 
-    print(f"[sim_in_the_loop] writer stats: {writer.stats.to_dict()}")
+            for spec, meta in missions:
+                if not simulation_app.is_running():
+                    print("[sim_in_the_loop] simulation app shut down; aborting run")
+                    break
+                try:
+                    outcome = harness.run_one_mission(spec, meta=meta)
+                except Exception as exc:
+                    consecutive_failures += 1
+                    print(
+                        f"[sim_in_the_loop] {spec.mission_id} crashed "
+                        f"({type(exc).__name__}: {exc}); episode discarded "
+                        f"({consecutive_failures} consecutive failure(s))"
+                    )
+                    if consecutive_failures >= _MAX_CONSECUTIVE_MISSION_FAILURES:
+                        print(
+                            f"[sim_in_the_loop] {_MAX_CONSECUTIVE_MISSION_FAILURES} "
+                            "consecutive mission failures — executor looks down; "
+                            "aborting run"
+                        )
+                        break
+                    continue
+                consecutive_failures = 0
+                tag = "DISCARDED" if outcome.discarded else (
+                    "ok" if outcome.reachability else "failed"
+                )
+                print(
+                    f"[sim_in_the_loop] {spec.mission_id} [{tag}] "
+                    f"state={outcome.final_status.state} "
+                    f"frames={outcome.frames_written} "
+                    f"elapsed={outcome.elapsed_s:.1f}s"
+                )
+    finally:
+        if camera_publisher is not None:
+            camera_publisher.shutdown()
+        publisher.shutdown()
+
+    print(
+        f"[sim_in_the_loop] capture done: {recorder.episodes_kept} episode(s) "
+        f"kept, {recorder.episodes_discarded} discarded → {output_root}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -710,17 +1108,26 @@ def _run_harness_mode(simulation_app, env, args) -> None:
 
 
 def _validate_harness_args(args: argparse.Namespace) -> None:
-    missing = []
-    if args.scene_metadata is None:
-        missing.append("--scene-metadata")
     if args.output is None:
-        missing.append("--output")
-    if missing:
+        raise SystemExit("--mode harness requires --output to be set")
+    if args.scene_metadata is None and args.scene_name is None and args.scene_usd is None:
         raise SystemExit(
-            f"--mode harness requires {' and '.join(missing)} to be set"
+            "--mode harness requires --scene-metadata, --scene-name, or "
+            "--scene-usd to locate the scene's scene_metadata.json"
         )
-    if not args.scene_metadata.is_file():
+    if args.scene_metadata is not None and not args.scene_metadata.is_file():
         raise SystemExit(f"scene metadata not found: {args.scene_metadata}")
+    if args.mission_queue is not None and not args.mission_queue.is_file():
+        raise SystemExit(f"mission queue not found: {args.mission_queue}")
+    if args.scene_metadata is None and args.scene_usd is None and args.scene_name is not None:
+        # Resolve before the multi-minute Kit boot so a typo'd scene name
+        # fails in milliseconds. strafer_lab.tools imports without Kit.
+        from strafer_lab.tools.scene_paths import resolve_scene_metadata_path
+
+        try:
+            resolve_scene_metadata_path(scene=args.scene_name)
+        except FileNotFoundError as exc:
+            raise SystemExit(str(exc)) from exc
 
 
 if __name__ == "__main__":

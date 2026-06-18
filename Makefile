@@ -16,7 +16,7 @@ CONDA_ENV ?= env_isaaclab3
 .PHONY: build test test-unit test-driver test-ros test-autonomy test-vlm test-dgx test-jetson test-lab test-lab-pure lint lint-fix format format-check clean kill \
         launch launch-nav launch-autonomy launch-sim clean-map \
         install-tools udev serve-vlm serve-planner check-nvrtc help \
-        sim-bridge sim-bridge-gui sim-harness
+        sim-bridge sim-bridge-gui sim-harness harness-smoke
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -251,3 +251,13 @@ sim-harness: ## Run sim-in-the-loop autonomous mission sweep
 			--output $$OUTPUT_DIR \
 			$${MAX_MISSIONS:+--max-missions $$MAX_MISSIONS} \
 			--headless --enable_cameras
+
+harness-smoke: ## Jetson-free Kit smoke of the bridge harness capture path (scripted /cmd_vel)
+	@source env_setup.sh && \
+		source $(CONDA_ROOT)/etc/profile.d/conda.sh && \
+		conda activate $(CONDA_ENV) && \
+		$(ISAACLAB) -p source/strafer_lab/scripts/bridge_harness_smoke.py \
+			$${SCENE:+--scene $$SCENE} \
+			$${OUTPUT_DIR:+--output $$OUTPUT_DIR} \
+			$${SMOKE_STEPS:+--steps $$SMOKE_STEPS} \
+			$${REQUIRE_DETECTIONS:+--require-detections}

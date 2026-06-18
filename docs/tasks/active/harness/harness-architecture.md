@@ -58,7 +58,7 @@ source/strafer_lab/scripts/capture.py
   [--num-envs N]                                   ← scripted only
   [--mission-queue <yaml>]                         ← queue mission-source only
   [--n-trajectories N]                             ← captioner / coverage modes
-  [--inject-bad-grounding {off, wrong_room, wrong_instance}]
+  [--inject-bad-grounding {off, wrong_room, wrong_instance, wrong_object}]
   [--paraphrase-missions N]                        ← apply Qwen2.5-VL paraphrase pass
   [--capture-policy-cam / --no-capture-policy-cam]
 ```
@@ -182,12 +182,12 @@ Every per-episode row carries the standard LeRobot v3 columns (`episode_index`, 
 | `target_object_id` | string | Specific instance ID into `scene_metadata.objects[]`. |
 | `target_position_3d` | float32[3] | `(x, y, z)` in scene frame. |
 | `start_pose` | float32[3] | `(x, y, yaw)` of the episode's start. |
-| `outcome` | string | `{succeeded, failed, wrong_instance, wrong_room, trajectory_violation, discarded}`. |
-| `outcome_category` | string | `{on_course, wrong_instance, wrong_room, trajectory_violation}` — collapses success/failure into `on_course`; surfaces deliberate-failure modes as hard negatives. |
+| `outcome` | string | `{succeeded, failed, wrong_instance, wrong_room, wrong_object, trajectory_violation, discarded}`. |
+| `outcome_category` | string | `{on_course, wrong_instance, wrong_room, wrong_object, trajectory_violation}` — collapses success/failure into `on_course`; surfaces deliberate-failure modes as hard negatives. |
 | `paraphrases` | list[string] | Populated by `--paraphrase-missions N`; empty array when disabled. |
 | `source_driver` | string | `{bridge, teleop, scripted}`. |
 | `source_mission_source` | string | `{queue, captioner, coverage, scene-metadata}`. |
-| `hard_negative_category` | string \| null | `{wrong_instance, wrong_room, trajectory_violation}` or null. |
+| `hard_negative_category` | string \| null | `{wrong_instance, wrong_room, wrong_object, trajectory_violation}` or null. |
 | `injection_mode` | string \| null | Requested mode for `--inject-bad-grounding`; null if no injection requested. |
 | `injection_mode_actual` | string \| null | Resolved mode after fallback. **Downstream training MUST filter / weight on this column, not `injection_mode`** — see [Hard-negative injection](#hard-negative-injection---inject-bad-grounding). Null means "no injection" *or* "perturbation requested but fallback dropped it" (`injection_mode` non-null disambiguates the two). |
 | `original_target_position_3d` | float32[3] \| null | Pre-injection goal; null when `injection_mode_actual` is null. |
@@ -246,6 +246,8 @@ The columns are **operator-selectable like the camera stack**: a writer construc
 
 **Producer.** Replicator's `bbox_2d_tight` annotator on the perception camera → [`bbox_extractor.parse_bbox_data`](../../../../source/strafer_lab/strafer_lab/tools/bbox_extractor.py) → `DetectedBbox` → `add_frame(detections=...)`. The writer/schema support is in place from Tier 1's writer; the per-driver annotator wiring lands with the bridge (Tier 2) and scripted (Tier 3) drivers, which capture with detections **on by default**. Teleop sessions may run with detections off — the operator-perceived frame rate wins there, and the grounding consumers feed on bridge/scripted output.
 
+The annotator only boxes prims that carry the applied `UsdSemantics.LabelsAPI` (`"class"`) — authored by `extract_scene_metadata` (see [`scene-metadata-in-usd`](scene-metadata-in-usd.md)), not by the custom `semanticLabel` provenance attr or USD `customData`. **Class-filter policy (producer-side):** labels are authored only for **non-structural** classes — the structural set `{floor, ceiling, wall, exterior, staircase}` is excluded at authoring time. This is a correctness requirement, not cosmetics: because truncation keeps the **largest-pixel-area** boxes and structure dominates every frame, labelling structure would let it evict all `detections_max` slots and starve the furniture the column exists for. `door` / `window` are kept (groundable transit landmarks, not area-dominant). Filtering is at the producer because the column can't recover an evicted box downstream; the scene's `objects[]` metadata stays complete regardless (structure rows feed the shared path planner's occupancy grid).
+
 ### Action chunk encoding
 
 Per-tick action records live in the parquet data; action chunks (π0/openpi expects 50-step chunks at 50 Hz; OpenVLA single-step; Octo variable) are a **loader-side concern**. LeRobot v3's loader builds chunks at load time from the per-tick rows. We do not pre-chunk in the dataset.
@@ -272,7 +274,9 @@ The bridge driver consumes `mission_queue.yaml` rows produced by [`mission-gener
 
 ### Discard semantics (bridge)
 
-When the bridge mainloop loses ROS connectivity, `/cmd_vel` times out for longer than `--cmd-vel-grace`, a planner / executor crash kills the mission mid-episode, or Nav2 returns a non-recoverable failure code, the current episode is marked `outcome = discarded`. The episode is **not** saved to the dataset (`save_episode()` is skipped); `episode_index` advances so the next clean episode lands at the expected slot. Discards are logged but not analyzed by the consumer table — they're operational noise, not training signal.
+When `/cmd_vel` goes silent mid-drive for longer than `--cmd-vel-grace`, the executor becomes unreachable (consecutive status-poll failures — a planner / executor crash mid-episode), the mission ends in an externally-killed terminal state (`cancelled` / `aborted`), or the harness crashes mid-mission, the current episode is discarded. The episode is **not** saved to the dataset (`save_episode()` is skipped); per the Tier 1 writer's discard contract the episode-index slot is **reused** by the next mission, so kept episodes stay contiguous. Discards are logged but not analyzed by the consumer table — they're operational noise, not training signal.
+
+Missions that run to a terminal `failed` / `timeout` through the full stack are **kept** with `outcome = failed`: the executor's status surface doesn't distinguish "Nav2 non-recoverable" from "genuinely couldn't reach the goal" cross-host, and a failed-but-real attempt is filterable signal where a half-captured episode is not.
 
 ## Driver: teleop
 
@@ -433,15 +437,18 @@ Field divergence: every consumer reads from one dataset. Differences are which f
 
 ### Hard-negative injection (`--inject-bad-grounding`)
 
-Bridge and scripted drivers accept `--inject-bad-grounding {off, wrong_room, wrong_instance}` (default `off`) with `--inject-bad-grounding-prob 0.3`. When enabled, each mission has the configured probability of having its `target_position_3d` perturbed **after** the executor projects the goal:
+Bridge and scripted drivers accept `--inject-bad-grounding {off, wrong_room, wrong_instance, wrong_object}` (default `off`) with `--inject-bad-grounding-prob 0.3`. When enabled, each mission has the configured probability of having its `target_position_3d` perturbed **after** the executor projects the goal. The three position-swap modes:
 - `wrong_room`: swap the goal to a randomly-selected object in a different room polygon.
-- `wrong_instance`: swap to another same-label object in the same room if one exists; fall back to `wrong_room` if no same-label sibling.
+- `wrong_instance`: swap to another same-label object in the same room (e.g. a different chair) if one exists; fall back to `wrong_room` if no same-label sibling.
+- `wrong_object`: swap to a different-label object in the same room (category confusion, e.g. "go to the chair" → drive to the sofa) if one exists; fall back to `wrong_room` if the room has no other-label object. This is the highest-value category-confusion negative and the one a grounding model is most likely to get wrong.
+
+A fourth taxonomy member — `trajectory_violation` / wrong-path — is a *path-shape* negative rather than a position swap; it is out of scope for this injector and owned by the grounding-negative-taxonomy work (gated on the mission generator, which emits the `planned_path` it perturbs).
 
 Perturbed episodes record `injection_mode + injection_mode_actual + original_target_position_3d` in per-episode metadata so downstream consumers see the actual mode, not just the requested one (silent fallback was a 2026-05-15 audit finding). The cascade validator's `--root-cause-pass` and the co-trained validator's hard-negative set both consume these fields.
 
 **Downstream training filters and weights MUST key off `injection_mode_actual`, not `injection_mode`.** When `wrong_instance` is requested at p=0.3 on a scene with few duplicate labels, the actual `wrong_instance` rate may be much lower because the fallback to `wrong_room` fires often. Filtering by the requested mode would mis-weight the corpus; filtering by the actual mode produces an honest split.
 
-**When no fallback candidate exists** (single-room scene where the requested target is the only same-label instance AND no different-room candidate exists): the perturbation silently drops. Recorded as `injection_mode_actual = null` and `original_target_position_3d = null` while `injection_mode` remains set to the requested mode. This lets a consumer audit how often the drop happens per scene without flooding the dataset with mislabeled negatives.
+**When no fallback candidate exists** (e.g. a single-room scene where `wrong_instance`/`wrong_object` find no in-room candidate AND there is no different-room object to fall back to): the perturbation silently drops. Recorded as `injection_mode_actual = null` and `original_target_position_3d = null` while `injection_mode` remains set to the requested mode. This lets a consumer audit how often the drop happens per scene without flooding the dataset with mislabeled negatives.
 
 Teleop has no `--inject-bad-grounding`; teleop hard negatives come from the `X` and `SELECT` buttons.
 
@@ -521,7 +528,7 @@ Suggested-path overlay + paraphrase pass + queue support deferred to Tier 1.5 if
 Branch: `task/harness-bridge-driver`. Estimate: M.
 
 - Rewire `run_sim_in_the_loop.py --mode harness` to write LeRobot v3 via the same `create()` / `add_frame()` / `save_episode()` / `finalize()` lifecycle as Tier 1.
-- Cross-host action source: custom `RecorderTerm` that pulls `/cmd_vel` from the ROS graph each tick.
+- Cross-host action source: custom recorder that pulls `/cmd_vel` from the ROS graph each tick. (Shipped as the `IsaacLabEnvAdapter` sampling the bridge's rclpy `/cmd_vel` subscription per step + `BridgeLeRobotRecorder` mapping the harness episode lifecycle onto the writer — a plain recorder class, not an Isaac Lab `RecorderTerm`, per the constraint noted under [Driver: bridge](#driver-bridge).)
 - Wire the perception camera's Replicator `bbox_2d_tight` annotator → `bbox_extractor.parse_bbox_data` → `add_frame(detections=...)` (detections on by default for bridge captures — see [Detections](#detections--first-class-padded-columns)).
 - `--inject-bad-grounding` flag wired here (bridge is the primary consumer; scripted gets it in Tier 3).
 - Acceptance: bridge mode captures a multi-room mission end-to-end; LeRobot dataset round-trips; smoke test confirms per-episode metadata columns (under `meta/episodes/`) populate correctly, including the strafer extensions (`outcome`, `outcome_category`, `injection_mode_actual` when injection ran, `capture_git_sha`, `scene_metadata_hash`, `episode_split`).
@@ -548,8 +555,8 @@ Lives in [`room-state-eval-harness`](../multi-room/room-state-eval-harness.md) (
 
 This brief is the architectural spec; it does not ship code. It is "complete" (move-to-completed-stamped) only when **all** of Tiers 1, 2, 3 have shipped. Until then it sits as the in-flight architecture doc that each implementation PR references.
 
-- [ ] Tier 1 shipped (PR B)
-- [ ] Tier 2 shipped (PR C)
+- [x] Tier 1 shipped (PR B)
+- [x] Tier 2 shipped (PR C)
 - [ ] Tier 3 shipped (PR D)
 - [ ] Retired downstream scripts (`generate_descriptions.py` etc.) deleted by the PR that supersedes each script's function (not necessarily in this brief's PRs).
 - [ ] Cross-references in all consumer briefs ([`vla-v2-architecture`](../../parked/experimental/vla-v2-architecture.md), [`vla-v2-map-conditioning`](../../parked/experimental/vla-v2-map-conditioning.md), [`cotrained-retrieval-augmented`](../../parked/clip-validation/cotrained-retrieval-augmented.md), [`implicit-memory-map`](../../parked/clip-validation/implicit-memory-map.md), [`backbone-bakeoff`](../../parked/clip-validation/backbone-bakeoff.md), [`room-state-eval-harness`](../multi-room/room-state-eval-harness.md)) updated to point at this brief and the LeRobot v3 schema. This is checked in the docs-only PR (PR A) and re-verified at each tier's ship.
@@ -561,7 +568,7 @@ This brief is the architectural spec; it does not ship code. It is "complete" (m
 Lifted from the source briefs:
 
 - Bridge mainloop tick boundary: [`run_sim_in_the_loop.py`](../../../../source/strafer_lab/scripts/run_sim_in_the_loop.py); phase-profiler scaffold at lines 258–350.
-- Current writer (to be replaced): [`source/strafer_lab/strafer_lab/tools/perception_writer.py`](../../../../source/strafer_lab/strafer_lab/tools/perception_writer.py).
+- Legacy `frames.jsonl` writer (`tools/perception_writer.py`): deleted by Tier 2's PR when the bridge driver moved onto the LeRobot writer; recoverable from git history.
 - Gamepad mapping: [`source/strafer_lab/scripts/collect_demos.py`](../../../../source/strafer_lab/scripts/collect_demos.py). Reused verbatim for teleop.
 - Camera resolutions: 640×360 perception, 80×60 policy; [`test_d555_perception_cfg.py:50`](../../../../source/strafer_lab/test_sim/sensors/test_d555_perception_cfg.py#L50).
 - Depth format reference (sim-real convention): [`depth_downsampler.py:3-7`](../../../../source/strafer_ros/strafer_perception/strafer_perception/depth_downsampler.py#L3-L7) — 16UC1 millimeters.

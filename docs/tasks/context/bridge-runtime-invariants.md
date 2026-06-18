@@ -17,12 +17,16 @@ re-derive per-phase wall-time attribution if you suspect a regression.
 | Mode | Drives env from | Used by |
 |------|-----------------|---------|
 | `--mode bridge` (default) | `/cmd_vel` from the Jetson, written into the action tensor in the mainloop | Manual ops, Nav2 missions, `make sim-bridge[-gui]` |
-| `--mode harness` | Mission generator walking scene metadata + autonomy executor over `execute_mission` | Reachability-labeled dataset capture |
+| `--mode harness` | Mission stream (scene-metadata targets or `mission_queue.yaml`) dispatched to the autonomy executor over `execute_mission`; `/cmd_vel` still drives the action | LeRobot v3 dataset capture via `capture.py --driver bridge` |
 
 `--mode bridge` and `--mode harness` share the same env, the same
-bridge OmniGraph, and the same telemetry async publisher. They
-differ only in **what writes the action**: the bridge mainloop in
-the first case, the harness's `IsaacLabEnvAdapter` in the second.
+bridge OmniGraph scaffolding, and the same async publishers
+(telemetry + cameras — harness mode constructs both, since the
+Jetson stack navigates on the bridged streams). They differ in **who
+runs the tick loop**: the bridge mainloop in the first case, the
+harness's `IsaacLabEnvAdapter.step()` in the second — which also
+samples `/cmd_vel` as the recorded action and pumps the publishers +
+Kit app per step.
 
 ## cmd_vel normalization contract (BOTH paths)
 

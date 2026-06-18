@@ -226,6 +226,91 @@ picker (numeric index; Ctrl-D quits cleanly).
 
 ---
 
+## Bridge driver (autonomy stack in the loop)
+
+The bridge driver records the same LeRobot v3 schema while the
+**Jetson autonomy stack** drives over `/cmd_vel` — same Nav2 /
+RTAB-Map / executor that runs against the real D555. Prerequisites:
+the sim-in-the-loop bringup is healthy end-to-end
+([`INTEGRATION_SIM_IN_THE_LOOP.md`](INTEGRATION_SIM_IN_THE_LOOP.md)
+Stages 1–4: DDS discovery, Jetson `bringup_sim_in_the_loop.launch.py`,
+the executor, and the VLM/planner services).
+
+```bash
+RUN_ID=$(date +%Y%m%dT%H%M%S)
+OUT=data/sim_in_the_loop/${SCENE}_bridge_${RUN_ID}
+
+# Walk every scene_metadata.json target (one mission = one episode)
+$ISAACLAB -p source/strafer_lab/scripts/capture.py \
+    --driver bridge --mission-source scene-metadata \
+    --scene  ${SCENE} \
+    --output ${OUT} \
+    --headless --enable_cameras
+
+# Or walk a curated mission queue (bridge ignores planned_path)
+$ISAACLAB -p source/strafer_lab/scripts/capture.py \
+    --driver bridge --mission-source queue \
+    --mission-queue data/mission_queues/${SCENE}/queue.yaml \
+    --scene  ${SCENE} \
+    --output ${OUT} \
+    --headless --enable_cameras
+```
+
+Bridge-specific behavior and flags:
+
+| Flag | Default | Use |
+|---|---|---|
+| `--sensors` | `bridge` preset (`rgb_full,depth_full,depth_policy`) | Per-session sensor stack; `rgb_full` + `depth_full` are mandatory (the Jetson navigates on the bridged camera streams) |
+| `--detections` / `--no-detections` | on | Replicator `bbox_2d_tight` detections as first-class `observation.detections.*` columns + `meta/detection_labels.json` |
+| `--inject-bad-grounding {off,wrong_room,wrong_instance,wrong_object}` | `off` | Hard-negative goal perturbation: the dispatched goal is swapped while the recorded mission text keeps naming the original target. `wrong_room` = different room; `wrong_instance` = same label, same room; `wrong_object` = different label, same room (category confusion). The in-room modes fall back to `wrong_room` when their candidate is absent. Pair with `--inject-bad-grounding-prob` (default 0.3). Downstream filters must key off the per-episode `injection_mode_actual`, not `injection_mode` |
+| `--max-missions N` (pass-through) | all | Cap the mission stream — use `--max-missions 1` for a single-mission smoke |
+| `--cmd-vel-grace S` (pass-through) | 30 | Mid-drive `/cmd_vel` silence beyond this discards the episode (`outcome` never reaches disk; the index slot is reused) |
+| `--mission-timeout-s S` (pass-through) | 60 | Per-mission ceiling before the harness cancels (kept as `outcome=failed`) |
+
+Episodes are **discarded** (never reach disk) on `/cmd_vel` silence
+past the grace, executor unreachability (5 consecutive status-poll
+failures), externally-killed terminal states (`cancelled` /
+`aborted`), or a mid-mission crash; the run aborts after 3
+consecutive crashed missions. `succeeded` / `failed` / `timeout`
+missions are kept and labelled.
+
+### Jetson-free smoke (`make harness-smoke`)
+
+Before standing up the Jetson, you can exercise the bridge capture
+**code path** — the writer lifecycle, depth sidecars, the detections
+annotator + columns, and the discard path — with a scripted `/cmd_vel`
+sweep and a fake executor, no ROS:
+
+```bash
+make harness-smoke                          # defaults: scene_fast_singleroom_000_seed0
+SCENE=<scene> REQUIRE_DETECTIONS=1 make harness-smoke
+```
+
+It drives one `succeeded` mission (kept) and one `cancelled` mission
+(must not reach disk), then re-opens the dataset and asserts the
+episode count, the strafer extension columns, the depth sidecars, and
+that the `observation.detections.*` columns are present. It does **not**
+bring up the ROS publishers or a live executor — that's the operator
+acceptance run above.
+
+**Detection-vocab caveat (known scene-authoring gap):** the smoke reports
+the detection vocab but treats an empty one as a **warning, not a
+failure** by default (`--require-detections` / `REQUIRE_DETECTIONS=1`
+makes it hard). On `scene_fast_singleroom_000_seed0` the vocab is empty,
+and the cause is verified: `extract_scene_metadata` stamps a custom
+`semanticLabel` string attribute on the object prims (what it reads back
+to build `scene_metadata.json`), but it never applies the USD `Semantics`
+schema (`semanticType=class` / `semanticData`) that the Replicator
+`bounding_box_2d_tight` annotator boxes on. So the annotator finds nothing
+to box even with furniture in frame. The capture path — annotator wiring,
+`parse_bbox_data`, the padded `observation.detections.*` columns, and the
+dataset round-trip — is exercised and verified regardless; **populated
+boxes depend on a scene-prep change** (authoring `Semantics` from the
+existing `semanticLabel`), tracked separately. Flip `--require-detections`
+on once captures run against a `Semantics`-authored scene.
+
+---
+
 ## Round-trip verification
 
 ```bash

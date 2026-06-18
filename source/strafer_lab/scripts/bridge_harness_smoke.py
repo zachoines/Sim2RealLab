@@ -127,7 +127,7 @@ from strafer_lab.tools.lerobot_writer import (  # noqa: E402
     hash_scene_metadata,
     read_strafer_episodes,
 )
-from strafer_lab.tools.scene_paths import resolve_scene_metadata_path  # noqa: E402
+from strafer_lab.tools import scene_metadata_reader  # noqa: E402
 
 
 class _ScriptedMissionApi:
@@ -156,10 +156,15 @@ class _ScriptedMissionApi:
         pass
 
 
-def _override_scene(env_cfg, scene: str) -> Path:
-    """Point the env at ``scene`` + its spawn pool; return the metadata path."""
-    metadata_path = resolve_scene_metadata_path(scene=scene)
+def _override_scene(env_cfg, scene: str) -> dict:
+    """Point the env at ``scene`` + its spawn pool; return its metadata dict.
+
+    Reads the metadata from the scene USD's ``customData`` — hard-errors
+    if the scene was not regenerated with embedded metadata (the
+    clean-break behavior the detections gate depends on).
+    """
     usdc = Path("Assets/generated/scenes") / f"{scene}.usdc"
+    metadata = scene_metadata_reader.load(usdc)
     if usdc.is_file():
         env_cfg.scene.scene_geometry.spawn.usd_path = str(usdc.resolve())
     combined = Path("Assets/generated/scenes/scenes_metadata.json")
@@ -168,7 +173,7 @@ def _override_scene(env_cfg, scene: str) -> Path:
         pts = [list(map(float, p)) for p in block.get("spawn_points_xy", []) if len(p) >= 2]
         if pts and getattr(env_cfg.events, "reset_robot", None) is not None:
             env_cfg.events.reset_robot.params["spawn_points_xy"] = pts
-    return metadata_path
+    return metadata
 
 
 def _fail(msg: str) -> None:
@@ -182,7 +187,7 @@ def main() -> int:
     print(f"[smoke] scene={args.scene}  output={output_root}", flush=True)
 
     env_cfg = parse_env_cfg(args.task, device="cuda:0", num_envs=1)
-    metadata_path = _override_scene(env_cfg, args.scene)
+    scene_metadata = _override_scene(env_cfg, args.scene)
     if getattr(env_cfg, "sensors", None) is None:
         _fail(f"{args.task} exposes no sensor stack")
         return 2
@@ -221,7 +226,7 @@ def main() -> int:
         repo_id=f"strafer/{args.scene}",
         fps=8,
         capture_git_sha="smoke",
-        scene_metadata_hash=hash_scene_metadata(metadata_path),
+        scene_metadata_hash=hash_scene_metadata(scene_metadata),
         cameras_required=cameras_required,
         detections_max=DETECTIONS_MAX_DEFAULT,
         vcodec="h264",
@@ -331,21 +336,16 @@ def _verify(output_root: Path, cameras_required: tuple[str, ...]) -> int:
     if labels:
         print(f"[smoke] detection vocab ({len(labels)}): {list(labels)[:12]}", flush=True)
     else:
-        # An empty vocab is an upstream scene-authoring matter, not a writer
-        # defect: the detections columns + pack path are exercised above
-        # regardless. Root cause (verified on scene_fast_singleroom_000_seed0):
-        # extract_scene_metadata stamps a custom `semanticLabel` string attr on
-        # the object prims, but the Replicator `bounding_box_2d_tight` annotator
-        # only boxes prims carrying the applied USD `Semantics` schema
-        # (semanticType=class / semanticData). That schema is never authored, so
-        # the annotator sees nothing to box even with furniture in frame.
+        # The detections columns + pack path are exercised above regardless.
+        # A regenerated scene carries UsdSemantics labels on its non-structural
+        # prims, so an empty vocab here means either the scene predates that
+        # authoring (regenerate it via prep_room_usds / extract_scene_metadata)
+        # or the spawn happened to face empty space (rare on a furnished scene).
         msg = (
             "detection vocab is EMPTY — the bbox_2d_tight annotator emitted no "
-            "boxes for this scene. The writer/columns path is still verified; "
-            "the scene's prims carry a custom `semanticLabel` attr but not the "
-            "applied Replicator `Semantics` schema the annotator reads, so there "
-            "is nothing to box. Authoring Semantics is a scene-prep concern, "
-            "not a capture bug."
+            "boxes for this scene. Either the scene was not regenerated with "
+            "UsdSemantics labels (re-run extract_scene_metadata --from-usd), or "
+            "the spawn faced empty space."
         )
         if args.require_detections:
             _fail(msg)

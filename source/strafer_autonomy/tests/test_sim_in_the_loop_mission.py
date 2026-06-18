@@ -5,9 +5,6 @@ Pure Python — runs in .venv_vlm via the strafer_lab namespace stub.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import pytest
 
 from strafer_lab.sim_in_the_loop.mission import MissionGenerator, MissionSpec
@@ -160,50 +157,40 @@ class TestMissionGeneratorFiltering:
         assert [s.target_instance_id for s in gen] == [2]
 
 
-class TestMissionGeneratorFromMetadataPath:
-    @pytest.fixture
-    def metadata_file(self, tmp_path: Path) -> Path:
-        scene_dir = tmp_path / "kitchen_01"
-        scene_dir.mkdir()
-        path = scene_dir / "scene_metadata.json"
-        path.write_text(
-            json.dumps(_scene_metadata(objects=[_obj(1, "Chair"), _obj(2, "Table")])),
-            encoding="utf-8",
-        )
-        return path
+class TestMissionGeneratorFromMetadata:
+    """The pure-data seam (``from_metadata``); the USD-reading
+    ``from_scene_usd`` round-trip is exercised under the pxr-gated suite."""
 
-    def test_loads_from_disk(self, metadata_file):
-        gen = MissionGenerator.from_metadata_path(scene_metadata_path=metadata_file)
+    def test_loads_from_dict(self):
+        gen = MissionGenerator.from_metadata(
+            _scene_metadata(objects=[_obj(1, "Chair"), _obj(2, "Table")]),
+            scene_name="kitchen_01",
+        )
         specs = list(gen)
         assert len(specs) == 2
+        assert specs[0].scene_name == "kitchen_01"
 
-    def test_scene_name_defaults_to_parent_dir(self, metadata_file):
-        gen = MissionGenerator.from_metadata_path(scene_metadata_path=metadata_file)
-        spec = next(iter(gen))
-        assert spec.scene_name == "kitchen_01"
-
-    def test_scene_name_override_wins(self, metadata_file):
-        gen = MissionGenerator.from_metadata_path(
-            scene_metadata_path=metadata_file, scene_name="override",
-        )
-        spec = next(iter(gen))
-        assert spec.scene_name == "override"
-
-    def test_missing_file_raises(self, tmp_path):
-        with pytest.raises(FileNotFoundError):
-            MissionGenerator.from_metadata_path(
-                scene_metadata_path=tmp_path / "missing.json",
-            )
-
-    def test_kwargs_propagate_through(self, metadata_file):
-        gen = MissionGenerator.from_metadata_path(
-            scene_metadata_path=metadata_file,
+    def test_kwargs_propagate_through(self):
+        gen = MissionGenerator.from_metadata(
+            _scene_metadata(objects=[_obj(1, "Chair"), _obj(2, "Table")]),
+            scene_name="x",
             max_missions=1,
             blocked_labels=("chair",),
         )
         specs = list(gen)
         assert len(specs) == 1
         assert specs[0].target_label == "Table"
+
+    def test_rooms_propagate(self):
+        gen = MissionGenerator.from_metadata(
+            _scene_metadata(
+                objects=[_obj(1, "Chair", room_idx=0)],
+                rooms=[{"room_type": "Kitchen"}],
+            ),
+            scene_name="x",
+        )
+        spec = next(iter(gen))
+        assert spec.target_room_idx == 0
 
 
 class TestMissionSpecImmutability:

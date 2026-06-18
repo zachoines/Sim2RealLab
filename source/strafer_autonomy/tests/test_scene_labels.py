@@ -1,35 +1,28 @@
-"""Tests for ``strafer_lab.tools.scene_labels``.
+"""Tests for ``strafer_lab.tools.scene_labels`` pure-data accessors.
 
 These tests live in ``strafer_autonomy/tests/`` because the sibling
 ``conftest.py`` installs a lightweight ``strafer_lab`` namespace stub
 that lets us import ``strafer_lab.tools.scene_labels`` without pulling
 in the Isaac-Lab-dependent ``strafer_lab/__init__.py``.
+
+Since scene metadata moved into the USD ``customData``, loading it needs
+``pxr`` (absent in this ``.venv_vlm`` suite). So this suite exercises the
+``*_from_data`` accessors against in-memory dicts; the USD round-trip is
+covered under ``make test-lab-pure`` in ``test_scene_provider_contract``
+and ``test_scene_metadata_reader``.
 """
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import pytest
 
 from strafer_lab.tools.scene_labels import (
-    SceneMetadataError,
     get_objects_in_room,
     get_room_at_position,
-    get_scene_label_set,
-    get_scene_metadata,
+    get_scene_label_set_from_data,
     iter_objects,
     iter_rooms,
 )
-
-
-def _write_metadata(root: Path, scene_name: str, metadata: dict) -> Path:
-    scene_dir = root / scene_name
-    scene_dir.mkdir(parents=True, exist_ok=True)
-    path = scene_dir / "scene_metadata.json"
-    path.write_text(json.dumps(metadata))
-    return path
 
 
 @pytest.fixture()
@@ -83,25 +76,6 @@ def sample_metadata() -> dict:
     }
 
 
-class TestGetSceneMetadata:
-    def test_loads_existing_file(self, tmp_path, sample_metadata):
-        _write_metadata(tmp_path, "scene_01", sample_metadata)
-        data = get_scene_metadata(tmp_path, "scene_01")
-        assert len(data["rooms"]) == 2
-        assert len(data["objects"]) == 3
-
-    def test_missing_raises(self, tmp_path):
-        with pytest.raises(SceneMetadataError, match="not found"):
-            get_scene_metadata(tmp_path, "ghost_scene")
-
-    def test_invalid_json_raises(self, tmp_path):
-        scene_dir = tmp_path / "scene_bad"
-        scene_dir.mkdir()
-        (scene_dir / "scene_metadata.json").write_text("{not json}")
-        with pytest.raises(SceneMetadataError, match="Invalid JSON"):
-            get_scene_metadata(tmp_path, "scene_bad")
-
-
 class TestIterRooms:
     def test_yields_typed_rooms(self, sample_metadata):
         rooms = list(iter_rooms(sample_metadata))
@@ -128,13 +102,11 @@ class TestIterObjects:
         assert "wood_oak" in objs[0].materials
 
 
-class TestGetSceneLabelSet:
-    def test_returns_unique_labels(self, tmp_path, sample_metadata):
-        _write_metadata(tmp_path, "scene_01", sample_metadata)
-        labels = get_scene_label_set(tmp_path, "scene_01")
-        assert labels == {"table", "chair", "plant"}
+class TestGetSceneLabelSetFromData:
+    def test_returns_unique_labels(self, sample_metadata):
+        assert get_scene_label_set_from_data(sample_metadata) == {"table", "chair", "plant"}
 
-    def test_skips_empty_labels(self, tmp_path):
+    def test_skips_empty_labels(self):
         metadata = {
             "rooms": [],
             "objects": [
@@ -142,8 +114,7 @@ class TestGetSceneLabelSet:
                 {"instance_id": 2, "label": "door", "position_3d": [0, 0, 0]},
             ],
         }
-        _write_metadata(tmp_path, "scene_02", metadata)
-        assert get_scene_label_set(tmp_path, "scene_02") == {"door"}
+        assert get_scene_label_set_from_data(metadata) == {"door"}
 
 
 class TestGetRoomAtPosition:

@@ -1,15 +1,17 @@
-"""Mission specifications derived from Infinigen ``scene_metadata.json``.
+"""Mission specifications derived from a scene's embedded metadata.
 
-Reads the per-scene metadata JSON written by
-``scripts/extract_scene_metadata.py`` and produces a stream of
-natural-language navigation missions targeting individual labeled
-objects in the scene. The Jetson executor consumes the
+Produces a stream of natural-language navigation missions targeting
+individual labeled objects in a scene. The Jetson executor consumes the
 ``raw_command`` field unchanged via its ``execute_mission`` ROS2 action.
 
-Pure Python — no Isaac Sim, no ROS, no Infinigen runtime imports.
-Importable from ``.venv_vlm`` for unit tests.
+The metadata comes from the scene USD's ``customData`` (read by
+:func:`strafer_lab.tools.scene_metadata_reader.load`). This module stays
+pure Python — no Isaac Sim, no ROS, no Infinigen runtime imports — so
+``from_metadata`` works against an in-memory dict in ``.venv_vlm`` unit
+tests; ``from_scene_usd`` is the ``pxr``-bound convenience that reads the
+dict first.
 
-scene_metadata.json schema (mirrors ``extract_scene_metadata`` dataclasses)::
+metadata schema (mirrors ``extract_scene_metadata`` dataclasses)::
 
     {
       "rooms": [
@@ -33,7 +35,6 @@ scene_metadata.json schema (mirrors ``extract_scene_metadata`` dataclasses)::
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator
@@ -57,7 +58,7 @@ class MissionSpec:
 
 
 class MissionGenerator:
-    """Iterates ``MissionSpec`` instances from a ``scene_metadata.json``.
+    """Iterates ``MissionSpec`` instances from a scene's embedded metadata.
 
     The generator does NOT pick goal poses — that is the harness's job
     once it can query Nav2's costmap. Mission generation only commits to
@@ -68,9 +69,8 @@ class MissionGenerator:
 
     Typical usage::
 
-        gen = MissionGenerator.from_metadata_path(
-            scene_metadata_path=Path("Assets/generated/scenes/kitchen_01/scene_metadata.json"),
-            scene_name="kitchen_01",
+        gen = MissionGenerator.from_scene_usd(
+            Path("Assets/generated/scenes/kitchen_01.usdc"),
             max_missions=20,
         )
         for spec in gen:
@@ -105,34 +105,47 @@ class MissionGenerator:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_metadata_path(
+    def from_metadata(
         cls,
+        metadata: dict,
         *,
-        scene_metadata_path: Path | str,
+        scene_name: str,
+        **kwargs,
+    ) -> "MissionGenerator":
+        """Return a generator over an already-loaded metadata dict.
+
+        Pure-data — the seam the unit suites build against without
+        ``pxr``. Mirrors ``teleop_mission_picker.load_candidates_from_data``.
+        """
+        return cls(
+            scene_name=scene_name,
+            objects=list(metadata.get("objects") or []),
+            rooms=list(metadata.get("rooms") or []),
+            **kwargs,
+        )
+
+    @classmethod
+    def from_scene_usd(
+        cls,
+        scene_usd_path: Path | str,
+        *,
         scene_name: str | None = None,
         **kwargs,
     ) -> "MissionGenerator":
-        """Load metadata from disk and return a generator for the scene.
+        """Read the scene USD's embedded metadata and return a generator.
 
-        ``scene_name`` defaults to the parent directory name (matching the
-        layout produced by ``extract_scene_metadata.py``, which writes
-        ``Assets/generated/scenes/<scene_name>/scene_metadata.json``).
+        ``scene_name`` defaults to the USD stem (the scene-naming
+        invariant: the ``<scene>.usdc`` symlink stem is the scene name).
+        Needs ``pxr`` via :func:`scene_metadata_reader.load`; hard-errors
+        when the USD carries no embedded metadata.
         """
+        from strafer_lab.tools.scene_metadata_reader import load as _load
 
-        path = Path(scene_metadata_path)
-        if not path.is_file():
-            raise FileNotFoundError(f"scene_metadata.json not found: {path}")
-        data = json.loads(path.read_text(encoding="utf-8"))
-
+        path = Path(scene_usd_path)
+        metadata = _load(path)
         if scene_name is None:
-            scene_name = path.parent.name
-
-        return cls(
-            scene_name=scene_name,
-            objects=list(data.get("objects") or []),
-            rooms=list(data.get("rooms") or []),
-            **kwargs,
-        )
+            scene_name = path.stem
+        return cls.from_metadata(metadata, scene_name=scene_name, **kwargs)
 
     # ------------------------------------------------------------------
     # Iteration

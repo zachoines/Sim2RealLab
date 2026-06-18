@@ -362,11 +362,11 @@ ssh -L 8765:localhost:8765 jetson-desktop
 # then connect Foxglove Studio (https://app.foxglove.dev/ or the desktop
 # app) to ws://localhost:8765 and import strafer_layout.json.
 
-# DGX — reachability-labelled dataset capture (alternative to bridge mode):
+# DGX — reachability-labelled dataset capture (alternative to bridge mode).
+# The scene's mission targets come from its USD customData (no sidecar):
 isaaclab -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
     --mode harness \
-    --scene-metadata Assets/generated/scenes/kitchen_01/scene_metadata.json \
-    --scene-usd Assets/generated/scenes/kitchen_01/scene.usdc \
+    --scene-name kitchen_01 \
     --output data/sim_in_the_loop/kitchen_01
 ```
 

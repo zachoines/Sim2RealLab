@@ -6,9 +6,18 @@ the mission picker
 ([`teleop_mission_picker.py`](../source/strafer_lab/strafer_lab/tools/teleop_mission_picker.py)),
 and the dataset writer
 ([`lerobot_writer.py`](../source/strafer_lab/strafer_lab/tools/lerobot_writer.py))
-never import Infinigen. They consume three on-disk artifacts. Any
-source that produces those artifacts in the shape documented here is
-consumed with **no code changes**.
+never import Infinigen. They consume the per-scene metadata embedded in
+the scene USD's `customData` plus the combined `scenes_metadata.json`
+manifest. Any source that produces those artifacts in the shape
+documented here is consumed with **no code changes**.
+
+**The per-scene metadata travels inside the USD.** The labeled
+`objects[]` / `rooms[]` payload (§b) lives on the scene USD's root-prim
+`customData` (key `strafer_scene_metadata`), read by the single `pxr`
+touch-point [`scene_metadata_reader.load`](../source/strafer_lab/strafer_lab/tools/scene_metadata_reader.py).
+There is no `scene_metadata.json` sidecar — the bytes ship with the
+geometry, so a USD can never be paired with a stale or missing sidecar,
+and the reader **hard-errors** on a USD that carries no embedded payload.
 
 This is the single source of truth for that shape. Infinigen is one
 provider — its build-time scripts
@@ -31,44 +40,55 @@ not by static typing.
 
 ## Producing the artifacts — the Infinigen pipeline
 
-Infinigen produces a conformant bundle in **three steps**. They are
-**not chained** today: running step 1 alone yields a USD that loads in
-the bridge but is **not capture-ready** — the teleop picker needs the
-per-scene `scene_metadata.json` from step 2, and the runtime only
-*discovers* a scene once it appears in the combined manifest from step 3.
+Infinigen produces a conformant bundle in **two steps**. `prep_room_usds.py
+generate` now **chains** the metadata authoring, so one command yields a
+capture-ready *and* detections-ready scene; only the combined manifest
+(spawn-point discovery) remains a separate pass.
 
 | # | Script | Produces | Runtime / env |
 |---|---|---|---|
-| 1 | `prep_room_usds.py generate` | room geometry: `<scene>.usdc` symlink + `scene_config.json` + the Blender export tree; bakes colliders via `postprocess_scene_usd.py`. **Does not write `scene_metadata.json`.** | orchestrator; spawns `STRAFER_INFINIGEN_PYTHON` (Infinigen/`bpy`) + `STRAFER_ISAACLAB_PYTHON` (`pxr`) |
-| 2 | `extract_scene_metadata.py` | per-scene `scene_metadata.json` (`objects[]` + `rooms[]`, §b) + USD `semanticLabel`/`instanceId` prim labels | `--blend` path runs in Blender; `--from-usd` path runs via `$ISAACLAB -p` (`pxr`) |
-| 3 | `generate_scenes_metadata.py` | combined `scenes_metadata.json` (spawn points + floor-Z, §c) — required for the runtime to discover the scene | `$ISAACLAB -p` (`pxr`) |
+| 1 | `prep_room_usds.py generate` | room geometry: `<scene>.usdc` symlink + `scene_config.json` + the Blender export tree; bakes colliders via `postprocess_scene_usd.py`; **then chains `extract_scene_metadata.py --from-usd`** to embed the per-scene metadata (`objects[]` + `rooms[]`, §b) in the USD's `customData` + apply the `UsdSemantics` detection labels | orchestrator; spawns `STRAFER_INFINIGEN_PYTHON` (Infinigen/`bpy`) + `STRAFER_ISAACLAB_PYTHON` (`pxr`, postprocess) + `$ISAACLAB` (Kit, for the `UsdSemantics` authoring) |
+| 2 | `generate_scenes_metadata.py` | combined `scenes_metadata.json` (spawn points + floor-Z, §c) — required for the runtime to discover the scene | `$ISAACLAB -p` (`pxr`) |
 
 ```bash
 source env_setup.sh
-# 1) geometry  (--config: fast_singleroom = 512-px / 1 room; high_quality_dgx = 1024-px / <=5 rooms)
+# 1) geometry + embedded metadata + detection labels, in one command
+#    (--config: fast_singleroom = 512-px / 1 room; high_quality_dgx = 1024-px / <=5 rooms)
 python source/strafer_lab/scripts/prep_room_usds.py generate \
     --config fast_singleroom --num-scenes 1 --output Assets/generated/scenes
-# 2) per-scene metadata — USD-only / no Blender (best-effort prim-name labels, rooms=[]):
-$ISAACLAB -p source/strafer_lab/scripts/extract_scene_metadata.py \
-    --from-usd --usd Assets/generated/scenes/<scene>.usdc \
-    --output Assets/generated/scenes/<scene> --label-from-prim-names
-#    …or richer (rooms + semantic tags) from the .blend, in Blender:
-#    $STRAFER_BLENDER_BIN --background --python source/strafer_lab/scripts/extract_scene_metadata.py -- \
-#        --blend Assets/generated/scenes/<scene>/coarse/scene.blend \
-#        --usd  Assets/generated/scenes/<scene>.usdc \
-#        --output Assets/generated/scenes/<scene>
-# 3) combined manifest (discoverability)
+# 2) combined manifest (discoverability)
 $ISAACLAB -p source/strafer_lab/scripts/generate_scenes_metadata.py
 ```
 
 `<scene>` is the id printed by step 1 (e.g. `scene_fast_singleroom_000_seed0`).
 
-Step 2 also has an **in-process hook** — `extract_scene_metadata.extract_from_state()`,
-designed to be called from inside Infinigen generation — but
-`prep_room_usds` does not wire it, so per-scene metadata is currently a
-manual post-hoc step. Authoring the metadata at USD-creation time (one
-command → a capture-ready scene, with the data travelling in the USD) is
-the job of [`scene-metadata-in-usd`](tasks/active/harness/scene-metadata-in-usd.md).
+**Re-authoring metadata on an existing USD** (USD-only / no Blender —
+best-effort prim-name labels, `rooms=[]`) runs the same embedder
+standalone, under the Kit launcher because the `UsdSemantics` schema is
+Kit-provided:
+
+```bash
+$ISAACLAB -p source/strafer_lab/scripts/extract_scene_metadata.py \
+    --from-usd --usd Assets/generated/scenes/<scene>.usdc
+```
+
+For richer metadata (rooms + semantic tags) the `.blend` builder runs in
+Blender and hands its dict to a Kit authoring pass via a transient JSON
+(not a discovered sidecar):
+
+```bash
+$STRAFER_BLENDER_BIN --background --python source/strafer_lab/scripts/extract_scene_metadata.py -- \
+    --blend Assets/generated/scenes/<scene>/coarse/scene.blend \
+    --metadata-out /tmp/<scene>_metadata.json
+$ISAACLAB -p source/strafer_lab/scripts/extract_scene_metadata.py \
+    --author-from-json /tmp/<scene>_metadata.json \
+    --usd Assets/generated/scenes/<scene>.usdc
+```
+
+`extract_scene_metadata` also exposes an **in-process hook** —
+`extract_from_state()` builds the dict from Infinigen's live generation
+state — for a producer that wants to author metadata without a post-hoc
+USD parse.
 
 ---
 
@@ -81,12 +101,17 @@ One **scene name** — `<scene>` below — keys the whole bundle.
 ```
 Assets/generated/scenes/
   <scene>/                                  scene directory (name == <scene>)
-    scene_metadata.json                     per-scene labeled objects[] + rooms[]   (REQUIRED)
     scene_config.json                       provenance (the preset / source dict)   (optional)
     <anything the source needs>/            export trees, textures, .blend, ...     (source-specific)
   <scene>.usdc                              symlink at the scenes root → the real USDC (REQUIRED)
+                                            its root-prim custom['strafer_scene_metadata']
+                                            carries the per-scene objects[] + rooms[] (§b)
   scenes_metadata.json                      combined manifest across all scenes      (REQUIRED)
 ```
+
+The per-scene labeled `objects[]` + `rooms[]` is **not a file** — it
+lives in the `<scene>.usdc`'s `customData` (§b). There is no
+`scene_metadata.json` sidecar.
 
 **The `<scene>` naming invariant.** One string is reused four ways
 and they must all match:
@@ -103,27 +128,32 @@ root, then filtering to stems present as keys in
 `scenes_metadata.json`
 ([`strafer_env_cfg._get_scene_usd_paths`](../source/strafer_lab/strafer_lab/tasks/navigation/strafer_env_cfg.py)).
 A scene whose stem is missing from the manifest is invisible to the
-runtime, even if its USDC and sidecar exist.
+runtime, even if its USDC (with embedded metadata) exists.
 
 **The symlink.** `<scene>.usdc` is a symlink so the textures /
 export tree stay bundled inside the scene directory while the scenes
 root holds only flat, discoverable `<scene>.usdc` entries. The link
 target can live anywhere under the scene directory; for Infinigen it
 points at
-`<scene>/export/export_scene.blend/export_scene.usdc`. Resolution of
-the sidecar from a USD path (the `--scene-usd` override case) is
-handled by
-[`scene_paths.resolve_scene_metadata_path`](../source/strafer_lab/strafer_lab/tools/scene_paths.py);
-the default `--scene <scene>` path reads
-`Assets/generated/scenes/<scene>/scene_metadata.json` directly.
+`<scene>/export/export_scene.blend/export_scene.usdc`. Tools resolve
+*which* USD to read — `--scene <scene>` → `<scene>.usdc`, or a
+`--scene-usd` override — via
+[`scene_paths.resolve_scene_usd_path`](../source/strafer_lab/strafer_lab/tools/scene_paths.py),
+then read the embedded metadata from that USD's `customData` via
+[`scene_metadata_reader.load`](../source/strafer_lab/strafer_lab/tools/scene_metadata_reader.py).
+Nothing crawls the filesystem for a sibling JSON.
 
 ---
 
-## b. `scene_metadata.json` schema
+## b. Per-scene metadata schema (USD `customData`)
 
-Produced per scene by `extract_scene_metadata.py` (Infinigen) — the
-one file a second source must author itself. Consumed by the picker
-and (hashed) by the writer.
+Embedded per scene by `extract_scene_metadata.py` (Infinigen) on the
+USD root prim's `customData['strafer_scene_metadata']`, stored as a
+canonical JSON string. The payload a second source must author itself.
+Consumed by the picker (read via `scene_metadata_reader.load`) and
+hashed by the writer (sha256 of the canonical dict). One additive
+top-level key — `strafer_scene_metadata_version` (currently `1`) — is
+stamped by the authoring pass; consumers ignore it.
 
 Top-level object:
 
@@ -198,12 +228,14 @@ this.
 ## d. Extensibility — making the contract survive future briefs
 
 The contract is designed to absorb new consumers without re-shipping.
-Two consumers already exist on paper:
+[`scene-metadata-in-usd`](tasks/completed/scene-metadata-in-usd.md)
+already plugged in — it moved the per-scene payload from a sidecar into
+USD `customData` (storage backend only; the `objects[]` / `rooms[]`
+schema is unchanged) and added the additive
+`strafer_scene_metadata_version` storage key.
 [`mission-text-enrichment`](tasks/parked/harness/mission-text-enrichment.md)
-(parked, blocked on this brief) and
-[`scene-metadata-in-usd`](tasks/active/harness/scene-metadata-in-usd.md)
-(parked, sibling). The rules below were written so they plug in
-cleanly.
+(parked) is the next consumer on paper. The rules below were written so
+it plugs in cleanly.
 
 ### Additive-fields policy
 
@@ -212,11 +244,10 @@ Producers **MAY** emit fields beyond the ones specified here — inside
 `scenes_metadata.json` top level. Consumers **MUST** treat any
 unrecognized field as opaque: read past it, do not error, do not log
 spam. This is binding on both sides. It is what lets a new descriptor
-or annotation ride into the JSON without touching the picker or the
-writer. The round-trip test pins this: a `scene_metadata.json`
-carrying unknown fields must flow through the picker and writer
-unchanged, and the unknown fields must not leak into the writer's
-sidecar parquet.
+or annotation ride into the metadata without touching the picker or the
+writer. The round-trip test pins this: a metadata dict carrying unknown
+fields must flow through the picker and writer unchanged, and the
+unknown fields must not leak into the writer's episode parquet.
 
 ### Reserved extension namespaces
 
@@ -283,15 +314,20 @@ and never break a consumer (per the additive-fields policy). Removing
 or renaming a field requires a revision of *this document* (rare, and
 a real interface break).
 
-There is **deliberately no `scene_metadata_version` field** and no
-versioned schema. Versioning is interface-talk; this contract is
-artifact-based. A consumer that finds a field uses it; one that does
-not, ignores it. That property — not a version handshake — is what
-makes producers and consumers shippable in either order. (Note: the
-sibling `scene-metadata-in-usd` brief muses about adding a
-`strafer_scene_metadata_version` when it moves storage into USD
-`customData`; that is a storage-layer concern for that brief to decide,
-and does not change this artifact contract.)
+The **artifact schema is unversioned**: no version gates which
+`objects[]` / `rooms[]` fields a consumer reads. Versioning is
+interface-talk; this contract is artifact-based. A consumer that finds
+a field uses it; one that does not, ignores it. That property — not a
+version handshake — is what makes producers and consumers shippable in
+either order.
+
+The one exception is a **storage-layer** key:
+`strafer_scene_metadata_version` (currently `1`), stamped at the top
+level of the `customData` payload by `extract_scene_metadata`. It marks
+the embedding format, not the field schema, and is additive — consumers
+ignore it. It exists so a future change to *how* the payload is embedded
+(not *what* it contains) has a handshake; it does not version the
+`objects[]` / `rooms[]` contract above.
 
 ### Known future extensions
 
@@ -338,10 +374,15 @@ What the runtime and the postprocess scripts traverse inside the
   leaf, not the full path) matches `CeilingLightFactory_\d+__spawn_asset_\d+_`.
   Note the asymmetry: floor and structural patterns match the **full
   prim path**; the ceiling-light pattern matches the **prim name**.
-- **Labelled prims for Replicator.** `extract_scene_metadata.py` can
-  stamp `semanticLabel` / `instanceId` attributes on prims so
-  Replicator's bbox annotators emit labeled boxes. Optional for
-  teleop; required only for perception-side capture.
+- **Labelled prims for Replicator.** `extract_scene_metadata.py` applies
+  the `UsdSemantics.LabelsAPI` (`instance_name="class"`) — the schema
+  Replicator's `bounding_box_2d_tight` annotator actually boxes on — to
+  each non-structural object prim, alongside the legacy
+  `semanticLabel` / `instanceId` provenance attrs. Structural classes
+  (`{floor, ceiling, wall, exterior, staircase}`) are excluded so they
+  don't evict furniture from the truncated detections column. Optional
+  for teleop; required for perception-side capture. The `UsdSemantics`
+  schema is Kit-provided, so this pass runs under `$ISAACLAB -p`.
 
 ---
 
@@ -382,12 +423,14 @@ To add a new scene source **X**, ship these:
    symlink `Assets/generated/scenes/<scene>.usdc` pointing at it.
    (Reusable: `prep_room_usds.py ingest` copies an external scene
    directory tree into place — it does not run extract or postprocess.)
-2. **Author `scene_metadata.json`** under
-   `Assets/generated/scenes/<scene>/` with a conformant `objects[]`
-   array (§b). This is the **only** source-specific code — either a
-   new `prep_<src>_usds.py` / `extract_<src>_metadata.py`, or hand
-   authoring for a one-off. Emit at minimum `label` + `instance_id` +
-   non-origin `position_3d` (+ `prim_path`) per object.
+2. **Embed the metadata in the USD's `customData`** with a conformant
+   `objects[]` array (§b) — `scene_metadata_reader.write_custom_data(stage,
+   metadata)`, or `extract_scene_metadata.author_scene_metadata(usd,
+   metadata)` which also applies the detection-label semantics. This is
+   the **only** source-specific code — either a new `prep_<src>_usds.py` /
+   `extract_<src>_metadata.py`, or a one-off authoring script. Emit at
+   minimum `label` + `instance_id` + non-origin `position_3d`
+   (+ `prim_path`) per object.
 3. **Postprocess the USDC** with `postprocess_scene_usd.py`, overriding
    the floor / structural / ceiling-light patterns (§f) to match `X`'s
    prim naming. Reusable as-is.
@@ -420,8 +463,11 @@ cp ~/Downloads/scene_alpha.usdc "Assets/generated/scenes/$SCENE/import/scene_alp
 ln -sf "$(realpath "Assets/generated/scenes/$SCENE/import/scene_alpha.usdc")" \
     "Assets/generated/scenes/$SCENE.usdc"
 
-# 2. Hand-author scene_metadata.json — minimum required fields per §b.
-cat > "Assets/generated/scenes/$SCENE/scene_metadata.json" <<'EOF'
+# 2. Hand-author the metadata into the USD's customData — minimum fields
+#    per §b. Runs under the Kit launcher so the UsdSemantics detection
+#    labels apply too (drop --from-json's semantics with --no-semantics if
+#    Kit is unavailable; the scene then loads but isn't detections-ready).
+cat > /tmp/$SCENE.json <<'EOF'
 {
   "objects": [
     {"label": "chair", "instance_id": 1, "position_3d": [2.5, 1.2, 0.5],
@@ -433,6 +479,9 @@ cat > "Assets/generated/scenes/$SCENE/scene_metadata.json" <<'EOF'
   "room_adjacency": []
 }
 EOF
+$ISAACLAB -p source/strafer_lab/scripts/extract_scene_metadata.py \
+    --author-from-json /tmp/$SCENE.json \
+    --usd "Assets/generated/scenes/$SCENE.usdc"
 
 # 3. Postprocess with CLI overrides matching this USD's prim naming.
 $ISAACLAB -p source/strafer_lab/scripts/postprocess_scene_usd.py \
@@ -488,7 +537,7 @@ def extract_acme_objects(acme_scene) -> list[dict]:
     """SOURCE-SPECIFIC: turn one ACME scene into conformant objects[].
 
     The only part you write. Map ACME's native object records to the
-    scene_metadata.json objects[] shape (§b). Drop any object whose
+    objects[] shape (§b). Drop any object whose
     position is the world origin — the harness treats (0,0,0) as
     'no valid position'.
     """
@@ -511,10 +560,12 @@ def prep_scene(acme_scene, scene_name: str) -> None:
     scene_dir = SCENES_DIR / scene_name
     scene_dir.mkdir(parents=True, exist_ok=True)
     # 1. (stage the USDC + symlink — omitted; see prep_room_usds.ingest)
-    # 2. author the sidecar (the source-specific step)
+    # 2. embed the metadata in the USD customData (the source-specific step).
+    #    Under Kit, author_scene_metadata also applies the detection labels.
+    from strafer_lab.scripts.extract_scene_metadata import author_scene_metadata
     metadata = {"objects": extract_acme_objects(acme_scene),
                 "rooms": [], "room_adjacency": []}
-    (scene_dir / "scene_metadata.json").write_text(json.dumps(metadata, indent=2))
+    author_scene_metadata(SCENES_DIR / f"{scene_name}.usdc", metadata)
     # 3. postprocess + 4. manifest + 5. capture are reused as-is:
     #    postprocess_scene_usd.main(["--usdc", str(SCENES_DIR / f"{scene_name}.usdc"),
     #                                "--floor-prim-pattern", r"^/World/Floor.*$", ...])
@@ -527,10 +578,11 @@ def prep_scene(acme_scene, scene_name: str) -> None:
 
 - [`docs/HARNESS_DATA_CAPTURE.md`](HARNESS_DATA_CAPTURE.md) — operator
   workflow for capturing against a conformant scene.
-- [`scene-metadata-in-usd`](tasks/active/harness/scene-metadata-in-usd.md)
-  — moves the `scene_metadata.json` payload into USD `customData`; same
-  artifact contract, different storage backend. When it lands, this doc
-  gains a reader-fallback-order note (sidecar JSON ↔ USD customData).
+- [`scene-metadata-in-usd`](tasks/completed/scene-metadata-in-usd.md)
+  — moved the per-scene payload into USD `customData` (clean break, no
+  sidecar fallback); same artifact contract, different storage backend.
+  The single reader is
+  [`scene_metadata_reader.load`](../source/strafer_lab/strafer_lab/tools/scene_metadata_reader.py).
 - [`mission-text-enrichment`](tasks/parked/harness/mission-text-enrichment.md)
   — the first consumer of the `descriptors` namespace + populated
   `rooms[]` reserved here.

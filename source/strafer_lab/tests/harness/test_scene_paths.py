@@ -1,4 +1,8 @@
-"""Tests for the shared scene_metadata.json path resolver."""
+"""Tests for the shrunk scene-USD path resolver.
+
+The sidecar resolver is gone — scene metadata now travels inside the USD
+``customData``, so these tools only derive *which* USD to read.
+"""
 
 from __future__ import annotations
 
@@ -6,129 +10,45 @@ from pathlib import Path
 
 import pytest
 
-from strafer_lab.tools.scene_paths import (
-    find_metadata_for_usd,
-    resolve_scene_metadata_path,
-)
+from strafer_lab.tools.scene_paths import resolve_scene_usd_path, scene_usd_path
 
 
 @pytest.fixture
-def scene_tree(tmp_path: Path) -> Path:
-    """Build a realistic ``Assets/generated/scenes/`` tree on disk.
-
-    Layout (mirrors what prep_room_usds.py produces)::
-
-        <tmp>/scenes/
-          scene_alpha/
-            scene_metadata.json
-            coarse/exports/
-              scene_alpha.usdc
-          scene_alpha.usdc       (symlink → scene_alpha/coarse/exports/...)
-          scene_beta/
-            scene_metadata.json
-    """
+def scenes_root(tmp_path: Path) -> Path:
+    """A scenes root with one top-level ``<scene>.usdc`` symlink."""
     scenes = tmp_path / "scenes"
-    alpha_dir = scenes / "scene_alpha"
-    (alpha_dir / "coarse" / "exports").mkdir(parents=True)
-    (alpha_dir / "scene_metadata.json").write_text("{}")
-    inner_usdc = alpha_dir / "coarse" / "exports" / "scene_alpha.usdc"
-    inner_usdc.write_text("(stub)")
-    symlink = scenes / "scene_alpha.usdc"
-    symlink.symlink_to(inner_usdc)
-    beta_dir = scenes / "scene_beta"
-    beta_dir.mkdir()
-    (beta_dir / "scene_metadata.json").write_text("{}")
+    alpha_dir = scenes / "scene_alpha" / "export"
+    alpha_dir.mkdir(parents=True)
+    inner = alpha_dir / "scene_alpha.usdc"
+    inner.write_text("(stub)")
+    (scenes / "scene_alpha.usdc").symlink_to(inner)
     return scenes
 
 
-class TestFindMetadataForUsd:
-    def test_via_symlink(self, scene_tree):
-        usd = scene_tree / "scene_alpha.usdc"
-        result = find_metadata_for_usd(usd)
-        assert result is not None
-        assert result == (scene_tree / "scene_alpha" / "scene_metadata.json").resolve()
-
-    def test_via_inner_path(self, scene_tree):
-        usd = scene_tree / "scene_alpha" / "coarse" / "exports" / "scene_alpha.usdc"
-        result = find_metadata_for_usd(usd)
-        assert result is not None
-        assert result == (scene_tree / "scene_alpha" / "scene_metadata.json").resolve()
-
-    def test_returns_none_for_orphan_usd(self, tmp_path):
-        orphan = tmp_path / "stray.usdc"
-        orphan.write_text("(stub)")
-        assert find_metadata_for_usd(orphan) is None
-
-    def test_ignores_unrelated_ancestor_metadata(self, tmp_path):
-        """A scene_metadata.json in a non-stem-named ancestor must NOT match.
-
-        Regression for the original loose walk-up: an ancestor whose name
-        differs from the USD stem could resolve via a coincidentally-placed
-        scene_metadata.json from an unrelated scene.
-        """
-        rogue_root = tmp_path / "some_other_scene"
-        (rogue_root / "subdir").mkdir(parents=True)
-        (rogue_root / "scene_metadata.json").write_text("{}")  # WRONG one
-        usd = rogue_root / "subdir" / "scene_X.usdc"  # stem != ancestor name
-        usd.write_text("(stub)")
-        assert find_metadata_for_usd(usd) is None
-
-    def test_stem_match_but_missing_sidecar_returns_none(self, tmp_path):
-        """Stem-named ancestor exists but holds no sidecar — fail, don't walk further."""
-        scene_dir = tmp_path / "scene_X"
-        (scene_dir / "coarse" / "exports").mkdir(parents=True)
-        # NO scene_metadata.json at scene_X/
-        usd = scene_dir / "coarse" / "exports" / "scene_X.usdc"
-        usd.write_text("(stub)")
-        # An unrelated metadata file higher up must NOT be picked.
-        (tmp_path / "scene_metadata.json").write_text("{}")
-        assert find_metadata_for_usd(usd) is None
-
-
-class TestResolveSceneMetadataPath:
-    def test_metadata_override_wins(self, scene_tree):
-        explicit = scene_tree / "scene_beta" / "scene_metadata.json"
-        result = resolve_scene_metadata_path(
-            scene="scene_alpha",
-            metadata_override=explicit,
-            usd_override=scene_tree / "scene_alpha.usdc",
+class TestSceneUsdPath:
+    def test_derives_top_level_symlink(self):
+        assert scene_usd_path("scene_alpha", search_root="Assets/generated/scenes") == (
+            Path("Assets/generated/scenes/scene_alpha.usdc")
         )
-        assert result == explicit
 
-    def test_usd_override_only_derives_sibling(self, scene_tree):
-        usd = scene_tree / "scene_alpha.usdc"
-        result = resolve_scene_metadata_path(
-            scene=None,
-            metadata_override=None,
-            usd_override=usd,
-            search_root=scene_tree,
-        )
-        assert result == (scene_tree / "scene_alpha" / "scene_metadata.json").resolve()
 
-    def test_scene_name_default(self, scene_tree):
-        result = resolve_scene_metadata_path(
-            scene="scene_beta",
-            search_root=scene_tree,
-        )
-        assert result == scene_tree / "scene_beta" / "scene_metadata.json"
+class TestResolveSceneUsdPath:
+    def test_usd_override_used_as_is(self, scenes_root):
+        target = scenes_root / "scene_alpha.usdc"
+        assert resolve_scene_usd_path(usd_override=target) == target
 
-    def test_missing_file_raises(self, scene_tree):
+    def test_usd_override_missing_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
-            resolve_scene_metadata_path(
-                scene="scene_nonexistent",
-                search_root=scene_tree,
-            )
+            resolve_scene_usd_path(usd_override=tmp_path / "nope.usdc")
 
-    def test_usd_override_with_no_sibling_raises(self, tmp_path):
-        orphan = tmp_path / "stray.usdc"
-        orphan.write_text("(stub)")
-        with pytest.raises(FileNotFoundError, match="sibling scene_metadata.json"):
-            resolve_scene_metadata_path(
-                scene=None,
-                metadata_override=None,
-                usd_override=orphan,
-            )
+    def test_scene_name_resolves_under_root(self, scenes_root):
+        result = resolve_scene_usd_path(scene="scene_alpha", search_root=scenes_root)
+        assert result == scenes_root / "scene_alpha.usdc"
 
-    def test_no_args_raises(self):
-        with pytest.raises(ValueError, match="at least one of"):
-            resolve_scene_metadata_path()
+    def test_scene_name_missing_raises(self, scenes_root):
+        with pytest.raises(FileNotFoundError):
+            resolve_scene_usd_path(scene="ghost", search_root=scenes_root)
+
+    def test_requires_one_of_scene_or_override(self):
+        with pytest.raises(ValueError):
+            resolve_scene_usd_path()

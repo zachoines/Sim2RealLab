@@ -1,8 +1,9 @@
 """Tests for the scene-metadata mission-target picker.
 
 The picker is the operator-facing surface for ``--mission-source
-scene-metadata`` — it reads ``scene_metadata.json``, applies filters,
-sorts the candidates, and presents them via a numeric console prompt.
+scene-metadata`` — it reads the scene's embedded metadata (USD
+``customData``), applies filters, sorts the candidates, and presents
+them via a numeric console prompt.
 The console-IO portion is exercised here through ``io.StringIO`` so we
 never touch real stdin.
 """
@@ -10,7 +11,6 @@ never touch real stdin.
 from __future__ import annotations
 
 import io
-import json
 from pathlib import Path
 
 import pytest
@@ -175,7 +175,7 @@ class TestDedupByInstance:
 class TestDedupBySpawnAsset:
     """Dedup is keyed on the per-instance spawn_asset token, not instance_id.
 
-    Infinigen's ``instance_id`` in scene_metadata.json is the factory
+    Infinigen's ``instance_id`` in the metadata is the factory
     class id — shared across every instance of a given factory. The
     per-physical-instance discriminator is ``__spawn_asset_<N>_`` in
     the prim_path. Dedup-by-instance_id silently collapsed 23 distinct
@@ -385,13 +385,40 @@ class TestPromptForTarget:
         assert "no targets" in stdout.getvalue()
 
 
-class TestLoadCandidatesFromFile:
-    def test_reads_and_filters_from_disk(self, tmp_path: Path):
-        scene_meta = tmp_path / "scene_metadata.json"
-        scene_meta.write_text(json.dumps(_synthetic_metadata()))
-        cands = load_candidates(scene_meta)
+class TestLoadCandidatesFromUsd:
+    """``load_candidates`` reads the scene USD's embedded customData."""
+
+    def _author_usd(self, tmp_path: Path, metadata: dict) -> Path:
+        from pxr import Usd, UsdGeom
+
+        from strafer_lab.tools import scene_metadata_reader
+
+        usd_path = tmp_path / "scene.usdc"
+        stage = Usd.Stage.CreateNew(str(usd_path))
+        UsdGeom.Xform.Define(stage, "/World")
+        stage.SetDefaultPrim(stage.GetPrimAtPath("/World"))
+        scene_metadata_reader.write_custom_data(stage, metadata)
+        stage.Save()
+        return usd_path
+
+    def test_reads_and_filters_from_customdata(self, tmp_path: Path):
+        pytest.importorskip("pxr")
+        from strafer_lab.tools.scene_metadata_reader import SceneMetadataError  # noqa: F401
+
+        usd_path = self._author_usd(tmp_path, _synthetic_metadata())
+        cands = load_candidates(usd_path)
         assert [c.label for c in cands] == ["Bed", "Chair", "Chair", "Table"]
 
-    def test_missing_file_raises(self, tmp_path: Path):
-        with pytest.raises(FileNotFoundError):
-            load_candidates(tmp_path / "missing.json")
+    def test_missing_customdata_raises(self, tmp_path: Path):
+        pytest.importorskip("pxr")
+        from pxr import Usd, UsdGeom
+
+        from strafer_lab.tools.scene_metadata_reader import SceneMetadataError
+
+        usd_path = tmp_path / "bare.usdc"
+        stage = Usd.Stage.CreateNew(str(usd_path))
+        UsdGeom.Xform.Define(stage, "/World")
+        stage.SetDefaultPrim(stage.GetPrimAtPath("/World"))
+        stage.Save()
+        with pytest.raises(SceneMetadataError):
+            load_candidates(usd_path)

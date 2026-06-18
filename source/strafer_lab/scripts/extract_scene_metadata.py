@@ -1,40 +1,50 @@
-"""Serialize Infinigen scene metadata into ``scene_metadata.json``.
+"""Author Infinigen scene metadata into the scene USD's ``customData``.
 
 Infinigen stores the richest scene knowledge (room types, room polygons,
 object semantic tags, spatial relations) in the Blender Python ``State``
 object during generation. This data is NOT written to USD or
 ``saved_mesh.json`` by default.
 
-This script provides two entry points:
+This script builds the per-scene metadata dict and embeds it in the
+scene USD's root-prim ``customData`` (key ``strafer_scene_metadata``) —
+the metadata travels *with* the geometry, read back by
+:mod:`strafer_lab.tools.scene_metadata_reader`. It writes **no** sidecar
+JSON.
 
-1. ``extract_from_state(state, output_dir)`` — called from Infinigen's
-   Blender generation pipeline (in-process). Serializes ``state`` to
-   ``scene_metadata.json`` while the rich Python state is still alive.
+Dict builders (each returns the metadata dict, no I/O):
 
-2. ``extract_from_blend(blend_path, output_dir)`` — post-process a saved
-   ``.blend`` file by re-opening it in Blender headless mode
-   (``blender --background --python``). Best-effort: walks the object
-   collection and reconstructs the metadata from custom properties /
-   object names, but necessarily misses anything the generator did not
-   persist to the ``.blend``.
+1. ``extract_from_state(state)`` — called from Infinigen's Blender
+   generation pipeline (in-process), while the rich Python state is alive.
+2. ``extract_from_blend(blend_path)`` — re-open a saved ``.blend`` in
+   headless Blender and reconstruct best-effort metadata.
+3. ``extract_from_usd(usd_path)`` — parse an Infinigen-exported USDC's
+   prim names; this path also *authors* the result into the USD in one
+   pass (it already holds the stage).
 
-It also handles the USD prim labelling pass — walking a scene's USD
-stage and writing ``semanticLabel`` and ``instanceId`` prim attributes
-so Replicator annotators produce labeled bboxes.
+Authoring (needs ``pxr``; semantics need the Isaac Sim Kit runtime):
 
-Usage:
+- ``author_scene_metadata(usd, metadata)`` writes ``customData`` and, on
+  each labeled object prim, both the legacy ``semanticLabel`` /
+  ``instanceId`` provenance attrs **and** the ``UsdSemantics.LabelsAPI``
+  (``instance_name="class"``) that Replicator's ``bounding_box_2d_tight``
+  annotator boxes on. Structural classes are excluded from the semantics
+  pass (see ``--label-denylist``).
 
-    # Post-process an already-generated scene
-    python scripts/extract_scene_metadata.py \\
-        --blend Assets/generated/scenes/kitchen_01.blend \\
-        --usd Assets/generated/scenes/kitchen_01/kitchen_01.usd \\
-        --output Assets/generated/scenes/kitchen_01
+Usage::
 
-    # Label an already-generated USD (no metadata extraction)
-    python scripts/extract_scene_metadata.py \\
-        --usd Assets/generated/scenes/kitchen_01/kitchen_01.usd \\
-        --metadata Assets/generated/scenes/kitchen_01/scene_metadata.json \\
-        --label-usd-only
+    # Build + author from an exported USDC (the chained corpus path),
+    # under the Kit launcher so UsdSemantics labels can be applied:
+    $ISAACLAB -p source/strafer_lab/scripts/extract_scene_metadata.py \\
+        --from-usd --usd Assets/generated/scenes/<scene>.usdc
+
+    # Richer (rooms + relations) from a .blend: build the dict in Blender,
+    # then author it into the USD under Kit.
+    $STRAFER_BLENDER_BIN --background --python <this script> -- \\
+        --blend Assets/generated/scenes/<scene>/coarse/scene.blend \\
+        --metadata-out /tmp/<scene>_metadata.json
+    $ISAACLAB -p source/strafer_lab/scripts/extract_scene_metadata.py \\
+        --author-from-json /tmp/<scene>_metadata.json \\
+        --usd Assets/generated/scenes/<scene>.usdc
 """
 
 from __future__ import annotations
@@ -46,6 +56,9 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
+
+from strafer_lab.tools import scene_metadata_reader
+from strafer_lab.tools.scene_classes import STRUCTURAL_CLASSES
 
 logger = logging.getLogger("extract_scene_metadata")
 
@@ -104,27 +117,13 @@ def _drop_origin_records(
 # ---------------------------------------------------------------------------
 
 
-def extract_from_state(state: Any, output_dir: Path) -> Path:
-    """Serialize Infinigen's in-memory ``State`` to ``scene_metadata.json``.
+def extract_from_state(state: Any) -> dict[str, Any]:
+    """Build the metadata dict from Infinigen's in-memory ``State``.
 
-    Parameters
-    ----------
-    state :
-        Infinigen ``State`` object (imported from ``infinigen.core.tags``
-        or similar). Duck-typed so this works even when Infinigen's exact
-        module path evolves.
-    output_dir :
-        Directory into which ``scene_metadata.json`` will be written. The
-        directory is created if it does not exist.
-
-    Returns
-    -------
-    Path
-        Absolute path of the written metadata JSON file.
+    Returns the dict (rooms + objects + room_adjacency); does not write
+    anything. The caller embeds it into the scene USD via
+    :func:`author_scene_metadata` once the USD exists.
     """
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     rooms: list[RoomRecord] = []
     for room in getattr(state, "rooms", None) or []:
         footprint = _polygon_footprint(getattr(room, "polygon", None))
@@ -150,15 +149,11 @@ def extract_from_state(state: Any, output_dir: Path) -> Path:
         "objects": [o.__dict__ for o in objects],
         "room_adjacency": room_adjacency,
     }
-
-    output_path = output_dir / "scene_metadata.json"
-    with output_path.open("w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2)
     logger.info(
-        "Wrote %s with %d rooms, %d objects (dropped %d at origin)",
-        output_path, len(rooms), len(objects), dropped,
+        "Built metadata: %d rooms, %d objects (dropped %d at origin)",
+        len(rooms), len(objects), dropped,
     )
-    return output_path
+    return metadata
 
 
 def _polygon_footprint(polygon: Any) -> list[list[float]]:
@@ -304,69 +299,6 @@ def _serialize_room_graph(room_graph: Any) -> list[list[int]]:
 
 
 # ---------------------------------------------------------------------------
-# USD prim labelling
-# ---------------------------------------------------------------------------
-
-
-def label_usd_prims(usd_path: Path, metadata_path: Path) -> int:
-    """Write ``semanticLabel`` / ``instanceId`` attributes on USD prims.
-
-    Reads ``scene_metadata.json`` to build a name → (label, instance_id)
-    lookup, then walks the USD stage and stamps any matching prim. The
-    function is resilient to missing ``pxr`` (not available when running
-    outside Isaac Sim / USD tooling) — it logs a warning and returns 0.
-    """
-    metadata = _load_metadata_for_labelling(metadata_path)
-    lookup: dict[str, tuple[str, int]] = {}
-    for entry in metadata.get("objects", []) or []:
-        prim_path = entry.get("prim_path")
-        if prim_path:
-            lookup[Path(prim_path).name] = (
-                str(entry.get("label", "")),
-                int(entry.get("instance_id", -1)),
-            )
-
-    try:
-        from pxr import Sdf, Usd  # type: ignore
-    except ImportError:
-        logger.warning(
-            "pxr (USD) is not installed; skipping USD prim labelling. "
-            "Run this script inside an Isaac Sim environment to label prims."
-        )
-        return 0
-
-    stage = Usd.Stage.Open(str(usd_path))
-    if stage is None:
-        raise RuntimeError(f"Failed to open USD stage: {usd_path}")
-
-    labeled = 0
-    for prim in stage.Traverse():
-        info = lookup.get(prim.GetName())
-        if not info:
-            continue
-        label, instance_id = info
-        if not label:
-            continue
-        attr = prim.CreateAttribute("semanticLabel", Sdf.ValueTypeNames.String)
-        attr.Set(label)
-        if instance_id >= 0:
-            iid_attr = prim.CreateAttribute("instanceId", Sdf.ValueTypeNames.Int)
-            iid_attr.Set(instance_id)
-        labeled += 1
-    stage.Save()
-    logger.info("Labeled %d USD prims in %s", labeled, usd_path)
-    return labeled
-
-
-def _load_metadata_for_labelling(metadata_path: Path) -> dict[str, Any]:
-    metadata_path = Path(metadata_path)
-    if not metadata_path.exists():
-        raise FileNotFoundError(f"scene_metadata.json not found: {metadata_path}")
-    with metadata_path.open("r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-# ---------------------------------------------------------------------------
 # USD-only extraction (no .blend, no in-process State)
 # ---------------------------------------------------------------------------
 #
@@ -374,22 +306,26 @@ def _load_metadata_for_labelling(metadata_path: Path) -> dict[str, Any]:
 # but the original ``.blend`` and the in-process generation ``State`` are no
 # longer available, the only semantic signal that survives is the prim name
 # itself, which encodes the factory class that produced each asset (e.g.
-# ``GlassPanelDoorFactory_430087__spawn_asset_5_``). The two functions below
-# recover labels from those prim names alone — no Blender, no in-process
-# State, no custom .blend properties needed.
+# ``GlassPanelDoorFactory_430087__spawn_asset_5_``). ``extract_from_usd``
+# recovers labels from those prim names alone — no Blender, no in-process
+# State, no custom .blend properties needed — and authors the result back
+# into the same USD.
 
 
-def extract_from_usd(usd_path: Path, output_dir: Path) -> Path:
-    """Walk a Infinigen-exported ``.usdc`` and write ``scene_metadata.json``.
+def extract_from_usd(
+    usd_path: Path,
+    *,
+    label_denylist: Iterable[str] = STRUCTURAL_CLASSES,
+    apply_semantics: bool = True,
+) -> dict[str, Any]:
+    """Parse an Infinigen ``.usdc``'s prim names and author its metadata.
 
-    The resulting metadata has no rooms (USD geometry alone can't
-    recover the constraint solver's room polygons), but every parseable
-    factory prim becomes one ``ObjectRecord`` with a label, instance
-    ID, and 3D bounding box pulled from the USD.
-
-    Use ``extract_from_state`` (in-process) or ``extract_from_blend``
-    instead if you need rooms / relations / materials. ``extract_from_usd``
-    is the post-hoc path for scenes where neither is available.
+    Walks the stage, turns every parseable factory prim into one
+    ``objects[]`` entry (label + instance id + 3D bbox from the USD), then
+    embeds the dict in the stage's ``customData`` and applies the
+    detection-label semantics in one pass before saving. ``rooms`` is
+    empty — USD geometry alone can't recover the constraint solver's room
+    polygons (``extract_from_state`` / ``extract_from_blend`` do).
     """
 
     from strafer_lab.tools.infinigen_label_parser import (
@@ -406,9 +342,6 @@ def extract_from_usd(usd_path: Path, output_dir: Path) -> Path:
         ) from exc
 
     usd_path = Path(usd_path)
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     stage = Usd.Stage.Open(str(usd_path))
     if stage is None:
         raise RuntimeError(f"Failed to open USD stage: {usd_path}")
@@ -479,68 +412,18 @@ def extract_from_usd(usd_path: Path, output_dir: Path) -> Path:
         "room_adjacency": [],
         "source": "usd_prim_names",
     }
-    output_path = output_dir / "scene_metadata.json"
-    with output_path.open("w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2)
     logger.info(
-        "Wrote %s from %s with %d objects (dropped %d at origin; "
-        "rooms NOT recoverable from USD alone)",
-        output_path, usd_path, len(objects), dropped,
-    )
-    return output_path
-
-
-def label_usd_prims_from_names(usd_path: Path) -> int:
-    """Stamp ``semanticLabel`` / ``instanceId`` on USD prims using prim names.
-
-    Walks the USD stage and, for any prim whose name matches the
-    Infinigen factory pattern, writes the parsed label and instance ID
-    as USD attributes that Replicator's ``bounding_box_2d_*``
-    annotators will pick up.
-
-    Unlike :func:`label_usd_prims`, this function does NOT require a
-    pre-existing ``scene_metadata.json`` — the prim names alone are the
-    source of labels. Returns the number of prims labelled.
-    """
-
-    from strafer_lab.tools.infinigen_label_parser import (
-        is_skippable_prim,
-        parse_factory_label,
+        "Parsed %s: %d objects (dropped %d at origin; rooms NOT recoverable "
+        "from USD alone)",
+        usd_path, len(objects), dropped,
     )
 
-    try:
-        from pxr import Sdf, Usd  # type: ignore
-    except ImportError:
-        logger.warning(
-            "pxr is not installed; skipping USD prim labelling. "
-            "Run this under an Isaac Sim Python environment for USD writes."
-        )
-        return 0
-
-    stage = Usd.Stage.Open(str(usd_path))
-    if stage is None:
-        raise RuntimeError(f"Failed to open USD stage: {usd_path}")
-
-    labeled = 0
-    for prim in stage.Traverse():
-        if not prim.IsValid():
-            continue
-        if is_skippable_prim(prim.GetName()):
-            continue
-        parsed = parse_factory_label(prim.GetName())
-        if parsed is None or not parsed.label:
-            continue
-        attr = prim.CreateAttribute("semanticLabel", Sdf.ValueTypeNames.String)
-        attr.Set(parsed.label)
-        if parsed.instance_id >= 0:
-            iid_attr = prim.CreateAttribute("instanceId", Sdf.ValueTypeNames.Int)
-            iid_attr.Set(parsed.instance_id)
-        labeled += 1
+    labeled = _author_into_stage(
+        stage, metadata, label_denylist=label_denylist, apply_semantics=apply_semantics,
+    )
     stage.Save()
-    logger.info(
-        "Labeled %d USD prims in %s using prim-name parser", labeled, usd_path,
-    )
-    return labeled
+    logger.info("Authored metadata + labeled %d prims in %s", labeled, usd_path)
+    return metadata
 
 
 # ---------------------------------------------------------------------------
@@ -548,13 +431,14 @@ def label_usd_prims_from_names(usd_path: Path) -> int:
 # ---------------------------------------------------------------------------
 
 
-def extract_from_blend(blend_path: Path, output_dir: Path) -> Path:
-    """Open a ``.blend`` in headless Blender and dump scene metadata.
+def extract_from_blend(blend_path: Path) -> dict[str, Any]:
+    """Open a ``.blend`` in headless Blender and build the metadata dict.
 
     Walks ``bpy.data.objects`` and reconstructs a best-effort metadata
-    JSON from custom properties (``['semantic_label']``, ``['room_idx']``,
+    dict from custom properties (``['semantic_label']``, ``['room_idx']``,
     etc.) and bounding boxes. Requires ``bpy`` to be importable — usually
     this means the script is run inside ``blender --background --python``.
+    Returns the dict; authoring it into a USD is a separate ``pxr`` pass.
     """
     try:
         import bpy  # type: ignore
@@ -564,8 +448,6 @@ def extract_from_blend(blend_path: Path, output_dir: Path) -> Path:
             "`blender --background --python extract_scene_metadata.py`."
         ) from exc
 
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.open_mainfile(filepath=str(blend_path))
 
     objects: list[ObjectRecord] = []
@@ -610,15 +492,118 @@ def extract_from_blend(blend_path: Path, output_dir: Path) -> Path:
         "objects": [o.__dict__ for o in objects],
         "room_adjacency": [],
     }
-    output_path = output_dir / "scene_metadata.json"
-    with output_path.open("w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2)
     logger.info(
-        "Wrote %s from %s with %d objects (dropped %d at origin; "
-        "rooms NOT recoverable from blend)",
-        output_path, blend_path, len(objects), dropped,
+        "Built metadata from %s: %d objects (dropped %d at origin; rooms NOT "
+        "recoverable from blend)",
+        blend_path, len(objects), dropped,
     )
-    return output_path
+    return metadata
+
+
+# ---------------------------------------------------------------------------
+# USD authoring — customData + detection-label semantics
+# ---------------------------------------------------------------------------
+
+
+def author_scene_metadata(
+    usd_path: Path | str,
+    metadata: dict[str, Any],
+    *,
+    label_denylist: Iterable[str] = STRUCTURAL_CLASSES,
+    apply_semantics: bool = True,
+) -> int:
+    """Embed ``metadata`` in a USD's ``customData`` and label its prims.
+
+    Opens ``usd_path``, writes the metadata payload, applies the prim
+    labels, and saves. Returns the number of prims labelled. Needs
+    ``pxr``; ``apply_semantics`` additionally needs the Isaac Sim Kit
+    runtime (run under ``$ISAACLAB -p``).
+    """
+    try:
+        from pxr import Usd  # type: ignore
+    except ImportError as exc:
+        raise RuntimeError(
+            "pxr is required to author scene metadata into USD. Run inside "
+            "an Isaac Sim Python environment."
+        ) from exc
+
+    stage = Usd.Stage.Open(str(usd_path))
+    if stage is None:
+        raise RuntimeError(f"Failed to open USD stage: {usd_path}")
+    labeled = _author_into_stage(
+        stage, metadata, label_denylist=label_denylist, apply_semantics=apply_semantics,
+    )
+    stage.Save()
+    logger.info("Authored metadata + labeled %d prims in %s", labeled, usd_path)
+    return labeled
+
+
+def _author_into_stage(
+    stage: Any,
+    metadata: dict[str, Any],
+    *,
+    label_denylist: Iterable[str],
+    apply_semantics: bool,
+) -> int:
+    """Write customData + per-object prim labels on an already-open stage.
+
+    Does not save. Two label kinds per object prim:
+
+    - ``semanticLabel`` / ``instanceId`` string/int attrs — the provenance
+      attrs the metadata is built from (kept unchanged).
+    - ``UsdSemantics.LabelsAPI`` (``instance_name="class"``) — what the
+      Replicator ``bounding_box_2d_tight`` annotator boxes on. Applied
+      only to non-structural classes (``label_denylist``), because
+      truncation keeps the largest-area boxes and structure would evict
+      furniture from the detections column.
+    """
+    from pxr import Sdf  # type: ignore
+
+    scene_metadata_reader.write_custom_data(stage, metadata)
+
+    denylist = {str(c).strip().lower() for c in label_denylist}
+    add_labels = _resolve_add_labels() if apply_semantics else None
+
+    labeled = 0
+    for entry in metadata.get("objects", []) or []:
+        prim_path = entry.get("prim_path")
+        label = str(entry.get("label", "")).strip()
+        if not prim_path or not label:
+            continue
+        prim = stage.GetPrimAtPath(prim_path)
+        if not prim or not prim.IsValid():
+            continue
+
+        attr = prim.CreateAttribute("semanticLabel", Sdf.ValueTypeNames.String)
+        attr.Set(label)
+        instance_id = int(entry.get("instance_id", -1))
+        if instance_id >= 0:
+            iid_attr = prim.CreateAttribute("instanceId", Sdf.ValueTypeNames.Int)
+            iid_attr.Set(instance_id)
+
+        if add_labels is not None and label.lower() not in denylist:
+            add_labels(prim, [label], instance_name="class")
+        labeled += 1
+    return labeled
+
+
+def _resolve_add_labels() -> Any:
+    """Return ``isaacsim.core.utils.semantics.add_labels`` or raise.
+
+    The ``UsdSemantics.LabelsAPI`` schema + this helper are provided by the
+    Isaac Sim Kit runtime, not plain ``pxr``; applying labels requires
+    running under ``$ISAACLAB -p``.
+    """
+    try:
+        from isaacsim.core.utils.semantics import add_labels  # type: ignore
+    except ImportError as exc:
+        raise RuntimeError(
+            "Applying UsdSemantics detection labels needs the Isaac Sim Kit "
+            "runtime (isaacsim.core.utils.semantics). Run this under "
+            "`$ISAACLAB -p`, or pass apply_semantics=False to author "
+            "customData only (the scene will not be detections-ready)."
+        ) from exc
+    return add_labels
 
 
 # ---------------------------------------------------------------------------
@@ -626,58 +611,89 @@ def extract_from_blend(blend_path: Path, output_dir: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
+def _parse_denylist(spec: str) -> set[str]:
+    return {tok.strip().lower() for tok in spec.split(",") if tok.strip()}
+
+
 def _cli_main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--blend", type=Path, default=None, help="Blend file to extract metadata from.")
-    parser.add_argument("--usd", type=Path, default=None, help="USD stage to label.")
-    parser.add_argument("--metadata", type=Path, default=None, help="Path to an existing scene_metadata.json.")
-    parser.add_argument("--output", type=Path, required=True, help="Output directory for scene_metadata.json.")
-    parser.add_argument(
-        "--label-usd-only",
-        action="store_true",
-        help="Skip metadata extraction; only label USD using --metadata.",
-    )
+    parser.add_argument("--blend", type=Path, default=None, help="Blend file to build metadata from.")
+    parser.add_argument("--usd", type=Path, default=None, help="Scene USD to author metadata into.")
     parser.add_argument(
         "--from-usd",
         action="store_true",
-        help="Extract scene_metadata.json directly from --usd by parsing prim names. "
-             "Use when no .blend or in-process Infinigen State is available.",
+        help="Build metadata from --usd by parsing prim names, then author it "
+             "(customData + semantics) back into the same USD.",
     )
     parser.add_argument(
-        "--label-from-prim-names",
+        "--metadata-out",
+        type=Path,
+        default=None,
+        help="With --blend (run in Blender): write the built metadata dict to "
+             "this JSON for a later --author-from-json pass. A transient "
+             "handoff, not a discovered sidecar.",
+    )
+    parser.add_argument(
+        "--author-from-json",
+        type=Path,
+        default=None,
+        help="Author the metadata dict in this JSON into --usd (customData + "
+             "semantics). Pairs with a prior --blend --metadata-out build.",
+    )
+    parser.add_argument(
+        "--label-denylist",
+        type=str,
+        default=",".join(sorted(STRUCTURAL_CLASSES)),
+        help="Comma-separated object classes excluded from the UsdSemantics "
+             "detection-label pass (still kept in objects[]). Default: the "
+             "structural classes. Empty string labels everything.",
+    )
+    parser.add_argument(
+        "--no-semantics",
         action="store_true",
-        help="Stamp semanticLabel/instanceId on --usd prims by parsing prim names. "
-             "Does not require --metadata. Compatible with --from-usd.",
+        help="Author customData only; skip the UsdSemantics label pass (the "
+             "scene will not be detections-ready). Use when the Kit runtime "
+             "is unavailable.",
     )
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    metadata_path: Path | None = args.metadata
+    denylist = _parse_denylist(args.label_denylist)
+    apply_semantics = not args.no_semantics
 
-    # New USD-only path takes priority — when --from-usd is set we ignore
-    # --blend entirely (the .blend is not needed if all we have is the USD).
     if args.from_usd:
         if args.usd is None:
             parser.error("--usd is required with --from-usd")
-        metadata_path = extract_from_usd(args.usd, args.output)
-    elif not args.label_usd_only:
-        if args.blend is None:
-            parser.error("--blend is required unless --label-usd-only or --from-usd is set")
-        metadata_path = extract_from_blend(args.blend, args.output)
+        extract_from_usd(
+            args.usd, label_denylist=denylist, apply_semantics=apply_semantics,
+        )
+        return 0
 
-    if args.usd is not None:
-        if args.label_from_prim_names:
-            label_usd_prims_from_names(args.usd)
+    if args.author_from_json is not None:
+        if args.usd is None:
+            parser.error("--usd is required with --author-from-json")
+        metadata = json.loads(Path(args.author_from_json).read_text(encoding="utf-8"))
+        author_scene_metadata(
+            args.usd, metadata, label_denylist=denylist, apply_semantics=apply_semantics,
+        )
+        return 0
+
+    if args.blend is not None:
+        metadata = extract_from_blend(args.blend)
+        if args.metadata_out is not None:
+            Path(args.metadata_out).write_text(
+                json.dumps(metadata, indent=2), encoding="utf-8",
+            )
+            logger.info("Wrote transient metadata handoff %s", args.metadata_out)
         else:
-            if metadata_path is None:
-                parser.error(
-                    "--metadata is required when labelling USD without extraction. "
-                    "Use --label-from-prim-names to label without metadata."
-                )
-            label_usd_prims(args.usd, metadata_path)
+            json.dump(metadata, sys.stdout, indent=2)
+        return 0
 
-    return 0
+    parser.error(
+        "nothing to do: pass --from-usd, --author-from-json, or --blend.",
+    )
+    return 2
 
 
 if __name__ == "__main__":  # pragma: no cover

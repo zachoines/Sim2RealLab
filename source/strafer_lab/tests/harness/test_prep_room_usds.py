@@ -47,18 +47,36 @@ def tmp_root(tmp_path: Path) -> Path:
     return root
 
 
+def _set_all_env(monkeypatch, tmp_python, tmp_root) -> None:
+    monkeypatch.setenv("INFINIGEN_ROOT", str(tmp_root))
+    monkeypatch.setenv("STRAFER_INFINIGEN_PYTHON", str(tmp_python))
+    monkeypatch.setenv("STRAFER_ISAACLAB_PYTHON", str(tmp_python))
+    # ISAACLAB is a command string (isaaclab.sh -p); the validator checks the
+    # first token exists, so a real path stands in for the launcher here.
+    monkeypatch.setenv("ISAACLAB", str(tmp_python))
+
+
 class TestValidateRequiredEnv:
-    def test_passes_when_all_three_set(self, monkeypatch, tmp_python, tmp_root):
+    def test_passes_when_all_set(self, monkeypatch, tmp_python, tmp_root):
+        _set_all_env(monkeypatch, tmp_python, tmp_root)
+        # Should not raise.
+        prep_room_usds.validate_required_env_for_generate()
+
+    def test_launcher_not_required_when_metadata_disabled(
+        self, monkeypatch, tmp_python, tmp_root,
+    ):
+        """--no-scene-metadata skips authoring, so ISAACLAB isn't needed."""
         monkeypatch.setenv("INFINIGEN_ROOT", str(tmp_root))
         monkeypatch.setenv("STRAFER_INFINIGEN_PYTHON", str(tmp_python))
         monkeypatch.setenv("STRAFER_ISAACLAB_PYTHON", str(tmp_python))
-        # Should not raise.
-        prep_room_usds.validate_required_env_for_generate()
+        monkeypatch.delenv("ISAACLAB", raising=False)
+        prep_room_usds.validate_required_env_for_generate(author_scene_metadata=False)
 
     @pytest.mark.parametrize("missing_var", [
         "INFINIGEN_ROOT",
         "STRAFER_INFINIGEN_PYTHON",
         "STRAFER_ISAACLAB_PYTHON",
+        "ISAACLAB",
     ])
     def test_raises_with_helpful_message_when_one_missing(
         self, monkeypatch, tmp_python, tmp_root, missing_var,
@@ -66,9 +84,7 @@ class TestValidateRequiredEnv:
         """The validator must mention the missing var by name + tell the
         operator to source env_setup.sh — the historical bite was a
         late opaque crash."""
-        monkeypatch.setenv("INFINIGEN_ROOT", str(tmp_root))
-        monkeypatch.setenv("STRAFER_INFINIGEN_PYTHON", str(tmp_python))
-        monkeypatch.setenv("STRAFER_ISAACLAB_PYTHON", str(tmp_python))
+        _set_all_env(monkeypatch, tmp_python, tmp_root)
         monkeypatch.delenv(missing_var, raising=False)
         with pytest.raises(RuntimeError) as exc:
             prep_room_usds.validate_required_env_for_generate()
@@ -81,8 +97,7 @@ class TestValidateRequiredEnv:
 
         Catches the typo-in-.env class of error, not just the missing-env-var class.
         """
-        monkeypatch.setenv("INFINIGEN_ROOT", str(tmp_root))
-        monkeypatch.setenv("STRAFER_INFINIGEN_PYTHON", str(tmp_python))
+        _set_all_env(monkeypatch, tmp_python, tmp_root)
         monkeypatch.setenv("STRAFER_ISAACLAB_PYTHON", "/nonexistent/path/to/python")
         with pytest.raises(RuntimeError, match="non-existent path"):
             prep_room_usds.validate_required_env_for_generate()

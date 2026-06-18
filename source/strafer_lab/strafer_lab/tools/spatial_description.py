@@ -1,7 +1,7 @@
 """Stage 1 of the scene description pipeline: programmatic spatial analysis.
 
 Given a frame's perception record (robot pose, camera pose, visible
-bboxes) and the scene's ``scene_metadata.json``, the
+bboxes) and the scene's metadata dict, the
 :class:`SpatialDescriptionBuilder` computes **factual** spatial relations
 straight from simulation ground truth:
 

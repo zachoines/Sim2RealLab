@@ -85,6 +85,25 @@ deprecation window and no shim"). Meets all of:
   `parse_bbox_data` unchanged. Acceptance proof: after regenerating the corpus,
   `make harness-smoke REQUIRE_DETECTIONS=1` (the bridge driver's Jetson-free
   smoke) passes with a non-empty detection vocab on a regenerated scene.
+- [ ] **Apply labels to non-structural classes only — filter at authoring, not
+  downstream.** `add_labels` is applied **only** to object prims whose class is
+  not in the structural set `{floor, ceiling, wall, exterior, staircase}` (the
+  same classes [`generate_scenes_metadata._ROOM_STRUCT_RE`](../../../../source/strafer_lab/scripts/generate_scenes_metadata.py#L61)
+  matches — factor the literal class set into one shared definition so the regex
+  and this denylist can't drift). **Why at the producer, not in the consumer:**
+  `pack_detections` truncates to the `detections_max` **largest-pixel-area**
+  boxes ([`lerobot_detections.py`](../../../../source/strafer_lab/strafer_lab/tools/lerobot_detections.py#L166)),
+  and walls / floor / ceiling are the biggest things in every frame — so
+  "label everything + filter downstream" would let structure win all 32 slots
+  and evict the furniture the column exists for. door / window stay labelled
+  (not structural here; they're groundable transit landmarks and not
+  area-dominant). The class denylist is a **configurable flag**, not hardcoded,
+  so a future consumer can flip it and regenerate. **`objects[]` itself stays
+  complete** — the structural rows are load-bearing for the shared path planner,
+  which rasterizes walls / floor into its occupancy grid; only what gets
+  `add_labels` for the annotator is filtered. Document this producer-side
+  class-filter policy in [`harness-architecture`](harness-architecture.md)'s
+  Detections section.
 - [ ] **One reader, hard-fail.** New helper
   `strafer_lab.tools.scene_metadata_reader.load(scene_usd_path)` reads the
   embedded `customData` via `pxr` and **raises if it is absent** (no sidecar
@@ -175,6 +194,19 @@ coordinate before landing:
   brief moves **storage + authoring timing only; it does NOT change the
   schema** (kept out of scope below), so those consumers stay unaffected —
   any schema change must go through the contract + its round-trip test.
+- **Cross-lane test surface — sequence early, not late.** The reader cutover
+  reaches `scene_labels.get_scene_metadata`, which `strafer_autonomy/tests/`
+  imports, so the sidecar→`customData` cutover crosses into the Jetson lane's
+  test gate. Coordinate that surface at the **start** of the work (confirm the
+  pure-data seam + how the `.venv_vlm` autonomy suite gets its dict without
+  `pxr`) rather than discovering it at the end.
+- **Land the detections slice as part of "shipped."** Because the semantics
+  fix rides here (one corpus regen, not two), "scene-metadata-in-usd shipped"
+  must also mean "detections proven non-empty end-to-end": the semantics
+  authoring + class filter + corpus regen + `make harness-smoke
+  REQUIRE_DETECTIONS=1` (Jetson-free) all pass in the same land. The smoke is
+  the perfect tripwire — it needs no Jetson, so the detections proof is part of
+  the PR's own gate, not a deferred operator run.
 
 ## Out of scope
 

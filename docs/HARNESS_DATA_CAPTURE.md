@@ -274,6 +274,37 @@ failures), externally-killed terminal states (`cancelled` /
 consecutive crashed missions. `succeeded` / `failed` / `timeout`
 missions are kept and labelled.
 
+### Jetson-free smoke (`make harness-smoke`)
+
+Before standing up the Jetson, you can exercise the bridge capture
+**code path** — the writer lifecycle, depth sidecars, the detections
+annotator + columns, and the discard path — with a scripted `/cmd_vel`
+sweep and a fake executor, no ROS:
+
+```bash
+make harness-smoke                          # defaults: scene_fast_singleroom_000_seed0
+SCENE=<scene> REQUIRE_DETECTIONS=1 make harness-smoke
+```
+
+It drives one `succeeded` mission (kept) and one `cancelled` mission
+(must not reach disk), then re-opens the dataset and asserts the
+episode count, the strafer extension columns, the depth sidecars, and
+that the `observation.detections.*` columns are present. It does **not**
+bring up the ROS publishers or a live executor — that's the operator
+acceptance run above.
+
+**Detection-vocab caveat:** the smoke reports the detection vocab but
+treats an empty one as a **warning, not a failure** by default
+(`--require-detections` / `REQUIRE_DETECTIONS=1` makes it hard). An
+empty vocab is an upstream annotator/scene-semantics matter — the
+Replicator `bbox_2d_tight` annotator only emits boxes for prims whose
+semantic type matches its filter, and some scenes (including
+`scene_fast_singleroom_000_seed0`, which carries 156 semantically-
+attributed prims yet emits zero boxes through a full sweep) don't match
+the default filter. The writer/columns path is verified regardless; only
+populated boxes depend on the scene's semantics lining up with the
+annotator.
+
 ---
 
 ## Round-trip verification

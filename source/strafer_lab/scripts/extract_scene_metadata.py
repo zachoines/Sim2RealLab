@@ -342,9 +342,7 @@ def extract_from_usd(
         ) from exc
 
     usd_path = Path(usd_path)
-    stage = Usd.Stage.Open(str(usd_path))
-    if stage is None:
-        raise RuntimeError(f"Failed to open USD stage: {usd_path}")
+    stage, save = _open_stage_for_authoring(usd_path, kit=apply_semantics)
 
     bbox_cache = UsdGeom.BBoxCache(
         Usd.TimeCode.Default(), [UsdGeom.Tokens.default_], useExtentsHint=True,
@@ -421,7 +419,7 @@ def extract_from_usd(
     labeled = _author_into_stage(
         stage, metadata, label_denylist=label_denylist, apply_semantics=apply_semantics,
     )
-    stage.Save()
+    save()
     logger.info("Authored metadata + labeled %d prims in %s", labeled, usd_path)
     return metadata
 
@@ -505,6 +503,31 @@ def extract_from_blend(blend_path: Path) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def _open_stage_for_authoring(usd_path: Path | str, *, kit: bool):
+    """Return ``(stage, save_fn)`` for authoring into ``usd_path``.
+
+    When ``kit`` (semantics pass), open via the Isaac Sim USD context so
+    ``add_labels`` — which routes through ``omni.replicator`` and operates
+    on the *managed* stage — actually applies the ``UsdSemantics`` schema;
+    a raw ``Usd.Stage.Open`` stage silently no-ops the label write. The
+    plain path (customData only) uses raw ``pxr`` and ``Stage.Save``.
+    """
+    if kit:
+        import omni.usd  # noqa: WPS433 — Kit-only, lazy by design
+
+        ctx = omni.usd.get_context()
+        if not ctx.open_stage(str(usd_path)):
+            raise RuntimeError(f"omni.usd failed to open stage: {usd_path}")
+        return ctx.get_stage(), ctx.save_stage
+
+    from pxr import Usd  # type: ignore
+
+    stage = Usd.Stage.Open(str(usd_path))
+    if stage is None:
+        raise RuntimeError(f"Failed to open USD stage: {usd_path}")
+    return stage, stage.Save
+
+
 def author_scene_metadata(
     usd_path: Path | str,
     metadata: dict[str, Any],
@@ -520,20 +543,18 @@ def author_scene_metadata(
     runtime (run under ``$ISAACLAB -p``).
     """
     try:
-        from pxr import Usd  # type: ignore
+        import pxr  # type: ignore  # noqa: F401
     except ImportError as exc:
         raise RuntimeError(
             "pxr is required to author scene metadata into USD. Run inside "
             "an Isaac Sim Python environment."
         ) from exc
 
-    stage = Usd.Stage.Open(str(usd_path))
-    if stage is None:
-        raise RuntimeError(f"Failed to open USD stage: {usd_path}")
+    stage, save = _open_stage_for_authoring(usd_path, kit=apply_semantics)
     labeled = _author_into_stage(
         stage, metadata, label_denylist=label_denylist, apply_semantics=apply_semantics,
     )
-    stage.Save()
+    save()
     logger.info("Authored metadata + labeled %d prims in %s", labeled, usd_path)
     return labeled
 
@@ -615,6 +636,26 @@ def _parse_denylist(spec: str) -> set[str]:
     return {tok.strip().lower() for tok in spec.split(",") if tok.strip()}
 
 
+def _boot_kit_for_semantics() -> Any:
+    """Boot a headless Isaac Sim Kit app and return the SimulationApp.
+
+    ``isaacsim.core.utils.semantics`` (the ``UsdSemantics.LabelsAPI`` helper)
+    and the ``UsdSemantics`` schema plugin are only importable once Kit has
+    initialized — being under ``$ISAACLAB -p`` alone is not enough. The CLI
+    boots Kit for the semantics-authoring paths; the caller closes the app.
+    """
+    from isaaclab.app import AppLauncher  # noqa: WPS433 — Kit-only, lazy by design
+
+    launcher_parser = argparse.ArgumentParser(add_help=False)
+    AppLauncher.add_app_launcher_args(launcher_parser)
+    kit_args = launcher_parser.parse_args([])
+    kit_args.headless = True
+    # add_labels routes through omni.replicator.core, which only loads when
+    # the camera/Replicator extensions are enabled.
+    kit_args.enable_cameras = True
+    return AppLauncher(kit_args).app
+
+
 def _cli_main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--blend", type=Path, default=None, help="Blend file to build metadata from.")
@@ -662,38 +703,48 @@ def _cli_main(argv: Iterable[str] | None = None) -> int:
     denylist = _parse_denylist(args.label_denylist)
     apply_semantics = not args.no_semantics
 
-    if args.from_usd:
-        if args.usd is None:
-            parser.error("--usd is required with --from-usd")
-        extract_from_usd(
-            args.usd, label_denylist=denylist, apply_semantics=apply_semantics,
-        )
-        return 0
+    # The USD-authoring paths apply UsdSemantics labels, which need the Kit
+    # runtime — boot it headless before the lazy isaacsim.core import. The
+    # blend builder runs in Blender (no Kit) and must not boot it.
+    needs_kit = apply_semantics and (args.from_usd or args.author_from_json is not None)
+    kit_app = _boot_kit_for_semantics() if needs_kit else None
 
-    if args.author_from_json is not None:
-        if args.usd is None:
-            parser.error("--usd is required with --author-from-json")
-        metadata = json.loads(Path(args.author_from_json).read_text(encoding="utf-8"))
-        author_scene_metadata(
-            args.usd, metadata, label_denylist=denylist, apply_semantics=apply_semantics,
-        )
-        return 0
-
-    if args.blend is not None:
-        metadata = extract_from_blend(args.blend)
-        if args.metadata_out is not None:
-            Path(args.metadata_out).write_text(
-                json.dumps(metadata, indent=2), encoding="utf-8",
+    try:
+        if args.from_usd:
+            if args.usd is None:
+                parser.error("--usd is required with --from-usd")
+            extract_from_usd(
+                args.usd, label_denylist=denylist, apply_semantics=apply_semantics,
             )
-            logger.info("Wrote transient metadata handoff %s", args.metadata_out)
-        else:
-            json.dump(metadata, sys.stdout, indent=2)
-        return 0
+            return 0
 
-    parser.error(
-        "nothing to do: pass --from-usd, --author-from-json, or --blend.",
-    )
-    return 2
+        if args.author_from_json is not None:
+            if args.usd is None:
+                parser.error("--usd is required with --author-from-json")
+            metadata = json.loads(Path(args.author_from_json).read_text(encoding="utf-8"))
+            author_scene_metadata(
+                args.usd, metadata, label_denylist=denylist, apply_semantics=apply_semantics,
+            )
+            return 0
+
+        if args.blend is not None:
+            metadata = extract_from_blend(args.blend)
+            if args.metadata_out is not None:
+                Path(args.metadata_out).write_text(
+                    json.dumps(metadata, indent=2), encoding="utf-8",
+                )
+                logger.info("Wrote transient metadata handoff %s", args.metadata_out)
+            else:
+                json.dump(metadata, sys.stdout, indent=2)
+            return 0
+
+        parser.error(
+            "nothing to do: pass --from-usd, --author-from-json, or --blend.",
+        )
+        return 2
+    finally:
+        if kit_app is not None:
+            kit_app.close()
 
 
 if __name__ == "__main__":  # pragma: no cover

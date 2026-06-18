@@ -30,6 +30,10 @@ Read these before starting:
 - [`context/ownership-boundaries.md`](../../context/ownership-boundaries.md)
 - [`context/branching-and-prs.md`](../../context/branching-and-prs.md)
 - [`context/conventions.md`](../../context/conventions.md)
+- [`context/path-planning-architecture.md`](../../context/path-planning-architecture.md) —
+  **required.** This brief's oracle path + waypoint-validation A* MUST
+  build on the shared `path_planner` core, not a new planner. See
+  "Path planning: build on the shared core" below.
 
 Parent design context:
 [`MISSION_VALIDATION_ARCHITECTURE.md` §3.6.a](../../../MISSION_VALIDATION_ARCHITECTURE.md#36a-teleop-demos-primary-canonical) — teleop is the canonical primary corpus for VLA training; this brief produces mission queues at scale beyond what teleop alone can author.
@@ -76,6 +80,27 @@ reasons:
 
 A small `generator_metadata` block is kept for ablations and
 debugging only — not consumed by the VLA.
+
+### Path planning: build on the shared core
+
+Every place this brief plans or validates a path — the `endpoint`
+mode's plain shortest-path oracle, the navigable-mask /
+segment-connectable post-validation checks, and the fallback A* when
+LLM waypoints fail validation — **routes through the one shared planner**
+([`path_planner.plan_path`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/path_planner/)),
+per [`context/path-planning-architecture.md`](../../context/path-planning-architecture.md).
+This is a settled architectural decision (2026-06-17): the project has
+**one** grid A* core (shipped by `subgoal-env`), and Infinigen consumers
+adapt their scene onto it rather than writing a second helper.
+
+Concretely, this brief writes the **Infinigen occupancy-grid adapter**:
+a CPU/numpy `scene_metadata.json → free_space` rasterizer (object AABBs
++ room-boundary polygons, robot-radius-inflated to the planner's grid
+convention), then calls `plan_path`. That adapter is the shared seam for
+the other Infinigen path-planning consumers (`scene-connectivity-validation`'s
+navigable check, `grounding-negative-taxonomy`'s violation paths) — write
+it once, in a location they can import. **Do not** reuse a separate
+connectivity A* helper or hand-roll shortest-path: there is one planner.
 
 ### Output schema
 
@@ -280,6 +305,13 @@ their union.
       JSON-schema-constrained; post-validation pass + retry
       logic implemented; caching keyed by
       `(scene_seed, start_pose, mission_text, llm_seed)`.
+- [ ] **Shared planner.** The `endpoint`-mode oracle path, the
+      post-validation navigable/segment checks, and the LLM-waypoint
+      fallback all call `path_planner.plan_path` via a new CPU/numpy
+      Infinigen occupancy-grid adapter (`scene_metadata.json →
+      free_space`), written in an importable location for the sibling
+      Infinigen consumers. No second A* implementation is added. See
+      [`context/path-planning-architecture.md`](../../context/path-planning-architecture.md).
 - [ ] **Multi-room default.** For multi-room scenes, the
       generator emits cross-room missions by default; the
       connectivity graph filters unreachable pairs. For
@@ -340,8 +372,12 @@ their union.
 - Few-shot examples should cover all three mission modes;
   hand-author them from the existing
   `scene_high_quality_dgx_000_seed0` scene.
-- Navigable-mask post-validation: reuse the connectivity-validation
-  brief's A* helper; same code path.
+- Navigable-mask post-validation: plan with the shared
+  [`path_planner`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/path_planner/)
+  via this brief's Infinigen occupancy-grid adapter — see "Path
+  planning: build on the shared core" and
+  [`context/path-planning-architecture.md`](../../context/path-planning-architecture.md).
+  One planner, not a connectivity-specific helper.
 - Existing paraphrase pipeline:
   [`generate_descriptions.py`](../../../../source/strafer_lab/scripts/retired/generate_descriptions.py)
   Stage 2 prompt template — adapt for paraphrase generation

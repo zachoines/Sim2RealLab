@@ -68,17 +68,23 @@ deprecation window and no shim"). Meets all of:
   runs/embeds the extractor (wire the in-process `extract_from_state` hook,
   or chain the post-hoc extractor at export) so a single `generate` yields a
   capture-ready scene — closes the ergonomics gap in Motivation.
-- [ ] **Applies Replicator `Semantics` for detections.** `extract_scene_metadata.py`
-  applies the USD `Semantics` schema (`semanticType="class"`,
-  `semanticData=<label>`) onto each labeled object prim — in addition to the
-  custom `semanticLabel` provenance attr it writes today. The harness
-  detections producer (`bbox_extractor`'s Replicator `bounding_box_2d_tight`
-  annotator) boxes prims by the applied `Semantics` schema, **not** by
-  `semanticLabel` or `customData`; without this, `observation.detections.*` is
-  empty on every capture (see the detections-readiness item in Motivation).
-  Acceptance proof: after regenerating the corpus, `make harness-smoke
-  REQUIRE_DETECTIONS=1` (the bridge driver's Jetson-free smoke) passes with a
-  non-empty detection vocab on a regenerated scene.
+- [ ] **Applies UsdSemantics labels for detections.** `extract_scene_metadata.py`
+  applies the `UsdSemantics.LabelsAPI` (`instance_name="class"`) onto each
+  labeled object prim — in addition to the custom `semanticLabel` provenance
+  attr it writes today — via `isaacsim.core.utils.semantics.add_labels(prim,
+  [label], instance_name="class")`. The harness detections producer
+  (`bbox_extractor`'s Replicator `bounding_box_2d_tight` annotator) boxes prims
+  by the applied semantics schema, **not** by `semanticLabel` or `customData`;
+  without this, `observation.detections.*` is empty on every capture (see the
+  detections-readiness item in Motivation). Note: Isaac Sim 6 dropped the
+  legacy `Semantics` / `SemanticsAPI` schema (no `from pxr import Semantics`) in
+  favor of `UsdSemantics.LabelsAPI`; `isaacsim.core.utils.semantics` also
+  exposes `upgrade_prim_semantics_to_labels` for any legacy assets. **Verified
+  2026-06-18** that applying `add_labels(..., "class")` from the existing
+  `semanticLabel` values makes the annotator emit boxes that flow through
+  `parse_bbox_data` unchanged. Acceptance proof: after regenerating the corpus,
+  `make harness-smoke REQUIRE_DETECTIONS=1` (the bridge driver's Jetson-free
+  smoke) passes with a non-empty detection vocab on a regenerated scene.
 - [ ] **One reader, hard-fail.** New helper
   `strafer_lab.tools.scene_metadata_reader.load(scene_usd_path)` reads the
   embedded `customData` via `pxr` and **raises if it is absent** (no sidecar

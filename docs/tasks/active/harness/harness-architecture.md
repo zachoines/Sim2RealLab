@@ -58,7 +58,7 @@ source/strafer_lab/scripts/capture.py
   [--num-envs N]                                   ← scripted only
   [--mission-queue <yaml>]                         ← queue mission-source only
   [--n-trajectories N]                             ← captioner / coverage modes
-  [--inject-bad-grounding {off, wrong_room, wrong_instance}]
+  [--inject-bad-grounding {off, wrong_room, wrong_instance, wrong_object}]
   [--paraphrase-missions N]                        ← apply Qwen2.5-VL paraphrase pass
   [--capture-policy-cam / --no-capture-policy-cam]
 ```
@@ -182,12 +182,12 @@ Every per-episode row carries the standard LeRobot v3 columns (`episode_index`, 
 | `target_object_id` | string | Specific instance ID into `scene_metadata.objects[]`. |
 | `target_position_3d` | float32[3] | `(x, y, z)` in scene frame. |
 | `start_pose` | float32[3] | `(x, y, yaw)` of the episode's start. |
-| `outcome` | string | `{succeeded, failed, wrong_instance, wrong_room, trajectory_violation, discarded}`. |
-| `outcome_category` | string | `{on_course, wrong_instance, wrong_room, trajectory_violation}` — collapses success/failure into `on_course`; surfaces deliberate-failure modes as hard negatives. |
+| `outcome` | string | `{succeeded, failed, wrong_instance, wrong_room, wrong_object, trajectory_violation, discarded}`. |
+| `outcome_category` | string | `{on_course, wrong_instance, wrong_room, wrong_object, trajectory_violation}` — collapses success/failure into `on_course`; surfaces deliberate-failure modes as hard negatives. |
 | `paraphrases` | list[string] | Populated by `--paraphrase-missions N`; empty array when disabled. |
 | `source_driver` | string | `{bridge, teleop, scripted}`. |
 | `source_mission_source` | string | `{queue, captioner, coverage, scene-metadata}`. |
-| `hard_negative_category` | string \| null | `{wrong_instance, wrong_room, trajectory_violation}` or null. |
+| `hard_negative_category` | string \| null | `{wrong_instance, wrong_room, wrong_object, trajectory_violation}` or null. |
 | `injection_mode` | string \| null | Requested mode for `--inject-bad-grounding`; null if no injection requested. |
 | `injection_mode_actual` | string \| null | Resolved mode after fallback. **Downstream training MUST filter / weight on this column, not `injection_mode`** — see [Hard-negative injection](#hard-negative-injection---inject-bad-grounding). Null means "no injection" *or* "perturbation requested but fallback dropped it" (`injection_mode` non-null disambiguates the two). |
 | `original_target_position_3d` | float32[3] \| null | Pre-injection goal; null when `injection_mode_actual` is null. |
@@ -435,15 +435,18 @@ Field divergence: every consumer reads from one dataset. Differences are which f
 
 ### Hard-negative injection (`--inject-bad-grounding`)
 
-Bridge and scripted drivers accept `--inject-bad-grounding {off, wrong_room, wrong_instance}` (default `off`) with `--inject-bad-grounding-prob 0.3`. When enabled, each mission has the configured probability of having its `target_position_3d` perturbed **after** the executor projects the goal:
+Bridge and scripted drivers accept `--inject-bad-grounding {off, wrong_room, wrong_instance, wrong_object}` (default `off`) with `--inject-bad-grounding-prob 0.3`. When enabled, each mission has the configured probability of having its `target_position_3d` perturbed **after** the executor projects the goal. The three position-swap modes:
 - `wrong_room`: swap the goal to a randomly-selected object in a different room polygon.
-- `wrong_instance`: swap to another same-label object in the same room if one exists; fall back to `wrong_room` if no same-label sibling.
+- `wrong_instance`: swap to another same-label object in the same room (e.g. a different chair) if one exists; fall back to `wrong_room` if no same-label sibling.
+- `wrong_object`: swap to a different-label object in the same room (category confusion, e.g. "go to the chair" → drive to the sofa) if one exists; fall back to `wrong_room` if the room has no other-label object. This is the highest-value category-confusion negative and the one a grounding model is most likely to get wrong.
+
+A fourth taxonomy member — `trajectory_violation` / wrong-path — is a *path-shape* negative rather than a position swap; it is out of scope for this injector and owned by the grounding-negative-taxonomy work (gated on the mission generator, which emits the `planned_path` it perturbs).
 
 Perturbed episodes record `injection_mode + injection_mode_actual + original_target_position_3d` in per-episode metadata so downstream consumers see the actual mode, not just the requested one (silent fallback was a 2026-05-15 audit finding). The cascade validator's `--root-cause-pass` and the co-trained validator's hard-negative set both consume these fields.
 
 **Downstream training filters and weights MUST key off `injection_mode_actual`, not `injection_mode`.** When `wrong_instance` is requested at p=0.3 on a scene with few duplicate labels, the actual `wrong_instance` rate may be much lower because the fallback to `wrong_room` fires often. Filtering by the requested mode would mis-weight the corpus; filtering by the actual mode produces an honest split.
 
-**When no fallback candidate exists** (single-room scene where the requested target is the only same-label instance AND no different-room candidate exists): the perturbation silently drops. Recorded as `injection_mode_actual = null` and `original_target_position_3d = null` while `injection_mode` remains set to the requested mode. This lets a consumer audit how often the drop happens per scene without flooding the dataset with mislabeled negatives.
+**When no fallback candidate exists** (e.g. a single-room scene where `wrong_instance`/`wrong_object` find no in-room candidate AND there is no different-room object to fall back to): the perturbation silently drops. Recorded as `injection_mode_actual = null` and `original_target_position_3d = null` while `injection_mode` remains set to the requested mode. This lets a consumer audit how often the drop happens per scene without flooding the dataset with mislabeled negatives.
 
 Teleop has no `--inject-bad-grounding`; teleop hard negatives come from the `X` and `SELECT` buttons.
 
@@ -550,7 +553,7 @@ Lives in [`room-state-eval-harness`](../multi-room/room-state-eval-harness.md) (
 
 This brief is the architectural spec; it does not ship code. It is "complete" (move-to-completed-stamped) only when **all** of Tiers 1, 2, 3 have shipped. Until then it sits as the in-flight architecture doc that each implementation PR references.
 
-- [ ] Tier 1 shipped (PR B)
+- [x] Tier 1 shipped (PR B)
 - [x] Tier 2 shipped (PR C)
 - [ ] Tier 3 shipped (PR D)
 - [ ] Retired downstream scripts (`generate_descriptions.py` etc.) deleted by the PR that supersedes each script's function (not necessarily in this brief's PRs).

@@ -152,6 +152,12 @@ class BridgeLeRobotRecorder:
         elif status.succeeded:
             outcome, outcome_category, hard_negative = "succeeded", "on_course", None
         else:
+            # An honest mission that failed is still "on_course": the
+            # outcome_category axis collapses honest success + honest failure
+            # into on_course and reserves wrong_instance / wrong_room /
+            # trajectory_violation for DELIBERATE misgrounding. The honest
+            # failure is fully described by outcome="failed" alongside
+            # outcome_category="on_course" — the pair, not either column alone.
             outcome, outcome_category, hard_negative = "failed", "on_course", None
 
         self.episodes_kept += 1

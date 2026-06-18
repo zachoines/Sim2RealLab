@@ -598,20 +598,9 @@ scene has a door the VLM can see at mission start.
 
 ## Stage 5 — Harness mode (autonomous mission sweep)
 
-**Goal**: the DGX harness walks `scene_metadata.json`'s object list
-(or a curated `mission_queue.yaml` via `--mission-queue`), submits
-one mission per target, and records one LeRobot v3 episode per
-mission — RGB video, 16UC1 depth PNG sidecars, normalized `/cmd_vel`
-actions, Replicator 2D detections columns, and per-episode outcome
-metadata. No human driver. The preferred front door is the unified
-capture entry point, which dispatches here:
-
-```bash
-$ISAACLAB -p source/strafer_lab/scripts/capture.py \
-    --driver bridge --mission-source scene-metadata \
-    --scene <scene_name> --output data/sim_in_the_loop/<scene_name> \
-    --headless --enable_cameras
-```
+**Goal**: the DGX harness walks `scene_metadata.json`'s object list,
+submits one mission per target, captures reachability-labelled
+frames into `frames.jsonl`. No human driver.
 
 **Prerequisites**
 - Stages 1-4 green.
@@ -652,28 +641,19 @@ $ISAACLAB -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
 Keep the Jetson bringup from Stage 3 running.
 
 **Go/no-go**: each mission in `--max-missions 3` gets logged with
-`[ok]` / `[failed]` (or `[DISCARDED]` for operational losses — those
-never reach disk). The output root is a loadable LeRobot v3 dataset
-with one episode per kept mission:
+`reachable=True|False`. The output directory now contains three
+`episode_NNNN/` subdirs, each with a populated `frames.jsonl` and
+`frame_*.jpg` files.
 
 ```bash
 # DGX
-ls data/sim_in_the_loop/<scene_name>/        # meta/ data/ videos/
-source env_setup.sh && $STRAFER_ISAACLAB_PYTHON - <<'EOF'
-from lerobot.datasets.lerobot_dataset import LeRobotDataset
-from strafer_lab.tools.lerobot_writer import read_strafer_episodes
-root = "data/sim_in_the_loop/<scene_name>"
-ds = LeRobotDataset("strafer/<scene_name>", root=root)
-print(ds.meta.total_episodes, "episodes,", ds.meta.total_frames, "frames")
-for row in read_strafer_episodes(root):
-    print(row["episode_index"], row["outcome"], row["target_label"])
-EOF
+ls data/sim_in_the_loop/<scene_name>/
+head -n 2 data/sim_in_the_loop/<scene_name>/episode_0000/frames.jsonl
 ```
 
-Expected per-episode extension fields: `outcome`, `outcome_category`,
-`target_label`, `target_position_3d`, `source_driver="bridge"`,
-`capture_git_sha`, `scene_metadata_hash`, `episode_split`, and the
-injection columns when `--inject-bad-grounding` ran.
+Expected fields: `frame_id`, `image_path`, `robot_pos`,
+`robot_quat`, `bboxes`, `mission_id`, `target_label`,
+`target_position_3d`, `reachability`, `mission_state`.
 
 **Troubleshooting**
 
@@ -683,8 +663,7 @@ injection columns when `--inject-bad-grounding` ran.
 | `Action server ... did not become available` | Jetson executor not up or on wrong domain | Same as Stage 4: verify `/execute_mission` action exists from the DGX via `ros2 action list`. |
 | Every mission ends `reachable=False` at timeout | Nav2 never finishes plans against the current scene | Start from Stage 4 — manually submit a mission and verify it works before letting the harness submit dozens. |
 | Mission generator yields zero missions | `scene_metadata.json` has no parseable objects | `python -c "import json; print(len(json.load(open('.../scene_metadata.json'))['objects']))"`. If zero, re-run `extract_scene_metadata.py --from-usd`. |
-| Episodes keep logging `[DISCARDED]` with `cmd_vel_silence` | The Jetson stack stopped publishing `/cmd_vel` mid-drive (DDS drop, Nav2 controller crash) | Re-run Stage 4's manual mission to isolate; raise `--cmd-vel-grace` if the executor legitimately pauses that long between legs. |
-| Run aborts with `executor looks down` after 3 crashed missions | Executor process died or `get_mission_status` stopped answering | Check the Jetson executor logs; the harness discards each affected episode and stops rather than burning the queue. |
+| `frames.jsonl` exists but lacks `reachability` field | Outcome was never captured — harness crashed mid-mission | Search the DGX stdout for `[mission_id] harness crashed mid-mission`; the stack trace will point at the break. |
 
 ---
 
@@ -881,29 +860,40 @@ MAX_MISSIONS=20 \
 make sim-harness
 ```
 
-Verify: `data/sim_in_the_loop/<scene_name>/` is a loadable LeRobot v3
-dataset (see the Stage 5 go/no-go snippet); RGB frames decode at
-640×360 and `meta/detection_labels.json` is non-empty for a furnished
-scene.
+Verify: `data/sim_in_the_loop/<scene_name>/episode_NNNN/frames.jsonl`
+populated; `frame_*.jpg` files at 640×360.
 
-**Downstream fine-tune consumption**
+**Operator runs / agent verifies — VLM SFT + CLIP CSV**
 
-The old JSONL/CSV prep pipelines (`prepare_vlm_finetune_data.py`,
-`finetune_clip.py`, `dataset_export.py`) are retired — they consumed
-the pre-LeRobot frame layout that no capture path produces anymore.
-Downstream VLM / CLIP / VLA fine-tune briefs load the LeRobot v3
-dataset directly: native columns via the HF `LeRobotDataset` API,
-depth via `strafer_lab.tools.lerobot_depth`, detection labels via
-`strafer_lab.tools.lerobot_detections.read_detection_labels`, and the
-per-episode strafer extensions via
-`strafer_lab.tools.lerobot_writer.read_strafer_episodes`.
+```bash
+# DGX — single-object grounding + 1:3 negatives + ~20% multi-object +
+# ~10% description preservation. Output is the JSONL the VLM LoRA SFT
+# job consumes.
+$ISAACLAB -p source/strafer_lab/scripts/retired/prepare_vlm_finetune_data.py \
+    --frames data/sim_in_the_loop/<scene_name>/ \
+    --scene-metadata Assets/generated/scenes/<scene_name>/scene_metadata.json \
+    --output data/vlm_sft/<scene_name>/
+
+# DGX — CLIP contrastive fine-tune, exports clip_visual.onnx +
+# clip_text.onnx for the Jetson semantic map.
+$ISAACLAB -p source/strafer_lab/scripts/retired/finetune_clip.py \
+    --csv data/vlm_sft/<scene_name>/clip_pairs.csv \
+    --output models/clip_<scene_name>/
+```
+
+**Go/no-go**: `data/vlm_sft/<scene_name>/grounding.jsonl` has ≥ one
+example per object label in the scene; `models/clip_<scene_name>/`
+contains `clip_visual.onnx` + `clip_text.onnx`. The MLflow run
+records non-NaN contrastive loss decreasing across epochs.
 
 **Troubleshooting**
 
 | Symptom | Most likely cause | What to check |
 |---|---|---|
 | `extract_scene_metadata.py` reports `0 objects` | Blender export missing `semanticLabel` USD attrs | Pass `--label-from-prim-names`; re-export the scene via `prep_room_usds.py` if prim names lack semantic info. |
-| `meta/detection_labels.json` has an empty `labels[]` on a furnished scene | Scene prims lack the semantics the Replicator annotator filters on | Re-run `extract_scene_metadata.py` (it authors `semanticLabel` attrs); confirm with a Stage 5 single-mission run that detections columns carry `valid=True` rows. |
+| Bridge harness frames have `frame_*.jpg` at 1280×720, not 640×360 | `IsaacCreateRenderProduct` resolution not pinned | See [`bridge-runtime-invariants.md`](tasks/context/bridge-runtime-invariants.md#camera-resolutions-sim-mirrors-real) — the `inputs:width` / `inputs:height` must be set explicitly on the render product node. |
+| `prepare_vlm_finetune_data.py` complains about missing labels | `scene_metadata.json` and `frames.jsonl` disagree on label set | Re-run `extract_scene_metadata.py` then `generate_scenes_metadata.py` to refresh both per-scene + combined metadata. |
+| `finetune_clip.py` MLflow loss = NaN immediately | Inputs unnormalized or empty positive pairs | Inspect `clip_pairs.csv` — must have ≥ 32 unique (image, text) pairs per epoch. |
 
 ---
 

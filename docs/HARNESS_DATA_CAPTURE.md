@@ -262,7 +262,7 @@ Bridge-specific behavior and flags:
 |---|---|---|
 | `--sensors` | `bridge` preset (`rgb_full,depth_full,depth_policy`) | Per-session sensor stack; `rgb_full` + `depth_full` are mandatory (the Jetson navigates on the bridged camera streams) |
 | `--detections` / `--no-detections` | on | Replicator `bbox_2d_tight` detections as first-class `observation.detections.*` columns + `meta/detection_labels.json` |
-| `--inject-bad-grounding {off,wrong_room,wrong_instance}` | `off` | Hard-negative goal perturbation: the dispatched goal is swapped while the recorded mission text keeps naming the original target. Pair with `--inject-bad-grounding-prob` (default 0.3). Downstream filters must key off the per-episode `injection_mode_actual`, not `injection_mode` |
+| `--inject-bad-grounding {off,wrong_room,wrong_instance,wrong_object}` | `off` | Hard-negative goal perturbation: the dispatched goal is swapped while the recorded mission text keeps naming the original target. `wrong_room` = different room; `wrong_instance` = same label, same room; `wrong_object` = different label, same room (category confusion). The in-room modes fall back to `wrong_room` when their candidate is absent. Pair with `--inject-bad-grounding-prob` (default 0.3). Downstream filters must key off the per-episode `injection_mode_actual`, not `injection_mode` |
 | `--max-missions N` (pass-through) | all | Cap the mission stream — use `--max-missions 1` for a single-mission smoke |
 | `--cmd-vel-grace S` (pass-through) | 30 | Mid-drive `/cmd_vel` silence beyond this discards the episode (`outcome` never reaches disk; the index slot is reused) |
 | `--mission-timeout-s S` (pass-through) | 60 | Per-mission ceiling before the harness cancels (kept as `outcome=failed`) |

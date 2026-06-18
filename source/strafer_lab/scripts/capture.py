@@ -165,9 +165,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--inject-bad-grounding",
-        choices=("off", "wrong_room", "wrong_instance"),
+        choices=("off", "wrong_room", "wrong_instance", "wrong_object"),
         default="off",
-        help="Hard-negative injection mode (bridge / scripted only).",
+        help="Hard-negative injection mode (bridge / scripted only): "
+             "wrong_room (different room), wrong_instance (same label, same "
+             "room), wrong_object (different label, same room).",
     )
     parser.add_argument(
         "--inject-bad-grounding-prob",
@@ -337,10 +339,16 @@ def _dispatch(
     status = VALID_COMBINATIONS[cell]
 
     if status != "wired":
+        if cell == ("teleop", "queue"):
+            raise NotImplementedError(
+                "--driver teleop --mission-source queue is not wired yet: the "
+                "teleop driver reads targets from scene metadata, not a mission "
+                "queue, and the curated-queue producer it would consume has not "
+                "shipped. Use --mission-source scene-metadata for teleop today.",
+            )
         raise NotImplementedError(
             f"--driver {args.driver} --mission-source {args.mission_source} "
-            "is not implemented yet; this cell ships with its driver's "
-            "implementation.",
+            "is not implemented yet; this cell ships with the scripted driver.",
         )
 
     if args.driver == "teleop":

@@ -371,14 +371,10 @@ Jetson (bringup launch). Both sides must be up; the harness submits
 missions via ROS action to the Jetson and captures frames as they are
 executed.
 
-**Produces**: one LeRobot v3 dataset per scene under
-`data/sim_in_the_loop/<scene>/` — per-frame RGB video + 16UC1 depth
-PNG sidecars + normalized `/cmd_vel` actions + Replicator 2D
-detections columns, with mission / outcome / hard-negative labels in
-the per-episode metadata (one mission = one episode). Loaded via the
-HF `LeRobotDataset` API plus the strafer sidecar helpers in
-`strafer_lab.tools.lerobot_writer` / `lerobot_depth` /
-`lerobot_detections`.
+**Produces**: `data/sim_in_the_loop/<scene>/episode_NNNN/frames.jsonl`
+with mission / reachability / episode-outcome labels attached to each
+frame's metadata. Consumed by the same description and SFT-prep
+pipelines as Flow 4.
 
 ```mermaid
 flowchart TB
@@ -398,13 +394,13 @@ flowchart TB
         Ros2Ext["isaacsim.ros2.bridge<br/>extension"]
 
         Harness["SimInTheLoopHarness<br/>harness.py"]
-        MissionGen["MissionGenerator<br/>mission.py or mission_queue.yaml"]
+        MissionGen["MissionGenerator<br/>mission.py"]
         RuntimeEnv["runtime_env.py<br/>env adapter"]
         RuntimeMission["runtime_mission.py<br/>rclpy.ActionClient wrapper"]
-        Recorder["BridgeLeRobotRecorder<br/>lerobot_recorder.py"]
-        Writer["StraferLeRobotWriter"]
+        Extras["extras.py<br/>reachability + mission metadata"]
+        Writer["PerceptionFrameWriter"]
 
-        Dataset[("data/sim_in_the_loop/&lt;scene&gt;/<br/>LeRobot v3: parquet + MP4 +<br/>depth PNG sidecars + detections")]
+        Dataset[("data/sim_in_the_loop/<br/>&lt;scene&gt;/episode_NNNN/<br/>frames.jsonl + frame_*.jpg")]
     end
 
     subgraph Jetson["Jetson Orin Nano"]
@@ -429,7 +425,7 @@ flowchart TB
         VLM["strafer_vlm service<br/>POST /ground /describe /detect_objects"]
     end
 
-    DGXOp -->|bash $ isaaclab -p scripts/capture.py<br/>--driver bridge --mission-source scene-metadata<br/>--scene kitchen_01 --output data/sim_in_the_loop/kitchen_01| RunSIL
+    DGXOp -->|bash $ isaaclab -p scripts/run_sim_in_the_loop.py<br/>--mode harness --scene-metadata ... --scene-usd ...<br/>--output data/sim_in_the_loop/kitchen_01| RunSIL
     JetsonOp -->|bash $ ros2 launch strafer_bringup<br/>bringup_sim_in_the_loop.launch.py| Bringup
 
     RunSIL --> AppLauncher
@@ -460,9 +456,9 @@ flowchart TB
     Ros2Ext -.->|drive sim action| Env
 
     Harness --> RuntimeEnv
-    RuntimeEnv -.->|per-frame RGB / depth / pose /<br/>cmd_vel action / detections| Recorder
-    RuntimeMission -.->|mission outcome| Recorder
-    Recorder --> Writer
+    RuntimeEnv -.->|per-frame RGB / depth / pose| Extras
+    RuntimeMission -.->|mission outcome| Extras
+    Extras --> Writer
     Writer --> Dataset
 
     click RunSIL "../source/strafer_lab/scripts/run_sim_in_the_loop.py" "SIL launcher"
@@ -472,8 +468,8 @@ flowchart TB
     click MissionGen "../source/strafer_lab/strafer_lab/sim_in_the_loop/mission.py" "Mission generator"
     click RuntimeEnv "../source/strafer_lab/strafer_lab/sim_in_the_loop/runtime_env.py" "Env adapter"
     click RuntimeMission "../source/strafer_lab/strafer_lab/sim_in_the_loop/runtime_mission.py" "ROS action adapter"
-    click Recorder "../source/strafer_lab/strafer_lab/sim_in_the_loop/lerobot_recorder.py" "Episode recorder"
-    click Writer "../source/strafer_lab/strafer_lab/tools/lerobot_writer.py" "LeRobot v3 writer"
+    click Extras "../source/strafer_lab/strafer_lab/sim_in_the_loop/extras.py" "Reachability + mission metadata"
+    click Writer "../source/strafer_lab/strafer_lab/tools/perception_writer.py" "Frame writer (shared with Flow 4)"
     click Bringup "../source/strafer_ros/strafer_bringup/launch/bringup_sim_in_the_loop.launch.py" "Jetson-side SIL bringup"
     click Executor "../source/strafer_autonomy/strafer_autonomy/executor/main.py" "Autonomy executor entry"
     click Runner "../source/strafer_autonomy/strafer_autonomy/executor/mission_runner.py" "Mission runner"

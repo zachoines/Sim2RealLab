@@ -46,6 +46,28 @@ from typing import Any, Iterable, Mapping
 
 UNKNOWN_LABEL = "unknown"
 
+# The structured-array field names + order the ``bounding_box_2d_tight``
+# annotator emits, in column order. Verified against the live Isaac Sim
+# 6.0.0 annotator output and its ``data_visualization_writer`` schema.
+# ``parse_bbox_data`` reads fields by name with a positional fallback, so a
+# silent rename or reorder in a future Isaac Sim would corrupt the
+# detections columns rather than error — this tuple is the guard that turns
+# that into a loud failure (see :class:`BboxSchemaError`).
+BBOX_2D_TIGHT_FIELDS: tuple[str, ...] = (
+    "semanticId", "x_min", "y_min", "x_max", "y_max", "occlusionRatio",
+)
+
+
+class BboxSchemaError(RuntimeError):
+    """Raised when an annotator's structured-array schema drifts.
+
+    The detections producer relies on :data:`BBOX_2D_TIGHT_FIELDS`; if the
+    installed Isaac Sim ships a renamed / reordered ``bounding_box_2d_tight``
+    schema, parsing it silently would write mislabelled boxes into the
+    dataset's ``observation.detections.*`` columns. Failing here forces a
+    deliberate schema review instead.
+    """
+
 
 @dataclass(frozen=True)
 class DetectedBbox:
@@ -179,10 +201,14 @@ def parse_bbox_data(
             },
         }
 
-    Row fields (in order, from Isaac Sim 5.1's
-    ``data_visualization_writer.py`` schema comment):
+    Row fields, in column order (verified against the live Isaac Sim 6.0.0
+    ``bounding_box_2d_tight`` annotator — see :data:`BBOX_2D_TIGHT_FIELDS`):
     ``semanticId (uint32)``, ``x_min (int32)``, ``y_min (int32)``,
     ``x_max (int32)``, ``y_max (int32)``, ``occlusionRatio (float32)``.
+    Real annotator output (a numpy structured array) has its schema checked
+    against that tuple; a mismatch raises :class:`BboxSchemaError` rather
+    than reading the wrong columns by positional fallback. Test fixtures
+    (lists of dicts / tuples, no ``dtype``) skip the check.
 
     Parameters
     ----------
@@ -203,6 +229,20 @@ def parse_bbox_data(
     data = raw.get("data")
     if data is None:
         return []
+
+    # Guard against a silent annotator-schema drift across Isaac Sim
+    # versions. Real annotator output is a numpy structured array carrying
+    # ``dtype.names``; test fixtures (lists of dicts / tuples) have no
+    # ``dtype`` and skip the check.
+    field_names = getattr(getattr(data, "dtype", None), "names", None)
+    if field_names is not None and tuple(field_names) != BBOX_2D_TIGHT_FIELDS:
+        raise BboxSchemaError(
+            "bounding_box_2d_tight annotator schema changed: expected fields "
+            f"{BBOX_2D_TIGHT_FIELDS}, got {tuple(field_names)}. parse_bbox_data "
+            "reads these by name with a positional fallback, so a reorder or "
+            "rename would corrupt observation.detections.*; review the schema "
+            "and update BBOX_2D_TIGHT_FIELDS (+ the field reads) deliberately.",
+        )
 
     info = raw.get("info") or {}
     id_to_labels = info.get("idToLabels")

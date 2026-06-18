@@ -254,13 +254,12 @@ class TestPendingCellsRaise:
     @pytest.mark.parametrize(
         "driver,mission_source",
         [
-            ("teleop", "queue"),
             ("scripted", "queue"),
             ("scripted", "captioner"),
             ("scripted", "coverage"),
         ],
     )
-    def test_pending_cell_raises_notimplemented(self, driver, mission_source):
+    def test_scripted_cells_raise_notimplemented(self, driver, mission_source):
         # Queue cells need --mission-queue to pass validation, so build
         # args accordingly.
         extra = {}
@@ -268,6 +267,13 @@ class TestPendingCellsRaise:
             extra["mission_queue"] = "/tmp/q.yaml"
         with pytest.raises(NotImplementedError, match="not implemented yet"):
             capture.main(_base_args(driver, mission_source, **extra))
+
+    def test_teleop_queue_names_its_functional_gate(self):
+        # teleop x queue is pending for a specific reason: the teleop driver
+        # reads scene metadata, not a queue, and the queue producer is
+        # unshipped. The message must say so without naming a brief/tier.
+        with pytest.raises(NotImplementedError, match="reads targets from scene"):
+            capture.main(_base_args("teleop", "queue", mission_queue="/tmp/q.yaml"))
 
 
 class TestInvalidCombinations:

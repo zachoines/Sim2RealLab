@@ -6,13 +6,18 @@ object while the recorded ``mission_text`` keeps naming the original
 target. The resulting episode is a *grounding* hard negative — the
 language says one thing, the trajectory does another.
 
-Modes:
+Modes (all swap the physical goal; the recorded ``mission_text`` keeps
+naming the original target):
 
 - ``wrong_room``: the goal moves to a randomly-selected object in a
   different room.
 - ``wrong_instance``: the goal moves to another same-label object in
   the same room; falls back to ``wrong_room`` when the target has no
   same-label sibling there.
+- ``wrong_object``: the goal moves to a different-label object in the
+  same room (category confusion, e.g. "go to the chair" → drive to the
+  sofa); falls back to ``wrong_room`` when the room has no other-label
+  object.
 
 The plan distinguishes the *requested* mode from the *actual* mode
 after fallback. When no candidate exists at all (single-room scene,
@@ -35,7 +40,16 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 
-INJECTION_MODES = ("wrong_room", "wrong_instance")
+INJECTION_MODES = ("wrong_room", "wrong_instance", "wrong_object")
+
+# Centroid radius (metres) within which a same-label object is treated as
+# "the original target itself" and excluded from the candidate pool. Only
+# consulted when the mission carries no instance id to exclude by (queue
+# rows don't). This is NOT the same threshold as
+# ``resolve_target_room_idx``'s ``match_radius_m`` (1.0 m): that one matches
+# a labelled-and-positioned target to its nearest scene object to recover a
+# room index, a looser association; this one is a tight self-identity guard.
+_SAME_OBJECT_RADIUS_M = 0.25
 
 
 @dataclass(frozen=True)
@@ -142,6 +156,7 @@ def plan_injection(
 
     normalized_target = _normalize(target_label)
     same_room_siblings: list[tuple[str, int, tuple[float, float, float]]] = []
+    same_room_diff_label: list[tuple[str, int, tuple[float, float, float]]] = []
     other_room: list[tuple[str, int, tuple[float, float, float]]] = []
     for obj in objects:
         label, instance_id, position, room_idx = _object_fields(obj)
@@ -151,15 +166,15 @@ def plan_injection(
         # by proximity otherwise (queue rows carry no instance id).
         if _normalize(label) == normalized_target and (
             instance_id == int(target_instance_id)
-            or math.hypot(position[0] - original[0], position[1] - original[1]) < 0.25
+            or math.hypot(position[0] - original[0], position[1] - original[1])
+            < _SAME_OBJECT_RADIUS_M
         ):
             continue
-        if (
-            target_room_idx is not None
-            and room_idx == target_room_idx
-            and _normalize(label) == normalized_target
-        ):
+        same_room = target_room_idx is not None and room_idx == target_room_idx
+        if same_room and _normalize(label) == normalized_target:
             same_room_siblings.append((label, instance_id, position))
+        elif same_room and _normalize(label) != normalized_target:
+            same_room_diff_label.append((label, instance_id, position))
         elif (
             room_idx is not None
             and target_room_idx is not None
@@ -167,9 +182,17 @@ def plan_injection(
         ):
             other_room.append((label, instance_id, position))
 
+    # Per-mode candidate pool, each with a wrong_room fallback (a
+    # different-room object is always a coherent grounding negative when the
+    # requested in-room candidate doesn't exist).
     actual = mode
-    candidates = same_room_siblings if mode == "wrong_instance" else other_room
-    if mode == "wrong_instance" and not candidates:
+    if mode == "wrong_instance":
+        candidates = same_room_siblings
+    elif mode == "wrong_object":
+        candidates = same_room_diff_label
+    else:  # wrong_room
+        candidates = other_room
+    if mode in ("wrong_instance", "wrong_object") and not candidates:
         actual = "wrong_room"
         candidates = other_room
     if not candidates:

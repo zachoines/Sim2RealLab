@@ -69,6 +69,14 @@ from isaaclab.app import AppLauncher
 from strafer_shared.constants import MAX_ANGULAR_VEL, MAX_LINEAR_VEL
 
 
+# Consecutive whole-mission crashes in harness mode before the run aborts
+# rather than burning the remaining queue against a dead executor. Not a
+# CLI knob: it's a circuit-breaker for an unrecoverable peer, not a tuning
+# parameter — a single executor crash should not abort, three in a row is
+# a downed-stack signal.
+_MAX_CONSECUTIVE_MISSION_FAILURES = 3
+
+
 def _clamp_unit(value: float) -> float:
     """Clamp ``value`` to ``[-1, 1]`` (the action term's normalized contract)."""
     return max(-1.0, min(1.0, value))
@@ -213,14 +221,16 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--inject-bad-grounding",
-        choices=("off", "wrong_room", "wrong_instance"),
+        choices=("off", "wrong_room", "wrong_instance", "wrong_object"),
         default="off",
         help="Harness mode: hard-negative goal perturbation. With "
              "--inject-bad-grounding-prob, a mission's dispatched goal is "
              "swapped to a wrong object while the recorded mission text "
-             "keeps naming the original target. Per-episode metadata "
-             "records requested vs actual mode; downstream filters must "
-             "key off the actual mode.",
+             "keeps naming the original target. Modes: wrong_room (different "
+             "room), wrong_instance (same label, same room), wrong_object "
+             "(different label, same room). Per-episode metadata records "
+             "requested vs actual mode; downstream filters must key off the "
+             "actual mode.",
     )
     parser.add_argument(
         "--inject-bad-grounding-prob",
@@ -859,6 +869,21 @@ def _build_harness_missions(args, scene_name: str, scene_objects: list) -> list:
             target_room_idx=room_idx,
             objects=scene_objects,
         )
+        # Four distinct text axes, easy to conflate:
+        #   - mission_text: the RECORDED language. Always names the ORIGINAL
+        #     target, even under injection — that mismatch against where the
+        #     robot actually drove is the whole point of a grounding negative.
+        #   - dispatch_command: what the EXECUTOR is told to drive to. When
+        #     injected we hand it a simplified "go to the {label}" imperative
+        #     so it reliably grounds the *wrong* goal; honest missions pass
+        #     spec.raw_command through unchanged.
+        #   - spec.raw_command: the original rich natural-language mission.
+        #   - paraphrases: augmentations of the recorded text — a separate
+        #     axis, not a substitute for any of the above.
+        # Mild confound to be aware of downstream: injected episodes dispatch
+        # the simplified imperative while honest ones dispatch the richer
+        # raw_command, so dispatch phrasing is not i.i.d. across the two
+        # classes. The recorded mission_text is not affected.
         dispatch_command = (
             f"go to the {plan.target_label.strip().lower()}"
             if plan.injected else spec.raw_command
@@ -1048,10 +1073,11 @@ def _run_harness_mode(simulation_app, env, args, config, cameras_required) -> No
                         f"({type(exc).__name__}: {exc}); episode discarded "
                         f"({consecutive_failures} consecutive failure(s))"
                     )
-                    if consecutive_failures >= 3:
+                    if consecutive_failures >= _MAX_CONSECUTIVE_MISSION_FAILURES:
                         print(
-                            "[sim_in_the_loop] 3 consecutive mission failures — "
-                            "executor looks down; aborting run"
+                            f"[sim_in_the_loop] {_MAX_CONSECUTIVE_MISSION_FAILURES} "
+                            "consecutive mission failures — executor looks down; "
+                            "aborting run"
                         )
                         break
                     continue

@@ -471,3 +471,72 @@ class TestResolveRenderProductPath:
 
         with pytest.raises(RuntimeError, match="render-product"):
             resolve_render_product_path(Cam())
+
+
+class TestBboxSchemaGuard:
+    """parse_bbox_data fails loudly when the structured-array schema drifts.
+
+    BBOX_2D_TIGHT_FIELDS was verified against the live Isaac Sim 6.0.0
+    annotator; this guard is what surfaces a future Isaac Sim schema bump
+    immediately instead of silently corrupting observation.detections.*.
+    """
+
+    def _structured(self, names):
+        import numpy as np
+
+        dtype = np.dtype([(n, "<i4") for n in names])
+        return {"data": np.zeros((0,), dtype=dtype), "info": {"idToLabels": {}}}
+
+    def test_expected_schema_matches_installed_isaac_sim(self):
+        from strafer_lab.tools.bbox_extractor import BBOX_2D_TIGHT_FIELDS
+
+        # Frozen against the live Isaac Sim 6.0.0 annotator dtype.names
+        # (introspected from bounding_box_2d_tight on the perception camera).
+        assert BBOX_2D_TIGHT_FIELDS == (
+            "semanticId", "x_min", "y_min", "x_max", "y_max", "occlusionRatio",
+        )
+
+    def test_correct_structured_schema_parses(self):
+        from strafer_lab.tools.bbox_extractor import BBOX_2D_TIGHT_FIELDS
+
+        # An empty structured array with the right dtype must parse cleanly.
+        assert parse_bbox_data(self._structured(BBOX_2D_TIGHT_FIELDS)) == []
+
+    def test_renamed_field_raises(self):
+        from strafer_lab.tools.bbox_extractor import BboxSchemaError
+
+        bad = self._structured(
+            ("semantic_id", "x_min", "y_min", "x_max", "y_max", "occlusionRatio"),
+        )
+        with pytest.raises(BboxSchemaError, match="schema changed"):
+            parse_bbox_data(bad)
+
+    def test_reordered_fields_raise(self):
+        from strafer_lab.tools.bbox_extractor import BboxSchemaError
+
+        bad = self._structured(
+            ("x_min", "semanticId", "y_min", "x_max", "y_max", "occlusionRatio"),
+        )
+        with pytest.raises(BboxSchemaError, match="schema changed"):
+            parse_bbox_data(bad)
+
+    def test_added_trailing_field_raises(self):
+        from strafer_lab.tools.bbox_extractor import BboxSchemaError
+
+        bad = self._structured(
+            ("semanticId", "x_min", "y_min", "x_max", "y_max", "occlusionRatio", "extra"),
+        )
+        with pytest.raises(BboxSchemaError, match="schema changed"):
+            parse_bbox_data(bad)
+
+    def test_list_of_dicts_fixture_skips_guard(self):
+        # Test fixtures carry no dtype, so the guard never trips on them.
+        raw = {
+            "data": [{
+                "semanticId": 3, "x_min": 1, "y_min": 1, "x_max": 5, "y_max": 5,
+                "occlusionRatio": 0.0,
+            }],
+            "info": {"idToLabels": {"3": {"class": "chair"}}},
+        }
+        out = parse_bbox_data(raw)
+        assert [b.label for b in out] == ["chair"]

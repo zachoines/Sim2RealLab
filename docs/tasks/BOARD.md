@@ -28,6 +28,7 @@ that ships them; see "Shipping a brief: order of operations" in
 |---|---|---|---|
 | [`harness-architecture`](active/harness/harness-architecture.md) Tier 1 acceptance run | DGX | post-merge follow-up (PR #63 merged 2026-05-26) | pending operator capture; gated on [`teleop-perf-architecture`](completed/teleop-perf-architecture.md) (shipped 2026-06-01; loop is PhysX-bound, ~10 FPS not the ≥15 target, so a ≥30 ep × ≥2 scene run is faster but still not one-evening). Tier 1 ✓ on harness-architecture.md stays unchecked until artifact lands at `docs/artifacts/teleop_acceptance/<run_id>/`. |
 | [`harness-architecture`](active/harness/harness-architecture.md) Tier 2 — bridge driver migration | DGX | [#88](https://github.com/zachoines/Sim2RealLab/pull/88) | ready for review. Bridge `--mode harness` → LeRobot v3 writer; both `capture.py` bridge cells wired (queue cell against a hand-authored fixture — mission-generator unshipped); `--inject-bad-grounding` + detections columns. Unit suites + Jetson-free Kit smoke green; the multi-room end-to-end acceptance is operator-run per the PR test plan. Brief stays active until Tier 3 ships. |
+| [`scene-metadata-in-usd`](completed/scene-metadata-in-usd.md) | DGX | [#90](https://github.com/zachoines/Sim2RealLab/pull/90) | ready for review. Scene metadata → USD `customData` (clean break, no sidecar) + `UsdSemantics` detection labels (non-structural only); consumers cut over, `scene_paths` shrunk, `prep_room_usds generate` chains the embed+label pass. Pure + pxr-gated suites green; corpus regen + `make harness-smoke REQUIRE_DETECTIONS=1` are operator Kit gates (PR test plan). Brief shipped to `completed/` in-PR; drop this row on merge. |
 
 ---
 
@@ -89,7 +90,6 @@ Path-planning consumers here (`mission-generator`'s oracle + waypoint validation
 | [`infinigen-scene-corpus`](active/harness/infinigen-scene-corpus.md) | P1 | active | DGX |
 | [`mission-generator`](active/harness/mission-generator.md) | P2 | active | DGX |
 | [`mission-text-enrichment`](parked/harness/mission-text-enrichment.md) | P2 | parked (unblocked — `scene-provider-contract` shipped) | DGX |
-| [`scene-metadata-in-usd`](active/harness/scene-metadata-in-usd.md) | P2 | active | DGX |
 | [`harness-throughput-measurement`](parked/harness/harness-throughput-measurement.md) | P2 | parked | DGX |
 | [`scene-provider-floor-sampler-cli`](parked/harness/scene-provider-floor-sampler-cli.md) | P3 | parked (filed-on-trigger) | DGX |
 | [`cosmos-replay-perturbation`](parked/harness/cosmos-replay-perturbation.md) | P3 | parked | DGX |
@@ -201,7 +201,6 @@ session. Parked briefs are not listed here — see **By epic** or
 | Brief | Estimate | Note |
 |---|---|---|
 | [`isaac-sim-rt-2-default-renderer`](active/sim-performance/isaac-sim-rt-2-default-renderer.md) | S | Flip default renderer to Real-Time 2.0 + 4× FPS multiplier + Performance mode; re-measure bridge perf |
-| [`scene-metadata-in-usd`](active/harness/scene-metadata-in-usd.md) | M | Move scene metadata sidecar → USD `customData` **and** author it at USD-creation time so `prep_room_usds generate` yields a capture-ready scene (no manual `extract_scene_metadata` step — the gap that broke teleop capture on a fresh scene). Unblocked. Harness-coordinated; schema unchanged (multi-room / clip-validation depend on it). |
 | [`bridge-scene-memory-budget-gb10`](active/sim-performance/bridge-scene-memory-budget-gb10.md) | M | Bridge/harness OOM on the GB10: `StraferNavCfg_BridgeAutonomy` loads the `sorted()`-first scene — currently a 29 GB `high_quality_dgx` room (1024-px tex / 5 rooms) — into the unified 121 GB pool → NVRM OOM-kill during render init. Add a deterministic scene-selection knob + a GB10 texture/room budget (or downscale-on-ingest); confirm the torch sm_121 build. `fast_singleroom` light-scene workaround exists. |
 | [`planner-rotate-direction-prompt`](active/reliability/planner-rotate-direction-prompt.md) | S | Quick win — prompt edit |
 | [`goal-noise-training`](active/trained-policy/goal-noise-training.md) | M | Targeted DEPTH-baseline training pass with goal-position noise; gates VLM-grounded mission quality for `strafer_direct` |

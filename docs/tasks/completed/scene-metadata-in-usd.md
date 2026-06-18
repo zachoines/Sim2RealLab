@@ -1,5 +1,8 @@
 # Move scene metadata inside the USD (drop the sidecar)
 
+**Status:** Shipped 2026-06-18 in `37147f7` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/90
+
 **Type:** refactor (scene-metadata authoring + consumers)
 **Owner:** DGX (harness epic)
 **Priority:** P2 — quality-of-life + correctness improvement; not gating any current acceptance bar.

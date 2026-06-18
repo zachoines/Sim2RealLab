@@ -80,6 +80,8 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 
 Five briefs (`behavior-cloning-data-expansion`, `teleop-driver`, `trajectory-first-captioning`, `oracle-driver`, `output-format-alignment`) were consolidated 2026-05-24 into [`harness-architecture`](active/harness/harness-architecture.md). The originals live in [`completed/`](completed/) with retired-not-shipped stamps.
 
+Path-planning consumers here (`mission-generator`'s oracle + waypoint validation, `grounding-negative-taxonomy`'s violation paths) build on the one shared planner — see [`context/path-planning-architecture.md`](context/path-planning-architecture.md) (`subgoal-env`'s grid A* core + per-scene occupancy-grid adapters).
+
 | Brief | Pri | State | Owner |
 |---|---|---|---|
 | [`harness-architecture`](active/harness/harness-architecture.md) | P1 | active (architecture doc; ships across PRs B/C/D) | DGX |
@@ -91,6 +93,8 @@ Five briefs (`behavior-cloning-data-expansion`, `teleop-driver`, `trajectory-fir
 | [`scene-provider-floor-sampler-cli`](parked/harness/scene-provider-floor-sampler-cli.md) | P3 | parked (filed-on-trigger) | DGX |
 | [`cosmos-replay-perturbation`](parked/harness/cosmos-replay-perturbation.md) | P3 | parked | DGX |
 | [`depth-ffv1-video-column`](parked/harness/depth-ffv1-video-column.md) | P2 | parked (sequenced after the R1 `observation.detections.*` column; spike-gated) | DGX |
+| [`harness-mode-modularization`](parked/harness/harness-mode-modularization.md) | P3 | parked (after Tier 2 bridge driver #88 lands) | DGX |
+| [`grounding-negative-taxonomy`](parked/harness/grounding-negative-taxonomy.md) | P2 | parked (after `mission-generator` ships path-shape missions) | DGX |
 
 ### CLIP mid-mission validation
 
@@ -147,6 +151,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`script-tool-subsystem-grouping`](active/tooling/script-tool-subsystem-grouping.md) | P3 | active | DGX |
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | P2 | active | DGX |
 | [`jetson-test-gate-cross-lane-deps`](active/tooling/jetson-test-gate-cross-lane-deps.md) | P3 | active | Either |
+| [`archive-interim-architecture-docs`](active/tooling/archive-interim-architecture-docs.md) | P3 | active | DGX |
 | [`tools-package-reorg`](parked/tooling/tools-package-reorg.md) | P3 | parked (land when no large `tools/`-touching PR is in flight — after the R1 detections column + `depth-ffv1-video-column` settle) | DGX |
 
 ### Experimental (long-horizon bets)

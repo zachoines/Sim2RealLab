@@ -42,31 +42,34 @@ make test-lab-pure
 
 ## Infinigen scene corpus
 
-The mission picker reads `Assets/generated/scenes/<scene>/scene_metadata.json`.
-A scene's USDC export and its metadata sidecar are siblings inside the
-scene directory; `prep_room_usds.py` authors both.
+The mission picker reads the per-scene metadata **embedded in the scene
+USD's `customData`** (key `strafer_scene_metadata`) — there is no sidecar
+file. `prep_room_usds.py generate` authors it into the USD at
+generation time, so the metadata can never be paired with a stale or
+missing file; the reader hard-errors on a USD that carries none.
 
 **Infinigen is one provider, not the only one.** The teleop harness
-consumes three artifacts (`scene_metadata.json`, a `<scene>.usdc`, the
-combined `scenes_metadata.json`) and never imports Infinigen at runtime.
-See [`SCENE_PROVIDER_CONTRACT.md`](SCENE_PROVIDER_CONTRACT.md) for the
-general interface — the field-by-field schemas, the postprocess CLI
-override surface, and the adapter-writer's checklist for bringing in a
-second source (downloaded packs, hand-authored maps, ProcTHOR /
-Habitat / Cosmos exports). The contract was written to accommodate two
-in-flight consumers without re-shipping:
+consumes the per-scene metadata embedded in `<scene>.usdc` plus the
+combined `scenes_metadata.json` manifest, and never imports Infinigen at
+runtime. See [`SCENE_PROVIDER_CONTRACT.md`](SCENE_PROVIDER_CONTRACT.md)
+for the general interface — the field-by-field schemas, the postprocess
+CLI override surface, and the adapter-writer's checklist for bringing in
+a second source (downloaded packs, hand-authored maps, ProcTHOR /
+Habitat / Cosmos exports). The contract accommodates the next consumer,
 [`mission-text-enrichment`](tasks/parked/harness/mission-text-enrichment.md)
 (reserves the `objects[].descriptors` namespace + a populated `rooms[]`
-block) and
-[`scene-metadata-in-usd`](tasks/active/harness/scene-metadata-in-usd.md)
-(the same contract with a USD `customData` storage backend).
+block), without re-shipping; the
+[`scene-metadata-in-usd`](tasks/completed/scene-metadata-in-usd.md) move
+to `customData` is the same contract with a different storage backend.
 
 ### Clean-slate scene regeneration
 
 When the picker offers objects that aren't actually present in the
 loaded scene (e.g. selecting a "bed" places the target marker into
-mid-air), the per-scene `scene_metadata.json` is stale relative to the
-USDC. Regenerate from a clean slate:
+mid-air) — which now requires an un-regenerated scene, since fresh
+scenes embed their metadata at generation — regenerate from a clean
+slate. `generate` chains the metadata + detection-label authoring, so
+the only separate step is the combined manifest:
 
 ```bash
 cd ~/Workspace/Sim2RealLab
@@ -74,7 +77,9 @@ cd ~/Workspace/Sim2RealLab
 # 1. Archive the existing scenes/ tree (don't delete — easy rollback)
 mv Assets/generated/scenes Assets/generated/scenes.old.$(date +%Y%m%d)
 
-# 2. Regenerate one high-quality scene from a fresh seed
+# 2. Regenerate one high-quality scene from a fresh seed. This embeds the
+#    per-scene metadata + UsdSemantics detection labels into the USD.
+#    Needs $ISAACLAB set (the metadata pass uses the Kit-only schema).
 python source/strafer_lab/scripts/prep_room_usds.py generate \
     --config high_quality_dgx \
     --num-scenes 1 \
@@ -83,22 +88,17 @@ python source/strafer_lab/scripts/prep_room_usds.py generate \
 # spawns parallel workers for mesh ops, but the constraint solver loop
 # is GIL-bound). Run two seeds in parallel on multi-core hosts.
 
-# 3. Extract per-scene metadata (objects[])
-SCENE=$(ls -d Assets/generated/scenes/scene_*/ | head -1 | xargs basename)
-$ISAACLAB -p source/strafer_lab/scripts/extract_scene_metadata.py \
-    --from-usd \
-    --usd    Assets/generated/scenes/${SCENE}.usdc \
-    --output Assets/generated/scenes/${SCENE}
-
-# 4. Author the combined scenes_metadata.json (spawn_points_xy + floor_top_z)
+# 3. Author the combined scenes_metadata.json (spawn_points_xy + floor_top_z)
+SCENE=$(ls Assets/generated/scenes/scene_*.usdc | head -1 | xargs basename | sed 's/\.usdc$//')
 python source/strafer_lab/scripts/generate_scenes_metadata.py \
     --scenes-dir Assets/generated/scenes
 
-# 5. Sanity check
-python -c "
-import json
-d = json.load(open(f'Assets/generated/scenes/${SCENE}/scene_metadata.json'))
+# 4. Sanity check (reads the metadata back from the USD customData)
+$ISAACLAB -p -c "
+from strafer_lab.tools.scene_metadata_reader import load
+d = load('Assets/generated/scenes/${SCENE}.usdc')
 print(f'rooms={len(d.get(\"rooms\",[]))}  objects={len(d.get(\"objects\",[]))}')
+import json
 c = json.load(open('Assets/generated/scenes/scenes_metadata.json'))
 print(f'scenes_metadata entries: {sorted(c[\"scenes\"].keys())}')"
 ```
@@ -112,23 +112,23 @@ If the picker still offers "missing" objects after this clean-slate,
 the issue is in `extract_scene_metadata.py --from-usd`'s prim-name
 parser, not the teleop driver.
 
-### Extract scene_metadata.json (one-time per existing scene)
+### Re-author embedded metadata (one-time per existing scene)
 
-If you have only the `.usdc` (no Blender / in-process Infinigen
-`State`), parse it from prim names:
+A scene generated before metadata-in-USD landed (or any bare `.usdc`)
+carries no `customData`. Re-author it from the USD's prim names — this
+embeds the metadata + applies the `UsdSemantics` detection labels:
 
 ```bash
 SCENE=scene_high_quality_dgx_000_seed1
 
 $ISAACLAB -p source/strafer_lab/scripts/extract_scene_metadata.py \
     --from-usd \
-    --usd    Assets/generated/scenes/${SCENE}.usdc \
-    --output Assets/generated/scenes/${SCENE}
+    --usd Assets/generated/scenes/${SCENE}.usdc
 
-# Sanity check — should be non-empty
-python -c "
-import json
-d = json.load(open('Assets/generated/scenes/${SCENE}/scene_metadata.json'))
+# Sanity check — should be non-empty (reads back from customData)
+$ISAACLAB -p -c "
+from strafer_lab.tools.scene_metadata_reader import load
+d = load('Assets/generated/scenes/${SCENE}.usdc')
 print(f'rooms={len(d.get(\"rooms\",[]))}  objects={len(d.get(\"objects\",[]))}')
 for o in d['objects'][:10]:
     print(' -', o.get('label'), o.get('instance_id'))
@@ -220,7 +220,7 @@ picker (numeric index; Ctrl-D quits cleanly).
 | `--operator-handle <name>` | none | Stamped on every episode for multi-operator runs |
 | `--target-label-filter chair table` | none | Narrow the picker list |
 | `--max-steps-per-episode 1500` | 1500 | Auto-close cap (logs `outcome=failed`) |
-| `--scene-usd <path>` | (env default) | Override the scene USD. The driver re-derives `--scene-metadata` from the USD's sibling `scene_metadata.json` so target labels match the geometry |
+| `--scene-usd <path>` | (env default) | Override the scene USD. The driver reads the mission targets from that USD's embedded `customData`, so target labels always match the geometry |
 | `--viz kit,rerun` | `kit` (forced) | AppLauncher pass-through. The driver forces `--viz kit` if you don't pass one — the editor viewport is required for teleop |
 | `--device cpu` | `cuda:0` | AppLauncher pass-through |
 
@@ -240,7 +240,7 @@ the executor, and the VLM/planner services).
 RUN_ID=$(date +%Y%m%dT%H%M%S)
 OUT=data/sim_in_the_loop/${SCENE}_bridge_${RUN_ID}
 
-# Walk every scene_metadata.json target (one mission = one episode)
+# Walk every embedded scene target (one mission = one episode)
 $ISAACLAB -p source/strafer_lab/scripts/capture.py \
     --driver bridge --mission-source scene-metadata \
     --scene  ${SCENE} \
@@ -293,21 +293,18 @@ that the `observation.detections.*` columns are present. It does **not**
 bring up the ROS publishers or a live executor — that's the operator
 acceptance run above.
 
-**Detection-vocab caveat (known scene-authoring gap):** the smoke reports
-the detection vocab but treats an empty one as a **warning, not a
-failure** by default (`--require-detections` / `REQUIRE_DETECTIONS=1`
-makes it hard). On `scene_fast_singleroom_000_seed0` the vocab is empty,
-and the cause is verified: `extract_scene_metadata` stamps a custom
-`semanticLabel` string attribute on the object prims (what it reads back
-to build `scene_metadata.json`), but it never applies the USD `Semantics`
-schema (`semanticType=class` / `semanticData`) that the Replicator
-`bounding_box_2d_tight` annotator boxes on. So the annotator finds nothing
-to box even with furniture in frame. The capture path — annotator wiring,
-`parse_bbox_data`, the padded `observation.detections.*` columns, and the
-dataset round-trip — is exercised and verified regardless; **populated
-boxes depend on a scene-prep change** (authoring `Semantics` from the
-existing `semanticLabel`), tracked separately. Flip `--require-detections`
-on once captures run against a `Semantics`-authored scene.
+**Detection vocab:** the smoke reports the detection vocab and, with
+`--require-detections` / `REQUIRE_DETECTIONS=1`, treats an empty one as a
+hard failure. A scene regenerated through `prep_room_usds generate` (or
+re-authored via `extract_scene_metadata --from-usd`) carries the
+`UsdSemantics.LabelsAPI` (`"class"`) labels the Replicator
+`bounding_box_2d_tight` annotator boxes on, so the vocab is non-empty.
+Run `make harness-smoke REQUIRE_DETECTIONS=1` on a regenerated scene as
+the detections gate. An empty vocab now means the scene predates the
+metadata-in-USD authoring (re-author it) or the spawn faced empty space;
+the capture path — annotator wiring, `parse_bbox_data`, the padded
+`observation.detections.*` columns, and the dataset round-trip — is
+exercised regardless.
 
 ---
 
@@ -352,7 +349,7 @@ and `--max-steps-per-episode`, and commit a summary under
 | Symptom | Most likely cause | What to check |
 |---|---|---|
 | `ModuleNotFoundError: No module named 'lerobot'` | The Isaac Lab env doesn't have lerobot yet | Run the one-time env setup above |
-| `scene_metadata.json not found` | Scene hasn't been extracted | Run the extraction step above |
+| `SceneMetadataError: ... carries no embedded scene metadata` | The scene USD predates metadata-in-USD (no `customData`) | Regenerate via `prep_room_usds generate`, or re-author with `extract_scene_metadata --from-usd` (above) |
 | `--output already exists` | `LeRobotDataset.create` refuses to overwrite; bash variables persist across runs in the same shell, so a stale `$OUT` is the usual culprit | Re-stamp `$RUN_ID`/`$OUT` per run, or rely on the driver's auto-suffix fallback |
 | `No gamepad detected` | pygame can't find the joystick | `jstest /dev/input/js0` to confirm the kernel sees it |
 | Wrong button does the wrong thing | Controller-family auto-detect picked wrong | Add `--family-override ps5` (or `xbox` / `switch`) |

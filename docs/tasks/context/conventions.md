@@ -125,6 +125,48 @@ rg -n "Task \d+|Phase [A-D]?\d|phase_15|Section \d+\.\d+|post-Task" path/to/chan
 
 ---
 
+## Workspace environment names
+
+**Source code, docstrings, comments, CLI `--help`, and error / log
+strings must not name the workspace's specific Python environments.**
+Banned in source:
+
+- conda env names — `env_isaaclab3`, `env_infinigen`.
+- the planner / VLM venv — `.venv_vlm`.
+- contributor-specific interpreter paths.
+
+**Why:** those names are *operator-setup* details, not facts about the
+code. A module that says "runs in `.venv_vlm`" couples the source to one
+contributor's layout and goes stale the moment an env is renamed or a
+second contributor uses a different one. The code doesn't care *which*
+env it runs in — only what that env *provides* (e.g. `pxr`, Kit).
+
+**How to apply** — refer to an environment by its **requirement** or a
+**stable repo interface**, never its local name:
+
+- instead of "runs in `.venv_vlm`" → "runs in the pxr-free test suite" /
+  "an environment without `pxr`".
+- instead of "present in `env_isaaclab3`" → "an Isaac Sim Kit env" /
+  "an env with `pxr`", or name the `make` target / launcher that owns it
+  (`make test-lab-pure`, `$ISAACLAB`, `STRAFER_ISAACLAB_PYTHON`).
+
+**Where the names DO belong** (the env ↔ name source of truth — these
+may and should name them): [`repo-topology.md`](repo-topology.md)'s
+Python-environments table, `env_setup.sh`, `.env.example`, the repo-root
+`Makefile`, and the package READMEs' Install sections.
+
+Sweep before commit:
+
+```
+rg -n "env_isaaclab3|env_infinigen|\.venv_vlm" path/to/changed/files
+```
+
+Same class of rot as
+[`#no-transient-documentation-references-in-code`](#no-transient-documentation-references-in-code):
+a name in source that the setup docs already own, drifting silently.
+
+---
+
 ## Mermaid edge labels
 
 Mermaid's parser treats `(`, `)`, `[`, `]`, `{`, `}` as node-shape

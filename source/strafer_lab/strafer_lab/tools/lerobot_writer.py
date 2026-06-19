@@ -376,7 +376,8 @@ class StraferLeRobotWriter:
                                capture detections.
       capture_git_sha:         git rev-parse HEAD of the repo at capture
                                time; recorded in per-episode metadata.
-      scene_metadata_hash:     sha256 of the active scene_metadata.json.
+      scene_metadata_hash:     sha256 of the scene's canonical embedded
+                               metadata dict (see ``hash_scene_metadata``).
 
     Async writers (defaults tuned for in-process teleop capture):
 
@@ -843,12 +844,20 @@ class StraferLeRobotWriter:
 # ---------------------------------------------------------------------------
 
 
-def hash_scene_metadata(path: Path | str) -> str:
-    """sha256-hexdigest of a scene_metadata.json file's bytes."""
-    p = Path(path)
-    if not p.is_file():
+def hash_scene_metadata(metadata: dict[str, Any]) -> str:
+    """sha256-hexdigest of the canonical embedded scene-metadata dict.
+
+    The metadata now lives in the scene USD's ``customData`` rather than a
+    sidecar file, so the capture stamp hashes the canonical serialization
+    of the dict (``json.dumps(..., sort_keys=True)``) instead of file
+    bytes. Detects scene mutations across captures. Returns ``""`` for a
+    falsy/empty dict so a missing scene degrades to an empty stamp rather
+    than raising.
+    """
+    if not metadata:
         return ""
-    return hashlib.sha256(p.read_bytes()).hexdigest()
+    canonical = json.dumps(metadata, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
 
 
 def read_strafer_episodes(dataset_root: Path | str) -> list[dict[str, Any]]:

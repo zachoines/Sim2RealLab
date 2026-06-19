@@ -60,18 +60,14 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--scene", type=str, required=True,
         help="Scene name (used as scene_id in per-episode metadata + as "
-        "the LeRobot dataset's repo_id suffix). Also used to resolve "
-        "--scene-metadata when that flag is not supplied.",
-    )
-    parser.add_argument(
-        "--scene-metadata", type=str, default=None,
-        help="Path to the scene's scene_metadata.json. Defaults to "
-        "Assets/generated/scenes/<scene>/scene_metadata.json.",
+        "the LeRobot dataset's repo_id suffix). Resolves the scene USD at "
+        "Assets/generated/scenes/<scene>.usdc, whose customData carries the "
+        "mission targets.",
     )
     parser.add_argument(
         "--scene-usd", type=str, default=None,
-        help="Override the env's default scene USD path. Optional; when "
-        "omitted, the env keeps whatever USD the scene cfg picks.",
+        help="Override the scene USD path (its customData supplies the "
+        "mission targets). Optional; defaults to the <scene>.usdc symlink.",
     )
     parser.add_argument(
         "--output", type=str, required=True,
@@ -241,14 +237,15 @@ from strafer_lab.tools.lerobot_writer import (
     _normalize_cameras_required,
     hash_scene_metadata,
 )
-from strafer_lab.tools.scene_paths import resolve_scene_metadata_path
+from strafer_lab.tools import scene_metadata_reader
+from strafer_lab.tools.scene_paths import resolve_scene_usd_path
 from strafer_lab.tools.teleop_buttons import (
     button_state_to_episode_outcome,
     describe_button_layout,
 )
 from strafer_lab.tools.teleop_mission_picker import (
     MissionCandidate,
-    load_candidates,
+    load_candidates_from_data,
     prompt_for_target,
 )
 
@@ -735,23 +732,23 @@ def main() -> int:
     repo_root = Path(__file__).resolve().parents[3]
     capture_git_sha = _git_rev_parse_head(repo_root)
 
-    scene_metadata_path = resolve_scene_metadata_path(
+    scene_usd_path = resolve_scene_usd_path(
         scene=args.scene,
-        metadata_override=args.scene_metadata,
         usd_override=args.scene_usd,
     )
-    scene_metadata_sha = hash_scene_metadata(scene_metadata_path)
-    print(f"[teleop_capture] scene_metadata: {scene_metadata_path}")
+    scene_metadata = scene_metadata_reader.load(scene_usd_path)
+    scene_metadata_sha = hash_scene_metadata(scene_metadata)
+    print(f"[teleop_capture] scene_usd: {scene_usd_path}")
     print(f"[teleop_capture] scene_metadata sha256: {scene_metadata_sha[:16]}...")
     print(f"[teleop_capture] capture_git_sha: {capture_git_sha[:12] or '(none)'}")
 
-    candidates = load_candidates(
-        scene_metadata_path,
+    candidates = load_candidates_from_data(
+        scene_metadata,
         allowed_labels=args.target_label_filter,
     )
     if not candidates:
         print(
-            f"[teleop_capture] ERROR: scene_metadata at {scene_metadata_path} "
+            f"[teleop_capture] ERROR: scene metadata in {scene_usd_path} "
             "has no targets after filtering. Nothing to do.",
             file=sys.stderr,
         )

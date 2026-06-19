@@ -4,9 +4,9 @@ Isaac Lab extension for the Strafer mecanum robot: RL navigation policy training
 
 `strafer_lab` is the simulation side of the sim-to-real pipeline. It
 registers a family of Gym environments for PPO navigation training,
-drives Infinigen for procedural indoor scene generation, extracts
-semantic labels from those scenes into `semanticLabel` USD prim
-attributes that Replicator's bbox annotator can consume, runs a 4-stage
+drives Infinigen for procedural indoor scene generation, embeds each
+scene's labeled metadata into the USD's `customData` and applies the
+`UsdSemantics` labels Replicator's bbox annotator boxes on, runs a 4-stage
 description pipeline over teleop frames for VLM / CLIP fine-tune data
 prep, and (in sim-in-the-loop mode) bridges simulated sensor streams
 onto real robot ROS topics so the Jetson autonomy stack can drive the
@@ -135,7 +135,7 @@ runnable scripts under `scripts/`, importable modules under
 | `scripts/prep_room_usds.py` | Orchestrate Infinigen scene generation (`generate`, `ingest`, `presets` subcommands) | IsaacLab + `INFINIGEN_ROOT`, `STRAFER_INFINIGEN_PYTHON` |
 | `scripts/postprocess_scene_usd.py` | Bake colliders + ceiling-light emitters into an Infinigen-exported USDC (called by `prep_room_usds.py`, or run manually) | IsaacLab (`pxr`) |
 | `scripts/generate_scenes_metadata.py` | Walk `Assets/generated/scenes/` and author the combined `scenes_metadata.json` with per-scene spawn points + floor top Z | IsaacLab (`pxr`) |
-| `scripts/extract_scene_metadata.py` | Serialize Blender `State` (rooms, polygons, semantic tags, relations) into `scene_metadata.json`; label USD prims with `semanticLabel` | `bpy` (Blender subprocess) |
+| `scripts/extract_scene_metadata.py` | Build per-scene metadata (rooms, polygons, semantic tags, relations) and embed it in the scene USD's root-prim `customData`; apply `UsdSemantics` detection labels (non-structural classes) + `semanticLabel` provenance attrs. `--from-usd` (prim-name parse) runs under `$ISAACLAB -p` (Kit, for the semantics schema); `--blend` builds the dict in Blender | `pxr` + Kit (`$ISAACLAB`); `--blend` path: `bpy` |
 
 **One-shot asset authoring** (`source/strafer_lab/scripts/asset_authoring/`, run by hand to (re)build or inspect the robot/asset USD):
 
@@ -150,7 +150,8 @@ runnable scripts under `scripts/`, importable modules under
 
 | Module | Exports |
 |---|---|
-| `scene_labels` | `get_scene_metadata`, `iter_rooms`, `iter_objects`, `get_scene_label_set`, `get_room_at_position`, `get_objects_in_room` — typed accessors over `scene_metadata.json` |
+| `scene_metadata_reader` | `load(scene_usd)` — the single `pxr` touch-point that reads a scene's embedded `customData` metadata (hard-fails when absent); `write_custom_data`, `metadata_hash` |
+| `scene_labels` | `iter_rooms`, `iter_objects`, `get_scene_label_set_from_data`, `get_room_at_position`, `get_objects_in_room` (pure-data) + `get_scene_metadata`/`get_scene_label_set` (read a scene USD) — typed accessors over a scene's embedded metadata |
 | `spatial_description` | `SpatialDescriptionBuilder`, `quat_to_yaw`, `classify_region`, `classify_bearing` — Stage-1 factual spatial relations |
 | `bbox_extractor` | `ReplicatorBboxExtractor`, `parse_bbox_data`, `DetectedBbox` — wraps Replicator's `bounding_box_2d_tight` annotator |
 | `mission_queue` | `load_mission_queue`, `QueueMissionRow`, `queue_row_to_mission_spec` — `mission_queue.yaml` parser for the `queue` mission source |
@@ -377,11 +378,14 @@ env.close()
 ### Synthetic-data pipeline
 
 ```bash
-# 1. Generate Infinigen scenes
-python scripts/prep_room_usds.py generate --preset dgx
+# 1. Generate Infinigen scenes — embeds metadata + UsdSemantics labels into
+#    each USD (so the scene is capture-ready); needs $ISAACLAB set
+python scripts/prep_room_usds.py generate --config high_quality_dgx \
+    --num-scenes 1 --output Assets/generated/scenes
 
-# 2. Label USD prims + extract metadata
-python scripts/extract_scene_metadata.py --scene Assets/generated/scenes/kitchen_01
+# 2. (only for a pre-existing/bare USD) re-author the embedded metadata
+$ISAACLAB -p scripts/extract_scene_metadata.py \
+    --from-usd --usd Assets/generated/scenes/<scene>.usdc
 
 # 3. Collect teleop perception data via the harness entry point (requires Isaac Sim)
 isaaclab -p source/strafer_lab/scripts/capture.py \

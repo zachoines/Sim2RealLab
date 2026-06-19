@@ -72,7 +72,7 @@ flowchart TB
         direction TB
 
         PerceptionDir[("data/perception/<br/>episode_NNNN/")]
-        SceneMeta[("Assets/generated/scenes/<br/>scene_metadata.json")]
+        SceneMeta[("Assets/generated/scenes/<br/>&lt;scene&gt;.usdc customData")]
 
         GenDesc["generate_descriptions.py<br/>4-stage pipeline"]
         Qwen7B["Qwen2.5-VL-7B<br/>standalone (transformers)"]
@@ -312,7 +312,7 @@ flowchart TB
         Camera["d555_camera_perception<br/>640×360 RGB + depth"]
         PolicyCam["d555_camera<br/>80×60 RGB"]
 
-        Picker["TeleopMissionPicker<br/>reads scene_metadata.json"]
+        Picker["TeleopMissionPicker<br/>reads USD customData"]
         Writer["StraferLeRobotWriter<br/>LeRobot v3 + sidecars"]
 
         Dataset[("data/sim_in_the_loop/scene_NN/<br/>meta/ data/ videos/")]
@@ -354,7 +354,7 @@ flowchart TB
 `wrong_room` hard negative, `SELECT` = `trajectory_violation`, `Back` =
 discard, `Start` (held ≥ 1 s) = save and quit. Between episodes the
 driver re-prompts via the console mission picker (numeric index against
-the filtered `scene_metadata.json:objects[]`). Per-episode metadata
+the filtered scene `objects[]` from the USD customData). Per-episode metadata
 populates from the picker + the buttons + the writer's own
 `capture_git_sha` / `scene_metadata_hash`.
 

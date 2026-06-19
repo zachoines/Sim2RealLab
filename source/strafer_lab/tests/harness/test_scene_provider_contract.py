@@ -1,11 +1,17 @@
 """Round-trip + extension-tolerance tests for the scene-provider contract.
 
 Locks in the artifact contract documented in
-``docs/SCENE_PROVIDER_CONTRACT.md``: a conformant ``scene_metadata.json``
-(plus a dummy USDC) flows through the mission picker and the LeRobot
-writer with no Isaac Sim runtime. A future refactor that accidentally
-tightens the field requirements breaks a test here rather than a
-downstream second-source author.
+``docs/SCENE_PROVIDER_CONTRACT.md``: a conformant metadata dict flows
+through the mission picker and the LeRobot writer. A future refactor that
+accidentally tightens the field requirements breaks a test here rather
+than a downstream second-source author.
+
+The pure half (picker + writer) runs against an in-memory dict, no Isaac
+Sim. The ``customData`` parity half is ``pytest.importorskip("pxr")``-gated
+— since the harness fold, the pure-Python lab suite carries ``pxr``, so it runs
+under ``make test-lab-pure`` as well as the Kit suite. It authors the
+metadata into a temp USD and reads it straight back, proving the
+storage-backend move is lossless and that an un-authored USD hard-fails.
 
 The extension-tolerance case is the durable half: unknown fields
 (reserved ``descriptors`` namespace + a genuinely-unknown field +
@@ -13,11 +19,9 @@ a top-level unknown field) must pass through the picker and writer
 without error, and must NOT leak into the writer's sidecar parquet.
 
 Also covers the ``--ceiling-light-prim-pattern`` knob on
-``postprocess_scene_usd.py`` at the regex/CLI layer (no pxr needed —
-the actual injection override is exercised in
-``test_postprocess_collider_approx.py`` under ``pytest.importorskip``).
+``postprocess_scene_usd.py`` at the regex/CLI layer.
 
-Runs without Isaac Sim (needs lerobot).
+Runs without Isaac Sim (needs lerobot; the customData half needs pxr).
 """
 
 from __future__ import annotations
@@ -36,7 +40,10 @@ from strafer_lab.tools.lerobot_writer import (
     hash_scene_metadata,
     read_strafer_episodes,
 )
-from strafer_lab.tools.teleop_mission_picker import load_candidates
+from strafer_lab.tools.teleop_mission_picker import (
+    load_candidates,
+    load_candidates_from_data,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -45,29 +52,11 @@ from strafer_lab.tools.teleop_mission_picker import load_candidates
 
 
 @pytest.fixture()
-def scene_tree():
-    """Yield a temp ``Assets/generated/scenes`` style tree for one scene."""
+def writer_root():
+    """Yield a temp dataset root for one episode."""
     parent = Path(tempfile.mkdtemp(prefix="strafer_contract_test_"))
-    scene = "scene_contract_alpha"
-    scene_dir = parent / "scenes" / scene
-    scene_dir.mkdir(parents=True)
-    yield scene, parent / "scenes", scene_dir
+    yield parent / "dataset"
     shutil.rmtree(parent, ignore_errors=True)
-
-
-def _write_scene(scene_dir: Path, metadata: dict) -> tuple[Path, Path]:
-    """Author scene_metadata.json + a dummy USDC + the root symlink."""
-    meta_path = scene_dir / "scene_metadata.json"
-    meta_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
-    # A dummy USDC stands in for the geometry — the contract round-trip
-    # does not open it (no pxr); the writer hashes the sidecar, not the
-    # USDC. We still create the bundle so the layout is realistic.
-    usdc = scene_dir / "import" / "scene.usdc"
-    usdc.parent.mkdir(parents=True, exist_ok=True)
-    usdc.write_bytes(b"PXR-USDC-DUMMY")
-    link = scene_dir.parent / f"{scene_dir.name}.usdc"
-    link.symlink_to(usdc)
-    return meta_path, link
 
 
 def _minimal_metadata() -> dict:
@@ -111,21 +100,20 @@ def _drive_one_episode(writer: StraferLeRobotWriter, scene: str, cand, *, meta_h
 
 
 # ---------------------------------------------------------------------------
-# Round-trip: minimal conformant scene → picker → writer
+# Round-trip: minimal conformant scene → picker → writer (pure, no pxr)
 # ---------------------------------------------------------------------------
 
 
 class TestContractRoundTrip:
-    def test_minimal_scene_flows_picker_to_writer(self, scene_tree):
-        scene, scenes_root, scene_dir = scene_tree
-        meta_path, _link = _write_scene(scene_dir, _minimal_metadata())
+    def test_minimal_scene_flows_picker_to_writer(self, writer_root):
+        scene = "scene_contract_alpha"
+        metadata = _minimal_metadata()
 
-        candidates = load_candidates(meta_path)
+        candidates = load_candidates_from_data(metadata)
         assert [c.label for c in candidates] == ["chair", "table"]
         assert candidates[0].mission_text == "go to the chair"
 
-        meta_hash = hash_scene_metadata(meta_path)
-        writer_root = scene_dir / "dataset"
+        meta_hash = hash_scene_metadata(metadata)
         with StraferLeRobotWriter(
             root=writer_root,
             repo_id=f"strafer-test/{scene}",
@@ -145,14 +133,12 @@ class TestContractRoundTrip:
         assert ep["scene_metadata_hash"] == meta_hash
         assert ep["target_position_3d"] == [2.5, 1.2, 0.5]
 
-    def test_empty_rooms_does_not_crash_picker(self, scene_tree):
+    def test_empty_rooms_does_not_crash_picker(self):
         """rooms == [] must fall back to single-room semantics (no suffix)."""
-        scene, _scenes_root, scene_dir = scene_tree
-        meta_path, _link = _write_scene(scene_dir, _minimal_metadata())
-        candidates = load_candidates(meta_path)
+        candidates = load_candidates_from_data(_minimal_metadata())
         assert all(c.target_room_type is None for c in candidates)
 
-    def test_origin_drop_is_a_producer_responsibility(self, scene_tree):
+    def test_origin_drop_is_a_producer_responsibility(self):
         """Dropping (0,0,0) sentinels is the producer's job, not the picker's.
 
         Consumers may assume surviving entries have non-origin positions
@@ -160,20 +146,65 @@ class TestContractRoundTrip:
         the invalid ones. The picker does NOT re-filter — a producer that
         leaks an origin row leaks it all the way to the candidate list.
         """
-        scene, _scenes_root, scene_dir = scene_tree
         meta = _minimal_metadata()
         meta["objects"].append(
             {"label": "lamp", "instance_id": 9, "position_3d": [0.0, 0.0, 0.0],
              "prim_path": "/World/Lamp_9"},
         )
-        meta_path, _link = _write_scene(scene_dir, meta)
-        candidates = load_candidates(meta_path)
-        # The picker itself does not re-drop origin rows (the producer's
-        # _drop_origin_records does), so the lamp is present but pinned at
-        # the origin — proving why producers must drop it. Labels present:
+        candidates = load_candidates_from_data(meta)
         assert "lamp" in [c.label for c in candidates]
         lamp = next(c for c in candidates if c.label == "lamp")
         assert lamp.target_position_3d == (0.0, 0.0, 0.0)
+
+
+# ---------------------------------------------------------------------------
+# customData parity — the storage-backend round-trip (pxr-gated)
+# ---------------------------------------------------------------------------
+
+
+def _author_usd(usd_path: Path, metadata: dict) -> None:
+    from pxr import Usd, UsdGeom
+
+    from strafer_lab.tools import scene_metadata_reader
+
+    stage = Usd.Stage.CreateNew(str(usd_path))
+    UsdGeom.Xform.Define(stage, "/World")
+    stage.SetDefaultPrim(stage.GetPrimAtPath("/World"))
+    scene_metadata_reader.write_custom_data(stage, metadata)
+    stage.Save()
+
+
+class TestCustomDataRoundTrip:
+    def test_embedded_metadata_reads_back_and_drives_picker(self, tmp_path):
+        pytest.importorskip("pxr")
+        from strafer_lab.tools import scene_metadata_reader
+
+        usd_path = tmp_path / "scene.usdc"
+        _author_usd(usd_path, _minimal_metadata())
+
+        loaded = scene_metadata_reader.load(usd_path)
+        # The additive version key rides in customData; the schema is intact.
+        assert loaded[scene_metadata_reader.VERSION_FIELD] == scene_metadata_reader.SCHEMA_VERSION
+        assert [o["label"] for o in loaded["objects"]] == ["chair", "table"]
+
+        # Same candidates whether sourced from the dict or the USD.
+        from_usd = load_candidates(usd_path)
+        from_data = load_candidates_from_data(_minimal_metadata())
+        assert [c.label for c in from_usd] == [c.label for c in from_data]
+
+    def test_absent_customdata_hard_fails(self, tmp_path):
+        pytest.importorskip("pxr")
+        from pxr import Usd, UsdGeom
+
+        from strafer_lab.tools.scene_metadata_reader import SceneMetadataError, load
+
+        usd_path = tmp_path / "bare.usdc"
+        stage = Usd.Stage.CreateNew(str(usd_path))
+        UsdGeom.Xform.Define(stage, "/World")
+        stage.SetDefaultPrim(stage.GetPrimAtPath("/World"))
+        stage.Save()
+        with pytest.raises(SceneMetadataError):
+            load(usd_path)
 
 
 # ---------------------------------------------------------------------------
@@ -204,21 +235,18 @@ class TestExtensionTolerance:
             "future_top_level_field": "anything",
         }
 
-    def test_picker_consumes_unknown_fields(self, scene_tree):
-        scene, _scenes_root, scene_dir = scene_tree
-        meta_path, _link = _write_scene(scene_dir, self._metadata_with_unknowns())
+    def test_picker_consumes_unknown_fields(self):
         # No error, both bottles enumerated (distinct spawn tokens → no collapse).
-        candidates = load_candidates(meta_path)
+        candidates = load_candidates_from_data(self._metadata_with_unknowns())
         assert sorted(c.instance_id for c in candidates) == [10, 11]
         assert all(c.label == "bottle" for c in candidates)
 
-    def test_writer_does_not_leak_unknown_fields(self, scene_tree):
-        scene, _scenes_root, scene_dir = scene_tree
-        meta_path, _link = _write_scene(scene_dir, self._metadata_with_unknowns())
-        candidates = load_candidates(meta_path)
+    def test_writer_does_not_leak_unknown_fields(self, writer_root):
+        scene = "scene_contract_alpha"
+        metadata = self._metadata_with_unknowns()
+        candidates = load_candidates_from_data(metadata)
 
-        meta_hash = hash_scene_metadata(meta_path)
-        writer_root = scene_dir / "dataset"
+        meta_hash = hash_scene_metadata(metadata)
         with StraferLeRobotWriter(
             root=writer_root,
             repo_id=f"strafer-test/{scene}",

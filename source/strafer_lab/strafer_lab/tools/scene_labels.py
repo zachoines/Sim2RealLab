@@ -1,29 +1,47 @@
-"""Runtime accessor for per-scene metadata produced by Infinigen generation.
+"""Typed accessors for per-scene metadata embedded in a scene USD.
 
-The metadata file (``scene_metadata.json``) is written alongside each
-generated scene USD and holds the richer data that Infinigen's in-memory
-``State`` exposes but does not survive to USD by default: room types,
-room polygons, semantic tags, object relations, materials, etc.
+The metadata (labeled ``objects[]``, room polygons, semantic tags,
+relations, materials) travels inside the scene USD's root-prim
+``customData`` — see :mod:`strafer_lab.tools.scene_metadata_reader`,
+the single ``pxr`` touch-point that loads it. The helpers here turn the
+loaded dict into typed records.
 
-Downstream tools (CLIP training data export, VLM SFT data export,
-description pipeline) call these helpers instead of re-reading raw USD.
+The pure-data accessors (:func:`iter_rooms`, :func:`iter_objects`,
+:func:`get_scene_label_set_from_data`, :func:`get_room_at_position`,
+:func:`get_objects_in_room`) operate on an already-loaded dict and never
+touch ``pxr``, so the pxr-free autonomy test suite exercises them
+against in-memory dicts. Only :func:`get_scene_metadata`
+opens a USD.
 """
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from strafer_lab.tools.scene_metadata_reader import (
+    SceneMetadataError,
+    load as _load_scene_metadata,
+)
 
-class SceneMetadataError(Exception):
-    """Raised when a scene metadata file is missing or malformed."""
+__all__ = [
+    "SceneMetadataError",
+    "RoomEntry",
+    "ObjectEntry",
+    "get_scene_metadata",
+    "iter_rooms",
+    "iter_objects",
+    "get_scene_label_set",
+    "get_scene_label_set_from_data",
+    "get_room_at_position",
+    "get_objects_in_room",
+]
 
 
 @dataclass(frozen=True)
 class RoomEntry:
-    """One room entry as read from ``scene_metadata.json``."""
+    """One room entry as read from a scene's embedded metadata."""
 
     index: int
     room_type: str
@@ -35,7 +53,7 @@ class RoomEntry:
 
 @dataclass(frozen=True)
 class ObjectEntry:
-    """One object entry as read from ``scene_metadata.json``."""
+    """One object entry as read from a scene's embedded metadata."""
 
     instance_id: int
     label: str
@@ -55,39 +73,16 @@ class ObjectEntry:
 # ---------------------------------------------------------------------------
 
 
-def scene_metadata_path(metadata_root: Path, scene_name: str) -> Path:
-    """Return the ``scene_metadata.json`` path for a given scene."""
-    metadata_root = Path(metadata_root)
-    candidate = metadata_root / scene_name / "scene_metadata.json"
-    if candidate.exists():
-        return candidate
-    # Alternate layout: flat file per scene.
-    flat = metadata_root / f"{scene_name}.json"
-    if flat.exists():
-        return flat
-    return candidate  # return the primary path even if missing so caller can surface it
+def get_scene_metadata(scene_usd_path: Path | str) -> dict[str, Any]:
+    """Load and return the embedded metadata dict for a scene USD.
 
-
-def get_scene_metadata(metadata_root: Path, scene_name: str) -> dict[str, Any]:
-    """Load and return the raw ``scene_metadata.json`` dict for a scene.
-
-    Raises ``SceneMetadataError`` if the file is missing or invalid.
+    Reads the root-prim ``customData`` via
+    :func:`scene_metadata_reader.load`. Raises ``SceneMetadataError`` when
+    the USD is missing or carries no embedded metadata (no sidecar
+    fallback). Needs ``pxr``; pure-data consumers use the ``*_from_data``
+    accessors instead.
     """
-    path = scene_metadata_path(metadata_root, scene_name)
-    if not path.exists():
-        raise SceneMetadataError(f"scene_metadata.json not found at {path}")
-    try:
-        with path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-    except json.JSONDecodeError as exc:
-        raise SceneMetadataError(f"Invalid JSON in {path}: {exc}") from exc
-
-    if not isinstance(data, dict):
-        raise SceneMetadataError(f"Expected object at top level of {path}")
-    data.setdefault("rooms", [])
-    data.setdefault("objects", [])
-    data.setdefault("room_adjacency", [])
-    return data
+    return _load_scene_metadata(scene_usd_path)
 
 
 def iter_rooms(metadata: dict[str, Any]) -> Iterable[RoomEntry]:
@@ -133,16 +128,21 @@ def iter_objects(metadata: dict[str, Any]) -> Iterable[ObjectEntry]:
         )
 
 
-def get_scene_label_set(metadata_root: Path, scene_name: str) -> set[str]:
-    """Return the unique object labels present in a scene.
+def get_scene_label_set_from_data(metadata: dict[str, Any]) -> set[str]:
+    """Return the unique object labels present in a metadata dict.
 
-    Empty labels are filtered out. The return type is :class:`set` so
-    callers can cheaply test membership for ground-truth validation of
-    VLM output.
+    Empty labels are filtered out. Pure-data — no ``pxr``, no disk.
     """
-    metadata = get_scene_metadata(metadata_root, scene_name)
-    labels = {obj.label for obj in iter_objects(metadata) if obj.label}
-    return labels
+    return {obj.label for obj in iter_objects(metadata) if obj.label}
+
+
+def get_scene_label_set(scene_usd_path: Path | str) -> set[str]:
+    """Return the unique object labels present in a scene USD.
+
+    Convenience wrapper that loads the embedded metadata and delegates to
+    :func:`get_scene_label_set_from_data`. Needs ``pxr``.
+    """
+    return get_scene_label_set_from_data(get_scene_metadata(scene_usd_path))
 
 
 def get_room_at_position(

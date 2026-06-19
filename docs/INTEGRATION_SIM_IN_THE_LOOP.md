@@ -81,7 +81,7 @@ checkpoint consumes is unchanged, so existing DEPTH checkpoints stay valid.
   robot motion in Isaac Sim, including the cmd_vel-normalization
   cross-check.
 - Autonomous mission sweep via `run_sim_in_the_loop.py --mode harness`
-  against a scene's `scene_metadata.json`.
+  against a scene's embedded metadata (USD `customData`).
 - VLM/CLIP data-collection sweep through the same bridge (Stage 6).
 
 **Out of scope (explicitly deferred)**
@@ -600,18 +600,17 @@ scene has a door the VLM can see at mission start.
 
 ## Stage 5 — Harness mode (autonomous mission sweep)
 
-**Goal**: the DGX harness walks `scene_metadata.json`'s object list,
+**Goal**: the DGX harness walks the scene's embedded object list,
 submits one mission per target, captures reachability-labelled
 frames into `frames.jsonl`. No human driver.
 
 **Prerequisites**
 - Stages 1-4 green.
-- One generated Infinigen scene under
-  `Assets/generated/scenes/<scene_name>/` containing `scene.usdc`
-  + `scene_metadata.json`. A real Infinigen scene with furniture is
-  produced by `prep_room_usds.py` (which calls `generate_indoors`
-  with `fast_solve.gin singleroom.gin`) followed by
-  `generate_scenes_metadata.py` to author the combined
+- One generated Infinigen scene with the top-level
+  `Assets/generated/scenes/<scene_name>.usdc` symlink — its `customData`
+  carries the labeled `objects[]`. `prep_room_usds.py generate` produces
+  it (geometry + embedded metadata + detection labels in one command);
+  then `generate_scenes_metadata.py` authors the combined
   `scenes_metadata.json` with `floor_top_z` per scene.
 
 **Test**
@@ -620,8 +619,7 @@ Stop the DGX `make sim-bridge` run from Stage 2. On the DGX:
 
 ```bash
 cd ~/Workspace/Sim2RealLab
-SCENE_META=Assets/generated/scenes/<scene_name>/scene_metadata.json \
-SCENE_USD=Assets/generated/scenes/<scene_name>/scene.usdc \
+SCENE_NAME=<scene_name> \
 OUTPUT_DIR=data/sim_in_the_loop/<scene_name> \
 MAX_MISSIONS=3 \
 make sim-harness
@@ -633,10 +631,9 @@ Or call the script directly if you need flag overrides
 ```bash
 $ISAACLAB -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
     --mode harness \
-    --scene-metadata Assets/generated/scenes/<scene_name>/scene_metadata.json \
-    --scene-usd      Assets/generated/scenes/<scene_name>/scene.usdc \
-    --output         data/sim_in_the_loop/<scene_name> \
-    --max-missions   3 \
+    --scene-name   <scene_name> \
+    --output       data/sim_in_the_loop/<scene_name> \
+    --max-missions 3 \
     --headless --enable_cameras
 ```
 
@@ -664,7 +661,7 @@ Expected fields: `frame_id`, `image_path`, `robot_pos`,
 | `Ros2MissionApi` fails to open at harness start | `strafer_msgs` not on DGX `PYTHONPATH` | Confirm `python -c "from strafer_msgs.action import ExecuteMission"` works in `env_isaaclab3`. Re-source the colcon install. |
 | `Action server ... did not become available` | Jetson executor not up or on wrong domain | Same as Stage 4: verify `/execute_mission` action exists from the DGX via `ros2 action list`. |
 | Every mission ends `reachable=False` at timeout | Nav2 never finishes plans against the current scene | Start from Stage 4 — manually submit a mission and verify it works before letting the harness submit dozens. |
-| Mission generator yields zero missions | `scene_metadata.json` has no parseable objects | `python -c "import json; print(len(json.load(open('.../scene_metadata.json'))['objects']))"`. If zero, re-run `extract_scene_metadata.py --from-usd`. |
+| Mission generator yields zero missions | the scene's embedded metadata has no parseable objects | `$ISAACLAB -p -c "from strafer_lab.tools.scene_metadata_reader import load; print(len(load('Assets/generated/scenes/<scene>.usdc')['objects']))"`. If zero, re-run `extract_scene_metadata.py --from-usd`. |
 | `frames.jsonl` exists but lacks `reachability` field | Outcome was never captured — harness crashed mid-mission | Search the DGX stdout for `[mission_id] harness crashed mid-mission`; the stack trace will point at the break. |
 
 ---
@@ -672,16 +669,16 @@ Expected fields: `frame_id`, `image_path`, `robot_pos`,
 ## Stage 5b — Teleop data collection (harness `--driver teleop`)
 
 **Goal**: a single operator drives the Strafer through one or more
-Infinigen scenes with a gamepad, picking targets from
-`scene_metadata.json`, and the harness writes a LeRobot v3 dataset
+Infinigen scenes with a gamepad, picking targets from the scene's
+embedded metadata, and the harness writes a LeRobot v3 dataset
 under `data/sim_in_the_loop/<scene_name>/`. No Jetson, no ROS — Isaac
 Sim runs in-process with the gamepad reading actions directly.
 
 **Prerequisites**
 - Stages 1-4 green.
-- A generated Infinigen scene under
-  `Assets/generated/scenes/<scene_name>/` containing `scene.usdc` +
-  `scene_metadata.json` (same prerequisite as Stage 5).
+- A generated Infinigen scene with the `Assets/generated/scenes/<scene_name>.usdc`
+  symlink whose `customData` carries the labeled `objects[]` (same
+  prerequisite as Stage 5).
 - A USB or wireless gamepad attached to the DGX. Xbox One/Series, PS5
   DualSense, and Switch Pro are auto-detected; the family-aware button
   table lives in `strafer_lab.tools.gamepad_reader`.
@@ -823,18 +820,18 @@ the publisher; the consumer is `prepare_vlm_finetune_data.py` →
 **Operator runs / agent verifies — per-scene metadata**
 
 ```bash
-# DGX — author per-scene scene_metadata.json (rooms, polygons, semantic
-# tags, relations) by walking the Infinigen Blender export. Run once
-# per scene.
+# DGX — `prep_room_usds.py generate` already embeds the per-scene
+# metadata (objects[] + rooms[]) into each USD's customData and applies
+# the UsdSemantics detection labels. Only re-run this for a scene that
+# predates metadata-in-USD or a bare imported USD:
 $ISAACLAB -p source/strafer_lab/scripts/extract_scene_metadata.py \
     --from-usd \
-    --usd Assets/generated/scenes/<scene_name>/scene.usdc \
-    --output Assets/generated/scenes/<scene_name>/ \
-    --label-from-prim-names
+    --usd Assets/generated/scenes/<scene_name>.usdc
 ```
 
-Verify: `Assets/generated/scenes/<scene_name>/scene_metadata.json`
-exists and has a non-empty `objects[]` list.
+Verify (reads back from customData):
+`$ISAACLAB -p -c "from strafer_lab.tools.scene_metadata_reader import load; print(len(load('Assets/generated/scenes/<scene_name>.usdc')['objects']))"`
+prints a non-zero object count.
 
 **Operator runs / agent verifies — combined metadata + floor heights**
 
@@ -855,8 +852,7 @@ files is missing or stale, **not** a bridge bug.
 
 ```bash
 # DGX
-SCENE_META=Assets/generated/scenes/<scene_name>/scene_metadata.json \
-SCENE_USD=Assets/generated/scenes/<scene_name>/scene.usdc \
+SCENE_NAME=<scene_name> \
 OUTPUT_DIR=data/sim_in_the_loop/<scene_name> \
 MAX_MISSIONS=20 \
 make sim-harness
@@ -892,7 +888,7 @@ records non-NaN contrastive loss decreasing across epochs.
 
 | Symptom | Most likely cause | What to check |
 |---|---|---|
-| `extract_scene_metadata.py` reports `0 objects` | Blender export missing `semanticLabel` USD attrs | Pass `--label-from-prim-names`; re-export the scene via `prep_room_usds.py` if prim names lack semantic info. |
+| `extract_scene_metadata.py --from-usd` reports `0 objects` | Prim names lack a parseable factory class | Re-export the scene via `prep_room_usds.py` if prim names lack semantic info; the prim-name parser keys off the `XxxFactory_<id>__spawn_asset_<n>_` pattern. |
 | Bridge harness frames have `frame_*.jpg` at 1280×720, not 640×360 | `IsaacCreateRenderProduct` resolution not pinned | See [`bridge-runtime-invariants.md`](tasks/context/bridge-runtime-invariants.md#camera-resolutions-sim-mirrors-real) — the `inputs:width` / `inputs:height` must be set explicitly on the render product node. |
 | `prepare_vlm_finetune_data.py` complains about missing labels | `scene_metadata.json` and `frames.jsonl` disagree on label set | Re-run `extract_scene_metadata.py` then `generate_scenes_metadata.py` to refresh both per-scene + combined metadata. |
 | `finetune_clip.py` MLflow loss = NaN immediately | Inputs unnormalized or empty positive pairs | Inspect `clip_pairs.csv` — must have ≥ 32 unique (image, text) pairs per epoch. |

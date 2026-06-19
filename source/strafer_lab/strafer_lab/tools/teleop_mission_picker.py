@@ -1,9 +1,9 @@
 """Mission target picker for ``--driver teleop --mission-source scene-metadata``.
 
-Reads ``scene_metadata.json``, enumerates the ``objects[]`` array, and
-exposes both a :class:`MissionCandidate` list (for the console picker)
-and a pure-Python ``select_by_index`` (for unit-testing the filter,
-sort, and lookup paths without a TTY).
+Reads the scene's embedded metadata (USD ``customData``), enumerates the
+``objects[]`` array, and exposes both a :class:`MissionCandidate` list
+(for the console picker) and a pure-Python ``select_by_index`` (for
+unit-testing the filter, sort, and lookup paths without a TTY).
 
 The picker presents a numeric prompt: the operator types ``5<enter>`` on
 the terminal to select index 5. Console I/O is isolated behind
@@ -13,7 +13,6 @@ testable without stdin.
 
 from __future__ import annotations
 
-import json
 import re
 import sys
 from dataclasses import dataclass
@@ -25,11 +24,11 @@ _DEFAULT_BLOCKED_LABELS: frozenset[str] = frozenset({"wall", "floor", "ceiling"}
 
 # Infinigen embeds a per-physical-instance discriminator in each prim's
 # path: ``__spawn_asset_<N>_`` (Blender-duplicate suffix variants like
-# ``__001`` are the same logical asset). The ``instance_id`` in
-# scene_metadata.json is the FACTORY CLASS id (e.g. all 23 bowls of a
-# given style share one BowlFactory id), so dedup-by-instance_id silently
-# collapses 23 distinct bowls into one. The spawn_asset token is the
-# right grouping key.
+# ``__001`` are the same logical asset). The ``instance_id`` in the
+# metadata is the FACTORY CLASS id (e.g. all 23 bowls of a given style
+# share one BowlFactory id), so dedup-by-instance_id silently collapses
+# 23 distinct bowls into one. The spawn_asset token is the right
+# grouping key.
 _SPAWN_ASSET_RE = re.compile(r"__spawn_asset_(\d+)")
 
 def _spawn_token(prim_path: str | None) -> str | None:
@@ -47,7 +46,7 @@ def _spawn_token(prim_path: str | None) -> str | None:
 
 @dataclass(frozen=True)
 class MissionCandidate:
-    """One pickable target from ``scene_metadata.json:objects[]``."""
+    """One pickable target from the scene metadata's ``objects[]``."""
 
     index: int                       # 0-based index in the candidate list
     instance_id: int
@@ -89,12 +88,17 @@ def _build_room_lookup(rooms: Sequence[dict]) -> dict[int, str]:
 
 
 def load_candidates(
-    scene_metadata_path: Path | str,
+    scene_usd_path: Path | str,
     *,
     allowed_labels: Iterable[str] | None = None,
     blocked_labels: Iterable[str] | None = None,
 ) -> list[MissionCandidate]:
-    """Load + filter + sort the ``objects[]`` array into candidates.
+    """Load + filter + sort the scene's ``objects[]`` into candidates.
+
+    Reads the metadata embedded in the scene USD's ``customData`` via
+    :func:`scene_metadata_reader.load`, then delegates to
+    :func:`load_candidates_from_data`. Needs ``pxr``; tests use the
+    pure-data variant.
 
     Sorting matches :class:`strafer_lab.sim_in_the_loop.MissionGenerator`:
     ``(normalized_label, instance_id)``. This keeps mission ordering
@@ -106,10 +110,9 @@ def load_candidates(
     bridge harness's defaults so a teleop and bridge run on the same
     scene see comparable target counts.
     """
-    path = Path(scene_metadata_path)
-    if not path.is_file():
-        raise FileNotFoundError(f"scene_metadata.json not found: {path}")
-    data = json.loads(path.read_text(encoding="utf-8"))
+    from strafer_lab.tools.scene_metadata_reader import load as _load
+
+    data = _load(scene_usd_path)
     return load_candidates_from_data(
         data,
         allowed_labels=allowed_labels,
@@ -283,7 +286,7 @@ def prompt_for_target(
 
     if not candidates:
         print(
-            "[mission-picker] no targets in scene_metadata.json after filtering.",
+            "[mission-picker] no targets in the scene metadata after filtering.",
             file=sout,
         )
         return None

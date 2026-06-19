@@ -197,9 +197,9 @@ Every per-episode row carries the standard LeRobot v3 columns (`episode_index`, 
 | `leg_initial_distance_m` | float32 | For progress / time-to-arrival computation. |
 | `episode_split` | string | `{train, val, held_out_seeds, multi_bedroom_adversarial, open_plan_adversarial}` — see [Train / val / held-out splits](#train--val--held-out-splits). |
 | `capture_git_sha` | string | `git rev-parse HEAD` of the repo at capture time. **Reproducibility anchor.** |
-| `scene_metadata_hash` | string | sha256 of `scene_metadata.json` at capture time. Detects scene mutations across captures. |
+| `scene_metadata_hash` | string | sha256 of the scene's canonical embedded metadata dict (USD `customData`) at capture time. Detects scene mutations across captures. |
 
-Per-frame GT room_idx is **not stored** — eval scripts compute it on demand via [`scene_labels.get_room_at_position(pose)`](../../../../source/strafer_lab/strafer_lab/tools/scene_labels.py#L148) reading `scene_metadata.json`. Caching at eval time is a consumer concern.
+Per-frame GT room_idx is **not stored** — eval scripts compute it on demand via [`scene_labels.get_room_at_position(pose)`](../../../../source/strafer_lab/strafer_lab/tools/scene_labels.py) over the scene's metadata dict (read from USD `customData` by [`scene_metadata_reader.load`](../../../../source/strafer_lab/strafer_lab/tools/scene_metadata_reader.py)). Caching at eval time is a consumer concern.
 
 ### Train / val / held-out splits
 
@@ -246,7 +246,7 @@ The columns are **operator-selectable like the camera stack**: a writer construc
 
 **Producer.** Replicator's `bbox_2d_tight` annotator on the perception camera → [`bbox_extractor.parse_bbox_data`](../../../../source/strafer_lab/strafer_lab/tools/bbox_extractor.py) → `DetectedBbox` → `add_frame(detections=...)`. The writer/schema support is in place from Tier 1's writer; the per-driver annotator wiring lands with the bridge (Tier 2) and scripted (Tier 3) drivers, which capture with detections **on by default**. Teleop sessions may run with detections off — the operator-perceived frame rate wins there, and the grounding consumers feed on bridge/scripted output.
 
-The annotator only boxes prims that carry the applied `UsdSemantics.LabelsAPI` (`"class"`) — authored by `extract_scene_metadata` (see [`scene-metadata-in-usd`](scene-metadata-in-usd.md)), not by the custom `semanticLabel` provenance attr or USD `customData`. **Class-filter policy (producer-side):** labels are authored only for **non-structural** classes — the structural set `{floor, ceiling, wall, exterior, staircase}` is excluded at authoring time. This is a correctness requirement, not cosmetics: because truncation keeps the **largest-pixel-area** boxes and structure dominates every frame, labelling structure would let it evict all `detections_max` slots and starve the furniture the column exists for. `door` / `window` are kept (groundable transit landmarks, not area-dominant). Filtering is at the producer because the column can't recover an evicted box downstream; the scene's `objects[]` metadata stays complete regardless (structure rows feed the shared path planner's occupancy grid).
+The annotator only boxes prims that carry the applied `UsdSemantics.LabelsAPI` (`"class"`) — authored by `extract_scene_metadata` (see [`scene-metadata-in-usd`](../../completed/scene-metadata-in-usd.md)), not by the custom `semanticLabel` provenance attr or USD `customData`. **Class-filter policy (producer-side):** labels are authored only for **non-structural** classes — the structural set `{floor, ceiling, wall, exterior, staircase}` is excluded at authoring time. This is a correctness requirement, not cosmetics: because truncation keeps the **largest-pixel-area** boxes and structure dominates every frame, labelling structure would let it evict all `detections_max` slots and starve the furniture the column exists for. `door` / `window` are kept (groundable transit landmarks, not area-dominant). Filtering is at the producer because the column can't recover an evicted box downstream; the scene's `objects[]` metadata stays complete regardless (structure rows feed the shared path planner's occupancy grid).
 
 ### Action chunk encoding
 
@@ -266,7 +266,7 @@ Action source: the Jetson autonomy stack (planner + executor + Nav2 + RL control
 
 ### Bridge × scene-metadata (the existing `--mode harness`)
 
-The bridge driver walks `scene_metadata.json` targets directly: enumerate `objects[]`, filter by `--label-include` / `--label-exclude`, dispatch each as a mission. No `mission_queue.yaml` needed. This is today's `run_sim_in_the_loop.py --mode harness` behavior.
+The bridge driver walks the scene's embedded targets directly: enumerate the USD `customData` `objects[]`, filter by `--label-include` / `--label-exclude`, dispatch each as a mission. No `mission_queue.yaml` needed. This is today's `run_sim_in_the_loop.py --mode harness` behavior.
 
 ### Bridge × queue
 
@@ -402,7 +402,7 @@ Queue is the canonical mission source for production training-data capture. `mis
 
 ## Mission source: scene-metadata
 
-The driver walks `scene_metadata.json` targets directly: enumerate `objects[]`, filter by label, dispatch each as a one-target mission. Mission text is a templated "go to the {label}" string (no paraphrases). Used by:
+The driver walks the scene's embedded targets directly: enumerate the USD `customData` `objects[]`, filter by label, dispatch each as a one-target mission. Mission text is a templated "go to the {label}" string (no paraphrases). Used by:
 - `bridge` driver (today's `--mode harness` behavior) — bulk single-target validation runs
 - `teleop` driver (ad-hoc operator sessions when the operator wants to pick targets manually rather than follow a queue)
 

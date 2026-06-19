@@ -22,6 +22,13 @@ Pipeline per scene:
    ``Assets/generated/scenes/``; the symlink satisfies that filter while
    keeping each scene's textures bundled with its USDC.
 
+5. ``extract_scene_metadata.py --from-usd`` embeds the labeled
+   ``objects[]`` into the USD's root-prim ``customData`` and applies the
+   ``UsdSemantics`` detection labels. Runs under the Isaac Sim Kit
+   launcher (``$ISAACLAB``) — the semantics schema is Kit-provided. This
+   makes one ``generate`` yield a capture-ready *and* detections-ready
+   scene (``--no-scene-metadata`` skips it for a geometry-only build).
+
 Presets wrap Infinigen's real knobs (``-g`` gin config files and ``-p``
 gin-style parameter overrides).
 
@@ -50,7 +57,9 @@ Prerequisites (all read from ``.env`` via ``env_setup.sh``):
   tree, so subprocesses run with that dir as their working directory.
 - ``STRAFER_INFINIGEN_PYTHON`` — Python with ``bpy`` + ``gin-config`` +
   Infinigen deps installed.
-- ``STRAFER_ISAACLAB_PYTHON`` — Python with ``pxr`` importable.
+- ``STRAFER_ISAACLAB_PYTHON`` — Python with ``pxr`` importable (postprocess).
+- ``ISAACLAB`` — the Kit launcher (``isaaclab.sh -p``) used to embed scene
+  metadata + UsdSemantics labels (skipped under ``--no-scene-metadata``).
 """
 
 from __future__ import annotations
@@ -60,6 +69,7 @@ import collections
 import json
 import logging
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -181,6 +191,7 @@ def generate_scenes(
     output_dir: Path,
     infinigen_root: Path | None = None,
     infinigen_python: str | None = None,
+    author_scene_metadata: bool = True,
 ) -> list[GenerationResult]:
     """Run Infinigen ``num_scenes`` times and stage USDCs under ``output_dir``.
 
@@ -192,6 +203,12 @@ def generate_scenes(
     - Symlink         → ``output_dir/<scene_name>.usdc`` points at the USDC
       inside the export tree so ``strafer_env_cfg._get_scene_usd_paths``
       discovers the scene without needing to recurse.
+    - Scene metadata  → ``extract_scene_metadata.py --from-usd`` embeds the
+      labeled ``objects[]`` into the USD's ``customData`` and applies the
+      ``UsdSemantics`` detection labels, so one ``generate`` yields a
+      capture-ready *and* detections-ready scene. Runs under the Isaac Sim
+      Kit launcher (``$ISAACLAB``) because the semantics schema needs it.
+      Disable with ``author_scene_metadata=False``.
 
     A ``scene_config.json`` is written next to each scene for provenance.
     The orchestrator asserts that both the ``.blend`` (after coarse gen)
@@ -201,7 +218,7 @@ def generate_scenes(
     """
     # Verify every downstream subprocess's env var is set before we
     # start the expensive coarse stage.
-    validate_required_env_for_generate()
+    validate_required_env_for_generate(author_scene_metadata=author_scene_metadata)
 
     infinigen_python = infinigen_python or _resolve_infinigen_python()
     # Resolve to absolute paths: the subprocess runs with cwd=infinigen_root,
@@ -298,7 +315,20 @@ def generate_scenes(
         link_path.symlink_to(result.usd_path)
         result.symlink_path = link_path
 
-        # --- Step 5: provenance ---
+        # --- Step 5: embed scene metadata + detection-label semantics ---
+        if author_scene_metadata:
+            meta_rc, meta_stderr = _run_extract_metadata(result.usd_path)
+            if meta_rc != 0:
+                logger.error(
+                    "Scene %s: scene-metadata authoring failed (rc=%d)\n%s",
+                    scene_name, meta_rc, meta_stderr,
+                )
+                result.returncode = meta_rc
+                result.stderr_tail = meta_stderr
+                results.append(result)
+                continue
+
+        # --- Step 6: provenance ---
         (scene_dir / "scene_config.json").write_text(json.dumps(config.to_dict(), indent=2))
 
         logger.info("Scene %s OK → %s (USDC at %s)", scene_name, link_path, result.usd_path)
@@ -323,6 +353,25 @@ def _run_postprocess(usdc_path: Path) -> tuple[int, str]:
         str(usdc_path),
     ]
     return _run_subprocess(cmd, cwd=script.parent)
+
+
+def _run_extract_metadata(usdc_path: Path) -> tuple[int, str]:
+    """Embed scene metadata + UsdSemantics labels into the freshly-staged USDC.
+
+    Runs ``extract_scene_metadata.py --from-usd`` under the Isaac Sim Kit
+    launcher (``$ISAACLAB`` / ``isaaclab.sh -p``), not the plain
+    ``STRAFER_ISAACLAB_PYTHON``: applying the ``UsdSemantics.LabelsAPI`` the
+    detections annotator reads needs the Kit runtime.
+    """
+    script = Path(__file__).resolve().parent / "extract_scene_metadata.py"
+    cmd = [
+        *_resolve_isaaclab_launcher(),
+        str(script),
+        "--from-usd",
+        "--usd",
+        str(usdc_path),
+    ]
+    return _run_subprocess(cmd, cwd=script.parents[3])
 
 
 def _run_subprocess(cmd: list[str], *, cwd: Path) -> tuple[int, str]:
@@ -360,6 +409,7 @@ def _run_subprocess(cmd: list[str], *, cwd: Path) -> tuple[int, str]:
 _INFINIGEN_ROOT_ENV_VAR = "INFINIGEN_ROOT"
 _INFINIGEN_PYTHON_ENV_VAR = "STRAFER_INFINIGEN_PYTHON"
 _ISAACLAB_PYTHON_ENV_VAR = "STRAFER_ISAACLAB_PYTHON"
+_ISAACLAB_LAUNCHER_ENV_VAR = "ISAACLAB"
 
 
 def _resolve_env_python(env_var: str) -> str:
@@ -403,15 +453,39 @@ def _resolve_isaaclab_python() -> str:
     return _resolve_env_python(_ISAACLAB_PYTHON_ENV_VAR)
 
 
-def validate_required_env_for_generate() -> None:
+def _resolve_isaaclab_launcher() -> list[str]:
+    """Return the Isaac Sim Kit launcher argv (``isaaclab.sh -p``).
+
+    Read from ``$ISAACLAB`` (a command string env_setup.sh loads from
+    ``.env``). The scene-metadata authoring pass runs under it because the
+    ``UsdSemantics`` schema is a Kit-provided plugin, unavailable to plain
+    ``STRAFER_ISAACLAB_PYTHON``.
+    """
+    value = os.environ.get(_ISAACLAB_LAUNCHER_ENV_VAR)
+    if not value:
+        raise RuntimeError(
+            f"{_ISAACLAB_LAUNCHER_ENV_VAR} is not set. Run `source env_setup.sh` "
+            "from the repo root to load it from .env. It pins the Isaac Sim Kit "
+            "launcher used to embed scene metadata + UsdSemantics labels."
+        )
+    parts = shlex.split(value)
+    launcher = Path(parts[0]).expanduser() if parts else None
+    if launcher is None or not launcher.exists():
+        raise RuntimeError(
+            f"{_ISAACLAB_LAUNCHER_ENV_VAR}={value!r} points to a non-existent path."
+        )
+    return [str(launcher), *parts[1:]]
+
+
+def validate_required_env_for_generate(*, author_scene_metadata: bool = True) -> None:
     """Fail-fast check that every env var ``generate_scenes`` will need is set.
 
     The wrapper's pipeline takes multi-hour Infinigen runs before it
-    needs ``STRAFER_ISAACLAB_PYTHON`` in :func:`_run_postprocess`. Without
-    this upfront check, a missing var would crash after coarse + export
-    completed and discard a day's worth of compute. Call this from the
-    top of :func:`generate_scenes` and from any entry point that calls
-    :func:`generate_scenes`.
+    needs ``STRAFER_ISAACLAB_PYTHON`` in :func:`_run_postprocess` and
+    ``$ISAACLAB`` in :func:`_run_extract_metadata`. Without this upfront
+    check, a missing var would crash after coarse + export completed and
+    discard a day's worth of compute. Call this from the top of
+    :func:`generate_scenes` and from any entry point that calls it.
 
     Raises the same :class:`RuntimeError` types the underlying resolvers
     raise, so existing error messages (with the ``source env_setup.sh``
@@ -420,6 +494,8 @@ def validate_required_env_for_generate() -> None:
     _resolve_infinigen_root()
     _resolve_infinigen_python()
     _resolve_isaaclab_python()
+    if author_scene_metadata:
+        _resolve_isaaclab_launcher()
 
 
 def _build_generate_command(
@@ -563,6 +639,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "high_quality_dgx and 1 for fast/windows; set higher for richer "
         "scenes, but solver runtime can blow up without a cap.",
     )
+    generate.add_argument(
+        "--no-scene-metadata",
+        action="store_true",
+        help="Skip embedding scene metadata + UsdSemantics labels into each "
+        "USD (the geometry-only path). The scene loads but is neither "
+        "capture-ready nor detections-ready until extract_scene_metadata runs.",
+    )
 
     ingest = sub.add_parser(
         "ingest",
@@ -609,6 +692,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             output_dir=args.output,
             infinigen_root=args.infinigen_root,
             infinigen_python=args.infinigen_python,
+            author_scene_metadata=not args.no_scene_metadata,
         )
         failures = [r for r in results if r.returncode != 0]
         if failures:

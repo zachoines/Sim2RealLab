@@ -236,9 +236,9 @@ sim-bridge-gui: ## Launch Isaac Sim + ROS 2 bridge with the viewport open
 		$(ISAACLAB) -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
 			--mode bridge --enable_cameras --viz kit
 
-sim-harness: ## Run sim-in-the-loop autonomous mission sweep
-	@if [ -z "$$SCENE_META" ] || [ -z "$$SCENE_USD" ] || [ -z "$$OUTPUT_DIR" ]; then \
-		echo "Usage: SCENE_META=<path> SCENE_USD=<path> OUTPUT_DIR=<path> [MAX_MISSIONS=N] make sim-harness"; \
+sim-harness: ## Run sim-in-the-loop autonomous mission sweep (metadata travels in the scene USD)
+	@if { [ -z "$$SCENE_NAME" ] && [ -z "$$SCENE_USD" ]; } || [ -z "$$OUTPUT_DIR" ]; then \
+		echo "Usage: { SCENE_NAME=<name> | SCENE_USD=<path> } OUTPUT_DIR=<path> [MAX_MISSIONS=N] make sim-harness"; \
 		exit 1; \
 	fi
 	@source env_setup.sh && \
@@ -246,8 +246,8 @@ sim-harness: ## Run sim-in-the-loop autonomous mission sweep
 		conda activate $(CONDA_ENV) && \
 		$(ISAACLAB) -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
 			--mode harness \
-			--scene-metadata $$SCENE_META \
-			--scene-usd $$SCENE_USD \
+			$${SCENE_NAME:+--scene-name $$SCENE_NAME} \
+			$${SCENE_USD:+--scene-usd $$SCENE_USD} \
 			--output $$OUTPUT_DIR \
 			$${MAX_MISSIONS:+--max-missions $$MAX_MISSIONS} \
 			--headless --enable_cameras

@@ -8,7 +8,7 @@ of a LeRobot v3 dataset via
 
 Layout:
   - :mod:`strafer_lab.sim_in_the_loop.mission`: ``MissionSpec`` +
-    ``MissionGenerator`` reading scenes' ``scene_metadata.json``.
+    ``MissionGenerator`` reading scenes' embedded metadata.
   - :mod:`strafer_lab.sim_in_the_loop.harness`: ``SimInTheLoopHarness``
     pure-Python orchestrator with injectable env / mission-API /
     recorder adapters so the run loop is fully unit-testable without

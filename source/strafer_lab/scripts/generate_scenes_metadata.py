@@ -54,13 +54,15 @@ import re
 from pathlib import Path
 from typing import Any
 
+from strafer_lab.tools.scene_classes import room_struct_regex
+
 logger = logging.getLogger("generate_scenes_metadata")
 
 
 _FLOOR_NAME_RE = re.compile(r"^[a-z]+(?:_[a-z]+)*(?:_\d+)+_floor$")
-_ROOM_STRUCT_RE = re.compile(
-    r"^[a-z]+(?:_[a-z]+)*(?:_\d+)+_(floor|ceiling|wall|exterior|staircase)$"
-)
+# Shared with extract_scene_metadata's detection-label denylist so the two
+# can't drift on which classes count as structure.
+_ROOM_STRUCT_RE = room_struct_regex()
 
 
 def _find_floor_bboxes(

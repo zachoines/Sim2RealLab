@@ -27,9 +27,9 @@ drops: ``injection_mode`` stays set to the request while
 ``None`` — letting consumers audit the per-scene drop rate. Downstream
 training filters MUST key off ``injection_mode_actual``.
 
-Pure Python. Candidates come from ``scene_metadata.json``'s
-``objects[]`` records (``label`` / ``instance_id`` / ``position_3d`` /
-``room_idx``); deterministic given the caller's ``random.Random``.
+Pure Python. Candidates come from the scene's ``objects[]`` records
+(``label`` / ``instance_id`` / ``position_3d`` / ``room_idx``);
+deterministic given the caller's ``random.Random``.
 """
 
 from __future__ import annotations

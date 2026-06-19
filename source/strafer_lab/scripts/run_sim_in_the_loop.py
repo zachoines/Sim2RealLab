@@ -16,7 +16,7 @@ two modes:
     real Nav2 stack on the LAN, ``ros2 topic pub`` smoke checks).
 
   - ``--mode harness``: also instantiate the sim-in-the-loop harness,
-    walk a mission stream (every ``scene_metadata.json`` target by
+    walk a mission stream (every embedded scene target by
     default, or a curated ``mission_queue.yaml`` via ``--mission-queue``),
     submit each mission to the Jetson autonomy executor over the
     ``execute_mission`` action, and record one LeRobot v3 episode per
@@ -94,7 +94,7 @@ def _parse_args() -> argparse.Namespace:
         choices=("bridge", "harness"),
         default="bridge",
         help="Run mode: 'bridge' drives /cmd_vel into the env (default); "
-             "'harness' walks scene_metadata.json missions through the "
+             "'harness' walks the scene's embedded missions through the "
              "Jetson's execute_mission action and writes a reachability dataset.",
     )
     parser.add_argument(
@@ -120,26 +120,19 @@ def _parse_args() -> argparse.Namespace:
         "--scene-usd",
         type=Path,
         default=None,
-        help="Override the env's default scene USD with this path.",
+        help="Override the env's default scene USD with this path. Its "
+             "customData also supplies the harness mission targets.",
     )
 
     # Harness-mode args
     parser.add_argument(
-        "--scene-metadata",
-        type=Path,
-        default=None,
-        help="Harness mode: path to scene_metadata.json describing the "
-             "targets. Optional when --scene-name resolves under "
-             "Assets/generated/scenes/<scene>/.",
-    )
-    parser.add_argument(
         "--scene-name",
         type=str,
         default=None,
-        help="Harness mode: scene_id recorded in per-episode metadata. "
-             "Defaults to the parent dir name of --scene-metadata; when "
-             "given without --scene-metadata, the metadata path resolves "
-             "to Assets/generated/scenes/<scene-name>/scene_metadata.json.",
+        help="Harness mode: scene_id recorded in per-episode metadata + the "
+             "scene whose targets to walk. Resolves the scene USD at "
+             "Assets/generated/scenes/<scene-name>.usdc (whose customData "
+             "carries the targets) unless --scene-usd overrides it.",
     )
     parser.add_argument(
         "--output",
@@ -154,7 +147,7 @@ def _parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Harness mode: mission_queue.yaml to walk instead of "
-             "enumerating scene_metadata.json targets. The bridge "
+             "enumerating the scene's embedded targets. The bridge "
              "dispatches each row's mission_text through the autonomy "
              "stack; planned_path is ignored (the Jetson planner emits "
              "its own).",
@@ -810,7 +803,7 @@ def _git_rev_parse_head(repo_root: Path) -> str:
         return ""
 
 
-def _build_harness_missions(args, scene_name: str, scene_objects: list) -> list:
+def _build_harness_missions(args, scene_name: str, metadata: dict) -> list:
     """Build the (spec, meta) stream: queue rows or scene-metadata targets,
     each run through the hard-negative injection planner."""
     import random
@@ -826,6 +819,7 @@ def _build_harness_missions(args, scene_name: str, scene_objects: list) -> list:
     )
 
     rng = random.Random(args.injection_seed)
+    scene_objects = list(metadata.get("objects") or [])
 
     sourced: list[tuple] = []  # (spec, mission_text, room_idx, paraphrases, generator_metadata, source)
     if args.mission_queue is not None:
@@ -844,8 +838,8 @@ def _build_harness_missions(args, scene_name: str, scene_objects: list) -> list:
                  row.generator_metadata, "queue"),
             )
     else:
-        generator = MissionGenerator.from_metadata_path(
-            scene_metadata_path=args.scene_metadata,
+        generator = MissionGenerator.from_metadata(
+            metadata,
             scene_name=scene_name,
             max_missions=args.max_missions,
             allowed_labels=args.allowed_labels,
@@ -906,8 +900,6 @@ def _build_harness_missions(args, scene_name: str, scene_objects: list) -> list:
 
 
 def _run_harness_mode(simulation_app, env, args, config, cameras_required) -> None:
-    import json
-
     from strafer_lab.bridge.async_camera_publisher import StraferCameraAsyncPublisher
     from strafer_lab.bridge.async_publisher import StraferAsyncPublisher
     from strafer_lab.sim_in_the_loop import (
@@ -922,24 +914,21 @@ def _run_harness_mode(simulation_app, env, args, config, cameras_required) -> No
         ReplicatorBboxExtractor,
         resolve_render_product_path,
     )
+    from strafer_lab.tools import scene_metadata_reader
     from strafer_lab.tools.lerobot_detections import DETECTIONS_MAX_DEFAULT
     from strafer_lab.tools.lerobot_writer import StraferLeRobotWriter, hash_scene_metadata
-    from strafer_lab.tools.scene_paths import resolve_scene_metadata_path
+    from strafer_lab.tools.scene_paths import resolve_scene_usd_path
     from strafer_shared.constants import D555_FOCAL_LENGTH_MM, D555_HORIZONTAL_APERTURE_MM
 
     # --- mission stream -------------------------------------------------
-    metadata_path = resolve_scene_metadata_path(
+    scene_usd_path = resolve_scene_usd_path(
         scene=args.scene_name,
-        metadata_override=args.scene_metadata,
         usd_override=args.scene_usd,
     )
-    args.scene_metadata = metadata_path
-    scene_name = args.scene_name or metadata_path.parent.name
-    scene_objects = list(
-        json.loads(metadata_path.read_text(encoding="utf-8")).get("objects") or [],
-    )
+    scene_metadata = scene_metadata_reader.load(scene_usd_path)
+    scene_name = args.scene_name or scene_usd_path.stem
 
-    missions = _build_harness_missions(args, scene_name, scene_objects)
+    missions = _build_harness_missions(args, scene_name, scene_metadata)
     if not missions:
         print(f"[sim_in_the_loop] no missions to run for {scene_name}; exiting")
         return
@@ -1024,7 +1013,7 @@ def _run_harness_mode(simulation_app, env, args, config, cameras_required) -> No
         repo_id=args.repo_id or f"strafer/{scene_name}",
         fps=writer_fps,
         capture_git_sha=_git_rev_parse_head(repo_root),
-        scene_metadata_hash=hash_scene_metadata(metadata_path),
+        scene_metadata_hash=hash_scene_metadata(scene_metadata),
         cameras_required=cameras_required,
         detections_max=(
             (args.detections_max or DETECTIONS_MAX_DEFAULT) if args.detections else None
@@ -1110,24 +1099,21 @@ def _run_harness_mode(simulation_app, env, args, config, cameras_required) -> No
 def _validate_harness_args(args: argparse.Namespace) -> None:
     if args.output is None:
         raise SystemExit("--mode harness requires --output to be set")
-    if args.scene_metadata is None and args.scene_name is None and args.scene_usd is None:
+    if args.scene_name is None and args.scene_usd is None:
         raise SystemExit(
-            "--mode harness requires --scene-metadata, --scene-name, or "
-            "--scene-usd to locate the scene's scene_metadata.json"
+            "--mode harness requires --scene-name or --scene-usd to locate "
+            "the scene USD whose customData carries the mission targets"
         )
-    if args.scene_metadata is not None and not args.scene_metadata.is_file():
-        raise SystemExit(f"scene metadata not found: {args.scene_metadata}")
     if args.mission_queue is not None and not args.mission_queue.is_file():
         raise SystemExit(f"mission queue not found: {args.mission_queue}")
-    if args.scene_metadata is None and args.scene_usd is None and args.scene_name is not None:
-        # Resolve before the multi-minute Kit boot so a typo'd scene name
-        # fails in milliseconds. strafer_lab.tools imports without Kit.
-        from strafer_lab.tools.scene_paths import resolve_scene_metadata_path
+    # Resolve the scene USD before the multi-minute Kit boot so a typo'd
+    # scene name fails in milliseconds. strafer_lab.tools imports without Kit.
+    from strafer_lab.tools.scene_paths import resolve_scene_usd_path
 
-        try:
-            resolve_scene_metadata_path(scene=args.scene_name)
-        except FileNotFoundError as exc:
-            raise SystemExit(str(exc)) from exc
+    try:
+        resolve_scene_usd_path(scene=args.scene_name, usd_override=args.scene_usd)
+    except (FileNotFoundError, ValueError) as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 if __name__ == "__main__":

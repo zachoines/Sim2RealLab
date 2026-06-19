@@ -131,7 +131,7 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=VALID_MISSION_SOURCES,
         help="Where missions come from: queue (forward-generated YAML), "
              "captioner (random A→B + post-hoc), coverage (visit-every-room), "
-             "scene-metadata (walk scene_metadata.json targets).",
+             "scene-metadata (walk the scene's embedded targets).",
     )
     parser.add_argument(
         "--scene",

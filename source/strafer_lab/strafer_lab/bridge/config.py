@@ -6,8 +6,8 @@ in :mod:`strafer_lab.bridge.graph` consumes an instance of
 :class:`BridgeConfig` to drive ``og.Controller.edit(...)`` calls.
 
 Separating config from graph wiring lets us unit-test the config builder
-(topic names, frame IDs, prim path resolution) in the lightweight
-``.venv_vlm`` test env without pulling in Kit.
+(topic names, frame IDs, prim path resolution) in a lightweight
+pxr-free test env without pulling in Kit.
 """
 
 from __future__ import annotations

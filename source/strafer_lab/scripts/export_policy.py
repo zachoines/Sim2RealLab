@@ -16,7 +16,7 @@ launch and refuses to start if the recorded variant disagrees with its
 configured ``PolicyVariant`` -- that's the cross-host invariant this brief
 anchors at export time.
 
-CLI examples (DGX, ``env_isaaclab3`` conda env)::
+CLI examples (DGX, under the Isaac Sim conda env)::
 
     # NoCam (MLP) -- TorchScript only.
     $ISAACLAB -p source/strafer_lab/scripts/export_policy.py \\

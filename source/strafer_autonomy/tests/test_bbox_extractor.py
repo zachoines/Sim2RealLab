@@ -1,6 +1,6 @@
 """Tests for strafer_lab.tools.bbox_extractor.
 
-These tests run in ``.venv_vlm`` via the ``strafer_lab`` namespace stub
+These tests run in the pxr-free autonomy suite via the ``strafer_lab`` namespace stub
 installed by :mod:`conftest`. They exercise the pure-Python parser and
 the ``ReplicatorBboxExtractor`` class via a mock annotator, so no
 Isaac Sim / Omniverse dependencies are required.

@@ -1,6 +1,6 @@
 """Tests for strafer_lab.sim_in_the_loop.runtime_env.IsaacLabEnvAdapter.
 
-Pure Python — runs in .venv_vlm via the strafer_lab namespace stub.
+Pure Python — runs in the pxr-free autonomy suite via the strafer_lab namespace stub.
 The adapter is exercised against a fake env handle that mimics the
 Isaac Lab attribute surface (``unwrapped.scene[...]``, ``data.output``,
 ``data.root_pos_w``, etc.) plus a fake ``cmd_vel_source`` and a fake

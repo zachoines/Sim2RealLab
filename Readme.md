@@ -29,6 +29,38 @@ Isaac Sim without changing any Jetson-side code.
   <img src="docs/artifacts/strafer_side.jpeg" alt="Strafer robot, side view" width="55%"/>
 </p>
 
+## What ships today
+
+- **Autonomy pipeline operational end-to-end on real hardware.** `"go to the tennis ball"` has been tested from CLI through LLM planning, VLM grounding, projection, Nav2 navigation, and semantic-map arrival verification.
+- **Nine mission intent types** compiled into bounded plans: `go_to_target`, `wait_by_target`, `go_to_targets`, `patrol`, `rotate`, `describe`, `query`, `cancel`, `status`.
+- **Fourteen executor skills** including the composite `scan_for_target` (rotate + ground loop), `explore_until_visible` (frontier-driven cross-room target discovery), `verify_arrival` (CLIP top-k ranking), `describe_scene`, and `query_environment`.
+- **Agentic `POST /plan_with_grounding`** endpoint — planner pre-grounds targets via a co-located VLM call, saving one LAN image round-trip per mission.
+- **Full Jetson ROS stack** — RoboClaw driver, RealSense D555 with timestamp-fixed `*_sync` topics, RTAB-Map SLAM, Nav2 MPPI holonomic controller, goal projection service.
+- **9 registered Isaac Lab environments** — three RL families (depth-real, depth-robust, no-cam), each with a `-Play` evaluation variant, plus three capture variants (teleop, bridge, coverage). Composed over sensor stack × scene source × realism; see [`strafer_lab` README](source/strafer_lab/README.md#contracts).
+- **Synthetic-data pipeline** — Infinigen procedural scene generation, per-scene metadata embedded in the USD's `customData` with `UsdSemantics` detection labels, 4-stage description pipeline (programmatic spatial → Qwen2.5-VL-7B → ground-truth filter → human spot-check), OpenCLIP contrastive fine-tune with ONNX export, comprehensive VLM LoRA SFT data prep.
+- **Isaac Sim ROS 2 bridge + sim-in-the-loop harness** — drive the Jetson autonomy stack against simulated sensors on the DGX without changing any Jetson code; capture reachability-labelled datasets from Jetson-driven missions.
+- **Databricks Model Serving deployment path** — alternative to LAN HTTP for the planner + VLM services; executor swaps transport via env vars.
+
+<p align="center">
+  <img src="docs/artifacts/detections_overlay_hero.gif" alt="Harness detection ground truth — labeled bounding boxes over Infinigen furniture during a 360-degree camera spin" width="66%"/>
+  <br/>
+  <em>Synthetic-data ground truth: the sim-in-the-loop harness boxing Infinigen furniture (chair, sofa, table, tv, microwave, …) via Replicator + USD semantics on a 360° camera spin. Structural surfaces (wall / floor / ceiling) are deliberately excluded so furniture isn't evicted from the truncated detections column.</em>
+</p>
+
+<p align="center">
+  <img src="docs/artifacts/strafer_isaac_lab_test_drive.gif" alt="Isaac Lab test drive on the Strafer USD" width="42%"/>
+  &nbsp;
+  <img src="docs/artifacts/NOCAM_GOAL_FOLLOW.gif" alt="Trained NOCAM_SUBGOAL policy following a sim-planned path through a procedural room" width="42%"/>
+  <br/>
+  <em>Left: Isaac Lab test drive on the Strafer USD. Right: a trained <code>NOCAM_SUBGOAL</code> RL policy tracking a sim-planned path, proprioception only (no camera). Looping previews; full clips in <code>docs/artifacts/</code>.</em>
+</p>
+
+<p align="center">
+  <img src="docs/artifacts/strafer_infinitygen_thumbnail.png" alt="Overhead view of a procedurally generated Infinigen apartment" width="55%"/>
+  <br/>
+  <em>A procedurally generated Infinigen apartment — one of the synthetic scenes the pipeline turns into labeled training data.</em>
+</p>
+
 ## Role in the system
 
 The repository is five packages plus shared interfaces, spread across two hosts:
@@ -76,60 +108,11 @@ Cross-host transport uses `rmw_cyclonedds_cpp` with `ROS_DOMAIN_ID=42`
 over LAN. HTTP goes over the same LAN (DGX `192.168.50.196`, Jetson
 `192.168.50.24` in the reference setup).
 
-### End-to-end call path — `"go to the tennis ball"`
-
-```text
-1. Operator   →  strafer-autonomy-cli submit "go to the tennis ball"
-2. CLI        →  ExecuteMission.action goal on the Jetson
-3. Executor   →  POST DGX:8200/plan
-4. Planner    →  LLM classifies → go_to_target intent → plan_compiler
-                 → 4-step plan: scan → project → navigate → verify_arrival
-5. Executor   →  scan_for_target loop:
-                   capture RGB from D555 → POST DGX:8100/ground
-                   rotate if not found → repeat up to max_scan_steps
-6. Executor   →  project_detection_to_goal_pose (local ROS service)
-7. Executor   →  navigate_to_pose (Nav2 action) → robot drives
-8. Executor   →  verify_arrival (CLIP top-k vs semantic map)
-9. CLI        ←  action feedback + final result
-```
-
 <p align="center">
   <img src="docs/artifacts/hallway_grounding_example.png" alt="Hallway scene with a yucca plant at the end" width="35%"/>
   <img src="docs/artifacts/hallway_grounding_example_postman.png" alt="Postman grounding request showing bbox output" width="44%"/>
   <br/>
-  <em>Step 5 in practice: VLM grounding for "green yucca plant end of hall" — original scene (left) and Postman <code>POST /ground</code> response with bbox overlay (right)</em>
-</p>
-
-## What ships today
-
-- **Autonomy pipeline operational end-to-end on real hardware.** `"go to the tennis ball"` has been tested from CLI through LLM planning, VLM grounding, projection, Nav2 navigation, and semantic-map arrival verification.
-- **Nine mission intent types** compiled into bounded plans: `go_to_target`, `wait_by_target`, `go_to_targets`, `patrol`, `rotate`, `describe`, `query`, `cancel`, `status`.
-- **Fourteen executor skills** including the composite `scan_for_target` (rotate + ground loop), `explore_until_visible` (frontier-driven cross-room target discovery), `verify_arrival` (CLIP top-k ranking), `describe_scene`, and `query_environment`.
-- **Agentic `POST /plan_with_grounding`** endpoint — planner pre-grounds targets via a co-located VLM call, saving one LAN image round-trip per mission.
-- **Full Jetson ROS stack** — RoboClaw driver, RealSense D555 with timestamp-fixed `*_sync` topics, RTAB-Map SLAM, Nav2 MPPI holonomic controller, goal projection service.
-- **9 registered Isaac Lab environments** — three RL families (depth-real, depth-robust, no-cam), each with a `-Play` evaluation variant, plus three capture variants (teleop, bridge, coverage). Composed over sensor stack × scene source × realism; see [`strafer_lab` README](source/strafer_lab/README.md#contracts).
-- **Synthetic-data pipeline** — Infinigen procedural scene generation, scene metadata extraction with USD `semanticLabel` attributes, 4-stage description pipeline (programmatic spatial → Qwen2.5-VL-7B → ground-truth filter → human spot-check), OpenCLIP contrastive fine-tune with ONNX export, comprehensive VLM LoRA SFT data prep.
-- **Isaac Sim ROS 2 bridge + sim-in-the-loop harness** — drive the Jetson autonomy stack against simulated sensors on the DGX without changing any Jetson code; capture reachability-labelled datasets from Jetson-driven missions.
-- **Databricks Model Serving deployment path** — alternative to LAN HTTP for the planner + VLM services; executor swaps transport via env vars.
-
-<p align="center">
-  <img src="docs/artifacts/strafer_isaac_lab_test_drive.gif" alt="Isaac Lab test drive on the Strafer USD" width="42%"/>
-  &nbsp;
-  <img src="docs/artifacts/strafer_infinitygen_scene.gif" alt="Robot navigating a procedurally generated Infinigen apartment" width="42%"/>
-  <br/>
-  <em>Left: Isaac Lab test drive on the Strafer USD. Right: robot navigating a procedurally generated Infinigen apartment. (Looping previews — full clips are the <code>.mp4</code>s in <code>docs/artifacts/</code>.)</em>
-</p>
-
-<p align="center">
-  <img src="docs/artifacts/detections_overlay_hero.gif" alt="Harness detection ground truth — labeled bounding boxes over Infinigen furniture during a 360-degree camera spin" width="66%"/>
-  <br/>
-  <em>Synthetic-data ground truth: the sim-in-the-loop harness boxing Infinigen furniture (chair, sofa, table, tv, microwave, …) via Replicator + USD semantics on a 360° camera spin. Structural surfaces (wall / floor / ceiling) are deliberately excluded so furniture isn't evicted from the truncated detections column.</em>
-</p>
-
-<p align="center">
-  <img src="docs/artifacts/NOCAM_GOAL_FOLLOW.gif" alt="Trained NOCAM_SUBGOAL policy following a planned path through a procedural room" width="66%"/>
-  <br/>
-  <em>Trained <code>NOCAM_SUBGOAL</code> RL policy tracking a sim-planned path through a procedural room — proprioception only (no camera), following a rolling subgoal a fixed lookahead ahead of the robot along the path. (Looping preview — full clip is <code>docs/artifacts/NOCAM_GOAL_FOLLOW.mp4</code>.)</em>
+  <em>VLM grounding in practice: "green yucca plant end of hall" — original scene (left) and the Postman <code>POST /ground</code> response with bbox overlay (right)</em>
 </p>
 
 ## Hardware

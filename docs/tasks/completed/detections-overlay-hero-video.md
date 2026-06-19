@@ -1,5 +1,8 @@
 # Detections-overlay viz tool + synthetic-data hero video
 
+**Status:** Shipped 2026-06-19 in `86e192b` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/92
+
 **Type:** tooling + docs
 **Owner:** DGX
 **Priority:** P3 — quality-of-life / docs; not gating any acceptance bar.

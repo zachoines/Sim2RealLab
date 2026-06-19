@@ -28,6 +28,7 @@ that ships them; see "Shipping a brief: order of operations" in
 |---|---|---|---|
 | [`harness-architecture`](active/harness/harness-architecture.md) Tier 1 acceptance run | DGX | post-merge follow-up (PR #63 merged 2026-05-26) | pending operator capture; gated on [`teleop-perf-architecture`](completed/teleop-perf-architecture.md) (shipped 2026-06-01; loop is PhysX-bound, ~10 FPS not the ≥15 target, so a ≥30 ep × ≥2 scene run is faster but still not one-evening). Tier 1 ✓ on harness-architecture.md stays unchecked until artifact lands at `docs/artifacts/teleop_acceptance/<run_id>/`. |
 | [`harness-architecture`](active/harness/harness-architecture.md) Tier 2 — bridge driver migration | DGX | [#88](https://github.com/zachoines/Sim2RealLab/pull/88) | ready for review. Bridge `--mode harness` → LeRobot v3 writer; both `capture.py` bridge cells wired (queue cell against a hand-authored fixture — mission-generator unshipped); `--inject-bad-grounding` + detections columns. Unit suites + Jetson-free Kit smoke green; the multi-room end-to-end acceptance is operator-run per the PR test plan. Brief stays active until Tier 3 ships. |
+| [`detections-overlay-hero-video`](completed/detections-overlay-hero-video.md) | DGX | [#92](https://github.com/zachoines/Sim2RealLab/pull/92) | ready for review. Reusable `detections_overlay` tool (capture → annotated MP4) + a 360-spin synthetic-data hero video in the README (`scene_high_quality_dgx_000_seed2`, 30-class vocab). Sequenced after `scene-metadata-in-usd` (#90) for the captured detections. Brief shipped to `completed/` in-PR; drop this row on merge. |
 
 ---
 
@@ -90,7 +91,6 @@ Path-planning consumers here (`mission-generator`'s oracle + waypoint validation
 | [`mission-generator`](active/harness/mission-generator.md) | P2 | active | DGX |
 | [`mission-text-enrichment`](parked/harness/mission-text-enrichment.md) | P2 | parked (unblocked — `scene-provider-contract` shipped) | DGX |
 | [`scene-metadata-in-usd`](active/harness/scene-metadata-in-usd.md) | P2 | active | DGX |
-| [`detections-overlay-hero-video`](active/harness/detections-overlay-hero-video.md) | P3 | active (sequenced after scene-metadata-in-usd) | DGX |
 | [`harness-throughput-measurement`](parked/harness/harness-throughput-measurement.md) | P2 | parked | DGX |
 | [`scene-provider-floor-sampler-cli`](parked/harness/scene-provider-floor-sampler-cli.md) | P3 | parked (filed-on-trigger) | DGX |
 | [`cosmos-replay-perturbation`](parked/harness/cosmos-replay-perturbation.md) | P3 | parked | DGX |
@@ -242,7 +242,6 @@ session. Parked briefs are not listed here — see **By epic** or
 
 | Brief | Owner | Estimate | Note |
 |---|---|---|---|
-| [`detections-overlay-hero-video`](active/harness/detections-overlay-hero-video.md) | DGX | S | Reusable `detections_overlay` tool (capture → annotated MP4) + a 360-spin synthetic-data hero video for the README. Sequenced after `scene-metadata-in-usd` (detections need its semantics fix). |
 | [`test-ci-workflow`](active/tooling/test-ci-workflow.md) | Either | M | CI half of the now-shipped [`unify-test-targets-and-ci`](completed/unify-test-targets-and-ci.md) — a GitHub Actions matrix over `make test-*`. Land `autonomy` per-PR first (minimal safe gate); `vlm`/`ros` next; `lab` nightly + informative (needs a self-hosted DGX runner). Confirm the repo's Actions permissions first. |
 | [`script-tool-subsystem-grouping`](active/tooling/script-tool-subsystem-grouping.md) | DGX | M | Sub-group `scripts/` by sub-system (policy/ infinigen/ diagnostics/ harness/) **and** amend the conventions placement rule (flat → sub-system) — the shared rule that also governs `tools/`. `tools/` itself is owned by `tools-package-reorg` (deduped). `scripts/harness/` sequenced behind `harness-architecture`. |
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | DGX | S | Sidecar `training_preset` records the configclass name instead of the rsl_rl preset variable; cosmetic but the field is operator-facing. Filed off [`export-onnx-depth`](completed/export-onnx-depth.md). |

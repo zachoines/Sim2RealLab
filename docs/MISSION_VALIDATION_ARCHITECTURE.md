@@ -1,5 +1,7 @@
 # Mission validation architecture: CLIP today, alternatives next
 
+> **INTERIM.** Predates the clip-validation epic; superseded section-by-section as those briefs ship, where the authoritative mid-mission-validation design will live. Sections still cited by active briefs remain the interim reference until their successor ships. Do **not** update this file in implementation PRs. Exempt from the docs-maintenance sweep (see `tasks/context/conventions.md`).
+
 This document is the deliverable of
 [`docs/tasks/completed/mid-mission-validation-investigation.md`](tasks/completed/mid-mission-validation-investigation.md)
 once that brief ships. It is an architectural audit + literature

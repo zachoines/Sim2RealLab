@@ -1,5 +1,8 @@
 # Tools and scripts map (context module)
 
+**Status:** Shipped 2026-06-19 in `3e7df6f` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/93
+
 **Type:** docs (context module)
 **Owner:** DGX
 **Priority:** P3 — discoverability / drift-prevention; not gating.

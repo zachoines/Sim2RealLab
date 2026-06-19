@@ -500,7 +500,8 @@ def validate_connectivity(
     for e in edges:
         if not e.get("reachable"):
             continue
-        e["door_state"] = "force-opened" if (forced_open and _door_at_crossing(e, doors)) else "absent"
+        at_door = forced_open and _door_at_crossing(e, doors)
+        e["door_state"] = "force-opened" if at_door else "absent"
 
     multi_story = scene_connectivity.is_multi_story(rooms)
     incompatible = scene_connectivity.is_multi_room_incompatible(edges)

@@ -1,5 +1,7 @@
 # Sim2RealLab system flow diagrams
 
+> **INTERIM — not maintained.** Data capture is now one unified LeRobot v3 scheme across drivers — see [`HARNESS_DATA_CAPTURE.md`](HARNESS_DATA_CAPTURE.md). The separate VLM / CLIP flow diagrams here are stale; per-consumer training flows are owned by the clip-validation epic. Do **not** update this file in implementation PRs. Exempt from the docs-maintenance sweep (see `tasks/context/conventions.md`).
+
 Runtime reference for the six end-to-end information-flow paths that
 make up the Sim2RealLab pipeline. Each diagram shows the operator
 command that triggers the flow, every process / file / topic the data

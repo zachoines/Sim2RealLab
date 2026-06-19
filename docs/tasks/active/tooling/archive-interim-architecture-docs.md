@@ -6,9 +6,21 @@
 actively misleading (they predate the epics that now own their
 subjects) and the Tier 2 harness review surfaced three of them being
 half-maintained inside an implementation PR.
-**Estimate:** M (the move is small; the reference-rehoming for
-`MISSION_VALIDATION_ARCHITECTURE.md` is the real work — 26 referrers).
+**Estimate:** Phase 1 (stamp + sweep-exemption) ✅ done; Phase 2 (physical
+relocation + referrer rehoming) is the remaining M — the rehoming for
+`MISSION_VALIDATION_ARCHITECTURE.md` is the real work (26 referrers).
 **Branch:** task/archive-interim-architecture-docs
+
+## Status
+
+**Phase 1 shipped 2026-06-19** (the churn-stopper): all five interim docs
+carry an `> **INTERIM**` banner, and `context/conventions.md`'s
+user-facing-docs maintenance sweep was edited to **exempt** banner-stamped
+docs and drop them from the sweep table. That removes the contractual
+pressure that kept dragging implementation PRs into these files (the
+recurring annoyance). Phase 2 — physically moving them to `docs/archived/`
+and rehoming referrers — is the remaining work below, deferrable now that
+nothing re-edits them.
 
 ## Story
 
@@ -38,7 +50,28 @@ The principle (from the project's docs-era model): **an implementation
 PR should not maintain an interim top-level doc; either the doc is
 archived, or its authoritative successor lives in the owning epic.**
 
-### The three docs and their disposition
+**Root cause found + fixed (Phase 1).** These docs were edit-magnets
+*because* `context/conventions.md`'s user-facing-docs maintenance sweep
+listed them as surfaces every brief MUST update. The sweep now exempts
+any `> **INTERIM**`-bannered doc and no longer lists them, so the
+contractual pull is gone. The banner + exemption is the durable fix;
+the physical move is now just tidiness.
+
+### The five interim docs and their disposition
+
+The set grew from three to five (operator add 2026-06-19:
+`STRAFER_AUTONOMY_NEXT.md`, `SIM_TO_REAL_TUNING_GUIDE.md`). All five are
+banner-stamped + sweep-exempt as of Phase 1; the per-doc Phase-2 plan:
+
+| Doc | Phase 2 disposition | Successor |
+|---|---|---|
+| `INTEGRATION_SIM_IN_THE_LOOP.md` | move to `docs/archived/` + rehome ~18 referrers | `HARNESS_DATA_CAPTURE.md` + `example_commands_cheatsheet.md` |
+| `SYSTEM_FLOW_DIAGRAMS.md` | trim to the unified LeRobot v3 flow, or archive if little remains | the unified capture flow; clip-validation owns per-consumer training flows |
+| `MISSION_VALIDATION_ARCHITECTURE.md` | **stay in place** (26 referrers); full archive gated on clip-validation shipping its authoritative replacement | the clip-validation epic |
+| `STRAFER_AUTONOMY_NEXT.md` | move to `docs/archived/` + rehome ~16 referrers | the multi-room epic (`autonomy-stack` + BOARD) |
+| `SIM_TO_REAL_TUNING_GUIDE.md` | **verify staleness first** — no staleness markers found at stamp time; if still a current reference, drop its banner + re-add to the sweep instead of archiving | sim→real promotion: `nav2-sim-real-promotion-architecture` |
+
+### Original three-doc disposition (kept for context)
 
 **1. `docs/INTEGRATION_SIM_IN_THE_LOOP.md` → archive.** Served its
 purpose during Isaac-ROS bridge bringup; day-to-day sim-in-the-loop is
@@ -80,33 +113,38 @@ without dangling 26 references.
 
 ## Acceptance criteria
 
-- [ ] `docs/archived/` created; `INTEGRATION_SIM_IN_THE_LOOP.md` moved
-      there with a header stamp (date, reason, successor pointers to
-      `HARNESS_DATA_CAPTURE.md` + `example_commands_cheatsheet.md`).
-- [ ] Any referrer to `INTEGRATION_SIM_IN_THE_LOOP.md` updated to the
-      archived path or re-pointed at the successor. Specifically:
-  - [`harness-architecture`](../harness/harness-architecture.md)
-    acceptance criterion that says "update
-    `INTEGRATION_SIM_IN_THE_LOOP.md`" is rewritten to "the unified
-    `capture.py` entry point is documented in `HARNESS_DATA_CAPTURE.md`
-    + `example_commands_cheatsheet.md`; `INTEGRATION_SIM_IN_THE_LOOP.md`
-    archived."
-  - [`mission-generator`](../harness/mission-generator.md)'s "Doc
-    surface" acceptance item (Stage 5b/5c on
-    `INTEGRATION_SIM_IN_THE_LOOP.md`) re-pointed at the successor.
-- [ ] `SYSTEM_FLOW_DIAGRAMS.md` trimmed to the unified LeRobot v3
-      capture flow; the separate VLM-flow / CLIP-flow depiction removed;
-      a one-line note that per-consumer training flows are owned by the
-      clip-validation epic. (Or archived if little remains.)
-- [ ] `MISSION_VALIDATION_ARCHITECTURE.md` gains the INTERIM banner;
-      file stays in place; **no referrers broken**. A parked
-      `mission-validation-doc-archive` brief is filed with the un-park
-      trigger "clip-validation epic has shipped the authoritative
-      mid-mission-validation write-up."
-- [ ] `grep -rn "INTEGRATION_SIM_IN_THE_LOOP" docs/ source/` returns no
-      live (non-archived) pointer except the archived copy itself.
-- [ ] If your work invalidates a fact in any context module, package
-      README, or guide under `docs/`, update it in the same commit.
+### Phase 1 — stamp + sweep-exemption (✅ done 2026-06-19)
+
+- [x] All five interim docs carry an `> **INTERIM**` top-of-file banner
+      (strong "not maintained" for INTEGRATION / SYSTEM_FLOW /
+      STRAFER_AUTONOMY_NEXT; soft "superseded section-by-section" for
+      MISSION_VALIDATION; "verify before relying" for SIM_TO_REAL_TUNING_GUIDE).
+- [x] `context/conventions.md` user-facing-docs sweep drops the interim
+      docs from its table and adds the **banner-exemption** rule, so no
+      implementation PR is contractually pulled into them.
+- [x] No referrers broken (nothing moved in Phase 1).
+
+### Phase 2 — physical relocation + referrer rehoming (deferred)
+
+- [ ] `docs/archived/` created; `INTEGRATION_SIM_IN_THE_LOOP.md` and
+      `STRAFER_AUTONOMY_NEXT.md` moved there (header stamp already present).
+- [ ] Their referrers (~18 and ~16) rehomed to the archived path or the
+      successor. Specifically `harness-architecture`'s acceptance line and
+      `mission-generator`'s "Doc surface" item re-pointed off
+      `INTEGRATION_SIM_IN_THE_LOOP.md`.
+- [ ] `SYSTEM_FLOW_DIAGRAMS.md` trimmed to the unified LeRobot v3 flow (or
+      archived if little remains).
+- [ ] `MISSION_VALIDATION_ARCHITECTURE.md` stays in place; full archive
+      gated on the clip-validation epic shipping its authoritative
+      replacement (file the un-park trigger on a parked
+      `mission-validation-doc-archive` then).
+- [ ] `SIM_TO_REAL_TUNING_GUIDE.md` staleness confirmed before archiving —
+      if it is still a current reference, drop its banner + re-add it to the
+      conventions sweep instead.
+- [ ] `grep` for each archived doc name returns no live (non-archived)
+      pointer except the archived copy.
+- [ ] If your work invalidates a fact in any context module / README /
+      guide, update it in the same commit.
 
 ## Out of scope
 

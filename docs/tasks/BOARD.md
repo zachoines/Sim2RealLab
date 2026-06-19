@@ -148,6 +148,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 |---|---|---|---|
 | [`nav2-sim-real-promotion-architecture`](active/tooling/nav2-sim-real-promotion-architecture.md) | P2 | active | Jetson |
 | [`test-ci-workflow`](active/tooling/test-ci-workflow.md) | P3 | active | Either |
+| [`tools-and-scripts-map`](active/tooling/tools-and-scripts-map.md) | P3 | active (sequenced after #90/#92) | DGX |
 | [`isaac-lab-upgrade`](active/tooling/isaac-lab-upgrade.md) | P3 | active | DGX |
 | [`script-tool-subsystem-grouping`](active/tooling/script-tool-subsystem-grouping.md) | P3 | active | DGX |
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | P2 | active | DGX |
@@ -242,6 +243,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | Brief | Owner | Estimate | Note |
 |---|---|---|---|
 | [`test-ci-workflow`](active/tooling/test-ci-workflow.md) | Either | M | CI half of the now-shipped [`unify-test-targets-and-ci`](completed/unify-test-targets-and-ci.md) — a GitHub Actions matrix over `make test-*`. Land `autonomy` per-PR first (minimal safe gate); `vlm`/`ros` next; `lab` nightly + informative (needs a self-hosted DGX runner). Confirm the repo's Actions permissions first. |
+| [`tools-and-scripts-map`](active/tooling/tools-and-scripts-map.md) | DGX | S | Authoritative index context module listing the project's tools + scripts + purposes, pointing at the per-package README inventories, with the "revisit consumers on API change" rule. Sequenced after #90/#92 (lists their new tools). |
 | [`script-tool-subsystem-grouping`](active/tooling/script-tool-subsystem-grouping.md) | DGX | M | Sub-group `scripts/` by sub-system (policy/ infinigen/ diagnostics/ harness/) **and** amend the conventions placement rule (flat → sub-system) — the shared rule that also governs `tools/`. `tools/` itself is owned by `tools-package-reorg` (deduped). `scripts/harness/` sequenced behind `harness-architecture`. |
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | DGX | S | Sidecar `training_preset` records the configclass name instead of the rsl_rl preset variable; cosmetic but the field is operator-facing. Filed off [`export-onnx-depth`](completed/export-onnx-depth.md). |
 | [`defm-preprocess-antialias-audit`](active/investigations/defm-preprocess-antialias-audit.md) | DGX | S–M | Measure projection-space delta between training-time DeFM antialiased preprocessing and the deployment ONNX-safe non-antialiased version, then decide alignment (leave / align deploy / align training). Filed off [`export-onnx-depth`](completed/export-onnx-depth.md). |

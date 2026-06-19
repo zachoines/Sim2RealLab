@@ -295,9 +295,16 @@ and update any that your change invalidates — in the same PR.**
 | [`source/strafer_autonomy/README.md`](../../../source/strafer_autonomy/README.md) | Skill table, planner endpoints, executor commands. |
 | [`source/strafer_vlm/README.md`](../../../source/strafer_vlm/README.md) | Endpoint table, env-var / config surface. |
 | [`docs/example_commands_cheatsheet.md`](../../example_commands_cheatsheet.md) | Operator one-liners — copy-paste fidelity matters. |
-| [`docs/INTEGRATION_*.md`](../..) | DGX / Jetson / sim-in-the-loop spin-up runbooks. |
-| [`docs/SIM_TO_REAL_TUNING_GUIDE.md`](../../SIM_TO_REAL_TUNING_GUIDE.md), [`docs/SYSTEM_FLOW_DIAGRAMS.md`](../../SYSTEM_FLOW_DIAGRAMS.md) | Cited-by-name reference docs. |
 | [`docs/tasks/DEFERRED_WORK.md`](../DEFERRED_WORK.md) | Items you just shipped must be **deleted from this file** in the same commit, per its own maintenance contract at the bottom of the file. |
+
+**Interim docs are exempt from this sweep.** A top-level `docs/*.md` whose
+first lines carry an `> **INTERIM**` banner is historical / superseded — do
+**not** update it here or in any implementation PR; update the successor the
+banner names. Currently interim (banner-stamped): `INTEGRATION_SIM_IN_THE_LOOP.md`,
+`SYSTEM_FLOW_DIAGRAMS.md`, `MISSION_VALIDATION_ARCHITECTURE.md`,
+`STRAFER_AUTONOMY_NEXT.md`, `SIM_TO_REAL_TUNING_GUIDE.md`. Their physical
+relocation to `docs/archived/` is tracked by
+[`archive-interim-architecture-docs`](../active/tooling/archive-interim-architecture-docs.md).
 
 ### Trigger heuristics — your change probably invalidates user-facing docs if it:
 

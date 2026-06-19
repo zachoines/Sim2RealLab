@@ -1,5 +1,7 @@
 # Sim-in-the-loop integration runbook
 
+> **INTERIM — not maintained.** This runbook served the Isaac-ROS bridge bring-up and is kept for historical context. Operator commands live in [`example_commands_cheatsheet.md`](example_commands_cheatsheet.md); the capture path is [`HARNESS_DATA_CAPTURE.md`](HARNESS_DATA_CAPTURE.md). Do **not** update this file in implementation PRs — fix the successor instead. Exempt from the docs-maintenance sweep (see `tasks/context/conventions.md`).
+
 End-to-end test of the DGX Spark ↔ Jetson Orin Nano pipeline using
 Isaac Sim in place of the real robot. Success criterion: an operator
 submits a natural-language mission from an SSH session on the Jetson,

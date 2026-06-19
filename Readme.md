@@ -17,11 +17,9 @@ Isaac Sim without changing any Jetson-side code.
      PNG, then uncomment this block and remove this TODO.
 
      <p align="center">
-       <a href="docs/artifacts/strafer_end_to_end_demo.mp4">
-         <img src="docs/artifacts/strafer_end_to_end_thumbnail.png" alt="End-to-end demo" width="66%"/>
-       </a>
+       <video src="https://github.com/zachoines/Sim2RealLab/raw/main/docs/artifacts/strafer_end_to_end_demo.mp4" poster="https://github.com/zachoines/Sim2RealLab/raw/main/docs/artifacts/strafer_end_to_end_thumbnail.png" controls muted width="66%"></video>
        <br/>
-       <em>End-to-end: "go to the X" running in sim and on real hardware — <a href="docs/artifacts/strafer_end_to_end_demo.mp4">watch video</a></em>
+       <em>End-to-end: "go to the X" running in sim and on real hardware.</em>
      </p>
 -->
 
@@ -114,23 +112,17 @@ over LAN. HTTP goes over the same LAN (DGX `192.168.50.196`, Jetson
 - **Databricks Model Serving deployment path** — alternative to LAN HTTP for the planner + VLM services; executor swaps transport via env vars.
 
 <p align="center">
-  <a href="docs/artifacts/strafer_isaac_lab_test_drive.mp4">
-    <img src="docs/artifacts/strafer_usd.png" alt="Robot USD model — click to play Isaac Lab test drive" width="42%"/>
-  </a>
+  <video src="https://github.com/zachoines/Sim2RealLab/raw/main/docs/artifacts/strafer_isaac_lab_test_drive.mp4" poster="https://github.com/zachoines/Sim2RealLab/raw/main/docs/artifacts/strafer_usd.png" controls muted width="42%"></video>
   &nbsp;
-  <a href="docs/artifacts/strafer_infinitygen_scene.mp4">
-    <img src="docs/artifacts/strafer_infinitygen_thumbnail.png" alt="Robot in an Infinigen apartment — click to play" width="42%"/>
-  </a>
+  <video src="https://github.com/zachoines/Sim2RealLab/raw/main/docs/artifacts/strafer_infinitygen_scene.mp4" poster="https://github.com/zachoines/Sim2RealLab/raw/main/docs/artifacts/strafer_infinitygen_thumbnail.png" controls muted width="42%"></video>
   <br/>
-  <em>Left: Isaac Lab test drive on the Strafer USD (<a href="docs/artifacts/strafer_isaac_lab_test_drive.mp4">watch</a>). Right: robot navigating a procedurally generated Infinigen apartment (<a href="docs/artifacts/strafer_infinitygen_scene.mp4">watch</a>).</em>
+  <em>Left: Isaac Lab test drive on the Strafer USD. Right: robot navigating a procedurally generated Infinigen apartment.</em>
 </p>
 
 <p align="center">
-  <a href="docs/artifacts/detections_overlay_hero.mp4">
-    <img src="docs/artifacts/detections_overlay_hero_thumbnail.png" alt="Harness detection ground truth — labeled bounding boxes over Infinigen furniture during a 360-degree camera spin — click to play" width="66%"/>
-  </a>
+  <video src="https://github.com/zachoines/Sim2RealLab/raw/main/docs/artifacts/detections_overlay_hero.mp4" poster="https://github.com/zachoines/Sim2RealLab/raw/main/docs/artifacts/detections_overlay_hero_thumbnail.png" controls muted width="66%"></video>
   <br/>
-  <em>Synthetic-data ground truth: the sim-in-the-loop harness boxing Infinigen furniture (chair, sofa, table, tv, microwave, …) via Replicator + USD semantics on a 360° camera spin. Structural surfaces (wall / floor / ceiling) are deliberately excluded so furniture isn't evicted from the truncated detections column (<a href="docs/artifacts/detections_overlay_hero.mp4">watch</a>).</em>
+  <em>Synthetic-data ground truth: the sim-in-the-loop harness boxing Infinigen furniture (chair, sofa, table, tv, microwave, …) via Replicator + USD semantics on a 360° camera spin. Structural surfaces (wall / floor / ceiling) are deliberately excluded so furniture isn't evicted from the truncated detections column.</em>
 </p>
 
 <p align="center">

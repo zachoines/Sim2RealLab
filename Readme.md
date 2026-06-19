@@ -126,6 +126,14 @@ over LAN. HTTP goes over the same LAN (DGX `192.168.50.196`, Jetson
 </p>
 
 <p align="center">
+  <a href="docs/artifacts/detections_overlay_hero.mp4">
+    <img src="docs/artifacts/detections_overlay_hero_thumbnail.png" alt="Harness detection ground truth — labeled bounding boxes over Infinigen furniture during a 360-degree camera spin — click to play" width="66%"/>
+  </a>
+  <br/>
+  <em>Synthetic-data ground truth: the sim-in-the-loop harness boxing Infinigen furniture (chair, sofa, table, tv, microwave, …) via Replicator + USD semantics on a 360° camera spin. Structural surfaces (wall / floor / ceiling) are deliberately excluded so furniture isn't evicted from the truncated detections column (<a href="docs/artifacts/detections_overlay_hero.mp4">watch</a>).</em>
+</p>
+
+<p align="center">
   <a href="docs/artifacts/NOCAM_GOAL_FOLLOW.mp4">
     <img src="docs/artifacts/NOCAM_GOAL_FOLLOW_thumbnail.png" alt="Trained NOCAM_SUBGOAL policy following a planned path through a procedural room — click to play" width="66%"/>
   </a>

@@ -90,6 +90,7 @@ Path-planning consumers here (`mission-generator`'s oracle + waypoint validation
 | [`mission-generator`](active/harness/mission-generator.md) | P2 | active | DGX |
 | [`mission-text-enrichment`](parked/harness/mission-text-enrichment.md) | P2 | parked (unblocked — `scene-provider-contract` shipped) | DGX |
 | [`scene-metadata-in-usd`](active/harness/scene-metadata-in-usd.md) | P2 | active | DGX |
+| [`detections-overlay-hero-video`](active/harness/detections-overlay-hero-video.md) | P3 | active (sequenced after scene-metadata-in-usd) | DGX |
 | [`harness-throughput-measurement`](parked/harness/harness-throughput-measurement.md) | P2 | parked | DGX |
 | [`scene-provider-floor-sampler-cli`](parked/harness/scene-provider-floor-sampler-cli.md) | P3 | parked (filed-on-trigger) | DGX |
 | [`cosmos-replay-perturbation`](parked/harness/cosmos-replay-perturbation.md) | P3 | parked | DGX |
@@ -241,6 +242,7 @@ session. Parked briefs are not listed here — see **By epic** or
 
 | Brief | Owner | Estimate | Note |
 |---|---|---|---|
+| [`detections-overlay-hero-video`](active/harness/detections-overlay-hero-video.md) | DGX | S | Reusable `detections_overlay` tool (capture → annotated MP4) + a 360-spin synthetic-data hero video for the README. Sequenced after `scene-metadata-in-usd` (detections need its semantics fix). |
 | [`test-ci-workflow`](active/tooling/test-ci-workflow.md) | Either | M | CI half of the now-shipped [`unify-test-targets-and-ci`](completed/unify-test-targets-and-ci.md) — a GitHub Actions matrix over `make test-*`. Land `autonomy` per-PR first (minimal safe gate); `vlm`/`ros` next; `lab` nightly + informative (needs a self-hosted DGX runner). Confirm the repo's Actions permissions first. |
 | [`script-tool-subsystem-grouping`](active/tooling/script-tool-subsystem-grouping.md) | DGX | M | Sub-group `scripts/` by sub-system (policy/ infinigen/ diagnostics/ harness/) **and** amend the conventions placement rule (flat → sub-system) — the shared rule that also governs `tools/`. `tools/` itself is owned by `tools-package-reorg` (deduped). `scripts/harness/` sequenced behind `harness-architecture`. |
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | DGX | S | Sidecar `training_preset` records the configclass name instead of the rsl_rl preset variable; cosmetic but the field is operator-facing. Filed off [`export-onnx-depth`](completed/export-onnx-depth.md). |

@@ -68,7 +68,10 @@ When the picker offers objects that aren't actually present in the
 loaded scene (e.g. selecting a "bed" places the target marker into
 mid-air) — which now requires an un-regenerated scene, since fresh
 scenes embed their metadata at generation — regenerate from a clean
-slate. `generate` chains the metadata + detection-label authoring, so
+slate. `generate` chains the metadata + detection-label authoring **and**
+the room-connectivity step (occupancy grid + verified `connectivity[]`
+graph + door-open guarantee — see
+[`SCENE_PROVIDER_CONTRACT.md`](SCENE_PROVIDER_CONTRACT.md) §b-conn), so
 the only separate step is the combined manifest:
 
 ```bash
@@ -135,13 +138,36 @@ for o in d['objects'][:10]:
 "
 ```
 
-**Known limitation:** `--from-usd` cannot recover room polygons, so
-the picker shows `rooms=0` for these scenes. Room semantics (which
-hard-negative button chord maps to "wrong_room") still work; the
-operator commits to the failure mode at capture time. For full room
-geometry, run from a Blender stage or extract from the in-process
+**Known limitation:** `--from-usd` cannot recover room *polygons*, so
+the picker shows `rooms=0` for these scenes right after this step. Room
+semantics (which hard-negative button chord maps to "wrong_room") still
+work; the operator commits to the failure mode at capture time. For full
+room polygons, run from a Blender stage or extract from the in-process
 Infinigen `State`. Tracked in
 [`docs/tasks/active/harness/infinigen-scene-corpus.md`](tasks/active/harness/infinigen-scene-corpus.md).
+
+The connectivity step below back-fills a *rectangular* `rooms[]` (one
+axis-aligned footprint per floor mesh, with `room_type` + `story`) when
+the metadata has none — enough for room indexing and the connectivity
+graph, though coarser than the true constraint-solver polygons.
+
+### Re-author the connectivity graph (one-time per existing scene)
+
+After metadata is embedded, generate the occupancy grid + verified
+`connectivity[]` graph and force doors open (idempotent; re-run after any
+geometry change):
+
+```bash
+$ISAACLAB -p source/strafer_lab/scripts/validate_scene_connectivity.py \
+    --usd Assets/generated/scenes/${SCENE}.usdc
+
+# Inspect without authoring (prints the connectivity matrix, leaves the USD
+# untouched): add --no-write.
+```
+
+This caches `<scene>/occupancy.npy` (+ `occupancy.json`) next to the scene
+and merges `connectivity[]` + `multi_story` into the USD `customData`. If
+the occupancy-map extension is unavailable, add `--rasterize-fallback`.
 
 ---
 

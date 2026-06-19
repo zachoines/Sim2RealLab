@@ -30,6 +30,17 @@ Authoring (needs ``pxr``; semantics need the Isaac Sim Kit runtime):
   annotator boxes on. Structural classes are excluded from the semantics
   pass (see ``--label-denylist``).
 
+The customData payload authored here is the ``objects[]`` / ``rooms[]`` /
+``room_adjacency`` shape (see ``docs/SCENE_PROVIDER_CONTRACT.md``). One more
+block is layered onto the same payload *after* this pass, by the sibling
+``validate_scene_connectivity.py`` (kept separate so this Infinigen-state
+walker stays pure): a **verified** ``connectivity[]`` graph (per room-pair
+``reachable`` / ``via_doorway_xy`` / ``path_length_m`` / ``door_state``,
+indices into ``rooms[]``) plus a top-level ``multi_story`` flag. That step
+generates the scene's occupancy grid, plans every candidate room pair with
+the shared grid planner, and forces doors open — it does not re-walk the
+Infinigen state, it merges into the customData this script wrote.
+
 Usage::
 
     # Build + author from an exported USDC (the chained corpus path),

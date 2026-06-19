@@ -54,16 +54,36 @@ Each consumer rasterizes **its** scene representation into the same
 | Consumer | Scene source | Grid builder | Regime |
 |---|---|---|---|
 | `subgoal-env` RL training | ProcRoom procedural boxes | [`mdp/proc_room.py`](../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/proc_room.py) `_build_occupancy_grid` + `_inflate_obstacles` | GPU-batched `(B, G, G)`, per-reset, throughput-bound |
-| `mission-generator` oracle / waypoint validation | Infinigen `scene_metadata.json` (object AABBs + room polygons) | **new** CPU/numpy adapter (this is the brief's work) | single-scene, episode-gen time, latency-tolerant |
-| `scene-connectivity-validation` navigable-mask check | Infinigen `scene_metadata.json` | the same CPU adapter as mission-generator | single-scene |
-| `grounding-negative-taxonomy` `trajectory_violation` | Infinigen `scene_metadata.json` | the same CPU adapter | single-scene |
+| `scene-connectivity-validation` (the **producer**) | Infinigen USD physics colliders | **generates** the cached occupancy via Isaac Sim's occupancy-map extension ([`validate_scene_connectivity.py`](../../../source/strafer_lab/scripts/validate_scene_connectivity.py)) → `<scene>/occupancy.npy` | single-scene, scene-gen time |
+| `mission-generator` oracle / waypoint validation | the cached `<scene>/occupancy.npy` | **load** it + [`scene_connectivity.occupancy_to_free_space`](../../../source/strafer_lab/strafer_lab/tools/scene_connectivity.py) (invert + robot-radius disc inflation) | single-scene, episode-gen time, latency-tolerant |
+| `grounding-negative-taxonomy` `trajectory_violation` | the cached `<scene>/occupancy.npy` | the same load + invert/inflate adapter | single-scene |
 
-The ProcRoom grid builder is GPU-batched for training-reset throughput;
-the Infinigen consumers run **once per scene at generation time**, so
-they want a plain CPU/numpy `scene_metadata.json → free_space` rasterizer
-(object AABBs + room-boundary polygons, inflated by the robot radius to
-the same grid convention). That adapter is shared across the three
-Infinigen consumers — write it once.
+The ProcRoom grid builder is GPU-batched for training-reset throughput.
+The Infinigen consumers share a **cached-occupancy seam** instead of each
+re-rasterizing the scene: `scene-connectivity-validation` generates the
+occupancy *once per scene at generation time* from the USD's physics
+colliders (Isaac Sim's occupancy-map extension `isaacsim.asset.gen.omap` —
+more accurate than rasterizing object AABBs, and it sees the doorway
+free-space a rasterizer misses) and caches it as `<scene>/occupancy.npy`
+(+ `occupancy.json` for the grid→world mapping). Downstream consumers
+(mission-generator oracle, grounding-negative trajectory checks) **load that
+cached grid** and run the one shared invert/inflate adapter
+`scene_connectivity.occupancy_to_free_space` (occupied → free, dilated by
+the robot radius with a Euclidean disc) before calling `plan_path` — they do
+not re-rasterize. The adapter is the one shared seam; the grid is written
+once. The inflation *radius* differs from the GPU training grid's by design:
+the GPU grid uses the rotation-invariant **circumscribed** radius for RL
+obstacle-avoidance, while the connectivity check uses the **inscribed** radius
+(half-width) — the holonomic mecanum rotates to thread a ~0.55 m doorway, so
+the circumscribed radius (~0.28 m, robot-as-0.56 m-disc) would wrongly seal
+standard doorways and mark rooms unreachable. Same disc kernel, different
+radius.
+
+This supersedes the earlier plan of a per-consumer CPU/numpy
+`scene_metadata.json → free_space` rasterizer. That footprint+AABB
+rasterizer survives only as `validate_scene_connectivity.py`'s
+`--rasterize-fallback`, for when the occupancy-map extension is unavailable;
+the cached-occupancy seam is the default.
 
 ---
 

@@ -12,12 +12,13 @@ those skills while a VLM grounds semantic targets and Nav2 handles
 local motion. A sim-in-the-loop harness can replace the real robot with
 Isaac Sim without changing any Jetson-side code.
 
-<!-- TODO: Replace with the end-to-end demo video (sim + real) once recorded.
-     Drop the file at docs/artifacts/strafer_end_to_end_demo.mp4 plus a thumbnail
-     PNG, then uncomment this block and remove this TODO.
+<!-- TODO: Replace with the end-to-end demo (sim + real) once recorded.
+     GitHub strips <video> in READMEs, so commit an animated GIF preview
+     (docs/artifacts/strafer_end_to_end_demo.gif) — make it from the mp4 with
+     ffmpeg palettegen/paletteuse — then uncomment this block and remove this TODO.
 
      <p align="center">
-       <video src="https://github.com/zachoines/Sim2RealLab/raw/main/docs/artifacts/strafer_end_to_end_demo.mp4" poster="https://github.com/zachoines/Sim2RealLab/raw/main/docs/artifacts/strafer_end_to_end_thumbnail.png" controls muted width="66%"></video>
+       <img src="docs/artifacts/strafer_end_to_end_demo.gif" alt="End-to-end: go to the X in sim and on real hardware" width="66%"/>
        <br/>
        <em>End-to-end: "go to the X" running in sim and on real hardware.</em>
      </p>
@@ -112,25 +113,23 @@ over LAN. HTTP goes over the same LAN (DGX `192.168.50.196`, Jetson
 - **Databricks Model Serving deployment path** — alternative to LAN HTTP for the planner + VLM services; executor swaps transport via env vars.
 
 <p align="center">
-  <video src="https://github.com/zachoines/Sim2RealLab/raw/main/docs/artifacts/strafer_isaac_lab_test_drive.mp4" poster="https://github.com/zachoines/Sim2RealLab/raw/main/docs/artifacts/strafer_usd.png" controls muted width="42%"></video>
+  <img src="docs/artifacts/strafer_isaac_lab_test_drive.gif" alt="Isaac Lab test drive on the Strafer USD" width="42%"/>
   &nbsp;
-  <video src="https://github.com/zachoines/Sim2RealLab/raw/main/docs/artifacts/strafer_infinitygen_scene.mp4" poster="https://github.com/zachoines/Sim2RealLab/raw/main/docs/artifacts/strafer_infinitygen_thumbnail.png" controls muted width="42%"></video>
+  <img src="docs/artifacts/strafer_infinitygen_scene.gif" alt="Robot navigating a procedurally generated Infinigen apartment" width="42%"/>
   <br/>
-  <em>Left: Isaac Lab test drive on the Strafer USD. Right: robot navigating a procedurally generated Infinigen apartment.</em>
+  <em>Left: Isaac Lab test drive on the Strafer USD. Right: robot navigating a procedurally generated Infinigen apartment. (Looping previews — full clips are the <code>.mp4</code>s in <code>docs/artifacts/</code>.)</em>
 </p>
 
 <p align="center">
-  <video src="https://github.com/zachoines/Sim2RealLab/raw/main/docs/artifacts/detections_overlay_hero.mp4" poster="https://github.com/zachoines/Sim2RealLab/raw/main/docs/artifacts/detections_overlay_hero_thumbnail.png" controls muted width="66%"></video>
+  <img src="docs/artifacts/detections_overlay_hero.gif" alt="Harness detection ground truth — labeled bounding boxes over Infinigen furniture during a 360-degree camera spin" width="66%"/>
   <br/>
   <em>Synthetic-data ground truth: the sim-in-the-loop harness boxing Infinigen furniture (chair, sofa, table, tv, microwave, …) via Replicator + USD semantics on a 360° camera spin. Structural surfaces (wall / floor / ceiling) are deliberately excluded so furniture isn't evicted from the truncated detections column.</em>
 </p>
 
 <p align="center">
-  <a href="docs/artifacts/NOCAM_GOAL_FOLLOW.mp4">
-    <img src="docs/artifacts/NOCAM_GOAL_FOLLOW_thumbnail.png" alt="Trained NOCAM_SUBGOAL policy following a planned path through a procedural room — click to play" width="66%"/>
-  </a>
+  <img src="docs/artifacts/NOCAM_GOAL_FOLLOW.gif" alt="Trained NOCAM_SUBGOAL policy following a planned path through a procedural room" width="66%"/>
   <br/>
-  <em>Trained <code>NOCAM_SUBGOAL</code> RL policy tracking a sim-planned path through a procedural room — proprioception only (no camera), following a rolling subgoal a fixed lookahead ahead of the robot along the path (<a href="docs/artifacts/NOCAM_GOAL_FOLLOW.mp4">watch</a>).</em>
+  <em>Trained <code>NOCAM_SUBGOAL</code> RL policy tracking a sim-planned path through a procedural room — proprioception only (no camera), following a rolling subgoal a fixed lookahead ahead of the robot along the path. (Looping preview — full clip is <code>docs/artifacts/NOCAM_GOAL_FOLLOW.mp4</code>.)</em>
 </p>
 
 ## Hardware

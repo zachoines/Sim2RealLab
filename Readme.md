@@ -296,7 +296,7 @@ VLM_URL=http://192.168.50.196:8100 PLANNER_URL=http://192.168.50.196:8200 \
 ### Jetson: submit missions
 
 ```bash
-strafer-autonomy-cli submit "go to the tennis ball"        # follow feedback until done
+strafer-autonomy-cli submit "go to the chair"              # follow feedback until done
 strafer-autonomy-cli submit "wait by the couch" --detach   # return after accept
 strafer-autonomy-cli status
 strafer-autonomy-cli cancel

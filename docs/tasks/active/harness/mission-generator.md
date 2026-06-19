@@ -39,7 +39,7 @@ Parent design context:
 [`MISSION_VALIDATION_ARCHITECTURE.md` §3.6.a](../../../MISSION_VALIDATION_ARCHITECTURE.md#36a-teleop-demos-primary-canonical) — teleop is the canonical primary corpus for VLA training; this brief produces mission queues at scale beyond what teleop alone can author.
 
 Sibling briefs:
-- [`scene-connectivity-validation`](../multi-room/scene-connectivity-validation.md) —
+- [`scene-connectivity-validation`](../../completed/scene-connectivity-validation.md) —
   produces the `connectivity[]` graph this brief consumes. Hard
   prerequisite.
 - [`harness-architecture`](harness-architecture.md) —
@@ -161,7 +161,7 @@ Teleop consumes `mission_text` for operator display.
 
 Per the project's MVP-multi-room decision: this brief generates
 cross-room missions by default. The connectivity graph from
-[`scene-connectivity-validation`](../multi-room/scene-connectivity-validation.md)
+[`scene-connectivity-validation`](../../completed/scene-connectivity-validation.md)
 gates which `(start_room, target_room)` pairs are reachable; the
 LLM is told the connectivity graph as part of its scene prompt so
 it doesn't propose paths through closed doors / unreachable rooms.
@@ -305,7 +305,7 @@ their union.
       `source/strafer_lab/strafer_lab/tools/build_mission_queue.py`
       consumes `scene_metadata.json` (with `connectivity[]`
       block from
-      [`scene-connectivity-validation`](../multi-room/scene-connectivity-validation.md))
+      [`scene-connectivity-validation`](../../completed/scene-connectivity-validation.md))
       and emits `mission_queue.yaml` with the schema above. Per
       `--mode {endpoint, path-shape, mixed}`:
   - `endpoint`: one mission per object, no path-shape language;

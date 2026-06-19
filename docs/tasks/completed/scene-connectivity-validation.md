@@ -1,5 +1,8 @@
 # Compute room connectivity at scene-generation time and verify door-open default
 
+**Status:** Shipped 2026-06-19 in 818ba88 (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/96
+
 **Type:** new feature / refactor
 **Owner:** DGX agent (`strafer_lab` scene-generation pipeline;
 no Jetson code)

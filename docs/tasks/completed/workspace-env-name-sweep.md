@@ -5,6 +5,7 @@
 **Priority:** P3 — convention enforcement; not gating.
 **Estimate:** S
 **Branch:** `task/workspace-env-name-sweep`
+**Shipped:** PR #94 @ `3d1e4e5` — `rg -n "env_isaaclab3|env_infinigen|\.venv_vlm" source` clean; all changed files `py_compile` clean.
 
 ## Story
 
@@ -15,9 +16,9 @@ different one.
 
 ## Motivation
 
-[`scene-metadata-in-usd`](../../completed/scene-metadata-in-usd.md) (PR #90)
+[`scene-metadata-in-usd`](scene-metadata-in-usd.md) (PR #90)
 added the **Workspace environment names** rule to
-[`conventions.md`](../../context/conventions.md#workspace-environment-names)
+[`conventions.md`](../context/conventions.md#workspace-environment-names)
 — source must not name `.venv_vlm` / `env_isaaclab3` / `env_infinigen`. #90
 fixed the files it touched; ~11 pre-existing mentions remained in files it
 didn't. This sweep clears them so the convention holds repo-wide.

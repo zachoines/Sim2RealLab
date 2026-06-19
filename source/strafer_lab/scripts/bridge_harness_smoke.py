@@ -21,7 +21,7 @@ and the live autonomy executor driving real ``/cmd_vel`` (operator-run
 multi-room acceptance). The action source here is a scripted stub, and no
 ``StraferAsyncPublisher`` is constructed.
 
-Run (env_isaaclab3 must be active — ``$ISAACLAB -p`` uses the active python):
+Run (an Isaac Sim Kit conda env must be active — ``$ISAACLAB -p`` uses the active python):
 
     source env_setup.sh
     conda activate "$CONDA_ENV"

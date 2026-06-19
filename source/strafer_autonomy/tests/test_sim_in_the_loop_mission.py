@@ -1,6 +1,6 @@
 """Tests for strafer_lab.sim_in_the_loop.mission.
 
-Pure Python — runs in .venv_vlm via the strafer_lab namespace stub.
+Pure Python — runs in the pxr-free autonomy suite via the strafer_lab namespace stub.
 """
 
 from __future__ import annotations

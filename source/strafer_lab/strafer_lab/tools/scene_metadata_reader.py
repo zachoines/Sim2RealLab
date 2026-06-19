@@ -89,7 +89,7 @@ def load(scene_usd_path: Path | str) -> dict[str, Any]:
     """
     try:
         from pxr import Usd  # type: ignore
-    except ImportError as exc:  # pragma: no cover - pxr always present in env_isaaclab3
+    except ImportError as exc:  # pragma: no cover - pxr present in the Isaac Sim env
         raise SceneMetadataError(
             "pxr is required to read scene metadata from USD customData. "
             "Run under an Isaac Sim Python environment."

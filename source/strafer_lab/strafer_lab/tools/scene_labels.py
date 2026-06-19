@@ -9,8 +9,8 @@ loaded dict into typed records.
 The pure-data accessors (:func:`iter_rooms`, :func:`iter_objects`,
 :func:`get_scene_label_set_from_data`, :func:`get_room_at_position`,
 :func:`get_objects_in_room`) operate on an already-loaded dict and never
-touch ``pxr``, so the autonomy test suite (``.venv_vlm``, no ``pxr``)
-exercises them against in-memory dicts. Only :func:`get_scene_metadata`
+touch ``pxr``, so the pxr-free autonomy test suite exercises them
+against in-memory dicts. Only :func:`get_scene_metadata`
 opens a USD.
 """
 

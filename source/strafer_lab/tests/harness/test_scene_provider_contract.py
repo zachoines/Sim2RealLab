@@ -8,7 +8,7 @@ than a downstream second-source author.
 
 The pure half (picker + writer) runs against an in-memory dict, no Isaac
 Sim. The ``customData`` parity half is ``pytest.importorskip("pxr")``-gated
-— since the harness fold, ``env_isaaclab3`` carries ``pxr``, so it runs
+— since the harness fold, the pure-Python lab suite carries ``pxr``, so it runs
 under ``make test-lab-pure`` as well as the Kit suite. It authors the
 metadata into a temp USD and reads it straight back, proving the
 storage-backend move is lossless and that an un-authored USD hard-fails.

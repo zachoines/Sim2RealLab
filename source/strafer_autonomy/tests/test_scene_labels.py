@@ -6,7 +6,7 @@ that lets us import ``strafer_lab.tools.scene_labels`` without pulling
 in the Isaac-Lab-dependent ``strafer_lab/__init__.py``.
 
 Since scene metadata moved into the USD ``customData``, loading it needs
-``pxr`` (absent in this ``.venv_vlm`` suite). So this suite exercises the
+``pxr``, which the pxr-free autonomy suite does not have. So it exercises the
 ``*_from_data`` accessors against in-memory dicts; the USD round-trip is
 covered under ``make test-lab-pure`` in ``test_scene_provider_contract``
 and ``test_scene_metadata_reader``.

@@ -6,7 +6,7 @@ losslessly (including the additive version key), an absent payload
 hard-fails (no sidecar fallback), and the canonical hash is stable.
 
 ``pytest.importorskip("pxr")``-gated; runs under ``make test-lab-pure``
-(env_isaaclab3 carries pxr since the harness fold) and the Kit suite.
+(the pure-Python lab suite carries pxr since the harness fold) and the Kit suite.
 """
 
 from __future__ import annotations

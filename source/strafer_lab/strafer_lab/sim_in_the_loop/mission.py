@@ -7,7 +7,7 @@ individual labeled objects in a scene. The Jetson executor consumes the
 The metadata comes from the scene USD's ``customData`` (read by
 :func:`strafer_lab.tools.scene_metadata_reader.load`). This module stays
 pure Python — no Isaac Sim, no ROS, no Infinigen runtime imports — so
-``from_metadata`` works against an in-memory dict in ``.venv_vlm`` unit
+``from_metadata`` works against an in-memory dict in the pxr-free unit
 tests; ``from_scene_usd`` is the ``pxr``-bound convenience that reads the
 dict first.
 

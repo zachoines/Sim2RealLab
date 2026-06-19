@@ -8,7 +8,7 @@ finished booting and OOM-killed the box. The default flip to
 ``convexHull`` is the fix; this test guards against a regression that
 would re-introduce the OOM.
 
-Runs without Isaac Sim — needs ``pxr`` (present in env_isaaclab3).
+Runs without Isaac Sim — needs ``pxr`` (present in the Isaac Sim Python env).
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ from pathlib import Path
 import pytest
 
 
-# Skip cleanly if pxr is absent; env_isaaclab3 (the canonical home)
-# ships it via Isaac Sim, so the test runs for real there.
+# Skip cleanly if pxr is absent; the Isaac Sim Python env ships it,
+# so the test runs for real there.
 pytest.importorskip("pxr")
 
 

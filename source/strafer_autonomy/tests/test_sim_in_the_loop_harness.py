@@ -1,6 +1,6 @@
 """Tests for strafer_lab.sim_in_the_loop.harness.SimInTheLoopHarness.
 
-Pure Python — runs in .venv_vlm via the strafer_lab namespace stub.
+Pure Python — runs in the pxr-free autonomy suite via the strafer_lab namespace stub.
 The harness is exercised against fake env / mission / recorder adapters
 so no Isaac Sim or rclpy is needed.
 """

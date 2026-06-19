@@ -1,6 +1,6 @@
 """Tests for strafer_lab.bridge.config — pure-Python config layer.
 
-Runs in ``.venv_vlm`` via the ``strafer_lab`` namespace stub installed by
+Runs in the pxr-free autonomy suite via the ``strafer_lab`` namespace stub installed by
 :mod:`conftest`. No Isaac Sim / Kit runtime is required. The OmniGraph
 builder in :mod:`strafer_lab.bridge.graph` is NOT exercised here because
 it imports ``omni.graph.core``; it is smoke-tested in-process by the

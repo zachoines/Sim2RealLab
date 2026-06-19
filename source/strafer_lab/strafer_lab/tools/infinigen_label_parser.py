@@ -26,7 +26,7 @@ pair the rest of the pipeline can use:
     name (``430087`` above), preserved verbatim so the same physical
     asset always gets the same ID across runs.
 
-Pure Python — no ``bpy``, no ``pxr``. Importable from ``.venv_vlm``.
+Pure Python — no ``bpy``, no ``pxr``. Importable from a pxr-free env.
 """
 
 from __future__ import annotations

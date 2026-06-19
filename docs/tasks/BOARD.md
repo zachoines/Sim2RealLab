@@ -153,6 +153,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | P2 | active | DGX |
 | [`jetson-test-gate-cross-lane-deps`](active/tooling/jetson-test-gate-cross-lane-deps.md) | P3 | active | Either |
 | [`archive-interim-architecture-docs`](active/tooling/archive-interim-architecture-docs.md) | P3 | active | DGX |
+| [`workspace-env-name-sweep`](active/tooling/workspace-env-name-sweep.md) | P3 | active | DGX |
 | [`tools-package-reorg`](parked/tooling/tools-package-reorg.md) | P3 | parked (land when no large `tools/`-touching PR is in flight — after the R1 detections column + `depth-ffv1-video-column` settle) | DGX |
 
 ### Experimental (long-horizon bets)
@@ -247,6 +248,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`collision-imu-signal-flaky`](active/investigations/collision-imu-signal-flaky.md) | DGX | S–M | `test_collision_imu_mean_differs_from_free` flakes (~50%, same command) — post-restitution-0 collisions no longer clear the IMU-vs-free significance bar. Strengthen the scenario, re-frame the assertion, or retire it. Surfaced + un-masked by [`strafer-lab-test-tree-unification`](completed/strafer-lab-test-tree-unification.md). |
 | [`isaac-lab-upgrade`](active/tooling/isaac-lab-upgrade.md) | DGX | M–L | Bump the pinned Isaac Lab (develop @ 2026-04-23, ~6 wks stale) + recreate `env_isaaclab3`; re-validate the sim stack via `make test-lab` + training/bridge smokes. Records the torch delta for the `.venv_vlm` consolidation question. |
 | [`policy-export-deprecation-migration`](active/trained-policy/policy-export-deprecation-migration.md) | DGX | M–L | Move policy export off deprecated `torch.jit.*` / legacy `torch.onnx.export` (torch 2.9+ warnings) to a path the Jetson still loads, preserving determinism + the recurrent + cross-format-parity contracts. Gated by `isaac-lab-upgrade` (urgent once torch drops the legacy path). |
+| [`workspace-env-name-sweep`](active/tooling/workspace-env-name-sweep.md) | DGX | S | Clear the ~11 pre-existing `.venv_vlm` / `env_isaaclab3` mentions in `source/**/*.py` that PR #90 didn't touch — reword each to its requirement per `conventions.md` → "Workspace environment names". Docstring/comment-only. |
 | [`semantic-graph-loop-closure`](active/multi-room/semantic-graph-loop-closure.md) | DGX | M | v2 room-state — detect duplicate-place nodes via CLIP-similarity + spatial proximity, annotate as `same_place` edges. Quiet long-horizon quality lift; required infrastructure for the parked `semantic-map-lifecycle-merge`. |
 
 ---

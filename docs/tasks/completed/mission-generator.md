@@ -1,5 +1,14 @@
 # Free-text mission generator with LLM-emitted waypoints (multi-room default)
 
+**Status:** Shipped 2026-06-21 in 2214695 (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/98
+**Follow-ups:** run the LLM waypoint / paraphrase / start-frame VLM
+grounding passes against the real Qwen checkpoints once cached (the
+validation + retry + fallback harness is unit-tested with stub runners);
+regenerate `occupancy.npy` to match the latest doorway-fix USDs so the
+generator runs without `--allow-stale-occupancy` (seed-regen lane DATA
+dependency). Does not close Tier 3.
+
 **Type:** new feature
 **Owner:** DGX agent
 **Priority:** P2 (data-side foundation for VLA training scale-out

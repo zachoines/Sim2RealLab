@@ -578,14 +578,15 @@ def validate_waypoints(
 ) -> tuple[bool, dict[str, bool]]:
     """Validate an LLM waypoint set against the inflated free grid.
 
-    Checks bounds, per-waypoint navigability, segment line-of-sight, and target
-    proximity. No graph search — the oracle/fallback that replaces a rejected
-    set is the one shared :func:`plan_path`.
+    Checks minimum path structure (>= 2 waypoints), bounds, per-waypoint
+    navigability, segment line-of-sight, and target proximity. No graph search —
+    the oracle/fallback that replaces a rejected set is the one shared
+    :func:`plan_path`.
     """
-    checks = {"bounds_ok": True, "navigable_ok": True, "segment_ok": True, "target_ok": True}
+    checks = {"structure_ok": True, "navigable_ok": True, "segment_ok": True, "target_ok": True}
     free = inputs.free_space
     if free is None or len(waypoints) < 2:
-        return False, {**checks, "navigable_ok": False}
+        return False, {**checks, "structure_ok": False}
 
     for x, y in waypoints:
         if not _cell_is_free(free, x, y, inputs.grid_origin_xy, inputs.grid_res):
@@ -988,7 +989,7 @@ def _plan_one_mission(
     if not want_path_shape:
         mission_text = endpoint_text(label, target_room, cross_room, room_unique=room_unique)
         return mission_text, _round_xy_list(oracle), "none", {
-            "bounds_ok": True,
+            "structure_ok": True,
             "navigable_ok": True,
             "segment_ok": True,
             "target_ok": True,
@@ -1018,10 +1019,13 @@ def _plan_one_mission(
                 raw = ""
             waypoints = parse_waypoint_json(raw)
             # Pin the path to the real start pose so the scripted driver tracks
-            # from where the robot actually is, not where the LLM assumed.
-            if waypoints and math.hypot(
-                waypoints[0][0] - start_xy[0], waypoints[0][1] - start_xy[1]
-            ) > config.snap_radius_m:
+            # from where the robot actually is, not where the LLM assumed (and so
+            # a lone target-only waypoint becomes a usable 2-point path).
+            if waypoints and (
+                len(waypoints) == 1
+                or math.hypot(waypoints[0][0] - start_xy[0], waypoints[0][1] - start_xy[1])
+                > config.snap_radius_m
+            ):
                 waypoints = [start_xy, *waypoints]
             ok, checks = validate_waypoints(
                 waypoints, inputs=inputs, target_xy=target_xy, config=config
@@ -1035,7 +1039,7 @@ def _plan_one_mission(
 
     stats.path_shape_unsatisfied += 1
     return mission_text, _round_xy_list(oracle), f"{constraint_hint}_unsatisfied", {
-        "bounds_ok": True,
+        "structure_ok": True,
         "navigable_ok": True,
         "segment_ok": True,
         "target_ok": True,

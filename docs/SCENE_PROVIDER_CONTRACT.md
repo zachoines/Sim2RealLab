@@ -425,7 +425,8 @@ What the runtime and the postprocess scripts traverse inside the
   `MeshCollisionAPI` so the robot collides with them. `postprocess_scene_usd.py`
   attaches these once at build time (attaching them at Kit startup
   freezes the env for ~60 s on a multi-room house). Furniture gets
-  `convexHull`; structural prims get `meshSimplification`.
+  `convexHull`; structural prims (walls + doors) get `none` (the exact mesh as
+  a triangle-mesh collider).
 - **Floor strip pattern.** Floor meshes are *excluded* from the
   collision pass — their tessellated triangle edges catch the mecanum
   rollers. Robot–floor collision is delegated to the clean
@@ -433,13 +434,14 @@ What the runtime and the postprocess scripts traverse inside the
   `^/World/[^/]+_floor(?:/[^/]+_floor)?$` (the Infinigen
   Xform-with-same-named-Mesh-child pattern).
 - **Structural prims for hybrid collider dispatch.** Walls, ceilings,
-  roofs, attics, exteriors, and the two-prim door pair
-  (frame + `__001` leaf) need `meshSimplification` rather than a
-  convex hull, which would heal door / window cutouts and trap the
-  robot in doorways. Default structural match:
+  roofs, attics, exteriors, and every door-factory prim need the exact mesh
+  (`none`) rather than a convex hull (heals door / window cutouts shut) or
+  `meshSimplification` (pokes into the doorway) — both trap the robot in
+  doorways. Default structural match:
   `^/World/[^/]+_(?:wall|ceiling|roof|attic|exterior)(?:_\d+)?(?:/.+)?$`
-  plus the `(?:PanelDoor|LiteDoor|LouverDoor)Factory_\d+__spawn_asset_\d+_`
-  door pattern.
+  plus the door arm `^/World/[A-Za-z]*Door[A-Za-z]*Factory_\d+__spawn_asset_\d+.*$`
+  (matches any `...DoorFactory` — Panel / Lite / Louver / GlassPanel — and any
+  per-asset suffix incl. `__001` / `__SPLIT_GLASS`).
 - **Ceiling-light prims.** Infinigen exports the fixture mesh but no
   emitter, so interiors render black. `postprocess_scene_usd.py`
   authors a `UsdLux.SphereLight` under every prim whose **name** (the
@@ -467,10 +469,10 @@ matches, and how a second source overrides it. All are matched with
 | Flag | Default | What it matches | Override for a second source |
 |---|---|---|---|
 | `--floor-prim-pattern` | `^/World/[^/]+_floor(?:/[^/]+_floor)?$` | Infinigen floor Xform + same-named Mesh child (full path) | `^/World/floor.*$` (example) |
-| `--structural-prim-pattern` | `^/World/[^/]+_(?:wall\|ceiling\|roof\|attic\|exterior)(?:_\d+)?(?:/.+)?$\|...Door...` | Infinigen walls / ceilings / door frames (full path) | `^/World/(?:wall\|ceiling).*$` (example). Pass an empty string to disable structural dispatch. |
+| `--structural-prim-pattern` | `^/World/[^/]+_(?:wall\|ceiling\|roof\|attic\|exterior)(?:_\d+)?(?:/.+)?$\|^/World/[A-Za-z]*Door[A-Za-z]*Factory_\d+__spawn_asset_\d+.*$` | Infinigen walls / ceilings + any `...DoorFactory` (full path) | `^/World/(?:wall\|ceiling).*$` (example). Pass an empty string to disable structural dispatch. |
 | `--ceiling-light-prim-pattern` | `^CeilingLightFactory_\d+__spawn_asset_\d+_$` | Infinigen-named light fixture prims (**prim name**, not path) | `^MyCeilingLight_\d+$` (example) |
 | `--collider-approximation` | `convexHull` | (not a regex) PhysX shape for furniture | one of `boundingCube, boundingSphere, convexHull, convexDecomposition, meshSimplification, none` |
-| `--structural-approximation` | `meshSimplification` | (not a regex) PhysX shape for structural prims | same choice set |
+| `--structural-approximation` | `none` (exact triangle mesh — static walls/doors, keeps cutouts true) | (not a regex) PhysX shape for structural prims | same choice set |
 | `--light-intensity` | `100000.0` | (not a regex) per-emitter intensity | tune up if rooms are dim, down if blown out |
 | `--keep-floor-colliders` | off | (debug flag) keep floor colliders | reintroduces the wheel-catching behavior; debugging only |
 

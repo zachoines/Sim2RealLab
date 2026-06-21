@@ -95,16 +95,14 @@ class TestDefaultApproximation:
     def test_module_default_constants(self):
         """A reader scanning the module should see the documented defaults.
 
-        Structural default is meshSimplification, NOT convexDecomposition:
-        Infinigen exports one wall mesh per room with door cutouts done via
-        Boolean DIFFERENCE; V-HACD with default params heals the small
-        cutouts and traps the robot at the doorway.
+        Structural default is ``none`` (the exact mesh as a triangle-mesh
+        collider). Walls/doors are static, so the per-triangle cost is fine, and
+        only the exact mesh keeps the door/window cutouts true: convexHull heals
+        the cutout shut and meshSimplification pokes into the doorway — both trap
+        the robot. Furniture stays convexHull.
         """
         assert postprocess_scene_usd._DEFAULT_APPROXIMATION == "convexHull"
-        assert (
-            postprocess_scene_usd._DEFAULT_STRUCTURAL_APPROXIMATION
-            == "meshSimplification"
-        )
+        assert postprocess_scene_usd._DEFAULT_STRUCTURAL_APPROXIMATION == "none"
 
 
 class TestMigrationFromNone:
@@ -144,13 +142,13 @@ class TestMigrationFromNone:
 
 
 class TestStructuralDispatch:
-    """Walls / ceilings / etc. must get meshSimplification, furniture convexHull.
+    """Walls / ceilings / doors must get ``none`` (exact mesh), furniture convexHull.
 
-    convexHull (or convexDecomposition with default V-HACD params) heals
-    door cutouts on Infinigen wall meshes — the cutouts are volumetrically
-    small relative to the room shell, so V-HACD merges them into a single
-    hull that fills the doorway. meshSimplification preserves the actual
-    triangle topology including cutouts. See `_DEFAULT_STRUCTURAL_PRIM_PATTERN`.
+    convexHull (or convexDecomposition with default V-HACD params) heals door
+    cutouts shut, and meshSimplification leaves the collider poking into the
+    doorway — both trap the robot. The exact triangle mesh (``none``) is the only
+    representation that keeps the cutout true; walls/doors are static so the cost
+    is acceptable. See `_DEFAULT_STRUCTURAL_PRIM_PATTERN`.
     """
 
     def _structural_re(self):
@@ -167,8 +165,8 @@ class TestStructuralDispatch:
         for path in paths:
             approx = _approximation_of(stage.GetPrimAtPath(path))
             if "wall" in path or "ceiling" in path:
-                assert approx == "meshSimplification", (
-                    f"{path} should be meshSimplification, got {approx}"
+                assert approx == "none", (
+                    f"{path} should be none (exact mesh), got {approx}"
                 )
             else:
                 assert approx == "convexHull", (
@@ -188,11 +186,11 @@ class TestStructuralDispatch:
     def test_default_pattern_matches_expected_prim_names(self):
         """Lock in the canonical Infinigen structural prim naming.
 
-        Includes door prims (PanelDoor / LiteDoor / LouverDoor factories):
-        Infinigen exports each door as TWO prims — a thin __001 leaf and
-        a hollow non-001 frame. The frame's convex hull fills the entire
-        doorway AABB and traps the robot; meshSimplification preserves
-        the actual hollow topology.
+        The door arm matches ANY ``...DoorFactory`` (Panel / Lite / Louver /
+        GlassPanel) and any per-asset suffix — frame (``_``), leaf (``__001``),
+        and ``__SPLIT_GLASS``. The earlier ``(?:PanelDoor|LiteDoor|LouverDoor)``
+        allow-list silently missed GlassPanel + SPLIT-glass variants, which then
+        fell through to the convex furniture approximation and trapped the robot.
         """
         import re
         pat = re.compile(postprocess_scene_usd._DEFAULT_STRUCTURAL_PRIM_PATTERN)
@@ -212,6 +210,11 @@ class TestStructuralDispatch:
             # Other Infinigen door factories
             "/World/LiteDoorFactory_123__spawn_asset_5_",
             "/World/LouverDoorFactory_456__spawn_asset_7__001",
+            # GlassPanel variant — previously MISSED (got convexHull)
+            "/World/GlassPanelDoorFactory_5646418__spawn_asset_4_",
+            "/World/GlassPanelDoorFactory_5646418__spawn_asset_4__001",
+            # SPLIT_GLASS suffix variant — previously MISSED
+            "/World/PanelDoorFactory_8125036__spawn_asset_0__SPLIT_GLASS",
             # Nested Mesh leaves under door prims
             "/World/PanelDoorFactory_9952204__spawn_asset_3_/x",
         ):
@@ -221,14 +224,15 @@ class TestStructuralDispatch:
             "/World/BedFactory_456",
             "/World/bedroom_0_0_floor",   # floors handled separately
             "/World/Wallpaper_789",       # naming collision: 'wall' substring
-            "/World/Door_misc_123",       # door substring but not a Factory prim
+            "/World/Door_misc_123",       # 'Door' substring but not a Factory prim
+            "/World/DoorFactory_no_spawn",  # DoorFactory but no __spawn_asset arm
         ):
             assert not pat.match(path), f"expected no-match: {path}"
 
     def test_migration_from_old_uniform_convex_hull(self, tmp_path):
         """A USDC postprocessed BEFORE the hybrid split (everything was
-        convexHull, including walls) gets walls upgraded to
-        meshSimplification on re-run with the new default."""
+        convexHull, including walls) gets walls upgraded to the exact mesh
+        (``none``) on re-run with the new default."""
         stage, _ = _make_mixed_stage(tmp_path)
         # Simulate the pre-hybrid state: all convexHull, no pattern.
         postprocess_scene_usd.attach_mesh_colliders(
@@ -239,7 +243,7 @@ class TestStructuralDispatch:
             stage, structural_pattern=self._structural_re(),
         )
         assert structural == 3, (
-            "expected 3 wall/ceiling prims to migrate convexHull → meshSimplification"
+            "expected 3 wall/ceiling prims to migrate convexHull → none"
         )
         assert furniture == 0, "furniture was already convexHull; should be no-op"
 

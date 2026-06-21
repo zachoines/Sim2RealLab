@@ -171,6 +171,57 @@ the occupancy-map extension is unavailable, add `--rasterize-fallback`.
 
 ---
 
+## Generate a mission queue (free-text targets at scale)
+
+The capture drivers consume a `mission_queue.yaml` via `--mission-source
+queue`. Hand-authoring one is fine for a handful of missions; for scale,
+`build_mission_corpus.py` generates them from the embedded scene metadata.
+Per scene it reads `rooms[]` + `objects[]` + the verified `connectivity[]`
+graph, loads the cached occupancy grid, and emits one row per reachable
+target: free-text `mission_text`, paraphrases, and an oracle `planned_path`
+routed through the one shared planner (`path_planner.plan_path`). Cross-room
+missions are the default on multi-room scenes; same-room only where no
+cross-room pair is reachable. Each row round-trips through
+`mission_queue.load_mission_queue`.
+
+```bash
+# All discoverable scenes -> per-scene data/mission_queues/<scene>/queue.yaml
+# + a unioned data/mission_queues/corpus.yaml. Pure-Python (numpy + pxr to
+# read the USD); no Kit boot.
+$STRAFER_ISAACLAB_PYTHON source/strafer_lab/scripts/build_mission_corpus.py \
+    --mode mixed
+
+# One scene, endpoint missions only (no path-shape language, no LLM):
+$STRAFER_ISAACLAB_PYTHON source/strafer_lab/scripts/build_mission_corpus.py \
+    --scenes scene_high_quality_dgx_000_seed2 --mode endpoint
+```
+
+`--mode {endpoint, path-shape, mixed}` selects the language mix; `mixed` is
+the default. The LLM-as-planner waypoint pass (`--use-planner-llm`), the LLM
+paraphrase pass (`--use-paraphrase-llm`), and the start-frame VLM grounding
+pass (`--ground-start-frame`) are opt-in and need a GPU; with them off the
+generator falls back to the clean oracle path + templated paraphrases +
+skipped grounding, so it runs headless. Generated queues are cached under
+`data/mission_queue_cache/<scene>/<scene_seed>.json` keyed by the generator
+version + few-shot-template hash + LLM seed, so a re-run under an unchanged
+template is free and a template change invalidates rather than reuses.
+
+The occupancy grid must match the scene USD it was built from — the tool
+hard-errors on a stale grid (re-run the connectivity validation above to
+regenerate it). Pass `--allow-stale-occupancy` only to knowingly proceed
+against a grid the latest postprocess pass has not yet been re-baked into.
+
+Then capture against the generated queue:
+
+```bash
+$ISAACLAB -p source/strafer_lab/scripts/capture.py \
+    --driver bridge --mission-source queue \
+    --mission-queue data/mission_queues/${SCENE}/queue.yaml \
+    --scene ${SCENE} --output data/sim_in_the_loop/${SCENE}_${RUN_ID}
+```
+
+---
+
 ## Validation capture (small batch — driver wiring works)
 
 **Important:** the `--output` path must NOT exist (LeRobot v3

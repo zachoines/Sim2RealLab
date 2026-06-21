@@ -137,6 +137,7 @@ runnable scripts under `scripts/`, importable modules under
 | `scripts/generate_scenes_metadata.py` | Walk `Assets/generated/scenes/` and author the combined `scenes_metadata.json` with per-scene spawn points + floor top Z | IsaacLab (`pxr`) |
 | `scripts/extract_scene_metadata.py` | Build per-scene metadata (rooms, polygons, semantic tags, relations) and embed it in the scene USD's root-prim `customData`; apply `UsdSemantics` detection labels (non-structural classes) + `semanticLabel` provenance attrs. `--from-usd` (prim-name parse) runs under `$ISAACLAB -p` (Kit, for the semantics schema); `--blend` builds the dict in Blender | `pxr` + Kit (`$ISAACLAB`); `--blend` path: `bpy` |
 | `scripts/validate_scene_connectivity.py` | Generate the scene's occupancy grid (occupancy-map extension → cached `<scene>/occupancy.npy`), verify room-to-room reachability with the shared grid planner, force doors open, and merge the verified `connectivity[]` graph + `multi_story` flag into the USD `customData` (called by `prep_room_usds.py`, or run manually). `--rasterize-fallback` if the omap extension is unavailable | Kit (`$ISAACLAB`, `isaacsim.asset.gen.omap`) |
+| `scripts/build_mission_corpus.py` | Run the offline mission generator across scenes + seeds into a `mission_queue.yaml` corpus: per-scene `data/mission_queues/<scene>/queue.yaml` + unioned `corpus.yaml`, cached + round-trip-checked. `--mode {endpoint,path-shape,mixed}`; the LLM waypoint / paraphrase / VLM start-frame-grounding passes are opt-in (`--use-planner-llm` / `--use-paraphrase-llm` / `--ground-start-frame`), model-free otherwise | `pxr` + numpy (no Kit) |
 
 **One-shot asset authoring** (`source/strafer_lab/scripts/asset_authoring/`, run by hand to (re)build or inspect the robot/asset USD):
 
@@ -157,6 +158,7 @@ runnable scripts under `scripts/`, importable modules under
 | `spatial_description` | `SpatialDescriptionBuilder`, `quat_to_yaw`, `classify_region`, `classify_bearing` — Stage-1 factual spatial relations |
 | `bbox_extractor` | `ReplicatorBboxExtractor`, `parse_bbox_data`, `DetectedBbox` — wraps Replicator's `bounding_box_2d_tight` annotator |
 | `mission_queue` | `load_mission_queue`, `QueueMissionRow`, `queue_row_to_mission_spec` — `mission_queue.yaml` parser for the `queue` mission source |
+| `build_mission_queue` | `build_mission_queue`, `load_scene_inputs`, `GeneratorConfig`, `SceneInputs` — the canonical `mission_queue.yaml` producer: connectivity-gated free-text missions with oracle waypoints (via the shared `plan_path`), pluggable LLM/VLM passes, cache keys. Run via `scripts/build_mission_corpus.py` |
 | `grounding_injection` | `plan_injection`, `InjectionPlan`, `resolve_target_room_idx` — hard-negative goal perturbation for `--inject-bad-grounding` |
 | `infinigen_label_parser` | Infinigen-specific semantic label normalization |
 

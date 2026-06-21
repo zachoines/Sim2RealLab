@@ -314,9 +314,15 @@ make kill           # Jetson — clear stale ros2 / nav2 / executor / foxglove_b
 Moved to its own guide — see
 [`docs/HARNESS_DATA_CAPTURE.md`](HARNESS_DATA_CAPTURE.md). The guide
 covers `env_isaaclab3` lerobot setup, the Infinigen scene-corpus
-clean-slate regen procedure, validation + production capture commands,
-the operator button mapping, optional flags, round-trip verification,
-and a troubleshooting table.
+clean-slate regen procedure, mission-queue generation, validation +
+production capture commands, the operator button mapping, optional flags,
+round-trip verification, and a troubleshooting table.
+
+```bash
+# Generate free-text mission queues from scene metadata (per-scene queue.yaml
+# + unioned corpus.yaml; headless, model-free by default). See the guide.
+$STRAFER_ISAACLAB_PYTHON source/strafer_lab/scripts/build_mission_corpus.py --mode mixed
+```
 
 # Sim-in-the-loop bridge + DDS bench
 ## Shell 1 — start the bridge with viewport

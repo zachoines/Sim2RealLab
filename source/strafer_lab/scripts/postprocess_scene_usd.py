@@ -69,15 +69,19 @@ _DEFAULT_CEILING_LIGHT_PRIM_PATTERN = r"^CeilingLightFactory_\d+__spawn_asset_\d
 # outer Xform and the inner Mesh leaf match so we can strip / skip either.
 _DEFAULT_FLOOR_PRIM_PATTERN = r"^/World/[^/]+_floor(?:/[^/]+_floor)?$"
 
-# Matches the room shell prims (walls, ceilings, exterior, attic) and
-# the two-prim door pair (frame `_` + leaf `__001`). These prims need
-# an approximation that preserves the actual triangle topology of
-# door / window cutouts.
+# Matches the room shell prims (walls, ceilings, exterior, attic) and every
+# door-factory prim. These prims need a collider that preserves the actual
+# triangle topology of door / window cutouts — a convex approximation heals the
+# cutout shut and a simplified one pokes into the doorway, trapping the robot.
+# The door arm matches ANY ``...DoorFactory`` (Panel / Lite / Louver /
+# GlassPanel / ...) and any per-asset suffix (frame ``_``, leaf ``__001``,
+# ``__SPLIT_GLASS``); the earlier ``(?:PanelDoor|LiteDoor|LouverDoor)``
+# allow-list silently missed GlassPanel + SPLIT-glass variants, which then fell
+# through to the convex furniture approximation.
 _DEFAULT_STRUCTURAL_PRIM_PATTERN = (
     r"^/World/[^/]+_(?:wall|ceiling|roof|attic|exterior)"
     r"(?:_\d+)?(?:/.+)?$"
-    r"|^/World/(?:PanelDoor|LiteDoor|LouverDoor)Factory_\d+"
-    r"__spawn_asset_\d+_(?:_\d+)?(?:/.+)?$"
+    r"|^/World/[A-Za-z]*Door[A-Za-z]*Factory_\d+__spawn_asset_\d+.*$"
 )
 
 # Infinigen's generate_indoors pipeline authors one stage-shot camera per
@@ -104,7 +108,13 @@ _VALID_APPROXIMATIONS: tuple[str, ...] = (
     "none",
 )
 _DEFAULT_APPROXIMATION = "convexHull"
-_DEFAULT_STRUCTURAL_APPROXIMATION = "meshSimplification"
+# Structural prims (walls + doors) use the exact mesh as a triangle-mesh collider
+# (``none`` = no approximation). They are static, so the per-triangle cost is
+# acceptable, and only the exact mesh keeps door/window cutouts true to the
+# geometry: ``meshSimplification`` (the previous default) leaves the collider
+# poking into doorways, which traps the robot and seals doorways in the occupancy
+# map. Furniture stays ``convexHull`` (cheap + conservatively over-approximated).
+_DEFAULT_STRUCTURAL_APPROXIMATION = "none"
 
 
 def _compile_floor_pattern(pattern: str) -> re.Pattern[str]:
@@ -126,9 +136,11 @@ def attach_mesh_colliders(
     """Attach ``CollisionAPI`` + ``MeshCollisionAPI`` to every scene ``Mesh``.
 
     Prims matching ``structural_pattern`` get ``structural_approximation``;
-    everything else gets ``approximation``. In practice
-    ``meshSimplification`` works better than convex shapes for
-    structural components (preserves door / window cutouts).
+    everything else gets ``approximation``. Structural prims default to
+    ``none`` (the exact mesh as a triangle-mesh collider) because they are
+    static and only the exact mesh keeps door / window cutouts true — convex
+    shapes heal the cutout shut and ``meshSimplification`` pokes into the
+    doorway.
 
     Skips material subtrees and floor meshes matching ``floor_pattern``
     (robot collision goes to ``/World/ground`` instead). Pass

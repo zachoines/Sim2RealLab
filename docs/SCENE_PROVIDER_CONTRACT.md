@@ -309,6 +309,39 @@ schema is unchanged) and added the additive
 (parked) is the next consumer on paper. The rules below were written so
 it plugs in cleanly.
 
+### Consumer obligations — the scene-source-agnostic boundary
+
+A consumer of this contract (the picker, `mission-generator`, the harness
+writer, the Tier-3 scripted / captioner / coverage drivers, validators) **MUST**
+stay source-agnostic so a non-Infinigen producer can plug in:
+
+- Import **only** contract-side seams: `scene_metadata_reader.load`, the typed
+  accessors (`scene_labels`), `scene_connectivity` (`connectivity[]` +
+  `load_occupancy` / `occupancy_to_free_space` over `occupancy.npy`),
+  `scene_paths`, and the one shared `path_planner.plan_path`.
+- Read **only** documented contract fields off `objects[]` / `rooms[]` /
+  `connectivity[]`. Treat `label` as an opaque string and `instance_id` as an
+  opaque stamp.
+- **MUST NOT** import `infinigen` / `infinigen_label_parser` / `prep_room_usds` /
+  `extract_scene_metadata`, parse `<Factory>_<id>__spawn_asset_<n>_` prim names,
+  reach for an Infinigen-authored `room_idx` (recompute room membership
+  geometrically via `point_in_polygon`), or stand up a second pathfinder /
+  rasterizer.
+- **Litmus before merge:** grep the consumer module for
+  `infinigen|Factory|spawn_asset|prim_path|bpy` — a compliant consumer returns
+  **zero** hits. A producer / adapter that *does* parse prim conventions belongs
+  in an Infinigen-specific home (`scripts/infinigen/`, `infinigen_extensions/`),
+  never next to the agnostic readers in `tools/`.
+
+**Known soft coupling (tracked):** the picker's *primary* de-dup key is the
+Infinigen `__spawn_asset_<N>_` token in `prim_path` (because `instance_id` is the
+factory-class id — sibling instances share it, see the `objects[]` table). This
+degrades gracefully — the `(label, instance_id, prim_path)` fallback keeps any
+source with unique prim paths working — but it is a consumer reaching for an
+Infinigen convention as its fast path. The clean fix is a source-agnostic
+per-physical-instance discriminator; tracked by
+[`scene-contract-instance-discriminator`](tasks/parked/tooling/scene-contract-instance-discriminator.md).
+
 ### Additive-fields policy
 
 Producers **MAY** emit fields beyond the ones specified here — inside

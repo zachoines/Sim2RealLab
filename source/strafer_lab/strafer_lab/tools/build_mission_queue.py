@@ -46,7 +46,7 @@ from strafer_lab.tools import scene_connectivity as sc
 
 # Bump when the row schema, validator, or fallback logic changes in a way that
 # should invalidate cached queues even at an unchanged LLM seed / template.
-GENERATOR_VERSION = "1"
+GENERATOR_VERSION = "2"
 
 # The mission-source tag the writer stamps for queue-sourced episodes.
 SOURCE_MISSION_SOURCE = "queue"
@@ -92,6 +92,7 @@ class GeneratorConfig:
     start_pose_seeds: int = 1
     paraphrases_per_mission: int = 3
     target_proximity_m: float = 0.5
+    landmark_band_m: float = 1.5
     max_retries: int = 3
     snap_radius_m: float = ORACLE_SNAP_RADIUS_M
     discretization_m: float = sc.DEFAULT_DISCRETIZATION_M
@@ -350,59 +351,134 @@ def free_points_in_room(
     return points[:count]
 
 
-_BOUNDS_PAD = 0.0
+def _min_dist_to_polyline(point: tuple[float, float], path: np.ndarray) -> float:
+    """Minimum Euclidean distance from a point to a polyline (vectorized)."""
+    pts = np.asarray(path, dtype=float)
+    p = np.asarray(point, dtype=float)
+    if len(pts) < 2:
+        return float(np.hypot(*(pts[0] - p))) if len(pts) else float("inf")
+    a, b = pts[:-1], pts[1:]
+    ab = b - a
+    ap = p - a
+    denom = np.maximum((ab * ab).sum(1), 1e-12)
+    t = np.clip((ap * ab).sum(1) / denom, 0.0, 1.0)
+    proj = a + t[:, None] * ab
+    return float(np.hypot(*(proj - p).T).min())
 
 
-def scene_bounds(rooms: Sequence[dict[str, Any]]) -> tuple[float, float, float, float] | None:
-    xs: list[float] = []
-    ys: list[float] = []
-    for room in rooms:
-        for px, py in room.get("footprint_xy") or []:
-            xs.append(float(px))
-            ys.append(float(py))
-    if not xs:
+def _path_room_sequence(path: np.ndarray, rooms: Sequence[dict[str, Any]]) -> list[int]:
+    """Ordered, de-duplicated room indices a path passes through (coarse sample)."""
+    pts = np.asarray(path, dtype=float)
+    if len(pts) == 0 or not rooms:
+        return []
+    stride = max(1, len(pts) // 64)
+    seq: list[int] = []
+    for k in range(0, len(pts), stride):
+        idx = room_index_of(float(pts[k][0]), float(pts[k][1]), rooms)
+        if idx is not None and (not seq or seq[-1] != idx):
+            seq.append(idx)
+    return seq
+
+
+def _path_transit_room(
+    path: np.ndarray,
+    rooms: Sequence[dict[str, Any]],
+    start_idx: int | None,
+    target_idx: int | None,
+) -> int | None:
+    """Index of an intermediate room the path crosses (neither start nor target)."""
+    for idx in _path_room_sequence(path, rooms):
+        if idx != start_idx and idx != target_idx:
+            return idx
+    return None
+
+
+def _nearest_path_landmark(
+    path: np.ndarray,
+    objects: Sequence[dict[str, Any]],
+    exclude_obj: dict[str, Any] | None,
+    rooms: Sequence[dict[str, Any]],
+    *,
+    band_m: float,
+) -> str | None:
+    """Label of the object the path passes closest to, with no side, or ``None``.
+
+    A groundable proximity landmark: the nearest object within ``band_m`` of the
+    planned path, returned only when its label is unambiguous along the route
+    (no other object shares the label among the traversed rooms or within the
+    band), so ``passing the {label}`` names exactly one thing. It never asserts
+    which side the landmark is on, nor any compass bearing — neither is
+    groundable for a holonomic, compass-less robot whose mission text is authored
+    before the trajectory exists.
+    """
+    near: list[tuple[float, str]] = []
+    for obj in objects:
+        if obj is exclude_obj:
+            continue
+        pos = _valid_position(obj)
+        if pos is None:
+            continue
+        label = str(obj.get("label", "")).strip().lower()
+        if not label:
+            continue
+        dist = _min_dist_to_polyline((pos[0], pos[1]), path)
+        if dist <= band_m:
+            near.append((dist, label))
+    if not near:
         return None
-    return (min(xs), max(xs), min(ys), max(ys))
-
-
-def _nearest_wall(target_xy: tuple[float, float], room: dict[str, Any]) -> str | None:
-    """Compass direction of the room wall nearest the target (for path-shape text)."""
-    bounds = scene_bounds([room])
-    if bounds is None:
-        return None
-    xmin, xmax, ymin, ymax = bounds
-    tx, ty = target_xy
-    dists = {
-        "west": abs(tx - xmin),
-        "east": abs(xmax - tx),
-        "south": abs(ty - ymin),
-        "north": abs(ymax - ty),
-    }
-    return min(dists, key=dists.get)
+    near.sort(key=lambda t: t[0])
+    best_label = near[0][1]
+    traversed = set(_path_room_sequence(path, rooms))
+    same = 0
+    for obj in objects:
+        pos = _valid_position(obj)
+        if pos is None or str(obj.get("label", "")).strip().lower() != best_label:
+            continue
+        ri = room_index_of(pos[0], pos[1], rooms)
+        if ri in traversed or _min_dist_to_polyline((pos[0], pos[1]), path) <= band_m:
+            same += 1
+    return best_label if same == 1 else None
 
 
 def build_scene_summary(inputs: SceneInputs, *, reachable_pairs: set[tuple[int, int]]) -> str:
-    """Distil the scene into compact structured prose for the LLM prompt."""
+    """Distil the scene into compact structured prose for the LLM prompt.
+
+    Carries room types, the room-type connectivity graph, and which object sits
+    in which room — but NO absolute axis system (no scene bounds, no room
+    centroids). World coordinates live only in the numeric waypoint channel
+    (``build_waypoint_prompt``), never in the scene prose or any instruction, so
+    the model is not handed a compass to leak into mission text.
+    """
     rooms = inputs.rooms
-    lines: list[str] = []
-    bounds = scene_bounds(rooms)
-    if bounds is not None:
-        xmin, xmax, ymin, ymax = bounds
-        lines.append(f"Bounds: x in [{xmin:.1f}, {xmax:.1f}], y in [{ymin:.1f}, {ymax:.1f}]")
-    lines.append("Rooms:")
+    lines: list[str] = ["Rooms:"]
     for i, room in enumerate(rooms):
-        rep = sc.polygon_centroid(room.get("footprint_xy") or [])
-        lines.append(
-            f"  - [{i}] {room.get('room_type', 'room')} "
-            f"(center ~ ({rep[0]:.1f}, {rep[1]:.1f}))"
-        )
+        lines.append(f"  - [{i}] {room.get('room_type', 'room')}")
     if reachable_pairs:
-        lines.append("Connectivity (reachable room pairs by index):")
+        lines.append("Connectivity (reachable room pairs):")
         for i, j in sorted(reachable_pairs):
-            lines.append(
-                f"  - {rooms[i].get('room_type', i)} [{i}] <-> "
-                f"{rooms[j].get('room_type', j)} [{j}]"
-            )
+            if i < len(rooms) and j < len(rooms):
+                lines.append(
+                    f"  - {rooms[i].get('room_type', i)} [{i}] <-> "
+                    f"{rooms[j].get('room_type', j)} [{j}]"
+                )
+    seen: set[tuple[str, str]] = set()
+    obj_lines: list[str] = []
+    for obj in inputs.objects:
+        pos = _valid_position(obj)
+        if pos is None:
+            continue
+        ri = room_index_of(pos[0], pos[1], rooms)
+        if ri is None:
+            continue
+        label = str(obj.get("label", "")).strip().lower()
+        room_type = str(rooms[ri].get("room_type", ri))
+        key = (label, room_type)
+        if label and key not in seen:
+            seen.add(key)
+            obj_lines.append(f"  - {label} in {room_type}")
+    if obj_lines:
+        lines.append("Objects (by room):")
+        lines.extend(obj_lines)
     return "\n".join(lines)
 
 
@@ -468,16 +544,18 @@ _FEWSHOT_TEMPLATE = """You plan collision-free waypoint paths for a ground robot
 Given the scene summary, a start pose, and a target, emit a JSON object
 {"waypoints": [{"x": <m>, "y": <m>}, ...], "rationale": "<one sentence>"}.
 The first waypoint is the start, the last is at the target. Stay on open floor,
-honour any path-shape phrasing in the instruction, and only cross between rooms
-through reachable doorways.
+honour any landmark or room phrasing in the instruction, and only cross between
+rooms through reachable doorways. Coordinates are an opaque planning frame with
+no fixed orientation; in the rationale describe routes only by the landmarks and
+rooms they pass, never by absolute headings, surfaces, or sidedness.
 
 Example (endpoint):
   Instruction: "Go to the chair."
   -> {"waypoints": [{"x": 0.5, "y": 0.5}, {"x": 2.0, "y": 1.0}, {"x": 4.2, "y": 1.8}], "rationale": "Shortest open route to the chair."}
 
-Example (single-room path-shape):
-  Instruction: "Go to the chair by hugging the south wall."
-  -> {"waypoints": [{"x": 0.5, "y": 0.4}, {"x": 2.5, "y": 0.3}, {"x": 4.2, "y": 0.6}, {"x": 4.2, "y": 1.8}], "rationale": "Kept within 0.5 m of the south wall before turning in."}
+Example (single-room landmark):
+  Instruction: "Go to the chair, passing the dining table."
+  -> {"waypoints": [{"x": 0.5, "y": 0.4}, {"x": 2.5, "y": 0.5}, {"x": 3.6, "y": 1.0}, {"x": 4.2, "y": 1.8}], "rationale": "Routed close past the dining table on the way to the chair."}
 
 Example (cross-room transit):
   Instruction: "Go to the kitchen sink via the dining room."
@@ -685,21 +763,32 @@ def path_shape_text(
     label: str,
     target_room: str | None,
     cross_room: bool,
-    wall: str | None,
     room_unique: bool = False,
+    landmark: str | None = None,
+    transit_room: str | None = None,
+    transit_unique: bool = False,
 ) -> tuple[str, str]:
     """Return ``(mission_text, constraint_type_hint)`` for a path-shape mission.
 
-    The model-free fallback only emits a geometrically grounded wall-follow
-    phrase (the target really does sit nearest that wall); richer path-shape
-    language (``via`` a room, ``around`` furniture) comes from the LLM pass.
+    Only groundable spatial language is emitted: room-type / connectivity phrasing
+    for cross-room missions (``via the {transit_room}`` / ``through the doorway
+    into the {target_room}``) and landmark proximity for same-room missions
+    (``passing the {landmark}``). No compass bearing, no surface reference, and no
+    sidedness — none of which a compass-less holonomic robot can ground from
+    mission text authored before the trajectory exists.
     """
-    if wall:
-        where = f" in the {target_room}" if cross_room and target_room and room_unique else ""
+    if cross_room and target_room and room_unique:
+        if transit_room and transit_unique:
+            return (
+                f"Go to the {label} in the {target_room} via the {transit_room}.",
+                "room_transit",
+            )
         return (
-            f"Go to the {label}{where} by keeping close to the {wall} wall.",
-            "wall_follow_inferred",
+            f"Go to the {label} through the doorway into the {target_room}.",
+            "room_transit",
         )
+    if landmark:
+        return (f"Go to the {label}, passing the {landmark}.", "landmark_relative")
     return (endpoint_text(label, target_room, cross_room, room_unique=room_unique), "none")
 
 
@@ -874,11 +963,14 @@ def build_mission_queue(
                 inputs,
                 config,
                 label=label,
+                target_obj=obj,
                 target_xy=target_xy,
                 target_room=target_room,
+                target_room_idx=target_room_idx,
                 room_unique=room_unique,
                 start_xy=start_xy,
                 start_room=start_room,
+                start_room_idx=start_room_idx,
                 cross_room=cross_room,
                 want_path_shape=want_shape,
                 scene_summary=summary,
@@ -957,6 +1049,7 @@ def _choose_start_room(
             {j for (i, j) in pairs if i == target_room_idx}
             | {i for (i, j) in pairs if j == target_room_idx}
         )
+        partners = [p for p in partners if p < len(rooms)]
         if partners:
             target_type = rooms[target_room_idx].get("room_type")
             different = [p for p in partners if rooms[p].get("room_type") != target_type]
@@ -970,11 +1063,14 @@ def _plan_one_mission(
     config: GeneratorConfig,
     *,
     label: str,
+    target_obj: dict[str, Any],
     target_xy: tuple[float, float],
     target_room: str | None,
+    target_room_idx: int | None,
     room_unique: bool,
     start_xy: tuple[float, float],
     start_room: str | None,
+    start_room_idx: int | None,
     cross_room: bool,
     want_path_shape: bool,
     scene_summary: str,
@@ -997,9 +1093,25 @@ def _plan_one_mission(
             "source": "oracle",
         }
 
-    wall = _nearest_wall(target_xy, _room_by_name(inputs.rooms, target_room)) if target_room else None
+    # Groundable path-shape language derived from the oracle route: a same-room
+    # proximity landmark, or the cross-room transit room — never a surface/bearing.
+    landmark = _nearest_path_landmark(
+        oracle, inputs.objects, target_obj, inputs.rooms, band_m=config.landmark_band_m
+    )
+    transit_idx = _path_transit_room(oracle, inputs.rooms, start_room_idx, target_room_idx)
+    transit_room = (
+        inputs.rooms[transit_idx].get("room_type")
+        if transit_idx is not None and transit_idx < len(inputs.rooms)
+        else None
+    )
     mission_text, constraint_hint = path_shape_text(
-        label=label, target_room=target_room, cross_room=cross_room, wall=wall, room_unique=room_unique
+        label=label,
+        target_room=target_room,
+        cross_room=cross_room,
+        room_unique=room_unique,
+        landmark=landmark,
+        transit_room=transit_room,
+        transit_unique=room_type_is_unique(inputs.rooms, transit_room),
     )
 
     # LLM-as-planner: try the runner, validate, retry; fall back to the clean
@@ -1046,13 +1158,6 @@ def _plan_one_mission(
         "retries": config.max_retries if waypoint_runner is not None else 0,
         "source": "oracle_fallback",
     }
-
-
-def _room_by_name(rooms: Sequence[dict[str, Any]], name: str | None) -> dict[str, Any]:
-    for room in rooms:
-        if room.get("room_type") == name:
-            return room
-    return {}
 
 
 def _ground_start_frame(

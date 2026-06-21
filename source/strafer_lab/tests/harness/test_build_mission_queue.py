@@ -10,6 +10,7 @@ here; everything else operates on the in-memory :class:`SceneInputs`.
 from __future__ import annotations
 
 import json
+import re
 
 import numpy as np
 import pytest
@@ -222,6 +223,36 @@ class TestWaypointValidationAndFallback:
         assert chair["generator_metadata"]["waypoint_validation"]["retries"] == 0
         assert chair["planned_path"][-1]["x"] == pytest.approx(7.0, abs=0.01)
 
+    def test_nearest_path_landmark_picks_unique_near_path_object(self):
+        rooms = [{"room_type": "kitchen", "footprint_xy": [[0, 0], [8, 0], [8, 3], [0, 3]], "story": 0}]
+        path = np.array([[0.0, 1.5], [2.0, 1.5], [4.0, 1.5], [6.0, 1.5]])
+        target = {"label": "chair", "instance_id": 1, "position_3d": [6.0, 1.5, 0.3]}
+        objs = [
+            target,
+            {"label": "table", "instance_id": 2, "position_3d": [2.0, 1.0, 0.3]},  # near, unique
+            {"label": "stool", "instance_id": 3, "position_3d": [2.0, 8.0, 0.3]},  # far off path
+        ]
+        lm = bmq._nearest_path_landmark(path, objs, target, rooms, band_m=1.0)
+        assert lm == "table"  # target excluded, far object excluded
+        # A duplicate label along the path makes it ambiguous -> None.
+        objs.append({"label": "table", "instance_id": 4, "position_3d": [4.0, 1.2, 0.3]})
+        assert bmq._nearest_path_landmark(path, objs, target, rooms, band_m=1.0) is None
+
+    def test_same_room_mission_uses_passing_the_landmark(self):
+        scene = _two_room_scene()
+        # Off-centre target + a unique landmark between the room rep and target.
+        scene.metadata["objects"][1]["position_3d"] = [7.0, 1.5, 0.3]
+        scene.metadata["objects"].append(
+            {"label": "lamp", "instance_id": 5, "position_3d": [6.5, 1.5, 0.4]}
+        )
+        result = bmq.build_mission_queue(
+            scene, GeneratorConfig(mode="path-shape", cross_room_default=False)
+        )
+        chair = next(r for r in result.rows if r["target_label"] == "chair")
+        assert chair["mission_text"] == "Go to the chair, passing the lamp."
+        # "_unsatisfied" suffix when the model-free oracle fallback supplies the path.
+        assert chair["generator_metadata"]["constraint_type_hint"].startswith("landmark_relative")
+
     def test_validate_waypoints_flags_each_failure_mode(self):
         scene = _two_room_scene()
         cfg = GeneratorConfig()
@@ -428,11 +459,24 @@ class TestModesAndParaphrases:
             assert "hugging" not in r["mission_text"]
             assert r["generator_metadata"]["constraint_type_hint"] == "none"
 
-    def test_path_shape_mode_emits_constraint_language(self):
+    def test_path_shape_mode_emits_groundable_constraint_language(self):
         scene = _two_room_scene()
         result = bmq.build_mission_queue(scene, GeneratorConfig(mode="path-shape"))
         texts = " ".join(r["mission_text"] for r in result.rows)
-        assert ("via the" in texts) or ("wall" in texts)
+        # Cross-room missions read as room-type transit, never a wall/compass.
+        assert ("through the doorway into" in texts) or ("via the" in texts)
+
+    def test_no_cardinal_or_wall_language_in_any_text(self):
+        scene = _two_room_scene()
+        # A unique near-path landmark so the landmark phrasing is exercised too.
+        scene.metadata["objects"].append(
+            {"label": "lamp", "instance_id": 5, "position_3d": [6.5, 1.5, 0.4]}
+        )
+        result = bmq.build_mission_queue(scene, GeneratorConfig(mode="mixed"))
+        banned = re.compile(r"\b(north|south|east|west|left|right|wall)\b", re.IGNORECASE)
+        for r in result.rows:
+            for text in [r["mission_text"], *r["paraphrases"]]:
+                assert not banned.search(text), f"ungroundable spatial word in: {text!r}"
 
     def test_fallback_paraphrases_are_distinct_from_mission_text(self):
         scene = _two_room_scene()

@@ -226,12 +226,13 @@ casing stays. Both (collider drop + leaf hide) are persisted, so the runtime
 scene and occupancy match the connectivity ground-truth. A reachable edge
 through a door is `"force-opened"`; an unreachable one is a real obstruction.
 
-> **Known limitation.** A room whose only opening is a doorway whose
-> *wall*-cutout the postprocess `meshSimplification` collider heals shut can
-> read as unreachable even with the door collider dropped — the occupancy-map
-> flood treats the enclosed interior as occupied. This is a separate
-> occupancy-fidelity limitation (tracked as a follow-up), **not** a
-> door-matching gap: the door matcher catches every door prim in the corpus.
+> **Known limitation.** A few rooms can read as unreachable even with the door
+> collider dropped — the occupancy-map marks their interior occupied (0 % free)
+> though they look navigable. This is a separate occupancy-fidelity limitation
+> (tracked as a follow-up), **not** a door-matching gap: the door matcher
+> catches every door prim in the corpus, and experiments ruled out both the
+> wall-collider approximation and the flood-seed location as the cause — the
+> root cause in the omap's classification is still open.
 
 Cross-story pairs are emitted as `{reachable: false, reason: "stairs"}` and
 the scene gets top-level `multi_story: true`. A scene gets

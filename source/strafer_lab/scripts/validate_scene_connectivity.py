@@ -38,11 +38,11 @@ in the scene-gen pipeline and produces two artifacts:
    top level. A scene is tagged ``multi_room_incompatible: true`` only when it
    has cross-room candidate pairs but *none* is reachable.
 
-   A room sealed only by a doorway whose wall-cutout the postprocess
-   ``meshSimplification`` collider heals shut can still read as occupied (the
-   omap's flood treats the enclosed interior as occupied, not free); that is a
-   known occupancy-fidelity limitation tracked as a follow-up, not a
-   door-matching gap.
+   A few rooms can still read as occupied even with the door open (the omap
+   marks their interior occupied though they look navigable); that is a known
+   occupancy-fidelity limitation under investigation — the wall-collider
+   approximation and the flood-seed location were both ruled out by experiment —
+   not a door-matching gap.
 
 Reachability is decided by the project's one shared grid planner
 (``plan_path``) over the inflated occupancy — this brief writes a grid
@@ -540,9 +540,8 @@ def validate_connectivity(
     # hidden so the visual matches the now-open passage (a demo camera must not
     # film the robot driving through a shut-looking door). Both are persisted on
     # write so the runtime scene + occupancy match. (NOTE: the omap can still mark
-    # a room sealed only by a meshSimplification-healed wall cutout as occupied —
-    # a separate occupancy-fidelity limitation tracked as a follow-up, not a
-    # door-matching gap.)
+    # a few rooms' interiors occupied even with the door open — a separate
+    # occupancy-fidelity limitation under investigation, not a door-matching gap.)
     forced_open = 0
     if not rasterize_fallback and doors:
         forced_open = drop_door_colliders(stage, [d["path"] for d in doors])

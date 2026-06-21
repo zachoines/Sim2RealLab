@@ -102,6 +102,7 @@ One **scene name** — `<scene>` below — keys the whole bundle.
 Assets/generated/scenes/
   <scene>/                                  scene directory (name == <scene>)
     scene_config.json                       provenance (the preset / source dict)   (optional)
+    occupancy.npy + occupancy.json          cached occupancy grid + grid→world meta (regenerable derived intermediate)
     <anything the source needs>/            export trees, textures, .blend, ...     (source-specific)
   <scene>.usdc                              symlink at the scenes root → the real USDC (REQUIRED)
                                             its root-prim custom['strafer_scene_metadata']
@@ -161,7 +162,10 @@ Top-level object:
 |---|---|---|---|
 | `objects` | **required** | array of object entries (below) | The pickable targets. May be empty, but then the picker offers nothing. |
 | `rooms` | optional | array of room entries (§d) | Room polygons + types. Empty `[]` is valid and common (USD-only extraction can't recover rooms). |
-| `room_adjacency` | optional | array of `[i, j]` int pairs | Edge list over `rooms[]` indices. Empty `[]` when `rooms` is empty. Not read by the teleop picker today; reserved for room-graph consumers. |
+| `room_adjacency` | optional | array of `[i, j]` int pairs | Edge list over `rooms[]` indices. Empty `[]` when `rooms` is empty. The candidate set the connectivity pass *verifies*; not read directly by the teleop picker. |
+| `connectivity` | optional | array of edge entries (§b-conn) | **Verified** room-to-room reachability graph authored by `validate_scene_connectivity.py`. Harness/grading ground-truth only. Empty / absent for single-room or un-validated scenes. |
+| `multi_story` | optional | bool | True when any room sits on a story other than 0 (the mecanum strafer can't climb stairs). Lets a mission generator skip cross-story missions. |
+| `multi_room_incompatible` | optional | bool | Present + `true` only when the scene has cross-room candidate pairs but **none** is reachable — a signal to skip cross-room missions entirely. Absent otherwise. |
 | `source` | optional | string | Provenance tag, e.g. `"usd_prim_names"`. Informational only; no consumer branches on it. |
 
 ### `objects[]` entry
@@ -184,6 +188,74 @@ Each entry describes one labeled object. Field-by-field:
 Minimum a second source must emit per object: `label`, `instance_id`,
 `position_3d` (non-origin), and ideally `prim_path`. Everything else
 degrades gracefully to its empty / null default.
+
+---
+
+## b-conn. `connectivity[]` entry — the verified room graph
+
+Authored by
+[`validate_scene_connectivity.py`](../source/strafer_lab/scripts/validate_scene_connectivity.py)
+(Kit-bound), **harness / grading ground-truth only** — the live autonomy
+stack must never read it (its runtime counterpart is the
+observation-derived room state in `strafer_autonomy.semantic_map`). The
+graph records, for each candidate room pair, whether the *navigable area*
+(robot-radius-inflated occupancy) actually permits passage — verified with
+the project's one shared grid planner
+([`path_planner.plan_path`](../source/strafer_lab/strafer_lab/tasks/navigation/path_planner/),
+see [`path-planning-architecture`](tasks/context/path-planning-architecture.md)),
+not merely asserted from `room_adjacency`.
+
+Each entry is one **undirected** room pair, `from_idx` < `to_idx`:
+
+| Field | Req? | Type | Semantics |
+|---|---|---|---|
+| `from_idx` / `to_idx` | **required** | int | Indices into `rooms[]` (not `room_type` strings — rooms can share a type). Canonical order `from_idx < to_idx`; consumers look a pair up order-insensitively. |
+| `reachable` | **required** | bool | Whether a collision-free path connects the two rooms on the inflated occupancy grid. |
+| `via_doorway_xy` | reachable-only | `[x, y]` float (m) | Estimated doorway crossing point of the verifying path. |
+| `path_length_m` | reachable-only | float (m) | Length of the verifying path — a difficulty signal for mission grading. |
+| `door_state` | reachable-only | string | `"force-opened"` (a door prim sits on the crossing — its collider was dropped to open it) or `"absent"` (the passage is an open gap, no door). |
+| `reason` | unreachable-only | string | `"stairs"` (cross-story; the strafer can't climb) or `"blocked"` (no path even with doors open — a genuine wall/furniture obstruction). |
+
+**Door-open guarantee.** The mecanum strafer has no manipulator and can't
+open doors, so `validate_scene_connectivity.py` drops *every* door's collider
+before generating the occupancy (the brief's "doors assumed open at scene-gen
+time"). To keep the **visual matched to the physics** — a demo camera must not
+film the robot driving through a shut-looking door — it also hides the door
+*leaf* (the swinging panel) so the doorway reads as an open passage; the frame
+casing stays. Both (collider drop + leaf hide) are persisted, so the runtime
+scene and occupancy match the connectivity ground-truth. A reachable edge
+through a door is `"force-opened"`; an unreachable one is a real obstruction.
+
+> **Known limitation.** A few rooms can read as unreachable even with the door
+> collider dropped — the occupancy-map marks their interior occupied (0 % free)
+> though they look navigable. This is a separate occupancy-fidelity limitation
+> (tracked as a follow-up), **not** a door-matching gap: the door matcher
+> catches every door prim in the corpus, and experiments ruled out both the
+> wall-collider approximation and the flood-seed location as the cause — the
+> root cause in the omap's classification is still open.
+
+Cross-story pairs are emitted as `{reachable: false, reason: "stairs"}` and
+the scene gets top-level `multi_story: true`. A scene gets
+`multi_room_incompatible: true` only when it has cross-room candidate pairs
+but none is reachable (single-pair blockage is non-fatal — the reachable
+subset is still usable). The plain `room_adjacency` edge list is kept
+alongside `connectivity[]` for backward compatibility.
+
+**The occupancy grid is a cached, regenerable sidecar** (`<scene>/occupancy
+.npy` + `occupancy.json`), not authored metadata — it lives next to the
+scene, not in `customData`. The small connectivity *graph* is authored truth
+and rides in `customData`; the large occupancy *grid* deliberately does not,
+for two reasons: (a) it is a several-hundred-thousand-cell array that would
+base64-bloat the `customData` JSON string and every read of it, and (b) the
+planner-side consumers (`scene_connectivity`, the mission-generator adapter)
+are numpy-only / `pxr`-free, and embedding the grid in the USD would force
+`pxr` onto all of them. The grid's one downside as a sidecar — staleness — is
+covered by the USD-identity tie: `occupancy.json` records the grid→world
+mapping (`origin_xy`, `resolution_m`, `z_slice_m`) plus the source-USD
+identity (path + mtime + size) so a stale grid is detectable. It is the
+**shared occupancy seam** other Infinigen path-planning consumers
+(`scene_connectivity.load_occupancy` + `occupancy_to_free_space` +
+`plan_path`) load instead of re-rasterizing the scene.
 
 ---
 

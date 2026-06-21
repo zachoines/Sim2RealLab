@@ -136,6 +136,7 @@ runnable scripts under `scripts/`, importable modules under
 | `scripts/postprocess_scene_usd.py` | Bake colliders + ceiling-light emitters into an Infinigen-exported USDC (called by `prep_room_usds.py`, or run manually) | IsaacLab (`pxr`) |
 | `scripts/generate_scenes_metadata.py` | Walk `Assets/generated/scenes/` and author the combined `scenes_metadata.json` with per-scene spawn points + floor top Z | IsaacLab (`pxr`) |
 | `scripts/extract_scene_metadata.py` | Build per-scene metadata (rooms, polygons, semantic tags, relations) and embed it in the scene USD's root-prim `customData`; apply `UsdSemantics` detection labels (non-structural classes) + `semanticLabel` provenance attrs. `--from-usd` (prim-name parse) runs under `$ISAACLAB -p` (Kit, for the semantics schema); `--blend` builds the dict in Blender | `pxr` + Kit (`$ISAACLAB`); `--blend` path: `bpy` |
+| `scripts/validate_scene_connectivity.py` | Generate the scene's occupancy grid (occupancy-map extension → cached `<scene>/occupancy.npy`), verify room-to-room reachability with the shared grid planner, force doors open, and merge the verified `connectivity[]` graph + `multi_story` flag into the USD `customData` (called by `prep_room_usds.py`, or run manually). `--rasterize-fallback` if the omap extension is unavailable | Kit (`$ISAACLAB`, `isaacsim.asset.gen.omap`) |
 
 **One-shot asset authoring** (`source/strafer_lab/scripts/asset_authoring/`, run by hand to (re)build or inspect the robot/asset USD):
 
@@ -152,6 +153,7 @@ runnable scripts under `scripts/`, importable modules under
 |---|---|
 | `scene_metadata_reader` | `load(scene_usd)` — the single `pxr` touch-point that reads a scene's embedded `customData` metadata (hard-fails when absent); `write_custom_data`, `metadata_hash` |
 | `scene_labels` | `iter_rooms`, `iter_objects`, `get_scene_label_set_from_data`, `get_room_at_position`, `get_objects_in_room` (pure-data) + `get_scene_metadata`/`get_scene_label_set` (read a scene USD) — typed accessors over a scene's embedded metadata |
+| `scene_connectivity` | `occupancy_to_free_space` (the shared cached-occupancy → planner adapter: invert + robot-radius disc inflation), `compute_connectivity` (verified room graph via `plan_path`), `load_occupancy`/`save_occupancy`, `is_multi_story`, `is_multi_room_incompatible` — numpy-only, consumed by `validate_scene_connectivity.py` and the other Infinigen path-planning consumers |
 | `spatial_description` | `SpatialDescriptionBuilder`, `quat_to_yaw`, `classify_region`, `classify_bearing` — Stage-1 factual spatial relations |
 | `bbox_extractor` | `ReplicatorBboxExtractor`, `parse_bbox_data`, `DetectedBbox` — wraps Replicator's `bounding_box_2d_tight` annotator |
 | `mission_queue` | `load_mission_queue`, `QueueMissionRow`, `queue_row_to_mission_spec` — `mission_queue.yaml` parser for the `queue` mission source |

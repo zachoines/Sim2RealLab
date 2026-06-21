@@ -30,6 +30,17 @@ Authoring (needs ``pxr``; semantics need the Isaac Sim Kit runtime):
   annotator boxes on. Structural classes are excluded from the semantics
   pass (see ``--label-denylist``).
 
+The customData payload authored here is the ``objects[]`` / ``rooms[]`` /
+``room_adjacency`` shape (see ``docs/SCENE_PROVIDER_CONTRACT.md``). One more
+block is layered onto the same payload *after* this pass, by the sibling
+``validate_scene_connectivity.py`` (kept separate so this Infinigen-state
+walker stays pure): a **verified** ``connectivity[]`` graph (per room-pair
+``reachable`` / ``via_doorway_xy`` / ``path_length_m`` / ``door_state``,
+indices into ``rooms[]``) plus a top-level ``multi_story`` flag. That step
+generates the scene's occupancy grid, plans every candidate room pair with
+the shared grid planner, and forces doors open — it does not re-walk the
+Infinigen state, it merges into the customData this script wrote.
+
 Usage::
 
     # Build + author from an exported USDC (the chained corpus path),
@@ -238,6 +249,26 @@ def _vec3(value: Any) -> list[float]:
         return [0.0, 0.0, 0.0]
 
 
+# Ordered preference of concrete-noun categories for label inference. When an
+# Infinigen object carries one of these tags, it wins over broader category tags
+# (``Furniture``, ``Seating``). Externalized from ``_infer_label`` (mirroring the
+# shared vocabulary in ``scene_classes.STRUCTURAL_CLASSES``) so the label
+# taxonomy lives in one place. This is a small, hand-picked seed list, NOT a
+# comprehensive Infinigen object→label map; expanding it to full coverage (which
+# directly affects detection vocab + grounding quality) is tracked as a separate
+# follow-up.
+LABEL_CATEGORY_PRIORITY: tuple[str, ...] = (
+    "Table",
+    "Chair",
+    "Bed",
+    "Door",
+    "Window",
+    "Lamp",
+    "Sink",
+    "Couch",
+)
+
+
 def _infer_label(obj: Any, tags: list[str]) -> str:
     """Turn the Infinigen tag set into a stable, VLM-friendly label.
 
@@ -245,17 +276,7 @@ def _infer_label(obj: Any, tags: list[str]) -> str:
     broader category tags (``"Furniture"``, ``"Seating"``). Falls back to
     the object's ``name`` attribute when no useful tag is present.
     """
-    _category_priority = (
-        "Table",
-        "Chair",
-        "Bed",
-        "Door",
-        "Window",
-        "Lamp",
-        "Sink",
-        "Couch",
-    )
-    preferred: set[str] = {c.lower() for c in _category_priority}
+    preferred = {c.lower() for c in LABEL_CATEGORY_PRIORITY}
     for tag in tags:
         if tag.lower() in preferred:
             return tag.lower()

@@ -88,7 +88,7 @@ contract these expect.
 |---|---|---|
 | [`autonomy-stack`](../active/multi-room/autonomy-stack.md) | `current_room`, `known_rooms[*].observed_objects`, `connectivity`, `room_anchor` | Lifts the multi-room runtime deferral; compiler emits transit / explore steps from room-level state |
 | [`planner-far-target-staging`](../active/multi-room/planner-far-target-staging.md) | `current_room`, `room_anchor`, `target_known_poses` | Far-target multi-hop staging in the compiler |
-| [`scene-connectivity-validation`](../active/multi-room/scene-connectivity-validation.md) | (sim-side only) | Harness ground-truth connectivity graph in `scene_metadata.json` — **not** runtime; scored against runtime `connectivity()` in the multi-room grader |
+| [`scene-connectivity-validation`](../completed/scene-connectivity-validation.md) | (sim-side only) | Harness ground-truth connectivity graph in `scene_metadata.json` — **not** runtime; scored against runtime `connectivity()` in the multi-room grader |
 | [`llm-guided-frontier-gain`](../parked/multi-room/llm-guided-frontier-gain.md) | `current_room`, `connectivity`, `RoomEntry.uncertainty` (from v2) | LFG-style scalar LLM prior over frontier exploration; its re-visitation extension consumes `RoomEntry.uncertainty`, which v2's `semantic-region-partition` produces from the label-similarity margin |
 | [`frontier-cognitive-fsm`](../parked/multi-room/frontier-cognitive-fsm.md) | Same as `llm-guided-frontier-gain` + per-state context | CogNav-style FSM upgrade to frontier exploration; parked-on-trigger if LFG plateaus |
 

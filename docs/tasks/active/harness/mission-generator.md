@@ -39,7 +39,7 @@ Parent design context:
 [`MISSION_VALIDATION_ARCHITECTURE.md` §3.6.a](../../../MISSION_VALIDATION_ARCHITECTURE.md#36a-teleop-demos-primary-canonical) — teleop is the canonical primary corpus for VLA training; this brief produces mission queues at scale beyond what teleop alone can author.
 
 Sibling briefs:
-- [`scene-connectivity-validation`](../multi-room/scene-connectivity-validation.md) —
+- [`scene-connectivity-validation`](../../completed/scene-connectivity-validation.md) —
   produces the `connectivity[]` graph this brief consumes. Hard
   prerequisite.
 - [`harness-architecture`](harness-architecture.md) —
@@ -93,13 +93,28 @@ This is a settled architectural decision (2026-06-17): the project has
 **one** grid A* core (shipped by `subgoal-env`), and Infinigen consumers
 adapt their scene onto it rather than writing a second helper.
 
-Concretely, this brief writes the **Infinigen occupancy-grid adapter**:
-a CPU/numpy `scene_metadata.json → free_space` rasterizer (object AABBs
-+ room-boundary polygons, robot-radius-inflated to the planner's grid
-convention), then calls `plan_path`. That adapter is the shared seam for
-the other Infinigen path-planning consumers (`scene-connectivity-validation`'s
-navigable check, `grounding-negative-taxonomy`'s violation paths) — write
-it once, in a location they can import. **Do not** reuse a separate
+Concretely, this brief **loads the cached occupancy grid** the scene-gen
+pipeline already produced and adapts it onto the planner — it does **not**
+re-rasterize the scene. `scene-connectivity-validation` (shipped) generates
+`<scene>/occupancy.npy` from the USD's physics colliders via Isaac Sim's
+occupancy-map extension and the shared invert/inflate adapter lives at
+[`scene_connectivity`](../../../../source/strafer_lab/strafer_lab/tools/scene_connectivity.py):
+
+```python
+from strafer_lab.tools.scene_connectivity import load_occupancy, occupancy_to_free_space
+from strafer_lab.tasks.navigation.path_planner import plan_path
+occ = load_occupancy(scene_dir)
+free = occupancy_to_free_space(occ.grid, grid_res=occ.resolution_m)
+path = plan_path(start_xy, goal_xy, free, grid_res=occ.resolution_m, grid_origin_xy=occ.origin_xy)
+```
+
+This is the **cached-occupancy seam** described in
+[`context/path-planning-architecture.md`](../../context/path-planning-architecture.md);
+it supersedes the earlier plan for a per-brief `scene_metadata.json →
+free_space` rasterizer (that footprint+AABB rasterizer now lives only as
+`validate_scene_connectivity.py`'s `--rasterize-fallback`). For the
+reachability of cross-room pairs, prefer the already-verified
+`connectivity[]` graph over re-planning. **Do not** reuse a separate
 connectivity A* helper or hand-roll shortest-path: there is one planner.
 
 ### Output schema
@@ -146,7 +161,7 @@ Teleop consumes `mission_text` for operator display.
 
 Per the project's MVP-multi-room decision: this brief generates
 cross-room missions by default. The connectivity graph from
-[`scene-connectivity-validation`](../multi-room/scene-connectivity-validation.md)
+[`scene-connectivity-validation`](../../completed/scene-connectivity-validation.md)
 gates which `(start_room, target_room)` pairs are reachable; the
 LLM is told the connectivity graph as part of its scene prompt so
 it doesn't propose paths through closed doors / unreachable rooms.
@@ -290,7 +305,7 @@ their union.
       `source/strafer_lab/strafer_lab/tools/build_mission_queue.py`
       consumes `scene_metadata.json` (with `connectivity[]`
       block from
-      [`scene-connectivity-validation`](../multi-room/scene-connectivity-validation.md))
+      [`scene-connectivity-validation`](../../completed/scene-connectivity-validation.md))
       and emits `mission_queue.yaml` with the schema above. Per
       `--mode {endpoint, path-shape, mixed}`:
   - `endpoint`: one mission per object, no path-shape language;

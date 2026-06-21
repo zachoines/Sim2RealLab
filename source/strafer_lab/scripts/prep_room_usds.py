@@ -29,6 +29,13 @@ Pipeline per scene:
    makes one ``generate`` yield a capture-ready *and* detections-ready
    scene (``--no-scene-metadata`` skips it for a geometry-only build).
 
+6. ``validate_scene_connectivity.py`` generates the scene's occupancy grid
+   (cached as ``<scene>/occupancy.npy``) via the occupancy-map extension,
+   verifies room-to-room reachability with the shared grid planner, forces
+   open any closed doors blocking a doorway, and merges the
+   ``connectivity[]`` graph + ``multi_story`` flag into ``customData``. Also
+   under the Kit launcher (``--no-connectivity`` skips it).
+
 Presets wrap Infinigen's real knobs (``-g`` gin config files and ``-p``
 gin-style parameter overrides).
 
@@ -192,6 +199,7 @@ def generate_scenes(
     infinigen_root: Path | None = None,
     infinigen_python: str | None = None,
     author_scene_metadata: bool = True,
+    validate_connectivity: bool = True,
 ) -> list[GenerationResult]:
     """Run Infinigen ``num_scenes`` times and stage USDCs under ``output_dir``.
 
@@ -209,6 +217,12 @@ def generate_scenes(
       capture-ready *and* detections-ready scene. Runs under the Isaac Sim
       Kit launcher (``$ISAACLAB``) because the semantics schema needs it.
       Disable with ``author_scene_metadata=False``.
+    - Connectivity    → ``validate_scene_connectivity.py`` generates the
+      occupancy grid (cached as ``<scene>/occupancy.npy``), verifies
+      room-to-room reachability, forces open doors blocking a doorway, and
+      merges the ``connectivity[]`` graph + ``multi_story`` flag into
+      ``customData``. Also under the Kit launcher (the occupancy-map
+      extension is Kit-provided). Disable with ``validate_connectivity=False``.
 
     A ``scene_config.json`` is written next to each scene for provenance.
     The orchestrator asserts that both the ``.blend`` (after coarse gen)
@@ -218,7 +232,9 @@ def generate_scenes(
     """
     # Verify every downstream subprocess's env var is set before we
     # start the expensive coarse stage.
-    validate_required_env_for_generate(author_scene_metadata=author_scene_metadata)
+    validate_required_env_for_generate(
+        author_scene_metadata=author_scene_metadata or validate_connectivity,
+    )
 
     infinigen_python = infinigen_python or _resolve_infinigen_python()
     # Resolve to absolute paths: the subprocess runs with cwd=infinigen_root,
@@ -328,7 +344,20 @@ def generate_scenes(
                 results.append(result)
                 continue
 
-        # --- Step 6: provenance ---
+        # --- Step 6: connectivity graph + cached occupancy ---
+        if validate_connectivity:
+            conn_rc, conn_stderr = _run_validate_connectivity(result.usd_path)
+            if conn_rc != 0:
+                logger.error(
+                    "Scene %s: connectivity validation failed (rc=%d)\n%s",
+                    scene_name, conn_rc, conn_stderr,
+                )
+                result.returncode = conn_rc
+                result.stderr_tail = conn_stderr
+                results.append(result)
+                continue
+
+        # --- Step 7: provenance ---
         (scene_dir / "scene_config.json").write_text(json.dumps(config.to_dict(), indent=2))
 
         logger.info("Scene %s OK → %s (USDC at %s)", scene_name, link_path, result.usd_path)
@@ -368,6 +397,25 @@ def _run_extract_metadata(usdc_path: Path) -> tuple[int, str]:
         *_resolve_isaaclab_launcher(),
         str(script),
         "--from-usd",
+        "--usd",
+        str(usdc_path),
+    ]
+    return _run_subprocess(cmd, cwd=script.parents[3])
+
+
+def _run_validate_connectivity(usdc_path: Path) -> tuple[int, str]:
+    """Compute + author the room connectivity graph + cache the occupancy grid.
+
+    Runs ``validate_scene_connectivity.py`` under the Isaac Sim Kit launcher
+    (``$ISAACLAB``): the occupancy-map extension that reads the stage's
+    physics colliders is Kit-provided. Must follow the metadata-authoring step
+    — it reads ``rooms[]`` (back-filling from floor meshes when absent) and
+    merges ``connectivity[]`` back into the same ``customData`` payload.
+    """
+    script = Path(__file__).resolve().parent / "validate_scene_connectivity.py"
+    cmd = [
+        *_resolve_isaaclab_launcher(),
+        str(script),
         "--usd",
         str(usdc_path),
     ]
@@ -646,6 +694,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "USD (the geometry-only path). The scene loads but is neither "
         "capture-ready nor detections-ready until extract_scene_metadata runs.",
     )
+    generate.add_argument(
+        "--no-connectivity",
+        action="store_true",
+        help="Skip the room-connectivity step (occupancy grid + connectivity[] "
+        "graph + door-open verification). The scene loads but carries no "
+        "verified room graph until validate_scene_connectivity runs.",
+    )
 
     ingest = sub.add_parser(
         "ingest",
@@ -693,6 +748,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             infinigen_root=args.infinigen_root,
             infinigen_python=args.infinigen_python,
             author_scene_metadata=not args.no_scene_metadata,
+            validate_connectivity=not args.no_connectivity,
         )
         failures = [r for r in results if r.returncode != 0]
         if failures:

@@ -468,15 +468,33 @@ class TestModesAndParaphrases:
 
     def test_no_cardinal_or_wall_language_in_any_text(self):
         scene = _two_room_scene()
-        # A unique near-path landmark so the landmark phrasing is exercised too.
+        # A unique near-path landmark so the landmark phrasing is exercised too,
+        # plus a structural object that must be excluded from the target pool.
         scene.metadata["objects"].append(
             {"label": "lamp", "instance_id": 5, "position_3d": [6.5, 1.5, 0.4]}
+        )
+        scene.metadata["objects"].append(
+            {"label": "wall", "instance_id": 6, "position_3d": [1.0, 0.2, 0.5]}
         )
         result = bmq.build_mission_queue(scene, GeneratorConfig(mode="mixed"))
         banned = re.compile(r"\b(north|south|east|west|left|right|wall)\b", re.IGNORECASE)
         for r in result.rows:
             for text in [r["mission_text"], *r["paraphrases"]]:
                 assert not banned.search(text), f"ungroundable spatial word in: {text!r}"
+
+    def test_structural_label_is_excluded_from_target_pool(self):
+        scene = _two_room_scene()
+        scene.metadata["objects"].append(
+            {"label": "wall", "instance_id": 7, "position_3d": [1.5, 0.3, 0.5]}
+        )
+        scene.metadata["objects"].append(
+            {"label": "floor lamp", "instance_id": 8, "position_3d": [2.2, 1.0, 0.4]}
+        )
+        result = bmq.build_mission_queue(scene, GeneratorConfig(mode="endpoint"))
+        labels = {r["target_label"] for r in result.rows}
+        assert "wall" not in labels  # structural surface, not a navigation goal
+        assert "floor lamp" in labels  # compound label survives exact-set membership
+        assert result.stats.rejected_reasons.get("structural_target", 0) == 1
 
     def test_fallback_paraphrases_are_distinct_from_mission_text(self):
         scene = _two_room_scene()

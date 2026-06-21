@@ -184,7 +184,7 @@ to same-room missions only — `cross_room: false` in every row.
 
 One LLM call per mission at generation time. Components:
 
-1. **Compact scene summary.** Don't paste raw `scene_metadata.json`;
+1. **Compact scene summary.** Don't paste the raw embedded metadata;
    distill into ~200–500 tokens of structured prose:
    ```
    Bounds: x ∈ [0, 8], y ∈ [0, 6]
@@ -244,7 +244,7 @@ One LLM call per mission at generation time. Components:
 ### Start-frame grounding
 
 The forward-generation regime's structural blind spot is that an
-LLM reading `scene_metadata.json` can name targets the camera
+LLM reading the scene metadata can name targets the camera
 will *never see* from the proposed start pose (occluded by
 nearer objects, hidden behind a doorway not yet traversed,
 backside of furniture). The trajectory-first regime
@@ -314,8 +314,8 @@ their union.
 
 - [ ] **Generator entry point** at
       `source/strafer_lab/strafer_lab/tools/build_mission_queue.py`
-      consumes `scene_metadata.json` (with `connectivity[]`
-      block from
+      consumes the scene USD's `customData` (via
+      `scene_metadata_reader.load`, with the `connectivity[]` block from
       [`scene-connectivity-validation`](../../completed/scene-connectivity-validation.md))
       and emits `mission_queue.yaml` with the schema above. Per
       `--mode {endpoint, path-shape, mixed}`:
@@ -333,10 +333,10 @@ their union.
       `(scene_seed, start_pose, mission_text, llm_seed)`.
 - [ ] **Shared planner.** The `endpoint`-mode oracle path, the
       post-validation navigable/segment checks, and the LLM-waypoint
-      fallback all call `path_planner.plan_path` via a new CPU/numpy
-      Infinigen occupancy-grid adapter (`scene_metadata.json →
-      free_space`), written in an importable location for the sibling
-      Infinigen consumers. No second A* implementation is added. See
+      fallback all call `path_planner.plan_path` over the cached-occupancy
+      seam — load `<scene>/occupancy.npy` via
+      `scene_connectivity.load_occupancy` + `occupancy_to_free_space` (no new
+      adapter, no re-rasterization, no second A*). See
       [`context/path-planning-architecture.md`](../../context/path-planning-architecture.md).
 - [ ] **Multi-room default.** For multi-room scenes, the
       generator emits cross-room missions by default; the

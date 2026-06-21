@@ -42,11 +42,11 @@ from strafer_lab.tasks.navigation.path_planner import (
     NoPathError,
     plan_path,
 )
-from strafer_lab.tools import scene_connectivity as sc
+from strafer_lab.tools import scene_classes, scene_connectivity as sc
 
 # Bump when the row schema, validator, or fallback logic changes in a way that
 # should invalidate cached queues even at an unchanged LLM seed / template.
-GENERATOR_VERSION = "2"
+GENERATOR_VERSION = "3"
 
 # The mission-source tag the writer stamps for queue-sourced episodes.
 SOURCE_MISSION_SOURCE = "queue"
@@ -473,7 +473,8 @@ def build_scene_summary(inputs: SceneInputs, *, reachable_pairs: set[tuple[int, 
         label = str(obj.get("label", "")).strip().lower()
         room_type = str(rooms[ri].get("room_type", ri))
         key = (label, room_type)
-        if label and key not in seen:
+        # Skip structural classes so the LLM-planner prose matches the target pool.
+        if label and label not in scene_classes.STRUCTURAL_CLASSES and key not in seen:
             seen.add(key)
             obj_lines.append(f"  - {label} in {room_type}")
     if obj_lines:
@@ -720,19 +721,20 @@ def _path_length_m(path: Sequence[Sequence[float]]) -> float:
 
 
 _PARAPHRASE_TEMPLATES = (
-    "Head to the {label}.",
-    "Navigate to the {label}.",
-    "Make your way to the {label}.",
-    "Approach the {label}.",
-    "Drive over to the {label}.",
+    "Head to {ref}.",
+    "Navigate to {ref}.",
+    "Make your way to {ref}.",
+    "Approach {ref}.",
+    "Drive over to {ref}.",
 )
 
 
 def fallback_paraphrases(mission_text: str, label: str, n: int) -> list[str]:
     """Deterministic templated paraphrases when no paraphrase model is available."""
+    ref = target_noun_phrase(label)
     out: list[str] = []
     for tmpl in _PARAPHRASE_TEMPLATES:
-        cand = tmpl.format(label=label)
+        cand = tmpl.format(ref=ref)
         if cand != mission_text and cand not in out:
             out.append(cand)
         if len(out) >= n:
@@ -752,10 +754,22 @@ def room_type_is_unique(rooms: Sequence[dict[str, Any]], room_type: str | None) 
     return sum(1 for r in rooms if r.get("room_type") == room_type) == 1
 
 
+def target_noun_phrase(label: str) -> str:
+    """The target's referring expression in mission text — today a bare ``the {label}``.
+
+    Same-label disambiguation (one globally-unique anchor per target) is owned by
+    mission-text-enrichment's ``mission_text_builder``; this is the single seam to
+    swap it in once that ships. Every target reference routes through here so
+    wiring the builder in is a one-line change.
+    """
+    return f"the {label}"
+
+
 def endpoint_text(label: str, target_room: str | None, cross_room: bool, *, room_unique: bool = False) -> str:
+    ref = target_noun_phrase(label)
     if cross_room and target_room and room_unique:
-        return f"Go to the {label} in the {target_room}."
-    return f"Go to the {label}."
+        return f"Go to {ref} in the {target_room}."
+    return f"Go to {ref}."
 
 
 def path_shape_text(
@@ -777,18 +791,19 @@ def path_shape_text(
     sidedness — none of which a compass-less holonomic robot can ground from
     mission text authored before the trajectory exists.
     """
+    ref = target_noun_phrase(label)
     if cross_room and target_room and room_unique:
         if transit_room and transit_unique:
             return (
-                f"Go to the {label} in the {target_room} via the {transit_room}.",
+                f"Go to {ref} in the {target_room} via the {transit_room}.",
                 "room_transit",
             )
         return (
-            f"Go to the {label} through the doorway into the {target_room}.",
+            f"Go to {ref} through the doorway into the {target_room}.",
             "room_transit",
         )
     if landmark:
-        return (f"Go to the {label}, passing the {landmark}.", "landmark_relative")
+        return (f"Go to {ref}, passing the {landmark}.", "landmark_relative")
     return (endpoint_text(label, target_room, cross_room, room_unique=room_unique), "none")
 
 
@@ -884,6 +899,11 @@ def build_mission_queue(
         label = str(obj.get("label", "")).strip().lower()
         if not label:
             stats.reject("no_label")
+            continue
+        # Structural surfaces are obstacles, not navigation goals (matches the
+        # teleop picker's block list); a structural class is never a target.
+        if label in scene_classes.STRUCTURAL_CLASSES:
+            stats.reject("structural_target")
             continue
         target_xy = (pos[0], pos[1])
         target_room_idx = room_index_of(target_xy[0], target_xy[1], rooms)

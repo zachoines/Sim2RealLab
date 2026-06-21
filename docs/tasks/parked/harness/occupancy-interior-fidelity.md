@@ -49,8 +49,20 @@ reports that (wrong) occupancy.
 2. **Flood seeded from the exterior corner** — moving the omap `start_location`
    to the largest interior room's centroid gave the **identical** result. So it
    is **not** the flood-seed location either.
+3. **Furniture convexHull over-fill** — re-approximating all furniture to
+   `convexDecomposition` (faithful) dropped overall occupied 0.58→0.27 (so
+   convexHull *was* over-approximating furniture elsewhere) but the bathroom +
+   closet stayed **0 % free**, and overall connectivity *regressed* to 11/36
+   (living_room + bedroom newly isolated — the lower occupancy shifted which
+   free component each room's representative point lands in). So it is **not**
+   the furniture collider approximation, and `convexDecomposition` is **not** a
+   safe swap for the omap path.
 
-So the cause is genuinely open. Remaining suspects to chase: the omap's
+So the cause is genuinely open — every collider/seed lever tried leaves the two
+rooms at 0 % free, which is why they look navigable yet read fully occupied. The
+remaining suspect is the omap's own per-cell classification for small enclosed
+rooms; a non-omap navigable mask (PhysX overlap query per cell, or the
+footprint-rasterize path) is the most promising direction. Remaining suspects to chase: the omap's
 per-cell occupied/free classification heuristic for enclosed small rooms;
 furniture `convexHull` colliders bridging the doorway threshold; or the omap's
 ray/slice geometry. (Note: the doorway *collider intrusion* an operator can see

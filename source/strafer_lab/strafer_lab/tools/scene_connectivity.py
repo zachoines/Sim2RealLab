@@ -55,18 +55,34 @@ from strafer_lab.tasks.navigation.path_planner import (
 # circumscribed radius (~0.28 m, modelling the robot as a 0.56 m disc) would
 # wrongly seal every standard doorway and mark whole rooms unreachable.
 try:
-    from strafer_shared.constants import CHASSIS_WIDTH
+    from strafer_shared.constants import CHASSIS_WIDTH, MAP_RESOLUTION
 
     ROBOT_RADIUS_M = 0.5 * CHASSIS_WIDTH
 except Exception:  # pragma: no cover - strafer_shared always present in lab env
     ROBOT_RADIUS_M = 0.18
+    MAP_RESOLUTION = 0.05
 
 # Cached-occupancy sidecar layout (regenerable derived intermediate, not
-# authored metadata — the connectivity graph is the authored artifact).
+# authored metadata — the connectivity graph is the authored artifact). The
+# large occupancy GRID stays a sidecar (not embedded in the USD ``customData``
+# the connectivity graph rides in): a multi-hundred-thousand-cell array would
+# base64-bloat customData and every read of it, and the planner-side consumers
+# (this module, the mission-generator adapter) are numpy-only / pxr-free, so
+# moving the grid into the USD would force ``pxr`` on all of them. The
+# ``occupancy.json`` USD-identity tie covers the sidecar's one downside
+# (staleness). The small connectivity GRAPH, by contrast, is authored truth and
+# does live in customData.
 OCCUPANCY_GRID_FILENAME = "occupancy.npy"
 OCCUPANCY_META_FILENAME = "occupancy.json"
 
-DEFAULT_RESOLUTION_M = 0.05
+# Cell size = the shared RTAB-Map / Nav2 costmap resolution, so the harness
+# connectivity grid matches the grid the runtime planner sees. It is also the
+# correctness floor for doorway resolution: interior doors are ~0.55 m wide and
+# the inscribed inflation radius is ~0.18 m (needs > 0.36 m clear), so a ~0.55 m
+# door leaves ~3 free cells at 0.05 m but only ~1 at 0.10 m — a coarser grid
+# would close real doorways under inflation. Do not raise it without re-checking
+# the narrowest doorway against the inflation radius.
+DEFAULT_RESOLUTION_M = MAP_RESOLUTION
 DEFAULT_DISCRETIZATION_M = 0.05
 # Room representative points sit on open floor, so the planner only ever has
 # to snap a centroid that landed under furniture back to nearby free space.

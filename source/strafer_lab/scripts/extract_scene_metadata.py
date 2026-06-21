@@ -249,6 +249,26 @@ def _vec3(value: Any) -> list[float]:
         return [0.0, 0.0, 0.0]
 
 
+# Ordered preference of concrete-noun categories for label inference. When an
+# Infinigen object carries one of these tags, it wins over broader category tags
+# (``Furniture``, ``Seating``). Externalized from ``_infer_label`` (mirroring the
+# shared vocabulary in ``scene_classes.STRUCTURAL_CLASSES``) so the label
+# taxonomy lives in one place. This is a small, hand-picked seed list, NOT a
+# comprehensive Infinigen object→label map; expanding it to full coverage (which
+# directly affects detection vocab + grounding quality) is tracked as a separate
+# follow-up.
+LABEL_CATEGORY_PRIORITY: tuple[str, ...] = (
+    "Table",
+    "Chair",
+    "Bed",
+    "Door",
+    "Window",
+    "Lamp",
+    "Sink",
+    "Couch",
+)
+
+
 def _infer_label(obj: Any, tags: list[str]) -> str:
     """Turn the Infinigen tag set into a stable, VLM-friendly label.
 
@@ -256,17 +276,7 @@ def _infer_label(obj: Any, tags: list[str]) -> str:
     broader category tags (``"Furniture"``, ``"Seating"``). Falls back to
     the object's ``name`` attribute when no useful tag is present.
     """
-    _category_priority = (
-        "Table",
-        "Chair",
-        "Bed",
-        "Door",
-        "Window",
-        "Lamp",
-        "Sink",
-        "Couch",
-    )
-    preferred: set[str] = {c.lower() for c in _category_priority}
+    preferred = {c.lower() for c in LABEL_CATEGORY_PRIORITY}
     for tag in tags:
         if tag.lower() in preferred:
             return tag.lower()

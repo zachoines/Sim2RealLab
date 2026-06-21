@@ -255,6 +255,33 @@ class TestRepresentativePoint:
         x, y = room_representative_xy(room, free, origin_xy=ORIGIN, grid_res=RES)
         assert abs(x - 1.5) < 1e-6 and abs(y - 1.5) < 1e-6
 
+
+# ---------------------------------------------------------------------------
+# Door handling in the Kit script (pure helpers — door + leaf-detect regexes)
+# ---------------------------------------------------------------------------
+
+
+def _load_vsc_module():
+    """Load validate_scene_connectivity.py — its top-level imports are Kit-free."""
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / "validate_scene_connectivity.py"
+    spec = importlib.util.spec_from_file_location("validate_scene_connectivity_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class TestDoorHandling:
+    def test_leaf_regex_matches_panel_not_frame(self):
+        vsc = _load_vsc_module()
+        assert vsc._DOOR_LEAF_RE.search("PanelDoorFactory_99__spawn_asset_2__001")
+        assert not vsc._DOOR_LEAF_RE.search("PanelDoorFactory_99__spawn_asset_2_")
+        # The door matcher still catches the GlassPanel variant + both prims.
+        assert vsc._DOOR_PRIM_RE.search("GlassPanelDoorFactory_56__spawn_asset_4_")
+        assert vsc._DOOR_PRIM_RE.search("GlassPanelDoorFactory_56__spawn_asset_4__001")
+
     def test_snaps_to_free_when_centroid_blocked(self):
         room = {"footprint_xy": aabb_to_footprint((0.5, 0.5), (2.5, 2.5))}
         free = _free_grid()

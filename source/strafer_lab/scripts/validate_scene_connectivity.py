@@ -29,15 +29,20 @@ in the scene-gen pipeline and produces two artifacts:
 
    ``reason`` is ``"stairs"`` (cross-story; the mecanum strafer can't climb)
    or ``"blocked"`` (no collision-free path even with doors open). The strafer
-   has no manipulator, so every door's collider is dropped *before* occupancy
-   generation (the brief's "doors assumed open at scene-gen time"); the visual
-   door mesh stays, only physics passability changes, and the drop is persisted
-   so the runtime occupancy matches. ``door_state`` on a reachable edge is then
-   ``"force-opened"`` (a door prim sits on the crossing — it was opened) or
-   ``"absent"`` (the passage is an open gap with no door). Cross-story scenes
-   also set ``multi_story: true`` at the top level. A scene is tagged
-   ``multi_room_incompatible: true`` only when it has cross-room candidate
-   pairs but *none* is reachable.
+   has no manipulator, so every door is opened at scene-gen time (the brief's
+   "doors assumed open"): the collider is dropped *before* occupancy generation
+   and the leaf panel mesh is hidden so the visual matches the open passage.
+   Both are persisted. ``door_state`` on a reachable edge is then
+   ``"force-opened"`` (a door prim sits on the crossing) or ``"absent"`` (an
+   open gap, no door). Cross-story scenes also set ``multi_story: true`` at the
+   top level. A scene is tagged ``multi_room_incompatible: true`` only when it
+   has cross-room candidate pairs but *none* is reachable.
+
+   A room sealed only by a doorway whose wall-cutout the postprocess
+   ``meshSimplification`` collider heals shut can still read as occupied (the
+   omap's flood treats the enclosed interior as occupied, not free); that is a
+   known occupancy-fidelity limitation tracked as a follow-up, not a
+   door-matching gap.
 
 Reachability is decided by the project's one shared grid planner
 (``plan_path``) over the inflated occupancy — this brief writes a grid
@@ -99,14 +104,45 @@ def _trace(msg: str) -> None:
 
 # Infinigen door factories (PanelDoor / LiteDoor / LouverDoor / GlassPanelDoor,
 # both the frame ``__spawn_asset_N_`` and leaf ``__spawn_asset_N__001`` prims).
+# Verified against seed1/seed2: this catches every door-named prim in both scenes
+# (incl. the GlassPanel variant), so there is no door the door-open pass misses.
 _DOOR_PRIM_RE = re.compile(r"Door[A-Za-z]*Factory_\d+__spawn_asset_\d+_")
+# The leaf is the swinging panel (extra ``__NNN`` suffix); the frame is the casing.
+_DOOR_LEAF_RE = re.compile(r"__spawn_asset_\d+__\d+$")
 
-# Occupancy slab above the floor: catches walls, closed doors, and furniture at
-# robot height while ignoring the (collider-stripped) floor and the ceiling.
+# Occupancy slab, measured above the floor.
+#   z_lo: just above the floor — clears the floor plane (its colliders are stripped
+#         in postprocess anyway) plus any door-sill / transition-strip lip.
+#   z_hi: the robot's vertical envelope (floor → top of the camera mast). An
+#         obstacle in this band can collide; anything above it (a tabletop) the
+#         robot drives under, so the slab stops there. Derived from the shared
+#         chassis constants so it tracks the real robot, not a magic number.
+try:
+    from strafer_shared.constants import (  # noqa: WPS433
+        CAMERA_HEIGHT,
+        CAMERA_OFFSET_Z,
+        CHASSIS_GROUND_CLEARANCE,
+        CHASSIS_HEIGHT,
+    )
+
+    _ROBOT_TOP_M = (
+        CHASSIS_GROUND_CLEARANCE + CHASSIS_HEIGHT + CAMERA_OFFSET_Z + CAMERA_HEIGHT
+    )
+except Exception:  # pragma: no cover - strafer_shared always present in lab env
+    _ROBOT_TOP_M = 0.34
 _DEFAULT_Z_LO_M = 0.05
-_DEFAULT_Z_HI_M = 0.40
-_DEFAULT_PAD_M = 1.5  # extend occupancy bounds past the floor edges for walls
-_DOOR_NEAR_DOORWAY_M = 0.7  # door-center proximity that counts as "on" a crossing
+_DEFAULT_Z_HI_M = round(_ROBOT_TOP_M, 3)  # ~0.34 m above the floor
+
+# Occupancy bounds are padded past the floor-mesh AABBs so the room walls (which
+# sit at / just outside the floor edge) land inside the grid rather than being
+# clipped at the boundary. 1.5 m comfortably exceeds wall thickness + a doorway's
+# outward reach.
+_DEFAULT_PAD_M = 1.5
+
+# A door prim counts as "on" a doorway crossing if its center is within this of
+# the path's estimated crossing point: ~half a standard door width plus the
+# crossing-estimate slop, tight enough not to grab a neighbouring door.
+_DOOR_NEAR_DOORWAY_M = 0.7
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +204,12 @@ def recover_rooms_from_floors(stage: Any) -> tuple[list[dict[str, Any]], float]:
 
 
 def collect_door_prims(stage: Any) -> list[dict[str, Any]]:
-    """Return door prims with their XY AABB centers for remediation/tagging."""
+    """Return door prims with their XY AABB center + leaf flag.
+
+    ``center_xy`` is used for door_state tagging; ``is_leaf`` (the swinging
+    panel, ``__NNN`` suffix) is hidden so the visual matches the now-passable
+    doorway.
+    """
     from pxr import Usd, UsdGeom  # type: ignore
 
     bbox_cache = UsdGeom.BBoxCache(
@@ -193,9 +234,10 @@ def collect_door_prims(stage: Any) -> list[dict[str, Any]]:
             {
                 "path": str(prim.GetPath()),
                 "center_xy": (0.5 * (min_x + max_x), 0.5 * (min_y + max_y)),
+                "is_leaf": bool(_DOOR_LEAF_RE.search(name)),
             }
         )
-    logger.info("Found %d door prims", len(doors))
+    logger.info("Found %d door prims (%d leaves)", len(doors), sum(d["is_leaf"] for d in doors))
     return doors
 
 
@@ -265,6 +307,10 @@ def generate_occupancy_omap(
     om.set_cell_size(cell_size)
 
     timeline.play()
+    # Kit settle-pumps (empirical / conservative, tied to the Kit-timeline
+    # gotchas): 8 frames let PhysX cook the colliders + the door-collider drop
+    # propagate before the map is built; 2 frames flush the omap result before we
+    # read it. Too few risks an occupancy from a half-cooked scene.
     for _ in range(8):
         simulation_app.update()
     om.generate()
@@ -344,6 +390,27 @@ def drop_door_colliders(stage: Any, door_paths: list[str]) -> int:
                 prim.RemoveAPI(UsdPhysics.CollisionAPI)
                 had = True
             count += int(had)
+    return count
+
+
+def hide_door_leaves(stage: Any, leaf_paths: list[str]) -> int:
+    """Make the door-leaf (swinging panel) meshes invisible.
+
+    A dropped collider makes the doorway passable, but the panel mesh stays
+    shut visually — a camera capturing a demo would film the robot driving
+    *through* a closed-looking door, teaching "closed doors are passable". So
+    the leaf panel is hidden (the frame casing stays) and the doorway reads as
+    an open passage. Persisted on save.
+    """
+    from pxr import UsdGeom  # type: ignore
+
+    count = 0
+    for path in leaf_paths:
+        prim = stage.GetPrimAtPath(path)
+        if not prim or not prim.IsValid():
+            continue
+        UsdGeom.Imageable(prim).MakeInvisible()
+        count += 1
     return count
 
 
@@ -469,15 +536,23 @@ def validate_connectivity(
     # authors them open at scene-gen time (the brief's "doors assumed open"). Drop
     # every door's collider BEFORE generating occupancy — doing it up front means
     # the single PhysX cook on timeline.play() never sees the closed panels, which
-    # is robust where a post-gen RemoveAPI + re-cook is not. The visual door mesh
-    # stays (doors still look shut), only physics passability changes; the drop is
-    # persisted on write so the runtime occupancy matches.
+    # is robust where a post-gen RemoveAPI + re-cook is not. The leaf panel is also
+    # hidden so the visual matches the now-open passage (a demo camera must not
+    # film the robot driving through a shut-looking door). Both are persisted on
+    # write so the runtime scene + occupancy match. (NOTE: the omap can still mark
+    # a room sealed only by a meshSimplification-healed wall cutout as occupied —
+    # a separate occupancy-fidelity limitation tracked as a follow-up, not a
+    # door-matching gap.)
     forced_open = 0
     if not rasterize_fallback and doors:
         forced_open = drop_door_colliders(stage, [d["path"] for d in doors])
+        hidden = hide_door_leaves(stage, [d["path"] for d in doors if d["is_leaf"]])
         for _ in range(3):
             simulation_app.update()
-        _trace(f"force-opened {forced_open} door collider(s) across {len(doors)} door prim(s)")
+        _trace(
+            f"force-opened {forced_open} door collider(s), hid {hidden} leaf mesh(es) "
+            f"across {len(doors)} door prim(s)"
+        )
 
     _trace("generating occupancy")
     occupancy, origin_xy = generate_occupancy_omap(
@@ -496,12 +571,14 @@ def validate_connectivity(
     _trace(f"computed {len(edges)} edges ({cross_reach} cross-room reachable)")
 
     # Tag door_state on reachable edges: a door prim sitting on the crossing was
-    # force-opened above; otherwise the passage was an open gap.
+    # force-opened (this run or a prior one — re-processing an already-opened
+    # scene drops 0 colliders but the door is still there), otherwise the passage
+    # is an open gap. Keyed on a door at the crossing, not on this run's drop count.
+    opened_doors = doors if not rasterize_fallback else []
     for e in edges:
         if not e.get("reachable"):
             continue
-        at_door = forced_open and _door_at_crossing(e, doors)
-        e["door_state"] = "force-opened" if at_door else "absent"
+        e["door_state"] = "force-opened" if _door_at_crossing(e, opened_doors) else "absent"
 
     multi_story = scene_connectivity.is_multi_story(rooms)
     incompatible = scene_connectivity.is_multi_room_incompatible(edges)

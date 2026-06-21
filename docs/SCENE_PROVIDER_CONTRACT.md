@@ -217,12 +217,21 @@ Each entry is one **undirected** room pair, `from_idx` < `to_idx`:
 | `reason` | unreachable-only | string | `"stairs"` (cross-story; the strafer can't climb) or `"blocked"` (no path even with doors open — a genuine wall/furniture obstruction). |
 
 **Door-open guarantee.** The mecanum strafer has no manipulator and can't
-open doors, so `validate_scene_connectivity.py` drops *every* door's
-collider before generating the occupancy (the brief's "doors assumed open
-at scene-gen time") and persists that drop. The visual door mesh stays
-(doors still render shut); only physics passability changes, so the runtime
-occupancy matches the connectivity ground-truth. A reachable edge through a
-door is therefore `"force-opened"`; an unreachable one is a real obstruction.
+open doors, so `validate_scene_connectivity.py` drops *every* door's collider
+before generating the occupancy (the brief's "doors assumed open at scene-gen
+time"). To keep the **visual matched to the physics** — a demo camera must not
+film the robot driving through a shut-looking door — it also hides the door
+*leaf* (the swinging panel) so the doorway reads as an open passage; the frame
+casing stays. Both (collider drop + leaf hide) are persisted, so the runtime
+scene and occupancy match the connectivity ground-truth. A reachable edge
+through a door is `"force-opened"`; an unreachable one is a real obstruction.
+
+> **Known limitation.** A room whose only opening is a doorway whose
+> *wall*-cutout the postprocess `meshSimplification` collider heals shut can
+> read as unreachable even with the door collider dropped — the occupancy-map
+> flood treats the enclosed interior as occupied. This is a separate
+> occupancy-fidelity limitation (tracked as a follow-up), **not** a
+> door-matching gap: the door matcher catches every door prim in the corpus.
 
 Cross-story pairs are emitted as `{reachable: false, reason: "stairs"}` and
 the scene gets top-level `multi_story: true`. A scene gets
@@ -233,10 +242,17 @@ alongside `connectivity[]` for backward compatibility.
 
 **The occupancy grid is a cached, regenerable sidecar** (`<scene>/occupancy
 .npy` + `occupancy.json`), not authored metadata — it lives next to the
-scene, not in `customData`. `occupancy.json` records the grid→world mapping
-(`origin_xy`, `resolution_m`, `z_slice_m`) plus the source-USD identity
-(path + mtime + size) so a stale grid is detectable. It is the **shared
-occupancy seam** other Infinigen path-planning consumers
+scene, not in `customData`. The small connectivity *graph* is authored truth
+and rides in `customData`; the large occupancy *grid* deliberately does not,
+for two reasons: (a) it is a several-hundred-thousand-cell array that would
+base64-bloat the `customData` JSON string and every read of it, and (b) the
+planner-side consumers (`scene_connectivity`, the mission-generator adapter)
+are numpy-only / `pxr`-free, and embedding the grid in the USD would force
+`pxr` onto all of them. The grid's one downside as a sidecar — staleness — is
+covered by the USD-identity tie: `occupancy.json` records the grid→world
+mapping (`origin_xy`, `resolution_m`, `z_slice_m`) plus the source-USD
+identity (path + mtime + size) so a stale grid is detectable. It is the
+**shared occupancy seam** other Infinigen path-planning consumers
 (`scene_connectivity.load_occupancy` + `occupancy_to_free_space` +
 `plan_path`) load instead of re-rasterizing the scene.
 

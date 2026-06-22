@@ -168,6 +168,18 @@ randomly-chosen paraphrase). The oracle consumes `planned_path`.
 Teleop consumes `mission_text` for operator display.
 `generator_metadata` is a downstream-analysis side-channel.
 
+**Groundable target filter (from `mission-text-enrichment`).** The target
+noun phrase comes from `mission_text_builder.disambiguate`, whose anchor is
+flagged `groundable = False` when it degrades to a raw coordinate
+(`...approximately at (x, y, z)`) that a camera-grounded VLA cannot read off
+a frame. The generator computes the `AnchorResult` once per target and, by
+default (`GeneratorConfig.require_groundable` / CLI `--require-groundable`),
+drops such targets with `rejected_reason: ungroundable_target` — so the
+emitted corpus only targets objects the model can actually see. On seed2
+this leaves a **groundable target pool of 189/646**. `--no-require-groundable`
+restores emit-everything for A/B measurement. See
+[`mission-text-enrichment`](../../completed/harness/mission-text-enrichment.md).
+
 ### Multi-room is the default
 
 Per the project's MVP-multi-room decision: this brief generates

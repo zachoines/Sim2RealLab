@@ -502,3 +502,102 @@ class TestModesAndParaphrases:
         for r in result.rows:
             assert r["mission_text"] not in r["paraphrases"]
             assert len(r["paraphrases"]) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Groundable filter: coordinate-anchored targets are dropped by default
+# ---------------------------------------------------------------------------
+
+
+def _clutter_scene_no_occupancy() -> SceneInputs:
+    """One room, two identical boxes: no qualifier (or room scope) can tell them
+    apart, so each resolves only to the un-groundable coordinate anchor."""
+    metadata = {
+        "rooms": [{"room_type": "room", "footprint_xy": [[0, 0], [4, 0], [4, 4], [0, 4]], "story": 0}],
+        "objects": [
+            {"label": "box", "instance_id": 1, "position_3d": [1.0, 1.0, 0.5],
+             "bbox_3d_min": [0, 0, 0], "bbox_3d_max": [0.1, 0.1, 0.1]},
+            {"label": "box", "instance_id": 2, "position_3d": [3.0, 1.0, 0.5],
+             "bbox_3d_min": [0, 0, 0], "bbox_3d_max": [0.1, 0.1, 0.1]},
+        ],
+        "connectivity": [],
+    }
+    return SceneInputs(
+        scene_name="scene_clutter_000_seed0", metadata=metadata, scene_seed=0, free_space=None
+    )
+
+
+class TestGroundableFilter:
+    def test_ungroundable_target_rejected_by_default(self):
+        result = bmq.build_mission_queue(_clutter_scene_no_occupancy(), GeneratorConfig(mode="endpoint"))
+        assert result.stats.emitted == 0
+        assert result.rows == []
+        assert result.stats.rejected_reasons.get("ungroundable_target") == 2
+
+    def test_ungroundable_target_emitted_when_filter_disabled(self):
+        result = bmq.build_mission_queue(
+            _clutter_scene_no_occupancy(), GeneratorConfig(mode="endpoint", require_groundable=False)
+        )
+        assert result.stats.emitted == 2
+        assert result.stats.rejected_reasons.get("ungroundable_target", 0) == 0
+        # The emitted mission names the coordinate anchor (ungroundable but unique).
+        for r in result.rows:
+            assert "approximately at" in r["mission_text"]
+
+
+class TestRoomSuffixDedup:
+    """The builder's room scope can fold the destination room into the anchor;
+    the consumer must not then name the same room a second time."""
+
+    def test_endpoint_does_not_double_name_room(self):
+        ref = "the largest shelf in the kitchen"
+        assert (
+            bmq.endpoint_text(ref, "kitchen", True, room_unique=True)
+            == "Go to the largest shelf in the kitchen."
+        )
+
+    def test_endpoint_still_names_room_when_anchor_lacks_it(self):
+        assert (
+            bmq.endpoint_text("the shelf", "kitchen", True, room_unique=True)
+            == "Go to the shelf in the kitchen."
+        )
+
+    def test_path_shape_transit_dedups_room(self):
+        text, hint = bmq.path_shape_text(
+            ref="the largest shelf in the kitchen", target_room="kitchen", cross_room=True,
+            room_unique=True, transit_room="hall", transit_unique=True,
+        )
+        assert text == "Go to the largest shelf in the kitchen via the hall."
+        assert hint == "room_transit"
+
+    def test_path_shape_doorway_dedups_room(self):
+        text, hint = bmq.path_shape_text(
+            ref="the largest shelf in the kitchen", target_room="kitchen",
+            cross_room=True, room_unique=True,
+        )
+        assert text == "Go to the largest shelf in the kitchen through the doorway."
+        assert hint == "room_transit"
+
+    def test_path_shape_doorway_names_room_when_anchor_lacks_it(self):
+        text, _ = bmq.path_shape_text(
+            ref="the shelf", target_room="kitchen", cross_room=True, room_unique=True
+        )
+        assert text == "Go to the shelf through the doorway into the kitchen."
+
+
+class TestRoomTypeUniquenessParity:
+    """The consumer's `room_type_is_unique` must agree with the builder's
+    `_room_type_is_unique` so the two never disagree on whether room scope fires
+    — both normalize room_type before comparing."""
+
+    def test_consumer_normalizes_and_agrees_with_builder_on_case_variants(self):
+        from strafer_lab.tools import mission_text_builder as mtb
+
+        # Case-variant duplicates: "kitchen" is NOT unique under either.
+        dup = [{"room_type": "Kitchen"}, {"room_type": "KITCHEN"}]
+        assert bmq.room_type_is_unique(dup, "kitchen") is False
+        assert mtb._room_type_is_unique(dup, "kitchen") is False
+        # A single case-variant room IS unique under both (normalized).
+        one = [{"room_type": "Kitchen"}, {"room_type": "Hall"}]
+        assert bmq.room_type_is_unique(one, "kitchen") is True
+        assert mtb._room_type_is_unique(one, "kitchen") is True

@@ -42,7 +42,7 @@ from strafer_lab.tasks.navigation.path_planner import (
     NoPathError,
     plan_path,
 )
-from strafer_lab.tools import scene_classes, scene_connectivity as sc
+from strafer_lab.tools import mission_text_builder, scene_classes, scene_connectivity as sc
 
 # Bump when the row schema, validator, or fallback logic changes in a way that
 # should invalidate cached queues even at an unchanged LLM seed / template.
@@ -97,6 +97,11 @@ class GeneratorConfig:
     snap_radius_m: float = ORACLE_SNAP_RADIUS_M
     discretization_m: float = sc.DEFAULT_DISCRETIZATION_M
     cross_room_default: bool = True
+    # Drop targets whose only anchor is the un-groundable coordinate fallback: a
+    # camera-grounded VLM cannot read a raw coordinate off an image, so a mission
+    # must name an object it can actually see. Default on; flip off for A/B
+    # measurement of the un-filtered pool.
+    require_groundable: bool = True
     ground_start_frame: bool = False
     planner_model: str = DEFAULT_PLANNER_MODEL
     paraphrase_model: str = DEFAULT_PARAPHRASE_MODEL
@@ -729,9 +734,13 @@ _PARAPHRASE_TEMPLATES = (
 )
 
 
-def fallback_paraphrases(mission_text: str, label: str, n: int) -> list[str]:
-    """Deterministic templated paraphrases when no paraphrase model is available."""
-    ref = target_noun_phrase(label)
+def fallback_paraphrases(mission_text: str, ref: str, n: int) -> list[str]:
+    """Deterministic templated paraphrases when no paraphrase model is available.
+
+    Passed the precomputed anchor noun phrase ``ref`` that produced the
+    ``mission_text`` arg, so the paraphrases name the same disambiguated object
+    and the ``cand != mission_text`` dedupe stays meaningful.
+    """
     out: list[str] = []
     for tmpl in _PARAPHRASE_TEMPLATES:
         cand = tmpl.format(ref=ref)
@@ -748,33 +757,54 @@ def fallback_paraphrases(mission_text: str, label: str, n: int) -> list[str]:
 
 
 def room_type_is_unique(rooms: Sequence[dict[str, Any]], room_type: str | None) -> bool:
-    """True iff exactly one room carries ``room_type`` (so naming it is unambiguous)."""
+    """True iff exactly one room carries ``room_type`` (so naming it is unambiguous).
+
+    Compares on the normalized (``strip().lower()``) room_type so the consumer's
+    uniqueness verdict matches the builder's ``_room_type_is_unique`` — otherwise
+    a case variant could make the two disagree on whether the room scope fires.
+    Idempotent: accepts an already-normalized or a raw room_type.
+    """
     if not room_type:
         return False
-    return sum(1 for r in rooms if r.get("room_type") == room_type) == 1
+    rt = str(room_type).strip().lower()
+    return sum(1 for r in rooms if str(r.get("room_type", "")).strip().lower() == rt) == 1
 
 
-def target_noun_phrase(label: str) -> str:
-    """The target's referring expression in mission text — today a bare ``the {label}``.
+def _norm_room_type(room_type: str | None) -> str | None:
+    """Normalize a room_type the way the builder does (``strip().lower()``).
 
-    Same-label disambiguation (one globally-unique anchor per target) is owned by
-    mission-text-enrichment's ``mission_text_builder``; this is the single seam to
-    swap it in once that ships. Every target reference routes through here so
-    wiring the builder in is a one-line change.
+    Applied where the generator reads ``room_type`` off a room so the emitted
+    text, the room-scope de-dup, and the builder's anchor suffix all agree on
+    casing. ``None`` / empty stays ``None``.
     """
-    return f"the {label}"
+    return str(room_type).strip().lower() if room_type else None
 
 
-def endpoint_text(label: str, target_room: str | None, cross_room: bool, *, room_unique: bool = False) -> str:
-    ref = target_noun_phrase(label)
-    if cross_room and target_room and room_unique:
+def _anchor_names_room(ref: str, target_room: str | None) -> bool:
+    """True iff the anchor ``ref`` already carries ``in the {target_room}``.
+
+    The builder's room scope can fold the destination room into the anchor; when
+    it has, the consumer must not name the room a second time (avoids
+    ``... in the kitchen in the kitchen``).
+    """
+    return bool(target_room) and f" in the {target_room}" in ref
+
+
+def endpoint_text(
+    ref: str,
+    target_room: str | None,
+    cross_room: bool,
+    *,
+    room_unique: bool = False,
+) -> str:
+    if cross_room and target_room and room_unique and not _anchor_names_room(ref, target_room):
         return f"Go to {ref} in the {target_room}."
     return f"Go to {ref}."
 
 
 def path_shape_text(
     *,
-    label: str,
+    ref: str,
     target_room: str | None,
     cross_room: bool,
     room_unique: bool = False,
@@ -784,27 +814,28 @@ def path_shape_text(
 ) -> tuple[str, str]:
     """Return ``(mission_text, constraint_type_hint)`` for a path-shape mission.
 
-    Only groundable spatial language is emitted: room-type / connectivity phrasing
-    for cross-room missions (``via the {transit_room}`` / ``through the doorway
-    into the {target_room}``) and landmark proximity for same-room missions
-    (``passing the {landmark}``). No compass bearing, no surface reference, and no
-    sidedness — none of which a compass-less holonomic robot can ground from
-    mission text authored before the trajectory exists.
+    ``ref`` is the precomputed groundable anchor noun phrase. Only groundable
+    spatial language is emitted: room-type / connectivity phrasing for cross-room
+    missions (``via the {transit_room}`` / ``through the doorway into the
+    {target_room}``) and landmark proximity for same-room missions (``passing the
+    {landmark}``). No compass bearing, no surface reference, and no sidedness —
+    none of which a compass-less holonomic robot can ground from mission text
+    authored before the trajectory exists.
     """
-    ref = target_noun_phrase(label)
     if cross_room and target_room and room_unique:
+        # Name the destination room only if the anchor has not already.
+        room_clause = "" if _anchor_names_room(ref, target_room) else f" in the {target_room}"
         if transit_room and transit_unique:
-            return (
-                f"Go to {ref} in the {target_room} via the {transit_room}.",
-                "room_transit",
-            )
-        return (
-            f"Go to {ref} through the doorway into the {target_room}.",
-            "room_transit",
-        )
+            return (f"Go to {ref}{room_clause} via the {transit_room}.", "room_transit")
+        if room_clause:
+            return (f"Go to {ref} through the doorway into the {target_room}.", "room_transit")
+        return (f"Go to {ref} through the doorway.", "room_transit")
     if landmark:
         return (f"Go to {ref}, passing the {landmark}.", "landmark_relative")
-    return (endpoint_text(label, target_room, cross_room, room_unique=room_unique), "none")
+    return (
+        endpoint_text(ref, target_room, cross_room, room_unique=room_unique),
+        "none",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -905,9 +936,21 @@ def build_mission_queue(
         if label in scene_classes.STRUCTURAL_CLASSES:
             stats.reject("structural_target")
             continue
+
+        # Resolve the disambiguating anchor once per target (was recomputed inside
+        # each text helper). ``.text`` is threaded into every text call site;
+        # ``.groundable`` gates the target: a coordinate-only anchor cannot be
+        # grounded from a camera frame, so the mission is dropped under the
+        # default ``require_groundable``.
+        anchor = mission_text_builder.disambiguate(obj, inputs.objects, rooms)
+        if config.require_groundable and not anchor.groundable:
+            stats.reject("ungroundable_target")
+            continue
+        ref = anchor.text
+
         target_xy = (pos[0], pos[1])
         target_room_idx = room_index_of(target_xy[0], target_xy[1], rooms)
-        target_room = (
+        target_room = _norm_room_type(
             rooms[target_room_idx].get("room_type") if target_room_idx is not None else None
         )
         room_unique = room_type_is_unique(rooms, target_room)
@@ -929,6 +972,7 @@ def build_mission_queue(
                 config,
                 label=label,
                 obj=obj,
+                ref=ref,
                 pos=pos,
                 target_room=target_room,
                 target_room_idx=target_room_idx,
@@ -937,7 +981,7 @@ def build_mission_queue(
                 cross_room=False,
                 start_pose=None,
                 planned_path=[],
-                mission_text=endpoint_text(label, target_room, False, room_unique=room_unique),
+                mission_text=endpoint_text(ref, target_room, False, room_unique=room_unique),
                 constraint_hint="none",
                 paraphrase_runner=paraphrase_runner,
                 stats=stats,
@@ -960,7 +1004,9 @@ def build_mission_queue(
         start_room_idx, cross_room = _choose_start_room(
             target_room_idx, rooms, pairs, multi_room and config.cross_room_default, rng
         )
-        start_room = rooms[start_room_idx].get("room_type") if start_room_idx is not None else None
+        start_room = _norm_room_type(
+            rooms[start_room_idx].get("room_type") if start_room_idx is not None else None
+        )
         start_candidates = (
             free_points_in_room(
                 rooms[start_room_idx],
@@ -984,6 +1030,7 @@ def build_mission_queue(
                 config,
                 label=label,
                 target_obj=obj,
+                ref=ref,
                 target_xy=target_xy,
                 target_room=target_room,
                 target_room_idx=target_room_idx,
@@ -1025,6 +1072,7 @@ def build_mission_queue(
                 config,
                 label=label,
                 obj=obj,
+                ref=ref,
                 pos=pos,
                 target_room=target_room,
                 target_room_idx=target_room_idx,
@@ -1084,6 +1132,7 @@ def _plan_one_mission(
     *,
     label: str,
     target_obj: dict[str, Any],
+    ref: str,
     target_xy: tuple[float, float],
     target_room: str | None,
     target_room_idx: int | None,
@@ -1103,7 +1152,7 @@ def _plan_one_mission(
         return None
 
     if not want_path_shape:
-        mission_text = endpoint_text(label, target_room, cross_room, room_unique=room_unique)
+        mission_text = endpoint_text(ref, target_room, cross_room, room_unique=room_unique)
         return mission_text, _round_xy_list(oracle), "none", {
             "structure_ok": True,
             "navigable_ok": True,
@@ -1119,13 +1168,13 @@ def _plan_one_mission(
         oracle, inputs.objects, target_obj, inputs.rooms, band_m=config.landmark_band_m
     )
     transit_idx = _path_transit_room(oracle, inputs.rooms, start_room_idx, target_room_idx)
-    transit_room = (
+    transit_room = _norm_room_type(
         inputs.rooms[transit_idx].get("room_type")
         if transit_idx is not None and transit_idx < len(inputs.rooms)
         else None
     )
     mission_text, constraint_hint = path_shape_text(
-        label=label,
+        ref=ref,
         target_room=target_room,
         cross_room=cross_room,
         room_unique=room_unique,
@@ -1222,6 +1271,7 @@ def _emit_row(
     *,
     label: str,
     obj: dict[str, Any],
+    ref: str,
     pos: tuple[float, float, float],
     target_room: str | None,
     target_room_idx: int | None,
@@ -1245,9 +1295,9 @@ def _emit_row(
                 paraphrase_runner(mission_text, config.paraphrases_per_mission, config.llm_seed)
             )
         except Exception:
-            paraphrases = fallback_paraphrases(mission_text, label, config.paraphrases_per_mission)
+            paraphrases = fallback_paraphrases(mission_text, ref, config.paraphrases_per_mission)
     else:
-        paraphrases = fallback_paraphrases(mission_text, label, config.paraphrases_per_mission)
+        paraphrases = fallback_paraphrases(mission_text, ref, config.paraphrases_per_mission)
 
     mission_id = f"{inputs.scene_name}-{counter:05d}"
     key = (

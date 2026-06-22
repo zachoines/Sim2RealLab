@@ -337,7 +337,7 @@ measurement that decides what comes next.
 
 ---
 
-_Shipped (v1): work commit `__WORK_COMMIT__`, branch
+_Shipped (v1): work commit `c7429bb`, branch
 `task/mission-text-enrichment` (PR pending open). Remaining phases:
 filter-vs-emit decision (gated on the 75.9% measurement) and v2
 color/material descriptors._

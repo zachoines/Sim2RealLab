@@ -22,27 +22,37 @@ from strafer_lab.tools.mission_text_builder import AnchorResult, disambiguate, m
 _FIXTURES = Path(__file__).resolve().parent / "fixtures"
 _SEED2 = _FIXTURES / "scene_high_quality_dgx_000_seed2.json"
 
-# Frozen measurement snapshot for seed2 (646 post-filter targets). This is the
-# deliverable the filter-vs-emit follow-up turns on; update deliberately if the
-# fixture or the waterfall changes.
+# Frozen measurement snapshot for seed2 (646 post-filter targets) with the LIVE
+# room scope. This is the deliverable the downstream corpus run turns on; update
+# deliberately if the fixture or the waterfall changes. Groundable yield (the
+# corpus target-pool size after filtering the coordinate fallthrough) is the
+# headline number.
 SEED2_TARGETS = 646
 SEED2_HISTOGRAM = {
     "singleton": 9,
-    "z_extremum": 76,
-    "size_extremum": 41,
-    "nearest_neighbor": 12,
-    "conjunction": 18,
-    "coordinate_fallback": 490,
+    "room_scope": 12,
+    "z_extremum": 54,
+    "size_extremum": 27,
+    "nearest_neighbor": 5,
+    "conjunction": 82,
+    "coordinate_fallback": 457,
 }
-SEED2_FALLTHROUGH = 490
+SEED2_FALLTHROUGH = 457
+SEED2_GROUNDABLE = 189  # 646 - 457; the corpus target-pool size
 
-# The complete v1 anchor grammar — the only surface forms a groundable anchor
-# may take. The no-bearing ban is a stricter test layered on top of this.
+# The complete anchor grammar — the only surface forms a groundable anchor may
+# take: an optional superlative, the label, an optional "next to the {neighbour}"
+# clause, and an optional trailing "in the {room_type}" scope. The no-bearing ban
+# is a stricter test layered on top of this.
 _ALLOWED_GROUNDABLE = re.compile(
-    r"^the (?:(?:lowest|highest|largest|smallest) )?[^()]+?(?: next to the [^()]+)?$"
+    r"^the (?:(?:lowest|highest|largest|smallest) )?[^()]+?(?: next to the [^()]+?)?(?: in the [^()]+)?$"
 )
 _COORDINATE = re.compile(r"^the .+ approximately at \([^)]*\)$")
-_BANNED = re.compile(r"\b(north|south|east|west|left|right|wall)\b", re.IGNORECASE)
+# Mirror the builder's guard exactly (underscore counts as a separator, so an
+# underscore-joined bearing token like ``north_storage`` is caught too).
+_BANNED = re.compile(
+    r"(?<![a-z0-9])(north|south|east|west|left|right|wall)(?![a-z0-9])", re.IGNORECASE
+)
 
 
 def _load(path: Path) -> dict:
@@ -129,11 +139,19 @@ class TestMeasurementSeed2:
         )
         assert summary["all_texts_distinct"] is True
 
+    def test_groundable_yield_sizes_the_corpus_pool(self):
+        # The headline: how many targets survive the require_groundable filter.
+        summary = measure_scene(_load(_SEED2))
+        assert summary["groundable_targets"] == SEED2_GROUNDABLE
+        assert summary["groundable_targets"] == SEED2_TARGETS - SEED2_FALLTHROUGH
+        # The room scope is a live, groundable lever (not a no-op).
+        assert summary["tier_histogram"]["room_scope"] == 12
+
     def test_worst_offender_breakdown_is_dominated_by_high_cardinality_labels(self):
         summary = measure_scene(_load(_SEED2))
         shelf = summary["by_label"]["shelf"]
         assert sum(shelf.values()) == 233
-        assert shelf["coordinate_fallback"] == 224  # the bulk fall to coordinates
+        assert shelf["coordinate_fallback"] == 218  # the bulk still fall to coordinates
         # Histogram sum equals the target count (every target is accounted for).
         assert sum(summary["tier_histogram"].values()) == SEED2_TARGETS
 
@@ -164,10 +182,14 @@ class TestNoBearingWords:
             r = disambiguate(o, objects, rooms)
             if r.groundable:
                 assert _ALLOWED_GROUNDABLE.match(r.text), f"off-grammar anchor: {r.text!r}"
+                # The allow-list regex is permissive; also assert no dangling connective.
+                assert not r.text.rstrip().endswith((" next to", " in", " the")), r.text
             else:
                 assert _COORDINATE.match(r.text)
 
-    @pytest.mark.parametrize("dirty", ["north corridor", "left cabinet", "south wing"])
+    @pytest.mark.parametrize(
+        "dirty", ["north corridor", "left cabinet", "south wing", "north_corridor", "east_wall"]
+    )
     def test_a_bearing_tainted_target_label_never_leaks_into_the_anchor(self, dirty):
         # A bearing word can only enter via the opaque label; such a label must
         # degrade to a label-free, un-groundable coordinate anchor — not emit the
@@ -270,6 +292,89 @@ class TestConjunctionTier:
         objs = [box1, box2, box3, vase, clock]
         r = disambiguate(box1, objs, [])
         assert r == AnchorResult("the lowest box next to the vase", True, "conjunction")
+
+
+class TestRoomScope:
+    # Two adjacent rooms along +x sharing the wall at x=4. Footprints are simple
+    # squares; the test objects sit at interior points well clear of the seam.
+    KITCHEN = {"room_type": "kitchen", "footprint_xy": [[0, 0], [4, 0], [4, 4], [0, 4]], "story": 0}
+    HALL = {"room_type": "hall", "footprint_xy": [[4, 0], [8, 0], [8, 4], [4, 4]], "story": 0}
+    BEDROOM_1 = {"room_type": "bedroom", "footprint_xy": [[0, 0], [4, 0], [4, 4], [0, 4]], "story": 0}
+    BEDROOM_2 = {"room_type": "bedroom", "footprint_xy": [[4, 0], [8, 0], [8, 4], [4, 4]], "story": 0}
+
+    def test_unique_room_scope_alone_resolves(self):
+        # One box in the kitchen, one in the hall — identical otherwise, so only
+        # the (globally unique) room name distinguishes them. Room scope alone
+        # reduces the competitor set to empty and resolves each.
+        in_kitchen = _cube("box", (1.0, 1.0, 0.5), 0.1, iid=1)
+        in_hall = _cube("box", (5.0, 1.0, 0.5), 0.1, iid=2)
+        rooms = [self.KITCHEN, self.HALL]
+        objs = [in_kitchen, in_hall]
+        assert disambiguate(in_kitchen, objs, rooms) == AnchorResult(
+            "the box in the kitchen", True, "room_scope"
+        )
+        assert disambiguate(in_hall, objs, rooms) == AnchorResult(
+            "the box in the hall", True, "room_scope"
+        )
+
+    def test_room_scope_composes_with_a_size_extremum(self):
+        # Kitchen holds two boxes (big + small); the hall holds a third box the
+        # same size as the kitchen's big one, so size-extremum cannot fire
+        # globally (a tie). Room scope first narrows to the two kitchen boxes,
+        # THEN size-extremum names the larger -> "the largest box in the kitchen".
+        big = _cube("box", (1.0, 1.0, 0.5), 0.4, iid=1)
+        small = _cube("box", (2.0, 1.0, 0.5), 0.1, iid=2)
+        hall_same_size = _cube("box", (5.0, 1.0, 0.5), 0.4, iid=3)  # global size tie
+        rooms = [self.KITCHEN, self.HALL]
+        objs = [big, small, hall_same_size]
+        assert disambiguate(big, objs, rooms) == AnchorResult(
+            "the largest box in the kitchen", True, "conjunction"
+        )
+
+    def test_non_unique_room_type_does_not_fire(self):
+        # Two bedrooms -> "the bedroom" is itself ungroundable, so room scope must
+        # not fire and must never emit "in the bedroom"; the indistinguishable
+        # boxes fall through to the coordinate anchor.
+        a = _cube("box", (1.0, 1.0, 0.5), 0.1, iid=1)
+        b = _cube("box", (5.0, 1.0, 0.5), 0.1, iid=2)
+        rooms = [self.BEDROOM_1, self.BEDROOM_2]
+        r = disambiguate(a, [a, b], rooms)
+        assert "in the bedroom" not in r.text
+        assert r.tier == "coordinate_fallback" and r.groundable is False
+
+    def test_singleton_in_a_unique_room_stays_byte_identical(self):
+        # A label with no same-label competitor needs no room scope: byte-identical
+        # "the chair", not "the chair in the kitchen".
+        chair = _cube("chair", (1.0, 1.0, 0.5), 0.1, iid=1)
+        rooms = [self.KITCHEN, self.HALL]
+        assert disambiguate(chair, [chair], rooms) == AnchorResult("the chair", True, "singleton")
+
+    def test_room_scoped_anchors_obey_the_allow_list_and_no_bearing_ban(self):
+        big = _cube("box", (1.0, 1.0, 0.5), 0.4, iid=1)
+        small = _cube("box", (2.0, 1.0, 0.5), 0.1, iid=2)
+        hall_same = _cube("box", (5.0, 1.0, 0.5), 0.4, iid=3)
+        rooms = [self.KITCHEN, self.HALL]
+        for o in (big, small, hall_same):
+            r = disambiguate(o, [big, small, hall_same], rooms)
+            if r.groundable:
+                assert _ALLOWED_GROUNDABLE.match(r.text), f"off-grammar: {r.text!r}"
+                # No dangling connective (the allow-list regex alone is permissive).
+                assert not r.text.rstrip().endswith((" next to", " in", " the")), r.text
+            assert not _BANNED.search(r.text), f"banned word: {r.text!r}"
+
+    @pytest.mark.parametrize("dirty_room", ["north_storage", "south_wing", "east wall"])
+    def test_bearing_tainted_room_type_does_not_fire_room_scope(self, dirty_room):
+        # A bearing word in the (unique) room_type — including underscore-joined —
+        # must NOT enter the anchor; room scope is skipped and the indistinguishable
+        # boxes degrade to the coordinate anchor.
+        kitchen = self.KITCHEN
+        tainted = {"room_type": dirty_room, "footprint_xy": [[4, 0], [8, 0], [8, 4], [4, 4]], "story": 0}
+        in_kitchen = _cube("box", (1.0, 1.0, 0.5), 0.1, iid=1)
+        in_tainted = _cube("box", (5.0, 1.0, 0.5), 0.1, iid=2)
+        r = disambiguate(in_tainted, [in_kitchen, in_tainted], [kitchen, tainted])
+        assert not _BANNED.search(r.text), f"banned room_type leaked: {r.text!r}"
+        assert "in the" not in r.text  # room scope did not fire
+        assert r.tier == "coordinate_fallback" and r.groundable is False
 
 
 class TestCoordinateFallbackTier:

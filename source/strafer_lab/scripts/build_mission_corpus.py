@@ -76,6 +76,7 @@ def build_config(args: argparse.Namespace) -> bmq.GeneratorConfig:
         llm_seed=args.llm_seed,
         start_pose_seeds=args.start_pose_seeds,
         paraphrases_per_mission=args.paraphrases,
+        require_groundable=args.require_groundable,
         ground_start_frame=args.ground_start_frame,
     )
 
@@ -179,6 +180,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--llm-seed", type=int, default=42)
     p.add_argument("--start-pose-seeds", type=int, default=1)
     p.add_argument("--paraphrases", type=int, default=3)
+    p.add_argument(
+        "--require-groundable",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="drop targets whose only anchor is the un-groundable coordinate fallback "
+        "(default on; --no-require-groundable emits them anyway for A/B measurement)",
+    )
     p.add_argument("--use-planner-llm", action="store_true", help="load the waypoint LLM (needs a GPU)")
     p.add_argument("--use-paraphrase-llm", action="store_true", help="load the paraphrase LLM (needs a GPU)")
     p.add_argument("--ground-start-frame", action="store_true", help="run the start-frame VLM grounding pass")

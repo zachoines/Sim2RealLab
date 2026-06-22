@@ -20,11 +20,18 @@ compose into a conjunction when no single one suffices, and a terminal
 coordinate escape valve guarantees string-uniqueness when nothing groundable
 remains.
 
+Before the qualifier tiers run, a ``room_scope`` restricts the competitor set
+to the target's containing room (resolved point-in-polygon against
+``rooms[].footprint_xy``) whenever that room's ``room_type`` is globally unique,
+carrying an ``in the {room_type}`` suffix. Room membership is allocentric and so
+stays groundable, and the scope composes with the extrema/neighbour tiers (e.g.
+``the largest {label} in the {room_type}``).
+
 Hard groundability constraint: a holonomic mecanum robot decouples heading from
 travel and the anchor is authored before any trajectory exists, so the phrase
 carries NO sidedness, cardinal, or surface-bearing words. Every emitted surface
-form is allocentric (lowest/highest, largest/smallest, next-to a uniquely-named
-neighbour) or the coordinate escape valve.
+form is allocentric (room membership, lowest/highest, largest/smallest, next-to
+a uniquely-named neighbour) or the coordinate escape valve.
 """
 
 from __future__ import annotations
@@ -58,10 +65,14 @@ class AnchorResult:
     tier: str
 
 
-# Resolution tiers, cheapest first. ``room_scope`` / ``region_scope`` are
-# reserved no-ops (see the waterfall docstring) and never appear as a result
-# tier in v1.
+# Resolution tiers, cheapest first. ``room_scope`` is a LIVE scope: it restricts
+# the competitor set to the target's containing room when that room's type is
+# globally unique, and composes with the extrema/neighbour tiers (a target the
+# room scope alone resolves reports ``room_scope``; one it only narrows reports
+# ``conjunction``). ``region_scope`` stays a reserved no-op — any within-room
+# split could only be phrased with the banned bearing words.
 TIER_SINGLETON = "singleton"
+TIER_ROOM_SCOPE = "room_scope"
 TIER_Z_EXTREMUM = "z_extremum"
 TIER_SIZE_EXTREMUM = "size_extremum"
 TIER_NEAREST_NEIGHBOR = "nearest_neighbor"
@@ -70,6 +81,7 @@ TIER_COORDINATE = "coordinate_fallback"
 
 TIERS = (
     TIER_SINGLETON,
+    TIER_ROOM_SCOPE,
     TIER_Z_EXTREMUM,
     TIER_SIZE_EXTREMUM,
     TIER_NEAREST_NEIGHBOR,
@@ -85,10 +97,16 @@ NEIGHBOR_PROXIMITY_M = 2.0
 # At most three qualifiers may be conjoined before the coordinate escape valve.
 MAX_CONJUNCTS = 3
 
-# The same ungroundable-word ban the mission generator enforces on its text.
-# Applied as a guard on neighbour anchors so a stray bearing-ish label can
-# never leak into an anchor.
-_BANNED_WORDS = re.compile(r"\b(north|south|east|west|left|right|wall)\b", re.IGNORECASE)
+# The same ungroundable-word ban the mission generator enforces on its text,
+# applied as a guard on neighbour-anchor labels and on the room-scope room_type
+# so a stray bearing-ish token can never leak into an anchor. The boundaries are
+# explicit non-alphanumeric lookarounds rather than ``\b``: ``\b`` treats ``_``
+# as a word character, so it would miss the bearing word in an underscore-joined
+# token like ``north_storage`` / ``south_wing`` (while still, like ``\b``, not
+# firing on an embedded substring such as ``drywall`` or ``northward``).
+_BANNED_WORDS = re.compile(
+    r"(?<![a-z0-9])(north|south|east|west|left|right|wall)(?![a-z0-9])", re.IGNORECASE
+)
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +168,64 @@ def _target_pool(all_objects: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         pool.append(obj)
     return pool
+
+
+# ---------------------------------------------------------------------------
+# Room membership (local point-in-polygon — keeps the builder source-agnostic)
+# ---------------------------------------------------------------------------
+
+
+def point_in_polygon(x: float, y: float, footprint_xy: Sequence[Sequence[float]]) -> bool:
+    """Ray-casting point-in-polygon test (numpy-free, edge-robust enough).
+
+    A local copy of the connectivity contract's test rather than an import: the
+    builder keeps its single project dependency (the structural-class vocabulary)
+    so it never pulls a path-planning / numpy stack into a pure-dict function.
+    Same algorithm, so room membership matches the mission generator's exactly.
+    """
+    poly = footprint_xy
+    n = len(poly)
+    if n < 3:
+        return False
+    inside = False
+    j = n - 1
+    for i in range(n):
+        xi, yi = poly[i][0], poly[i][1]
+        xj, yj = poly[j][0], poly[j][1]
+        if ((yi > y) != (yj > y)) and (
+            x < (xj - xi) * (y - yi) / ((yj - yi) or 1e-30) + xi
+        ):
+            inside = not inside
+        j = i
+    return inside
+
+
+def _room_type_of(obj: dict[str, Any], rooms: Sequence[dict[str, Any]]) -> str | None:
+    """Normalized ``room_type`` of the room whose footprint contains ``obj``, or ``None``.
+
+    Objects carry ``room_idx=None`` in the embedded metadata, so membership is
+    resolved here against the room polygons. Returns ``None`` for an unpositioned
+    object or one outside every footprint.
+    """
+    pos = _valid_position(obj)
+    if pos is None:
+        return None
+    for room in rooms:
+        if point_in_polygon(pos[0], pos[1], room.get("footprint_xy") or []):
+            return _normalize(room.get("room_type", "")) or None
+    return None
+
+
+def _room_type_is_unique(rooms: Sequence[dict[str, Any]], room_type: str | None) -> bool:
+    """True iff exactly one room carries ``room_type`` (so naming it is unambiguous).
+
+    Reimplemented locally on the normalized room_type rather than imported from
+    the consumer, so the builder stays scene-source-agnostic. A non-unique type
+    (two bedrooms) is itself ungroundable, so the room scope must not fire on it.
+    """
+    if not room_type:
+        return False
+    return sum(1 for r in rooms if _normalize(r.get("room_type", "")) == room_type) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -245,16 +321,21 @@ def disambiguate(
 
     Pure function. ``all_objects`` is the scene's raw ``objects[]`` list (the
     same post-filter target set the generator builds is derived internally);
-    ``rooms`` is accepted for the reserved room/region tiers and is unused while
-    those remain no-ops.
+    ``rooms`` is the scene's ``rooms[]`` list (``room_type`` + ``footprint_xy``),
+    used by the room scope below.
 
     Qualifier waterfall, cheapest first, stopping the instant one candidate
     remains:
 
-    1. ``room_scope`` — reserved no-op. Object room membership is null in the
-       embedded metadata, so it would have to be recomputed point-in-polygon
-       against ``rooms[].footprint_xy``; and a room surface form is outside the
-       v1 anchor grammar. Skipped, never an error.
+    1. ``room_scope`` — restrict the competitor set to the target's containing
+       room (resolved point-in-polygon against ``rooms[].footprint_xy``) when
+       that room's ``room_type`` is globally unique, carrying an
+       ``in the {room_type}`` suffix. Applied first as a SCOPE, not a standalone
+       tier: the extrema/neighbour tiers then run within it, so the grammar can
+       compose ``the largest {label} in the {room_type}``. Only adopted if it
+       strictly shrinks the competitor set; a non-unique room_type (two bedrooms)
+       is itself ungroundable, so the scope does not fire and the global tiers
+       run unchanged.
     2. ``region_scope`` — reserved no-op. Any within-room region split could
        only be phrased with the banned bearing words, so it authors nothing.
     3. ``z_extremum`` — the lone lowest / highest competitor by vertical
@@ -264,7 +345,8 @@ def disambiguate(
     5. ``nearest_neighbor`` — ``the {label} next to the {neighbour}`` where the
        neighbour is the nearest uniquely-named object and the phrase partitions
        the competitors.
-    6. conjunction of the above (``the largest {label} next to the {neighbour}``).
+    6. conjunction of the above (``the largest {label} next to the {neighbour}``,
+       optionally suffixed ``in the {room_type}`` when a room scope also applied).
     7. coordinate escape valve — terminal, un-groundable.
 
     A qualifier is composed only if it strictly reduces the competitor set.
@@ -292,6 +374,22 @@ def disambiguate(
         return AnchorResult(text=f"the {label}", groundable=True, tier=TIER_SINGLETON)
 
     anchors = _unique_label_anchors(pool, exclude_label=label)
+
+    # room_scope: when the target sits in a room whose type is globally unique,
+    # restrict the competitor set to that room and carry an ``in the {room_type}``
+    # suffix. Applied as a scope before the qualifier tiers so they resolve within
+    # the room. Only adopted when it strictly shrinks the pool (otherwise the
+    # suffix would add no disambiguating power); the banned-word guard mirrors the
+    # neighbour-anchor guard so a stray bearing-ish room_type never leaks.
+    room_suffix = ""
+    room_scope_applied = False
+    room_type = _room_type_of(target_obj, rooms)
+    if room_type and not _BANNED_WORDS.search(room_type) and _room_type_is_unique(rooms, room_type):
+        same_room = [o for o in competitors if _room_type_of(o, rooms) == room_type]
+        if len(same_room) < len(competitors):
+            competitors = same_room
+            room_suffix = f" in the {room_type}"
+            room_scope_applied = True
 
     confusable = [target_obj, *competitors]
     adjectives: list[str] = []  # superlatives, rendered before the label
@@ -342,10 +440,19 @@ def disambiguate(
         text = f"the {prefix}{label}"
         for clause in prepositions:
             text += f" {clause}"
-        tier = used[0] if len(used) == 1 else TIER_CONJUNCTION
+        text += room_suffix  # allocentric room membership, last in the phrase
+        # The room scope is one more qualifier when it composes with an extremum /
+        # neighbour clause; alone it is the ``room_scope`` tier.
+        n_qualifiers = len(used) + (1 if room_scope_applied else 0)
+        if n_qualifiers == 1:
+            tier = TIER_ROOM_SCOPE if room_scope_applied else used[0]
+        else:
+            tier = TIER_CONJUNCTION
         return AnchorResult(text=text, groundable=True, tier=tier)
 
-    # Nothing groundable partitioned the competitors: terminal coordinate anchor.
+    # Nothing groundable partitioned the competitors: terminal coordinate anchor
+    # (no room suffix — the full-precision coordinate already guarantees a unique,
+    # un-groundable string).
     return AnchorResult(
         text=_coordinate_anchor(label, tpos), groundable=False, tier=TIER_COORDINATE
     )
@@ -381,6 +488,9 @@ def measure_scene(metadata: dict[str, Any]) -> dict[str, Any]:
     fallthrough = hist[TIER_COORDINATE]
     return {
         "total_targets": total,
+        # The headline: targets with a groundable anchor — the corpus target-pool
+        # size once the generator filters the un-groundable (coordinate) targets.
+        "groundable_targets": total - fallthrough,
         "tier_histogram": dict(hist),
         "coordinate_fallthrough": fallthrough,
         "coordinate_fallthrough_rate": (fallthrough / total) if total else 0.0,
@@ -398,6 +508,7 @@ def _format_report(name: str, summary: dict[str, Any], *, worst_n: int = 10) -> 
         lines.append(f"  {tier:22s} {count:5d}  ({pct:6.1%})")
     rate = summary["coordinate_fallthrough_rate"]
     lines.append(f"  >> coordinate-fallthrough rate = {summary['coordinate_fallthrough']}/{total} = {rate:.1%}")
+    lines.append(f"  >> GROUNDABLE TARGET YIELD = {summary['groundable_targets']}/{total} (corpus pool after filtering)")
     lines.append(f"  all anchor strings distinct: {summary['all_texts_distinct']}")
     worst = sorted(
         summary["by_label"].items(),

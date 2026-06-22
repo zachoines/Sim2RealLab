@@ -12,8 +12,8 @@ formatter + post-validation + caching + corpus-composition tooling)
 ## Story
 
 As an **operator who needs a canonical mission queue source for
-multi-room missions, including path-shape language ("go to the
-chair by hugging the south wall," "go to the kitchen via the
+multi-room missions, including groundable path-shape language ("go to
+the chair, passing the dining table," "go to the kitchen via the
 dining room") at scale beyond what a teleop operator can
 hand-author**, I want **a free-text mission generator that emits
 `(mission_text, paraphrases[], planned_path)` rows from scene
@@ -132,25 +132,36 @@ Per mission, one row in `mission_queue.yaml`:
   start_room: kitchen
   cross_room: true   # derived from start_room != target_room
 
-  mission_text: "Go to the chair by hugging the south wall."
+  mission_text: "Go to the chair, passing the dining table."
   paraphrases:
-    - "Approach the chair while staying close to the south wall."
-    - "Drive along the southern edge of the room to reach the chair."
-    - "Stay close to the south wall as you go to the chair."
+    - "Head to the chair."
+    - "Approach the chair near the dining table."
+    - "Make your way over to the chair."
 
   planned_path:
-    - {x: 0.5, y: 0.4}    # LLM-emitted waypoint near south wall
-    - {x: 2.5, y: 0.3}
-    - {x: 4.0, y: 0.5}
+    - {x: 0.5, y: 0.4}    # LLM-emitted waypoint
+    - {x: 2.5, y: 0.5}
+    - {x: 3.6, y: 1.0}    # routed close past the dining table
     - {x: 4.2, y: 1.8}    # final waypoint at target
 
   generator_metadata:
     llm_model: "Qwen3-4B"
     llm_seed: 42
-    constraint_type_hint: "wall_follow_inferred"   # post-hoc tag for ablations
-    llm_reasoning_trace: "Identified 'hug the south wall' as a wall-follow constraint; planned waypoints staying within 0.5m of y=0..."
-    waypoint_validation: {bounds_ok: true, navigable_ok: true, connectivity_ok: true, retries: 0}
+    constraint_type_hint: "landmark_relative"   # post-hoc tag for ablations
+    llm_reasoning_trace: "Routed close past the dining table on the way to the chair."
+    waypoint_validation: {structure_ok: true, navigable_ok: true, segment_ok: true, target_ok: true, retries: 0}
 ```
+
+**Spatial language must be groundable.** `mission_text` is a VLA
+training label *and* the bridge dispatch payload, consumed by a
+holonomic, camera + relative-odometry robot with no compass. So it
+encodes **no absolute compass direction** ("the south wall", world
+coordinates) and **no egocentric side** ("on your left/right") — the
+strafer's heading is decoupled from its direction of travel and is
+unknown when the text is authored, so neither is groundable. The only
+spatial phrasing emitted is landmark proximity with no side ("passing
+the {landmark}") and room-type / connectivity transit ("via the
+{room}", "through the doorway into the {room}").
 
 The VLA's training script consumes `mission_text` (or a
 randomly-chosen paraphrase). The oracle consumes `planned_path`.
@@ -173,7 +184,7 @@ to same-room missions only — `cross_room: false` in every row.
 
 One LLM call per mission at generation time. Components:
 
-1. **Compact scene summary.** Don't paste raw `scene_metadata.json`;
+1. **Compact scene summary.** Don't paste the raw embedded metadata;
    distill into ~200–500 tokens of structured prose:
    ```
    Bounds: x ∈ [0, 8], y ∈ [0, 6]
@@ -233,7 +244,7 @@ One LLM call per mission at generation time. Components:
 ### Start-frame grounding
 
 The forward-generation regime's structural blind spot is that an
-LLM reading `scene_metadata.json` can name targets the camera
+LLM reading the scene metadata can name targets the camera
 will *never see* from the proposed start pose (occluded by
 nearer objects, hidden behind a doorway not yet traversed,
 backside of furniture). The trajectory-first regime
@@ -275,7 +286,7 @@ cross-product:
 | Scenes (Infinigen seeds, multi-room by default) | ~10 | See "Scene count vs. mission density" caveat below |
 | Targets per scene (`objects[]` entries) | ~30 | |
 | Paraphrase variants per target | ~5 | |
-| Constraint-bias variants per target (no-bias / wall-follow / via-room / etc.) | ~3 | |
+| Constraint-bias variants per target (no-bias / landmark / via-room / etc.) | ~3 | |
 | Start-pose seeds per target | ~5 | |
 | **Total missions** | ~22.5k | |
 
@@ -303,16 +314,16 @@ their union.
 
 - [ ] **Generator entry point** at
       `source/strafer_lab/strafer_lab/tools/build_mission_queue.py`
-      consumes `scene_metadata.json` (with `connectivity[]`
-      block from
+      consumes the scene USD's `customData` (via
+      `scene_metadata_reader.load`, with the `connectivity[]` block from
       [`scene-connectivity-validation`](../../completed/scene-connectivity-validation.md))
       and emits `mission_queue.yaml` with the schema above. Per
       `--mode {endpoint, path-shape, mixed}`:
   - `endpoint`: one mission per object, no path-shape language;
     trivial paraphrase pass; no LLM waypoints (oracle uses
     plain A* shortest-path).
-  - `path-shape`: missions with constraint-language variants
-    (wall-follow, via-room, around-furniture, etc.); LLM-emitted
+  - `path-shape`: missions with groundable constraint-language
+    variants (landmark proximity, via-room transit); LLM-emitted
     waypoints.
   - `mixed`: blend of both; default.
 - [ ] **LLM-as-planner pipeline.** One LLM call per `path-shape`
@@ -322,10 +333,10 @@ their union.
       `(scene_seed, start_pose, mission_text, llm_seed)`.
 - [ ] **Shared planner.** The `endpoint`-mode oracle path, the
       post-validation navigable/segment checks, and the LLM-waypoint
-      fallback all call `path_planner.plan_path` via a new CPU/numpy
-      Infinigen occupancy-grid adapter (`scene_metadata.json →
-      free_space`), written in an importable location for the sibling
-      Infinigen consumers. No second A* implementation is added. See
+      fallback all call `path_planner.plan_path` over the cached-occupancy
+      seam — load `<scene>/occupancy.npy` via
+      `scene_connectivity.load_occupancy` + `occupancy_to_free_space` (no new
+      adapter, no re-rasterization, no second A*). See
       [`context/path-planning-architecture.md`](../../context/path-planning-architecture.md).
 - [ ] **Multi-room default.** For multi-room scenes, the
       generator emits cross-room missions by default; the

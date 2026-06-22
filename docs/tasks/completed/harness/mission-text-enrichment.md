@@ -15,9 +15,10 @@ more groundable axes to bind to.
 
 | Phase | State |
 |---|---|
-| **v1 — allocentric + conjunctive disambiguator** | **shipped** (this PR; stamp below) |
-| **filter-vs-emit decision** (gated on the v1 measurement) | remaining — see [The measurement & the decision](#the-measurement--the-decision) |
+| **v1 — allocentric + conjunctive disambiguator (incl. live `room_scope`)** | **shipped** (this PR; stamp below) |
+| **filter-vs-emit decision** | **decided + shipped — FILTER** (the generator drops non-groundable targets; see [The measurement & the decision](#the-measurement--the-decision)) |
 | **v2 — Infinigen color/material/size descriptors** | remaining — separate future PR |
+| further filter tuning (lift groundable yield beyond room_scope) | remaining — folds into v2 |
 | parity follow-up (picker + old `MissionGenerator` route through the builder) | remaining — fast-follow |
 
 ## Story
@@ -32,8 +33,8 @@ learning that "go to the shelf" is a wildcard satisfied by any shelf
 ## Motivation
 
 Before this brief, every target reference in the offline mission
-generator (`build_mission_queue.target_noun_phrase`) and in the teleop
-picker / the old bridge `MissionGenerator` emitted a bare `the {label}`.
+generator (`build_mission_queue`) and in the teleop picker / the old
+bridge `MissionGenerator` emitted a bare `the {label}`.
 On `scene_high_quality_dgx_000_seed2` the post-structural-filter target
 set is **646 objects across 48 labels**, dominated by a few
 high-cardinality classes:
@@ -75,7 +76,7 @@ def disambiguate(target_obj: dict, all_objects: Sequence[dict],
 
 `groundable` is `False` **iff** the only way to make the string unique
 was a raw coordinate — a camera-grounded model cannot read a coordinate
-off an image. `tier ∈ {singleton, z_extremum, size_extremum,
+off an image. `tier ∈ {singleton, room_scope, z_extremum, size_extremum,
 nearest_neighbor, conjunction, coordinate_fallback}`.
 
 ### Qualifier waterfall (least-effort, cheapest-first)
@@ -86,10 +87,22 @@ exact post-filter target set the generator already uses). Accumulate the
 minimal qualifiers, breaking the instant the competitor set is reduced
 to one; a qualifier is composed **only** if it strictly reduces the set.
 
-1. **room_scope** — reserved no-op. Object `room_idx` is null in the
-   embedded metadata (membership would have to be recomputed
-   point-in-polygon against `rooms[].footprint_xy`), and a room surface
-   form is outside the v1 anchor grammar. Skipped, never an error.
+1. **room_scope** — **LIVE.** Resolve the target's containing room
+   point-in-polygon against `rooms[].footprint_xy` (objects carry
+   `room_idx = null`, so membership is recomputed; the ray-cast is a local
+   copy of `scene_connectivity.point_in_polygon`, so the builder keeps its
+   single project dependency and stays scene-source-agnostic). When that
+   room's `room_type` is **globally unique** in the scene, restrict the
+   competitor set to same-room same-label objects and carry an
+   `in the {room_type}` suffix. Applied **first, as a competitor-set
+   SCOPE** — the extrema/neighbour tiers then run within it, so the grammar
+   composes `the largest {label} in the {room_type}`. Adopted only if it
+   strictly shrinks the competitor set. **Room-type uniqueness gate:** seed2
+   has 2 bedrooms / 2 bathrooms / 2 closets, so `the bedroom` is itself
+   ungroundable — room_scope does **not** fire on a non-unique room_type and
+   the global tiers run unchanged. `room_type` is treated as an opaque
+   `strip().lower()` string; a bearing-tainted room_type is guarded the same
+   way neighbour labels are.
 2. **region_scope** — reserved no-op. Any within-room region split could
    only be phrased with banned bearing words. Authors nothing.
 3. **z_extremum** — the lone lowest / highest competitor by vertical
@@ -117,7 +130,8 @@ A holonomic mecanum robot decouples heading from travel and the anchor
 is authored before any trajectory exists, so **no** emitted text carries
 a sidedness / cardinal / surface-bearing word
 (`north|south|east|west|left|right|wall`). The only surface forms a v1
-anchor may take are the six listed above. A bearing word can only enter
+anchor may take are the tiers listed above plus the allocentric
+`in the {room_type}` room scope — all groundable. A bearing word can only enter
 through the opaque object label; a (data-defective) bearing-tainted
 label degrades to a label-free, un-groundable coordinate anchor rather
 than emit the banned word, so the constraint holds on the **output**
@@ -127,18 +141,23 @@ already enforces
 
 ### Consumer wiring
 
-- **`build_mission_queue.py` — PRIMARY required consumer.** The
-  purpose-built seam `target_noun_phrase` changed signature to
-  `target_noun_phrase(target_obj, *, all_objects, rooms) -> str`,
-  returning `disambiguate(...).text`; the competitor set is threaded
-  through the three call-site helpers (`fallback_paraphrases`,
-  `endpoint_text`, `path_shape_text`) and every concrete call site —
-  with `fallback_paraphrases` receiving the identical target so its
-  `cand != mission_text` dedupe stays meaningful. Wiring the builder in
-  was a signature change + three call-site threads, **not** the
-  "one-line change" the old seam docstring claimed (softened). The
-  generator consumes only `.text`; `.groundable` / `.tier` are reserved
-  for the filter decision below.
+- **`build_mission_queue.py` — PRIMARY required consumer.** The target
+  loop computes the `AnchorResult` **once per target**
+  (`mission_text_builder.disambiguate(obj, all_objects, rooms)`) and
+  threads `.text` as `ref` into the text helpers (`endpoint_text`,
+  `path_shape_text`, `fallback_paraphrases` — all now take the precomputed
+  `ref`, not the target + competitor set). This replaced the previous
+  ~3×-per-target recomputation inside each helper, so the dead
+  `target_noun_phrase` seam was removed.
+- **Groundable filter (the shipped decision).** With the result in hand the
+  loop gates on `.groundable`: `if require_groundable and not
+  result.groundable: stats.reject("ungroundable_target"); continue`. A
+  `require_groundable: bool = True` `GeneratorConfig` field (CLI
+  `--require-groundable` / `--no-require-groundable` on
+  `build_mission_corpus.py`) lets an A/B run emit the un-filtered pool.
+- **Room-suffix de-dup.** When the anchor already carries `in the
+  {room_type}` (room_scope fired) the consumer's cross-room room naming is
+  suppressed so the text never reads `... in the kitchen in the kitchen`.
 - **Byte-identical:** a target with no same-label competitor still emits
   `the {label}` byte-for-byte (`AnchorResult(text, groundable=True,
   tier="singleton")`), so the singleton case is unchanged.
@@ -161,57 +180,79 @@ a trimmed capture of the scene USD's `customData`):
   valve is terminal and its strings never collide (the scene has zero
   exact-position collisions, asserted).
 - **The measurement** — per-tier histogram + coordinate-fallthrough rate
-  + per-label worst-offender breakdown (pinned).
+  + **groundable target yield** + per-label worst-offender breakdown
+  (pinned to the room_scope-live numbers).
 - **Determinism** — same scene + target → identical `AnchorResult`.
 - **Per-qualifier unit scenes** — each live tier individually necessary
   and exercised (z_extremum, size_extremum, nearest_distinct_neighbor,
   conjunction, coordinate_fallback).
+- **room_scope unit scenes** — unique room_type resolving alone
+  (`the {label} in the {room_type}`); composing with an extremum
+  (`the largest {label} in the {room_type}`); a non-unique room_type
+  (2 bedrooms) that does **not** fire and never emits `in the bedroom`;
+  and a singleton-in-a-unique-room that stays byte-identical `the {label}`.
 - **No-bearing-word** over seed2 (incl. coordinate strings) +
-  allow-list-grammar check + the bearing-tainted-label guard.
+  allow-list-grammar check (now permits the trailing `in the {room_type}`)
+  + the bearing-tainted-label guard.
 - **Byte-identical** singleton case.
 - **Second-scene robustness** — an independent synthetic dense scene
   (seed1's USD currently embeds zero objects, so a synthetic dense scene
   stands in for the brief's original "repeat on seed1" check — see the
   drift note below).
+- **Generator filter** (`test_build_mission_queue.py`) — a
+  forced-coordinate-fallback target is rejected with reason
+  `ungroundable_target` under the default and emitted under
+  `--no-require-groundable`; plus the room-suffix de-dup helpers.
 
-`make test-lab-pure`: green (no regression in the 31 generator tests).
+`make test-lab-pure`: **505 passed, 1 skipped** (the existing generator
+tests change only for the filter + the once-per-target threading refactor).
 
 ### The measurement & the decision
 
-Over seed2 (646 post-filter targets), allocentric-only resolution lands:
+Over seed2 (646 post-filter targets), with the **live room_scope**,
+resolution lands:
 
 | tier | count | share |
 |---|---|---|
 | singleton | 9 | 1.4% |
-| z_extremum | 76 | 11.8% |
-| size_extremum | 41 | 6.3% |
-| nearest_neighbor | 12 | 1.9% |
-| conjunction | 18 | 2.8% |
-| **coordinate_fallback** | **490** | **75.9%** |
+| room_scope | 12 | 1.9% |
+| z_extremum | 54 | 8.4% |
+| size_extremum | 27 | 4.2% |
+| nearest_neighbor | 5 | 0.8% |
+| conjunction | 82 | 12.7% |
+| **coordinate_fallback** | **457** | **70.7%** |
 
-**Coordinate-fallthrough rate = 490 / 646 = 75.9%.** Worst offenders:
-shelf 224 / 233 → coordinates, bottle 87 / 91, book_stack 48 / 54,
-window 18 / 23. The allocentric tiers can only resolve a handful per
-label group (the two extremes by z, the two by size, plus the few near a
-uniquely-named anchor); the long tail of same-label clutter falls to the
-ungroundable coordinate valve.
+**GROUNDABLE TARGET YIELD = 189 / 646** — the headline: the corpus
+target-pool size once the generator filters the coordinate fallthrough
+(up from 156 before room_scope).
 
-This number gates a **remaining decision** (do NOT implement either in
-this PR): either (a) make the generator **filter** non-groundable
-targets (drop missions whose anchor is `groundable == False`), or (b)
-**accept** coordinate anchors as a known v1 limit and lean on v2's
-color/material axes to lift the groundable share. v1 deliberately leaves
-`.groundable` / `.tier` unconsumed so this decision can be made on the
-evidence above.
+**Coordinate-fallthrough rate = 457 / 646 = 70.7%** (down from 75.9%
+allocentric-only). The room scope is not a silver bullet — it shifts work
+into the composing `conjunction` tier (18 → 82) by letting an extremum
+resolve *within* a uniquely-typed room, lifting groundable yield by 33,
+but the long tail of same-label clutter inside a single room still falls
+to the coordinate valve. Worst offenders: shelf 218 / 233 → coordinates
+(15 groundable, was 9), bottle 83 / 91, book_stack 44 / 54, window
+13 / 23.
 
-This unblocks the real-Qwen corpus run modulo that decision.
+**Decision — FILTER (shipped).** A coordinate anchor
+(`...approximately at (x, y, z)`) is ungroundable by a camera-grounded
+VLM, so a mission must name an object the model can see. The generator now
+drops `groundable == False` targets by default (`require_groundable`,
+reject reason `ungroundable_target`); `--no-require-groundable` keeps the
+old emit-everything behaviour for A/B measurement. v2's color/material
+axes (and any further filter tuning) are the lever to lift the 189 yield
+further.
+
+**This unblocks the real-Qwen corpus run** with a groundable-only target
+pool of **189 missions/scene** on seed2.
 
 ## Acceptance — v2 (remaining): Infinigen extension for color / material / size
 
 Adds physically-motivated material/color/size descriptors to every
 spawned asset. Strictly additive: v1 works without v2; v2 multiplies the
 groundable axes (11 colors × ~8 materials × 3 size buckets) so the
-disambiguator escapes far fewer of the 490 shelves/bottles to
+disambiguator escapes far fewer of the 457 still-coordinate targets to
 coordinates.
 
 - **Per-asset descriptor capture hook.** A vendored mixin under
@@ -255,9 +296,11 @@ exists:
   a uniqueness key. The builder keys uniqueness on `position_3d`, never
   on an id or a name token.
 - **`rooms[]` is populated on the high-quality scenes** (seed2 has 9
-  rooms) but objects carry `room_idx = null`, and `relations` /
-  `materials` are empty on every current object — so room/region/
-  relational/color/material tiers are reserved no-ops in v1.
+  rooms, each with `room_type` + `footprint_xy`). Objects carry
+  `room_idx = null`, so membership is recomputed point-in-polygon — this is
+  what makes `room_scope` LIVE in v1. `relations` / `materials` remain
+  empty on every current object, so region/relational/color/material tiers
+  stay reserved no-ops.
 - **`scene_high_quality_dgx_000_seed1`'s USD currently embeds zero
   objects** (only its retired sidecar holds them), so it cannot serve as
   the second real measurement scene the original brief assumed; seed2 is
@@ -303,22 +346,24 @@ per scene.
 
 ### Q3. The naive "go to the {label} {spatial} in the {room} near the {neighbor}" isn't powerful enough.
 
-**Agreed — that's the failure mode.** At 233-shelves scale, room scope
-drops nothing and a single neighbor anchor devolves to the same shared
-landmark for most of the cluster. v1 uses **conjunctive** constraints
-(accumulated until the competitor set is one) rather than single
-qualifiers, and the measurement quantifies exactly how far that gets
-(24.1% groundable) — which is the evidence for the filter-vs-emit
-decision and for v2's color/material axes.
+**Agreed — that's the failure mode, and the measurement quantifies it.**
+A single neighbor anchor devolves to the same shared landmark for most of
+a 233-shelf cluster. Room scope is now **live but composing**, not a
+standalone fix: it only helps the targets in a uniquely-typed room and
+only by letting an extremum resolve *within* that room — which is why it
+lifts groundable yield from 156 to **189 / 646 (29.3%)** rather than
+solving the long tail. v1 leans on **conjunctive** constraints
+(room_scope + extrema + neighbour, accumulated until the competitor set is
+one); the remaining 70.7% coordinate fallthrough is the evidence for the
+shipped FILTER and for v2's color/material axes.
 
 ## Out of scope
 
-- The filter-vs-emit generator behaviour itself (gated on the v1
-  measurement — see [The measurement & the decision](#the-measurement--the-decision)).
-- v2 color / material / size descriptors (separate future PR).
-- Room / region / relational qualifiers (reserved no-ops until `rooms[]`
-  membership + `relations` populate and a groundable room grammar is
-  designed).
+- v2 color / material / size descriptors (separate future PR) and any
+  further filter-yield tuning beyond room_scope.
+- Region / relational qualifiers (reserved no-ops until `relations`
+  populate and a groundable within-room grammar that avoids bearing words
+  is designed). `room_scope` itself is now LIVE — no longer out of scope.
 - Hand-authored / free-form LLM mission_text — the paraphrase pass and
   `mission-generator` own stylistic variation; this brief produces the
   canonical programmatic anchor that rides underneath.
@@ -337,7 +382,9 @@ measurement that decides what comes next.
 
 ---
 
-_Shipped (v1): work commit `c7429bb`, branch
-`task/mission-text-enrichment` (PR pending open). Remaining phases:
-filter-vs-emit decision (gated on the 75.9% measurement) and v2
-color/material descriptors._
+_Shipped (v1): allocentric + conjunctive disambiguator at work commit
+`c7429bb`; live `room_scope` + the groundable FILTER at work commit
+`4d465df`; branch `task/mission-text-enrichment` (PR pending
+open). Groundable yield 189 / 646 on seed2 (70.7% coordinate
+fallthrough). Remaining phases: v2 color/material descriptors and any
+further filter-yield tuning._

@@ -88,7 +88,7 @@ Path-planning consumers here (`mission-generator`'s oracle + waypoint validation
 | [`harness-architecture`](active/harness/harness-architecture.md) | P1 | active (architecture doc; ships across PRs B/C/D) | DGX |
 | [`infinigen-scene-corpus`](active/harness/infinigen-scene-corpus.md) | P1 | active | DGX |
 | [`mission-generator`](active/harness/mission-generator.md) | P2 | active (PR [#98](https://github.com/zachoines/Sim2RealLab/pull/98) open — gated on a real-Qwen run) | DGX |
-| [`mission-text-enrichment`](completed/harness/mission-text-enrichment.md) | P2 | v1 shipped (allocentric disambiguator + 75.9% coordinate-fallthrough measurement); v2 color/material + the filter-vs-emit decision remaining | DGX |
+| [`mission-text-enrichment`](completed/harness/mission-text-enrichment.md) | P2 | v1 shipped (allocentric + conjunctive disambiguator, live room_scope, groundable FILTER; 189/646 groundable yield on seed2); v2 color/material + further filter-yield tuning remaining | DGX |
 | [`harness-throughput-measurement`](parked/harness/harness-throughput-measurement.md) | P2 | parked | DGX |
 | [`scene-provider-floor-sampler-cli`](parked/harness/scene-provider-floor-sampler-cli.md) | P3 | parked (filed-on-trigger) | DGX |
 | [`cosmos-replay-perturbation`](parked/harness/cosmos-replay-perturbation.md) | P3 | parked | DGX |

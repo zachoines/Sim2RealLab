@@ -54,6 +54,16 @@ meshes (``<room_type>_<story>_<index>_floor``) and back-filled into the
 metadata, so a scene whose metadata was authored from USD prim names alone
 (``rooms == []``) still gets a connectivity graph.
 
+This step ENRICHES an existing payload — it does not author one from scratch.
+It fails hard up front when the base customData key is entirely absent (the
+metadata embed never ran), so it can never be the step that first stamps a
+scene's customData with an empty ``objects[]`` (the silent-failure mode where a
+scene reads as populated but carries no detection labels). A present-but-empty
+payload (key present, ``objects == []``) is a legitimate intermediate it
+enriches and is *not* an error here. After saving, it reopens the file and reads
+the payload back, raising if the write did not persist — the save log is
+unconditional and a disk/inotify error can drop the write with no failure code.
+
 If the occupancy-map extension is unavailable, pass ``--rasterize-fallback``
 to build the occupancy from the room footprints + object AABBs instead (the
 brief's documented fallback); the output is the same free-space grid.
@@ -143,6 +153,83 @@ _DEFAULT_PAD_M = 1.5
 # the path's estimated crossing point: ~half a standard door width plus the
 # crossing-estimate slop, tight enough not to grab a neighbouring door.
 _DOOR_NEAR_DOORWAY_M = 0.7
+
+
+# ---------------------------------------------------------------------------
+# Persistence guard (no Kit — pxr-only reopen + pure-python assertion)
+# ---------------------------------------------------------------------------
+
+
+def reopen_and_read_persisted(usd_path: Any) -> dict[str, Any] | None:
+    """Reopen a saved scene USD *from disk* and return its embedded metadata.
+
+    The read-back guard's proof of persistence. Two subtleties make a naive
+    ``Usd.Stage.Open`` insufficient:
+
+    * Usd shares the root ``SdfLayer`` singleton across the global layer registry
+      keyed by resolved path, so a fresh ``Open`` of the path the live context
+      stage was opened from hands back the *same* layer — still holding the
+      unsaved in-memory edits. Reading it would pass even when the on-disk save
+      silently failed (the exact failure this guard exists to catch). A
+      ``GetRootLayer().Reload()`` discards the in-memory opinions so the result
+      reflects the bytes actually on disk. (Safe here: this is a terminal step;
+      the live stage is not edited afterward.)
+    * The geometry is multi-GB; only the root-prim customData is needed, so the
+      stage is opened with payloads unloaded (``LoadNone``).
+    """
+    from pxr import Usd  # type: ignore
+
+    verify_stage = Usd.Stage.Open(str(usd_path), load=Usd.Stage.LoadNone)
+    if verify_stage is None:
+        return None
+    verify_stage.GetRootLayer().Reload()
+    return scene_metadata_reader.read_custom_data(verify_stage)
+
+
+def assert_persisted_metadata(
+    reread: dict[str, Any] | None, *, expect_objects: bool
+) -> None:
+    """Fail loudly when a post-save reopen shows the customData didn't persist.
+
+    ``reread`` is :func:`scene_metadata_reader.read_custom_data` called on a
+    *freshly reopened* stage (the on-disk file, not the in-memory stage). The
+    save's milestone log upstream is unconditional — it fires whether or not the
+    bytes reached disk — so reading the file back is the only proof the write
+    landed. Raises when:
+
+    * the key is absent (``reread is None``) — the save silently dropped it
+      (e.g. the "No space left on device for creating change watches"
+      disk/inotify failure that produced the original orphan-export defect);
+    * the version token was not stamped;
+    * the ``connectivity[]`` block this step authored is missing;
+    * ``expect_objects`` is set yet ``objects[]`` came back empty — connectivity
+      blanked a populated embed.
+
+    Pure-python (no ``pxr``) so the decision can be unit-tested against a fake
+    reopen result.
+    """
+    if reread is None:
+        raise RuntimeError(
+            "post-save read-back: customData key "
+            f"'{scene_metadata_reader.CUSTOM_DATA_KEY}' is ABSENT after save — "
+            "the stage save did not persist the scene metadata (a silent "
+            "disk/inotify write failure). Refusing to report success."
+        )
+    if scene_metadata_reader.VERSION_FIELD not in reread:
+        raise RuntimeError(
+            "post-save read-back: version token "
+            f"'{scene_metadata_reader.VERSION_FIELD}' was not stamped after save."
+        )
+    if "connectivity" not in reread:
+        raise RuntimeError(
+            "post-save read-back: connectivity[] block is missing after save."
+        )
+    if expect_objects and len(reread.get("objects") or []) == 0:
+        raise RuntimeError(
+            "post-save read-back: objects[] is empty after save though a "
+            "populated embed was present before connectivity ran — the save "
+            "blanked the labeled objects."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -496,7 +583,24 @@ def validate_connectivity(
     stage = ctx.get_stage()
     _trace("stage ready; reading metadata + recovering rooms")
 
-    metadata = scene_metadata_reader.read_custom_data(stage) or {}
+    base = scene_metadata_reader.read_custom_data(stage)
+    if base is None:
+        raise RuntimeError(
+            f"{usd_path.name}: base scene metadata "
+            f"customData['{scene_metadata_reader.CUSTOM_DATA_KEY}'] is ABSENT — "
+            "the metadata embed (extract_scene_metadata.py --from-usd) never ran "
+            "on this scene. Connectivity ENRICHES an existing payload (it "
+            "back-fills rooms[] and appends connectivity[]); it must not be the "
+            "step that first authors customData, or a scene with no objects[] "
+            "would ship looking populated. Run the embed first, then re-run this. "
+            "(This is the fail-hard for the seed1-style silent-failure defect.)"
+        )
+    metadata = base
+    # Whether a populated embed was present going in. The post-save read-back
+    # asserts objects[] survived only when one was expected — a present-but-empty
+    # payload (key present, objects==[]) is a legitimate intermediate this step
+    # enriches, so it is NOT treated as a failure here.
+    base_had_objects = len(metadata.get("objects") or []) > 0
     metadata.setdefault("rooms", [])
     metadata.setdefault("objects", [])
     metadata.setdefault("room_adjacency", [])
@@ -602,7 +706,19 @@ def validate_connectivity(
         scene_metadata_reader.write_custom_data(stage, metadata)
         ctx.save_stage()
         scene_connectivity.save_occupancy(scene_dir, occupancy, occ_meta)
-        _trace(f"authored connectivity[] into USD + cached occupancy in {scene_dir}")
+        # Read-back guard: ctx.save_stage() returns/logs success unconditionally,
+        # and a disk/inotify error can drop the write with no non-zero rc. Reread
+        # the bytes actually on disk (forcing a layer Reload past USD's shared
+        # in-memory singleton) and prove the payload persisted before claiming
+        # success.
+        reread = reopen_and_read_persisted(usd_path.resolve())
+        assert_persisted_metadata(reread, expect_objects=base_had_objects)
+        _trace(
+            f"authored connectivity[] into USD + cached occupancy in {scene_dir} "
+            f"(read-back verified: objects={len(reread.get('objects') or [])}, "
+            f"rooms={len(reread.get('rooms') or [])}, "
+            f"edges={len(reread.get('connectivity') or [])})"
+        )
     else:
         _trace("computed connectivity (no-write: USD + occupancy cache left untouched)")
 

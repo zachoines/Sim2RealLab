@@ -29,6 +29,14 @@ Sampling: each floor prim contributes points proportional to its XY
 bounding-box area, with a configurable wall-margin shrink applied so
 sampled points stay clear of walls.
 
+Capture-readiness gate: before sampling, the scene's embedded root-prim
+customData (``strafer_scene_metadata``) is read back. A scene whose metadata
+key is absent, or whose ``objects[]`` is empty, is *skipped with a warning*
+rather than indexed — such a scene has no detection labels and would fail
+silently at capture time. This is why the index reads the embedded metadata
+(via :mod:`strafer_lab.tools.scene_metadata_reader`) in addition to the
+floor geometry.
+
 Requires ``pxr``. Runs under the interpreter at
 ``STRAFER_ISAACLAB_PYTHON`` (populated by ``env_setup.sh`` from ``.env``).
 
@@ -54,6 +62,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from strafer_lab.tools import scene_metadata_reader
 from strafer_lab.tools.scene_classes import room_struct_regex
 
 logger = logging.getLogger("generate_scenes_metadata")
@@ -63,6 +72,25 @@ _FLOOR_NAME_RE = re.compile(r"^[a-z]+(?:_[a-z]+)*(?:_\d+)+_floor$")
 # Shared with extract_scene_metadata's detection-label denylist so the two
 # can't drift on which classes count as structure.
 _ROOM_STRUCT_RE = room_struct_regex()
+
+
+def has_capture_metadata(metadata: dict[str, Any] | None) -> bool:
+    """True when a scene carries non-empty embedded object metadata.
+
+    ``metadata`` is the parsed root-prim customData dict
+    (:func:`scene_metadata_reader.read_custom_data`) or ``None`` when the
+    ``strafer_scene_metadata`` key is absent entirely.
+
+    A scene with no embedded metadata (key absent), or with an empty
+    ``objects[]``, has no detection labels. Indexing it as capture-usable is a
+    silent failure: the scene reaches a capture session and produces episodes
+    with no groundable targets. The index gate therefore refuses both states.
+    This is a pure predicate (no ``pxr``) so the policy can be unit-tested on
+    its own.
+    """
+    if metadata is None:
+        return False
+    return len(metadata.get("objects") or []) > 0
 
 
 def _find_floor_bboxes(
@@ -258,6 +286,43 @@ def _process_scene(
     stage = Usd.Stage.Open(str(resolved))
     if stage is None:
         logger.error("Failed to open %s", resolved)
+        return None
+
+    # Capture-readiness gate (the load-bearing index guard): a scene is only
+    # indexed if its embedded customData carries labeled objects[]. Reuse the
+    # already-open stage — no second Usd.Stage.Open. A scene whose base embed
+    # never ran (key absent, e.g. the seed1 orphan-export defect) or whose embed
+    # produced an empty objects[] would otherwise land in scenes_metadata.json
+    # with valid spawn points and read as usable, then fail silently at capture
+    # time. Policy: absent OR empty embedded metadata => skip with a loud
+    # warning, never silent inclusion.
+    try:
+        metadata = scene_metadata_reader.read_custom_data(stage)
+    except scene_metadata_reader.SceneMetadataError as exc:
+        # Present-but-malformed customData (non-JSON / not an object) is just
+        # another unusable scene — skip it like the absent/empty cases rather
+        # than letting one corrupt scene abort the whole index run.
+        logger.warning(
+            "SKIPPING %s: embedded scene metadata customData['%s'] is present "
+            "but malformed (%s). Re-run extract_scene_metadata.py --from-usd to "
+            "re-embed before indexing this scene.",
+            resolved.name,
+            scene_metadata_reader.CUSTOM_DATA_KEY,
+            exc,
+        )
+        return None
+    if not has_capture_metadata(metadata):
+        n_objects = 0 if metadata is None else len(metadata.get("objects") or [])
+        logger.warning(
+            "SKIPPING %s: embedded scene metadata customData['%s'] is %s "
+            "(objects=%d). A scene without detection labels must not be indexed "
+            "as capture-usable. Re-run extract_scene_metadata.py --from-usd to "
+            "embed objects[] before indexing this scene.",
+            resolved.name,
+            scene_metadata_reader.CUSTOM_DATA_KEY,
+            "absent" if metadata is None else "present but empty",
+            n_objects,
+        )
         return None
 
     floors = _find_floor_bboxes(stage)

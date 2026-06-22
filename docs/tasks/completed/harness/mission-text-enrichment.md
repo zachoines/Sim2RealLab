@@ -382,9 +382,10 @@ measurement that decides what comes next.
 
 ---
 
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/100
+
 _Shipped (v1): allocentric + conjunctive disambiguator at work commit
 `c7429bb`; live `room_scope` + the groundable FILTER at work commit
-`4d465df`; branch `task/mission-text-enrichment` (PR pending
-open). Groundable yield 189 / 646 on seed2 (70.7% coordinate
-fallthrough). Remaining phases: v2 color/material descriptors and any
-further filter-yield tuning._
+`4d465df`; branch `task/mission-text-enrichment`. Groundable yield
+189 / 646 on seed2 (70.7% coordinate fallthrough). Remaining phases: v2
+color/material descriptors and any further filter-yield tuning._

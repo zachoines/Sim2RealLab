@@ -42,7 +42,7 @@ from strafer_lab.tasks.navigation.path_planner import (
     NoPathError,
     plan_path,
 )
-from strafer_lab.tools import scene_classes, scene_connectivity as sc
+from strafer_lab.tools import mission_text_builder, scene_classes, scene_connectivity as sc
 
 # Bump when the row schema, validator, or fallback logic changes in a way that
 # should invalidate cached queues even at an unchanged LLM seed / template.
@@ -729,9 +729,21 @@ _PARAPHRASE_TEMPLATES = (
 )
 
 
-def fallback_paraphrases(mission_text: str, label: str, n: int) -> list[str]:
-    """Deterministic templated paraphrases when no paraphrase model is available."""
-    ref = target_noun_phrase(label)
+def fallback_paraphrases(
+    mission_text: str,
+    target_obj: dict[str, Any],
+    n: int,
+    *,
+    all_objects: Sequence[dict[str, Any]],
+    rooms: Sequence[dict[str, Any]],
+) -> list[str]:
+    """Deterministic templated paraphrases when no paraphrase model is available.
+
+    Passed the identical ``(target_obj, all_objects, rooms)`` that produced the
+    ``mission_text`` arg, so the paraphrases name the same disambiguated object
+    and the ``cand != mission_text`` dedupe stays meaningful.
+    """
+    ref = target_noun_phrase(target_obj, all_objects=all_objects, rooms=rooms)
     out: list[str] = []
     for tmpl in _PARAPHRASE_TEMPLATES:
         cand = tmpl.format(ref=ref)
@@ -754,19 +766,37 @@ def room_type_is_unique(rooms: Sequence[dict[str, Any]], room_type: str | None) 
     return sum(1 for r in rooms if r.get("room_type") == room_type) == 1
 
 
-def target_noun_phrase(label: str) -> str:
-    """The target's referring expression in mission text — today a bare ``the {label}``.
+def target_noun_phrase(
+    target_obj: dict[str, Any],
+    *,
+    all_objects: Sequence[dict[str, Any]],
+    rooms: Sequence[dict[str, Any]],
+) -> str:
+    """The target's referring expression in mission text.
 
-    Same-label disambiguation (one globally-unique anchor per target) is owned by
-    mission-text-enrichment's ``mission_text_builder``; this is the single seam to
-    swap it in once that ships. Every target reference routes through here so
-    wiring the builder in is a one-line change.
+    Delegates to :func:`mission_text_builder.disambiguate`, which returns one
+    globally-unique anchor noun phrase per target: ``the {label}`` byte-for-byte
+    when the label has no same-label competitor, and otherwise an allocentric
+    qualifier (lowest/highest, largest/smallest, next-to a uniquely-named
+    neighbour, a conjunction of those, or a terminal coordinate anchor). Every
+    target reference routes through here. Swapping the builder in was a signature
+    change plus threading the competitor set through the three call sites below
+    — not a one-line change. The generator consumes only ``.text``; the
+    ``.groundable`` / ``.tier`` fields are reserved for a later filter decision.
     """
-    return f"the {label}"
+    return mission_text_builder.disambiguate(target_obj, all_objects, rooms).text
 
 
-def endpoint_text(label: str, target_room: str | None, cross_room: bool, *, room_unique: bool = False) -> str:
-    ref = target_noun_phrase(label)
+def endpoint_text(
+    target_obj: dict[str, Any],
+    target_room: str | None,
+    cross_room: bool,
+    *,
+    all_objects: Sequence[dict[str, Any]],
+    rooms: Sequence[dict[str, Any]],
+    room_unique: bool = False,
+) -> str:
+    ref = target_noun_phrase(target_obj, all_objects=all_objects, rooms=rooms)
     if cross_room and target_room and room_unique:
         return f"Go to {ref} in the {target_room}."
     return f"Go to {ref}."
@@ -774,7 +804,9 @@ def endpoint_text(label: str, target_room: str | None, cross_room: bool, *, room
 
 def path_shape_text(
     *,
-    label: str,
+    target_obj: dict[str, Any],
+    all_objects: Sequence[dict[str, Any]],
+    rooms: Sequence[dict[str, Any]],
     target_room: str | None,
     cross_room: bool,
     room_unique: bool = False,
@@ -791,7 +823,7 @@ def path_shape_text(
     sidedness — none of which a compass-less holonomic robot can ground from
     mission text authored before the trajectory exists.
     """
-    ref = target_noun_phrase(label)
+    ref = target_noun_phrase(target_obj, all_objects=all_objects, rooms=rooms)
     if cross_room and target_room and room_unique:
         if transit_room and transit_unique:
             return (
@@ -804,7 +836,17 @@ def path_shape_text(
         )
     if landmark:
         return (f"Go to {ref}, passing the {landmark}.", "landmark_relative")
-    return (endpoint_text(label, target_room, cross_room, room_unique=room_unique), "none")
+    return (
+        endpoint_text(
+            target_obj,
+            target_room,
+            cross_room,
+            all_objects=all_objects,
+            rooms=rooms,
+            room_unique=room_unique,
+        ),
+        "none",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -937,7 +979,9 @@ def build_mission_queue(
                 cross_room=False,
                 start_pose=None,
                 planned_path=[],
-                mission_text=endpoint_text(label, target_room, False, room_unique=room_unique),
+                mission_text=endpoint_text(
+                    obj, target_room, False, all_objects=inputs.objects, rooms=rooms, room_unique=room_unique
+                ),
                 constraint_hint="none",
                 paraphrase_runner=paraphrase_runner,
                 stats=stats,
@@ -1103,7 +1147,14 @@ def _plan_one_mission(
         return None
 
     if not want_path_shape:
-        mission_text = endpoint_text(label, target_room, cross_room, room_unique=room_unique)
+        mission_text = endpoint_text(
+            target_obj,
+            target_room,
+            cross_room,
+            all_objects=inputs.objects,
+            rooms=inputs.rooms,
+            room_unique=room_unique,
+        )
         return mission_text, _round_xy_list(oracle), "none", {
             "structure_ok": True,
             "navigable_ok": True,
@@ -1125,7 +1176,9 @@ def _plan_one_mission(
         else None
     )
     mission_text, constraint_hint = path_shape_text(
-        label=label,
+        target_obj=target_obj,
+        all_objects=inputs.objects,
+        rooms=inputs.rooms,
         target_room=target_room,
         cross_room=cross_room,
         room_unique=room_unique,
@@ -1245,9 +1298,21 @@ def _emit_row(
                 paraphrase_runner(mission_text, config.paraphrases_per_mission, config.llm_seed)
             )
         except Exception:
-            paraphrases = fallback_paraphrases(mission_text, label, config.paraphrases_per_mission)
+            paraphrases = fallback_paraphrases(
+                mission_text,
+                obj,
+                config.paraphrases_per_mission,
+                all_objects=inputs.objects,
+                rooms=inputs.rooms,
+            )
     else:
-        paraphrases = fallback_paraphrases(mission_text, label, config.paraphrases_per_mission)
+        paraphrases = fallback_paraphrases(
+            mission_text,
+            obj,
+            config.paraphrases_per_mission,
+            all_objects=inputs.objects,
+            rooms=inputs.rooms,
+        )
 
     mission_id = f"{inputs.scene_name}-{counter:05d}"
     key = (

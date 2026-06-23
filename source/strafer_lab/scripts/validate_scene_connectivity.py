@@ -198,8 +198,8 @@ def assert_persisted_metadata(
     landed. Raises when:
 
     * the key is absent (``reread is None``) — the save silently dropped it
-      (e.g. the "No space left on device for creating change watches"
-      disk/inotify failure that produced the original orphan-export defect);
+      (e.g. a "No space left on device for creating change watches"
+      disk/inotify failure);
     * the version token was not stamped;
     * the ``connectivity[]`` block this step authored is missing;
     * ``expect_objects`` is set yet ``objects[]`` came back empty — connectivity
@@ -592,8 +592,7 @@ def validate_connectivity(
             "on this scene. Connectivity ENRICHES an existing payload (it "
             "back-fills rooms[] and appends connectivity[]); it must not be the "
             "step that first authors customData, or a scene with no objects[] "
-            "would ship looking populated. Run the embed first, then re-run this. "
-            "(This is the fail-hard for the seed1-style silent-failure defect.)"
+            "would ship looking populated. Run the embed first, then re-run this."
         )
     metadata = base
     # Whether a populated embed was present going in. The post-save read-back

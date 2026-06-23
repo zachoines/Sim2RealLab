@@ -291,8 +291,8 @@ def _process_scene(
     # Capture-readiness gate (the load-bearing index guard): a scene is only
     # indexed if its embedded customData carries labeled objects[]. Reuse the
     # already-open stage — no second Usd.Stage.Open. A scene whose base embed
-    # never ran (key absent, e.g. the seed1 orphan-export defect) or whose embed
-    # produced an empty objects[] would otherwise land in scenes_metadata.json
+    # never ran (key absent) or whose embed produced an empty objects[] would
+    # otherwise land in scenes_metadata.json
     # with valid spawn points and read as usable, then fail silently at capture
     # time. Policy: absent OR empty embedded metadata => skip with a loud
     # warning, never silent inclusion.

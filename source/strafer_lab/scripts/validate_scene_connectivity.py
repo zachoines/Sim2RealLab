@@ -114,8 +114,8 @@ def _trace(msg: str) -> None:
 
 # Infinigen door factories (PanelDoor / LiteDoor / LouverDoor / GlassPanelDoor,
 # both the frame ``__spawn_asset_N_`` and leaf ``__spawn_asset_N__001`` prims).
-# Verified against seed1/seed2: this catches every door-named prim in both scenes
-# (incl. the GlassPanel variant), so there is no door the door-open pass misses.
+# Covers every door-factory variant (incl. the GlassPanel one), so the door-open
+# pass misses no door-named prim.
 _DOOR_PRIM_RE = re.compile(r"Door[A-Za-z]*Factory_\d+__spawn_asset_\d+_")
 # The leaf is the swinging panel (extra ``__NNN`` suffix); the frame is the casing.
 _DOOR_LEAF_RE = re.compile(r"__spawn_asset_\d+__\d+$")

@@ -93,12 +93,12 @@ A scene missing the key, or with `objects == 0`, is a silent failure and MUST NO
 
 Ordering matters — seed1 re-embed precedes the final index regen:
 
-1. **[OP-KIT] Re-embed seed1** on its existing USD (do NOT regenerate; do NOT change the embed builder):
+1. **[OP-KIT] Re-embed seed1** on its existing USD (do NOT regenerate; do NOT change the embed builder). The `--usd` MUST be absolute: `omni.usd`'s `ctx.open_stage()` resolves a *relative* path against the USD layer's own directory, producing a doubled path (`…/export_scene.blend/Assets/…/export_scene.usdc`) that fails to open/save. `$(realpath …)` from the repo root supplies the absolute path (this is why the `prep_room_usds.py` wrapper, which resolves `output_dir`, works while a hand-run relative path does not):
    ```
    $ISAACLAB -p source/strafer_lab/scripts/extract_scene_metadata.py --from-usd \
-     --usd Assets/generated/scenes/scene_high_quality_dgx_000_seed1/export/export_scene.blend/export_scene.usdc
+     --usd "$(realpath Assets/generated/scenes/scene_high_quality_dgx_000_seed1/export/export_scene.blend/export_scene.usdc)"
    $ISAACLAB -p source/strafer_lab/scripts/validate_scene_connectivity.py \
-     --usd Assets/generated/scenes/scene_high_quality_dgx_000_seed1/export/export_scene.blend/export_scene.usdc
+     --usd "$(realpath Assets/generated/scenes/scene_high_quality_dgx_000_seed1/export/export_scene.blend/export_scene.usdc)"
    ```
    **Confirm the re-embed landed — do NOT trust rc=0 alone** (the orphan-export disk/inotify error can truncate a save silently). The reliable check is the reader, not grep (grep token count is compression-dependent):
    ```

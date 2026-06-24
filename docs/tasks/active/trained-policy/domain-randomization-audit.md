@@ -415,6 +415,15 @@ Investigate before declaring done.
       section](../../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
 
+## Capture-corpus implication of mount-DR widening (added 2026-06-23)
+
+This brief widens `randomize_d555_mount_offset` (orientation 1°/2° → 3°, plus a new `max_translation_m` ±2 cm) for trained-policy robustness. That widening also has a **dataset** consequence. Split camera-affecting DR into two classes:
+
+- **Appearance DR** (sensor/depth noise, exposure, blur) — moves the pixel output, not the geometry. No label impact; no logging needed.
+- **Geometric DR** (this brief's mount extrinsic jitter) — moves the camera ray, making the camera-to-world transform episode-specific.
+
+At the *current* ±2° rotation-only setting the camera effect is ~1–2 px (negligible — a captured corpus can derive pose-dependent labels from the nominal mount). **Once this brief raises the angle and adds translation, the realized mount diverges enough that any pose-derived label in a captured corpus** (region GT, "what's in view", depth back-projection, VPR pose-keying) **would be corrupted if derived from the nominal mount.** Therefore the bulk-capture corpus **logs the realized mount per episode** (`env._d555_mount_quat`, plus `env._d555_mount_translation` once it lands here) — implemented by [`coverage-capture-driver`](../../active/harness/coverage-capture-driver.md), per the 2026-06-23 data-requirements analysis (geometric camera DR is the consumer that the "no committed consumer" assessment assumed away). Keep the two briefs' mount-DR knobs in sync.
+
 ## Investigation pointers
 
 - [`source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py)

@@ -101,3 +101,27 @@ class TestValidateRequiredEnv:
         monkeypatch.setenv("STRAFER_ISAACLAB_PYTHON", "/nonexistent/path/to/python")
         with pytest.raises(RuntimeError, match="non-existent path"):
             prep_room_usds.validate_required_env_for_generate()
+
+
+class TestResolveIsaaclabLauncher:
+    """The launcher argv must run a script via `isaaclab.sh -p <script>`.
+
+    The downstream auto-invocation appends the script directly, so the resolver
+    must guarantee a `-p` whether or not $ISAACLAB (documented as the bare
+    launcher path) already carries one — otherwise the metadata-authoring step
+    invokes `isaaclab.sh <script>` and Kit rejects it as an unknown argument.
+    """
+
+    def test_bare_path_gets_dash_p_appended(self, monkeypatch, tmp_python):
+        monkeypatch.setenv("ISAACLAB", str(tmp_python))
+        assert prep_room_usds._resolve_isaaclab_launcher() == [str(tmp_python), "-p"]
+
+    def test_existing_dash_p_not_doubled(self, monkeypatch, tmp_python):
+        monkeypatch.setenv("ISAACLAB", f"{tmp_python} -p")
+        argv = prep_room_usds._resolve_isaaclab_launcher()
+        assert argv == [str(tmp_python), "-p"]
+        assert argv.count("-p") == 1
+
+    def test_other_flags_preserved(self, monkeypatch, tmp_python):
+        monkeypatch.setenv("ISAACLAB", f"{tmp_python} -v")
+        assert prep_room_usds._resolve_isaaclab_launcher() == [str(tmp_python), "-v", "-p"]

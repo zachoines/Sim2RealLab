@@ -522,7 +522,15 @@ def _resolve_isaaclab_launcher() -> list[str]:
         raise RuntimeError(
             f"{_ISAACLAB_LAUNCHER_ENV_VAR}={value!r} points to a non-existent path."
         )
-    return [str(launcher), *parts[1:]]
+    argv = [str(launcher), *parts[1:]]
+    # The launcher must run the downstream script as a Python program
+    # (``isaaclab.sh -p <script>``). $ISAACLAB is documented as the bare
+    # launcher path — manual ``$ISAACLAB -p ...`` usage adds the ``-p`` itself —
+    # but the auto-invocation here appends the script directly, so guarantee a
+    # single ``-p`` whether or not the env var already carries one.
+    if "-p" not in argv:
+        argv.append("-p")
+    return argv
 
 
 def validate_required_env_for_generate(*, author_scene_metadata: bool = True) -> None:

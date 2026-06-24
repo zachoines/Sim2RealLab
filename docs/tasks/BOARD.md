@@ -87,6 +87,8 @@ Path-planning consumers here (`mission-generator`'s oracle + waypoint validation
 |---|---|---|---|
 | [`harness-architecture`](active/harness/harness-architecture.md) | P1 | active (architecture doc; ships across PRs B/C/D) | DGX |
 | [`infinigen-scene-corpus`](active/harness/infinigen-scene-corpus.md) | P1 | active | DGX |
+| [`coverage-capture-driver`](active/harness/coverage-capture-driver.md) | P0 | active — bulk-capture-blocking; elevates harness-architecture Tier-3 `scripted × coverage` to the bulk default + held-out seeds + realized-mount column + scene_metadata sidecar; `('scripted','coverage')` unwired today. Filed off the 2026-06-23 data-requirements gap analysis. | DGX |
+| [`grounding-found-false-negatives`](active/harness/grounding-found-false-negatives.md) | P1 | active — unowned found-axis grounder negatives (target-absent frames); rides on coverage capture. Filed off the 2026-06-23 gap analysis. | DGX |
 | [`mission-generator`](active/harness/mission-generator.md) | P2 | active (PR [#98](https://github.com/zachoines/Sim2RealLab/pull/98) open — gated on a real-Qwen run) | DGX |
 | [`mission-text-enrichment`](completed/harness/mission-text-enrichment.md) | P2 | v1 shipped (allocentric + conjunctive disambiguator, live room_scope, groundable FILTER; 189/646 groundable yield on seed2); v2 color/material + further filter-yield tuning remaining | DGX |
 | [`harness-throughput-measurement`](parked/harness/harness-throughput-measurement.md) | P2 | parked | DGX |

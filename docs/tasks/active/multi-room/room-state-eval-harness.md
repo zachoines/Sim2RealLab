@@ -21,6 +21,16 @@ this scores) AND
 has shipped the `scripted × coverage` capture path (provides the
 LeRobot v3 datasets this eval consumes).
 
+**Adversarial / open-plan scene set scope (added 2026-06-23):** this harness's
+adversarial scene set (scenes that stress region + room-type reasoning) is an
+**eval-only mini-capture**, deliberately NOT folded into the harness *bulk*
+capture run (decided off the workspace `HARNESS_DATA_REQUIREMENTS_GAP_ANALYSIS.md`).
+True open-plan is hard to generate with Infinigen (it partitions walled rooms);
+scope the adversarial set to Infinigen-producible cases — duplicate room types +
+dense clutter (e.g. seed2 already has 2 bedrooms / 2 bathrooms / 2 closets, which
+stress room-type-uniqueness). Capture this small set when this harness is built;
+the harness bulk run stays on standard scenes.
+
 ## Story
 
 As an **engineer measuring v2 room-state improvements

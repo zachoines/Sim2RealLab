@@ -12,9 +12,13 @@ reusing.
 The default run is model-free (deterministic oracle + templated paraphrases +
 grounding skipped), so it is exercisable headless. Opt into the heavy passes
 with ``--use-planner-llm`` / ``--use-paraphrase-llm`` / ``--ground-start-frame``;
-those load their checkpoints lazily and need a GPU (and, for grounding, a
-rendered start frame, which is not wired here yet — grounding stays a no-op
-until a frame provider is supplied).
+those load their checkpoints lazily and need a GPU. The start-frame grounding
+pass also needs a rendered frame, which only the Kit-launched sibling
+``render_grounded_mission_corpus.py`` supplies — it boots Isaac Sim, stands up
+the perception camera, and threads a live ``grounding_frame_provider`` through
+:func:`run`. Run headless here with no provider and grounding is a counted
+no-op: ``--ground-start-frame`` loads the VL runner but there is no frame to
+ground, so every mission is skip-counted.
 
 Every written queue is re-parsed through ``mission_queue.load_mission_queue`` as
 a built-in round-trip check before the run reports success.
@@ -28,7 +32,7 @@ import re
 import sys
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from strafer_lab.tools import build_mission_queue as bmq
 from strafer_lab.tools.mission_queue import load_mission_queue
@@ -78,10 +82,24 @@ def build_config(args: argparse.Namespace) -> bmq.GeneratorConfig:
         paraphrases_per_mission=args.paraphrases,
         require_groundable=args.require_groundable,
         ground_start_frame=args.ground_start_frame,
+        grounding_model=args.grounding_model,
     )
 
 
-def run(args: argparse.Namespace) -> int:
+def run(
+    args: argparse.Namespace,
+    *,
+    grounding_frame_provider: Callable[[dict[str, Any], tuple[float, float, float]], Any]
+    | None = None,
+) -> int:
+    """Generate the corpus across scenes + seeds.
+
+    ``grounding_frame_provider`` is the seam the Kit-launched sibling injects: a
+    live ``(obj, start_pose) -> frame`` callable. It is ``None`` for the headless
+    path (no rendered frame), where ``--ground-start-frame`` degrades to a
+    counted skip. Passed straight through to ``build_mission_queue`` alongside
+    the grounding runner this function builds from ``--grounding-model``.
+    """
     scenes_root = Path(args.scenes_root)
     out_root = Path(args.output_dir)
     cache_root = Path(args.cache_dir)
@@ -127,6 +145,7 @@ def run(args: argparse.Namespace) -> int:
                 waypoint_runner=waypoint_runner,
                 paraphrase_runner=paraphrase_runner,
                 grounding_runner=grounding_runner,
+                grounding_frame_provider=grounding_frame_provider,
             )
             rows = result.rows
             stats = asdict(result.stats)
@@ -190,6 +209,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--use-planner-llm", action="store_true", help="load the waypoint LLM (needs a GPU)")
     p.add_argument("--use-paraphrase-llm", action="store_true", help="load the paraphrase LLM (needs a GPU)")
     p.add_argument("--ground-start-frame", action="store_true", help="run the start-frame VLM grounding pass")
+    p.add_argument(
+        "--grounding-model",
+        default=bmq.DEFAULT_GROUNDING_MODEL,
+        help="VL checkpoint for the --ground-start-frame pass. Defaults to the 7B "
+        f"({bmq.DEFAULT_GROUNDING_MODEL}), which is NOT in the offline cache. Pass "
+        "Qwen/Qwen2.5-VL-3B-Instruct to use the cached, offline-ready checkpoint, "
+        "or pre-download the 7B first.",
+    )
     p.add_argument("--allow-stale-occupancy", action="store_true", help="skip the occupancy freshness check")
     p.add_argument("--skip-unloadable", action="store_true", help="exit 0 even if some scenes failed to load")
     p.add_argument("--force", action="store_true", help="regenerate, ignoring any cached queue")

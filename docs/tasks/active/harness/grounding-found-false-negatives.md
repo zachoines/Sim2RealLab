@@ -25,7 +25,7 @@ So the found-axis negative has no owner. This brief is it.
 
 ## Context bundle
 
-- `HARNESS_DATA_REQUIREMENTS_GAP_ANALYSIS.md` (workspace root) — gap **G2**.
+- The 2026-06-23 multi-model data-requirements analysis — this brief is its gap **G2** (the grounder found-axis negative).
 - [`coverage-capture-driver.md`](coverage-capture-driver.md) — provides the target-absent frames (the coverage sweep naturally generates them); this brief rides on that capture.
 - `vlm-grounding-finetune.md` — the consumer (the grounder LoRA).
 - [`grounding-negative-taxonomy.md`](grounding-negative-taxonomy.md) — the **different** (trajectory) negative axis; keep them disjoint.

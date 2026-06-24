@@ -21,7 +21,7 @@ The `('scripted','coverage')` cell is **unwired today** — `capture.py` `VALID_
 
 ## Context bundle
 
-- `HARNESS_DATA_REQUIREMENTS_GAP_ANALYSIS.md` (workspace root) — the demand→supply matrix this implements; this brief is its **P0 pivot**.
+- This brief is the **P0 pivot** of the 2026-06-23 multi-model data-requirements analysis — the demand→supply matrix of the downstream training epics vs. what the harness LeRobot v3 capture provides.
 - [`harness-architecture.md`](harness-architecture.md) — Tier-3 owner; the coverage driver IS the Tier-3 scripted driver. Coordinate the `scripts/` paths in the same PR.
 - [`../trained-policy/domain-randomization-audit.md`](../trained-policy/domain-randomization-audit.md) — owns the camera-DR taxonomy + the realized-mount-logging rule this brief implements as a column.
 - [`../multi-room/learned-spatial-encoder.md`](../multi-room/learned-spatial-encoder.md), [`mission-generator.md`](mission-generator.md) — downstream consumers.

@@ -340,6 +340,11 @@ class TestStartFrameGrounding:
     def _frame_provider(self, obj, start_pose):
         return "frame.png"  # any non-None sentinel; the runner is stubbed
 
+    def _pil_frame_provider(self, obj, start_pose):
+        from PIL import Image  # the live provider returns an in-memory PIL.Image
+
+        return Image.new("RGB", (4, 4))
+
     def test_skipped_when_disabled(self):
         scene = _two_room_scene()
         result = bmq.build_mission_queue(scene, GeneratorConfig(mode="endpoint"))
@@ -387,6 +392,104 @@ class TestStartFrameGrounding:
         )
         assert result.stats.start_frame_grounded_yes == result.stats.emitted
         assert all(r["generator_metadata"]["start_frame_grounded"] is True for r in result.rows)
+
+    def test_partial_verdict_marks_grounded_true(self):
+        # "partial" is a ship verdict (same bucket as "yes"); the row is kept and
+        # grounded True. Exercised with the live provider's PIL.Image return type.
+        scene = _two_room_scene()
+
+        def runner(frame, mission_text):
+            return "partial"
+
+        result = bmq.build_mission_queue(
+            scene,
+            GeneratorConfig(mode="endpoint", ground_start_frame=True),
+            grounding_runner=runner,
+            grounding_frame_provider=self._pil_frame_provider,
+        )
+        assert result.stats.emitted >= 1
+        assert result.stats.start_frame_grounded_yes == result.stats.emitted
+        assert result.stats.start_frame_grounded_no == 0
+        assert all(r["generator_metadata"]["start_frame_grounded"] is True for r in result.rows)
+
+    def test_provider_returning_none_skips_grounding(self):
+        # A frame provider that returns None (e.g. a bad/missing render the live
+        # provider sanitized away) is the SECOND skip path in _ground_start_frame:
+        # the runner is never called and the mission ships ungrounded.
+        scene = _two_room_scene()
+
+        def runner(frame, mission_text):
+            raise AssertionError("runner must not run when the provider yields None")
+
+        def none_provider(obj, start_pose):
+            return None
+
+        result = bmq.build_mission_queue(
+            scene,
+            GeneratorConfig(mode="endpoint", ground_start_frame=True),
+            grounding_runner=runner,
+            grounding_frame_provider=none_provider,
+        )
+        assert result.stats.emitted >= 1
+        assert result.stats.start_frame_grounded_skipped == result.stats.emitted
+        assert result.stats.start_frame_grounded_yes == 0
+        assert result.stats.start_frame_grounded_no == 0
+        for r in result.rows:
+            assert r["generator_metadata"]["start_frame_grounded"] is None
+
+
+class TestGroundingFrameContract:
+    """The live provider's frame-contract sanitizer (``coerce_frame_return``).
+
+    The default grounding runner opens the frame with no try/except
+    (``frame if isinstance(frame, Image.Image) else Image.open(frame)``), so the
+    provider must guarantee its return is either a ``PIL.Image`` or a readable
+    image path — anything else becomes a clean ``None`` (a counted skip) rather
+    than a crash inside the runner. Pure Python; no Kit, no model.
+    """
+
+    def test_pil_image_passes_through(self):
+        from PIL import Image
+
+        from strafer_lab.tools.grounding_frame_provider import coerce_frame_return
+
+        img = Image.new("RGB", (4, 4))
+        assert coerce_frame_return(img) is img
+
+    def test_none_stays_none(self):
+        from strafer_lab.tools.grounding_frame_provider import coerce_frame_return
+
+        assert coerce_frame_return(None) is None
+
+    def test_missing_path_surfaces_as_none(self, tmp_path):
+        from strafer_lab.tools.grounding_frame_provider import coerce_frame_return
+
+        missing = tmp_path / "nope.png"
+        assert coerce_frame_return(missing) is None
+        assert coerce_frame_return(str(missing)) is None
+
+    def test_unreadable_file_surfaces_as_none(self, tmp_path):
+        from strafer_lab.tools.grounding_frame_provider import coerce_frame_return
+
+        bad = tmp_path / "bad.png"
+        bad.write_bytes(b"not an image")
+        assert coerce_frame_return(bad) is None
+
+    def test_valid_image_path_is_validated_and_returned(self, tmp_path):
+        from PIL import Image
+
+        from strafer_lab.tools.grounding_frame_provider import coerce_frame_return
+
+        path = tmp_path / "frame.png"
+        Image.new("RGB", (4, 4)).save(path)
+        # Validated readable image path returns the path for the runner to open.
+        assert coerce_frame_return(path) == str(path)
+
+    def test_raw_numpy_array_surfaces_as_none(self):
+        from strafer_lab.tools.grounding_frame_provider import coerce_frame_return
+
+        # The runner does not handle a bare ndarray; coerce makes it a clean skip.
+        assert coerce_frame_return(np.zeros((4, 4, 3), dtype=np.uint8)) is None
 
 
 # ---------------------------------------------------------------------------

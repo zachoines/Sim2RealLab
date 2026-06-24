@@ -1,5 +1,8 @@
 # Richer Infinigen scene corpus for harness data capture
 
+**Status:** Shipped 2026-06-24 (DGX). Corpus gate met (≥ 4) — **5 usable `high_quality_dgx` scenes** verified against §"Definition of a usable scene": seed1 (867 objects / 11 rooms), seed2 (691 / 9), seed5 (437 / 11), seed6 (581 / 9), and bonus seed7 (454 / 6, the end-to-end PR-#104 validation); `scenes_metadata.json` indexes all five. Phase-1 index/persistence guards shipped in PR #101 (`123d37c`); the prep-launcher `-p` fix that unblocked end-to-end generation shipped in PR #104. Phase-2 scenes were operator-generated/recovered on the DGX (the multi-GB USDs are not in git). See §Outcome.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/105
+
 **Type:** scene-generation pipeline (corpus growth + silent-failure guards)
 **Owner:** DGX agent
 **Priority:** P1 — gates the [`harness-architecture`](harness-architecture.md) Tier 1 acceptance run (≥ 30 episodes on ≥ 2 scenes), the real-Qwen corpus run, and every later corpus capture.
@@ -26,9 +29,11 @@ Producer tools in tree (all four MAY import `infinigen` — they are the scene-s
 
 The per-scene `scene_metadata.json` sidecar (singular) is **RETIRED** — written only by retired code and stale (`rooms = 0`). The live sources of truth are the **USD customData** (read via `strafer_lab.tools.scene_metadata_reader`) and the combined **`scenes_metadata.json`** (plural, the spawn-points index).
 
-## Current state (2026-06-22)
+## Starting state (2026-06-22)
 
-`Assets/generated/scenes/` holds three scene dirs; `scenes_metadata.json` indexes all three:
+> Historical — the snapshot this brief started from. The final corpus is in §Outcome.
+
+`Assets/generated/scenes/` held three scene dirs; `scenes_metadata.json` indexed all three:
 
 | Scene | Preset | customData | Usable? |
 |---|---|---|---|
@@ -36,7 +41,7 @@ The per-scene `scene_metadata.json` sidecar (singular) is **RETIRED** — writte
 | `scene_high_quality_dgx_000_seed1` | `high_quality_dgx` | key **PRESENT but `objects=0`** (rooms=11) | **No — DEFECTIVE.** Silent-failure member of the index |
 | `scene_high_quality_dgx_000_seed2` | `high_quality_dgx` | `objects=691`, `rooms=9`, `connectivity` present | **Yes** — fully usable |
 
-So **only seed2 is fully usable today.** The 2026-05-26 inventory in the prior version of this brief ("492 objects seed0 high_quality") is OBSOLETE — there is no `high_quality` seed0 on disk now.
+So **only seed2 was fully usable at the start.** The 2026-05-26 inventory in the prior version of this brief ("492 objects seed0 high_quality") is OBSOLETE — there is no `high_quality` seed0 on disk now.
 
 ### The seed1 defect — root cause
 
@@ -57,7 +62,7 @@ Two guards so a scene can never silently ship or be counted with empty metadata:
 
 ## Definition of a usable scene
 
-The "≥ 4" bar counts `high_quality_dgx` (or richer) scenes only; `fast_singleroom_seed0` does **not** count (throughput preset, max_rooms=1). The four target scenes are **seed1 (after re-embed), seed2, seed3, seed4**. A scene counts only if ALL hold, verified against the USD customData (not the retired sidecar):
+The "≥ 4" bar counts `high_quality_dgx` (or richer) scenes only; `fast_singleroom_seed0` does **not** count (throughput preset, max_rooms=1). The four scenes that met the bar are **seed1 (re-embedded), seed2, seed5, seed6** — the original seed3/seed4 plan changed when seed3 wedged in generation (see §Outcome). A scene counts only if ALL hold, verified against the USD customData (not the retired sidecar):
 
 - [ ] customData key `strafer_scene_metadata` is PRESENT with `objects > 50` (high-quality acceptance bar).
 - [ ] `rooms > 0`, and every room carries `footprint_xy`.
@@ -68,10 +73,10 @@ A scene missing the key, or with `objects == 0`, is a silent failure and MUST NO
 
 ## Acceptance
 
-- [ ] ≥ 4 fully-usable `high_quality_dgx` scenes per the checklist above (seed1 re-embedded; seed2; seed3; seed4).
-- [ ] `scenes_metadata.json` refreshed via `generate_scenes_metadata.py`; the GUARD-1 gate keeps every metadata-less scene out of it.
-- [ ] Per-scene verification via embedded customData (`scene_metadata_reader.load(<usdc>)`): `objects > 50`, `rooms > 0`, every room has `footprint_xy`. Do **not** verify via the retired per-scene `scene_metadata.json` sidecar.
-- [ ] A 1-episode capture smoke against ≥ 2 new/re-embedded scenes: `capture.py --driver teleop --mission-source scene-metadata --scene <name> --output /tmp/smoke_<name> --max-episodes 1` runs end-to-end (Kit-bound, operator).
+- [x] ≥ 4 fully-usable `high_quality_dgx` scenes per the checklist above — **met: seed1, seed2, seed5, seed6** (4/4).
+- [x] `scenes_metadata.json` refreshed via `generate_scenes_metadata.py`; the GUARD-1 gate keeps every metadata-less scene out of it (it correctly skips seed0).
+- [x] Per-scene verification via embedded customData (`scene_metadata_reader.load(<usdc>)`): `objects > 50`, `rooms > 0`, every room has `footprint_xy`. Done for all four (object counts in the Status stamp).
+- [ ] A 1-episode capture smoke against ≥ 2 scenes: `capture.py --driver teleop --mission-source scene-metadata --scene <name> --output /tmp/smoke_<name> --max-episodes 1` (Kit-bound, operator). **Deferred** — the corpus *supply* gate (≥ 4 verified-usable scenes) is met independently of this downstream *consumption* check, which also belongs to [`harness-architecture`](harness-architecture.md) Tier-1 acceptance. Recommended as the operator's next validation.
 
 ## Out of scope
 
@@ -82,8 +87,31 @@ A scene missing the key, or with `objects == 0`, is a silent failure and MUST NO
 
 ## Two-phase ship
 
-- **Phase 1 (AGENT, this PR):** GUARD 1 + GUARD 2 code + tests + this refreshed brief + the operator runbook. Ship the agent-code portion per the docs lifecycle.
-- **Phase 2 (OPERATOR-gated):** the actual scene work (seed1 re-embed + seed3/seed4 generate) is operator-run (GPU/Blender + Kit). **This brief stays ACTIVE until the operator confirms ≥ 4 usable scenes** against the checklist. Do not stamp the corpus bar closed on Phase-1 code alone.
+- **Phase 1 (AGENT) — DONE:** GUARD 1 + GUARD 2 code + tests + refreshed brief + operator runbook. Shipped in PR #101.
+- **Phase 2 (OPERATOR-gated) — DONE:** the operator generated/recovered the scenes on the DGX (GPU/Blender + Kit) and confirmed ≥ 4 usable on 2026-06-24. The prep-launcher `-p` fix (PR #104) was needed mid-Phase-2 to make `generate` run end-to-end.
+
+## Outcome (2026-06-24)
+
+Final corpus — `scenes_metadata.json` indexes **5 usable `high_quality_dgx` scenes** (the ≥ 4 bar was met by seed1/2/5/6; seed7 landed as a bonus 5th; seed0 `fast_singleroom` is correctly excluded by GUARD 1):
+
+| Scene | objects | rooms | occupancy | in index |
+|---|---|---|---|---|
+| `scene_high_quality_dgx_000_seed1` | 867 | 11 | ✓ | ✓ |
+| `scene_high_quality_dgx_000_seed2` | 691 | 9 | ✓ | ✓ |
+| `scene_high_quality_dgx_000_seed5` | 437 | 11 | ✓ | ✓ |
+| `scene_high_quality_dgx_000_seed6` | 581 | 9 | ✓ | ✓ |
+| `scene_high_quality_dgx_000_seed7` | 454 | 6 | ✓ | ✓ |
+
+**seed7 validates PR #104 end-to-end:** generated *after* the launcher fix, it ran the full pipeline — coarse → export → postprocess → metadata → connectivity → symlink — with **no manual recovery** (seed5/seed6 needed the two-step metadata recovery only because their runs predated the fix).
+
+**Why seed5/seed6 instead of the planned seed3/seed4:** seed3 wedged in Infinigen's `coarse` populate phase (single-threaded text-to-mesh for a book/trinket shelf) for ~38 h with no output and was killed; its serial `--num-scenes 2` run never reached seed4. seed5 + seed6 were generated independently to fill the bar. The GUARDs proved themselves in production — seed1's re-embed read-back confirmed `objects 0 → 867`.
+
+**Phase-2 bugs found + fixed (all surfaced by real generation):**
+- **Infinigen wall-material `TypeError`** (`Concrete.generate() got an unexpected keyword argument 'vertical'`) — `room_walls` passed tile kwargs to every wall material but only special-cased `Brick`; seed-stochastic. Fixed in the vendored Infinigen checkout with a call-site signature-filter (kept local; not in this repo).
+- **Prep launcher missing `-p`** — `_resolve_isaaclab_launcher()` trusted `$ISAACLAB` to carry `-p`, but `.env` sets the bare path; the metadata step ran `isaaclab.sh <script>` and Kit rejected it (rc=2) at the *end* of a multi-hour generate. Fixed in **PR #104**.
+- **OOM on the unified-memory GB10** — a Kit USD-load (`extract_scene_metadata` / `validate_scene_connectivity`) needs ~50–55 GB for a ~9 GB scene and shares the pool with the GPU and the CPU generate jobs; overlapping loads exhaust the ~128 GB pool. Operating rule: never run two Kit USD-load steps concurrently (see runbook).
+
+**Recovery pattern (no regen):** a scene that completes coarse/export/postprocess but dies at metadata is recoverable by running just the two Kit steps (`extract_scene_metadata --from-usd` then `validate_scene_connectivity`, absolute `--usd`) — used for seed5 and seed6.
 
 ## Operator runbook (Phase 2)
 
@@ -130,3 +158,5 @@ Ordering matters — seed1 re-embed precedes the final index regen:
 **Known `rooms == 0` risk.** `--from-usd` itself leaves `rooms = []`; seed2 has `rooms = 9` only because `validate_scene_connectivity.py` back-fills `rooms[]` from floor meshes. If a scene comes back `rooms == 0`, the operator must run the Blender path (`extract_scene_metadata.py --blend ... ` under `$STRAFER_BLENDER_BIN`) to populate room polygons.
 
 **Occupancy freshness** is checked by the connectivity tooling, not here. After a re-embed, `occupancy.npy` mtime may lag the rewritten USDC — treat occupancy *presence* as the agent-side check and leave freshness re-validation to the operator's connectivity re-run.
+
+**Memory (GB10 unified pool) — do not overlap Kit USD-loads.** On the DGX's unified-memory GB10, a Kit USD-load step (`extract_scene_metadata`, `validate_scene_connectivity`) needs ~50–55 GB for a ~9 GB scene, drawn from the *same* ~128 GB pool the GPU and the CPU `generate` jobs use. Running two Kit USD-loads at once (~110 GB), or one alongside a memory-heavy generate that has the pool near full, triggers the OOM-killer (`code -9`; kernel log shows `Out of memory: Killed process` + `NVRM ... NO_MEMORY`). Rule: **one Kit USD-load at a time**; one Kit load + one `coarse` generate (~70 GB) is fine. Stagger the metadata/connectivity steps of parallel scene runs.

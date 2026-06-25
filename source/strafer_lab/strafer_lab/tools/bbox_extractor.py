@@ -20,7 +20,9 @@ Design notes:
 - ``instanceId`` is NOT part of ``bounding_box_2d_tight`` — that field
   only exists on the ``instance_id_segmentation`` annotator. We leave
   :class:`DetectedBbox` with a ``semantic_id`` field instead; callers
-  that need per-instance IDs should attach a second annotator.
+  that need per-instance IDs attach :class:`ReplicatorInstanceSegExtractor`
+  (the sibling wrapper below) and join a known target by its USD prim path
+  via :func:`segment_id_for_prim_path`.
 
 - :func:`parse_bbox_data` is a pure function with NO Isaac Sim / numpy /
   Omniverse dependency — it accepts any iterable-of-row-objects that behaves
@@ -409,3 +411,242 @@ class ReplicatorBboxExtractor:
         flat-dict shape.
         """
         return [bbox.to_dict() for bbox in self.extract()]
+
+
+# ---------------------------------------------------------------------------
+# Instance segmentation — per-instance target identity
+# ---------------------------------------------------------------------------
+# bounding_box_2d_tight boxes per semantic CLASS (scenes label with
+# instance_name="class"), so same-label siblings can merge into one box and a
+# label match cannot tell them apart. instance_id_segmentation gives a per-pixel
+# instance id plus info["idToLabels"] mapping that id -> USD prim path, so a
+# target is matched by its prim_path. (The authored instanceId USD attr is not
+# visible to the annotator.)
+
+# Required info keys; a missing key raises InstanceSegSchemaError rather than
+# matching nothing. The annotator data is a 2D (H, W) integer id mask.
+INSTANCE_SEG_FIELDS: tuple[str, ...] = ("idToLabels",)
+
+
+class InstanceSegSchemaError(RuntimeError):
+    """Raised when instance_id_segmentation output is missing a required info key."""
+
+
+@dataclass(frozen=True)
+class InstanceSegmentation:
+    """One frame of ``instance_id_segmentation``: a per-pixel id mask + id map.
+
+    ``mask`` is the ``(H, W)`` array of renderer-assigned instance ids (a numpy
+    array in production, a list-of-lists in fixtures). ``info`` is the raw
+    annotator info dict (carries ``idToLabels``). ``frame_w`` / ``frame_h`` are
+    the mask dimensions. Pure data — no Omniverse types.
+    """
+
+    mask: Any
+    info: Mapping[str, Any]
+    frame_w: int
+    frame_h: int
+
+
+def _maybe_numpy() -> Any:
+    """Return the ``numpy`` module if importable, else ``None`` (pure fallback)."""
+    try:
+        import numpy as np  # noqa: PLC0415 — optional fast path; pure scan fallback exists
+    except Exception:
+        return None
+    return np
+
+
+def _mask_dims(data: Any) -> tuple[int, int]:
+    """Return ``(height, width)`` of a 2D id mask (numpy array or list-of-lists)."""
+    shape = getattr(data, "shape", None)
+    if shape is not None and len(shape) >= 2:
+        return int(shape[0]), int(shape[1])
+    try:
+        height = len(data)
+        width = len(data[0]) if height else 0
+        return int(height), int(width)
+    except (TypeError, IndexError):
+        return 0, 0
+
+
+def parse_instance_seg_data(
+    raw: Mapping[str, Any] | None,
+) -> "InstanceSegmentation | None":
+    """Parse a Replicator ``instance_id_segmentation`` output into typed data.
+
+    Accepts the dict shape ``{"data": <(H, W) id mask>, "info": {"idToLabels":
+    {...}}}``. Returns ``None`` when the annotator has not produced a frame
+    (``raw`` or ``raw["data"]`` is ``None``) — the caller treats that as a
+    skip. Raises :class:`InstanceSegSchemaError` when the ``info`` dict is
+    missing a required key (see :data:`INSTANCE_SEG_FIELDS`).
+    """
+    if raw is None:
+        return None
+    data = raw.get("data")
+    if data is None:
+        return None
+    info = raw.get("info") or {}
+    missing = [key for key in INSTANCE_SEG_FIELDS if key not in info]
+    if missing:
+        raise InstanceSegSchemaError(
+            f"instance_id_segmentation missing required info key(s) {missing}; "
+            f"expected {INSTANCE_SEG_FIELDS}",
+        )
+    height, width = _mask_dims(data)
+    return InstanceSegmentation(mask=data, info=info, frame_w=width, frame_h=height)
+
+
+def segment_id_for_prim_path(
+    info: Mapping[str, Any] | None, prim_path: str | None
+) -> int | None:
+    """Renderer-assigned instance id for a USD ``prim_path``, or ``None`` if absent.
+
+    ``info["idToLabels"]`` maps id (string key) -> prim path (value), so this
+    reverse-scans the values — do not index ``idToLabels`` by ``prim_path``.
+    ``None`` means the target was not rendered into any segment (not visible).
+    """
+    if not prim_path or not info:
+        return None
+    id_to_labels = info.get("idToLabels")
+    if not id_to_labels:
+        return None
+    for seg_id, value in id_to_labels.items():
+        # The value is the prim path string; tolerate a mapping value too.
+        candidate: Any = value
+        if isinstance(value, Mapping):
+            candidate = value.get("prim_path") or value.get("class") or value.get("name")
+        if isinstance(candidate, str) and candidate == prim_path:
+            try:
+                return int(seg_id)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def segment_pixel_extent(
+    mask: Any, segment_id: int
+) -> tuple[int, tuple[int, int, int, int]] | None:
+    """Pixel count + bounding box of all ``mask`` pixels equal to ``segment_id``.
+
+    Returns ``(pixel_count, (x_min, y_min, x_max, y_max))`` with an EXCLUSIVE
+    max (a single pixel -> area 1, matching the ``bounding_box_2d_tight`` area
+    convention ``(x2 - x1) * (y2 - y1)``), or ``None`` when the segment has no
+    pixels (target not visible). Uses numpy when the mask exposes it; falls back
+    to a pure scan so list-of-lists fixtures work without numpy.
+    """
+    np = _maybe_numpy()
+    if np is not None and getattr(mask, "shape", None) is not None:
+        arr = np.asarray(mask)
+        if arr.ndim >= 2:
+            ys, xs = np.where(arr == segment_id)
+            if xs.size == 0:
+                return None
+            return int(xs.size), (
+                int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1,
+            )
+    count = 0
+    x_min: int | None = None
+    y_min: int | None = None
+    x_max = 0
+    y_max = 0
+    for y, row in enumerate(mask):
+        for x, value in enumerate(row):
+            if value == segment_id:
+                count += 1
+                if x_min is None or x < x_min:
+                    x_min = x
+                if y_min is None or y < y_min:
+                    y_min = y
+                if x > x_max:
+                    x_max = x
+                if y > y_max:
+                    y_max = y
+    if count == 0 or x_min is None or y_min is None:
+        return None
+    return count, (x_min, y_min, x_max + 1, y_max + 1)
+
+
+def _rect_overlap_area(
+    a: tuple[int, int, int, int], b: tuple[int, int, int, int]
+) -> int:
+    """Intersection area of two ``(x_min, y_min, x_max, y_max)`` pixel boxes."""
+    ix = min(a[2], b[2]) - max(a[0], b[0])
+    iy = min(a[3], b[3]) - max(a[1], b[1])
+    if ix <= 0 or iy <= 0:
+        return 0
+    return ix * iy
+
+
+def bbox_row_for_segment(
+    bboxes: Iterable[DetectedBbox], segment_bbox: tuple[int, int, int, int]
+) -> DetectedBbox | None:
+    """Select the ``bounding_box_2d_tight`` row overlapping a segment's mask box.
+
+    The target's per-instance identity comes from the segmentation mask; its
+    occlusion ratio is only available per-class from ``bounding_box_2d_tight``.
+    This picks the class row with the largest pixel overlap with the segment's
+    mask bbox (ties -> first), or ``None`` when no row overlaps the segment.
+    """
+    best: DetectedBbox | None = None
+    best_overlap = 0
+    for bbox in bboxes:
+        overlap = _rect_overlap_area(bbox.bbox_2d, segment_bbox)
+        if overlap > best_overlap:
+            best_overlap = overlap
+            best = bbox
+    return best
+
+
+@dataclass
+class ReplicatorInstanceSegExtractor:
+    """Attach an ``instance_id_segmentation`` annotator to a camera render product.
+
+    Sibling of :class:`ReplicatorBboxExtractor`: same lazy
+    ``omni.replicator.core`` import + ``annotator=`` mock hook for tests.
+    :meth:`extract` returns the current frame's :class:`InstanceSegmentation`
+    (a per-pixel id mask + the id->prim map), or ``None`` before the annotator
+    has produced a frame. Use this from Isaac Sim runtime code only —
+    instantiating without an injected ``annotator`` triggers the Omniverse
+    import.
+
+    Parameters
+    ----------
+    camera_render_product_path:
+        The render product path to attach to (the same one
+        :class:`ReplicatorBboxExtractor` uses, via
+        :func:`resolve_render_product_path`).
+    annotator:
+        Optional pre-built annotator. Tests inject a mock to exercise
+        :meth:`extract` without Omniverse.
+    """
+
+    camera_render_product_path: str
+    annotator: Any = None
+
+    _attached: bool = field(default=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.annotator is None:
+            self.annotator = self._build_real_annotator()
+        self._attached = True
+
+    def _build_real_annotator(self) -> Any:
+        """Build a real instance_id_segmentation annotator (colorize=False -> raw ids)."""
+        import omni.replicator.core as rep  # noqa: WPS433 — lazy by design
+
+        annotator = rep.AnnotatorRegistry.get_annotator(
+            "instance_id_segmentation",
+            init_params={"colorize": False},
+        )
+        annotator.attach([self.camera_render_product_path])
+        return annotator
+
+    def extract(self) -> InstanceSegmentation | None:
+        """Return the current frame's parsed instance segmentation (or ``None``)."""
+        if not self._attached or self.annotator is None:
+            raise RuntimeError(
+                "ReplicatorInstanceSegExtractor has no annotator — construct "
+                "with a camera_render_product_path or pass annotator=..."
+            )
+        return parse_instance_seg_data(self.annotator.get_data())

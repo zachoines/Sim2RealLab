@@ -438,6 +438,137 @@ class TestStartFrameGrounding:
             assert r["generator_metadata"]["start_frame_grounded"] is None
 
 
+class TestGeometricVisibilityVerdict:
+    """The model-free geometric start-frame verdict + its runner.
+
+    The verdict ships a mission ("yes") iff the KNOWN target is geometrically
+    observable from the start pose: in frame, not effectively occluded, big
+    enough on screen, and not mostly truncated by a frame edge. Each threshold
+    is asserted INDIVIDUALLY necessary against the imported module constants —
+    no magic numbers duplicated here.
+    """
+
+    FRAME_W = 640
+    FRAME_H = 360
+
+    @property
+    def _min_area(self) -> int:
+        return round(bmq.GROUNDING_MIN_BBOX_AREA_FRAC * self.FRAME_W * self.FRAME_H)
+
+    def _passing_struct(self) -> dict:
+        # Comfortably above the min-area floor, in frame, unoccluded, un-clipped.
+        side = int((self._min_area * 4) ** 0.5) + 1  # ~2x the min side -> ~4x area
+        return {
+            "in_frame": True,
+            "bbox": (10, 10, 10 + side, 10 + side),
+            "occlusion_ratio": 0.0,
+            "frame_w": self.FRAME_W,
+            "frame_h": self.FRAME_H,
+            "edge_clip_frac": 0.0,
+        }
+
+    def test_all_pass_is_yes(self):
+        assert bmq.geometric_visibility_verdict(self._passing_struct(), "go to the chair") == "yes"
+
+    def test_not_in_frame_is_no(self):
+        s = self._passing_struct()
+        s["in_frame"] = False
+        assert bmq.geometric_visibility_verdict(s, "x") == "no"
+
+    def test_occlusion_is_individually_necessary(self):
+        s = self._passing_struct()
+        s["occlusion_ratio"] = bmq.GROUNDING_MAX_OCCLUSION_RATIO + 0.01
+        assert bmq.geometric_visibility_verdict(s, "x") == "no"
+        # Exactly at the threshold is still observable (<=, not <).
+        s["occlusion_ratio"] = bmq.GROUNDING_MAX_OCCLUSION_RATIO
+        assert bmq.geometric_visibility_verdict(s, "x") == "yes"
+
+    def test_bbox_area_is_individually_necessary(self):
+        s = self._passing_struct()
+        # A 1-pixel speck is below the floor -> "no".
+        s["bbox"] = (10, 10, 11, 11)
+        assert (11 - 10) * (11 - 10) < self._min_area
+        assert bmq.geometric_visibility_verdict(s, "x") == "no"
+        # A box exactly at the min area passes.
+        side = max(1, int(self._min_area ** 0.5))
+        big = side + 1  # area (big*big) >= min_area
+        s["bbox"] = (10, 10, 10 + big, 10 + big)
+        assert big * big >= self._min_area
+        assert bmq.geometric_visibility_verdict(s, "x") == "yes"
+
+    def test_edge_clip_is_individually_necessary(self):
+        s = self._passing_struct()
+        s["edge_clip_frac"] = bmq.GROUNDING_MAX_EDGE_CLIP_FRAC + 0.01
+        assert bmq.geometric_visibility_verdict(s, "x") == "no"
+        s["edge_clip_frac"] = bmq.GROUNDING_MAX_EDGE_CLIP_FRAC
+        assert bmq.geometric_visibility_verdict(s, "x") == "yes"
+
+    def test_none_required_field_is_no(self):
+        for field in ("occlusion_ratio", "edge_clip_frac", "bbox"):
+            s = self._passing_struct()
+            s[field] = None
+            assert bmq.geometric_visibility_verdict(s, "x") == "no", field
+
+    def test_non_dict_struct_is_no(self):
+        assert bmq.geometric_visibility_verdict(None, "x") == "no"
+
+    def test_mission_text_is_ignored(self):
+        s = self._passing_struct()
+        assert bmq.geometric_visibility_verdict(s, "fetch the lamp") == bmq.geometric_visibility_verdict(s, "")
+
+    def test_area_floor_scales_with_resolution(self):
+        # The same bbox is a speck on a big frame but fine on a small one:
+        # the floor is a fraction of frame area, not a fixed pixel count.
+        bbox = (0, 0, 8, 8)  # 64 px
+        big = {"in_frame": True, "bbox": bbox, "occlusion_ratio": 0.0,
+               "frame_w": 640, "frame_h": 360, "edge_clip_frac": 0.0}
+        small = {**big, "frame_w": 120, "frame_h": 80}
+        assert 64 < round(bmq.GROUNDING_MIN_BBOX_AREA_FRAC * 640 * 360)  # speck on big frame
+        assert 64 >= round(bmq.GROUNDING_MIN_BBOX_AREA_FRAC * 120 * 80)  # fine on small frame
+        assert bmq.geometric_visibility_verdict(big, "x") == "no"
+        assert bmq.geometric_visibility_verdict(small, "x") == "yes"
+
+    def test_runner_wraps_verdict_and_returns_only_yes_or_no(self):
+        runner = bmq.build_default_geometric_runner()
+        assert runner(self._passing_struct(), "x") == "yes"
+        absent = self._passing_struct()
+        absent["in_frame"] = False
+        assert runner(absent, "x") == "no"
+
+    def test_runner_drops_into_existing_grounding_plumbing(self):
+        # The geometric runner must satisfy the same (frame, mission_text) -> str
+        # seam the generator calls: a "yes" struct ships, a same-room "no" struct
+        # re-rolls (rejected). Reuses the real generator, swapping only the
+        # runner + a struct-returning frame provider.
+        scene = _two_room_scene()
+
+        def yes_provider(obj, start_pose):
+            return {"in_frame": True, "bbox": (0, 0, 100, 100), "occlusion_ratio": 0.0,
+                    "frame_w": 640, "frame_h": 360, "edge_clip_frac": 0.0}
+
+        result = bmq.build_mission_queue(
+            scene,
+            GeneratorConfig(mode="endpoint", ground_start_frame=True),
+            grounding_runner=bmq.build_default_geometric_runner(),
+            grounding_frame_provider=yes_provider,
+        )
+        assert result.stats.start_frame_grounded_yes == result.stats.emitted
+        assert all(r["generator_metadata"]["start_frame_grounded"] is True for r in result.rows)
+
+        def no_same_room_provider(obj, start_pose):
+            return {"in_frame": False, "bbox": None, "occlusion_ratio": None,
+                    "frame_w": 640, "frame_h": 360, "edge_clip_frac": 0.0}
+
+        same = bmq.build_mission_queue(
+            _two_room_scene(reachable=False),
+            GeneratorConfig(mode="endpoint", ground_start_frame=True),
+            grounding_runner=bmq.build_default_geometric_runner(),
+            grounding_frame_provider=no_same_room_provider,
+        )
+        assert same.stats.emitted == 0
+        assert same.stats.rejected_reasons.get("target_not_visible_at_start", 0) >= 1
+
+
 class TestGroundingFrameContract:
     """The live provider's frame-contract sanitizer (``coerce_frame_return``).
 

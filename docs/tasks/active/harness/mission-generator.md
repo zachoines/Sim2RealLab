@@ -224,15 +224,15 @@ One LLM call per mission at generation time. Components:
      navigable space)
    - connectivity check (cross-room paths use known doorways)
    - target-proximity check (final waypoint within 0.5 m of target)
-   - **start-frame VLM grounding** (see "Start-frame grounding"
-     section below) — the perception camera at the proposed
-     `start_pose` must be able to *see* the target (or the
-     transit landmark for cross-room missions) before the mission
-     is committed to the queue. This is the FoV-honest counterpart
-     to the trajectory-first regime's structural grounding
-     guarantee; without it, forward-generation queues silently
-     accumulate "go to the chair" missions where the chair is
-     occluded by another object at the start pose.
+   - **start-frame geometric grounding** (see "Start-frame
+     grounding" section below) — the perception camera at the
+     proposed `start_pose` must be able to *see* the KNOWN target
+     (or the transit landmark for cross-room missions) before the
+     mission is committed to the queue. This is the FoV-honest
+     counterpart to the trajectory-first regime's structural
+     grounding guarantee; without it, forward-generation queues
+     silently accumulate "go to the chair" missions where the chair
+     is occluded by another object at the start pose.
 4. **Retry on failure.** Up to 3 retries per mission, re-prompted
    with the failure mode named. On persistent failure, fall back
    to mechanical A* shortest-path; tag in metadata as
@@ -266,26 +266,48 @@ sidesteps this because the captioner only sees frames the camera
 actually captured. Forward generation has to enforce it
 explicitly.
 
-This brief adds one pass:
+This brief adds one pass. It is **geometric, not a VL judgement**:
+at generation time the target instance and the exact scene
+geometry are known ground truth, so visibility is read off the
+rendered frame's Replicator annotators against the KNOWN target —
+no VL model co-resident with Kit, so the torch-vs-Isaac-Sim
+cuda-bindings conflict that an in-process VL grounder would
+reintroduce is gone.
 
 - After waypoint validation, render a single frame at
-  `start_pose` from the perception camera's pose budget.
-- Pass `(frame, mission_text)` to a 7B Qwen2.5-VL grounding
-  prompt: "Is the target named in the instruction visible in
-  this image? Answer yes / partial / no."
-- **Yes / partial** → mission ships in the queue.
-- **No** → either (a) the target is intended to be discovered
-  via scan / transit, in which case the LLM rationale already
-  records the transit step and the mission is kept with
-  `start_frame_grounded: false` set; or (b) the target is
-  same-room and unreachable from this start, in which case the
-  mission is rejected with `rejected_reason:
-  "target_not_visible_at_start"` and the start-pose seed is
-  re-rolled.
+  `start_pose` from the perception camera (the `#103` render-at-pose
+  provider seam, reused unchanged).
+- Read two annotators into a target-visibility struct: the target
+  is pinned by its USD `prim_path` through `instance_id_segmentation`
+  (NOT by label — `bounding_box_2d_tight` boxes per CLASS, so a
+  same-label sibling would otherwise satisfy the gate), and its
+  occlusion ratio + on-screen box come from the overlapping
+  `bounding_box_2d_tight` row.
+- The model-free verdict ships the mission iff the target is in
+  frame, not effectively occluded (`occlusion_ratio` under a
+  threshold), large enough on screen (bbox area over a
+  fraction-of-frame floor), and not mostly truncated by a frame
+  edge. The thresholds are module constants pending architect
+  ratification.
+- **Yes** → mission ships in the queue (`start_frame_grounded: true`).
+- **No** → either (a) cross-room: the target is intended to be
+  discovered via scan / transit, so the mission is kept with
+  `start_frame_grounded: false`; or (b) same-room: the target is
+  unreachable-to-see from this start, so the mission is rejected
+  with `rejected_reason: "target_not_visible_at_start"` and the
+  start-pose seed is re-rolled.
 
 This is a generation-time check; runtime behavior of the
 operator / oracle is independent. The intent is to keep the
 forward-generation corpus FoV-comparable to trajectory-first.
+
+Two Kit-gated schema freezes remain operator acceptance
+prerequisites (neither is verifiable headless): the exact
+`instance_id_segmentation` output schema (incl. the
+`segment_id_for_prim_path` prim-path keying) and the edge-clip
+approximation (a per-instance border-overlap fraction; refine to a
+magnitude measure only if the annotator exposes per-instance
+overflow coordinates). Both are isolated to one function each.
 
 ### Corpus composition
 
@@ -358,11 +380,11 @@ their union.
       [`generate_descriptions.py`](../../../../source/strafer_lab/scripts/retired/generate_descriptions.py)
       Stage 2.
 - [ ] **Start-frame grounding pass.** Each generated mission is
-      run through the start-frame VLM check described above;
-      same-room missions where the target is invisible at the
-      start pose are either re-rolled (new start-pose seed) or
-      rejected. Report `start_frame_grounded` rate per scene in
-      the PR.
+      run through the model-free geometric start-frame check
+      described above; same-room missions where the target is
+      invisible at the start pose are either re-rolled (new
+      start-pose seed) or rejected. Report `start_frame_grounded`
+      rate per scene in the PR.
 - [ ] **Cache key includes prompt_template_hash +
       generator_version.** Re-running the generator against a
       cache built under a changed template invalidates rather
@@ -398,10 +420,10 @@ their union.
 
 ## Investigation pointers
 
-- LLM caching: Qwen3-4B is in `~/.cache/huggingface/hub/`;
-  Qwen2.5-VL-3B and -7B too. Pick text-only first for the
-  waypoint-planning pass; the start-frame grounding pass needs a
-  VL model (Qwen2.5-VL-7B).
+- LLM caching: Qwen3-4B is in `~/.cache/huggingface/hub/` for the
+  text-only waypoint-planning + paraphrase passes. The start-frame
+  grounding pass needs NO model — it is a geometric visibility
+  check over the rendered annotators.
 - JSON-schema-constrained generation: most modern LLM APIs
   support this directly (OpenAI-compatible
   `response_format: {"type": "json_schema", ...}`). For

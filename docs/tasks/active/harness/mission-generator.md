@@ -255,6 +255,18 @@ One LLM call per mission at generation time. Components:
 
 ### Start-frame grounding
 
+> **DESIGN UPDATE (2026-06-24): the gate is GEOMETRIC, not VLM.** At generation time we have
+> ground truth — the generator already knows the exact target instance and the scene geometry —
+> so "is the target observable from the start pose" is decided by rendering the start frame and
+> reading the Replicator annotators (`bounding_box_2d_tight` `occlusionRatio` +
+> `instance_id_segmentation` to pin the specific target instance) and thresholding occlusion /
+> bbox area / edge-clip. Exact, deterministic, fast, and it loads **no** VL model co-resident
+> with Kit (which is what caused the torch-vs-isaacsim `cuda-bindings` conflict). The verdict
+> mapping below is **unchanged** (yes → ship; cross-room "no" → kept as a must-find mission;
+> same-room "no" → `target_not_visible_at_start` re-roll). The Qwen2.5-VL / `strafer_vlm`
+> grounder is **retained for its real consumers** — the grounder-finetune corpus and the
+> deployed runtime (no ground truth there) — but **not** this generation gate.
+
 The forward-generation regime's structural blind spot is that an
 LLM reading the scene metadata can name targets the camera
 will *never see* from the proposed start pose (occluded by
@@ -379,12 +391,13 @@ their union.
 - [ ] **Paraphrase pass** reuses the 7B Qwen2.5-VL pipeline from
       [`generate_descriptions.py`](../../../../source/strafer_lab/scripts/retired/generate_descriptions.py)
       Stage 2.
-- [ ] **Start-frame grounding pass.** Each generated mission is
-      run through the model-free geometric start-frame check
-      described above; same-room missions where the target is
-      invisible at the start pose are either re-rolled (new
-      start-pose seed) or rejected. Report `start_frame_grounded`
-      rate per scene in the PR.
+- [ ] **Start-frame grounding pass (geometric).** Each generated mission is
+      run through the start-frame **geometric** visibility check (Replicator
+      occlusion + bbox vs. the known target instance — see the design update above);
+      same-room missions where the target is invisible at the
+      start pose are either re-rolled (new start-pose seed) or
+      rejected. Report `start_frame_grounded` rate per scene in
+      the PR.
 - [ ] **Cache key includes prompt_template_hash +
       generator_version.** Re-running the generator against a
       cache built under a changed template invalidates rather
@@ -421,9 +434,9 @@ their union.
 ## Investigation pointers
 
 - LLM caching: Qwen3-4B is in `~/.cache/huggingface/hub/` for the
-  text-only waypoint-planning + paraphrase passes. The start-frame
-  grounding pass needs NO model — it is a geometric visibility
-  check over the rendered annotators.
+  waypoint-planning pass. The start-frame grounding pass is **geometric**
+  (Replicator occlusion + bbox) and needs no VL model; the cached Qwen2.5-VL
+  is retained for the grounder-finetune corpus + the deployed runtime, not this gate.
 - JSON-schema-constrained generation: most modern LLM APIs
   support this directly (OpenAI-compatible
   `response_format: {"type": "json_schema", ...}`). For

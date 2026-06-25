@@ -704,3 +704,62 @@ class TestRoomTypeUniquenessParity:
         one = [{"room_type": "Kitchen"}, {"room_type": "Hall"}]
         assert bmq.room_type_is_unique(one, "kitchen") is True
         assert mtb._room_type_is_unique(one, "kitchen") is True
+
+
+class TestQwen3ThinkingDisabled:
+    """The Qwen3 text runner (planner + paraphrase, which reuse the waypoint runner) must
+    disable thinking mode. With thinking ON, every call emits a ``<think>...</think>`` block
+    that consumes the ``max_new_tokens`` budget — far slower and prone to truncating the
+    actual answer. The grounding runner (Qwen2.5-VL, not a thinking model) is unaffected.
+    """
+
+    def test_waypoint_runner_passes_enable_thinking_false(self, monkeypatch):
+        import sys
+        import types
+
+        captured: dict = {}
+
+        class _Slice:
+            shape = (1, 3)
+
+            def __getitem__(self, _key):
+                return self
+
+        class _Enc(dict):
+            def to(self, _device):
+                return self
+
+        class _Tok:
+            def apply_chat_template(self, _messages, **kwargs):
+                captured.update(kwargs)
+                return "PROMPT"
+
+            def __call__(self, _texts, return_tensors=None):
+                return _Enc(input_ids=_Slice())
+
+            def batch_decode(self, *_a, **_k):
+                return ["0.1,0.1 0.9,0.9"]
+
+        class _Model:
+            device = "cpu"
+
+            def eval(self):
+                return self
+
+            def generate(self, **_kwargs):
+                return _Slice()
+
+        fake_tf = types.ModuleType("transformers")
+        fake_tf.AutoTokenizer = types.SimpleNamespace(from_pretrained=lambda *a, **k: _Tok())
+        fake_tf.AutoModelForCausalLM = types.SimpleNamespace(
+            from_pretrained=lambda *a, **k: _Model()
+        )
+        fake_torch = types.ModuleType("torch")
+        fake_torch.manual_seed = lambda _s: None
+        monkeypatch.setitem(sys.modules, "transformers", fake_tf)
+        monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+        runner = bmq.build_default_waypoint_runner("fake-model")
+        runner("plan a path", 0)
+
+        assert captured.get("enable_thinking") is False

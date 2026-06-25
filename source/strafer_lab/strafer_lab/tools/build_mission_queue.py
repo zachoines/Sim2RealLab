@@ -1411,7 +1411,11 @@ def build_default_waypoint_runner(model_name: str = DEFAULT_PLANNER_MODEL) -> Wa
         tok, model = state["tok"], state["model"]
         torch.manual_seed(seed)
         messages = [{"role": "user", "content": prompt}]
-        text = tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        # Qwen3 ships hybrid thinking ON by default; a <think> block would consume the
+        # generation budget (slow + truncated answers). Disable it for structured output.
+        text = tok.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
+        )
         ids = tok([text], return_tensors="pt").to(model.device)
         out = model.generate(**ids, max_new_tokens=512, do_sample=False)
         return tok.batch_decode(out[:, ids["input_ids"].shape[1]:], skip_special_tokens=True)[0]

@@ -27,7 +27,7 @@ from strafer_lab.tools.bbox_extractor import (
     bbox_row_for_segment,
     parse_bbox_data,
     parse_instance_seg_data,
-    segment_id_for_prim_path,
+    segment_ids_for_prim_path,
     segment_pixel_extent,
 )
 from strafer_lab.tools.grounding_frame_provider import (
@@ -82,27 +82,43 @@ class TestInstanceSegParser:
         assert INSTANCE_SEG_FIELDS == ("idToLabels",)
 
 
-class TestSegmentIdForPrimPath:
+class TestSegmentIdsForPrimPath:
     def test_reverse_scan_finds_id_by_value(self):
         # prim_path is the VALUE in idToLabels, NOT the key — locks the reverse-scan.
         _, info = _mask_two_chairs()
-        assert segment_id_for_prim_path(info, TARGET_PRIM) == 7
-        assert segment_id_for_prim_path(info, SIBLING_PRIM) == 9
+        assert segment_ids_for_prim_path(info, TARGET_PRIM) == [7]
+        assert segment_ids_for_prim_path(info, SIBLING_PRIM) == [9]
 
-    def test_absent_prim_path_returns_none(self):
+    def test_matches_descendant_mesh_subprim(self):
+        # The renderer reports the drawn mesh prim, often a child of the labelled
+        # object Xform (e.g. ".../chair_002/geom"); the object's prim_path must
+        # still match it.
+        info = {"idToLabels": {3: TARGET_PRIM + "/geom", 0: "INVALID"}}
+        assert segment_ids_for_prim_path(info, TARGET_PRIM) == [3]
+
+    def test_unions_multi_mesh_object(self):
+        # A multi-mesh object owns several ids (one per drawn mesh).
+        info = {"idToLabels": {1: TARGET_PRIM + "/seat", 2: TARGET_PRIM + "/legs", 3: SIBLING_PRIM}}
+        assert sorted(segment_ids_for_prim_path(info, TARGET_PRIM)) == [1, 2]
+
+    def test_prefix_boundary_does_not_overmatch(self):
+        # chair_002 must not match chair_0020.
+        info = {"idToLabels": {1: "/World/Room/chair_0020", 2: TARGET_PRIM}}
+        assert segment_ids_for_prim_path(info, TARGET_PRIM) == [2]
+
+    def test_absent_or_invalid_returns_empty(self):
         _, info = _mask_two_chairs()
-        assert segment_id_for_prim_path(info, "/World/Room/nope") is None
+        assert segment_ids_for_prim_path(info, "/World/Room/nope") == []
+        assert segment_ids_for_prim_path({"idToLabels": {0: "INVALID"}}, TARGET_PRIM) == []
 
-    def test_none_inputs_return_none(self):
-        assert segment_id_for_prim_path(None, TARGET_PRIM) is None
-        assert segment_id_for_prim_path({"idToLabels": {"7": TARGET_PRIM}}, None) is None
-        assert segment_id_for_prim_path({"idToLabels": {}}, TARGET_PRIM) is None
+    def test_none_inputs_return_empty(self):
+        assert segment_ids_for_prim_path(None, TARGET_PRIM) == []
+        assert segment_ids_for_prim_path({"idToLabels": {7: TARGET_PRIM}}, None) == []
+        assert segment_ids_for_prim_path({"idToLabels": {}}, TARGET_PRIM) == []
 
     def test_mapping_value_probed_for_prim_path(self):
-        # A schema variant that nests the prim path under a mapping value still
-        # resolves (the keying that needs a live freeze is isolated here).
-        info = {"idToLabels": {"3": {"prim_path": TARGET_PRIM}}}
-        assert segment_id_for_prim_path(info, TARGET_PRIM) == 3
+        info = {"idToLabels": {3: {"prim_path": TARGET_PRIM}}}
+        assert segment_ids_for_prim_path(info, TARGET_PRIM) == [3]
 
 
 class TestSegmentPixelExtent:
@@ -112,9 +128,21 @@ class TestSegmentPixelExtent:
         assert segment_pixel_extent(mask, 7) == (4, (1, 1, 3, 3))
         assert segment_pixel_extent(mask, 9) == (4, (4, 4, 6, 6))
 
+    def test_unions_multiple_ids(self):
+        mask, _ = _mask_two_chairs()
+        # Both chairs as one object -> union spans both 2x2 blocks.
+        assert segment_pixel_extent(mask, [7, 9]) == (8, (1, 1, 6, 6))
+
+    def test_handles_trailing_channel_axis(self):
+        # The real annotator data is (H, W, 1); the extent must reduce it to 2D.
+        mask, _ = _mask_two_chairs()
+        mask_3d = mask.reshape(mask.shape[0], mask.shape[1], 1)
+        assert segment_pixel_extent(mask_3d, 7) == (4, (1, 1, 3, 3))
+
     def test_absent_segment_returns_none(self):
         mask, _ = _mask_two_chairs()
         assert segment_pixel_extent(mask, 999) is None
+        assert segment_pixel_extent(mask, []) is None
 
     def test_pure_fallback_on_list_of_lists(self):
         # No numpy .shape -> the pure scan path (single pixel -> area 1).
@@ -177,6 +205,16 @@ class TestSiblingRejection:
         seg = parse_instance_seg_data({"data": mask, "info": info})
         s = build_visibility_struct(_class_bbox_rows((1, 1, 6, 6)), seg, TARGET_PRIM)
         assert s["in_frame"] is False
+
+    def test_matches_when_annotator_reports_mesh_subprim(self):
+        # Real schema: the annotator labels the drawn mesh prim (.../geom), not the
+        # object Xform; the object's prim_path must still resolve to its pixels.
+        mask, _ = _mask_two_chairs()
+        info = {"idToLabels": {7: TARGET_PRIM + "/geom", 9: SIBLING_PRIM + "/geom", 0: "INVALID"}}
+        seg = parse_instance_seg_data({"data": mask, "info": info})
+        s = build_visibility_struct(_class_bbox_rows((1, 1, 3, 3)), seg, TARGET_PRIM)
+        assert s["in_frame"] is True
+        assert s["bbox"] == (1, 1, 3, 3)
 
     def test_edge_clipped_sibling_does_not_reject_interior_target(self):
         # Target id 7 fully interior; a same-label sibling id 9 is truncated at the
@@ -255,7 +293,7 @@ class TestInstanceSegExtractorMockHook:
         ext = ReplicatorInstanceSegExtractor("rp/path", annotator=FakeAnnotator())
         seg = ext.extract()
         assert isinstance(seg, InstanceSegmentation)
-        assert segment_id_for_prim_path(seg.info, TARGET_PRIM) == 7
+        assert segment_ids_for_prim_path(seg.info, TARGET_PRIM) == [7]
 
     def test_no_frame_yet_returns_none(self):
         class EmptyAnnotator:

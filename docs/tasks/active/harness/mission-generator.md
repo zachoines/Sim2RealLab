@@ -301,13 +301,13 @@ This is a generation-time check; runtime behavior of the
 operator / oracle is independent. The intent is to keep the
 forward-generation corpus FoV-comparable to trajectory-first.
 
-Two Kit-gated schema freezes remain operator acceptance
-prerequisites (neither is verifiable headless): the exact
-`instance_id_segmentation` output schema (incl. the
-`segment_id_for_prim_path` prim-path keying) and the edge-clip
-approximation (a per-instance border-overlap fraction; refine to a
-magnitude measure only if the annotator exposes per-instance
-overflow coordinates). Both are isolated to one function each.
+The `instance_id_segmentation` schema is verified against the
+installed Isaac Sim (`(H, W, 1)` uint32 id mask + `info["idToLabels"]`
+mapping id -> mesh prim path, `colorize=False`); `segment_ids_for_prim_path`
+matches a target by its prim path or descendant mesh prims. One live
+sanity check remains on the first grounded run: confirm Infinigen
+objects map to prims this resolves, and that the edge-clip
+approximation (a per-instance border-overlap fraction) reads sensibly.
 
 ### Corpus composition
 

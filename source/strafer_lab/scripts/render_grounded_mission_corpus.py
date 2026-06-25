@@ -59,11 +59,12 @@ verdict has no torch-VL dependency, so the cuda-bindings conflict is gone):
     ``--grounding-warmup-steps``; for Infinigen floors above world z=0, raise
     ``--spawn-z`` to ``floor_top_z + wheel_clearance``.
 
-  On the first live run, confirm the ``instance_id_segmentation`` output shape
-  the code assumes (a per-pixel id mask + ``info["idToLabels"]`` mapping id ->
-  prim path, ``colorize=False`` giving raw ids); if it differs, adjust
-  ``segment_id_for_prim_path`` / ``INSTANCE_SEG_FIELDS`` in
-  ``tools/bbox_extractor.py``. Also sanity-check the yes/no/skip distribution.
+  The ``instance_id_segmentation`` schema is verified against the installed
+  Isaac Sim (``(H, W, 1)`` uint32 id mask + ``info["idToLabels"]`` mapping id ->
+  mesh prim path, ``colorize=False``). On the first live run, sanity-check the
+  yes/no/skip distribution against a few rendered frames; if Infinigen objects
+  map to mesh prims this code does not resolve, adjust
+  ``segment_ids_for_prim_path`` in ``tools/bbox_extractor.py``.
 """
 
 from __future__ import annotations

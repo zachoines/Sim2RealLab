@@ -22,7 +22,7 @@ Design notes:
   :class:`DetectedBbox` with a ``semantic_id`` field instead; callers
   that need per-instance IDs attach :class:`ReplicatorInstanceSegExtractor`
   (the sibling wrapper below) and join a known target by its USD prim path
-  via :func:`segment_id_for_prim_path`.
+  via :func:`segment_ids_for_prim_path`.
 
 - :func:`parse_bbox_data` is a pure function with NO Isaac Sim / numpy /
   Omniverse dependency — it accepts any iterable-of-row-objects that behaves
@@ -424,7 +424,8 @@ class ReplicatorBboxExtractor:
 # visible to the annotator.)
 
 # Required info keys; a missing key raises InstanceSegSchemaError rather than
-# matching nothing. The annotator data is a 2D (H, W) integer id mask.
+# matching nothing. The annotator data is an (H, W, 1) uint32 id mask; its
+# idToLabels values are USD prim paths (renderer ids -> drawn mesh prim).
 INSTANCE_SEG_FIELDS: tuple[str, ...] = ("idToLabels",)
 
 
@@ -497,54 +498,67 @@ def parse_instance_seg_data(
     return InstanceSegmentation(mask=data, info=info, frame_w=width, frame_h=height)
 
 
-def segment_id_for_prim_path(
+def segment_ids_for_prim_path(
     info: Mapping[str, Any] | None, prim_path: str | None
-) -> int | None:
-    """Renderer-assigned instance id for a USD ``prim_path``, or ``None`` if absent.
+) -> list[int]:
+    """Renderer instance ids drawn from ``prim_path`` or a descendant of it.
 
-    ``info["idToLabels"]`` maps id (string key) -> prim path (value), so this
-    reverse-scans the values — do not index ``idToLabels`` by ``prim_path``.
-    ``None`` means the target was not rendered into any segment (not visible).
+    ``info["idToLabels"]`` maps each id to the prim path it was drawn from (the
+    value), so this reverse-scans the values — do not index ``idToLabels`` by
+    ``prim_path``. The renderer reports the drawn mesh prim, which is often a
+    child of the labelled object prim, so one object can own several ids. Returns
+    an empty list when the target was not rendered (not visible).
     """
     if not prim_path or not info:
-        return None
+        return []
     id_to_labels = info.get("idToLabels")
     if not id_to_labels:
-        return None
+        return []
+    prefix = prim_path.rstrip("/") + "/"
+    ids: list[int] = []
     for seg_id, value in id_to_labels.items():
-        # The value is the prim path string; tolerate a mapping value too.
         candidate: Any = value
         if isinstance(value, Mapping):
             candidate = value.get("prim_path") or value.get("class") or value.get("name")
-        if isinstance(candidate, str) and candidate == prim_path:
+        if not isinstance(candidate, str):
+            continue
+        if candidate == prim_path or candidate.startswith(prefix):
             try:
-                return int(seg_id)
+                ids.append(int(seg_id))
             except (TypeError, ValueError):
-                return None
-    return None
+                continue
+    return ids
 
 
 def segment_pixel_extent(
-    mask: Any, segment_id: int
+    mask: Any, segment_ids: int | Iterable[int]
 ) -> tuple[int, tuple[int, int, int, int]] | None:
-    """Pixel count + bounding box of all ``mask`` pixels equal to ``segment_id``.
+    """Pixel count + bounding box of all ``mask`` pixels matching ``segment_ids``.
 
-    Returns ``(pixel_count, (x_min, y_min, x_max, y_max))`` with an EXCLUSIVE
-    max (a single pixel -> area 1, matching the ``bounding_box_2d_tight`` area
-    convention ``(x2 - x1) * (y2 - y1)``), or ``None`` when the segment has no
-    pixels (target not visible). Uses numpy when the mask exposes it; falls back
-    to a pure scan so list-of-lists fixtures work without numpy.
+    ``segment_ids`` is one id or an iterable of ids (an object split across
+    several renderer instances is unioned). Returns ``(pixel_count, (x_min,
+    y_min, x_max, y_max))`` with an EXCLUSIVE max (a single pixel -> area 1,
+    matching the ``bounding_box_2d_tight`` area convention), or ``None`` when no
+    pixel matches. A trailing channel axis (the annotator's ``(H, W, 1)`` shape)
+    is reduced to 2D. Uses numpy when available; falls back to a pure scan for
+    list-of-lists fixtures.
     """
+    ids = [segment_ids] if isinstance(segment_ids, int) else list(segment_ids)
+    if not ids:
+        return None
     np = _maybe_numpy()
     if np is not None and getattr(mask, "shape", None) is not None:
         arr = np.asarray(mask)
-        if arr.ndim >= 2:
-            ys, xs = np.where(arr == segment_id)
+        if arr.ndim >= 3:
+            arr = arr[..., 0]
+        if arr.ndim == 2:
+            ys, xs = np.where(np.isin(arr, ids))
             if xs.size == 0:
                 return None
             return int(xs.size), (
                 int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1,
             )
+    id_set = set(ids)
     count = 0
     x_min: int | None = None
     y_min: int | None = None
@@ -552,7 +566,7 @@ def segment_pixel_extent(
     y_max = 0
     for y, row in enumerate(mask):
         for x, value in enumerate(row):
-            if value == segment_id:
+            if value in id_set:
                 count += 1
                 if x_min is None or x < x_min:
                     x_min = x

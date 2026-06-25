@@ -145,7 +145,7 @@ def build_visibility_struct(
     """
     from strafer_lab.tools.bbox_extractor import (  # noqa: PLC0415 — keep import light
         bbox_row_for_segment,
-        segment_id_for_prim_path,
+        segment_ids_for_prim_path,
         segment_pixel_extent,
     )
 
@@ -155,9 +155,9 @@ def build_visibility_struct(
     if not prim_path:
         return None  # target carries no prim_path -> cannot key -> skip
 
-    seg_id = segment_id_for_prim_path(seg.info, prim_path)
-    extent = segment_pixel_extent(seg.mask, seg_id) if seg_id is not None else None
-    if seg_id is None or extent is None:
+    seg_ids = segment_ids_for_prim_path(seg.info, prim_path)
+    extent = segment_pixel_extent(seg.mask, seg_ids) if seg_ids else None
+    if not seg_ids or extent is None:
         # The read succeeded but the target was not rendered into any segment:
         # it is not visible -> a real "no" verdict (drives the same-room
         # re-roll), distinct from a skipped/unusable read.

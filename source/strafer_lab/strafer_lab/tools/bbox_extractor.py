@@ -424,8 +424,9 @@ class ReplicatorBboxExtractor:
 # visible to the annotator.)
 
 # Required info keys; a missing key raises InstanceSegSchemaError rather than
-# matching nothing. The annotator data is an (H, W, 1) uint32 id mask; its
-# idToLabels values are USD prim paths (renderer ids -> drawn mesh prim).
+# matching nothing. The annotator data is an (H, W) or (H, W, 1) uint32 id mask;
+# its idToLabels values are USD prim paths (renderer ids -> drawn mesh prim, plus
+# an "INVALID" sentinel for unlabelled pixels).
 INSTANCE_SEG_FIELDS: tuple[str, ...] = ("idToLabels",)
 
 
@@ -501,20 +502,26 @@ def parse_instance_seg_data(
 def segment_ids_for_prim_path(
     info: Mapping[str, Any] | None, prim_path: str | None
 ) -> list[int]:
-    """Renderer instance ids drawn from ``prim_path`` or a descendant of it.
+    """Renderer instance ids belonging to a target object's ``prim_path``.
 
     ``info["idToLabels"]`` maps each id to the prim path it was drawn from (the
     value), so this reverse-scans the values — do not index ``idToLabels`` by
-    ``prim_path``. The renderer reports the drawn mesh prim, which is often a
-    child of the labelled object prim, so one object can own several ids. Returns
-    an empty list when the target was not rendered (not visible).
+    ``prim_path``. The render-time path differs from the one the metadata
+    recorded: the env references the scene under a different root and the mesh
+    leaf repeats the object name (e.g. recorded ``/World/Foo`` renders as
+    ``/World/Room/Foo/Foo``). So a target matches on its unique object-name
+    segment as well as exact / descendant paths; the name is per-instance, so a
+    same-label sibling still cannot match. One object can own several ids
+    (multi-mesh). Returns an empty list when the target was not rendered.
     """
     if not prim_path or not info:
         return []
     id_to_labels = info.get("idToLabels")
     if not id_to_labels:
         return []
-    prefix = prim_path.rstrip("/") + "/"
+    prim_path = str(prim_path).rstrip("/")
+    prefix = prim_path + "/"
+    leaf = prim_path.rsplit("/", 1)[-1]
     ids: list[int] = []
     for seg_id, value in id_to_labels.items():
         candidate: Any = value
@@ -522,7 +529,11 @@ def segment_ids_for_prim_path(
             candidate = value.get("prim_path") or value.get("class") or value.get("name")
         if not isinstance(candidate, str):
             continue
-        if candidate == prim_path or candidate.startswith(prefix):
+        if (
+            candidate == prim_path
+            or candidate.startswith(prefix)
+            or (leaf and leaf in candidate.split("/"))
+        ):
             try:
                 ids.append(int(seg_id))
             except (TypeError, ValueError):

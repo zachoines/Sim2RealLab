@@ -101,6 +101,19 @@ class TestSegmentIdsForPrimPath:
         info = {"idToLabels": {1: TARGET_PRIM + "/seat", 2: TARGET_PRIM + "/legs", 3: SIBLING_PRIM}}
         assert sorted(segment_ids_for_prim_path(info, TARGET_PRIM)) == [1, 2]
 
+    def test_matches_across_stage_composition_prefix(self):
+        # Observed live: the env references the scene under /World/Room and the
+        # mesh leaf repeats the object name, while the metadata recorded
+        # /World/<name>. Match on the unique object-name segment.
+        info = {"idToLabels": {
+            "1": "INVALID",
+            "2": "/World/Room/BookStackFactory_42__spawn_asset_7_/BookStackFactory_42__spawn_asset_7_",
+            "3": "/World/Room/BottleFactory_9__spawn_asset_1_/BottleFactory_9__spawn_asset_1_",
+        }}
+        assert segment_ids_for_prim_path(info, "/World/BookStackFactory_42__spawn_asset_7_") == [2]
+        # A different instance (sibling) must NOT match — names are per-instance.
+        assert segment_ids_for_prim_path(info, "/World/BookStackFactory_99__spawn_asset_0_") == []
+
     def test_prefix_boundary_does_not_overmatch(self):
         # chair_002 must not match chair_0020.
         info = {"idToLabels": {1: "/World/Room/chair_0020", 2: TARGET_PRIM}}

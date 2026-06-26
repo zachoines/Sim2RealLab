@@ -1,5 +1,9 @@
 # Bulk-capture coverage driver — diverse-perspective dataset as the Tier-3 default
 
+**Status:** Shipped 2026-06-26 in `d5b559a` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/111
+**Follow-ups:** per-object landmark re-approach (richer coverage), the depth subgoal `PolicyVariant` when it exists, and parallel-env coverage (`--num-envs > 1`) — v1 ships the room-viewpoint plan, single-env. The live bulk capture run is operator/GPU, tracked separately.
+
 **Type:** new feature (Tier-3 capture driver + bulk-run dataset-schema readiness)
 **Owner:** DGX agent (`source/strafer_lab/scripts/` capture path + the LeRobot writer)
 **Priority:** P0 — the single **capture-blocking** decision for a flexible multi-model corpus. A goal-reaching / teleop demo set under-samples the views the trained models need, and that signal is **irrecoverable post-hoc** (re-capturing thousands of episodes is the cost to avoid).

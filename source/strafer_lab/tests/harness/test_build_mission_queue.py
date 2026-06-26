@@ -132,6 +132,8 @@ class TestRoundTrip:
             assert gm["source_mission_source"] == "queue"
             assert gm["mission_id"] == raw["mission_id"]
             assert gm["scene_seed"] == 7
+            # No waypoint LLM ran -> the corpus must not claim one.
+            assert gm["llm_model"] is None
             # Parser keeps generator_metadata opaque, so the nested fields survive.
             parsed = parse_mission_row(raw)
             assert parsed.generator_metadata["start_frame_grounded"] == gm["start_frame_grounded"]
@@ -203,6 +205,8 @@ class TestWaypointValidationAndFallback:
         row = next(r for r in result.rows if r.get("planned_path"))
         assert row["generator_metadata"]["waypoint_validation"]["source"] == "oracle_fallback"
         assert row["generator_metadata"]["constraint_type_hint"].endswith("_unsatisfied")
+        # Waypoints fell back to the oracle -> no LLM model is claimed.
+        assert row["generator_metadata"]["llm_model"] is None
 
     def test_valid_llm_waypoints_are_used(self):
         scene = _two_room_scene()
@@ -222,6 +226,8 @@ class TestWaypointValidationAndFallback:
         assert chair["generator_metadata"]["waypoint_validation"]["source"] == "llm"
         assert chair["generator_metadata"]["waypoint_validation"]["retries"] == 0
         assert chair["planned_path"][-1]["x"] == pytest.approx(7.0, abs=0.01)
+        # LLM produced the waypoints -> the planner model is stamped.
+        assert chair["generator_metadata"]["llm_model"] == "Qwen/Qwen3-4B"
 
     def test_nearest_path_landmark_picks_unique_near_path_object(self):
         rooms = [{"room_type": "kitchen", "footprint_xy": [[0, 0], [8, 0], [8, 3], [0, 3]], "story": 0}]
@@ -438,58 +444,135 @@ class TestStartFrameGrounding:
             assert r["generator_metadata"]["start_frame_grounded"] is None
 
 
-class TestGroundingFrameContract:
-    """The live provider's frame-contract sanitizer (``coerce_frame_return``).
+class TestGeometricVisibilityVerdict:
+    """The model-free geometric start-frame verdict + its runner.
 
-    The default grounding runner opens the frame with no try/except
-    (``frame if isinstance(frame, Image.Image) else Image.open(frame)``), so the
-    provider must guarantee its return is either a ``PIL.Image`` or a readable
-    image path — anything else becomes a clean ``None`` (a counted skip) rather
-    than a crash inside the runner. Pure Python; no Kit, no model.
+    The verdict ships a mission ("yes") iff the KNOWN target is geometrically
+    observable from the start pose: in frame, not effectively occluded, big
+    enough on screen, and not mostly truncated by a frame edge. Each threshold
+    is asserted INDIVIDUALLY necessary against the imported module constants —
+    no magic numbers duplicated here.
     """
 
-    def test_pil_image_passes_through(self):
-        from PIL import Image
+    FRAME_W = 640
+    FRAME_H = 360
 
-        from strafer_lab.tools.grounding_frame_provider import coerce_frame_return
+    @property
+    def _min_area(self) -> int:
+        return round(bmq.GROUNDING_MIN_BBOX_AREA_FRAC * self.FRAME_W * self.FRAME_H)
 
-        img = Image.new("RGB", (4, 4))
-        assert coerce_frame_return(img) is img
+    def _passing_struct(self) -> dict:
+        # Comfortably above the min-area floor, in frame, unoccluded.
+        side = int((self._min_area * 4) ** 0.5) + 1  # ~2x the min side -> ~4x area
+        return {
+            "in_frame": True,
+            "bbox": (10, 10, 10 + side, 10 + side),
+            "occlusion_ratio": 0.0,
+            "frame_w": self.FRAME_W,
+            "frame_h": self.FRAME_H,
+        }
 
-    def test_none_stays_none(self):
-        from strafer_lab.tools.grounding_frame_provider import coerce_frame_return
+    def test_all_pass_is_yes(self):
+        assert bmq.geometric_visibility_verdict(self._passing_struct(), "go to the chair") == "yes"
 
-        assert coerce_frame_return(None) is None
+    def test_not_in_frame_is_no(self):
+        s = self._passing_struct()
+        s["in_frame"] = False
+        assert bmq.geometric_visibility_verdict(s, "x") == "no"
 
-    def test_missing_path_surfaces_as_none(self, tmp_path):
-        from strafer_lab.tools.grounding_frame_provider import coerce_frame_return
+    def test_occlusion_is_individually_necessary(self):
+        s = self._passing_struct()
+        s["occlusion_ratio"] = bmq.GROUNDING_MAX_OCCLUSION_RATIO + 0.01
+        assert bmq.geometric_visibility_verdict(s, "x") == "no"
+        # Exactly at the threshold is still observable (<=, not <).
+        s["occlusion_ratio"] = bmq.GROUNDING_MAX_OCCLUSION_RATIO
+        assert bmq.geometric_visibility_verdict(s, "x") == "yes"
 
-        missing = tmp_path / "nope.png"
-        assert coerce_frame_return(missing) is None
-        assert coerce_frame_return(str(missing)) is None
+    def test_bbox_area_is_individually_necessary(self):
+        s = self._passing_struct()
+        # A 1-pixel speck is below the floor -> "no".
+        s["bbox"] = (10, 10, 11, 11)
+        assert (11 - 10) * (11 - 10) < self._min_area
+        assert bmq.geometric_visibility_verdict(s, "x") == "no"
+        # A box exactly at the min area passes.
+        side = max(1, int(self._min_area ** 0.5))
+        big = side + 1  # area (big*big) >= min_area
+        s["bbox"] = (10, 10, 10 + big, 10 + big)
+        assert big * big >= self._min_area
+        assert bmq.geometric_visibility_verdict(s, "x") == "yes"
 
-    def test_unreadable_file_surfaces_as_none(self, tmp_path):
-        from strafer_lab.tools.grounding_frame_provider import coerce_frame_return
+    def test_none_required_field_is_no(self):
+        for field in ("occlusion_ratio", "bbox"):
+            s = self._passing_struct()
+            s[field] = None
+            assert bmq.geometric_visibility_verdict(s, "x") == "no", field
 
-        bad = tmp_path / "bad.png"
-        bad.write_bytes(b"not an image")
-        assert coerce_frame_return(bad) is None
+    def test_non_dict_struct_is_no(self):
+        assert bmq.geometric_visibility_verdict(None, "x") == "no"
 
-    def test_valid_image_path_is_validated_and_returned(self, tmp_path):
-        from PIL import Image
+    def test_zero_frame_dims_is_no(self):
+        # A degenerate frame dim would collapse the area floor to 0 and let any
+        # speck pass; guard rejects instead.
+        for dim in ("frame_w", "frame_h"):
+            s = self._passing_struct()
+            s[dim] = 0
+            assert bmq.geometric_visibility_verdict(s, "x") == "no", dim
 
-        from strafer_lab.tools.grounding_frame_provider import coerce_frame_return
+    def test_mission_text_is_ignored(self):
+        s = self._passing_struct()
+        assert bmq.geometric_visibility_verdict(s, "fetch the lamp") == bmq.geometric_visibility_verdict(s, "")
 
-        path = tmp_path / "frame.png"
-        Image.new("RGB", (4, 4)).save(path)
-        # Validated readable image path returns the path for the runner to open.
-        assert coerce_frame_return(path) == str(path)
+    def test_area_floor_scales_with_resolution(self):
+        # The same bbox is a speck on a big frame but fine on a small one:
+        # the floor is a fraction of frame area, not a fixed pixel count.
+        bbox = (0, 0, 8, 8)  # 64 px
+        big = {"in_frame": True, "bbox": bbox, "occlusion_ratio": 0.0,
+               "frame_w": 640, "frame_h": 360}
+        small = {**big, "frame_w": 120, "frame_h": 80}
+        assert 64 < round(bmq.GROUNDING_MIN_BBOX_AREA_FRAC * 640 * 360)  # speck on big frame
+        assert 64 >= round(bmq.GROUNDING_MIN_BBOX_AREA_FRAC * 120 * 80)  # fine on small frame
+        assert bmq.geometric_visibility_verdict(big, "x") == "no"
+        assert bmq.geometric_visibility_verdict(small, "x") == "yes"
 
-    def test_raw_numpy_array_surfaces_as_none(self):
-        from strafer_lab.tools.grounding_frame_provider import coerce_frame_return
+    def test_runner_wraps_verdict_and_returns_only_yes_or_no(self):
+        runner = bmq.build_default_geometric_runner()
+        assert runner(self._passing_struct(), "x") == "yes"
+        absent = self._passing_struct()
+        absent["in_frame"] = False
+        assert runner(absent, "x") == "no"
 
-        # The runner does not handle a bare ndarray; coerce makes it a clean skip.
-        assert coerce_frame_return(np.zeros((4, 4, 3), dtype=np.uint8)) is None
+    def test_runner_drops_into_existing_grounding_plumbing(self):
+        # The geometric runner must satisfy the same (frame, mission_text) -> str
+        # seam the generator calls: a "yes" struct ships, a same-room "no" struct
+        # re-rolls (rejected). Reuses the real generator, swapping only the
+        # runner + a struct-returning frame provider.
+        scene = _two_room_scene()
+
+        def yes_provider(obj, start_pose):
+            return {"in_frame": True, "bbox": (0, 0, 100, 100), "occlusion_ratio": 0.0,
+                    "frame_w": 640, "frame_h": 360}
+
+        result = bmq.build_mission_queue(
+            scene,
+            GeneratorConfig(mode="endpoint", ground_start_frame=True),
+            grounding_runner=bmq.build_default_geometric_runner(),
+            grounding_frame_provider=yes_provider,
+        )
+        assert result.stats.start_frame_grounded_yes == result.stats.emitted
+        assert all(r["generator_metadata"]["start_frame_grounded"] is True for r in result.rows)
+
+        def no_same_room_provider(obj, start_pose):
+            return {"in_frame": False, "bbox": None, "occlusion_ratio": None,
+                    "frame_w": 640, "frame_h": 360}
+
+        same = bmq.build_mission_queue(
+            _two_room_scene(reachable=False),
+            GeneratorConfig(mode="endpoint", ground_start_frame=True),
+            grounding_runner=bmq.build_default_geometric_runner(),
+            grounding_frame_provider=no_same_room_provider,
+        )
+        assert same.stats.emitted == 0
+        assert same.stats.rejected_reasons.get("target_not_visible_at_start", 0) >= 1
 
 
 # ---------------------------------------------------------------------------

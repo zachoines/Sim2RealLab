@@ -1,24 +1,28 @@
 """Kit-launched sibling of ``build_mission_corpus.py`` that grounds start frames.
 
-The headless ``build_mission_corpus.py`` cannot ground: the start-frame VLM
-needs a rendered egocentric frame, and ``start_pose`` is derived mid-traversal
-off a single stateful RNG, so the poses cannot be enumerated and pre-rendered to
-disk without re-running the generator (any drift becomes a silent skip). This
-script closes that gap by rendering the frame *in the same traversal that
-computes the pose*: it boots Isaac Sim once via ``AppLauncher``, stands up the
-perception-camera env around one scene, builds a live
-``grounding_frame_provider`` (see
+The headless ``build_mission_corpus.py`` cannot ground: the start-frame
+visibility check needs a rendered frame's Replicator annotators, and
+``start_pose`` is derived mid-traversal off a single stateful RNG, so the poses
+cannot be enumerated and pre-rendered to disk without re-running the generator
+(any drift becomes a silent skip). This script closes that gap by rendering the
+frame *in the same traversal that computes the pose*: it boots Isaac Sim once
+via ``AppLauncher``, stands up the perception-camera env around one scene,
+builds a live ``grounding_frame_provider`` (see
 :func:`strafer_lab.tools.grounding_frame_provider.make_render_grounding_frame_provider`),
 and hands it to :func:`build_mission_corpus.run`, which threads it — alongside
-the grounding runner it builds from ``--grounding-model`` — into
-``build_mission_queue``. A re-rolled seed (a same-room "no") renders natively
+the model-free geometric grounding runner — into ``build_mission_queue``. The
+grounding verdict is GEOMETRIC: at generation time the target instance and scene
+geometry are known ground truth, so visibility is read off the
+``bounding_box_2d_tight`` (occlusion + size) and ``instance_id_segmentation``
+(per-instance identity, joined by the target's USD prim path) annotators — NO VL
+model co-resident with Kit. A re-rolled seed (a same-room "no") renders natively
 when the loop reaches the next seeded pose; there is no pose key to miss.
 
 It reuses ``build_mission_corpus``'s parser and ``run`` verbatim, so every
 corpus flag (``--mode`` / ``--llm-seed`` / ``--start-pose-seeds`` /
-``--output-dir`` / ``--cache-dir`` / ``--force`` / ``--require-groundable`` /
-``--grounding-model`` ...) behaves identically; this script only adds the Kit
-boot, the live frame source, and a few render knobs.
+``--output-dir`` / ``--cache-dir`` / ``--force`` / ``--require-groundable``
+...) behaves identically; this script only adds the Kit boot, the live frame
+source, and a few render knobs.
 
 One scene per Kit boot. The env is built around a single scene's geometry —
 rendering one scene's poses against another's geometry would be wrong — so this
@@ -26,35 +30,44 @@ grounds exactly one scene. For a multi-scene corpus, run it once per scene (the
 same per-scene-boot pattern the bridge/teleop capture drivers use); each writes
 its scene's ``queue.yaml``. Boot is once *per run*, never per mission.
 
-Operator runbook (this is a GPU + Kit step — the agent never launches it):
+Operator runbook (this is a Kit step — the agent never launches it). The gate
+needs NO VL model, NO ``--grounding-model``, and NO env mutation (the geometric
+verdict has no torch-VL dependency, so the cuda-bindings conflict is gone):
 
     source env_setup.sh
     isaaclab -p source/strafer_lab/scripts/render_grounded_mission_corpus.py \\
         --scenes <one_scene> \\
         --ground-start-frame \\
-        --grounding-model Qwen/Qwen2.5-VL-3B-Instruct \\
         --start-pose-seeds 5 \\
         --force \\
         --headless
 
   - ``--ground-start-frame`` is REQUIRED here — without it there is no runner to
     build and grounding is skipped, which defeats the script's only purpose.
-  - ``--grounding-model Qwen/Qwen2.5-VL-3B-Instruct`` is the cached, offline-ready
-    checkpoint. The flag defaults to the 7B, which is NOT in the offline cache;
-    pass the 3B (or pre-download the 7B).
   - ``--start-pose-seeds`` defaults to 1, which gives a same-room "no" no
     alternate seed and silently drops that target. Pass > 1 (5 here) so a "no"
     re-rolls to the next seeded start pose instead of dropping the mission.
   - ``--force`` (or a fresh ``--cache-dir``) is mandatory: the corpus cache key
-    does NOT include ``ground_start_frame`` / ``grounding_model``, so a grounded
-    run after any prior ungrounded run reuses the stale ungrounded rows, the
-    provider never fires, and grounding stays all-skipped.
-  - Report the per-scene ``start_frame_grounded`` yes/partial/no rate (the
-    per-scene line ``grounded(yes/no/skip)=...``). That rate is the measurement
-    that closes the start-frame half of the grounding gate.
-  - If the teleported robot has not settled before the rgb read, raise
+    omits ``ground_start_frame``, so a grounded run after any prior ungrounded
+    run reuses the stale ungrounded rows, the provider never fires, and
+    grounding stays all-skipped.
+  - Report the per-scene ``start_frame_grounded`` rate — now a deterministic
+    geometric visibility count, not a model judgement — which closes the
+    start-frame half of the grounding gate. The interactive console prints it as
+    ``grounded(yes/no/skip)=...``, BUT Kit hijacks stdout, so that line is lost
+    when the run is piped / ``tee``'d. The reliable source is the persisted
+    ``stats`` block in ``<cache-dir>/<scene>/<scene_seed>.json``
+    (``start_frame_grounded_yes`` / ``emitted`` -> rate).
+  - If the teleported robot has not settled before the annotator read, raise
     ``--grounding-warmup-steps``; for Infinigen floors above world z=0, raise
     ``--spawn-z`` to ``floor_top_z + wheel_clearance``.
+
+  The ``instance_id_segmentation`` schema is verified against the installed
+  Isaac Sim (``(H, W, 1)`` uint32 id mask + ``info["idToLabels"]`` mapping id ->
+  mesh prim path, ``colorize=False``). On the first live run, sanity-check the
+  yes/no/skip distribution against a few rendered frames; if Infinigen objects
+  map to mesh prims this code does not resolve, adjust
+  ``segment_ids_for_prim_path`` in ``tools/bbox_extractor.py``.
 """
 
 from __future__ import annotations
@@ -126,6 +139,12 @@ def main() -> int:
     AppLauncher.add_app_launcher_args(parser)
     args = parser.parse_args()
 
+    # This script exists only to render the start frame, so the perception
+    # camera MUST initialize — Isaac Lab refuses to spawn a camera without
+    # --enable_cameras. Force it on (like num_envs=1 below) rather than depend
+    # on the operator remembering the flag.
+    args.enable_cameras = True
+
     if not args.ground_start_frame:
         raise SystemExit(
             "render_grounded_mission_corpus.py requires --ground-start-frame: it "
@@ -175,9 +194,8 @@ def main() -> int:
         warmup_steps=args.grounding_warmup_steps,
     )
     print(
-        f"[render_grounded] live grounding frame provider up "
-        f"(spawn_z={args.spawn_z}, warmup_steps={args.grounding_warmup_steps}, "
-        f"grounding_model={args.grounding_model})"
+        f"[render_grounded] live geometric grounding frame provider up "
+        f"(spawn_z={args.spawn_z}, warmup_steps={args.grounding_warmup_steps})"
     )
 
     try:

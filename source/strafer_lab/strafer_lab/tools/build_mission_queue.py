@@ -14,10 +14,12 @@ cached-occupancy seam (:func:`scene_connectivity.load_occupancy` +
 no re-rasterization. Cross-room missions are gated by ``connectivity[]``.
 
 The pipeline is split so the heavy/optional passes are injectable callables:
-the LLM waypoint planner, the paraphrase model, and the start-frame VLM
-grounding pass all degrade to deterministic, model-free behaviour when their
-runner is absent, so the generator's core logic is exercisable without
-``transformers``, a GPU, or a rendered frame. The single ``pxr`` touch-point
+the LLM waypoint planner and the paraphrase model degrade to deterministic,
+model-free behaviour when their runner is absent, and the start-frame grounding
+pass is a model-free geometric visibility check over the rendered scene's
+Replicator annotators (no VL model co-resident with Kit). All of it is
+exercisable without ``transformers``, a GPU, or a rendered frame — grounding
+degrades to a counted skip headless. The single ``pxr`` touch-point
 (reading metadata from a USD) and the occupancy load live in
 :func:`load_scene_inputs`; everything below it operates on the plain
 :class:`SceneInputs` dict so unit tests build scenes in memory.
@@ -57,12 +59,12 @@ MODES = ("endpoint", "path-shape", "mixed")
 # graph that gates it does.
 ORACLE_SNAP_RADIUS_M = sc.DEFAULT_SNAP_RADIUS_M  # 1.0 m
 
-# Default checkpoints. Text-only for waypoint planning + paraphrase; a VL model
-# for the start-frame grounding pass. All are loaded lazily and only when a run
-# opts in — the model-free fallbacks need none of them.
+# Default checkpoints for the text-only waypoint planner + paraphrase passes.
+# Both are loaded lazily and only when a run opts in — the model-free fallbacks
+# need neither. The start-frame grounding pass takes NO model: it is a geometric
+# visibility check over the rendered annotators (see the thresholds below).
 DEFAULT_PLANNER_MODEL = "Qwen/Qwen3-4B"
 DEFAULT_PARAPHRASE_MODEL = "Qwen/Qwen3-4B"
-DEFAULT_GROUNDING_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
 
 
 class MissionGeneratorError(Exception):
@@ -76,10 +78,21 @@ class StaleOccupancyError(MissionGeneratorError):
 # Runner protocols (all optional; absence selects the model-free fallback):
 #   waypoint planner: (prompt, seed) -> raw JSON string {"waypoints", "rationale"}
 #   paraphrase:       (mission_text, n, seed) -> list[str]
-#   grounding:        (frame, mission_text) -> "yes" | "partial" | "no"
+#   grounding:        (struct, mission_text) -> "yes" | "no"  (geometric; mission_text ignored)
 WaypointRunner = Callable[[str, int], str]
 ParaphraseRunner = Callable[[str, int, int], list[str]]
 GroundingRunner = Callable[[Any, str], str]
+
+
+# Geometric start-frame grounding thresholds. geometric_visibility_verdict ships
+# a mission iff ALL hold (each individually necessary). Tunables, not yet CLI-exposed.
+
+# In-frame but effectively hidden. occlusionRatio: 0.0 visible .. 1.0 occluded.
+GROUNDING_MAX_OCCLUSION_RATIO = 0.85
+
+# Sub-pixel speck across a room. Fraction of frame area (verdict x frame_w*frame_h),
+# ~115 px at 640x360, so it scales with resolution.
+GROUNDING_MIN_BBOX_AREA_FRAC = 0.0005
 
 
 @dataclass(frozen=True)
@@ -105,7 +118,6 @@ class GeneratorConfig:
     ground_start_frame: bool = False
     planner_model: str = DEFAULT_PLANNER_MODEL
     paraphrase_model: str = DEFAULT_PARAPHRASE_MODEL
-    grounding_model: str = DEFAULT_GROUNDING_MODEL
 
     def __post_init__(self) -> None:
         if self.mode not in MODES:
@@ -1314,13 +1326,18 @@ def _emit_row(
     )
 
     scene_seed = int(inputs.scene_seed) if inputs.scene_seed is not None else None
+    # Record the planner model only when the LLM actually produced this row's
+    # waypoints (waypoint_validation source "llm"). Oracle / fallback rows record
+    # None so the corpus does not claim LLM waypoints it never generated — and so
+    # the metadata is not read as "an LLM was loaded" (it was not).
+    planner_is_llm = bool(validation) and validation.get("source") == "llm"
     # Fields without a writer column (mission_id, scene_seed, target_room,
     # start_room, cross_room, planned_path, grounding) are folded here so they
     # survive into the episode's generator_metadata JSON column.
     generator_metadata: dict[str, Any] = {
         "generator_version": config.generator_version,
         "mode": config.mode,
-        "llm_model": config.planner_model,
+        "llm_model": config.planner_model if planner_is_llm else None,
         "llm_seed": config.llm_seed,
         "prompt_template_hash": template_hash,
         "source_mission_source": SOURCE_MISSION_SOURCE,
@@ -1440,31 +1457,57 @@ def build_default_paraphrase_runner(model_name: str = DEFAULT_PARAPHRASE_MODEL) 
     return _run
 
 
-def build_default_grounding_runner(model_name: str = DEFAULT_GROUNDING_MODEL) -> GroundingRunner:
-    """VL start-frame grounding runner (lazy load). The only render-dependent pass."""
-    state: dict[str, Any] = {"model": None, "proc": None}
+def geometric_visibility_verdict(struct: dict[str, Any], mission_text: str) -> str:
+    """Model-free start-frame visibility verdict over a target-visibility struct.
+
+    Returns ``"yes"`` iff the target is in frame, not effectively occluded, and
+    large enough on screen; otherwise (or on any missing / ``None`` field)
+    ``"no"``. ``mission_text`` is ignored — the target identity is baked into
+    ``struct`` by the provider. Deterministic: same struct -> same verdict. The
+    struct comes from
+    :func:`strafer_lab.tools.grounding_frame_provider.build_visibility_struct`.
+    """
+    del mission_text  # the target identity is baked into struct; signature only
+
+    # In frustum / a target row exists. Out-of-frustum or no row -> "no".
+    if not isinstance(struct, dict) or not struct.get("in_frame"):
+        return "no"
+
+    # Not effectively hidden behind other geometry.
+    occlusion = struct.get("occlusion_ratio")
+    if occlusion is None or occlusion > GROUNDING_MAX_OCCLUSION_RATIO:
+        return "no"
+
+    # Large enough on screen to be a real target, not a speck across a room. A
+    # frame-filling target (the robot facing an adjacent object) is observable,
+    # so on-screen size is the only spatial gate — no edge-clip rejection.
+    bbox = struct.get("bbox")
+    if not bbox:
+        return "no"
+    x_min, y_min, x_max, y_max = bbox
+    area = (x_max - x_min) * (y_max - y_min)
+    frame_w = struct.get("frame_w") or 0
+    frame_h = struct.get("frame_h") or 0
+    if frame_w <= 0 or frame_h <= 0:
+        return "no"  # degenerate frame dims -> no meaningful size floor
+    min_area = round(GROUNDING_MIN_BBOX_AREA_FRAC * frame_w * frame_h)
+    if area < min_area:
+        return "no"
+
+    return "yes"
+
+
+def build_default_geometric_runner() -> GroundingRunner:
+    """Model-free geometric start-frame grounding runner.
+
+    Drop-in for the ``(frame, mission_text) -> verdict`` seam: ``frame`` is the
+    target-visibility struct the geometric render provider produced, and the
+    verdict is :func:`geometric_visibility_verdict`. No model, no GPU, no torch
+    co-resident with Kit — so the same scene + same start pose always yields the
+    same verdict.
+    """
 
     def _run(frame: Any, mission_text: str) -> str:
-        if state["model"] is None:
-            from transformers import AutoModelForVision2Seq, AutoProcessor
-
-            state["proc"] = AutoProcessor.from_pretrained(model_name)
-            state["model"] = AutoModelForVision2Seq.from_pretrained(
-                model_name, device_map="auto", torch_dtype="auto"
-            ).eval()
-        from PIL import Image
-
-        model, proc = state["model"], state["proc"]
-        image = frame if isinstance(frame, Image.Image) else Image.open(frame).convert("RGB")
-        question = (
-            f'Is the target named in this instruction visible in the image? '
-            f'Instruction: "{mission_text}". Answer with one word: yes, partial, or no.'
-        )
-        messages = [{"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": question}]}]
-        chat = proc.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        inputs = proc(text=[chat], images=[image], return_tensors="pt").to(model.device)
-        out = model.generate(**inputs, max_new_tokens=8, do_sample=False)
-        decoded = proc.batch_decode(out[:, inputs["input_ids"].shape[1]:], skip_special_tokens=True)[0]
-        return decoded.strip().lower()
+        return geometric_visibility_verdict(frame, mission_text)
 
     return _run

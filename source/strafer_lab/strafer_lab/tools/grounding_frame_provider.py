@@ -2,11 +2,17 @@
 
 The mission generator
 (:func:`strafer_lab.tools.build_mission_queue.build_mission_queue`) takes an
-optional ``grounding_frame_provider``: a callable ``(obj, start_pose) -> frame``
-invoked inside ``_ground_start_frame`` to source the egocentric image a VL model
-judges target visibility against. This module builds that provider so it renders
-the frame in-process, from the robot's ``d555_camera_perception`` camera, at the
-exact ``start_pose`` the generator just computed.
+optional ``grounding_frame_provider``: a callable ``(obj, start_pose) -> struct``
+invoked inside ``_ground_start_frame``. This module builds that provider so it
+renders the start frame in-process — from the robot's ``d555_camera_perception``
+camera, at the exact ``start_pose`` the generator just computed — and reads
+Replicator annotators into a target-visibility struct the model-free geometric
+verdict
+(:func:`strafer_lab.tools.build_mission_queue.geometric_visibility_verdict`)
+judges. There is NO VL model: at generation time the target instance and the
+scene geometry are known ground truth, so visibility is decided geometrically
+(occlusion + on-screen size against the KNOWN target), with no torch-VL model
+co-resident with Kit.
 
 Rendering at generation time is deliberate: ``start_pose`` is not an enumerable
 parameter. It is RNG-sampled mid-traversal (the room representative or a seeded
@@ -19,29 +25,28 @@ skip. Rendering in the same traversal that computes the pose removes the key
 entirely, and a re-rolled seed (a same-room "no") renders natively when the loop
 reaches the next seeded pose.
 
-Two pieces:
+Pieces:
 
 - :func:`make_render_grounding_frame_provider` — the closure over a live Isaac
-  Lab env. It teleports the robot to ``start_pose``, steps the env so the tiled
-  camera holds a freshly rendered frame, reads the rgb, and returns it as a
-  ``PIL.Image``. Authoring this needs no Kit; **running** it does (an operator
-  step under ``AppLauncher`` — see ``scripts/render_grounded_mission_corpus.py``).
-- :func:`coerce_frame_return` — the frame-contract sanitizer. The default
-  grounding runner consumes the frame as ``frame if isinstance(frame,
-  Image.Image) else Image.open(frame).convert("RGB")`` with no guard, so a
-  provider that returns a path must validate it is a readable image first; a bad
-  or missing render then surfaces as a clean ``None`` (a counted skip) instead
-  of raising inside the runner. Pure Python; unit-tested without Kit.
-
-Scene-source-agnostic: this reads only the ``(x, y, yaw)`` start pose and never
-imports any scene-source package.
+  Lab env. It teleports the robot to ``start_pose`` (env 0), steps the env so
+  the perception camera holds a fresh frame, reads the
+  ``bounding_box_2d_tight`` + ``instance_id_segmentation`` annotators, and
+  returns a JSON-able target-visibility struct (or ``None`` on an unusable read
+  — a counted skip). The target is pinned by its ``obj["prim_path"]`` through
+  the instance-segmentation map, NOT by label, so a same-label sibling cannot
+  satisfy the gate. Authoring this needs no Kit; **running** it does (an
+  operator step under ``AppLauncher`` — see
+  ``scripts/render_grounded_mission_corpus.py``).
+- :func:`build_visibility_struct` — the pure struct-shaping over already-parsed
+  annotator data (typed bboxes + the instance mask). No Kit, no model;
+  unit-tested with fixtures.
+Scene-source-agnostic: this reads only the ``(x, y, yaw)`` start pose and the
+target's ``prim_path``, and never imports any scene-source package.
 """
 
 from __future__ import annotations
 
 import math
-import os
-from pathlib import Path
 from typing import Any, Callable
 
 # Robot root z (meters above the env origin) at which the teleported robot is
@@ -58,64 +63,59 @@ DEFAULT_SPAWN_Z = 0.1
 DEFAULT_GROUNDING_WARMUP_STEPS = 2
 
 
-def coerce_frame_return(frame: Any) -> Any:
-    """Sanitize a provider's return for the un-guarded runner frame contract.
+def build_visibility_struct(
+    bboxes: Any, seg: Any, prim_path: str | None, label: str | None = None
+) -> dict[str, Any] | None:
+    """Shape parsed annotator reads into the target-visibility struct, or ``None``.
 
-    The default grounding runner does ``frame if isinstance(frame, Image.Image)
-    else Image.open(frame).convert("RGB")`` with no try/except, so:
-
-    - a ``PIL.Image`` passes straight through;
-    - a path (``str`` / ``os.PathLike``) is stat-checked and probed as an image
-      here, so a missing or unreadable render returns ``None`` (a counted skip)
-      rather than raising ``Image.open`` deep inside the runner. The validated
-      *path* is returned, not the opened image, so the runner's own
-      ``Image.open(...).convert("RGB")`` stays the single decode site;
-    - ``None`` stays ``None``;
-    - any other type (e.g. a raw numpy array, which the runner does not handle)
-      returns ``None`` — surfaced as a skip, never a runner crash.
+    ``bboxes`` is the parsed bounding_box_2d_tight list; ``seg`` is the parsed
+    ``InstanceSegmentation`` (or ``None`` if no frame); ``prim_path`` is the
+    target's USD prim path; ``label`` is the target's class (used to prefer the
+    target's own class row for occlusion over a foreground occluder's). Returns
+    ``None`` (a counted skip) when the read is unusable (no seg frame, or no
+    prim_path). A successful read where the target has no segment yields an
+    ``in_frame=False`` struct (a "no" that re-rolls a same-room target) —
+    distinct from a skip. Pure; unit-testable with fixtures.
     """
-    if frame is None:
-        return None
-    from PIL import Image  # noqa: PLC0415 — deferred so module import stays light
+    from strafer_lab.tools.bbox_extractor import (  # noqa: PLC0415 — keep import light
+        bbox_row_for_segment,
+        segment_ids_for_prim_path,
+        segment_pixel_extent,
+    )
 
-    if isinstance(frame, Image.Image):
-        return frame
-    if isinstance(frame, (str, os.PathLike)):
-        path = Path(frame)
-        if not path.is_file():
-            return None
-        try:
-            with Image.open(path) as probe:
-                probe.verify()
-        except Exception:
-            return None
-        return str(path)
-    return None
+    if seg is None:
+        return None  # unusable instance-seg read -> skip (cannot locate target)
+    frame_w, frame_h = int(seg.frame_w), int(seg.frame_h)
+    if not prim_path:
+        return None  # target carries no prim_path -> cannot key -> skip
 
+    seg_ids = segment_ids_for_prim_path(seg.info, prim_path)
+    extent = segment_pixel_extent(seg.mask, seg_ids) if seg_ids else None
+    if not seg_ids or extent is None:
+        # The read succeeded but the target was not rendered into any segment:
+        # it is not visible -> a real "no" verdict (drives the same-room
+        # re-roll), distinct from a skipped/unusable read.
+        return {
+            "in_frame": False,
+            "bbox": None,
+            "occlusion_ratio": None,
+            "frame_w": frame_w,
+            "frame_h": frame_h,
+        }
 
-def _wp_to_torch(arr: Any) -> Any:
-    """Coerce a ``wp.array`` to a torch tensor (live Isaac Sim data only)."""
-    import warp as wp  # noqa: PLC0415 — only reached on live Isaac Sim data
-
-    return wp.to_torch(arr)
-
-
-def _to_uint8_hwc(tensor: Any, torch: Any) -> Any:
-    """``(N, H, W, C)`` rgb(a) tensor -> contiguous ``(H, W, 3)`` uint8 ndarray.
-
-    Mirrors the runtime adapter's ``IsaacLabEnvAdapter._to_uint8_hwc`` readback
-    so the grounded frame matches the captured perception frame.
-    """
-    import numpy as np  # noqa: PLC0415 — keep top-of-file imports light
-
-    del torch  # signature symmetry; the conversion only needs the tensor
-    t = tensor if hasattr(tensor, "detach") else _wp_to_torch(tensor)
-    arr = (t[0] if t.dim() == 4 else t).detach().cpu().numpy()
-    if arr.ndim == 3 and arr.shape[-1] == 4:
-        arr = arr[..., :3]
-    if arr.dtype != np.uint8:
-        arr = np.clip(arr, 0, 255).astype(np.uint8)
-    return np.ascontiguousarray(arr)
+    _count, mask_bbox = extent
+    # Occlusion is per-class only (from the bbox row overlapping the segment); the
+    # bbox is the per-instance mask box. Pass the target label so a foreground
+    # occluder of a different class cannot supply the occlusion.
+    row = bbox_row_for_segment(bboxes or [], mask_bbox, label=label)
+    occlusion_ratio = row.occlusion_ratio if row is not None else None
+    return {
+        "in_frame": True,
+        "bbox": tuple(int(v) for v in mask_bbox),
+        "occlusion_ratio": occlusion_ratio,
+        "frame_w": frame_w,
+        "frame_h": frame_h,
+    }
 
 
 def _teleport_robot(
@@ -171,12 +171,19 @@ def make_render_grounding_frame_provider(
     """Build a live ``grounding_frame_provider`` over a running Isaac Lab env.
 
     The returned callable matches the generator seam ``(obj, start_pose) ->
-    PIL.Image | None``: it teleports the robot to ``start_pose`` (env 0), steps
-    the env ``warmup_steps`` times so the tiled perception camera holds a fresh
-    frame, reads the rgb, and returns it as a ``PIL.Image`` (in memory — no PNG
-    written). ``obj`` is unused: the frame is the robot's egocentric view from
-    the start pose, and the VL runner judges whether the target named in the
-    mission text is visible in it.
+    struct | None``: it teleports the robot to ``start_pose`` (env 0), steps the
+    env ``warmup_steps`` times so the perception camera holds a fresh frame,
+    reads the ``bounding_box_2d_tight`` + ``instance_id_segmentation``
+    annotators, and shapes them into the target-visibility struct the geometric
+    verdict consumes (see :func:`build_visibility_struct`). ``obj`` IS used: the
+    target is pinned by ``obj["prim_path"]`` through the instance-segmentation
+    map, so a same-label sibling cannot satisfy the gate. An unusable read
+    returns ``None`` (a counted skip).
+
+    The two annotators are attached once here (at provider-build time, the only
+    ``omni.replicator.core`` touch-point), via
+    :func:`strafer_lab.tools.bbox_extractor.resolve_render_product_path` on the
+    perception camera — the same render product the detections pipeline uses.
 
     ``app_update`` is the host's Kit pump (``simulation_app.update``); it is
     invoked once per warm-up step. With ``unwrapped.render_enabled = False`` set
@@ -191,6 +198,12 @@ def make_render_grounding_frame_provider(
         import torch as torch_module  # noqa: PLC0415 — deferred so import stays Kit-free
     torch = torch_module
 
+    from strafer_lab.tools.bbox_extractor import (  # noqa: PLC0415 — Kit-only attach path
+        ReplicatorBboxExtractor,
+        ReplicatorInstanceSegExtractor,
+        resolve_render_product_path,
+    )
+
     unwrapped = env.unwrapped
     device = unwrapped.device
     scene = unwrapped.scene
@@ -200,8 +213,16 @@ def make_render_grounding_frame_provider(
     env_ids = torch.tensor([0], device=device, dtype=torch.long)
     steps = max(1, int(warmup_steps))
 
+    # Attach both annotators once to the perception camera's render product.
+    # ``semantic_types=("class",)`` matches how the scene authors UsdSemantics
+    # labels; the instance-seg annotator pins the specific target instance.
+    render_product_path = resolve_render_product_path(scene[perception_camera_key])
+    bbox_extractor = ReplicatorBboxExtractor(
+        render_product_path, semantic_types=("class",)
+    )
+    inst_seg_extractor = ReplicatorInstanceSegExtractor(render_product_path)
+
     def _provider(obj: dict[str, Any], start_pose: tuple[float, float, float]) -> Any:
-        del obj  # the frame is pose-egocentric; the runner judges the target
         x, y, yaw = float(start_pose[0]), float(start_pose[1]), float(start_pose[2])
         _teleport_robot(
             robot=robot,
@@ -218,10 +239,10 @@ def make_render_grounding_frame_provider(
             env.step(zero_action.clone())
             if app_update is not None:
                 app_update()
-        rgb = scene[perception_camera_key].data.output["rgb"]
-        arr = _to_uint8_hwc(rgb, torch)
-        from PIL import Image  # noqa: PLC0415 — deferred so import stays Kit-free
-
-        return coerce_frame_return(Image.fromarray(arr))
+        bboxes = bbox_extractor.extract()
+        seg = inst_seg_extractor.extract()
+        prim_path = obj.get("prim_path") if isinstance(obj, dict) else None
+        label = obj.get("label") if isinstance(obj, dict) else None
+        return build_visibility_struct(bboxes, seg, prim_path, label=label)
 
     return _provider

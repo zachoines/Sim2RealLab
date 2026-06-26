@@ -51,10 +51,13 @@ verdict has no torch-VL dependency, so the cuda-bindings conflict is gone):
     omits ``ground_start_frame``, so a grounded run after any prior ungrounded
     run reuses the stale ungrounded rows, the provider never fires, and
     grounding stays all-skipped.
-  - Report the per-scene ``start_frame_grounded`` yes/no/skip rate (the
-    per-scene line ``grounded(yes/no/skip)=...``). That rate — now a
-    deterministic geometric visibility count, not a model judgement — is the
-    measurement that closes the start-frame half of the grounding gate.
+  - Report the per-scene ``start_frame_grounded`` rate — now a deterministic
+    geometric visibility count, not a model judgement — which closes the
+    start-frame half of the grounding gate. The interactive console prints it as
+    ``grounded(yes/no/skip)=...``, BUT Kit hijacks stdout, so that line is lost
+    when the run is piped / ``tee``'d. The reliable source is the persisted
+    ``stats`` block in ``<cache-dir>/<scene>/<scene_seed>.json``
+    (``start_frame_grounded_yes`` / ``emitted`` -> rate).
   - If the teleported robot has not settled before the annotator read, raise
     ``--grounding-warmup-steps``; for Infinigen floors above world z=0, raise
     ``--spawn-z`` to ``floor_top_z + wheel_clearance``.

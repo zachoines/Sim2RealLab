@@ -136,6 +136,12 @@ def main() -> int:
     AppLauncher.add_app_launcher_args(parser)
     args = parser.parse_args()
 
+    # This script exists only to render the start frame, so the perception
+    # camera MUST initialize — Isaac Lab refuses to spawn a camera without
+    # --enable_cameras. Force it on (like num_envs=1 below) rather than depend
+    # on the operator remembering the flag.
+    args.enable_cameras = True
+
     if not args.ground_start_frame:
         raise SystemExit(
             "render_grounded_mission_corpus.py requires --ground-start-frame: it "

@@ -40,10 +40,6 @@ Pieces:
 - :func:`build_visibility_struct` — the pure struct-shaping over already-parsed
   annotator data (typed bboxes + the instance mask). No Kit, no model;
   unit-tested with fixtures.
-- :func:`coerce_frame_return` — a pure image-path sanitizer retained from the
-  earlier frame-based provider. It is no longer on the provider's return path
-  (the provider returns a struct now), but is kept as a tested defensive utility.
-
 Scene-source-agnostic: this reads only the ``(x, y, yaw)`` start pose and the
 target's ``prim_path``, and never imports any scene-source package.
 """
@@ -51,8 +47,6 @@ target's ``prim_path``, and never imports any scene-source package.
 from __future__ import annotations
 
 import math
-import os
-from pathlib import Path
 from typing import Any, Callable
 
 # Robot root z (meters above the env origin) at which the teleported robot is
@@ -69,52 +63,19 @@ DEFAULT_SPAWN_Z = 0.1
 DEFAULT_GROUNDING_WARMUP_STEPS = 2
 
 
-def coerce_frame_return(frame: Any) -> Any:
-    """Sanitize a provider's return for the un-guarded runner frame contract.
-
-    The default grounding runner does ``frame if isinstance(frame, Image.Image)
-    else Image.open(frame).convert("RGB")`` with no try/except, so:
-
-    - a ``PIL.Image`` passes straight through;
-    - a path (``str`` / ``os.PathLike``) is stat-checked and probed as an image
-      here, so a missing or unreadable render returns ``None`` (a counted skip)
-      rather than raising ``Image.open`` deep inside the runner. The validated
-      *path* is returned, not the opened image, so the runner's own
-      ``Image.open(...).convert("RGB")`` stays the single decode site;
-    - ``None`` stays ``None``;
-    - any other type (e.g. a raw numpy array, which the runner does not handle)
-      returns ``None`` — surfaced as a skip, never a runner crash.
-    """
-    if frame is None:
-        return None
-    from PIL import Image  # noqa: PLC0415 — deferred so module import stays light
-
-    if isinstance(frame, Image.Image):
-        return frame
-    if isinstance(frame, (str, os.PathLike)):
-        path = Path(frame)
-        if not path.is_file():
-            return None
-        try:
-            with Image.open(path) as probe:
-                probe.verify()
-        except Exception:
-            return None
-        return str(path)
-    return None
-
-
 def build_visibility_struct(
-    bboxes: Any, seg: Any, prim_path: str | None
+    bboxes: Any, seg: Any, prim_path: str | None, label: str | None = None
 ) -> dict[str, Any] | None:
     """Shape parsed annotator reads into the target-visibility struct, or ``None``.
 
     ``bboxes`` is the parsed bounding_box_2d_tight list; ``seg`` is the parsed
     ``InstanceSegmentation`` (or ``None`` if no frame); ``prim_path`` is the
-    target's USD prim path. Returns ``None`` (a counted skip) when the read is
-    unusable (no seg frame, or no prim_path). A successful read where the target
-    has no segment yields an ``in_frame=False`` struct (a "no" that re-rolls a
-    same-room target) — distinct from a skip. Pure; unit-testable with fixtures.
+    target's USD prim path; ``label`` is the target's class (used to prefer the
+    target's own class row for occlusion over a foreground occluder's). Returns
+    ``None`` (a counted skip) when the read is unusable (no seg frame, or no
+    prim_path). A successful read where the target has no segment yields an
+    ``in_frame=False`` struct (a "no" that re-rolls a same-room target) —
+    distinct from a skip. Pure; unit-testable with fixtures.
     """
     from strafer_lab.tools.bbox_extractor import (  # noqa: PLC0415 — keep import light
         bbox_row_for_segment,
@@ -144,8 +105,9 @@ def build_visibility_struct(
 
     _count, mask_bbox = extent
     # Occlusion is per-class only (from the bbox row overlapping the segment); the
-    # bbox is the per-instance mask box.
-    row = bbox_row_for_segment(bboxes or [], mask_bbox)
+    # bbox is the per-instance mask box. Pass the target label so a foreground
+    # occluder of a different class cannot supply the occlusion.
+    row = bbox_row_for_segment(bboxes or [], mask_bbox, label=label)
     occlusion_ratio = row.occlusion_ratio if row is not None else None
     return {
         "in_frame": True,
@@ -280,6 +242,7 @@ def make_render_grounding_frame_provider(
         bboxes = bbox_extractor.extract()
         seg = inst_seg_extractor.extract()
         prim_path = obj.get("prim_path") if isinstance(obj, dict) else None
-        return build_visibility_struct(bboxes, seg, prim_path)
+        label = obj.get("label") if isinstance(obj, dict) else None
+        return build_visibility_struct(bboxes, seg, prim_path, label=label)
 
     return _provider

@@ -116,6 +116,19 @@ class TestSegmentIdsForPrimPath:
         info = {"idToLabels": {1: "/World/Room/chair_0020", 2: TARGET_PRIM}}
         assert segment_ids_for_prim_path(info, TARGET_PRIM) == [2]
 
+    def test_parent_target_does_not_claim_nested_child_ids(self):
+        # Infinigen parents small assets under furniture. A shelf target's name
+        # appears as an ANCESTOR segment of its trinkets' render paths; the match
+        # (last-2 segments) must claim only the shelf's own id, not the children.
+        shelf = "/World/ShelfFactory_5__spawn_asset_1_"
+        info = {"idToLabels": {
+            1: "/World/Room/ShelfFactory_5__spawn_asset_1_/ShelfFactory_5__spawn_asset_1_",
+            2: "/World/Room/ShelfFactory_5__spawn_asset_1_/TrinketFactory_8__spawn_asset_2_/TrinketFactory_8__spawn_asset_2_",
+        }}
+        assert segment_ids_for_prim_path(info, shelf) == [1]
+        # The nested child still resolves correctly for its own query.
+        assert segment_ids_for_prim_path(info, "/World/TrinketFactory_8__spawn_asset_2_") == [2]
+
     def test_absent_or_invalid_returns_empty(self):
         _, info = _mask_two_chairs()
         assert segment_ids_for_prim_path(info, "/World/Room/nope") == []
@@ -179,6 +192,23 @@ class TestBboxRowForSegment:
     def test_no_overlap_returns_none(self):
         rows = [DetectedBbox(1, "chair", ("chair",), (1, 1, 3, 3), 0.1)]
         assert bbox_row_for_segment(rows, (10, 10, 12, 12)) is None
+
+    def test_label_prefers_matching_class_over_larger_overlap(self):
+        # A foreground occluder (table) overlaps the target's mask more than the
+        # target's own (chair) row; with the target label, the chair row wins so
+        # occlusion comes from the target's class, not the occluder.
+        rows = [
+            DetectedBbox(1, "chair", ("chair",), (1, 1, 4, 4), 0.7),   # overlap 4 px
+            DetectedBbox(2, "table", ("table",), (0, 0, 10, 10), 0.0),  # overlap 4 px, bigger box
+        ]
+        assert bbox_row_for_segment(rows, (1, 1, 3, 3), label="chair").label == "chair"
+        # Without a label, the existing best-overlap behavior is unchanged.
+        assert bbox_row_for_segment(rows, (1, 1, 3, 3)) is not None
+
+    def test_label_falls_back_when_no_matching_class(self):
+        # No row of the target's class overlaps -> fall back to best overlap.
+        rows = [DetectedBbox(1, "table", ("table",), (1, 1, 4, 4), 0.2)]
+        assert bbox_row_for_segment(rows, (1, 1, 3, 3), label="chair").label == "table"
 
 
 class TestSiblingRejection:

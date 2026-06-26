@@ -509,10 +509,12 @@ def segment_ids_for_prim_path(
     ``prim_path``. The render-time path differs from the one the metadata
     recorded: the env references the scene under a different root and the mesh
     leaf repeats the object name (e.g. recorded ``/World/Foo`` renders as
-    ``/World/Room/Foo/Foo``). So a target matches on its unique object-name
-    segment as well as exact / descendant paths; the name is per-instance, so a
-    same-label sibling still cannot match. One object can own several ids
-    (multi-mesh). Returns an empty list when the target was not rendered.
+    ``/World/Room/Foo/Foo``). So a target also matches when its object-name
+    segment is the rendered prim's leaf or its immediate parent (the last two
+    path segments). Requiring it in the last two — not anywhere — keeps a target
+    that is a PARENT of nested child objects (``.../Shelf/Trinket/Trinket``) from
+    claiming the children's ids. One object can own several ids (multi-mesh).
+    Returns an empty list when the target was not rendered.
     """
     if not prim_path or not info:
         return []
@@ -532,7 +534,7 @@ def segment_ids_for_prim_path(
         if (
             candidate == prim_path
             or candidate.startswith(prefix)
-            or (leaf and leaf in candidate.split("/"))
+            or (leaf and leaf in candidate.split("/")[-2:])
         ):
             try:
                 ids.append(int(seg_id))
@@ -604,7 +606,9 @@ def _rect_overlap_area(
 
 
 def bbox_row_for_segment(
-    bboxes: Iterable[DetectedBbox], segment_bbox: tuple[int, int, int, int]
+    bboxes: Iterable[DetectedBbox],
+    segment_bbox: tuple[int, int, int, int],
+    label: str | None = None,
 ) -> DetectedBbox | None:
     """Select the ``bounding_box_2d_tight`` row overlapping a segment's mask box.
 
@@ -612,15 +616,31 @@ def bbox_row_for_segment(
     occlusion ratio is only available per-class from ``bounding_box_2d_tight``.
     This picks the class row with the largest pixel overlap with the segment's
     mask bbox (ties -> first), or ``None`` when no row overlaps the segment.
+
+    When ``label`` is given, a row whose class matches it is preferred over a
+    larger-overlap row of a different class — so a foreground occluder's box
+    cannot supply the target's occlusion. Falls back to the best overlap over
+    all rows when no matching-class row overlaps (never worse than no filter).
     """
     best: DetectedBbox | None = None
     best_overlap = 0
+    best_labeled: DetectedBbox | None = None
+    best_labeled_overlap = 0
     for bbox in bboxes:
         overlap = _rect_overlap_area(bbox.bbox_2d, segment_bbox)
+        if overlap <= 0:
+            continue
         if overlap > best_overlap:
             best_overlap = overlap
             best = bbox
-    return best
+        if (
+            label is not None
+            and overlap > best_labeled_overlap
+            and (bbox.label == label or label in bbox.labels)
+        ):
+            best_labeled_overlap = overlap
+            best_labeled = bbox
+    return best_labeled if best_labeled is not None else best
 
 
 @dataclass

@@ -1483,6 +1483,8 @@ def geometric_visibility_verdict(struct: dict[str, Any], mission_text: str) -> s
     area = (x_max - x_min) * (y_max - y_min)
     frame_w = struct.get("frame_w") or 0
     frame_h = struct.get("frame_h") or 0
+    if frame_w <= 0 or frame_h <= 0:
+        return "no"  # degenerate frame dims -> no meaningful size floor
     min_area = round(GROUNDING_MIN_BBOX_AREA_FRAC * frame_w * frame_h)
     if area < min_area:
         return "no"

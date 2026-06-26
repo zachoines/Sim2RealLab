@@ -504,6 +504,14 @@ class TestGeometricVisibilityVerdict:
     def test_non_dict_struct_is_no(self):
         assert bmq.geometric_visibility_verdict(None, "x") == "no"
 
+    def test_zero_frame_dims_is_no(self):
+        # A degenerate frame dim would collapse the area floor to 0 and let any
+        # speck pass; guard rejects instead.
+        for dim in ("frame_w", "frame_h"):
+            s = self._passing_struct()
+            s[dim] = 0
+            assert bmq.geometric_visibility_verdict(s, "x") == "no", dim
+
     def test_mission_text_is_ignored(self):
         s = self._passing_struct()
         assert bmq.geometric_visibility_verdict(s, "fetch the lamp") == bmq.geometric_visibility_verdict(s, "")
@@ -559,60 +567,6 @@ class TestGeometricVisibilityVerdict:
         )
         assert same.stats.emitted == 0
         assert same.stats.rejected_reasons.get("target_not_visible_at_start", 0) >= 1
-
-
-class TestGroundingFrameContract:
-    """The live provider's frame-contract sanitizer (``coerce_frame_return``).
-
-    The default grounding runner opens the frame with no try/except
-    (``frame if isinstance(frame, Image.Image) else Image.open(frame)``), so the
-    provider must guarantee its return is either a ``PIL.Image`` or a readable
-    image path — anything else becomes a clean ``None`` (a counted skip) rather
-    than a crash inside the runner. Pure Python; no Kit, no model.
-    """
-
-    def test_pil_image_passes_through(self):
-        from PIL import Image
-
-        from strafer_lab.tools.grounding_frame_provider import coerce_frame_return
-
-        img = Image.new("RGB", (4, 4))
-        assert coerce_frame_return(img) is img
-
-    def test_none_stays_none(self):
-        from strafer_lab.tools.grounding_frame_provider import coerce_frame_return
-
-        assert coerce_frame_return(None) is None
-
-    def test_missing_path_surfaces_as_none(self, tmp_path):
-        from strafer_lab.tools.grounding_frame_provider import coerce_frame_return
-
-        missing = tmp_path / "nope.png"
-        assert coerce_frame_return(missing) is None
-        assert coerce_frame_return(str(missing)) is None
-
-    def test_unreadable_file_surfaces_as_none(self, tmp_path):
-        from strafer_lab.tools.grounding_frame_provider import coerce_frame_return
-
-        bad = tmp_path / "bad.png"
-        bad.write_bytes(b"not an image")
-        assert coerce_frame_return(bad) is None
-
-    def test_valid_image_path_is_validated_and_returned(self, tmp_path):
-        from PIL import Image
-
-        from strafer_lab.tools.grounding_frame_provider import coerce_frame_return
-
-        path = tmp_path / "frame.png"
-        Image.new("RGB", (4, 4)).save(path)
-        # Validated readable image path returns the path for the runner to open.
-        assert coerce_frame_return(path) == str(path)
-
-    def test_raw_numpy_array_surfaces_as_none(self):
-        from strafer_lab.tools.grounding_frame_provider import coerce_frame_return
-
-        # The runner does not handle a bare ndarray; coerce makes it a clean skip.
-        assert coerce_frame_return(np.zeros((4, 4, 3), dtype=np.uint8)) is None
 
 
 # ---------------------------------------------------------------------------

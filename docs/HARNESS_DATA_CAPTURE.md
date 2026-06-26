@@ -6,8 +6,10 @@ harness data-capture entry point per
 One CLI, two flags (`--driver` × `--mission-source`), one LeRobot v3
 dataset per scene under `data/sim_in_the_loop/<scene_name>/`.
 
-Tier 1 wires `(teleop, scene-metadata)` end-to-end. Other cells raise
-`NotImplementedError` with a pointer to the tier that ships them.
+`(teleop, scene-metadata)`, `(bridge, scene-metadata)`, `(bridge, queue)`,
+and `(scripted, coverage)` are wired end-to-end; `(scripted, coverage)` is
+the **bulk-capture default**. The remaining scripted `queue` / `captioner`
+cells raise `NotImplementedError` until those mission sources ship.
 
 This guide is the source of truth for harness operator workflows; the
 [cheatsheet](example_commands_cheatsheet.md) keeps a short pointer
@@ -369,6 +371,54 @@ episode count, the strafer extension columns, the depth sidecars, and
 that the `observation.detections.*` columns are present. It does **not**
 bring up the ROS publishers or a live executor — that's the operator
 acceptance run above.
+
+---
+
+## Scripted coverage driver (bulk-capture default)
+
+The coverage driver is the **default bulk-capture path**: the trained RL
+subgoal-follower drives a deterministic geometric coverage traversal that
+visits every room repeatedly from spread approach headings. The diverse
+same-place / different-heading views are the training signal for the
+place-recognition head, the backbone bakeoff, and the eval harness — a
+goal-reaching teleop demo set under-samples them irrecoverably. Teleop
+(annotator) and the bridge (Jetson-in-loop) are the non-bulk paths.
+
+```bash
+RUN_ID=$(date +%Y%m%dT%H%M%S)
+OUT=data/sim_in_the_loop/${SCENE}_coverage_${RUN_ID}
+
+# Export the trained rsl_rl checkpoint to a load_policy-consumable artifact
+# (one-time per checkpoint; coverage loads the EXPORTED .pt, not model_*.pt):
+$ISAACLAB -p source/strafer_lab/scripts/export_policy.py \
+    --checkpoint logs/rsl_rl/strafer_navigation/<run>/model_<step>.pt \
+    --output models/strafer_nocam_subgoal --variant NOCAM_SUBGOAL
+
+$ISAACLAB -p source/strafer_lab/scripts/capture.py \
+    --driver scripted --mission-source coverage \
+    --scene  ${SCENE} \
+    --output ${OUT} \
+    --policy-variant nocam_subgoal \
+    --checkpoint models/strafer_nocam_subgoal.pt \
+    --headless --enable_cameras
+```
+
+Coverage-specific flags:
+
+| Flag | Default | Use |
+|---|---|---|
+| `--policy-variant` | `nocam_subgoal` | `PolicyVariant` selecting the trained subgoal-follower's observation contract. `nocam_subgoal` is the only variant with a trained checkpoint today; the depth subgoal variant is planned and swaps in through the same `load_policy` path |
+| `--checkpoint` | (required) | Exported policy artifact (TorchScript `.pt` / `.onnx` from `export_policy.py`), not a raw `model_*.pt` training checkpoint |
+| `--coverage-visits-per-room` | 2 | Minimum visits scheduled per room, each from a different approach heading |
+| `--held-out-scenes a,b` | none | When `--scene` is in the set, every episode is tagged `episode_split=held_out_seeds` and a whole-scene row is written to `meta/splits.jsonl` (home-to-home generalization split) |
+| `--detections` / `--no-detections` | on | Same Replicator detections columns as the bridge driver |
+| `--seed` | 0 | Seeds the coverage plan so a run reproduces |
+
+Artifacts: the LeRobot v3 dataset, `meta/strafer_episodes.parquet` (with
+the per-episode `realized_d555_mount_quat` column), the embedded
+`meta/scenes/<scene>/scene_metadata.json` sidecar, and — for held-out
+scenes — `meta/splits.jsonl`. The live capture runs on the GPU; the
+`make harness-smoke` Kit gate exercises the shared writer code path.
 
 **Detection vocab:** the smoke reports the detection vocab and, with
 `--require-detections` / `REQUIRE_DETECTIONS=1`, treats an empty one as a

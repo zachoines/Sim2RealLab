@@ -126,8 +126,9 @@ runnable scripts under `scripts/`, importable modules under
 | `scripts/test_strafer_env.py` | Motion-pattern smoke test (forward / strafe / rotate / circle / figure8) | IsaacLab |
 | `scripts/export_policy.py` | Convert an rsl_rl checkpoint to a deployable TorchScript `.pt` + (where supported) ONNX `.onnx`. Round-trips the artifact through `strafer_shared.policy_interface.load_policy()` and refuses to write if the deterministic-mean head wasn't frozen. Emits a JSON sidecar with variant, dimensions, source checkpoint, repo SHA, ONNX opset, and `is_recurrent` | IsaacLab |
 | `scripts/benchmark_policy.py` | Median / p95 / p99 inference-latency stats on an exported artifact. Accepts an ONNX execution-provider preference list so the Jetson lane can record TRT-EP latency after rsync | pure-Python |
-| `scripts/capture.py` | Unified harness data-capture entry point (`--driver × --mission-source` cross-product per `harness-architecture.md`). Wires `(teleop, scene-metadata)` via `scripts/teleop_capture.py` and `(bridge, scene-metadata)` / `(bridge, queue)` via `scripts/run_sim_in_the_loop.py --mode harness`; the scripted cells raise `NotImplementedError` until that driver ships | Isaac Sim (drivers); pure-Python for argv validation |
+| `scripts/capture.py` | Unified harness data-capture entry point (`--driver × --mission-source` cross-product per `harness-architecture.md`). Wires `(teleop, scene-metadata)` via `scripts/teleop_capture.py`, `(bridge, scene-metadata)` / `(bridge, queue)` via `scripts/run_sim_in_the_loop.py --mode harness`, and `(scripted, coverage)` via `scripts/coverage_capture.py`; the scripted `queue` / `captioner` cells raise `NotImplementedError` until those mission sources ship | Isaac Sim (drivers); pure-Python for argv validation |
 | `scripts/teleop_capture.py` | In-process Isaac Lab teleop driver. Boots `AppLauncher`, loads `Isaac-Strafer-Nav-Capture-Teleop-v0`, reads gamepad, drives `env.step()`, and writes a LeRobot v3 dataset via `StraferLeRobotWriter` | Isaac Sim, pygame, lerobot |
+| `scripts/coverage_capture.py` | In-process scripted coverage driver — the bulk-capture default. Boots `AppLauncher`, runs the trained RL subgoal-follower (`policy_interface.load_policy`) along a deterministic geometric coverage plan (`tools/coverage_plan.py`: every room visited from spread approach headings), and records a LeRobot v3 dataset with detections + the realized-mount-quat column + the embedded `scene_metadata` sidecar. The diverse same-place / different-heading views are the training signal, not goal-reaching demos | Isaac Sim, lerobot, torch |
 | `scripts/run_sim_in_the_loop.py` | Launch Isaac Sim with the ROS 2 bridge in `--mode bridge` (manual Nav2 drive) or `--mode harness` (walks scene-metadata targets or a `mission_queue.yaml` through the Jetson autonomy stack and records a LeRobot v3 dataset with detections + optional `--inject-bad-grounding` hard negatives) | Isaac Sim, `isaacsim.ros2.bridge`, lerobot, Jetson on LAN |
 | `scripts/bridge_harness_smoke.py` | Jetson-free Kit smoke of the bridge harness capture path: scripted-`/cmd_vel` sweep through the real harness + recorder + `StraferLeRobotWriter` (detections on), then asserts the round-tripped dataset (episodes/frames, depth sidecars, detections vocab, discard path). `make harness-smoke`. Does **not** exercise the ROS publishers or the live executor | Isaac Sim, lerobot |
 | `scripts/collect_demos.py` | Gamepad teleop for RL demo collection (DAPG / GAIL sources). Shares the family-aware reader at `strafer_lab.tools.gamepad_reader` with the harness teleop driver | Isaac Sim |
@@ -404,6 +405,18 @@ isaaclab -p source/strafer_lab/scripts/capture.py \
     --driver bridge --mission-source scene-metadata \
     --scene scene_001 \
     --output data/sim_in_the_loop/scene_001 \
+    --headless --enable_cameras
+
+# 5. THE BULK-CAPTURE DEFAULT — diverse-perspective coverage sweep driven by
+#    the trained RL subgoal-follower (every room visited from spread headings).
+#    Teleop (step 3, annotator) and bridge (step 4, Jetson-in-loop) are the
+#    non-bulk paths. Checkpoint is an exported artifact from export_policy.py.
+isaaclab -p source/strafer_lab/scripts/capture.py \
+    --driver scripted --mission-source coverage \
+    --scene scene_001 \
+    --output data/sim_in_the_loop/scene_001 \
+    --policy-variant nocam_subgoal \
+    --checkpoint models/strafer_nocam_subgoal.pt \
     --headless --enable_cameras
 ```
 

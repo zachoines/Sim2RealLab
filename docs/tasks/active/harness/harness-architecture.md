@@ -339,12 +339,23 @@ Audit-calibrated against DROID-style measurements (~30–40 demos/hr per operato
 
 ## Driver: scripted
 
-Action source: scripted policy in-process. Two controller options:
+Action source: scripted policy in-process. The shipped controller is the
+trained RL subgoal-follower from [`subgoal-env`](../trained-policy/subgoal-env.md),
+loaded via `strafer_shared.policy_interface.load_policy()` and selected by
+`--policy-variant` (default `nocam_subgoal` — the only variant with a trained
+checkpoint today; the depth subgoal variant is a planned future `PolicyVariant`
+that swaps in through the same `load_policy` + `assemble_observation` path). The
+checkpoint is an exported artifact (TorchScript `.pt` / `.onnx` from
+`export_policy.py`). Recorded `action` rows are the controller's normalized
+`(vx, vy, ωz)` output — what a deployed VLA would learn to emit at the
+controller-output level. No proportional fallback is shipped: the trained
+policy is the controller. The policy inference runs in-process on the DGX
+(route 1); ONNX-exported deployment is the separate route-2 bridge stretch
+goal (`load_policy` already accepts `.onnx`).
 
-- **`--controller rl`** (default once available): the NoCam waypoint-following RL policy from [`subgoal-env`](../trained-policy/subgoal-env.md), loaded via `strafer_shared.policy_interface.load_policy()` from `~/.strafer/models/`. Recorded `action` rows are the controller's `(vx, vy, ωz)` output — what a deployed VLA would learn to emit at the controller-output level.
-- **`--controller proportional`**: a debug proportional `(vx, vy)` controller toward the next waypoint. No policy load. Useful for sanity-checking the driver before the RL checkpoint is available.
-
-**The scripted driver is parked for execution** until [`subgoal-env`](../trained-policy/subgoal-env.md) ships the NoCam waypoint-follower. The proportional fallback exists for debug but produces low-quality demos that don't justify the scale-out it would enable. Don't pick up Phase 3 (see [Implementation tiers](#implementation-tiers)) until subgoal-env is shipped or the operator decides demo quality is acceptable.
+The scripted **coverage** mission source has shipped as the bulk-capture
+default (see [Scripted × coverage](#scripted--coverage-new--for-room-state-eval-and-vpr-training)); the scripted `queue` / `captioner` mission sources are still
+to come.
 
 ### Parallel envs
 
@@ -386,6 +397,8 @@ Two independent inspectors; disagreements adjudicated to the conservative ("fail
 The driver runs a coverage-biased target sampler: ensure every room in the scene gets visited ≥ N=2 times across the dataset (configurable via `--coverage-visits-per-room`). After base coverage, **repeated traversals** sample previously-visited locations and approach from different headings (random rotation offset) — these produce the same-place / different-heading pairs that [`learned-spatial-encoder`](../../parked/multi-room/learned-spatial-encoder.md)'s place-recognition head mines as positive VPR pairs.
 
 Episodes from coverage mode get `source_mission_source = "coverage"`, `outcome = "succeeded"` (no mission to fail), and no `tasks` (empty mission text). Downstream consumers that need labels (backbone-bakeoff, room-state-eval) compute per-frame GT room_idx on demand from `(pose, scene_metadata)`.
+
+**Shipped** as `scripts/coverage_capture.py` (the bulk-capture default). The coverage plan is a deterministic geometric plan — `strafer_lab.tools.coverage_plan` over the scene rooms + cached occupancy, seeded so runs reproduce — not a learned coverage policy; the trained RL subgoal-follower drives the robot to each viewpoint. The same run lands the bulk-run schema additions: the per-episode `realized_d555_mount_quat` column, the embedded `meta/scenes/<id>/scene_metadata.json` sidecar, and whole-scene held-out splits (`episode_split=held_out_seeds` + `meta/splits.jsonl`).
 
 ### Discard semantics (scripted)
 
@@ -537,11 +550,12 @@ Branch: `task/harness-bridge-driver`. Estimate: M.
 
 Branch: `task/harness-scripted-driver`. Estimate: L.
 
-**Gated on [`subgoal-env`](../trained-policy/subgoal-env.md) shipping** for the RL controller. Proportional fallback can land first as a debug build.
+[`subgoal-env`](../trained-policy/subgoal-env.md) shipped the RL controller. The
+**coverage** mission source landed first via [`coverage-capture-driver`](../../completed/coverage-capture-driver.md) (branch `task/coverage-capture-driver`) as the bulk-capture default; the `queue` / `captioner` mission sources remain.
 
-- Implement `--driver scripted --controller {rl, proportional}`.
-- Parallel-env orchestration (target `num_envs` set by [`harness-throughput-measurement`](../../parked/harness/harness-throughput-measurement.md)).
-- Mission sources: `queue`, `captioner`, `coverage`.
+- Implement `--driver scripted` with the trained RL subgoal-follower as the controller, selected by `--policy-variant` (no proportional fallback shipped). ✅ landed with coverage.
+- Parallel-env orchestration (target `num_envs` set by [`harness-throughput-measurement`](../../parked/harness/harness-throughput-measurement.md)). Coverage v1 captures single-env.
+- Mission sources: `coverage` ✅; `queue`, `captioner` to come.
 - Detections annotator wiring, same as Tier 2 (on by default for scripted captures).
 - Captioner: instructive-voice prompt + 4-check eval rubric + failure-pair synthesis.
 - Coverage: target sampler + repeated-traversal sampler.

@@ -159,6 +159,10 @@ class StraferEpisodeExtensions:
     episode_split: str = "train"
     capture_git_sha: str = ""
     scene_metadata_hash: str = ""
+    # Realized D555 mount orientation (4 opaque floats, identity default); the
+    # ±2deg mount jitter is logged so the realized camera stays derivable. A
+    # realized_d555_mount_translation column is a future extension — not added.
+    realized_d555_mount_quat: tuple[float, ...] | None = None
 
     def as_record(self) -> dict[str, Any]:
         """Return a dict suitable for pyarrow Table append."""
@@ -193,6 +197,10 @@ class StraferEpisodeExtensions:
             "episode_split": self.episode_split,
             "capture_git_sha": self.capture_git_sha,
             "scene_metadata_hash": self.scene_metadata_hash,
+            "realized_d555_mount_quat": (
+                list(self.realized_d555_mount_quat)
+                if self.realized_d555_mount_quat is not None else None
+            ),
         }
 
 
@@ -378,6 +386,11 @@ class StraferLeRobotWriter:
                                time; recorded in per-episode metadata.
       scene_metadata_hash:     sha256 of the scene's canonical embedded
                                metadata dict (see ``hash_scene_metadata``).
+      scene_metadata:          the scene metadata dict itself; when supplied it
+                               is embedded at finalize as
+                               ``meta/scenes/<scene_id>/scene_metadata.json`` so
+                               pose-derived labels resolve offline. ``None``
+                               travels only the hash.
 
     Async writers (defaults tuned for in-process teleop capture):
 
@@ -403,6 +416,7 @@ class StraferLeRobotWriter:
         fps: int,
         capture_git_sha: str,
         scene_metadata_hash: str,
+        scene_metadata: dict[str, Any] | None = None,
         cameras_required: Sequence[str] | None = None,
         capture_policy_cam: bool | None = None,
         detections_max: int | None = None,
@@ -443,6 +457,9 @@ class StraferLeRobotWriter:
         )
         self._capture_git_sha = str(capture_git_sha)
         self._scene_metadata_hash = str(scene_metadata_hash)
+        self._scene_metadata = scene_metadata
+        # Captured from the first episode; one scene per dataset is the invariant.
+        self._sidecar_scene_id: str | None = None
         self._operator_handle = operator_handle
         self._session_id = session_id
         self._fps = int(fps)
@@ -497,6 +514,7 @@ class StraferLeRobotWriter:
         episode_split: str | None = None,
         injection_mode: str | None = None,
         generator_metadata: dict[str, Any] | None = None,
+        realized_d555_mount_quat: Sequence[float] | None = None,
     ) -> int:
         """Open a new episode buffer. Returns the assigned ``episode_index``."""
         if self._finalized:
@@ -506,6 +524,8 @@ class StraferLeRobotWriter:
                 "begin_episode called while another episode is open; "
                 "call end_episode first",
             )
+        if self._sidecar_scene_id is None:
+            self._sidecar_scene_id = scene_id
         episode_index = self._next_episode_index
         split = episode_split or ("val" if episode_index % 10 == 0 else "train")
         self._open_episode = {
@@ -531,6 +551,10 @@ class StraferLeRobotWriter:
             "episode_split": split,
             "injection_mode": injection_mode,
             "generator_metadata": dict(generator_metadata or {}),
+            "realized_d555_mount_quat": (
+                tuple(float(v) for v in realized_d555_mount_quat)
+                if realized_d555_mount_quat is not None else None
+            ),
             "episode_index": episode_index,
         }
         self._frame_count_this_episode = 0
@@ -759,6 +783,7 @@ class StraferLeRobotWriter:
             episode_split=episode_payload["episode_split"],
             capture_git_sha=self._capture_git_sha,
             scene_metadata_hash=self._scene_metadata_hash,
+            realized_d555_mount_quat=episode_payload["realized_d555_mount_quat"],
         )
         self._episode_extensions.append(ext)
         self._next_episode_index += 1
@@ -788,6 +813,8 @@ class StraferLeRobotWriter:
                 self._depth_pool = None
         self._dataset.finalize()
         self._write_strafer_sidecar()
+        self._write_scene_metadata_sidecar()
+        self._write_splits_sidecar()
         if self._detection_vocab is not None:
             # Always written when detections are declared — an empty
             # labels[] is the valid vocab for a capture that saw none.
@@ -837,6 +864,55 @@ class StraferLeRobotWriter:
         out_path = self._root / "meta" / "strafer_episodes.parquet"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         pq.write_table(table, out_path)
+
+    def _write_scene_metadata_sidecar(self) -> None:
+        """Embed the scene metadata dict so pose-derived labels work offline.
+
+        Only the hash travels in the per-episode columns; without the dict
+        every region / room / narration label has to re-read the scene USD.
+        """
+        if not self._scene_metadata or self._sidecar_scene_id is None:
+            return
+        out_path = (
+            self._root / "meta" / "scenes" / self._sidecar_scene_id
+            / "scene_metadata.json"
+        )
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            json.dumps(self._scene_metadata, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    def _write_splits_sidecar(self) -> None:
+        """Record named (non train/val) splits in ``meta/splits.jsonl``.
+
+        Each named split present in the per-episode metadata becomes one
+        whole-scene row ``{name, episode_indices, scope, description}`` so the
+        held-out decision travels with the data. The optional sidecar is
+        skipped when every episode used a default split.
+        """
+        named: dict[str, list[int]] = {}
+        for ext in self._episode_extensions:
+            if ext.episode_split in ("train", "val"):
+                continue
+            named.setdefault(ext.episode_split, []).append(int(ext.episode_index))
+        if not named:
+            return
+        out_path = self._root / "meta" / "splits.jsonl"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        rows = [
+            {
+                "name": name,
+                "episode_indices": indices,
+                "scope": "scene",
+                "description": f"Whole-scene {name} selection assigned at capture time.",
+            }
+            for name, indices in sorted(named.items())
+        ]
+        out_path.write_text(
+            "".join(json.dumps(row) + "\n" for row in rows),
+            encoding="utf-8",
+        )
 
 
 # ---------------------------------------------------------------------------

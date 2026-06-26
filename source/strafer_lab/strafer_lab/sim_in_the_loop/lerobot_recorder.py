@@ -1,10 +1,14 @@
-"""LeRobot-backed :class:`EpisodeRecorder` for the bridge capture driver.
+"""LeRobot-backed recorders for the strafer capture drivers.
 
-Adapts the harness's per-mission lifecycle onto the
+:class:`BridgeLeRobotRecorder` adapts the harness's per-mission lifecycle
+onto the
 :class:`strafer_lab.tools.lerobot_writer.StraferLeRobotWriter` episode
 API (begin_episode → add_frame → end_episode), mapping executor terminal
 states and hard-negative injection metadata onto the per-episode
 extension columns. One mission = one episode.
+:class:`CoverageLeRobotRecorder` is its mission-free sibling for the
+scripted coverage driver: every episode is kept as ``succeeded`` with no
+target or injection mapping.
 
 Outcome mapping at ``end_episode``:
 
@@ -171,6 +175,92 @@ class BridgeLeRobotRecorder:
                 if meta is not None and meta.original_target_position_3d is not None
                 else None
             ),
+        )
+
+
+class CoverageLeRobotRecorder:
+    """Records scripted coverage-traversal episodes into a strafer dataset.
+
+    A deliberate sibling of :class:`BridgeLeRobotRecorder`, not a configured
+    variant of it: coverage episodes have no mission, no target, no
+    grounding-injection or abort mapping, so every episode is kept with
+    ``outcome='succeeded'`` and an empty mission text. The shared surface is
+    the writer, not the recorder — folding these into the bridge recorder
+    would push coverage-only branches into its mission-outcome mapping.
+    ``add_frame`` mirrors the bridge recorder's writer-boundary shape.
+
+    Parameters
+    ----------
+    writer:
+        A :class:`StraferLeRobotWriter` (or fake with the same episode API).
+    scene_id:
+        Recorded on every episode; resolves to the dataset's
+        ``meta/scenes/<scene_id>/scene_metadata.json``.
+    """
+
+    def __init__(
+        self,
+        *,
+        writer: Any,
+        scene_id: str,
+        source_driver: str = "scripted",
+    ) -> None:
+        self._writer = writer
+        self._scene_id = scene_id
+        self._source_driver = source_driver
+        self.episodes_kept = 0
+        self.episodes_discarded = 0
+
+    def begin_episode(
+        self,
+        *,
+        start_bundle: FrameBundle,
+        episode_split: str | None = None,
+        realized_d555_mount_quat: tuple[float, ...] | None = None,
+    ) -> None:
+        start_xy_yaw = (
+            float(start_bundle.robot_pos[0]),
+            float(start_bundle.robot_pos[1]),
+            yaw_from_quat_xyzw(start_bundle.robot_quat),
+        )
+        self._writer.begin_episode(
+            mission_text="",
+            scene_id=self._scene_id,
+            start_pose=list(start_xy_yaw),
+            source_driver=self._source_driver,
+            source_mission_source="coverage",
+            episode_split=episode_split,
+            realized_d555_mount_quat=(
+                list(realized_d555_mount_quat)
+                if realized_d555_mount_quat is not None else None
+            ),
+        )
+
+    def add_frame(self, bundle: FrameBundle) -> None:
+        kwargs: dict[str, Any] = {
+            "sim_time": float(bundle.sim_time_s),
+            "pose": list(bundle.robot_pos) + list(bundle.robot_quat),
+            "achieved_vel": list(bundle.achieved_vel),
+            "action": list(bundle.action),
+            "rgb_perception": bundle.rgb,
+            "rgb_policy": bundle.rgb_policy,
+            "depth_m": bundle.depth,
+            "depth_policy_m": bundle.depth_policy,
+        }
+        if getattr(self._writer, "detections_max", None) is not None:
+            kwargs["detections"] = list(bundle.detections or ())
+        self._writer.add_frame(**kwargs)
+
+    def end_episode(self, *, discard: bool = False) -> None:
+        if discard:
+            self.episodes_discarded += 1
+            self._writer.end_episode(discard=True)
+            return
+        self.episodes_kept += 1
+        self._writer.end_episode(
+            outcome="succeeded",
+            outcome_category="on_course",
+            hard_negative_category=None,
         )
 
 

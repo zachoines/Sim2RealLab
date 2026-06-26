@@ -75,7 +75,6 @@ class TestInstanceSegParser:
             parse_instance_seg_data({"data": mask, "info": {"wrongKey": {}}})
 
     def test_fields_constant_is_frozen(self):
-        # The frozen guard the operator confirms on the live schema freeze.
         assert INSTANCE_SEG_FIELDS == ("idToLabels",)
 
 
@@ -99,9 +98,9 @@ class TestSegmentIdsForPrimPath:
         assert sorted(segment_ids_for_prim_path(info, TARGET_PRIM)) == [1, 2]
 
     def test_matches_across_stage_composition_prefix(self):
-        # Observed live: the env references the scene under /World/Room and the
-        # mesh leaf repeats the object name, while the metadata recorded
-        # /World/<name>. Match on the unique object-name segment.
+        # The env references the scene under /World/Room and the mesh leaf repeats
+        # the object name, while the metadata recorded /World/<name>; the match is
+        # on the unique object-name segment.
         info = {"idToLabels": {
             "1": "INVALID",
             "2": "/World/Room/BookStackFactory_42__spawn_asset_7_/BookStackFactory_42__spawn_asset_7_",

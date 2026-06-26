@@ -17,9 +17,9 @@ The pipeline is split so the heavy/optional passes are injectable callables:
 the LLM waypoint planner and the paraphrase model degrade to deterministic,
 model-free behaviour when their runner is absent, and the start-frame grounding
 pass is a model-free geometric visibility check over the rendered scene's
-Replicator annotators (no VL model co-resident with Kit). All of it is
-exercisable without ``transformers``, a GPU, or a rendered frame — grounding
-degrades to a counted skip headless. The single ``pxr`` touch-point
+Replicator annotators. All of it is exercisable without ``transformers``, a GPU,
+or a rendered frame — grounding degrades to a counted skip headless. The single
+``pxr`` touch-point
 (reading metadata from a USD) and the occupancy load live in
 :func:`load_scene_inputs`; everything below it operates on the plain
 :class:`SceneInputs` dict so unit tests build scenes in memory.
@@ -59,10 +59,8 @@ MODES = ("endpoint", "path-shape", "mixed")
 # graph that gates it does.
 ORACLE_SNAP_RADIUS_M = sc.DEFAULT_SNAP_RADIUS_M  # 1.0 m
 
-# Default checkpoints for the text-only waypoint planner + paraphrase passes.
-# Both are loaded lazily and only when a run opts in — the model-free fallbacks
-# need neither. The start-frame grounding pass takes NO model: it is a geometric
-# visibility check over the rendered annotators (see the thresholds below).
+# Default checkpoints for the text-only waypoint planner + paraphrase passes,
+# loaded lazily only when a run opts in; the model-free fallbacks need neither.
 DEFAULT_PLANNER_MODEL = "Qwen/Qwen3-4B"
 DEFAULT_PARAPHRASE_MODEL = "Qwen/Qwen3-4B"
 
@@ -949,11 +947,10 @@ def build_mission_queue(
             stats.reject("structural_target")
             continue
 
-        # Resolve the disambiguating anchor once per target (was recomputed inside
-        # each text helper). ``.text`` is threaded into every text call site;
-        # ``.groundable`` gates the target: a coordinate-only anchor cannot be
-        # grounded from a camera frame, so the mission is dropped under the
-        # default ``require_groundable``.
+        # Resolve the disambiguating anchor once per target. ``.text`` is threaded
+        # into every text call site; ``.groundable`` gates the target: a
+        # coordinate-only anchor cannot be grounded from a camera frame, so the
+        # mission is dropped under the default ``require_groundable``.
         anchor = mission_text_builder.disambiguate(obj, inputs.objects, rooms)
         if config.require_groundable and not anchor.groundable:
             stats.reject("ungroundable_target")
@@ -1011,8 +1008,6 @@ def build_mission_queue(
             stats.reject("target_outside_rooms")
             continue
 
-        # Choose start room: a reachable other room for cross-room, else the
-        # target's own room.
         start_room_idx, cross_room = _choose_start_room(
             target_room_idx, rooms, pairs, multi_room and config.cross_room_default, rng
         )
@@ -1327,9 +1322,8 @@ def _emit_row(
 
     scene_seed = int(inputs.scene_seed) if inputs.scene_seed is not None else None
     # Record the planner model only when the LLM actually produced this row's
-    # waypoints (waypoint_validation source "llm"). Oracle / fallback rows record
-    # None so the corpus does not claim LLM waypoints it never generated — and so
-    # the metadata is not read as "an LLM was loaded" (it was not).
+    # waypoints (waypoint_validation source "llm"); oracle / fallback rows record
+    # None so the corpus does not claim LLM waypoints it never generated.
     planner_is_llm = bool(validation) and validation.get("source") == "llm"
     # Fields without a writer column (mission_id, scene_seed, target_room,
     # start_room, cross_room, planned_path, grounding) are folded here so they
@@ -1502,9 +1496,8 @@ def build_default_geometric_runner() -> GroundingRunner:
 
     Drop-in for the ``(frame, mission_text) -> verdict`` seam: ``frame`` is the
     target-visibility struct the geometric render provider produced, and the
-    verdict is :func:`geometric_visibility_verdict`. No model, no GPU, no torch
-    co-resident with Kit — so the same scene + same start pose always yields the
-    same verdict.
+    verdict is :func:`geometric_visibility_verdict`. Deterministic — the same
+    scene + same start pose always yields the same verdict.
     """
 
     def _run(frame: Any, mission_text: str) -> str:

@@ -450,8 +450,7 @@ class TestGeometricVisibilityVerdict:
     The verdict ships a mission ("yes") iff the KNOWN target is geometrically
     observable from the start pose: in frame, not effectively occluded, big
     enough on screen, and not mostly truncated by a frame edge. Each threshold
-    is asserted INDIVIDUALLY necessary against the imported module constants —
-    no magic numbers duplicated here.
+    is asserted INDIVIDUALLY necessary against the imported module constants.
     """
 
     FRAME_W = 640
@@ -790,10 +789,9 @@ class TestRoomTypeUniquenessParity:
 
 
 class TestQwen3ThinkingDisabled:
-    """The Qwen3 text runner (planner + paraphrase, which reuse the waypoint runner) must
-    disable thinking mode. With thinking ON, every call emits a ``<think>...</think>`` block
-    that consumes the ``max_new_tokens`` budget — far slower and prone to truncating the
-    actual answer. The grounding runner (Qwen2.5-VL, not a thinking model) is unaffected.
+    """The Qwen3 text runner (planner + paraphrase reuse the waypoint runner) must disable
+    thinking mode — a ``<think>`` block would consume the ``max_new_tokens`` budget and
+    truncate the answer. The Qwen2.5-VL grounding runner is unaffected.
     """
 
     def test_waypoint_runner_passes_enable_thinking_false(self, monkeypatch):

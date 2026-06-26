@@ -1,43 +1,25 @@
-"""Replicator-backed 2D bounding-box extraction for Isaac Sim perception data.
+"""Replicator-backed 2D detection extraction for Isaac Sim perception data.
 
-Wraps the ``bounding_box_2d_tight`` Omniverse Replicator annotator and turns
-its raw output — a structured numpy array of semantic ids + pixel bounds
-plus a separate ``info["idToLabels"]`` dict — into a list of typed
-:class:`DetectedBbox` records that downstream code (``generate_descriptions``,
-``prepare_vlm_finetune_data``, the Isaac Sim ROS2 bridge) can consume without
-any knowledge of Replicator internals.
+Wraps two Omniverse Replicator annotators into typed records that downstream
+code (the detections writer, the description / finetune scripts, the Isaac Sim
+ROS2 bridge) consumes without any Replicator knowledge:
 
-Design notes:
+- ``bounding_box_2d_tight`` -> :class:`DetectedBbox` (per-class boxes +
+  occlusion ratio) via the pure :func:`parse_bbox_data`. Labels live in a
+  separate ``info["idToLabels"]`` dict and may be comma-separated when a prim
+  carries several semantic types; the full list is kept and the primary class
+  exposed as ``.label``.
+- ``instance_id_segmentation`` -> :class:`InstanceSegmentation` (per-pixel
+  instance ids) via :func:`parse_instance_seg_data`, used to pin a KNOWN target
+  by its USD prim path (:func:`segment_ids_for_prim_path`). The bbox annotator
+  boxes per class, so it cannot tell same-label siblings apart; the instance
+  map can.
 
-- The ``bounding_box_2d_tight`` annotator returns rows with fields
-  ``(semanticId, x_min, y_min, x_max, y_max, occlusionRatio)`` (confirmed
-  against Isaac Sim 5.1's ``data_visualization_writer.py`` schema comment).
-  Labels live in a separate ``info["idToLabels"]`` dict keyed by
-  ``str(semantic_id)`` and can be a comma-separated list when a prim has
-  multiple semantic types — we preserve the full list AND expose the
-  primary class as ``.label`` for simple consumers.
-
-- ``instanceId`` is NOT part of ``bounding_box_2d_tight`` — that field
-  only exists on the ``instance_id_segmentation`` annotator. We leave
-  :class:`DetectedBbox` with a ``semantic_id`` field instead; callers
-  that need per-instance IDs attach :class:`ReplicatorInstanceSegExtractor`
-  (the sibling wrapper below) and join a known target by its USD prim path
-  via :func:`segment_ids_for_prim_path`.
-
-- :func:`parse_bbox_data` is a pure function with NO Isaac Sim / numpy /
-  Omniverse dependency — it accepts any iterable-of-row-objects that behaves
-  like a structured numpy array (supports ``row["field"]`` access). This
-  keeps the parser unit-testable from plain Python envs that do not have
-  Isaac Sim installed.
-
-- :class:`ReplicatorBboxExtractor` defers the ``omni.replicator.core`` import
-  to ``__init__`` so merely importing this module from a plain Python env
-  does not trigger an Omniverse load. Tests inject a mock annotator via the
-  ``annotator`` keyword to exercise :meth:`extract` without Isaac Sim.
-
-- Requires ``semanticLabel`` USD prim attributes on the scene objects. On
-  Infinigen scenes these are populated by
-  :mod:`scripts.extract_scene_metadata`.
+The parsers take no omni / Isaac Sim import, so they unit-test from plain
+Python; the ``Replicator*Extractor`` classes defer the ``omni.replicator.core``
+import to ``__init__`` and accept an injected ``annotator=`` mock for tests.
+Scene objects need ``semanticLabel`` USD attrs (Infinigen scenes get them from
+``extract_scene_metadata``).
 """
 
 from __future__ import annotations
@@ -45,30 +27,23 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
 
+import numpy as np
+
 
 UNKNOWN_LABEL = "unknown"
 
-# The structured-array field names + order the ``bounding_box_2d_tight``
-# annotator emits, in column order. Verified against the live Isaac Sim
-# 6.0.0 annotator output and its ``data_visualization_writer`` schema.
-# ``parse_bbox_data`` reads fields by name with a positional fallback, so a
-# silent rename or reorder in a future Isaac Sim would corrupt the
-# detections columns rather than error — this tuple is the guard that turns
-# that into a loud failure (see :class:`BboxSchemaError`).
+# Field names + column order of the ``bounding_box_2d_tight`` annotator's
+# structured array. ``parse_bbox_data`` reads by name with a positional
+# fallback, so a renamed/reordered schema would silently corrupt the
+# detections columns; matching against this tuple turns that into a loud
+# :class:`BboxSchemaError`.
 BBOX_2D_TIGHT_FIELDS: tuple[str, ...] = (
     "semanticId", "x_min", "y_min", "x_max", "y_max", "occlusionRatio",
 )
 
 
 class BboxSchemaError(RuntimeError):
-    """Raised when an annotator's structured-array schema drifts.
-
-    The detections producer relies on :data:`BBOX_2D_TIGHT_FIELDS`; if the
-    installed Isaac Sim ships a renamed / reordered ``bounding_box_2d_tight``
-    schema, parsing it silently would write mislabelled boxes into the
-    dataset's ``observation.detections.*`` columns. Failing here forces a
-    deliberate schema review instead.
-    """
+    """Raised when the ``bounding_box_2d_tight`` schema drifts from :data:`BBOX_2D_TIGHT_FIELDS`."""
 
 
 @dataclass(frozen=True)
@@ -96,13 +71,7 @@ class DetectedBbox:
     occlusion_ratio: float
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize to the plain-dict shape consumed by the batch scripts.
-
-        Mirrors the ``bboxes: list[dict]`` key shape the Stage-1 spatial
-        description builder (:class:`strafer_lab.tools.spatial_description.
-        SpatialDescriptionBuilder`) and the VLM data-prep scripts under
-        :mod:`strafer_lab.scripts` expect on ``frame_data``.
-        """
+        """Serialize to the ``bboxes: list[dict]`` shape consumers expect on ``frame_data``."""
         return {
             "label": self.label,
             "labels": list(self.labels),
@@ -169,8 +138,8 @@ def _resolve_labels(
     if isinstance(entry, Mapping):
         class_str = entry.get("class")
     else:
-        # Some Replicator writer variants put the string directly under
-        # the id, not behind a "class" key. Handle both for robustness.
+        # Some Replicator writer variants put the string directly under the id,
+        # not behind a "class" key.
         class_str = entry
 
     if not isinstance(class_str, str) or not class_str.strip():
@@ -190,40 +159,16 @@ def parse_bbox_data(
 ) -> list[DetectedBbox]:
     """Parse a Replicator ``bounding_box_2d_tight`` output into typed records.
 
-    Accepts the dict shape returned by
-    ``rep.AnnotatorRegistry.get_annotator("bounding_box_2d_tight").get_data()``:
+    ``raw`` is the annotator's ``get_data()`` dict — ``{"data": <structured
+    array>, "info": {"idToLabels": {"0": {"class": "table"}, ...}}}`` — or
+    ``None`` before the first frame (returns ``[]``). Real annotator output (a
+    numpy structured array) has its field names checked against
+    :data:`BBOX_2D_TIGHT_FIELDS`; a mismatch raises :class:`BboxSchemaError`
+    rather than reading the wrong columns. Test fixtures (lists of dicts /
+    tuples, no ``dtype``) skip the check.
 
-    .. code-block:: python
-
-        {
-            "data": numpy.ndarray,  # structured, fields listed below
-            "info": {
-                "idToLabels": {"0": {"class": "table"}, "1": {"class": "chair,seat"}, ...},
-                # other keys ignored by this parser
-            },
-        }
-
-    Row fields, in column order (verified against the live Isaac Sim 6.0.0
-    ``bounding_box_2d_tight`` annotator — see :data:`BBOX_2D_TIGHT_FIELDS`):
-    ``semanticId (uint32)``, ``x_min (int32)``, ``y_min (int32)``,
-    ``x_max (int32)``, ``y_max (int32)``, ``occlusionRatio (float32)``.
-    Real annotator output (a numpy structured array) has its schema checked
-    against that tuple; a mismatch raises :class:`BboxSchemaError` rather
-    than reading the wrong columns by positional fallback. Test fixtures
-    (lists of dicts / tuples, no ``dtype``) skip the check.
-
-    Parameters
-    ----------
-    raw:
-        The annotator output, or ``None`` when the annotator has not yet
-        produced a frame. Returns an empty list in that case.
-    drop_degenerate:
-        Drop rows with zero-or-negative area before returning. Default True.
-    min_occlusion_visible:
-        If set, drop rows whose visible fraction (``1 - occlusion_ratio``)
-        is below this threshold. Useful for filtering out heavily occluded
-        objects that would produce noisy labels. Default ``None`` (keep
-        everything).
+    ``drop_degenerate`` drops zero-or-negative-area rows. ``min_occlusion_visible``,
+    if set, drops rows whose visible fraction (``1 - occlusion_ratio``) is below it.
     """
     if raw is None:
         return []
@@ -232,10 +177,8 @@ def parse_bbox_data(
     if data is None:
         return []
 
-    # Guard against a silent annotator-schema drift across Isaac Sim
-    # versions. Real annotator output is a numpy structured array carrying
-    # ``dtype.names``; test fixtures (lists of dicts / tuples) have no
-    # ``dtype`` and skip the check.
+    # Real annotator output is a numpy structured array (``dtype.names``); test
+    # fixtures (lists of dicts / tuples) have no dtype and skip the schema check.
     field_names = getattr(getattr(data, "dtype", None), "names", None)
     if field_names is not None and tuple(field_names) != BBOX_2D_TIGHT_FIELDS:
         raise BboxSchemaError(
@@ -282,15 +225,9 @@ def parse_bbox_data(
 
 
 def _iter_rows(data: Any) -> Iterable[Any]:
-    """Yield rows from a numpy structured array, list-of-dicts, or ndarray.
-
-    Replicator returns a numpy structured array in production. Tests pass
-    a list of dicts (or list of tuples). Both iterate to yield one row
-    per bbox; this helper hides the difference from the parser body.
-    """
+    """Yield one row per bbox from a numpy structured array or a list fixture."""
     if data is None:
         return []
-    # numpy structured arrays, plain lists, and tuples all support iter().
     return iter(data)
 
 
@@ -355,8 +292,6 @@ class ReplicatorBboxExtractor:
     drop_degenerate: bool = True
     min_occlusion_visible: float | None = None
 
-    # Internal sentinel so we only build / attach once even if the caller
-    # keeps a long-lived reference and __post_init__ races with attach.
     _attached: bool = field(default=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -365,11 +300,7 @@ class ReplicatorBboxExtractor:
         self._attached = True
 
     def _build_real_annotator(self) -> Any:
-        """Create a real ``omni.replicator.core`` annotator. Lazy-imports.
-
-        Separated so unit tests that pass an injected ``annotator`` never
-        touch Omniverse. Only runtime users pay for the import.
-        """
+        """Build a real ``omni.replicator.core`` annotator (lazy import so tests stay omni-free)."""
         import omni.replicator.core as rep  # noqa: WPS433 — lazy by design
 
         init_params: dict[str, Any] = {}
@@ -384,12 +315,7 @@ class ReplicatorBboxExtractor:
         return annotator
 
     def extract(self) -> list[DetectedBbox]:
-        """Return the current frame's parsed bboxes.
-
-        Delegates all schema handling to :func:`parse_bbox_data`. Raises
-        :class:`RuntimeError` if the extractor was never attached (should
-        never happen under normal use — ``__post_init__`` handles it).
-        """
+        """Return the current frame's parsed bboxes (schema handling in :func:`parse_bbox_data`)."""
         if not self._attached or self.annotator is None:
             raise RuntimeError(
                 "ReplicatorBboxExtractor has no annotator — construct with "
@@ -403,13 +329,7 @@ class ReplicatorBboxExtractor:
         )
 
     def extract_as_dicts(self) -> list[dict[str, Any]]:
-        """Convenience: return the extracted bboxes as plain dicts.
-
-        Use this when passing the bboxes straight into a frame-data
-        payload or any JSON serialization. Both the run_sim_in_the_loop
-        harness mode and any consumer that ingests bbox JSON take the
-        flat-dict shape.
-        """
+        """Return the extracted bboxes as plain dicts for frame-data / JSON payloads."""
         return [bbox.to_dict() for bbox in self.extract()]
 
 
@@ -448,15 +368,6 @@ class InstanceSegmentation:
     info: Mapping[str, Any]
     frame_w: int
     frame_h: int
-
-
-def _maybe_numpy() -> Any:
-    """Return the ``numpy`` module if importable, else ``None`` (pure fallback)."""
-    try:
-        import numpy as np  # noqa: PLC0415 — optional fast path; pure scan fallback exists
-    except Exception:
-        return None
-    return np
 
 
 def _mask_dims(data: Any) -> tuple[int, int]:
@@ -553,14 +464,13 @@ def segment_pixel_extent(
     y_min, x_max, y_max))`` with an EXCLUSIVE max (a single pixel -> area 1,
     matching the ``bounding_box_2d_tight`` area convention), or ``None`` when no
     pixel matches. A trailing channel axis (the annotator's ``(H, W, 1)`` shape)
-    is reduced to 2D. Uses numpy when available; falls back to a pure scan for
+    is reduced to 2D. Uses numpy for array masks; falls back to a pure scan for
     list-of-lists fixtures.
     """
     ids = [segment_ids] if isinstance(segment_ids, int) else list(segment_ids)
     if not ids:
         return None
-    np = _maybe_numpy()
-    if np is not None and getattr(mask, "shape", None) is not None:
+    if getattr(mask, "shape", None) is not None:
         arr = np.asarray(mask)
         if arr.ndim >= 3:
             arr = arr[..., 0]

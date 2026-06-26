@@ -1,47 +1,30 @@
-"""Live start-frame provider for the mission generator's grounding pass.
+"""Live start-frame provider for the mission generator's geometric grounding pass.
 
-The mission generator
-(:func:`strafer_lab.tools.build_mission_queue.build_mission_queue`) takes an
-optional ``grounding_frame_provider``: a callable ``(obj, start_pose) -> struct``
-invoked inside ``_ground_start_frame``. This module builds that provider so it
-renders the start frame in-process — from the robot's ``d555_camera_perception``
-camera, at the exact ``start_pose`` the generator just computed — and reads
-Replicator annotators into a target-visibility struct the model-free geometric
-verdict
-(:func:`strafer_lab.tools.build_mission_queue.geometric_visibility_verdict`)
-judges. There is NO VL model: at generation time the target instance and the
-scene geometry are known ground truth, so visibility is decided geometrically
-(occlusion + on-screen size against the KNOWN target), with no torch-VL model
-co-resident with Kit.
+``build_mission_queue`` takes an optional ``grounding_frame_provider`` — a
+callable ``(obj, start_pose) -> struct`` invoked inside ``_ground_start_frame``.
+This module builds that provider over a running Isaac Lab env: it renders the
+start frame from the robot's ``d555_camera_perception`` camera at the computed
+``start_pose`` and reads Replicator annotators into the target-visibility struct
+the model-free :func:`build_mission_queue.geometric_visibility_verdict` judges.
 
-Rendering at generation time is deliberate: ``start_pose`` is not an enumerable
-parameter. It is RNG-sampled mid-traversal (the room representative or a seeded
-free interior point) and the yaw is derived from it, off a single stateful RNG
-advanced by every prior target. So the ``(scene, target) -> start_pose`` set is
-reproducible only if the whole traversal is byte-identical between runs; a
-decoupled "pre-render the poses to disk" pass cannot know which poses to render
-without re-running the generator, and any drift turns a key miss into a silent
-skip. Rendering in the same traversal that computes the pose removes the key
-entirely, and a re-rolled seed (a same-room "no") renders natively when the loop
-reaches the next seeded pose.
+The render happens in-process at generation time because ``start_pose`` is
+RNG-sampled mid-traversal off a single stateful RNG shared across targets, so the
+poses are not enumerable and cannot be pre-rendered to disk without re-running
+the generator.
 
-Pieces:
+- :func:`make_render_grounding_frame_provider` — the closure over a live env:
+  teleports the robot to ``start_pose`` (env 0), steps so the perception camera
+  holds a fresh frame, reads the ``bounding_box_2d_tight`` +
+  ``instance_id_segmentation`` annotators, and returns the struct (or ``None``
+  on an unusable read — a counted skip). The target is pinned by its
+  ``obj["prim_path"]`` through the instance map, NOT by label, so a same-label
+  sibling cannot satisfy the gate. Authoring needs no Kit; running does (an
+  ``AppLauncher`` step — see ``scripts/render_grounded_mission_corpus.py``).
+- :func:`build_visibility_struct` — pure struct-shaping over parsed annotator
+  data.
 
-- :func:`make_render_grounding_frame_provider` — the closure over a live Isaac
-  Lab env. It teleports the robot to ``start_pose`` (env 0), steps the env so
-  the perception camera holds a fresh frame, reads the
-  ``bounding_box_2d_tight`` + ``instance_id_segmentation`` annotators, and
-  returns a JSON-able target-visibility struct (or ``None`` on an unusable read
-  — a counted skip). The target is pinned by its ``obj["prim_path"]`` through
-  the instance-segmentation map, NOT by label, so a same-label sibling cannot
-  satisfy the gate. Authoring this needs no Kit; **running** it does (an
-  operator step under ``AppLauncher`` — see
-  ``scripts/render_grounded_mission_corpus.py``).
-- :func:`build_visibility_struct` — the pure struct-shaping over already-parsed
-  annotator data (typed bboxes + the instance mask). No Kit, no model;
-  unit-tested with fixtures.
-Scene-source-agnostic: this reads only the ``(x, y, yaw)`` start pose and the
-target's ``prim_path``, and never imports any scene-source package.
+Scene-source-agnostic: reads only the ``(x, y, yaw)`` pose + the target's
+``prim_path``, never importing a scene-source package.
 """
 
 from __future__ import annotations
@@ -49,17 +32,14 @@ from __future__ import annotations
 import math
 from typing import Any, Callable
 
-# Robot root z (meters above the env origin) at which the teleported robot is
-# placed for the render. 0.1 m assumes the floor surface sits at world z=0.
-# Infinigen floors sit several cm above world origin, so pass ``floor_top_z +
-# wheel clearance`` there — the same operator-tunable knob the floor-spawn reset
-# event exposes. Kept a parameter rather than silently hard-coded.
+# Robot root z (m above env origin) when teleported for the render. 0.1 m
+# assumes the floor sits at world z=0; Infinigen floors sit a few cm higher, so
+# pass ``floor_top_z + wheel clearance`` (the floor-spawn reset event's knob).
 DEFAULT_SPAWN_Z = 0.1
 
 # Zero-action env steps after the teleport before the rgb is read. One step is
-# the documented minimum for the tiled camera to hold a freshly rendered frame;
-# settle quality cannot be verified headless, so the operator may need to raise
-# this if the teleported robot has not settled before the frame is read.
+# the minimum for the tiled camera to hold a fresh frame; raise it if the
+# teleported robot has not settled by the read.
 DEFAULT_GROUNDING_WARMUP_STEPS = 2
 
 
@@ -75,7 +55,7 @@ def build_visibility_struct(
     ``None`` (a counted skip) when the read is unusable (no seg frame, or no
     prim_path). A successful read where the target has no segment yields an
     ``in_frame=False`` struct (a "no" that re-rolls a same-room target) —
-    distinct from a skip. Pure; unit-testable with fixtures.
+    distinct from a skip.
     """
     from strafer_lab.tools.bbox_extractor import (  # noqa: PLC0415 — keep import light
         bbox_row_for_segment,
@@ -137,7 +117,7 @@ def _teleport_robot(
     origin, and both root and joint velocities zeroed so the teleported robot
     does not lurch from stale wheel spin before the frame is read.
     """
-    import warp as wp  # noqa: PLC0415 — only reached on live Isaac Sim data
+    import warp as wp  # noqa: PLC0415 — warp is Kit-only
 
     quat = torch.zeros(1, 4, device=device)
     quat[:, 2] = math.sin(yaw / 2.0)  # qz (XYZW)
@@ -168,31 +148,16 @@ def make_render_grounding_frame_provider(
     warmup_steps: int = DEFAULT_GROUNDING_WARMUP_STEPS,
     torch_module: Any = None,
 ) -> Callable[[dict[str, Any], tuple[float, float, float]], Any]:
-    """Build a live ``grounding_frame_provider`` over a running Isaac Lab env.
+    """Build a live ``grounding_frame_provider`` (the ``(obj, start_pose) -> struct | None`` seam).
 
-    The returned callable matches the generator seam ``(obj, start_pose) ->
-    struct | None``: it teleports the robot to ``start_pose`` (env 0), steps the
-    env ``warmup_steps`` times so the perception camera holds a fresh frame,
-    reads the ``bounding_box_2d_tight`` + ``instance_id_segmentation``
-    annotators, and shapes them into the target-visibility struct the geometric
-    verdict consumes (see :func:`build_visibility_struct`). ``obj`` IS used: the
-    target is pinned by ``obj["prim_path"]`` through the instance-segmentation
-    map, so a same-label sibling cannot satisfy the gate. An unusable read
-    returns ``None`` (a counted skip).
-
-    The two annotators are attached once here (at provider-build time, the only
-    ``omni.replicator.core`` touch-point), via
-    :func:`strafer_lab.tools.bbox_extractor.resolve_render_product_path` on the
-    perception camera — the same render product the detections pipeline uses.
-
-    ``app_update`` is the host's Kit pump (``simulation_app.update``); it is
-    invoked once per warm-up step. With ``unwrapped.render_enabled = False`` set
-    by the launcher, that is the sole Kit pump per step (mirrors the bridge
-    driver), so the editor viewport / OmniGraph advance in lock-step with the
-    render. ``None`` skips it (a headless run whose ``env.step`` already pumps).
-
-    Authoring this needs no Kit; running it does — it is invoked only from the
-    Kit-launched corpus sibling (``scripts/render_grounded_mission_corpus.py``).
+    Attaches the two annotators once here (the only ``omni.replicator.core``
+    touch-point) to the perception camera's render product via
+    :func:`bbox_extractor.resolve_render_product_path`. ``app_update`` is the
+    host's Kit pump, invoked once per warm-up step; with the launcher's
+    ``render_enabled = False`` it is the sole pump per step, so viewport and
+    OmniGraph advance in lock-step with the render. ``None`` skips it (a headless
+    run whose ``env.step`` already pumps). Running this needs Kit; it is invoked
+    only from ``scripts/render_grounded_mission_corpus.py``.
     """
     if torch_module is None:
         import torch as torch_module  # noqa: PLC0415 — deferred so import stays Kit-free

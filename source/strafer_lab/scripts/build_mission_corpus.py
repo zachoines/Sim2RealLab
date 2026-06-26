@@ -12,8 +12,8 @@ reusing.
 The default run is model-free (deterministic oracle + templated paraphrases +
 grounding skipped), so it is exercisable headless. Opt into the heavy passes
 with ``--use-planner-llm`` / ``--use-paraphrase-llm`` (each loads a checkpoint
-lazily and needs a GPU) or ``--ground-start-frame`` (a model-free geometric
-visibility check — no GPU, no VL model). The grounding pass still needs a
+lazily and needs a GPU) or ``--ground-start-frame`` (a geometric visibility
+check — no GPU). The grounding pass still needs a
 rendered frame, which only the Kit-launched sibling
 ``render_grounded_mission_corpus.py`` supplies — it boots Isaac Sim, stands up
 the perception camera, and threads a live ``grounding_frame_provider`` through
@@ -209,8 +209,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--ground-start-frame",
         action="store_true",
-        help="run the model-free geometric start-frame grounding pass (needs the "
-        "Kit-launched render sibling for a live frame; no GPU, no VL model)",
+        help="run the geometric start-frame grounding pass (needs the "
+        "Kit-launched render sibling for a live frame; no GPU)",
     )
     p.add_argument("--allow-stale-occupancy", action="store_true", help="skip the occupancy freshness check")
     p.add_argument("--skip-unloadable", action="store_true", help="exit 0 even if some scenes failed to load")

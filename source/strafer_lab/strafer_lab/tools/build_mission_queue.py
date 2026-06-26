@@ -1326,13 +1326,18 @@ def _emit_row(
     )
 
     scene_seed = int(inputs.scene_seed) if inputs.scene_seed is not None else None
+    # Record the planner model only when the LLM actually produced this row's
+    # waypoints (waypoint_validation source "llm"). Oracle / fallback rows record
+    # None so the corpus does not claim LLM waypoints it never generated — and so
+    # the metadata is not read as "an LLM was loaded" (it was not).
+    planner_is_llm = bool(validation) and validation.get("source") == "llm"
     # Fields without a writer column (mission_id, scene_seed, target_room,
     # start_room, cross_room, planned_path, grounding) are folded here so they
     # survive into the episode's generator_metadata JSON column.
     generator_metadata: dict[str, Any] = {
         "generator_version": config.generator_version,
         "mode": config.mode,
-        "llm_model": config.planner_model,
+        "llm_model": config.planner_model if planner_is_llm else None,
         "llm_seed": config.llm_seed,
         "prompt_template_hash": template_hash,
         "source_mission_source": SOURCE_MISSION_SOURCE,

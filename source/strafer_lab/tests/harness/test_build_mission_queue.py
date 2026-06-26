@@ -132,6 +132,8 @@ class TestRoundTrip:
             assert gm["source_mission_source"] == "queue"
             assert gm["mission_id"] == raw["mission_id"]
             assert gm["scene_seed"] == 7
+            # No waypoint LLM ran -> the corpus must not claim one.
+            assert gm["llm_model"] is None
             # Parser keeps generator_metadata opaque, so the nested fields survive.
             parsed = parse_mission_row(raw)
             assert parsed.generator_metadata["start_frame_grounded"] == gm["start_frame_grounded"]
@@ -203,6 +205,8 @@ class TestWaypointValidationAndFallback:
         row = next(r for r in result.rows if r.get("planned_path"))
         assert row["generator_metadata"]["waypoint_validation"]["source"] == "oracle_fallback"
         assert row["generator_metadata"]["constraint_type_hint"].endswith("_unsatisfied")
+        # Waypoints fell back to the oracle -> no LLM model is claimed.
+        assert row["generator_metadata"]["llm_model"] is None
 
     def test_valid_llm_waypoints_are_used(self):
         scene = _two_room_scene()
@@ -222,6 +226,8 @@ class TestWaypointValidationAndFallback:
         assert chair["generator_metadata"]["waypoint_validation"]["source"] == "llm"
         assert chair["generator_metadata"]["waypoint_validation"]["retries"] == 0
         assert chair["planned_path"][-1]["x"] == pytest.approx(7.0, abs=0.01)
+        # LLM produced the waypoints -> the planner model is stamped.
+        assert chair["generator_metadata"]["llm_model"] == "Qwen/Qwen3-4B"
 
     def test_nearest_path_landmark_picks_unique_near_path_object(self):
         rooms = [{"room_type": "kitchen", "footprint_xy": [[0, 0], [8, 0], [8, 3], [0, 3]], "story": 0}]

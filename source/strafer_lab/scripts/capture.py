@@ -27,8 +27,13 @@ Implementation status:
 - ``--driver bridge`` (``scene-metadata`` or ``queue``) → the Jetson
   autonomy stack drives via /cmd_vel
   (``run_sim_in_the_loop.py --mode harness``).
-- The ``scripted`` driver and the ``captioner`` / ``coverage`` mission
-  sources are not implemented yet and raise ``NotImplementedError``.
+- ``--driver scripted --mission-source coverage`` → in-process Isaac Lab
+  + the trained RL subgoal-follower driving a diverse-perspective
+  coverage traversal (``coverage_capture.py``). This is the bulk-capture
+  default — full-room coverage with same-place / different-heading
+  revisits, not goal-reaching demos.
+- The ``scripted`` driver's ``queue`` / ``captioner`` mission sources are
+  not implemented yet and raise ``NotImplementedError``.
 """
 
 from __future__ import annotations
@@ -50,15 +55,16 @@ VALID_COMBINATIONS: dict[tuple[str, str], str] = {
     ("teleop", "scene-metadata"): "wired",
     ("scripted", "queue"): "pending",
     ("scripted", "captioner"): "pending",
-    ("scripted", "coverage"): "pending",
+    ("scripted", "coverage"): "wired",
 }
 
 
-# Driver script lookup. Both drivers are siblings in this scripts/ dir —
+# Driver script lookup. The drivers are siblings in this scripts/ dir —
 # each boots its own AppLauncher so capture.py stays Isaac-Sim-free and
 # importable without Isaac Sim for unit tests.
 _TELEOP_DRIVER_SCRIPT = Path(__file__).resolve().parent / "teleop_capture.py"
 _BRIDGE_DRIVER_SCRIPT = Path(__file__).resolve().parent / "run_sim_in_the_loop.py"
+_SCRIPTED_DRIVER_SCRIPT = Path(__file__).resolve().parent / "coverage_capture.py"
 
 
 VALID_DRIVERS = sorted({d for d, _ in VALID_COMBINATIONS})
@@ -164,10 +170,47 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Number of trajectories to capture (captioner / coverage modes).",
     )
     parser.add_argument(
+        "--policy-variant",
+        default="nocam_subgoal",
+        help="Scripted driver: PolicyVariant controlling the trained RL "
+             "subgoal-follower's observation contract. nocam_subgoal is the "
+             "only variant with a trained checkpoint today; depth subgoal is "
+             "planned.",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        default=None,
+        help="Scripted driver: path to the exported policy artifact "
+             "(TorchScript .pt / .onnx from export_policy.py) the RL "
+             "subgoal-follower loads.",
+    )
+    parser.add_argument(
+        "--coverage-visits-per-room",
+        type=int,
+        default=None,
+        help="Coverage mode: minimum visits scheduled per room, each from a "
+             "different approach heading. Defaults to the coverage driver's "
+             "own default.",
+    )
+    parser.add_argument(
+        "--held-out-scenes",
+        default=None,
+        help="Coverage mode: comma-separated scene names held out for "
+             "home-to-home generalization. When --scene is in this set every "
+             "episode is tagged episode_split=held_out_seeds.",
+    )
+    parser.add_argument(
+        "--detections-max",
+        type=int,
+        default=None,
+        help="Bridge / scripted: padded detection slots per frame when "
+             "--detections is on. Defaults to the writer's standard count.",
+    )
+    parser.add_argument(
         "--inject-bad-grounding",
         choices=("off", "wrong_room", "wrong_instance", "wrong_object"),
         default="off",
-        help="Hard-negative injection mode (bridge / scripted only): "
+        help="Hard-negative injection mode (bridge driver only): "
              "wrong_room (different room), wrong_instance (same label, same "
              "room), wrong_object (different label, same room).",
     )
@@ -252,6 +295,11 @@ def _validate(args: argparse.Namespace) -> None:
             "--inject-bad-grounding is not valid for --driver teleop. "
             "Teleop hard negatives come from the X / SELECT buttons.",
         )
+    if args.inject_bad_grounding != "off" and args.driver == "scripted":
+        raise SystemExit(
+            "--inject-bad-grounding is not valid for the scripted coverage "
+            "driver: coverage episodes carry no mission target to misground.",
+        )
     if args.detections and args.driver == "teleop":
         raise SystemExit(
             "--detections is not available for --driver teleop; the teleop "
@@ -314,11 +362,57 @@ def _build_bridge_subprocess_argv(
         argv.extend(["--mission-queue", args.mission_queue])
     if args.detections is False:
         argv.append("--no-detections")
+    if args.detections_max is not None:
+        argv.extend(["--detections-max", str(args.detections_max)])
     if args.inject_bad_grounding != "off":
         argv.extend([
             "--inject-bad-grounding", args.inject_bad_grounding,
             "--inject-bad-grounding-prob", str(args.inject_bad_grounding_prob),
         ])
+    if extra_args:
+        argv.extend(extra_args)
+    return argv
+
+
+def _build_scripted_subprocess_argv(
+    args: argparse.Namespace,
+    extra_args: Sequence[str],
+) -> list[str]:
+    """Translate ``capture.py`` args into the scripted coverage driver's argv.
+
+    The scripted driver (``source/strafer_lab/scripts/coverage_capture.py``)
+    boots its own AppLauncher, builds the env, and runs the trained RL
+    subgoal-follower along a deterministic geometric coverage plan.
+    Detections are on by default (scripted, like bridge); ``--no-detections``
+    forwards only when explicitly disabled.
+    """
+    stack = resolve_sensor_stack(
+        args.sensors if args.sensors is not None else "coverage",
+        capture_policy_cam=args.capture_policy_cam,
+    )
+    argv: list[str] = [
+        sys.executable, str(_SCRIPTED_DRIVER_SCRIPT),
+        "--scene", args.scene,
+        "--output", args.output,
+        "--vcodec", args.vcodec,
+        "--sensors", ",".join(stack),
+        "--num-envs", str(args.num_envs),
+        "--policy-variant", args.policy_variant,
+    ]
+    if args.checkpoint is not None:
+        argv.extend(["--checkpoint", args.checkpoint])
+    if args.coverage_visits_per_room is not None:
+        argv.extend(
+            ["--coverage-visits-per-room", str(args.coverage_visits_per_room)],
+        )
+    if args.n_trajectories is not None:
+        argv.extend(["--n-trajectories", str(args.n_trajectories)])
+    if args.held_out_scenes is not None:
+        argv.extend(["--held-out-scenes", args.held_out_scenes])
+    if args.detections is False:
+        argv.append("--no-detections")
+    if args.detections_max is not None:
+        argv.extend(["--detections-max", str(args.detections_max)])
     if extra_args:
         argv.extend(extra_args)
     return argv
@@ -348,12 +442,17 @@ def _dispatch(
             )
         raise NotImplementedError(
             f"--driver {args.driver} --mission-source {args.mission_source} "
-            "is not implemented yet; this cell ships with the scripted driver.",
+            "is not implemented yet; the scripted driver's queue and captioner "
+            "mission sources have not shipped. Use --mission-source coverage "
+            "for the scripted bulk-capture driver today.",
         )
 
     if args.driver == "teleop":
         driver_script = _TELEOP_DRIVER_SCRIPT
         argv = _build_teleop_subprocess_argv(args, extra_args)
+    elif args.driver == "scripted":
+        driver_script = _SCRIPTED_DRIVER_SCRIPT
+        argv = _build_scripted_subprocess_argv(args, extra_args)
     else:  # bridge
         driver_script = _BRIDGE_DRIVER_SCRIPT
         argv = _build_bridge_subprocess_argv(args, extra_args)

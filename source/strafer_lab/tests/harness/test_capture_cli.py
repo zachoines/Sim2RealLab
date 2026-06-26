@@ -250,13 +250,75 @@ class TestBridgeDispatchPath:
         assert "--max-missions" in child_argv and "3" in child_argv
 
 
+class TestScriptedDispatchPath:
+    def _run(self, runner, *args, **kwargs):
+        parser = capture._build_parser()
+        ns, extra = parser.parse_known_args(_base_args(*args, **kwargs))
+        capture._validate(ns)
+        return capture._dispatch(ns, extra_args=tuple(extra), runner=runner)
+
+    def test_coverage_cell_dispatches_to_scripted_driver(self):
+        runner = _StubRunner()
+        rc = self._run(
+            runner, "scripted", "coverage",
+            checkpoint="/models/strafer_nocam_subgoal.pt",
+        )
+        assert rc == 0
+        argv = runner.calls[0]
+        assert argv[0] == sys.executable
+        assert argv[1].endswith("coverage_capture.py")
+        assert argv[argv.index("--scene") + 1] == "scene_test"
+        assert argv[argv.index("--output") + 1] == "/tmp/test_dataset_doesnotexist"
+        # Default coverage sensor stack + policy variant flow through.
+        assert argv[argv.index("--sensors") + 1] == "rgb_full,depth_full"
+        assert argv[argv.index("--policy-variant") + 1] == "nocam_subgoal"
+        assert argv[argv.index("--checkpoint") + 1] == "/models/strafer_nocam_subgoal.pt"
+        # Detections default on (scripted) → no --no-detections.
+        assert "--no-detections" not in argv
+
+    def test_coverage_forwards_visits_and_held_out(self):
+        runner = _StubRunner()
+        self._run(
+            runner, "scripted", "coverage",
+            checkpoint="/m.pt",
+            coverage_visits_per_room=3,
+            held_out_scenes="scene_test,scene_other",
+        )
+        argv = runner.calls[0]
+        assert argv[argv.index("--coverage-visits-per-room") + 1] == "3"
+        assert argv[argv.index("--held-out-scenes") + 1] == "scene_test,scene_other"
+
+    def test_coverage_no_detections_forwarded(self):
+        runner = _StubRunner()
+        parser = capture._build_parser()
+        argv_in = _base_args("scripted", "coverage", checkpoint="/m.pt") + [
+            "--no-detections",
+        ]
+        ns, extra = parser.parse_known_args(argv_in)
+        capture._validate(ns)
+        capture._dispatch(ns, extra_args=tuple(extra), runner=runner)
+        assert "--no-detections" in runner.calls[0]
+
+    def test_coverage_unknown_args_forwarded_to_child(self):
+        runner = _StubRunner()
+        parser = capture._build_parser()
+        argv_in = _base_args("scripted", "coverage", checkpoint="/m.pt") + [
+            "--headless", "--seed", "11",
+        ]
+        ns, extra = parser.parse_known_args(argv_in)
+        capture._validate(ns)
+        capture._dispatch(ns, extra_args=tuple(extra), runner=runner)
+        child_argv = runner.calls[0]
+        assert "--headless" in child_argv
+        assert "--seed" in child_argv and "11" in child_argv
+
+
 class TestPendingCellsRaise:
     @pytest.mark.parametrize(
         "driver,mission_source",
         [
             ("scripted", "queue"),
             ("scripted", "captioner"),
-            ("scripted", "coverage"),
         ],
     )
     def test_scripted_cells_raise_notimplemented(self, driver, mission_source):
@@ -315,6 +377,16 @@ class TestFlagDependencies:
         with pytest.raises(SystemExit, match="--inject-bad-grounding"):
             capture.main(_base_args(
                 "teleop", "scene-metadata",
+                inject_bad_grounding="wrong_room",
+            ))
+
+    def test_inject_bad_grounding_rejected_for_scripted(self):
+        # Coverage episodes have no mission target to misground — fail loud
+        # rather than silently drop the flag.
+        with pytest.raises(SystemExit, match="--inject-bad-grounding"):
+            capture.main(_base_args(
+                "scripted", "coverage",
+                checkpoint="/m.pt",
                 inject_bad_grounding="wrong_room",
             ))
 

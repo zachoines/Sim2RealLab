@@ -292,6 +292,160 @@ class TestRoundTrip:
         assert ep["session_id"] == "sess_001"
         assert ep["episode_split"] == "val"  # episode_index 0 → val per the % 10 rule
 
+    def test_realized_mount_quat_round_trips(self, writer_root):
+        """The per-episode realized D555 mount quat survives the round-trip."""
+        with StraferLeRobotWriter(
+            root=writer_root,
+            repo_id="strafer-test/mount",
+            fps=8,
+            capture_git_sha="x",
+            scene_metadata_hash="y",
+            capture_policy_cam=False,
+        ) as writer:
+            writer.begin_episode(
+                mission_text="",
+                scene_id="scene_a",
+                source_driver="scripted",
+                source_mission_source="coverage",
+                realized_d555_mount_quat=(0.999, 0.01, -0.02, 0.03),
+            )
+            writer.add_frame(
+                sim_time=0.0, pose=[0.0] * 7, achieved_vel=[0.0] * 3,
+                action=[0.0, 0.0, 0.0], rgb_perception=_make_rgb(360, 640),
+            )
+            writer.end_episode(outcome="succeeded")
+
+        ep = read_strafer_episodes(writer_root)[0]
+        assert ep["realized_d555_mount_quat"] == pytest.approx(
+            [0.999, 0.01, -0.02, 0.03],
+        )
+
+    def test_mount_quat_defaults_to_null(self, writer_root):
+        with StraferLeRobotWriter(
+            root=writer_root,
+            repo_id="strafer-test/mount-null",
+            fps=8,
+            capture_git_sha="x",
+            scene_metadata_hash="y",
+            capture_policy_cam=False,
+        ) as writer:
+            writer.begin_episode(
+                mission_text="t", scene_id="s",
+                source_driver="teleop", source_mission_source="scene-metadata",
+            )
+            writer.add_frame(
+                sim_time=0.0, pose=[0.0] * 7, achieved_vel=[0.0] * 3,
+                action=[0.0, 0.0, 0.0], rgb_perception=_make_rgb(360, 640),
+            )
+            writer.end_episode()
+        assert read_strafer_episodes(writer_root)[0]["realized_d555_mount_quat"] is None
+
+    def test_scene_metadata_sidecar_written_at_finalize(self, writer_root):
+        """The scene_metadata dict embeds under meta/scenes/<id>/."""
+        import json
+
+        metadata = {
+            "rooms": [{"room_type": "kitchen", "footprint_xy": [[0, 0], [1, 0], [1, 1]]}],
+            "objects": [{"label": "chair", "instance_id": 3}],
+        }
+        with StraferLeRobotWriter(
+            root=writer_root,
+            repo_id="strafer-test/scene-meta",
+            fps=8,
+            capture_git_sha="x",
+            scene_metadata_hash="y",
+            scene_metadata=metadata,
+            capture_policy_cam=False,
+        ) as writer:
+            writer.begin_episode(
+                mission_text="", scene_id="scene_kitchen",
+                source_driver="scripted", source_mission_source="coverage",
+            )
+            writer.add_frame(
+                sim_time=0.0, pose=[0.0] * 7, achieved_vel=[0.0] * 3,
+                action=[0.0, 0.0, 0.0], rgb_perception=_make_rgb(360, 640),
+            )
+            writer.end_episode()
+
+        sidecar = (
+            writer_root / "meta" / "scenes" / "scene_kitchen" / "scene_metadata.json"
+        )
+        assert sidecar.is_file()
+        assert json.loads(sidecar.read_text()) == metadata
+
+    def test_no_scene_metadata_no_sidecar(self, writer_root):
+        with StraferLeRobotWriter(
+            root=writer_root,
+            repo_id="strafer-test/no-scene-meta",
+            fps=8,
+            capture_git_sha="x",
+            scene_metadata_hash="y",
+            capture_policy_cam=False,
+        ) as writer:
+            writer.begin_episode(
+                mission_text="t", scene_id="s",
+                source_driver="teleop", source_mission_source="scene-metadata",
+            )
+            writer.add_frame(
+                sim_time=0.0, pose=[0.0] * 7, achieved_vel=[0.0] * 3,
+                action=[0.0, 0.0, 0.0], rgb_perception=_make_rgb(360, 640),
+            )
+            writer.end_episode()
+        assert not (writer_root / "meta" / "scenes").exists()
+
+    def test_splits_sidecar_carries_held_out(self, writer_root):
+        """A held-out scene writes a whole-scene row to meta/splits.jsonl."""
+        import json
+
+        with StraferLeRobotWriter(
+            root=writer_root,
+            repo_id="strafer-test/splits",
+            fps=8,
+            capture_git_sha="x",
+            scene_metadata_hash="y",
+            capture_policy_cam=False,
+        ) as writer:
+            for _ in range(2):
+                writer.begin_episode(
+                    mission_text="", scene_id="scene_held",
+                    source_driver="scripted", source_mission_source="coverage",
+                    episode_split="held_out_seeds",
+                )
+                writer.add_frame(
+                    sim_time=0.0, pose=[0.0] * 7, achieved_vel=[0.0] * 3,
+                    action=[0.0, 0.0, 0.0], rgb_perception=_make_rgb(360, 640),
+                )
+                writer.end_episode()
+
+        splits_path = writer_root / "meta" / "splits.jsonl"
+        assert splits_path.is_file()
+        rows = [json.loads(line) for line in splits_path.read_text().splitlines()]
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["name"] == "held_out_seeds"
+        assert row["scope"] == "scene"
+        assert sorted(row["episode_indices"]) == [0, 1]
+
+    def test_no_splits_sidecar_for_default_splits(self, writer_root):
+        with StraferLeRobotWriter(
+            root=writer_root,
+            repo_id="strafer-test/no-splits",
+            fps=8,
+            capture_git_sha="x",
+            scene_metadata_hash="y",
+            capture_policy_cam=False,
+        ) as writer:
+            writer.begin_episode(
+                mission_text="t", scene_id="s",
+                source_driver="teleop", source_mission_source="scene-metadata",
+            )
+            writer.add_frame(
+                sim_time=0.0, pose=[0.0] * 7, achieved_vel=[0.0] * 3,
+                action=[0.0, 0.0, 0.0], rgb_perception=_make_rgb(360, 640),
+            )
+            writer.end_episode()
+        assert not (writer_root / "meta" / "splits.jsonl").exists()
+
     def test_depth_sidecar_persists(self, writer_root):
         with StraferLeRobotWriter(
             root=writer_root,

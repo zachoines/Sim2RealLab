@@ -21,6 +21,7 @@ from strafer_lab.sim_in_the_loop.harness import (
 from strafer_lab.sim_in_the_loop.lerobot_recorder import (
     BridgeLeRobotRecorder,
     CmdVelGraceWatch,
+    CoverageLeRobotRecorder,
     yaw_from_quat_xyzw,
 )
 from strafer_lab.sim_in_the_loop.mission import MissionSpec
@@ -336,3 +337,64 @@ class TestYawFromQuat:
 
     def test_180_deg(self):
         assert abs(yaw_from_quat_xyzw((0.0, 0.0, 1.0, 0.0))) == pytest.approx(math.pi)
+
+
+# ---------------------------------------------------------------------------
+# CoverageLeRobotRecorder (scripted coverage driver)
+# ---------------------------------------------------------------------------
+
+
+class TestCoverageRecorder:
+    def _recorder(self, writer: FakeWriter | None = None):
+        writer = writer or FakeWriter()
+        return CoverageLeRobotRecorder(writer=writer, scene_id="scene_a"), writer
+
+    def test_begin_sets_coverage_provenance(self):
+        recorder, writer = self._recorder()
+        recorder.begin_episode(start_bundle=_bundle())
+        begin = writer.begins[0]
+        assert begin["source_driver"] == "scripted"
+        assert begin["source_mission_source"] == "coverage"
+        assert begin["mission_text"] == ""
+        assert begin["scene_id"] == "scene_a"
+        # No mission, so no target columns are populated.
+        assert "target_label" not in begin or begin.get("target_label") is None
+
+    def test_begin_forwards_mount_quat_and_split(self):
+        recorder, writer = self._recorder()
+        recorder.begin_episode(
+            start_bundle=_bundle(),
+            episode_split="held_out_seeds",
+            realized_d555_mount_quat=(1.0, 0.0, 0.0, 0.0),
+        )
+        begin = writer.begins[0]
+        assert begin["episode_split"] == "held_out_seeds"
+        assert begin["realized_d555_mount_quat"] == [1.0, 0.0, 0.0, 0.0]
+
+    def test_end_keeps_episode_as_succeeded(self):
+        recorder, writer = self._recorder()
+        recorder.begin_episode(start_bundle=_bundle())
+        recorder.end_episode()
+        end = writer.ends[0]
+        assert end["outcome"] == "succeeded"
+        assert end["outcome_category"] == "on_course"
+        assert end["hard_negative_category"] is None
+        assert recorder.episodes_kept == 1
+
+    def test_discard_skips_save(self):
+        recorder, writer = self._recorder()
+        recorder.begin_episode(start_bundle=_bundle())
+        recorder.end_episode(discard=True)
+        assert writer.ends[0] == {"discard": True}
+        assert recorder.episodes_discarded == 1
+
+    def test_add_frame_gates_detections_on_writer(self):
+        recorder, writer = self._recorder(FakeWriter(detections_max=None))
+        recorder.begin_episode(start_bundle=_bundle())
+        recorder.add_frame(_bundle(detections=["box"]))
+        assert "detections" not in writer.frames[0]
+
+        recorder2, writer2 = self._recorder(FakeWriter(detections_max=32))
+        recorder2.begin_episode(start_bundle=_bundle())
+        recorder2.add_frame(_bundle(detections=["box"]))
+        assert writer2.frames[0]["detections"] == ["box"]

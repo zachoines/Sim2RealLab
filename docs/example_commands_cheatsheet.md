@@ -322,6 +322,15 @@ round-trip verification, and a troubleshooting table.
 # Generate free-text mission queues from scene metadata (per-scene queue.yaml
 # + unioned corpus.yaml; headless, model-free by default). See the guide.
 $STRAFER_ISAACLAB_PYTHON source/strafer_lab/scripts/build_mission_corpus.py --mode mixed
+
+# Bulk-capture default — diverse-perspective coverage sweep (trained RL
+# subgoal-follower over a geometric coverage plan). Teleop / bridge are the
+# non-bulk paths. Checkpoint is an exported export_policy.py artifact.
+$ISAACLAB -p source/strafer_lab/scripts/capture.py \
+    --driver scripted --mission-source coverage \
+    --scene <scene> --output data/sim_in_the_loop/<scene> \
+    --policy-variant nocam_subgoal --checkpoint models/strafer_nocam_subgoal.pt \
+    --headless --enable_cameras
 ```
 
 # Sim-in-the-loop bridge + DDS bench

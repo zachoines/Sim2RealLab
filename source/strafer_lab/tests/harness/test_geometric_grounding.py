@@ -30,10 +30,7 @@ from strafer_lab.tools.bbox_extractor import (
     segment_ids_for_prim_path,
     segment_pixel_extent,
 )
-from strafer_lab.tools.grounding_frame_provider import (
-    build_visibility_struct,
-    edge_clip_fraction,
-)
+from strafer_lab.tools.grounding_frame_provider import build_visibility_struct
 
 TARGET_PRIM = "/World/Room/chair_002"
 SIBLING_PRIM = "/World/Room/chair_005"
@@ -229,27 +226,25 @@ class TestSiblingRejection:
         assert s["in_frame"] is True
         assert s["bbox"] == (1, 1, 3, 3)
 
-    def test_edge_clipped_sibling_does_not_reject_interior_target(self):
-        # Target id 7 fully interior; a same-label sibling id 9 is truncated at the
-        # right frame edge. bounding_box_2d_tight merges them into ONE per-class row
-        # whose raw box overflows the frame — a class-row edge-clip would reject the
-        # target. The per-instance edge-clip (target's own mask box) keeps it "yes".
+    def test_merged_class_row_does_not_corrupt_target_bbox(self):
+        # Target id 7 fully interior; a same-label sibling id 9 elsewhere.
+        # bounding_box_2d_tight merges them into ONE per-class row that spans both;
+        # the struct's bbox must be the target's OWN per-instance mask box, so the
+        # interior target ships "yes" regardless of where the sibling sits.
         w, h = 640, 360
         mask = np.zeros((h, w), dtype=np.uint32)
         mask[100:160, 100:160] = 7        # interior target, 60x60
         mask[100:160, w - 20:w] = 9       # sibling hugging the right edge
         info = {"idToLabels": {"7": TARGET_PRIM, "9": SIBLING_PRIM}}
         seg = parse_instance_seg_data({"data": mask, "info": info})
-        # One merged per-class row whose raw x_max runs far past the frame.
         merged = {
             "data": [{"semanticId": 1, "x_min": 100, "y_min": 100,
-                      "x_max": w + 1000, "y_max": 160, "occlusionRatio": 0.05}],
+                      "x_max": w, "y_max": 160, "occlusionRatio": 0.05}],
             "info": {"idToLabels": {"1": {"class": "chair"}}},
         }
         s = build_visibility_struct(parse_bbox_data(merged), seg, TARGET_PRIM)
         assert s["in_frame"] is True
         assert s["bbox"] == (100, 100, 160, 160)  # the target's own interior box
-        assert s["edge_clip_frac"] == 0.0          # unaffected by the clipped sibling
         assert bmq.build_default_geometric_runner()(s, "go to the chair") == "yes"
 
 
@@ -271,28 +266,6 @@ class TestBuildVisibilityStructSkips:
         assert s["occlusion_ratio"] is None
         # No occlusion evidence -> the verdict refuses to ship.
         assert bmq.geometric_visibility_verdict(s, "x") == "no"
-
-
-class TestEdgeClipFraction:
-    """Per-instance border-overlap fraction (sides of the box on a frame edge)."""
-
-    def test_interior_box_is_zero(self):
-        assert edge_clip_fraction((10, 10, 20, 20), 100, 100) == 0.0
-
-    def test_one_border_is_a_quarter(self):
-        assert edge_clip_fraction((0, 10, 20, 20), 100, 100) == pytest.approx(0.25)    # left
-        assert edge_clip_fraction((10, 10, 100, 20), 100, 100) == pytest.approx(0.25)  # right (x2 >= W)
-
-    def test_corner_two_borders_is_a_half(self):
-        assert edge_clip_fraction((0, 0, 20, 20), 100, 100) == pytest.approx(0.5)
-
-    def test_three_borders_exceeds_threshold(self):
-        # Spans the full width against the top edge -> left + top + right.
-        assert edge_clip_fraction((0, 0, 100, 20), 100, 100) == pytest.approx(0.75)
-
-    def test_none_or_degenerate_is_one(self):
-        assert edge_clip_fraction(None, 100, 100) == 1.0
-        assert edge_clip_fraction((5, 5, 5, 5), 100, 100) == 1.0
 
 
 class TestInstanceSegExtractorMockHook:

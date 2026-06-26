@@ -456,7 +456,7 @@ class TestGeometricVisibilityVerdict:
         return round(bmq.GROUNDING_MIN_BBOX_AREA_FRAC * self.FRAME_W * self.FRAME_H)
 
     def _passing_struct(self) -> dict:
-        # Comfortably above the min-area floor, in frame, unoccluded, un-clipped.
+        # Comfortably above the min-area floor, in frame, unoccluded.
         side = int((self._min_area * 4) ** 0.5) + 1  # ~2x the min side -> ~4x area
         return {
             "in_frame": True,
@@ -464,7 +464,6 @@ class TestGeometricVisibilityVerdict:
             "occlusion_ratio": 0.0,
             "frame_w": self.FRAME_W,
             "frame_h": self.FRAME_H,
-            "edge_clip_frac": 0.0,
         }
 
     def test_all_pass_is_yes(self):
@@ -496,15 +495,8 @@ class TestGeometricVisibilityVerdict:
         assert big * big >= self._min_area
         assert bmq.geometric_visibility_verdict(s, "x") == "yes"
 
-    def test_edge_clip_is_individually_necessary(self):
-        s = self._passing_struct()
-        s["edge_clip_frac"] = bmq.GROUNDING_MAX_EDGE_CLIP_FRAC + 0.01
-        assert bmq.geometric_visibility_verdict(s, "x") == "no"
-        s["edge_clip_frac"] = bmq.GROUNDING_MAX_EDGE_CLIP_FRAC
-        assert bmq.geometric_visibility_verdict(s, "x") == "yes"
-
     def test_none_required_field_is_no(self):
-        for field in ("occlusion_ratio", "edge_clip_frac", "bbox"):
+        for field in ("occlusion_ratio", "bbox"):
             s = self._passing_struct()
             s[field] = None
             assert bmq.geometric_visibility_verdict(s, "x") == "no", field
@@ -521,7 +513,7 @@ class TestGeometricVisibilityVerdict:
         # the floor is a fraction of frame area, not a fixed pixel count.
         bbox = (0, 0, 8, 8)  # 64 px
         big = {"in_frame": True, "bbox": bbox, "occlusion_ratio": 0.0,
-               "frame_w": 640, "frame_h": 360, "edge_clip_frac": 0.0}
+               "frame_w": 640, "frame_h": 360}
         small = {**big, "frame_w": 120, "frame_h": 80}
         assert 64 < round(bmq.GROUNDING_MIN_BBOX_AREA_FRAC * 640 * 360)  # speck on big frame
         assert 64 >= round(bmq.GROUNDING_MIN_BBOX_AREA_FRAC * 120 * 80)  # fine on small frame
@@ -544,7 +536,7 @@ class TestGeometricVisibilityVerdict:
 
         def yes_provider(obj, start_pose):
             return {"in_frame": True, "bbox": (0, 0, 100, 100), "occlusion_ratio": 0.0,
-                    "frame_w": 640, "frame_h": 360, "edge_clip_frac": 0.0}
+                    "frame_w": 640, "frame_h": 360}
 
         result = bmq.build_mission_queue(
             scene,
@@ -557,7 +549,7 @@ class TestGeometricVisibilityVerdict:
 
         def no_same_room_provider(obj, start_pose):
             return {"in_frame": False, "bbox": None, "occlusion_ratio": None,
-                    "frame_w": 640, "frame_h": 360, "edge_clip_frac": 0.0}
+                    "frame_w": 640, "frame_h": 360}
 
         same = bmq.build_mission_queue(
             _two_room_scene(reachable=False),

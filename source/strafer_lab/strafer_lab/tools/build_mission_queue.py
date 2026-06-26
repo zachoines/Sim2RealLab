@@ -94,9 +94,6 @@ GROUNDING_MAX_OCCLUSION_RATIO = 0.85
 # ~115 px at 640x360, so it scales with resolution.
 GROUNDING_MIN_BBOX_AREA_FRAC = 0.0005
 
-# Target mostly truncated by a frame edge.
-GROUNDING_MAX_EDGE_CLIP_FRAC = 0.5
-
 
 @dataclass(frozen=True)
 class GeneratorConfig:
@@ -1458,11 +1455,11 @@ def build_default_paraphrase_runner(model_name: str = DEFAULT_PARAPHRASE_MODEL) 
 def geometric_visibility_verdict(struct: dict[str, Any], mission_text: str) -> str:
     """Model-free start-frame visibility verdict over a target-visibility struct.
 
-    Returns ``"yes"`` iff the target is in frame, not effectively occluded, large
-    enough on screen, and not mostly edge-clipped; otherwise (or on any missing /
-    ``None`` field) ``"no"``. ``mission_text`` is ignored — the target identity is
-    baked into ``struct`` by the provider. Deterministic: same struct -> same
-    verdict. The struct comes from
+    Returns ``"yes"`` iff the target is in frame, not effectively occluded, and
+    large enough on screen; otherwise (or on any missing / ``None`` field)
+    ``"no"``. ``mission_text`` is ignored — the target identity is baked into
+    ``struct`` by the provider. Deterministic: same struct -> same verdict. The
+    struct comes from
     :func:`strafer_lab.tools.grounding_frame_provider.build_visibility_struct`.
     """
     del mission_text  # the target identity is baked into struct; signature only
@@ -1476,7 +1473,9 @@ def geometric_visibility_verdict(struct: dict[str, Any], mission_text: str) -> s
     if occlusion is None or occlusion > GROUNDING_MAX_OCCLUSION_RATIO:
         return "no"
 
-    # Large enough on screen to be a real target, not a speck across a room.
+    # Large enough on screen to be a real target, not a speck across a room. A
+    # frame-filling target (the robot facing an adjacent object) is observable,
+    # so on-screen size is the only spatial gate — no edge-clip rejection.
     bbox = struct.get("bbox")
     if not bbox:
         return "no"
@@ -1486,11 +1485,6 @@ def geometric_visibility_verdict(struct: dict[str, Any], mission_text: str) -> s
     frame_h = struct.get("frame_h") or 0
     min_area = round(GROUNDING_MIN_BBOX_AREA_FRAC * frame_w * frame_h)
     if area < min_area:
-        return "no"
-
-    # Not mostly truncated by a frame edge (barely peeking in).
-    edge_clip = struct.get("edge_clip_frac")
-    if edge_clip is None or edge_clip > GROUNDING_MAX_EDGE_CLIP_FRAC:
         return "no"
 
     return "yes"

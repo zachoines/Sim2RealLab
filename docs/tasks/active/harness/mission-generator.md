@@ -260,7 +260,7 @@ One LLM call per mission at generation time. Components:
 > so "is the target observable from the start pose" is decided by rendering the start frame and
 > reading the Replicator annotators (`bounding_box_2d_tight` `occlusionRatio` +
 > `instance_id_segmentation` to pin the specific target instance) and thresholding occlusion /
-> bbox area / edge-clip. Exact, deterministic, fast, and it loads **no** VL model co-resident
+> bbox area. Exact, deterministic, fast, and it loads **no** VL model co-resident
 > with Kit (which is what caused the torch-vs-isaacsim `cuda-bindings` conflict). The verdict
 > mapping below is **unchanged** (yes → ship; cross-room "no" → kept as a must-find mission;
 > same-room "no" → `target_not_visible_at_start` re-roll). The Qwen2.5-VL / `strafer_vlm`
@@ -314,12 +314,15 @@ operator / oracle is independent. The intent is to keep the
 forward-generation corpus FoV-comparable to trajectory-first.
 
 The `instance_id_segmentation` schema is verified against the
-installed Isaac Sim (`(H, W, 1)` uint32 id mask + `info["idToLabels"]`
-mapping id -> mesh prim path, `colorize=False`); `segment_ids_for_prim_path`
-matches a target by its prim path or descendant mesh prims. One live
-sanity check remains on the first grounded run: confirm Infinigen
-objects map to prims this resolves, and that the edge-clip
-approximation (a per-instance border-overlap fraction) reads sensibly.
+installed Isaac Sim and confirmed live on `seed1`: an `(H, W)` uint32
+id mask + a stage-global `info["idToLabels"]` mapping id -> mesh prim
+path (`colorize=False`). `segment_ids_for_prim_path` matches a target
+by its prim path, a descendant, or its unique object-name segment (the
+env references the scene under a different root than the metadata
+recorded), resolving 845/867 objects on `seed1`. The verdict gates on
+in-frame + occlusion + on-screen size only — a frame-filling target
+(the robot facing an adjacent object) is observable, so there is no
+edge-clip rejection.
 
 ### Corpus composition
 

@@ -11,8 +11,8 @@ verdict
 (:func:`strafer_lab.tools.build_mission_queue.geometric_visibility_verdict`)
 judges. There is NO VL model: at generation time the target instance and the
 scene geometry are known ground truth, so visibility is decided geometrically
-(occlusion + on-screen size + edge-clip against the KNOWN target), with no
-torch-VL model co-resident with Kit.
+(occlusion + on-screen size against the KNOWN target), with no torch-VL model
+co-resident with Kit.
 
 Rendering at generation time is deliberate: ``start_pose`` is not an enumerable
 parameter. It is RNG-sampled mid-traversal (the room representative or a seeded
@@ -37,9 +37,9 @@ Pieces:
   satisfy the gate. Authoring this needs no Kit; **running** it does (an
   operator step under ``AppLauncher`` — see
   ``scripts/render_grounded_mission_corpus.py``).
-- :func:`build_visibility_struct` / :func:`edge_clip_fraction` — the pure
-  struct-shaping over already-parsed annotator data (typed bboxes + the instance
-  mask). No Kit, no model; unit-tested with fixtures.
+- :func:`build_visibility_struct` — the pure struct-shaping over already-parsed
+  annotator data (typed bboxes + the instance mask). No Kit, no model;
+  unit-tested with fixtures.
 - :func:`coerce_frame_return` — a pure image-path sanitizer retained from the
   earlier frame-based provider. It is no longer on the provider's return path
   (the provider returns a struct now), but is kept as a tested defensive utility.
@@ -104,33 +104,6 @@ def coerce_frame_return(frame: Any) -> Any:
     return None
 
 
-def edge_clip_fraction(
-    bbox: tuple[int, int, int, int] | None, frame_w: int, frame_h: int
-) -> float:
-    """Fraction of the box's four sides that sit on a frame edge (0.0 interior ..
-    1.0), or 1.0 for a missing / degenerate box.
-
-    Computed from the target's per-instance box, so a same-label sibling cannot
-    affect it. The box is clamped in-frame, so this measures which edges the
-    target abuts, not how much overflows.
-    """
-    if not bbox:
-        return 1.0
-    x_min, y_min, x_max, y_max = bbox
-    if x_max <= x_min or y_max <= y_min:
-        return 1.0
-    sides_on_border = 0
-    if x_min <= 0:
-        sides_on_border += 1
-    if y_min <= 0:
-        sides_on_border += 1
-    if x_max >= frame_w:
-        sides_on_border += 1
-    if y_max >= frame_h:
-        sides_on_border += 1
-    return sides_on_border / 4.0
-
-
 def build_visibility_struct(
     bboxes: Any, seg: Any, prim_path: str | None
 ) -> dict[str, Any] | None:
@@ -167,12 +140,11 @@ def build_visibility_struct(
             "occlusion_ratio": None,
             "frame_w": frame_w,
             "frame_h": frame_h,
-            "edge_clip_frac": 0.0,
         }
 
     _count, mask_bbox = extent
-    # Occlusion is per-class only (from the bbox row overlapping the segment);
-    # bbox + edge-clip use the per-instance mask box.
+    # Occlusion is per-class only (from the bbox row overlapping the segment); the
+    # bbox is the per-instance mask box.
     row = bbox_row_for_segment(bboxes or [], mask_bbox)
     occlusion_ratio = row.occlusion_ratio if row is not None else None
     return {
@@ -181,7 +153,6 @@ def build_visibility_struct(
         "occlusion_ratio": occlusion_ratio,
         "frame_w": frame_w,
         "frame_h": frame_h,
-        "edge_clip_frac": edge_clip_fraction(mask_bbox, frame_w, frame_h),
     }
 
 

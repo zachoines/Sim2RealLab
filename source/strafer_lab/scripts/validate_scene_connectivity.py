@@ -120,6 +120,11 @@ _DOOR_PRIM_RE = re.compile(r"Door[A-Za-z]*Factory_\d+__spawn_asset_\d+_")
 # The leaf is the swinging panel (extra ``__NNN`` suffix); the frame is the casing.
 _DOOR_LEAF_RE = re.compile(r"__spawn_asset_\d+__\d+$")
 
+# Wall/ceiling trim (skirting boards / mouldings) are thin perimeter rings, but a
+# convex-hull collider on one fills the whole room footprint with a phantom slab
+# (see refit_trim_collider_approximations).
+_TRIM_PRIM_RE = re.compile(r"skirtingboard", re.IGNORECASE)
+
 # Occupancy slab, measured above the floor.
 #   z_lo: just above the floor — clears the floor plane (its colliders are stripped
 #         in postprocess anyway) plus any door-sill / transition-strip lip.
@@ -363,6 +368,86 @@ def _occupancy_from_points(
     return grid, (min_x, min_y)
 
 
+def _dump_omap_diagnostics(
+    om: Any,
+    dump_dir: Path,
+    *,
+    bounds: tuple[float, float, float, float],
+    z_min: float,
+    z_max: float,
+    cell_size: float,
+) -> None:
+    """Persist the raw omap interface outputs for occupancy-fault diagnosis.
+
+    The cached grid is built only from :meth:`get_occupied_positions`, which
+    collapses the omap's three-way per-cell classification (collider-occupied /
+    reachable-free / never-observed) into a single ``occupied`` set. When a grid
+    reads far more occupied than the scene's real colliders can account for, the
+    open question is *which* class the excess belongs to: a real surface in the
+    z-slab (the occupied z-values cluster at one height) versus cells the flood
+    never observed free (the raw buffer carries a distinct ``unknown`` value over
+    those cells). Each omap call is guarded so the dump degrades to whatever the
+    binding exposes rather than aborting a generation run.
+    """
+    dump_dir.mkdir(parents=True, exist_ok=True)
+    summary: dict[str, Any] = {
+        "z_band": [z_min, z_max],
+        "bounds": list(bounds),
+        "cell_size": cell_size,
+    }
+    arrays: dict[str, np.ndarray] = {}
+
+    def _zstats(pts: np.ndarray) -> dict[str, float]:
+        z = np.asarray(pts, dtype=float)[:, 2]
+        qs = np.percentile(z, [0, 5, 25, 50, 75, 95, 100])
+        hist, edges = np.histogram(z, bins=12, range=(z_min, z_max))
+        return {
+            "count": int(z.shape[0]),
+            "min": float(qs[0]), "p05": float(qs[1]), "p25": float(qs[2]),
+            "median": float(qs[3]), "p75": float(qs[4]), "p95": float(qs[5]),
+            "max": float(qs[6]),
+            "z_hist_counts": [int(c) for c in hist],
+            "z_hist_edges": [round(float(e), 3) for e in edges],
+        }
+
+    try:
+        occ = np.asarray(om.get_occupied_positions(), dtype=float)
+        arrays["occupied_xyz"] = occ
+        summary["occupied"] = _zstats(occ) if occ.size else {"count": 0}
+    except Exception as exc:  # noqa: BLE001
+        summary["occupied_error"] = repr(exc)
+    try:
+        free = np.asarray(om.get_free_positions(), dtype=float)
+        arrays["free_xyz"] = free
+        summary["free"] = _zstats(free) if free.size else {"count": 0}
+    except Exception as exc:  # noqa: BLE001
+        summary["free_error"] = repr(exc)
+    try:
+        buf = np.asarray(om.get_buffer())
+        arrays["buffer"] = buf
+        vals, counts = np.unique(buf, return_counts=True)
+        # The three-way class breakdown: which raw value the over-occupancy mass
+        # carries decides "real collider in the slab" vs "never observed free".
+        summary["buffer_value_histogram"] = {
+            str(round(float(v), 6)): int(c) for v, c in zip(vals, counts)
+        }
+        summary["buffer_len"] = int(buf.size)
+    except Exception as exc:  # noqa: BLE001
+        summary["buffer_error"] = repr(exc)
+    for getter in ("get_dimensions", "get_min_bound", "get_max_bound"):
+        try:
+            summary[getter] = list(getattr(om, getter)())
+        except Exception:  # noqa: BLE001
+            pass
+
+    (dump_dir / "omap_debug.json").write_text(
+        json.dumps(summary, indent=2), encoding="utf-8"
+    )
+    if arrays:
+        np.savez(dump_dir / "omap_debug.npz", **arrays)
+    _trace(f"dumped omap diagnostics to {dump_dir}: {json.dumps(summary)[:600]}")
+
+
 def generate_occupancy_omap(
     simulation_app: Any,
     *,
@@ -370,11 +455,14 @@ def generate_occupancy_omap(
     z_min: float,
     z_max: float,
     cell_size: float,
+    debug_dump: Path | None = None,
 ) -> tuple[np.ndarray, tuple[float, float]]:
     """Generate occupancy via the Isaac Sim occupancy-map extension.
 
     Reads the stage's physics colliders over the z-slab ``[z_min, z_max]`` and
-    rasterizes the occupied cells into a planner-convention grid.
+    rasterizes the occupied cells into a planner-convention grid. When
+    ``debug_dump`` is set, the raw omap interface outputs (occupied/free
+    positions + buffer value histogram) are persisted there for fault diagnosis.
     """
     import omni.timeline  # type: ignore
     from isaacsim.asset.gen.omap.bindings import _omap  # type: ignore
@@ -404,6 +492,10 @@ def generate_occupancy_omap(
     for _ in range(2):
         simulation_app.update()
     points = om.get_occupied_positions()
+    if debug_dump is not None:
+        _dump_omap_diagnostics(
+            om, debug_dump, bounds=bounds, z_min=z_min, z_max=z_max, cell_size=cell_size
+        )
     timeline.stop()
     logger.info("omap generated %d occupied cells", len(points))
     return _occupancy_from_points(points, bounds=bounds, cell_size=cell_size)
@@ -501,6 +593,41 @@ def hide_door_leaves(stage: Any, leaf_paths: list[str]) -> int:
     return count
 
 
+def refit_trim_collider_approximations(stage: Any) -> int:
+    """Replace filling convex-hull colliders on wall/ceiling trim with the exact mesh.
+
+    Infinigen skirting-board (and similar moulding) meshes are thin perimeter
+    rings — only a few percent of their bounding box carries any geometry — yet the
+    postprocess collider step can approximate one as a ``convexHull``. The convex
+    hull of a room-perimeter ring is the *filled* room rectangle, so the collider
+    becomes a phantom slab from the floor to roughly knee height spanning the whole
+    footprint. The occupancy map then reads the entire navigable floor as occupied
+    (the collider is real), and the runtime robot would collide with the same slab.
+
+    Re-approximating to the exact triangle mesh (``none``) makes the collider follow
+    the thin trim — which sits flush behind the wall collider, so this opens no real
+    obstacle — and matches the faithful approximation such trim already carries when
+    it is not mis-hulled. Only convex-hull-approximated trim is touched; faithful
+    approximations are left as they are. The edit is persisted on save so the
+    occupancy grid and the runtime physics scene agree.
+    """
+    from pxr import UsdPhysics  # type: ignore
+
+    count = 0
+    for prim in stage.Traverse():
+        if not prim.IsValid() or prim.GetTypeName() != "Mesh":
+            continue
+        if not _TRIM_PRIM_RE.search(prim.GetName()):
+            continue
+        if not prim.HasAPI(UsdPhysics.MeshCollisionAPI):
+            continue
+        attr = UsdPhysics.MeshCollisionAPI(prim).GetApproximationAttr()
+        if attr and attr.Get() == UsdPhysics.Tokens.convexHull:
+            attr.Set(UsdPhysics.Tokens.none)
+            count += 1
+    return count
+
+
 def _door_at_crossing(edge: dict[str, Any], doors: list[dict[str, Any]]) -> bool:
     """True if a door prim sits on this edge's doorway crossing point."""
     via = edge.get("via_doorway_xy")
@@ -566,6 +693,7 @@ def validate_connectivity(
     rasterize_fallback: bool = False,
     write: bool = True,
     occupancy_out: Path | None = None,
+    omap_debug_dump: Path | None = None,
 ) -> dict[str, Any]:
     """Compute the connectivity graph for one scene and (optionally) author it.
 
@@ -656,9 +784,19 @@ def validate_connectivity(
             f"across {len(doors)} door prim(s)"
         )
 
+    # Correct filling convex-hull trim colliders before the cook so the occupancy
+    # map (and the persisted runtime scene) see the thin moulding, not a phantom
+    # floor-spanning slab.
+    trim_refit = refit_trim_collider_approximations(stage)
+    if trim_refit:
+        for _ in range(3):
+            simulation_app.update()
+        _trace(f"re-approximated {trim_refit} convex-hull trim collider(s) to exact mesh")
+
     _trace("generating occupancy")
     occupancy, origin_xy = generate_occupancy_omap(
         simulation_app, bounds=bounds, z_min=z_min, z_max=z_max, cell_size=cell_size,
+        debug_dump=omap_debug_dump,
     ) if not rasterize_fallback else generate_occupancy_rasterize(
         stage, rooms, metadata, bounds=bounds, z_min=z_min, z_max=z_max, cell_size=cell_size,
     )
@@ -782,6 +920,12 @@ def _cli_main(argv: list[str] | None = None) -> int:
              "inspection (independent of --no-write).",
     )
     parser.add_argument(
+        "--omap-debug-dump", type=Path, default=None,
+        help="Dump the raw occupancy-map outputs (occupied/free positions + buffer "
+             "value histogram + z-distribution) to this dir for occupancy-fault "
+             "diagnosis. Omap path only; no effect with --rasterize-fallback.",
+    )
+    parser.add_argument(
         "--log-file", type=Path, default=Path("/tmp/validate_scene_connectivity.log"),
         help="Mirror progress + errors here (Kit hijacks stdout, so a file log is "
              "the reliable trace).",
@@ -806,7 +950,7 @@ def _cli_main(argv: list[str] | None = None) -> int:
             args.usd, simulation_app=simulation_app, cell_size=args.cell_size,
             pad_m=args.pad_m, z_lo_m=args.z_lo_m, z_hi_m=args.z_hi_m,
             rasterize_fallback=args.rasterize_fallback, write=not args.no_write,
-            occupancy_out=args.occupancy_out,
+            occupancy_out=args.occupancy_out, omap_debug_dump=args.omap_debug_dump,
         )
         # Persist the result inside the try — it lands before teardown either way.
         _report_result(result, args.json_out)

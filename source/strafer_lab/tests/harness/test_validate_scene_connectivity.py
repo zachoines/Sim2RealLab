@@ -118,3 +118,47 @@ class TestDiskReadBack:
 
         with pytest.raises(Tf.ErrorException):
             _reopen(tmp_path / "does_not_exist.usdc")
+
+
+class TestRefitTrimColliders:
+    """``refit_trim_collider_approximations`` re-approximates only the filling
+    convex-hull trim colliders, leaving everything else untouched."""
+
+    def _mesh(self, stage, path, *, collider=True, approximation="convexHull"):
+        from pxr import UsdGeom, UsdPhysics
+
+        mesh = UsdGeom.Mesh.Define(stage, path)
+        if collider:
+            UsdPhysics.CollisionAPI.Apply(mesh.GetPrim())
+            mca = UsdPhysics.MeshCollisionAPI.Apply(mesh.GetPrim())
+            if approximation is not None:
+                mca.GetApproximationAttr().Set(approximation)
+        return mesh.GetPrim()
+
+    def test_only_convex_hull_trim_is_refit(self):
+        pytest.importorskip("pxr")
+        from pxr import Usd, UsdPhysics
+
+        stage = Usd.Stage.CreateInMemory()
+        hulled = self._mesh(stage, "/W/skirtingboard_support", approximation="convexHull")
+        faithful = self._mesh(stage, "/W/skirtingboard_ceiling", approximation="none")
+        non_trim = self._mesh(stage, "/W/living_room_0_0_wall", approximation="convexHull")
+        no_collider = self._mesh(stage, "/W/skirtingboard_loose", collider=False)
+
+        count = validate_scene_connectivity.refit_trim_collider_approximations(stage)
+
+        assert count == 1  # only the convex-hull skirting board
+        assert UsdPhysics.MeshCollisionAPI(hulled).GetApproximationAttr().Get() == "none"
+        # a faithful trim approximation, a non-trim hull, and a collider-less trim
+        # mesh are all left exactly as they were.
+        assert UsdPhysics.MeshCollisionAPI(faithful).GetApproximationAttr().Get() == "none"
+        assert UsdPhysics.MeshCollisionAPI(non_trim).GetApproximationAttr().Get() == "convexHull"
+        assert not no_collider.HasAPI(UsdPhysics.MeshCollisionAPI)
+
+    def test_noop_when_no_trim(self):
+        pytest.importorskip("pxr")
+        from pxr import Usd
+
+        stage = Usd.Stage.CreateInMemory()
+        self._mesh(stage, "/W/living_room_0_0_wall", approximation="convexHull")
+        assert validate_scene_connectivity.refit_trim_collider_approximations(stage) == 0

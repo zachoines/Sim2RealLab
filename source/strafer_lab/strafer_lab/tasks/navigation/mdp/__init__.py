@@ -119,6 +119,7 @@ from .events import (
 )
 
 # Custom commands
+from .capture_commands import CaptureSubgoalCommandCfg
 from .commands import GoalCommandCfg, GoalCommandProcRoomCfg, SubgoalCommandCfg
 
 # Curriculum learning

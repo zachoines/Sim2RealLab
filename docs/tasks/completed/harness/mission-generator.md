@@ -1,5 +1,29 @@
 # Free-text mission generator with LLM-emitted waypoints (multi-room default)
 
+**Status:** Shipped 2026-06-26 in `6ce69f4` (DGX). The generator entry point, the
+shared-planner oracle over the cached-occupancy seam, multi-room-by-default
+emission, the paraphrase pass, prompt-template-hash + generator-version caching,
+the corpus-assembly wrapper, and the geometric start-frame grounding gate all
+landed. Metric B (per-scene `start_frame_grounded`) measured: ~4.1% start-visible
+on the deployable (groundable-filtered) corpus; seed5's 13.7% validates the gate
+discriminates.
+**PR:** #98 (generator infra) → #100 (disambiguator + groundable filter) → #103
+(grounding-frame-provider seam) → #106 (Qwen3 thinking-mode fix) → #108
+(geometric-gate design) → #109 (geometric gate + cleanup).
+**Follow-ups (deferred to named briefs, not unmet):**
+- Metric A (LLM-text hallucination benchmark) is N/A for the shipped path: the v1
+  corpus ships on oracle waypoints + REG-templated text, which cannot
+  hallucinate. The LLM-text path and its hallucination measurement live in the
+  parked [`out-of-process-mission-text-llm`](../../parked/harness/out-of-process-mission-text-llm.md)
+  brief (the in-process text LLM re-introduces the `cuda-bindings` conflict the VL
+  pivot removed).
+- The teleop / scripted `queue` mission-source cells and the
+  `INTEGRATION_SIM_IN_THE_LOOP.md` Stage 5b/5c queue-consumption note depend on
+  harness Tier 3 → [`harness-architecture`](harness-architecture.md). The
+  generated queue is bridge-wired today.
+- The paraphrase pass ships on Qwen3-4B text-only; the "7B Qwen2.5-VL" wording
+  below predates that pivot (structured-metadata input needs no image model).
+
 **Type:** new feature
 **Owner:** DGX agent
 **Priority:** P2 (data-side foundation for VLA training scale-out

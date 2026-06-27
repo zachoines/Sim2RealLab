@@ -39,10 +39,9 @@ in the scene-gen pipeline and produces two artifacts:
    has cross-room candidate pairs but *none* is reachable.
 
    The omap reads physics colliders, so a collider that does not match its
-   visual mesh distorts the grid: a ``convexHull`` approximation on a perimeter
-   trim mesh (skirting board) fills the whole room footprint with a phantom slab.
-   ``refit_trim_collider_approximations`` corrects that before the cook; a room
-   that still reads unreachable with its door open is genuinely enclosed (a real
+   visual mesh distorts the grid; authoring faithful colliders is the scene
+   provider's postprocess responsibility, not this agnostic step's. A room that
+   still reads unreachable with its door open is genuinely enclosed (a real
    sub-chassis-width opening), not a fidelity gap.
 
 Reachability is decided by the project's one shared grid planner
@@ -120,11 +119,6 @@ def _trace(msg: str) -> None:
 _DOOR_PRIM_RE = re.compile(r"Door[A-Za-z]*Factory_\d+__spawn_asset_\d+_")
 # The leaf is the swinging panel (extra ``__NNN`` suffix); the frame is the casing.
 _DOOR_LEAF_RE = re.compile(r"__spawn_asset_\d+__\d+$")
-
-# Wall/ceiling trim (skirting boards / mouldings) are thin perimeter rings, but a
-# convex-hull collider on one fills the whole room footprint with a phantom slab
-# (see refit_trim_collider_approximations).
-_TRIM_PRIM_RE = re.compile(r"skirtingboard", re.IGNORECASE)
 
 # Occupancy slab, measured above the floor.
 #   z_lo: just above the floor — clears the floor plane (its colliders are stripped
@@ -594,41 +588,6 @@ def hide_door_leaves(stage: Any, leaf_paths: list[str]) -> int:
     return count
 
 
-def refit_trim_collider_approximations(stage: Any) -> int:
-    """Replace filling convex-hull colliders on wall/ceiling trim with the exact mesh.
-
-    Infinigen skirting-board (and similar moulding) meshes are thin perimeter
-    rings — only a few percent of their bounding box carries any geometry — yet the
-    postprocess collider step can approximate one as a ``convexHull``. The convex
-    hull of a room-perimeter ring is the *filled* room rectangle, so the collider
-    becomes a phantom slab from the floor to roughly knee height spanning the whole
-    footprint. The occupancy map then reads the entire navigable floor as occupied
-    (the collider is real), and the runtime robot would collide with the same slab.
-
-    Re-approximating to the exact triangle mesh (``none``) makes the collider follow
-    the thin trim — which sits flush behind the wall collider, so this opens no real
-    obstacle — and matches the faithful approximation such trim already carries when
-    it is not mis-hulled. Only convex-hull-approximated trim is touched; faithful
-    approximations are left as they are. The edit is persisted on save so the
-    occupancy grid and the runtime physics scene agree.
-    """
-    from pxr import UsdPhysics  # type: ignore
-
-    count = 0
-    for prim in stage.Traverse():
-        if not prim.IsValid() or prim.GetTypeName() != "Mesh":
-            continue
-        if not _TRIM_PRIM_RE.search(prim.GetName()):
-            continue
-        if not prim.HasAPI(UsdPhysics.MeshCollisionAPI):
-            continue
-        attr = UsdPhysics.MeshCollisionAPI(prim).GetApproximationAttr()
-        if attr and attr.Get() == UsdPhysics.Tokens.convexHull:
-            attr.Set(UsdPhysics.Tokens.none)
-            count += 1
-    return count
-
-
 def _door_at_crossing(edge: dict[str, Any], doors: list[dict[str, Any]]) -> bool:
     """True if a door prim sits on this edge's doorway crossing point."""
     via = edge.get("via_doorway_xy")
@@ -771,9 +730,7 @@ def validate_connectivity(
     # is robust where a post-gen RemoveAPI + re-cook is not. The leaf panel is also
     # hidden so the visual matches the now-open passage (a demo camera must not
     # film the robot driving through a shut-looking door). Both are persisted on
-    # write so the runtime scene + occupancy match. (Filling convex-hull trim
-    # colliders are corrected just below, before the cook — see
-    # refit_trim_collider_approximations.)
+    # write so the runtime scene + occupancy match.
     forced_open = 0
     if not rasterize_fallback and doors:
         forced_open = drop_door_colliders(stage, [d["path"] for d in doors])
@@ -784,15 +741,6 @@ def validate_connectivity(
             f"force-opened {forced_open} door collider(s), hid {hidden} leaf mesh(es) "
             f"across {len(doors)} door prim(s)"
         )
-
-    # Correct filling convex-hull trim colliders before the cook so the occupancy
-    # map (and the persisted runtime scene) see the thin moulding, not a phantom
-    # floor-spanning slab.
-    trim_refit = refit_trim_collider_approximations(stage)
-    if trim_refit:
-        for _ in range(3):
-            simulation_app.update()
-        _trace(f"re-approximated {trim_refit} convex-hull trim collider(s) to exact mesh")
 
     _trace("generating occupancy")
     occupancy, origin_xy = generate_occupancy_omap(

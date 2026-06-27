@@ -44,8 +44,10 @@ from __future__ import annotations
 
 import argparse
 import math
+import re
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # Registered capture env per policy variant — the env carries the observation /
@@ -56,6 +58,13 @@ _CAPTURE_ENV_BY_VARIANT = {
 }
 
 _MAX_PATH_POINTS = 512
+
+# Overhead structure prims hidden from the recording camera — Infinigen's
+# ceiling / roof / attic / exterior room-structure labels.
+_OVERHEAD_PRIM_RE = re.compile(
+    r"(?:^|_)(ceiling|roof|attic|exterior)(?:_\d+)?$",
+    re.IGNORECASE,
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -138,6 +147,32 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Length of the final straight approach segment that realizes a "
              "visit's approach heading.",
     )
+    parser.add_argument(
+        "--video", action="store_true",
+        help="Record a third-person overhead MP4 of the coverage sweep. "
+             "Needs no live display, so it is the display-independent way to "
+             "watch the traversal on a headless host.",
+    )
+    parser.add_argument(
+        "--video-length", type=int, default=None,
+        help="Cap on env steps filmed into the overhead MP4 (one frame per env "
+             "step). Recording stops at the cap and the rest of the sweep is "
+             "not filmed; the captured dataset is unaffected. Defaults to the "
+             "whole planned sweep.",
+    )
+    parser.add_argument(
+        "--video-dir", default="logs/coverage_capture/videos",
+        help="Directory the overhead MP4 is written under.",
+    )
+    parser.add_argument(
+        "--video-keep-ceiling", action="store_true",
+        help="Keep ceiling/roof structure visible in the overhead MP4. By "
+             "default --video hides overhead structure so the top-down view "
+             "sees into rooms; that hide is global (the renderer has no honored "
+             "per-camera path), so it also hides the ceiling from this run's "
+             "recorded perception frames. Use --video for QA; run production "
+             "capture without it, or pass this flag, for an untouched corpus.",
+    )
     return parser
 
 
@@ -194,6 +229,7 @@ def main() -> int:
 
     import importlib.metadata as _metadata
 
+    from isaaclab.envs.common import ViewerCfg
     from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper, handle_deprecated_rsl_rl_cfg
     from isaaclab_tasks.utils import parse_env_cfg
     from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry
@@ -329,7 +365,80 @@ def main() -> int:
     agent_cfg.seed = args.seed
     agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, _metadata.version("rsl-rl-lib"))
 
-    env = gym.make(env_id, cfg=env_cfg)
+    # Optional third-person overhead recording of the whole sweep — a watchable
+    # MP4 that needs no live display. Mirrors play_strafer_navigation: an
+    # env-anchored overhead viewer drives RecordVideo, and the capture camera is
+    # placed in world frame by lifting the viewer offset by the env origin (the
+    # coverage plan runs in the scene-local frame; the sim camera takes world).
+    if args.video:
+        env_cfg.viewer = ViewerCfg(
+            eye=(0.0, 0.0, 12.0),
+            lookat=(0.0, 0.0, 0.0),
+            origin_type="env",
+            env_index=0,
+            resolution=(1280, 720),
+        )
+
+    env = gym.make(env_id, cfg=env_cfg, render_mode="rgb_array" if args.video else None)
+    if args.video:
+        base = env.unwrapped
+        env_origin = base.scene.env_origins[0].detach().cpu().tolist()
+        viewer = base.cfg.viewer
+        world_eye = tuple(env_origin[i] + viewer.eye[i] for i in range(3))
+        world_target = tuple(env_origin[i] + viewer.lookat[i] for i in range(3))
+        # Absolute altitude the overhead camera follows the robot at each step.
+        overhead_altitude_z = world_eye[2]
+        recorder = getattr(base, "video_recorder", None)
+        capture = getattr(recorder, "_capture", None) if recorder is not None else None
+        # The recorder renders this camera prim; the per-step follow re-poses it.
+        overhead_cam_prim_path = (
+            capture.cfg.camera_prim_path if capture is not None
+            else viewer.cam_prim_path
+        )
+        if capture is not None:
+            capture.cfg.camera_position = world_eye
+            capture.cfg.camera_target = world_target
+        else:
+            print(
+                "[coverage_capture] --video: viewport capture handle "
+                "unavailable; the overhead MP4 may use the default camera pose",
+                flush=True,
+            )
+        base.sim.set_camera_view(eye=world_eye, target=world_target)
+        try:
+            from isaaclab_physx.renderers.kit_viewport_utils import (
+                set_kit_renderer_camera_view,
+            )
+
+            set_kit_renderer_camera_view(
+                eye=world_eye, target=world_target,
+                camera_prim_path=viewer.cam_prim_path,
+            )
+        except ImportError:
+            pass
+        # RecordVideo writes one frame per env step and self-stops at
+        # video_length, so size the default to the whole planned sweep
+        # (legs x the per-leg step cap) — otherwise the MP4 truncates mid-run.
+        legs = args.n_trajectories or len(plan.waypoints)
+        video_length = (
+            args.video_length if args.video_length is not None
+            else legs * args.max_steps_per_leg
+        )
+        video_root = Path(args.video_dir).resolve() / (
+            f"coverage_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        )
+        video_root.mkdir(parents=True, exist_ok=True)
+        env = gym.wrappers.RecordVideo(
+            env,
+            video_folder=str(video_root),
+            step_trigger=lambda step: step == 0,
+            video_length=video_length,
+            disable_logger=True,
+        )
+        print(f"[coverage_capture] recording overhead sweep to: {video_root}", flush=True)
+        if not args.video_keep_ceiling:
+            _hide_overhead_structure(base)
+
     env = RslRlVecEnvWrapper(env)
     unwrapped = env.unwrapped
     device = unwrapped.device
@@ -443,6 +552,12 @@ def main() -> int:
             )
             recorder.add_frame(start_bundle)
             for step in range(1, args.max_steps_per_leg + 1):
+                if args.video:
+                    _follow_overhead_camera(
+                        _robot_xy_local() + env_origin_xy,
+                        overhead_altitude_z,
+                        overhead_cam_prim_path,
+                    )
                 adapter.step()
                 if step % args.capture_every_n_steps == 0:
                     recorder.add_frame(adapter.capture())
@@ -461,6 +576,61 @@ def main() -> int:
         env.close()
         simulation_app.close()
     return 0
+
+
+def _follow_overhead_camera(robot_world_xy, altitude_z: float, cam_prim_path: str) -> None:
+    """Re-pose the top-down overhead camera above the robot's world XY.
+
+    The video recorder poses its camera prim only on the first frame, so the
+    recorded sweep would otherwise stay fixed; this re-poses that same prim each
+    step (the call teleop's follow uses). Eye and target share XY so the view
+    stays straight down.
+    """
+    from isaacsim.core.utils.viewports import set_camera_view
+
+    x, y = float(robot_world_xy[0]), float(robot_world_xy[1])
+    set_camera_view(eye=[x, y, altitude_z], target=[x, y, 0.0], camera_prim_path=cam_prim_path)
+
+
+def _hide_overhead_structure(base) -> None:
+    """Hide ceiling / roof / attic / exterior structure for the recording.
+
+    Sets the matched structure prims invisible in the stage's session layer so
+    the top-down overhead camera sees into the rooms. USD visibility is a global
+    render attribute, not per-camera (the RTX renderer does not honor the
+    per-camera ``cameraVisibility`` collection in this build), so the structure
+    is also hidden from the body-mounted perception camera while the recording
+    runs. That camera is horizontal and rarely frames a ceiling, so the effect
+    on the dataset is small, but a ``--video`` run is a QA pass: run production
+    capture without ``--video`` (or with ``--video-keep-ceiling``) for an
+    untouched corpus. Collision and navigation are unaffected (visibility is not
+    a physics flag), and the session-layer edit leaves the scene USD on disk
+    unchanged and resets each launch.
+    """
+    from pxr import Usd, UsdGeom  # type: ignore
+
+    stage = base.scene.stage
+    hidden: list[str] = []
+    with Usd.EditContext(stage, Usd.EditTarget(stage.GetSessionLayer())):
+        for prim in stage.Traverse():
+            if _OVERHEAD_PRIM_RE.search(prim.GetName()):
+                imageable = UsdGeom.Imageable(prim)
+                if imageable:
+                    imageable.MakeInvisible()
+                    hidden.append(str(prim.GetPath()))
+    if hidden:
+        print(
+            f"[coverage_capture] --video: hid {len(hidden)} overhead structure "
+            f"prims for the recording — also hidden from the perception camera "
+            f"this run (sample: {', '.join(hidden[:5])})",
+            flush=True,
+        )
+    else:
+        print(
+            "[coverage_capture] --video: no overhead structure prims matched; "
+            "the roof may still occlude the top-down view for this scene",
+            flush=True,
+        )
 
 
 def _leg_path(

@@ -174,8 +174,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default="nocam_subgoal",
         help="Scripted driver: selects the capture env (and thus the "
              "observation / action contract) for the trained RL "
-             "subgoal-follower. nocam_subgoal is the only variant with a "
-             "trained checkpoint today; depth subgoal is planned.",
+             "subgoal-follower. Depth subgoal is planned.",
     )
     parser.add_argument(
         "--checkpoint",

@@ -90,8 +90,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--policy-variant", default="nocam_subgoal",
         help="Selects the capture env (and thus the obs/action contract) for "
-             "the trained subgoal-follower. nocam_subgoal is the only variant "
-             "with a trained checkpoint today.",
+             "the trained subgoal-follower.",
     )
     parser.add_argument(
         "--env", default=None,

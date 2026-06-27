@@ -46,6 +46,7 @@ import argparse
 import math
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # Registered capture env per policy variant — the env carries the observation /
@@ -138,6 +139,23 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Length of the final straight approach segment that realizes a "
              "visit's approach heading.",
     )
+    parser.add_argument(
+        "--video", action="store_true",
+        help="Record a third-person overhead MP4 of the coverage sweep. "
+             "Needs no live display, so it is the display-independent way to "
+             "watch the traversal on a headless host.",
+    )
+    parser.add_argument(
+        "--video-length", type=int, default=None,
+        help="Cap on env steps filmed into the overhead MP4 (one frame per env "
+             "step). Recording stops at the cap and the rest of the sweep is "
+             "not filmed; the captured dataset is unaffected. Defaults to the "
+             "whole planned sweep.",
+    )
+    parser.add_argument(
+        "--video-dir", default="logs/coverage_capture/videos",
+        help="Directory the overhead MP4 is written under.",
+    )
     return parser
 
 
@@ -194,6 +212,7 @@ def main() -> int:
 
     import importlib.metadata as _metadata
 
+    from isaaclab.envs.common import ViewerCfg
     from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper, handle_deprecated_rsl_rl_cfg
     from isaaclab_tasks.utils import parse_env_cfg
     from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry
@@ -329,7 +348,71 @@ def main() -> int:
     agent_cfg.seed = args.seed
     agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, _metadata.version("rsl-rl-lib"))
 
-    env = gym.make(env_id, cfg=env_cfg)
+    # Optional third-person overhead recording of the whole sweep — a watchable
+    # MP4 that needs no live display. Mirrors play_strafer_navigation: an
+    # env-anchored overhead viewer drives RecordVideo, and the capture camera is
+    # placed in world frame by lifting the viewer offset by the env origin (the
+    # coverage plan runs in the scene-local frame; the sim camera takes world).
+    if args.video:
+        env_cfg.viewer = ViewerCfg(
+            eye=(0.0, 0.0, 12.0),
+            lookat=(0.0, 0.0, 0.0),
+            origin_type="env",
+            env_index=0,
+            resolution=(1280, 720),
+        )
+
+    env = gym.make(env_id, cfg=env_cfg, render_mode="rgb_array" if args.video else None)
+    if args.video:
+        base = env.unwrapped
+        env_origin = base.scene.env_origins[0].detach().cpu().tolist()
+        viewer = base.cfg.viewer
+        world_eye = tuple(env_origin[i] + viewer.eye[i] for i in range(3))
+        world_target = tuple(env_origin[i] + viewer.lookat[i] for i in range(3))
+        recorder = getattr(base, "video_recorder", None)
+        capture = getattr(recorder, "_capture", None) if recorder is not None else None
+        if capture is not None:
+            capture.cfg.camera_position = world_eye
+            capture.cfg.camera_target = world_target
+        else:
+            print(
+                "[coverage_capture] --video: viewport capture handle "
+                "unavailable; the overhead MP4 may use the default camera pose",
+                flush=True,
+            )
+        base.sim.set_camera_view(eye=world_eye, target=world_target)
+        try:
+            from isaaclab_physx.renderers.kit_viewport_utils import (
+                set_kit_renderer_camera_view,
+            )
+
+            set_kit_renderer_camera_view(
+                eye=world_eye, target=world_target,
+                camera_prim_path=viewer.cam_prim_path,
+            )
+        except ImportError:
+            pass
+        # RecordVideo writes one frame per env step and self-stops at
+        # video_length, so size the default to the whole planned sweep
+        # (legs x the per-leg step cap) — otherwise the MP4 truncates mid-run.
+        legs = args.n_trajectories or len(plan.waypoints)
+        video_length = (
+            args.video_length if args.video_length is not None
+            else legs * args.max_steps_per_leg
+        )
+        video_root = Path(args.video_dir).resolve() / (
+            f"coverage_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        )
+        video_root.mkdir(parents=True, exist_ok=True)
+        env = gym.wrappers.RecordVideo(
+            env,
+            video_folder=str(video_root),
+            step_trigger=lambda step: step == 0,
+            video_length=video_length,
+            disable_logger=True,
+        )
+        print(f"[coverage_capture] recording overhead sweep to: {video_root}", flush=True)
+
     env = RslRlVecEnvWrapper(env)
     unwrapped = env.unwrapped
     device = unwrapped.device

@@ -28,8 +28,8 @@ What ``capture()`` does:
 
 Scene swap policy: this adapter is single-scene. ``reset(scene_name=...)``
 verifies the requested scene matches the one the env was built with —
-swapping Infinigen scene USDs at runtime requires re-instantiating the
-env, which the launch script handles by re-launching itself per scene.
+swapping scene USDs at runtime requires re-instantiating the env, which the
+launch script handles by re-launching itself per scene.
 
 Heavy imports (``torch``, ``warp``) are deferred / injectable so this
 module is importable from a plain Python environment for unit testing.

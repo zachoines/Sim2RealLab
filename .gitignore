@@ -38,6 +38,9 @@ checkpoints/
 # Expert demo data (large HDF5 files)
 demos/
 
+# Generated capture corpus (multi-GB LeRobot datasets from the capture drivers)
+data/sim_in_the_loop/
+
 # Per-machine environment configuration (.env.example IS committed)
 .env
 

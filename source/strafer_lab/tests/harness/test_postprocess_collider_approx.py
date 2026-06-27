@@ -173,6 +173,50 @@ class TestStructuralDispatch:
                     f"{path} should be convexHull, got {approx}"
                 )
 
+    def test_trim_gets_exact_mesh_any_case(self, tmp_path):
+        """Perimeter trim (skirting / baseboard / cornice), in any case, gets the
+        exact mesh — its convex hull is the *filled* room rectangle, a phantom
+        floor-height slab the occupancy map reads as wall-to-wall occupied.
+
+        The trim arm is case-insensitive, but only the trim arm: a furniture prim
+        carrying an uppercase ``_WALL`` / ``_CEILING`` substring, or a ``case``
+        substring that is not the ``casing`` keyword, must still get convexHull —
+        the exact mesh is expensive, and flipping high-tri furniture to it
+        re-introduces the unified-memory OOM.
+        """
+        from pxr import Usd, UsdGeom
+
+        stage = Usd.Stage.CreateNew(str(tmp_path / "trim.usda"))
+        UsdGeom.Xform.Define(stage, "/World")
+        trim = [
+            "/World/skirtingboard_support",
+            "/World/skirtingboard_support/skirtingboard_support",  # inner twin
+            "/World/skirtingboard_SUPPORT_0",                      # uppercase variant
+            "/World/baseboard_2",
+            "/World/kitchen_cornice_1",
+        ]
+        convex = [
+            "/World/bedroom_0_0_wall",          # structural -> none (sanity)
+            "/World/ChairFactory_9",            # furniture
+            "/World/decoration_CEILING_0",      # uppercase CEILING must NOT leak
+            "/World/sideboard_WALL_0",          # uppercase WALL must NOT leak
+            "/World/Bookcase_5",                # 'case' substring, not 'casing'
+        ]
+        for p in trim + convex:
+            UsdGeom.Mesh.Define(stage, p)
+        postprocess_scene_usd.attach_mesh_colliders(
+            stage, structural_pattern=self._structural_re(),
+        )
+        for p in trim:
+            assert _approximation_of(stage.GetPrimAtPath(p)) == "none", (
+                f"{p} should be none (exact mesh)"
+            )
+        assert _approximation_of(stage.GetPrimAtPath("/World/bedroom_0_0_wall")) == "none"
+        for p in convex[1:]:
+            assert _approximation_of(stage.GetPrimAtPath(p)) == "convexHull", (
+                f"{p} should stay convexHull, not flip to the exact mesh"
+            )
+
     def test_no_pattern_means_no_structural_dispatch(self, tmp_path):
         """structural_pattern=None means every prim gets `approximation`."""
         stage, paths = _make_mixed_stage(tmp_path)
@@ -217,6 +261,15 @@ class TestStructuralDispatch:
             "/World/PanelDoorFactory_8125036__spawn_asset_0__SPLIT_GLASS",
             # Nested Mesh leaves under door prims
             "/World/PanelDoorFactory_9952204__spawn_asset_3_/x",
+            # Perimeter trim — the convex hull fills the room as a phantom slab.
+            # *_support fell through where *_ceiling matched the ceiling arm by
+            # coincidence; the trim arm catches both, in any case.
+            "/World/skirtingboard_support",
+            "/World/skirtingboard_support_0",
+            "/World/skirtingboard_SUPPORT_0",
+            "/World/skirtingboard_support/skirtingboard_support",
+            "/World/baseboard_2",
+            "/World/kitchen_cornice_1",
         ):
             assert pat.match(path), f"expected match: {path}"
         for path in (
@@ -226,6 +279,14 @@ class TestStructuralDispatch:
             "/World/Wallpaper_789",       # naming collision: 'wall' substring
             "/World/Door_misc_123",       # 'Door' substring but not a Factory prim
             "/World/DoorFactory_no_spawn",  # DoorFactory but no __spawn_asset arm
+            # The trim arm's case-insensitivity must NOT widen the case-sensitive
+            # wall/ceiling arms: a furniture/decoration prim with an uppercase
+            # _WALL / _CEILING substring stays furniture (convexHull).
+            "/World/decoration_CEILING_0",
+            "/World/sideboard_WALL_0",
+            # The trim arm is bounded to the keyword set: a 'case' substring is
+            # not the 'casing' keyword.
+            "/World/Bookcase_5",
         ):
             assert not pat.match(path), f"expected no-match: {path}"
 

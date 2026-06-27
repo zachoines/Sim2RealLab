@@ -226,13 +226,18 @@ casing stays. Both (collider drop + leaf hide) are persisted, so the runtime
 scene and occupancy match the connectivity ground-truth. A reachable edge
 through a door is `"force-opened"`; an unreachable one is a real obstruction.
 
-> **Known limitation.** A few rooms can read as unreachable even with the door
-> collider dropped — the occupancy-map marks their interior occupied (0 % free)
-> though they look navigable. This is a separate occupancy-fidelity limitation
-> (tracked as a follow-up), **not** a door-matching gap: the door matcher
-> catches every door prim in the corpus, and experiments ruled out both the
-> wall-collider approximation and the flood-seed location as the cause — the
-> root cause in the omap's classification is still open.
+> **Collider fidelity.** The occupancy map reads the stage's *physics colliders*,
+> so a collider that does not match its visual mesh distorts the grid: a thin
+> perimeter trim whose convex-hull collider fills the room footprint reads as a
+> floor-spanning slab, and the grid then reports the entire navigable floor as
+> occupied. Authoring faithful colliders is the responsibility of the **scene
+> provider's source-specific postprocess** (the agnostic occupancy generator only
+> rasterizes what the stage's colliders say), so a provider must ensure its
+> postprocess leaves the floor clear of malformed colliders — in particular it must
+> not give thin/non-convex structural geometry a convex-hull approximation that
+> over-fills. A genuinely enclosed room (a real sub-chassis-width door) still reads
+> unreachable — that is correct, not a fidelity gap; the door matcher catches every
+> door prim in the corpus.
 
 Cross-story pairs are emitted as `{reachable: false, reason: "stairs"}` and
 the scene gets top-level `multi_story: true`. A scene gets

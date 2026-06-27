@@ -38,11 +38,12 @@ in the scene-gen pipeline and produces two artifacts:
    top level. A scene is tagged ``multi_room_incompatible: true`` only when it
    has cross-room candidate pairs but *none* is reachable.
 
-   A few rooms can still read as occupied even with the door open (the omap
-   marks their interior occupied though they look navigable); that is a known
-   occupancy-fidelity limitation under investigation — the wall-collider
-   approximation and the flood-seed location were both ruled out by experiment —
-   not a door-matching gap.
+   The omap reads physics colliders, so a collider that does not match its
+   visual mesh distorts the grid: a ``convexHull`` approximation on a perimeter
+   trim mesh (skirting board) fills the whole room footprint with a phantom slab.
+   ``refit_trim_collider_approximations`` corrects that before the cook; a room
+   that still reads unreachable with its door open is genuinely enclosed (a real
+   sub-chassis-width opening), not a fidelity gap.
 
 Reachability is decided by the project's one shared grid planner
 (``plan_path``) over the inflated occupancy — this brief writes a grid
@@ -770,9 +771,9 @@ def validate_connectivity(
     # is robust where a post-gen RemoveAPI + re-cook is not. The leaf panel is also
     # hidden so the visual matches the now-open passage (a demo camera must not
     # film the robot driving through a shut-looking door). Both are persisted on
-    # write so the runtime scene + occupancy match. (NOTE: the omap can still mark
-    # a few rooms' interiors occupied even with the door open — a separate
-    # occupancy-fidelity limitation under investigation, not a door-matching gap.)
+    # write so the runtime scene + occupancy match. (Filling convex-hull trim
+    # colliders are corrected just below, before the cook — see
+    # refit_trim_collider_approximations.)
     forced_open = 0
     if not rasterize_fallback and doors:
         forced_open = drop_door_colliders(stage, [d["path"] for d in doors])

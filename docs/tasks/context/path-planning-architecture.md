@@ -79,6 +79,18 @@ the circumscribed radius (~0.28 m, robot-as-0.56 m-disc) would wrongly seal
 standard doorways and mark rooms unreachable. Same disc kernel, different
 radius.
 
+Because the omap reads *physics colliders*, a collider that does not match its
+visual mesh distorts the grid. The producer corrects the one known case before
+the cook: wall/ceiling trim (skirting boards) is thin perimeter moulding, but a
+`convexHull` collision approximation on one fills the whole room footprint with a
+phantom floor-to-knee slab — the omap reads the entire navigable floor as
+occupied — so `validate_scene_connectivity.py`'s
+`refit_trim_collider_approximations` re-approximates convex-hull trim colliders to
+the exact mesh (persisted, so the runtime physics scene and the occupancy grid
+agree). Note the 2D omap rasterizes a single cell-thick horizontal slice just
+above the floor, not the full `[z_lo, z_hi]` band: an in-slice collider is what
+the grid records, so raising the upper bound does not catch taller obstacles.
+
 This supersedes the earlier plan of a per-consumer CPU/numpy
 `scene_metadata.json → free_space` rasterizer. That footprint+AABB
 rasterizer survives only as `validate_scene_connectivity.py`'s

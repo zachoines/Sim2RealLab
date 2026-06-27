@@ -15,6 +15,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from strafer_lab.tools import scene_connectivity as sc
+from strafer_lab.tools.coverage_plan import CoveragePlan, VisitWaypoint
+
 _SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
@@ -24,6 +27,36 @@ import coverage_capture as cc  # noqa: E402  (post-path-mutation import)
 
 class _FakePlanError(Exception):
     pass
+
+
+def _ok_plan_path(start, goal, free_space, *, grid_res, grid_origin_xy):
+    """Stand-in planner that always connects start to goal."""
+    return np.asarray([start, goal], dtype=np.float32)
+
+
+def _plan(targets):
+    """Build a CoveragePlan from a list of viewpoint XY (one visit each)."""
+    waypoints = tuple(
+        VisitWaypoint(
+            room_index=i,
+            visit_ordinal=0,
+            target_xy=(float(x), float(y)),
+            approach_heading_rad=0.0,
+        )
+        for i, (x, y) in enumerate(targets)
+    )
+    return CoveragePlan(
+        waypoints=waypoints,
+        visits_per_room=1,
+        heading_spread_threshold_rad=1.5708,
+        seed=0,
+    )
+
+
+def _occ(grid, origin_xy=(0.0, 0.0), res=0.1):
+    return sc.CachedOccupancy(
+        grid=grid, origin_xy=origin_xy, resolution_m=res, z_slice_m=0.0, meta={},
+    )
 
 
 class TestCli:
@@ -66,28 +99,94 @@ class TestSceneDirFor:
         assert cc._scene_dir_for(usd).name == "scene_foo_000"
 
 
-class TestResolveActiveSpawnPoints:
-    """Spawn points come from the scene's embedded metadata first, else a
-    repo-root-resolved index — never a CWD-relative path."""
+class TestDeriveSpawnXy:
+    """The capture spawn is drawn from the occupancy free-space the driver
+    already loads — a passable, plan-reachable cell in the occupancy frame —
+    so it never depends on an external spawn list or a frame the grid
+    disagrees with."""
 
-    def test_prefers_embedded_metadata(self, tmp_path):
-        md = {"spawn_points_xy": [[1.0, 2.0], [3.0, 4.0]]}
-        out = cc._resolve_active_spawn_points("scene_x", md, tmp_path)
-        assert out == [[1.0, 2.0], [3.0, 4.0]]
+    def _free_block(self, origin=(0.0, 0.0), res=0.1):
+        """20x20 raw grid blocked except an interior block; returns (raw, free)."""
+        raw = np.ones((20, 20), dtype=np.uint8)
+        raw[6:14, 6:14] = 0
+        free = sc.occupancy_to_free_space(raw, grid_res=res)
+        return raw, free
 
-    def test_falls_back_to_repo_root_index(self, tmp_path):
-        import json
-        index = tmp_path / "Assets" / "generated" / "scenes" / "scenes_metadata.json"
-        index.parent.mkdir(parents=True)
-        index.write_text(json.dumps(
-            {"scenes": {"scene_x": {"spawn_points_xy": [[5.0, 6.0]]}}},
-        ))
-        # No embedded points; repo_root is tmp_path, not the process CWD.
-        out = cc._resolve_active_spawn_points("scene_x", {}, tmp_path)
-        assert out == [[5.0, 6.0]]
+    def test_raster_maps_grid_cell_to_local_xy(self):
+        # No free viewpoint -> the deterministic free-cell raster runs, and its
+        # cell->XY uses the occupancy origin/resolution (row=+X, col=+Y, the
+        # +res/2 center offset).
+        origin, res = (1.0, -2.0), 0.1
+        raw, free = self._free_block(origin, res)
+        plan = _plan([(0.0, 0.0)])  # maps outside the grid in this frame -> not free
+        out = cc._derive_spawn_xy(
+            free, plan, _occ(raw, origin, res),
+            plan_path=_ok_plan_path, invalid_endpoint_errors=(_FakePlanError,),
+        )
+        r, c = (int(v) for v in np.argwhere(free)[0])
+        assert out == [r * res + origin[0] + res / 2.0, c * res + origin[1] + res / 2.0]
+        # and it round-trips back to that same free cell
+        assert sc._xy_to_cell((out[0], out[1]), origin, res) == (r, c)
+        assert free[r, c]
 
-    def test_returns_empty_when_no_source(self, tmp_path):
-        assert cc._resolve_active_spawn_points("scene_x", {}, tmp_path) == []
+    def test_blocked_viewpoint_advances_to_free_cell(self):
+        # The first viewpoint landed on a blocked cell (centroid under furniture);
+        # the derived spawn is the next free viewpoint, free in the inflated grid
+        # and never a raw-occupied cell.
+        origin, res = (0.0, 0.0), 0.1
+        raw, free = self._free_block(origin, res)
+        blocked_xy = sc._cell_to_xy(0, 0, origin, res)
+        fr, fc = (int(v) for v in np.argwhere(free)[0])
+        free_xy = sc._cell_to_xy(fr, fc, origin, res)
+        plan = _plan([blocked_xy, free_xy])
+        out = cc._derive_spawn_xy(
+            free, plan, _occ(raw, origin, res),
+            plan_path=_ok_plan_path, invalid_endpoint_errors=(_FakePlanError,),
+        )
+        r, c = sc._xy_to_cell((out[0], out[1]), origin, res)
+        assert free[r, c]
+        assert raw[r, c] == 0
+        assert out == [float(free_xy[0]), float(free_xy[1])]
+
+    def test_disconnected_pocket_advances_to_reachable(self):
+        # The first viewpoint is free but stranded in a disconnected pocket (its
+        # first leg never plans); the spawn advances to the reachable viewpoint.
+        origin, res = (0.0, 0.0), 0.1
+        free = np.ones((40, 40), dtype=bool)
+        occ = _occ(np.zeros((40, 40), dtype=np.uint8), origin, res)
+        pocket = sc._cell_to_xy(2, 2, origin, res)
+        good = sc._cell_to_xy(20, 20, origin, res)
+
+        def fake_plan_path(start, goal, free_space, *, grid_res, grid_origin_xy):
+            if np.allclose(start, pocket, atol=1e-6):
+                raise _FakePlanError
+            return np.asarray([start, goal], dtype=np.float32)
+
+        out = cc._derive_spawn_xy(
+            free, _plan([pocket, good]), occ,
+            plan_path=fake_plan_path, invalid_endpoint_errors=(_FakePlanError,),
+        )
+        assert out == [float(good[0]), float(good[1])]
+
+    def test_deterministic(self):
+        origin, res = (0.0, 0.0), 0.1
+        raw, free = self._free_block(origin, res)
+        fr, fc = (int(v) for v in np.argwhere(free)[0])
+        plan = _plan([sc._cell_to_xy(fr, fc, origin, res)])
+        occ = _occ(raw, origin, res)
+        kw = dict(plan_path=_ok_plan_path, invalid_endpoint_errors=(_FakePlanError,))
+        assert cc._derive_spawn_xy(free, plan, occ, **kw) == cc._derive_spawn_xy(
+            free, plan, occ, **kw
+        )
+
+    def test_degenerate_grid_raises(self):
+        # No free cell anywhere -> a regenerate-occupancy blocker, surfaced loudly.
+        occ = _occ(np.ones((10, 10), dtype=np.uint8), (0.0, 0.0), 0.1)
+        with pytest.raises(RuntimeError):
+            cc._derive_spawn_xy(
+                np.zeros((10, 10), dtype=bool), _plan([(0.5, 0.5)]), occ,
+                plan_path=_ok_plan_path, invalid_endpoint_errors=(_FakePlanError,),
+            )
 
 
 class TestLegPath:

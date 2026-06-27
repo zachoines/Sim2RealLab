@@ -161,33 +161,6 @@ def _scene_dir_for(usd_path: Path) -> Path:
     return resolved.parent
 
 
-def _resolve_active_spawn_points(
-    scene: str, scene_metadata: dict, repo_root: Path,
-) -> list[list[float]]:
-    """Return spawn_points_xy for the active scene only (not pooled).
-
-    The scene's own embedded metadata is the authoritative source; it is used
-    when present. Otherwise we fall back to the repo-root scene index, resolved
-    against ``repo_root`` rather than a bare relative path so the lookup does
-    not depend on the process working directory.
-    """
-    import json
-
-    embedded = scene_metadata.get("spawn_points_xy")
-    if embedded:
-        return [list(map(float, pt)) for pt in embedded if len(pt) >= 2]
-
-    index = repo_root / "Assets" / "generated" / "scenes" / "scenes_metadata.json"
-    if not index.is_file():
-        return []
-    try:
-        data = json.loads(index.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-    pool = data.get("scenes", {}).get(scene, {}).get("spawn_points_xy", [])
-    return [list(map(float, pt)) for pt in pool if len(pt) >= 2]
-
-
 def main() -> int:
     parser = _build_parser()
 
@@ -235,7 +208,12 @@ def main() -> int:
     )
     from strafer_lab.sim_in_the_loop.runtime_env import IsaacLabEnvAdapter
     from strafer_lab.tasks.navigation import mdp
-    from strafer_lab.tasks.navigation.path_planner import PathPlanningError, plan_path
+    from strafer_lab.tasks.navigation.path_planner import (
+        InvalidEndpointError,
+        NoPathError,
+        PathPlanningError,
+        plan_path,
+    )
     from strafer_lab.tools import coverage_plan as coverage_plan_mod
     from strafer_lab.tools import scene_connectivity, scene_metadata_reader
     from strafer_lab.tools.bbox_extractor import (
@@ -332,9 +310,19 @@ def main() -> int:
 
     if args.scene_usd is not None:
         env_cfg.scene.scene_geometry.spawn.usd_path = str(Path(args.scene_usd).resolve())
-    active_spawn_points = _resolve_active_spawn_points(args.scene, scene_metadata, repo_root)
-    if active_spawn_points:
-        env_cfg.events.reset_robot.params["spawn_points_xy"] = active_spawn_points
+    # Spawn the robot from the occupancy free-space the plan already runs on.
+    # The grid, the plan targets, and spawn_points_xy share the scene-authored
+    # (env-local) frame, and reset_robot_state_on_floor adds env_origins itself,
+    # so the derived cell goes in as-is — no world-frame offset here. A fresh
+    # list is assigned because the reset event caches its points by id().
+    spawn_xy = _derive_spawn_xy(
+        free_space,
+        plan,
+        occupancy,
+        plan_path=plan_path,
+        invalid_endpoint_errors=(NoPathError, InvalidEndpointError),
+    )
+    env_cfg.events.reset_robot.params["spawn_points_xy"] = [spawn_xy]
 
     # --- runner + policy (raw rsl_rl checkpoint, canonical inference path) ----
     agent_cfg = load_cfg_from_registry(env_id, "rsl_rl_cfg_entry_point")
@@ -521,6 +509,99 @@ def _leg_path(
         )
     except error_cls:
         return None
+
+
+def _derive_spawn_xy(
+    free_space,
+    plan,
+    occupancy,
+    *,
+    plan_path,
+    invalid_endpoint_errors,
+):
+    """Pick the capture start pose from the occupancy free-space.
+
+    Returns a single ``[x, y]`` in the occupancy (scene-authored / env-local)
+    frame — the same frame the coverage plan and the leg planner use, and the
+    frame ``reset_robot_state_on_floor`` expects before it adds the env origin.
+    The chosen cell is passable on the robot-radius-inflated ``free_space`` grid
+    and reachable by the shared planner, so legs plan instead of failing on a
+    spawn the floor sampler and the grid disagree about.
+
+    Preference order, all deterministic (no RNG, so a scene maps to one spawn):
+
+    1. a plan viewpoint (the first is the primary anchor) that is free and from
+       which the first real leg — to the next distinct viewpoint — plans;
+    2. a row-major scan of the inflated free grid for the first free cell that
+       plans to the traversal's first free viewpoint.
+
+    The reachability probe uses the planner's default snap radius on purpose:
+    widening it would teleport a blocked start onto free space and hide a
+    corrupted occupancy grid.
+    """
+    import numpy as np
+
+    from strafer_lab.tools.scene_connectivity import _cell_to_xy, _xy_to_cell
+
+    origin_xy = occupancy.origin_xy
+    grid_res = occupancy.resolution_m
+    rows, cols = free_space.shape
+    # Two cells clears the planner's coincident-endpoint floor, so a probe is a
+    # genuine leg rather than a same-point rejection.
+    min_leg_m = 2.0 * grid_res
+
+    def _is_free(x: float, y: float) -> bool:
+        r, c = _xy_to_cell((x, y), origin_xy=origin_xy, grid_res=grid_res)
+        return 0 <= r < rows and 0 <= c < cols and bool(free_space[r, c])
+
+    def _plans(x: float, y: float, goal) -> bool:
+        try:
+            plan_path(
+                np.asarray([x, y], dtype=np.float32),
+                np.asarray(goal, dtype=np.float32),
+                free_space,
+                grid_res=grid_res,
+                grid_origin_xy=origin_xy,
+            )
+            return True
+        except invalid_endpoint_errors:
+            return False
+
+    targets = [
+        (float(wp.target_xy[0]), float(wp.target_xy[1])) for wp in plan.waypoints
+    ]
+
+    def _first_distinct(x: float, y: float):
+        return next(
+            (t for t in targets if math.hypot(t[0] - x, t[1] - y) > min_leg_m),
+            None,
+        )
+
+    for x, y in targets:
+        if not _is_free(x, y):
+            continue
+        goal = _first_distinct(x, y)
+        if goal is None or _plans(x, y, goal):
+            return [x, y]
+
+    # Fallback: the plan's viewpoints are unusable, so scan free space for a
+    # cell that connects to the traversal's first free viewpoint. Reads the
+    # inflated grid only — never raw occupancy, whose free cells sit half a
+    # chassis from a wall.
+    anchor = next((t for t in targets if _is_free(*t)), None)
+    for r, c in np.argwhere(free_space):
+        x, y = _cell_to_xy(int(r), int(c), origin_xy=origin_xy, grid_res=grid_res)
+        if (
+            anchor is None
+            or math.hypot(anchor[0] - x, anchor[1] - y) <= min_leg_m
+            or _plans(x, y, anchor)
+        ):
+            return [x, y]
+
+    raise RuntimeError(
+        "no free, plan-reachable spawn in the occupancy free-space; the "
+        "scene's occupancy grid is degenerate and must be regenerated",
+    )
 
 
 if __name__ == "__main__":

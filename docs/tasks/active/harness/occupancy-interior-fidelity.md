@@ -11,45 +11,51 @@ corpus sweep below shows the fault is whole-scene.)
 re-process, and matrix validation across all 5 corpus scenes).
 **Branch:** `task/occupancy-interior-fidelity`
 
-**Status:** Shipped 2026-06-27 in `65532d3` (DGX).
-**PR:** https://github.com/zachoines/Sim2RealLab/pull/114
-**Follow-ups:** [`capture-debug-overhead-cam.md`](../../parked/harness/capture-debug-overhead-cam.md) — overhead debug cam for scripted/coverage capture (invisible-collider QA).
+**Status:** ACTIVE — revised 2026-06-27 on PR #114. Root cause settled; the fix is
+being moved from the agnostic occupancy generator to the Infinigen-specific bake
+seam after review (see "Resolution in progress"). Surfaced live by PR #113
+(coverage-spawn-from-occupancy), whose STOP gate refuses to capture over a corrupt
+grid. Filed off PR #96 (scene-connectivity-validation).
+**Follow-up:** [`capture-debug-overhead-cam.md`](../../parked/harness/capture-debug-overhead-cam.md) — overhead debug cam for scripted/coverage capture (invisible-collider QA).
 
-## Resolution (2026-06-27)
+## Resolution in progress (2026-06-27)
 
 **Root cause — a `convexHull` collider on perimeter trim, confirmed independently
-on seed2 AND seed6.** Each degenerate scene carries a `skirtingboard_support`
-mesh: thin wall-base moulding (only ~1 % of its bounding box holds geometry — a
-perimeter ring) given a `convexHull` collision approximation. The convex hull of a
-room-perimeter ring is the *filled* rectangle, so the collider is a phantom
-floor-to-~25 cm slab spanning the whole footprint. The omap reads physics
-colliders, so it faithfully rasterized that real collider across the navigable
-floor (Kit `--omap-debug-dump`: the ~58 % blocked mass is `occupied(1.0)`, not
-`unknown(0.5)`). The lead "z-band" hypothesis was *refuted* — the band is correctly
-anchored and the floor meshes clear it by 5 cm on every scene; the discriminator
-is geometric, not a z-number. seed1/5 have no such prim; seed7's skirting is a
-faithful `none`-approximated *ceiling* moulding — which is why PR #96's wall /
-furniture / flood-seed experiments all missed it (none touched this prim).
+on seed2 AND seed6 (settled).** Each degenerate scene carries a
+`skirtingboard_support` mesh: thin wall-base moulding (only ~1 % of its bounding
+box holds geometry — a perimeter ring) given a `convexHull` collision
+approximation. The convex hull of a room-perimeter ring is the *filled* rectangle,
+so the collider is a phantom floor-to-~25 cm slab spanning the whole footprint. The
+omap reads physics colliders, so it faithfully rasterized that real collider across
+the navigable floor (Kit `--omap-debug-dump`: the ~58 % blocked mass is
+`occupied(1.0)`, not `unknown(0.5)`). The lead "z-band" hypothesis was *refuted* —
+the band is correctly anchored and the floor meshes clear it by 5 cm on every
+scene; the discriminator is geometric, not a z-number. seed1/5 have no such prim;
+seed7's skirting is named `*_ceiling`, so it was already given the faithful
+exact-mesh collider — which is why PR #96's wall / furniture / flood-seed
+experiments all missed it.
 
-**Fix.** `refit_trim_collider_approximations` (in `validate_scene_connectivity.py`)
-re-approximates only convex-hull-approximated skirting colliders to the exact mesh
-before the cook, persisted so occupancy and the runtime physics scene agree (the
-slab would have wedged the robot at capture time too). Plus a gated
-`--omap-debug-dump`.
-
-**Result (all 5 re-validated; free/floor-bbox).** seed2 23.0 %→**71.8 %**
-(58.1 %→10.9 % blocked); seed6 20.9 %→**72.1 %** (56.9 %→8.2 %); seed1/5/7
-unchanged (refit a no-op, byte-identical grids — no regression). PR #113's spawn
-derivation + STOP gate accept the regenerated grids. (Side finding: that gate is a
-*weak* filter — it also passed the degenerate grids via the residual free blob, so
-the regenerated grid, not the gate, is the real protection — noted as a possible
-#113 follow-up.)
+**Fix (the Infinigen bake seam).** The collider approximation is authored in the
+source-specific bake (`postprocess_scene_usd.py`), which routes each mesh to an
+exact-mesh (`none`) or a convex-hull collider by a name allow-list. Skirting named
+`*_support` fell through that allow-list to the convex-hull furniture default,
+while `*_ceiling` skirting matched the ceiling arm by coincidence — the same
+allow-list-leak class the door-variant arm already records. The fix adds a
+case-insensitive trim arm (skirting / baseboard / moulding / cornice / casing /
+trim) to the structural allow-list so perimeter trim gets the exact mesh at bake
+time; the case-insensitivity is scoped to the trim arm so the case-sensitive
+wall/door arms do not widen. A CPU mis-hull audit across the corpus confirmed the
+trim arm covers every phantom-slab-risk prim (the only other large convex-hull prim
+is a rug at ~17 % vertex-coverage, correctly left convex and below the occupancy
+band). The agnostic occupancy generator carries **no** Infinigen-specific collider
+regeneration; seed2 + seed6 are re-baked and their occupancy regenerated from the
+corrected USDs. (PR #114's first pass corrected the collider inside the agnostic
+occupancy generator — the wrong layer — and that code is removed in favour of this
+bake-seam fix.)
 
 ---
 
-The diagnosis-first record below is preserved as filed. Surfaced live by PR #113
-(coverage-spawn-from-occupancy), whose STOP gate refuses to capture over a corrupt
-grid. Filed off PR #96 (scene-connectivity-validation).
+The diagnosis-first record below is preserved as filed.
 
 ## Scope correction (2026-06-27) — whole-scene, not a few sealed rooms
 

@@ -69,19 +69,27 @@ _DEFAULT_CEILING_LIGHT_PRIM_PATTERN = r"^CeilingLightFactory_\d+__spawn_asset_\d
 # outer Xform and the inner Mesh leaf match so we can strip / skip either.
 _DEFAULT_FLOOR_PRIM_PATTERN = r"^/World/[^/]+_floor(?:/[^/]+_floor)?$"
 
-# Matches the room shell prims (walls, ceilings, exterior, attic) and every
-# door-factory prim. These prims need a collider that preserves the actual
-# triangle topology of door / window cutouts — a convex approximation heals the
-# cutout shut and a simplified one pokes into the doorway, trapping the robot.
-# The door arm matches ANY ``...DoorFactory`` (Panel / Lite / Louver /
-# GlassPanel / ...) and any per-asset suffix (frame ``_``, leaf ``__001``,
-# ``__SPLIT_GLASS``); the earlier ``(?:PanelDoor|LiteDoor|LouverDoor)``
-# allow-list silently missed GlassPanel + SPLIT-glass variants, which then fell
-# through to the convex furniture approximation.
+# Matches the room shell prims (walls, ceilings, exterior, attic), every
+# door-factory prim, and perimeter trim moulding. These all need a collider that
+# preserves the actual mesh: a convex approximation heals door / window cutouts
+# shut and a simplified one pokes into the doorway, trapping the robot; for thin
+# perimeter trim (skirting boards / baseboards), the convex hull of the trim ring
+# is the *filled* room rectangle — a phantom floor-height slab the occupancy map
+# then reads as wall-to-wall occupied. Each arm is a name allow-list, which has
+# leaked before: the earlier ``(?:PanelDoor|LiteDoor|LouverDoor)`` door arm
+# silently missed GlassPanel + SPLIT-glass variants, and trim named ``*_support``
+# fell through where trim named ``*_ceiling`` matched the ceiling arm by
+# coincidence — both then took the convex furniture default. The door arm matches
+# ANY ``...DoorFactory`` and any per-asset suffix (frame ``_``, leaf ``__001``,
+# ``__SPLIT_GLASS``). The trim arm is case-insensitive (scoped ``(?i:...)``) so
+# ``*_SUPPORT`` / ``*_CEILING`` cased variants are caught; the wall / door arms
+# stay case-sensitive, so a furniture prim carrying an uppercase ``_WALL`` /
+# ``_CEILING`` substring is not pulled into the exact-mesh bucket.
 _DEFAULT_STRUCTURAL_PRIM_PATTERN = (
     r"^/World/[^/]+_(?:wall|ceiling|roof|attic|exterior)"
     r"(?:_\d+)?(?:/.+)?$"
     r"|^/World/[A-Za-z]*Door[A-Za-z]*Factory_\d+__spawn_asset_\d+.*$"
+    r"|^/World/.*(?i:skirting|baseboard|moulding|molding|cornice|casing|trim)[^/]*(?:/.+)?$"
 )
 
 # Infinigen's generate_indoors pipeline authors one stage-shot camera per

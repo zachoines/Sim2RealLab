@@ -227,16 +227,17 @@ scene and occupancy match the connectivity ground-truth. A reachable edge
 through a door is `"force-opened"`; an unreachable one is a real obstruction.
 
 > **Collider fidelity.** The occupancy map reads the stage's *physics colliders*,
-> so a collider that does not match its visual mesh distorts the grid. The known
-> case: wall/ceiling trim (skirting boards) is thin perimeter moulding, but a
-> `convexHull` collision approximation on one — the convex hull of a room-perimeter
-> ring is the *filled* rectangle — becomes a phantom floor-to-knee slab spanning the
-> whole footprint, and the omap then reads the entire navigable floor as occupied.
-> The producer corrects this before the cook (`refit_trim_collider_approximations`
-> re-approximates convex-hull trim colliders to the exact mesh, persisted so the
-> occupancy grid and the runtime physics scene agree). A genuinely enclosed room
-> (a real sub-chassis-width door) still reads unreachable — that is correct, not a
-> fidelity gap; the door matcher catches every door prim in the corpus.
+> so a collider that does not match its visual mesh distorts the grid: a thin
+> perimeter trim whose convex-hull collider fills the room footprint reads as a
+> floor-spanning slab, and the grid then reports the entire navigable floor as
+> occupied. Authoring faithful colliders is the responsibility of the **scene
+> provider's source-specific postprocess** (the agnostic occupancy generator only
+> rasterizes what the stage's colliders say), so a provider must ensure its
+> postprocess leaves the floor clear of malformed colliders — in particular it must
+> not give thin/non-convex structural geometry a convex-hull approximation that
+> over-fills. A genuinely enclosed room (a real sub-chassis-width door) still reads
+> unreachable — that is correct, not a fidelity gap; the door matcher catches every
+> door prim in the corpus.
 
 Cross-story pairs are emitted as `{reachable: false, reason: "stairs"}` and
 the scene gets top-level `multi_story: true`. A scene gets

@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import re
 import subprocess
 import sys
 from datetime import datetime
@@ -57,6 +58,13 @@ _CAPTURE_ENV_BY_VARIANT = {
 }
 
 _MAX_PATH_POINTS = 512
+
+# Overhead structure prims hidden from the recording camera — Infinigen's
+# ceiling / roof / attic / exterior room-structure labels.
+_OVERHEAD_PRIM_RE = re.compile(
+    r"(?:^|_)(ceiling|roof|attic|exterior)(?:_\d+)?$",
+    re.IGNORECASE,
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -155,6 +163,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--video-dir", default="logs/coverage_capture/videos",
         help="Directory the overhead MP4 is written under.",
+    )
+    parser.add_argument(
+        "--video-keep-ceiling", action="store_true",
+        help="Keep ceiling/roof structure visible in the overhead MP4. By "
+             "default it is hidden from the overhead camera only (the recorded "
+             "perception dataset is unaffected) so the top-down view sees into "
+             "rooms; pass this to disable that and compare.",
     )
     return parser
 
@@ -369,6 +384,8 @@ def main() -> int:
         viewer = base.cfg.viewer
         world_eye = tuple(env_origin[i] + viewer.eye[i] for i in range(3))
         world_target = tuple(env_origin[i] + viewer.lookat[i] for i in range(3))
+        # Absolute altitude the overhead camera follows the robot at each step.
+        overhead_altitude_z = world_eye[2]
         recorder = getattr(base, "video_recorder", None)
         capture = getattr(recorder, "_capture", None) if recorder is not None else None
         if capture is not None:
@@ -412,6 +429,8 @@ def main() -> int:
             disable_logger=True,
         )
         print(f"[coverage_capture] recording overhead sweep to: {video_root}", flush=True)
+        if not args.video_keep_ceiling:
+            _hide_ceiling_from_overhead_camera(base)
 
     env = RslRlVecEnvWrapper(env)
     unwrapped = env.unwrapped
@@ -526,6 +545,12 @@ def main() -> int:
             )
             recorder.add_frame(start_bundle)
             for step in range(1, args.max_steps_per_leg + 1):
+                if args.video:
+                    _follow_overhead_camera(
+                        unwrapped,
+                        _robot_xy_local() + env_origin_xy,
+                        overhead_altitude_z,
+                    )
                 adapter.step()
                 if step % args.capture_every_n_steps == 0:
                     recorder.add_frame(adapter.capture())
@@ -544,6 +569,128 @@ def main() -> int:
         env.close()
         simulation_app.close()
     return 0
+
+
+def _follow_overhead_camera(base, robot_world_xy, altitude_z: float) -> None:
+    """Re-pose the top-down overhead camera above the robot's world XY.
+
+    Headless-safe: drives the SimulationContext persp camera directly, since
+    the viewport-utility follow the teleop rig uses only works with a GUI
+    viewport. Eye and target share XY so the view stays straight down.
+    """
+    x, y = float(robot_world_xy[0]), float(robot_world_xy[1])
+    base.sim.set_camera_view(eye=(x, y, altitude_z), target=(x, y, 0.0))
+
+
+def _hide_ceiling_from_overhead_camera(base) -> None:
+    """Hide overhead structure from the recording camera only.
+
+    Authors a UsdRender ``cameraVisibility`` collection on the overhead
+    viewport's render product, in the stage's session layer, excluding the
+    ceiling / roof structure prims. The collection is render-product-scoped, so
+    the body-mounted perception camera — a separate render product — still sees
+    the ceiling and the recorded dataset is unchanged. Visibility is a render
+    attribute, so collision and navigation are unaffected. Session-layer
+    authoring leaves the scene USD on disk untouched and resets every launch.
+
+    Best-effort: whether the RTX renderer honors ``cameraVisibility`` at
+    interactive render time is build-dependent, so every failure path reports
+    and returns rather than aborting the capture. The console line names how
+    many prims matched and both render-product paths so a run can be checked.
+    """
+    from pxr import Sdf, Usd  # type: ignore
+
+    from strafer_lab.tools.bbox_extractor import resolve_render_product_path
+
+    recorder = getattr(base, "video_recorder", None)
+    capture = getattr(recorder, "_capture", None) if recorder is not None else None
+    if capture is None:
+        print(
+            "[coverage_capture] --video: no overhead capture handle; "
+            "ceiling hide skipped",
+            flush=True,
+        )
+        return
+
+    # The overhead render product is created lazily on the first render; force
+    # one (bypassing RecordVideo, so its frame counter is untouched) so the
+    # product exists before the collection is authored.
+    try:
+        base.render()
+    except Exception as exc:
+        print(
+            f"[coverage_capture] --video: overhead render warm-up failed "
+            f"({exc.__class__.__name__}); ceiling hide skipped",
+            flush=True,
+        )
+        return
+
+    render_product = getattr(capture, "_render_product", None)
+    rp_path = getattr(render_product, "path", None) or (
+        str(render_product) if render_product is not None else None
+    )
+    if not rp_path:
+        print(
+            "[coverage_capture] --video: overhead render product unavailable; "
+            "ceiling hide skipped",
+            flush=True,
+        )
+        return
+
+    # Guard the dataset: never author on the perception camera's render product.
+    try:
+        perception_rp = resolve_render_product_path(base.scene["d555_camera_perception"])
+    except Exception:
+        perception_rp = None
+    if perception_rp is not None and str(rp_path) == str(perception_rp):
+        print(
+            "[coverage_capture] --video: overhead and perception share a render "
+            "product; ceiling hide skipped to protect the dataset",
+            flush=True,
+        )
+        return
+
+    stage = base.scene.stage
+    ceiling_paths = [
+        str(prim.GetPath())
+        for prim in stage.Traverse()
+        if _OVERHEAD_PRIM_RE.search(prim.GetName())
+    ]
+    if not ceiling_paths:
+        print(
+            "[coverage_capture] --video: no overhead structure prims matched; "
+            "ceiling hide is a no-op for this scene",
+            flush=True,
+        )
+        return
+
+    rp_prim = stage.GetPrimAtPath(rp_path)
+    if not rp_prim or not rp_prim.IsValid():
+        print(
+            f"[coverage_capture] --video: overhead render product prim {rp_path} "
+            f"not on stage; ceiling hide skipped",
+            flush=True,
+        )
+        return
+
+    # Session-layer only: no .usdc mutation, resets each launch.
+    with Usd.EditContext(stage, Usd.EditTarget(stage.GetSessionLayer())):
+        collection = Usd.CollectionAPI.Apply(rp_prim, "cameraVisibility")
+        collection.CreateIncludeRootAttr(True)
+        for path in ceiling_paths:
+            collection.ExcludePath(Sdf.Path(path))
+
+    print(
+        f"[coverage_capture] --video: hid {len(ceiling_paths)} overhead structure "
+        f"prims from the overhead camera only (session layer); sample: "
+        f"{', '.join(ceiling_paths[:5])}",
+        flush=True,
+    )
+    print(
+        f"[coverage_capture] --video: overhead render product = {rp_path}; "
+        f"perception render product = {perception_rp}",
+        flush=True,
+    )
 
 
 def _leg_path(

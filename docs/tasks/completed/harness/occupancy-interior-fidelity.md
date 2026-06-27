@@ -1,18 +1,77 @@
-# Occupancy fidelity for rooms sealed by collider-healed doorways
+# Occupancy regen — seed2 + seed6 grids are systematically over-occupied
 
-**Type:** occupancy / collider-fidelity fix
+**Type:** occupancy / collider-fidelity fix (occupancy regeneration)
 **Owner:** DGX agent
-**Priority:** P2 — the connectivity graph faithfully reports *sim* reachability
-today, but a room the robot could physically enter in reality is marked
-unreachable in sim, so missions to it (e.g. a bathroom) are dropped.
-**Estimate:** M (~1–2 days — needs Kit experiments to pick the fix + a
-re-process + matrix validation on seed1/seed2).
+**Priority:** P1 — **the bulk-capture corpus depends on it.** 2 of 5 scenes
+(seed2 + seed6) have over-occupied occupancy grids (~57–58% blocked), so the
+coverage driver captures 0 episodes there; only seed1/5/7 are usable today.
+(Originally filed P2 for a narrower symptom — a few sealed room interiors; the
+corpus sweep below shows the fault is whole-scene.)
+**Estimate:** M (Kit experiments to confirm the shared root cause + the fix, a
+re-process, and matrix validation across all 5 corpus scenes).
 **Branch:** `task/occupancy-interior-fidelity`
 
-**Blocked on / trigger:** Filed off PR #96 (scene-connectivity-validation).
-Un-park when the dropped rooms matter for a mission set — i.e. the
-mission-generator wants to target a room the occupancy currently seals
-(seed1 closet; seed2 bathroom + closet).
+**Status:** Shipped 2026-06-27 in `65532d3` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/114
+**Follow-ups:** [`capture-debug-overhead-cam.md`](../../parked/harness/capture-debug-overhead-cam.md) — overhead debug cam for scripted/coverage capture (invisible-collider QA).
+
+## Resolution (2026-06-27)
+
+**Root cause — a `convexHull` collider on perimeter trim, confirmed independently
+on seed2 AND seed6.** Each degenerate scene carries a `skirtingboard_support`
+mesh: thin wall-base moulding (only ~1 % of its bounding box holds geometry — a
+perimeter ring) given a `convexHull` collision approximation. The convex hull of a
+room-perimeter ring is the *filled* rectangle, so the collider is a phantom
+floor-to-~25 cm slab spanning the whole footprint. The omap reads physics
+colliders, so it faithfully rasterized that real collider across the navigable
+floor (Kit `--omap-debug-dump`: the ~58 % blocked mass is `occupied(1.0)`, not
+`unknown(0.5)`). The lead "z-band" hypothesis was *refuted* — the band is correctly
+anchored and the floor meshes clear it by 5 cm on every scene; the discriminator
+is geometric, not a z-number. seed1/5 have no such prim; seed7's skirting is a
+faithful `none`-approximated *ceiling* moulding — which is why PR #96's wall /
+furniture / flood-seed experiments all missed it (none touched this prim).
+
+**Fix.** `refit_trim_collider_approximations` (in `validate_scene_connectivity.py`)
+re-approximates only convex-hull-approximated skirting colliders to the exact mesh
+before the cook, persisted so occupancy and the runtime physics scene agree (the
+slab would have wedged the robot at capture time too). Plus a gated
+`--omap-debug-dump`.
+
+**Result (all 5 re-validated; free/floor-bbox).** seed2 23.0 %→**71.8 %**
+(58.1 %→10.9 % blocked); seed6 20.9 %→**72.1 %** (56.9 %→8.2 %); seed1/5/7
+unchanged (refit a no-op, byte-identical grids — no regression). PR #113's spawn
+derivation + STOP gate accept the regenerated grids. (Side finding: that gate is a
+*weak* filter — it also passed the degenerate grids via the residual free blob, so
+the regenerated grid, not the gate, is the real protection — noted as a possible
+#113 follow-up.)
+
+---
+
+The diagnosis-first record below is preserved as filed. Surfaced live by PR #113
+(coverage-spawn-from-occupancy), whose STOP gate refuses to capture over a corrupt
+grid. Filed off PR #96 (scene-connectivity-validation).
+
+## Scope correction (2026-06-27) — whole-scene, not a few sealed rooms
+
+| scene | blocked | mid-row | mid-col | health |
+|---|---|---|---|---|
+| seed1 | 9.7% | 24.9% | 2.2% | OK |
+| **seed2** | **58.1%** | **87.7%** | **88.5%** | DEGENERATE |
+| seed5 | 6.5% | 11.2% | 6.7% | OK |
+| **seed6** | **56.9%** | **82.2%** | **78.8%** | DEGENERATE |
+| seed7 | 9.5% | 43.5% | 3.0% | OK |
+
+The degenerate scenes are ~57–58% blocked with contiguous ~80–88% mid-row/col
+slabs — a whole-scene rasterization fault, not a couple of collider-healed
+doorways. The leading hypothesis is the omap z-slab (seed2's floor sits ~4.5 cm
+lower → a lower occupancy z-band that may catch floor or clutter), but it is
+**unconfirmed**: `z_slice_m` does NOT cleanly separate the degenerate scenes from
+the healthy ones (seed6 sits among the healthy on that axis), so the shared cause
+must be **diagnosed across BOTH seed2 and seed6**, not assumed. The PR #96
+sealed-room investigation below is valid prior art, but its "2 sealed rooms"
+scope understates the seed2/seed6 case. Health bar: regenerate the degenerate
+grids to inflated-free/floor-bbox ≥ ~70% (target ~99%, like seed1), with **no
+regression** on the healthy three.
 
 ## Context bundle
 

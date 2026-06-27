@@ -162,15 +162,27 @@ def _scene_dir_for(usd_path: Path) -> Path:
     return resolved.parent
 
 
-def _resolve_active_spawn_points(scene: str) -> list[list[float]]:
-    """Return spawn_points_xy for the active scene only (not pooled)."""
+def _resolve_active_spawn_points(
+    scene: str, scene_metadata: dict, repo_root: Path,
+) -> list[list[float]]:
+    """Return spawn_points_xy for the active scene only (not pooled).
+
+    The scene's own embedded metadata is the authoritative source; it is used
+    when present. Otherwise we fall back to the repo-root scene index, resolved
+    against ``repo_root`` rather than a bare relative path so the lookup does
+    not depend on the process working directory.
+    """
     import json
 
-    combined = Path("Assets/generated/scenes/scenes_metadata.json")
-    if not combined.is_file():
+    embedded = scene_metadata.get("spawn_points_xy")
+    if embedded:
+        return [list(map(float, pt)) for pt in embedded if len(pt) >= 2]
+
+    index = repo_root / "Assets" / "generated" / "scenes" / "scenes_metadata.json"
+    if not index.is_file():
         return []
     try:
-        data = json.loads(combined.read_text(encoding="utf-8"))
+        data = json.loads(index.read_text(encoding="utf-8"))
     except Exception:
         return []
     pool = data.get("scenes", {}).get(scene, {}).get("spawn_points_xy", [])
@@ -321,7 +333,7 @@ def main() -> int:
 
     if args.scene_usd is not None:
         env_cfg.scene.scene_geometry.spawn.usd_path = str(Path(args.scene_usd).resolve())
-    active_spawn_points = _resolve_active_spawn_points(args.scene)
+    active_spawn_points = _resolve_active_spawn_points(args.scene, scene_metadata, repo_root)
     if active_spawn_points:
         env_cfg.events.reset_robot.params["spawn_points_xy"] = active_spawn_points
 

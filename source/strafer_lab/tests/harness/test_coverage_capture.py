@@ -66,6 +66,30 @@ class TestSceneDirFor:
         assert cc._scene_dir_for(usd).name == "scene_foo_000"
 
 
+class TestResolveActiveSpawnPoints:
+    """Spawn points come from the scene's embedded metadata first, else a
+    repo-root-resolved index — never a CWD-relative path."""
+
+    def test_prefers_embedded_metadata(self, tmp_path):
+        md = {"spawn_points_xy": [[1.0, 2.0], [3.0, 4.0]]}
+        out = cc._resolve_active_spawn_points("scene_x", md, tmp_path)
+        assert out == [[1.0, 2.0], [3.0, 4.0]]
+
+    def test_falls_back_to_repo_root_index(self, tmp_path):
+        import json
+        index = tmp_path / "Assets" / "generated" / "scenes" / "scenes_metadata.json"
+        index.parent.mkdir(parents=True)
+        index.write_text(json.dumps(
+            {"scenes": {"scene_x": {"spawn_points_xy": [[5.0, 6.0]]}}},
+        ))
+        # No embedded points; repo_root is tmp_path, not the process CWD.
+        out = cc._resolve_active_spawn_points("scene_x", {}, tmp_path)
+        assert out == [[5.0, 6.0]]
+
+    def test_returns_empty_when_no_source(self, tmp_path):
+        assert cc._resolve_active_spawn_points("scene_x", {}, tmp_path) == []
+
+
 class TestLegPath:
     """``_leg_path`` stages one approach_distance behind the viewpoint along the
     approach heading, then a straight final segment to the viewpoint."""

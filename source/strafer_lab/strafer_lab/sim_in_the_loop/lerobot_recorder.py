@@ -194,8 +194,12 @@ class CoverageLeRobotRecorder:
     writer:
         A :class:`StraferLeRobotWriter` (or fake with the same episode API).
     scene_id:
-        Recorded on every episode; resolves to the dataset's
-        ``meta/scenes/<scene_id>/scene_metadata.json``.
+        The only scene field this recorder records. The scene's
+        ``rooms[]`` / ``objects[]`` metadata is *not* passed through here:
+        the driver reads it from the scene USD's ``customData`` and hands it
+        to the writer, which embeds it once at finalize as
+        ``meta/scenes/<scene_id>/scene_metadata.json``. So ``scene_id`` is the
+        key that ties each episode to that writer-embedded, USD-sourced payload.
     """
 
     def __init__(

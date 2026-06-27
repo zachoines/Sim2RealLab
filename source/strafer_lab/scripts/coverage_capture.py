@@ -10,17 +10,22 @@ goal-reaching demo set never produces. This is the harness bulk-capture
 default — reach for teleop (annotator) or the bridge (Jetson-in-loop) only for
 the non-bulk paths.
 
-Boundaries this driver only wires together:
+It drives the env on the canonical rsl_rl inference path, the same one
+``play_strafer_navigation.py`` uses: an ``OnPolicyRunner`` loads the raw
+training checkpoint, ``env.get_observations()`` produces the policy
+observation, and the policy's action goes straight to ``env.step``. The rolling
+subgoal the policy observes comes from the env's own command term — a
+:class:`~strafer_lab.tasks.navigation.mdp.capture_commands.CaptureSubgoalCommand`
+swapped in under the ``goal_command`` name and fed each coverage leg's planned
+path. The driver only wires these pieces together:
 
 - the coverage plan is built by :mod:`strafer_lab.tools.coverage_plan` (pure
   geometry: every room visited, headings spread, seeded for reproducibility),
-- the controller is the trained RL subgoal-follower, run through the existing
-  inference primitives in :mod:`strafer_shared.policy_interface` wrapped by
-  :mod:`strafer_lab.tools.subgoal_controller` — no new policy loader or
-  inference loop,
-- env / action / obs / detections capture reuses
+- per leg the command term rolls the subgoal along the plan's path and signals
+  leg completion; the policy tracks it,
+- camera / detections capture reuses
   :class:`strafer_lab.sim_in_the_loop.runtime_env.IsaacLabEnvAdapter` and the
-  writer lifecycle is driven through
+  writer lifecycle runs through
   :class:`strafer_lab.sim_in_the_loop.lerobot_recorder.CoverageLeRobotRecorder`.
 
 Run via the unified entry point::
@@ -28,11 +33,11 @@ Run via the unified entry point::
     python source/strafer_lab/scripts/capture.py \\
         --driver scripted --mission-source coverage \\
         --scene <scene> --output <root> \\
-        --policy-variant nocam_subgoal --checkpoint <exported-policy.pt>
+        --policy-variant nocam_subgoal --checkpoint <model_step.pt>
 
 ``capture.py`` dispatches here after booting nothing itself; this script owns
-its AppLauncher. The checkpoint is an exported artifact (TorchScript .pt /
-.onnx from ``export_policy.py``), not a raw rsl_rl training checkpoint.
+its AppLauncher. The checkpoint is a raw rsl_rl training checkpoint
+(``model_<step>.pt``) loaded through the runner — no export step.
 """
 
 from __future__ import annotations
@@ -43,9 +48,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Match SubgoalCommandCfg.path_complete_threshold: a leg ends when the robot is
-# within this of the viewpoint, and the cursor buffer sizing follows the env's.
-_PATH_COMPLETE_THRESHOLD_M = 0.3
+# Registered capture env per policy variant — the env carries the observation /
+# action contract the checkpoint trained against and the capture sensor stack.
+# Mirrors export_policy's variant->env mapping; --env overrides it.
+_CAPTURE_ENV_BY_VARIANT = {
+    "nocam_subgoal": "Isaac-Strafer-Nav-Capture-Coverage-v0",
+}
+
 _MAX_PATH_POINTS = 512
 
 
@@ -53,11 +62,6 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument(
-        "--task", default="Isaac-Strafer-Nav-Capture-Bridge-v0",
-        help="Composed capture task id (carries the perception cameras + the "
-             "Infinigen scene + the mecanum action contract).",
     )
     parser.add_argument("--scene", required=True, help="Scene name (scene_id).")
     parser.add_argument(
@@ -85,13 +89,19 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--policy-variant", default="nocam_subgoal",
-        help="PolicyVariant for the trained subgoal-follower. nocam_subgoal is "
-             "the only variant with a trained checkpoint today.",
+        help="Selects the capture env (and thus the obs/action contract) for "
+             "the trained subgoal-follower. nocam_subgoal is the only variant "
+             "with a trained checkpoint today.",
+    )
+    parser.add_argument(
+        "--env", default=None,
+        help="Registered capture env id. Defaults to the env for "
+             "--policy-variant.",
     )
     parser.add_argument(
         "--checkpoint", required=True,
-        help="Exported policy artifact (TorchScript .pt / .onnx) the "
-             "subgoal-follower loads via policy_interface.load_policy.",
+        help="Raw rsl_rl training checkpoint (model_<step>.pt) loaded via "
+             "OnPolicyRunner — the same artifact play_strafer_navigation uses.",
     )
     parser.add_argument(
         "--coverage-visits-per-room", type=int, default=None,
@@ -177,6 +187,20 @@ def main() -> int:
     # Cameras are non-negotiable for a capture driver.
     args.enable_cameras = True
 
+    if args.num_envs != 1:
+        raise SystemExit(
+            "coverage_capture v1 captures single-env; --num-envs > 1 is a "
+            "named follow-up. Run with --num-envs 1.",
+        )
+
+    variant = args.policy_variant.lower()
+    env_id = args.env or _CAPTURE_ENV_BY_VARIANT.get(variant)
+    if env_id is None:
+        raise SystemExit(
+            f"no capture env registered for --policy-variant {variant!r}; "
+            f"known: {sorted(_CAPTURE_ENV_BY_VARIANT)}. Pass --env explicitly.",
+        )
+
     app_launcher = AppLauncher(args)
     simulation_app = app_launcher.app
 
@@ -184,10 +208,15 @@ def main() -> int:
     import numpy as np
     import torch
 
+    import importlib.metadata as _metadata
+
+    from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper, handle_deprecated_rsl_rl_cfg
+    from isaaclab_tasks.utils import parse_env_cfg
+    from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry
+    from rsl_rl.runners import OnPolicyRunner
+
     import isaaclab_tasks  # noqa: F401
     import strafer_lab.tasks  # noqa: F401  (registers envs)
-    from isaaclab.managers import SceneEntityCfg
-    from isaaclab_tasks.utils import parse_env_cfg
 
     from strafer_lab.sim_in_the_loop.lerobot_recorder import (
         CoverageLeRobotRecorder,
@@ -195,11 +224,7 @@ def main() -> int:
     )
     from strafer_lab.sim_in_the_loop.runtime_env import IsaacLabEnvAdapter
     from strafer_lab.tasks.navigation import mdp
-    from strafer_lab.tasks.navigation.path_planner import (
-        PathCursor,
-        PathPlanningError,
-        plan_path,
-    )
+    from strafer_lab.tasks.navigation.path_planner import PathPlanningError, plan_path
     from strafer_lab.tools import coverage_plan as coverage_plan_mod
     from strafer_lab.tools import scene_connectivity, scene_metadata_reader
     from strafer_lab.tools.bbox_extractor import (
@@ -212,26 +237,15 @@ def main() -> int:
         hash_scene_metadata,
     )
     from strafer_lab.tools.scene_paths import resolve_scene_usd_path
-    from strafer_lab.tools.subgoal_controller import step_subgoal_controller
-    from strafer_shared.constants import SUBGOAL_LOOKAHEAD_M
-    from strafer_shared.policy_interface import PolicyVariant, load_policy
 
-    if args.num_envs != 1:
-        raise SystemExit(
-            "coverage_capture v1 captures single-env; --num-envs > 1 is a "
-            "named follow-up. Run with --num-envs 1.",
-        )
+    def _to_torch(arr):
+        if hasattr(arr, "detach"):
+            return arr
+        import warp as wp
 
-    try:
-        variant = PolicyVariant[args.policy_variant.upper()]
-    except KeyError:
-        raise SystemExit(
-            f"unknown --policy-variant {args.policy_variant!r}; "
-            f"valid: {[v.name.lower() for v in PolicyVariant]}",
-        )
+        return wp.to_torch(arr)
 
     repo_root = Path(__file__).resolve().parents[3]
-    lookahead_m = args.lookahead_m if args.lookahead_m is not None else SUBGOAL_LOOKAHEAD_M
     heading_spread_rad = math.radians(args.coverage_heading_spread_deg)
     held_out = {s.strip() for s in (args.held_out_scenes or "").split(",") if s.strip()}
     episode_split = "held_out_seeds" if args.scene in held_out else None
@@ -268,7 +282,8 @@ def main() -> int:
     )
 
     # --- env build -----------------------------------------------------------
-    env_cfg = parse_env_cfg(args.task, device="cuda:0", num_envs=1)
+    env_cfg = parse_env_cfg(env_id, device="cuda:0", num_envs=1)
+    env_cfg.seed = args.seed
     if getattr(env_cfg, "sensors", None) is not None and args.sensors:
         from strafer_lab.tasks.navigation.composed_env_cfg import SensorStackCfg
 
@@ -278,69 +293,78 @@ def main() -> int:
         env_cfg.scene.num_envs = 1
     cameras_required = tuple(env_cfg.sensors.cameras_required)
 
+    # Swap the env's command term to the externally-fed capture subgoal command
+    # (after any __post_init__, which would reset the commands group). The
+    # goal-shaped obs terms read "goal_command", so the policy observes the
+    # rolling subgoal the driver feeds it leg by leg.
+    subgoal_cfg_kwargs = {}
+    if args.lookahead_m is not None:
+        subgoal_cfg_kwargs["lookahead_m"] = args.lookahead_m
+    env_cfg.commands.goal_command = mdp.CaptureSubgoalCommandCfg(
+        asset_name="robot",
+        resampling_time_range=(1.0e6, 1.0e6),
+        max_path_points=_MAX_PATH_POINTS,
+        debug_vis=False,
+        **subgoal_cfg_kwargs,
+    )
+    # The driver owns episode boundaries; a training-scale timeout must not
+    # teleport the robot mid-traversal. Flip / sustained-collision stay active.
+    if getattr(env_cfg.terminations, "time_out", None) is not None:
+        env_cfg.terminations.time_out = None
+    # The goal-objective env's training-only managers read fixed-goal command
+    # state (``_goal`` / ``_goal_reached_count``) the rolling subgoal command
+    # does not expose. Capture is inference-only, so disable them.
+    if getattr(env_cfg.events, "randomize_goal_noise", None) is not None:
+        env_cfg.events.randomize_goal_noise = None
+    if getattr(env_cfg.curriculum, "goal_distance", None) is not None:
+        env_cfg.curriculum.goal_distance = None
+
     if args.scene_usd is not None:
         env_cfg.scene.scene_geometry.spawn.usd_path = str(Path(args.scene_usd).resolve())
     active_spawn_points = _resolve_active_spawn_points(args.scene)
     if active_spawn_points:
         env_cfg.events.reset_robot.params["spawn_points_xy"] = active_spawn_points
-        if hasattr(env_cfg.commands, "goal_command"):
-            env_cfg.commands.goal_command.spawn_points_xy = active_spawn_points
-    # The driver owns episode boundaries; a training-scale timeout must not
-    # teleport the robot mid-traversal.
-    if getattr(env_cfg.terminations, "time_out", None) is not None:
-        env_cfg.terminations.time_out = None
 
-    env = gym.make(args.task, cfg=env_cfg)
+    # --- runner + policy (raw rsl_rl checkpoint, canonical inference path) ----
+    agent_cfg = load_cfg_from_registry(env_id, "rsl_rl_cfg_entry_point")
+    agent_cfg.seed = args.seed
+    agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, _metadata.version("rsl-rl-lib"))
+
+    env = gym.make(env_id, cfg=env_cfg)
+    env = RslRlVecEnvWrapper(env)
     unwrapped = env.unwrapped
     device = unwrapped.device
+
+    runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
+    print(f"[coverage_capture] loading checkpoint: {args.checkpoint}", flush=True)
+    runner.load(args.checkpoint)
+    policy = runner.get_inference_policy(device=device)
+
+    subgoal_term = unwrapped.command_manager.get_term("goal_command")
+    env_origin_xy = _to_torch(unwrapped.scene.env_origins)[0, :2].detach().cpu().numpy()
+
     step_dt = float(unwrapped.sim.get_physics_dt()) * int(unwrapped.cfg.decimation)
     writer_fps = max(1, round(1.0 / (step_dt * max(1, args.capture_every_n_steps))))
 
-    # --- controller + detections + writer + adapter --------------------------
-    policy = load_policy(args.checkpoint, variant)
-    cursor = PathCursor(num_envs=1, max_points=_MAX_PATH_POINTS, device=device)
-    imu_cfg = SceneEntityCfg("d555_imu")
-    leg_end_distance = {"value": float("inf")}
+    def _policy_action():
+        obs = env.get_observations()
+        with torch.inference_mode():
+            return policy(obs)
 
-    def _wp_to_torch(arr):
-        if hasattr(arr, "detach"):
-            return arr
-        import warp as wp
+    def _robot_xy_local() -> np.ndarray:
+        world = _to_torch(unwrapped.scene["robot"].data.root_pos_w)[0, :2]
+        return world.detach().cpu().numpy() - env_origin_xy
 
-        return wp.to_torch(arr)
+    # Report the live policy obs width: the rolling-subgoal contract the
+    # checkpoint expects (e.g. 19-dim NOCAM_SUBGOAL).
+    obs0 = env.get_observations()
+    policy_obs0 = obs0["policy"] if hasattr(obs0, "keys") and "policy" in obs0.keys() else obs0
+    print(
+        f"[coverage_capture] policy obs dim = {int(policy_obs0.shape[-1])}",
+        flush=True,
+    )
 
-    def _field(tensor) -> np.ndarray:
-        return _wp_to_torch(tensor)[0].detach().cpu().numpy()
-
-    # The coverage plan + occupancy grid are in the scene's authored frame; the
-    # robot's world pose carries the env-instance origin offset. Plan and track
-    # in scene-local frame (subtract the origin), matching the SubgoalCommand.
-    env_origin = _wp_to_torch(unwrapped.scene.env_origins)[:, :2]
-
-    def _robot_xy_local_all() -> "torch.Tensor":
-        world = _wp_to_torch(unwrapped.scene["robot"].data.root_pos_w)[:, :2]
-        return world - env_origin
-
-    def _action_source():
-        robot_xy_all = _robot_xy_local_all()
-        robot_quat = _wp_to_torch(unwrapped.scene["robot"].data.root_quat_w)[0]
-        robot_yaw = yaw_from_quat_xyzw(tuple(float(v) for v in robot_quat.detach().cpu().tolist()))
-        state = cursor.update(robot_xy_all, lookahead_m)
-        leg_end_distance["value"] = float(state.end_distance[0].item())
-        subgoal_xy = state.subgoal_xy[0].detach().cpu().tolist()
-        base_fields = {
-            "imu_accel": _field(mdp.imu_linear_acceleration(unwrapped, imu_cfg)),
-            "imu_gyro": _field(mdp.imu_angular_velocity(unwrapped, imu_cfg)),
-            "encoder_vels_ticks": _field(mdp.wheel_encoder_velocities(unwrapped)),
-            "body_velocity_xy": _field(mdp.body_velocity_xy(unwrapped)),
-            "last_action": _field(mdp.last_action(unwrapped)),
-        }
-        robot_xy = robot_xy_all[0].detach().cpu().tolist()
-        vx, vy, wz = step_subgoal_controller(
-            policy, base_fields, robot_xy, robot_yaw, subgoal_xy, variant=variant,
-        )
-        return ((vx, vy, 0.0), (0.0, 0.0, wz))
-
+    # --- detections + writer + adapter + recorder ----------------------------
     detections_source = None
     if args.detections:
         extractor = ReplicatorBboxExtractor(
@@ -366,7 +390,7 @@ def main() -> int:
     adapter = IsaacLabEnvAdapter(
         env=env,
         scene_name=args.scene,
-        cmd_vel_source=_action_source,
+        action_source=_policy_action,
         cameras_required=cameras_required,
         detections_source=detections_source,
         step_dt=step_dt,
@@ -376,7 +400,6 @@ def main() -> int:
     # --- traversal -----------------------------------------------------------
     try:
         adapter.reset(scene_name=args.scene)
-        mount_quat = None
         if hasattr(unwrapped, "_d555_mount_quat"):
             mount_quat = tuple(
                 float(v) for v in unwrapped._d555_mount_quat[0].detach().cpu().tolist()
@@ -389,9 +412,8 @@ def main() -> int:
             if args.n_trajectories is not None and captured >= args.n_trajectories:
                 break
 
-            robot_xy = _robot_xy_local_all()[0].detach().cpu().numpy()
-            leg = _leg_path(
-                robot_xy,
+            leg_local = _leg_path(
+                _robot_xy_local(),
                 np.asarray(visit.target_xy, dtype=np.float32),
                 visit.approach_heading_rad,
                 free_space,
@@ -401,18 +423,18 @@ def main() -> int:
                 plan_path=plan_path,
                 error_cls=PathPlanningError,
             )
-            if leg is None:
+            if leg_local is None:
                 print(
                     f"[coverage_capture] skip room {visit.room_index} visit "
                     f"{visit.visit_ordinal}: no collision-free path",
                     flush=True,
                 )
                 continue
-            cursor.set_paths(
-                torch.tensor([0], device=device),
-                [torch.as_tensor(leg, dtype=torch.float32, device=device)],
-            )
-            leg_end_distance["value"] = float("inf")
+            # The plan / occupancy grid live in the scene-authored frame; the
+            # command term tracks in world frame, so lift the leg by the env
+            # origin before handing it over.
+            leg_world = leg_local + env_origin_xy
+            subgoal_term.set_leg(torch.as_tensor(leg_world, dtype=torch.float32, device=device))
 
             start_bundle = adapter.capture()
             recorder.begin_episode(
@@ -425,7 +447,7 @@ def main() -> int:
                 adapter.step()
                 if step % args.capture_every_n_steps == 0:
                     recorder.add_frame(adapter.capture())
-                if leg_end_distance["value"] < _PATH_COMPLETE_THRESHOLD_M:
+                if bool(subgoal_term.path_complete[0].item()):
                     break
             recorder.add_frame(adapter.capture())
             recorder.end_episode()

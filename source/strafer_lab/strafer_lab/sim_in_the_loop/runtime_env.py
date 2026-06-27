@@ -47,6 +47,12 @@ from strafer_shared.constants import MAX_ANGULAR_VEL, MAX_LINEAR_VEL
 # of ``StraferAsyncPublisher.get_cmd_vel``.
 CmdVelSource = Callable[[], tuple[tuple[float, float, float], tuple[float, float, float]]]
 
+# Returns the env's raw action tensor ``(num_envs, action_dim)`` already in the
+# action term's normalized ``[-1, 1]`` contract — e.g. a policy callable's
+# output. Used by the scripted driver to feed inference actions straight to the
+# env without the ``/cmd_vel`` round-trip the bridge needs.
+ActionSource = Callable[[], Any]
+
 
 def _clamp_unit(value: float) -> float:
     """Clamp ``value`` into the action term's ``[-1, 1]`` contract."""
@@ -73,7 +79,14 @@ class IsaacLabEnvAdapter(EnvAdapter):
     cmd_vel_source :
         Callable returning the latest Twist sample. The launch script
         wires this to ``StraferAsyncPublisher.get_cmd_vel``; tests
-        inject a fake.
+        inject a fake. Mutually exclusive with ``action_source``.
+    action_source :
+        Callable returning the env's raw action tensor
+        ``(num_envs, action_dim)`` in the normalized ``[-1, 1]`` contract.
+        When set, ``step`` feeds it straight to ``env.step`` (no Twist
+        conversion) — the scripted driver wires this to its policy's
+        inference output. Exactly one of ``cmd_vel_source`` / ``action_source``
+        must be provided.
     cameras_required :
         Sensor-stack tokens over ``rgb_full`` / ``depth_full`` /
         ``rgb_policy`` / ``depth_policy`` deciding which camera channels
@@ -102,7 +115,8 @@ class IsaacLabEnvAdapter(EnvAdapter):
         *,
         env: Any,
         scene_name: str,
-        cmd_vel_source: CmdVelSource,
+        cmd_vel_source: CmdVelSource | None = None,
+        action_source: ActionSource | None = None,
         cameras_required: Sequence[str] = ("rgb_full", "depth_full", "depth_policy"),
         perception_sensor_key: str = "d555_camera_perception",
         policy_sensor_key: str = "d555_camera",
@@ -112,9 +126,15 @@ class IsaacLabEnvAdapter(EnvAdapter):
         step_dt: float | None = None,
         torch_module: Any = None,
     ) -> None:
+        if (cmd_vel_source is None) == (action_source is None):
+            raise ValueError(
+                "IsaacLabEnvAdapter requires exactly one of cmd_vel_source "
+                "(Twist) or action_source (raw policy action).",
+            )
         self._env = env
         self._scene_name = scene_name
         self._cmd_vel_source = cmd_vel_source
+        self._action_source = action_source
         self._cameras_required = tuple(cameras_required)
         self._perception_key = perception_sensor_key
         self._policy_key = policy_sensor_key
@@ -168,12 +188,22 @@ class IsaacLabEnvAdapter(EnvAdapter):
             self._on_stepped(self._sim_time_s)
 
     def step(self) -> None:
-        linear, angular = self._cmd_vel_source()
-        action = self._build_action(linear, angular)
+        if self._action_source is not None:
+            action = self._action_source()
+            self._last_action = self._action_triple(action)
+        else:
+            linear, angular = self._cmd_vel_source()
+            action = self._build_action(linear, angular)
         self._env.step(action)
         self._sim_time_s += self._step_dt
         if self._on_stepped is not None:
             self._on_stepped(self._sim_time_s)
+
+    def _action_triple(self, action: Any) -> tuple[float, float, float]:
+        """First env's ``(linear_x, linear_y, angular_z)`` from a raw action
+        tensor, for the recorded ``action`` column."""
+        row = self._to_torch(action)[0]
+        return (float(row[0]), float(row[1]), float(row[2]))
 
     def capture(self) -> FrameBundle:
         scene = self._env.unwrapped.scene

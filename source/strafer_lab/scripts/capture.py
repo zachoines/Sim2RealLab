@@ -172,17 +172,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--policy-variant",
         default="nocam_subgoal",
-        help="Scripted driver: PolicyVariant controlling the trained RL "
-             "subgoal-follower's observation contract. nocam_subgoal is the "
-             "only variant with a trained checkpoint today; depth subgoal is "
-             "planned.",
+        help="Scripted driver: selects the capture env (and thus the "
+             "observation / action contract) for the trained RL "
+             "subgoal-follower. nocam_subgoal is the only variant with a "
+             "trained checkpoint today; depth subgoal is planned.",
     )
     parser.add_argument(
         "--checkpoint",
         default=None,
-        help="Scripted driver: path to the exported policy artifact "
-             "(TorchScript .pt / .onnx from export_policy.py) the RL "
-             "subgoal-follower loads.",
+        help="Scripted driver: path to the raw rsl_rl training checkpoint "
+             "(model_<step>.pt) the RL subgoal-follower loads via the runner.",
     )
     parser.add_argument(
         "--coverage-visits-per-room",

@@ -2,7 +2,7 @@
 
 **Status:** Shipped 2026-06-27 in `25d1996` (DGX). The driver derives the robot spawn from the occupancy free-space it already loads (module-level `_derive_spawn_xy`, pure-numpy, deterministic, free + planner-reachable) and the `scenes_metadata.json` / `_resolve_active_spawn_points` read is removed. seed1 Kit smoke captured 3/3 episodes (spawn sub-mm from authored, settles on real floor, obs dim 19). It deliberately does **not** mask a degenerate grid (no snap-widening, no external fallback) — so an over-occupied grid surfaces as a STOP-gate blocker rather than capturing over corrupt floor.
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/113
-**Follow-up:** seed2 + seed6 have over-occupied occupancy grids (~57–58% blocked) — a systematic occupancy-generation fault, **not** a capture bug. Owned by [`occupancy-interior-fidelity`](../../active/harness/occupancy-interior-fidelity.md) (root cause settled — a `skirtingboard_support` `convexHull` phantom-slab collider; fix in progress on #114); once those grids are healthy this derivation captures them unchanged, no capture-side work.
+**Follow-up:** seed2 + seed6 have over-occupied occupancy grids (~57–58% blocked) — a systematic occupancy-generation fault, **not** a capture bug. Owned by [`occupancy-interior-fidelity`](occupancy-interior-fidelity.md) (shipped #114 — a `skirtingboard_support` `convexHull` phantom-slab collider, fixed at the Infinigen bake seam); once those grids are healthy this derivation captures them unchanged, no capture-side work.
 
 **Type:** refactor + bugfix (capture spawn sourcing)
 **Owner:** DGX agent (coverage capture driver)

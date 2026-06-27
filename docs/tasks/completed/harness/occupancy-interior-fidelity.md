@@ -11,14 +11,13 @@ corpus sweep below shows the fault is whole-scene.)
 re-process, and matrix validation across all 5 corpus scenes).
 **Branch:** `task/occupancy-interior-fidelity`
 
-**Status:** ACTIVE — revised 2026-06-27 on PR #114. Root cause settled; the fix is
-being moved from the agnostic occupancy generator to the Infinigen-specific bake
-seam after review (see "Resolution in progress"). Surfaced live by PR #113
+**Status:** Shipped 2026-06-27 in `59a19f4` (DGX). Surfaced live by PR #113
 (coverage-spawn-from-occupancy), whose STOP gate refuses to capture over a corrupt
 grid. Filed off PR #96 (scene-connectivity-validation).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/114
 **Follow-up:** [`capture-debug-overhead-cam.md`](../../parked/harness/capture-debug-overhead-cam.md) — overhead debug cam for scripted/coverage capture (invisible-collider QA).
 
-## Resolution in progress (2026-06-27)
+## Resolution (2026-06-27)
 
 **Root cause — a `convexHull` collider on perimeter trim, confirmed independently
 on seed2 AND seed6 (settled).** Each degenerate scene carries a
@@ -52,6 +51,15 @@ regeneration; seed2 + seed6 are re-baked and their occupancy regenerated from th
 corrected USDs. (PR #114's first pass corrected the collider inside the agnostic
 occupancy generator — the wrong layer — and that code is removed in favour of this
 bake-seam fix.)
+
+**Result (all 5 re-validated from the live cache, regenerated refit-free over the
+re-baked USDs; free/floor-bbox).** seed2 23.0 %→**71.8 %** (58.1 %→10.9 % blocked);
+seed6 20.9 %→**72.1 %** (56.9 %→8.2 %); seed1 70.3 %, seed5 76.8 %, seed7 69.7 %
+(unchanged — the bake-seam fix touches only `skirtingboard_support`, which seed1/5
+lack and seed7 names `*_ceiling`). PR #113's spawn derivation + STOP gate accept all
+five regenerated grids. (Side finding: that gate is a *weak* filter — it also passed
+the degenerate grids via the residual free blob, so the regenerated grid, not the
+gate, is the real protection — noted as a possible #113 follow-up.)
 
 ---
 

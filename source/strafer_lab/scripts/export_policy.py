@@ -71,7 +71,24 @@ import torch.nn as nn
 _DEFAULT_ENV_BY_VARIANT = {
     "NOCAM": "Isaac-Strafer-Nav-RLNoCam-Play-v0",
     "DEPTH": "Isaac-Strafer-Nav-RLDepth-Real-Play-v0",
+    "NOCAM_SUBGOAL": "Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-v0",
 }
+
+# Variants whose envs build with no camera/depth prim in the scene. Cameras
+# stay disabled for these unless more than one env forces a tiled render.
+_CAMERA_LESS_VARIANTS = {"NOCAM", "NOCAM_SUBGOAL"}
+
+
+def _should_enable_cameras(variant: str, num_envs: int) -> bool:
+    """Whether ``--enable_cameras`` must be forced on for this export run.
+
+    Camera-bearing variants don't load unless cameras are enabled; the
+    camera-less variants build only when more than one env forces a tiled
+    render. Keyed on the camera-less variant set, not a single literal name,
+    so a new camera-less variant doesn't silently get cameras enabled.
+    """
+    return variant not in _CAMERA_LESS_VARIANTS or num_envs > 1
+
 
 # ONNX opset 18 matches what rsl_rl's built-in exporter emits. Jetson's
 # onnxruntime-gpu wheel supports it.
@@ -563,8 +580,7 @@ def main() -> None:
     if not checkpoint_path.is_file():
         raise SystemExit(f"Checkpoint not found: {checkpoint_path}")
 
-    # DEPTH variants don't load without cameras; safer to enable unconditionally.
-    if args.variant != "NOCAM" or args.num_envs > 1:
+    if _should_enable_cameras(args.variant, args.num_envs):
         args.enable_cameras = True
 
     output_stem, output_paths = _split_output(args.output, args.formats)

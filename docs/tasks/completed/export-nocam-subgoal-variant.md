@@ -1,5 +1,8 @@
 # Enable `NOCAM_SUBGOAL` export through `export_policy.py`
 
+**Status:** Shipped 2026-06-28 in `ec8431e` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/118
+
 **Type:** task / feature
 **Owner:** DGX (`strafer_lab` lane)
 **Priority:** P1 — unblocks the deployable `NOCAM_SUBGOAL` artifact the parked Jetson-lane hybrid runtime consumes.

@@ -423,3 +423,42 @@ class TestLegPath:
             plan_path=fake_plan_path, error_cls=_FakePlanError,
         )
         assert leg is None
+
+
+class TestRenderCarbOverrides:
+    """--render-carb parsing + the carb key-path transform (exposure probe)."""
+
+    def test_coerces_value_types(self):
+        assert cc._coerce_carb_value("true") is True
+        assert cc._coerce_carb_value("False") is False
+        assert cc._coerce_carb_value("6") == 6 and isinstance(cc._coerce_carb_value("6"), int)
+        v = cc._coerce_carb_value("7.0")
+        assert v == 7.0 and isinstance(v, float)
+        assert cc._coerce_carb_value("aces") == "aces"
+
+    def test_parses_repeated_key_value(self):
+        overrides = cc._parse_render_carb_overrides([
+            "rtx.post.histogram.enabled=false",
+            "rtx.post.histogram.whiteScale=5.0",
+        ])
+        assert overrides == {
+            "rtx.post.histogram.enabled": False,
+            "rtx.post.histogram.whiteScale": 5.0,
+        }
+
+    def test_none_and_empty(self):
+        assert cc._parse_render_carb_overrides(None) == {}
+        assert cc._parse_render_carb_overrides([]) == {}
+
+    def test_rejects_malformed(self):
+        with pytest.raises(SystemExit):
+            cc._parse_render_carb_overrides(["no_equals_sign"])
+        with pytest.raises(SystemExit):
+            cc._parse_render_carb_overrides(["=value"])
+
+    def test_carb_path_matches_isaaclab_transform(self):
+        # Mirror SimulationContext._apply_render_cfg_settings: dot/slash/underscore
+        # all resolve to the same /slash/path the renderer reads.
+        assert cc._carb_path("rtx.post.histogram.enabled") == "/rtx/post/histogram/enabled"
+        assert cc._carb_path("/rtx/post/histogram/enabled") == "/rtx/post/histogram/enabled"
+        assert cc._carb_path("rtx_post_histogram_enabled") == "/rtx/post/histogram/enabled"

@@ -173,7 +173,87 @@ def _build_parser() -> argparse.ArgumentParser:
              "recorded perception frames. Use --video for QA; run production "
              "capture without it, or pass this flag, for an untouched corpus.",
     )
+    parser.add_argument(
+        "--render-carb", action="append", default=None, metavar="KEY=VALUE",
+        help="Override/extend the RTX render carb settings for this run (dot or "
+             "slash key form, e.g. rtx.post.histogram.whiteScale=5.0). Repeatable. "
+             "Merged on top of the env's exposure defaults; bool/int/float are "
+             "coerced. The exposure-tuning seam for the production probe — sweep "
+             "the auto-exposure target (rtx.post.histogram.whiteScale), an "
+             "ambient shadow-fill floor (rtx.sceneDb.ambientLightIntensity), or "
+             "a fixed-exposure fallback (rtx.post.histogram.enabled=false plus "
+             "rtx.post.tonemap.filmIso=<low>), then re-measure the perception MP4.",
+    )
     return parser
+
+
+def _coerce_carb_value(raw: str):
+    """Coerce a CLI string into bool / int / float, falling back to str."""
+    low = raw.strip().lower()
+    if low in ("true", "false"):
+        return low == "true"
+    try:
+        return int(raw)
+    except ValueError:
+        pass
+    try:
+        return float(raw)
+    except ValueError:
+        return raw
+
+
+def _parse_render_carb_overrides(items: list[str] | None) -> dict[str, object]:
+    """Parse repeated ``KEY=VALUE`` --render-carb args into a carb-settings dict."""
+    overrides: dict[str, object] = {}
+    for item in items or []:
+        if "=" not in item:
+            raise SystemExit(f"--render-carb expects KEY=VALUE, got {item!r}")
+        key, _, value = item.partition("=")
+        key = key.strip()
+        if not key:
+            raise SystemExit(f"--render-carb has an empty key: {item!r}")
+        overrides[key] = _coerce_carb_value(value)
+    return overrides
+
+
+def _carb_path(key: str) -> str:
+    """Mirror IsaacLab's carb_settings key transform to the /slash/path form."""
+    if "_" in key:
+        return "/" + key.replace("_", "/")
+    if "." in key:
+        return "/" + key.replace(".", "/")
+    return key
+
+
+def _log_render_carb_readback(base, carb_settings) -> None:
+    """Best-effort: read each requested carb setting back off the live RTX sim.
+
+    Confirms the exposure settings reached the renderer (a value left at its
+    default reads back unchanged), which is the render-product check the
+    production probe needs — the perception camera's recorded RGB is the
+    post-tonemap/exposure LDR AOV, so these settings drive the corpus.
+    """
+    if not carb_settings:
+        return
+    try:
+        import carb
+
+        settings = carb.settings.get_settings()
+    except Exception as exc:  # pragma: no cover - depends on Kit runtime
+        print(f"[coverage_capture] carb readback unavailable: {exc}", flush=True)
+        return
+    for key, requested in carb_settings.items():
+        path = _carb_path(key)
+        try:
+            actual = settings.get(path)
+        except Exception:
+            actual = "<unreadable>"
+        match = "ok" if actual == requested else "CHECK"
+        print(
+            f"[coverage_capture] carb {path}: requested={requested} "
+            f"live={actual} [{match}]",
+            flush=True,
+        )
 
 
 def _git_rev_parse_head(repo_root: Path) -> str:
@@ -329,6 +409,22 @@ def main() -> int:
         env_cfg.scene.num_envs = 1
     cameras_required = tuple(env_cfg.sensors.cameras_required)
 
+    # Render-exposure overrides for the production probe (after any __post_init__,
+    # which seeds the Infinigen auto-exposure defaults). single-env capture keeps
+    # the tiled render product to one real tile, so auto-exposure meters cleanly.
+    carb_overrides = _parse_render_carb_overrides(args.render_carb)
+    if carb_overrides:
+        env_cfg.sim.render.carb_settings = {
+            **(env_cfg.sim.render.carb_settings or {}),
+            **carb_overrides,
+        }
+    if env_cfg.sim.render.carb_settings:
+        print(
+            f"[coverage_capture] RTX render carb_settings: "
+            f"{env_cfg.sim.render.carb_settings}",
+            flush=True,
+        )
+
     # Swap the env's command term to the externally-fed capture subgoal command
     # (after any __post_init__, which would reset the commands group). The
     # goal-shaped obs terms read "goal_command", so the policy observes the
@@ -419,6 +515,11 @@ def main() -> int:
         )
 
     env = gym.make(env_id, cfg=env_cfg, render_mode="rgb_array" if args.video else None)
+
+    # Read back the exposure carb settings off the live RTX renderer so a probe
+    # run can confirm they actually took (a stale default reads back unchanged).
+    _log_render_carb_readback(env.unwrapped, env_cfg.sim.render.carb_settings)
+
     if args.video:
         base = env.unwrapped
         env_origin = base.scene.env_origins[0].detach().cpu().tolist()

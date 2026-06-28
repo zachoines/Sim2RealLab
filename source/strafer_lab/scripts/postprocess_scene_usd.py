@@ -5,9 +5,14 @@ needs for robot integration:
 
 1. Collision shapes on most meshes. Without them the robot falls
    through walls and phases through furniture.
-2. Light emitters at ``CeilingLightFactory_*`` fixtures. The fixture
-   meshes are exported but no ``UsdLux`` emitters are authored, so the
-   interiors render black.
+2. Supplemental light emitters at ``CeilingLightFactory_*`` fixtures.
+   Infinigen's export already carries its own physically-based emitters
+   (``PointLampFactory_*`` ``UsdLux.SphereLight``s at ``normalize=True``,
+   area ``RectLight``s, an environment ``DomeLight``) which dominate
+   interior radiance; this pass adds a small low-power SphereLight at each
+   ceiling fixture as a fill. It is NOT the interior-exposure control —
+   over/under-exposure is corrected at the render layer (RTX auto-exposure
+   via ``RenderCfg.carb_settings`` in the env config), not here.
 
 Floor meshes are deliberately *excluded* from the collision pass — their
 tessellated triangle edges catch the Strafer mecanum rollers and pull
@@ -249,9 +254,11 @@ def inject_ceiling_light_emitters(
     :data:`_DEFAULT_CEILING_LIGHT_PRIM_PATTERN` (Infinigen's
     ``CeilingLightFactory_*`` naming).
 
-    Infinigen exports the fixture mesh but not the emitter. Without
-    this, dome / directional / area lights can't reach the interior and
-    rooms render black.
+    A small supplemental fill at the ceiling fixtures. Infinigen's export
+    already carries the dominant interior emitters (``PointLampFactory_*``
+    SphereLights at ``normalize=True``, area RectLights, an environment
+    DomeLight), so this is not the interior-exposure control — see the
+    module docstring.
 
     Skips ``*_SPLIT_GLA`` glass-shade variants (same location as the
     parent fixture, so a second light would just double up). Re-uses an
@@ -390,8 +397,12 @@ def main(argv: list[str] | None = None) -> int:
         "--light-intensity",
         type=float,
         default=100000.0,
-        help="Intensity for each injected SphereLight. Tune higher if "
-             "rooms are still dim, lower if the scene blows out.",
+        help="Intensity for each injected supplemental SphereLight. This is "
+             "fill at the ceiling fixtures, NOT the interior-exposure control: "
+             "the baked Infinigen emitters dominate (these injected lights are a "
+             "negligible fraction of total interior power), so changing it does "
+             "not fix an over- or under-exposed scene. Exposure is corrected at "
+             "the render layer (RTX auto-exposure in the env config).",
     )
     parser.add_argument(
         "--floor-prim-pattern",

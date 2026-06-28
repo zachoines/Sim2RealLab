@@ -337,6 +337,11 @@ class StraferSceneCfg_InfinigenPerception(InteractiveSceneCfg):
 
     robot: ArticulationCfg = STRAFER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
+    # Additive fill on top of the Infinigen scene's own baked emitters (which
+    # dominate interior radiance — see _INFINIGEN_RENDER_EXPOSURE_CARB). These
+    # lift exterior/shadowed regions; they are not the over-exposure driver, and
+    # over-brightness is corrected at the render layer (RTX auto-exposure), not
+    # by trimming this fill (which would only deepen the dim scenes' shadows).
     dome_light = AssetBaseCfg(
         prim_path="/World/DomeLight",
         spawn=sim_utils.DomeLightCfg(intensity=2000.0, color=(0.8, 0.8, 0.8)),
@@ -1192,6 +1197,45 @@ def _get_infinigen_active_scene_floor_top_z(scene_stem: str) -> float | None:
     return scene_data.get("floor_top_z")
 
 
+# Infinigen exports its scenes with their own physically-based light emitters
+# baked into the USDC — ``PointLampFactory_*`` ``UsdLux.SphereLight`` prims at
+# ``normalize=True`` with intensities of 1e8–6e8 (summed several billion per
+# scene), plus area ``RectLight``s and an environment ``DomeLight``. Those, not
+# the postprocess-injected ``AutoSphereLight`` fixtures (1e5, ~0.02% of the
+# total) or the additive dome/distant fill below, dominate interior radiance.
+# Kit's RTX renderer applies an ACES tonemap by default but leaves auto-exposure
+# OFF, so that physically-based HDR radiance sits far above the tonemap shoulder
+# and the LDR (8-bit) RGB the perception camera records clips to white. Enabling
+# RTX histogram auto-exposure lets the renderer meter each scene and adapt the
+# exposure — the same thing the real D555 does (its ROS driver runs auto-
+# exposure) — which is the one corpus-wide, re-bake-free lever that handles the
+# wide per-scene brightness spread (a single fixed exposure cannot, since the
+# baked-emitter power does not predict image brightness). This only affects the
+# RGB tonemap path; depth (the policy observation) is geometric and unchanged,
+# so it is safe to apply to every Infinigen env, not just perception captures.
+# ``whiteScale`` is the exposure target (lower => darker); its final value is
+# confirmed / tuned by the operator on a production (ceiling-on) capture — see
+# the scene-provider contract. A fixed-exposure alternative (filmIso/fNumber/
+# exposureTime) or a shadow-fill bump (``rtx.sceneDb.ambientLightIntensity``)
+# can be supplied at capture time via ``coverage_capture --render-carb``.
+_INFINIGEN_RENDER_EXPOSURE_CARB: dict[str, object] = {
+    "rtx.post.histogram.enabled": True,
+    "rtx.post.histogram.whiteScale": 7.0,
+}
+
+
+def _apply_infinigen_render_exposure(cfg: ManagerBasedRLEnvCfg) -> None:
+    """Enable RTX auto-exposure for the Infinigen scenes' baked HDR lights.
+
+    Merges :data:`_INFINIGEN_RENDER_EXPOSURE_CARB` into the sim's
+    ``RenderCfg.carb_settings`` (the supported native RTX hook), preserving any
+    settings already present. See the module-level note for why this is the
+    selected layer over re-baking emitter intensities.
+    """
+    existing = cfg.sim.render.carb_settings or {}
+    cfg.sim.render.carb_settings = {**existing, **_INFINIGEN_RENDER_EXPOSURE_CARB}
+
+
 def _apply_infinigen_scene_setup(cfg: ManagerBasedRLEnvCfg) -> None:
     """Attach the first scene USD and pooled floor spawn points to an env cfg.
 
@@ -1202,6 +1246,8 @@ def _apply_infinigen_scene_setup(cfg: ManagerBasedRLEnvCfg) -> None:
     scene_link = Path(_get_scene_usd_paths()[0])
     scene_path = scene_link.resolve()
     cfg.scene.scene_geometry.spawn.usd_path = str(scene_path)
+
+    _apply_infinigen_render_exposure(cfg)
 
     spawn_points_xy = _get_infinigen_spawn_points_xy()
     if spawn_points_xy:

@@ -1192,6 +1192,22 @@ def _get_infinigen_active_scene_floor_top_z(scene_stem: str) -> float | None:
     return scene_data.get("floor_top_z")
 
 
+# The scene's bright baked light emitters render with RTX auto-exposure off, so
+# the recorded perception RGB clips to white. Enable RTX histogram auto-exposure
+# (what the real D555 does); RGB-only, depth is unaffected. whiteScale is the
+# exposure target (lower => darker), tuned on a production ceiling-on capture.
+_INFINIGEN_RENDER_EXPOSURE_CARB: dict[str, object] = {
+    "rtx.post.histogram.enabled": True,
+    "rtx.post.histogram.whiteScale": 7.0,
+}
+
+
+def _apply_infinigen_render_exposure(cfg: ManagerBasedRLEnvCfg) -> None:
+    """Merge the auto-exposure carb settings into the sim's RenderCfg."""
+    existing = cfg.sim.render.carb_settings or {}
+    cfg.sim.render.carb_settings = {**existing, **_INFINIGEN_RENDER_EXPOSURE_CARB}
+
+
 def _apply_infinigen_scene_setup(cfg: ManagerBasedRLEnvCfg) -> None:
     """Attach the first scene USD and pooled floor spawn points to an env cfg.
 
@@ -1202,6 +1218,8 @@ def _apply_infinigen_scene_setup(cfg: ManagerBasedRLEnvCfg) -> None:
     scene_link = Path(_get_scene_usd_paths()[0])
     scene_path = scene_link.resolve()
     cfg.scene.scene_geometry.spawn.usd_path = str(scene_path)
+
+    _apply_infinigen_render_exposure(cfg)
 
     spawn_points_xy = _get_infinigen_spawn_points_xy()
     if spawn_points_xy:

@@ -4,7 +4,7 @@
 **Owner:** DGX agent (scene-provider postprocess + strafer_lab camera/render config)
 **Priority:** P0 — the recorded d555 perception RGB is clipped to white on the over-bright scenes; the corpus is unusable for perception training until exposure is correct on all 5 scenes.
 **Branch:** task/coverage-capture-overbright-exposure
-**PR:** _(pending)_
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/117
 **Status:** code + diagnosis in review; numeric acceptance is OPERATOR-GATED on a production ceiling-on capture (see Acceptance).
 
 ## Story

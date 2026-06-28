@@ -480,33 +480,12 @@ What the runtime and the postprocess scripts traverse inside the
   plus the door arm `^/World/[A-Za-z]*Door[A-Za-z]*Factory_\d+__spawn_asset_\d+.*$`
   (matches any `...DoorFactory` — Panel / Lite / Louver / GlassPanel — and any
   per-asset suffix incl. `__001` / `__SPLIT_GLASS`).
-- **Ceiling-light prims.** `postprocess_scene_usd.py` authors a
-  supplemental `UsdLux.SphereLight` under every prim whose **name** (the
+- **Ceiling-light prims.** Infinigen exports the fixture mesh but no
+  emitter, so interiors render black. `postprocess_scene_usd.py`
+  authors a `UsdLux.SphereLight` under every prim whose **name** (the
   leaf, not the full path) matches `CeilingLightFactory_\d+__spawn_asset_\d+_`.
   Note the asymmetry: floor and structural patterns match the **full
   prim path**; the ceiling-light pattern matches the **prim name**.
-  These injected emitters are intentionally low-power (`--light-intensity`
-  100000) and are **not** the dominant interior light: Infinigen's own export
-  already carries physically-based emitters — `PointLampFactory_*`
-  `UsdLux.SphereLight`s at `normalize=True` with intensities of 1e8–6e8
-  (several billion summed per scene), area `RectLight`s, and an environment
-  `DomeLight` — which dominate interior radiance by ~4 orders of magnitude.
-  The injected SphereLight is a small fill at the ceiling fixtures, so
-  per-scene exposure is governed by those baked emitters and by the
-  render-layer exposure setting (below), not by `--light-intensity`.
-- **Render exposure.** Infinigen's baked emitters are physically-based HDR
-  and Kit's RTX renderer leaves auto-exposure OFF by default, so the
-  recorded perception RGB clips to white. Corpus exposure is corrected at
-  the **render layer**, not by re-baking light intensities: the Infinigen
-  env configs enable RTX histogram auto-exposure via
-  `SimulationCfg.render.carb_settings` (`rtx.post.histogram.enabled` +
-  `whiteScale`). It is re-bake-free and scene-count-invariant, and only
-  affects RGB (depth is geometric). Confirm / tune it on a production
-  (ceiling-on, non-`--video`) capture with
-  `source/strafer_lab/scripts/measure_perception_exposure.py`; sweep
-  `coverage_capture --render-carb KEY=VALUE` (e.g. `whiteScale`, an ambient
-  fill `rtx.sceneDb.ambientLightIntensity`, or a fixed-exposure
-  `rtx.post.tonemap.filmIso` fallback).
 - **Labelled prims for Replicator.** `extract_scene_metadata.py` applies
   the `UsdSemantics.LabelsAPI` (`instance_name="class"`) — the schema
   Replicator's `bounding_box_2d_tight` annotator actually boxes on — to
@@ -532,7 +511,7 @@ matches, and how a second source overrides it. All are matched with
 | `--ceiling-light-prim-pattern` | `^CeilingLightFactory_\d+__spawn_asset_\d+_$` | Infinigen-named light fixture prims (**prim name**, not path) | `^MyCeilingLight_\d+$` (example) |
 | `--collider-approximation` | `convexHull` | (not a regex) PhysX shape for furniture | one of `boundingCube, boundingSphere, convexHull, convexDecomposition, meshSimplification, none` |
 | `--structural-approximation` | `none` (exact triangle mesh — static walls/doors, keeps cutouts true) | (not a regex) PhysX shape for structural prims | same choice set |
-| `--light-intensity` | `100000.0` | (not a regex) per-emitter intensity for the *injected* supplemental SphereLights only | rarely needs tuning — it does **not** fix over/under-exposure (the injected lights are ~0.02% of total interior power; the baked Infinigen emitters dominate). Correct exposure at the render layer instead — see "Render exposure" above. |
+| `--light-intensity` | `100000.0` | (not a regex) per-emitter intensity | tune up if rooms are dim, down if blown out |
 | `--keep-floor-colliders` | off | (debug flag) keep floor colliders | reintroduces the wheel-catching behavior; debugging only |
 
 Each of the three pattern functions is importable and can be called

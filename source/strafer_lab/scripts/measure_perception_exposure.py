@@ -1,32 +1,25 @@
-"""Measure exposure quality of captured d555 PERCEPTION rgb frames.
+"""Measure exposure quality of recorded perception RGB video.
 
-CPU-only QA gate for the LeRobot corpus. Decodes the recorded perception
-RGB video (LeRobot v3 h264, 640w x 360h) with PyAV and reports, per scene,
-the numbers that decide whether the data is correctly exposed:
+CPU-only QA gate. Decodes one or more h264 RGB MP4s with PyAV and reports,
+per file, the numbers that decide whether the footage is correctly exposed:
 
   - mean RGB + mean luma (Rec.601)
   - clipped fraction:  any channel >= 250/255  (blown-to-white highlights)
   - crushed fraction:  any channel <= 5/255    (lost shadow detail)
-  - fully-white frame count (a confound-immune over-exposure signal)
-  - per-row (top->bottom, height = 360) clipped profile, binned into 10 bands
+  - fully-white frame count
+  - per-row (top->bottom) clipped profile, binned into 10 bands (a TOP-peaked
+    profile is ceiling/overhead glare; BOTTOM/MID-peaked is whole-frame
+    over-exposure)
 
-The per-row profile attributes the blowout: a TOP-peaked profile is ceiling
-bloom; a BOTTOM/MID-peaked profile is whole-scene over-exposure.
+Each file is checked against the acceptance bands (overridable via flags) and
+PASS/FAIL is reported. Exit code is non-zero if any file fails.
 
-ACCEPTANCE (measured on a PRODUCTION ceiling-on, non-``--video`` capture):
-  - clipped (>=250)   <= 2.0%  AND  0 fully-white frames
-  - mean luma         in [90, 150]
-  - crushed (<=5)     <= 10.0%
-seed5 must pass clipped AND crushed simultaneously (its bimodal profile is
-the binding constraint). NOTE: the on-disk ``--video`` smoke runs hide the
-ceiling globally, so they are for diagnosis only — set/confirm the final
-exposure on a ceiling-on capture and re-run this script on it.
+Pass MP4 paths directly, or ``--lerobot-root <dataset>`` to resolve the
+perception RGB video inside a LeRobot v3 dataset. Run with a python that has
+PyAV + numpy (e.g. the Isaac Sim interpreter)::
 
-Run with the Isaac Sim python (PyAV + numpy present)::
-
-    $STRAFER_ISAACLAB_PYTHON \\
-        source/strafer_lab/scripts/measure_perception_exposure.py \\
-        --root data/sim_in_the_loop/<dataset>
+    <python> source/strafer_lab/scripts/measure_perception_exposure.py path/to/file.mp4
+    <python> source/strafer_lab/scripts/measure_perception_exposure.py --lerobot-root <dataset_dir>
 """
 from __future__ import annotations
 
@@ -37,19 +30,12 @@ from pathlib import Path
 import av
 import numpy as np
 
-REL_MP4 = "videos/observation.images.perception/chunk-000/file-000.mp4"
-CLIP_HI = 250          # any channel >= this -> clipped / blown
-CRUSH_LO = 5           # any channel <= this -> crushed black (acceptance floor)
+# Relative path to the perception RGB video inside a LeRobot v3 dataset.
+LEROBOT_PERCEPTION_REL = "videos/observation.images.perception/chunk-000/file-000.mp4"
 N_BANDS = 10
 
-# Acceptance bands (production ceiling-on frames).
-MAX_CLIP_FRAC = 0.02
-LUMA_BAND = (90.0, 150.0)
-MAX_CRUSH_FRAC = 0.10
-MAX_WHITE_FRAMES = 0
 
-
-def measure(mp4: Path) -> dict | None:
+def measure(mp4: Path, *, clip_hi: int, crush_lo: int) -> dict | None:
     if not mp4.exists():
         print(f"  MISSING: {mp4}", file=sys.stderr)
         return None
@@ -68,8 +54,8 @@ def measure(mp4: Path) -> dict | None:
         if H is None:
             H, W = h, w
             row_clip = np.zeros(H, dtype=np.float64)
-        anyhi = (img >= CLIP_HI).any(axis=2)
-        anylo = (img <= CRUSH_LO).any(axis=2)
+        anyhi = (img >= clip_hi).any(axis=2)
+        anylo = (img <= crush_lo).any(axis=2)
         luma = 0.299 * img[..., 0] + 0.587 * img[..., 1] + 0.114 * img[..., 2]
 
         px = h * w
@@ -105,42 +91,56 @@ def measure(mp4: Path) -> dict | None:
     }
 
 
-def verdict(res: dict) -> tuple[bool, list[str]]:
+def verdict(res: dict, args) -> tuple[bool, list[str]]:
     """Return (passed, failed-check messages) against the acceptance bands."""
     fails = []
-    if res["clip_frac"] > MAX_CLIP_FRAC:
-        fails.append(f"clip {res['clip_frac']:.1%} > {MAX_CLIP_FRAC:.0%}")
-    if res["white_frames"] > MAX_WHITE_FRAMES:
-        fails.append(f"{res['white_frames']} fully-white frames > {MAX_WHITE_FRAMES}")
-    if not (LUMA_BAND[0] <= res["mean_luma"] <= LUMA_BAND[1]):
-        fails.append(f"mean_luma {res['mean_luma']} outside {LUMA_BAND}")
-    if res["crush_frac"] > MAX_CRUSH_FRAC:
-        fails.append(f"crush {res['crush_frac']:.1%} > {MAX_CRUSH_FRAC:.0%}")
+    if res["clip_frac"] > args.max_clip:
+        fails.append(f"clip {res['clip_frac']:.1%} > {args.max_clip:.0%}")
+    if res["white_frames"] > args.max_white_frames:
+        fails.append(f"{res['white_frames']} fully-white frames > {args.max_white_frames}")
+    if not (args.luma_min <= res["mean_luma"] <= args.luma_max):
+        fails.append(f"mean_luma {res['mean_luma']} outside [{args.luma_min}, {args.luma_max}]")
+    if res["crush_frac"] > args.max_crush:
+        fails.append(f"crush {res['crush_frac']:.1%} > {args.max_crush:.0%}")
     return (not fails), fails
+
+
+def _resolve_videos(args) -> list[Path]:
+    videos = [Path(v) for v in args.video]
+    videos += [Path(r) / LEROBOT_PERCEPTION_REL for r in args.lerobot_root]
+    return videos
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--root", action="append", default=None,
-                    help="dataset root (repeatable); defaults to the on-disk smoke runs")
+    ap.add_argument("video", nargs="*", help="RGB MP4 file(s) to measure")
+    ap.add_argument("--lerobot-root", action="append", default=[],
+                    help="LeRobot dataset dir; resolves the perception RGB video inside it (repeatable)")
+    ap.add_argument("--clip-hi", type=int, default=250, help="clipped if any channel >= this")
+    ap.add_argument("--crush-lo", type=int, default=5, help="crushed if any channel <= this")
+    ap.add_argument("--max-clip", type=float, default=0.02, help="max clipped fraction")
+    ap.add_argument("--max-crush", type=float, default=0.10, help="max crushed fraction")
+    ap.add_argument("--max-white-frames", type=int, default=0, help="max fully-white frames")
+    ap.add_argument("--luma-min", type=float, default=90.0, help="min mean luma")
+    ap.add_argument("--luma-max", type=float, default=150.0, help="max mean luma")
     args = ap.parse_args()
-    roots = args.root or [
-        "data/sim_in_the_loop/video_smoke_seed5",
-        "data/sim_in_the_loop/video_smoke_seed6",
-        "data/sim_in_the_loop/video_smoke_seed7",
-    ]
+
+    videos = _resolve_videos(args)
+    if not videos:
+        ap.error("pass at least one MP4 path or --lerobot-root")
+
     all_pass = True
-    for root in roots:
-        res = measure(Path(root) / REL_MP4)
-        print(f"\n=== {Path(root).name} ===")
+    for mp4 in videos:
+        res = measure(mp4, clip_hi=args.clip_hi, crush_lo=args.crush_lo)
+        print(f"\n=== {mp4} ===")
         if res is None:
             print("  (no frames / missing)")
             all_pass = False
             continue
         for k, v in res.items():
             print(f"  {k}: {v}")
-        ok, fails = verdict(res)
+        ok, fails = verdict(res, args)
         all_pass = all_pass and ok
         print(f"  VERDICT: {'PASS' if ok else 'FAIL -> ' + '; '.join(fails)}")
     print(f"\n{'ALL PASS' if all_pass else 'NOT ALL PASS'}")

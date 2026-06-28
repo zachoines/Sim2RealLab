@@ -15,7 +15,6 @@ As **the perception data collector**, I want **the recorded d555 RGB frames to b
 
 - [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
 - [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [SCENE_PROVIDER_CONTRACT.md](../../../SCENE_PROVIDER_CONTRACT.md) — light inventory + render-exposure section (updated here)
 - Predecessor: [completed/coverage-capture-multiscene-correctness.md](../../completed/coverage-capture-multiscene-correctness.md) (#116 — geometry now correct on all 5 scenes; exposure was the last blocker to a usable corpus).
 
 ## Diagnosis (CPU-measured)
@@ -46,18 +45,23 @@ ceiling-on capture — see Acceptance.)
 | Infinigen env | `DomeLight` | 1 | 0.25 | 0.25 |
 | env-cfg fill (runtime) | DomeLight 2000 + DistantLight 3000 | — | — | additive |
 
-The dominant illumination is **Infinigen's own physically-based HDR emitters**
-(point lamps, ~4 orders of magnitude above everything else). The postprocess
-`--light-intensity` 100000 lights and the env dome/distant are radiometrically
-negligible / additive fill. Kit's RTX renderer applies a default ACES tonemap
-but leaves **auto-exposure OFF** (`/rtx/post/histogram/enabled` = 0), so the
-billions-of-nits HDR sits above the tonemap shoulder and the recorded LDR RGB
-(the perception camera's `rgb` = post-tonemap `LdrColor` AOV) clips to white.
+The dominant illumination is the scene's own bright baked emitters
+(`PointLampFactory_*` lamps + `RectLight`s; physically-based, ~orders of
+magnitude above the env dome/distant fill). Kit's RTX renderer applies a default
+ACES tonemap but leaves **auto-exposure OFF** (`/rtx/post/histogram/enabled` = 0),
+so the HDR radiance sits above the tonemap shoulder and the recorded LDR RGB (the
+perception camera's `rgb` = post-tonemap `LdrColor` AOV) clips to white. Per-scene
+brightness does not track baked-emitter power (seed5 has the most yet is darkest),
+so no single fixed intensity/scale fixes both the blown and dim scenes — the
+trigger for an adaptive render-layer fix.
 
-Per-scene brightness does **not** track baked-emitter power (seed5 has the most
-power yet is the darkest) — the point-HDR-emitter framing signature. So no single
-fixed intensity/scale satisfies both the blown (seed6/7) and dim (seed5) scenes:
-the empirical trigger for an adaptive render-layer fix.
+Note: `PointLampFactory_*` lamps and `RectLight`s are a **separate** prim set from
+the `CeilingLightFactory_*` *fixtures* that `postprocess_scene_usd.py`'s
+`inject_ceiling_light_emitters` adds a SphereLight under (those fixtures carry no
+Infinigen emitter — verified: 0 per scene). The ceiling injection is a distinct,
+still-needed fill, not the over-exposure driver; whether the `PointLampFactory`/
+`RectLight` emitters render in Isaac Sim well enough to drop the injection is a
+separate follow-up (operator Kit check), out of scope here.
 
 ## The fix (shipped here)
 
@@ -73,16 +77,14 @@ geometric), so it is safe on every Infinigen env, not just captures.
 - `coverage_capture.py`: `--render-carb KEY=VALUE` (repeatable) to sweep
   exposure knobs on the production probe without source edits, + a post-init
   carb readback log (confirms the setting reached the live RTX renderer).
-- `measure_perception_exposure.py`: the re-runnable CPU QA gate (per-scene
-  clip/luma/crush + PASS/FAIL vs the bands).
-- Docs: SCENE_PROVIDER_CONTRACT light-inventory + render-exposure section;
-  corrected `postprocess_scene_usd.py` docstring/help (it claimed Infinigen
-  exports no emitters and that `--light-intensity` fixes blowout — both false).
+- `measure_perception_exposure.py`: a re-runnable CPU QA gate (per-file
+  clip/luma/crush + PASS/FAIL vs the bands; takes MP4 paths or `--lerobot-root`).
 
 **Why not the alternatives:** (B) lowering `--light-intensity` touches only the
-~0.02% fill lights — a no-op; (C) trimming the env dome/distant removes additive
-fill and would deepen seed5's crush; (D) scaling the baked emitters cannot fix
-the seed5↔seed6/7 spread (anti-correlated power vs brightness).
+ceiling-fixture fill lights — does not move the dominant emitters; (C) trimming
+the env dome/distant removes additive fill and would deepen crush; (D) scaling
+the baked emitters cannot fix the seed5↔seed6/7 spread (anti-correlated power vs
+brightness).
 
 ## OPEN — resolved by the operator probe (auto vs fixed exposure)
 

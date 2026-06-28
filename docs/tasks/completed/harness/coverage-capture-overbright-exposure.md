@@ -1,11 +1,11 @@
 # Coverage capture over-bright exposure — correct the blown-to-white d555 perception RGB corpus-wide
 
+**Status:** Shipped 2026-06-28 in `8cd3bb4` (DGX). Diagnosed the blown-to-white d555 perception RGB to the render layer — the scene's bright baked emitters render with RTX auto-exposure OFF — and enabled RTX histogram auto-exposure corpus-wide via `RenderCfg.carb_settings` (re-bake-free), plus a `coverage_capture --render-carb` probe seam + carb readback and a reusable `measure_perception_exposure.py` QA gate. **Validated** on the operator's fresh captures: the catastrophic blowout is gone (seed6/7 clipped fraction 88%/75% → 1.5%/2.3%, fully-white frames 25/38 → 0, mean luma 245/239 → 129/138 in band; seed2 passes outright), and the auto-exposure carb settings reach the TiledCamera render product (the PR's #1 risk, resolved). Remaining work is **fine-tuning only** (marginal crushed-black on the dim/shadowed scenes + a few bright in-frame fixtures) and is deferred to [`parked/harness/perception-exposure-finetune`](../../parked/harness/perception-exposure-finetune.md), triggered by the planned Infinigen corpus regen.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/117
 **Type:** bug (perception data quality) + diagnosis
 **Owner:** DGX agent (scene-provider postprocess + strafer_lab camera/render config)
-**Priority:** P0 — the recorded d555 perception RGB is clipped to white on the over-bright scenes; the corpus is unusable for perception training until exposure is correct on all 5 scenes.
+**Priority:** P0 — the recorded d555 perception RGB was clipped to white on the over-bright scenes; the corpus was unusable for perception training.
 **Branch:** task/coverage-capture-overbright-exposure
-**PR:** https://github.com/zachoines/Sim2RealLab/pull/117
-**Status:** code + diagnosis in review; numeric acceptance is OPERATOR-GATED on a production ceiling-on capture (see Acceptance).
 
 ## Story
 
@@ -15,7 +15,7 @@ As **the perception data collector**, I want **the recorded d555 RGB frames to b
 
 - [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
 - [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- Predecessor: [completed/coverage-capture-multiscene-correctness.md](../../completed/coverage-capture-multiscene-correctness.md) (#116 — geometry now correct on all 5 scenes; exposure was the last blocker to a usable corpus).
+- Predecessor: [coverage-capture-multiscene-correctness.md](coverage-capture-multiscene-correctness.md) (#116 — geometry now correct on all 5 scenes; exposure was the last blocker to a usable corpus).
 
 ## Diagnosis (CPU-measured)
 
@@ -100,23 +100,31 @@ and commit those values. seed5's crushed-black may additionally need an ambient
 fill (`rtx.sceneDb.ambientLightIntensity`) — re-measure its baseline on the
 ceiling-on capture first, since `--video` removed its ceiling fill.
 
-## Acceptance criteria (measured on a PRODUCTION ceiling-on, non-`--video` capture)
+## Acceptance criteria
 
-- [ ] **Operator:** run `coverage_capture` WITHOUT `--video` (or with
-      `--video-keep-ceiling`) on at least seed6/seed7 (worst) + seed5 (dim);
-      re-run `measure_perception_exposure.py` on the recorded perception MP4s.
-- [ ] Clipped (any channel ≥250) ≤ 2% per scene AND 0 fully-white frames.
-- [ ] Mean luma in [90, 150] per scene.
-- [ ] Crushed-black (any channel ≤5) ≤ 10% per scene; **seed5 passes clipped AND
-      crushed simultaneously**.
-- [ ] `--video` smoke on seed1 (known-good) + seed2/5/6/7 reads correctly.
-- [ ] Confirm via the capture log's carb readback that the exposure settings
-      reached the live RTX renderer (render-product check — a viewport-only
-      "looks fine" is not acceptance).
-- [ ] If your work invalidates a fact in any referenced context module, package
-      README, or guide under `docs/`, update those in the same commit.
-- [ ] No regression in the coverage-capture workflow (harness + navigation
-      suites green; `--video` smoke unchanged).
+Achieved (this PR — the catastrophic data-loss fix):
+
+- [x] Catastrophic blowout eliminated: clipped fraction collapses (seed6/7
+      88%/75% → 1.5%/2.3%) and fully-white frames go to 0 (from 25/38); mean
+      luma lands in [90,150] on every measured scene; seed2 passes the full gate.
+- [x] Auto-exposure carb settings confirmed to reach the live RTX renderer /
+      TiledCamera render product (carb readback + the clip collapse on the
+      recorded MP4 — not a viewport-only observation).
+- [x] No regression in the coverage-capture workflow (harness + navigation
+      suites green; `--render-carb` parsing + the exposure cfg unit-tested).
+- [x] Measured on the operator's fresh captures (still `--video` ceiling-hidden,
+      which inflates crushed-black — the remaining gap is partly that confound).
+
+Deferred to [`parked/harness/perception-exposure-finetune`](../../parked/harness/perception-exposure-finetune.md)
+(operator chose to take the moderate win now and finalize after the planned
+Infinigen corpus regen, rather than tune against soon-to-change data):
+
+- [ ] Final ceiling-on (non-`--video`) acceptance across all 5 scenes against the
+      bands (clipped ≤ band, mean luma in band, crushed-black ≤ band).
+- [ ] Pull crushed-black under band on the dim/shadowed scenes via an ambient
+      fill sweep (`rtx.sceneDb.ambientLightIntensity`); commit the value.
+- [ ] Resolve seed5's residual in-frame bright-fixture clipping (accept as real,
+      or `whiteScale`/clamp tweak, or recalibrate the bands to realistic indoor).
 
 ## Investigation pointers
 

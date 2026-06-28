@@ -250,6 +250,9 @@ def main() -> int:
         PathPlanningError,
         plan_path,
     )
+    from strafer_lab.tasks.navigation.strafer_env_cfg import (
+        _get_infinigen_active_scene_floor_top_z,
+    )
     from strafer_lab.tools import coverage_plan as coverage_plan_mod
     from strafer_lab.tools import scene_connectivity, scene_metadata_reader
     from strafer_lab.tools.bbox_extractor import (
@@ -285,6 +288,14 @@ def main() -> int:
     occupancy = scene_connectivity.load_occupancy(_scene_dir_for(scene_usd_path))
     free_space = scene_connectivity.occupancy_to_free_space(
         occupancy.grid, grid_res=occupancy.resolution_m,
+    )
+    # Seal the planner's free space to the rooms: the cached grid keeps a free
+    # exterior pad and porous perimeter walls (interior and exterior merge into
+    # one connected free component), so without this the plan and the spawn can
+    # route through / land in outside-the-house space.
+    free_space = scene_connectivity.seal_free_space_to_rooms(
+        free_space, rooms,
+        origin_xy=occupancy.origin_xy, grid_res=occupancy.resolution_m,
     )
     plan_kwargs = {}
     if args.coverage_visits_per_room is not None:
@@ -344,8 +355,26 @@ def main() -> int:
     if getattr(env_cfg.curriculum, "goal_distance", None) is not None:
         env_cfg.curriculum.goal_distance = None
 
-    if args.scene_usd is not None:
-        env_cfg.scene.scene_geometry.spawn.usd_path = str(Path(args.scene_usd).resolve())
+    # Bind the spawned geometry to the scene whose occupancy grid + plan we
+    # just built. The env cfg's __post_init__ hardcodes the first pooled
+    # scene's USD for every scene; without this the sim loads the wrong
+    # floorplan and the scene-frame spawn + plan land in another scene's walls.
+    # scene_usd_path is already override-aware (resolve_scene_usd_path applied
+    # --scene-usd), so this single unconditional bind subsumes the override.
+    env_cfg.scene.scene_geometry.spawn.usd_path = str(scene_usd_path.resolve())
+    # __post_init__ also pools spawn_z to the MAX floor height across all scenes
+    # and lifts the ground to the first pooled scene's floor; per scene that
+    # drops the robot from the wrong height into / through the floor. Pin both
+    # to this scene's own floor (mirrors _apply_infinigen_scene_setup's offsets,
+    # for capture only — the training env's single default is unchanged).
+    active_floor_top_z = _get_infinigen_active_scene_floor_top_z(args.scene)
+    if active_floor_top_z is not None:
+        floor_z = float(active_floor_top_z)
+        if getattr(env_cfg.events, "reset_robot", None) is not None:
+            env_cfg.events.reset_robot.params["spawn_z"] = floor_z + 0.1
+        if getattr(env_cfg.events, "lift_ground", None) is not None:
+            env_cfg.events.lift_ground.params["target_z"] = floor_z - 0.002
+
     # Spawn the robot from the occupancy free-space the plan already runs on.
     # The grid, the plan targets, and spawn_points_xy share the scene-authored
     # (env-local) frame, and reset_robot_state_on_floor adds env_origins itself,
@@ -355,8 +384,18 @@ def main() -> int:
         free_space,
         plan,
         occupancy,
+        rooms=rooms,
         plan_path=plan_path,
         invalid_endpoint_errors=(NoPathError, InvalidEndpointError),
+    )
+    # Pre-capture gate (grid frame): the spawn must be inside a room and the
+    # first real leg must be in-room and plannable, or this scene is not
+    # capture-ready — fail loud here instead of silently recording garbage.
+    _validate_spawn_ready(
+        spawn_xy, plan, rooms, free_space, occupancy,
+        plan_path=plan_path,
+        invalid_endpoint_errors=(NoPathError, InvalidEndpointError),
+        point_in_any_room=scene_connectivity.point_in_any_room,
     )
     env_cfg.events.reset_robot.params["spawn_points_xy"] = [spawn_xy]
 
@@ -442,6 +481,20 @@ def main() -> int:
     env = RslRlVecEnvWrapper(env)
     unwrapped = env.unwrapped
     device = unwrapped.device
+
+    # Pre-traversal gate (runtime): confirm the sim actually loaded the scene
+    # whose grid + plan drove this capture, by hashing the embedded metadata on
+    # the live geometry prim. Catches a scene/grid mismatch directly, even one
+    # introduced by a future cfg regression the cfg-path check would miss.
+    _assert_loaded_scene_identity(
+        unwrapped.scene.stage,
+        geometry_prim_path=env_cfg.scene.scene_geometry.prim_path,
+        cfg_usd_path=str(env_cfg.scene.scene_geometry.spawn.usd_path),
+        expected_usd_path=str(scene_usd_path.resolve()),
+        expected_metadata=scene_metadata,
+        hash_fn=hash_scene_metadata,
+        prim_metadata_reader=scene_metadata_reader.metadata_from_prim,
+    )
 
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
     print(f"[coverage_capture] loading checkpoint: {args.checkpoint}", flush=True)
@@ -686,6 +739,7 @@ def _derive_spawn_xy(
     plan,
     occupancy,
     *,
+    rooms,
     plan_path,
     invalid_endpoint_errors,
 ):
@@ -694,24 +748,31 @@ def _derive_spawn_xy(
     Returns a single ``[x, y]`` in the occupancy (scene-authored / env-local)
     frame — the same frame the coverage plan and the leg planner use, and the
     frame ``reset_robot_state_on_floor`` expects before it adds the env origin.
-    The chosen cell is passable on the robot-radius-inflated ``free_space`` grid
-    and reachable by the shared planner, so legs plan instead of failing on a
-    spawn the floor sampler and the grid disagree about.
+    The chosen cell is passable on the robot-radius-inflated ``free_space`` grid,
+    inside a room footprint, and reachable by the shared planner, so legs plan
+    instead of failing on a spawn the floor sampler and the grid disagree about.
 
     Preference order, all deterministic (no RNG, so a scene maps to one spawn):
 
-    1. a plan viewpoint (the first is the primary anchor) that is free and from
-       which the first real leg — to the next distinct viewpoint — plans;
-    2. a row-major scan of the inflated free grid for the first free cell that
-       plans to the traversal's first free viewpoint.
+    1. a plan viewpoint (the first is the primary anchor) that is free, in-room,
+       and from which the first real leg — to the next distinct viewpoint —
+       plans;
+    2. a row-major scan of the inflated free grid for the first free, in-room
+       cell that plans to the traversal's first free in-room viewpoint.
 
-    The reachability probe uses the planner's default snap radius on purpose:
-    widening it would teleport a blocked start onto free space and hide a
-    corrupted occupancy grid.
+    The in-room containment is the second guard against the porous-exterior
+    occupancy grid: a "free + reachable" cell can otherwise be the exterior
+    corner that the row-major scan returns first. The reachability probe uses
+    the planner's default snap radius on purpose: widening it would teleport a
+    blocked start onto free space and hide a corrupted occupancy grid.
     """
     import numpy as np
 
-    from strafer_lab.tools.scene_connectivity import _cell_to_xy, _xy_to_cell
+    from strafer_lab.tools.scene_connectivity import (
+        _cell_to_xy,
+        _xy_to_cell,
+        point_in_any_room,
+    )
 
     origin_xy = occupancy.origin_xy
     grid_res = occupancy.resolution_m
@@ -723,6 +784,9 @@ def _derive_spawn_xy(
     def _is_free(x: float, y: float) -> bool:
         r, c = _xy_to_cell((x, y), origin_xy=origin_xy, grid_res=grid_res)
         return 0 <= r < rows and 0 <= c < cols and bool(free_space[r, c])
+
+    def _in_room(x: float, y: float) -> bool:
+        return point_in_any_room(x, y, rooms)
 
     def _plans(x: float, y: float, goal) -> bool:
         try:
@@ -748,19 +812,21 @@ def _derive_spawn_xy(
         )
 
     for x, y in targets:
-        if not _is_free(x, y):
+        if not _is_free(x, y) or not _in_room(x, y):
             continue
         goal = _first_distinct(x, y)
         if goal is None or _plans(x, y, goal):
             return [x, y]
 
-    # Fallback: the plan's viewpoints are unusable, so scan free space for a
-    # cell that connects to the traversal's first free viewpoint. Reads the
-    # inflated grid only — never raw occupancy, whose free cells sit half a
-    # chassis from a wall.
-    anchor = next((t for t in targets if _is_free(*t)), None)
+    # Fallback: the plan's viewpoints are unusable, so scan free space for an
+    # in-room cell that connects to the traversal's first free in-room
+    # viewpoint. Reads the inflated grid only — never raw occupancy, whose free
+    # cells sit half a chassis from a wall.
+    anchor = next((t for t in targets if _is_free(*t) and _in_room(*t)), None)
     for r, c in np.argwhere(free_space):
         x, y = _cell_to_xy(int(r), int(c), origin_xy=origin_xy, grid_res=grid_res)
+        if not _in_room(x, y):
+            continue
         if (
             anchor is None
             or math.hypot(anchor[0] - x, anchor[1] - y) <= min_leg_m
@@ -769,8 +835,139 @@ def _derive_spawn_xy(
             return [x, y]
 
     raise RuntimeError(
-        "no free, plan-reachable spawn in the occupancy free-space; the "
-        "scene's occupancy grid is degenerate and must be regenerated",
+        "no free, in-room, plan-reachable spawn in the occupancy free-space; "
+        "the scene's occupancy grid is degenerate and must be regenerated",
+    )
+
+
+def _validate_spawn_ready(
+    spawn_xy,
+    plan,
+    rooms,
+    free_space,
+    occupancy,
+    *,
+    plan_path,
+    invalid_endpoint_errors,
+    point_in_any_room,
+):
+    """Pre-capture gate (grid frame): the scene must be spawn/traverse-ready.
+
+    Raises ``SystemExit`` with a clear reason (non-zero exit) when the derived
+    spawn is not inside a room footprint, or the first real leg target is not
+    in-room / not plannable from the spawn. Runs on the cached grid + footprints
+    before the env build, so a genuinely-bad scene fails loud instead of
+    silently capturing garbage. A scene with no plannable in-room spawn already
+    fails earlier in :func:`_derive_spawn_xy`; this layers the containment +
+    first-leg traversability checks on top.
+    """
+    import numpy as np
+
+    sx, sy = float(spawn_xy[0]), float(spawn_xy[1])
+    if not point_in_any_room(sx, sy, rooms):
+        raise SystemExit(
+            f"capture spawn {[round(sx, 3), round(sy, 3)]} is free but lies "
+            "outside every room footprint; the scene's occupancy grid is not "
+            "capture-ready (regenerate it)."
+        )
+
+    grid_res = occupancy.resolution_m
+    origin_xy = occupancy.origin_xy
+    min_leg_m = 2.0 * grid_res
+    targets = [(float(w.target_xy[0]), float(w.target_xy[1])) for w in plan.waypoints]
+    goal = next(
+        (t for t in targets if math.hypot(t[0] - sx, t[1] - sy) > min_leg_m),
+        None,
+    )
+    if goal is None:
+        return  # single-viewpoint plan; spawn containment is the whole gate
+    if not point_in_any_room(goal[0], goal[1], rooms):
+        raise SystemExit(
+            f"first leg target {[round(goal[0], 3), round(goal[1], 3)]} lies "
+            "outside every room footprint; the scene is not traversable."
+        )
+    try:
+        plan_path(
+            np.asarray([sx, sy], dtype=np.float32),
+            np.asarray(goal, dtype=np.float32),
+            free_space,
+            grid_res=grid_res,
+            grid_origin_xy=origin_xy,
+        )
+    except invalid_endpoint_errors:
+        raise SystemExit(
+            f"first leg {[round(sx, 3), round(sy, 3)]} -> "
+            f"{[round(goal[0], 3), round(goal[1], 3)]} does not plan on the "
+            "sealed free-space; the scene is not traversable."
+        )
+    print(
+        "[coverage_capture] pre-capture gate OK: spawn in-room and first leg "
+        "plannable",
+        flush=True,
+    )
+
+
+def _assert_loaded_scene_identity(
+    stage,
+    *,
+    geometry_prim_path: str,
+    cfg_usd_path: str,
+    expected_usd_path: str,
+    expected_metadata,
+    hash_fn,
+    prim_metadata_reader,
+):
+    """Pre-traversal gate (runtime): the SIM must have loaded the right scene.
+
+    Reads the embedded scene metadata off the live geometry prim (its
+    ``customData`` composes through the scene-USD reference) and asserts its
+    hash matches the resolved scene's. A direct catch for a scene/grid mismatch
+    — the failure mode where every ``--scene`` loads one pooled scene's USD.
+    Falls back to a cfg ``usd_path`` equality check, with a printed reason, only
+    when the live prim exposes no embedded metadata to hash. Raises
+    ``SystemExit`` (non-zero) on mismatch.
+    """
+    expected_hash = hash_fn(expected_metadata)
+    loaded_meta = None
+    root = stage.GetPrimAtPath(geometry_prim_path) if stage is not None else None
+    if root is not None and root.IsValid():
+        # The scene USD's default-prim payload composes onto the referencing
+        # prim; check it, then its direct children if a build nests it.
+        for prim in [root, *root.GetChildren()]:
+            loaded_meta = prim_metadata_reader(prim)
+            if loaded_meta is not None:
+                break
+
+    if loaded_meta is not None:
+        loaded_hash = hash_fn(loaded_meta)
+        if loaded_hash != expected_hash:
+            raise SystemExit(
+                f"loaded scene geometry at {geometry_prim_path} does not match "
+                f"the requested scene: embedded metadata hash {loaded_hash[:12]} "
+                f"!= {expected_hash[:12]} (for {expected_usd_path}). The sim "
+                "loaded the wrong floorplan — spawn and plan would land in "
+                "another scene's geometry."
+            )
+        print(
+            f"[coverage_capture] scene-identity OK: {geometry_prim_path} hash "
+            f"{loaded_hash[:12]} matches {Path(expected_usd_path).name}",
+            flush=True,
+        )
+        return
+
+    # Fallback: no embedded metadata on the live prim to hash (the reference did
+    # not compose customData onto the geometry prim). Verify the cfg bound the
+    # right USD and say why the hash path was skipped.
+    bound = str(Path(cfg_usd_path).resolve()) if cfg_usd_path else ""
+    if bound != str(Path(expected_usd_path).resolve()):
+        raise SystemExit(
+            f"loaded scene geometry usd_path {bound!r} != requested "
+            f"{str(Path(expected_usd_path).resolve())!r}"
+        )
+    print(
+        f"[coverage_capture] scene-identity: no embedded metadata on "
+        f"{geometry_prim_path} to hash; verified via cfg usd_path bind instead",
+        flush=True,
     )
 
 

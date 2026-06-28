@@ -80,6 +80,40 @@ def write_custom_data(stage: Any, metadata: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _normalized(data: dict[str, Any]) -> dict[str, Any]:
+    """Apply the default empty collections every consumer expects."""
+    data.setdefault("rooms", [])
+    data.setdefault("objects", [])
+    data.setdefault("room_adjacency", [])
+    return data
+
+
+def metadata_from_prim(prim: Any) -> dict[str, Any] | None:
+    """Return normalized scene metadata composed onto a specific prim, or None.
+
+    The runtime counterpart to :func:`load`: instead of opening a USD file it
+    reads the embedded payload off a prim in an already-composed stage (e.g.
+    the live geometry prim a scene USD was referenced onto). USD ``customData``
+    composes across references, so the scene's payload is visible on the
+    referencing prim. Returns ``None`` when the key is absent so a caller can
+    fall back instead of failing on a stage that does not expose it.
+    """
+    raw = prim.GetCustomDataByKey(CUSTOM_DATA_KEY)
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError) as exc:
+        raise SceneMetadataError(
+            f"customData['{CUSTOM_DATA_KEY}'] is not valid JSON: {exc}"
+        ) from exc
+    if not isinstance(data, dict):
+        raise SceneMetadataError(
+            f"customData['{CUSTOM_DATA_KEY}'] is not a JSON object"
+        )
+    return _normalized(data)
+
+
 def load(scene_usd_path: Path | str) -> dict[str, Any]:
     """Open ``scene_usd_path`` and return its embedded scene metadata dict.
 
@@ -111,10 +145,7 @@ def load(scene_usd_path: Path | str) -> dict[str, Any]:
             "extract_scene_metadata before capturing against this scene."
         )
 
-    data.setdefault("rooms", [])
-    data.setdefault("objects", [])
-    data.setdefault("room_adjacency", [])
-    return data
+    return _normalized(data)
 
 
 def metadata_hash(metadata: dict[str, Any]) -> str:

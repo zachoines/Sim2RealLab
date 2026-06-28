@@ -309,6 +309,52 @@ def point_in_polygon(x: float, y: float, footprint_xy: Sequence[Sequence[float]]
     return inside
 
 
+def point_in_any_room(x: float, y: float, rooms: Sequence[dict[str, Any]]) -> bool:
+    """True iff ``(x, y)`` lies inside any room's footprint polygon."""
+    return any(
+        point_in_polygon(x, y, room.get("footprint_xy") or []) for room in rooms
+    )
+
+
+def seal_free_space_to_rooms(
+    free_space: np.ndarray,
+    rooms: Sequence[dict[str, Any]],
+    *,
+    origin_xy: tuple[float, float],
+    grid_res: float,
+) -> np.ndarray:
+    """Block free cells outside the room-footprint bounding box.
+
+    The cached occupancy grid keeps a free exterior pad ring around the house
+    (the occupancy generator pads the floor-mesh AABB), and the thin-z-slab
+    rasterizer leaves perimeter walls porous, so the exterior pad and the
+    interior merge into one connected free component — a consumer that picks
+    "any free, reachable cell" can land outside the house. Masking to the
+    room-footprint AABB drops that pad without touching interior doorways
+    (which lie between rooms, inside the AABB), so room-to-room routing is
+    unaffected. Returns a new grid; the input is left untouched. A scene with
+    no usable footprints is returned unmasked (nothing to seal against).
+    """
+    fps = [
+        np.asarray(r.get("footprint_xy"), dtype=float)
+        for r in rooms
+        if r.get("footprint_xy")
+    ]
+    if not fps:
+        return free_space.copy()
+    pts = np.concatenate(fps, axis=0)
+    min_x, min_y = float(pts[:, 0].min()), float(pts[:, 1].min())
+    max_x, max_y = float(pts[:, 0].max()), float(pts[:, 1].max())
+    rows, cols = free_space.shape
+    xs = np.arange(rows) * grid_res + origin_xy[0] + grid_res / 2.0  # row -> world x
+    ys = np.arange(cols) * grid_res + origin_xy[1] + grid_res / 2.0  # col -> world y
+    inside = (
+        ((xs >= min_x) & (xs <= max_x))[:, None]
+        & ((ys >= min_y) & (ys <= max_y))[None, :]
+    )
+    return free_space & inside
+
+
 def is_multi_story(rooms: Sequence[dict[str, Any]]) -> bool:
     """True iff any room sits on a story other than 0 (the strafer can't climb)."""
     return any(int(r.get("story", 0)) != 0 for r in rooms)
@@ -343,8 +389,11 @@ def room_representative_xy(
     grid_res: float,
 ) -> tuple[float, float]:
     """Return a free interior point for a room — its centroid, or the nearest
-    free cell to the centroid if the centroid landed under furniture."""
+    free cell *inside the room's own footprint* if the centroid landed under
+    furniture. The footprint containment keeps the ring search from snapping a
+    blocked centroid onto free space in a neighbouring room or the exterior."""
     footprint = room.get("footprint_xy") or []
+    has_footprint = len(footprint) >= 3
     centroid = polygon_centroid(footprint)
     rows, cols = free_space.shape
     r, c = _xy_to_cell(centroid, origin_xy, grid_res)
@@ -365,7 +414,9 @@ def room_representative_xy(
                     continue
                 rr, cc = r + dr, c + dc
                 if 0 <= rr < rows and 0 <= cc < cols and free_space[rr, cc]:
-                    return _cell_to_xy(rr, cc, origin_xy, grid_res)
+                    cx, cy = _cell_to_xy(rr, cc, origin_xy, grid_res)
+                    if not has_footprint or point_in_polygon(cx, cy, footprint):
+                        return (cx, cy)
     return centroid
 
 

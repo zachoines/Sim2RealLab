@@ -40,11 +40,13 @@ DEFAULT_HEADING_SPREAD_RAD = math.pi / 2.0
 class VisitWaypoint:
     """One scheduled viewpoint visit.
 
-    ``target_xy`` is the world-frame point to occupy; ``approach_heading_rad``
-    is the heading the robot should face on arrival (realized by the driver as
-    the final approach segment's direction). Revisits of the same room share
-    ``target_xy`` and differ only in ``approach_heading_rad`` — the VPR
-    same-place / different-heading pair.
+    ``target_xy`` is the scene-local (env-local) point to occupy — the same
+    frame as the occupancy grid and the rest of the plan, which the driver
+    lifts by the env origin before feeding the command term;
+    ``approach_heading_rad`` is the heading the robot should face on arrival
+    (realized by the driver as the final approach segment's direction).
+    Revisits of the same room share ``target_xy`` and differ only in
+    ``approach_heading_rad`` — the VPR same-place / different-heading pair.
     """
 
     room_index: int

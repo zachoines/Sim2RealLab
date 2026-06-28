@@ -20,9 +20,11 @@ from strafer_lab.tools.scene_connectivity import (
     is_multi_story,
     occupancy_to_free_space,
     parse_room_floor_name,
+    point_in_any_room,
     point_in_polygon,
     polygon_centroid,
     room_representative_xy,
+    seal_free_space_to_rooms,
 )
 
 RES = 0.1
@@ -97,6 +99,37 @@ class TestRoomGeometry:
         fp = aabb_to_footprint((0.0, 0.0), (2.0, 2.0))
         assert point_in_polygon(1.0, 1.0, fp)
         assert not point_in_polygon(3.0, 1.0, fp)
+
+    def test_point_in_any_room(self):
+        rooms = [
+            {"footprint_xy": aabb_to_footprint((0.0, 0.0), (1.0, 1.0))},
+            {"footprint_xy": aabb_to_footprint((5.0, 5.0), (6.0, 6.0))},
+        ]
+        assert point_in_any_room(0.5, 0.5, rooms)
+        assert point_in_any_room(5.5, 5.5, rooms)
+        assert not point_in_any_room(3.0, 3.0, rooms)
+        assert not point_in_any_room(0.5, 0.5, [])
+
+
+class TestSealFreeSpaceToRooms:
+    def test_blocks_outside_footprint_aabb_keeps_interior(self):
+        # 60x40 free grid; one room over x,y in [2,4]. Cells outside that AABB
+        # (the exterior pad incl. the corner) become blocked; interior stays.
+        free = np.ones((60, 40), dtype=bool)
+        rooms = [{"footprint_xy": aabb_to_footprint((2.0, 2.0), (4.0, 4.0))}]
+        sealed = seal_free_space_to_rooms(free, rooms, origin_xy=ORIGIN, grid_res=RES)
+        # Exterior corner (0,0) sealed; an interior cell (x=3,y=3 -> row/col 30)
+        # stays free.
+        assert not sealed[0, 0]
+        assert sealed[30, 30]
+        # Input grid is untouched (new array returned).
+        assert free[0, 0]
+
+    def test_no_footprints_returns_unmasked_copy(self):
+        free = np.ones((5, 5), dtype=bool)
+        sealed = seal_free_space_to_rooms(free, [], origin_xy=ORIGIN, grid_res=RES)
+        assert sealed.all()
+        assert sealed is not free
 
     def test_is_multi_story(self):
         assert not is_multi_story([{"story": 0}, {"story": 0}])
@@ -254,6 +287,16 @@ class TestRepresentativePoint:
         free = _free_grid()
         x, y = room_representative_xy(room, free, origin_xy=ORIGIN, grid_res=RES)
         assert abs(x - 1.5) < 1e-6 and abs(y - 1.5) < 1e-6
+
+    def test_ring_search_stays_inside_footprint(self):
+        # Block the whole footprint interior so the only nearby free cells lie
+        # outside it; the containment guard must not snap onto a neighbour and
+        # instead keeps the representative inside the room (the in-room centroid).
+        room = {"footprint_xy": aabb_to_footprint((1.0, 1.0), (1.6, 1.6))}
+        free = _free_grid()
+        free[10:16, 10:16] = False  # x,y in [1.0, 1.6) blocked
+        x, y = room_representative_xy(room, free, origin_xy=ORIGIN, grid_res=RES)
+        assert point_in_polygon(x, y, room["footprint_xy"])
 
 
 # ---------------------------------------------------------------------------

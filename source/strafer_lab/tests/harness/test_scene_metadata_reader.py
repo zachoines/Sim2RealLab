@@ -97,6 +97,45 @@ class TestHash:
         assert smr.metadata_hash(a) != smr.metadata_hash(b)
 
 
+class TestMetadataFromPrim:
+    """``metadata_from_prim`` reads the embedded payload off a live prim (the
+    runtime scene-identity path), normalizing the same way :func:`load` does."""
+
+    def test_reads_and_normalizes_from_prim(self, tmp_path):
+        pytest.importorskip("pxr")
+        from pxr import Usd
+
+        usd = tmp_path / "scene.usdc"
+        _author(usd, {"rooms": [{"room_type": "kitchen"}]})  # no objects/adjacency
+        stage = Usd.Stage.Open(str(usd))
+        meta = smr.metadata_from_prim(smr.root_prim(stage))
+        assert meta is not None
+        assert meta["rooms"][0]["room_type"] == "kitchen"
+        # normalized defaults applied, matching load()
+        assert meta["objects"] == [] and meta["room_adjacency"] == []
+
+    def test_prim_hash_matches_file_load(self, tmp_path):
+        pytest.importorskip("pxr")
+        from pxr import Usd
+
+        usd = tmp_path / "scene.usdc"
+        _author(usd, _metadata())
+        stage = Usd.Stage.Open(str(usd))
+        from_prim = smr.metadata_from_prim(smr.root_prim(stage))
+        from_file = smr.load(usd)
+        assert smr.metadata_hash(from_prim) == smr.metadata_hash(from_file)
+
+    def test_absent_customdata_returns_none(self, tmp_path):
+        pytest.importorskip("pxr")
+        from pxr import Usd, UsdGeom
+
+        usd = tmp_path / "bare.usdc"
+        stage = Usd.Stage.CreateNew(str(usd))
+        UsdGeom.Xform.Define(stage, "/World")
+        stage.SetDefaultPrim(stage.GetPrimAtPath("/World"))
+        assert smr.metadata_from_prim(smr.root_prim(stage)) is None
+
+
 class TestMissionGeneratorFromSceneUsd:
     def test_reads_targets_from_usd(self, tmp_path):
         pytest.importorskip("pxr")

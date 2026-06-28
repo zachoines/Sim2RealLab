@@ -9,6 +9,7 @@ runner stepping) is covered by the Kit smoke, not here.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -16,13 +17,27 @@ import numpy as np
 import pytest
 
 from strafer_lab.tools import scene_connectivity as sc
+from strafer_lab.tools import scene_metadata_reader as smr
 from strafer_lab.tools.coverage_plan import CoveragePlan, VisitWaypoint
+from strafer_lab.tools.lerobot_writer import hash_scene_metadata
 
 _SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 import coverage_capture as cc  # noqa: E402  (post-path-mutation import)
+
+
+def _rooms_covering(shape, origin=(0.0, 0.0), res=0.1):
+    """One room whose footprint covers the whole grid AABB.
+
+    Containment is then always satisfied, so the spawn-derivation tests that
+    predate the in-room guard exercise the same free/plannable logic unchanged.
+    """
+    rows, cols = shape
+    lo = (origin[0] - res, origin[1] - res)
+    hi = (origin[0] + rows * res + res, origin[1] + cols * res + res)
+    return [{"footprint_xy": sc.aabb_to_footprint(lo, hi)}]
 
 
 class _FakePlanError(Exception):
@@ -121,6 +136,7 @@ class TestDeriveSpawnXy:
         plan = _plan([(0.0, 0.0)])  # maps outside the grid in this frame -> not free
         out = cc._derive_spawn_xy(
             free, plan, _occ(raw, origin, res),
+            rooms=_rooms_covering(free.shape, origin, res),
             plan_path=_ok_plan_path, invalid_endpoint_errors=(_FakePlanError,),
         )
         r, c = (int(v) for v in np.argwhere(free)[0])
@@ -141,6 +157,7 @@ class TestDeriveSpawnXy:
         plan = _plan([blocked_xy, free_xy])
         out = cc._derive_spawn_xy(
             free, plan, _occ(raw, origin, res),
+            rooms=_rooms_covering(free.shape, origin, res),
             plan_path=_ok_plan_path, invalid_endpoint_errors=(_FakePlanError,),
         )
         r, c = sc._xy_to_cell((out[0], out[1]), origin, res)
@@ -164,6 +181,7 @@ class TestDeriveSpawnXy:
 
         out = cc._derive_spawn_xy(
             free, _plan([pocket, good]), occ,
+            rooms=_rooms_covering(free.shape, origin, res),
             plan_path=fake_plan_path, invalid_endpoint_errors=(_FakePlanError,),
         )
         assert out == [float(good[0]), float(good[1])]
@@ -174,7 +192,10 @@ class TestDeriveSpawnXy:
         fr, fc = (int(v) for v in np.argwhere(free)[0])
         plan = _plan([sc._cell_to_xy(fr, fc, origin, res)])
         occ = _occ(raw, origin, res)
-        kw = dict(plan_path=_ok_plan_path, invalid_endpoint_errors=(_FakePlanError,))
+        kw = dict(
+            rooms=_rooms_covering(free.shape, origin, res),
+            plan_path=_ok_plan_path, invalid_endpoint_errors=(_FakePlanError,),
+        )
         assert cc._derive_spawn_xy(free, plan, occ, **kw) == cc._derive_spawn_xy(
             free, plan, occ, **kw
         )
@@ -185,8 +206,168 @@ class TestDeriveSpawnXy:
         with pytest.raises(RuntimeError):
             cc._derive_spawn_xy(
                 np.zeros((10, 10), dtype=bool), _plan([(0.5, 0.5)]), occ,
+                rooms=_rooms_covering((10, 10), (0.0, 0.0), 0.1),
                 plan_path=_ok_plan_path, invalid_endpoint_errors=(_FakePlanError,),
             )
+
+
+class TestSpawnContainment:
+    """The in-room guard closes the porous-exterior hole: a free + reachable
+    cell that is outside every room footprint (e.g. the exterior corner the
+    row-major fallback scans first) must never be returned as a spawn."""
+
+    def test_fallback_skips_exterior_corner_for_in_room_cell(self):
+        # Whole grid free (incl. the exterior corner cell (0,0)); the only room
+        # covers a central patch. The plan viewpoint is outside the room, so the
+        # primary path rejects it and the row-major fallback runs — its first
+        # free cell is the exterior corner, which the in-room guard skips.
+        origin, res = (0.0, 0.0), 0.1
+        free = np.ones((20, 20), dtype=bool)
+        occ = _occ(np.zeros((20, 20), dtype=np.uint8), origin, res)
+        room = {"footprint_xy": sc.aabb_to_footprint((0.8, 0.8), (1.2, 1.2))}
+        out = cc._derive_spawn_xy(
+            free, _plan([(1.8, 1.8)]), occ, rooms=[room],
+            plan_path=_ok_plan_path, invalid_endpoint_errors=(_FakePlanError,),
+        )
+        assert sc.point_in_any_room(out[0], out[1], [room])
+        corner = list(sc._cell_to_xy(0, 0, origin, res))
+        assert out != corner
+
+    def test_no_in_room_free_cell_raises(self):
+        # The room footprint maps entirely off the grid, so no free cell is
+        # in-room — a regenerate-occupancy blocker surfaced loudly.
+        origin, res = (0.0, 0.0), 0.1
+        free = np.ones((20, 20), dtype=bool)
+        occ = _occ(np.zeros((20, 20), dtype=np.uint8), origin, res)
+        room = {"footprint_xy": sc.aabb_to_footprint((100.0, 100.0), (101.0, 101.0))}
+        with pytest.raises(RuntimeError):
+            cc._derive_spawn_xy(
+                free, _plan([(1.0, 1.0)]), occ, rooms=[room],
+                plan_path=_ok_plan_path, invalid_endpoint_errors=(_FakePlanError,),
+            )
+
+
+class TestValidateSpawnReady:
+    """Pre-capture grid gate: spawn must be in-room and the first leg must be
+    in-room and plannable, else a clear SystemExit."""
+
+    _occ_ = staticmethod(lambda: _occ(np.zeros((20, 20), np.uint8), (0.0, 0.0), 0.1))
+
+    def _room(self):
+        return [{"footprint_xy": sc.aabb_to_footprint((0.0, 0.0), (2.0, 2.0))}]
+
+    def _kw(self):
+        return dict(
+            plan_path=_ok_plan_path,
+            invalid_endpoint_errors=(_FakePlanError,),
+            point_in_any_room=sc.point_in_any_room,
+        )
+
+    def test_passes_in_room_and_plannable(self):
+        free = np.ones((20, 20), dtype=bool)
+        cc._validate_spawn_ready(
+            [1.0, 1.0], _plan([(1.0, 1.0), (0.5, 0.5)]), self._room(), free,
+            self._occ_(), **self._kw(),
+        )
+
+    def test_spawn_out_of_room_raises(self):
+        free = np.ones((20, 20), dtype=bool)
+        with pytest.raises(SystemExit):
+            cc._validate_spawn_ready(
+                [5.0, 5.0], _plan([(1.0, 1.0), (0.5, 0.5)]), self._room(), free,
+                self._occ_(), **self._kw(),
+            )
+
+    def test_leg_target_out_of_room_raises(self):
+        free = np.ones((20, 20), dtype=bool)
+        with pytest.raises(SystemExit):
+            cc._validate_spawn_ready(
+                [1.0, 1.0], _plan([(1.0, 1.0), (5.0, 5.0)]), self._room(), free,
+                self._occ_(), **self._kw(),
+            )
+
+    def test_leg_unplannable_raises(self):
+        free = np.ones((20, 20), dtype=bool)
+
+        def _fail(start, goal, free_space, *, grid_res, grid_origin_xy):
+            raise _FakePlanError
+
+        kw = dict(self._kw())
+        kw["plan_path"] = _fail
+        with pytest.raises(SystemExit):
+            cc._validate_spawn_ready(
+                [1.0, 1.0], _plan([(1.0, 1.0), (0.5, 0.5)]), self._room(), free,
+                self._occ_(), **kw,
+            )
+
+
+class _FakePrim:
+    def __init__(self, custom_data=None, children=()):
+        self._custom = custom_data or {}
+        self._children = list(children)
+
+    def IsValid(self):
+        return True
+
+    def GetCustomDataByKey(self, key):
+        return self._custom.get(key)
+
+    def GetChildren(self):
+        return self._children
+
+
+class _FakeStage:
+    def __init__(self, prim):
+        self._prim = prim
+
+    def GetPrimAtPath(self, path):
+        return self._prim
+
+
+class TestSceneIdentity:
+    """Pre-traversal runtime gate: the loaded geometry prim's embedded hash
+    must match the requested scene; falls back to a cfg usd_path check only
+    when the live prim exposes no metadata to hash."""
+
+    _META = {"rooms": [{"footprint_xy": [[0, 0], [1, 0], [1, 1]]}],
+             "objects": [], "room_adjacency": []}
+    KEY = smr.CUSTOM_DATA_KEY
+
+    def _prim(self, meta):
+        return _FakePrim(custom_data={self.KEY: json.dumps(meta, sort_keys=True)})
+
+    def _call(self, stage, cfg_usd="/x/seed7.usdc", expected_usd="/x/seed7.usdc"):
+        cc._assert_loaded_scene_identity(
+            stage,
+            geometry_prim_path="/World/Room",
+            cfg_usd_path=cfg_usd,
+            expected_usd_path=expected_usd,
+            expected_metadata=self._META,
+            hash_fn=hash_scene_metadata,
+            prim_metadata_reader=smr.metadata_from_prim,
+        )
+
+    def test_matching_hash_passes(self):
+        self._call(_FakeStage(self._prim(self._META)))
+
+    def test_mismatched_hash_raises(self):
+        other = {"rooms": [], "objects": [], "room_adjacency": [["a"]]}
+        with pytest.raises(SystemExit):
+            self._call(_FakeStage(self._prim(other)))
+
+    def test_metadata_on_child_prim_is_found(self):
+        root = _FakePrim(children=[self._prim(self._META)])
+        self._call(_FakeStage(root))
+
+    def test_fallback_cfg_path_match_passes(self):
+        # No customData on the prim -> fall back to cfg usd_path equality.
+        bare = _FakePrim()
+        self._call(_FakeStage(bare), cfg_usd="/x/seed7.usdc", expected_usd="/x/seed7.usdc")
+
+    def test_fallback_cfg_path_mismatch_raises(self):
+        bare = _FakePrim()
+        with pytest.raises(SystemExit):
+            self._call(_FakeStage(bare), cfg_usd="/x/seed1.usdc", expected_usd="/x/seed7.usdc")
 
 
 class TestLegPath:

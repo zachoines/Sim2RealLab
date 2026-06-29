@@ -18,7 +18,7 @@ Nav2 `/plan` subscription + dispatch wiring + sim validation)
 [#119](https://github.com/zachoines/Sim2RealLab/pull/119) (generator + `/plan`
 subscription), PR B [#122](https://github.com/zachoines/Sim2RealLab/pull/122)
 (variant lift + subgoal observation), PR C
-[#<PRC>](https://github.com/zachoines/Sim2RealLab/pull/<PRC>)
+[#123](https://github.com/zachoines/Sim2RealLab/pull/123)
 (`hybrid_nav2_strafer` dispatch + the two-node plan-freshness guard).
 
 ## Scope: shipped across three PRs

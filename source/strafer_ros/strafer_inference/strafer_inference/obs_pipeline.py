@@ -25,6 +25,7 @@ from strafer_shared.mecanum_kinematics import (
     l1_clamp_twist as l1_clamp_velocity,
     wheel_vels_to_ticks_per_sec,
 )
+from strafer_shared.policy_interface import PolicyVariant
 
 
 _BLOCK_H = PERCEPTION_HEIGHT // DEPTH_HEIGHT  # 6
@@ -141,6 +142,7 @@ def joint_state_to_wheel_vels(
 
 def build_raw_obs_dict(
     *,
+    variant: PolicyVariant,
     imu_accel: tuple[float, float, float],
     imu_gyro: tuple[float, float, float],
     wheel_vels_rad_s: np.ndarray,
@@ -149,26 +151,48 @@ def build_raw_obs_dict(
     goal_heading_to_goal: float,
     body_velocity_xy: tuple[float, float],
     last_action: np.ndarray,
-    depth_flat_normalized: np.ndarray,
+    depth_flat_normalized: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
-    """Marshal pre-extracted sensor scalars into the raw dict shape
-    that ``assemble_observation(PolicyVariant.DEPTH)`` consumes.
+    """Marshal pre-extracted sensor values into the raw dict that
+    ``assemble_observation(variant)`` consumes.
+
+    Variant-agnostic by design: the goal-shaped triplet is emitted under
+    whatever key names the variant declares -- ``goal_*`` for goal-referent
+    variants, ``subgoal_*`` for rolling-subgoal variants -- and
+    ``depth_image`` is emitted only when the variant has a depth field. The
+    ``goal_*`` argument names denote the body-frame referent triplet
+    regardless of which referent the variant actually tracks; the caller
+    transforms the right pose (final goal or rolling subgoal) before calling.
     """
     encoder_ticks = wheel_vels_to_ticks_per_sec(
         np.asarray(wheel_vels_rad_s, dtype=np.float64)
     )
-    return {
+    raw: dict[str, np.ndarray] = {
         "imu_accel": np.asarray(imu_accel, dtype=np.float32),
         "imu_gyro": np.asarray(imu_gyro, dtype=np.float32),
         "encoder_vels_ticks": encoder_ticks.astype(np.float32),
-        "goal_relative": np.asarray(goal_relative_xy, dtype=np.float32),
-        "goal_distance": np.asarray([goal_distance], dtype=np.float32),
-        "goal_heading_to_goal": np.asarray(
-            [goal_heading_to_goal], dtype=np.float32
-        ),
         "body_velocity_xy": np.asarray(body_velocity_xy, dtype=np.float32),
         "last_action": np.asarray(last_action, dtype=np.float32),
-        "depth_image": np.asarray(
-            depth_flat_normalized, dtype=np.float32
-        ),
     }
+    referent_relative = np.asarray(goal_relative_xy, dtype=np.float32)
+    referent_distance = np.asarray([goal_distance], dtype=np.float32)
+    referent_heading = np.asarray([goal_heading_to_goal], dtype=np.float32)
+
+    for field in variant.fields:
+        key = field.key
+        if key in raw:
+            continue
+        if key.endswith("_relative"):
+            raw[key] = referent_relative
+        elif key.endswith("_distance"):
+            raw[key] = referent_distance
+        elif "heading" in key:
+            raw[key] = referent_heading
+        elif key == "depth_image":
+            if depth_flat_normalized is None:
+                raise ValueError(
+                    f"variant {variant.name} declares a depth_image field but "
+                    "depth_flat_normalized was not provided"
+                )
+            raw[key] = np.asarray(depth_flat_normalized, dtype=np.float32)
+    return raw

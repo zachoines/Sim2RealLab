@@ -237,6 +237,7 @@ class TestJointStateOrdering:
 class TestRawDictAssembly:
     def _make_raw(self, **overrides) -> dict:
         defaults = dict(
+            variant=PolicyVariant.DEPTH,
             imu_accel=(0.1, 0.2, 9.8),
             imu_gyro=(0.01, -0.02, 0.03),
             wheel_vels_rad_s=np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float64),
@@ -270,6 +271,22 @@ class TestRawDictAssembly:
         obs = assemble_observation(raw, PolicyVariant.DEPTH)
         assert obs.shape == (PolicyVariant.DEPTH.obs_dim,)
         assert obs.dtype == np.float32
+
+    def test_depth_referent_and_depth_routing_pinned(self):
+        """Regression anchor: the variant-agnostic builder still routes the
+        DEPTH goal_* triplet and the depth field to the right keys with the
+        right values — the routing loop is the surface this PR changed.
+        """
+        raw = self._make_raw()
+        np.testing.assert_allclose(raw["goal_relative"], [1.5, -0.5])
+        np.testing.assert_allclose(raw["goal_distance"], [math.hypot(1.5, -0.5)])
+        np.testing.assert_allclose(
+            raw["goal_heading_to_goal"], [math.atan2(-0.5, 1.5)]
+        )
+        np.testing.assert_allclose(
+            raw["depth_image"], np.full(DEPTH_HEIGHT * DEPTH_WIDTH, 0.5)
+        )
+        assert "subgoal_relative" not in raw
 
     def test_last_action_zero_on_first_tick_propagates_into_obs(self):
         """last_action sits at field offset NOCAM_FIELDS minus the trailing
@@ -307,6 +324,131 @@ class TestRawDictAssembly:
                 return
             offset += field.dims
         pytest.fail("last_action field not found in DEPTH variant")
+
+
+# =============================================================================
+# build_raw_obs_dict — variant-agnostic (subgoal variant, no depth)
+# =============================================================================
+
+
+class TestRawDictSubgoalVariant:
+    """The variant-aware builder emits the subgoal_* keys (not goal_*) and
+    no depth field for NOCAM_SUBGOAL, and the body-frame referent triplet
+    lands in those subgoal fields.
+    """
+
+    REL = np.array([1.5, -0.5], dtype=np.float32)
+    DIST = math.hypot(1.5, -0.5)
+    HEAD = math.atan2(-0.5, 1.5)
+
+    def _make_raw(self, **overrides) -> dict:
+        defaults = dict(
+            variant=PolicyVariant.NOCAM_SUBGOAL,
+            imu_accel=(0.1, 0.2, 9.8),
+            imu_gyro=(0.01, -0.02, 0.03),
+            wheel_vels_rad_s=np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float64),
+            goal_relative_xy=self.REL,
+            goal_distance=self.DIST,
+            goal_heading_to_goal=self.HEAD,
+            body_velocity_xy=(0.5, 0.0),
+            last_action=np.zeros(3, dtype=np.float32),
+        )
+        defaults.update(overrides)
+        return build_raw_obs_dict(**defaults)
+
+    def test_emits_subgoal_keys_and_no_goal_or_depth_keys(self):
+        raw = self._make_raw()
+        assert "subgoal_relative" in raw
+        assert "subgoal_distance" in raw
+        assert "subgoal_heading_to_subgoal" in raw
+        assert "goal_relative" not in raw
+        assert "goal_distance" not in raw
+        assert "depth_image" not in raw
+
+    def test_has_every_nocam_subgoal_field(self):
+        raw = self._make_raw()
+        for field in PolicyVariant.NOCAM_SUBGOAL.fields:
+            assert field.key in raw, f"missing {field.key}"
+
+    def test_referent_triplet_lands_in_subgoal_fields(self):
+        raw = self._make_raw()
+        np.testing.assert_allclose(raw["subgoal_relative"], self.REL)
+        np.testing.assert_allclose(raw["subgoal_distance"], [self.DIST])
+        np.testing.assert_allclose(
+            raw["subgoal_heading_to_subgoal"], [self.HEAD]
+        )
+
+    def test_assembles_to_nocam_subgoal_obs_dim(self):
+        raw = self._make_raw()
+        obs = assemble_observation(raw, PolicyVariant.NOCAM_SUBGOAL)
+        assert obs.shape == (PolicyVariant.NOCAM_SUBGOAL.obs_dim,)
+        assert obs.shape[0] == 19
+        assert obs.dtype == np.float32
+
+    def test_builds_without_depth_arg(self):
+        # No depth_flat_normalized supplied; the no-depth contract holds:
+        # depth omitted and exactly the variant's fields are emitted.
+        raw = self._make_raw()
+        assert "depth_image" not in raw
+        assert len(raw) == len(PolicyVariant.NOCAM_SUBGOAL.fields)
+
+    def test_depth_variant_without_depth_arg_raises(self):
+        with pytest.raises(ValueError, match="depth_image field"):
+            build_raw_obs_dict(
+                variant=PolicyVariant.DEPTH,
+                imu_accel=(0.0, 0.0, 0.0),
+                imu_gyro=(0.0, 0.0, 0.0),
+                wheel_vels_rad_s=np.zeros(4, dtype=np.float64),
+                goal_relative_xy=np.zeros(2, dtype=np.float32),
+                goal_distance=0.0,
+                goal_heading_to_goal=0.0,
+                body_velocity_xy=(0.0, 0.0),
+                last_action=np.zeros(3, dtype=np.float32),
+            )
+
+
+# =============================================================================
+# build_raw_obs_dict — NOCAM (goal_* keys, no depth): the one combination
+# neither the DEPTH nor the NOCAM_SUBGOAL suite exercises
+# =============================================================================
+
+
+class TestRawDictNocamVariant:
+    def _make_raw(self, **overrides) -> dict:
+        defaults = dict(
+            variant=PolicyVariant.NOCAM,
+            imu_accel=(0.1, 0.2, 9.8),
+            imu_gyro=(0.01, -0.02, 0.03),
+            wheel_vels_rad_s=np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float64),
+            goal_relative_xy=np.array([1.5, -0.5], dtype=np.float32),
+            goal_distance=math.hypot(1.5, -0.5),
+            goal_heading_to_goal=math.atan2(-0.5, 1.5),
+            body_velocity_xy=(0.5, 0.0),
+            last_action=np.zeros(3, dtype=np.float32),
+        )
+        defaults.update(overrides)
+        return build_raw_obs_dict(**defaults)
+
+    def test_emits_goal_keys_and_no_subgoal_or_depth(self):
+        raw = self._make_raw()
+        assert "goal_relative" in raw
+        assert "goal_distance" in raw
+        assert "goal_heading_to_goal" in raw
+        assert "subgoal_relative" not in raw
+        assert "depth_image" not in raw
+
+    def test_has_every_nocam_field(self):
+        raw = self._make_raw()
+        for field in PolicyVariant.NOCAM.fields:
+            assert field.key in raw, f"missing {field.key}"
+        assert len(raw) == len(PolicyVariant.NOCAM.fields)
+
+    def test_assembles_to_nocam_obs_dim(self):
+        raw = self._make_raw()
+        obs = assemble_observation(raw, PolicyVariant.NOCAM)
+        assert obs.shape == (PolicyVariant.NOCAM.obs_dim,)
+        assert obs.shape[0] == 19
+        assert obs.dtype == np.float32
 
 
 # =============================================================================

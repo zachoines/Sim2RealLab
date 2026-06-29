@@ -14,6 +14,10 @@ strafer_inference:
     goal_topic: "/strafer/goal"
     cmd_vel_topic: "/strafer/cmd_vel"
     depth_topic: "/d555/depth/image_rect_raw"
+    # Rolling subgoal pose (subgoal variants only); published by the
+    # strafer_subgoal_generator node. Subscribed only when the loaded
+    # variant declares subgoal_* fields.
+    subgoal_topic: "/strafer/subgoal"
     imu_topic: "/d555/imu/filtered"
     joint_states_topic: "/strafer/joint_states"
     odom_topic: "/strafer/odom"

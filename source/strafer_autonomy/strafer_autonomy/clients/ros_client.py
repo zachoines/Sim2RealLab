@@ -18,7 +18,15 @@ logger = logging.getLogger(__name__)
 
 _BACKEND_NAV2 = "nav2"
 _BACKEND_STRAFER_DIRECT = "strafer_direct"
-_SUPPORTED_BACKENDS = (_BACKEND_NAV2, _BACKEND_STRAFER_DIRECT)
+_BACKEND_HYBRID = "hybrid_nav2_strafer"
+_SUPPORTED_BACKENDS = (_BACKEND_NAV2, _BACKEND_STRAFER_DIRECT, _BACKEND_HYBRID)
+
+# The subgoal generator and inference node enforce a plan-freshness budget
+# (strafer_inference path_timeout_s, 2.0 s); the hybrid replan period must stay
+# below it or a healthy mission would zero-twist between re-fires. The two live
+# in separate packages and can't cross-validate, so warn on a misconfigured
+# period here rather than let it surface as silent cmd_vel stalls.
+_ASSUMED_PLAN_FRESHNESS_BUDGET_S = 2.0
 
 
 def _resolve_execution_backend(per_step: str | None) -> str:
@@ -128,6 +136,11 @@ class RosClientConfig:
     default_rotate_speed_rad_s: float = 0.5
     default_rotate_timeout_s: float = 15.0
     clock_stall_bail_wall_s: float = 15.0
+    # Hybrid backend: how often to re-trigger Nav2's global planner so /plan
+    # stays fresh for the subgoal generator. Must be shorter than the
+    # generator/inference path_timeout_s (2.0 s) so the freshness guards do
+    # not trip during normal operation.
+    hybrid_replan_period_s: float = 1.0
 
 
 class _ProgressTracker:
@@ -722,11 +735,12 @@ class JetsonRosClient:
         """Dispatch a goal to the selected local-motion backend.
 
         ``execution_backend`` selects between Nav2 (``"nav2"``) and the
-        trained-policy backend (``"strafer_direct"``). The effective
-        value comes from (in precedence order) the per-step argument,
-        the ``STRAFER_NAV_BACKEND`` env var, and a final default of
-        ``"nav2"``. Unknown values fall back to Nav2 with a logged
-        error.
+        trained-policy backends (``"strafer_direct"``, and
+        ``"hybrid_nav2_strafer"`` = Nav2 global planner + RL local
+        control). The effective value comes from (in precedence order)
+        the per-step argument, the ``STRAFER_NAV_BACKEND`` env var, and a
+        final default of ``"nav2"``. Unknown values fall back to Nav2 with
+        a logged error.
 
         For ``strafer_direct``: the call targets the
         ``strafer_inference/navigate_to_pose`` action server. If the
@@ -759,6 +773,21 @@ class JetsonRosClient:
                 "strafer_direct backend selected but the "
                 "strafer_inference action server is unavailable; "
                 "falling back to nav2 for step_id=%s.", step_id,
+            )
+        elif backend == _BACKEND_HYBRID:
+            result = self._navigate_via_hybrid(
+                step_id=step_id, goal_pose=goal_pose,
+                behavior_tree=behavior_tree, timeout_s=timeout_s,
+            )
+            if result is not None:
+                return result
+            # The strafer_inference action server (or the Nav2 planner the
+            # hybrid backend drives) is unavailable; fall back to Nav2 for
+            # this mission, same per-mission rule as strafer_direct.
+            logger.warning(
+                "hybrid_nav2_strafer backend selected but the "
+                "strafer_inference action server (or Nav2 planner) is "
+                "unavailable; falling back to nav2 for step_id=%s.", step_id,
             )
 
         return self._navigate_via_nav2(
@@ -1028,6 +1057,174 @@ class JetsonRosClient:
             step_id=step_id, skill="navigate_to_pose", status="failed",
             error_code="navigation_failed",
             message=f"strafer_direct navigation failed (GoalStatus {status}).",
+            started_at=started_at, finished_at=time.time(),
+        )
+
+    def _navigate_via_hybrid(
+        self,
+        *,
+        step_id: str,
+        goal_pose: Pose3D,
+        behavior_tree: str | None,
+        timeout_s: float | None,
+    ) -> SkillResult | None:
+        """Route through Nav2's global PLANNER plus the strafer_inference
+        action server (local control); Nav2's controller server is NOT
+        engaged.
+
+        The planner is (re)triggered on a fixed cadence so its published
+        ``/plan`` stays fresh for the subgoal generator, which the trained
+        policy follows via the rolling subgoal. The mission completes when
+        the strafer_inference action reports success.
+
+        Returns ``None`` when the strafer_inference action server, or the
+        Nav2 planner action, is unavailable -- the caller then falls back
+        to Nav2 for this mission (same per-mission rule as strafer_direct).
+        """
+        from nav2_msgs.action import (
+            ComputePathToPose,
+            NavigateToPose as Nav2NavigateToPose,
+        )
+        from geometry_msgs.msg import PoseStamped
+        from rclpy.action import ActionClient
+        from action_msgs.msg import GoalStatus
+
+        started_at = time.time()
+        timeout = timeout_s or self._config.default_nav_timeout_s
+
+        if (
+            self._config.hybrid_replan_period_s >= _ASSUMED_PLAN_FRESHNESS_BUDGET_S
+            and not getattr(self, "_hybrid_period_warned", False)
+        ):
+            logger.warning(
+                "hybrid_replan_period_s=%.2f s is not below the ~%.1f s "
+                "plan-freshness budget; /plan may age past it between re-fires "
+                "and zero-twist /cmd_vel on a healthy mission.",
+                self._config.hybrid_replan_period_s,
+                _ASSUMED_PLAN_FRESHNESS_BUDGET_S,
+            )
+            self._hybrid_period_warned = True
+
+        # Local-control server: the same action contract (and client) as
+        # strafer_direct; in hybrid mode the policy follows the rolling
+        # subgoal instead of the final goal directly.
+        if not hasattr(self, "_strafer_direct_client"):
+            self._strafer_direct_client = ActionClient(
+                self._node, Nav2NavigateToPose,
+                "/strafer_inference/navigate_to_pose",
+            )
+        if not self._strafer_direct_client.wait_for_server(timeout_sec=10.0):
+            return None  # inference server down -> fall back to nav2
+
+        # Global planner action (planner-only; controller not engaged).
+        if not hasattr(self, "_planner_client"):
+            self._planner_client = ActionClient(
+                self._node, ComputePathToPose, "/compute_path_to_pose",
+            )
+        if not self._planner_client.wait_for_server(timeout_sec=10.0):
+            logger.warning(
+                "hybrid: Nav2 planner action /compute_path_to_pose is "
+                "unavailable; cannot populate /plan for step_id=%s.", step_id,
+            )
+            return None  # planner down -> fall back to nav2
+
+        goal_stamped = PoseStamped()
+        goal_stamped.header.frame_id = self._config.default_goal_frame
+        goal_stamped.header.stamp = self._node.get_clock().now().to_msg()
+        goal_stamped.pose.position.x = goal_pose.x
+        goal_stamped.pose.position.y = goal_pose.y
+        goal_stamped.pose.position.z = goal_pose.z
+        goal_stamped.pose.orientation.x = goal_pose.qx
+        goal_stamped.pose.orientation.y = goal_pose.qy
+        goal_stamped.pose.orientation.z = goal_pose.qz
+        goal_stamped.pose.orientation.w = goal_pose.qw
+
+        def _trigger_replan() -> None:
+            # Fire-and-forget: the planner_server publishes the computed path
+            # on /plan as a side effect, which the subgoal generator consumes.
+            plan_goal = ComputePathToPose.Goal()
+            plan_goal.goal = goal_stamped
+            plan_goal.planner_id = "GridBased"
+            plan_goal.use_start = False
+            self._planner_client.send_goal_async(plan_goal)
+
+        # Populate /plan before the policy needs it.
+        _trigger_replan()
+
+        goal_msg = Nav2NavigateToPose.Goal()
+        goal_msg.pose = goal_stamped
+        if behavior_tree:
+            goal_msg.behavior_tree = behavior_tree
+
+        logger.info(
+            "Sending hybrid goal: frame=%s pos=(%.3f, %.3f, %.3f); Nav2 "
+            "planner-only + strafer_inference local control.",
+            goal_stamped.header.frame_id,
+            goal_pose.x, goal_pose.y, goal_pose.z,
+        )
+
+        send_future = self._strafer_direct_client.send_goal_async(goal_msg)
+        if not self._wait_for_future(send_future, 10.0):
+            return SkillResult(
+                step_id=step_id, skill="navigate_to_pose", status="failed",
+                error_code="goal_send_timeout",
+                message="Timed out sending goal to strafer_inference (hybrid).",
+                started_at=started_at, finished_at=time.time(),
+            )
+
+        goal_handle = send_future.result()
+        if not goal_handle.accepted:
+            logger.error(
+                "strafer_inference REJECTED hybrid goal: pos=(%.3f, %.3f, %.3f)",
+                goal_pose.x, goal_pose.y, goal_pose.z,
+            )
+            return SkillResult(
+                step_id=step_id, skill="navigate_to_pose", status="failed",
+                error_code="goal_rejected",
+                message="strafer_inference rejected the hybrid navigation goal.",
+                started_at=started_at, finished_at=time.time(),
+            )
+
+        with self._nav_lock:
+            self._active_goal_handle = goal_handle
+
+        result_future = goal_handle.get_result_async()
+        completed, _stalled = self._wait_for_nav_result(
+            result_future, timeout_s=timeout, tracker=None,
+            replan=_trigger_replan,
+            replan_period_s=self._config.hybrid_replan_period_s,
+        )
+
+        with self._nav_lock:
+            self._active_goal_handle = None
+
+        if not completed:
+            goal_handle.cancel_goal_async()
+            return SkillResult(
+                step_id=step_id, skill="navigate_to_pose", status="timeout",
+                error_code="navigation_timeout",
+                message=f"hybrid navigation timed out after {timeout:.0f}s.",
+                started_at=started_at, finished_at=time.time(),
+            )
+
+        status = result_future.result().status
+        if status == GoalStatus.STATUS_SUCCEEDED:
+            return SkillResult(
+                step_id=step_id, skill="navigate_to_pose", status="succeeded",
+                message="hybrid navigation completed successfully.",
+                started_at=started_at, finished_at=time.time(),
+            )
+        if status == GoalStatus.STATUS_CANCELED:
+            return SkillResult(
+                step_id=step_id, skill="navigate_to_pose", status="canceled",
+                error_code="navigation_canceled",
+                message="hybrid navigation was canceled.",
+                started_at=started_at, finished_at=time.time(),
+            )
+        return SkillResult(
+            step_id=step_id, skill="navigate_to_pose", status="failed",
+            error_code="navigation_failed",
+            message=f"hybrid navigation failed (GoalStatus {status}).",
             started_at=started_at, finished_at=time.time(),
         )
 
@@ -1600,6 +1797,8 @@ class JetsonRosClient:
         *,
         timeout_s: float,
         tracker: "_ProgressTracker | None",
+        replan: "Any | None" = None,
+        replan_period_s: float | None = None,
     ) -> tuple[bool, bool]:
         """``_wait_for_future`` plus an optional progress watchdog.
 
@@ -1629,6 +1828,7 @@ class JetsonRosClient:
             wall_now_s=time.monotonic(),
         )
 
+        last_replan = clock.now()
         poll_dt = max(0.01, min(0.1, timeout_s / 10.0))
         while not done.is_set():
             now = clock.now()
@@ -1645,6 +1845,15 @@ class JetsonRosClient:
                 return (False, False)
             if tracker is not None and tracker.is_stalled():
                 return (False, True)
+            if (
+                replan is not None
+                and replan_period_s is not None
+                and (now - last_replan) >= Duration(seconds=replan_period_s)
+            ):
+                # Hybrid backend: re-trigger Nav2's global planner so /plan
+                # stays fresh for the subgoal generator while the policy runs.
+                replan()
+                last_replan = now
             if done.wait(timeout=poll_dt):
                 return (True, False)
         return (True, False)

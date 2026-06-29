@@ -37,7 +37,6 @@ class TestSubgoalGeneratorParamsStructure:
         "subgoal_topic",
         "map_frame",
         "base_frame",
-        "update_period_s",
         "max_path_points",
     ]
 
@@ -66,13 +65,12 @@ class TestSubgoalGeneratorParamsStructure:
         # the inference node's mid-mission hidden-state reset every tick.
         assert node_params["subgoal_topic"] != "/strafer/goal"
 
-    def test_update_period_positive_and_sane(self, node_params):
-        period = float(node_params["update_period_s"])
-        assert 0.0 < period <= 1.0
-
-    def test_lookahead_not_hardcoded_in_yaml(self, node_params):
-        # Omitted on purpose: the node defaults lookahead_m to
-        # SUBGOAL_LOOKAHEAD_M so the parity surface cannot drift via YAML.
+    def test_rate_and_lookahead_not_hardcoded_in_yaml(self, node_params):
+        # Both omitted on purpose: the node defaults update_period_s to
+        # POLICY_SIM_DT * POLICY_DECIMATION and lookahead_m to
+        # SUBGOAL_LOOKAHEAD_M, so neither the policy rate nor the parity
+        # surface can drift via a config literal.
+        assert "update_period_s" not in node_params
         assert "lookahead_m" not in node_params
 
 

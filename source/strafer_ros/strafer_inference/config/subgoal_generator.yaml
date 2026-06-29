@@ -13,12 +13,12 @@ strafer_subgoal_generator:
     map_frame: "map"
     base_frame: "base_link"
 
-    update_period_s: 0.0333333
-
-    # lookahead_m is intentionally omitted: the node defaults it to
-    # strafer_shared.constants.SUBGOAL_LOOKAHEAD_M so the train/deploy
-    # parity surface cannot drift via a config literal. Set it here only
-    # for a deliberate operator override (e.g. a band-aware experiment).
+    # update_period_s and lookahead_m are intentionally omitted: the node
+    # defaults update_period_s to POLICY_SIM_DT * POLICY_DECIMATION and
+    # lookahead_m to SUBGOAL_LOOKAHEAD_M (both from strafer_shared.constants)
+    # so neither the policy rate nor the train/deploy parity surface can
+    # drift via a config literal. Set either here only for a deliberate
+    # operator override (e.g. a band-aware lookahead experiment).
 
     # 0 means "use the path as published"; >= 2 head-first truncates.
     max_path_points: 0

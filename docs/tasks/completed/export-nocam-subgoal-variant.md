@@ -58,7 +58,7 @@ realistic-DR play env, registered character-for-character in
 `source/strafer_lab/strafer_lab/tasks/navigation/__init__.py`. This rides the
 same export chain as the sibling [`policy-export-deprecation-migration`](../active/trained-policy/policy-export-deprecation-migration.md)
 (precedent: [`export-onnx-depth`](export-onnx-depth.md)); the produced artifact
-is the input the parked Jetson-lane [`hybrid-mode`](../parked/trained-policy/hybrid-mode.md)
+is the input the parked Jetson-lane [`hybrid-mode`](hybrid-mode.md)
 + [`strafer-hybrid-sim-validation`](../parked/trained-policy/strafer-hybrid-sim-validation.md)
 briefs consume (the `NOCAM_SUBGOAL` checkpoint itself came from
 [`subgoal-env`](subgoal-env.md); the loader/runtime from
@@ -96,7 +96,7 @@ briefs consume (the `NOCAM_SUBGOAL` checkpoint itself came from
 - The entire Jetson runtime: `inference_node.py` variant-awareness, the
   deploy-side rolling-subgoal generator, the third `hybrid_nav2_strafer` backend
   in `ros_client.py`, the costmap-freshness watchdog. These are downstream
-  Jetson-lane work behind [`hybrid-mode`](../parked/trained-policy/hybrid-mode.md).
+  Jetson-lane work behind [`hybrid-mode`](hybrid-mode.md).
 - Any edit to `source/strafer_shared/` — `PolicyVariant.NOCAM_SUBGOAL` and the
   obs contract already support the variant there (Jetson-owned, append-only
   boundary).

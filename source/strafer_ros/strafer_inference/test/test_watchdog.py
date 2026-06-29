@@ -160,3 +160,68 @@ class TestDepthEnabled:
         rx["last_depth_rx_t"] = None
         result = stale_sources(now_monotonic_s=now, timeouts=timeouts, **rx)
         assert "depth" in result
+
+
+class TestSubgoalSource:
+    """Rolling-subgoal (hybrid) freshness: the inference-side half of the
+    plan-freshness guard. Off by default; on for subgoal variants, checked
+    against the longer ``timeouts.path`` budget.
+    """
+
+    def test_disabled_by_default(self, timeouts):
+        now = 100.0
+        result = stale_sources(
+            now_monotonic_s=now, timeouts=timeouts, **_all_fresh_rx_times(now)
+        )
+        assert "subgoal" not in result
+
+    def test_fresh_subgoal_not_stale(self, timeouts):
+        now = 100.0
+        result = stale_sources(
+            now_monotonic_s=now, timeouts=timeouts, subgoal_enabled=True,
+            last_subgoal_rx_t=now - 0.5, **_all_fresh_rx_times(now),
+        )
+        assert result == []
+
+    def test_stale_subgoal_trips(self, timeouts):
+        now = 100.0
+        result = stale_sources(
+            now_monotonic_s=now, timeouts=timeouts, subgoal_enabled=True,
+            last_subgoal_rx_t=now - 5.0, **_all_fresh_rx_times(now),
+        )
+        assert result == ["subgoal"]
+
+    def test_subgoal_boundary_at_one_second_budget(self, timeouts):
+        # timeouts.path defaults to the ~1.0 s inference half of the split
+        # stale-plan budget (the generator carries the other ~1.0 s).
+        assert timeouts.path == pytest.approx(1.0)
+        now = 100.0
+        fresh = stale_sources(
+            now_monotonic_s=now, timeouts=timeouts, subgoal_enabled=True,
+            last_subgoal_rx_t=now - 0.95, **_all_fresh_rx_times(now),
+        )
+        stale = stale_sources(
+            now_monotonic_s=now, timeouts=timeouts, subgoal_enabled=True,
+            last_subgoal_rx_t=now - 1.05, **_all_fresh_rx_times(now),
+        )
+        assert "subgoal" not in fresh
+        assert stale == ["subgoal"]
+
+    def test_none_subgoal_trips(self, timeouts):
+        now = 100.0
+        result = stale_sources(
+            now_monotonic_s=now, timeouts=timeouts, subgoal_enabled=True,
+            last_subgoal_rx_t=None, **_all_fresh_rx_times(now),
+        )
+        assert "subgoal" in result
+
+    def test_subgoal_appears_last_in_order(self, timeouts):
+        now = 100.0
+        rx = {k: None for k in _all_fresh_rx_times(now)}  # all stale
+        result = stale_sources(
+            now_monotonic_s=now, timeouts=timeouts, subgoal_enabled=True,
+            last_subgoal_rx_t=None, **rx,
+        )
+        assert result == [
+            "goal", "imu", "joint_states", "odom", "depth", "tf", "subgoal",
+        ]

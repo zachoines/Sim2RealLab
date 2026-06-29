@@ -133,6 +133,7 @@ class InferenceNode(Node):
         self.declare_parameter("goal_timeout_s", 1.0)
         self.declare_parameter("obs_timeout_s", 0.2)
         self.declare_parameter("depth_timeout_s", 0.5)
+        self.declare_parameter("path_timeout_s", 1.0)
         self.declare_parameter("vel_cap_linear_m_s", _DEFAULT_VEL_CAP_LINEAR)
         self.declare_parameter("vel_cap_angular_rad_s", _DEFAULT_VEL_CAP_ANGULAR)
         self.declare_parameter("is_mid_mission_reset", True)
@@ -181,6 +182,7 @@ class InferenceNode(Node):
             odom=float(self.get_parameter("obs_timeout_s").value),
             depth=float(self.get_parameter("depth_timeout_s").value),
             tf=float(self.get_parameter("tf_max_age_s").value),
+            path=float(self.get_parameter("path_timeout_s").value),
         )
         self._vel_cap_linear = float(
             self.get_parameter("vel_cap_linear_m_s").value
@@ -530,6 +532,8 @@ class InferenceNode(Node):
             tf_age_s=tf_age,
             timeouts=self._timeouts,
             depth_enabled=self._has_depth,
+            last_subgoal_rx_t=self._last_subgoal_rx_t,
+            subgoal_enabled=self._uses_subgoal,
         )
         if stale:
             self.get_logger().warning(

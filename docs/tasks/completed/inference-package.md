@@ -44,7 +44,7 @@ behavior. That's what makes `strafer_direct` actually deployable.
 NOCAM's place in the system is **hybrid mode** — Nav2 supplies the
 obstacle-aware global path, the NOCAM_SUBGOAL policy follows rolling
 subgoals along it. That's
-[`hybrid-mode`](../active/trained-policy/hybrid-mode.md)
+[`hybrid-mode`](hybrid-mode.md)
 + the prerequisite training-env work in
 [`subgoal-env`](subgoal-env.md).
 
@@ -155,7 +155,7 @@ with documented preprocessing (RAW depth → nearfield fill →
 ### Two execution modes
 
 `hybrid_nav2_strafer` is filed separately
-([`hybrid-mode`](../active/trained-policy/hybrid-mode.md))
+([`hybrid-mode`](hybrid-mode.md))
 and depends on a different `PolicyVariant` (`NOCAM_SUBGOAL`) plus
 new training env work
 ([`subgoal-env`](subgoal-env.md)).
@@ -164,7 +164,7 @@ new training env work
 |------|-------------|---------------|----------|
 | `nav2` (default) | Nav2 GridBased | Nav2 MPPI | Shipped today |
 | `strafer_direct` | none — direct goal | trained DEPTH policy via `strafer_inference` | **This brief** |
-| `hybrid_nav2_strafer` | Nav2 GridBased | trained `NOCAM_SUBGOAL` policy via `strafer_inference` | [`hybrid-mode`](../active/trained-policy/hybrid-mode.md) |
+| `hybrid_nav2_strafer` | Nav2 GridBased | trained `NOCAM_SUBGOAL` policy via `strafer_inference` | [`hybrid-mode`](hybrid-mode.md) |
 
 The mode is a *robot-side* execution choice; the autonomy / planner
 layer doesn't change. Operator-facing surface stays
@@ -430,7 +430,7 @@ Update
   `navigate_to_pose`.
 - Unknown values: log a clear error naming the value, fall back to
   `"nav2"`. Includes `"hybrid_nav2_strafer"` (filed in
-  [`hybrid-mode`](../active/trained-policy/hybrid-mode.md))
+  [`hybrid-mode`](hybrid-mode.md))
   — the fallback prevents typos from silently failing.
 
 The env-var default is the conservative choice — real-robot
@@ -616,7 +616,7 @@ follow-up rather than blocking this brief's PR.
   Affects the `nav2` backend's startup behavior; orthogonal to
   RL policy execution.
 - **`hybrid_nav2_strafer` mode.** Filed as
-  [`hybrid-mode`](../active/trained-policy/hybrid-mode.md)
+  [`hybrid-mode`](hybrid-mode.md)
   (cross-lane). Requires a new `PolicyVariant.NOCAM_SUBGOAL`
   trained against a subgoal-following env that doesn't exist yet
   ([`subgoal-env`](subgoal-env.md)).

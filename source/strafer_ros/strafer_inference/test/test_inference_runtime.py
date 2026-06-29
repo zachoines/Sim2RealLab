@@ -406,13 +406,72 @@ class TestVariantAwareWiring(unittest.TestCase):
         finally:
             node.destroy_node()
 
-    def test_nocam_subgoal_tick_does_not_trip_on_depth(self) -> None:
-        """A NOCAM_SUBGOAL node never receives depth; _on_tick must not
-        wedge on a perpetually-stale depth source. With no sensors fed the
-        tick still returns cleanly (other sources stale → zero twist).
+    def test_nocam_subgoal_tick_zero_twists_when_watchdog_stale(self) -> None:
+        """A NOCAM_SUBGOAL node never receives depth; with no sensors fed the
+        watchdog is stale and the tick must publish a single zero Twist (the
+        safety stop) -- not merely avoid crashing on the disabled depth source.
         """
+        from geometry_msgs.msg import Twist
+
+        node = self._node("NOCAM_SUBGOAL")
+        node._cmd_vel_pub = MagicMock()
+        try:
+            node._on_tick()
+            node._cmd_vel_pub.publish.assert_called_once()
+            published = node._cmd_vel_pub.publish.call_args[0][0]
+            self.assertIsInstance(published, Twist)
+            self.assertEqual(published.linear.x, 0.0)
+            self.assertEqual(published.linear.y, 0.0)
+            self.assertEqual(published.angular.z, 0.0)
+        finally:
+            node.destroy_node()
+
+    def test_nocam_subgoal_watchdog_swaps_depth_for_subgoal(self) -> None:
+        """The hybrid freshness guard: a NOCAM_SUBGOAL node drops the depth
+        source and adds a subgoal source (path_timeout_s budget), wired from
+        the node's own gating flags and timeouts.
+        """
+        from strafer_inference.watchdog import stale_sources
+
         node = self._node("NOCAM_SUBGOAL")
         try:
-            node._on_tick()  # no exception; depth source is disabled
+            self.assertEqual(node._timeouts.path, 1.0)
+            now = 1000.0
+            stale = stale_sources(
+                now_monotonic_s=now,
+                last_goal_rx_t=now, last_imu_rx_t=now,
+                last_joint_states_rx_t=now, last_odom_rx_t=now,
+                last_depth_rx_t=None, tf_age_s=0.0,
+                timeouts=node._timeouts,
+                depth_enabled=node._has_depth,
+                last_subgoal_rx_t=None,
+                subgoal_enabled=node._uses_subgoal,
+            )
+            self.assertNotIn("depth", stale)   # no camera on this variant
+            self.assertIn("subgoal", stale)    # but the rolling subgoal is gated
+        finally:
+            node.destroy_node()
+
+    def test_depth_direct_watchdog_has_no_subgoal_source(self) -> None:
+        """Regression: the DEPTH strafer_direct node keeps the depth source
+        and adds no subgoal source.
+        """
+        from strafer_inference.watchdog import stale_sources
+
+        node = self._node("DEPTH")
+        try:
+            now = 1000.0
+            stale = stale_sources(
+                now_monotonic_s=now,
+                last_goal_rx_t=now, last_imu_rx_t=now,
+                last_joint_states_rx_t=now, last_odom_rx_t=now,
+                last_depth_rx_t=None, tf_age_s=0.0,
+                timeouts=node._timeouts,
+                depth_enabled=node._has_depth,
+                last_subgoal_rx_t=None,
+                subgoal_enabled=node._uses_subgoal,
+            )
+            self.assertIn("depth", stale)        # camera variant
+            self.assertNotIn("subgoal", stale)   # not a subgoal variant
         finally:
             node.destroy_node()

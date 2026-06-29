@@ -2,11 +2,11 @@
 
 **Type:** task / feature
 **Owner:** Jetson (extends `strafer_inference` from
-[`inference-package`](../../completed/inference-package.md))
+[`inference-package`](inference-package.md))
 **Priority:** P3 — blocks on **two** other briefs:
-[`inference-package`](../../completed/inference-package.md)
+[`inference-package`](inference-package.md)
 (produces the `strafer_inference` package this brief extends) and
-[`subgoal-env`](../../completed/subgoal-env.md) (produces
+[`subgoal-env`](subgoal-env.md) (produces
 the trained `NOCAM_SUBGOAL` policy this brief loads). Lifts mission
 quality on long-horizon / cross-room navigation but isn't blocking
 any current mission shape.
@@ -14,11 +14,18 @@ any current mission shape.
 Nav2 `/plan` subscription + dispatch wiring + sim validation)
 **Branch:** task/strafer-inference-hybrid-mode
 
-## Scope: ships across three PRs
+**Status:** Shipped 2026-06-28 (Jetson) across three PRs — PR A
+[#119](https://github.com/zachoines/Sim2RealLab/pull/119) (generator + `/plan`
+subscription), PR B [#122](https://github.com/zachoines/Sim2RealLab/pull/122)
+(variant lift + subgoal observation), PR C
+[#123](https://github.com/zachoines/Sim2RealLab/pull/123)
+(`hybrid_nav2_strafer` dispatch + the two-node plan-freshness guard).
+
+## Scope: shipped across three PRs
 
 This brief is executed as three PRs off
 `task/strafer-inference-hybrid-mode` (the multi-PR-per-brief pattern,
-as with [`harness-architecture`](../../active/harness/harness-architecture.md)):
+as with [`harness-architecture`](../active/harness/harness-architecture.md)):
 
 - **PR A — deploy-side rolling-subgoal generator + Nav2 `/plan`
   subscription.** A variant-agnostic numpy port of the training-time
@@ -38,12 +45,19 @@ as with [`harness-architecture`](../../active/harness/harness-architecture.md)):
   Lifts the hardcoded `PolicyVariant.DEPTH`, assembles the subgoal
   observation (body-frame transform of the `/strafer/subgoal` pose), and
   drops the depth precondition for the no-camera variant.
-- **PR C — `hybrid_nav2_strafer` dispatch + `/plan`-staleness watchdog.**
-  The `ros_client.py` dispatch and the 6th watchdog source
-  (`path_timeout_s`).
+- **PR C — `hybrid_nav2_strafer` dispatch + plan-freshness guard.** The
+  `JetsonRosClient.navigate_to_pose` dispatch routes the goal to Nav2's
+  global planner (continuous `ComputePathToPose` replanning to keep `/plan`
+  fresh; controller server not engaged) and to the `strafer_inference`
+  action server for local control, with per-mission fallback to `nav2`. The
+  plan-freshness guard is realized in two nodes — the split decoupled
+  `/plan` consumption from `/cmd_vel`: the generator suppresses
+  `/strafer/subgoal` once `/plan` ages past `path_timeout_s`, and the
+  inference node adds a `subgoal` watchdog source that zero-twists
+  `/cmd_vel` when `/strafer/subgoal` goes stale.
 
-The brief stays `active` after PR A; it moves to `completed/` only when
-PR C ships.
+All three PRs have shipped; operator-driven sim validation rides as a
+follow-up in [`strafer-hybrid-sim-validation`](../parked/trained-policy/strafer-hybrid-sim-validation.md).
 
 ## Story
 
@@ -63,7 +77,7 @@ corners of the four-architecture matrix:
 |  | Local control by Nav2 | Local control by RL |
 |---|---|---|
 | **Global planning by Nav2** | shipped today (Nav2-only) | **THIS BRIEF** (`hybrid_nav2_strafer`) |
-| **Global planning by RL** | [`rl-global-nav2-local`](../../parked/trained-policy/rl-global-nav2-local.md) (parked) | `strafer_direct` ([inference-package](../../completed/inference-package.md), DEPTH MVP — shipping) |
+| **Global planning by RL** | [`rl-global-nav2-local`](../parked/trained-policy/rl-global-nav2-local.md) (parked) | `strafer_direct` ([inference-package](inference-package.md), DEPTH MVP — shipping) |
 
 The current direction (this brief + DEPTH MVP) is well-grounded: RL
 is good at smooth continuous control under noise, Nav2 is good at
@@ -73,13 +87,13 @@ following them) might be a better fit for VLM-grounded missions
 where the planning decision involves *intent* (which way around the
 chair, whether to back up and re-approach a doorway, etc.) rather
 than just geometry. Filed as a parked alternative in
-[`rl-global-nav2-local`](../../parked/trained-policy/rl-global-nav2-local.md) — pick up only
+[`rl-global-nav2-local`](../parked/trained-policy/rl-global-nav2-local.md) — pick up only
 if/when this brief's deployment surfaces a "RL is doing local
 control but the issue is global plan quality" failure mode. Don't
 implement preemptively.
 
 The DEPTH `strafer_direct` mode (in
-[`inference-package`](../../completed/inference-package.md))
+[`inference-package`](inference-package.md))
 solves direct-pose-goal navigation with the policy's own depth-based
 obstacle avoidance, but in environments where Nav2's costmap-aware
 global plan is preferable (long known-map traversals, missions
@@ -90,23 +104,23 @@ This brief is intentionally **Jetson-only**. The DGX-side work that
 makes hybrid mode possible — defining `PolicyVariant.NOCAM_SUBGOAL`,
 building the subgoal-following training env, and producing a
 deployable checkpoint — lives in
-[`subgoal-env`](../../completed/subgoal-env.md). That
+[`subgoal-env`](subgoal-env.md). That
 brief must ship first.
 
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [strafer-inference-package.md](../../completed/inference-package.md) —
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [strafer-inference-package.md](inference-package.md) —
   the predecessor; this brief extends its `execution_backend`
   dispatch with a third mode and reuses its observation-pipeline
   infrastructure.
-- [strafer-lab-subgoal-env.md](../../completed/subgoal-env.md) — the
+- [strafer-lab-subgoal-env.md](subgoal-env.md) — the
   DGX-side prerequisite. Defines `PolicyVariant.NOCAM_SUBGOAL`,
   the `SubgoalCommand` term, the new training env, and produces
   the deployable checkpoint this brief loads.
-- [policy-export-tooling.md](../../completed/policy-export-tooling.md) — the
+- [policy-export-tooling.md](policy-export-tooling.md) — the
   export path the new variant flows through. No new export-side
   work needed; the variant uses `--variant NOCAM_SUBGOAL`.
 
@@ -114,7 +128,7 @@ Read these before starting:
 
 ### What's in scope here vs. delegated to the prerequisite brief
 
-| Concern | This brief (Jetson) | [`subgoal-env`](../../completed/subgoal-env.md) (DGX) |
+| Concern | This brief (Jetson) | [`subgoal-env`](subgoal-env.md) (DGX) |
 |---|---|---|
 | `PolicyVariant.NOCAM_SUBGOAL` definition | consumes | defines |
 | Subgoal-following training env | consumes outputs | builds |
@@ -187,7 +201,7 @@ If `STRAFER_NAV_BACKEND=hybrid_nav2_strafer` is set but the
 strafer_inference action server isn't running (e.g. the trained
 checkpoint is missing), the dispatch falls back to `nav2` per the
 pattern set by
-[`inference-package`](../../completed/inference-package.md)
+[`inference-package`](inference-package.md)
 Phase 4.
 
 ## Approach
@@ -199,7 +213,7 @@ assumed shipped (see Context bundle).
 
 In `source/strafer_ros/strafer_inference/`
 (must exist — i.e.
-[`inference-package.md`](../../completed/inference-package.md) has
+[`inference-package.md`](inference-package.md) has
 shipped):
 
 - Add a `mode: "strafer_direct" | "hybrid"` runtime config flag
@@ -232,12 +246,12 @@ shipped):
 
 ### Phase 2 — Backend dispatch update (½ day)
 
-In [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py):
+In [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py):
 
 - Update `JetsonRosClient.navigate_to_pose` dispatch (currently
   recognizes `nav2` and `strafer_direct`, falls back to `nav2`
   on unknown values per
-  [`inference-package`](../../completed/inference-package.md)
+  [`inference-package`](inference-package.md)
   Phase 4) to recognize `hybrid_nav2_strafer` as a third value.
 - For hybrid, the dispatch sends the goal to **both**:
   - Nav2's planner — to populate `/plan`. The action client
@@ -257,10 +271,10 @@ In [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../.
 The cross-room sim mission, the per-tick / mission-start latency
 benchmarks, the rig parity bounds, and the no-regression checks
 against `strafer_direct` and `nav2` live in
-[`strafer-hybrid-sim-validation`](../../parked/trained-policy/strafer-hybrid-sim-validation.md)
+[`strafer-hybrid-sim-validation`](../parked/trained-policy/strafer-hybrid-sim-validation.md)
 (parked alongside this brief). Mirrors the
-[`inference-package`](../../completed/inference-package.md) →
-[`strafer-direct-sim-validation`](../../active/trained-policy/strafer-direct-sim-validation.md)
+[`inference-package`](inference-package.md) →
+[`strafer-direct-sim-validation`](../active/trained-policy/strafer-direct-sim-validation.md)
 extraction precedent so this brief's runtime PR can ship with
 unit-testable acceptance closed and the operator-driven validation
 rides as a follow-up.
@@ -296,7 +310,7 @@ moved-obstacle distribution shift that warrant their own scope.
 
 The reference-mission, rosbag parity, latency, and no-regression
 acceptance items live in
-[`strafer-hybrid-sim-validation`](../../parked/trained-policy/strafer-hybrid-sim-validation.md).
+[`strafer-hybrid-sim-validation`](../parked/trained-policy/strafer-hybrid-sim-validation.md).
 That brief gates on this one shipping + a trained checkpoint +
 the sim-in-the-loop rig; none of those items are unit-testable, so
 they ride as a follow-up rather than blocking this brief's PR.
@@ -309,22 +323,22 @@ they ride as a follow-up rather than blocking this brief's PR.
 ## Investigation pointers
 
 - `source/strafer_ros/strafer_inference/` — once
-  [`inference-package.md`](../../completed/inference-package.md)
+  [`inference-package.md`](inference-package.md)
   ships, this is the extension point. Phase 1 adds a hybrid mode
   flag and the Nav2 `/plan` subscription alongside the existing
   observation pipeline.
-- [`source/strafer_ros/strafer_navigation/config/nav2_params.yaml`](../../../../source/strafer_ros/strafer_navigation/config/nav2_params.yaml)
+- [`source/strafer_ros/strafer_navigation/config/nav2_params.yaml`](../../../source/strafer_ros/strafer_navigation/config/nav2_params.yaml)
   — Nav2 planner config. The `compute_path_to_pose` action /
   service the hybrid dispatch will target is part of the Nav2
   bringup.
-- [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
+- [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../source/strafer_autonomy/strafer_autonomy/clients/ros_client.py)
   — `JetsonRosClient.navigate_to_pose`; Phase 2 edits the
   dispatch path here.
 - Pure-pursuit / lookahead-distance arc-length implementations:
   the `nav2_regulated_pure_pursuit_controller` source has an
   Apache 2.0 implementation that's license-compatible to
   reference / port.
-- [`policy_interface.py`](../../../../source/strafer_shared/strafer_shared/policy_interface.py)
+- [`policy_interface.py`](../../../source/strafer_shared/strafer_shared/policy_interface.py)
   — `PolicyVariant.NOCAM_SUBGOAL` (defined by the prerequisite
   brief).
 
@@ -333,10 +347,10 @@ they ride as a follow-up rather than blocking this brief's PR.
 ### Sequencing notes
 
 - This brief blocks on **two** prerequisites:
-  - [`inference-package`](../../completed/inference-package.md)
+  - [`inference-package`](inference-package.md)
     must ship first (provides the `strafer_inference` package
     this brief extends).
-  - [`subgoal-env`](../../completed/subgoal-env.md)
+  - [`subgoal-env`](subgoal-env.md)
     must ship first (defines `PolicyVariant.NOCAM_SUBGOAL`,
     builds the training env, and produces the deployable
     checkpoint).
@@ -348,13 +362,13 @@ they ride as a follow-up rather than blocking this brief's PR.
 ### Not addressed here
 
 - **Pure-RL execution (`strafer_direct`).** That's
-  [`inference-package`](../../completed/inference-package.md).
+  [`inference-package`](inference-package.md).
   Hybrid coexists with both pure modes; this brief doesn't
   change them.
 - **The training environment.** That's
-  [`subgoal-env`](../../completed/subgoal-env.md).
+  [`subgoal-env`](subgoal-env.md).
 - **The trained NOCAM_SUBGOAL checkpoint.** Produced by Phase 5
-  of [`subgoal-env`](../../completed/subgoal-env.md).
+  of [`subgoal-env`](subgoal-env.md).
 - **Replacing Nav2 entirely.** Nav2 stays as the default backend
   and as the global planner in hybrid mode.
 - **Costmap-aware local control.** Hybrid here uses Nav2 for
@@ -364,19 +378,19 @@ they ride as a follow-up rather than blocking this brief's PR.
   policy relies on the path being valid). The depth-aware
   subgoal-following variant (Nav2 plans the global route, RL
   handles late-arriving obstacles via depth) is filed as
-  [`depth-subgoal-env`](../../parked/trained-policy/depth-subgoal-env.md) (DGX, training)
+  [`depth-subgoal-env`](../parked/trained-policy/depth-subgoal-env.md) (DGX, training)
   and
-  [`depth-subgoal-hybrid-runtime`](../../parked/trained-policy/depth-subgoal-hybrid-runtime.md)
+  [`depth-subgoal-hybrid-runtime`](../parked/trained-policy/depth-subgoal-hybrid-runtime.md)
   (Jetson, runtime extension). Both parked alongside this brief;
   un-park when this one + their other prerequisites ship.
 - **Operator-driven sim validation.** Lives in
-  [`strafer-hybrid-sim-validation`](../../parked/trained-policy/strafer-hybrid-sim-validation.md)
+  [`strafer-hybrid-sim-validation`](../parked/trained-policy/strafer-hybrid-sim-validation.md)
   (parked alongside this brief); un-parks when this one ships.
   Carries the rosbag parity, latency benchmarks, and the
   cross-room reference mission.
 - **Real-robot hybrid validation.** File as
   `strafer-inference-hybrid-real-robot-validation.md` once
-  [`strafer-hybrid-sim-validation`](../../parked/trained-policy/strafer-hybrid-sim-validation.md)
+  [`strafer-hybrid-sim-validation`](../parked/trained-policy/strafer-hybrid-sim-validation.md)
   passes.
 - **Performance comparison vs. Nav2-MPPI on the same mission.**
   Evaluation activity, not a controller-design brief.

@@ -134,7 +134,7 @@ At startup, `build_command_server()` runs parallel health checks against the pla
 | `explore_until_visible` | Drive toward unmapped frontiers and re-scan until the labelled target is grounded or the frontier set is exhausted. Used by the planner compiler for cold-start cross-room missions when the target's room is unknown. | Composite: wavefront frontier detector over `/global_costmap/costmap` + Nav2 leg + `scan_for_target` per arrival |
 | `describe_scene` | VLM free-text description | `HttpGroundingClient.describe_scene()` |
 | `project_detection_to_goal_pose` | 2D bbox → map-frame goal pose | Local `/strafer/project_detection_to_goal_pose` service |
-| `navigate_to_pose` | Drive to goal via selectable local backend | `nav2` (shipped), `strafer_direct` / `hybrid_nav2_strafer` (deferred) |
+| `navigate_to_pose` | Drive to goal via selectable local backend | `nav2` (default); `strafer_direct` + `hybrid_nav2_strafer` (dispatch shipped — route to the `strafer_inference` action server, with per-mission fallback to `nav2` when it is unavailable) |
 | `verify_arrival` | CLIP top-k ranking against semantic map at arrival pose. Returns `semantic_map_disabled` when the executor is launched without `semantic_map=` / `background_mapper=` (the default in `executor/main.py` today; see [`docs/MISSION_VALIDATION_ARCHITECTURE.md`](../../docs/MISSION_VALIDATION_ARCHITECTURE.md)). | `SemanticMapManager` + `CLIPEncoder` |
 | `rotate_by_degrees` | Relative yaw rotation | `JetsonRosClient.rotate_in_place()` |
 | `orient_to_direction` | Absolute cardinal heading | `JetsonRosClient.rotate_in_place()` with yaw delta |
@@ -342,7 +342,7 @@ Tests marked `requires_ros` exercise the command server, CLI, and `JetsonRosClie
 Tracked in [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md). Items currently open:
 
 - `orient_relative_to_target` skill — handler is drafted but commented out of `DEFAULT_AVAILABLE_SKILLS`. Reinstate when the behavior is needed.
-- RL execution backends for `navigate_to_pose` — `strafer_direct` (pure-RL) and `hybrid_nav2_strafer` (Nav2 waypoints + learned local controller) are defined in the interface but not implemented. Default remains `nav2`.
+- RL execution backends for `navigate_to_pose` — `strafer_direct` (pure-RL) and `hybrid_nav2_strafer` (Nav2 global planner + RL local control) dispatch is implemented; both route to the `strafer_inference` action server and fall back to `nav2` per-mission when it is unavailable. Default remains `nav2`. Operator-driven sim validation is tracked in the `strafer-direct-sim-validation` / `strafer-hybrid-sim-validation` briefs.
 - `rotate_in_place` PID tuning on real hardware — open-loop `cmd_vel` with odom feedback; may need tolerance adjustment.
 
 ## References

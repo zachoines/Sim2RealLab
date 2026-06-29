@@ -1626,9 +1626,20 @@ class TestResolveExecutionBackend(unittest.TestCase):
             self.assertEqual(_resolve_execution_backend(None), "nav2")
 
     def test_unknown_value_falls_back_to_nav2(self) -> None:
-        """Typo in the env var (e.g. ``strafer-direct`` with a dash) or
-        a future-only backend name (``hybrid_nav2_strafer``) must NOT
-        silently fail; falls back to nav2 with a logged error."""
+        """A typo or unsupported backend name must NOT silently fail; it
+        falls back to nav2 with a logged error."""
+        from strafer_autonomy.clients.ros_client import _resolve_execution_backend
+
+        with patch.dict(
+            "os.environ",
+            {"STRAFER_NAV_BACKEND": "mppi_local_only"},
+            clear=False,
+        ):
+            self.assertEqual(_resolve_execution_backend(None), "nav2")
+
+    def test_hybrid_backend_is_recognized(self) -> None:
+        """hybrid_nav2_strafer is a supported backend as of the hybrid
+        runtime; it resolves to itself rather than falling back to nav2."""
         from strafer_autonomy.clients.ros_client import _resolve_execution_backend
 
         with patch.dict(
@@ -1636,7 +1647,9 @@ class TestResolveExecutionBackend(unittest.TestCase):
             {"STRAFER_NAV_BACKEND": "hybrid_nav2_strafer"},
             clear=False,
         ):
-            self.assertEqual(_resolve_execution_backend(None), "nav2")
+            self.assertEqual(
+                _resolve_execution_backend(None), "hybrid_nav2_strafer",
+            )
 
     def test_unknown_per_step_falls_back(self) -> None:
         from strafer_autonomy.clients.ros_client import _resolve_execution_backend
@@ -1807,10 +1820,208 @@ class TestNavigateToPoseDispatch(unittest.TestCase):
                     AssertionError("strafer_direct must not run for unknown backends")
                 )
             )
+            client._navigate_via_hybrid = (  # type: ignore
+                lambda **kw: (_ for _ in ()).throw(
+                    AssertionError("hybrid must not run for unknown backends")
+                )
+            )
 
             client.navigate_to_pose(
                 step_id="s5",
                 goal_pose=Pose3D(x=1.0, y=0.0, z=0.0, qx=0, qy=0, qz=0, qw=1),
-                execution_backend="hybrid_nav2_strafer",
+                execution_backend="teleop_only",
             )
             self.assertTrue(nav2_called["called"])
+
+    def test_hybrid_routes_to_hybrid_then_returns(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"STRAFER_NAV_BACKEND": "hybrid_nav2_strafer"},
+            clear=False,
+        ):
+            client = _make_client()
+
+            def fake_hybrid(**kw):
+                return SkillResult(
+                    step_id=kw["step_id"], skill="navigate_to_pose",
+                    status="succeeded",
+                    message="hybrid navigation completed successfully.",
+                    started_at=0.0, finished_at=0.0,
+                )
+
+            def fake_nav2(**kw):
+                raise AssertionError(
+                    "nav2 path must not be called when hybrid succeeds"
+                )
+
+            client._navigate_via_hybrid = fake_hybrid  # type: ignore
+            client._navigate_via_nav2 = fake_nav2  # type: ignore
+
+            result = client.navigate_to_pose(
+                step_id="h1",
+                goal_pose=Pose3D(x=1.0, y=0.0, z=0.0, qx=0, qy=0, qz=0, qw=1),
+            )
+            self.assertEqual(result.status, "succeeded")
+            self.assertIn("hybrid", result.message)
+
+    def test_hybrid_unavailable_falls_back_to_nav2(self) -> None:
+        """Inference server (or Nav2 planner) unavailable (None return) →
+        per-mission fallback to nav2, same rule as strafer_direct."""
+        with patch.dict(
+            "os.environ",
+            {"STRAFER_NAV_BACKEND": "hybrid_nav2_strafer"},
+            clear=False,
+        ):
+            client = _make_client()
+
+            def fake_hybrid(**kw):
+                return None  # action server / planner unavailable
+
+            def fake_nav2(**kw):
+                return SkillResult(
+                    step_id=kw["step_id"], skill="navigate_to_pose",
+                    status="succeeded",
+                    message="Navigation completed successfully.",
+                    started_at=0.0, finished_at=0.0,
+                )
+
+            client._navigate_via_hybrid = fake_hybrid  # type: ignore
+            client._navigate_via_nav2 = fake_nav2  # type: ignore
+
+            with patch(
+                "strafer_autonomy.clients.ros_client.logger"
+            ) as mock_logger:
+                result = client.navigate_to_pose(
+                    step_id="h2",
+                    goal_pose=Pose3D(
+                        x=1.0, y=0.0, z=0.0, qx=0, qy=0, qz=0, qw=1
+                    ),
+                )
+            self.assertEqual(result.status, "succeeded")
+            self.assertNotIn("hybrid", result.message)
+            # The silent fallback must be observable: a warning naming the
+            # nav2 fallback fires before re-routing the mission.
+            mock_logger.warning.assert_called()
+            warned = " ".join(
+                str(c.args[0]) for c in mock_logger.warning.call_args_list
+            )
+            self.assertIn("falling back to nav2", warned)
+
+
+class TestNavigateViaHybridInternals(unittest.TestCase):
+    """Direct coverage of _navigate_via_hybrid: the two-stage server
+    fallback and the planner-only trigger contract (dispatch-level routing
+    is covered in TestNavigateToPoseDispatch).
+    """
+
+    def _goal(self) -> Pose3D:
+        return Pose3D(x=1.0, y=0.0, z=0.0, qx=0.0, qy=0.0, qz=0.0, qw=1.0)
+
+    def test_planner_unavailable_returns_none_and_sends_no_inference_goal(self):
+        client = _make_client()
+        direct = MagicMock()
+        direct.wait_for_server.return_value = True   # inference up
+        planner = MagicMock()
+        planner.wait_for_server.return_value = False  # planner action down
+        client._strafer_direct_client = direct
+        client._planner_client = planner
+
+        result = client._navigate_via_hybrid(
+            step_id="hi", goal_pose=self._goal(),
+            behavior_tree=None, timeout_s=5.0,
+        )
+        # None => caller falls back to nav2; and no orphaned inference goal.
+        self.assertIsNone(result)
+        direct.send_goal_async.assert_not_called()
+
+    def test_initial_replan_uses_gridbased_planner_only(self):
+        from action_msgs.msg import GoalStatus
+        from builtin_interfaces.msg import Time as TimeMsg
+
+        client = _make_client()
+        # Real Time for the PoseStamped stamp (rosidl validates the field).
+        client._node.get_clock.return_value.now.return_value.to_msg.return_value = (
+            TimeMsg()
+        )
+
+        direct = MagicMock()
+        direct.wait_for_server.return_value = True
+        planner = MagicMock()
+        planner.wait_for_server.return_value = True
+        client._strafer_direct_client = direct
+        client._planner_client = planner
+
+        send_future = MagicMock()
+        goal_handle = MagicMock()
+        goal_handle.accepted = True
+        send_future.result.return_value = goal_handle
+        direct.send_goal_async.return_value = send_future
+        result_future = MagicMock()
+        result_future.result.return_value = MagicMock(
+            status=GoalStatus.STATUS_SUCCEEDED
+        )
+        goal_handle.get_result_async.return_value = result_future
+
+        # Skip the real clock-driven wait loop.
+        client._wait_for_future = lambda *a, **k: True  # type: ignore
+        client._wait_for_nav_result = lambda *a, **k: (True, False)  # type: ignore
+
+        result = client._navigate_via_hybrid(
+            step_id="hi", goal_pose=self._goal(),
+            behavior_tree=None, timeout_s=5.0,
+        )
+        self.assertEqual(result.status, "succeeded")
+        # The planner was triggered planner-only with the GridBased planner and
+        # the robot's current pose (use_start False); the controller server is
+        # never engaged (no controller client is constructed or called).
+        self.assertTrue(planner.send_goal_async.called)
+        plan_goal = planner.send_goal_async.call_args[0][0]
+        self.assertEqual(plan_goal.planner_id, "GridBased")
+        self.assertFalse(plan_goal.use_start)
+
+    def test_replan_cadence_is_wall_clock_not_sim(self):
+        """The replan cadence fires on the WALL clock, so a sub-unity sim RTF
+        does not stretch it. Modeled with a frozen sim clock (an extreme
+        sub-unity RTF, well under the stall detector's bail window): if the
+        cadence read the sim clock, a non-advancing sim clock would fire zero
+        replans; on the wall clock it fires as real time passes.
+        """
+        import threading
+        from rclpy.time import Time as RclpyTime
+
+        client = _make_client()
+        # Frozen sim clock, overriding _make_client's wall-tracking clock: an
+        # extreme sub-unity RTF, well under the stall detector's 15 s bail. The
+        # mission deadline (sim) is never reached, so the loop runs on the
+        # future + the wall-clock replan cadence under test.
+        frozen = RclpyTime(seconds=1000)
+        client._node.get_clock.return_value.now.side_effect = lambda: frozen
+
+        class _FakeFuture:
+            def __init__(self):
+                self._cbs = []
+
+            def add_done_callback(self, cb):
+                self._cbs.append(cb)
+
+            def done(self):
+                return False
+
+            def complete(self):
+                for cb in self._cbs:
+                    cb(self)
+
+        fut = _FakeFuture()
+        # Complete the future after a short wall delay so the loop runs in
+        # real time and exits deterministically.
+        threading.Timer(0.12, fut.complete).start()
+
+        replans = []
+        completed, _stalled = client._wait_for_nav_result(
+            fut, timeout_s=0.1, tracker=None,
+            replan=lambda: replans.append(1), replan_period_s=0.02,
+        )
+        self.assertTrue(completed)
+        # Wall time advanced (~0.12 s) while the sim clock stayed frozen; a
+        # sim-clock cadence would fire 0 replans, a wall-clock cadence >= 1.
+        self.assertGreaterEqual(len(replans), 1)

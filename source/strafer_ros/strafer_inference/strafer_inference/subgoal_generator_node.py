@@ -69,9 +69,14 @@ class SubgoalGeneratorNode(Node):
         self.declare_parameter("lookahead_m", SUBGOAL_LOOKAHEAD_M)
         # 0 (or negative) means "use the path as published" (no truncation).
         self.declare_parameter("max_path_points", 0)
+        # Generator half of the split stale-plan budget (wall-clock): stop
+        # publishing the subgoal once /plan ages past this, so a dead planner
+        # reaches the inference watchdog rather than the policy chasing it.
+        self.declare_parameter("path_timeout_s", 1.0)
 
         self._map_frame: str = self.get_parameter("map_frame").value
         self._base_frame: str = self.get_parameter("base_frame").value
+        self._path_timeout_s = float(self.get_parameter("path_timeout_s").value)
         lookahead_m = float(self.get_parameter("lookahead_m").value)
         max_points_param = int(self.get_parameter("max_path_points").value)
         max_points = max_points_param if max_points_param >= 2 else None
@@ -80,10 +85,11 @@ class SubgoalGeneratorNode(Node):
             lookahead_m=lookahead_m, max_points=max_points
         )
 
-        # Monotonic receipt time of the latest valid plan. Recorded here so
-        # a plan-staleness watchdog source can consume it later; this node
-        # does not act on it.
+        # Monotonic receipt time of the latest valid plan. Drives the
+        # /plan-staleness guard: subgoal publishing stops once the plan ages
+        # past path_timeout_s.
         self._last_plan_rx_t: Optional[float] = None
+        self._stale_plan_logged = False
 
         plan_topic = self.get_parameter("plan_topic").value
         subgoal_topic = self.get_parameter("subgoal_topic").value
@@ -125,9 +131,29 @@ class SubgoalGeneratorNode(Node):
             f"{self._generator.total_arc:.3f} m; cursor rewound."
         )
 
+    def _plan_fresh(self, now_monotonic_s: float) -> bool:
+        """True if a /plan has been received within ``path_timeout_s``."""
+        return (
+            self._last_plan_rx_t is not None
+            and now_monotonic_s - self._last_plan_rx_t <= self._path_timeout_s
+        )
+
     def _on_tick(self) -> None:
         if not self._generator.has_path:
             return  # No plan yet -- do not publish a subgoal.
+
+        if not self._plan_fresh(time.monotonic()):
+            # /plan went stale (planner died / stopped replanning). Suppress
+            # the subgoal so the inference node's subgoal watchdog zero-twists,
+            # rather than rolling the cursor along a stale path forever.
+            if not self._stale_plan_logged:
+                self.get_logger().warning(
+                    f"/plan is stale (older than {self._path_timeout_s:.1f} s); "
+                    "suppressing rolling-subgoal output until a fresh plan arrives."
+                )
+                self._stale_plan_logged = True
+            return
+        self._stale_plan_logged = False
 
         try:
             tf = self._tf_buffer.lookup_transform(

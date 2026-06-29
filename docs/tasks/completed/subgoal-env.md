@@ -17,7 +17,7 @@ margin; disc obstacle inflation. Follow-up filed (parked):
 **Owner:** DGX (`strafer_lab` lane — env config + path planner +
 training run)
 **Priority:** P2 — blocks
-[`hybrid-mode`](../active/trained-policy/hybrid-mode.md)
+[`hybrid-mode`](hybrid-mode.md)
 end-to-end validation but not the strafer_direct MVP path.
 **Estimate:** L (~1.5–2 weeks: path generator + subgoal command term
 + reward shaping + termination events + initial training run).
@@ -41,7 +41,7 @@ Read these before starting:
 - [context/env-composition-contract.md](../../context/env-composition-contract.md)
   — this brief adds a new RL env variant; compose it over the axes and
   add a golden-hash gate, don't write a new subclass.
-- [strafer-inference-hybrid-mode.md](../active/trained-policy/hybrid-mode.md)
+- [strafer-inference-hybrid-mode.md](hybrid-mode.md)
   — the consumer-side brief; this brief produces the trainable env
   and the deployable checkpoint that brief loads.
 - [strafer-inference-package.md](../../completed/inference-package.md) —
@@ -476,7 +476,7 @@ deployed policy should be trained against it.
 ## Out of scope
 
 - **The Jetson-side hybrid runtime.** That's
-  [`hybrid-mode`](../active/trained-policy/hybrid-mode.md).
+  [`hybrid-mode`](hybrid-mode.md).
   This brief produces the trainable env and the deployable
   checkpoint; the hybrid brief consumes them.
 - **DEPTH variant of subgoal-following.** Filed (parked) as

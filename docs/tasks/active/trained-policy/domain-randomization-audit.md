@@ -471,7 +471,7 @@ At the *current* ±2° rotation-only setting the camera effect is ~1–2 px (neg
   deployment target. NoCam has its own deployment lane (hybrid mode)
   filed under
   [`subgoal-env`](subgoal-env.md) +
-  [`hybrid-mode`](../../parked/trained-policy/hybrid-mode.md); a
+  [`hybrid-mode`](../../active/trained-policy/hybrid-mode.md); a
   parallel DR audit for NoCam_SUBGOAL can follow once that lane is
   active.
 - **Cross-room / multi-room scene randomization.** That's the

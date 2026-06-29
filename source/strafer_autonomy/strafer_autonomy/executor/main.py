@@ -71,6 +71,11 @@ STRAFER_NAV_STAGING_BUDGET : Override the maximum number of clamped intermediate
                          costmap (optional, integer; default 4). One additional final Nav2 goal fires
                          once the projection lands inside the costmap, so the worst-case Nav2 goal
                          count per navigate-with-projection step is `budget + 1`.
+STRAFER_NAV_BACKEND : Select the navigate-leg execution backend (optional). Unset/default uses
+                         `nav2`; supported values are `nav2`, `strafer_direct`, and
+                         `hybrid_nav2_strafer`. An unknown value is ignored with a warning,
+                         keeping `nav2`. A per-step `execution_backend` in the plan still
+                         overrides this default.
 """
 
 from __future__ import annotations
@@ -133,6 +138,32 @@ def _read_positive_int_env(name: str, config_key: str, target: dict) -> None:
     logger.info("%s overridden to %d via env", config_key, value)
 
 
+def _read_str_env(
+    name: str,
+    config_key: str,
+    target: dict,
+    *,
+    allowed: "tuple[str, ...] | None" = None,
+) -> None:
+    """Copy ``$name`` into ``target[config_key]`` as a string, if set.
+
+    Unset preserves the dataclass default. When ``allowed`` is given and the
+    value is not in it, warns and keeps the default rather than raising, so a
+    typo cannot strand the operator on no backend.
+    """
+    raw = os.environ.get(name)
+    if not raw:
+        return
+    if allowed is not None and raw not in allowed:
+        logger.warning(
+            "Ignoring unsupported %s=%r (expected one of %s)",
+            name, raw, sorted(allowed),
+        )
+        return
+    target[config_key] = raw
+    logger.info("%s overridden to %s via env", config_key, raw)
+
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -156,7 +187,11 @@ def main() -> None:
         HttpPlannerClient,
         HttpPlannerClientConfig,
     )
-    from strafer_autonomy.clients.ros_client import JetsonRosClient, RosClientConfig
+    from strafer_autonomy.clients.ros_client import (
+        JetsonRosClient,
+        RosClientConfig,
+        _SUPPORTED_BACKENDS,
+    )
     from strafer_autonomy.clients.vlm_client import (
         HttpGroundingClient,
         HttpGroundingClientConfig,
@@ -224,6 +259,12 @@ def main() -> None:
         "STRAFER_NAV_STALL_WINDOW_S",
         "nav_stall_window_s",
         mission_config_kwargs,
+    )
+    _read_str_env(
+        "STRAFER_NAV_BACKEND",
+        "default_navigation_backend",
+        mission_config_kwargs,
+        allowed=_SUPPORTED_BACKENDS,
     )
     runner_config = (
         MissionRunnerConfig(**mission_config_kwargs)

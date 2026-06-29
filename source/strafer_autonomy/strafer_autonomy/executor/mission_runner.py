@@ -446,7 +446,12 @@ class MissionRunner(MissionCommandHandler):
     # Plan validation
     # ------------------------------------------------------------------
 
-    _RECOGNISED_BACKENDS = frozenset({"nav2", "direct"})
+    # Plan-validation vocabulary; mirrors ros_client._SUPPORTED_BACKENDS (the
+    # dispatch source of truth), re-listed rather than imported to keep the
+    # executor free of a client-layer import.
+    _RECOGNISED_BACKENDS = frozenset(
+        {"nav2", "strafer_direct", "hybrid_nav2_strafer"}
+    )
 
     def _validate_plan(self, plan: MissionPlan) -> list[str]:
         """Validate a planner-returned mission plan before execution.

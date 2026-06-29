@@ -316,6 +316,6 @@ baseline wasn't actually converged. Investigate before declaring done.
   pass; file separate briefs as needed. Goal-position noise is the
   one with measured deployment evidence behind it.
 - **Hybrid-mode subgoal-noise training.** That's
-  [`hybrid-mode`](../../active/trained-policy/hybrid-mode.md);
+  [`hybrid-mode`](../../completed/hybrid-mode.md);
   hybrid trains a different `PolicyVariant` against subgoal poses and
   has its own noise considerations.

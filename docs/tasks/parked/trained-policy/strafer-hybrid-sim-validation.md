@@ -34,7 +34,7 @@ This brief is parked until **all** of the following have shipped:
    active P2) — supplies `PolicyVariant.NOCAM_SUBGOAL`, the
    `SubgoalCommand` term, the path planner, the trained checkpoint,
    and the registered task IDs.
-2. [`hybrid-mode`](../../active/trained-policy/hybrid-mode.md) (Jetson, active P3 —
+2. [`hybrid-mode`](../../completed/hybrid-mode.md) (Jetson, active P3 —
    ships across PRs A/B/C) — supplies the
    `STRAFER_NAV_BACKEND=hybrid_nav2_strafer` dispatch, the Nav2
    `/plan` subscription in the inference node, the rolling-subgoal
@@ -56,7 +56,7 @@ out of [`inference-package`](../../completed/inference-package.md):
 operator-driven sim validation has no unit-test analog and would
 gate the runtime PR's merge indefinitely behind a multi-day rig +
 training availability. Pre-filing it here means
-[`hybrid-mode`](../../active/trained-policy/hybrid-mode.md)'s implementer (whoever picks it up)
+[`hybrid-mode`](../../completed/hybrid-mode.md)'s implementer (whoever picks it up)
 can extract its Phase 3 sim validation into this brief on first
 pass, mirror the established precedent, and ship the hybrid runtime
 PR with unit-testable acceptance closed.
@@ -65,7 +65,7 @@ PR with unit-testable acceptance closed.
 
 Read these before starting:
 
-- [hybrid-mode.md](../../active/trained-policy/hybrid-mode.md) — the consumer-side runtime brief.
+- [hybrid-mode.md](../../completed/hybrid-mode.md) — the consumer-side runtime brief.
   This validation's acceptance criteria refine its Phase 3 ("End-to-end
   sim validation"); pick this brief up only once that one has shipped
   or is in flight on the same branch.
@@ -286,7 +286,7 @@ assembly and the subgoal selection are.
 
 ## Investigation pointers
 
-- [`hybrid-mode.md`](../../active/trained-policy/hybrid-mode.md) — the consumer brief. Its
+- [`hybrid-mode.md`](../../completed/hybrid-mode.md) — the consumer brief. Its
   Phase 3 "End-to-end sim validation" section is what this brief
   refines; pre-extracting it here means the hybrid-mode PR can
   ship its runtime with a pointer to this brief instead of

@@ -24,6 +24,8 @@ strafer_subgoal_generator:
     max_path_points: 0
 
     # Stop publishing the rolling subgoal once /plan ages past this, so a
-    # dead / wedged global planner propagates to the inference node's
-    # subgoal watchdog instead of the policy chasing a stale path.
-    path_timeout_s: 2.0
+    # dead / wedged global planner propagates to the inference node's subgoal
+    # watchdog instead of the policy chasing a stale path. The generator half
+    # of a split budget: this ~1.0 s plus the inference watchdog's ~1.0 s
+    # compose to ~2.0 s end-to-end before /cmd_vel zero-twists.
+    path_timeout_s: 1.0

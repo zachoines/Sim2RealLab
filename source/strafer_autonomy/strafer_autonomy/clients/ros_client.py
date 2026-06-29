@@ -21,12 +21,14 @@ _BACKEND_STRAFER_DIRECT = "strafer_direct"
 _BACKEND_HYBRID = "hybrid_nav2_strafer"
 _SUPPORTED_BACKENDS = (_BACKEND_NAV2, _BACKEND_STRAFER_DIRECT, _BACKEND_HYBRID)
 
-# The subgoal generator and inference node enforce a plan-freshness budget
-# (strafer_inference path_timeout_s, 2.0 s); the hybrid replan period must stay
-# below it or a healthy mission would zero-twist between re-fires. The two live
-# in separate packages and can't cross-validate, so warn on a misconfigured
-# period here rather than let it surface as silent cmd_vel stalls.
-_ASSUMED_PLAN_FRESHNESS_BUDGET_S = 2.0
+# The subgoal generator suppresses /strafer/subgoal once /plan ages past its
+# wall-clock budget (strafer_inference path_timeout_s, ~1.0 s). The hybrid
+# replan cadence is also wall-clock (see _wait_for_nav_result), so the two are
+# directly comparable: the cadence must out-pace the generator's suppression
+# budget or /plan ages out between re-fires and the freshness guards zero-twist
+# a healthy mission. The values live in separate packages and can't
+# cross-validate, so warn on a misconfigured period here.
+_GENERATOR_SUPPRESSION_BUDGET_S = 1.0
 
 
 def _resolve_execution_backend(per_step: str | None) -> str:
@@ -136,11 +138,12 @@ class RosClientConfig:
     default_rotate_speed_rad_s: float = 0.5
     default_rotate_timeout_s: float = 15.0
     clock_stall_bail_wall_s: float = 15.0
-    # Hybrid backend: how often to re-trigger Nav2's global planner so /plan
-    # stays fresh for the subgoal generator. Must be shorter than the
-    # generator/inference path_timeout_s (2.0 s) so the freshness guards do
-    # not trip during normal operation.
-    hybrid_replan_period_s: float = 1.0
+    # Hybrid backend: how often (wall seconds) to re-trigger Nav2's global
+    # planner so /plan stays fresh for the subgoal generator. Held strictly
+    # below the generator's ~1.0 s wall suppression budget (path_timeout_s) so
+    # the cadence out-paces it with margin and the freshness guards do not trip
+    # on a healthy mission.
+    hybrid_replan_period_s: float = 0.5
 
 
 class _ProgressTracker:
@@ -1093,15 +1096,15 @@ class JetsonRosClient:
         timeout = timeout_s or self._config.default_nav_timeout_s
 
         if (
-            self._config.hybrid_replan_period_s >= _ASSUMED_PLAN_FRESHNESS_BUDGET_S
+            self._config.hybrid_replan_period_s >= _GENERATOR_SUPPRESSION_BUDGET_S
             and not getattr(self, "_hybrid_period_warned", False)
         ):
             logger.warning(
-                "hybrid_replan_period_s=%.2f s is not below the ~%.1f s "
-                "plan-freshness budget; /plan may age past it between re-fires "
-                "and zero-twist /cmd_vel on a healthy mission.",
+                "hybrid_replan_period_s=%.2f s (wall) is not below the ~%.1f s "
+                "wall generator suppression budget; /plan can age past it "
+                "between re-fires and zero-twist /cmd_vel on a healthy mission.",
                 self._config.hybrid_replan_period_s,
-                _ASSUMED_PLAN_FRESHNESS_BUDGET_S,
+                _GENERATOR_SUPPRESSION_BUDGET_S,
             )
             self._hybrid_period_warned = True
 
@@ -1828,7 +1831,7 @@ class JetsonRosClient:
             wall_now_s=time.monotonic(),
         )
 
-        last_replan = clock.now()
+        last_replan_wall = time.monotonic()
         poll_dt = max(0.01, min(0.1, timeout_s / 10.0))
         while not done.is_set():
             now = clock.now()
@@ -1848,12 +1851,17 @@ class JetsonRosClient:
             if (
                 replan is not None
                 and replan_period_s is not None
-                and (now - last_replan) >= Duration(seconds=replan_period_s)
+                and (wall_now - last_replan_wall) >= replan_period_s
             ):
                 # Hybrid backend: re-trigger Nav2's global planner so /plan
-                # stays fresh for the subgoal generator while the policy runs.
+                # stays fresh for the subgoal generator. The cadence runs on
+                # the WALL clock (time.monotonic) to match the downstream
+                # plan-freshness budgets, which are also wall-clock; firing on
+                # the sim clock would stretch with sub-unity RTF and let /plan
+                # age past those budgets on a healthy mission. The deadline and
+                # the frozen-/clock detector above stay on the sim clock.
                 replan()
-                last_replan = now
+                last_replan_wall = wall_now
             if done.wait(timeout=poll_dt):
                 return (True, False)
         return (True, False)

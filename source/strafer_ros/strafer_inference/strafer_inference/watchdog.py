@@ -27,11 +27,14 @@ class WatchdogTimeouts:
     odom: float
     depth: float
     tf: float
-    # Rolling-subgoal freshness (hybrid mode). Longer than the obs/depth
-    # thresholds because the upstream planner refreshes the path on a
-    # replan cadence, not every tick. Defaulted so non-hybrid constructions
-    # need not pass it.
-    path: float = 2.0
+    # Rolling-subgoal freshness (hybrid mode). The inference half of a split
+    # stale-plan trust budget: the generator stops publishing the subgoal
+    # ~path_timeout_s after /plan dies, then this window trips ~path_timeout_s
+    # later, so the two compose to ~2.0 s end-to-end (each side ~1.0 s).
+    # Longer than the obs/depth thresholds because the planner refreshes the
+    # path on a replan cadence, not every tick. Defaulted so non-hybrid
+    # constructions need not pass it.
+    path: float = 1.0
 
     def __post_init__(self) -> None:
         for name in ("goal", "imu", "joint_states", "odom", "depth", "tf", "path"):

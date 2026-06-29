@@ -71,8 +71,12 @@ class SubgoalGeneratorNode(Node):
         self.declare_parameter("max_path_points", 0)
         # Stop publishing the rolling subgoal once /plan ages past this, so a
         # dead / wedged global planner propagates to the inference node's
-        # subgoal watchdog instead of the policy chasing a stale path.
-        self.declare_parameter("path_timeout_s", 2.0)
+        # subgoal watchdog instead of the policy chasing a stale path. The
+        # generator half of a split stale-plan budget: this ~1.0 s plus the
+        # inference watchdog's ~1.0 s compose to ~2.0 s end-to-end before
+        # /cmd_vel zero-twists. Wall-clock (time.monotonic), matching the
+        # hybrid replan cadence so sub-unity sim RTF cannot age it out early.
+        self.declare_parameter("path_timeout_s", 1.0)
 
         self._map_frame: str = self.get_parameter("map_frame").value
         self._base_frame: str = self.get_parameter("base_frame").value

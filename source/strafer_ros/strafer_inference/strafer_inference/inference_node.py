@@ -133,7 +133,7 @@ class InferenceNode(Node):
         self.declare_parameter("goal_timeout_s", 1.0)
         self.declare_parameter("obs_timeout_s", 0.2)
         self.declare_parameter("depth_timeout_s", 0.5)
-        self.declare_parameter("path_timeout_s", 2.0)
+        self.declare_parameter("path_timeout_s", 1.0)
         self.declare_parameter("vel_cap_linear_m_s", _DEFAULT_VEL_CAP_LINEAR)
         self.declare_parameter("vel_cap_angular_rad_s", _DEFAULT_VEL_CAP_ANGULAR)
         self.declare_parameter("is_mid_mission_reset", True)

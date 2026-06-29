@@ -406,14 +406,23 @@ class TestVariantAwareWiring(unittest.TestCase):
         finally:
             node.destroy_node()
 
-    def test_nocam_subgoal_tick_does_not_trip_on_depth(self) -> None:
-        """A NOCAM_SUBGOAL node never receives depth; _on_tick must not
-        wedge on a perpetually-stale depth source. With no sensors fed the
-        tick still returns cleanly (other sources stale → zero twist).
+    def test_nocam_subgoal_tick_zero_twists_when_watchdog_stale(self) -> None:
+        """A NOCAM_SUBGOAL node never receives depth; with no sensors fed the
+        watchdog is stale and the tick must publish a single zero Twist (the
+        safety stop) -- not merely avoid crashing on the disabled depth source.
         """
+        from geometry_msgs.msg import Twist
+
         node = self._node("NOCAM_SUBGOAL")
+        node._cmd_vel_pub = MagicMock()
         try:
-            node._on_tick()  # no exception; depth source is disabled
+            node._on_tick()
+            node._cmd_vel_pub.publish.assert_called_once()
+            published = node._cmd_vel_pub.publish.call_args[0][0]
+            self.assertIsInstance(published, Twist)
+            self.assertEqual(published.linear.x, 0.0)
+            self.assertEqual(published.linear.y, 0.0)
+            self.assertEqual(published.angular.z, 0.0)
         finally:
             node.destroy_node()
 
@@ -426,7 +435,7 @@ class TestVariantAwareWiring(unittest.TestCase):
 
         node = self._node("NOCAM_SUBGOAL")
         try:
-            self.assertEqual(node._timeouts.path, 2.0)
+            self.assertEqual(node._timeouts.path, 1.0)
             now = 1000.0
             stale = stale_sources(
                 now_monotonic_s=now,

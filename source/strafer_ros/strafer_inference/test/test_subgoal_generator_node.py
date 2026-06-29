@@ -36,7 +36,7 @@ def _make_overrides(**values) -> list[Parameter]:
 
 def _node(**overrides) -> SubgoalGeneratorNode:
     return SubgoalGeneratorNode(
-        parameter_overrides=_make_overrides(path_timeout_s=2.0, **overrides)
+        parameter_overrides=_make_overrides(path_timeout_s=1.0, **overrides)
     )
 
 
@@ -52,9 +52,9 @@ class TestPlanFresh(unittest.TestCase):
         node = _node()
         try:
             node._last_plan_rx_t = 100.0
-            self.assertTrue(node._plan_fresh(101.0))     # 1.0 s <= 2.0 s
-            self.assertTrue(node._plan_fresh(102.0))     # 2.0 s == budget
-            self.assertFalse(node._plan_fresh(102.001))  # just past budget
+            self.assertTrue(node._plan_fresh(100.5))     # 0.5 s <= 1.0 s budget
+            self.assertTrue(node._plan_fresh(101.0))     # 1.0 s == budget
+            self.assertFalse(node._plan_fresh(101.001))  # just past budget
         finally:
             node.destroy_node()
 
@@ -113,3 +113,36 @@ class TestStalePlanSuppressesSubgoal(unittest.TestCase):
             node._tf_buffer.lookup_transform.assert_not_called()
         finally:
             node.destroy_node()
+
+
+class TestComposedStaleBound(unittest.TestCase):
+    """Regression anchor for the stale-plan -> STOP bound. The two serial
+    stages each carry ~half of the trust budget so they compose to ~2.0 s:
+    the generator stops publishing the subgoal one stage after /plan dies,
+    then the inference watchdog trips one stage later. If either default
+    drifts back to the full budget the composed bound doubles, so pin the
+    sum here.
+    """
+
+    def test_generator_and_inference_budgets_compose_to_two_seconds(self) -> None:
+        from strafer_inference.watchdog import WatchdogTimeouts
+
+        # Build WITHOUT a path_timeout_s override so _path_timeout_s reflects
+        # the DECLARED default; this fails if the generator's param default
+        # drifts back to the full budget (which would double the composed
+        # bound). The _node() helper injects 1.0, which would mask that.
+        node = SubgoalGeneratorNode(parameter_overrides=[])
+        try:
+            generator_budget = node._path_timeout_s
+        finally:
+            node.destroy_node()
+        # Inference half: the WatchdogTimeouts.path default the inference node
+        # feeds from its own path_timeout_s param.
+        inference_budget = WatchdogTimeouts(
+            goal=1.0, imu=0.2, joint_states=0.2, odom=0.2, depth=0.5, tf=0.5,
+        ).path
+        self.assertEqual(generator_budget, pytest.approx(1.0))
+        self.assertEqual(inference_budget, pytest.approx(1.0))
+        self.assertEqual(
+            generator_budget + inference_budget, pytest.approx(2.0)
+        )

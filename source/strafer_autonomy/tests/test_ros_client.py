@@ -1888,12 +1888,24 @@ class TestNavigateToPoseDispatch(unittest.TestCase):
             client._navigate_via_hybrid = fake_hybrid  # type: ignore
             client._navigate_via_nav2 = fake_nav2  # type: ignore
 
-            result = client.navigate_to_pose(
-                step_id="h2",
-                goal_pose=Pose3D(x=1.0, y=0.0, z=0.0, qx=0, qy=0, qz=0, qw=1),
-            )
+            with patch(
+                "strafer_autonomy.clients.ros_client.logger"
+            ) as mock_logger:
+                result = client.navigate_to_pose(
+                    step_id="h2",
+                    goal_pose=Pose3D(
+                        x=1.0, y=0.0, z=0.0, qx=0, qy=0, qz=0, qw=1
+                    ),
+                )
             self.assertEqual(result.status, "succeeded")
             self.assertNotIn("hybrid", result.message)
+            # The silent fallback must be observable: a warning naming the
+            # nav2 fallback fires before re-routing the mission.
+            mock_logger.warning.assert_called()
+            warned = " ".join(
+                str(c.args[0]) for c in mock_logger.warning.call_args_list
+            )
+            self.assertIn("falling back to nav2", warned)
 
 
 class TestNavigateViaHybridInternals(unittest.TestCase):
@@ -1966,3 +1978,50 @@ class TestNavigateViaHybridInternals(unittest.TestCase):
         plan_goal = planner.send_goal_async.call_args[0][0]
         self.assertEqual(plan_goal.planner_id, "GridBased")
         self.assertFalse(plan_goal.use_start)
+
+    def test_replan_cadence_is_wall_clock_not_sim(self):
+        """The replan cadence fires on the WALL clock, so a sub-unity sim RTF
+        does not stretch it. Modeled with a frozen sim clock (an extreme
+        sub-unity RTF, well under the stall detector's bail window): if the
+        cadence read the sim clock, a non-advancing sim clock would fire zero
+        replans; on the wall clock it fires as real time passes.
+        """
+        import threading
+        from rclpy.time import Time as RclpyTime
+
+        client = _make_client()
+        # Frozen sim clock, overriding _make_client's wall-tracking clock: an
+        # extreme sub-unity RTF, well under the stall detector's 15 s bail. The
+        # mission deadline (sim) is never reached, so the loop runs on the
+        # future + the wall-clock replan cadence under test.
+        frozen = RclpyTime(seconds=1000)
+        client._node.get_clock.return_value.now.side_effect = lambda: frozen
+
+        class _FakeFuture:
+            def __init__(self):
+                self._cbs = []
+
+            def add_done_callback(self, cb):
+                self._cbs.append(cb)
+
+            def done(self):
+                return False
+
+            def complete(self):
+                for cb in self._cbs:
+                    cb(self)
+
+        fut = _FakeFuture()
+        # Complete the future after a short wall delay so the loop runs in
+        # real time and exits deterministically.
+        threading.Timer(0.12, fut.complete).start()
+
+        replans = []
+        completed, _stalled = client._wait_for_nav_result(
+            fut, timeout_s=0.1, tracker=None,
+            replan=lambda: replans.append(1), replan_period_s=0.02,
+        )
+        self.assertTrue(completed)
+        # Wall time advanced (~0.12 s) while the sim clock stayed frozen; a
+        # sim-clock cadence would fire 0 replans, a wall-clock cadence >= 1.
+        self.assertGreaterEqual(len(replans), 1)

@@ -69,7 +69,6 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | [`policy-rate-shared-constants`](active/trained-policy/policy-rate-shared-constants.md) | P2 | active | DGX |
 | [`domain-randomization-audit`](active/trained-policy/domain-randomization-audit.md) | P1 | active | DGX |
 | [`goal-noise-training`](active/trained-policy/goal-noise-training.md) | P2 | active | DGX |
-| [`hybrid-mode`](completed/hybrid-mode.md) | P3 | shipped 2026-06-28 (#119 A, #122 B, #123 C; Jetson) — generator + /plan subscription, variant-agnostic obs assembly, hybrid dispatch + two-node plan-freshness guard | Jetson |
 | [`strafer-hybrid-sim-validation`](parked/trained-policy/strafer-hybrid-sim-validation.md) | P3 | parked | Either |
 | [`depth-subgoal-env`](parked/trained-policy/depth-subgoal-env.md) | P3 | parked | DGX |
 | [`depth-subgoal-hybrid-runtime`](parked/trained-policy/depth-subgoal-hybrid-runtime.md) | P3 | parked | Jetson |

@@ -42,6 +42,11 @@ EXPECTED_ENVS = [
     "Isaac-Strafer-Nav-RLDepth-Robust-Play-v0",
     "Isaac-Strafer-Nav-RLNoCam-v0",
     "Isaac-Strafer-Nav-RLNoCam-Play-v0",
+    # RL training — rolling-subgoal path tracking (proprioceptive)
+    "Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-v0",
+    "Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-v0",
+    "Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-v0",
+    "Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-Play-v0",
     # Capture (operator-selectable stack)
     "Isaac-Strafer-Nav-Capture-Teleop-v0",
     "Isaac-Strafer-Nav-Capture-Bridge-v0",

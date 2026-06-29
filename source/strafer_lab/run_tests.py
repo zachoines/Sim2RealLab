@@ -17,6 +17,7 @@ Examples:
     isaaclab.bat -p ...\\run_tests.py all
 """
 
+import importlib.util
 import subprocess
 import sys
 import os
@@ -38,6 +39,10 @@ SUITE_TIMEOUTS = {
     "rewards": 300,       # per-file timeout (collision tests run physics)
 }
 DEFAULT_TIMEOUT = 180
+
+# How many trailing non-blank output lines to surface when a suite's JUnit XML
+# is missing, so a genuine crash is diagnosable instead of opaque.
+_CRASH_TAIL_LINES = 30
 
 # Suites that must run each test file in a separate subprocess because
 # each file creates its own ManagerBasedRLEnv (SimulationContext singleton).
@@ -75,6 +80,7 @@ def _run_subprocess(cmd: list[str], timeout: int, xml_path: Path) -> dict | None
         Parsed result dict, or None on timeout/XML failure.
     """
     # Use temp files so the child process never blocks on pipe buffers
+    captured = ""
     with tempfile.TemporaryFile(mode="w+b") as tmp_out, \
          tempfile.TemporaryFile(mode="w+b") as tmp_err:
 
@@ -87,16 +93,29 @@ def _run_subprocess(cmd: list[str], timeout: int, xml_path: Path) -> dict | None
             proc.wait()
             return None  # caller handles timeout
 
+        # Read the child's output before the temp files are released, so a
+        # missing-XML run can be diagnosed below rather than reported opaquely.
+        tmp_out.seek(0)
+        tmp_err.seek(0)
+        captured = (tmp_out.read().decode("utf-8", "replace")
+                    + tmp_err.read().decode("utf-8", "replace"))
+
     # Parse XML results (written before os._exit kills the process)
     try:
         tree = ET.parse(xml_path)
     except (ET.ParseError, FileNotFoundError):
         # No XML means the pytest subprocess died before writing it (a
-        # collection-time import error, a plugin-autoload crash, etc.). Count
-        # it as an error — never let an absent result read as a silent pass.
+        # collection-time import error, a segfault, a plugin-autoload crash, or
+        # a force-exit that preempted the writer). Count it as an error — never
+        # let an absent result read as a silent pass — and surface the tail of
+        # the captured output so the crash is diagnosable instead of opaque.
+        tail = [ln[:300] for ln in captured.splitlines() if ln.strip()][-_CRASH_TAIL_LINES:]
+        details = ["  ERROR  XML not generated (subprocess crashed before writing results)"]
+        details += [f"         | {ln}" for ln in tail] if tail else \
+                   ["         | (no output captured)"]
         return {"tests": 0, "passed": 0, "failed": 0,
                 "errors": 1, "skipped": 0,
-                "details": ["  ERROR  XML not generated (subprocess crashed before writing results)"]}
+                "details": details}
 
     root = tree.getroot()
     suite = root.find(".//testsuite")
@@ -228,6 +247,16 @@ def _run_multi_process(name: str, paths: list[str], per_file_timeout: int) -> di
 
 
 def main():
+    # Every suite runs ``sys.executable -m pytest``. If THIS interpreter has no
+    # pytest (e.g. the script was launched with conda base instead of the Isaac
+    # Sim env), every suite would otherwise die with an opaque "No module named
+    # pytest" and no JUnit XML. Fail fast with one actionable message.
+    if importlib.util.find_spec("pytest") is None:
+        print(f"[run_tests] '{sys.executable}' has no pytest — relaunch with the "
+              f"Isaac Sim env's python ('make test-lab' / 'make test-lab-pure' "
+              f"set this up for you).")
+        sys.exit(1)
+
     args = sys.argv[1:]
     if not args or "all" in args:
         selected = list(SUITES.items())

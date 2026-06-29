@@ -50,12 +50,17 @@ def stale_sources(
     last_depth_rx_t: Optional[float],
     tf_age_s: Optional[float],
     timeouts: WatchdogTimeouts,
+    depth_enabled: bool = True,
 ) -> list[str]:
     """Return the names of the watchdog sources that are stale or absent.
 
     A ``None`` rx time / TF age is treated as stale — the source has
     never produced a sample. Returned list order matches the
-    brief's enumeration so log messages read consistently.
+    enumeration so log messages read consistently.
+
+    ``depth_enabled`` is ``False`` for no-camera variants (whose policy
+    declares no depth field); the depth source is then dropped entirely
+    rather than tripping forever on a topic the variant never subscribes.
     """
     stale: list[str] = []
     if last_goal_rx_t is None or now_monotonic_s - last_goal_rx_t > timeouts.goal:
@@ -69,7 +74,9 @@ def stale_sources(
         stale.append("joint_states")
     if last_odom_rx_t is None or now_monotonic_s - last_odom_rx_t > timeouts.odom:
         stale.append("odom")
-    if last_depth_rx_t is None or now_monotonic_s - last_depth_rx_t > timeouts.depth:
+    if depth_enabled and (
+        last_depth_rx_t is None or now_monotonic_s - last_depth_rx_t > timeouts.depth
+    ):
         stale.append("depth")
     if tf_age_s is None or tf_age_s > timeouts.tf:
         stale.append("tf")

@@ -64,7 +64,6 @@ from .obs_pipeline import (
     downsample_depth,
     joint_state_to_wheel_vels,
     l1_clamp_velocity,
-    quaternion_to_yaw,
 )
 from .watchdog import WatchdogTimeouts, stale_sources
 
@@ -124,6 +123,7 @@ class InferenceNode(Node):
         self.declare_parameter("goal_topic", "/strafer/goal")
         self.declare_parameter("cmd_vel_topic", "/strafer/cmd_vel")
         self.declare_parameter("depth_topic", "/d555/depth/image_rect_raw")
+        self.declare_parameter("subgoal_topic", "/strafer/subgoal")
         self.declare_parameter("imu_topic", "/d555/imu/filtered")
         self.declare_parameter("joint_states_topic", "/strafer/joint_states")
         self.declare_parameter("odom_topic", "/strafer/odom")
@@ -159,6 +159,18 @@ class InferenceNode(Node):
                 f"policy_variant={variant_str!r} is not a PolicyVariant; "
                 f"expected one of {[v.name for v in PolicyVariant]}"
             ) from exc
+
+        # Variant-agnostic feature gating: the depth subscriber, the depth
+        # watchdog source, and the goal-shaped obs keys key off what the
+        # loaded variant's fields contain rather than a hardcoded DEPTH
+        # assumption, so a no-camera / subgoal variant composes without a
+        # per-variant branch.
+        self._has_depth = any(
+            f.key == "depth_image" for f in self._variant.fields
+        )
+        self._uses_subgoal = any(
+            f.key.startswith("subgoal_") for f in self._variant.fields
+        )
 
         self._map_frame: str = self.get_parameter("map_frame").value
         self._base_frame: str = self.get_parameter("base_frame").value
@@ -199,6 +211,8 @@ class InferenceNode(Node):
         self._last_depth_rx_t: Optional[float] = None
         self._last_goal_map: Optional[PoseStamped] = None
         self._last_goal_rx_t: Optional[float] = None
+        self._last_subgoal_map: Optional[PoseStamped] = None
+        self._last_subgoal_rx_t: Optional[float] = None
         self._last_action: np.ndarray = np.zeros(3, dtype=np.float32)
 
         self._policy_lock = threading.Lock()
@@ -233,14 +247,29 @@ class InferenceNode(Node):
             Odometry, odom_topic, self._on_odom, 10,
             callback_group=self._default_cb_group,
         )
-        self._depth_sub = self.create_subscription(
-            Image, depth_topic, self._on_depth, 10,
-            callback_group=self._default_cb_group,
-        )
+        # Depth is subscribed only when the variant consumes it; a no-camera
+        # variant skips the subscriber (and its decode cost) entirely rather
+        # than caching frames it never reads.
+        self._depth_sub = None
+        if self._has_depth:
+            self._depth_sub = self.create_subscription(
+                Image, depth_topic, self._on_depth, 10,
+                callback_group=self._default_cb_group,
+            )
         self._goal_sub = self.create_subscription(
             PoseStamped, goal_topic, self._on_goal, 10,
             callback_group=self._default_cb_group,
         )
+        # Subgoal variants follow a rolling subgoal pose; it advances every
+        # tick, so caching it must NOT trigger the mid-mission hidden-state
+        # reset that _on_goal does for the final goal.
+        self._subgoal_sub = None
+        if self._uses_subgoal:
+            subgoal_topic = self.get_parameter("subgoal_topic").value
+            self._subgoal_sub = self.create_subscription(
+                PoseStamped, subgoal_topic, self._on_subgoal, 10,
+                callback_group=self._default_cb_group,
+            )
 
         self._tf_buffer = tf2_ros.Buffer()
         self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self)
@@ -316,7 +345,7 @@ class InferenceNode(Node):
         # wedged node from the outside; log so the operator knows what
         # to expect, then flip the ready param to True after the first
         # successful inference in _on_tick.
-        if model_path.suffix == ".onnx" and onnx_providers and (
+        if self._has_depth and model_path.suffix == ".onnx" and onnx_providers and (
             "TensorrtExecutionProvider" in onnx_providers
         ):
             self.get_logger().info(
@@ -379,6 +408,14 @@ class InferenceNode(Node):
             return
         self._last_depth_meters = arr
         self._last_depth_rx_t = time.monotonic()
+
+    def _on_subgoal(self, msg: PoseStamped) -> None:
+        # Cache only; the rolling subgoal advances every tick and must not
+        # drive the mid-mission hidden-state reset (that is the final goal's
+        # job in _on_goal). The rx time is recorded for a later staleness
+        # watchdog source.
+        self._last_subgoal_map = msg
+        self._last_subgoal_rx_t = time.monotonic()
 
     def _on_goal(self, msg: PoseStamped) -> None:
         previous = self._last_goal_map
@@ -492,6 +529,7 @@ class InferenceNode(Node):
             last_depth_rx_t=self._last_depth_rx_t,
             tf_age_s=tf_age,
             timeouts=self._timeouts,
+            depth_enabled=self._has_depth,
         )
         if stale:
             self.get_logger().warning(
@@ -553,12 +591,18 @@ class InferenceNode(Node):
             self._log_obs_summary(obs, action, t_inference_ns)
 
     def _assemble_observation_or_none(self) -> Optional[np.ndarray]:
+        # The obs referent is the rolling subgoal for subgoal variants, the
+        # final goal otherwise. Depth is required only when the variant has
+        # a depth field.
+        referent = (
+            self._last_subgoal_map if self._uses_subgoal else self._last_goal_map
+        )
         if (
             self._last_imu is None
             or self._last_joint_states is None
             or self._last_odom is None
-            or self._last_depth_meters is None
-            or self._last_goal_map is None
+            or referent is None
+            or (self._has_depth and self._last_depth_meters is None)
         ):
             return None
 
@@ -579,13 +623,12 @@ class InferenceNode(Node):
             tf.transform.translation.y,
         )
         rot = tf.transform.rotation
-        base_in_map_yaw = quaternion_to_yaw(rot.x, rot.y, rot.z, rot.w)
 
-        goal = self._last_goal_map.pose.position
-        goal_rel, goal_dist, goal_head = body_frame_goal(
-            goal_map_xy=(goal.x, goal.y),
+        ref_pos = referent.pose.position
+        ref_rel, ref_dist, ref_head = body_frame_goal(
+            goal_map_xy=(ref_pos.x, ref_pos.y),
             base_in_map_xy=base_in_map_xy,
-            base_in_map_yaw=base_in_map_yaw,
+            base_in_map_quat=(rot.x, rot.y, rot.z, rot.w),
         )
 
         try:
@@ -597,12 +640,15 @@ class InferenceNode(Node):
             self.get_logger().warning(f"JointState parse failed: {exc}")
             return None
 
-        depth_flat = downsample_depth(self._last_depth_meters)
+        depth_flat = (
+            downsample_depth(self._last_depth_meters) if self._has_depth else None
+        )
 
         imu = self._last_imu
         odom = self._last_odom
 
         raw = build_raw_obs_dict(
+            variant=self._variant,
             imu_accel=(
                 imu.linear_acceleration.x,
                 imu.linear_acceleration.y,
@@ -614,9 +660,9 @@ class InferenceNode(Node):
                 imu.angular_velocity.z,
             ),
             wheel_vels_rad_s=wheel_vels,
-            goal_relative_xy=goal_rel,
-            goal_distance=goal_dist,
-            goal_heading_to_goal=goal_head,
+            goal_relative_xy=ref_rel,
+            goal_distance=ref_dist,
+            goal_heading_to_goal=ref_head,
             body_velocity_xy=(
                 odom.twist.twist.linear.x,
                 odom.twist.twist.linear.y,
@@ -648,11 +694,19 @@ class InferenceNode(Node):
         t_inference_ns: int,
     ) -> None:
         digest = hashlib.sha1(obs.tobytes()).hexdigest()[:12]
-        depth_slice = obs[19:]  # NOCAM is 19 dims; remainder is the depth field.
+        depth_stats = ""
+        if self._has_depth:
+            offset = sum(
+                f.dims for f in self._variant.fields if f.key != "depth_image"
+            )
+            depth_slice = obs[offset:]
+            depth_stats = (
+                f"depth_mean={float(depth_slice.mean()):.4f} "
+                f"depth_min={float(depth_slice.min()):.4f} "
+            )
         self.get_logger().debug(
             f"obs_summary hash={digest} dim={obs.shape[0]} "
-            f"depth_mean={float(depth_slice.mean()):.4f} "
-            f"depth_min={float(depth_slice.min()):.4f} "
+            f"{depth_stats}"
             f"action={np.array2string(action, precision=4)} "
             f"t_inference_ns={t_inference_ns}"
         )

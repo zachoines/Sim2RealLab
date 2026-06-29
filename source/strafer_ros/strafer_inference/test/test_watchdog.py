@@ -117,3 +117,46 @@ class TestStaleSources:
         assert result == [
             "goal", "imu", "joint_states", "odom", "depth", "tf",
         ]
+
+
+class TestDepthEnabled:
+    """No-camera variants (no depth field) drop the depth source: it must
+    not trip the watchdog forever on a topic the variant never subscribes.
+    """
+
+    def test_disabled_drops_depth_even_when_absent(self, timeouts):
+        now = 100.0
+        rx = _all_fresh_rx_times(now)
+        rx["last_depth_rx_t"] = None  # would be stale if the source were on
+        result = stale_sources(
+            now_monotonic_s=now, timeouts=timeouts, depth_enabled=False, **rx
+        )
+        assert "depth" not in result
+        assert result == []
+
+    def test_disabled_drops_depth_even_when_stale(self, timeouts):
+        now = 100.0
+        rx = _all_fresh_rx_times(now)
+        rx["last_depth_rx_t"] = now - 5.0  # far past timeouts.depth
+        result = stale_sources(
+            now_monotonic_s=now, timeouts=timeouts, depth_enabled=False, **rx
+        )
+        assert "depth" not in result
+
+    def test_disabled_still_reports_other_stale_sources(self, timeouts):
+        now = 100.0
+        rx = _all_fresh_rx_times(now)
+        rx["last_depth_rx_t"] = None
+        rx["last_odom_rx_t"] = now - 5.0  # stale odom
+        result = stale_sources(
+            now_monotonic_s=now, timeouts=timeouts, depth_enabled=False, **rx
+        )
+        # Order-exact: depth dropped entirely, only the stale odom remains.
+        assert result == ["odom"]
+
+    def test_enabled_is_the_default(self, timeouts):
+        now = 100.0
+        rx = _all_fresh_rx_times(now)
+        rx["last_depth_rx_t"] = None
+        result = stale_sources(now_monotonic_s=now, timeouts=timeouts, **rx)
+        assert "depth" in result

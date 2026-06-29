@@ -340,3 +340,79 @@ class TestRxTimeBookkeeping(unittest.TestCase):
             self.assertIsNotNone(node._last_goal_rx_t)
         finally:
             node.destroy_node()
+
+
+# =============================================================================
+# Variant-aware wiring (Option A: depth + subgoal subscribers, watchdog, obs
+# are gated on what the loaded variant's fields contain)
+# =============================================================================
+
+
+class TestVariantAwareWiring(unittest.TestCase):
+
+    def _node(self, variant: str) -> InferenceNode:
+        return InferenceNode(
+            parameter_overrides=_make_overrides(
+                model_path="", policy_variant=variant
+            )
+        )
+
+    def test_depth_variant_subscribes_depth_not_subgoal(self) -> None:
+        node = self._node("DEPTH")
+        try:
+            self.assertTrue(node._has_depth)
+            self.assertFalse(node._uses_subgoal)
+            self.assertIsNotNone(node._depth_sub)
+            self.assertIsNone(node._subgoal_sub)
+        finally:
+            node.destroy_node()
+
+    def test_nocam_subgoal_subscribes_subgoal_not_depth(self) -> None:
+        node = self._node("NOCAM_SUBGOAL")
+        try:
+            self.assertFalse(node._has_depth)
+            self.assertTrue(node._uses_subgoal)
+            self.assertIsNone(node._depth_sub)
+            self.assertIsNotNone(node._subgoal_sub)
+        finally:
+            node.destroy_node()
+
+    def test_nocam_subscribes_neither_depth_nor_subgoal(self) -> None:
+        """Regression anchor: the no-camera, goal-referent variant wires
+        neither the depth nor the subgoal subscriber.
+        """
+        node = self._node("NOCAM")
+        try:
+            self.assertFalse(node._has_depth)
+            self.assertFalse(node._uses_subgoal)
+            self.assertIsNone(node._depth_sub)
+            self.assertIsNone(node._subgoal_sub)
+        finally:
+            node.destroy_node()
+
+    def test_subgoal_callback_caches_without_resetting(self) -> None:
+        """The rolling subgoal advances every tick; caching it must record
+        the rx time but must NOT fire the mid-mission hidden-state reset.
+        """
+        node = self._node("NOCAM_SUBGOAL")
+        fake = _FakeRecurrentPolicy()
+        node._policy = fake
+        try:
+            node._on_subgoal(_make_pose(1.0, 0.0))
+            self.assertIsNotNone(node._last_subgoal_rx_t)
+            self.assertEqual(node._last_subgoal_map.pose.position.x, 1.0)
+            node._on_subgoal(_make_pose(2.0, 0.0))  # subgoal advances
+            self.assertEqual(fake.reset_calls, 0)
+        finally:
+            node.destroy_node()
+
+    def test_nocam_subgoal_tick_does_not_trip_on_depth(self) -> None:
+        """A NOCAM_SUBGOAL node never receives depth; _on_tick must not
+        wedge on a perpetually-stale depth source. With no sensors fed the
+        tick still returns cleanly (other sources stale → zero twist).
+        """
+        node = self._node("NOCAM_SUBGOAL")
+        try:
+            node._on_tick()  # no exception; depth source is disabled
+        finally:
+            node.destroy_node()

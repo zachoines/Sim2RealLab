@@ -25,6 +25,7 @@ from strafer_shared.mecanum_kinematics import (
     l1_clamp_twist as l1_clamp_velocity,
     wheel_vels_to_ticks_per_sec,
 )
+from strafer_shared.policy_interface import PolicyVariant
 
 
 _BLOCK_H = PERCEPTION_HEIGHT // DEPTH_HEIGHT  # 6
@@ -86,30 +87,63 @@ def quaternion_to_yaw(qx: float, qy: float, qz: float, qw: float) -> float:
     return float(math.atan2(siny_cosp, cosy_cosp))
 
 
+def quat_apply_inverse_xy(
+    quat_xyzw: tuple[float, float, float, float],
+    delta_xy: tuple[float, float],
+) -> np.ndarray:
+    """Rotate the planar world displacement ``(dx, dy, 0)`` into the body
+    frame by the INVERSE of the base orientation quaternion (XYZW),
+    returning local ``(x, y)``.
+
+    Mirrors ``isaaclab.utils.math.quat_apply_inverse`` so the deployed
+    ``*_relative`` obs field is consistent with the training
+    ``goal_position_relative`` term (full 3-D rotation, not yaw-only). The
+    two agree only at zero roll/pitch; the real-robot/sim ``map -> base_link``
+    TF carries tilt, so the yaw-only shortcut breaks obs parity there.
+    """
+    q = np.asarray(quat_xyzw, dtype=np.float64)  # (x, y, z, w)
+    xyz = q[:3]
+    w = q[3]
+    vec = np.array([float(delta_xy[0]), float(delta_xy[1]), 0.0], dtype=np.float64)
+    t = 2.0 * np.cross(xyz, vec)
+    rel = vec - w * t + np.cross(xyz, t)
+    return rel[:2].astype(np.float32)
+
+
 def body_frame_goal(
     *,
     goal_map_xy: tuple[float, float],
     base_in_map_xy: tuple[float, float],
-    base_in_map_yaw: float,
+    base_in_map_quat: tuple[float, float, float, float],
 ) -> tuple[np.ndarray, float, float]:
     """Map-frame goal → body-frame (rel_xy, distance, heading_to_goal).
 
-    The training env computes the same triplet in base_link frame; if
-    inference returned map-frame values the policy would turn the
-    wrong way on the real robot.
+    ``rel_xy`` uses the FULL quaternion-inverse rotation, matching the
+    training ``goal_position_relative`` term (and TF2 on the real robot).
+    ``distance`` and ``heading_to_goal`` are yaw-only / 2-D, matching the
+    training ``goal_distance`` and ``goal_heading_to_goal`` terms exactly —
+    a yaw-only rotation preserves both the 2-D magnitude and the relative
+    bearing, so those two must NOT switch to the 3-D path.
+
+    Args:
+        base_in_map_quat: base orientation as ``(x, y, z, w)`` (XYZW), the
+            ordering of both ROS ``geometry_msgs/Quaternion`` and the
+            training ``root_quat_w``.
     """
     gx, gy = float(goal_map_xy[0]), float(goal_map_xy[1])
     bx, by = float(base_in_map_xy[0]), float(base_in_map_xy[1])
-    yaw = float(base_in_map_yaw)
-
     dx_map = gx - bx
     dy_map = gy - by
+
+    # rel_xy: full quaternion-inverse of the planar displacement.
+    rel = quat_apply_inverse_xy(base_in_map_quat, (dx_map, dy_map))
+
+    # distance + heading: yaw-only / 2-D (these already match training).
+    yaw = quaternion_to_yaw(*base_in_map_quat)
     cos_y = math.cos(-yaw)
     sin_y = math.sin(-yaw)
     dx_body = cos_y * dx_map - sin_y * dy_map
     dy_body = sin_y * dx_map + cos_y * dy_map
-
-    rel = np.array([dx_body, dy_body], dtype=np.float32)
     dist = float(math.hypot(dx_body, dy_body))
     heading = float(math.atan2(dy_body, dx_body))
     return rel, dist, heading
@@ -141,6 +175,7 @@ def joint_state_to_wheel_vels(
 
 def build_raw_obs_dict(
     *,
+    variant: PolicyVariant,
     imu_accel: tuple[float, float, float],
     imu_gyro: tuple[float, float, float],
     wheel_vels_rad_s: np.ndarray,
@@ -149,26 +184,48 @@ def build_raw_obs_dict(
     goal_heading_to_goal: float,
     body_velocity_xy: tuple[float, float],
     last_action: np.ndarray,
-    depth_flat_normalized: np.ndarray,
+    depth_flat_normalized: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
-    """Marshal pre-extracted sensor scalars into the raw dict shape
-    that ``assemble_observation(PolicyVariant.DEPTH)`` consumes.
+    """Marshal pre-extracted sensor values into the raw dict that
+    ``assemble_observation(variant)`` consumes.
+
+    Variant-agnostic by design: the goal-shaped triplet is emitted under
+    whatever key names the variant declares -- ``goal_*`` for goal-referent
+    variants, ``subgoal_*`` for rolling-subgoal variants -- and
+    ``depth_image`` is emitted only when the variant has a depth field. The
+    ``goal_*`` argument names denote the body-frame referent triplet
+    regardless of which referent the variant actually tracks; the caller
+    transforms the right pose (final goal or rolling subgoal) before calling.
     """
     encoder_ticks = wheel_vels_to_ticks_per_sec(
         np.asarray(wheel_vels_rad_s, dtype=np.float64)
     )
-    return {
+    raw: dict[str, np.ndarray] = {
         "imu_accel": np.asarray(imu_accel, dtype=np.float32),
         "imu_gyro": np.asarray(imu_gyro, dtype=np.float32),
         "encoder_vels_ticks": encoder_ticks.astype(np.float32),
-        "goal_relative": np.asarray(goal_relative_xy, dtype=np.float32),
-        "goal_distance": np.asarray([goal_distance], dtype=np.float32),
-        "goal_heading_to_goal": np.asarray(
-            [goal_heading_to_goal], dtype=np.float32
-        ),
         "body_velocity_xy": np.asarray(body_velocity_xy, dtype=np.float32),
         "last_action": np.asarray(last_action, dtype=np.float32),
-        "depth_image": np.asarray(
-            depth_flat_normalized, dtype=np.float32
-        ),
     }
+    referent_relative = np.asarray(goal_relative_xy, dtype=np.float32)
+    referent_distance = np.asarray([goal_distance], dtype=np.float32)
+    referent_heading = np.asarray([goal_heading_to_goal], dtype=np.float32)
+
+    for field in variant.fields:
+        key = field.key
+        if key in raw:
+            continue
+        if key.endswith("_relative"):
+            raw[key] = referent_relative
+        elif key.endswith("_distance"):
+            raw[key] = referent_distance
+        elif "heading" in key:
+            raw[key] = referent_heading
+        elif key == "depth_image":
+            if depth_flat_normalized is None:
+                raise ValueError(
+                    f"variant {variant.name} declares a depth_image field but "
+                    "depth_flat_normalized was not provided"
+                )
+            raw[key] = np.asarray(depth_flat_normalized, dtype=np.float32)
+    return raw

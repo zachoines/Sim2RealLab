@@ -28,6 +28,10 @@ strafer_inference:
     goal_timeout_s: 1.0
     obs_timeout_s: 0.2
     depth_timeout_s: 0.5
+    # Rolling-subgoal freshness (subgoal variants only). Longer than the
+    # obs/depth thresholds because Nav2 refreshes /plan on a replan cadence,
+    # not every tick. Zero-twists /cmd_vel if /strafer/subgoal goes stale.
+    path_timeout_s: 2.0
 
     # vel_cap_* defaults are resolved by the node at startup against
     # STRAFER_NAV_VEL_SCALE (same pattern as strafer_navigation's

@@ -416,3 +416,53 @@ class TestVariantAwareWiring(unittest.TestCase):
             node._on_tick()  # no exception; depth source is disabled
         finally:
             node.destroy_node()
+
+    def test_nocam_subgoal_watchdog_swaps_depth_for_subgoal(self) -> None:
+        """The hybrid freshness guard: a NOCAM_SUBGOAL node drops the depth
+        source and adds a subgoal source (path_timeout_s budget), wired from
+        the node's own gating flags and timeouts.
+        """
+        from strafer_inference.watchdog import stale_sources
+
+        node = self._node("NOCAM_SUBGOAL")
+        try:
+            self.assertEqual(node._timeouts.path, 2.0)
+            now = 1000.0
+            stale = stale_sources(
+                now_monotonic_s=now,
+                last_goal_rx_t=now, last_imu_rx_t=now,
+                last_joint_states_rx_t=now, last_odom_rx_t=now,
+                last_depth_rx_t=None, tf_age_s=0.0,
+                timeouts=node._timeouts,
+                depth_enabled=node._has_depth,
+                last_subgoal_rx_t=None,
+                subgoal_enabled=node._uses_subgoal,
+            )
+            self.assertNotIn("depth", stale)   # no camera on this variant
+            self.assertIn("subgoal", stale)    # but the rolling subgoal is gated
+        finally:
+            node.destroy_node()
+
+    def test_depth_direct_watchdog_has_no_subgoal_source(self) -> None:
+        """Regression: the DEPTH strafer_direct node keeps the depth source
+        and adds no subgoal source.
+        """
+        from strafer_inference.watchdog import stale_sources
+
+        node = self._node("DEPTH")
+        try:
+            now = 1000.0
+            stale = stale_sources(
+                now_monotonic_s=now,
+                last_goal_rx_t=now, last_imu_rx_t=now,
+                last_joint_states_rx_t=now, last_odom_rx_t=now,
+                last_depth_rx_t=None, tf_age_s=0.0,
+                timeouts=node._timeouts,
+                depth_enabled=node._has_depth,
+                last_subgoal_rx_t=None,
+                subgoal_enabled=node._uses_subgoal,
+            )
+            self.assertIn("depth", stale)        # camera variant
+            self.assertNotIn("subgoal", stale)   # not a subgoal variant
+        finally:
+            node.destroy_node()

@@ -22,3 +22,8 @@ strafer_subgoal_generator:
 
     # 0 means "use the path as published"; >= 2 head-first truncates.
     max_path_points: 0
+
+    # Stop publishing the rolling subgoal once /plan ages past this, so a
+    # dead / wedged global planner propagates to the inference node's
+    # subgoal watchdog instead of the policy chasing a stale path.
+    path_timeout_s: 2.0

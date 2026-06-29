@@ -27,9 +27,14 @@ class WatchdogTimeouts:
     odom: float
     depth: float
     tf: float
+    # Rolling-subgoal freshness (hybrid mode). Longer than the obs/depth
+    # thresholds because the upstream planner refreshes the path on a
+    # replan cadence, not every tick. Defaulted so non-hybrid constructions
+    # need not pass it.
+    path: float = 2.0
 
     def __post_init__(self) -> None:
-        for name in ("goal", "imu", "joint_states", "odom", "depth", "tf"):
+        for name in ("goal", "imu", "joint_states", "odom", "depth", "tf", "path"):
             value = getattr(self, name)
             if value <= 0.0:
                 raise ValueError(
@@ -51,6 +56,8 @@ def stale_sources(
     tf_age_s: Optional[float],
     timeouts: WatchdogTimeouts,
     depth_enabled: bool = True,
+    last_subgoal_rx_t: Optional[float] = None,
+    subgoal_enabled: bool = False,
 ) -> list[str]:
     """Return the names of the watchdog sources that are stale or absent.
 
@@ -61,6 +68,12 @@ def stale_sources(
     ``depth_enabled`` is ``False`` for no-camera variants (whose policy
     declares no depth field); the depth source is then dropped entirely
     rather than tripping forever on a topic the variant never subscribes.
+
+    ``subgoal_enabled`` is ``True`` for rolling-subgoal (hybrid) variants;
+    it adds a ``subgoal`` source that zero-twists ``/cmd_vel`` when the
+    ``/strafer/subgoal`` stream goes stale (generator died, or its upstream
+    ``/plan`` went stale and the generator suppressed output). It is the
+    inference-side half of the hybrid plan-freshness guard.
     """
     stale: list[str] = []
     if last_goal_rx_t is None or now_monotonic_s - last_goal_rx_t > timeouts.goal:
@@ -80,4 +93,9 @@ def stale_sources(
         stale.append("depth")
     if tf_age_s is None or tf_age_s > timeouts.tf:
         stale.append("tf")
+    if subgoal_enabled and (
+        last_subgoal_rx_t is None
+        or now_monotonic_s - last_subgoal_rx_t > timeouts.path
+    ):
+        stale.append("subgoal")
     return stale

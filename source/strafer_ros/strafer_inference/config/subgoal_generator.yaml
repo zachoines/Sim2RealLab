@@ -1,0 +1,24 @@
+strafer_subgoal_generator:
+  ros__parameters:
+    # Nav2 publishes the global plan here. /plan is the Nav2 stock default
+    # and is not remapped in this repo; confirm at runtime on the Jetson
+    # and add a remap (or override this) if the planner is namespaced.
+    plan_topic: "/plan"
+
+    # Dedicated rolling-subgoal topic. NOT /strafer/goal -- a rolling
+    # subgoal advances every tick, and routing it through the goal topic
+    # would trip the inference node's mid-mission hidden-state reset.
+    subgoal_topic: "/strafer/subgoal"
+
+    map_frame: "map"
+    base_frame: "base_link"
+
+    # update_period_s and lookahead_m are intentionally omitted: the node
+    # defaults update_period_s to POLICY_SIM_DT * POLICY_DECIMATION and
+    # lookahead_m to SUBGOAL_LOOKAHEAD_M (both from strafer_shared.constants)
+    # so neither the policy rate nor the train/deploy parity surface can
+    # drift via a config literal. Set either here only for a deliberate
+    # operator override (e.g. a band-aware lookahead experiment).
+
+    # 0 means "use the path as published"; >= 2 head-first truncates.
+    max_path_points: 0

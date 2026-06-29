@@ -30,6 +30,7 @@ setup(
     entry_points={
         "console_scripts": [
             "inference_node = strafer_inference.inference_node:main",
+            "subgoal_generator_node = strafer_inference.subgoal_generator_node:main",
         ],
     },
 )

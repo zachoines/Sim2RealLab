@@ -10,7 +10,7 @@
 
 This brief is parked until **all** of the following have shipped:
 
-1. [`hybrid-mode`](hybrid-mode.md) shipped — provides the `STRAFER_NAV_BACKEND=hybrid_nav2_strafer` dispatch, the Nav2 `/plan` subscription, the rolling-subgoal selection logic, and the `mode` runtime flag this brief's variant slots into.
+1. [`hybrid-mode`](../../active/trained-policy/hybrid-mode.md) shipped — provides the `STRAFER_NAV_BACKEND=hybrid_nav2_strafer` dispatch, the Nav2 `/plan` subscription, the rolling-subgoal selection logic, and the `mode` runtime flag this brief's variant slots into.
 2. [`depth-subgoal-env`](depth-subgoal-env.md) shipped — provides `PolicyVariant.DEPTH_SUBGOAL` and the converged training checkpoint this brief's runtime loads.
 3. [`inference-package`](../../completed/inference-package.md) ✅ shipped (the DEPTH observation pipeline this brief reactivates under hybrid mode).
 
@@ -43,7 +43,7 @@ Recommendation: A. The picking-up PR description records *why* A was chosen (or 
 Read these before starting:
 
 - [`depth-subgoal-env.md`](depth-subgoal-env.md) — the source of `PolicyVariant.DEPTH_SUBGOAL` + the trained checkpoint this brief loads.
-- [`hybrid-mode.md`](hybrid-mode.md) — the consumer-side runtime brief. This brief extends its `mode: hybrid` plumbing to support a depth-aware variant.
+- [`hybrid-mode.md`](../../active/trained-policy/hybrid-mode.md) — the consumer-side runtime brief. This brief extends its `mode: hybrid` plumbing to support a depth-aware variant.
 - [`completed/inference-package.md`](../../completed/inference-package.md) — the DEPTH-direct runtime. Most of this brief's code is "make the DEPTH-direct obs pipeline composable with the hybrid-mode rolling-subgoal pipeline". If Option A is taken, this brief is the place where the DEPTH-direct path stops being DEPTH-specific.
 - [context/recurrent-policy-contract.md](../../context/recurrent-policy-contract.md) — DEPTH_SUBGOAL inherits the contract from DEPTH; the reset-trigger set and thread-safety mutex from PR #55 apply unchanged.
 
@@ -66,7 +66,7 @@ Three phases, sequenced. Phase 1 is the load-bearing refactor (Option A) or the 
 
 The hybrid-mode brief introduces a `/plan` freshness source (the 6th source overall). For DEPTH_SUBGOAL under hybrid mode, the source list is:
 
-- goal — from the action server (replaces the `/strafer/goal` subscriber-driven source when hybrid mode is active per [`hybrid-mode`](hybrid-mode.md))
+- goal — from the action server (replaces the `/strafer/goal` subscriber-driven source when hybrid mode is active per [`hybrid-mode`](../../active/trained-policy/hybrid-mode.md))
 - IMU — `/d555/imu/filtered`
 - joint_states — `/strafer/joint_states`
 - odom — `/strafer/odom`
@@ -128,13 +128,13 @@ Sim-validation of the trained checkpoint lives in `depth-subgoal-sim-validation.
 - [`source/strafer_ros/strafer_inference/strafer_inference/inference_node.py`](../../../../source/strafer_ros/strafer_inference/strafer_inference/inference_node.py) — the file Option A refactors / Option B extends. The four hardcoded-DEPTH paths to surface and conditionalize.
 - [`source/strafer_ros/strafer_inference/strafer_inference/watchdog.py`](../../../../source/strafer_ros/strafer_inference/strafer_inference/watchdog.py) — the watchdog `stale_sources` function; today it takes a fixed-shape `WatchdogTimeouts` dataclass. Variant-aware composition either reshapes that dataclass or filters its source list at call time.
 - [`source/strafer_ros/strafer_inference/strafer_inference/obs_pipeline.py`](../../../../source/strafer_ros/strafer_inference/strafer_inference/obs_pipeline.py) — the helpers are already variant-agnostic (`build_raw_obs_dict` takes every field; `assemble_observation` in `strafer_shared.policy_interface` does the field selection). Most of the refactor work is in the node, not the helpers.
-- [`hybrid-mode.md`](hybrid-mode.md) — Phase 1's `mode` flag and `/plan` subscription. This brief composes with that work; pick up only after hybrid-mode has shipped.
+- [`hybrid-mode.md`](../../active/trained-policy/hybrid-mode.md) — Phase 1's `mode` flag and `/plan` subscription. This brief composes with that work; pick up only after hybrid-mode has shipped.
 - [`depth-subgoal-env.md`](depth-subgoal-env.md) — the source of the variant + checkpoint.
 
 ## Out of scope
 
 - **The training environment + checkpoint.** That's [`depth-subgoal-env`](depth-subgoal-env.md). This brief is runtime-only; it loads what that brief produces.
-- **Sim validation against the trained checkpoint.** File `depth-subgoal-sim-validation.md` as a follow-up at PR-opening time (same precedent as [`inference-package`](../../completed/inference-package.md) → [`strafer-direct-sim-validation`](../../active/trained-policy/strafer-direct-sim-validation.md) and [`hybrid-mode`](hybrid-mode.md) → [`strafer-hybrid-sim-validation`](strafer-hybrid-sim-validation.md)). Carries the DEPTH_SUBGOAL-specific parity bounds (19 NOCAM dims ≤ 1e-5 + 4800 depth dims ≤ 1e-3 + subgoal-pose pick ≤ MAP_RESOLUTION × 2), the 7-source watchdog acceptance, and the dynamic-obstacle test that's intentionally out of scope for NOCAM_SUBGOAL.
+- **Sim validation against the trained checkpoint.** File `depth-subgoal-sim-validation.md` as a follow-up at PR-opening time (same precedent as [`inference-package`](../../completed/inference-package.md) → [`strafer-direct-sim-validation`](../../active/trained-policy/strafer-direct-sim-validation.md) and [`hybrid-mode`](../../active/trained-policy/hybrid-mode.md) → [`strafer-hybrid-sim-validation`](strafer-hybrid-sim-validation.md)). Carries the DEPTH_SUBGOAL-specific parity bounds (19 NOCAM dims ≤ 1e-5 + 4800 depth dims ≤ 1e-3 + subgoal-pose pick ≤ MAP_RESOLUTION × 2), the 7-source watchdog acceptance, and the dynamic-obstacle test that's intentionally out of scope for NOCAM_SUBGOAL.
 - **Real-robot DEPTH_SUBGOAL validation.** Files later, gated on the sim-validation follow-up passing.
 - **Re-tuning the DEPTH_SUBGOAL checkpoint** if the runtime exposes a gap. Tuning responses route back to [`depth-subgoal-env`](depth-subgoal-env.md)'s follow-up queue.
 - **NOCAM_DIRECT support.** Intentionally never per [`completed/inference-package.md`](../../completed/inference-package.md)'s Out of scope; the variant-aware refactor (Option A) does not change that — startup explicitly rejects NOCAM under `STRAFER_NAV_BACKEND` unset / `strafer_direct`.

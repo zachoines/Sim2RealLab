@@ -14,6 +14,37 @@ any current mission shape.
 Nav2 `/plan` subscription + dispatch wiring + sim validation)
 **Branch:** task/strafer-inference-hybrid-mode
 
+## Scope: ships across three PRs
+
+This brief is executed as three PRs off
+`task/strafer-inference-hybrid-mode` (the multi-PR-per-brief pattern,
+as with [`harness-architecture`](../../active/harness/harness-architecture.md)):
+
+- **PR A — deploy-side rolling-subgoal generator + Nav2 `/plan`
+  subscription.** A variant-agnostic numpy port of the training-time
+  arc-length cursor selection rule (`RollingSubgoalGenerator` in
+  `strafer_inference/generator.py`), plus a dedicated
+  `strafer_subgoal_generator` node that subscribes to `/plan`
+  (`nav_msgs/Path`, `map` frame) and publishes the rolling subgoal as a
+  `geometry_msgs/PoseStamped` on `/strafer/subgoal`. Gated by a
+  hand-computed ≤10 cm subgoal-position parity test (with an optional
+  torch cross-check against the training cursor). Resolved decisions:
+  lookahead fixed at `SUBGOAL_LOOKAHEAD_M`; a dedicated `/strafer/subgoal`
+  topic (never the goal topic, which would trip the inference node's
+  mid-mission hidden-state reset); `plan_topic` parameter defaulting to
+  `/plan`. PR A records the latest-plan receipt time for PR C's watchdog
+  but adds no watchdog source.
+- **PR B — inference-node variant lift + subgoal observation assembly.**
+  Lifts the hardcoded `PolicyVariant.DEPTH`, assembles the subgoal
+  observation (body-frame transform of the `/strafer/subgoal` pose), and
+  drops the depth precondition for the no-camera variant.
+- **PR C — `hybrid_nav2_strafer` dispatch + `/plan`-staleness watchdog.**
+  The `ros_client.py` dispatch and the 6th watchdog source
+  (`path_timeout_s`).
+
+The brief stays `active` after PR A; it moves to `completed/` only when
+PR C ships.
+
 ## Story
 
 As a **mission operator running cross-room or cross-obstacle
@@ -32,7 +63,7 @@ corners of the four-architecture matrix:
 |  | Local control by Nav2 | Local control by RL |
 |---|---|---|
 | **Global planning by Nav2** | shipped today (Nav2-only) | **THIS BRIEF** (`hybrid_nav2_strafer`) |
-| **Global planning by RL** | [`rl-global-nav2-local`](rl-global-nav2-local.md) (parked) | `strafer_direct` ([inference-package](../../completed/inference-package.md), DEPTH MVP — shipping) |
+| **Global planning by RL** | [`rl-global-nav2-local`](../../parked/trained-policy/rl-global-nav2-local.md) (parked) | `strafer_direct` ([inference-package](../../completed/inference-package.md), DEPTH MVP — shipping) |
 
 The current direction (this brief + DEPTH MVP) is well-grounded: RL
 is good at smooth continuous control under noise, Nav2 is good at
@@ -42,7 +73,7 @@ following them) might be a better fit for VLM-grounded missions
 where the planning decision involves *intent* (which way around the
 chair, whether to back up and re-approach a doorway, etc.) rather
 than just geometry. Filed as a parked alternative in
-[`rl-global-nav2-local`](rl-global-nav2-local.md) — pick up only
+[`rl-global-nav2-local`](../../parked/trained-policy/rl-global-nav2-local.md) — pick up only
 if/when this brief's deployment surfaces a "RL is doing local
 control but the issue is global plan quality" failure mode. Don't
 implement preemptively.
@@ -226,7 +257,7 @@ In [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../.
 The cross-room sim mission, the per-tick / mission-start latency
 benchmarks, the rig parity bounds, and the no-regression checks
 against `strafer_direct` and `nav2` live in
-[`strafer-hybrid-sim-validation`](strafer-hybrid-sim-validation.md)
+[`strafer-hybrid-sim-validation`](../../parked/trained-policy/strafer-hybrid-sim-validation.md)
 (parked alongside this brief). Mirrors the
 [`inference-package`](../../completed/inference-package.md) →
 [`strafer-direct-sim-validation`](../../active/trained-policy/strafer-direct-sim-validation.md)
@@ -265,7 +296,7 @@ moved-obstacle distribution shift that warrant their own scope.
 
 The reference-mission, rosbag parity, latency, and no-regression
 acceptance items live in
-[`strafer-hybrid-sim-validation`](strafer-hybrid-sim-validation.md).
+[`strafer-hybrid-sim-validation`](../../parked/trained-policy/strafer-hybrid-sim-validation.md).
 That brief gates on this one shipping + a trained checkpoint +
 the sim-in-the-loop rig; none of those items are unit-testable, so
 they ride as a follow-up rather than blocking this brief's PR.
@@ -333,19 +364,19 @@ they ride as a follow-up rather than blocking this brief's PR.
   policy relies on the path being valid). The depth-aware
   subgoal-following variant (Nav2 plans the global route, RL
   handles late-arriving obstacles via depth) is filed as
-  [`depth-subgoal-env`](depth-subgoal-env.md) (DGX, training)
+  [`depth-subgoal-env`](../../parked/trained-policy/depth-subgoal-env.md) (DGX, training)
   and
-  [`depth-subgoal-hybrid-runtime`](depth-subgoal-hybrid-runtime.md)
+  [`depth-subgoal-hybrid-runtime`](../../parked/trained-policy/depth-subgoal-hybrid-runtime.md)
   (Jetson, runtime extension). Both parked alongside this brief;
   un-park when this one + their other prerequisites ship.
 - **Operator-driven sim validation.** Lives in
-  [`strafer-hybrid-sim-validation`](strafer-hybrid-sim-validation.md)
+  [`strafer-hybrid-sim-validation`](../../parked/trained-policy/strafer-hybrid-sim-validation.md)
   (parked alongside this brief); un-parks when this one ships.
   Carries the rosbag parity, latency benchmarks, and the
   cross-room reference mission.
 - **Real-robot hybrid validation.** File as
   `strafer-inference-hybrid-real-robot-validation.md` once
-  [`strafer-hybrid-sim-validation`](strafer-hybrid-sim-validation.md)
+  [`strafer-hybrid-sim-validation`](../../parked/trained-policy/strafer-hybrid-sim-validation.md)
   passes.
 - **Performance comparison vs. Nav2-MPPI on the same mission.**
   Evaluation activity, not a controller-design brief.

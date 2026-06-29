@@ -4,7 +4,7 @@
 **Owner:** Either (~DGX-lane training-env work + Jetson-lane runtime
 work)
 **Priority:** P3 — alternative to the
-[`hybrid-mode`](hybrid-mode.md) direction. Not in critical path of any
+[`hybrid-mode`](../../active/trained-policy/hybrid-mode.md) direction. Not in critical path of any
 shipping milestone. Filed-on-trigger: pick up only if the first
 end-to-end deployment of `strafer_direct` (DEPTH MVP) or
 `hybrid_nav2_strafer` (NOCAM_SUBGOAL) reveals that the current
@@ -37,7 +37,7 @@ Read these before starting:
 - [inference-package.md](../../completed/inference-package.md)
   — the `strafer_direct` baseline this brief is the inverse of (RL =
   local control, Nav2 = no planner).
-- [hybrid-mode.md](hybrid-mode.md) — the *Nav2-global + RL-local*
+- [hybrid-mode.md](../../active/trained-policy/hybrid-mode.md) — the *Nav2-global + RL-local*
   hybrid this brief is the inverse of.
 - [subgoal-env.md](../../completed/subgoal-env.md) — the
   closest training-env precedent. The variant proposed here
@@ -175,7 +175,7 @@ node:
 ### Phase 4 — Sim validation
 
 Same cross-room reference mission as
-[`hybrid-mode`](hybrid-mode.md). Compare:
+[`hybrid-mode`](../../active/trained-policy/hybrid-mode.md). Compare:
 
 - `strafer_direct` baseline
 - `hybrid_nav2_strafer` baseline (if shipped)

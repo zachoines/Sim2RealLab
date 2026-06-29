@@ -179,6 +179,83 @@ def test_metadata_obs_dim_matches_variant() -> None:
     assert PolicyVariant.DEPTH.obs_dim == 4819
 
 
+# ---------------------------------------------------------------------------
+# NOCAM_SUBGOAL variant export enablement
+# ---------------------------------------------------------------------------
+#
+# The camera-less subgoal variant exports through the same CLI as NOCAM. Two
+# things make that work: the env-default map widens the parser's ``--variant``
+# choices, and the camera-enable predicate must leave cameras off for the
+# camera-less variant (its env builds with no camera/depth prim in the scene).
+# ``main()`` imports ``isaaclab.app`` before parsing args, so it is unreachable
+# in this no-Kit suite -- these tests assert against the importable
+# module-level source-of-truth symbols (the map, the predicate,
+# ``write_metadata_sidecar``), not a constructed parser.
+
+
+def test_subgoal_variant_has_default_env_mapping() -> None:
+    """The subgoal variant resolves to its realistic-DR play env id."""
+    assert (
+        export_policy._DEFAULT_ENV_BY_VARIANT["NOCAM_SUBGOAL"]
+        == "Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-v0"
+    )
+
+
+def test_subgoal_variant_is_an_argparse_choice() -> None:
+    """``--variant`` choices derive from the map keys, so membership here
+    proves argparse now accepts ``--variant NOCAM_SUBGOAL``."""
+    assert "NOCAM_SUBGOAL" in sorted(export_policy._DEFAULT_ENV_BY_VARIANT.keys())
+
+
+@pytest.mark.parametrize(
+    ("variant", "num_envs", "expected"),
+    [
+        ("NOCAM_SUBGOAL", 1, False),  # the fix: camera-less + single env -> off
+        ("NOCAM_SUBGOAL", 2, True),  # multi-env still forces a tiled render
+        ("DEPTH", 1, True),  # camera-bearing variant always enabled
+        ("NOCAM", 1, False),  # existing behavior preserved
+        ("NOCAM", 2, True),  # the num_envs > 1 escape hatch preserved
+    ],
+)
+def test_should_enable_cameras_truth_table(
+    variant: str, num_envs: int, expected: bool
+) -> None:
+    """Pin both halves of the camera-enable predicate.
+
+    The pre-fix heuristic keyed on the literal string ``"NOCAM"`` and would
+    wrongly enable cameras for the camera-less ``NOCAM_SUBGOAL`` env, which
+    has no camera/depth prim and must build with cameras left disabled.
+    """
+    assert export_policy._should_enable_cameras(variant, num_envs) is expected
+
+
+def test_subgoal_sidecar_label_flows_through(tmp_path: Path) -> None:
+    """The sidecar must stamp ``policy_variant="NOCAM_SUBGOAL"`` verbatim.
+
+    The label is load-bearing: ``load_policy()`` refuses an artifact whose
+    sidecar variant disagrees with the requested variant, so a mislabeled
+    export would be rejected by the Jetson inference node. This closes that
+    silent-mislabel gap without a Kit boot.
+    """
+    output_stem = tmp_path / "tiny_nocam_subgoal"
+    sidecar_path = export_policy.write_metadata_sidecar(
+        output_stem,
+        policy_variant="NOCAM_SUBGOAL",
+        obs_dim=PolicyVariant.NOCAM_SUBGOAL.obs_dim,
+        action_dim=3,
+        env_id="Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-v0",
+        training_preset="STRAFER_PPO_RUNNER_CFG",
+        source_checkpoint="logs/rsl_rl/strafer_navigation/run_test/model_999.pt",
+        formats=["pt", "onnx"],
+        is_recurrent=False,
+    )
+    payload = json.loads(sidecar_path.read_text())
+    assert payload["policy_variant"] == "NOCAM_SUBGOAL"
+    assert payload["obs_dim"] == 19
+    assert payload["env_id"] == "Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-v0"
+    assert payload["is_recurrent"] is False
+
+
 def test_torchscript_export_rejects_non_pt_extension(
     tmp_path: Path, nocam_actor: _TinyActor
 ) -> None:

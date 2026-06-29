@@ -87,30 +87,63 @@ def quaternion_to_yaw(qx: float, qy: float, qz: float, qw: float) -> float:
     return float(math.atan2(siny_cosp, cosy_cosp))
 
 
+def quat_apply_inverse_xy(
+    quat_xyzw: tuple[float, float, float, float],
+    delta_xy: tuple[float, float],
+) -> np.ndarray:
+    """Rotate the planar world displacement ``(dx, dy, 0)`` into the body
+    frame by the INVERSE of the base orientation quaternion (XYZW),
+    returning local ``(x, y)``.
+
+    Mirrors ``isaaclab.utils.math.quat_apply_inverse`` so the deployed
+    ``*_relative`` obs field is consistent with the training
+    ``goal_position_relative`` term (full 3-D rotation, not yaw-only). The
+    two agree only at zero roll/pitch; the real-robot/sim ``map -> base_link``
+    TF carries tilt, so the yaw-only shortcut breaks obs parity there.
+    """
+    q = np.asarray(quat_xyzw, dtype=np.float64)  # (x, y, z, w)
+    xyz = q[:3]
+    w = q[3]
+    vec = np.array([float(delta_xy[0]), float(delta_xy[1]), 0.0], dtype=np.float64)
+    t = 2.0 * np.cross(xyz, vec)
+    rel = vec - w * t + np.cross(xyz, t)
+    return rel[:2].astype(np.float32)
+
+
 def body_frame_goal(
     *,
     goal_map_xy: tuple[float, float],
     base_in_map_xy: tuple[float, float],
-    base_in_map_yaw: float,
+    base_in_map_quat: tuple[float, float, float, float],
 ) -> tuple[np.ndarray, float, float]:
     """Map-frame goal → body-frame (rel_xy, distance, heading_to_goal).
 
-    The training env computes the same triplet in base_link frame; if
-    inference returned map-frame values the policy would turn the
-    wrong way on the real robot.
+    ``rel_xy`` uses the FULL quaternion-inverse rotation, matching the
+    training ``goal_position_relative`` term (and TF2 on the real robot).
+    ``distance`` and ``heading_to_goal`` are yaw-only / 2-D, matching the
+    training ``goal_distance`` and ``goal_heading_to_goal`` terms exactly —
+    a yaw-only rotation preserves both the 2-D magnitude and the relative
+    bearing, so those two must NOT switch to the 3-D path.
+
+    Args:
+        base_in_map_quat: base orientation as ``(x, y, z, w)`` (XYZW), the
+            ordering of both ROS ``geometry_msgs/Quaternion`` and the
+            training ``root_quat_w``.
     """
     gx, gy = float(goal_map_xy[0]), float(goal_map_xy[1])
     bx, by = float(base_in_map_xy[0]), float(base_in_map_xy[1])
-    yaw = float(base_in_map_yaw)
-
     dx_map = gx - bx
     dy_map = gy - by
+
+    # rel_xy: full quaternion-inverse of the planar displacement.
+    rel = quat_apply_inverse_xy(base_in_map_quat, (dx_map, dy_map))
+
+    # distance + heading: yaw-only / 2-D (these already match training).
+    yaw = quaternion_to_yaw(*base_in_map_quat)
     cos_y = math.cos(-yaw)
     sin_y = math.sin(-yaw)
     dx_body = cos_y * dx_map - sin_y * dy_map
     dy_body = sin_y * dx_map + cos_y * dy_map
-
-    rel = np.array([dx_body, dy_body], dtype=np.float32)
     dist = float(math.hypot(dx_body, dy_body))
     heading = float(math.atan2(dy_body, dx_body))
     return rel, dist, heading

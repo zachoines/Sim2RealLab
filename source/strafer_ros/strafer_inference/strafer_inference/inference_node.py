@@ -64,7 +64,6 @@ from .obs_pipeline import (
     downsample_depth,
     joint_state_to_wheel_vels,
     l1_clamp_velocity,
-    quaternion_to_yaw,
 )
 from .watchdog import WatchdogTimeouts, stale_sources
 
@@ -624,13 +623,12 @@ class InferenceNode(Node):
             tf.transform.translation.y,
         )
         rot = tf.transform.rotation
-        base_in_map_yaw = quaternion_to_yaw(rot.x, rot.y, rot.z, rot.w)
 
         ref_pos = referent.pose.position
         ref_rel, ref_dist, ref_head = body_frame_goal(
             goal_map_xy=(ref_pos.x, ref_pos.y),
             base_in_map_xy=base_in_map_xy,
-            base_in_map_yaw=base_in_map_yaw,
+            base_in_map_quat=(rot.x, rot.y, rot.z, rot.w),
         )
 
         try:

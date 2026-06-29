@@ -13,6 +13,7 @@ from strafer_inference.obs_pipeline import (
     downsample_depth,
     joint_state_to_wheel_vels,
     l1_clamp_velocity,
+    quat_apply_inverse_xy,
     quaternion_to_yaw,
 )
 from strafer_shared.constants import (
@@ -123,12 +124,45 @@ class TestDownsampleDepth:
 # =============================================================================
 
 
+def _yaw_quat(yaw: float) -> tuple[float, float, float, float]:
+    """Yaw-only quaternion as (x, y, z, w)."""
+    return (0.0, 0.0, math.sin(yaw / 2.0), math.cos(yaw / 2.0))
+
+
+def _rpy_to_quat_xyzw(roll: float, pitch: float, yaw: float) -> tuple:
+    """roll/pitch/yaw (ZYX) -> (x, y, z, w) unit quaternion."""
+    cr, sr = math.cos(roll / 2), math.sin(roll / 2)
+    cp, sp = math.cos(pitch / 2), math.sin(pitch / 2)
+    cy, sy = math.cos(yaw / 2), math.sin(yaw / 2)
+    w = cr * cp * cy + sr * sp * sy
+    x = sr * cp * cy - cr * sp * sy
+    y = cr * sp * cy + sr * cp * sy
+    z = cr * cp * sy - sr * sp * cy
+    return (x, y, z, w)
+
+
+def _ref_rel_xy_via_matrix(quat_xyzw, dx, dy):
+    """Independent reference for the full quaternion-inverse: build R(q) from
+    the quaternion and apply its transpose (world->body) to (dx, dy, 0). A
+    distinct code path from the production quaternion-formula helper, so the
+    parity test below is not tautological.
+    """
+    x, y, z, w = quat_xyzw
+    R = np.array([
+        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+    ])
+    rel = R.T @ np.array([dx, dy, 0.0])
+    return rel[:2]
+
+
 class TestBodyFrameGoal:
     def test_zero_yaw_identity(self):
         rel, dist, head = body_frame_goal(
             goal_map_xy=(1.0, 0.0),
             base_in_map_xy=(0.0, 0.0),
-            base_in_map_yaw=0.0,
+            base_in_map_quat=_yaw_quat(0.0),
         )
         np.testing.assert_allclose(rel, [1.0, 0.0], atol=1e-6)
         assert dist == pytest.approx(1.0)
@@ -141,7 +175,7 @@ class TestBodyFrameGoal:
         rel, dist, head = body_frame_goal(
             goal_map_xy=(1.0, 0.0),
             base_in_map_xy=(0.0, 0.0),
-            base_in_map_yaw=math.pi / 2,
+            base_in_map_quat=_yaw_quat(math.pi / 2),
         )
         np.testing.assert_allclose(rel, [0.0, -1.0], atol=1e-6)
         assert dist == pytest.approx(1.0)
@@ -151,7 +185,7 @@ class TestBodyFrameGoal:
         rel, dist, head = body_frame_goal(
             goal_map_xy=(3.0, 2.0),
             base_in_map_xy=(1.0, 0.0),
-            base_in_map_yaw=0.0,
+            base_in_map_quat=_yaw_quat(0.0),
         )
         np.testing.assert_allclose(rel, [2.0, 2.0], atol=1e-6)
         assert dist == pytest.approx(math.hypot(2.0, 2.0))
@@ -165,7 +199,7 @@ class TestBodyFrameGoal:
             rel, _, _ = body_frame_goal(
                 goal_map_xy=(2.5, -1.0),
                 base_in_map_xy=(0.5, 0.5),
-                base_in_map_yaw=yaw,
+                base_in_map_quat=_yaw_quat(yaw),
             )
             cos_y, sin_y = math.cos(yaw), math.sin(yaw)
             back_dx = cos_y * rel[0] - sin_y * rel[1]
@@ -177,9 +211,85 @@ class TestBodyFrameGoal:
         rel, _, _ = body_frame_goal(
             goal_map_xy=(1.0, 0.0),
             base_in_map_xy=(0.0, 0.0),
-            base_in_map_yaw=0.0,
+            base_in_map_quat=_yaw_quat(0.0),
         )
         assert rel.dtype == np.float32
+
+    def test_flat_pose_full_quat_equals_yaw_only(self):
+        """At zero tilt the full-quaternion rel coincides with the yaw-only
+        rel — the two transforms must agree when roll = pitch = 0.
+        """
+        yaw = 0.7
+        goal, base = (2.5, -1.0), (0.5, 0.5)
+        dx, dy = goal[0] - base[0], goal[1] - base[1]
+        rel, _, _ = body_frame_goal(
+            goal_map_xy=goal, base_in_map_xy=base,
+            base_in_map_quat=_yaw_quat(yaw),
+        )
+        cos_y, sin_y = math.cos(-yaw), math.sin(-yaw)
+        yaw_only = np.array([cos_y * dx - sin_y * dy, sin_y * dx + cos_y * dy])
+        np.testing.assert_allclose(rel, yaw_only, atol=1e-6)
+
+    @pytest.mark.parametrize("roll, pitch, yaw", [
+        (math.radians(8.0), 0.0, 0.0),                                  # roll only
+        (0.0, math.radians(5.0), 0.0),                                  # pitch only
+        (math.radians(4.0), math.radians(-6.0), math.radians(30.0)),    # combined
+    ])
+    def test_rel_xy_matches_training_full_quat_under_tilt(self, roll, pitch, yaw):
+        """rel_xy must track the full quaternion-inverse (matching training's
+        goal_position_relative), verified against an independent
+        rotation-matrix reference under roll / pitch / combined tilt.
+        """
+        quat = _rpy_to_quat_xyzw(roll, pitch, yaw)
+        goal, base = (2.5, -1.0), (0.5, 0.5)
+        dx, dy = goal[0] - base[0], goal[1] - base[1]
+        rel, _, _ = body_frame_goal(
+            goal_map_xy=goal, base_in_map_xy=base, base_in_map_quat=quat,
+        )
+        ref = _ref_rel_xy_via_matrix(quat, dx, dy)
+        np.testing.assert_allclose(rel, ref, atol=1e-5)
+
+    @pytest.mark.parametrize("roll, pitch", [
+        (math.radians(8.0), 0.0),
+        (0.0, math.radians(6.0)),
+    ])
+    def test_yaw_only_transform_would_fail_under_tilt(self, roll, pitch):
+        """Teeth: the OLD yaw-only rel disagrees with the full
+        quaternion-inverse under non-zero roll/pitch — the defect this fix
+        closes. If this ever passes, the parity test above is vacuous.
+        """
+        yaw = math.radians(25.0)
+        quat = _rpy_to_quat_xyzw(roll, pitch, yaw)
+        goal, base = (2.5, -1.0), (0.5, 0.5)
+        dx, dy = goal[0] - base[0], goal[1] - base[1]
+        ref = _ref_rel_xy_via_matrix(quat, dx, dy)
+        cos_y, sin_y = math.cos(-yaw), math.sin(-yaw)
+        yaw_only = np.array([cos_y * dx - sin_y * dy, sin_y * dx + cos_y * dy])
+        assert not np.allclose(yaw_only, ref, atol=1e-5)
+
+    def test_distance_and_heading_stay_yaw_only_under_tilt(self):
+        """distance + heading must remain the 2-D / yaw-only quantities that
+        match training's goal_distance / goal_heading_to_goal, even under
+        tilt (they must NOT adopt the 3-D rel's xy).
+        """
+        quat = _rpy_to_quat_xyzw(math.radians(7.0), math.radians(-5.0), 0.4)
+        goal, base = (2.5, -1.0), (0.5, 0.5)
+        dx, dy = goal[0] - base[0], goal[1] - base[1]
+        _, dist, head = body_frame_goal(
+            goal_map_xy=goal, base_in_map_xy=base, base_in_map_quat=quat,
+        )
+        yaw = quaternion_to_yaw(*quat)
+        expected_head = math.atan2(dy, dx) - yaw
+        expected_head = math.atan2(math.sin(expected_head), math.cos(expected_head))
+        assert dist == pytest.approx(math.hypot(dx, dy))
+        assert head == pytest.approx(expected_head, abs=1e-6)
+
+
+def test_quat_apply_inverse_xy_matches_matrix_reference():
+    quat = _rpy_to_quat_xyzw(math.radians(5.0), math.radians(-7.0), math.radians(40.0))
+    out = quat_apply_inverse_xy(quat, (1.3, -0.8))
+    np.testing.assert_allclose(out, _ref_rel_xy_via_matrix(quat, 1.3, -0.8), atol=1e-6)
+    assert out.dtype == np.float32
 
 
 # =============================================================================

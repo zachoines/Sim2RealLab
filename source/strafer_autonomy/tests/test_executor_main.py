@@ -4,11 +4,20 @@ from __future__ import annotations
 
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from strafer_autonomy.clients.ros_client import RosClientConfig
-from strafer_autonomy.executor.main import _read_bool_env, _read_float_env
-from strafer_autonomy.executor.mission_runner import MissionRunnerConfig
+from strafer_autonomy.clients.ros_client import RosClientConfig, _SUPPORTED_BACKENDS
+from strafer_autonomy.executor.main import (
+    _read_bool_env,
+    _read_float_env,
+    _read_str_env,
+)
+from strafer_autonomy.executor.mission_runner import (
+    DEFAULT_AVAILABLE_SKILLS,
+    MissionRunner,
+    MissionRunnerConfig,
+)
+from strafer_autonomy.schemas import Pose3D, SkillCall, SkillResult
 
 
 class TestReadFloatEnv(unittest.TestCase):
@@ -159,6 +168,149 @@ class TestClockStallBailEnv(unittest.TestCase):
             )
         cfg = RosClientConfig(**kwargs)
         self.assertEqual(cfg.clock_stall_bail_wall_s, 30.0)
+
+
+class TestNavBackendEnv(unittest.TestCase):
+    """``STRAFER_NAV_BACKEND`` plumbs into ``MissionRunnerConfig`` and falls
+    back to ``nav2`` on an unsupported value.
+    """
+
+    def _read(self, kwargs: dict) -> None:
+        _read_str_env(
+            "STRAFER_NAV_BACKEND",
+            "default_navigation_backend",
+            kwargs,
+            allowed=_SUPPORTED_BACKENDS,
+        )
+
+    def test_default_preserved_when_unset(self) -> None:
+        env = {k: v for k, v in os.environ.items() if k != "STRAFER_NAV_BACKEND"}
+        with patch.dict(os.environ, env, clear=True):
+            kwargs: dict = {}
+            self._read(kwargs)
+            cfg = MissionRunnerConfig(**kwargs) if kwargs else MissionRunnerConfig()
+        self.assertEqual(kwargs, {})
+        self.assertEqual(cfg.default_navigation_backend, "nav2")
+
+    def test_hybrid_reaches_config(self) -> None:
+        with patch.dict(
+            os.environ, {"STRAFER_NAV_BACKEND": "hybrid_nav2_strafer"}, clear=False
+        ):
+            kwargs: dict = {}
+            self._read(kwargs)
+            cfg = MissionRunnerConfig(**kwargs)
+        self.assertEqual(cfg.default_navigation_backend, "hybrid_nav2_strafer")
+
+    def test_strafer_direct_reaches_config(self) -> None:
+        with patch.dict(
+            os.environ, {"STRAFER_NAV_BACKEND": "strafer_direct"}, clear=False
+        ):
+            kwargs: dict = {}
+            self._read(kwargs)
+            cfg = MissionRunnerConfig(**kwargs)
+        self.assertEqual(cfg.default_navigation_backend, "strafer_direct")
+
+    def test_unknown_value_warns_and_keeps_nav2(self) -> None:
+        with patch.dict(
+            os.environ, {"STRAFER_NAV_BACKEND": "mppi_local_only"}, clear=False
+        ):
+            kwargs: dict = {}
+            with self.assertLogs(
+                "strafer_autonomy.executor.main", level="WARNING"
+            ) as cm:
+                self._read(kwargs)
+            cfg = MissionRunnerConfig(**kwargs) if kwargs else MissionRunnerConfig()
+        self.assertEqual(kwargs, {})  # skipped, default preserved
+        self.assertEqual(cfg.default_navigation_backend, "nav2")
+        # and the skip is observable, not silent
+        self.assertTrue(any("mppi_local_only" in m for m in cm.output))
+
+
+class TestNavBackendDispatchDefault(unittest.TestCase):
+    """``_dispatch_nav_goal`` forwards ``default_navigation_backend`` to the
+    ROS client when the step carries no ``execution_backend``; a per-step
+    value still wins (the independent-safety invariant).
+    """
+
+    def _runner(self, backend: str):
+        runner = MissionRunner(
+            planner_client=MagicMock(),
+            grounding_client=MagicMock(),
+            ros_client=MagicMock(),
+            config=MissionRunnerConfig(default_navigation_backend=backend),
+        )
+        ros = runner._ros_client
+        ros.navigate_to_pose.return_value = SkillResult(
+            step_id="n1", skill="navigate_to_pose", status="succeeded",
+        )
+        ros.get_map_pose.return_value = {
+            "x": 0.0, "y": 0.0, "z": 0.0,
+            "qx": 0.0, "qy": 0.0, "qz": 0.0, "qw": 1.0,
+        }
+        return runner, ros
+
+    @staticmethod
+    def _goal() -> Pose3D:
+        return Pose3D(x=1.0, y=0.0, z=0.0, qx=0.0, qy=0.0, qz=0.0, qw=1.0)
+
+    def test_default_backend_forwarded_when_step_omits_it(self) -> None:
+        runner, ros = self._runner("hybrid_nav2_strafer")
+        step = SkillCall(skill="navigate_to_pose", step_id="n1", args={})
+        runner._dispatch_nav_goal(step, self._goal(), 0.0)
+        self.assertEqual(
+            ros.navigate_to_pose.call_args.kwargs["execution_backend"],
+            "hybrid_nav2_strafer",
+        )
+
+    def test_step_arg_overrides_config_default(self) -> None:
+        # Until the compiler stops hardcoding execution_backend, a per-step
+        # value wins over the config default -- so the env-set hybrid default
+        # stays inert (nav2) on a real mission.
+        runner, ros = self._runner("hybrid_nav2_strafer")
+        step = SkillCall(
+            skill="navigate_to_pose", step_id="n1",
+            args={"execution_backend": "nav2"},
+        )
+        runner._dispatch_nav_goal(step, self._goal(), 0.0)
+        self.assertEqual(
+            ros.navigate_to_pose.call_args.kwargs["execution_backend"], "nav2",
+        )
+
+
+class TestPlanBackendValidation(unittest.TestCase):
+    """``_validate_plan`` accepts the dispatch backend vocabulary and rejects
+    names outside it -- locking the ``_RECOGNISED_BACKENDS`` reconciliation.
+    """
+
+    @staticmethod
+    def _validate(backend: str) -> list[str]:
+        runner = MissionRunner.__new__(MissionRunner)
+        runner._config = type(
+            "C", (), {"available_skills": DEFAULT_AVAILABLE_SKILLS}
+        )()
+        plan = type("P", (), {"steps": [
+            SkillCall(
+                skill="navigate_to_pose",
+                step_id="n1",
+                args={"execution_backend": backend},
+            ),
+        ]})()
+        return runner._validate_plan(plan)
+
+    def test_dispatch_backends_validate(self) -> None:
+        # Fails on the old {nav2, direct} vocabulary.
+        for backend in ("nav2", "strafer_direct", "hybrid_nav2_strafer"):
+            self.assertEqual(self._validate(backend), [], f"backend={backend}")
+
+    def test_dead_direct_token_rejected(self) -> None:
+        # Would have validated under the old {nav2, direct} vocabulary; the
+        # reconciliation drops it.
+        errors = self._validate("direct")
+        self.assertTrue(any("execution_backend" in e for e in errors))
+
+    def test_typo_rejected(self) -> None:
+        errors = self._validate("hybrid")  # typo of hybrid_nav2_strafer
+        self.assertTrue(any("execution_backend" in e for e in errors))
 
 
 if __name__ == "__main__":

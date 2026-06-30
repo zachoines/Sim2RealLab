@@ -129,16 +129,27 @@ launch-nav: ## Launch navigation stack (driver + perception + SLAM + Nav2)
 	source $(COLCON_WS)/install/setup.bash && \
 		ros2 launch strafer_bringup navigation.launch.py
 
-launch-autonomy: ## Launch full autonomy stack (nav + executor → DGX services)
-	@if [ -z "$$VLM_URL" ] || [ -z "$$PLANNER_URL" ]; then \
+launch-autonomy: ## Launch full autonomy stack (nav + executor → DGX services). Backend via STRAFER_NAV_BACKEND in env_autonomy.env.
+	@source source/strafer_ros/strafer_bringup/config/env_autonomy.env && \
+	if [ -z "$$VLM_URL" ] || [ -z "$$PLANNER_URL" ]; then \
 		echo "Usage: VLM_URL=http://<DGX>:8100 PLANNER_URL=http://<DGX>:8200 make launch-autonomy"; \
+		exit 1; \
+	fi; \
+	if { [ "$$STRAFER_NAV_BACKEND" = "strafer_direct" ] || [ "$$STRAFER_NAV_BACKEND" = "hybrid_nav2_strafer" ]; } && [ -z "$$STRAFER_INFERENCE_MODEL_PATH" ]; then \
+		echo "ERROR: STRAFER_NAV_BACKEND=$$STRAFER_NAV_BACKEND but STRAFER_INFERENCE_MODEL_PATH is empty — strafer_inference will NOT advertise navigate_to_pose; every mission silently falls back to nav2. Set STRAFER_INFERENCE_MODEL_PATH in env_autonomy.env."; \
 		exit 1; \
 	fi
 	source $(COLCON_WS)/install/setup.bash && \
+		source source/strafer_ros/strafer_bringup/config/env_autonomy.env && \
 		ros2 launch strafer_bringup autonomy.launch.py \
 			vlm_url:=$$VLM_URL planner_url:=$$PLANNER_URL
 
-launch-sim: ## Launch Jetson sim-in-the-loop bringup (consumes DGX bridge topics; foxglove on :8765). Env: DONUT_WARMUP=false skips the startup spin; LAUNCH_ARGS="k:=v ..." passes arbitrary extras.
+launch-sim: ## Launch Jetson sim-in-the-loop bringup (consumes DGX bridge topics; foxglove on :8765). Backend via STRAFER_NAV_BACKEND in env_sim_in_the_loop.env. Env: DONUT_WARMUP=false skips the startup spin; LAUNCH_ARGS="k:=v ..." passes arbitrary extras.
+	@source source/strafer_ros/strafer_bringup/config/env_sim_in_the_loop.env && \
+	if { [ "$$STRAFER_NAV_BACKEND" = "strafer_direct" ] || [ "$$STRAFER_NAV_BACKEND" = "hybrid_nav2_strafer" ]; } && [ -z "$$STRAFER_INFERENCE_MODEL_PATH" ]; then \
+		echo "ERROR: STRAFER_NAV_BACKEND=$$STRAFER_NAV_BACKEND but STRAFER_INFERENCE_MODEL_PATH is empty — strafer_inference will NOT advertise navigate_to_pose; every mission silently falls back to nav2. Set STRAFER_INFERENCE_MODEL_PATH in env_sim_in_the_loop.env."; \
+		exit 1; \
+	fi
 	source $(COLCON_WS)/install/setup.bash && \
 		source source/strafer_ros/strafer_bringup/config/env_sim_in_the_loop.env && \
 		ros2 launch strafer_bringup bringup_sim_in_the_loop.launch.py \

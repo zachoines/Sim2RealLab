@@ -139,8 +139,9 @@ class TestLaunchFile:
         spec.loader.exec_module(mod)
         ld = mod.generate_launch_description()
         assert ld is not None
-        # 2 DeclareLaunchArgument + 1 Node action
-        assert len(ld.entities) >= 3
+        # config_file + log_level + model_path + policy_variant +
+        # use_sim_time DeclareLaunchArgument + 1 Node action
+        assert len(ld.entities) >= 6
 
     def test_launch_points_at_config_default(self, pkg_dir):
         path = os.path.join(pkg_dir, "launch", "inference.launch.py")
@@ -158,6 +159,162 @@ class TestLaunchFile:
         assert rendered.endswith(os.path.join(
             "strafer_inference", "config", "inference.yaml"
         ))
+
+
+# =============================================================================
+# Launch-arg overrides — set-once knobs that override the YAML
+# =============================================================================
+
+
+class _CaptureNode:
+    """Stand-in for launch_ros Node that records its raw kwargs, so a
+    test can assert the exact ``parameters=[...]`` list the launch file
+    passes (ordering + substitution types) without the ROS graph or
+    launch_ros parameter normalization.
+    """
+
+    last = None
+
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+        _CaptureNode.last = self
+
+
+def _load_launch(pkg_dir):
+    path = os.path.join(pkg_dir, "launch", "inference.launch.py")
+    spec = importlib.util.spec_from_file_location("inference_launch_ovr", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TestInferenceLaunchOverrides:
+    """inference.launch.py exposes model_path / policy_variant /
+    use_sim_time as env-defaulted launch args that override the YAML.
+    """
+
+    OVERRIDE_ARGS = ["model_path", "policy_variant", "use_sim_time"]
+
+    def _args(self, pkg_dir, monkeypatch):
+        for var in (
+            "STRAFER_INFERENCE_MODEL_PATH",
+            "STRAFER_POLICY_VARIANT",
+            "STRAFER_USE_SIM_TIME",
+        ):
+            monkeypatch.delenv(var, raising=False)
+        mod = _load_launch(pkg_dir)
+        ld = mod.generate_launch_description()
+        from launch.actions import DeclareLaunchArgument
+
+        return {
+            e.name: e
+            for e in ld.entities
+            if isinstance(e, DeclareLaunchArgument)
+        }
+
+    @pytest.mark.parametrize("name", OVERRIDE_ARGS)
+    def test_override_arg_declared(self, pkg_dir, monkeypatch, name):
+        assert name in self._args(pkg_dir, monkeypatch)
+
+    def test_arg_defaults_read_from_env(self, pkg_dir, monkeypatch):
+        args = self._args(pkg_dir, monkeypatch)
+
+        def rendered(name):
+            default = args[name].default_value
+            return "".join(getattr(s, "text", str(s)) for s in default)
+
+        # With the env unset, the launch defaults stand in.
+        assert rendered("model_path") == ""
+        assert rendered("policy_variant") == "DEPTH"
+        assert rendered("use_sim_time") == "false"
+
+    def test_env_overrides_arg_default(self, pkg_dir, monkeypatch):
+        monkeypatch.setenv("STRAFER_INFERENCE_MODEL_PATH", "/models/depth.onnx")
+        monkeypatch.setenv("STRAFER_POLICY_VARIANT", "NOCAM_SUBGOAL")
+        mod = _load_launch(pkg_dir)
+        ld = mod.generate_launch_description()
+        from launch.actions import DeclareLaunchArgument
+
+        args = {
+            e.name: e for e in ld.entities
+            if isinstance(e, DeclareLaunchArgument)
+        }
+
+        def rendered(name):
+            default = args[name].default_value
+            return "".join(getattr(s, "text", str(s)) for s in default)
+
+        assert rendered("model_path") == "/models/depth.onnx"
+        assert rendered("policy_variant") == "NOCAM_SUBGOAL"
+
+    def test_override_dict_is_last_in_parameters(self, pkg_dir, monkeypatch):
+        from launch.substitutions import LaunchConfiguration
+
+        for var in (
+            "STRAFER_INFERENCE_MODEL_PATH",
+            "STRAFER_POLICY_VARIANT",
+            "STRAFER_USE_SIM_TIME",
+        ):
+            monkeypatch.delenv(var, raising=False)
+        mod = _load_launch(pkg_dir)
+        monkeypatch.setattr(mod, "Node", _CaptureNode)
+        mod.generate_launch_description()
+
+        params = _CaptureNode.last.kwargs["parameters"]
+        # YAML config_file first, override dict last (ROS applies
+        # parameters in order, last wins).
+        assert isinstance(params[0], LaunchConfiguration)
+        assert params[0].variable_name[0].text == "config_file"
+        override = params[-1]
+        assert isinstance(override, dict)
+        assert set(override) == {"model_path", "policy_variant", "use_sim_time"}
+
+    def test_model_and_variant_are_raw_launch_configurations(
+        self, pkg_dir, monkeypatch
+    ):
+        from launch.substitutions import LaunchConfiguration
+
+        mod = _load_launch(pkg_dir)
+        monkeypatch.setattr(mod, "Node", _CaptureNode)
+        mod.generate_launch_description()
+        override = _CaptureNode.last.kwargs["parameters"][-1]
+
+        # Genuine strings — passed through raw, no coercion.
+        assert isinstance(override["model_path"], LaunchConfiguration)
+        assert isinstance(override["policy_variant"], LaunchConfiguration)
+
+    def test_use_sim_time_is_bool_coerced(self, pkg_dir, monkeypatch):
+        from launch.substitutions import PythonExpression
+
+        mod = _load_launch(pkg_dir)
+        monkeypatch.setattr(mod, "Node", _CaptureNode)
+        mod.generate_launch_description()
+        override = _CaptureNode.last.kwargs["parameters"][-1]
+
+        # use_sim_time is a bool param; a raw "false" string is
+        # truthy-by-presence, so it must be a PythonExpression, never a
+        # bare LaunchConfiguration.
+        assert isinstance(override["use_sim_time"], PythonExpression)
+
+    def test_node_name_and_namespace_preserved(self, pkg_dir, monkeypatch):
+        # Load-bearing: the hybrid executor dispatch builds its ActionClient
+        # against the absolute /strafer_inference/navigate_to_pose, so the
+        # node must keep this exact name + namespace.
+        mod = _load_launch(pkg_dir)
+        monkeypatch.setattr(mod, "Node", _CaptureNode)
+        mod.generate_launch_description()
+        assert _CaptureNode.last.kwargs["name"] == "strafer_inference"
+        assert _CaptureNode.last.kwargs["namespace"] == "strafer_inference"
+
+    def test_node_not_wrapped_in_namespace_group(self, pkg_dir):
+        # A GroupAction / PushRosNamespace wrap would push the action
+        # server off /strafer_inference and silently break the dispatch.
+        from launch.actions import GroupAction
+
+        mod = _load_launch(pkg_dir)
+        ld = mod.generate_launch_description()
+        assert not any(isinstance(e, GroupAction) for e in ld.entities)
 
 
 # =============================================================================

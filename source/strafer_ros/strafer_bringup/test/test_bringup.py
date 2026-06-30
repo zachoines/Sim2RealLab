@@ -268,3 +268,187 @@ class TestDonutWarmupNode:
         eps = md.entry_points(group="console_scripts")
         names = {ep.name for ep in eps}
         assert "donut_warmup" in names
+
+
+# =============================================================================
+# STRAFER_NAV_BACKEND gating — auto-launch of the RL inference nodes
+# =============================================================================
+
+
+def _load_module(pkg_dir, filename, modname):
+    import importlib.util
+
+    path = os.path.join(pkg_dir, "launch", filename)
+    spec = importlib.util.spec_from_file_location(modname, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _include_basenames(entities):
+    """Basenames of the launch files pulled in by IncludeLaunchDescription
+    entities (or node-list items), e.g. 'inference.launch.py'.
+    """
+    from launch.actions import IncludeLaunchDescription
+
+    names = []
+    for entity in entities:
+        if isinstance(entity, IncludeLaunchDescription):
+            src = entity.launch_description_source
+            loc = src._LaunchDescriptionSource__location
+            names.append(os.path.basename(loc[0].text))
+    return names
+
+
+def _capture_launch_errors(fn):
+    """Run ``fn`` while recording ERROR records on the ``launch`` logger.
+
+    The loud empty-model check logs on the ``launch`` logger, which ROS
+    configures with ``propagate=False`` and its own handler — so pytest's
+    ``caplog`` (rooted at the root logger) never sees it. Attach a handler
+    directly instead.
+    """
+    import logging
+
+    class _ListHandler(logging.Handler):
+        def __init__(self):
+            super().__init__()
+            self.records = []
+
+        def emit(self, record):
+            self.records.append(record)
+
+    logger = logging.getLogger("launch")
+    handler = _ListHandler()
+    prev_level = logger.level
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+    try:
+        fn()
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(prev_level)
+    return [r for r in handler.records if r.levelno >= logging.ERROR]
+
+
+class TestRealBringupBackendGating:
+    """autonomy.launch.py gates the inference / subgoal includes on
+    STRAFER_NAV_BACKEND, read at build time (plain LaunchDescription, so
+    the includes land directly in ld.entities).
+    """
+
+    def _includes(self, pkg_dir, monkeypatch, backend):
+        if backend is None:
+            monkeypatch.delenv("STRAFER_NAV_BACKEND", raising=False)
+        else:
+            monkeypatch.setenv("STRAFER_NAV_BACKEND", backend)
+        # A real model path keeps the loud empty-model log out of the way.
+        monkeypatch.setenv("STRAFER_INFERENCE_MODEL_PATH", "/models/depth.onnx")
+        mod = _load_module(pkg_dir, "autonomy.launch.py", "autonomy_gating")
+        ld = mod.generate_launch_description()
+        return _include_basenames(ld.entities)
+
+    def test_unset_launches_neither(self, pkg_dir, monkeypatch):
+        names = self._includes(pkg_dir, monkeypatch, None)
+        assert "inference.launch.py" not in names
+        assert "subgoal_generator.launch.py" not in names
+
+    def test_nav2_launches_neither(self, pkg_dir, monkeypatch):
+        names = self._includes(pkg_dir, monkeypatch, "nav2")
+        assert "inference.launch.py" not in names
+        assert "subgoal_generator.launch.py" not in names
+
+    def test_strafer_direct_launches_inference_only(self, pkg_dir, monkeypatch):
+        names = self._includes(pkg_dir, monkeypatch, "strafer_direct")
+        assert "inference.launch.py" in names
+        assert "subgoal_generator.launch.py" not in names
+
+    def test_hybrid_launches_both(self, pkg_dir, monkeypatch):
+        names = self._includes(pkg_dir, monkeypatch, "hybrid_nav2_strafer")
+        assert "inference.launch.py" in names
+        assert "subgoal_generator.launch.py" in names
+
+    def test_loud_error_on_policy_backend_empty_model(self, pkg_dir, monkeypatch):
+        monkeypatch.setenv("STRAFER_NAV_BACKEND", "hybrid_nav2_strafer")
+        monkeypatch.delenv("STRAFER_INFERENCE_MODEL_PATH", raising=False)
+        mod = _load_module(pkg_dir, "autonomy.launch.py", "autonomy_loud")
+        records = _capture_launch_errors(mod.generate_launch_description)
+        assert any(
+            "STRAFER_INFERENCE_MODEL_PATH" in r.getMessage() for r in records
+        ), "expected a launch-time ERROR when a policy backend has no model_path"
+
+
+class TestSimBringupBackendGating:
+    """bringup_sim_in_the_loop.launch.py builds its node list inside the
+    _launch_setup OpaqueFunction, so the includes are NOT in
+    generate_launch_description().entities. Assert on the node list
+    _launch_setup returns for a LaunchContext with the backend set.
+    """
+
+    # Every LaunchConfiguration _launch_setup performs; values are
+    # passed through to includes and otherwise inert (viewer_port is
+    # int()-parsed).
+    _BASE_CONFIGS = {
+        "vlm_url": "",
+        "planner_url": "",
+        "nav_log_level": "warn",
+        "localization": "false",
+        "database_path": "~/.ros/rtabmap.db",
+        "rtabmap_args": "",
+        "rtabmap_viz": "false",
+        "viewer_port": "8765",
+        "model_path": "/models/depth.onnx",
+        "policy_variant": "DEPTH",
+    }
+
+    def _node_includes(self, pkg_dir, backend, model_path="/models/depth.onnx"):
+        from launch import LaunchContext
+
+        mod = _load_module(
+            pkg_dir, "bringup_sim_in_the_loop.launch.py", "sim_gating"
+        )
+        ctx = LaunchContext()
+        configs = dict(self._BASE_CONFIGS)
+        configs["nav_backend"] = backend
+        configs["model_path"] = model_path
+        ctx.launch_configurations.update(configs)
+        nodes = mod._launch_setup(ctx)
+        return _include_basenames(nodes)
+
+    def test_nav2_launches_neither(self, pkg_dir):
+        names = self._node_includes(pkg_dir, "nav2")
+        assert "inference.launch.py" not in names
+        assert "subgoal_generator.launch.py" not in names
+
+    def test_strafer_direct_launches_inference_only(self, pkg_dir):
+        names = self._node_includes(pkg_dir, "strafer_direct")
+        assert "inference.launch.py" in names
+        assert "subgoal_generator.launch.py" not in names
+
+    def test_hybrid_launches_both(self, pkg_dir):
+        names = self._node_includes(pkg_dir, "hybrid_nav2_strafer")
+        assert "inference.launch.py" in names
+        assert "subgoal_generator.launch.py" in names
+
+    def test_sim_declares_nav_backend_arg(self, pkg_dir):
+        from launch.actions import DeclareLaunchArgument
+
+        mod = _load_module(
+            pkg_dir, "bringup_sim_in_the_loop.launch.py", "sim_args"
+        )
+        ld = mod.generate_launch_description()
+        names = [
+            e.name for e in ld.entities
+            if isinstance(e, DeclareLaunchArgument)
+        ]
+        assert "nav_backend" in names
+
+    def test_loud_error_on_policy_backend_empty_model(self, pkg_dir):
+        records = _capture_launch_errors(
+            lambda: self._node_includes(
+                pkg_dir, "hybrid_nav2_strafer", model_path=""
+            )
+        )
+        assert any(
+            "STRAFER_INFERENCE_MODEL_PATH" in r.getMessage() for r in records
+        ), "expected a launch-time ERROR when a policy backend has no model_path"

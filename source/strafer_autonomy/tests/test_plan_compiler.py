@@ -98,7 +98,7 @@ class TestGoToTarget:
         intent = _make_intent("go_to_target", target_label="door", requires_grounding=True)
         plan = compile_plan(intent)
         nav_step = [s for s in plan.steps if s.skill == "navigate_to_pose"][0]
-        assert nav_step.args["execution_backend"] == "nav2"
+        assert "execution_backend" not in nav_step.args
         assert nav_step.args["goal_source"] == "projected_target"
 
     def test_navigate_to_pose_defers_timeout_to_executor(self):

@@ -99,7 +99,7 @@ def _compile_single_target_steps(
         SkillCall(
             step_id=f"step_{base + 3:02d}",
             skill="navigate_to_pose",
-            args={"goal_source": "projected_target", "execution_backend": "nav2"},
+            args={"goal_source": "projected_target"},
             retry_limit=0,
         ),
         _make_verify_arrival_step(

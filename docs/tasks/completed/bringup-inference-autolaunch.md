@@ -1,5 +1,8 @@
 # Auto-launch `strafer_inference` + subgoal generator from the bringup
 
+**Status:** Shipped 2026-06-29 in `23abcea` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/126
+
 **Type:** task
 **Owner:** Jetson agent
 **Priority:** P2
@@ -17,10 +20,10 @@ shell and hand-building a per-run config overlay**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [context/conventions.md](../../context/conventions.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
+- [context/conventions.md](../context/conventions.md)
 
 ## Context
 
@@ -46,8 +49,8 @@ an empty `model_path` boots every node yet silently degrades — so the
 launch must emit a visible ERROR for that case.
 
 The two validation briefs
-([`strafer-direct-sim-validation`](strafer-direct-sim-validation.md),
-parked [`strafer-hybrid-sim-validation`](../../parked/trained-policy/strafer-hybrid-sim-validation.md))
+([`strafer-direct-sim-validation`](../active/trained-policy/strafer-direct-sim-validation.md),
+parked [`strafer-hybrid-sim-validation`](../parked/trained-policy/strafer-hybrid-sim-validation.md))
 assume this wiring exists and hand-launch the nodes; this brief is the
 wiring they depend on.
 
@@ -80,7 +83,7 @@ wiring they depend on.
 - [ ] If your work invalidates a fact in any referenced context module,
       package README, top-level `Readme.md`, or guide under `docs/`,
       update those in the same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance).
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance).
 - [ ] No regression in plain nav2 bringup or `make launch-nav` (unset
       backend → neither inference node launches).
 

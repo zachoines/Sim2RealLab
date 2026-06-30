@@ -105,6 +105,91 @@ class TestLaunchFile:
         )
 
 
+class _CaptureNode:
+    """Records raw Node kwargs so a test can assert the parameters list."""
+
+    last = None
+
+    def __init__(self, *args, **kwargs):
+        self.kwargs = kwargs
+        _CaptureNode.last = self
+
+
+def _load_launch(pkg_dir):
+    path = os.path.join(pkg_dir, "launch", "subgoal_generator.launch.py")
+    spec = importlib.util.spec_from_file_location("subgoal_launch_ovr", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TestSubgoalLaunchUseSimTime:
+    """subgoal_generator.launch.py gains only a use_sim_time override; it
+    stays policy-free (no model_path / policy_variant).
+    """
+
+    def test_use_sim_time_arg_declared(self, pkg_dir, monkeypatch):
+        from launch.actions import DeclareLaunchArgument
+
+        monkeypatch.delenv("STRAFER_USE_SIM_TIME", raising=False)
+        ld = _load_launch(pkg_dir).generate_launch_description()
+        names = [
+            e.name for e in ld.entities
+            if isinstance(e, DeclareLaunchArgument)
+        ]
+        assert "use_sim_time" in names
+
+    def test_no_policy_args(self, pkg_dir, monkeypatch):
+        from launch.actions import DeclareLaunchArgument
+
+        ld = _load_launch(pkg_dir).generate_launch_description()
+        names = [
+            e.name for e in ld.entities
+            if isinstance(e, DeclareLaunchArgument)
+        ]
+        assert "model_path" not in names, (
+            "subgoal generator is policy-free; it must not gain model_path"
+        )
+        assert "policy_variant" not in names
+
+    def test_use_sim_time_default_from_env(self, pkg_dir, monkeypatch):
+        from launch.actions import DeclareLaunchArgument
+
+        monkeypatch.delenv("STRAFER_USE_SIM_TIME", raising=False)
+        ld = _load_launch(pkg_dir).generate_launch_description()
+        for e in ld.entities:
+            if isinstance(e, DeclareLaunchArgument) and e.name == "use_sim_time":
+                rendered = "".join(
+                    getattr(s, "text", str(s)) for s in e.default_value
+                )
+                assert rendered == "false"
+                return
+        raise AssertionError("use_sim_time arg not found")
+
+    def test_use_sim_time_is_bool_coerced(self, pkg_dir, monkeypatch):
+        from launch.substitutions import PythonExpression
+
+        mod = _load_launch(pkg_dir)
+        monkeypatch.setattr(mod, "Node", _CaptureNode)
+        mod.generate_launch_description()
+        override = _CaptureNode.last.kwargs["parameters"][-1]
+        assert isinstance(override, dict)
+        assert isinstance(override["use_sim_time"], PythonExpression)
+
+    def test_node_stays_in_global_namespace(self, pkg_dir, monkeypatch):
+        # The generator's /plan, /strafer/subgoal, and map->base_link TF are
+        # absolute and unremapped, so it must stay in the global namespace
+        # (no namespace=, no group wrap).
+        from launch.actions import GroupAction
+
+        mod = _load_launch(pkg_dir)
+        monkeypatch.setattr(mod, "Node", _CaptureNode)
+        ld = mod.generate_launch_description()
+        assert _CaptureNode.last.kwargs["name"] == "strafer_subgoal_generator"
+        assert _CaptureNode.last.kwargs.get("namespace") is None
+        assert not any(isinstance(e, GroupAction) for e in ld.entities)
+
+
 class TestEntryPoint:
     def test_module_importable(self):
         mod = importlib.import_module("strafer_inference.subgoal_generator_node")

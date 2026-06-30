@@ -35,6 +35,7 @@ with ``viewer:=false``. End-to-end setup walkthrough lives in
 ``docs/INTEGRATION_SIM_IN_THE_LOOP.md``.
 """
 
+import logging
 import os
 
 from launch import LaunchDescription
@@ -50,11 +51,16 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
+# navigate_to_pose backends that need the RL inference node; the
+# subgoal generator is needed only for the hybrid one.
+_POLICY_BACKENDS = {"strafer_direct", "hybrid_nav2_strafer"}
+
 
 def _launch_setup(context, *args, **kwargs):
     description_dir = get_package_share_directory("strafer_description")
     navigation_dir = get_package_share_directory("strafer_navigation")
     slam_dir = get_package_share_directory("strafer_slam")
+    inference_dir = get_package_share_directory("strafer_inference")
 
     vlm_url = LaunchConfiguration("vlm_url").perform(context)
     planner_url = LaunchConfiguration("planner_url").perform(context)
@@ -64,6 +70,9 @@ def _launch_setup(context, *args, **kwargs):
     rtabmap_args = LaunchConfiguration("rtabmap_args").perform(context)
     rtabmap_viz = LaunchConfiguration("rtabmap_viz").perform(context)
     viewer_port = LaunchConfiguration("viewer_port").perform(context)
+    nav_backend = LaunchConfiguration("nav_backend").perform(context)
+    model_path = LaunchConfiguration("model_path").perform(context)
+    policy_variant = LaunchConfiguration("policy_variant").perform(context)
 
     # The DGX bridge publishes /clock, so every node in this launch runs
     # on sim time. Pins the whole chain (TF, approx_sync, freshness
@@ -190,17 +199,72 @@ def _launch_setup(context, *args, **kwargs):
             }],
         ),
     ]
+
+    # ── RL inference backend (gated on nav_backend) ────────────────────
+    # nav2/unset launches neither node; strafer_direct adds the inference
+    # node; hybrid adds the subgoal generator too. Same STRAFER_NAV_BACKEND
+    # the executor dispatch reads, so server and client stay in lockstep.
+    if nav_backend in _POLICY_BACKENDS:
+        if not model_path:
+            logging.getLogger("launch").error(
+                f"STRAFER_NAV_BACKEND={nav_backend} but "
+                "STRAFER_INFERENCE_MODEL_PATH is empty — strafer_inference "
+                "will NOT advertise navigate_to_pose; every mission will "
+                "silently fall back to nav2. Set STRAFER_INFERENCE_MODEL_PATH."
+            )
+        nodes.append(IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(inference_dir, "launch", "inference.launch.py")
+            ),
+            launch_arguments={
+                "model_path": model_path,
+                "policy_variant": policy_variant,
+                "use_sim_time": sim_time,
+            }.items(),
+        ))
+    if nav_backend == "hybrid_nav2_strafer":
+        nodes.append(IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(inference_dir, "launch", "subgoal_generator.launch.py")
+            ),
+            launch_arguments={"use_sim_time": sim_time}.items(),
+        ))
+
     return nodes
 
 
 def generate_launch_description():
     default_vlm = os.environ.get("VLM_URL", "")
     default_planner = os.environ.get("PLANNER_URL", "")
+    default_backend = os.environ.get("STRAFER_NAV_BACKEND", "nav2")
+    default_model = os.environ.get("STRAFER_INFERENCE_MODEL_PATH", "")
+    default_variant = os.environ.get("STRAFER_POLICY_VARIANT", "DEPTH")
 
     return LaunchDescription([
         DeclareLaunchArgument(
             "vlm_url", default_value=default_vlm,
             description="VLM grounding service URL on DGX (e.g. http://192.168.50.196:8100).",
+        ),
+        DeclareLaunchArgument(
+            "nav_backend", default_value=default_backend,
+            description=(
+                "navigate_to_pose backend: nav2 (default; launches NEITHER "
+                "inference node), strafer_direct (+ strafer_inference), "
+                "hybrid_nav2_strafer (+ strafer_inference + "
+                "strafer_subgoal_generator). Must match STRAFER_NAV_BACKEND "
+                "on the autonomy executor."
+            ),
+        ),
+        DeclareLaunchArgument(
+            "model_path", default_value=default_model,
+            description=(
+                "Exported policy artifact for strafer_inference. Empty with a "
+                "policy backend is a misconfiguration (no navigate_to_pose)."
+            ),
+        ),
+        DeclareLaunchArgument(
+            "policy_variant", default_value=default_variant,
+            description="PolicyVariant name (e.g. DEPTH, NOCAM_SUBGOAL) for strafer_inference.",
         ),
         DeclareLaunchArgument(
             "planner_url", default_value=default_planner,

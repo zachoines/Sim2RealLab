@@ -173,6 +173,23 @@ def load_occupancy(scene_dir: Path | str) -> CachedOccupancy:
     )
 
 
+def scene_dir_for(usd_path: Path | str) -> Path:
+    """Resolve the per-scene directory that caches a scene's occupancy sidecar.
+
+    Walks up from the *resolved* scene USD to the ``scene_*`` directory whose
+    parent is ``scenes`` — the directory ``occupancy.npy`` / ``occupancy.json``
+    live in — and falls back to the USD's own parent for a non-standard layout.
+    The single shared resolver: the coverage driver, the occupancy generator,
+    and the bridge/training spawn derivation all find the same sidecar from a
+    scene USD path through this one function rather than re-deriving the walk.
+    """
+    resolved = Path(usd_path).resolve()
+    for parent in resolved.parents:
+        if parent.name.startswith("scene_") and parent.parent.name == "scenes":
+            return parent
+    return resolved.parent
+
+
 # ---------------------------------------------------------------------------
 # Occupancy -> free-space adapter (the shared planner seam)
 # ---------------------------------------------------------------------------
@@ -418,6 +435,65 @@ def room_representative_xy(
                     if not has_footprint or point_in_polygon(cx, cy, footprint):
                         return (cx, cy)
     return centroid
+
+
+def spawn_pool_from_occupancy(
+    free_space: np.ndarray,
+    rooms: Sequence[dict[str, Any]],
+    occupancy: CachedOccupancy,
+    *,
+    n: int | None = None,
+) -> list[list[float]]:
+    """Free + in-room spawn cells of ONE loaded scene's occupancy grid.
+
+    The plan-free occupancy->spawn core shared by the coverage driver and the
+    bridge/training spawn derivation. Returns ``[x, y]`` points in the occupancy
+    (scene-authored / env-local) frame that are BOTH passable on the
+    robot-radius-inflated ``free_space`` grid AND inside a room footprint — the
+    generalization of the coverage driver's row-major in-room fallback scan.
+
+    The guarantee is exactly those two properties: *free on the inflated grid +
+    inside a room*. It deliberately does NOT carry the coverage driver's per-leg
+    planner-reachability probe (the bridge plans no legs), so a bridge spawn is
+    a weaker promise than a coverage spawn — name it as such; do not imply the
+    bridge inherits coverage's reachability guarantee.
+
+    Determinism: a row-major scan, no RNG, so a scene maps to one ordered pool.
+    ``n`` caps the pool. ``None`` returns the whole ordered pool (the coverage
+    wrapper scans it for its first plan-reachable cell). A given ``n`` returns an
+    evenly-strided subsample of that ordered pool for spatial spread — the first
+    ``n`` row-major cells would otherwise cluster in one strip of the scene.
+
+    Args:
+        free_space: ``(rows, cols)`` bool grid from :func:`occupancy_to_free_space`
+            (already robot-radius inflated), ideally also room-sealed via
+            :func:`seal_free_space_to_rooms`.
+        rooms: room dicts carrying ``footprint_xy`` for the in-room test.
+        occupancy: the scene's :class:`CachedOccupancy` (for ``origin_xy`` /
+            ``resolution_m``).
+        n: pool cap; ``None`` = the whole ordered pool.
+
+    Raises:
+        RuntimeError: the grid is degenerate — no free in-room cell exists. The
+            occupancy must be regenerated; a degenerate grid is never silently
+            masked or planner-snap widened.
+    """
+    origin_xy = occupancy.origin_xy
+    grid_res = occupancy.resolution_m
+    pool: list[list[float]] = []
+    for r, c in np.argwhere(free_space):
+        x, y = _cell_to_xy(int(r), int(c), origin_xy=origin_xy, grid_res=grid_res)
+        if point_in_any_room(x, y, rooms):
+            pool.append([x, y])
+    if not pool:
+        raise RuntimeError(
+            "no free, in-room spawn cell in the occupancy free-space; the "
+            "scene's occupancy grid is degenerate and must be regenerated"
+        )
+    if n is None or n >= len(pool):
+        return pool
+    stride = len(pool) / float(n)
+    return [pool[int(i * stride)] for i in range(n)]
 
 
 def _path_length_m(path: np.ndarray) -> float:

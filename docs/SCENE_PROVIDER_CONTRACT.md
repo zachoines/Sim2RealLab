@@ -267,8 +267,11 @@ identity (path + mtime + size) so a stale grid is detectable. It is the
 ## c. `scenes_metadata.json` schema
 
 The combined manifest, one file at the scenes root, produced by
-`generate_scenes_metadata.py` (Infinigen). Consumed by the env config
-for scene discovery + robot spawn placement.
+`generate_scenes_metadata.py` (Infinigen). Consumed by the env config for
+scene discovery (which stems load) and per-scene floor height. Robot-reset
+spawn for the bridge / training / coverage env is derived from the per-scene
+`occupancy.npy` sidecar instead (see `spawn_points_xy` below); the
+`spawn_points_xy` here feed the teleop-capture and bridge harness-smoke paths.
 
 ```json
 {
@@ -286,7 +289,7 @@ for scene discovery + robot spawn placement.
 | Field | Req? | Type | Units | Semantic guarantee |
 |---|---|---|---|---|
 | `scenes` | **required** | object keyed by `<scene>` | — | Top-level map. Its **keys gate runtime discovery** — only stems present here are loaded (`_get_scene_usd_paths`). A key with an otherwise-empty value still makes the scene loadable, but spawn placement degrades (see below). |
-| `scenes.<scene>.spawn_points_xy` | **core** | array of `[x, y]` float | meters | Interior floor positions clear of walls and obstacles. The env samples robot resets from these. An empty list falls back to `[[0, 0]]` (robot spawns at world origin — usually wrong, but non-fatal). |
+| `scenes.<scene>.spawn_points_xy` | **core** | array of `[x, y]` float | meters | Interior floor positions clear of walls and obstacles. The teleop-capture and bridge harness-smoke paths sample robot resets from these (per active scene). The bridge / training / coverage env instead derives its reset spawn from the per-scene `occupancy.npy` free-space (`scene_connectivity.spawn_pool_from_occupancy`), so it does not read this field. An empty list falls back to `[[0, 0]]` (robot spawns at world origin — usually wrong, but non-fatal). |
 | `scenes.<scene>.floor_top_z` | **core** | float | meters | Z of the floor's top surface. The ground collision plane is lifted to this so the robot rests on the floor instead of at world `z=0`. Omitting it makes the env fall back to its default floor height. |
 | `scenes.<scene>.floor_bbox_xy` | informational | `[[xmin, ymin], [xmax, ymax]]` float | meters | Union XY bounds of all floor meshes. Produced for tooling / debugging; **not read by the runtime** today. |
 | `scenes.<scene>.source_usdc` | informational | string (abs path) | — | Resolved absolute path of the scene USDC the manifest entry was derived from. Provenance only; **not read by the runtime** today. |

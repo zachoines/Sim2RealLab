@@ -71,7 +71,14 @@ cached grid** and run the one shared invert/inflate adapter
 `scene_connectivity.occupancy_to_free_space` (occupied → free, dilated by
 the robot radius with a Euclidean disc) before calling `plan_path` — they do
 not re-rasterize. The adapter is the one shared seam; the grid is written
-once. The inflation *radius* differs from the GPU training grid's by design:
+once. The bridge/training **robot spawn** derivation
+(`scene_connectivity.spawn_pool_from_occupancy`, via the env cfg's
+`derive_infinigen_scene_spawn` and the coverage driver's `_derive_spawn_xy`)
+is a further consumer of the same seam — it loads the cached grid and runs the
+invert/inflate/seal adapters to pick free, in-room spawn cells — but it is
+**plan-free**: it selects from `free_space` directly and does not call
+`plan_path`, so a bridge spawn is "free on the inflated grid + in a room", not
+per-leg planner-reachable. The inflation *radius* differs from the GPU training grid's by design:
 the GPU grid uses the rotation-invariant **circumscribed** radius for RL
 obstacle-avoidance, while the connectivity check uses the **inscribed** radius
 (half-width) — the holonomic mecanum rotates to thread a ~0.55 m doorway, so

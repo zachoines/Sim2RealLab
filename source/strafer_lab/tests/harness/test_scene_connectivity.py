@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import numpy as np
 
+import pytest
+
 from strafer_lab.tools.scene_connectivity import (
+    CachedOccupancy,
     aabb_to_footprint,
     compute_connectivity,
     connectivity_matrix,
@@ -24,8 +27,11 @@ from strafer_lab.tools.scene_connectivity import (
     point_in_polygon,
     polygon_centroid,
     room_representative_xy,
+    scene_dir_for,
     seal_free_space_to_rooms,
+    spawn_pool_from_occupancy,
 )
+from strafer_lab.tools import scene_connectivity as _sc
 
 RES = 0.1
 ORIGIN = (0.0, 0.0)
@@ -334,3 +340,107 @@ class TestDoorHandling:
         r = int((x - ORIGIN[0]) / RES)
         c = int((y - ORIGIN[1]) / RES)
         assert free[r, c]
+
+
+# ---------------------------------------------------------------------------
+# spawn_pool_from_occupancy — plan-free free + in-room spawn core
+# ---------------------------------------------------------------------------
+
+
+def _occ(grid, origin=ORIGIN, res=RES):
+    return CachedOccupancy(
+        grid=grid, origin_xy=origin, resolution_m=res, z_slice_m=0.0, meta={},
+    )
+
+
+def _covering_room(shape, origin=ORIGIN, res=RES):
+    """One room whose footprint covers the whole grid AABB (in-room always true)."""
+    rows, cols = shape
+    lo = (origin[0] - res, origin[1] - res)
+    hi = (origin[0] + rows * res + res, origin[1] + cols * res + res)
+    return [{"footprint_xy": aabb_to_footprint(lo, hi)}]
+
+
+class TestSpawnPoolFromOccupancy:
+    """The plan-free occupancy->spawn core: every returned cell is passable on
+    the inflated grid AND inside a room footprint, deterministically, raising on
+    a degenerate grid rather than masking it."""
+
+    def test_returns_only_free_in_room_cells(self):
+        free = np.ones((20, 20), dtype=bool)
+        occ = _occ(np.zeros((20, 20), dtype=np.uint8))
+        # Room covers a central patch only; the exterior free cells are excluded.
+        room = {"footprint_xy": aabb_to_footprint((0.8, 0.8), (1.2, 1.2))}
+        pool = spawn_pool_from_occupancy(free, [room], occ)
+        assert pool, "expected a non-empty pool"
+        for x, y in pool:
+            assert point_in_any_room(x, y, [room])
+            r, c = _sc._xy_to_cell((x, y), ORIGIN, RES)
+            assert free[r, c]
+        # The exterior corner (free but outside the room) is never a spawn.
+        assert list(_sc._cell_to_xy(0, 0, ORIGIN, RES)) not in pool
+
+    def test_excludes_inflated_blocked_cells(self):
+        # Block an interior cell; after robot-radius inflation a disc around it
+        # is impassable, and no pool cell may land on it.
+        raw = np.zeros((30, 30), dtype=np.uint8)
+        raw[15, 15] = 1
+        free = occupancy_to_free_space(raw, grid_res=RES)
+        pool = spawn_pool_from_occupancy(free, _covering_room(free.shape), _occ(raw))
+        for x, y in pool:
+            r, c = _sc._xy_to_cell((x, y), ORIGIN, RES)
+            assert free[r, c]
+
+    def test_degenerate_all_blocked_raises(self):
+        with pytest.raises(RuntimeError):
+            spawn_pool_from_occupancy(
+                np.zeros((10, 10), dtype=bool), _covering_room((10, 10)),
+                _occ(np.ones((10, 10), dtype=np.uint8)),
+            )
+
+    def test_no_in_room_cell_raises(self):
+        free = np.ones((20, 20), dtype=bool)
+        room = {"footprint_xy": aabb_to_footprint((100.0, 100.0), (101.0, 101.0))}
+        with pytest.raises(RuntimeError):
+            spawn_pool_from_occupancy(free, [room], _occ(np.zeros((20, 20), np.uint8)))
+
+    def test_n_caps_and_spreads(self):
+        free = np.ones((40, 40), dtype=bool)
+        occ = _occ(np.zeros((40, 40), dtype=np.uint8))
+        full = spawn_pool_from_occupancy(free, _covering_room(free.shape), occ)
+        assert len(full) == 40 * 40  # n=None -> the whole ordered pool
+        sub = spawn_pool_from_occupancy(free, _covering_room(free.shape), occ, n=16)
+        assert len(sub) == 16
+        # Strided, not the first 16 row-major cells (which would all be row 0).
+        xs = {round(x, 6) for x, _ in sub}
+        assert len(xs) > 1, "strided subsample must span more than one grid row"
+        # Every subsample point is still a member of the full ordered pool.
+        full_set = {(round(x, 6), round(y, 6)) for x, y in full}
+        assert all((round(x, 6), round(y, 6)) in full_set for x, y in sub)
+
+    def test_n_larger_than_pool_returns_all(self):
+        free = np.ones((5, 5), dtype=bool)
+        occ = _occ(np.zeros((5, 5), dtype=np.uint8))
+        pool = spawn_pool_from_occupancy(free, _covering_room(free.shape), occ, n=10_000)
+        assert len(pool) == 25
+
+    def test_deterministic(self):
+        free = occupancy_to_free_space(np.zeros((20, 20), dtype=np.uint8), grid_res=RES)
+        occ = _occ(np.zeros((20, 20), dtype=np.uint8))
+        rooms = _covering_room(free.shape)
+        assert spawn_pool_from_occupancy(free, rooms, occ, n=7) == \
+            spawn_pool_from_occupancy(free, rooms, occ, n=7)
+
+
+class TestSceneDirFor:
+    def test_resolves_scene_directory(self):
+        from pathlib import Path
+
+        usd = Path("/x/Assets/generated/scenes/scene_foo_000/scene_foo_000.usdc")
+        assert scene_dir_for(usd).name == "scene_foo_000"
+
+    def test_non_standard_layout_falls_back_to_parent(self):
+        from pathlib import Path
+
+        usd = Path("/tmp/loose/whatever.usdc")
+        assert scene_dir_for(usd) == Path("/tmp/loose")

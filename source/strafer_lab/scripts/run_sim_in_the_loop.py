@@ -82,6 +82,61 @@ def _clamp_unit(value: float) -> float:
     return max(-1.0, min(1.0, value))
 
 
+def _apply_scene_usd_spawn_override(env_cfg: Any, scene_usd: Path) -> None:
+    """Re-point the env at ``scene_usd`` AND re-derive its spawn / floor.
+
+    ``--scene-usd`` overrides the scene the env loads, but the env cfg already
+    baked its spawn pool, robot spawn-z, and ground-lift height for its DEFAULT
+    scene at ``__post_init__`` (see ``_apply_infinigen_scene_setup``). Re-derive
+    all of them from the OVERRIDDEN scene's occupancy free-space + floor so the
+    robot spawns inside THIS scene's room at THIS scene's floor height. Without
+    this the config-time per-loaded-scene spawn fix is invisible whenever
+    ``--scene-usd`` is passed — which is the trained-policy single-room
+    validation path. Mirrors the coverage driver's post-swap re-derivation.
+    """
+    from strafer_lab.tasks.navigation.strafer_env_cfg import (
+        _get_infinigen_active_scene_floor_top_z,
+        derive_infinigen_scene_spawn,
+    )
+    from strafer_lab.tools import scene_connectivity
+
+    resolved = scene_usd.resolve()
+    env_cfg.scene.scene_geometry.spawn.usd_path = str(resolved)
+    print(f"[sim_in_the_loop] scene USD override → {env_cfg.scene.scene_geometry.spawn.usd_path}")
+
+    spawn_points_xy = derive_infinigen_scene_spawn(scene_usd)
+    if spawn_points_xy:
+        if getattr(env_cfg.events, "reset_robot", None) is not None:
+            env_cfg.events.reset_robot.params["spawn_points_xy"] = spawn_points_xy
+        goal_cmd = getattr(getattr(env_cfg, "commands", None), "goal_command", None)
+        if goal_cmd is not None and hasattr(goal_cmd, "spawn_points_xy"):
+            goal_cmd.spawn_points_xy = list(spawn_points_xy)
+        print(
+            f"[sim_in_the_loop] spawn re-derived from {resolved.name} occupancy: "
+            f"{len(spawn_points_xy)} free in-room cells"
+        )
+    else:
+        print(
+            "[sim_in_the_loop] overridden scene has no occupancy / room metadata; "
+            "robot will spawn at the env origin"
+        )
+
+    floor_stem = scene_connectivity.scene_dir_for(scene_usd).name
+    floor_top_z = _get_infinigen_active_scene_floor_top_z(floor_stem)
+    if floor_top_z is not None:
+        floor_z = float(floor_top_z)
+        if getattr(env_cfg.events, "reset_robot", None) is not None:
+            env_cfg.events.reset_robot.params["spawn_z"] = floor_z + 0.1
+        if getattr(env_cfg.events, "lift_ground", None) is not None:
+            env_cfg.events.lift_ground.params["target_z"] = floor_z - 0.002
+        print(f"[sim_in_the_loop] floor pinned to {floor_z:.3f} m for {floor_stem}")
+    else:
+        print(
+            f"[sim_in_the_loop] no floor_top_z for {floor_stem} in "
+            "scenes_metadata.json; keeping the config-default floor height"
+        )
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -553,8 +608,7 @@ def main() -> None:
         cameras_required = _resolve_harness_sensor_stack(env_cfg, args)
 
     if args.scene_usd is not None:
-        env_cfg.scene.scene_geometry.spawn.usd_path = str(args.scene_usd.resolve())
-        print(f"[sim_in_the_loop] scene USD override → {env_cfg.scene.scene_geometry.spawn.usd_path}")
+        _apply_scene_usd_spawn_override(env_cfg, args.scene_usd)
 
     _apply_sim_in_the_loop_overrides(
         env_cfg,

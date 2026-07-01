@@ -1260,12 +1260,6 @@ def _apply_infinigen_scene_setup(cfg: ManagerBasedRLEnvCfg) -> None:
 
     _apply_infinigen_render_exposure(cfg)
 
-    # Occupancy-derived free-space spawn for THIS scene only. The config-default
-    # USD bind above and this spawn reference the same ``scene_link``, so the
-    # default never binds scene[0]'s geometry to another scene's spawn. Empty
-    # when the scene has no occupancy sidecar yet (fresh/pre-metadata, smoke) —
-    # the reset event then spawns at the env origin. Fresh lists: the reset event
-    # caches its points tensor by ``id()``.
     spawn_points_xy = derive_infinigen_scene_spawn(scene_link)
     if spawn_points_xy:
         cfg.events.reset_robot.params["spawn_points_xy"] = spawn_points_xy

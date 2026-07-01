@@ -85,14 +85,11 @@ def _clamp_unit(value: float) -> float:
 def _apply_scene_usd_spawn_override(env_cfg: Any, scene_usd: Path) -> None:
     """Re-point the env at ``scene_usd`` AND re-derive its spawn / floor.
 
-    ``--scene-usd`` overrides the scene the env loads, but the env cfg already
-    baked its spawn pool, robot spawn-z, and ground-lift height for its DEFAULT
-    scene at ``__post_init__`` (see ``_apply_infinigen_scene_setup``). Re-derive
-    all of them from the OVERRIDDEN scene's occupancy free-space + floor so the
-    robot spawns inside THIS scene's room at THIS scene's floor height. Without
-    this the config-time per-loaded-scene spawn fix is invisible whenever
-    ``--scene-usd`` is passed — which is the trained-policy single-room
-    validation path. Mirrors the coverage driver's post-swap re-derivation.
+    The env cfg baked its spawn pool, robot spawn-z, and ground-lift height for
+    its default scene at config time. ``--scene-usd`` swaps the loaded scene, so
+    re-derive all three from the overridden scene's occupancy free-space + floor
+    — otherwise the config-time per-loaded-scene spawn is invisible under
+    ``--scene-usd``. Mirrors the coverage driver's post-swap re-derivation.
     """
     from strafer_lab.tasks.navigation.strafer_env_cfg import (
         _get_infinigen_active_scene_floor_top_z,

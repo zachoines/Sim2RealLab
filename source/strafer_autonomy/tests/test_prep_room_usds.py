@@ -122,7 +122,7 @@ class TestFloorPlanTiler:
     def test_two_room_connectivity(self, prep_mod):
         fp = prep_mod._build_floor_plan(["living-room", "kitchen"])
         assert len(fp["doors"]) == 1  # one connecting door
-        assert fp["interiors"]  # shared wall split around the door
+        assert fp["interiors"] == {}  # solid shared wall; only the door connects the rooms
         assert fp["entrance"] and fp["windows"]  # exterior openings
 
     def test_single_room_has_no_interior_walls(self, prep_mod):
@@ -228,6 +228,48 @@ class TestTiledCommandBuild:
                 infinigen_python="/fake/python", output_folder=tmp_path / "out",
                 seed=0, config=cfg, floor_plan_path=None,
             )
+
+
+class TestGenerateScenes:
+    """Drive generate_scenes end-to-end, Kit-free: stub the env resolvers + the
+    subprocess so it bails right after Step 0 (the per-scene floor-plan write),
+    pinning both the write branch and the ``scene_<name>_<i>_seed<s>`` derivation
+    that bridge_harness_smoke.py:_DEFAULT_SCENE couples to."""
+
+    def _stub_env(self, prep_mod, tmp_path, monkeypatch):
+        monkeypatch.setattr(prep_mod, "validate_required_env_for_generate", lambda **k: None)
+        monkeypatch.setattr(prep_mod, "_resolve_infinigen_python", lambda: "/fake/py")
+        monkeypatch.setattr(prep_mod, "_resolve_infinigen_root", lambda: tmp_path)
+        # bail after Step 0/1 with a nonzero rc, before any real Kit/Infinigen call
+        monkeypatch.setattr(prep_mod, "_run_subprocess", lambda cmd, cwd=None: (1, "stub"))
+
+    def test_tiled_writes_floor_plan_and_derives_name(self, prep_mod, tmp_path, monkeypatch):
+        self._stub_env(prep_mod, tmp_path, monkeypatch)
+        cfg = prep_mod.build_scene_config(
+            name="singleroom", rooms=("living-room",), quality="low",
+            texture_resolution=None, object_density=None, geometry_detail=None,
+            max_rooms=5, seed_base=0,
+        )
+        prep_mod.generate_scenes(
+            config=cfg, num_scenes=1, output_dir=tmp_path,
+            author_scene_metadata=False, validate_connectivity=False,
+        )
+        fp = tmp_path / "scene_singleroom_000_seed0" / "floor_plan.json"
+        assert fp.is_file()  # tiled config writes the per-scene contour (Step 0)
+        assert len(json.loads(fp.read_text())["rooms"]) == 1  # exactly one room
+
+    def test_organic_skips_floor_plan(self, prep_mod, tmp_path, monkeypatch):
+        self._stub_env(prep_mod, tmp_path, monkeypatch)
+        cfg = prep_mod.build_scene_config(
+            name="organic", rooms=None, quality="low",
+            texture_resolution=None, object_density=None, geometry_detail=None,
+            max_rooms=5, seed_base=0,
+        )
+        prep_mod.generate_scenes(
+            config=cfg, num_scenes=1, output_dir=tmp_path,
+            author_scene_metadata=False, validate_connectivity=False,
+        )
+        assert not (tmp_path / "scene_organic_000_seed0" / "floor_plan.json").exists()
 
 
 class TestBuildExportCommand:

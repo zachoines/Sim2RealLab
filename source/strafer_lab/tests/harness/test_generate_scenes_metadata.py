@@ -113,6 +113,15 @@ class TestMergeSceneEntries:
         with pytest.raises(RuntimeError, match="Refusing to overwrite"):
             _merge_scene_entries(out, {"scene_new_000_seed0": {}}, merge=True)
 
+    @pytest.mark.parametrize("scenes_value", ["null", "[]", "42"])
+    def test_merge_on_non_dict_scenes_fails_loud(self, tmp_path, scenes_value):
+        # valid JSON but 'scenes' is null / a list / a scalar -> would blow up the
+        # dict merge with a raw TypeError; must fail loud with the contract message
+        out = tmp_path / "scenes_metadata.json"
+        out.write_text('{"scenes": %s}' % scenes_value)
+        with pytest.raises(RuntimeError, match="Fix or remove the file first"):
+            _merge_scene_entries(out, {"scene_x_000_seed0": {}}, merge=True)
+
 
 # ---------------------------------------------------------------------------
 # _process_scene skip behaviour (pxr)

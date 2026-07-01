@@ -389,11 +389,19 @@ def _merge_scene_entries(
     if output_path.is_file():
         try:
             existing = json.loads(output_path.read_text()).get("scenes", {})
-        except (json.JSONDecodeError, OSError) as exc:
+        except (json.JSONDecodeError, OSError, AttributeError) as exc:
             raise RuntimeError(
                 f"--merge could not read existing {output_path}: {exc}. "
                 "Refusing to overwrite; fix or remove the file first."
             ) from exc
+        # ``.get`` defaults only on a missing key — a present ``"scenes": null``
+        # or ``"scenes": []`` would slip through and blow up the dict merge below
+        # with a raw TypeError, escaping the refuse-to-overwrite contract.
+        if not isinstance(existing, dict):
+            raise RuntimeError(
+                f"--merge could not use existing {output_path}: 'scenes' is "
+                f"{type(existing).__name__}, not an object. Fix or remove the file first."
+            )
     return {**existing, **new_entries}
 
 

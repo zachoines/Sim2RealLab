@@ -210,12 +210,15 @@ def _build_floor_plan(rooms: Iterable[str]) -> dict[str, Any]:
     """Build a ``PredefinedFloorPlanSolver`` contour for an exact room list.
 
     Rooms are tiled left-to-right in a single row, each a rectangle of uniform
-    height and per-type width; adjacent rooms share a full-height interior
-    wall split around a connecting door, and the outer perimeter carries an
-    entrance + windows. The returned dict matches Infinigen's floor-plan
-    schema (``configs_indoor/floor_plans/predefined.json``): every ``shape``
-    is a ``shapely.*`` expression *string* (Infinigen ``eval``s it). Room keys
-    use the ``<semantics>_<level>/<n>`` form so duplicate types get distinct
+    height and per-type width. Adjacent rooms share a **solid** full-height
+    wall (built by Infinigen's ``make_room`` from the two room boxes) carrying
+    a single connecting ``door`` cutter — no ``interiors`` entries, because
+    Infinigen routes those through ``make_window_cutter`` (glass panels), not a
+    solid wall. The outer perimeter carries an entrance + windows. The returned
+    dict matches Infinigen's floor-plan schema
+    (``configs_indoor/floor_plans/predefined.json``): every ``shape`` is a
+    ``shapely.*`` expression *string* (Infinigen ``eval``s it). Room keys use
+    the ``<semantics>_<level>/<n>`` form so duplicate types get distinct
     instance indices (``bedroom_0/0`` + ``bedroom_0/1`` = two Bedrooms).
     """
     rooms = list(rooms)
@@ -246,12 +249,10 @@ def _build_floor_plan(rooms: Iterable[str]) -> dict[str, Any]:
         }
         if i < len(rooms) - 1:
             x = x0 + w  # shared wall with the next room
-            fp["interiors"][f"interior.{i}a"] = {
-                "shape": f"shapely.LineString([({x},0),({x},{y_lo})])"
-            }
-            fp["interiors"][f"interior.{i}b"] = {
-                "shape": f"shapely.LineString([({x},{y_hi}),({x},{h})])"
-            }
+            # Only a door cutter on the shared wall — the two room boxes already
+            # build a solid full-height wall there via Infinigen's make_room. An
+            # ``interiors`` entry would be run through make_window_cutter (tagged
+            # Semantics.Window), punching an unwanted see-through interior panel.
             fp["doors"][f"door.{i}"] = {
                 "shape": f"shapely.LineString([({x},{y_lo}),({x},{y_hi})])"
             }

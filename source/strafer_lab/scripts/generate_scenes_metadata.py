@@ -366,6 +366,37 @@ def _process_scene(
     }
 
 
+def _merge_scene_entries(
+    output_path: Path,
+    new_entries: dict[str, dict[str, Any]],
+    *,
+    merge: bool,
+) -> dict[str, dict[str, Any]]:
+    """Combine freshly-indexed scenes with any already in ``output_path``.
+
+    Without ``merge`` this returns ``new_entries`` unchanged — the historical
+    glob-and-overwrite behavior. With ``merge`` it reads the existing
+    ``scenes_metadata.json`` and returns ``{**existing, **new_entries}`` so a
+    re-index that only sees a subset of the corpus on disk (e.g. the heavy
+    ``high_quality_dgx`` USDs are absent) refreshes the scenes it *did* see
+    without dropping the others. A freshly-indexed scene wins over its prior
+    entry (same stem → updated in place). A present-but-unreadable index is a
+    hard error, not a silent clobber.
+    """
+    if not merge:
+        return new_entries
+    existing: dict[str, dict[str, Any]] = {}
+    if output_path.is_file():
+        try:
+            existing = json.loads(output_path.read_text()).get("scenes", {})
+        except (json.JSONDecodeError, OSError) as exc:
+            raise RuntimeError(
+                f"--merge could not read existing {output_path}: {exc}. "
+                "Refusing to overwrite; fix or remove the file first."
+            ) from exc
+    return {**existing, **new_entries}
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
@@ -410,6 +441,14 @@ def main(argv: list[str] | None = None) -> int:
              "entire house perimeter and blocks every sample.",
     )
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--merge",
+        action="store_true",
+        help="Read the existing scenes_metadata.json and merge the scenes "
+             "indexed this run into it, preserving entries whose USDs are not "
+             "on disk this run (e.g. the heavy high_quality_dgx corpus). "
+             "Default overwrites the whole file with only this run's glob.",
+    )
     args = parser.parse_args(argv)
 
     scenes_dir = args.scenes_dir.resolve()
@@ -433,13 +472,21 @@ def main(argv: list[str] | None = None) -> int:
         if entry is not None:
             scene_entries[usdc.stem] = entry
 
+    output = scenes_dir / "scenes_metadata.json"
+
     if not scene_entries:
+        if args.merge and output.is_file():
+            logger.info("No new scenes indexed; existing %s left unchanged.", output)
+            return 0
         logger.error("No scenes produced spawn points. Nothing written.")
         return 1
 
-    output = scenes_dir / "scenes_metadata.json"
-    output.write_text(json.dumps({"scenes": scene_entries}, indent=2))
-    logger.info("Wrote %s with %d scene entries", output, len(scene_entries))
+    payload = _merge_scene_entries(output, scene_entries, merge=args.merge)
+    output.write_text(json.dumps({"scenes": payload}, indent=2))
+    logger.info(
+        "Wrote %s with %d scene entries (%d indexed this run)",
+        output, len(payload), len(scene_entries),
+    )
     return 0
 
 

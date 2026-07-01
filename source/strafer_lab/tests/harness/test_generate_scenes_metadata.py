@@ -63,6 +63,58 @@ class TestHasCaptureMetadata:
 
 
 # ---------------------------------------------------------------------------
+# Non-clobbering merge (pure — no pxr). Registering a newly-generated scene
+# must not drop existing high_quality_dgx entries whose heavy USDs are absent
+# from this run's glob (the multi-GB corpus USDs are not in git).
+# ---------------------------------------------------------------------------
+
+
+_merge_scene_entries = generate_scenes_metadata._merge_scene_entries
+
+
+class TestMergeSceneEntries:
+    def _write_index(self, path: Path, scenes: dict) -> None:
+        import json
+
+        path.write_text(json.dumps({"scenes": scenes}))
+
+    def test_merge_preserves_absent_corpus_entries(self, tmp_path):
+        out = tmp_path / "scenes_metadata.json"
+        self._write_index(out, {"scene_high_quality_dgx_000_seed2": {"floor_top_z": 0.1}})
+        new = {"scene_true_singleroom_000_seed0": {"floor_top_z": 0.0}}
+        merged = _merge_scene_entries(out, new, merge=True)
+        assert set(merged) == {
+            "scene_high_quality_dgx_000_seed2",
+            "scene_true_singleroom_000_seed0",
+        }
+        # The prior entry survives byte-for-byte.
+        assert merged["scene_high_quality_dgx_000_seed2"] == {"floor_top_z": 0.1}
+
+    def test_merge_refreshes_reindexed_scene(self, tmp_path):
+        out = tmp_path / "scenes_metadata.json"
+        self._write_index(out, {"scene_x_000_seed0": {"floor_top_z": 0.1}})
+        merged = _merge_scene_entries(out, {"scene_x_000_seed0": {"floor_top_z": 9.9}}, merge=True)
+        assert merged["scene_x_000_seed0"] == {"floor_top_z": 9.9}
+
+    def test_no_merge_overwrites_wholesale(self, tmp_path):
+        out = tmp_path / "scenes_metadata.json"
+        self._write_index(out, {"scene_old_000_seed0": {"floor_top_z": 0.1}})
+        new = {"scene_new_000_seed0": {"floor_top_z": 0.0}}
+        assert _merge_scene_entries(out, new, merge=False) == new
+
+    def test_merge_with_no_existing_file_returns_new(self, tmp_path):
+        out = tmp_path / "scenes_metadata.json"  # does not exist
+        new = {"scene_new_000_seed0": {"floor_top_z": 0.0}}
+        assert _merge_scene_entries(out, new, merge=True) == new
+
+    def test_merge_on_corrupt_index_fails_loud(self, tmp_path):
+        out = tmp_path / "scenes_metadata.json"
+        out.write_text("{ this is not json")
+        with pytest.raises(RuntimeError, match="Refusing to overwrite"):
+            _merge_scene_entries(out, {"scene_new_000_seed0": {}}, merge=True)
+
+
+# ---------------------------------------------------------------------------
 # _process_scene skip behaviour (pxr)
 # ---------------------------------------------------------------------------
 

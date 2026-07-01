@@ -226,7 +226,9 @@ sim-bridge: ## Launch Isaac Sim + ROS 2 bridge (headless)
 		conda activate $(CONDA_ENV) && \
 		echo "[sim-bridge] ROS_DISTRO=$$ROS_DISTRO, LD_LIBRARY_PATH head: $$(echo $$LD_LIBRARY_PATH | cut -d: -f1)" && \
 		$(ISAACLAB) -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
-			--mode bridge --headless --enable_cameras
+			--mode bridge --headless --enable_cameras \
+			$${SCENE_NAME:+--scene-name $$SCENE_NAME} \
+			$${SCENE_USD:+--scene-usd $$SCENE_USD}
 
 sim-bridge-gui: ## Launch Isaac Sim + ROS 2 bridge with the viewport open
 	@source env_setup.sh && \
@@ -234,7 +236,9 @@ sim-bridge-gui: ## Launch Isaac Sim + ROS 2 bridge with the viewport open
 		conda activate $(CONDA_ENV) && \
 		echo "[sim-bridge-gui] ROS_DISTRO=$$ROS_DISTRO, LD_LIBRARY_PATH head: $$(echo $$LD_LIBRARY_PATH | cut -d: -f1)" && \
 		$(ISAACLAB) -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
-			--mode bridge --enable_cameras --viz kit
+			--mode bridge --enable_cameras --viz kit \
+			$${SCENE_NAME:+--scene-name $$SCENE_NAME} \
+			$${SCENE_USD:+--scene-usd $$SCENE_USD}
 
 sim-harness: ## Run sim-in-the-loop autonomous mission sweep (metadata travels in the scene USD)
 	@if { [ -z "$$SCENE_NAME" ] && [ -z "$$SCENE_USD" ]; } || [ -z "$$OUTPUT_DIR" ]; then \

@@ -1152,29 +1152,61 @@ def _apply_play_num_envs(cfg: ManagerBasedRLEnvCfg, *, num_envs: int) -> None:
     cfg.scene.num_envs = num_envs
 
 
-def _get_infinigen_spawn_points_xy() -> list[list[float]]:
-    """Pool interior spawn points from the offline Infinigen scene metadata."""
-    meta = _get_scenes_metadata()
-    if not meta:
+# Bridge/training robot spawn pool size: a bounded, spatially-strided subsample
+# of the loaded scene's free in-room occupancy cells (the reset event and the
+# goal command each sample one uniformly per reset). Bounded so the baked cfg
+# stays small and deterministic, and spread across the room floor rather than
+# clustered in one strip; roughly the prior floor-sample pool scale. A richer
+# per-env spawn distribution is a follow-up — v1 ships one per-loaded-scene pool.
+_INFINIGEN_SPAWN_POOL_SIZE = 256
+
+
+def derive_infinigen_scene_spawn(
+    scene_usd: Path | str, *, n: int | None = _INFINIGEN_SPAWN_POOL_SIZE
+) -> list[list[float]]:
+    """Occupancy-derived free-space spawn pool for ONE scene's USD (env-local).
+
+    The shared bridge/training spawn derivation. Loads ONLY the named scene's
+    occupancy sidecar and embedded room footprints, robot-radius-inflates the
+    grid, seals it to the rooms, and returns free + in-room cells through the
+    shared :func:`strafer_lab.tools.scene_connectivity.spawn_pool_from_occupancy`
+    core — the *same* core the coverage driver's spawn selection uses. There is
+    no cross-scene union: every point lies inside THIS scene's rooms, in the
+    scene-authored (== env-local) frame the reset event expects before it adds
+    the env origin. Used both at config time (:func:`_apply_infinigen_scene_setup`)
+    and at the ``run_sim_in_the_loop --scene-usd`` runtime override so the bound
+    config-default and an overridden scene derive spawn identically.
+
+    Returns ``[]`` when the scene has no occupancy sidecar / room metadata yet
+    (fresh/pre-metadata scenes, smoke tests) — the reset event then spawns at the
+    env origin. Raises ``RuntimeError`` on a present-but-degenerate grid (no free
+    in-room cell): the occupancy must be regenerated; it is never silently masked.
+    """
+    from strafer_lab.tools import scene_connectivity, scene_metadata_reader
+
+    scene_usd = Path(scene_usd)
+    try:
+        occupancy = scene_connectivity.load_occupancy(
+            scene_connectivity.scene_dir_for(scene_usd)
+        )
+    except (FileNotFoundError, OSError):
         return []
-
-    spawn_points_xy = []
-    for scene_data in meta["scenes"].values():
-        spawn_points_xy.extend(scene_data.get("spawn_points_xy", []))
-    return spawn_points_xy
-
-
-def _get_infinigen_floor_top_z() -> float | None:
-    """Return max ``floor_top_z`` across pooled scenes, or None if absent."""
-    meta = _get_scenes_metadata()
-    if not meta:
-        return None
-    zs = [
-        scene_data["floor_top_z"]
-        for scene_data in meta["scenes"].values()
-        if "floor_top_z" in scene_data
-    ]
-    return max(zs) if zs else None
+    try:
+        rooms = scene_metadata_reader.load(scene_usd).get("rooms", [])
+    except scene_metadata_reader.SceneMetadataError:
+        return []
+    if not rooms:
+        return []
+    free_space = scene_connectivity.occupancy_to_free_space(
+        occupancy.grid, grid_res=occupancy.resolution_m
+    )
+    free_space = scene_connectivity.seal_free_space_to_rooms(
+        free_space, rooms,
+        origin_xy=occupancy.origin_xy, grid_res=occupancy.resolution_m,
+    )
+    return scene_connectivity.spawn_pool_from_occupancy(
+        free_space, rooms, occupancy, n=n
+    )
 
 
 def _get_infinigen_active_scene_floor_top_z(scene_stem: str) -> float | None:
@@ -1209,11 +1241,18 @@ def _apply_infinigen_render_exposure(cfg: ManagerBasedRLEnvCfg) -> None:
 
 
 def _apply_infinigen_scene_setup(cfg: ManagerBasedRLEnvCfg) -> None:
-    """Attach the first scene USD and pooled floor spawn points to an env cfg.
+    """Bind ONE loaded scene's USD + its occupancy-derived spawn to an env cfg.
 
     The scene path is resolved from its symlink — USD's asset resolver
     anchors relative texture refs against the symlink location, not the
     target, and that breaks every ``./textures/*`` lookup.
+
+    Spawn points, the robot spawn-z, and the ground-lift height are all pinned
+    to the SINGLE scene this cfg loads (``_get_scene_usd_paths()[0]``) — no
+    cross-scene union / pooled-max, which would otherwise place the robot and
+    goals at a non-loaded scene's coordinates. The ``run_sim_in_the_loop
+    --scene-usd`` runtime override and the coverage driver re-derive the same
+    way per overridden / loaded scene (see :func:`derive_infinigen_scene_spawn`).
     """
     scene_link = Path(_get_scene_usd_paths()[0])
     scene_path = scene_link.resolve()
@@ -1221,20 +1260,20 @@ def _apply_infinigen_scene_setup(cfg: ManagerBasedRLEnvCfg) -> None:
 
     _apply_infinigen_render_exposure(cfg)
 
-    spawn_points_xy = _get_infinigen_spawn_points_xy()
+    spawn_points_xy = derive_infinigen_scene_spawn(scene_link)
     if spawn_points_xy:
         cfg.events.reset_robot.params["spawn_points_xy"] = spawn_points_xy
-        cfg.commands.goal_command.spawn_points_xy = spawn_points_xy
-
-    floor_top_z = _get_infinigen_floor_top_z()
-    if floor_top_z is not None:
-        cfg.events.reset_robot.params["spawn_z"] = floor_top_z + 0.1
+        cfg.commands.goal_command.spawn_points_xy = list(spawn_points_xy)
 
     active_floor_top_z = _get_infinigen_active_scene_floor_top_z(scene_link.stem)
     if active_floor_top_z is not None:
-        # Sit the ground plane 2 mm below the visible Infinigen floor: the
-        # gap is imperceptible and prevents z-fighting between the two.
-        cfg.events.lift_ground.params["target_z"] = float(active_floor_top_z) - 0.002
+        floor_z = float(active_floor_top_z)
+        # Robot spawn-z: wheel clearance above THIS scene's floor (was a pooled
+        # MAX across all scenes, wrong for whichever single scene is loaded).
+        cfg.events.reset_robot.params["spawn_z"] = floor_z + 0.1
+        # Sit the ground plane 2 mm below the visible Infinigen floor: the gap
+        # is imperceptible and prevents z-fighting between the two.
+        cfg.events.lift_ground.params["target_z"] = floor_z - 0.002
 
 
 @configclass

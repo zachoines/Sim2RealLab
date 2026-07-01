@@ -268,12 +268,15 @@ def _git_rev_parse_head(repo_root: Path) -> str:
 
 
 def _scene_dir_for(usd_path: Path) -> Path:
-    """Resolve the per-scene directory where occupancy.npy is cached."""
-    resolved = usd_path.resolve()
-    for parent in resolved.parents:
-        if parent.name.startswith("scene_") and parent.parent.name == "scenes":
-            return parent
-    return resolved.parent
+    """Resolve the per-scene directory where occupancy.npy is cached.
+
+    Thin alias for the shared resolver so the coverage driver, the occupancy
+    generator, and the bridge/training spawn derivation all walk to the same
+    sidecar directory from a scene USD path.
+    """
+    from strafer_lab.tools.scene_connectivity import scene_dir_for
+
+    return scene_dir_for(usd_path)
 
 
 def main() -> int:
@@ -870,9 +873,9 @@ def _derive_spawn_xy(
     import numpy as np
 
     from strafer_lab.tools.scene_connectivity import (
-        _cell_to_xy,
         _xy_to_cell,
         point_in_any_room,
+        spawn_pool_from_occupancy,
     )
 
     origin_xy = occupancy.origin_xy
@@ -919,15 +922,14 @@ def _derive_spawn_xy(
         if goal is None or _plans(x, y, goal):
             return [x, y]
 
-    # Fallback: the plan's viewpoints are unusable, so scan free space for an
-    # in-room cell that connects to the traversal's first free in-room
-    # viewpoint. Reads the inflated grid only — never raw occupancy, whose free
-    # cells sit half a chassis from a wall.
+    # Fallback: the plan's viewpoints are unusable, so scan the shared
+    # occupancy->spawn core's free + in-room cells (same row-major order) for the
+    # first that connects to the traversal's first free in-room viewpoint.
+    # spawn_pool_from_occupancy reads the inflated grid only — never raw
+    # occupancy, whose free cells sit half a chassis from a wall — and raises if
+    # no free in-room cell exists (the degenerate-grid blocker, surfaced loudly).
     anchor = next((t for t in targets if _is_free(*t) and _in_room(*t)), None)
-    for r, c in np.argwhere(free_space):
-        x, y = _cell_to_xy(int(r), int(c), origin_xy=origin_xy, grid_res=grid_res)
-        if not _in_room(x, y):
-            continue
+    for x, y in spawn_pool_from_occupancy(free_space, rooms, occupancy):
         if (
             anchor is None
             or math.hypot(anchor[0] - x, anchor[1] - y) <= min_leg_m

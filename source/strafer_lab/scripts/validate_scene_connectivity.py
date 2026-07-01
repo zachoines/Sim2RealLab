@@ -622,12 +622,12 @@ def _wait_for_stage_load(ctx: Any, simulation_app: Any, *, max_updates: int = 60
 
 
 def _scene_dir_for(usd_path: Path) -> Path:
-    """Resolve the per-scene directory (where occupancy.npy is cached)."""
-    resolved = usd_path.resolve()
-    for parent in resolved.parents:
-        if parent.name.startswith("scene_") and parent.parent.name == "scenes":
-            return parent
-    return resolved.parent
+    """Resolve the per-scene directory (where occupancy.npy is cached).
+
+    Thin alias for the shared resolver so the occupancy generator and its
+    consumers walk to the same sidecar directory from a scene USD path.
+    """
+    return scene_connectivity.scene_dir_for(usd_path)
 
 
 def _format_matrix(rooms: list[dict[str, Any]], edges: list[dict[str, Any]]) -> str:

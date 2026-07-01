@@ -54,7 +54,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--scene", default=_DEFAULT_SCENE,
         help="Scene name under Assets/generated/scenes/. Defaults to the "
-             "light single-room scene so the smoke stays OOM-safe on the GB10.",
+             "light single-room scene to keep the smoke's memory footprint small.",
     )
     parser.add_argument(
         "--output", default=None,

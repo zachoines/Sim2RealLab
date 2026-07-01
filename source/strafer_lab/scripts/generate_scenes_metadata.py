@@ -378,8 +378,9 @@ def _merge_scene_entries(
     glob-and-overwrite behavior. With ``merge`` it reads the existing
     ``scenes_metadata.json`` and returns ``{**existing, **new_entries}`` so a
     re-index that only sees a subset of the corpus on disk (e.g. the heavy
-    ``high_quality_dgx`` USDs are absent) refreshes the scenes it *did* see
-    without dropping the others. A freshly-indexed scene wins over its prior
+    multi-GB corpus USDs, which are not tracked in git, are absent) refreshes
+    the scenes it *did* see without dropping the others. A freshly-indexed
+    scene wins over its prior
     entry (same stem → updated in place). A present-but-unreadable index is a
     hard error, not a silent clobber.
     """
@@ -452,10 +453,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--merge",
         action="store_true",
-        help="Read the existing scenes_metadata.json and merge the scenes "
-             "indexed this run into it, preserving entries whose USDs are not "
-             "on disk this run (e.g. the heavy high_quality_dgx corpus). "
-             "Default overwrites the whole file with only this run's glob.",
+        help="Merge this run's scenes into the existing scenes_metadata.json "
+             "instead of overwriting it, preserving entries whose USDs are not "
+             "on disk this run (the heavy multi-GB corpus is not tracked in git).",
     )
     args = parser.parse_args(argv)
 

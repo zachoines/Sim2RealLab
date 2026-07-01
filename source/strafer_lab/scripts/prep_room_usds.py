@@ -46,7 +46,8 @@ Scenes are described along two dimensions:
   organic constraint-solved house (``--max-rooms N`` caps it).
 - **quality/resources** — ``--quality {high,low}`` composes texture resolution
   + object density; ``--texture-res`` / ``--object-density`` /
-  ``--geometry-detail`` override individual knobs (GB10 memory is the driver).
+  ``--geometry-detail`` override individual knobs (available memory is the
+  driver — texture VRAM + geometry footprint at scene-load time).
 
 Usage::
 
@@ -836,7 +837,7 @@ def _build_export_command(
 
 
 # ---------------------------------------------------------------------------
-# Ingest path — for scenes generated off-host and transferred to the DGX
+# Ingest path — for scenes generated off-host and transferred in
 # ---------------------------------------------------------------------------
 
 

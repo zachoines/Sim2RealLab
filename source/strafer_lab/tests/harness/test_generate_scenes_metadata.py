@@ -64,8 +64,8 @@ class TestHasCaptureMetadata:
 
 # ---------------------------------------------------------------------------
 # Non-clobbering merge (pure — no pxr). Registering a newly-generated scene
-# must not drop existing high_quality_dgx entries whose heavy USDs are absent
-# from this run's glob (the multi-GB corpus USDs are not in git).
+# must not drop existing corpus entries whose heavy USDs are absent from this
+# run's glob (the multi-GB corpus USDs are not tracked in git).
 # ---------------------------------------------------------------------------
 
 
@@ -80,15 +80,15 @@ class TestMergeSceneEntries:
 
     def test_merge_preserves_absent_corpus_entries(self, tmp_path):
         out = tmp_path / "scenes_metadata.json"
-        self._write_index(out, {"scene_high_quality_dgx_000_seed2": {"floor_top_z": 0.1}})
+        self._write_index(out, {"scene_corpus_000_seed2": {"floor_top_z": 0.1}})
         new = {"scene_singleroom_000_seed0": {"floor_top_z": 0.0}}
         merged = _merge_scene_entries(out, new, merge=True)
         assert set(merged) == {
-            "scene_high_quality_dgx_000_seed2",
+            "scene_corpus_000_seed2",
             "scene_singleroom_000_seed0",
         }
         # The prior entry survives byte-for-byte.
-        assert merged["scene_high_quality_dgx_000_seed2"] == {"floor_top_z": 0.1}
+        assert merged["scene_corpus_000_seed2"] == {"floor_top_z": 0.1}
 
     def test_merge_refreshes_reindexed_scene(self, tmp_path):
         out = tmp_path / "scenes_metadata.json"

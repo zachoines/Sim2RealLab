@@ -86,7 +86,7 @@ mv Assets/generated/scenes Assets/generated/scenes.old.$(date +%Y%m%d)
 #    per-scene metadata + UsdSemantics detection labels into the USD.
 #    Needs $ISAACLAB set (the metadata pass uses the Kit-only schema).
 python source/strafer_lab/scripts/prep_room_usds.py generate \
-    --config high_quality_dgx \
+    --quality high \
     --num-scenes 1 \
     --output Assets/generated/scenes
 # ~hours; Infinigen scene synthesis is mostly single-threaded (Blender
@@ -361,7 +361,7 @@ annotator + columns, and the discard path — with a scripted `/cmd_vel`
 sweep and a fake executor, no ROS:
 
 ```bash
-make harness-smoke                          # defaults: scene_true_singleroom_000_seed0
+make harness-smoke                          # defaults: scene_singleroom_000_seed0
 SCENE=<scene> REQUIRE_DETECTIONS=1 make harness-smoke
 ```
 

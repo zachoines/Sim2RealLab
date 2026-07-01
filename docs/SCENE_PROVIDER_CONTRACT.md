@@ -52,17 +52,17 @@ capture-ready *and* detections-ready scene; only the combined manifest
 
 ```bash
 source env_setup.sh
-# 1) geometry + embedded metadata + detection labels, in one command
-#    (--config: true_singleroom = 512-px / exactly 1 room, true_tworoom =
-#     512-px / exactly 2 rooms, high_quality_dgx = 1024-px / <=5 rooms)
+# 1) geometry + embedded metadata + detection labels, in one command.
+#    --rooms <types> pins an EXACT tiled layout (duplicates OK), else organic;
+#    --quality {high,low} sets texture + object density. `... info` lists knobs.
 python source/strafer_lab/scripts/prep_room_usds.py generate \
-    --config true_singleroom --num-scenes 1 --output Assets/generated/scenes
+    --rooms living-room --quality low --name singleroom --output Assets/generated/scenes
 # 2) combined manifest (discoverability); --merge keeps existing entries whose
-#    heavy USDs aren't on disk this run (the high_quality_dgx corpus is ungit'd)
+#    heavy USDs aren't on disk this run (the high-quality corpus is ungit'd)
 $ISAACLAB -p source/strafer_lab/scripts/generate_scenes_metadata.py --merge
 ```
 
-`<scene>` is the id printed by step 1 (e.g. `scene_true_singleroom_000_seed0`).
+`<scene>` is the id printed by step 1 (e.g. `scene_singleroom_000_seed0`).
 
 **Re-authoring metadata on an existing USD** (USD-only / no Blender —
 best-effort prim-name labels, `rooms=[]`) runs the same embedder

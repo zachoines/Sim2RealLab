@@ -34,14 +34,17 @@ detections-ready scene. Only the combined manifest (step 2, spawn-point
 discovery) remains separate. Full contract: `docs/SCENE_PROVIDER_CONTRACT.md`.
 ```bash
 source env_setup.sh
-# 1) Geometry + embedded metadata + detection labels, in one command
-#    (--config: true_singleroom = exactly 1 furnished room (light),
-#     true_tworoom = exactly 2 connected rooms, high_quality_dgx = full <=5 rooms)
+# 1) Geometry + embedded metadata + detection labels, in one command.
+#    Two dimensions: --rooms <types> pins an EXACT tiled layout (duplicates OK);
+#    omit for an organic house. --quality {high,low} sets texture + object
+#    density (GB10 memory). `prep_room_usds.py info` lists the room types/knobs.
 #    Needs $ISAACLAB set (the metadata pass applies the Kit-only UsdSemantics
 #    schema); --no-scene-metadata skips it for a geometry-only build.
 python source/strafer_lab/scripts/prep_room_usds.py generate \
-    --config true_singleroom --num-scenes 1 --output Assets/generated/scenes
-# note the printed <scene> id, e.g. scene_true_singleroom_000_seed0
+    --rooms living-room --quality low --name singleroom \
+    --output Assets/generated/scenes
+# (organic corpus: --quality high --num-scenes 10; two-room: --rooms living-room kitchen)
+# note the printed <scene> id, e.g. scene_singleroom_000_seed0
 
 # 2) Combined scenes_metadata.json (spawn points; makes the scene discoverable)
 #    --merge preserves existing entries whose heavy USDs aren't on disk this
@@ -267,8 +270,8 @@ make sim-bridge          # headless (daily-driver, ~85 ms/loop faster)
 # or:
 make sim-bridge-gui      # editor viewport open (visual debug, slower)
 # Pin the bridge to a chosen scene (else the env default loads):
-SCENE_USD=Assets/generated/scenes/scene_true_singleroom_000_seed0.usdc make sim-bridge
-# or by discoverable name: SCENE_NAME=scene_true_singleroom_000_seed0 make sim-bridge
+SCENE_USD=Assets/generated/scenes/scene_singleroom_000_seed0.usdc make sim-bridge
+# or by discoverable name: SCENE_NAME=scene_singleroom_000_seed0 make sim-bridge
 ```
 
 ## Jetson shell 1 — full bringup (perception + SLAM + Nav2 + executor + foxglove_bridge)

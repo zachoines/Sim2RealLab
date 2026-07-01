@@ -361,7 +361,7 @@ annotator + columns, and the discard path — with a scripted `/cmd_vel`
 sweep and a fake executor, no ROS:
 
 ```bash
-make harness-smoke                          # defaults: scene_fast_singleroom_000_seed0
+make harness-smoke                          # defaults: scene_true_singleroom_000_seed0
 SCENE=<scene> REQUIRE_DETECTIONS=1 make harness-smoke
 ```
 

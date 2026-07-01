@@ -636,7 +636,7 @@ follow-up brief filed.
       Cohen's κ; below 0.7 the brief defers the ship decision
       to a follow-up that swaps in a stronger judge.
 - [ ] **Smoke test.** A single-mission run on the Infinigen
-      `scene_fast_singleroom_000_seed0` scene produces a
+      `scene_true_singleroom_000_seed0` scene produces a
       non-zero-row `verify_arrival` outcome (verified or
       unverified, but not `semantic_map_disabled`) AND at least
       one `BackgroundMapper` capture during the nav leg. Captured

@@ -334,6 +334,9 @@ python3 source/strafer_ros/ros_test_slam.py --drive forward --duration 3
 # DGX — manual / Nav2 mode (headless, daily-driver):
 source env_setup.sh
 make sim-bridge
+# Pin a specific scene (else the env default loads); sim-bridge-gui too:
+#   SCENE_USD=Assets/generated/scenes/<scene>.usdc make sim-bridge
+#   SCENE_NAME=<scene> make sim-bridge   # by discoverable name
 
 # Jetson — full autonomy stack against the DGX bridge topics:
 make launch-sim

@@ -1,0 +1,40 @@
+{
+  "rooms": {
+    "living-room_0/0": {
+      "shape": "shapely.box(0,0,6,5)"
+    },
+    "kitchen_0/0": {
+      "shape": "shapely.box(-4,0,0,5)"
+    }
+  },
+  "doors": {
+    "door": {
+      "shape": "shapely.LineString([(0,1.5),(0,3.5)])"
+    }
+  },
+  "interiors": {
+    "interior": {
+      "shape": "shapely.LineString([(0,0),(0,1.5)])"
+    },
+    "interior.001": {
+      "shape": "shapely.LineString([(0,3.5),(0,5)])"
+    }
+  },
+  "opens": {
+    "open": {
+      "shape": "shapely.LineString([(-4,1),(-4,4)])"
+    }
+  },
+  "windows": {
+    "window": {
+      "shape": "shapely.LineString([(6,1.5),(6,3.5)])"
+    },
+    "window.001": {
+      "shape": "shapely.LineString([(1.5,5),(4.5,5)])"
+    },
+    "window.002": {
+      "shape": "shapely.LineString([(-3.5,0),(-0.5,0)])",
+      "is_panoramic": 1
+    }
+  }
+}

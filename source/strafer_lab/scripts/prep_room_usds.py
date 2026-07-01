@@ -46,9 +46,9 @@ Usage::
         --num-scenes 10 \\
         --output Assets/generated/scenes
 
-    # Fast debug scene (single furnished room):
+    # Genuine single-room scene (exactly one furnished room):
     python scripts/prep_room_usds.py generate \\
-        --config fast_singleroom \\
+        --config true_singleroom \\
         --num-scenes 1 \\
         --output Assets/generated/scenes
 
@@ -114,7 +114,25 @@ class SceneGenConfig:
     # unconstrained default is known to wedge the solver on hard seeds;
     # capping keeps runtime bounded. ``5`` matches the DGX workhorse
     # preset's original intent; set to ``1`` for fast single-room scenes.
+    #
+    # NOTE: ``solve_max_rooms`` only limits how many rooms get *furnished*
+    # (Infinigen's own docstring: "only place objects in at most this many
+    # rooms"); it does NOT constrain the floorplan's room *count*. The
+    # room-count floor is baked into ``home_room_constraints``'
+    # ``node_constraint`` (Entrance/LivingRoom/Kitchen/Bedroom/Bathroom each
+    # >= 1), so the constraint-solver path always yields ~5 rooms. To pin an
+    # exact room count, use ``floor_plan_file`` below.
     max_rooms: int = 5
+    # Predefined floor-plan contour to force an EXACT room count. When set,
+    # names a JSON file shipped under this script's ``floor_plans/`` dir; the
+    # generate command injects ``-p Solver.floor_plan=<abs path>`` so
+    # Infinigen's ``PredefinedFloorPlanSolver`` builds precisely the rooms the
+    # JSON defines (bypassing the constraint solver's room-count floor). The
+    # rooms are still furnished against ``home_furniture_constraints`` per
+    # their room type (e.g. a ``living-room_0/0`` room gets living-room
+    # furniture), so a furnishable room still yields groundable objects.
+    # Left ``None`` for the constraint-solved presets (the historical path).
+    floor_plan_file: str | None = None
     # Texture image resolution for the USDC export pass. Higher values
     # give better perception training data but slow export considerably.
     texture_resolution: int = 1024
@@ -141,31 +159,50 @@ HIGH_QUALITY_DGX = SceneGenConfig(
     description="Full multi-room furnished house on DGX Spark (<=5 rooms).",
 )
 
-# Fast single-room iteration — matches docs/HelloRoom.md's `-g fast_solve.gin
-# singleroom.gin` recipe. Useful for debugging, CI smoke tests, and quick
-# perception-pipeline validation.
-FAST_SINGLEROOM = SceneGenConfig(
-    name="fast_singleroom",
-    gin_configs=("fast_solve", "singleroom"),
-    gin_overrides=("compose_indoors.terrain_enabled=False",),
+# Genuine single-room scene with EXACTLY one furnished room. The
+# constraint-solver path can't do this — ``home_room_constraints`` forces
+# Entrance/LivingRoom/Kitchen/Bedroom/Bathroom each >= 1 (a ~5-room floor),
+# and ``solve_max_rooms`` only limits how many rooms get *furnished*. So the
+# room count is pinned deterministically via a predefined floor-plan contour
+# (``floor_plan_file`` -> ``-p Solver.floor_plan=<abs>`` ->
+# ``PredefinedFloorPlanSolver``), whose single room is a furnishable
+# LivingRoom that yields groundable objects. ``RoomConstants.n_stories=1``
+# is pinned because the predefined-floor-plan path indexes one solidifier
+# per story and crashes under a multistory overlay. Light (512-px, 1 room)
+# so it loads without OOMing the GB10's unified memory.
+TRUE_SINGLEROOM = SceneGenConfig(
+    name="true_singleroom",
+    gin_configs=("base_indoors",),
+    gin_overrides=(
+        "compose_indoors.terrain_enabled=False",
+        "RoomConstants.n_stories=1",
+    ),
     max_rooms=1,
     texture_resolution=512,
-    description="Single furnished room; fast solver for debug / CI.",
+    floor_plan_file="true_singleroom.json",
+    description="Exactly one furnished LivingRoom via a predefined floor plan.",
 )
 
-# Lower-memory baseline preserved for parity with earlier workstation
-# workflows that transferred scenes onto the DGX via the ingest path.
-WINDOWS_BASELINE = SceneGenConfig(
-    name="windows_baseline",
-    gin_configs=("fast_solve", "singleroom"),
-    gin_overrides=("compose_indoors.terrain_enabled=False",),
-    max_rooms=1,
+# Genuine two-room scene: exactly two connected rooms (a furnishable
+# LivingRoom + an adjacent Kitchen) sharing a door, via a predefined
+# floor-plan contour. The cross-room fixture for the eventual autonomy-stack
+# cross-room lane; also proves the predefined-floor-plan room-count control
+# does N=2. Same single-story pin + light textures as the single-room preset.
+TRUE_TWOROOM = SceneGenConfig(
+    name="true_tworoom",
+    gin_configs=("base_indoors",),
+    gin_overrides=(
+        "compose_indoors.terrain_enabled=False",
+        "RoomConstants.n_stories=1",
+    ),
+    max_rooms=2,
     texture_resolution=512,
-    description="Low-memory baseline for the Windows workstation.",
+    floor_plan_file="true_tworoom.json",
+    description="Exactly two connected furnished rooms via a predefined floor plan.",
 )
 
 PRESETS: dict[str, SceneGenConfig] = {
-    cfg.name: cfg for cfg in (HIGH_QUALITY_DGX, FAST_SINGLEROOM, WINDOWS_BASELINE)
+    cfg.name: cfg for cfg in (HIGH_QUALITY_DGX, TRUE_SINGLEROOM, TRUE_TWOROOM)
 }
 
 
@@ -554,6 +591,33 @@ def validate_required_env_for_generate(*, author_scene_metadata: bool = True) ->
         _resolve_isaaclab_launcher()
 
 
+# Predefined floor-plan contours ship in the repo (not the vendored
+# Infinigen tree) so they travel with this PR and stay reproducible. The
+# ``-g`` gin-file mechanism only resolves stems inside Infinigen's own
+# ``configs_indoor/`` tree, so a repo-local gin is unreachable; instead the
+# room count is pinned via the ``-p Solver.floor_plan=<abs path>`` binding.
+_FLOOR_PLANS_DIR = Path(__file__).resolve().parent / "floor_plans"
+
+
+def _resolve_floor_plan_path(name: str) -> Path:
+    """Resolve a predefined floor-plan JSON shipped under ``floor_plans/``.
+
+    Presets reference the contour by bare filename; the generate command
+    passes its *absolute* path to Infinigen via ``-p Solver.floor_plan=...``.
+    The path must be absolute because the coarse-gen subprocess runs with
+    ``cwd=INFINIGEN_ROOT`` — a relative path would resolve against the
+    vendored Infinigen tree rather than this repo.
+    """
+    path = _FLOOR_PLANS_DIR / name
+    if not path.is_file():
+        raise RuntimeError(
+            f"Floor-plan file {name!r} not found under {_FLOOR_PLANS_DIR}. "
+            "A preset that sets floor_plan_file must reference a JSON shipped "
+            "in the repo's scripts/floor_plans/ directory."
+        )
+    return path
+
+
 def _build_generate_command(
     *,
     infinigen_python: str,
@@ -564,7 +628,10 @@ def _build_generate_command(
     """Build the ``generate_indoors`` CLI invocation for one scene.
 
     Uses Infinigen's real CLI: ``-g`` for gin config files (without the
-    ``.gin`` suffix) and ``-p`` for ``module.key=value`` overrides.
+    ``.gin`` suffix) and ``-p`` for ``module.key=value`` overrides. Presets
+    with a ``floor_plan_file`` additionally bind
+    ``Solver.floor_plan=<abs path>`` so Infinigen's
+    ``PredefinedFloorPlanSolver`` builds an exact room count.
     """
     cmd: list[str] = [
         infinigen_python,
@@ -583,6 +650,12 @@ def _build_generate_command(
 
     overrides = list(config.gin_overrides)
     overrides.append(f"restrict_solving.solve_max_rooms={config.max_rooms}")
+    if config.floor_plan_file:
+        floor_plan_path = _resolve_floor_plan_path(config.floor_plan_file)
+        # Quote the path so gin parses the RHS as a string literal; the arg
+        # travels through subprocess argv (no shell), so the quotes are part
+        # of the binding and Infinigen's sanitize_override leaves it intact.
+        overrides.append(f'Solver.floor_plan="{floor_plan_path}"')
     cmd.append("-p")
     cmd.extend(overrides)
     return cmd
@@ -619,7 +692,7 @@ def _build_export_command(
 
 
 # ---------------------------------------------------------------------------
-# Ingest path — for scenes generated on Windows and transferred to DGX
+# Ingest path — for scenes generated off-host and transferred to the DGX
 # ---------------------------------------------------------------------------
 
 
@@ -627,7 +700,7 @@ def ingest_external_usd(
     *,
     source_dir: Path,
     output_dir: Path,
-    preset_name: str = "windows_baseline",
+    preset_name: str = "high_quality_dgx",
 ) -> list[Path]:
     """Copy externally-generated scenes into the strafer_lab assets tree.
 
@@ -643,7 +716,7 @@ def ingest_external_usd(
         raise FileNotFoundError(f"Source directory not found: {source_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    preset = PRESETS.get(preset_name, WINDOWS_BASELINE)
+    preset = PRESETS.get(preset_name, HIGH_QUALITY_DGX)
     imported: list[Path] = []
     for child in sorted(source_dir.iterdir()):
         if not child.is_dir():
@@ -717,7 +790,7 @@ def _build_parser() -> argparse.ArgumentParser:
     ingest.add_argument("--source", type=Path, required=True)
     ingest.add_argument("--output", type=Path, required=True)
     ingest.add_argument(
-        "--preset", default="windows_baseline", choices=sorted(PRESETS.keys()),
+        "--preset", default="high_quality_dgx", choices=sorted(PRESETS.keys()),
     )
 
     presets = sub.add_parser("presets", help="Print the available quality presets and exit")

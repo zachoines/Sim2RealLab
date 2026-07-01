@@ -76,7 +76,7 @@ def _two_room_scene(*, incompatible: bool = False, reachable: bool = True) -> Sc
 
 
 def _single_room_scene_no_occupancy() -> SceneInputs:
-    """Legacy single-room scene: one room, objects, but no cached occupancy grid."""
+    """Single-room scene: one room, objects, but no cached occupancy grid."""
     metadata = {
         "rooms": [{"room_type": "room", "footprint_xy": [[0, 0], [4, 0], [4, 4], [0, 4]], "story": 0}],
         "objects": [
@@ -85,8 +85,10 @@ def _single_room_scene_no_occupancy() -> SceneInputs:
         ],
         "connectivity": [],
     }
+    # Cosmetic in-memory label only (no file/USD is read). Kept corpus-
+    # independent so it isn't coupled to a specific transient generated scene.
     return SceneInputs(
-        scene_name="scene_fast_singleroom_000_seed0",
+        scene_name="scene_singleroom_mock",
         metadata=metadata,
         scene_seed=0,
         free_space=None,

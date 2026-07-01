@@ -111,6 +111,84 @@ class TestBuildGenerateCommand:
         assert "-g" not in cmd
 
 
+class TestPredefinedFloorPlanPresets:
+    """The genuine single-/two-room presets pin an EXACT room count via a
+    predefined floor-plan contour (``Solver.floor_plan``), not the constraint
+    solver — which can only cap *furnished* rooms, never the floor count."""
+
+    def test_true_presets_registered(self, prep_mod):
+        assert "true_singleroom" in prep_mod.PRESETS
+        assert "true_tworoom" in prep_mod.PRESETS
+        assert prep_mod.PRESETS["true_singleroom"].max_rooms == 1
+        assert prep_mod.PRESETS["true_tworoom"].max_rooms == 2
+
+    @pytest.mark.parametrize(
+        "preset_name,expected_json",
+        [
+            ("true_singleroom", "true_singleroom.json"),
+            ("true_tworoom", "true_tworoom.json"),
+        ],
+    )
+    def test_injects_absolute_solver_floor_plan(
+        self, prep_mod, tmp_path, preset_name, expected_json
+    ):
+        cfg = prep_mod.PRESETS[preset_name]
+        cmd = prep_mod._build_generate_command(
+            infinigen_python="/fake/python",
+            output_folder=tmp_path / "out",
+            seed=0,
+            config=cfg,
+        )
+        p_values = cmd[cmd.index("-p") + 1 :]
+        floor_plan = [v for v in p_values if v.startswith("Solver.floor_plan=")]
+        assert len(floor_plan) == 1, (
+            f"expected exactly one Solver.floor_plan binding, got {floor_plan}"
+        )
+        raw = floor_plan[0].split("=", 1)[1].strip('"')
+        path = Path(raw)
+        assert path.is_absolute(), (
+            "Solver.floor_plan must be absolute: the coarse-gen subprocess runs "
+            "with cwd=INFINIGEN_ROOT, so a relative path resolves against the "
+            "vendored Infinigen tree, not this repo."
+        )
+        assert path.name == expected_json
+        assert path.is_file(), f"preset points at a missing floor plan: {path}"
+        # Shipped under a git-tracked source path, NOT the transient corpus dir.
+        assert "floor_plans" in path.parts
+        assert "Assets" not in path.parts and "generated" not in path.parts
+        # Floor-plan injection must not displace the other overrides.
+        assert any("terrain_enabled=False" in v for v in p_values)
+        assert any("RoomConstants.n_stories=1" in v for v in p_values)
+        assert f"restrict_solving.solve_max_rooms={cfg.max_rooms}" in p_values
+
+    @pytest.mark.parametrize(
+        "preset_name,expected_rooms",
+        [("true_singleroom", 1), ("true_tworoom", 2)],
+    )
+    def test_floor_plan_json_valid(self, prep_mod, preset_name, expected_rooms):
+        cfg = prep_mod.PRESETS[preset_name]
+        path = prep_mod._resolve_floor_plan_path(cfg.floor_plan_file)
+        plan = json.loads(path.read_text())
+        rooms = plan["rooms"]
+        assert len(rooms) == expected_rooms, (
+            f"{preset_name} must define exactly {expected_rooms} room(s)"
+        )
+        # Room keys are Infinigen's "<semantics>_<level>/<n>" form; a furnishable
+        # LivingRoom must be present so the scene yields groundable objects.
+        room_types = {k.split("_")[0] for k in rooms}
+        assert "living-room" in room_types, (
+            f"{preset_name} must contain a furnishable living-room, got {room_types}"
+        )
+        # Every shape is an eval'd shapely literal string (as Infinigen expects).
+        for room in rooms.values():
+            assert isinstance(room["shape"], str)
+            assert room["shape"].startswith("shapely.")
+
+    def test_missing_floor_plan_fails_loud(self, prep_mod):
+        with pytest.raises(RuntimeError, match="not found under"):
+            prep_mod._resolve_floor_plan_path("does_not_exist.json")
+
+
 class TestBuildExportCommand:
     def test_includes_omniverse_and_usdc(self, prep_mod, tmp_path):
         cmd = prep_mod._build_export_command(
@@ -142,12 +220,12 @@ class TestIngestExternalUsd:
         imported = prep_mod.ingest_external_usd(
             source_dir=source,
             output_dir=output,
-            preset_name="windows_baseline",
+            preset_name="high_quality_dgx",
         )
         assert len(imported) == 1
         assert (output / "kitchen_01" / "kitchen_01.usd").exists()
         config = json.loads((output / "kitchen_01" / "scene_config.json").read_text())
-        assert config["name"] == "windows_baseline"
+        assert config["name"] == "high_quality_dgx"
 
     def test_skips_existing_destination(self, prep_mod, tmp_path):
         source = tmp_path / "external"
@@ -170,7 +248,7 @@ class TestCLI:
         captured = capsys.readouterr()
         assert rc == 0
         assert "high_quality_dgx" in captured.out
-        assert "windows_baseline" in captured.out
+        assert "true_singleroom" in captured.out
 
     def test_presets_json(self, prep_mod, capsys):
         rc = prep_mod.main(["presets", "--json"])

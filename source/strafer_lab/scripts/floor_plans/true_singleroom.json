@@ -1,0 +1,20 @@
+{
+  "rooms": {
+    "living-room_0/0": {
+      "shape": "shapely.box(0,0,6,5)"
+    }
+  },
+  "entrance": {
+    "entrance": {
+      "shape": "shapely.LineString([(2,0),(4,0)])"
+    }
+  },
+  "windows": {
+    "window": {
+      "shape": "shapely.LineString([(6,1.5),(6,3.5)])"
+    },
+    "window.001": {
+      "shape": "shapely.LineString([(1.5,5),(4.5,5)])"
+    }
+  }
+}

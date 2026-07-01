@@ -27,6 +27,8 @@ from strafer_shared.constants import (
     TOPIC_COLOR_IMAGE,
     TOPIC_DEPTH_CAMERA_INFO,
     TOPIC_DEPTH_IMAGE,
+    TOPIC_IMU_FILTERED,
+    TOPIC_JOINT_STATES,
     TOPIC_ODOM,
 )
 
@@ -74,6 +76,13 @@ class BridgeConfig:
     odom_frame_id: str
     base_frame_id: str
     camera_mount_frame_id: str
+    # Proprioception telemetry the trained-policy obs pipeline needs. The
+    # bridge publishes the sim articulation's wheel-joint state and the D555
+    # IMU sensor here so the Jetson inference node reaches ``ready`` in
+    # sim-in-the-loop just as it does on hardware.
+    joint_states_topic: str = TOPIC_JOINT_STATES
+    imu_topic: str = TOPIC_IMU_FILTERED
+    imu_frame_id: str = FRAME_D555_LINK
     # Additional prim paths that should appear in the robot TF tree
     # (published as base_link → d555_link etc.). Empty tuple means the
     # builder only publishes odom → base_link.

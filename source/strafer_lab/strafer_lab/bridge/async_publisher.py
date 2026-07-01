@@ -38,7 +38,10 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.time import Time
 from rosgraph_msgs.msg import Clock
+from sensor_msgs.msg import Imu, JointState
 from tf2_ros import TransformBroadcaster
+
+from .proprio import WHEEL_JOINT_NAMES, ordered_wheel_values, resolve_wheel_indices
 
 
 def _to_torch(arr):
@@ -63,20 +66,33 @@ class _CmdVelState:
 class StraferAsyncPublisher:
     """rclpy-backed publisher for /clock, /odom, odom→base TF, /cmd_vel.
 
+    Also publishes wheel ``/strafer/joint_states`` and the D555
+    ``/d555/imu/filtered`` when the caller supplies those topics (and, for
+    IMU, the sensor handle) so the trained-policy obs pipeline reaches
+    ``ready`` in sim-in-the-loop on the same wire contract as the robot.
+
     Parameters
     ----------
     robot:
         Isaac Lab ``Articulation`` handle for the Strafer chassis. Used
         to read ``root_link_pos_w`` / ``root_link_quat_w`` (world-frame
-        pose, XYZW quaternion convention on Isaac Lab 3.0) and
-        ``root_lin_vel_b`` / ``root_ang_vel_b`` (body-frame twist) each
+        pose, XYZW quaternion convention on Isaac Lab 3.0),
+        ``root_lin_vel_b`` / ``root_ang_vel_b`` (body-frame twist), and
+        ``joint_vel`` / ``joint_pos`` (wheel state) each
         ``publish_state(...)`` call.
+    imu_sensor:
+        Isaac Lab ``Imu`` sensor handle (the scene's ``d555_imu``), or
+        ``None`` to skip IMU publishing. Read for ``lin_acc_b`` /
+        ``ang_vel_b`` — the same source the training obs uses, so the
+        published IMU matches the policy's training distribution.
     clock_topic, odom_topic, cmd_vel_topic:
         Topic names. Defaults match ``strafer_shared.constants`` via the
         caller — this class takes raw strings to keep imports minimal.
-    odom_frame_id, base_frame_id:
-        ``Odometry.header.frame_id`` and ``child_frame_id``, also used
-        as the odom→base TF parent/child.
+    joint_states_topic, imu_topic:
+        Optional proprioception topics. ``None`` skips that publisher.
+    odom_frame_id, base_frame_id, imu_frame_id:
+        Message ``frame_id``s. ``odom_frame_id`` / ``base_frame_id`` are
+        also the odom→base TF parent/child.
     node_name:
         ROS 2 node name. Defaults to ``strafer_sim_bridge_publisher``.
     """
@@ -90,12 +106,20 @@ class StraferAsyncPublisher:
         cmd_vel_topic: str,
         odom_frame_id: str,
         base_frame_id: str,
+        imu_sensor=None,
+        joint_states_topic: str | None = None,
+        imu_topic: str | None = None,
+        imu_frame_id: str = "d555_link",
         clock_rate_hz: float = 50.0,
         node_name: str = "strafer_sim_bridge_publisher",
     ) -> None:
         self._robot = robot
         self._odom_frame_id = odom_frame_id
         self._base_frame_id = base_frame_id
+        self._imu_sensor = imu_sensor
+        self._imu_frame_id = imu_frame_id
+        # Resolved lazily on first publish once robot.joint_names is populated.
+        self._wheel_indices: list[int] | None = None
 
         # rclpy may already be initialized by another part of Kit (e.g.
         # the isaacsim.ros2.core extension's startup smoke-test). Guard
@@ -106,6 +130,17 @@ class StraferAsyncPublisher:
         self._node = Node(node_name)
         self._clock_pub = self._node.create_publisher(Clock, clock_topic, 10)
         self._odom_pub = self._node.create_publisher(Odometry, odom_topic, 10)
+        self._joint_states_pub = (
+            self._node.create_publisher(JointState, joint_states_topic, 10)
+            if joint_states_topic
+            else None
+        )
+        # IMU needs both a topic and a sensor to read; skip otherwise.
+        self._imu_pub = (
+            self._node.create_publisher(Imu, imu_topic, 10)
+            if (imu_topic and imu_sensor is not None)
+            else None
+        )
         self._tf_broadcaster = TransformBroadcaster(self._node)
         self._cmd_vel_sub = self._node.create_subscription(
             Twist, cmd_vel_topic, self._on_cmd_vel, 10
@@ -262,6 +297,46 @@ class StraferAsyncPublisher:
         tf.transform.rotation.z = qz
         tf.transform.rotation.w = qw
         self._tf_broadcaster.sendTransform(tf)
+
+        # ── Wheel joint state ──────────────────────────────────────────
+        # The inference obs pipeline reconstructs body velocity from these
+        # wheel velocities via the shared mecanum inverse-FK, so publish the
+        # sim articulation's wheel-joint state in canonical wheel order.
+        if self._joint_states_pub is not None:
+            if self._wheel_indices is None:
+                self._wheel_indices = resolve_wheel_indices(self._robot.joint_names)
+            jvel = _to_torch(data.joint_vel)[0]
+            jpos = _to_torch(data.joint_pos)[0]
+            js = JointState()
+            js.header.stamp = stamp
+            js.name = list(WHEEL_JOINT_NAMES)
+            js.velocity = ordered_wheel_values(self._wheel_indices, jvel)
+            js.position = ordered_wheel_values(self._wheel_indices, jpos)
+            self._joint_states_pub.publish(js)
+
+        # ── D555 IMU ───────────────────────────────────────────────────
+        # Read the same body-frame accel/gyro the training obs uses so the
+        # policy sees an in-distribution IMU. lin_acc_b includes gravity
+        # (reads ~(0,0,9.81) at rest); orientation is set from the base
+        # pose for completeness (the policy consumes accel/gyro only).
+        if self._imu_pub is not None:
+            idata = self._imu_sensor.data
+            acc = _to_torch(idata.lin_acc_b)[0]
+            gyr = _to_torch(idata.ang_vel_b)[0]
+            imu = Imu()
+            imu.header.stamp = stamp
+            imu.header.frame_id = self._imu_frame_id
+            imu.linear_acceleration.x = float(acc[0])
+            imu.linear_acceleration.y = float(acc[1])
+            imu.linear_acceleration.z = float(acc[2])
+            imu.angular_velocity.x = float(gyr[0])
+            imu.angular_velocity.y = float(gyr[1])
+            imu.angular_velocity.z = float(gyr[2])
+            imu.orientation.x = qx
+            imu.orientation.y = qy
+            imu.orientation.z = qz
+            imu.orientation.w = qw
+            self._imu_pub.publish(imu)
 
     # ------------------------------------------------------------------
     # Lifecycle

@@ -21,172 +21,213 @@ def prep_mod():
     return module
 
 
-class TestPresets:
-    def test_presets_have_real_gin_configs(self, prep_mod):
-        for name, preset in prep_mod.PRESETS.items():
-            assert preset.gin_configs, f"{name} has empty gin_configs"
-            for gin_file in preset.gin_configs:
-                assert not gin_file.endswith(".gin"), (
-                    f"{name}: gin_configs entries must omit the .gin suffix "
-                    f"(Infinigen adds it), got {gin_file!r}"
-                )
+class TestQualityTiersAndLayout:
+    def test_quality_tiers_valid(self, prep_mod):
+        for name, tier in prep_mod.QUALITY_TIERS.items():
+            assert tier.texture_resolution > 0, f"{name} nonpositive texture_resolution"
+            assert tier.object_density in prep_mod._OBJECT_DENSITY_STEPS
 
-    def test_presets_disable_terrain(self, prep_mod):
-        # Every indoor preset should disable Infinigen's terrain generator,
-        # which otherwise inflates runtime and can fail solve.
-        for name, preset in prep_mod.PRESETS.items():
-            assert any(
-                "terrain_enabled=False" in o for o in preset.gin_overrides
-            ), f"{name} does not disable terrain"
+    def test_build_scene_config_applies_tier_defaults(self, prep_mod):
+        tier = prep_mod.QUALITY_TIERS["low"]
+        cfg = prep_mod.build_scene_config(
+            name=None, rooms=None, quality="low", texture_resolution=None,
+            object_density=None, geometry_detail=None, max_rooms=5, seed_base=0,
+        )
+        assert cfg.texture_resolution == tier.texture_resolution
+        assert cfg.object_density == tier.object_density
+        assert cfg.geometry_detail == "standard"  # displacement is opt-in
+        assert cfg.name == "organic_low"  # derived from rooms + quality
+        # provenance stays JSON round-trippable
+        decoded = json.loads(json.dumps(cfg.to_dict()))
+        assert decoded["name"] == "organic_low"
+        assert decoded["rooms"] is None
 
-    def test_preset_names_round_trip(self, prep_mod):
-        for name, preset in prep_mod.PRESETS.items():
-            assert preset.name == name
+    def test_explicit_knobs_override_tier(self, prep_mod):
+        cfg = prep_mod.build_scene_config(
+            name="x", rooms=("living-room",), quality="high", texture_resolution=128,
+            object_density="low", geometry_detail="displacement", max_rooms=5, seed_base=3,
+        )
+        assert cfg.texture_resolution == 128
+        assert cfg.object_density == "low"
+        assert cfg.geometry_detail == "displacement"
+        assert cfg.rooms == ("living-room",)
+        assert cfg.random_seed_base == 3
+        assert cfg.name == "x"
 
-    def test_texture_resolution_positive(self, prep_mod):
-        for name, preset in prep_mod.PRESETS.items():
-            assert preset.texture_resolution > 0, f"{name} has nonpositive texture_resolution"
+    def test_derived_names(self, prep_mod):
+        assert prep_mod._default_scene_name(None, "high") == "organic_high"
+        assert prep_mod._default_scene_name(("living-room", "kitchen"), "low") == "2room_low"
 
-    def test_max_rooms_positive(self, prep_mod):
-        for name, preset in prep_mod.PRESETS.items():
-            assert preset.max_rooms >= 1, f"{name} has max_rooms<1"
 
-    def test_to_dict_serializable(self, prep_mod):
-        for name, preset in prep_mod.PRESETS.items():
-            encoded = json.dumps(preset.to_dict())
-            decoded = json.loads(encoded)
-            assert decoded["name"] == name
-            assert isinstance(decoded["gin_configs"], list)
-            assert isinstance(decoded["gin_overrides"], list)
+class TestResolveRooms:
+    def test_explicit_list_wins(self, prep_mod):
+        assert prep_mod.resolve_rooms(
+            rooms=["living-room", "kitchen"], num_rooms=None, room_types=None
+        ) == ("living-room", "kitchen")
+
+    def test_duplicates_allowed(self, prep_mod):
+        # adversarial: multiple rooms of the same class
+        assert prep_mod.resolve_rooms(
+            rooms=["bedroom", "bedroom"], num_rooms=None, room_types=None
+        ) == ("bedroom", "bedroom")
+
+    def test_round_robin(self, prep_mod):
+        assert prep_mod.resolve_rooms(
+            rooms=None, num_rooms=3, room_types=["living-room", "bedroom"]
+        ) == ("living-room", "bedroom", "living-room")
+
+    def test_round_robin_defaults_to_living_room(self, prep_mod):
+        assert prep_mod.resolve_rooms(rooms=None, num_rooms=2, room_types=None) == (
+            "living-room",
+            "living-room",
+        )
+
+    def test_organic_when_unset(self, prep_mod):
+        assert prep_mod.resolve_rooms(rooms=None, num_rooms=None, room_types=None) is None
+
+    def test_rejects_non_furnishable(self, prep_mod):
+        with pytest.raises(ValueError, match="not furnishable"):
+            prep_mod.resolve_rooms(rooms=["closet"], num_rooms=None, room_types=None)
+
+    def test_rejects_zero_num_rooms(self, prep_mod):
+        with pytest.raises(ValueError, match=">= 1"):
+            prep_mod.resolve_rooms(rooms=None, num_rooms=0, room_types=None)
+
+
+class TestFloorPlanTiler:
+    """The parametric tiler builds a PredefinedFloorPlanSolver contour for an
+    exact room list (any count, duplicates OK) — replacing hand-authored JSONs."""
+
+    @pytest.mark.parametrize(
+        "rooms,n",
+        [
+            (["living-room"], 1),
+            (["living-room", "kitchen"], 2),
+            (["bedroom", "bedroom", "living-room"], 3),
+        ],
+    )
+    def test_room_count_types_and_keys(self, prep_mod, rooms, n):
+        fp = prep_mod._build_floor_plan(rooms)
+        keys = list(fp["rooms"])
+        assert len(keys) == n
+        # keys are "<semantics>_<level>/<n>"; duplicate types get distinct n
+        assert [k.split("_")[0] for k in keys] == rooms
+        assert len(set(keys)) == n
+        # every shape is a shapely-expression string (Infinigen evals it)
+        for section in fp.values():
+            for entry in section.values():
+                assert isinstance(entry["shape"], str)
+                assert entry["shape"].startswith("shapely.")
+
+    def test_two_room_connectivity(self, prep_mod):
+        fp = prep_mod._build_floor_plan(["living-room", "kitchen"])
+        assert len(fp["doors"]) == 1  # one connecting door
+        assert fp["interiors"]  # shared wall split around the door
+        assert fp["entrance"] and fp["windows"]  # exterior openings
+
+    def test_single_room_has_no_interior_walls(self, prep_mod):
+        fp = prep_mod._build_floor_plan(["living-room"])
+        assert fp["doors"] == {}
+        assert fp["interiors"] == {}
+        assert fp["entrance"] and fp["windows"]
+
+    def test_empty_rooms_raises(self, prep_mod):
+        with pytest.raises(ValueError, match="at least one room"):
+            prep_mod._build_floor_plan([])
 
 
 class TestBuildGenerateCommand:
-    def test_includes_gin_flags(self, prep_mod, tmp_path):
-        cfg = prep_mod.SceneGenConfig(
-            name="t",
-            gin_configs=("fast_solve", "singleroom"),
-            gin_overrides=("compose_indoors.terrain_enabled=False",),
-            max_rooms=3,
-        )
-        cmd = prep_mod._build_generate_command(
+    def _cmd(self, prep_mod, cfg, tmp_path, floor_plan_path=None):
+        return prep_mod._build_generate_command(
             infinigen_python="/fake/python",
             output_folder=tmp_path / "out",
             seed=42,
             config=cfg,
+            floor_plan_path=floor_plan_path,
         )
+
+    def _organic(self, prep_mod, quality="high", **kw):
+        return prep_mod.build_scene_config(
+            name="c", rooms=None, quality=quality,
+            texture_resolution=kw.get("tex"), object_density=kw.get("dens"),
+            geometry_detail=kw.get("geo"), max_rooms=kw.get("mr", 5), seed_base=0,
+        )
+
+    def test_organic_command_shape(self, prep_mod, tmp_path):
+        cmd = self._cmd(prep_mod, self._organic(prep_mod, mr=5), tmp_path)
         assert cmd[0] == "/fake/python"
         assert cmd[1:3] == ["-m", "infinigen_examples.generate_indoors"]
-        assert "--seed" in cmd and cmd[cmd.index("--seed") + 1] == "42"
-        assert "-g" in cmd
-        g_idx = cmd.index("-g")
-        assert cmd[g_idx + 1 : g_idx + 3] == ["fast_solve", "singleroom"]
-        assert "-p" in cmd
-        p_idx = cmd.index("-p")
-        # Every -p payload is captured up to the next flag or end of args.
-        p_values = cmd[p_idx + 1 :]
-        assert "compose_indoors.terrain_enabled=False" in p_values
-        assert "restrict_solving.solve_max_rooms=3" in p_values
-        assert "--task" in cmd and cmd[cmd.index("--task") + 1] == "coarse"
+        assert cmd[cmd.index("--seed") + 1] == "42"
+        assert cmd[cmd.index("--task") + 1] == "coarse"
+        assert cmd[cmd.index("-g") + 1] == "base_indoors"
+        p = cmd[cmd.index("-p") + 1 :]
+        assert "restrict_solving.solve_max_rooms=5" in p
+        assert "compose_indoors.terrain_enabled=False" in p
+        # organic mode -> no predefined floor plan, no single-story pin
+        assert not any(v.startswith("Solver.floor_plan") for v in p)
+        assert not any("n_stories" in v for v in p)
 
-    def test_always_appends_max_rooms_override(self, prep_mod, tmp_path):
-        cfg = prep_mod.SceneGenConfig(name="t", gin_configs=(), gin_overrides=(), max_rooms=7)
-        cmd = prep_mod._build_generate_command(
-            infinigen_python="/fake/python",
-            output_folder=tmp_path / "out",
-            seed=0,
-            config=cfg,
-        )
-        assert "-p" in cmd
-        p_idx = cmd.index("-p")
-        assert cmd[p_idx + 1] == "restrict_solving.solve_max_rooms=7"
+    def test_object_density_scales_solve_steps(self, prep_mod, tmp_path):
+        hi = self._cmd(prep_mod, self._organic(prep_mod, quality="high"), tmp_path)
+        lo = self._cmd(prep_mod, self._organic(prep_mod, quality="low"), tmp_path)
+        assert "compose_indoors.solve_steps_large=300" in hi
+        assert "compose_indoors.solve_steps_small=50" in hi
+        assert "compose_indoors.solve_steps_large=100" in lo
+        assert "compose_indoors.solve_steps_small=5" in lo
+
+    def test_geometry_displacement_opt_in(self, prep_mod, tmp_path):
+        std = self._cmd(prep_mod, self._organic(prep_mod, geo="standard"), tmp_path)
+        disp = self._cmd(prep_mod, self._organic(prep_mod, geo="displacement"), tmp_path)
+        assert not any("DISPLACEMENT" in v for v in std)
+        assert any("DISPLACEMENT" in v for v in disp)
+        assert "compose_indoors.enable_ocmesh_room=True" in disp
 
     def test_omits_g_when_no_gin_configs(self, prep_mod, tmp_path):
         cfg = prep_mod.SceneGenConfig(name="t", gin_configs=(), gin_overrides=())
-        cmd = prep_mod._build_generate_command(
-            infinigen_python="/fake/python",
-            output_folder=tmp_path / "out",
-            seed=0,
-            config=cfg,
-        )
-        assert "-g" not in cmd
+        assert "-g" not in self._cmd(prep_mod, cfg, tmp_path)
 
 
-class TestPredefinedFloorPlanPresets:
-    """The genuine single-/two-room presets pin an EXACT room count via a
-    predefined floor-plan contour (``Solver.floor_plan``), not the constraint
-    solver — which can only cap *furnished* rooms, never the floor count."""
-
-    def test_true_presets_registered(self, prep_mod):
-        assert "true_singleroom" in prep_mod.PRESETS
-        assert "true_tworoom" in prep_mod.PRESETS
-        assert prep_mod.PRESETS["true_singleroom"].max_rooms == 1
-        assert prep_mod.PRESETS["true_tworoom"].max_rooms == 2
+class TestTiledCommandBuild:
+    """A tiled config (rooms set) pins the exact layout via a per-scene
+    ``Solver.floor_plan`` written by the tiler, furnishing all rooms."""
 
     @pytest.mark.parametrize(
-        "preset_name,expected_json",
-        [
-            ("true_singleroom", "true_singleroom.json"),
-            ("true_tworoom", "true_tworoom.json"),
-        ],
+        "rooms",
+        [("living-room",), ("living-room", "kitchen"), ("bedroom", "bedroom")],
     )
-    def test_injects_absolute_solver_floor_plan(
-        self, prep_mod, tmp_path, preset_name, expected_json
-    ):
-        cfg = prep_mod.PRESETS[preset_name]
+    def test_injects_absolute_floor_plan(self, prep_mod, tmp_path, rooms):
+        cfg = prep_mod.build_scene_config(
+            name="t", rooms=rooms, quality="low", texture_resolution=None,
+            object_density=None, geometry_detail=None, max_rooms=5, seed_base=0,
+        )
+        # mirror generate_scenes: the tiler writes the per-scene contour
+        fpp = tmp_path / "floor_plan.json"
+        fpp.write_text(json.dumps(prep_mod._build_floor_plan(cfg.rooms)))
         cmd = prep_mod._build_generate_command(
-            infinigen_python="/fake/python",
-            output_folder=tmp_path / "out",
-            seed=0,
-            config=cfg,
+            infinigen_python="/fake/python", output_folder=tmp_path / "out",
+            seed=0, config=cfg, floor_plan_path=fpp,
         )
-        p_values = cmd[cmd.index("-p") + 1 :]
-        floor_plan = [v for v in p_values if v.startswith("Solver.floor_plan=")]
-        assert len(floor_plan) == 1, (
-            f"expected exactly one Solver.floor_plan binding, got {floor_plan}"
-        )
-        raw = floor_plan[0].split("=", 1)[1].strip('"')
-        path = Path(raw)
-        assert path.is_absolute(), (
-            "Solver.floor_plan must be absolute: the coarse-gen subprocess runs "
-            "with cwd=INFINIGEN_ROOT, so a relative path resolves against the "
-            "vendored Infinigen tree, not this repo."
-        )
-        assert path.name == expected_json
-        assert path.is_file(), f"preset points at a missing floor plan: {path}"
-        # Shipped under a git-tracked source path, NOT the transient corpus dir.
-        assert "floor_plans" in path.parts
-        assert "Assets" not in path.parts and "generated" not in path.parts
-        # Floor-plan injection must not displace the other overrides.
-        assert any("terrain_enabled=False" in v for v in p_values)
-        assert any("RoomConstants.n_stories=1" in v for v in p_values)
-        assert f"restrict_solving.solve_max_rooms={cfg.max_rooms}" in p_values
+        p = cmd[cmd.index("-p") + 1 :]
+        binding = [v for v in p if v.startswith("Solver.floor_plan=")]
+        assert len(binding) == 1
+        path = Path(binding[0].split("=", 1)[1].strip('"'))
+        # absolute — the subprocess runs cwd=INFINIGEN_ROOT, so a relative path
+        # would resolve against the vendored Infinigen tree, not the scene dir
+        assert path.is_absolute()
+        assert path == fpp.resolve()
+        assert "RoomConstants.n_stories=1" in p  # predefined path needs one story
+        assert f"restrict_solving.solve_max_rooms={len(rooms)}" in p  # furnish all
 
-    @pytest.mark.parametrize(
-        "preset_name,expected_rooms",
-        [("true_singleroom", 1), ("true_tworoom", 2)],
-    )
-    def test_floor_plan_json_valid(self, prep_mod, preset_name, expected_rooms):
-        cfg = prep_mod.PRESETS[preset_name]
-        path = prep_mod._resolve_floor_plan_path(cfg.floor_plan_file)
-        plan = json.loads(path.read_text())
-        rooms = plan["rooms"]
-        assert len(rooms) == expected_rooms, (
-            f"{preset_name} must define exactly {expected_rooms} room(s)"
+    def test_tiled_without_floor_plan_path_raises(self, prep_mod, tmp_path):
+        cfg = prep_mod.build_scene_config(
+            name="t", rooms=("living-room",), quality="low", texture_resolution=None,
+            object_density=None, geometry_detail=None, max_rooms=5, seed_base=0,
         )
-        # Room keys are Infinigen's "<semantics>_<level>/<n>" form; a furnishable
-        # LivingRoom must be present so the scene yields groundable objects.
-        room_types = {k.split("_")[0] for k in rooms}
-        assert "living-room" in room_types, (
-            f"{preset_name} must contain a furnishable living-room, got {room_types}"
-        )
-        # Every shape is an eval'd shapely literal string (as Infinigen expects).
-        for room in rooms.values():
-            assert isinstance(room["shape"], str)
-            assert room["shape"].startswith("shapely.")
-
-    def test_missing_floor_plan_fails_loud(self, prep_mod):
-        with pytest.raises(RuntimeError, match="not found under"):
-            prep_mod._resolve_floor_plan_path("does_not_exist.json")
+        with pytest.raises(ValueError, match="requires floor_plan_path"):
+            prep_mod._build_generate_command(
+                infinigen_python="/fake/python", output_folder=tmp_path / "out",
+                seed=0, config=cfg, floor_plan_path=None,
+            )
 
 
 class TestBuildExportCommand:
@@ -217,15 +258,27 @@ class TestIngestExternalUsd:
         (scene_empty / "README.md").write_text("no usd here")
 
         output = tmp_path / "assets"
-        imported = prep_mod.ingest_external_usd(
-            source_dir=source,
-            output_dir=output,
-            preset_name="high_quality_dgx",
-        )
+        imported = prep_mod.ingest_external_usd(source_dir=source, output_dir=output)
         assert len(imported) == 1
         assert (output / "kitchen_01" / "kitchen_01.usd").exists()
         config = json.loads((output / "kitchen_01" / "scene_config.json").read_text())
-        assert config["name"] == "high_quality_dgx"
+        # default provenance is a generic organic config
+        assert config["name"] == "ingested"
+        assert config["rooms"] is None
+
+    def test_stamps_supplied_config(self, prep_mod, tmp_path):
+        source = tmp_path / "external"
+        scene = source / "kitchen_01"
+        scene.mkdir(parents=True)
+        (scene / "kitchen_01.usd").write_text("USD")
+        output = tmp_path / "assets"
+        cfg = prep_mod.build_scene_config(
+            name="ingested", rooms=None, quality="low", texture_resolution=None,
+            object_density=None, geometry_detail=None, max_rooms=5, seed_base=0,
+        )
+        prep_mod.ingest_external_usd(source_dir=source, output_dir=output, config=cfg)
+        stamped = json.loads((output / "kitchen_01" / "scene_config.json").read_text())
+        assert stamped["texture_resolution"] == 512  # low tier
 
     def test_skips_existing_destination(self, prep_mod, tmp_path):
         source = tmp_path / "external"
@@ -243,20 +296,27 @@ class TestIngestExternalUsd:
 
 
 class TestCLI:
-    def test_presets_list(self, prep_mod, capsys):
-        rc = prep_mod.main(["presets"])
+    def test_info_lists_dimensions(self, prep_mod, capsys):
+        rc = prep_mod.main(["info"])
         captured = capsys.readouterr()
         assert rc == 0
-        assert "high_quality_dgx" in captured.out
-        assert "true_singleroom" in captured.out
+        assert "high" in captured.out and "low" in captured.out  # quality tiers
+        assert "living-room" in captured.out  # furnishable rooms
+        assert "displacement" in captured.out  # geometry detail
 
-    def test_presets_json(self, prep_mod, capsys):
-        rc = prep_mod.main(["presets", "--json"])
+    def test_info_json(self, prep_mod, capsys):
+        rc = prep_mod.main(["info", "--json"])
         captured = capsys.readouterr()
         assert rc == 0
         payload = json.loads(captured.out)
-        assert "high_quality_dgx" in payload
-        assert "gin_configs" in payload["high_quality_dgx"]
+        assert "quality_tiers" in payload
+        assert "living-room" in payload["furnishable_rooms"]
+        assert set(payload["object_density"]) == {"high", "low"}
+
+    def test_generate_rejects_non_furnishable_room(self, prep_mod, capsys):
+        # argparse choices reject it before resolve_rooms even runs
+        with pytest.raises(SystemExit):
+            prep_mod.main(["generate", "--rooms", "closet", "--output", "/tmp/x"])
 
 
 class TestResolveInfinigenPython:

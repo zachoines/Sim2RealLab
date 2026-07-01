@@ -42,7 +42,7 @@ from pathlib import Path
 
 from isaaclab.app import AppLauncher
 
-_DEFAULT_SCENE = "scene_true_singleroom_000_seed0"
+_DEFAULT_SCENE = "scene_singleroom_000_seed0"
 
 
 def _build_parser() -> argparse.ArgumentParser:

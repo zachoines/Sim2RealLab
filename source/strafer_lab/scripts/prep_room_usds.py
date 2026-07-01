@@ -39,18 +39,35 @@ Pipeline per scene:
 Presets wrap Infinigen's real knobs (``-g`` gin config files and ``-p``
 gin-style parameter overrides).
 
+Scenes are described along two dimensions:
+
+- **layout** — ``--rooms <type...>`` pins an EXACT tiled floor plan (the room
+  count is the number of types given, duplicates allowed); omit it for an
+  organic constraint-solved house (``--max-rooms N`` caps it).
+- **quality/resources** — ``--quality {high,low}`` composes texture resolution
+  + object density; ``--texture-res`` / ``--object-density`` /
+  ``--geometry-detail`` override individual knobs (GB10 memory is the driver).
+
 Usage::
 
+    # Organic multi-room house (the perception corpus):
     python scripts/prep_room_usds.py generate \\
-        --config high_quality_dgx \\
-        --num-scenes 10 \\
+        --quality high --num-scenes 10 \\
         --output Assets/generated/scenes
 
-    # Genuine single-room scene (exactly one furnished room):
+    # Exact single-room scene (one furnished living room), light:
     python scripts/prep_room_usds.py generate \\
-        --config true_singleroom \\
-        --num-scenes 1 \\
+        --rooms living-room --quality low --name singleroom \\
         --output Assets/generated/scenes
+
+    # Exact two connected rooms; adversarial two-of-a-kind:
+    python scripts/prep_room_usds.py generate \\
+        --rooms living-room kitchen --quality low --output Assets/generated/scenes
+    python scripts/prep_room_usds.py generate \\
+        --rooms bedroom bedroom --quality low --output Assets/generated/scenes
+
+    # List the available dimensions:
+    python scripts/prep_room_usds.py info
 
     # Import externally-generated scenes (e.g. from another host):
     python scripts/prep_room_usds.py ingest \\
@@ -88,122 +105,232 @@ logger = logging.getLogger("prep_room_usds")
 
 
 # ---------------------------------------------------------------------------
-# Quality presets — DGX-specific and low-end fallbacks
+# Generation dimensions — layout (rooms) and quality/resources
 # ---------------------------------------------------------------------------
+
+
+# Room types the constraint solver actually furnishes — ``home_furniture_``
+# ``constraints`` only writes furniture rules for these, so a tiled scene's
+# rooms must come from this set to contain groundable objects.
+FURNISHABLE_ROOMS: tuple[str, ...] = (
+    "living-room",
+    "kitchen",
+    "bedroom",
+    "bathroom",
+    "dining-room",
+)
+
+# Per-type room footprint (metres) for the tiler — a bathroom is small, a
+# living room large. Height is uniform so a row of rooms shares full-height
+# interior walls; only the width varies by type.
+_ROOM_WIDTHS: dict[str, float] = {
+    "living-room": 6.0,
+    "dining-room": 5.0,
+    "bedroom": 5.0,
+    "kitchen": 4.0,
+    "bathroom": 3.0,
+}
+_ROOM_HEIGHT = 5.0
+_DEFAULT_ROOM_WIDTH = 5.0
+
+# Object-count dial. All rooms are always furnished; this only scales the
+# solver's annealing budget, and more steps place more objects. Maps to
+# Infinigen's ``compose_indoors.solve_steps_{large,medium,small}`` — ``high``
+# is ``base_indoors``' budget, ``low`` is the ``fast_solve`` budget (fewer
+# props, faster).
+_OBJECT_DENSITY_STEPS: dict[str, tuple[int, int, int]] = {
+    "high": (300, 200, 50),
+    "low": (100, 40, 5),
+}
+
+# Geometry/mesh complexity. ``standard`` is Infinigen's base indoor meshes
+# (no displacement — the corpus baseline). ``displacement`` layers on
+# ``real_geometry`` micro-geometry (much heavier; opt-in when memory allows).
+_GEOMETRY_DETAILS: tuple[str, ...] = ("standard", "displacement")
+
+
+@dataclass
+class QualityTier:
+    """A composed default for the memory-sensitive resource knobs."""
+
+    texture_resolution: int
+    object_density: str  # key into ``_OBJECT_DENSITY_STEPS``
+
+
+# ``--quality`` picks a tier; each knob is individually overridable. Geometry
+# stays ``standard`` in both tiers — displacement is a deliberate opt-in.
+QUALITY_TIERS: dict[str, QualityTier] = {
+    "high": QualityTier(texture_resolution=1024, object_density="high"),
+    "low": QualityTier(texture_resolution=512, object_density="low"),
+}
 
 
 @dataclass
 class SceneGenConfig:
-    """Scene generation preset.
+    """Resolved parameters for one scene generation, along two dimensions.
 
-    ``gin_configs`` and ``gin_overrides`` map directly onto Infinigen's
-    ``-g``/``-p`` CLI flags. Everything else is provenance metadata
-    recorded into ``scene_config.json`` next to each generated scene.
+    **Layout** — ``rooms`` is an explicit list of furnishable room types; the
+    count is ``len(rooms)`` and duplicates are allowed (e.g. two bedrooms for
+    adversarial same-class training). When set, the floorplan is pinned
+    EXACTLY via a parametric predefined contour
+    (``PredefinedFloorPlanSolver``). When ``None``, the constraint solver runs
+    and the layout is organic — a natural multi-room house (the perception
+    corpus), room count bounded by ``max_rooms``.
+
+    **Quality / resources** — ``texture_resolution`` (VRAM),
+    ``object_density`` (annealing budget → object count; all rooms are
+    furnished either way), and ``geometry_detail`` (``standard`` base meshes
+    vs ``displacement`` micro-geometry).
+
+    Everything is recorded into ``scene_config.json`` next to each scene.
     """
 
     name: str
-    # Gin config file stems (no ``.gin`` extension). Loaded from
-    # ``infinigen_examples/configs_indoor/``. Order matters: later files
-    # can override earlier ones.
-    gin_configs: tuple[str, ...] = ("base_indoors",)
-    # Gin parameter overrides, ``module.key=value`` strings. Applied after
-    # the gin_configs so they always win.
-    gin_overrides: tuple[str, ...] = ("compose_indoors.terrain_enabled=False",)
-    # Cap on the number of rooms the constraint solver will try to fit.
-    # Passed to Infinigen as ``restrict_solving.solve_max_rooms=N``. The
-    # unconstrained default is known to wedge the solver on hard seeds;
-    # capping keeps runtime bounded. ``5`` matches the DGX workhorse
-    # preset's original intent; set to ``1`` for fast single-room scenes.
-    #
-    # NOTE: ``solve_max_rooms`` only limits how many rooms get *furnished*
-    # (Infinigen's own docstring: "only place objects in at most this many
-    # rooms"); it does NOT constrain the floorplan's room *count*. The
-    # room-count floor is baked into ``home_room_constraints``'
-    # ``node_constraint`` (Entrance/LivingRoom/Kitchen/Bedroom/Bathroom each
-    # >= 1), so the constraint-solver path always yields ~5 rooms. To pin an
-    # exact room count, use ``floor_plan_file`` below.
+    # Explicit room-type layout (tiled mode). ``None`` -> organic solve.
+    rooms: tuple[str, ...] | None = None
+    # Solver room cap — organic mode only (how many rooms it fits + furnishes).
+    # Ignored in tiled mode, where all listed rooms are furnished.
     max_rooms: int = 5
-    # Predefined floor-plan contour to force an EXACT room count. When set,
-    # names a JSON file shipped under this script's ``floor_plans/`` dir; the
-    # generate command injects ``-p Solver.floor_plan=<abs path>`` so
-    # Infinigen's ``PredefinedFloorPlanSolver`` builds precisely the rooms the
-    # JSON defines (bypassing the constraint solver's room-count floor). The
-    # rooms are still furnished against ``home_furniture_constraints`` per
-    # their room type (e.g. a ``living-room_0/0`` room gets living-room
-    # furniture), so a furnishable room still yields groundable objects.
-    # Left ``None`` for the constraint-solved presets (the historical path).
-    floor_plan_file: str | None = None
-    # Texture image resolution for the USDC export pass. Higher values
-    # give better perception training data but slow export considerably.
     texture_resolution: int = 1024
+    object_density: str = "high"  # key into ``_OBJECT_DENSITY_STEPS``
+    geometry_detail: str = "standard"  # one of ``_GEOMETRY_DETAILS``
+    # Base gin config file stems (no ``.gin`` suffix) + always-on overrides.
+    gin_configs: tuple[str, ...] = ("base_indoors",)
+    gin_overrides: tuple[str, ...] = ("compose_indoors.terrain_enabled=False",)
     # Seed base; scene i uses seed = random_seed_base + i.
     random_seed_base: int = 0
-    # Human-readable preset description (recorded in scene_config.json).
+    # Human-readable description (recorded in scene_config.json).
     description: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {k: list(v) if isinstance(v, tuple) else v for k, v in asdict(self).items()}
 
 
-# Full multi-room house with furniture — the workhorse preset.
-# ``base_indoors`` is Infinigen's default full-quality recipe; terrain is
-# disabled because we are generating interior scenes. ``max_rooms=5``
-# caps the solver's search space; leaving it unbounded wedges on hard
-# seeds for hours.
-HIGH_QUALITY_DGX = SceneGenConfig(
-    name="high_quality_dgx",
-    gin_configs=("base_indoors",),
-    gin_overrides=("compose_indoors.terrain_enabled=False",),
-    max_rooms=5,
-    texture_resolution=1024,
-    description="Full multi-room furnished house on DGX Spark (<=5 rooms).",
-)
+def _build_floor_plan(rooms: Iterable[str]) -> dict[str, Any]:
+    """Build a ``PredefinedFloorPlanSolver`` contour for an exact room list.
 
-# Genuine single-room scene with EXACTLY one furnished room. The
-# constraint-solver path can't do this — ``home_room_constraints`` forces
-# Entrance/LivingRoom/Kitchen/Bedroom/Bathroom each >= 1 (a ~5-room floor),
-# and ``solve_max_rooms`` only limits how many rooms get *furnished*. So the
-# room count is pinned deterministically via a predefined floor-plan contour
-# (``floor_plan_file`` -> ``-p Solver.floor_plan=<abs>`` ->
-# ``PredefinedFloorPlanSolver``), whose single room is a furnishable
-# LivingRoom that yields groundable objects. ``RoomConstants.n_stories=1``
-# is pinned because the predefined-floor-plan path indexes one solidifier
-# per story and crashes under a multistory overlay. Light (512-px, 1 room)
-# so it loads without OOMing the GB10's unified memory.
-TRUE_SINGLEROOM = SceneGenConfig(
-    name="true_singleroom",
-    gin_configs=("base_indoors",),
-    gin_overrides=(
-        "compose_indoors.terrain_enabled=False",
-        "RoomConstants.n_stories=1",
-    ),
-    max_rooms=1,
-    texture_resolution=512,
-    floor_plan_file="true_singleroom.json",
-    description="Exactly one furnished LivingRoom via a predefined floor plan.",
-)
+    Rooms are tiled left-to-right in a single row, each a rectangle of uniform
+    height and per-type width; adjacent rooms share a full-height interior
+    wall split around a connecting door, and the outer perimeter carries an
+    entrance + windows. The returned dict matches Infinigen's floor-plan
+    schema (``configs_indoor/floor_plans/predefined.json``): every ``shape``
+    is a ``shapely.*`` expression *string* (Infinigen ``eval``s it). Room keys
+    use the ``<semantics>_<level>/<n>`` form so duplicate types get distinct
+    instance indices (``bedroom_0/0`` + ``bedroom_0/1`` = two Bedrooms).
+    """
+    rooms = list(rooms)
+    if not rooms:
+        raise ValueError("a floor plan needs at least one room")
+    door = 2.0
+    win = 2.0
+    h = _ROOM_HEIGHT
+    y_lo = h / 2 - door / 2
+    y_hi = h / 2 + door / 2
+    fp: dict[str, dict[str, Any]] = {
+        "rooms": {},
+        "doors": {},
+        "interiors": {},
+        "windows": {},
+        "entrance": {},
+    }
+    counts: dict[str, int] = {}
+    x0 = 0.0
+    for i, rtype in enumerate(rooms):
+        w = _ROOM_WIDTHS.get(rtype, _DEFAULT_ROOM_WIDTH)
+        n = counts.get(rtype, 0)
+        counts[rtype] = n + 1
+        fp["rooms"][f"{rtype}_0/{n}"] = {"shape": f"shapely.box({x0},0,{x0 + w},{h})"}
+        cx = x0 + w / 2
+        fp["windows"][f"window.{i}"] = {
+            "shape": f"shapely.LineString([({cx - win / 2},{h}),({cx + win / 2},{h})])"
+        }
+        if i < len(rooms) - 1:
+            x = x0 + w  # shared wall with the next room
+            fp["interiors"][f"interior.{i}a"] = {
+                "shape": f"shapely.LineString([({x},0),({x},{y_lo})])"
+            }
+            fp["interiors"][f"interior.{i}b"] = {
+                "shape": f"shapely.LineString([({x},{y_hi}),({x},{h})])"
+            }
+            fp["doors"][f"door.{i}"] = {
+                "shape": f"shapely.LineString([({x},{y_lo}),({x},{y_hi})])"
+            }
+        x0 += w
+    # Entrance on the far-left exterior wall; a window on the far-right wall.
+    fp["entrance"]["entrance"] = {
+        "shape": f"shapely.LineString([(0,{y_lo}),(0,{y_hi})])"
+    }
+    fp["windows"]["window.right"] = {
+        "shape": f"shapely.LineString([({x0},{h / 2 - win / 2}),({x0},{h / 2 + win / 2})])"
+    }
+    return fp
 
-# Genuine two-room scene: exactly two connected rooms (a furnishable
-# LivingRoom + an adjacent Kitchen) sharing a door, via a predefined
-# floor-plan contour. The cross-room fixture for the eventual autonomy-stack
-# cross-room lane; also proves the predefined-floor-plan room-count control
-# does N=2. Same single-story pin + light textures as the single-room preset.
-TRUE_TWOROOM = SceneGenConfig(
-    name="true_tworoom",
-    gin_configs=("base_indoors",),
-    gin_overrides=(
-        "compose_indoors.terrain_enabled=False",
-        "RoomConstants.n_stories=1",
-    ),
-    max_rooms=2,
-    texture_resolution=512,
-    floor_plan_file="true_tworoom.json",
-    description="Exactly two connected furnished rooms via a predefined floor plan.",
-)
 
-PRESETS: dict[str, SceneGenConfig] = {
-    cfg.name: cfg for cfg in (HIGH_QUALITY_DGX, TRUE_SINGLEROOM, TRUE_TWOROOM)
-}
+def resolve_rooms(
+    *, rooms: list[str] | None, num_rooms: int | None, room_types: list[str] | None
+) -> tuple[str, ...] | None:
+    """Resolve the room-layout dimension from CLI-style inputs.
+
+    ``rooms`` (explicit list) wins. Else ``num_rooms`` round-robins over
+    ``room_types`` (default a single living-room). ``None`` for all -> organic
+    (constraint-solved) mode. Validates every type is furnishable.
+    """
+    if rooms:
+        resolved = tuple(rooms)
+    elif num_rooms is not None:
+        if num_rooms < 1:
+            raise ValueError("--num-rooms must be >= 1")
+        palette = room_types or ["living-room"]
+        resolved = tuple(palette[i % len(palette)] for i in range(num_rooms))
+    else:
+        return None
+    bad = sorted({r for r in resolved if r not in FURNISHABLE_ROOMS})
+    if bad:
+        raise ValueError(
+            f"room types {bad} are not furnishable; choose from {list(FURNISHABLE_ROOMS)} "
+            "(only these carry Infinigen furniture rules, so a scene of other "
+            "types would have no groundable objects)."
+        )
+    return resolved
+
+
+def _default_scene_name(rooms: tuple[str, ...] | None, quality: str) -> str:
+    """Derive a scene name stem from the dimensions when ``--name`` is unset."""
+    if rooms is None:
+        return f"organic_{quality}"
+    return f"{len(rooms)}room_{quality}"
+
+
+def build_scene_config(
+    *,
+    name: str | None,
+    rooms: tuple[str, ...] | None,
+    quality: str,
+    texture_resolution: int | None,
+    object_density: str | None,
+    geometry_detail: str | None,
+    max_rooms: int,
+    seed_base: int,
+) -> SceneGenConfig:
+    """Compose a :class:`SceneGenConfig` from the two dimensions.
+
+    ``quality`` supplies the tier defaults; the explicit knob arguments (when
+    not ``None``) override them.
+    """
+    tier = QUALITY_TIERS[quality]
+    return SceneGenConfig(
+        name=name or _default_scene_name(rooms, quality),
+        rooms=rooms,
+        max_rooms=max_rooms,
+        texture_resolution=texture_resolution or tier.texture_resolution,
+        object_density=object_density or tier.object_density,
+        geometry_detail=geometry_detail or "standard",
+        random_seed_base=seed_base,
+        description=(
+            f"{'organic ' + str(max_rooms) + '-room-max house' if rooms is None else 'tiled ' + '+'.join(rooms)}"
+            f", quality={quality}"
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -294,12 +421,22 @@ def generate_scenes(
 
         logger.info("=== Scene %d/%d: %s (seed=%d) ===", i + 1, num_scenes, scene_name, seed)
 
+        # --- Step 0: tiled layout -> write this scene's predefined floor plan ---
+        # The tiler emits the contour for the exact room list; it's written into
+        # the scene dir (provenance + the path Solver.floor_plan reads). Organic
+        # configs (rooms=None) skip this and let the constraint solver run.
+        floor_plan_path: Path | None = None
+        if config.rooms is not None:
+            floor_plan_path = scene_dir / "floor_plan.json"
+            floor_plan_path.write_text(json.dumps(_build_floor_plan(config.rooms), indent=2))
+
         # --- Step 1: coarse generation ---
         gen_cmd = _build_generate_command(
             infinigen_python=infinigen_python,
             output_folder=coarse_dir,
             seed=seed,
             config=config,
+            floor_plan_path=floor_plan_path,
         )
         gen_rc, gen_stderr = _run_subprocess(gen_cmd, cwd=infinigen_root)
         result = GenerationResult(scene_dir=scene_dir, returncode=gen_rc, stderr_tail=gen_stderr)
@@ -591,47 +728,28 @@ def validate_required_env_for_generate(*, author_scene_metadata: bool = True) ->
         _resolve_isaaclab_launcher()
 
 
-# Predefined floor-plan contours ship in the repo (not the vendored
-# Infinigen tree) so they travel with this PR and stay reproducible. The
-# ``-g`` gin-file mechanism only resolves stems inside Infinigen's own
-# ``configs_indoor/`` tree, so a repo-local gin is unreachable; instead the
-# room count is pinned via the ``-p Solver.floor_plan=<abs path>`` binding.
-_FLOOR_PLANS_DIR = Path(__file__).resolve().parent / "floor_plans"
-
-
-def _resolve_floor_plan_path(name: str) -> Path:
-    """Resolve a predefined floor-plan JSON shipped under ``floor_plans/``.
-
-    Presets reference the contour by bare filename; the generate command
-    passes its *absolute* path to Infinigen via ``-p Solver.floor_plan=...``.
-    The path must be absolute because the coarse-gen subprocess runs with
-    ``cwd=INFINIGEN_ROOT`` — a relative path would resolve against the
-    vendored Infinigen tree rather than this repo.
-    """
-    path = _FLOOR_PLANS_DIR / name
-    if not path.is_file():
-        raise RuntimeError(
-            f"Floor-plan file {name!r} not found under {_FLOOR_PLANS_DIR}. "
-            "A preset that sets floor_plan_file must reference a JSON shipped "
-            "in the repo's scripts/floor_plans/ directory."
-        )
-    return path
-
-
 def _build_generate_command(
     *,
     infinigen_python: str,
     output_folder: Path,
     seed: int,
     config: SceneGenConfig,
+    floor_plan_path: Path | None = None,
 ) -> list[str]:
     """Build the ``generate_indoors`` CLI invocation for one scene.
 
     Uses Infinigen's real CLI: ``-g`` for gin config files (without the
-    ``.gin`` suffix) and ``-p`` for ``module.key=value`` overrides. Presets
-    with a ``floor_plan_file`` additionally bind
-    ``Solver.floor_plan=<abs path>`` so Infinigen's
-    ``PredefinedFloorPlanSolver`` builds an exact room count.
+    ``.gin`` suffix) and ``-p`` for ``module.key=value`` overrides. The two
+    scene dimensions map to overrides:
+
+    * **layout** — a tiled config (``rooms`` set) binds
+      ``Solver.floor_plan=<abs path>`` at ``floor_plan_path`` (a per-scene JSON
+      the tiler wrote) so Infinigen's ``PredefinedFloorPlanSolver`` builds
+      exactly those rooms, pins ``RoomConstants.n_stories=1`` (the predefined
+      path indexes one solidifier per story), and furnishes all of them. An
+      organic config caps the solver at ``max_rooms``.
+    * **quality** — ``object_density`` sets the solver's step budget and
+      ``geometry_detail=displacement`` layers on ``real_geometry``.
     """
     cmd: list[str] = [
         infinigen_python,
@@ -649,13 +767,38 @@ def _build_generate_command(
         cmd.extend(config.gin_configs)
 
     overrides = list(config.gin_overrides)
-    overrides.append(f"restrict_solving.solve_max_rooms={config.max_rooms}")
-    if config.floor_plan_file:
-        floor_plan_path = _resolve_floor_plan_path(config.floor_plan_file)
-        # Quote the path so gin parses the RHS as a string literal; the arg
-        # travels through subprocess argv (no shell), so the quotes are part
-        # of the binding and Infinigen's sanitize_override leaves it intact.
-        overrides.append(f'Solver.floor_plan="{floor_plan_path}"')
+
+    # Object count / density — scale the annealing budget (all rooms furnished).
+    large, medium, small = _OBJECT_DENSITY_STEPS[config.object_density]
+    overrides += [
+        f"compose_indoors.solve_steps_large={large}",
+        f"compose_indoors.solve_steps_medium={medium}",
+        f"compose_indoors.solve_steps_small={small}",
+    ]
+
+    # Geometry/mesh complexity — displacement is the heavy opt-in.
+    if config.geometry_detail == "displacement":
+        overrides += [
+            'set_displacement_mode.displacement_mode="DISPLACEMENT"',
+            "compose_indoors.enable_ocmesh_room=True",
+        ]
+
+    if config.rooms is not None:
+        # Tiled: pin the exact contour, single story, furnish all listed rooms.
+        # The path must be absolute — the subprocess runs cwd=INFINIGEN_ROOT, so
+        # a relative path would resolve against the vendored Infinigen tree. The
+        # quotes make gin parse the RHS as a string; the arg travels through
+        # subprocess argv (no shell) so they survive to sanitize_override.
+        if floor_plan_path is None:
+            raise ValueError("a tiled config (rooms set) requires floor_plan_path")
+        overrides += [
+            f'Solver.floor_plan="{Path(floor_plan_path).resolve()}"',
+            "RoomConstants.n_stories=1",
+            f"restrict_solving.solve_max_rooms={len(config.rooms)}",
+        ]
+    else:
+        overrides.append(f"restrict_solving.solve_max_rooms={config.max_rooms}")
+
     cmd.append("-p")
     cmd.extend(overrides)
     return cmd
@@ -700,15 +843,15 @@ def ingest_external_usd(
     *,
     source_dir: Path,
     output_dir: Path,
-    preset_name: str = "high_quality_dgx",
+    config: SceneGenConfig | None = None,
 ) -> list[Path]:
     """Copy externally-generated scenes into the strafer_lab assets tree.
 
     The source directory is expected to contain one sub-directory per
     scene, each holding at least a ``*.usd`` file and optionally a
-    ``*.blend`` file. Each scene is copied into ``output_dir`` and
-    stamped with a ``scene_config.json`` noting which preset produced
-    it (for provenance when the metadata extractor reads it).
+    ``*.blend`` file. Each scene is copied into ``output_dir`` and stamped
+    with a ``scene_config.json`` for provenance (a generic organic config by
+    default, since the true off-host generation parameters are unknown).
     """
     source_dir = Path(source_dir)
     output_dir = Path(output_dir)
@@ -716,7 +859,7 @@ def ingest_external_usd(
         raise FileNotFoundError(f"Source directory not found: {source_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    preset = PRESETS.get(preset_name, HIGH_QUALITY_DGX)
+    config = config or SceneGenConfig(name="ingested")
     imported: list[Path] = []
     for child in sorted(source_dir.iterdir()):
         if not child.is_dir():
@@ -729,7 +872,7 @@ def ingest_external_usd(
             logger.warning("Skipping %s: destination already exists", dest)
             continue
         shutil.copytree(child, dest)
-        (dest / "scene_config.json").write_text(json.dumps(preset.to_dict(), indent=2))
+        (dest / "scene_config.json").write_text(json.dumps(config.to_dict(), indent=2))
         imported.append(dest)
         logger.info("Imported %s → %s", child, dest)
     return imported
@@ -745,10 +888,62 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     generate = sub.add_parser("generate", help="Run Infinigen to produce new scenes")
-    generate.add_argument(
-        "--config", default="high_quality_dgx", choices=sorted(PRESETS.keys()),
+    # --- Layout dimension: rooms (count + types) ---
+    layout = generate.add_mutually_exclusive_group()
+    layout.add_argument(
+        "--rooms",
+        nargs="+",
+        metavar="TYPE",
+        choices=FURNISHABLE_ROOMS,
+        default=None,
+        help="Explicit room-type list -> an EXACT tiled layout; duplicates OK "
+        "(e.g. --rooms bedroom bedroom living-room). Omit for an organic "
+        "constraint-solved house. Choices: " + ", ".join(FURNISHABLE_ROOMS),
     )
-    generate.add_argument("--num-scenes", type=int, default=10)
+    layout.add_argument(
+        "--num-rooms",
+        type=int,
+        default=None,
+        help="Round-robin this many rooms over --room-types (alt to --rooms).",
+    )
+    generate.add_argument(
+        "--room-types",
+        nargs="+",
+        metavar="TYPE",
+        choices=FURNISHABLE_ROOMS,
+        default=None,
+        help="Palette for --num-rooms round-robin (default: living-room).",
+    )
+    # --- Quality / resource dimension ---
+    generate.add_argument(
+        "--quality",
+        choices=sorted(QUALITY_TIERS),
+        default="high",
+        help="Resource tier composing texture-res + object-density defaults.",
+    )
+    generate.add_argument(
+        "--texture-res", type=int, default=None,
+        help="Override the tier's texture resolution (VRAM).",
+    )
+    generate.add_argument(
+        "--object-density", choices=sorted(_OBJECT_DENSITY_STEPS), default=None,
+        help="Override object count (all rooms furnished; scales solver budget).",
+    )
+    generate.add_argument(
+        "--geometry-detail", choices=_GEOMETRY_DETAILS, default=None,
+        help="standard = base meshes (default); displacement = real_geometry "
+        "micro-geometry (heavier).",
+    )
+    generate.add_argument(
+        "--name", default=None,
+        help="Scene name stem (default derived from rooms + quality).",
+    )
+    generate.add_argument(
+        "--max-rooms", type=int, default=5,
+        help="Organic mode only: solver room cap (restrict_solving.solve_max_"
+        "rooms). Ignored when --rooms/--num-rooms pin an exact layout.",
+    )
+    generate.add_argument("--num-scenes", type=int, default=1)
     generate.add_argument("--output", type=Path, required=True)
     generate.add_argument("--infinigen-root", type=Path, default=None)
     generate.add_argument(
@@ -759,15 +954,6 @@ def _build_parser() -> argparse.ArgumentParser:
              "env var (populated by env_setup.sh from .env).",
     )
     generate.add_argument("--seed-base", type=int, default=0)
-    generate.add_argument(
-        "--max-rooms",
-        type=int,
-        default=None,
-        help="Override the preset's solver room cap "
-        "(restrict_solving.solve_max_rooms). Presets default to 5 for "
-        "high_quality_dgx and 1 for fast/windows; set higher for richer "
-        "scenes, but solver runtime can blow up without a cap.",
-    )
     generate.add_argument(
         "--no-scene-metadata",
         action="store_true",
@@ -785,16 +971,17 @@ def _build_parser() -> argparse.ArgumentParser:
 
     ingest = sub.add_parser(
         "ingest",
-        help="Import externally-generated scenes (e.g. from Windows) into the assets tree",
+        help="Import externally-generated scenes into the assets tree",
     )
     ingest.add_argument("--source", type=Path, required=True)
     ingest.add_argument("--output", type=Path, required=True)
     ingest.add_argument(
-        "--preset", default="high_quality_dgx", choices=sorted(PRESETS.keys()),
+        "--quality", choices=sorted(QUALITY_TIERS), default="high",
+        help="Provenance quality tier stamped into scene_config.json.",
     )
 
-    presets = sub.add_parser("presets", help="Print the available quality presets and exit")
-    presets.add_argument("--json", action="store_true")
+    info = sub.add_parser("info", help="Print the available generation dimensions and exit")
+    info.add_argument("--json", action="store_true")
 
     return parser
 
@@ -804,24 +991,44 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
 
-    if args.command == "presets":
+    if args.command == "info":
+        payload = {
+            "quality_tiers": {k: asdict(v) for k, v in QUALITY_TIERS.items()},
+            "furnishable_rooms": list(FURNISHABLE_ROOMS),
+            "object_density": sorted(_OBJECT_DENSITY_STEPS),
+            "geometry_detail": list(_GEOMETRY_DETAILS),
+        }
         if args.json:
-            print(json.dumps({k: v.to_dict() for k, v in PRESETS.items()}, indent=2))
+            print(json.dumps(payload, indent=2))
         else:
-            for name, preset in PRESETS.items():
-                configs = ",".join(preset.gin_configs) or "(none)"
+            print("Quality tiers (--quality):")
+            for name, tier in QUALITY_TIERS.items():
                 print(
-                    f"{name}: gin_configs=[{configs}] "
-                    f"texture_res={preset.texture_resolution} — {preset.description}"
+                    f"  {name}: texture_res={tier.texture_resolution} "
+                    f"object_density={tier.object_density}"
                 )
+            print("Furnishable rooms (--rooms / --room-types): " + ", ".join(FURNISHABLE_ROOMS))
+            print("Object density (--object-density): " + ", ".join(sorted(_OBJECT_DENSITY_STEPS)))
+            print("Geometry detail (--geometry-detail): " + ", ".join(_GEOMETRY_DETAILS))
         return 0
 
     if args.command == "generate":
-        config = PRESETS[args.config]
-        overrides: dict[str, Any] = {"random_seed_base": args.seed_base}
-        if args.max_rooms is not None:
-            overrides["max_rooms"] = args.max_rooms
-        config = SceneGenConfig(**{**asdict(config), **overrides})
+        try:
+            rooms = resolve_rooms(
+                rooms=args.rooms, num_rooms=args.num_rooms, room_types=args.room_types
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
+        config = build_scene_config(
+            name=args.name,
+            rooms=rooms,
+            quality=args.quality,
+            texture_resolution=args.texture_res,
+            object_density=args.object_density,
+            geometry_detail=args.geometry_detail,
+            max_rooms=args.max_rooms,
+            seed_base=args.seed_base,
+        )
         results = generate_scenes(
             config=config,
             num_scenes=args.num_scenes,
@@ -839,10 +1046,20 @@ def main(argv: Iterable[str] | None = None) -> int:
         return 0
 
     if args.command == "ingest":
+        config = build_scene_config(
+            name="ingested",
+            rooms=None,
+            quality=args.quality,
+            texture_resolution=None,
+            object_density=None,
+            geometry_detail=None,
+            max_rooms=5,
+            seed_base=0,
+        )
         imported = ingest_external_usd(
             source_dir=args.source,
             output_dir=args.output,
-            preset_name=args.preset,
+            config=config,
         )
         logger.info("Imported %d scenes", len(imported))
         return 0

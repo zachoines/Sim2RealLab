@@ -81,11 +81,11 @@ class TestMergeSceneEntries:
     def test_merge_preserves_absent_corpus_entries(self, tmp_path):
         out = tmp_path / "scenes_metadata.json"
         self._write_index(out, {"scene_high_quality_dgx_000_seed2": {"floor_top_z": 0.1}})
-        new = {"scene_true_singleroom_000_seed0": {"floor_top_z": 0.0}}
+        new = {"scene_singleroom_000_seed0": {"floor_top_z": 0.0}}
         merged = _merge_scene_entries(out, new, merge=True)
         assert set(merged) == {
             "scene_high_quality_dgx_000_seed2",
-            "scene_true_singleroom_000_seed0",
+            "scene_singleroom_000_seed0",
         }
         # The prior entry survives byte-for-byte.
         assert merged["scene_high_quality_dgx_000_seed2"] == {"floor_top_z": 0.1}

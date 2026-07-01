@@ -38,57 +38,21 @@ not by static typing.
 
 ---
 
-## Producing the artifacts — the Infinigen pipeline
+## Producing the artifacts
 
-Infinigen produces a conformant bundle in **two steps**. `prep_room_usds.py
-generate` now **chains** the metadata authoring, so one command yields a
-capture-ready *and* detections-ready scene; only the combined manifest
-(spawn-point discovery) remains a separate pass.
+Infinigen is **one** provider. Its concrete build pipeline — the two-step
+`prep_room_usds.py generate` → `generate_scenes_metadata.py --merge` flow, the
+`--rooms` / `--quality` knobs, the `STRAFER_INFINIGEN_PYTHON` / `$ISAACLAB` /
+`STRAFER_BLENDER_BIN` env, the "re-author metadata on an existing USD" paths,
+and the `extract_from_state()` in-process hook — lives in
+[`INFINIGEN_SCENE_PIPELINE.md`](INFINIGEN_SCENE_PIPELINE.md).
 
-| # | Script | Produces | Runtime / env |
-|---|---|---|---|
-| 1 | `prep_room_usds.py generate` | room geometry: `<scene>.usdc` symlink + `scene_config.json` + the Blender export tree; bakes colliders via `postprocess_scene_usd.py`; **then chains `extract_scene_metadata.py --from-usd`** to embed the per-scene metadata (`objects[]` + `rooms[]`, §b) in the USD's `customData` + apply the `UsdSemantics` detection labels | orchestrator; spawns `STRAFER_INFINIGEN_PYTHON` (Infinigen/`bpy`) + `STRAFER_ISAACLAB_PYTHON` (`pxr`, postprocess) + `$ISAACLAB` (Kit, for the `UsdSemantics` authoring) |
-| 2 | `generate_scenes_metadata.py` | combined `scenes_metadata.json` (spawn points + floor-Z, §c) — required for the runtime to discover the scene | `$ISAACLAB -p` (`pxr`) |
-
-```bash
-source env_setup.sh
-# 1) geometry + embedded metadata + detection labels, in one command
-#    (--config: fast_singleroom = 512-px / 1 room; high_quality_dgx = 1024-px / <=5 rooms)
-python source/strafer_lab/scripts/prep_room_usds.py generate \
-    --config fast_singleroom --num-scenes 1 --output Assets/generated/scenes
-# 2) combined manifest (discoverability)
-$ISAACLAB -p source/strafer_lab/scripts/generate_scenes_metadata.py
-```
-
-`<scene>` is the id printed by step 1 (e.g. `scene_fast_singleroom_000_seed0`).
-
-**Re-authoring metadata on an existing USD** (USD-only / no Blender —
-best-effort prim-name labels, `rooms=[]`) runs the same embedder
-standalone, under the Kit launcher because the `UsdSemantics` schema is
-Kit-provided:
-
-```bash
-$ISAACLAB -p source/strafer_lab/scripts/extract_scene_metadata.py \
-    --from-usd --usd Assets/generated/scenes/<scene>.usdc
-```
-
-For richer metadata (rooms + semantic tags) the `.blend` builder runs in
-Blender and hands its dict to a Kit authoring pass via a transient JSON
-(not a discovered sidecar):
-
-```bash
-$STRAFER_BLENDER_BIN --background --python source/strafer_lab/scripts/extract_scene_metadata.py -- \
-    --blend Assets/generated/scenes/<scene>/coarse/scene.blend \
-    --metadata-out /tmp/<scene>_metadata.json
-$ISAACLAB -p source/strafer_lab/scripts/extract_scene_metadata.py \
-    --author-from-json /tmp/<scene>_metadata.json \
-    --usd Assets/generated/scenes/<scene>.usdc
-```
-
-`extract_scene_metadata` also exposes an **in-process hook** —
-`extract_from_state()` builds the dict from Infinigen's live generation
-state — for a producer that wants to author metadata without a post-hoc
-USD parse.
+**This document is the platform-agnostic contract:** any source that produces
+the artifacts in the shapes below (§a on-disk layout, §b metadata schema, §c
+manifest) is consumed with no code changes. The USD-prim expectations (§e) and
+postprocess CLI surface (§f) stay here — they document Infinigen's prim
+patterns *as the overridable defaults of an agnostic tool*, so a second source
+overrides them (each row carries an "Override for a second source" column).
 
 ---
 
@@ -691,6 +655,9 @@ def prep_scene(acme_scene, scene_name: str) -> None:
 
 ## Related
 
+- [`docs/INFINIGEN_SCENE_PIPELINE.md`](INFINIGEN_SCENE_PIPELINE.md) — the
+  Infinigen-specific build pipeline (scripts, env, `--rooms`/`--quality`
+  commands) that produces artifacts conforming to this contract.
 - [`docs/HARNESS_DATA_CAPTURE.md`](HARNESS_DATA_CAPTURE.md) — operator
   workflow for capturing against a conformant scene.
 - [`scene-metadata-in-usd`](tasks/completed/scene-metadata-in-usd.md)

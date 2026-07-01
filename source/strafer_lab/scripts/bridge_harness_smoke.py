@@ -42,7 +42,7 @@ from pathlib import Path
 
 from isaaclab.app import AppLauncher
 
-_DEFAULT_SCENE = "scene_fast_singleroom_000_seed0"
+_DEFAULT_SCENE = "scene_singleroom_000_seed0"
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -54,7 +54,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--scene", default=_DEFAULT_SCENE,
         help="Scene name under Assets/generated/scenes/. Defaults to the "
-             "light single-room scene so the smoke stays OOM-safe on the GB10.",
+             "light single-room scene to keep the smoke's memory footprint small.",
     )
     parser.add_argument(
         "--output", default=None,

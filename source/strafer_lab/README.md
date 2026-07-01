@@ -385,7 +385,7 @@ env.close()
 ```bash
 # 1. Generate Infinigen scenes — embeds metadata + UsdSemantics labels into
 #    each USD (so the scene is capture-ready); needs $ISAACLAB set
-python scripts/prep_room_usds.py generate --config high_quality_dgx \
+python scripts/prep_room_usds.py generate --quality high \
     --num-scenes 1 --output Assets/generated/scenes
 
 # 2. (only for a pre-existing/bare USD) re-author the embedded metadata

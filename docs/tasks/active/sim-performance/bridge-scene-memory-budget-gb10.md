@@ -48,29 +48,34 @@ unified pool:**
 
 ## Immediate workaround (stopgap, already usable)
 
-`_get_scene_usd_paths()` takes `sorted()[0]`, and `scene_fast_singleroom…`
-sorts **before** `scene_high_quality…` (`f` < `h`). So generating a
-`fast_singleroom` (512-px textures, 1 room) into the same dir makes it `[0]`
-without deleting the heavy scenes:
+A genuine light single-room scene is a one-room tiled layout at low quality:
+`prep_room_usds.py generate --rooms living-room --quality low` (512-px, 1 room).
+Note `scene_singleroom…` sorts **after** `scene_high_quality…` (`s` > `h`), so
+it does **not** become `_get_scene_usd_paths()`'s `sorted()[0]` by alphabet
+accident — pin it explicitly with the `SCENE_USD` passthrough on
+`make sim-bridge` instead:
 
 ```bash
 python source/strafer_lab/scripts/prep_room_usds.py generate \
-    --config fast_singleroom --num-scenes 1 --output Assets/generated/scenes
-$ISAACLAB -p source/strafer_lab/scripts/generate_scenes_metadata.py
-make sim-bridge
+    --rooms living-room --quality low --name singleroom --output Assets/generated/scenes
+$ISAACLAB -p source/strafer_lab/scripts/generate_scenes_metadata.py --merge
+SCENE_USD=Assets/generated/scenes/scene_singleroom_000_seed0.usdc make sim-bridge
 ```
 
-This is luck-of-the-alphabet, not a contract — hence this brief.
+The `SCENE_USD` pin is explicit (no alphabet luck), but a persistent
+lightest-by-default selection still needs the deterministic scene-selection
+knob this brief owns — hence this brief.
 
 ## Investigation pointers
 
 - Peak unified-memory during scene load: monitor `free -g` / `tegrastats` while
-  loading a `high_quality_dgx` vs a `fast_singleroom` scene; record the delta
-  and the headroom needed below ~121 GB (minus OS + Kit baseline).
-- `du -sh Assets/generated/scenes/*` (current: 29 GB / 27 GB) vs a
-  `fast_singleroom` (expect single-GB) — the texture-res × room-count driver.
-- `prep_room_usds.py` PRESETS: `high_quality_dgx` (1024 / 5 rooms) vs
-  `fast_singleroom` / `windows_baseline` (512 / 1 room).
+  loading an organic `--quality high` house vs a `--rooms living-room --quality
+  low` scene; record the delta and the headroom needed below ~121 GB (minus OS
+  + Kit baseline).
+- `du -sh Assets/generated/scenes/*` (current: 29 GB / 27 GB) vs a low-quality
+  single-room scene (expect single-GB) — the texture-res × object-count driver.
+- The memory dials (`prep_room_usds.py info`): `--texture-res`,
+  `--object-density`, `--geometry-detail`, bundled by `--quality {high,low}`.
 - Whether textures can be down-res'd post-export (re-bake / USD texture
   override) without regenerating the whole room.
 

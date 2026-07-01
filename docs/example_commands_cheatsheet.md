@@ -34,16 +34,22 @@ detections-ready scene. Only the combined manifest (step 2, spawn-point
 discovery) remains separate. Full contract: `docs/SCENE_PROVIDER_CONTRACT.md`.
 ```bash
 source env_setup.sh
-# 1) Geometry + embedded metadata + detection labels, in one command
-#    (--config: fast_singleroom = fast/light, high_quality_dgx = full)
+# 1) Geometry + embedded metadata + detection labels, in one command.
+#    Two dimensions: --rooms <types> pins an EXACT tiled layout (duplicates OK);
+#    omit for an organic house. --quality {high,low} sets texture + object
+#    density (GB10 memory). `prep_room_usds.py info` lists the room types/knobs.
 #    Needs $ISAACLAB set (the metadata pass applies the Kit-only UsdSemantics
 #    schema); --no-scene-metadata skips it for a geometry-only build.
 python source/strafer_lab/scripts/prep_room_usds.py generate \
-    --config fast_singleroom --num-scenes 1 --output Assets/generated/scenes
-# note the printed <scene> id, e.g. scene_fast_singleroom_000_seed0
+    --rooms living-room --quality low --name singleroom \
+    --output Assets/generated/scenes
+# (organic corpus: --quality high --num-scenes 10; two-room: --rooms living-room kitchen)
+# note the printed <scene> id, e.g. scene_singleroom_000_seed0
 
 # 2) Combined scenes_metadata.json (spawn points; makes the scene discoverable)
-$ISAACLAB -p source/strafer_lab/scripts/generate_scenes_metadata.py
+#    --merge preserves existing entries whose heavy USDs aren't on disk this
+#    run (the multi-GB high_quality_dgx corpus is not in git); omit to rebuild.
+$ISAACLAB -p source/strafer_lab/scripts/generate_scenes_metadata.py --merge
 ```
 Re-author embedded metadata on an existing USD (USD-only, no Blender):
 ```bash
@@ -263,6 +269,9 @@ source env_setup.sh
 make sim-bridge          # headless (daily-driver, ~85 ms/loop faster)
 # or:
 make sim-bridge-gui      # editor viewport open (visual debug, slower)
+# Pin the bridge to a chosen scene (else the env default loads):
+SCENE_USD=Assets/generated/scenes/scene_singleroom_000_seed0.usdc make sim-bridge
+# or by discoverable name: SCENE_NAME=scene_singleroom_000_seed0 make sim-bridge
 ```
 
 ## Jetson shell 1 — full bringup (perception + SLAM + Nav2 + executor + foxglove_bridge)
@@ -289,7 +298,9 @@ make launch-sim
 ## Jetson shell 2 — submit a mission
 ```bash
 source source/strafer_ros/strafer_bringup/config/env_sim_in_the_loop.env
-strafer-autonomy-cli submit "go to the couch"
+# Target must match a groundable object the loaded scene actually contains
+# (its customData objects[]); Infinigen doesn't guarantee a specific one.
+strafer-autonomy-cli submit "go to the <scene target object>"
 strafer-autonomy-cli status
 strafer-autonomy-cli cancel
 ```
@@ -338,6 +349,7 @@ $ISAACLAB -p source/strafer_lab/scripts/capture.py \
 ```bash
 source env_setup.sh
 make sim-bridge-gui
+# optionally pin a scene: SCENE_USD=<scene>.usdc make sim-bridge-gui
 ```
 
 ## Shell 2 — subscribe and measure publish rates from the env_infinigen 3.11 env

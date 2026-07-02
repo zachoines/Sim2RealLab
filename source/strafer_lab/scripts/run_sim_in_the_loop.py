@@ -713,13 +713,24 @@ def _run_bridge_mode(simulation_app, env, args, config) -> None:
 
     publisher = StraferAsyncPublisher(
         robot=unwrapped.scene["robot"],
+        imu_sensor=(
+            unwrapped.scene.sensors["d555_imu"]
+            if "d555_imu" in unwrapped.scene.sensors
+            else None
+        ),
         clock_topic=config.clock_topic,
         odom_topic=config.odom_topic,
         cmd_vel_topic=config.cmd_vel_topic,
+        joint_states_topic=config.joint_states_topic,
+        imu_topic=config.imu_topic,
         odom_frame_id=config.odom_frame_id,
         base_frame_id=config.base_frame_id,
+        imu_frame_id=config.imu_frame_id,
     )
-    print("[sim_in_the_loop] async publisher up: /clock, /odom, TF, /cmd_vel")
+    print(
+        "[sim_in_the_loop] async publisher up: /clock, /odom, TF, /cmd_vel, "
+        "/strafer/joint_states, /d555/imu/filtered"
+    )
 
     # Track sim time in the bridge loop so /clock advances in lock-step
     # with env.step. Matches IsaacReadSimulationTime's source: seconds
@@ -998,13 +1009,24 @@ def _run_harness_mode(simulation_app, env, args, config, cameras_required) -> No
 
     publisher = StraferAsyncPublisher(
         robot=unwrapped.scene["robot"],
+        imu_sensor=(
+            unwrapped.scene.sensors["d555_imu"]
+            if "d555_imu" in unwrapped.scene.sensors
+            else None
+        ),
         clock_topic=config.clock_topic,
         odom_topic=config.odom_topic,
         cmd_vel_topic=config.cmd_vel_topic,
+        joint_states_topic=config.joint_states_topic,
+        imu_topic=config.imu_topic,
         odom_frame_id=config.odom_frame_id,
         base_frame_id=config.base_frame_id,
+        imu_frame_id=config.imu_frame_id,
     )
-    print("[sim_in_the_loop] async publisher up: /clock, /odom, TF, /cmd_vel")
+    print(
+        "[sim_in_the_loop] async publisher up: /clock, /odom, TF, /cmd_vel, "
+        "/strafer/joint_states, /d555/imu/filtered"
+    )
 
     camera_publisher: StraferCameraAsyncPublisher | None = None
     if not args.no_camera_bridge:

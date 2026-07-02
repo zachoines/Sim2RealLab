@@ -227,6 +227,15 @@ TOPIC_DEPTH_IMAGE = "/d555/depth/image_rect_raw"
 TOPIC_DEPTH_CAMERA_INFO = "/d555/depth/camera_info"
 TOPIC_ODOM = "/strafer/odom"
 TOPIC_CMD_VEL = "/cmd_vel"
+# Wheel encoder velocities/positions. The real robot's driver publishes this
+# from RoboClaw encoder reads; the sim bridge publishes the sim articulation's
+# wheel-joint state on the same topic so the inference obs pipeline reconstructs
+# the same wheel-FK body velocity from either source.
+TOPIC_JOINT_STATES = "/strafer/joint_states"
+# Fused IMU. On the real robot this is imu_filter_madgwick's output; the sim
+# bridge publishes the D555 IMU sensor's body-frame accel/gyro on the same
+# topic so the policy sees IMU on the same contract in sim and on hardware.
+TOPIC_IMU_FILTERED = "/d555/imu/filtered"
 # Sim-time clock published by the Isaac Sim bridge. The Jetson side sets
 # `use_sim_time:=True` on every ROS 2 node launched by
 # `bringup_sim_in_the_loop.launch.py` so the whole cross-host stack shares

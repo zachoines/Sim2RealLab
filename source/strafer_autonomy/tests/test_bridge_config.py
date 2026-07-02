@@ -29,6 +29,8 @@ from strafer_shared.constants import (
     TOPIC_COLOR_IMAGE,
     TOPIC_DEPTH_CAMERA_INFO,
     TOPIC_DEPTH_IMAGE,
+    TOPIC_IMU_FILTERED,
+    TOPIC_JOINT_STATES,
     TOPIC_ODOM,
 )
 
@@ -60,6 +62,17 @@ class TestDefaultBridgeTopicNames:
     def test_clock_topic(self, default_cfg):
         assert default_cfg.clock_topic == TOPIC_CLOCK
 
+    def test_joint_states_topic(self, default_cfg):
+        # Same topic the real driver publishes, so the inference obs pipeline
+        # reconstructs wheel-FK body velocity from sim or hardware unchanged.
+        assert default_cfg.joint_states_topic == TOPIC_JOINT_STATES
+        assert default_cfg.joint_states_topic == "/strafer/joint_states"
+
+    def test_imu_topic(self, default_cfg):
+        # Same topic imu_filter_madgwick produces on the robot.
+        assert default_cfg.imu_topic == TOPIC_IMU_FILTERED
+        assert default_cfg.imu_topic == "/d555/imu/filtered"
+
 
 class TestDefaultBridgeFrameIds:
     def test_odom_frame(self, default_cfg):
@@ -70,6 +83,9 @@ class TestDefaultBridgeFrameIds:
 
     def test_camera_mount_frame(self, default_cfg):
         assert default_cfg.camera_mount_frame_id == FRAME_D555_LINK
+
+    def test_imu_frame(self, default_cfg):
+        assert default_cfg.imu_frame_id == FRAME_D555_LINK
 
     def test_both_cameras_use_optical_frame(self, default_cfg):
         """Color and depth both publish in the D555 color optical frame —

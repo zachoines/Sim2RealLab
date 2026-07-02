@@ -1,5 +1,9 @@
 # Fix the inference `goal` watchdog latched-vs-streamed mismatch
 
+**Status:** Shipped 2026-07-01 in `e795719` (Jetson). Merge gated on the
+operator sim missions (`strafer_direct` + `hybrid_nav2_strafer`) — see PR.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/130
+
 **Type:** bug
 **Owner:** Jetson agent
 **Priority:** P1
@@ -16,10 +20,10 @@ zero-twisted ~1 s after goal accept**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [context/conventions.md](../../context/conventions.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
+- [context/conventions.md](../context/conventions.md)
 
 ## Context
 
@@ -94,6 +98,6 @@ healthy (1.9 Hz / 35 Hz) and is untouched.
 - `_last_goal_map` semantics (mid-mission reset behavior unchanged).
 
 Unblocks
-[`strafer-direct-sim-validation`](strafer-direct-sim-validation.md) and
-[`strafer-hybrid-sim-validation`](../../parked/trained-policy/strafer-hybrid-sim-validation.md)
+[`strafer-direct-sim-validation`](../active/trained-policy/strafer-direct-sim-validation.md) and
+[`strafer-hybrid-sim-validation`](../parked/trained-policy/strafer-hybrid-sim-validation.md)
 — this is the runtime bug those validations were expected to surface.

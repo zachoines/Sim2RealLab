@@ -139,7 +139,7 @@ class TestComposedStaleBound(unittest.TestCase):
         # Inference half: the WatchdogTimeouts.path default the inference node
         # feeds from its own path_timeout_s param.
         inference_budget = WatchdogTimeouts(
-            goal=1.0, imu=0.2, joint_states=0.2, odom=0.2, depth=0.5, tf=0.5,
+            imu=0.2, joint_states=0.2, odom=0.2, depth=0.5, tf=0.5,
         ).path
         self.assertEqual(generator_budget, pytest.approx(1.0))
         self.assertEqual(inference_budget, pytest.approx(1.0))

@@ -162,6 +162,81 @@ class TestDepthEnabled:
         assert "depth" in result
 
 
+class TestGoalActive:
+    """An accepted ``navigate_to_pose`` action goal is latched for the
+    whole mission — nothing restamps ``last_goal_rx_t`` while it runs, so
+    ``goal_active`` models the goal source as active-goal presence. The
+    rx-time path remains as the topic-driven (live-update / mid-mission
+    reset) fallback.
+    """
+
+    def test_active_goal_fresh_with_no_topic_msg(self, timeouts):
+        now = 100.0
+        rx = _all_fresh_rx_times(now)
+        rx["last_goal_rx_t"] = None
+        result = stale_sources(
+            now_monotonic_s=now, timeouts=timeouts, goal_active=True, **rx
+        )
+        assert "goal" not in result
+        assert result == []
+
+    def test_active_goal_with_fresh_topic_msg_stays_fresh(self, timeouts):
+        # The first goal_timeout_s of every mission lives in this cell:
+        # the accept-time stamp is still fresh AND the goal is active.
+        now = 100.0
+        result = stale_sources(
+            now_monotonic_s=now, timeouts=timeouts, goal_active=True,
+            **_all_fresh_rx_times(now),
+        )
+        assert result == []
+
+    def test_active_goal_fresh_with_stale_topic_msg(self, timeouts):
+        # Missions outlive timeouts.goal by design; the accept-time stamp
+        # going stale must not zero-twist a running mission.
+        now = 100.0
+        rx = _all_fresh_rx_times(now)
+        rx["last_goal_rx_t"] = now - 30.0
+        result = stale_sources(
+            now_monotonic_s=now, timeouts=timeouts, goal_active=True, **rx
+        )
+        assert "goal" not in result
+
+    def test_idle_with_no_topic_msg_still_trips(self, timeouts):
+        now = 100.0
+        rx = _all_fresh_rx_times(now)
+        rx["last_goal_rx_t"] = None
+        result = stale_sources(
+            now_monotonic_s=now, timeouts=timeouts, goal_active=False, **rx
+        )
+        assert result == ["goal"]
+
+    def test_idle_with_stale_topic_msg_still_trips(self, timeouts):
+        now = 100.0
+        rx = _all_fresh_rx_times(now)
+        rx["last_goal_rx_t"] = now - 1.5
+        result = stale_sources(
+            now_monotonic_s=now, timeouts=timeouts, goal_active=False, **rx
+        )
+        assert result == ["goal"]
+
+    def test_inactive_is_the_default(self, timeouts):
+        now = 100.0
+        rx = _all_fresh_rx_times(now)
+        rx["last_goal_rx_t"] = None
+        result = stale_sources(now_monotonic_s=now, timeouts=timeouts, **rx)
+        assert "goal" in result
+
+    def test_active_goal_does_not_mask_other_sources(self, timeouts):
+        now = 100.0
+        rx = _all_fresh_rx_times(now)
+        rx["last_goal_rx_t"] = None
+        rx["last_odom_rx_t"] = now - 5.0
+        result = stale_sources(
+            now_monotonic_s=now, timeouts=timeouts, goal_active=True, **rx
+        )
+        assert result == ["odom"]
+
+
 class TestSubgoalSource:
     """Rolling-subgoal (hybrid) freshness: the inference-side half of the
     plan-freshness guard. Off by default; on for subgoal variants, checked

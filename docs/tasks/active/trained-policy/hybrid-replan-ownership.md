@@ -97,6 +97,6 @@ the `strafer_direct` shape.
 - `source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py`
   (plan subscription + suppression).
 - Depends on / sequenced after
-  [`inference-goal-preemption`](inference-goal-preemption.md): goal
+  [`inference-goal-preemption`](../../completed/inference-goal-preemption.md): goal
   updates arrive as preempting action goals, so the goal hand-off in
   Option A must re-fire on preemption.

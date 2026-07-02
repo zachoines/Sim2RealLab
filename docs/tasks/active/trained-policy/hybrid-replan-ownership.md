@@ -39,42 +39,63 @@ The elegant shape: the client sends **one** action goal — identical to
 `strafer_direct` dispatch — and a mission-side component owns replanning
 for the mission's duration.
 
-## Design options (decide before implementing)
+## Design (decided: Plan A — generator owns replanning)
 
-**A. Generator owns replanning (recommended).** The subgoal generator
-learns the mission goal at mission start, calls `ComputePathToPose`
-itself on its own cadence, and consumes the path from the **action
-result** (no `/plan` topic scraping; the topic subscription can remain
-as a fallback input). Needs a goal hand-off: the inference node knows
-the goal (it owns the mission) — e.g. it publishes the accepted goal
-(+ a mission-active signal, or a keep-alive the generator treats with
-the freshness idiom) to the generator. Keeps planning out of the RL
-node; the generator is already the plan consumer.
+The subgoal generator learns the mission goal at mission start, calls
+`ComputePathToPose` itself on its own cadence, and consumes the path
+from the **action result**. The client's replan loop,
+`hybrid_replan_period_s`, and the period-vs-suppression warning are
+deleted; hybrid dispatch collapses to the `strafer_direct` shape (one
+`NavigateToPose`).
 
-**B. Inference execute loop owns replanning.** The blocking mission
-loop (50 ms cadence, reentrant group) fires `ComputePathToPose` every
-~0.5 s. No goal hand-off needed (it has the goal), but it puts an
-action client + async plumbing inside the RL node's mission loop and
-couples the policy node to Nav2's planner interface.
+**Rejected: B (inference execute loop owns replanning).** It puts an
+action client + async futures inside the 50 ms blocking mission loop
+in the `ReentrantCallbackGroup` — exactly the concurrency surface
+PRs #130/#131 just spent two rounds taming — and couples the RL policy
+node to Nav2's planner interface. Plan A keeps the policy node pure and
+gives the plan lifecycle to the component that already consumes it.
 
-Either way the client's replan loop, `hybrid_replan_period_s`, and the
-period-vs-suppression warning are deleted; hybrid dispatch collapses to
-the `strafer_direct` shape.
+Two load-bearing specifics:
+
+1. **The goal hand-off is telemetry, not a command.** The inference
+   node publishes its accepted goal on a **status** topic (e.g.
+   `/strafer_inference/active_goal`), direction node → generator. This
+   is not a re-introduction of a goal command channel:
+   **`navigate_to_pose` remains the sole command channel into the
+   policy** — do not "simplify" later by routing goals to the policy
+   through this topic. Publish at goal accept **and** as a slow
+   keep-alive (~1–2 Hz) while executing. The generator applies its
+   existing freshness idiom (same shape as its `/plan` staleness
+   guard): a stale/absent active-goal telemetry means "no mission →
+   stop replanning," which handles mission-end for free, and
+   publish-at-accept makes preemption re-fire trivially (a preempting
+   goal is a fresh accept → fresh telemetry → generator retargets).
+
+2. **Consume the path from the `ComputePathToPose` action result**, not
+   the `/plan` topic side-effect. Keep the `/plan` subscription as a
+   fallback input. This removes the planner-server topic-side-effect
+   dependency that made the client's 0.5 s poll fragile in the first
+   place (the poll existed only to keep `/plan` warm).
 
 ## Acceptance criteria
 
 - [ ] `_navigate_via_hybrid` sends one `NavigateToPose` and no
       `ComputePathToPose` polling; hybrid and direct dispatch differ
       only in backend selection.
-- [ ] Replan cadence lives in the owning component with a single
-      documented budget relative to the generator suppression window
-      (or replaces the suppression window outright — decide and
-      document).
+- [ ] The generator owns the `ComputePathToPose` cadence and consumes
+      the path from the action **result**; `/plan` subscription stays
+      only as a fallback input.
+- [ ] The active-goal hand-off is a node → generator **status** topic;
+      `navigate_to_pose` remains the sole command channel into the
+      policy (assert no goal-command path through the new topic).
+- [ ] Replan cadence lives in the generator with a single documented
+      budget relative to (or replacing) its `/plan` suppression window.
 - [ ] Plan freshness failure still zero-twists within the existing
       ~2 s composed budget (subgoal watchdog source unchanged).
-- [ ] Unit coverage for the new goal hand-off and replan trigger;
-      `strafer_inference` + `strafer_autonomy` suites green on the
-      Jetson.
+- [ ] Unit coverage for the active-goal telemetry (accept + keep-alive
+      + staleness → stop replanning + preemption retarget) and the
+      replan trigger; `strafer_inference` + `strafer_autonomy` suites
+      green on the Jetson.
 - [ ] Hybrid sim mission on the DGX rig: rolling subgoal tracks a
       preempted/updated goal; killing the planner server zero-twists
       within budget.

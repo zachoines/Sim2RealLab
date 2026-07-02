@@ -6,12 +6,13 @@ node uses, runs the pure :class:`RollingSubgoalGenerator` each tick, and
 publishes the rolling subgoal as a ``geometry_msgs/PoseStamped`` on a
 dedicated topic.
 
-A dedicated topic (not ``/strafer/goal``) is deliberate: the inference
-node resets the policy's hidden state when its goal moves past a
-threshold, and a rolling subgoal advances every tick -- routing it through
-the goal topic would reset a recurrent policy continuously. The published
-pose is in the ``map`` frame; the body-frame observation transform the
-policy consumes lives in the inference node.
+A dedicated topic is deliberate: the mission goal reaches the inference
+node through its ``navigate_to_pose`` action (latched per mission; a new
+or preempting goal resets the policy's hidden state), while the rolling
+subgoal is a streamed setpoint that advances every tick -- the two must
+not share a channel, or a recurrent policy would reset continuously. The
+published pose is in the ``map`` frame; the body-frame observation
+transform the policy consumes lives in the inference node.
 
 ROS glue only -- all selection math is in :mod:`strafer_inference.generator`.
 """

@@ -11,7 +11,6 @@ strafer_inference:
 
     infer_period_s: 0.0333333
 
-    goal_topic: "/strafer/goal"
     cmd_vel_topic: "/strafer/cmd_vel"
     depth_topic: "/d555/depth/image_rect_raw"
     # Rolling subgoal pose (subgoal variants only); published by the
@@ -25,7 +24,6 @@ strafer_inference:
     base_frame: "base_link"
 
     tf_max_age_s: 0.5
-    goal_timeout_s: 1.0
     obs_timeout_s: 0.2
     depth_timeout_s: 0.5
     # Rolling-subgoal freshness (subgoal variants only). The inference half of
@@ -42,8 +40,6 @@ strafer_inference:
     # for sim. Setting an explicit cap here would shadow the env var,
     # so leave it unset unless an operator override is intentional.
 
-    is_mid_mission_reset: true
-    mid_mission_reset_distance_m: 0.05
     goal_reached_distance_m: 0.25
     mission_timeout_s: 60.0
 

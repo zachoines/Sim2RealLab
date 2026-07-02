@@ -10,6 +10,7 @@ NOT subscribe / publish across the wire. The action server's blocking
 from __future__ import annotations
 
 import math
+import threading
 import time
 import unittest
 from typing import Optional
@@ -242,6 +243,188 @@ class TestResetTriggers(unittest.TestCase):
             node._execute_callback(goal_handle)
             goal_handle.canceled.assert_called_once()
             goal_handle.succeed.assert_not_called()
+        finally:
+            node.destroy_node()
+
+
+# =============================================================================
+# Goal-active flag — watchdog freshness for the latched action goal
+# =============================================================================
+
+
+def _wait_until(cond, timeout_s: float = 2.0) -> None:
+    deadline = time.monotonic() + timeout_s
+    while not cond():
+        if time.monotonic() > deadline:
+            raise AssertionError("condition not reached in time")
+        time.sleep(0.01)
+
+
+class TestGoalActiveFlag(unittest.TestCase):
+    """``_goal_active`` models active-goal presence for the watchdog:
+    ``True`` for the whole blocking mission loop, ``False`` on every exit
+    path (succeed / cancel / timeout-abort / exception), and robust to
+    briefly overlapping goals via the underlying counter.
+    """
+
+    def _make_node_with_policy(self, **overrides) -> InferenceNode:
+        params = dict(
+            model_path="",
+            goal_reached_distance_m=0.25,
+            mission_timeout_s=5.0,
+        )
+        params.update(overrides)
+        node = InferenceNode(parameter_overrides=_make_overrides(**params))
+        node._policy = _FakeRecurrentPolicy()
+        return node
+
+    def _make_goal_handle(self) -> MagicMock:
+        goal_handle = MagicMock()
+        goal_handle.request.pose = _make_pose(2.0, 0.0)
+        goal_handle.is_cancel_requested = False
+        return goal_handle
+
+    def test_flag_true_across_mission_then_cleared_on_success(self) -> None:
+        node = self._make_node_with_policy()
+        try:
+            self.assertFalse(node._goal_active)
+            goal_handle = self._make_goal_handle()
+
+            distances = iter([1.0, 0.5, 0.2])
+            observed: list[bool] = []
+
+            def _fake_distance():
+                # Runs inside the mission loop: the flag must already be up.
+                observed.append(node._goal_active)
+                try:
+                    return next(distances)
+                except StopIteration:
+                    return 0.0
+
+            node._current_goal_distance = _fake_distance  # type: ignore
+
+            node._execute_callback(goal_handle)
+
+            goal_handle.succeed.assert_called_once()
+            self.assertEqual(len(observed), 3)
+            self.assertTrue(all(observed))
+            self.assertFalse(node._goal_active)
+        finally:
+            node.destroy_node()
+
+    def test_flag_cleared_on_cancel(self) -> None:
+        node = self._make_node_with_policy()
+        try:
+            goal_handle = self._make_goal_handle()
+            goal_handle.is_cancel_requested = True
+            node._current_goal_distance = lambda: 1.0  # type: ignore
+
+            node._execute_callback(goal_handle)
+
+            goal_handle.canceled.assert_called_once()
+            self.assertFalse(node._goal_active)
+        finally:
+            node.destroy_node()
+
+    def test_flag_cleared_when_mission_loop_raises(self) -> None:
+        node = self._make_node_with_policy()
+        try:
+            goal_handle = self._make_goal_handle()
+            node._current_goal_distance = MagicMock(  # type: ignore
+                side_effect=RuntimeError("tf buffer died")
+            )
+
+            with self.assertRaises(RuntimeError):
+                node._execute_callback(goal_handle)
+
+            self.assertFalse(node._goal_active)
+        finally:
+            node.destroy_node()
+
+    def test_no_policy_abort_leaves_flag_false(self) -> None:
+        node = InferenceNode(parameter_overrides=_make_overrides(model_path=""))
+        try:
+            node._policy = None
+            goal_handle = self._make_goal_handle()
+
+            node._execute_callback(goal_handle)
+
+            goal_handle.abort.assert_called_once()
+            self.assertFalse(node._goal_active)
+        finally:
+            node.destroy_node()
+
+    def test_flag_cleared_on_mission_timeout_abort(self) -> None:
+        node = self._make_node_with_policy(mission_timeout_s=0.01)
+        try:
+            goal_handle = self._make_goal_handle()
+            node._current_goal_distance = lambda: None  # type: ignore
+
+            node._execute_callback(goal_handle)
+
+            goal_handle.abort.assert_called_once()
+            self.assertFalse(node._goal_active)
+        finally:
+            node.destroy_node()
+
+    def test_overlapping_goal_exit_does_not_clear_survivor(self) -> None:
+        """A goal exiting while another still executes (a client cancel
+        is fire-and-forget, so the next goal's accept can overlap the
+        old loop's drain) must not clear goal freshness under the
+        survivor.
+        """
+        node = self._make_node_with_policy()
+        try:
+            node._current_goal_distance = lambda: None  # type: ignore
+            handle_a = self._make_goal_handle()
+            handle_b = self._make_goal_handle()
+
+            thread_a = threading.Thread(
+                target=node._execute_callback, args=(handle_a,))
+            thread_b = threading.Thread(
+                target=node._execute_callback, args=(handle_b,))
+            thread_a.start()
+            thread_b.start()
+            _wait_until(lambda: node._active_goal_count == 2)
+
+            handle_b.is_cancel_requested = True
+            thread_b.join(timeout=2.0)
+            self.assertFalse(thread_b.is_alive())
+            handle_b.canceled.assert_called_once()
+            self.assertTrue(node._goal_active)
+
+            handle_a.is_cancel_requested = True
+            thread_a.join(timeout=2.0)
+            self.assertFalse(thread_a.is_alive())
+            self.assertFalse(node._goal_active)
+        finally:
+            node.destroy_node()
+
+    def test_tick_treats_active_goal_as_fresh(self) -> None:
+        """Pins the _on_tick → stale_sources(goal_active=...) wiring:
+        with every streamed source fresh and no topic goal ever
+        received, the tick zero-twists when idle but publishes nothing
+        while a goal is active (clean watchdog + no policy holds the
+        channel).
+        """
+        node = InferenceNode(parameter_overrides=_make_overrides(model_path=""))
+        try:
+            now = time.monotonic()
+            node._last_imu_rx_t = now
+            node._last_joint_states_rx_t = now
+            node._last_odom_rx_t = now
+            node._last_depth_rx_t = now
+            node._tf_age_s = lambda: 0.0  # type: ignore
+            node._last_goal_rx_t = None
+            node._cmd_vel_pub = MagicMock()
+
+            node._active_goal_count = 1
+            node._on_tick()
+            node._cmd_vel_pub.publish.assert_not_called()
+
+            node._active_goal_count = 0
+            node._on_tick()
+            node._cmd_vel_pub.publish.assert_called_once()
         finally:
             node.destroy_node()
 

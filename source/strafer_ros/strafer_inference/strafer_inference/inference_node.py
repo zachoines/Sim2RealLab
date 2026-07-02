@@ -213,6 +213,14 @@ class InferenceNode(Node):
         self._last_depth_rx_t: Optional[float] = None
         self._last_goal_map: Optional[PoseStamped] = None
         self._last_goal_rx_t: Optional[float] = None
+        # Executing navigate_to_pose goals; the action goal is latched
+        # for the whole mission, so the watchdog keys the goal source on
+        # active-goal presence rather than a restamped rx time. A counter
+        # (not a bool): goals can briefly overlap while a client cancel
+        # is still draining, and the exiting goal must not clear
+        # freshness under the newer mission.
+        self._active_goal_count = 0
+        self._goal_count_lock = threading.Lock()
         self._last_subgoal_map: Optional[PoseStamped] = None
         self._last_subgoal_rx_t: Optional[float] = None
         self._last_action: np.ndarray = np.zeros(3, dtype=np.float32)
@@ -447,6 +455,10 @@ class InferenceNode(Node):
     # Action server
     # ------------------------------------------------------------------
 
+    @property
+    def _goal_active(self) -> bool:
+        return self._active_goal_count > 0
+
     def _goal_callback(self, goal_request):
         del goal_request
         return GoalResponse.ACCEPT
@@ -464,40 +476,48 @@ class InferenceNode(Node):
         self._last_goal_map = goal_pose
         self._last_goal_rx_t = time.monotonic()
 
-        # New mission boundary → reset hidden state per recurrent
-        # contract trigger 4.1.
-        with self._policy_lock:
-            self._policy.reset()
+        with self._goal_count_lock:
+            self._active_goal_count += 1
+        try:
+            # New mission boundary → reset hidden state per recurrent
+            # contract trigger 4.1.
+            with self._policy_lock:
+                self._policy.reset()
 
-        mission_started_t = time.monotonic()
-        feedback = NavigateToPose.Feedback()
+            mission_started_t = time.monotonic()
+            feedback = NavigateToPose.Feedback()
 
-        while rclpy.ok():
-            if goal_handle.is_cancel_requested:
-                self.get_logger().info("navigate_to_pose canceled by client.")
-                goal_handle.canceled()
-                return NavigateToPose.Result()
-
-            distance = self._current_goal_distance()
-            if distance is not None:
-                feedback.distance_remaining = float(distance)
-                goal_handle.publish_feedback(feedback)
-                if distance <= self._goal_reached_distance_m:
-                    goal_handle.succeed()
+            while rclpy.ok():
+                if goal_handle.is_cancel_requested:
+                    self.get_logger().info(
+                        "navigate_to_pose canceled by client."
+                    )
+                    goal_handle.canceled()
                     return NavigateToPose.Result()
 
-            if time.monotonic() - mission_started_t > self._mission_timeout_s:
-                self.get_logger().warning(
-                    f"navigate_to_pose mission timed out after "
-                    f"{self._mission_timeout_s:.1f} s"
-                )
-                goal_handle.abort()
-                return NavigateToPose.Result()
+                distance = self._current_goal_distance()
+                if distance is not None:
+                    feedback.distance_remaining = float(distance)
+                    goal_handle.publish_feedback(feedback)
+                    if distance <= self._goal_reached_distance_m:
+                        goal_handle.succeed()
+                        return NavigateToPose.Result()
 
-            time.sleep(0.05)
+                if time.monotonic() - mission_started_t > self._mission_timeout_s:
+                    self.get_logger().warning(
+                        f"navigate_to_pose mission timed out after "
+                        f"{self._mission_timeout_s:.1f} s"
+                    )
+                    goal_handle.abort()
+                    return NavigateToPose.Result()
 
-        goal_handle.abort()
-        return NavigateToPose.Result()
+                time.sleep(0.05)
+
+            goal_handle.abort()
+            return NavigateToPose.Result()
+        finally:
+            with self._goal_count_lock:
+                self._active_goal_count -= 1
 
     def _current_goal_distance(self) -> Optional[float]:
         if self._last_goal_map is None:
@@ -534,6 +554,7 @@ class InferenceNode(Node):
             depth_enabled=self._has_depth,
             last_subgoal_rx_t=self._last_subgoal_rx_t,
             subgoal_enabled=self._uses_subgoal,
+            goal_active=self._goal_active,
         )
         if stale:
             self.get_logger().warning(

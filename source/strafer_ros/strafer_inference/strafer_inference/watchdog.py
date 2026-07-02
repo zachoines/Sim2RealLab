@@ -1,14 +1,20 @@
-"""Pure-logic watchdog for the inference loop's six-source freshness check.
+"""Pure-logic freshness watchdog for the inference loop.
 
-Kept rclpy-free for direct unit testing. The node feeds its monotonic
-receive times in and acts on the returned list of stale sources.
+Kept rclpy-free for direct unit testing. The node feeds per-source
+freshness inputs in and acts on the returned list of stale sources.
 
-The sources and their thresholds match the brief's Phase 3
-6-source-watchdog spec: goal, IMU, joint_states, odom, depth, and the
-``map → base_link`` TF lookup age. The TF threshold is checked against
-the transform's wall-clock stamp age, not its receive time, because
-``tf2_ros.Buffer.lookup_transform`` returns the latest cached value
-regardless of how long ago the listener last cached it.
+Sources: goal, IMU, joint_states, odom, depth, the ``map → base_link``
+TF lookup age, and (hybrid variants) the rolling subgoal. Most are
+streamed and checked as monotonic receive-time age against a per-source
+threshold. Two exceptions:
+
+- ``goal`` is presence-keyed: an executing ``navigate_to_pose`` action
+  goal keeps it fresh (the goal is latched for the mission, not
+  streamed); the receive-time check applies only to topic-driven goals.
+- The TF threshold is checked against the transform's wall-clock stamp
+  age, not its receive time, because ``tf2_ros.Buffer.lookup_transform``
+  returns the latest cached value regardless of how long ago the
+  listener last cached it.
 """
 
 from __future__ import annotations
@@ -56,6 +62,7 @@ def stale_sources(
     depth_enabled: bool = True,
     last_subgoal_rx_t: Optional[float] = None,
     subgoal_enabled: bool = False,
+    goal_active: bool = False,
 ) -> list[str]:
     """Return the names of the watchdog sources that are stale or absent.
 
@@ -72,9 +79,18 @@ def stale_sources(
     ``/strafer/subgoal`` stream goes stale (generator died, or its upstream
     ``/plan`` went stale and the generator suppressed output). It is the
     inference-side half of the hybrid plan-freshness guard.
+
+    ``goal_active`` is ``True`` while a ``navigate_to_pose`` action goal
+    is executing. The action goal is latched for the whole mission —
+    nothing restamps it — so the ``goal`` source is fresh when a goal is
+    active OR a ``/strafer/goal`` topic message arrived within
+    ``timeouts.goal`` (the topic path serves live goal updates and the
+    mid-mission reset).
     """
     stale: list[str] = []
-    if last_goal_rx_t is None or now_monotonic_s - last_goal_rx_t > timeouts.goal:
+    if not goal_active and (
+        last_goal_rx_t is None or now_monotonic_s - last_goal_rx_t > timeouts.goal
+    ):
         stale.append("goal")
     if last_imu_rx_t is None or now_monotonic_s - last_imu_rx_t > timeouts.imu:
         stale.append("imu")

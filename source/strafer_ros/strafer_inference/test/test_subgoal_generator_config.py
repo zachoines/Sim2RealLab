@@ -60,11 +60,6 @@ class TestSubgoalGeneratorParamsStructure:
                 "does not silently remap it."
             )
 
-    def test_subgoal_topic_is_not_the_goal_topic(self, node_params):
-        # A rolling subgoal must not reuse /strafer/goal -- that would trip
-        # the inference node's mid-mission hidden-state reset every tick.
-        assert node_params["subgoal_topic"] != "/strafer/goal"
-
     def test_rate_and_lookahead_not_hardcoded_in_yaml(self, node_params):
         # Both omitted on purpose: the node defaults update_period_s to
         # POLICY_SIM_DT * POLICY_DECIMATION and lookahead_m to

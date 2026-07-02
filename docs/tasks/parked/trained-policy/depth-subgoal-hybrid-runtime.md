@@ -112,7 +112,7 @@ Sim-validation of the trained checkpoint lives in `depth-subgoal-sim-validation.
 
 ### Recurrent contract preservation
 
-- [ ] DEPTH_SUBGOAL's reset triggers fire at the same call sites as DEPTH (action-server goal accept, mid-mission goal pose update with `is_mid_mission_reset=True`).
+- [ ] DEPTH_SUBGOAL's reset triggers fire at the same call sites as DEPTH (every action-server goal accept, including newest-goal-wins preempting goals).
 - [ ] Mutex-guarded `policy(obs)` and `policy.reset()` calls inherit unchanged.
 
 ### Integration

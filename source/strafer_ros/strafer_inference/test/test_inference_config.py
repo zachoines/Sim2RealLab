@@ -38,14 +38,12 @@ class TestInferenceParamsStructure:
         "model_path",
         "policy_variant",
         "infer_period_s",
-        "goal_topic",
         "cmd_vel_topic",
         "depth_topic",
         "imu_topic",
         "joint_states_topic",
         "odom_topic",
         "tf_max_age_s",
-        "goal_timeout_s",
         "obs_timeout_s",
         "depth_timeout_s",
     ]
@@ -88,7 +86,6 @@ class TestInferenceParamsStructure:
     def test_timeouts_positive(self, node_params):
         for key in (
             "tf_max_age_s",
-            "goal_timeout_s",
             "obs_timeout_s",
             "depth_timeout_s",
         ):
@@ -98,7 +95,6 @@ class TestInferenceParamsStructure:
 
     def test_topic_names_absolute(self, node_params):
         for key in (
-            "goal_topic",
             "cmd_vel_topic",
             "depth_topic",
             "imu_topic",

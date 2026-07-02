@@ -64,6 +64,7 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | P3 | active | DGX |
 | [`policy-export-deprecation-migration`](active/trained-policy/policy-export-deprecation-migration.md) | P3 | active | DGX |
 | [`strafer-direct-sim-validation`](active/trained-policy/strafer-direct-sim-validation.md) | P2 | active | Either |
+| [`hybrid-replan-ownership`](active/trained-policy/hybrid-replan-ownership.md) | P2 | active | Jetson |
 | [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | P1 | active | Either |
 | [`encoder-noise-shared-sample`](active/trained-policy/encoder-noise-shared-sample.md) | P2 | active | DGX |
 | [`policy-rate-shared-constants`](active/trained-policy/policy-rate-shared-constants.md) | P2 | active | DGX |
@@ -229,6 +230,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`executor-grounding-loss-mid-mission-recovery`](active/reliability/executor-grounding-loss-mid-mission-recovery.md) | M | `_navigate_via_staging` re-grounding failure terminates immediately. Add mini-scan + semantic-map fallback with bounded recovery budget. Filed off the 2026-05-17 reliability audit. |
 | [`executor-slam-tracking-precheck-mid-mission`](active/reliability/executor-slam-tracking-precheck-mid-mission.md) | S–M | Executor never queries `check_slam_tracking()`; silent failure when RTAB-Map loses tracking mid-mission. Add bounded precheck before each motion step. Filed off the 2026-05-17 reliability audit. |
 | [`verify-arrival-occlusion-robustness`](active/reliability/verify-arrival-occlusion-robustness.md) | S–M | `_verify_arrival` false-negatives under partial occlusion. Add multi-frame voting + tilt-recovery + `arrival_occluded` soft-failure code. Filed off the 2026-05-17 reliability audit. |
+| [`hybrid-replan-ownership`](active/trained-policy/hybrid-replan-ownership.md) | M | Collapse hybrid dispatch to the strafer_direct shape: one `NavigateToPose`, replan ownership moves from the client's 0.5 s `ComputePathToPose` poll into the mission side (generator recommended). Sequenced after `inference-goal-preemption`. |
 
 #### Either lane
 

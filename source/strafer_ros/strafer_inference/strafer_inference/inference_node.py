@@ -5,8 +5,9 @@ action server is only advertised when a valid policy is in hand and
 the autonomy-side dispatcher falls back to nav2 otherwise), DEPTH
 observation pipeline, six-source watchdog (goal / IMU /
 joint_states / odom / depth / TF), recurrent ``policy.reset()``
-triggers on action-server goal accept and on mid-mission goal pose
-updates, L1 velocity clamp before ``/strafer/cmd_vel`` publish, and a
+triggers on every action-server goal accept — goal updates arrive as
+newest-goal-wins preempting goals, each its own mission boundary —
+L1 velocity clamp before ``/strafer/cmd_vel`` publish, and a
 ``ready`` parameter that flips to ``True`` only after the first
 successful inference so operator health checks distinguish "warming
 up" (TRT engine cold-start) from "wedged".
@@ -120,7 +121,6 @@ class InferenceNode(Node):
         self.declare_parameter("model_path", "")
         self.declare_parameter("policy_variant", "DEPTH")
         self.declare_parameter("infer_period_s", _default_infer_period())
-        self.declare_parameter("goal_topic", "/strafer/goal")
         self.declare_parameter("cmd_vel_topic", "/strafer/cmd_vel")
         self.declare_parameter("depth_topic", "/d555/depth/image_rect_raw")
         self.declare_parameter("subgoal_topic", "/strafer/subgoal")
@@ -130,14 +130,11 @@ class InferenceNode(Node):
         self.declare_parameter("map_frame", "map")
         self.declare_parameter("base_frame", "base_link")
         self.declare_parameter("tf_max_age_s", 0.5)
-        self.declare_parameter("goal_timeout_s", 1.0)
         self.declare_parameter("obs_timeout_s", 0.2)
         self.declare_parameter("depth_timeout_s", 0.5)
         self.declare_parameter("path_timeout_s", 1.0)
         self.declare_parameter("vel_cap_linear_m_s", _DEFAULT_VEL_CAP_LINEAR)
         self.declare_parameter("vel_cap_angular_rad_s", _DEFAULT_VEL_CAP_ANGULAR)
-        self.declare_parameter("is_mid_mission_reset", True)
-        self.declare_parameter("mid_mission_reset_distance_m", 0.05)
         self.declare_parameter("goal_reached_distance_m", 0.25)
         self.declare_parameter("mission_timeout_s", 60.0)
         self.declare_parameter(
@@ -176,7 +173,6 @@ class InferenceNode(Node):
         self._map_frame: str = self.get_parameter("map_frame").value
         self._base_frame: str = self.get_parameter("base_frame").value
         self._timeouts = WatchdogTimeouts(
-            goal=float(self.get_parameter("goal_timeout_s").value),
             imu=float(self.get_parameter("obs_timeout_s").value),
             joint_states=float(self.get_parameter("obs_timeout_s").value),
             odom=float(self.get_parameter("obs_timeout_s").value),
@@ -189,12 +185,6 @@ class InferenceNode(Node):
         )
         self._vel_cap_angular = float(
             self.get_parameter("vel_cap_angular_rad_s").value
-        )
-        self._is_mid_mission_reset = bool(
-            self.get_parameter("is_mid_mission_reset").value
-        )
-        self._mid_mission_reset_distance_m = float(
-            self.get_parameter("mid_mission_reset_distance_m").value
         )
         self._goal_reached_distance_m = float(
             self.get_parameter("goal_reached_distance_m").value
@@ -212,14 +202,17 @@ class InferenceNode(Node):
         self._last_depth_meters: Optional[np.ndarray] = None
         self._last_depth_rx_t: Optional[float] = None
         self._last_goal_map: Optional[PoseStamped] = None
-        self._last_goal_rx_t: Optional[float] = None
         # Executing navigate_to_pose goals; the action goal is latched
         # for the whole mission, so the watchdog keys the goal source on
-        # active-goal presence rather than a restamped rx time. A counter
-        # (not a bool): goals can briefly overlap while a client cancel
-        # is still draining, and the exiting goal must not clear
-        # freshness under the newer mission.
+        # active-goal presence. A counter (not a bool): a preempted or
+        # cancel-draining goal briefly overlaps its successor, and the
+        # exiting goal must not clear freshness under the newer mission.
         self._active_goal_count = 0
+        # Newest accepted goal; a superseded execute notices it lost
+        # ownership and aborts (Nav2-style newest-goal-wins preemption).
+        # Never cleared, only replaced by a newer accept — a successor
+        # that already finished still supersedes its predecessors.
+        self._current_goal_handle = None
         self._goal_count_lock = threading.Lock()
         self._last_subgoal_map: Optional[PoseStamped] = None
         self._last_subgoal_rx_t: Optional[float] = None
@@ -236,7 +229,6 @@ class InferenceNode(Node):
         self._default_cb_group = MutuallyExclusiveCallbackGroup()
         self._action_cb_group = ReentrantCallbackGroup()
 
-        goal_topic = self.get_parameter("goal_topic").value
         cmd_vel_topic = self.get_parameter("cmd_vel_topic").value
         depth_topic = self.get_parameter("depth_topic").value
         imu_topic = self.get_parameter("imu_topic").value
@@ -266,13 +258,9 @@ class InferenceNode(Node):
                 Image, depth_topic, self._on_depth, 10,
                 callback_group=self._default_cb_group,
             )
-        self._goal_sub = self.create_subscription(
-            PoseStamped, goal_topic, self._on_goal, 10,
-            callback_group=self._default_cb_group,
-        )
-        # Subgoal variants follow a rolling subgoal pose; it advances every
-        # tick, so caching it must NOT trigger the mid-mission hidden-state
-        # reset that _on_goal does for the final goal.
+        # Subgoal variants follow a rolling subgoal pose that advances
+        # every tick. The final goal is not a topic — it arrives through
+        # the navigate_to_pose action only.
         self._subgoal_sub = None
         if self._uses_subgoal:
             subgoal_topic = self.get_parameter("subgoal_topic").value
@@ -298,6 +286,7 @@ class InferenceNode(Node):
                 "navigate_to_pose",
                 execute_callback=self._execute_callback,
                 goal_callback=self._goal_callback,
+                handle_accepted_callback=self._handle_accepted,
                 cancel_callback=self._cancel_callback,
                 callback_group=self._action_cb_group,
             )
@@ -313,8 +302,7 @@ class InferenceNode(Node):
             f"tick={infer_period:.4f}s "
             f"vel_cap=({self._vel_cap_linear:.4f} m/s, "
             f"{self._vel_cap_angular:.4f} rad/s) "
-            f"policy_loaded={self._policy is not None} "
-            f"is_mid_mission_reset={self._is_mid_mission_reset}"
+            f"policy_loaded={self._policy is not None}"
         )
 
     def _load_policy_from_param(self) -> None:
@@ -421,35 +409,11 @@ class InferenceNode(Node):
 
     def _on_subgoal(self, msg: PoseStamped) -> None:
         # Cache only; the rolling subgoal advances every tick and must not
-        # drive the mid-mission hidden-state reset (that is the final goal's
-        # job in _on_goal). The rx time is recorded for a later staleness
-        # watchdog source.
+        # drive a hidden-state reset (mission boundaries — new or
+        # preempting action goals — own that). The rx time is recorded
+        # for the subgoal staleness watchdog source.
         self._last_subgoal_map = msg
         self._last_subgoal_rx_t = time.monotonic()
-
-    def _on_goal(self, msg: PoseStamped) -> None:
-        previous = self._last_goal_map
-        self._last_goal_map = msg
-        self._last_goal_rx_t = time.monotonic()
-
-        if (
-            self._policy is not None
-            and self._is_mid_mission_reset
-            and previous is not None
-            and self._goal_pose_changed(previous, msg)
-        ):
-            self.get_logger().info(
-                "Mid-mission goal pose update; resetting policy hidden state."
-            )
-            with self._policy_lock:
-                self._policy.reset()
-
-    def _goal_pose_changed(
-        self, previous: PoseStamped, current: PoseStamped,
-    ) -> bool:
-        dx = current.pose.position.x - previous.pose.position.x
-        dy = current.pose.position.y - previous.pose.position.y
-        return math.hypot(dx, dy) >= self._mid_mission_reset_distance_m
 
     # ------------------------------------------------------------------
     # Action server
@@ -463,9 +427,21 @@ class InferenceNode(Node):
         del goal_request
         return GoalResponse.ACCEPT
 
+    def _handle_accepted(self, goal_handle) -> None:
+        # Newest goal wins: taking ownership here makes a superseded
+        # execute loop abort on its next iteration, so a goal update is
+        # simply a new action goal.
+        with self._goal_count_lock:
+            self._current_goal_handle = goal_handle
+        goal_handle.execute()
+
     def _cancel_callback(self, goal_handle):
         del goal_handle
         return CancelResponse.ACCEPT
+
+    def _superseded(self, goal_handle) -> bool:
+        current = self._current_goal_handle
+        return current is not None and current is not goal_handle
 
     def _execute_callback(self, goal_handle):
         if self._policy is None:
@@ -473,11 +449,27 @@ class InferenceNode(Node):
             return NavigateToPose.Result()
 
         goal_pose: PoseStamped = goal_handle.request.pose
-        self._last_goal_map = goal_pose
-        self._last_goal_rx_t = time.monotonic()
 
+        # Gate, obs-referent write, and counter bump are one critical
+        # section under _goal_count_lock (which _handle_accepted also
+        # holds when it installs the new owner). Otherwise a goal that
+        # passed the gate could land its _last_goal_map write after a
+        # newer goal's, steering the live mission at the superseded pose.
         with self._goal_count_lock:
-            self._active_goal_count += 1
+            superseded = (
+                self._current_goal_handle is not None
+                and self._current_goal_handle is not goal_handle
+            )
+            if not superseded:
+                self._last_goal_map = goal_pose
+                self._active_goal_count += 1
+        if superseded:
+            # A newer goal was accepted while this execute task was still
+            # queued: abort without touching the live mission's goal pose
+            # or hidden state.
+            goal_handle.abort()
+            return NavigateToPose.Result()
+
         try:
             # New mission boundary → reset hidden state per recurrent
             # contract trigger 4.1.
@@ -495,7 +487,14 @@ class InferenceNode(Node):
                     goal_handle.canceled()
                     return NavigateToPose.Result()
 
-                distance = self._current_goal_distance()
+                if self._superseded(goal_handle):
+                    self.get_logger().info(
+                        "navigate_to_pose goal preempted by a newer goal."
+                    )
+                    goal_handle.abort()
+                    return NavigateToPose.Result()
+
+                distance = self._current_goal_distance(goal_pose)
                 if distance is not None:
                     feedback.distance_remaining = float(distance)
                     goal_handle.publish_feedback(feedback)
@@ -519,9 +518,10 @@ class InferenceNode(Node):
             with self._goal_count_lock:
                 self._active_goal_count -= 1
 
-    def _current_goal_distance(self) -> Optional[float]:
-        if self._last_goal_map is None:
-            return None
+    def _current_goal_distance(self, goal_pose: PoseStamped) -> Optional[float]:
+        # Distance to the caller's own captured goal, not the shared
+        # _last_goal_map: a superseded loop draining for <=50 ms must not
+        # evaluate its succeed check against the successor's pose.
         try:
             tf = self._tf_buffer.lookup_transform(
                 self._map_frame, self._base_frame, rclpy.time.Time()
@@ -532,8 +532,8 @@ class InferenceNode(Node):
             tf2_ros.ExtrapolationException,
         ):
             return None
-        dx = self._last_goal_map.pose.position.x - tf.transform.translation.x
-        dy = self._last_goal_map.pose.position.y - tf.transform.translation.y
+        dx = goal_pose.pose.position.x - tf.transform.translation.x
+        dy = goal_pose.pose.position.y - tf.transform.translation.y
         return float(math.hypot(dx, dy))
 
     # ------------------------------------------------------------------
@@ -544,7 +544,6 @@ class InferenceNode(Node):
         tf_age = self._tf_age_s()
         stale = stale_sources(
             now_monotonic_s=time.monotonic(),
-            last_goal_rx_t=self._last_goal_rx_t,
             last_imu_rx_t=self._last_imu_rx_t,
             last_joint_states_rx_t=self._last_joint_states_rx_t,
             last_odom_rx_t=self._last_odom_rx_t,

@@ -161,8 +161,10 @@ artifact) only flows one way.
 5. Record a `bringup_sim_in_the_loop`-driven rosbag for ≥ 30 s with
    the robot moving (joystick or a scripted mission). Make sure the
    bag captures `/d555/depth/image_rect_raw`, `/d555/imu/filtered`,
-   `/strafer/joint_states`, `/strafer/odom`, `/strafer/goal`, and
-   `/clock`.
+   `/strafer/joint_states`, `/strafer/odom`, and `/clock`. The goal
+   pose is not a topic — it arrives via the `navigate_to_pose` action
+   — so capture it from the sent action goal (or pin it for the run)
+   rather than recording a bag topic.
 6. Replay the bag and run a comparison script that joins the two
    obs streams on sim timestamp and asserts the bounds. Land the
    comparison script under

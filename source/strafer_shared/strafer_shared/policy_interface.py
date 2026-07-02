@@ -57,11 +57,12 @@ without re-deriving what the other two assume.
    - **Action-server goal accepted** (a NEW ``/navigate_to_pose``
      goal handle, not a re-statement of the current one). The
      hidden state from the previous mission is no longer relevant.
-   - **Mid-mission goal pose update** (VLM re-grounding produces a
-     new goal). Controlled by an ``is_mid_mission_reset`` config flag
-     in the inference node (default: True). Rationale: the hidden
-     state learned to expect monotonic progress toward the *old*
-     goal; carrying it into a re-grounded mission biases the policy.
+     This covers mid-mission goal updates too: the inference node's
+     action server is newest-goal-wins preemptive, so a re-grounded
+     goal (VLM re-grounding) arrives as a new accepted goal and is
+     its own mission boundary. Rationale: the hidden state learned
+     to expect monotonic progress toward the *old* goal; carrying it
+     into a re-grounded mission biases the policy.
    - **Watchdog trip** (any of the contracted-stale topic sources):
      the policy is paused. Hidden state stays frozen until the
      watchdog clears, then the *next* mission boundary calls

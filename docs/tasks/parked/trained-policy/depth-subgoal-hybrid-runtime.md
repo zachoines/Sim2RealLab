@@ -66,7 +66,7 @@ Three phases, sequenced. Phase 1 is the load-bearing refactor (Option A) or the 
 
 The hybrid-mode brief introduces a `/plan` freshness source (the 6th source overall). For DEPTH_SUBGOAL under hybrid mode, the source list is:
 
-- goal — from the action server (replaces the `/strafer/goal` subscriber-driven source when hybrid mode is active per [`hybrid-mode`](../../completed/hybrid-mode.md))
+- goal — presence-keyed on the executing `navigate_to_pose` action goal (there is no goal topic; see [`inference-goal-preemption`](../../completed/inference-goal-preemption.md))
 - IMU — `/d555/imu/filtered`
 - joint_states — `/strafer/joint_states`
 - odom — `/strafer/odom`
@@ -112,7 +112,7 @@ Sim-validation of the trained checkpoint lives in `depth-subgoal-sim-validation.
 
 ### Recurrent contract preservation
 
-- [ ] DEPTH_SUBGOAL's reset triggers fire at the same call sites as DEPTH (action-server goal accept, mid-mission goal pose update with `is_mid_mission_reset=True`).
+- [ ] DEPTH_SUBGOAL's reset triggers fire at the same call sites as DEPTH (every action-server goal accept, including newest-goal-wins preempting goals).
 - [ ] Mutex-guarded `policy(obs)` and `policy.reset()` calls inherit unchanged.
 
 ### Integration

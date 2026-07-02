@@ -4,13 +4,13 @@ Kept rclpy-free for direct unit testing. The node feeds per-source
 freshness inputs in and acts on the returned list of stale sources.
 
 Sources: goal, IMU, joint_states, odom, depth, the ``map → base_link``
-TF lookup age, and (hybrid variants) the rolling subgoal. Most are
-streamed and checked as monotonic receive-time age against a per-source
+TF lookup age, and (hybrid variants) the rolling subgoal. Streamed
+sources are checked as monotonic receive-time age against a per-source
 threshold. Two exceptions:
 
-- ``goal`` is presence-keyed: an executing ``navigate_to_pose`` action
-  goal keeps it fresh (the goal is latched for the mission, not
-  streamed); the receive-time check applies only to topic-driven goals.
+- ``goal`` is presence-keyed: it is fresh exactly while a
+  ``navigate_to_pose`` action goal is executing. The goal is latched
+  for the mission, not streamed — there is no goal topic.
 - The TF threshold is checked against the transform's wall-clock stamp
   age, not its receive time, because ``tf2_ros.Buffer.lookup_transform``
   returns the latest cached value regardless of how long ago the
@@ -25,9 +25,12 @@ from typing import Optional
 
 @dataclass
 class WatchdogTimeouts:
-    """Per-source freshness thresholds in seconds."""
+    """Per-source freshness thresholds in seconds.
 
-    goal: float
+    The ``goal`` source carries no threshold — it is presence-keyed on
+    the executing action goal, not receive-time-checked.
+    """
+
     imu: float
     joint_states: float
     odom: float
@@ -38,7 +41,7 @@ class WatchdogTimeouts:
     path: float = 1.0
 
     def __post_init__(self) -> None:
-        for name in ("goal", "imu", "joint_states", "odom", "depth", "tf", "path"):
+        for name in ("imu", "joint_states", "odom", "depth", "tf", "path"):
             value = getattr(self, name)
             if value <= 0.0:
                 raise ValueError(
@@ -52,7 +55,6 @@ class WatchdogTimeouts:
 def stale_sources(
     *,
     now_monotonic_s: float,
-    last_goal_rx_t: Optional[float],
     last_imu_rx_t: Optional[float],
     last_joint_states_rx_t: Optional[float],
     last_odom_rx_t: Optional[float],
@@ -81,16 +83,13 @@ def stale_sources(
     inference-side half of the hybrid plan-freshness guard.
 
     ``goal_active`` is ``True`` while a ``navigate_to_pose`` action goal
-    is executing. The action goal is latched for the whole mission —
-    nothing restamps it — so the ``goal`` source is fresh when a goal is
-    active OR a ``/strafer/goal`` topic message arrived within
-    ``timeouts.goal`` (the topic path serves live goal updates and the
-    mid-mission reset).
+    is executing; the ``goal`` source is presence-keyed on it. Idle (no
+    executing goal) reports ``goal`` stale, which safely zero-twists the
+    channel between missions. Goal updates arrive as preempting action
+    goals, so no receive-time path exists for this source.
     """
     stale: list[str] = []
-    if not goal_active and (
-        last_goal_rx_t is None or now_monotonic_s - last_goal_rx_t > timeouts.goal
-    ):
+    if not goal_active:
         stale.append("goal")
     if last_imu_rx_t is None or now_monotonic_s - last_imu_rx_t > timeouts.imu:
         stale.append("imu")

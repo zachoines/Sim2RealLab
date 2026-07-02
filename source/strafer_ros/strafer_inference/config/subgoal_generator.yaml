@@ -5,9 +5,10 @@ strafer_subgoal_generator:
     # and add a remap (or override this) if the planner is namespaced.
     plan_topic: "/plan"
 
-    # Dedicated rolling-subgoal topic. NOT /strafer/goal -- a rolling
-    # subgoal advances every tick, and routing it through the goal topic
-    # would trip the inference node's mid-mission hidden-state reset.
+    # Dedicated rolling-subgoal topic. The mission goal is NOT a topic --
+    # it reaches the inference node via its navigate_to_pose action, and
+    # a new goal there resets the policy's hidden state; the streamed
+    # subgoal must stay on its own channel.
     subgoal_topic: "/strafer/subgoal"
 
     map_frame: "map"

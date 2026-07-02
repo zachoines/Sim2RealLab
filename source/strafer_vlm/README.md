@@ -221,7 +221,7 @@ The primary data prep for this training path lives in [`strafer_lab.scripts.reti
 
 ## Design
 
-**Narrow package boundary.** `strafer_vlm` does image-space grounding, description, and detection. It does not consume depth, publish `/strafer/goal`, emit map-frame poses, decide reachability, or choose navigation backends. All of that is robot-local and lives in [`strafer_ros`](../strafer_ros/README.md).
+**Narrow package boundary.** `strafer_vlm` does image-space grounding, description, and detection. It does not consume depth, issue navigation goals, emit map-frame poses, decide reachability, or choose navigation backends. All of that is robot-local and lives in [`strafer_ros`](../strafer_ros/README.md).
 
 **One loaded model, three endpoints.** `/ground`, `/describe`, and `/detect_objects` all share the same Qwen2.5-VL model loaded once at service startup. Each endpoint runs the same `run_grounding_generation()` function with a different system prompt. This keeps GPU memory consumption flat regardless of endpoint mix.
 

@@ -57,3 +57,10 @@ strafer_inference:
       - "TensorrtExecutionProvider"
       - "CUDAExecutionProvider"
       - "CPUExecutionProvider"
+
+    # ONNX intra-op thread count. 1 is right for the small MLP policies
+    # (~50 us/inference): ORT's default (0 = one spin-waiting thread per
+    # core) pins all 6 Jetson cores busy-waiting and starves RTAB-Map /
+    # Nav2. Spin-waiting is disabled in load_policy regardless. Raise
+    # only for a conv-heavy variant (e.g. DEPTH) that parallelizes.
+    onnx_intra_op_threads: 1

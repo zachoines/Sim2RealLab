@@ -10,6 +10,7 @@ NOT subscribe / publish across the wire. The action server's blocking
 from __future__ import annotations
 
 import math
+import os
 import threading
 import time
 import unittest
@@ -88,6 +89,53 @@ def _make_pose(x: float, y: float) -> PoseStamped:
     msg.pose.position.y = y
     msg.pose.orientation.w = 1.0
     return msg
+
+
+# =============================================================================
+# ONNX thread pinning — keep a tiny MLP from spinning every core
+# =============================================================================
+
+
+class TestOnnxThreadPinning(unittest.TestCase):
+    """load_policy must pin the ONNX intra-op thread count (default 1) so
+    a ~50 us MLP does not spin all 6 Jetson cores under the ORT default
+    (0 = one spin-waiting thread per core), starving RTAB-Map / Nav2.
+    Exercises the real deployed model; skips where it is not present.
+    """
+
+    def _model_path(self) -> str:
+        repo = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")
+        )
+        return os.path.join(repo, "models", "strafer_nocam_subgoal_v0.onnx")
+
+    def test_default_pins_to_one_thread(self) -> None:
+        from strafer_shared.policy_interface import load_policy, PolicyVariant
+
+        model = self._model_path()
+        if not os.path.isfile(model):
+            self.skipTest("deployed NOCAM_SUBGOAL model not present")
+        policy = load_policy(
+            model, PolicyVariant.NOCAM_SUBGOAL,
+            onnx_providers=["CPUExecutionProvider"],
+        )
+        self.assertEqual(
+            policy._sess.get_session_options().intra_op_num_threads, 1
+        )
+
+    def test_explicit_thread_count_is_applied(self) -> None:
+        from strafer_shared.policy_interface import load_policy, PolicyVariant
+
+        model = self._model_path()
+        if not os.path.isfile(model):
+            self.skipTest("deployed NOCAM_SUBGOAL model not present")
+        policy = load_policy(
+            model, PolicyVariant.NOCAM_SUBGOAL,
+            onnx_providers=["CPUExecutionProvider"], onnx_intra_op_threads=2,
+        )
+        self.assertEqual(
+            policy._sess.get_session_options().intra_op_num_threads, 2
+        )
 
 
 # =============================================================================

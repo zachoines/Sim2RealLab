@@ -148,6 +148,7 @@ class InferenceNode(Node):
                 "CPUExecutionProvider",
             ],
         )
+        self.declare_parameter("onnx_intra_op_threads", 1)
         # Operator health check: stays False until the first successful
         # inference. Distinguishes "TRT engine still building" from
         # "wedged" — paired with the cold-start log line in _load_policy_from_param.
@@ -372,6 +373,9 @@ class InferenceNode(Node):
                 model_path, self._variant,
                 onnx_providers=(
                     onnx_providers if model_path.suffix == ".onnx" else None
+                ),
+                onnx_intra_op_threads=int(
+                    self.get_parameter("onnx_intra_op_threads").value
                 ),
             )
             self.get_logger().info(

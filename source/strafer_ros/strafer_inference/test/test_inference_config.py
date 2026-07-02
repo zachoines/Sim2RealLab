@@ -95,6 +95,14 @@ class TestInferenceParamsStructure:
                 f"{key} must be positive; non-positive disables the watchdog"
             )
 
+    def test_onnx_intra_op_threads_is_small_positive(self, node_params):
+        # 1 is right for the small MLP policies; anything > cores would be
+        # counterproductive. Must be present so the ORT all-cores-spinning
+        # default cannot silently pin the Jetson.
+        assert "onnx_intra_op_threads" in node_params
+        threads = int(node_params["onnx_intra_op_threads"])
+        assert 1 <= threads <= 6
+
     def test_topic_names_absolute(self, node_params):
         for key in (
             "cmd_vel_topic",

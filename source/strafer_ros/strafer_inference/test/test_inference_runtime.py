@@ -195,7 +195,7 @@ class TestResetTriggers(unittest.TestCase):
             goal_handle.is_cancel_requested = False
             node._current_goal_handle = goal_handle  # self-owned at entry
 
-            def _distance_then_preempt():
+            def _distance_then_preempt(goal_pose):
                 node._current_goal_handle = MagicMock()  # newer goal lands
                 return 1.0
 
@@ -216,7 +216,7 @@ class TestResetTriggers(unittest.TestCase):
         loop's sleep window."""
         node, _fake = self._make_node_with_policy()
         try:
-            node._current_goal_distance = lambda: None  # type: ignore
+            node._current_goal_distance = lambda goal_pose: None  # type: ignore
             handle_a = MagicMock()
             handle_a.request.pose = _make_pose(2.0, 0.0)
             handle_a.is_cancel_requested = False
@@ -242,6 +242,25 @@ class TestResetTriggers(unittest.TestCase):
         finally:
             node.destroy_node()
 
+    def test_distance_uses_passed_goal_not_shared_map(self) -> None:
+        """The succeed check evaluates the caller's own captured goal, not
+        the shared _last_goal_map a successor may have overwritten during
+        the <=50 ms drain window."""
+        node = InferenceNode(parameter_overrides=_make_overrides(model_path=""))
+        try:
+            node._last_goal_map = _make_pose(100.0, 100.0)  # a successor's pose
+            tf = MagicMock()
+            tf.transform.translation.x = 0.0
+            tf.transform.translation.y = 0.0
+            node._tf_buffer.lookup_transform = MagicMock(  # type: ignore
+                return_value=tf
+            )
+
+            distance = node._current_goal_distance(_make_pose(3.0, 4.0))
+            self.assertAlmostEqual(distance, 5.0)
+        finally:
+            node.destroy_node()
+
     def test_action_server_execute_resets_then_polls_to_succeed(self) -> None:
         """The execute_callback must reset hidden state on goal accept
         (contract trigger 4.1) and then poll the goal-distance until
@@ -257,7 +276,7 @@ class TestResetTriggers(unittest.TestCase):
 
             distances = iter([1.0, 0.5, 0.2])  # third tick crosses threshold
 
-            def _fake_distance():
+            def _fake_distance(goal_pose):
                 try:
                     return next(distances)
                 except StopIteration:
@@ -292,7 +311,7 @@ class TestResetTriggers(unittest.TestCase):
             goal_handle = MagicMock()
             goal_handle.request.pose = _make_pose(2.0, 0.0)
             goal_handle.is_cancel_requested = True
-            node._current_goal_distance = lambda: 1.0  # type: ignore
+            node._current_goal_distance = lambda goal_pose: 1.0  # type: ignore
 
             node._execute_callback(goal_handle)
             goal_handle.canceled.assert_called_once()
@@ -347,7 +366,7 @@ class TestGoalActiveFlag(unittest.TestCase):
             distances = iter([1.0, 0.5, 0.2])
             observed: list[bool] = []
 
-            def _fake_distance():
+            def _fake_distance(goal_pose):
                 # Runs inside the mission loop: the flag must already be up.
                 observed.append(node._goal_active)
                 try:
@@ -371,7 +390,7 @@ class TestGoalActiveFlag(unittest.TestCase):
         try:
             goal_handle = self._make_goal_handle()
             goal_handle.is_cancel_requested = True
-            node._current_goal_distance = lambda: 1.0  # type: ignore
+            node._current_goal_distance = lambda goal_pose: 1.0  # type: ignore
 
             node._execute_callback(goal_handle)
 
@@ -412,7 +431,7 @@ class TestGoalActiveFlag(unittest.TestCase):
         node = self._make_node_with_policy(mission_timeout_s=0.01)
         try:
             goal_handle = self._make_goal_handle()
-            node._current_goal_distance = lambda: None  # type: ignore
+            node._current_goal_distance = lambda goal_pose: None  # type: ignore
 
             node._execute_callback(goal_handle)
 
@@ -429,7 +448,7 @@ class TestGoalActiveFlag(unittest.TestCase):
         """
         node = self._make_node_with_policy()
         try:
-            node._current_goal_distance = lambda: None  # type: ignore
+            node._current_goal_distance = lambda goal_pose: None  # type: ignore
             handle_a = self._make_goal_handle()
             handle_b = self._make_goal_handle()
 
@@ -461,7 +480,7 @@ class TestGoalActiveFlag(unittest.TestCase):
         """
         node = self._make_node_with_policy()
         try:
-            node._current_goal_distance = lambda: None  # type: ignore
+            node._current_goal_distance = lambda goal_pose: None  # type: ignore
             handle_a = self._make_goal_handle()
             handle_b = self._make_goal_handle()
 

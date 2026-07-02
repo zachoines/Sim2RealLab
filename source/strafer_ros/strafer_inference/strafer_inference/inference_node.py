@@ -448,18 +448,28 @@ class InferenceNode(Node):
             goal_handle.abort()
             return NavigateToPose.Result()
 
-        if self._superseded(goal_handle):
+        goal_pose: PoseStamped = goal_handle.request.pose
+
+        # Gate, obs-referent write, and counter bump are one critical
+        # section under _goal_count_lock (which _handle_accepted also
+        # holds when it installs the new owner). Otherwise a goal that
+        # passed the gate could land its _last_goal_map write after a
+        # newer goal's, steering the live mission at the superseded pose.
+        with self._goal_count_lock:
+            superseded = (
+                self._current_goal_handle is not None
+                and self._current_goal_handle is not goal_handle
+            )
+            if not superseded:
+                self._last_goal_map = goal_pose
+                self._active_goal_count += 1
+        if superseded:
             # A newer goal was accepted while this execute task was still
             # queued: abort without touching the live mission's goal pose
             # or hidden state.
             goal_handle.abort()
             return NavigateToPose.Result()
 
-        goal_pose: PoseStamped = goal_handle.request.pose
-        self._last_goal_map = goal_pose
-
-        with self._goal_count_lock:
-            self._active_goal_count += 1
         try:
             # New mission boundary → reset hidden state per recurrent
             # contract trigger 4.1.
@@ -484,7 +494,7 @@ class InferenceNode(Node):
                     goal_handle.abort()
                     return NavigateToPose.Result()
 
-                distance = self._current_goal_distance()
+                distance = self._current_goal_distance(goal_pose)
                 if distance is not None:
                     feedback.distance_remaining = float(distance)
                     goal_handle.publish_feedback(feedback)
@@ -508,9 +518,10 @@ class InferenceNode(Node):
             with self._goal_count_lock:
                 self._active_goal_count -= 1
 
-    def _current_goal_distance(self) -> Optional[float]:
-        if self._last_goal_map is None:
-            return None
+    def _current_goal_distance(self, goal_pose: PoseStamped) -> Optional[float]:
+        # Distance to the caller's own captured goal, not the shared
+        # _last_goal_map: a superseded loop draining for <=50 ms must not
+        # evaluate its succeed check against the successor's pose.
         try:
             tf = self._tf_buffer.lookup_transform(
                 self._map_frame, self._base_frame, rclpy.time.Time()
@@ -521,8 +532,8 @@ class InferenceNode(Node):
             tf2_ros.ExtrapolationException,
         ):
             return None
-        dx = self._last_goal_map.pose.position.x - tf.transform.translation.x
-        dy = self._last_goal_map.pose.position.y - tf.transform.translation.y
+        dx = goal_pose.pose.position.x - tf.transform.translation.x
+        dy = goal_pose.pose.position.y - tf.transform.translation.y
         return float(math.hypot(dx, dy))
 
     # ------------------------------------------------------------------

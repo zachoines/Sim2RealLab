@@ -1,5 +1,9 @@
 # Move hybrid `/plan` replan ownership out of the autonomy client
 
+**Status:** Shipped 2026-07-02 in `ac75e7b` (Jetson). Merge gated on the
+operator hybrid sim mission — see PR.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/132
+
 **Type:** refactor
 **Owner:** Jetson agent
 **Priority:** P2
@@ -16,10 +20,10 @@ three separately-tuned mechanisms glued by topic freshness**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [context/conventions.md](../../context/conventions.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
+- [context/conventions.md](../context/conventions.md)
 
 ## Context
 
@@ -118,6 +122,6 @@ Two load-bearing specifics:
 - `source/strafer_ros/strafer_inference/strafer_inference/subgoal_generator_node.py`
   (plan subscription + suppression).
 - Depends on / sequenced after
-  [`inference-goal-preemption`](../../completed/inference-goal-preemption.md): goal
+  [`inference-goal-preemption`](inference-goal-preemption.md): goal
   updates arrive as preempting action goals, so the goal hand-off in
   Option A must re-fire on preemption.

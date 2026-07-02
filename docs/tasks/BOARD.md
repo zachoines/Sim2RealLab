@@ -26,7 +26,6 @@ that ships them; see "Shipping a brief: order of operations" in
 
 | Brief | Owner | PR | State |
 |---|---|---|---|
-| [`inference-goal-preemption`](active/trained-policy/inference-goal-preemption.md) | Jetson | PR pending | stacked on PR #130; unit + colcon + live preemption smoke green; merge gated on the operator sim missions |
 | [`harness-architecture`](active/harness/harness-architecture.md) Tier 1 acceptance run | DGX | post-merge follow-up (PR #63 merged 2026-05-26) | pending operator capture; gated on [`teleop-perf-architecture`](completed/teleop-perf-architecture.md) (shipped 2026-06-01; loop is PhysX-bound, ~10 FPS not the ≥15 target, so a ≥30 ep × ≥2 scene run is faster but still not one-evening). Tier 1 ✓ on harness-architecture.md stays unchecked until artifact lands at `docs/artifacts/teleop_acceptance/<run_id>/`. |
 | [`harness-architecture`](active/harness/harness-architecture.md) Tier 2 — bridge driver migration | DGX | post-merge follow-up ([#88](https://github.com/zachoines/Sim2RealLab/pull/88) merged) | pending operator gate — the multi-room end-to-end acceptance is operator-run per the PR test plan. Tier 2 shipped: bridge `--mode harness` → LeRobot v3 writer; both `capture.py` bridge cells wired (queue cell against a hand-authored fixture — mission-generator unshipped); `--inject-bad-grounding` + detections columns; unit suites + Jetson-free Kit smoke green. Brief stays active until Tier 3 ships. |
 

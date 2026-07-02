@@ -1,5 +1,9 @@
 # Preempt on new `navigate_to_pose` goals; retire the `/strafer/goal` topic
 
+**Status:** Shipped 2026-07-02 in `fbdbc15` (Jetson). Stacked on PR #130;
+merge gated on the operator sim missions — see PR.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/131
+
 **Type:** refactor
 **Owner:** Jetson agent
 **Priority:** P2
@@ -16,10 +20,10 @@ source needs no dual (presence OR receive-time) logic**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [context/conventions.md](../../context/conventions.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
+- [context/conventions.md](../context/conventions.md)
 
 ## Context
 
@@ -85,7 +89,7 @@ preemption. Adopting it collapses the goal channel to one path.
 
 - Hybrid replan ownership (the client's 0.5 s `ComputePathToPose`
   cadence) — filed separately as
-  [`hybrid-replan-ownership`](hybrid-replan-ownership.md).
+  [`hybrid-replan-ownership`](../active/trained-policy/hybrid-replan-ownership.md).
 - The `/plan` → subgoal chain and the subgoal watchdog source.
 - Autonomy-client (`ros_client.py`) changes — its cancel + re-send flow
   now lands as a preemption on the server side with no client change.

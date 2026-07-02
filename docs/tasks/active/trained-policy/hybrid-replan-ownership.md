@@ -79,27 +79,27 @@ Two load-bearing specifics:
 
 ## Acceptance criteria
 
-- [ ] `_navigate_via_hybrid` sends one `NavigateToPose` and no
+- [x] `_navigate_via_hybrid` sends one `NavigateToPose` and no
       `ComputePathToPose` polling; hybrid and direct dispatch differ
       only in backend selection.
-- [ ] The generator owns the `ComputePathToPose` cadence and consumes
+- [x] The generator owns the `ComputePathToPose` cadence and consumes
       the path from the action **result**; `/plan` subscription stays
       only as a fallback input.
-- [ ] The active-goal hand-off is a node → generator **status** topic;
+- [x] The active-goal hand-off is a node → generator **status** topic;
       `navigate_to_pose` remains the sole command channel into the
       policy (assert no goal-command path through the new topic).
-- [ ] Replan cadence lives in the generator with a single documented
+- [x] Replan cadence lives in the generator with a single documented
       budget relative to (or replacing) its `/plan` suppression window.
-- [ ] Plan freshness failure still zero-twists within the existing
+- [x] Plan freshness failure still zero-twists within the existing
       ~2 s composed budget (subgoal watchdog source unchanged).
-- [ ] Unit coverage for the active-goal telemetry (accept + keep-alive
+- [x] Unit coverage for the active-goal telemetry (accept + keep-alive
       + staleness → stop replanning + preemption retarget) and the
       replan trigger; `strafer_inference` + `strafer_autonomy` suites
       green on the Jetson.
 - [ ] Hybrid sim mission on the DGX rig: rolling subgoal tracks a
       preempted/updated goal; killing the planner server zero-twists
       within budget.
-- [ ] If the work invalidates a fact in any referenced context module,
+- [x] If the work invalidates a fact in any referenced context module,
       package README, top-level `Readme.md`, or guide under `docs/`,
       update those in the same commit.
 

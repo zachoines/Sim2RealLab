@@ -40,6 +40,7 @@ from geometry_msgs.msg import PoseStamped
 from nav2_msgs.action import ComputePathToPose
 from nav_msgs.msg import Path
 from rclpy.action import ActionClient
+from rclpy.clock import Clock, ClockType
 from rclpy.node import Node
 
 from strafer_shared.constants import SUBGOAL_LOOKAHEAD_M
@@ -173,8 +174,17 @@ class SubgoalGeneratorNode(Node):
         self._planner_client = ActionClient(
             self, ComputePathToPose, planner_action
         )
+        # Replan cadence runs on the STEADY (wall) clock, not the node
+        # clock. Under use_sim_time the node clock is sim time, and at
+        # Isaac's sub-unity RTF a sim-clock cadence would fire far slower
+        # in wall time than the wall-clock plan-freshness window
+        # (path_timeout_s, checked via time.monotonic), starving the plan
+        # and suppressing the subgoal. This restores the wall-clock
+        # cadence the autonomy client's replan loop used to carry.
+        self._replan_clock = Clock(clock_type=ClockType.STEADY_TIME)
         self._replan_timer = self.create_timer(
-            self._replan_period_s, self._on_replan_tick
+            self._replan_period_s, self._on_replan_tick,
+            clock=self._replan_clock,
         )
 
         self._tf_buffer = tf2_ros.Buffer()

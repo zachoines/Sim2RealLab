@@ -136,6 +136,41 @@ class TestModelLoadFailure(unittest.TestCase):
         finally:
             node.destroy_node()
 
+    def test_idle_watchdog_zero_twists_without_warning(self) -> None:
+        """Idle (no active goal): the watchdog trips on goal/tf/subgoal
+        every tick, but that is the resting state between missions — it
+        must still zero-twist while staying quiet (no WARN spam at the
+        tick rate, the operator complaint)."""
+        node = InferenceNode(parameter_overrides=_make_overrides(model_path=""))
+        try:
+            node._cmd_vel_pub = MagicMock()
+            logger = MagicMock()
+            node.get_logger = lambda: logger  # type: ignore
+
+            node._on_tick()  # no active goal
+
+            logger.warning.assert_not_called()
+            node._cmd_vel_pub.publish.assert_called_once()  # safe zero twist
+        finally:
+            node.destroy_node()
+
+    def test_mission_active_watchdog_warns_on_stale_source(self) -> None:
+        """A stale source WHILE a goal executes is a real fault (e.g. the
+        subgoal stream stalled) — that still warns."""
+        node = InferenceNode(parameter_overrides=_make_overrides(model_path=""))
+        try:
+            node._cmd_vel_pub = MagicMock()
+            logger = MagicMock()
+            node.get_logger = lambda: logger  # type: ignore
+            node._active_goal_count = 1  # a mission is executing
+
+            node._on_tick()  # streams stale -> mid-mission fault
+
+            logger.warning.assert_called()
+            node._cmd_vel_pub.publish.assert_called_once()
+        finally:
+            node.destroy_node()
+
 
 # =============================================================================
 # Reset triggers (Recurrent contract point 4)

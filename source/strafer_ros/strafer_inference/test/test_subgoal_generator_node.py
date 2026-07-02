@@ -17,6 +17,7 @@ import rclpy
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path
+from rclpy.clock import ClockType
 from rclpy.parameter import Parameter
 
 from strafer_inference.subgoal_generator_node import SubgoalGeneratorNode
@@ -135,6 +136,43 @@ class TestStalePlanSuppressesSubgoal(unittest.TestCase):
             node._last_plan_rx_t = 0.0  # stale -> suppress before TF
             node._on_tick()
             node._tf_buffer.lookup_transform.assert_not_called()
+        finally:
+            node.destroy_node()
+
+
+class TestReplanCadenceClock(unittest.TestCase):
+    """The replan cadence must run on the wall (steady) clock, not the
+    node clock. Under use_sim_time the node clock is sim time, and at a
+    sub-unity RTF a sim-clock cadence fires far slower in wall time than
+    the wall-clock plan-freshness window (time.monotonic), starving the
+    plan and suppressing the subgoal — the failure this guards.
+    """
+
+    def test_replan_timer_is_wall_clock_under_sim_time(self) -> None:
+        node = _node(use_sim_time=True)
+        try:
+            # Node clock is sim (ROS_TIME); the replan cadence stays wall.
+            self.assertEqual(node.get_clock().clock_type, ClockType.ROS_TIME)
+            self.assertEqual(
+                node._replan_timer.clock.clock_type, ClockType.STEADY_TIME
+            )
+        finally:
+            node.destroy_node()
+
+    def test_replan_fires_on_wall_time_with_frozen_sim_clock(self) -> None:
+        # use_sim_time=True + no /clock => sim clock frozen at 0, so a
+        # ROS-time timer would never fire; the steady-clock cadence must.
+        node = _node(use_sim_time=True)
+        try:
+            calls = {"n": 0}
+            node._on_replan_tick = lambda: calls.__setitem__(  # type: ignore
+                "n", calls["n"] + 1
+            )
+            node._replan_timer.callback = node._on_replan_tick
+            deadline = time.monotonic() + 1.3
+            while time.monotonic() < deadline:
+                rclpy.spin_once(node, timeout_sec=0.05)
+            self.assertGreaterEqual(calls["n"], 2)  # ~2-3 at 0.5 s period
         finally:
             node.destroy_node()
 

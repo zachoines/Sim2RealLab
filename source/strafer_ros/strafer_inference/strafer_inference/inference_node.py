@@ -585,9 +585,22 @@ class InferenceNode(Node):
             goal_active=self._goal_active,
         )
         if stale:
-            self.get_logger().warning(
-                f"Watchdog tripped, publishing zero twist: stale={stale}"
-            )
+            if self._goal_active:
+                # A mission is executing but a source is stale — a real
+                # fault (e.g. the subgoal stream stopped). Throttled so a
+                # persistent stall does not spam at the tick rate.
+                self.get_logger().warning(
+                    f"Watchdog tripped mid-mission, publishing zero twist: "
+                    f"stale={stale}",
+                    throttle_duration_sec=1.0,
+                )
+            else:
+                # Idle: no goal is executing, so zero twist is the resting
+                # state between missions, not a fault. Kept quiet (a fresh
+                # startup trips goal/tf/subgoal every tick otherwise).
+                self.get_logger().debug(
+                    f"Idle, holding zero twist; absent sources: {stale}"
+                )
             self._cmd_vel_pub.publish(Twist())
             return
 

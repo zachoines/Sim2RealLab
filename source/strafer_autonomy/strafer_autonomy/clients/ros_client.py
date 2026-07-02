@@ -21,10 +21,6 @@ _BACKEND_STRAFER_DIRECT = "strafer_direct"
 _BACKEND_HYBRID = "hybrid_nav2_strafer"
 _SUPPORTED_BACKENDS = (_BACKEND_NAV2, _BACKEND_STRAFER_DIRECT, _BACKEND_HYBRID)
 
-# Generator's wall-clock /plan suppression budget; the wall replan cadence
-# must stay below it, so a misconfigured period is warned about at dispatch.
-_GENERATOR_SUPPRESSION_BUDGET_S = 1.0
-
 
 def _resolve_execution_backend(per_step: str | None) -> str:
     """Pick the backend for this mission.
@@ -133,9 +129,6 @@ class RosClientConfig:
     default_rotate_speed_rad_s: float = 0.5
     default_rotate_timeout_s: float = 15.0
     clock_stall_bail_wall_s: float = 15.0
-    # Wall-clock cadence for re-triggering Nav2's planner, kept below the
-    # generator's ~1.0 s suppression budget so /plan stays fresh.
-    hybrid_replan_period_s: float = 0.5
 
 
 class _ProgressTracker:
@@ -1063,14 +1056,15 @@ class JetsonRosClient:
         behavior_tree: str | None,
         timeout_s: float | None,
     ) -> SkillResult | None:
-        """Route through Nav2's global PLANNER plus the strafer_inference
-        action server (local control); Nav2's controller server is NOT
-        engaged.
+        """Route through the strafer_inference action server (local
+        control); Nav2's controller server is NOT engaged.
 
-        The planner is (re)triggered on a fixed cadence so its published
-        ``/plan`` stays fresh for the subgoal generator, which the trained
-        policy follows via the rolling subgoal. The mission completes when
-        the strafer_inference action reports success.
+        Dispatch is the strafer_direct shape: one ``NavigateToPose`` goal.
+        Replanning is owned mission-side by the subgoal generator, which
+        follows the inference node's active-goal telemetry and calls
+        Nav2's planner action itself — this client no longer polls
+        ``ComputePathToPose``. The planner action is still probed once at
+        dispatch: hybrid cannot work without it.
 
         Returns ``None`` when the strafer_inference action server, or the
         Nav2 planner action, is unavailable -- the caller then falls back
@@ -1087,19 +1081,6 @@ class JetsonRosClient:
         started_at = time.time()
         timeout = timeout_s or self._config.default_nav_timeout_s
 
-        if (
-            self._config.hybrid_replan_period_s >= _GENERATOR_SUPPRESSION_BUDGET_S
-            and not getattr(self, "_hybrid_period_warned", False)
-        ):
-            logger.warning(
-                "hybrid_replan_period_s=%.2f s (wall) is not below the ~%.1f s "
-                "wall generator suppression budget; /plan can age past it "
-                "between re-fires and zero-twist /cmd_vel on a healthy mission.",
-                self._config.hybrid_replan_period_s,
-                _GENERATOR_SUPPRESSION_BUDGET_S,
-            )
-            self._hybrid_period_warned = True
-
         # Local-control server: the same action contract (and client) as
         # strafer_direct; in hybrid mode the policy follows the rolling
         # subgoal instead of the final goal directly.
@@ -1111,7 +1092,10 @@ class JetsonRosClient:
         if not self._strafer_direct_client.wait_for_server(timeout_sec=10.0):
             return None  # inference server down -> fall back to nav2
 
-        # Global planner action (planner-only; controller not engaged).
+        # Availability probe only (no requests from here): the subgoal
+        # generator owns replanning, but a hybrid mission without a
+        # planner would sit zero-twisted until timeout — better to fall
+        # back to nav2 up front.
         if not hasattr(self, "_planner_client"):
             self._planner_client = ActionClient(
                 self._node, ComputePathToPose, "/compute_path_to_pose",
@@ -1119,7 +1103,8 @@ class JetsonRosClient:
         if not self._planner_client.wait_for_server(timeout_sec=10.0):
             logger.warning(
                 "hybrid: Nav2 planner action /compute_path_to_pose is "
-                "unavailable; cannot populate /plan for step_id=%s.", step_id,
+                "unavailable; the subgoal generator cannot replan for "
+                "step_id=%s.", step_id,
             )
             return None  # planner down -> fall back to nav2
 
@@ -1133,18 +1118,6 @@ class JetsonRosClient:
         goal_stamped.pose.orientation.y = goal_pose.qy
         goal_stamped.pose.orientation.z = goal_pose.qz
         goal_stamped.pose.orientation.w = goal_pose.qw
-
-        def _trigger_replan() -> None:
-            # Fire-and-forget: the planner_server publishes the computed path
-            # on /plan as a side effect, which the subgoal generator consumes.
-            plan_goal = ComputePathToPose.Goal()
-            plan_goal.goal = goal_stamped
-            plan_goal.planner_id = "GridBased"
-            plan_goal.use_start = False
-            self._planner_client.send_goal_async(plan_goal)
-
-        # Populate /plan before the policy needs it.
-        _trigger_replan()
 
         goal_msg = Nav2NavigateToPose.Goal()
         goal_msg.pose = goal_stamped
@@ -1186,8 +1159,6 @@ class JetsonRosClient:
         result_future = goal_handle.get_result_async()
         completed, _stalled = self._wait_for_nav_result(
             result_future, timeout_s=timeout, tracker=None,
-            replan=_trigger_replan,
-            replan_period_s=self._config.hybrid_replan_period_s,
         )
 
         with self._nav_lock:
@@ -1792,8 +1763,6 @@ class JetsonRosClient:
         *,
         timeout_s: float,
         tracker: "_ProgressTracker | None",
-        replan: "Any | None" = None,
-        replan_period_s: float | None = None,
     ) -> tuple[bool, bool]:
         """``_wait_for_future`` plus an optional progress watchdog.
 
@@ -1823,7 +1792,6 @@ class JetsonRosClient:
             wall_now_s=time.monotonic(),
         )
 
-        last_replan_wall = time.monotonic()
         poll_dt = max(0.01, min(0.1, timeout_s / 10.0))
         while not done.is_set():
             now = clock.now()
@@ -1840,16 +1808,6 @@ class JetsonRosClient:
                 return (False, False)
             if tracker is not None and tracker.is_stalled():
                 return (False, True)
-            if (
-                replan is not None
-                and replan_period_s is not None
-                and (wall_now - last_replan_wall) >= replan_period_s
-            ):
-                # Wall-clock cadence: matches the wall plan-freshness budgets
-                # (a sim-clock cadence would stretch under sub-unity RTF; the
-                # deadline and stall detector above stay on the sim clock).
-                replan()
-                last_replan_wall = wall_now
             if done.wait(timeout=poll_dt):
                 return (True, False)
         return (True, False)

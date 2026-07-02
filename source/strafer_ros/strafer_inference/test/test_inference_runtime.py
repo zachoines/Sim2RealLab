@@ -540,6 +540,82 @@ class TestGoalActiveFlag(unittest.TestCase):
 
 
 # =============================================================================
+# Active-goal telemetry — status feed for the subgoal generator
+# =============================================================================
+
+
+class TestActiveGoalTelemetry(unittest.TestCase):
+    """The mission loop publishes its accepted goal at accept and as a
+    keep-alive while executing — status telemetry for the subgoal
+    generator's replan ownership, never a command channel.
+    """
+
+    def _make_node(self, **overrides) -> InferenceNode:
+        params = dict(
+            model_path="",
+            mission_timeout_s=5.0,
+            active_goal_keepalive_period_s=0.05,
+        )
+        params.update(overrides)
+        node = InferenceNode(parameter_overrides=_make_overrides(**params))
+        node._policy = _FakeRecurrentPolicy()
+        node._active_goal_pub = MagicMock()
+        return node
+
+    def test_publishes_at_accept_and_keeps_alive(self) -> None:
+        node = self._make_node()
+        try:
+            goal_handle = MagicMock()
+            goal_handle.request.pose = _make_pose(2.0, 0.0)
+            goal_handle.is_cancel_requested = False
+            node._current_goal_distance = lambda goal_pose: None  # type: ignore
+
+            thread = threading.Thread(
+                target=node._execute_callback, args=(goal_handle,))
+            thread.start()
+            # 1 at accept + keep-alives every 0.05 s.
+            _wait_until(
+                lambda: node._active_goal_pub.publish.call_count >= 3
+            )
+            goal_handle.is_cancel_requested = True
+            thread.join(timeout=2.0)
+            self.assertFalse(thread.is_alive())
+
+            for call in node._active_goal_pub.publish.call_args_list:
+                self.assertIs(call[0][0], goal_handle.request.pose)
+        finally:
+            node.destroy_node()
+
+    def test_no_telemetry_when_superseded_at_entry(self) -> None:
+        node = self._make_node()
+        try:
+            goal_handle = MagicMock()
+            goal_handle.request.pose = _make_pose(2.0, 0.0)
+            goal_handle.is_cancel_requested = False
+            node._current_goal_handle = MagicMock()  # a newer goal owns
+
+            node._execute_callback(goal_handle)
+
+            node._active_goal_pub.publish.assert_not_called()
+        finally:
+            node.destroy_node()
+
+    def test_no_telemetry_without_policy(self) -> None:
+        node = InferenceNode(parameter_overrides=_make_overrides(model_path=""))
+        try:
+            node._policy = None
+            node._active_goal_pub = MagicMock()
+            goal_handle = MagicMock()
+            goal_handle.request.pose = _make_pose(2.0, 0.0)
+
+            node._execute_callback(goal_handle)
+
+            node._active_goal_pub.publish.assert_not_called()
+        finally:
+            node.destroy_node()
+
+
+# =============================================================================
 # Determinism contract — the two-pronged recurrent assertion
 # =============================================================================
 

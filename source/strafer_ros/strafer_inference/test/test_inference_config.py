@@ -39,6 +39,8 @@ class TestInferenceParamsStructure:
         "policy_variant",
         "infer_period_s",
         "cmd_vel_topic",
+        "active_goal_topic",
+        "active_goal_keepalive_period_s",
         "depth_topic",
         "imu_topic",
         "joint_states_topic",
@@ -96,6 +98,7 @@ class TestInferenceParamsStructure:
     def test_topic_names_absolute(self, node_params):
         for key in (
             "cmd_vel_topic",
+            "active_goal_topic",
             "depth_topic",
             "imu_topic",
             "joint_states_topic",

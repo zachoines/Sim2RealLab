@@ -10,7 +10,7 @@
 
 As a **mission operator validating the NOCAM_SUBGOAL deployment track**, I want **the trained policy to drive a single-room mission end-to-end through the autonomy stack in the sim bridge via a manual `strafer-autonomy-cli submit`, with positive confirmation the policy fired (not a silent Nav2 fallback)**, so that **I have evidence the hybrid runtime is deploy-correct before cross-room and real-robot validation**.
 
-This is goal (a) of the deployment-validation track. The hybrid runtime (`hybrid_nav2_strafer`: Nav2 publishes the global plan, a subgoal generator rolls a subgoal along it off `/plan`, and the NOCAM_SUBGOAL policy does local control) ships as the runtime extension of [`hybrid-mode`](../../parked/trained-policy/hybrid-mode.md) across PRs #119 / #122 / #123. The deployable artifact exists from [`export-nocam-subgoal-variant`](../../completed/export-nocam-subgoal-variant.md) (PR #118).
+This is goal (a) of the deployment-validation track. The hybrid runtime (`hybrid_nav2_strafer`: the subgoal generator follows the inference node's active-goal telemetry, replans via Nav2's `ComputePathToPose`, and rolls a subgoal along the planned path while the NOCAM_SUBGOAL policy does local control) ships as the runtime extension of [`hybrid-mode`](../../parked/trained-policy/hybrid-mode.md) across PRs #119 / #122 / #123. The deployable artifact exists from [`export-nocam-subgoal-variant`](../../completed/export-nocam-subgoal-variant.md) (PR #118).
 
 The load-bearing risk for this validation is a **silent Nav2 fallback**: the inference node ships with an empty-string `model_path` sentinel and a default `policy_variant` of `DEPTH`, the hybrid dispatch falls back to Nav2 if the inference action server is unavailable, and `STRAFER_NAV_BACKEND` is consumed in the executor process — not the submit shell. A run can therefore look completely green while the policy never fires and Nav2 drives the whole mission. Every end-to-end acceptance criterion below is paired with a positive confirm-the-policy-fired check so a green mission cannot mask a fallback.
 
@@ -50,7 +50,7 @@ Read these before starting:
   - The inference node's `ready` param flips `True` after the mission starts (first successful inference).
   - Logs show **neither** "model_path is empty; refusing to advertise…" (at node startup) **nor** "hybrid_nav2_strafer backend selected but the strafer_inference action server (or Nav2 planner) is unavailable; falling back to nav2…" (at dispatch).
   - The hybrid dispatch log "Sending hybrid goal: … Nav2 planner-only + strafer_inference local control." appears.
-  - `/strafer/cmd_vel` ticks at the policy rate (~30 Hz) sourced from `strafer_inference`, with `/strafer/subgoal` populated off Nav2 `/plan` — i.e. cmd_vel is coming from the policy, not from Nav2/MPPI.
+  - `/strafer/cmd_vel` ticks at the policy rate (~30 Hz) sourced from `strafer_inference`, with `/strafer/subgoal` populated from the generator's own Nav2 `ComputePathToPose` replans — i.e. cmd_vel is coming from the policy, not from Nav2/MPPI.
 
 ### Obs parity (rig-only; the artifact need not be loaded for this check)
 
@@ -58,11 +58,11 @@ Read these before starting:
 
 ### Subgoal-pick parity (rig-only)
 
-- [ ] **Subgoal-pose parity ≤ 10 cm.** The rolling subgoal the generator publishes on `/strafer/subgoal` off Nav2 `/plan` matches the training-time `SubgoalCommand` / path-cursor selection (the same numpy rolling-subgoal pick that PR #119 cross-checked against torch) within ≤ `MAP_RESOLUTION * 2` (10 cm) of the gym-env subgoal for the same plan/cursor state. Method: emit the gym-env's per-step `SubgoalCommand`/cursor pick alongside the obs dump, and join against the deployed `/strafer/subgoal` on sim timestamp in the same comparison script.
+- [ ] **Subgoal-pose parity ≤ 10 cm.** The rolling subgoal the generator publishes on `/strafer/subgoal` from its Nav2-planned path matches the training-time `SubgoalCommand` / path-cursor selection (the same numpy rolling-subgoal pick that PR #119 cross-checked against torch) within ≤ `MAP_RESOLUTION * 2` (10 cm) of the gym-env subgoal for the same plan/cursor state. Method: emit the gym-env's per-step `SubgoalCommand`/cursor pick alongside the obs dump, and join against the deployed `/strafer/subgoal` on sim timestamp in the same comparison script.
 
 ### Plan-freshness / stale-plan behavior
 
-- [ ] **Stale `/plan` → STOP holds.** When Nav2 `/plan` ages past `path_timeout_s`, the subgoal generator suppresses `/strafer/subgoal` and the plan-freshness watchdog zeros the twist — observed `/strafer/cmd_vel` goes to zero (no last-subgoal coasting) until a fresh plan arrives, with the composed stop bounded at ~2.0 s (generator ~1.0 s + inference ~1.0 s). Exercise this by interrupting/aging the plan during a mission (e.g. a brief Nav2 planner stall) and confirm the zero-twist response, then recovery when `/plan` refreshes.
+- [ ] **Stale plan → STOP holds.** When the generator's plan ages past `path_timeout_s` (planner stalled or stopped answering `ComputePathToPose`), the generator suppresses `/strafer/subgoal` and the plan-freshness watchdog zeros the twist — observed `/strafer/cmd_vel` goes to zero (no last-subgoal coasting) until replanning resumes, with the composed stop bounded at ~2.0 s (generator ~1.0 s + inference ~1.0 s). Exercise this by stalling the planner during a mission (e.g. pause the Nav2 planner server) and confirm the zero-twist response, then recovery when it returns.
 
 ### Maintenance clause
 

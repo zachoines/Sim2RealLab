@@ -1,9 +1,24 @@
 strafer_subgoal_generator:
   ros__parameters:
-    # Nav2 publishes the global plan here. /plan is the Nav2 stock default
-    # and is not remapped in this repo; confirm at runtime on the Jetson
-    # and add a remap (or override this) if the planner is namespaced.
+    # Fallback plan input only — the primary path arrives through this
+    # node's own ComputePathToPose action requests. /plan is the Nav2
+    # stock default and is not remapped in this repo; confirm at runtime
+    # on the Jetson and add a remap (or override this) if the planner is
+    # namespaced.
     plan_topic: "/plan"
+
+    # Replan ownership: while the inference node's active-goal telemetry
+    # is fresh, request ComputePathToPose on this cadence. Must stay below
+    # path_timeout_s (the plan-staleness suppression window) or the plan
+    # goes stale between replans.
+    replan_period_s: 0.5
+    active_goal_topic: "/strafer_inference/active_goal"
+    # Telemetry keep-alive is ~1 Hz from the inference node; 2.5 s
+    # tolerates one missed message plus publish jitter before
+    # replanning stops.
+    goal_telemetry_timeout_s: 2.5
+    planner_action: "/compute_path_to_pose"
+    planner_id: "GridBased"
 
     # Dedicated rolling-subgoal topic. The mission goal is NOT a topic --
     # it reaches the inference node via its navigate_to_pose action, and

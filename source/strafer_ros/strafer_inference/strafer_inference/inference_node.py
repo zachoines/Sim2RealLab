@@ -122,6 +122,10 @@ class InferenceNode(Node):
         self.declare_parameter("policy_variant", "DEPTH")
         self.declare_parameter("infer_period_s", _default_infer_period())
         self.declare_parameter("cmd_vel_topic", "/strafer/cmd_vel")
+        self.declare_parameter(
+            "active_goal_topic", "/strafer_inference/active_goal"
+        )
+        self.declare_parameter("active_goal_keepalive_period_s", 1.0)
         self.declare_parameter("depth_topic", "/d555/depth/image_rect_raw")
         self.declare_parameter("subgoal_topic", "/strafer/subgoal")
         self.declare_parameter("imu_topic", "/d555/imu/filtered")
@@ -230,12 +234,22 @@ class InferenceNode(Node):
         self._action_cb_group = ReentrantCallbackGroup()
 
         cmd_vel_topic = self.get_parameter("cmd_vel_topic").value
+        active_goal_topic = self.get_parameter("active_goal_topic").value
+        self._active_goal_keepalive_period_s = float(
+            self.get_parameter("active_goal_keepalive_period_s").value
+        )
         depth_topic = self.get_parameter("depth_topic").value
         imu_topic = self.get_parameter("imu_topic").value
         joint_states_topic = self.get_parameter("joint_states_topic").value
         odom_topic = self.get_parameter("odom_topic").value
 
         self._cmd_vel_pub = self.create_publisher(Twist, cmd_vel_topic, 10)
+        # Status telemetry (accepted goal + keep-alive) for the subgoal
+        # generator's replan ownership. navigate_to_pose remains the only
+        # command channel into this node — nothing subscribes goals here.
+        self._active_goal_pub = self.create_publisher(
+            PoseStamped, active_goal_topic, 10
+        )
 
         self._imu_sub = self.create_subscription(
             Imu, imu_topic, self._on_imu, 10,
@@ -476,6 +490,9 @@ class InferenceNode(Node):
             with self._policy_lock:
                 self._policy.reset()
 
+            self._active_goal_pub.publish(goal_pose)
+            last_keepalive_t = time.monotonic()
+
             mission_started_t = time.monotonic()
             feedback = NavigateToPose.Feedback()
 
@@ -502,7 +519,19 @@ class InferenceNode(Node):
                         goal_handle.succeed()
                         return NavigateToPose.Result()
 
-                if time.monotonic() - mission_started_t > self._mission_timeout_s:
+                now_monotonic = time.monotonic()
+                if (
+                    now_monotonic - last_keepalive_t
+                    >= self._active_goal_keepalive_period_s
+                    # Re-checked at publish time: a keep-alive landing
+                    # after a preempting goal's accept-publish would
+                    # briefly retarget the generator at the old goal.
+                    and not self._superseded(goal_handle)
+                ):
+                    self._active_goal_pub.publish(goal_pose)
+                    last_keepalive_t = now_monotonic
+
+                if now_monotonic - mission_started_t > self._mission_timeout_s:
                     self.get_logger().warning(
                         f"navigate_to_pose mission timed out after "
                         f"{self._mission_timeout_s:.1f} s"

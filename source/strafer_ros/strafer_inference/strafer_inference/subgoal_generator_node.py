@@ -1,29 +1,22 @@
 """Rolling-subgoal generator node: goal telemetry -> plan -> subgoal pose.
 
 Owns hybrid replanning: while the inference node's active-goal telemetry
-is fresh, calls Nav2's ``ComputePathToPose`` action on its own cadence
-and installs the path from the **action result**. The ``/plan`` topic
-subscription remains as a fallback input only. Each tick it looks up the
-robot pose via the same ``map -> base_link`` TF the inference node uses,
-runs the pure :class:`RollingSubgoalGenerator`, and publishes the rolling
-subgoal as a ``geometry_msgs/PoseStamped`` on a dedicated topic.
+is fresh, calls Nav2's ``ComputePathToPose`` on its own cadence and
+installs the path from the action result (``/plan`` is a fallback input).
+Each tick it looks up the ``map -> base_link`` TF, runs the pure
+:class:`RollingSubgoalGenerator`, and publishes the rolling subgoal.
 
-The active-goal topic is **status telemetry**, direction inference node ->
-here: it gates replanning and provides the plan target. It is NOT a goal
-command channel — ``navigate_to_pose`` on the inference node remains the
-sole way to command a mission. Telemetry staleness (mission ended, node
-died) stops replanning; the plan then ages past ``path_timeout_s``, the
-subgoal is suppressed, and the inference watchdog zero-twists.
+Two non-obvious contracts:
 
-A dedicated topic is deliberate: the mission goal reaches the inference
-node through its ``navigate_to_pose`` action (latched per mission; a new
-or preempting goal resets the policy's hidden state), while the rolling
-subgoal is a streamed setpoint that advances every tick -- the two must
-not share a channel, or a recurrent policy would reset continuously. The
-published pose is in the ``map`` frame; the body-frame observation
-transform the policy consumes lives in the inference node.
+- The active-goal topic is status telemetry (inference node -> here),
+  NOT a command channel: ``navigate_to_pose`` remains the only way to
+  command a mission. Its staleness stops replanning, the plan ages past
+  ``path_timeout_s``, and the subgoal is suppressed.
+- The subgoal has its own topic, separate from the goal: the goal is
+  latched per mission and resets the recurrent policy, while the subgoal
+  is a per-tick setpoint — sharing a channel would reset it continuously.
 
-ROS glue only -- all selection math is in :mod:`strafer_inference.generator`.
+ROS glue only -- selection math is in :mod:`strafer_inference.generator`.
 """
 
 from __future__ import annotations
@@ -47,15 +40,12 @@ from strafer_shared.constants import SUBGOAL_LOOKAHEAD_M
 
 from .generator import RollingSubgoalGenerator
 
-# In-flight replan requests older than this are treated as lost (planner
-# died mid-request; rclpy leaves the future pending forever). Comfortably
-# above worst-case planner latency, well below a mission timeout.
+# An in-flight replan older than this is treated as lost: rclpy leaves
+# the future pending forever if the planner dies mid-request.
 _REPLAN_ABANDON_S = 2.0
 
 # A /plan whose terminal pose is farther than this from the active goal
-# was computed for a different (e.g. just-preempted) goal — do not
-# install it over the action-result path. Matches Nav2's default goal
-# tolerance scale.
+# was computed for a different goal; don't install it.
 _PLAN_GOAL_MATCH_M = 0.5
 
 
@@ -174,13 +164,10 @@ class SubgoalGeneratorNode(Node):
         self._planner_client = ActionClient(
             self, ComputePathToPose, planner_action
         )
-        # Replan cadence runs on the STEADY (wall) clock, not the node
-        # clock. Under use_sim_time the node clock is sim time, and at
-        # Isaac's sub-unity RTF a sim-clock cadence would fire far slower
-        # in wall time than the wall-clock plan-freshness window
-        # (path_timeout_s, checked via time.monotonic), starving the plan
-        # and suppressing the subgoal. This restores the wall-clock
-        # cadence the autonomy client's replan loop used to carry.
+        # Replan cadence on the steady (wall) clock, matching the
+        # wall-clock plan-freshness window (time.monotonic): a node-clock
+        # timer would run at sim rate and, at low RTF, fire far slower
+        # than the plan goes stale, starving the subgoal.
         self._replan_clock = Clock(clock_type=ClockType.STEADY_TIME)
         self._replan_timer = self.create_timer(
             self._replan_period_s, self._on_replan_tick,
@@ -223,12 +210,11 @@ class SubgoalGeneratorNode(Node):
         )
 
     def _on_plan(self, msg: Path) -> None:
-        # Fallback input only — the primary path arrives through the
-        # ComputePathToPose action result in _on_replan_result. The
-        # planner server also mirrors OUR requests onto /plan, so during
-        # a mission only accept paths that actually end at the active
-        # goal — otherwise the side-effect echo of a just-superseded
-        # request would reinstall the discarded path.
+        # Fallback input only — the primary path comes from the
+        # ComputePathToPose result. The planner also mirrors our own
+        # requests onto /plan, so with a mission active accept only paths
+        # ending at the active goal; else a superseded request's echo
+        # reinstalls the discarded path.
         if self._active_goal is not None and msg.poses:
             terminal = msg.poses[-1]
             dx = terminal.pose.position.x - self._active_goal.pose.position.x

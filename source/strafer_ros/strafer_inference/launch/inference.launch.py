@@ -68,12 +68,9 @@ def generate_launch_description() -> LaunchDescription:
         ],
         arguments=["--ros-args", "--log-level", LaunchConfiguration("log_level")],
         remappings=[
-            # Same remap as driver.launch.py: the node-level contract
-            # name is /strafer/cmd_vel, but every consumer — the
-            # RoboClaw driver on the real robot and the sim bridge
-            # (TOPIC_CMD_VEL) — listens on /cmd_vel. Without this the
-            # policy's commands reach nothing and the robot never moves
-            # under a policy backend.
+            # Consumers (RoboClaw driver, sim bridge) subscribe /cmd_vel;
+            # the node's contract name is /strafer/cmd_vel. Same remap as
+            # driver.launch.py — without it the policy commands nothing.
             ("/strafer/cmd_vel", "/cmd_vel"),
         ],
     )

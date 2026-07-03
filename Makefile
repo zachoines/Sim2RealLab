@@ -170,10 +170,9 @@ clean-map: ## Delete corrupted or stale RTAB-Map database
 # ---------- Kill ----------
 
 kill: ## Kill all running ROS2 / strafer processes
-	@# Bracket the first char of each token (e.g. [r]os2) so the regex still
-	@# matches real process cmdlines but NOT pkill's own shell, whose cmdline
-	@# contains this literal pattern — otherwise pkill -9 SIGKILLs its own
-	@# recipe shell mid-scan (make: *** Killed) and returns non-zero.
+	@# Bracket each token's first char (e.g. [r]os2) so the regex matches
+	@# real cmdlines but not pkill's own shell (which carries this literal
+	@# pattern); otherwise pkill -9 SIGKILLs its own recipe shell mid-scan.
 	@pkill -9 -f "[r]os2|[r]tabmap|[n]av2_|[r]ealsense2_camera_node|[t]imestamp_fixer|[i]mu_filter_madgwick|[d]epth_downsampler|[r]oboclaw|[d]epthimage|[v]alidate_drive|[f]oxglove_bridge|[s]trafer-executor|[g]oal_projection|[s]trafer_inference|[s]trafer_subgoal_generator" 2>/dev/null || true
 	@sleep 0.5
 	@echo "All ROS processes killed."

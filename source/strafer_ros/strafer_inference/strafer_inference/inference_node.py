@@ -178,10 +178,8 @@ class InferenceNode(Node):
         self._map_frame: str = self.get_parameter("map_frame").value
         self._base_frame: str = self.get_parameter("base_frame").value
         obs_timeout_s = float(self.get_parameter("obs_timeout_s").value)
-        # Sim-only override (same pattern as the executor's
-        # OBSERVATION_MAX_AGE_S): the sim bridge publishes imu /
-        # joint_states / odom at render-bound rates that the real-robot
-        # default trips on. The yaml default stays the real-robot value.
+        # Env override for slow sim sensor feeds; the yaml default is the
+        # real-robot value.
         env_obs_timeout = os.environ.get("STRAFER_OBS_TIMEOUT_S", "")
         if env_obs_timeout:
             obs_timeout_s = float(env_obs_timeout)
@@ -219,16 +217,12 @@ class InferenceNode(Node):
         self._last_depth_meters: Optional[np.ndarray] = None
         self._last_depth_rx_t: Optional[float] = None
         self._last_goal_map: Optional[PoseStamped] = None
-        # Executing navigate_to_pose goals; the action goal is latched
-        # for the whole mission, so the watchdog keys the goal source on
-        # active-goal presence. A counter (not a bool): a preempted or
-        # cancel-draining goal briefly overlaps its successor, and the
-        # exiting goal must not clear freshness under the newer mission.
+        # Count, not a bool: a preempted or cancel-draining goal briefly
+        # overlaps its successor, and the exiting goal must not clear
+        # goal-source freshness under the newer mission.
         self._active_goal_count = 0
-        # Newest accepted goal; a superseded execute notices it lost
-        # ownership and aborts (Nav2-style newest-goal-wins preemption).
-        # Never cleared, only replaced by a newer accept — a successor
-        # that already finished still supersedes its predecessors.
+        # Newest accepted goal; a superseded execute aborts. Never
+        # cleared, only replaced — a finished successor still supersedes.
         self._current_goal_handle = None
         self._goal_count_lock = threading.Lock()
         self._last_subgoal_map: Optional[PoseStamped] = None
@@ -458,9 +452,8 @@ class InferenceNode(Node):
         return GoalResponse.ACCEPT
 
     def _handle_accepted(self, goal_handle) -> None:
-        # Newest goal wins: taking ownership here makes a superseded
-        # execute loop abort on its next iteration, so a goal update is
-        # simply a new action goal.
+        # Newest goal wins: taking ownership makes a superseded execute
+        # loop abort, so a goal update is just a new action goal.
         with self._goal_count_lock:
             self._current_goal_handle = goal_handle
         goal_handle.execute()
@@ -480,11 +473,10 @@ class InferenceNode(Node):
 
         goal_pose: PoseStamped = goal_handle.request.pose
 
-        # Gate, obs-referent write, and counter bump are one critical
-        # section under _goal_count_lock (which _handle_accepted also
-        # holds when it installs the new owner). Otherwise a goal that
-        # passed the gate could land its _last_goal_map write after a
-        # newer goal's, steering the live mission at the superseded pose.
+        # Gate, obs-referent write, and counter bump share one lock (also
+        # held by _handle_accepted): otherwise a gated goal could write
+        # _last_goal_map after a newer goal's, steering it at the wrong
+        # pose.
         with self._goal_count_lock:
             superseded = (
                 self._current_goal_handle is not None
@@ -509,12 +501,9 @@ class InferenceNode(Node):
             self._active_goal_pub.publish(goal_pose)
             last_keepalive_t = time.monotonic()
 
-            # Mission deadline on the NODE clock: sim time under
-            # use_sim_time, where mission progress also runs — a wall
-            # deadline shrinks the budget by the RTF (60 s at RTF 0.1 is
-            # 6 sim s). Identical on the real robot (node clock = wall).
-            # A frozen sim clock never times out here; the client's
-            # wall-based /clock-stall detector covers that by cancelling.
+            # Deadline on the node clock (sim time under use_sim_time) so
+            # a low RTF does not shrink the mission budget; the client's
+            # /clock-stall detector handles a frozen clock.
             mission_started = self.get_clock().now()
             feedback = NavigateToPose.Feedback()
 
@@ -571,14 +560,10 @@ class InferenceNode(Node):
         finally:
             with self._goal_count_lock:
                 self._active_goal_count -= 1
-            # Explicit stop on mission end (succeed / cancel / timeout /
-            # exception). Consumers hold the last /cmd_vel until the next
-            # one — the real driver's command watchdog zeroes the motors
-            # on silence, but the sim bridge does not, so without this
-            # final zero the robot coasts at the last policy velocity
-            # past the goal (into the target) and onward after timeout.
-            # Skipped on preemption: the successor owns the channel and a
-            # stop here would fight its commands.
+            # Explicit stop on mission end: consumers hold the last
+            # /cmd_vel, so without this the robot keeps the last policy
+            # velocity. Skipped on preemption — the successor owns
+            # /cmd_vel and a stop would fight its commands.
             if not self._superseded(goal_handle):
                 self._cmd_vel_pub.publish(Twist())
 
@@ -631,11 +616,8 @@ class InferenceNode(Node):
                 )
                 self._cmd_vel_pub.publish(Twist())
             else:
-                # Idle: publish NOTHING. cmd_vel lands on the shared
-                # /cmd_vel (see the launch remap), so between missions
-                # the channel belongs to Nav2 / rotate / teleop — an
-                # idle zero-twist stream would fight them. The driver's
-                # own command watchdog is the stop-on-silence floor.
+                # Idle: publish nothing — /cmd_vel is shared, so between
+                # missions it belongs to Nav2 / rotate / teleop.
                 self.get_logger().debug(
                     f"Idle, holding cmd_vel; absent sources: {stale}"
                 )

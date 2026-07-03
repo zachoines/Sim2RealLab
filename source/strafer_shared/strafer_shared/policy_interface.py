@@ -529,10 +529,9 @@ def load_policy(
         import onnxruntime as ort
 
         sess_options = ort.SessionOptions()
-        # Stop ORT from spin-waiting a thread per core for a few
-        # microseconds of MLP work — the busy-wait starves the rest of
-        # the (CPU-bound) robot stack. Applies to GPU EPs too: their host
-        # thread pool spins the same way.
+        # ORT's default spins a thread per core waiting for work; for a
+        # tens-of-microseconds MLP that busy-wait starves the rest of the
+        # CPU-bound stack. GPU EPs spin the same host pool.
         if onnx_intra_op_threads > 0:
             sess_options.intra_op_num_threads = onnx_intra_op_threads
         sess_options.add_session_config_entry(

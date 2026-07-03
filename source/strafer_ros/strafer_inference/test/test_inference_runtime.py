@@ -92,6 +92,42 @@ def _make_pose(x: float, y: float) -> PoseStamped:
 
 
 # =============================================================================
+# Sim-only obs-timeout env override
+# =============================================================================
+
+
+class TestObsTimeoutEnvOverride(unittest.TestCase):
+    """STRAFER_OBS_TIMEOUT_S loosens the imu/joint_states/odom freshness
+    budget for the render-bound sim bridge; unset keeps the real-robot
+    yaml default. Same pattern as the executor's OBSERVATION_MAX_AGE_S."""
+
+    def test_env_overrides_obs_sources_only(self) -> None:
+        os.environ["STRAFER_OBS_TIMEOUT_S"] = "1.5"
+        try:
+            node = InferenceNode(
+                parameter_overrides=_make_overrides(model_path="")
+            )
+        finally:
+            del os.environ["STRAFER_OBS_TIMEOUT_S"]
+        try:
+            self.assertEqual(node._timeouts.imu, 1.5)
+            self.assertEqual(node._timeouts.joint_states, 1.5)
+            self.assertEqual(node._timeouts.odom, 1.5)
+            self.assertEqual(node._timeouts.depth, 0.5)  # untouched
+            self.assertEqual(node._timeouts.tf, 0.5)     # untouched
+        finally:
+            node.destroy_node()
+
+    def test_unset_keeps_param_default(self) -> None:
+        os.environ.pop("STRAFER_OBS_TIMEOUT_S", None)
+        node = InferenceNode(parameter_overrides=_make_overrides(model_path=""))
+        try:
+            self.assertEqual(node._timeouts.imu, 0.2)
+        finally:
+            node.destroy_node()
+
+
+# =============================================================================
 # ONNX thread pinning — keep a tiny MLP from spinning every core
 # =============================================================================
 
@@ -619,6 +655,54 @@ class TestGoalActiveFlag(unittest.TestCase):
             node._on_tick()
             node._cmd_vel_pub.publish.assert_called_once()
         finally:
+            node.destroy_node()
+
+
+# =============================================================================
+# Mission deadline clock domain
+# =============================================================================
+
+
+class TestMissionDeadlineClockDomain(unittest.TestCase):
+    """The mission deadline ticks on the NODE clock (sim time under
+    use_sim_time, where mission progress also runs) — a wall deadline
+    shrinks the budget by the sim RTF (60 s at RTF 0.1 is 6 sim s).
+    Pinned with a frozen fake clock: wall time passes far beyond the
+    budget with no timeout; advancing the fake clock times out."""
+
+    def test_deadline_follows_node_clock_not_wall(self) -> None:
+        from types import SimpleNamespace
+        from rclpy.time import Time as RclpyTime
+
+        node = InferenceNode(parameter_overrides=_make_overrides(
+            model_path="", mission_timeout_s=0.05,
+        ))
+        node._policy = _FakeRecurrentPolicy()
+        node._active_goal_pub = MagicMock()
+        real_get_clock = node.get_clock
+        try:
+            fake = {"now": RclpyTime(seconds=100)}
+            node.get_clock = (  # type: ignore
+                lambda: SimpleNamespace(now=lambda: fake["now"])
+            )
+            goal_handle = MagicMock()
+            goal_handle.request.pose = _make_pose(2.0, 0.0)
+            goal_handle.is_cancel_requested = False
+            node._current_goal_distance = lambda goal_pose: None  # type: ignore
+
+            thread = threading.Thread(
+                target=node._execute_callback, args=(goal_handle,))
+            thread.start()
+            time.sleep(0.4)  # wall time far past the 0.05 s budget
+            self.assertTrue(thread.is_alive())  # frozen clock: no timeout
+            goal_handle.abort.assert_not_called()
+
+            fake["now"] = RclpyTime(seconds=100.2)  # past the budget
+            thread.join(timeout=2.0)
+            self.assertFalse(thread.is_alive())
+            goal_handle.abort.assert_called_once()
+        finally:
+            node.get_clock = real_get_clock  # type: ignore
             node.destroy_node()
 
 

@@ -177,10 +177,22 @@ class InferenceNode(Node):
 
         self._map_frame: str = self.get_parameter("map_frame").value
         self._base_frame: str = self.get_parameter("base_frame").value
+        obs_timeout_s = float(self.get_parameter("obs_timeout_s").value)
+        # Sim-only override (same pattern as the executor's
+        # OBSERVATION_MAX_AGE_S): the sim bridge publishes imu /
+        # joint_states / odom at render-bound rates that the real-robot
+        # default trips on. The yaml default stays the real-robot value.
+        env_obs_timeout = os.environ.get("STRAFER_OBS_TIMEOUT_S", "")
+        if env_obs_timeout:
+            obs_timeout_s = float(env_obs_timeout)
+            self.get_logger().info(
+                f"obs_timeout_s overridden to {obs_timeout_s} via "
+                "STRAFER_OBS_TIMEOUT_S"
+            )
         self._timeouts = WatchdogTimeouts(
-            imu=float(self.get_parameter("obs_timeout_s").value),
-            joint_states=float(self.get_parameter("obs_timeout_s").value),
-            odom=float(self.get_parameter("obs_timeout_s").value),
+            imu=obs_timeout_s,
+            joint_states=obs_timeout_s,
+            odom=obs_timeout_s,
             depth=float(self.get_parameter("depth_timeout_s").value),
             tf=float(self.get_parameter("tf_max_age_s").value),
             path=float(self.get_parameter("path_timeout_s").value),
@@ -497,7 +509,13 @@ class InferenceNode(Node):
             self._active_goal_pub.publish(goal_pose)
             last_keepalive_t = time.monotonic()
 
-            mission_started_t = time.monotonic()
+            # Mission deadline on the NODE clock: sim time under
+            # use_sim_time, where mission progress also runs — a wall
+            # deadline shrinks the budget by the RTF (60 s at RTF 0.1 is
+            # 6 sim s). Identical on the real robot (node clock = wall).
+            # A frozen sim clock never times out here; the client's
+            # wall-based /clock-stall detector covers that by cancelling.
+            mission_started = self.get_clock().now()
             feedback = NavigateToPose.Feedback()
 
             while rclpy.ok():
@@ -535,10 +553,13 @@ class InferenceNode(Node):
                     self._active_goal_pub.publish(goal_pose)
                     last_keepalive_t = now_monotonic
 
-                if now_monotonic - mission_started_t > self._mission_timeout_s:
+                elapsed_s = (
+                    self.get_clock().now() - mission_started
+                ).nanoseconds * 1e-9
+                if elapsed_s > self._mission_timeout_s:
                     self.get_logger().warning(
                         f"navigate_to_pose mission timed out after "
-                        f"{self._mission_timeout_s:.1f} s"
+                        f"{self._mission_timeout_s:.1f} s (node clock)"
                     )
                     goal_handle.abort()
                     return NavigateToPose.Result()

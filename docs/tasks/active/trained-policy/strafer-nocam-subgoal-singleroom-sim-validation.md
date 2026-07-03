@@ -50,7 +50,7 @@ Read these before starting:
   - The inference node's `ready` param flips `True` after the mission starts (first successful inference).
   - Logs show **neither** "model_path is empty; refusing to advertise…" (at node startup) **nor** "hybrid_nav2_strafer backend selected but the strafer_inference action server (or Nav2 planner) is unavailable; falling back to nav2…" (at dispatch).
   - The hybrid dispatch log "Sending hybrid goal: … Nav2 planner-only + strafer_inference local control." appears.
-  - `/strafer/cmd_vel` ticks at the policy rate (~30 Hz) sourced from `strafer_inference`, with `/strafer/subgoal` populated from the generator's own Nav2 `ComputePathToPose` replans — i.e. cmd_vel is coming from the policy, not from Nav2/MPPI.
+  - `/cmd_vel` ticks at the policy rate (~30 Hz sim) sourced from the `strafer_inference` node (its `/strafer/cmd_vel` output is launch-remapped onto the shared `/cmd_vel` the bridge executes), with `/strafer/subgoal` populated from the generator's own Nav2 `ComputePathToPose` replans — i.e. cmd_vel is coming from the policy, not from Nav2/MPPI.
 
 ### Obs parity (rig-only; the artifact need not be loaded for this check)
 
@@ -62,7 +62,7 @@ Read these before starting:
 
 ### Plan-freshness / stale-plan behavior
 
-- [ ] **Stale plan → STOP holds.** When the generator's plan ages past `path_timeout_s` (planner stalled or stopped answering `ComputePathToPose`), the generator suppresses `/strafer/subgoal` and the plan-freshness watchdog zeros the twist — observed `/strafer/cmd_vel` goes to zero (no last-subgoal coasting) until replanning resumes, with the composed stop bounded at ~2.0 s (generator ~1.0 s + inference ~1.0 s). Exercise this by stalling the planner during a mission (e.g. pause the Nav2 planner server) and confirm the zero-twist response, then recovery when it returns.
+- [ ] **Stale plan → STOP holds.** When the generator's plan ages past `path_timeout_s` (planner stalled or stopped answering `ComputePathToPose`), the generator suppresses `/strafer/subgoal` and the plan-freshness watchdog zeros the twist — observed `/cmd_vel` goes to zero (no last-subgoal coasting) until replanning resumes, with the composed stop bounded at ~2.0 s (generator ~1.0 s + inference ~1.0 s). Exercise this by stalling the planner during a mission (e.g. pause the Nav2 planner server) and confirm the zero-twist response, then recovery when it returns.
 
 ### Maintenance clause
 

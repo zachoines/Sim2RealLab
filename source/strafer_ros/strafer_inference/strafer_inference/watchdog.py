@@ -85,9 +85,11 @@ def stale_sources(
 
     ``goal_active`` is ``True`` while a ``navigate_to_pose`` action goal
     is executing; the ``goal`` source is presence-keyed on it. Idle (no
-    executing goal) reports ``goal`` stale, which safely zero-twists the
-    channel between missions. Goal updates arrive as preempting action
-    goals, so no receive-time path exists for this source.
+    executing goal) reports ``goal`` stale, and the node then holds
+    cmd_vel entirely — the deployed channel is the shared ``/cmd_vel``,
+    owned by Nav2 / teleop between missions. Goal updates arrive as
+    preempting action goals, so no receive-time path exists for this
+    source.
     """
     stale: list[str] = []
     if not goal_active:

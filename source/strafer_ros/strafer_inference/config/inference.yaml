@@ -11,6 +11,9 @@ strafer_inference:
 
     infer_period_s: 0.0333333
 
+    # Node-level contract name; inference.launch.py remaps it to the
+    # shared /cmd_vel that the RoboClaw driver and the sim bridge
+    # actually consume (same remap driver.launch.py applies).
     cmd_vel_topic: "/strafer/cmd_vel"
     # Status telemetry (accepted goal at accept + ~1 Hz keep-alive while a
     # mission executes) consumed by the subgoal generator's replan

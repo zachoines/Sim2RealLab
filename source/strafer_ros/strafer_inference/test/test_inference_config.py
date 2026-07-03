@@ -121,6 +121,18 @@ class TestInferenceParamsStructure:
     def test_cmd_vel_topic_matches_driver_contract(self, node_params):
         assert node_params["cmd_vel_topic"] == "/strafer/cmd_vel"
 
+    def test_launch_remaps_cmd_vel_to_shared_channel(self, pkg_dir, monkeypatch):
+        # The node-level contract name is /strafer/cmd_vel, but every
+        # consumer (RoboClaw driver on the real robot, sim bridge's
+        # TOPIC_CMD_VEL) listens on /cmd_vel — the same remap
+        # driver.launch.py applies. Without it the policy's commands
+        # reach nothing and the robot never moves under a policy backend.
+        mod = _load_launch(pkg_dir)
+        monkeypatch.setattr(mod, "Node", _CaptureNode)
+        mod.generate_launch_description()
+        remappings = _CaptureNode.last.kwargs.get("remappings", [])
+        assert ("/strafer/cmd_vel", "/cmd_vel") in remappings
+
     def test_depth_topic_is_bridged_perception_stream(self, node_params):
         # The 80x60 d555_camera policy camera is sim-only; the bridged
         # stream is the 640x360 d555_camera_perception at this topic.

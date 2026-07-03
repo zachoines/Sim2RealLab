@@ -619,14 +619,16 @@ class InferenceNode(Node):
                     f"stale={stale}",
                     throttle_duration_sec=1.0,
                 )
+                self._cmd_vel_pub.publish(Twist())
             else:
-                # Idle: no goal is executing, so zero twist is the resting
-                # state between missions, not a fault. Kept quiet (a fresh
-                # startup trips goal/tf/subgoal every tick otherwise).
+                # Idle: publish NOTHING. cmd_vel lands on the shared
+                # /cmd_vel (see the launch remap), so between missions
+                # the channel belongs to Nav2 / rotate / teleop — an
+                # idle zero-twist stream would fight them. The driver's
+                # own command watchdog is the stop-on-silence floor.
                 self.get_logger().debug(
-                    f"Idle, holding zero twist; absent sources: {stale}"
+                    f"Idle, holding cmd_vel; absent sources: {stale}"
                 )
-            self._cmd_vel_pub.publish(Twist())
             return
 
         if self._policy is None:

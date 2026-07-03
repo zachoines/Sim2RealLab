@@ -220,11 +220,12 @@ class TestModelLoadFailure(unittest.TestCase):
         finally:
             node.destroy_node()
 
-    def test_idle_watchdog_zero_twists_without_warning(self) -> None:
+    def test_idle_watchdog_publishes_nothing_and_stays_quiet(self) -> None:
         """Idle (no active goal): the watchdog trips on goal/tf/subgoal
-        every tick, but that is the resting state between missions — it
-        must still zero-twist while staying quiet (no WARN spam at the
-        tick rate, the operator complaint)."""
+        every tick, but that is the resting state between missions. The
+        node must publish NOTHING — cmd_vel lands on the shared /cmd_vel
+        (launch remap), owned by Nav2 / rotate / teleop between missions
+        — and stay quiet (no WARN spam at the tick rate)."""
         node = InferenceNode(parameter_overrides=_make_overrides(model_path=""))
         try:
             node._cmd_vel_pub = MagicMock()
@@ -234,7 +235,7 @@ class TestModelLoadFailure(unittest.TestCase):
             node._on_tick()  # no active goal
 
             logger.warning.assert_not_called()
-            node._cmd_vel_pub.publish.assert_called_once()  # safe zero twist
+            node._cmd_vel_pub.publish.assert_not_called()
         finally:
             node.destroy_node()
 
@@ -632,10 +633,10 @@ class TestGoalActiveFlag(unittest.TestCase):
 
     def test_tick_treats_active_goal_as_fresh(self) -> None:
         """Pins the _on_tick → stale_sources(goal_active=...) wiring:
-        with every streamed source fresh and no topic goal ever
-        received, the tick zero-twists when idle but publishes nothing
-        while a goal is active (clean watchdog + no policy holds the
-        channel).
+        with every streamed source fresh, an active goal gives a clean
+        watchdog (no policy → holds the channel, no publish); dropping
+        the goal_active kwarg would make the goal source stale and
+        zero-twist mid-mission instead.
         """
         node = InferenceNode(parameter_overrides=_make_overrides(model_path=""))
         try:
@@ -648,12 +649,12 @@ class TestGoalActiveFlag(unittest.TestCase):
             node._cmd_vel_pub = MagicMock()
 
             node._active_goal_count = 1
-            node._on_tick()
+            node._on_tick()  # clean watchdog: holds (no zero-twist)
             node._cmd_vel_pub.publish.assert_not_called()
 
-            node._active_goal_count = 0
+            node._last_imu_rx_t = now - 60.0  # mid-mission stale source
             node._on_tick()
-            node._cmd_vel_pub.publish.assert_called_once()
+            node._cmd_vel_pub.publish.assert_called_once()  # zero-twist
         finally:
             node.destroy_node()
 
@@ -935,14 +936,17 @@ class TestVariantAwareWiring(unittest.TestCase):
             node.destroy_node()
 
     def test_nocam_subgoal_tick_zero_twists_when_watchdog_stale(self) -> None:
-        """A NOCAM_SUBGOAL node never receives depth; with no sensors fed the
-        watchdog is stale and the tick must publish a single zero Twist (the
-        safety stop) -- not merely avoid crashing on the disabled depth source.
+        """A NOCAM_SUBGOAL node never receives depth; with no sensors fed
+        and a mission executing, the watchdog is stale and the tick must
+        publish a single zero Twist (the safety stop) -- not merely avoid
+        crashing on the disabled depth source. (Idle publishes nothing:
+        the shared /cmd_vel belongs to Nav2/teleop between missions.)
         """
         from geometry_msgs.msg import Twist
 
         node = self._node("NOCAM_SUBGOAL")
         node._cmd_vel_pub = MagicMock()
+        node._active_goal_count = 1  # mission executing
         try:
             node._on_tick()
             node._cmd_vel_pub.publish.assert_called_once()

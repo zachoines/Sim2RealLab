@@ -1,12 +1,13 @@
 """Sim-in-the-loop launch — autonomy-consuming side of the stack.
 
 Brings up ONLY the nodes that consume remote-published topics from the
-DGX Isaac Sim ROS2 bridge. No real driver, no real camera, no hardware
-watchdogs that would fail without the USB bus. The DGX-side sim publishes
-on the same topic names the robot's hardware normally produces, so the
-autonomy pipeline can run against simulated sensors without code changes.
+sim host's Isaac Sim ROS2 bridge. No real driver, no real camera, no
+hardware watchdogs that would fail without the USB bus. The sim host
+publishes on the same topic names the robot's hardware normally produces,
+so the autonomy pipeline can run against simulated sensors without code
+changes.
 
-Started here (subscribes to DGX-published topics):
+Started here (subscribes to sim-published topics):
   - strafer_description robot_state_publisher (URDF → base_link TF tree)
   - timestamp_fixer                           (/d555/color/image_sync etc.)
   - depthimage_to_laserscan                    (/scan from /d555 depth)
@@ -18,8 +19,8 @@ Started here (subscribes to DGX-published topics):
 
 Not started (hardware-only):
   - strafer_driver (RoboClaw — no motors)
-  - realsense_node (D555 — no camera; DGX bridge publishes frames instead)
-  - imu_filter_madgwick (no IMU — DGX bridge has no ROS2PublishImu node)
+  - realsense_node (D555 — no camera; the sim bridge publishes frames instead)
+  - imu_filter_madgwick (no IMU — the sim bridge has no ROS2PublishImu node)
 
 Prerequisites
 -------------
@@ -74,14 +75,14 @@ def _launch_setup(context, *args, **kwargs):
     model_path = LaunchConfiguration("model_path").perform(context)
     policy_variant = LaunchConfiguration("policy_variant").perform(context)
 
-    # The DGX bridge publishes /clock, so every node in this launch runs
+    # The sim bridge publishes /clock, so every node in this launch runs
     # on sim time. Pins the whole chain (TF, approx_sync, freshness
     # checks) to a single monotonic source.
     sim_time = "true"
 
     nodes = [
         # ── Robot description (URDF → TF tree) ─────────────────────────
-        # TF from base_link → d555_link. Odom TF comes from the DGX bridge;
+        # TF from base_link → d555_link. Odom TF comes from the sim bridge;
         # map → odom comes from RTAB-Map.
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
@@ -91,7 +92,7 @@ def _launch_setup(context, *args, **kwargs):
         ),
 
         # ── Timestamp fixer ─────────────────────────────────────────────
-        # Re-stamps camera frames from the DGX bridge so message sync
+        # Re-stamps camera frames from the sim bridge so message sync
         # across odom / depth / color works in RTAB-Map and Nav2.
         #
         # In sim the D555 is a single co-registered RGB+D sensor, so the
@@ -243,7 +244,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             "vlm_url", default_value=default_vlm,
-            description="VLM grounding service URL on DGX (e.g. http://192.168.50.196:8100).",
+            description="VLM grounding service URL on the sim host (e.g. http://192.168.50.196:8100).",
         ),
         DeclareLaunchArgument(
             "nav_backend", default_value=default_backend,
@@ -268,7 +269,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "planner_url", default_value=default_planner,
-            description="LLM planner service URL on DGX (e.g. http://192.168.50.196:8200).",
+            description="LLM planner service URL on the sim host (e.g. http://192.168.50.196:8200).",
         ),
         DeclareLaunchArgument(
             "localization", default_value="false",

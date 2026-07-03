@@ -534,6 +534,47 @@ class TestGoalActiveFlag(unittest.TestCase):
         finally:
             node.destroy_node()
 
+    def test_mission_end_publishes_final_stop(self) -> None:
+        """On mission end (succeed / cancel / timeout) the loop publishes a
+        final zero Twist — consumers hold the last /cmd_vel, and the sim
+        bridge has no stop-on-silence watchdog, so without this the robot
+        coasts at the last policy velocity past the goal."""
+        node = self._make_node_with_policy(mission_timeout_s=5.0)
+        try:
+            node._cmd_vel_pub = MagicMock()
+            goal_handle = self._make_goal_handle()
+            node._current_goal_distance = lambda goal_pose: 0.1  # type: ignore
+
+            node._execute_callback(goal_handle)  # succeeds immediately
+
+            goal_handle.succeed.assert_called_once()
+            last = node._cmd_vel_pub.publish.call_args[0][0]
+            self.assertEqual((last.linear.x, last.linear.y, last.angular.z),
+                             (0.0, 0.0, 0.0))
+        finally:
+            node.destroy_node()
+
+    def test_preempt_exit_does_not_stop_the_successor(self) -> None:
+        """A preempted goal must NOT publish a stop in its finally — the
+        successor owns /cmd_vel and a zero here would fight its commands."""
+        node = self._make_node_with_policy()
+        try:
+            node._cmd_vel_pub = MagicMock()
+            goal_handle = self._make_goal_handle()
+            node._current_goal_handle = goal_handle
+
+            def _preempt():
+                node._current_goal_handle = MagicMock()  # newer goal owns
+                return None
+            node._current_goal_distance = lambda goal_pose: _preempt()  # type: ignore
+
+            node._execute_callback(goal_handle)  # exits via preempt
+
+            goal_handle.abort.assert_called_once()
+            node._cmd_vel_pub.publish.assert_not_called()
+        finally:
+            node.destroy_node()
+
     def test_no_policy_abort_leaves_flag_false(self) -> None:
         node = InferenceNode(parameter_overrides=_make_overrides(model_path=""))
         try:

@@ -571,6 +571,16 @@ class InferenceNode(Node):
         finally:
             with self._goal_count_lock:
                 self._active_goal_count -= 1
+            # Explicit stop on mission end (succeed / cancel / timeout /
+            # exception). Consumers hold the last /cmd_vel until the next
+            # one — the real driver's command watchdog zeroes the motors
+            # on silence, but the sim bridge does not, so without this
+            # final zero the robot coasts at the last policy velocity
+            # past the goal (into the target) and onward after timeout.
+            # Skipped on preemption: the successor owns the channel and a
+            # stop here would fight its commands.
+            if not self._superseded(goal_handle):
+                self._cmd_vel_pub.publish(Twist())
 
     def _current_goal_distance(self, goal_pose: PoseStamped) -> Optional[float]:
         # Distance to the caller's own captured goal, not the shared

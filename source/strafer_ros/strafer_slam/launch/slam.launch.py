@@ -8,7 +8,7 @@ Requires (launched separately or via strafer_bringup):
 This launch file:
   1. Projects the timestamp-fixed depth image into a PointCloud2 via
      depth_image_proc::point_cloud_xyz_node. Works for both lanes —
-     real D555 (perception.launch.py) and the DGX sim bridge feed the
+     real D555 (perception.launch.py) and the sim bridge feed the
      same `_sync` depth + camera_info topics.
   2. Runs pointcloud_to_laserscan on that cloud to publish /scan with
      a base_link Z-axis filter that excludes floor + above-body returns.
@@ -70,7 +70,7 @@ def _launch_setup(context, *args, **kwargs):
     nodes = [
         # Project depth + intrinsics into a PointCloud2. Both lanes feed
         # /d555/aligned_depth_to_color/image_sync — real D555 via the
-        # realsense driver + timestamp_fixer, sim via the DGX bridge +
+        # realsense driver + timestamp_fixer, sim via the sim bridge +
         # timestamp_fixer's remap — so the same projector works for both.
         Node(
             package="depth_image_proc",

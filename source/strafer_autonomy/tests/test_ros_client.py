@@ -1934,7 +1934,13 @@ class TestNavigateViaHybridInternals(unittest.TestCase):
         self.assertIsNone(result)
         direct.send_goal_async.assert_not_called()
 
-    def test_initial_replan_uses_gridbased_planner_only(self):
+    def test_hybrid_sends_one_goal_and_never_polls_planner(self):
+        """Hybrid dispatch is the strafer_direct shape: exactly one
+        NavigateToPose to the inference server and ZERO ComputePathToPose
+        requests — replanning is owned by the subgoal generator, which
+        follows the inference node's active-goal telemetry. The planner
+        client here is an availability probe only.
+        """
         from action_msgs.msg import GoalStatus
         from builtin_interfaces.msg import Time as TimeMsg
 
@@ -1971,57 +1977,7 @@ class TestNavigateViaHybridInternals(unittest.TestCase):
             behavior_tree=None, timeout_s=5.0,
         )
         self.assertEqual(result.status, "succeeded")
-        # The planner was triggered planner-only with the GridBased planner and
-        # the robot's current pose (use_start False); the controller server is
-        # never engaged (no controller client is constructed or called).
-        self.assertTrue(planner.send_goal_async.called)
-        plan_goal = planner.send_goal_async.call_args[0][0]
-        self.assertEqual(plan_goal.planner_id, "GridBased")
-        self.assertFalse(plan_goal.use_start)
+        direct.send_goal_async.assert_called_once()
+        planner.wait_for_server.assert_called_once()  # probe only
+        planner.send_goal_async.assert_not_called()
 
-    def test_replan_cadence_is_wall_clock_not_sim(self):
-        """The replan cadence fires on the WALL clock, so a sub-unity sim RTF
-        does not stretch it. Modeled with a frozen sim clock (an extreme
-        sub-unity RTF, well under the stall detector's bail window): if the
-        cadence read the sim clock, a non-advancing sim clock would fire zero
-        replans; on the wall clock it fires as real time passes.
-        """
-        import threading
-        from rclpy.time import Time as RclpyTime
-
-        client = _make_client()
-        # Frozen sim clock, overriding _make_client's wall-tracking clock: an
-        # extreme sub-unity RTF, well under the stall detector's 15 s bail. The
-        # mission deadline (sim) is never reached, so the loop runs on the
-        # future + the wall-clock replan cadence under test.
-        frozen = RclpyTime(seconds=1000)
-        client._node.get_clock.return_value.now.side_effect = lambda: frozen
-
-        class _FakeFuture:
-            def __init__(self):
-                self._cbs = []
-
-            def add_done_callback(self, cb):
-                self._cbs.append(cb)
-
-            def done(self):
-                return False
-
-            def complete(self):
-                for cb in self._cbs:
-                    cb(self)
-
-        fut = _FakeFuture()
-        # Complete the future after a short wall delay so the loop runs in
-        # real time and exits deterministically.
-        threading.Timer(0.12, fut.complete).start()
-
-        replans = []
-        completed, _stalled = client._wait_for_nav_result(
-            fut, timeout_s=0.1, tracker=None,
-            replan=lambda: replans.append(1), replan_period_s=0.02,
-        )
-        self.assertTrue(completed)
-        # Wall time advanced (~0.12 s) while the sim clock stayed frozen; a
-        # sim-clock cadence would fire 0 replans, a wall-clock cadence >= 1.
-        self.assertGreaterEqual(len(replans), 1)

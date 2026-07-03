@@ -3,9 +3,9 @@
 Launches the full robot autonomy stack:
   - navigation.launch.py:     base + perception + SLAM + Nav2
   - goal_projection_node:     VLM bbox → map-frame goal pose service
-  - strafer-executor:         autonomy command server (connects to DGX services)
+  - strafer-executor:         autonomy command server (connects to remote services)
 
-Requires VLM_URL and PLANNER_URL to point at the DGX Spark services.
+Requires VLM_URL and PLANNER_URL to point at the VLM/planner services.
 
 Usage:
   ros2 launch strafer_bringup autonomy.launch.py \
@@ -65,7 +65,7 @@ def generate_launch_description():
     nav_log_level = LaunchConfiguration("nav_log_level")
 
     entities = [
-        # ── DGX service URLs ───────────────────────────────────────────
+        # ── Remote VLM/planner service URLs ────────────────────────────
         DeclareLaunchArgument(
             "vlm_url", default_value=default_vlm,
             description="VLM grounding service URL (e.g. http://192.168.50.196:8100).",

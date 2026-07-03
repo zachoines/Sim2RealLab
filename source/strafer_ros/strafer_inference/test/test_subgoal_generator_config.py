@@ -38,6 +38,11 @@ class TestSubgoalGeneratorParamsStructure:
         "map_frame",
         "base_frame",
         "max_path_points",
+        "replan_period_s",
+        "active_goal_topic",
+        "goal_telemetry_timeout_s",
+        "planner_action",
+        "planner_id",
     ]
 
     def test_file_exists(self, pkg_dir):
@@ -53,12 +58,40 @@ class TestSubgoalGeneratorParamsStructure:
         assert key in node_params, f"Missing parameter key: {key}"
 
     def test_plan_and_subgoal_topics_absolute(self, node_params):
-        for key in ("plan_topic", "subgoal_topic"):
+        for key in (
+            "plan_topic", "subgoal_topic", "active_goal_topic",
+            "planner_action",
+        ):
             value = node_params[key]
             assert isinstance(value, str) and value.startswith("/"), (
                 f"{key}={value!r} must be absolute so the node namespace "
                 "does not silently remap it."
             )
+
+    def test_replan_period_below_suppression_window(self, node_params):
+        # The single-node budget rule that replaced the autonomy client's
+        # replan-vs-suppression warning: the plan must be refreshed faster
+        # than it is allowed to go stale.
+        assert (
+            float(node_params["replan_period_s"])
+            < float(node_params["path_timeout_s"])
+        )
+
+    def test_active_goal_topic_matches_inference_config(self, pkg_dir):
+        # One telemetry channel: the generator subscribes where the
+        # inference node publishes.
+        path = os.path.join(pkg_dir, "config", "inference.yaml")
+        with open(path) as f:
+            inference = yaml.safe_load(f)
+        inference_params = inference["strafer_inference"]["ros__parameters"]
+        gen_path = os.path.join(pkg_dir, "config", "subgoal_generator.yaml")
+        with open(gen_path) as f:
+            gen = yaml.safe_load(f)
+        gen_params = gen["strafer_subgoal_generator"]["ros__parameters"]
+        assert (
+            gen_params["active_goal_topic"]
+            == inference_params["active_goal_topic"]
+        )
 
     def test_rate_and_lookahead_not_hardcoded_in_yaml(self, node_params):
         # Both omitted on purpose: the node defaults update_period_s to

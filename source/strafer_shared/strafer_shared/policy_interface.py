@@ -441,6 +441,7 @@ def load_policy(
     variant: PolicyVariant,
     *,
     onnx_providers: list[str] | None = None,
+    onnx_intra_op_threads: int = 1,
 ) -> LoadedPolicy:
     """Load a trained policy model and return a :class:`LoadedPolicy`.
 
@@ -472,6 +473,14 @@ def load_policy(
             session-wide default (CPU on a stock install). Deployment
             callers on Jetson must pass the TRT preference here — DEPTH
             inference is too slow on CPU/CUDA-EP alone.
+        onnx_intra_op_threads: Intra-op thread count for the ONNX session
+            (``.onnx`` only). Defaults to 1: the small MLP policies run in
+            tens of microseconds, and ORT's default (0 = one thread per
+            core, spin-waiting) pins every core busy-waiting for that
+            work and starves the rest of the robot stack. Spin-waiting is
+            disabled regardless. Pass a higher count for a conv-heavy
+            variant that genuinely parallelizes; ``0`` restores the ORT
+            all-cores default.
 
     Returns:
         :class:`LoadedPolicy` (callable; ``obs -> action``).
@@ -519,10 +528,24 @@ def load_policy(
     if path.suffix == ".onnx":
         import onnxruntime as ort
 
+        sess_options = ort.SessionOptions()
+        # ORT's default spins a thread per core waiting for work; for a
+        # tens-of-microseconds MLP that busy-wait starves the rest of the
+        # CPU-bound stack. GPU EPs spin the same host pool.
+        if onnx_intra_op_threads > 0:
+            sess_options.intra_op_num_threads = onnx_intra_op_threads
+        sess_options.add_session_config_entry(
+            "session.intra_op.allow_spinning", "0"
+        )
+        sess_options.add_session_config_entry(
+            "session.inter_op.allow_spinning", "0"
+        )
         if onnx_providers is not None:
-            sess = ort.InferenceSession(str(path), providers=onnx_providers)
+            sess = ort.InferenceSession(
+                str(path), sess_options, providers=onnx_providers
+            )
         else:
-            sess = ort.InferenceSession(str(path))
+            sess = ort.InferenceSession(str(path), sess_options)
         input_names = {inp.name for inp in sess.get_inputs()}
 
         if sidecar is not None and "is_recurrent" in sidecar:

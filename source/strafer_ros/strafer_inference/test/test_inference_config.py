@@ -39,6 +39,8 @@ class TestInferenceParamsStructure:
         "policy_variant",
         "infer_period_s",
         "cmd_vel_topic",
+        "active_goal_topic",
+        "active_goal_keepalive_period_s",
         "depth_topic",
         "imu_topic",
         "joint_states_topic",
@@ -93,9 +95,18 @@ class TestInferenceParamsStructure:
                 f"{key} must be positive; non-positive disables the watchdog"
             )
 
+    def test_onnx_intra_op_threads_is_small_positive(self, node_params):
+        # 1 is right for the small MLP policies; anything > cores would be
+        # counterproductive. Must be present so the ORT all-cores-spinning
+        # default cannot silently pin the Jetson.
+        assert "onnx_intra_op_threads" in node_params
+        threads = int(node_params["onnx_intra_op_threads"])
+        assert 1 <= threads <= 6
+
     def test_topic_names_absolute(self, node_params):
         for key in (
             "cmd_vel_topic",
+            "active_goal_topic",
             "depth_topic",
             "imu_topic",
             "joint_states_topic",
@@ -109,6 +120,18 @@ class TestInferenceParamsStructure:
 
     def test_cmd_vel_topic_matches_driver_contract(self, node_params):
         assert node_params["cmd_vel_topic"] == "/strafer/cmd_vel"
+
+    def test_launch_remaps_cmd_vel_to_shared_channel(self, pkg_dir, monkeypatch):
+        # The node-level contract name is /strafer/cmd_vel, but every
+        # consumer (RoboClaw driver on the real robot, sim bridge's
+        # TOPIC_CMD_VEL) listens on /cmd_vel — the same remap
+        # driver.launch.py applies. Without it the policy's commands
+        # reach nothing and the robot never moves under a policy backend.
+        mod = _load_launch(pkg_dir)
+        monkeypatch.setattr(mod, "Node", _CaptureNode)
+        mod.generate_launch_description()
+        remappings = _CaptureNode.last.kwargs.get("remappings", [])
+        assert ("/strafer/cmd_vel", "/cmd_vel") in remappings
 
     def test_depth_topic_is_bridged_perception_stream(self, node_params):
         # The 80x60 d555_camera policy camera is sim-only; the bridged

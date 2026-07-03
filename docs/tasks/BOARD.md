@@ -64,7 +64,6 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | P3 | active | DGX |
 | [`policy-export-deprecation-migration`](active/trained-policy/policy-export-deprecation-migration.md) | P3 | active | DGX |
 | [`strafer-direct-sim-validation`](active/trained-policy/strafer-direct-sim-validation.md) | P2 | active | Either |
-| [`hybrid-replan-ownership`](active/trained-policy/hybrid-replan-ownership.md) | P2 | active | Jetson |
 | [`recurrent-state-contract`](active/trained-policy/recurrent-state-contract.md) | P1 | active | Either |
 | [`encoder-noise-shared-sample`](active/trained-policy/encoder-noise-shared-sample.md) | P2 | active | DGX |
 | [`policy-rate-shared-constants`](active/trained-policy/policy-rate-shared-constants.md) | P2 | active | DGX |
@@ -122,6 +121,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`bridge-publish-rate-decouple`](active/sim-performance/bridge-publish-rate-decouple.md) | P2 | active | DGX |
 | [`gpu-solver-partitions-default`](active/sim-performance/gpu-solver-partitions-default.md) | P3 | active | DGX |
 | [`bridge-scene-memory-budget-gb10`](active/sim-performance/bridge-scene-memory-budget-gb10.md) | P2 | active | DGX |
+| [`bridge-autonomy-continuous-episode-and-cmd-watchdog`](active/sim-performance/bridge-autonomy-continuous-episode-and-cmd-watchdog.md) | P2 | active | DGX |
 
 ### Reliability (nav + executor + refactors)
 
@@ -176,6 +176,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`training-throughput-profile-and-investigate`](active/investigations/training-throughput-profile-and-investigate.md) | P2 | active | DGX |
 | [`defm-preprocess-antialias-audit`](active/investigations/defm-preprocess-antialias-audit.md) | P3 | active | DGX |
 | [`collision-imu-signal-flaky`](active/investigations/collision-imu-signal-flaky.md) | P3 | active | DGX |
+| [`sim-wall-service-latency-gap`](active/investigations/sim-wall-service-latency-gap.md) | P3 | active | Either |
 
 ---
 
@@ -204,6 +205,7 @@ session. Parked briefs are not listed here — see **By epic** or
 |---|---|---|
 | [`isaac-sim-rt-2-default-renderer`](active/sim-performance/isaac-sim-rt-2-default-renderer.md) | S | Flip default renderer to Real-Time 2.0 + 4× FPS multiplier + Performance mode; re-measure bridge perf |
 | [`bridge-scene-memory-budget-gb10`](active/sim-performance/bridge-scene-memory-budget-gb10.md) | M | Bridge/harness OOM on the GB10: `StraferNavCfg_BridgeAutonomy` loads the `sorted()`-first scene — currently a 29 GB `high_quality_dgx` room (1024-px tex / 5 rooms) — into the unified 121 GB pool → NVRM OOM-kill during render init. Add a deterministic scene-selection knob + a GB10 texture/room budget (or downscale-on-ingest); confirm the torch sm_121 build. `SCENE_USD=<singleroom>.usdc make sim-bridge` light-scene pin workaround exists (`--rooms living-room --quality low`). |
+| [`bridge-autonomy-continuous-episode-and-cmd-watchdog`](active/sim-performance/bridge-autonomy-continuous-episode-and-cmd-watchdog.md) | S–M | Bridge-mode fidelity, blocks hybrid mission validation: (1) episode terminations leak into bridge mode so the robot **teleport-resets on collision** and re-chases until timeout — disable reset-on-collision for autonomy (continuous episode), keep for training; (2) `async_publisher.get_cmd_vel` holds the last command with no staleness gate, so a drifting robot never stops — add the RoboClaw driver's stop-on-silence watchdog. Operator-confirmed on the rig; filed off the 2026-07-03 debugging. |
 | [`planner-rotate-direction-prompt`](active/reliability/planner-rotate-direction-prompt.md) | S | Quick win — prompt edit |
 | [`goal-noise-training`](active/trained-policy/goal-noise-training.md) | M | Targeted DEPTH-baseline training pass with goal-position noise; gates VLM-grounded mission quality for `strafer_direct` |
 | [`policy-rate-shared-constants`](active/trained-policy/policy-rate-shared-constants.md) | S (~1 hr) | Delegate `_DEFAULT_NAV_SIM_DT` / `_DEFAULT_NAV_DECIMATION` in `strafer_env_cfg.py` to the new `strafer_shared.constants.POLICY_SIM_DT` / `POLICY_DECIMATION`. Jetson side already consumes the shared constants; this closes the duplication so a future training-rate experiment can't silently desync sim from real |
@@ -230,7 +232,6 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`executor-grounding-loss-mid-mission-recovery`](active/reliability/executor-grounding-loss-mid-mission-recovery.md) | M | `_navigate_via_staging` re-grounding failure terminates immediately. Add mini-scan + semantic-map fallback with bounded recovery budget. Filed off the 2026-05-17 reliability audit. |
 | [`executor-slam-tracking-precheck-mid-mission`](active/reliability/executor-slam-tracking-precheck-mid-mission.md) | S–M | Executor never queries `check_slam_tracking()`; silent failure when RTAB-Map loses tracking mid-mission. Add bounded precheck before each motion step. Filed off the 2026-05-17 reliability audit. |
 | [`verify-arrival-occlusion-robustness`](active/reliability/verify-arrival-occlusion-robustness.md) | S–M | `_verify_arrival` false-negatives under partial occlusion. Add multi-frame voting + tilt-recovery + `arrival_occluded` soft-failure code. Filed off the 2026-05-17 reliability audit. |
-| [`hybrid-replan-ownership`](active/trained-policy/hybrid-replan-ownership.md) | M | Collapse hybrid dispatch to the strafer_direct shape: one `NavigateToPose`, replan ownership moves from the client's 0.5 s `ComputePathToPose` poll into the mission side (generator recommended). Sequenced after `inference-goal-preemption`. |
 
 #### Either lane
 
@@ -248,6 +249,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | DGX | S | Sidecar `training_preset` records the configclass name instead of the rsl_rl preset variable; cosmetic but the field is operator-facing. Filed off [`export-onnx-depth`](completed/export-onnx-depth.md). |
 | [`defm-preprocess-antialias-audit`](active/investigations/defm-preprocess-antialias-audit.md) | DGX | S–M | Measure projection-space delta between training-time DeFM antialiased preprocessing and the deployment ONNX-safe non-antialiased version, then decide alignment (leave / align deploy / align training). Filed off [`export-onnx-depth`](completed/export-onnx-depth.md). |
 | [`collision-imu-signal-flaky`](active/investigations/collision-imu-signal-flaky.md) | DGX | S–M | `test_collision_imu_mean_differs_from_free` flakes (~50%, same command) — post-restitution-0 collisions no longer clear the IMU-vs-free significance bar. Strengthen the scenario, re-frame the assertion, or retire it. Surfaced + un-masked by [`strafer-lab-test-tree-unification`](completed/strafer-lab-test-tree-unification.md). |
+| [`sim-wall-service-latency-gap`](active/investigations/sim-wall-service-latency-gap.md) | Either | S–M | Under `use_sim_time` at RTF ~0.1, wall-clock VLM/planner calls cost ~10× less mission time in sim than they will on the real robot. Measure per-endpoint latency, re-price the sim-validated deadlines that span service calls at RTF 1, file follow-ups. Filed off the 2026-07-02 sim-in-the-loop debugging. |
 | [`isaac-lab-upgrade`](active/tooling/isaac-lab-upgrade.md) | DGX | M–L | Bump the pinned Isaac Lab (develop @ 2026-04-23, ~6 wks stale) + recreate `env_isaaclab3`; re-validate the sim stack via `make test-lab` + training/bridge smokes. Records the torch delta for the `.venv_vlm` consolidation question. |
 | [`policy-export-deprecation-migration`](active/trained-policy/policy-export-deprecation-migration.md) | DGX | M–L | Move policy export off deprecated `torch.jit.*` / legacy `torch.onnx.export` (torch 2.9+ warnings) to a path the Jetson still loads, preserving determinism + the recurrent + cross-format-parity contracts. Gated by `isaac-lab-upgrade` (urgent once torch drops the legacy path). |
 | [`semantic-graph-loop-closure`](active/multi-room/semantic-graph-loop-closure.md) | DGX | M | v2 room-state — detect duplicate-place nodes via CLIP-similarity + spatial proximity, annotate as `same_place` edges. Quiet long-horizon quality lift; required infrastructure for the parked `semantic-map-lifecycle-merge`. |

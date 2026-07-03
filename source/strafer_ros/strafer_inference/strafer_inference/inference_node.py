@@ -122,6 +122,10 @@ class InferenceNode(Node):
         self.declare_parameter("policy_variant", "DEPTH")
         self.declare_parameter("infer_period_s", _default_infer_period())
         self.declare_parameter("cmd_vel_topic", "/strafer/cmd_vel")
+        self.declare_parameter(
+            "active_goal_topic", "/strafer_inference/active_goal"
+        )
+        self.declare_parameter("active_goal_keepalive_period_s", 1.0)
         self.declare_parameter("depth_topic", "/d555/depth/image_rect_raw")
         self.declare_parameter("subgoal_topic", "/strafer/subgoal")
         self.declare_parameter("imu_topic", "/d555/imu/filtered")
@@ -144,6 +148,7 @@ class InferenceNode(Node):
                 "CPUExecutionProvider",
             ],
         )
+        self.declare_parameter("onnx_intra_op_threads", 1)
         # Operator health check: stays False until the first successful
         # inference. Distinguishes "TRT engine still building" from
         # "wedged" — paired with the cold-start log line in _load_policy_from_param.
@@ -172,10 +177,20 @@ class InferenceNode(Node):
 
         self._map_frame: str = self.get_parameter("map_frame").value
         self._base_frame: str = self.get_parameter("base_frame").value
+        obs_timeout_s = float(self.get_parameter("obs_timeout_s").value)
+        # Env override for slow sim sensor feeds; the yaml default is the
+        # real-robot value.
+        env_obs_timeout = os.environ.get("STRAFER_OBS_TIMEOUT_S", "")
+        if env_obs_timeout:
+            obs_timeout_s = float(env_obs_timeout)
+            self.get_logger().info(
+                f"obs_timeout_s overridden to {obs_timeout_s} via "
+                "STRAFER_OBS_TIMEOUT_S"
+            )
         self._timeouts = WatchdogTimeouts(
-            imu=float(self.get_parameter("obs_timeout_s").value),
-            joint_states=float(self.get_parameter("obs_timeout_s").value),
-            odom=float(self.get_parameter("obs_timeout_s").value),
+            imu=obs_timeout_s,
+            joint_states=obs_timeout_s,
+            odom=obs_timeout_s,
             depth=float(self.get_parameter("depth_timeout_s").value),
             tf=float(self.get_parameter("tf_max_age_s").value),
             path=float(self.get_parameter("path_timeout_s").value),
@@ -202,16 +217,12 @@ class InferenceNode(Node):
         self._last_depth_meters: Optional[np.ndarray] = None
         self._last_depth_rx_t: Optional[float] = None
         self._last_goal_map: Optional[PoseStamped] = None
-        # Executing navigate_to_pose goals; the action goal is latched
-        # for the whole mission, so the watchdog keys the goal source on
-        # active-goal presence. A counter (not a bool): a preempted or
-        # cancel-draining goal briefly overlaps its successor, and the
-        # exiting goal must not clear freshness under the newer mission.
+        # Count, not a bool: a preempted or cancel-draining goal briefly
+        # overlaps its successor, and the exiting goal must not clear
+        # goal-source freshness under the newer mission.
         self._active_goal_count = 0
-        # Newest accepted goal; a superseded execute notices it lost
-        # ownership and aborts (Nav2-style newest-goal-wins preemption).
-        # Never cleared, only replaced by a newer accept — a successor
-        # that already finished still supersedes its predecessors.
+        # Newest accepted goal; a superseded execute aborts. Never
+        # cleared, only replaced — a finished successor still supersedes.
         self._current_goal_handle = None
         self._goal_count_lock = threading.Lock()
         self._last_subgoal_map: Optional[PoseStamped] = None
@@ -230,12 +241,22 @@ class InferenceNode(Node):
         self._action_cb_group = ReentrantCallbackGroup()
 
         cmd_vel_topic = self.get_parameter("cmd_vel_topic").value
+        active_goal_topic = self.get_parameter("active_goal_topic").value
+        self._active_goal_keepalive_period_s = float(
+            self.get_parameter("active_goal_keepalive_period_s").value
+        )
         depth_topic = self.get_parameter("depth_topic").value
         imu_topic = self.get_parameter("imu_topic").value
         joint_states_topic = self.get_parameter("joint_states_topic").value
         odom_topic = self.get_parameter("odom_topic").value
 
         self._cmd_vel_pub = self.create_publisher(Twist, cmd_vel_topic, 10)
+        # Status telemetry (accepted goal + keep-alive) for the subgoal
+        # generator's replan ownership. navigate_to_pose remains the only
+        # command channel into this node — nothing subscribes goals here.
+        self._active_goal_pub = self.create_publisher(
+            PoseStamped, active_goal_topic, 10
+        )
 
         self._imu_sub = self.create_subscription(
             Imu, imu_topic, self._on_imu, 10,
@@ -359,6 +380,9 @@ class InferenceNode(Node):
                 onnx_providers=(
                     onnx_providers if model_path.suffix == ".onnx" else None
                 ),
+                onnx_intra_op_threads=int(
+                    self.get_parameter("onnx_intra_op_threads").value
+                ),
             )
             self.get_logger().info(
                 f"Loaded policy from {model_path} "
@@ -428,9 +452,8 @@ class InferenceNode(Node):
         return GoalResponse.ACCEPT
 
     def _handle_accepted(self, goal_handle) -> None:
-        # Newest goal wins: taking ownership here makes a superseded
-        # execute loop abort on its next iteration, so a goal update is
-        # simply a new action goal.
+        # Newest goal wins: taking ownership makes a superseded execute
+        # loop abort, so a goal update is just a new action goal.
         with self._goal_count_lock:
             self._current_goal_handle = goal_handle
         goal_handle.execute()
@@ -450,11 +473,10 @@ class InferenceNode(Node):
 
         goal_pose: PoseStamped = goal_handle.request.pose
 
-        # Gate, obs-referent write, and counter bump are one critical
-        # section under _goal_count_lock (which _handle_accepted also
-        # holds when it installs the new owner). Otherwise a goal that
-        # passed the gate could land its _last_goal_map write after a
-        # newer goal's, steering the live mission at the superseded pose.
+        # Gate, obs-referent write, and counter bump share one lock (also
+        # held by _handle_accepted): otherwise a gated goal could write
+        # _last_goal_map after a newer goal's, steering it at the wrong
+        # pose.
         with self._goal_count_lock:
             superseded = (
                 self._current_goal_handle is not None
@@ -476,7 +498,13 @@ class InferenceNode(Node):
             with self._policy_lock:
                 self._policy.reset()
 
-            mission_started_t = time.monotonic()
+            self._active_goal_pub.publish(goal_pose)
+            last_keepalive_t = time.monotonic()
+
+            # Deadline on the node clock (sim time under use_sim_time) so
+            # a low RTF does not shrink the mission budget; the client's
+            # /clock-stall detector handles a frozen clock.
+            mission_started = self.get_clock().now()
             feedback = NavigateToPose.Feedback()
 
             while rclpy.ok():
@@ -502,10 +530,25 @@ class InferenceNode(Node):
                         goal_handle.succeed()
                         return NavigateToPose.Result()
 
-                if time.monotonic() - mission_started_t > self._mission_timeout_s:
+                now_monotonic = time.monotonic()
+                if (
+                    now_monotonic - last_keepalive_t
+                    >= self._active_goal_keepalive_period_s
+                    # Re-checked at publish time: a keep-alive landing
+                    # after a preempting goal's accept-publish would
+                    # briefly retarget the generator at the old goal.
+                    and not self._superseded(goal_handle)
+                ):
+                    self._active_goal_pub.publish(goal_pose)
+                    last_keepalive_t = now_monotonic
+
+                elapsed_s = (
+                    self.get_clock().now() - mission_started
+                ).nanoseconds * 1e-9
+                if elapsed_s > self._mission_timeout_s:
                     self.get_logger().warning(
                         f"navigate_to_pose mission timed out after "
-                        f"{self._mission_timeout_s:.1f} s"
+                        f"{self._mission_timeout_s:.1f} s (node clock)"
                     )
                     goal_handle.abort()
                     return NavigateToPose.Result()
@@ -517,6 +560,12 @@ class InferenceNode(Node):
         finally:
             with self._goal_count_lock:
                 self._active_goal_count -= 1
+            # Explicit stop on mission end: consumers hold the last
+            # /cmd_vel, so without this the robot keeps the last policy
+            # velocity. Skipped on preemption — the successor owns
+            # /cmd_vel and a stop would fight its commands.
+            if not self._superseded(goal_handle):
+                self._cmd_vel_pub.publish(Twist())
 
     def _current_goal_distance(self, goal_pose: PoseStamped) -> Optional[float]:
         # Distance to the caller's own captured goal, not the shared
@@ -556,10 +605,22 @@ class InferenceNode(Node):
             goal_active=self._goal_active,
         )
         if stale:
-            self.get_logger().warning(
-                f"Watchdog tripped, publishing zero twist: stale={stale}"
-            )
-            self._cmd_vel_pub.publish(Twist())
+            if self._goal_active:
+                # A mission is executing but a source is stale — a real
+                # fault (e.g. the subgoal stream stopped). Throttled so a
+                # persistent stall does not spam at the tick rate.
+                self.get_logger().warning(
+                    f"Watchdog tripped mid-mission, publishing zero twist: "
+                    f"stale={stale}",
+                    throttle_duration_sec=1.0,
+                )
+                self._cmd_vel_pub.publish(Twist())
+            else:
+                # Idle: publish nothing — /cmd_vel is shared, so between
+                # missions it belongs to Nav2 / rotate / teleop.
+                self.get_logger().debug(
+                    f"Idle, holding cmd_vel; absent sources: {stale}"
+                )
             return
 
         if self._policy is None:

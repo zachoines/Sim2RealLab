@@ -4,7 +4,7 @@ A numpy single-robot reimplementation of the training-time arc-length
 cursor (``PathCursor`` in strafer_lab's ``path_planner/cursor.py``). At
 training time that torch cursor drives the policy's subgoal observation;
 at deploy time the torch version is unimportable (it lives in the
-Isaac/DGX lane and imports torch + isaaclab). This module reproduces the
+sim/training lane and imports torch + isaaclab). This module reproduces the
 same selection rule on the Jetson with numpy only, so the policy sees the
 same subgoal pose it was trained on.
 

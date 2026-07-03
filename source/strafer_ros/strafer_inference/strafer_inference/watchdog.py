@@ -78,15 +78,18 @@ def stale_sources(
 
     ``subgoal_enabled`` is ``True`` for rolling-subgoal (hybrid) variants;
     it adds a ``subgoal`` source that zero-twists ``/cmd_vel`` when the
-    ``/strafer/subgoal`` stream goes stale (generator died, or its upstream
-    ``/plan`` went stale and the generator suppressed output). It is the
-    inference-side half of the hybrid plan-freshness guard.
+    ``/strafer/subgoal`` stream goes stale (generator died, or its plan
+    went stale — planner down or replanning stopped — and the generator
+    suppressed output). It is the inference-side half of the hybrid
+    plan-freshness guard.
 
     ``goal_active`` is ``True`` while a ``navigate_to_pose`` action goal
     is executing; the ``goal`` source is presence-keyed on it. Idle (no
-    executing goal) reports ``goal`` stale, which safely zero-twists the
-    channel between missions. Goal updates arrive as preempting action
-    goals, so no receive-time path exists for this source.
+    executing goal) reports ``goal`` stale, and the node then holds
+    cmd_vel entirely — the deployed channel is the shared ``/cmd_vel``,
+    owned by Nav2 / teleop between missions. Goal updates arrive as
+    preempting action goals, so no receive-time path exists for this
+    source.
     """
     stale: list[str] = []
     if not goal_active:

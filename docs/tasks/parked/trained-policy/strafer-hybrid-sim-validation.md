@@ -1,5 +1,16 @@
 # Validate the `hybrid_nav2_strafer` backend end-to-end against the sim-in-the-loop rig
 
+> **Update (2026-07-02,
+> [`hybrid-replan-ownership`](../../completed/hybrid-replan-ownership.md)):**
+> replanning moved out of the autonomy client into the subgoal
+> generator — it follows the inference node's active-goal telemetry
+> (`/strafer_inference/active_goal`) and calls `ComputePathToPose`
+> itself, installing the path from the action result; `/plan` is a
+> fallback input only. Where this brief measures or references
+> "`/plan` published" / the client's replan path, read "the
+> generator's planned-path install" instead; mission-start
+> instrumentation belongs in the generator, not `JetsonRosClient`.
+
 **Type:** task / validation
 **Owner:** Either — Nav2 + bridge + sim env run on DGX; the inference
 node + the hybrid runtime + the comparison scripts run on Jetson. The
@@ -267,8 +278,9 @@ assembly and the subgoal selection are.
 2. Per-tick latency: extend the strafer-direct latency harness from
    [`strafer-direct-sim-validation`](../../active/trained-policy/strafer-direct-sim-validation.md)
    to run under `STRAFER_NAV_BACKEND=hybrid_nav2_strafer`.
-3. Mission-start latency: instrument the `JetsonRosClient` dispatch
-   path with `t_goal_accept`, `t_plan_first`, `t_cmd_vel_first`
+3. Mission-start latency: instrument with `t_goal_accept` (inference
+   node accept / first active-goal telemetry), `t_plan_first` (the
+   generator's first planned-path install), and `t_cmd_vel_first`
    timestamps. Report p50 / p95 / p99 over ≥ 30 missions.
 
 ### C. End-to-end mission (gates on the trained checkpoint)

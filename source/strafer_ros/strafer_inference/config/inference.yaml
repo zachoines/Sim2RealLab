@@ -11,7 +11,16 @@ strafer_inference:
 
     infer_period_s: 0.0333333
 
+    # Node-level contract name; inference.launch.py remaps it to the
+    # shared /cmd_vel that the RoboClaw driver and the sim bridge
+    # actually consume (same remap driver.launch.py applies).
     cmd_vel_topic: "/strafer/cmd_vel"
+    # Status telemetry (accepted goal at accept + ~1 Hz keep-alive while a
+    # mission executes) consumed by the subgoal generator's replan
+    # ownership. NOT a command channel: navigate_to_pose is the only way
+    # to command a mission.
+    active_goal_topic: "/strafer_inference/active_goal"
+    active_goal_keepalive_period_s: 1.0
     depth_topic: "/d555/depth/image_rect_raw"
     # Rolling subgoal pose (subgoal variants only); published by the
     # strafer_subgoal_generator node. Subscribed only when the loaded
@@ -28,9 +37,10 @@ strafer_inference:
     depth_timeout_s: 0.5
     # Rolling-subgoal freshness (subgoal variants only). The inference half of
     # a split stale-plan budget: the generator stops publishing the subgoal
-    # ~1.0 s after /plan dies, then this window trips ~1.0 s later, so the two
-    # compose to ~2.0 s before /cmd_vel zero-twists. Longer than obs/depth
-    # because Nav2 refreshes /plan on a replan cadence, not every tick.
+    # ~1.0 s after its plan source dies (planner down / replanning stopped),
+    # then this window trips ~1.0 s later, so the two compose to ~2.0 s before
+    # /cmd_vel zero-twists. Longer than obs/depth because the generator
+    # replans on a ~0.5 s cadence, not every tick.
     path_timeout_s: 1.0
 
     # vel_cap_* defaults are resolved by the node at startup against
@@ -50,3 +60,8 @@ strafer_inference:
       - "TensorrtExecutionProvider"
       - "CUDAExecutionProvider"
       - "CPUExecutionProvider"
+
+    # ONNX intra-op threads. 1 fits the small MLP policies (~50 us/inf);
+    # ORT's default (all cores, spin-waiting) starves the rest of the
+    # stack. Raise only for a conv-heavy variant (e.g. DEPTH).
+    onnx_intra_op_threads: 1

@@ -10,6 +10,7 @@ NOT subscribe / publish across the wire. The action server's blocking
 from __future__ import annotations
 
 import math
+import os
 import threading
 import time
 import unittest
@@ -91,6 +92,89 @@ def _make_pose(x: float, y: float) -> PoseStamped:
 
 
 # =============================================================================
+# Sim-only obs-timeout env override
+# =============================================================================
+
+
+class TestObsTimeoutEnvOverride(unittest.TestCase):
+    """STRAFER_OBS_TIMEOUT_S loosens the imu/joint_states/odom freshness
+    budget for the render-bound sim bridge; unset keeps the real-robot
+    yaml default. Same pattern as the executor's OBSERVATION_MAX_AGE_S."""
+
+    def test_env_overrides_obs_sources_only(self) -> None:
+        os.environ["STRAFER_OBS_TIMEOUT_S"] = "1.5"
+        try:
+            node = InferenceNode(
+                parameter_overrides=_make_overrides(model_path="")
+            )
+        finally:
+            del os.environ["STRAFER_OBS_TIMEOUT_S"]
+        try:
+            self.assertEqual(node._timeouts.imu, 1.5)
+            self.assertEqual(node._timeouts.joint_states, 1.5)
+            self.assertEqual(node._timeouts.odom, 1.5)
+            self.assertEqual(node._timeouts.depth, 0.5)  # untouched
+            self.assertEqual(node._timeouts.tf, 0.5)     # untouched
+        finally:
+            node.destroy_node()
+
+    def test_unset_keeps_param_default(self) -> None:
+        os.environ.pop("STRAFER_OBS_TIMEOUT_S", None)
+        node = InferenceNode(parameter_overrides=_make_overrides(model_path=""))
+        try:
+            self.assertEqual(node._timeouts.imu, 0.2)
+        finally:
+            node.destroy_node()
+
+
+# =============================================================================
+# ONNX thread pinning — keep a tiny MLP from spinning every core
+# =============================================================================
+
+
+class TestOnnxThreadPinning(unittest.TestCase):
+    """load_policy must pin the ONNX intra-op thread count (default 1) so
+    a ~50 us MLP does not spin all 6 Jetson cores under the ORT default
+    (0 = one spin-waiting thread per core), starving RTAB-Map / Nav2.
+    Exercises the real deployed model; skips where it is not present.
+    """
+
+    def _model_path(self) -> str:
+        repo = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")
+        )
+        return os.path.join(repo, "models", "strafer_nocam_subgoal_v0.onnx")
+
+    def test_default_pins_to_one_thread(self) -> None:
+        from strafer_shared.policy_interface import load_policy, PolicyVariant
+
+        model = self._model_path()
+        if not os.path.isfile(model):
+            self.skipTest("deployed NOCAM_SUBGOAL model not present")
+        policy = load_policy(
+            model, PolicyVariant.NOCAM_SUBGOAL,
+            onnx_providers=["CPUExecutionProvider"],
+        )
+        self.assertEqual(
+            policy._sess.get_session_options().intra_op_num_threads, 1
+        )
+
+    def test_explicit_thread_count_is_applied(self) -> None:
+        from strafer_shared.policy_interface import load_policy, PolicyVariant
+
+        model = self._model_path()
+        if not os.path.isfile(model):
+            self.skipTest("deployed NOCAM_SUBGOAL model not present")
+        policy = load_policy(
+            model, PolicyVariant.NOCAM_SUBGOAL,
+            onnx_providers=["CPUExecutionProvider"], onnx_intra_op_threads=2,
+        )
+        self.assertEqual(
+            policy._sess.get_session_options().intra_op_num_threads, 2
+        )
+
+
+# =============================================================================
 # Model-load failure → action server unadvertised
 # =============================================================================
 
@@ -133,6 +217,42 @@ class TestModelLoadFailure(unittest.TestCase):
             # Watchdog will report all sources stale; the early-return
             # publishes zero twist. Just verify no exception.
             node._on_tick()
+        finally:
+            node.destroy_node()
+
+    def test_idle_watchdog_publishes_nothing_and_stays_quiet(self) -> None:
+        """Idle (no active goal): the watchdog trips on goal/tf/subgoal
+        every tick, but that is the resting state between missions. The
+        node must publish NOTHING — cmd_vel lands on the shared /cmd_vel
+        (launch remap), owned by Nav2 / rotate / teleop between missions
+        — and stay quiet (no WARN spam at the tick rate)."""
+        node = InferenceNode(parameter_overrides=_make_overrides(model_path=""))
+        try:
+            node._cmd_vel_pub = MagicMock()
+            logger = MagicMock()
+            node.get_logger = lambda: logger  # type: ignore
+
+            node._on_tick()  # no active goal
+
+            logger.warning.assert_not_called()
+            node._cmd_vel_pub.publish.assert_not_called()
+        finally:
+            node.destroy_node()
+
+    def test_mission_active_watchdog_warns_on_stale_source(self) -> None:
+        """A stale source WHILE a goal executes is a real fault (e.g. the
+        subgoal stream stalled) — that still warns."""
+        node = InferenceNode(parameter_overrides=_make_overrides(model_path=""))
+        try:
+            node._cmd_vel_pub = MagicMock()
+            logger = MagicMock()
+            node.get_logger = lambda: logger  # type: ignore
+            node._active_goal_count = 1  # a mission is executing
+
+            node._on_tick()  # streams stale -> mid-mission fault
+
+            logger.warning.assert_called()
+            node._cmd_vel_pub.publish.assert_called_once()
         finally:
             node.destroy_node()
 
@@ -414,6 +534,47 @@ class TestGoalActiveFlag(unittest.TestCase):
         finally:
             node.destroy_node()
 
+    def test_mission_end_publishes_final_stop(self) -> None:
+        """On mission end (succeed / cancel / timeout) the loop publishes a
+        final zero Twist — consumers hold the last /cmd_vel, and the sim
+        bridge has no stop-on-silence watchdog, so without this the robot
+        coasts at the last policy velocity past the goal."""
+        node = self._make_node_with_policy(mission_timeout_s=5.0)
+        try:
+            node._cmd_vel_pub = MagicMock()
+            goal_handle = self._make_goal_handle()
+            node._current_goal_distance = lambda goal_pose: 0.1  # type: ignore
+
+            node._execute_callback(goal_handle)  # succeeds immediately
+
+            goal_handle.succeed.assert_called_once()
+            last = node._cmd_vel_pub.publish.call_args[0][0]
+            self.assertEqual((last.linear.x, last.linear.y, last.angular.z),
+                             (0.0, 0.0, 0.0))
+        finally:
+            node.destroy_node()
+
+    def test_preempt_exit_does_not_stop_the_successor(self) -> None:
+        """A preempted goal must NOT publish a stop in its finally — the
+        successor owns /cmd_vel and a zero here would fight its commands."""
+        node = self._make_node_with_policy()
+        try:
+            node._cmd_vel_pub = MagicMock()
+            goal_handle = self._make_goal_handle()
+            node._current_goal_handle = goal_handle
+
+            def _preempt():
+                node._current_goal_handle = MagicMock()  # newer goal owns
+                return None
+            node._current_goal_distance = lambda goal_pose: _preempt()  # type: ignore
+
+            node._execute_callback(goal_handle)  # exits via preempt
+
+            goal_handle.abort.assert_called_once()
+            node._cmd_vel_pub.publish.assert_not_called()
+        finally:
+            node.destroy_node()
+
     def test_no_policy_abort_leaves_flag_false(self) -> None:
         node = InferenceNode(parameter_overrides=_make_overrides(model_path=""))
         try:
@@ -513,10 +674,10 @@ class TestGoalActiveFlag(unittest.TestCase):
 
     def test_tick_treats_active_goal_as_fresh(self) -> None:
         """Pins the _on_tick → stale_sources(goal_active=...) wiring:
-        with every streamed source fresh and no topic goal ever
-        received, the tick zero-twists when idle but publishes nothing
-        while a goal is active (clean watchdog + no policy holds the
-        channel).
+        with every streamed source fresh, an active goal gives a clean
+        watchdog (no policy → holds the channel, no publish); dropping
+        the goal_active kwarg would make the goal source stale and
+        zero-twist mid-mission instead.
         """
         node = InferenceNode(parameter_overrides=_make_overrides(model_path=""))
         try:
@@ -529,12 +690,136 @@ class TestGoalActiveFlag(unittest.TestCase):
             node._cmd_vel_pub = MagicMock()
 
             node._active_goal_count = 1
-            node._on_tick()
+            node._on_tick()  # clean watchdog: holds (no zero-twist)
             node._cmd_vel_pub.publish.assert_not_called()
 
-            node._active_goal_count = 0
+            node._last_imu_rx_t = now - 60.0  # mid-mission stale source
             node._on_tick()
-            node._cmd_vel_pub.publish.assert_called_once()
+            node._cmd_vel_pub.publish.assert_called_once()  # zero-twist
+        finally:
+            node.destroy_node()
+
+
+# =============================================================================
+# Mission deadline clock domain
+# =============================================================================
+
+
+class TestMissionDeadlineClockDomain(unittest.TestCase):
+    """The mission deadline ticks on the NODE clock (sim time under
+    use_sim_time, where mission progress also runs) — a wall deadline
+    shrinks the budget by the sim RTF (60 s at RTF 0.1 is 6 sim s).
+    Pinned with a frozen fake clock: wall time passes far beyond the
+    budget with no timeout; advancing the fake clock times out."""
+
+    def test_deadline_follows_node_clock_not_wall(self) -> None:
+        from types import SimpleNamespace
+        from rclpy.time import Time as RclpyTime
+
+        node = InferenceNode(parameter_overrides=_make_overrides(
+            model_path="", mission_timeout_s=0.05,
+        ))
+        node._policy = _FakeRecurrentPolicy()
+        node._active_goal_pub = MagicMock()
+        real_get_clock = node.get_clock
+        try:
+            fake = {"now": RclpyTime(seconds=100)}
+            node.get_clock = (  # type: ignore
+                lambda: SimpleNamespace(now=lambda: fake["now"])
+            )
+            goal_handle = MagicMock()
+            goal_handle.request.pose = _make_pose(2.0, 0.0)
+            goal_handle.is_cancel_requested = False
+            node._current_goal_distance = lambda goal_pose: None  # type: ignore
+
+            thread = threading.Thread(
+                target=node._execute_callback, args=(goal_handle,))
+            thread.start()
+            time.sleep(0.4)  # wall time far past the 0.05 s budget
+            self.assertTrue(thread.is_alive())  # frozen clock: no timeout
+            goal_handle.abort.assert_not_called()
+
+            fake["now"] = RclpyTime(seconds=100.2)  # past the budget
+            thread.join(timeout=2.0)
+            self.assertFalse(thread.is_alive())
+            goal_handle.abort.assert_called_once()
+        finally:
+            node.get_clock = real_get_clock  # type: ignore
+            node.destroy_node()
+
+
+# =============================================================================
+# Active-goal telemetry — status feed for the subgoal generator
+# =============================================================================
+
+
+class TestActiveGoalTelemetry(unittest.TestCase):
+    """The mission loop publishes its accepted goal at accept and as a
+    keep-alive while executing — status telemetry for the subgoal
+    generator's replan ownership, never a command channel.
+    """
+
+    def _make_node(self, **overrides) -> InferenceNode:
+        params = dict(
+            model_path="",
+            mission_timeout_s=5.0,
+            active_goal_keepalive_period_s=0.05,
+        )
+        params.update(overrides)
+        node = InferenceNode(parameter_overrides=_make_overrides(**params))
+        node._policy = _FakeRecurrentPolicy()
+        node._active_goal_pub = MagicMock()
+        return node
+
+    def test_publishes_at_accept_and_keeps_alive(self) -> None:
+        node = self._make_node()
+        try:
+            goal_handle = MagicMock()
+            goal_handle.request.pose = _make_pose(2.0, 0.0)
+            goal_handle.is_cancel_requested = False
+            node._current_goal_distance = lambda goal_pose: None  # type: ignore
+
+            thread = threading.Thread(
+                target=node._execute_callback, args=(goal_handle,))
+            thread.start()
+            # 1 at accept + keep-alives every 0.05 s.
+            _wait_until(
+                lambda: node._active_goal_pub.publish.call_count >= 3
+            )
+            goal_handle.is_cancel_requested = True
+            thread.join(timeout=2.0)
+            self.assertFalse(thread.is_alive())
+
+            for call in node._active_goal_pub.publish.call_args_list:
+                self.assertIs(call[0][0], goal_handle.request.pose)
+        finally:
+            node.destroy_node()
+
+    def test_no_telemetry_when_superseded_at_entry(self) -> None:
+        node = self._make_node()
+        try:
+            goal_handle = MagicMock()
+            goal_handle.request.pose = _make_pose(2.0, 0.0)
+            goal_handle.is_cancel_requested = False
+            node._current_goal_handle = MagicMock()  # a newer goal owns
+
+            node._execute_callback(goal_handle)
+
+            node._active_goal_pub.publish.assert_not_called()
+        finally:
+            node.destroy_node()
+
+    def test_no_telemetry_without_policy(self) -> None:
+        node = InferenceNode(parameter_overrides=_make_overrides(model_path=""))
+        try:
+            node._policy = None
+            node._active_goal_pub = MagicMock()
+            goal_handle = MagicMock()
+            goal_handle.request.pose = _make_pose(2.0, 0.0)
+
+            node._execute_callback(goal_handle)
+
+            node._active_goal_pub.publish.assert_not_called()
         finally:
             node.destroy_node()
 
@@ -692,14 +977,17 @@ class TestVariantAwareWiring(unittest.TestCase):
             node.destroy_node()
 
     def test_nocam_subgoal_tick_zero_twists_when_watchdog_stale(self) -> None:
-        """A NOCAM_SUBGOAL node never receives depth; with no sensors fed the
-        watchdog is stale and the tick must publish a single zero Twist (the
-        safety stop) -- not merely avoid crashing on the disabled depth source.
+        """A NOCAM_SUBGOAL node never receives depth; with no sensors fed
+        and a mission executing, the watchdog is stale and the tick must
+        publish a single zero Twist (the safety stop) -- not merely avoid
+        crashing on the disabled depth source. (Idle publishes nothing:
+        the shared /cmd_vel belongs to Nav2/teleop between missions.)
         """
         from geometry_msgs.msg import Twist
 
         node = self._node("NOCAM_SUBGOAL")
         node._cmd_vel_pub = MagicMock()
+        node._active_goal_count = 1  # mission executing
         try:
             node._on_tick()
             node._cmd_vel_pub.publish.assert_called_once()

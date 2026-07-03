@@ -269,12 +269,14 @@ class SubgoalGeneratorNode(Node):
         )
 
     def _on_replan_tick(self) -> None:
-        # Stale telemetry means "no mission" (ended, or the inference node
-        # died): stop fueling new plans; the plan then ages out and the
-        # subgoal is suppressed.
-        if self._active_goal is None or not self._goal_telemetry_fresh(
-            time.monotonic()
-        ):
+        if self._active_goal is None:
+            return
+        if not self._goal_telemetry_fresh(time.monotonic()):
+            # Mission ended (telemetry stopped): drop the goal so
+            # replanning stops and the /plan fallback is no longer gated
+            # on a dead goal. The plan then ages out and the subgoal is
+            # suppressed.
+            self._active_goal = None
             return
         self._request_replan()
 

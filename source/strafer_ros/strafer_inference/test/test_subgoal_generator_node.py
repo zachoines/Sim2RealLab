@@ -236,12 +236,15 @@ class TestReplanOwnership(unittest.TestCase):
         finally:
             node.destroy_node()
 
-    def test_tick_noops_when_telemetry_stale(self) -> None:
+    def test_tick_noops_and_clears_goal_when_telemetry_stale(self) -> None:
         node = self._armed_node()
         try:
             node._last_goal_telemetry_rx_t = time.monotonic() - 10.0
             node._on_replan_tick()
             node._planner_client.send_goal_async.assert_not_called()
+            # Goal dropped so the /plan fallback is not gated on a dead
+            # mission's goal.
+            self.assertIsNone(node._active_goal)
         finally:
             node.destroy_node()
 

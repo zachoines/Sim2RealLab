@@ -41,6 +41,7 @@ from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import Imu, JointState
 from tf2_ros import TransformBroadcaster
 
+from .cmd_watchdog import CmdVelWatchdog
 from .proprio import WHEEL_JOINT_NAMES, ordered_wheel_values, resolve_wheel_indices
 
 
@@ -61,6 +62,9 @@ class _CmdVelState:
     vy: float = 0.0
     wz: float = 0.0
     last_monotonic: float = 0.0
+    # Bumped on every received /cmd_vel; the stop-on-silence watchdog reads it
+    # to tell a fresh command from a held one across bridge steps.
+    seq: int = 0
 
 
 class StraferAsyncPublisher:
@@ -95,6 +99,12 @@ class StraferAsyncPublisher:
         also the odom→base TF parent/child.
     node_name:
         ROS 2 node name. Defaults to ``strafer_sim_bridge_publisher``.
+    cmd_watchdog_sim_s:
+        Stop-on-silence window for ``/cmd_vel``, in **sim seconds**. When no
+        fresh command arrives within this many sim-seconds ``get_cmd_vel``
+        returns a zero command (mirrors the RoboClaw driver zeroing motors on
+        silence) so a drifting robot halts instead of coasting on the held
+        command. ``0`` disables the watchdog.
     """
 
     def __init__(
@@ -112,6 +122,7 @@ class StraferAsyncPublisher:
         imu_frame_id: str = "d555_link",
         clock_rate_hz: float = 50.0,
         node_name: str = "strafer_sim_bridge_publisher",
+        cmd_watchdog_sim_s: float = 0.5,
     ) -> None:
         self._robot = robot
         self._odom_frame_id = odom_frame_id
@@ -148,6 +159,10 @@ class StraferAsyncPublisher:
 
         self._cmd_lock = threading.Lock()
         self._cmd = _CmdVelState(last_monotonic=time.monotonic())
+        # Sim-time stop-on-silence gate on get_cmd_vel. Fed the command
+        # sequence + sim clock each publish_state; touched only from the main
+        # bridge thread (publish_state + get_cmd_vel), so it needs no lock.
+        self._cmd_watchdog = CmdVelWatchdog(cmd_watchdog_sim_s)
 
         # Capture robot's starting world pose on first publish_state so
         # subsequent messages emit a pose relative to the odom origin.
@@ -194,11 +209,26 @@ class StraferAsyncPublisher:
             self._cmd.vy = float(msg.linear.y)
             self._cmd.wz = float(msg.angular.z)
             self._cmd.last_monotonic = time.monotonic()
+            self._cmd.seq += 1
 
     def get_cmd_vel(self) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
-        """Return ``((vx, vy, 0.0), (0.0, 0.0, wz))`` — matches read_cmd_vel."""
+        """Return ``((vx, vy, 0.0), (0.0, 0.0, wz))`` — matches read_cmd_vel.
+
+        Returns a zero command once the sim-time watchdog trips (no fresh
+        ``/cmd_vel`` within ``cmd_watchdog_sim_s`` sim-seconds), so a drifting
+        robot halts instead of coasting on the held command — the RoboClaw
+        driver's stop-on-silence behavior, in the domain the stream lives in.
+        """
         with self._cmd_lock:
-            return ((self._cmd.vx, self._cmd.vy, 0.0), (0.0, 0.0, self._cmd.wz))
+            vx, vy, wz = self._cmd.vx, self._cmd.vy, self._cmd.wz
+        if self._cmd_watchdog.stale():
+            age = self._cmd_watchdog.take_trip_log()
+            if age is not None:
+                self._node.get_logger().warn(
+                    f"No cmd_vel for {age:.2f}s (sim) -- zeroing bridge action."
+                )
+            return ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0))
+        return ((vx, vy, 0.0), (0.0, 0.0, wz))
 
     def last_cmd_monotonic(self) -> float:
         with self._cmd_lock:
@@ -238,6 +268,10 @@ class StraferAsyncPublisher:
         with self._sim_time_lock:
             self._latest_sim_time_s = sim_time_s
             self._have_sim_time = True
+
+        with self._cmd_lock:
+            cmd_seq = self._cmd.seq
+        self._cmd_watchdog.observe(cmd_seq, sim_time_s)
 
         data = self._robot.data
         # data.* returns wp.array on Isaac Lab 3.0; wrap each in a torch

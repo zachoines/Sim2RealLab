@@ -82,6 +82,26 @@ def _clamp_unit(value: float) -> float:
     return max(-1.0, min(1.0, value))
 
 
+def _disable_env_terminations(terminations) -> list[str]:
+    """Null every active termination term on a termination cfg; return their names.
+
+    Iterates the cfg's own attributes (configclass fields on a real env cfg,
+    plain attrs on a test stub) and sets each non-``None`` term to ``None``.
+    Enumerating rather than naming a fixed set stays correct across every
+    composed variant: base ``time_out`` / ``robot_flipped`` /
+    ``sustained_collision`` plus ProcRoom ``goal_reached`` and Subgoal
+    ``path_complete`` / ``off_path_divergence`` are all caught, current or
+    future.
+    """
+    disabled: list[str] = []
+    for name, term in list(vars(terminations).items()):
+        if name.startswith("_") or term is None:
+            continue
+        setattr(terminations, name, None)
+        disabled.append(name)
+    return disabled
+
+
 def _apply_scene_usd_spawn_override(env_cfg: Any, scene_usd: Path) -> None:
     """Re-point the env at ``scene_usd`` AND re-derive its spawn / floor.
 
@@ -161,12 +181,6 @@ def _parse_args() -> argparse.Namespace:
         type=str,
         default="/World/ROS2Bridge",
         help="USD path for the OmniGraph prim the bridge is built into.",
-    )
-    parser.add_argument(
-        "--cmd-vel-timeout",
-        type=float,
-        default=0.5,
-        help="Bridge mode only: seconds with no /cmd_vel before holding still.",
     )
     parser.add_argument(
         "--scene-usd",
@@ -324,9 +338,10 @@ def _parse_args() -> argparse.Namespace:
     )
 
     # Bridge / harness overrides on the RL env cfg. Defaults match the
-    # integration-test workflow: fixed spawn yaw, no episode-timeout
-    # auto-reset mid-run. The RL training wrapper (train_strafer_navigation.py)
-    # does not call these, so training behavior is unchanged.
+    # integration-test workflow: fixed spawn yaw, and no env terminations
+    # (one continuous episode — no mid-run teleport-reset). The RL training
+    # wrapper (train_strafer_navigation.py) does not call these, so training
+    # behavior is unchanged.
     parser.add_argument(
         "--pin-yaw",
         type=float,
@@ -336,11 +351,16 @@ def _parse_args() -> argparse.Namespace:
              "env cfg directly (no sim-in-the-loop override).",
     )
     parser.add_argument(
-        "--enable-episode-timeout",
+        "--enable-env-terminations",
         action="store_true",
-        help="Keep the env's default episode-length termination. By default "
-             "sim-in-the-loop disables it so the robot is not teleported "
-             "mid-mission (or mid-bridge-run) by the training-scale timeout.",
+        help="Keep the env's training terminations active (time_out, "
+             "robot_flipped, sustained_collision, and any composed "
+             "goal_reached / path_complete / off_path_divergence). By default "
+             "sim-in-the-loop disables ALL of them so a mission plays as one "
+             "continuous episode: a collision or flip never teleport-resets "
+             "the robot mid-run, and the autonomy executor owns mission end "
+             "(goal tolerance, timeouts). Training is unaffected — the RL "
+             "wrapper never runs this path.",
     )
     parser.add_argument(
         "--decimation",
@@ -514,7 +534,7 @@ def _apply_sim_in_the_loop_overrides(
     env_cfg,
     *,
     pin_yaw: float,
-    disable_timeout: bool,
+    disable_terminations: bool,
     decimation: int,
     render_interval: int | None,
 ) -> None:
@@ -526,10 +546,14 @@ def _apply_sim_in_the_loop_overrides(
       ``yaw_range`` (Infinigen floor-spawn variant) or
       ``pose_range["yaw"]`` (non-Infinigen variant); we patch whichever
       is present.
-    - **Disable the episode-length termination** so the env does not
-      auto-reset on a training-scale timeout. Collision and flipped
-      terminations remain active — we still want those to fire if the
-      simulation goes off the rails.
+    - **Disable all episode terminations** so a mission runs as one
+      continuous episode. Sim-in-the-loop (bridge and harness both) must
+      behave like the real robot for the mission's duration — a collision
+      or flip is a bump, not a teleport-reset. The autonomy executor owns
+      mission end (goal tolerance, timeouts); an env-side ``goal_reached``
+      / ``path_complete`` reset would teleport on success and cross a
+      layering boundary. Training keeps its terminations — the RL wrapper
+      never runs this path, and the cfg classes are untouched.
     - **Override physics decimation.** RL training runs with
       ``decimation=4`` so motor-dynamics and command-delay are tuned
       against a 33 ms env-step. Bridge mode needs high wall-clock
@@ -546,10 +570,9 @@ def _apply_sim_in_the_loop_overrides(
             params["pose_range"]["yaw"] = (pin_yaw, pin_yaw)
             print(f"[sim_in_the_loop] reset yaw pinned to {pin_yaw:.3f} rad (pose_range)")
 
-    if disable_timeout:
-        if getattr(env_cfg.terminations, "time_out", None) is not None:
-            env_cfg.terminations.time_out = None
-            print("[sim_in_the_loop] episode-length time_out termination disabled")
+    if disable_terminations:
+        disabled = _disable_env_terminations(env_cfg.terminations)
+        print(f"[sim_in_the_loop] env terminations disabled: {disabled}")
 
     if decimation > 0 and decimation != env_cfg.decimation:
         prev = env_cfg.decimation
@@ -610,7 +633,7 @@ def main() -> None:
     _apply_sim_in_the_loop_overrides(
         env_cfg,
         pin_yaw=args.pin_yaw,
-        disable_timeout=not args.enable_episode_timeout,
+        disable_terminations=not args.enable_env_terminations,
         decimation=args.decimation,
         render_interval=args.render_interval,
     )
@@ -726,6 +749,7 @@ def _run_bridge_mode(simulation_app, env, args, config) -> None:
         odom_frame_id=config.odom_frame_id,
         base_frame_id=config.base_frame_id,
         imu_frame_id=config.imu_frame_id,
+        cmd_watchdog_sim_s=config.cmd_watchdog_sim_s,
     )
     print(
         "[sim_in_the_loop] async publisher up: /clock, /odom, TF, /cmd_vel, "
@@ -784,7 +808,6 @@ def _run_bridge_mode(simulation_app, env, args, config) -> None:
             f"{config.depth_camera.camera_info_topic}"
         )
 
-    last_cmd_time = time.monotonic()
     try:
         while simulation_app.is_running():
             if profiler is not None:
@@ -795,9 +818,9 @@ def _run_bridge_mode(simulation_app, env, args, config) -> None:
             vx, vy = linear[0], linear[1]
             wz = angular[2]
 
-            now = time.monotonic()
+            # get_cmd_vel already zeros the command on /cmd_vel silence (the
+            # sim-time watchdog), so a zero here means "hold still".
             if any(abs(v) > 1e-6 for v in (vx, vy, wz)):
-                last_cmd_time = now
                 action = zero_action.clone()
                 if action.shape[-1] >= 3:
                     # /cmd_vel arrives in physical units (m/s, rad/s);
@@ -811,8 +834,6 @@ def _run_bridge_mode(simulation_app, env, args, config) -> None:
                     action[0, 0] = _clamp_unit(float(vx) / MAX_LINEAR_VEL)
                     action[0, 1] = _clamp_unit(float(vy) / MAX_LINEAR_VEL)
                     action[0, 2] = _clamp_unit(float(wz) / MAX_ANGULAR_VEL)
-            elif now - last_cmd_time > args.cmd_vel_timeout:
-                action = zero_action
             else:
                 action = zero_action
 
@@ -1022,6 +1043,7 @@ def _run_harness_mode(simulation_app, env, args, config, cameras_required) -> No
         odom_frame_id=config.odom_frame_id,
         base_frame_id=config.base_frame_id,
         imu_frame_id=config.imu_frame_id,
+        cmd_watchdog_sim_s=config.cmd_watchdog_sim_s,
     )
     print(
         "[sim_in_the_loop] async publisher up: /clock, /odom, TF, /cmd_vel, "

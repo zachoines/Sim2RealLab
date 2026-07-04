@@ -1,11 +1,12 @@
-# Delegate `_DEFAULT_NAV_SIM_DT` / `_DEFAULT_NAV_DECIMATION` to `strafer_shared.constants`
+# Delegate `_DEFAULT_NAV_SIM_DT` / `_DEFAULT_NAV_DECIMATION` (+ the cmd-vel watchdog window) to `strafer_shared.constants`
 
 **Type:** task / refactor
-**Owner:** DGX (touches `strafer_lab/`)
+**Owner:** DGX (touches `strafer_lab/`; plus one Jetson one-liner in
+`strafer_driver` for the watchdog item below)
 **Priority:** P2 — sim/real drift hazard, but the values already happen
 to agree numerically. The risk is the next time someone changes either
 side.
-**Estimate:** S (~1 hr — one file, three lines, one test)
+**Estimate:** S (~1 hr — two files, a handful of lines, two tests)
 **Branch:** task/policy-rate-shared-constants
 
 ## Story
@@ -81,11 +82,52 @@ side test that asserts `_DEFAULT_NAV_SIM_DT is POLICY_SIM_DT` (identity
 check on module-level binding) anchors the delegation so a future PR
 can't accidentally re-introduce a literal.
 
+## Also in scope (added 2026-07-03): shared cmd-vel watchdog window
+
+Same drift hazard, second instance — created by PR #134. The stop-on-silence
+command watchdog now exists in **two mirrored literals**:
+
+- `source/strafer_ros/strafer_driver/strafer_driver/roboclaw_node.py`
+  `WATCHDOG_TIMEOUT_SEC = 0.5` (real robot — motors zeroed after 0.5
+  **wall**-seconds of `/cmd_vel` silence), and
+- `source/strafer_lab/strafer_lab/bridge/config.py`
+  `BridgeConfig.cmd_watchdog_sim_s = 0.5` (sim bridge — held action zeroed
+  after 0.5 **sim**-seconds of silence; PR #134).
+
+Parity between them is currently **by convention** (cross-referencing
+comments). Make it structural: add one shared constant
+
+```python
+# source/strafer_shared/strafer_shared/constants.py
+CMD_WATCHDOG_TIMEOUT_S = 0.5
+```
+
+and have both sides default from it. The constant's comment must state the
+clock-domain contract, because it is the whole point: the window is the
+**stream-relative** silence budget, denominated in each side's own clock
+domain — wall on the real robot, sim time in the bridge (both the policy
+tick and the physics live in that domain per side). That is what keeps the
+invariant identical on both paths: the watchdog trips after the same ~15
+missed 30 Hz policy ticks, and the robot coasts the same in-world distance
+on a stale command before halting. It is deliberately **not** "the same
+wall-clock duration" — a wall window in the bridge would false-trip between
+healthy commands at sub-unity RTF (see the PR #134 rationale in
+`bridge/cmd_watchdog.py`).
+
 ## Acceptance criteria
 
 - [ ] `_DEFAULT_NAV_SIM_DT` and `_DEFAULT_NAV_DECIMATION` are
       re-exports of `strafer_shared.constants.POLICY_SIM_DT` /
       `POLICY_DECIMATION`, not literals.
+- [ ] `strafer_shared.constants.CMD_WATCHDOG_TIMEOUT_S` exists with the
+      clock-domain contract documented; `roboclaw_node.WATCHDOG_TIMEOUT_SEC`
+      and `BridgeConfig.cmd_watchdog_sim_s` both default from it (no
+      mirrored literals remain — grep for `0.5` near both sites).
+- [ ] A test on each side anchors the delegation (driver: equality/identity
+      against the shared constant in the `strafer_driver` suite; bridge: the
+      pxr-free autonomy suite asserts `BridgeConfig().cmd_watchdog_sim_s ==
+      CMD_WATCHDOG_TIMEOUT_S` — `bridge/config.py` already imports from
+      `strafer_shared`, so no new dependency).
 - [ ] A unit test in `source/strafer_lab/tests/` mock-patches
       `strafer_shared.constants.POLICY_SIM_DT` and asserts the env-cfg
       module's resolved sim dt follows. (Or asserts the identity
@@ -106,5 +148,9 @@ can't accidentally re-introduce a literal.
   brief is pure source-of-truth consolidation; no behavior change.
 - **`_DEFAULT_NAV_RENDER_INTERVAL`** — renderer-tuning knob, not part
   of the policy step contract. Leave it where it lives.
-- **Jetson-side changes.** The inference node already reads from the
-  shared constants; nothing further on that side is needed.
+- **Jetson-side changes beyond the watchdog one-liner.** The inference
+  node already reads from the shared constants; the only Jetson touch is
+  `roboclaw_node.WATCHDOG_TIMEOUT_SEC` defaulting from
+  `CMD_WATCHDOG_TIMEOUT_S` (added scope above).
+- **Retuning the watchdog value.** 0.5 s stays; this is source-of-truth
+  consolidation only.

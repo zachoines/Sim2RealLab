@@ -2,10 +2,9 @@
 
 Runs in the pxr-free autonomy suite via the ``strafer_lab`` namespace stub
 installed by :mod:`conftest` (no rclpy / warp / Isaac Sim). The watchdog owns
-the sim-time staleness accumulator; the message-side wiring in
+the sim-time staleness accumulator; the message-side wiring lives in
 :mod:`strafer_lab.bridge.async_publisher` (``get_cmd_vel`` returning zeros,
-the ROS warn line) is smoke-tested in-process by ``run_sim_in_the_loop.py``
-inside the Isaac Lab env.
+the ROS warn line).
 
 The window is measured in **sim seconds**: under ``use_sim_time`` a low
 real-time factor spaces healthy commands out in wall-time, so a wall-clock

@@ -1,5 +1,10 @@
 # Bridge autonomy mode: continuous episode (no reset-on-collision) + cmd_vel stop-on-silence watchdog
 
+**Status:** Shipped 2026-07-03 in `54b7cbc` (DGX). Merge gated on the
+operator Kit gate (odom continuity across a bump; halt-on-silence; hybrid
+plumbing) — see PR.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/134
+
 **Type:** bug
 **Owner:** DGX agent
 **Priority:** P2
@@ -67,18 +72,25 @@ the correct floor and matches real-robot semantics.)
 - [ ] Bridge/autonomy mode runs a single continuous episode: a collision
       does **not** reset/teleport the robot; verify via `/strafer/odom`
       continuity across a deliberate bump (no >0.5 m position jump).
-- [ ] Training runs are unaffected — terminations/resets still active in
+      _(operator Kit gate)_
+- [x] Training runs are unaffected — terminations/resets still active in
       the training env variants (bridge-only override, not a global
-      change).
+      change). Satisfied by construction: no edits to `strafer_env_cfg.py`
+      / `composed_env_cfg.py`; the RL wrapper never runs the override path.
 - [ ] The bridge zeroes its applied action when `/cmd_vel` is silent
       longer than a watchdog window (default aligned with the RoboClaw
       driver's); verify a drifting robot halts when the command stream
-      stops, without an external zero-twist.
-- [ ] Decide + document whether goal-reached / episode-length terms
-      should still fire in bridge mode (they may be useful as a
-      mission-end signal, or may belong purely to the autonomy executor).
-- [ ] If this invalidates a fact in any context module / README / guide
-      under `docs/`, update it in the same commit.
+      stops, without an external zero-twist. _(operator Kit gate; unit
+      logic covered by `test_bridge_cmd_watchdog.py`)_
+- [x] Decide + document whether goal-reached / episode-length terms
+      should still fire in bridge mode. **Decided: disable ALL termination
+      terms** — the autonomy executor owns mission end (goal tolerance,
+      timeouts); an env-side `goal_reached` / `path_complete` reset would
+      teleport on success and cross a layering boundary. Documented in the
+      `_apply_sim_in_the_loop_overrides` docstring + PR body.
+- [x] If this invalidates a fact in any context module / README / guide
+      under `docs/`, update it in the same commit. No `docs/` facts
+      invalidated; the now-false `--cmd-vel-timeout` CLI help was removed.
 
 ## Out of scope
 

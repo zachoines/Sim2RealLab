@@ -28,6 +28,7 @@ that ships them; see "Shipping a brief: order of operations" in
 |---|---|---|---|
 | [`harness-architecture`](active/harness/harness-architecture.md) Tier 1 acceptance run | DGX | post-merge follow-up (PR #63 merged 2026-05-26) | pending operator capture; gated on [`teleop-perf-architecture`](completed/teleop-perf-architecture.md) (shipped 2026-06-01; loop is PhysX-bound, ~10 FPS not the ≥15 target, so a ≥30 ep × ≥2 scene run is faster but still not one-evening). Tier 1 ✓ on harness-architecture.md stays unchecked until artifact lands at `docs/artifacts/teleop_acceptance/<run_id>/`. |
 | [`harness-architecture`](active/harness/harness-architecture.md) Tier 2 — bridge driver migration | DGX | post-merge follow-up ([#88](https://github.com/zachoines/Sim2RealLab/pull/88) merged) | pending operator gate — the multi-room end-to-end acceptance is operator-run per the PR test plan. Tier 2 shipped: bridge `--mode harness` → LeRobot v3 writer; both `capture.py` bridge cells wired (queue cell against a hand-authored fixture — mission-generator unshipped); `--inject-bad-grounding` + detections columns; unit suites + Jetson-free Kit smoke green. Brief stays active until Tier 3 ships. |
+| [`bridge-autonomy-continuous-episode-and-cmd-watchdog`](completed/bridge-autonomy-continuous-episode-and-cmd-watchdog.md) | DGX | [#134](https://github.com/zachoines/Sim2RealLab/pull/134) | open — unit green (lab-pure 691; watchdog 7; enumerating termination-disable validated vs real cfgs). Gated on the operator Kit gate (odom continuity across a bump; halt-on-silence within ~0.5 sim-s; hybrid plumbing e2e) before merge. |
 
 ---
 
@@ -121,7 +122,6 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`bridge-publish-rate-decouple`](active/sim-performance/bridge-publish-rate-decouple.md) | P2 | active | DGX |
 | [`gpu-solver-partitions-default`](active/sim-performance/gpu-solver-partitions-default.md) | P3 | active | DGX |
 | [`bridge-scene-memory-budget-gb10`](active/sim-performance/bridge-scene-memory-budget-gb10.md) | P2 | active | DGX |
-| [`bridge-autonomy-continuous-episode-and-cmd-watchdog`](active/sim-performance/bridge-autonomy-continuous-episode-and-cmd-watchdog.md) | P2 | active | DGX |
 
 ### Reliability (nav + executor + refactors)
 
@@ -205,7 +205,6 @@ session. Parked briefs are not listed here — see **By epic** or
 |---|---|---|
 | [`isaac-sim-rt-2-default-renderer`](active/sim-performance/isaac-sim-rt-2-default-renderer.md) | S | Flip default renderer to Real-Time 2.0 + 4× FPS multiplier + Performance mode; re-measure bridge perf |
 | [`bridge-scene-memory-budget-gb10`](active/sim-performance/bridge-scene-memory-budget-gb10.md) | M | Bridge/harness OOM on the GB10: `StraferNavCfg_BridgeAutonomy` loads the `sorted()`-first scene — currently a 29 GB `high_quality_dgx` room (1024-px tex / 5 rooms) — into the unified 121 GB pool → NVRM OOM-kill during render init. Add a deterministic scene-selection knob + a GB10 texture/room budget (or downscale-on-ingest); confirm the torch sm_121 build. `SCENE_USD=<singleroom>.usdc make sim-bridge` light-scene pin workaround exists (`--rooms living-room --quality low`). |
-| [`bridge-autonomy-continuous-episode-and-cmd-watchdog`](active/sim-performance/bridge-autonomy-continuous-episode-and-cmd-watchdog.md) | S–M | Bridge-mode fidelity, blocks hybrid mission validation: (1) episode terminations leak into bridge mode so the robot **teleport-resets on collision** and re-chases until timeout — disable reset-on-collision for autonomy (continuous episode), keep for training; (2) `async_publisher.get_cmd_vel` holds the last command with no staleness gate, so a drifting robot never stops — add the RoboClaw driver's stop-on-silence watchdog. Operator-confirmed on the rig; filed off the 2026-07-03 debugging. |
 | [`planner-rotate-direction-prompt`](active/reliability/planner-rotate-direction-prompt.md) | S | Quick win — prompt edit |
 | [`goal-noise-training`](active/trained-policy/goal-noise-training.md) | M | Targeted DEPTH-baseline training pass with goal-position noise; gates VLM-grounded mission quality for `strafer_direct` |
 | [`policy-rate-shared-constants`](active/trained-policy/policy-rate-shared-constants.md) | S (~1 hr) | Delegate `_DEFAULT_NAV_SIM_DT` / `_DEFAULT_NAV_DECIMATION` in `strafer_env_cfg.py` to the new `strafer_shared.constants.POLICY_SIM_DT` / `POLICY_DECIMATION`. Jetson side already consumes the shared constants; this closes the duplication so a future training-rate experiment can't silently desync sim from real |

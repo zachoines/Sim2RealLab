@@ -1,5 +1,14 @@
 # Validate the `hybrid_nav2_strafer` backend end-to-end against the sim-in-the-loop rig
 
+**Status:** Retired 2026-07-04. Never picked up. Reason: superseded by the
+single-room [`strafer-nocam-subgoal-singleroom-sim-validation`](../../active/trained-policy/strafer-nocam-subgoal-singleroom-sim-validation.md)
+brief, which owns the `hybrid_nav2_strafer` end-to-end validation (obs/subgoal
+parity + stale-plan STOP) for the reachable single-room case. Cross-room
+validation is blocked-and-owned upstream by [`autonomy-stack`](../../active/multi-room/autonomy-stack.md);
+the per-tick/mission-start latency, full safety-suite, and trust-boundary scope
+is not a standing deliverable. Retained here as the historical superset and the
+sim-validation-shape precedent the parked depth-subgoal briefs reference.
+
 > **Update (2026-07-02,
 > [`hybrid-replan-ownership`](../../completed/hybrid-replan-ownership.md)):**
 > replanning moved out of the autonomy client into the subgoal

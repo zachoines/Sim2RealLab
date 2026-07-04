@@ -50,7 +50,7 @@ launch must emit a visible ERROR for that case.
 
 The two validation briefs
 ([`strafer-direct-sim-validation`](../active/trained-policy/strafer-direct-sim-validation.md),
-parked [`strafer-hybrid-sim-validation`](../parked/trained-policy/strafer-hybrid-sim-validation.md))
+parked [`strafer-hybrid-sim-validation`](trained-policy/strafer-hybrid-sim-validation.md))
 assume this wiring exists and hand-launch the nodes; this brief is the
 wiring they depend on.
 

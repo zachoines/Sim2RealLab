@@ -59,7 +59,7 @@ realistic-DR play env, registered character-for-character in
 same export chain as the sibling [`policy-export-deprecation-migration`](../active/trained-policy/policy-export-deprecation-migration.md)
 (precedent: [`export-onnx-depth`](export-onnx-depth.md)); the produced artifact
 is the input the parked Jetson-lane [`hybrid-mode`](hybrid-mode.md)
-+ [`strafer-hybrid-sim-validation`](../parked/trained-policy/strafer-hybrid-sim-validation.md)
++ [`strafer-hybrid-sim-validation`](trained-policy/strafer-hybrid-sim-validation.md)
 briefs consume (the `NOCAM_SUBGOAL` checkpoint itself came from
 [`subgoal-env`](subgoal-env.md); the loader/runtime from
 [`inference-package`](inference-package.md)).

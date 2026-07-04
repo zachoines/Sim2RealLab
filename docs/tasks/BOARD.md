@@ -69,7 +69,6 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | [`policy-rate-shared-constants`](active/trained-policy/policy-rate-shared-constants.md) | P2 | active | DGX |
 | [`domain-randomization-audit`](active/trained-policy/domain-randomization-audit.md) | P1 | active | DGX |
 | [`goal-noise-training`](active/trained-policy/goal-noise-training.md) | P2 | active | DGX |
-| [`strafer-hybrid-sim-validation`](completed/trained-policy/strafer-hybrid-sim-validation.md) | P3 | retired 2026-07-04 — superseded by goal-(a) | Either |
 | [`depth-subgoal-env`](parked/trained-policy/depth-subgoal-env.md) | P3 | parked | DGX |
 | [`depth-subgoal-hybrid-runtime`](parked/trained-policy/depth-subgoal-hybrid-runtime.md) | P3 | parked | Jetson |
 | [`batched-gpu-path-planner`](parked/trained-policy/batched-gpu-path-planner.md) | P3 | parked | DGX |

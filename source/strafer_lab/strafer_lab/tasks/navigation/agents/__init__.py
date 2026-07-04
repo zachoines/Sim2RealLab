@@ -14,7 +14,7 @@ For auxiliary losses (DAPG, GAIL), call ``install_strafer_ppo()`` once,
 then register auxiliary modules via ``register_auxiliary()``.
 """
 
-from .rsl_rl_ppo_cfg import STRAFER_PPO_RUNNER_CFG, STRAFER_PPO_LSTM_RUNNER_CFG, STRAFER_PPO_DEPTH_RUNNER_CFG
+from .rsl_rl_ppo_cfg import STRAFER_PPO_RUNNER_CFG, STRAFER_PPO_RECURRENT_RUNNER_CFG, STRAFER_PPO_DEPTH_RUNNER_CFG
 from .distributions import AffineBetaDistribution, BetaDistributionCfg
 from .depth_rnn_model import StraferDepthRNNModel, StraferDepthRNNModelCfg
 from .depth_encoders import SpatialSoftArgmax, DeFMDepthEncoder, DepthEncoder, create_depth_encoder
@@ -26,7 +26,7 @@ from .aux_gail import GAILAuxiliary
 
 __all__ = [
     "STRAFER_PPO_RUNNER_CFG",
-    "STRAFER_PPO_LSTM_RUNNER_CFG",
+    "STRAFER_PPO_RECURRENT_RUNNER_CFG",
     "STRAFER_PPO_DEPTH_RUNNER_CFG",
     "AffineBetaDistribution",
     "BetaDistributionCfg",

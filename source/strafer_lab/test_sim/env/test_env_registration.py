@@ -47,6 +47,9 @@ EXPECTED_ENVS = [
     "Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-v0",
     "Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-v0",
     "Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-Play-v0",
+    # RL training — rolling-subgoal recurrent (GRU) arm
+    "Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-GRU-v0",
+    "Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-GRU-v0",
     # Capture (operator-selectable stack)
     "Isaac-Strafer-Nav-Capture-Teleop-v0",
     "Isaac-Strafer-Nav-Capture-Bridge-v0",
@@ -97,11 +100,17 @@ def test_env_spec_has_env_cfg(env_id: str):
 @pytest.mark.parametrize("env_id", EXPECTED_ENVS)
 def test_env_spec_runner_matches_obs_profile(env_id: str):
     """Proprioceptive (no-image obs) variants use the MLP runner; depth-image
-    variants use the CNN depth runner."""
+    variants use the CNN depth runner; the recurrent (GRU) subgoal arm uses the
+    recurrent runner over the same proprioceptive obs."""
     spec = gym.envs.registry[env_id]
     runner = (spec.kwargs or {}).get("rsl_rl_cfg_entry_point", "")
     proprio = any(tag in env_id for tag in ("NoCam", "Teleop", "Coverage"))
-    expected = "STRAFER_PPO_RUNNER_CFG" if proprio else "STRAFER_PPO_DEPTH_RUNNER_CFG"
+    if "-GRU-" in env_id:
+        expected = "STRAFER_PPO_RECURRENT_RUNNER_CFG"
+    elif proprio:
+        expected = "STRAFER_PPO_RUNNER_CFG"
+    else:
+        expected = "STRAFER_PPO_DEPTH_RUNNER_CFG"
     assert runner.endswith(expected), (
         f"{env_id} runner = '{runner}', expected suffix '{expected}'"
     )

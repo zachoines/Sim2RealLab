@@ -86,14 +86,16 @@ _CONTRACT_GOLDENS = {
     "RLDepth_Real_PLAY": "3e340e6e46aa23aa54c7359ef204a39eaae55857b0474ebb66bf8ac648a0896d",
     "RLDepth_Robust_PLAY": "787221fd5f6ac819010311eafac0d79292f9800ad2b70c8286851ecc4fdf5659",
     "RLNoCam_PLAY": "7c60ad9bf35bcfaf3d0b5020d1e58479fefd4334035758f2400ab134e21f6345",
-    # Subgoal path-tracking variants: goldens snapshotted at variant
-    # introduction (no legacy class preceded them). Same do-not-edit rule —
-    # a mismatch means the contract a NOCAM_SUBGOAL checkpoint trains
-    # against has drifted.
-    "RLNoCamSubgoal_Real": "3507493080ab36ae2d1dcb7b41efe1eb75a04eff53b41a0c459f070d0da14f2c",
-    "RLNoCamSubgoal_Robust": "f241fdbe49274632a1c451b1563aac432d4e2dd65b73370680aae36d46dea260",
-    "RLNoCamSubgoal_Real_PLAY": "c802f527d3e5f11fba6b2a12dafa85731f59ce23dd10f76e95df74343c2299ad",
-    "RLNoCamSubgoal_Robust_PLAY": "618c8f55e071d215495730fe7f942bbc6d38d92c2a3e27928f160405df51d2ba",
+    # Subgoal path-tracking variants. Same do-not-edit rule — a mismatch means
+    # the contract a NOCAM_SUBGOAL checkpoint trains against has drifted. These
+    # were re-snapshotted to lock the current SubgoalCommand contract after the
+    # dwell-based parking change: the dwell gate added dwell_radius_m /
+    # dwell_speed_max_m_s / dwell_steps to SubgoalCommandCfg and folded the old
+    # path_complete_threshold into dwell_radius_m.
+    "RLNoCamSubgoal_Real": "5185c4759b8da15d2b1eac5ce796e9e547eabf81819ca2599122c747d5bd5e77",
+    "RLNoCamSubgoal_Robust": "1f16f07c038d3eb05c765fe99d857a2ef68e80d369dc279ad7e81c25ef760aa5",
+    "RLNoCamSubgoal_Real_PLAY": "0ec2595c9efb9ea6846a4cfa9b78025babb32fe377584a0d5a2c7049176d4079",
+    "RLNoCamSubgoal_Robust_PLAY": "f1fc1058d0ad698faa88986e8fd2ae0dada2c3701a7cbdf1e24e19a25f839c11",
 }
 
 # The depth observation a checkpoint consumes — captured identical across the

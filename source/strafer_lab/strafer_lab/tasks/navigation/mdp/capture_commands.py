@@ -83,6 +83,7 @@ class CaptureSubgoalCommand(SubgoalCommand):
         robot_xy_w = wp.to_torch(self._robot.data.root_pos_w)[:, :2]
         self._path_cursor.set_paths(env_ids, paths)
         self.path_complete[env_ids] = False
+        self.dwell_counter[env_ids] = 0
         self.along_track_progress[env_ids] = 0.0
         state = self._path_cursor.update(robot_xy_w, self._lookahead, env_ids=env_ids)
         self._subgoal[env_ids, :2] = state.subgoal_xy
@@ -95,3 +96,12 @@ class CaptureSubgoalCommandCfg(SubgoalCommandCfg):
     """Configuration for the capture-only externally-fed subgoal command."""
 
     class_type: type = CaptureSubgoalCommand
+
+    # Capture advances legs on *touch*, not parking: the coverage driver breaks
+    # its per-leg step loop the instant ``path_complete`` fires, and the
+    # non-parking capture policy drives through each leg end without stopping.
+    # The dwell-based completion is a training-only shaping change for the
+    # trained-policy task; keep the former instant-touch completion here by
+    # firing on the first in-radius step with the speed gate disabled.
+    dwell_steps: int = 1
+    dwell_speed_max_m_s: float = float("inf")

@@ -57,7 +57,7 @@ as with [`harness-architecture`](../active/harness/harness-architecture.md)):
   `/cmd_vel` when `/strafer/subgoal` goes stale.
 
 All three PRs have shipped; operator-driven sim validation rides as a
-follow-up in [`strafer-hybrid-sim-validation`](../parked/trained-policy/strafer-hybrid-sim-validation.md).
+follow-up in [`strafer-hybrid-sim-validation`](trained-policy/strafer-hybrid-sim-validation.md).
 
 ## Story
 
@@ -271,7 +271,7 @@ In [`source/strafer_autonomy/strafer_autonomy/clients/ros_client.py`](../../../s
 The cross-room sim mission, the per-tick / mission-start latency
 benchmarks, the rig parity bounds, and the no-regression checks
 against `strafer_direct` and `nav2` live in
-[`strafer-hybrid-sim-validation`](../parked/trained-policy/strafer-hybrid-sim-validation.md)
+[`strafer-hybrid-sim-validation`](trained-policy/strafer-hybrid-sim-validation.md)
 (parked alongside this brief). Mirrors the
 [`inference-package`](inference-package.md) →
 [`strafer-direct-sim-validation`](../active/trained-policy/strafer-direct-sim-validation.md)
@@ -310,7 +310,7 @@ moved-obstacle distribution shift that warrant their own scope.
 
 The reference-mission, rosbag parity, latency, and no-regression
 acceptance items live in
-[`strafer-hybrid-sim-validation`](../parked/trained-policy/strafer-hybrid-sim-validation.md).
+[`strafer-hybrid-sim-validation`](trained-policy/strafer-hybrid-sim-validation.md).
 That brief gates on this one shipping + a trained checkpoint +
 the sim-in-the-loop rig; none of those items are unit-testable, so
 they ride as a follow-up rather than blocking this brief's PR.
@@ -384,13 +384,13 @@ they ride as a follow-up rather than blocking this brief's PR.
   (Jetson, runtime extension). Both parked alongside this brief;
   un-park when this one + their other prerequisites ship.
 - **Operator-driven sim validation.** Lives in
-  [`strafer-hybrid-sim-validation`](../parked/trained-policy/strafer-hybrid-sim-validation.md)
+  [`strafer-hybrid-sim-validation`](trained-policy/strafer-hybrid-sim-validation.md)
   (parked alongside this brief); un-parks when this one ships.
   Carries the rosbag parity, latency benchmarks, and the
   cross-room reference mission.
 - **Real-robot hybrid validation.** File as
   `strafer-inference-hybrid-real-robot-validation.md` once
-  [`strafer-hybrid-sim-validation`](../parked/trained-policy/strafer-hybrid-sim-validation.md)
+  [`strafer-hybrid-sim-validation`](trained-policy/strafer-hybrid-sim-validation.md)
   passes.
 - **Performance comparison vs. Nav2-MPPI on the same mission.**
   Evaluation activity, not a controller-design brief.

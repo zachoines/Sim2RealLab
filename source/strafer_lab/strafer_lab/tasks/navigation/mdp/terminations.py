@@ -120,10 +120,13 @@ def path_complete(
     env: ManagerBasedEnv,
     command_name: str,
 ) -> torch.Tensor:
-    """Terminate when the robot reaches the end of its planned path.
+    """Terminate when the robot parks at the end of its planned path.
 
-    Reads the completion flag the subgoal command term maintains (robot
-    within its ``path_complete_threshold`` of the path's final point).
+    Reads the dwell-gated completion flag the subgoal command term maintains:
+    the robot has held within ``dwell_radius_m`` of the path's final point at
+    low speed (``dwell_speed_max_m_s``) for ``dwell_steps`` consecutive control
+    steps. Both this termination and ``path_complete_reward`` read this one
+    flag, so success is parking, not touching at speed.
 
     Args:
         env: The environment instance.

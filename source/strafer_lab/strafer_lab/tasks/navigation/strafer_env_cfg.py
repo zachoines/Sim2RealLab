@@ -1559,6 +1559,15 @@ class CommandsCfg_ProcRoom_Subgoal:
         # readily reachable). Small rooms fall back to the farthest reachable
         # point when no candidate clears this distance.
         min_goal_distance=2.0,
+        # Dwell-based success: the path completes only after the robot parks —
+        # holds inside dwell_radius_m at/under dwell_speed_max_m_s for
+        # dwell_steps consecutive control steps — so the sparse completion bonus
+        # pays for stopping at the goal, not touching it at speed. Surfaced here
+        # as the training sweep surface (values match the SubgoalCommandCfg
+        # defaults); ~0.33 s of dwell at 30 Hz control.
+        dwell_radius_m=0.3,
+        dwell_speed_max_m_s=0.1,
+        dwell_steps=10,
         debug_vis=True,
     )
 

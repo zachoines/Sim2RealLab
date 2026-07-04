@@ -99,5 +99,5 @@ healthy (1.9 Hz / 35 Hz) and is untouched.
 
 Unblocks
 [`strafer-direct-sim-validation`](../active/trained-policy/strafer-direct-sim-validation.md) and
-[`strafer-hybrid-sim-validation`](../parked/trained-policy/strafer-hybrid-sim-validation.md)
+[`strafer-hybrid-sim-validation`](trained-policy/strafer-hybrid-sim-validation.md)
 — this is the runtime bug those validations were expected to surface.

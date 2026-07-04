@@ -93,7 +93,7 @@ End-to-end (smoke): with a hand-built DEPTH_SUBGOAL-shaped ONNX stub and `STRAFE
 4. Stale `/plan` → zero twist.
 5. Stale depth → zero twist.
 
-Sim-validation of the trained checkpoint lives in `depth-subgoal-sim-validation.md` (to be filed when this brief picks up, mirroring the [`strafer-hybrid-sim-validation`](strafer-hybrid-sim-validation.md) precedent).
+Sim-validation of the trained checkpoint lives in `depth-subgoal-sim-validation.md` (to be filed when this brief picks up, mirroring the [`strafer-hybrid-sim-validation`](../../completed/trained-policy/strafer-hybrid-sim-validation.md) precedent).
 
 ## Acceptance criteria
 
@@ -134,7 +134,7 @@ Sim-validation of the trained checkpoint lives in `depth-subgoal-sim-validation.
 ## Out of scope
 
 - **The training environment + checkpoint.** That's [`depth-subgoal-env`](depth-subgoal-env.md). This brief is runtime-only; it loads what that brief produces.
-- **Sim validation against the trained checkpoint.** File `depth-subgoal-sim-validation.md` as a follow-up at PR-opening time (same precedent as [`inference-package`](../../completed/inference-package.md) → [`strafer-direct-sim-validation`](../../active/trained-policy/strafer-direct-sim-validation.md) and [`hybrid-mode`](../../completed/hybrid-mode.md) → [`strafer-hybrid-sim-validation`](strafer-hybrid-sim-validation.md)). Carries the DEPTH_SUBGOAL-specific parity bounds (19 NOCAM dims ≤ 1e-5 + 4800 depth dims ≤ 1e-3 + subgoal-pose pick ≤ MAP_RESOLUTION × 2), the 7-source watchdog acceptance, and the dynamic-obstacle test that's intentionally out of scope for NOCAM_SUBGOAL.
+- **Sim validation against the trained checkpoint.** File `depth-subgoal-sim-validation.md` as a follow-up at PR-opening time (same precedent as [`inference-package`](../../completed/inference-package.md) → [`strafer-direct-sim-validation`](../../active/trained-policy/strafer-direct-sim-validation.md) and [`hybrid-mode`](../../completed/hybrid-mode.md) → [`strafer-hybrid-sim-validation`](../../completed/trained-policy/strafer-hybrid-sim-validation.md)). Carries the DEPTH_SUBGOAL-specific parity bounds (19 NOCAM dims ≤ 1e-5 + 4800 depth dims ≤ 1e-3 + subgoal-pose pick ≤ MAP_RESOLUTION × 2), the 7-source watchdog acceptance, and the dynamic-obstacle test that's intentionally out of scope for NOCAM_SUBGOAL.
 - **Real-robot DEPTH_SUBGOAL validation.** Files later, gated on the sim-validation follow-up passing.
 - **Re-tuning the DEPTH_SUBGOAL checkpoint** if the runtime exposes a gap. Tuning responses route back to [`depth-subgoal-env`](depth-subgoal-env.md)'s follow-up queue.
 - **NOCAM_DIRECT support.** Intentionally never per [`completed/inference-package.md`](../../completed/inference-package.md)'s Out of scope; the variant-aware refactor (Option A) does not change that — startup explicitly rejects NOCAM under `STRAFER_NAV_BACKEND` unset / `strafer_direct`.

@@ -721,7 +721,11 @@ def path_complete_reward(
     env: ManagerBasedEnv,
     command_name: str,
 ) -> torch.Tensor:
-    """Sparse bonus for reaching the end of the planned path.
+    """Sparse bonus for *parking* at the end of the planned path.
+
+    Pays on the same dwell-gated completion flag the ``path_complete``
+    termination reads (the subgoal command term's ``path_complete``), so the
+    bonus rewards holding still at the goal, not touching it at speed.
 
     Args:
         env: The environment instance.

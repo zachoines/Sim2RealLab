@@ -14,7 +14,7 @@ This brief is parked until **all** of the following have shipped:
 1. [`inference-package`](../../completed/inference-package.md) ✅ shipped (provides the DEPTH observation pipeline + the recurrent-policy infrastructure this brief's checkpoint will deploy through).
 2. [`subgoal-env`](../../completed/subgoal-env.md) shipped (provides the `SubgoalCommand` term, the path planner — Option A or B from its Phase 1 — and the registered NoCam-Subgoal task IDs this brief extends).
 
-A third soft prerequisite worth waiting on: NOCAM_SUBGOAL **deployed via** [`hybrid-mode`](../../completed/hybrid-mode.md) and the [`strafer-hybrid-sim-validation`](strafer-hybrid-sim-validation.md) brief shipped. The deployment evidence is what tells us whether NOCAM_SUBGOAL's failure modes (dynamic obstacles, costmap staleness — the things the variant is documented unsafe in) actually bite in practice, and therefore whether DEPTH_SUBGOAL's training cost is justified. If the operator can confirm a deployment failure NOCAM_SUBGOAL cannot recover from, un-park immediately. If NOCAM_SUBGOAL works fine in all observed deployments, this brief stays parked.
+A third soft prerequisite worth waiting on: NOCAM_SUBGOAL **deployed via** [`hybrid-mode`](../../completed/hybrid-mode.md) and the [`strafer-hybrid-sim-validation`](../../completed/trained-policy/strafer-hybrid-sim-validation.md) brief shipped. The deployment evidence is what tells us whether NOCAM_SUBGOAL's failure modes (dynamic obstacles, costmap staleness — the things the variant is documented unsafe in) actually bite in practice, and therefore whether DEPTH_SUBGOAL's training cost is justified. If the operator can confirm a deployment failure NOCAM_SUBGOAL cannot recover from, un-park immediately. If NOCAM_SUBGOAL works fine in all observed deployments, this brief stays parked.
 
 Un-park by `git mv parked/trained-policy/depth-subgoal-env.md active/trained-policy/depth-subgoal-env.md` in the PR that picks it up.
 
@@ -94,7 +94,7 @@ Five phases, sequenced. Phases 1–4 are dev work; Phase 5 is the training run t
 
 ### Phase 1 — Reuse subgoal-env's path planner (½ day)
 
-No new path-planning work. Reuse whatever planner subgoal-env shipped (Option A: Nav2 offline, or Option B: custom A* + noise). Document the choice this brief inherited and the implication for deployment parity (see [`strafer-hybrid-sim-validation`](strafer-hybrid-sim-validation.md)'s subgoal-pose parity bound — same logic, same bound).
+No new path-planning work. Reuse whatever planner subgoal-env shipped (Option A: Nav2 offline, or Option B: custom A* + noise). Document the choice this brief inherited and the implication for deployment parity (see [`strafer-hybrid-sim-validation`](../../completed/trained-policy/strafer-hybrid-sim-validation.md)'s subgoal-pose parity bound — same logic, same bound).
 
 ### Phase 2 — `PolicyVariant.DEPTH_SUBGOAL` (½ day)
 
@@ -177,7 +177,7 @@ If `goal-noise-training` has shipped by this point, run a noise-resilience pass 
 ## Out of scope
 
 - **The Jetson-side runtime extension.** That's [`depth-subgoal-hybrid-runtime`](depth-subgoal-hybrid-runtime.md). This brief produces the trainable env + the deployable checkpoint; that brief makes the inference node consume them.
-- **Sim validation of the deployed DEPTH_SUBGOAL path.** File `depth-subgoal-sim-validation.md` once both this brief and the runtime extension ship. Same shape as [`strafer-hybrid-sim-validation`](strafer-hybrid-sim-validation.md) with hybrid-specific acceptance + DEPTH-shaped parity bounds.
+- **Sim validation of the deployed DEPTH_SUBGOAL path.** File `depth-subgoal-sim-validation.md` once both this brief and the runtime extension ship. Same shape as [`strafer-hybrid-sim-validation`](../../completed/trained-policy/strafer-hybrid-sim-validation.md) with hybrid-specific acceptance + DEPTH-shaped parity bounds.
 - **Real-robot DEPTH_SUBGOAL validation.** Files later, gated on sim validation passing.
 - **Depth-modulated lookahead** (design question 3 Option B). File as `depth-subgoal-modulated-lookahead.md` follow-up if deployment shows fixed lookahead bites in cluttered scenes.
 - **Hyperparameter sweep over reward coefficients.** Coefficients are Phase 5 tuning artifacts, not durable code.

@@ -522,6 +522,40 @@ _PROC_ROOM_GRID_ORIGIN = (
 )
 
 
+def dwell_step(
+    counter: torch.Tensor,
+    within_radius: torch.Tensor,
+    below_speed: torch.Tensor,
+    dwell_steps: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Advance the per-env parking-dwell counter by one control step.
+
+    Success is *parking*, not touching: an env's path counts complete only after
+    the robot has held inside the completion radius at low speed for
+    ``dwell_steps`` consecutive control steps. Each env satisfying both
+    conditions this step (``within_radius`` and ``below_speed``) increments its
+    counter; any env that breaks either condition resets to zero, so the dwell
+    must be unbroken.
+
+    Pure function of its arguments — no env or module state — so its truth table
+    is unit-testable on the Kit-free path.
+
+    Args:
+        counter: (num_envs,) int, consecutive holding-step count from last step.
+        within_radius: (num_envs,) bool, robot inside the completion radius.
+        below_speed: (num_envs,) bool, robot body speed at/below the dwell cap.
+        dwell_steps: consecutive holding steps required to fire completion.
+
+    Returns:
+        ``(new_counter, parked)``: the advanced counter and a bool mask that is
+        True for envs whose counter has reached ``dwell_steps``.
+    """
+    hold = within_radius & below_speed
+    new_counter = torch.where(hold, counter + 1, torch.zeros_like(counter))
+    parked = new_counter >= dwell_steps
+    return new_counter, parked
+
+
 class SubgoalCommand(CommandTerm):
     """Command term emitting a rolling subgoal along a planned path.
 
@@ -553,8 +587,9 @@ class SubgoalCommand(CommandTerm):
     - ``cross_track_error`` (num_envs,): distance to the closest path point.
     - ``along_track_progress`` (num_envs,): monotonic arc-length advance
       since the previous step (zero on the step a new path is installed).
-    - ``path_complete`` (num_envs,) bool: robot within
-      ``path_complete_threshold`` of the path's final point.
+    - ``path_complete`` (num_envs,) bool: robot has *parked* — held within
+      ``dwell_radius_m`` of the path's final point at/under
+      ``dwell_speed_max_m_s`` for ``dwell_steps`` consecutive control steps.
     """
 
     cfg: SubgoalCommandCfg
@@ -569,6 +604,9 @@ class SubgoalCommand(CommandTerm):
         self.cross_track_error = torch.zeros(env.num_envs, device=device)
         self.along_track_progress = torch.zeros(env.num_envs, device=device)
         self.path_complete = torch.zeros(env.num_envs, dtype=torch.bool, device=device)
+        # Consecutive control steps the robot has held parked at the path end
+        # (see ``dwell_step``); drives the dwell-gated ``path_complete`` flag.
+        self.dwell_counter = torch.zeros(env.num_envs, dtype=torch.int32, device=device)
 
         self._distance_to_subgoal = torch.zeros(env.num_envs, device=device)
         # 1.0 on envs whose last plan fell back to a straight segment.
@@ -702,6 +740,7 @@ class SubgoalCommand(CommandTerm):
         # rewound, so this restricted update cannot leak progress into the
         # next step's along-track reward.
         self.path_complete[env_ids] = False
+        self.dwell_counter[env_ids] = 0
         self.along_track_progress[env_ids] = 0.0
         state = self._path_cursor.update(
             robot_xy_w, self._lookahead, env_ids=env_ids
@@ -711,15 +750,31 @@ class SubgoalCommand(CommandTerm):
         self.cross_track_error[env_ids] = state.cross_track
 
     def _update_command(self):
-        """Advance the cursor to the robot's projection and refresh the
-        subgoal, cross-track / along-track state, and completion flag."""
+        """Advance the cursor to the robot's projection and refresh the subgoal,
+        cross-track / along-track state, and the dwell-gated completion flag."""
         robot_xy_w = wp.to_torch(self._robot.data.root_pos_w)[:, :2]
         state = self._path_cursor.update(robot_xy_w, self._lookahead)
         self._subgoal[:, :2] = state.subgoal_xy
         self._subgoal[:, 2] = state.subgoal_heading
         self.cross_track_error[:] = state.cross_track
         self.along_track_progress[:] = state.along_track_progress
-        self.path_complete[:] = state.end_distance < self.cfg.path_complete_threshold
+
+        # Dwell-gated completion: success is parking at the path end, not
+        # touching it. The flag fires only after the robot holds inside the
+        # radius at low speed for cfg.dwell_steps consecutive control steps —
+        # this method runs once per control step, so the count is decimation-
+        # aware. Body-frame planar speed mirrors the deployment odometry a
+        # runtime arrival governor was rejected in favor of.
+        within_radius = state.end_distance <= self.cfg.dwell_radius_m
+        speed = torch.norm(
+            wp.to_torch(self._robot.data.root_lin_vel_b)[:, :2], dim=-1
+        )
+        below_speed = speed <= self.cfg.dwell_speed_max_m_s
+        new_counter, parked = dwell_step(
+            self.dwell_counter, within_radius, below_speed, self.cfg.dwell_steps
+        )
+        self.dwell_counter[:] = new_counter
+        self.path_complete[:] = parked
 
     def _update_metrics(self):
         robot_xy_w = wp.to_torch(self._robot.data.root_pos_w)[:, :2]
@@ -867,9 +922,21 @@ class SubgoalCommandCfg(CommandTermCfg):
     interior waypoints at plan time. Bounds the train/deploy planner
     disagreement the policy is robust to; see ``perturb_waypoints``."""
 
-    path_complete_threshold: float = 0.3
-    """Distance (meters) from the path's final point at which the path
-    counts as complete."""
+    dwell_radius_m: float = 0.3
+    """Radius (meters) around the path's final point the robot must hold inside
+    for the path to count as complete. Kept at the former instant-touch
+    completion threshold so only the *dwell* requirement is new, not the
+    radius."""
+
+    dwell_speed_max_m_s: float = 0.1
+    """Body-frame planar speed (m/s) at or below which the robot counts as
+    parked while inside ``dwell_radius_m``. Completion accrues only while both
+    hold. ``float('inf')`` disables the speed gate (instant-touch on radius)."""
+
+    dwell_steps: int = 10
+    """Consecutive control steps the robot must hold inside ``dwell_radius_m``
+    at/under ``dwell_speed_max_m_s`` before the path completes — parking, not
+    touching, collects the sparse completion bonus. ~0.33 s at 30 Hz control."""
 
     max_path_points: int = 512
     """Per-env waypoint buffer size; longer paths are truncated head-first."""

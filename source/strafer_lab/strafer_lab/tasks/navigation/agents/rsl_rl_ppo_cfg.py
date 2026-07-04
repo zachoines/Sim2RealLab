@@ -1,8 +1,7 @@
 """RSL-RL PPO configuration for Strafer navigation task.
 
-Four config tiers:
+Three config tiers:
   - STRAFER_PPO_RUNNER_CFG: Standard MLP for NoCam variants (fast iteration)
-  - STRAFER_PPO_LSTM_RUNNER_CFG: LSTM for NoCam variants (online system ID)
   - STRAFER_PPO_RECURRENT_RUNNER_CFG: GRU actor-critic for the NoCam
     rolling-subgoal task (corner anticipation)
   - STRAFER_PPO_DEPTH_RUNNER_CFG: CNN-MLP hybrid for Depth variants
@@ -42,52 +41,6 @@ STRAFER_PPO_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
     ),
     critic=RslRlMLPModelCfg(
         hidden_dims=[256, 256, 128],
-        activation="elu",
-    ),
-    algorithm=RslRlPpoAlgorithmCfg(
-        value_loss_coef=1.0,
-        use_clipped_value_loss=True,
-        clip_param=0.2,
-        entropy_coef=0.005,
-        num_learning_epochs=5,
-        num_mini_batches=8,
-        learning_rate=3.0e-4,
-        schedule="fixed",
-        gamma=0.95,
-        lam=0.95,
-        desired_kl=0.01,
-        max_grad_norm=1.0,
-    ),
-)
-
-
-# =============================================================================
-# NoCam LSTM: Recurrent policy for online system identification (19-dim obs)
-#
-# The LSTM can infer per-episode hidden variables (friction, mass, motor
-# strength, D555 mount offset) from a few timesteps of interaction, enabling
-# adaptive behavior that a feedforward MLP cannot achieve.
-# =============================================================================
-
-STRAFER_PPO_LSTM_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
-    num_steps_per_env=48,
-    max_iterations=3000,
-    save_interval=100,
-    experiment_name="strafer_navigation_lstm",
-    empirical_normalization=False,
-    obs_groups={"policy": ["policy"], "critic": ["critic"]},
-    actor=RslRlRNNModelCfg(
-        hidden_dims=[256, 128],
-        activation="elu",
-        distribution_cfg=RslRlRNNModelCfg.GaussianDistributionCfg(
-            init_std=0.5,
-        ),
-        rnn_type="lstm",
-        rnn_hidden_dim=256,
-        rnn_num_layers=1,
-    ),
-    critic=RslRlMLPModelCfg(
-        hidden_dims=[256, 128],
         activation="elu",
     ),
     algorithm=RslRlPpoAlgorithmCfg(

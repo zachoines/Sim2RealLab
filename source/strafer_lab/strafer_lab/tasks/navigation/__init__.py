@@ -14,6 +14,10 @@ against):
   realistic, rolling-subgoal path tracking
 - ``Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-v0``: proprioceptive obs,
   ProcRoom, robust DR, rolling-subgoal path tracking
+- ``Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-GRU-v0``: as Subgoal-Robust but a
+  recurrent (GRU) policy — corner anticipation for the rolling-subgoal task
+- ``Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-GRU-v0``: the GRU arm's play /
+  eval + export-shape variant (realistic, fewer envs)
 
 Capture (operator-selectable stack via ``capture.py --sensors``; the default
 preset is shown):
@@ -37,6 +41,7 @@ _ENTRY_POINT = "isaaclab.envs:ManagerBasedRLEnv"
 _SKRL_CFG_ENTRY_POINT = f"{agents.__name__}:skrl_ppo_cfg.yaml"
 _DEPTH_RUNNER_CFG = "STRAFER_PPO_DEPTH_RUNNER_CFG"
 _NOCAM_RUNNER_CFG = "STRAFER_PPO_RUNNER_CFG"
+_RECURRENT_RUNNER_CFG = "STRAFER_PPO_RECURRENT_RUNNER_CFG"
 
 
 def _register_nav_env(env_id: str, env_cfg_name: str, runner_cfg_name: str) -> None:
@@ -67,6 +72,10 @@ _ENV_REGISTRATIONS = [
     ("Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-v0", "StraferNavCfg_RLNoCamSubgoal_Real_PLAY", _NOCAM_RUNNER_CFG),
     ("Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-v0", "StraferNavCfg_RLNoCamSubgoal_Robust", _NOCAM_RUNNER_CFG),
     ("Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-Play-v0", "StraferNavCfg_RLNoCamSubgoal_Robust_PLAY", _NOCAM_RUNNER_CFG),
+    # Recurrent (GRU) arm of the rolling-subgoal task — same env cfgs as the
+    # MLP arm above (same obs contract), only the runner's policy differs.
+    ("Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-GRU-v0", "StraferNavCfg_RLNoCamSubgoal_Robust", _RECURRENT_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-GRU-v0", "StraferNavCfg_RLNoCamSubgoal_Real_PLAY", _RECURRENT_RUNNER_CFG),
     # Capture variants (operator-selectable stack)
     ("Isaac-Strafer-Nav-Capture-Teleop-v0", "StraferNavCfg_TeleopCapture", _NOCAM_RUNNER_CFG),
     ("Isaac-Strafer-Nav-Capture-Bridge-v0", "StraferNavCfg_BridgeAutonomy", _DEPTH_RUNNER_CFG),

@@ -30,6 +30,7 @@ import pytest
 from strafer_lab.tasks.navigation.agents.rsl_rl_ppo_cfg import (
     STRAFER_PPO_DEPTH_RUNNER_CFG,
     STRAFER_PPO_LSTM_RUNNER_CFG,
+    STRAFER_PPO_RECURRENT_RUNNER_CFG,
     STRAFER_PPO_RUNNER_CFG,
 )
 from strafer_lab.tasks.navigation.agents.distributions import AffineBetaDistribution
@@ -165,6 +166,7 @@ def test_runner_cfgs_delegate_action_bounds_to_beta_distribution():
     runner_cfgs = (
         STRAFER_PPO_RUNNER_CFG,
         STRAFER_PPO_LSTM_RUNNER_CFG,
+        STRAFER_PPO_RECURRENT_RUNNER_CFG,
         STRAFER_PPO_DEPTH_RUNNER_CFG,
     )
     for runner_cfg in runner_cfgs:

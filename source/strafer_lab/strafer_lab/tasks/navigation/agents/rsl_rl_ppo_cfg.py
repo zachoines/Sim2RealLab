@@ -1,8 +1,10 @@
 """RSL-RL PPO configuration for Strafer navigation task.
 
-Three config tiers:
+Four config tiers:
   - STRAFER_PPO_RUNNER_CFG: Standard MLP for NoCam variants (fast iteration)
   - STRAFER_PPO_LSTM_RUNNER_CFG: LSTM for NoCam variants (online system ID)
+  - STRAFER_PPO_RECURRENT_RUNNER_CFG: GRU actor-critic for the NoCam
+    rolling-subgoal task (corner anticipation)
   - STRAFER_PPO_DEPTH_RUNNER_CFG: CNN-MLP hybrid for Depth variants
 
 All use asymmetric actor-critic: the actor sees noisy policy observations
@@ -87,6 +89,67 @@ STRAFER_PPO_LSTM_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
     critic=RslRlMLPModelCfg(
         hidden_dims=[256, 128],
         activation="elu",
+    ),
+    algorithm=RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.005,
+        num_learning_epochs=5,
+        num_mini_batches=8,
+        learning_rate=3.0e-4,
+        schedule="fixed",
+        gamma=0.95,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+    ),
+)
+
+
+# =============================================================================
+# NoCam Recurrent: GRU actor-critic for the rolling-subgoal task (19-dim obs)
+#
+# A memoryless MLP sees a single subgoal bearing/distance sample per step and
+# cannot anticipate corridor curvature — the corner only reveals itself as the
+# rolling subgoal sweeps it, so tracking is reactive and the policy cuts
+# corners.  A GRU infers curvature from the subgoal's motion history, letting
+# the policy anticipate the turn.
+#
+# Both actor AND critic are recurrent (mirrors the DEPTH tier): in this POMDP a
+# memoryless critic produces biased value estimates in exactly the
+# history-dependent states that matter (mid-corner), which degrades advantage
+# estimation.  GRU / hidden 128 / 1 layer mirrors the DEPTH memory spec.
+#
+# Every PPO hyperparameter, rollout scalar, trunk width, obs group, and
+# experiment name is identical to STRAFER_PPO_RUNNER_CFG — the actor/critic
+# model class and its rnn fields are the ONLY difference, so an MLP-vs-GRU
+# comparison on the same env is a clean architecture ablation.
+# =============================================================================
+
+STRAFER_PPO_RECURRENT_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
+    num_steps_per_env=48,
+    max_iterations=3000,
+    save_interval=100,
+    experiment_name="strafer_navigation",
+    empirical_normalization=False,
+    obs_groups={"policy": ["policy"], "critic": ["critic"]},
+    actor=RslRlRNNModelCfg(
+        hidden_dims=[256, 256, 128],
+        activation="elu",
+        distribution_cfg=RslRlRNNModelCfg.GaussianDistributionCfg(
+            init_std=0.5,
+        ),
+        rnn_type="gru",
+        rnn_hidden_dim=128,
+        rnn_num_layers=1,
+    ),
+    critic=RslRlRNNModelCfg(
+        hidden_dims=[256, 256, 128],
+        activation="elu",
+        rnn_type="gru",
+        rnn_hidden_dim=128,
+        rnn_num_layers=1,
     ),
     algorithm=RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,

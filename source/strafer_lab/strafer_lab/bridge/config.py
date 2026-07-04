@@ -96,6 +96,12 @@ class BridgeConfig:
     # behavior; ``render_interval - 1`` matches the actual render rate
     # and avoids publishing duplicate frames.
     camera_frame_skip: int = 0
+    # Stop-on-silence watchdog window for the /cmd_vel stream, in **sim
+    # seconds** (not wall-clock: under use_sim_time a low real-time factor
+    # spaces healthy commands out in wall-time, so a wall window would
+    # false-trip between them). Mirrors the RoboClaw driver's 0.5 s command
+    # watchdog. 0 disables. Consumed by StraferAsyncPublisher, not the graph.
+    cmd_watchdog_sim_s: float = 0.5
 
 
 def build_default_bridge_config(

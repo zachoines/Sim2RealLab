@@ -5,8 +5,8 @@
 **Priority:** P2
 **Branch:** task/nav2-envelope-retirement
 
-**Status:** Shipped 2026-07-05 (Jetson) — code + tests + docs complete and
-green; rig gate **PASSED** (see below), ready to merge.
+**Status:** Shipped 2026-07-05 in #139 (Jetson). Rig gate PASSED (see below);
+`make test-ros` 511 tests green.
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/139
 
 Supersedes [`nav2-sim-real-promotion-architecture.md`](nav2-sim-real-promotion-architecture.md)

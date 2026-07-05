@@ -6,10 +6,8 @@
 **Branch:** task/nav2-envelope-retirement
 
 **Status:** Shipped 2026-07-05 (Jetson) — code + tests + docs complete and
-green; **merge gated on the operator rig-gate mission below** (the parity
-cap has never run on the robot).
-**PR:** _(opened from `task/nav2-envelope-retirement`; rig-gate evidence
-required in the body before merge)_
+green; rig gate **PASSED** (see below), ready to merge.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/139
 
 Supersedes [`nav2-sim-real-promotion-architecture.md`](nav2-sim-real-promotion-architecture.md)
 Layer C. New model: [`context/nav2-config-parity.md`](../context/nav2-config-parity.md).
@@ -90,6 +88,13 @@ today's run, any anomaly.
   regenerate the golden fixture, ship the tuned value as the universal
   default. Do NOT reintroduce a gate.
 
+**Result (2026-07-05, operator):** PASSED. Same command / identical setup
+as the baseline run; behavior looks identical to the previous smoke, no
+anomalies (the old veer-off-path + pull-back signature did not appear).
+Legs slower, consistent with the predicted ~2× at the halved cap. No
+sim-first tuning needed — values ship as-validated, golden unchanged. The
+frozen 180 s `STRAFER_NAVIGATION_TIMEOUT_S` held (no sim-time timeout).
+
 Also watch: `STRAFER_NAVIGATION_TIMEOUT_S` stays frozen at 180 s, but its
 rationale referenced the retired chassis-max sim speed. At the halved
 parity cap, legs run ~2× slower, so a sim-time nav timeout during the rig
@@ -110,9 +115,11 @@ lifecycle (sim-first → flag → A/B); it does not resurrect the gate.
       hits.
 - [x] `_patch_params` = constants injection only; the four knobs live in
       YAML; single-golden byte pin green.
-- [x] Suites green on the Jetson: `strafer_navigation` 41 passed;
-      `strafer_inference` 270 passed / 8 skipped; `strafer_perception`
-      goal-projection 36 passed.
+- [x] Suites green on the Jetson: `make test-ros` full colcon suite — 511
+      tests, 0 errors, 0 failures, 8 skipped (`strafer_navigation` 41 /
+      `strafer_inference` 270+8 skip / `strafer_perception` 36).
 - [x] Both lanes byte-identical in Nav2 config by construction (no
       per-lane branch in `_patch_params`).
-- [ ] Rig-gate evidence recorded in the PR body (operator).
+- [x] Rig-gate evidence recorded in the PR (#139): passed clean, ~2×
+      slower legs as predicted, no anomalies, no sim-first tuning, 180 s
+      timeout held.

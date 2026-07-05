@@ -43,8 +43,8 @@ specific bug, or behavior that would surprise a reader.
 
 **Comments must not contain:**
 
-- History (`replaced the old DistanceController`, `previously gated on
-  envelope_factor`, `this used to use stock Nav2 BT`).
+- History (`replaced the old DistanceController`, `previously gated
+  behind a lane flag`, `this used to use stock Nav2 BT`).
 - Brief / task / PR / commit references — covered by
   [`#no-transient-documentation-references-in-code`](#no-transient-documentation-references-in-code).
 - Broad architectural explanations — those belong in a context

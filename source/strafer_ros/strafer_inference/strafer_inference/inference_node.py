@@ -46,8 +46,6 @@ from rclpy.parameter import Parameter
 from sensor_msgs.msg import Image, Imu, JointState
 
 from strafer_shared.constants import (
-    MAX_ANGULAR_VEL,
-    MAX_LINEAR_VEL,
     NAV_ANGULAR_VEL,
     NAV_LINEAR_VEL,
 )
@@ -81,32 +79,11 @@ def _default_infer_period() -> float:
     return POLICY_SIM_DT * POLICY_DECIMATION
 
 
-def _resolve_vel_caps() -> tuple[float, float]:
-    """Mirror strafer_navigation's STRAFER_NAV_VEL_SCALE handling.
-
-    Unset env var keeps the indoor-safety NAV_VEL_SCALE=0.5 cap;
-    ``STRAFER_NAV_VEL_SCALE=1.0`` lifts to hardware max for sim.
-    Non-numeric / non-positive overrides silently fall back to the
-    constants-derived defaults — same behavior as the Nav2 launch's
-    ``_resolved_nav_velocities`` so the two backends agree on the
-    sim/real envelope without operator intervention.
-    """
-    raw = os.environ.get("STRAFER_NAV_VEL_SCALE")
-    if not raw:
-        return NAV_LINEAR_VEL, NAV_ANGULAR_VEL
-    try:
-        scale = float(raw)
-    except ValueError:
-        return NAV_LINEAR_VEL, NAV_ANGULAR_VEL
-    if scale <= 0.0:
-        return NAV_LINEAR_VEL, NAV_ANGULAR_VEL
-    return (
-        round(MAX_LINEAR_VEL * scale, 4),
-        round(MAX_ANGULAR_VEL * scale, 4),
-    )
-
-
-_DEFAULT_VEL_CAP_LINEAR, _DEFAULT_VEL_CAP_ANGULAR = _resolve_vel_caps()
+# The L1 velocity clamp defaults to the indoor-safety Nav2 cap (a
+# NAV_VEL_SCALE fraction of the chassis maximum) on every lane, matching
+# strafer_navigation. Override per-node via the vel_cap_* parameters.
+_DEFAULT_VEL_CAP_LINEAR = NAV_LINEAR_VEL
+_DEFAULT_VEL_CAP_ANGULAR = NAV_ANGULAR_VEL
 
 
 class InferenceNode(Node):

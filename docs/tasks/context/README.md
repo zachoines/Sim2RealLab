@@ -184,6 +184,12 @@ accurate.
 - [`recurrent-policy-contract.md`](recurrent-policy-contract.md) — the
   DEPTH policy's recurrent hidden-state seam across train → export →
   inference (tensor shape, reset semantics, ownership at each layer).
+- [`nav2-config-parity.md`](nav2-config-parity.md) — Nav2's config is
+  byte-identical on both lanes by construction (`_patch_params` injects
+  only physical constants); the lifecycle for introducing a lane
+  divergence (sim-first → temporary robot flag → A/B → universalize and
+  delete the flag); and why parity matters on the hybrid backend even
+  though the trained policy does local control.
 
 The operator → planner → executor → grounding → goal projection →
 Nav2 → bridge → Isaac Sim arrow chain is documented in

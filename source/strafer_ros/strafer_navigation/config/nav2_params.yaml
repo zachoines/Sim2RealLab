@@ -29,12 +29,12 @@ bt_navigator:
     bt_loop_duration: 50              # ms — 20Hz matches controller_frequency; 100Hz default starved Jetson Orin Nano (IsPathValid raycast per tick)
     default_server_timeout: 20
     wait_for_service_timeout: 1000
-    # Real-robot bringup uses Nav2's stock BT
-    # (navigate_to_pose_w_replanning_and_recovery.xml). The sim lane
-    # (envelope_factor > 1.0) overrides default_nav_to_pose_bt_xml at
-    # launch to point at config/navigate_to_pose_w_smoothing_and_recovery.xml,
-    # which adds a SmoothPath step on the global path so MPPI doesn't
-    # chase grid jaggies through the camera-blind-spot donut at startup.
+    # Every lane loads config/navigate_to_pose_w_smoothing_and_recovery.xml
+    # into default_nav_to_pose_bt_xml at launch (the path resolves from
+    # ament_index, so it isn't pinned here). It adds a SmoothPath step on the
+    # global path — so MPPI doesn't chase grid jaggies through the
+    # camera-blind-spot donut at startup — and gates replanning on path
+    # invalidation instead of a timer.
     plugin_lib_names:
       - nav2_compute_path_to_pose_action_bt_node
       - nav2_compute_path_through_poses_action_bt_node
@@ -119,18 +119,18 @@ controller_server:
       time_steps: 56
       model_dt: 0.05
       batch_size: 1000                  # Reduced from 2000 — Jetson Orin Nano can't sustain 20Hz controller rate at 2000 with the depth_image_proc pipeline alongside
-      vx_std: 0.2                       # Real-robot baseline; scaled at launch by envelope_factor (= NAV_VEL_SCALE override / 0.5)
-      vy_std: 0.2                       # Real-robot baseline; envelope_factor scaling un-done at launch when envelope_factor>1.0 (sim) — lifted envelope is for forward+rotation, not lateral
-      wz_std: 0.4                       # Real-robot baseline; scaled at launch by envelope_factor
+      vx_std: 0.2
+      vy_std: 0.2
+      wz_std: 0.4
       vx_max: 0.5                       # Default — overridden at launch from NAV_LINEAR_VEL
       vx_min: -0.35                     # Default — overridden at launch from NAV_REVERSE_VEL
       vy_max: 0.5                       # Default — overridden at launch from NAV_LINEAR_VEL
       wz_max: 1.9                       # Default — overridden at launch from NAV_ANGULAR_VEL
       iteration_count: 1
-      prune_distance: 1.7               # Real-robot baseline; scaled at launch by envelope_factor
+      prune_distance: 1.7
       transform_tolerance: 0.1
       temperature: 0.3                  # TUNE: lower = greedier trajectory selection
-      gamma: 0.015                      # Real-robot baseline; lowered to 0.008 at launch when envelope_factor>1.0 (sim) — less smoothing on commanded controls so the running mean reaches the high-vx optimum faster
+      gamma: 0.008                      # Sampled-vs-previous smoothing/lag trade-off; lower lets the commanded mean reach the high-vx optimum instead of filtering toward the prior step
       motion_model: "Omni"              # mecanum / holonomic
       visualize: false                 # Flip true for /optimal_trajectory + /trajectories Foxglove debugging; costs ~5-10% CPU
       retry_attempt_limit: 1
@@ -165,7 +165,7 @@ controller_server:
       PreferForwardCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 6.0               # Real-robot baseline; sim overrides to 10.0 when envelope_factor>1.0
+        cost_weight: 10.0              # Bias toward forward motion; omni samples vy/reverse rollouts, so too low drives tangent to or backward along the path
         threshold_to_consider: 0.5
       CostCritic:
         enabled: true
@@ -179,7 +179,7 @@ controller_server:
       PathAlignCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 8.0               # Real-robot baseline; sim overrides to 9.0 when envelope_factor>1.0
+        cost_weight: 9.0               # Path-tracking tightness; too high spends lateral vy chasing path-deviation noise
         max_path_occupancy_ratio: 0.05
         trajectory_point_step: 4
         threshold_to_consider: 0.5
@@ -189,7 +189,7 @@ controller_server:
         enabled: true
         cost_power: 1
         cost_weight: 5.0
-        offset_from_furthest: 5        # Real-robot baseline (~25 cm past furthest at MAP_RESOLUTION=0.05); raised to 20 at launch when envelope_factor>1.0 (sim) so the look-ahead target sits ~1 m ahead and high-speed rollouts win on cost
+        offset_from_furthest: 20       # Look-ahead ~1 m ahead at MAP_RESOLUTION=0.05 so high-speed rollouts win on cost
         threshold_to_consider: 1.4
       PathAngleCritic:
         enabled: true

@@ -69,7 +69,7 @@ banner-stamped + sweep-exempt as of Phase 1; the per-doc Phase-2 plan:
 | `SYSTEM_FLOW_DIAGRAMS.md` | trim to the unified LeRobot v3 flow, or archive if little remains | the unified capture flow; clip-validation owns per-consumer training flows |
 | `MISSION_VALIDATION_ARCHITECTURE.md` | **stay in place** (26 referrers); full archive gated on clip-validation shipping its authoritative replacement | the clip-validation epic |
 | `STRAFER_AUTONOMY_NEXT.md` | move to `docs/archived/` + rehome ~16 referrers | the multi-room epic (`autonomy-stack` + BOARD) |
-| `SIM_TO_REAL_TUNING_GUIDE.md` | **verify staleness first** — no staleness markers found at stamp time; if still a current reference, drop its banner + re-add to the sweep instead of archiving | sim→real promotion: `nav2-sim-real-promotion-architecture` |
+| `SIM_TO_REAL_TUNING_GUIDE.md` | **verify staleness first** — no staleness markers found at stamp time; if still a current reference, drop its banner + re-add to the sweep instead of archiving | sim→real Nav2 config: `context/nav2-config-parity.md` |
 
 ### Original three-doc disposition (kept for context)
 

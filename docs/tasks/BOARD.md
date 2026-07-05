@@ -28,7 +28,6 @@ that ships them; see "Shipping a brief: order of operations" in
 |---|---|---|---|
 | [`harness-architecture`](active/harness/harness-architecture.md) Tier 1 acceptance run | DGX | post-merge follow-up (PR #63 merged 2026-05-26) | pending operator capture; gated on [`teleop-perf-architecture`](completed/teleop-perf-architecture.md) (shipped 2026-06-01; loop is PhysX-bound, ~10 FPS not the ≥15 target, so a ≥30 ep × ≥2 scene run is faster but still not one-evening). Tier 1 ✓ on harness-architecture.md stays unchecked until artifact lands at `docs/artifacts/teleop_acceptance/<run_id>/`. |
 | [`harness-architecture`](active/harness/harness-architecture.md) Tier 2 — bridge driver migration | DGX | post-merge follow-up ([#88](https://github.com/zachoines/Sim2RealLab/pull/88) merged) | pending operator gate — the multi-room end-to-end acceptance is operator-run per the PR test plan. Tier 2 shipped: bridge `--mode harness` → LeRobot v3 writer; both `capture.py` bridge cells wired (queue cell against a hand-authored fixture — mission-generator unshipped); `--inject-bad-grounding` + detections columns; unit suites + Jetson-free Kit smoke green. Brief stays active until Tier 3 ships. |
-| [`nav2-sim-real-promotion-architecture`](active/tooling/nav2-sim-real-promotion-architecture.md) Layer C validation laps | Jetson | [#137](https://github.com/zachoines/Sim2RealLab/pull/137) | Layers A+B landed: `_patch_params` split into universal / velocity-envelope-coupling / behavioral-overrides-under-promotion sections (byte-identical to pre-refactor), the [`context/nav2-knob-promotion.md`](context/nav2-knob-promotion.md) five-step promotion contract, and `TestPromotionSplitInvariants` + byte-identical `TestPatchByteIdentical` pins. Layer C = five ready-to-run real-robot lap cards (PreferForward / PathFollow / gamma / PathAlign promotions + the smoothing-BT / `allow_unknown` inheritance lap); all PENDING operator robot time. Brief stays active until ≥1 knob is lapped. |
 
 ---
 
@@ -148,7 +147,6 @@ The learned components here share one frozen text-capable backbone — see [`con
 
 | Brief | Pri | State | Owner |
 |---|---|---|---|
-| [`nav2-sim-real-promotion-architecture`](active/tooling/nav2-sim-real-promotion-architecture.md) | P2 | active | Jetson |
 | [`test-ci-workflow`](active/tooling/test-ci-workflow.md) | P3 | active | Either |
 | [`isaac-lab-upgrade`](active/tooling/isaac-lab-upgrade.md) | P3 | active | DGX |
 | [`script-tool-subsystem-grouping`](active/tooling/script-tool-subsystem-grouping.md) | P3 | active | DGX |

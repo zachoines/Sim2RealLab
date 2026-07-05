@@ -97,8 +97,9 @@ Three possible outcomes:
 - Tuning Isaac Sim's mecanum dynamics. If sim is the broken one,
   accept it and note in the brief.
 - The MPPI cost-landscape tuning (PathAlign, CostCritic, etc.) —
-  that's [nav2-sim-real-promotion-architecture](../tooling/nav2-sim-real-promotion-architecture.md)'s
-  territory.
+  that's the shared Nav2 config the [nav2-config-parity](../../context/nav2-config-parity.md)
+  module governs (the older sim/real promotion split was retired for
+  parity in [`completed/nav2-envelope-retirement`](../../completed/nav2-envelope-retirement.md)).
 
 ## Risks
 - DiffDrive on a mecanum chassis can't strafe at the controller layer.

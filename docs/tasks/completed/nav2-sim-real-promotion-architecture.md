@@ -7,6 +7,24 @@
 stretch across multiple sessions)
 **Branch:** task/nav2-sim-real-promotion-architecture
 
+**Status:** Superseded 2026-07-05 (Jetson) by
+[`completed/nav2-envelope-retirement.md`](nav2-envelope-retirement.md).
+Layers A + B shipped in
+[#137](https://github.com/zachoines/Sim2RealLab/pull/137) — the
+`_patch_params` three-section split, the promotion context module, and
+the `TestPromotionSplitInvariants` + byte-identical `TestPatchByteIdentical`
+pins. Layer C (the four real-robot promotion laps) is **superseded by an
+operator policy decision (2026-07-05)**: the `envelope_factor` gate was a
+workaround for a misdiagnosed problem (Jetson CPU starvation, since fixed),
+so the whole gate was retired and the validated sim Nav2 config promoted to
+the universal baseline. There is no per-knob gate left to lap; the four
+knobs now ship as YAML defaults on both lanes. The new model —
+config-parity-by-construction plus a sim-first → temporary-flag → A/B →
+universalize-and-delete lifecycle — lives in
+[`context/nav2-config-parity.md`](../context/nav2-config-parity.md).
+
+**PR:** bundled into the retirement PR from `task/nav2-envelope-retirement`.
+
 ## Story
 
 As a **roboticist who develops behaviors in sim and ships them to
@@ -21,16 +39,16 @@ staying gated with a justification**.
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [completed/mppi-critic-tuning-for-sim-envelope.md](../../completed/mppi-critic-tuning-for-sim-envelope.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [completed/mppi-critic-tuning-for-sim-envelope.md](mppi-critic-tuning-for-sim-envelope.md)
   — the originating brief for the `envelope_factor > 1.0` gate
   pattern. Filed option A specifically *because* the MPPI rebalance
   is velocity-coupled.
-- [completed/nav2-startup-unknown-donut-path-noise.md](../../completed/nav2-startup-unknown-donut-path-noise.md)
+- [completed/nav2-startup-unknown-donut-path-noise.md](nav2-startup-unknown-donut-path-noise.md)
   — the predecessor that pattern-matched onto the gate for a
   behavioral change (SmoothPath BT), not a velocity-coupled one.
-- [`completed/nav2-commit-and-follow-path-stability.md`](../../completed/nav2-commit-and-follow-path-stability.md)
+- [`completed/nav2-commit-and-follow-path-stability.md`](nav2-commit-and-follow-path-stability.md)
   — the parent brief (shipped in PR #50) that already ungated
   `allow_unknown` and the smoothing BT to the universal default. This
   brief picks up where that one left off: formalize the split and
@@ -172,7 +190,7 @@ the promotion (or as a follow-up brief if it surfaces a regression).
       robot/operator access this session, so this opens when the
       operator schedules robot time.*
 - [ ] The brief at
-      [`completed/nav2-commit-and-follow-path-stability.md`](../../completed/nav2-commit-and-follow-path-stability.md)
+      [`completed/nav2-commit-and-follow-path-stability.md`](nav2-commit-and-follow-path-stability.md)
       gets its outstanding "real-robot validation lap" bullet
       checked off — i.e., a real-robot run of the smoothing BT +
       `allow_unknown: true` (SmacPlanner2D) universal defaults happens
@@ -191,7 +209,7 @@ the promotion (or as a follow-up brief if it surfaces a regression).
       module, package README, top-level `Readme.md`, or guide under
       `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance
-      section](../../context/conventions.md#user-facing-documentation-maintenance)
+      section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
       *Swept: no user-facing surface references the refactored knobs
       (no CLI / topic / env / public-API change); `context/README.md`
@@ -205,7 +223,7 @@ Each is one real-robot lap; run at the indoor cap (real-robot bringup,
 Baseline snapshots come from the sim run of the same mission (Foxglove
 overlay + `/cmd_vel` / `/plan` samples), reusing the bisection-snapshot
 harness from
-[`completed/mppi-critic-tuning-for-sim-envelope.md`](../../completed/mppi-critic-tuning-for-sim-envelope.md)'s
+[`completed/mppi-critic-tuning-for-sim-envelope.md`](mppi-critic-tuning-for-sim-envelope.md)'s
 Investigation pointers. Record the disposition inline on the card and
 mirror it to `BOARD.md`. **None run this session — no robot/operator
 access; all dispositions PENDING.**
@@ -293,7 +311,7 @@ fixtures (they intentionally change) and note that in the PR.
   split is enforced.
 - Predecessor briefs' validation harness: the sim-velocity
   bisection scripts referenced from
-  [`completed/mppi-critic-tuning-for-sim-envelope.md`](../../completed/mppi-critic-tuning-for-sim-envelope.md)'s
+  [`completed/mppi-critic-tuning-for-sim-envelope.md`](mppi-critic-tuning-for-sim-envelope.md)'s
   Investigation pointers. Re-runnable for the validation laps.
 
 ## Out of scope

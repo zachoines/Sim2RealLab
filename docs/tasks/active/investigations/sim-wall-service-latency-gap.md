@@ -19,8 +19,10 @@ real robot will experience**.
 Read these before starting:
 - [context/repo-topology.md](../../context/repo-topology.md)
 - [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [`nav2-sim-real-promotion-architecture`](../tooling/nav2-sim-real-promotion-architecture.md)
-  — the sim→real knob-promotion discipline this gap belongs to.
+- [`context/nav2-config-parity.md`](../../context/nav2-config-parity.md)
+  — the sim→real Nav2 config discipline this gap belongs to (the older
+  knob-promotion split was retired for parity in
+  [`completed/nav2-envelope-retirement`](../../completed/nav2-envelope-retirement.md)).
 
 ## Context
 

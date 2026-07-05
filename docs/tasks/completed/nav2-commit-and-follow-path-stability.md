@@ -78,7 +78,7 @@ MPPI critic rebalance); these path-shape changes don't, so they go in
 the project's universal default instead. The architectural cleanup
 that formalizes this split (and graduates the other currently-gated
 knobs) is tracked in
-[`nav2-sim-real-promotion-architecture`](../active/tooling/nav2-sim-real-promotion-architecture.md).
+[`nav2-sim-real-promotion-architecture`](nav2-sim-real-promotion-architecture.md).
 
 ### A. SmacPlanner2D with soft-prefer-known via `cost_travel_multiplier`
 
@@ -157,7 +157,7 @@ costmap clearing recovery in the existing BT covers the recovery
 branch already. Real lidars are noisier than sim virtual lidars, so
 real-robot is the side where flapping is more likely to surface —
 the
-[`nav2-sim-real-promotion-architecture`](../active/tooling/nav2-sim-real-promotion-architecture.md)
+[`nav2-sim-real-promotion-architecture`](nav2-sim-real-promotion-architecture.md)
 follow-up tracks the real-robot validation lap and any debouncer
 work that comes out of it.
 
@@ -215,7 +215,7 @@ without any ROS imports of its own.
       `_patch_params` injects the smoothing BT and YAML pins the
       SmacPlanner2D plugin at every `envelope_factor`. The validation
       lap for the real-robot side lives in
-      [`nav2-sim-real-promotion-architecture`](../active/tooling/nav2-sim-real-promotion-architecture.md);
+      [`nav2-sim-real-promotion-architecture`](nav2-sim-real-promotion-architecture.md);
       that brief tracks observed regressions and any rollback or
       debouncer follow-ups.
 - [ ] On a sim mission whose Nav2 plan curves around an obstacle,
@@ -272,7 +272,7 @@ without any ROS imports of its own.
   evaluation, not the underlying costmap.
 - **Real-robot validation lap** for the universal BT + YAML defaults.
   Tracked in
-  [`nav2-sim-real-promotion-architecture`](../active/tooling/nav2-sim-real-promotion-architecture.md),
+  [`nav2-sim-real-promotion-architecture`](nav2-sim-real-promotion-architecture.md),
   along with the migration plan for the remaining
   `envelope_factor > 1.0`-gated MPPI tuning.
 - **A debouncer on `IsPathValid`**. Only file if real-robot or sim

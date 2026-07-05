@@ -30,11 +30,11 @@ Read these before starting:
 - [completed/nav2-startup-unknown-donut-path-noise.md](../../completed/nav2-startup-unknown-donut-path-noise.md)
   — the predecessor that pattern-matched onto the gate for a
   behavioral change (SmoothPath BT), not a velocity-coupled one.
-- [`active/reliability/nav2-commit-and-follow-path-stability.md`](../reliability/nav2-commit-and-follow-path-stability.md)
-  — the parent brief that already ungated `allow_unknown` and the
-  smoothing BT to the universal default. This brief picks up where
-  that one left off: formalize the split and migrate the remaining
-  gated knobs.
+- [`completed/nav2-commit-and-follow-path-stability.md`](../../completed/nav2-commit-and-follow-path-stability.md)
+  — the parent brief (shipped in PR #50) that already ungated
+  `allow_unknown` and the smoothing BT to the universal default. This
+  brief picks up where that one left off: formalize the split and
+  migrate the remaining gated knobs.
 
 ## Context
 
@@ -57,8 +57,8 @@ Current `_patch_params` structure (after PR #50 lands):
 | Constants injection (velocity caps, costmap resolution, footprint, scan ranges) | Always applied | n/a — physical constants from `strafer_shared` |
 | `vx_std`, `vy_std`, `wz_std`, `prune_distance` ×= `envelope_factor` | Always applied | Yes — sampling window must track exploration envelope |
 | `vy_std` un-scaled back to baseline | `envelope_factor > 1.0` | Yes — lifted envelope is for forward+rotation; lateral stays baseline |
-| `PathAlignCritic.cost_weight` 14 → 9 | `envelope_factor > 1.0` | **Possibly** — tuned for high-vel integration noise on straights; could matter less but still rebalance at low-vel |
-| `PreferForwardCritic.cost_weight` 3 → 10 | `envelope_factor > 1.0` | **Probably not** — biases against strafe/spin; useful at any velocity, just more critical when exploration is wider |
+| `PathAlignCritic.cost_weight` 8.0 → 9.0 | `envelope_factor > 1.0` | **Possibly** — tuned for high-vel integration noise on straights; could matter less but still rebalance at low-vel |
+| `PreferForwardCritic.cost_weight` 6.0 → 10.0 | `envelope_factor > 1.0` | **Probably not** — biases against strafe/spin; useful at any velocity, just more critical when exploration is wider |
 | `PathFollowCritic.offset_from_furthest` 5 → 20 | `envelope_factor > 1.0` | **Possibly** — high-speed rollouts win when look-ahead is far ahead; less load-bearing at low-vel |
 | `gamma` 0.015 → 0.008 | `envelope_factor > 1.0` | **Possibly** — smoothness/lag trade-off; lower lets command track the high-vx optimum |
 | Smoothing BT swap | Was gated; now universal (PR #50) | n/a — promoted |
@@ -93,10 +93,10 @@ def _patch_params(...):
     # an inline comment naming the graduation criterion and the
     # validation lap that needs to land before it moves out.
     if envelope_factor > 1.0:
-        # PathAlignCritic 14 → 9 — promotion criterion: real-robot
+        # PathAlignCritic 8.0 → 9.0 — promotion criterion: real-robot
         # cornering smoke (translate forward 1 m → rotate 90° →
         # translate forward 1 m) lands within tolerance with
-        # PathAlign=9 instead of 14.
+        # PathAlign=9.0 instead of 8.0.
         ...
 ```
 
@@ -128,7 +128,7 @@ out the per-knob graduation contract:
 
 Per-knob validation, ordered by smallest-blast-radius first:
 
-1. **`PreferForwardCritic.cost_weight` 3 → 10**: probably the most
+1. **`PreferForwardCritic.cost_weight` 6.0 → 10.0**: probably the most
    portable. Run the cornering smoke + a `translate forward 1 m`
    on real with the override applied. If MPPI doesn't over-bias
    forward at the indoor velocity cap, promote.
@@ -140,7 +140,7 @@ Per-knob validation, ordered by smallest-blast-radius first:
    could overshoot at indoor speeds where chassis inertia
    dominates command-following error. Validate on the same
    cornering smoke and a `rotate 90°` smoke.
-4. **`PathAlignCritic.cost_weight` 14 → 9**: most coupled to
+4. **`PathAlignCritic.cost_weight` 8.0 → 9.0**: most coupled to
    velocity; weakest portability case. Validate by checking
    whether MPPI tolerates small path-deviation noise without
    spending lateral effort tracking it at the indoor cap. If
@@ -154,48 +154,143 @@ the promotion (or as a follow-up brief if it surfaces a regression).
 
 ## Acceptance criteria
 
-- [ ] `_patch_params` is restructured into the three labeled
-      sections (constants / velocity-envelope coupling / behavioral
-      overrides). Each currently-gated knob carries an inline comment
-      naming its promotion criterion.
-- [ ] `docs/tasks/context/nav2-knob-promotion.md` exists and is linked
-      from `docs/tasks/context/README.md` (or the context-module
-      index, wherever conventions point). The module describes the
-      five-step contract above and gives one worked example.
+- [x] `_patch_params` is restructured into the three labeled
+      sections (universal defaults / velocity-envelope coupling /
+      behavioral overrides under promotion). Each currently-gated knob
+      carries an inline comment naming its promotion criterion.
+      *(Layer A — landed.)*
+- [x] `docs/tasks/context/nav2-knob-promotion.md` exists and is linked
+      from `docs/tasks/context/README.md`'s `## Current modules` index.
+      The module describes the five-step contract above and gives one
+      worked example (`PreferForwardCritic`). *(Layer B — landed.)*
 - [ ] At least one of the four MPPI knobs is run through the
       validation lap and either promoted to the universal default
       OR documented as "stays gated, refreshed justification: ___".
       The PR description carries the validation observations
       (mission, observed metric, disposition).
+      *STAGED (Layer C): ready-to-run lap cards are below; no
+      robot/operator access this session, so this opens when the
+      operator schedules robot time.*
 - [ ] The brief at
-      [`active/reliability/nav2-commit-and-follow-path-stability.md`](../reliability/nav2-commit-and-follow-path-stability.md)
+      [`completed/nav2-commit-and-follow-path-stability.md`](../../completed/nav2-commit-and-follow-path-stability.md)
       gets its outstanding "real-robot validation lap" bullet
       checked off — i.e., a real-robot run of the smoothing BT +
-      `allow_unknown=False` defaults happens and is recorded.
-- [ ] Unit tests pin the universal vs. gated split: a test asserts
-      every knob in the velocity-envelope section runs only when
-      `envelope_factor > 1.0`; a test asserts every knob in the
-      universal section runs on every `envelope_factor`. (Today's
-      `test_nav_config.py::TestConstantsInjection` is the right
-      pattern — extend it as the refactor lands.)
-- [ ] If your work invalidates a fact in any referenced context
+      `allow_unknown: true` (SmacPlanner2D) universal defaults happens
+      and is recorded.
+      *STAGED (Layer C): Lap 0 card below; operator-gated.*
+- [x] Unit tests pin the universal vs. gated split. Landed as
+      `test_nav_config.py::TestPromotionSplitInvariants` — universal
+      knobs resolve factor-independently, behavioral overrides apply
+      strictly when `envelope_factor > 1.0` (and stay at baseline at
+      `1.0` / sub-unity), and the velocity-envelope knobs track the
+      factor — plus `TestPatchByteIdentical`, a byte-identical golden
+      pin proving the refactor emits identical params to the
+      pre-refactor code at `envelope_factor == 1.0` and `2.0`.
+      Supersedes the `TestConstantsInjection`-only pattern.
+- [x] If your work invalidates a fact in any referenced context
       module, package README, top-level `Readme.md`, or guide under
       `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance
       section](../../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
+      *Swept: no user-facing surface references the refactored knobs
+      (no CLI / topic / env / public-API change); `context/README.md`
+      gains the new module's index entry.*
+
+## Validation lap cards (Layer C — staged, operator-gated)
+
+Ready-to-run cards, ordered smallest-blast-radius first (Approach C).
+Each is one real-robot lap; run at the indoor cap (real-robot bringup,
+`STRAFER_NAV_VEL_SCALE` unset → `envelope_factor = 1.0`, ~0.78 m/s).
+Baseline snapshots come from the sim run of the same mission (Foxglove
+overlay + `/cmd_vel` / `/plan` samples), reusing the bisection-snapshot
+harness from
+[`completed/mppi-critic-tuning-for-sim-envelope.md`](../../completed/mppi-critic-tuning-for-sim-envelope.md)'s
+Investigation pointers. Record the disposition inline on the card and
+mirror it to `BOARD.md`. **None run this session — no robot/operator
+access; all dispositions PENDING.**
+
+To promote a knob after a passing lap: move its value into
+`nav2_params.yaml`, delete its line from `_patch_params`'s behavioral
+section, and move its entry from `_BEHAVIORAL_OVERRIDES` to
+`_UNIVERSAL_KNOBS` in `test_nav_config.py`. Then regenerate the golden
+fixtures (they intentionally change) and note that in the PR.
+
+### Lap 0 — universal-default inheritance (closes acceptance #4)
+
+- **Under test:** the already-universal smoothing / event-driven-replan
+  BT + `allow_unknown: true` (SmacPlanner2D, `cost_travel_multiplier:
+  2.0`) — verify the real robot inherits them without regression. Not a
+  promotion; this closes the parent brief's open real-robot bullet.
+- **Mission:** `translate forward 3 m` after some warmup driving on a
+  partially-mapped room, then the cornering smoke
+  (`forward 1 m → rotate 90° → forward 1 m`).
+- **Baseline:** the parent brief's sim `/plan` overlay (plan commits,
+  prefers known-free, replans only on invalidation/goal-change).
+- **Observable:** `/plan` publishes once at start and again only on
+  goal-update or path invalidation (not per-0.5 m); plan stays inside
+  known-free cells; no unknown-band cut-through; far goals still plan.
+- **Regression (falsifiable):** `/plan` re-publishes on a fixed cadence
+  or visibly jitters between invalidation events; OR a far goal fails
+  planning outright on a small unknown patch (the NavFn brittleness
+  the SmacPlanner swap fixed); OR real-lidar blips flap the replan.
+- **Disposition:** PENDING.
+
+### Lap 1 — `PreferForwardCritic.cost_weight` 6.0 → 10.0 (behavioral)
+
+- **Mission:** `translate forward 1 m` + the cornering smoke.
+- **Baseline:** sim trace — vx-dominant `/cmd_vel`, `/optimal_trajectory`
+  tracks forward along `/plan`.
+- **Observable:** vx-dominant `/cmd_vel`, no reverse-along-path, arrival
+  within `xy_goal_tolerance = 0.15`.
+- **Regression:** MPPI over-biases forward and overshoots the goal; or
+  (if the weight is too strong for the lower real cap) the chassis drives
+  tangent to / backward along the path.
+- **Disposition:** PENDING. Promote if it holds — most portable of the four.
+
+### Lap 2 — `PathFollowCritic.offset_from_furthest` 5 → 20
+
+- **Mission:** cornering smoke + a long-corridor `translate forward 3 m`.
+- **Observable:** look-ahead ~1 m at `MAP_RESOLUTION = 0.05` (~1.3 s
+  preview at 0.78 m/s); the path is tracked without corner-cutting.
+- **Regression:** at the lower real cap the far look-ahead makes the
+  robot cut corners or overshoot before the goal.
+- **Disposition:** PENDING.
+
+### Lap 3 — `gamma` 0.015 → 0.008
+
+- **Mission:** cornering smoke + a `rotate 90°` smoke.
+- **Observable:** commanded mean tracks the optimum without overshoot or
+  oscillation.
+- **Regression:** overshoot / oscillation at indoor speeds where chassis
+  inertia dominates command-following error — the lower `gamma` removes
+  the smoothing that was masking it.
+- **Disposition:** PENDING.
+
+### Lap 4 — `PathAlignCritic.cost_weight` 8.0 → 9.0 (most velocity-coupled)
+
+- **Mission:** cornering smoke on a curved plan with small path-deviation
+  noise.
+- **Observable:** MPPI tolerates the small deviation without spending
+  lateral `vy` to chase it at the indoor cap.
+- **Regression:** the chassis strafes (`vy`) to track path noise → promotion
+  fails; keep gated, refresh the inline justification with the observed
+  strafe. Weakest portability case of the four.
+- **Disposition:** PENDING.
 
 ## Investigation pointers
 
 - `source/strafer_ros/strafer_navigation/launch/navigation.launch.py`
-  — `_patch_params`. The current `if envelope_factor > 1.0:` block
-  is what's being refactored; the constants-injection block above it
-  is the model.
+  — `_patch_params`, now split into the three labeled sections
+  (universal defaults / velocity-envelope coupling / behavioral
+  overrides under promotion). The behavioral-overrides section is where
+  the four candidate knobs sit, each with its inline promotion criterion.
 - `source/strafer_ros/strafer_navigation/config/nav2_params.yaml`
   — universal defaults end up here after promotion.
 - `source/strafer_ros/strafer_navigation/test/test_nav_config.py`
-  — `TestConstantsInjection` is the right place to add per-section
-  invariants.
+  — `TestPromotionSplitInvariants` (per-section invariants) and
+  `TestPatchByteIdentical` (byte-identical golden pin) are where the
+  split is enforced.
 - Predecessor briefs' validation harness: the sim-velocity
   bisection scripts referenced from
   [`completed/mppi-critic-tuning-for-sim-envelope.md`](../../completed/mppi-critic-tuning-for-sim-envelope.md)'s

@@ -184,6 +184,11 @@ accurate.
 - [`recurrent-policy-contract.md`](recurrent-policy-contract.md) — the
   DEPTH policy's recurrent hidden-state seam across train → export →
   inference (tensor shape, reset semantics, ownership at each layer).
+- [`nav2-knob-promotion.md`](nav2-knob-promotion.md) — the sim→real
+  graduation contract for Nav2's `_patch_params`: the three-bucket split
+  (universal / velocity-coupled / behavioral-under-promotion), the
+  five-step per-knob promotion lap, and why the split matters on the
+  hybrid backend even though the trained policy does local control.
 
 The operator → planner → executor → grounding → goal projection →
 Nav2 → bridge → Isaac Sim arrow chain is documented in

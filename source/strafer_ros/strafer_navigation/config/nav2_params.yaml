@@ -29,12 +29,12 @@ bt_navigator:
     bt_loop_duration: 50              # ms — 20Hz matches controller_frequency; 100Hz default starved Jetson Orin Nano (IsPathValid raycast per tick)
     default_server_timeout: 20
     wait_for_service_timeout: 1000
-    # Real-robot bringup uses Nav2's stock BT
-    # (navigate_to_pose_w_replanning_and_recovery.xml). The sim lane
-    # (envelope_factor > 1.0) overrides default_nav_to_pose_bt_xml at
-    # launch to point at config/navigate_to_pose_w_smoothing_and_recovery.xml,
-    # which adds a SmoothPath step on the global path so MPPI doesn't
-    # chase grid jaggies through the camera-blind-spot donut at startup.
+    # Every lane loads config/navigate_to_pose_w_smoothing_and_recovery.xml
+    # into default_nav_to_pose_bt_xml at launch (the path resolves from
+    # ament_index, so it isn't pinned here). It adds a SmoothPath step on the
+    # global path — so MPPI doesn't chase grid jaggies through the
+    # camera-blind-spot donut at startup — and gates replanning on path
+    # invalidation instead of a timer.
     plugin_lib_names:
       - nav2_compute_path_to_pose_action_bt_node
       - nav2_compute_path_through_poses_action_bt_node

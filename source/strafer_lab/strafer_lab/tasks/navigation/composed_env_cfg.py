@@ -76,6 +76,7 @@ from .strafer_env_cfg import (
     RewardsCfg,
     RewardsCfg_ProcRoom,
     RewardsCfg_ProcRoom_Subgoal,
+    RewardsCfg_ProcRoom_Subgoal_Depth,
     StraferSceneCfg,
     StraferSceneCfg_Infinigen,
     StraferSceneCfg_InfinigenPerception,
@@ -294,6 +295,17 @@ _REWARDS_BY_SOURCE_SUBGOAL = {
     "procroom": RewardsCfg_ProcRoom_Subgoal,
 }
 
+# The subgoal reward is the one manager that also varies on the sensor profile:
+# a depth stack can supply a depth-*sensed* obstacle-avoidance penalty the
+# proprioceptive stack cannot. Keyed on ``(source, profile)`` and consulted as
+# an override of ``_REWARDS_BY_SOURCE_SUBGOAL`` — a leaf addition mirroring the
+# profile-keyed observation table, not a new composition axis. Absent an entry
+# (e.g. the nocam subgoal path), the source-only base table applies, so the
+# NOCAM_SUBGOAL reward contract stays byte-identical.
+_REWARDS_BY_SOURCE_PROFILE_SUBGOAL = {
+    ("procroom", "depth"): RewardsCfg_ProcRoom_Subgoal_Depth,
+}
+
 _TERMINATIONS_BY_SOURCE_SUBGOAL = {
     "procroom": TerminationsCfg_ProcRoom_Subgoal,
 }
@@ -446,7 +458,14 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
         if objective == "subgoal":
             try:
                 self.commands = _COMMANDS_BY_SOURCE_SUBGOAL[kind]()
-                self.rewards = _REWARDS_BY_SOURCE_SUBGOAL[kind]()
+                # Profile-aware reward: a depth stack gets the depth-sensed
+                # obstacle penalty on top of the shared subgoal rewards; every
+                # other profile falls through to the source-only base table
+                # (which still raises KeyError for an unsupported source).
+                rewards_cls = _REWARDS_BY_SOURCE_PROFILE_SUBGOAL.get(
+                    (kind, profile), _REWARDS_BY_SOURCE_SUBGOAL[kind]
+                )
+                self.rewards = rewards_cls()
                 self.terminations = _TERMINATIONS_BY_SOURCE_SUBGOAL[kind]()
             except KeyError as exc:
                 raise ValueError(
@@ -582,6 +601,47 @@ class StraferNavCfg_RLNoCamSubgoal_Robust_PLAY(StraferNavCfg_RLNoCamSubgoal_Robu
     """Play/eval preset for RL no-cam subgoal tracking (robust)."""
 
     play_num_envs = base._PROCROOM_NOCAM_PLAY_NUM_ENVS
+
+
+@configclass
+class StraferNavCfg_RLDepthSubgoal_Real(_ComposedStraferNavEnvCfg):
+    """RL depth-camera subgoal tracking (ProcRoom, realistic).
+
+    The maximally-capable hybrid corner: the policy tracks a rolling subgoal on
+    a sim-planned path *and* sees depth, so it can leave the path to clear a
+    late-arriving obstacle. Same observation contract as RL-depth-direct
+    (byte-identical depth obs), but the goal-shaped fields refer to a rolling
+    subgoal, and the reward carries a depth-sensed obstacle-proximity penalty
+    alongside the geometric one (see ``RewardsCfg_ProcRoom_Subgoal_Depth``)."""
+
+    sensors = SensorStackCfg(cameras_required=("depth_policy",))
+    scene_source = SceneSourceCfg(kind="procroom")
+    realism = RealismCfg(level="real")
+    objective = ObjectiveCfg(kind="subgoal")
+
+
+@configclass
+class StraferNavCfg_RLDepthSubgoal_Real_PLAY(StraferNavCfg_RLDepthSubgoal_Real):
+    """Play/eval preset for RL depth subgoal tracking (realistic)."""
+
+    play_num_envs = base._PROCROOM_DEPTH_PLAY_NUM_ENVS
+
+
+@configclass
+class StraferNavCfg_RLDepthSubgoal_Robust(_ComposedStraferNavEnvCfg):
+    """RL depth-camera subgoal tracking (ProcRoom, robust DR)."""
+
+    sensors = SensorStackCfg(cameras_required=("depth_policy",))
+    scene_source = SceneSourceCfg(kind="procroom")
+    realism = RealismCfg(level="robust")
+    objective = ObjectiveCfg(kind="subgoal")
+
+
+@configclass
+class StraferNavCfg_RLDepthSubgoal_Robust_PLAY(StraferNavCfg_RLDepthSubgoal_Robust):
+    """Play/eval preset for RL depth subgoal tracking (robust)."""
+
+    play_num_envs = base._PROCROOM_DEPTH_PLAY_NUM_ENVS
 
 
 # ---------------------------------------------------------------------------

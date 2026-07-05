@@ -18,6 +18,11 @@ against):
   recurrent (GRU) policy — corner anticipation for the rolling-subgoal task
 - ``Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-GRU-v0``: the GRU arm's play /
   eval + export-shape variant (realistic, fewer envs)
+- ``Isaac-Strafer-Nav-RLDepth-Subgoal-Real-v0``: depth-policy obs, ProcRoom,
+  realistic, rolling-subgoal path tracking — the policy sees depth and can
+  leave the path to clear a sensed obstacle
+- ``Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-v0``: depth-policy obs, ProcRoom,
+  robust DR, rolling-subgoal path tracking
 
 Capture (operator-selectable stack via ``capture.py --sensors``; the default
 preset is shown):
@@ -76,6 +81,13 @@ _ENV_REGISTRATIONS = [
     # MLP arm above (same obs contract), only the runner's policy differs.
     ("Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-GRU-v0", "StraferNavCfg_RLNoCamSubgoal_Robust", _RECURRENT_RUNNER_CFG),
     ("Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-GRU-v0", "StraferNavCfg_RLNoCamSubgoal_Real_PLAY", _RECURRENT_RUNNER_CFG),
+    # Depth-camera rolling-subgoal path tracking — the hybrid corner: rolling
+    # subgoal obs + depth so the policy can leave the path around a sensed
+    # obstacle. Depth-image obs → the CNN depth runner (already recurrent).
+    ("Isaac-Strafer-Nav-RLDepth-Subgoal-Real-v0", "StraferNavCfg_RLDepthSubgoal_Real", _DEPTH_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0", "StraferNavCfg_RLDepthSubgoal_Real_PLAY", _DEPTH_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-v0", "StraferNavCfg_RLDepthSubgoal_Robust", _DEPTH_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-Play-v0", "StraferNavCfg_RLDepthSubgoal_Robust_PLAY", _DEPTH_RUNNER_CFG),
     # Capture variants (operator-selectable stack)
     ("Isaac-Strafer-Nav-Capture-Teleop-v0", "StraferNavCfg_TeleopCapture", _NOCAM_RUNNER_CFG),
     ("Isaac-Strafer-Nav-Capture-Bridge-v0", "StraferNavCfg_BridgeAutonomy", _DEPTH_RUNNER_CFG),

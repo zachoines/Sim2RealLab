@@ -1611,6 +1611,39 @@ class RewardsCfg_ProcRoom_Subgoal:
 
 
 @configclass
+class RewardsCfg_ProcRoom_Subgoal_Depth(RewardsCfg_ProcRoom_Subgoal):
+    """Path-tracking rewards for the DEPTH_SUBGOAL objective.
+
+    Inherits the NOCAM-subgoal reward set verbatim — path tracking, the
+    dwell-gated completion bonus, the off-path penalty, the contact-force
+    collision terms, and the geometric ``obstacle_proximity`` shaping — and
+    *adds* the depth-sensed ``depth_obstacle_proximity``.
+
+    The two proximity terms coexist by design and are not double-counting: they
+    read different things. ``obstacle_proximity`` reads ground-truth primitive
+    geometry — ideal shaping toward clearance the sensor can't provide.
+    ``depth_obstacle_proximity`` reads the depth camera the policy actually
+    sees — teaching it to react to *sensed* obstacles, including late-arriving
+    ones the planned path drives through. Depth makes obstacles observable, so
+    (unlike NOCAM_SUBGOAL, where the policy is blind and the analogous gradient
+    would be noise) this proximity gradient is real signal. The weight is a
+    training-time tuning starting point, not a converged constant.
+    """
+
+    depth_obstacle_proximity = RewTerm(
+        func=mdp.depth_obstacle_proximity_penalty,
+        weight=-1.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("d555_camera"),
+            "distance_threshold": 1.0,
+            "saturation_depth": 0.3,
+            "epsilon": 0.1,
+            "max_depth": DEPTH_MAX,
+        },
+    )
+
+
+@configclass
 class TerminationsCfg_ProcRoom_Subgoal(TerminationsCfg):
     """Terminations for the ProcRoom subgoal objective.
 

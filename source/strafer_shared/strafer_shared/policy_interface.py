@@ -171,6 +171,18 @@ _NOCAM_SUBGOAL_FIELDS: tuple[ObsField, ...] = (
     ObsField("last_action", 3, 1.0),
 )
 
+# DEPTH_SUBGOAL stands to DEPTH exactly as NOCAM_SUBGOAL stands to NOCAM: the
+# goal-shaped scalar fields are renamed to their rolling-subgoal referent, and
+# DEPTH's 4800-dim depth field rides along unchanged. Built by reusing
+# _NOCAM_SUBGOAL_FIELDS and slicing DEPTH's depth field verbatim (the part of
+# _DEPTH_FIELDS past the shared NOCAM prefix), so the depth shape/scale are
+# defined in exactly one place — same 4819 dims, same scales, same network as
+# DEPTH. Only the goal referent differs. The distinct "subgoal_*" keys force
+# inference-side assembly to wire subgoal data explicitly (see NOCAM_SUBGOAL).
+_DEPTH_SUBGOAL_FIELDS: tuple[ObsField, ...] = (
+    _NOCAM_SUBGOAL_FIELDS + _DEPTH_FIELDS[len(_NOCAM_FIELDS):]
+)
+
 
 class PolicyVariant(Enum):
     """Policy observation variants matching Isaac Lab environment configs.
@@ -194,11 +206,34 @@ class PolicyVariant(Enum):
     through a real obstacle, the policy follows it. The deployment lane must
     run a costmap freshness watchdog and must not use this variant in
     dynamic-obstacle scenarios.
+
+    DEPTH_SUBGOAL contract
+    ----------------------
+
+    ``DEPTH_SUBGOAL`` stands to ``DEPTH`` exactly as ``NOCAM_SUBGOAL`` stands to
+    ``NOCAM``: identical observation dimensionality, field shapes, and scales
+    (4819 dims, same conv+recurrent architecture as ``DEPTH``), but the
+    goal-shaped scalar fields refer to a **rolling subgoal pose** on a
+    planner-provided path, not a final goal pose. Same silent-garbage hazard:
+    a checkpoint trained under one referent is meaningless under the other, so
+    consumers must pair the variant with the matching command source at both
+    training and inference time; the loader's sidecar variant check catches
+    mislabeled artifacts.
+
+    Trust boundary — lifted relative to ``NOCAM_SUBGOAL``: ``DEPTH_SUBGOAL``
+    keeps the depth channel, so the policy *sees* what the plan cannot. It is
+    the maximally-capable hybrid corner — a global planner supplies the route
+    via the rolling subgoal while depth lets the policy leave that route to
+    clear a late-arriving obstacle the costmap missed. The
+    ``NOCAM_SUBGOAL``-must-not-run-in-dynamic-obstacle-scenarios caveat above
+    does not bind ``DEPTH_SUBGOAL``; the depth-aware obstacle-avoidance reward
+    it trains against is what earns that lifted boundary.
     """
 
     NOCAM = _NOCAM_FIELDS  # 19 dims
     DEPTH = _DEPTH_FIELDS  # 4819 dims
     NOCAM_SUBGOAL = _NOCAM_SUBGOAL_FIELDS  # 19 dims; see class docstring
+    DEPTH_SUBGOAL = _DEPTH_SUBGOAL_FIELDS  # 4819 dims; see class docstring
 
     @property
     def obs_dim(self) -> int:

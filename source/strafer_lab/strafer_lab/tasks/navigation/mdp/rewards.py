@@ -670,6 +670,79 @@ def procroom_obstacle_proximity_penalty(
     )
 
 
+def depth_obstacle_proximity_penalty(
+    env: ManagerBasedEnv,
+    sensor_cfg: SceneEntityCfg,
+    distance_threshold: float = 1.0,
+    saturation_depth: float = 0.3,
+    epsilon: float = 0.1,
+    max_depth: float = 6.0,
+) -> torch.Tensor:
+    """Dense depth-*sensed* penalty for the nearest obstacle in the camera view.
+
+    The DEPTH_SUBGOAL counterpart to the geometric
+    :func:`procroom_obstacle_proximity_penalty`. The two coexist deliberately
+    and measure different things: the geometric term reads ground-truth
+    primitive geometry to *shape* behavior; this term reads the depth camera
+    the policy actually *sees*, so the policy learns to react to sensed
+    obstacles — including late-arriving ones a planner's path drives straight
+    through. Ground-truth shaping and the sensed channel, side by side.
+
+    Penalty on the closest depth-image pixel, of the saturating reciprocal form
+    ``1 / (min_depth + epsilon)`` with two clips that make it well-behaved as a
+    reward:
+
+    - ``min_depth`` is floored at ``saturation_depth`` so the term saturates
+      rather than exploding as the robot approaches contact.
+    - the term is offset by its own value at ``distance_threshold`` and clamped
+      at zero, so an unobstructed view (nearest surface at or beyond the
+      threshold) accrues exactly zero — only closer clutter is penalized.
+
+    ``inf`` / ``nan`` pixels (nothing in range) become ``max_depth`` before the
+    per-env minimum, mirroring the observation's sanitization. The observation's
+    near-field fill is intentionally *not* applied: this term wants the true
+    nearest sensed distance, floored by ``saturation_depth`` for numerical
+    safety rather than by a sensor-emulation constant. Use with a negative
+    weight; the coefficient is a training-time tuning artifact.
+
+    Args:
+        env: The environment instance.
+        sensor_cfg: Scene entity config for the depth camera sensor.
+        distance_threshold: Nearest-depth (m) at/beyond which the penalty is
+            zero — only clutter closer than this contributes.
+        saturation_depth: Floor (m) on the nearest depth; the penalty is
+            constant at/below it, so near-contact does not blow up the reward.
+        epsilon: Small constant (m) guarding the reciprocal.
+        max_depth: Value (m) substituted for inf/nan pixels and the clamp ceil.
+
+    Returns:
+        Non-negative proximity penalty. Shape: (num_envs,)
+    """
+    sensor = env.scene.sensors[sensor_cfg.name]
+    # Camera output is a wp.array (TiledCamera) or a torch.Tensor (Camera);
+    # mirror observations._to_torch without importing across the mdp modules.
+    raw = sensor.data.output["distance_to_image_plane"]
+    depth = raw if isinstance(raw, torch.Tensor) else wp.to_torch(raw)
+
+    # Nothing-in-range pixels read inf/nan; treat them as the far clip so they
+    # never dominate the per-env minimum.
+    depth = torch.where(
+        torch.isinf(depth) | torch.isnan(depth),
+        torch.full_like(depth, max_depth),
+        depth,
+    )
+    depth = torch.clamp(depth, 0.0, max_depth)
+
+    # Closest surface each env sees, over the flattened image.
+    min_depth = depth.reshape(depth.shape[0], -1).min(dim=1).values
+
+    # Saturating reciprocal, offset so an at-or-beyond-threshold view reads zero.
+    floored = torch.clamp(min_depth, min=saturation_depth)
+    penalty = 1.0 / (floored + epsilon)
+    baseline = 1.0 / (distance_threshold + epsilon)
+    return torch.clamp(penalty - baseline, min=0.0)
+
+
 # ---------------------------------------------------------------------------
 # Path-tracking rewards (rolling-subgoal command)
 # ---------------------------------------------------------------------------

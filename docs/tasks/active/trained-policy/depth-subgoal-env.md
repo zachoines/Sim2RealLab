@@ -7,16 +7,22 @@
 **Estimate:** L (~2–3 weeks: design questions resolved + reward shaping iterated + DEPTH-rate training run)
 **Branch:** task/depth-subgoal-env
 
-## Un-park trigger
+## Un-park trigger (satisfied — un-parked 2026-07-04)
 
-This brief is parked until **all** of the following have shipped:
+**Un-parked** by explicit operator decision (epic decision 5): the goal-c env
+composition deliberately overlaps the goal-a retrain. The soft trigger below was
+also arguably met — NOCAM_SUBGOAL's observed corner-contact behavior is exactly
+the depth-recoverable failure class this brief names. The gating conditions,
+retained as historical record:
+
+The brief was parked until **all** of the following had shipped:
 
 1. [`inference-package`](../../completed/inference-package.md) ✅ shipped (provides the DEPTH observation pipeline + the recurrent-policy infrastructure this brief's checkpoint will deploy through).
-2. [`subgoal-env`](../../completed/subgoal-env.md) shipped (provides the `SubgoalCommand` term, the path planner — Option A or B from its Phase 1 — and the registered NoCam-Subgoal task IDs this brief extends).
+2. [`subgoal-env`](../../completed/subgoal-env.md) ✅ shipped (provides the `SubgoalCommand` term, the path planner — Option A or B from its Phase 1 — and the registered NoCam-Subgoal task IDs this brief extends).
 
-A third soft prerequisite worth waiting on: NOCAM_SUBGOAL **deployed via** [`hybrid-mode`](../../completed/hybrid-mode.md) and the [`strafer-hybrid-sim-validation`](../../completed/trained-policy/strafer-hybrid-sim-validation.md) brief shipped. The deployment evidence is what tells us whether NOCAM_SUBGOAL's failure modes (dynamic obstacles, costmap staleness — the things the variant is documented unsafe in) actually bite in practice, and therefore whether DEPTH_SUBGOAL's training cost is justified. If the operator can confirm a deployment failure NOCAM_SUBGOAL cannot recover from, un-park immediately. If NOCAM_SUBGOAL works fine in all observed deployments, this brief stays parked.
+A third soft prerequisite worth waiting on: NOCAM_SUBGOAL **deployed via** [`hybrid-mode`](../../completed/hybrid-mode.md) and the [`strafer-hybrid-sim-validation`](../../completed/trained-policy/strafer-hybrid-sim-validation.md) brief shipped. The deployment evidence is what tells us whether NOCAM_SUBGOAL's failure modes (dynamic obstacles, costmap staleness — the things the variant is documented unsafe in) actually bite in practice, and therefore whether DEPTH_SUBGOAL's training cost is justified.
 
-Un-park by `git mv parked/trained-policy/depth-subgoal-env.md active/trained-policy/depth-subgoal-env.md` in the PR that picks it up.
+Un-parked via `git mv parked/trained-policy/depth-subgoal-env.md active/trained-policy/depth-subgoal-env.md` in the picking-up PR.
 
 ## Story
 
@@ -33,6 +39,39 @@ Read these before starting:
 - [`subgoal-env`](../../completed/subgoal-env.md)'s `## Context > NOCAM_SUBGOAL safety` section — the trust-boundary discussion this brief's variant explicitly lifts.
 
 ## Design questions (must be resolved during the picking-up PR)
+
+**Resolved (Phases 1–4 PR, un-parked 2026-07-04):**
+
+- **Q1 → A** (same architecture as DEPTH-direct, fresh PPO run). The four
+  registered ids pair with `STRAFER_PPO_DEPTH_RUNNER_CFG` (already recurrent:
+  CNN + GRU 1×128) — no new runner cfg. The fine-tune-from-checkpoint comparison
+  is a Phase-5 ablation, not the default.
+- **Q2 → B** (explicit depth-aware obstacle-avoidance reward). Started from
+  `RewardsCfg_ProcRoom_Subgoal` unchanged (its dwell-gated `path_complete` and
+  geometric `obstacle_proximity` carry over) and *added*
+  `depth_obstacle_proximity_penalty` — the saturating `1/(min(depth)+ε)` form,
+  zeroed beyond a clearance threshold and floored at a saturation depth. The
+  geometric term (ground-truth shaping) and the depth term (the sensed channel)
+  coexist deliberately; documented in `RewardsCfg_ProcRoom_Subgoal_Depth`. Depth
+  makes obstacles *observable*, so the proximity gradient is real signal here
+  (unlike NOCAM_SUBGOAL). Fall-back to Option A stays available if Phase-5
+  coefficient sweeps don't converge.
+- **Q3 → A** (reuse `SubgoalCommand` unchanged, fixed lookahead). The dwell
+  params ride in automatically. Depth-modulated lookahead stays out of scope
+  (see the follow-up below).
+
+**Composition mechanics:** the codebase moved from hand-written
+`StraferNavEnvCfg_*` classes to composed cfgs since this brief was filed. The
+depth×subgoal corner composes through the existing machinery with **no
+structural extension** — `_ComposedStraferNavEnvCfg` with a depth sensor stack +
+`objective="subgoal"` already selects the depth observation and the subgoal
+command/termination blocks, and the goal-shaped depth-obs scalars re-bind to the
+subgoal command via the shared `goal_command` name. The one addition is a leaf,
+profile-keyed override of the subgoal-reward selector
+(`_REWARDS_BY_SOURCE_PROFILE_SUBGOAL`) so the depth stack gets the depth-sensed
+penalty while the NOCAM_SUBGOAL path stays byte-identical — mirroring how the
+observation table is already keyed on `(realism, profile)`. No design consult
+was needed; the NOCAM_SUBGOAL two-arm run is untouched.
 
 ### 1. Architecture: share backbone with DEPTH-direct or train from scratch?
 
@@ -92,6 +131,24 @@ DEPTH training on `Isaac-Strafer-Nav-RLDepth-Real-v0` takes substantially longer
 
 Five phases, sequenced. Phases 1–4 are dev work; Phase 5 is the training run that gates the runtime consumer.
 
+**Phases 1–4 landed (un-park PR, 2026-07-04).** Two places the implementation
+diverged from the sketch below, both because the codebase moved on after this
+brief was filed:
+
+- Phase 4 composes through `_ComposedStraferNavEnvCfg`
+  (`StraferNavCfg_RLDepthSubgoal_{Real,Robust}[_PLAY]`) rather than hand-written
+  `StraferNavEnvCfg_*` classes — see the composition-mechanics note under Design
+  questions. The depth reward is added via `RewardsCfg_ProcRoom_Subgoal_Depth`
+  (a subclass of the shared subgoal rewards) selected by a profile-keyed
+  override, so the NOCAM_SUBGOAL reward stays byte-identical.
+- The reward unit tests live at `tests/navigation/test_depth_subgoal_rewards.py`
+  (Kit-free, `SimpleNamespace`-mocked depth sensor — the repo convention for MDP
+  reward-function unit tests), not the `tests/test_depth_subgoal_rewards.py`
+  path the sketch names.
+
+Phase 5 (training + converged checkpoint + export round-trip) is operator-gated;
+the brief stays active until it closes.
+
 ### Phase 1 — Reuse subgoal-env's path planner (½ day)
 
 No new path-planning work. Reuse whatever planner subgoal-env shipped (Option A: Nav2 offline, or Option B: custom A* + noise). Document the choice this brief inherited and the implication for deployment parity (see [`strafer-hybrid-sim-validation`](../../completed/trained-policy/strafer-hybrid-sim-validation.md)'s subgoal-pose parity bound — same logic, same bound).
@@ -122,7 +179,7 @@ In `strafer_env_cfg.py`: `StraferNavEnvCfg_Real_ProcRoom_Subgoal_Depth` (and `_R
 
 In `navigation/__init__.py`: register `Isaac-Strafer-Nav-RLDepth-Subgoal-Real-v0`, `-Play-v0`, `Robust` variants.
 
-Smoke test: `python source/strafer_lab/scripts/test_strafer_env.py --task Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0` runs without errors, path + subgoal markers + depth visualization visible in the Kit viewport.
+Smoke test (operator Kit gate): `$ISAACLAB -p source/strafer_lab/scripts/test_strafer_env.py --env Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0 --num_envs 1 --pattern circle --duration 15 --video` runs without errors; the recorded clip (or a headed viewport — drop `--video`, add nothing else) shows the planned path + rolling-subgoal markers (both `debug_vis=True`) and the robot moving through the ProcRoom depth scene. The script's flag is `--env` (not `--task`), it launches via `isaaclab.sh -p`, and it auto-enables cameras for depth envs.
 
 ### Phase 5 — Training run + checkpoint (1–3 weeks wall, depending on architecture choice from design question 1)
 
@@ -140,18 +197,18 @@ If `goal-noise-training` has shipped by this point, run a noise-resilience pass 
 
 ### Variant + command
 
-- [ ] `PolicyVariant.DEPTH_SUBGOAL` defined with `obs_dim == PolicyVariant.DEPTH.obs_dim` (4819) and a docstring that explicitly contrasts the goal-field semantics vs DEPTH-direct.
-- [ ] `_DEPTH_SUBGOAL_FIELDS` shares scale and dim with `_DEPTH_FIELDS` per field (re-use the constants — don't redefine).
+- [x] `PolicyVariant.DEPTH_SUBGOAL` defined with `obs_dim == PolicyVariant.DEPTH.obs_dim` (4819) and a docstring that explicitly contrasts the goal-field semantics vs DEPTH-direct. *(Phases 1–4 PR; `test_policy_variant_depth_subgoal.py`.)*
+- [x] `_DEPTH_SUBGOAL_FIELDS` shares scale and dim with `_DEPTH_FIELDS` per field (re-use the constants — don't redefine). *(Built as `_NOCAM_SUBGOAL_FIELDS + _DEPTH_FIELDS[len(_NOCAM_FIELDS):]` — the depth `ObsField` is reused verbatim, asserted `is` the DEPTH one.)*
 
 ### Reward shaping
 
-- [ ] Reward functions chosen per design question 2; unit-tested against synthetic depth + path inputs.
-- [ ] Termination set inherits from NOCAM_SUBGOAL (off-path divergence + path-complete) plus the existing DEPTH-side collision termination.
+- [x] Reward functions chosen per design question 2; unit-tested against synthetic depth + path inputs. *(Option B — `depth_obstacle_proximity_penalty`; `test_depth_subgoal_rewards.py` covers fires/zero/saturates/inf + additive-with-path-tracking.)*
+- [x] Termination set inherits from NOCAM_SUBGOAL (off-path divergence + path-complete) plus the existing DEPTH-side collision termination. *(`TerminationsCfg_ProcRoom_Subgoal`: path_complete + off_path_divergence + sustained contact-force collision + robot_flip/timeout.)*
 
 ### Env + registration
 
-- [ ] Four task IDs registered (`Real` / `Robust` × non-play / play). `gym.make(<id>)` succeeds.
-- [ ] Smoke test on the play variant runs to completion with path + subgoal + depth visualization visible.
+- [x] Four task IDs registered (`Real` / `Robust` × non-play / play). `gym.make(<id>)` succeeds. *(`Isaac-Strafer-Nav-RLDepth-Subgoal-{Real,Robust}[-Play]-v0` on `STRAFER_PPO_DEPTH_RUNNER_CFG`; `EXPECTED_ENVS` + composition-contract goldens updated.)*
+- [ ] Smoke test on the play variant runs to completion with path + subgoal + depth visualization visible. *(Operator Kit smoke — the Phase-4 merge gate.)*
 
 ### Training run
 
@@ -165,7 +222,7 @@ If `goal-noise-training` has shipped by this point, run a noise-resilience pass 
 
 ### Maintenance
 
-- [ ] If your work invalidates a fact in any referenced context module or in `subgoal-env.md`'s "NOCAM_SUBGOAL safety" section (which now coexists with DEPTH_SUBGOAL's lifted-trust-boundary story), update those in the same commit.
+- [x] If your work invalidates a fact in any referenced context module or in `subgoal-env.md`'s "NOCAM_SUBGOAL safety" section (which now coexists with DEPTH_SUBGOAL's lifted-trust-boundary story), update those in the same commit. *(No facts invalidated — `subgoal-env.md` already frames DEPTH_SUBGOAL as the depth-seeing successor. The lifted-trust-boundary story is stated in the `PolicyVariant` docstring; the moved-brief links in `subgoal-env.md` / `hybrid-mode.md` / BOARD were repointed parked→active.)*
 
 ## Investigation pointers
 

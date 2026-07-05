@@ -96,6 +96,16 @@ _CONTRACT_GOLDENS = {
     "RLNoCamSubgoal_Robust": "1f16f07c038d3eb05c765fe99d857a2ef68e80d369dc279ad7e81c25ef760aa5",
     "RLNoCamSubgoal_Real_PLAY": "0ec2595c9efb9ea6846a4cfa9b78025babb32fe377584a0d5a2c7049176d4079",
     "RLNoCamSubgoal_Robust_PLAY": "f1fc1058d0ad698faa88986e8fd2ae0dada2c3701a7cbdf1e24e19a25f839c11",
+    # Depth-camera subgoal variants (the hybrid corner). No legacy predecessor —
+    # these lock the current contract as the DEPTH_SUBGOAL checkpoint's baseline
+    # (same do-not-edit rule from here on), exactly as the NOCAM_SUBGOAL rows
+    # were snapshotted when that task landed. They differ from the NoCam-subgoal
+    # rows above by the depth observation and the added depth-sensed
+    # `depth_obstacle_proximity` reward term; everything else is shared.
+    "RLDepthSubgoal_Real": "17a827106b78922ffa2c5f85e2eac82cb238bf0d343b2ece4eb182665f873b77",
+    "RLDepthSubgoal_Robust": "f862b41701c6566916182dd7c48c64486c6ce4fa4921d8700c818ef2d125c0c8",
+    "RLDepthSubgoal_Real_PLAY": "65a5f95b9488f26f0186727a6744def40e33f8f4586cba62f9b9c6aec8bd8572",
+    "RLDepthSubgoal_Robust_PLAY": "21c745106292b3840e8111e26e5a0541c931a436b643319fb8f7cea5a50f3b93",
 }
 
 # The depth observation a checkpoint consumes — captured identical across the
@@ -114,6 +124,10 @@ _COMPOSED_RL = {
     "RLNoCamSubgoal_Robust": composed.StraferNavCfg_RLNoCamSubgoal_Robust,
     "RLNoCamSubgoal_Real_PLAY": composed.StraferNavCfg_RLNoCamSubgoal_Real_PLAY,
     "RLNoCamSubgoal_Robust_PLAY": composed.StraferNavCfg_RLNoCamSubgoal_Robust_PLAY,
+    "RLDepthSubgoal_Real": composed.StraferNavCfg_RLDepthSubgoal_Real,
+    "RLDepthSubgoal_Robust": composed.StraferNavCfg_RLDepthSubgoal_Robust,
+    "RLDepthSubgoal_Real_PLAY": composed.StraferNavCfg_RLDepthSubgoal_Real_PLAY,
+    "RLDepthSubgoal_Robust_PLAY": composed.StraferNavCfg_RLDepthSubgoal_Robust_PLAY,
 }
 
 
@@ -284,6 +298,63 @@ def test_subgoal_objective_requires_procroom_scene():
             realism=composed.RealismCfg(level="real"),
             objective=composed.ObjectiveCfg(kind="subgoal"),
         )
+
+
+def _reward_term_names(rewards_cfg):
+    return {
+        k for k, v in rewards_cfg.__dict__.items()
+        if not k.startswith("_") and hasattr(v, "func")
+    }
+
+
+def test_depth_subgoal_composes_depth_obs_with_subgoal_task():
+    """The depth×subgoal corner: the depth observation composed with the
+    subgoal command / termination blocks. The observation is byte-identical to
+    depth-direct's (only the command behind the goal-shaped fields differs)."""
+    cfg = composed.StraferNavCfg_RLDepthSubgoal_Real()
+    assert type(cfg.commands).__name__ == "CommandsCfg_ProcRoom_Subgoal"
+    assert type(cfg.terminations).__name__ == "TerminationsCfg_ProcRoom_Subgoal"
+    assert "depth_image" in _obs_term_names(cfg.observations)
+    depth_direct = composed.StraferNavCfg_RLDepth_Real()
+    assert _hash(_canon(cfg.observations)) == _hash(_canon(depth_direct.observations))
+
+
+def test_depth_subgoal_reward_adds_depth_penalty_additively():
+    """Additive, no double-counting: the depth-subgoal reward set is the
+    NoCam-subgoal set plus exactly one depth-sensed term. Every base term is
+    preserved; the depth term is the only addition; and the NoCam-subgoal
+    reward does NOT gain it (the running two-arm ablation stays clean)."""
+    depth_terms = _reward_term_names(composed.StraferNavCfg_RLDepthSubgoal_Real().rewards)
+    base_terms = _reward_term_names(composed.StraferNavCfg_RLNoCamSubgoal_Real().rewards)
+    assert base_terms < depth_terms  # strict superset
+    assert depth_terms - base_terms == {"depth_obstacle_proximity"}
+    assert "depth_obstacle_proximity" not in base_terms
+
+
+def test_depth_subgoal_reads_depth_camera_for_the_penalty():
+    """The depth-sensed penalty needs the policy depth camera present with its
+    distance channel — the composition supplies it (the ProcRoom depth scene)."""
+    cfg = composed.StraferNavCfg_RLDepthSubgoal_Real()
+    cam = getattr(cfg.scene, "d555_camera", None)
+    assert cam is not None
+    assert "distance_to_image_plane" in list(cam.data_types)
+    term = cfg.rewards.depth_obstacle_proximity
+    assert term.params["sensor_cfg"].name == "d555_camera"
+
+
+def test_depth_subgoal_penalty_weight_is_negative_and_params_pinned():
+    """Pin the sign and numeric params independently of the contract golden: a
+    penalty must have a NEGATIVE weight (a positive weight would reward driving
+    *toward* obstacles), and the saturation params must be well-ordered
+    (``saturation_depth < distance_threshold``, else the term is identically
+    zero). The golden alone can't catch a flipped sign — it was snapshotted from
+    this code — so this is the independent guard (cf. the geometric
+    ``obstacle_proximity.weight`` pin in ``test_sim/rewards``)."""
+    term = composed.StraferNavCfg_RLDepthSubgoal_Real().rewards.depth_obstacle_proximity
+    assert term.weight < 0.0, "depth obstacle penalty must not reward obstacles"
+    p = term.params
+    assert 0.0 < p["saturation_depth"] < p["distance_threshold"] <= p["max_depth"]
+    assert p["epsilon"] > 0.0
 
 
 # =====================================================================

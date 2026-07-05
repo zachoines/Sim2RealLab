@@ -479,9 +479,9 @@ deployed policy should be trained against it.
   [`hybrid-mode`](hybrid-mode.md).
   This brief produces the trainable env and the deployable
   checkpoint; the hybrid brief consumes them.
-- **DEPTH variant of subgoal-following.** Filed (parked) as
-  [`depth-subgoal-env`](../../parked/trained-policy/depth-subgoal-env.md)
-  and the runtime side as
+- **DEPTH variant of subgoal-following.** Filed as
+  [`depth-subgoal-env`](../../active/trained-policy/depth-subgoal-env.md)
+  (un-parked; Phases 1–4 landed) and the runtime side as
   [`depth-subgoal-hybrid-runtime`](../../parked/trained-policy/depth-subgoal-hybrid-runtime.md).
   Un-park triggers are spelled out in those briefs — primarily
   "this brief shipped AND NOCAM_SUBGOAL deployment evidence shows

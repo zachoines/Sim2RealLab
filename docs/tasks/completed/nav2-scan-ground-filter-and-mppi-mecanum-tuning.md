@@ -189,7 +189,7 @@ Decision tree:
 
 ## Out of scope
 - Architectural cleanup of `_patch_params` sim/real split — covered by
-  [nav2-sim-real-promotion-architecture](../active/tooling/nav2-sim-real-promotion-architecture.md).
+  [nav2-sim-real-promotion-architecture](nav2-sim-real-promotion-architecture.md).
 - Camera mount/tilt changes (hardware).
 - Path-acceptance hysteresis (filed as follow-up only if items 2/3
   persist after A+B).

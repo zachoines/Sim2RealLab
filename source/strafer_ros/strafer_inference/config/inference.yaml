@@ -43,12 +43,10 @@ strafer_inference:
     # replans on a ~0.5 s cadence, not every tick.
     path_timeout_s: 1.0
 
-    # vel_cap_* defaults are resolved by the node at startup against
-    # STRAFER_NAV_VEL_SCALE (same pattern as strafer_navigation's
-    # _resolved_nav_velocities), so unset env var keeps the indoor-
-    # safety cap and STRAFER_NAV_VEL_SCALE=1.0 lifts to hardware max
-    # for sim. Setting an explicit cap here would shadow the env var,
-    # so leave it unset unless an operator override is intentional.
+    # vel_cap_* default to the indoor-safety Nav2 cap (a NAV_VEL_SCALE
+    # fraction of the chassis maximum) that strafer_navigation uses on
+    # every lane. Set an explicit cap here only for an intentional
+    # per-node override.
 
     goal_reached_distance_m: 0.25
     mission_timeout_s: 60.0

@@ -54,9 +54,9 @@ from strafer_shared.mecanum_kinematics import (
 )
 
 
-# Sim caps: STRAFER_NAV_VEL_SCALE=1.0 in training, so the L1 budget is
-# the full hardware envelope (the action term's _velocity_scale resolves
-# normalized [-1, 1]^3 to (MAX_LINEAR_VEL, MAX_LINEAR_VEL, MAX_ANGULAR_VEL)).
+# Sim caps: the training action term's _velocity_scale resolves normalized
+# [-1, 1]^3 to (MAX_LINEAR_VEL, MAX_LINEAR_VEL, MAX_ANGULAR_VEL), so the L1
+# budget is the full hardware envelope.
 _SIM_LIN_CAP = MAX_LINEAR_VEL
 _SIM_ANG_CAP = MAX_ANGULAR_VEL
 

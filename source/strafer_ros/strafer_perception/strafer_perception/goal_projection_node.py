@@ -70,9 +70,8 @@ def _parse_depth_env(raw: str | None, default: float) -> tuple[float, str | None
         ``"non_positive"`` — value <= 0; default returned, warn.
         ``"override"``    — accepted positive override.
 
-    Mirrors the resolution semantics of ``STRAFER_NAV_VEL_SCALE`` in
-    ``navigation.launch.py``: unset → silent default, bad → warn-and-fall-
-    back, valid → log the override.
+    Standard env-override resolution: unset → silent default, bad →
+    warn and fall back, valid positive → accept and log the override.
     """
     if not raw:
         return default, None
@@ -94,8 +93,8 @@ class GoalProjectionNode(Node):
         self._bridge = CvBridge()
 
         # Per-instance depth cutoffs, env-overridable. See module
-        # docstring for the rationale; resolution mirrors
-        # navigation.launch.py:_resolved_nav_velocities.
+        # docstring for the rationale; resolution semantics in
+        # _parse_depth_env.
         self._depth_min_m = self._resolve_depth_env(_ENV_DEPTH_MIN, _DEPTH_MIN_M, "min")
         self._depth_max_m = self._resolve_depth_env(_ENV_DEPTH_MAX, _DEPTH_MAX_M, "max")
 

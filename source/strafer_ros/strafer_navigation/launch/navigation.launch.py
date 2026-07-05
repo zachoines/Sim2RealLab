@@ -120,88 +120,43 @@ def _build_footprint(length, width):
 def _patch_params(params, footprint, nav_vel, nav_omega, nav_reverse,
                   envelope_factor, resolution, depth_min, depth_max,
                   *, smoothing_bt_xml_path=None):
-    """Inject constants into the loaded nav2_params dict.
+    """Inject constants and lane-specific overrides into the nav2_params dict.
+
+    The body is split into the three buckets of the sim→real promotion
+    contract (``docs/tasks/context/nav2-knob-promotion.md``):
+
+      1. Universal defaults — physical constants and promoted behavioral
+         defaults. Applied on every lane, identical at every
+         ``envelope_factor``.
+      2. Velocity-envelope coupling — MPPI sampling window and prune
+         distance that MUST track the lifted velocity cap. Gated by
+         construction, so they never graduate.
+      3. Behavioral overrides under promotion — sim-only MPPI tuning gated
+         on ``envelope_factor > 1.0``, each carrying the real-robot lap
+         that has to land before it graduates to a universal default.
 
     ``smoothing_bt_xml_path``, when provided, wires the custom
-    navigate-to-pose BT into ``bt_navigator``.
+    navigate-to-pose BT into ``bt_navigator`` (a universal default).
     """
-
-    # ── Controller (MPPI) ───────────────────────────────────────────────
     ctrl = params["controller_server"]["ros__parameters"]["FollowPath"]
+
+    # ══ 1. Universal defaults — every lane, envelope_factor-independent ═════
+    # MPPI velocity caps, resolved from NAV_*_VEL (× STRAFER_NAV_VEL_SCALE).
     ctrl["vx_max"] = nav_vel
     ctrl["vx_min"] = -nav_reverse
     ctrl["vy_max"] = nav_vel
     ctrl["wz_max"] = nav_omega
-    # MPPI samples per-step control noise from N(0, *_std) around the
-    # current command. YAML defaults are tuned for the real-robot
-    # envelope (NAV_VEL_SCALE=0.5); under STRAFER_NAV_VEL_SCALE=1.0 the
-    # cap doubles, so a fixed std leaves exploration narrower than the
-    # cap and MPPI plateaus mid-envelope. Scale linearly — super-linear
-    # (^1.5) scaling tipped exploration wide enough that MPPI preferred
-    # strafe/spin over forward progress.
-    for key in ("vx_std", "vy_std", "wz_std", "prune_distance"):
-        if key in ctrl:
-            ctrl[key] = round(float(ctrl[key]) * envelope_factor, 4)
 
-    # Sim-only critic + convergence rebalance. Sim's 2x velocity envelope
-    # wants tighter path tracking and stronger forward bias to reach the
-    # lifted cap; real-robot baselines stay light to avoid mecanum-strafe
-    # at goal-tracking time. Gated on envelope_factor > 1.0;
-    # test_nav_config.py asserts the gate.
-    #
-    # NOTE for future tuners: iteration_count > 1 is CPU-bound on the
-    # Jetson Orin Nano at controller_frequency=20 Hz; raising it makes
-    # controller_server miss its 50 ms deadline. Optimize the cost
-    # landscape, not the iteration depth.
-    if envelope_factor > 1.0:
-        if "PathAlignCritic" in ctrl:
-            ctrl["PathAlignCritic"]["cost_weight"] = 9.0
-        if "PreferForwardCritic" in ctrl:
-            # 10.0 is above Nav2's default 5.0 because the Omni motion model
-            # samples vy/reverse trajectories diff-drive doesn't. Empirically
-            # in sim: below this weight the robot moves tangent to the path
-            # or in reverse along it.
-            ctrl["PreferForwardCritic"]["cost_weight"] = 10.0
-        # offset_from_furthest 5 → 20 (~25 cm → ~1 m past furthest at
-        # MAP_RESOLUTION=0.05): high-speed rollouts win on cost when the
-        # look-ahead target sits far enough ahead.
-        if "PathFollowCritic" in ctrl:
-            ctrl["PathFollowCritic"]["offset_from_furthest"] = 20
-
-        # gamma is the smoothness/lag trade-off between sampled and
-        # previous controls; lower lets the commanded mean track the
-        # high-vx optimum faster instead of being filtered toward the
-        # prior step.
-        ctrl["gamma"] = 0.008
-
-        # Un-scale vy_std back to YAML baseline. The envelope-factor
-        # scaling above doubled it to 0.4, but the lifted velocity
-        # envelope is for forward + rotation, not lateral. A wider
-        # vy_std gives MPPI more strafe-rollouts to weight against a
-        # noisy global path, which lets the cost minimum drift
-        # sideways instead of staying on the planned forward line.
-        # vx_std and wz_std stay scaled.
-        if "vy_std" in ctrl:
-            yaml_baseline_vy_std = round(float(ctrl["vy_std"]) / envelope_factor, 4)
-            ctrl["vy_std"] = yaml_baseline_vy_std
-
-    # The BT path is resolved from ament_index at launch time, so
-    # the injection lives here rather than in YAML.
-    if smoothing_bt_xml_path:
-        params["bt_navigator"]["ros__parameters"][
-            "default_nav_to_pose_bt_xml"
-        ] = smoothing_bt_xml_path
-
-    # ── Behavior server ─────────────────────────────────────────────────
+    # Behavior server.
     beh = params["behavior_server"]["ros__parameters"]
     beh["max_rotational_vel"] = nav_omega
 
-    # ── Velocity smoother ───────────────────────────────────────────────
+    # Velocity smoother.
     vs = params["velocity_smoother"]["ros__parameters"]
     vs["max_velocity"] = [nav_vel, nav_vel, nav_omega]
     vs["min_velocity"] = [-nav_reverse, -nav_vel, -nav_omega]
 
-    # ── Local costmap ───────────────────────────────────────────────────
+    # Local costmap.
     lc = params["local_costmap"]["local_costmap"]["ros__parameters"]
     lc["resolution"] = resolution
     lc["footprint"] = footprint
@@ -210,7 +165,7 @@ def _patch_params(params, footprint, nav_vel, nav_omega, nav_reverse,
     scan_lc["raytrace_min_range"] = depth_min
     scan_lc["obstacle_min_range"] = depth_min
 
-    # ── Global costmap ──────────────────────────────────────────────────
+    # Global costmap.
     gc = params["global_costmap"]["global_costmap"]["ros__parameters"]
     gc["resolution"] = resolution
     gc["footprint"] = footprint
@@ -218,6 +173,70 @@ def _patch_params(params, footprint, nav_vel, nav_omega, nav_reverse,
     scan_gc["raytrace_max_range"] = depth_max
     scan_gc["raytrace_min_range"] = depth_min
     scan_gc["obstacle_min_range"] = depth_min
+
+    # Smoothing / event-driven-replan BT: a universal behavioral default
+    # (sim and real both load it). Injected here rather than pinned in YAML
+    # because the path is resolved from ament_index at launch time.
+    if smoothing_bt_xml_path:
+        params["bt_navigator"]["ros__parameters"][
+            "default_nav_to_pose_bt_xml"
+        ] = smoothing_bt_xml_path
+
+    # ══ 2. Velocity-envelope coupling — gated by construction ══════════════
+    # MPPI samples per-step control noise from N(0, *_std) around the current
+    # command. YAML stds fit the real-robot envelope (NAV_VEL_SCALE=0.5);
+    # under STRAFER_NAV_VEL_SCALE=1.0 the cap doubles, so a fixed std leaves
+    # exploration narrower than the cap and MPPI plateaus mid-envelope. Scale
+    # linearly — super-linear (^1.5) tipped exploration wide enough that MPPI
+    # preferred strafe/spin over forward progress. No-op at envelope_factor=1.0.
+    for key in ("vx_std", "vy_std", "wz_std", "prune_distance"):
+        if key in ctrl:
+            ctrl[key] = round(float(ctrl[key]) * envelope_factor, 4)
+
+    if envelope_factor > 1.0 and "vy_std" in ctrl:
+        # Un-scale vy_std back to baseline: the lifted envelope is for forward
+        # + rotation, not lateral. A wider vy_std hands MPPI more strafe
+        # rollouts to weight against a noisy global path, letting the cost
+        # minimum drift sideways off the planned forward line. vx/wz stay
+        # scaled. This is the lateral half of the coupling — gated, but by
+        # construction, not a promotion candidate.
+        ctrl["vy_std"] = round(float(ctrl["vy_std"]) / envelope_factor, 4)
+
+    # ══ 3. Behavioral overrides under promotion — envelope_factor > 1.0 ════
+    # Sim-only MPPI critic + convergence tuning. Each is a candidate to
+    # graduate to a universal default once a real-robot validation lap
+    # confirms it holds at the indoor cap; until then it stays gated and
+    # carries its promotion criterion inline.
+    #
+    # iteration_count > 1 is CPU-bound on the Jetson Orin Nano at
+    # controller_frequency=20 Hz and makes controller_server miss its 50 ms
+    # deadline — tune the cost landscape here, not the iteration depth.
+    if envelope_factor > 1.0:
+        if "PreferForwardCritic" in ctrl:
+            # Graduates once a real-robot `translate forward 1 m` + cornering
+            # smoke at the indoor cap shows no forward over-bias — no stall,
+            # no reverse-along-path. Omni samples vy/reverse rollouts
+            # diff-drive doesn't, so too low a weight drives tangent to or
+            # backward along the path.
+            ctrl["PreferForwardCritic"]["cost_weight"] = 10.0
+        if "PathFollowCritic" in ctrl:
+            # offset_from_furthest ~25 cm → ~1 m ahead at MAP_RESOLUTION=0.05,
+            # so high-speed rollouts win on cost. Graduates once cornering +
+            # a long-corridor lap at the ~0.78 m/s real cap (~1.3 s preview)
+            # track the path without cutting corners.
+            ctrl["PathFollowCritic"]["offset_from_furthest"] = 20
+        # gamma is the sampled-vs-previous smoothing/lag trade-off; lower lets
+        # the commanded mean reach the high-vx optimum instead of filtering
+        # toward the prior step. Graduates once cornering + a `rotate 90°`
+        # smoke at the indoor cap show no overshoot where chassis inertia
+        # dominates command-following.
+        ctrl["gamma"] = 0.008
+        if "PathAlignCritic" in ctrl:
+            # Tighter path tracking for the 2× envelope. Graduates only if at
+            # the indoor cap MPPI tolerates small path-deviation noise without
+            # spending lateral vy to chase it; otherwise stays gated with that
+            # as its refreshed justification.
+            ctrl["PathAlignCritic"]["cost_weight"] = 9.0
 
 
 def _launch_setup(context, *args, **kwargs):

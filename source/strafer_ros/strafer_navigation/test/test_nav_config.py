@@ -422,6 +422,252 @@ class TestConstantsInjection:
 
 
 # =============================================================================
+# Promotion split invariants (_patch_params three-section structure)
+# =============================================================================
+#
+# `_patch_params` is split into three buckets (see
+# docs/tasks/context/nav2-knob-promotion.md):
+#   1. universal defaults        — applied on every lane, factor-independent
+#   2. velocity-envelope coupling — scale with the factor, gated by construction
+#   3. behavioral overrides       — sim-only, gated on envelope_factor > 1.0
+# These tests pin which knob lives in which bucket. When a knob graduates
+# (bucket 3 → 1), move it from BEHAVIORAL_OVERRIDES to UNIVERSAL here and the
+# tests enforce the new contract.
+
+# Fixed sentinel matching the byte-identical golden fixtures (see
+# TestPatchByteIdentical); a machine-independent stand-in for the launch-time
+# ament_index BT path so the universal BT injection is exercised.
+_SENTINEL_BT = "/opt/strafer/navigate_to_pose_w_smoothing_and_recovery.xml"
+
+
+def _patch_at(mod, pkg_dir, factor, nav_vel, nav_omega, nav_reverse,
+              *, bt=_SENTINEL_BT):
+    """Load a fresh nav2_params.yaml and patch it at ``factor``."""
+    yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
+    with open(yaml_path) as f:
+        p = yaml.safe_load(f)
+    footprint = mod._build_footprint(CHASSIS_LENGTH, TRACK_WIDTH)
+    mod._patch_params(
+        p, footprint, nav_vel, nav_omega, nav_reverse, factor,
+        MAP_RESOLUTION, DEPTH_MIN, DEPTH_MAX, smoothing_bt_xml_path=bt,
+    )
+    return p
+
+
+def _ctrl(p):
+    return p["controller_server"]["ros__parameters"]["FollowPath"]
+
+
+# Section 1 — universal defaults. Each accessor must return the SAME value at
+# every envelope_factor when the resolved velocities are held fixed (i.e. the
+# factor does not gate them). Velocity caps derive from the nav_* args, not the
+# factor, so holding those fixed isolates the factor's (non-)effect.
+_UNIVERSAL_KNOBS = {
+    "FollowPath.vx_max": lambda p: _ctrl(p)["vx_max"],
+    "FollowPath.vx_min": lambda p: _ctrl(p)["vx_min"],
+    "FollowPath.vy_max": lambda p: _ctrl(p)["vy_max"],
+    "FollowPath.wz_max": lambda p: _ctrl(p)["wz_max"],
+    "behavior_server.max_rotational_vel":
+        lambda p: p["behavior_server"]["ros__parameters"]["max_rotational_vel"],
+    "velocity_smoother.max_velocity":
+        lambda p: tuple(p["velocity_smoother"]["ros__parameters"]["max_velocity"]),
+    "velocity_smoother.min_velocity":
+        lambda p: tuple(p["velocity_smoother"]["ros__parameters"]["min_velocity"]),
+    "local_costmap.resolution":
+        lambda p: p["local_costmap"]["local_costmap"]["ros__parameters"]["resolution"],
+    "local_costmap.footprint":
+        lambda p: p["local_costmap"]["local_costmap"]["ros__parameters"]["footprint"],
+    "local_costmap.scan.raytrace_max_range":
+        lambda p: p["local_costmap"]["local_costmap"]["ros__parameters"]["obstacle_layer"]["scan"]["raytrace_max_range"],
+    "global_costmap.resolution":
+        lambda p: p["global_costmap"]["global_costmap"]["ros__parameters"]["resolution"],
+    "global_costmap.footprint":
+        lambda p: p["global_costmap"]["global_costmap"]["ros__parameters"]["footprint"],
+    "bt_navigator.default_nav_to_pose_bt_xml":
+        lambda p: p["bt_navigator"]["ros__parameters"]["default_nav_to_pose_bt_xml"],
+}
+
+# Section 3 — behavioral overrides. Each applies its sim value ONLY at
+# envelope_factor > 1.0; at factor <= 1.0 the YAML baseline stays. `sim` is the
+# absolute value _patch_params writes on the sim lane; the baseline is read with
+# the same `get` accessor from the raw (unpatched) YAML — sound only because
+# section 1 never touches these keys, so a knob listed here must not also become
+# a universal-section knob.
+_BEHAVIORAL_OVERRIDES = {
+    "PathAlignCritic.cost_weight": {
+        "get": lambda p: _ctrl(p)["PathAlignCritic"]["cost_weight"],
+        "sim": 9.0,
+    },
+    "PreferForwardCritic.cost_weight": {
+        "get": lambda p: _ctrl(p)["PreferForwardCritic"]["cost_weight"],
+        "sim": 10.0,
+    },
+    "PathFollowCritic.offset_from_furthest": {
+        "get": lambda p: _ctrl(p)["PathFollowCritic"]["offset_from_furthest"],
+        "sim": 20,
+    },
+    "gamma": {
+        "get": lambda p: _ctrl(p)["gamma"],
+        "sim": 0.008,
+    },
+}
+
+
+class TestPromotionSplitInvariants:
+    """Pin which _patch_params section each MPPI knob lives in."""
+
+    @pytest.fixture
+    def baseline(self, pkg_dir):
+        yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
+        with open(yaml_path) as f:
+            return yaml.safe_load(f)
+
+    # ── Section 1: universal defaults apply at every factor ──────────────
+    @pytest.mark.parametrize("knob", list(_UNIVERSAL_KNOBS))
+    def test_universal_knob_is_factor_independent(self, pkg_dir, knob):
+        """A universal-section knob resolves to the same value at every
+        envelope_factor when the nav_* velocities are held fixed — the factor
+        does not gate it."""
+        mod = _load_launch_module(pkg_dir)
+        get = _UNIVERSAL_KNOBS[knob]
+        values = {
+            factor: get(_patch_at(
+                mod, pkg_dir, factor,
+                NAV_LINEAR_VEL, NAV_ANGULAR_VEL, NAV_REVERSE_VEL))
+            for factor in (0.75, 1.0, 2.0)
+        }
+        assert len(set(values.values())) == 1, (
+            f"universal knob {knob} varies with envelope_factor: {values}"
+        )
+
+    # ── Section 3: behavioral overrides gated strictly on factor > 1.0 ───
+    @pytest.mark.parametrize("knob", list(_BEHAVIORAL_OVERRIDES))
+    def test_behavioral_override_applies_only_above_unity(
+        self, pkg_dir, baseline, knob
+    ):
+        """A behavioral-override knob takes its sim value at every factor > 1.0
+        (including just above unity) and the YAML baseline at factor <= 1.0 —
+        the sim→real gap this brief closes lives in this bucket, and the gate is
+        pinned at exactly 1.0 on both sides."""
+        mod = _load_launch_module(pkg_dir)
+        spec = _BEHAVIORAL_OVERRIDES[knob]
+        base_val = spec["get"](baseline)
+
+        # Must actually differ from baseline (else the gate is a no-op and the
+        # knob is mislabeled).
+        assert spec["sim"] != base_val, (
+            f"{knob} sim value equals baseline {base_val}; gate is vacuous"
+        )
+        # Sim value at the production factor AND just above unity, so a gate
+        # threshold drifting up into (1.0, 2.0) is caught.
+        for factor in (1.0001, 2.0):
+            p = _patch_at(mod, pkg_dir, factor,
+                          round(MAX_LINEAR_VEL, 4), round(MAX_ANGULAR_VEL, 4),
+                          round(MAX_LINEAR_VEL * NAV_REVERSE_SCALE, 4))
+            assert spec["get"](p) == spec["sim"], (
+                f"{knob} not at sim value at envelope_factor={factor}; the "
+                "> 1.0 gate must fire for every factor above unity"
+            )
+
+        # Real-robot lane and sub-unity: baseline untouched.
+        for factor in (1.0, 0.75):
+            p = _patch_at(mod, pkg_dir, factor,
+                          NAV_LINEAR_VEL, NAV_ANGULAR_VEL, NAV_REVERSE_VEL)
+            assert spec["get"](p) == base_val, (
+                f"{knob} changed at envelope_factor={factor}; must stay baseline"
+            )
+
+    # ── Section 2: velocity-envelope coupling tracks the factor ──────────
+    def test_velocity_envelope_scaling_tracks_factor(self, pkg_dir, baseline):
+        """vx_std / wz_std / prune_distance scale linearly with the factor at
+        every factor; vy_std scales too but is un-scaled back to baseline once
+        the factor exceeds unity (lateral is not part of the lifted envelope)."""
+        mod = _load_launch_module(pkg_dir)
+        b = baseline["controller_server"]["ros__parameters"]["FollowPath"]
+        for factor in (0.75, 1.0, 2.0):
+            ctrl = _ctrl(_patch_at(mod, pkg_dir, factor,
+                                   NAV_LINEAR_VEL, NAV_ANGULAR_VEL, NAV_REVERSE_VEL))
+            assert ctrl["vx_std"] == round(b["vx_std"] * factor, 4)
+            assert ctrl["wz_std"] == round(b["wz_std"] * factor, 4)
+            assert ctrl["prune_distance"] == round(b["prune_distance"] * factor, 4)
+            expected_vy = b["vy_std"] if factor > 1.0 else round(b["vy_std"] * factor, 4)
+            assert ctrl["vy_std"] == expected_vy
+
+    def test_real_robot_lane_leaves_mppi_tuning_at_yaml_baseline(
+        self, pkg_dir, baseline
+    ):
+        """The real-robot lane (envelope_factor == 1.0) must leave every
+        section-2 and section-3 MPPI knob at its YAML baseline — this is the
+        no-silent-sim-to-real-gap invariant. The byte-identical golden pin
+        (TestPatchByteIdentical) is the exhaustive version; this names it."""
+        mod = _load_launch_module(pkg_dir)
+        b = baseline["controller_server"]["ros__parameters"]["FollowPath"]
+        ctrl = _ctrl(_patch_at(mod, pkg_dir, 1.0,
+                               NAV_LINEAR_VEL, NAV_ANGULAR_VEL, NAV_REVERSE_VEL))
+        for key in ("vx_std", "vy_std", "wz_std", "prune_distance", "gamma"):
+            assert ctrl[key] == b[key], f"{key} drifted from baseline at factor 1.0"
+        assert ctrl["PathAlignCritic"]["cost_weight"] == b["PathAlignCritic"]["cost_weight"]
+        assert ctrl["PreferForwardCritic"]["cost_weight"] == b["PreferForwardCritic"]["cost_weight"]
+        assert ctrl["PathFollowCritic"]["offset_from_furthest"] == b["PathFollowCritic"]["offset_from_furthest"]
+
+
+class TestPatchByteIdentical:
+    """Golden pin: the restructured _patch_params reproduces the pre-refactor
+    output byte-for-byte at both lanes.
+
+    The fixtures in ``test/fixtures/`` were generated from the pre-refactor
+    _patch_params; comparing against them proves the three-section refactor is
+    pure motion — it moved and relabeled statements without altering a single
+    emitted parameter. Regenerate only on an intentional param change (a
+    promotion moving a knob, or a value retune), and call that out in review.
+    """
+
+    FIX_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
+
+    def _dump(self, p):
+        return yaml.dump(p, default_flow_style=False, sort_keys=False)
+
+    def test_factor_1_0_matches_golden(self, pkg_dir):
+        mod = _load_launch_module(pkg_dir)
+        p = _patch_at(mod, pkg_dir, 1.0,
+                      NAV_LINEAR_VEL, NAV_ANGULAR_VEL, NAV_REVERSE_VEL)
+        with open(os.path.join(self.FIX_DIR, "patched_params_factor_1.0.yaml")) as f:
+            golden = f.read()
+        assert self._dump(p) == golden, (
+            "real-robot (envelope_factor=1.0) patched params drifted from the "
+            "pre-refactor golden — the refactor is no longer pure motion"
+        )
+
+    def test_factor_2_0_matches_golden(self, pkg_dir):
+        mod = _load_launch_module(pkg_dir)
+        p = _patch_at(mod, pkg_dir, 2.0,
+                      round(MAX_LINEAR_VEL, 4), round(MAX_ANGULAR_VEL, 4),
+                      round(MAX_LINEAR_VEL * NAV_REVERSE_SCALE, 4))
+        with open(os.path.join(self.FIX_DIR, "patched_params_factor_2.0.yaml")) as f:
+            golden = f.read()
+        assert self._dump(p) == golden, (
+            "sim (envelope_factor=2.0) patched params drifted from the "
+            "pre-refactor golden — the refactor is no longer pure motion"
+        )
+
+    def test_goldens_differ_on_gated_knobs(self):
+        """Guard the pin against vacuity: the sim lane must differ from the real
+        lane specifically on the four gated behavioral knobs — not merely on the
+        velocity envelope — else the golden wouldn't catch a gate collapse."""
+        with open(os.path.join(self.FIX_DIR, "patched_params_factor_1.0.yaml")) as f:
+            c1 = _ctrl(yaml.safe_load(f))
+        with open(os.path.join(self.FIX_DIR, "patched_params_factor_2.0.yaml")) as f:
+            c2 = _ctrl(yaml.safe_load(f))
+        assert c1["gamma"] != c2["gamma"]
+        assert c1["PreferForwardCritic"]["cost_weight"] != c2["PreferForwardCritic"]["cost_weight"]
+        assert c1["PathAlignCritic"]["cost_weight"] != c2["PathAlignCritic"]["cost_weight"]
+        assert (
+            c1["PathFollowCritic"]["offset_from_furthest"]
+            != c2["PathFollowCritic"]["offset_from_furthest"]
+        )
+
+
+# =============================================================================
 # Custom BT (event-driven replan + SmoothPath, universal)
 # =============================================================================
 

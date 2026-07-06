@@ -171,6 +171,15 @@ _NOCAM_SUBGOAL_FIELDS: tuple[ObsField, ...] = (
     ObsField("last_action", 3, 1.0),
 )
 
+# DEPTH is to NOCAM as DEPTH_SUBGOAL is to NOCAM_SUBGOAL: the subgoal-referent
+# 19-dim head plus the same 4800-dim depth tail in the same trailing position.
+# The subgoal_* keys (not goal_*) keep it a distinct enum member — an equal
+# value would alias it onto DEPTH — and force assembly to wire subgoal data
+# explicitly.
+_DEPTH_SUBGOAL_FIELDS: tuple[ObsField, ...] = _NOCAM_SUBGOAL_FIELDS + (
+    ObsField("depth_image", 4800, DEPTH_SCALE),
+)
+
 
 class PolicyVariant(Enum):
     """Policy observation variants matching Isaac Lab environment configs.
@@ -194,11 +203,32 @@ class PolicyVariant(Enum):
     through a real obstacle, the policy follows it. The deployment lane must
     run a costmap freshness watchdog and must not use this variant in
     dynamic-obstacle scenarios.
+
+    DEPTH_SUBGOAL contract
+    ----------------------
+
+    ``DEPTH_SUBGOAL`` is to ``NOCAM_SUBGOAL`` what ``DEPTH`` is to ``NOCAM``:
+    identical field layout and scales to ``DEPTH`` (4819 dims), with the same
+    4800-dim depth tail in the same trailing position — only the goal-shaped
+    triplet refers to a **rolling subgoal pose** on a planner-provided path
+    rather than a final goal pose. As with ``NOCAM_SUBGOAL`` the referent keys
+    are ``subgoal_*``, not ``goal_*``: a checkpoint trained under one referent
+    is silent garbage under the other, and the renamed keys force inference-side
+    assembly to wire subgoal data explicitly. This is the hybrid-backend variant
+    (Nav2 plans, RL does local control) *with* perception.
+
+    Trust boundary: unlike ``NOCAM_SUBGOAL``, ``DEPTH_SUBGOAL`` observes depth,
+    so the "trusts the costmap absolutely / unsafe in dynamic-obstacle
+    scenarios" caveat is **lifted** — the policy can see a late-arriving
+    obstacle the plan did not account for and deviate from the path to avoid
+    it. This is the variant that closes the direct/hybrid × NOCAM/DEPTH
+    deployment matrix.
     """
 
     NOCAM = _NOCAM_FIELDS  # 19 dims
     DEPTH = _DEPTH_FIELDS  # 4819 dims
     NOCAM_SUBGOAL = _NOCAM_SUBGOAL_FIELDS  # 19 dims; see class docstring
+    DEPTH_SUBGOAL = _DEPTH_SUBGOAL_FIELDS  # 4819 dims; see class docstring
 
     @property
     def obs_dim(self) -> int:

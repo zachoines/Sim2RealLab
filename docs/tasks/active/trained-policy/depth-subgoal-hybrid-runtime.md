@@ -2,27 +2,32 @@
 
 **Type:** task / runtime extension
 **Owner:** Jetson (extends `strafer_inference`)
-**Priority:** P3 — completes the 2×2 deployment matrix on the runtime side; pairs with [`depth-subgoal-env`](depth-subgoal-env.md) which produces the trained checkpoint. Not blocking any current mission shape.
+**Priority:** P3 — completes the 2×2 deployment matrix on the runtime side; pairs with [`depth-subgoal-env`](../../parked/trained-policy/depth-subgoal-env.md) which produces the trained checkpoint. Not blocking any current mission shape.
 **Estimate:** S–M (1–2 days, the size depending on which implementation approach the picking-up agent chooses — see "Architecture choice" below)
 **Branch:** task/depth-subgoal-hybrid-runtime
+**Status:** In-flight (un-parked). Runtime is variant-agnostic (verified), `PolicyVariant.DEPTH_SUBGOAL` + the full combo test cell + the sim depth-timeout override landed. Stays **active** for the live acceptance (load the converged `DEPTH_SUBGOAL` artifact + a hybrid sim mission), which is gated on the checkpoint (`depth-subgoal-env` training) + the rig.
 
 ## Un-park trigger
 
-This brief is parked until **all** of the following have shipped:
+> **Resolved.** Deps (1) and (3) shipped. Dep (2) — [`depth-subgoal-env`](../../parked/trained-policy/depth-subgoal-env.md) — had **not** shipped when this brief was picked up (it is still parked; its training env + checkpoint + reward shaping remain its scope). Rather than block, its Phase-2 deliverable — the `PolicyVariant.DEPTH_SUBGOAL` enum member (fields-only, mirrors `DEPTH` with `subgoal_*` referent keys) — was pulled forward into **this** PR so the already-variant-agnostic runtime could be verified against a real member. `depth-subgoal-env`'s Phase 2 is annotated so it consumes the landed variant rather than re-adding it. The **live** acceptance still waits on that brief's converged checkpoint.
 
-1. [`hybrid-mode`](../../completed/hybrid-mode.md) shipped — provides the `STRAFER_NAV_BACKEND=hybrid_nav2_strafer` dispatch, the Nav2 `/plan` subscription, the rolling-subgoal selection logic, and the `mode` runtime flag this brief's variant slots into.
-2. [`depth-subgoal-env`](depth-subgoal-env.md) shipped — provides `PolicyVariant.DEPTH_SUBGOAL` and the converged training checkpoint this brief's runtime loads.
+This brief was parked until **all** of the following had shipped:
+
+1. [`hybrid-mode`](../../completed/hybrid-mode.md) ✅ shipped (#119 / #122 / #123) — provides the `STRAFER_NAV_BACKEND=hybrid_nav2_strafer` dispatch, the Nav2 replan/rolling-subgoal selection logic, and the runtime flags this brief's variant slots into.
+2. [`depth-subgoal-env`](../../parked/trained-policy/depth-subgoal-env.md) — provides `PolicyVariant.DEPTH_SUBGOAL` (variant pulled forward here; see above) and the converged training checkpoint this brief's runtime loads (still pending).
 3. [`inference-package`](../../completed/inference-package.md) ✅ shipped (the DEPTH observation pipeline this brief reactivates under hybrid mode).
 
-Un-park by `git mv parked/trained-policy/depth-subgoal-hybrid-runtime.md active/trained-policy/depth-subgoal-hybrid-runtime.md` in the PR that picks it up.
+Un-parked by `git mv parked/trained-policy/depth-subgoal-hybrid-runtime.md active/trained-policy/depth-subgoal-hybrid-runtime.md` in this PR.
 
 ## Story
 
 As a **mission operator who has a trained `DEPTH_SUBGOAL` checkpoint and wants to deploy it**, I want **the inference node to compose its depth pipeline with the hybrid backend's rolling-subgoal selection so the policy sees both Nav2's path AND the depth field**, so that **the costmap-trust caveat documented for NOCAM_SUBGOAL is lifted: the policy can detect late-arriving obstacles via depth and deviate from the path to avoid them**.
 
-## Architecture choice (decide at PR-opening time)
+## Architecture choice — RESOLVED: Option A, shipped in #122, verified here
 
-The picking-up agent picks one of these two approaches. The choice determines the size of the PR.
+> **Option A shipped in PR #122** (`strafer-inference-hybrid-mode-pr-b`). The observation pipeline is already variant-agnostic: `_has_depth` / `_uses_subgoal` are derived from `self._variant.fields` (`inference_node.py`), the depth subscriber and subgoal subscriber are gated on those flags, `_assemble_observation_or_none` composes referent + optional depth generically, the watchdog takes `depth_enabled` / `subgoal_enabled`, and the TRT cold-start warning gates on `_has_depth`. There was **no refactor left to do** — `DEPTH_SUBGOAL` (a depth field AND `subgoal_*` fields) lights up both paths with zero structural change. This PR's job was to (1) supply the `DEPTH_SUBGOAL` member the runtime introspects, (2) prove the composition with the combo test cell, and (3) close the one real sim-timing hole (depth staleness). The historical Option-A/Option-B decision below is retained for context; it is settled.
+
+The original two options (kept for the record):
 
 ### Option A — Variant-agnostic refactor (recommended)
 
@@ -42,7 +47,7 @@ Recommendation: A. The picking-up PR description records *why* A was chosen (or 
 
 Read these before starting:
 
-- [`depth-subgoal-env.md`](depth-subgoal-env.md) — the source of `PolicyVariant.DEPTH_SUBGOAL` + the trained checkpoint this brief loads.
+- [`depth-subgoal-env.md`](../../parked/trained-policy/depth-subgoal-env.md) — the source of `PolicyVariant.DEPTH_SUBGOAL` + the trained checkpoint this brief loads.
 - [`hybrid-mode.md`](../../completed/hybrid-mode.md) — the consumer-side runtime brief. This brief extends its `mode: hybrid` plumbing to support a depth-aware variant.
 - [`completed/inference-package.md`](../../completed/inference-package.md) — the DEPTH-direct runtime. Most of this brief's code is "make the DEPTH-direct obs pipeline composable with the hybrid-mode rolling-subgoal pipeline". If Option A is taken, this brief is the place where the DEPTH-direct path stops being DEPTH-specific.
 - [context/recurrent-policy-contract.md](../../context/recurrent-policy-contract.md) — DEPTH_SUBGOAL inherits the contract from DEPTH; the reset-trigger set and thread-safety mutex from PR #55 apply unchanged.
@@ -99,29 +104,30 @@ Sim-validation of the trained checkpoint lives in `depth-subgoal-sim-validation.
 
 ### Refactor (Option A) or branch (Option B)
 
-- [ ] Implementation approach chosen and stated in the PR description.
-- [ ] If Option A: the four hardcoded-DEPTH paths in [`completed/inference-package.md`](../../completed/inference-package.md)'s implementation (depth subscriber unconditional, watchdog depth source unconditional, depth required in `_assemble_observation_or_none`, depth required in `build_raw_obs_dict`) become variant-aware.
-- [ ] If Option B: explicit DEPTH_SUBGOAL handling lands alongside the existing variant branches; the maintenance burden is acknowledged in the PR description.
+- [x] Implementation approach chosen and stated: **Option A, shipped in #122** — verified here, no new refactor (see the resolved Architecture-choice section).
+- [x] Option A: the four formerly-hardcoded-DEPTH paths are variant-aware (landed #122; `DEPTH_SUBGOAL` exercises the depth-carrying half of every one). The `DEPTH_SUBGOAL` member itself landed here.
 
 ### Variant + watchdog composition
 
-- [ ] DEPTH_SUBGOAL + hybrid: 7-source watchdog (goal, IMU, joint_states, odom, depth, TF, plan); all sources zero-twist on independent staleness.
-- [ ] NOCAM_SUBGOAL + hybrid: 6-source watchdog (no depth); regression-tested.
-- [ ] DEPTH + direct: 6-source watchdog (no plan); regression-tested.
-- [ ] NOCAM + direct: rejected at startup (the deployment lane is intentionally not supported per [`completed/inference-package.md`](../../completed/inference-package.md)'s Out of scope).
+> Terminology note: the parked brief wrote the 7th source as "plan". After #132 the subgoal generator owns `/plan`/replanning and the inference-node watchdog watches **`subgoal`** freshness (the inference-side half of the split stale-plan budget). The 7 sources are therefore: goal, IMU, joint_states, odom, depth, TF, **subgoal**.
+
+- [x] DEPTH_SUBGOAL + hybrid: 7-source watchdog (goal, IMU, joint_states, odom, depth, TF, subgoal); depth and subgoal trip independently (`test_depth_subgoal_watchdog_has_both_depth_and_subgoal`), both-fresh + goal-active is clean.
+- [x] NOCAM_SUBGOAL + hybrid: 6-source watchdog (no depth); regression cell unchanged (`test_nocam_subgoal_watchdog_swaps_depth_for_subgoal`).
+- [x] DEPTH + direct: 6-source watchdog (no subgoal); regression cell unchanged (`test_depth_direct_watchdog_has_no_subgoal_source`).
+- [x] NOCAM + direct: still rejected — Option A does not change that; `NOCAM` in `strafer_direct` remains unsupported per [`completed/inference-package.md`](../../completed/inference-package.md)'s Out of scope.
 
 ### Recurrent contract preservation
 
-- [ ] DEPTH_SUBGOAL's reset triggers fire at the same call sites as DEPTH (every action-server goal accept, including newest-goal-wins preempting goals).
-- [ ] Mutex-guarded `policy(obs)` and `policy.reset()` calls inherit unchanged.
+- [x] DEPTH_SUBGOAL's reset triggers fire at the same call sites as DEPTH — the trigger set is variant-independent (`_execute_callback` resets on every goal accept, incl. preempting goals) and `load_policy` keys recurrence off checkpoint structure, not variant (verified #136).
+- [ ] Cross-format recurrent-contract parametrization over `DEPTH_SUBGOAL` — the e2e fixture (`test_recurrent_contract_e2e.py`, strafer_lab) does not parametrize over variant cheaply and is out of this brief's touch scope; filed as a follow-up (see Out of scope). Re-confirm with the converged `.pt`/`.onnx` artifact.
 
 ### Integration
 
-- [ ] `JetsonRosClient.navigate_to_pose` dispatch with `STRAFER_NAV_BACKEND=hybrid_nav2_strafer` + a loaded DEPTH_SUBGOAL artifact routes correctly. No new dispatch logic needed — the dispatcher already targets the strafer_inference action server regardless of loaded variant.
+- [x] `JetsonRosClient.navigate_to_pose` dispatch with `STRAFER_NAV_BACKEND=hybrid_nav2_strafer` + a loaded DEPTH_SUBGOAL artifact routes correctly — no new dispatch logic; the bringup auto-launch gates on the backend, not the variant (`test_depth_subgoal_env_flows_to_launch_arg`), so DEPTH_SUBGOAL auto-launches inference + the subgoal generator exactly as NOCAM_SUBGOAL. Live artifact-load confirmation stays open (checkpoint pending).
 
 ### Maintenance
 
-- [ ] If your work invalidates a fact in any referenced context module — particularly [`completed/inference-package.md`](../../completed/inference-package.md)'s implementation notes about the hardcoded DEPTH paths — update those in the same commit.
+- [x] Facts updated in the same commit: `PolicyVariant` docstring gains the DEPTH_SUBGOAL contract; the strafer_lab variant-count guard bumps 3→4; `depth-subgoal-env`'s Phase 2 is annotated that the variant landed here; operator env-file / launch-arg variant enumerations include DEPTH_SUBGOAL.
 
 ## Investigation pointers
 
@@ -129,12 +135,13 @@ Sim-validation of the trained checkpoint lives in `depth-subgoal-sim-validation.
 - [`source/strafer_ros/strafer_inference/strafer_inference/watchdog.py`](../../../../source/strafer_ros/strafer_inference/strafer_inference/watchdog.py) — the watchdog `stale_sources` function; today it takes a fixed-shape `WatchdogTimeouts` dataclass. Variant-aware composition either reshapes that dataclass or filters its source list at call time.
 - [`source/strafer_ros/strafer_inference/strafer_inference/obs_pipeline.py`](../../../../source/strafer_ros/strafer_inference/strafer_inference/obs_pipeline.py) — the helpers are already variant-agnostic (`build_raw_obs_dict` takes every field; `assemble_observation` in `strafer_shared.policy_interface` does the field selection). Most of the refactor work is in the node, not the helpers.
 - [`hybrid-mode.md`](../../completed/hybrid-mode.md) — Phase 1's `mode` flag and `/plan` subscription. This brief composes with that work; pick up only after hybrid-mode has shipped.
-- [`depth-subgoal-env.md`](depth-subgoal-env.md) — the source of the variant + checkpoint.
+- [`depth-subgoal-env.md`](../../parked/trained-policy/depth-subgoal-env.md) — the source of the variant + checkpoint.
 
 ## Out of scope
 
-- **The training environment + checkpoint.** That's [`depth-subgoal-env`](depth-subgoal-env.md). This brief is runtime-only; it loads what that brief produces.
-- **Sim validation against the trained checkpoint.** File `depth-subgoal-sim-validation.md` as a follow-up at PR-opening time (same precedent as [`inference-package`](../../completed/inference-package.md) → [`strafer-direct-sim-validation`](../../active/trained-policy/strafer-direct-sim-validation.md) and [`hybrid-mode`](../../completed/hybrid-mode.md) → [`strafer-hybrid-sim-validation`](../../completed/trained-policy/strafer-hybrid-sim-validation.md)). Carries the DEPTH_SUBGOAL-specific parity bounds (19 NOCAM dims ≤ 1e-5 + 4800 depth dims ≤ 1e-3 + subgoal-pose pick ≤ MAP_RESOLUTION × 2), the 7-source watchdog acceptance, and the dynamic-obstacle test that's intentionally out of scope for NOCAM_SUBGOAL.
+- **The training environment + checkpoint.** That's [`depth-subgoal-env`](../../parked/trained-policy/depth-subgoal-env.md). This brief is runtime-only; it loads what that brief produces.
+- **Sim validation against the trained checkpoint (the live acceptance, still OPEN on this brief).** Loading the converged `DEPTH_SUBGOAL` artifact + running a hybrid sim mission is goal-c's validation step; it waits on the checkpoint ([`depth-subgoal-env`](../../parked/trained-policy/depth-subgoal-env.md) training) + the rig, so this brief stays **active** at merge. The dedicated `depth-subgoal-sim-validation.md` is filed once the checkpoint lands (same precedent as [`inference-package`](../../completed/inference-package.md) → [`strafer-direct-sim-validation`](strafer-direct-sim-validation.md) and [`hybrid-mode`](../../completed/hybrid-mode.md) → [`strafer-hybrid-sim-validation`](../../completed/trained-policy/strafer-hybrid-sim-validation.md)). It carries the DEPTH_SUBGOAL-specific parity bounds (19 NOCAM dims ≤ 1e-5 + 4800 depth dims ≤ 1e-3 + subgoal-pose pick ≤ MAP_RESOLUTION × 2), the 7-source watchdog acceptance, and the dynamic-obstacle test that's intentionally out of scope for NOCAM_SUBGOAL.
+- **Cross-format recurrent-contract parametrization over `DEPTH_SUBGOAL`.** Follow-up (one-liner): parametrize `test_recurrent_contract_e2e.py` (strafer_lab — out of this brief's touch scope) over `DEPTH_SUBGOAL` once the converged `.pt`/`.onnx` exports exist. Tracked on [`depth-subgoal-env`](../../parked/trained-policy/depth-subgoal-env.md)'s Phase 2 (which owns that test surface and produces the artifact); the reset-trigger contract itself is variant-independent and already covered here.
 - **Real-robot DEPTH_SUBGOAL validation.** Files later, gated on the sim-validation follow-up passing.
-- **Re-tuning the DEPTH_SUBGOAL checkpoint** if the runtime exposes a gap. Tuning responses route back to [`depth-subgoal-env`](depth-subgoal-env.md)'s follow-up queue.
+- **Re-tuning the DEPTH_SUBGOAL checkpoint** if the runtime exposes a gap. Tuning responses route back to [`depth-subgoal-env`](../../parked/trained-policy/depth-subgoal-env.md)'s follow-up queue.
 - **NOCAM_DIRECT support.** Intentionally never per [`completed/inference-package.md`](../../completed/inference-package.md)'s Out of scope; the variant-aware refactor (Option A) does not change that — startup explicitly rejects NOCAM under `STRAFER_NAV_BACKEND` unset / `strafer_direct`.

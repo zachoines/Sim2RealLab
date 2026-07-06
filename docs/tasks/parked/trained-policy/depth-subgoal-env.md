@@ -96,9 +96,11 @@ Five phases, sequenced. Phases 1–4 are dev work; Phase 5 is the training run t
 
 No new path-planning work. Reuse whatever planner subgoal-env shipped (Option A: Nav2 offline, or Option B: custom A* + noise). Document the choice this brief inherited and the implication for deployment parity (see [`strafer-hybrid-sim-validation`](../../completed/trained-policy/strafer-hybrid-sim-validation.md)'s subgoal-pose parity bound — same logic, same bound).
 
-### Phase 2 — `PolicyVariant.DEPTH_SUBGOAL` (½ day)
+### Phase 2 — `PolicyVariant.DEPTH_SUBGOAL` (½ day) — ✅ LANDED EARLY
 
-In `strafer_shared.policy_interface`:
+> **Already shipped** by the runtime consumer [`depth-subgoal-hybrid-runtime`](../../active/trained-policy/depth-subgoal-hybrid-runtime.md), which needed a real member to verify the (already variant-agnostic) runtime against. **Consume it — do not re-add.** Landed: `_DEPTH_SUBGOAL_FIELDS = _NOCAM_SUBGOAL_FIELDS + (depth_image, 4800, DEPTH_SCALE)` (mirrors `DEPTH`'s shapes/scales, `subgoal_*` referent keys so it doesn't alias `DEPTH`), `PolicyVariant.DEPTH_SUBGOAL` (obs_dim 4819), the docstring contract, and the strafer_lab variant-count guard bumped to 4. **Still owned here:** the cross-format recurrent-contract parametrization over `DEPTH_SUBGOAL` in `test_recurrent_contract_e2e.py` (see acceptance below) — do it against this brief's converged `.pt`/`.onnx` exports.
+
+The original spec (now satisfied), in `strafer_shared.policy_interface`:
 
 - Add `_DEPTH_SUBGOAL_FIELDS` mirroring `_DEPTH_FIELDS` exactly (same shapes, same scales).
 - Add `PolicyVariant.DEPTH_SUBGOAL = _DEPTH_SUBGOAL_FIELDS`.
@@ -140,8 +142,8 @@ If `goal-noise-training` has shipped by this point, run a noise-resilience pass 
 
 ### Variant + command
 
-- [ ] `PolicyVariant.DEPTH_SUBGOAL` defined with `obs_dim == PolicyVariant.DEPTH.obs_dim` (4819) and a docstring that explicitly contrasts the goal-field semantics vs DEPTH-direct.
-- [ ] `_DEPTH_SUBGOAL_FIELDS` shares scale and dim with `_DEPTH_FIELDS` per field (re-use the constants — don't redefine).
+- [x] `PolicyVariant.DEPTH_SUBGOAL` defined with `obs_dim == PolicyVariant.DEPTH.obs_dim` (4819) and a docstring that explicitly contrasts the goal-field semantics vs DEPTH-direct. **Landed early in [`depth-subgoal-hybrid-runtime`](../../active/trained-policy/depth-subgoal-hybrid-runtime.md).**
+- [x] `_DEPTH_SUBGOAL_FIELDS` shares scale and dim with `_DEPTH_FIELDS` per field (re-use the constants — don't redefine). **Landed early (see above).**
 
 ### Reward shaping
 

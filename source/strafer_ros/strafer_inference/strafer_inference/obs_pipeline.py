@@ -48,12 +48,17 @@ def downsample_depth(
     nearfield_clip: float = DEPTH_MIN,
     nearfield_fill: float = DEPTH_NEARFIELD_FILL,
 ) -> np.ndarray:
-    """640×360 raw depth meters → 4800-dim flat normalized [0, 1].
+    """640×360 raw depth meters → 4800-dim flat, in RAW meters [0, max_depth].
 
-    Mirrors mdp/observations.py:depth_image, with the noise step
-    skipped (inference adds no noise of its own) and an area-resize
-    inserted because the bridged stream is the 640×360 perception
-    camera, not the 80×60 policy camera that exists only in sim.
+    Mirrors mdp/observations.py:depth_image, which also returns RAW meters:
+    the single [0, 1] normalization is applied once downstream by
+    ``assemble_observation``'s ``DEPTH_SCALE`` (= 1/max_depth), matching the
+    sim ``ObsTerm(func=depth_image, scale=DEPTH_SCALE)``. Normalizing here as
+    well would double-scale — deploy would feed the network 1/max_depth of
+    the sim value (e.g. a 3 m surface → 0.083 instead of 0.5). The noise step
+    is skipped (inference adds none) and an area-resize is inserted because
+    the bridged stream is the 640×360 perception camera, not the 80×60 policy
+    camera that exists only in sim.
 
     Block-average is exact-integer (640/80=8, 360/60=6) so it
     matches cv2.INTER_AREA to within float roundoff for the integer
@@ -74,7 +79,6 @@ def downsample_depth(
         depth < nearfield_clip, np.float32(nearfield_fill), depth
     )
     depth = np.clip(depth, 0.0, max_depth)
-    depth = depth * np.float32(1.0 / max_depth)
     return depth.reshape(-1).astype(np.float32, copy=False)
 
 
@@ -184,7 +188,7 @@ def build_raw_obs_dict(
     goal_heading_to_goal: float,
     body_velocity_xy: tuple[float, float],
     last_action: np.ndarray,
-    depth_flat_normalized: np.ndarray | None = None,
+    depth_flat_meters: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
     """Marshal pre-extracted sensor values into the raw dict that
     ``assemble_observation(variant)`` consumes.
@@ -196,6 +200,12 @@ def build_raw_obs_dict(
     ``goal_*`` argument names denote the body-frame referent triplet
     regardless of which referent the variant actually tracks; the caller
     transforms the right pose (final goal or rolling subgoal) before calling.
+
+    Every value here is the RAW, pre-scale sensor reading — ``assemble_observation``
+    applies each field's normalization once. ``depth_flat_meters`` is therefore
+    depth in metres from :func:`downsample_depth` (NOT pre-normalized to [0, 1]);
+    ``DEPTH_SCALE`` is the single scale, matching the sim ObsTerm. Pre-normalizing
+    here would double-scale.
     """
     encoder_ticks = wheel_vels_to_ticks_per_sec(
         np.asarray(wheel_vels_rad_s, dtype=np.float64)
@@ -222,10 +232,10 @@ def build_raw_obs_dict(
         elif "heading" in key:
             raw[key] = referent_heading
         elif key == "depth_image":
-            if depth_flat_normalized is None:
+            if depth_flat_meters is None:
                 raise ValueError(
                     f"variant {variant.name} declares a depth_image field but "
-                    "depth_flat_normalized was not provided"
+                    "depth_flat_meters was not provided"
                 )
-            raw[key] = np.asarray(depth_flat_normalized, dtype=np.float32)
+            raw[key] = np.asarray(depth_flat_meters, dtype=np.float32)
     return raw

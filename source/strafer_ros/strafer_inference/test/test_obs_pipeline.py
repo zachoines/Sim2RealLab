@@ -21,6 +21,7 @@ from strafer_shared.constants import (
     DEPTH_MAX,
     DEPTH_MIN,
     DEPTH_NEARFIELD_FILL,
+    DEPTH_SCALE,
     DEPTH_WIDTH,
     PERCEPTION_HEIGHT,
     PERCEPTION_WIDTH,
@@ -44,21 +45,24 @@ class TestDownsampleDepth:
     within float roundoff.
     """
 
-    def test_constant_field_passes_through_scaled(self):
+    def test_constant_field_passes_through_in_meters(self):
+        # Returns RAW meters, not [0, 1]: the DEPTH_SCALE normalization is
+        # applied once downstream by assemble_observation, matching the sim
+        # ObsTerm. Returning 3.0/DEPTH_MAX here would double-scale.
         raw = np.full(
             (PERCEPTION_HEIGHT, PERCEPTION_WIDTH), 3.0, dtype=np.float32
         )
         out = downsample_depth(raw)
         assert out.shape == (DEPTH_HEIGHT * DEPTH_WIDTH,)
-        np.testing.assert_allclose(out, 3.0 / DEPTH_MAX, atol=1e-6)
+        np.testing.assert_allclose(out, 3.0, atol=1e-6)
 
-    def test_nan_and_inf_replaced_with_max_then_scaled(self):
+    def test_nan_and_inf_replaced_with_max_meters(self):
         raw = np.full(
             (PERCEPTION_HEIGHT, PERCEPTION_WIDTH), np.inf, dtype=np.float32
         )
         raw[0, 0] = np.nan
         out = downsample_depth(raw)
-        np.testing.assert_allclose(out, 1.0, atol=1e-6)
+        np.testing.assert_allclose(out, DEPTH_MAX, atol=1e-6)
 
     def test_nearfield_fill_applied_below_clip(self):
         raw = np.full(
@@ -67,9 +71,8 @@ class TestDownsampleDepth:
             dtype=np.float32,
         )
         out = downsample_depth(raw)
-        np.testing.assert_allclose(
-            out, DEPTH_NEARFIELD_FILL / DEPTH_MAX, atol=1e-6
-        )
+        # Fill value is in meters (matches mdp.depth_image); scaled once later.
+        np.testing.assert_allclose(out, DEPTH_NEARFIELD_FILL, atol=1e-6)
 
     def test_block_average_matches_manual_reduction(self):
         rng = np.random.default_rng(0)
@@ -84,7 +87,6 @@ class TestDownsampleDepth:
         expected = (
             raw.reshape(DEPTH_HEIGHT, block_h, DEPTH_WIDTH, block_w)
             .mean(axis=(1, 3))
-            / DEPTH_MAX
         ).astype(np.float32).reshape(-1)
         np.testing.assert_allclose(out, expected, atol=1e-6)
 
@@ -95,7 +97,7 @@ class TestDownsampleDepth:
             dtype=np.float32,
         )
         out = downsample_depth(raw)
-        np.testing.assert_allclose(out, 1.0, atol=1e-6)
+        np.testing.assert_allclose(out, DEPTH_MAX, atol=1e-6)
 
     def test_rejects_wrong_shape(self):
         raw = np.zeros((100, 100), dtype=np.float32)
@@ -117,6 +119,52 @@ class TestDownsampleDepth:
         raw = np.zeros((PERCEPTION_HEIGHT, PERCEPTION_WIDTH), dtype=np.float32)
         out = downsample_depth(raw)
         assert out.shape[0] == depth_field.dims
+
+
+class TestDepthSingleScaleParity:
+    """Regression pin for the deploy double-scale bug: depth must reach the
+    network at the SAME value sim feeds it — meters * DEPTH_SCALE, applied
+    once. The bug was downsample_depth pre-normalizing by 1/max_depth, so
+    assemble_observation's DEPTH_SCALE scaled a second time (6x too small).
+    Pins the end-to-end value, the assertion whose absence let it hide.
+    """
+
+    def _assembled_depth_slice(self, meters: float) -> np.ndarray:
+        raw_field = np.full(
+            (PERCEPTION_HEIGHT, PERCEPTION_WIDTH), meters, dtype=np.float32
+        )
+        depth_meters = downsample_depth(raw_field)
+        raw = build_raw_obs_dict(
+            variant=PolicyVariant.DEPTH,
+            imu_accel=(0.0, 0.0, 0.0),
+            imu_gyro=(0.0, 0.0, 0.0),
+            wheel_vels_rad_s=np.zeros(4, dtype=np.float64),
+            goal_relative_xy=np.zeros(2, dtype=np.float32),
+            goal_distance=0.0,
+            goal_heading_to_goal=0.0,
+            body_velocity_xy=(0.0, 0.0),
+            last_action=np.zeros(3, dtype=np.float32),
+            depth_flat_meters=depth_meters,
+        )
+        obs = assemble_observation(raw, PolicyVariant.DEPTH)
+        return obs[-(DEPTH_HEIGHT * DEPTH_WIDTH):]
+
+    def test_three_meter_surface_reaches_network_at_sim_value(self):
+        depth_slice = self._assembled_depth_slice(3.0)
+        # Sim value: mdp.depth_image returns 3.0 m, ObsTerm scales by
+        # DEPTH_SCALE once -> 0.5. Deploy must match.
+        np.testing.assert_allclose(depth_slice, 3.0 * DEPTH_SCALE, atol=1e-6)
+        np.testing.assert_allclose(depth_slice, 0.5, atol=1e-6)
+        # NOT the twice-scaled value the double-scale bug produced.
+        assert not np.allclose(
+            depth_slice, 3.0 * DEPTH_SCALE * DEPTH_SCALE
+        ), "depth is double-scaled: downsample_depth must return meters"
+
+    def test_scaled_depth_stays_in_unit_range(self):
+        # A max-range surface saturates to exactly 1.0 after the single scale.
+        np.testing.assert_allclose(
+            self._assembled_depth_slice(DEPTH_MAX), 1.0, atol=1e-6
+        )
 
 
 # =============================================================================
@@ -356,7 +404,7 @@ class TestRawDictAssembly:
             goal_heading_to_goal=math.atan2(-0.5, 1.5),
             body_velocity_xy=(0.5, 0.0),
             last_action=np.zeros(3, dtype=np.float32),
-            depth_flat_normalized=np.full(
+            depth_flat_meters=np.full(
                 DEPTH_HEIGHT * DEPTH_WIDTH, 0.5, dtype=np.float32
             ),
         )
@@ -496,7 +544,7 @@ class TestRawDictSubgoalVariant:
         assert obs.dtype == np.float32
 
     def test_builds_without_depth_arg(self):
-        # No depth_flat_normalized supplied; the no-depth contract holds:
+        # No depth_flat_meters supplied; the no-depth contract holds:
         # depth omitted and exactly the variant's fields are emitted.
         raw = self._make_raw()
         assert "depth_image" not in raw
@@ -591,7 +639,7 @@ class TestRawDictDepthSubgoalVariant:
             goal_heading_to_goal=self.HEAD,
             body_velocity_xy=(0.5, 0.0),
             last_action=np.zeros(3, dtype=np.float32),
-            depth_flat_normalized=np.full(
+            depth_flat_meters=np.full(
                 DEPTH_HEIGHT * DEPTH_WIDTH, self.DEPTH_FILL, dtype=np.float32
             ),
         )

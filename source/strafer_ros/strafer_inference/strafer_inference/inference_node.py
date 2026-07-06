@@ -715,7 +715,7 @@ class InferenceNode(Node):
             self.get_logger().warning(f"JointState parse failed: {exc}")
             return None
 
-        depth_flat = (
+        depth_flat_meters = (
             downsample_depth(self._last_depth_meters) if self._has_depth else None
         )
 
@@ -743,7 +743,7 @@ class InferenceNode(Node):
                 odom.twist.twist.linear.y,
             ),
             last_action=self._last_action,
-            depth_flat_normalized=depth_flat,
+            depth_flat_meters=depth_flat_meters,
         )
         return assemble_observation(raw, self._variant)
 

@@ -127,6 +127,53 @@ class TestObsTimeoutEnvOverride(unittest.TestCase):
             node.destroy_node()
 
 
+class TestDepthTimeoutEnvOverride(unittest.TestCase):
+    """STRAFER_DEPTH_TIMEOUT_S loosens ONLY the depth freshness budget for the
+    sim bridge's slow (~3 Hz) depth feed; unset keeps the real-robot yaml
+    default. Independent of STRAFER_OBS_TIMEOUT_S (imu/joint_states/odom)."""
+
+    def test_env_overrides_depth_source_only(self) -> None:
+        os.environ["STRAFER_DEPTH_TIMEOUT_S"] = "2.0"
+        try:
+            node = InferenceNode(
+                parameter_overrides=_make_overrides(model_path="")
+            )
+        finally:
+            del os.environ["STRAFER_DEPTH_TIMEOUT_S"]
+        try:
+            self.assertEqual(node._timeouts.depth, 2.0)
+            self.assertEqual(node._timeouts.imu, 0.2)          # untouched
+            self.assertEqual(node._timeouts.joint_states, 0.2)  # untouched
+            self.assertEqual(node._timeouts.odom, 0.2)          # untouched
+            self.assertEqual(node._timeouts.tf, 0.5)            # untouched
+        finally:
+            node.destroy_node()
+
+    def test_unset_keeps_param_default(self) -> None:
+        os.environ.pop("STRAFER_DEPTH_TIMEOUT_S", None)
+        node = InferenceNode(parameter_overrides=_make_overrides(model_path=""))
+        try:
+            self.assertEqual(node._timeouts.depth, 0.5)
+        finally:
+            node.destroy_node()
+
+    def test_obs_and_depth_overrides_are_independent(self) -> None:
+        os.environ["STRAFER_OBS_TIMEOUT_S"] = "1.0"
+        os.environ["STRAFER_DEPTH_TIMEOUT_S"] = "2.0"
+        try:
+            node = InferenceNode(
+                parameter_overrides=_make_overrides(model_path="")
+            )
+        finally:
+            del os.environ["STRAFER_OBS_TIMEOUT_S"]
+            del os.environ["STRAFER_DEPTH_TIMEOUT_S"]
+        try:
+            self.assertEqual(node._timeouts.imu, 1.0)
+            self.assertEqual(node._timeouts.depth, 2.0)
+        finally:
+            node.destroy_node()
+
+
 # =============================================================================
 # ONNX thread pinning — keep a tiny MLP from spinning every core
 # =============================================================================
@@ -1046,5 +1093,58 @@ class TestVariantAwareWiring(unittest.TestCase):
             )
             self.assertIn("depth", stale)        # camera variant
             self.assertNotIn("subgoal", stale)   # not a subgoal variant
+        finally:
+            node.destroy_node()
+
+    # -- DEPTH_SUBGOAL: the 2x2-closing combo cell -------------------------
+    # It is the only variant that lights up BOTH depth and subgoal paths;
+    # these pin that the #122 variant-agnostic wiring composes them without a
+    # per-variant branch (depth field -> depth pipeline; subgoal_* fields ->
+    # rolling-subgoal pipeline).
+
+    def test_depth_subgoal_subscribes_both_depth_and_subgoal(self) -> None:
+        node = self._node("DEPTH_SUBGOAL")
+        try:
+            self.assertTrue(node._has_depth)
+            self.assertTrue(node._uses_subgoal)
+            self.assertIsNotNone(node._depth_sub)
+            self.assertIsNotNone(node._subgoal_sub)
+        finally:
+            node.destroy_node()
+
+    def test_depth_subgoal_watchdog_has_both_depth_and_subgoal(self) -> None:
+        """DEPTH_SUBGOAL keeps the depth source (camera restored vs
+        NOCAM_SUBGOAL) AND adds the rolling-subgoal source: both trip
+        independently, and both-fresh with an active goal is clean.
+        """
+        from strafer_inference.watchdog import stale_sources
+
+        node = self._node("DEPTH_SUBGOAL")
+        try:
+            now = 1000.0
+
+            def _stale(*, depth_rx, subgoal_rx):
+                return stale_sources(
+                    now_monotonic_s=now,
+                    last_imu_rx_t=now,
+                    last_joint_states_rx_t=now, last_odom_rx_t=now,
+                    last_depth_rx_t=depth_rx, tf_age_s=0.0,
+                    timeouts=node._timeouts,
+                    depth_enabled=node._has_depth,
+                    last_subgoal_rx_t=subgoal_rx,
+                    subgoal_enabled=node._uses_subgoal,
+                    goal_active=True,
+                )
+
+            # Both fresh + goal active -> clean.
+            self.assertEqual(_stale(depth_rx=now, subgoal_rx=now), [])
+            # Stale depth trips (subgoal not implicated).
+            stale = _stale(depth_rx=None, subgoal_rx=now)
+            self.assertIn("depth", stale)
+            self.assertNotIn("subgoal", stale)
+            # Stale subgoal trips (depth not implicated).
+            stale = _stale(depth_rx=now, subgoal_rx=None)
+            self.assertIn("subgoal", stale)
+            self.assertNotIn("depth", stale)
         finally:
             node.destroy_node()

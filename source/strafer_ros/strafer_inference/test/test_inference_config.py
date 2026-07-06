@@ -66,9 +66,10 @@ class TestInferenceParamsStructure:
         from strafer_shared.policy_interface import PolicyVariant
 
         variant = node_params["policy_variant"]
-        assert variant in {v.name for v in PolicyVariant}, (
+        supported = {v.name for v in PolicyVariant}
+        assert variant in supported, (
             f"policy_variant={variant!r} is not a PolicyVariant; "
-            "expected one of NOCAM / DEPTH."
+            f"expected one of {sorted(supported)}."
         )
 
     def test_default_variant_is_depth(self, node_params):
@@ -267,6 +268,23 @@ class TestInferenceLaunchOverrides:
         assert rendered("model_path") == "/models/depth.onnx"
         assert rendered("policy_variant") == "NOCAM_SUBGOAL"
 
+    def test_depth_subgoal_env_flows_to_launch_arg(self, pkg_dir, monkeypatch):
+        # The hybrid-with-depth variant flows through the same env->launch-arg
+        # path with no name-list rejecting it; only the node's PolicyVariant[...]
+        # lookup validates it (and now accepts it).
+        monkeypatch.setenv("STRAFER_POLICY_VARIANT", "DEPTH_SUBGOAL")
+        mod = _load_launch(pkg_dir)
+        ld = mod.generate_launch_description()
+        from launch.actions import DeclareLaunchArgument
+
+        args = {
+            e.name: e for e in ld.entities
+            if isinstance(e, DeclareLaunchArgument)
+        }
+        default = args["policy_variant"].default_value
+        rendered = "".join(getattr(s, "text", str(s)) for s in default)
+        assert rendered == "DEPTH_SUBGOAL"
+
     def test_override_dict_is_last_in_parameters(self, pkg_dir, monkeypatch):
         from launch.substitutions import LaunchConfiguration
 
@@ -423,6 +441,10 @@ class TestPolicyVariantParsing:
 
         assert PolicyVariant["DEPTH"] is PolicyVariant.DEPTH
         assert PolicyVariant["NOCAM"] is PolicyVariant.NOCAM
+        assert PolicyVariant["NOCAM_SUBGOAL"] is PolicyVariant.NOCAM_SUBGOAL
+        # The hybrid-with-depth variant resolves the same way the launch
+        # STRAFER_POLICY_VARIANT string routes into the node.
+        assert PolicyVariant["DEPTH_SUBGOAL"] is PolicyVariant.DEPTH_SUBGOAL
 
     def test_unknown_variant_raises_keyerror(self):
         from strafer_shared.policy_interface import PolicyVariant

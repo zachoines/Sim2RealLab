@@ -164,11 +164,24 @@ class InferenceNode(Node):
                 f"obs_timeout_s overridden to {obs_timeout_s} via "
                 "STRAFER_OBS_TIMEOUT_S"
             )
+        depth_timeout_s = float(self.get_parameter("depth_timeout_s").value)
+        # Depth needs its own sim override: the sim bridge publishes depth far
+        # slower than the imu/joint/odom feeds (~3 Hz wall at the rig's low
+        # RTF), so its ~0.33 s inter-frame gaps sit against the real-robot
+        # 0.5 s default and false-trip stale=['depth'] mid-mission. Same
+        # pattern as STRAFER_OBS_TIMEOUT_S; real-robot bringup leaves it unset.
+        env_depth_timeout = os.environ.get("STRAFER_DEPTH_TIMEOUT_S", "")
+        if env_depth_timeout:
+            depth_timeout_s = float(env_depth_timeout)
+            self.get_logger().info(
+                f"depth_timeout_s overridden to {depth_timeout_s} via "
+                "STRAFER_DEPTH_TIMEOUT_S"
+            )
         self._timeouts = WatchdogTimeouts(
             imu=obs_timeout_s,
             joint_states=obs_timeout_s,
             odom=obs_timeout_s,
-            depth=float(self.get_parameter("depth_timeout_s").value),
+            depth=depth_timeout_s,
             tf=float(self.get_parameter("tf_max_age_s").value),
             path=float(self.get_parameter("path_timeout_s").value),
         )

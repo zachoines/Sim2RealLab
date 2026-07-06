@@ -562,6 +562,106 @@ class TestRawDictNocamVariant:
 
 
 # =============================================================================
+# build_raw_obs_dict + assemble_observation — DEPTH_SUBGOAL (the 2x2-closing
+# combo: subgoal_* referent keys AND the depth tail)
+# =============================================================================
+
+
+class TestRawDictDepthSubgoalVariant:
+    """DEPTH_SUBGOAL is the only variant exercising both the subgoal referent
+    keys and the depth field. The variant-agnostic builder must emit subgoal_*
+    (not goal_*) plus depth_image, and assembly must place the depth tail in
+    the same trailing position as DEPTH while routing the referent triplet to
+    the subgoal fields.
+    """
+
+    REL = np.array([1.5, -0.5], dtype=np.float32)
+    DIST = math.hypot(1.5, -0.5)
+    HEAD = math.atan2(-0.5, 1.5)
+    DEPTH_FILL = 0.5
+
+    def _make_raw(self, **overrides) -> dict:
+        defaults = dict(
+            variant=PolicyVariant.DEPTH_SUBGOAL,
+            imu_accel=(0.1, 0.2, 9.8),
+            imu_gyro=(0.01, -0.02, 0.03),
+            wheel_vels_rad_s=np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float64),
+            goal_relative_xy=self.REL,
+            goal_distance=self.DIST,
+            goal_heading_to_goal=self.HEAD,
+            body_velocity_xy=(0.5, 0.0),
+            last_action=np.zeros(3, dtype=np.float32),
+            depth_flat_normalized=np.full(
+                DEPTH_HEIGHT * DEPTH_WIDTH, self.DEPTH_FILL, dtype=np.float32
+            ),
+        )
+        defaults.update(overrides)
+        return build_raw_obs_dict(**defaults)
+
+    def test_emits_subgoal_keys_and_depth_but_no_goal_keys(self):
+        raw = self._make_raw()
+        assert "subgoal_relative" in raw
+        assert "subgoal_distance" in raw
+        assert "subgoal_heading_to_subgoal" in raw
+        assert "depth_image" in raw
+        assert "goal_relative" not in raw
+        assert "goal_distance" not in raw
+
+    def test_has_every_depth_subgoal_field(self):
+        raw = self._make_raw()
+        for field in PolicyVariant.DEPTH_SUBGOAL.fields:
+            assert field.key in raw, f"missing {field.key}"
+        assert len(raw) == len(PolicyVariant.DEPTH_SUBGOAL.fields)
+
+    def test_referent_triplet_lands_in_subgoal_fields(self):
+        raw = self._make_raw()
+        np.testing.assert_allclose(raw["subgoal_relative"], self.REL)
+        np.testing.assert_allclose(raw["subgoal_distance"], [self.DIST])
+        np.testing.assert_allclose(
+            raw["subgoal_heading_to_subgoal"], [self.HEAD]
+        )
+
+    def test_depth_tail_is_in_the_depth_position(self):
+        """DEPTH_SUBGOAL shares DEPTH's field layout: 4819 dims total with the
+        4800-dim depth field as the trailing block."""
+        assert PolicyVariant.DEPTH_SUBGOAL.obs_dim == PolicyVariant.DEPTH.obs_dim
+        assert PolicyVariant.DEPTH_SUBGOAL.obs_dim == 4819
+        assert PolicyVariant.DEPTH_SUBGOAL.fields[-1].key == "depth_image"
+
+    def test_assembles_per_field_against_the_enum(self):
+        """Assemble and assert each obs slice equals raw * scale, iterating the
+        shared enum's fields — pins ordering, per-field scale, and the depth
+        tail position without restating any dim/scale literal here.
+        """
+        raw = self._make_raw()
+        obs = assemble_observation(raw, PolicyVariant.DEPTH_SUBGOAL)
+        assert obs.shape == (PolicyVariant.DEPTH_SUBGOAL.obs_dim,)
+        assert obs.dtype == np.float32
+
+        offset = 0
+        for field in PolicyVariant.DEPTH_SUBGOAL.fields:
+            expected = np.asarray(
+                raw[field.key], dtype=np.float32
+            ).ravel() * field.scale
+            np.testing.assert_allclose(
+                obs[offset:offset + field.dims], expected,
+                rtol=1e-6, atol=1e-6,
+                err_msg=f"field {field.key} slice mismatch",
+            )
+            offset += field.dims
+        assert offset == PolicyVariant.DEPTH_SUBGOAL.obs_dim
+
+    def test_assembly_rejects_goal_keys_for_depth_subgoal(self):
+        """Wiring a goal-pose pipeline into DEPTH_SUBGOAL fails loudly at
+        assembly rather than producing silent garbage — same guard as
+        NOCAM_SUBGOAL, extended to the depth combo."""
+        raw = self._make_raw()
+        raw["goal_relative"] = raw.pop("subgoal_relative")
+        with pytest.raises(KeyError):
+            assemble_observation(raw, PolicyVariant.DEPTH_SUBGOAL)
+
+
+# =============================================================================
 # l1_clamp_velocity
 # =============================================================================
 

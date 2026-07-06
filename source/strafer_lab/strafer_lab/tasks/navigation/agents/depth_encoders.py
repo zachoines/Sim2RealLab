@@ -109,15 +109,19 @@ class DeFMDepthEncoder(nn.Module):
     depth into the 3-channel log-normalized representation the backbone was
     pretrained on.  Only the projection layer trains (~164K params).
 
-    Input scale: the policy observation delivers depth normalized to [0, 1]
-    (raw meters × ``DEPTH_SCALE``, per the shared policy-interface contract),
-    but DeFM's preprocess interprets its input as *metric meters* — its two
-    global log-scale channels are anchored to absolute distance, which is the
+    Input scale: the policy observation contract delivers depth normalized to
+    [0, 1] (raw meters × ``DEPTH_SCALE`` applied exactly once), but DeFM's
+    preprocess interprets its input as *metric meters* — its two global
+    log-scale channels are anchored to absolute distance, which is the
     backbone's headline pretraining feature. ``forward`` therefore un-scales
     back to meters before handing off; feeding the normalized values directly
     would compress those channels ~1σ below the pretraining distribution and
     discard the metric information. The ONNX/TorchScript export mirrors apply
-    the same un-scale so train and deploy stay bit-consistent.
+    the identical un-scale, so the exported artifact and this training encoder
+    feed DeFM byte-identical input. Every observation supplier — the sim obs
+    manager and the real-robot obs pipeline alike — must honor that [0, 1]
+    contract (``DEPTH_SCALE`` applied once, not zero or twice), or the recovered
+    "meters" are off by the mis-scale factor.
     """
 
     def __init__(self, output_dim: int = 128, model_name: str = "efficientnet_b0"):

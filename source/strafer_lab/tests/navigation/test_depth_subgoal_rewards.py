@@ -54,7 +54,7 @@ _FAR = 6.0  # max_depth: the "nothing in range" reading
 
 def _make_env(depth, *, cam_pos, quat_xyzw):
     """A minimal env: depth camera output + ground-truth pose + intrinsics."""
-    num_envs = depth.shape[0] if isinstance(depth, torch.Tensor) else depth.shape[0]
+    num_envs = depth.shape[0]  # torch.Tensor or wp.array — both expose .shape
     sensor = SimpleNamespace(
         cfg=SimpleNamespace(
             spawn=SimpleNamespace(

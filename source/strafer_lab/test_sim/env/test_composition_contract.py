@@ -90,10 +90,13 @@ _CONTRACT_GOLDENS = {
     "RLNoCamSubgoal_Robust": "1f16f07c038d3eb05c765fe99d857a2ef68e80d369dc279ad7e81c25ef760aa5",
     "RLNoCamSubgoal_Real_PLAY": "0ec2595c9efb9ea6846a4cfa9b78025babb32fe377584a0d5a2c7049176d4079",
     "RLNoCamSubgoal_Robust_PLAY": "f1fc1058d0ad698faa88986e8fd2ae0dada2c3701a7cbdf1e24e19a25f839c11",
-    "RLDepthSubgoal_Real": "17a827106b78922ffa2c5f85e2eac82cb238bf0d343b2ece4eb182665f873b77",
-    "RLDepthSubgoal_Robust": "f862b41701c6566916182dd7c48c64486c6ce4fa4921d8700c818ef2d125c0c8",
-    "RLDepthSubgoal_Real_PLAY": "65a5f95b9488f26f0186727a6744def40e33f8f4586cba62f9b9c6aec8bd8572",
-    "RLDepthSubgoal_Robust_PLAY": "21c745106292b3840e8111e26e5a0541c931a436b643319fb8f7cea5a50f3b93",
+    # Depth-subgoal rows re-snapshotted after the pre-training reward repair:
+    # floor-plane exclusion (floor_margin param) + weight -1.0 -> -0.25 on
+    # depth_obstacle_proximity. No converged checkpoint predates these hashes.
+    "RLDepthSubgoal_Real": "b7987475e04285292f99565495ad29ae3381180821f865b0ce2f823b52b66691",
+    "RLDepthSubgoal_Robust": "b95422c6ab911ee083ad040c580d84edd99efa180efbaa0dc8795fd72041b422",
+    "RLDepthSubgoal_Real_PLAY": "5053cb4c2e54554e05df18bdb29307781b1f25bc27bfa3575ae14fdd6e7cc0c2",
+    "RLDepthSubgoal_Robust_PLAY": "91b8aa7a08cc82bfbdb48c60bbd7e6285d0acf8b65cb2dd8b440d88e735716a2",
 }
 
 # The depth observation a checkpoint consumes — captured identical across the
@@ -343,6 +346,25 @@ def test_depth_subgoal_penalty_weight_is_negative_and_params_pinned():
     p = term.params
     assert 0.0 < p["saturation_depth"] < p["distance_threshold"] <= p["max_depth"]
     assert p["epsilon"] > 0.0
+    # Floor-plane exclusion must be active with a tight (render-tolerance)
+    # margin: without it the always-visible floor saturates the term into an
+    # ambient per-step tax that makes early termination return-optimal.
+    assert 0.0 < p["floor_margin"] <= 0.15
+    # Dense-stream discipline: bound the saturated cap to the same order as
+    # the along-track income (weight 10 at ~0.5 m/s ~= 0.17 raw/step), not
+    # several times it. Near-contact saturation legitimately exceeds income —
+    # that is what forces retreat — but a cap that dwarfs the task signal
+    # recreates the ambient-tax economics where terminating early beats
+    # completing the path. Cap-raw here is
+    # |weight| * (1/(saturation+eps) - 1/(threshold+eps)).
+    cap_raw = abs(term.weight) * (
+        1.0 / (p["saturation_depth"] + p["epsilon"])
+        - 1.0 / (p["distance_threshold"] + p["epsilon"])
+    )
+    assert cap_raw < 0.5, (
+        f"saturated depth penalty {cap_raw:.3f}/step dwarfs the task signal — "
+        "re-run the episode-return arithmetic before raising the weight"
+    )
 
 
 # =====================================================================

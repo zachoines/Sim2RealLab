@@ -1626,19 +1626,33 @@ class RewardsCfg_ProcRoom_Subgoal_Depth(RewardsCfg_ProcRoom_Subgoal):
     sees — teaching it to react to *sensed* obstacles, including late-arriving
     ones the planned path drives through. Depth makes obstacles observable, so
     (unlike NOCAM_SUBGOAL, where the policy is blind and the analogous gradient
-    would be noise) this proximity gradient is real signal. The weight is a
-    training-time tuning starting point, not a converged constant.
+    would be noise) this proximity gradient is real signal.
+
+    Weight discipline: the depth term must stay a *shaping* signal strictly
+    inside the task economics — planned paths legitimately pass within the
+    penalty's threshold of primitives and walls (the planner inflates by only
+    the robot radius), and the off-path/completion one-shots realize at
+    ``weight * step_dt``, so an over-weighted dense penalty makes terminating
+    early return-optimal and training collapses onto an off-path bail-out
+    instead of path completion. The reward function's floor-plane exclusion
+    (see :func:`mdp.depth_obstacle_proximity_penalty`) removes the always-
+    visible floor from the sensed minimum for the same reason; the weight here
+    is sized so even a saturated reading stays well below the along-track
+    progress income. A training-time tuning starting point, not a converged
+    constant — but retune it against the episode-return arithmetic, not in
+    isolation.
     """
 
     depth_obstacle_proximity = RewTerm(
         func=mdp.depth_obstacle_proximity_penalty,
-        weight=-1.0,
+        weight=-0.25,
         params={
             "sensor_cfg": SceneEntityCfg("d555_camera"),
             "distance_threshold": 1.0,
             "saturation_depth": 0.3,
             "epsilon": 0.1,
             "max_depth": DEPTH_MAX,
+            "floor_margin": 0.07,
         },
     )
 

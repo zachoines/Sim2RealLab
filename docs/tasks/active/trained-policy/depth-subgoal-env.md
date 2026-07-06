@@ -193,6 +193,48 @@ Train against `Isaac-Strafer-Nav-RLDepth-Subgoal-Real-v0` per PPO. Target conver
 
 If `goal-noise-training` has shipped by this point, run a noise-resilience pass on top of the converged baseline. Otherwise file the noise pass as a separate `policy-depth-subgoal-noise-training.md`.
 
+#### Phase-5 attempt 1 (2026-07-04/05): entropy collapse — diagnosed, reward repaired
+
+The first training run (`logs/rsl_rl/strafer_navigation/depth_subgoal_baseline/run_20260704_233901`,
+124 iters, ~4 h; + a 66-iter resume, ~2.5 h — ~6.5 GPU-hours total on the GB10) collapsed:
+policy entropy dove 0.62 → −0.75 (resume: → −1.18), episode length pinned at 22–28 of 600
+steps, 77–90 % of episodes terminated via `off_path_divergence`, and `path_complete` never
+fired in 190 logged iterations. TB forensics + reward arithmetic isolated the cause: the
+level-mounted camera (optical center ~0.35 m, VFOV ~71°) always sees the floor at ~0.5 m
+z-depth in its lower FOV, so `depth_obstacle_proximity_penalty` (then weight −1.0, min over
+all pixels, 1.0 m threshold) ran at 76–96 % of its saturation cap from iteration 1 —
+an unavoidable ambient tax. With one-shot terms realizing at `weight × step_dt` (off-path
+−50 → −1.67, completion +200 → +6.67), the dense stream made terminating early
+return-optimal beyond a ~21–37-step horizon — exactly the observed episode-length pin. The
+NOCAM subgoal contrast run (same terminations, no depth term) recovered from the identical
+early off-path spike and reached 29 % path completion. Two repairs landed before restart:
+
+1. **Floor-plane exclusion** in `depth_obstacle_proximity_penalty`: per-pixel expected
+   floor depth from the camera's ground-truth pose (privileged, train-time-only; pitch/roll
+   absorbed exactly), pixels within `floor_margin` (0.07 m) of the prediction excluded from
+   the min. A bare floor now reads exactly zero; small floor clutter stays detected via its
+   occlusion deficit, and the 0.5–1.0 m band the floor used to min-clip is restored. Weight
+   retuned −1.0 → −0.25 so even a saturated reading stays inside the task economics.
+2. **DeFM input scale**: the encoder (train + export mirrors) now un-scales the obs-normalized
+   [0, 1] depth back to metric meters before DeFM's preprocess — its global log channels are
+   anchored to absolute distance and were previously compressed ~1σ off the pretraining
+   distribution. Invalidates the collapsed checkpoints (which were not salvageable anyway);
+   pre-fix exported artifacts remain self-consistent and unaffected.
+
+**Restart gates (watch in the first ~50–100 iters; alarm ⇒ stop early, don't ride it out):**
+
+- `Episode_Reward/depth_obstacle_proximity` per-step ≈ 0 at iters 0–5 under the random
+  policy (was 76–96 % of cap) — the single number that proves the ambient tax is gone.
+- `Train/mean_episode_length` climbing through 150–300 by iter 50 (NOCAM: 265@25, 352@50);
+  alarm if pinned in the 22–40 band past iter 30.
+- `Episode_Termination/off_path_divergence` declining after the normal early spike (≤0.5 by
+  iter 50); alarm if it plateaus >0.75 past iter 30. `time_out` must stay nonzero past iter 20.
+- `Loss/entropy` holding near its ~+0.62 init or declining gently (Beta-head entropy goes
+  negative as it sharpens — the alarm is a monotone dive crossing 0 by iter 75).
+- Pre-approved second lever ONLY if entropy still dives after the reward fix: Beta
+  `init_noise_std` 0.3 → 0.5 and/or more envs; keep all other runner knobs frozen for
+  attribution.
+
 ## Acceptance criteria
 
 ### Variant + command

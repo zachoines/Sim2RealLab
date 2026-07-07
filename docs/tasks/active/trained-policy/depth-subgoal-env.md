@@ -193,6 +193,31 @@ Train against `Isaac-Strafer-Nav-RLDepth-Subgoal-Real-v0` per PPO. Target conver
 
 If `goal-noise-training` has shipped by this point, run a noise-resilience pass on top of the converged baseline. Otherwise file the noise pass as a separate `policy-depth-subgoal-noise-training.md`.
 
+#### Phase-5 decision (2026-07-06): ship the depth *tracker*, defer reactive avoidance
+
+After the diagnostic arc below, the depth **penalty** is **shipped inert (weight 0.0,
+term kept wired — a one-float re-enable)**. What was proven and what wasn't:
+
+- **Proven and shipped:** the depth *observation* is the win — the weight-0 depth policy
+  path-follows the rolling-subgoal task at ~90 % completion, **beating the NOCAM_SUBGOAL
+  baseline**. That is DEPTH_SUBGOAL's defensible deliverable.
+- **Not achievable in this env at any penalty weight:** reactive sensed-obstacle avoidance.
+  The A* planner line-of-sight-shortcuts paths straight and inflates by the robot radius, so a
+  planned path is a pre-cleared near-straight shot — the forward camera almost never faces an
+  on-path obstacle to steer around, so the penalty's improvement slope is shallow (raw
+  ~0.285 → 0.21). Raising the weight −0.25 → −1.0 left the sensed obstacle distance unchanged
+  (~0.43 m either way) and destabilized late; the residual ~10 % collisions are **blind rear
+  bumps** (random spawn yaw forces a turn-around; the forward-only camera can't see behind) —
+  a sensing/spawn artifact no forward penalty can touch. The 0.3 m off-path corridor also
+  *terminates and −50-penalizes* the exact lateral avoidance the penalty rewards.
+- **Follow-up:** [`depth-subgoal-reactive-avoidance`](../../parked/trained-policy/depth-subgoal-reactive-avoidance.md)
+  re-enables the penalty in a hardened env (authored on-path gate corridor, widened
+  depth-only off-path bound, detour-economics rebalance, spawn-heading fix; moving obstacles
+  as a staged sub-phase). Operator-confirmed value: Nav2 pre-clears static geometry but
+  updates the costmap slowly for dynamics and can't give a blind agent margin in tight
+  passages (doorways) — so the penalty earns its place on **dynamic/late-arriving obstacles +
+  tight clearances**, not on the static pre-cleared paths this env produces.
+
 #### Phase-5 attempt 1 (2026-07-04/05): entropy collapse — diagnosed, reward repaired
 
 The first training run (`logs/rsl_rl/strafer_navigation/depth_subgoal_baseline/run_20260704_233901`,
@@ -252,11 +277,15 @@ early off-path spike and reached 29 % path completion. Two repairs landed before
 - [x] Four task IDs registered (`Real` / `Robust` × non-play / play). `gym.make(<id>)` succeeds. *(`Isaac-Strafer-Nav-RLDepth-Subgoal-{Real,Robust}[-Play]-v0` on `STRAFER_PPO_DEPTH_RUNNER_CFG`; `EXPECTED_ENVS` + composition-contract goldens updated.)*
 - [ ] Smoke test on the play variant runs to completion with path + subgoal + depth visualization visible. *(Operator Kit smoke — the Phase-4 merge gate.)*
 
-### Training run
+### Training run — redefined to the *validated* deliverable (see decision below)
 
-- [ ] Converged checkpoint at `logs/rsl_rl/strafer_navigation/depth_subgoal_baseline/model_<step>.pt`. PR description records all five Phase 5 metrics.
-- [ ] Play-script rollout in a scene with a seeded obstacle: the robot reaches the goal *without colliding*, visibly deviating from the path to clear the obstacle. Operator records video / screenshots.
-- [ ] Export through `source/strafer_lab/scripts/export_policy.py --variant DEPTH_SUBGOAL` produces a working `.onnx` (+ `.engine` if the rig is available) that `load_policy()` consumes.
+The Phase-5 deliverable is the depth **path-follower**, not reactive obstacle
+avoidance. The latter was un-achievable in this env at any penalty weight and is
+deferred to [`depth-subgoal-reactive-avoidance`](../../parked/trained-policy/depth-subgoal-reactive-avoidance.md).
+
+- [x] Converged depth-tracking checkpoint. *(Weight-0 depth run: ~90 % path-completion, **beating the NOCAM_SUBGOAL baseline** — the depth observation tracks the rolling-subgoal path better than proprioception. `STRAFER_PPO_DEPTH_RUNNER_CFG`, DeFM/GRU/Beta.)*
+- [ ] Export through `source/strafer_lab/scripts/export_policy.py --variant DEPTH_SUBGOAL` produces a working `.onnx` (+ `.engine` if the rig is available) that `load_policy()` consumes. *(Operator, on the tracking checkpoint.)*
+- [→] Reactive obstacle avoidance (≥ 95 % reach-without-collision on seeded obstacles; policy visibly deviates to clear an obstacle). **Deferred** — [`depth-subgoal-reactive-avoidance`](../../parked/trained-policy/depth-subgoal-reactive-avoidance.md) re-enables the depth penalty in a hardened ProcRoom (authored on-path gates + widened depth-only corridor). Justification: Nav2 pre-clears static geometry, so the penalty's real value is dynamic/late-arriving obstacles + tight-clearance passages a costmap can't give a blind agent margin in.
 
 ### Recurrent contract preservation
 

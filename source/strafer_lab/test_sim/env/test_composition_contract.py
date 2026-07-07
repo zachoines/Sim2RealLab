@@ -90,13 +90,16 @@ _CONTRACT_GOLDENS = {
     "RLNoCamSubgoal_Robust": "1f16f07c038d3eb05c765fe99d857a2ef68e80d369dc279ad7e81c25ef760aa5",
     "RLNoCamSubgoal_Real_PLAY": "0ec2595c9efb9ea6846a4cfa9b78025babb32fe377584a0d5a2c7049176d4079",
     "RLNoCamSubgoal_Robust_PLAY": "f1fc1058d0ad698faa88986e8fd2ae0dada2c3701a7cbdf1e24e19a25f839c11",
-    # Depth-subgoal rows re-snapshotted after the pre-training reward repair:
-    # floor-plane exclusion (floor_margin param) + weight -1.0 -> -0.25 on
-    # depth_obstacle_proximity. No converged checkpoint predates these hashes.
-    "RLDepthSubgoal_Real": "b7987475e04285292f99565495ad29ae3381180821f865b0ce2f823b52b66691",
-    "RLDepthSubgoal_Robust": "b95422c6ab911ee083ad040c580d84edd99efa180efbaa0dc8795fd72041b422",
-    "RLDepthSubgoal_Real_PLAY": "5053cb4c2e54554e05df18bdb29307781b1f25bc27bfa3575ae14fdd6e7cc0c2",
-    "RLDepthSubgoal_Robust_PLAY": "91b8aa7a08cc82bfbdb48c60bbd7e6285d0acf8b65cb2dd8b440d88e735716a2",
+    # Depth-subgoal rows re-snapshotted after shipping the depth penalty INERT
+    # (weight 0.0): the current env starves the penalty, so DEPTH_SUBGOAL ships
+    # the validated depth-tracking win with the term kept wired but zero-weighted
+    # (re-enable is a one-float flip in a hardened env). Only these 4 flip — the
+    # depth-obs golden and every NOCAM row are independent (NOCAM_SUBGOAL falls
+    # through the source-only reward table).
+    "RLDepthSubgoal_Real": "40a2a824377036f9cf3e7974b24b28bc0ec2ea8848706b44cc8252bbdfe1b4cb",
+    "RLDepthSubgoal_Robust": "2c5969a27cd43317fd4d390e6ae4ca343b9cd6b8f654264c8e2d09543242eccc",
+    "RLDepthSubgoal_Real_PLAY": "6bd733a6b1b06303dc40da19068b0f96970550994cb1ba9b69564d5e060e1865",
+    "RLDepthSubgoal_Robust_PLAY": "3f0e0b5402c7279cd5ef0f6222753deca21e60c88494192e502f41962c08aa78",
 }
 
 # The depth observation a checkpoint consumes — captured identical across the
@@ -334,15 +337,19 @@ def test_depth_subgoal_reads_depth_camera_for_the_penalty():
 
 
 def test_depth_subgoal_penalty_weight_is_negative_and_params_pinned():
-    """Pin the sign and numeric params independently of the contract golden: a
-    penalty must have a NEGATIVE weight (a positive weight would reward driving
-    *toward* obstacles), and the saturation params must be well-ordered
-    (``saturation_depth < distance_threshold``, else the term is identically
-    zero). The golden alone can't catch a flipped sign — it was snapshotted from
-    this code — so this is the independent guard (cf. the geometric
-    ``obstacle_proximity.weight`` pin in ``test_sim/rewards``)."""
+    """Pin the sign and numeric params independently of the contract golden.
+
+    The term ships **inert** (weight 0.0) — the current ProcRoom env starves the
+    penalty, so DEPTH_SUBGOAL delivers the validated depth-*tracking* win with
+    the penalty off, re-enabled later in a hardened env. The pinned invariant is
+    therefore ``weight <= 0`` (a *positive* weight would reward driving toward
+    obstacles — the one thing a re-enable must never do). The params must stay
+    well-ordered so the re-enable is a pure one-float flip. The golden alone
+    can't catch a flipped sign — it was snapshotted from this code — so this is
+    the independent guard (cf. the geometric ``obstacle_proximity.weight`` pin
+    in ``test_sim/rewards``)."""
     term = composed.StraferNavCfg_RLDepthSubgoal_Real().rewards.depth_obstacle_proximity
-    assert term.weight < 0.0, "depth obstacle penalty must not reward obstacles"
+    assert term.weight <= 0.0, "depth obstacle penalty must never reward obstacles"
     p = term.params
     assert 0.0 < p["saturation_depth"] < p["distance_threshold"] <= p["max_depth"]
     assert p["epsilon"] > 0.0

@@ -670,6 +670,194 @@ def procroom_obstacle_proximity_penalty(
     )
 
 
+def _pixel_rays_unit_zdepth(
+    height: int,
+    width: int,
+    tan_half_hfov: float,
+    tan_half_vfov: float,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    """Pixel-center view rays in the ROS optical frame, scaled to unit z-depth.
+
+    ROS optical convention: x right, y down, z forward — image rows increase
+    toward +y, so the bottom row looks maximally downward. Each ray is scaled
+    so its optical-axis (z) component is 1; the ray parameter ``t`` of any hit
+    point then equals that point's ``distance_to_image_plane``.
+
+    Returns:
+        Ray directions, flattened row-major to match the camera output's
+        ``reshape(N, -1)`` pixel order. Shape: (height * width, 3).
+    """
+    rows = torch.arange(height, device=device, dtype=dtype)
+    cols = torch.arange(width, device=device, dtype=dtype)
+    y_ndc = (2.0 * rows + 1.0 - height) / height  # -1 top edge .. +1 bottom
+    x_ndc = (2.0 * cols + 1.0 - width) / width
+    yy, xx = torch.meshgrid(y_ndc, x_ndc, indexing="ij")
+    rays = torch.stack(
+        [xx * tan_half_hfov, yy * tan_half_vfov, torch.ones_like(xx)], dim=-1
+    )
+    return rays.reshape(-1, 3)
+
+
+def _rotate_rays_by_quat_xyzw(q: torch.Tensor, rays: torch.Tensor) -> torch.Tensor:
+    """Rotate shared rays by per-env quaternions (XYZW — Isaac Lab 3.0).
+
+    Args:
+        q: Quaternions, components (x, y, z, w). Shape: (num_envs, 4).
+        rays: Direction vectors. Shape: (num_rays, 3).
+
+    Returns:
+        Rotated directions. Shape: (num_envs, num_rays, 3).
+    """
+    qv = q[:, None, :3]
+    qw = q[:, None, 3:]
+    v = rays[None, :, :]
+    t = 2.0 * torch.linalg.cross(qv, v, dim=-1)
+    return v + qw * t + torch.linalg.cross(qv, t, dim=-1)
+
+
+def depth_obstacle_proximity_penalty(
+    env: ManagerBasedEnv,
+    sensor_cfg: SceneEntityCfg,
+    distance_threshold: float = 1.0,
+    saturation_depth: float = 0.3,
+    epsilon: float = 0.1,
+    max_depth: float = 6.0,
+    floor_margin: float = 0.07,
+) -> torch.Tensor:
+    """Dense depth-*sensed* penalty for the nearest non-floor obstacle in view.
+
+    The DEPTH_SUBGOAL counterpart to the geometric
+    :func:`procroom_obstacle_proximity_penalty`. The two coexist deliberately
+    and measure different things: the geometric term reads ground-truth
+    primitive geometry to *shape* behavior; this term reads the depth camera
+    the policy actually *sees*, so the policy learns to react to sensed
+    obstacles — including late-arriving ones a planner's path drives straight
+    through. Ground-truth shaping and the sensed channel, side by side.
+
+    Floor-plane exclusion
+    ---------------------
+    A forward camera mounted low on the chassis always sees the floor in its
+    lower FOV at well under ``distance_threshold``. Left in the minimum, the
+    floor both saturates the term into an unavoidable per-step tax (which
+    rewards early episode termination over task completion) and min-clips the
+    signal so obstacles farther than the floor reading are invisible. Each
+    step this term therefore predicts, per pixel, the depth at which that
+    pixel's ray meets the floor plane — using the camera's *ground-truth*
+    world pose (``sensor.data.pos_w`` / ``quat_w_ros``) and the env-origin
+    floor height, so chassis pitch/roll from acceleration is absorbed exactly
+    instead of padded into the margin — and excludes pixels reading within
+    ``floor_margin`` of (or beyond) that prediction. Reading privileged pose
+    is deliberate: rewards are train-time-only shaping, and the policy still
+    observes the raw, unmasked depth image. Anything protruding above the
+    floor occludes it with a depth deficit of roughly ``d * H / (h - H)``
+    (object height H at distance d, camera height h) — about 0.2 m for a
+    10 cm object at 0.5 m — so small floor clutter stays visible while a bare
+    floor reads as no obstacle. The thin sliver of an object within
+    ``floor_margin`` of its floor-contact line is absorbed into the floor;
+    detection comes from the object's body above it. Assumes a flat floor at
+    the env-origin height (true for the plane and procedural-room scene
+    sources this term trains in).
+
+    Penalty on the closest non-floor pixel, of the saturating reciprocal form
+    ``1 / (min_depth + epsilon)`` with two clips that make it well-behaved as
+    a reward:
+
+    - ``min_depth`` is floored at ``saturation_depth`` so the term saturates
+      rather than exploding as the robot approaches contact.
+    - the term is offset by its own value at ``distance_threshold`` and clamped
+      at zero, so an unobstructed view (nearest non-floor surface at or beyond
+      the threshold) accrues exactly zero — only closer clutter is penalized.
+
+    ``inf`` / ``nan`` pixels (nothing in range) become ``max_depth`` before the
+    per-env minimum, mirroring the observation's sanitization. The observation's
+    near-field fill is intentionally *not* applied: this term wants the true
+    nearest sensed distance, floored by ``saturation_depth`` for numerical
+    safety rather than by a sensor-emulation constant. Use with a negative
+    weight; the coefficient is a training-time tuning artifact.
+
+    Args:
+        env: The environment instance.
+        sensor_cfg: Scene entity config for the depth camera sensor. Its spawn
+            cfg must expose pinhole ``focal_length`` / ``horizontal_aperture``
+            (square pixels assumed for the vertical FOV).
+        distance_threshold: Nearest-depth (m) at/beyond which the penalty is
+            zero — only clutter closer than this contributes.
+        saturation_depth: Floor (m) on the nearest depth; the penalty is
+            constant at/below it, so near-contact does not blow up the reward.
+        epsilon: Small constant (m) guarding the reciprocal.
+        max_depth: Value (m) substituted for inf/nan and floor-classified
+            pixels, and the clamp ceiling.
+        floor_margin: Tolerance (m): pixels reading within this of (or beyond)
+            their predicted floor depth count as floor. Covers render
+            tolerance only — pose variation is handled by the true pose.
+
+    Returns:
+        Non-negative proximity penalty. Shape: (num_envs,)
+    """
+    sensor = env.scene.sensors[sensor_cfg.name]
+    # Camera output is a wp.array (TiledCamera) or a torch.Tensor (Camera);
+    # mirror observations._to_torch without importing across the mdp modules.
+    raw = sensor.data.output["distance_to_image_plane"]
+    depth = raw if isinstance(raw, torch.Tensor) else wp.to_torch(raw)
+
+    # Nothing-in-range pixels read inf/nan; treat them as the far clip so they
+    # never dominate the per-env minimum.
+    depth = torch.where(
+        torch.isinf(depth) | torch.isnan(depth),
+        torch.full_like(depth, max_depth),
+        depth,
+    )
+    depth = torch.clamp(depth, 0.0, max_depth)
+
+    num_envs, height, width = depth.shape[0], depth.shape[1], depth.shape[2]
+    depth_flat = depth.reshape(num_envs, -1)
+
+    # --- Per-pixel expected floor depth from the true camera pose ---
+    spawn = sensor.cfg.spawn
+    tan_half_hfov = spawn.horizontal_aperture / (2.0 * spawn.focal_length)
+    tan_half_vfov = tan_half_hfov * height / width  # square pixels
+
+    cache_key = (height, width, round(tan_half_hfov, 9), str(depth.device))
+    cache = getattr(env, "_depth_floor_penalty_rays", None)
+    if cache is None or cache[0] != cache_key:
+        rays = _pixel_rays_unit_zdepth(
+            height, width, tan_half_hfov, tan_half_vfov, depth.device, depth.dtype
+        )
+        env._depth_floor_penalty_rays = (cache_key, rays)
+    rays = env._depth_floor_penalty_rays[1]
+
+    ray_z_w = _rotate_rays_by_quat_xyzw(sensor.data.quat_w_ros, rays)[..., 2]
+    cam_height = (
+        (sensor.data.pos_w[:, 2] - env.scene.env_origins[:, 2])
+        .clamp(min=1e-3)
+        .unsqueeze(1)
+    )
+    # Descending rays meet the floor at z-depth h / (-D_z); level or ascending
+    # rays never do — no exclusion there, so a wall pixel above the horizon
+    # still counts as an obstacle.
+    descending = ray_z_w < -1e-6
+    expected_floor = torch.where(
+        descending,
+        cam_height / (-ray_z_w).clamp(min=1e-6),
+        torch.full_like(ray_z_w, torch.finfo(depth.dtype).max),
+    )
+    is_floor = depth_flat >= (expected_floor - floor_margin)
+    masked = torch.where(
+        is_floor, torch.full_like(depth_flat, max_depth), depth_flat
+    )
+
+    # Closest non-floor surface each env sees.
+    min_depth = masked.min(dim=1).values
+
+    # Saturating reciprocal, offset so an at-or-beyond-threshold view reads zero.
+    floored = torch.clamp(min_depth, min=saturation_depth)
+    penalty = 1.0 / (floored + epsilon)
+    baseline = 1.0 / (distance_threshold + epsilon)
+    return torch.clamp(penalty - baseline, min=0.0)
+
+
 # ---------------------------------------------------------------------------
 # Path-tracking rewards (rolling-subgoal command)
 # ---------------------------------------------------------------------------

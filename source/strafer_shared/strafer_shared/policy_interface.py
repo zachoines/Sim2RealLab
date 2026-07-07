@@ -171,13 +171,16 @@ _NOCAM_SUBGOAL_FIELDS: tuple[ObsField, ...] = (
     ObsField("last_action", 3, 1.0),
 )
 
-# DEPTH is to NOCAM as DEPTH_SUBGOAL is to NOCAM_SUBGOAL: the subgoal-referent
-# 19-dim head plus the same 4800-dim depth tail in the same trailing position.
-# The subgoal_* keys (not goal_*) keep it a distinct enum member — an equal
-# value would alias it onto DEPTH — and force assembly to wire subgoal data
-# explicitly.
-_DEPTH_SUBGOAL_FIELDS: tuple[ObsField, ...] = _NOCAM_SUBGOAL_FIELDS + (
-    ObsField("depth_image", 4800, DEPTH_SCALE),
+# DEPTH_SUBGOAL stands to DEPTH exactly as NOCAM_SUBGOAL stands to NOCAM: the
+# goal-shaped scalar fields are renamed to their rolling-subgoal referent, and
+# DEPTH's 4800-dim depth field rides along unchanged. Built by reusing
+# _NOCAM_SUBGOAL_FIELDS and slicing DEPTH's depth field verbatim (the part of
+# _DEPTH_FIELDS past the shared NOCAM prefix), so the depth shape/scale are
+# defined in exactly one place — same 4819 dims, same scales, same network as
+# DEPTH. Only the goal referent differs. The distinct "subgoal_*" keys force
+# inference-side assembly to wire subgoal data explicitly (see NOCAM_SUBGOAL).
+_DEPTH_SUBGOAL_FIELDS: tuple[ObsField, ...] = (
+    _NOCAM_SUBGOAL_FIELDS + _DEPTH_FIELDS[len(_NOCAM_FIELDS):]
 )
 
 
@@ -207,21 +210,24 @@ class PolicyVariant(Enum):
     DEPTH_SUBGOAL contract
     ----------------------
 
-    ``DEPTH_SUBGOAL`` is to ``NOCAM_SUBGOAL`` what ``DEPTH`` is to ``NOCAM``:
-    identical field layout and scales to ``DEPTH`` (4819 dims), with the same
-    4800-dim depth tail in the same trailing position — only the goal-shaped
-    triplet refers to a **rolling subgoal pose** on a planner-provided path
-    rather than a final goal pose. As with ``NOCAM_SUBGOAL`` the referent keys
-    are ``subgoal_*``, not ``goal_*``: a checkpoint trained under one referent
-    is silent garbage under the other, and the renamed keys force inference-side
-    assembly to wire subgoal data explicitly. This is the hybrid-backend variant
-    (Nav2 plans, RL does local control) *with* perception.
+    ``DEPTH_SUBGOAL`` stands to ``DEPTH`` exactly as ``NOCAM_SUBGOAL`` stands to
+    ``NOCAM``: identical observation dimensionality, field shapes, and scales
+    (4819 dims, same conv+recurrent architecture as ``DEPTH``), but the
+    goal-shaped scalar fields refer to a **rolling subgoal pose** on a
+    planner-provided path, not a final goal pose. Same silent-garbage hazard:
+    a checkpoint trained under one referent is meaningless under the other, so
+    consumers must pair the variant with the matching command source at both
+    training and inference time; the loader's sidecar variant check catches
+    mislabeled artifacts.
 
-    Trust boundary: unlike ``NOCAM_SUBGOAL``, ``DEPTH_SUBGOAL`` observes depth,
-    so the "trusts the costmap absolutely / unsafe in dynamic-obstacle
-    scenarios" caveat is **lifted** — the policy can see a late-arriving
-    obstacle the plan did not account for and deviate from the path to avoid
-    it.
+    Trust boundary — lifted relative to ``NOCAM_SUBGOAL``: ``DEPTH_SUBGOAL``
+    keeps the depth channel, so the policy *sees* what the plan cannot. It is
+    the maximally-capable hybrid corner — a global planner supplies the route
+    via the rolling subgoal while depth lets the policy leave that route to
+    clear a late-arriving obstacle the costmap missed. The
+    ``NOCAM_SUBGOAL``-must-not-run-in-dynamic-obstacle-scenarios caveat above
+    does not bind ``DEPTH_SUBGOAL``; the depth-aware obstacle-avoidance reward
+    it trains against is what earns that lifted boundary.
     """
 
     NOCAM = _NOCAM_FIELDS  # 19 dims

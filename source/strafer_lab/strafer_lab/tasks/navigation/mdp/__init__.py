@@ -85,6 +85,7 @@ from .rewards import (
     collision_penalty_net,
     collision_sustained_penalty_net,
     procroom_obstacle_proximity_penalty,
+    depth_obstacle_proximity_penalty,
     speed_near_goal_penalty,
     alive_bonus,
     path_along_track_progress,

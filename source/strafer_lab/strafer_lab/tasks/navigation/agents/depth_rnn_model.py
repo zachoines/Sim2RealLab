@@ -25,6 +25,8 @@ from rsl_rl.modules import HiddenState
 from isaaclab.utils import configclass
 from isaaclab_rl.rsl_rl import RslRlRNNModelCfg
 
+from strafer_shared.constants import DEPTH_SCALE
+
 from .depth_encoders import create_depth_encoder, DeFMDepthEncoder
 
 # DeFM normalization stats — must mirror ``DEFM_MEAN`` / ``DEFM_STD`` in
@@ -332,8 +334,14 @@ def _onnx_safe_defm_preprocess(
     the projected DeFM embedding is bounded; the alternative is no ONNX path
     at all on the current TRT/ORT op set. The training-time pipeline remains
     antialiased — match-or-document is the follow-up.
+
+    Like ``DeFMDepthEncoder.forward`` (which this mirrors), the input arrives
+    obs-normalized to [0, 1] and is un-scaled back to metric meters before the
+    log channels — DeFM's global channels are anchored to absolute distance.
+    The two paths must apply the identical un-scale or exported artifacts
+    would silently diverge from the trained encoder.
     """
-    x = depth_flat.view(-1, 1, 60, 80).to(torch.float32)
+    x = (depth_flat / DEPTH_SCALE).view(-1, 1, 60, 80).to(torch.float32)
     x = torch.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
     x_clamped = torch.clamp(x, min=0.0, max=max_depth_c1)
     log_depth = torch.log1p(x_clamped)

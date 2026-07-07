@@ -1611,6 +1611,62 @@ class RewardsCfg_ProcRoom_Subgoal:
 
 
 @configclass
+class RewardsCfg_ProcRoom_Subgoal_Depth(RewardsCfg_ProcRoom_Subgoal):
+    """Path-tracking rewards for the DEPTH_SUBGOAL objective.
+
+    Inherits the NOCAM-subgoal reward set verbatim — path tracking, the
+    dwell-gated completion bonus, the off-path penalty, the contact-force
+    collision terms, and the geometric ``obstacle_proximity`` shaping — and
+    *adds* the depth-sensed ``depth_obstacle_proximity``.
+
+    The two proximity terms coexist by design and are not double-counting: they
+    read different things. ``obstacle_proximity`` reads ground-truth primitive
+    geometry — ideal shaping toward clearance the sensor can't provide.
+    ``depth_obstacle_proximity`` reads the depth camera the policy actually
+    sees — teaching it to react to *sensed* obstacles, including late-arriving
+    ones the planned path drives through. Depth makes obstacles observable, so
+    (unlike NOCAM_SUBGOAL, where the policy is blind and the analogous gradient
+    would be noise) this proximity gradient is real signal.
+
+    **Shipped inert (weight 0.0).** The depth term is kept wired but zero-
+    weighted, so it is a native no-op (Isaac Lab's RewardManager skips zero-
+    weight terms before calling the func) and re-enabling it is a one-float
+    flip. It ships off because the current ProcRoom env structurally starves
+    it: the A* planner line-of-sight-shortcuts paths straight and inflates by
+    the robot radius, so a planned path is a pre-cleared near-straight shot and
+    the forward camera rarely faces an on-path obstacle to steer around — the
+    validated DEPTH_SUBGOAL win is that the depth *observation* tracks the path
+    better than proprioception, not reactive sensed-obstacle avoidance. The
+    term stays as a distinct subclass (not folded into the base) so the
+    NOCAM_SUBGOAL reward contract stays byte-identical.
+
+    Weight discipline (for the re-enable): the depth term must stay a *shaping*
+    signal strictly inside the task economics — planned paths legitimately pass
+    within the penalty's threshold of primitives and walls, and the off-path /
+    completion one-shots realize at ``weight * step_dt``, so an over-weighted
+    dense penalty makes terminating early return-optimal and training collapses
+    onto an off-path bail-out instead of path completion. Re-enable is a
+    warm-start onto the converged depth tracker at a modest weight, in an env
+    that guarantees on-path obstacles and widens the off-path corridor so
+    deviating to avoid is admissible — retune against the episode-return
+    arithmetic, not in isolation.
+    """
+
+    depth_obstacle_proximity = RewTerm(
+        func=mdp.depth_obstacle_proximity_penalty,
+        weight=0.0,  # shipped inert; re-enable in the hardened env (see docstring)
+        params={
+            "sensor_cfg": SceneEntityCfg("d555_camera"),
+            "distance_threshold": 1.0,
+            "saturation_depth": 0.3,
+            "epsilon": 0.1,
+            "max_depth": DEPTH_MAX,
+            "floor_margin": 0.07,
+        },
+    )
+
+
+@configclass
 class TerminationsCfg_ProcRoom_Subgoal(TerminationsCfg):
     """Terminations for the ProcRoom subgoal objective.
 

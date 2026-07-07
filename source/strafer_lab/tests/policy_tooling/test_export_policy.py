@@ -194,17 +194,33 @@ def test_metadata_obs_dim_matches_variant() -> None:
 
 
 def test_subgoal_variant_has_default_env_mapping() -> None:
-    """The subgoal variant resolves to its realistic-DR play env id."""
+    """The subgoal variants resolve to their realistic-DR play env ids."""
     assert (
         export_policy._DEFAULT_ENV_BY_VARIANT["NOCAM_SUBGOAL"]
         == "Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-v0"
+    )
+    assert (
+        export_policy._DEFAULT_ENV_BY_VARIANT["DEPTH_SUBGOAL"]
+        == "Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0"
     )
 
 
 def test_subgoal_variant_is_an_argparse_choice() -> None:
     """``--variant`` choices derive from the map keys, so membership here
-    proves argparse now accepts ``--variant NOCAM_SUBGOAL``."""
+    proves argparse now accepts ``--variant NOCAM_SUBGOAL`` / ``DEPTH_SUBGOAL``."""
     assert "NOCAM_SUBGOAL" in sorted(export_policy._DEFAULT_ENV_BY_VARIANT.keys())
+    assert "DEPTH_SUBGOAL" in sorted(export_policy._DEFAULT_ENV_BY_VARIANT.keys())
+
+
+def test_export_map_covers_every_policy_variant() -> None:
+    """The export map must have a default env for EVERY PolicyVariant, or
+    ``--variant <new>`` silently isn't an argparse choice (the gap that hid
+    DEPTH_SUBGOAL). This tripwire fails the next time a variant is added
+    without wiring its export env."""
+    from strafer_shared.policy_interface import PolicyVariant
+
+    missing = {v.name for v in PolicyVariant} - set(export_policy._DEFAULT_ENV_BY_VARIANT)
+    assert not missing, f"variants with no export default env: {sorted(missing)}"
 
 
 @pytest.mark.parametrize(
@@ -697,4 +713,77 @@ def test_torch_safe_defm_encoder_only_used_for_defm_subclass() -> None:
     assert not isinstance(plain, DeFMDepthEncoder), (
         "legacy DepthEncoder must not be a DeFMDepthEncoder subclass; "
         "the substitution conditional would over-fire and trace it"
+    )
+
+
+# ---------------------------------------------------------------------------
+# DeFM input scale: obs-normalized depth must be un-scaled to metric meters
+# ---------------------------------------------------------------------------
+
+
+# The policy obs delivers depth as raw meters x DEPTH_SCALE (= [0, 1]), but
+# DeFM's preprocess interprets its input as metric meters — its two global
+# log channels are anchored to absolute distance. Both the training encoder
+# and the export preprocess must divide the obs scale back out; feeding the
+# normalized values directly compresses those channels ~1 sigma off the
+# backbone's pretraining distribution and silently discards the metric
+# information the encoder exists to provide.
+
+
+def test_onnx_safe_defm_preprocess_unscales_obs_depth_to_meters() -> None:
+    """A constant obs-scaled input of 1.0 (= DEPTH_MAX meters) must produce
+    the global-log channels of DEPTH_MAX meters, not of 1.0 meters."""
+    import math as _math
+
+    from strafer_lab.tasks.navigation.agents.depth_rnn_model import (
+        _onnx_safe_defm_preprocess,
+        _DEFM_MEAN,
+        _DEFM_STD,
+        _DEFAULT_DEPTH_OBS_DIM,
+    )
+    from strafer_shared.constants import DEPTH_MAX
+
+    out = _onnx_safe_defm_preprocess(torch.ones(1, _DEFAULT_DEPTH_OBS_DIM))
+
+    # c1 = log1p(depth_m) / log1p(100), then DEFM-normalized. Constant image
+    # -> resize is exact, so every c1 pixel carries the closed-form value.
+    c1_meters = _math.log1p(DEPTH_MAX) / _math.log1p(100.0)
+    expected = (c1_meters - _DEFM_MEAN[0]) / _DEFM_STD[0]
+    torch.testing.assert_close(
+        out[0, 0],
+        torch.full_like(out[0, 0], expected),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    # Regression tripwire: the un-scaled (1.0-as-meters) value it must NOT be.
+    wrong = (_math.log1p(1.0) / _math.log1p(100.0) - _DEFM_MEAN[0]) / _DEFM_STD[0]
+    assert abs(out[0, 0, 0, 0].item() - wrong) > 0.5
+
+
+def test_defm_encoder_forward_unscales_before_preprocess() -> None:
+    """The training path: ``DeFMDepthEncoder.forward`` must hand metric meters
+    to DeFM's own ``preprocess_depth_batch``. Captured via a stub preprocess
+    (no torch.hub download)."""
+    from strafer_lab.tasks.navigation.agents.depth_rnn_model import (
+        _DEFAULT_DEPTH_OBS_DIM,
+        _DEFM_INPUT_SIZE,
+    )
+    from strafer_shared.constants import DEPTH_SCALE
+
+    encoder = _make_stub_defm_encoder(output_dim=16).eval()
+    captured: dict = {}
+
+    def _capture_preprocess(x, **kwargs):
+        captured["x"] = x
+        return torch.zeros(x.shape[0], 3, _DEFM_INPUT_SIZE, _DEFM_INPUT_SIZE)
+
+    encoder._preprocess = _capture_preprocess
+
+    obs_scaled = torch.full((2, _DEFAULT_DEPTH_OBS_DIM), 0.5)
+    encoder(obs_scaled)
+
+    assert captured["x"].shape == (2, 1, 60, 80)
+    torch.testing.assert_close(
+        captured["x"],
+        torch.full_like(captured["x"], 0.5 / DEPTH_SCALE),  # = 3.0 m
     )

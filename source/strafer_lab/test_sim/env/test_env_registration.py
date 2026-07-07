@@ -50,6 +50,11 @@ EXPECTED_ENVS = [
     # RL training — rolling-subgoal recurrent (GRU) arm
     "Isaac-Strafer-Nav-RLNoCam-Subgoal-Robust-GRU-v0",
     "Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-GRU-v0",
+    # RL training — depth-camera rolling-subgoal path tracking (the hybrid corner)
+    "Isaac-Strafer-Nav-RLDepth-Subgoal-Real-v0",
+    "Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0",
+    "Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-v0",
+    "Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-Play-v0",
     # Capture (operator-selectable stack)
     "Isaac-Strafer-Nav-Capture-Teleop-v0",
     "Isaac-Strafer-Nav-Capture-Bridge-v0",

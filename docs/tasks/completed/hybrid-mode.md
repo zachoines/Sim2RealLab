@@ -378,7 +378,7 @@ they ride as a follow-up rather than blocking this brief's PR.
   policy relies on the path being valid). The depth-aware
   subgoal-following variant (Nav2 plans the global route, RL
   handles late-arriving obstacles via depth) is filed as
-  [`depth-subgoal-env`](../parked/trained-policy/depth-subgoal-env.md) (DGX, training)
+  [`depth-subgoal-env`](../active/trained-policy/depth-subgoal-env.md) (DGX, training)
   and
   [`depth-subgoal-hybrid-runtime`](../parked/trained-policy/depth-subgoal-hybrid-runtime.md)
   (Jetson, runtime extension). Both parked alongside this brief;

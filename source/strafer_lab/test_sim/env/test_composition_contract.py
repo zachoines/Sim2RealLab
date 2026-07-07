@@ -86,16 +86,14 @@ _CONTRACT_GOLDENS = {
     "RLDepth_Real_PLAY": "3e340e6e46aa23aa54c7359ef204a39eaae55857b0474ebb66bf8ac648a0896d",
     "RLDepth_Robust_PLAY": "787221fd5f6ac819010311eafac0d79292f9800ad2b70c8286851ecc4fdf5659",
     "RLNoCam_PLAY": "7c60ad9bf35bcfaf3d0b5020d1e58479fefd4334035758f2400ab134e21f6345",
-    # Subgoal path-tracking variants. Same do-not-edit rule — a mismatch means
-    # the contract a NOCAM_SUBGOAL checkpoint trains against has drifted. These
-    # were re-snapshotted to lock the current SubgoalCommand contract after the
-    # dwell-based parking change: the dwell gate added dwell_radius_m /
-    # dwell_speed_max_m_s / dwell_steps to SubgoalCommandCfg and folded the old
-    # path_complete_threshold into dwell_radius_m.
     "RLNoCamSubgoal_Real": "5185c4759b8da15d2b1eac5ce796e9e547eabf81819ca2599122c747d5bd5e77",
     "RLNoCamSubgoal_Robust": "1f16f07c038d3eb05c765fe99d857a2ef68e80d369dc279ad7e81c25ef760aa5",
     "RLNoCamSubgoal_Real_PLAY": "0ec2595c9efb9ea6846a4cfa9b78025babb32fe377584a0d5a2c7049176d4079",
     "RLNoCamSubgoal_Robust_PLAY": "f1fc1058d0ad698faa88986e8fd2ae0dada2c3701a7cbdf1e24e19a25f839c11",
+    "RLDepthSubgoal_Real": "40a2a824377036f9cf3e7974b24b28bc0ec2ea8848706b44cc8252bbdfe1b4cb",
+    "RLDepthSubgoal_Robust": "2c5969a27cd43317fd4d390e6ae4ca343b9cd6b8f654264c8e2d09543242eccc",
+    "RLDepthSubgoal_Real_PLAY": "6bd733a6b1b06303dc40da19068b0f96970550994cb1ba9b69564d5e060e1865",
+    "RLDepthSubgoal_Robust_PLAY": "3f0e0b5402c7279cd5ef0f6222753deca21e60c88494192e502f41962c08aa78",
 }
 
 # The depth observation a checkpoint consumes — captured identical across the
@@ -114,6 +112,10 @@ _COMPOSED_RL = {
     "RLNoCamSubgoal_Robust": composed.StraferNavCfg_RLNoCamSubgoal_Robust,
     "RLNoCamSubgoal_Real_PLAY": composed.StraferNavCfg_RLNoCamSubgoal_Real_PLAY,
     "RLNoCamSubgoal_Robust_PLAY": composed.StraferNavCfg_RLNoCamSubgoal_Robust_PLAY,
+    "RLDepthSubgoal_Real": composed.StraferNavCfg_RLDepthSubgoal_Real,
+    "RLDepthSubgoal_Robust": composed.StraferNavCfg_RLDepthSubgoal_Robust,
+    "RLDepthSubgoal_Real_PLAY": composed.StraferNavCfg_RLDepthSubgoal_Real_PLAY,
+    "RLDepthSubgoal_Robust_PLAY": composed.StraferNavCfg_RLDepthSubgoal_Robust_PLAY,
 }
 
 
@@ -284,6 +286,86 @@ def test_subgoal_objective_requires_procroom_scene():
             realism=composed.RealismCfg(level="real"),
             objective=composed.ObjectiveCfg(kind="subgoal"),
         )
+
+
+def _reward_term_names(rewards_cfg):
+    return {
+        k for k, v in rewards_cfg.__dict__.items()
+        if not k.startswith("_") and hasattr(v, "func")
+    }
+
+
+def test_depth_subgoal_composes_depth_obs_with_subgoal_task():
+    """The depth×subgoal corner: the depth observation composed with the
+    subgoal command / termination blocks. The observation is byte-identical to
+    depth-direct's (only the command behind the goal-shaped fields differs)."""
+    cfg = composed.StraferNavCfg_RLDepthSubgoal_Real()
+    assert type(cfg.commands).__name__ == "CommandsCfg_ProcRoom_Subgoal"
+    assert type(cfg.terminations).__name__ == "TerminationsCfg_ProcRoom_Subgoal"
+    assert "depth_image" in _obs_term_names(cfg.observations)
+    depth_direct = composed.StraferNavCfg_RLDepth_Real()
+    assert _hash(_canon(cfg.observations)) == _hash(_canon(depth_direct.observations))
+
+
+def test_depth_subgoal_reward_adds_depth_penalty_additively():
+    """Additive, no double-counting: the depth-subgoal reward set is the
+    NoCam-subgoal set plus exactly one depth-sensed term. Every base term is
+    preserved; the depth term is the only addition; and the NoCam-subgoal
+    reward does NOT gain it (the running two-arm ablation stays clean)."""
+    depth_terms = _reward_term_names(composed.StraferNavCfg_RLDepthSubgoal_Real().rewards)
+    base_terms = _reward_term_names(composed.StraferNavCfg_RLNoCamSubgoal_Real().rewards)
+    assert base_terms < depth_terms  # strict superset
+    assert depth_terms - base_terms == {"depth_obstacle_proximity"}
+    assert "depth_obstacle_proximity" not in base_terms
+
+
+def test_depth_subgoal_reads_depth_camera_for_the_penalty():
+    """The depth-sensed penalty needs the policy depth camera present with its
+    distance channel — the composition supplies it (the ProcRoom depth scene)."""
+    cfg = composed.StraferNavCfg_RLDepthSubgoal_Real()
+    cam = getattr(cfg.scene, "d555_camera", None)
+    assert cam is not None
+    assert "distance_to_image_plane" in list(cam.data_types)
+    term = cfg.rewards.depth_obstacle_proximity
+    assert term.params["sensor_cfg"].name == "d555_camera"
+
+
+def test_depth_subgoal_penalty_weight_is_negative_and_params_pinned():
+    """Pin the sign and numeric params independently of the contract golden.
+
+    The term ships **inert** (weight 0.0) — the current ProcRoom env starves the
+    penalty, so DEPTH_SUBGOAL delivers the validated depth-*tracking* win with
+    the penalty off, re-enabled later in a hardened env. The pinned invariant is
+    therefore ``weight <= 0`` (a *positive* weight would reward driving toward
+    obstacles — the one thing a re-enable must never do). The params must stay
+    well-ordered so the re-enable is a pure one-float flip. The golden alone
+    can't catch a flipped sign — it was snapshotted from this code — so this is
+    the independent guard (cf. the geometric ``obstacle_proximity.weight`` pin
+    in ``test_sim/rewards``)."""
+    term = composed.StraferNavCfg_RLDepthSubgoal_Real().rewards.depth_obstacle_proximity
+    assert term.weight <= 0.0, "depth obstacle penalty must never reward obstacles"
+    p = term.params
+    assert 0.0 < p["saturation_depth"] < p["distance_threshold"] <= p["max_depth"]
+    assert p["epsilon"] > 0.0
+    # Floor-plane exclusion must be active with a tight (render-tolerance)
+    # margin: without it the always-visible floor saturates the term into an
+    # ambient per-step tax that makes early termination return-optimal.
+    assert 0.0 < p["floor_margin"] <= 0.15
+    # Dense-stream discipline: bound the saturated cap to the same order as
+    # the along-track income (weight 10 at ~0.5 m/s ~= 0.17 raw/step), not
+    # several times it. Near-contact saturation legitimately exceeds income —
+    # that is what forces retreat — but a cap that dwarfs the task signal
+    # recreates the ambient-tax economics where terminating early beats
+    # completing the path. Cap-raw here is
+    # |weight| * (1/(saturation+eps) - 1/(threshold+eps)).
+    cap_raw = abs(term.weight) * (
+        1.0 / (p["saturation_depth"] + p["epsilon"])
+        - 1.0 / (p["distance_threshold"] + p["epsilon"])
+    )
+    assert cap_raw < 0.5, (
+        f"saturated depth penalty {cap_raw:.3f}/step dwarfs the task signal — "
+        "re-run the episode-return arithmetic before raising the weight"
+    )
 
 
 # =====================================================================

@@ -72,6 +72,7 @@ _DEFAULT_ENV_BY_VARIANT = {
     "NOCAM": "Isaac-Strafer-Nav-RLNoCam-Play-v0",
     "DEPTH": "Isaac-Strafer-Nav-RLDepth-Real-Play-v0",
     "NOCAM_SUBGOAL": "Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-v0",
+    "DEPTH_SUBGOAL": "Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0",
 }
 
 # Variants whose envs build with no camera/depth prim in the scene. Cameras

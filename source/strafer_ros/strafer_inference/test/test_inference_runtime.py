@@ -221,6 +221,43 @@ class TestOnnxThreadPinning(unittest.TestCase):
         )
 
 
+class TestDepthSubgoalArtifactLoads(unittest.TestCase):
+    """The deployed DEPTH_SUBGOAL artifact loads as a recurrent policy and
+    runs a 4819-dim observation to a 3-vector action. Exercises the real
+    artifact; skips where it is not present.
+    """
+
+    def _model_path(self) -> str:
+        repo = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")
+        )
+        return os.path.join(repo, "models", "strafer_depth_subgoal_v0.onnx")
+
+    def test_loads_recurrent_and_infers(self) -> None:
+        from strafer_shared.policy_interface import load_policy, PolicyVariant
+
+        model = self._model_path()
+        if not os.path.isfile(model):
+            self.skipTest("deployed DEPTH_SUBGOAL model not present")
+        policy = load_policy(
+            model, PolicyVariant.DEPTH_SUBGOAL,
+            onnx_providers=["CPUExecutionProvider"],
+        )
+        self.assertTrue(policy.is_recurrent)
+
+        obs = np.zeros(PolicyVariant.DEPTH_SUBGOAL.obs_dim, dtype=np.float32)
+        action = np.asarray(policy(obs)).reshape(-1)
+        self.assertEqual(action.shape, (3,))
+        # reset() zeros hidden state, so two same-obs calls each preceded by a
+        # reset match: the recurrence contract the node relies on at goal accept.
+        probe = np.ones_like(obs)
+        policy.reset()
+        first = np.asarray(policy(probe)).reshape(-1)
+        policy.reset()
+        again = np.asarray(policy(probe)).reshape(-1)
+        np.testing.assert_allclose(first, again, atol=1e-6)
+
+
 # =============================================================================
 # Model-load failure → action server unadvertised
 # =============================================================================
@@ -1096,11 +1133,9 @@ class TestVariantAwareWiring(unittest.TestCase):
         finally:
             node.destroy_node()
 
-    # -- DEPTH_SUBGOAL: the 2x2-closing combo cell -------------------------
-    # It is the only variant that lights up BOTH depth and subgoal paths;
-    # these pin that the #122 variant-agnostic wiring composes them without a
-    # per-variant branch (depth field -> depth pipeline; subgoal_* fields ->
-    # rolling-subgoal pipeline).
+    # DEPTH_SUBGOAL is the only variant that enables both the depth and the
+    # subgoal path; these pin that the field-driven wiring composes them
+    # without a per-variant branch.
 
     def test_depth_subgoal_subscribes_both_depth_and_subgoal(self) -> None:
         node = self._node("DEPTH_SUBGOAL")

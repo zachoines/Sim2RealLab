@@ -90,12 +90,6 @@ _CONTRACT_GOLDENS = {
     "RLNoCamSubgoal_Robust": "1f16f07c038d3eb05c765fe99d857a2ef68e80d369dc279ad7e81c25ef760aa5",
     "RLNoCamSubgoal_Real_PLAY": "0ec2595c9efb9ea6846a4cfa9b78025babb32fe377584a0d5a2c7049176d4079",
     "RLNoCamSubgoal_Robust_PLAY": "f1fc1058d0ad698faa88986e8fd2ae0dada2c3701a7cbdf1e24e19a25f839c11",
-    # Depth-subgoal rows re-snapshotted after shipping the depth penalty INERT
-    # (weight 0.0): the current env starves the penalty, so DEPTH_SUBGOAL ships
-    # the validated depth-tracking win with the term kept wired but zero-weighted
-    # (re-enable is a one-float flip in a hardened env). Only these 4 flip — the
-    # depth-obs golden and every NOCAM row are independent (NOCAM_SUBGOAL falls
-    # through the source-only reward table).
     "RLDepthSubgoal_Real": "40a2a824377036f9cf3e7974b24b28bc0ec2ea8848706b44cc8252bbdfe1b4cb",
     "RLDepthSubgoal_Robust": "2c5969a27cd43317fd4d390e6ae4ca343b9cd6b8f654264c8e2d09543242eccc",
     "RLDepthSubgoal_Real_PLAY": "6bd733a6b1b06303dc40da19068b0f96970550994cb1ba9b69564d5e060e1865",

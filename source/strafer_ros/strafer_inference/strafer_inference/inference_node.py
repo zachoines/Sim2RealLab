@@ -164,11 +164,22 @@ class InferenceNode(Node):
                 f"obs_timeout_s overridden to {obs_timeout_s} via "
                 "STRAFER_OBS_TIMEOUT_S"
             )
+        depth_timeout_s = float(self.get_parameter("depth_timeout_s").value)
+        # Depth gets its own override: the sim bridge publishes depth much
+        # slower (~3 Hz) than the other feeds, so the 0.5 s default false-trips.
+        # Real-robot bringup leaves it unset.
+        env_depth_timeout = os.environ.get("STRAFER_DEPTH_TIMEOUT_S", "")
+        if env_depth_timeout:
+            depth_timeout_s = float(env_depth_timeout)
+            self.get_logger().info(
+                f"depth_timeout_s overridden to {depth_timeout_s} via "
+                "STRAFER_DEPTH_TIMEOUT_S"
+            )
         self._timeouts = WatchdogTimeouts(
             imu=obs_timeout_s,
             joint_states=obs_timeout_s,
             odom=obs_timeout_s,
-            depth=float(self.get_parameter("depth_timeout_s").value),
+            depth=depth_timeout_s,
             tf=float(self.get_parameter("tf_max_age_s").value),
             path=float(self.get_parameter("path_timeout_s").value),
         )
@@ -702,7 +713,7 @@ class InferenceNode(Node):
             self.get_logger().warning(f"JointState parse failed: {exc}")
             return None
 
-        depth_flat = (
+        depth_flat_meters = (
             downsample_depth(self._last_depth_meters) if self._has_depth else None
         )
 
@@ -730,7 +741,7 @@ class InferenceNode(Node):
                 odom.twist.twist.linear.y,
             ),
             last_action=self._last_action,
-            depth_flat_normalized=depth_flat,
+            depth_flat_meters=depth_flat_meters,
         )
         return assemble_observation(raw, self._variant)
 

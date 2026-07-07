@@ -265,7 +265,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "policy_variant", default_value=default_variant,
-            description="PolicyVariant name (e.g. DEPTH, NOCAM_SUBGOAL) for strafer_inference.",
+            description="PolicyVariant name (DEPTH, NOCAM, NOCAM_SUBGOAL, DEPTH_SUBGOAL) for strafer_inference.",
         ),
         DeclareLaunchArgument(
             "planner_url", default_value=default_planner,

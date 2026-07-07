@@ -39,7 +39,7 @@ def generate_launch_description() -> LaunchDescription:
     )
     policy_variant_arg = DeclareLaunchArgument(
         "policy_variant", default_value=default_variant,
-        description="PolicyVariant name (e.g. DEPTH, NOCAM_SUBGOAL). Overrides the YAML.",
+        description="PolicyVariant name (DEPTH, NOCAM, NOCAM_SUBGOAL, DEPTH_SUBGOAL). Overrides the YAML.",
     )
     use_sim_time_arg = DeclareLaunchArgument(
         "use_sim_time", default_value=default_use_sim,

@@ -239,14 +239,18 @@ Wire the observation side end-to-end against `PolicyVariant.DEPTH`:
   ```python
   # Pipeline: 640x360 raw depth → resize to 80x60 → match training preprocessing
   #
-  # Training uses mdp/observations.py:depth_image which:
-  #   1. Takes RAW meters
+  # Training uses mdp/observations.py:depth_image + its ObsTerm scale:
+  #   1. depth_image() takes RAW meters
   #   2. Replaces values < nearfield_clip (0.4 m) with nearfield_fill (0.2 m)
   #   3. Applies noise (sim only)
-  #   4. Scales by 1/max_depth (default 6.0) to [0, 1]
+  #   4. ObsTerm(scale=DEPTH_SCALE=1/max_depth) normalizes to [0, 1]
   #
-  # Inference must mirror the deterministic parts (steps 1, 2, 4); skip
-  # the noise model (real robot has its own noise; sim-in-the-loop too).
+  # Inference mirrors the deterministic steps 1-2 in downsample_depth, which
+  # returns RAW meters — NOT step 4. The single 1/max_depth scale is applied
+  # once by assemble_observation's DEPTH_SCALE (mirroring the sim ObsTerm);
+  # scaling in downsample_depth too would double-scale (deploy 1/max_depth
+  # too small). Skip the noise model (real robot / sim-in-the-loop add their
+  # own).
   ```
 
   Use `cv_bridge` or numpy to resize 640×360 → 80×60 with
@@ -277,8 +281,9 @@ Wire the observation side end-to-end against `PolicyVariant.DEPTH`:
     which is the raw policy tensor before
     `MecanumWheelAction.process_actions` clamps and scales. Cache
     the same. Zero on first tick.
-  - `depth_image` — flattened 80×60 = 4800 floats in `[0, 1]`,
-    matching the training env's `depth_image` term output exactly.
+  - `depth_image` — flattened 80×60 = 4800 floats in **raw meters**,
+    matching `mdp.depth_image`'s term output exactly; `assemble_observation`
+    then applies `DEPTH_SCALE` once to reach the [0, 1] network input.
 
 - Pass through `assemble_observation(raw, PolicyVariant.DEPTH)` and
   emit the resulting 4819-dim vector at debug level. **Also log

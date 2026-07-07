@@ -39,16 +39,15 @@ from strafer_shared.policy_interface import (
 
 
 class TestDownsampleDepth:
-    """The depth pipeline mirrors mdp/observations.py:depth_image at the
-    deterministic steps (steps 1, 2, 4 in the brief). Block-averaging is
+    """The depth pipeline mirrors mdp/observations.py:depth_image's
+    deterministic steps and returns raw meters. Block-averaging is
     exact-integer (640/80=8, 360/60=6) so it matches cv2.INTER_AREA to
     within float roundoff.
     """
 
     def test_constant_field_passes_through_in_meters(self):
-        # Returns RAW meters, not [0, 1]: the DEPTH_SCALE normalization is
-        # applied once downstream by assemble_observation, matching the sim
-        # ObsTerm. Returning 3.0/DEPTH_MAX here would double-scale.
+        # Raw meters, not [0, 1]: DEPTH_SCALE is applied once by
+        # assemble_observation downstream.
         raw = np.full(
             (PERCEPTION_HEIGHT, PERCEPTION_WIDTH), 3.0, dtype=np.float32
         )
@@ -122,11 +121,9 @@ class TestDownsampleDepth:
 
 
 class TestDepthSingleScaleParity:
-    """Regression pin for the deploy double-scale bug: depth must reach the
-    network at the SAME value sim feeds it — meters * DEPTH_SCALE, applied
-    once. The bug was downsample_depth pre-normalizing by 1/max_depth, so
-    assemble_observation's DEPTH_SCALE scaled a second time (6x too small).
-    Pins the end-to-end value, the assertion whose absence let it hide.
+    """Depth must reach the network at the value sim feeds it: meters *
+    DEPTH_SCALE, applied once. downsample_depth returns meters and
+    assemble_observation applies the single scale, matching the sim ObsTerm.
     """
 
     def _assembled_depth_slice(self, meters: float) -> np.ndarray:
@@ -151,14 +148,13 @@ class TestDepthSingleScaleParity:
 
     def test_three_meter_surface_reaches_network_at_sim_value(self):
         depth_slice = self._assembled_depth_slice(3.0)
-        # Sim value: mdp.depth_image returns 3.0 m, ObsTerm scales by
-        # DEPTH_SCALE once -> 0.5. Deploy must match.
+        # 3.0 m scaled once by DEPTH_SCALE -> 0.5, the sim value.
         np.testing.assert_allclose(depth_slice, 3.0 * DEPTH_SCALE, atol=1e-6)
         np.testing.assert_allclose(depth_slice, 0.5, atol=1e-6)
-        # NOT the twice-scaled value the double-scale bug produced.
+        # A second scale would land here; guard against it.
         assert not np.allclose(
             depth_slice, 3.0 * DEPTH_SCALE * DEPTH_SCALE
-        ), "depth is double-scaled: downsample_depth must return meters"
+        ), "downsample_depth must return raw meters, not normalized"
 
     def test_scaled_depth_stays_in_unit_range(self):
         # A max-range surface saturates to exactly 1.0 after the single scale.
@@ -610,8 +606,8 @@ class TestRawDictNocamVariant:
 
 
 # =============================================================================
-# build_raw_obs_dict + assemble_observation — DEPTH_SUBGOAL (the 2x2-closing
-# combo: subgoal_* referent keys AND the depth tail)
+# build_raw_obs_dict + assemble_observation — DEPTH_SUBGOAL (subgoal_* referent
+# keys AND the depth tail)
 # =============================================================================
 
 

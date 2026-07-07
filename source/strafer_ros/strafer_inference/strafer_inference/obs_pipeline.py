@@ -48,17 +48,14 @@ def downsample_depth(
     nearfield_clip: float = DEPTH_MIN,
     nearfield_fill: float = DEPTH_NEARFIELD_FILL,
 ) -> np.ndarray:
-    """640×360 raw depth meters → 4800-dim flat, in RAW meters [0, max_depth].
+    """640×360 raw depth meters → 4800-dim flat, in raw meters [0, max_depth].
 
-    Mirrors mdp/observations.py:depth_image, which also returns RAW meters:
-    the single [0, 1] normalization is applied once downstream by
-    ``assemble_observation``'s ``DEPTH_SCALE`` (= 1/max_depth), matching the
-    sim ``ObsTerm(func=depth_image, scale=DEPTH_SCALE)``. Normalizing here as
-    well would double-scale — deploy would feed the network 1/max_depth of
-    the sim value (e.g. a 3 m surface → 0.083 instead of 0.5). The noise step
-    is skipped (inference adds none) and an area-resize is inserted because
-    the bridged stream is the 640×360 perception camera, not the 80×60 policy
-    camera that exists only in sim.
+    Returns raw meters, not normalized: the single 1/max_depth normalization
+    is applied once downstream by ``assemble_observation``'s ``DEPTH_SCALE``,
+    matching the sim ``ObsTerm(func=depth_image, scale=DEPTH_SCALE)``. The
+    noise step is skipped (inference adds none) and an area-resize maps the
+    640×360 perception stream to the 80×60 policy resolution that exists only
+    in sim.
 
     Block-average is exact-integer (640/80=8, 360/60=6) so it
     matches cv2.INTER_AREA to within float roundoff for the integer
@@ -201,11 +198,9 @@ def build_raw_obs_dict(
     regardless of which referent the variant actually tracks; the caller
     transforms the right pose (final goal or rolling subgoal) before calling.
 
-    Every value here is the RAW, pre-scale sensor reading — ``assemble_observation``
+    Every value here is the raw, pre-scale sensor reading — ``assemble_observation``
     applies each field's normalization once. ``depth_flat_meters`` is therefore
-    depth in metres from :func:`downsample_depth` (NOT pre-normalized to [0, 1]);
-    ``DEPTH_SCALE`` is the single scale, matching the sim ObsTerm. Pre-normalizing
-    here would double-scale.
+    depth in metres from :func:`downsample_depth`, not pre-normalized to [0, 1].
     """
     encoder_ticks = wheel_vels_to_ticks_per_sec(
         np.asarray(wheel_vels_rad_s, dtype=np.float64)

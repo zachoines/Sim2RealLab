@@ -269,9 +269,6 @@ class TestInferenceLaunchOverrides:
         assert rendered("policy_variant") == "NOCAM_SUBGOAL"
 
     def test_depth_subgoal_env_flows_to_launch_arg(self, pkg_dir, monkeypatch):
-        # The hybrid-with-depth variant flows through the same env->launch-arg
-        # path with no name-list rejecting it; only the node's PolicyVariant[...]
-        # lookup validates it (and now accepts it).
         monkeypatch.setenv("STRAFER_POLICY_VARIANT", "DEPTH_SUBGOAL")
         mod = _load_launch(pkg_dir)
         ld = mod.generate_launch_description()
@@ -442,8 +439,6 @@ class TestPolicyVariantParsing:
         assert PolicyVariant["DEPTH"] is PolicyVariant.DEPTH
         assert PolicyVariant["NOCAM"] is PolicyVariant.NOCAM
         assert PolicyVariant["NOCAM_SUBGOAL"] is PolicyVariant.NOCAM_SUBGOAL
-        # The hybrid-with-depth variant resolves the same way the launch
-        # STRAFER_POLICY_VARIANT string routes into the node.
         assert PolicyVariant["DEPTH_SUBGOAL"] is PolicyVariant.DEPTH_SUBGOAL
 
     def test_unknown_variant_raises_keyerror(self):

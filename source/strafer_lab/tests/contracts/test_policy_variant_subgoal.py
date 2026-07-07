@@ -19,8 +19,8 @@ from strafer_shared.policy_interface import PolicyVariant, assemble_observation
 def test_nocam_subgoal_is_a_distinct_member_not_an_alias():
     assert PolicyVariant.NOCAM_SUBGOAL is not PolicyVariant.NOCAM
     assert PolicyVariant["NOCAM_SUBGOAL"].name == "NOCAM_SUBGOAL"
-    # DEPTH_SUBGOAL landed with the hybrid-runtime PR (ahead of its owning
-    # depth-subgoal-env brief); its subgoal_* keys keep it from aliasing DEPTH.
+    # subgoal_* keys keep DEPTH_SUBGOAL from aliasing DEPTH (equal Enum values
+    # collapse into one member).
     assert PolicyVariant.DEPTH_SUBGOAL is not PolicyVariant.DEPTH
     assert PolicyVariant["DEPTH_SUBGOAL"].name == "DEPTH_SUBGOAL"
     assert len({v.name for v in PolicyVariant}) == 4

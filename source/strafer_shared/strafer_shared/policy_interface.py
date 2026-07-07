@@ -221,8 +221,7 @@ class PolicyVariant(Enum):
     so the "trusts the costmap absolutely / unsafe in dynamic-obstacle
     scenarios" caveat is **lifted** — the policy can see a late-arriving
     obstacle the plan did not account for and deviate from the path to avoid
-    it. This is the variant that closes the direct/hybrid × NOCAM/DEPTH
-    deployment matrix.
+    it.
     """
 
     NOCAM = _NOCAM_FIELDS  # 19 dims

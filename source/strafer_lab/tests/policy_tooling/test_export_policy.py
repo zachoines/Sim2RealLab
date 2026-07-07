@@ -194,17 +194,33 @@ def test_metadata_obs_dim_matches_variant() -> None:
 
 
 def test_subgoal_variant_has_default_env_mapping() -> None:
-    """The subgoal variant resolves to its realistic-DR play env id."""
+    """The subgoal variants resolve to their realistic-DR play env ids."""
     assert (
         export_policy._DEFAULT_ENV_BY_VARIANT["NOCAM_SUBGOAL"]
         == "Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-v0"
+    )
+    assert (
+        export_policy._DEFAULT_ENV_BY_VARIANT["DEPTH_SUBGOAL"]
+        == "Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0"
     )
 
 
 def test_subgoal_variant_is_an_argparse_choice() -> None:
     """``--variant`` choices derive from the map keys, so membership here
-    proves argparse now accepts ``--variant NOCAM_SUBGOAL``."""
+    proves argparse now accepts ``--variant NOCAM_SUBGOAL`` / ``DEPTH_SUBGOAL``."""
     assert "NOCAM_SUBGOAL" in sorted(export_policy._DEFAULT_ENV_BY_VARIANT.keys())
+    assert "DEPTH_SUBGOAL" in sorted(export_policy._DEFAULT_ENV_BY_VARIANT.keys())
+
+
+def test_export_map_covers_every_policy_variant() -> None:
+    """The export map must have a default env for EVERY PolicyVariant, or
+    ``--variant <new>`` silently isn't an argparse choice (the gap that hid
+    DEPTH_SUBGOAL). This tripwire fails the next time a variant is added
+    without wiring its export env."""
+    from strafer_shared.policy_interface import PolicyVariant
+
+    missing = {v.name for v in PolicyVariant} - set(export_policy._DEFAULT_ENV_BY_VARIANT)
+    assert not missing, f"variants with no export default env: {sorted(missing)}"
 
 
 @pytest.mark.parametrize(

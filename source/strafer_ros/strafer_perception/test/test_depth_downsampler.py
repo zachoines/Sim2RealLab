@@ -67,12 +67,16 @@ class TestDepthDownsamplerLogic:
         np.testing.assert_allclose(result, 2.0, atol=0.01)
 
     def test_mixed_valid_invalid(self):
-        """Frame with a mix of valid and invalid depths."""
+        """Frame with a mix of valid and invalid depths. The valid/invalid
+        seam sits on a downsample-block boundary so no output row straddles
+        it (DEPTH_HEIGHT may be odd — 360/45 gives 8-row blocks)."""
         raw = np.zeros((360, 640), dtype=np.uint16)
-        # Top half: valid (2.0m)
-        raw[:180, :] = 2000
-        # Bottom half: too far (10.0m)
-        raw[180:, :] = 10000
+        block_h = raw.shape[0] // DEPTH_HEIGHT
+        split = (DEPTH_HEIGHT // 2) * block_h  # aligns to an output-row edge
+        # Top region: valid (2.0m)
+        raw[:split, :] = 2000
+        # Bottom region: too far (10.0m) -> zeroed
+        raw[split:, :] = 10000
 
         result = process_depth(raw)
         # Top region should have valid depth, bottom should be zero

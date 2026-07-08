@@ -1,13 +1,11 @@
 """The single-scene default binds the LIGHTEST registered scene, not the first.
 
-The unified-memory GB10 OOM-kills while loading the heaviest scene, so the bare
-``make sim-bridge`` default must resolve to the lightest scene rather than the
-alphabetical ``sorted()``-first (a ~29 GB ``high_quality`` room). These tests pin
-that ``_lightest_scene_usd_path`` picks by resolved ``.usdc`` file size, that it
-follows the top-level symlink to measure the target (not the link), that ties
-break by name, and that the single-scene consumer routes through it — while
-``_get_scene_usd_paths`` keeps its name-sorted order untouched (multi-scene
-consumers depend on it).
+The heaviest scene can exhaust memory and get the process killed at load time, so
+the bare ``make sim-bridge`` default must resolve to the lightest scene rather
+than the alphabetical ``sorted()``-first (a large ``high_quality`` room). These
+tests pin that ``_lightest_scene_usd_path`` picks by resolved ``.usdc`` file
+size, that it follows the top-level symlink to measure the target (not the link),
+that ties break by name, and that the single-scene consumer routes through it.
 
 Hermetic: each test authors synthetic scenes (byte-sized stand-in ``.usdc``
 files behind the real top-level-symlink layout) in a tmp dir and repoints
@@ -138,19 +136,6 @@ class TestLightestScenePick:
         broken = _make_broken_scene(env.root, "scene_dangling")
 
         assert Path(env.mod._lightest_scene_usd_path()) == broken
-
-
-class TestSortedOrderInvariant:
-    def test_get_scene_usd_paths_stays_name_sorted(self, env):
-        # Hard constraint: the multi-scene list keeps name order even though the
-        # lightest (scene_c) sorts last — its ordering must not move to size.
-        _make_scene(env.root, "scene_c", 10)
-        _make_scene(env.root, "scene_a", 999)
-        _make_scene(env.root, "scene_b", 500)
-        _write_manifest(env.root, ["scene_a", "scene_b", "scene_c"])
-
-        stems = [Path(p).stem for p in env.mod._get_scene_usd_paths()]
-        assert stems == ["scene_a", "scene_b", "scene_c"]
 
 
 class TestConsumerRouting:

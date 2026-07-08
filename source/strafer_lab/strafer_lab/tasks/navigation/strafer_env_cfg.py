@@ -115,25 +115,21 @@ def _get_scene_usd_paths() -> list[str]:
 
 
 def _lightest_scene_usd_path() -> str:
-    """Pick the lightest registered scene — the memory-safe single-scene default.
+    """Pick the lightest registered scene — the safe single-scene default.
+
+    This is the guard against loading a massive scene by default. Unless the
+    caller pins one with ``SCENE_USD`` / ``--scene-usd``, the heaviest scene can
+    exhaust available memory and get the process killed at load time, so the
+    default binds the lightest scene instead of the alphabetical first.
 
     Iterates the same valid set :func:`_get_scene_usd_paths` returns, resolves
     each top-level ``<scene>.usdc`` symlink to its real file, and returns the one
-    whose resolved file is smallest on disk. Ties break by the sorted-first name
-    (``_get_scene_usd_paths`` is already name-sorted, so ``min`` keeps the first
-    entry on a tie) for determinism.
-
-    The resolved ``.usdc`` file size alone is a sufficient proxy for scene
-    weight: a ``high_quality`` room and a low-quality single room differ by an
+    whose resolved file is smallest on disk. Ties break by name (the input is
+    already name-sorted, so ``min`` keeps the first entry on a tie) for
+    determinism. The resolved ``.usdc`` file size alone is a sufficient proxy for
+    scene weight — a full-quality room and a low-quality single room differ by an
     order of magnitude at the file level (~10 GB vs ~0.5 GB), so there is no need
-    to sum each scene's texture tree to separate heavy from light. This is only
-    the *default*; ``SCENE_USD`` / ``--scene-usd`` remain the precision override.
-
-    Why lightest-not-first: the single-scene consumers below run on the
-    unified-memory GB10, which OOM-kills while loading the heaviest scene. The
-    bare default must therefore be the lightest scene, not the alphabetical first
-    (which is a ~29 GB ``high_quality`` room). ``_get_scene_usd_paths``'s sorted
-    order is left untouched — multi-scene consumers depend on it.
+    to sum each scene's texture tree.
     """
     paths = _get_scene_usd_paths()
 
@@ -1290,9 +1286,9 @@ def _apply_infinigen_scene_setup(cfg: ManagerBasedRLEnvCfg) -> None:
 
     Spawn points, the robot spawn-z, and the ground-lift height are all pinned
     to the SINGLE scene this cfg loads (``_lightest_scene_usd_path()`` — the
-    lightest registered scene, so the bare unified-memory GB10 default does not
-    OOM on the heaviest room) — no cross-scene union / pooled-max, which would
-    otherwise place the robot and goals at a non-loaded scene's coordinates. The
+    lightest registered scene, so the bare default does not exhaust memory on the
+    heaviest room) — no cross-scene union / pooled-max, which would otherwise
+    place the robot and goals at a non-loaded scene's coordinates. The
     ``run_sim_in_the_loop --scene-usd`` runtime override and the coverage driver
     re-derive the same way per overridden / loaded scene (see
     :func:`derive_infinigen_scene_spawn`).

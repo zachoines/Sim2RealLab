@@ -59,7 +59,7 @@ entry-point scripts](repo-topology.md#key-entry-point-scripts).
 - **Training / eval / export:** `train_strafer_navigation`, `play_strafer_navigation`, `export_policy`, `benchmark_policy`, `test_strafer_env`, `collect_demos`.
 - **Scene generation:** `prep_room_usds` (generate/ingest; chains the next two), `postprocess_scene_usd` (colliders + lights), `extract_scene_metadata` (embed metadata + `UsdSemantics` labels into the USD), `generate_scenes_metadata` (combined spawn-point manifest).
 - **Capture / harness:** `capture` (the `--driver` × `--mission-source` entry point), `teleop_capture`, `run_sim_in_the_loop` (bridge + harness modes), `bridge_harness_smoke` (Jetson-free Kit smoke).
-- **Diagnostics:** `roller_bounce_probe`.
+- **Diagnostics:** `roller_bounce_probe`, `probe_rt2_depth_integrity` (RTX Real-Time 2.0 depth-integrity gate; pure analysis in `tools/depth_probe`).
 - `scripts/asset_authoring/` — run-by-hand robot/asset USD utilities: `collapse_redundant_xforms`, `inspect_robot_prim_layout`, `run_empty_lab`, `setup_physics`.
 - `scripts/retired/` — deprecated data-prep: `finetune_clip`, `generate_descriptions`, `prepare_vlm_finetune_data`.
 

@@ -126,6 +126,41 @@ is `decimation=4`; the bridge override is the perf fix from
 is why it appears slower than `make sim-bridge-gui` at first
 glance.
 
+## Renderer default (RTX Real-Time 2.0)
+
+The bridge defaults to the **RTX Real-Time 2.0** renderer
+(`/rtx/rendermode = "RealTimePathTracing"`) in Isaac Sim's **Performance**
+render-quality preset. `--renderer legacy` (`RENDERER=legacy make sim-bridge`)
+reverts to Real-Time 1.0 (`RaytracedLighting`) for visual debugging where
+deterministic shading matters. `legacy` is a **temporary A/B toggle** to de-risk
+the flip — expected to be removed once RT 2.0 is validated on the rig, not a
+permanent lane. Selection lives in
+[`strafer_lab.bridge.renderer_settings`](../../../source/strafer_lab/strafer_lab/bridge/renderer_settings.py);
+`run_sim_in_the_loop.py` logs the live `/rtx/rendermode` at startup
+(`[sim_in_the_loop] active renderer: ...`) so the effective mode is always in
+the log.
+
+Two load-bearing facts:
+
+- **Set at app-launch, not post-boot.** RT 2.0's renderer must be *registered*
+  at startup (`/rtx-transient/rt2Enabled`, `/persistent/rtx/modes/rt2/enabled`
+  are boot-time persistent preferences), so the render-mode + registration
+  settings are injected as Kit CLI args before `AppLauncher` boots — not through
+  `RenderCfg.carb_settings`, which stays the home for dynamic render settings
+  (e.g. the RTX auto-exposure histogram).
+- **No DLSS frame generation ("FPS multiplier").** It is left OFF (`1x`). It is
+  a swapchain/present-path feature: the headless daily-driver disables the
+  present thread outright (no-op there), and the camera publisher reads the
+  offscreen `TiledCamera` annotator once per `env.step` (an env-step-driven
+  cadence), never the presented stream — so frame generation cannot inject,
+  duplicate, or fabricate a `/d555/depth/image_rect_raw` frame feeding the depth
+  policy. Isaac Sim's own Performance preset disables it ("does not yet support
+  tiled camera well") and the base app disables it as SDG-incompatible. The
+  depth stream is a live policy input; before flipping the rig default, run
+  [`probe_rt2_depth_integrity.py`](../../../source/strafer_lab/scripts/probe_rt2_depth_integrity.py)
+  to confirm cadence, frame-diff under motion, and RT1-vs-RT2 static-depth
+  parity within 1e-3 m.
+
 ## Sim-time-aware navigation timeout (Jetson side)
 
 The executor's nav-timeout enforcement uses
@@ -214,6 +249,15 @@ attached), measured before the camera-publisher migration:
 | `make sim-bridge-gui` (cameras on) | 21.8 ms | 88.6 ms | 83.1 ms | ~213 ms | 4.7 Hz |
 | `make sim-bridge-gui` (cameras off) | 21.7 ms | 88.6 ms | 40.8 ms | ~125 ms | 8.0 Hz |
 | `make sim-bridge` headless (cameras on) | 22.3 ms | 0.05 ms | 74.2 ms | ~117 ms | 8.5 Hz |
+| `make sim-bridge` headless RT 2.0 + Perf (FG off) | TBD | TBD | TBD | TBD | TBD |
+| `make sim-bridge-gui` RT 2.0 + Perf (FG off) | TBD | TBD | TBD | TBD | TBD |
+
+The first three rows are the current default (RTX Real-Time 1.0). The two RT 2.0
+rows are pending measurement — capture them with `--profile` on both make
+targets after the renderer flip (see [Renderer default](#renderer-default-rtx-real-time-20)).
+Do not assume RT 2.0 is a win: it is a fuller path-traced mode and the FPS
+multiplier is off, so the 640×360 offscreen render may not amortize its cost —
+the numbers decide.
 
 Pre-migration read: `sim.render`'s 88 ms is editor-viewport RTX work
 (vanishes headless); `simulation_app.update`'s ~74 ms was the

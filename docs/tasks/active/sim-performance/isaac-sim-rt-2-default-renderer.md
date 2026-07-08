@@ -60,15 +60,59 @@ Run the bridge's `--profile` mode and capture a new row in the bridge-runtime-in
 
 Update the doc with the new numbers in the same commit.
 
+## Findings & decisions (implementation)
+
+The three knobs were verified against the installed Isaac Sim 6.0.0 + IsaacLab
+source (adversarially cross-checked). The brief's setting names predate this
+build; the corrected knobs:
+
+| Brief's guess | Actual (verified) |
+|---|---|
+| renderer `RealTime2` | `/rtx/rendermode = "RealTimePathTracing"` (the UI "Real-Time 2.0"; already the platform SimulationApp default). RT 1.0 is `RaytracedLighting`. |
+| `/rtx/post/fpsMultiplier → 4` | DLSS-G frame generation `/rtx-transient/dlssg/enabled` (on/off). The x2/x3/x4 factor is an opaque internal *hashed* Kit setting — no stable carb path, no `RenderCfg` field, so "4×" is not cleanly expressible. |
+| `/rtx/rendermode/quality → Performance` | `--rendering_mode performance` → `apps/rendering_modes/performance.kit` (DLSS execMode 0, RT2 path-tracer tuning). |
+
+Settings are injected at **app-launch** (Kit CLI args), not via post-boot
+`RenderCfg.carb_settings`: RT 2.0's renderer *registration*
+(`/rtx-transient/rt2Enabled`, `/persistent/rtx/modes/rt2/enabled`) is a boot-time
+persistent preference — headless IsaacLab logs show it absent by default, so the
+mode must be forced at startup. `RenderCfg.carb_settings` stays the home for
+dynamic render settings (e.g. the RTX auto-exposure histogram).
+
+**Depth-integrity decision (Constraint 1): DLSS frame generation is deliberately
+NOT enabled — ships at 1×.** The depth stream is a live policy input. DLSS-G is a
+swapchain/present-path feature: it never writes the offscreen annotator AOVs
+(`rgb`, `distance_to_image_plane`) the bridge reads, is a no-op headless (present
+thread disabled), and cannot inject/duplicate frames into the env-step-driven
+publish cadence (worst case a DROP). Isaac Sim's own Performance preset disables
+it ("does not yet support tiled camera well") and the base app disables it as
+synthetic-data-incompatible. This is Constraint 1's sanctioned "drop to 1×, ship
+RT 2.0 + Performance only" path — scoping FG off the sensor path was possible, so
+no STOP. The one residual risk — RT1↔RT2 *geometric* depth parity — is not
+doc-guaranteed and is the sole runtime gate:
+[`probe_rt2_depth_integrity.py`](../../../source/strafer_lab/scripts/probe_rt2_depth_integrity.py)
+checks (a) cadence, (b) frame-diff under motion, (c) RT1-vs-RT2 static depth
+≤ 1e-3 m.
+
+**Merge gate.** Per the scheduling rule this stays unmerged and the rig stays on
+the current renderer until (1) the operator's v1 depth-subgoal live mission runs
+on the current config (the depth-chain baseline), (2) the depth-integrity probe
+passes on RT 2.0, and (3) the `--profile` perf rows are filled. Stamp + `git mv`
+this brief to `completed/` in the merge PR once those land.
+
 ## Acceptance criteria
 
-- [ ] Bridge launch on default settings produces renders via the Real-Time 2.0 renderer (verifiable via a log line or a Kit setting dump on startup).
-- [ ] FPS Multiplier is set to 4× and Performance mode is enabled.
-- [ ] An operator can revert to the legacy renderer with a single launch-arg override (document the override in the bridge runbook).
-- [ ] New perf numbers recorded in `bridge-runtime-invariants.md`'s reference table; if RT 2.0 closes the perf gap meaningfully, update the "Headless vs `--viz kit` defaults" section's narrative.
-- [ ] No regression in the camera-publish contract: `/d555/color/image_raw`, `/d555/depth/image_rect_raw`, and their `camera_info` companions still publish at the same resolution + same intrinsics. RT 2.0 must not silently change resolution or aspect.
-- [ ] No regression in scene visual correctness for the operator's standard debugging scenes (run an Infinigen scene through `make sim-bridge-gui` and confirm the viewport looks sane).
-- [ ] If your work invalidates a fact in any referenced context module, package README, top-level `Readme.md`, or guide under `docs/`, update those in the same commit. See [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance) for the surface list and trigger heuristics.
+Code + tests + docs ship in this PR; the GPU-dependent rows are gated on the
+operator's bridge sessions (see **Merge gate** above). Legend: `[x]` done, `[~]`
+partial/revised, `[ ]` gated on a GPU session.
+
+- [x] Bridge launch on default settings selects RTX Real-Time 2.0 — startup log line `[sim_in_the_loop] active renderer: /rtx/rendermode=...` reads the live setting back (proof once a session runs).
+- [~] FPS Multiplier + Performance: Performance preset enabled (`--rendering_mode performance`); the FPS multiplier is **deliberately off (1×)** for depth integrity — revised from the brief with rationale in Findings.
+- [x] Single launch-arg revert: `--renderer legacy` (`RENDERER=legacy make sim-bridge`), documented in the cheatsheet + `bridge-runtime-invariants.md`.
+- [ ] New perf numbers in `bridge-runtime-invariants.md` — rows added (TBD); fill with `--profile` on both make targets in a GPU session.
+- [~] Camera-publish contract: unit-pinned (the renderer override touches only RTX launch settings, never resolution/intrinsics); runtime confirmation via `bridge_harness_smoke.py`'s depth-shape assert + the depth-integrity probe (gated).
+- [ ] Scene visual correctness via `make sim-bridge-gui` on an Infinigen scene (operator visual check, gated).
+- [x] Doc maintenance sweep: cheatsheet, package README, tools-and-scripts-map, `bridge-runtime-invariants.md` updated (interim `INTEGRATION_SIM_IN_THE_LOOP.md` left untouched — exempt).
 
 ## Investigation pointers
 

@@ -242,7 +242,8 @@ sim-bridge: ## Launch Isaac Sim + ROS 2 bridge (headless)
 		$(ISAACLAB) -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
 			--mode bridge --headless --enable_cameras \
 			$${SCENE_NAME:+--scene-name $$SCENE_NAME} \
-			$${SCENE_USD:+--scene-usd $$SCENE_USD}
+			$${SCENE_USD:+--scene-usd $$SCENE_USD} \
+			$${RENDERER:+--renderer $$RENDERER}
 
 sim-bridge-gui: ## Launch Isaac Sim + ROS 2 bridge with the viewport open
 	@source env_setup.sh && \
@@ -252,7 +253,8 @@ sim-bridge-gui: ## Launch Isaac Sim + ROS 2 bridge with the viewport open
 		$(ISAACLAB) -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
 			--mode bridge --enable_cameras --viz kit \
 			$${SCENE_NAME:+--scene-name $$SCENE_NAME} \
-			$${SCENE_USD:+--scene-usd $$SCENE_USD}
+			$${SCENE_USD:+--scene-usd $$SCENE_USD} \
+			$${RENDERER:+--renderer $$RENDERER}
 
 sim-harness: ## Run sim-in-the-loop autonomous mission sweep (metadata travels in the scene USD)
 	@if { [ -z "$$SCENE_NAME" ] && [ -z "$$SCENE_USD" ]; } || [ -z "$$OUTPUT_DIR" ]; then \
@@ -268,6 +270,7 @@ sim-harness: ## Run sim-in-the-loop autonomous mission sweep (metadata travels i
 			$${SCENE_USD:+--scene-usd $$SCENE_USD} \
 			--output $$OUTPUT_DIR \
 			$${MAX_MISSIONS:+--max-missions $$MAX_MISSIONS} \
+			$${RENDERER:+--renderer $$RENDERER} \
 			--headless --enable_cameras
 
 harness-smoke: ## Jetson-free Kit smoke of the bridge harness capture path (scripted /cmd_vel)

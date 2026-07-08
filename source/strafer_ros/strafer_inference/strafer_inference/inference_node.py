@@ -12,6 +12,13 @@ L1 velocity clamp before ``/strafer/cmd_vel`` publish, and a
 successful inference so operator health checks distinguish "warming
 up" (TRT engine cold-start) from "wedged".
 
+Depth-freshness gate: a depth variant runs at most one inference per
+fresh depth frame — a tick whose depth-frame counter has not advanced
+since the last policy call is skipped, holding the channel. Skipped
+ticks advance no hidden state, matching training's one-depth-one-step
+alignment; without it, catch-up ticks under the slow sim depth feed
+replay a stale frame into the recurrent state.
+
 Thread safety: the action server lives in a ``ReentrantCallbackGroup``
 so ``execute_callback`` can block on the mission while the timer keeps
 ticking; the policy mutex serializes ``policy(obs)`` and
@@ -204,6 +211,11 @@ class InferenceNode(Node):
         self._last_odom_rx_t: Optional[float] = None
         self._last_depth_meters: Optional[np.ndarray] = None
         self._last_depth_rx_t: Optional[float] = None
+        # Depth-frame counter (bumped in _on_depth): the tick runs at most
+        # one inference per fresh frame. _last_inferred_depth_seq holds the
+        # value consumed by the last policy call; -1 lets the first through.
+        self._depth_seq = 0
+        self._last_inferred_depth_seq = -1
         self._last_goal_map: Optional[PoseStamped] = None
         # Count, not a bool: a preempted or cancel-draining goal briefly
         # overlaps its successor, and the exiting goal must not clear
@@ -418,6 +430,7 @@ class InferenceNode(Node):
             return
         self._last_depth_meters = arr
         self._last_depth_rx_t = time.monotonic()
+        self._depth_seq += 1
 
     def _on_subgoal(self, msg: PoseStamped) -> None:
         # Cache only; the rolling subgoal advances every tick and must not
@@ -617,6 +630,11 @@ class InferenceNode(Node):
             # arrive here.
             return
 
+        # After the watchdog, so a stale-source zero-twist still preempts; a
+        # skipped tick (depth frame unchanged) holds the channel, no publish.
+        if self._has_depth and self._depth_seq == self._last_inferred_depth_seq:
+            return
+
         obs = self._assemble_observation_or_none()
         if obs is None:
             self._cmd_vel_pub.publish(Twist())
@@ -626,6 +644,13 @@ class InferenceNode(Node):
         with self._policy_lock:
             action = self._policy(obs)
         t_inference_ns = time.monotonic_ns() - t0
+
+        # The policy call advanced the recurrent hidden state — consume this
+        # depth frame so the gate skips ticks until a fresher one arrives.
+        # Recorded even on the shape-error path below (the state advanced
+        # regardless); depth variants only, others never read it.
+        if self._has_depth:
+            self._last_inferred_depth_seq = self._depth_seq
 
         action = np.asarray(action, dtype=np.float32).reshape(-1)
         if action.shape[0] != 3:

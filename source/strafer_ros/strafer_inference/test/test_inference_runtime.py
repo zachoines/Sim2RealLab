@@ -22,6 +22,7 @@ import pytest
 import rclpy
 from geometry_msgs.msg import PoseStamped
 from rclpy.parameter import Parameter
+from sensor_msgs.msg import Image
 
 from strafer_inference.inference_node import InferenceNode
 
@@ -82,12 +83,39 @@ class _FakeRecurrentPolicy:
         self._h = 0.0
 
 
+class _WrongShapePolicy:
+    """Recurrent stub whose output is NOT (3,) — drives the node's action-
+    shape error branch. Tracks call_count to pin frame-consume ordering."""
+
+    is_recurrent = True
+
+    def __init__(self) -> None:
+        self.call_count = 0
+
+    def __call__(self, obs: np.ndarray) -> np.ndarray:
+        self.call_count += 1
+        return np.zeros(2, dtype=np.float32)
+
+    def reset(self) -> None:
+        pass
+
+
 def _make_pose(x: float, y: float) -> PoseStamped:
     msg = PoseStamped()
     msg.header.frame_id = "map"
     msg.pose.position.x = x
     msg.pose.position.y = y
     msg.pose.orientation.w = 1.0
+    return msg
+
+
+def _depth_msg(h: int = 4, w: int = 4) -> Image:
+    """A minimal valid 32FC1 depth frame (content irrelevant to the gate)."""
+    msg = Image()
+    msg.encoding = "32FC1"
+    msg.height = h
+    msg.width = w
+    msg.data = np.zeros((h, w), dtype=np.float32).tobytes()
     return msg
 
 
@@ -1181,5 +1209,234 @@ class TestVariantAwareWiring(unittest.TestCase):
             stale = _stale(depth_rx=now, subgoal_rx=None)
             self.assertIn("subgoal", stale)
             self.assertNotIn("depth", stale)
+        finally:
+            node.destroy_node()
+
+
+# =============================================================================
+# Depth-freshness gate — one inference per fresh depth frame
+# =============================================================================
+
+
+class TestDepthFreshnessGate(unittest.TestCase):
+    """A depth variant runs at most one inference per fresh depth frame:
+    catch-up ticks under the slow sim depth feed must not replay a stale
+    frame into the recurrent GRU. The gate sits after the watchdog (a
+    stale-source zero-twist still preempts) and holds the channel on a
+    skip (idle semantics — no publish). No-camera variants never gate.
+    """
+
+    def _depth_node(self, variant: str = "DEPTH") -> InferenceNode:
+        node = InferenceNode(
+            parameter_overrides=_make_overrides(
+                model_path="", policy_variant=variant,
+            )
+        )
+        node._policy = _FakeRecurrentPolicy()
+        node._cmd_vel_pub = MagicMock()
+        node._active_goal_count = 1  # mission executing: watchdog goal-fresh
+        node._tf_age_s = lambda: 0.0  # type: ignore
+        # Isolate the gate from obs assembly: a fixed non-None obs so every
+        # ungated tick reaches (and counts) an inference.
+        node._assemble_observation_or_none = (  # type: ignore
+            lambda: np.zeros(4, dtype=np.float32)
+        )
+        return node
+
+    def _stamp_streams_fresh(self, node: InferenceNode) -> None:
+        now = time.monotonic()
+        node._last_imu_rx_t = now
+        node._last_joint_states_rx_t = now
+        node._last_odom_rx_t = now
+        node._last_subgoal_rx_t = now
+        node._last_depth_rx_t = now  # within the depth timeout window
+
+    def _tick(self, node: InferenceNode) -> None:
+        # Re-stamp before each tick so a slow test host can't false-trip the
+        # watchdog. The gate keys on the depth *frame counter*, not the rx
+        # time, so re-stamping alone never advances a frame.
+        self._stamp_streams_fresh(node)
+        node._on_tick()
+
+    def test_on_depth_increments_frame_counter(self) -> None:
+        node = self._depth_node("DEPTH")
+        try:
+            self.assertEqual(node._depth_seq, 0)
+            node._on_depth(_depth_msg())
+            self.assertEqual(node._depth_seq, 1)
+            node._on_depth(_depth_msg())
+            self.assertEqual(node._depth_seq, 2)
+        finally:
+            node.destroy_node()
+
+    def test_dropped_depth_frame_does_not_advance_counter(self) -> None:
+        """A frame the callback rejects (wrong encoding) must not bump the
+        counter — else the gate would treat a non-frame as fresh."""
+        node = self._depth_node("DEPTH")
+        try:
+            bad = _depth_msg()
+            bad.encoding = "mono8"
+            node._on_depth(bad)
+            self.assertEqual(node._depth_seq, 0)
+        finally:
+            node.destroy_node()
+
+    def test_burst_one_frame_yields_one_inference(self) -> None:
+        """Brief scenario: 3 catch-up ticks over 1 depth frame -> exactly 1
+        inference/publish; the next frame -> the next inference."""
+        node = self._depth_node("DEPTH")
+        try:
+            node._on_depth(_depth_msg())   # one fresh frame
+            for _ in range(3):             # three catch-up ticks
+                self._tick(node)
+            self.assertEqual(node._policy.call_count, 1)
+            self.assertEqual(node._cmd_vel_pub.publish.call_count, 1)
+
+            node._on_depth(_depth_msg())   # next frame
+            self._tick(node)
+            self.assertEqual(node._policy.call_count, 2)
+            self.assertEqual(node._cmd_vel_pub.publish.call_count, 2)
+        finally:
+            node.destroy_node()
+
+    def test_gate_skip_holds_channel_without_publishing(self) -> None:
+        """A skip is a hold, not a stop: no publish on a skipped tick (the
+        downstream cmd watchdogs are the stop floors)."""
+        node = self._depth_node("DEPTH")
+        try:
+            node._on_depth(_depth_msg())
+            self._tick(node)  # inference + publish
+            baseline = node._cmd_vel_pub.publish.call_count
+            self._tick(node)  # no new frame -> skip
+            self._tick(node)
+            self.assertEqual(node._policy.call_count, 1)
+            self.assertEqual(node._cmd_vel_pub.publish.call_count, baseline)
+        finally:
+            node.destroy_node()
+
+    def test_fresh_frame_every_tick_never_skips(self) -> None:
+        """Real-robot cadence: a new frame before each tick advances the
+        counter every time, so the gate never skips."""
+        node = self._depth_node("DEPTH")
+        try:
+            for _ in range(5):
+                node._on_depth(_depth_msg())  # fresh frame each tick
+                self._tick(node)
+            self.assertEqual(node._policy.call_count, 5)
+            self.assertEqual(node._cmd_vel_pub.publish.call_count, 5)
+        finally:
+            node.destroy_node()
+
+    def test_watchdog_zero_twists_even_when_gate_would_skip(self) -> None:
+        """Ordering pin: with the frame already consumed (gate would skip),
+        a stale source mid-mission still zero-twists FIRST — safety before
+        the freshness gate."""
+        node = self._depth_node("DEPTH")
+        try:
+            node._on_depth(_depth_msg())
+            self._tick(node)  # consumes the frame
+            self.assertEqual(node._policy.call_count, 1)
+            self.assertEqual(node._cmd_vel_pub.publish.call_count, 1)
+
+            # No new frame (gate would skip) AND imu goes stale mid-mission.
+            self._stamp_streams_fresh(node)
+            node._last_imu_rx_t = time.monotonic() - 60.0
+            node._on_tick()
+
+            self.assertEqual(node._policy.call_count, 1)  # no inference ran
+            self.assertEqual(node._cmd_vel_pub.publish.call_count, 2)
+            published = node._cmd_vel_pub.publish.call_args[0][0]
+            self.assertEqual(
+                (published.linear.x, published.linear.y, published.angular.z),
+                (0.0, 0.0, 0.0),
+            )
+        finally:
+            node.destroy_node()
+
+    def test_depth_subgoal_burst_gates_on_depth_frame(self) -> None:
+        """The deployed hybrid variant (depth + subgoal) gates on the depth
+        frame exactly as DEPTH; the subgoal source stays fresh throughout."""
+        node = self._depth_node("DEPTH_SUBGOAL")
+        try:
+            self.assertTrue(node._has_depth)
+            self.assertTrue(node._uses_subgoal)
+            node._on_depth(_depth_msg())
+            for _ in range(3):
+                self._tick(node)
+            self.assertEqual(node._policy.call_count, 1)
+            node._on_depth(_depth_msg())
+            self._tick(node)
+            self.assertEqual(node._policy.call_count, 2)
+        finally:
+            node.destroy_node()
+
+    def test_shape_error_tick_still_consumes_frame(self) -> None:
+        """The consume sits BEFORE the action-shape check: a malformed policy
+        output has already advanced the recurrent state, so the frame is
+        consumed. The next frameless tick must gate-skip (not re-run the
+        policy on the same frame and double-advance the GRU)."""
+        node = self._depth_node("DEPTH")
+        node._policy = _WrongShapePolicy()
+        try:
+            node._on_depth(_depth_msg())
+            self._tick(node)  # shape-error path: zero-twist, frame consumed
+            self.assertEqual(node._policy.call_count, 1)
+            published = node._cmd_vel_pub.publish.call_args[0][0]
+            self.assertEqual(
+                (published.linear.x, published.linear.y, published.angular.z),
+                (0.0, 0.0, 0.0),
+            )
+            self._tick(node)  # no new frame -> skip despite the earlier error
+            self.assertEqual(node._policy.call_count, 1)  # NOT re-run
+        finally:
+            node.destroy_node()
+
+    def test_transient_obs_none_does_not_consume_pending_frame(self) -> None:
+        """The consume sits AFTER the obs-None early-return: a fresh frame
+        that fails obs assembly (e.g. a malformed JointState) is NOT consumed,
+        so it is still inferred once obs recovers — no permanently lost frame."""
+        node = self._depth_node("DEPTH")
+        try:
+            obs_stream = iter([None, np.zeros(4, dtype=np.float32)])
+            node._assemble_observation_or_none = (  # type: ignore
+                lambda: next(obs_stream)
+            )
+            node._on_depth(_depth_msg())  # one fresh frame pending
+            self._tick(node)  # obs None -> zero-twist, frame NOT consumed
+            self.assertEqual(node._policy.call_count, 0)
+            published = node._cmd_vel_pub.publish.call_args[0][0]
+            self.assertEqual(
+                (published.linear.x, published.linear.y, published.angular.z),
+                (0.0, 0.0, 0.0),
+            )
+            self._tick(node)  # obs recovers, SAME frame -> inference runs
+            self.assertEqual(node._policy.call_count, 1)
+        finally:
+            node.destroy_node()
+
+    def test_nocam_variant_never_gates(self) -> None:
+        """No-camera variant has no depth field: the gate is unreachable, so
+        every clean tick infers though no frame counter ever advances, and
+        the consume path (guarded on _has_depth) leaves the sentinel alone."""
+        node = self._depth_node("NOCAM")
+        try:
+            self.assertFalse(node._has_depth)
+            for _ in range(3):
+                self._tick(node)
+            self.assertEqual(node._policy.call_count, 3)
+            self.assertEqual(node._cmd_vel_pub.publish.call_count, 3)
+            self.assertEqual(node._last_inferred_depth_seq, -1)
+        finally:
+            node.destroy_node()
+
+    def test_nocam_subgoal_variant_never_gates(self) -> None:
+        node = self._depth_node("NOCAM_SUBGOAL")
+        try:
+            self.assertFalse(node._has_depth)
+            self.assertTrue(node._uses_subgoal)
+            for _ in range(3):
+                self._tick(node)
+            self.assertEqual(node._policy.call_count, 3)
+            self.assertEqual(node._last_inferred_depth_seq, -1)
         finally:
             node.destroy_node()

@@ -41,7 +41,7 @@ from strafer_shared.policy_interface import (
 class TestDownsampleDepth:
     """The depth pipeline mirrors mdp/observations.py:depth_image's
     deterministic steps and returns raw meters. Block-averaging is
-    exact-integer (640/80=8, 360/60=6) so it matches cv2.INTER_AREA to
+    exact-integer (640/80=8, 360/45=8) so it matches cv2.INTER_AREA to
     within float roundoff.
     """
 
@@ -109,8 +109,8 @@ class TestDownsampleDepth:
         assert out.dtype == np.float32
 
     def test_output_dim_matches_depth_field(self):
-        """The DEPTH variant's depth_image field is 4800 dims; the
-        helper must produce exactly that.
+        """The DEPTH variant's depth_image field is DEPTH_WIDTH*DEPTH_HEIGHT
+        (80×45 = 3600) dims; the helper must produce exactly that.
         """
         depth_field = next(
             f for f in PolicyVariant.DEPTH.fields if f.key == "depth_image"
@@ -666,11 +666,18 @@ class TestRawDictDepthSubgoalVariant:
         )
 
     def test_depth_tail_is_in_the_depth_position(self):
-        """DEPTH_SUBGOAL shares DEPTH's field layout: 4819 dims total with the
-        4800-dim depth field as the trailing block."""
+        """DEPTH_SUBGOAL shares DEPTH's field layout: NOCAM_SUBGOAL's 19 scalar
+        dims plus the DEPTH_WIDTH*DEPTH_HEIGHT (80×45 = 3600) depth field as the
+        trailing block (3619 total)."""
         assert PolicyVariant.DEPTH_SUBGOAL.obs_dim == PolicyVariant.DEPTH.obs_dim
-        assert PolicyVariant.DEPTH_SUBGOAL.obs_dim == 4819
+        assert (
+            PolicyVariant.DEPTH_SUBGOAL.obs_dim
+            == PolicyVariant.NOCAM_SUBGOAL.obs_dim + DEPTH_WIDTH * DEPTH_HEIGHT
+        )
         assert PolicyVariant.DEPTH_SUBGOAL.fields[-1].key == "depth_image"
+        assert (
+            PolicyVariant.DEPTH_SUBGOAL.fields[-1].dims == DEPTH_WIDTH * DEPTH_HEIGHT
+        )
 
     def test_assembles_per_field_against_the_enum(self):
         """Assemble and assert each obs slice equals raw * scale, iterating the

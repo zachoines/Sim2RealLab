@@ -5,7 +5,7 @@
 # --ros-args --params-file for additional tuning.
 #
 # Stream specs (D555 native resolutions):
-#   Depth: 640x360 @ 30 Hz → downsampled to 80x60 for policy
+#   Depth: 640x360 @ 30 Hz → downsampled to 80x45 (diagnostic, not the policy input)
 #   Color: 640x360 @ 30 Hz
 #   IMU:   200 Hz (BMI055 accel + gyro, unified) -- may not be available
 #          on all D555 firmware revisions

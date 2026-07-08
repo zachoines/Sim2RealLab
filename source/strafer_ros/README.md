@@ -36,7 +36,7 @@ Sibling packages it interacts with:
 ## What ships today
 
 - **RoboClaw driver** (`strafer_driver/roboclaw_node.py`) — single-threaded executor, 50 Hz timer for all serial I/O, auto-writes PID/QPPS from `strafer_shared.constants` at startup, dual-controller addressing (0x80 front, 0x81 rear), `/cmd_vel` → per-wheel mecanum IK, 500 ms watchdog.
-- **RealSense D555 stack** (`strafer_perception/`) — launch wiring for the RealSense ROS 2 node, `timestamp_fixer` (fixes Tegra USB clock drift), `depth_downsampler` (640×360 depth → 80×60 float32 meters for RL policy input), `imu_filter_madgwick` for filtered `/d555/imu/filtered`.
+- **RealSense D555 stack** (`strafer_perception/`) — launch wiring for the RealSense ROS 2 node, `timestamp_fixer` (fixes Tegra USB clock drift), `depth_downsampler` (640×360 depth → 80×45 float32 meters; diagnostic, not the policy input), `imu_filter_madgwick` for filtered `/d555/imu/filtered`.
 - **Goal projection service** (`strafer_perception/goal_projection_node.py`) — implements `ProjectDetectionToGoalPose.srv`: VLM bbox (Qwen normalized `[0, 1000]`) → pixel → depth lookup (5×5 median) → 3D camera frame → TF to map → standoff offset → reachability check.
 - **URDF + TF tree** (`strafer_description/`) — URDF with chassis, 4 wheels, and `d555_link`; `robot_state_publisher` broadcasts `base_link → {chassis, wheels, d555_link}` from joint states and URDF.
 - **RTAB-Map SLAM** (`strafer_slam/`) — launch composition for `depthimage_to_laserscan` (virtual 2D scan from aligned depth) + `rtabmap` (RGB-D SLAM with odom + IMU fusion, 2 Hz detection rate, 5 cm grid).
@@ -83,7 +83,7 @@ Streaming inputs the autonomy layer and RL runtime consume:
 | `/d555/color/camera_info_sync` | `sensor_msgs/CameraInfo` | RGB intrinsics matching `image_sync` |
 | `/d555/aligned_depth_to_color/image_sync` | `sensor_msgs/Image` | Timestamp-fixed aligned depth in RGB frame |
 | `/d555/aligned_depth_to_color/camera_info_sync` | `sensor_msgs/CameraInfo` | Aligned-depth camera info |
-| `/d555/depth/downsampled` | `sensor_msgs/Image` (32FC1, meters) | 80×60 policy input |
+| `/d555/depth/downsampled` | `sensor_msgs/Image` (32FC1, meters) | 80×45 (diagnostic, not the policy input) |
 | `/d555/imu/filtered` | `sensor_msgs/Imu` | Madgwick-filtered IMU with orientation quaternion |
 | `/strafer/odom` | `nav_msgs/Odometry` | Wheel odometry at 50 Hz |
 | `/strafer/joint_states` | `sensor_msgs/JointState` | Wheel states at 50 Hz |

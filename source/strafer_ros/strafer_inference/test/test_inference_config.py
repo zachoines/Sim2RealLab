@@ -135,7 +135,7 @@ class TestInferenceParamsStructure:
         assert ("/strafer/cmd_vel", "/cmd_vel") in remappings
 
     def test_depth_topic_is_bridged_perception_stream(self, node_params):
-        # The 80x60 d555_camera policy camera is sim-only; the bridged
+        # The 80x45 d555_camera policy camera is sim-only; the bridged
         # stream is the 640x360 d555_camera_perception at this topic.
         assert node_params["depth_topic"] == "/d555/depth/image_rect_raw"
 

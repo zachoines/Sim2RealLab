@@ -1,11 +1,16 @@
-"""Depth downsampler node for policy input.
+"""Depth downsampler node (diagnostic).
 
 Subscribes to full-resolution depth from the RealSense D555 camera,
-resizes to the policy input resolution (80x60), clips to the valid
-depth range, and publishes the result for the inference node.
+resizes to the shared DEPTH_WIDTH×DEPTH_HEIGHT grid, clips to the valid
+depth range, and publishes it on /d555/depth/downsampled.
+
+WARNING: the 0.0-fill + cv2.INTER_AREA resize here is this node's own
+convention and must NEVER feed the policy — the policy obs pipeline
+downsamples the raw stream itself (a nearfield-fill block-average in
+strafer_inference.obs_pipeline.downsample_depth).
 
 Input:  /d555/depth/image_rect_raw  (16UC1, millimeters, native resolution)
-Output: /d555/depth/downsampled     (32FC1, meters, 80x60)
+Output: /d555/depth/downsampled     (32FC1, meters, DEPTH_WIDTH×DEPTH_HEIGHT)
 """
 
 import cv2

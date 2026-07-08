@@ -7,7 +7,9 @@ scene.
 Two camera configurations coexist:
 
 - **Policy camera** (`make_d555_camera_cfg`, prim path ``d555_camera``):
-  80x60 RGB + depth. Consumed by the RL policy's observation pipeline.
+  80x45 RGB + depth (16:9, matching the real D555 stream's vertical FOV;
+  see ``strafer_shared.constants.DEPTH_HEIGHT``). Consumed by the RL policy's
+  observation pipeline.
   This is the original config and is used by every ``StraferSceneCfg*``
   scene class that feeds the navigation policy.
 
@@ -118,7 +120,13 @@ D555_PERCEPTION_DATA_TYPES: tuple[str, ...] = ("rgb", "distance_to_image_plane")
 
 
 def make_d555_camera_cfg(*, data_types: tuple[str, ...]) -> TiledCameraCfg:
-    """Create the standard Strafer D555 camera config (80x60, policy input)."""
+    """Create the standard Strafer D555 camera config (80x45, policy input).
+
+    80x45 is 16:9, so Isaac Sim's resolution-derived (square-pixel) vertical FOV
+    is 56.4 deg — matching the real D555 / perception camera. (RTX ignores the
+    authored ``vertical_aperture``; resolution is the only lever — see
+    ``strafer_shared.constants.DEPTH_HEIGHT``.)
+    """
 
     return TiledCameraCfg(
         prim_path=D555_CAMERA_PRIM_PATH,

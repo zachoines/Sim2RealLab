@@ -12,7 +12,7 @@ Four axis configurations drive the composition:
 
 - :class:`SensorStackCfg` — ``cameras_required`` over the tokens
   ``rgb_full`` / ``depth_full`` (the 640x360 perception camera channels) and
-  ``rgb_policy`` / ``depth_policy`` (the 80x60 policy camera channels). The
+  ``rgb_policy`` / ``depth_policy`` (the 80x45 policy camera channels). The
   selected tokens decide which camera prims the scene renders and which image
   observation terms the policy receives.
 - :class:`SceneSourceCfg` — where the world geometry comes from (plane,
@@ -99,7 +99,7 @@ from .strafer_env_cfg import (
 # ---------------------------------------------------------------------------
 
 # Sensor-stack tokens. ``*_full`` ride the 640x360 perception camera
-# (``d555_camera_perception``); ``*_policy`` ride the 80x60 policy camera
+# (``d555_camera_perception``); ``*_policy`` ride the 80x45 policy camera
 # (``d555_camera``). RGB tokens request the ``rgb`` channel, depth tokens the
 # ``distance_to_image_plane`` channel.
 SENSOR_TOKENS: tuple[str, ...] = ("rgb_full", "depth_full", "rgb_policy", "depth_policy")
@@ -145,7 +145,7 @@ class SensorStackCfg:
             )
         return tuple(t for t in SENSOR_TOKENS if t in seen)
 
-    # -- policy camera (80x60) ------------------------------------------------
+    # -- policy camera (80x45) ------------------------------------------------
 
     def has_policy_camera(self) -> bool:
         return any(t in self.cameras_required for t in _POLICY_TOKENS)
@@ -385,7 +385,7 @@ def _prune_scene_cameras(scene, sensors: SensorStackCfg) -> None:
     policy: the RTX viewport / ``--video`` colour pipeline needs an rgb render
     product to come up, independent of what the observation reads.
     """
-    # Policy camera (80x60): rgb (for the viewport) unioned with observed channels.
+    # Policy camera (80x45): rgb (for the viewport) unioned with observed channels.
     if sensors.has_policy_camera():
         if hasattr(scene, "d555_camera"):
             data_types = sensors.policy_data_types()

@@ -305,7 +305,7 @@ class StraferSceneCfg_InfinigenPerception(InteractiveSceneCfg):
     Same Infinigen room geometry and global-prim layout as
     :class:`StraferSceneCfg_Infinigen` but with both cameras present:
 
-    - ``d555_camera`` (80x60) — the RL policy camera, kept for parity with
+    - ``d555_camera`` (80x45) — the RL policy camera, kept for parity with
       the training scenes so the deployed model sees the same input shape.
     - ``d555_camera_perception`` (640x360) — the perception data-collection
       camera used by Replicator bbox extraction, gamepad teleop capture, and
@@ -314,7 +314,7 @@ class StraferSceneCfg_InfinigenPerception(InteractiveSceneCfg):
       ``["distance_to_image_plane"]``.
 
     This scene is intentionally NOT used in RL training. At 640x360 Isaac
-    Sim caps parallel envs at ~1-8 (vs. 256+ at 80x60), so this scene is
+    Sim caps parallel envs at ~1-8 (vs. 256+ at 80x45), so this scene is
     reserved for data collection and ROS bridge work.
 
     See :class:`StraferSceneCfg_Infinigen` for why ``replicate_physics`` is
@@ -348,7 +348,7 @@ class StraferSceneCfg_InfinigenPerception(InteractiveSceneCfg):
         init_state=AssetBaseCfg.InitialStateCfg(rot=(0.866, 0.0, 0.5, 0.0)),  # 60° from vertical
     )
 
-    # Policy camera (80x60) — kept so the perception env matches the
+    # Policy camera (80x45) — kept so the perception env matches the
     # deployed observation shape; cheap to render alongside the perception
     # camera when only 1-8 envs are active.
     d555_camera: TiledCameraCfg = make_d555_camera_cfg(

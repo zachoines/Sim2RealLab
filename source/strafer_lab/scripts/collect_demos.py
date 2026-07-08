@@ -89,6 +89,8 @@ import strafer_lab.tasks  # noqa: F401 — registers Strafer tasks
 from isaaclab.envs.common import ViewerCfg
 from isaaclab_tasks.utils import parse_env_cfg
 
+from strafer_shared.constants import DEPTH_HEIGHT, DEPTH_WIDTH
+
 from strafer_lab.tools.gamepad_reader import (
     GamepadReader as _SharedGamepadReader,
     legacy_tuple_from_frame,
@@ -349,7 +351,7 @@ def main():
     # Report obs dimensionality so user can verify depth is included
     sample_obs = _get_obs(obs)
     obs_dim = sample_obs.shape[-1]
-    has_depth = obs_dim > 100  # 4819 for depth, 19 for proprio
+    has_depth = obs_dim > 100  # 3619 for depth, 19 for proprio
     print(f"[Demo] obs_dim={obs_dim} ({'includes depth' if has_depth else 'proprio only'})")
 
     # --- Depth visualization ---
@@ -357,7 +359,7 @@ def main():
     if args_cli.show_depth and has_depth:
         if _MPL_AVAILABLE:
             try:
-                depth_viz = DepthVisualizer(height=60, width=80, max_depth=6.0)
+                depth_viz = DepthVisualizer(height=DEPTH_HEIGHT, width=DEPTH_WIDTH, max_depth=6.0)
                 print("[Demo] Depth visualization enabled (matplotlib window)")
             except Exception as e:
                 print(f"[Demo] Depth visualization failed: {e}")

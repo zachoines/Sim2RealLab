@@ -1,7 +1,7 @@
 """Contract tests for ``PolicyVariant.DEPTH_SUBGOAL``.
 
 Pins the seam the variant exists for: identical network input layout to DEPTH
-(same 4819 dims, same scales, same field order, same depth field) with renamed
+(same obs_dim, same scales, same field order, same depth field) with renamed
 goal-referent keys, and — critically — that the member is a *distinct* enum
 member rather than a silent alias of DEPTH or NOCAM_SUBGOAL (Python Enums
 collapse members with equal values into aliases, which would make the variants
@@ -16,7 +16,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from strafer_shared.constants import DEPTH_HEIGHT, DEPTH_WIDTH
 from strafer_shared.policy_interface import PolicyVariant, assemble_observation
+
+_DEPTH_PIXELS = DEPTH_WIDTH * DEPTH_HEIGHT  # 80x45 = 3600
+_DEPTH_OBS_DIM = 19 + _DEPTH_PIXELS  # 3619
 
 
 def test_depth_subgoal_is_a_distinct_member_not_an_alias():
@@ -28,11 +32,11 @@ def test_depth_subgoal_is_a_distinct_member_not_an_alias():
 
 
 def test_depth_subgoal_mirrors_depth_shapes_and_scales():
-    """Same obs_dim (4819) and per-field shape/scale as DEPTH — the acceptance
+    """Same obs_dim and per-field shape/scale as DEPTH — the acceptance
     criterion the brief calls out explicitly."""
     sub = PolicyVariant.DEPTH_SUBGOAL.fields
     base = PolicyVariant.DEPTH.fields
-    assert PolicyVariant.DEPTH_SUBGOAL.obs_dim == PolicyVariant.DEPTH.obs_dim == 4819
+    assert PolicyVariant.DEPTH_SUBGOAL.obs_dim == PolicyVariant.DEPTH.obs_dim == _DEPTH_OBS_DIM
     assert len(sub) == len(base)
     for f_sub, f_base in zip(sub, base):
         assert f_sub.dims == f_base.dims
@@ -40,11 +44,11 @@ def test_depth_subgoal_mirrors_depth_shapes_and_scales():
 
 
 def test_depth_subgoal_reuses_the_depth_field_verbatim():
-    """The 4800-dim depth field is DEPTH's, not a redefinition — the brief is
-    explicit: reuse the constants, don't restate shapes/scales."""
+    """The depth field is DEPTH's, not a redefinition — the brief is explicit:
+    reuse the constants, don't restate shapes/scales."""
     depth_field = PolicyVariant.DEPTH_SUBGOAL.fields[-1]
     assert depth_field.key == "depth_image"
-    assert depth_field.dims == 4800
+    assert depth_field.dims == _DEPTH_PIXELS
     assert depth_field is PolicyVariant.DEPTH.fields[-1]
 
 
@@ -71,7 +75,7 @@ def test_assembly_matches_depth_on_equivalent_raw_values():
         "encoder_vels_ticks": rng.normal(size=4),
         "body_velocity_xy": rng.normal(size=2),
         "last_action": rng.normal(size=3),
-        "depth_image": rng.random(size=4800),
+        "depth_image": rng.random(size=_DEPTH_PIXELS),
     }
     goal_vals = {
         "relative": rng.normal(size=2),
@@ -108,7 +112,7 @@ def test_assembly_rejects_goal_keys_for_depth_subgoal_variant():
         "goal_heading_to_goal": np.zeros(1),
         "body_velocity_xy": np.zeros(2),
         "last_action": np.zeros(3),
-        "depth_image": np.zeros(4800),
+        "depth_image": np.zeros(_DEPTH_PIXELS),
     }
     with pytest.raises(KeyError):
         assemble_observation(raw, PolicyVariant.DEPTH_SUBGOAL)

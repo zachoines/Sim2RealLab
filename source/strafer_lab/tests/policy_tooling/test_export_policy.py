@@ -175,8 +175,10 @@ def test_metadata_obs_dim_matches_variant() -> None:
     # The export script validates this at runtime against the loaded
     # checkpoint; this test pins the contract value so that a future
     # change to PolicyVariant is reflected in the sidecar contract.
+    from strafer_shared.constants import DEPTH_HEIGHT, DEPTH_WIDTH
+
     assert PolicyVariant.NOCAM.obs_dim == 19
-    assert PolicyVariant.DEPTH.obs_dim == 4819
+    assert PolicyVariant.DEPTH.obs_dim == 19 + DEPTH_WIDTH * DEPTH_HEIGHT  # 80x45 -> 3619
 
 
 # ---------------------------------------------------------------------------
@@ -768,7 +770,7 @@ def test_defm_encoder_forward_unscales_before_preprocess() -> None:
         _DEFAULT_DEPTH_OBS_DIM,
         _DEFM_INPUT_SIZE,
     )
-    from strafer_shared.constants import DEPTH_SCALE
+    from strafer_shared.constants import DEPTH_HEIGHT, DEPTH_SCALE, DEPTH_WIDTH
 
     encoder = _make_stub_defm_encoder(output_dim=16).eval()
     captured: dict = {}
@@ -782,7 +784,7 @@ def test_defm_encoder_forward_unscales_before_preprocess() -> None:
     obs_scaled = torch.full((2, _DEFAULT_DEPTH_OBS_DIM), 0.5)
     encoder(obs_scaled)
 
-    assert captured["x"].shape == (2, 1, 60, 80)
+    assert captured["x"].shape == (2, 1, DEPTH_HEIGHT, DEPTH_WIDTH)
     torch.testing.assert_close(
         captured["x"],
         torch.full_like(captured["x"], 0.5 / DEPTH_SCALE),  # = 3.0 m

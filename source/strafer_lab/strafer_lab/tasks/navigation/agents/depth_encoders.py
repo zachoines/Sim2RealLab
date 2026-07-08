@@ -27,8 +27,7 @@ def _conv_stack_feature_hw(height: int, width: int) -> tuple[int, int]:
 
     Kept in lock-step with the convs in :class:`DepthEncoder` (conv1/2/4 are
     stride-2, conv3 is stride-1) so the SpatialSoftArgmax grid is derived from
-    the input resolution rather than hard-coded — an 80×45 input yields a 6×10
-    map, an 80×60 input yields 8×10.
+    the input resolution rather than hard-coded (80×45 → 6×10).
     """
 
     def out(n: int, k: int, s: int, p: int) -> int:
@@ -196,9 +195,8 @@ class DepthEncoder(nn.Module):
         self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
         self.bn4 = nn.BatchNorm2d(128)
         self.act = nn.ELU()
-        # Feature-map size after the conv stack is derived from the policy depth
-        # resolution (80×45 -> 6×10), so the argmax grid tracks DEPTH_HEIGHT/
-        # DEPTH_WIDTH instead of assuming the old 8×10 (60-row) map.
+        # Argmax grid = the conv stack's output size, derived from the policy
+        # depth resolution (80×45 -> 6×10) so it tracks DEPTH_HEIGHT/DEPTH_WIDTH.
         feat_h, feat_w = _conv_stack_feature_hw(DEPTH_HEIGHT, DEPTH_WIDTH)
         self.spatial_argmax = SpatialSoftArgmax(temperature=1.0, height=feat_h, width=feat_w)
         self.fc = nn.Linear(128 * 2, output_dim)

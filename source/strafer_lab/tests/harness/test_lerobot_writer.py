@@ -17,6 +17,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from strafer_shared.constants import DEPTH_HEIGHT, DEPTH_WIDTH
+
 from strafer_lab.tools.bbox_extractor import DetectedBbox
 from strafer_lab.tools.lerobot_depth import (
     POLICY_DEPTH,
@@ -74,7 +76,11 @@ class TestBuildFeatures:
         with_policy = build_features(capture_policy_cam=True)
         assert "observation.images.policy" not in no_policy
         assert "observation.images.policy" in with_policy
-        assert with_policy["observation.images.policy"]["shape"] == (60, 80, 3)
+        # The rgb-policy DEBUG video is bottom-padded to an EVEN height for h264
+        # (80x45 -> 80x46); the depth-policy obs sidecar stays exactly 80x45.
+        assert with_policy["observation.images.policy"]["shape"] == (
+            DEPTH_HEIGHT + DEPTH_HEIGHT % 2, DEPTH_WIDTH, 3,
+        )
 
     def test_state_action_dims(self):
         feats = build_features()
@@ -219,7 +225,7 @@ class TestRoundTrip:
                     achieved_vel=[1.0, 0.0, 0.0],
                     action=[1.0, 0.0, 0.0],
                     rgb_perception=_make_rgb(360, 640),
-                    rgb_policy=_make_rgb(60, 80),
+                    rgb_policy=_make_rgb(DEPTH_HEIGHT, DEPTH_WIDTH),
                     depth_m=_make_depth(360, 640, base_m=2.0 + t * 0.1),
                 )
 
@@ -644,9 +650,9 @@ class TestPolicyDepthSidecar:
                     achieved_vel=[0.0] * 3,
                     action=[0.0] * 3,
                     rgb_perception=_make_rgb(360, 640),
-                    rgb_policy=_make_rgb(60, 80),
+                    rgb_policy=_make_rgb(DEPTH_HEIGHT, DEPTH_WIDTH),
                     depth_m=_make_depth(360, 640, base_m=2.0),
-                    depth_policy_m=_make_depth(60, 80, base_m=1.25),
+                    depth_policy_m=_make_depth(DEPTH_HEIGHT, DEPTH_WIDTH, base_m=1.25),
                 )
             writer.end_episode()
 
@@ -682,7 +688,7 @@ class TestPolicyDepthSidecar:
                 achieved_vel=[0.0] * 3,
                 action=[0.0] * 3,
                 rgb_perception=_make_rgb(360, 640),
-                rgb_policy=_make_rgb(60, 80),
+                rgb_policy=_make_rgb(DEPTH_HEIGHT, DEPTH_WIDTH),
                 depth_m=_make_depth(360, 640),
             )
             writer.end_episode()

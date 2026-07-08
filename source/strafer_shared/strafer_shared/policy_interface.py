@@ -109,7 +109,9 @@ import numpy as np
 
 from strafer_shared.constants import (
     BODY_VEL_SCALE,
+    DEPTH_HEIGHT,
     DEPTH_SCALE,
+    DEPTH_WIDTH,
     ENCODER_VEL_SCALE,
     GOAL_DIST_SCALE,
     HEADING_SCALE,
@@ -148,8 +150,11 @@ _NOCAM_FIELDS: tuple[ObsField, ...] = (
     ObsField("last_action", 3, 1.0),
 )
 
+# The depth field dim is derived from the policy camera resolution so it can
+# never drift from DEPTH_WIDTH/DEPTH_HEIGHT: 80*45 = 3600 (16:9, matching the
+# real sensor's vertical FOV — see strafer_shared.constants.DEPTH_HEIGHT).
 _DEPTH_FIELDS: tuple[ObsField, ...] = _NOCAM_FIELDS + (
-    ObsField("depth_image", 4800, DEPTH_SCALE),
+    ObsField("depth_image", DEPTH_WIDTH * DEPTH_HEIGHT, DEPTH_SCALE),
 )
 
 # Mirrors _NOCAM_FIELDS exactly in shape and scale (19 dims, identical
@@ -173,11 +178,12 @@ _NOCAM_SUBGOAL_FIELDS: tuple[ObsField, ...] = (
 
 # DEPTH_SUBGOAL stands to DEPTH exactly as NOCAM_SUBGOAL stands to NOCAM: the
 # goal-shaped scalar fields are renamed to their rolling-subgoal referent, and
-# DEPTH's 4800-dim depth field rides along unchanged. Built by reusing
-# _NOCAM_SUBGOAL_FIELDS and slicing DEPTH's depth field verbatim (the part of
-# _DEPTH_FIELDS past the shared NOCAM prefix), so the depth shape/scale are
-# defined in exactly one place — same 4819 dims, same scales, same network as
-# DEPTH. Only the goal referent differs. The distinct "subgoal_*" keys force
+# DEPTH's depth field (DEPTH_WIDTH*DEPTH_HEIGHT dims) rides along unchanged.
+# Built by reusing _NOCAM_SUBGOAL_FIELDS and slicing DEPTH's depth field
+# verbatim (the part of _DEPTH_FIELDS past the shared NOCAM prefix), so the
+# depth shape/scale are defined in exactly one place — same obs_dim, same
+# scales, same network as DEPTH. Only the goal referent differs; the depth dim
+# tracks the camera resolution automatically. The distinct "subgoal_*" keys force
 # inference-side assembly to wire subgoal data explicitly (see NOCAM_SUBGOAL).
 _DEPTH_SUBGOAL_FIELDS: tuple[ObsField, ...] = (
     _NOCAM_SUBGOAL_FIELDS + _DEPTH_FIELDS[len(_NOCAM_FIELDS):]
@@ -212,7 +218,8 @@ class PolicyVariant(Enum):
 
     ``DEPTH_SUBGOAL`` stands to ``DEPTH`` exactly as ``NOCAM_SUBGOAL`` stands to
     ``NOCAM``: identical observation dimensionality, field shapes, and scales
-    (4819 dims, same conv+recurrent architecture as ``DEPTH``), but the
+    (19 scalar + DEPTH_WIDTH*DEPTH_HEIGHT depth, same conv+recurrent
+    architecture as ``DEPTH``), but the
     goal-shaped scalar fields refer to a **rolling subgoal pose** on a
     planner-provided path, not a final goal pose. Same silent-garbage hazard:
     a checkpoint trained under one referent is meaningless under the other, so
@@ -231,9 +238,9 @@ class PolicyVariant(Enum):
     """
 
     NOCAM = _NOCAM_FIELDS  # 19 dims
-    DEPTH = _DEPTH_FIELDS  # 4819 dims
+    DEPTH = _DEPTH_FIELDS  # 19 + DEPTH_WIDTH*DEPTH_HEIGHT dims (80x45 -> 3619)
     NOCAM_SUBGOAL = _NOCAM_SUBGOAL_FIELDS  # 19 dims; see class docstring
-    DEPTH_SUBGOAL = _DEPTH_SUBGOAL_FIELDS  # 4819 dims; see class docstring
+    DEPTH_SUBGOAL = _DEPTH_SUBGOAL_FIELDS  # matches DEPTH obs_dim; see class docstring
 
     @property
     def obs_dim(self) -> int:

@@ -31,7 +31,9 @@ from strafer_shared.constants import (
     GOAL_DIST_SCALE,
     HEADING_SCALE,
     BODY_VEL_SCALE,
+    DEPTH_HEIGHT,
     DEPTH_SCALE,
+    DEPTH_WIDTH,
 )
 
 # Import env configs (triggers gym registration via __init__.py)
@@ -71,7 +73,7 @@ _FIELD_DIMS = {
     "goal_heading_to_goal": 1,
     "body_velocity_xy": 2,
     "last_action": 3,
-    "depth_image": 4800,  # 60 * 80
+    "depth_image": DEPTH_WIDTH * DEPTH_HEIGHT,  # 80 * 45 = 3600
 }
 
 # Expected scales per field (1.0 means no explicit scale on the ObsTerm)
@@ -244,8 +246,8 @@ class TestCrossVariantConsistency:
     def test_nocam_19_dims(self):
         assert PolicyVariant.NOCAM.obs_dim == 19
 
-    def test_depth_4819_dims(self):
-        assert PolicyVariant.DEPTH.obs_dim == 4819
+    def test_depth_obs_dim(self):
+        assert PolicyVariant.DEPTH.obs_dim == 19 + DEPTH_WIDTH * DEPTH_HEIGHT  # 80x45 -> 3619
 
     def test_depth_extends_nocam(self):
         """Depth fields are NoCam fields + depth_image."""

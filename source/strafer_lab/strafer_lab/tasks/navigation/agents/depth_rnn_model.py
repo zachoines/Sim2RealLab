@@ -25,7 +25,7 @@ from rsl_rl.modules import HiddenState
 from isaaclab.utils import configclass
 from isaaclab_rl.rsl_rl import RslRlRNNModelCfg
 
-from strafer_shared.constants import DEPTH_SCALE
+from strafer_shared.constants import DEPTH_HEIGHT, DEPTH_SCALE, DEPTH_WIDTH
 
 from .depth_encoders import create_depth_encoder, DeFMDepthEncoder
 
@@ -37,8 +37,9 @@ _DEFM_MEAN = (0.248880, 0.495620, 0.492858)
 _DEFM_STD = (0.139357, 0.271314, 0.297177)
 _DEFM_INPUT_SIZE = 224
 
-# Depth image dimensions in the flattened observation
-_DEFAULT_DEPTH_OBS_DIM = 60 * 80  # 4800
+# Depth image dimensions in the flattened observation. Derived from the shared
+# policy-camera resolution so it tracks DEPTH_WIDTH/DEPTH_HEIGHT (80*45 = 3600).
+_DEFAULT_DEPTH_OBS_DIM = DEPTH_WIDTH * DEPTH_HEIGHT
 
 
 class StraferDepthRNNModel(RNNModel):
@@ -329,7 +330,8 @@ def _onnx_safe_defm_preprocess(
     2. Operates on a flat depth tensor of shape ``(batch, 60*80)``.
 
     Disabling antialiasing introduces a small per-pixel delta when upscaling
-    60×80 → 224×224 (~1–2% absolute on average for high-frequency content).
+    the policy depth grid (80×45) → 224×224 (~1–2% absolute on average for
+    high-frequency content).
     Depth images on this robot are nearly piecewise-smooth, so the impact on
     the projected DeFM embedding is bounded; the alternative is no ONNX path
     at all on the current TRT/ORT op set. The training-time pipeline remains
@@ -341,7 +343,7 @@ def _onnx_safe_defm_preprocess(
     The two paths must apply the identical un-scale or exported artifacts
     would silently diverge from the trained encoder.
     """
-    x = (depth_flat / DEPTH_SCALE).view(-1, 1, 60, 80).to(torch.float32)
+    x = (depth_flat / DEPTH_SCALE).view(-1, 1, DEPTH_HEIGHT, DEPTH_WIDTH).to(torch.float32)
     x = torch.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
     x_clamped = torch.clamp(x, min=0.0, max=max_depth_c1)
     log_depth = torch.log1p(x_clamped)
@@ -588,4 +590,4 @@ class StraferDepthRNNModelCfg(RslRlRNNModelCfg):
     """Output dimension of the depth encoder (fed to RNN alongside scalar obs)."""
 
     depth_obs_dim: int = _DEFAULT_DEPTH_OBS_DIM
-    """Number of depth pixels in the flattened observation (default 60×80=4800)."""
+    """Number of depth pixels in the flattened observation (default 80×45=3600)."""

@@ -45,7 +45,10 @@ _SENSOR_CFG = SimpleNamespace(name=_SENSOR_NAME)
 # matches the d555 mount's frame-alignment quaternion.
 _LEVEL_QUAT_XYZW = (-0.5, 0.5, -0.5, 0.5)
 
-# Real d555 policy-camera geometry (square pixels).
+# Real d555 policy-camera geometry. The 80x45 (16:9) render has square pixels,
+# and at that aspect the square-pixel vertical FOV IS the real sensor's ~56 deg
+# — the same derivation the reward uses. (This is the whole point of the 80x45
+# resolution: RTX derives VFOV from resolution, so 16:9 gives the right FOV.)
 _TAN_HALF_HFOV = D555_HORIZONTAL_APERTURE_MM / (2.0 * D555_FOCAL_LENGTH_MM)
 _TAN_HALF_VFOV = _TAN_HALF_HFOV * DEPTH_HEIGHT / DEPTH_WIDTH
 _CAM_HEIGHT = 0.35  # optical center above the floor, ~the robot's real mount
@@ -279,9 +282,10 @@ def test_bare_floor_reads_zero_at_real_mount_height():
     penalty threshold. Floor-plane exclusion must make an open scene read
     exactly zero instead of a saturated ambient penalty."""
     image = _floor_image(_level_rotation())
-    # Geometry sanity: the bottom row really does read the sub-threshold
-    # depth that made an unmasked min saturate.
-    assert 0.45 < image[-1, 0].item() < 0.55
+    # Geometry sanity: at the real 16:9 VFOV (~56 deg, 80x45) the bottom row
+    # reads the floor at ~0.67 m — still well inside the penalty threshold, the
+    # sub-threshold depth that made an unmasked min saturate.
+    assert 0.63 < image[-1, 0].item() < 0.70
     out = depth_obstacle_proximity_penalty(_floor_scene_env(image), _SENSOR_CFG)
     assert out[0].item() == 0.0
 
@@ -306,9 +310,9 @@ def test_low_box_on_floor_is_detected_through_the_exclusion():
     though it lives entirely in the lower FOV the floor occupies (the case a
     row-crop heuristic would go blind to)."""
     image = _floor_image(_level_rotation())
-    # Rays with tan(theta) in ~[0.32, 0.54] hit a face 0.08-0.19 m above the
-    # floor at 0.5 m forward: rows 43-52 at the real VFOV.
-    image[43:53, :] = 0.5
+    # Lower-FOV rows (80x45 grid) whose bare-floor depth is ~0.77-1.22 m — well
+    # beyond the 0.5 m box face + margin, so the exclusion must not swallow it.
+    image[34:42, :] = 0.5
     out = depth_obstacle_proximity_penalty(_floor_scene_env(image), _SENSOR_CFG)
     assert math.isclose(out[0].item(), _expected(0.5), rel_tol=1e-5)
 
@@ -319,7 +323,7 @@ def test_midrange_obstacle_is_visible_past_the_floor_reading():
     restore the full threshold band: the penalty reads the obstacle's 0.8 m,
     not the floor's 0.5 m."""
     image = _floor_image(_level_rotation())
-    image[31:41, :] = 0.8  # shallow-angle rows: floor expectation >> 0.8 m
+    image[26:34, :] = 0.8  # shallow-angle rows (80x45): floor expectation >> 0.8 m
     out = depth_obstacle_proximity_penalty(_floor_scene_env(image), _SENSOR_CFG)
     assert math.isclose(out[0].item(), _expected(0.8), rel_tol=1e-5)
 
@@ -328,6 +332,6 @@ def test_wall_above_horizon_is_detected_with_floor_in_view():
     """Above-horizon rays never intersect the floor plane, so a wall there is
     always obstacle-eligible; the floor below must not mask it."""
     image = _floor_image(_level_rotation())
-    image[0:30, :] = 0.6  # wall face filling the above-horizon half
+    image[0:22, :] = 0.6  # wall face filling the above-horizon half (80x45)
     out = depth_obstacle_proximity_penalty(_floor_scene_env(image), _SENSOR_CFG)
     assert math.isclose(out[0].item(), _expected(0.6), rel_tol=1e-5)

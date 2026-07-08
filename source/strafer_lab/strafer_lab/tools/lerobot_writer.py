@@ -45,7 +45,7 @@ Lifecycle::
             achieved_vel=[vx, vy, omega_z],
             action=[vx_cmd, vy_cmd, omega_z_cmd],
             rgb_perception=rgb_640x360,
-            rgb_policy=rgb_80x60,     # optional
+            rgb_policy=rgb_80x45,     # optional
             depth_m=depth_640x360,    # optional float32 meters
         )
     writer.end_episode(
@@ -72,6 +72,13 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from strafer_shared.constants import (
+    DEPTH_HEIGHT,
+    DEPTH_WIDTH,
+    PERCEPTION_HEIGHT,
+    PERCEPTION_WIDTH,
+)
+
 from .bbox_extractor import DetectedBbox
 from .lerobot_depth import (
     PERCEPTION_DEPTH,
@@ -86,17 +93,35 @@ from .lerobot_detections import (
 )
 
 
-# Resolution constants for the InfinigenPerception scene. Kept here so
-# the writer's features dict is deterministic without importing the
-# Isaac Lab scene config.
-_PERCEPTION_RES = (360, 640)  # (H, W)
-_POLICY_RES = (60, 80)
+# Resolution constants for the InfinigenPerception scene. Derived from the
+# shared camera-resolution constants (pure, no Isaac Lab scene-config import)
+# so the writer's features dict tracks DEPTH_*/PERCEPTION_* and can't drift.
+_PERCEPTION_RES = (PERCEPTION_HEIGHT, PERCEPTION_WIDTH)  # (H, W) = (360, 640)
+_POLICY_RES = (DEPTH_HEIGHT, DEPTH_WIDTH)  # (H, W) = (45, 80)
+
+# h264 (libx264 / yuv420p) requires EVEN frame dimensions. The policy camera is
+# 80x45 (16:9) — an odd height — dictated by the depth OBSERVATION contract
+# (DEPTH_HEIGHT; Isaac Sim derives VFOV from resolution, so 16:9 gives the real
+# sensor's vertical FOV). Depth rides as a 16UC1 PNG sidecar (no even-dim
+# constraint, stays exactly 80x45), but the OPTIONAL rgb-policy DEBUG video must
+# be bottom-padded one row to an even height to encode. This asymmetry (video
+# 80x46 vs depth 80x45) touches only the debug video column, never the obs the
+# policy consumes.
+_POLICY_VIDEO_RES = (_POLICY_RES[0] + _POLICY_RES[0] % 2, _POLICY_RES[1])  # (46, 80)
+
+
+def _pad_rgb_to_video_height(rgb: np.ndarray) -> np.ndarray:
+    """Bottom-pad an RGB policy frame to ``_POLICY_VIDEO_RES`` (even H) for h264."""
+    pad = _POLICY_VIDEO_RES[0] - rgb.shape[0]
+    if pad <= 0:
+        return rgb
+    return np.pad(rgb, ((0, pad), (0, 0), (0, 0)), mode="edge")
 
 # Sensor-stack tokens shared with the env composition's SensorStackCfg. The
 # env render set and this writer's schema are both driven from one
 # ``cameras_required`` tuple so the rendered cameras and the recorded columns
 # cannot drift. ``*_full`` ride the 640x360 perception camera, ``*_policy``
-# the 80x60 policy camera; RGB tokens are LeRobot video columns, depth tokens
+# the 80x45 policy camera; RGB tokens are LeRobot video columns, depth tokens
 # ride as 16UC1 PNG sidecars.
 CAMERA_TOKENS: tuple[str, ...] = ("rgb_full", "depth_full", "rgb_policy", "depth_policy")
 
@@ -344,9 +369,11 @@ def build_features(
             "names": ["height", "width", "channels"],
         }
     if "rgb_policy" in stack:
+        # Even-height video res (h264 needs even dims; the 80x45 policy frame is
+        # bottom-padded one row on write). Depth-policy sidecars stay 80x45.
         features["observation.images.policy"] = {
             "dtype": "video",
-            "shape": (*_POLICY_RES, 3),
+            "shape": (*_POLICY_VIDEO_RES, 3),
             "names": ["height", "width", "channels"],
         }
     if detections_max is not None:
@@ -609,7 +636,7 @@ class StraferLeRobotWriter:
         undeclared one must be omitted. ``rgb_*`` arrays are uint8
         ``(H, W, 3)``. ``depth_m`` is float32 ``(H, W)`` in meters for the
         perception camera (640x360); ``depth_policy_m`` the same for the
-        policy camera (80x60). Declared depth modalities ride as 16UC1 PNG
+        policy camera (80x45). Declared depth modalities ride as 16UC1 PNG
         sidecars next to the LeRobot dataset proper.
 
         ``detections`` follows the same declared-modality discipline keyed
@@ -677,7 +704,9 @@ class StraferLeRobotWriter:
         _ = sim_time
 
         if "rgb_policy" in self._cameras_required:
-            frame["observation.images.policy"] = rgb_policy
+            # Pad the 80x45 policy frame to an even height for h264 (see
+            # _POLICY_VIDEO_RES); the depth-policy sidecar keeps the true 80x45.
+            frame["observation.images.policy"] = _pad_rgb_to_video_height(rgb_policy)
         if self._detections_max is not None:
             frame.update(
                 pack_detections(

@@ -122,7 +122,7 @@ STRAFER_PPO_RECURRENT_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
 
 
 # =============================================================================
-# Depth: CNN-GRU-MLP Hybrid (4819-dim obs = 19 scalar + 4800 depth pixels)
+# Depth: CNN-GRU-MLP Hybrid (3619-dim obs = 19 scalar + 3600 = 80x45 depth pixels)
 #
 # GRU enables online system identification — the policy can infer latent
 # dynamics (friction, motor delay, payload) from temporal context, improving

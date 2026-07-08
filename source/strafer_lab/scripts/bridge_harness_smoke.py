@@ -97,6 +97,8 @@ import isaaclab_tasks  # noqa: F401, E402
 import strafer_lab.tasks  # noqa: F401, E402
 from isaaclab_tasks.utils import parse_env_cfg  # noqa: E402
 
+from strafer_shared.constants import DEPTH_HEIGHT, DEPTH_WIDTH  # noqa: E402
+
 from strafer_lab.sim_in_the_loop import (  # noqa: E402
     BridgeLeRobotRecorder,
     EpisodeMeta,
@@ -326,8 +328,8 @@ def _verify(output_root: Path, cameras_required: tuple[str, ...]) -> int:
             return 1
     if "depth_policy" in cameras_required:
         dp = read_depth_png(depth_frame_path(output_root, 0, 0, POLICY_DEPTH))
-        if dp.shape != (60, 80):
-            _fail(f"policy depth sidecar shape {dp.shape} != (60, 80)")
+        if dp.shape != (DEPTH_HEIGHT, DEPTH_WIDTH):
+            _fail(f"policy depth sidecar shape {dp.shape} != {(DEPTH_HEIGHT, DEPTH_WIDTH)}")
             return 1
 
     # Detection vocab — the one gap a Jetson-free smoke can close on a

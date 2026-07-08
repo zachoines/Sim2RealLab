@@ -1,7 +1,7 @@
 """Depth encoder modules for Strafer navigation.
 
-Provides two encoder options for compressing 60x80 single-channel depth images
-into compact embeddings:
+Provides two encoder options for compressing the single-channel policy depth
+image (80×45, DEPTH_WIDTH×DEPTH_HEIGHT) into compact embeddings:
 
     "defm" (default, recommended):
         Frozen DeFM (Depth Foundation Model) backbone + trainable linear
@@ -19,7 +19,25 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from strafer_shared.constants import DEPTH_SCALE
+from strafer_shared.constants import DEPTH_HEIGHT, DEPTH_SCALE, DEPTH_WIDTH
+
+
+def _conv_stack_feature_hw(height: int, width: int) -> tuple[int, int]:
+    """Feature-map (H, W) after ``DepthEncoder``'s 4-conv stack.
+
+    Kept in lock-step with the convs in :class:`DepthEncoder` (conv1/2/4 are
+    stride-2, conv3 is stride-1) so the SpatialSoftArgmax grid is derived from
+    the input resolution rather than hard-coded — an 80×45 input yields a 6×10
+    map, an 80×60 input yields 8×10.
+    """
+
+    def out(n: int, k: int, s: int, p: int) -> int:
+        return (n + 2 * p - k) // s + 1
+
+    for k, s, p in ((5, 2, 2), (3, 2, 1), (3, 1, 1), (3, 2, 1)):
+        height = out(height, k, s, p)
+        width = out(width, k, s, p)
+    return height, width
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +153,7 @@ class DeFMDepthEncoder(nn.Module):
 
     def forward(self, depth_flat: torch.Tensor) -> torch.Tensor:
         # Obs-normalized [0, 1] -> metric meters (see class docstring).
-        x = (depth_flat / DEPTH_SCALE).view(-1, 1, 60, 80)
+        x = (depth_flat / DEPTH_SCALE).view(-1, 1, DEPTH_HEIGHT, DEPTH_WIDTH)
         x = self._preprocess(
             x,
             target_size=_DEFM_INPUT_SIZE,
@@ -154,13 +172,15 @@ class DeFMDepthEncoder(nn.Module):
 
 
 class DepthEncoder(nn.Module):
-    """CNN encoder for 60x80 single-channel depth images (legacy fallback).
+    """CNN encoder for the single-channel policy depth image (legacy fallback).
 
-    Architecture:
-        Conv(1->32, 5x5, stride=2) + BN + ELU    -> 30x40x32
-        Conv(32->64, 3x3, stride=2) + BN + ELU    -> 15x20x64
-        Conv(64->64, 3x3, stride=1) + BN + ELU    -> 15x20x64  (+ residual)
-        Conv(64->128, 3x3, stride=2) + BN + ELU   -> 8x10x128
+    Architecture (feature-map sizes shown for the 80×45 policy input; the
+    SpatialSoftArgmax grid is derived from the resolution via
+    ``_conv_stack_feature_hw`` so it tracks DEPTH_HEIGHT/DEPTH_WIDTH):
+        Conv(1->32, 5x5, stride=2) + BN + ELU    -> 23x40x32
+        Conv(32->64, 3x3, stride=2) + BN + ELU    -> 12x20x64
+        Conv(64->64, 3x3, stride=1) + BN + ELU    -> 12x20x64  (+ residual)
+        Conv(64->128, 3x3, stride=2) + BN + ELU   -> 6x10x128
         SpatialSoftArgmax                          -> 256
         Linear(256 -> output_dim)                   -> output_dim
     """
@@ -176,11 +196,15 @@ class DepthEncoder(nn.Module):
         self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
         self.bn4 = nn.BatchNorm2d(128)
         self.act = nn.ELU()
-        self.spatial_argmax = SpatialSoftArgmax(temperature=1.0, height=8, width=10)
+        # Feature-map size after the conv stack is derived from the policy depth
+        # resolution (80×45 -> 6×10), so the argmax grid tracks DEPTH_HEIGHT/
+        # DEPTH_WIDTH instead of assuming the old 8×10 (60-row) map.
+        feat_h, feat_w = _conv_stack_feature_hw(DEPTH_HEIGHT, DEPTH_WIDTH)
+        self.spatial_argmax = SpatialSoftArgmax(temperature=1.0, height=feat_h, width=feat_w)
         self.fc = nn.Linear(128 * 2, output_dim)
 
     def forward(self, depth_flat: torch.Tensor) -> torch.Tensor:
-        x = depth_flat.view(-1, 1, 60, 80)
+        x = depth_flat.view(-1, 1, DEPTH_HEIGHT, DEPTH_WIDTH)
         x = self.act(self.bn1(self.conv1(x)))
         x = self.act(self.bn2(self.conv2(x)))
         residual = x

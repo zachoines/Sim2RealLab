@@ -29,6 +29,7 @@ thread-safety point.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import os
 import threading
@@ -404,6 +405,15 @@ class InferenceNode(Node):
             )
             return
 
+        dims_error = self._sidecar_obs_dim_mismatch(model_path)
+        if dims_error is not None:
+            self._policy_load_error = dims_error
+            self.get_logger().error(
+                f"{dims_error}; refusing to advertise the navigate_to_pose "
+                "action server."
+            )
+            return
+
         onnx_providers = self._resolve_onnx_providers()
         # A cache-augmented TRT entry is a (name, options) tuple; unwrap for
         # membership checks / logging.
@@ -459,6 +469,35 @@ class InferenceNode(Node):
                 f"{exc}. Refusing to advertise the navigate_to_pose "
                 "action server."
             )
+
+    def _sidecar_obs_dim_mismatch(self, model_path: Path) -> Optional[str]:
+        """Error string if the model's ``<stem>.json`` sidecar records an
+        obs_dim disagreeing with the loaded variant's, else ``None``.
+
+        A stale-resolution artifact keeps its variant name, so load_policy's
+        name check passes and the dim mismatch would otherwise surface only at
+        the first inference. No sidecar / no recorded obs_dim is not an error;
+        a malformed sidecar degrades to an ``unreadable`` string, never a raise
+        (this runs during node construction — a raise would kill the process).
+        """
+        sidecar = model_path.with_suffix(".json")
+        if not sidecar.is_file():
+            return None
+        try:
+            payload = json.loads(sidecar.read_text())
+            if not isinstance(payload, dict):
+                raise ValueError("expected a JSON object")
+            recorded = payload.get("obs_dim")
+            recorded = None if recorded is None else int(recorded)
+        except (OSError, ValueError, TypeError) as exc:
+            return f"sidecar {sidecar} is unreadable: {exc}"
+        if recorded is not None and recorded != self._variant.obs_dim:
+            return (
+                f"sidecar {sidecar} records obs_dim={recorded} but variant "
+                f"{self._variant.name} expects {self._variant.obs_dim} — stale "
+                "artifact; re-export for the current depth resolution"
+            )
+        return None
 
     # ------------------------------------------------------------------
     # Subscription callbacks

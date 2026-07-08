@@ -28,7 +28,7 @@ from strafer_shared.mecanum_kinematics import (
 from strafer_shared.policy_interface import PolicyVariant
 
 
-_BLOCK_H = PERCEPTION_HEIGHT // DEPTH_HEIGHT  # 6
+_BLOCK_H = PERCEPTION_HEIGHT // DEPTH_HEIGHT  # 8
 _BLOCK_W = PERCEPTION_WIDTH // DEPTH_WIDTH    # 8
 
 assert PERCEPTION_HEIGHT == _BLOCK_H * DEPTH_HEIGHT, (
@@ -48,16 +48,16 @@ def downsample_depth(
     nearfield_clip: float = DEPTH_MIN,
     nearfield_fill: float = DEPTH_NEARFIELD_FILL,
 ) -> np.ndarray:
-    """640×360 raw depth meters → 4800-dim flat, in raw meters [0, max_depth].
+    """640×360 raw depth meters → 3600-dim flat, in raw meters [0, max_depth].
 
     Returns raw meters, not normalized: the single 1/max_depth normalization
     is applied once downstream by ``assemble_observation``'s ``DEPTH_SCALE``,
     matching the sim ``ObsTerm(func=depth_image, scale=DEPTH_SCALE)``. The
     noise step is skipped (inference adds none) and an area-resize maps the
-    640×360 perception stream to the 80×60 policy resolution that exists only
+    640×360 perception stream to the 80×45 policy resolution that exists only
     in sim.
 
-    Block-average is exact-integer (640/80=8, 360/60=6) so it
+    Block-average is exact-integer (640/80=8, 360/45=8) so it
     matches cv2.INTER_AREA to within float roundoff for the integer
     ratio case.
     """

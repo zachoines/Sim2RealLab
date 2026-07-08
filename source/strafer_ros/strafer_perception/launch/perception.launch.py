@@ -4,7 +4,7 @@ Launches:
   1. RealSense D555 camera node (depth + color + IMU if available)
   2. IMU orientation filter (Madgwick) — fuses accel+gyro → quaternion
   3. Timestamp fixer — shifts HW clock timestamps to system time
-  4. Depth downsampler node (full-res → 80x60 for policy input)
+  4. Depth downsampler node (full-res → 80x45; diagnostic, not the policy input)
 
 The base_link → d555_link static TF is published by strafer_description
 from the URDF (with constants from strafer_shared).  Do not add a
@@ -15,7 +15,7 @@ Published topics (matching the sim-to-real perception contract):
   /d555/depth/image_rect_raw  - sensor_msgs/Image   @ 30 Hz
   /d555/imu                   - sensor_msgs/Imu     @ 200 Hz (raw, no orientation)
   /d555/imu/filtered          - sensor_msgs/Imu     @ 200 Hz (with orientation quaternion)
-  /d555/depth/downsampled     - sensor_msgs/Image   @ 30 Hz (80x60 32FC1)
+  /d555/depth/downsampled     - sensor_msgs/Image   @ 30 Hz (80x45 32FC1)
 
 NOTE: IMU requires the
 hid-sensor-hub kernel modules (see /etc/modules-load.d/hid-sensor-imu.conf).
@@ -108,7 +108,7 @@ def generate_launch_description():
             output="screen",
         ),
 
-        # ── Depth downsampler (full-res → 80x60 for policy) ────────────
+        # ── Depth downsampler (full-res → 80x45; diagnostic) ───────────
         Node(
             package="strafer_perception",
             executable="depth_downsampler",

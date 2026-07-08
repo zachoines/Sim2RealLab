@@ -9,6 +9,7 @@ NOT subscribe / publish across the wire. The action server's blocking
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import threading
@@ -319,8 +320,8 @@ class TestOnnxThreadPinning(unittest.TestCase):
 
 class TestDepthSubgoalArtifactLoads(unittest.TestCase):
     """The deployed DEPTH_SUBGOAL artifact loads as a recurrent policy and
-    runs a 4819-dim observation to a 3-vector action. Exercises the real
-    artifact; skips where it is not present.
+    runs a DEPTH_SUBGOAL-dim (3619 at 80×45) observation to a 3-vector
+    action. Exercises the real artifact; skips where it is not present.
     """
 
     def _model_path(self) -> str:
@@ -352,6 +353,128 @@ class TestDepthSubgoalArtifactLoads(unittest.TestCase):
         policy.reset()
         again = np.asarray(policy(probe)).reshape(-1)
         np.testing.assert_allclose(first, again, atol=1e-6)
+
+
+# =============================================================================
+# Sidecar obs_dim guard — reject a stale-resolution artifact at load
+# =============================================================================
+
+
+class TestSidecarObsDimGuard(unittest.TestCase):
+    """A model whose ``<stem>.json`` sidecar records an obs_dim that disagrees
+    with the loaded variant (a pre-80x45 depth artifact — 4819 dims — against
+    the current 3619-dim DEPTH_SUBGOAL enum) is refused at load: the action
+    server stays unadvertised so the dispatcher falls back to nav2, rather than
+    the mismatch surfacing only at the first inference. A matching or absent
+    sidecar does not trip the guard. The guard fires before load_policy, so the
+    model file's bytes are never parsed.
+    """
+
+    def _artifact(self, tmpdir, *, obs_dim=None, variant_name="DEPTH_SUBGOAL"):
+        from pathlib import Path
+
+        model = Path(tmpdir) / "policy.onnx"
+        model.write_bytes(b"not-a-real-onnx")
+        if obs_dim is not None:
+            model.with_suffix(".json").write_text(
+                json.dumps({"policy_variant": variant_name, "obs_dim": obs_dim})
+            )
+        return model
+
+    def test_stale_obs_dim_refuses_to_advertise(self) -> None:
+        import tempfile
+
+        from strafer_shared.policy_interface import PolicyVariant
+
+        with tempfile.TemporaryDirectory() as tmp:
+            # A sidecar obs_dim that differs from the loaded variant's — a
+            # stale-resolution artifact (the pre-80x45 depth grid was +1200
+            # dims). Derived from the variant so the mismatch holds regardless
+            # of the ambient strafer_shared resolution.
+            stale = PolicyVariant.DEPTH_SUBGOAL.obs_dim + 1200
+            model = self._artifact(tmp, obs_dim=stale)
+            node = InferenceNode(parameter_overrides=_make_overrides(
+                model_path=str(model), policy_variant="DEPTH_SUBGOAL",
+            ))
+            try:
+                self.assertIsNone(node._policy)
+                self.assertIsNone(node._action_server)
+                self.assertIn("obs_dim", node._policy_load_error)
+                self.assertIn(str(stale), node._policy_load_error)
+            finally:
+                node.destroy_node()
+
+    def test_matching_obs_dim_passes_guard(self) -> None:
+        import tempfile
+
+        from strafer_shared.policy_interface import PolicyVariant
+
+        with tempfile.TemporaryDirectory() as tmp:
+            model = self._artifact(
+                tmp, obs_dim=PolicyVariant.DEPTH_SUBGOAL.obs_dim
+            )
+            node = InferenceNode(parameter_overrides=_make_overrides(
+                model_path="", policy_variant="DEPTH_SUBGOAL",
+            ))
+            try:
+                self.assertIsNone(node._sidecar_obs_dim_mismatch(model))
+            finally:
+                node.destroy_node()
+
+    def test_absent_sidecar_does_not_trip_guard(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            model = self._artifact(tmp)  # no sidecar written
+            node = InferenceNode(parameter_overrides=_make_overrides(
+                model_path="", policy_variant="DEPTH_SUBGOAL",
+            ))
+            try:
+                self.assertIsNone(node._sidecar_obs_dim_mismatch(model))
+            finally:
+                node.destroy_node()
+
+    def test_sidecar_without_obs_dim_key_does_not_trip(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            model = Path(tmp) / "policy.onnx"
+            model.write_bytes(b"not-a-real-onnx")
+            model.with_suffix(".json").write_text(
+                json.dumps({"policy_variant": "DEPTH_SUBGOAL"})  # no obs_dim
+            )
+            node = InferenceNode(parameter_overrides=_make_overrides(
+                model_path="", policy_variant="DEPTH_SUBGOAL",
+            ))
+            try:
+                self.assertIsNone(node._sidecar_obs_dim_mismatch(model))
+            finally:
+                node.destroy_node()
+
+    def test_malformed_sidecar_degrades_gracefully(self) -> None:
+        # A malformed sidecar (invalid JSON, non-object, or non-numeric
+        # obs_dim) must return an "unreadable" string — never raise, since
+        # this runs during node construction.
+        import tempfile
+        from pathlib import Path
+
+        for body in ("{not valid json",
+                     json.dumps([1, 2, 3]),
+                     json.dumps({"obs_dim": "n/a"})):
+            with tempfile.TemporaryDirectory() as tmp:
+                model = Path(tmp) / "policy.onnx"
+                model.write_bytes(b"not-a-real-onnx")
+                model.with_suffix(".json").write_text(body)
+                node = InferenceNode(parameter_overrides=_make_overrides(
+                    model_path="", policy_variant="DEPTH_SUBGOAL",
+                ))
+                try:
+                    err = node._sidecar_obs_dim_mismatch(model)
+                    self.assertIsNotNone(err, f"expected error for {body!r}")
+                    self.assertIn("unreadable", err)
+                finally:
+                    node.destroy_node()
 
 
 # =============================================================================

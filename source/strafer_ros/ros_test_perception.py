@@ -3,7 +3,7 @@
 
 Subscribes to the perception stack topics (must be running) and records
 side-by-side videos showing what the robot actually sees — including the
-downsampled 80x60 depth image that gets fed to the policy.
+downsampled 80x45 diagnostic depth image (this stream does not feed the policy).
 
 Requires the perception stack to be running:
     ros2 launch strafer_perception perception.launch.py
@@ -11,7 +11,7 @@ Requires the perception stack to be running:
 Topics subscribed:
     /d555/color/image_raw       — 640x360 BGR8 (RGB camera)
     /d555/depth/image_rect_raw  — 640x360 16UC1 (raw depth, mm)
-    /d555/depth/downsampled     — 80x60 32FC1 (policy input, m)
+    /d555/depth/downsampled     — 80x45 32FC1 (diagnostic, m)
     /d555/imu                   — sensor_msgs/Imu (accel + gyro)
 
 Usage:
@@ -226,7 +226,7 @@ def record_perception_video(
       │  RGB (640x360)   │  Depth raw col.  │
       ├──────────────────┼──────────────────┤
       │ Downsampled depth│  IMU overlay     │
-      │ (80x60 upscaled) │  (text readout)  │
+      │ (80x45 upscaled) │  (text readout)  │
       └──────────────────┴──────────────────┘
 
     Returns the output file path, or empty string on failure.

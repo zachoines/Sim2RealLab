@@ -114,6 +114,43 @@ def _get_scene_usd_paths() -> list[str]:
     return paths
 
 
+def _lightest_scene_usd_path() -> str:
+    """Pick the lightest registered scene — the safe single-scene default.
+
+    This is the guard against loading a massive scene by default. Unless the
+    caller pins one with ``SCENE_USD`` / ``--scene-usd``, the heaviest scene can
+    exhaust available memory and get the process killed at load time, so the
+    default binds the lightest scene instead of the alphabetical first.
+
+    Iterates the same valid set :func:`_get_scene_usd_paths` returns, resolves
+    each top-level ``<scene>.usdc`` symlink to its real file, and returns the one
+    whose resolved file is smallest on disk. Ties break by name (the input is
+    already name-sorted, so ``min`` keeps the first entry on a tie) for
+    determinism. The resolved ``.usdc`` file size alone is a sufficient proxy for
+    scene weight — a full-quality room and a low-quality single room differ by an
+    order of magnitude at the file level (~10 GB vs ~0.5 GB), so there is no need
+    to sum each scene's texture tree.
+    """
+    paths = _get_scene_usd_paths()
+
+    def _resolved_size(p: str) -> float:
+        try:
+            return float(Path(p).resolve().stat().st_size)
+        except OSError:
+            # Broken/unresolvable target: never prefer it over a real scene, but
+            # still allow it as a last-resort fallback if it is the only entry.
+            return float("inf")
+
+    sized = [(_resolved_size(p), p) for p in paths]
+    lightest_size, lightest = min(sized, key=lambda item: item[0])
+    print(
+        f"[scene-select] {Path(lightest).stem} ({lightest_size / 1024**3:.1f} GB)"
+        f" — lightest of {len(paths)} registered scenes;"
+        f" override with SCENE_USD / --scene-usd"
+    )
+    return lightest
+
+
 def _get_scenes_metadata() -> dict | None:
     """Load full scenes metadata including per-scene spawn points.
 
@@ -1248,13 +1285,15 @@ def _apply_infinigen_scene_setup(cfg: ManagerBasedRLEnvCfg) -> None:
     target, and that breaks every ``./textures/*`` lookup.
 
     Spawn points, the robot spawn-z, and the ground-lift height are all pinned
-    to the SINGLE scene this cfg loads (``_get_scene_usd_paths()[0]``) — no
-    cross-scene union / pooled-max, which would otherwise place the robot and
-    goals at a non-loaded scene's coordinates. The ``run_sim_in_the_loop
-    --scene-usd`` runtime override and the coverage driver re-derive the same
-    way per overridden / loaded scene (see :func:`derive_infinigen_scene_spawn`).
+    to the SINGLE scene this cfg loads (``_lightest_scene_usd_path()`` — the
+    lightest registered scene, so the bare default does not exhaust memory on the
+    heaviest room) — no cross-scene union / pooled-max, which would otherwise
+    place the robot and goals at a non-loaded scene's coordinates. The
+    ``run_sim_in_the_loop --scene-usd`` runtime override and the coverage driver
+    re-derive the same way per overridden / loaded scene (see
+    :func:`derive_infinigen_scene_spawn`).
     """
-    scene_link = Path(_get_scene_usd_paths()[0])
+    scene_link = Path(_lightest_scene_usd_path())
     scene_path = scene_link.resolve()
     cfg.scene.scene_geometry.spawn.usd_path = str(scene_path)
 

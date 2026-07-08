@@ -231,24 +231,6 @@ $ISAACLAB -p source/strafer_lab/scripts/play_strafer_navigation.py \
     --num_envs 1 --viz kit --real_time --steps 2000
 ```
 
-## Install ONNX GPU execution providers on Jetson
-The stock PyPI `onnxruntime` is CPU-only — `get_available_providers()`
-lists no TRT/CUDA and DEPTH inference silently runs on CPU (~84 ms, over
-budget). Install NVIDIA's JetPack-matched `onnxruntime-gpu` from the
-jetson-ai-lab index (JetPack 6.2 / CUDA 12.6 → `jp6/cu126`). The CPU and
-GPU wheels share one install dir and the last one wins silently, so
-uninstall the CPU build first.
-```bash
-python3 -m pip uninstall -y onnxruntime
-python3 -m pip install --index-url https://pypi.jetson-ai-lab.io/jp6/cu126 \
-    onnxruntime-gpu==1.23.0
-# Verify TRT + CUDA are now visible:
-python3 -c "import onnxruntime as ort; print(ort.__version__, ort.get_available_providers())"
-#   -> 1.23.0 ['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']
-```
-Do NOT `pip install` the `nvidia-*-cu12` / `tensorrt` wheels — the Jetson
-build links the JetPack system CUDA/cuDNN/TensorRT; pip copies conflict.
-
 ## Bench inference latency on an exported artifact
 Reports median / p95 / p99 over 1000 iterations on a synthetic obs.
 ```bash

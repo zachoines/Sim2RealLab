@@ -133,11 +133,8 @@ class InferenceNode(Node):
             ],
         )
         self.declare_parameter("onnx_intra_op_threads", 1)
-        # TensorRT engine cache (depth variants). Defaults keep the cache OFF
-        # in code — the recommended stable path lives in config
-        # (inference.yaml), not baked into the node. With enable + a path, the
-        # TRT EP persists its minutes-long first engine build across relaunches
-        # (~90 s for DEPTH_SUBGOAL on Orin Nano).
+        # TRT engine-cache knobs (see _resolve_onnx_providers); the path + its
+        # default live in inference.yaml, not code.
         self.declare_parameter("trt_engine_cache_enable", False)
         self.declare_parameter("trt_engine_cache_path", "")
         # Operator health check: stays False until the first successful

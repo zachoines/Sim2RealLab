@@ -333,10 +333,9 @@ class LoadedPolicy:
 
     is_recurrent: bool = False
 
-    # ONNX providers ORT actually bound, in priority order (``.onnx`` only;
-    # ``None`` for TorchScript). ORT silently drops a requested TRT/CUDA EP to
-    # CPU when its shared libs are unavailable, so the inference node logs this
-    # at startup to show whether the GPU EP engaged or fell back.
+    # ONNX providers ORT actually bound (``None`` for TorchScript). Logged by
+    # the node — a requested GPU EP silently falls back to CPU if its libs are
+    # missing.
     active_providers: list[str] | None = None
 
     def __call__(self, obs: np.ndarray) -> np.ndarray:

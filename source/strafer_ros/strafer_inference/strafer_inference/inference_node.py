@@ -133,6 +133,10 @@ class InferenceNode(Node):
             ],
         )
         self.declare_parameter("onnx_intra_op_threads", 1)
+        # TRT engine-cache knobs (see _resolve_onnx_providers); the path + its
+        # default live in inference.yaml, not code.
+        self.declare_parameter("trt_engine_cache_enable", False)
+        self.declare_parameter("trt_engine_cache_path", "")
         # Operator health check: stays False until the first successful
         # inference. Distinguishes "TRT engine still building" from
         # "wedged" — paired with the cold-start log line in _load_policy_from_param.
@@ -326,6 +330,54 @@ class InferenceNode(Node):
             f"policy_loaded={self._policy is not None}"
         )
 
+    def _resolve_onnx_providers(self) -> Optional[list]:
+        """Build the ORT provider list from ``onnx_providers`` + TRT cache config.
+
+        The ``onnx_providers`` param stays a plain preference list of strings
+        (the pre-existing contract). When ``trt_engine_cache_enable`` is set and
+        ``trt_engine_cache_path`` is non-empty, the ``TensorrtExecutionProvider``
+        entry is upgraded to a ``(name, options)`` tuple carrying
+        ``trt_engine_cache_enable`` / ``trt_engine_cache_path`` so the TRT EP
+        persists its first engine build across relaunches. ORT accepts the mixed
+        string/tuple list; ``load_policy`` forwards it verbatim. Returns ``None``
+        when no providers are configured (ORT's session-wide default).
+        """
+        providers_param = self.get_parameter("onnx_providers").value
+        if isinstance(providers_param, str):
+            providers = [providers_param]
+        else:
+            providers = list(providers_param) if providers_param else None
+        if not providers:
+            return None
+
+        if not bool(self.get_parameter("trt_engine_cache_enable").value):
+            return providers
+        cache_path = str(self.get_parameter("trt_engine_cache_path").value).strip()
+        if not cache_path:
+            return providers
+        cache_path = os.path.expanduser(cache_path)
+        try:
+            os.makedirs(cache_path, exist_ok=True)
+        except OSError as exc:
+            self.get_logger().warning(
+                f"trt_engine_cache_path {cache_path!r} not creatable ({exc}); "
+                "TRT will rebuild the engine on every launch."
+            )
+            return providers
+
+        return [
+            (
+                p,
+                {
+                    "trt_engine_cache_enable": True,
+                    "trt_engine_cache_path": cache_path,
+                },
+            )
+            if p == "TensorrtExecutionProvider"
+            else p
+            for p in providers
+        ]
+
     def _load_policy_from_param(self) -> None:
         """Load the model artifact pointed at by ``model_path``.
 
@@ -352,26 +404,30 @@ class InferenceNode(Node):
             )
             return
 
-        providers_param = self.get_parameter("onnx_providers").value
-        if isinstance(providers_param, str):
-            onnx_providers = [providers_param]
-        else:
-            onnx_providers = list(providers_param) if providers_param else None
+        onnx_providers = self._resolve_onnx_providers()
+        # A cache-augmented TRT entry is a (name, options) tuple; unwrap for
+        # membership checks / logging.
+        provider_names = [
+            p[0] if isinstance(p, tuple) else p for p in (onnx_providers or [])
+        ]
 
         # Cold-start surfacing: ONNX Runtime's TRT EP builds the engine
-        # on first inference if no .engine sidecar is shipped. On
-        # Jetson Orin Nano that takes 10-30 s and looks identical to a
+        # on first inference if the engine cache is cold. On Jetson Orin
+        # Nano that takes ~90 s for DEPTH_SUBGOAL and looks identical to a
         # wedged node from the outside; log so the operator knows what
         # to expect, then flip the ready param to True after the first
         # successful inference in _on_tick.
-        if self._has_depth and model_path.suffix == ".onnx" and onnx_providers and (
-            "TensorrtExecutionProvider" in onnx_providers
+        if (
+            self._has_depth
+            and model_path.suffix == ".onnx"
+            and "TensorrtExecutionProvider" in provider_names
         ):
             self.get_logger().info(
-                f"Building TensorRT engine for {model_path}, may take "
-                "~30 s on Jetson Orin Nano if no pre-built .engine "
-                "sidecar is shipped. The `ready` parameter flips to True "
-                "after the first successful inference."
+                f"TensorRT engine for {model_path} builds on first inference "
+                "(~90 s for DEPTH_SUBGOAL on Jetson Orin Nano) when the engine "
+                "cache is cold; a warm trt_engine_cache_path skips it. The "
+                "`ready` parameter flips to True after the first successful "
+                "inference."
             )
 
         try:
@@ -388,6 +444,14 @@ class InferenceNode(Node):
                 f"Loaded policy from {model_path} "
                 f"(recurrent={self._policy.is_recurrent})"
             )
+            # Active-provider surfacing: ORT silently drops a requested
+            # TRT/CUDA EP to CPU when its libs are missing. Log what actually
+            # bound so an operator can tell GPU-engaged from CPU-fallback.
+            active = getattr(self._policy, "active_providers", None)
+            if active is not None:
+                self.get_logger().info(
+                    f"ONNX Runtime active providers (priority order): {active}"
+                )
         except Exception as exc:
             self._policy_load_error = repr(exc)
             self.get_logger().error(

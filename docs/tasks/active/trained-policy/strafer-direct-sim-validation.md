@@ -80,6 +80,11 @@ plumbing produces the right numbers under load.
 3. **TRT runtime on Jetson**: ONNX Runtime built with the TensorRT
    execution provider visible to `load_policy()` — sanity-check via
    `python3 -c "import onnxruntime; print(onnxruntime.get_available_providers())"`.
+   **Satisfied** by [`ort-gpu-jetson`](../../completed/ort-gpu-jetson.md): `onnxruntime-gpu`
+   1.23.0 installed, TRT/CUDA now bound and logged at node startup, engine
+   cache wired, and the per-provider fallback matrix measured (DEPTH_SUBGOAL
+   TRT ~4.7 ms / CUDA ~7.5 ms / CPU ~84 ms — the CPU-fallback context number
+   this brief's Latency acceptance asks for).
 
 If any prerequisite is missing, file the gap as its own follow-up
 rather than working around it here. The point of this brief is the

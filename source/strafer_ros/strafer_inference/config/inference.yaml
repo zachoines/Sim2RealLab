@@ -51,9 +51,12 @@ strafer_inference:
     goal_reached_distance_m: 0.25
     mission_timeout_s: 60.0
 
-    # ONNX Runtime provider preference. TRT EP is required for DEPTH
-    # inference on Jetson Orin Nano (CPU/CUDA-EP alone is too slow);
-    # the fallback chain lets a dev workstation without TRT still load.
+    # ONNX Runtime provider preference, priority order. ORT binds the first
+    # provider whose libs load and drops to the next; the node logs the bound
+    # set at startup. Per-variant (measured, Orin Nano): DEPTH/DEPTH_SUBGOAL
+    # need a GPU EP (TRT ~4.7 ms, CPU ~84 ms — over the 33 ms budget);
+    # NOCAM/NOCAM_SUBGOAL are fastest on CPU (~0.056 ms; GPU launch overhead
+    # dominates the tiny MLP) — set onnx_providers=[CPUExecutionProvider].
     onnx_providers:
       - "TensorrtExecutionProvider"
       - "CUDAExecutionProvider"
@@ -61,5 +64,17 @@ strafer_inference:
 
     # ONNX intra-op threads. 1 fits the small MLP policies (~50 us/inf);
     # ORT's default (all cores, spin-waiting) starves the rest of the
-    # stack. Raise only for a conv-heavy variant (e.g. DEPTH).
+    # stack. Raise only for a conv-heavy variant (e.g. DEPTH). Governs only
+    # the CPU intra-op pool — it does not throttle the TRT/CUDA EP, whose
+    # kernels run on the GPU with their own host-side threads.
     onnx_intra_op_threads: 1
+
+    # TensorRT engine cache. The TRT EP builds the engine on first inference;
+    # for DEPTH_SUBGOAL that is a ~90 s cold start on Orin Nano. Persisting it
+    # to a stable, writable path lets relaunches deserialize the engine
+    # instead of rebuilding. The node expanduser's ~ and creates the dir.
+    # enable=false or an empty path keeps the plain provider list (rebuild
+    # every launch). The cache is invalidated automatically on a model / ORT /
+    # TensorRT version change, so it is safe to leave enabled.
+    trt_engine_cache_enable: true
+    trt_engine_cache_path: "~/.cache/strafer_inference/trt_engines"

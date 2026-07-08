@@ -238,6 +238,9 @@ Reports median / p95 / p99 over 1000 iterations on a synthetic obs.
 python source/strafer_lab/scripts/benchmark_policy.py --model models/strafer_nocam_v0.pt --iters 1000
 
 # Jetson (TRT EP preferred, then CUDA, then CPU fallback) -- run after rsync.
+# Depth variants: keep TRT first (TRT ~4.7 ms, CUDA ~7.5 ms, CPU ~84 ms).
+# NoCam variants: --providers CPUExecutionProvider is fastest (~0.056 ms;
+# GPU kernel-launch overhead dominates the 19-dim MLP).
 python3 source/strafer_lab/scripts/benchmark_policy.py \
     --model models/strafer_depth_v0.onnx \
     --providers TensorrtExecutionProvider,CUDAExecutionProvider,CPUExecutionProvider \

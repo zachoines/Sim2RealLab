@@ -43,6 +43,7 @@ Sibling packages it interacts with:
 - **Nav2 navigation** (`strafer_navigation/`) — launch composition for the full Nav2 stack with MPPI holonomic controller, `Omni` motion model (produces `vx, vy, wz` for mecanum), costmaps patched from `strafer_shared` constants.
 - **Bringup layers** (`strafer_bringup/launch/`) — 6 launch files that compose progressively: `base` (driver + URDF), `perception` (+ RealSense), `slam` (+ RTAB-Map), `navigation` (+ Nav2), `autonomy` (+ goal projection + executor), and `bringup_sim_in_the_loop` (no real hardware — consumes topics published by the DGX Isaac Sim ROS 2 bridge).
 - **Diagnostic / tuning scripts** (top-level in `source/strafer_ros/`) — RoboClaw PID tuning, RoboClaw direct-drive diagnostics, D555 camera + IMU verification, perception-stack recording, SLAM + motion verification with map-building video output.
+- **Trained-policy parity tooling** (`strafer_inference/scripts/`) — `obs_parity.py` / `subgoal_parity.py` and the rclpy-free `strafer_inference.parity` library compare the deployed inference node's assembled observations and rolling-subgoal picks against the training env (or a rosbag self-check) on the sim-time axis; the node's `obs_dump_path` parameter emits the per-tick obs JSONL they consume. Diagnostic only — JSONL contract in `strafer_inference/scripts/PARITY_SCHEMA.md`.
 
 ## Contracts
 

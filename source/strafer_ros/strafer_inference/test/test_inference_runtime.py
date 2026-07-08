@@ -1631,3 +1631,106 @@ class TestDepthFreshnessGate(unittest.TestCase):
             self.assertEqual(node._last_inferred_depth_seq, -1)
         finally:
             node.destroy_node()
+
+
+# =============================================================================
+# Diagnostic obs dump (--dump-obs-to-jsonl / obs_dump_path)
+# =============================================================================
+
+
+class TestObsDump(unittest.TestCase):
+    """obs_dump_path appends one JSONL line per assembled obs, after the
+    cmd_vel publish, carrying the full variant vector + the referent used.
+    Empty (default) leaves the dump disabled with no per-tick work."""
+
+    def test_disabled_by_default(self) -> None:
+        node = InferenceNode(parameter_overrides=_make_overrides(model_path=""))
+        try:
+            self.assertFalse(node._obs_dump_enabled)
+            self.assertIsNone(node._obs_dump_fh)
+        finally:
+            node.destroy_node()
+
+    def test_dump_writes_full_obs_line_after_publish(self) -> None:
+        import json
+        import tempfile
+
+        from geometry_msgs.msg import TransformStamped
+        from nav_msgs.msg import Odometry
+        from sensor_msgs.msg import Imu, JointState
+
+        from strafer_shared.constants import WHEEL_JOINT_NAMES
+        from strafer_shared.policy_interface import PolicyVariant
+
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "dump.jsonl")
+            node = InferenceNode(
+                parameter_overrides=_make_overrides(
+                    model_path="",
+                    policy_variant="NOCAM_SUBGOAL",
+                    obs_dump_path=path,
+                )
+            )
+            try:
+                self.assertTrue(node._obs_dump_enabled)
+                node._policy = _FakeRecurrentPolicy()
+                node._active_goal_count = 1  # mission executing → goal fresh
+                node._tf_age_s = lambda: 0.0  # type: ignore
+
+                now = time.monotonic()
+                imu = Imu()
+                imu.linear_acceleration.x = 0.1
+                imu.linear_acceleration.y = 0.2
+                imu.linear_acceleration.z = 9.81
+                imu.angular_velocity.z = 0.05
+                node._last_imu = imu
+                node._last_imu_rx_t = now
+
+                js = JointState()
+                js.name = list(WHEEL_JOINT_NAMES)
+                js.velocity = [1.0, -1.0, 1.0, -1.0]
+                node._last_joint_states = js
+                node._last_joint_states_rx_t = now
+
+                odom = Odometry()
+                odom.twist.twist.linear.x = 0.3
+                node._last_odom = odom
+                node._last_odom_rx_t = now
+
+                node._last_subgoal_map = _make_pose(2.0, -0.5)
+                node._last_subgoal_rx_t = now
+
+                tf = TransformStamped()
+                tf.transform.rotation.w = 1.0  # identity orientation
+                node._tf_buffer.lookup_transform = MagicMock(return_value=tf)
+
+                # Pin the ordering: the dump must run strictly AFTER the cmd_vel
+                # publish (never in the control path). Snapshot how many dump
+                # lines exist the moment publish fires — must be 0.
+                lines_at_publish = []
+
+                def _snapshot_dump(*_a, **_k):
+                    with open(path) as fh:
+                        lines_at_publish.append(len(fh.read().splitlines()))
+
+                node._cmd_vel_pub = MagicMock()
+                node._cmd_vel_pub.publish.side_effect = _snapshot_dump
+
+                node._on_tick()
+
+                # Exactly one publish (the twist), dump still empty at that point.
+                self.assertEqual(lines_at_publish, [0])
+
+                with open(path) as fh:
+                    lines = [ln for ln in fh.read().splitlines() if ln.strip()]
+                self.assertEqual(len(lines), 1)
+                rec = json.loads(lines[0])
+                self.assertEqual(rec["variant"], "NOCAM_SUBGOAL")
+                self.assertEqual(
+                    len(rec["obs"]), PolicyVariant.NOCAM_SUBGOAL.obs_dim
+                )
+                self.assertEqual(rec["referent"]["x"], 2.0)
+                self.assertEqual(rec["referent"]["y"], -0.5)
+                self.assertIsInstance(rec["t_sim"], float)
+            finally:
+                node.destroy_node()

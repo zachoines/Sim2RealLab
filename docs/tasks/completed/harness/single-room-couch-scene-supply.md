@@ -23,7 +23,7 @@ As **the DGX agent validating the trained subgoal policy in the sim bridge**, I 
 - [`occupancy-interior-fidelity.md`](../../completed/harness/occupancy-interior-fidelity.md) — the Infinigen bake-seam fix that made the corpus occupancy grids trustworthy; the new scene's occupancy must clear the same free/floor-bbox health bar.
 - [`coverage-spawn-from-occupancy.md`](../../completed/harness/coverage-spawn-from-occupancy.md) — the occupancy free-space → spawn derivation; cross-referenced here only to show the new scene's occupancy sidecar is the spawn source for BOTH lanes.
 - [`bridge-spawn-from-occupancy.md`](../trained-policy/bridge-spawn-from-occupancy.md) — **Brief A**, the paired ticket: it makes the bridge derive robot spawn from the occupancy sidecar of the LOADED scene and decides whether `spawn_points_xy` persist in `scenes_metadata.json`. This brief supplies the scene + occupancy sidecar that Brief A consumes; the goal-(a) end-to-end run needs both.
-- [`bridge-scene-memory-budget-gb10.md`](../sim-performance/bridge-scene-memory-budget-gb10.md) — the GB10 unified-memory OOM brief; its light-scene workaround gestures at exactly the single-room scene this brief delivers. The deterministic scene-selection knob is owned there, not here.
+- [`bridge-scene-memory-budget-gb10.md`](../bridge-scene-memory-budget-gb10.md) — the GB10 unified-memory OOM brief; its light-scene workaround gestures at exactly the single-room scene this brief delivers. The deterministic scene-selection knob is owned there, not here.
 
 ## The problem
 
@@ -99,7 +99,7 @@ Net: there is no genuine single-room scene, no two-room scene, and no way to poi
 ## Out of scope
 
 - **Bridge spawn derivation + the union-bug fix** — that is Brief A ([`bridge-spawn-from-occupancy.md`](../trained-policy/bridge-spawn-from-occupancy.md)). This brief supplies the scene + occupancy sidecar Brief A consumes; it does not change `_get_infinigen_spawn_points_xy` / `_apply_infinigen_scene_setup` / the `run_sim_in_the_loop.py` `--scene-usd` spawn re-derivation, and it defers the persist-vs-derive `spawn_points_xy` decision to Brief A.
-- **The deterministic scene-selection knob + GB10 memory budget** — owned by [`bridge-scene-memory-budget-gb10.md`](../sim-performance/bridge-scene-memory-budget-gb10.md). This brief delivers the light single-room scene that brief's workaround needs, but does not add the `--scene`/lightest-scene picker over `_get_scene_usd_paths()[0]`.
+- **The deterministic scene-selection knob + GB10 memory budget** — owned by [`bridge-scene-memory-budget-gb10.md`](../bridge-scene-memory-budget-gb10.md). This brief delivers the light single-room scene that brief's workaround needs, but does not add the `--scene`/lightest-scene picker over `_get_scene_usd_paths()[0]`.
 - **The Jetson backend-selection wiring** (`STRAFER_NAV_BACKEND → default_navigation_backend`) — goal-(a) Prereq 1, a separate Jetson-lane gate; not a scene-supply concern. A+B unblock only the spawn/scene precondition of goal-(a), not the backend gate.
 - **Generator-side floor-sampler tooling** (`generate_scenes_metadata.py` floor-sampler params / the area-weighted `_sample_floor_points` path) — owned by the parked `scene-provider-floor-sampler-cli.md`. This brief only *runs* the registration pipeline for one new scene + uses a non-clobbering invocation; it does not redesign the sampler.
 - **Bulk corpus generation** — this brief delivers exactly two goal-(a) scenes (one 1-room, one 2-room), not a corpus sweep.

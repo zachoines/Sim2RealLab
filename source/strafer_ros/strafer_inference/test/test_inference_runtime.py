@@ -203,6 +203,74 @@ class TestDepthTimeoutEnvOverride(unittest.TestCase):
 
 
 # =============================================================================
+# Provider resolution — TRT engine-cache options wired onto the TRT entry
+# =============================================================================
+
+
+class TestResolveOnnxProviders(unittest.TestCase):
+    """`_resolve_onnx_providers` keeps the plain string list working and, when
+    the TRT engine cache is configured, upgrades only the
+    TensorrtExecutionProvider entry to a (name, options) tuple. load_policy
+    forwards the mixed list to ORT verbatim."""
+
+    _PREF = [
+        "TensorrtExecutionProvider",
+        "CUDAExecutionProvider",
+        "CPUExecutionProvider",
+    ]
+
+    def _node(self, **overrides):
+        node = InferenceNode(
+            parameter_overrides=_make_overrides(model_path="", **overrides)
+        )
+        self.addCleanup(node.destroy_node)
+        return node
+
+    def test_cache_disabled_returns_plain_string_list(self) -> None:
+        node = self._node(onnx_providers=self._PREF, trt_engine_cache_enable=False)
+        self.assertEqual(node._resolve_onnx_providers(), self._PREF)
+
+    def test_cache_enabled_no_path_returns_plain_list(self) -> None:
+        node = self._node(
+            onnx_providers=self._PREF,
+            trt_engine_cache_enable=True,
+            trt_engine_cache_path="",
+        )
+        self.assertEqual(node._resolve_onnx_providers(), self._PREF)
+
+    def test_cache_enabled_upgrades_only_trt_entry(self) -> None:
+        import shutil
+        import tempfile
+
+        cache = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, cache, ignore_errors=True)
+        node = self._node(
+            onnx_providers=self._PREF,
+            trt_engine_cache_enable=True,
+            trt_engine_cache_path=cache,
+        )
+        resolved = node._resolve_onnx_providers()
+        trt, cuda, cpu = resolved
+        self.assertEqual(cuda, "CUDAExecutionProvider")
+        self.assertEqual(cpu, "CPUExecutionProvider")
+        self.assertEqual(trt[0], "TensorrtExecutionProvider")
+        self.assertTrue(trt[1]["trt_engine_cache_enable"])
+        self.assertEqual(trt[1]["trt_engine_cache_path"], cache)
+        self.assertTrue(os.path.isdir(cache))
+
+    def test_cpu_only_list_with_cache_enabled_stays_plain(self) -> None:
+        # No TRT entry to augment -> plain list even with the cache configured.
+        node = self._node(
+            onnx_providers=["CPUExecutionProvider"],
+            trt_engine_cache_enable=True,
+            trt_engine_cache_path="/tmp/does-not-matter",
+        )
+        self.assertEqual(
+            node._resolve_onnx_providers(), ["CPUExecutionProvider"]
+        )
+
+
+# =============================================================================
 # ONNX thread pinning — keep a tiny MLP from spinning every core
 # =============================================================================
 

@@ -333,6 +333,12 @@ class LoadedPolicy:
 
     is_recurrent: bool = False
 
+    # ONNX providers ORT actually bound, in priority order (``.onnx`` only;
+    # ``None`` for TorchScript). ORT silently drops a requested TRT/CUDA EP to
+    # CPU when its shared libs are unavailable, so the inference node logs this
+    # at startup to show whether the GPU EP engaged or fell back.
+    active_providers: list[str] | None = None
+
     def __call__(self, obs: np.ndarray) -> np.ndarray:
         raise NotImplementedError
 
@@ -376,6 +382,7 @@ class _OnnxPolicy(LoadedPolicy):
         self._sess = sess
         self._obs_dim = obs_dim
         self._input_name = sess.get_inputs()[0].name
+        self.active_providers = sess.get_providers()
 
     def __call__(self, obs: np.ndarray) -> np.ndarray:
         obs_f32 = obs.astype(np.float32).reshape(1, self._obs_dim)
@@ -398,6 +405,7 @@ class _RecurrentOnnxPolicy(LoadedPolicy):
     def __init__(self, sess: Any, obs_dim: int) -> None:
         self._sess = sess
         self._obs_dim = obs_dim
+        self.active_providers = sess.get_providers()
 
         input_specs = {inp.name: inp for inp in sess.get_inputs()}
         if "obs" not in input_specs or "h_in" not in input_specs:

@@ -51,9 +51,20 @@ strafer_inference:
     goal_reached_distance_m: 0.25
     mission_timeout_s: 60.0
 
-    # ONNX Runtime provider preference. TRT EP is required for DEPTH
-    # inference on Jetson Orin Nano (CPU/CUDA-EP alone is too slow);
-    # the fallback chain lets a dev workstation without TRT still load.
+    # ONNX Runtime provider preference, in priority order. ORT binds the
+    # first provider whose libs load and silently drops to the next; the
+    # node logs the bound set at startup ("active providers"). The fallback
+    # chain also lets a dev workstation without TRT still load.
+    #
+    # Per-variant recommendation (measured on Orin Nano, JetPack 6.2):
+    #   DEPTH / DEPTH_SUBGOAL (4819-dim): keep TRT first. TRT runs the whole
+    #     graph at ~4.7 ms; CUDA-EP ~7.5 ms; CPU-EP ~84 ms — 2.5x OVER the
+    #     33 ms (30 Hz) control budget, so a GPU EP is REQUIRED here.
+    #   NOCAM / NOCAM_SUBGOAL (19-dim MLP): prefer CPU. The MLP runs in
+    #     ~0.056 ms on CPU vs ~0.23 ms on TRT — GPU kernel-launch overhead
+    #     exceeds the math. Override per-variant in the env file with
+    #     onnx_providers=[CPUExecutionProvider] (all three meet budget, but
+    #     CPU is fastest and skips the engine build / GPU context).
     onnx_providers:
       - "TensorrtExecutionProvider"
       - "CUDAExecutionProvider"
@@ -61,5 +72,17 @@ strafer_inference:
 
     # ONNX intra-op threads. 1 fits the small MLP policies (~50 us/inf);
     # ORT's default (all cores, spin-waiting) starves the rest of the
-    # stack. Raise only for a conv-heavy variant (e.g. DEPTH).
+    # stack. Raise only for a conv-heavy variant (e.g. DEPTH). Governs only
+    # the CPU intra-op pool — it does not throttle the TRT/CUDA EP, whose
+    # kernels run on the GPU with their own host-side threads.
     onnx_intra_op_threads: 1
+
+    # TensorRT engine cache. The TRT EP builds the engine on first inference;
+    # for DEPTH_SUBGOAL that is a ~90 s cold start on Orin Nano. Persisting it
+    # to a stable, writable path lets relaunches deserialize the engine
+    # instead of rebuilding. The node expanduser's ~ and creates the dir.
+    # enable=false or an empty path keeps the plain provider list (rebuild
+    # every launch). The cache is invalidated automatically on a model / ORT /
+    # TensorRT version change, so it is safe to leave enabled.
+    trt_engine_cache_enable: true
+    trt_engine_cache_path: "~/.cache/strafer_inference/trt_engines"

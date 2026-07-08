@@ -74,6 +74,7 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | [`depth-subgoal-env`](active/trained-policy/depth-subgoal-env.md) | P3 | active | DGX |
 | [`depth-subgoal-reactive-avoidance`](parked/trained-policy/depth-subgoal-reactive-avoidance.md) | P3 | parked | DGX |
 | [`depth-subgoal-hybrid-runtime`](active/trained-policy/depth-subgoal-hybrid-runtime.md) | P3 | active | Jetson |
+| [`ort-gpu-jetson`](active/trained-policy/ort-gpu-jetson.md) | P2 | active (GPU-EP install + provider-log + TRT cache + fallback matrix shipped; real-robot 33 ms verification open) | Jetson |
 | [`batched-gpu-path-planner`](parked/trained-policy/batched-gpu-path-planner.md) | P3 | parked | DGX |
 | [`rl-global-nav2-local`](parked/trained-policy/rl-global-nav2-local.md) | P3 | parked | Either |
 | [`subgoal-corridor-clearance`](parked/trained-policy/subgoal-corridor-clearance.md) | P3 | parked (filed-on-trigger: GRU arm still cuts corners) | DGX |

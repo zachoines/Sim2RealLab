@@ -16,7 +16,12 @@ import numpy as np
 import pytest
 
 from strafer_lab.sim_in_the_loop.runtime_env import IsaacLabEnvAdapter
-from strafer_shared.constants import MAX_ANGULAR_VEL, MAX_LINEAR_VEL
+from strafer_shared.constants import (
+    DEPTH_HEIGHT,
+    DEPTH_WIDTH,
+    MAX_ANGULAR_VEL,
+    MAX_LINEAR_VEL,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +173,7 @@ def _build_env(*, action_dim: int = 3) -> FakeEnv:
     scene = FakeScene(
         sensors={
             "d555_camera_perception": _build_camera(640, 360),
-            "d555_camera": _build_camera(80, 60),
+            "d555_camera": _build_camera(DEPTH_WIDTH, DEPTH_HEIGHT),
             "robot": _build_robot(),
         }
     )
@@ -330,7 +335,7 @@ class TestCapture:
         adapter = _build_adapter(env)
         bundle = adapter.capture()
         assert bundle.depth_policy is not None
-        assert bundle.depth_policy.shape == (60, 80)
+        assert bundle.depth_policy.shape == (DEPTH_HEIGHT, DEPTH_WIDTH)
         assert bundle.rgb_policy is None  # rgb_policy not in the stack
 
     def test_undeclared_channels_stay_none(self):

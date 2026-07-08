@@ -86,16 +86,21 @@ if preferred.
 
 ## Gate
 
-The Kit probe `scripts/depth_camera_vfov_probe.py` must print **PASS** BEFORE
-the retrain. Current run (GB10, headless):
+**Probe gate — satisfied.** The one-time Kit probe (retired in this PR;
+methodology folded into the appendix below) characterized the fix and PASSed:
+measured VFOV **fixed (80×45) = 56.41°** vs **control (80×60) = 71.13°** — the
+resolution change moved the geometry to the real sensor's ~56.4° — with
+fixed-vs-reference row-parity **max 0.099 m / mean 0.006 m** (in-range rows
+match to <0.01 m). PASS evidence is in the PR body.
 
-- Measured VFOV: **fixed (80×45) = 56.41°**, **control (80×60) = 71.13°** — the
-  resolution change moved the geometry to the real sensor's FOV.
-- fixed-vs-ref (perception block-averaged to 80×45) row-parity: **max 0.099 m,
-  mean 0.006 m** (in-range rows match to <0.01 m; the max sits on the 6 m
-  clip-boundary row, a block-average sampling artifact, not geometry).
+**Standing regression guard:** the Kit-free aspect-parity test
+`tests/navigation/test_depth_camera_aspect.py` — the policy and perception
+cameras must share an aspect ratio, because Isaac renders resolution-derived
+square-pixel FOV (the invariant the probe discovered). That assert IS the
+geometry gate going forward; the probe script was a fossil (its control arm
+fabricates the retired 80×60 camera, and an un-run Kit script is false comfort).
 
-Unit gate: `make test-lab` (pure suite 726 green + the depth-reward geometry
+Unit gate: `make test-lab` (pure suite green + the depth-reward geometry
 recalibrated for 45 rows + all obs-dim fixtures derived).
 
 ## Operator hand-off
@@ -127,3 +132,41 @@ No trailers / transient refs / env names. Resolve operator inline comments
 before merge. Report test counts + the probe's before/after evidence in the PR
 body. Brief stays **active** — it closes when the operator's retrain + live
 validation land.
+
+## Appendix — probe methodology (for re-characterizing on an Isaac version bump)
+
+The probe that produced the gate evidence was deleted (its control arm
+fabricates the retired 80×60 camera; an un-run Kit script is false comfort). The
+durable protection is the aspect-parity invariant it found. If a future Isaac
+Sim / RTX version changes how camera apertures are honored, re-characterize in
+~an hour by reconstructing it:
+
+- **Setup:** three cameras at one identical pose (level, forward) over a flat
+  ground plane. `ref` = perception 640×360 block-averaged onto the policy grid
+  (the deploy input); `fixed` = the policy camera; `control` = an 80×60 camera
+  (the pre-fix 4:3 resolution, before/after evidence).
+- **Signal:** `distance_to_image_plane` over a floor (a surface *parallel* to
+  the optical axis) varies row-to-row purely with the vertical FOV, so a
+  row-wise depth profile is the VFOV fingerprint. A frontal wall does NOT work —
+  a plane *perpendicular* to the optical axis has one constant image-plane
+  distance, so its profile is flat regardless of VFOV.
+- **Clip before comparing:** clip depth to `DEPTH_MAX` (6 m — the D555
+  saturation the obs pipeline enforces) *before* the row comparison. Near the
+  horizon, floor depth → ∞, where any sub-pixel sampling difference explodes
+  into tens of metres and swamps the signal; clipping restores the in-range
+  comparison the policy actually sees.
+- **Tolerance:** row-tol 0.10 m — within the real D555's depth noise at range
+  (~2 % at 6 m) and ~10× tighter than a real VFOV mismatch would produce
+  (meter-scale across many rows). Also gate the *mean* delta (≤0.02 m) to catch
+  a systematic shift no single row trips.
+- **Measured VFOV (self-proving):** for a level camera at height `h`, the bottom
+  floor row (`y_ndc = (H-1)/H`) reads depth `d = h / (y_ndc · tan(vfov/2))`, so
+  `vfov = 2·atan(h / (d · y_ndc))` — read the effective FOV directly off the
+  rendered profile (the probe measured 56.41° for 80×45, 71.13° for 80×60).
+
+**Disproven — do not re-propose `vertical_aperture`.** Two 80×60 prims with
+different authored `verticalAperture` (2.07 vs 2.76 mm) had identical sensor
+`fy` (41.96) and byte-identical rendered depth; a 16:9 camera with the *same*
+aperture rendered 56° while an 80×60 rendered 71°. VFOV tracks **resolution**,
+not the authored aperture — which is why the fix is a resolution change (80×45,
+16:9) and the standing guard is aspect parity.

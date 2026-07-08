@@ -5,6 +5,7 @@
 **Priority:** P2 — unblocks the real-robot latency budget. Satisfies the "TRT runtime on Jetson" prerequisite of [`strafer-direct-sim-validation`](strafer-direct-sim-validation.md) (its Prerequisite 3 + Latency acceptance).
 **Branch:** task/ort-gpu-jetson
 **Status:** Shipped 2026-07-07 in this PR (Jetson). Host `onnxruntime-gpu` install + active-provider log + TRT engine cache + measured fallback matrix all landed and verified on-device. Stays **active** only for the cross-referenced **real-robot 33 ms verification**, which is deferred to the real-robot validation lane (see Out of scope).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/144
 
 ## Story
 

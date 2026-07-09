@@ -399,7 +399,6 @@ End-to-end validation: [`docs/INTEGRATION_SIM_IN_THE_LOOP.md`](docs/INTEGRATION_
 
 Tracked in [`docs/tasks/DEFERRED_WORK.md`](docs/tasks/DEFERRED_WORK.md). Items currently open:
 
-- **`strafer_inference` Jetson package** — deployment target for Isaac-trained RL policies; once present, becomes the backend for `execution_backend="strafer_direct"` and `"hybrid_nav2_strafer"` on the `navigate_to_pose` skill.
 - **Electronics masses in the USD** — RoboClaws, Jetson, buck converter, D555 meshes + masses are TODO in `source/strafer_lab/scripts/asset_authoring/setup_physics.py`; current chassis inertia underestimates real.
 - **`orient_relative_to_target` skill + action** — drafted but commented out; reinstate when behavior is needed.
 - **`rotate_in_place` PID tuning** on real hardware — open-loop `cmd_vel` with odom feedback; may need tolerance adjustment.

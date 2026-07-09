@@ -43,6 +43,7 @@ import tf2_ros
 from geometry_msgs.msg import PoseStamped, Twist
 from nav2_msgs.action import NavigateToPose
 from nav_msgs.msg import Odometry
+from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import (
     MutuallyExclusiveCallbackGroup,
@@ -142,6 +143,23 @@ class InferenceNode(Node):
         # inference. Distinguishes "TRT engine still building" from
         # "wedged" — paired with the cold-start log line in _load_policy_from_param.
         self.declare_parameter("ready", False)
+        # Diagnostic obs dump: when set to a path, each assembled obs is written
+        # as one JSONL line for offline train↔deploy parity checks. Empty
+        # (default) disables it with zero per-tick overhead. The write happens
+        # after the cmd_vel publish so it can never delay the control path; a
+        # DEPTH variant still writes a full depth vector per line, so it is not
+        # for normal missions.
+        self.declare_parameter(
+            "obs_dump_path",
+            "",
+            ParameterDescriptor(
+                description=(
+                    "Diagnostic only. File for assembled-obs JSONL consumed by "
+                    "the parity tooling (scripts/obs_parity.py); empty disables. "
+                    "Truncated per launch. Do not enable for normal missions."
+                )
+            ),
+        )
 
         variant_str = self.get_parameter("policy_variant").value
         try:
@@ -166,6 +184,32 @@ class InferenceNode(Node):
 
         self._map_frame: str = self.get_parameter("map_frame").value
         self._base_frame: str = self.get_parameter("base_frame").value
+
+        # Diagnostic obs dump (opened once; line-buffered so each tick's line
+        # is durable). Disabled leaves _obs_dump_enabled False so _on_tick and
+        # obs assembly do no extra work.
+        self._obs_dump_fh = None
+        self._obs_dump_enabled = False
+        self._last_obs_referent_xy: Optional[tuple[float, float]] = None
+        obs_dump_path = str(self.get_parameter("obs_dump_path").value).strip()
+        if obs_dump_path:
+            try:
+                # Truncate per launch (not append): under use_sim_time a relaunch
+                # resets t_sim, and concatenating two runs into one file would
+                # silently contaminate the sim-time join in the parity gate.
+                self._obs_dump_fh = open(obs_dump_path, "w", buffering=1)
+                self._obs_dump_enabled = True
+                self.get_logger().info(
+                    f"Diagnostic obs dump ENABLED → {obs_dump_path} (one JSONL "
+                    "line per assembled obs, truncated per launch; do NOT enable "
+                    "for normal missions)."
+                )
+            except OSError as exc:
+                self.get_logger().error(
+                    f"obs_dump_path={obs_dump_path!r} not writable ({exc}); "
+                    "obs dump disabled."
+                )
+
         obs_timeout_s = float(self.get_parameter("obs_timeout_s").value)
         # Env override for slow sim sensor feeds; the yaml default is the
         # real-robot value.
@@ -743,6 +787,15 @@ class InferenceNode(Node):
             self._cmd_vel_pub.publish(Twist())
             return
 
+        # Stamp the dump at assembly time, not post-publish: the obs describes
+        # the state now, and TRT cold-start can put ~90 ms between here and the
+        # publish. Captured only when dumping.
+        dump_t_sim = (
+            self.get_clock().now().nanoseconds * 1e-9
+            if self._obs_dump_enabled
+            else 0.0
+        )
+
         t0 = time.monotonic_ns()
         with self._policy_lock:
             action = self._policy(obs)
@@ -777,6 +830,10 @@ class InferenceNode(Node):
         twist.linear.y = vy
         twist.angular.z = omega
         self._cmd_vel_pub.publish(twist)
+
+        # Diagnostic dump strictly after the publish so it cannot delay control.
+        if self._obs_dump_enabled:
+            self._dump_obs(obs, dump_t_sim)
 
         if not self._ready_flag:
             self._ready_flag = True
@@ -826,6 +883,8 @@ class InferenceNode(Node):
         rot = tf.transform.rotation
 
         ref_pos = referent.pose.position
+        if self._obs_dump_enabled:
+            self._last_obs_referent_xy = (float(ref_pos.x), float(ref_pos.y))
         ref_rel, ref_dist, ref_head = body_frame_goal(
             goal_map_xy=(ref_pos.x, ref_pos.y),
             base_in_map_xy=base_in_map_xy,
@@ -887,6 +946,31 @@ class InferenceNode(Node):
         stamp = tf.header.stamp.sec + tf.header.stamp.nanosec * 1e-9
         now = self.get_clock().now().nanoseconds * 1e-9
         return max(0.0, now - stamp)
+
+    def _dump_obs(self, obs: np.ndarray, t_sim: float) -> None:
+        # One JSONL line per assembled obs (t_sim = node clock = sim time under
+        # use_sim_time, captured at assembly). Full variant vector, never
+        # truncated. A write failure is logged (throttled) but never propagates
+        # into the control path.
+        if self._obs_dump_fh is None:
+            return
+        ref = self._last_obs_referent_xy
+        record = {
+            "t_sim": t_sim,
+            "variant": self._variant.name,
+            "obs": np.asarray(obs, dtype=np.float32).tolist(),
+            "referent": (
+                {"x": ref[0], "y": ref[1], "frame": self._map_frame}
+                if ref is not None
+                else None
+            ),
+        }
+        try:
+            self._obs_dump_fh.write(json.dumps(record) + "\n")
+        except (OSError, ValueError) as exc:
+            self.get_logger().warning(
+                f"obs dump write failed: {exc}", throttle_duration_sec=5.0
+            )
 
     def _log_obs_summary(
         self,

@@ -308,6 +308,31 @@ strafer-autonomy-cli status
 strafer-autonomy-cli cancel
 ```
 
+## Obs / subgoal parity (diagnostic — trained-policy deployment lane)
+```bash
+# 1) Enable the node's obs dump (diagnostic; adds one JSONL line per tick,
+#    written after the cmd_vel publish so it never delays control). Launch the
+#    inference node with a parking artifact loaded + a mission running — an
+#    empty model_path assembles no subgoal obs and dumps nothing.
+ros2 run strafer_inference inference_node --ros-args \
+    -p policy_variant:=NOCAM_SUBGOAL \
+    -p model_path:=/home/jetson/workspaces/Sim2RealLab/models/strafer_nocam_subgoal_v0.onnx \
+    -p obs_dump_path:=/tmp/node_obs.jsonl -p use_sim_time:=true
+# 2) Record a >=30 s bag with the robot moving.
+ros2 bag record -o /tmp/parity_bag /d555/imu/filtered /strafer/joint_states \
+    /strafer/odom /strafer/subgoal /plan /tf /tf_static /clock
+
+# 3a) Obs parity vs a workstation gym dump (strict gate: scalar <=1e-5, depth <=1e-3).
+python3 source/strafer_ros/strafer_inference/scripts/obs_parity.py \
+    --node-dump /tmp/node_obs.jsonl --gym-dump /tmp/gym_obs.jsonl
+# 3b) Obs self-check (no workstation): re-assemble the reference from the bag's raw topics.
+python3 source/strafer_ros/strafer_inference/scripts/obs_parity.py \
+    --node-dump /tmp/node_obs.jsonl --self-check --bag /tmp/parity_bag
+# 4) Rolling-subgoal pick parity (bag-replay self-consistency, <=10 cm).
+python3 source/strafer_ros/strafer_inference/scripts/subgoal_parity.py --bag /tmp/parity_bag
+# JSONL contract both sides emit against: scripts/PARITY_SCHEMA.md
+```
+
 ## Operator workstation — Foxglove Studio over SSH (live debug visualizer)
 ```bash
 # operator workstation, terminal 1: keep this open while debugging

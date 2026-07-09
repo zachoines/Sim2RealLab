@@ -9,7 +9,8 @@ Usage:
     isaaclab.bat -p C:\\Worspace\\source\\strafer_lab\\run_tests.py [suite ...]
 
 Suites: terminations, events, commands, observations, curriculums,
-        rewards, sensors, actions, env, noise_models, depth_noise, imu, all
+        rewards, sensors, actions, env, noise_models, depth_noise, imu,
+        obs_dump, all
 
 Examples:
     isaaclab.bat -p ...\\run_tests.py terminations
@@ -37,6 +38,7 @@ SUITE_TIMEOUTS = {
     "actions": 300,
     "env": 300,
     "rewards": 300,       # per-file timeout (collision tests run physics)
+    "obs_dump": 300,      # brings up a depth camera env
 }
 DEFAULT_TIMEOUT = 180
 
@@ -67,6 +69,7 @@ SUITES = {
     ],
     "imu":           [str(TEST_ROOT / "sensors" / "test_imu.py"),
                       str(TEST_ROOT / "sensors" / "test_imu_collision.py")],
+    "obs_dump":      [str(TEST_ROOT / "bridge" / "test_obs_dump_terms.py")],
 }
 
 

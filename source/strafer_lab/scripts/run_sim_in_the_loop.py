@@ -838,7 +838,7 @@ def _run_bridge_mode(simulation_app, env, args, config) -> None:
 
     obs_dumper = None
     if args.obs_dump_path:
-        from strafer_lab.bridge.obs_dump import make_bridge_obs_dumper
+        from strafer_lab.bridge.obs_dump_terms import make_bridge_obs_dumper
 
         obs_dumper = make_bridge_obs_dumper(args.obs_dump_path, args.obs_dump_variant)
         print(

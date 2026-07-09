@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 
 from strafer_lab.bridge import obs_dump
+from strafer_lab.bridge.obs_dump_terms import make_bridge_obs_dumper
 from strafer_shared.policy_interface import PolicyVariant, assemble_observation
 
 _ALL_VARIANTS = (
@@ -148,20 +149,21 @@ class TestRecordSchema:
         assert any(math.isnan(x) for x in back["obs"])
 
     def test_make_dumper_disabled_on_empty_path(self):
-        assert obs_dump.make_bridge_obs_dumper("", "DEPTH_SUBGOAL") is None
-        assert obs_dump.make_bridge_obs_dumper("   ", "DEPTH_SUBGOAL") is None
+        # The factory lives in the Kit-side module but imports Kit-free and
+        # returns None before touching Isaac Lab, so the guard is testable here.
+        assert make_bridge_obs_dumper("", "DEPTH_SUBGOAL") is None
+        assert make_bridge_obs_dumper("   ", "DEPTH_SUBGOAL") is None
 
-    def test_dumper_writes_one_line_per_write(self, tmp_path):
-        # Drive the writer without Kit by stubbing the term evaluation.
+    def test_writer_writes_one_line_per_write(self, tmp_path):
+        # The pure writer takes already-evaluated term values, so it exercises
+        # the serialization path without Kit (real term evaluation is pinned by
+        # the Kit test in test_sim/bridge/).
         out = tmp_path / "gym_obs.jsonl"
         variant = PolicyVariant.NOCAM_SUBGOAL
-        dumper = obs_dump.make_bridge_obs_dumper(str(out), variant.name)
-        assert dumper is not None
         terms = _computable_term_values(variant)
-        dumper._evaluate_terms = lambda env: terms  # type: ignore[assignment]
-        dumper.write(env=None, t_sim=0.0)
-        dumper.write(env=None, t_sim=1.0 / 30.0)
-        dumper.close()
+        with obs_dump.ObsDumpWriter(str(out), variant) as writer:
+            writer.write(0.0, terms)
+            writer.write(1.0 / 30.0, terms)
 
         lines = out.read_text().splitlines()
         assert len(lines) == 2
@@ -169,3 +171,4 @@ class TestRecordSchema:
         assert [r["t_sim"] for r in recs] == [0.0, 1.0 / 30.0]
         assert all(len(r["obs"]) == variant.obs_dim for r in recs)
         assert all(r["variant"] == "NOCAM_SUBGOAL" for r in recs)
+        assert all(r["referent"] is None for r in recs)

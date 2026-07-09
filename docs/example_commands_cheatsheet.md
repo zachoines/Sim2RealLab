@@ -322,10 +322,10 @@ ros2 run strafer_inference inference_node --ros-args \
 ros2 bag record -o /tmp/parity_bag /d555/imu/filtered /strafer/joint_states \
     /strafer/odom /strafer/subgoal /plan /tf /tf_static /clock
 
-# 3a) Obs parity vs a DGX gym dump (strict gate: scalar <=1e-5, depth <=1e-3).
+# 3a) Obs parity vs a workstation gym dump (strict gate: scalar <=1e-5, depth <=1e-3).
 python3 source/strafer_ros/strafer_inference/scripts/obs_parity.py \
     --node-dump /tmp/node_obs.jsonl --gym-dump /tmp/gym_obs.jsonl
-# 3b) Obs self-check (no DGX): re-assemble the reference from the bag's raw topics.
+# 3b) Obs self-check (no workstation): re-assemble the reference from the bag's raw topics.
 python3 source/strafer_ros/strafer_inference/scripts/obs_parity.py \
     --node-dump /tmp/node_obs.jsonl --self-check --bag /tmp/parity_bag
 # 4) Rolling-subgoal pick parity (bag-replay self-consistency, <=10 cm).

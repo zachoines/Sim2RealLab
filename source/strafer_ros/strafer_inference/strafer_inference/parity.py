@@ -416,12 +416,11 @@ def depth_spatial_residual(
     width: int = DEPTH_WIDTH,
 ) -> Optional[DepthResidualReport]:
     """Reshape the matched depth-block residual to (H, W) and score its
-    structure -- the discriminator between the two diagnosed depth-parity
-    root causes.
+    structure, distinguishing a geometry mismatch from a frame-freshness lag.
 
     A **row-structured** residual (per-row means vary far more than the noise
-    floor) is the vertical-FOV geometry-mismatch signature. An **unstructured,
-    time-varying** residual (large per-tick variation, flat spatial map) is the
+    floor) is a vertical-FOV geometry-mismatch signature. An **unstructured,
+    time-varying** residual (large per-tick variation, flat spatial map) is a
     frame-freshness-lag signature. Returns ``None`` for a camera-free variant.
     The verdict is a heuristic hint, not a proof; the raw per-row / per-col
     means are returned so an operator can eyeball the map.
@@ -625,8 +624,7 @@ def replay_subgoal_consistency(
     recorded order reproduces the node's cursor trajectory. Ticks arriving
     before any plan are counted as skipped. Self-consistency (not
     ground-truth): a mismatch flags a frame / ordering / lookahead wiring gap
-    between the node and this reference. Training-time equivalence then follows
-    transitively from PR #119's numpy-vs-torch cursor cross-check.
+    between the node and this reference.
     """
     gen = RollingSubgoalGenerator(lookahead_m=lookahead_m, max_points=max_points)
     report = SubgoalParityReport(tol_m=tol_m, lookahead_m=lookahead_m)
@@ -685,7 +683,7 @@ def reassemble_obs_from_extracted(
     This is the pure core of the obs self-check: given the values a bag carries
     (IMU, joint states, odom body velocity, the published subgoal/goal as the
     referent, the map->base_link TF, and depth for camera variants) it pins the
-    node's assembly wiring/ordering/scales without a DGX dumper. ``last_action``
+    node's assembly wiring/ordering/scales with no workstation dumper. ``last_action``
     is node-internal feedback, not on any topic; the self-check sources it from
     the node dump's own last_action dims (it cannot be reconstructed from the
     bag and is not independently checked).

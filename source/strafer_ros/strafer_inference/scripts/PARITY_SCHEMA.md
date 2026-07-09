@@ -1,9 +1,9 @@
 # Train↔deploy parity JSONL schema
 
 The contract both sides of the observation-parity check emit against: the
-Jetson inference node (via the `obs_dump_path` parameter) and the DGX-side gym
-dumper (to be written against this file). One JSON object per line; UTF-8; no
-trailing commas.
+Jetson inference node (via the `obs_dump_path` parameter) and the
+workstation-side gym dumper (to be written against this file). One JSON object
+per line; UTF-8; no trailing commas.
 
 ## Obs-dump record
 
@@ -51,9 +51,9 @@ resolution (H×W) and scored:
 - **Unstructured, time-varying** residual (large per-tick variation, flat
   spatial map) → frame-freshness-lag signature.
 
-This is the discriminator between the two diagnosed DEPTH_SUBGOAL train↔deploy
-depth-parity root causes. The verdict is a heuristic hint; the raw per-row /
-per-column means are reported so an operator can eyeball the map.
+This distinguishes a depth geometry mismatch from a frame-freshness lag. The
+verdict is a heuristic hint; the raw per-row / per-column means are reported so
+an operator can eyeball the map.
 
 ## Cadence report
 
@@ -70,7 +70,7 @@ mode, gaps, or bursts is a cadence-parity concern.
   reference from a rosbag2's raw topics (`/d555/imu/filtered`,
   `/strafer/joint_states`, `/strafer/odom`, `/tf`, and depth for camera
   variants) through the node's own `obs_pipeline`, pinning assembly wiring with
-  no DGX involvement. The self-check re-samples the bag (it does not replay the
+  no workstation involvement. The self-check re-samples the bag (it does not replay the
   node's exact cached inputs) and takes the referent + `last_action` from the
   node dump, so it isolates the sensor→obs pipeline. Because re-sampling adds
   temporal deltas far above the strict bounds, the self-check defaults to
@@ -84,7 +84,7 @@ mode, gaps, or bursts is a cadence-parity concern.
   subgoal (≤0.10 m), replaying recorded `/plan` + `/tf` through the deployed
   numpy generator.
 
-## Notes for the DGX gym dumper (goal-(a) deliverable, DGX lane)
+## Notes for the workstation gym dumper
 
 Step the gym env alongside the bridge and, per env step, evaluate the same
 `mdp/observations.py` terms the training group assembles, emit one record above

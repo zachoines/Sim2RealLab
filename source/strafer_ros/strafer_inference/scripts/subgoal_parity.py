@@ -7,11 +7,9 @@ arc cursor), and at each recorded ``/strafer/subgoal`` the robot pose from
 ``/tf`` (map→base_link) is fed through the generator; the recomputed pick must
 match the published subgoal within MAP_RESOLUTION*2 (0.10 m) at every tick.
 
-This is a self-consistency check on the deployed generator (not a gym join —
-in bridge mode the gym env's SubgoalCommand does not drive the mission).
-Training-time equivalence follows transitively from PR #119's numpy-vs-torch
-cursor cross-check (54 tests, worst divergence 2.6e-6 m). See
-scripts/PARITY_SCHEMA.md.
+This is a self-consistency check on the deployed generator, not a gym join: in
+bridge mode the gym env's SubgoalCommand does not drive the mission (the
+generator picks subgoals off its own planned path). See scripts/PARITY_SCHEMA.md.
 
 For a single-goal mission every ``/plan`` ends at the one goal, so all are
 installed; pass ``--goal X Y`` to filter plans whose terminal pose is far from

@@ -22,7 +22,7 @@ talks to these packages through ROS topics, services, and actions.
 | `strafer_description` | URDF + Python | Robot URDF, `robot_state_publisher`, TF frames |
 | `strafer_slam` | Launch / config | RTAB-Map SLAM + `depthimage_to_laserscan` (no custom nodes) |
 | `strafer_navigation` | Launch / config | Nav2 with MPPI holonomic controller (no custom nodes) |
-| `strafer_inference` | Python | Trained-policy execution backend for `strafer_direct` missions (skeleton — topic / action surface only; observation assembly, model loading, action interpretation, and safety logic ship in follow-on commits on the same branch) |
+| `strafer_inference` | Python | Trained-policy execution: `inference_node` (obs assembly, ONNX/TorchScript load, `navigate_to_pose` action server, six-source watchdog, L1 velocity clamp) + `subgoal_generator_node` (rolling subgoal from Nav2-planned paths) for the `strafer_direct` / `hybrid_nav2_strafer` backends; diagnostic parity CLIs under `scripts/` |
 | `strafer_bringup` | Launch-only | Layered composition: `base` → `perception` → `slam` → `navigation` → `autonomy` |
 
 Sibling packages it interacts with:
@@ -43,6 +43,7 @@ Sibling packages it interacts with:
 - **Nav2 navigation** (`strafer_navigation/`) — launch composition for the full Nav2 stack with MPPI holonomic controller, `Omni` motion model (produces `vx, vy, wz` for mecanum), costmaps patched from `strafer_shared` constants.
 - **Bringup layers** (`strafer_bringup/launch/`) — 6 launch files that compose progressively: `base` (driver + URDF), `perception` (+ RealSense), `slam` (+ RTAB-Map), `navigation` (+ Nav2), `autonomy` (+ goal projection + executor), and `bringup_sim_in_the_loop` (no real hardware — consumes topics published by the DGX Isaac Sim ROS 2 bridge).
 - **Diagnostic / tuning scripts** (top-level in `source/strafer_ros/`) — RoboClaw PID tuning, RoboClaw direct-drive diagnostics, D555 camera + IMU verification, perception-stack recording, SLAM + motion verification with map-building video output.
+- **Trained-policy execution** (`strafer_inference/`) — `inference_node` loads an exported policy (ONNX/TorchScript) and drives `/strafer/cmd_vel` from a `navigate_to_pose` goal: variant-aware obs assembly (NOCAM/DEPTH ±SUBGOAL), a six-source freshness watchdog, recurrent hidden-state resets at mission boundaries, and an L1 velocity clamp. `subgoal_generator_node` follows the inference node's active-goal telemetry, replans via Nav2's `ComputePathToPose`, and rolls a subgoal along the planned path for the hybrid backend. The action server is advertised only when a policy loads (else the autonomy dispatcher falls back to Nav2).
 - **Trained-policy parity tooling** (`strafer_inference/scripts/`) — `obs_parity.py` / `subgoal_parity.py` and the rclpy-free `strafer_inference.parity` library compare the deployed inference node's assembled observations and rolling-subgoal picks against the training env (or a rosbag self-check) on the sim-time axis; the node's `obs_dump_path` parameter emits the per-tick obs JSONL they consume. Diagnostic only — JSONL contract in `strafer_inference/scripts/PARITY_SCHEMA.md`.
 
 ## Contracts
@@ -238,7 +239,7 @@ export ROS_DOMAIN_ID=42
 
 **URDF is the single source of truth for `base_link → d555_link`.** `strafer_perception` also publishes a static TF of the same transform — a historical wart to be removed. Consumers should treat the URDF transform as authoritative.
 
-**`navigate_to_pose` stays backend-agnostic at the autonomy boundary.** The Nav2 path is the only backend that ships today. `strafer_direct` (pure-RL via `strafer_inference`) and `hybrid_nav2_strafer` (Nav2 global + RL local) are defined at the interface level but not yet implemented.
+**`navigate_to_pose` stays backend-agnostic at the autonomy boundary.** Three backends dispatch: `nav2` (default), `strafer_direct` (pure-RL local control via `strafer_inference`), and `hybrid_nav2_strafer` (Nav2 global plan + RL local control following the subgoal generator). The inference node advertises its `navigate_to_pose` action server only when a policy loads; otherwise the dispatcher falls back to `nav2`.
 
 ## Testing
 
@@ -265,7 +266,6 @@ End-to-end smoke checks with real hardware run through the validation scripts in
 
 Tracked in [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md). Items currently open:
 
-- **`strafer_inference`** — planned Jetson package for Isaac-trained RL policy execution; not implemented. Once present, it becomes the backend for `execution_backend="strafer_direct"` and `"hybrid_nav2_strafer"` on the `navigate_to_pose` skill.
 - **`orient_relative_to_target` action** — `strafer_msgs/action/OrientRelativeToTarget.action` is defined in the design docs but not shipped. Executor-side handler is drafted but commented out.
 - **`rotate_in_place` PID on real hardware** — `JetsonRosClient.rotate_in_place()` uses open-loop `cmd_vel` with odom yaw feedback; tolerance tuning on hardware is pending.
 - **Redundant static TF in `perception.launch.py`** — duplicates the URDF's `base_link → d555_link` transform and should be removed.

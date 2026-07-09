@@ -143,20 +143,20 @@ class InferenceNode(Node):
         # inference. Distinguishes "TRT engine still building" from
         # "wedged" — paired with the cold-start log line in _load_policy_from_param.
         self.declare_parameter("ready", False)
-        # Diagnostic obs dump: when set to a path, each assembled obs is
-        # appended as one JSONL line for offline train↔deploy parity checks.
-        # Empty (default) disables it with zero per-tick overhead. Not for
-        # normal missions — the write happens after the cmd_vel publish so it
-        # can never delay the control path, but a DEPTH variant writes ~4.8k
-        # floats per line.
+        # Diagnostic obs dump: when set to a path, each assembled obs is written
+        # as one JSONL line for offline train↔deploy parity checks. Empty
+        # (default) disables it with zero per-tick overhead. The write happens
+        # after the cmd_vel publish so it can never delay the control path; a
+        # DEPTH variant still writes a full depth vector per line, so it is not
+        # for normal missions.
         self.declare_parameter(
             "obs_dump_path",
             "",
             ParameterDescriptor(
                 description=(
-                    "Diagnostic only. Path to append assembled-obs JSONL for "
-                    "parity tooling (scripts/obs_parity.py); empty disables. "
-                    "Do not enable for normal missions."
+                    "Diagnostic only. File for assembled-obs JSONL consumed by "
+                    "the parity tooling (scripts/obs_parity.py); empty disables. "
+                    "Truncated per launch. Do not enable for normal missions."
                 )
             ),
         )

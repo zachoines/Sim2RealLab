@@ -5,15 +5,15 @@ Two modes, both joining on the sim-time axis (see scripts/PARITY_SCHEMA.md):
 
   --gym-dump FILE
       Join the inference node's obs-dump JSONL against a gym-side JSONL
-      emitted by the DGX counterpart (the ground-truth obs the training env
-      assembles per step). This is the authoritative obs-parity gate:
+      emitted by the workstation counterpart (the ground-truth obs the training
+      env assembles per step). This is the authoritative obs-parity gate:
       scalar dims <= 1e-5, depth dims <= 1e-3.
 
   --self-check --bag DIR
-      No DGX involvement. Re-assemble each dumped tick's obs offline from the
+      No workstation involvement. Re-assemble each dumped tick's obs offline from the
       bag's raw sensor topics through the SAME obs_pipeline functions the node
       uses, and join against the node dump. This pins assembly
-      wiring/ordering/scales today. Because it re-samples the bag rather than
+      wiring/ordering/scales. Because it re-samples the bag rather than
       replaying the node's exact cached inputs, non-trivial deltas on a real
       bag reflect temporal sampling, not necessarily a bug — the gym-dump join
       is the strict numerical gate. The self-check therefore defaults to looser

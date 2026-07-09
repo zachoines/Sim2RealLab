@@ -67,6 +67,7 @@ from typing import Any
 
 from isaaclab.app import AppLauncher
 from strafer_shared.constants import MAX_ANGULAR_VEL, MAX_LINEAR_VEL
+from strafer_shared.policy_interface import PolicyVariant
 
 
 # Consecutive whole-mission crashes in harness mode before the run aborts
@@ -424,6 +425,33 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=200,
         help="Rolling sample window for p50/p99 in --profile (default 200 steps).",
+    )
+
+    # Bridge-mode observation dump (train<->deploy parity, training half).
+    parser.add_argument(
+        "--obs-dump-path",
+        type=str,
+        default="",
+        help="Bridge mode: append the gym-side assembled observation as JSONL "
+             "(one line per env step, sim-time stamped) for train<->deploy obs "
+             "parity — the counterpart to the inference node's own obs dump. "
+             "Empty (default) disables it with zero per-step overhead. "
+             "Truncated per launch. Evaluates the same mdp/observations.py "
+             "terms training assembles against the live scene; the "
+             "referent-derived and last_action dims are NaN-filled (the parity "
+             "comparator masks them). Diagnostic only — do not enable for "
+             "normal ops.",
+    )
+    parser.add_argument(
+        "--obs-dump-variant",
+        type=str,
+        default="DEPTH_SUBGOAL",
+        choices=[v.name for v in PolicyVariant],
+        help="Bridge mode: PolicyVariant the obs dump assembles against. Must "
+             "match the variant the inference node emits, or the parity join "
+             "rejects the pair on a variant mismatch. The default exercises "
+             "the depth block (the bridge scene always renders the policy "
+             "camera); single-room subgoal validation uses NOCAM_SUBGOAL.",
     )
 
     AppLauncher.add_app_launcher_args(parser)
@@ -808,6 +836,17 @@ def _run_bridge_mode(simulation_app, env, args, config) -> None:
             f"{config.depth_camera.camera_info_topic}"
         )
 
+    obs_dumper = None
+    if args.obs_dump_path:
+        from strafer_lab.bridge.obs_dump import make_bridge_obs_dumper
+
+        obs_dumper = make_bridge_obs_dumper(args.obs_dump_path, args.obs_dump_variant)
+        print(
+            f"[sim_in_the_loop] obs dump ENABLED → {args.obs_dump_path} "
+            f"(variant={args.obs_dump_variant}, one JSONL line per step, "
+            "truncated per launch; diagnostic only)"
+        )
+
     try:
         while simulation_app.is_running():
             if profiler is not None:
@@ -848,6 +887,11 @@ def _run_bridge_mode(simulation_app, env, args, config) -> None:
                         camera_publisher.notify_frame(sim_time_s)
                 with profiler.time("loop :: simulation_app.update"):
                     simulation_app.update()
+                # Serialize the obs line after the step + publish so it never
+                # sits in the publish path; t_sim is this step's /clock value.
+                if obs_dumper is not None:
+                    with profiler.time("loop :: obs_dump"):
+                        obs_dumper.write(unwrapped, sim_time_s)
                 profiler.tick()
             else:
                 env.step(action)
@@ -861,7 +905,13 @@ def _run_bridge_mode(simulation_app, env, args, config) -> None:
                 # OnPlaybackTick for whatever residual nodes the bridge graph
                 # still hosts.
                 simulation_app.update()
+                # Serialize the obs line after the step + publish so it never
+                # sits in the publish path; t_sim is this step's /clock value.
+                if obs_dumper is not None:
+                    obs_dumper.write(unwrapped, sim_time_s)
     finally:
+        if obs_dumper is not None:
+            obs_dumper.close()
         if camera_publisher is not None:
             camera_publisher.shutdown()
         publisher.shutdown()

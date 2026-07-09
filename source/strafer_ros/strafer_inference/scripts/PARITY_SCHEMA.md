@@ -86,8 +86,18 @@ mode, gaps, or bursts is a cadence-parity concern.
 
 ## Notes for the workstation gym dumper
 
-Step the gym env alongside the bridge and, per env step, evaluate the same
-`mdp/observations.py` terms the training group assembles, emit one record above
-with the step's sim time as `t_sim` and the env's `SubgoalCommand`/goal pose as
-`referent`. Match `variant` to the env id's policy variant. No depth field for
-`NOCAM*`; the full depth block for `DEPTH*`.
+The gym half is implemented in bridge mode of `run_sim_in_the_loop.py`
+(`--obs-dump-path` / `--obs-dump-variant`), backed by
+`strafer_lab.bridge.obs_dump`. Per env step it evaluates the same
+`mdp/observations.py` terms the training group assembles — IMU accel/gyro
+(`d555_imu`), wheel-encoder velocities and body velocity (`robot`), and, for
+`DEPTH*`, the depth term against the policy camera (`d555_camera`) — runs them
+through `assemble_observation`, and emits one record above stamped with the
+step's `/clock` sim time. Match `variant` to the loaded artifact's variant.
+
+The referent-derived triplet (`goal_*` / `subgoal_*`) and `last_action` are
+**NaN-filled**: in bridge mode the rolling subgoal is picked by the Jetson
+generator off its own planned path (not by this env), and `last_action` is
+node-internal. `referent` is therefore `null`. The join masks NaN dims from the
+pass/fail bound and reports them as masked — those dims are accounted for, not
+silently passed. No depth field for `NOCAM*`; the full depth block for `DEPTH*`.

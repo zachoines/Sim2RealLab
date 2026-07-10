@@ -58,6 +58,7 @@ EXPECTED_ENVS = [
     # Capture (operator-selectable stack)
     "Isaac-Strafer-Nav-Capture-Teleop-v0",
     "Isaac-Strafer-Nav-Capture-Bridge-v0",
+    "Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0",
     "Isaac-Strafer-Nav-Capture-Coverage-v0",
 ]
 

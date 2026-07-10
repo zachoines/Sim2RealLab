@@ -38,8 +38,13 @@ Two families, prefix `Isaac-Strafer-Nav-`:
 - **RL** (`-RLDepth-Real-v0`, `-RLDepth-Robust-v0`, `-RLNoCam-v0`,
   `-RLNoCam-Subgoal-Real-v0`, `-RLNoCam-Subgoal-Robust-v0`, each + `-Play`):
   **fixed** sensor stack — the obs contract a trained policy was fitted against.
-- **Capture** (`-Capture-Teleop-v0`, `-Capture-Bridge-v0`, `-Capture-Coverage-v0`):
+- **Capture** (`-Capture-Teleop-v0`, `-Capture-Bridge-v0`,
+  `-Capture-Bridge-ProcRoom-v0`, `-Capture-Coverage-v0`):
   the registered stack is a **default preset**, operator-overridable per session.
+  The `-Bridge-ProcRoom` variant is the Bridge stack on the `procroom` source
+  (a training-distribution scene) instead of `infinigen`; it is `--mode bridge`
+  only, since ProcRoom has no loaded scene USD for `--scene-usd` / `--mode
+  harness` to resolve.
 
 The runner cfg pairs with the observation profile: a depth-image obs uses the
 CNN depth runner, a proprioceptive obs the MLP runner. Old per-cell gym IDs

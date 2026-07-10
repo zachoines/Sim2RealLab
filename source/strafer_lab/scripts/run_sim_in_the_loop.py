@@ -118,6 +118,16 @@ def _apply_scene_usd_spawn_override(env_cfg: Any, scene_usd: Path) -> None:
     )
     from strafer_lab.tools import scene_connectivity
 
+    # --scene-usd re-points a loaded scene USD; a task whose geometry is
+    # generated in-env has no scene_geometry prim to re-point. Fail loud rather
+    # than AttributeError.
+    if not hasattr(env_cfg.scene, "scene_geometry"):
+        raise ValueError(
+            "--scene-usd requires a task whose scene loads a USD (it has a "
+            "'scene_geometry' prim). This task generates its scene in-env, so "
+            "run it with --mode bridge and no --scene-usd."
+        )
+
     resolved = scene_usd.resolve()
     env_cfg.scene.scene_geometry.spawn.usd_path = str(resolved)
     print(f"[sim_in_the_loop] scene USD override → {env_cfg.scene.scene_geometry.spawn.usd_path}")
@@ -175,7 +185,9 @@ def _parse_args() -> argparse.Namespace:
         type=str,
         default="Isaac-Strafer-Nav-Capture-Bridge-v0",
         help="Isaac Lab task carrying the 640x360 perception camera. "
-        "num_envs is forced to 1 for sim-in-the-loop.",
+        "num_envs is forced to 1 for sim-in-the-loop. Pass "
+        "Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0 for the ProcRoom-scene "
+        "bridge (--mode bridge only; no --scene-usd / --mode harness).",
     )
     parser.add_argument(
         "--graph-path",

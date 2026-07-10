@@ -29,6 +29,7 @@ preset is shown):
 
 - ``Isaac-Strafer-Nav-Capture-Teleop-v0``: full RGB only, Infinigen, realistic
 - ``Isaac-Strafer-Nav-Capture-Bridge-v0``: full RGB+depth + policy depth, Infinigen
+- ``Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0``: full RGB+depth + policy depth, ProcRoom
 - ``Isaac-Strafer-Nav-Capture-Coverage-v0``: full RGB+depth, Infinigen
 
 Each RL ID has a ``-Play-v0`` variant for evaluation (fewer envs).
@@ -91,6 +92,7 @@ _ENV_REGISTRATIONS = [
     # Capture variants (operator-selectable stack)
     ("Isaac-Strafer-Nav-Capture-Teleop-v0", "StraferNavCfg_TeleopCapture", _NOCAM_RUNNER_CFG),
     ("Isaac-Strafer-Nav-Capture-Bridge-v0", "StraferNavCfg_BridgeAutonomy", _DEPTH_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0", "StraferNavCfg_BridgeAutonomy_ProcRoom", _DEPTH_RUNNER_CFG),
     ("Isaac-Strafer-Nav-Capture-Coverage-v0", "StraferNavCfg_Coverage", _NOCAM_RUNNER_CFG),
 ]
 

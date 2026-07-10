@@ -1164,6 +1164,9 @@ _PROCROOM_DEPTH_TRAIN_NUM_ENVS = 64
 _PROCROOM_NOCAM_PLAY_NUM_ENVS = 50
 _PROCROOM_DEPTH_PLAY_NUM_ENVS = 8
 _PROCROOM_ENV_SPACING = 10.0
+# The perception scene renders the 640x360 camera, which caps parallel envs at
+# ~1-8 — do not raise this to the policy-camera count.
+_PROCROOM_PERCEPTION_TRAIN_NUM_ENVS = 1
 
 
 def _apply_default_nav_runtime(cfg: ManagerBasedRLEnvCfg) -> None:
@@ -1377,6 +1380,71 @@ class StraferSceneCfg_ProcRoom(InteractiveSceneCfg):
     )
 
     # Intel RealSense D555 IMU (same as StraferSceneCfg)
+    d555_imu: ImuCfg = make_d555_imu_cfg()
+
+    # 44-object primitive palette (walls, furniture, clutter)
+    room_primitives: RigidObjectCollectionCfg = RigidObjectCollectionCfg(
+        rigid_objects=build_proc_room_collection_cfg(),
+    )
+
+    # Contact sensor on body_link for collision detection
+    contact_sensor = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/strafer/body_link",
+        update_period=0.0,
+        history_length=1,
+    )
+
+
+@configclass
+class StraferSceneCfg_ProcRoomPerception(InteractiveSceneCfg):
+    """Procedural primitive room with the high-resolution perception camera.
+
+    Same procedural-room geometry and per-env layout as
+    :class:`StraferSceneCfg_ProcRoom`, but with both cameras present:
+
+    - ``d555_camera`` (80x45) — the RL policy camera, kept so the deployed
+      observation shape matches training (the bridge stack's ``depth_policy``
+      token reads it).
+    - ``d555_camera_perception`` (640x360 RGB + depth) — the perception camera
+      the Isaac Sim ROS2 bridge streams as ``/d555/color/...`` and
+      ``/d555/depth/...``. Consumers access it via
+      ``env.scene["d555_camera_perception"].data.output[...]``.
+
+    Reserved for the ROS bridge / data collection, not RL training — at 640x360
+    Isaac Sim caps parallel envs at ~1-8. ``replicate_physics`` stays at its
+    default: ProcRoom rooms are per-env replicated primitives.
+    """
+
+    terrain = TerrainImporterCfg(
+        prim_path="/World/ground",
+        terrain_type="plane",
+        collision_group=-1,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            static_friction=0.5,
+            dynamic_friction=0.5,
+            restitution=0.0,
+        ),
+        debug_vis=False,
+    )
+
+    robot: ArticulationCfg = STRAFER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+    dome_light = AssetBaseCfg(
+        prim_path="/World/DomeLight",
+        spawn=sim_utils.DomeLightCfg(intensity=2000.0, color=(0.8, 0.8, 0.8)),
+    )
+
+    # Policy camera (80x45) — kept so the perception env matches the deployed
+    # observation shape; cheap to render alongside the perception camera at the
+    # 1-8 env counts this scene runs at.
+    d555_camera: TiledCameraCfg = make_d555_camera_cfg(
+        data_types=("rgb", "distance_to_image_plane"),
+    )
+
+    # Perception camera (640x360 RGB + depth) — the reason this scene exists.
+    d555_camera_perception: TiledCameraCfg = make_d555_perception_camera_cfg()
+
+    # Intel RealSense D555 IMU (same as StraferSceneCfg_ProcRoom)
     d555_imu: ImuCfg = make_d555_imu_cfg()
 
     # 44-object primitive palette (walls, furniture, clutter)

@@ -1634,6 +1634,233 @@ class TestDepthFreshnessGate(unittest.TestCase):
 
 
 # =============================================================================
+# Depth QoS + callback group + snapshot thread-safety
+# =============================================================================
+
+
+def _seq_depth_msg(seq: int, h: int = 4, w: int = 4) -> Image:
+    """A valid 32FC1 frame whose every pixel encodes ``seq`` — lets a test read
+    back which frame the tick's locked snapshot actually fed to obs assembly."""
+    msg = Image()
+    msg.encoding = "32FC1"
+    msg.height = h
+    msg.width = w
+    msg.data = np.full((h, w), float(seq), dtype=np.float32).tobytes()
+    return msg
+
+
+class TestDepthQoSProfile(unittest.TestCase):
+    """The depth subscription runs a SENSOR_DATA-style profile (BEST_EFFORT,
+    KEEP_LAST, small depth). A lost fragmented frame is then skipped (the
+    freshness gate wants only the newest frame) rather than reliably
+    retransmitted into a congested receiver, and the sub is compatible with
+    both a RELIABLE and a BEST_EFFORT publisher.
+    """
+
+    def test_depth_sub_is_best_effort_keep_last_small(self) -> None:
+        from rclpy.qos import HistoryPolicy, ReliabilityPolicy
+
+        node = InferenceNode(parameter_overrides=_make_overrides(
+            model_path="", policy_variant="DEPTH"))
+        try:
+            qos = node._depth_sub.qos_profile
+            self.assertEqual(qos.reliability, ReliabilityPolicy.BEST_EFFORT)
+            self.assertEqual(qos.history, HistoryPolicy.KEEP_LAST)
+            self.assertEqual(qos.depth, 1)
+        finally:
+            node.destroy_node()
+
+    def test_depth_sub_uses_dedicated_callback_group(self) -> None:
+        """Depth sits on its own callback group (not the tick's default group)
+        so its heavy deserialize/take runs on a separate executor thread; the
+        small subs stay on the default group with the tick."""
+        node = InferenceNode(parameter_overrides=_make_overrides(
+            model_path="", policy_variant="DEPTH"))
+        try:
+            self.assertIs(node._depth_sub.callback_group, node._depth_cb_group)
+            self.assertIsNot(
+                node._depth_sub.callback_group, node._default_cb_group)
+            self.assertIs(node._imu_sub.callback_group, node._default_cb_group)
+        finally:
+            node.destroy_node()
+
+
+class TestDepthSnapshotThreadSafety(unittest.TestCase):
+    """_on_depth runs concurrently with the tick (own callback group). The tick
+    takes ONE locked snapshot of the (array, rx_t, seq) triple, so the frame obs
+    assembly consumes always matches the seq the gate records. A bumped seq
+    paired with the previous array would silently infer on the wrong frame and
+    re-open the stale-frame hole the depth-freshness gate closed.
+    """
+
+    def _depth_node(self) -> InferenceNode:
+        node = InferenceNode(parameter_overrides=_make_overrides(
+            model_path="", policy_variant="DEPTH"))
+        node._policy = _FakeRecurrentPolicy()
+        node._cmd_vel_pub = MagicMock()
+        node._active_goal_count = 1  # mission executing: watchdog goal-fresh
+        node._tf_age_s = lambda: 0.0  # type: ignore
+        return node
+
+    def _stamp_fresh(self, node: InferenceNode) -> None:
+        # Everything but depth; the depth frame is driven per-test via _on_depth.
+        now = time.monotonic()
+        node._last_imu_rx_t = now
+        node._last_joint_states_rx_t = now
+        node._last_odom_rx_t = now
+        node._last_subgoal_rx_t = now
+        node._last_depth_rx_t = now
+
+    def test_frame_landing_mid_tick_does_not_tear(self) -> None:
+        """Deterministic anti-tear: a newer frame arrives AFTER the tick took its
+        snapshot. Assembly must still see the snapshotted (old) frame, and the
+        consume must record that same old seq — not the newer live counter."""
+        node = self._depth_node()
+        try:
+            node._on_depth(_seq_depth_msg(1))  # frame 1 pending; _depth_seq=1
+            seen = {}
+
+            def _assemble_with_midtick_arrival():
+                node._on_depth(_seq_depth_msg(2))  # frame 2 lands; _depth_seq=2
+                seen["used"] = float(node._tick_depth_meters.flat[0])
+                return np.zeros(4, dtype=np.float32)
+
+            node._assemble_observation_or_none = (  # type: ignore
+                _assemble_with_midtick_arrival)
+            self._stamp_fresh(node)
+            node._on_tick()
+
+            self.assertEqual(seen["used"], 1.0)             # obs saw frame 1
+            self.assertEqual(node._last_inferred_depth_seq, 1)  # recorded frame 1
+            self.assertEqual(node._depth_seq, 2)            # live counter moved on
+
+            # Frame 2 is now freshest + un-consumed: the next tick runs it.
+            node._assemble_observation_or_none = (  # type: ignore
+                lambda: np.zeros(4, dtype=np.float32))
+            self._stamp_fresh(node)
+            node._on_tick()
+            self.assertEqual(node._last_inferred_depth_seq, 2)
+        finally:
+            node.destroy_node()
+
+    def test_concurrent_writer_never_tears_snapshot(self) -> None:
+        """A writer thread hammers _on_depth with frames whose content encodes
+        their seq while the tick loop runs. On every inferring tick the frame
+        fed to assembly must equal the seq recorded as consumed — the snapshot
+        never pairs a fresh seq with a stale array."""
+        node = self._depth_node()
+        try:
+            used_vals: list = []
+
+            def _assemble_records():
+                arr = node._tick_depth_meters
+                used_vals.append(None if arr is None else float(arr.flat[0]))
+                return np.zeros(4, dtype=np.float32)
+
+            node._assemble_observation_or_none = _assemble_records  # type: ignore
+
+            stop = threading.Event()
+
+            def _writer() -> None:
+                s = 0
+                while not stop.is_set():
+                    s += 1
+                    node._on_depth(_seq_depth_msg(s))
+
+            writer = threading.Thread(target=_writer)
+            writer.start()
+            mismatches = []
+            try:
+                for _ in range(300):
+                    before = len(used_vals)
+                    self._stamp_fresh(node)
+                    node._on_tick()
+                    if len(used_vals) > before and used_vals[-1] is not None:
+                        if used_vals[-1] != node._last_inferred_depth_seq:
+                            mismatches.append(
+                                (used_vals[-1], node._last_inferred_depth_seq))
+            finally:
+                stop.set()
+                writer.join(timeout=2.0)
+
+            self.assertFalse(writer.is_alive())
+            self.assertEqual(mismatches, [], f"snapshot tore: {mismatches[:5]}")
+            self.assertLessEqual(
+                node._last_inferred_depth_seq, node._depth_seq)
+            self.assertGreater(node._policy.call_count, 0)  # inferences did run
+        finally:
+            node.destroy_node()
+
+    def test_real_assembly_reads_snapshot_not_live_depth(self) -> None:
+        """The REAL _assemble_observation_or_none must build obs from the tick's
+        snapshot (_tick_depth_meters), never the live _last_depth_meters a
+        concurrent _on_depth is replacing — the leg every gate test bypasses by
+        monkeypatching assembly. Pinned two ways: (1) a valid snapshot with a
+        None live field still assembles (the None-guard reads the snapshot);
+        (2) with snapshot and live set to different frames, obs follows the
+        snapshot's depth, not the live one's."""
+        from geometry_msgs.msg import TransformStamped
+        from nav_msgs.msg import Odometry
+        from sensor_msgs.msg import Imu, JointState
+
+        from strafer_shared.constants import (
+            PERCEPTION_HEIGHT,
+            PERCEPTION_WIDTH,
+            WHEEL_JOINT_NAMES,
+        )
+
+        node = InferenceNode(parameter_overrides=_make_overrides(
+            model_path="", policy_variant="DEPTH"))
+        try:
+            now = time.monotonic()
+            imu = Imu()
+            imu.linear_acceleration.z = 9.81
+            node._last_imu = imu
+            node._last_imu_rx_t = now
+            js = JointState()
+            js.name = list(WHEEL_JOINT_NAMES)
+            js.velocity = [1.0, -1.0, 1.0, -1.0]
+            node._last_joint_states = js
+            node._last_joint_states_rx_t = now
+            odom = Odometry()
+            odom.twist.twist.linear.x = 0.2
+            node._last_odom = odom
+            node._last_odom_rx_t = now
+            node._last_goal_map = _make_pose(2.0, 0.0)  # DEPTH referent
+            tf = TransformStamped()
+            tf.transform.rotation.w = 1.0
+            node._tf_buffer.lookup_transform = MagicMock(return_value=tf)
+
+            snap = np.full(
+                (PERCEPTION_HEIGHT, PERCEPTION_WIDTH), 1.5, dtype=np.float32)
+            live = np.full(
+                (PERCEPTION_HEIGHT, PERCEPTION_WIDTH), 3.0, dtype=np.float32)
+
+            # (1) the None-guard reads the snapshot: valid snapshot + None live
+            # field must still assemble (a live-field guard would return None).
+            node._tick_depth_meters = snap
+            node._last_depth_meters = None
+            self.assertIsNotNone(node._assemble_observation_or_none())
+
+            # Reference obs for each frame (snapshot == live, no ambiguity).
+            node._tick_depth_meters = snap
+            node._last_depth_meters = snap
+            obs_snap = node._assemble_observation_or_none()
+            node._tick_depth_meters = live
+            node._last_depth_meters = live
+            obs_live = node._assemble_observation_or_none()
+            self.assertFalse(np.array_equal(obs_snap, obs_live))  # distinguishable
+
+            # (2) snapshot and live disagree -> obs must follow the snapshot.
+            node._tick_depth_meters = snap
+            node._last_depth_meters = live
+            np.testing.assert_array_equal(
+                node._assemble_observation_or_none(), obs_snap)
+        finally:
+            node.destroy_node()
+
+
+# =============================================================================
 # Diagnostic obs dump (--dump-obs-to-jsonl / obs_dump_path)
 # =============================================================================
 

@@ -1165,8 +1165,7 @@ _PROCROOM_NOCAM_PLAY_NUM_ENVS = 50
 _PROCROOM_DEPTH_PLAY_NUM_ENVS = 8
 _PROCROOM_ENV_SPACING = 10.0
 # The perception scene renders the 640x360 camera, which caps parallel envs at
-# ~1-8 (same reason as _INFINIGEN_PERCEPTION_TRAIN_NUM_ENVS) — do not raise this
-# to the policy-camera count.
+# ~1-8 — do not raise this to the policy-camera count.
 _PROCROOM_PERCEPTION_TRAIN_NUM_ENVS = 1
 
 
@@ -1411,11 +1410,9 @@ class StraferSceneCfg_ProcRoomPerception(InteractiveSceneCfg):
       ``/d555/depth/...``. Consumers access it via
       ``env.scene["d555_camera_perception"].data.output[...]``.
 
-    Mirrors :class:`StraferSceneCfg_InfinigenPerception` for the ProcRoom scene
-    source. Reserved for the ROS bridge / data collection, not RL training — at
-    640x360 Isaac Sim caps parallel envs at ~1-8. ``replicate_physics`` is left
-    at its default (unlike the Infinigen perception scene) because ProcRoom
-    rooms are per-env replicated primitives, not one globally-shared prim.
+    Reserved for the ROS bridge / data collection, not RL training — at 640x360
+    Isaac Sim caps parallel envs at ~1-8. ``replicate_physics`` stays at its
+    default: ProcRoom rooms are per-env replicated primitives.
     """
 
     terrain = TerrainImporterCfg(

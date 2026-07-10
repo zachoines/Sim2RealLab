@@ -687,16 +687,15 @@ class StraferNavCfg_BridgeAutonomy(_ComposedStraferNavEnvCfg):
 
 @configclass
 class StraferNavCfg_BridgeAutonomy_ProcRoom(_ComposedStraferNavEnvCfg):
-    """Bridge sim-in-the-loop on a ProcRoom (training-distribution) scene.
+    """Bridge sim-in-the-loop on a procedural-room (training-distribution) scene.
 
-    Same expanded capture stack as :class:`StraferNavCfg_BridgeAutonomy`
-    (full RGB + full depth + policy depth) but the world is a procedural
-    primitive room generated in-env, not a loaded Infinigen USD. Isolates the
-    scene axis of the drive-fault matrix: a training-distribution scene run
-    through the deploy pipeline. No Infinigen scene-USD / occupancy-spawn
-    machinery runs — the procroom source generates its geometry and spawns the
-    robot from its own free-space events — so this variant is ``--mode bridge``
-    only (no ``--scene-usd``, no ``--mode harness``)."""
+    The expanded capture stack (full RGB + full depth + policy depth) on the
+    ``procroom`` scene source: the world is a procedural primitive room
+    generated in-env, and the robot spawns from the room's own BFS free-space
+    events. Runs the deploy pipeline against a training-distribution scene — the
+    scene axis of the drive-fault matrix. ``--mode bridge`` only: the procedural
+    scene is event-generated, so there is no scene USD for ``--scene-usd`` /
+    ``--mode harness`` to load."""
 
     sensors = SensorStackCfg(
         cameras_required=("rgb_full", "depth_full", "depth_policy"),

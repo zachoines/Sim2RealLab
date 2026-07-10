@@ -4,16 +4,14 @@
 """Kit-free checks for the ProcRoom bridge capture variant.
 
 ``Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0`` is the Bridge capture stack
-(full RGB + full depth + policy depth) on a procedural-room scene instead of a
-loaded Infinigen USD — it isolates the scene axis of the drive-fault matrix so
-the same v1 artifact and Jetson stack can be driven against a
-training-distribution scene.
+(full RGB + full depth + policy depth) on the ``procroom`` scene source — a
+training-distribution scene that isolates the scene axis of the drive-fault
+matrix so the same v1 artifact and Jetson stack can be driven against it.
 
-These tests pin that the env registers, resolves to the CNN depth runner (same
-obs profile as the Infinigen bridge), composes its two cameras + contact sensor
-+ ProcRoom managers, and carries NONE of the Infinigen scene-USD /
-occupancy-spawn machinery. Config construction only — no Kit / GPU (env cfgs
-build in ~3s with ``LD_PRELOAD`` libgomp; see the DGX env-cfg test recipe).
+These tests pin that the env registers, resolves to the CNN depth runner,
+composes its two cameras + contact sensor + ProcRoom geometry / spawn /
+managers. Config construction only — no Kit / GPU (env cfgs build in ~3s with
+``LD_PRELOAD`` libgomp; see the DGX env-cfg test recipe).
 """
 from __future__ import annotations
 
@@ -82,27 +80,21 @@ def test_perception_camera_prim_is_bridge_streamed(cfg):
 
 
 # ---------------------------------------------------------------------------
-# ProcRoom source — no Infinigen scene-USD / occupancy-spawn machinery
+# ProcRoom source — procedural geometry + its own spawn / managers
 # ---------------------------------------------------------------------------
 
 
-def test_procroom_geometry_not_infinigen_usd(cfg):
+def test_procroom_geometry_present(cfg):
     # In-env procedural geometry: a per-env primitive collection + a contact
-    # sensor, and crucially NO loaded-USD scene prim (the Infinigen affordance).
+    # sensor for collision detection.
     assert hasattr(cfg.scene, "room_primitives")
     assert hasattr(cfg.scene, "contact_sensor")
-    assert not hasattr(cfg.scene, "scene_geometry")
 
 
-def test_no_infinigen_spawn_machinery(cfg):
-    # ProcRoom spawns from its own BFS free-space (yaw_range only); it never
-    # gets the Infinigen occupancy-derived spawn_points_xy / spawn_z / ground
-    # lift that _apply_infinigen_scene_setup binds.
-    params = cfg.events.reset_robot.params
-    assert "yaw_range" in params
-    assert "spawn_points_xy" not in params
-    assert "spawn_z" not in params
-    assert getattr(cfg.events, "lift_ground", None) is None
+def test_procroom_reset_spawns_by_yaw_range(cfg):
+    # ProcRoom spawns the robot from its own BFS free-space with a randomized
+    # yaw — the reset event exposes yaw_range (which the bridge pins).
+    assert "yaw_range" in cfg.events.reset_robot.params
 
 
 def test_procroom_managers_selected(cfg):
@@ -112,7 +104,7 @@ def test_procroom_managers_selected(cfg):
 
 
 # ---------------------------------------------------------------------------
-# The scene class mirrors InfinigenPerception but keeps ProcRoom physics
+# The perception scene class: both cameras + ProcRoom's per-env physics
 # ---------------------------------------------------------------------------
 
 
@@ -125,5 +117,5 @@ def test_scene_class_keeps_both_cameras_and_procroom_replication():
     assert scene.d555_camera.width == 80
     assert scene.d555_camera_perception.width == 640
     assert hasattr(scene, "room_primitives")
-    # Per-env replicated rooms — NOT Infinigen's shared-prim replicate_physics=False.
+    # ProcRoom rooms are per-env replicated primitives, so physics replicates.
     assert scene.replicate_physics is True

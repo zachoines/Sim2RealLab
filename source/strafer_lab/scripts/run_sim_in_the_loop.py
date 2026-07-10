@@ -118,14 +118,14 @@ def _apply_scene_usd_spawn_override(env_cfg: Any, scene_usd: Path) -> None:
     )
     from strafer_lab.tools import scene_connectivity
 
-    # --scene-usd swaps a loaded Infinigen scene USD; it is meaningless for a
-    # source whose geometry is generated in-env (e.g. ProcRoom), which has no
-    # scene_geometry prim to re-point. Fail loud rather than AttributeError.
+    # --scene-usd re-points a loaded scene USD; a task whose geometry is
+    # generated in-env has no scene_geometry prim to re-point. Fail loud rather
+    # than AttributeError.
     if not hasattr(env_cfg.scene, "scene_geometry"):
         raise ValueError(
-            "--scene-usd only applies to Infinigen-source tasks (a loaded scene "
-            "USD). This task's scene has no 'scene_geometry' prim — its geometry "
-            "is generated in-env — so run it with --mode bridge and no --scene-usd."
+            "--scene-usd requires a task whose scene loads a USD (it has a "
+            "'scene_geometry' prim). This task generates its scene in-env, so "
+            "run it with --mode bridge and no --scene-usd."
         )
 
     resolved = scene_usd.resolve()

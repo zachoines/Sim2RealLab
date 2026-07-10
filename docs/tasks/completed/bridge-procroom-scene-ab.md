@@ -1,5 +1,10 @@
 # ProcRoom-scene bridge A/B — isolate the scene axis of the v1 drive-fault matrix
 
+**Status:** Shipped 2026-07-09 in `d8483cf` (DGX). The cfg + Kit-free tests + the
+standing regression rig landed; the deploy×ProcRoom A/B read-out is the rig's
+operator-run purpose (run it against a v1 checkpoint per the protocol below).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/150
+
 **Type:** investigation
 **Owner:** DGX (cfg) / operator-run experiment (DGX sim + Jetson autonomy)
 **Priority:** P2
@@ -17,11 +22,11 @@ right lane.**
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [context/env-composition-contract.md](../../context/env-composition-contract.md)
-- [context/bridge-runtime-invariants.md](../../context/bridge-runtime-invariants.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/env-composition-contract.md](../context/env-composition-contract.md)
+- [context/bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
 
 ## Context
 
@@ -87,20 +92,17 @@ instead of `infinigen`:
   `--mode bridge` only: this variant does **not** take `--scene-usd` or
   `--mode harness` (ProcRoom has no loaded scene USD to resolve; the cfg fails
   loud if you try).
-  - **Same-session pipeline evidence (optional, gated on the gym-dumper):**
-    add `--obs-dump-path <path> --obs-dump-variant DEPTH_SUBGOAL` to emit the
-    training-side obs dump for the strict `--gym-dump` parity join. **These two
-    flags come from the gym-obs-dumper track (PR #149) and are not on `main`
-    yet** — land #149 first, or run the behavioral A/B without them today.
+  - **Same-session pipeline evidence:** add `--obs-dump-path <path>
+    --obs-dump-variant DEPTH_SUBGOAL` to emit the training-side obs dump for the
+    strict `--gym-dump` parity join (the gym-side dumper, now on `main`).
 - **Jetson (autonomy):** normal bringup (`hybrid_nav2_strafer` + v1 +
   `replan_period_s=0.2`). **No VLM mission is possible** (ProcRoom has no
   groundable objects) — inject the goal directly:
   `ros2 action send_goal /strafer_inference/navigate_to_pose
   nav2_msgs/action/NavigateToPose "<pose ~2 m ahead in map frame>"` (the
   established smoke pattern; SLAM maps the procedural room fine).
-- **Capture:** node obs dump + gym dump (if #149 landed) + the standard bag →
-  the session yields BOTH the behavioral A/B and a ProcRoom-scene strict parity
-  join.
+- **Capture:** node obs dump + gym dump + the standard bag → the session yields
+  BOTH the behavioral A/B and a ProcRoom-scene strict parity join.
 - **Read-out:**
   - forward-driving + parking ≈ play-video behavior ⇒ **domain gap** (route:
     the training lane — ProcRoom-enrichment stories);
@@ -115,7 +117,7 @@ instead of `infinigen`:
       640×360 perception, each RGB + depth), the contact sensor, and the
       ProcRoom managers — with no Infinigen `scene_geometry` / `spawn_points_xy`
       / `spawn_z` / ground-lift machinery. Pinned Kit-free in
-      [`tests/navigation/test_bridge_procroom_cfg.py`](../../../../source/strafer_lab/tests/navigation/test_bridge_procroom_cfg.py)
+      [`tests/navigation/test_bridge_procroom_cfg.py`](../../../source/strafer_lab/tests/navigation/test_bridge_procroom_cfg.py)
       and by `test_bridge_procroom_expanded_stack` in the composition-contract
       suite; `EXPECTED_ENVS` updated so the exact-set registration gate passes.
 - [ ] **Experiment read-out (operator/triage):** the DGX-sim + Jetson-autonomy
@@ -136,10 +138,10 @@ instead of `infinigen`:
 - **ProcRoom scene enrichment / retrains.** If the read-out is *domain gap*, the
   fix is a training-lane story (richer ProcRoom obstacle geometry, moving
   obstacles, wider off-path bounds) validated against this rig — not this brief.
-- **`--mode harness` / `--scene-usd` on the procroom source.** These are
-  Infinigen-substrate affordances (loaded scene USD + `scenes_metadata.json`);
-  ProcRoom has no such artifact, so they are intentionally unsupported here.
-- **The gym-obs-dumper (`--obs-dump-*` / `--gym-dump`) itself.** That is the
-  gym-obs-dumper track (PR #149); this brief only consumes it when it lands.
+- **`--mode harness` / `--scene-usd` on the procroom source.** These load a
+  scene USD (+ `scenes_metadata.json`); ProcRoom generates its scene in-env, so
+  they are intentionally unsupported here.
+- **The gym-obs-dumper (`--obs-dump-*` / `--gym-dump`) itself** (already on
+  `main`); this brief only consumes it.
 - **The Infinigen-mission failure diagnosis.** That is the deploy × Infinigen
   cell; this experiment attributes the axis, it does not fix the mission path.

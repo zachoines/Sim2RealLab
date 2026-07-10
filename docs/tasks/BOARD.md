@@ -30,7 +30,6 @@ that ships them; see "Shipping a brief: order of operations" in
 | [`harness-architecture`](active/harness/harness-architecture.md) Tier 2 — bridge driver migration | DGX | post-merge follow-up ([#88](https://github.com/zachoines/Sim2RealLab/pull/88) merged) | pending operator gate — the multi-room end-to-end acceptance is operator-run per the PR test plan. Tier 2 shipped: bridge `--mode harness` → LeRobot v3 writer; both `capture.py` bridge cells wired (queue cell against a hand-authored fixture — mission-generator unshipped); `--inject-bad-grounding` + detections columns; unit suites + Jetson-free Kit smoke green. Brief stays active until Tier 3 ships. |
 | [`depth-subgoal-env`](active/trained-policy/depth-subgoal-env.md) | DGX | [#138](https://github.com/zachoines/Sim2RealLab/pull/138) (merged) | Delivered Phases 1–4 (`PolicyVariant.DEPTH_SUBGOAL`, depth-aware obstacle-proximity reward, depth×subgoal env composition + 4 task IDs, Kit-free tests). Brief stays active — Phase 5 (the DEPTH-rate training run + converged checkpoint) is operator-gated and closes it later. |
 | [`depth-subgoal-hybrid-runtime`](active/trained-policy/depth-subgoal-hybrid-runtime.md) | Jetson | [#140](https://github.com/zachoines/Sim2RealLab/pull/140) merged | Runtime consumer of `PolicyVariant.DEPTH_SUBGOAL` (defined by #138) + full combo test cell + sim depth-timeout override + deploy depth-scale fix. Brief stays active — the live acceptance (load the converged checkpoint + hybrid sim mission) is pending, gated on `depth-subgoal-env` training + the rig. |
-| [`bridge-procroom-scene-ab`](active/trained-policy/bridge-procroom-scene-ab.md) | DGX | [#150](https://github.com/zachoines/Sim2RealLab/pull/150) | Shipped the ProcRoom bridge variant `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0` (StraferSceneCfg_ProcRoomPerception + composed cfg + Kit-free tests) — isolates the scene axis of the v1 drive-fault matrix. Brief stays active — the deploy×ProcRoom A/B read-out (domain-gap vs pipeline) is operator-run and closes it. |
 
 ---
 
@@ -73,7 +72,6 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | [`domain-randomization-audit`](active/trained-policy/domain-randomization-audit.md) | P1 | active | DGX |
 | [`goal-noise-training`](active/trained-policy/goal-noise-training.md) | P2 | active | DGX |
 | [`depth-subgoal-env`](active/trained-policy/depth-subgoal-env.md) | P3 | active | DGX |
-| [`bridge-procroom-scene-ab`](active/trained-policy/bridge-procroom-scene-ab.md) | P2 | active (cfg shipped [#150](https://github.com/zachoines/Sim2RealLab/pull/150); A/B operator-gated) | DGX |
 | [`depth-subgoal-reactive-avoidance`](parked/trained-policy/depth-subgoal-reactive-avoidance.md) | P3 | parked | DGX |
 | [`depth-subgoal-hybrid-runtime`](active/trained-policy/depth-subgoal-hybrid-runtime.md) | P3 | active | Jetson |
 | [`batched-gpu-path-planner`](parked/trained-policy/batched-gpu-path-planner.md) | P3 | parked | DGX |

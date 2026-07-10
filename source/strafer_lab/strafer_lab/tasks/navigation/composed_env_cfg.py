@@ -83,6 +83,7 @@ from .strafer_env_cfg import (
     StraferSceneCfg_NoCam,
     StraferSceneCfg_ProcRoom,
     StraferSceneCfg_ProcRoom_NoCam,
+    StraferSceneCfg_ProcRoomPerception,
     TerminationsCfg,
     TerminationsCfg_ProcRoom,
     TerminationsCfg_ProcRoom_Subgoal,
@@ -342,7 +343,15 @@ def _select_scene(scene_source: SceneSourceCfg, sensors: SensorStackCfg):
                 env_spacing=base._STANDARD_ENV_SPACING,
             )
     elif kind == "procroom":
-        if has_policy_cam:
+        # Perception first: the bridge stack requests BOTH a policy and a
+        # perception camera, so has_policy_cam is also true — mirror the
+        # infinigen arm's order and pick the perception scene when asked.
+        if has_perception_cam:
+            scene = StraferSceneCfg_ProcRoomPerception(
+                num_envs=base._PROCROOM_PERCEPTION_TRAIN_NUM_ENVS,
+                env_spacing=base._PROCROOM_ENV_SPACING,
+            )
+        elif has_policy_cam:
             scene = StraferSceneCfg_ProcRoom(
                 num_envs=base._PROCROOM_DEPTH_TRAIN_NUM_ENVS,
                 env_spacing=base._PROCROOM_ENV_SPACING,
@@ -673,6 +682,26 @@ class StraferNavCfg_BridgeAutonomy(_ComposedStraferNavEnvCfg):
         cameras_required=("rgb_full", "depth_full", "depth_policy"),
     )
     scene_source = SceneSourceCfg(kind="infinigen")
+    realism = RealismCfg(level="real")
+
+
+@configclass
+class StraferNavCfg_BridgeAutonomy_ProcRoom(_ComposedStraferNavEnvCfg):
+    """Bridge sim-in-the-loop on a ProcRoom (training-distribution) scene.
+
+    Same expanded capture stack as :class:`StraferNavCfg_BridgeAutonomy`
+    (full RGB + full depth + policy depth) but the world is a procedural
+    primitive room generated in-env, not a loaded Infinigen USD. Isolates the
+    scene axis of the drive-fault matrix: a training-distribution scene run
+    through the deploy pipeline. No Infinigen scene-USD / occupancy-spawn
+    machinery runs — the procroom source generates its geometry and spawns the
+    robot from its own free-space events — so this variant is ``--mode bridge``
+    only (no ``--scene-usd``, no ``--mode harness``)."""
+
+    sensors = SensorStackCfg(
+        cameras_required=("rgb_full", "depth_full", "depth_policy"),
+    )
+    scene_source = SceneSourceCfg(kind="procroom")
     realism = RealismCfg(level="real")
 
 

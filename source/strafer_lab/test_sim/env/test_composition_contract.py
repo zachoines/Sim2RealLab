@@ -394,6 +394,20 @@ def test_bridge_autonomy_expanded_stack():
     assert pol is not None and "distance_to_image_plane" in list(pol.data_types)
 
 
+def test_bridge_procroom_expanded_stack():
+    """The ProcRoom bridge variant renders the SAME expanded stack as the
+    Infinigen bridge (perception RGB+depth + policy depth) but over a
+    procedural room — the procroom source, and none of the Infinigen
+    scene-USD machinery (no scene_geometry prim)."""
+    cfg = composed.StraferNavCfg_BridgeAutonomy_ProcRoom()
+    per = cfg.scene.d555_camera_perception
+    assert "rgb" in list(per.data_types) and "distance_to_image_plane" in list(per.data_types)
+    pol = cfg.scene.d555_camera
+    assert pol is not None and "distance_to_image_plane" in list(pol.data_types)
+    assert hasattr(cfg.scene, "room_primitives")
+    assert not hasattr(cfg.scene, "scene_geometry")
+
+
 def test_capture_variant_overrides_stack_per_session():
     """The stack is a per-session choice: overriding cameras_required on the
     axis cfg changes what the env renders."""

@@ -115,7 +115,7 @@ instead of `infinigen`:
       640×360 perception, each RGB + depth), the contact sensor, and the
       ProcRoom managers — with no Infinigen `scene_geometry` / `spawn_points_xy`
       / `spawn_z` / ground-lift machinery. Pinned Kit-free in
-      [`tests/navigation/test_bridge_procroom_cfg.py`](../../../source/strafer_lab/tests/navigation/test_bridge_procroom_cfg.py)
+      [`tests/navigation/test_bridge_procroom_cfg.py`](../../../../source/strafer_lab/tests/navigation/test_bridge_procroom_cfg.py)
       and by `test_bridge_procroom_expanded_stack` in the composition-contract
       suite; `EXPECTED_ENVS` updated so the exact-set registration gate passes.
 - [ ] **Experiment read-out (operator/triage):** the DGX-sim + Jetson-autonomy

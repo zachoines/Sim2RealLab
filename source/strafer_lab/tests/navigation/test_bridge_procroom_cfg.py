@@ -45,7 +45,7 @@ def test_resolves_to_procroom_bridge_cfg_and_depth_runner():
     assert kwargs["env_cfg_entry_point"].endswith(
         ":StraferNavCfg_BridgeAutonomy_ProcRoom"
     )
-    # Depth obs profile → the CNN depth runner, exactly like the Infinigen bridge.
+    # Depth obs profile → the CNN depth runner.
     assert kwargs["rsl_rl_cfg_entry_point"].endswith(":STRAFER_PPO_DEPTH_RUNNER_CFG")
 
 

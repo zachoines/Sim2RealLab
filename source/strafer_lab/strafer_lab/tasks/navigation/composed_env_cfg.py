@@ -344,8 +344,8 @@ def _select_scene(scene_source: SceneSourceCfg, sensors: SensorStackCfg):
             )
     elif kind == "procroom":
         # Perception first: the bridge stack requests BOTH a policy and a
-        # perception camera, so has_policy_cam is also true — mirror the
-        # infinigen arm's order and pick the perception scene when asked.
+        # perception camera, so has_policy_cam is also true — check
+        # has_perception_cam first so the perception scene wins.
         if has_perception_cam:
             scene = StraferSceneCfg_ProcRoomPerception(
                 num_envs=base._PROCROOM_PERCEPTION_TRAIN_NUM_ENVS,

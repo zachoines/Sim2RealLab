@@ -282,6 +282,8 @@ class ObsParityReport:
     variant: PolicyVariant
     join: JoinResult
     per_dim_max_abs: np.ndarray  # (D,) max abs delta over matched ticks
+    masked_dims: np.ndarray  # indices of NaN-masked dims (excluded from bounds)
+    masked_names: list[str]  # their per-dim names
     scalar_max_abs: float
     scalar_worst_dim: int
     scalar_worst_name: str
@@ -291,6 +293,10 @@ class ObsParityReport:
     depth_worst_name: Optional[str]
     depth_bound: Optional[float]
     min_matched_fraction: float
+
+    @property
+    def n_masked(self) -> int:
+        return int(self.masked_dims.size)
 
     @property
     def scalar_pass(self) -> bool:
@@ -328,6 +334,14 @@ def compute_obs_parity(
     Splits the delta into the scalar block (bounded at ``scalar_bound``) and
     the depth block (``depth_bound``); reports each separately with the worst
     offending dimension named.
+
+    A dimension that is NaN in either stream is **masked**: it is excluded from
+    the pass/fail bound and instead counted and named in the report. This is how
+    the gym-side dump declares the dims it cannot compute — the referent-derived
+    triplet (the rolling subgoal is picked on the Jetson) and ``last_action``
+    (node-internal) — without forcing an all-NaN scalar block to FAIL. Streams
+    with no NaN dims (the self-check, or a full node-vs-node compare) mask
+    nothing, so the bound is unchanged.
     """
     if a.variant is not b.variant:
         raise ValueError(
@@ -340,18 +354,31 @@ def compute_obs_parity(
     names = dim_names(variant)
     scalar_idx, depth_range = split_indices(variant)
 
+    masked = np.zeros(variant.obs_dim, dtype=bool)
     if join.n_matched == 0:
         per_dim = np.full(variant.obs_dim, np.nan, dtype=np.float64)
-        scalar_max = float("inf")
-        scalar_worst = int(scalar_idx[0])
     else:
         da = a.obs[[ia for ia, _, _ in join.pairs]]
         db = b.obs[[ib for _, ib, _ in join.pairs]]
         per_dim = np.max(np.abs(da.astype(np.float64) - db.astype(np.float64)), axis=0)
-        scalar_vals = per_dim[scalar_idx]
-        local = int(np.argmax(scalar_vals))
-        scalar_worst = int(scalar_idx[local])
-        scalar_max = float(scalar_vals[local])
+        # NaN in either stream -> can't be bound-checked; mask it (see docstring).
+        masked = np.isnan(per_dim)
+
+    masked_dims = np.nonzero(masked)[0]
+    masked_names = [names[i] for i in masked_dims]
+
+    scalar_unmasked = scalar_idx[~masked[scalar_idx]]
+    if join.n_matched == 0:
+        scalar_max = float("inf")
+        scalar_worst = int(scalar_idx[0])
+    elif scalar_unmasked.size == 0:
+        # Every scalar dim was masked: nothing left to bound in this block.
+        scalar_max = 0.0
+        scalar_worst = int(scalar_idx[0])
+    else:
+        local = int(np.argmax(per_dim[scalar_unmasked]))
+        scalar_worst = int(scalar_unmasked[local])
+        scalar_max = float(per_dim[scalar_worst])
 
     depth_max: Optional[float] = None
     depth_worst: Optional[int] = None
@@ -360,20 +387,26 @@ def compute_obs_parity(
     if depth_range is not None:
         start, stop = depth_range
         used_depth_bound = depth_bound
+        depth_idx = np.arange(start, stop)
+        depth_unmasked = depth_idx[~masked[depth_idx]]
         if join.n_matched == 0:
             depth_max = float("inf")
             depth_worst = start
+        elif depth_unmasked.size == 0:
+            depth_max = 0.0
+            depth_worst = start
         else:
-            depth_vals = per_dim[start:stop]
-            dlocal = int(np.argmax(depth_vals))
-            depth_worst = start + dlocal
-            depth_max = float(depth_vals[dlocal])
+            local = int(np.argmax(per_dim[depth_unmasked]))
+            depth_worst = int(depth_unmasked[local])
+            depth_max = float(per_dim[depth_worst])
         depth_worst_name = names[depth_worst]
 
     return ObsParityReport(
         variant=variant,
         join=join,
         per_dim_max_abs=per_dim,
+        masked_dims=masked_dims,
+        masked_names=masked_names,
         scalar_max_abs=scalar_max,
         scalar_worst_dim=scalar_worst,
         scalar_worst_name=names[scalar_worst],
@@ -731,6 +764,16 @@ def format_obs_report(report: ObsParityReport) -> str:
         f"worst |dt|={j.worst_dt * 1e3:.3f} ms",
         f"coverage: {'OK' if report.coverage_ok else 'FAIL'} "
         f"(>= {report.min_matched_fraction * 100:.0f}% required)",
+    ]
+    if report.n_masked:
+        preview = ", ".join(report.masked_names[:6])
+        if report.n_masked > 6:
+            preview += f", ... (+{report.n_masked - 6} more)"
+        lines.append(
+            f"masked dims: {report.n_masked} NaN in a stream "
+            f"(not gym-computable), excluded from the bound -> {preview}"
+        )
+    lines += [
         f"scalar dims: max|delta|={report.scalar_max_abs:.3e} at "
         f"{report.scalar_worst_name} (dim {report.scalar_worst_dim}) "
         f"vs bound {report.scalar_bound:.0e} -> "

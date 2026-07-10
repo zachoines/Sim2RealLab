@@ -180,6 +180,100 @@ class TestObsParity:
 
 
 # =============================================================================
+# NaN masking (the gym dump NaN-fills the referent-derived + last_action dims
+# it cannot compute; the join masks those from the bound and reports them)
+# =============================================================================
+
+
+def _non_computable_dims(variant):
+    """Flat indices of the referent-shaped triplet + last_action for a variant.
+
+    These are exactly the dims the gym-side dumper NaN-fills. Predicate walks
+    ``PolicyVariant.fields`` — no dim literals.
+    """
+    idx: list[int] = []
+    off = 0
+    for f in variant.fields:
+        if f.key.startswith(("goal_", "subgoal_")) or f.key == "last_action":
+            idx.extend(range(off, off + f.dims))
+        off += f.dims
+    return np.asarray(idx, dtype=int)
+
+
+class TestNaNMasking:
+    def test_nan_dims_masked_excluded_and_reported(self):
+        v = PolicyVariant.NOCAM_SUBGOAL
+        rng = np.random.default_rng(1)
+        t = np.arange(20) * POLICY_PERIOD_S
+        node = rng.standard_normal((20, v.obs_dim)).astype(np.float32)
+        gym = node.copy()
+        nan_dims = _non_computable_dims(v)
+        gym[:, nan_dims] = np.nan  # the dumper's referent + last_action fills
+
+        r = P.compute_obs_parity(_obs_stream(t, node, v), _obs_stream(t, gym, v))
+
+        # The NaN dims are masked, counted, and named — not silently passed.
+        assert r.n_masked == nan_dims.size
+        assert sorted(r.masked_dims.tolist()) == sorted(nan_dims.tolist())
+        assert "last_action[0]" in r.masked_names
+        assert "subgoal_relative[0]" in r.masked_names
+        # The computable dims are identical, so parity passes on what remains.
+        assert r.scalar_max_abs == 0.0
+        assert r.scalar_pass
+        assert r.passed
+        # The worst scalar dim is drawn from the unmasked set, never a NaN dim.
+        assert r.scalar_worst_dim not in set(nan_dims.tolist())
+
+    def test_masking_does_not_hide_a_real_failure_in_a_computable_dim(self):
+        v = PolicyVariant.NOCAM_SUBGOAL
+        t = np.arange(10) * POLICY_PERIOD_S
+        node = np.zeros((10, v.obs_dim), np.float32)
+        gym = node.copy()
+        gym[:, _non_computable_dims(v)] = np.nan
+        gym[3, 0] += 2e-5  # imu_accel[0] — a computable dim, above the 1e-5 bound
+
+        r = P.compute_obs_parity(_obs_stream(t, node, v), _obs_stream(t, gym, v))
+        assert not r.passed
+        assert r.scalar_worst_name == "imu_accel[0]"
+        assert r.scalar_max_abs == pytest.approx(2e-5, rel=1e-3)
+
+    def test_depth_variant_scalars_masked_depth_still_bounded(self):
+        v = PolicyVariant.DEPTH_SUBGOAL
+        t = np.arange(6) * POLICY_PERIOD_S
+        node = np.zeros((6, v.obs_dim), np.float32)
+        gym = node.copy()
+        gym[:, _non_computable_dims(v)] = np.nan  # only the scalar referent block
+        _, (dstart, _) = P.split_indices(v)
+
+        # Depth agrees within bound -> passes, with the scalar block masked.
+        gym_ok = gym.copy()
+        gym_ok[2, dstart + 50] += 2e-4
+        r_ok = P.compute_obs_parity(_obs_stream(t, node, v), _obs_stream(t, gym_ok, v))
+        assert r_ok.n_masked == _non_computable_dims(v).size
+        assert r_ok.depth_pass is True
+        assert r_ok.passed
+
+        # A depth dim beyond its bound still fails — depth is never masked.
+        gym_bad = gym.copy()
+        gym_bad[2, dstart + 50] += 2e-3
+        r_bad = P.compute_obs_parity(
+            _obs_stream(t, node, v), _obs_stream(t, gym_bad, v)
+        )
+        assert r_bad.depth_pass is False
+        assert not r_bad.passed
+        assert r_bad.depth_worst_name.startswith("depth_image[")
+
+    def test_no_nan_masks_nothing(self):
+        v = PolicyVariant.NOCAM_SUBGOAL
+        t = np.arange(5) * POLICY_PERIOD_S
+        obs = np.zeros((5, v.obs_dim), np.float32)
+        r = P.compute_obs_parity(_obs_stream(t, obs, v), _obs_stream(t, obs.copy(), v))
+        assert r.n_masked == 0
+        assert r.masked_names == []
+        assert r.passed
+
+
+# =============================================================================
 # parse_obs_records validation
 # =============================================================================
 

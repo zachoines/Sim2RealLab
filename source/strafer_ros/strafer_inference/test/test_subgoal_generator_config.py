@@ -83,7 +83,7 @@ class TestSubgoalGeneratorParamsStructure:
         path = os.path.join(pkg_dir, "config", "inference.yaml")
         with open(path) as f:
             inference = yaml.safe_load(f)
-        inference_params = inference["strafer_inference"]["ros__parameters"]
+        inference_params = inference["/**"]["ros__parameters"]
         gen_path = os.path.join(pkg_dir, "config", "subgoal_generator.yaml")
         with open(gen_path) as f:
             gen = yaml.safe_load(f)

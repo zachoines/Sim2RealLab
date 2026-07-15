@@ -225,6 +225,14 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export ROS_DOMAIN_ID=42
 ```
 
+The perception depth stream is large (fragmented ~921 KB frames). Under load the kernel-default receive socket buffer overflows and whole frames are dropped at the receiver, so the deployment raises it: `strafer_bringup/config/cyclonedds.xml` requests a 16 MB receive buffer plus fragment-reassembly headroom, exported via `CYCLONEDDS_URI` from the bringup env files. That request is capped by `net.core.rmem_max` (default ~208 KB on the Jetson), so raise the kernel cap once per host — both the sim-in-the-loop and real-robot lanes — or the tuning is inert:
+
+```bash
+sudo cp source/strafer_ros/strafer_bringup/config/99-cyclonedds-rmem.conf /etc/sysctl.d/
+sudo sysctl --system
+cat /proc/sys/net/core/rmem_max   # expect 16777216
+```
+
 ## Design
 
 **Safety-critical execution stays local.** Wheel commands, watchdog, odometry, TF, and the SLAM / Nav2 loop all run on the Jetson. The workstation-hosted planner / VLM services are advisory: the executor can continue to refuse and cancel missions regardless of network state.

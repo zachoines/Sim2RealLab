@@ -1,15 +1,20 @@
-strafer_inference:
+# The inference node is launched namespaced (name AND namespace =
+# strafer_inference, FQN /strafer_inference/strafer_inference). A bare
+# "strafer_inference:" key matches only a node in the global namespace, so
+# every value below would silently fail to bind. "/**" matches any
+# fully-qualified name and survives a future namespace change.
+/**:
   ros__parameters:
-    # TODO: point at an exported policy artifact once one is available.
-    # Empty string is the "no model loaded" sentinel; load_policy() is
-    # skipped, the navigate_to_pose action server is NOT advertised,
-    # and the autonomy-side JetsonRosClient falls back to nav2 for any
-    # mission that selects strafer_direct.
-    model_path: ""
+    # model_path and policy_variant are supplied per launch by
+    # inference.launch.py's override (env STRAFER_INFERENCE_MODEL_PATH /
+    # STRAFER_POLICY_VARIANT), applied last so it wins over this file; a bare
+    # `ros2 run` passes them with -p. Omitted here so there is one owner and no
+    # dead duplicate that could re-bind an empty model_path or wrong variant.
 
-    policy_variant: "DEPTH"
-
-    infer_period_s: 0.0333333
+    # infer_period_s is omitted on purpose: the node derives the tick period
+    # from strafer_shared.constants (POLICY_SIM_DT * POLICY_DECIMATION), so the
+    # deploy rate can't drift from training via a config literal — same reason
+    # subgoal_generator.yaml omits update_period_s.
 
     # Node-level contract name; inference.launch.py remaps it to the
     # shared /cmd_vel that the RoboClaw driver and the sim bridge

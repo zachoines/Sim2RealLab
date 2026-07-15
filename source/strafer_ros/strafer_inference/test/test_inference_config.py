@@ -23,7 +23,7 @@ def params(pkg_dir):
 
 @pytest.fixture
 def node_params(params):
-    return params["strafer_inference"]["ros__parameters"]
+    return params["/**"]["ros__parameters"]
 
 
 # =============================================================================
@@ -32,12 +32,17 @@ def node_params(params):
 
 
 class TestInferenceParamsStructure:
-    """Verify inference.yaml has the parameters the node declares."""
+    """Verify inference.yaml has the parameters the node declares.
+
+    model_path / policy_variant / infer_period_s are intentionally NOT in
+    the YAML — the first two are owned by inference.launch.py's per-launch
+    override (env-defaulted, applied last-wins), and infer_period_s is
+    derived from strafer_shared.constants so the deploy rate can't drift.
+    Their contracts are covered by TestInferenceLaunchOverrides and
+    TestInferPeriodDerivation, not here.
+    """
 
     REQUIRED_KEYS = [
-        "model_path",
-        "policy_variant",
-        "infer_period_s",
         "cmd_vel_topic",
         "active_goal_topic",
         "active_goal_keepalive_period_s",
@@ -54,37 +59,19 @@ class TestInferenceParamsStructure:
         path = os.path.join(pkg_dir, "config", "inference.yaml")
         assert os.path.isfile(path)
 
-    def test_top_level_node_key(self, params):
-        assert "strafer_inference" in params
-        assert "ros__parameters" in params["strafer_inference"]
+    def test_top_level_key_is_wildcard(self, params):
+        # The node is launched namespaced (name AND namespace both
+        # strafer_inference => FQN /strafer_inference/strafer_inference). A
+        # bare "strafer_inference:" key matches only a node in the global
+        # namespace and would bind nothing; "/**" matches any FQN. Pinned so a
+        # revert to a specific key orphans the file loudly.
+        assert "/**" in params
+        assert "ros__parameters" in params["/**"]
+        assert "strafer_inference" not in params
 
     @pytest.mark.parametrize("key", REQUIRED_KEYS)
     def test_key_present(self, node_params, key):
         assert key in node_params, f"Missing parameter key: {key}"
-
-    def test_policy_variant_is_supported(self, node_params):
-        from strafer_shared.policy_interface import PolicyVariant
-
-        variant = node_params["policy_variant"]
-        supported = {v.name for v in PolicyVariant}
-        assert variant in supported, (
-            f"policy_variant={variant!r} is not a PolicyVariant; "
-            f"expected one of {sorted(supported)}."
-        )
-
-    def test_default_variant_is_depth(self, node_params):
-        assert node_params["policy_variant"] == "DEPTH", (
-            "DEPTH is the MVP variant for strafer_direct; NOCAM in "
-            "strafer_direct mode has no obstacle awareness and is unsafe."
-        )
-
-    def test_infer_period_is_positive(self, node_params):
-        period = float(node_params["infer_period_s"])
-        assert period > 0.0
-        assert period <= 1.0, (
-            "Inference period > 1 s would starve the chassis of velocity "
-            "commands; the policy was trained at 30 Hz."
-        )
 
     def test_timeouts_positive(self, node_params):
         for key in (
@@ -468,3 +455,70 @@ class TestObsPipelineConfigDefaults:
         from strafer_shared.constants import TOPIC_ODOM
 
         assert node_params["odom_topic"] == TOPIC_ODOM
+
+
+# =============================================================================
+# Params-file actually binds to the launched (namespaced) node
+# =============================================================================
+
+
+class TestParamsFileBindsToLaunchedNode:
+    """A bare ``strafer_inference:`` key matches only a global-namespace node,
+    not the launched FQN ``/strafer_inference/strafer_inference`` (name AND
+    namespace both set), so the params file would bind nothing and every value
+    would fall to a code default — a gap the structure tests above cannot see,
+    since they only parse the YAML text.
+
+    These exercise rcl's real params-file -> fully-qualified-name matching
+    in-process (no DDS graph, no policy load) so a namespace change, or a
+    revert to a specific top key, fails loudly instead of orphaning the file.
+    ``trt_engine_cache_path`` is the witness: its code default is ``""``
+    (inference_node.py), so a bound non-empty value can only have come from the
+    YAML reaching the node.
+    """
+
+    # Must mirror inference.launch.py's Node(name=..., namespace=...).
+    LAUNCHED_NAME = "strafer_inference"
+    LAUNCHED_NAMESPACE = "strafer_inference"
+
+    def _bound_value(self, params_file, key, declared_default):
+        import rclpy
+
+        ctx = rclpy.Context()
+        rclpy.init(
+            context=ctx, args=["--ros-args", "--params-file", params_file]
+        )
+        try:
+            node = rclpy.create_node(
+                self.LAUNCHED_NAME,
+                namespace=self.LAUNCHED_NAMESPACE,
+                context=ctx,
+            )
+            try:
+                node.declare_parameter(key, declared_default)
+                return node.get_parameter(key).value
+            finally:
+                node.destroy_node()
+        finally:
+            rclpy.shutdown(context=ctx)
+
+    def test_wildcard_key_binds_to_namespaced_node(self, pkg_dir):
+        path = os.path.join(pkg_dir, "config", "inference.yaml")
+        assert (
+            self._bound_value(path, "trt_engine_cache_path", "")
+            == "~/.cache/strafer_inference/trt_engines"
+        ), "inference.yaml did not bind to /strafer_inference/strafer_inference"
+        assert self._bound_value(path, "trt_engine_cache_enable", False) is True
+
+    def test_bare_key_would_not_bind(self, pkg_dir, tmp_path):
+        # Negative control: a bare "strafer_inference:" key matches only a
+        # global-namespace node, not the namespaced FQN, so the value stays at
+        # the declared default. This is why the wildcard key is required.
+        src = os.path.join(pkg_dir, "config", "inference.yaml")
+        with open(src) as f:
+            data = yaml.safe_load(f)
+        bare = {"strafer_inference": data["/**"]}
+        bare_path = os.path.join(tmp_path, "bare.yaml")
+        with open(bare_path, "w") as f:
+            yaml.safe_dump(bare, f)
+        assert self._bound_value(bare_path, "trt_engine_cache_path", "") == ""

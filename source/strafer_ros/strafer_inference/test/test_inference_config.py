@@ -63,8 +63,8 @@ class TestInferenceParamsStructure:
         # The node is launched namespaced (name AND namespace both
         # strafer_inference => FQN /strafer_inference/strafer_inference). A
         # bare "strafer_inference:" key matches only a node in the global
-        # namespace and would silently bind nothing; "/**" matches any FQN.
-        # Pinned so a revert to a specific key re-orphans the file loudly.
+        # namespace and would bind nothing; "/**" matches any FQN. Pinned so a
+        # revert to a specific key orphans the file loudly.
         assert "/**" in params
         assert "ros__parameters" in params["/**"]
         assert "strafer_inference" not in params
@@ -463,16 +463,16 @@ class TestObsPipelineConfigDefaults:
 
 
 class TestParamsFileBindsToLaunchedNode:
-    """Guards the FQN-binding bug directly: inference.yaml sat under a bare
-    ``strafer_inference:`` key while the node runs at FQN
-    ``/strafer_inference/strafer_inference`` (name AND namespace both set), so
-    ROS matched nothing and every value silently fell back to a code default —
-    invisibly, because the structure tests above only parse the YAML text.
+    """A bare ``strafer_inference:`` key matches only a global-namespace node,
+    not the launched FQN ``/strafer_inference/strafer_inference`` (name AND
+    namespace both set), so the params file would bind nothing and every value
+    would fall to a code default — a gap the structure tests above cannot see,
+    since they only parse the YAML text.
 
     These exercise rcl's real params-file -> fully-qualified-name matching
-    in-process (no DDS graph, no policy load) so a future namespace change, or
-    a revert to a specific top key, fails loudly instead of re-orphaning the
-    file. ``trt_engine_cache_path`` is the witness: its code default is ``""``
+    in-process (no DDS graph, no policy load) so a namespace change, or a
+    revert to a specific top key, fails loudly instead of orphaning the file.
+    ``trt_engine_cache_path`` is the witness: its code default is ``""``
     (inference_node.py), so a bound non-empty value can only have come from the
     YAML reaching the node.
     """
@@ -511,9 +511,9 @@ class TestParamsFileBindsToLaunchedNode:
         assert self._bound_value(path, "trt_engine_cache_enable", False) is True
 
     def test_bare_key_would_not_bind(self, pkg_dir, tmp_path):
-        # Negative control: the pre-fix bare "strafer_inference:" key does not
-        # match the namespaced FQN, so the value stays at the declared default.
-        # This is the exact failure the wildcard key repairs.
+        # Negative control: a bare "strafer_inference:" key matches only a
+        # global-namespace node, not the namespaced FQN, so the value stays at
+        # the declared default. This is why the wildcard key is required.
         src = os.path.join(pkg_dir, "config", "inference.yaml")
         with open(src) as f:
             data = yaml.safe_load(f)

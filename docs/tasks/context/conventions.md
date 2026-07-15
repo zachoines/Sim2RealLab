@@ -51,6 +51,18 @@ specific bug, or behavior that would surprise a reader.
   module under `docs/tasks/context/` or the relevant design doc.
 - Restatement of what the code does. Identifier names already do that.
 - Speculation about future work (`could later be extended to ...`).
+- Diff-relative phrasing (`now runs concurrently`, `no longer gated`,
+  `after the QoS change`). A comment describes the code as it *is*, not
+  as it changed — the diff already carries the "what changed."
+- Troubleshooting narrative — the rig incident that motivated the code
+  (`the node saw stale=['depth'] while depth still flowed`, `starved
+  during full bringup + TRT build`). Keep the *functional* fact the code
+  depends on (a payload size, a drop mechanism, a kernel clamp); the
+  story of which node starved on which day goes to the brief.
+- Specific workstation hardware. `DGX` is banned in source/config/test;
+  `Jetson` is fine — it is the platform `strafer_ros` targets and the one
+  meaningful hardware distinction. Sensor / chassis part names (`D555`,
+  RoboClaw) are facts about the code and are fine.
 
 **Why:** comments rot. Architecture prose that names absent files,
 knobs, or briefs goes stale silently and misleads the next reader.
@@ -72,6 +84,10 @@ because they're tied to the code immediately below them.
   single line on the one BT.CPP gotcha a future tuner would
   re-introduce if not warned. Same content density, fraction of
   the prose.
+- **Scope.** These rules govern shipped **source / config / test**
+  content. `docs/tasks/` briefs and `BOARD.md` are themselves transient
+  docs — PR links, task history, and rig-incident narratives belong
+  there, not in code.
 
 This is the project-wide rule; section
 [`#no-transient-documentation-references-in-code`](#no-transient-documentation-references-in-code)

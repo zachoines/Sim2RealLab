@@ -23,7 +23,14 @@ Thread safety: the action server lives in a ``ReentrantCallbackGroup``
 so ``execute_callback`` can block on the mission while the timer keeps
 ticking; the policy mutex serializes ``policy(obs)`` and
 ``policy.reset()`` per the recurrent hidden-state contract's
-thread-safety point.
+thread-safety point. Depth runs in its own callback group, so
+``_on_depth`` and the tick execute on separate executor threads: a lock
+guards the depth ``(array, rx_t, seq)`` triple, and each tick snapshots
+it once so the watchdog, the freshness gate, and obs assembly all read
+one coherent frame — a bumped seq paired with the previous array would
+silently infer on the wrong frame. Every other cached source is written
+by a callback in the default mutex group, serialized against the tick,
+so only depth needs the lock.
 """
 
 from __future__ import annotations
@@ -52,6 +59,7 @@ from rclpy.callback_groups import (
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.parameter import Parameter
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image, Imu, JointState
 
 from strafer_shared.constants import (
@@ -93,6 +101,18 @@ def _default_infer_period() -> float:
 # strafer_navigation. Override per-node via the vel_cap_* parameters.
 _DEFAULT_VEL_CAP_LINEAR = NAV_LINEAR_VEL
 _DEFAULT_VEL_CAP_ANGULAR = NAV_ANGULAR_VEL
+
+# Depth uses a SENSOR_DATA-style profile: the freshness gate wants only the
+# newest frame, so a dropped frame should skip a tick, not trigger a reliable
+# retransmit that worsens congestion while large fragmented frames are already
+# being dropped. BEST_EFFORT receives from both a RELIABLE publisher (the sim
+# bridge, and realsense2_camera's SYSTEM_DEFAULT image streams) and a
+# BEST_EFFORT one (a depth_qos:=SENSOR_DATA override).
+_DEPTH_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+)
 
 
 class InferenceNode(Node):
@@ -263,8 +283,18 @@ class InferenceNode(Node):
         # Depth-frame counter (bumped in _on_depth): the tick runs at most
         # one inference per fresh frame. _last_inferred_depth_seq holds the
         # value consumed by the last policy call; -1 lets the first through.
+        # It is written and read only by the tick, so it needs no lock.
         self._depth_seq = 0
         self._last_inferred_depth_seq = -1
+        # _on_depth runs in its own callback group, concurrent with the tick.
+        # This lock guards the (array, rx_t, seq) triple so the tick reads a
+        # consistent snapshot; a fresh seq paired with a stale array would
+        # silently infer on the wrong frame. Writes replace the array ref
+        # (never mutate it), so a snapshotted ref stays valid without a copy.
+        self._depth_lock = threading.Lock()
+        # Snapshot of _last_depth_meters taken under _depth_lock at the top of
+        # each tick; obs assembly reads this, not the live field.
+        self._tick_depth_meters: Optional[np.ndarray] = None
         self._last_goal_map: Optional[PoseStamped] = None
         # Count, not a bool: a preempted or cancel-draining goal briefly
         # overlaps its successor, and the exiting goal must not clear
@@ -283,10 +313,13 @@ class InferenceNode(Node):
         self._policy_load_error: Optional[str] = None
         self._ready_flag = False
 
-        # Subscriber + tick share the default mutex group; the action
-        # server lives in its own ReentrantCallbackGroup so a blocking
-        # execute_callback does not starve the tick.
+        # Small subs + tick share the default mutex group. Depth gets its own
+        # group so its ~921 KB deserialize/take runs on a separate executor
+        # thread instead of contending for the tick's single serialized slot;
+        # the action server lives in its own ReentrantCallbackGroup so a
+        # blocking execute_callback does not starve the tick.
         self._default_cb_group = MutuallyExclusiveCallbackGroup()
+        self._depth_cb_group = MutuallyExclusiveCallbackGroup()
         self._action_cb_group = ReentrantCallbackGroup()
 
         cmd_vel_topic = self.get_parameter("cmd_vel_topic").value
@@ -325,8 +358,8 @@ class InferenceNode(Node):
         self._depth_sub = None
         if self._has_depth:
             self._depth_sub = self.create_subscription(
-                Image, depth_topic, self._on_depth, 10,
-                callback_group=self._default_cb_group,
+                Image, depth_topic, self._on_depth, _DEPTH_QOS,
+                callback_group=self._depth_cb_group,
             )
         # Subgoal variants follow a rolling subgoal pose that advances
         # every tick. The final goal is not a topic — it arrives through
@@ -575,9 +608,15 @@ class InferenceNode(Node):
                 f"{msg.height}x{msg.width}"
             )
             return
-        self._last_depth_meters = arr
-        self._last_depth_rx_t = time.monotonic()
-        self._depth_seq += 1
+        rx_t = time.monotonic()
+        # Publish the frame as one atomic (array, rx_t, seq) update so the
+        # concurrent tick never pairs a bumped seq with the previous array.
+        # Validation/decode above stays outside the lock — only the triple
+        # write is contended.
+        with self._depth_lock:
+            self._last_depth_meters = arr
+            self._last_depth_rx_t = rx_t
+            self._depth_seq += 1
 
     def _on_subgoal(self, msg: PoseStamped) -> None:
         # Cache only; the rolling subgoal advances every tick and must not
@@ -738,13 +777,28 @@ class InferenceNode(Node):
     # ------------------------------------------------------------------
 
     def _on_tick(self) -> None:
+        # Consistent snapshot of the depth triple (array, rx_t, seq) under the
+        # lock: _on_depth may replace all three concurrently from its own
+        # callback group. The rest of the tick reads only these locals plus
+        # the tick-owned _last_inferred_depth_seq, so the frame the watchdog,
+        # the gate, and obs assembly all see is one coherent frame.
+        if self._has_depth:
+            with self._depth_lock:
+                self._tick_depth_meters = self._last_depth_meters
+                depth_rx_t = self._last_depth_rx_t
+                depth_seq = self._depth_seq
+        else:
+            self._tick_depth_meters = None
+            depth_rx_t = None
+            depth_seq = self._depth_seq  # 0; the gate is unreachable here
+
         tf_age = self._tf_age_s()
         stale = stale_sources(
             now_monotonic_s=time.monotonic(),
             last_imu_rx_t=self._last_imu_rx_t,
             last_joint_states_rx_t=self._last_joint_states_rx_t,
             last_odom_rx_t=self._last_odom_rx_t,
-            last_depth_rx_t=self._last_depth_rx_t,
+            last_depth_rx_t=depth_rx_t,
             tf_age_s=tf_age,
             timeouts=self._timeouts,
             depth_enabled=self._has_depth,
@@ -779,7 +833,9 @@ class InferenceNode(Node):
 
         # After the watchdog, so a stale-source zero-twist still preempts; a
         # skipped tick (depth frame unchanged) holds the channel, no publish.
-        if self._has_depth and self._depth_seq == self._last_inferred_depth_seq:
+        # Uses the snapshot seq, not the live counter, so a frame landing
+        # mid-tick is picked up next tick rather than tearing this one.
+        if self._has_depth and depth_seq == self._last_inferred_depth_seq:
             return
 
         obs = self._assemble_observation_or_none()
@@ -801,12 +857,14 @@ class InferenceNode(Node):
             action = self._policy(obs)
         t_inference_ns = time.monotonic_ns() - t0
 
-        # The policy call advanced the recurrent hidden state — consume this
-        # depth frame so the gate skips ticks until a fresher one arrives.
+        # The policy call advanced the recurrent hidden state — consume the
+        # snapshotted depth frame so the gate skips ticks until a fresher one
+        # arrives. Records the snapshot seq (the frame obs was built from),
+        # not the live counter which a mid-tick _on_depth may have advanced.
         # Recorded even on the shape-error path below (the state advanced
         # regardless); depth variants only, others never read it.
         if self._has_depth:
-            self._last_inferred_depth_seq = self._depth_seq
+            self._last_inferred_depth_seq = depth_seq
 
         action = np.asarray(action, dtype=np.float32).reshape(-1)
         if action.shape[0] != 3:
@@ -860,7 +918,7 @@ class InferenceNode(Node):
             or self._last_joint_states is None
             or self._last_odom is None
             or referent is None
-            or (self._has_depth and self._last_depth_meters is None)
+            or (self._has_depth and self._tick_depth_meters is None)
         ):
             return None
 
@@ -900,8 +958,10 @@ class InferenceNode(Node):
             self.get_logger().warning(f"JointState parse failed: {exc}")
             return None
 
+        # The tick's coherent snapshot, not the live field a concurrent
+        # _on_depth may be replacing.
         depth_flat_meters = (
-            downsample_depth(self._last_depth_meters) if self._has_depth else None
+            downsample_depth(self._tick_depth_meters) if self._has_depth else None
         )
 
         imu = self._last_imu
@@ -1002,7 +1062,12 @@ def main(args=None) -> None:
     # CLI / launch parameter overrides come through rclpy.init's argv
     # parser and are picked up automatically by the Node constructor.
     node = InferenceNode()
-    executor = MultiThreadedExecutor(num_threads=2)
+    # Three threads: the blocking action execute_callback, the tick + small
+    # subs (default group), and _on_depth (its own group) each get a slot so
+    # the heavy depth take never stalls the tick. A burst of overlapping
+    # preempting goals (Reentrant execute_callbacks) can transiently occupy all
+    # three for one ~50 ms sleep quantum; self-clearing.
+    executor = MultiThreadedExecutor(num_threads=3)
     executor.add_node(node)
     try:
         executor.spin()

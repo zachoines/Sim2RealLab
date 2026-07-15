@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Cyclone DDS receive-side tuning for the strafer deployment.
+
+  What it fixes: the perception depth stream is ~921 KB per frame,
+  fragmented across many RTPS/UDP fragments. Under load the kernel-default
+  receive socket buffer overflows and whole fragmented samples are dropped at
+  the receiver before the subscriber callback runs. These settings give the
+  receiver enough socket buffer and reassembly headroom to keep up.
+
+  Kernel dependency (REQUIRED — this file is otherwise inert): the OS clamps
+  SocketReceiveBufferSize to net.core.rmem_max, which defaults to ~208 KB on
+  the Jetson. Without raising it, Cyclone requests 16 MB but keeps the tiny
+  default and depth still drops. Install the checked-in drop-in beside this
+  file, once per host:
+      sudo cp config/99-cyclonedds-rmem.conf /etc/sysctl.d/ && sudo sysctl --system
+  Note this is a max, not a min: a too-low kernel cap must NOT be a hard
+  floor here — Cyclone treats an unmet SocketReceiveBufferSize `min` as
+  fatal and refuses to create the domain, which would brick every node on
+  an untuned host. `max` alone requests-and-clamps without aborting.
+
+  Scope: applies wherever RMW_IMPLEMENTATION=rmw_cyclonedds_cpp — both the
+  sim-in-the-loop and real-robot lanes, exported via CYCLONEDDS_URI in the
+  env files beside this one.
+-->
+<CycloneDDS xmlns="https://cdds.io/config"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+  <Domain id="any">
+    <Internal>
+      <!-- The drop point under load. Target 16 MB (~17 full 921 KB frames'
+           worth of fragments in flight). `max` only, no `min`: an unmet min
+           is fatal (see header) and the effective size is capped by
+           net.core.rmem_max regardless. -->
+      <SocketReceiveBufferSize max="16MB" />
+      <!-- Fragment-reassembly headroom: how many partially-received samples
+           Cyclone keeps defrag buffers for. Depth is BEST_EFFORT (unreliable),
+           so raise the unreliable pool well above its default of 4 so a
+           newly-arriving frame's fragments do not evict an in-progress frame
+           mid-reassembly. -->
+      <DefragUnreliableMaxSamples>32</DefragUnreliableMaxSamples>
+      <DefragReliableMaxSamples>32</DefragReliableMaxSamples>
+    </Internal>
+  </Domain>
+</CycloneDDS>

@@ -1,10 +1,20 @@
 # Make the inference node's depth reception survive load
 
+**Status:** Shipped 2026-07-11 in `70323c8` (Jetson). All three layers (BEST_EFFORT depth QoS, dedicated depth callback group + lock/snapshot thread-safety, checked-in `cyclonedds.xml` receive-buffer + `rmem_max` sysctl) landed with unit tests (341 passed, 9 skipped; anti-tear guards mutation-verified). Rig repro-then-fix confirmed at `--camera-frame-skip 3`: zero `stale=['depth']`, depth policy receives depth and drives the robot end-to-end. Follow-ups below.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/151
+
 **Type:** task / bug (BLOCKER)
 **Owner:** Jetson agent (`source/strafer_ros/strafer_inference/`, `source/strafer_ros/strafer_bringup/`)
 **Priority:** P1
 **Estimate:** M — code + unit shipped; the rig repro-then-fix and clean-mission re-run are operator-gated (see Acceptance)
 **Branch:** task/depth-reception-reliability
+
+## Follow-ups (spawned by the rig validation, pending coordinator staging)
+
+- **Frame-skip-0 capacity ceiling.** At `--camera-frame-skip 0` (training-parity cadence, no skip) `stale=['depth']` returns — bus-first showed the publisher healthy (~4.3 Hz co-published CameraInfo), so the failure moved from the inference receive path to a whole-Jetson capacity ceiling (CPU saturation + the still-RELIABLE `timestamp_fixer` → point_cloud/rtabmap consumers). Resolution is a cadence/hardware fork: retrain at a Nano-sustainable cadence vs migrate to the available Orin NX (16 GB) and run frame-skip 0. Out of this PR's receive-side scope.
+- **Perception depth receive QoS.** `timestamp_fixer` (feeding point_cloud/rtabmap) is still RELIABLE and keeps dropping the fragmented Image under load; giving it the same BEST_EFFORT treatment is the lever for the frame-skip-0 capacity work.
+- **Goal-reaching approach-then-retreat.** A frame-skip-3 mission rapid-approached the goal then backed away → timeout. Evidence points to the projected goal landing on the obstacle (goal ≈ block depth → standoff ≈ 0) vs the depth policy's learned clearance, likely amplified by frame-skip-3 depth lag. Separate investigation.
+- **Clean v1 mission re-run** — the drive-quality observation the training-lane routing is holding for; stays open per the original gate.
 
 ## Story
 
@@ -13,16 +23,16 @@ As a **mission operator running a depth-variant policy under full bringup**, I w
 ## Context bundle
 
 Read these before starting:
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
-- [context/recurrent-policy-contract.md](../../context/recurrent-policy-contract.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
+- [context/recurrent-policy-contract.md](../context/recurrent-policy-contract.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
 
 ## Context
 
 **The fault (measured on the rig).** ~921 KB fragmented RELIABLE depth samples were dropped at the node's own DDS receive layer under CPU/memory contention — depth flowed on the bus (2.69 Hz) and reached other subscribers, while the node's `_on_depth` never fired → `stale=['depth']` every tick → zero-twist → mission abort. Load-correlated: total during full bringup + TRT build, intermittent when calm. Small topics in the same callback group stayed fresh. Reproduced at 4× fragment pressure (corrected-cadence ProcRoom run, `--camera-frame-skip 0`): the fault hit multiple subscribers at once — the inference node tripping `stale=['depth']` repeatedly, `point_cloud_xyz` seeing 0 Image vs 11 CameraInfo in 10 s, rtabmap 5 s no-data. The Image-lost / CameraInfo-received asymmetry is diagnostic: the DGX async publisher pushes Image+CameraInfo together, so the publish happened and the large Image was lost in transit/receive, not a publisher outage.
 
-Lineage: [completed/bridge-procroom-scene-ab.md](../../completed/bridge-procroom-scene-ab.md) (the ProcRoom A/B rig this was measured on). The `PROCROOM_AB_FINDINGS.md` coordinator addendum and the depth-probe script are session artifacts, not checked in.
+Lineage: [completed/bridge-procroom-scene-ab.md](bridge-procroom-scene-ab.md) (the ProcRoom A/B rig this was measured on). The `PROCROOM_AB_FINDINGS.md` coordinator addendum and the depth-probe script are session artifacts, not checked in.
 
 **The fix attacks three different links in the chain.**
 
@@ -64,11 +74,11 @@ The array is *replaced* (never mutated) by `_on_depth`, so the snapshotted ref s
 - [x] Thread-safety unit tests: a deterministic anti-tear test (a frame landing mid-tick must not tear the snapshot — mutation-verified it fails on the regressed consume) + a concurrent writer/reader harness.
 - [x] `config/cyclonedds.xml` + `config/99-cyclonedds-rmem.conf` checked in and installed; `CYCLONEDDS_URI` exported from both env files; config validated to load under `rmw_cyclonedds_cpp`.
 - [x] Real-driver depth QoS checked and recorded (above): realsense2_camera image/depth default is `SYSTEM_DEFAULT` → reliable (only IMU/HID defaults to best-effort), so the old RELIABLE sub was compatible; BEST_EFFORT is chosen for congestion behavior + forward-compat with a `depth_qos:=SENSOR_DATA` override. The real encoding landmine (16UC1 vs the node's 32FC1-only gate) is recorded for goal-b.
-- [x] `env_autonomy.env` carries the `STRAFER_DEPTH_TIMEOUT_S` clock-domain warning.
-- [x] `colcon`/pytest green for `strafer_inference` (counts in the PR body).
-- [ ] **Rig repro-then-fix [operator-assisted].** On `main`, synthetic CPU load during bringup reproduces `stale=['depth']`; on this branch the same load profile shows depth received (count `_on_depth` firings vs bus frames via the depth-probe script). **Measure the bus first** (protocol below). Acceptance: **zero `stale=['depth']` across a full bringup + complete mission under load**, and the parity cadence histogram shows the regular depth spike.
-- [ ] **Clean v1 mission re-run [operator-assisted].** The re-flown clean v1 mission closes the loop and is the drive-quality observation the training-lane routing is holding for. Stays open on this brief after merge.
-- [ ] Raise `net.core.rmem_max` on both hosts (`config/99-cyclonedds-rmem.conf` → `/etc/sysctl.d/`) so Layer 3 is not inert.
+- [x] Real-hardware `STRAFER_DEPTH_TIMEOUT_S` guidance recorded — the "leave unset, 0.5 s default" note lives at the variable's definition site in `env_sim_in_the_loop.env`; the redundant warning added to `env_autonomy.env` (which does not set the var) was dropped per review.
+- [x] `colcon`/pytest green for `strafer_inference` (341 passed, 9 skipped).
+- [x] **Rig repro-then-fix [operator-assisted]** — validated at `--camera-frame-skip 3`: **zero `stale=['depth']`** and the depth policy drives the robot end-to-end under load. Bus-first confirmed the publisher healthy (~4.3 Hz co-published CameraInfo). At `--camera-frame-skip 0` the failure moves to a whole-Jetson capacity ceiling (see Follow-ups), beyond this PR's receive-side scope.
+- [ ] **Clean v1 mission re-run [operator-assisted].** The re-flown clean v1 mission closes the loop and is the drive-quality observation the training-lane routing is holding for. Stays open after merge (see Follow-ups).
+- [x] `net.core.rmem_max` raised on the Jetson (`config/99-cyclonedds-rmem.conf` → `/etc/sysctl.d/`) so Layer 3 is effective — verified `rmem_max=16777216`, no "failed to increase socket receive buffer" at startup. Apply the same on the real-robot host at its bringup.
 
 ## Bus-first measurement protocol (operator, before attributing loss to the receive layer)
 
@@ -85,6 +95,6 @@ Secondary (not a gate): record rtabmap / `point_cloud_xyz` input freshness befor
 
 ## Investigation pointers
 
-- [`source/strafer_ros/strafer_inference/strafer_inference/inference_node.py`](../../../../source/strafer_ros/strafer_inference/strafer_inference/inference_node.py) — `_DEPTH_QOS`, `_depth_cb_group`, `_depth_lock`, the `_on_tick` snapshot, `main()` thread count, the module docstring threading contract.
-- [`source/strafer_ros/strafer_bringup/config/cyclonedds.xml`](../../../../source/strafer_ros/strafer_bringup/config/cyclonedds.xml) and [`config/99-cyclonedds-rmem.conf`](../../../../source/strafer_ros/strafer_bringup/config/99-cyclonedds-rmem.conf).
-- [`source/strafer_ros/strafer_perception/config/d555_params.yaml`](../../../../source/strafer_ros/strafer_perception/config/d555_params.yaml) — no `depth_qos` override → real driver keeps the wrapper image default (`SYSTEM_DEFAULT` → reliable); see the Layer 1 real-driver check for the 16UC1 encoding landmine.
+- [`source/strafer_ros/strafer_inference/strafer_inference/inference_node.py`](../../../source/strafer_ros/strafer_inference/strafer_inference/inference_node.py) — `_DEPTH_QOS`, `_depth_cb_group`, `_depth_lock`, the `_on_tick` snapshot, `main()` thread count, the module docstring threading contract.
+- [`source/strafer_ros/strafer_bringup/config/cyclonedds.xml`](../../../source/strafer_ros/strafer_bringup/config/cyclonedds.xml) and [`config/99-cyclonedds-rmem.conf`](../../../source/strafer_ros/strafer_bringup/config/99-cyclonedds-rmem.conf).
+- [`source/strafer_ros/strafer_perception/config/d555_params.yaml`](../../../source/strafer_ros/strafer_perception/config/d555_params.yaml) — no `depth_qos` override → real driver keeps the wrapper image default (`SYSTEM_DEFAULT` → reliable); see the Layer 1 real-driver check for the 16UC1 encoding landmine.

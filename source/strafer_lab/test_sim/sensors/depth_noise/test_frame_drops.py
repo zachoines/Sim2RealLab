@@ -269,17 +269,11 @@ def test_fresh_frame_variance(depth_env):
     measured_std_m = (measured_var / (2 * p_fresh)) ** 0.5 * DEPTH_MAX_RANGE
     expected_std_m = expected_noise_std_m
 
-    # Chi-squared variance CI from the wall-pixel count, not the pooled
-    # pixel*timestep diff count.
+    # CI df = wall-pixel count, not the pooled pixel*timestep diff count (see
+    # variance_ratio_test_spatial). expected_var uses the observed drop rate, so
+    # whole-frame drops are out of the ratio and the per-pixel gaussian pixels are
+    # the independent units.
     #   df = total_wall_pixels - 1 ;  95% CI half-width ~ 1.96 * sqrt(2 / df)
-    # Wall pixels are the independent units here: the fresh-frame gaussian is IID
-    # per pixel, and expected_var already uses the OBSERVED drop rate (p_fresh
-    # above), so whole-frame drop fluctuation is out of the ratio. Temporal
-    # first-differences are lag-1 autocorrelated (-0.5) and add little independent
-    # evidence, so the wall-pixel count is the conservative independent-unit
-    # ceiling. Passing n_samples (~6e7 here) instead collapses the CI to +/-0.04%
-    # and rejects the model over a benign render-vs-analytic residual. Full
-    # rationale in variance_ratio_test_spatial.
     result = variance_ratio_test_spatial(measured_var, expected_var, total_wall_pixels)
 
     print(f"    Summary:")

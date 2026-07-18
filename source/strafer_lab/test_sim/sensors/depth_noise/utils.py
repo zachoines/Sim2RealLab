@@ -395,54 +395,22 @@ def variance_ratio_test_spatial(
     n_independent_pixels: int,
     confidence_level: float = CONFIDENCE_LEVEL,
 ) -> VarianceTestResult:
-    """Chi-squared variance-ratio test whose CI uses the wall-pixel count as df.
+    """Chi-squared variance-ratio test using the wall-pixel count as the CI's df.
 
-    Identical to ``variance_ratio_test`` except the chi-squared confidence
-    interval is built from the number of independent wall PIXELS rather than the
-    pooled (pixels x timesteps) first-difference count. ``measured_var`` stays
-    the pooled point estimate over every (pixel, timestep) first-difference;
-    only the CI's effective sample size is corrected.
+    Same as ``variance_ratio_test`` but the confidence interval is built from the
+    number of independent wall pixels, not the pooled (pixels x timesteps)
+    first-difference count; ``measured_var`` is unchanged. The pooled count
+    over-counts independent evidence — first-differences are lag-1 autocorrelated
+    (``Cov(d[t], d[t-1]) = -Var(y)``) and the residual under test is a fixed
+    per-pixel term re-measured every frame — collapsing the CI so tight that a
+    sub-0.2% systematic render-vs-analytic residual reads as a model mismatch.
+    Holes and stereo gaussian are drawn IID per pixel, so the wall-pixel count is
+    a conservative ceiling on the independent information, not an exact sampling df.
 
-    WHY THE WALL-PIXEL COUNT, NOT PIXELS x TIMESTEPS
-    ------------------------------------------------
-    Feeding the full pooled (pixels x timesteps) count as the df treats every
-    first-difference as independent evidence about model fit. It is not: the
-    temporal axis adds little independent information, so the pooled count
-    collapses the 95% CI to a fraction of a percent, where a small SYSTEMATIC
-    render-vs-analytic residual (the stochastic RTX pipeline is not in the
-    idealized formula) reads as a model mismatch. Two reasons the timesteps do
-    not count:
+        df = n_independent_pixels - 1 ;  95% CI half-width ~ 1.96 * sqrt(2 / df)
 
-    * First-differences ``d[t] = y[t] - y[t-1]`` have lag-1 autocorrelation
-      -0.5 (``Cov(d[t], d[t-1]) = -Var(y)``), so successive timesteps are not
-      independent draws.
-    * The residual under test is a per-pixel-structured term (fixed geometry +
-      render precision), so extra frames re-measure the same per-pixel process
-      instead of averaging it away.
-
-    The wall pixels, by contrast, ARE independent units of the noise field
-    (holes and stereo gaussian are drawn IID per pixel), so their count is a
-    deliberately CONSERVATIVE ceiling on the independent information — not a
-    claim that it is exactly the estimator's sampling df. It is wide on purpose:
-    this is an integration test validating a stochastic renderer + noise
-    pipeline against an analytic formula, where a sub-0.2% systematic gap is
-    expected and is not a noise-model regression (the rate / detection /
-    zero-mean tests guard the model behaviour itself).
-
-    DERIVATION / RECALIBRATION (pure arithmetic, no fitted constants)
-    -----------------------------------------------------------------
-    ``df = n_independent_pixels - 1``;
-    95% CI half-width ~ ``1.96 * sqrt(2 / df)``.
-    ``n_independent_pixels`` is the live pooled wall-pixel count (the tests
-    print it as "Wall pixels (total)"). The expected variance is
-    resolution-INVARIANT for this fronto-parallel wall because
-    ``distance_to_image_plane`` reports the constant perpendicular depth for
-    every wall pixel regardless of vertical FOV / row count, so a resolution
-    change moves only the pixel count (hence df) and the CI recalibrates by
-    arithmetic with no seed or tolerance edit.
-
-    Delegates to the shared ``variance_ratio_test`` so its behaviour for every
-    other caller (the noise_models suite) is unchanged.
+    Forwards to the shared ``variance_ratio_test`` so its other (noise_models)
+    callers are unchanged.
     """
     return variance_ratio_test(
         measured_var, expected_var, n_independent_pixels, confidence_level

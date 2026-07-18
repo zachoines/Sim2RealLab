@@ -1,36 +1,24 @@
 # Copyright (c) 2025, Strafer Lab Project
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Standing certifier for the depth-noise variance tests' analytic yardstick.
+"""Kit-free oracle for the depth-noise variance tests' analytic yardstick.
 
-The Kit integration tests ``test_sim/sensors/depth_noise/test_holes.py`` and
-``test_frame_drops.py`` (and ``test_gaussian.py``) compare a measured
-first-difference variance against an analytic expectation with a chi-squared
-confidence interval. Two facts keep that comparison stable across a
-camera-resolution change, and this pure test pins both by arithmetic so a
-resolution change recalibrates the tests by formula rather than by re-fitting a
-fixed-seed realization:
+Pins the two facts that keep those Kit tests (test_holes / test_frame_drops /
+test_gaussian) stable across a camera-resolution change, by arithmetic:
 
-1. **The expected variance is resolution-invariant.** The depth-noise test
-   scene reads ``distance_to_image_plane`` (perpendicular depth) off a
-   fronto-parallel wall at a fixed 2.0 m, so every wall pixel reports the same
-   depth regardless of vertical FOV / row count. The z-scaled noise formulas
-   therefore carry no height/width term — the expectation is identical at every
-   16:9 or 4:3 policy grid.
+1. The expected variance is resolution-invariant. The scene reads
+   ``distance_to_image_plane`` off a fronto-parallel wall at a fixed 2.0 m, so
+   every wall pixel reports the same depth regardless of vertical FOV; the
+   z-scaled noise formulas carry no height/width term.
 
-2. **The chi-squared CI must use the wall-pixel count as its df, not the pooled
-   pixel x timestep count.** Pooling every (pixel, timestep) first-difference
-   over-counts independent evidence — temporal differences are lag-1
-   autocorrelated and the residual under test is a fixed per-pixel term
-   re-measured every frame — collapsing the CI onto an unavoidable systematic
-   residual. df = N_wall_pixels recalibrates automatically as resolution moves
-   the pixel count; df = N_wall_pixels x timesteps does not, and rejects the
-   model over sub-0.2% render structure.
+2. The chi-squared CI uses the wall-pixel count as its df, not the pooled
+   pixel x timestep count. The pooled count collapses the CI onto a systematic
+   residual (temporal diffs are autocorrelated; the residual is per-pixel); the
+   wall-pixel df recalibrates from the pixel count while the pooled df does not.
 
-This file imports only installed constants + numpy/scipy (no Isaac Sim), so it
-runs in the pure ``tests/`` suite. It mirrors the arithmetic of
-``variance_ratio_test_spatial`` (exercised live by the Kit suite) as an
-independent oracle rather than importing the Kit-test tree.
+Imports only installed constants + numpy/scipy, mirroring
+``variance_ratio_test_spatial`` as an independent oracle rather than importing
+the Kit-test tree.
 """
 
 from __future__ import annotations

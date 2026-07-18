@@ -177,14 +177,10 @@ def test_gaussian_variance_at_wall_distance(depth_env):
     expected_noise_std_m = (mean_noise_std_sq_normalized ** 0.5) * DEPTH_MAX_RANGE
     mean_wall_depth_m = float(torch.tensor(wall_depth_means_m).mean().item())
 
-    # Chi-squared variance CI from the wall-pixel count, not the pooled
-    # pixel*timestep diff count. This test currently clears even the (wrong)
-    # pixel*timestep CI because its expected_var is computed per-sample from the
-    # same formula the model applies, so its ratio sits at ~1.0000 -- but it sits
-    # on the same over-precise mega-df as the hole / frame-drop tests and would
-    # be the next hair-width failure on a reseed or resolution change. The wall
-    # pixel is the conservative independent unit; full rationale in
-    # variance_ratio_test_spatial.
+    # CI df = wall-pixel count, not the pooled pixel*timestep diff count, for
+    # consistency with the hole / frame-drop variance tests (see
+    # variance_ratio_test_spatial). expected_var is self-consistent (per-sample
+    # from the model's own formula), so the ratio sits at ~1.0.
     #   df = total_wall_pixels - 1 ;  95% CI half-width ~ 1.96 * sqrt(2 / df)
     result = variance_ratio_test_spatial(measured_var, expected_var, total_wall_pixels)
 

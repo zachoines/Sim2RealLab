@@ -65,7 +65,7 @@ from test_sim.sensors.depth_noise.utils import (
     debug_camera_orientation,
     # Statistical utilities from common module
     binomial_test,
-    variance_ratio_test,
+    variance_ratio_test_spatial,
 )
 
 
@@ -181,9 +181,12 @@ def test_hole_variance_on_wall_pixels(depth_env):
     print(f"\n  Hole variance on wall pixels:")
 
     # Pool wall pixel differences across environments.
-    # Subsample wall pixels to keep total sample count manageable —
-    # with millions of samples the chi-squared CI becomes so narrow that
-    # even tiny renderer-level variance (~0.5%) causes false failures.
+    # Cap the wall pixels analysed per env so the pooled point estimate stays
+    # cheap to compute. The chi-squared CI does NOT depend on this cap: it is
+    # derived from the number of independent wall PIXELS (see the call to
+    # variance_ratio_test_spatial below), not from the pooled pixel*timestep
+    # count, so subsampling only makes the interval more conservative, never
+    # falsely tight.
     MAX_WALL_PIXELS_PER_ENV = 200
     all_diffs = []
     total_wall_pixels = 0
@@ -235,10 +238,24 @@ def test_hole_variance_on_wall_pixels(depth_env):
     true_wall_depth_norm = (observed_mean_depth - p) / (1 - p)
 
     # Use the true (unbiased) wall depth for expected variance
+    #   Var(diff) = 2 * p * (1 - p) * (1 - d)^2
+    #   inputs: p = TEST_HOLE_PROBABILITY (0.05), d = true wall depth normalized
+    #           (2.0 m perpendicular depth / DEPTH_MAX_RANGE = 1/3).
+    # This expectation is resolution-invariant: distance_to_image_plane reports
+    # the constant 2.0 m for every wall pixel, so a resolution change moves the
+    # wall-pixel count but not this value.
     expected_var = hole_diff_variance(true_wall_depth_norm, TEST_HOLE_PROBABILITY)
 
-    # Chi-squared test for variance
-    result = variance_ratio_test(measured_var, expected_var, n_samples)
+    # Chi-squared variance CI from the wall-pixel count, not the pooled
+    # pixel*timestep diff count.
+    #   df = total_wall_pixels - 1 ;  95% CI half-width ~ 1.96 * sqrt(2 / df)
+    # Temporal first-differences are lag-1 autocorrelated (-0.5) and the residual
+    # under test is per-pixel-structured, so timesteps add little independent
+    # evidence; the wall-pixel count is the conservative independent-unit ceiling.
+    # Passing n_samples (~5e6 here) instead collapses the CI to +/-0.1% and
+    # rejects the model over a benign render-vs-analytic residual. Full rationale
+    # in variance_ratio_test_spatial.
+    result = variance_ratio_test_spatial(measured_var, expected_var, total_wall_pixels)
 
     print(f"    Summary:")
     print(f"      Parallel environments: {obs.shape[1]}")

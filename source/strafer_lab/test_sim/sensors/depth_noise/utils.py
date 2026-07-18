@@ -389,6 +389,34 @@ def hole_diff_variance(mean_depth_normalized: float, hole_probability: float) ->
     return p_transition * (jump_size ** 2)
 
 
+def variance_ratio_test_spatial(
+    measured_var: float,
+    expected_var: float,
+    n_independent_pixels: int,
+    confidence_level: float = CONFIDENCE_LEVEL,
+) -> VarianceTestResult:
+    """Chi-squared variance-ratio test using the wall-pixel count as the CI's df.
+
+    Same as ``variance_ratio_test`` but the confidence interval is built from the
+    number of independent wall pixels, not the pooled (pixels x timesteps)
+    first-difference count; ``measured_var`` is unchanged. The pooled count
+    over-counts independent evidence — first-differences are lag-1 autocorrelated
+    (``Cov(d[t], d[t-1]) = -Var(y)``) and the residual under test is a fixed
+    per-pixel term re-measured every frame — collapsing the CI so tight that a
+    sub-0.2% systematic render-vs-analytic residual reads as a model mismatch.
+    Holes and stereo gaussian are drawn IID per pixel, so the wall-pixel count is
+    a conservative ceiling on the independent information, not an exact sampling df.
+
+        df = n_independent_pixels - 1 ;  95% CI half-width ~ 1.96 * sqrt(2 / df)
+
+    Forwards to the shared ``variance_ratio_test`` so its other (noise_models)
+    callers are unchanged.
+    """
+    return variance_ratio_test(
+        measured_var, expected_var, n_independent_pixels, confidence_level
+    )
+
+
 # =============================================================================
 # Pixel Classification Helpers
 # =============================================================================

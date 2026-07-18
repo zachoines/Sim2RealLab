@@ -65,7 +65,7 @@ from test_sim.sensors.depth_noise.utils import (
     debug_camera_orientation,
     # Statistical utilities from common module
     binomial_test,
-    variance_ratio_test,
+    variance_ratio_test_spatial,
 )
 
 
@@ -180,10 +180,10 @@ def test_hole_variance_on_wall_pixels(depth_env):
 
     print(f"\n  Hole variance on wall pixels:")
 
-    # Pool wall pixel differences across environments.
-    # Subsample wall pixels to keep total sample count manageable —
-    # with millions of samples the chi-squared CI becomes so narrow that
-    # even tiny renderer-level variance (~0.5%) causes false failures.
+    # Pool wall pixel differences across environments. Cap the wall pixels per
+    # env to bound point-estimate cost: the CI's df is the wall-pixel count (see
+    # variance_ratio_test_spatial), so the cap only widens the interval, never
+    # tightens it.
     MAX_WALL_PIXELS_PER_ENV = 200
     all_diffs = []
     total_wall_pixels = 0
@@ -234,11 +234,15 @@ def test_hole_variance_on_wall_pixels(depth_env):
     p = TEST_HOLE_PROBABILITY
     true_wall_depth_norm = (observed_mean_depth - p) / (1 - p)
 
-    # Use the true (unbiased) wall depth for expected variance
+    # d = 2.0 m perpendicular depth / DEPTH_MAX_RANGE = 1/3, constant at every
+    # wall pixel (distance_to_image_plane), so this expectation is
+    # resolution-invariant.
     expected_var = hole_diff_variance(true_wall_depth_norm, TEST_HOLE_PROBABILITY)
 
-    # Chi-squared test for variance
-    result = variance_ratio_test(measured_var, expected_var, n_samples)
+    # CI df = wall-pixel count, not the pooled pixel*timestep diff count (see
+    # variance_ratio_test_spatial).
+    #   df = total_wall_pixels - 1 ;  95% CI half-width ~ 1.96 * sqrt(2 / df)
+    result = variance_ratio_test_spatial(measured_var, expected_var, total_wall_pixels)
 
     print(f"    Summary:")
     print(f"      Parallel environments: {obs.shape[1]}")

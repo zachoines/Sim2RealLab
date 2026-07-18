@@ -65,7 +65,7 @@ from test_sim.sensors.depth_noise.utils import (
     create_gaussian_only_noise_cfg,
     debug_camera_orientation,
     # Statistical utilities from common module
-    variance_ratio_test,
+    variance_ratio_test_spatial,
     one_sample_t_test,
 )
 
@@ -177,8 +177,12 @@ def test_gaussian_variance_at_wall_distance(depth_env):
     expected_noise_std_m = (mean_noise_std_sq_normalized ** 0.5) * DEPTH_MAX_RANGE
     mean_wall_depth_m = float(torch.tensor(wall_depth_means_m).mean().item())
 
-    # Chi-squared test for variance
-    result = variance_ratio_test(measured_var, expected_var, n_samples)
+    # CI df = wall-pixel count, not the pooled pixel*timestep diff count, for
+    # consistency with the hole / frame-drop variance tests (see
+    # variance_ratio_test_spatial). expected_var is self-consistent (per-sample
+    # from the model's own formula), so the ratio sits at ~1.0.
+    #   df = total_wall_pixels - 1 ;  95% CI half-width ~ 1.96 * sqrt(2 / df)
+    result = variance_ratio_test_spatial(measured_var, expected_var, total_wall_pixels)
 
     if not result.in_ci:
         debug_camera_orientation(depth_env)

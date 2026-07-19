@@ -63,10 +63,10 @@ import argparse
 import logging
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from isaaclab.app import AppLauncher
-from strafer_shared.constants import MAX_ANGULAR_VEL, MAX_LINEAR_VEL
+from strafer_shared.constants import MAX_ANGULAR_VEL, MAX_LINEAR_VEL, POLICY_PERIOD_S
 from strafer_shared.policy_interface import PolicyVariant
 
 
@@ -81,6 +81,116 @@ _MAX_CONSECUTIVE_MISSION_FAILURES = 3
 def _clamp_unit(value: float) -> float:
     """Clamp ``value`` to ``[-1, 1]`` (the action term's normalized contract)."""
     return max(-1.0, min(1.0, value))
+
+
+class _CameraCadence(NamedTuple):
+    """Effective bridge camera-publish cadence, for the startup contract print."""
+
+    bridge_tick_hz: float  # sim-Hz, not wall
+    publish_hz: float  # sim-Hz, not wall
+    renders_per_tick: float  # decimation / render_interval
+    frame_skip: int
+    derived_frame_skip: int
+    warnings: tuple[str, ...]
+
+
+def _derive_camera_frame_skip(
+    sim_dt: float,
+    decimation: int,
+    *,
+    policy_period_s: float = POLICY_PERIOD_S,
+) -> int:
+    """Bridge ticks to skip so the camera publishes once per policy period.
+
+    The async camera publisher fires once per bridge tick -- one ``env.step``,
+    which advances ``decimation`` physics ticks (``sim_dt * decimation``
+    sim-seconds) -- and pushes an Image/CameraInfo every ``frame_skip + 1``-th
+    tick. The bridge must publish one camera frame per ``policy_period_s``, the
+    contract the real D555 (30 Hz) and training (a fresh render per env.step)
+    both satisfy. Skip whatever brings the publish cadence back to that period::
+
+        frame_skip = round(policy_period_s / (sim_dt * decimation)) - 1
+
+    Yields the correct skip for both decimation configs at ``sim_dt`` 1/120:
+    ``decimation`` 1 -> 3 (120 Hz ticks throttled to 30 Hz), ``decimation`` 4
+    -> 0 (30 Hz ticks already at the policy period). Floored at 0 -- when a
+    bridge tick is already slower than the policy period, skipping cannot speed
+    it back up, so publish every tick.
+    """
+    bridge_tick_period_s = sim_dt * decimation
+    ticks_per_policy_period = policy_period_s / bridge_tick_period_s
+    return max(0, round(ticks_per_policy_period) - 1)
+
+
+def _resolve_camera_frame_skip(
+    arg_value: int | None,
+    *,
+    sim_dt: float,
+    decimation: int,
+) -> tuple[int, bool]:
+    """Resolve the effective camera frame skip: an explicit CLI value wins, else derive.
+
+    Returns ``(frame_skip, explicit)``. ``explicit`` is ``True`` when the
+    operator passed ``--camera-frame-skip`` verbatim (the escape hatch), which
+    drives the off-cadence startup warning; ``False`` when the value was derived
+    from the settled ``sim_dt`` / ``decimation``.
+    """
+    if arg_value is not None:
+        # Match the publisher's own max(0, ...) floor so a stray negative can't
+        # drive publish_period_ticks to 0 (a divide-by-zero in the cadence report).
+        return max(0, int(arg_value)), True
+    return _derive_camera_frame_skip(sim_dt, decimation), False
+
+
+def _camera_cadence(
+    *,
+    sim_dt: float,
+    decimation: int,
+    render_interval: int,
+    frame_skip: int,
+    explicit: bool,
+    policy_period_s: float = POLICY_PERIOD_S,
+) -> _CameraCadence:
+    """Effective camera-publish cadence plus any cadence warnings (Kit-free).
+
+    All the arithmetic behind the startup contract print lives here so both the
+    reported rates and the warning conditions stay unit-testable. Two warnings:
+    an explicit ``--camera-frame-skip`` that publishes off the policy period,
+    and a ``render_interval`` so coarse that a fresh render does not advance
+    between publishes (duplicate frames pushed on the wire).
+    """
+    bridge_tick_period_s = sim_dt * decimation
+    bridge_tick_hz = 1.0 / bridge_tick_period_s
+    publish_period_ticks = frame_skip + 1
+    publish_hz = 1.0 / (bridge_tick_period_s * publish_period_ticks)
+    renders_per_tick = decimation / render_interval
+    renders_per_publish = renders_per_tick * publish_period_ticks
+    derived = _derive_camera_frame_skip(sim_dt, decimation, policy_period_s=policy_period_s)
+
+    warnings: list[str] = []
+    if explicit and frame_skip != derived:
+        policy_hz = 1.0 / policy_period_s
+        warnings.append(
+            f"explicit --camera-frame-skip {frame_skip} publishes camera at "
+            f"{publish_hz:.2f} Hz sim, off the {policy_hz:.2f} Hz policy period "
+            f"(derived skip would be {derived}); the policy will see the depth "
+            f"stream at a rate its training never did"
+        )
+    if renders_per_publish < 1.0:
+        warnings.append(
+            f"render_interval {render_interval} advances a fresh render only "
+            f"every {1.0 / renders_per_tick:.2f} bridge ticks; at frame_skip "
+            f"{frame_skip} each publish spans {renders_per_publish:.2f} renders "
+            f"-- duplicate frames will be published"
+        )
+    return _CameraCadence(
+        bridge_tick_hz=bridge_tick_hz,
+        publish_hz=publish_hz,
+        renders_per_tick=renders_per_tick,
+        frame_skip=frame_skip,
+        derived_frame_skip=derived,
+        warnings=tuple(warnings),
+    )
 
 
 def _disable_env_terminations(terminations) -> list[str]:
@@ -409,13 +519,17 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--camera-frame-skip",
         type=int,
-        default=3,
-        help="Number of bridge ticks the async camera publisher drops "
-             "between each Image/CameraInfo publish. 0 = publish every "
-             "tick (matches pre-optimization behavior). Default 3 = "
-             "publish once every 4 physics ticks, matching "
-             "sim.render_interval so we don't serialize + push duplicate "
-             "frames when the underlying render has not advanced.",
+        default=None,
+        help="Bridge ticks the async camera publisher drops between each "
+             "Image/CameraInfo publish (it publishes every N+1-th tick). "
+             "Default (unset) DERIVES the value so the camera publishes once "
+             "per policy period -- one frame per 1/30 sim-s, the 30 Hz "
+             "contract the real D555 and training both satisfy -- from the "
+             "settled sim.dt and --decimation: at sim.dt 1/120 that is 3 for "
+             "decimation 1, 0 for decimation 4. Pass an explicit value to "
+             "override (escape hatch, e.g. to throttle a capacity-limited "
+             "consumer); a value that implies an off-policy publish rate is "
+             "warned about at startup but honored.",
     )
     parser.add_argument(
         "--profile",
@@ -680,9 +794,16 @@ def main() -> None:
 
     env = gym.make(args.task, cfg=env_cfg)
 
+    # After the decimation override settles, so a derived skip uses the run's
+    # actual decimation rather than the pre-override value.
+    camera_frame_skip, camera_skip_explicit = _resolve_camera_frame_skip(
+        args.camera_frame_skip,
+        sim_dt=float(env_cfg.sim.dt),
+        decimation=int(env_cfg.decimation),
+    )
     config = build_default_bridge_config(
         graph_path=args.graph_path,
-        camera_frame_skip=args.camera_frame_skip,
+        camera_frame_skip=camera_frame_skip,
     )
     # Both telemetry (/clock, /odom, TF, /cmd_vel) and cameras
     # (/d555/color/..., /d555/depth/...) run on Python rclpy threads now.
@@ -693,7 +814,23 @@ def main() -> None:
     if args.no_camera_bridge:
         print("[sim_in_the_loop] camera streams skipped (--no-camera-bridge)")
     else:
-        print(f"[sim_in_the_loop] camera_frame_skip = {config.camera_frame_skip}")
+        cadence = _camera_cadence(
+            sim_dt=float(env_cfg.sim.dt),
+            decimation=int(env_cfg.decimation),
+            render_interval=int(env_cfg.sim.render_interval),
+            frame_skip=int(config.camera_frame_skip),
+            explicit=camera_skip_explicit,
+        )
+        origin = "explicit" if camera_skip_explicit else "derived"
+        print(
+            f"[sim_in_the_loop] camera cadence: publish {cadence.publish_hz:.2f} Hz sim "
+            f"(policy period {1.0 / POLICY_PERIOD_S:.2f} Hz) | frame_skip="
+            f"{cadence.frame_skip} ({origin}, derived {cadence.derived_frame_skip}) | "
+            f"bridge tick {cadence.bridge_tick_hz:.2f} Hz | renders/tick "
+            f"{cadence.renders_per_tick:.2f}"
+        )
+        for warning in cadence.warnings:
+            print(f"[sim_in_the_loop] WARNING: {warning}")
         print(f"[sim_in_the_loop] color camera prim={config.color_camera.camera_prim_path}")
     print(f"[sim_in_the_loop] chassis_prim={config.chassis_prim_path}")
 

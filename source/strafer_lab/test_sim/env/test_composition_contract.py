@@ -94,7 +94,25 @@ _CONTRACT_GOLDENS = {
     "RLDepthSubgoal_Robust": "2c5969a27cd43317fd4d390e6ae4ca343b9cd6b8f654264c8e2d09543242eccc",
     "RLDepthSubgoal_Real_PLAY": "6bd733a6b1b06303dc40da19068b0f96970550994cb1ba9b69564d5e060e1865",
     "RLDepthSubgoal_Robust_PLAY": "3f0e0b5402c7279cd5ef0f6222753deca21e60c88494192e502f41962c08aa78",
+    # Depth-enrichment variants — NEW IDs frozen at creation (no prior checkpoint
+    # depends on them). The enrichment lives in the `events` field (un-pinned
+    # difficulty + enriched generation params); the observation contract is
+    # byte-identical to the open-top depth variants (asserted separately).
+    "RLDepthEnriched_Real": "904b955ce648c4f51af93e9522ed0234bfc0017a004b3200ed9a0368cc23eb8b",
+    "RLDepthEnriched_Robust": "4bae1978da1f1949f42e63a11189483ea8c91005ece275bd4b3f371822ad90a2",
+    "RLDepthEnriched_Real_PLAY": "6741c24b3283d1887afc84143b6c2c570caf3e540e009835cc57eb0b129612f9",
+    "RLDepthEnriched_Robust_PLAY": "3ce29e9078781874d0a304515af8b5241d84bc09d833210268f5056bd9796306",
+    "RLDepthSubgoalEnriched_Real": "7a5bcc676c378bdd0adac673edffff7ee2d3a17b0aa57008314dd3ead065b3cc",
+    "RLDepthSubgoalEnriched_Robust": "301d7523897d83ea95ec61ad612cf68a28dad46dc9e4ffe76c57500f9b0c8f05",
+    "RLDepthSubgoalEnriched_Real_PLAY": "e224b7c2788f8f6f3b21661998d88b68c88b85511c281f5451c47cbfd11583a4",
+    "RLDepthSubgoalEnriched_Robust_PLAY": "cf9ea0101c619ffe9b77b5f5edbf839a1328003ea9d9a8ae7ff4b8584d56f974",
 }
+
+# Frozen signature (slot name set + spawn sizes) of the pre-enrichment 44-object
+# palette. The composition hash cannot see the rigid-object palette (it is on the
+# scene, not a hashed manager), so this pins the NOCAM promise: NOCAM keeps this
+# exact palette, and the enriched palette adds no NEW slot (only taller walls).
+_PALETTE_GOLDEN = "cf3499bf212a50c571b1bda4980fbbf16c7ad743dc40c5e88b7b528de3d41832"
 
 # The depth observation a checkpoint consumes — captured identical across the
 # (now dropped) plane / Infinigen / ProcRoom depth variants, which justified
@@ -116,6 +134,14 @@ _COMPOSED_RL = {
     "RLDepthSubgoal_Robust": composed.StraferNavCfg_RLDepthSubgoal_Robust,
     "RLDepthSubgoal_Real_PLAY": composed.StraferNavCfg_RLDepthSubgoal_Real_PLAY,
     "RLDepthSubgoal_Robust_PLAY": composed.StraferNavCfg_RLDepthSubgoal_Robust_PLAY,
+    "RLDepthEnriched_Real": composed.StraferNavCfg_RLDepthEnriched_Real,
+    "RLDepthEnriched_Robust": composed.StraferNavCfg_RLDepthEnriched_Robust,
+    "RLDepthEnriched_Real_PLAY": composed.StraferNavCfg_RLDepthEnriched_Real_PLAY,
+    "RLDepthEnriched_Robust_PLAY": composed.StraferNavCfg_RLDepthEnriched_Robust_PLAY,
+    "RLDepthSubgoalEnriched_Real": composed.StraferNavCfg_RLDepthSubgoalEnriched_Real,
+    "RLDepthSubgoalEnriched_Robust": composed.StraferNavCfg_RLDepthSubgoalEnriched_Robust,
+    "RLDepthSubgoalEnriched_Real_PLAY": composed.StraferNavCfg_RLDepthSubgoalEnriched_Real_PLAY,
+    "RLDepthSubgoalEnriched_Robust_PLAY": composed.StraferNavCfg_RLDepthSubgoalEnriched_Robust_PLAY,
 }
 
 
@@ -140,6 +166,92 @@ def test_depth_obs_contract_matches_frozen_golden():
     """The depth observation a checkpoint consumes is unchanged."""
     got = _hash(_canon(composed.StraferNavCfg_RLDepth_Real().observations))
     assert got == _DEPTH_OBS_GOLDEN
+
+
+# =====================================================================
+# Depth-enrichment: NOCAM palette pinned, enrichment is depth-only + obs-neutral
+# =====================================================================
+
+
+def _palette_sig(collection_cfg):
+    """Slot name → (spawn type + XYZ/radius/height) signature of a palette.
+
+    The composition hash covers the manager cfgs + scene scalars, NOT the
+    rigid-object palette, so a palette change slips past every golden above.
+    This is the explicit pin the Q1 NOCAM promise needs.
+    """
+    sig = {}
+    for name, cfg in sorted(collection_cfg.rigid_objects.items()):
+        s = cfg.spawn
+        row = {"spawn": type(s).__name__}
+        for a in ("size", "radius", "height"):
+            if hasattr(s, a):
+                v = getattr(s, a)
+                row[a] = list(v) if isinstance(v, (tuple, list)) else v
+        sig[name] = row
+    return sig
+
+
+def test_nocam_palette_equals_pre_enrichment_golden():
+    """NOCAM / NOCAM_SUBGOAL keep the exact pre-enrichment palette (name set +
+    sizes) — enrichment must never leak into the camera-free training path."""
+    for name in ("RLNoCam", "RLNoCamSubgoal_Real", "RLNoCamSubgoal_Robust"):
+        scene = _COMPOSED_RL[name]().scene
+        got = _hash(_palette_sig(scene.room_primitives))
+        assert got == _PALETTE_GOLDEN, (
+            f"{name} palette diverged from the frozen pre-enrichment palette"
+        )
+
+
+def test_enriched_palette_adds_no_new_slot():
+    """The enriched depth palette has the SAME slot-name set as pre-enrichment —
+    only the wall slots grow taller. No new collection slot is ever added (the
+    ceiling is a standalone entity outside the collection), so nothing new can be
+    active on NOCAM."""
+    from strafer_lab.tasks.navigation.mdp.proc_room import (
+        build_proc_room_collection_cfg,
+    )
+
+    base_names = set(build_proc_room_collection_cfg().keys())
+    enriched_scene = composed.StraferNavCfg_RLDepthSubgoalEnriched_Real().scene
+    enriched_names = set(enriched_scene.room_primitives.rigid_objects.keys())
+    assert enriched_names == base_names
+    # Only the walls differ, and only in the Z (height) size.
+    base_sig = _palette_sig(
+        type(enriched_scene.room_primitives)(
+            rigid_objects=build_proc_room_collection_cfg()
+        )
+    )
+    enr_sig = _palette_sig(enriched_scene.room_primitives)
+    changed = {k for k in base_sig if base_sig[k] != enr_sig[k]}
+    assert changed == {k for k in base_names if k.startswith("wall_")}
+    # The ceiling is NOT part of the collection.
+    assert "ceiling" not in enriched_names
+
+
+def test_enriched_depth_obs_matches_open_top_twin():
+    """Enrichment changes the world, not the observation: each enriched depth
+    variant emits the byte-identical depth observation of its open-top twin at
+    the same realism, so the deployed inference package / any depth checkpoint
+    stays valid (the realistic twin's obs is itself the frozen depth golden)."""
+    pairs = [
+        ("RLDepthEnriched_Real", composed.StraferNavCfg_RLDepth_Real),
+        ("RLDepthEnriched_Robust", composed.StraferNavCfg_RLDepth_Robust),
+        ("RLDepthSubgoalEnriched_Real", composed.StraferNavCfg_RLDepthSubgoal_Real),
+        ("RLDepthSubgoalEnriched_Robust", composed.StraferNavCfg_RLDepthSubgoal_Robust),
+    ]
+    for enr_name, twin_cls in pairs:
+        enr = _hash(_canon(_COMPOSED_RL[enr_name]().observations))
+        twin = _hash(_canon(twin_cls().observations))
+        assert enr == twin, f"{enr_name} depth obs != its open-top twin"
+
+
+def test_enriched_events_differ_from_open_top():
+    """Sanity: the enriched variant's event contract is actually different from
+    its open-top twin (guards against the enrichment silently no-op'ing)."""
+    enriched = _hash(_canon(composed.StraferNavCfg_RLDepthSubgoalEnriched_Real().events))
+    open_top = _hash(_canon(composed.StraferNavCfg_RLDepthSubgoal_Real().events))
+    assert enriched != open_top
 
 
 def _obs_term_names(obs_cfg):

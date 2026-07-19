@@ -55,10 +55,21 @@ EXPECTED_ENVS = [
     "Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0",
     "Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-v0",
     "Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-Play-v0",
+    # RL training — depth-enrichment variants (enclosed, Infinigen-like depth
+    # statistics; own frozen goldens, the enrichment retrain's targets)
+    "Isaac-Strafer-Nav-RLDepth-Enriched-Real-v0",
+    "Isaac-Strafer-Nav-RLDepth-Enriched-Real-Play-v0",
+    "Isaac-Strafer-Nav-RLDepth-Enriched-Robust-v0",
+    "Isaac-Strafer-Nav-RLDepth-Enriched-Robust-Play-v0",
+    "Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Real-v0",
+    "Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Real-Play-v0",
+    "Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-v0",
+    "Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0",
     # Capture (operator-selectable stack)
     "Isaac-Strafer-Nav-Capture-Teleop-v0",
     "Isaac-Strafer-Nav-Capture-Bridge-v0",
     "Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0",
+    "Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0",
     "Isaac-Strafer-Nav-Capture-Coverage-v0",
 ]
 

@@ -166,11 +166,18 @@ def _make_kinematic_capsule(radius: float, height: float, color: tuple) -> Rigid
     )
 
 
-def build_proc_room_collection_cfg() -> dict[str, RigidObjectCfg]:
+def build_proc_room_collection_cfg(wall_height: float = 1.0) -> dict[str, RigidObjectCfg]:
     """Build the 44-object palette as a dict for RigidObjectCollectionCfg.
 
     Each object gets ``prim_path="{ENV_REGEX_NS}/<Name>"`` so Isaac Lab's
     ``InteractiveScene`` can resolve the per-env regex at scene build time.
+
+    Args:
+        wall_height: Vertical extent of the wall cuboids in meters. The default
+            reproduces the open-top 1.0 m rooms; enriched depth scenes raise it
+            to enclose the camera's vertical field. The pose-z the generator
+            writes must track this (``wall_height / 2``); see
+            ``generate_proc_room``'s ``wall_height`` argument.
 
     Returns:
         Dict mapping object name → RigidObjectCfg.
@@ -179,11 +186,11 @@ def build_proc_room_collection_cfg() -> dict[str, RigidObjectCfg]:
 
     # --- Walls ---
     for i in range(8):
-        objects[f"wall_long_{i}"] = _make_kinematic_cuboid((2.0, 0.15, 1.0), (0.75, 0.75, 0.75))
+        objects[f"wall_long_{i}"] = _make_kinematic_cuboid((2.0, 0.15, wall_height), (0.75, 0.75, 0.75))
     for i in range(8):
-        objects[f"wall_med_{i}"] = _make_kinematic_cuboid((1.0, 0.15, 1.0), (0.70, 0.70, 0.72))
+        objects[f"wall_med_{i}"] = _make_kinematic_cuboid((1.0, 0.15, wall_height), (0.70, 0.70, 0.72))
     for i in range(4):
-        objects[f"wall_short_{i}"] = _make_kinematic_cuboid((0.5, 0.15, 1.0), (0.65, 0.65, 0.68))
+        objects[f"wall_short_{i}"] = _make_kinematic_cuboid((0.5, 0.15, wall_height), (0.65, 0.65, 0.68))
 
     # --- Furniture ---
     for i in range(2):
@@ -356,6 +363,28 @@ def _inflate_obstacles(occupancy: torch.Tensor) -> torch.Tensor:
     return inflated < 0.5
 
 
+def _erode_reachable(reachable: torch.Tensor, cells: int) -> torch.Tensor:
+    """Shrink a boolean reachable mask inward by ``cells`` (extra clearance).
+
+    A cell survives iff every cell within Chebyshev distance ``cells`` is
+    reachable — i.e. it clears obstacles by an extra ``cells * GRID_RES`` beyond
+    the robot-radius inflation already baked into ``reachable``. Used to draw
+    robot spawn poses from a more-cleared interior than the goal/subgoal pool.
+
+    Args:
+        reachable: (B, Gx, Gy) bool — BFS reachability mask.
+        cells: Extra erosion radius in grid cells (0 returns the input).
+
+    Returns:
+        eroded: (B, Gx, Gy) bool.
+    """
+    if cells <= 0:
+        return reachable
+    inv = (~reachable).float().unsqueeze(1)
+    eroded = F.max_pool2d(inv, kernel_size=2 * cells + 1, stride=1, padding=cells)
+    return eroded.squeeze(1) < 0.5
+
+
 def _gpu_bfs(free_space: torch.Tensor, start_cells: torch.Tensor, max_iterations: int = 200) -> torch.Tensor:
     """Parallel BFS via iterative morphological dilation.
 
@@ -498,6 +527,39 @@ def _pack_wall_segments(
     return segments
 
 
+def _pose_ceiling_slab(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    entity_name: str,
+    p_ceil: float,
+    height_range: tuple[float, float],
+    device: torch.device,
+) -> None:
+    """Teleport the standalone ceiling slab per env (or park it).
+
+    The slab is a scene entity *outside* the room-primitive collection, so it
+    never enters the occupancy grid, the BFS retry ladder, or the geometric
+    ``obstacle_proximity`` active mask (which is keyed on the collection). With
+    probability ``p_ceil`` the env is enclosed — the slab drops to a per-episode
+    height in ``height_range``; otherwise it parks below the floor (open-top,
+    reproducing the sky-clamp mode) so the D3 target stays a scene-class mixture.
+    """
+    B = len(env_ids)
+    ceiling = env.scene[entity_name]
+    env_origins = env.scene.env_origins[env_ids]  # (B, 3)
+
+    has_ceil = torch.rand(B, device=device) < p_ceil
+    ceil_h = torch.rand(B, device=device) * (height_range[1] - height_range[0]) + height_range[0]
+    z_local = torch.where(has_ceil, ceil_h, torch.full_like(ceil_h, PARK_POS[2].item()))
+
+    root_pose = torch.zeros(B, 7, device=device)
+    root_pose[:, 0] = env_origins[:, 0]
+    root_pose[:, 1] = env_origins[:, 1]
+    root_pose[:, 2] = env_origins[:, 2] + z_local
+    root_pose[:, 6] = 1.0  # qw (identity) — XYZW
+    ceiling.write_root_pose_to_sim_index(root_pose=root_pose, env_ids=env_ids)
+
+
 def generate_proc_room(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
@@ -505,6 +567,15 @@ def generate_proc_room(
     max_internal_walls: int = 0,
     max_furniture: int = 0,
     max_clutter: int = 0,
+    wall_height: float = 1.0,
+    door_width_max: float = 1.2,
+    span_max: float = 7.0,
+    max_span_sum: float | None = None,
+    clutter_wall_bias_prob: float = 0.0,
+    robot_spawn_inflation_cells: int = 0,
+    ceiling_entity_name: str | None = None,
+    p_ceil: float = 0.0,
+    ceiling_height_range: tuple[float, float] = (2.2, 2.9),
 ) -> None:
     """Generate procedural rooms for specified environments.
 
@@ -518,6 +589,25 @@ def generate_proc_room(
         max_internal_walls: Max internal wall segments (from curriculum).
         max_furniture: Max furniture pieces to place (from curriculum).
         max_clutter: Max clutter items to place (from curriculum).
+        wall_height: Wall vertical extent; the wall pose-z is ``wall_height / 2``.
+            Must match the ``wall_height`` the palette was built with.
+        door_width_max: Upper bound of the doorway width sampler ``U[0.8, x]``.
+        span_max: Upper bound of the per-axis room span sampler ``U[4.0, x]``.
+        max_span_sum: When set, caps ``room_w + room_h`` (proportional shrink) so
+            the wall-segment budget can seal the perimeter under tall walls.
+        clutter_wall_bias_prob: Per-episode probability of the perimeter-biased
+            clutter placement law (large objects near walls, floor center open)
+            instead of the uniform interior scatter.
+        robot_spawn_inflation_cells: Extra erosion (in grid cells) for a
+            robot-spawn-only pool, giving the robot more standoff than the
+            goal/subgoal endpoints. 0 keeps the single shared pool.
+        ceiling_entity_name: Scene entity name of the standalone ceiling slab
+            (outside the collection). When set, the slab is posed per env.
+        p_ceil: Per-episode probability the ceiling slab is present.
+        ceiling_height_range: Per-episode ceiling height sampler ``U[lo, hi]``.
+
+    All enrichment arguments default to the open-top, single-pool, uniform-scatter
+    behavior, so the NOCAM / vanilla-depth generator path is unchanged.
     """
     B = len(env_ids)
     if B == 0:
@@ -525,6 +615,7 @@ def generate_proc_room(
 
     device = env.device
     sizes = OBJECT_SIZES.to(device)
+    wall_z = wall_height / 2.0
 
     # Read curriculum difficulty if available
     if hasattr(env, "_proc_room_difficulty"):
@@ -556,8 +647,16 @@ def generate_proc_room(
         has_room_walls = torch.ones(B, device=device, dtype=torch.long)  # default: room walls on
 
     # --- Phase 1: Parameter sampling ---
-    room_w = torch.rand(B, device=device) * 3.0 + 4.0  # [4, 7]
-    room_h = torch.rand(B, device=device) * 3.0 + 4.0  # [4, 7]
+    span_range = span_max - 4.0
+    room_w = torch.rand(B, device=device) * span_range + 4.0  # [4, span_max]
+    room_h = torch.rand(B, device=device) * span_range + 4.0  # [4, span_max]
+    if max_span_sum is not None:
+        # Keep the perimeter within the wall-segment budget: shrink both axes
+        # equally when their sum exceeds what the walls can seal (tall enclosed
+        # walls turn any pack-gap into a floor-to-ceiling far-clamp slit).
+        excess = (room_w + room_h - max_span_sum).clamp(min=0.0)
+        room_w = room_w - 0.5 * excess
+        room_h = room_h - 0.5 * excess
 
     # Initialize poses: all parked
     poses = torch.zeros(B, NUM_OBJECTS, 7, device=device)
@@ -582,7 +681,7 @@ def generate_proc_room(
             # Doorway: pick 1 random side
             door_side = torch.randint(0, 4, (1,), device=device).item()
             door_pos = torch.rand(1, device=device).item()  # 0-1 along wall
-            door_width = torch.rand(1, device=device).item() * 0.4 + 0.8  # [0.8, 1.2]
+            door_width = torch.rand(1, device=device).item() * (door_width_max - 0.8) + 0.8  # [0.8, door_width_max]
 
             # Build 4 walls: N(top), S(bottom), E(right), W(left)
             # Convention: room spans [-w/2, w/2] x [-h/2, h/2]
@@ -619,7 +718,7 @@ def generate_proc_room(
                             yaw = math.pi / 2
                         poses[b_idx, slot, 0] = px
                         poses[b_idx, slot, 1] = py
-                        poses[b_idx, slot, 2] = 0.5  # height/2 for 1.0m walls
+                        poses[b_idx, slot, 2] = wall_z  # wall_height/2
                         q = _yaw_to_quat(torch.tensor(yaw, device=device))
                         poses[b_idx, slot, 3:7] = q
                         active_mask[b_idx, slot] = True
@@ -638,7 +737,7 @@ def generate_proc_room(
                             yaw = math.pi / 2
                         poses[b_idx, slot, 0] = px
                         poses[b_idx, slot, 1] = py
-                        poses[b_idx, slot, 2] = 0.5
+                        poses[b_idx, slot, 2] = wall_z
                         q = _yaw_to_quat(torch.tensor(yaw, device=device))
                         poses[b_idx, slot, 3:7] = q
                         active_mask[b_idx, slot] = True
@@ -658,7 +757,7 @@ def generate_proc_room(
                             yaw = math.pi / 2
                         poses[b_idx, slot, 0] = px
                         poses[b_idx, slot, 1] = py
-                        poses[b_idx, slot, 2] = 0.5
+                        poses[b_idx, slot, 2] = wall_z
                         q = _yaw_to_quat(torch.tensor(yaw, device=device))
                         poses[b_idx, slot, 3:7] = q
                         active_mask[b_idx, slot] = True
@@ -724,11 +823,36 @@ def generate_proc_room(
         placed_clutter_xy = []
         inset = 0.5
 
+        # Per-episode placement law: uniform interior scatter (default) or the
+        # perimeter-biased mixture (clutter hugs the walls, floor center open —
+        # the constraint-solver look). The draw is skipped when disabled so the
+        # default RNG stream is unchanged.
+        clutter_wall_bias = False
+        if clutter_wall_bias_prob > 0.0:
+            clutter_wall_bias = torch.rand(1, device=device).item() < clutter_wall_bias_prob
+
         for c_idx in range(min(n_clut, NUM_CLUTTER)):
             slot = CLUTTER_SLOTS[c_idx]
             for _ in range(10):
-                cx_ = (torch.rand(1, device=device).item() - 0.5) * (w - 2 * inset)
-                cy_ = (torch.rand(1, device=device).item() - 0.5) * (h - 2 * inset)
+                if clutter_wall_bias:
+                    # Push the item toward a random wall, small inward margin.
+                    c_side = torch.randint(0, 4, (1,), device=device).item()
+                    c_margin = inset + torch.rand(1, device=device).item() * 0.6  # 0.5-1.1 m from wall
+                    if c_side == 0:      # N
+                        cx_ = (torch.rand(1, device=device).item() - 0.5) * (w - 2 * inset)
+                        cy_ = h / 2 - c_margin
+                    elif c_side == 1:    # S
+                        cx_ = (torch.rand(1, device=device).item() - 0.5) * (w - 2 * inset)
+                        cy_ = -h / 2 + c_margin
+                    elif c_side == 2:    # E
+                        cx_ = w / 2 - c_margin
+                        cy_ = (torch.rand(1, device=device).item() - 0.5) * (h - 2 * inset)
+                    else:                # W
+                        cx_ = -w / 2 + c_margin
+                        cy_ = (torch.rand(1, device=device).item() - 0.5) * (h - 2 * inset)
+                else:
+                    cx_ = (torch.rand(1, device=device).item() - 0.5) * (w - 2 * inset)
+                    cy_ = (torch.rand(1, device=device).item() - 0.5) * (h - 2 * inset)
 
                 # Min distance from furniture
                 too_close = False
@@ -807,6 +931,8 @@ def generate_proc_room(
             failed = reachable_count < MIN_REACHABLE_CELLS
 
     # --- Phase 6: Extract spawn points ---
+    # The shared pool feeds robot reset, the goal command, and the subgoal
+    # planner endpoints (0.3 m robot-radius inflation).
     spawn_xy, spawn_count = _extract_spawn_points(reachable)
 
     # Store on env for robot reset, goal command, and path planning
@@ -829,6 +955,27 @@ def generate_proc_room(
     env._proc_room_active_mask[env_ids] = active_mask
     env._proc_room_free_space[env_ids] = free_space
 
+    # Robot-spawn-only pool: a more-eroded interior read solely by the robot
+    # reset event, so the robot starts with more clearance than the goal /
+    # subgoal endpoints (which stay on the shared pool). Falls back per-env to
+    # the shared pool where the extra erosion emptied the room.
+    if robot_spawn_inflation_cells > 0:
+        robot_reachable = _erode_reachable(reachable, robot_spawn_inflation_cells)
+        robot_spawn_xy, robot_spawn_count = _extract_spawn_points(robot_reachable)
+        empty = robot_spawn_count == 0
+        if empty.any():
+            robot_spawn_xy[empty] = spawn_xy[empty]
+            robot_spawn_count[empty] = spawn_count[empty]
+        if not hasattr(env, "_proc_room_robot_spawn_pts"):
+            env._proc_room_robot_spawn_pts = torch.zeros(
+                env.num_envs, NUM_SPAWN_POINTS, 2, device=device
+            )
+            env._proc_room_robot_spawn_count = torch.zeros(
+                env.num_envs, dtype=torch.long, device=device
+            )
+        env._proc_room_robot_spawn_pts[env_ids] = robot_spawn_xy
+        env._proc_room_robot_spawn_count[env_ids] = robot_spawn_count
+
     # --- Phase 7: Offset by env origins and write ---
     env_origins = env.scene.env_origins[env_ids]  # (B, 3)
     poses[:, :, 0] += env_origins[:, 0:1]
@@ -839,3 +986,9 @@ def generate_proc_room(
     collection = env.scene[collection_name]
     all_object_ids = torch.arange(NUM_OBJECTS, device=device)
     collection.write_body_link_pose_to_sim_index(body_poses=poses, env_ids=env_ids, body_ids=all_object_ids)
+
+    # Enclosure: pose the standalone ceiling slab (outside the collection).
+    if ceiling_entity_name is not None:
+        _pose_ceiling_slab(
+            env, env_ids, ceiling_entity_name, p_ceil, ceiling_height_range, device
+        )

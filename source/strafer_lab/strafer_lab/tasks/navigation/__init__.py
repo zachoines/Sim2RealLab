@@ -23,6 +23,11 @@ against):
   leave the path to clear a sensed obstacle
 - ``Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-v0``: depth-policy obs, ProcRoom,
   robust DR, rolling-subgoal path tracking
+- ``Isaac-Strafer-Nav-RLDepth-Enriched-{Real,Robust}-v0`` and
+  ``Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-{Real,Robust}-v0``: the depth
+  and depth-subgoal variants on the ProcRoom generator enriched toward
+  enclosed, Infinigen-like depth statistics. New IDs with their own frozen
+  goldens so the open-top depth checkpoints keep their contract.
 
 Capture (operator-selectable stack via ``capture.py --sensors``; the default
 preset is shown):
@@ -30,6 +35,7 @@ preset is shown):
 - ``Isaac-Strafer-Nav-Capture-Teleop-v0``: full RGB only, Infinigen, realistic
 - ``Isaac-Strafer-Nav-Capture-Bridge-v0``: full RGB+depth + policy depth, Infinigen
 - ``Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0``: full RGB+depth + policy depth, ProcRoom
+- ``Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0``: as above on the enriched generator
 - ``Isaac-Strafer-Nav-Capture-Coverage-v0``: full RGB+depth, Infinigen
 
 Each RL ID has a ``-Play-v0`` variant for evaluation (fewer envs).
@@ -89,10 +95,23 @@ _ENV_REGISTRATIONS = [
     ("Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0", "StraferNavCfg_RLDepthSubgoal_Real_PLAY", _DEPTH_RUNNER_CFG),
     ("Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-v0", "StraferNavCfg_RLDepthSubgoal_Robust", _DEPTH_RUNNER_CFG),
     ("Isaac-Strafer-Nav-RLDepth-Subgoal-Robust-Play-v0", "StraferNavCfg_RLDepthSubgoal_Robust_PLAY", _DEPTH_RUNNER_CFG),
+    # Depth-enrichment variants — the ProcRoom generator enriched toward
+    # enclosed, Infinigen-like depth statistics. New IDs + new goldens so the
+    # open-top depth checkpoints keep their contract; the enrichment retrain
+    # targets these (the subgoal pair is the primary retrain corner).
+    ("Isaac-Strafer-Nav-RLDepth-Enriched-Real-v0", "StraferNavCfg_RLDepthEnriched_Real", _DEPTH_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-RLDepth-Enriched-Real-Play-v0", "StraferNavCfg_RLDepthEnriched_Real_PLAY", _DEPTH_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-RLDepth-Enriched-Robust-v0", "StraferNavCfg_RLDepthEnriched_Robust", _DEPTH_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-RLDepth-Enriched-Robust-Play-v0", "StraferNavCfg_RLDepthEnriched_Robust_PLAY", _DEPTH_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Real-v0", "StraferNavCfg_RLDepthSubgoalEnriched_Real", _DEPTH_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Real-Play-v0", "StraferNavCfg_RLDepthSubgoalEnriched_Real_PLAY", _DEPTH_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-v0", "StraferNavCfg_RLDepthSubgoalEnriched_Robust", _DEPTH_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0", "StraferNavCfg_RLDepthSubgoalEnriched_Robust_PLAY", _DEPTH_RUNNER_CFG),
     # Capture variants (operator-selectable stack)
     ("Isaac-Strafer-Nav-Capture-Teleop-v0", "StraferNavCfg_TeleopCapture", _NOCAM_RUNNER_CFG),
     ("Isaac-Strafer-Nav-Capture-Bridge-v0", "StraferNavCfg_BridgeAutonomy", _DEPTH_RUNNER_CFG),
     ("Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0", "StraferNavCfg_BridgeAutonomy_ProcRoom", _DEPTH_RUNNER_CFG),
+    ("Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0", "StraferNavCfg_BridgeAutonomy_ProcRoomEnriched", _DEPTH_RUNNER_CFG),
     ("Isaac-Strafer-Nav-Capture-Coverage-v0", "StraferNavCfg_Coverage", _NOCAM_RUNNER_CFG),
 ]
 

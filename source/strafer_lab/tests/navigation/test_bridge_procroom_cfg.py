@@ -119,3 +119,39 @@ def test_scene_class_keeps_both_cameras_and_procroom_replication():
     assert hasattr(scene, "room_primitives")
     # ProcRoom rooms are per-env replicated primitives, so physics replicates.
     assert scene.replicate_physics is True
+
+
+# ---------------------------------------------------------------------------
+# The enriched ProcRoom bridge variant: same stack, enclosed generator
+# ---------------------------------------------------------------------------
+
+_ENRICHED_TASK = "Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0"
+
+
+def test_enriched_bridge_registered_and_resolves():
+    import gymnasium as gym
+
+    assert _ENRICHED_TASK in gym.envs.registry
+    kwargs = gym.envs.registry[_ENRICHED_TASK].kwargs or {}
+    assert kwargs["env_cfg_entry_point"].endswith(
+        ":StraferNavCfg_BridgeAutonomy_ProcRoomEnriched"
+    )
+
+
+def test_enriched_bridge_encloses_the_room():
+    from isaaclab_tasks.utils import parse_env_cfg
+
+    cfg = parse_env_cfg(_ENRICHED_TASK, device="cpu", num_envs=1)
+    # Same two-camera capture stack + ProcRoom geometry as the open-top bridge.
+    assert cfg.scene.d555_camera_perception is not None
+    assert hasattr(cfg.scene, "room_primitives")
+    # Plus the enclosure: a standalone ceiling entity (outside the collection)
+    # and a per-env RGB fill light, with the generator fed the enrichment params.
+    assert hasattr(cfg.scene, "ceiling")
+    assert hasattr(cfg.scene, "ceiling_light")
+    gen = cfg.events.generate_room.params
+    assert gen["ceiling_entity_name"] == "ceiling"
+    assert gen["wall_height"] > 1.0
+    # Difficulty is un-pinned to a room-mode range (not the open-top pin at 7).
+    diff = cfg.events.randomize_difficulty.params
+    assert diff["min_level"] < diff["max_level"]

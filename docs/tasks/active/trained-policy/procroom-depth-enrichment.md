@@ -143,7 +143,7 @@ vs 1.95 m (Infinigen singleroom) / 2.3–2.5 m (heavy corpus)**, with
 | D2 row profile | monotone floor→far gradient; bottom band stable (flat floor — preserved in Infinigen, keep it) | top/mid reshaped: real surfaces overhead, near columns high in the image, aperture discontinuities | enclosure (F1), tall furniture (F3), internal walls (F2) |
 | D3 top-band far-saturation (42.8% pinned) | structural sky-clamp sheet | **collapses toward ~0** in enclosed single-room scenes; partially returns (11–18%, structured) in heavy scenes | enclosure (F1) |
 | D4 (new) high-row near fraction | ~0 (nothing above 1 m) | substantial (tall furniture) | F3 |
-| D5 (new) edge/gradient density, occlusion frequency | low (few primitives, no apertures) | higher (clutter columns, doorway apertures) | F2, F3, tier 3 if primitives can't reach it |
+| D5 (new) edge/gradient density, occlusion frequency | low (few primitives, no apertures) | higher (clutter columns, doorway apertures) | F2, F3, then coarse-mesh variety (Tier 3) only if primitives can't reach it |
 
 Constraint framing from the depth pipeline: depth statistics are shaped
 only by geometry 0.4–6 m from the camera (below 0.4 m → constant 0.2
@@ -167,9 +167,11 @@ raised to support 256 envs at 44 objects,
 `strafer_env_cfg.py:1798-1826`; the 64-env depth path sits ~4× below
 that sizing point, so a handful of added prims/env is comfortably
 inside it — any *global* palette growth re-exposes the 256-env NOCAM
-path: add a 256-env construct+step smoke in that case); per-env mesh
-assets ×64, large palette growth, or `GRID_SIZE` growth are
-costly/structural.
+path: add a 256-env construct+step smoke in that case). Mesh-asset
+palette slots (Tier 3) cost per *distinct* mesh (cooked once, instanced
+across envs under `replicate_physics=True`), not ×64 — so a small
+varied prop set is affordable; the costly/structural moves are large
+palette growth, mesh *count* growth, and `GRID_SIZE` growth.
 Reset-time placement logic is amortized (20 s episodes) — placement
 enrichment is ~free per step.
 
@@ -241,6 +243,24 @@ pre-training gate (exposure-gate precedent:
 `source/strafer_lab/scripts/measure_perception_exposure.py`), that
 promotion is a separate
 decision — flag it, don't fold it in.
+
+### 6. Tier-3 mesh-corpus asset source + ownership boundary
+
+Two undecided calls, both consult items — do not pre-decide:
+(a) **Ownership.** The ProcRoom coarse-mesh-variety axis is already
+scoped by task N3 in
+[`depth-subgoal-reactive-avoidance`](../../parked/trained-policy/depth-subgoal-reactive-avoidance.md);
+whether Tier 3 lands here or is handed back to that brief is a
+coordinator call, not this brief's to take. (b) **Asset source +
+distribution model.** The corpus choice forks on whether the project
+ships a redistributable asset pack (→ CC-BY/CC0 corpora: GSO / ABO /
+YCB / ReplicaCAD / Poly Haven) or keeps assets inside the Isaac
+pipeline (→ NVIDIA SimReady/props, lowest friction). Present the fork
+and the license hard-avoids (Tier 3); let the operator pick. Neither is
+a structural change to the composition root — growing the `NUM_*` /
+`OBJECT_SIZES` / slot-range constants is a per-slot lockstep inside the
+generator, not a new composition axis — so this is an asset-and-owner
+consult, not an `env-composition-contract` consult.
 
 ## Approach
 
@@ -413,23 +433,78 @@ provisional sim-frame targets.
   sightline segmentation.
 - **F4 rendered-camera extrinsics micro-DR.** Gated on Q4.
 
-**Tier 3 — hybrid ProcRoom + Infinigen-asset injection (L; consult-gated):**
+**Tier 3 — coarse low-poly indoor-mesh palette variety (M–L; asset
+source is a consult item):**
 
-- **H1.** Escalate through two cheaper rungs first: (i)
-  primitive-compound mimicry — match Infinigen footprint/height/
-  alignment distributions (from the corpus metadata) with compounds of
-  existing primitives; at 80×45 the descriptors cannot distinguish a
-  primitive wardrobe from a mesh one; (ii) visual mesh skins over the
-  existing box colliders (only the render BVH grows; PhysX keeps
-  boxes). Then H1 proper: a few real Infinigen meshes as palette
-  slots — the cost is unmeasured per-instance render/physics overhead
-  at ×64 plus palette-architecture changes (instanceable USD references
-  share cooked collision and render geometry across env clones, so
-  memory is not the presumptive blocker — measure in the consult).
-  Gate any rung on ≥90% of baseline steps/s at 64 envs. Trigger: NX
-  deltas show higher-order statistics (edge/gradient texture) that
-  primitives demonstrably cannot reach after F1–F3. Requires a consult
-  (palette architecture + measured costs), not a pre-decision.
+Framing correction: the lever here is a *large variety of coarse
+low-poly indoor props*, **not** photoreal Infinigen meshes. At 80×45,
+mesh fidelity is sub-pixel — what moves D4/D5 is geometric variety
+(footprints, heights, occlusion, edge/gradient density), which
+photoreal meshes buy at the worst cost-per-descriptor-point. This is
+the axis [`depth-subgoal-reactive-avoidance`](../../parked/trained-policy/depth-subgoal-reactive-avoidance.md)'s
+task N3 already owns ("richer procedural shape variety, AABB-preserving,
+NOT via Infinigen — a conservative AABB proxy for
+occupancy/planning/the geometric penalty, the organic mesh only for the
+depth render and physics collider"). Cite that boundary; the tier
+below is the concrete asset-source design for it, and which brief
+executes it is a consult item (Q6), not a land-grab.
+
+- **H1 — primitive-compound mimicry (S–M; no new assets).** Match
+  Infinigen footprint/height/alignment *distributions* (from the corpus
+  metadata) with compounds of the existing primitives; at 80×45 the
+  descriptors cannot distinguish a primitive wardrobe from a mesh one.
+  Zero asset dependency, zero cook — try this before any mesh work.
+- **H2 — coarse low-poly mesh props as kinematic palette slots (M–L).**
+  A `_make_kinematic_usd()` helper (a `UsdFileCfg` spawn, kinematic)
+  drops in beside the existing primitive helpers in the *same*
+  `RigidObjectCollectionCfg` + single batched pose-write — the spawn
+  loop is already per-slot heterogeneous, so no generator restructure.
+  The AABB-proxy decoupling makes occupancy/BFS/the −1.0 reward
+  untouched: they read `OBJECT_SIZES`, not the mesh, so each asset's XYZ
+  AABB is measured once offline and appended in lockstep with the
+  `NUM_*`/slot-range constants (the same code-coupling F1/F3 already
+  carry — see Q1). Collider = `convexHull` (matches the scene-USD
+  furniture default), needed only for physical contact, not for
+  occupancy/reward. **Cost scales with the number of *distinct meshes*,
+  not ×64:** with ProcRoom's default `replicate_physics=True` each
+  unique asset is cooked once and instanced across all envs — so the
+  earlier "×64 memory" framing was wrong; variety is bounded by
+  distinct-mesh count and collider complexity, not env count. Two
+  constraints: one rigid body per slot, no articulation; a centered
+  pivot (else a per-asset placement-z offset). There is **no in-repo
+  visual decimator** — "low-poly" must be an authoring-time property of
+  the chosen corpus, which makes the corpus choice (below) load-bearing.
+  Gate on ≥90% of baseline steps/s at 64 envs, measured per
+  distinct-mesh count.
+
+**Asset source (operator decision — do not pre-decide; see Q6).** The
+choice forks on the project's distribution model, and license — not
+fidelity — is the deciding axis. Redistribution-safe (CC-BY/CC0):
+Google Scanned Objects (~1,030 scanned household, real footprints),
+Amazon Berkeley Objects (~7,953 furniture/household, rich category
+metadata — verify its CC-BY vs CC-BY-NC listing on download),
+YCB, ReplicaCAD, Poly Haven (CC0). Lowest-friction *if assets stay
+inside the Isaac pipeline*: NVIDIA's SimReady/residential/props library
+(USD-native, physics + semantics baked in) — but its license forbids
+redistributing the raw assets standalone. **License hard-avoids for a
+redistributable/commercial corpus:** ShapeNet/ShapeNetSem,
+3D-FRONT/3D-FUTURE, HSSD, PartNet-Mobility, BEHAVIOR-1K/OmniGibson,
+AI2-THOR baked assets, and Objaverse unless filtered per-object to its
+CC-BY/CC0 subset. Store the chosen props locally under `Assets/props/`
+(mirroring the Infinigen local-USD convention; avoids the network-only
+Nucleus path). Trigger for the whole tier: NX deltas show D4/D5
+higher-order structure that H1 primitives demonstrably cannot reach
+after F1–F3.
+
+Relationship to [`distractor-asset-injection`](../../parked/harness/distractor-asset-injection.md):
+that brief curates a *labeled* asset pool for the harness SDG path
+(Infinigen scenes, detection GT, an expensive occupancy re-process).
+ProcRoom's tier consumes only the *raw coarse geometry + AABB* — never
+the labeled `objects[]` pool, `add_labels`, or the SDG path (labels are
+dead weight for unlabeled per-env training clutter). If a shared
+low-poly corpus is curated, it is one geometry pool that brief labels
+for the harness and this tier strips to AABB; do not route ProcRoom
+enrichment through the harness SDG path.
 
 ### Decision rule and the fallback (sketched, not built)
 
@@ -565,4 +640,11 @@ explaining "not tracking") voids both designs — re-run the A/B first.
   generator; scene-corpus regeneration is the harness lane's.
 - **Reactive-avoidance re-enablement.** That's
   [`depth-subgoal-reactive-avoidance`](../../parked/trained-policy/depth-subgoal-reactive-avoidance.md).
-  Don't double-tune.
+  Don't double-tune. Note its task N3 also owns the ProcRoom
+  coarse-mesh-variety axis Tier 3 draws on — the ownership boundary is
+  Q6's consult, not a decision this brief takes.
+- **Curating a labeled asset pool / the harness SDG injection path.**
+  That's [`distractor-asset-injection`](../../parked/harness/distractor-asset-injection.md)
+  (Infinigen scenes, detection GT). Tier 3 consumes only raw
+  geometry + AABB from any shared corpus; it does not build or route
+  through the labeled SDG path.

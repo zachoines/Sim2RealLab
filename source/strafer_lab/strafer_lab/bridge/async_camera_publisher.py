@@ -196,9 +196,9 @@ class StraferCameraAsyncPublisher:
         ``CameraInfo`` is bit-identical to the prior OmniGraph output.
     frame_skip:
         Number of bridge ticks dropped between publishes. ``0`` publishes
-        every tick (matches pre-optimization behavior); ``3`` publishes
-        every 4th tick (matches ``--camera-frame-skip`` default and
-        ``sim.render_interval``). Mirrors the
+        every tick; ``3`` publishes every 4th tick. The runner derives the
+        value so the publish cadence lands on the policy period; this class
+        just honors whatever it is handed. Mirrors the
         ``ROS2CameraHelper.inputs:frameSkipCount`` field the OmniGraph
         used.
     node_name:

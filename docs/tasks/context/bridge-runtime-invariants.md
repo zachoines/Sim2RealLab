@@ -65,8 +65,11 @@ from its own `torch.cuda.Stream`, runs the D→H copy, and publishes
 the four ROS 2 messages. The next `env.step`'s GPU work queues onto
 the renderer stream in parallel with the readback. `--camera-frame-skip`
 is honored on the publish side: `frame_skip=N` means the publisher
-queues a frame once every `N+1` bridge ticks (default 3, matching
-`sim.render_interval`).
+queues a frame once every `N+1` bridge ticks. Unset, it is **derived**
+so the camera publishes once per policy period (30 Hz) from the settled
+`sim.dt x decimation` — 3 at `decimation 1`, 0 at `decimation 4` — not
+bolted to a fixed value or to `render_interval`; an explicit flag wins
+verbatim (with an off-policy warning at startup).
 
 ## Camera resolutions (sim mirrors real)
 

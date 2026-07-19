@@ -275,6 +275,10 @@ make sim-bridge-gui      # editor viewport open (visual debug, slower)
 # Pin the bridge to a chosen scene (else the env default loads):
 SCENE_USD=Assets/generated/scenes/scene_singleroom_000_seed0.usdc make sim-bridge
 # or by discoverable name: SCENE_NAME=scene_singleroom_000_seed0 make sim-bridge
+# Renderer: RTX Real-Time 2.0 is the default. Revert to the legacy Real-Time 1.0
+# renderer for visual-debug determinism (temporary A/B toggle, removed once RT 2.0
+# is validated on the rig):
+RENDERER=legacy make sim-bridge-gui
 ```
 
 ## Jetson shell 1 — full bringup (perception + SLAM + Nav2 + executor + foxglove_bridge)

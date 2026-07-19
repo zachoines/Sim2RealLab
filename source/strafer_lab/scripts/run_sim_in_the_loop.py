@@ -66,6 +66,7 @@ from pathlib import Path
 from typing import Any
 
 from isaaclab.app import AppLauncher
+from strafer_lab.bridge import renderer_settings
 from strafer_shared.constants import MAX_ANGULAR_VEL, MAX_LINEAR_VEL
 from strafer_shared.policy_interface import PolicyVariant
 
@@ -438,6 +439,23 @@ def _parse_args() -> argparse.Namespace:
         default=200,
         help="Rolling sample window for p50/p99 in --profile (default 200 steps).",
     )
+    parser.add_argument(
+        "--renderer",
+        # dest avoids the reserved SimulationApp ``renderer`` config key, which
+        # AppLauncher forwards verbatim to Isaac Sim — a bridge value like 'rt2'
+        # is not a valid SimApp renderer. Keep the operator-facing flag name.
+        dest="rtx_renderer",
+        choices=renderer_settings.RENDERER_CHOICES,
+        default=renderer_settings.DEFAULT_RENDERER,
+        help="RTX renderer selection. 'rt2' (default) uses RTX Real-Time 2.0 "
+             "(RealTimePathTracing) in the Performance preset with DLSS frame "
+             "generation OFF (1x) — see strafer_lab.bridge.renderer_settings for "
+             "why frame generation is not enabled on the sensor path. 'legacy' "
+             "reverts to RTX Real-Time 1.0 (RaytracedLighting) for visual-debug "
+             "determinism. 'legacy' is a TEMPORARY A/B revert toggle that "
+             "de-risks the default flip and will be removed once RT 2.0 is "
+             "validated on the rig.",
+    )
 
     # Bridge-mode observation dump (train<->deploy parity, training half).
     parser.add_argument(
@@ -626,6 +644,71 @@ def _apply_sim_in_the_loop_overrides(
 
 
 # ---------------------------------------------------------------------------
+# Renderer selection (RTX Real-Time 2.0 default; --renderer legacy A/B revert)
+# ---------------------------------------------------------------------------
+
+
+def _apply_renderer_boot_args(args: argparse.Namespace) -> None:
+    """Inject the selected renderer's Kit settings into the launch args.
+
+    Runs BEFORE ``AppLauncher`` boots. The RTX Real-Time 2.0 renderer must be
+    registered AND selected at startup — its availability is a boot-time
+    persistent RTX preference, not a live toggle — so the render-mode +
+    registration settings are passed as Kit CLI args rather than through the
+    post-boot ``RenderCfg.carb_settings`` path (which stays the home for dynamic
+    render settings like RTX auto-exposure). The ``--rendering_mode`` preset is
+    set via the AppLauncher arg unless the operator already passed one.
+    """
+    renderer = args.rtx_renderer
+    print(f"[sim_in_the_loop] renderer = {renderer_settings.describe_renderer(renderer)}")
+
+    rendering_mode = renderer_settings.renderer_rendering_mode(renderer)
+    if rendering_mode is not None and not getattr(args, "rendering_mode", None):
+        args.rendering_mode = rendering_mode
+        print(f"[sim_in_the_loop] rendering_mode preset -> {rendering_mode}")
+
+    overrides = renderer_settings.renderer_kit_setting_overrides(renderer)
+    if overrides:
+        kit_fragment = renderer_settings.format_kit_setting_args(overrides)
+        existing = getattr(args, "kit_args", "") or ""
+        args.kit_args = f"{existing} {kit_fragment}".strip()
+        print(f"[sim_in_the_loop] renderer kit args -> {kit_fragment}")
+
+
+def _log_active_renderer() -> None:
+    """Read the live RTX render settings back off carb and log them once.
+
+    The startup line that proves which renderer is actually active — the
+    acceptance criterion's evidence and the depth-integrity probe's truth
+    teller. Reads are best-effort: a missing key logs ``<unset>`` rather than
+    failing the run.
+    """
+    try:
+        import carb
+
+        settings = carb.settings.get_settings()
+    except Exception as exc:  # pragma: no cover - depends on Kit runtime
+        print(f"[sim_in_the_loop] active-renderer readback unavailable: {exc}")
+        return
+
+    def _get(path: str) -> object:
+        try:
+            value = settings.get(path)
+        except Exception:
+            value = "<unreadable>"
+        return "<unset>" if value is None else value
+
+    print(
+        "[sim_in_the_loop] active renderer: "
+        f"/rtx/rendermode={_get('/rtx/rendermode')} "
+        f"rendering_mode={_get('/isaaclab/rendering/rendering_mode')!r} "
+        f"dlssg.enabled={_get('/rtx-transient/dlssg/enabled')} "
+        f"dlss.execMode={_get('/rtx/post/dlss/execMode')} "
+        f"rt2Enabled={_get('/rtx-transient/rt2Enabled')}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -635,6 +718,10 @@ def main() -> None:
 
     if args.mode == "harness":
         _validate_harness_args(args)
+
+    # Renderer boot args must be injected before AppLauncher starts (RT 2.0
+    # registration is a startup preference).
+    _apply_renderer_boot_args(args)
 
     # AppLauncher must boot Isaac Sim before any omni.* / strafer_lab.tasks imports.
     app_launcher = AppLauncher(args)
@@ -679,6 +766,8 @@ def main() -> None:
     )
 
     env = gym.make(args.task, cfg=env_cfg)
+
+    _log_active_renderer()
 
     config = build_default_bridge_config(
         graph_path=args.graph_path,

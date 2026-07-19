@@ -86,12 +86,12 @@ def _clamp_unit(value: float) -> float:
 class _CameraCadence(NamedTuple):
     """Effective bridge camera-publish cadence, for the startup contract print."""
 
-    bridge_tick_hz: float  # env.step (bridge tick) rate, sim-Hz
-    publish_hz: float  # effective Image/CameraInfo publish rate, sim-Hz
-    renders_per_tick: float  # fresh renders per bridge tick (decimation / render_interval)
-    frame_skip: int  # the value actually in use
-    derived_frame_skip: int  # what the policy-period formula picks
-    warnings: tuple[str, ...]  # cadence warnings (empty when clean)
+    bridge_tick_hz: float  # sim-Hz, not wall
+    publish_hz: float  # sim-Hz, not wall
+    renders_per_tick: float  # decimation / render_interval
+    frame_skip: int
+    derived_frame_skip: int
+    warnings: tuple[str, ...]
 
 
 def _derive_camera_frame_skip(
@@ -794,10 +794,8 @@ def main() -> None:
 
     env = gym.make(args.task, cfg=env_cfg)
 
-    # Resolve the camera publish cadence AFTER the decimation override settles:
-    # an explicit --camera-frame-skip wins verbatim, otherwise derive it from
-    # the effective sim.dt x decimation so the camera publishes once per policy
-    # period regardless of the run's decimation.
+    # After the decimation override settles, so a derived skip uses the run's
+    # actual decimation rather than the pre-override value.
     camera_frame_skip, camera_skip_explicit = _resolve_camera_frame_skip(
         args.camera_frame_skip,
         sim_dt=float(env_cfg.sim.dt),

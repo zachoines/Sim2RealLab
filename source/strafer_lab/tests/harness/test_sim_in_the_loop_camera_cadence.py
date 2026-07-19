@@ -140,10 +140,8 @@ class TestCameraCadence:
 
     def test_derived_value_never_raises_off_policy_warning(self):
         rsil = _import_rsil()
-        # A derived (explicit=False) config that DOES emit a warning (the
-        # coarse-render duplicate-frame one) — so the assertion is not vacuous:
-        # the off-policy discriminator must stay silent on the derived path even
-        # while another warning fires.
+        # A derived config that still emits the duplicate-frame warning, so the
+        # "no off-policy warning" check isn't vacuous over an empty list.
         cad = rsil._camera_cadence(
             sim_dt=SIM_DT, decimation=4, render_interval=8, frame_skip=0, explicit=False
         )
@@ -171,10 +169,9 @@ class TestCameraCadence:
 
     def test_both_warnings_fire_independently(self):
         rsil = _import_rsil()
-        # An explicit off-policy skip AND a render_interval too coarse to feed
-        # it: both conditions must fire (the two branches are independent, not
-        # mutually exclusive). decimation 4, render_interval 16, frame_skip 1
-        # (derived is 0) -> off-policy warns; renders_per_publish 0.5 -> dup warns.
+        # Both branches must fire independently: decimation 4, render_interval
+        # 16, frame_skip 1 (derived 0) -> off-policy warns; renders_per_publish
+        # 0.5 -> duplicate-frame warns.
         cad = rsil._camera_cadence(
             sim_dt=SIM_DT, decimation=4, render_interval=16, frame_skip=1, explicit=True
         )
@@ -187,10 +184,8 @@ class TestCameraCadence:
 class TestParseArgsCameraFrameSkipDefault:
     def test_omitted_flag_parses_to_none_sentinel(self, monkeypatch):
         rsil = _import_rsil()
-        # The derived-cadence fix hinges on the default being the None sentinel
-        # (not 0, not 3): a silent revert to a fixed default would re-break
-        # decimation-4 cadence while every helper test — which passes values by
-        # hand — stayed green. Pin it against the real parser.
+        # Only this pins the None sentinel: the helper tests pass values by
+        # hand, so a silent revert to a fixed default would slip past them.
         monkeypatch.setattr(sys, "argv", ["run_sim_in_the_loop.py"])
         args = rsil._parse_args()
         assert args.camera_frame_skip is None

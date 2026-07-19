@@ -87,16 +87,11 @@ class BridgeConfig:
     # (published as base_link → d555_link etc.). Empty tuple means the
     # builder only publishes odom → base_link.
     tf_extra_target_prims: tuple[str, ...] = field(default_factory=tuple)
-    # Per-publisher frame skip. The async camera publisher fires once per
-    # bridge tick (one env.step) but only serializes + pushes a full
-    # Image / CameraInfo every ``camera_frame_skip + 1``-th tick (0 publishes
-    # every tick). Skipping trims the dominant sim-in-the-loop bridge cost, but
-    # its VALUE is a correctness knob, not a free perf dial: the bridge runner
-    # derives it so the camera publishes once per policy period -- the 30 Hz
-    # contract the real D555 and training (a fresh render per env.step) both
-    # satisfy. That cadence is set by how many bridge ticks fall in one policy
-    # period (sim.dt x decimation), NOT by render_interval. This field only
-    # carries the resolved value; the derivation lives in the runner.
+    # Bridge ticks dropped between publishes: the publisher pushes an
+    # Image / CameraInfo every ``camera_frame_skip + 1``-th bridge tick (0 =
+    # every tick). The runner derives the value so the publish cadence lands on
+    # the policy period (set by sim.dt x decimation, NOT render_interval); this
+    # field only carries the resolved value.
     camera_frame_skip: int = 0
     # Stop-on-silence watchdog window for the /cmd_vel stream, in **sim
     # seconds** (not wall-clock: under use_sim_time a low real-time factor

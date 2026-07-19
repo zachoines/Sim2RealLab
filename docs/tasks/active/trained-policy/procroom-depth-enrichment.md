@@ -246,7 +246,35 @@ decision — flag it, don't fold it in.
 
 ### 6. Tier-3 mesh-corpus asset source + ownership boundary
 
-Two undecided calls, both consult items — do not pre-decide:
+**Resolved (coordinator routing, 2026-07-19):**
+- **(a) Ownership → Tier 3 stays under this brief.** Ownership follows
+  the trigger and the instrument, both enrichment-lane (Tier 3 fires
+  iff the NX deltas show D4/D5 structure primitives can't reach after
+  F1–F3, measured by Phase 0). Handing it to N3 would split one axis
+  across two owners parked on different triggers — the double-tuning the
+  Out of scope list guards against. `depth-subgoal-reactive-avoidance`
+  N3 gets a pointer, not the work: if it unparks it *consumes* this
+  machinery, it does not re-design it.
+- **(b) Asset source → recorded default, operator confirms at trigger
+  time: CC0-first (Poly Haven), then CC-BY with attribution (YCB,
+  Google Scanned Objects — real-scanned household geometry; verify
+  ABO's exact license at download), decimated to low-poly.** The tier's
+  framing removes the quality axis, so free corpora suffice, and a
+  redistributable pack keeps the repo reproducible without coupling it
+  to the SimReady EULA for standalone assets. Overrule to NVIDIA
+  SimReady/props only if the corpus is certain never to leave the Isaac
+  pipeline. The hard-avoid list stands regardless. No urgency —
+  trigger-gated; the default only keeps pickup from blocking on a
+  license decision.
+- **(c) Shared corpus with `distractor-asset-injection` →
+  opportunistic, not a project.** If Tier 3's trigger fires, curate the
+  corpus in this lane sized to its own need (geometry + AABB only) and
+  drop a note in that brief that a low-poly pool exists to extend
+  (labeling stays the harness lane's own path). No shared-curation
+  brief unless both triggers are live simultaneously.
+
+Original question (retained for provenance) — two undecided calls, both
+consult items — do not pre-decide:
 (a) **Ownership.** The ProcRoom coarse-mesh-variety axis is already
 scoped by task N3 in
 [`depth-subgoal-reactive-avoidance`](../../parked/trained-policy/depth-subgoal-reactive-avoidance.md);

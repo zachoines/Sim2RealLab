@@ -76,7 +76,7 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | [`depth-subgoal-reactive-avoidance`](parked/trained-policy/depth-subgoal-reactive-avoidance.md) | P3 | parked | DGX |
 | [`depth-subgoal-hybrid-runtime`](active/trained-policy/depth-subgoal-hybrid-runtime.md) | P3 | active | Jetson |
 | [`nx-docker-bringup`](active/trained-policy/nx-docker-bringup.md) | P1 | in flight (#157) | Jetson |
-| [`procroom-depth-enrichment`](active/trained-policy/procroom-depth-enrichment.md) | P2 | active | DGX |
+| [`procroom-depth-enrichment`](active/trained-policy/procroom-depth-enrichment.md) | P2 | active — impl merged (#156); sim-frame calibration filled (F1/enclosure closes the dominant D3 gap ~96%; F3/tall-furniture is the next lever, F2 deferred; fallback does not fire); enriched retrain + NX deploy-frame confirm open | DGX |
 | [`batched-gpu-path-planner`](parked/trained-policy/batched-gpu-path-planner.md) | P3 | parked | DGX |
 | [`rl-global-nav2-local`](parked/trained-policy/rl-global-nav2-local.md) | P3 | parked | Either |
 | [`subgoal-corridor-clearance`](parked/trained-policy/subgoal-corridor-clearance.md) | P3 | parked (filed-on-trigger: GRU arm still cuts corners) | DGX |

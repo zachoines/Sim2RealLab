@@ -39,7 +39,7 @@ from isaaclab.utils import configclass
 from isaaclab.utils.noise import GaussianNoiseCfg
 
 import isaaclab.sim as sim_utils
-from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCollectionCfg
+from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg, RigidObjectCollectionCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.sensors import TiledCameraCfg, ImuCfg, ContactSensorCfg
 from isaaclab_physx.physics import PhysxCfg
@@ -1348,6 +1348,42 @@ _INFINIGEN_PERCEPTION_TRAIN_NUM_ENVS = 1
 from .mdp.proc_room import GRID_RES, INFLATION_CELLS, build_proc_room_collection_cfg
 
 
+# --- ProcRoom depth-enrichment parameters (enriched depth variants only) ---
+# Move ProcRoom's open-top, close-quarters depth statistics toward enclosed,
+# Infinigen-like values. Applied only to the enriched depth variant IDs; the
+# NOCAM / vanilla-depth generator path keeps the generator argument defaults.
+_ENRICH_WALL_HEIGHT = 2.7               # enclosing walls (open-top default 1.0)
+_ENRICH_DOOR_WIDTH_MAX = 2.0            # doorway U[0.8, 2.0] (default 1.2)
+_ENRICH_SPAN_MAX = 7.5                  # room span U[4.0, 7.5] (default 7.0)
+_ENRICH_MAX_SPAN_SUM = 13.4            # perimeter cap for the 26 m wall stock
+_ENRICH_CLUTTER_WALL_BIAS = 0.5        # per-episode perimeter-biased clutter prob
+_ENRICH_ROBOT_SPAWN_INFLATION = 2      # extra spawn erosion cells (0.2 m standoff)
+_ENRICH_MIN_LEVEL = 4                  # un-pin difficulty to U[4, 7] (default pins 7)
+_ENRICH_MAX_LEVEL = 7
+_ENRICH_P_CEIL = 0.7                    # per-episode enclosure probability
+_ENRICH_CEILING_HEIGHT_RANGE = (2.2, 2.9)
+_ENRICH_CEILING_SIZE = (7.6, 7.6, 0.1)  # slab spanning the largest room + overhang
+
+
+def _make_ceiling_slab_cfg() -> RigidObjectCfg:
+    """Standalone kinematic ceiling slab (outside the room-primitive collection).
+
+    Parked below the floor until the generator teleports it per env; kept out of
+    the collection so it never enters occupancy / BFS / the geometric proximity
+    mask (an active mask slot would be a constant survival penalty).
+    """
+    return RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/Ceiling",
+        spawn=sim_utils.CuboidCfg(
+            size=_ENRICH_CEILING_SIZE,
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.6, 0.6, 0.62)),
+        ),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(100.0, 100.0, -10.0)),
+    )
+
+
 @configclass
 class StraferSceneCfg_ProcRoom(InteractiveSceneCfg):
     """Scene with procedural primitive rooms and depth camera."""
@@ -1507,6 +1543,50 @@ class StraferSceneCfg_ProcRoom_NoCam(InteractiveSceneCfg):
 
 
 @configclass
+class StraferSceneCfg_ProcRoomEnriched(StraferSceneCfg_ProcRoom):
+    """Depth scene with enclosing (tall) walls + a standalone ceiling slab.
+
+    Same geometry pipeline and depth camera as :class:`StraferSceneCfg_ProcRoom`,
+    but the walls reach ``_ENRICH_WALL_HEIGHT`` and a per-env ceiling slab
+    (outside the collection — never in occupancy / BFS / the proximity mask)
+    closes the room's top over enclosed episodes. Depth is geometry-only, so no
+    added light is needed here (see the perception variant for the RGB path).
+    """
+
+    room_primitives: RigidObjectCollectionCfg = RigidObjectCollectionCfg(
+        rigid_objects=build_proc_room_collection_cfg(wall_height=_ENRICH_WALL_HEIGHT),
+    )
+    ceiling: RigidObjectCfg = _make_ceiling_slab_cfg()
+
+
+@configclass
+class StraferSceneCfg_ProcRoomPerceptionEnriched(StraferSceneCfg_ProcRoomPerception):
+    """Perception (bridge/capture) scene with enclosure + a per-env fill light.
+
+    The ceiling blocks the single global DomeLight, so the force-included RGB
+    render (debug video / the bridge perception camera) would go near-black. A
+    per-env sphere light under the ceiling restores it; depth is geometry-only
+    and unaffected. Only the 1-8-env perception path carries this light. The
+    64-env depth path's policy camera still force-includes an rgb channel (so the
+    viewport/--video pipeline comes up), but gets no fill light — under enclosure
+    its debug RGB goes near-black by accepted trade-off; the depth observation it
+    trains on is unaffected. Intensity is a debug-RGB fill, not a training signal.
+    """
+
+    room_primitives: RigidObjectCollectionCfg = RigidObjectCollectionCfg(
+        rigid_objects=build_proc_room_collection_cfg(wall_height=_ENRICH_WALL_HEIGHT),
+    )
+    ceiling: RigidObjectCfg = _make_ceiling_slab_cfg()
+    ceiling_light = AssetBaseCfg(
+        prim_path="{ENV_REGEX_NS}/CeilingLight",
+        spawn=sim_utils.SphereLightCfg(
+            intensity=50000.0, radius=0.2, color=(1.0, 1.0, 1.0)
+        ),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, 2.0)),
+    )
+
+
+@configclass
 class CommandsCfg_ProcRoom:
     """Commands for ProcRoom — one goal per episode from BFS reachable points."""
     goal_command = mdp.GoalCommandProcRoomCfg(
@@ -1592,6 +1672,48 @@ class EventsCfg_ProcRoom_Robust:
         func=mdp.randomize_goal_noise, mode="reset",
         params={"command_name": "goal_command", "noise_std": 0.35},
     )
+
+
+# Depth-enrichment event terms: un-pin difficulty to a room-mode range and feed
+# the generator the enrichment arguments. Used only by the enriched depth
+# variants; the vanilla terms above keep the generator defaults.
+_GENERATE_PROC_ROOM_ENRICHED = EventTerm(
+    func=mdp.generate_proc_room,
+    mode="reset",
+    params={
+        "collection_name": "room_primitives",
+        "wall_height": _ENRICH_WALL_HEIGHT,
+        "door_width_max": _ENRICH_DOOR_WIDTH_MAX,
+        "span_max": _ENRICH_SPAN_MAX,
+        "max_span_sum": _ENRICH_MAX_SPAN_SUM,
+        "clutter_wall_bias_prob": _ENRICH_CLUTTER_WALL_BIAS,
+        "robot_spawn_inflation_cells": _ENRICH_ROBOT_SPAWN_INFLATION,
+        "ceiling_entity_name": "ceiling",
+        "p_ceil": _ENRICH_P_CEIL,
+        "ceiling_height_range": _ENRICH_CEILING_HEIGHT_RANGE,
+    },
+)
+
+_RANDOMIZE_PROC_ROOM_DIFFICULTY_ENRICHED = EventTerm(
+    func=mdp.randomize_proc_room_difficulty,
+    mode="reset",
+    params={"min_level": _ENRICH_MIN_LEVEL, "max_level": _ENRICH_MAX_LEVEL},
+)
+
+
+@configclass
+class EventsCfg_ProcRoom_Realistic_Enriched(EventsCfg_ProcRoom_Realistic):
+    """Realistic ProcRoom events with depth-enrichment generation (un-pinned
+    difficulty + enclosure/clutter/spawn enrichment); DR unchanged."""
+    randomize_difficulty = _RANDOMIZE_PROC_ROOM_DIFFICULTY_ENRICHED
+    generate_room = _GENERATE_PROC_ROOM_ENRICHED
+
+
+@configclass
+class EventsCfg_ProcRoom_Robust_Enriched(EventsCfg_ProcRoom_Robust):
+    """Robust ProcRoom events with depth-enrichment generation; DR unchanged."""
+    randomize_difficulty = _RANDOMIZE_PROC_ROOM_DIFFICULTY_ENRICHED
+    generate_room = _GENERATE_PROC_ROOM_ENRICHED
 
 
 @configclass

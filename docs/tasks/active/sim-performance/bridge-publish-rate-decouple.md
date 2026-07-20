@@ -12,6 +12,15 @@ the candidate "hold the action across N substeps" approach may be small,
 the general decoupling is larger)
 **Branch:** task/bridge-publish-rate-decouple
 
+> **Camera-cadence slice delivered separately.** The camera-publish-cadence
+> half of this brief — making the *default* `--camera-frame-skip` correct for
+> any decimation (derived to one publish per policy period, not a fixed 3) —
+> shipped in
+> [`bridge-camera-cadence-derive`](../../completed/bridge-camera-cadence-derive.md).
+> What stays here is the deeper decouple: publishing *more often* than the
+> control step (action-hold / sub-step pump) so `decimation 4` dynamics and a
+> ~30 Hz publish rate coexist architecturally.
+
 ## Story
 
 As a **sim-in-the-loop operator validating the Jetson autonomy stack**, I

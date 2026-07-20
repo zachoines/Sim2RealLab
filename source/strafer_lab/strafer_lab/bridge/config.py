@@ -87,14 +87,11 @@ class BridgeConfig:
     # (published as base_link → d555_link etc.). Empty tuple means the
     # builder only publishes odom → base_link.
     tf_extra_target_prims: tuple[str, ...] = field(default_factory=tuple)
-    # Per-publisher frame skip. ROS2CameraHelper + ROS2CameraInfoHelper
-    # each fire on every OmniGraph tick but serialize and push a full
-    # Image / CameraInfo message every time. On the DGX sim-in-the-loop
-    # this is the dominant bridge cost. Setting ``camera_frame_skip=N``
-    # means the helper publishes once every ``N+1`` ticks (the field is
-    # "frames to skip between publishes"). 0 keeps the original per-tick
-    # behavior; ``render_interval - 1`` matches the actual render rate
-    # and avoids publishing duplicate frames.
+    # Bridge ticks dropped between publishes: the publisher pushes an
+    # Image / CameraInfo every ``camera_frame_skip + 1``-th bridge tick (0 =
+    # every tick). The runner derives the value so the publish cadence lands on
+    # the policy period (set by sim.dt x decimation, NOT render_interval); this
+    # field only carries the resolved value.
     camera_frame_skip: int = 0
     # Stop-on-silence watchdog window for the /cmd_vel stream, in **sim
     # seconds** (not wall-clock: under use_sim_time a low real-time factor

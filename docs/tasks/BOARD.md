@@ -30,6 +30,7 @@ that ships them; see "Shipping a brief: order of operations" in
 | [`harness-architecture`](active/harness/harness-architecture.md) Tier 2 — bridge driver migration | DGX | post-merge follow-up ([#88](https://github.com/zachoines/Sim2RealLab/pull/88) merged) | pending operator gate — the multi-room end-to-end acceptance is operator-run per the PR test plan. Tier 2 shipped: bridge `--mode harness` → LeRobot v3 writer; both `capture.py` bridge cells wired (queue cell against a hand-authored fixture — mission-generator unshipped); `--inject-bad-grounding` + detections columns; unit suites + Jetson-free Kit smoke green. Brief stays active until Tier 3 ships. |
 | [`depth-subgoal-env`](active/trained-policy/depth-subgoal-env.md) | DGX | [#138](https://github.com/zachoines/Sim2RealLab/pull/138) (merged) | Delivered Phases 1–4 (`PolicyVariant.DEPTH_SUBGOAL`, depth-aware obstacle-proximity reward, depth×subgoal env composition + 4 task IDs, Kit-free tests). Brief stays active — Phase 5 (the DEPTH-rate training run + converged checkpoint) is operator-gated and closes it later. |
 | [`depth-subgoal-hybrid-runtime`](active/trained-policy/depth-subgoal-hybrid-runtime.md) | Jetson | [#140](https://github.com/zachoines/Sim2RealLab/pull/140) merged | Runtime consumer of `PolicyVariant.DEPTH_SUBGOAL` (defined by #138) + full combo test cell + sim depth-timeout override + deploy depth-scale fix. Brief stays active — the live acceptance (load the converged checkpoint + hybrid sim mission) is pending, gated on `depth-subgoal-env` training + the rig. |
+| [`nx-docker-bringup`](active/trained-policy/nx-docker-bringup.md) | Jetson | [#157](https://github.com/zachoines/Sim2RealLab/pull/157) | Containerized `strafer_ros` on the new Orin NX 16GB — 2 images over CycloneDDS (`strafer-cpu` + `strafer-gpu`), sim/deploy/dev compose, hybrid coupling + fail-loud guard. Both images built + validated on-device; sim-in-the-loop stack launches in-container. Stays active for the open **skip-0 e2e** acceptance (operator-run, gated on the DGX) + deferred hardware lanes; recommends **RETIRE** on the Nano-parity gate. |
 
 ---
 
@@ -74,6 +75,7 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | [`depth-subgoal-env`](active/trained-policy/depth-subgoal-env.md) | P3 | active | DGX |
 | [`depth-subgoal-reactive-avoidance`](parked/trained-policy/depth-subgoal-reactive-avoidance.md) | P3 | parked | DGX |
 | [`depth-subgoal-hybrid-runtime`](active/trained-policy/depth-subgoal-hybrid-runtime.md) | P3 | active | Jetson |
+| [`nx-docker-bringup`](active/trained-policy/nx-docker-bringup.md) | P1 | in flight (#157) | Jetson |
 | [`batched-gpu-path-planner`](parked/trained-policy/batched-gpu-path-planner.md) | P3 | parked | DGX |
 | [`rl-global-nav2-local`](parked/trained-policy/rl-global-nav2-local.md) | P3 | parked | Either |
 | [`subgoal-corridor-clearance`](parked/trained-policy/subgoal-corridor-clearance.md) | P3 | parked (filed-on-trigger: GRU arm still cuts corners) | DGX |

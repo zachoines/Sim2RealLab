@@ -1,0 +1,140 @@
+# Full on-robot deployment of the Strafer stack, decomposed over CycloneDDS.
+# Each ROS node group runs in its own container; TF and topics flow between them
+# over DDS (network_mode: host, UDP loopback -- no shared /dev/shm needed).
+#
+#   cd Sim2RealLab/source/strafer_ros/deploy
+#   sudo bash host-setup/install-host-prereqs.sh        # rmem sysctl, runtime, compose, udev
+#   docker compose build                                # builds strafer-cpu AND strafer-gpu
+#   docker compose up                                   # base+perception+slam+navigation+autonomy
+#   docker compose --profile policy up                  # + GPU inference (see below)
+#   docker compose --profile remote up                  # + Zenoh bridge (workstation convenience; SEE README security note)
+#
+# POLICY PROFILE: the inference service runs inference_policy.launch.py, which
+# HARD-FAILS unless STRAFER_NAV_BACKEND is a policy backend (strafer_direct /
+# hybrid_nav2_strafer) AND a model is mounted -- set STRAFER_INFERENCE_MODEL_PATH
+# (compose/autonomy.env) to a file under /models. hybrid also auto-starts the
+# rolling-subgoal generator. No silent nav2 fallback.
+#
+# HARDWARE: `base` needs the RoboClaws on /dev/ttyACM*; `perception` needs the
+# RealSense D555. slam/navigation/autonomy/inference need no hardware. Device
+# mounts are inert until the hardware is connected.
+#
+# NOTE: Zenoh is a REMOTE-WORKSTATION CONVENIENCE, not a sanctioned transport for
+# the DGX<->robot sim lane -- the A/B experiments run wired-LAN CycloneDDS; nobody
+# bridges 921 KB depth over WiFi TCP mid-experiment.
+
+name: strafer
+
+x-dds-env: &dds-env
+  RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+  CYCLONEDDS_URI: file:///opt/strafer/config/cyclonedds.xml
+  ROS_DOMAIN_ID: "42"
+
+# Common base for the CPU (strafer-cpu) services. The canonical cyclonedds.xml is
+# bind-mounted straight from strafer_bringup/config (no byte-copy in deploy/).
+x-cpu-svc: &cpu-svc
+  image: strafer-cpu:humble
+  network_mode: host
+  restart: unless-stopped
+  environment:
+    <<: *dds-env
+  volumes:
+    - ../strafer_bringup/config/cyclonedds.xml:/opt/strafer/config/cyclonedds.xml:ro
+
+services:
+  # --- chassis: robot_state_publisher (TF) + RoboClaw driver -------------------
+  # Carries the strafer-cpu build: so `docker compose build` produces the shared
+  # image the other CPU services reference.
+  base:
+    <<: *cpu-svc
+    build:
+      context: ../..                                # = source/ (strafer_ros + strafer_shared + strafer_autonomy)
+      dockerfile: strafer_ros/deploy/docker/Dockerfile.cpu
+      network: host                                 # L4T lacks iptable_raw -> bridge build networking fails
+    container_name: strafer_base
+    group_add: [ dialout ]
+    device_cgroup_rules: [ "c 166:* rmw" ]          # 166 = ttyACM (RoboClaw)
+    volumes:
+      - ../strafer_bringup/config/cyclonedds.xml:/opt/strafer/config/cyclonedds.xml:ro
+      - /dev:/dev                                   # RoboClaw serial; needs controllers connected
+    command: ros2 launch strafer_bringup base.launch.py
+
+  # --- perception: RealSense D555 + IMU filter + depth relays -----------------
+  perception:
+    <<: *cpu-svc
+    container_name: strafer_perception
+    device_cgroup_rules: [ "c 81:* rmw", "c 189:* rmw" ]   # 81=video/UVC, 189=usb (USB RealSense)
+    volumes:
+      - ../strafer_bringup/config/cyclonedds.xml:/opt/strafer/config/cyclonedds.xml:ro
+      - /dev:/dev                                   # USB RealSense (Ethernet-DDS D555 uses host net instead)
+    command: ros2 launch strafer_perception perception.launch.py
+
+  # --- slam: RTAB-Map (map->odom, /scan). Persistent DB. No hardware. ---------
+  slam:
+    <<: *cpu-svc
+    container_name: strafer_slam
+    volumes:
+      - ../strafer_bringup/config/cyclonedds.xml:/opt/strafer/config/cyclonedds.xml:ro
+      - strafer_ros_home:/root/.ros                 # rtabmap.db
+    command: ros2 launch strafer_slam slam.launch.py
+
+  # --- navigation: Nav2 (MPPI controller, costmaps, BT). No hardware. ---------
+  navigation:
+    <<: *cpu-svc
+    container_name: strafer_navigation
+    command: ros2 launch strafer_navigation navigation.launch.py
+
+  # --- autonomy: goal projection + executor (talks to VLM/planner). No hw. ----
+  autonomy:
+    <<: *cpu-svc
+    container_name: strafer_autonomy
+    env_file: [ compose/autonomy.env ]
+    command: ros2 launch strafer_bringup autonomy_nodes.launch.py
+
+  # --- inference (GPU): policy backend. Only with strafer_direct/hybrid. -------
+  inference:
+    image: strafer-gpu:humble
+    build:
+      context: ../..
+      dockerfile: strafer_ros/deploy/docker/Dockerfile.gpu
+      network: host
+    container_name: strafer_inference
+    network_mode: host
+    restart: unless-stopped
+    runtime: nvidia
+    profiles: [ policy ]                            # docker compose --profile policy up
+    env_file: [ compose/autonomy.env ]
+    environment:
+      <<: *dds-env
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    volumes:
+      - ../strafer_bringup/config/cyclonedds.xml:/opt/strafer/config/cyclonedds.xml:ro
+      - ${STRAFER_MODELS_DIR:-./models}:/models:ro                       # policy.onnx + .json sidecar
+      - strafer_trt_engines:/root/.cache/strafer_inference/trt_engines   # per-device, non-portable
+    command: ros2 launch strafer_inference inference_policy.launch.py
+
+  # --- zenoh bridge: robot <-> workstation over WiFi (point-to-point TCP) ------
+  # REMOTE-WORKSTATION CONVENIENCE ONLY (see header + README security note); not
+  # the DGX<->robot sim transport. On the workstation, run a MATCHING bridge
+  # version:  zenoh-bridge-ros2dds -d 42 -e tcp/<robot-ip>:7447
+  zenoh-bridge:
+    # Pinned (never :latest) -- the bridge wire protocol must match the workstation
+    # side. Override ZENOH_TAG to your workstation's zenoh-bridge-ros2dds version.
+    image: eclipse/zenoh-bridge-ros2dds:${ZENOH_TAG:-1.5.1}
+    container_name: strafer_zenoh
+    network_mode: host
+    # NOT unless-stopped: this exposes an UNAUTHENTICATED 0.0.0.0:7447 view of the
+    # whole ROS graph; don't auto-resurrect it across reboots.
+    restart: "no"
+    profiles: [ remote ]
+    environment:
+      # Deliberately NO CYCLONEDDS_URI: the tuned depth-RX xml is not mounted here
+      # and the bridge does not need it (would otherwise point at a missing file).
+      RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+      ROS_DOMAIN_ID: "42"
+    command: [ "-d", "42", "-l", "tcp/0.0.0.0:7447" ]
+
+volumes:
+  strafer_ros_home: {}
+  strafer_trt_engines: {}

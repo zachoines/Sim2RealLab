@@ -26,6 +26,7 @@ import torch
 from strafer_lab.tasks.navigation.mdp.proc_room import (
     NUM_OBJECTS,
     OBJECT_SIZES,
+    TALL_OBJECT_SLOTS,
     WALL_SLOTS,
     _erode_reachable,
     generate_proc_room,
@@ -198,6 +199,7 @@ def test_default_path_byte_identical_to_explicit_defaults():
         ceiling_entity_name=None,
         p_ceil=0.0,
         ceiling_height_range=(2.2, 2.9),
+        tall_object_heights=None,
     )
     assert torch.equal(implicit, explicit)
 
@@ -212,6 +214,48 @@ def test_ceiling_mixture_parks_open_top_envs():
     ceil_pose = entities["ceiling"].root_pose
     assert ceil_pose is not None
     assert torch.all(ceil_pose[:, 2] < -5.0)  # parked
+
+
+# ---------------------------------------------------------------------------
+# Enriched tall objects stand full-height (pose-z half of the palette lockstep)
+# ---------------------------------------------------------------------------
+
+
+def test_enriched_tall_objects_stand_full_height():
+    """With the ``tall_object_heights`` map the shelf / cabinet / tall-cylinder
+    slots are posed at ``height/2``; without it they keep the OBJECT_SIZES
+    default. Both runs share a seed, so the map is the only difference."""
+    heights = {"shelf": 2.0, "cabinet": 2.1, "tall_cyl": 1.8}
+
+    def _run(tall):
+        torch.manual_seed(1234)
+        # Difficulty 7 places every furniture + clutter slot, so every tall slot
+        # is a placement candidate; env origins are zero, so pose z is local z.
+        env, ent = _make_env(num_envs=8, difficulty=7)
+        generate_proc_room(
+            env,
+            torch.arange(env.num_envs),
+            wall_height=2.7,
+            tall_object_heights=tall,
+        )
+        return env, ent["room_primitives"].body_poses
+
+    env_e, poses_e = _run(heights)
+    env_d, poses_d = _run(None)
+
+    placed_any = False
+    for key, slots in TALL_OBJECT_SLOTS.items():
+        for slot in slots:
+            active = env_e._proc_room_active_mask[:, slot]
+            if not active.any():
+                continue
+            placed_any = True
+            z_e = poses_e[:, slot, 2][active]
+            assert torch.allclose(z_e, torch.full_like(z_e, heights[key] / 2.0))
+            z_d = poses_d[:, slot, 2][active]
+            assert torch.allclose(z_d, torch.full_like(z_d, OBJECT_SIZES[slot, 2].item() / 2.0))
+            assert (z_e > z_d + 1e-3).all()
+    assert placed_any, "no tall slot was placed — test is vacuous"
 
 
 # ---------------------------------------------------------------------------

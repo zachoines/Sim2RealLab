@@ -510,9 +510,16 @@ def reset_robot_proc_room(
     num_resets = len(env_ids)
     device = env.device
 
-    # Read per-env spawn points (populated by generate_proc_room EventTerm)
-    spawn_pts = env._proc_room_spawn_pts[env_ids]       # (B, K, 2)
-    spawn_count = env._proc_room_spawn_count[env_ids]    # (B,)
+    # Read per-env spawn points (populated by generate_proc_room EventTerm).
+    # Prefer the robot-spawn-only pool when the enriched generator built one
+    # (extra standoff for the robot); otherwise use the shared pool that also
+    # feeds the goal command and subgoal planner.
+    if hasattr(env, "_proc_room_robot_spawn_pts"):
+        spawn_pts = env._proc_room_robot_spawn_pts[env_ids]       # (B, K, 2)
+        spawn_count = env._proc_room_robot_spawn_count[env_ids]    # (B,)
+    else:
+        spawn_pts = env._proc_room_spawn_pts[env_ids]       # (B, K, 2)
+        spawn_count = env._proc_room_spawn_count[env_ids]    # (B,)
 
     # Sample random index per env (bounded by actual count)
     max_idx = spawn_count.clamp(min=1)  # avoid div-by-zero

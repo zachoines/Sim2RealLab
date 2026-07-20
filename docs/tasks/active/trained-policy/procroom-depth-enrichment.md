@@ -580,49 +580,83 @@ explaining "not tracking") voids both designs — re-run the A/B first.
 
 ## Acceptance criteria
 
+Each acceptance line is split into what the implementation PR completes
+(`[x]`) and what the coordinated GPU-window session must still validate
+empirically (`[ ] validated (GPU window)`) — checked boxes get skipped, and
+those unchecked lines are that session's checklist.
+
 ### Instrument
 
-- [ ] Scratch descriptor capture + descriptor scripts exist and run
-      headlessly on the DGX; thresholds (pin epsilon, band definitions,
-      the temporal→across-pose std redefinition) documented in-script.
-- [ ] Vanilla ProcRoom re-baselined under the harness protocol (≥50
-      generated rooms), numbers recorded next to the mission-trajectory
-      baseline with the pose-distribution caveat.
-- [ ] Sim-frame Infinigen descriptor leg captured (multi-scene per
-      Phase 0) or explicitly waived in favor of landed NX deltas.
+- [x] Scratch descriptor capture + descriptor scripts exist; thresholds
+      (pin epsilon, band definitions, the temporal→across-pose std
+      redefinition) documented in-script. Filed in
+      `SUBGOAL_EPIC/procroom_enrichment_scratch/`
+      (`capture_procroom_depth.py`, `depth_descriptors.py`, README);
+      descriptor logic verified on synthetic vanilla-vs-enclosed frames.
+- [ ] **validated (GPU window):** the Kit capture actually runs headlessly
+      on the DGX (it has never executed) and the descriptor script processes
+      a real dump.
+- [ ] **validated (GPU window):** vanilla ProcRoom re-baselined under the
+      harness protocol (≥50 generated rooms), numbers recorded next to the
+      mission-trajectory baseline with the pose-distribution caveat.
+- [ ] **validated (GPU window):** sim-frame Infinigen descriptor leg
+      captured (multi-scene per Phase 0) or explicitly waived in favor of
+      landed NX deltas.
 
 ### Generator
 
-- [ ] Tier-1 stories implemented per Q1's resolved option; each shows
-      its predicted descriptor movement on generated scenes.
-- [ ] F1 enclosure implemented (wall height + ceiling, mask/reward
-      exclusion handled per the F1 traps); top-band pin fraction moves
-      into the enclosed-scene target band on ≥50 generated rooms.
-- [ ] The 64-env depth-train cfg constructs and steps; reset-time and
-      step-rate within ~10% of the pre-enrichment baseline at
-      `num_envs=64`; PhysX buffer overflow warnings absent (plus a
-      256-env NOCAM construct+step smoke if the palette grew globally).
-- [ ] Generator-health counters logged in every descriptor run
-      (retry-ladder park counts, `spawn_count` distribution, BFS-fail
-      incidence, perimeter pack-gap incidence) — densification the
-      parking cascade silently reverts, or occupancy poisoning, must
-      surface here; descriptor movement alone cannot distinguish an
-      enriched room from a quietly emptied one.
-- [ ] The enriched distribution *widens* rather than shifts: dense
-      level-7 close-quarters rooms remain a substantial mode alongside
-      the new sparser/enclosed modes (the retrain must not trade
-      ProcRoom-class competence for Infinigen-class).
-- [ ] Composition contract resolved per Q1 (new variant IDs, or an
-      explicitly-stated deliberate re-freeze); NOCAM/NOCAM_SUBGOAL
-      manager hashes unchanged AND their `room_primitives` palette
-      (slot name set + spawn sizes) verified equal to pre-enrichment,
-      with no new slot ever active on NOCAM.
+- [x] Tier-1 stories implemented per Q1's resolved option (option A —
+      parameterized generator, default = today's behavior, enriched depth
+      variant IDs): T1 difficulty un-pin `U[4,7]`, T2 robot-spawn-only
+      pool fork, T3 doorway `U[0.8,2.0]`, T4 span `U[4,7.5]` + wall-budget
+      solvency cap, T5 clutter perimeter-bias mixture.
+- [ ] **validated (GPU window):** each story shows its predicted descriptor
+      movement on generated scenes (Phase-0 instrument).
+- [x] F1 enclosure implemented (wall height 2.7 m + standalone ceiling
+      slab, `p_ceil` mixture + `U[2.2,2.9]` height; route (a) — ceiling
+      outside the collection, so no `active_mask`/−1.0-reward trap; wall
+      pose-z derived at all three sites; perception per-env fill light).
+- [ ] **validated (GPU window):** top-band pin-fraction moves into the
+      enclosed-scene target band on ≥50 generated rooms.
+- [x] The 64-env depth-train cfg constructs (Kit-free) and its enriched
+      generation path runs on CPU (BFS/erosion/ceiling/span-cap/clutter-mix
+      smoke). The palette did **not** grow globally (enrichment is a
+      separate variant palette; NOCAM unchanged), so no 256-env NOCAM smoke
+      is required.
+- [ ] **validated (GPU window):** the 64-env depth cfg *steps*; reset-time
+      and step-rate within ~10% of the pre-enrichment baseline at
+      `num_envs=64`; PhysX buffer overflow warnings absent.
+- [x] Generator-health counters implemented (`spawn_count` distribution +
+      BFS-fail count, retry-ladder park total vs the level target,
+      difficulty histogram, median active walls) — emitted to the
+      `<out>.health.json` sidecar by the capture script. Perimeter
+      pack-gaps are read off the residual pinned-column band (documented in
+      the scratch README), not counted directly.
+- [ ] **validated (GPU window):** those counters are logged in the real
+      descriptor runs (the quietly-emptied-room guard against a moved
+      descriptor that is really a stripped room).
+- [x] The enriched distribution is *built* to widen not shift: difficulty
+      un-pinned to `U[4,7]` (level-7 close-quarters stays a ~25% mode) and
+      `p_ceil<1` keeps an open-top mode, rather than replacing the dense
+      mode.
+- [ ] **validated (GPU window):** the widen-not-shift property confirmed
+      empirically on the generated distribution (dense level-7 rooms remain
+      a substantial mode alongside the sparser/enclosed modes).
+- [x] Composition contract resolved per Q1 — **new enriched depth variant
+      IDs with new frozen goldens** (the sanctioned path). Existing depth
+      / NOCAM / NOCAM_SUBGOAL goldens unchanged; NOCAM/NOCAM_SUBGOAL *and*
+      the un-enriched depth variants' `room_primitives` palette (slot name
+      set + spawn sizes) verified equal to pre-enrichment via a frozen
+      palette golden, with no new slot and no ceiling on the open-top
+      variants (the ceiling is outside the collection). Default-path
+      byte-identity is pinned by a seeded dual-run test. 1000 Kit-free
+      tests green.
 
 ### Calibration + maintenance
 
 - [ ] "CALIBRATION PENDING" slot filled from the NX session (deltas +
       bound-scene identity) and stories re-ranked against it before any
-      retrain is scheduled.
+      retrain is scheduled. *(Out of this pickup — NX session lane.)*
 - [ ] If your work invalidates a fact in any referenced context
       module, package README, top-level `Readme.md`, or guide under
       `docs/`, update those in the same commit. See

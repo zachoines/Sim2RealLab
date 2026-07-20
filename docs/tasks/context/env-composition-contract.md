@@ -22,7 +22,11 @@ standard manager cfgs from them.
   (80×60 policy camera). Drives which camera prims render **and** which image
   observation terms the policy gets. An empty tuple is camera-free.
 - **`SceneSourceCfg(kind=...)`** — `plane` / `infinigen` / `procroom` / `none`.
-  The seam that makes a foreign USD a parameter, not a subclass.
+  The seam that makes a foreign USD a parameter, not a subclass. Its
+  `enrich_depth` flag (procroom + a policy-depth-camera profile only) opts a
+  variant into the enclosed, Infinigen-like ProcRoom generation; the enriched
+  behavior lives on separate `-Enriched-` gym IDs with their own frozen
+  goldens, so NOCAM and the open-top depth variants are untouched.
 - **`RealismCfg(level=...)`** — `ideal` / `real` / `robust` DR + noise tier.
 - **`ObjectiveCfg(kind=...)`** — `goal` (fixed goal pose per episode) or
   `subgoal` (rolling subgoal along a sim-planned path). Selects the command /

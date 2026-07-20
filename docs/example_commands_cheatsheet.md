@@ -286,9 +286,14 @@ make launch-sim
 #   ros2 launch strafer_bringup bringup_sim_in_the_loop.launch.py \
 #       vlm_url:=http://192.168.50.196:8100 planner_url:=http://192.168.50.196:8200
 #
-# Config lives in the compose env file (container-primary), NOT shell vars:
-#   edit source/strafer_ros/deploy/compose/sim.env  (VLM_URL/PLANNER_URL,
-#   STRAFER_NAV_BACKEND, timeouts), then: make launch-sim
+# Config is single-source (container-primary): the env_file
+# source/strafer_ros/deploy/compose/sim.env is GENERATED — do NOT edit it.
+#   - portable knobs (STRAFER_NAV_BACKEND, timeouts): edit the canonical
+#     source/strafer_ros/strafer_bringup/config/env_sim_in_the_loop.env, then
+#     `make env-sync` (regenerates the mirror; `make env-check` guards drift).
+#   - sim-host VLM/PLANNER URLs (deploy-only): the overlay in
+#     source/strafer_ros/deploy/tests/gen_env.py, then `make env-sync`.
+#   Then: make launch-sim
 # Different launch args (donut_warmup, viewer, rtabmap_viz) or command: edit the
 #   `command:` in deploy/docker-compose.sim.yml, or iterate live via the dev overlay
 #   (docker compose -f docker-compose.yml -f docker-compose.dev.yml up).

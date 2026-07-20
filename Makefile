@@ -15,6 +15,7 @@ CONDA_ENV ?= env_isaaclab3
 
 .PHONY: build test test-unit test-driver test-ros test-autonomy test-vlm test-dgx test-jetson test-lab test-lab-pure lint lint-fix format format-check clean kill \
         launch launch-nav launch-autonomy launch-sim images up submit submit-deploy down clean-map \
+        env-sync env-check \
         install-tools udev serve-vlm serve-planner check-nvrtc help \
         sim-bridge sim-bridge-gui sim-harness harness-smoke
 
@@ -70,8 +71,9 @@ test-driver: ## strafer_driver unit tests directly with pytest — Jetson
 	cd source/strafer_ros/strafer_driver && \
 		python -m pytest test/ -v
 
-test-dgx: ## DGX e2e umbrella — autonomy + vlm + lab, each in its env. SKIP_KIT=1 swaps the heavy Kit suite for the fast pure-Python lab half.
+test-dgx: ## DGX e2e umbrella — env-check + autonomy + vlm + lab, each in its env. SKIP_KIT=1 swaps the heavy Kit suite for the fast pure-Python lab half.
 	@rc=0; \
+	$(MAKE) --no-print-directory env-check || rc=1; \
 	$(MAKE) --no-print-directory test-autonomy AUTONOMY_PY=$(VENV_VLM)/bin/python || rc=1; \
 	$(MAKE) --no-print-directory test-vlm || rc=1; \
 	if [ "$$SKIP_KIT" = "1" ]; then \
@@ -82,8 +84,9 @@ test-dgx: ## DGX e2e umbrella — autonomy + vlm + lab, each in its env. SKIP_KI
 	fi; \
 	exit $$rc
 
-test-jetson: ## Jetson e2e umbrella — autonomy + ros + driver
+test-jetson: ## Jetson e2e umbrella — env-check + autonomy + ros + driver
 	@rc=0; \
+	$(MAKE) --no-print-directory env-check || rc=1; \
 	$(MAKE) --no-print-directory test-autonomy || rc=1; \
 	$(MAKE) --no-print-directory test-ros || rc=1; \
 	$(MAKE) --no-print-directory test-driver || rc=1; \
@@ -129,6 +132,15 @@ format-check: ## Check formatting without modifying files
 DEPLOY_DIR   := source/strafer_ros/deploy
 SIM_COMPOSE  := docker compose -f $(DEPLOY_DIR)/docker-compose.sim.yml
 FULL_COMPOSE := docker compose -f $(DEPLOY_DIR)/docker-compose.yml
+
+# The compose env_file mirrors (deploy/compose/*.env) are GENERATED from the
+# canonical strafer_bringup/config/env_*.env — single source of truth. Edit canon,
+# then `make env-sync`. `make env-check` (run inside `make test`) fails on drift.
+env-sync: ## Regenerate the compose env mirrors from canonical strafer_bringup/config/env_*.env
+	python3 $(DEPLOY_DIR)/tests/gen_env.py --write
+
+env-check: ## Verify the compose env mirrors + DDS anchors match canon (fails on drift; run by `make test`)
+	@python3 $(DEPLOY_DIR)/tests/check_env_sync.py
 
 images: ## Build the strafer-cpu + strafer-gpu container images
 	$(FULL_COMPOSE) build

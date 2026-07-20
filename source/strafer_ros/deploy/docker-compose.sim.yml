@@ -13,6 +13,14 @@
 
 name: strafer-sim
 
+# DDS env drawn from this anchor (same values as docker-compose.yml) -- NOT from
+# the env_file, so the GENERATED compose/sim.env carries only portable knobs and
+# never the self-locating $(...) CYCLONEDDS_URI that env_file can't express.
+x-dds-env: &dds-env
+  RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+  CYCLONEDDS_URI: file:///opt/strafer/config/cyclonedds.xml
+  ROS_DOMAIN_ID: "42"
+
 services:
   strafer-sim:
     build:
@@ -22,6 +30,8 @@ services:
     image: strafer-cpu:humble
     container_name: strafer_sim
     network_mode: host
+    environment:
+      <<: *dds-env
     env_file:
       - compose/sim.env
     volumes:

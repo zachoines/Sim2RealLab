@@ -22,10 +22,21 @@ deploy/
 ├── docker-compose.sim.yml     # sim-in-the-loop (nav2 backend, no GPU/hardware)
 ├── docker-compose.yml         # full deploy (5 services + policy/remote profiles)
 ├── docker-compose.dev.yml     # live ./source bind-mount overlay
-├── compose/{sim.env, autonomy.env}           # env_file mirrors (pinned to canon by tests/check_env_sync.py)
+├── compose/{sim.env, autonomy.env}           # env_file mirrors — GENERATED from canon; do not hand-edit
 ├── host-setup/install-host-prereqs.sh        # rmem sysctl, nvidia runtime, netfilter, compose, udev
-└── tests/check_env_sync.py                   # fails if the env mirrors drift from strafer_bringup/config/env_*.env
+└── tests/{gen_env.py, check_env_sync.py}     # gen_env writes the mirrors from canon; check_env_sync (make env-check) fails on drift
 ```
+
+### Config — single source of truth
+Runtime env for both lanes lives in the canonical `strafer_bringup/config/env_*.env`
+(shell, hand-edited, with the rationale comments). The compose `env_file` mirrors
+under `compose/` are **generated** from them by `tests/gen_env.py` — edit canon,
+then `make env-sync`. DDS vars (RMW / CYCLONEDDS_URI / ROS_DOMAIN_ID) come from the
+compose `x-dds-env` anchor, not the mirror, so the self-locating `$(...)` URI never
+enters a container. Deploy-only keys with no canonical home (VLM_URL / PLANNER_URL)
+are a declared overlay in the generator. `make env-check` (run inside `make test`)
+regenerates + byte-diffs and fails on any drift — including the CYCLONEDDS_URI the
+old overlap-diff skipped.
 
 ## Build / deploy / policy / remote
 ```bash

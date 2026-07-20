@@ -205,10 +205,11 @@ class SceneSourceCfg:
     per-source defaults apply; set them to override (e.g. a play preset).
 
     ``enrich_depth`` opts a ``procroom`` variant into the depth-statistics
-    enrichment (enclosure + un-pinned density + spawn/clutter/doorway widening)
-    on any variant carrying the policy depth camera. It is inert for every other
-    source and for the camera-free NOCAM profile, so the default reproduces the
-    open-top generator exactly; it is *not* a hashed contract field.
+    enrichment (enclosure + un-pinned density + spawn/clutter/doorway widening).
+    It engages only for the ``procroom`` source on a depth/full observation
+    profile (a policy-depth-camera stack); it is inert for any other source or
+    profile, so the default reproduces the open-top generator exactly. Not a
+    hashed contract field.
     """
 
     kind: str = "procroom"
@@ -364,10 +365,11 @@ def _select_scene(scene_source: SceneSourceCfg, sensors: SensorStackCfg):
                 env_spacing=base._STANDARD_ENV_SPACING,
             )
     elif kind == "procroom":
-        # Enrichment adds enclosure + a ceiling slab, and only on a scene that
-        # carries the policy depth camera (the NOCAM scene is never enriched, so
-        # its palette stays byte-identical).
-        enrich = scene_source.enrich_depth
+        # Enrichment adds enclosure + a ceiling slab, only on a depth/full
+        # profile carrying the policy depth camera (the NOCAM scene is never
+        # enriched, so its palette stays byte-identical). Gate matches the
+        # events fork in ``__post_init__`` so scene and events never disagree.
+        enrich = scene_source.enrich_depth and sensors.obs_profile() in ("depth", "full")
         # Perception first: the bridge stack requests BOTH a policy and a
         # perception camera, so has_policy_cam is also true — check
         # has_perception_cam first so the perception scene wins.

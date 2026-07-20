@@ -177,8 +177,10 @@ def _palette_sig(collection_cfg):
     """Slot name → (spawn type + XYZ/radius/height) signature of a palette.
 
     The composition hash covers the manager cfgs + scene scalars, NOT the
-    rigid-object palette, so a palette change slips past every golden above.
-    This is the explicit pin the Q1 NOCAM promise needs.
+    rigid-object palette, so a palette change slips past every contract golden.
+    This is the explicit pin for the invariant that the open-top variants (NOCAM
+    and the un-enriched depth variants) keep the exact pre-enrichment palette,
+    and no enriched palette adds a new slot.
     """
     sig = {}
     for name, cfg in sorted(collection_cfg.rigid_objects.items()):
@@ -192,14 +194,26 @@ def _palette_sig(collection_cfg):
     return sig
 
 
-def test_nocam_palette_equals_pre_enrichment_golden():
-    """NOCAM / NOCAM_SUBGOAL keep the exact pre-enrichment palette (name set +
-    sizes) — enrichment must never leak into the camera-free training path."""
-    for name in ("RLNoCam", "RLNoCamSubgoal_Real", "RLNoCamSubgoal_Robust"):
+def test_open_top_variants_keep_pre_enrichment_palette_and_no_ceiling():
+    """Every open-top variant — NOCAM/NOCAM_SUBGOAL *and* the un-enriched depth
+    variants — keeps the exact pre-enrichment palette and has no ceiling entity.
+
+    Guards both directions of the scene swap: enrichment must not leak into the
+    camera-free NOCAM path, and a future ``_select_scene`` regression handing the
+    enriched (2.7 m wall + ceiling) scene to a *vanilla* depth variant — which
+    would pass every contract golden (the hash excludes the scene) and the NOCAM
+    palette check — is caught here."""
+    for name in (
+        "RLNoCam", "RLNoCamSubgoal_Real", "RLNoCamSubgoal_Robust",
+        "RLDepth_Real", "RLDepth_Robust", "RLDepthSubgoal_Real",
+    ):
         scene = _COMPOSED_RL[name]().scene
         got = _hash(_palette_sig(scene.room_primitives))
         assert got == _PALETTE_GOLDEN, (
             f"{name} palette diverged from the frozen pre-enrichment palette"
+        )
+        assert not hasattr(scene, "ceiling"), (
+            f"{name} is an open-top variant but got an enriched (ceiling) scene"
         )
 
 

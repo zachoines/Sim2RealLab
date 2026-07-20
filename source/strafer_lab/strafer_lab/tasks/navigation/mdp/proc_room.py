@@ -43,7 +43,12 @@ FURNITURE_SLOTS = list(range(20, 28))
 CLUTTER_SLOTS = list(range(28, 44))
 
 # Object sizes (X, Y, Z) for AABB computation
-# Must match the spawner configs in _build_proc_room_palette()
+# Must match the spawner configs in _build_proc_room_palette().
+# Occupancy and the geometric proximity reward read only [:, :2] (XY), so the
+# wall-Z entries here are not load-bearing: under enrichment the wall height is
+# authoritative from ``generate_proc_room``'s ``wall_height`` argument (the pose
+# z is ``wall_height / 2``), and the palette is built with that same height —
+# these 1.0 wall-Z literals describe the open-top default only.
 OBJECT_SIZES = torch.tensor([
     # Walls - long (8)
     *[(2.0, 0.15, 1.0)] * 8,
@@ -541,8 +546,9 @@ def _pose_ceiling_slab(
     never enters the occupancy grid, the BFS retry ladder, or the geometric
     ``obstacle_proximity`` active mask (which is keyed on the collection). With
     probability ``p_ceil`` the env is enclosed — the slab drops to a per-episode
-    height in ``height_range``; otherwise it parks below the floor (open-top,
-    reproducing the sky-clamp mode) so the D3 target stays a scene-class mixture.
+    height in ``height_range``; otherwise it parks below the floor (open-top),
+    so the far-clamp top-band stays a scene-class mixture rather than always
+    enclosed.
     """
     B = len(env_ids)
     ceiling = env.scene[entity_name]

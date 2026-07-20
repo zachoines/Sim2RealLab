@@ -1566,9 +1566,11 @@ class StraferSceneCfg_ProcRoomPerceptionEnriched(StraferSceneCfg_ProcRoomPercept
     The ceiling blocks the single global DomeLight, so the force-included RGB
     render (debug video / the bridge perception camera) would go near-black. A
     per-env sphere light under the ceiling restores it; depth is geometry-only
-    and unaffected. Only the 1-8-env perception path carries this light — the
-    64-env depth path never renders RGB and gets none. Intensity is a debug-RGB
-    fill, not a training signal.
+    and unaffected. Only the 1-8-env perception path carries this light. The
+    64-env depth path's policy camera still force-includes an rgb channel (so the
+    viewport/--video pipeline comes up), but gets no fill light — under enclosure
+    its debug RGB goes near-black by accepted trade-off; the depth observation it
+    trains on is unaffected. Intensity is a debug-RGB fill, not a training signal.
     """
 
     room_primitives: RigidObjectCollectionCfg = RigidObjectCollectionCfg(

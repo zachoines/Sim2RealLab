@@ -128,21 +128,78 @@ def test_enriched_path_encloses_and_forks_spawn_pool():
     assert torch.all(ceil_pose[:, 2] >= 2.2 - 1e-4)
     assert torch.all(ceil_pose[:, 2] <= 2.9 + 1e-4)
 
-    # A separate robot-spawn pool exists and is populated.
+    # A separate robot-spawn pool exists, is populated, and is never larger than
+    # the shared pool it erodes from (extra standoff => a subset of cells; the
+    # per-env fallback makes them equal at most, never exceeds).
     assert hasattr(env, "_proc_room_robot_spawn_pts")
     assert env._proc_room_robot_spawn_count.sum() > 0
-
-
-def test_enriched_span_cap_keeps_perimeter_within_budget():
-    # Many envs at the largest span so the cap actually bites on some of them.
-    env, entities = _make_env(num_envs=16)
-    env_ids = torch.arange(env.num_envs)
-    generate_proc_room(
-        env, env_ids, span_max=7.5, max_span_sum=13.4, wall_height=2.7,
-        ceiling_entity_name="ceiling", p_ceil=0.5,
+    assert torch.all(
+        env._proc_room_robot_spawn_count <= env._proc_room_spawn_count
     )
-    # Generation completed and produced spawn points for the batch.
-    assert env._proc_room_spawn_count.sum() > 0
+
+
+def _room_dims_from_walls(env, body_poses):
+    """Recover per-env (room_w, room_h) from the active wall segment centers.
+
+    E/W walls sit at x=±w/2, N/S walls at y=±h/2, so the max abs coordinate over
+    active wall slots is the half-span. Inactive (parked) wall slots are masked
+    out. Walls are never parked by the retry ladder, so enclosed envs keep all
+    their perimeter segments.
+    """
+    am = env._proc_room_active_mask[:, WALL_SLOTS]  # (B, 20)
+    wx = torch.where(am, body_poses[:, WALL_SLOTS, 0].abs(), torch.zeros_like(am, dtype=body_poses.dtype))
+    wy = torch.where(am, body_poses[:, WALL_SLOTS, 1].abs(), torch.zeros_like(am, dtype=body_poses.dtype))
+    return 2.0 * wx.max(dim=1).values, 2.0 * wy.max(dim=1).values
+
+
+def test_enriched_span_cap_bounds_perimeter():
+    torch.manual_seed(7)
+    env, entities = _make_env(num_envs=32)
+    env_ids = torch.arange(env.num_envs)
+    generate_proc_room(env, env_ids, span_max=7.5, max_span_sum=13.4, wall_height=2.7)
+    w, h = _room_dims_from_walls(env, entities["room_primitives"].body_poses)
+    # The cap holds for every room (tol: wall thickness half-extent 0.075 m).
+    assert torch.all(w + h <= 13.4 + 0.2)
+
+    # Non-vacuous: the SAME seed with the cap off exceeds the budget on some env,
+    # so the cap actively shrank those rooms rather than never engaging.
+    torch.manual_seed(7)
+    env2, ent2 = _make_env(num_envs=32)
+    generate_proc_room(env2, env_ids, span_max=7.5, max_span_sum=None, wall_height=2.7)
+    w2, h2 = _room_dims_from_walls(env2, ent2["room_primitives"].body_poses)
+    assert torch.any(w2 + h2 > 13.4 + 0.2)
+
+
+def test_default_path_byte_identical_to_explicit_defaults():
+    """The default (open-top) generation is byte-for-byte identical whether the
+    enrichment kwargs are omitted or passed explicitly at their default values —
+    the load-bearing safety property. A stray *unconditional* enrichment draw on
+    the default path would desync the shared RNG stream and break this.
+
+    (Exact equality holds because both runs use this branch's identical formulas;
+    the one accepted deviation vs pre-PR main is the door-width multiplier's
+    1-ulp float difference — `door_width_max - 0.8 != 0.4` in IEEE754 — which is
+    identical across both runs here, so it does not surface.)
+    """
+    def _run(**kwargs):
+        torch.manual_seed(20260719)
+        env, ent = _make_env(num_envs=6, difficulty=6)
+        generate_proc_room(env, torch.arange(env.num_envs), **kwargs)
+        return ent["room_primitives"].body_poses
+
+    implicit = _run()
+    explicit = _run(
+        wall_height=1.0,
+        door_width_max=1.2,
+        span_max=7.0,
+        max_span_sum=None,
+        clutter_wall_bias_prob=0.0,
+        robot_spawn_inflation_cells=0,
+        ceiling_entity_name=None,
+        p_ceil=0.0,
+        ceiling_height_range=(2.2, 2.9),
+    )
+    assert torch.equal(implicit, explicit)
 
 
 def test_ceiling_mixture_parks_open_top_envs():

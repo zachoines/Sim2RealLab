@@ -58,16 +58,107 @@ Working hypothesis: a depth-statistics domain gap. The fix direction is
 enriching ProcRoom's generator toward Infinigen-like depth statistics,
 with Infinigen-finetune-only as the fallback.
 
-**CALIBRATION PENDING: NX-session descriptor deltas.** The quantified
-ProcRoom↔Infinigen descriptor deltas arrive with the instrumented paired
-session on the Orin NX (`SUBGOAL_EPIC/INFINIGEN_AB_SESSION_PROMPT.md`,
-postponed from the Nano). Until then this brief's targets are
-*directional*, derived from measured scene geometry (below). When the NX
-numbers land, transcribe them into this section, record **which scene USD
-the Infinigen leg bound** (default bind is the lightest scene since the
-single-scene bind fix — target class changes the D1/D3 targets
-materially), and re-rank the stories against the actual deltas before any
-training spend.
+**CALIBRATION (sim-frame, 2026-07-20 GPU-window session).** The
+ProcRoom↔Infinigen descriptor deltas below are the **working
+calibration**, measured sim-side under the Phase-0 harness protocol. The
+standing decision holds: sim-frame numbers calibrate the levers now; the
+eventual instrumented Orin NX paired session
+(`SUBGOAL_EPIC/INFINIGEN_AB_SESSION_PROMPT.md`, postponed from the Nano)
+confirms them in the deploy frame later and is not a blocker. Captured
+with the scratch instrument (`SUBGOAL_EPIC/procroom_enrichment_scratch/`,
+`capture_procroom_depth.py` → `depth_descriptors.py`): ProcRoom vanilla +
+enriched depth-train cfgs at 64 envs (256 generated rooms / 3840 frames
+each); six single-scene Infinigen binds through the same 80×45 policy
+camera on `Isaac-Strafer-Nav-Capture-Bridge-v0` (one Kit load per scene,
+40 poses / 600 frames each). **Bound USDs:** singleroom =
+`scene_singleroom_000_seed0` (0.5 GB, default/lightest bind); tworoom =
+`scene_tworoom_000_seed0` (0.8 GB); heavy corpus =
+`scene_high_quality_dgx_000_seed{5,6,1,2}` (5.9 / 9.3 / 10.9 / 10.2 GB,
+`--scene-usd` single binds). Pose-distribution caveat: harness = uniform
+BFS-reachable spawn poses + a scripted in-place yaw twist, so the sky is
+sampled more than along the deployed mission trajectory (top-band pins
+read higher than the 2026-07-09 trajectory baseline below).
+
+| Descriptor | ProcRoom vanilla | ProcRoom enriched | Infinigen (6-scene mean [min–max]) | Enrichment vs Infinigen |
+|---|---|---|---|---|
+| D1 near-band median (m) | 1.17 | 1.56 | 1.19 [0.98–1.37] | **no net gap** (Δ0.02); enriched overshoots farther |
+| D1 ≤1 m (%) | 42.7 | 31.0 | 44.2 [39.7–50.7] | no net gap; enriched moved farther, not nearer |
+| D2 top-row mean (m) | 4.56 | 2.72 | 2.35 [2.05–2.55] | **84% closed** — 6 m sky sheet → real ceiling |
+| D2 bottom-row / floor across-pose std (m) | 0.52 / 0.099 | 0.56 / 0.028 | 0.50–0.54 / 0.07–0.15 | near-floor band preserved (tighter) |
+| D3 top-11 pinned (%) | 58.9 | 7.3 | 8.3 [3.8–17.3] | **102% closed — lands inside the Infinigen band** |
+| D3 overall pinned (%) | 17.7 | 3.8 | 5.4 [1.9–10.0] | closed |
+| D4 high-row near <2 m (%) | 43.7 | 34.6 | 49.9 [40.6–58.9] | **gap GREW (−146% closure)** → F3 signal |
+| D5 edge density (%) | 2.35 | 1.69 | 1.89 [1.39–2.21] | ProcRoom already ≥ every Infinigen scene — no edge *deficit* |
+
+Generator health on every enriched run (the quietly-emptied-room guard):
+BFS-fail envs 0/256; spawn-count min rose 105–122 → 142–200; retry-ladder
+parks fell 279.5 → 63.0 (~4.5% → ~1.6% of the level target) — rooms pack
+*better*, not emptier. **Widen-not-shift confirmed:** enriched difficulty
+is a near-uniform U[4,7] ({4: 25.8, 5: 24.6, 6: 25.8, 7: 23.8}%) — the
+dense level-7 close-quarters mode stays a substantial ~24% (a widening,
+not a shift). 64-env step-rate: enriched 13.75 vs vanilla 13.30 env.step/s
+(+3.4%, inside ±10%); PhysX buffer-overflow warnings absent in both.
+
+**Re-rank against the measured deltas** (what the next retrain most needs):
+
+1. **F1 enclosure — TOP, validated.** Closes the dominant,
+   low-per-scene-variance gap: D3 top-11 58.9 → 7.3% (inside the Infinigen
+   3.8–17.3% band) + D2 top-row 84%. This is the near-entirety of the
+   descriptor-level ProcRoom→Infinigen gap. (Implemented.)
+2. **T1 / T5 (+ T2) density & placement widening — keep as
+   distribution-shapers.** They deliver widen-not-shift and restore
+   per-descriptor episode variance, but the near-band gap they were aimed
+   at is **not present at the rendered descriptor level** (calibration
+   correction below) — they shape the distribution's *spread*, they do not
+   close a D1 point gap. (Implemented.)
+3. **F3 tall furniture — NOW TRIGGERED.** The D4 high-row-near gap is real
+   (Infinigen ~50% vs ProcRoom ~44%) and enrichment moved it the *wrong*
+   way (to 34.6%): enclosure lowers D4, only tall mid-room columns raise
+   it. F3 is the next lever to implement (its own change, not this PR).
+4. **F2 internal walls — NOT triggered.** There is no D5 edge *deficit* to
+   fill: ProcRoom-vanilla edge density (2.35%) already sits *above* every
+   Infinigen scene (1.39–2.21%), so an edge-*adding* lever is not warranted.
+   Heavy-scene door-chain structure surfaces as D3 residual (seed6 / seed2
+   top-11 15–17%), not as missing edges. Keep deferred; revisit only if an
+   implemented F3 or the NX deploy-frame legs reveal a D5 residual.
+5. **T3 doorway / T4 span — minor as predicted; keep.** T4's
+   `max_span_sum=13.4` budget cap held: D3 residual 7.3% is low, no runaway
+   pack-gap slits, walls-active median unchanged ~14.
+
+**Calibration correction (report, do not re-tune here).** The brief's
+directional table predicted D1 near-band as a primary Infinigen gap
+("≤1 m fraction roughly halves"), from a robot-height ray-cast first-hit
+proxy (0.90 m ProcRoom vs 1.95 m Infinigen). At the **rendered 80×45
+descriptor level this near-band gap does not appear**: pooled Infinigen D1
+median 1.19 m ≈ ProcRoom-vanilla 1.17 m (per-scene 0.98–1.37). The
+descriptor D1 median is floor-dominated in the lower rows — a different
+quantity than the horizontal ray-cast first-hit. The operative,
+descriptor-level, robust gap is **D3 enclosure**; the near-band levers
+still earn their place as distribution-shapers. This is a calibration
+finding for the operator, not a lever defect.
+
+**Fallback-trigger verdict (Infinigen-finetune-only) — does NOT fire.**
+- (a) depth-noise recal gate: met (merged to main) — provenance only.
+- (b) deltas transcribed + stories re-ranked: done in **sim frame** (this
+  session, the working calibration); NX deploy-frame confirmation pending,
+  not a blocker.
+- (c) per-scene variance ≫ mean delta: TRUE for D1 (ratio 7.5) but only
+  because D1's delta is ~0; **FALSE for the dominant gap D3** (per-scene
+  std 5.8 ≪ the 50.5-pt delta, ratio 0.12) and borderline for D4 (ratio
+  0.88). Enrichment targets the well-posed D3 gap, so (c) does not select
+  the fallback. The high D1/D4 variance instead argues that near-band /
+  tall-column structure is inherently scene-variable — a case for the
+  enriched generator to *widen into that spread* (which it does), not for
+  per-scene finetuning.
+- (d) <50% delta-closure on ≥2 of D1/D2/D3: **does not fire** — D2 (84%)
+  and D3 (102%) are both well above 50%; only D1 under-closes, and D1 has
+  no real gap to close.
+
+Conclusion: enrichment **dominates** the finetune-only fallback for the
+descriptor-level gap it targets (D3 enclosure). Proceed toward the
+enriched retrain; add F3 to close D4; keep F2 deferred. This sim-frame
+table is the only per-scene-variance source (the NX session binds one
+scene); it is retained above for the fallback triggers.
 
 ### Measured baseline (ProcRoom, deployed 80×45 policy camera, meters)
 
@@ -86,6 +177,19 @@ Jetson's 640×360→80×45 downsample (static ~2 cm offset vs the native
 policy camera), by a script (`depth_field_stats.py`) that lives only on
 the Jetson — the exact thresholds ("top ~11 rows", pin epsilon) must be
 re-specified sim-side (Phase 0).
+
+**Sim-frame harness re-baseline (2026-07-20, 256 rooms / 3840 frames,
+`RLDepth-Real-v0` at 64 envs).** Re-measured under the Phase-0 harness
+protocol (uniform BFS-reachable poses + yaw twist), the canonical baseline
+all enrichment deltas measure against: near-band median **1.17 m**, 42.7%
+≤ 1 m, 68.3% ≤ 2 m; row profile top **4.56 m** → bottom **0.52 m**, floor
+across-pose std 0.099 m, no dead rows; **top-11 rows 58.9% pinned** at the
+6 m clamp (overall 17.7%). The near-band and ≤1 m numbers reproduce the
+trajectory baseline above; the top-band pin fraction reads **higher**
+(58.9% vs 42.8%) because the harness samples the sky more than the deployed
+mission trajectory does — the pose-distribution caveat, carried forward.
+Full descriptor table (vanilla / enriched / six Infinigen scenes) in the
+CALIBRATION section above.
 
 ### Current randomization-axis inventory (what the generator can already vary)
 
@@ -593,15 +697,17 @@ those unchecked lines are that session's checklist.
       `SUBGOAL_EPIC/procroom_enrichment_scratch/`
       (`capture_procroom_depth.py`, `depth_descriptors.py`, README);
       descriptor logic verified on synthetic vanilla-vs-enclosed frames.
-- [ ] **validated (GPU window):** the Kit capture actually runs headlessly
-      on the DGX (it has never executed) and the descriptor script processes
-      a real dump.
-- [ ] **validated (GPU window):** vanilla ProcRoom re-baselined under the
-      harness protocol (≥50 generated rooms), numbers recorded next to the
-      mission-trajectory baseline with the pose-distribution caveat.
-- [ ] **validated (GPU window):** sim-frame Infinigen descriptor leg
-      captured (multi-scene per Phase 0) or explicitly waived in favor of
-      landed NX deltas.
+- [x] **validated (GPU window):** the Kit capture runs headlessly on the
+      DGX (first execution 2026-07-20; `--enable_cameras` required) and
+      `depth_descriptors.py` processes the real dumps into the D1–D5 table.
+- [x] **validated (GPU window):** vanilla ProcRoom re-baselined under the
+      harness protocol (256 rooms ≫ 50; median 1.17 m, top-11 58.9%
+      pinned), recorded next to the mission-trajectory baseline with the
+      pose-distribution caveat (see "Sim-frame harness re-baseline" above).
+- [x] **validated (GPU window):** sim-frame Infinigen descriptor leg
+      captured — six single-scene binds (singleroom default + tworoom +
+      four heavy `--scene-usd`), the per-scene-variance source in the
+      CALIBRATION table above.
 
 ### Generator
 
@@ -610,38 +716,51 @@ those unchecked lines are that session's checklist.
       variant IDs): T1 difficulty un-pin `U[4,7]`, T2 robot-spawn-only
       pool fork, T3 doorway `U[0.8,2.0]`, T4 span `U[4,7.5]` + wall-budget
       solvency cap, T5 clutter perimeter-bias mixture.
-- [ ] **validated (GPU window):** each story shows its predicted descriptor
-      movement on generated scenes (Phase-0 instrument).
+- [x] **validated (GPU window):** each built story moved its predicted
+      descriptor and none contradicted its prediction — F1 → D3 58.9→7.3% +
+      D2 top-row 4.56→2.72 m; T1 → widen-not-shift + restored per-descriptor
+      variance; T5/T2 → D1 distribution shift (median 1.17→1.56 m). T3/T4
+      were predicted marginal and are not separately isolable in the pooled
+      descriptor (F1's enclosure dominates D5), consistent with the
+      "do not expect much" prediction — not a miss. **Reported, not
+      re-tuned:** the near-band D1 gap the T-levers targeted is absent at
+      the rendered descriptor level (calibration correction above).
 - [x] F1 enclosure implemented (wall height 2.7 m + standalone ceiling
       slab, `p_ceil` mixture + `U[2.2,2.9]` height; route (a) — ceiling
       outside the collection, so no `active_mask`/−1.0-reward trap; wall
       pose-z derived at all three sites; perception per-env fill light).
-- [ ] **validated (GPU window):** top-band pin-fraction moves into the
-      enclosed-scene target band on ≥50 generated rooms.
+- [x] **validated (GPU window):** top-band pin-fraction 58.9 → 7.3% on 256
+      rooms — inside the Infinigen enclosed-scene band (per-scene 3.8–17.3%,
+      pooled 8.3%). Residual is at the low end (p_ceil=0.7 open-top mode +
+      doorways-onto-void + perimeter pack-gaps), within the <10% acceptance.
 - [x] The 64-env depth-train cfg constructs (Kit-free) and its enriched
       generation path runs on CPU (BFS/erosion/ceiling/span-cap/clutter-mix
       smoke). The palette did **not** grow globally (enrichment is a
       separate variant palette; NOCAM unchanged), so no 256-env NOCAM smoke
       is required.
-- [ ] **validated (GPU window):** the 64-env depth cfg *steps*; reset-time
-      and step-rate within ~10% of the pre-enrichment baseline at
-      `num_envs=64`; PhysX buffer overflow warnings absent.
+- [x] **validated (GPU window):** the 64-env enriched depth cfg steps at
+      13.75 env.step/s vs vanilla 13.30 (+3.4%, inside ±10% — enriched is
+      slightly *faster*: fewer active objects at un-pinned difficulty);
+      PhysX buffer-overflow warnings absent in both runs.
 - [x] Generator-health counters implemented (`spawn_count` distribution +
       BFS-fail count, retry-ladder park total vs the level target,
       difficulty histogram, median active walls) — emitted to the
       `<out>.health.json` sidecar by the capture script. Perimeter
       pack-gaps are read off the residual pinned-column band (documented in
       the scratch README), not counted directly.
-- [ ] **validated (GPU window):** those counters are logged in the real
-      descriptor runs (the quietly-emptied-room guard against a moved
-      descriptor that is really a stripped room).
+- [x] **validated (GPU window):** health counters logged every run —
+      BFS-fail 0/256; spawn-count min 105–122 (vanilla) → 142–200
+      (enriched); retry-ladder parks 279.5 → 63.0 (park *rate* ~4.5% →
+      ~1.6% of the level target). The enriched descriptor movement is
+      genuine enrichment, not a stripped room.
 - [x] The enriched distribution is *built* to widen not shift: difficulty
       un-pinned to `U[4,7]` (level-7 close-quarters stays a ~25% mode) and
       `p_ceil<1` keeps an open-top mode, rather than replacing the dense
       mode.
-- [ ] **validated (GPU window):** the widen-not-shift property confirmed
-      empirically on the generated distribution (dense level-7 rooms remain
-      a substantial mode alongside the sparser/enclosed modes).
+- [x] **validated (GPU window):** widen-not-shift confirmed — enriched
+      difficulty is a near-uniform U[4,7] ({4: 25.8, 5: 24.6, 6: 25.8,
+      7: 23.8}%); the dense level-7 close-quarters mode stays ~24% (a
+      widening, not a shift).
 - [x] Composition contract resolved per Q1 — **new enriched depth variant
       IDs with new frozen goldens** (the sanctioned path). Existing depth
       / NOCAM / NOCAM_SUBGOAL goldens unchanged; NOCAM/NOCAM_SUBGOAL *and*
@@ -654,15 +773,31 @@ those unchecked lines are that session's checklist.
 
 ### Calibration + maintenance
 
-- [ ] "CALIBRATION PENDING" slot filled from the NX session (deltas +
-      bound-scene identity) and stories re-ranked against it before any
-      retrain is scheduled. *(Out of this pickup — NX session lane.)*
+- [x] **Sim-frame** working-calibration slot filled + stories re-ranked
+      this session (CALIBRATION section above: deltas, bound-scene identity,
+      F3-triggers / F2-deferred re-rank, fallback verdict). This is the
+      working calibration the retrain decision reads off.
+- [ ] Deploy-frame confirmation from the **NX session** (bound-scene
+      deltas in deploy frame). *(Still pending — NX-session lane, not a
+      blocker: sim-frame calibrates, NX confirms.)*
 - [ ] If your work invalidates a fact in any referenced context
       module, package README, top-level `Readme.md`, or guide under
       `docs/`, update those in the same commit. See
       [`conventions.md`'s user-facing documentation maintenance
       section](../../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
+
+### Vanilla-variant retirement trigger (operator-decided lifecycle)
+
+Sanctioned lifecycle plan for after the enriched retrain lands: **once the
+enriched retrain (v2) passes its acceptance** (play parks, bridge missions,
+widen-not-shift held), a cleanup PR **retires the open-top DEPTH variant IDs
+and their frozen goldens** (contract-sanctioned ID removal) — the enriched
+variants *become* the depth variants. **NOCAM stays on the vanilla
+generator** — its obstacles are its secondary path-enforcement — until the
+[`depth-subgoal-reactive-avoidance`](../../parked/trained-policy/depth-subgoal-reactive-avoidance.md)
+work deliberately re-authors that relationship. This is a forward trigger,
+not this session's work.
 
 ## Investigation pointers
 

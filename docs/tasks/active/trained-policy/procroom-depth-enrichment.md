@@ -128,12 +128,20 @@ not a shift). 64-env step-rate: enriched 13.75 vs vanilla 13.30 env.step/s
    frequency/proximity lever (more / earlier / nearer tall columns) that
    cannot be done cleanly enriched-only (the placement order is shared with
    the vanilla generator) — its own follow-up change, not a height lever.
-4. **F2 internal walls — NOT triggered.** There is no D5 edge *deficit* to
-   fill: ProcRoom-vanilla edge density (2.35%) already sits *above* every
-   Infinigen scene (1.39–2.21%), so an edge-*adding* lever is not warranted.
-   Heavy-scene door-chain structure surfaces as D3 residual (seed6 / seed2
-   top-11 15–17%), not as missing edges. Keep deferred; revisit only if an
-   implemented F3 or the NX deploy-frame legs reveal a D5 residual.
+4. **F2 internal walls — not triggered by D5; re-motivated by path
+   topology.** There is still no D5 edge *deficit* to fill: ProcRoom-vanilla
+   edge density (2.35%) already sits *above* every Infinigen scene
+   (1.39–2.21%), so an edge-*adding* lever is not warranted on that
+   evidence, and heavy-scene door-chain structure surfaces as D3 residual
+   (seed6 / seed2 top-11 15–17%) rather than as missing edges. What the
+   depth descriptors cannot see is the *navigable* topology: measured
+   through the shared A*, the enriched generator's planned paths are dead
+   straight (median turn density 0.000 rad/m, tortuosity 1.000) against
+   0.242 / 1.287 for the Infinigen singleroom, and enrichment roughly
+   halved what little path complexity vanilla had. That is a real gap F1/F3
+   cannot reach — see
+   [`procroom-placement-architecture`](procroom-placement-architecture.md),
+   which defines the two path statistics and gates F2 on them.
 5. **T3 doorway / T4 span — minor as predicted; keep.** T4's
    `max_span_sum=13.4` budget cap held: D3 residual 7.3% is low, no runaway
    pack-gap slits, walls-active median unchanged ~14.
@@ -177,6 +185,30 @@ as-is (tall statistics present, no regression) or waits on that follow-up
 — an operator call, informed by whether the deploy behavior needs the full
 band. This sim-frame table is the only per-scene-variance source (the NX
 session binds one scene); it is retained above for the fallback triggers.
+
+### Enrichment v2 batch — the closed set before the retrain
+
+The operator ratified a closed batch of ProcRoom improvements to land
+before the single enriched DEPTH_SUBGOAL v2 retrain. Four of its five items
+turn on the same shared machinery — object placement priority and the
+solvability retry ladder's park order — so they were routed to one design
+consult rather than four incisions into a generator NOCAM consumes forever:
+
+- The **D4 frequency lever**, the **D1 overshoot rebalance**, **H1 compound
+  placement** and **F2 internal walls** are designed together in
+  [`procroom-placement-architecture`](procroom-placement-architecture.md),
+  which also defines the two path statistics F2 is gated on and carries the
+  implementation split. Read it before picking any of them up.
+- **F4 rendered-camera extrinsics micro-DR** (Q4's boundary with
+  [`domain-randomization-audit`](domain-randomization-audit.md)) and the
+  **ceiling probe** stay independent of that design and of each other.
+
+That consult's headline finding bears on this brief's own numbers: the D1
+overshoot, the D4 regression and the path-topology collapse share one
+mechanism — enrichment cleared the room interior and pushed the spawn away
+from what remained — so the first move is a re-range of
+`_ENRICH_ROBOT_SPAWN_INFLATION` and `_ENRICH_CLUTTER_WALL_BIAS`, both of
+which already exist and already default to the vanilla behavior.
 
 ### Measured baseline (ProcRoom, deployed 80×45 policy camera, meters)
 

@@ -42,13 +42,19 @@ WALL_SLOTS = list(range(0, 20))
 FURNITURE_SLOTS = list(range(20, 28))
 CLUTTER_SLOTS = list(range(28, 44))
 
+# Must track the build order in ``build_proc_room_collection_cfg`` and the
+# ``OBJECT_SIZES`` rows.
+FURNITURE_SHELF_SLOTS = list(range(22, 24))
+FURNITURE_CABINET_SLOTS = list(range(24, 26))
+CLUTTER_TALL_CYL_SLOTS = list(range(42, 44))
+
 # Object sizes (X, Y, Z) for AABB computation
-# Must match the spawner configs in _build_proc_room_palette().
+# Must match the spawner configs in build_proc_room_collection_cfg().
 # Occupancy and the geometric proximity reward read only [:, :2] (XY), so the
-# wall-Z entries here are not load-bearing: under enrichment the wall height is
-# authoritative from ``generate_proc_room``'s ``wall_height`` argument (the pose
-# z is ``wall_height / 2``), and the palette is built with that same height —
-# these 1.0 wall-Z literals describe the open-top default only.
+# Z entries here are not load-bearing: under enrichment the wall height is
+# authoritative from ``generate_proc_room``'s ``wall_height`` argument and the
+# shelf / cabinet / tall-cylinder heights from its ``tall_object_heights`` map
+# (pose z = height / 2 in both cases) — these Z literals are the open-top default.
 OBJECT_SIZES = torch.tensor([
     # Walls - long (8)
     *[(2.0, 0.15, 1.0)] * 8,
@@ -81,6 +87,15 @@ OBJECT_SIZES = torch.tensor([
 ], dtype=torch.float32)  # (44, 3)
 
 assert OBJECT_SIZES.shape[0] == NUM_OBJECTS
+
+# Category -> the slots an enriched height map may raise. The palette builds
+# these and the generator poses them from the same map, so the rendered geometry
+# and the pose z cannot desync.
+TALL_OBJECT_SLOTS = {
+    "shelf": FURNITURE_SHELF_SLOTS,
+    "cabinet": FURNITURE_CABINET_SLOTS,
+    "tall_cyl": CLUTTER_TALL_CYL_SLOTS,
+}
 
 # BFS grid parameters
 GRID_RES = 0.1          # meters per cell
@@ -171,7 +186,10 @@ def _make_kinematic_capsule(radius: float, height: float, color: tuple) -> Rigid
     )
 
 
-def build_proc_room_collection_cfg(wall_height: float = 1.0) -> dict[str, RigidObjectCfg]:
+def build_proc_room_collection_cfg(
+    wall_height: float = 1.0,
+    tall_object_heights: dict[str, float] | None = None,
+) -> dict[str, RigidObjectCfg]:
     """Build the 44-object palette as a dict for RigidObjectCollectionCfg.
 
     Each object gets ``prim_path="{ENV_REGEX_NS}/<Name>"`` so Isaac Lab's
@@ -183,10 +201,19 @@ def build_proc_room_collection_cfg(wall_height: float = 1.0) -> dict[str, RigidO
             to enclose the camera's vertical field. The pose-z the generator
             writes must track this (``wall_height / 2``); see
             ``generate_proc_room``'s ``wall_height`` argument.
+        tall_object_heights: Optional ``{category: height}`` override for the
+            ``TALL_OBJECT_SLOTS`` categories; absent keys keep the open-top
+            default. The same map must reach ``generate_proc_room`` so the pose
+            z tracks the geometry. ``None`` reproduces the open-top palette.
 
     Returns:
         Dict mapping object name → RigidObjectCfg.
     """
+    heights = tall_object_heights or {}
+    shelf_h = heights.get("shelf", 0.8)
+    cabinet_h = heights.get("cabinet", 0.6)
+    tall_cyl_h = heights.get("tall_cyl", 0.7)
+
     objects = {}
 
     # --- Walls ---
@@ -201,9 +228,9 @@ def build_proc_room_collection_cfg(wall_height: float = 1.0) -> dict[str, RigidO
     for i in range(2):
         objects[f"furn_table_{i}"] = _make_kinematic_cuboid((0.8, 0.6, 0.4), (0.55, 0.35, 0.15))
     for i in range(2):
-        objects[f"furn_shelf_{i}"] = _make_kinematic_cuboid((1.2, 0.3, 0.8), (0.50, 0.30, 0.12))
+        objects[f"furn_shelf_{i}"] = _make_kinematic_cuboid((1.2, 0.3, shelf_h), (0.50, 0.30, 0.12))
     for i in range(2):
-        objects[f"furn_cabinet_{i}"] = _make_kinematic_cuboid((0.5, 0.5, 0.6), (0.45, 0.28, 0.10))
+        objects[f"furn_cabinet_{i}"] = _make_kinematic_cuboid((0.5, 0.5, cabinet_h), (0.45, 0.28, 0.10))
     for i in range(2):
         objects[f"furn_couch_{i}"] = _make_kinematic_cuboid((1.4, 0.6, 0.35), (0.40, 0.25, 0.55))
 
@@ -221,7 +248,7 @@ def build_proc_room_collection_cfg(wall_height: float = 1.0) -> dict[str, RigidO
     for i in range(2):
         objects[f"clutter_capsule_{i}"] = _make_kinematic_capsule(0.1, 0.4, (0.3, 0.3, 0.6))
     for i in range(2):
-        objects[f"clutter_tall_cyl_{i}"] = _make_kinematic_cylinder(0.1, 0.7, (0.4, 0.6, 0.3))
+        objects[f"clutter_tall_cyl_{i}"] = _make_kinematic_cylinder(0.1, tall_cyl_h, (0.4, 0.6, 0.3))
 
     assert len(objects) == NUM_OBJECTS
 
@@ -582,6 +609,7 @@ def generate_proc_room(
     ceiling_entity_name: str | None = None,
     p_ceil: float = 0.0,
     ceiling_height_range: tuple[float, float] = (2.2, 2.9),
+    tall_object_heights: dict[str, float] | None = None,
 ) -> None:
     """Generate procedural rooms for specified environments.
 
@@ -611,6 +639,11 @@ def generate_proc_room(
             (outside the collection). When set, the slab is posed per env.
         p_ceil: Per-episode probability the ceiling slab is present.
         ceiling_height_range: Per-episode ceiling height sampler ``U[lo, hi]``.
+        tall_object_heights: Optional ``{category: height}`` override for the
+            ``TALL_OBJECT_SLOTS`` categories; their pose z becomes ``height / 2``
+            instead of the ``OBJECT_SIZES`` default. Must match the map the
+            palette was built with. ``None`` keeps every slot at its
+            ``OBJECT_SIZES`` height.
 
     All enrichment arguments default to the open-top, single-pool, uniform-scatter
     behavior, so the NOCAM / vanilla-depth generator path is unchanged.
@@ -622,6 +655,14 @@ def generate_proc_room(
     device = env.device
     sizes = OBJECT_SIZES.to(device)
     wall_z = wall_height / 2.0
+
+    # Floor-standing pose z (base on the floor). Walls are posed from ``wall_z``
+    # below, not this vector.
+    object_z = sizes[:, 2] / 2.0  # (N,)
+    if tall_object_heights is not None:
+        for key, slots in TALL_OBJECT_SLOTS.items():
+            if key in tall_object_heights:
+                object_z[list(slots)] = tall_object_heights[key] / 2.0
 
     # Read curriculum difficulty if available
     if hasattr(env, "_proc_room_difficulty"):
@@ -816,7 +857,7 @@ def generate_proc_room(
 
                 poses[b_idx, slot, 0] = fx
                 poses[b_idx, slot, 1] = fy
-                poses[b_idx, slot, 2] = OBJECT_SIZES[slot, 2].item() / 2
+                poses[b_idx, slot, 2] = object_z[slot].item()
                 q = _yaw_to_quat(torch.tensor(fyaw, device=device))
                 poses[b_idx, slot, 3:7] = q
                 active_mask[b_idx, slot] = True
@@ -880,7 +921,7 @@ def generate_proc_room(
                 cyaw = torch.rand(1, device=device).item() * 2.0 * math.pi - math.pi
                 poses[b_idx, slot, 0] = cx_
                 poses[b_idx, slot, 1] = cy_
-                poses[b_idx, slot, 2] = OBJECT_SIZES[slot, 2].item() / 2
+                poses[b_idx, slot, 2] = object_z[slot].item()
                 q = _yaw_to_quat(torch.tensor(cyaw, device=device))
                 poses[b_idx, slot, 3:7] = q
                 active_mask[b_idx, slot] = True

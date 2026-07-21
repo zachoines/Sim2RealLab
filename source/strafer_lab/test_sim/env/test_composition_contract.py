@@ -96,16 +96,17 @@ _CONTRACT_GOLDENS = {
     "RLDepthSubgoal_Robust_PLAY": "3f0e0b5402c7279cd5ef0f6222753deca21e60c88494192e502f41962c08aa78",
     # Depth-enrichment variants — NEW IDs frozen at creation (no prior checkpoint
     # depends on them). The enrichment lives in the `events` field (un-pinned
-    # difficulty + enriched generation params); the observation contract is
-    # byte-identical to the open-top depth variants (asserted separately).
-    "RLDepthEnriched_Real": "904b955ce648c4f51af93e9522ed0234bfc0017a004b3200ed9a0368cc23eb8b",
-    "RLDepthEnriched_Robust": "4bae1978da1f1949f42e63a11189483ea8c91005ece275bd4b3f371822ad90a2",
-    "RLDepthEnriched_Real_PLAY": "6741c24b3283d1887afc84143b6c2c570caf3e540e009835cc57eb0b129612f9",
-    "RLDepthEnriched_Robust_PLAY": "3ce29e9078781874d0a304515af8b5241d84bc09d833210268f5056bd9796306",
-    "RLDepthSubgoalEnriched_Real": "7a5bcc676c378bdd0adac673edffff7ee2d3a17b0aa57008314dd3ead065b3cc",
-    "RLDepthSubgoalEnriched_Robust": "301d7523897d83ea95ec61ad612cf68a28dad46dc9e4ffe76c57500f9b0c8f05",
-    "RLDepthSubgoalEnriched_Real_PLAY": "e224b7c2788f8f6f3b21661998d88b68c88b85511c281f5451c47cbfd11583a4",
-    "RLDepthSubgoalEnriched_Robust_PLAY": "cf9ea0101c619ffe9b77b5f5edbf839a1328003ea9d9a8ae7ff4b8584d56f974",
+    # difficulty + enriched generation params, incl. the tall-object heights);
+    # the observation contract is byte-identical to the open-top depth variants
+    # (asserted separately).
+    "RLDepthEnriched_Real": "800b2cb41f3047e213d7321089b4762e2b15008cc9e280bf4da8b7a5220b9088",
+    "RLDepthEnriched_Robust": "0f7bb4bc4793a8d476d50cbfe0564f20e34e71318b35f9413e37d8ae3f12e516",
+    "RLDepthEnriched_Real_PLAY": "8564044db2641f23564d70902f05a7d9051b211757948925e86a1a7fa1918603",
+    "RLDepthEnriched_Robust_PLAY": "d14ed49d164522a28e88793a655a3f056522c526806e770d50f7efcf33eb363b",
+    "RLDepthSubgoalEnriched_Real": "bf06a62d0f569ef7b0818d1af6a84647d098b2a6a0c2dbd4d855605c87525142",
+    "RLDepthSubgoalEnriched_Robust": "f86a2e37302c9e9ca6e897e00a0d04e7c04d1922fd1cb1ef17e632a7f97fe4c8",
+    "RLDepthSubgoalEnriched_Real_PLAY": "95fb664644db84c2c5d3f0d11554aef9e9f3cca539cc6ffac055c5818b84f639",
+    "RLDepthSubgoalEnriched_Robust_PLAY": "9c7616ac94dc12513892f9eaa47ed3d20ee4f9d75710de4a3bfb401ca4b67f3b",
 }
 
 # Frozen signature (slot name set + spawn sizes) of the pre-enrichment 44-object
@@ -219,18 +220,21 @@ def test_open_top_variants_keep_pre_enrichment_palette_and_no_ceiling():
 
 def test_enriched_palette_adds_no_new_slot():
     """The enriched depth palette has the SAME slot-name set as pre-enrichment —
-    only the wall slots grow taller. No new collection slot is ever added (the
-    ceiling is a standalone entity outside the collection), so nothing new can be
-    active on NOCAM."""
+    only the walls and the tall-furniture/clutter slots grow taller. No new
+    collection slot is ever added (the ceiling is a standalone entity outside the
+    collection), so nothing new can be active on NOCAM."""
     from strafer_lab.tasks.navigation.mdp.proc_room import (
         build_proc_room_collection_cfg,
+    )
+    from strafer_lab.tasks.navigation.strafer_env_cfg import (
+        _ENRICH_TALL_OBJECT_HEIGHTS,
     )
 
     base_names = set(build_proc_room_collection_cfg().keys())
     enriched_scene = composed.StraferNavCfg_RLDepthSubgoalEnriched_Real().scene
     enriched_names = set(enriched_scene.room_primitives.rigid_objects.keys())
     assert enriched_names == base_names
-    # Only the walls differ, and only in the Z (height) size.
+    # Only the walls and the tall furniture/clutter differ, and only in Z.
     base_sig = _palette_sig(
         type(enriched_scene.room_primitives)(
             rigid_objects=build_proc_room_collection_cfg()
@@ -238,7 +242,20 @@ def test_enriched_palette_adds_no_new_slot():
     )
     enr_sig = _palette_sig(enriched_scene.room_primitives)
     changed = {k for k in base_sig if base_sig[k] != enr_sig[k]}
-    assert changed == {k for k in base_names if k.startswith("wall_")}
+    tall_prefixes = ("furn_shelf_", "furn_cabinet_", "clutter_tall_cyl_")
+    expected = {k for k in base_names if k.startswith("wall_")} | {
+        k for k in base_names if k.startswith(tall_prefixes)
+    }
+    assert changed == expected
+    # Geometry half of the palette/pose lockstep (the generator poses these at
+    # height/2, pinned in the CPU enrichment suite).
+    assert enr_sig["furn_shelf_0"]["size"][2] == _ENRICH_TALL_OBJECT_HEIGHTS["shelf"]
+    assert enr_sig["furn_cabinet_0"]["size"][2] == _ENRICH_TALL_OBJECT_HEIGHTS["cabinet"]
+    assert enr_sig["clutter_tall_cyl_0"]["height"] == _ENRICH_TALL_OBJECT_HEIGHTS["tall_cyl"]
+    for k in changed:
+        z_base = base_sig[k]["size"][2] if "size" in base_sig[k] else base_sig[k]["height"]
+        z_enr = enr_sig[k]["size"][2] if "size" in enr_sig[k] else enr_sig[k]["height"]
+        assert z_enr > z_base
     # The ceiling is NOT part of the collection.
     assert "ceiling" not in enriched_names
 

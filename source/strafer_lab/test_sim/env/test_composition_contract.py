@@ -151,6 +151,14 @@ _COMPOSED_RL = {
 # =====================================================================
 
 
+# Every RL variant that must reach the generator's DEFAULT path — the enriched
+# IDs are exactly the complement. Derived rather than listed so a new open-top
+# variant is covered by construction.
+_OPEN_TOP_RL_VARIANTS = tuple(
+    name for name in sorted(_COMPOSED_RL) if "Enriched" not in name
+)
+
+
 @pytest.mark.parametrize("name", sorted(_COMPOSED_RL), ids=lambda n: n)
 def test_composed_rl_variant_matches_frozen_contract(name):
     """The composed RL variant's policy-facing contract is byte-identical to
@@ -204,10 +212,7 @@ def test_open_top_variants_keep_pre_enrichment_palette_and_no_ceiling():
     enriched (2.7 m wall + ceiling) scene to a *vanilla* depth variant — which
     would pass every contract golden (the hash excludes the scene) and the NOCAM
     palette check — is caught here."""
-    for name in (
-        "RLNoCam", "RLNoCamSubgoal_Real", "RLNoCamSubgoal_Robust",
-        "RLDepth_Real", "RLDepth_Robust", "RLDepthSubgoal_Real",
-    ):
+    for name in _OPEN_TOP_RL_VARIANTS:
         scene = _COMPOSED_RL[name]().scene
         got = _hash(_palette_sig(scene.room_primitives))
         assert got == _PALETTE_GOLDEN, (
@@ -215,6 +220,32 @@ def test_open_top_variants_keep_pre_enrichment_palette_and_no_ceiling():
         )
         assert not hasattr(scene, "ceiling"), (
             f"{name} is an open-top variant but got an enriched (ceiling) scene"
+        )
+
+
+def test_open_top_variants_drive_the_generator_at_its_defaults():
+    """The open-top variants must reach ``generate_proc_room`` with no argument
+    but the collection name, and at the pinned 7/7 difficulty.
+
+    The contract hash renders a callable as its qualified name, so it sees the
+    *presence* of the event term but not which arguments it carries; this is
+    what pins that the vanilla path is the generator's default path. The
+    ProcRoom bridge/capture cfg is included because it consumes the same vanilla
+    event term and is not part of ``_COMPOSED_RL`` — after the enriched retrain
+    retires the open-top depth IDs, NOCAM and that bridge variant are the two
+    remaining vanilla consumers."""
+    cfgs = [(name, _COMPOSED_RL[name]()) for name in _OPEN_TOP_RL_VARIANTS]
+    cfgs.append(
+        ("BridgeAutonomy_ProcRoom", composed.StraferNavCfg_BridgeAutonomy_ProcRoom())
+    )
+    for name, cfg in cfgs:
+        events = cfg.events
+        assert set(events.generate_room.params) == {"collection_name"}, (
+            f"{name} passes non-default generator arguments: "
+            f"{sorted(set(events.generate_room.params) - {'collection_name'})}"
+        )
+        assert events.randomize_difficulty.params == {"min_level": 7, "max_level": 7}, (
+            f"{name} no longer pins difficulty 7/7"
         )
 
 

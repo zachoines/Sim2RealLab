@@ -252,15 +252,22 @@ therefore a set of CPU, Kit-free tests on the existing stub harness:
 - **N-1 output golden** — a seed × difficulty × batch-size sweep (batch size
   matters: the stream is positionally coupled across envs, so a
   batch-dependent defect is invisible at B=1), hashing
-  `poses ‖ active_mask ‖ free_space ‖ reachable ‖ spawn_pts ‖ spawn_count`.
-  `reachable` is mandatory — `randperm(K)` makes every later draw
-  K-dependent.
-- **N-2 per-phase draw witness** — wrap `torch.rand`/`randint`/`randperm`
-  and freeze `(phase, call count, shapes)` per placement phase. A global
-  sequence hash detects a leak but cannot attribute it; per-phase counts
-  name the culprit. Scope honestly: this catches operation, shape, dtype and
-  conditionality changes — including the batched-versus-scalar hazard — and
-  nothing value-dependent.
+  `poses ‖ active_mask ‖ free_space ‖ spawn_pts ‖ spawn_count` plus a draw
+  taken immediately after the call. *As shipped:* `reachable` is not stored
+  on the env, so the trailing draw stands in for it — and does the job
+  better, since it pins total RNG *consumption* directly rather than the
+  quantity `randperm(K)` derives from. Every seed × difficulty runs at
+  B ∈ {1, 8}; B = 64 is a spot check over the open-field / sparse / dense
+  regimes, because a dense 64-env case costs ~2.3 s and adds scale rather
+  than new branches.
+- **N-2 draw witness** — wrap `torch.rand`/`randint`/`randperm` and freeze
+  the ordered `(op, shape)` sequence plus per-operation totals. *As shipped:*
+  attribution is by draw **index**, not by phase label — phase labels would
+  have to be keyed on source lines, and would not survive the refactor they
+  exist to guard; a failure reports the first divergent index with its
+  neighbourhood, which localizes the culprit just as well. Scope honestly:
+  this catches operation, shape and conditionality changes — including the
+  batched-versus-scalar hazard — and nothing value-dependent.
 - **N-3 signature and defaults pin** — the contract hash is blind to the
   signature, so pin `inspect.signature(generate_proc_room)` against a frozen
   dict.
@@ -775,10 +782,14 @@ rather than a re-freeze.
 
 ## Acceptance criteria
 
-- [ ] PR-0 lands the guard net against unmodified production code; the
+- [x] PR-0 lands the guard net against unmodified production code; the
       production diff is empty, the goldens are captured from the
       pre-enrichment tree, and the reconciliation assert shows the current tip
       reproduces them over the full sweep (a divergent seed is a STOP).
+      *Landed: 201/201 sweep cases and the 340-op draw sequence reproduce the
+      pre-enrichment tree exactly, so the 1-ulp door-width deviation is
+      confirmed absorbed. Each obligation was mutation-tested against the
+      hazard class it names.*
 - [ ] PR-A publishes a paired, room-level noise floor for D1 and D4, and the
       re-ranged arm's descriptor table against it — with the spawn fairness
       floor asserted, not assumed.

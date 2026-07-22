@@ -99,14 +99,14 @@ _CONTRACT_GOLDENS = {
     # difficulty + enriched generation params, incl. the tall-object heights);
     # the observation contract is byte-identical to the open-top depth variants
     # (asserted separately).
-    "RLDepthEnriched_Real": "800b2cb41f3047e213d7321089b4762e2b15008cc9e280bf4da8b7a5220b9088",
-    "RLDepthEnriched_Robust": "0f7bb4bc4793a8d476d50cbfe0564f20e34e71318b35f9413e37d8ae3f12e516",
-    "RLDepthEnriched_Real_PLAY": "8564044db2641f23564d70902f05a7d9051b211757948925e86a1a7fa1918603",
-    "RLDepthEnriched_Robust_PLAY": "d14ed49d164522a28e88793a655a3f056522c526806e770d50f7efcf33eb363b",
-    "RLDepthSubgoalEnriched_Real": "bf06a62d0f569ef7b0818d1af6a84647d098b2a6a0c2dbd4d855605c87525142",
-    "RLDepthSubgoalEnriched_Robust": "f86a2e37302c9e9ca6e897e00a0d04e7c04d1922fd1cb1ef17e632a7f97fe4c8",
-    "RLDepthSubgoalEnriched_Real_PLAY": "95fb664644db84c2c5d3f0d11554aef9e9f3cca539cc6ffac055c5818b84f639",
-    "RLDepthSubgoalEnriched_Robust_PLAY": "9c7616ac94dc12513892f9eaa47ed3d20ee4f9d75710de4a3bfb401ca4b67f3b",
+    "RLDepthEnriched_Real": "78984d021784a3d3a9b94b48ab292a69ef5962fd7d7f63aedd945db79e0f87f3",
+    "RLDepthEnriched_Robust": "007cd796d3bee9af233cce445b9085e72c35009fab8432b3f30b7ee454963144",
+    "RLDepthEnriched_Real_PLAY": "99bf72378516940773db9c2fbc33799acef33774f9dd1a9a363d44a92cd268a6",
+    "RLDepthEnriched_Robust_PLAY": "5ec12614507cdcd3b45637be332e3d3c939287c3fb7697704061b5c3c1fee029",
+    "RLDepthSubgoalEnriched_Real": "3b27eb6f0cca542e0cd98c8f69be6db52a6465f4e654819a471e8502127c60ae",
+    "RLDepthSubgoalEnriched_Robust": "0366bd92d06b30d468801313a9d51305f44f410935c38d57a32e8849c49ab299",
+    "RLDepthSubgoalEnriched_Real_PLAY": "133adac759ff6de224278b99602ab36236048957fbf48e924c28dcdfa0bf47ab",
+    "RLDepthSubgoalEnriched_Robust_PLAY": "bf8ac83ea2c5e202c5ac855b1279521095e520ee06be244fd69846c15945b9d7",
 }
 
 # Frozen signature (slot name set + spawn sizes) of the pre-enrichment 44-object

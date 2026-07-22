@@ -90,6 +90,18 @@ read higher than the 2026-07-09 trajectory baseline below).
 | D4 high-row near <2 m (%) | 43.7 | 34.6 | 49.9 [40.6–58.9] | **gap GREW** → F3 signal; **+F3 → 36.4%** (same-session A/B, +1.8, still ~14 pts below band) |
 | D5 edge density (%) | 2.35 | 1.69 | 1.89 [1.39–2.21] | ProcRoom already ≥ every Infinigen scene — no edge *deficit* |
 
+> **Read D4 with its capture protocol attached (measured 2026-07-22).** Every
+> row here reproduces on a re-run of the protocol that produced it — vanilla
+> D1 1.189 / ≤1 m 42.3% / D2 4.62 / D3 60.0% / D4 42.5% / D5 2.41%, enriched
+> D1 1.525 / D4 36.4% at 512 rooms. But the *same* enriched configuration
+> measures D4 = 43.9% when the capture re-seeds per reset instead of letting
+> the stream run on, which is what paired statistics require. That 5–7 point
+> protocol effect is larger than D4's 4.2-point gap to the Infinigen band
+> floor, so a D4 claim is only meaningful with its protocol named. The
+> room-level noise floor at 512 rooms is ±3.1 points on D4 and ±0.067 m on D1.
+> Details and the instruments in
+> [`procroom-placement-architecture`](procroom-placement-architecture.md).
+
 Generator health on every enriched run (the quietly-emptied-room guard):
 BFS-fail envs 0/256; spawn-count min rose 105–122 → 142–200; retry-ladder
 parks fell 279.5 → 63.0 (~4.5% → ~1.6% of the level target) — rooms pack

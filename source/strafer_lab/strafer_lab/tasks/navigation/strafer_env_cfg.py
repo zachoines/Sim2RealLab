@@ -1356,8 +1356,11 @@ _ENRICH_WALL_HEIGHT = 2.7               # enclosing walls (open-top default 1.0)
 _ENRICH_DOOR_WIDTH_MAX = 2.0            # doorway U[0.8, 2.0] (default 1.2)
 _ENRICH_SPAN_MAX = 7.5                  # room span U[4.0, 7.5] (default 7.0)
 _ENRICH_MAX_SPAN_SUM = 13.4            # perimeter cap for the 26 m wall stock
-_ENRICH_CLUTTER_WALL_BIAS = 0.5        # per-episode perimeter-biased clutter prob
-_ENRICH_ROBOT_SPAWN_INFLATION = 2      # extra spawn erosion cells (0.2 m standoff)
+_ENRICH_CLUTTER_WALL_BIAS = 0.3        # per-episode perimeter-biased clutter prob
+# Extra spawn erosion cells (0.1 m standoff). The shared pool's 0.3 m disc
+# inflation is quantized on a 0.1 m grid, so it alone leaves a small tail of
+# candidates inside the 0.28 m chassis radius; one erosion cell clears it.
+_ENRICH_ROBOT_SPAWN_INFLATION = 1
 _ENRICH_MIN_LEVEL = 4                  # un-pin difficulty to U[4, 7] (default pins 7)
 _ENRICH_MAX_LEVEL = 7
 _ENRICH_P_CEIL = 0.7                    # per-episode enclosure probability

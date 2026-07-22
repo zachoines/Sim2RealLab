@@ -57,6 +57,7 @@ Each consumer rasterizes **its** scene representation into the same
 | `scene-connectivity-validation` (the **producer**) | Infinigen USD physics colliders | **generates** the cached occupancy via Isaac Sim's occupancy-map extension ([`validate_scene_connectivity.py`](../../../source/strafer_lab/scripts/validate_scene_connectivity.py)) → `<scene>/occupancy.npy` | single-scene, scene-gen time |
 | `mission-generator` oracle / waypoint validation | the cached `<scene>/occupancy.npy` | **load** it + [`scene_connectivity.occupancy_to_free_space`](../../../source/strafer_lab/strafer_lab/tools/scene_connectivity.py) (invert + robot-radius disc inflation) | single-scene, episode-gen time, latency-tolerant |
 | `grounding-negative-taxonomy` `trajectory_violation` | the cached `<scene>/occupancy.npy` | the same load + invert/inflate adapter | single-scene |
+| `path-statistics` corridor/aperture measurement | either — ProcRoom grids from the CPU stub, scanned scenes from the cached `<scene>/occupancy.npy` | [`tools/path_statistics.py`](../../../source/strafer_lab/strafer_lab/tools/path_statistics.py) consumes whichever `free_space` the source already builds, plus that source's *raw* occupancy for clearance | offline, CPU, both sources measured identically |
 
 The ProcRoom grid builder is GPU-batched for training-reset throughput.
 The Infinigen consumers share a **cached-occupancy seam** instead of each

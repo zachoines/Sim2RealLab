@@ -62,6 +62,15 @@ camera. Together they explain, in one mechanism, all of:
 | paths that bend >1.05 tortuosity (%) | 43.7 | 16.5 | 76.7 | roughly halved |
 | path clearance below 0.6 m (% of arc) | 71.7 | 21.3 | 72.1 | roughly halved |
 
+> Superseded by PR-A. The depth rows reproduce on a re-run of the capture that
+> produced them, but D4's run-to-run spread on one configuration is 4.8 points
+> — larger than its own 4.2-point gap to the band floor. The three path rows
+> draw their scanned endpoints from a pool 71% of which lies outside the
+> building; measured on the in-room pool production actually uses, the
+> singleroom comparator is straighter than the enriched generator, and
+> curvature in the corpus is a multi-room property. See
+> [What PR-A measured](#what-pr-a-measured).
+
 The last three rows are **new measurements** (method below). They matter
 because the depth descriptors D1–D5 cannot see them: the enriched generator
 produces rooms whose *planned paths are dead straight*. The median enriched
@@ -554,6 +563,9 @@ PR-A baseline before PR-3b tunes anything.
 | ProcRoom enriched | **0.000** | **1.000** | 16.5% | 0.72 | 21.3% |
 | Infinigen singleroom | 0.242 | 1.287 | 76.7% | 0.41 | 72.1% |
 
+> Superseded by PR-A: the singleroom row is an *unsealed* measurement. See
+> [What PR-A measured](#what-pr-a-measured) for the shipped tool's baseline.
+
 Whole-house Infinigen seeds measure tortuosity 1.18–2.10 but with 13–31 m
 arcs against ProcRoom's ~3 m, so **the two room-scale scenes are the honest
 comparator** and the whole-house seeds are context only.
@@ -683,6 +695,303 @@ Gated (do **not** proceed without a consult):
 5. **Any change to the proximity reward**, including an aperture-aware form.
    Shared with NOCAM.
 
+## What PR-A measured
+
+Everything below is re-derived, so it supersedes the `(consult)` tags above.
+The descriptor legs are 512 rooms each (64 envs × 8 resets), the CPU statistics
+are on the stub harness, and the path statistics are the shipped tool.
+
+### Arm A as shipped
+
+`_ENRICH_CLUTTER_WALL_BIAS` 0.5 → 0.3 and `_ENRICH_ROBOT_SPAWN_INFLATION` 2 →
+**1**. The design sanctioned "1 or 0"; the fairness floor picks 1, and it is a
+measurement, not a preference.
+
+**Ruling F-5's stated mechanism is wrong.** "Erosion 0 leaves the shared pool's
+0.3 m robot-radius inflation, which already exceeds the chassis circumscribed
+radius — the floor holds by construction" does not survive measurement: the
+0.3 m disc is rasterized on a 0.1 m grid and a spawn point is a cell *centre*,
+so the guarantee is about a cell short of its nominal radius. The structural
+floor of the shared pool follows from the shipped algebra (disc kernel
+`dr²+dc² ≤ 9`, spawn at a cell centre, AABB rasterization) and is **0.2550 m**
+— 25 mm inside the radius the inflation is sized from. The measured minimum
+sits on that bound.
+
+The threshold below is `ROBOT_HALF_WIDTH = 0.28`, the value the generator's own
+inflation is sized from. It is the *bare frame's* half-diagonal
+(√(0.432²+0.360²)/2 = 0.28117, so the constant is 1.2 mm short of even that);
+the wheels are wider than the frame, and including them the robot circumscribes
+at ≈0.312 m. The floor asserted here is therefore, if anything, generous.
+
+Over 6 seeds × 64 envs (~75 k pool candidates), the fraction of candidates
+inside 0.28 m:
+
+| arm | spawn→object median | p10 | min | inside 0.28 m | wall p10 |
+|---|---|---|---|---|---|
+| vanilla L7 | 0.571 | 0.389 | 0.166 | **0.190%** | 0.585 |
+| enriched, erosion 2 (prior) | 0.906 | 0.637 | 0.272 | 0.001% | 0.806 |
+| enriched, erosion 1 + bias 0.3 (**shipped**) | 0.786 | 0.525 | 0.384 | **0%** | 0.664 |
+| enriched, erosion 0 + bias 0.3 | 0.710 | 0.417 | 0.163 | **0.108%** | 0.561 |
+
+Erosion 1 is the largest reduction that keeps the floor, so that is what
+ships. The violation is *pre-existing in vanilla* (0.190%), so erosion 0 would
+not have introduced a new failure class — it would have returned the enriched
+arm to the vanilla floor, which is exactly what F-5 declined. Stated as the
+quantity a training run actually sees, one uniform draw plus one independent
+yaw: erosion 0 puts the chassis in contact in about 1 episode in 10 000
+(1 in 840 against the full collider), vanilla about 1 in 6 000 (1 in 500).
+Erosion 0 was a defensible choice; erosion 1 is the one the ruling's own
+constraint selects, and it costs little of the lever.
+
+**A second mechanism produces the extreme tail, and it is a live instance of a
+hazard this brief already names.** `_gpu_bfs` marks the room-centre seed cell
+reachable whether or not it is free
+([`proc_room.py:438`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/proc_room.py)).
+That cell is grid-blocked in **11.2%** of enriched envs, and at erosion 0 it
+enters the spawn pool anyway — about 5% of the violations by count but the
+worst of them. The design's solvability section already requires seed
+protection at *placement* time for exactly this reason; this is the
+measurement that shows the hazard is not hypothetical. It is PR-3a's to close.
+
+The floor is now three tests (`test_proc_room_spawn_clearance.py`): the pool
+statistic, a negative test that fails at erosion 0, and — because the pool
+only reaches the robot through an unflagged `hasattr` branch in
+`reset_robot_proc_room` — an end-to-end test through the reset event itself,
+mutation-verified to fail when that branch is removed. A fourth asserts the
+per-env fallback to the un-eroded shared pool never fires at the shipped
+erosion, since the floor is conditional on it.
+
+### Published noise floor
+
+Two independent seeds, identical configuration, 512 rooms each:
+
+| descriptor | seed A | seed B | replicate Δ | 95% room-level half-width |
+|---|---|---|---|---|
+| D4 high-row near (%) | 43.85 | 43.35 | 0.50 | **±3.1** |
+| D1 median (m) | 1.745 | 1.733 | 0.012 | **±0.067** |
+
+The room-level bootstrap is not understating: the observed spread of the
+per-reset batch means (sd 4.4 points over 8 batches of 64) matches what
+independent rooms predict (4.5), so rooms behave as independent draws and the
+interval is honest. This replaces the consult's ±8.3-point unpaired figure and
+is 2.7× tighter.
+
+### Arm A's descriptor table
+
+Arm A was measured three times — two paired legs at different seed bases and
+one unpaired leg — so a single leg's reading cannot carry a conclusion.
+Bootstrap over rooms; `*` = interval excludes zero.
+
+**Paired legs** — shared seed, matched room for room, 512 pairs each. This is
+the protocol ruling F-4 mandates, run at two seed bases:
+
+| descriptor | Δ at seed A | Δ at seed B |
+|---|---|---|
+| D1 ≤1 m (%) | +1.36 [−1.20, +3.88] | **+3.33 [+0.72, +5.97]** `*` |
+| D1 median, room-level (m) | +0.008 [−0.084, +0.100] | −0.004 [−0.097, +0.089] |
+| D1 median, floor-masked (m) | +0.016 [−0.113, +0.148] | −0.006 [−0.142, +0.130] |
+| floor pixels (%) | −0.90 [−2.04, +0.23] | −1.01 [−2.17, +0.12] |
+| D3 top-11 pinned (%) | +0.32 [−0.88, +1.51] | +0.84 [−0.42, +2.09] |
+| D4 high-row near (%) | −1.12 [−5.60, +3.20] | −0.26 [−4.72, +4.34] |
+| D5 edge density (%) | +0.09 [−0.05, +0.23] | +0.05 [−0.10, +0.19] |
+
+**Independent-sample legs** — the unseeded protocol, 512 rooms each, no shared
+seed, so this is an unpaired comparison and its intervals are wider by
+construction:
+
+| descriptor | prior | Arm A | Δ |
+|---|---|---|---|
+| D1 ≤1 m (%) | 32.05 | 35.68 | **+3.63 [+1.18, +6.01]** `*` |
+| D1 pixel-pooled median (m) | 1.525 | 1.412 | −0.113 |
+| D1 median, room-level (m) | 1.823 | 1.753 | −0.070 [−0.161, +0.021] |
+| floor pixels (%) | 32.74 | 31.23 | **−1.51 [−2.57, −0.43]** `*` |
+| D3 top-11 pinned (%) | 5.95 | 6.57 | +0.62 [−0.65, +1.84] |
+| D4 high-row near (%) | 38.83 | 41.24 | +2.41 [−1.98, +6.69] |
+| D5 edge density (%) | 1.68 | 1.75 | +0.07 [−0.07, +0.20] |
+
+Read across all three legs:
+
+- **D1 resolves.** The near-band fraction moves +1.36, **+3.33** and **+3.63**;
+  two of the three intervals exclude zero, all three are positive, and the
+  direction is toward the Infinigen target of 44.2%. Arm A is not a null on
+  D1. The floor-pixel fraction moves −0.90 / −1.01 / −1.51 — consistently
+  negative, i.e. measurably more non-floor content in frame.
+- **D4 is a measured null, not an underpowered one.** The three readings are
+  −1.12, −0.26 and +2.41; pooled over 1536 rooms per arm the difference is
+  **+0.34 [−2.42, +3.05]**, whose half-width (2.6 points) is now *tighter*
+  than the 4.2-point gap to the band floor. Arm A does not move D4.
+
+**F-4's D4 gate is not met, and it is the second conjunct that fails.** The
+first is satisfied — the arm measures D4 = 42.73 (seed A) / 43.09 (seed B) /
+41.24 (unpaired), all ≥ 40.6 — but the paired interval on the *improvement*
+straddles zero under every analysis, and the paired point improvement is
+itself negative. The D4 lever the surgery carries stays motivated.
+
+One caveat on the word "paired": the pairing buys almost nothing here. The
+arm-to-arm room correlation is 0.004–0.14 depending on descriptor, so the
+paired interval is within ~7% of the unpaired one. That is the expected
+consequence of only 10.2% of rooms being byte-identical, and it means the
+"paired" label describes the protocol, not a variance reduction.
+
+Pairing is measured rather than assumed. At a shared seed, prior vs Arm A:
+difficulty identical for **100%** of rooms, geometry byte-identical for
+**10.2%**. Across seeds: 23.6% (chance, for four difficulty levels) and 0%.
+Exact room-for-room pairing is available only for a knob that touches nothing
+before Phase 6 — the erosion half pairs exactly, the clutter-bias half
+re-phases the per-env stream and unpairs about 90% of the batch. Arm A
+contains both, so 10.2% is its ceiling and the interval above is the honest
+one.
+
+### D4 attribution, by ray cast rather than by model
+
+Casting the true pixel ray from the true camera pose against each room's own
+boxes (24 rooms, 281 k D4-near pixels):
+
+| surface | ray cast | consult model |
+|---|---|---|
+| wall | **80.7%** | 73.4% |
+| shelf | 15.4% | 18.4% |
+| tall column | **1.8%** | 2.3% |
+| cabinet | 1.3% | 4.5% |
+
+The measurement confirms the model's shape and makes it *more* extreme. The
+design's "stated ceiling" for the column knob stands and hardens: at 1.8% of
+D4-near cells, the mid-room column frequency lever is a shaper, not a plan.
+
+### Path statistics — the comparator was wrong
+
+The tool ships with the three corrections applied. Baselining both corpora
+exposed a defect in what the design's PS numbers were compared against.
+
+Measured the way ProcRoom is measured — the robot confined to the room
+footprints its own spawn derivation gives it — the honest room-scale
+comparator is **not** curved (arc band 1.5–4.0 m, 95% group-resampled):
+
+| leg | paths turning (%) | paths bending (%) | turn density p90 |
+|---|---|---|---|
+| Infinigen singleroom, **sealed** | **3.7** | **0.3** | 0.000 |
+| Infinigen singleroom, unsealed | 61.2 | 51.2 | 0.534 |
+| Infinigen tworoom, sealed | 51.3 | 26.7 | 0.514 |
+| Infinigen whole-house (5 seeds), sealed | 16.0–37.8 | 12.0–35.1 | 0.307–0.426 |
+| ProcRoom vanilla L7 | 62.7 [58.7, 66.6] | 33.4 [30.0, 37.2] | 0.713 [0.668, 0.773] |
+| ProcRoom enriched, prior | 37.3 [33.2, 41.5] | 19.0 [16.0, 22.1] | 0.487 [0.421, 0.548] |
+| ProcRoom enriched, Arm A | 40.8 [36.4, 45.1] | 20.0 [16.9, 23.0] | 0.533 [0.468, 0.602] |
+
+The design's reference row (singleroom, tortuosity 1.287, 76.7% bending)
+reproduces only unsealed — at the design's own n = 60, no arc band, an
+unsealed run reads 0.252 / 1.283 / 76.3%. Sealed, every seed reads
+0.000 / 1.000 / 0.0%. The mechanism is the **endpoint pool**, not the
+corridor: 71% of the unsealed pool (34.3 of 48.3 m² free) lies outside the
+building, and production draws both the spawn *and* the goal from the sealed,
+in-room pool. Holding endpoints in-room while leaving the corridor fully
+unsealed reproduces the sealed answer exactly. Sealed to its one room, that
+scene is 97% line-of-sight, and an exhaustive geodesic bound over all 213 182
+in-band endpoint pairs puts only 0.14% above 1.05 tortuosity — no endpoint
+choice can make it bend.
+
+Two conclusions follow, and they point in opposite directions:
+
+1. **The enrichment's straightening is real and reproduces** — vanilla 62.7%
+   turning versus 37.3% for the enriched generator, intervals well separated.
+2. **The domain gap it was compared against is not.** Against the room-scale
+   corpus measured identically, the enriched generator (40.8% turning, 20.0%
+   bending) sits *inside* the scanned range, and vanilla (62.7% / 33.4%) sits
+   above the corpus's turning maximum and at the top of its bending range.
+   Curvature in the corpus is a **multi-room** property: a single furnished
+   room does not bend paths at this robot radius, in either corpus.
+
+Both ProcRoom biases run the same way (0.30 m inflation versus 0.20 m, and
+full-AABB rasterization versus a slice at robot height), so ProcRoom is
+flattered on these statistics and the residual gap is smaller still. That
+strengthens F2's topology motivation on its own terms and removes the
+"enrichment opened a path-topology domain gap" framing that partly motivated
+it. **Re-ranking on that is the coordinator's call, not this PR's.**
+
+Arm A's effect on path statistics comes entirely from the clutter-bias half.
+The spawn-erosion knob **cannot** move them by construction: it writes only
+the robot spawn pool, and the planner's endpoints come from the shared pool.
+
+### PS2's threshold, derived from the body
+
+**Caveat on the pooled reference.** Sealing fragments the five whole-house
+scenes badly — seed2's largest sealed component holds only ~31% of its sealed
+free space, seed6 ~49% — and it is not the seal or the inflation radius that
+does it: those doorways are already closed in the raw robot-height occupancy
+slice, and the exterior pad was the only route joining the clusters. Those
+scenes' sealed legs therefore show high no-path rates (seed6 195/205, seed2
+260/400) and sample only within-cluster pairs. The two room-scale scenes are
+unaffected and remain the honest comparator; a corpus-wide PS2 gate wants
+regenerated occupancy with open doorways first.
+
+Pooled over the seven sealed scenes, arc-weighted excess clearance over the
+same 725 banded paths the threshold is applied to: q01 = −0.018, q05 = 0.018,
+q10 = 0.025, q25 = 0.189, **q50 = 0.541**, q75 = 0.989, q90 = 1.438 m. The
+threshold is the median — **τ = 0.541 m on the inflation-free scale**, i.e. a
+raw 0.841 m for ProcRoom and 0.741 m for the scanned adapter. Per-scene medians
+span 0.225–0.797 m, so the pooled body is not one scene's number. The
+sensitivity sweep shows the statistic is not flat at that choice and does
+compress at a tail-derived one:
+
+| leg | τ=0.025 (tail) | τ=0.541 (**body**) |
+|---|---|---|
+| Infinigen singleroom sealed | 1.2% | 33.2% |
+| Infinigen tworoom sealed | 11.4% | 70.1% |
+| Infinigen whole-house sealed | 2.4–14.6% | 29.4–50.2% |
+| ProcRoom vanilla | 16.2% | 85.9% |
+| ProcRoom enriched prior | 8.2% | 62.0% |
+| ProcRoom enriched Arm A | 9.3% | 66.3% |
+
+At the tail threshold the whole corpus compresses into 1.2–16.2% and the
+ProcRoom arms are indistinguishable from the scanned scenes; at the body
+threshold every leg separates. Note q01 is *negative* on the scanned corpus
+too — the sub-inflation arc below is not a procedural-generator artifact.
+
+### Instrument facts the next PR should not re-learn
+
+- **The descriptor estimand matters more than most levers.** The recorded
+  table's D1 median is pooled over every pixel; the mean of per-room medians
+  is a different quantity and reads ~0.3 m higher. A room-level interval
+  requires a room-level estimand, so both are now reported side by side and
+  the pooled one is labelled as the legacy reconciliation number.
+- **D4 is unstable at roughly the resolution the gate is defined on, and the
+  cause is sampling rather than protocol.** The prior configuration measures
+  43.85 / 43.35% on two seeded legs and 38.83% on the unseeded leg — a
+  **4.77-point** same-configuration spread. That is not a protocol effect: the
+  identical contrast on the *arm* configuration is only 1.67 points
+  (permutation p = 0.45, against p = 0.029 on the prior side), and batch
+  selection alone reproduces the magnitude — inside one unseeded leg, resets
+  0–3 read 36.35% and resets 4–7 read 41.32%, a 4.96-point swing with no
+  protocol change at all. The 4.2-point gap to the band floor is therefore
+  inside the run-to-run spread of the number that gates it, and D4's own
+  room-level half-width (±3.1) is the honest resolution. **State the run, not
+  just the protocol, with any D4 number.**
+  Two corrections to how this was first written up: the "36.4%" and "38.8%"
+  figures are one measurement, not two — the 4-reset leg is bit-identical to
+  the first four resets of the 8-reset one, and `--seed -1` is byte-reproducible
+  across processes, so the unseeded side is a single realization. And an
+  unseeded re-run reproducing the recorded table is tautological rather than
+  corroborating: it confirms configuration and pipeline are unchanged (vanilla
+  D1 pooled 1.189 vs 1.17, ≤1 m 42.3 vs 42.7, D2 4.62 vs 4.56, D3 60.0 vs 58.9,
+  D4 42.5 vs 43.7, D5 2.41 vs 2.35; enriched D1 1.525 vs 1.56, D4 36.35 vs
+  36.4), which is worth having, but says nothing about run-to-run spread.
+- **The policy camera's pose buffers are not maintained.** `data.pos_w` /
+  `quat_w_ros` report env 0's spawn pose for every env, so the capture composes
+  the camera pose from the robot pose and the configured mount. The camera sits
+  at ~0.298 m, not the 0.35 m the nominal mount arithmetic gives, because the
+  chassis settles below its reset z.
+- **The shared planner emits paths the robot cannot follow.** Its
+  line-of-sight shortcut samples segments at half-cell spacing, so a segment
+  can graze a cell no sample lands in: 9.5% of a vanilla ProcRoom path's arc
+  (4.8% enriched, 0.3–4.6% scanned) sits closer to an obstacle than the
+  robot's own inflation radius. Not PR-A's to fix — the planner is a gated
+  shared surface — but PR-3a's "promote the path statistics to durable gates"
+  should know the floor is not zero.
+- **scipy is importable** in the lab interpreter (1.17.0), contradicting the
+  design's "verified not available". It is still not a declared dependency, so
+  the tool stays numpy-only on policy — and the full EDT the design asked for
+  proved unnecessary: clearance is only needed at waypoints, where an exact
+  brute-force distance is both cheaper and more accurate than a grid EDT.
+
 ## Findings for the operator — all six ruled 2026-07-21
 
 The consult was approved as designed. Each finding below keeps its original
@@ -790,13 +1099,25 @@ rather than a re-freeze.
       pre-enrichment tree exactly, so the 1-ulp door-width deviation is
       confirmed absorbed. Each obligation was mutation-tested against the
       hazard class it names.*
-- [ ] PR-A publishes a paired, room-level noise floor for D1 and D4, and the
+- [x] PR-A publishes a paired, room-level noise floor for D1 and D4, and the
       re-ranged arm's descriptor table against it — with the spawn fairness
       floor asserted, not assumed.
-- [ ] The path-statistics tool ships numpy-only and Kit-free, with the
+      *Landed: noise floor ±3.1 points on D4 and ±0.067 m on D1 at 512 rooms
+      (95% room-level bootstrap), with a two-seed replicate landing 0.50 points
+      / 0.012 m apart. The fairness floor is asserted by a test, and the
+      assertion is why the erosion ships at 1 rather than 0 — see the
+      measurements section below. Arm A's table is there too, under both
+      capture protocols; its effect on D1 and D4 does not resolve at 512 rooms,
+      and the instrument findings it produced are a STOP-and-report, not a
+      re-rank.*
+- [x] The path-statistics tool ships numpy-only and Kit-free, with the
       resolution, inflation-radius and arc-length corrections applied, both
       corpora baselined, and PS2's threshold shown sensitive to
       furniture-gap threading rather than only sub-1.2 m doorways.
+      *Landed as `tools/path_statistics.py` + `scripts/measure_path_statistics.py`,
+      33 unit tests. The threshold derivation is printed beside the baseline
+      with a four-quantile sensitivity sweep. The baseline also corrected the
+      comparator the design's PS numbers were measured against — below.*
 - [ ] PR-1's surgery leaves every PR-0 golden green with **no edit to any
       frozen literal**, and the per-phase draw witness shows the vanilla
       path unchanged.

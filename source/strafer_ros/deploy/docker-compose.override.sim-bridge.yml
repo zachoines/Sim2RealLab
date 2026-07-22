@@ -1,0 +1,23 @@
+# SIM-BRIDGE TEST OVERLAY (Gate 1 & 2) — opt-in ONLY via an explicit `-f`.
+# Deliberately NOT named docker-compose.override.yml, so compose NEVER auto-loads
+# it; it never affects `make up` or a real-robot deploy. It carries all the
+# run-specific policy config for the DGX sim-bridge e2e on the `inference` service
+# via compose `environment:` (which overrides the env_file's fail-safe defaults):
+#   - hybrid backend + the exported policy, so the fail-loud guard passes and the
+#     inference + rolling-subgoal coupling comes up;
+#   - the sim-rate freshness widenings: the DGX Isaac bridge publishes
+#     imu/odom/joint at ~12 Hz and depth at ~3 Hz (wall) at the rig's sub-unity
+#     RTF, which false-trips the inference watchdog's real-hardware defaults
+#     (obs 0.2 s, depth 0.5 s). BOTH must be loosened or the run trips on
+#     stale=['imu'/'odom'] rather than depth.
+# This touches NO committed env_file/canon, so the real-hardware guard
+# (check_env_sync) is untouched and still forbids these widenings on the autonomy
+# lane. NEVER apply this overlay on the real robot.
+services:
+  inference:
+    environment:
+      STRAFER_NAV_BACKEND: hybrid_nav2_strafer
+      STRAFER_INFERENCE_MODEL_PATH: /models/policy.onnx   # convention: name your artifact policy.onnx in STRAFER_MODELS_DIR
+      STRAFER_POLICY_VARIANT: DEPTH_SUBGOAL               # match your exported artifact (its .json sidecar declares the variant)
+      STRAFER_OBS_TIMEOUT_S: "1.0"
+      STRAFER_DEPTH_TIMEOUT_S: "2.0"

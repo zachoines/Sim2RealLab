@@ -846,9 +846,10 @@ Two conclusions follow, and they point in opposite directions:
    turning versus 37.3% for the enriched generator, intervals well separated.
 2. **The domain gap it was compared against is not.** Against the room-scale
    corpus measured identically, the enriched generator (40.8% turning, 20.0%
-   bending) sits *inside* the scanned range, and vanilla sits at or above its
-   top. Curvature in the corpus is a **multi-room** property: a single
-   furnished room does not bend paths at this robot radius, in either corpus.
+   bending) sits *inside* the scanned range, and vanilla (62.7% / 33.4%) sits
+   above the corpus's turning maximum and at the top of its bending range.
+   Curvature in the corpus is a **multi-room** property: a single furnished
+   room does not bend paths at this robot radius, in either corpus.
 
 Both ProcRoom biases run the same way (0.30 m inflation versus 0.20 m, and
 full-AABB rasterization versus a slice at robot height), so ProcRoom is

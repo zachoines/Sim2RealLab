@@ -170,3 +170,108 @@ def test_the_shared_pool_alone_does_not_deliver_the_floor(enriched):
 def test_erosion_is_the_smallest_that_holds_the_floor(enriched):
     """One erosion cell is enough; the shipped value is not over-provisioned."""
     assert enriched["params"]["robot_spawn_inflation_cells"] == 1
+
+
+def test_no_env_falls_back_to_the_uneroded_pool(enriched):
+    """The floor is conditional on the erosion never emptying a room.
+
+    ``generate_proc_room`` silently falls back per env to the shared pool when
+    the extra erosion leaves nothing, and that pool is the one without the
+    clearance. At the shipped erosion the fallback must never fire, so a
+    future re-range cannot quietly reintroduce the hole.
+    """
+    for seed in SEEDS:
+        entities = {"room_primitives": _CaptureEntity(), "ceiling": _CaptureEntity()}
+        env = SimpleNamespace(
+            num_envs=NUM_ENVS, device="cpu",
+            scene=_StubScene(entities, torch.zeros(NUM_ENVS, 3)),
+        )
+        lo, hi = enriched["difficulty_range"]
+        env._proc_room_difficulty = torch.randint(
+            lo, hi + 1, (NUM_ENVS,), generator=torch.Generator().manual_seed(DIFFICULTY_SEED)
+        )
+        torch.manual_seed(seed)
+        _proc_room.generate_proc_room(
+            env, torch.arange(NUM_ENVS), **enriched["params"]
+        )
+        # The fallback copies the shared pool verbatim, so an env that took it
+        # has point-identical pools; two independent draws never do.
+        eroded = env._proc_room_robot_spawn_pts
+        shared = env._proc_room_spawn_pts
+        identical = torch.nonzero(
+            (eroded == shared).all(dim=2).all(dim=1)
+        ).flatten().tolist()
+        assert not identical, (
+            f"seed {seed}: envs {identical} fell back to the un-eroded shared pool"
+        )
+
+
+class _StubRobotData:
+    def __init__(self, num_envs):
+        self.default_root_pose = torch.zeros(num_envs, 7)
+        self.default_root_pose[:, 6] = 1.0
+        self.default_joint_pos = torch.zeros(num_envs, 4)
+        self.default_joint_vel = torch.zeros(num_envs, 4)
+
+
+class _StubRobot:
+    def __init__(self, num_envs):
+        self.data = _StubRobotData(num_envs)
+        self.root_pose = None
+
+    def write_root_pose_to_sim_index(self, root_pose, env_ids):
+        self.root_pose = root_pose.clone()
+
+    def write_root_velocity_to_sim_index(self, root_velocity, env_ids):
+        pass
+
+    def write_joint_position_to_sim_index(self, position, env_ids):
+        pass
+
+    def write_joint_velocity_to_sim_index(self, velocity, env_ids):
+        pass
+
+
+def test_the_reset_event_reads_the_eroded_pool(enriched, monkeypatch):
+    """The clearance only reaches the robot if the reset event reads the pool
+    the erosion built. That branch has no config flag behind it — it is a
+    ``hasattr`` on a lazily created attribute — so it is asserted here through
+    the event rather than by reading the attribute directly."""
+    from strafer_lab.tasks.navigation.mdp import events as _events
+
+    monkeypatch.setattr(_events.wp, "to_torch", lambda t: t)
+
+    entities = {"room_primitives": _CaptureEntity(), "ceiling": _CaptureEntity()}
+    robot = _StubRobot(NUM_ENVS)
+    entities["robot"] = robot
+    env = SimpleNamespace(
+        num_envs=NUM_ENVS, device="cpu",
+        scene=_StubScene(entities, torch.zeros(NUM_ENVS, 3)),
+    )
+    lo, hi = enriched["difficulty_range"]
+    env._proc_room_difficulty = torch.randint(
+        lo, hi + 1, (NUM_ENVS,), generator=torch.Generator().manual_seed(DIFFICULTY_SEED)
+    )
+    torch.manual_seed(SEEDS[0])
+    _proc_room.generate_proc_room(env, torch.arange(NUM_ENVS), **enriched["params"])
+    _events.reset_robot_proc_room(
+        env, torch.arange(NUM_ENVS), yaw_range=(-math.pi, math.pi)
+    )
+
+    placed = robot.root_pose[:, :2]
+    eroded = env._proc_room_robot_spawn_pts
+    counts = env._proc_room_robot_spawn_count
+    for b in range(NUM_ENVS):
+        pool = eroded[b, : int(counts[b])]
+        assert bool((pool == placed[b]).all(dim=1).any()), (
+            f"env {b} was placed at {placed[b].tolist()}, which is not in the "
+            f"eroded pool — the reset event read the wrong pool"
+        )
+
+    poses = entities["room_primitives"].body_poses
+    obstacles = _proc_room.FURNITURE_SLOTS + _proc_room.CLUTTER_SLOTS
+    clearances = spawn_clearances(
+        poses, env._proc_room_active_mask, placed.unsqueeze(1),
+        torch.ones(NUM_ENVS, dtype=torch.long), obstacles,
+    )
+    assert float(clearances.min()) >= _proc_room.ROBOT_HALF_WIDTH

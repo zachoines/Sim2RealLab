@@ -62,10 +62,11 @@ camera. Together they explain, in one mechanism, all of:
 | paths that bend >1.05 tortuosity (%) | 43.7 | 16.5 | 76.7 | roughly halved |
 | path clearance below 0.6 m (% of arc) | 71.7 | 21.3 | 72.1 | roughly halved |
 
-> Superseded by PR-A. The depth rows reproduce exactly under the capture
-> protocol that produced them, but D4 moves 5–7 points on capture protocol
-> alone. The three path rows compare a sealed procedural room against a
-> scanned scene the robot was allowed to *leave*; measured identically, the
+> Superseded by PR-A. The depth rows reproduce on a re-run of the capture that
+> produced them, but D4's run-to-run spread on one configuration is 4.8 points
+> — larger than its own 4.2-point gap to the band floor. The three path rows
+> draw their scanned endpoints from a pool 71% of which lies outside the
+> building; measured on the in-room pool production actually uses, the
 > singleroom comparator is straighter than the enriched generator, and
 > curvature in the corpus is a multi-room property. See
 > [What PR-A measured](#what-pr-a-measured).
@@ -710,9 +711,20 @@ measurement, not a preference.
 0.3 m robot-radius inflation, which already exceeds the chassis circumscribed
 radius — the floor holds by construction" does not survive measurement: the
 0.3 m disc is rasterized on a 0.1 m grid and a spawn point is a cell *centre*,
-so the guarantee is about a cell short of its nominal radius. Over 6 seeds ×
-64 envs (~75 k pool candidates), the fraction of candidates inside the 0.28 m
-chassis circumscribing radius:
+so the guarantee is about a cell short of its nominal radius. The structural
+floor of the shared pool follows from the shipped algebra (disc kernel
+`dr²+dc² ≤ 9`, spawn at a cell centre, AABB rasterization) and is **0.2550 m**
+— 25 mm inside the radius the inflation is sized from. The measured minimum
+sits on that bound.
+
+The threshold below is `ROBOT_HALF_WIDTH = 0.28`, the value the generator's own
+inflation is sized from. It is the *bare frame's* half-diagonal
+(√(0.432²+0.360²)/2 = 0.28117, so the constant is 1.2 mm short of even that);
+the wheels are wider than the frame, and including them the robot circumscribes
+at ≈0.312 m. The floor asserted here is therefore, if anything, generous.
+
+Over 6 seeds × 64 envs (~75 k pool candidates), the fraction of candidates
+inside 0.28 m:
 
 | arm | spawn→object median | p10 | min | inside 0.28 m | wall p10 |
 |---|---|---|---|---|---|
@@ -722,11 +734,32 @@ chassis circumscribing radius:
 | enriched, erosion 0 + bias 0.3 | 0.710 | 0.417 | 0.163 | **0.108%** | 0.561 |
 
 Erosion 1 is the largest reduction that keeps the floor, so that is what
-ships. Note the violation is *pre-existing in vanilla* (0.190%), so erosion 0
-would not have introduced a new failure class — it would have returned the
-enriched arm to the vanilla floor, which is exactly what F-5 declined. The
-floor is now a test (`test_proc_room_spawn_clearance.py`), including a
-negative test that fails if the erosion is removed.
+ships. The violation is *pre-existing in vanilla* (0.190%), so erosion 0 would
+not have introduced a new failure class — it would have returned the enriched
+arm to the vanilla floor, which is exactly what F-5 declined. Stated as the
+quantity a training run actually sees, one uniform draw plus one independent
+yaw: erosion 0 puts the chassis in contact in about 1 episode in 10 000
+(1 in 840 against the full collider), vanilla about 1 in 6 000 (1 in 500).
+Erosion 0 was a defensible choice; erosion 1 is the one the ruling's own
+constraint selects, and it costs little of the lever.
+
+**A second mechanism produces the extreme tail, and it is a live instance of a
+hazard this brief already names.** `_gpu_bfs` marks the room-centre seed cell
+reachable whether or not it is free
+([`proc_room.py:438`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/proc_room.py)).
+That cell is grid-blocked in **11.2%** of enriched envs, and at erosion 0 it
+enters the spawn pool anyway — about 5% of the violations by count but the
+worst of them. The design's solvability section already requires seed
+protection at *placement* time for exactly this reason; this is the
+measurement that shows the hazard is not hypothetical. It is PR-3a's to close.
+
+The floor is now three tests (`test_proc_room_spawn_clearance.py`): the pool
+statistic, a negative test that fails at erosion 0, and — because the pool
+only reaches the robot through an unflagged `hasattr` branch in
+`reset_robot_proc_room` — an end-to-end test through the reset event itself,
+mutation-verified to fail when that branch is removed. A fourth asserts the
+per-env fallback to the un-eroded shared pool never fires at the shipped
+erosion, since the floor is conditional on it.
 
 ### Published noise floor
 
@@ -749,18 +782,18 @@ Arm A was measured twice, under both capture protocols, because the protocol
 turned out to matter (below). Bootstrap over rooms; `*` = interval excludes
 zero.
 
-**Paired legs** — shared seed, matched room for room, 512 pairs. This is the
-protocol ruling F-4 mandates:
+**Paired legs** — shared seed, matched room for room, 512 pairs each. This is
+the protocol ruling F-4 mandates, run at two seed bases:
 
-| descriptor | prior | Arm A | paired Δ |
-|---|---|---|---|
-| D1 ≤1 m (%) | 35.16 | 36.52 | +1.36 [−1.20, +3.88] |
-| D1 median, room-level (m) | 1.745 | 1.753 | +0.008 [−0.084, +0.100] |
-| D1 median, floor-masked (m) | 2.218 | 2.235 | +0.016 [−0.113, +0.148] |
-| floor pixels (%) | 31.50 | 30.60 | −0.90 [−2.04, +0.23] |
-| D3 top-11 pinned (%) | 5.84 | 6.16 | +0.32 [−0.88, +1.51] |
-| D4 high-row near (%) | 43.85 | 42.73 | −1.12 [−5.60, +3.20] |
-| D5 edge density (%) | 1.65 | 1.74 | +0.09 [−0.05, +0.23] |
+| descriptor | Δ at seed A | Δ at seed B |
+|---|---|---|
+| D1 ≤1 m (%) | +1.36 [−1.20, +3.88] | **+3.33 [+0.72, +5.97]** `*` |
+| D1 median, room-level (m) | +0.008 [−0.084, +0.100] | −0.004 [−0.097, +0.089] |
+| D1 median, floor-masked (m) | +0.016 [−0.113, +0.148] | −0.006 [−0.142, +0.130] |
+| floor pixels (%) | −0.90 [−2.04, +0.23] | −1.01 [−2.17, +0.12] |
+| D3 top-11 pinned (%) | +0.32 [−0.88, +1.51] | +0.84 [−0.42, +2.09] |
+| D4 high-row near (%) | −1.12 [−5.60, +3.20] | −0.26 [−4.72, +4.34] |
+| D5 edge density (%) | +0.09 [−0.05, +0.23] | +0.05 [−0.10, +0.19] |
 
 **Independent-sample legs** — the unseeded protocol, 512 rooms each, no shared
 seed, so this is an unpaired comparison and its intervals are wider by
@@ -776,20 +809,29 @@ construction:
 | D4 high-row near (%) | 38.83 | 41.24 | +2.41 [−1.98, +6.69] |
 | D5 edge density (%) | 1.68 | 1.75 | +0.07 [−0.07, +0.20] |
 
-Read honestly across both legs: **Arm A's effect on D1 and D4 is not resolved
-at 512 rooms.** Two of the fourteen interval readings exclude zero, both in
-the unpaired leg — the D1 near-band fraction (+3.63, toward the 44.2% target,
-about 30% of the remaining gap) and the floor-pixel fraction (−1.51, i.e.
-measurably more non-floor content in frame). The two legs agree in sign on the
-D1 near band and **disagree in sign on D4** (−1.12 versus +2.41), with both
-intervals straddling zero. D4 is unmoved by this lever.
+Read across all three legs:
 
-F-4's D4 gate is therefore **not met**: the paired interval on the improvement
-does not exclude zero, whichever leg is read. The surgery stays motivated on
-D4 and on the rest of the D1 gap. Note separately that the *baseline's* D4
-point estimate lands at 43.85 (paired protocol) or 38.83 (unpaired) against a
-40.6 band floor — the floor sits inside the protocol spread, which is the
-instrument problem recorded below, not a lever result.
+- **D1 resolves.** The near-band fraction moves +1.36, **+3.33** and **+3.63**;
+  two of the three intervals exclude zero, all three are positive, and the
+  direction is toward the Infinigen target of 44.2%. Arm A is not a null on
+  D1. The floor-pixel fraction moves −0.90 / −1.01 / −1.51 — consistently
+  negative, i.e. measurably more non-floor content in frame.
+- **D4 is a measured null, not an underpowered one.** The three readings are
+  −1.12, −0.26 and +2.41; pooled over 1536 rooms per arm the difference is
+  **+0.34 [−2.42, +3.05]**, whose half-width (2.6 points) is now *tighter*
+  than the 4.2-point gap to the band floor. Arm A does not move D4.
+
+**F-4's D4 gate is not met, and it is the second conjunct that fails.** The
+first is satisfied — the arm measures D4 = 42.73 (seed A) / 43.09 (seed B) /
+41.24 (unpaired), all ≥ 40.6 — but the paired interval on the *improvement*
+straddles zero under every analysis, and the paired point improvement is
+itself negative. The D4 lever the surgery carries stays motivated.
+
+One caveat on the word "paired": the pairing buys almost nothing here. The
+arm-to-arm room correlation is 0.004–0.14 depending on descriptor, so the
+paired interval is within ~7% of the unpaired one. That is the expected
+consequence of only 10.2% of rooms being byte-identical, and it means the
+"paired" label describes the protocol, not a variance reduction.
 
 Pairing is measured rather than assumed. At a shared seed, prior vs Arm A:
 difficulty identical for **100%** of rooms, geometry byte-identical for
@@ -836,9 +878,16 @@ comparator is **not** curved (arc band 1.5–4.0 m, 95% group-resampled):
 | ProcRoom enriched, Arm A | 40.8 [36.4, 45.1] | 20.0 [16.9, 23.0] | 0.533 [0.468, 0.602] |
 
 The design's reference row (singleroom, tortuosity 1.287, 76.7% bending)
-reproduces only when the path is allowed to leave the building and round its
-exterior — which is not a mission the robot runs and not the region the bridge
-spawns it in. Sealed to its one room, that scene is 97% line-of-sight.
+reproduces only unsealed — at the design's own n = 60, no arc band, an
+unsealed run reads 0.252 / 1.283 / 76.3%. Sealed, every seed reads
+0.000 / 1.000 / 0.0%. The mechanism is the **endpoint pool**, not the
+corridor: 71% of the unsealed pool (34.3 of 48.3 m² free) lies outside the
+building, and production draws both the spawn *and* the goal from the sealed,
+in-room pool. Holding endpoints in-room while leaving the corridor fully
+unsealed reproduces the sealed answer exactly. Sealed to its one room, that
+scene is 97% line-of-sight, and an exhaustive geodesic bound over all 213 182
+in-band endpoint pairs puts only 0.14% above 1.05 tortuosity — no endpoint
+choice can make it bend.
 
 Two conclusions follow, and they point in opposite directions:
 
@@ -864,6 +913,16 @@ the robot spawn pool, and the planner's endpoints come from the shared pool.
 
 ### PS2's threshold, derived from the body
 
+**Caveat on the pooled reference.** Sealing fragments the five whole-house
+scenes badly — seed2's largest sealed component holds only ~31% of its sealed
+free space, seed6 ~49% — and it is not the seal or the inflation radius that
+does it: those doorways are already closed in the raw robot-height occupancy
+slice, and the exterior pad was the only route joining the clusters. Those
+scenes' sealed legs therefore show high no-path rates (seed6 195/205, seed2
+260/400) and sample only within-cluster pairs. The two room-scale scenes are
+unaffected and remain the honest comparator; a corpus-wide PS2 gate wants
+regenerated occupancy with open doorways first.
+
 Pooled over the seven sealed scenes, arc-weighted excess clearance:
 q10 = 0.025, q25 = 0.105, **q50 = 0.402**, q75 = 0.880 m. The threshold is the
 median — **τ = 0.402 m on the inflation-free scale**, i.e. a raw 0.702 m for
@@ -886,17 +945,27 @@ tail-derived one:
   is a different quantity and reads ~0.3 m higher. A room-level interval
   requires a room-level estimand, so both are now reported side by side and
   the pooled one is labelled as the legacy reconciliation number.
-- **The capture protocol moves D4 by more than the gate's resolution.** The
-  same configuration measures D4 = 38.8/36.4% when the capture lets the RNG
-  stream run across resets and 43.9/43.4% when it re-seeds per reset (which is
-  what pairing requires). That is a ~5–7 point protocol effect against a
-  4.2-point gap to the band floor. Sequential-seed correlation and reset count
-  were both ruled out as causes; the mechanism is not established. **Any D4
-  claim must state its protocol.** The unseeded protocol reproduces the
-  recorded table exactly (vanilla D1 pooled 1.189 vs 1.17, D1 ≤1 m 42.3 vs
-  42.7, D2 top 4.62 vs 4.56, D3 60.0 vs 58.9, D4 42.5 vs 43.7, D5 2.41 vs
-  2.35; enriched D1 pooled 1.525 vs 1.56, D4 36.4 vs 36.4), so the instrument
-  itself is sound.
+- **D4 is unstable at roughly the resolution the gate is defined on, and the
+  cause is sampling rather than protocol.** The prior configuration measures
+  43.85 / 43.35% on two seeded legs and 38.83% on the unseeded leg — a
+  **4.77-point** same-configuration spread. That is not a protocol effect: the
+  identical contrast on the *arm* configuration is only 1.67 points
+  (permutation p = 0.45, against p = 0.029 on the prior side), and batch
+  selection alone reproduces the magnitude — inside one unseeded leg, resets
+  0–3 read 36.35% and resets 4–7 read 41.32%, a 4.96-point swing with no
+  protocol change at all. The 4.2-point gap to the band floor is therefore
+  inside the run-to-run spread of the number that gates it, and D4's own
+  room-level half-width (±3.1) is the honest resolution. **State the run, not
+  just the protocol, with any D4 number.**
+  Two corrections to how this was first written up: the "36.4%" and "38.8%"
+  figures are one measurement, not two — the 4-reset leg is bit-identical to
+  the first four resets of the 8-reset one, and `--seed -1` is byte-reproducible
+  across processes, so the unseeded side is a single realization. And an
+  unseeded re-run reproducing the recorded table is tautological rather than
+  corroborating: it confirms configuration and pipeline are unchanged (vanilla
+  D1 pooled 1.189 vs 1.17, ≤1 m 42.3 vs 42.7, D2 4.62 vs 4.56, D3 60.0 vs 58.9,
+  D4 42.5 vs 43.7, D5 2.41 vs 2.35; enriched D1 1.525 vs 1.56, D4 36.35 vs
+  36.4), which is worth having, but says nothing about run-to-run spread.
 - **The policy camera's pose buffers are not maintained.** `data.pos_w` /
   `quat_w_ros` report env 0's spawn pose for every env, so the capture composes
   the camera pose from the robot pose and the configured mount. The camera sits

@@ -778,9 +778,9 @@ is 2.7× tighter.
 
 ### Arm A's descriptor table
 
-Arm A was measured twice, under both capture protocols, because the protocol
-turned out to matter (below). Bootstrap over rooms; `*` = interval excludes
-zero.
+Arm A was measured three times — two paired legs at different seed bases and
+one unpaired leg — so a single leg's reading cannot carry a conclusion.
+Bootstrap over rooms; `*` = interval excludes zero.
 
 **Paired legs** — shared seed, matched room for room, 512 pairs each. This is
 the protocol ruling F-4 mandates, run at two seed bases:

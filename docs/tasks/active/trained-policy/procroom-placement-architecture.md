@@ -388,9 +388,18 @@ retracted by the brief's own calibration correction: it was installed to
 close a standable-clearance gap that the rendered descriptors then showed
 does not exist (pooled Infinigen 1.19 m versus ProcRoom vanilla 1.17 m).
 
+**Fairness floor (ruling F-5).** Reducing the erosion takes the D1 side of a
+conflict with the parked reactive-avoidance brief's M4, but the half of M4's
+concern that survives is a floor, not a margin: the robot must never spawn
+*in contact range*, so a pivot-radius clearance is retained even at erosion
+0. Concretely, erosion 0 leaves the shared pool's 0.3 m robot-radius
+inflation, which already exceeds the chassis circumscribed radius — the floor
+holds by construction, and PR-A must assert it rather than assume it (the
+spawn-to-nearest-object CPU statistic below is the natural place).
+
 *Arm B — geometry side, only if A under-delivers.* The same radial
-placement law applied to two or three non-tall clutter items, keeping robot
-standoff so the parked reactive-avoidance brief's M4 is not contradicted.
+placement law applied to two or three non-tall clutter items, keeping the
+fairness floor above.
 
 *Gate.* D1 median, plus a **floor-masked** D1: at this camera geometry the
 flat floor alone supplies a large share of sub-2 m pixels, so the pooled
@@ -433,7 +442,7 @@ not get a knob until the instrument exists. Wall-alignment in particular has
 **no knob at all** today (room-mode furniture yaw is one of four hardcoded
 constants), which may be a reason to drop alignment from H1's stated goal.
 
-### F2 — internal walls (design only in this brief)
+### F2 — internal walls (unblocked by ruling F-3; ships in its own PR)
 
 *Precondition already in tree.* `max_internal_walls` is computed and read
 but never consumed; the level table already supplies 1/1/2 internal walls at
@@ -464,14 +473,23 @@ five sub-cell phases:
 The geometric floor is **0.70 m**, which is exactly what the parent brief
 already states (`2 × INFLATION_CELLS + 1` cells). A consult pass derived a
 1.26 m floor from an off-by-one in this formula and concluded the admissible
-window was empty; that conclusion does not survive re-measurement. Because
-the *wall's own* sub-cell phase can widen its raster by a cell, the design
-should still carry margin — **0.80–0.90 m**, not 0.70 m exactly.
+window was empty; that conclusion does not survive re-measurement.
 
-The genuine tension is elsewhere, and it is a finding for the operator (F-3
-below): the subgoal off-path tolerance is 0.30 m, so a gap narrower than
-about 1.16 m tells the policy that 0.30 m of lateral error is acceptable
-inside an aperture that physically does not permit it.
+The binding constraint is not geometric, though. The subgoal off-path
+tolerance is 0.30 m, so a gap narrower than about **1.16 m** tells the policy
+that 0.30 m of lateral error is acceptable inside an aperture that physically
+does not permit it. **Ruling F-3 sets the shipped minimum at 1.2 m** — margin
+above that collision point, and comfortably clear of the 0.70 m raster floor,
+so the wall's own sub-cell phase is no longer a concern. The aperture-aware
+off-path tolerance that would license narrower gaps is a shared-reward change
+and belongs to v3.
+
+A 1.2 m minimum means internal walls do **not** produce the tight-doorway
+threading the Infinigen corpus shows (min path clearance 0.41 m); what they
+produce is *topology* — the detours and turns PS1 measures. PS2's threshold
+must therefore be re-derived so the statistic still counts ordinary
+furniture-gap threading rather than only sub-1.2 m doorways, or it will read
+flat across the very lever it is gating.
 
 ## The two new path statistics
 
@@ -513,6 +531,13 @@ inflation radius back: **0.30 m** for ProcRoom
 that corrected half-width, from the Infinigen reference distribution, before
 any lever is tuned.
 
+Ruling F-3 constrains that choice: with internal walls held at ≥ 1.2 m the
+statistic must still register *furniture-gap* threading, so the threshold is
+derived from the Infinigen reference distribution's body rather than set at
+its doorway tail. A threshold that only fires below 1.2 m would read flat
+across the F2 lever and be worthless as its gate — verify sensitivity on the
+PR-A baseline before PR-3b tunes anything.
+
 **Reference values (probe)**, ProcRoom at 64 envs with 6 endpoint pairs each
 (n = 151 vanilla / 206 enriched) and Infinigen singleroom at n = 60:
 
@@ -548,6 +573,14 @@ dual-run test provably cannot detect a uniform default-path change and
 freezing goldens alongside the rewrite reproduces that defect. *Blocking for
 everything below.*
 
+Per ruling F-2 the N-1 goldens are captured from the **pre-enrichment tree**
+and then a **reconciliation assert** verifies the current tip reproduces them
+over the full sweep. The measurements say the 1-ulp door-width deviation is
+absorbed everywhere, so equality is the expectation — the assert converts
+that expectation into a fact. If any seed diverges, stop and surface it: that
+reopens the freeze decision and probably motivates making the enriched
+door-width expression ulp-exact.
+
 **PR-A — zero-code lever arm plus instrument build-out.** Re-range the two
 enrichment constants (Arm A above); add seeding and per-room confidence
 intervals to the descriptor capture (its CI must derive from room count,
@@ -570,12 +603,25 @@ an automatic reject — plus D4 and D1 reported against PR-A's noise floor.
 **One GPU window.** Compounds, internal walls and the coverage invariant are
 not in this PR.
 
+Two operator-run merge gates ride along. Per ruling F-1, a one-off **CUDA
+pose-hash** at 64 envs before and after the surgery — a few minutes in any
+Kit window — is what extends CPU certification onto the device; there is no
+standing GPU gate. Per ruling F-6(ii), a **256-env NOCAM construct-and-step
+smoke carrying a reset-time measurement** answers the reset-path cost that no
+benchmark in the repo has ever measured. Note the asymmetry: this design does
+not otherwise *trigger* that smoke (no palette growth, no added per-env
+prims), so PR-1 runs one specifically to host the measurement and to
+re-confirm NOCAM at scale after the ladder is rewritten.
+
 **PR-2 — H1, instrument first.** Build and baseline the footprint/top-z/
 alignment distributions; then the compound mechanism and invariants; the
 compound catalogue ships **only if** the instrument shows a measured gap.
 Gate includes "D4 must not regress" — consolidating three tall wall-flush
 anchors into one compound would trade away a larger D4 contributor than
-columns are.
+columns are. Per ruling F-6(i), PR-2's validation also carries a
+**measured-in-Kit** check of PhysX contact behavior at a compound join: two
+overlapping kinematic bodies is a configuration nothing in the repo
+exercises, and no amount of reading settles it.
 
 **PR-3a — the solvability work, which ships regardless of walls.** The
 coverage invariant, the seed-protection predicate, and the path statistics
@@ -583,19 +629,27 @@ promoted to durable gates. Worth landing whether or not F2 ever ships: the
 coverage invariant closes a silent bisection channel that nothing else can
 see.
 
-**PR-3b — internal walls. Blocked** on finding F-3 below.
+**PR-3b — internal walls. Unblocked** by ruling F-3, under the option-(a)
+constraint: apertures **≥ 1.2 m**, and PS2 re-thresholded so it still counts
+ordinary furniture-gap threading. Still gated on the residual wall-budget
+composition (achievable contiguous span, not total length) and the
+4-connectivity-safe rejection inside the wall attempt loop. The narrower
+aperture regime remains available only via an aperture-aware off-path
+tolerance, which is a shared-reward change filed to v3.
 
 *Independent one-liner:* gate `path_complete` on `path_fallback == 0.0`.
 
-Ordering: PR-0 → {PR-A, PR-1}; PR-A → PR-1; PR-1 → {PR-2, PR-3a}. PR-2 and
-PR-3a are independent. Total GPU windows: two, possibly three.
+Ordering: PR-0 → {PR-A, PR-1}; PR-A → PR-1; PR-1 → {PR-2, PR-3a}; PR-3a →
+PR-3b. PR-2 and PR-3a are independent. Total GPU windows: two, possibly
+three, plus the operator-run Kit gates on PR-1 and PR-2.
 
 ## Structural extensions — each needs its own consult gate
 
 Sanctioned here (no gate): new generator kwargs; new keys in the *enriched*
-event params, which flip only the 8 enriched goldens whose own comment
-records that no checkpoint depends on them; the enriched-gated coverage
-invariant, terminal ladder tier and health sink. No new composition axis, no
+event params, which flip only the 8 enriched goldens — their own recorded
+provenance says no checkpoint depends on them, and ruling F-6(iii) confirms
+none has since; the enriched-gated coverage invariant, terminal ladder tier
+and health sink. No new composition axis, no
 new `SceneSourceCfg` field, no new gym IDs — this design rides the existing
 `enrich_depth` seam, and a placement-only lever adds no variant.
 
@@ -604,8 +658,8 @@ Gated (do **not** proceed without a consult):
 1. **Growing the palette.** Breaks the no-new-slot golden, and NOCAM shares
    the palette object; grows the slot-range constants in lockstep; grows
    PhysX actors against buffers explicitly sized for 44 primitives at 256
-   envs; and fires a 256-env smoke that does not exist. This design is built
-   to avoid it. If H1's footprint gap proves unclosable on the fixed AABB
+   envs; and would have to re-run the 256-env smoke that PR-1 stands up for
+   ruling F-6(ii), against a grown palette. This design is built to avoid it. If H1's footprint gap proves unclosable on the fixed AABB
    lattice, this is the escalation — with numbers, not after a failed gate.
 2. **Splitting `_proc_room_active_mask` into occupancy and reward masks.**
    The clean fix for the K-fold compound penalty, but it touches a tensor
@@ -622,7 +676,12 @@ Gated (do **not** proceed without a consult):
 5. **Any change to the proximity reward**, including an aperture-aware form.
    Shared with NOCAM.
 
-## Findings for the operator — decisions this design did not take
+## Findings for the operator — all six ruled 2026-07-21
+
+The consult was approved as designed. Each finding below keeps its original
+statement of the problem, followed by the ruling that closed it. The rulings
+are already propagated into the sections above; this section is the record of
+what was decided and why.
 
 **F-1. Byte-identity is certifiable on CPU, not on the GPU.** On CUDA the
 Philox generator reserves a per-launch offset block, so a batched draw and
@@ -635,23 +694,37 @@ five minutes in any Kit window — *recommended*; **(b)** demand a standing
 GPU gate, which needs Kit-window CI that does not exist; **(c)** restate the
 constraint as "identical draw sequence" and drop the CUDA obligation.
 
+> **Ruled: option (a).** CPU certification over the seed/difficulty/batch
+> sweep plus identical per-phase draw structure is the CI-enforceable
+> contract; a one-off operator CUDA pose-hash rides PR-1. No standing GPU
+> gate.
+
 **F-2. Golden baseline: current tip, or pre-enrichment?** The enriched
 door-width expression is 1 ulp below the pre-enrichment literal, absorbed
 everywhere measured. Capturing PR-0's goldens from the pre-enrichment commit
 buys parity with history; capturing from the tip silently blesses the
 deviation. Recommend the former; the operator owns it.
 
+> **Ruled: pre-enrichment, plus a reconciliation assert** that the current
+> tip reproduces those goldens over the full sweep — expectation becomes
+> fact. A divergent seed is a STOP that reopens the freeze decision and
+> likely motivates making the enriched door-width expression ulp-exact.
+
 **F-3. F2's aperture window is narrow, not empty — but it collides with the
-off-path tolerance.** Geometric floor 0.70 m (measured), recommended
-0.80–0.90 m for raster margin. But `_SUBGOAL_MAX_OFF_PATH_M` is 0.30 m, so
-below roughly 1.16 m the policy is told a lateral error the aperture does
-not physically allow. Options: **(a)** gaps ≥ 1.16 m — reward-consistent,
+off-path tolerance.** Geometric floor 0.70 m (measured), with raster margin
+wanted above it. But `_SUBGOAL_MAX_OFF_PATH_M` is 0.30 m, so below roughly
+1.16 m the policy is told a lateral error the aperture does not physically
+allow. Options: **(a)** gaps above that collision point — reward-consistent,
 but then the aperture statistic must be re-thresholded until it also flags
 ordinary furniture gaps; **(b)** narrow gaps with an aperture-aware off-path
 tolerance — the honest fix, but it is a shared-reward change needing its own
 gate; **(c)** drop F2 and accept the path-topology gap, taking the cheaper
-interior-density route instead. PR-3b stays blocked until this is resolved;
-PR-3a ships either way.
+interior-density route instead.
+
+> **Ruled: option (a) for v2 — apertures ≥ 1.2 m**, with PS2 re-thresholded
+> so it still counts ordinary furniture-gap threading. **PR-3b unblocks.**
+> Option (b) is a shared-reward change filed to v3 beside the parked
+> corridor-widening (M2) question it structurally resembles.
 
 **F-4. The D4 target needs a definition.** The gap to the Infinigen band
 *floor* is 4.2 points; to the *point estimate* it is 13.5. A noise-floor
@@ -662,6 +735,14 @@ pixel-level degrees of freedom) are preconditions, not follow-ups, and the
 operator should state which target counts as success. The point estimate is
 not reachable by any ordering lever.
 
+> **Ruled: band-floor entry under paired statistics.** Success is the
+> paired-measured point estimate ≥ **40.6** with the paired confidence
+> interval excluding zero improvement, on PR-A's paired seeding and
+> room-level degrees of freedom. The 49.9 point estimate is a direction, not
+> a gate — accepted as unreachable by ordering levers, though H1 may move it
+> later. The mid-room-column knob therefore ships as a **descriptor-tuned
+> probability**, not the measured 99.6% promotion overshoot.
+
 **F-5. The D1 lever contradicts a parked brief.** Reducing spawn erosion is
 the largest D1 and D4 lever; the reactive-avoidance brief's M4 wants *more*
 spawn standoff so a rear bump is a learnable error rather than an unfair
@@ -669,26 +750,51 @@ start state. PR-A takes the D1 side. If M4 is still live, D1 must be fixed
 from the geometry side instead, which is weaker and of uncertain sign. This
 is a training decision, not a code fact.
 
+> **Ruled: v2 takes the D1 side, keeping the fairness floor.** Reduce the
+> spawn erosion as designed, but never spawn in contact range — the part of
+> M4's concern that survives is a floor, not a margin (see the D1 section).
+> The conflict is recorded in both briefs; M4 re-litigates in v3 against the
+> v2 generator baseline, with v2's evidence in hand.
+
 **F-6. Not knowable from the repo.** PhysX contact behavior for two
 overlapping kinematic bodies at a compound join (must be measured in Kit);
 the per-env cost of the reset path at 256 envs (no benchmark exists at any
 env count); and whether any checkpoint has trained against the 8 enriched
 goldens — if one has, adding params is a contract break needing new IDs
-rather than a re-freeze. Confirm the last one at PR time.
+rather than a re-freeze.
+
+> **Ruled: all three assigned.** (i) Compound-join contact becomes a
+> measured-in-Kit gate inside PR-2's validation. (ii) Reset-path cost at 256
+> envs is measured by a NOCAM construct-and-step smoke on PR-1 — which this
+> design does not otherwise trigger, so PR-1 runs one to host it. (iii)
+> **Answered: no training run has consumed any enriched variant** — the v2
+> retrain is what this batch precedes, and the NOCAM arms have not run — so
+> re-freezing the 8 enriched goldens when params are added is sanctioned by
+> their own recorded provenance. Re-verify against run logs at PR time; it
+> is cheap.
 
 ## Acceptance criteria
 
 - [ ] PR-0 lands the guard net against unmodified production code; the
-      production diff is empty and the goldens are captured from the commit
-      resolved in F-2.
+      production diff is empty, the goldens are captured from the
+      pre-enrichment tree, and the reconciliation assert shows the current tip
+      reproduces them over the full sweep (a divergent seed is a STOP).
 - [ ] PR-A publishes a paired, room-level noise floor for D1 and D4, and the
-      re-ranged arm's descriptor table against it.
+      re-ranged arm's descriptor table against it — with the spawn fairness
+      floor asserted, not assumed.
 - [ ] The path-statistics tool ships numpy-only and Kit-free, with the
-      resolution, inflation-radius and arc-length corrections applied, and
-      both corpora baselined.
+      resolution, inflation-radius and arc-length corrections applied, both
+      corpora baselined, and PS2's threshold shown sensitive to
+      furniture-gap threading rather than only sub-1.2 m doorways.
 - [ ] PR-1's surgery leaves every PR-0 golden green with **no edit to any
       frozen literal**, and the per-phase draw witness shows the vanilla
       path unchanged.
+- [ ] PR-1 carries the operator-run CUDA pose-hash before and after, and a
+      256-env NOCAM construct-and-step smoke reporting reset-path cost.
+- [ ] D4 is judged by band-floor entry under paired statistics: point
+      estimate ≥ 40.6 with the paired interval excluding zero improvement.
+      The column knob ships as a descriptor-tuned probability.
+- [ ] Internal walls, if they ship, hold apertures ≥ 1.2 m.
 - [ ] The retry ladder's termination bound derives from the park rank's
       length, and protection is implemented as a bounded rank position, never
       an exemption.

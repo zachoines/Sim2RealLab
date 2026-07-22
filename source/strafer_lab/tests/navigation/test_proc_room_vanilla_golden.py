@@ -540,6 +540,8 @@ _SIGNATURE_GOLDEN = {
     "p_ceil": '0.0',
     "ceiling_height_range": '(2.2, 2.9)',
     "tall_object_heights": 'None',
+    "placement": 'None',
+    "health_sink": 'None',
 }
 
 

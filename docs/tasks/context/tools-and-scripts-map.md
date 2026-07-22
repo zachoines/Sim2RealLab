@@ -40,6 +40,9 @@ entry-point scripts](repo-topology.md#key-entry-point-scripts).
 - `lerobot_detections` — the padded `observation.detections.*` columns + `meta/detection_labels.json` vocab (`pack_detections`, `read_detection_labels`).
 - `detections_overlay` — render a capture's recorded detections as an annotated MP4 (pure read-side viz; works on any detections-bearing run).
 
+**Path geometry**
+- `path_statistics` — corridor-curvature (turn density, tortuosity, bending fraction) and aperture-threading (clearance below a threshold) over paths from the shared `plan_path`, with the resolution / inflation-radius / arc-length corrections that make a procedural grid and a scanned-scene grid comparable; group-resampled intervals. Numpy-only.
+
 **Perception**
 - `bbox_extractor` — wraps the Replicator `bounding_box_2d_tight` annotator → typed `DetectedBbox`; `parse_bbox_data` is pure (no Isaac Sim).
 
@@ -59,7 +62,7 @@ entry-point scripts](repo-topology.md#key-entry-point-scripts).
 - **Training / eval / export:** `train_strafer_navigation`, `play_strafer_navigation`, `export_policy`, `benchmark_policy`, `test_strafer_env`, `collect_demos`.
 - **Scene generation:** `prep_room_usds` (generate/ingest; chains the next two), `postprocess_scene_usd` (colliders + lights), `extract_scene_metadata` (embed metadata + `UsdSemantics` labels into the USD), `generate_scenes_metadata` (combined spawn-point manifest).
 - **Capture / harness:** `capture` (the `--driver` × `--mission-source` entry point), `teleop_capture`, `run_sim_in_the_loop` (bridge + harness modes), `bridge_harness_smoke` (Jetson-free Kit smoke).
-- **Diagnostics:** `roller_bounce_probe`.
+- **Diagnostics:** `roller_bounce_probe`, `measure_path_statistics` (baseline the path statistics over both occupancy sources; `--arm` compares generator arms).
 - `scripts/asset_authoring/` — run-by-hand robot/asset USD utilities: `collapse_redundant_xforms`, `inspect_robot_prim_layout`, `run_empty_lab`, `setup_physics`.
 - `scripts/retired/` — deprecated data-prep: `finetune_clip`, `generate_descriptions`, `prepare_vlm_finetune_data`.
 

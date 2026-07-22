@@ -143,12 +143,14 @@ class TestWaypointClearance:
         assert readings[0] == pytest.approx(1.0, abs=1e-9)
         assert readings[1] == pytest.approx(1.0, abs=1e-9)
 
-    def test_obstacle_free_grid_is_infinite(self):
+    def test_obstacle_free_grid_is_rejected(self):
+        """An infinity here would poison every quantile downstream rather than
+        surfacing the degenerate input."""
         occ, _ = _open_grid()
-        clearance = ps.waypoint_clearance(
-            np.array([[1.0, 1.0]]), occ, grid_res=RES, grid_origin_xy=ORIGIN
-        )
-        assert np.isinf(clearance).all()
+        with pytest.raises(ValueError):
+            ps.waypoint_clearance(
+                np.array([[1.0, 1.0]]), occ, grid_res=RES, grid_origin_xy=ORIGIN
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -297,14 +299,16 @@ class TestPlanOverPairs:
         assert failures["no_path"] == 1
 
     def test_measures_a_plannable_pair(self):
-        occ, free = _open_grid()
+        occ = _two_room_grid(door_cells=24)
+        free = _inflate(occ, 3)
         stats, failures = ps.plan_over_pairs(
-            [(np.array([1.0, 1.0]), np.array([4.0, 1.0]))], free, occ,
+            [(np.array([1.0, 3.0]), np.array([4.0, 3.0]))], free, occ,
             grid_res=RES, grid_origin_xy=ORIGIN, inflation_radius_m=0.3,
         )
         assert failures == {"no_path": 0, "invalid_endpoint": 0}
         assert len(stats) == 1
         assert stats[0].turn_density == pytest.approx(0.0, abs=1e-9)
+        assert np.isfinite(stats[0].min_clearance_m)
 
 
 class TestSummarize:
@@ -338,7 +342,10 @@ class TestSummarize:
 
 class TestSensitivityToTopology:
     def test_an_internal_wall_bends_paths_an_open_room_leaves_straight(self):
-        open_occ, open_free = _open_grid()
+        # A perimeter-only grid stands in for the "open room": the clearance
+        # statistic needs something to measure against.
+        open_occ = _two_room_grid(door_cells=58)
+        open_free = _inflate(open_occ, 3)
         walled_occ = _two_room_grid(door_cells=14)
         walled_free = _inflate(walled_occ, 3)
         # The straight line between these misses the gap, so the wall forces a

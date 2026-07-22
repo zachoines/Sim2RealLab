@@ -118,12 +118,17 @@ def waypoint_clearance(
 
     Exact continuous distance to the obstacle cell's square footprint rather
     than to its centre — that half-cell is the whole resolution correction
-    between a 0.05 m and a 0.1 m grid. An obstacle-free grid yields ``inf``.
+    between a 0.05 m and a 0.1 m grid.
+
+    Raises:
+        ValueError: the grid has no obstacles. Clearance from nothing is not a
+            measurement, and letting it through as an infinity poisons every
+            quantile and summary downstream instead of surfacing the bad input.
     """
     pts = np.asarray(path, dtype=np.float64).reshape(-1, 2)
     blocked = np.argwhere(np.asarray(occupancy) != 0)
     if len(blocked) == 0:
-        return np.full(len(pts), np.inf)
+        raise ValueError("occupancy grid has no obstacles to measure against")
     centres = (
         blocked.astype(np.float64) * grid_res
         + np.asarray(grid_origin_xy, dtype=np.float64)

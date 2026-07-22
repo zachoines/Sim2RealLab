@@ -151,9 +151,8 @@ _COMPOSED_RL = {
 # =====================================================================
 
 
-# Every RL variant that must reach the generator's DEFAULT path — the enriched
-# IDs are exactly the complement. Derived rather than listed so a new open-top
-# variant is covered by construction.
+# Derived rather than listed so a new open-top variant is covered by
+# construction; the enriched IDs are exactly the complement.
 _OPEN_TOP_RL_VARIANTS = tuple(
     name for name in sorted(_COMPOSED_RL) if "Enriched" not in name
 )
@@ -224,16 +223,13 @@ def test_open_top_variants_keep_pre_enrichment_palette_and_no_ceiling():
 
 
 def test_open_top_variants_drive_the_generator_at_its_defaults():
-    """The open-top variants must reach ``generate_proc_room`` with no argument
-    but the collection name, and at the pinned 7/7 difficulty.
+    """The open-top variants reach ``generate_proc_room`` with no argument but
+    the collection name, at the pinned 7/7 difficulty.
 
     The contract hash renders a callable as its qualified name, so it sees the
-    *presence* of the event term but not which arguments it carries; this is
-    what pins that the vanilla path is the generator's default path. The
-    ProcRoom bridge/capture cfg is included because it consumes the same vanilla
-    event term and is not part of ``_COMPOSED_RL`` — after the enriched retrain
-    retires the open-top depth IDs, NOCAM and that bridge variant are the two
-    remaining vanilla consumers."""
+    event term's presence but not which arguments it carries. The ProcRoom
+    bridge cfg is checked here too: it consumes the same vanilla event term and
+    is not in ``_COMPOSED_RL``."""
     cfgs = [(name, _COMPOSED_RL[name]()) for name in _OPEN_TOP_RL_VARIANTS]
     cfgs.append(
         ("BridgeAutonomy_ProcRoom", composed.StraferNavCfg_BridgeAutonomy_ProcRoom())
@@ -245,7 +241,7 @@ def test_open_top_variants_drive_the_generator_at_its_defaults():
             f"{sorted(set(events.generate_room.params) - {'collection_name'})}"
         )
         assert events.randomize_difficulty.params == {"min_level": 7, "max_level": 7}, (
-            f"{name} no longer pins difficulty 7/7"
+            f"{name} does not pin difficulty 7/7"
         )
 
 

@@ -1,29 +1,16 @@
 # Copyright (c) 2025, Strafer Lab Project
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Frozen-output guard for the default (vanilla / NOCAM) procedural-room path.
+"""Frozen-output guard for the generator's default (vanilla / NOCAM) path.
 
-The generator's default path is a contract: NOCAM and the open-top depth
-variants train against it, and the frozen manager hashes in
-``test_sim/env/test_composition_contract.py`` cannot see inside it — they cover
-manager cfgs and sim/scene scalars, not the generator's geometry, its argument
-defaults, or its RNG consumption.
+Pins absolute values — an output digest and the RNG operation sequence. The
+sibling suite's ``test_default_path_byte_identical_to_explicit_defaults``
+compares two legs of the *same* checkout, so it cannot detect a change that
+moves both legs together; the frozen manager hashes cover manager cfgs and
+scene scalars, not the generator's geometry, defaults or RNG consumption.
 
-The sibling suite's ``test_default_path_byte_identical_to_explicit_defaults``
-compares two legs of the *same* checkout, so it catches a leaked enrichment
-draw but cannot detect a change that moves both legs together. This module
-closes that gap by pinning absolute values:
-
-* an output digest over a seed x difficulty x batch-size sweep, and
-* the exact sequence of RNG operations the default path issues.
-
-The digests are captured from the PRE-ENRICHMENT tree and the current tree is
-asserted to reproduce them, so the frozen literals carry parity with the
-generator as it was before any enrichment argument existed.
-
-Batch size is swept because every scalar draw is issued inside the per-env
-loop: the stream is positionally coupled across envs, so a batch-dependent
-defect is invisible at a single env.
+Golden literals are the generator's output before any enrichment argument
+existed. A diff is a contract break, not a test to update.
 
 No Kit, no GPU. Run with the pure-Python lab tests.
 """
@@ -84,15 +71,10 @@ SEEDS = (20260101, 20268020, 20275939, 20283858, 20291777, 20299696,
          20307615, 20315534, 20323453, 20331372, 20339291, 20347210)
 DIFFICULTIES = tuple(range(8))
 
-# Every seed x difficulty at small batch — that is where the code paths vary
-# (the level table selects open-field vs walled, and the object budgets) and it
-# is cheap. Batch 8 already couples envs, so a defect that only shows up once
-# the per-env loop has run more than once is caught here.
-#
-# Batch 64 is the production depth-train width; it costs ~2.3 s per dense case
-# because the occupancy raster and the retry ladder are per-env Python, so it
-# runs as a spot check across the open-field / sparse / dense regimes rather
-# than the full grid. What it adds over batch 8 is scale, not new branches.
+# Batch size is swept because every scalar draw is issued inside the per-env
+# loop, so the stream is positionally coupled across envs. Batch 64 is the
+# production depth-train width but costs ~2.3 s per dense case, so it spot-checks
+# the open-field / sparse / dense regimes rather than the full grid.
 CASES = tuple(
     (seed, difficulty, num_envs)
     for num_envs in (1, 8)
@@ -113,12 +95,11 @@ def _feed(h, tensor):
 
 
 def _case_digest(module, seed, difficulty, num_envs):
-    """Digest one generator call's full observable output plus its stream position.
+    """Digest one generator call's observable output plus its stream position.
 
-    The trailing draw is what pins RNG *consumption*: the generator's draw count
-    is data-dependent (rejection retries, and ``randperm``'s size is the
-    reachable-cell count), so a change that consumes a different amount of
-    randomness moves this even when every pose happens to match.
+    The trailing draw pins RNG *consumption*, which is data-dependent (rejection
+    retries; ``randperm``'s size is the reachable-cell count) and so can change
+    even when every pose matches.
     """
     torch.manual_seed(seed)
     env, entities = _make_env(num_envs, difficulty)
@@ -139,11 +120,8 @@ def _case_digest(module, seed, difficulty, num_envs):
 
 
 def sweep_digests(module=_proc_room):
-    """{case-key: digest} over the seed x difficulty x batch sweep.
-
-    Exposed as a module-level helper so the same code can be pointed at a
-    historical copy of the generator when the goldens are (re)captured.
-    """
+    """{case-key: digest} over the sweep; ``module`` is a parameter so the same
+    code can drive a historical copy of the generator when goldens are captured."""
     return {
         f"s{seed}-d{difficulty}-b{num_envs}": _case_digest(
             module, seed, difficulty, num_envs
@@ -152,9 +130,6 @@ def sweep_digests(module=_proc_room):
     }
 
 
-# Captured from the pre-enrichment tree (the commit preceding the enrichment
-# generator) and reproduced by the current tree. A diff here means the default
-# path moved: that is a contract break, not a test to update.
 _SWEEP_GOLDEN = {
     "s20260101-d0-b1": "8e48346818190946d47738e192fd5960718a8a62d87f2bd79713bfe60dbe2456",
     "s20260101-d1-b1": "73b1f7d2ef731512a61fdd25b07a6d201dcb5b1fb1b06b20945636423aad9d83",
@@ -378,10 +353,8 @@ def test_default_path_output_matches_pre_enrichment_goldens():
 def record_draw_sequence(module=_proc_room, seed=20260101, difficulty=7, num_envs=4):
     """The ordered (op, shape) sequence the default path issues.
 
-    Attribution is by draw INDEX rather than by source line: the sequence has to
-    survive a refactor of the very code it guards, and line numbers do not. A
-    failure reports the first divergent index with its neighbourhood, which
-    localizes the culprit to a phase without depending on where that phase lives.
+    Draws are identified by index, not by source line — the sequence has to
+    survive a refactor of the code it guards.
     """
     log = []
     real = {name: getattr(torch, name) for name in ("rand", "randint", "randperm")}
@@ -408,8 +381,7 @@ def record_draw_sequence(module=_proc_room, seed=20260101, difficulty=7, num_env
     return log
 
 
-# Frozen alongside the output goldens, from the same pre-enrichment tree.
-# Run-length encoded (op, shape, repeat) -- 340 raw entries otherwise.
+# Run-length encoded (op, shape, repeat) — 340 raw entries otherwise.
 _DRAW_SEQUENCE_RUNS = (
     ("rand", (4,), 2),
     ("randint", (1,), 1),
@@ -535,8 +507,7 @@ def test_default_path_draw_sequence_unchanged():
 
 
 def test_draw_sequence_counts_are_stable_by_operation():
-    """Per-operation totals, so an op swap or a vectorization reads clearly even
-    when the sequence diff is long."""
+    """Per-operation totals, so an op swap reads clearly when the diff is long."""
     got = record_draw_sequence()
     counts = {}
     for op, shape in got:
@@ -551,9 +522,8 @@ def test_draw_sequence_counts_are_stable_by_operation():
 # Signature + module-constant pins
 # ---------------------------------------------------------------------------
 
-# The composition-contract hash renders a callable as "<fn module.qualname>",
-# so a change to this signature moves no frozen manager hash. It is pinned here
-# instead: a new argument is fine, a changed DEFAULT silently re-points every
+# The composition-contract hash renders a callable as its qualified name, so a
+# changed default moves no frozen manager hash but silently re-points every
 # caller that relies on omission.
 _SIGNATURE_GOLDEN = {
     "collection_name": "'room_primitives'",
@@ -587,9 +557,9 @@ _PALETTE_ORDER_GOLDEN = "ee2da00d4215a20f65179a78473eda7a7b3a74b38cc1d9dd357f58b
 
 
 def test_palette_insertion_order_pinned():
-    """Insertion order IS the collection body index every slot range and every
-    ``OBJECT_SIZES`` row depends on. The composition-contract palette signature
-    sorts by name, so it cannot see a reordering."""
+    """Insertion order is the collection body index that every slot range and
+    ``OBJECT_SIZES`` row is written against; the contract's palette signature
+    sorts by name and cannot see a reordering."""
     names = list(_proc_room.build_proc_room_collection_cfg().keys())
     digest = hashlib.sha256("\n".join(names).encode()).hexdigest()
     assert digest == _PALETTE_ORDER_GOLDEN, (
@@ -599,8 +569,7 @@ def test_palette_insertion_order_pinned():
 
 
 def test_slot_ranges_match_palette_prefixes():
-    """The slot-range constants and the palette build order are kept in lockstep
-    by a comment; this asserts it."""
+    """The slot-range constants track the palette build order by hand."""
     names = list(_proc_room.build_proc_room_collection_cfg().keys())
     for slots, prefix in (
         (_proc_room.WALL_LONG_SLOTS, "wall_long_"),
@@ -618,9 +587,8 @@ def test_slot_ranges_match_palette_prefixes():
 
 @pytest.fixture(autouse=True)
 def _object_sizes_immutable():
-    """``sizes = OBJECT_SIZES.to(device)`` returns the module tensor itself on
-    CPU, and the NOCAM-visible proximity reward imports it — an in-place write
-    anywhere in the generator would leak into training."""
+    """``OBJECT_SIZES.to(device)`` returns the module tensor itself on CPU, and
+    the proximity reward imports it, so an in-place write would reach training."""
     before = hashlib.sha256(_proc_room.OBJECT_SIZES.numpy().tobytes()).hexdigest()
     yield
     after = hashlib.sha256(_proc_room.OBJECT_SIZES.numpy().tobytes()).hexdigest()
@@ -633,9 +601,8 @@ def _object_sizes_immutable():
 
 
 def test_solvable_rooms_rasterize_occupancy_once(monkeypatch):
-    """With no failing env the retry ladder must not run: the occupancy grid is
-    built exactly once. Losing the fast-out would be a silent per-reset cost on
-    the 256-env NOCAM path."""
+    """With no failing env the ladder must not run — losing the fast-out is a
+    silent per-reset cost at 256 envs."""
     calls = []
     real = _proc_room._build_occupancy_grid
 

@@ -992,6 +992,91 @@ too — the sub-inflation arc below is not a procedural-generator artifact.
   proved unnecessary: clearance is only needed at waypoints, where an exact
   brute-force distance is both cheaper and more accurate than a grid EDT.
 
+## What PR-1 shipped
+
+The surgery, the group-atomic park rank, the mid-room column phase and the
+enriched-gated BFS-seed correction. The guard net is untouched and green.
+
+### The refactor reproduces the vanilla stream
+
+- The 201-case digest sweep, the 340-op draw sequence, palette insertion
+  order, the slot-range lockstep and the ladder fast-out all pass with **no
+  edit to any frozen literal**. The only frozen golden that moved is the
+  argument-defaults pin — additively, `placement`/`health_sink` appended —
+  which is the pin's job.
+- An explicit-vanilla `PlacementCfg` (the module's own sequences and rank
+  spelled out) is byte-for-byte the `None` path over a seed × difficulty ×
+  batch sweep, so the sequence and rank really are the data the loops used to
+  hardcode (`test_proc_room_placement.py`).
+- **CUDA pose-hash (ruling F-1), before and after, at 64 envs.** Nine cases
+  (seeds 20260101 / 20268020 / 20275939 × difficulties 0/4/7) hashing
+  `poses ‖ active_mask ‖ free_space ‖ spawn_pts ‖ spawn_count` plus a trailing
+  draw. Both rollups are
+  `83d390b877a7a231ae2976cacda9b0970678a9da6d911b8391553d0cee57eb1d` —
+  identical. (The device stream differs from the CPU golden, as F-1 predicts;
+  this certifies the surgery is a no-op on device, not that device equals CPU.)
+
+### The 256-env NOCAM smoke and its reset-path cost (ruling F-6(ii))
+
+`Isaac-Strafer-Nav-RLNoCam-v0` at 256 envs, headless, construct-and-step,
+before (main) and after (this branch), each timing the reset path with a CUDA
+synchronize around every region:
+
+| | construct | full `env.reset()` (256 envs) | per-env | step rate |
+|---|---|---|---|---|
+| before (main) | 7.2 s | 9.19 s median | 35.9 ms | 15.5 env-step/s/env |
+| after (surgery) | 6.7 s | 9.35 s median | 36.5 ms | 14.4 env-step/s/env |
+
+The reset-path cost — never benchmarked in the repo at any env count before —
+is **~9.3 s per full-population 256-env reset (~36 ms/env)**, unchanged across
+the surgery within run-to-run noise (NOCAM is `placement is None`, so its reset
+code is byte-identical by construction). The whole `("procroom","real")` reset
+group is measured, not the generator alone; the generator is the dominant term
+but `randomize_friction/mass/motor_strength/d555_mount` ride in it.
+
+### The D4 column knob, measured
+
+The enriched variants ship `column_prob=0.5`, `column_count=2`, the
+column-protected park rank, and the seed correction. The knob's mechanics are
+certified free on CPU by the health sink: at `column_prob=1.0` both columns are
+present in **100%** of envs and **never** parked (protection holds), and the
+seed correction relocates the grid-blocked centre in the ~2-per-env incidence
+the enriched arm shows.
+
+**Ruling F-4's D4 gate is met at the shipped probability, at the scaled
+protocol.** The scaled protocol is `--num_resets 42` at 64 envs = **2 688
+rooms/leg**, derived from PR-A's per-room D4 standard deviation so the paired
+half-width is ≲ 2 points. Shipped `column_prob=0.5` versus columns off
+(`prob=0.0`), paired at one seed:
+
+| descriptor | off | ship (`prob=0.5`) | paired Δ (ship − off) |
+|---|---|---|---|
+| D4 high-row near (%) | 43.24 | **45.45** | **+2.21 [+0.327, +4.087]** `*` |
+| D1 median (m) | 1.705 | 1.644 | −0.061 [−0.100, −0.022] `*` |
+| D1 ≤1 m (%) | 37.39 | 38.90 | +1.51 [+0.360, +2.660] `*` |
+| D3 top-11 pinned (%) | 6.41 | 5.99 | −0.42 [−0.949, +0.103] |
+
+`*` = paired interval excludes zero. The gate — point estimate ≥ 40.6 with the
+paired interval on the improvement excluding zero at ≲ 2-point half-width — is
+**satisfied on both conjuncts**: ship D4 = 45.45 ≥ 40.6, and the +2.21
+improvement's interval (half-width 1.88) excludes zero. D1 moves toward its
+target in the same arm. (The off leg reads D4 43.24 here versus 40.54 in the
+first-look below — inside the run-to-run spread PR-A flagged; at 2 688 rooms the
+interval is tight.)
+
+A **first-look descriptor pass** established the direction and set the shipped
+probability before this certification (512 rooms/leg, PR-A's ±3.1-point floor),
+columns off versus fully **on** (`prob=1.0`, the maximal contrast): D4 moves
+40.54 → 46.24, paired Δ **+5.70 [+1.28, +10.12]**. So the column knob is a
+**real** D4 lever — larger than the 1.8% ray-cast *share* predicted, because
+that share measured columns among *existing* D4-near cells while this measures
+the *marginal* effect of forcing new mid-room columns into frame. The shipped
+`prob=0.5` is the widen-not-shift midpoint between the null and that overshoot
+(1.0 is the 99.6%-presence overshoot the ruling declined), and the certification
+above confirms it clears the gate. The `--placement-override FIELD=VALUE` seam
+added to the capture instrument is how the operator re-tunes the probability in
+a cleared window.
+
 ## Findings for the operator — all six ruled 2026-07-21
 
 The consult was approved as designed. Each finding below keeps its original
@@ -1118,23 +1203,47 @@ rather than a re-freeze.
       33 unit tests. The threshold derivation is printed beside the baseline
       with a four-quantile sensitivity sweep. The baseline also corrected the
       comparator the design's PS numbers were measured against — below.*
-- [ ] PR-1's surgery leaves every PR-0 golden green with **no edit to any
+- [x] PR-1's surgery leaves every PR-0 golden green with **no edit to any
       frozen literal**, and the per-phase draw witness shows the vanilla
       path unchanged.
-- [ ] PR-1 carries the operator-run CUDA pose-hash before and after, and a
+      *Landed: the 201-case digest sweep, the 340-op draw sequence and every
+      pin pass untouched; the only frozen golden that moves is the
+      argument-defaults pin, additively (`placement`/`health_sink`). An
+      explicit-vanilla `PlacementCfg` is byte-for-byte the `None` path over the
+      sweep. See [What PR-1 shipped](#what-pr-1-shipped).*
+- [x] PR-1 carries the operator-run CUDA pose-hash before and after, and a
       256-env NOCAM construct-and-step smoke reporting reset-path cost.
-- [ ] D4 is judged by band-floor entry under paired statistics: point
+      *Landed: the 9-case 64-env CUDA rollup is identical before and after
+      (`83d390b8…`); the 256-env NOCAM reset path is ~9.3 s / full reset
+      (~36 ms/env), unchanged across the surgery within noise.*
+- [x] D4 is judged by band-floor entry under paired statistics: point
       estimate ≥ 40.6 with the paired interval excluding zero improvement.
       The column knob ships as a descriptor-tuned probability.
+      *Met at the scaled protocol (2 688 rooms/leg = `--num_resets 42`): shipped
+      `column_prob=0.5` reads D4 = 45.45 ≥ 40.6 with the paired improvement over
+      off +2.21 [+0.327, +4.087] excluding zero (half-width 1.88). The
+      probability was set from a 512-room first-look (off→fully-on +5.70) as the
+      widen-not-shift midpoint. Re-tunable via the capture instrument's
+      `--placement-override`.*
 - [ ] Internal walls, if they ship, hold apertures ≥ 1.2 m.
-- [ ] The retry ladder's termination bound derives from the park rank's
+      *Not in PR-1 — PR-3b.*
+- [x] The retry ladder's termination bound derives from the park rank's
       length, and protection is implemented as a bounded rank position, never
       an exemption.
-- [ ] Any lever that ships names the descriptor or path statistic that gated
+      *Landed: `max_retries = len(park_groups)`; `column_protected_park_rank`
+      moves the columns behind their own category only, and the ladder's
+      terminal state is the bare perimeter box (walls are unranked).*
+- [x] Any lever that ships names the descriptor or path statistic that gated
       it, and that instrument was shown sensitive to the lever before the
       lever was tuned.
-- [ ] No palette growth, no new gym ID, no new composition axis; if any
+      *The column knob names D4 `high_row_near_frac`; the instrument was shown
+      to move +5.70 points under the maximal-contrast arm before the shipped
+      probability was set.*
+- [x] No palette growth, no new gym ID, no new composition axis; if any
       becomes necessary, it stops and files a consult.
+      *Confirmed: the column phase reuses the two existing tall-cylinder slots;
+      no new slot, gym ID or composition axis. The enriched event params gained
+      a `PlacementCfg` on the existing `enrich_depth` seam only.*
 - [ ] If your work invalidates a fact in any referenced context module,
       package README, top-level `Readme.md`, or guide under `docs/`, update
       those in the same commit. See

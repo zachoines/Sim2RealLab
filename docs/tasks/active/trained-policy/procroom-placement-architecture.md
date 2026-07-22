@@ -923,20 +923,28 @@ scenes' sealed legs therefore show high no-path rates (seed6 195/205, seed2
 unaffected and remain the honest comparator; a corpus-wide PS2 gate wants
 regenerated occupancy with open doorways first.
 
-Pooled over the seven sealed scenes, arc-weighted excess clearance:
-q10 = 0.025, q25 = 0.105, **q50 = 0.402**, q75 = 0.880 m. The threshold is the
-median — **τ = 0.402 m on the inflation-free scale**, i.e. a raw 0.702 m for
-ProcRoom and 0.602 m for the scanned adapter. The sensitivity sweep beside it
-shows the statistic is not flat at that choice and does compress at a
-tail-derived one:
+Pooled over the seven sealed scenes, arc-weighted excess clearance over the
+same 725 banded paths the threshold is applied to: q01 = −0.018, q05 = 0.018,
+q10 = 0.025, q25 = 0.189, **q50 = 0.541**, q75 = 0.989, q90 = 1.438 m. The
+threshold is the median — **τ = 0.541 m on the inflation-free scale**, i.e. a
+raw 0.841 m for ProcRoom and 0.741 m for the scanned adapter. Per-scene medians
+span 0.225–0.797 m, so the pooled body is not one scene's number. The
+sensitivity sweep shows the statistic is not flat at that choice and does
+compress at a tail-derived one:
 
-| leg | τ=0.025 (tail) | τ=0.402 (**body**) |
+| leg | τ=0.025 (tail) | τ=0.541 (**body**) |
 |---|---|---|
-| Infinigen singleroom sealed | 1.2% | 22.5% |
-| Infinigen tworoom sealed | 11.0% | 57.9% |
-| ProcRoom vanilla | 16.2% | 77.1% |
-| ProcRoom enriched prior | 8.2% | 50.3% |
-| ProcRoom enriched Arm A | 9.3% | 54.6% |
+| Infinigen singleroom sealed | 1.2% | 33.2% |
+| Infinigen tworoom sealed | 11.4% | 70.1% |
+| Infinigen whole-house sealed | 2.4–14.6% | 29.4–50.2% |
+| ProcRoom vanilla | 16.2% | 85.9% |
+| ProcRoom enriched prior | 8.2% | 62.0% |
+| ProcRoom enriched Arm A | 9.3% | 66.3% |
+
+At the tail threshold the whole corpus compresses into 1.2–16.2% and the
+ProcRoom arms are indistinguishable from the scanned scenes; at the body
+threshold every leg separates. Note q01 is *negative* on the scanned corpus
+too — the sub-inflation arc below is not a procedural-generator artifact.
 
 ### Instrument facts the next PR should not re-learn
 

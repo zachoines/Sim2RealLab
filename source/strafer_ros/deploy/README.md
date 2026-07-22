@@ -55,7 +55,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 The `inference` service runs `inference_policy.launch.py`, which reproduces the
 canonical backend coupling and **fails loud** rather than silently degrading:
 1. set `STRAFER_NAV_BACKEND=hybrid_nav2_strafer` (the depth policy's backend) or
-   `strafer_direct` in `compose/autonomy.env`;
+   `strafer_direct` in canonical `strafer_bringup/config/env_autonomy.env`, then `make env-sync`;
 2. put the exported policy under `./models` (or set `STRAFER_MODELS_DIR`) and set
    `STRAFER_INFERENCE_MODEL_PATH=/models/<model>.onnx`;
 3. `docker compose --profile policy up`.

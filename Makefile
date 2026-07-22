@@ -148,13 +148,13 @@ images: ## Build the strafer-cpu + strafer-gpu container images
 launch-sim: ## Sim-in-the-loop in a container (consumes the DGX bridge; foxglove :8765). Config: deploy/compose/sim.env.
 	$(SIM_COMPOSE) up
 
-up: ## Full robot deploy: base+perception+slam+navigation+autonomy containers (needs hardware). Config: deploy/compose/autonomy.env.
+up: ## Full robot deploy: base+perception+slam+navigation+autonomy containers (needs hardware). Config: edit canonical strafer_bringup/config/env_autonomy.env, then make env-sync.
 	$(FULL_COMPOSE) up
 
 launch: up ## Alias for `up` (containerized full deploy)
 launch-nav: up ## Alias for `up`
 
-launch-autonomy: ## Full deploy + GPU policy inference (--profile policy; set STRAFER_NAV_BACKEND + model in deploy/compose/autonomy.env)
+launch-autonomy: ## Full deploy + GPU policy inference (--profile policy; set STRAFER_NAV_BACKEND + model in canonical strafer_bringup/config/env_autonomy.env, then make env-sync)
 	$(FULL_COMPOSE) --profile policy up
 
 submit: ## Submit a mission to the running SIM container:  make submit CMD="go to the chair"

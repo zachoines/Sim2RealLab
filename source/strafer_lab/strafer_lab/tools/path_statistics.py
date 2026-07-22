@@ -30,7 +30,9 @@ full object footprints blocks low objects that a grid sliced at robot height
 does not, which biases the footprint-rasterized source toward looking more
 cluttered.
 
-Numpy only, and the planner is consumed unmodified.
+The statistics are numpy; the planner is consumed unmodified. Importing
+this module reaches the planner through its package, which pulls torch in
+with it, so it is Kit-free but not dependency-free.
 """
 
 from __future__ import annotations
@@ -248,7 +250,14 @@ def plan_over_pairs(
     silent drop biases the result toward easy scenes.
     """
     stats: list[PathStats] = []
-    failures = {"no_path": 0, "invalid_endpoint": 0}
+    failures = {"no_path": 0, "invalid_endpoint": 0, "no_obstacles": 0}
+    pairs = list(pairs)
+    if not np.any(np.asarray(occupancy) != 0):
+        # Open-field difficulties really do generate these, and a clearance
+        # measured against nothing is not one — count the grid out rather than
+        # abort the sweep it appears in.
+        failures["no_obstacles"] = len(pairs)
+        return stats, failures
     for start, goal in pairs:
         try:
             stats.append(
@@ -303,6 +312,10 @@ def weighted_quantile(
     w = np.asarray(weights, dtype=np.float64)
     if len(v) == 0:
         raise ValueError("no samples")
+    if len(v) != len(w):
+        raise ValueError(f"{len(v)} values against {len(w)} weights")
+    if not w.sum() > 0.0:
+        raise ValueError("weights sum to zero")
     order = np.argsort(v)
     v, w = v[order], w[order]
     cum = np.cumsum(w) / w.sum()
@@ -326,11 +339,16 @@ def threshold_from_body(
 
 
 def _band_filter(
-    stats: Sequence[PathStats], arc_band: tuple[float, float] | None
+    stats: Sequence[PathStats], straight_line_band: tuple[float, float] | None
 ) -> list[PathStats]:
-    if arc_band is None:
+    """Keep paths whose *endpoints* lie in the band.
+
+    Straight-line separation, not arc length: banding on arc would select
+    against exactly the tortuous paths the statistics exist to find.
+    """
+    if straight_line_band is None:
         return list(stats)
-    lo, hi = arc_band
+    lo, hi = straight_line_band
     return [s for s in stats if lo <= s.straight_line_m <= hi]
 
 
@@ -339,7 +357,7 @@ def summarize(
     *,
     excess_thresholds: Sequence[float] = (),
     raw_thresholds: Sequence[float] = (),
-    arc_band: tuple[float, float] | None = None,
+    straight_line_band: tuple[float, float] | None = None,
 ) -> dict:
     """Aggregate a population of measured paths.
 
@@ -348,16 +366,19 @@ def summarize(
     open sightlines pins its median at exactly zero and only the upper tail
     carries signal.
     """
-    kept = _band_filter(stats, arc_band)
+    kept = _band_filter(stats, straight_line_band)
     out: dict = {
         "n_paths": len(kept),
         "n_paths_before_band": len(stats),
-        "arc_band_m": list(arc_band) if arc_band else None,
+        "straight_line_band_m": list(straight_line_band) if straight_line_band else None,
     }
     if not kept:
         return out
     density = np.array([s.turn_density for s in kept])
     tort = np.array([s.tortuosity for s in kept])
+    # A path whose endpoints coincide has infinite tortuosity; it would poison
+    # every percentile, so it is counted out instead.
+    finite_tort = tort[np.isfinite(tort)]
     arc = np.array([s.arc_m for s in kept])
     straight = np.array([s.straight_line_m for s in kept])
     min_c = np.array([s.min_clearance_m for s in kept])
@@ -372,9 +393,10 @@ def summarize(
                 "mean": float(density.mean()),
             },
             "tortuosity": {
-                "median": float(np.median(tort)),
-                "p75": float(np.percentile(tort, 75)),
-                "p90": float(np.percentile(tort, 90)),
+                "median": float(np.median(finite_tort)) if len(finite_tort) else None,
+                "p75": float(np.percentile(finite_tort, 75)) if len(finite_tort) else None,
+                "p90": float(np.percentile(finite_tort, 90)) if len(finite_tort) else None,
+                "n_closed_loops": int(len(tort) - len(finite_tort)),
             },
             "frac_paths_bending": float(np.mean(tort > BENDING_TORTUOSITY)),
             # A population that is mostly line-of-sight pins every percentile
@@ -410,11 +432,17 @@ def summarize(
             arc_fraction_below(s.path, s.clearance_m, tau + s.inflation_radius_m)
             for s in kept
         ]
-        out.setdefault("arc_below_excess", {})[f"{tau:.3f}"] = float(np.mean(fracs))
+        out.setdefault("arc_below_excess", {})[_threshold_key(tau)] = float(np.mean(fracs))
     for tau in raw_thresholds:
         fracs = [arc_fraction_below(s.path, s.clearance_m, tau) for s in kept]
-        out.setdefault("arc_below_raw", {})[f"{tau:.3f}"] = float(np.mean(fracs))
+        out.setdefault("arc_below_raw", {})[_threshold_key(tau)] = float(np.mean(fracs))
     return out
+
+
+def _threshold_key(tau: float) -> str:
+    """Dict key for a threshold. Enough precision that two thresholds read off
+    neighbouring quantiles of the same clearance atom do not collide."""
+    return f"{tau:.6f}"
 
 
 _GATE_KEYS = ("frac_paths_turning", "frac_paths_bending", "turn_density_p90",
@@ -437,7 +465,7 @@ def bootstrap_gates(
     *,
     excess_thresholds: Sequence[float] = (),
     raw_thresholds: Sequence[float] = (),
-    arc_band: tuple[float, float] | None = None,
+    straight_line_band: tuple[float, float] | None = None,
     resamples: int = 2000,
     level: float = 0.95,
     seed: int = 0,
@@ -449,7 +477,7 @@ def bootstrap_gates(
     real spread. Groups are the unit of replication; a population with no
     group labels falls back to one group per path.
     """
-    kept = _band_filter(stats, arc_band)
+    kept = _band_filter(stats, straight_line_band)
     if not kept:
         return {"n_paths": 0, "n_groups": 0}
     density = np.array([s.turn_density for s in kept])
@@ -457,12 +485,12 @@ def bootstrap_gates(
     min_c = np.array([s.min_clearance_m for s in kept])
     arc_below = {}
     for tau in excess_thresholds:
-        arc_below[f"excess_{tau:.3f}"] = np.array([
+        arc_below["excess_" + _threshold_key(tau)] = np.array([
             arc_fraction_below(s.path, s.clearance_m, tau + s.inflation_radius_m)
             for s in kept
         ])
     for tau in raw_thresholds:
-        arc_below[f"raw_{tau:.3f}"] = np.array([
+        arc_below["raw_" + _threshold_key(tau)] = np.array([
             arc_fraction_below(s.path, s.clearance_m, tau) for s in kept
         ])
 
@@ -484,11 +512,14 @@ def bootstrap_gates(
         for k, v in sample.items():
             draws[k][r] = v
     lo_q, hi_q = (1.0 - level) / 2.0, 1.0 - (1.0 - level) / 2.0
-    out = {"n_paths": len(kept), "n_groups": len(groups)}
+    out = {"n_paths": len(kept), "n_groups": len(groups), "level": level}
+    # One group resamples to itself every time, so the interval it would report
+    # is zero-width — an artifact, not a measurement of anything.
+    single = len(groups) < 2
     for k, v in point.items():
         out[k] = {
             "value": v,
-            "ci_lo": float(np.quantile(draws[k], lo_q)),
-            "ci_hi": float(np.quantile(draws[k], hi_q)),
+            "ci_lo": None if single else float(np.quantile(draws[k], lo_q)),
+            "ci_hi": None if single else float(np.quantile(draws[k], hi_q)),
         }
     return out

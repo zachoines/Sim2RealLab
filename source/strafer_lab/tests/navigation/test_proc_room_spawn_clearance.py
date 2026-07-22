@@ -5,9 +5,13 @@
 
 The pool the robot reset draws from must never offer a start pose already in
 contact range: reset yaw is drawn independently of the spawn point, so a
-candidate closer than the chassis circumscribing radius is a collision at
-some yaws, and the episode opens with an error the policy could not have
-avoided.
+candidate closer than the robot's own footprint radius is a collision at some
+yaws, and the episode opens with an error the policy could not have avoided.
+
+The threshold is ``ROBOT_HALF_WIDTH``, the radius the generator's own
+inflation is sized from. That is the bare frame's half-diagonal; the wheels
+are wider than the frame, so the real robot circumscribes larger and this
+floor is the generous one.
 
 The pool's own obstacle inflation does *not* deliver that on its own — it is
 a disc rasterized on a 0.1 m grid and a spawn point is a cell centre, so the
@@ -137,14 +141,14 @@ def enriched():
 
 
 def test_enriched_spawn_pool_never_offers_a_contact_start(enriched):
-    """No candidate within the chassis circumscribing radius of an object."""
+    """No candidate within the inflation radius of an object."""
     clearances = enriched["object"]
     assert len(clearances) > 1000
     worst = float(clearances.min())
     assert worst >= _proc_room.ROBOT_HALF_WIDTH, (
         f"{int((clearances < _proc_room.ROBOT_HALF_WIDTH).sum())} of "
         f"{len(clearances)} enriched spawn candidates sit inside the "
-        f"{_proc_room.ROBOT_HALF_WIDTH} m chassis radius (worst {worst:.3f} m); "
+        f"{_proc_room.ROBOT_HALF_WIDTH} m footprint radius (worst {worst:.3f} m); "
         f"the robot would start in contact at some reset yaws"
     )
 
@@ -168,8 +172,15 @@ def test_the_shared_pool_alone_does_not_deliver_the_floor(enriched):
 
 
 def test_erosion_is_the_smallest_that_holds_the_floor(enriched):
-    """One erosion cell is enough; the shipped value is not over-provisioned."""
+    """One cell is the smallest erosion that holds the floor.
+
+    Pins the shipped value against the measurement rather than by fiat: zero
+    cells breaches (asserted above), and the clearance one cell buys is
+    reported so a future re-range can see what it is spending.
+    """
     assert enriched["params"]["robot_spawn_inflation_cells"] == 1
+    margin = float(enriched["object"].min()) - _proc_room.ROBOT_HALF_WIDTH
+    assert margin > 0.05, f"only {margin * 1000:.0f} mm above the floor"
 
 
 def test_no_env_falls_back_to_the_uneroded_pool(enriched):

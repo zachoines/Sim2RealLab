@@ -18,7 +18,7 @@ Run with a python that carries numpy + torch + the package::
 
     <python> source/strafer_lab/scripts/measure_path_statistics.py \
         --scene <scene>.usdc --arm vanilla --arm enriched \
-        --arm 'enriched-prior:robot_spawn_inflation_cells=2,clutter_wall_bias_prob=0.5'
+        --arm 'lowbias:clutter_wall_bias_prob=0.1'
 """
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ from strafer_lab.tools import path_statistics as ps
 from strafer_lab.tools import scene_connectivity
 
 DEFAULT_MIN_SEPARATION_M = 1.0
-DEFAULT_ARC_BAND_M = (1.5, 4.0)
+DEFAULT_STRAIGHT_LINE_BAND_M = (1.5, 4.0)
 RAW_REPORT_THRESHOLD_M = 0.6
 
 
@@ -202,6 +202,23 @@ def measure_scene(scene_usd, *, n_pairs, seed, min_separation_m, sealed=True):
 # ---------------------------------------------------------------------------
 
 
+def _parse_override(value):
+    """Generator kwargs are not all numeric, so the CLI cannot assume it."""
+    lowered = value.strip().lower()
+    if lowered in ("none", "null"):
+        return None
+    if lowered in ("true", "false"):
+        return lowered == "true"
+    try:
+        return int(value)
+    except ValueError:
+        pass
+    try:
+        return float(value)
+    except ValueError:
+        return value
+
+
 def _print_summary(label, summary, failures):
     if not summary.get("n_paths"):
         print(f"{label:>34s}  (no paths)")
@@ -219,6 +236,7 @@ def _print_summary(label, summary, failures):
         f"minC med {mc['median']:.3f} min {mc['min']:.3f}  "
         f"excess med {ec.get('median', float('nan')):.3f}  "
         f"fail {failures['no_path']}/{failures['invalid_endpoint']}"
+        f"/{failures.get('no_obstacles', 0)}"
     )
 
 
@@ -247,12 +265,14 @@ def main(argv=None):
     p.add_argument("--threshold-quantile", type=float, default=0.5)
     p.add_argument("--seed", type=int, default=20260101)
     p.add_argument("--min-separation-m", type=float, default=DEFAULT_MIN_SEPARATION_M)
-    p.add_argument("--arc-band-m", type=float, nargs=2, default=DEFAULT_ARC_BAND_M)
-    p.add_argument("--no-arc-band", action="store_true")
+    p.add_argument("--straight-line-band-m", type=float, nargs=2,
+                   default=DEFAULT_STRAIGHT_LINE_BAND_M,
+                   help="keep only paths whose endpoints are this far apart")
+    p.add_argument("--no-band", action="store_true")
     p.add_argument("--json-out", default=None)
     args = p.parse_args(argv)
 
-    band = None if args.no_arc_band else tuple(args.arc_band_m)
+    band = None if args.no_band else tuple(args.straight_line_band_m)
     legs: dict[str, tuple[list, dict]] = {}
     scene_keys: list[str] = []
 
@@ -260,20 +280,28 @@ def main(argv=None):
     for scene in args.scene:
         for scope in scopes:
             name = Path(scene).stem + ("" if scope == "sealed" else "/unsealed")
+            if name in legs:
+                p.error(f"two legs are both named {name!r}")
             legs[name] = measure_scene(
                 scene, n_pairs=args.scene_pairs, seed=args.seed,
                 min_separation_m=args.min_separation_m, sealed=(scope == "sealed"),
             )
-            if scope == "sealed":
+            # Whichever scope was asked for is the reference; with both, the
+            # sealed legs are, since that is the region production plans in.
+            if scope == "sealed" or args.scene_scope == "unsealed":
                 scene_keys.append(name)
             print(f"[measure] {name}: {len(legs[name][0])} paths", flush=True)
 
     for spec in args.arm:
         label, _, kv = spec.partition(":")
+        if label in legs:
+            p.error(f"two legs are both named {label!r}")
         overrides = {}
         for item in filter(None, kv.split(",")):
+            if "=" not in item:
+                p.error(f"--arm override {item!r} is not KEY=VALUE")
             key, _, value = item.partition("=")
-            overrides[key] = int(value) if value.lstrip("-").isdigit() else float(value)
+            overrides[key] = _parse_override(value)
         stats, failures, params = measure_procroom(
             vanilla=(label == "vanilla"), overrides=overrides,
             num_envs=args.num_envs, resets=args.resets,
@@ -288,12 +316,20 @@ def main(argv=None):
 
     if args.reference:
         reference_keys = [Path(args.reference).stem]
+        missing = [k for k in reference_keys if k not in legs]
+        if missing:
+            p.error(f"--reference {missing} was not measured; legs are "
+                    f"{sorted(legs)}")
     else:
         reference_keys = list(scene_keys)
 
     excess_taus: list[float] = []
     if reference_keys:
-        ref = [s for k in reference_keys for s in legs[k][0]]
+        # The threshold is read off the same population it is applied to,
+        # so the band has to be the same on both sides.
+        ref = ps._band_filter(
+            [s for k in reference_keys for s in legs[k][0]], band
+        )
         values, weights = ps.excess_clearance(ref)
         tau = ps.threshold_from_body(ref, args.threshold_quantile)
         print(f"\nthreshold derivation — reference {'+'.join(reference_keys)}, "
@@ -303,7 +339,7 @@ def main(argv=None):
                   f"{ps.weighted_quantile(values, weights, q):.3f}"
                   + ("   <- threshold" if abs(q - args.threshold_quantile) < 1e-9 else ""))
         for k in reference_keys:
-            v, w = ps.excess_clearance(legs[k][0])
+            v, w = ps.excess_clearance(ps._band_filter(legs[k][0], band))
             if len(v):
                 print(f"    per-scene q50: {k} = "
                       f"{ps.weighted_quantile(v, w, 0.5):.3f}")
@@ -319,12 +355,12 @@ def main(argv=None):
     for label, (stats, failures) in legs.items():
         summary = ps.summarize(
             stats, excess_thresholds=excess_taus,
-            raw_thresholds=(RAW_REPORT_THRESHOLD_M,), arc_band=band,
+            raw_thresholds=(RAW_REPORT_THRESHOLD_M,), straight_line_band=band,
         )
         summary["failures"] = failures
         summary["gates"] = ps.bootstrap_gates(
             stats, excess_thresholds=excess_taus,
-            raw_thresholds=(RAW_REPORT_THRESHOLD_M,), arc_band=band,
+            raw_thresholds=(RAW_REPORT_THRESHOLD_M,), straight_line_band=band,
         )
         out[label] = summary
         _print_summary(label, summary, failures)
@@ -336,13 +372,17 @@ def main(argv=None):
             continue
         turning, bending = g["frac_paths_turning"], g["frac_paths_bending"]
         p90 = g["turn_density_p90"]
+
+        def _ci(entry, scale=1.0, width=5, prec=1):
+            if entry["ci_lo"] is None:
+                return "[  no interval — one group  ]"
+            return (f"[{entry['ci_lo'] * scale:{width}.{prec}f}, "
+                    f"{entry['ci_hi'] * scale:{width}.{prec}f}]")
+
         print(f"{label:>34s}  groups={g['n_groups']:4d}  "
-              f"turning {turning['value'] * 100:5.1f}% "
-              f"[{turning['ci_lo'] * 100:5.1f}, {turning['ci_hi'] * 100:5.1f}]  "
-              f"bending {bending['value'] * 100:5.1f}% "
-              f"[{bending['ci_lo'] * 100:5.1f}, {bending['ci_hi'] * 100:5.1f}]  "
-              f"turn p90 {p90['value']:.3f} "
-              f"[{p90['ci_lo']:.3f}, {p90['ci_hi']:.3f}]")
+              f"turning {turning['value'] * 100:5.1f}% {_ci(turning, 100)}  "
+              f"bending {bending['value'] * 100:5.1f}% {_ci(bending, 100)}  "
+              f"turn p90 {p90['value']:.3f} {_ci(p90, 1.0, 5, 3)}")
 
     if excess_taus:
         print("\narc fraction below threshold (excess scale, sensitivity sweep):")
@@ -350,14 +390,14 @@ def main(argv=None):
         print(f"{'leg':>34s}  {header}")
         for label, summary in out.items():
             row = summary.get("arc_below_excess", {})
-            cells = "  ".join(f"{row.get(f'{t:.3f}', float('nan')) * 100:8.1f}%"
+            cells = "  ".join(f"{row.get(ps._threshold_key(t), float('nan')) * 100:8.1f}%"
                               for t in excess_taus)
             print(f"{label:>34s}  {cells}")
         print(f"\narc fraction below the raw {RAW_REPORT_THRESHOLD_M} m threshold:")
         for label, summary in out.items():
             raw = summary.get("arc_below_raw", {})
             print(f"{label:>34s}  "
-                  f"{raw.get(f'{RAW_REPORT_THRESHOLD_M:.3f}', float('nan')) * 100:8.1f}%")
+                  f"{raw.get(ps._threshold_key(RAW_REPORT_THRESHOLD_M), float('nan')) * 100:8.1f}%")
 
     if args.json_out:
         Path(args.json_out).write_text(json.dumps(out, indent=2), encoding="utf-8")

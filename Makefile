@@ -162,11 +162,11 @@ launch-autonomy: ## Full deploy + GPU policy inference (--profile policy; set ST
 
 submit: ## Submit a mission to the running SIM container:  make submit CMD="go to the chair"
 	@if [ -z "$(CMD)" ]; then echo 'Usage: make submit CMD="<natural-language command>"  (deploy lane: make submit-deploy)'; exit 1; fi
-	$(SIM_COMPOSE) exec strafer-sim strafer-autonomy-cli submit "$(CMD)"
+	$(SIM_COMPOSE) exec -e STRAFER_MISSION_CMD="$(CMD)" strafer-sim bash -lc 'source /opt/ros/humble/setup.bash && source /ws/install/setup.bash && exec strafer-autonomy-cli submit "$$STRAFER_MISSION_CMD"'
 
 submit-deploy: ## Submit a mission to the running DEPLOY autonomy container:  make submit-deploy CMD="..."
 	@if [ -z "$(CMD)" ]; then echo 'Usage: make submit-deploy CMD="<natural-language command>"'; exit 1; fi
-	$(FULL_COMPOSE) exec autonomy strafer-autonomy-cli submit "$(CMD)"
+	$(FULL_COMPOSE) exec -e STRAFER_MISSION_CMD="$(CMD)" autonomy bash -lc 'source /opt/ros/humble/setup.bash && source /ws/install/setup.bash && exec strafer-autonomy-cli submit "$$STRAFER_MISSION_CMD"'
 
 down: ## Stop + remove the strafer containers (sim + deploy lanes)
 	-$(SIM_COMPOSE) down

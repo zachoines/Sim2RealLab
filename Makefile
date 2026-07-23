@@ -148,6 +148,9 @@ images: ## Build the strafer-cpu + strafer-gpu container images
 launch-sim: ## Sim-in-the-loop in a container (consumes the DGX bridge; foxglove :8765). Config: deploy/compose/sim.env.
 	$(SIM_COMPOSE) up
 
+viewer: ## Foxglove viewer (foxglove_bridge :8765) on the running deploy stack (real-robot OR sim-bridge). Connect ws://<robot-ip>:8765.
+	$(FULL_COMPOSE) --profile viewer up viewer
+
 up: ## Full robot deploy: base+perception+slam+navigation+autonomy containers (needs hardware). Config: edit canonical strafer_bringup/config/env_autonomy.env, then make env-sync.
 	$(FULL_COMPOSE) up
 

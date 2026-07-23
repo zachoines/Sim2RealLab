@@ -20,7 +20,7 @@ no shared `/dev/shm`).
 deploy/
 ├── docker/{Dockerfile.cpu, Dockerfile.gpu}   # entrypoint inlined in each
 ├── docker-compose.sim.yml     # sim-in-the-loop (nav2 backend, no GPU/hardware)
-├── docker-compose.yml         # full deploy (5 services + policy/remote profiles)
+├── docker-compose.yml         # full deploy (5 services + policy/remote/viewer profiles)
 ├── docker-compose.dev.yml     # live ./source bind-mount overlay
 ├── compose/{sim.env, autonomy.env}           # env_file mirrors — GENERATED from canon; do not hand-edit
 ├── host-setup/install-host-prereqs.sh        # rmem sysctl, nvidia runtime, netfilter, compose, udev
@@ -50,6 +50,18 @@ docker compose --profile remote up              # + Zenoh bridge   (see "Zenoh /
 # live-edit iteration (python/launch/yaml reflect on `restart <svc>`):
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 ```
+
+### Viewer (Foxglove)
+`foxglove_bridge` on `:8765` for live inspection of the domain-42 graph (TF,
+costmaps, depth, `cmd_vel`, subgoals, the policy's `navigate_to_pose` feedback).
+Opt-in and agnostic to which stack is up — use it for the real-robot deploy or
+the sim-bridge e2e (it launches no robot nodes, just attaches to DDS):
+```bash
+docker compose --profile viewer up viewer      # or: make viewer
+```
+Connect Foxglove Studio to `ws://<robot-ip>:8765` (the bridge binds `0.0.0.0`),
+or tunnel it: `ssh -L 8765:localhost:8765 <user>@<robot-ip>`. Bare-metal:
+`ros2 launch strafer_bringup viewer.launch.py` (args: `viewer_port`, `use_sim_time`).
 
 ### Policy backend (GPU inference)
 The `inference` service runs `inference_policy.launch.py`, which reproduces the

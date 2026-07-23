@@ -91,6 +91,19 @@ services:
     env_file: [ compose/autonomy.env ]
     command: ros2 launch strafer_bringup autonomy_nodes.launch.py
 
+  # --- viewer: foxglove_bridge WebSocket (:8765) for live Foxglove Studio -------
+  # inspection of the domain-42 graph (TF, costmaps, depth, cmd_vel, subgoals).
+  # Attaches to DDS only -- launches no robot nodes, so it is agnostic to which
+  # stack is up: works for the real-robot deploy OR the sim-bridge e2e.
+  # foxglove_bridge ships in strafer-cpu (pulled via rosdep).
+  #   Opt-in:  docker compose --profile viewer up viewer
+  #   Connect: Foxglove Studio -> ws://<robot-ip>:8765  (or ssh -L 8765:localhost:8765)
+  viewer:
+    <<: *cpu-svc
+    container_name: strafer_viewer
+    profiles: [ viewer ]
+    command: ros2 launch strafer_bringup viewer.launch.py
+
   # --- inference (GPU): policy backend. Only with strafer_direct/hybrid. -------
   inference:
     image: strafer-gpu:humble

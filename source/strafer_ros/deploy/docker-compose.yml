@@ -104,6 +104,20 @@ services:
     profiles: [ viewer ]
     command: ros2 launch strafer_bringup viewer.launch.py
 
+  # --- sim-perception: sim-bridge support layer (opt-in, SIM ONLY) -------------
+  # In DGX sim-bridge mode the hardware drivers don't run, so base+perception are
+  # dropped -- but slam/inference still need robot_state_publisher (base_link->
+  # d555_link TF, normally in `base`) and timestamp_fixer (the /d555/*_sync topics
+  # rtabmap consumes, normally in `perception`). This wires exactly those, with the
+  # sim depth remaps + a one-shot rtabmap warmup spin, so inference+slam+navigation
+  # are self-sufficient against the bridge. NEVER run on the real robot.
+  #   docker compose --profile sim-bridge up sim-perception
+  sim-perception:
+    <<: *cpu-svc
+    container_name: strafer_sim_perception
+    profiles: [ sim-bridge ]
+    command: ros2 launch strafer_bringup sim_bridge_support.launch.py
+
   # --- inference (GPU): policy backend. Only with strafer_direct/hybrid. -------
   inference:
     image: strafer-gpu:humble

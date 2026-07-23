@@ -20,7 +20,7 @@ no shared `/dev/shm`).
 deploy/
 ├── docker/{Dockerfile.cpu, Dockerfile.gpu}   # entrypoint inlined in each
 ├── docker-compose.sim.yml     # sim-in-the-loop (nav2 backend, no GPU/hardware)
-├── docker-compose.yml         # full deploy (5 services + policy/remote/viewer profiles)
+├── docker-compose.yml         # full deploy (5 services + policy/remote/viewer/sim-bridge profiles)
 ├── docker-compose.dev.yml     # live ./source bind-mount overlay
 ├── compose/{sim.env, autonomy.env}           # env_file mirrors — GENERATED from canon; do not hand-edit
 ├── host-setup/install-host-prereqs.sh        # rmem sysctl, nvidia runtime, netfilter, compose, udev

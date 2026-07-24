@@ -866,7 +866,7 @@ def generate_proc_room(
             column_slots = placement.column_slots
             # The column phase owns these slots on the episodes it runs, so the
             # clutter budget still fills with ordinary items rather than losing
-            # two of them to the lever it is being measured against.
+            # two of them to the column phase.
             clut_seq_columns = tuple(s for s in clut_seq if s not in set(column_slots))
             column_r_min = placement.column_seed_clearance + max(
                 math.hypot(OBJECT_SIZES[s, 0].item(), OBJECT_SIZES[s, 1].item()) / 2.0
@@ -1033,7 +1033,7 @@ def generate_proc_room(
                         cursor += seg_len
 
         # --- Phase 3: Furniture placement ---
-        n_furn = max_furn[b_idx].item()
+        n_furn = max(0, max_furn[b_idx].item())  # a negative budget must take no prefix
         placed_furn_xy = []
         is_open_field = has_room_walls[b_idx].item() == 0
         for slot in furn_seq[:n_furn]:
@@ -1087,7 +1087,7 @@ def generate_proc_room(
             # If not placed after 10 attempts, slot stays parked
 
         # --- Phase 4: Clutter scatter ---
-        n_clut = max_clut[b_idx].item()
+        n_clut = max(0, max_clut[b_idx].item())  # a negative budget must take no prefix
         placed_clutter_xy = []
         inset = 0.5
 
@@ -1305,6 +1305,9 @@ def generate_proc_room(
             "parked_columns": int(parked[:, list(column_slots_seen)].sum()),
             "ladder_passes": ladder_passes,
             "bfs_failed": int(failed.sum()),
+            # Relocation *events* over this call — the initial BFS plus one per
+            # ladder pass — so it can exceed the env count on a room that stays
+            # blocked across passes; not a per-env incidence.
             "bfs_seed_relocated": int(seed_relocations),
             "spawn_count_min": int(spawn_count.min()),
         })

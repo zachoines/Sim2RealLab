@@ -4,11 +4,11 @@
 """CPU tests for the generator's placement sequence, park rank and column phase.
 
 The sibling frozen-output guard proves the *default* path did not move. These
-prove the new surface: that an explicitly-vanilla ``PlacementCfg`` is byte-for-byte
-the ``None`` path, that the group-atomic park rank reproduces and generalizes the
-two-tier ladder, that the mid-room column phase is additive and bounded away from
-the solvability seed, and that the enriched seed correction removes blocked cells
-from the spawn pool.
+cover the ``placement`` surface: that an explicitly-vanilla ``PlacementCfg`` is
+byte-for-byte the ``None`` path, that the group-atomic park rank reproduces and
+generalizes the two-tier ladder, that the mid-room column phase is additive and
+bounded away from the solvability seed, and that the enriched seed correction
+removes blocked cells from the spawn pool.
 
 No Kit / GPU. Run with the pure-Python lab tests.
 """
@@ -109,17 +109,19 @@ _VANILLA_PLACEMENT = PlacementCfg(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("seed", (20260101, 20275939))
 @pytest.mark.parametrize("difficulty", range(8))
 @pytest.mark.parametrize("num_envs", (1, 8))
-def test_explicit_vanilla_placement_matches_the_none_path(difficulty, num_envs):
-    """A ``PlacementCfg`` spelling out today's order is byte-for-byte ``None``.
+def test_explicit_vanilla_placement_matches_the_none_path(seed, difficulty, num_envs):
+    """A ``PlacementCfg`` spelling out the vanilla order is byte-for-byte ``None``.
 
     The frozen guard pins the ``None`` path against history; this pins the two
-    against each other, so the sequence and rank really are the data the loops
-    used to hardcode."""
-    implicit = _digest(*_run(num_envs=num_envs, difficulty=difficulty))
+    against each other over a seed × difficulty × batch sweep, so the sequence
+    and rank are the data the loops hold hardcoded."""
+    implicit = _digest(*_run(seed=seed, num_envs=num_envs, difficulty=difficulty))
     explicit = _digest(
-        *_run(num_envs=num_envs, difficulty=difficulty, placement=_VANILLA_PLACEMENT)
+        *_run(seed=seed, num_envs=num_envs, difficulty=difficulty,
+              placement=_VANILLA_PLACEMENT)
     )
     assert implicit == explicit
 
@@ -147,8 +149,8 @@ def _active_xy(env, entities, slots):
 def test_clutter_permutation_relabels_an_identical_geometry():
     """The clutter sampler never reads the slot's size and its rejection tests
     compare XY only, so permuting the clutter sequence attaches the *same*
-    geometric sequence to different slots. This is what makes the D4 ordering
-    lever free of side effects.
+    geometric sequence to different slots. This is what lets the mid-room-column
+    presence lever reorder the clutter sequence free of side effects.
 
     Stated for the placement phase alone: the retry ladder reads slots, so on a
     room it strips the relabeling does move geometry. Sparse rooms keep the
@@ -370,6 +372,17 @@ def test_column_phase_off_leaves_the_enriched_path_alone():
     assert rank_only == knob_off
 
 
+def test_column_phase_off_places_no_mid_room_column():
+    """The off arm (`prob=0.0`) never runs the phase, so it is the clean
+    no-mid-room-column baseline the D4 A/B differences against. The two tall
+    cylinders may still reach the room by ordinary scatter at level 7, but the
+    phase's own promotion counter must read zero."""
+    sink = {}
+    _run(num_envs=32, difficulty=7, health_sink=sink,
+         placement=PlacementCfg(column_prob=0.0, column_count=2))
+    assert sink["column_phase_fired"] == 0
+
+
 # ---------------------------------------------------------------------------
 # BFS seed correction
 # ---------------------------------------------------------------------------
@@ -399,6 +412,18 @@ def test_relocate_blocked_seeds_keeps_a_sealed_env_seeded():
     cells, moved = _relocate_blocked_seeds(free, torch.tensor([[4, 4]]))
     assert not moved.any()
     assert cells.tolist() == [[4, 4]]
+
+
+def test_relocate_blocked_seeds_breaks_ties_row_major():
+    """Equidistant free cells resolve on flattened cell order (argmin), so the
+    correction is deterministic and draw-free. (4,6) and (6,4) are both
+    distance 2 from (4,4); the lower flat index 4·9+6 < 6·9+4 wins."""
+    free = torch.zeros(1, 9, 9, dtype=torch.bool)
+    free[0, 4, 6] = True
+    free[0, 6, 4] = True
+    cells, moved = _relocate_blocked_seeds(free, torch.tensor([[4, 4]]))
+    assert moved.tolist() == [True]
+    assert cells.tolist() == [[4, 6]]
 
 
 def _blocked_spawn_cells(env):

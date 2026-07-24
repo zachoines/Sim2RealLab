@@ -1038,16 +1038,21 @@ but `randomize_friction/mass/motor_strength/d555_mount` ride in it.
 
 The enriched variants ship `column_prob=0.5`, `column_count=2`, the
 column-protected park rank, and the seed correction. The knob's mechanics are
-certified free on CPU by the health sink: at `column_prob=1.0` both columns are
+certified on CPU by the health sink: at `column_prob=1.0` both columns are
 present in **100%** of envs and **never** parked (protection holds), and the
-seed correction relocates the grid-blocked centre in the ~2-per-env incidence
-the enriched arm shows.
+seed correction relocates the grid-blocked centre at ~2 relocation *events* per
+env (the counter sums the initial BFS plus each ladder pass, so it is not a
+per-env incidence). The phase itself consumes draws — a gate coin, per-attempt
+angle/radius, and a yaw on acceptance — all caged behind `column_prob > 0`, so
+it is vanilla-stream-neutral, not draw-free; the park rank and the seed
+correction *are* draw-free.
 
 **Ruling F-4's D4 gate is met at the shipped probability, at the scaled
 protocol.** The scaled protocol is `--num_resets 42` at 64 envs = **2 688
 rooms/leg**, derived from PR-A's per-room D4 standard deviation so the paired
 half-width is ≲ 2 points. Shipped `column_prob=0.5` versus columns off
-(`prob=0.0`), paired at one seed:
+(`prob=0.0`), both legs seeded `--seed 20260101` (reset *k* uses `20260101 + k`,
+matched room-for-room):
 
 | descriptor | off | ship (`prob=0.5`) | paired Δ (ship − off) |
 |---|---|---|---|
@@ -1056,13 +1061,19 @@ half-width is ≲ 2 points. Shipped `column_prob=0.5` versus columns off
 | D1 ≤1 m (%) | 37.39 | 38.90 | +1.51 [+0.360, +2.660] `*` |
 | D3 top-11 pinned (%) | 6.41 | 5.99 | −0.42 [−0.949, +0.103] |
 
-`*` = paired interval excludes zero. The gate — point estimate ≥ 40.6 with the
-paired interval on the improvement excluding zero at ≲ 2-point half-width — is
-**satisfied on both conjuncts**: ship D4 = 45.45 ≥ 40.6, and the +2.21
-improvement's interval (half-width 1.88) excludes zero. D1 moves toward its
-target in the same arm. (The off leg reads D4 43.24 here versus 40.54 in the
-first-look below — inside the run-to-run spread PR-A flagged; at 2 688 rooms the
-interval is tight.)
+`*` = paired interval excludes zero. Read the gate's two conjuncts separately.
+**Conjunct 1 (point estimate ≥ 40.6) is already met by the columns-off arm**
+(43.24) — the enriched arm without the knob sits above the band floor, so this
+conjunct is not the knob's to earn. **The knob's contribution is conjunct 2**,
+the paired *improvement*: +2.21, interval [+0.327, +4.087] excluding zero. That
+lower bound is **thin** — +0.327 at a single look, and ≈ +0.06 under a
+two-look correction for the first-look that set the probability — so the
+improvement is **direction-solid, magnitude-soft**: the column knob reliably
+raises D4, but treat +2.21 as an upper-ish estimate of a small effect, not a
+banked 2.2 points. This caveat travels with the brief into the v2 retrain
+decision. (The off leg reads D4 43.24 here versus 40.54 in the first-look below
+— inside the run-to-run spread PR-A flagged; at 2 688 rooms the interval is
+tight.)
 
 A **first-look descriptor pass** established the direction and set the shipped
 probability before this certification (512 rooms/leg, PR-A's ±3.1-point floor),
@@ -1070,12 +1081,17 @@ columns off versus fully **on** (`prob=1.0`, the maximal contrast): D4 moves
 40.54 → 46.24, paired Δ **+5.70 [+1.28, +10.12]**. So the column knob is a
 **real** D4 lever — larger than the 1.8% ray-cast *share* predicted, because
 that share measured columns among *existing* D4-near cells while this measures
-the *marginal* effect of forcing new mid-room columns into frame. The shipped
-`prob=0.5` is the widen-not-shift midpoint between the null and that overshoot
-(1.0 is the 99.6%-presence overshoot the ruling declined), and the certification
-above confirms it clears the gate. The `--placement-override FIELD=VALUE` seam
-added to the capture instrument is how the operator re-tunes the probability in
-a cleared window.
+the *marginal* effect of forcing new mid-room columns into frame. **The
+first-look and the gate share the seed base `20260101`, so their room sequences
+are not disjoint** — the gate is a scaled re-measurement over the same nominal
+rooms, not an independent replication; this is the source of the two-look
+correction above, and its effect on the point estimate is second-order (the
+gate's 2 688 rooms extend well past the first-look's 512). The shipped
+`prob=0.5` is the widen-not-shift midpoint between the null and the `prob=1.0`
+overshoot (99.6% presence, which the ruling declined). The
+`--placement-override FIELD=VALUE` seam added to the capture instrument is how
+the operator re-tunes the probability — on a disjoint seed base — in a cleared
+window.
 
 ## Findings for the operator — all six ruled 2026-07-21
 
@@ -1219,12 +1235,15 @@ rather than a re-freeze.
 - [x] D4 is judged by band-floor entry under paired statistics: point
       estimate ≥ 40.6 with the paired interval excluding zero improvement.
       The column knob ships as a descriptor-tuned probability.
-      *Met at the scaled protocol (2 688 rooms/leg = `--num_resets 42`): shipped
-      `column_prob=0.5` reads D4 = 45.45 ≥ 40.6 with the paired improvement over
-      off +2.21 [+0.327, +4.087] excluding zero (half-width 1.88). The
-      probability was set from a 512-room first-look (off→fully-on +5.70) as the
-      widen-not-shift midpoint. Re-tunable via the capture instrument's
-      `--placement-override`.*
+      *Met at the scaled protocol (2 688 rooms/leg = `--num_resets 42`, seed
+      base 20260101): shipped `column_prob=0.5` reads D4 = 45.45. Conjunct 1
+      (≥ 40.6) is met by the off arm already (43.24); the knob earns conjunct 2,
+      the paired improvement +2.21 [+0.327, +4.087] excluding zero — thin lower
+      bound (≈ +0.06 under a two-look correction), so direction-solid /
+      magnitude-soft, and the caveat rides into the retrain decision. The
+      probability was set from a 512-room first-look (off→fully-on +5.70, same
+      seed base — not disjoint) as the widen-not-shift midpoint. Re-tunable via
+      the capture instrument's `--placement-override` on a disjoint seed.*
 - [ ] Internal walls, if they ship, hold apertures ≥ 1.2 m.
       *Not in PR-1 — PR-3b.*
 - [x] The retry ladder's termination bound derives from the park rank's

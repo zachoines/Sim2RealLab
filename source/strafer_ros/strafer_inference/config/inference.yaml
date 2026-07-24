@@ -53,7 +53,8 @@
     # every lane. Set an explicit cap here only for an intentional
     # per-node override.
 
-    goal_reached_distance_m: 0.25
+    # goal_reached_distance_m defaults to strafer_shared GOAL_ARRIVAL_RADIUS_M
+    # (train/deploy parity); uncomment to override with an intentional value.
     mission_timeout_s: 60.0
 
     # ONNX Runtime provider preference, priority order. ORT binds the first

@@ -25,6 +25,8 @@ from geometry_msgs.msg import PoseStamped
 from rclpy.parameter import Parameter
 from sensor_msgs.msg import Image
 
+from strafer_shared.constants import GOAL_ARRIVAL_RADIUS_M
+
 from strafer_inference.inference_node import InferenceNode
 
 
@@ -574,6 +576,17 @@ class TestResetTriggers(unittest.TestCase):
         fake = _FakeRecurrentPolicy()
         node._policy = fake
         return node, fake
+
+    def test_goal_reached_distance_defaults_to_shared_arrival_radius(self) -> None:
+        """Deploy's success radius defaults to the shared GOAL_ARRIVAL_RADIUS_M
+        so it cannot drift from the radius the policy is trained to park at."""
+        node, _fake = self._make_node_with_policy()
+        try:
+            self.assertEqual(
+                node._goal_reached_distance_m, GOAL_ARRIVAL_RADIUS_M
+            )
+        finally:
+            node.destroy_node()
 
     def test_handle_accepted_takes_ownership_and_executes(self) -> None:
         node, _fake = self._make_node_with_policy()

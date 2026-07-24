@@ -16,7 +16,11 @@ from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.math import quat_from_euler_xyz, quat_mul
 
-from strafer_shared.constants import MAP_RESOLUTION, SUBGOAL_LOOKAHEAD_M
+from strafer_shared.constants import (
+    GOAL_ARRIVAL_RADIUS_M,
+    MAP_RESOLUTION,
+    SUBGOAL_LOOKAHEAD_M,
+)
 
 from ..path_planner import PathCursor, PathPlanningError, perturb_waypoints, plan_path
 from .proc_room import GRID_RES, GRID_SIZE
@@ -922,11 +926,11 @@ class SubgoalCommandCfg(CommandTermCfg):
     interior waypoints at plan time. Bounds the train/deploy planner
     disagreement the policy is robust to; see ``perturb_waypoints``."""
 
-    dwell_radius_m: float = 0.3
+    dwell_radius_m: float = GOAL_ARRIVAL_RADIUS_M
     """Radius (meters) around the path's final point the robot must hold inside
-    for the path to count as complete. Kept at the former instant-touch
-    completion threshold so only the *dwell* requirement is new, not the
-    radius."""
+    for the path to count as complete. Shared with the deployed
+    navigate_to_pose success gate through ``GOAL_ARRIVAL_RADIUS_M`` so training
+    and deployment agree on what counts as arrived."""
 
     dwell_speed_max_m_s: float = 0.1
     """Body-frame planar speed (m/s) at or below which the robot counts as

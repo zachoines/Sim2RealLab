@@ -1,11 +1,16 @@
 # Bring up the Orin NX + containerize `strafer_ros` for skip-0 depth-policy deployment
 
+**Status:** Shipped 2026-07-24 in `c6910f8` (Jetson). Two-image CycloneDDS
+containerization of `strafer_ros` on the Orin NX; both acceptance gates closed
+on-device at frame-skip 0 (hybrid smoke + ProcRoom mission, trip-free steady
+state), with four sim-bridge topology gaps fixed in `51e42cf`, `f34e96d`, `1889ce5`.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/157
+
 **Type:** task / platform migration + deployment infra
 **Owner:** Jetson (new Orin NX 16GB `strafer-nx`; replaces the Orin Nano)
 **Priority:** P1 — unblocks the depth-policy A/B by giving the robot lane a device that runs the policy at **frame-skip 0**; the Nano's compute ceiling forced skip 3 and made the sim-bridge loop the bottleneck. Carries the skip-0 capacity gate.
 **Estimate:** L (multi-session; hardware bringup + driver build + two-image containerization). Bulk shipped in this PR; the live acceptance is operator-gated.
 **Branch:** `docker/strafer-ros-containerization` (deviates from the `task/<name>` convention — noted; not worth a rename mid-review).
-**Status:** e2e gates **PASS** (PR #157; run 2026-07-23 on `strafer-nx`). Both acceptance gates below are green — the containerized hybrid smoke and the skip-0 ProcRoom mission. Making the containerized deploy self-sufficient against the DGX bridge required fixing **four in-branch gaps** the rev-3 runbook's Gate-2 topology had missed (see **What the e2e surfaced** below). Brief stays **active** only for the deferred hardware lanes + the goal-completion/park follow-up. **Pending human merge/review** — the Gate-2 topology changed materially.
 
 ## Story
 

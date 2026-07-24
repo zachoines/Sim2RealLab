@@ -1,44 +1,20 @@
-# SIM-BRIDGE TEST OVERLAY (Gate 1 & 2) — opt-in ONLY via an explicit `-f`.
-# Deliberately NOT named docker-compose.override.yml, so compose NEVER auto-loads
-# it; it never affects `make up` or a real-robot deploy. It carries all the
-# run-specific policy config for the DGX sim-bridge e2e:
-#   - inference service (via compose `environment:`, which overrides the
-#     env_file's fail-safe defaults):
-#       * hybrid backend + the exported policy, so the fail-loud guard passes and
-#         the inference + rolling-subgoal coupling comes up;
-#       * the sim-rate freshness widenings: the DGX Isaac bridge publishes the
-#         obs streams well below the real-hardware watchdog defaults (obs 0.2 s,
-#         depth 0.5 s) at the rig's sub-unity RTF. BOTH must be loosened or the
-#         run trips on stale=['imu'/'odom'] rather than depth.
-#   - SIM TIME across the whole stack. The bridge publishes /clock and stamps
-#     TF + sensors in SIM time (odom.header.stamp tracks /clock, ~10^3 s), while
-#     the deploy lane defaults to use_sim_time=false (real robot). Left unset,
-#     rtabmap stamps map->odom in WALL time (~1.7*10^9 s) while the bridge's
-#     odom->base_link is sim time — the TF tree splits, map->base_link never
-#     resolves, nav2 cannot plan, and the hybrid policy gets no subgoal. So we
-#     force sim time on every deploy node that consumes the bridge:
-#       * inference/subgoal read STRAFER_USE_SIM_TIME from env (default false);
-#       * slam/navigation only take a `use_sim_time:=true` launch ARG, so their
-#         commands are overridden here.
-# This touches NO committed env_file/canon, so the real-hardware guard
-# (check_env_sync) is untouched and still forbids these widenings on the autonomy
-# lane. NEVER apply this overlay on the real robot.
+# Sim-bridge test provisioning. Opt-in via an explicit `-f` only — compose never
+# auto-loads this name, and it must not be applied on the real robot.
 services:
   inference:
     environment:
       STRAFER_NAV_BACKEND: hybrid_nav2_strafer
-      STRAFER_INFERENCE_MODEL_PATH: /models/policy.onnx   # convention: name your artifact policy.onnx in STRAFER_MODELS_DIR
-      STRAFER_POLICY_VARIANT: DEPTH_SUBGOAL               # match your exported artifact (its .json sidecar declares the variant)
+      STRAFER_INFERENCE_MODEL_PATH: /models/policy.onnx
+      STRAFER_POLICY_VARIANT: DEPTH_SUBGOAL
+      STRAFER_USE_SIM_TIME: "true"
+      # Simulated sensors arrive well under the real-hardware rates these
+      # windows are sized for; both widen or the watchdog zero-twists.
       STRAFER_OBS_TIMEOUT_S: "1.0"
       STRAFER_DEPTH_TIMEOUT_S: "2.0"
-      STRAFER_USE_SIM_TIME: "true"                        # bridge drives /clock; inference + subgoal honor this env
 
+  # slam and navigation take use_sim_time only as a launch argument.
   slam:
-    # slam.launch.py only exposes use_sim_time as a launch arg (no env hook), so
-    # override the command to run rtabmap on sim time (matches the bridge stamps).
     command: ros2 launch strafer_slam slam.launch.py use_sim_time:=true
 
   navigation:
-    # navigation.launch.py: same — nav2 must be on sim time to fuse the
-    # sim-stamped costmap/TF and plan against map->base_link.
     command: ros2 launch strafer_navigation navigation.launch.py use_sim_time:=true

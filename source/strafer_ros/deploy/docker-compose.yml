@@ -20,8 +20,8 @@
 # mounts are inert until the hardware is connected.
 #
 # NOTE: Zenoh is a REMOTE-WORKSTATION CONVENIENCE, not a sanctioned transport for
-# the DGX<->robot sim lane -- the A/B experiments run wired-LAN CycloneDDS; nobody
-# bridges 921 KB depth over WiFi TCP mid-experiment.
+# the sim lane -- those runs use wired-LAN CycloneDDS; nobody bridges 921 KB depth
+# over WiFi TCP mid-experiment.
 
 name: strafer
 
@@ -91,27 +91,17 @@ services:
     env_file: [ compose/autonomy.env ]
     command: ros2 launch strafer_bringup autonomy_nodes.launch.py
 
-  # --- viewer: foxglove_bridge WebSocket (:8765) for live Foxglove Studio -------
-  # inspection of the domain-42 graph (TF, costmaps, depth, cmd_vel, subgoals).
-  # Attaches to DDS only -- launches no robot nodes, so it is agnostic to which
-  # stack is up: works for the real-robot deploy OR the sim-bridge e2e.
-  # foxglove_bridge ships in strafer-cpu (pulled via rosdep).
-  #   Opt-in:  docker compose --profile viewer up viewer
-  #   Connect: Foxglove Studio -> ws://<robot-ip>:8765  (or ssh -L 8765:localhost:8765)
+  # --- viewer: foxglove_bridge on :8765. Launches no robot nodes, so it attaches
+  # to whichever stack is already up.  docker compose --profile viewer up viewer
   viewer:
     <<: *cpu-svc
     container_name: strafer_viewer
     profiles: [ viewer ]
     command: ros2 launch strafer_bringup viewer.launch.py
 
-  # --- sim-perception: sim-bridge support layer (opt-in, SIM ONLY) -------------
-  # In DGX sim-bridge mode the hardware drivers don't run, so base+perception are
-  # dropped -- but slam/inference still need robot_state_publisher (base_link->
-  # d555_link TF, normally in `base`) and timestamp_fixer (the /d555/*_sync topics
-  # rtabmap consumes, normally in `perception`). This wires exactly those, with the
-  # sim depth remaps + a one-shot rtabmap warmup spin, so inference+slam+navigation
-  # are self-sufficient against the bridge. NEVER run on the real robot.
-  #   docker compose --profile sim-bridge up sim-perception
+  # --- sim-perception: support layer for the sim lane (opt-in, SIM ONLY) --------
+  # `base` and `perception` carry hardware drivers the sim lane cannot run, so this
+  # supplies the two nodes slam and inference still need from them. Not on the robot.
   sim-perception:
     <<: *cpu-svc
     container_name: strafer_sim_perception
@@ -143,8 +133,8 @@ services:
 
   # --- zenoh bridge: robot <-> workstation over WiFi (point-to-point TCP) ------
   # REMOTE-WORKSTATION CONVENIENCE ONLY (see header + README security note); not
-  # the DGX<->robot sim transport. On the workstation, run a MATCHING bridge
-  # version:  zenoh-bridge-ros2dds -d 42 -e tcp/<robot-ip>:7447
+  # the sim transport. On the workstation, run a MATCHING bridge version:
+  #   zenoh-bridge-ros2dds -d 42 -e tcp/<robot-ip>:7447
   zenoh-bridge:
     # Pinned (never :latest) -- the bridge wire protocol must match the workstation
     # side. Override ZENOH_TAG to your workstation's zenoh-bridge-ros2dds version.

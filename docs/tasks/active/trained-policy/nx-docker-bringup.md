@@ -5,7 +5,7 @@
 **Priority:** P1 — unblocks the depth-policy A/B by giving the robot lane a device that runs the policy at **frame-skip 0**; the Nano's compute ceiling forced skip 3 and made the sim-bridge loop the bottleneck. Carries the skip-0 capacity gate.
 **Estimate:** L (multi-session; hardware bringup + driver build + two-image containerization). Bulk shipped in this PR; the live acceptance is operator-gated.
 **Branch:** `docker/strafer-ros-containerization` (deviates from the `task/<name>` convention — noted; not worth a rename mid-review).
-**Status:** In-flight (PR #157). The containerization + NX bringup shipped here; the brief stays **active** for the open **skip-0 e2e** acceptance (operator-run, gated on the DGX sim host) and the deferred hardware lanes.
+**Status:** e2e gates **PASS** (PR #157; run 2026-07-23 on `strafer-nx`). Both acceptance gates below are green — the containerized hybrid smoke and the skip-0 ProcRoom mission. Making the containerized deploy self-sufficient against the DGX bridge required fixing **four in-branch gaps** the rev-3 runbook's Gate-2 topology had missed (see **What the e2e surfaced** below). Brief stays **active** only for the deferred hardware lanes + the goal-completion/park follow-up. **Pending human merge/review** — the Gate-2 topology changed materially.
 
 ## Story
 
@@ -37,8 +37,39 @@ of a bespoke bare-metal setup.**
 - [x] Both images build on-device and the **sim-in-the-loop** stack launches in a container over CycloneDDS (nodes init; executor waits on VLM/planner as designed).
 - [x] `strafer-gpu`: `onnxruntime.get_available_providers()` lists `TensorrtExecutionProvider` + `CUDAExecutionProvider` in the baked image; `strafer_inference` imports.
 - [x] `docker compose config` valid for `docker-compose.yml` (+ dev overlay); `check_env_sync.py` green.
-- [ ] **Containerized hybrid bringup smoke** — `--profile policy` with `STRAFER_NAV_BACKEND=hybrid_nav2_strafer` + a DEPTH/DEPTH_SUBGOAL stub model: inference node **and** subgoal generator come up; the inference watchdog's `subgoal` source goes fresh (no zero-twist from a missing generator). Operator-run.
-- [ ] **NX skip-0 e2e mission (the migration's acceptance).** With the DGX sim bridge up (`192.168.50.196`: bridge + VLM :8100 + planner :8200, `ROS_DOMAIN_ID=42`, wired-LAN CycloneDDS), run a hybrid depth-policy mission at **frame-skip 0** and confirm the obs→`cmd_vel` loop holds the 33 ms budget end-to-end. **Gated on the DGX being cleared.** This is also the **precondition for the relocated depth-policy A/B session.**
+- [x] **Containerized hybrid bringup smoke** — `--profile policy`, `STRAFER_NAV_BACKEND=hybrid_nav2_strafer` + the v1 **DEPTH_SUBGOAL** model: **inference node AND rolling-subgoal generator both up**, fail-loud guard clean (real backend + model), overlay obs/depth timeouts applied. TRT engine builds at session init — **cold ~84 s / warm ~4 s** (cached to the `strafer_trt_engines` volume).
+- [x] **NX skip-0 e2e mission (the migration's acceptance).** DGX bridge up (ProcRoom, `--decimation 4 --render-interval 4` → derived **skip 0 / 30 Hz sim**; VLM :8100 + planner :8200, domain 42, wired-LAN CycloneDDS). Hybrid DEPTH_SUBGOAL mission at **frame-skip 0**: **trip-free steady-state** (2 startup `subgoal` trips before the first plan, **0 mid-mission across 242 s**), obs→`cmd_vel` loop held, **warm first-inference 102 ms**. The **semantic VLM→policy** path was also exercised end-to-end (grounded "beige square" → `goal_projection` → policy drove to it). One open item: the policy **parks near the goal but doesn't trip `NavigateToPose`'s success radius**, so the action times out instead of formally completing (follow-up below). Clears the **precondition for the relocated depth-policy A/B session.**
+
+## What the e2e surfaced — fixed in-branch
+
+Running the gates end-to-end showed the containerized deploy lane was **not
+self-sufficient against the DGX bridge** — it only appeared to work because a
+stale sim-in-the-loop container was silently supplying the missing nodes. Four
+gaps, all fixed on this branch:
+
+1. **`use_sim_time` missing from the sim-bridge overlay** (`51e42cf`). The bridge
+   publishes `/clock` + sim-stamped TF/sensors; the deploy lane defaulted
+   `use_sim_time=false`, so rtabmap stamped `map→odom` in wall time while the
+   bridge's `odom→base_link` was sim time → split TF tree, nav2 couldn't plan.
+2. **Missing SLAM support nodes** (`f34e96d`). The Gate-2 topology
+   (`inference slam navigation`) drops `base`+`perception` for their crash-looping
+   hardware drivers, but each also carries a sim-needed support node —
+   `robot_state_publisher` (`base_link→d555_link` TF) and `timestamp_fixer` (the
+   `/d555/*_sync` topics rtabmap consumes, with sim depth remaps). Added back as an
+   opt-in `sim-perception` compose service (`profile: sim-bridge`) +
+   `sim_bridge_support.launch.py`, mirroring `bringup_sim_in_the_loop`.
+3. **`make submit`/`submit-deploy` didn't source ROS** (`1889ce5`) — they ran the
+   CLI via `docker compose exec`, which bypasses the entrypoint → `rclpy` import
+   error. Now source the workspace in the exec.
+4. **`strafer-cpu` lacked Pillow** (`1889ce5`) — the executor's VLM grounding
+   encodes camera frames with PIL, but `pillow` wasn't a declared `strafer_autonomy`
+   dependency (only the `[planner]` extra pulled heavy deps). Added to base deps.
+
+**Follow-ups filed (not blocking this brief):** policy goal-completion — parks near
+the goal without tripping `NavigateToPose`'s success radius; the mission-runner's
+per-step nav timeout is measured on **wall-clock**, so a planner-emitted budget
+(e.g. 7 s) starves the policy under the sim's sub-unity RTF (→ `task/hybrid-nav-sim-clock`);
+DGX `/clock` hitches can crash rtabmap (`docker restart strafer_slam` recovers).
 
 ## Nano-parity gate — recommend **RETIRE**
 

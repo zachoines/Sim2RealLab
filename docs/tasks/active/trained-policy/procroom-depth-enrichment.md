@@ -87,8 +87,20 @@ read higher than the 2026-07-09 trajectory baseline below).
 | D2 bottom-row / floor across-pose std (m) | 0.52 / 0.099 | 0.56 / 0.028 | 0.50–0.54 / 0.07–0.15 | near-floor band preserved (tighter) |
 | D3 top-11 pinned (%) | 58.9 | 7.3 | 8.3 [3.8–17.3] | **102% closed — lands inside the Infinigen band** |
 | D3 overall pinned (%) | 17.7 | 3.8 | 5.4 [1.9–10.0] | closed |
-| D4 high-row near <2 m (%) | 43.7 | 34.6 | 49.9 [40.6–58.9] | **gap GREW (−146% closure)** → F3 signal |
+| D4 high-row near <2 m (%) | 43.7 | 34.6 | 49.9 [40.6–58.9] | **gap GREW** → F3 signal; **+F3 → 36.4%** (same-session A/B, +1.8, still ~14 pts below band) |
 | D5 edge density (%) | 2.35 | 1.69 | 1.89 [1.39–2.21] | ProcRoom already ≥ every Infinigen scene — no edge *deficit* |
+
+> **Read D4 with its capture protocol attached (measured 2026-07-22).** Every
+> row here reproduces on a re-run of the protocol that produced it — vanilla
+> D1 1.189 / ≤1 m 42.3% / D2 4.62 / D3 60.0% / D4 42.5% / D5 2.41%, enriched
+> D1 1.525 / D4 36.4% at 512 rooms. But the *same* enriched configuration
+> measures D4 = 43.9% when the capture re-seeds per reset instead of letting
+> the stream run on, which is what paired statistics require. That 5–7 point
+> protocol effect is larger than D4's 4.2-point gap to the Infinigen band
+> floor, so a D4 claim is only meaningful with its protocol named. The
+> room-level noise floor at 512 rooms is ±3.1 points on D4 and ±0.067 m on D1.
+> Details and the instruments in
+> [`procroom-placement-architecture`](procroom-placement-architecture.md).
 
 Generator health on every enriched run (the quietly-emptied-room guard):
 BFS-fail envs 0/256; spawn-count min rose 105–122 → 142–200; retry-ladder
@@ -111,16 +123,37 @@ not a shift). 64-env step-rate: enriched 13.75 vs vanilla 13.30 env.step/s
    at is **not present at the rendered descriptor level** (calibration
    correction below) — they shape the distribution's *spread*, they do not
    close a D1 point gap. (Implemented.)
-3. **F3 tall furniture — NOW TRIGGERED.** The D4 high-row-near gap is real
-   (Infinigen ~50% vs ProcRoom ~44%) and enrichment moved it the *wrong*
-   way (to 34.6%): enclosure lowers D4, only tall mid-room columns raise
-   it. F3 is the next lever to implement (its own change, not this PR).
-4. **F2 internal walls — NOT triggered.** There is no D5 edge *deficit* to
-   fill: ProcRoom-vanilla edge density (2.35%) already sits *above* every
-   Infinigen scene (1.39–2.21%), so an edge-*adding* lever is not warranted.
-   Heavy-scene door-chain structure surfaces as D3 residual (seed6 / seed2
-   top-11 15–17%), not as missing edges. Keep deferred; revisit only if an
-   implemented F3 or the NX deploy-frame legs reveal a D5 residual.
+3. **F3 tall furniture — IMPLEMENTED; modest D4 lift, no regression.**
+   Stands the wall-flush shelves/cabinets (2.0 / 2.1 m) and the two
+   mid-room tall cylinders (1.8 m) full-height, enriched path only. A
+   same-session A/B on *identical* rooms (health-confirmed byte-identical
+   spawn — only object heights differ) measures the pure height effect:
+   D4 34.6 → **36.4%** (+1.8 toward Infinigen 49.9%), D1 median 1.56 flat,
+   D5 flat, D2 top-row 2.72 → 2.63 m, and D3 top-11 7.3 → **6.3%** — F1's
+   enclosure landing is *not* undone (the feared tall-furniture ceiling-
+   sightline shadowing did not appear; measured, not assumed). The lift is
+   real but small and stays ~14 pts below the band: D4 counts high-row
+   *near* (<2 m) cells, and the frequently-present tall objects are wall-
+   flush (near only when the robot faces that wall) while the direct mid-
+   room-column mechanism fires only at the densest level and is parked
+   first by the solvability retry. Closing D4 into the band is a
+   frequency/proximity lever (more / earlier / nearer tall columns) that
+   cannot be done cleanly enriched-only (the placement order is shared with
+   the vanilla generator) — its own follow-up change, not a height lever.
+4. **F2 internal walls — not triggered by D5; re-motivated by path
+   topology.** There is still no D5 edge *deficit* to fill: ProcRoom-vanilla
+   edge density (2.35%) already sits *above* every Infinigen scene
+   (1.39–2.21%), so an edge-*adding* lever is not warranted on that
+   evidence, and heavy-scene door-chain structure surfaces as D3 residual
+   (seed6 / seed2 top-11 15–17%) rather than as missing edges. What the
+   depth descriptors cannot see is the *navigable* topology: measured
+   through the shared A*, the enriched generator's planned paths are dead
+   straight (median turn density 0.000 rad/m, tortuosity 1.000) against
+   0.242 / 1.287 for the Infinigen singleroom, and enrichment roughly
+   halved what little path complexity vanilla had. That is a real gap F1/F3
+   cannot reach — see
+   [`procroom-placement-architecture`](procroom-placement-architecture.md),
+   which defines the two path statistics and gates F2 on them.
 5. **T3 doorway / T4 span — minor as predicted; keep.** T4's
    `max_span_sum=13.4` budget cap held: D3 residual 7.3% is low, no runaway
    pack-gap slits, walls-active median unchanged ~14.
@@ -156,9 +189,38 @@ finding for the operator, not a lever defect.
 
 Conclusion: enrichment **dominates** the finetune-only fallback for the
 descriptor-level gap it targets (D3 enclosure). Proceed toward the
-enriched retrain; add F3 to close D4; keep F2 deferred. This sim-frame
-table is the only per-scene-variance source (the NX session binds one
-scene); it is retained above for the fallback triggers.
+enriched retrain; keep F2 deferred. F3 is now implemented (tall furniture
++ columns) and lifts D4 the right way (+1.8) with no regression, but does
+not reach the band on the height lever alone — the residual D4-near gap is
+a frequency/proximity lever (a follow-up), so the retrain either ships F3-
+as-is (tall statistics present, no regression) or waits on that follow-up
+— an operator call, informed by whether the deploy behavior needs the full
+band. This sim-frame table is the only per-scene-variance source (the NX
+session binds one scene); it is retained above for the fallback triggers.
+
+### Enrichment v2 batch — the closed set before the retrain
+
+The operator ratified a closed batch of ProcRoom improvements to land
+before the single enriched DEPTH_SUBGOAL v2 retrain. Four of its five items
+turn on the same shared machinery — object placement priority and the
+solvability retry ladder's park order — so they were routed to one design
+consult rather than four incisions into a generator NOCAM consumes forever:
+
+- The **D4 frequency lever**, the **D1 overshoot rebalance**, **H1 compound
+  placement** and **F2 internal walls** are designed together in
+  [`procroom-placement-architecture`](procroom-placement-architecture.md),
+  which also defines the two path statistics F2 is gated on and carries the
+  implementation split. Read it before picking any of them up.
+- **F4 rendered-camera extrinsics micro-DR** (Q4's boundary with
+  [`domain-randomization-audit`](domain-randomization-audit.md)) and the
+  **ceiling probe** stay independent of that design and of each other.
+
+That consult's headline finding bears on this brief's own numbers: the D1
+overshoot, the D4 regression and the path-topology collapse share one
+mechanism — enrichment cleared the room interior and pushed the spawn away
+from what remained — so the first move is a re-range of
+`_ENRICH_ROBOT_SPAWN_INFLATION` and `_ENRICH_CLUTTER_WALL_BIAS`, both of
+which already exist and already default to the vanilla behavior.
 
 ### Measured baseline (ProcRoom, deployed 80×45 policy camera, meters)
 
@@ -532,18 +594,22 @@ provisional sim-frame targets.
   parked+inactive on NOCAM, activation via depth-only event params —
   then pair with Q1's palette-equality check and a 256-env NOCAM
   construct smoke. Cost: +1 kinematic prim/env.
-- **F3 tall furniture.** First step (cheapest D4 lever): raise the two
-  interior-scattered `tall_cyl` clutter heights (r=0.1, h=0.7 → e.g.
-  1.2–2.2 m; clutter z already derives as size/2, `proc_room.py:753`,
-  so this is an `OBJECT_SIZES` + palette-literal change only) —
-  furniture is always wall-flush, so tall cabinets make high-in-image
-  *near* columns only when the robot faces a wall; mid-room columns
-  are the direct D4 mechanism. Then re-dimension or add 2–4
-  shelf/cabinet variants at 1.8–2.4 m (Infinigen: 53% of objects top
-  above 1.0 m). Moves: D4 (near columns high in the image — the
-  spatial near-band structure the three scalar descriptors miss), D5
-  edge density. Keep `OBJECT_SIZES`, the palette builder, and
-  slot-range tables in sync (they are load-bearing shared constants).
+- **F3 tall furniture — IMPLEMENTED (see the CALIBRATION re-rank + F3
+  acceptance for the measured A/B).** First step (cheapest D4 lever): raise
+  the two interior-scattered `tall_cyl` clutter heights (r=0.1, h=0.7 →
+  1.8 m; clutter z derives as size/2, so this is a palette + generator
+  pose-z change) — furniture is always wall-flush, so tall cabinets make
+  high-in-image *near* columns only when the robot faces a wall; mid-room
+  columns are the direct D4 mechanism. Also re-dimensioned the 4
+  shelf/cabinet slots to 2.0 / 2.1 m (Infinigen: 53% of objects top above
+  1.0 m; re-dimension not add, so no `NUM_OBJECTS` fork). Kept
+  `OBJECT_SIZES`, the palette builder, and the slot-range tables in sync
+  via one `tall_object_heights` map both consume (load-bearing shared
+  constants). Delivered: D4 +1.8 with no regression, but below the band —
+  the residual is frequency/proximity (mid-room columns fire only at the
+  densest level and are parked first by the shared retry ladder, so the
+  height lever alone cannot close it enriched-only). D5 unchanged (no edge
+  deficit existed).
 - **F2 internal walls + optional second doorway.** Conditional: pursue
   only if D5 shows a residual after F1/F3/T5 — highest
   cost-per-descriptor-point in the tier given the constraints below.
@@ -770,6 +836,26 @@ those unchecked lines are that session's checklist.
       variants (the ceiling is outside the collection). Default-path
       byte-identity is pinned by a seeded dual-run test. 1000 Kit-free
       tests green.
+- [x] F3 tall furniture implemented (enriched path only): the wall-flush
+      shelves/cabinets and the two mid-room tall cylinders stand full-
+      height via a `tall_object_heights` map threaded to *both* the palette
+      builder (rendered geometry) and the generator (pose z = height/2),
+      kept in lockstep exactly as `wall_height` is. XY footprints unchanged,
+      so occupancy / BFS / spawn / the geometric proximity reward stay
+      byte-identical (a 2 m column's XY box equals a 0.7 m one's — no new
+      hazard). Heights capped under the lowest ceiling underside (2.15 m) so
+      a tall object never pierces the enclosure. Vanilla/NOCAM contract +
+      palette goldens unchanged; the 8 enriched goldens re-frozen; new pose-
+      z / palette-height lockstep pins + the dual-run byte-identity guard.
+      Kit-free lab suites green (798 pure + `test_sim/env`).
+- [x] **validated (GPU window):** same-session A/B on *identical* rooms
+      (health-confirmed byte-identical spawn — only heights differ):
+      D4 high-row-near 34.6 → **36.4%** (+1.8 toward Infinigen 49.9%
+      [40.6–58.9]); D1 median 1.56 flat, D3 top-11 7.3 → 6.3% (F1 landing
+      preserved), D2 top 2.72 → 2.63 m, D5 1.69 → 1.70%; health clean
+      (BFS-fail 0/256, step-rate 13.55/s — the baseline reproduces the
+      recorded 34.6% exactly). D4 stays ~14 pts below the band: the residual
+      is frequency/proximity-limited (a follow-up lever), not height.
 
 ### Calibration + maintenance
 

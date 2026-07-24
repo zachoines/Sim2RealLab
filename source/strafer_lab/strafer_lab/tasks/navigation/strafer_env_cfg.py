@@ -1345,7 +1345,13 @@ _INFINIGEN_PERCEPTION_TRAIN_NUM_ENVS = 1
 
 # Import procedural room palette builder + the planner inflation geometry the
 # subgoal off-path corridor is sized from.
-from .mdp.proc_room import GRID_RES, INFLATION_CELLS, build_proc_room_collection_cfg
+from .mdp.proc_room import (
+    GRID_RES,
+    INFLATION_CELLS,
+    PlacementCfg,
+    build_proc_room_collection_cfg,
+    column_protected_park_rank,
+)
 
 
 # --- ProcRoom depth-enrichment parameters (enriched depth variants only) ---
@@ -1356,13 +1362,32 @@ _ENRICH_WALL_HEIGHT = 2.7               # enclosing walls (open-top default 1.0)
 _ENRICH_DOOR_WIDTH_MAX = 2.0            # doorway U[0.8, 2.0] (default 1.2)
 _ENRICH_SPAN_MAX = 7.5                  # room span U[4.0, 7.5] (default 7.0)
 _ENRICH_MAX_SPAN_SUM = 13.4            # perimeter cap for the 26 m wall stock
-_ENRICH_CLUTTER_WALL_BIAS = 0.5        # per-episode perimeter-biased clutter prob
-_ENRICH_ROBOT_SPAWN_INFLATION = 2      # extra spawn erosion cells (0.2 m standoff)
+_ENRICH_CLUTTER_WALL_BIAS = 0.3        # per-episode perimeter-biased clutter prob
+# Extra spawn erosion cells (0.1 m standoff). The shared pool's 0.3 m disc
+# inflation is quantized on a 0.1 m grid, so it alone leaves a small tail of
+# candidates inside the 0.28 m chassis radius; one erosion cell clears it.
+_ENRICH_ROBOT_SPAWN_INFLATION = 1
 _ENRICH_MIN_LEVEL = 4                  # un-pin difficulty to U[4, 7] (default pins 7)
 _ENRICH_MAX_LEVEL = 7
 _ENRICH_P_CEIL = 0.7                    # per-episode enclosure probability
 _ENRICH_CEILING_HEIGHT_RANGE = (2.2, 2.9)
 _ENRICH_CEILING_SIZE = (7.6, 7.6, 0.1)  # slab spanning the largest room + overhang
+# Open-top defaults shelf 0.8 / cabinet 0.6 / tall_cyl 0.7. Must stay under the
+# lowest ceiling-slab underside (2.15 m) or a tall object pierces the enclosure.
+_ENRICH_TALL_OBJECT_HEIGHTS = {"shelf": 2.0, "cabinet": 2.1, "tall_cyl": 1.8}
+# Mid-room tall columns. The two tall-cylinder slots sit at the end of the
+# clutter sequence, so only level 7 reaches them and the retry ladder parks them
+# first; the phase makes their presence a per-episode draw and the rank moves
+# them behind the rest of their own category. A probability rather than a
+# promotion: full promotion overshoots to near-certain presence.
+_ENRICH_COLUMN_PROB = 0.5
+_ENRICH_COLUMN_COUNT = 2
+_ENRICH_PLACEMENT = PlacementCfg(
+    park_rank=column_protected_park_rank(),
+    column_prob=_ENRICH_COLUMN_PROB,
+    column_count=_ENRICH_COLUMN_COUNT,
+    relocate_blocked_bfs_seed=True,
+)
 
 
 def _make_ceiling_slab_cfg() -> RigidObjectCfg:
@@ -1547,14 +1572,18 @@ class StraferSceneCfg_ProcRoomEnriched(StraferSceneCfg_ProcRoom):
     """Depth scene with enclosing (tall) walls + a standalone ceiling slab.
 
     Same geometry pipeline and depth camera as :class:`StraferSceneCfg_ProcRoom`,
-    but the walls reach ``_ENRICH_WALL_HEIGHT`` and a per-env ceiling slab
-    (outside the collection — never in occupancy / BFS / the proximity mask)
+    but the walls reach ``_ENRICH_WALL_HEIGHT``, the shelf / cabinet / tall-
+    cylinder slots stand at ``_ENRICH_TALL_OBJECT_HEIGHTS``, and a per-env ceiling
+    slab (outside the collection — never in occupancy / BFS / the proximity mask)
     closes the room's top over enclosed episodes. Depth is geometry-only, so no
     added light is needed here (see the perception variant for the RGB path).
     """
 
     room_primitives: RigidObjectCollectionCfg = RigidObjectCollectionCfg(
-        rigid_objects=build_proc_room_collection_cfg(wall_height=_ENRICH_WALL_HEIGHT),
+        rigid_objects=build_proc_room_collection_cfg(
+            wall_height=_ENRICH_WALL_HEIGHT,
+            tall_object_heights=_ENRICH_TALL_OBJECT_HEIGHTS,
+        ),
     )
     ceiling: RigidObjectCfg = _make_ceiling_slab_cfg()
 
@@ -1574,7 +1603,10 @@ class StraferSceneCfg_ProcRoomPerceptionEnriched(StraferSceneCfg_ProcRoomPercept
     """
 
     room_primitives: RigidObjectCollectionCfg = RigidObjectCollectionCfg(
-        rigid_objects=build_proc_room_collection_cfg(wall_height=_ENRICH_WALL_HEIGHT),
+        rigid_objects=build_proc_room_collection_cfg(
+            wall_height=_ENRICH_WALL_HEIGHT,
+            tall_object_heights=_ENRICH_TALL_OBJECT_HEIGHTS,
+        ),
     )
     ceiling: RigidObjectCfg = _make_ceiling_slab_cfg()
     ceiling_light = AssetBaseCfg(
@@ -1691,6 +1723,8 @@ _GENERATE_PROC_ROOM_ENRICHED = EventTerm(
         "ceiling_entity_name": "ceiling",
         "p_ceil": _ENRICH_P_CEIL,
         "ceiling_height_range": _ENRICH_CEILING_HEIGHT_RANGE,
+        "tall_object_heights": _ENRICH_TALL_OBJECT_HEIGHTS,
+        "placement": _ENRICH_PLACEMENT,
     },
 )
 

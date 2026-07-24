@@ -96,16 +96,17 @@ _CONTRACT_GOLDENS = {
     "RLDepthSubgoal_Robust_PLAY": "3f0e0b5402c7279cd5ef0f6222753deca21e60c88494192e502f41962c08aa78",
     # Depth-enrichment variants — NEW IDs frozen at creation (no prior checkpoint
     # depends on them). The enrichment lives in the `events` field (un-pinned
-    # difficulty + enriched generation params); the observation contract is
-    # byte-identical to the open-top depth variants (asserted separately).
-    "RLDepthEnriched_Real": "904b955ce648c4f51af93e9522ed0234bfc0017a004b3200ed9a0368cc23eb8b",
-    "RLDepthEnriched_Robust": "4bae1978da1f1949f42e63a11189483ea8c91005ece275bd4b3f371822ad90a2",
-    "RLDepthEnriched_Real_PLAY": "6741c24b3283d1887afc84143b6c2c570caf3e540e009835cc57eb0b129612f9",
-    "RLDepthEnriched_Robust_PLAY": "3ce29e9078781874d0a304515af8b5241d84bc09d833210268f5056bd9796306",
-    "RLDepthSubgoalEnriched_Real": "7a5bcc676c378bdd0adac673edffff7ee2d3a17b0aa57008314dd3ead065b3cc",
-    "RLDepthSubgoalEnriched_Robust": "301d7523897d83ea95ec61ad612cf68a28dad46dc9e4ffe76c57500f9b0c8f05",
-    "RLDepthSubgoalEnriched_Real_PLAY": "e224b7c2788f8f6f3b21661998d88b68c88b85511c281f5451c47cbfd11583a4",
-    "RLDepthSubgoalEnriched_Robust_PLAY": "cf9ea0101c619ffe9b77b5f5edbf839a1328003ea9d9a8ae7ff4b8584d56f974",
+    # difficulty + enriched generation params, incl. the tall-object heights);
+    # the observation contract is byte-identical to the open-top depth variants
+    # (asserted separately).
+    "RLDepthEnriched_Real": "5c5256c73026042ee930ad879b7260d5099035235b6673359385b71b0d215796",
+    "RLDepthEnriched_Robust": "9a38d12ebba44bca556bb2feed9c4b64a7e32812a640a2344d7b6a55e9497946",
+    "RLDepthEnriched_Real_PLAY": "ae8631997383000d76642fdb7e7c3ab8af564b9276594ff0ddd8abab9ba5b8ad",
+    "RLDepthEnriched_Robust_PLAY": "991aaa85686fc8f742be7a711d5dc958905db47ee7d8d58d4804a3294862dcea",
+    "RLDepthSubgoalEnriched_Real": "273f225746b9e49ac3186fe8e7d2190138114f6d2e2ec98473f60dfb5b057fb9",
+    "RLDepthSubgoalEnriched_Robust": "69c8b97b2f43923844c74ff5be16a0b54a06c1ad6e2824b7f92a44e444911c60",
+    "RLDepthSubgoalEnriched_Real_PLAY": "cbeb35b7b0127aeb4482c028b61a5d05cdd2757e6eb73680c97048cefd5233d2",
+    "RLDepthSubgoalEnriched_Robust_PLAY": "13aa24580b4df95b3cae8b7f75b396a59a5e9e121d85e1c6003761bd6d8711e4",
 }
 
 # Frozen signature (slot name set + spawn sizes) of the pre-enrichment 44-object
@@ -148,6 +149,13 @@ _COMPOSED_RL = {
 # =====================================================================
 # Snapshot gate: composed RL variant matches the frozen legacy contract
 # =====================================================================
+
+
+# Derived rather than listed so a new open-top variant is covered by
+# construction; the enriched IDs are exactly the complement.
+_OPEN_TOP_RL_VARIANTS = tuple(
+    name for name in sorted(_COMPOSED_RL) if "Enriched" not in name
+)
 
 
 @pytest.mark.parametrize("name", sorted(_COMPOSED_RL), ids=lambda n: n)
@@ -203,10 +211,7 @@ def test_open_top_variants_keep_pre_enrichment_palette_and_no_ceiling():
     enriched (2.7 m wall + ceiling) scene to a *vanilla* depth variant — which
     would pass every contract golden (the hash excludes the scene) and the NOCAM
     palette check — is caught here."""
-    for name in (
-        "RLNoCam", "RLNoCamSubgoal_Real", "RLNoCamSubgoal_Robust",
-        "RLDepth_Real", "RLDepth_Robust", "RLDepthSubgoal_Real",
-    ):
+    for name in _OPEN_TOP_RL_VARIANTS:
         scene = _COMPOSED_RL[name]().scene
         got = _hash(_palette_sig(scene.room_primitives))
         assert got == _PALETTE_GOLDEN, (
@@ -217,20 +222,46 @@ def test_open_top_variants_keep_pre_enrichment_palette_and_no_ceiling():
         )
 
 
+def test_open_top_variants_drive_the_generator_at_its_defaults():
+    """The open-top variants reach ``generate_proc_room`` with no argument but
+    the collection name, at the pinned 7/7 difficulty.
+
+    The contract hash renders a callable as its qualified name, so it sees the
+    event term's presence but not which arguments it carries. The ProcRoom
+    bridge cfg is checked here too: it consumes the same vanilla event term and
+    is not in ``_COMPOSED_RL``."""
+    cfgs = [(name, _COMPOSED_RL[name]()) for name in _OPEN_TOP_RL_VARIANTS]
+    cfgs.append(
+        ("BridgeAutonomy_ProcRoom", composed.StraferNavCfg_BridgeAutonomy_ProcRoom())
+    )
+    for name, cfg in cfgs:
+        events = cfg.events
+        assert set(events.generate_room.params) == {"collection_name"}, (
+            f"{name} passes non-default generator arguments: "
+            f"{sorted(set(events.generate_room.params) - {'collection_name'})}"
+        )
+        assert events.randomize_difficulty.params == {"min_level": 7, "max_level": 7}, (
+            f"{name} does not pin difficulty 7/7"
+        )
+
+
 def test_enriched_palette_adds_no_new_slot():
     """The enriched depth palette has the SAME slot-name set as pre-enrichment —
-    only the wall slots grow taller. No new collection slot is ever added (the
-    ceiling is a standalone entity outside the collection), so nothing new can be
-    active on NOCAM."""
+    only the walls and the tall-furniture/clutter slots grow taller. No new
+    collection slot is ever added (the ceiling is a standalone entity outside the
+    collection), so nothing new can be active on NOCAM."""
     from strafer_lab.tasks.navigation.mdp.proc_room import (
         build_proc_room_collection_cfg,
+    )
+    from strafer_lab.tasks.navigation.strafer_env_cfg import (
+        _ENRICH_TALL_OBJECT_HEIGHTS,
     )
 
     base_names = set(build_proc_room_collection_cfg().keys())
     enriched_scene = composed.StraferNavCfg_RLDepthSubgoalEnriched_Real().scene
     enriched_names = set(enriched_scene.room_primitives.rigid_objects.keys())
     assert enriched_names == base_names
-    # Only the walls differ, and only in the Z (height) size.
+    # Only the walls and the tall furniture/clutter differ, and only in Z.
     base_sig = _palette_sig(
         type(enriched_scene.room_primitives)(
             rigid_objects=build_proc_room_collection_cfg()
@@ -238,7 +269,20 @@ def test_enriched_palette_adds_no_new_slot():
     )
     enr_sig = _palette_sig(enriched_scene.room_primitives)
     changed = {k for k in base_sig if base_sig[k] != enr_sig[k]}
-    assert changed == {k for k in base_names if k.startswith("wall_")}
+    tall_prefixes = ("furn_shelf_", "furn_cabinet_", "clutter_tall_cyl_")
+    expected = {k for k in base_names if k.startswith("wall_")} | {
+        k for k in base_names if k.startswith(tall_prefixes)
+    }
+    assert changed == expected
+    # Geometry half of the palette/pose lockstep (the generator poses these at
+    # height/2, pinned in the CPU enrichment suite).
+    assert enr_sig["furn_shelf_0"]["size"][2] == _ENRICH_TALL_OBJECT_HEIGHTS["shelf"]
+    assert enr_sig["furn_cabinet_0"]["size"][2] == _ENRICH_TALL_OBJECT_HEIGHTS["cabinet"]
+    assert enr_sig["clutter_tall_cyl_0"]["height"] == _ENRICH_TALL_OBJECT_HEIGHTS["tall_cyl"]
+    for k in changed:
+        z_base = base_sig[k]["size"][2] if "size" in base_sig[k] else base_sig[k]["height"]
+        z_enr = enr_sig[k]["size"][2] if "size" in enr_sig[k] else enr_sig[k]["height"]
+        assert z_enr > z_base
     # The ceiling is NOT part of the collection.
     assert "ceiling" not in enriched_names
 

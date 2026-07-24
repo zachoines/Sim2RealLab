@@ -127,7 +127,29 @@ map ← odom ← base_link ← {chassis, wheel_*, d555_link}
 - RoboClaw PID values (`P=15000`, `I=750`, `D=0`, `QPPS=2796`) live in `strafer_shared.constants` and are auto-written to RAM on every `roboclaw_node` startup.
 - udev rules in [`99-strafer.rules`](99-strafer.rules) create the stable `/dev/roboclaw0` + `/dev/roboclaw1` symlinks and grant IIO permissions for the D555 IMU stack.
 
-## Install
+## Containerized deployment (recommended)
+
+The Jetson runs the stack in **containers** (the primary path) -- two images over
+CycloneDDS, driven from the repo-root Makefile:
+
+```bash
+make images            # build strafer-cpu + strafer-gpu
+make launch-sim        # sim-in-the-loop (consumes the DGX bridge; foxglove :8765)
+make up                # full robot deploy (base+perception+slam+navigation+autonomy)
+make launch-autonomy   # + GPU policy inference (--profile policy)
+make submit CMD="go to the chair"   # submit a mission to the running stack
+make down              # stop the containers
+```
+
+Full reference -- lanes, `policy`/`remote` profiles, host provisioning, the
+policy fail-loud contract, the dev bind-mount overlay -- lives in
+[`deploy/README.md`](deploy/README.md). New-Jetson provisioning: flash JP6.2 ->
+`sudo apt install docker.io` -> `sudo bash deploy/host-setup/install-host-prereqs.sh`
+-> `make images`. The container images bake everything the bare-metal sections below
+describe (colcon build, the pip-editable + `onnxruntime-gpu` install, the
+setuptools>=64 PEP-660 fix, the udev rules).
+
+## Install (bare-metal -- advanced; direct single-node debug)
 
 ```bash
 # Symlink packages into the colcon workspace
@@ -156,7 +178,11 @@ Prerequisites:
 
 From the repo root, `make build` runs the colcon build and `make udev` installs the rules.
 
-## Run
+## Run (bare-metal -- advanced; direct single-node debug)
+
+> The `make launch*` / `make submit` targets now drive the **containers** (see
+> *Containerized deployment* above). The `ros2 launch ...` commands below are the
+> bare-metal equivalents, kept for direct single-node debugging.
 
 ### Full stacks via `strafer_bringup`
 

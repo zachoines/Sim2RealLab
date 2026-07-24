@@ -1,0 +1,16 @@
+# Build context excludes for the strafer images (context = source/).
+# Keeps `COPY strafer_ros` content stable so iterating on docker/compose files
+# does NOT invalidate the expensive rosdep + colcon layers.
+**/build/
+**/install/
+**/log/
+**/.git/
+**/__pycache__/
+**/*.pyc
+# deploy scaffolding is not a ROS package; entrypoint is inlined in the Dockerfile
+strafer_ros/deploy/
+# non-robot trees present on the dev box (not needed in the robot images)
+strafer_lab/
+strafer_vlm/
+**/recordings/
+*.postman_collection.json

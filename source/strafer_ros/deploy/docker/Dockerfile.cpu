@@ -1,0 +1,82 @@
+# strafer-cpu — ROS 2 Humble CPU stack for the Strafer robot
+# (driver, perception, slam, navigation, bringup). No CUDA.
+#
+# Build context = source/  (must contain strafer_ros, strafer_shared, strafer_autonomy):
+#   cd <...>/Sim2RealLab/source
+#   docker build -f strafer_ros/deploy/docker/Dockerfile.cpu -t strafer-cpu:humble .
+#
+# Multi-arch base: `ros:humble-ros-base` pulls the arm64 layers natively on the Orin NX.
+FROM ros:humble-ros-base
+
+SHELL ["/bin/bash", "-c"]
+ENV DEBIAN_FRONTEND=noninteractive \
+    ROS_DISTRO=humble \
+    COLCON_WS=/ws
+
+# --- build tooling + non-rosdep system deps ---
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3-pip \
+      python3-colcon-common-extensions \
+      python3-rosdep \
+      python3-serial \
+      git \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR ${COLCON_WS}
+
+# --- pip-editable packages FIRST ---------------------------------------------
+# Several colcon packages `import strafer_shared` at build/launch, and
+# strafer_autonomy provides the `strafer-executor` console entrypoint. The
+# robot side installs WITHOUT the [planner] extra (no torch/fastapi/transformers
+# — those live on the workstation planner service only).
+COPY strafer_shared   /opt/strafer/strafer_shared
+COPY strafer_autonomy /opt/strafer/strafer_autonomy
+# ros:humble ships setuptools <64 (no PEP 660) — editable installs of these
+# pyproject-only packages need a newer setuptools/pip first.
+RUN pip3 install --no-cache-dir --upgrade "pip" "setuptools>=64" "wheel" \
+ && pip3 install --no-cache-dir -e /opt/strafer/strafer_shared \
+ && pip3 install --no-cache-dir -e /opt/strafer/strafer_autonomy \
+ && pip3 install --no-cache-dir "numpy<2"   # ROS python bindings are numpy-1 ABI; pin before a future bump pulls numpy 2.x
+
+# --- colcon workspace sources ---
+COPY strafer_ros ${COLCON_WS}/src/strafer_ros
+
+# --- resolve ROS deps via rosdep --------------------------------------------
+# Pulls nav2_*, rtabmap_ros, realsense2_camera, foxglove_bridge,
+# depth_image_proc, pointcloud_to_laserscan, imu_filter_madgwick, cv_bridge, …
+# (realsense2_camera installs fine without a camera attached.)
+RUN apt-get update \
+ && rosdep update --rosdistro ${ROS_DISTRO} \
+ && rosdep install --from-paths src --ignore-src -y -r \
+      --skip-keys "strafer_shared strafer_autonomy" \
+ && rm -rf /var/lib/apt/lists/*
+
+# --- build the workspace (all packages up to bringup) ------------------------
+# strafer_inference builds fine here (onnxruntime is a runtime import, not a
+# build dep); the nav2 sim backend never launches it.
+RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
+ && colcon build --symlink-install \
+      --packages-up-to strafer_bringup \
+      --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+# --- RMW: CycloneDDS ---------------------------------------------------------
+# The stack sets RMW_IMPLEMENTATION=rmw_cyclonedds_cpp, but that RMW is a
+# RUNTIME choice (no package.xml declares it), so rosdep doesn't pull it and the
+# ros base ships only Fast-DDS. Install it explicitly. Placed after colcon so a
+# rebuild reuses the cached rosdep/build layers.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ros-humble-rmw-cyclonedds-cpp \
+ && rm -rf /var/lib/apt/lists/*
+
+# --- entrypoint (inlined so the build context can exclude deploy/ entirely,
+#     keeping the COPY strafer_ros layer cache stable across docker/compose edits) ---
+RUN printf '%s\n' \
+      '#!/usr/bin/env bash' \
+      'set -e' \
+      'source /opt/ros/humble/setup.bash' \
+      '[ -f /ws/install/setup.bash ] && source /ws/install/setup.bash' \
+      'exec "$@"' \
+      > /entrypoint.sh \
+ && chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["bash"]

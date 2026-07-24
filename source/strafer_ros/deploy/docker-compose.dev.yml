@@ -1,0 +1,31 @@
+# Dev overlay — live source bind-mounts for iteration without rebuilds.
+#
+# The images build with `colcon build --symlink-install` and the pip packages
+# install editable, so mounting the host source over the in-image paths makes
+# edits to launch/*.py, config/*.yaml, and node *.py take effect on:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml restart <svc>
+#
+# Changed C++ / message definitions still need a rebuild inside the container:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml exec <svc> \
+#       bash -lc 'cd /ws && colcon build --symlink-install'
+#
+# Bring the whole dev stack up (compose concatenates these volumes onto the base):
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+name: strafer
+
+x-cpu-dev: &cpu-dev
+  - ../../strafer_ros:/ws/src/strafer_ros
+  - ../../strafer_shared:/opt/strafer/strafer_shared
+  - ../../strafer_autonomy:/opt/strafer/strafer_autonomy
+
+services:
+  base:       { volumes: *cpu-dev }
+  perception: { volumes: *cpu-dev }
+  slam:       { volumes: *cpu-dev }
+  navigation: { volumes: *cpu-dev }
+  autonomy:   { volumes: *cpu-dev }
+  inference:
+    volumes:
+      - ../../strafer_ros/strafer_inference:/ws/src/strafer_inference
+      - ../../strafer_shared:/opt/strafer/strafer_shared

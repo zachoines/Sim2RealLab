@@ -1,0 +1,68 @@
+# strafer-gpu — ROS 2 Humble + strafer_inference (policy) with onnxruntime-gpu
+# (TensorRT + CUDA execution providers) on the Jetson.
+#
+# Base: NVIDIA L4T JetPack r36.4 (CUDA 12.6 / cuDNN 9.3 / TensorRT 10.3). The L4T
+# MAJOR must match the host (r36 on r36); the r36.4.0 image runs on the r36.4.3
+# host (minors are cross-compatible). Runtime requires `runtime: nvidia`.
+#
+# Build context = source/  (contains strafer_ros + strafer_shared):
+#   docker build --network=host -f strafer_ros/deploy/docker/Dockerfile.gpu -t strafer-gpu:humble .
+FROM nvcr.io/nvidia/l4t-jetpack:r36.4.0
+
+SHELL ["/bin/bash", "-c"]
+ENV DEBIAN_FRONTEND=noninteractive \
+    ROS_DISTRO=humble \
+    COLCON_WS=/ws \
+    LANG=en_US.UTF-8
+
+# --- ROS 2 Humble apt repo + base + CycloneDDS RMW + build tooling ---
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      curl gnupg2 ca-certificates locales software-properties-common \
+ && locale-gen en_US en_US.UTF-8 \
+ && add-apt-repository -y universe \
+ && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+      -o /usr/share/keyrings/ros-archive-keyring.gpg \
+ && echo "deb [arch=arm64 signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu jammy main" \
+      > /etc/apt/sources.list.d/ros2.list \
+ && apt-get update && apt-get install -y --no-install-recommends \
+      ros-humble-ros-base \
+      ros-humble-rmw-cyclonedds-cpp \
+      python3-pip python3-colcon-common-extensions python3-rosdep git \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR ${COLCON_WS}
+
+# --- pip: strafer_shared + onnxruntime-gpu (Jetson jp6/cu126 wheel) ------------
+# onnxruntime-gpu provides the TensorRT/CUDA execution providers; the stock CPU
+# wheel silently runs DEPTH inference on CPU (~84 ms, over the 33 ms budget). Do
+# NOT pip-install tensorrt / nvidia-*-cu12 — the Jetson wheel links the base
+# image's system CUDA/cuDNN/TensorRT (pip copies conflict).
+COPY strafer_shared /opt/strafer/strafer_shared
+RUN pip3 install --no-cache-dir --upgrade "pip" "setuptools>=64" "wheel" \
+ && pip3 install --no-cache-dir -e /opt/strafer/strafer_shared \
+ && pip3 uninstall -y onnxruntime >/dev/null 2>&1 || true \
+ && pip3 install --no-cache-dir --index-url https://pypi.jetson-ai-lab.io/jp6/cu126 \
+      onnxruntime-gpu==1.23.0 \
+ && pip3 install --no-cache-dir "numpy<2"   # jp6/cu126 ORT wheel is built against numpy 1.x (numpy 2.x -> ImportError)
+
+# --- colcon: strafer_inference only (lean; no nav2/rtabmap/realsense) ---------
+COPY strafer_ros/strafer_inference ${COLCON_WS}/src/strafer_inference
+RUN apt-get update \
+ && (rosdep init 2>/dev/null || true) && rosdep update --rosdistro ${ROS_DISTRO} \
+ && rosdep install --from-paths src --ignore-src -y -r \
+      --skip-keys "strafer_shared strafer_autonomy" \
+ && rm -rf /var/lib/apt/lists/*
+RUN source /opt/ros/${ROS_DISTRO}/setup.bash \
+ && colcon build --symlink-install --packages-select strafer_inference \
+      --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+# --- entrypoint (inlined; context excludes deploy/) ---
+RUN printf '%s\n' \
+      '#!/usr/bin/env bash' \
+      'set -e' \
+      'source /opt/ros/humble/setup.bash' \
+      '[ -f /ws/install/setup.bash ] && source /ws/install/setup.bash' \
+      'exec "$@"' \
+      > /entrypoint.sh && chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["bash"]

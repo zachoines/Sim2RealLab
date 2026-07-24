@@ -1,0 +1,20 @@
+# Sim-bridge test provisioning. Opt-in via an explicit `-f` only — compose never
+# auto-loads this name, and it must not be applied on the real robot.
+services:
+  inference:
+    environment:
+      STRAFER_NAV_BACKEND: hybrid_nav2_strafer
+      STRAFER_INFERENCE_MODEL_PATH: /models/policy.onnx
+      STRAFER_POLICY_VARIANT: DEPTH_SUBGOAL
+      STRAFER_USE_SIM_TIME: "true"
+      # Simulated sensors arrive well under the real-hardware rates these
+      # windows are sized for; both widen or the watchdog zero-twists.
+      STRAFER_OBS_TIMEOUT_S: "1.0"
+      STRAFER_DEPTH_TIMEOUT_S: "2.0"
+
+  # slam and navigation take use_sim_time only as a launch argument.
+  slam:
+    command: ros2 launch strafer_slam slam.launch.py use_sim_time:=true
+
+  navigation:
+    command: ros2 launch strafer_navigation navigation.launch.py use_sim_time:=true

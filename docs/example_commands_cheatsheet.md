@@ -286,26 +286,33 @@ make launch-sim
 #   ros2 launch strafer_bringup bringup_sim_in_the_loop.launch.py \
 #       vlm_url:=http://192.168.50.196:8100 planner_url:=http://192.168.50.196:8200
 #
-# Override service URLs if the DGX moves:
-#   VLM_URL=http://other:8100 PLANNER_URL=http://other:8200 make launch-sim
-# Skip the ~one-rotation startup warmup spin (iteration sessions):
-#   DONUT_WARMUP=false make launch-sim
-# Pass arbitrary extra launch args (e.g. open RTAB-Map viz, wipe DB):
-#   LAUNCH_ARGS="rtabmap_viz:=true rtabmap_args:=-d" make launch-sim
-# Disable the headless visualizer:
-#   ros2 launch strafer_bringup bringup_sim_in_the_loop.launch.py viewer:=false
+# Config is single-source (container-primary): the env_file
+# source/strafer_ros/deploy/compose/sim.env is GENERATED — do NOT edit it.
+#   - portable knobs (STRAFER_NAV_BACKEND, timeouts): edit the canonical
+#     source/strafer_ros/strafer_bringup/config/env_sim_in_the_loop.env, then
+#     `make env-sync` (regenerates the mirror; `make env-check` guards drift).
+#   - sim-host VLM/PLANNER URLs (deploy-only): the overlay in
+#     source/strafer_ros/deploy/tests/gen_env.py, then `make env-sync`.
+#   Then: make launch-sim
+# Different launch args (donut_warmup, viewer, rtabmap_viz) or command: edit the
+#   `command:` in deploy/docker-compose.sim.yml, or iterate live via the dev overlay
+#   (docker compose -f docker-compose.yml -f docker-compose.dev.yml up).
 # Wipe the RTAB-Map database before launching (fresh map):
 #   make clean-map && make launch-sim
 ```
 
 ## Jetson shell 2 — submit a mission
 ```bash
-source source/strafer_ros/strafer_bringup/config/env_sim_in_the_loop.env
-# Target must match a groundable object the loaded scene actually contains
-# (its customData objects[]); Infinigen doesn't guarantee a specific one.
-strafer-autonomy-cli submit "go to the <scene target object>"
-strafer-autonomy-cli status
-strafer-autonomy-cli cancel
+# Container-primary: `make submit` execs the CLI inside the running sim container
+# (the CLI is a ROS action client -> ExecuteMission over DDS). Target must match a
+# groundable object the loaded scene actually contains (its customData objects[];
+# Infinigen doesn't guarantee a specific one).
+make submit CMD="go to the <scene target object>"
+# status / cancel (exec directly; no make wrapper):
+SIM='docker compose -f source/strafer_ros/deploy/docker-compose.sim.yml'
+$SIM exec strafer-sim strafer-autonomy-cli status
+$SIM exec strafer-sim strafer-autonomy-cli cancel
+# bare-metal (advanced): source .../env_sim_in_the_loop.env; strafer-autonomy-cli submit "..."
 ```
 
 ## Obs / subgoal parity (diagnostic — trained-policy deployment lane)

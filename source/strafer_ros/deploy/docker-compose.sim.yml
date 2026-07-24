@@ -1,0 +1,45 @@
+# Sim-in-the-loop lane — the hardware-free autonomy stack in one strafer-cpu
+# container, consuming the Isaac Sim ROS 2 bridge topics from the sim host over
+# CycloneDDS. Backend defaults to nav2, so NO GPU image is needed here.
+#
+#   cd Sim2RealLab/source/strafer_ros/deploy
+#   sudo bash host-setup/install-host-prereqs.sh      # rmem sysctl (once per host)
+#   docker compose -f docker-compose.sim.yml build
+#   docker compose -f docker-compose.sim.yml up
+#
+# network_mode: host so CycloneDDS discovers the sim bridge across the LAN and
+# inherits the host's raised net.core.rmem_max (else the 16 MB depth buffer is
+# clamped and frames drop). The sim host must export the same RMW + ROS_DOMAIN_ID.
+
+name: strafer-sim
+
+# DDS env drawn from this anchor (same values as docker-compose.yml) -- NOT from
+# the env_file, so the GENERATED compose/sim.env carries only portable knobs and
+# never the self-locating $(...) CYCLONEDDS_URI that env_file can't express.
+x-dds-env: &dds-env
+  RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+  CYCLONEDDS_URI: file:///opt/strafer/config/cyclonedds.xml
+  ROS_DOMAIN_ID: "42"
+
+services:
+  strafer-sim:
+    build:
+      context: ../..                                    # = source/  (strafer_ros + strafer_shared + strafer_autonomy)
+      dockerfile: strafer_ros/deploy/docker/Dockerfile.cpu
+      network: host        # L4T kernel lacks iptable_raw -> Docker bridge build networking fails; build on host net
+    image: strafer-cpu:humble
+    container_name: strafer_sim
+    network_mode: host
+    environment:
+      <<: *dds-env
+    env_file:
+      - compose/sim.env
+    volumes:
+      - ../strafer_bringup/config/cyclonedds.xml:/opt/strafer/config/cyclonedds.xml:ro   # canonical (no byte-copy)
+      - strafer_ros_home:/root/.ros                     # persist rtabmap.db across runs
+    # bringup_sim_in_the_loop.launch.py = description + timestamp_fixer + SLAM +
+    # Nav2 + goal_projection + executor + foxglove (no driver/realsense/IMU).
+    command: ros2 launch strafer_bringup bringup_sim_in_the_loop.launch.py
+
+volumes:
+  strafer_ros_home: {}

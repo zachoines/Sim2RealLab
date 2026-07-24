@@ -14,7 +14,8 @@ CONDA_ROOT ?= $(HOME)/miniconda3
 CONDA_ENV ?= env_isaaclab3
 
 .PHONY: build test test-unit test-driver test-ros test-autonomy test-vlm test-dgx test-jetson test-lab test-lab-pure lint lint-fix format format-check clean kill \
-        launch launch-nav launch-autonomy launch-sim clean-map \
+        launch launch-nav launch-autonomy launch-sim images up submit submit-deploy down clean-map \
+        env-sync env-check \
         install-tools udev serve-vlm serve-planner check-nvrtc help \
         sim-bridge sim-bridge-gui sim-harness harness-smoke
 
@@ -70,8 +71,9 @@ test-driver: ## strafer_driver unit tests directly with pytest — Jetson
 	cd source/strafer_ros/strafer_driver && \
 		python -m pytest test/ -v
 
-test-dgx: ## DGX e2e umbrella — autonomy + vlm + lab, each in its env. SKIP_KIT=1 swaps the heavy Kit suite for the fast pure-Python lab half.
+test-dgx: ## DGX e2e umbrella — env-check + autonomy + vlm + lab, each in its env. SKIP_KIT=1 swaps the heavy Kit suite for the fast pure-Python lab half.
 	@rc=0; \
+	$(MAKE) --no-print-directory env-check || rc=1; \
 	$(MAKE) --no-print-directory test-autonomy AUTONOMY_PY=$(VENV_VLM)/bin/python || rc=1; \
 	$(MAKE) --no-print-directory test-vlm || rc=1; \
 	if [ "$$SKIP_KIT" = "1" ]; then \
@@ -82,8 +84,9 @@ test-dgx: ## DGX e2e umbrella — autonomy + vlm + lab, each in its env. SKIP_KI
 	fi; \
 	exit $$rc
 
-test-jetson: ## Jetson e2e umbrella — autonomy + ros + driver
+test-jetson: ## Jetson e2e umbrella — env-check + autonomy + ros + driver
 	@rc=0; \
+	$(MAKE) --no-print-directory env-check || rc=1; \
 	$(MAKE) --no-print-directory test-autonomy || rc=1; \
 	$(MAKE) --no-print-directory test-ros || rc=1; \
 	$(MAKE) --no-print-directory test-driver || rc=1; \
@@ -121,51 +124,63 @@ format: ## Run black on all Python source
 format-check: ## Check formatting without modifying files
 	python3 -m black --check source/strafer_ros/ source/strafer_shared/ source/strafer_lab/scripts/
 
-# ---------- Launch ----------
+# ---------- Launch (containerized; container-primary — see source/strafer_ros/deploy/README.md) ----------
+# `make build` above stays colcon (the test targets need a bare-metal workspace).
+# Container images are `make images`. Bare-metal `ros2 launch` remains available for
+# direct single-node debugging (source the ws + env and launch by hand).
 
-launch: launch-nav ## Alias for launch-nav
+DEPLOY_DIR   := source/strafer_ros/deploy
+SIM_COMPOSE  := docker compose -f $(DEPLOY_DIR)/docker-compose.sim.yml
+FULL_COMPOSE := docker compose -f $(DEPLOY_DIR)/docker-compose.yml
 
-launch-nav: ## Launch navigation stack (driver + perception + SLAM + Nav2)
-	source $(COLCON_WS)/install/setup.bash && \
-		ros2 launch strafer_bringup navigation.launch.py
+# The compose env_file mirrors (deploy/compose/*.env) are GENERATED from the
+# canonical strafer_bringup/config/env_*.env — single source of truth. Edit canon,
+# then `make env-sync`. `make env-check` (run inside `make test`) fails on drift.
+env-sync: ## Regenerate the compose env mirrors from canonical strafer_bringup/config/env_*.env
+	python3 $(DEPLOY_DIR)/tests/gen_env.py --write
 
-launch-autonomy: ## Launch full autonomy stack (nav + executor → DGX services). Backend via STRAFER_NAV_BACKEND in env_autonomy.env.
-	@source source/strafer_ros/strafer_bringup/config/env_autonomy.env && \
-	if [ -z "$$VLM_URL" ] || [ -z "$$PLANNER_URL" ]; then \
-		echo "Usage: VLM_URL=http://<DGX>:8100 PLANNER_URL=http://<DGX>:8200 make launch-autonomy"; \
-		exit 1; \
-	fi; \
-	if { [ "$$STRAFER_NAV_BACKEND" = "strafer_direct" ] || [ "$$STRAFER_NAV_BACKEND" = "hybrid_nav2_strafer" ]; } && [ -z "$$STRAFER_INFERENCE_MODEL_PATH" ]; then \
-		echo "ERROR: STRAFER_NAV_BACKEND=$$STRAFER_NAV_BACKEND but STRAFER_INFERENCE_MODEL_PATH is empty — strafer_inference will NOT advertise navigate_to_pose; every mission silently falls back to nav2. Set STRAFER_INFERENCE_MODEL_PATH in env_autonomy.env."; \
-		exit 1; \
-	fi
-	source $(COLCON_WS)/install/setup.bash && \
-		source source/strafer_ros/strafer_bringup/config/env_autonomy.env && \
-		ros2 launch strafer_bringup autonomy.launch.py \
-			vlm_url:=$$VLM_URL planner_url:=$$PLANNER_URL
+env-check: ## Verify the compose env mirrors + DDS anchors match canon (fails on drift; run by `make test`)
+	@python3 $(DEPLOY_DIR)/tests/check_env_sync.py
 
-launch-sim: ## Launch Jetson sim-in-the-loop bringup (consumes DGX bridge topics; foxglove on :8765). Backend via STRAFER_NAV_BACKEND in env_sim_in_the_loop.env. Env: DONUT_WARMUP=false skips the startup spin; LAUNCH_ARGS="k:=v ..." passes arbitrary extras.
-	@source source/strafer_ros/strafer_bringup/config/env_sim_in_the_loop.env && \
-	if { [ "$$STRAFER_NAV_BACKEND" = "strafer_direct" ] || [ "$$STRAFER_NAV_BACKEND" = "hybrid_nav2_strafer" ]; } && [ -z "$$STRAFER_INFERENCE_MODEL_PATH" ]; then \
-		echo "ERROR: STRAFER_NAV_BACKEND=$$STRAFER_NAV_BACKEND but STRAFER_INFERENCE_MODEL_PATH is empty — strafer_inference will NOT advertise navigate_to_pose; every mission silently falls back to nav2. Set STRAFER_INFERENCE_MODEL_PATH in env_sim_in_the_loop.env."; \
-		exit 1; \
-	fi
-	source $(COLCON_WS)/install/setup.bash && \
-		source source/strafer_ros/strafer_bringup/config/env_sim_in_the_loop.env && \
-		ros2 launch strafer_bringup bringup_sim_in_the_loop.launch.py \
-			vlm_url:=$${VLM_URL:-http://192.168.50.196:8100} \
-			planner_url:=$${PLANNER_URL:-http://192.168.50.196:8200} \
-			donut_warmup:=$${DONUT_WARMUP:-true} \
-			$(LAUNCH_ARGS)
+images: ## Build the strafer-cpu + strafer-gpu container images
+	$(FULL_COMPOSE) build
+
+launch-sim: ## Sim-in-the-loop in a container (consumes the DGX bridge; foxglove :8765). Config: deploy/compose/sim.env.
+	$(SIM_COMPOSE) up
+
+viewer: ## Foxglove viewer (foxglove_bridge :8765) on the running deploy stack (real-robot OR sim-bridge). Connect ws://<robot-ip>:8765.
+	$(FULL_COMPOSE) --profile viewer up viewer
+
+up: ## Full robot deploy: base+perception+slam+navigation+autonomy containers (needs hardware). Config: edit canonical strafer_bringup/config/env_autonomy.env, then make env-sync.
+	$(FULL_COMPOSE) up
+
+launch: up ## Alias for `up` (containerized full deploy)
+launch-nav: up ## Alias for `up`
+
+launch-autonomy: ## Full deploy + GPU policy inference (--profile policy; set STRAFER_NAV_BACKEND + model in canonical strafer_bringup/config/env_autonomy.env, then make env-sync)
+	$(FULL_COMPOSE) --profile policy up
+
+submit: ## Submit a mission to the running SIM container:  make submit CMD="go to the chair"
+	@if [ -z "$(CMD)" ]; then echo 'Usage: make submit CMD="<natural-language command>"  (deploy lane: make submit-deploy)'; exit 1; fi
+	$(SIM_COMPOSE) exec -e STRAFER_MISSION_CMD="$(CMD)" strafer-sim bash -lc 'source /opt/ros/humble/setup.bash && source /ws/install/setup.bash && exec strafer-autonomy-cli submit "$$STRAFER_MISSION_CMD"'
+
+submit-deploy: ## Submit a mission to the running DEPLOY autonomy container:  make submit-deploy CMD="..."
+	@if [ -z "$(CMD)" ]; then echo 'Usage: make submit-deploy CMD="<natural-language command>"'; exit 1; fi
+	$(FULL_COMPOSE) exec -e STRAFER_MISSION_CMD="$(CMD)" autonomy bash -lc 'source /opt/ros/humble/setup.bash && source /ws/install/setup.bash && exec strafer-autonomy-cli submit "$$STRAFER_MISSION_CMD"'
+
+down: ## Stop + remove the strafer containers (sim + deploy lanes)
+	-$(SIM_COMPOSE) down
+	-$(FULL_COMPOSE) down
 
 # ---------- Clean ----------
 
 clean: ## Remove colcon build artifacts
 	cd $(COLCON_WS) && rm -rf build/ install/ log/
 
-clean-map: ## Delete corrupted or stale RTAB-Map database
-	rm -f $(HOME)/.ros/rtabmap.db
-	@echo "RTAB-Map database removed. SLAM will start fresh on next launch."
+clean-map: ## Delete the RTAB-Map database (container volumes + any bare-metal copy)
+	-docker volume rm strafer_strafer_ros_home strafer-sim_strafer_ros_home 2>/dev/null
+	-rm -f $(HOME)/.ros/rtabmap.db
+	@echo "RTAB-Map database removed; SLAM starts fresh on next launch."
 
 # ---------- Kill ----------
 

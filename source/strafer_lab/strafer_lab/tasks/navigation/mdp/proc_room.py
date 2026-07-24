@@ -14,6 +14,7 @@ Architecture:
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import torch
@@ -112,6 +113,144 @@ NUM_SPAWN_POINTS = 200   # per env
 # Park position for inactive objects
 PARK_POS = torch.tensor([100.0, 100.0, -10.0])
 _PARK_INIT_STATE = RigidObjectCfg.InitialStateCfg(pos=(100.0, 100.0, -10.0))
+
+
+# ===========================================================================
+# Placement configuration
+# ===========================================================================
+
+# The slot orders the default path uses, as data. ``FURNITURE_SLOTS[:k]``
+# iterated in order is ``FURNITURE_SLOTS[i] for i in range(k)``, and walking the
+# rank for the first group with an active member reproduces the two-tier
+# "clutter first, then furniture, highest index first" retry ladder.
+_VANILLA_FURNITURE_SEQUENCE = tuple(FURNITURE_SLOTS)
+_VANILLA_CLUTTER_SEQUENCE = tuple(CLUTTER_SLOTS)
+_VANILLA_PARK_RANK = tuple(
+    (slot,) for slot in list(reversed(CLUTTER_SLOTS)) + list(reversed(FURNITURE_SLOTS))
+)
+
+# A mid-room object must leave the BFS seed cell and the 3x3 ring the wavefront
+# first expands into free, or the flood starts inside an obstacle. The disc
+# covering that ring is 2 cells, and the footprint is dilated by the robot
+# radius before BFS reads it.
+BFS_SEED_CLEARANCE = INFLATION_CELLS * GRID_RES + 2 * GRID_RES  # 0.5 m
+
+
+def column_protected_park_rank(
+    column_slots: tuple[int, ...] | list[int] = tuple(CLUTTER_TALL_CYL_SLOTS),
+) -> tuple[tuple[int, ...], ...]:
+    """The vanilla park rank with ``column_slots`` moved last within clutter.
+
+    Protection is a rank position, never an exemption: a protected slot stays
+    parkable and only moves behind its own category, so the ladder's terminal
+    state is unchanged and it can never strip a furniture piece to spare a
+    column.
+    """
+    protected = set(column_slots)
+    clutter = [s for s in reversed(CLUTTER_SLOTS) if s not in protected]
+    clutter += [s for s in reversed(CLUTTER_SLOTS) if s in protected]
+    return tuple((slot,) for slot in clutter + list(reversed(FURNITURE_SLOTS)))
+
+
+@dataclass
+class PlacementCfg:
+    """Placement-order, park-order and mid-room-column levers.
+
+    An all-default instance reproduces the vanilla placement and park order, so
+    every field is a deliberate departure from it. ``None`` sequences resolve to
+    the module's vanilla order.
+
+    Not frozen: Isaac Lab's ``configclass`` post-init walks an event term's
+    params and re-assigns every nested dataclass field, which a frozen instance
+    rejects. Fields are validated at construction.
+
+    Attributes:
+        furniture_sequence: Slot order the furniture phase fills; the level's
+            furniture budget takes a prefix of it.
+        clutter_sequence: Slot order the clutter phase fills; the level's clutter
+            budget takes a prefix of it.
+        park_rank: Total order over slot *groups* the retry ladder walks, parking
+            the first group holding an active member. Groups are parked
+            atomically. Perimeter wall slots must stay out of the rank — parking
+            one opens a floor-to-ceiling slit the exterior clip does not see.
+        column_prob: Per-episode probability the mid-room column phase runs. The
+            phase is additive: it does not consume the level's clutter budget.
+        column_count: Columns the phase places when it runs.
+        column_slots: Slots the column phase poses, and which the clutter phase
+            gives up for the episodes the phase runs.
+        column_seed_clearance: Minimum distance from env-local origin to a
+            column's footprint.
+        column_radius_max: Upper bound of the column centre-radius sampler; the
+            room's own inset bounds it further per env.
+        relocate_blocked_bfs_seed: Move a grid-blocked solvability seed to the
+            nearest free cell before the flood. ``_gpu_bfs`` marks its seed
+            reachable whether or not the cell is free, so without this a blocked
+            centre seeds reachability from inside an obstacle.
+    """
+
+    furniture_sequence: tuple[int, ...] | None = None
+    clutter_sequence: tuple[int, ...] | None = None
+    park_rank: tuple[tuple[int, ...], ...] | None = None
+    column_prob: float = 0.0
+    column_count: int = 0
+    column_slots: tuple[int, ...] = tuple(CLUTTER_TALL_CYL_SLOTS)
+    column_seed_clearance: float = BFS_SEED_CLEARANCE
+    column_radius_max: float = 2.5
+    relocate_blocked_bfs_seed: bool = False
+
+    def __post_init__(self) -> None:
+        _validate_sequence(self.furniture_sequence, FURNITURE_SLOTS, "furniture_sequence")
+        _validate_sequence(self.clutter_sequence, CLUTTER_SLOTS, "clutter_sequence")
+        _validate_park_rank(self.park_rank)
+        if not 0.0 <= self.column_prob <= 1.0:
+            raise ValueError(f"column_prob must be in [0, 1], got {self.column_prob}")
+        if not 0 <= self.column_count <= len(self.column_slots):
+            raise ValueError(
+                f"column_count must be in [0, {len(self.column_slots)}], "
+                f"got {self.column_count}"
+            )
+        _validate_sequence(self.column_slots, CLUTTER_SLOTS, "column_slots")
+        if self.column_seed_clearance < BFS_SEED_CLEARANCE:
+            raise ValueError(
+                f"column_seed_clearance {self.column_seed_clearance} is below the "
+                f"{BFS_SEED_CLEARANCE} m that keeps the BFS seed ring free"
+            )
+        if self.column_radius_max <= self.column_seed_clearance:
+            raise ValueError(
+                f"column_radius_max {self.column_radius_max} leaves no admissible "
+                f"band above the seed clearance {self.column_seed_clearance}"
+            )
+
+
+def _validate_sequence(seq, allowed, name: str) -> None:
+    if seq is None:
+        return
+    if len(set(seq)) != len(seq):
+        raise ValueError(f"{name} repeats a slot: {seq}")
+    stray = sorted(set(seq) - set(allowed))
+    if stray:
+        raise ValueError(f"{name} holds slots outside its category: {stray}")
+
+
+def _validate_park_rank(rank) -> None:
+    if rank is None:
+        return
+    seen: set[int] = set()
+    for group in rank:
+        if not group:
+            raise ValueError("park_rank holds an empty group")
+        overlap = sorted(seen & set(group))
+        if overlap:
+            raise ValueError(f"park_rank groups are not disjoint, repeated: {overlap}")
+        seen |= set(group)
+    walls = sorted(seen & set(WALL_SLOTS))
+    if walls:
+        raise ValueError(f"park_rank holds perimeter wall slots: {walls}")
+    missing = sorted((set(FURNITURE_SLOTS) | set(CLUTTER_SLOTS)) - seen)
+    if missing:
+        raise ValueError(
+            f"park_rank does not cover every placeable slot, missing: {missing}"
+        )
 
 
 # ===========================================================================
@@ -448,6 +587,46 @@ def _gpu_bfs(free_space: torch.Tensor, start_cells: torch.Tensor, max_iterations
     return reachable.squeeze(1) > 0.5
 
 
+def _relocate_blocked_seeds(
+    free_space: torch.Tensor, start_cells: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Move each grid-blocked BFS seed to its nearest free cell.
+
+    ``_gpu_bfs`` marks its seed reachable whether the cell is free or not, so a
+    blocked seed floods reachability outward from inside an obstacle. Ties break
+    on flattened cell order, so the correction consumes no randomness.
+
+    Args:
+        free_space: (B, Gx, Gy) bool — True = passable after inflation.
+        start_cells: (B, 2) int — (row, col) of the requested seeds.
+
+    Returns:
+        cells: (B, 2) int — seeds, corrected where they were blocked.
+        moved: (B,) bool — True where the seed was relocated.
+    """
+    B, Gx, Gy = free_space.shape
+    device = free_space.device
+    rows = start_cells[:, 0]
+    cols = start_cells[:, 1]
+    blocked = ~free_space[torch.arange(B, device=device), rows, cols]
+    moved = blocked & free_space.view(B, -1).any(dim=1)
+    if not moved.any():
+        return start_cells, moved
+
+    idx = torch.where(moved)[0]
+    dr = torch.arange(Gx, device=device).view(1, Gx, 1) - rows[idx].view(-1, 1, 1)
+    dc = torch.arange(Gy, device=device).view(1, 1, Gy) - cols[idx].view(-1, 1, 1)
+    dist2 = dr * dr + dc * dc
+    unreachable = Gx * Gx + Gy * Gy + 1
+    dist2 = torch.where(free_space[idx], dist2, torch.full_like(dist2, unreachable))
+    flat = dist2.view(len(idx), -1).argmin(dim=1)
+
+    cells = start_cells.clone()
+    cells[idx, 0] = flat // Gy
+    cells[idx, 1] = flat % Gy
+    return cells, moved
+
+
 def _xy_to_grid(x: torch.Tensor, y: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """Convert env-local XY coordinates to grid cell indices.
 
@@ -610,6 +789,8 @@ def generate_proc_room(
     p_ceil: float = 0.0,
     ceiling_height_range: tuple[float, float] = (2.2, 2.9),
     tall_object_heights: dict[str, float] | None = None,
+    placement: PlacementCfg | None = None,
+    health_sink: dict | None = None,
 ) -> None:
     """Generate procedural rooms for specified environments.
 
@@ -644,6 +825,11 @@ def generate_proc_room(
             instead of the ``OBJECT_SIZES`` default. Must match the map the
             palette was built with. ``None`` keeps every slot at its
             ``OBJECT_SIZES`` height.
+        placement: Placement-order, park-order and mid-room-column levers.
+            ``None`` keeps the vanilla slot sequences and retry-ladder order.
+        health_sink: When given, a dict the generator fills with per-call
+            placement, park, BFS and seed-relocation counters. Production passes
+            nothing.
 
     All enrichment arguments default to the open-top, single-pool, uniform-scatter
     behavior, so the NOCAM / vanilla-depth generator path is unchanged.
@@ -655,6 +841,42 @@ def generate_proc_room(
     device = env.device
     sizes = OBJECT_SIZES.to(device)
     wall_z = wall_height / 2.0
+
+    # Resolve the placement levers once; every one of them is a plain module
+    # constant when ``placement`` is None.
+    furn_seq = _VANILLA_FURNITURE_SEQUENCE
+    clut_seq = _VANILLA_CLUTTER_SEQUENCE
+    park_rank = _VANILLA_PARK_RANK
+    column_prob = 0.0
+    column_count = 0
+    column_slots: tuple[int, ...] = ()
+    clut_seq_columns = clut_seq
+    relocate_seed = False
+    if placement is not None:
+        if placement.furniture_sequence is not None:
+            furn_seq = placement.furniture_sequence
+        if placement.clutter_sequence is not None:
+            clut_seq = placement.clutter_sequence
+        if placement.park_rank is not None:
+            park_rank = placement.park_rank
+        relocate_seed = placement.relocate_blocked_bfs_seed
+        if placement.column_prob > 0.0 and placement.column_count > 0:
+            column_prob = placement.column_prob
+            column_count = placement.column_count
+            column_slots = placement.column_slots
+            # The column phase owns these slots on the episodes it runs, so the
+            # clutter budget still fills with ordinary items rather than losing
+            # two of them to the column phase.
+            clut_seq_columns = tuple(s for s in clut_seq if s not in set(column_slots))
+            column_r_min = placement.column_seed_clearance + max(
+                math.hypot(OBJECT_SIZES[s, 0].item(), OBJECT_SIZES[s, 1].item()) / 2.0
+                for s in column_slots
+            )
+            column_r_max = placement.column_radius_max
+    park_groups = [list(group) for group in park_rank]
+    n_column_promotions = 0
+    ladder_passes = 0
+    seed_relocations = 0
 
     # Floor-standing pose z (base on the floor). Walls are posed from ``wall_z``
     # below, not this vector.
@@ -811,11 +1033,10 @@ def generate_proc_room(
                         cursor += seg_len
 
         # --- Phase 3: Furniture placement ---
-        n_furn = max_furn[b_idx].item()
+        n_furn = max(0, max_furn[b_idx].item())  # a negative budget must take no prefix
         placed_furn_xy = []
         is_open_field = has_room_walls[b_idx].item() == 0
-        for f_idx in range(min(n_furn, NUM_FURNITURE)):
-            slot = FURNITURE_SLOTS[f_idx]
+        for slot in furn_seq[:n_furn]:
             furn_sx = OBJECT_SIZES[slot, 0].item()
             furn_sy = OBJECT_SIZES[slot, 1].item()
 
@@ -866,9 +1087,55 @@ def generate_proc_room(
             # If not placed after 10 attempts, slot stays parked
 
         # --- Phase 4: Clutter scatter ---
-        n_clut = max_clut[b_idx].item()
+        n_clut = max(0, max_clut[b_idx].item())  # a negative budget must take no prefix
         placed_clutter_xy = []
         inset = 0.5
+
+        # --- Phase 4a: Mid-room columns (additive, enriched-only) ---
+        # Runs before the scatter so the columns get the interior the perimeter
+        # bias vacates and the scatter then avoids them. The radial law is
+        # bounded below by the BFS seed clearance and above by the room inset,
+        # so no candidate can enclose the solvability seed or leave the room.
+        env_clut_seq = clut_seq
+        if column_prob > 0.0:
+            if torch.rand(1, device=device).item() < column_prob:
+                env_clut_seq = clut_seq_columns
+                n_column_promotions += 1
+                r_hi = min(column_r_max, min(w, h) / 2.0 - inset)
+                for slot in column_slots[:column_count]:
+                    if r_hi <= column_r_min:
+                        break
+                    for _ in range(10):
+                        theta = torch.rand(1, device=device).item() * 2.0 * math.pi - math.pi
+                        radius = column_r_min + torch.rand(1, device=device).item() * (
+                            r_hi - column_r_min
+                        )
+                        cx_ = radius * math.cos(theta)
+                        cy_ = radius * math.sin(theta)
+
+                        too_close = False
+                        for pfx, pfy in placed_furn_xy:
+                            if abs(cx_ - pfx) < 0.4 and abs(cy_ - pfy) < 0.4:
+                                too_close = True
+                                break
+                        if too_close:
+                            continue
+                        for pcx, pcy in placed_clutter_xy:
+                            if abs(cx_ - pcx) < 0.3 and abs(cy_ - pcy) < 0.3:
+                                too_close = True
+                                break
+                        if too_close:
+                            continue
+
+                        cyaw = torch.rand(1, device=device).item() * 2.0 * math.pi - math.pi
+                        poses[b_idx, slot, 0] = cx_
+                        poses[b_idx, slot, 1] = cy_
+                        poses[b_idx, slot, 2] = object_z[slot].item()
+                        q = _yaw_to_quat(torch.tensor(cyaw, device=device))
+                        poses[b_idx, slot, 3:7] = q
+                        active_mask[b_idx, slot] = True
+                        placed_clutter_xy.append((cx_, cy_))
+                        break
 
         # Per-episode placement law: uniform interior scatter (default) or the
         # perimeter-biased mixture (clutter hugs the walls, floor center open —
@@ -878,8 +1145,7 @@ def generate_proc_room(
         if clutter_wall_bias_prob > 0.0:
             clutter_wall_bias = torch.rand(1, device=device).item() < clutter_wall_bias_prob
 
-        for c_idx in range(min(n_clut, NUM_CLUTTER)):
-            slot = CLUTTER_SLOTS[c_idx]
+        for slot in env_clut_seq[:n_clut]:
             for _ in range(10):
                 if clutter_wall_bias:
                     # Push the item toward a random wall, small inward margin.
@@ -929,6 +1195,7 @@ def generate_proc_room(
                 break
 
     # --- Phase 5: BFS solvability check ---
+    placed_mask = active_mask.clone() if health_sink is not None else None
     occupancy = _build_occupancy_grid(poses, active_mask, sizes, room_w, room_h, device, has_room_walls)
     free_space = _inflate_obstacles(occupancy)
 
@@ -936,46 +1203,46 @@ def generate_proc_room(
     center_r, center_c = _xy_to_grid(
         torch.zeros(B, device=device), torch.zeros(B, device=device)
     )
-    start_cells = torch.stack([center_r, center_c], dim=-1)  # (B, 2)
+    center_cells = torch.stack([center_r, center_c], dim=-1)  # (B, 2)
+    start_cells = center_cells
+    if relocate_seed:
+        start_cells, moved = _relocate_blocked_seeds(free_space, center_cells)
+        seed_relocations = seed_relocations + moved.sum()
     reachable = _gpu_bfs(free_space, start_cells)
 
     # Check reachable count per env
     reachable_count = reachable.view(B, -1).sum(dim=-1)  # (B,)
     failed = reachable_count < MIN_REACHABLE_CELLS
 
-    # Retry: park clutter then furniture for failed envs, one at a time.
-    # With dense level-7 rooms (16 clutter + 8 furniture) we may need many
-    # passes.  Each pass removes one object (clutter first, then furniture)
-    # and re-checks BFS.  This keeps rooms as full as possible.
+    # Retry: walk the park rank for failed envs, parking the first group that
+    # still holds an active member. With dense level-7 rooms (16 clutter + 8
+    # furniture) we may need many passes. Each pass removes one group and
+    # re-checks BFS, keeping rooms as full as possible. Groups are pairwise
+    # disjoint and nothing re-activates, so the first-active index strictly
+    # increases and the ladder terminates in at most one pass per group.
     if failed.any():
-        max_retries = NUM_CLUTTER + NUM_FURNITURE  # worst case: remove everything
-        for retry in range(max_retries):
+        for retry in range(len(park_groups)):
             if not failed.any():
                 break
             failed_ids = torch.where(failed)[0]
             for fi in failed_ids:
-                # Try parking one clutter first
-                parked = False
-                for s in reversed(CLUTTER_SLOTS):
-                    if active_mask[fi, s]:
-                        active_mask[fi, s] = False
-                        poses[fi, s, :3] = PARK_POS.to(device)
-                        parked = True
+                for members in park_groups:
+                    if active_mask[fi, members].any():
+                        active_mask[fi, members] = False
+                        poses[fi, members, :3] = PARK_POS.to(device)
                         break
-                if not parked:
-                    # No clutter left, park one furniture
-                    for s in reversed(FURNITURE_SLOTS):
-                        if active_mask[fi, s]:
-                            active_mask[fi, s] = False
-                            poses[fi, s, :3] = PARK_POS.to(device)
-                            break
 
             # Rebuild and re-check
             occupancy = _build_occupancy_grid(poses, active_mask, sizes, room_w, room_h, device, has_room_walls)
             free_space = _inflate_obstacles(occupancy)
+            start_cells = center_cells
+            if relocate_seed:
+                start_cells, moved = _relocate_blocked_seeds(free_space, center_cells)
+                seed_relocations = seed_relocations + moved.sum()
             reachable = _gpu_bfs(free_space, start_cells)
             reachable_count = reachable.view(B, -1).sum(dim=-1)
             failed = reachable_count < MIN_REACHABLE_CELLS
+            ladder_passes += 1
 
     # --- Phase 6: Extract spawn points ---
     # The shared pool feeds robot reset, the goal command, and the subgoal
@@ -1022,6 +1289,28 @@ def generate_proc_room(
             )
         env._proc_room_robot_spawn_pts[env_ids] = robot_spawn_xy
         env._proc_room_robot_spawn_count[env_ids] = robot_spawn_count
+
+    if health_sink is not None:
+        column_slots_seen = column_slots or tuple(CLUTTER_TALL_CYL_SLOTS)
+        ordinary = [s for s in CLUTTER_SLOTS if s not in set(column_slots_seen)]
+        parked = placed_mask & ~active_mask
+        health_sink.update({
+            "envs": B,
+            "column_phase_fired": n_column_promotions,
+            "placed_furniture": int(placed_mask[:, FURNITURE_SLOTS].sum()),
+            "placed_clutter": int(placed_mask[:, ordinary].sum()),
+            "placed_columns": int(placed_mask[:, list(column_slots_seen)].sum()),
+            "parked_furniture": int(parked[:, FURNITURE_SLOTS].sum()),
+            "parked_clutter": int(parked[:, ordinary].sum()),
+            "parked_columns": int(parked[:, list(column_slots_seen)].sum()),
+            "ladder_passes": ladder_passes,
+            "bfs_failed": int(failed.sum()),
+            # Relocation *events* over this call — the initial BFS plus one per
+            # ladder pass — so it can exceed the env count on a room that stays
+            # blocked across passes; not a per-env incidence.
+            "bfs_seed_relocated": int(seed_relocations),
+            "spawn_count_min": int(spawn_count.min()),
+        })
 
     # --- Phase 7: Offset by env origins and write ---
     env_origins = env.scene.env_origins[env_ids]  # (B, 3)

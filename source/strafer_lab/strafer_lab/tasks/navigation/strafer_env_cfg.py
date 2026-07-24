@@ -1345,7 +1345,13 @@ _INFINIGEN_PERCEPTION_TRAIN_NUM_ENVS = 1
 
 # Import procedural room palette builder + the planner inflation geometry the
 # subgoal off-path corridor is sized from.
-from .mdp.proc_room import GRID_RES, INFLATION_CELLS, build_proc_room_collection_cfg
+from .mdp.proc_room import (
+    GRID_RES,
+    INFLATION_CELLS,
+    PlacementCfg,
+    build_proc_room_collection_cfg,
+    column_protected_park_rank,
+)
 
 
 # --- ProcRoom depth-enrichment parameters (enriched depth variants only) ---
@@ -1369,6 +1375,19 @@ _ENRICH_CEILING_SIZE = (7.6, 7.6, 0.1)  # slab spanning the largest room + overh
 # Open-top defaults shelf 0.8 / cabinet 0.6 / tall_cyl 0.7. Must stay under the
 # lowest ceiling-slab underside (2.15 m) or a tall object pierces the enclosure.
 _ENRICH_TALL_OBJECT_HEIGHTS = {"shelf": 2.0, "cabinet": 2.1, "tall_cyl": 1.8}
+# Mid-room tall columns. The two tall-cylinder slots sit at the end of the
+# clutter sequence, so only level 7 reaches them and the retry ladder parks them
+# first; the phase makes their presence a per-episode draw and the rank moves
+# them behind the rest of their own category. A probability rather than a
+# promotion: full promotion overshoots to near-certain presence.
+_ENRICH_COLUMN_PROB = 0.5
+_ENRICH_COLUMN_COUNT = 2
+_ENRICH_PLACEMENT = PlacementCfg(
+    park_rank=column_protected_park_rank(),
+    column_prob=_ENRICH_COLUMN_PROB,
+    column_count=_ENRICH_COLUMN_COUNT,
+    relocate_blocked_bfs_seed=True,
+)
 
 
 def _make_ceiling_slab_cfg() -> RigidObjectCfg:
@@ -1705,6 +1724,7 @@ _GENERATE_PROC_ROOM_ENRICHED = EventTerm(
         "p_ceil": _ENRICH_P_CEIL,
         "ceiling_height_range": _ENRICH_CEILING_HEIGHT_RANGE,
         "tall_object_heights": _ENRICH_TALL_OBJECT_HEIGHTS,
+        "placement": _ENRICH_PLACEMENT,
     },
 )
 

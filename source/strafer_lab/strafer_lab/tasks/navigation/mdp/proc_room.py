@@ -257,13 +257,15 @@ class PlacementCfg:
             (a couch beside a table on one wall) pass while deeply overlapping;
             the AABB test uses each piece's true rotated extents. Furniture-tier
             only — clutter keeps the fixed-distance tests.
-        compounds: Rigid clusters of existing furniture slots placed as wall-flush
-            units before the ordinary furniture scatter (empty reproduces the
-            no-compound path). Each seats with the true-AABB test against placed
-            furniture, so between-unit interpenetration is rejected while
-            within-compound overlap is kept; its members consume the furniture
-            budget and are excluded from the ordinary sequence for that episode.
-            Members must form one park-rank group so the compound parks atomically.
+        compounds: A catalogue of rigid clusters of existing furniture slots
+            (empty reproduces the no-compound path). On the episodes the phase runs
+            it draws ONE shape from the catalogue and seats it wall-flush before the
+            ordinary scatter — a menu, not a fixed set placed together. The unit
+            seats with the true-AABB test against placed furniture, so between-unit
+            interpenetration is rejected while within-compound overlap is kept; its
+            members consume the furniture budget and are excluded from the ordinary
+            sequence for that episode. Every catalogue member must form one
+            park-rank group so the compound parks atomically.
         compound_prob: Per-episode probability the compound phase runs. The phase
             draws nothing when this is zero, so the non-compound path is unchanged.
     """
@@ -1209,21 +1211,21 @@ def generate_proc_room(
         is_open_field = has_room_walls[b_idx].item() == 0
 
         # --- Phase 3a: Compound furniture (rigid wall-flush clusters, enriched-only) ---
-        # Seats before the ordinary scatter so the tall units anchor the room and
-        # later pieces avoid them. Members consume the furniture budget and drop out
-        # of the ordinary sequence for the episode; the true-AABB test keeps them
-        # from interpenetrating placed furniture (each other is intentional). Needs
-        # walls to seat against, so the phase is room-only.
+        # One shape per episode drawn from the catalogue (a menu, not a fixed set
+        # placed together), seated before the ordinary scatter so the tall unit
+        # anchors the room and later pieces avoid it. Its members consume the
+        # furniture budget and drop out of the ordinary sequence; the true-AABB test
+        # keeps the unit from interpenetrating placed furniture (its own members
+        # overlap by design). Needs walls to seat against, so the phase is room-only.
         episode_furn_seq = furn_seq
         n_ord_furn = n_furn
         if compound_prob > 0.0 and compounds and not is_open_field:
             if torch.rand(1, device=device).item() < compound_prob:
                 n_compound_fired += 1
-                consumed: set[int] = set()
-                for compound in compounds:
-                    seated = _try_place_compound(compound, w, h, placed_furn_aabb, device)
-                    if seated is None:
-                        continue
+                choice = torch.randint(0, len(compounds), (1,), device=device).item()
+                seated = _try_place_compound(compounds[choice], w, h, placed_furn_aabb, device)
+                if seated is not None:
+                    consumed = []
                     for slot, cxm, cym, cyaw, hx, hy in seated:
                         poses[b_idx, slot, 0] = cxm
                         poses[b_idx, slot, 1] = cym
@@ -1234,8 +1236,7 @@ def generate_proc_room(
                         active_mask[b_idx, slot] = True
                         placed_furn_xy.append((cxm, cym))
                         placed_furn_aabb.append((cxm, cym, hx, hy))
-                        consumed.add(slot)
-                if consumed:
+                        consumed.append(slot)
                     episode_furn_seq = tuple(s for s in furn_seq if s not in consumed)
                     n_ord_furn = max(0, n_furn - len(consumed))
 

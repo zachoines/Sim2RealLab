@@ -507,8 +507,35 @@ _ENRICHED_KW = dict(
 )
 
 
+# A second shape for the menu: the two 0.5x0.5 cabinets side by side (dy=0.25
+# flush to their 0.5 m depth). Disjoint members from the wardrobe.
+_CABINETS = CompoundCfg(members=(24, 25), offsets=((-0.35, 0.25), (0.35, 0.25)))
+_MENU_RANK = tuple(
+    [(s,) for s in list(reversed(CLUTTER_SLOTS))]
+    + [(f,) for f in reversed(FURNITURE_SLOTS) if f not in (22, 23, 24, 25)]
+    + [(22, 23), (24, 25)]
+)
+
+
 def _yaw_of(poses, b, slot):
     return 2.0 * math.atan2(poses[b, slot, 5].item(), poses[b, slot, 6].item())
+
+
+def test_compound_catalogue_places_one_shape_per_episode():
+    """A multi-shape catalogue is a menu, not a set: each firing episode seats
+    exactly one shape. With the catalogue slots held out of the ordinary sequence
+    they can only arrive via a compound, so this reads the menu draw directly."""
+    menu = PlacementCfg(
+        furniture_sequence=(20, 21, 26, 27), park_rank=_MENU_RANK,
+        compounds=(_WARDROBE, _CABINETS), compound_prob=1.0, furniture_aabb_reject=True)
+    env, _ = _run(num_envs=128, difficulty=7, placement=menu, **_ENRICHED_KW)
+    active = env._proc_room_active_mask
+    wardrobe = active[:, 22] & active[:, 23]
+    cabinets = active[:, 24] & active[:, 25]
+    assert not (wardrobe & cabinets).any(), "an episode seated two shapes"
+    assert not (active[:, 22] ^ active[:, 23]).any(), "a half wardrobe leaked in"
+    assert not (active[:, 24] ^ active[:, 25]).any(), "a half cabinet-pair leaked in"
+    assert wardrobe.any() and cabinets.any(), "the menu never exercised both shapes"
 
 
 def test_compound_phase_off_leaves_the_enriched_path_alone():

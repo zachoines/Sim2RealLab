@@ -482,7 +482,15 @@ observation item (compound-adjacent standoff may show up if the catalogue is
 un-parked). **F-6(i)** measured in Kit: two overlapping kinematic bodies at a
 compound join produce no PhysX contact/buffer complaint — safe.
 
-### F2 — internal walls (unblocked by ruling F-3; ships in its own PR)
+### F2 — internal walls (designed here; **parked** on PR-3's Step-1 measurement)
+
+*Outcome.* PR-3 derived the gate first, as commissioned, and the gate says no:
+measured at matched band and matched inflation the heavy corpus turns *less*
+than the generator already does, so "move PS1/PS2 toward the heavy-corpus
+targets" is unreachable by a lever that only adds topology. F2 parks on the same
+footing as H1's catalogue — mechanism understood and declined on its own
+numbers. The design below stands as the record of what would be built, with two
+corrections PR-3 measured; see [What PR-3 measured](#what-pr-3-measured).
 
 *Precondition already in tree.* `max_internal_walls` is computed and read
 but never consumed; the level table already supplies 1/1/2 internal walls at
@@ -497,6 +505,21 @@ far-clamp slit while the exterior clip still treats the room as sealed,
 which is the regression the span cap exists to prevent. Internal walls get
 their own height, asserted below the ceiling slab's underside, or they
 pierce it in exactly the band D3 and D4 read.
+
+> Two corrections from PR-3's build. **Reserve nothing** — let the perimeter
+> pack first and give the partition only the residual stock. Reserving the four
+> short slots costs 1.16 m of extra unsealed perimeter per room on average
+> (1.23 → 2.39 m), which at 2.7 m wall height is the far-clamp slit this
+> paragraph is trying to prevent; the residual after the perimeter is a median
+> 5.5 m and never zero, enough for a full-span partition in 67.9% of rooms.
+> With dynamic slots the parkable set is per-env, so the terminal fallback is a
+> per-env group behind the whole rank rather than rank data — same ordering, and
+> `_validate_park_rank` keeps rejecting wall slots outright. **A separate
+> internal-wall height is not expressible**: the palette builds all 20 wall
+> cuboids from one scalar `wall_height`, so a distinct height means a new slot,
+> which is a gated consult. It is also unnecessary — perimeter walls at 2.7 m
+> already pass through ceiling slabs sampled below 2.75 m, and the slab is
+> opaque from beneath.
 
 *Aperture width — measured, and it corrects a consult error.* The corridor
 surviving a gap of `n` free columns is `n − 2 × INFLATION_CELLS` cells.
@@ -670,21 +693,27 @@ exercises, and no amount of reading settles it.
 coverage invariant, the seed-protection predicate, and the path statistics
 promoted to durable gates. Worth landing whether or not F2 ever ships: the
 coverage invariant closes a silent bisection channel that nothing else can
-see.
+see. *Still open, and better motivated than when it was written: the shipped
+generator already leaves 66.8% of rooms with more than one free-space component
+and a mean 94.25% largest-component share, so the channel is not hypothetical.
+The seed-protection predicate landed early inside PR-1 and PR-3 measured it
+sufficient.*
 
-**PR-3b — internal walls. Unblocked** by ruling F-3, under the option-(a)
-constraint: apertures **≥ 1.2 m**, and PS2 re-thresholded so it still counts
-ordinary furniture-gap threading. Still gated on the residual wall-budget
-composition (achievable contiguous span, not total length) and the
-4-connectivity-safe rejection inside the wall attempt loop. The narrower
-aperture regime remains available only via an aperture-aware off-path
-tolerance, which is a shared-reward change filed to v3.
+**PR-3b — internal walls. PARKED** on its own Step-1 gate, which PR-3 derived
+and reported before building the lever ([What PR-3 measured](#what-pr-3-measured)).
+The design's constraints all held up — apertures ≥ 1.2 m are geometrically free
+(quantization only widens them; measured minimum 1.36 m), the residual wall
+budget is ample, and the shipped seed guard covers the seed hazard — but the
+heavy-corpus target the gate names sits *below* the generator's current position
+on all four statistics, so the lever has nothing to close. No GPU window was
+spent.
 
 *Independent one-liner:* gate `path_complete` on `path_fallback == 0.0`.
 
 Ordering: PR-0 → {PR-A, PR-1}; PR-A → PR-1; PR-1 → {PR-2, PR-3a}; PR-3a →
 PR-3b. PR-2 and PR-3a are independent. Total GPU windows: two, possibly
-three, plus the operator-run Kit gates on PR-1 and PR-2.
+three, plus the operator-run Kit gates on PR-1 and PR-2. *Realized: two GPU
+windows. PR-3b parked at Step 1 on CPU evidence, so the third was never needed.*
 
 ## Structural extensions — each needs its own consult gate
 
@@ -1117,6 +1146,106 @@ overshoot (99.6% presence, which the ruling declined). The
 the operator re-tunes the probability — on a disjoint seed base — in a cleared
 window.
 
+## What PR-3 measured
+
+F2's gate was derived before its lever was built, per the dispatch. The gate
+fails, so PR-3 ships no production diff. Full report and reproduction harness:
+`SUBGOAL_EPIC/ENRICHMENT_PR3_STEP1_FINDINGS.md` and
+`procroom_enrichment_scratch/pr3_step1/`.
+
+### The heavy-corpus target, and the generator already past it
+
+Ruled protocol — sealed, band 1.5–4.0 m, group-resampled 95%, τ from the
+reference body. Deriving τ on the **heavy** corpus rather than all seven scenes
+gives **0.566 m** excess (raw 0.866 m ProcRoom / 0.766 m scanned); PS2 below is
+the arc fraction under it. Corpus at 1 200 pairs per scene; ProcRoom arms at 512
+rooms (64 envs × 8 resets), difficulty U[4, 7].
+
+| leg | turning % | bending % | turn-density p90 | PS2 % |
+|---|---|---|---|---|
+| **heavy pooled (5 seeds) — the target** | **29.6 [25.1, 33.1]** | **22.1 [19.0, 25.3]** | **0.404 [0.355, 0.420]** | **40.1 [35.3, 43.9]** |
+| tworoom (context) | 52.3 | 31.2 | 0.515 | 73.4 |
+| ProcRoom vanilla L7 | 64.9 [61.9, 67.7] | 35.5 [32.8, 38.1] | 0.734 [0.690, 0.767] | 87.9 [86.2, 89.7] |
+| ProcRoom enriched, shipped | 51.9 [48.8, 54.9] | 27.9 [25.5, 30.5] | 0.612 [0.572, 0.640] | 77.1 [74.9, 79.2] |
+| + partitions, p = 0.5 | 54.2 [51.2, 57.1] | 28.8 | 0.605 | 79.0 |
+| + partitions, p = 1.0 | 52.0 [49.1, 54.8] | 28.6 | 0.593 | 79.4 |
+
+The shipped arm is above the target on all four statistics, disjoint on three,
+and the lever moves three of the four further away. The corpus rows reproduce
+PR-A's at higher n, so this is not a re-measurement disagreement — it is the
+same table read against the target the F2 gate actually names.
+
+**PR-1's column knob is itself a path-topology lever**, which was not measured
+when it shipped. Turning it off (`column_prob=0` on an otherwise shipped arm)
+drops turning 51.9 → 46.6 [43.3, 49.8], bending 27.9 → 24.2, p90 0.612 → 0.561,
+PS2 77.1 → 72.3 — **5.3 points of turning, as much as the internal-wall lever
+buys on the rooms it fires in**. The columns bought for D4 also bought a chunk
+of the curvature F2 was commissioned to buy. PR-2's overlap fix is path-neutral
+by comparison (52.3 [49.4, 55.4] with it off). Note the overshoot does not
+depend on the knob: even columns-off, 46.6% sits well above the 29.6% target.
+
+### Three checks that could have rescued F2, and did not
+
+- **Inflation.** ProcRoom inflates 0.30 m against the adapter's 0.20 m, which
+  flatters ProcRoom on these statistics. Re-measuring the whole corpus at
+  ProcRoom's own 0.28 m chassis radius moves it barely: heavy pooled 29.9
+  [27.9, 31.8] turning / 21.6 bending / p90 0.411 / PS2 38.0. The corpus is
+  genuinely straighter at room scale.
+- **Band.** Corpus turning by straight-line band is 21–33% at 1.5–4 m, 60–77% at
+  4–8 m, 93–99% at 8–15 m. In the 4–8 m band the shipped generator reads 76.3%
+  (n = 355) — the top of the corpus's range. It cannot populate 8–15 m at all:
+  a 4.0–7.5 m room has no such endpoint pairs, and a partition changes a path's
+  *arc*, not the *straight-line distance* the band selects on. Corpus curvature
+  is a house-scale property, which is the sense in which single-room internal
+  walls cannot reach multi-room segmentation.
+- **Threshold.** At every quantile-derived τ (q10 0.025, q25 0.149, q50 0.566,
+  q75 1.153) ProcRoom reads above the heavy corpus and the candidate above
+  ProcRoom. The statistic separates legs at q25 and q50, so ruling F-3's
+  "must not read flat across the lever" is satisfied — it reads, and it reads
+  the wrong way.
+
+### The mechanism works; the population does not need it
+
+Splitting the p = 1.0 arm by whether a room actually received a partition:
+partitioned rooms 57.6% [54.3, 60.8] turning against 40.3% [35.8, 44.7] for the
+rest (the latter level-4-dominated, since level 4 gets no internal walls, so the
+split overstates the partition's own contribution). Partitioned rooms turn 5.7
+points more than the whole shipped baseline — a real effect in the lever's
+intended direction and the gate's wrong one.
+
+The lever does not lengthen paths: median arc 2.60 → 2.57 m, median tortuosity
+1.0017 → 1.0015. When a partition does obstruct, the BFS-reachable endpoint pool
+shrinks to one lobe rather than the path getting longer — the statistic sees a
+smaller, simpler room.
+
+### Costs measured before the candidate was reverted
+
+- Guard net and the 188-test navigation suite green with the lever in tree; its
+  draws cage behind `internal_wall_prob > 0` and the arg-defaults pin is
+  untouched (the lever gates on a `PlacementCfg` field, not a generator kwarg).
+- **All 8 enriched composition goldens flip even with the lever inert** —
+  `PlacementCfg`'s field set is inside the `events` contract. Parking the
+  mechanism in-tree the way H1's was would cost a re-freeze and buy nothing,
+  which is why this PR ships no production diff.
+- Free-space fragmentation rises: largest-component share of a room's free
+  interior 94.25% → 89.59%, rooms with more than one component 66.8% → 72.1%.
+  **Both baselines are properties of the shipped generator**, not of internal
+  walls, and they are the sharpest available motivation for PR-3a's coverage
+  invariant: endpoints all come from the BFS-reachable set, so a fragment is
+  silently absent from training rather than navigated.
+- Seed relocation roughly doubles (563 → 1 249 events per 512 rooms) exactly as
+  predicted, and the shipped relocation guard absorbs it — `bfs_failed` stayed 0
+  on every arm and `spawn_count_min` stayed above 100. The guard is sufficient
+  for F2; nothing needed rebuilding.
+
+### A correction to the PR-1 record
+
+PR-1's gate table and its acceptance line record the shipped arm at D4 = 45.45,
+true of the PR-1 tip. PR-2's overlap fix now ships and reads **D4 = 44.22
+[42.87, 45.58], D1 median 1.657 [1.629, 1.686], D3 top-11 6.13% [5.77, 6.51]**
+at 2 688 rooms. Those three are the positions any future non-regression gate
+must hold; the 45.45 row stays as PR-1's own record.
+
 ## Findings for the operator — all six ruled 2026-07-21
 
 The consult was approved as designed. Each finding below keeps its original
@@ -1268,8 +1397,12 @@ rather than a re-freeze.
       probability was set from a 512-room first-look (off→fully-on +5.70, same
       seed base — not disjoint) as the widen-not-shift midpoint. Re-tunable via
       the capture instrument's `--placement-override` on a disjoint seed.*
-- [ ] Internal walls, if they ship, hold apertures ≥ 1.2 m.
-      *Not in PR-1 — PR-3b.*
+- [x] Internal walls, if they ship, hold apertures ≥ 1.2 m.
+      *They do not ship. PR-3's Step-1 gate parked F2 before the lever was
+      wired ([What PR-3 measured](#what-pr-3-measured)). The constraint was
+      satisfied by construction in the candidate — both wall pieces pack inward
+      from the perimeter out of residual stock, so quantization only widens the
+      gap; measured minimum over a batch 1.36 m against the 1.2 m floor.*
 - [x] The retry ladder's termination bound derives from the park rank's
       length, and protection is implemented as a bounded rank position, never
       an exemption.

@@ -135,6 +135,31 @@ _VANILLA_PARK_RANK = tuple(
 # radius before BFS reads it.
 BFS_SEED_CLEARANCE = INFLATION_CELLS * GRID_RES + 2 * GRID_RES  # 0.5 m
 
+# Below this depth a between-unit AABB overlap is flush placement (a shared face),
+# not interpenetration; the rejection ignores it so touching pieces still seat.
+FURNITURE_OVERLAP_EPS = 0.001  # 1 mm
+
+# Chebyshev centre-to-centre distances the placement loops reject a candidate
+# within. A value change re-phases the reject stream with no descriptor payoff,
+# so these are pinned by the vanilla guard net; naming them is byte-identical.
+FURNITURE_MIN_SEPARATION = 0.5           # furniture vs placed furniture
+CLUTTER_FURNITURE_MIN_SEPARATION = 0.4   # clutter / column vs placed furniture
+CLUTTER_MIN_SEPARATION = 0.3             # clutter / column vs placed clutter
+
+
+def _rotated_aabb_half_extents(size_x: float, size_y: float, yaw: float) -> tuple[float, float]:
+    """Half-extents of a footprint's axis-aligned bounding box after a yaw.
+
+    The scalar twin of ``_build_occupancy_grid``'s rasterization math, so a
+    placement-time overlap test rejects exactly the interpenetrations the
+    occupancy grid would union into one obstacle.
+    """
+    c = abs(math.cos(yaw))
+    s = abs(math.sin(yaw))
+    hx = (size_x / 2.0) * c + (size_y / 2.0) * s
+    hy = (size_x / 2.0) * s + (size_y / 2.0) * c
+    return hx, hy
+
 
 def column_protected_park_rank(
     column_slots: tuple[int, ...] | list[int] = tuple(CLUTTER_TALL_CYL_SLOTS),
@@ -150,6 +175,46 @@ def column_protected_park_rank(
     clutter = [s for s in reversed(CLUTTER_SLOTS) if s not in protected]
     clutter += [s for s in reversed(CLUTTER_SLOTS) if s in protected]
     return tuple((slot,) for slot in clutter + list(reversed(FURNITURE_SLOTS)))
+
+
+@dataclass
+class CompoundCfg:
+    """A rigid cluster of existing furniture slots placed as one wall-flush unit.
+
+    ``members`` are furniture slots; ``offsets[i]`` gives member ``i``'s centre in
+    the compound's local frame — local +x runs along the wall, +y into the room —
+    so a placement maps the anchor to a wall and rotates the offsets by the wall
+    yaw. Members stay floor-contacting (height from their own ``OBJECT_SIZES`` /
+    ``tall_object_heights`` row); within-compound overlap is intentional, so the
+    occupancy grid unions the members into one composite footprint that BFS and
+    the geometric proximity reward read. Placed and parked as a unit — the park
+    rank must hold the members in one group.
+    """
+
+    members: tuple[int, ...]
+    offsets: tuple[tuple[float, float], ...]
+
+    def __post_init__(self) -> None:
+        if len(self.members) < 2:
+            raise ValueError(f"a compound needs >= 2 members, got {self.members}")
+        if len(self.members) != len(self.offsets):
+            raise ValueError(
+                f"members and offsets differ in length: {self.members} / {self.offsets}"
+            )
+        if len(set(self.members)) != len(self.members):
+            raise ValueError(f"compound repeats a member slot: {self.members}")
+        stray = sorted(set(self.members) - set(FURNITURE_SLOTS))
+        if stray:
+            raise ValueError(f"compound members must be furniture slots, got {stray}")
+        for slot, off in zip(self.members, self.offsets):
+            if len(off) != 2:
+                raise ValueError(f"offset for member {slot} is not (dx, dy): {off}")
+            depth_half = OBJECT_SIZES[slot, 1].item() / 2.0
+            if off[1] < depth_half - 1e-6:
+                raise ValueError(
+                    f"member {slot} offset dy={off[1]} pierces the wall (needs "
+                    f">= {depth_half}, half its {OBJECT_SIZES[slot, 1].item()} m depth)"
+                )
 
 
 @dataclass
@@ -186,6 +251,23 @@ class PlacementCfg:
             nearest free cell before the flood. ``_gpu_bfs`` marks its seed
             reachable whether or not the cell is free, so without this a blocked
             centre seeds reachability from inside an obstacle.
+        furniture_aabb_reject: Reject a furniture candidate whose footprint AABB
+            interpenetrates an already-placed furniture piece, instead of the
+            extent-blind fixed-distance test. The fixed test lets large footprints
+            (a couch beside a table on one wall) pass while deeply overlapping;
+            the AABB test uses each piece's true rotated extents. Furniture-tier
+            only — clutter keeps the fixed-distance tests.
+        compounds: A catalogue of rigid clusters of existing furniture slots
+            (empty reproduces the no-compound path). On the episodes the phase runs
+            it draws ONE shape from the catalogue and seats it wall-flush before the
+            ordinary scatter — a menu, not a fixed set placed together. The unit
+            seats with the true-AABB test against placed furniture, so between-unit
+            interpenetration is rejected while within-compound overlap is kept; its
+            members consume the furniture budget and are excluded from the ordinary
+            sequence for that episode. Every catalogue member must form one
+            park-rank group so the compound parks atomically.
+        compound_prob: Per-episode probability the compound phase runs. The phase
+            draws nothing when this is zero, so the non-compound path is unchanged.
     """
 
     furniture_sequence: tuple[int, ...] | None = None
@@ -197,6 +279,9 @@ class PlacementCfg:
     column_seed_clearance: float = BFS_SEED_CLEARANCE
     column_radius_max: float = 2.5
     relocate_blocked_bfs_seed: bool = False
+    furniture_aabb_reject: bool = False
+    compounds: tuple[CompoundCfg, ...] = ()
+    compound_prob: float = 0.0
 
     def __post_init__(self) -> None:
         _validate_sequence(self.furniture_sequence, FURNITURE_SLOTS, "furniture_sequence")
@@ -220,6 +305,23 @@ class PlacementCfg:
                 f"column_radius_max {self.column_radius_max} leaves no admissible "
                 f"band above the seed clearance {self.column_seed_clearance}"
             )
+        if not 0.0 <= self.compound_prob <= 1.0:
+            raise ValueError(f"compound_prob must be in [0, 1], got {self.compound_prob}")
+        seen_members: set[int] = set()
+        for comp in self.compounds:
+            shared = sorted(seen_members & set(comp.members))
+            if shared:
+                raise ValueError(f"compounds share a member slot: {shared}")
+            seen_members |= set(comp.members)
+        if self.compounds:
+            groups = self.park_rank if self.park_rank is not None else _VANILLA_PARK_RANK
+            for comp in self.compounds:
+                members = set(comp.members)
+                if not any(members <= set(group) for group in groups):
+                    raise ValueError(
+                        f"compound {comp.members} is not held in one park-rank group; "
+                        "a compound must park atomically"
+                    )
 
 
 def _validate_sequence(seq, allowed, name: str) -> None:
@@ -772,6 +874,66 @@ def _pose_ceiling_slab(
     ceiling.write_root_pose_to_sim_index(root_pose=root_pose, env_ids=env_ids)
 
 
+def _try_place_compound(
+    compound: CompoundCfg,
+    room_w: float,
+    room_h: float,
+    placed_furn_aabb: list,
+    device: torch.device,
+) -> list | None:
+    """Seat a compound wall-flush without overlapping already-placed furniture.
+
+    Ten attempts, each drawing a wall side and an along-wall anchor (enriched-only
+    — never reached when ``placement`` is None). Local +x runs along the wall and
+    +y into the room, member yaw is the wall yaw, matching the single-furniture
+    convention. Between-unit overlap (any member vs an already-placed piece) is
+    rejected with the true rotated-AABB test; within-compound overlap is kept.
+
+    Returns ``[(slot, x, y, yaw, hx, hy), ...]`` in env-local coordinates on
+    success, or ``None`` if no attempt seated the whole unit.
+    """
+    members = compound.members
+    offsets = compound.offsets
+    sx = [OBJECT_SIZES[m, 0].item() for m in members]
+    sy = [OBJECT_SIZES[m, 1].item() for m in members]
+    span_along = (max(offsets[i][0] + sx[i] / 2.0 for i in range(len(members)))
+                  - min(offsets[i][0] - sx[i] / 2.0 for i in range(len(members))))
+    max_depth = max(offsets[i][1] + sy[i] / 2.0 for i in range(len(members)))
+    for _ in range(10):
+        wall_side = torch.randint(0, 4, (1,), device=device).item()
+        wall_len = room_w if wall_side < 2 else room_h
+        room_depth = room_h if wall_side < 2 else room_w
+        # Skip a wall the unit cannot fit along or that it would reach across.
+        if wall_len - span_along - 0.5 <= 0.0 or max_depth >= room_depth / 2.0 - 0.075:
+            continue
+        anchor = (torch.rand(1, device=device).item() - 0.5) * (wall_len - span_along - 0.5)
+        seated = []
+        overlaps = False
+        for i, slot in enumerate(members):
+            dx, dy = offsets[i]
+            along = anchor + dx
+            if wall_side == 0:      # N
+                x, y, yaw = along, room_h / 2.0 - 0.075 - dy, 0.0
+            elif wall_side == 1:    # S
+                x, y, yaw = along, -room_h / 2.0 + 0.075 + dy, math.pi
+            elif wall_side == 2:    # E
+                x, y, yaw = room_w / 2.0 - 0.075 - dy, along, math.pi / 2.0
+            else:                   # W
+                x, y, yaw = -room_w / 2.0 + 0.075 + dy, along, -math.pi / 2.0
+            hx, hy = _rotated_aabb_half_extents(sx[i], sy[i], yaw)
+            for pfx, pfy, hx_p, hy_p in placed_furn_aabb:
+                if (abs(x - pfx) < hx + hx_p - FURNITURE_OVERLAP_EPS
+                        and abs(y - pfy) < hy + hy_p - FURNITURE_OVERLAP_EPS):
+                    overlaps = True
+                    break
+            if overlaps:
+                break
+            seated.append((slot, x, y, yaw, hx, hy))
+        if not overlaps:
+            return seated
+    return None
+
+
 def generate_proc_room(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
@@ -852,6 +1014,9 @@ def generate_proc_room(
     column_slots: tuple[int, ...] = ()
     clut_seq_columns = clut_seq
     relocate_seed = False
+    reject_furn_overlap = False
+    compounds: tuple[CompoundCfg, ...] = ()
+    compound_prob = 0.0
     if placement is not None:
         if placement.furniture_sequence is not None:
             furn_seq = placement.furniture_sequence
@@ -860,6 +1025,9 @@ def generate_proc_room(
         if placement.park_rank is not None:
             park_rank = placement.park_rank
         relocate_seed = placement.relocate_blocked_bfs_seed
+        reject_furn_overlap = placement.furniture_aabb_reject
+        compounds = placement.compounds
+        compound_prob = placement.compound_prob
         if placement.column_prob > 0.0 and placement.column_count > 0:
             column_prob = placement.column_prob
             column_count = placement.column_count
@@ -875,6 +1043,7 @@ def generate_proc_room(
             column_r_max = placement.column_radius_max
     park_groups = [list(group) for group in park_rank]
     n_column_promotions = 0
+    n_compound_fired = 0
     ladder_passes = 0
     seed_relocations = 0
 
@@ -1035,8 +1204,43 @@ def generate_proc_room(
         # --- Phase 3: Furniture placement ---
         n_furn = max(0, max_furn[b_idx].item())  # a negative budget must take no prefix
         placed_furn_xy = []
+        # Rotated-AABB records (px, py, hx, hy) for the overlap test; populated by
+        # the compound phase and, under ``furniture_aabb_reject``, the scatter — so
+        # the ordinary furniture then rejects overlap against the compound members.
+        placed_furn_aabb = []
         is_open_field = has_room_walls[b_idx].item() == 0
-        for slot in furn_seq[:n_furn]:
+
+        # --- Phase 3a: Compound furniture (rigid wall-flush clusters, enriched-only) ---
+        # One shape per episode drawn from the catalogue (a menu, not a fixed set
+        # placed together), seated before the ordinary scatter so the tall unit
+        # anchors the room and later pieces avoid it. Its members consume the
+        # furniture budget and drop out of the ordinary sequence; the true-AABB test
+        # keeps the unit from interpenetrating placed furniture (its own members
+        # overlap by design). Needs walls to seat against, so the phase is room-only.
+        episode_furn_seq = furn_seq
+        n_ord_furn = n_furn
+        if compound_prob > 0.0 and compounds and not is_open_field:
+            if torch.rand(1, device=device).item() < compound_prob:
+                n_compound_fired += 1
+                choice = torch.randint(0, len(compounds), (1,), device=device).item()
+                seated = _try_place_compound(compounds[choice], w, h, placed_furn_aabb, device)
+                if seated is not None:
+                    consumed = []
+                    for slot, cxm, cym, cyaw, hx, hy in seated:
+                        poses[b_idx, slot, 0] = cxm
+                        poses[b_idx, slot, 1] = cym
+                        poses[b_idx, slot, 2] = object_z[slot].item()
+                        poses[b_idx, slot, 3:7] = _yaw_to_quat(
+                            torch.tensor(cyaw, device=device)
+                        )
+                        active_mask[b_idx, slot] = True
+                        placed_furn_xy.append((cxm, cym))
+                        placed_furn_aabb.append((cxm, cym, hx, hy))
+                        consumed.append(slot)
+                    episode_furn_seq = tuple(s for s in furn_seq if s not in consumed)
+                    n_ord_furn = max(0, n_furn - len(consumed))
+
+        for slot in episode_furn_seq[:n_ord_furn]:
             furn_sx = OBJECT_SIZES[slot, 0].item()
             furn_sy = OBJECT_SIZES[slot, 1].item()
 
@@ -1067,12 +1271,23 @@ def generate_proc_room(
                         fx = -w / 2 + 0.075 + furn_sy / 2
                         fyaw = -math.pi / 2
 
-                # Check min distance from previously placed furniture
+                # Reject a candidate that overlaps a placed furniture piece: the
+                # true rotated-AABB test under the lever, else the extent-blind
+                # fixed-distance test that lets large footprints interpenetrate.
                 too_close = False
-                for pfx, pfy in placed_furn_xy:
-                    if abs(fx - pfx) < 0.5 and abs(fy - pfy) < 0.5:
-                        too_close = True
-                        break
+                if reject_furn_overlap:
+                    hx_c, hy_c = _rotated_aabb_half_extents(furn_sx, furn_sy, fyaw)
+                    for pfx, pfy, hx_p, hy_p in placed_furn_aabb:
+                        if (abs(fx - pfx) < hx_c + hx_p - FURNITURE_OVERLAP_EPS
+                                and abs(fy - pfy) < hy_c + hy_p - FURNITURE_OVERLAP_EPS):
+                            too_close = True
+                            break
+                else:
+                    for pfx, pfy in placed_furn_xy:
+                        if (abs(fx - pfx) < FURNITURE_MIN_SEPARATION
+                                and abs(fy - pfy) < FURNITURE_MIN_SEPARATION):
+                            too_close = True
+                            break
                 if too_close:
                     continue
 
@@ -1083,6 +1298,8 @@ def generate_proc_room(
                 poses[b_idx, slot, 3:7] = q
                 active_mask[b_idx, slot] = True
                 placed_furn_xy.append((fx, fy))
+                if reject_furn_overlap:
+                    placed_furn_aabb.append((fx, fy, hx_c, hy_c))
                 break
             # If not placed after 10 attempts, slot stays parked
 
@@ -1115,13 +1332,15 @@ def generate_proc_room(
 
                         too_close = False
                         for pfx, pfy in placed_furn_xy:
-                            if abs(cx_ - pfx) < 0.4 and abs(cy_ - pfy) < 0.4:
+                            if (abs(cx_ - pfx) < CLUTTER_FURNITURE_MIN_SEPARATION
+                                and abs(cy_ - pfy) < CLUTTER_FURNITURE_MIN_SEPARATION):
                                 too_close = True
                                 break
                         if too_close:
                             continue
                         for pcx, pcy in placed_clutter_xy:
-                            if abs(cx_ - pcx) < 0.3 and abs(cy_ - pcy) < 0.3:
+                            if (abs(cx_ - pcx) < CLUTTER_MIN_SEPARATION
+                                    and abs(cy_ - pcy) < CLUTTER_MIN_SEPARATION):
                                 too_close = True
                                 break
                         if too_close:
@@ -1170,7 +1389,8 @@ def generate_proc_room(
                 # Min distance from furniture
                 too_close = False
                 for pfx, pfy in placed_furn_xy:
-                    if abs(cx_ - pfx) < 0.4 and abs(cy_ - pfy) < 0.4:
+                    if (abs(cx_ - pfx) < CLUTTER_FURNITURE_MIN_SEPARATION
+                            and abs(cy_ - pfy) < CLUTTER_FURNITURE_MIN_SEPARATION):
                         too_close = True
                         break
                 if too_close:
@@ -1178,7 +1398,8 @@ def generate_proc_room(
 
                 # Min distance from other clutter
                 for pcx, pcy in placed_clutter_xy:
-                    if abs(cx_ - pcx) < 0.3 and abs(cy_ - pcy) < 0.3:
+                    if (abs(cx_ - pcx) < CLUTTER_MIN_SEPARATION
+                            and abs(cy_ - pcy) < CLUTTER_MIN_SEPARATION):
                         too_close = True
                         break
                 if too_close:
@@ -1293,10 +1514,18 @@ def generate_proc_room(
     if health_sink is not None:
         column_slots_seen = column_slots or tuple(CLUTTER_TALL_CYL_SLOTS)
         ordinary = [s for s in CLUTTER_SLOTS if s not in set(column_slots_seen)]
+        compound_member_slots = sorted(
+            {s for comp in compounds for s in comp.members}
+        )
         parked = placed_mask & ~active_mask
         health_sink.update({
             "envs": B,
             "column_phase_fired": n_column_promotions,
+            "compound_phase_fired": n_compound_fired,
+            "placed_compound_members": (
+                int(placed_mask[:, compound_member_slots].sum())
+                if compound_member_slots else 0
+            ),
             "placed_furniture": int(placed_mask[:, FURNITURE_SLOTS].sum()),
             "placed_clutter": int(placed_mask[:, ordinary].sum()),
             "placed_columns": int(placed_mask[:, list(column_slots_seen)].sum()),

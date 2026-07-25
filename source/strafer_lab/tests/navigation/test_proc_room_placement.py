@@ -15,6 +15,7 @@ No Kit / GPU. Run with the pure-Python lab tests.
 from __future__ import annotations
 
 import hashlib
+import math
 from types import SimpleNamespace
 
 import pytest
@@ -30,11 +31,14 @@ from strafer_lab.tasks.navigation.mdp.proc_room import (
     GRID_SIZE,
     OBJECT_SIZES,
     WALL_SLOTS,
+    CompoundCfg,
     PlacementCfg,
     _relocate_blocked_seeds,
+    _rotated_aabb_half_extents,
     _VANILLA_CLUTTER_SEQUENCE,
     _VANILLA_FURNITURE_SEQUENCE,
     _VANILLA_PARK_RANK,
+    _xy_to_grid,
     column_protected_park_rank,
     generate_proc_room,
 )
@@ -477,6 +481,187 @@ def test_health_sink_reports_placement_and_park_counts():
     )
     assert sink["ladder_passes"] > 0, "tight rooms did not exercise the ladder"
     assert sink["spawn_count_min"] > 0
+
+
+# ---------------------------------------------------------------------------
+# Compounds (H1 primitive clusters)
+# ---------------------------------------------------------------------------
+
+# A wide "wardrobe": the two 1.2x0.3 shelves side by side against a wall,
+# deliberately overlapping in x (dx = +-0.4 -> 0.4 m within-compound overlap),
+# flush to the wall (dy = 0.15 = half the 0.3 m depth).
+_WARDROBE = CompoundCfg(members=(22, 23), offsets=((-0.4, 0.15), (0.4, 0.15)))
+_COMPOUND_RANK = tuple(
+    [(s,) for s in list(reversed(CLUTTER_SLOTS))]
+    + [(f,) for f in reversed(FURNITURE_SLOTS) if f not in (22, 23)]
+    + [(22, 23)]  # the compound members park as one group, last
+)
+_COMPOUNDS = PlacementCfg(
+    park_rank=_COMPOUND_RANK, compounds=(_WARDROBE,), compound_prob=1.0,
+    furniture_aabb_reject=True,
+)
+_ENRICHED_KW = dict(
+    wall_height=2.7, door_width_max=2.0, span_max=7.5, max_span_sum=13.4,
+    clutter_wall_bias_prob=0.3, robot_spawn_inflation_cells=1,
+    tall_object_heights={"shelf": 2.0, "cabinet": 2.1, "tall_cyl": 1.8},
+)
+
+
+# A second shape for the menu: the two 0.5x0.5 cabinets side by side (dy=0.25
+# flush to their 0.5 m depth). Disjoint members from the wardrobe.
+_CABINETS = CompoundCfg(members=(24, 25), offsets=((-0.35, 0.25), (0.35, 0.25)))
+_MENU_RANK = tuple(
+    [(s,) for s in list(reversed(CLUTTER_SLOTS))]
+    + [(f,) for f in reversed(FURNITURE_SLOTS) if f not in (22, 23, 24, 25)]
+    + [(22, 23), (24, 25)]
+)
+
+
+def _yaw_of(poses, b, slot):
+    return 2.0 * math.atan2(poses[b, slot, 5].item(), poses[b, slot, 6].item())
+
+
+def test_compound_catalogue_places_one_shape_per_episode():
+    """A multi-shape catalogue is a menu, not a set: each firing episode seats
+    exactly one shape. With the catalogue slots held out of the ordinary sequence
+    they can only arrive via a compound, so this reads the menu draw directly."""
+    menu = PlacementCfg(
+        furniture_sequence=(20, 21, 26, 27), park_rank=_MENU_RANK,
+        compounds=(_WARDROBE, _CABINETS), compound_prob=1.0, furniture_aabb_reject=True)
+    env, _ = _run(num_envs=128, difficulty=7, placement=menu, **_ENRICHED_KW)
+    active = env._proc_room_active_mask
+    wardrobe = active[:, 22] & active[:, 23]
+    cabinets = active[:, 24] & active[:, 25]
+    assert not (wardrobe & cabinets).any(), "an episode seated two shapes"
+    assert not (active[:, 22] ^ active[:, 23]).any(), "a half wardrobe leaked in"
+    assert not (active[:, 24] ^ active[:, 25]).any(), "a half cabinet-pair leaked in"
+    assert wardrobe.any() and cabinets.any(), "the menu never exercised both shapes"
+
+
+def test_compound_phase_off_leaves_the_enriched_path_alone():
+    """``compound_prob`` at zero draws nothing, so an arm carrying a compound
+    catalogue at zero probability digests identically to one carrying none."""
+    none = _digest(*_run(placement=PlacementCfg(park_rank=_COMPOUND_RANK)))
+    knob_off = _digest(*_run(placement=PlacementCfg(
+        park_rank=_COMPOUND_RANK, compounds=(_WARDROBE,), compound_prob=0.0)))
+    assert none == knob_off
+
+
+def test_compound_places_and_parks_as_a_unit():
+    """A compound is all-or-nothing per env and the retry ladder never splits it,
+    which is the property the group-atomic park rank exists to guarantee."""
+    env, _ = _run(num_envs=64, difficulty=7, placement=_COMPOUNDS, **_ENRICHED_KW)
+    active = env._proc_room_active_mask
+    assert (active[:, 22] & active[:, 23]).any(), "the wardrobe never seated"
+    assert not (active[:, 22] ^ active[:, 23]).any(), "a member placed without its pair"
+    # Drive the ladder to exhaustion on tight rooms — still never a half-compound.
+    tight, _ = _run(num_envs=16, difficulty=7, placement=_COMPOUNDS,
+                    **{**_ENRICHED_KW, "span_max": 4.0, "max_span_sum": 8.0})
+    tight_active = tight._proc_room_active_mask
+    assert not (tight_active[:, 22] ^ tight_active[:, 23]).any()
+
+
+def test_compound_keeps_within_overlap_but_rejects_between_overlap():
+    """Within-compound overlap is intentional (the members interpenetrate by
+    design); between-unit overlap is not — the true-AABB test keeps ordinary
+    furniture out of a placed compound member."""
+    env, ents = _run(num_envs=64, difficulty=7, placement=_COMPOUNDS, **_ENRICHED_KW)
+    active = env._proc_room_active_mask
+    poses = ents["room_primitives"].body_poses
+    placed = torch.where(active[:, 22] & active[:, 23])[0].tolist()
+    assert placed
+
+    for b in placed:
+        hx, hy = _rotated_aabb_half_extents(1.2, 0.3, _yaw_of(poses, b, 22))
+        ox = 2 * hx - abs(poses[b, 22, 0].item() - poses[b, 23, 0].item())
+        oy = 2 * hy - abs(poses[b, 22, 1].item() - poses[b, 23, 1].item())
+        assert ox > 0.001 and oy > 0.001, "within-compound overlap was suppressed"
+
+    worst = 0.0
+    for b in placed:
+        for f in FURNITURE_SLOTS:
+            if f in (22, 23) or not active[b, f]:
+                continue
+            hxf, hyf = _rotated_aabb_half_extents(
+                OBJECT_SIZES[f, 0].item(), OBJECT_SIZES[f, 1].item(), _yaw_of(poses, b, f))
+            for m in (22, 23):
+                hxm, hym = _rotated_aabb_half_extents(1.2, 0.3, _yaw_of(poses, b, m))
+                ox = hxf + hxm - abs(poses[b, f, 0].item() - poses[b, m, 0].item())
+                oy = hyf + hym - abs(poses[b, f, 1].item() - poses[b, m, 1].item())
+                if ox > 0.001 and oy > 0.001:
+                    worst = max(worst, min(ox, oy))
+    assert worst < 0.01, f"ordinary furniture interpenetrates a compound by {worst:.3f} m"
+
+
+def test_compound_footprint_reaches_the_occupancy_grid():
+    """Each member rasterizes its own AABB into occupancy, so BFS sees the whole
+    composite footprint — a member's centre cell is never passable."""
+    env, ents = _run(num_envs=64, difficulty=7, placement=_COMPOUNDS, **_ENRICHED_KW)
+    active = env._proc_room_active_mask
+    poses = ents["room_primitives"].body_poses
+    free = env._proc_room_free_space
+    b = torch.where(active[:, 22] & active[:, 23])[0][0].item()
+    for m in (22, 23):
+        r, c = _xy_to_grid(poses[b, m, 0], poses[b, m, 1])
+        assert not free[b, r, c], "a compound member's centre is passable in BFS"
+
+
+def test_compound_consumes_the_furniture_budget():
+    """Members count against the level's furniture budget rather than adding to
+    it: at level 4 (budget 4) a placed 2-member compound leaves 4 furniture, not
+    4 + 2 — held by construction so density does not silently inflate."""
+    sink = {}
+    env, _ = _run(num_envs=64, difficulty=4, health_sink=sink,
+                  placement=_COMPOUNDS, **_ENRICHED_KW)
+    active = env._proc_room_active_mask
+    placed = active[:, 22] & active[:, 23]
+    assert placed.any()
+    per_env = active[:, FURNITURE_SLOTS].sum(dim=1)
+    assert (per_env[placed] <= 4).all(), "compound added to the budget instead of consuming it"
+    assert sink["compound_phase_fired"] == 64
+    assert sink["placed_compound_members"] == 2 * int(placed.sum())
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    (
+        {"members": (22,), "offsets": ((0.0, 0.15),)},                    # < 2 members
+        {"members": (22, 23), "offsets": ((0.0, 0.15),)},                 # length mismatch
+        {"members": (22, 22), "offsets": ((0.0, 0.15), (0.0, 0.15))},     # repeated member
+        {"members": (22, 30), "offsets": ((0.0, 0.15), (0.0, 0.15))},     # clutter member
+        {"members": (22, 23), "offsets": ((0.0, 0.0), (0.0, 0.15))},      # dy pierces the wall
+    ),
+)
+def test_compound_cfg_rejects_an_unsound_shape(kwargs):
+    with pytest.raises(ValueError):
+        CompoundCfg(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    (
+        {"compound_prob": 1.5},
+        {"compound_prob": -0.1},
+        {"compounds": (_WARDROBE,)},  # no park_rank holds the members in one group
+    ),
+)
+def test_placement_cfg_rejects_an_unsound_compound_lever(kwargs):
+    with pytest.raises(ValueError):
+        PlacementCfg(**kwargs)
+
+
+def test_placement_cfg_rejects_compounds_sharing_a_member():
+    rank = tuple([(22, 23, 26)] + [(s,) for s in CLUTTER_SLOTS] + [(20,), (21,), (24,), (25,), (27,)])
+    with pytest.raises(ValueError):
+        PlacementCfg(park_rank=rank, compounds=(
+            CompoundCfg((22, 23), ((-0.4, 0.15), (0.4, 0.15))),
+            CompoundCfg((23, 26), ((-0.4, 0.15), (0.4, 0.30))),
+        ))
+
+
+def test_compound_cfg_accepts_the_shipped_shapes():
+    CompoundCfg(members=(22, 23), offsets=((-0.4, 0.15), (0.4, 0.15)))
+    PlacementCfg(park_rank=_COMPOUND_RANK, compounds=(_WARDROBE,), compound_prob=1.0)
 
 
 @pytest.fixture(autouse=True)

@@ -1388,6 +1388,11 @@ _ENRICH_PLACEMENT = PlacementCfg(
     column_prob=_ENRICH_COLUMN_PROB,
     column_count=_ENRICH_COLUMN_COUNT,
     relocate_blocked_bfs_seed=True,
+    # Reject interpenetrating furniture by true footprint AABB rather than the
+    # extent-blind centre test, so a couch no longer seats inside a table. The
+    # compound catalogue lever (compounds/compound_prob) stays at its default —
+    # the primitive-cluster machinery is available but unused on this arm.
+    furniture_aabb_reject=True,
 )
 
 

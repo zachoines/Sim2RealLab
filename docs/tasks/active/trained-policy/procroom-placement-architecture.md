@@ -334,6 +334,16 @@ it changes `failed`, hence reachability, hence the `randperm` stream — and
 its floor must be baselined against the *vanilla* coverage distribution
 first, since ordinary clutter can in principle enclose a pocket.
 
+**Designed, not enforced.** The floor above is a design, not shipped
+behavior: PR-3a landed as instrumentation only. The health sink now reports
+the same quantity the floor would test — free-space component count and
+largest-component share — without touching `failed`, so it carries none of
+the `randperm`-stream consequence this paragraph warns about, and the
+vanilla baseline the floor would need is now a measurement rather than an
+assumption (vanilla runs *more* fragmented than enriched: 79.9% of rooms
+multi-component against 66.8%, mean largest share 89.00% against 94.25%).
+Enforcement re-triggers on v2 evaluation evidence.
+
 **BFS seed.** Keep the centre seed and keep writing it unconditionally.
 `_gpu_bfs` marks the seed cell reachable whether or not it is free
 ([`proc_room.py:438`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/proc_room.py)),
@@ -693,11 +703,19 @@ exercises, and no amount of reading settles it.
 coverage invariant, the seed-protection predicate, and the path statistics
 promoted to durable gates. Worth landing whether or not F2 ever ships: the
 coverage invariant closes a silent bisection channel that nothing else can
-see. *Still open, and better motivated than when it was written: the shipped
-generator already leaves 66.8% of rooms with more than one free-space component
-and a mean 94.25% largest-component share, so the channel is not hypothetical.
-The seed-protection predicate landed early inside PR-1 and PR-3 measured it
-sufficient.*
+see. *Shipped as **instrumentation only** (2026-07-25 ruling): the health
+sink now carries free-space component count and largest-component share per
+generate call — read-only, draw-free, vanilla-safe, no enforcement and no
+regeneration. The measurement that motivated it reproduces through the sink
+exactly (2.574 components/room, 66.8% multi-component, 94.25% mean largest
+share on the shipped enriched arm; 3.377 / 79.9% / 89.00% on vanilla). The
+harm channel stays unproven — spawn, goal and subgoal all draw from the same
+reachable component by construction, so fragmented episodes are still
+self-consistent, and visible-but-unreachable space is realistic. **Enforcement
+re-trigger:** v2 evaluation showing fragment-linked artifacts. The
+seed-protection predicate landed early inside PR-1 and PR-3 measured it
+sufficient. The "promote the path statistics to durable gates" half is
+**not** satisfied and stays open.*
 
 **PR-3b — internal walls. PARKED** on its own Step-1 gate, which PR-3 derived
 and reported before building the lever ([What PR-3 measured](#what-pr-3-measured)).
@@ -1184,6 +1202,11 @@ of the curvature F2 was commissioned to buy. PR-2's overlap fix is path-neutral
 by comparison (52.3 [49.4, 55.4] with it off). Note the overshoot does not
 depend on the knob: even columns-off, 46.6% sits well above the 29.6% target.
 
+**Carry-forward (ruled 2026-07-25):** `column_prob` is now known to be BOTH
+the D4 lever and the generator's largest curvature lever — anyone re-tuning
+it for one moves the other. The knob stays at 0.5; no topology-motivated
+re-tune exists, since even columns-off overshoots the corpus target.
+
 ### Three checks that could have rescued F2, and did not
 
 - **Inflation.** ProcRoom inflates 0.30 m against the adapter's 0.20 m, which
@@ -1343,6 +1366,43 @@ rather than a re-freeze.
 > their own recorded provenance. Re-verify against run logs at PR time; it
 > is cheap.
 
+## Findings for the operator — the PR-3 outcome, ruled 2026-07-25
+
+The 2026-07-21 block above closed the design consult's six findings. This
+one records what the PR-3 report asked and how it was answered.
+
+**F2 parked, on the catalogue's footing.** Accepted. "Move toward the
+target" has no satisfying setting when the generator already overshoots on
+all four statistics, and the mechanism underneath — corpus curvature is
+house-scale (60–77% turning at 4–8 m, bands ProcRoom cannot populate) while
+at room scale the corpus is *straighter* than ProcRoom — retires the
+single-room topology thesis. The overshoot is distribution *width* on the
+training side (the U[4,7] mixture still contains straight modes), which is
+the acceptable direction. **Re-trigger for any F2 revival: a descriptor
+case (D2 mid-row discontinuities) with its own gate — the path-topology
+case is closed.**
+
+**PR-3a ships as instrumentation only.** The 66.8%-multi-component finding
+upgrades the coverage invariant from hypothetical to measured, but the harm
+channel is unproven: spawn, goal and subgoal all draw from the same
+reachable component by construction, and visible-but-unreachable space is
+realistic. Permanent health-sink counters, no enforcement.
+**Re-trigger: v2 evaluation showing fragment-linked artifacts.**
+
+**Column-knob dual effect: no change, record the coupling.** See the
+carry-forward beside the PR-3 measurement above.
+
+**Stale-D4 treatment confirmed.** Correct-forward with PR-1's historical row
+intact is the record-keeping pattern. The positions any future gate reads
+are the shipped-with-overlap-fix arm: **D4 44.22 [42.87, 45.58], D1 1.657,
+D3 6.13%**.
+
+**Standing fact ratified.** An inert `PlacementCfg` field still flips all 8
+enriched goldens, so "park it in-tree" is never free; the F2 candidate was
+correctly reverted rather than parked-inert. Future park proposals pay the
+re-freeze only if the mechanism has independent value (H1's did; F2's does
+not).
+
 ## Acceptance criteria
 
 - [x] PR-0 lands the guard net against unmodified production code; the
@@ -1420,6 +1480,17 @@ rather than a re-freeze.
       *Confirmed: the column phase reuses the two existing tall-cylinder slots;
       no new slot, gym ID or composition axis. The enriched event params gained
       a `PlacementCfg` on the existing `enrich_depth` seam only.*
+- [x] PR-3a's coverage work ships as instrumentation, with the quantity it
+      would have enforced reported rather than policed.
+      *Landed: `free_components`, `free_multi_component_envs`,
+      `free_largest_share_sum` and `free_largest_share_min` on the existing
+      health sink, computed inside the sink's own guard so the no-sink path
+      costs nothing and the draw stream is untouched. 8-connected on the same
+      3x3 neighbourhood `_gpu_bfs` floods, validated cell-for-cell against an
+      independent flood fill. Reproduces the recorded finding exactly (2.574
+      components/room, 66.8% multi-component, 94.25% mean largest share over
+      512 enriched rooms) and works on the vanilla path too (3.377 / 79.9% /
+      89.00%). No enforcement, no rejection, no regeneration.*
 - [ ] If your work invalidates a fact in any referenced context module,
       package README, top-level `Readme.md`, or guide under `docs/`, update
       those in the same commit. See
@@ -1432,7 +1503,9 @@ rather than a re-freeze.
 - **The retrain.** Operator-scheduled; this brief ends at levers
   implemented and descriptor-validated.
 - **F4 camera-extrinsics micro-DR and the ceiling probe.** Separate items in
-  the v2 batch, independent of placement.
+  the v2 batch, independent of placement; both landed under
+  [`procroom-depth-enrichment`](procroom-depth-enrichment.md), which holds
+  their records.
 - **H2 mesh-asset curation.** Only if H1 falls short by descriptor, and it
   is palette growth, hence gated.
 - **The reactive-avoidance arc.** Task and reward changes, explicitly a v3

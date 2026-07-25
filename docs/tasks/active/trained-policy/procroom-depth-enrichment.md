@@ -221,11 +221,21 @@ consult rather than four incisions into a generator NOCAM consumes forever:
   implementation split. Read it before picking any of them up. *Landed: the
   re-range arm and instruments, the placement surgery and the D4 column knob,
   and the furniture overlap fix. The H1 catalogue and F2 both parked on their
-  own gates — mechanism measured, movement absent — leaving F4 and the ceiling
-  probe as the batch's remaining items.*
-- **F4 rendered-camera extrinsics micro-DR** (Q4's boundary with
-  [`domain-randomization-audit`](domain-randomization-audit.md)) and the
-  **ceiling probe** stay independent of that design and of each other.
+  own gates — mechanism measured, movement absent.*
+- **F4 rendered-camera extrinsics micro-DR** (Q4, now resolved: this brief
+  implements it, [`domain-randomization-audit`](domain-randomization-audit.md)
+  keeps the band) and the **ceiling probe** stayed independent of that design
+  and of each other. *Landed: F4 on the enriched depth variants; the ceiling
+  probe measured and closed, changing nothing (see F1).*
+
+**The batch's implementation queue is empty.** Every ratified item has
+either shipped or been parked on its own gate, and PR-3a shipped as
+instrumentation only per the 2026-07-25 ruling. The next open item is the
+**retrain decision** — an operator call on GPU scheduling, framed by the
+enrichment-dominates-finetune conclusion above and bounded by
+[`## Out of scope`](#out-of-scope): this brief ends at "levers implemented +
+descriptor-validated + calibration slot filled", not at a trained
+checkpoint.
 
 That consult's headline finding bears on this brief's own numbers: the D1
 overshoot, the D4 regression and the path-topology collapse share one
@@ -283,7 +293,7 @@ into a fresh layout; a GPU BFS guarantees solvability
 | Robot spawn | uniform over BFS-reachable cells (0.3 m inflation only) | :420-454, `mdp/events.py:494-553` |
 | Goal / subgoal path | reachable-set sample, `min_goal_distance=2.0` | `strafer_env_cfg.py:1660-1668` |
 | Physics DR | friction / mass / motor strength bands | `strafer_env_cfg.py:1548-1567` |
-| D555 mount DR | ±1°/±3° — **IMU observation math only; the rendered camera pose is never perturbed** | `mdp/events.py:450-491` |
+| D555 mount DR | ±1°/±3° — one sampled offset; the IMU observation rotates through it, and on the **enriched depth variants only** the rendered camera prim is pointed through it too (F4). On the vanilla / NOCAM arms it stays observation-side, so **their** rendered camera pose is never perturbed. | `mdp/events.py:450-491` |
 
 Fixed / not randomized (the enrichment surface):
 
@@ -407,9 +417,20 @@ first.
 
 ### 4. Rendered-camera extrinsics DR ownership
 
-Mount DR currently never perturbs the rendered image (observation-side
-only). Jittering the actual camera prim pose (pitch/height) would move
-row-profile variance toward realism, but sensor-DR widening is
+**Resolved (coordinator routing, 2026-07-25):** this brief implements F4;
+[`domain-randomization-audit`](domain-randomization-audit.md) gets a
+pointer, not the work. The boundary that makes the split clean is *band
+ownership*: F4 adds no band of its own — it consumes the offset
+`randomize_d555_mount_offset` already samples, so the ±1°/±3° tolerance is
+still that brief's to widen, and widening it moves both sensors at once.
+Scope here is the enriched depth variants and orientation only; mount
+*translation* (that brief's ±2 cm proposal) stays unimplemented and unowned
+by this one.
+
+Original question (retained for provenance) — Mount DR currently never
+perturbs the rendered image (observation-side only). Jittering the actual
+camera prim pose (pitch/height) would move row-profile variance toward
+realism, but sensor-DR widening is
 [`domain-randomization-audit`](domain-randomization-audit.md)'s lane.
 Resolve the boundary with that brief before implementing F4 here.
 
@@ -581,7 +602,28 @@ provisional sim-frame targets.
   the sole DomeLight — depth is unaffected, but the force-included RGB
   (debug video; the perception/bridge variants) goes near-black; add a
   per-env light on the 1–8-env perception cfgs only, never the 64-env
-  path. **Implementation traps:** (1) do not add an occupancy
+  path. **The slab is opaque from above, and stays that way (probed
+  2026-07-25).** The one-way-ceiling idea — visible from below,
+  transparent to an overhead QA camera — was measured in Kit and the
+  answer is split. RTX *does* honour single-sided geometry on both paths:
+  with `/rtx/hydra/faceCulling/enabled` on, a down-facing single-quad mesh
+  marked `singleSided` disappears from an overhead view in both the RGB
+  render and the `distance_to_image_plane` annotator (quad pixel share
+  0.3853 → 0.1926, exactly the one culled quad of two; RGB delta 5.1× its
+  own frame-to-frame noise floor). But the flag is inert on **this**
+  ceiling because the slab is a closed cuboid: culling removes only its
+  interior faces, so the top face still faces a camera above and the
+  bottom face still faces the policy camera below. Measured on the shipped
+  slab: overhead ceiling pixel share 0.952049 → 0.952049 and policy depth
+  max|Δ| exactly 0.0 m. A true one-way ceiling would need the slab
+  replaced by an open single-quad surface — a geometry and collider
+  change, not a flag — so nothing changed here. Overhead recording of
+  enclosed episodes still needs the global-hide rig
+  ([`capture-debug-overhead-cam`](../../parked/harness/capture-debug-overhead-cam.md)),
+  because this build has no per-camera visibility lever either
+  (`coverage_capture.py`'s `cameraVisibility` finding). The answer is
+  renderer-build-specific; re-probe on an RTX/Isaac Sim upgrade.
+  **Implementation traps:** (1) do not add an occupancy
   z-filter — place the ceiling slab's pose but leave its `active_mask`
   entry False: pose writes go to every slot regardless of the mask
   (`proc_room.py:838-841`), while the occupancy rasterizer, the BFS
@@ -648,7 +690,13 @@ provisional sim-frame targets.
   append internal-wall slots to the ladder as terminal fallback.
   Moves: D5 occlusion/aperture frequency, mid-row discontinuities,
   sightline segmentation.
-- **F4 rendered-camera extrinsics micro-DR.** Gated on Q4.
+- **F4 rendered-camera extrinsics micro-DR — IMPLEMENTED 2026-07-25**
+  (Q4 resolved: this brief owns it). The rendered policy-camera prim is
+  pointed through the offset `randomize_d555_mount_offset` already
+  samples, on the enriched depth variants only. No new band and no new
+  draw — one realization, two consumers, so the sensor sim stops claiming
+  a mount tolerance its images do not have. See the F4 acceptance pair for
+  the measured descriptor leg.
 
 **Tier 3 — coarse low-poly indoor-mesh palette variety (M–L; asset
 source is a consult item):**
@@ -875,6 +923,60 @@ those unchecked lines are that session's checklist.
       (BFS-fail 0/256, step-rate 13.55/s — the baseline reproduces the
       recorded 34.6% exactly). D4 stays ~14 pts below the band: the residual
       is frequency/proximity-limited (a follow-up lever), not height.
+- [x] F4 rendered-camera extrinsics micro-DR implemented (enriched depth
+      variants only): a reset-mode term points the policy camera prim's local
+      transform through the offset `randomize_d555_mount_offset` already
+      samples, so the IMU observation and the rendered image carry one
+      misalignment instead of two. It consumes the realization rather than
+      drawing its own — **no new band, no new draw** — and the prim's local
+      transform is relative to the chassis body, so one write per reset rides
+      the whole episode. The composition takes the *inverse* of the
+      observation-side rotation (that rotation resolves a body vector on the
+      misaligned sensor's axes; the prim carries the housing's own rotation),
+      pinned by a unit test rather than left to a reader's assumption.
+      Vanilla / NOCAM untouched — 14 of the 22 contract hashes byte-identical,
+      the 8 enriched re-frozen (F-6(iii) re-verified: 8 runs on disk, none
+      enriched). The ±1°/±3° bands moved to one shared constant per realism
+      tier, hash-neutrally, so the two consumers cannot drift apart.
+      *Known limitation:* scope is the **policy** camera, so on the
+      perception-bearing enriched variants the 640×360 perception camera
+      still sits at the nominal mount and the two cameras disagree by up to
+      the tolerance — where a real D555 has one housing. Widening it touches
+      what the ROS bridge publishes (`CameraInfo` / RTAB-Map calibration), so
+      it is a separate decision; the term takes `sensor_name` as a parameter,
+      making it a one-line cfg addition if ruled for.
+- [x] **validated (GPU window):** paired 2-arm leg at the scaled protocol
+      (2 688 rooms/arm, `--num_resets 42`, seed base 20260101). **Stream
+      neutrality measured, not argued:** 100.0% same difficulty and 100.0%
+      byte-identical geometry across matched rooms (contrast: the PR-2
+      overlap fix re-phased the stream to 3.3%). Gated descriptors hold their
+      recorded positions — D4 44.220 → 44.215 (paired −0.004 [−0.030,
+      +0.022], includes zero), D3 6.130 → 6.125 (−0.005 [−0.030, +0.020],
+      includes zero), D1 median 1.657 → 1.661 (+0.004 [+0.002, +0.006]:
+      detectable at n = 2 688 but 4 mm on a 1.66 m median, well inside the
+      recorded band [1.629, 1.686]). The intended row-profile softening is
+      present and measurable: floor pixels 29.416 → 27.364% (−2.05
+      [−2.18, −1.92]), D1 floor-masked 2.147 → 2.116 m, D5 edge density
+      1.850 → 1.875%. Step-rate 13.56 / 13.50 env.step/s across the two arms,
+      on the 13.37–13.56 baseline. A Kit test drives the term against a live
+      depth render and asserts the image moves only on the environments given
+      and stays moved while the robot drives.
+- [x] Free-space fragmentation is instrumented (PR-3a, instrumentation only
+      per the 2026-07-25 ruling): the health sink reports component count and
+      largest-component share per generate call, 8-connected on the same
+      neighbourhood the BFS floods, computed inside the sink's own guard so
+      the no-sink production path costs nothing and no draw moves. No
+      enforcement, no rejection, no regeneration.
+- [x] **validated (GPU window):** the counters ride the descriptor leg's
+      health sidecar — over the same 2 688 GPU-generated rooms they read 2.584
+      components/room, 67.5% multi-component, 93.96% mean largest share,
+      reproducing the CPU-side finding (2.574 / 66.8% / 94.25% over 512 rooms)
+      that motivated the invariant. They work on the vanilla path too (3.377 /
+      79.9% / 89.00%) — vanilla is the *more* fragmented arm.
+- [x] The one-way-ceiling question is closed by measurement (see F1): RTX
+      honours single-sided geometry on both the RGB and depth paths, but the
+      shipped ceiling is a closed cuboid the flag cannot open. Nothing
+      changed; the finding and its re-probe trigger are recorded.
 
 ### Calibration + maintenance
 

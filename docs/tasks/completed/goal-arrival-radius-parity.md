@@ -1,7 +1,7 @@
 # Deploy `navigate_to_pose` succeeds at a radius tighter than the policy was trained to park
 
 **Status:** Shipped 2026-07-24 in `e52c5b1` (Either).
-**PR:** _open from `task/goal-arrival-radius-parity` — fill on open_
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/165
 
 **Type:** task / bug
 **Owner:** Either — the deploy success gate is Jetson-side (`strafer_inference`), but the parity source is shared (`strafer_shared`) and referenced by the DGX training env.

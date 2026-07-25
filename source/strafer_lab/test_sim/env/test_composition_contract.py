@@ -96,17 +96,17 @@ _CONTRACT_GOLDENS = {
     "RLDepthSubgoal_Robust_PLAY": "3f0e0b5402c7279cd5ef0f6222753deca21e60c88494192e502f41962c08aa78",
     # Depth-enrichment variants — NEW IDs frozen at creation (no prior checkpoint
     # depends on them). The enrichment lives in the `events` field (un-pinned
-    # difficulty + enriched generation params, incl. the tall-object heights);
-    # the observation contract is byte-identical to the open-top depth variants
-    # (asserted separately).
-    "RLDepthEnriched_Real": "8cce67bee3ef2152dc72a84d5732873b76cb825463d92f83d41fc9c5397667a3",
-    "RLDepthEnriched_Robust": "a6ac85bf1e4f23b69503f990bf3b4db6e85eaf5f5fee02b83c68eb39698d3734",
-    "RLDepthEnriched_Real_PLAY": "0d218f0771b2bb5d1facece6777ab8e1f3e7442c1a7b6cc17b308598677b980f",
-    "RLDepthEnriched_Robust_PLAY": "28fbfce3d85df0e9e17ad307a75f2422ab8e76f00dd9a15d2f3b39a2ff83e58b",
-    "RLDepthSubgoalEnriched_Real": "a88ce48cdc1fc76796f8fc287fe4d947f5fe404b1b765f75d6f7027fed638fec",
-    "RLDepthSubgoalEnriched_Robust": "5ce49087539a2fa8c230bb07a78a5a4690e23de509a3ebbd078b0f561b52d8ff",
-    "RLDepthSubgoalEnriched_Real_PLAY": "43d466df7e536e7a2d6f49a19a3703100fe8336fedf6a13496cc9c4de5c67a8f",
-    "RLDepthSubgoalEnriched_Robust_PLAY": "55e35e4c23d78b4bee4eefaf72bc3134c4dd8ae8ef5c33c89405de164baba1ab",
+    # difficulty, enriched generation params incl. the tall-object heights, and
+    # the rendered-camera mount offset); the observation contract is
+    # byte-identical to the open-top depth variants (asserted separately).
+    "RLDepthEnriched_Real": "56228d9725791d1fc2c0f62fffe3d709bb19d2654aaf8bd32724fc74406c1b3e",
+    "RLDepthEnriched_Robust": "e1b94f5d445b09460ee97f3692e379925d41e90f9f6ae9daa719b847e0eae7cf",
+    "RLDepthEnriched_Real_PLAY": "1f54ee9f60e743bd96376db55c501d954c45b5933e51f3df4c0ede12e9dddd61",
+    "RLDepthEnriched_Robust_PLAY": "896b40edc38fc79d4b2c72e750646ac2e4b49b998166d5112d8491503b1170eb",
+    "RLDepthSubgoalEnriched_Real": "b61bb73f5e96403828e77bbd292a279265c58adfed28b5930408527af4886dd3",
+    "RLDepthSubgoalEnriched_Robust": "9481c58066028bb98c6fa9d3c36543c7e3aeddf5a7b0156543b0535f988fdc12",
+    "RLDepthSubgoalEnriched_Real_PLAY": "3ef4ca240a9f1ce16fe2e19354cb15b2394e4774a6099b6c7a31ebbd3b4cecb6",
+    "RLDepthSubgoalEnriched_Robust_PLAY": "ea7654d2a75c5851ffee3b231cce955dc72e73edd838081cf763bddfb79529e6",
 }
 
 # Frozen signature (slot name set + spawn sizes) of the pre-enrichment 44-object

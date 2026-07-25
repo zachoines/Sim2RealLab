@@ -15,7 +15,13 @@ import math
 import torch
 import warp as wp
 
-from isaaclab.utils.math import quat_from_euler_xyz, quat_apply
+from isaaclab.utils.math import (
+    convert_camera_frame_orientation_convention,
+    quat_apply,
+    quat_from_euler_xyz,
+    quat_inv,
+    quat_mul,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -462,8 +468,9 @@ def randomize_d555_mount_offset(
     This event samples a small random rotation (roll, pitch, yaw each
     within ±max_angle_deg) per environment and stores it as a quaternion
     on ``env._d555_mount_quat``. IMU observation functions apply this
-    rotation to sensor readings. For the depth/RGB camera the effect is
-    negligible (1-2° ≈ 1-2 pixel shift) and the CNN learns invariance.
+    rotation to sensor readings; :func:`jitter_d555_camera_prim_pose`
+    applies the same realization to the rendered camera prim on the
+    variants that carry it, so both sensors share one misalignment.
 
     Args:
         env: The environment instance.
@@ -489,6 +496,78 @@ def randomize_d555_mount_offset(
 
     mount_quat = quat_from_euler_xyz(roll, pitch, yaw)
     env._d555_mount_quat[env_ids] = mount_quat
+
+
+def d555_camera_mount_local_quat(
+    mount_quat: torch.Tensor, nominal_quat: torch.Tensor
+) -> torch.Tensor:
+    """Camera-prim local orientation under a sampled mount misalignment.
+
+    ``randomize_d555_mount_offset`` stores the rotation that takes a body-frame
+    vector to its components in the misaligned sensor frame, so the housing's
+    own rotation — what the prim's frame orientation needs — is its inverse.
+
+    Args:
+        mount_quat: (N, 4) sampled mount offset, XYZW.
+        nominal_quat: (N, 4) or (1, 4) nominal camera-prim local orientation
+            in the prim's own convention, XYZW.
+
+    Returns:
+        (N, 4) local orientation to author on the camera prim, XYZW.
+    """
+    return quat_mul(quat_inv(mount_quat), nominal_quat.expand_as(mount_quat))
+
+
+def jitter_d555_camera_prim_pose(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    sensor_name: str = "d555_camera",
+) -> None:
+    """Point the rendered camera through the sampled D555 mount offset.
+
+    Consumes the realization ``randomize_d555_mount_offset`` left on
+    ``env._d555_mount_quat`` instead of drawing its own, so the IMU observation
+    and the rendered image carry the same per-episode misalignment and the
+    band cannot drift between them. Orientation only — the sampled offset has
+    no translation.
+
+    The prim's local transform is relative to the chassis body, so one write
+    per reset holds for the episode as the robot moves. No-op where the mount
+    offset was never sampled or the scene carries no such camera, so the term
+    is safe on any variant that shares these event classes.
+
+    Args:
+        env: The environment instance.
+        env_ids: Indices of environments to update.
+        sensor_name: Scene sensor name of the camera to point.
+    """
+    if len(env_ids) == 0:
+        return
+    mount_quat = getattr(env, "_d555_mount_quat", None)
+    camera = env.scene.sensors.get(sensor_name)
+    if mount_quat is None or camera is None:
+        return
+
+    offset = camera.cfg.offset
+    nominal = torch.tensor(
+        offset.rot, dtype=mount_quat.dtype, device=mount_quat.device
+    ).unsqueeze(0)
+    # The prim carries the OpenGL (USD camera) orientation whatever convention
+    # the offset was authored in.
+    nominal = convert_camera_frame_orientation_convention(
+        nominal, origin=offset.convention, target="opengl"
+    )
+    local_quat = d555_camera_mount_local_quat(mount_quat[env_ids], nominal)
+
+    # The sensor exposes only world-pose setters, and a world write would need
+    # the parent body's pose and be recomposed from the local transform on the
+    # next hierarchy update anyway. The view's local-pose write is the mount
+    # offset itself, and its index order is environment order.
+    camera._view.set_local_poses(
+        translations=None,
+        orientations=wp.from_torch(local_quat.contiguous()),
+        indices=wp.from_torch(env_ids.to(dtype=torch.int32).contiguous()),
+    )
 
 
 def reset_robot_proc_room(

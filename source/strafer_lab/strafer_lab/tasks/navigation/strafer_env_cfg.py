@@ -923,6 +923,12 @@ _RESET_ROBOT = EventTerm(
     params={"pose_range": {"x": (-1.0, 1.0), "y": (-1.0, 1.0), "yaw": (-math.pi, math.pi)}},
 )
 
+# D555 mount-tolerance band per realism tier. Every consumer of the sampled
+# offset — the IMU observation math and the rendered camera prim — reads the
+# one realization it produces, so the band is set here and nowhere else.
+_D555_MOUNT_ANGLE_REAL_DEG = 1.0
+_D555_MOUNT_ANGLE_ROBUST_DEG = 3.0
+
 
 @configclass
 class EventsCfg_Ideal:
@@ -948,7 +954,7 @@ class EventsCfg_Realistic:
     )
     randomize_d555_mount = EventTerm(
         func=mdp.randomize_d555_mount_offset, mode="reset",
-        params={"max_angle_deg": 1.0},
+        params={"max_angle_deg": _D555_MOUNT_ANGLE_REAL_DEG},
     )
     randomize_goal_noise = EventTerm(
         func=mdp.randomize_goal_noise, mode="reset",
@@ -974,7 +980,7 @@ class EventsCfg_Robust:
     )
     randomize_d555_mount = EventTerm(
         func=mdp.randomize_d555_mount_offset, mode="reset",
-        params={"max_angle_deg": 3.0},
+        params={"max_angle_deg": _D555_MOUNT_ANGLE_ROBUST_DEG},
     )
     randomize_goal_noise = EventTerm(
         func=mdp.randomize_goal_noise, mode="reset",
@@ -1089,7 +1095,7 @@ class EventsCfg_Infinigen_Realistic:
     )
     randomize_d555_mount = EventTerm(
         func=mdp.randomize_d555_mount_offset, mode="reset",
-        params={"max_angle_deg": 1.0},
+        params={"max_angle_deg": _D555_MOUNT_ANGLE_REAL_DEG},
     )
     randomize_goal_noise = EventTerm(
         func=mdp.randomize_goal_noise, mode="reset",
@@ -1117,7 +1123,7 @@ class EventsCfg_Infinigen_Robust:
     )
     randomize_d555_mount = EventTerm(
         func=mdp.randomize_d555_mount_offset, mode="reset",
-        params={"max_angle_deg": 3.0},
+        params={"max_angle_deg": _D555_MOUNT_ANGLE_ROBUST_DEG},
     )
     randomize_goal_noise = EventTerm(
         func=mdp.randomize_goal_noise, mode="reset",
@@ -1678,7 +1684,7 @@ class EventsCfg_ProcRoom_Realistic:
     )
     randomize_d555_mount = EventTerm(
         func=mdp.randomize_d555_mount_offset, mode="reset",
-        params={"max_angle_deg": 1.0},
+        params={"max_angle_deg": _D555_MOUNT_ANGLE_REAL_DEG},
     )
     # Goal noise disabled for initial training (Phase 1).
     # Re-enable with noise_std=0.15 for Phase 3 robustness hardening.
@@ -1704,7 +1710,7 @@ class EventsCfg_ProcRoom_Robust:
     )
     randomize_d555_mount = EventTerm(
         func=mdp.randomize_d555_mount_offset, mode="reset",
-        params={"max_angle_deg": 3.0},
+        params={"max_angle_deg": _D555_MOUNT_ANGLE_ROBUST_DEG},
     )
     randomize_goal_noise = EventTerm(
         func=mdp.randomize_goal_noise, mode="reset",
@@ -1740,20 +1746,33 @@ _RANDOMIZE_PROC_ROOM_DIFFICULTY_ENRICHED = EventTerm(
     params={"min_level": _ENRICH_MIN_LEVEL, "max_level": _ENRICH_MAX_LEVEL},
 )
 
+# Point the rendered policy camera through the mount offset the IMU
+# observation already models, so the sensor sim is one misaligned housing
+# rather than two. Runs after the offset is sampled and draws nothing itself.
+_JITTER_D555_CAMERA_PRIM = EventTerm(
+    func=mdp.jitter_d555_camera_prim_pose,
+    mode="reset",
+    params={"sensor_name": "d555_camera"},
+)
+
 
 @configclass
 class EventsCfg_ProcRoom_Realistic_Enriched(EventsCfg_ProcRoom_Realistic):
     """Realistic ProcRoom events with depth-enrichment generation (un-pinned
-    difficulty + enclosure/clutter/spawn enrichment); DR unchanged."""
+    difficulty + enclosure/clutter/spawn enrichment) and the rendered camera
+    carrying the mount offset; DR bands unchanged."""
     randomize_difficulty = _RANDOMIZE_PROC_ROOM_DIFFICULTY_ENRICHED
     generate_room = _GENERATE_PROC_ROOM_ENRICHED
+    jitter_d555_camera_prim = _JITTER_D555_CAMERA_PRIM
 
 
 @configclass
 class EventsCfg_ProcRoom_Robust_Enriched(EventsCfg_ProcRoom_Robust):
-    """Robust ProcRoom events with depth-enrichment generation; DR unchanged."""
+    """Robust ProcRoom events with depth-enrichment generation and the rendered
+    camera carrying the mount offset; DR bands unchanged."""
     randomize_difficulty = _RANDOMIZE_PROC_ROOM_DIFFICULTY_ENRICHED
     generate_room = _GENERATE_PROC_ROOM_ENRICHED
+    jitter_d555_camera_prim = _JITTER_D555_CAMERA_PRIM
 
 
 @configclass

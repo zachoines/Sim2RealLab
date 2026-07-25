@@ -458,6 +458,30 @@ not get a knob until the instrument exists. Wall-alignment in particular has
 **no knob at all** today (room-mode furniture yaw is one of four hardcoded
 constants), which may be a reason to drop alignment from H1's stated goal.
 
+*Measured (PR-2), and the gap is narrower than asserted.* The instrument was
+built and baselined against the Infinigen corpus (seed1+seed2 sidecars, shell
+excluded; reproduces the corpus's stated 53% / 1.05 m top-z). Two findings:
+the **top-z gap is real** (ProcRoom placed objects median 0.40 m / 26% above
+1 m vs 0.99 m / 49%), but the **footprint-area gap is reversed** — Infinigen's
+furniture set is dominated by small elevated tabletop objects (bottles, books
+on shelves), median footprint 9× *smaller* than ProcRoom's, which compounds of
+floor-standing primitives cannot and should not fake. Footprint-area is a
+**recorded non-goal for v2**, routed to H2/Tier-3 (small props on elevated
+surfaces need elevated members, which H1's floor-contact rule forbids);
+wall-alignment is likewise dropped (the corpus stores axis-aligned bboxes only,
+no orientation). H1 therefore targets top-z alone. The compound *mechanism*
+shipped (menu-drawn wall-flush clusters of existing furniture slots, composite
+AABB to occupancy/BFS/reward, budget-consuming, park-atomic, no new slot), but
+a 2 688-room paired descriptor leg found a two-shape tall catalogue holds D4 at
+the base level (candidate − base **−0.037 [−1.98, +1.88]**) rather than moving
+it toward the band interior — consolidating scattered tall anchors into one
+wide unit is D4-neutral here. So the catalogue is **parked** (mechanism
+in-tree, unused on the enriched arm; re-trigger: post-v2 evidence or H2), and
+the overlap fix ships alone. The **K-fold proximity penalty** is a v2-retrain
+observation item (compound-adjacent standoff may show up if the catalogue is
+un-parked). **F-6(i)** measured in Kit: two overlapping kinematic bodies at a
+compound join produce no PhysX contact/buffer complaint — safe.
+
 ### F2 — internal walls (unblocked by ruling F-3; ships in its own PR)
 
 *Precondition already in tree.* `max_internal_walls` is computed and read

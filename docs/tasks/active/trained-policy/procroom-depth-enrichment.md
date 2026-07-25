@@ -154,6 +154,14 @@ not a shift). 64-env step-rate: enriched 13.75 vs vanilla 13.30 env.step/s
    cannot reach — see
    [`procroom-placement-architecture`](procroom-placement-architecture.md),
    which defines the two path statistics and gates F2 on them.
+   **Closed 2026-07-25: the gap was in the comparator, not the generator.**
+   PR-A found the reference row was measured on an unsealed scene (71% of its
+   endpoint pool lay outside the building); PR-3 then derived F2's gate on the
+   heavy corpus at matched band and matched robot radius and found the shipped
+   generator already turns *more* than the corpus does at room scale (51.9%
+   of paths versus 29.6% pooled over five whole-house seeds; 46.6% even with
+   PR-1's column knob switched off). **F2 is parked** — it cannot move a
+   statistic that has already overshot its target.
 5. **T3 doorway / T4 span — minor as predicted; keep.** T4's
    `max_span_sum=13.4` budget cap held: D3 residual 7.3% is low, no runaway
    pack-gap slits, walls-active median unchanged ~14.
@@ -210,7 +218,11 @@ consult rather than four incisions into a generator NOCAM consumes forever:
   placement** and **F2 internal walls** are designed together in
   [`procroom-placement-architecture`](procroom-placement-architecture.md),
   which also defines the two path statistics F2 is gated on and carries the
-  implementation split. Read it before picking any of them up.
+  implementation split. Read it before picking any of them up. *Landed: the
+  re-range arm and instruments, the placement surgery and the D4 column knob,
+  and the furniture overlap fix. The H1 catalogue and F2 both parked on their
+  own gates — mechanism measured, movement absent — leaving F4 and the ceiling
+  probe as the batch's remaining items.*
 - **F4 rendered-camera extrinsics micro-DR** (Q4's boundary with
   [`domain-randomization-audit`](domain-randomization-audit.md)) and the
   **ceiling probe** stay independent of that design and of each other.
@@ -610,7 +622,14 @@ provisional sim-frame targets.
   densest level and are parked first by the shared retry ladder, so the
   height lever alone cannot close it enriched-only). D5 unchanged (no edge
   deficit existed).
-- **F2 internal walls + optional second doorway.** Conditional: pursue
+- **F2 internal walls + optional second doorway — PARKED 2026-07-25.** Both of
+  its triggers are measured absent: D5 never showed a residual, and the
+  path-topology gap that re-motivated it does not survive an honest comparator
+  (see the CALIBRATION re-rank above and "What PR-3 measured" in
+  [`procroom-placement-architecture`](procroom-placement-architecture.md),
+  which also records the three conditions that would revive it). The rest of
+  this entry is the recipe, kept for whoever does.
+  Conditional: pursue
   only if D5 shows a residual after F1/F3/T5 — highest
   cost-per-descriptor-point in the tier given the constraints below.
   Implement the dead `max_iw` axis (1–2 interior segments with a

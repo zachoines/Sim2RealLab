@@ -49,6 +49,7 @@ from . import mdp
 
 # Import robot configuration
 from strafer_lab.assets import STRAFER_CFG
+from strafer_shared.constants import GOAL_ARRIVAL_RADIUS_M
 
 # Import sim-real contracts and helper functions
 from .sim_real_cfg import (
@@ -1828,7 +1829,7 @@ class CommandsCfg_ProcRoom_Subgoal:
         # pays for stopping at the goal, not touching it at speed. Surfaced here
         # as the training sweep surface (values match the SubgoalCommandCfg
         # defaults); ~0.33 s of dwell at 30 Hz control.
-        dwell_radius_m=0.3,
+        dwell_radius_m=GOAL_ARRIVAL_RADIUS_M,
         dwell_speed_max_m_s=0.1,
         dwell_steps=10,
         debug_vis=True,

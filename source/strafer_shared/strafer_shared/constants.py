@@ -185,6 +185,15 @@ MAP_RESOLUTION = 0.05  # meters per cell — shared by RTAB-Map grid and Nav2 co
 # drift between the two lanes.
 SUBGOAL_LOOKAHEAD_M = 1.0
 
+# Goal-arrival radius shared across the same planner-follows seam: the
+# subgoal-tracking training env counts the path complete once the robot dwells
+# (parks) within this radius of the goal, and the deployed navigate_to_pose
+# gate declares success at the same radius. The policy is only ever rewarded to
+# stop inside this disc — nothing pulls it closer — so a deploy gate tighter
+# than this rejects an already-arrived robot. Pin both references here so the
+# two lanes cannot drift on what counts as "reached".
+GOAL_ARRIVAL_RADIUS_M = 0.30
+
 # Autonomous navigation velocity scaling (fraction of hardware max).
 # Hardware max is ~1.57 m/s / ~4.10 rad/s — too fast for indoor autonomy.
 NAV_VEL_SCALE = 0.5  # forward/strafe: 50% of MAX_LINEAR_VEL (~0.78 m/s)

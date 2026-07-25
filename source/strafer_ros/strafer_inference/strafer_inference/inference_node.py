@@ -63,6 +63,7 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image, Imu, JointState
 
 from strafer_shared.constants import (
+    GOAL_ARRIVAL_RADIUS_M,
     NAV_ANGULAR_VEL,
     NAV_LINEAR_VEL,
 )
@@ -145,7 +146,7 @@ class InferenceNode(Node):
         self.declare_parameter("path_timeout_s", 1.0)
         self.declare_parameter("vel_cap_linear_m_s", _DEFAULT_VEL_CAP_LINEAR)
         self.declare_parameter("vel_cap_angular_rad_s", _DEFAULT_VEL_CAP_ANGULAR)
-        self.declare_parameter("goal_reached_distance_m", 0.25)
+        self.declare_parameter("goal_reached_distance_m", GOAL_ARRIVAL_RADIUS_M)
         self.declare_parameter("mission_timeout_s", 60.0)
         self.declare_parameter(
             "onnx_providers", [

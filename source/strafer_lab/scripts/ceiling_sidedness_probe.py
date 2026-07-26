@@ -198,6 +198,13 @@ def main() -> None:
         camera.update(dt=camera.cfg.update_period, force_recompute=True)
         return {key: to_numpy(plane) for key, plane in camera.data.output.items()}
 
+    def to_bytes(rgb: np.ndarray) -> np.ndarray:
+        """Byte image from an annotator that may hand back 0-1 floats."""
+        rgb = np.asarray(rgb)[..., :3]
+        if np.issubdtype(rgb.dtype, np.floating) and float(np.nanmax(rgb)) <= 1.0:
+            rgb = rgb * 255.0
+        return np.clip(rgb, 0.0, 255.0).astype(np.uint8)
+
     def range_band_fraction(depth: np.ndarray, centre: float) -> float:
         """Share of finite pixels ranging within the band — one surface's share."""
         finite = depth[np.isfinite(depth)]
@@ -251,7 +258,7 @@ def main() -> None:
         "policy_depth_settled": policy_settled["distance_to_image_plane"],
         "policy_rgb_mean": float(np.asarray(policy_reset["rgb"], dtype=np.float64).mean()),
         "overhead_depth": overhead["distance_to_image_plane"],
-        "overhead_rgb": np.asarray(overhead["rgb"])[..., :3].astype(np.uint8),
+        "overhead_rgb": to_bytes(overhead["rgb"]),
         "overhead_rgb_mean": float(np.asarray(overhead["rgb"], dtype=np.float64).mean()),
         "overhead_ceiling_fraction": range_band_fraction(
             overhead["distance_to_image_plane"], ceiling_range

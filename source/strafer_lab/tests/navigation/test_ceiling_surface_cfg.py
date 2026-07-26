@@ -72,7 +72,8 @@ def test_lowest_surface_clears_the_tallest_object():
 
 def test_spawn_cfg_has_no_collider():
     # Nothing ever contacts the surface, and a zero-thickness quad has no
-    # collision approximation to offer; the mass is stated instead of derived.
+    # collision approximation to offer; mass is stated outright because the
+    # density path needs a collider's volume.
     cfg = CeilingSurfaceCfg(size=(7.6, 7.6))
     assert cfg.collision_props is None
     assert cfg.surface_offset == 0.0

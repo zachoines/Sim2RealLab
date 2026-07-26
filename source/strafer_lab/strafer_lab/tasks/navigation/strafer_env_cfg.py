@@ -64,6 +64,7 @@ from .sim_real_cfg import (
     get_rgb_noise,
     get_action_config_params,
 )
+from .ceiling_surface import CeilingSurfaceCfg
 from .d555_cfg import (
     make_d555_camera_cfg,
     make_d555_imu_cfg,
@@ -1287,6 +1288,21 @@ def _apply_infinigen_render_exposure(cfg: ManagerBasedRLEnvCfg) -> None:
     cfg.sim.render.carb_settings = {**existing, **_INFINIGEN_RENDER_EXPOSURE_CARB}
 
 
+# Back-face culling is what turns the ceiling surface's single downward normal
+# into a one-way ceiling; without it RTX draws both sides of every face. Geometry
+# that does not carry the custom ``singleSided`` attribute stays two-sided, so
+# the switch reaches only the ceiling.
+_ENRICH_RENDER_FACE_CULLING_CARB: dict[str, object] = {
+    "rtx.hydra.faceCulling.enabled": True,
+}
+
+
+def _apply_enrich_render_face_culling(cfg: ManagerBasedRLEnvCfg) -> None:
+    """Merge the back-face-culling carb setting into the sim's RenderCfg."""
+    existing = cfg.sim.render.carb_settings or {}
+    cfg.sim.render.carb_settings = {**existing, **_ENRICH_RENDER_FACE_CULLING_CARB}
+
+
 def _apply_infinigen_scene_setup(cfg: ManagerBasedRLEnvCfg) -> None:
     """Bind ONE loaded scene's USD + its occupancy-derived spawn to an env cfg.
 
@@ -1378,9 +1394,12 @@ _ENRICH_MIN_LEVEL = 4                  # un-pin difficulty to U[4, 7] (default p
 _ENRICH_MAX_LEVEL = 7
 _ENRICH_P_CEIL = 0.7                    # per-episode enclosure probability
 _ENRICH_CEILING_HEIGHT_RANGE = (2.2, 2.9)
-_ENRICH_CEILING_SIZE = (7.6, 7.6, 0.1)  # slab spanning the largest room + overhang
+_ENRICH_CEILING_SPAN = (7.6, 7.6)       # spans the largest room + overhang
+# The rendered surface hangs 5 cm under the entity's pose, which is where the
+# height band's 2.2 m lower bound puts the enclosure the camera sees at 2.15 m.
+_ENRICH_CEILING_SURFACE_OFFSET = -0.05
 # Open-top defaults shelf 0.8 / cabinet 0.6 / tall_cyl 0.7. Must stay under the
-# lowest ceiling-slab underside (2.15 m) or a tall object pierces the enclosure.
+# lowest ceiling surface (2.15 m) or a tall object pierces the enclosure.
 _ENRICH_TALL_OBJECT_HEIGHTS = {"shelf": 2.0, "cabinet": 2.1, "tall_cyl": 1.8}
 # Mid-room tall columns. The two tall-cylinder slots sit at the end of the
 # clutter sequence, so only level 7 reaches them and the retry ladder parks them
@@ -1402,19 +1421,25 @@ _ENRICH_PLACEMENT = PlacementCfg(
 )
 
 
-def _make_ceiling_slab_cfg() -> RigidObjectCfg:
-    """Standalone kinematic ceiling slab (outside the room-primitive collection).
+def _make_ceiling_surface_cfg() -> RigidObjectCfg:
+    """Standalone kinematic ceiling surface (outside the room-primitive collection).
 
     Parked below the floor until the generator teleports it per env; kept out of
     the collection so it never enters occupancy / BFS / the geometric proximity
     mask (an active mask slot would be a constant survival penalty).
+
+    No collider: a surface with no thickness has no collision approximation to
+    offer, and nothing reaches it — the tallest object stands at 2.1 m under a
+    2.15 m lowest surface. Mass is stated outright because the density path
+    derives it from a collider's volume, which this prim does not have.
     """
     return RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Ceiling",
-        spawn=sim_utils.CuboidCfg(
-            size=_ENRICH_CEILING_SIZE,
+        spawn=CeilingSurfaceCfg(
+            size=_ENRICH_CEILING_SPAN,
+            surface_offset=_ENRICH_CEILING_SURFACE_OFFSET,
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
+            mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.6, 0.6, 0.62)),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(100.0, 100.0, -10.0)),
@@ -1581,14 +1606,15 @@ class StraferSceneCfg_ProcRoom_NoCam(InteractiveSceneCfg):
 
 @configclass
 class StraferSceneCfg_ProcRoomEnriched(StraferSceneCfg_ProcRoom):
-    """Depth scene with enclosing (tall) walls + a standalone ceiling slab.
+    """Depth scene with enclosing (tall) walls + a standalone ceiling surface.
 
     Same geometry pipeline and depth camera as :class:`StraferSceneCfg_ProcRoom`,
     but the walls reach ``_ENRICH_WALL_HEIGHT``, the shelf / cabinet / tall-
     cylinder slots stand at ``_ENRICH_TALL_OBJECT_HEIGHTS``, and a per-env ceiling
-    slab (outside the collection — never in occupancy / BFS / the proximity mask)
-    closes the room's top over enclosed episodes. Depth is geometry-only, so no
-    added light is needed here (see the perception variant for the RGB path).
+    surface (outside the collection — never in occupancy / BFS / the proximity
+    mask) closes the room's top over enclosed episodes. Depth is geometry-only,
+    so no added light is needed here (see the perception variant for the RGB
+    path).
     """
 
     room_primitives: RigidObjectCollectionCfg = RigidObjectCollectionCfg(
@@ -1597,21 +1623,23 @@ class StraferSceneCfg_ProcRoomEnriched(StraferSceneCfg_ProcRoom):
             tall_object_heights=_ENRICH_TALL_OBJECT_HEIGHTS,
         ),
     )
-    ceiling: RigidObjectCfg = _make_ceiling_slab_cfg()
+    ceiling: RigidObjectCfg = _make_ceiling_surface_cfg()
 
 
 @configclass
 class StraferSceneCfg_ProcRoomPerceptionEnriched(StraferSceneCfg_ProcRoomPerception):
     """Perception (bridge/capture) scene with enclosure + a per-env fill light.
 
-    The ceiling blocks the single global DomeLight, so the force-included RGB
-    render (debug video / the bridge perception camera) would go near-black. A
-    per-env sphere light under the ceiling restores it; depth is geometry-only
-    and unaffected. Only the 1-8-env perception path carries this light. The
-    64-env depth path's policy camera still force-includes an rgb channel (so the
-    viewport/--video pipeline comes up), but gets no fill light — under enclosure
-    its debug RGB goes near-black by accepted trade-off; the depth observation it
-    trains on is unaffected. Intensity is a debug-RGB fill, not a training signal.
+    The ceiling shades the single global DomeLight out of the room, so the
+    force-included RGB render (debug video / the bridge perception camera) goes
+    dim; a per-env sphere light under the ceiling restores it, and depth is
+    geometry-only and unaffected. Only the 1-8-env perception path carries this
+    light. The 64-env depth path's policy camera still force-includes an rgb
+    channel (so the viewport/--video pipeline comes up) but gets no fill light —
+    under enclosure its debug RGB is lit only by what reaches the room past the
+    walls, which leaves the overhead recording legible and the floor dark. The
+    depth observation it trains on is unaffected. Intensity is a debug-RGB fill,
+    not a training signal.
     """
 
     room_primitives: RigidObjectCollectionCfg = RigidObjectCollectionCfg(
@@ -1620,7 +1648,7 @@ class StraferSceneCfg_ProcRoomPerceptionEnriched(StraferSceneCfg_ProcRoomPercept
             tall_object_heights=_ENRICH_TALL_OBJECT_HEIGHTS,
         ),
     )
-    ceiling: RigidObjectCfg = _make_ceiling_slab_cfg()
+    ceiling: RigidObjectCfg = _make_ceiling_surface_cfg()
     ceiling_light = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/CeilingLight",
         spawn=sim_utils.SphereLightCfg(

@@ -477,3 +477,12 @@ At the *current* ±2° rotation-only setting the camera effect is ~1–2 px (neg
 - **Cross-room / multi-room scene randomization.** That's the
   multi-room epic ([`multi-room/`](../../active/multi-room/)). This
   brief stays inside the single-room ProcRoom distribution.
+- **Applying the mount offset to the rendered camera.**
+  [`procroom-depth-enrichment`](procroom-depth-enrichment.md) owns that
+  (its F4, coordinator-routed 2026-07-25) and has shipped it on the
+  enriched depth variants: the camera prim is pointed through the offset
+  `randomize_d555_mount_offset` already samples, so the render and the IMU
+  observation carry one misalignment instead of two. The **band** is still
+  this brief's — F4 adds none of its own, so widening the ±1°/±3° row
+  above now moves both sensors at once, and the mount-*translation*
+  extension proposed here remains unimplemented on both.

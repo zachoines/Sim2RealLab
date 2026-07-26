@@ -114,6 +114,7 @@ from .events import (
     randomize_goal_noise,
     randomize_motor_strength,
     randomize_d555_mount_offset,
+    jitter_d555_camera_prim_pose,
     randomize_proc_room_difficulty,
     lift_ground_plane_to_floor,
     stamp_d555_perception_opencv_pinhole,

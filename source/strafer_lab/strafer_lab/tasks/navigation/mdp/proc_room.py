@@ -689,6 +689,50 @@ def _gpu_bfs(free_space: torch.Tensor, start_cells: torch.Tensor, max_iterations
     return reachable.squeeze(1) > 0.5
 
 
+def _free_space_components(
+    free_space: torch.Tensor, max_iterations: int = 200
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Label free-space connected components by iterative max-propagation.
+
+    Each free cell starts as its own flat index and repeatedly takes the largest
+    label in its 8-neighbourhood, so surviving labels are component maxima. The
+    3x3 kernel is ``_gpu_bfs``'s, so a component here is exactly a set the BFS
+    could flood. Consumes no randomness.
+
+    Args:
+        free_space: (B, Gx, Gy) bool — True = passable after inflation.
+        max_iterations: Propagation steps; a component converges in its own
+            geodesic length.
+
+    Returns:
+        count: (B,) long — components per env (0 where nothing is free).
+        share: (B,) float — largest component's fraction of the free cells
+            (0 where nothing is free).
+    """
+    B, Gx, Gy = free_space.shape
+    free = free_space.unsqueeze(1).float()
+    seed = torch.arange(
+        1, Gx * Gy + 1, device=free_space.device, dtype=torch.float32
+    ).view(1, 1, Gx, Gy)
+    labels = seed * free
+    for _ in range(max_iterations):
+        grown = F.max_pool2d(labels, kernel_size=3, stride=1, padding=1) * free
+        if torch.equal(grown, labels):
+            break
+        labels = grown
+
+    flat = labels.view(B, -1).long()
+    offsets = torch.arange(B, device=flat.device).view(B, 1) * (Gx * Gy + 1)
+    sizes = torch.bincount(
+        (flat + offsets).view(-1), minlength=B * (Gx * Gy + 1)
+    ).view(B, -1)
+    sizes[:, 0] = 0  # label 0 is "blocked", not a component
+    count = (sizes > 0).sum(dim=-1)
+    free_cells = sizes.sum(dim=-1)
+    share = sizes.max(dim=-1).values.float() / free_cells.clamp(min=1).float()
+    return count, share
+
+
 def _relocate_blocked_seeds(
     free_space: torch.Tensor, start_cells: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -1518,6 +1562,7 @@ def generate_proc_room(
             {s for comp in compounds for s in comp.members}
         )
         parked = placed_mask & ~active_mask
+        n_components, largest_share = _free_space_components(free_space)
         health_sink.update({
             "envs": B,
             "column_phase_fired": n_column_promotions,
@@ -1539,6 +1584,14 @@ def generate_proc_room(
             # blocked across passes; not a per-env incidence.
             "bfs_seed_relocated": int(seed_relocations),
             "spawn_count_min": int(spawn_count.min()),
+            # Free-space fragmentation. Spawn, goal and subgoal all draw from the
+            # BFS component, so a fragmented room stays self-consistent — these
+            # measure the split, they do not police it. Sums over the batch;
+            # divide by "envs" for the per-room mean.
+            "free_components": int(n_components.sum()),
+            "free_multi_component_envs": int((n_components > 1).sum()),
+            "free_largest_share_sum": float(largest_share.sum()),
+            "free_largest_share_min": float(largest_share.min()),
         })
 
     # --- Phase 7: Offset by env origins and write ---

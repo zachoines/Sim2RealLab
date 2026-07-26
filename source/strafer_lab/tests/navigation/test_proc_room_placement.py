@@ -33,6 +33,7 @@ from strafer_lab.tasks.navigation.mdp.proc_room import (
     WALL_SLOTS,
     CompoundCfg,
     PlacementCfg,
+    _free_space_components,
     _relocate_blocked_seeds,
     _rotated_aabb_half_extents,
     _VANILLA_CLUTTER_SEQUENCE,
@@ -137,6 +138,7 @@ def test_health_sink_does_not_perturb_generation():
     with_sink = _digest(*_run(health_sink=sink))
     assert without == with_sink
     assert sink["envs"] == 8
+    assert sink["free_components"] >= 8
 
 
 # ---------------------------------------------------------------------------
@@ -481,6 +483,78 @@ def test_health_sink_reports_placement_and_park_counts():
     )
     assert sink["ladder_passes"] > 0, "tight rooms did not exercise the ladder"
     assert sink["spawn_count_min"] > 0
+
+
+def test_free_space_components_label_hand_built_grids():
+    """Sizes, count and share on grids whose components are countable by eye."""
+    grids = torch.zeros(4, GRID_SIZE, GRID_SIZE, dtype=torch.bool)
+    # 0: a 3x3 block and a disjoint 2x2 block.
+    grids[0, 1:4, 1:4] = True
+    grids[0, 10:12, 10:12] = True
+    # 1: everything free. 2: nothing free. 3: one cell.
+    grids[1] = True
+    grids[3, 5, 5] = True
+
+    count, share = _free_space_components(grids)
+    assert count.tolist() == [2, 1, 0, 1]
+    assert share[0].item() == pytest.approx(9 / 13)
+    assert share[1].item() == pytest.approx(1.0)
+    assert share[2].item() == 0.0  # no free cells: reported, never NaN
+    assert share[3].item() == pytest.approx(1.0)
+
+
+def test_free_space_components_are_eight_connected_like_the_bfs():
+    """Corner-touching blocks are one component — the BFS floods through the
+    diagonal, so a 4-neighbour count would report reachable space as split."""
+    grid = torch.zeros(1, GRID_SIZE, GRID_SIZE, dtype=torch.bool)
+    grid[0, 1:3, 1:3] = True
+    grid[0, 3:5, 3:5] = True  # touches the first block only at (2,2)-(3,3)
+    count, share = _free_space_components(grid)
+    assert count.tolist() == [1]
+    assert share[0].item() == pytest.approx(1.0)
+
+
+def test_free_space_components_partition_the_bfs_reachable_set():
+    """The BFS floods exactly one whole component: subtract its reachable set
+    and the component count drops by exactly one.
+
+    Needs the seed correction — ``_gpu_bfs`` marks its seed reachable free or
+    not, so an uncorrected blocked centre floods out of a cell no component
+    owns and the subtraction splits a component instead of removing it."""
+    env, _ = _run(num_envs=64, difficulty=7, **_ENRICHED_KW,
+                  placement=PlacementCfg(relocate_blocked_bfs_seed=True))
+    free = env._proc_room_free_space
+    zeros = torch.zeros(free.shape[0])
+    seeds = torch.stack(_xy_to_grid(zeros, zeros), dim=-1)
+    seeds, _ = _relocate_blocked_seeds(free, seeds)
+    reachable = _proc_room._gpu_bfs(free, seeds)
+
+    count_all, _ = _free_space_components(free)
+    count_rest, _ = _free_space_components(free & ~reachable)
+    assert torch.equal(count_rest, count_all - 1)
+
+
+def test_health_sink_reports_free_space_fragmentation():
+    """The counters read the shipped room, batch-summed.
+
+    Tight rooms so the retry ladder fires: the grid the counters must read is
+    the one left after the ladder parks objects, not the first pass."""
+    sink = {}
+    enriched = {**_ENRICHED_KW, "span_max": 4.0}
+    env, _ = _run(num_envs=64, difficulty=7, health_sink=sink, **enriched,
+                  placement=_COLUMNS)
+    assert sink["ladder_passes"] > 0, "tight rooms did not exercise the ladder"
+    count, share = _free_space_components(env._proc_room_free_space)
+    assert sink["envs"] == 64
+    assert sink["free_components"] == int(count.sum())
+    assert sink["free_multi_component_envs"] == int((count > 1).sum())
+    assert sink["free_largest_share_sum"] == pytest.approx(float(share.sum()))
+    assert sink["free_largest_share_min"] == pytest.approx(float(share.min()))
+    assert sink["free_multi_component_envs"] > 0, (
+        "no fragmented room in this batch — test is vacuous"
+    )
+    assert 0.0 < sink["free_largest_share_min"] <= 1.0
+    assert sink["free_largest_share_sum"] <= sink["envs"]
 
 
 # ---------------------------------------------------------------------------

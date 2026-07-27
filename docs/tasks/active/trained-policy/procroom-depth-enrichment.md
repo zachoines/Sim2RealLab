@@ -226,12 +226,16 @@ consult rather than four incisions into a generator NOCAM consumes forever:
   implements it, [`domain-randomization-audit`](domain-randomization-audit.md)
   keeps the band) and the **ceiling probe** stayed independent of that design
   and of each other. *Landed: F4 on the enriched depth variants; the ceiling
-  probe measured and closed, changing nothing (see F1).*
+  probe measured, then acted on — the enclosure is now a one-way open quad
+  (see F1).*
 
 **The batch's implementation queue is empty.** Every ratified item has
 either shipped or been parked on its own gate, and PR-3a shipped as
-instrumentation only per the 2026-07-25 ruling. The next open item is the
-**retrain decision** — an operator call on GPU scheduling, framed by the
+instrumentation only per the 2026-07-25 ruling. The one-way ceiling landed
+after the batch closed, on the operator's `--video` need, and carries the
+one open gate reading in this brief (F1's cross-env leakage). The next open
+item is the **retrain decision** — an operator call on GPU scheduling,
+framed by the
 enrichment-dominates-finetune conclusion above and bounded by
 [`## Out of scope`](#out-of-scope): this brief ends at "levers implemented +
 descriptor-validated + calibration slot filled", not at a trained
@@ -598,31 +602,65 @@ provisional sim-frame targets.
   always-on — the D3 target is scene-class-dependent (singleroom ~0 vs
   heavy 11–18% structured) and an always-on ceiling can only land at
   ~0; pose-z is the free per-episode channel, so ceiling height
-  `U[2.2, 2.9]` m rides along free. Side effect: the ceiling blocks
+  `U[2.2, 2.9]` m rides along free. Side effect: the ceiling shades out
   the sole DomeLight — depth is unaffected, but the force-included RGB
-  (debug video; the perception/bridge variants) goes near-black; add a
+  (debug video; the perception/bridge variants) goes dim; add a
   per-env light on the 1–8-env perception cfgs only, never the 64-env
-  path. **The slab is opaque from above, and stays that way (probed
-  2026-07-25).** The one-way-ceiling idea — visible from below,
-  transparent to an overhead QA camera — was measured in Kit and the
-  answer is split. RTX *does* honour single-sided geometry on both paths:
-  with `/rtx/hydra/faceCulling/enabled` on, a down-facing single-quad mesh
-  marked `singleSided` disappears from an overhead view in both the RGB
-  render and the `distance_to_image_plane` annotator (quad pixel share
-  0.3853 → 0.1926, exactly the one culled quad of two; RGB delta 5.1× its
-  own frame-to-frame noise floor). But the flag is inert on **this**
-  ceiling because the slab is a closed cuboid: culling removes only its
-  interior faces, so the top face still faces a camera above and the
-  bottom face still faces the policy camera below. Measured on the shipped
-  slab: overhead ceiling pixel share 0.952049 → 0.952049 and policy depth
-  max|Δ| exactly 0.0 m. A true one-way ceiling would need the slab
-  replaced by an open single-quad surface — a geometry and collider
-  change, not a flag — so nothing changed here. Overhead recording of
-  enclosed episodes still needs the global-hide rig
-  ([`capture-debug-overhead-cam`](../../parked/harness/capture-debug-overhead-cam.md)),
-  because this build has no per-camera visibility lever either
-  (`coverage_capture.py`'s `cameraVisibility` finding). The answer is
-  renderer-build-specific; re-probe on an RTX/Isaac Sim upgrade.
+  path. **The ceiling is one-way: an open down-facing quad.** The
+  enclosure is a single open `UsdGeom.Mesh` quad carrying a custom
+  `singleSided` attribute, with `/rtx/hydra/faceCulling/enabled` set on
+  the enriched cfgs' `RenderCfg.carb_settings`, and its surface offset
+  half a slab-thickness below the entity pose so the plane the policy
+  camera sees is where the closed slab's underside was. The robot renders
+  it; a camera above renders through it.
+  - RTX honours single-sided geometry on **both** the RGB and
+    `distance_to_image_plane` paths, gated on the carb switch, and reads a
+    *custom* `singleSided` bool — the `doubleSided` schema attribute is
+    ignored (down-facing test quad: pixel share 0.3853 → 0.1926, exactly
+    the one culled quad of two; RGB delta 5.1× its own noise floor).
+  - The flag is inert on a **closed** box: culling removes only its
+    interior faces, so its top still faces a camera above. Measured on the
+    closed slab: overhead ceiling share 0.952049 → 0.952049 either way.
+    That is why the geometry, not the flag, is the fix.
+  - Overhead share on the shipped quad: **0.9724 → 0.0363** (4 envs),
+    0.9520 → 0.0491 (1 env), and **exactly 0.0** at a 2.9 m ceiling, which
+    caps clear of the 2.7 m walls. 62.9% of the overhead image now reads
+    the floor.
+  - Depth from below is unchanged **for the robot's own room** — one env,
+    quad vs closed slab, same seed: max|Δ| exactly **0.0 m**. What does
+    move is cross-env leakage: envs are 10 m apart and not visually
+    isolated, so a few grazing rays used to terminate on a *neighbouring*
+    room's slab rim (the 0.1 m band the open quad does not have) and now
+    pin at the far clamp. 37 of 57 600 px at 16 envs (0.064%, 2 of 16
+    envs, top rows); at 40 m spacing the flips go to **zero** and the
+    residual is 1–4 float32 ULP of ray re-rounding (max 1.5e-5 m). Over
+    512 paired rooms this reads **D3 top-11 pinned +0.077 pp
+    [+0.050, +0.108]** (5.937 → 6.015%) and **D2 top row +0.002 m**, with
+    D1 / D4 / D5 / floor-pixel share all exactly +0.000 and pairing
+    validity 100% same-difficulty / 100% byte-identical geometry.
+  - Illumination was measured, not assumed: culling decides what a camera
+    draws, not where light goes. The enclosed room's overhead RGB mean is
+    74–83 across the height band with ~5% crushed pixels — legible, not
+    near-black, because a ceiling below the 2.7 m wall tops lets the
+    DomeLight in over the walls. A per-env fill light on the training
+    path's `--video` was built and measured: crushed 31.2% → 21.8% on the
+    1280×720 clip, at the cost of a specular hot spot over the room
+    centre. Not shipped; the 64-env path still carries no light.
+  - The global-hide rig
+    ([`capture-debug-overhead-cam`](../../parked/harness/capture-debug-overhead-cam.md))
+    stays the only lever for *capture* runs on scene-USD ceilings, and this
+    build still has no per-camera visibility lever
+    (`coverage_capture.py`'s `cameraVisibility` finding).
+  - **Renderer re-probe list** — every line below is build-specific and
+    must be re-measured on an RTX / Isaac Sim upgrade (the RT 2.0 track is
+    the near-term trigger), with
+    `scripts/ceiling_sidedness_probe.py`: (i) RTX honours a custom
+    `singleSided` on both render paths, gated on
+    `/rtx/hydra/faceCulling/enabled`; (ii) the `doubleSided` schema
+    attribute is ignored; (iii) an open down-facing quad is opaque from
+    below and absent from above; (iv) culling changes primary visibility
+    only, not light transport; (v) per-camera `cameraVisibility` is not
+    honoured.
   **Implementation traps:** (1) do not add an occupancy
   z-filter — place the ceiling slab's pose but leave its `active_mask`
   entry False: pose writes go to every slot regardless of the mask
@@ -859,9 +897,11 @@ those unchecked lines are that session's checklist.
       re-tuned:** the near-band D1 gap the T-levers targeted is absent at
       the rendered descriptor level (calibration correction above).
 - [x] F1 enclosure implemented (wall height 2.7 m + standalone ceiling
-      slab, `p_ceil` mixture + `U[2.2,2.9]` height; route (a) — ceiling
+      surface, `p_ceil` mixture + `U[2.2,2.9]` height; route (a) — ceiling
       outside the collection, so no `active_mask`/−1.0-reward trap; wall
       pose-z derived at all three sites; perception per-env fill light).
+      The surface is an open down-facing quad, opaque to the robot and
+      transparent to an overhead camera.
 - [x] **validated (GPU window):** top-band pin-fraction 58.9 → 7.3% on 256
       rooms — inside the Infinigen enclosed-scene band (per-scene 3.8–17.3%,
       pooled 8.3%). Residual is at the low end (p_ceil=0.7 open-top mode +
@@ -973,10 +1013,18 @@ those unchecked lines are that session's checklist.
       reproducing the CPU-side finding (2.574 / 66.8% / 94.25% over 512 rooms)
       that motivated the invariant. They work on the vanilla path too (3.377 /
       79.9% / 89.00%) — vanilla is the *more* fragmented arm.
-- [x] The one-way-ceiling question is closed by measurement (see F1): RTX
-      honours single-sided geometry on both the RGB and depth paths, but the
-      shipped ceiling is a closed cuboid the flag cannot open. Nothing
-      changed; the finding and its re-probe trigger are recorded.
+- [x] The one-way ceiling ships (see F1): the enclosure is an open
+      down-facing quad, RTX culls it for any camera above, and a `--video`
+      training smoke shows the enclosed room's interior at the shipped
+      defaults — no `p_ceil=0` visualization override. The mechanism, the
+      measurements, and the renderer re-probe list are recorded there.
+- [ ] **Open for ruling:** the quad's depth is byte-identical for the
+      robot's own room but not for what it sees of its neighbours — a few
+      grazing rays that used to land on an adjacent room's slab rim now pin
+      at the far clamp (D3 +0.077 pp [+0.050, +0.108] over 512 paired
+      rooms; D1/D4/D5 exactly +0.000). Direction is toward slightly more
+      top-band pinning, magnitude is ~5× under the descriptor's own CI
+      half-width, and the removed geometry has no real-world counterpart.
 
 ### Calibration + maintenance
 

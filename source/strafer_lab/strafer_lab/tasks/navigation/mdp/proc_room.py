@@ -884,7 +884,7 @@ def _pack_wall_segments(
     return segments
 
 
-def _pose_ceiling_slab(
+def _pose_ceiling_surface(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
     entity_name: str,
@@ -892,12 +892,12 @@ def _pose_ceiling_slab(
     height_range: tuple[float, float],
     device: torch.device,
 ) -> None:
-    """Teleport the standalone ceiling slab per env (or park it).
+    """Teleport the standalone ceiling surface per env (or park it).
 
-    The slab is a scene entity *outside* the room-primitive collection, so it
+    The surface is a scene entity *outside* the room-primitive collection, so it
     never enters the occupancy grid, the BFS retry ladder, or the geometric
     ``obstacle_proximity`` active mask (which is keyed on the collection). With
-    probability ``p_ceil`` the env is enclosed — the slab drops to a per-episode
+    probability ``p_ceil`` the env is enclosed — the surface drops to a per-episode
     height in ``height_range``; otherwise it parks below the floor (open-top),
     so the far-clamp top-band stays a scene-class mixture rather than always
     enclosed.
@@ -1022,9 +1022,9 @@ def generate_proc_room(
         robot_spawn_inflation_cells: Extra erosion (in grid cells) for a
             robot-spawn-only pool, giving the robot more standoff than the
             goal/subgoal endpoints. 0 keeps the single shared pool.
-        ceiling_entity_name: Scene entity name of the standalone ceiling slab
-            (outside the collection). When set, the slab is posed per env.
-        p_ceil: Per-episode probability the ceiling slab is present.
+        ceiling_entity_name: Scene entity name of the standalone ceiling surface
+            (outside the collection). When set, the surface is posed per env.
+        p_ceil: Per-episode probability the ceiling surface is present.
         ceiling_height_range: Per-episode ceiling height sampler ``U[lo, hi]``.
         tall_object_heights: Optional ``{category: height}`` override for the
             ``TALL_OBJECT_SLOTS`` categories; their pose z becomes ``height / 2``
@@ -1605,8 +1605,8 @@ def generate_proc_room(
     all_object_ids = torch.arange(NUM_OBJECTS, device=device)
     collection.write_body_link_pose_to_sim_index(body_poses=poses, env_ids=env_ids, body_ids=all_object_ids)
 
-    # Enclosure: pose the standalone ceiling slab (outside the collection).
+    # Enclosure: pose the standalone ceiling surface (outside the collection).
     if ceiling_entity_name is not None:
-        _pose_ceiling_slab(
+        _pose_ceiling_surface(
             env, env_ids, ceiling_entity_name, p_ceil, ceiling_height_range, device
         )

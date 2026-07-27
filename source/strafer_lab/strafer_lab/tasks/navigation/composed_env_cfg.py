@@ -92,6 +92,7 @@ from .strafer_env_cfg import (
     TerminationsCfg_ProcRoom,
     TerminationsCfg_ProcRoom_Subgoal,
     _apply_default_nav_runtime,
+    _apply_enrich_render_face_culling,
     _apply_infinigen_scene_setup,
     _apply_play_num_envs,
     _apply_procroom_physx_buffers,
@@ -552,6 +553,10 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
             _apply_infinigen_scene_setup(self)
         elif kind == "procroom":
             _apply_procroom_physx_buffers(self)
+            # Same gate as the scene/events fork above: only the enriched
+            # variants carry the one-sided ceiling the culling switch is for.
+            if enrich:
+                _apply_enrich_render_face_culling(self)
 
         # --- Play/eval shrink ---
         if self.play_num_envs is not None:

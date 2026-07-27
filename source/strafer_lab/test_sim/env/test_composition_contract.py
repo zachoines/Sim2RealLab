@@ -26,6 +26,7 @@ import json
 import pytest
 
 import strafer_lab.tasks.navigation.composed_env_cfg as composed
+from strafer_lab.tasks.navigation import mdp
 
 
 # =====================================================================
@@ -583,3 +584,88 @@ def test_capture_variant_overrides_stack_per_session():
     cfg.__post_init__()
     per = cfg.scene.d555_camera_perception
     assert tuple(sorted(per.data_types)) == ("distance_to_image_plane", "rgb")
+
+
+# =====================================================================
+# Composition: the two halves of the D555 mount DR stay paired
+# =====================================================================
+
+
+def _terms_calling(events_cfg, func):
+    """Names of the event terms that call ``func``, so a renamed field cannot
+    slip past the check."""
+    return [
+        name
+        for name, term in vars(events_cfg).items()
+        if term is not None and getattr(term, "func", None) is func
+    ]
+
+
+def _mount_dr_rows():
+    """One row per composed variant: what it samples, jitters and renders.
+
+    Swept from the module rather than a list of names — a new variant is only
+    covered if nothing has to be added here for it.
+    """
+    rows = []
+    for name in sorted(n for n in dir(composed) if n.startswith("StraferNavCfg_")):
+        cfg = getattr(composed, name)()
+        jitter = _terms_calling(cfg.events, mdp.jitter_d555_camera_prim_pose)
+        assert len(jitter) <= 1, f"{name} carries the camera jitter twice: {jitter}"
+        rows.append({
+            "name": name,
+            "cfg": cfg,
+            "offset": _terms_calling(cfg.events, mdp.randomize_d555_mount_offset),
+            "jitter": jitter,
+        })
+    return rows
+
+
+def test_the_camera_jitter_never_appears_without_its_offset():
+    """The jitter consumes the realization the offset leaves behind, and points
+    the camera prim it names, so alone it is either inert or a lie."""
+    rows = _mount_dr_rows()
+    assert len(rows) > 20, "the variant sweep collapsed"
+    jittered = [r for r in rows if r["jitter"]]
+    assert jittered, "no variant points the rendered camera through the mount"
+    for row in jittered:
+        assert row["offset"], (
+            f"{row['name']} jitters the camera prim with nothing sampling the mount"
+        )
+        term = vars(row["cfg"].events)[row["jitter"][0]]
+        sensor = term.params["sensor_name"]
+        assert getattr(row["cfg"].scene, sensor, None) is not None, (
+            f"{row['name']} jitters {sensor}, which it does not render"
+        )
+
+
+def test_the_camera_jitter_rides_exactly_the_enriched_arm():
+    """Among the variants that both sample the mount and render the camera the
+    jitter targets, carrying it is the same question as being enriched.
+
+    Stated as an equivalence on purpose: a new enriched tier that samples the
+    mount and leaves the render at nominal fails here, and so does a jitter
+    added off the enriched arm — where a nominal-mount TF tree would then
+    disagree with the render.
+    """
+    rows = _mount_dr_rows()
+    sensors = {
+        vars(r["cfg"].events)[r["jitter"][0]].params["sensor_name"]
+        for r in rows
+        if r["jitter"]
+    }
+    assert sensors, "no variant points the rendered camera through the mount"
+    assert len(sensors) == 1, f"the jitter targets more than one sensor: {sensors}"
+    sensor = sensors.pop()
+
+    checked = 0
+    for row in rows:
+        cfg = row["cfg"]
+        if not row["offset"] or getattr(cfg.scene, sensor, None) is None:
+            continue
+        checked += 1
+        assert bool(row["jitter"]) is bool(cfg.scene_source.enrich_depth), (
+            f"{row['name']}: enrich_depth={cfg.scene_source.enrich_depth} but "
+            f"jitter={row['jitter']}"
+        )
+    assert checked > 10, "the paired-arm sweep matched too few variants"

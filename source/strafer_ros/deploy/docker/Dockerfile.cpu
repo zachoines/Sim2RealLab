@@ -68,11 +68,25 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ros-humble-rmw-cyclonedds-cpp \
  && rm -rf /var/lib/apt/lists/*
 
+# --- image provenance --------------------------------------------------------
+# A failed `docker compose build` commits no layer, so the old tag stays
+# resolvable and a stale stack runs with no visible sign; the label and the
+# entrypoint line below make every container announce the commit it was built
+# from. Declared last because an ARG invalidates the cache from its own line
+# down, so a new revision rebuilds only these cheap final layers. "unknown"
+# means provenance was not recorded, not that the image is current.
+ARG STRAFER_GIT_REVISION=unknown
+LABEL org.opencontainers.image.revision="${STRAFER_GIT_REVISION}" \
+      org.opencontainers.image.title="strafer-cpu" \
+      org.opencontainers.image.source="https://github.com/zachoines/Sim2RealLab"
+ENV STRAFER_IMAGE_REVISION=${STRAFER_GIT_REVISION}
+
 # --- entrypoint (inlined so the build context can exclude deploy/ entirely,
 #     keeping the COPY strafer_ros layer cache stable across docker/compose edits) ---
 RUN printf '%s\n' \
       '#!/usr/bin/env bash' \
       'set -e' \
+      'echo "[strafer] image=strafer-cpu revision=${STRAFER_IMAGE_REVISION:-unknown}" >&2' \
       'source /opt/ros/humble/setup.bash' \
       '[ -f /ws/install/setup.bash ] && source /ws/install/setup.bash' \
       'exec "$@"' \

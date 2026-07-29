@@ -142,8 +142,24 @@ env-sync: ## Regenerate the compose env mirrors from canonical strafer_bringup/c
 env-check: ## Verify the compose env mirrors + DDS anchors match canon (fails on drift; run by `make test`)
 	@python3 $(DEPLOY_DIR)/tests/check_env_sync.py
 
-images: ## Build the strafer-cpu + strafer-gpu container images
-	$(FULL_COMPOSE) build
+# Stamped into org.opencontainers.image.revision on both images and echoed by
+# every container's entrypoint, so a deploy running old code says so. The
+# `-dirty` suffix marks uncommitted tracked changes.
+GIT_REVISION := $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)$(shell git diff --quiet HEAD 2>/dev/null || echo -dirty)
+
+images: ## Build the strafer-cpu + strafer-gpu container images (stamps the build commit into both)
+	@# --profile policy is load-bearing: compose skips services whose profile is
+	@# inactive, so a bare build leaves strafer-gpu (the `inference` service)
+	@# untouched and still exits 0.
+	@echo "[images] stamping org.opencontainers.image.revision=$(GIT_REVISION)"
+	STRAFER_GIT_REVISION=$(GIT_REVISION) $(FULL_COMPOSE) --profile policy build
+	@echo "[images] built revisions:"
+	@for t in strafer-cpu:humble strafer-gpu:humble; do \
+		printf "  %-20s %s\n" "$$t" "$$(docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' $$t 2>/dev/null || echo '<missing>')"; \
+	done
+	@echo "[images] Both must read $(GIT_REVISION). A failed build commits no layer, so the"
+	@echo "[images] old tag stays resolvable and a stale stack runs unannounced — check the"
+	@echo "[images] labels above before trusting a rebuild."
 
 launch-sim: ## Sim-in-the-loop in a container (consumes the DGX bridge; foxglove :8765). Config: deploy/compose/sim.env.
 	$(SIM_COMPOSE) up

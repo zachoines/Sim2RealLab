@@ -27,6 +27,10 @@ services:
       context: ../..                                    # = source/  (strafer_ros + strafer_shared + strafer_autonomy)
       dockerfile: strafer_ros/deploy/docker/Dockerfile.cpu
       network: host        # L4T kernel lacks iptable_raw -> Docker bridge build networking fails; build on host net
+      args:
+        # Both lanes build the same tag, so an unstamped sim build must not
+        # replace a stamped one.
+        STRAFER_GIT_REVISION: ${STRAFER_GIT_REVISION:-unknown}
     image: strafer-cpu:humble
     container_name: strafer_sim
     network_mode: host

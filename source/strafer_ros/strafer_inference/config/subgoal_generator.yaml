@@ -18,6 +18,30 @@ strafer_subgoal_generator:
     planner_action: "/compute_path_to_pose"
     planner_id: "GridBased"
 
+    # Guards for a robot parked inside the costmap inflation halo, where the
+    # planner refuses the robot's own pose as a start and the resulting subgoal
+    # suppression is what keeps it there. Both are degraded modes and both log.
+
+    # Planner able to start from an inflated cell, registered in
+    # strafer_navigation's nav2_params.yaml. Requested only while the primary
+    # is refusing; empty disables. The only guard that also covers a new
+    # mission, where no valid held plan exists to fall back on.
+    fallback_planner_id: "GridBasedRelaxed"
+    planner_refusals_before_fallback: 2
+    # Above the halo width, so the primary is not re-trusted while the robot
+    # still sits in the pose it refuses.
+    fallback_release_m: 0.25
+
+    # Republish the last valid subgoal (only while it still serves the active
+    # goal) so the policy can drive clear. Converted to ticks, hence a
+    # POLICY-time budget: a wall-clock one buys proportionally less robot
+    # motion as RTF falls. One window per episode — on expiry the subgoal is
+    # suppressed and the watchdog trips, so an unrecoverable wedge fails loud.
+    # 0 disables the hold.
+    starvation_hold_s: 5.0
+    starvation_stationary_m: 0.05
+    starvation_stationary_s: 1.0
+
     # Dedicated rolling-subgoal channel. The mission goal is not a topic —
     # it arrives via navigate_to_pose, and a new goal there resets the
     # policy's hidden state, so the streamed subgoal stays separate.

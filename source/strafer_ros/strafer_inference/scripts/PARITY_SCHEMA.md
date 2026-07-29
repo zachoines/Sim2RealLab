@@ -5,6 +5,28 @@ Jetson inference node (via the `obs_dump_path` parameter) and the
 workstation-side gym dumper (to be written against this file). One JSON object
 per line; UTF-8; no trailing commas.
 
+## Arming the node side
+
+`obs_dump_path` is read **once at node init**, so it must be set at launch —
+`ros2 param set` is too late and does nothing. Empty (the default) disables it
+with zero per-tick cost.
+
+| Lane | How |
+|---|---|
+| bare-metal / `ros2 launch` | `ros2 launch strafer_inference inference.launch.py obs_dump_path:=/tmp/node_obs.jsonl` |
+| containerized (`inference` service) | `STRAFER_OBS_DUMP_PATH=/obs_dumps/node_obs.jsonl` → `inference_policy.launch.py` → `inference.launch.py` → the node param. Uncomment it plus the writable bind in `deploy/docker-compose.override.sim-bridge.yml`, then `up -d --force-recreate inference` (**not** `restart` — that reuses the old container env). |
+
+Confirm with `docker logs strafer_inference 2>&1 | grep 'obs dump ENABLED'`.
+
+There is no separate dump-variant knob: the node stamps every record with its
+loaded `policy_variant` (`STRAFER_POLICY_VARIANT`), so a dump cannot disagree
+with the artifact that produced it.
+
+**Not for normal missions.** A `DEPTH`/`DEPTH_SUBGOAL` variant writes a full
+depth vector per tick at 30 Hz (~2–3 MB/s of JSONL). Arm it for a capture, then
+unset and force-recreate. The file is truncated per launch, so capture one run
+per file.
+
 ## Obs-dump record
 
 ```json

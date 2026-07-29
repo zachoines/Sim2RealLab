@@ -129,6 +129,16 @@ class TestPointcloudToLaserscanParams:
         assert float(p["angle_increment"]) > 0.0
 
 
+def _load_launch(pkg_dir):
+    import importlib.util
+
+    path = os.path.join(pkg_dir, "launch", "slam.launch.py")
+    spec = importlib.util.spec_from_file_location("slam_launch", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 class TestLaunchFile:
     """Validate slam.launch.py exists and is importable."""
 
@@ -138,13 +148,126 @@ class TestLaunchFile:
 
     def test_launch_generates_description(self, pkg_dir):
         """Import and call generate_launch_description to catch import errors."""
-        import importlib.util
-
-        path = os.path.join(pkg_dir, "launch", "slam.launch.py")
-        spec = importlib.util.spec_from_file_location("slam_launch", path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
+        mod = _load_launch(pkg_dir)
         ld = mod.generate_launch_description()
         assert ld is not None
-        # 4 DeclareLaunchArguments + 1 OpaqueFunction
-        assert len(ld.entities) >= 5
+        # 6 DeclareLaunchArguments (+task_id, +scene_key) + 1 OpaqueFunction
+        assert len(ld.entities) >= 7
+
+    def test_scene_key_args_declared(self, pkg_dir, monkeypatch):
+        from launch.actions import DeclareLaunchArgument
+
+        monkeypatch.delenv("STRAFER_SLAM_TASK_ID", raising=False)
+        monkeypatch.delenv("STRAFER_SLAM_SCENE_TOKEN", raising=False)
+        ld = _load_launch(pkg_dir).generate_launch_description()
+        names = {
+            e.name for e in ld.entities
+            if isinstance(e, DeclareLaunchArgument)
+        }
+        assert {"task_id", "scene_key"} <= names
+
+    def test_scene_key_args_default_from_env(self, pkg_dir, monkeypatch):
+        from launch.actions import DeclareLaunchArgument
+
+        monkeypatch.setenv("STRAFER_SLAM_SCENE_TOKEN", "run4")
+        ld = _load_launch(pkg_dir).generate_launch_description()
+        arg = next(
+            e for e in ld.entities
+            if isinstance(e, DeclareLaunchArgument) and e.name == "scene_key"
+        )
+        rendered = "".join(
+            getattr(s, "text", str(s)) for s in arg.default_value
+        )
+        assert rendered == "run4"
+
+
+class TestSceneKeyedDatabase:
+    """RTAB-Map reloads its persisted database on start. A procedurally
+    regenerated sim scene is a new layout on every restart, so reloading the
+    previous run's map corrupts /rtabmap/map and every Nav2 /plan derived from
+    it — and because the map is also the reference trajectory analyses are
+    measured against, a wrong-scene map invalidates measurements rather than
+    merely degrading navigation.
+    """
+
+    def test_no_key_preserves_the_historical_path(self, pkg_dir):
+        # The real robot maps one persistent scene and should reload its db,
+        # so an empty key must leave the unkeyed path untouched.
+        mod = _load_launch(pkg_dir)
+        assert mod._scene_key("", "") == ""
+        assert mod._resolve_database_path(
+            "~/.ros/rtabmap.db", ""
+        ) == os.path.expanduser("~/.ros/rtabmap.db")
+
+    def test_key_derives_a_distinct_default_path(self, pkg_dir):
+        mod = _load_launch(pkg_dir)
+        key = mod._scene_key("ProcRoom-Enriched-v0", "run4")
+        assert key == "ProcRoom-Enriched-v0_run4"
+        assert mod._resolve_database_path(
+            "~/.ros/rtabmap.db", key
+        ) == os.path.expanduser(f"~/.ros/rtabmap_{key}.db")
+
+    def test_explicit_database_path_is_honoured_verbatim(self, pkg_dir):
+        # The manual bump stays available and outranks the derived name.
+        mod = _load_launch(pkg_dir)
+        assert mod._resolve_database_path(
+            "/root/.ros/rtabmap_run3.db", "run4"
+        ) == "/root/.ros/rtabmap_run3.db"
+
+    def test_scene_token_is_slugged_for_filenames(self, pkg_dir):
+        mod = _load_launch(pkg_dir)
+        assert "/" not in mod._scene_key("a/b c", "d:e")
+        assert mod._scene_key("  ", "  ") == ""
+
+    def test_reusing_a_db_under_the_same_key_is_allowed(self, pkg_dir, tmp_path):
+        # `docker restart strafer_slam` after a /clock hitch is a documented
+        # recovery; it must still reload the map it was building.
+        mod = _load_launch(pkg_dir)
+        db = str(tmp_path / "rtabmap_run4.db")
+        open(db, "w").close()
+        mod._claim_database_for_scene(db, "run4", deleting=False)
+        mod._claim_database_for_scene(db, "run4", deleting=False)
+
+    def test_foreign_scene_db_is_refused(self, pkg_dir, tmp_path):
+        mod = _load_launch(pkg_dir)
+        db = str(tmp_path / "rtabmap.db")
+        open(db, "w").close()
+        mod._claim_database_for_scene(db, "run4", deleting=False)
+        with pytest.raises(RuntimeError) as exc:
+            mod._claim_database_for_scene(db, "run5", deleting=False)
+        msg = str(exc.value)
+        # Fail-loud means the operator is told the ways out, not just "no".
+        assert "run4" in msg and "run5" in msg
+        assert "STRAFER_SLAM_SCENE_TOKEN" in msg
+        assert "database_path:=" in msg
+        assert "rtabmap_args:=-d" in msg
+
+    def test_delete_flag_bypasses_the_guard(self, pkg_dir, tmp_path):
+        # rtabmap_args:=-d wipes the db at start, so there is no foreign map
+        # left to protect against.
+        mod = _load_launch(pkg_dir)
+        db = str(tmp_path / "rtabmap.db")
+        open(db, "w").close()
+        mod._claim_database_for_scene(db, "run4", deleting=False)
+        mod._claim_database_for_scene(db, "run5", deleting=True)
+
+    def test_missing_db_is_claimed_not_refused(self, pkg_dir, tmp_path):
+        # A stale sidecar with no database behind it is not a wrong-scene
+        # hazard — there is nothing to load.
+        mod = _load_launch(pkg_dir)
+        db = str(tmp_path / "rtabmap.db")
+        open(db, "w").close()
+        mod._claim_database_for_scene(db, "run4", deleting=False)
+        os.remove(db)
+        mod._claim_database_for_scene(db, "run9", deleting=False)
+
+    def test_unkeyed_legacy_db_is_adopted_then_guarded(self, pkg_dir, tmp_path):
+        # A database that predates scene keying has no sidecar: adopt it under
+        # the current key rather than refusing, but guard it from then on.
+        mod = _load_launch(pkg_dir)
+        db = str(tmp_path / "rtabmap.db")
+        open(db, "w").close()
+        mod._claim_database_for_scene(db, "", deleting=False)
+        assert os.path.isfile(db + mod._SCENE_SIDECAR_SUFFIX)
+        with pytest.raises(RuntimeError):
+            mod._claim_database_for_scene(db, "run4", deleting=False)

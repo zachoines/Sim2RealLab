@@ -5,6 +5,15 @@
 # edits to launch/*.py, config/*.yaml, and node *.py take effect on:
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml restart <svc>
 #
+# `restart` applies here because the container environment is unchanged and only
+# the files behind it moved. An env / compose / .env change needs
+# `up -d --force-recreate <svc>` instead -- restart reuses the old container env.
+#
+# ament_python installs launch/ and config/ as data_files, which colcon COPIES
+# even under --symlink-install; they reflect edits here only because the whole
+# package tree is mounted over /ws/src. Reading them from the install space
+# needs a rebuild.
+#
 # Changed C++ / message definitions still need a rebuild inside the container:
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml exec <svc> \
 #       bash -lc 'cd /ws && colcon build --symlink-install'

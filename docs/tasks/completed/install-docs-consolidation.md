@@ -2,7 +2,7 @@
 
 **Status:** Shipped 2026-06-09 in `d244190` (DGX) — the DGX coordinator slice (canonical Linux + env-topology docs, landing-page consolidation, `DGX_SPARK_SETUP.md` retire, Jetson-audit integration). Per-host README authoring delegated to the follow-ups below.
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/83
-**Follow-ups:** [`jetson-readme-install-run-fixes`](../active/tooling/jetson-readme-install-run-fixes.md) — Jetson-lane README fixes; [`windows-workstation-bringup`](../active/tooling/windows-workstation-bringup.md) — the `### Windows` subsections (Phase 3 docs); [`jetson-test-gate-cross-lane-deps`](../active/tooling/jetson-test-gate-cross-lane-deps.md) + [`executor-startup-health-check-contract`](../active/reliability/executor-startup-health-check-contract.md) — cross-lane issues the audit surfaced.
+**Follow-ups:** [`jetson-readme-install-run-fixes`](../active/tooling/jetson-readme-install-run-fixes.md) — Jetson-lane README fixes; [`windows-workstation-bringup`](../active/tooling/windows-workstation-bringup.md) — the `### Windows` subsections (Phase 3 docs); [`jetson-test-gate-cross-lane-deps`](jetson-test-gate-cross-lane-deps.md) + [`executor-startup-health-check-contract`](../active/reliability/executor-startup-health-check-contract.md) — cross-lane issues the audit surfaced.
 
 **Type:** documentation refresh + consolidation (multi-host audit)
 **Owner:** Coordinating agent (DGX) + per-host agents (DGX / Windows workstation / Jetson Orin Nano)
@@ -350,7 +350,7 @@ issues the audit surfaced):
   — the audited `strafer_ros` + `strafer_autonomy`-executor README fixes
   (the two install blockers — wrong `~/workspaces` path, PEP 660 pip — plus
   the stale Run/Test references), for the Jetson agent to apply in its lane.
-- [`jetson-test-gate-cross-lane-deps`](../active/tooling/jetson-test-gate-cross-lane-deps.md)
+- [`jetson-test-gate-cross-lane-deps`](jetson-test-gate-cross-lane-deps.md)
   — `make test-jetson` can't go green on a clean Jetson: `test-autonomy`
   pulls cross-lane deps (`strafer_vlm`, `shapely` + `source/strafer_lab`)
   it can't import there.

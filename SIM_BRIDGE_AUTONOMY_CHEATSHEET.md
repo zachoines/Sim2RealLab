@@ -11,9 +11,14 @@
    source env_setup.sh && source $CONDA_ROOT/etc/profile.d/conda.sh && conda activate env_isaaclab3
    $ISAACLAB -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
        --mode bridge --headless --enable_cameras \
-       --task Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0 --decimation 4 --render-interval 4
+       --task Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0 --decimation 4 --render-interval 4
    ```
    Confirm the cadence print: `frame_skip=0 (derived, derived 0)` / `publish 30.00 Hz sim`.
+
+   **Match the task to the policy's training scene.** The depth-subgoal work was
+   validated on `ProcRoom-Enriched-v0` (enclosed rooms, tall furniture, mid-room
+   columns); plain `ProcRoom-v0` is a different distribution and its map is not
+   interchangeable.
 
 ## On the NX (`strafer-nx`)
 
@@ -34,10 +39,12 @@ docker compose \
 #    ...or nuke the whole 'strafer' project regardless of profiles (bulletproof):
 #    docker rm -f $(docker ps -aq --filter label=com.docker.compose.project=strafer)
 
-# 1b) OPTIONAL -- for a truly FRESH map. rtabmap persists rtabmap.db in a named
-#     volume, so a recreate alone RELOADS the old map (WM=NNN). Delete it after
-#     the down (before the up) to start empty:
-#     docker volume rm strafer_strafer_ros_home
+# 1b) FRESH MAP. rtabmap persists its db in a named volume and RELOADS it, so a
+#     recreate alone comes back on the old map (WM=NNN). Prefer bumping the
+#     scene token -- non-destructive, keeps every previous run's map:
+#       export STRAFER_SLAM_SCENE_TOKEN=run5     # -> ~/.ros/rtabmap_run5.db
+#     The destructive option still works if you want the volume empty:
+#       docker volume rm strafer_strafer_ros_home
 
 # 2) Spin up the full sim-bridge autonomy stack
 #    (policy inference + SLAM + nav + sim support nodes + Foxglove + executor)
@@ -98,12 +105,21 @@ make submit-deploy CMD="go to the chair"
   inflation halo, where `GridBased` refuses its own pose as a planning start.
   The subgoal generator now escapes that itself — it retries on
   `GridBasedRelaxed` and, failing that, republishes the last subgoal for a
-  bounded window — but both are DEGRADED modes and log at WARN/ERROR. If you see
-  `Planner starvation:` or `Starvation hold exhausted`, the robot is (or was)
-  wedged. Probe plannability before trusting a measurement run:
+  bounded window — but both are DEGRADED modes and log at WARN/ERROR. In
+  `docker logs strafer_inference` the usual sequence is just the first two:
+  ```
+  GridBased refused 2 consecutive replans (status 6); ... Switching to 'GridBasedRelaxed' ...
+  Robot moved 0.25 m since the planner started refusing; returning to planner 'GridBased'.
+  ```
+  `Planner starvation:` only appears if the fallback planner ALSO fails, and
+  `Starvation hold exhausted` means it stayed wedged through the whole hold —
+  that one needs manual intervention. Probe plannability before trusting a
+  measurement run:
   ```bash
-  ros2 action send_goal /compute_path_to_pose nav2_msgs/action/ComputePathToPose \
-   "{goal: {header: {frame_id: map}, pose: {position: {x: 0.1, y: 0.1}, orientation: {w: 1.0}}}, planner_id: GridBased}"
+  docker compose -f docker-compose.yml exec navigation bash -lc \
+    'source /opt/ros/humble/setup.bash && source /ws/install/setup.bash; \
+     ros2 action send_goal /compute_path_to_pose nav2_msgs/action/ComputePathToPose \
+     "{goal: {header: {frame_id: map}, pose: {position: {x: 0.1, y: 0.1}, orientation: {w: 1.0}}}, planner_id: GridBased}"'
   ```
   `SUCCEEDED` = fine. `ABORTED` / *"Starting point in lethal space"* = still
   wedged; free it with a manual holonomic strafe on `/cmd_vel` (Nav2's `/backup`

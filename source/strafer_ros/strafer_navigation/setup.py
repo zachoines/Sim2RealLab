@@ -27,6 +27,9 @@ setup(
     license="MIT",
     tests_require=["pytest"],
     entry_points={
-        "console_scripts": [],
+        "console_scripts": [
+            "start_cell_planner_selector = "
+            "strafer_navigation.start_cell_planner_selector:main",
+        ],
     },
 )

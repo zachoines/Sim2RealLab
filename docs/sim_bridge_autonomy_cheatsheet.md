@@ -121,6 +121,18 @@ make submit-deploy CMD="go to the chair"
      ros2 action send_goal /compute_path_to_pose nav2_msgs/action/ComputePathToPose \
      "{goal: {header: {frame_id: map}, pose: {position: {x: 0.1, y: 0.1}, orientation: {w: 1.0}}}, planner_id: GridBased}"'
   ```
+  On the **nav2** lane the escape is in the navigate-to-pose BT instead: the
+  `start_cell_planner_selector` node reads the robot's own global-costmap cell
+  and only then does the BT's plan step retry on `GridBasedRelaxed`. It is a
+  degraded mode too, and `docker logs strafer_navigation` names it both ways:
+  ```
+  Robot's own global-costmap cell is 253 (>= inscribed 253); 'GridBased' cannot plan from it. Admitting 'GridBasedRelaxed' ...
+  'GridBasedRelaxed' produced this goal's path: the nav2 lane is planning from a start the primary planner refuses.
+  ```
+  Neither lane's escape helps from *deep* inside the halo: `GridBasedRelaxed`
+  clears only the robot's own cell, so it needs a free neighbour to propagate
+  into. Measured: it plans from ~0.20 m off lethal and refuses from ~0.15 m.
+
   `SUCCEEDED` = fine. `ABORTED` / *"Starting point in lethal space"* = still
   wedged; free it with a manual holonomic strafe on `/cmd_vel` (Nav2's `/backup`
   refuses for the same reason).

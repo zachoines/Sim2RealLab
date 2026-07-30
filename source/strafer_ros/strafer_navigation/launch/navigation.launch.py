@@ -35,6 +35,7 @@ from launch.actions import (
 )
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
 
 from strafer_shared.constants import (
     CHASSIS_LENGTH,
@@ -117,6 +118,28 @@ def _patch_params(params, footprint, nav_vel, nav_omega, nav_reverse,
         ] = smoothing_bt_xml_path
 
 
+def _start_cell_selector_params(params):
+    """Derive the start-cell planner selector's parameters from nav2_params.
+
+    Every value is read from ``planner_server`` rather than restated, so the
+    selector can only ever name a planner the server registered, and its probe
+    matches the grid the primary planner actually plans on.
+    """
+    server = params["planner_server"]["ros__parameters"]
+    primary, relaxed = server["planner_plugins"][0], server["planner_plugins"][1]
+    grid = server[primary]
+    factor = (
+        int(grid.get("downsampling_factor", 1))
+        if grid.get("downsample_costmap", False)
+        else 1
+    )
+    return {
+        "primary_planner_id": primary,
+        "relaxed_planner_id": relaxed,
+        "downsampling_factor": factor,
+    }
+
+
 def _launch_setup(context, *args, **kwargs):
     """Resolve launch arguments and build the Nav2 include."""
     pkg_dir = get_package_share_directory("strafer_navigation")
@@ -158,6 +181,16 @@ def _launch_setup(context, *args, **kwargs):
 
     # ── Include Nav2 navigation stack ───────────────────────────────────
     return [
+        Node(
+            package="strafer_navigation",
+            executable="start_cell_planner_selector",
+            name="start_cell_planner_selector",
+            output="screen",
+            parameters=[{
+                "use_sim_time": use_sim_time.lower() == "true",
+                **_start_cell_selector_params(params),
+            }],
+        ),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 os.path.join(nav2_bringup_dir, "launch", "navigation_launch.py")

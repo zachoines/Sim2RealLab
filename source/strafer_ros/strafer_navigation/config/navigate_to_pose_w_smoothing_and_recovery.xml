@@ -14,6 +14,13 @@
   BtActionServer halts and re-ticks between goals in a way that
   doesn't preserve BT.CPP decorator state, so a <SingleTrigger>
   here would fire every goal instead of once per launch.
+
+  The plan Fallback's second branch names no planner of its own:
+  <PlannerSelector> resolves it, and its default_planner is the
+  primary, so the branch is a plain retry of the primary unless
+  something outside the tree has published a different planner.
+  Hardcoding the escape-hatch planner there instead would hand it
+  every planner failure, not just the ones it can fix.
 -->
 <root main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
@@ -28,7 +35,13 @@
           </Sequence>
           <RecoveryNode number_of_retries="1" name="ComputePathToPose">
             <Sequence name="PlanAndSmooth">
-              <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+              <Fallback name="PlanWithStartCellFallback">
+                <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+                <Sequence name="RetryWithStartCellPlanner">
+                  <PlannerSelector selected_planner="{start_cell_planner}" default_planner="GridBased" topic_name="planner_selector"/>
+                  <ComputePathToPose name="ComputePathToPoseRelaxed" goal="{goal}" path="{path}" planner_id="{start_cell_planner}"/>
+                </Sequence>
+              </Fallback>
               <SmoothPath unsmoothed_path="{path}" smoothed_path="{path}" smoother_id="simple_smoother"/>
             </Sequence>
             <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>

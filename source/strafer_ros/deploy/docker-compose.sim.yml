@@ -41,6 +41,10 @@ services:
       # unkeyed ~/.ros/rtabmap.db.
       STRAFER_SLAM_TASK_ID: ${STRAFER_SLAM_TASK_ID:-}
       STRAFER_SLAM_SCENE_TOKEN: ${STRAFER_SLAM_SCENE_TOKEN:-}
+      # Per-run artifact swap, so it lives here and in no env_file. This lane
+      # defaults to the nav2 backend and launches no inference node, so empty
+      # is the normal state; setting it alone does not start a policy.
+      STRAFER_INFERENCE_MODEL_PATH: ${STRAFER_INFERENCE_MODEL_PATH:-}
     env_file:
       - compose/sim.env
     volumes:

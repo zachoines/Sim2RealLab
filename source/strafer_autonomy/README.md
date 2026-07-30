@@ -337,6 +337,20 @@ python -m pytest source/strafer_autonomy/tests/ -v
 
 Tests marked `requires_ros` exercise the command server, CLI, and `JetsonRosClient` against live ROS interfaces. Everything else — planner pipeline, schemas, intent parsing, plan compilation, HTTP clients, Databricks clients, semantic map — runs without a ROS install.
 
+Some tests additionally need a **workstation-lane dependency** the robot does not
+install — `chromadb`, `networkx`, `shapely`, `strafer_vlm`, `fastapi`. Those call
+`pytest.importorskip` at the point the dependency is first reached (a fixture, a
+helper, or the module top), so they **skip** where it is absent and **run
+normally** where it is present. The suite is therefore green on either lane; the
+robot simply covers less, and `-rs` names every skip and its reason:
+
+```bash
+python -m pytest source/strafer_autonomy/tests/ -m "not requires_ros" -q -rs
+```
+
+Add the same guard when a new test reaches one of those packages — a bare import
+turns a skip into a collection error and takes the whole module down with it.
+
 ## Deferred / known limitations
 
 Tracked in [`docs/tasks/DEFERRED_WORK.md`](../../docs/tasks/DEFERRED_WORK.md). Items currently open:

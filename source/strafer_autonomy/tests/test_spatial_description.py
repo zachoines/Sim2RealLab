@@ -125,6 +125,13 @@ def kitchen_metadata() -> dict:
 
 
 class TestSpatialDescriptionBuilder:
+    @pytest.fixture(autouse=True)
+    def _requires_shapely(self):
+        pytest.importorskip(
+            "shapely",
+            reason="shapely is a workstation-lane dependency; not installed on the robot",
+        )
+
     def test_robot_room(self, kitchen_metadata):
         builder = SpatialDescriptionBuilder(kitchen_metadata)
         facts = builder.build(
@@ -277,6 +284,12 @@ class TestProcessFrame:
         return scene_dir
 
     def test_process_frame_validates(self, tmp_path, gen_mod, kitchen_metadata):
+        # This path reaches the polygon geometry; the sibling exclusion test
+        # does not, so it still runs without shapely.
+        pytest.importorskip(
+            "shapely",
+            reason="shapely is a workstation-lane dependency; not installed on the robot",
+        )
         self._write_metadata(tmp_path / "meta", "scene_01", kitchen_metadata)
         episode_dir = tmp_path / "perception" / "ep_0001"
         episode_dir.mkdir(parents=True)
@@ -346,6 +359,12 @@ class TestProcessFrame:
     def test_process_frame_rejects_hallucinations(
         self, tmp_path, gen_mod, kitchen_metadata,
     ):
+        # This path reaches the polygon geometry; the sibling exclusion test
+        # does not, so it still runs without shapely.
+        pytest.importorskip(
+            "shapely",
+            reason="shapely is a workstation-lane dependency; not installed on the robot",
+        )
         self._write_metadata(tmp_path / "meta", "scene_01", kitchen_metadata)
         episode_dir = tmp_path / "perception" / "ep_0001"
         episode_dir.mkdir(parents=True)

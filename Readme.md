@@ -389,7 +389,7 @@ make test-dgx        # DGX e2e: autonomy + vlm + lab  (SKIP_KIT=1 skips the ~40-
 make test-jetson     # Jetson e2e: autonomy + ros + driver
 ```
 
-Individual suites: `make test-autonomy` (planner/executor, host-agnostic), `make test-vlm` (VLM, `.venv_vlm`), `make test-lab` / `make test-lab-pure` (strafer_lab Kit + pure-Python, `env_isaaclab3`), `make test-ros` / `make test-driver` (Jetson colcon / driver). Full list: [`docs/example_commands_cheatsheet.md`](docs/example_commands_cheatsheet.md#run-test-cases).
+Individual suites: `make test-autonomy` (planner/executor, host-agnostic), `make test-vlm` (VLM, `.venv_vlm`), `make test-lab` / `make test-lab-pure` (strafer_lab Kit + pure-Python, `env_isaaclab3`), `make test-ros` / `make test-driver` (Jetson ROS packages / driver — run natively or in `strafer-cpu:humble`). Full list: [`docs/example_commands_cheatsheet.md`](docs/example_commands_cheatsheet.md#run-test-cases).
 
 The autonomy + VLM suites run 800+ tests without any service running; planner endpoint tests use an `autouse` fixture that points `PLANNER_MODEL` / `GROUNDING_MODEL` at `/nonexistent` to prevent model download during tests.
 

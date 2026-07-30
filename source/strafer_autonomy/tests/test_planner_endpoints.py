@@ -4,7 +4,15 @@ import os
 from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
+
+# The planner service runs on the workstation, so its web stack is absent on
+# the robot and this whole module is unimportable there.
+pytest.importorskip(
+    "fastapi",
+    reason="fastapi is a workstation-lane dependency; not installed on the robot",
+)
+
+from fastapi.testclient import TestClient  # noqa: E402
 
 from strafer_autonomy.planner.app import _state, create_app
 

@@ -46,15 +46,20 @@ test-autonomy: ## Planner/executor unit tests — host-agnostic (needs strafer_a
 	@# a cryptic "No module named pytest". PYTHONPATH cleared so the vendored
 	@# ROS 2 (3.11) site-packages env_setup.sh adds can't leak launch_testing
 	@# into pytest's plugin autoload.
-	@if ! PYTHONPATH= $(AUTONOMY_PY) -c "import pytest" >/dev/null 2>&1; then \
-		echo "ERROR: '$(AUTONOMY_PY)' has no pytest (likely conda base). Pick an env that carries strafer_autonomy + pytest:"; \
-		echo "  DGX:    make test-dgx   (pins .venv_vlm), or  make test-autonomy AUTONOMY_PY=$(VENV_VLM)/bin/python,"; \
-		echo "          or activate .venv_vlm / env_isaaclab3 first."; \
-		echo "  Jetson: pip install -e source/strafer_autonomy  into the active python first."; \
-		exit 1; \
+	@# Tests whose cross-lane deps (fastapi / chromadb / networkx / shapely /
+	@# strafer_vlm) are absent skip themselves, so this suite is green on either
+	@# lane — the robot just covers less. A host with no pytest at all falls back
+	@# to the container, loudly, because that covers less still.
+	@if PYTHONPATH= $(AUTONOMY_PY) -c "import pytest" >/dev/null 2>&1; then \
+		PYTHONPATH= $(AUTONOMY_PY) -m pytest source/strafer_autonomy/tests/ \
+			-m "not requires_ros" -v $(PYTEST_ARGS); \
+	else \
+		echo "[test-autonomy] '$(AUTONOMY_PY)' has no pytest — falling back to the container."; \
+		echo "[test-autonomy] The image carries no workstation deps, so the cross-lane"; \
+		echo "[test-autonomy] tests SKIP there. Run this on the workstation for full coverage:"; \
+		echo "[test-autonomy]   make test-dgx, or make test-autonomy AUTONOMY_PY=$(VENV_VLM)/bin/python"; \
+		tools/run_ros_tests.sh autonomy $(PYTEST_ARGS); \
 	fi
-	PYTHONPATH= $(AUTONOMY_PY) -m pytest source/strafer_autonomy/tests/ \
-		-m "not requires_ros" -v
 
 test-vlm: ## VLM service tests — DGX-only (uses .venv_vlm)
 	@if [ ! -x "$(VENV_VLM)/bin/python" ]; then \
@@ -63,13 +68,22 @@ test-vlm: ## VLM service tests — DGX-only (uses .venv_vlm)
 	fi
 	PYTHONPATH= $(VENV_VLM)/bin/python -m pytest source/strafer_vlm/tests/ -v
 
-test-ros: ## ROS 2 package tests via colcon — Jetson (run `make build` first)
-	cd $(COLCON_WS) && source /opt/ros/humble/setup.bash && \
-		colcon test && colcon test-result --verbose
+# Extra pytest arguments for the robot-stack suites:
+#   make test-ros PYTEST_ARGS="-k Starvation -v"
+PYTEST_ARGS ?=
 
-test-driver: ## strafer_driver unit tests directly with pytest — Jetson
-	cd source/strafer_ros/strafer_driver && \
-		python -m pytest test/ -v
+# Both suites go through tools/run_ros_tests.sh, which uses the host's ROS
+# toolchain when there is one and strafer-cpu:humble otherwise — the robot host
+# is container-primary and carries no bare-metal ROS, colcon or pytest.
+#
+# It drives pytest rather than `colcon test`: colcon's ament_python task invokes
+# `python3 -m unittest -v` with no discovery arguments, which collects nothing
+# and still reports OK, so a colcon-driven gate passes without running a test.
+test-ros: ## ROS 2 package tests — native ROS if present, else in strafer-cpu:humble
+	@tools/run_ros_tests.sh ros $(PYTEST_ARGS)
+
+test-driver: ## strafer_driver unit tests — native ROS if present, else in strafer-cpu:humble
+	@tools/run_ros_tests.sh driver $(PYTEST_ARGS)
 
 test-dgx: ## DGX e2e umbrella — env-check + autonomy + vlm + lab, each in its env. SKIP_KIT=1 swaps the heavy Kit suite for the fast pure-Python lab half.
 	@rc=0; \
@@ -85,11 +99,19 @@ test-dgx: ## DGX e2e umbrella — env-check + autonomy + vlm + lab, each in its 
 	exit $$rc
 
 test-jetson: ## Jetson e2e umbrella — env-check + autonomy + ros + driver
-	@rc=0; \
-	$(MAKE) --no-print-directory env-check || rc=1; \
-	$(MAKE) --no-print-directory test-autonomy || rc=1; \
-	$(MAKE) --no-print-directory test-ros || rc=1; \
-	$(MAKE) --no-print-directory test-driver || rc=1; \
+	@# Every step runs; the summary names each one so a partial run cannot be
+	@# mistaken for a full one, and any failure fails the umbrella.
+	@rc=0; summary=""; \
+	for step in env-check test-autonomy test-ros test-driver; do \
+		echo "=== $$step ==="; \
+		if $(MAKE) --no-print-directory $$step; then \
+			summary="$$summary\n  ok      $$step"; \
+		else \
+			summary="$$summary\n  FAILED  $$step"; rc=1; \
+		fi; \
+	done; \
+	echo; echo "=== test-jetson summary ==="; printf "%b\n" "$$summary"; \
+	[ $$rc -eq 0 ] && echo "  -> GREEN" || echo "  -> FAILURES above"; \
 	exit $$rc
 
 test: ## Auto-dispatch to the per-host umbrella (DGX -> test-dgx, Jetson -> test-jetson)
@@ -142,8 +164,24 @@ env-sync: ## Regenerate the compose env mirrors from canonical strafer_bringup/c
 env-check: ## Verify the compose env mirrors + DDS anchors match canon (fails on drift; run by `make test`)
 	@python3 $(DEPLOY_DIR)/tests/check_env_sync.py
 
-images: ## Build the strafer-cpu + strafer-gpu container images
-	$(FULL_COMPOSE) build
+# Stamped into org.opencontainers.image.revision on both images and echoed by
+# every container's entrypoint, so a deploy running old code says so. The
+# `-dirty` suffix marks uncommitted tracked changes.
+GIT_REVISION := $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)$(shell git diff --quiet HEAD 2>/dev/null || echo -dirty)
+
+images: ## Build the strafer-cpu + strafer-gpu container images (stamps the build commit into both)
+	@# --profile policy is load-bearing: compose skips services whose profile is
+	@# inactive, so a bare build leaves strafer-gpu (the `inference` service)
+	@# untouched and still exits 0.
+	@echo "[images] stamping org.opencontainers.image.revision=$(GIT_REVISION)"
+	STRAFER_GIT_REVISION=$(GIT_REVISION) $(FULL_COMPOSE) --profile policy build
+	@echo "[images] built revisions:"
+	@for t in strafer-cpu:humble strafer-gpu:humble; do \
+		printf "  %-20s %s\n" "$$t" "$$(docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' $$t 2>/dev/null || echo '<missing>')"; \
+	done
+	@echo "[images] Both must read $(GIT_REVISION). A failed build commits no layer, so the"
+	@echo "[images] old tag stays resolvable and a stale stack runs unannounced — check the"
+	@echo "[images] labels above before trusting a rebuild."
 
 launch-sim: ## Sim-in-the-loop in a container (consumes the DGX bridge; foxglove :8765). Config: deploy/compose/sim.env.
 	$(SIM_COMPOSE) up

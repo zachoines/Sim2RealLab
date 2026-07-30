@@ -1,5 +1,8 @@
 # Collapse the deploy config levels to one key, one home
 
+**Status:** Shipped 2026-07-30 in `81fb15d` (Either; verified on Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/172
+
 **Type:** task / tooling (deploy config)
 **Owner:** Either (the change is compose + `gen_env.py`; the rig only verifies it)
 **Priority:** P2 (the shadowing hazard it removes has already caused one near-miss)
@@ -85,17 +88,51 @@ that answers "how does a value reach a node".
 
 ## Acceptance
 
-- [ ] `compose/sim_bridge.env` is generated from a canonical
-      `env_sim_bridge.env`; `make env-sync && make env-check` green, and editing
-      canon + syncing demonstrably changes what the container loads.
-- [ ] The sim-bridge overlay contains **no** literal node-config `environment:`
-      key — only `${VAR:-default}` entries for the host levers listed above.
-- [ ] `check_env_sync` fails when a key appears in both a mirror and an overlay
-      `environment:`, mutation-tested by introducing one.
-- [ ] The model swap still works from the host with no canon edit, verified the
-      way the deploy PR verified it (`printenv` + `md5sum` of the loaded
-      artifact, before and after `up -d --force-recreate`).
-- [ ] `deploy/README.md`'s three-level table is replaced by the one-line rule.
+- [x] `compose/sim_bridge.env` is generated from a canonical `env_sim_bridge.env`;
+      `make env-sync && make env-check` green (`make test-jetson` GREEN, ROS suite
+      601 passed). Canon reaches the container end-to-end, confirmed live: the
+      inference container logs `obs_timeout_s overridden to 1.0 via
+      STRAFER_OBS_TIMEOUT_S`, `depth_timeout_s overridden to 2.0`,
+      `variant=DEPTH_SUBGOAL`, and the hybrid backend starts the subgoal
+      generator — all from the new canon file through its mirror.
+- [x] The sim-bridge overlay contains **no** literal node-config `environment:`
+      key — only `${VAR:-default}` entries for `STRAFER_INFERENCE_MODEL_PATH` and
+      `STRAFER_OBS_DUMP_PATH`.
+- [x] `check_env_sync` fails when a key appears in both a mirror and an overlay
+      `environment:`, mutation-tested in **both** directions (shadow added to the
+      overlay; host lever added back to canon), plus two adjacent invariants
+      (sim-only mirror loaded by an always-on lane; a dropped container-env
+      passthrough). Baseline green after each revert.
+- [x] The model swap still works from the host with no canon edit: unset →
+      `/models/policy.onnx` / `md5sum 709bd26e…`; v2 set + `up -d
+      --force-recreate` → `strafer_depth_subgoal_v2_998.onnx` / `0272270e…`;
+      back again → `709bd26e…`. Rendered config, `printenv`, and in-container
+      `md5sum` agree at every step.
+- [x] `deploy/README.md`'s three-level table is replaced by the one-line rule.
+
+### The live gate — the other two session-critical levers
+
+- [x] `STRAFER_OBS_DUMP_PATH` — unset: empty `printenv`, no `obs dump ENABLED`
+      line, no file. Armed: the node logs `Diagnostic obs dump ENABLED →
+      /obs_dumps/node_obs.jsonl` and the dump **grows** 2.96 MB / 161 lines →
+      5.00 MB / 272 lines.
+- [x] `STRAFER_SLAM_SCENE_TOKEN` — a fresh token is accepted and keys the db
+      (`scene_key=envcheckA`, sidecar `"key": "envcheckA"`); a second fresh token
+      gets its own db; a **stale-db** launch (token `envcheckB` against the db
+      claimed by `envcheckA`) is **refused** with exit 1. Control: the same fixed
+      db with its matching token starts normally, so the refusal keys on the
+      mismatch rather than on `database_path:=`.
+- [x] `docker compose config` renders on all eight overlay combinations, and the
+      DDS anchor keys stay literal on every one while appearing in no mirror —
+      the partition did not swallow them.
+
+## Confirmed rather than assumed
+
+The REAL-HARDWARE GUARD needed no change: it asserts the widening keys are absent
+from the *autonomy* lane, and the new lane is a separate file. A new invariant
+closes the gap that observation leaves — the sim-only mirror must be loaded by no
+always-on lane, so the widenings cannot reach the real robot by someone adding an
+`env_file` entry.
 
 ## Out of scope
 

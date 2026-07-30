@@ -201,13 +201,16 @@ class TestInferenceLaunchOverrides:
     use_sim_time as env-defaulted launch args that override the YAML.
     """
 
-    OVERRIDE_ARGS = ["model_path", "policy_variant", "use_sim_time"]
+    OVERRIDE_ARGS = [
+        "model_path", "policy_variant", "use_sim_time", "obs_dump_path",
+    ]
 
     def _args(self, pkg_dir, monkeypatch):
         for var in (
             "STRAFER_INFERENCE_MODEL_PATH",
             "STRAFER_POLICY_VARIANT",
             "STRAFER_USE_SIM_TIME",
+            "STRAFER_OBS_DUMP_PATH",
         ):
             monkeypatch.delenv(var, raising=False)
         mod = _load_launch(pkg_dir)
@@ -235,6 +238,9 @@ class TestInferenceLaunchOverrides:
         assert rendered("model_path") == ""
         assert rendered("policy_variant") == "DEPTH"
         assert rendered("use_sim_time") == "false"
+        # Empty = the diagnostic parity dump is OFF. This default is
+        # load-bearing: a DEPTH variant writes a full depth vector per tick.
+        assert rendered("obs_dump_path") == ""
 
     def test_env_overrides_arg_default(self, pkg_dir, monkeypatch):
         monkeypatch.setenv("STRAFER_INFERENCE_MODEL_PATH", "/models/depth.onnx")
@@ -289,7 +295,9 @@ class TestInferenceLaunchOverrides:
         assert params[0].variable_name[0].text == "config_file"
         override = params[-1]
         assert isinstance(override, dict)
-        assert set(override) == {"model_path", "policy_variant", "use_sim_time"}
+        assert set(override) == {
+            "model_path", "policy_variant", "use_sim_time", "obs_dump_path",
+        }
 
     def test_model_and_variant_are_raw_launch_configurations(
         self, pkg_dir, monkeypatch
@@ -336,6 +344,125 @@ class TestInferenceLaunchOverrides:
         mod = _load_launch(pkg_dir)
         ld = mod.generate_launch_description()
         assert not any(isinstance(e, GroupAction) for e in ld.entities)
+
+
+# =============================================================================
+# Obs-dump passthrough — the compose lane's only way to arm the parity harness
+# =============================================================================
+
+
+def _load_policy_launch(pkg_dir):
+    path = os.path.join(pkg_dir, "launch", "inference_policy.launch.py")
+    spec = importlib.util.spec_from_file_location("inference_policy_launch", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _forwarded_args(include):
+    """{name: value} for an IncludeLaunchDescription's launch_arguments.
+
+    Goes through the substitution machinery rather than poking at the tuples:
+    an empty value (the disabled default we most care about pinning) is
+    normalized to an empty substitution list, which indexing would trip over.
+    """
+    from launch import LaunchContext
+    from launch.utilities import (
+        normalize_to_list_of_substitutions, perform_substitutions,
+    )
+
+    ctx = LaunchContext()
+    return {
+        perform_substitutions(ctx, normalize_to_list_of_substitutions(k)):
+        perform_substitutions(ctx, normalize_to_list_of_substitutions(v))
+        for k, v in include.launch_arguments
+    }
+
+
+class TestObsDumpPassthrough:
+    """``obs_dump_path`` is read ONCE at node init, so it can only be set at
+    launch — never via ``ros2 param set``. The containerized lane runs
+    ``inference_policy.launch.py``, which plumbed no params at all, so the
+    train<->deploy parity harness could not be armed on the compose lane. The
+    chain under test is:
+
+        STRAFER_OBS_DUMP_PATH  ->  inference_policy.launch.py
+                               ->  inference.launch.py
+                               ->  the node's obs_dump_path parameter
+
+    Empty/unset must stay the default: a DEPTH variant writes a full depth
+    vector per tick, which is not something to leave on by accident.
+    """
+
+    def test_env_flows_into_the_launch_arg(self, pkg_dir, monkeypatch):
+        from launch.actions import DeclareLaunchArgument
+
+        monkeypatch.setenv("STRAFER_OBS_DUMP_PATH", "/obs_dumps/node_obs.jsonl")
+        ld = _load_launch(pkg_dir).generate_launch_description()
+        args = {
+            e.name: e for e in ld.entities
+            if isinstance(e, DeclareLaunchArgument)
+        }
+        rendered = "".join(
+            getattr(s, "text", str(s))
+            for s in args["obs_dump_path"].default_value
+        )
+        assert rendered == "/obs_dumps/node_obs.jsonl"
+
+    def test_arg_reaches_the_node_parameter_override(self, pkg_dir, monkeypatch):
+        from launch.substitutions import LaunchConfiguration
+
+        mod = _load_launch(pkg_dir)
+        monkeypatch.setattr(mod, "Node", _CaptureNode)
+        mod.generate_launch_description()
+        override = _CaptureNode.last.kwargs["parameters"][-1]
+        # A raw string param -- no bool coercion, unlike use_sim_time.
+        assert isinstance(override["obs_dump_path"], LaunchConfiguration)
+        assert (
+            override["obs_dump_path"].variable_name[0].text == "obs_dump_path"
+        )
+
+    def test_node_declares_the_parameter_disabled_by_default(self):
+        # The node half of the contract: the declared default is "" (disabled).
+        import inspect
+
+        from strafer_inference.inference_node import InferenceNode
+
+        src = inspect.getsource(InferenceNode.__init__)
+        assert '"obs_dump_path"' in src
+
+    def test_policy_launch_passes_it_through(self, pkg_dir, monkeypatch):
+        """The compose entry point must forward it explicitly — leaving it to
+        inference.launch.py's own env default would work only by accident and
+        would break the moment this file passed an explicit value."""
+        monkeypatch.setenv("STRAFER_NAV_BACKEND", "hybrid_nav2_strafer")
+        monkeypatch.setenv("STRAFER_OBS_DUMP_PATH", "/obs_dumps/node_obs.jsonl")
+        model = os.path.join(os.path.dirname(__file__), "__init__.py")  # any file
+        monkeypatch.setenv("STRAFER_INFERENCE_MODEL_PATH", model)
+
+        mod = _load_policy_launch(pkg_dir)
+        ld = mod.generate_launch_description()
+        includes = [
+            e for e in ld.entities if hasattr(e, "launch_arguments")
+        ]
+        assert includes, "inference_policy.launch.py includes nothing"
+        forwarded = _forwarded_args(includes[0])
+        assert forwarded.get("obs_dump_path") == "/obs_dumps/node_obs.jsonl"
+
+    def test_policy_launch_defaults_it_off(self, pkg_dir, monkeypatch):
+        monkeypatch.setenv("STRAFER_NAV_BACKEND", "hybrid_nav2_strafer")
+        monkeypatch.delenv("STRAFER_OBS_DUMP_PATH", raising=False)
+        model = os.path.join(os.path.dirname(__file__), "__init__.py")
+        monkeypatch.setenv("STRAFER_INFERENCE_MODEL_PATH", model)
+
+        mod = _load_policy_launch(pkg_dir)
+        ld = mod.generate_launch_description()
+        includes = [e for e in ld.entities if hasattr(e, "launch_arguments")]
+        forwarded = _forwarded_args(includes[0])
+        assert forwarded.get("obs_dump_path") == "", (
+            "the parity dump must be OFF unless explicitly armed — a DEPTH "
+            "variant writes a full depth vector per tick"
+        )
 
 
 # =============================================================================

@@ -127,15 +127,35 @@ class TestStalePlanSuppressesSubgoal(unittest.TestCase):
         finally:
             node.destroy_node()
 
-    def test_tf_not_consulted_while_plan_stale(self) -> None:
+    def test_tf_consulted_while_plan_stale_for_wedge_guards(self) -> None:
+        """The pose lookup precedes the staleness check and the has_path
+        guard.
+
+        The parked-in-inflation guards key off whether the robot is moving, and
+        the wedge they exist for holds with a stale plan or with no plan at all,
+        so gating the lookup behind either would blind them. Suppression is
+        unaffected: still no publish.
+        """
         node = _node()
         try:
             node._generator.set_path(np.array([(0.0, 0.0), (1.0, 0.0)]))
+            pub = MagicMock()
+            node._subgoal_pub = pub
+            node._tf_buffer = MagicMock()
+            node._last_plan_rx_t = 0.0  # stale
+            node._on_tick()
+            node._tf_buffer.lookup_transform.assert_called_once()
+            pub.publish.assert_not_called()
+        finally:
+            node.destroy_node()
+
+    def test_tf_consulted_before_has_path_guard(self) -> None:
+        node = _node()
+        try:
             node._subgoal_pub = MagicMock()
             node._tf_buffer = MagicMock()
-            node._last_plan_rx_t = 0.0  # stale -> suppress before TF
-            node._on_tick()
-            node._tf_buffer.lookup_transform.assert_not_called()
+            node._on_tick()  # no plan at all
+            node._tf_buffer.lookup_transform.assert_called_once()
         finally:
             node.destroy_node()
 
@@ -419,6 +439,308 @@ class TestReplanOwnership(unittest.TestCase):
 
             result_future.add_done_callback.assert_called_once()
             self.assertTrue(node._replan_inflight)  # still awaiting result
+        finally:
+            node.destroy_node()
+
+
+class TestParkedInInflationDeadlock(unittest.TestCase):
+    """A robot parked in the costmap inflation halo is refused by the planner
+    as a start pose; every replan aborts, the plan ages out, the subgoal is
+    suppressed and the policy zero-twists — so the pose never changes and
+    nothing clears the refusal.
+
+    Two guards break that cycle. Both must stay loud: starvation must stop being
+    permanent without stopping being visible.
+    """
+
+    GUARDS = dict(
+        fallback_planner_id="GridBasedRelaxed",
+        planner_refusals_before_fallback=2,
+        fallback_release_m=0.25,
+        starvation_hold_s=1.0,
+        starvation_stationary_m=0.05,
+        starvation_stationary_s=0.1,
+        update_period_s=0.1,          # -> 10 hold ticks, 1 stationary tick
+    )
+
+    def _node_guarded(self, **extra) -> SubgoalGeneratorNode:
+        node = _node(**{**self.GUARDS, **extra})
+        node._subgoal_pub = MagicMock()
+        return node
+
+    @staticmethod
+    def _park(node: SubgoalGeneratorNode, x: float = 0.0, y: float = 0.0):
+        """Pin the robot's pose so the tick sees a deterministic position."""
+        node._lookup_robot_xy = lambda: np.array(  # type: ignore[method-assign]
+            [x, y], dtype=np.float64
+        )
+
+    def _wedge(self, node: SubgoalGeneratorNode) -> None:
+        """Mission in progress, one good plan installed, then the planner
+        starts refusing and the plan ages out."""
+        node._active_goal = _pose(2.0, 0.0)
+        node._last_goal_telemetry_rx_t = time.monotonic()
+        node._install_path(_path((0.0, 0.0), (1.0, 0.0), (2.0, 0.0)),
+                           source="test")
+        node._note_planner_refusal("status 6")
+        node._note_planner_refusal("status 6")
+        node._last_plan_rx_t = 0.0     # aged far past path_timeout_s
+
+    # -- guard 1: the escape-hatch planner --------------------------------
+
+    def test_primary_planner_used_until_refusals_reach_threshold(self) -> None:
+        node = self._node_guarded()
+        try:
+            self._park(node)
+            node._on_tick()                       # seed a robot pose
+            self.assertEqual(node._select_planner_id(), "GridBased")
+            node._note_planner_refusal("status 6")
+            self.assertEqual(node._select_planner_id(), "GridBased")
+            node._note_planner_refusal("status 6")
+            self.assertEqual(node._select_planner_id(), "GridBasedRelaxed")
+        finally:
+            node.destroy_node()
+
+    def test_fallback_disabled_by_default_in_code(self) -> None:
+        # Code defaults leave both guards off, so a bare `ros2 run` never
+        # engages them; the shipped subgoal_generator.yaml arms them.
+        node = _node()
+        try:
+            self.assertEqual(node._fallback_planner_id, "")
+            for _ in range(10):
+                node._note_planner_refusal("status 6")
+            self.assertEqual(node._select_planner_id(), "GridBased")
+        finally:
+            node.destroy_node()
+
+    def test_shipped_yaml_arms_the_fallback(self) -> None:
+        import os
+        import yaml
+        from ament_index_python.packages import get_package_share_directory
+
+        path = os.path.join(
+            get_package_share_directory("strafer_inference"),
+            "config", "subgoal_generator.yaml",
+        )
+        with open(path) as f:
+            params = yaml.safe_load(f)
+        p = params["strafer_subgoal_generator"]["ros__parameters"]
+        # Must match the plugin registered in strafer_navigation's
+        # nav2_params.yaml, or the fallback request is rejected by name.
+        self.assertEqual(p["fallback_planner_id"], "GridBasedRelaxed")
+        self.assertGreater(p["starvation_hold_s"], 0.0)
+
+    def test_fallback_planner_id_is_registered_in_nav2_params(self) -> None:
+        """Cross-package pin: the id the generator asks for must be a plugin
+        the planner server actually loads, and it must NOT be the primary —
+        the whole point is a planner that clears the robot's own cell."""
+        import os
+        import yaml
+        from ament_index_python.packages import get_package_share_directory
+
+        gen = yaml.safe_load(open(os.path.join(
+            get_package_share_directory("strafer_inference"),
+            "config", "subgoal_generator.yaml",
+        )))["strafer_subgoal_generator"]["ros__parameters"]
+        nav = yaml.safe_load(open(os.path.join(
+            get_package_share_directory("strafer_navigation"),
+            "config", "nav2_params.yaml",
+        )))["planner_server"]["ros__parameters"]
+
+        fallback = gen["fallback_planner_id"]
+        self.assertIn(fallback, nav["planner_plugins"])
+        self.assertIn(gen["planner_id"], nav["planner_plugins"])
+        self.assertNotEqual(fallback, gen["planner_id"])
+        self.assertEqual(
+            nav[fallback]["plugin"], "nav2_navfn_planner/NavfnPlanner",
+            "the escape hatch must be a planner that clears the robot's own "
+            "cell before propagating; SmacPlanner2D refuses an inflated start",
+        )
+
+    def test_fallback_released_only_after_the_robot_clears_the_halo(self) -> None:
+        node = self._node_guarded()
+        try:
+            self._park(node, 0.0, 0.0)
+            node._on_tick()
+            node._note_planner_refusal("status 6")
+            node._note_planner_refusal("status 6")
+            self.assertEqual(node._select_planner_id(), "GridBasedRelaxed")
+
+            # Nudged, but still inside the halo it wedged in.
+            self._park(node, 0.10, 0.0)
+            node._on_tick()
+            self.assertEqual(node._select_planner_id(), "GridBasedRelaxed")
+
+            # Clear of it -> the primary is trusted again.
+            self._park(node, 0.30, 0.0)
+            node._on_tick()
+            self.assertEqual(node._select_planner_id(), "GridBased")
+        finally:
+            node.destroy_node()
+
+    def test_unavailable_planner_is_not_a_refusal(self) -> None:
+        """A planner that is DOWN is a different fault: it must keep starving
+        the watchdog rather than tripping these guards."""
+        node = self._node_guarded()
+        try:
+            node._active_goal = _pose(2.0, 0.0)
+            node._last_goal_telemetry_rx_t = time.monotonic()
+            client = MagicMock()
+            client.server_is_ready.return_value = False
+            node._planner_client = client
+            for _ in range(5):
+                node._on_replan_tick()
+            self.assertEqual(node._planner_refusals, 0)
+            self.assertEqual(node._select_planner_id(), "GridBased")
+        finally:
+            node.destroy_node()
+
+    def test_transport_failure_is_not_a_refusal(self) -> None:
+        """Same boundary on the other two failure paths: an rcl teardown or
+        transport error means the request never reached a planner, so it must
+        not open a hold window on what is really a dead planner."""
+        node = self._node_guarded()
+        try:
+            for _ in range(5):
+                broken = MagicMock()
+                broken.result.side_effect = RuntimeError("client torn down")
+                node._on_replan_goal_response(broken)
+                node._on_replan_result(broken)
+            self.assertEqual(node._planner_refusals, 0)
+            self.assertEqual(node._select_planner_id(), "GridBased")
+        finally:
+            node.destroy_node()
+
+    def test_aborted_result_is_a_refusal(self) -> None:
+        """The signature these guards exist for: the planner answers, and
+        says no."""
+        node = self._node_guarded()
+        try:
+            node._active_goal = _pose(2.0, 0.0)
+            node._replan_goal_xy = (2.0, 0.0)
+            wrapper = MagicMock()
+            wrapper.status = GoalStatus.STATUS_ABORTED
+            future = MagicMock()
+            future.result.return_value = wrapper
+            node._on_replan_result(future)
+            self.assertEqual(node._planner_refusals, 1)
+        finally:
+            node.destroy_node()
+
+    # -- guard 2: the bounded starvation hold ------------------------------
+
+    def test_stale_plan_is_republished_while_wedged_then_stops(self) -> None:
+        node = self._node_guarded()
+        try:
+            self._park(node)
+            node._on_tick()          # seed pose (plan still fresh)
+            self._wedge(node)
+
+            # Stationary for one tick, then the window opens.
+            node._on_tick()
+            published = 0
+            for _ in range(40):
+                node._subgoal_pub.publish.reset_mock()
+                node._on_tick()
+                published += node._subgoal_pub.publish.call_count
+
+            # Bounded: ~10 ticks of hold (1.0 s / 0.1 s), never unbounded.
+            self.assertGreater(published, 0, "the deadlock stayed permanent")
+            self.assertLessEqual(published, 12)
+            # And it ends fail-loud: suppression resumes.
+            node._subgoal_pub.publish.reset_mock()
+            node._on_tick()
+            node._subgoal_pub.publish.assert_not_called()
+        finally:
+            node.destroy_node()
+
+    def test_hold_does_not_fire_while_the_robot_is_moving(self) -> None:
+        """A stale plan on a MOVING robot is the ordinary case the original
+        suppression is for — the policy must not chase a stale path."""
+        node = self._node_guarded()
+        try:
+            self._park(node, 0.0, 0.0)
+            node._on_tick()
+            self._wedge(node)
+            for i in range(1, 20):
+                self._park(node, 0.5 * i, 0.0)   # clearly moving
+                node._subgoal_pub.publish.reset_mock()
+                node._on_tick()
+                node._subgoal_pub.publish.assert_not_called()
+        finally:
+            node.destroy_node()
+
+    def test_hold_never_republishes_a_path_for_a_previous_goal(self) -> None:
+        """The cross-mission wedge: a NEW goal the planner has never produced
+        a path for must NOT drive the policy at the old mission's subgoal.
+        That case is the escape-hatch planner's job, not the hold's."""
+        node = self._node_guarded()
+        try:
+            self._park(node)
+            node._on_tick()
+            self._wedge(node)
+            node._active_goal = _pose(-5.0, 4.0)   # new mission, no new plan
+
+            for _ in range(30):
+                node._on_tick()
+            node._subgoal_pub.publish.assert_not_called()
+        finally:
+            node.destroy_node()
+
+    def test_hold_is_one_window_per_episode(self) -> None:
+        """After the window is spent, a still-wedged robot fails loud rather
+        than republishing a stale subgoal forever."""
+        node = self._node_guarded()
+        try:
+            self._park(node)
+            node._on_tick()
+            self._wedge(node)
+            for _ in range(60):                    # exhaust the window
+                node._on_tick()
+            self.assertFalse(node._hold_armed)
+            node._subgoal_pub.publish.reset_mock()
+            for _ in range(30):
+                node._on_tick()
+            node._subgoal_pub.publish.assert_not_called()
+        finally:
+            node.destroy_node()
+
+    def test_fresh_plan_rearms_the_hold_and_clears_refusals(self) -> None:
+        node = self._node_guarded()
+        try:
+            self._park(node)
+            node._on_tick()
+            self._wedge(node)
+            for _ in range(60):
+                node._on_tick()
+            self.assertFalse(node._hold_armed)
+
+            node._install_path(_path((0.0, 0.0), (2.0, 0.0)), source="test")
+            self.assertTrue(node._hold_armed)
+            self.assertEqual(node._planner_refusals, 0)
+            self.assertEqual(node._hold_ticks_remaining, 0)
+        finally:
+            node.destroy_node()
+
+    def test_hold_budget_is_counted_in_policy_ticks_not_wall_seconds(self) -> None:
+        """At the rig's measured ~0.13 RTF a wall-clock budget would buy well
+        under a second of real robot motion. The tick timer runs on the node
+        clock, so a tick count is a sim-time budget at any RTF."""
+        node = _node(starvation_hold_s=5.0, update_period_s=1.0 / 30.0)
+        try:
+            self.assertEqual(node._hold_ticks_budget, 150)   # 5 s @ 30 Hz
+        finally:
+            node.destroy_node()
+
+    def test_zero_hold_disables_the_republish(self) -> None:
+        node = self._node_guarded(starvation_hold_s=0.0)
+        try:
+            self._park(node)
+            node._on_tick()
+            self._wedge(node)
+            for _ in range(30):
+                node._on_tick()
+            node._subgoal_pub.publish.assert_not_called()
         finally:
             node.destroy_node()
 

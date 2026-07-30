@@ -218,6 +218,86 @@ class TestSubgoalLaunchUseSimTime:
         assert not any(isinstance(e, GroupAction) for e in ld.entities)
 
 
+class TestIncludedLaunchGetsItsOwnConfig:
+    """Each include must name its own ``config_file``.
+
+    A ``LaunchConfiguration`` set while including one launch file is visible to
+    the next, and ``DeclareLaunchArgument`` does not override one that is
+    already set — so an includer that launches ``inference.launch.py`` first and
+    ``subgoal_generator.launch.py`` second silently hands the generator
+    ``inference.yaml``. Nothing observable changes until the two files disagree
+    about a key, because every value in ``subgoal_generator.yaml`` otherwise
+    equals the node's own default.
+    """
+
+    def _forwarded(self, launch_path):
+        import importlib.util
+
+        from launch import LaunchContext
+        from launch.utilities import (
+            normalize_to_list_of_substitutions, perform_substitutions,
+        )
+
+        spec = importlib.util.spec_from_file_location("incl", launch_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        ld = mod.generate_launch_description()
+        ctx = LaunchContext()
+        out = []
+        for e in ld.entities:
+            args = getattr(e, "launch_arguments", None)
+            if not args:
+                continue
+            out.append({
+                perform_substitutions(ctx, normalize_to_list_of_substitutions(k)):
+                perform_substitutions(ctx, normalize_to_list_of_substitutions(v))
+                for k, v in args
+            })
+        return out
+
+    def test_policy_launch_names_both_config_files(self, pkg_dir, monkeypatch):
+        monkeypatch.setenv("STRAFER_NAV_BACKEND", "hybrid_nav2_strafer")
+        model = os.path.join(os.path.dirname(__file__), "__init__.py")
+        monkeypatch.setenv("STRAFER_INFERENCE_MODEL_PATH", model)
+
+        forwarded = self._forwarded(
+            os.path.join(pkg_dir, "launch", "inference_policy.launch.py")
+        )
+        configs = [f["config_file"] for f in forwarded if "config_file" in f]
+        assert len(configs) == 2, (
+            "both includes must name a config_file; an unnamed one inherits "
+            f"the other include's. got: {configs}"
+        )
+        assert configs[0].endswith("inference.yaml")
+        assert configs[1].endswith("subgoal_generator.yaml")
+
+    def test_yaml_binds_to_the_launched_node(self, pkg_dir):
+        """The params file must reach the node under its launched name.
+
+        ``fallback_planner_id`` is the witness: its code default is ``""`` and
+        the YAML sets it, so a bound non-empty value can only have come from
+        the file. Every other key in that YAML equals the node's own default,
+        which is why this went unnoticed.
+        """
+        import rclpy
+
+        path = os.path.join(pkg_dir, "config", "subgoal_generator.yaml")
+        ctx = rclpy.Context()
+        rclpy.init(context=ctx, args=["--ros-args", "--params-file", path])
+        try:
+            node = rclpy.create_node("strafer_subgoal_generator", context=ctx)
+            try:
+                node.declare_parameter("fallback_planner_id", "")
+                assert node.get_parameter("fallback_planner_id").value, (
+                    "subgoal_generator.yaml did not bind to "
+                    "/strafer_subgoal_generator"
+                )
+            finally:
+                node.destroy_node()
+        finally:
+            rclpy.shutdown(context=ctx)
+
+
 class TestEntryPoint:
     def test_module_importable(self):
         mod = importlib.import_module("strafer_inference.subgoal_generator_node")

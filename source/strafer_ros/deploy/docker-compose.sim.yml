@@ -27,11 +27,20 @@ services:
       context: ../..                                    # = source/  (strafer_ros + strafer_shared + strafer_autonomy)
       dockerfile: strafer_ros/deploy/docker/Dockerfile.cpu
       network: host        # L4T kernel lacks iptable_raw -> Docker bridge build networking fails; build on host net
+      args:
+        # Both lanes build the same tag, so an unstamped sim build must not
+        # replace a stamped one.
+        STRAFER_GIT_REVISION: ${STRAFER_GIT_REVISION:-unknown}
     image: strafer-cpu:humble
     container_name: strafer_sim
     network_mode: host
     environment:
       <<: *dds-env
+      # Read inside the container by slam.launch.py (this lane's bringup
+      # includes it), so they need an explicit passthrough. Empty keeps the
+      # unkeyed ~/.ros/rtabmap.db.
+      STRAFER_SLAM_TASK_ID: ${STRAFER_SLAM_TASK_ID:-}
+      STRAFER_SLAM_SCENE_TOKEN: ${STRAFER_SLAM_SCENE_TOKEN:-}
     env_file:
       - compose/sim.env
     volumes:

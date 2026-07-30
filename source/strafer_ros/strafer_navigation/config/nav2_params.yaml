@@ -212,7 +212,10 @@ planner_server:
   ros__parameters:
     use_sim_time: false
     expected_planner_frequency: 5.0   # Planner only runs when BT requests; 20Hz idle-loop was a CPU drain
-    planner_plugins: ["GridBased"]
+    # GridBased serves all normal planning on every lane; GridBasedRelaxed is
+    # the escape hatch documented below. Planners compute only on request, so
+    # the second plugin costs nothing while idle.
+    planner_plugins: ["GridBased", "GridBasedRelaxed"]
     GridBased:
       plugin: "nav2_smac_planner/SmacPlanner2D"
       tolerance: 0.5
@@ -228,6 +231,20 @@ planner_server:
       # is allowed but heavily weighted.
       cost_travel_multiplier: 2.0
       use_final_approach_orientation: false
+    # Escape hatch for a robot parked inside the inflation halo, where
+    # SmacPlanner2D rejects the robot's own cell as a start ("Starting point in
+    # lethal space") and no SmacPlanner2D or costmap parameter relaxes that
+    # check — the >=INSCRIBED band is sized by the footprint's inscribed
+    # radius. NavfnPlanner's makePlan() clears the robot's own cell before
+    # propagating, which is sound because the robot occupies it. Requested by
+    # name only, by the subgoal generator's fallback_planner_id; not the primary
+    # because NavFn's binary allow_unknown is brittle to small unknown gaps that
+    # GridBased's cost_travel_multiplier handles softly.
+    GridBasedRelaxed:
+      plugin: "nav2_navfn_planner/NavfnPlanner"
+      tolerance: 0.5                  # matches GridBased
+      use_astar: false                # Dijkstra searches the whole field
+      allow_unknown: true
 
 # =============================================================================
 # Smoother Server (SimpleSmoother — defaults)

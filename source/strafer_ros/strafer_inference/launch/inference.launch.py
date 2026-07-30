@@ -21,6 +21,9 @@ def generate_launch_description() -> LaunchDescription:
     default_model = os.environ.get("STRAFER_INFERENCE_MODEL_PATH", "")
     default_variant = os.environ.get("STRAFER_POLICY_VARIANT", "DEPTH")
     default_use_sim = os.environ.get("STRAFER_USE_SIM_TIME", "false")
+    # The node reads obs_dump_path once at init, so it is settable only at
+    # launch, never through `ros2 param set`.
+    default_obs_dump = os.environ.get("STRAFER_OBS_DUMP_PATH", "")
 
     config_arg = DeclareLaunchArgument(
         "config_file", default_value=default_config,
@@ -45,6 +48,15 @@ def generate_launch_description() -> LaunchDescription:
         "use_sim_time", default_value=default_use_sim,
         description="true when a /clock publisher is upstream (sim-in-the-loop).",
     )
+    obs_dump_path_arg = DeclareLaunchArgument(
+        "obs_dump_path", default_value=default_obs_dump,
+        description=(
+            "Diagnostic only. File for the assembled-obs JSONL the parity "
+            "tooling consumes (scripts/obs_parity.py); empty (default) "
+            "disables. Truncated per launch. A DEPTH variant writes a full "
+            "depth vector per tick -- do not enable for normal missions."
+        ),
+    )
 
     node = Node(
         package="strafer_inference",
@@ -59,6 +71,7 @@ def generate_launch_description() -> LaunchDescription:
             {
                 "model_path": LaunchConfiguration("model_path"),
                 "policy_variant": LaunchConfiguration("policy_variant"),
+                "obs_dump_path": LaunchConfiguration("obs_dump_path"),
                 # use_sim_time is a bool param; a non-empty string is
                 # truthy-by-presence, so coerce "false" to a real False.
                 "use_sim_time": PythonExpression(
@@ -77,5 +90,5 @@ def generate_launch_description() -> LaunchDescription:
 
     return LaunchDescription([
         config_arg, log_level_arg, model_path_arg,
-        policy_variant_arg, use_sim_time_arg, node,
+        policy_variant_arg, use_sim_time_arg, obs_dump_path_arg, node,
     ])

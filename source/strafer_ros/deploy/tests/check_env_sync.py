@@ -30,6 +30,19 @@ COMPOSE = DEPLOY / "compose"
 
 CONTAINER_URI = "file:///opt/strafer/config/cyclonedds.xml"
 DEPLOY_ONLY = ("VLM_URL", "PLANNER_URL")
+# Env vars a launch file reads from os.environ INSIDE its container, mapped to
+# the compose file + service that must pass them through. A host export or
+# deploy/.env only feeds compose interpolation, so without an entry in the
+# service's `environment:` the knob is silently inert -- the same shape of
+# defect as an `environment:` key shadowing `env_file:`.
+CONTAINER_ENV_PASSTHROUGH = {
+    ("docker-compose.yml", "slam"): (
+        "STRAFER_SLAM_TASK_ID", "STRAFER_SLAM_SCENE_TOKEN",
+    ),
+    ("docker-compose.sim.yml", "strafer-sim"): (
+        "STRAFER_SLAM_TASK_ID", "STRAFER_SLAM_SCENE_TOKEN",
+    ),
+}
 # sim-only freshness widenings that must never reach the real-robot autonomy lane
 WIDENING_KEYS = {
     "OBSERVATION_MAX_AGE_S",
@@ -103,6 +116,30 @@ def main() -> int:
     )
     for k in sorted(leaked):
         fails.append(f"REAL-HARDWARE GUARD: sim-only widening {k} leaked into the autonomy lane")
+
+    # 5. container-env passthrough: a knob the launch file reads inside the
+    #    container must be mapped by its service, or setting it does nothing.
+    for (yml, service), keys in CONTAINER_ENV_PASSTHROUGH.items():
+        try:
+            import yaml  # pyyaml ships with the ROS images and the dev hosts
+        except ImportError:                     # pragma: no cover
+            break
+        spec = yaml.safe_load((DEPLOY / yml).read_text())
+        env = (spec.get("services", {}).get(service, {}) or {}).get(
+            "environment", {}
+        ) or {}
+        if isinstance(env, list):               # "KEY=value" list form
+            env = dict(
+                item.split("=", 1) if "=" in item else (item, "")
+                for item in env
+            )
+        for key in keys:
+            if key not in env:
+                fails.append(
+                    f"{yml}: service {service!r} does not pass {key} through to "
+                    "the container; the launch file reads it from os.environ "
+                    "there, so a host export or deploy/.env would be inert"
+                )
 
     if fails:
         print("ENV SINGLE-SOURCE / INVARIANT FAILURES:")

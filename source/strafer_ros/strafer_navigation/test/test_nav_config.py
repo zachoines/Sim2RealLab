@@ -306,6 +306,52 @@ class TestConstantsInjection:
         assert planner["allow_unknown"] is True
         assert planner["cost_travel_multiplier"] > 1.0
 
+    def test_relaxed_planner_is_the_inflated_start_escape_hatch(self, pkg_dir):
+        """SmacPlanner2D validates its start cell and refuses a robot parked
+        inside the inflation halo, which starves the rolling subgoal and stops
+        the robot — so the pose never changes and the refusal never clears.
+
+        No SmacPlanner2D parameter relaxes that check, and the >=INSCRIBED band
+        is sized by the footprint's inscribed radius rather than
+        inflation_radius, so no costmap knob relaxes it either short of
+        shrinking the footprint. NavfnPlanner clears the robot's own cell before
+        propagating, which is sound because the robot occupies it, so it is
+        registered as a second escape-hatch planner — not the primary, since its
+        binary allow_unknown is brittle to the small unknown gaps
+        cost_travel_multiplier handles softly (see the test above).
+        """
+        yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
+        with open(yaml_path) as f:
+            baseline = yaml.safe_load(f)
+        server = baseline["planner_server"]["ros__parameters"]
+
+        assert server["planner_plugins"] == ["GridBased", "GridBasedRelaxed"], (
+            "GridBased must stay FIRST/primary; GridBasedRelaxed is requested "
+            "by name only, by the subgoal generator's fallback_planner_id"
+        )
+        relaxed = server["GridBasedRelaxed"]
+        assert relaxed["plugin"] == "nav2_navfn_planner/NavfnPlanner"
+        assert relaxed["allow_unknown"] is True
+        # Same goal tolerance as the primary: the escape hatch changes WHERE
+        # planning may start from, not what counts as reaching the goal.
+        assert relaxed["tolerance"] == server["GridBased"]["tolerance"]
+
+    def test_planner_plugin_packages_are_declared_dependencies(self, pkg_dir):
+        """planner_server fails to configure — taking the whole nav stack
+        down — if a named plugin's library is missing, so every plugin package
+        named in the YAML must be an exec_depend, not a transitive accident."""
+        import xml.etree.ElementTree as ET
+
+        # package.xml lives in the source tree, not the share dir.
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        manifest = os.path.join(here, "package.xml")
+        deps = {
+            e.text.strip()
+            for e in ET.parse(manifest).getroot().findall("exec_depend")
+        }
+        assert "nav2_smac_planner" in deps
+        assert "nav2_navfn_planner" in deps
+
 
 # =============================================================================
 # Byte-identical golden pin

@@ -18,8 +18,12 @@ in their own container discovered over DDS:
     fallback is a footgun, so this launch aborts instead.
 
 Reads ``STRAFER_NAV_BACKEND`` / ``STRAFER_INFERENCE_MODEL_PATH`` /
-``STRAFER_POLICY_VARIANT`` / ``STRAFER_USE_SIM_TIME`` from the environment
-(compose ``autonomy.env``).
+``STRAFER_POLICY_VARIANT`` / ``STRAFER_USE_SIM_TIME`` /
+``STRAFER_OBS_DUMP_PATH`` from the environment (compose ``autonomy.env``).
+
+``STRAFER_OBS_DUMP_PATH`` arms the parity harness's node-side obs dump, which
+the node can only pick up at launch. Empty/unset -- the default -- disables it;
+a depth variant writes a full depth vector per tick, so it is diagnostic only.
 """
 
 import os
@@ -41,6 +45,10 @@ def generate_launch_description() -> LaunchDescription:
     model = os.environ.get("STRAFER_INFERENCE_MODEL_PATH", "").strip()
     variant = os.environ.get("STRAFER_POLICY_VARIANT", "DEPTH")
     use_sim_time = os.environ.get("STRAFER_USE_SIM_TIME", "false")
+    # Forwarded explicitly below rather than left to inference.launch.py's own
+    # env default, so the env -> launch -> node-param chain is visible in the
+    # file the containerized service runs.
+    obs_dump_path = os.environ.get("STRAFER_OBS_DUMP_PATH", "").strip()
 
     # Fail loud #1 — the inference container belongs to the `policy` profile;
     # it is meaningless under nav2.
@@ -68,9 +76,17 @@ def generate_launch_description() -> LaunchDescription:
                 os.path.join(inference_dir, "launch", "inference.launch.py")
             ),
             launch_arguments={
+                # Named explicitly at both include sites: a LaunchConfiguration
+                # set by the first include is visible to the second, and
+                # DeclareLaunchArgument does not override one that is already
+                # set, so the generator would silently inherit this file.
+                "config_file": os.path.join(
+                    inference_dir, "config", "inference.yaml"
+                ),
                 "model_path": model,
                 "policy_variant": variant,
                 "use_sim_time": use_sim_time,
+                "obs_dump_path": obs_dump_path,
             }.items(),
         ),
     ]
@@ -80,7 +96,12 @@ def generate_launch_description() -> LaunchDescription:
             PythonLaunchDescriptionSource(
                 os.path.join(inference_dir, "launch", "subgoal_generator.launch.py")
             ),
-            launch_arguments={"use_sim_time": use_sim_time}.items(),
+            launch_arguments={
+                "config_file": os.path.join(
+                    inference_dir, "config", "subgoal_generator.yaml"
+                ),
+                "use_sim_time": use_sim_time,
+            }.items(),
         ))
 
     return LaunchDescription(entities)

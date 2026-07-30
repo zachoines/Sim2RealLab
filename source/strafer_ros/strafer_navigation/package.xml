@@ -18,6 +18,11 @@
   <exec_depend>nav2_waypoint_follower</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>
   <exec_depend>nav2_mppi_controller</exec_depend>
+  <!-- Planner plugins named in config/nav2_params.yaml. Declared explicitly
+       because planner_server fails to configure — taking the whole nav stack
+       with it — if a named plugin's library is absent. -->
+  <exec_depend>nav2_smac_planner</exec_depend>
+  <exec_depend>nav2_navfn_planner</exec_depend>
   <exec_depend>strafer_shared</exec_depend>
 
   <test_depend>python3-pytest</test_depend>

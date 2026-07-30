@@ -89,6 +89,15 @@ services:
   slam:
     <<: *cpu-svc
     container_name: strafer_slam
+    environment:
+      # Re-stated, not inherited: a service-level `environment:` REPLACES the
+      # anchor's rather than merging into it.
+      <<: *dds-env
+      # slam.launch.py reads these from the environment INSIDE the container, so
+      # they must be passed through -- a host export or deploy/.env alone only
+      # reaches compose interpolation. Empty keeps the unkeyed ~/.ros/rtabmap.db.
+      STRAFER_SLAM_TASK_ID: ${STRAFER_SLAM_TASK_ID:-}
+      STRAFER_SLAM_SCENE_TOKEN: ${STRAFER_SLAM_SCENE_TOKEN:-}
     volumes:
       - ../strafer_bringup/config/cyclonedds.xml:/opt/strafer/config/cyclonedds.xml:ro
       - strafer_ros_home:/root/.ros                 # rtabmap.db

@@ -149,6 +149,13 @@ def generate_launch_description():
                 os.path.join(inference_dir, "launch", "inference.launch.py")
             ),
             launch_arguments={
+                # Named at both include sites: config_file set by the first is
+                # visible to the second, and DeclareLaunchArgument does not
+                # override an already-set configuration, so the generator would
+                # silently inherit this file.
+                "config_file": os.path.join(
+                    inference_dir, "config", "inference.yaml"
+                ),
                 "model_path": model_path,
                 "policy_variant": policy_variant,
                 "use_sim_time": "false",
@@ -159,7 +166,12 @@ def generate_launch_description():
             PythonLaunchDescriptionSource(
                 os.path.join(inference_dir, "launch", "subgoal_generator.launch.py")
             ),
-            launch_arguments={"use_sim_time": "false"}.items(),
+            launch_arguments={
+                "config_file": os.path.join(
+                    inference_dir, "config", "subgoal_generator.yaml"
+                ),
+                "use_sim_time": "false",
+            }.items(),
         ))
 
     entities += [

@@ -36,6 +36,11 @@ services:
     network_mode: host
     environment:
       <<: *dds-env
+      # Read inside the container by slam.launch.py (this lane's bringup
+      # includes it), so they need an explicit passthrough. Empty keeps the
+      # unkeyed ~/.ros/rtabmap.db.
+      STRAFER_SLAM_TASK_ID: ${STRAFER_SLAM_TASK_ID:-}
+      STRAFER_SLAM_SCENE_TOKEN: ${STRAFER_SLAM_SCENE_TOKEN:-}
     env_file:
       - compose/sim.env
     volumes:

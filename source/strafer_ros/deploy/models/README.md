@@ -20,7 +20,7 @@ deploy/models/
 
 ```bash
 # deploy/.env  (cp .env.example .env)
-STRAFER_MODELS_DIR=/home/zachoines/strafer_models
+STRAFER_MODELS_DIR=/home/<user>/strafer_models
 ```
 
 Select **which** artifact under `/models` is loaded with

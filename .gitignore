@@ -47,3 +47,15 @@ data/sim_in_the_loop/
 # Exclude ROS Colcon build/install artifacts
 build/*
 install/*
+
+# Host-specific compose overlays (VLM/planner URLs, local artifact paths)
+source/strafer_ros/deploy/docker-compose.override.*local*.yml
+
+# Exported policy artifacts staged for a deploy — large binaries, never committed
+Depth_Trained/
+
+# Session reports and findings written at the repo root. They are handed to the
+# coordinator out-of-band, not versioned here, and a `git add -A` would sweep
+# them in alongside the artifacts above.
+/*_FINDINGS.md
+/*_REPORT.md

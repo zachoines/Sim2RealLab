@@ -30,6 +30,9 @@ deploy/
 └── tests/{gen_env.py, check_env_sync.py}     # gen_env writes the mirrors from canon; check_env_sync (make env-check) fails on drift
 ```
 
+The sim-bridge lane's operator runbook is
+[`docs/sim_bridge_autonomy_cheatsheet.md`](../../../docs/sim_bridge_autonomy_cheatsheet.md).
+
 ## Applying a config change — `restart` does NOT do it
 
 > **`docker compose restart` reuses the OLD container environment.** It restarts

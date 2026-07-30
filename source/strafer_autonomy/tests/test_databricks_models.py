@@ -96,12 +96,21 @@ class TestStraferPlannerModel:
 
 
 class TestStraferVLMModel:
+    @pytest.fixture()
+    def requires_strafer_vlm(self):
+        """Requested by the tests that load the model; the pre-load guard test
+        never reaches the VLM package and keeps running without it."""
+        pytest.importorskip(
+            "strafer_vlm",
+            reason="strafer_vlm is a workstation-lane dependency; not installed on the robot",
+        )
+
     def test_predict_requires_load(self):
         model = StraferVLMModel(model_path="/fake")
         with pytest.raises(RuntimeError, match="before load_context"):
             model.predict(None, [{"request_id": "r", "image_b64": "x", "mode": "ground"}])
 
-    def test_predict_ground_mode(self):
+    def test_predict_ground_mode(self, requires_strafer_vlm):
         model = StraferVLMModel(model_path="/fake")
         model._model = MagicMock()
         model._processor = MagicMock()
@@ -137,7 +146,7 @@ class TestStraferVLMModel:
         assert preds[0]["label"] == "door"
         assert preds[0]["bbox_2d"] == [100, 200, 400, 700]
 
-    def test_predict_describe_mode(self):
+    def test_predict_describe_mode(self, requires_strafer_vlm):
         model = StraferVLMModel(model_path="/fake")
         model._model = MagicMock()
         model._processor = MagicMock()
@@ -169,7 +178,7 @@ class TestStraferVLMModel:
         assert preds[0]["description"] == "A small blue square."
         assert preds[0]["request_id"] == "r2"
 
-    def test_unknown_mode_raises(self):
+    def test_unknown_mode_raises(self, requires_strafer_vlm):
         model = StraferVLMModel(model_path="/fake")
         model._model = MagicMock()
         model._processor = MagicMock()
@@ -179,7 +188,7 @@ class TestStraferVLMModel:
                 [{"request_id": "r", "image_b64": "abc", "mode": "explode"}],
             )
 
-    def test_missing_image_raises(self):
+    def test_missing_image_raises(self, requires_strafer_vlm):
         model = StraferVLMModel(model_path="/fake")
         model._model = MagicMock()
         model._processor = MagicMock()

@@ -33,7 +33,16 @@ from strafer_autonomy.semantic_map.manager import (
 
 @pytest.fixture()
 def tmp_storage(tmp_path):
-    """Provide a temporary storage directory for the semantic map."""
+    """Provide a temporary storage directory for the semantic map.
+
+    Every consumer of this fixture constructs a SemanticMapManager, whose
+    vector store is a workstation-lane dependency, so gating here skips
+    exactly the manager-backed tests and nothing else.
+    """
+    pytest.importorskip(
+        "chromadb",
+        reason="chromadb is a workstation-lane dependency; not installed on the robot",
+    )
     return str(tmp_path / "semantic_map")
 
 

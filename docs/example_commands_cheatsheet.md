@@ -22,8 +22,8 @@ make test-autonomy   # planner/executor unit tests (host-agnostic)
 make test-vlm        # VLM service tests (.venv_vlm)
 make test-lab        # all strafer_lab: Kit (run_tests.py) + pure-Python, env_isaaclab3
 make test-lab-pure   # fast: strafer_lab pure-Python only, no Kit boot
-make test-ros        # ROS 2 packages via colcon (Jetson)
-make test-driver     # strafer_driver unit tests (Jetson)
+make test-ros        # ROS 2 package suites (native ROS, else strafer-cpu:humble)
+make test-driver     # strafer_driver unit tests (same routing)
 ```
 
 # Generate an Infinigen scene corpus (prerequisite for Infinigen training + harness capture)

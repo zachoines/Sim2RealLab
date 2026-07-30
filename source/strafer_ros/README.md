@@ -281,15 +281,21 @@ cat /proc/sys/net/core/rmem_max   # expect 16777216
 
 ```bash
 cd ~/strafer_ws
-colcon test            # all packages — same set as `make test-ros`
-colcon test-result --verbose
+# NOTE: `colcon test` invokes `python -m unittest` for these ament_python
+# packages, with no discovery arguments — it collects nothing and still reports
+# OK. Use pytest (or `make test-ros`, which does) to actually run the suites.
+python3 -m pytest test/ -q     # from a package dir, one package at a time
 ```
 
 From the repo root:
 
 ```bash
-make test-ros     # all colcon package tests (run `make build` first)
-make test-driver  # strafer_driver unit tests directly via pytest (no colcon)
+make test-ros     # every package's pytest suite
+make test-driver  # strafer_driver only
+
+# Both use the host's ROS toolchain when it has one and strafer-cpu:humble
+# otherwise, so they work on a container-primary robot host with no bare-metal
+# ROS. Filter with: make test-ros PYTEST_ARGS="-k Watchdog"
 make test         # Jetson host: auto-dispatches to the test-jetson umbrella
                   # (test-autonomy + test-ros + test-driver)
 ```

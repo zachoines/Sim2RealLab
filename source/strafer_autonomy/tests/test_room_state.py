@@ -33,6 +33,10 @@ def _make_graph(
     nodes: list[dict[str, Any]], edges: list[tuple[str, str]],
 ) -> Any:
     """Construct a DiGraph matching the SemanticMapManager's layout."""
+    pytest.importorskip(
+        "networkx",
+        reason="networkx is a workstation-lane dependency; not installed on the robot",
+    )
     import networkx as nx
 
     g: Any = nx.DiGraph()

@@ -118,6 +118,13 @@ class TestGetSceneLabelSetFromData:
 
 
 class TestGetRoomAtPosition:
+    @pytest.fixture(autouse=True)
+    def _requires_shapely(self):
+        pytest.importorskip(
+            "shapely",
+            reason="shapely is a workstation-lane dependency; not installed on the robot",
+        )
+
     def test_point_inside_kitchen(self, sample_metadata):
         room = get_room_at_position(sample_metadata, (2.0, 1.5))
         assert room is not None

@@ -82,6 +82,18 @@ class TestStartCellCost(unittest.TestCase):
         self.assertIsNone(start_cell_cost(cm, -0.1, 0.0))
         self.assertIsNone(start_cell_cost(cm, 0.0, 5.0))
 
+    def test_sub_cell_below_the_origin_is_off_grid(self) -> None:
+        """Truncation toward zero would round a pose in the last cell-width
+        below the origin up to cell 0 and report that cell's cost as the
+        robot's. The index has to floor.
+        """
+        cm = _costmap([200, 0, 0, 0], size_x=2, size_y=2)   # cell (0,0) is hot
+        for x in (-0.01, -0.02, -0.049):
+            self.assertIsNone(start_cell_cost(cm, x, 0.01), f"x={x}")
+        for y in (-0.01, -0.02, -0.049):
+            self.assertIsNone(start_cell_cost(cm, 0.01, y), f"y={y}")
+        self.assertEqual(start_cell_cost(cm, 0.01, 0.01), 200)  # just inside
+
     def test_degenerate_metadata_is_unknowable(self) -> None:
         self.assertIsNone(start_cell_cost(_costmap([], 0, 0), 0.0, 0.0))
 

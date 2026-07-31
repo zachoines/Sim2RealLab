@@ -19,6 +19,7 @@ primary planner unconditionally, which is what the behavior tree's
 
 from __future__ import annotations
 
+import math
 from typing import Optional, Tuple
 
 import rclpy
@@ -46,8 +47,10 @@ def start_cell_cost(
     meta = costmap.metadata
     if meta.resolution <= 0.0 or meta.size_x == 0 or meta.size_y == 0:
         return None
-    mx = int((x - meta.origin.position.x) / meta.resolution)
-    my = int((y - meta.origin.position.y) / meta.resolution)
+    # floor, not int(): int() truncates toward zero, so a pose within one cell
+    # below the origin would land on cell 0 instead of reading off-grid.
+    mx = math.floor((x - meta.origin.position.x) / meta.resolution)
+    my = math.floor((y - meta.origin.position.y) / meta.resolution)
     if not (0 <= mx < meta.size_x and 0 <= my < meta.size_y):
         return None
 

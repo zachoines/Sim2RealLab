@@ -25,7 +25,8 @@ deploy/
 ├── docker-compose.override.sim-bridge.yml    # sim-bridge provisioning (explicit -f only)
 ├── .env.example               # per-host compose interpolation — `cp .env.example .env`
 ├── models/                    # default /models bind source (ships empty; artifacts not committed)
-├── compose/{sim.env, autonomy.env}           # env_file mirrors — GENERATED from canon; do not hand-edit
+├── compose/{sim.env, autonomy.env, sim_bridge.env}   # env_file mirrors — GENERATED from canon; do not hand-edit
+├── obs_dumps/                 # bind target for the diagnostic obs dump (captures gitignored)
 ├── host-setup/install-host-prereqs.sh        # rmem sysctl, nvidia runtime, netfilter, compose, udev
 └── tests/{gen_env.py, check_env_sync.py}     # gen_env writes the mirrors from canon; check_env_sync (make env-check) fails on drift
 ```
@@ -60,26 +61,46 @@ docker exec strafer_inference printenv STRAFER_INFERENCE_MODEL_PATH      # what 
 under `docker-compose.dev.yml`, where the container env is unchanged and only the
 files behind it moved.
 
-### Three levels of "config", and which one wins
+### One key, one home
 
-| Level | Where | Beats |
-|---|---|---|
-| host env / `deploy/.env` | `${VAR:-default}` expansions, at compose **parse** time | fills in the overlay defaults |
-| service `environment:` | compose files / overlays | **beats `env_file:`** |
-| `env_file:` | `compose/*.env`, generated from canon | lowest |
+The agent-facing statement of this rule — the lane table, the compose behaviours
+it rests on, and the full invariant list — is
+[`docs/tasks/context/deploy-env-config.md`](../../../docs/tasks/context/deploy-env-config.md).
+What follows is the operator's half.
 
-That middle row is the subtle one: a hard-pinned `environment:` key silently
-shadows the generated mirror, so editing canonical `env_autonomy.env` +
-`make env-sync` changes **nothing** on a lane that applies such an overlay — and
-a policy swap done that way runs the old artifact under the new label. Every
-canon-backed key in the deploy overlays is therefore `${VAR:-<lane default>}`, so
-the lane default still stands on its own while the host (or canon, if you source
-it) can drive it. Set the model with `STRAFER_INFERENCE_MODEL_PATH` in your shell
-or `deploy/.env` — **not** by editing a tracked compose file.
+> **Every key lives in exactly one home.** Either a generated `env_file`
+> (canon-owned, reviewed, not host-overridable), or a service `environment:`
+> entry as `${VAR:-default}` (host-overridable, and absent from every
+> `env_file`). Never both.
+
+`make env-check` fails if a key appears in both, so the shadowing is structurally
+impossible. To find where a value comes from, ask which home it is in — there is
+no precedence to memorise.
+
+Three measured compose behaviours are why the rule is a partition rather than a
+precedence: an overlay's `env_file` **appends** to the base list, the **last
+file wins** for a duplicate key (so a lane mirror layers over canon), but a
+service `environment:` key **beats `env_file:`** — and a bare
+`environment: - VAR` with no value *deletes* the `env_file` value when the host
+does not set it. That last one forecloses the obvious alternative: no key can be
+both `env_file`-defaulted and host-overridable, so it has to pick a side.
+
+The host levers today are `STRAFER_INFERENCE_MODEL_PATH` (per-run artifact
+swap), `STRAFER_SLAM_TASK_ID` / `STRAFER_SLAM_SCENE_TOKEN` (per-sim-run keying),
+and `STRAFER_OBS_DUMP_PATH` (diagnostic, normally empty). Set them in your shell
+or `deploy/.env` — **not** by editing a tracked compose file. Everything else is
+node config: edit canon under `strafer_bringup/config/` and `make env-sync`.
 
 The DDS keys (`RMW_IMPLEMENTATION` / `CYCLONEDDS_URI` / `ROS_DOMAIN_ID`) are
-deliberately NOT indirected: they come from the `x-dds-env` anchor by design, and
+deliberately NOT indirected: they come from the `x-dds-env` anchor by design and
+appear in no mirror, so the partition holds for them without an exemption, and
 `make env-check` pins them to literals.
+
+There is one route the partition does not cover, and it is checked in the same
+place: a var a launch file reads from `os.environ` **inside** the container
+needs an explicit `environment:` mapping, because compose interpolation happens
+in a different process. `check_env_sync` asserts each such key is mapped by its
+service, so the knob cannot be silently inert.
 
 ## Image provenance — is the running stack the code you think it is?
 
@@ -114,15 +135,19 @@ with no stamp — treat its contents as unverified.
 > `make images` prints them for you.
 
 ### Config — single source of truth
-Runtime env for both lanes lives in the canonical `strafer_bringup/config/env_*.env`
+Node config for every lane lives in the canonical `strafer_bringup/config/env_*.env`
 (shell, hand-edited, with the rationale comments). The compose `env_file` mirrors
 under `compose/` are **generated** from them by `tests/gen_env.py` — edit canon,
-then `make env-sync`. DDS vars (RMW / CYCLONEDDS_URI / ROS_DOMAIN_ID) come from the
+then `make env-sync`. There is one canon file per lane, and a lane file layers
+over a base one rather than replacing it: the sim-bridge overlay loads
+`[autonomy.env, sim_bridge.env]` and gets the sim-rate values on top of the
+canonical ones. DDS vars (RMW / CYCLONEDDS_URI / ROS_DOMAIN_ID) come from the
 compose `x-dds-env` anchor, not the mirror, so the self-locating `$(...)` URI never
 enters a container. Deploy-only keys with no canonical home (VLM_URL / PLANNER_URL)
 are a declared overlay in the generator. `make env-check` (run inside `make test`)
-regenerates + byte-diffs and fails on any drift — including the CYCLONEDDS_URI the
-old overlap-diff skipped.
+regenerates + byte-diffs and fails on any drift, and additionally enforces the
+one-key-one-home partition, the container-env passthrough, and that the sim-only
+mirror is loaded by no always-on lane.
 
 ## Build / deploy / policy / remote
 ```bash
@@ -155,10 +180,12 @@ or tunnel it: `ssh -L 8765:localhost:8765 <user>@<robot-ip>`. Bare-metal:
 The `inference` service runs `inference_policy.launch.py`, which reproduces the
 canonical backend coupling and **fails loud** rather than silently degrading:
 1. set `STRAFER_NAV_BACKEND=hybrid_nav2_strafer` (the depth policy's backend) or
-   `strafer_direct` in canonical `strafer_bringup/config/env_autonomy.env`, then `make env-sync`;
+   `strafer_direct` in canonical `strafer_bringup/config/env_autonomy.env`, then
+   `make env-sync` — it is node config, so canon is its only home;
 2. put the exported policy under `deploy/models/` (or point `STRAFER_MODELS_DIR`
    elsewhere — see `deploy/models/README.md`) and set
-   `STRAFER_INFERENCE_MODEL_PATH=/models/<model>.onnx`;
+   `STRAFER_INFERENCE_MODEL_PATH=/models/<model>.onnx` in your shell or
+   `deploy/.env` — it is a per-run host lever, so it is in no canon file;
 3. `docker compose --profile policy up`.
 
 An empty/missing model under a policy backend — or a non-policy backend — aborts
@@ -166,10 +193,9 @@ the inference container at launch (no silent nav2 fallback). `hybrid_nav2_strafe
 also auto-starts the rolling-subgoal generator.
 
 > **On a lane that applies an overlay** (e.g. the sim-bridge lane), step 1's
-> canon edit only reaches the container because the overlay values are
-> `${VAR:-default}` — see "Three levels of config" below. Confirm with
-> `docker compose ... config` before trusting a swap, and recreate rather than
-> restart.
+> canon edit reaches the container through that lane's own generated mirror —
+> see "One key, one home" below. Confirm with `docker compose ... config` before
+> trusting a swap, and recreate rather than restart.
 
 ### Diagnostics: train↔deploy obs parity
 
@@ -179,11 +205,13 @@ It reads `obs_dump_path` **once at init**, so it can only be armed at launch —
 never `ros2 param set`. On the compose lane:
 
 ```bash
-# in docker-compose.override.sim-bridge.yml, uncomment BOTH the
-# STRAFER_OBS_DUMP_PATH line and the ./obs_dumps bind mount, then:
-docker compose <same flags> up -d --force-recreate inference
+STRAFER_OBS_DUMP_PATH=/obs_dumps/node_obs.jsonl \
+  docker compose <same flags> up -d --force-recreate inference
 docker logs strafer_inference 2>&1 | grep 'obs dump ENABLED'
 ```
+
+The `./obs_dumps` bind is always mounted, so arming the dump is purely this env
+lever — no tracked compose file to edit.
 
 > **Not for normal missions.** A `DEPTH`/`DEPTH_SUBGOAL` variant writes a full
 > depth vector per tick at 30 Hz (~2–3 MB/s). Unset it and force-recreate when

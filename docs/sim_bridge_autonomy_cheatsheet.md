@@ -97,7 +97,18 @@ make submit-deploy CMD="go to the chair"
   prints `[strafer] image=strafer-gpu revision=<commit>`. `revision=unknown`
   means the image carries no build stamp; a *failed* `docker compose build`
   leaves the old tag resolvable, so a stack can silently run stale code.
-- **Where the policy config comes from:** `docker-compose.override.sim-bridge.yml` (in the `up` command) overrides the `inference` service to `STRAFER_NAV_BACKEND=hybrid_nav2_strafer`, `STRAFER_INFERENCE_MODEL_PATH=/models/policy.onnx`, `STRAFER_POLICY_VARIANT=DEPTH_SUBGOAL`, plus the sim-rate timeout widenings + `STRAFER_USE_SIM_TIME=true` — each now as `${VAR:-<that default>}` so the host can drive it. That's the depth-subgoal policy. **Do not** look for these in `deploy/compose/sim.env` — that file (nav2 / empty model / `DEPTH`) belongs to the *standalone* `docker-compose.sim.yml` lane, which this stack does not use. The overlay is deliberate: it sets the non-fail-safe hybrid+DEPTH_SUBGOAL config without touching the committed env files, so `make env-check` stays green. A service `environment:` key beats `env_file:`, which is why the canon + `make env-sync` path alone could not change the loaded model here.
+- **Where the policy config comes from:** this lane's node config is canon —
+  `strafer_bringup/config/env_sim_bridge.env` (`STRAFER_NAV_BACKEND=hybrid_nav2_strafer`,
+  `STRAFER_POLICY_VARIANT=DEPTH_SUBGOAL`, `STRAFER_USE_SIM_TIME=true`, and the two
+  sim-rate timeout widenings) — generated into `deploy/compose/sim_bridge.env`, which
+  `docker-compose.override.sim-bridge.yml` loads as a second `env_file` on top of
+  `autonomy.env`. Edit canon, `make env-sync`, force-recreate. **Do not** look for these
+  in `deploy/compose/sim.env` — that file (nav2 / `DEPTH`) belongs to the *standalone*
+  `docker-compose.sim.yml` lane, which this stack does not use. The overlay's
+  `environment:` carries only the host levers (`STRAFER_INFERENCE_MODEL_PATH`,
+  `STRAFER_OBS_DUMP_PATH`). Every key has exactly one home and `make env-check` fails
+  on a key in both, so nothing here shadows the canon path — see
+  [`context/deploy-env-config.md`](tasks/context/deploy-env-config.md).
 - The executor is set to the **hybrid (policy) backend** via `docker-compose.override.autonomy-local.yml`, so semantic goals drive the DEPTH_SUBGOAL policy (not plain nav2). That override is **untracked** (host-specific URLs) — it lives in the deploy dir.
 - If the VLM can't find the named object, the mission fails at grounding ("target not found"). Pick something clearly in frame.
 - **Known open items:** the policy parks near the goal but doesn't trip `NavigateToPose`'s success radius, and the mission-runner's hybrid-nav step has a **7 s** timeout that's short for the sim's RTF — so a mission may report a nav timeout even when the robot arrived. Drive/loop are correct; it's a completion-signal/tuning gap.

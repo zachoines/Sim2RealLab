@@ -1,36 +1,39 @@
 # Sim-bridge test provisioning. Opt-in via an explicit `-f` only — compose never
 # auto-loads this name, and it must not be applied on the real robot.
 #
-# Every value is `${VAR:-<sim-bridge default>}` because a service `environment:`
-# key beats `env_file:`: a literal here would shadow the generated
-# compose/autonomy.env, making a canon edit plus `make env-sync` silently inert.
+# The lane's node config lives in compose/sim_bridge.env, generated from
+# canonical strafer_bringup/config/env_sim_bridge.env. An overlay's `env_file`
+# APPENDS to the base list rather than replacing it, and the last file wins for
+# a duplicate key, so the inference service loads [autonomy.env, sim_bridge.env]
+# and this lane's values layer over the canonical ones.
+#
+# What stays in `environment:` is only what needs a HOST lever, each
+# `${VAR:-default}` and each absent from every env_file. That partition is what
+# check_env_sync enforces: a key in both homes is a shadow, because a service
+# `environment:` key beats `env_file:` and would make a canon edit plus
+# `make env-sync` silently inert.
+#
 # Compose expands `${...}` from the host environment and deploy/.env at parse
 # time, NOT from `env_file:`. Confirm with `docker compose ... config`, and apply
 # with `up -d --force-recreate <svc>` — `restart` reuses the old container env.
-#
-# Sourcing canon also exports STRAFER_NAV_BACKEND=nav2, which this lane's
-# inference service rejects at launch. That is the indirection working: set only
-# the keys you mean to change, or override the backend alongside the model.
 services:
   inference:
+    env_file: [ compose/sim_bridge.env ]
     environment:
-      STRAFER_NAV_BACKEND: ${STRAFER_NAV_BACKEND:-hybrid_nav2_strafer}
+      # Per-run artifact swap. Empty is the fail-closed default: the inference
+      # node refuses to advertise rather than silently running the wrong policy.
       STRAFER_INFERENCE_MODEL_PATH: ${STRAFER_INFERENCE_MODEL_PATH:-/models/policy.onnx}
-      STRAFER_POLICY_VARIANT: ${STRAFER_POLICY_VARIANT:-DEPTH_SUBGOAL}
-      STRAFER_USE_SIM_TIME: "${STRAFER_USE_SIM_TIME:-true}"
-      # Simulated sensors arrive well under the real-hardware rates these
-      # windows are sized for; both widen or the watchdog zero-twists.
-      STRAFER_OBS_TIMEOUT_S: "${STRAFER_OBS_TIMEOUT_S:-1.0}"
-      STRAFER_DEPTH_TIMEOUT_S: "${STRAFER_DEPTH_TIMEOUT_S:-2.0}"
       # Arms the inference node's obs dump for the parity harness. The node
-      # reads the path once at init, so uncommenting needs
+      # reads the path once at init, so setting it needs
       # `up -d --force-recreate inference`, not `restart`. A depth variant
       # writes a full depth vector per tick (~2-3 MB/s of JSONL at 30 Hz) —
-      # diagnostic captures only, never a normal mission. Uncomment the bind
-      # below with it; /models is read-only. Schema: scripts/PARITY_SCHEMA.md.
-      # STRAFER_OBS_DUMP_PATH: /obs_dumps/node_obs.jsonl
-    # volumes:
-    #   - ./obs_dumps:/obs_dumps
+      # diagnostic captures only, never a normal mission. Empty disables it and
+      # costs nothing per tick. Schema: scripts/PARITY_SCHEMA.md.
+      STRAFER_OBS_DUMP_PATH: ${STRAFER_OBS_DUMP_PATH:-}
+    volumes:
+      # Always mounted so arming the dump is purely the env lever above;
+      # /models stays read-only and is unaffected.
+      - ./obs_dumps:/obs_dumps
 
   # slam and navigation take use_sim_time only as a launch argument.
   slam:

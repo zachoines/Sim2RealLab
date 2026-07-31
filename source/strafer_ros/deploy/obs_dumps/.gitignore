@@ -1,0 +1,4 @@
+# Diagnostic obs-dump captures; the directory is tracked so the bind source
+# always exists, the captures never are.
+*
+!.gitignore

@@ -16,8 +16,13 @@ knobs, and the one genuinely non-portable key (the container URI) lives in exact
 one place per lane -- the compose anchor. Deploy-only keys with no canonical home
 (VLM_URL / PLANNER_URL) are appended from a declared per-lane overlay.
 
-  python3 gen_env.py            # print both mirrors to stdout (dry run)
-  python3 gen_env.py --write    # write deploy/compose/{sim,autonomy}.env
+A lane file layers over a base one rather than replacing it: an overlay's
+`env_file` APPENDS to the base list and the last file wins for a duplicate key,
+so the sim-bridge lane loads [autonomy.env, sim_bridge.env] and gets the
+sim-rate values on top of the canonical ones.
+
+  python3 gen_env.py            # print every mirror to stdout (dry run)
+  python3 gen_env.py --write    # write deploy/compose/{sim,autonomy,sim_bridge}.env
 
 check_env_sync.py (a.k.a. `make env-check`) regenerates in-memory and byte-diffs
 against the committed mirrors, so any drift fails.
@@ -59,6 +64,11 @@ LANES = {
             ("VLM_URL", "http://192.168.50.196:8100"),
             ("PLANNER_URL", "http://192.168.50.196:8200"),
         ),
+    },
+    "sim_bridge.env": {
+        "canon": "env_sim_bridge.env",
+        "overlay_header": "",
+        "overlay": (),
     },
     "autonomy.env": {
         "canon": "env_autonomy.env",
@@ -107,10 +117,11 @@ def render(mirror_name: str) -> str:
         if key in DDS_ANCHOR_KEYS:
             continue
         lines.append(f"{key}={value}")
-    lines.append("")
-    lines.append(spec["overlay_header"])
-    for key, value in spec["overlay"]:
-        lines.append(f"{key}={value}")
+    if spec["overlay"]:
+        lines.append("")
+        lines.append(spec["overlay_header"])
+        for key, value in spec["overlay"]:
+            lines.append(f"{key}={value}")
     return "\n".join(lines) + "\n"
 
 

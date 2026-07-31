@@ -15,16 +15,19 @@
 #
 # POLICY PROFILE: the inference service runs inference_policy.launch.py, which
 # HARD-FAILS unless STRAFER_NAV_BACKEND is a policy backend (strafer_direct /
-# hybrid_nav2_strafer) AND a model is mounted -- set STRAFER_INFERENCE_MODEL_PATH
-# (compose/autonomy.env) to a file under /models. hybrid also auto-starts the
+# hybrid_nav2_strafer) AND a model is mounted -- set STRAFER_NAV_BACKEND in canon
+# (strafer_bringup/config/env_autonomy.env, then `make env-sync`) and
+# STRAFER_INFERENCE_MODEL_PATH on the host. hybrid also auto-starts the
 # rolling-subgoal generator. No silent nav2 fallback.
+#
+# CONFIG: one key, one home -- a generated env_file (canon-owned) or an
+# `environment:` entry as ${VAR:-default} (host-overridable), never both.
+# `make env-check` fails on a key in both, because `environment:` beats
+# `env_file:` and the canon edit would be silently inert.
 #
 # APPLYING A CONFIG CHANGE: `docker compose restart` reuses the old container
 # environment and applies nothing. Always `up -d --force-recreate <service>`,
-# then verify with `docker compose config` + `docker exec <c> printenv`. A
-# service `environment:` key also beats `env_file:`, so a hard-pinned overlay
-# value makes the canon + `make env-sync` path inert; the overlays use
-# `${VAR:-default}` so the host or canon can still drive them.
+# then verify with `docker compose config` + `docker exec <c> printenv`.
 #
 # HARDWARE: `base` needs the RoboClaws on /dev/ttyACM*; `perception` needs the
 # RealSense D555. slam/navigation/autonomy/inference need no hardware. Device
@@ -150,6 +153,10 @@ services:
     env_file: [ compose/autonomy.env ]
     environment:
       <<: *dds-env
+      # Per-run artifact swap, so it lives here and in no env_file: a key in
+      # both homes shadows, because `environment:` beats `env_file:`. Empty is
+      # fail-closed -- the inference node refuses to advertise without a model.
+      STRAFER_INFERENCE_MODEL_PATH: ${STRAFER_INFERENCE_MODEL_PATH:-}
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
     volumes:

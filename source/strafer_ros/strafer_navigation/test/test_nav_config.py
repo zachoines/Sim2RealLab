@@ -476,6 +476,12 @@ class TestSmoothingBT:
             "First child of ReplanIfNeeded must be the path-validity "
             "Sequence; the planner sits after it."
         )
+        assert "ComputePathToPose" not in {
+            el.tag for el in replan_fallback[0].iter()
+        }, (
+            "The path-validity gate must not contain a planner call — "
+            "replanning belongs in the branch after it."
+        )
         gate_seq = replan_fallback[0]
         inner_tags = {el.tag for el in gate_seq.iter()}
         assert "IsPathValid" in inner_tags
@@ -525,13 +531,25 @@ class TestSmoothingBT:
 
     def test_bt_keeps_planner_and_follower(self, pkg_dir):
         """Sanity: the BT still issues ComputePathToPose and FollowPath
-        — smoothing is additive, not a replacement.
+        — smoothing and the start-cell fallback are additive, not
+        replacements. The primary planner is still named literally, so no
+        external topic can take the first attempt away from it.
         """
+        import xml.etree.ElementTree as ET
+
         path = os.path.join(pkg_dir, "config", _SMOOTHING_BT_FILENAME)
         with open(path) as f:
             xml = f.read()
         assert "<ComputePathToPose" in xml
         assert "<FollowPath" in xml
+
+        root = ET.parse(path).getroot()
+        planners = [el for el in root.iter() if el.tag == "ComputePathToPose"]
+        assert [p.get("planner_id") for p in planners][0] == "GridBased", (
+            "The first ComputePathToPose must name the primary planner "
+            "literally; a blackboard reference there would let the selector "
+            "topic replace the primary rather than follow it."
+        )
 
     def test_bt_is_well_formed_xml(self, pkg_dir):
         import xml.etree.ElementTree as ET
@@ -554,6 +572,94 @@ class TestSmoothingBT:
             f"BT swap did not apply: {bt_nav.get('default_nav_to_pose_bt_xml')!r}"
         )
 
+    def test_relaxed_planner_reachable_only_after_the_primary_fails(
+        self, pkg_dir
+    ):
+        """The escape-hatch planner sits behind two gates, both required.
+
+        Structurally it is the SECOND child of a Fallback whose first child is
+        the primary planner, so it is unreachable until the primary has
+        actually failed. Semantically it is named by <PlannerSelector>, whose
+        default is the primary — so a failure the escape hatch cannot fix
+        re-runs the primary and fails again rather than widening what the lane
+        will drive.
+        """
+        import xml.etree.ElementTree as ET
+
+        path = os.path.join(pkg_dir, "config", _SMOOTHING_BT_FILENAME)
+        root = ET.parse(path).getroot()
+
+        fallback = next(
+            (
+                el for el in root.iter()
+                if el.tag == "Fallback"
+                and el.get("name") == "PlanWithStartCellFallback"
+            ),
+            None,
+        )
+        assert fallback is not None, "plan-step Fallback missing"
+        children = list(fallback)
+        assert len(children) == 2, (
+            "The plan Fallback takes exactly two branches: the primary, then "
+            "the start-cell retry."
+        )
+        assert children[0].tag == "ComputePathToPose"
+        assert children[0].get("planner_id") == "GridBased"
+
+        retry = children[1]
+        assert retry.tag == "Sequence"
+        selector, relaxed = list(retry)
+        assert selector.tag == "PlannerSelector", (
+            "The retry branch must be gated by the planner selector, not run "
+            "the escape hatch unconditionally."
+        )
+        assert relaxed.tag == "ComputePathToPose"
+        assert relaxed.get("planner_id") == "{%s}" % selector.get(
+            "selected_planner"
+        ).strip("{}"), (
+            "The retry's planner_id must read the blackboard key the selector "
+            "writes, or the gate is bypassed."
+        )
+
+    def test_bt_hardcodes_no_relaxed_planner(self, pkg_dir):
+        """The escape-hatch planner's name appears nowhere in the BT: it can
+        only arrive over the selector topic, which is what makes the fallback
+        gated on the cause rather than on any planner failure.
+        """
+        path = os.path.join(pkg_dir, "config", _SMOOTHING_BT_FILENAME)
+        with open(path) as f:
+            xml = f.read()
+        assert "GridBasedRelaxed" not in xml
+
+    def test_bt_selector_defaults_to_the_primary_planner(self, pkg_dir):
+        """With the selector node absent or silent the BT plans exactly as it
+        did without it — the default_planner literal must therefore be the
+        planner_server's primary.
+        """
+        import xml.etree.ElementTree as ET
+
+        path = os.path.join(pkg_dir, "config", _SMOOTHING_BT_FILENAME)
+        root = ET.parse(path).getroot()
+        selector = next(
+            el for el in root.iter() if el.tag == "PlannerSelector"
+        )
+        yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
+        with open(yaml_path) as f:
+            server = yaml.safe_load(f)["planner_server"]["ros__parameters"]
+        assert selector.get("default_planner") == server["planner_plugins"][0]
+        assert selector.get("topic_name") == "planner_selector"
+
+    def test_planner_selector_bt_node_is_loaded(self, pkg_dir):
+        """bt_navigator only registers the BT nodes named in plugin_lib_names;
+        an unregistered tag makes loadBehaviorTree return false and every goal
+        is rejected.
+        """
+        yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
+        with open(yaml_path) as f:
+            params = yaml.safe_load(f)
+        libs = params["bt_navigator"]["ros__parameters"]["plugin_lib_names"]
+        assert "nav2_planner_selector_bt_node" in libs
+
     def test_patch_skips_bt_swap_when_path_omitted(self, pkg_dir):
         """Omitting ``smoothing_bt_xml_path`` leaves
         ``default_nav_to_pose_bt_xml`` absent. Test seam only —
@@ -571,3 +677,73 @@ class TestSmoothingBT:
         )
         bt_nav = p["bt_navigator"]["ros__parameters"]
         assert "default_nav_to_pose_bt_xml" not in bt_nav
+
+
+# =============================================================================
+# Start-cell planner selector (the BT's cause gate)
+# =============================================================================
+
+
+class TestStartCellSelectorWiring:
+    """The selector's parameters are derived from planner_server, never
+    restated, so it can only name a registered planner and its probe matches
+    the grid the primary planner actually plans on.
+    """
+
+    def test_params_come_from_planner_server(self, pkg_dir):
+        mod = _load_launch_module(pkg_dir)
+        yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
+        with open(yaml_path) as f:
+            params = yaml.safe_load(f)
+        server = params["planner_server"]["ros__parameters"]
+
+        derived = mod._start_cell_selector_params(params)
+        assert derived["primary_planner_id"] == server["planner_plugins"][0]
+        assert derived["relaxed_planner_id"] == server["planner_plugins"][1]
+        assert derived["relaxed_planner_id"] in server, (
+            "the selector may only name a planner planner_server registered"
+        )
+
+    def test_probe_matches_the_downsampled_planning_grid(self, pkg_dir):
+        """SmacPlanner2D plans on a grid whose cells carry the MAX cost of the
+        block they cover, so a probe at the costmap's own resolution
+        under-reports the refusal the fallback exists for.
+        """
+        mod = _load_launch_module(pkg_dir)
+        yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
+        with open(yaml_path) as f:
+            params = yaml.safe_load(f)
+        grid = params["planner_server"]["ros__parameters"]["GridBased"]
+
+        derived = mod._start_cell_selector_params(params)
+        assert derived["downsampling_factor"] == grid["downsampling_factor"]
+
+    def test_downsampling_ignored_when_the_planner_does_not_downsample(
+        self, pkg_dir
+    ):
+        mod = _load_launch_module(pkg_dir)
+        yaml_path = os.path.join(pkg_dir, "config", "nav2_params.yaml")
+        with open(yaml_path) as f:
+            params = yaml.safe_load(f)
+        params["planner_server"]["ros__parameters"]["GridBased"][
+            "downsample_costmap"
+        ] = False
+        assert mod._start_cell_selector_params(params)["downsampling_factor"] == 1
+
+    def test_hybrid_lane_fallback_stays_independent(self, pkg_dir):
+        """The hybrid lane escapes the same wedge through the subgoal
+        generator's own ``fallback_planner_id``, on its own ComputePathToPose
+        requests. The two paths share only the planner's registered name — the
+        generator reads no selector topic — so they cannot double-engage.
+        """
+        gen_dir = get_package_share_directory("strafer_inference")
+        gen_path = os.path.join(gen_dir, "config", "subgoal_generator.yaml")
+        with open(gen_path) as f:
+            gen = yaml.safe_load(f)["strafer_subgoal_generator"][
+                "ros__parameters"
+            ]
+        assert gen["fallback_planner_id"] == "GridBasedRelaxed"
+        assert not any("selector" in k for k in gen), (
+            "the generator must not gain a selector-topic input; its fallback "
+            "is its own"
+        )

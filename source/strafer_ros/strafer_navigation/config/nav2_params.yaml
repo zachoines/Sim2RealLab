@@ -237,7 +237,8 @@ planner_server:
     # check — the >=INSCRIBED band is sized by the footprint's inscribed
     # radius. NavfnPlanner's makePlan() clears the robot's own cell before
     # propagating, which is sound because the robot occupies it. Requested by
-    # name only, by the subgoal generator's fallback_planner_id; not the primary
+    # name only — by the subgoal generator's fallback_planner_id, and by the
+    # navigate-to-pose BT via start_cell_planner_selector; not the primary
     # because NavFn's binary allow_unknown is brittle to small unknown gaps that
     # GridBased's cost_travel_multiplier handles softly.
     GridBasedRelaxed:

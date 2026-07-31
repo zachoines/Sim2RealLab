@@ -233,7 +233,6 @@ session. Parked briefs are not listed here — see **By epic** or
 
 | Brief | Estimate | Note |
 |---|---|---|
-| [`nav2-lane-inflated-start-recovery`](active/reliability/nav2-lane-inflated-start-recovery.md) | S | The nav2 lane cannot recover from a start pose inside the inflation halo — its BT hardcodes `GridBased` and every recovery it has fails for this pose (costmap clear only touches the obstacle layer, `Spin` cannot translate out, `BackUp` measured refusing). Add a `Fallback` to the already-registered `GridBasedRelaxed`. The hybrid lane's half shipped in #169. Carries an open admissibility question the brief must resolve before shipping. |
 | [`grounding-publisher-extraction`](active/reliability/grounding-publisher-extraction.md) | S | Quick win — pure refactor follow-up to `vlm-bbox-overlay`; extracts the viz publishers out of `JetsonRosClient` |
 | [`real-d555-depth-range-survey`](active/investigations/real-d555-depth-range-survey.md) | S–M | Investigation — bench measurement + write-up |
 | [`rtabmap-cold-start-determinism`](active/reliability/rtabmap-cold-start-determinism.md) | M | Cold-start signature on populated DB: `Not found word N` burst + `Increment map id to 4`; triage bridge-teleport vs Mem/* config + ship the chosen disposition. After audit: A2 recommended — flip `localization:=true` default when populated DB exists. |

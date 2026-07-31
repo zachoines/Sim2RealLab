@@ -130,9 +130,26 @@ off `behavior_tree_log`.
       space! Cannot create feasible plan..`, `GridBasedRelaxed` SUCCEEDS,
       `ComputePathToPoseRelaxed` reaches SUCCESS in `/behavior_tree_log`, both
       WARNs fire, `/plan` published (111 poses).
-- [ ] **PENDING — rides the next rig session:** the same reproduction on the rig
-      with the brief's own probe. Not synthesized here; the container run above
-      is evidence about the BT and the gate, not about the rig.
+- [x] **The same reproduction on the rig** — DGX sim bridge
+      (`ProcRoom-Enriched`) + the nav2 lane (`docker-compose.sim.yml`) on the NX,
+      image `strafer-cpu:humble` stamped `97e8e2d`, scene token `nav2wedge2`:
+
+      | | |
+      |---|---|
+      | free space, before parking | selector `GridBased`, **0** WARNs |
+      | parked pose | `(-0.930, -0.068)`, **0.222 m** off lethal, own cell **253**, planner cell (2× block) **253** |
+      | gate | selector `GridBasedRelaxed` on 4/4 samples + the admit WARN |
+      | `GridBased` | **ABORTED** — `Starting point in lethal space! Cannot create feasible plan..` |
+      | `GridBasedRelaxed`, same goal | **SUCCEEDED** |
+      | `navigate_to_pose`, `/behavior_tree_log` | `ComputePathToPose` → FAILURE ×4, `ComputePathToPoseRelaxed` → **SUCCESS ×4**, then `ComputePathToPose` → SUCCESS ×6 once clear |
+      | relaxed-branch WARN | fired |
+      | mission | robot drove out of the halo to `(+0.259, -0.085)`, 1.015 m off lethal |
+      | release | WARN at cost 227, selector back to `GridBased` |
+
+      The tail of that BT sequence is the design working end to end: the primary
+      fails while the start is inflated, the escape hatch produces the path, and
+      the primary takes the mission back the moment the robot is clear — the
+      gate is not sticky.
 - [x] The fallback's admissibility question is resolved per the section above,
       with the choice and its reasoning recorded here.
 - [x] `test_nav_config.py`'s BT structural tests updated —
@@ -149,10 +166,20 @@ off `behavior_tree_log`.
 ## Found while verifying
 
 `GridBasedRelaxed` clears only the robot's *own* cell, so it needs a free
-neighbour to propagate into: measured planning from ~0.20 m off lethal and
-refusing from ~0.15 m. Pre-existing behaviour, shared with the hybrid lane's
-escape hatch, unchanged by this work — recorded in the sim-bridge cheatsheet so
-an operator reading either lane's WARN knows the limit.
+neighbour to propagate into: measured planning from ~0.20 m off lethal (the rig
+run above planned from 0.222 m) and refusing from ~0.15 m. Pre-existing
+behaviour, shared with the hybrid lane's escape hatch, unchanged by this work —
+recorded in the sim-bridge cheatsheet so an operator reading either lane's WARN
+knows the limit.
+
+The inscribed band is narrow — roughly 0.21 m to 0.15 m off lethal — so a rig
+reproduction has to park inside it deliberately. Driving at the nearest
+high-cost cell does not work: `NO_INFORMATION` is 255 and sorts *above*
+`LETHAL` 254, so a "nearest obstacle" search written as `cost >= LETHAL` finds
+unknown space, which lies behind obstacles. Search `cost == LETHAL`, approach a
+point short of it under closed-loop control, and watch `base_link` height and
+tilt — an open-loop approach rides up the obstacle instead of stopping beside
+it, and sim-time RTF makes wall-clock dead reckoning useless.
 
 ## Out of scope
 

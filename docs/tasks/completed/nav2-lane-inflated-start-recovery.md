@@ -11,8 +11,8 @@
 
 ## Context bundle
 
-- [context/conventions.md](../../context/conventions.md)
-- [context/ownership-boundaries.md](../../context/ownership-boundaries.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/ownership-boundaries.md](../context/ownership-boundaries.md)
 - Sibling: the hybrid lane's half of this shipped in
   [`deploy-hardening`](https://github.com/zachoines/Sim2RealLab/pull/169), which registers the
   `GridBasedRelaxed` planner this brief reuses.

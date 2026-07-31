@@ -11,8 +11,10 @@
 
 ## Context bundle
 
-- [context/conventions.md](../../context/conventions.md)
-- [`source/strafer_ros/deploy/README.md`](../../../../source/strafer_ros/deploy/README.md) — the "three levels of config" table this brief deletes
+- [context/conventions.md](../context/conventions.md)
+- [context/deploy-env-config.md](../context/deploy-env-config.md) — the context
+  module this work added; the standing statement of the rule it establishes
+- [`source/strafer_ros/deploy/README.md`](../../../source/strafer_ros/deploy/README.md) — the "three levels of config" table this brief deletes
 - Sibling: [`deploy-hardening`](https://github.com/zachoines/Sim2RealLab/pull/169), which added the
   `${VAR:-default}` indirection as a stopgap and the container-passthrough invariant
 

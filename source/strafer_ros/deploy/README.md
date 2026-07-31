@@ -63,14 +63,19 @@ files behind it moved.
 
 ### One key, one home
 
+The agent-facing statement of this rule — the lane table, the compose behaviours
+it rests on, and the full invariant list — is
+[`docs/tasks/context/deploy-env-config.md`](../../../docs/tasks/context/deploy-env-config.md).
+What follows is the operator's half.
+
 > **Every key lives in exactly one home.** Either a generated `env_file`
 > (canon-owned, reviewed, not host-overridable), or a service `environment:`
 > entry as `${VAR:-default}` (host-overridable, and absent from every
 > `env_file`). Never both.
 
 `make env-check` fails if a key appears in both, so the shadowing is structurally
-impossible rather than merely discouraged. To find where a value comes from, ask
-which home it is in — there is no precedence to memorise.
+impossible. To find where a value comes from, ask which home it is in — there is
+no precedence to memorise.
 
 Three measured compose behaviours are why the rule is a partition rather than a
 precedence: an overlay's `env_file` **appends** to the base list, the **last
@@ -93,9 +98,9 @@ appear in no mirror, so the partition holds for them without an exemption, and
 
 There is one route the partition does not cover, and it is checked in the same
 place: a var a launch file reads from `os.environ` **inside** the container
-still needs an explicit `environment:` mapping, because compose interpolation
-happens in a different process. `check_env_sync` asserts each such key is mapped
-by its service, so the knob cannot be silently inert.
+needs an explicit `environment:` mapping, because compose interpolation happens
+in a different process. `check_env_sync` asserts each such key is mapped by its
+service, so the knob cannot be silently inert.
 
 ## Image provenance — is the running stack the code you think it is?
 

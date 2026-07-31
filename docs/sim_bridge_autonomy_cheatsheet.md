@@ -105,9 +105,10 @@ make submit-deploy CMD="go to the chair"
   `autonomy.env`. Edit canon, `make env-sync`, force-recreate. **Do not** look for these
   in `deploy/compose/sim.env` — that file (nav2 / `DEPTH`) belongs to the *standalone*
   `docker-compose.sim.yml` lane, which this stack does not use. The overlay's
-  `environment:` now carries only the host levers (`STRAFER_INFERENCE_MODEL_PATH`,
-  `STRAFER_OBS_DUMP_PATH`); a key in both homes fails `make env-check`, so the canon +
-  `make env-sync` path can no longer be silently shadowed.
+  `environment:` carries only the host levers (`STRAFER_INFERENCE_MODEL_PATH`,
+  `STRAFER_OBS_DUMP_PATH`). Every key has exactly one home and `make env-check` fails
+  on a key in both, so nothing here shadows the canon path — see
+  [`context/deploy-env-config.md`](tasks/context/deploy-env-config.md).
 - The executor is set to the **hybrid (policy) backend** via `docker-compose.override.autonomy-local.yml`, so semantic goals drive the DEPTH_SUBGOAL policy (not plain nav2). That override is **untracked** (host-specific URLs) — it lives in the deploy dir.
 - If the VLM can't find the named object, the mission fails at grounding ("target not found"). Pick something clearly in frame.
 - **Known open items:** the policy parks near the goal but doesn't trip `NavigateToPose`'s success radius, and the mission-runner's hybrid-nav step has a **7 s** timeout that's short for the sim's RTF — so a mission may report a nav timeout even when the robot arrived. Drive/loop are correct; it's a completion-signal/tuning gap.

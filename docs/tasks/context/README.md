@@ -181,6 +181,13 @@ accurate.
   operator-selectable capture), the preserved-RL-obs invariant + its
   golden-hash gate, and the single `cameras_required` parameter that
   drives both env render and LeRobot writer schema.
+- [`deploy-env-config.md`](deploy-env-config.md) — how a value reaches a
+  node in the containerized deploy: the one-key-one-home partition
+  between canon-owned `env_file` mirrors and host `${VAR:-default}`
+  levers, the per-lane canon files and how they layer, the measured
+  compose behaviours the rule rests on, and the `check_env_sync`
+  invariants that enforce it. (Deploy config — not the Isaac Lab env-cfg
+  composition above, despite the similar name.)
 - [`recurrent-policy-contract.md`](recurrent-policy-contract.md) — the
   DEPTH policy's recurrent hidden-state seam across train → export →
   inference (tensor shape, reset semantics, ownership at each layer).

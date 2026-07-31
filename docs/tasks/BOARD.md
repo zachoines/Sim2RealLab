@@ -166,6 +166,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`windows-workstation-bringup`](active/tooling/windows-workstation-bringup.md) | P2 | active | DGX |
 | [`archive-interim-architecture-docs`](active/tooling/archive-interim-architecture-docs.md) | P3 | active | DGX |
 | [`python-lint-format-baseline`](active/tooling/python-lint-format-baseline.md) | P3 | active | Either |
+| [`brief-link-depth-on-ship`](active/tooling/brief-link-depth-on-ship.md) | P2 | active | Either |
 | [`tools-package-reorg`](parked/tooling/tools-package-reorg.md) | P3 | parked (land when no large `tools/`-touching PR is in flight — after the R1 detections column + `depth-ffv1-video-column` settle) | DGX |
 | [`scene-contract-instance-discriminator`](parked/tooling/scene-contract-instance-discriminator.md) | P3 | parked (filed-on-trigger) | DGX |
 
@@ -247,6 +248,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | Brief | Estimate | Note |
 |---|---|---|
 | [`strafer-direct-sim-validation`](active/trained-policy/strafer-direct-sim-validation.md) | M (1–2 days, rig-dependent) | Operator-driven sim validation extracted from the [`inference-package`](completed/inference-package.md) PR so it could merge with unit-testable acceptance closed. Three independent runs: rosbag parity (≤1e-5 NOCAM / ≤1e-3 depth), TRT-EP latency p95 < 10 ms, and the architectural-win mission (≥ 1.0 m/s sustained + obstacle avoidance). Last item gates on a deployable DEPTH checkpoint; the first two only need the sim-in-the-loop rig. |
+| [`brief-link-depth-on-ship`](active/tooling/brief-link-depth-on-ship.md) | M | Shipping a brief moves it from `active/<epic>/` (depth 3) to `completed/` (depth 2), so every relative link keeps a `../` count that is now one too many. Measured on `main`: **578 broken relative links in 70 files** under `docs/tasks/` — 338 pure depth shift, 223 targets that themselves moved, 17 needing a human. [`brief-cross-reference-sweep`](completed/brief-cross-reference-sweep.md) (#31) fixed the same symptom once with no guard and it regrew, so the deliverable is resolver + **checker in the test umbrellas** + the missing step in `README.md`'s shipping sequence. |
 
 ### P3 — pickable, low priority
 

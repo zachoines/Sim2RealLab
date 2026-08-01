@@ -426,6 +426,11 @@ def compute_obs_parity(
 _STRUCT_THRESH = 0.5  # per-row/col std as a fraction of the mean residual
 _TIME_THRESH = 0.5  # per-tick residual std as a fraction of its mean
 
+# Both structure scores are ratios to the overall mean, so they rise as the
+# residual falls. Below this floor they carry no signal and the verdict must
+# not name a defect; compare the absolute per-row spread instead.
+_RESIDUAL_FLOOR = 1e-3
+
 
 @dataclass
 class DepthResidualReport:
@@ -487,7 +492,13 @@ def depth_spatial_residual(
     per_tick = resid.mean(axis=1)
     time_variation = float(per_tick.std() / (per_tick.mean() + _EPS))
 
-    if max(row_structure, col_structure) > _STRUCT_THRESH and (
+    if overall <= _RESIDUAL_FLOOR:
+        verdict = (
+            f"overall mean |delta| {overall:.3e} is at or below the "
+            f"{_RESIDUAL_FLOOR:.0e} residual floor -> structure scores carry "
+            "no signal here; compare the absolute per-row spread instead"
+        )
+    elif max(row_structure, col_structure) > _STRUCT_THRESH and (
         row_structure >= col_structure
     ):
         verdict = (

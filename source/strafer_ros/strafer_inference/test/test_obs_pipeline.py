@@ -73,7 +73,7 @@ class TestDownsampleDepth:
         # Fill value is in meters (matches mdp.depth_image); scaled once later.
         np.testing.assert_allclose(out, DEPTH_NEARFIELD_FILL, atol=1e-6)
 
-    def test_block_average_matches_manual_reduction(self):
+    def test_block_median_matches_manual_reduction(self):
         rng = np.random.default_rng(0)
         raw = rng.uniform(
             DEPTH_MIN + 0.1, DEPTH_MAX - 0.1,
@@ -83,11 +83,44 @@ class TestDownsampleDepth:
 
         block_h = PERCEPTION_HEIGHT // DEPTH_HEIGHT
         block_w = PERCEPTION_WIDTH // DEPTH_WIDTH
-        expected = (
-            raw.reshape(DEPTH_HEIGHT, block_h, DEPTH_WIDTH, block_w)
-            .mean(axis=(1, 3))
+        expected = np.median(
+            raw.reshape(DEPTH_HEIGHT, block_h, DEPTH_WIDTH, block_w),
+            axis=(1, 3),
         ).astype(np.float32).reshape(-1)
         np.testing.assert_allclose(out, expected, atol=1e-6)
+
+    def test_block_reduction_is_not_the_mean(self):
+        """Guard against a silent revert to the block mean.
+
+        A block straddling the far-clip validity boundary is where the two
+        reductions diverge.
+        """
+        block_h = PERCEPTION_HEIGHT // DEPTH_HEIGHT
+        block_w = PERCEPTION_WIDTH // DEPTH_WIDTH
+        raw = np.full(
+            (PERCEPTION_HEIGHT, PERCEPTION_WIDTH), 2.0, dtype=np.float32
+        )
+        # 3/4 wall at 2.0 m, 1/4 culled: the mean would return 3.0 m.
+        raw[0:block_h // 2, 0:block_w // 2] = np.inf
+        out = downsample_depth(raw).reshape(DEPTH_HEIGHT, DEPTH_WIDTH)
+        assert out[0, 0] == pytest.approx(2.0)
+        mean_answer = np.mean(
+            np.where(np.isfinite(raw[:block_h, :block_w]),
+                     raw[:block_h, :block_w], DEPTH_MAX)
+        )
+        assert mean_answer == pytest.approx(3.0)
+
+    def test_majority_sky_block_reads_as_out_of_range(self):
+        """A mostly-culled block must not be pulled toward a minority near
+        surface."""
+        block_h = PERCEPTION_HEIGHT // DEPTH_HEIGHT
+        block_w = PERCEPTION_WIDTH // DEPTH_WIDTH
+        raw = np.full(
+            (PERCEPTION_HEIGHT, PERCEPTION_WIDTH), np.inf, dtype=np.float32
+        )
+        raw[0:block_h // 2, 0:block_w // 2] = 1.0
+        out = downsample_depth(raw).reshape(DEPTH_HEIGHT, DEPTH_WIDTH)
+        assert out[0, 0] == pytest.approx(DEPTH_MAX)
 
     def test_clamps_above_max(self):
         raw = np.full(

@@ -60,7 +60,7 @@ is not a parity claim.
 | Block | Bound | Rationale |
 |---|---|---|
 | Scalar dims (everything but `depth_image`) | ≤ **1e-5** max-abs-delta | float32 assembly noise. |
-| Depth dims (`depth_image`) | ≤ **1e-3** max-abs-delta | renderer nondeterminism budget; reported separately. |
+| Depth dims (`depth_image`) | ≤ **1e-3** max-abs-delta | renderer nondeterminism budget; reported separately. **Known not to pass**: a max-abs bound over 3600 dims is set by single pixels at depth discontinuities, which no reduction removes. Judge depth on the distributional figure — overall mean \|Δ\| — until this bound is replaced by a percentile one. |
 | Rolling subgoal position | ≤ **MAP_RESOLUTION·2 = 0.10 m** | half a costmap cell each side. |
 
 ## Depth spatial-residual report (depth variants)
@@ -76,6 +76,13 @@ resolution (H×W) and scored:
 This distinguishes a depth geometry mismatch from a frame-freshness lag. The
 verdict is a heuristic hint; the raw per-row / per-column means are reported so
 an operator can eyeball the map.
+
+**Both structure scores are RATIOS to the overall mean residual, so they are
+scale-free — do not use them to compare two runs.** Improving the dominant
+residual makes every score go *up*. Compare `overall_mean` and the absolute
+per-row spread; read the structure scores only to locate *where* a residual
+lives, never to judge whether it shrank. Below an overall mean |Δ| of
+`_RESIDUAL_FLOOR` the verdict says so and reports no signature.
 
 ## Cadence report
 

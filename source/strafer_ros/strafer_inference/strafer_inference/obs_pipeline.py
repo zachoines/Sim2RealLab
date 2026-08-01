@@ -53,13 +53,16 @@ def downsample_depth(
     Returns raw meters, not normalized: the single 1/max_depth normalization
     is applied once downstream by ``assemble_observation``'s ``DEPTH_SCALE``,
     matching the sim ``ObsTerm(func=depth_image, scale=DEPTH_SCALE)``. The
-    noise step is skipped (inference adds none) and an area-resize maps the
-    640×360 perception stream to the 80×45 policy resolution that exists only
-    in sim.
+    noise step is skipped (inference adds none).
 
-    Block-average is exact-integer (640/80=8, 360/45=8) so it
-    matches cv2.INTER_AREA to within float roundoff for the integer
-    ratio case.
+    The block reduction is a MEDIAN over the exact 8×8 integer ratio. The
+    training camera renders one ray per policy pixel; a mean over a block
+    that straddles the far-clip validity boundary returns a depth that is on
+    no surface in the scene, where the median returns the majority one.
+
+    Not a stride, either: the policy pixel's centre maps to the corner
+    BETWEEN source pixels ``8c+3`` and ``8c+4``, so no single source pixel
+    sits on the training ray and the two that bracket it disagree.
     """
     depth = np.asarray(depth_meters, dtype=np.float32)
     if depth.shape != (PERCEPTION_HEIGHT, PERCEPTION_WIDTH):
@@ -68,10 +71,13 @@ def downsample_depth(
             f"{PERCEPTION_WIDTH}); got {depth.shape}"
         )
 
+    # +inf (frustum cull) and NaN (D555) must read as out-of-range before
+    # the reduction rather than poisoning it.
     depth = np.where(np.isfinite(depth), depth, np.float32(max_depth))
-    depth = depth.reshape(
-        DEPTH_HEIGHT, _BLOCK_H, DEPTH_WIDTH, _BLOCK_W
-    ).mean(axis=(1, 3))
+    depth = np.median(
+        depth.reshape(DEPTH_HEIGHT, _BLOCK_H, DEPTH_WIDTH, _BLOCK_W),
+        axis=(1, 3),
+    )
     depth = np.where(
         depth < nearfield_clip, np.float32(nearfield_fill), depth
     )

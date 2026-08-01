@@ -2,12 +2,30 @@
 
 Owns hybrid replanning: while the inference node's active-goal telemetry
 is fresh, calls Nav2's ``ComputePathToPose`` on its own cadence and
-installs the path from the action result (``/plan`` is a fallback input).
+anchors the path from the action result (``/plan`` is a fallback input).
 Each tick it looks up the ``map -> base_link`` TF, runs the pure
 :class:`RollingSubgoalGenerator`, and publishes the rolling subgoal.
 
-Three non-obvious contracts:
+Four non-obvious contracts:
 
+- **Anchoring.** Training installs ONE path per goal, in the world frame,
+  and only ever advances a monotonic cursor along it
+  (``SubgoalCommand._resample_command`` -> ``PathCursor.set_paths`` at
+  goal resample; ``_update_command`` never re-installs). Deploy must
+  reproduce that. Every ``ComputePathToPose`` result is planned from the
+  robot's *current* pose (``use_start=False``) and Nav2's
+  ``planner_server`` additionally republishes ``/plan`` at ~12 Hz, so
+  installing on arrival re-roots the path under the robot continuously:
+  measured cross-track then stays at ~0.03 m (one costmap cell) over
+  metres of travel and **no corrective lateral signal can ever
+  accumulate**, which is the signal training taught the policy to
+  consume. Under ``subgoal_anchoring: mission`` (the shipped default) a
+  fresh plan REPLACES the anchored path only under the admission rules
+  in :func:`~strafer_inference.generator.evaluate_admission`; otherwise
+  it counts only as planner liveness and is discarded.
+  ``subgoal_anchoring: rolling`` is the named legacy fallback that
+  re-roots on every plan, kept so the behavioural re-validation can A/B
+  the two semantics on the rig.
 - The active-goal topic is status telemetry (inference node -> here),
   NOT a command channel: ``navigate_to_pose`` remains the only way to
   command a mission. Its staleness stops replanning, the plan ages past
@@ -19,7 +37,11 @@ Three non-obvious contracts:
   self-locking when the planner is refusing the robot's *own pose* as a
   start: the policy zero-twists, so the pose never changes and nothing
   clears the refusal. ``fallback_planner_id`` and ``starvation_hold_s``
-  break that cycle; both are degraded modes and both log.
+  break that cycle; both are degraded modes and both log. Anchoring does
+  not weaken them: plan LIVENESS (``_last_plan_rx_t``, the input to
+  ``_plan_fresh``) is refreshed by any valid plan for the active goal
+  whether or not it is admitted, so a refusing planner still starves the
+  guard exactly as before.
 
 ROS glue only -- selection math is in :mod:`strafer_inference.generator`.
 """
@@ -36,14 +58,25 @@ import tf2_ros
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped
 from nav2_msgs.action import ComputePathToPose
-from nav_msgs.msg import Path
+from nav_msgs.msg import OccupancyGrid, Path
 from rclpy.action import ActionClient
 from rclpy.clock import Clock, ClockType
 from rclpy.node import Node
+from rclpy.qos import (
+    DurabilityPolicy,
+    HistoryPolicy,
+    QoSProfile,
+    ReliabilityPolicy,
+)
 
 from strafer_shared.constants import SUBGOAL_LOOKAHEAD_M
 
-from .generator import RollingSubgoalGenerator
+from .generator import (
+    ADMIT_ROLLING,
+    RollingSubgoalGenerator,
+    arc_length_projection,
+    evaluate_admission,
+)
 
 # An in-flight replan older than this is treated as lost: rclpy leaves
 # the future pending forever if the planner dies mid-request.
@@ -52,6 +85,24 @@ _REPLAN_ABANDON_S = 2.0
 # A /plan whose terminal pose is farther than this from the active goal
 # was computed for a different goal; don't install it.
 _PLAN_GOAL_MATCH_M = 0.5
+
+# Anchoring modes for the ``subgoal_anchoring`` parameter.
+_ANCHOR_MISSION = "mission"
+_ANCHOR_ROLLING = "rolling"
+_ANCHOR_MODES = (_ANCHOR_MISSION, _ANCHOR_ROLLING)
+
+# Waypoint quantum for the plan-identity key. Nav2 emits float64 poses on
+# a 0.05 m costmap grid, so 1 mm is far finer than any real difference
+# between two distinct plans and coarse enough that a bit-identical
+# republish keys identically.
+_PLAN_KEY_QUANT_M = 1e-3
+
+# nav2_costmap_2d publishes its costmap as an OccupancyGrid through a
+# translation table: 254 (LETHAL) -> 100, 253 (INSCRIBED_INFLATED) -> 99,
+# 255 (NO_INFORMATION) -> -1, everything else linearly into 1..97. 99 is
+# therefore "the robot's inscribed radius is in contact or worse", which
+# is the threshold a global plan is invalid at.
+_COSTMAP_INSCRIBED = 99
 
 
 def _default_update_period() -> float:
@@ -119,6 +170,29 @@ class SubgoalGeneratorNode(Node):
         self.declare_parameter("starvation_stationary_m", 0.05)
         self.declare_parameter("starvation_stationary_s", 1.0)
 
+        # --- anchoring semantics -------------------------------------
+        # "mission": one anchored path per goal, replaced only under the
+        # admission rules (the training contract). "rolling": the legacy
+        # re-root-on-every-plan behaviour, kept as a named fallback so the
+        # rig re-validation can A/B the two.
+        self.declare_parameter("subgoal_anchoring", _ANCHOR_MISSION)
+        # Admission class (ii): above this the corridor is genuinely lost.
+        # 0.5 m is just under the global costmap's 0.55 m inflation radius
+        # (strafer_navigation/config/nav2_params.yaml) and ~15x the 0.03 m
+        # cross-track measured under the old re-rooting behaviour, so it
+        # cannot fire on ordinary tracking error.
+        self.declare_parameter("admission_cross_track_m", 0.5)
+        # Admission class (i): the remaining anchored path now crosses
+        # lethal/inscribed costmap cells. Needs the global costmap; the
+        # check abstains (never admits) while none has been received.
+        self.declare_parameter("admission_collision_check", True)
+        self.declare_parameter("costmap_topic", "/global_costmap/costmap")
+        self.declare_parameter("costmap_lethal_cost", _COSTMAP_INSCRIBED)
+        # A costmap older than this is not trusted to veto an anchor.
+        self.declare_parameter("costmap_timeout_s", 5.0)
+        # Periodic one-line anchoring/admission summary. 0 disables.
+        self.declare_parameter("anchor_log_period_s", 10.0)
+
         self._map_frame: str = self.get_parameter("map_frame").value
         self._base_frame: str = self.get_parameter("base_frame").value
         self._path_timeout_s = float(self.get_parameter("path_timeout_s").value)
@@ -145,11 +219,68 @@ class SubgoalGeneratorNode(Node):
             lookahead_m=lookahead_m, max_points=max_points
         )
 
+        anchoring = str(self.get_parameter("subgoal_anchoring").value).strip().lower()
+        if anchoring not in _ANCHOR_MODES:
+            raise ValueError(
+                f"subgoal_anchoring={anchoring!r} is not one of {_ANCHOR_MODES}"
+            )
+        self._rolling_anchoring = anchoring == _ANCHOR_ROLLING
+        self._admission_cross_track_m = float(
+            self.get_parameter("admission_cross_track_m").value
+        )
+        self._admission_collision_check = bool(
+            self.get_parameter("admission_collision_check").value
+        )
+        self._costmap_lethal_cost = int(
+            self.get_parameter("costmap_lethal_cost").value
+        )
+        self._costmap_timeout_s = float(
+            self.get_parameter("costmap_timeout_s").value
+        )
+
         # Monotonic receipt time of the latest valid plan. Drives the
         # plan-staleness guard: subgoal publishing stops once the plan ages
-        # past path_timeout_s.
+        # past path_timeout_s. This is plan LIVENESS, deliberately NOT
+        # "when the anchored path was installed" -- under mission anchoring
+        # most valid plans are rejected, and treating a rejection as
+        # silence would starve the RC-6 guards into firing against a
+        # perfectly healthy planner.
         self._last_plan_rx_t: Optional[float] = None
         self._stale_plan_logged = False
+
+        # Identity of the last plan CONSUMED for an admission decision.
+        # planner_server republishes /plan at ~12 Hz, so arrival is
+        # meaningless as a "new plan" signal; the key is content + stamp.
+        self._last_plan_key: Optional[tuple] = None
+        # Monotonic time the anchored path was installed, and the robot's
+        # cross-track against it as of the last tick (cached so the plan
+        # callback needs no TF lookup of its own).
+        self._anchor_installed_t: Optional[float] = None
+        self._last_cross_track_m: Optional[float] = None
+        # Set on a mission boundary (first goal, or a preempting goal at a
+        # new pose); forces the next valid plan to be admitted even if the
+        # new goal is close enough to the old one to pass the provenance
+        # check. Cleared when that plan anchors.
+        self._new_mission_pending = False
+        # Admission bookkeeping, surfaced by the periodic anchor log.
+        self._plans_seen = 0
+        self._plans_republished = 0
+        self._anchors_admitted = 0
+        self._anchors_rejected = 0
+        self._admit_reasons: dict[str, int] = {}
+        self._anchor_log_period_s = float(
+            self.get_parameter("anchor_log_period_s").value
+        )
+        self._last_anchor_log_t = time.monotonic()
+
+        # Latest global costmap for admission class (i), as (grid, info,
+        # rx_time). Written by its own callback in the default mutex group,
+        # so it is serialized against the tick and needs no lock.
+        self._costmap_grid: Optional[np.ndarray] = None
+        self._costmap_info = None
+        self._costmap_rx_t: Optional[float] = None
+        self._costmap_absent_logged = False
+        self._costmap_frame_warned = False
 
         # Active-goal telemetry from the inference node: gates replanning
         # and provides the ComputePathToPose target.
@@ -221,6 +352,24 @@ class SubgoalGeneratorNode(Node):
         self._active_goal_sub = self.create_subscription(
             PoseStamped, active_goal_topic, self._on_active_goal, 10
         )
+        # Global costmap for admission class (i). nav2_costmap_2d latches it
+        # TRANSIENT_LOCAL, and nav2_params sets always_send_full_costmap:
+        # true, so a plain full-grid subscription is enough (no
+        # costmap_updates stitching).
+        self._costmap_topic = str(self.get_parameter("costmap_topic").value)
+        self._costmap_sub = None
+        if self._admission_collision_check:
+            self._costmap_sub = self.create_subscription(
+                OccupancyGrid,
+                self._costmap_topic,
+                self._on_costmap,
+                QoSProfile(
+                    reliability=ReliabilityPolicy.RELIABLE,
+                    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                    history=HistoryPolicy.KEEP_LAST,
+                    depth=1,
+                ),
+            )
         self._planner_client = ActionClient(
             self, ComputePathToPose, planner_action
         )
@@ -252,9 +401,45 @@ class SubgoalGeneratorNode(Node):
             f"starvation_hold={self._starvation_hold_s:.1f}s"
             f"({self._hold_ticks_budget} ticks)"
         )
+        self.get_logger().info(
+            f"anchoring={anchoring} "
+            f"(admission: cross_track>{self._admission_cross_track_m:.2f} m, "
+            f"collision_check="
+            f"{self._costmap_topic if self._admission_collision_check else '<disabled>'}"
+            f"@cost>={self._costmap_lethal_cost}, goal_changed). "
+            + (
+                "ROLLING: every accepted plan re-roots the path under the "
+                "robot — the legacy behaviour, cross-track cannot develop."
+                if self._rolling_anchoring
+                else "MISSION: one anchored path per goal; a fresh plan is "
+                "planner liveness unless it is admitted."
+            )
+        )
+
+    def _note_plan_alive(self) -> None:
+        """Bookkeeping every VALID plan earns, admitted or not.
+
+        Plan liveness and starvation-guard state key off "a planner
+        answered with a usable path", never off "we installed it". Under
+        mission anchoring most valid plans are rejected by admission, and
+        letting a rejection read as planner silence would age the plan out
+        and trip the RC-6 guards against a healthy planner.
+        """
+        self._last_plan_rx_t = time.monotonic()
+        self._planner_refusals = 0
+        self._end_starvation_hold(rearm=True)
 
     def _install_path(self, msg: Path, source: str) -> None:
-        """Install a fresh global plan and rewind the cursor."""
+        """Anchor a fresh global plan as THE path for this mission.
+
+        Seeds the cursor by projecting the robot onto the new path rather
+        than rewinding to zero, so an admitted replacement preserves
+        progress-toward-goal. For the usual Nav2 plan — computed with
+        ``use_start=False``, hence starting under the robot — the
+        projection is ~0 and this is identical to a rewind; it matters for
+        a plan that starts elsewhere, where a rewind would put the subgoal
+        one lookahead from the path's start instead of from the robot.
+        """
         if not msg.poses:
             self.get_logger().warning(
                 f"Empty path from {source} (planner produced no path); "
@@ -266,11 +451,18 @@ class SubgoalGeneratorNode(Node):
             [(p.pose.position.x, p.pose.position.y) for p in msg.poses],
             dtype=np.float64,
         )
-        self._generator.set_path(path_xy)
-        self._last_plan_rx_t = time.monotonic()
+
+        initial_cursor: Optional[float] = None
+        robot_xy = self._last_robot_xy
+        if robot_xy is not None and len(path_xy) > 1:
+            initial_cursor, _ = arc_length_projection(path_xy, robot_xy)
+
+        self._generator.set_path(path_xy, initial_cursor=initial_cursor)
+        self._anchor_installed_t = time.monotonic()
+        self._last_cross_track_m = None
         # A fresh plan ends any starvation episode: clear the refusal streak,
         # record which goal this path serves, close and re-arm the hold window.
-        self._planner_refusals = 0
+        self._note_plan_alive()
         self._path_goal_xy = (
             (
                 self._active_goal.pose.position.x,
@@ -278,11 +470,205 @@ class SubgoalGeneratorNode(Node):
             )
             if self._active_goal is not None else None
         )
-        self._end_starvation_hold(rearm=True)
         self.get_logger().debug(
-            f"New plan from {source}: {len(msg.poses)} poses, total arc "
-            f"{self._generator.total_arc:.3f} m; cursor rewound."
+            f"Anchored plan from {source}: {len(msg.poses)} poses, total arc "
+            f"{self._generator.total_arc:.3f} m; cursor seeded at "
+            f"{self._generator.cursor_arc:.3f} m."
         )
+
+    @staticmethod
+    def _plan_key(msg: Path) -> tuple:
+        """Identity of a plan by CONTENT + STAMP, not by arrival.
+
+        ``planner_server`` republishes the same path on ``/plan`` at ~12 Hz
+        independently of our own request cadence, so "a Path message
+        arrived" says nothing about whether the plan is new. Quantising to
+        ``_PLAN_KEY_QUANT_M`` keeps the key exact for a bit-identical
+        republish while staying far below any real difference between two
+        distinct plans.
+        """
+        stamp = (msg.header.stamp.sec, msg.header.stamp.nanosec)
+        quant = _PLAN_KEY_QUANT_M
+        pts = tuple(
+            (
+                round(p.pose.position.x / quant),
+                round(p.pose.position.y / quant),
+            )
+            for p in msg.poses
+        )
+        return (stamp, len(msg.poses), pts)
+
+    def _anchor_in_collision(self) -> bool:
+        """True if the REMAINING anchored path crosses blocked costmap cells.
+
+        Only the portion ahead of the cursor is checked: the robot has
+        already driven the rest, and an obstacle appearing behind it is not
+        a reason to re-plan. Abstains (returns False) with no costmap, a
+        stale costmap, or a frame mismatch — admission class (i) must never
+        fire on absent evidence, and the other classes still apply.
+        """
+        if not self._admission_collision_check:
+            return False
+        grid = self._costmap_grid
+        if grid is None or self._costmap_info is None:
+            if not self._costmap_absent_logged:
+                self.get_logger().warning(
+                    f"No costmap received on {self._costmap_topic!r}; the "
+                    "collision admission rule is inactive (cross-track and "
+                    "goal-change rules still apply)."
+                )
+                self._costmap_absent_logged = True
+            return False
+        if (
+            self._costmap_rx_t is None
+            or time.monotonic() - self._costmap_rx_t > self._costmap_timeout_s
+        ):
+            self.get_logger().warning(
+                "Costmap is older than "
+                f"{self._costmap_timeout_s:.1f} s; skipping the collision "
+                "admission rule.",
+                throttle_duration_sec=10.0,
+            )
+            return False
+
+        path = self._generator.path
+        arc = self._generator.arc
+        if path is None or arc is None or len(path) == 0:
+            return False
+
+        ahead = path[arc >= self._generator.cursor_arc]
+        if len(ahead) == 0:
+            ahead = path[-1:]
+
+        info = self._costmap_info
+        res = info.resolution
+        if res <= 0.0:
+            return False
+        cols = np.floor(
+            (ahead[:, 0] - info.origin.position.x) / res
+        ).astype(np.int64)
+        rows = np.floor(
+            (ahead[:, 1] - info.origin.position.y) / res
+        ).astype(np.int64)
+        # Waypoints outside the costmap are unknown, not blocked.
+        inside = (
+            (cols >= 0) & (cols < info.width)
+            & (rows >= 0) & (rows < info.height)
+        )
+        if not np.any(inside):
+            return False
+        costs = grid[rows[inside], cols[inside]]
+        return bool(np.any(costs >= self._costmap_lethal_cost))
+
+    def _consider_plan(self, msg: Path, source: str) -> None:
+        """Route a valid plan: liveness always, anchoring only on admission."""
+        if not msg.poses:
+            self.get_logger().warning(
+                f"Empty path from {source} (planner produced no path); "
+                "keeping the previous plan.",
+                throttle_duration_sec=5.0,
+            )
+            return
+
+        key = self._plan_key(msg)
+        if key == self._last_plan_key:
+            # A republish of the plan we already decided on. It still
+            # proves the planner is alive; it is not a new decision.
+            self._plans_republished += 1
+            self._last_plan_rx_t = time.monotonic()
+            return
+        self._last_plan_key = key
+        self._plans_seen += 1
+
+        goal_changed = self._new_mission_pending or (
+            self._active_goal is not None
+            and not self._path_serves_active_goal()
+        )
+        decision = evaluate_admission(
+            has_anchor=self._generator.has_path,
+            rolling_mode=self._rolling_anchoring,
+            goal_changed=goal_changed,
+            anchor_in_collision=(
+                self._anchor_in_collision()
+                if self._generator.has_path and not self._rolling_anchoring
+                else False
+            ),
+            cross_track_m=self._last_cross_track_m,
+            cross_track_bound_m=self._admission_cross_track_m,
+        )
+        self._admit_reasons[decision.reason] = (
+            self._admit_reasons.get(decision.reason, 0) + 1
+        )
+
+        if not decision.admit:
+            # The anchor stands. The plan is still evidence the planner is
+            # healthy, so it clears refusals and refreshes the freshness
+            # window exactly as an installed plan would.
+            self._anchors_rejected += 1
+            self._note_plan_alive()
+            self.get_logger().debug(
+                f"Holding the anchored path; discarded a fresh plan from "
+                f"{source} ({len(msg.poses)} poses). cross_track="
+                + (
+                    f"{self._last_cross_track_m:.3f} m"
+                    if self._last_cross_track_m is not None
+                    else "unknown"
+                )
+            )
+            return
+
+        self._anchors_admitted += 1
+        self._new_mission_pending = False
+        if decision.reason != ADMIT_ROLLING:
+            self.get_logger().info(
+                f"Anchoring a new path from {source}: {decision.reason}"
+                + (f" ({decision.detail})" if decision.detail else "")
+            )
+        self._install_path(msg, source=source)
+
+    def _maybe_log_anchor_status(self) -> None:
+        """Periodic one-liner so anchoring is legible without a parity run."""
+        if self._anchor_log_period_s <= 0.0:
+            return
+        now = time.monotonic()
+        if now - self._last_anchor_log_t < self._anchor_log_period_s:
+            return
+        self._last_anchor_log_t = now
+        reasons = " ".join(
+            f"{k}={v}" for k, v in sorted(self._admit_reasons.items())
+        ) or "none"
+        anchor_age = (
+            f"{now - self._anchor_installed_t:.1f}s"
+            if self._anchor_installed_t is not None else "n/a"
+        )
+        self.get_logger().info(
+            f"anchor status: mode={'rolling' if self._rolling_anchoring else 'mission'} "
+            f"plans_new={self._plans_seen} republished={self._plans_republished} "
+            f"admitted={self._anchors_admitted} held={self._anchors_rejected} "
+            f"[{reasons}] anchor_age={anchor_age} "
+            f"cursor={self._generator.cursor_arc:.2f}/"
+            f"{self._generator.total_arc:.2f} m cross_track="
+            + (
+                f"{self._last_cross_track_m:.3f} m"
+                if self._last_cross_track_m is not None else "n/a"
+            )
+        )
+
+    def _on_costmap(self, msg: OccupancyGrid) -> None:
+        if msg.header.frame_id and msg.header.frame_id != self._map_frame:
+            if not self._costmap_frame_warned:
+                self.get_logger().warning(
+                    f"Costmap frame {msg.header.frame_id!r} != map_frame "
+                    f"{self._map_frame!r}; the collision admission rule is "
+                    "inactive (the anchored path is in map_frame)."
+                )
+                self._costmap_frame_warned = True
+            return
+        self._costmap_grid = np.asarray(msg.data, dtype=np.int16).reshape(
+            msg.info.height, msg.info.width
+        )
+        self._costmap_info = msg.info
+        self._costmap_rx_t = time.monotonic()
 
     def _on_plan(self, msg: Path) -> None:
         # Fallback input only — the primary path comes from the
@@ -299,7 +685,7 @@ class SubgoalGeneratorNode(Node):
                     "Ignoring /plan that does not end at the active goal."
                 )
                 return
-        self._install_path(msg, source="/plan")
+        self._consider_plan(msg, source="/plan")
 
     # ------------------------------------------------------------------
     # Replan ownership (active-goal telemetry -> ComputePathToPose)
@@ -312,6 +698,11 @@ class SubgoalGeneratorNode(Node):
         # A new mission or a preempting goal retargets immediately rather
         # than waiting out the cadence timer.
         if previous is None or self._goal_xy_changed(previous, msg):
+            # Mission boundary: the anchored path belongs to the previous
+            # mission and must be replaced even when the new goal happens
+            # to sit within _PLAN_GOAL_MATCH_M of the old one, which the
+            # goal-provenance check alone would read as "same goal".
+            self._new_mission_pending = True
             self._request_replan()
 
     @staticmethod
@@ -441,7 +832,7 @@ class SubgoalGeneratorNode(Node):
                 throttle_duration_sec=5.0,
             )
             return
-        self._install_path(result.result.path, source="ComputePathToPose")
+        self._consider_plan(result.result.path, source="ComputePathToPose")
 
     # ------------------------------------------------------------------
     # Planner escape hatch + bounded starvation hold
@@ -599,10 +990,21 @@ class SubgoalGeneratorNode(Node):
         ) as exc:
             self.get_logger().debug(f"TF lookup failed: {exc}")
             return None
-        return np.array(
+        xy = np.array(
             [tf.transform.translation.x, tf.transform.translation.y],
             dtype=np.float64,
         )
+        if xy.shape != (2,):
+            # A malformed transform is "no pose", not a crash: the tick now
+            # projects this position onto the anchored path, so a
+            # non-scalar translation would raise inside the control path
+            # instead of degrading to the same no-pose branch a failed
+            # lookup already takes.
+            self.get_logger().debug(
+                f"TF transform did not yield a planar pose (shape {xy.shape})"
+            )
+            return None
+        return xy
 
     def _on_tick(self) -> None:
         # Pose lookup precedes both guards below: they key off robot motion, and
@@ -612,6 +1014,16 @@ class SubgoalGeneratorNode(Node):
         if robot_xy is not None:
             self._track_stationary(robot_xy)
             self._release_fallback_if_clear(robot_xy)
+            # Non-mutating projection: refreshes the cross-track the
+            # admission rule reads without disturbing the cursor the policy
+            # is driven from. Kept ahead of every guard below so a plan
+            # arriving during a stale-plan window is still judged against a
+            # current measurement.
+            projection = self._generator.project(robot_xy)
+            if projection is not None:
+                self._last_cross_track_m = projection[1]
+
+        self._maybe_log_anchor_status()
 
         if not self._generator.has_path:
             return  # No plan yet -- do not publish a subgoal.

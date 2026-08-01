@@ -22,7 +22,19 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from strafer_inference.generator import RollingSubgoalGenerator, SubgoalState
+from strafer_inference.generator import (
+    ADMIT_COLLISION,
+    ADMIT_CROSS_TRACK,
+    ADMIT_GOAL_CHANGED,
+    ADMIT_NO_ANCHOR,
+    ADMIT_ROLLING,
+    REJECT_ANCHOR_HELD,
+    RollingSubgoalGenerator,
+    SubgoalState,
+    arc_length_projection,
+    evaluate_admission,
+    path_arc_lengths,
+)
 from strafer_shared.constants import SUBGOAL_LOOKAHEAD_M
 
 # Deployed lookahead per the resolved operator decision: fixed at the
@@ -433,6 +445,276 @@ class TestTorchCrossCheck:
         state = gen.update(np.array(robot))
         np.testing.assert_allclose(state.subgoal_xy, torch_subgoal, atol=1e-4)
         assert abs(state.subgoal_heading - torch_heading) <= 1e-4
+
+
+# =============================================================================
+# Anchoring support: arc-length projection, cursor seeding, admission rules
+# =============================================================================
+
+
+class TestPathArcLengths:
+    def test_cumulative_and_total(self):
+        arc = path_arc_lengths(np.array([(0.0, 0.0), (3.0, 0.0), (3.0, 4.0)]))
+        np.testing.assert_allclose(arc, [0.0, 3.0, 7.0])
+
+    def test_single_point_is_zero(self):
+        np.testing.assert_allclose(path_arc_lengths(np.array([(1.0, 2.0)])), [0.0])
+
+
+class TestArcLengthProjection:
+    PATH = np.array([(0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (3.0, 0.0)])
+
+    def test_on_path_point(self):
+        s, ct = arc_length_projection(self.PATH, np.array([1.5, 0.0]))
+        assert s == pytest.approx(1.5)
+        assert ct == pytest.approx(0.0)
+
+    def test_offset_keeps_arc_and_reports_cross_track(self):
+        s, ct = arc_length_projection(self.PATH, np.array([1.5, 0.4]))
+        assert s == pytest.approx(1.5)
+        assert ct == pytest.approx(0.4)
+
+    def test_before_start_clamps_to_zero(self):
+        s, ct = arc_length_projection(self.PATH, np.array([-2.0, 0.0]))
+        assert s == pytest.approx(0.0)
+        assert ct == pytest.approx(2.0)
+
+    def test_past_end_clamps_to_total(self):
+        s, _ = arc_length_projection(self.PATH, np.array([9.0, 0.0]))
+        assert s == pytest.approx(3.0)
+
+    def test_single_point_path(self):
+        s, ct = arc_length_projection(np.array([(2.0, 0.0)]), np.array([0.0, 0.0]))
+        assert s == pytest.approx(0.0)
+        assert ct == pytest.approx(2.0)
+
+    def test_zero_length_segment_is_finite(self):
+        s, ct = arc_length_projection(
+            np.array([(0.0, 0.0), (1.0, 0.0), (1.0, 0.0), (2.0, 0.0)]),
+            np.array([1.0, 0.5]),
+        )
+        assert math.isfinite(s) and math.isfinite(ct)
+        assert s == pytest.approx(1.0)
+
+    def test_tie_breaks_to_first_segment(self):
+        # Symmetric V: equidistant from both legs, first must win (matches
+        # torch.argmin in the training cursor).
+        s, _ = arc_length_projection(
+            np.array([(0.0, 1.0), (1.0, 0.0), (2.0, 1.0)]), np.array([1.0, 1.0])
+        )
+        assert s == pytest.approx(0.5 * _SQRT2)
+
+    def test_empty_path_rejected(self):
+        with pytest.raises(ValueError, match="empty path"):
+            arc_length_projection(np.zeros((0, 2)), np.array([0.0, 0.0]))
+
+    def test_matches_the_cursor_used_by_update(self):
+        """The projection helper and update() must agree — update() is
+        built on it, and admission compares a value from one against a
+        cursor driven by the other."""
+        gen = RollingSubgoalGenerator(lookahead_m=LOOKAHEAD)
+        gen.set_path(self.PATH)
+        robot = np.array([2.2, 0.7])
+        s, ct = arc_length_projection(self.PATH, robot)
+        state = gen.update(robot)
+        assert state.cursor_arc == pytest.approx(s)
+        assert state.cross_track == pytest.approx(ct)
+
+
+class TestCursorSeeding:
+    PATH = np.array([(0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (3.0, 0.0)])
+
+    def test_default_still_rewinds_to_zero(self):
+        """The training cursor's goal-resample behaviour is unchanged."""
+        gen = RollingSubgoalGenerator(lookahead_m=LOOKAHEAD)
+        gen.set_path(self.PATH)
+        gen.update(np.array([2.0, 0.0]))
+        gen.set_path(self.PATH)
+        assert gen.cursor_arc == 0.0
+
+    def test_initial_cursor_seeds_the_cursor(self):
+        gen = RollingSubgoalGenerator(lookahead_m=LOOKAHEAD)
+        gen.set_path(self.PATH, initial_cursor=1.75)
+        assert gen.cursor_arc == pytest.approx(1.75)
+        state = gen.update(np.array([1.75, 0.0]))
+        np.testing.assert_allclose(state.subgoal_xy, [2.75, 0.0], atol=1e-9)
+
+    def test_initial_cursor_clamped_to_path(self):
+        gen = RollingSubgoalGenerator(lookahead_m=LOOKAHEAD)
+        gen.set_path(self.PATH, initial_cursor=99.0)
+        assert gen.cursor_arc == pytest.approx(3.0)
+        gen.set_path(self.PATH, initial_cursor=-5.0)
+        assert gen.cursor_arc == 0.0
+
+    def test_seeded_cursor_still_never_retreats(self):
+        gen = RollingSubgoalGenerator(lookahead_m=LOOKAHEAD)
+        gen.set_path(self.PATH, initial_cursor=2.0)
+        state = gen.update(np.array([0.0, 0.0]))  # robot back at the start
+        assert state.cursor_arc == pytest.approx(2.0)
+        assert state.along_track_progress == pytest.approx(0.0)
+
+    def test_project_does_not_move_the_cursor(self):
+        gen = RollingSubgoalGenerator(lookahead_m=LOOKAHEAD)
+        gen.set_path(self.PATH)
+        assert gen.project(np.array([2.0, 0.0])) == pytest.approx((2.0, 0.0))
+        assert gen.cursor_arc == 0.0
+
+    def test_project_is_none_before_a_path(self):
+        assert RollingSubgoalGenerator(lookahead_m=LOOKAHEAD).project(
+            np.array([0.0, 0.0])
+        ) is None
+
+    def test_path_and_arc_exposed_for_the_node(self):
+        gen = RollingSubgoalGenerator(lookahead_m=LOOKAHEAD)
+        assert gen.path is None and gen.arc is None
+        gen.set_path(self.PATH)
+        np.testing.assert_allclose(gen.path, self.PATH)
+        np.testing.assert_allclose(gen.arc, [0.0, 1.0, 2.0, 3.0])
+
+
+class TestAdmissionRules:
+    """The ruled predicate that decides whether a fresh plan may REPLACE
+    the anchored path. Default answer is no."""
+
+    def test_holds_the_anchor_by_default(self):
+        d = evaluate_admission(has_anchor=True, cross_track_m=0.02)
+        assert d.admit is False
+        assert d.reason == REJECT_ANCHOR_HELD
+
+    def test_no_anchor_admits(self):
+        d = evaluate_admission(has_anchor=False)
+        assert d.admit is True and d.reason == ADMIT_NO_ANCHOR
+
+    def test_goal_change_admits(self):
+        d = evaluate_admission(has_anchor=True, goal_changed=True)
+        assert d.admit is True and d.reason == ADMIT_GOAL_CHANGED
+
+    def test_collision_admits(self):
+        d = evaluate_admission(has_anchor=True, anchor_in_collision=True)
+        assert d.admit is True and d.reason == ADMIT_COLLISION
+
+    def test_cross_track_admits_only_above_the_bound(self):
+        held = evaluate_admission(
+            has_anchor=True, cross_track_m=0.5, cross_track_bound_m=0.5
+        )
+        assert held.admit is False
+        admitted = evaluate_admission(
+            has_anchor=True, cross_track_m=0.51, cross_track_bound_m=0.5
+        )
+        assert admitted.admit is True
+        assert admitted.reason == ADMIT_CROSS_TRACK
+
+    def test_unknown_cross_track_never_admits(self):
+        d = evaluate_admission(has_anchor=True, cross_track_m=None)
+        assert d.admit is False
+
+    def test_rolling_mode_admits_everything(self):
+        d = evaluate_admission(
+            has_anchor=True, rolling_mode=True, cross_track_m=0.0
+        )
+        assert d.admit is True and d.reason == ADMIT_ROLLING
+
+    def test_precedence_rolling_over_all(self):
+        d = evaluate_admission(
+            has_anchor=True,
+            rolling_mode=True,
+            goal_changed=True,
+            anchor_in_collision=True,
+        )
+        assert d.reason == ADMIT_ROLLING
+
+    def test_precedence_goal_change_over_collision_and_cross_track(self):
+        d = evaluate_admission(
+            has_anchor=True,
+            goal_changed=True,
+            anchor_in_collision=True,
+            cross_track_m=9.0,
+        )
+        assert d.reason == ADMIT_GOAL_CHANGED
+
+    def test_precedence_collision_over_cross_track(self):
+        d = evaluate_admission(
+            has_anchor=True, anchor_in_collision=True, cross_track_m=9.0
+        )
+        assert d.reason == ADMIT_COLLISION
+
+    def test_reason_codes_are_distinct_and_stable(self):
+        codes = {
+            ADMIT_NO_ANCHOR,
+            ADMIT_GOAL_CHANGED,
+            ADMIT_COLLISION,
+            ADMIT_CROSS_TRACK,
+            ADMIT_ROLLING,
+            REJECT_ANCHOR_HELD,
+        }
+        assert len(codes) == 6
+        assert all(isinstance(c, str) and c for c in codes)
+
+
+class TestAnchoredCursorIsMonotonicUnderReplanning:
+    """The property PR-1 exists to restore.
+
+    Under the old semantics every fresh plan called ``set_path``, which
+    rewound the cursor AND re-rooted the path under the robot, so
+    cross-track could never grow. Holding one anchored path makes both
+    the cursor's monotonicity and the cross-track measurement real.
+    """
+
+    ANCHOR = np.array([(float(i), 0.0) for i in range(11)])  # 10 m along +x
+
+    def _drive(self, drift_per_step: float):
+        """Robot drives +x while drifting laterally, as the biased policy
+        actually did."""
+        return [
+            np.array([0.5 * k, drift_per_step * k]) for k in range(1, 15)
+        ]
+
+    def test_cursor_is_nondecreasing_across_the_whole_drive(self):
+        gen = RollingSubgoalGenerator(lookahead_m=LOOKAHEAD)
+        gen.set_path(self.ANCHOR)
+        prev = -1.0
+        for robot in self._drive(0.05):
+            state = gen.update(robot)
+            assert state.cursor_arc >= prev - 1e-12
+            assert state.along_track_progress >= -1e-12
+            prev = state.cursor_arc
+
+    def test_cross_track_actually_develops_on_an_anchored_path(self):
+        gen = RollingSubgoalGenerator(lookahead_m=LOOKAHEAD)
+        gen.set_path(self.ANCHOR)
+        seen = [gen.update(r).cross_track for r in self._drive(0.05)]
+        # The corrective signal the policy is trained to consume: it grows
+        # with the drift instead of pinning at one costmap cell.
+        assert seen[-1] > seen[0]
+        assert max(seen) > 0.3
+
+    def test_re_rooting_every_tick_destroys_that_signal(self):
+        """Control arm: the legacy behaviour, reproduced exactly."""
+        gen = RollingSubgoalGenerator(lookahead_m=LOOKAHEAD)
+        seen = []
+        for robot in self._drive(0.05):
+            # A Nav2 plan computed with use_start=False starts under the
+            # robot; installing on arrival is what re-roots it.
+            rerooted = np.array(
+                [robot + np.array([float(i), 0.0]) for i in range(11)]
+            )
+            gen.set_path(rerooted)
+            seen.append(gen.update(robot).cross_track)
+        assert max(seen) == pytest.approx(0.0, abs=1e-9)
+
+    def test_admitted_replacement_seeds_by_projection_not_rewind(self):
+        gen = RollingSubgoalGenerator(lookahead_m=LOOKAHEAD)
+        gen.set_path(self.ANCHOR)
+        gen.update(np.array([4.0, 0.0]))
+        assert gen.cursor_arc == pytest.approx(4.0)
+        # Admission fires; the replacement path still starts at the origin
+        # (e.g. a /plan from a source that did not root at the robot).
+        robot = np.array([4.0, 0.6])
+        s, _ = arc_length_projection(self.ANCHOR, robot)
+        gen.set_path(self.ANCHOR, initial_cursor=s)
+        # Progress toward the goal is preserved, not thrown away.
+        assert gen.cursor_arc == pytest.approx(4.0)
+        assert gen.total_arc - gen.cursor_arc == pytest.approx(6.0)
 
 
 def test_subgoalstate_is_dataclass_with_expected_fields():

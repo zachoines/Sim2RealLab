@@ -68,8 +68,8 @@ def downsample_depth(
     cull returns ``+inf`` for 26.5% of source pixels, all of them in a sky
     region whose edge cuts through image rows 0–22.
 
-    Measured over the 2026-07-31 capture (2245 frames of raw 640×360 joined
-    against the native 80×45 training render): with the block MEAN, blocks
+    Measured over 2245 recorded frames of raw 640×360 joined against the
+    native 80×45 training render: with the block MEAN, blocks
     that straddle that boundary are only 2.4% of the image but carry
     **68% of the entire residual**, at 87× the per-pixel error of blocks
     that do not straddle it. Averaging a block that is part sky and part

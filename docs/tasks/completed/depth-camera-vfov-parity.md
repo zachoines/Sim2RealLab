@@ -6,6 +6,9 @@ conditions — the operator's DEPTH_SUBGOAL retrain (`strafer_depth_subgoal_v2_9
 obs_dim 3619 = 19 + 80x45, md5-verified in-container) and its live validation
 (the 2026-07-31 obs-parity session) — and delivers the Jetson-side follow-up the
 hand-off asked for, though not the change it predicted. See **Closing note**.
+This brief's title is left as written — it records what was *asked for*. The PR
+is titled for what shipped, because the vertical-FOV hypothesis it names is the
+one the work refuted.
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/176
 **Follow-ups:** [`sim-depth-render-rate-parity`](../active/sim-performance/sim-depth-render-rate-parity.md) — the sim renders depth at 15 Hz behind a 30 Hz stamp.
 

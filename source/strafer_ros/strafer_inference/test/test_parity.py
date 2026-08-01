@@ -528,7 +528,7 @@ class TestResidualFloorSuppressesTheStructureVerdict:
         assert "ROW-STRUCTURED" in rep.verdict
 
     def test_floor_sits_between_the_measured_before_and_after(self):
-        # 2026-07-31 capture, 2245 joined ticks: block mean 4.268e-03 ->
+        # 2245 joined ticks of a recorded capture: block mean 4.268e-03 ->
         # block median 6.187e-04. The floor must separate them, or it either
         # hides a real defect or fails to suppress a fixed one.
         assert 6.187e-04 < P._RESIDUAL_FLOOR < 4.268e-03

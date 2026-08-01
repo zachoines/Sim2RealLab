@@ -80,7 +80,8 @@ an operator can eyeball the map.
 **Both structure scores are RATIOS to the overall mean residual, so they are
 scale-free — do not use them to compare two runs.** Fixing the dominant residual
 makes every score go *up*. Measured when the deploy reduction changed from a
-block mean to a block median (2026-07-31 capture, 2245 joined ticks): overall
+block mean to a block median (2245 joined ticks of a recorded sim-bridge
+capture): overall
 mean |Δ| **4.268e-03 → 6.187e-04** (6.9× better) and the absolute std of the
 per-row means **4.765e-03 → 1.960e-03** (2.4× better), while `row_structure`
 went **1.116 → 3.168**. Compare `overall_mean` and the absolute per-row spread;

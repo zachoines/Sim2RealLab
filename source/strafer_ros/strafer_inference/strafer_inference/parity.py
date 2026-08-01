@@ -431,7 +431,7 @@ _TIME_THRESH = 0.5  # per-tick residual std as a fraction of its mean
 #
 # Both scores are RATIOS to the overall mean, so they are scale-free: fix
 # the dominant residual and every score goes UP even as the absolute
-# spread falls. Measured on the 2026-07-31 capture when the deploy
+# spread falls. Measured over 2245 recorded ticks when the deploy
 # reduction changed from a block mean to a block median: overall
 # 4.27e-03 -> 6.19e-04 (6.9x better) and the absolute std of the per-row
 # means 4.77e-03 -> 1.96e-03 (2.4x better), while row_structure went

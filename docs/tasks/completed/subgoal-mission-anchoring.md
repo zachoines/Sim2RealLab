@@ -1,10 +1,10 @@
 # Anchor one path per mission so cross-track error can develop
 
-**Status:** Shipped 2026-07-31 in `<ship-commit>` (Jetson). Filed and shipped in
+**Status:** Shipped 2026-07-31 in `79d4646` (Jetson). Filed and shipped in
 the same PR — the work came from the 2026-07-31 obs-parity decision session, not
 from the queue, so there was never a window in which an active row would have
 been true.
-**PR:** https://github.com/zachoines/Sim2RealLab/pull/<N>
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/174
 
 **Type:** bug (train↔deploy semantics)
 **Owner:** Jetson

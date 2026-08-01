@@ -494,3 +494,33 @@ class TestReassembly:
         _, (dstart, dstop) = P.split_indices(v)
         # constant 3 m depth -> DEPTH_SCALE (1/DEPTH_MAX) applied once downstream.
         np.testing.assert_allclose(obs[dstart:dstop], 3.0 / DEPTH_MAX, atol=1e-6)
+
+
+class TestResidualFloorSuppressesTheStructureVerdict:
+    """Both scores are ratios to the overall mean, so they rise as the
+    residual falls. Below the floor they must not be reported."""
+
+    def _flat_residual(self, magnitude: float):
+        from strafer_shared.constants import DEPTH_HEIGHT, DEPTH_WIDTH
+
+        n = 4
+        grid = np.zeros((DEPTH_HEIGHT, DEPTH_WIDTH), np.float32)
+        grid += (
+            np.arange(DEPTH_HEIGHT)[:, None] * magnitude
+        ).astype(np.float32)
+        return np.tile(grid.reshape(-1), (n, 1))
+
+    def test_below_floor_does_not_claim_a_geometry_mismatch(self):
+        a, b, join = _depth_streams(self._flat_residual(1e-6))
+        rep = P.depth_spatial_residual(a, b, join)
+        assert rep.overall_mean <= P._RESIDUAL_FLOOR
+        # Row-structured by the ratio, and correctly not reported.
+        assert rep.row_structure > P._STRUCT_THRESH
+        assert "ROW-STRUCTURED" not in rep.verdict
+        assert "residual floor" in rep.verdict
+
+    def test_above_floor_still_reports_the_signature(self):
+        a, b, join = _depth_streams(self._flat_residual(1e-3))
+        rep = P.depth_spatial_residual(a, b, join)
+        assert rep.overall_mean > P._RESIDUAL_FLOOR
+        assert "ROW-STRUCTURED" in rep.verdict

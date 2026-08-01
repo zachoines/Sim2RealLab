@@ -130,6 +130,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 
 | Brief | Pri | State | Owner |
 |---|---|---|---|
+| [`sim-depth-render-rate-parity`](active/sim-performance/sim-depth-render-rate-parity.md) | P2 | active | DGX |
 | [`isaac-sim-rt-2-default-renderer`](active/sim-performance/isaac-sim-rt-2-default-renderer.md) | P2 | active | DGX |
 | [`bridge-throughput-toward-25hz`](active/sim-performance/bridge-throughput-toward-25hz.md) | P2 | active | DGX |
 | [`mecanum-action-throughput`](active/sim-performance/mecanum-action-throughput.md) | P2 | active | DGX |
@@ -222,6 +223,7 @@ session. Parked briefs are not listed here — see **By epic** or
 | Brief | Estimate | Note |
 |---|---|---|
 | [`isaac-sim-rt-2-default-renderer`](active/sim-performance/isaac-sim-rt-2-default-renderer.md) | S | Flip default renderer to Real-Time 2.0 + 4× FPS multiplier + Performance mode; re-measure bridge perf |
+| [`sim-depth-render-rate-parity`](active/sim-performance/sim-depth-render-rate-parity.md) | S | The sim publishes depth on a strict 30 Hz sim-stamp grid but renders at 15 Hz — 583 duplicate runs, all of length 2, in the 2026-07-31 join window. Training shows the same 15 Hz, but only after t_sim ~66 s. Establish which rate is the contract and make a divergence fail loud. Filed off `inference-cadence-shortfall`. |
 | [`planner-rotate-direction-prompt`](active/reliability/planner-rotate-direction-prompt.md) | S | Quick win — prompt edit |
 | [`goal-noise-training`](active/trained-policy/goal-noise-training.md) | M | Targeted DEPTH-baseline training pass with goal-position noise; gates VLM-grounded mission quality for `strafer_direct` |
 | [`policy-rate-shared-constants`](active/trained-policy/policy-rate-shared-constants.md) | S (~1 hr) | Delegate `_DEFAULT_NAV_SIM_DT` / `_DEFAULT_NAV_DECIMATION` in `strafer_env_cfg.py` to the new `strafer_shared.constants.POLICY_SIM_DT` / `POLICY_DECIMATION`, **plus** (added 2026-07-03) a shared `CMD_WATCHDOG_TIMEOUT_S` that `roboclaw_node.WATCHDOG_TIMEOUT_SEC` and `BridgeConfig.cmd_watchdog_sim_s` (PR #134) both default from — same stream-relative window, each side's own clock domain. Closes the duplications so neither the training rate nor the stop-on-silence window can silently desync sim from real |

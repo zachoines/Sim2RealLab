@@ -84,3 +84,20 @@
     # TensorRT version change, so it is safe to leave enabled.
     trt_engine_cache_enable: true
     trt_engine_cache_path: "~/.cache/strafer_inference/trt_engines"
+
+    # Tick on depth arrival as well as on the timer; false ticks on the timer
+    # alone, at whatever phase it lands on. The freshness gate caps the rate
+    # either way.
+    tick_on_depth: true
+
+    # A RELIABLE subscriber receives nothing from a BEST_EFFORT publisher, e.g.
+    # a camera brought up with depth_qos:=SENSOR_DATA.
+    depth_reliability: "best_effort"
+
+    # One per callback group that can block: tick, depth, action server,
+    # rclpy's implicit node group (/clock, parameter services), tf2_ros's /tf.
+    executor_threads: 5
+
+    # Periodic cadence + skip-by-cause summary. depth_rx against inferences
+    # separates a transport loss from a loss inside the node. 0 disables.
+    cadence_log_period_s: 10.0

@@ -649,3 +649,21 @@ class TestParamsFileBindsToLaunchedNode:
         with open(bare_path, "w") as f:
             yaml.safe_dump(bare, f)
         assert self._bound_value(bare_path, "trt_engine_cache_path", "") == ""
+
+
+class TestCadenceConfig:
+    """The shipped cadence knobs."""
+
+    def test_tick_on_depth_is_shipped_enabled(self, node_params):
+        assert node_params["tick_on_depth"] is True
+
+    def test_cadence_log_is_shipped_enabled(self, node_params):
+        assert float(node_params["cadence_log_period_s"]) > 0.0
+
+    def test_executor_threads_cover_every_blocking_group(self, node_params):
+        # tick, depth, action server, rclpy's node group, tf2_ros's /tf.
+        assert int(node_params["executor_threads"]) >= 5
+
+    def test_depth_reliability_default(self, node_params):
+        # A RELIABLE subscriber receives nothing from a BEST_EFFORT publisher.
+        assert node_params["depth_reliability"] == "best_effort"

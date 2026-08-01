@@ -1,12 +1,12 @@
 # Fix the policy-camera vertical FOV to match the real D555 sensor
 
-**Status:** Shipped 2026-07-31 in `<ship-commit>` (Jetson). The DGX half landed
+**Status:** Shipped 2026-07-31 in `eba8940` (Jetson). The DGX half landed
 long before, in `41bfa6d` (PR #143); this PR closes the brief's own two remaining
 conditions — the operator's DEPTH_SUBGOAL retrain (`strafer_depth_subgoal_v2_998`,
 obs_dim 3619 = 19 + 80x45, md5-verified in-container) and its live validation
 (the 2026-07-31 obs-parity session) — and delivers the Jetson-side follow-up the
 hand-off asked for, though not the change it predicted. See **Closing note**.
-**PR:** https://github.com/zachoines/Sim2RealLab/pull/<N>
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/176
 **Follow-ups:** [`sim-depth-render-rate-parity`](../active/sim-performance/sim-depth-render-rate-parity.md) — the sim renders depth at 15 Hz behind a 30 Hz stamp.
 
 

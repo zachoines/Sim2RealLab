@@ -652,9 +652,7 @@ class TestParamsFileBindsToLaunchedNode:
 
 
 class TestCadenceConfig:
-    """The shipped cadence knobs. Their defaults are the deploy contract:
-    depth-driven ticking on, the counters on, the depth QoS unchanged.
-    """
+    """The shipped cadence knobs."""
 
     def test_tick_on_depth_is_shipped_enabled(self, node_params):
         assert node_params["tick_on_depth"] is True
@@ -663,13 +661,9 @@ class TestCadenceConfig:
         assert float(node_params["cadence_log_period_s"]) > 0.0
 
     def test_executor_threads_cover_every_blocking_group(self, node_params):
-        # tick/default, depth, action-server, rclpy's implicit node group
-        # (/clock + parameter services), tf2_ros's private /tf group.
+        # tick, depth, action server, rclpy's node group, tf2_ros's /tf.
         assert int(node_params["executor_threads"]) >= 5
 
-    def test_depth_reliability_default_is_unchanged(self, node_params):
-        # A RELIABLE subscriber is QoS-incompatible with a BEST_EFFORT
-        # publisher and would receive NOTHING from a camera brought up with
-        # depth_qos:=SENSOR_DATA. The lever exists to be measured, not to be
-        # flipped by default.
+    def test_depth_reliability_default(self, node_params):
+        # A RELIABLE subscriber receives nothing from a BEST_EFFORT publisher.
         assert node_params["depth_reliability"] == "best_effort"

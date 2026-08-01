@@ -172,10 +172,8 @@ def _real_assembly_depth_node(**overrides) -> InferenceNode:
 
     from strafer_shared.constants import WHEEL_JOINT_NAMES
 
-    # Marshalling a 921 KB Image through rclpy costs ~100 ms per frame in
-    # Python, which would age the once-set imu/joints/odom receipt times past
-    # the 0.2 s real-robot watchdog budget between iterations. The budget is
-    # not what these tests are about.
+    # Marshalling a full-resolution Image through rclpy is slow enough to age
+    # the once-set receipt times past the real-robot watchdog budget.
     overrides.setdefault("obs_timeout_s", 30.0)
     overrides.setdefault("depth_timeout_s", 30.0)
     node = _node(policy_variant="DEPTH_SUBGOAL", **overrides)
@@ -2063,13 +2061,10 @@ class TestObsDump(unittest.TestCase):
 
 
 class TestDepthDrivenTick(unittest.TestCase):
-    """The tick is driven by depth ARRIVAL, not only by the timer.
+    """The tick is driven by depth arrival, not only by the timer.
 
-    The freshness gate is still the rate limiter — one inference per fresh
-    frame — so this changes the tick's PHASE, not its cap. Measured with
-    timer-only scheduling against a recorded sim-bridge capture: 23.49 Hz
-    sim against a 30 Hz training cadence, 100% of the missing ticks on sim
-    slots where a depth frame had been published.
+    The freshness gate is still the rate limiter, so this changes the
+    tick's phase, not its cap.
     """
 
     def test_depth_variant_creates_a_wake_handle(self) -> None:
@@ -2118,8 +2113,7 @@ class TestDepthDrivenTick(unittest.TestCase):
             node.destroy_node()
 
     def test_timer_still_exists_as_the_heartbeat(self) -> None:
-        """The watchdog rides the timer; if depth stops, the zero-twist must
-        still fire."""
+        """The watchdog rides the timer, so it must survive depth stopping."""
         node = _node(policy_variant="DEPTH_SUBGOAL")
         try:
             self.assertIsNotNone(node._timer)
@@ -2176,14 +2170,11 @@ class TestCadenceCounters(unittest.TestCase):
             node.destroy_node()
 
     def test_repeat_depth_content_is_counted(self) -> None:
-        """A publisher that stamps at 30 Hz while its renderer updates
-        slower satisfies the seq-keyed gate with duplicate pixels; 54.1% of
-        depth messages in a recorded sim-bridge capture were byte-identical to
-        their predecessor. The node is the only place that is observable.
+        """A publisher that stamps faster than it renders satisfies the
+        seq-keyed gate with duplicate pixels.
 
-        Drives the REAL obs-assembly path (full-resolution frames), because
-        the count is taken on the downsampled block the policy actually
-        sees, not on the raw message.
+        Drives the real obs-assembly path: the count is taken on the
+        downsampled block, not on the raw message.
         """
         node = _real_assembly_depth_node()
         try:
@@ -2216,8 +2207,8 @@ class TestCadenceCounters(unittest.TestCase):
                 )
             )
             node._note_timer_deadline()
-            # Three periods elapsed in one fire -> two ticks lost outright
-            # (rcl re-anchors forward, it does not catch up).
+            # Three periods in one fire -> two ticks lost; rcl re-anchors
+            # forward rather than catching up.
             self.assertEqual(node._counts["timer_deadline_missed"], 2)
         finally:
             node.destroy_node()
@@ -2269,15 +2260,9 @@ class TestCadenceCounters(unittest.TestCase):
 
 
 class TestDepthReliabilityLever(unittest.TestCase):
-    """The depth subscription's reliability is now a named lever.
+    """The depth subscription's reliability is a named lever."""
 
-    Under the old timer-only scheduling a dropped frame cost a tick the gate
-    would have skipped anyway; now the tick is driven by arrival, so a frame
-    lost in transport is a lost policy step. The default is unchanged — the
-    lever exists so the trade can be measured.
-    """
-
-    def test_default_is_still_best_effort(self) -> None:
+    def test_default_is_best_effort(self) -> None:
         node = _node(policy_variant="DEPTH_SUBGOAL")
         try:
             self.assertEqual(

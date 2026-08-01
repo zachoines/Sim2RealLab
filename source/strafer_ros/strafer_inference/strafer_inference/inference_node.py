@@ -19,45 +19,14 @@ ticks advance no hidden state, matching training's one-depth-one-step
 alignment; without it, catch-up ticks under the slow sim depth feed
 replay a stale frame into the recurrent state.
 
-Tick scheduling: for a depth variant the tick is driven by depth
-ARRIVAL (a guard condition triggered from ``_on_depth``), not solely by
-the timer. The gate is the rate limiter either way — this only fixes
-the PHASE.
+Tick scheduling: a depth variant ticks on depth arrival as well as on
+the timer, so a tick cannot run before the frame it needs. The gate
+still caps the rate; the timer remains the watchdog heartbeat and the
+scheduler for camera-free variants.
 
-Measured against a recorded sim-bridge capture: with a timer-only tick
-the node ran 23.49 Hz sim against training's 30 Hz (a per-mission segment
-of the same run reads 23.79 Hz). Over the capture window, 247 of
-1166 sim slots produced no inference and **100% of them are slots
-where a depth frame WAS published** — the loss is not in the sim, the
-publisher, or the transport. The mechanism is arrival phase: the sim
-runs at RTF 0.15, so one 1/30 s sim step spans ~218 ms of wall, and
-that step's depth frame lands a long way into it (25.8% within 1 ms of
-the clock step, 59.0% at ≥90 ms). A timer-driven tick therefore
-usually fires *before* its own step's frame, the gate correctly skips
-it, and the frame is superseded before any later tick reads it. Two
-independent measurements pin this rather than executor starvation:
-a zero-free-parameter "tick runs τ ms after the clock step, gate
-passes iff an unconsumed frame has landed" model reproduces 97.0% of
-the individual per-slot hit/miss decisions (TPR 0.999, TNR 0.862) with
-no starvation term, and reconstructing which frame each inference
-actually consumed (bit-exact against the raw bag payloads, 919/919 at
-max|Δ| 0.0) shows 47.7% of ticks consuming a one-slot-old frame and
-34.2% a two-slot-old one — which a tick *delayed* by the 921 KB
-deserialize could not produce, since it would consume the current
-frame. Lost timer deadlines account for at most 2.9% of slots, and
-``timer_deadline_missed`` now measures that residual directly.
-
-Triggering the tick from the frame removes the phase term outright and
-makes "one inference per fresh depth frame" structural rather than
-emergent. The timer stays: it is the watchdog heartbeat, the scheduler
-for camera-free variants, and the safety net if the depth stream stops.
-
-Cadence counters: every skip is counted by cause and surfaced in a
-periodic ``cadence:`` log line, so a future regression is visible from
-an ordinary mission log without arming a parity capture. ``depth_rx`` vs
-``inferences`` is the load-bearing pair — a shortfall with ``depth_rx``
-also short indicts the transport (the depth subscription is
-BEST_EFFORT/depth=1 against a RELIABLE publisher), not the node.
+Cadence counters: every skip is counted by cause and reported
+periodically. ``depth_rx`` against ``inferences`` separates a transport
+loss from a loss inside this node.
 
 Thread safety: the action server lives in a ``ReentrantCallbackGroup``
 so ``execute_callback`` can block on the mission while the timer keeps
@@ -155,12 +124,8 @@ _DEPTH_QOS = QoSProfile(
     depth=1,
 )
 
-# ...but that reasoning was written when a dropped frame cost a tick the
-# gate would have skipped anyway. Now that the tick is driven by depth
-# ARRIVAL, a frame lost in transport is a lost policy step outright, and
-# the depth_rx counter makes the loss visible. `depth_reliability` exposes
-# the trade so it can be measured instead of argued about; the default is
-# unchanged.
+# A RELIABLE subscriber is QoS-incompatible with a BEST_EFFORT publisher and
+# receives nothing from one, so best_effort is the only safe default.
 _DEPTH_RELIABILITY = {
     "best_effort": ReliabilityPolicy.BEST_EFFORT,
     "reliable": ReliabilityPolicy.RELIABLE,
@@ -207,31 +172,16 @@ class InferenceNode(Node):
             ],
         )
         self.declare_parameter("onnx_intra_op_threads", 1)
-        # Drive the tick from depth arrival as well as from the timer. The
-        # freshness gate still caps the rate at one inference per fresh
-        # frame; this only aligns the tick's PHASE with the frame it needs.
-        # False restores the timer-only scheduling that measured 23.49 Hz
-        # sim against a 30 Hz training cadence.
+        # False ticks on the timer alone, at whatever phase it lands on.
         self.declare_parameter("tick_on_depth", True)
         # Periodic cadence/skip summary. 0 disables.
         self.declare_parameter("cadence_log_period_s", 10.0)
-        # Executor threads (read by main()). The node spans FIVE callback
-        # groups, not three: the tick's default group, the depth group, the
-        # action server's reentrant group, rclpy's own implicit node group
-        # (which carries the /clock subscription under use_sim_time plus the
-        # parameter services), and tf2_ros's private group for /tf +
-        # /tf_static. Three threads for five groups lets the /clock callback
-        # queue behind the 921 KB depth deserialize, and rcl re-anchors a
-        # missed ROS_TIME deadline forward rather than catching up, so the
-        # tick loses that step outright. This is NOT the cause of the
-        # cadence shortfall this scheduler fixes — a gate-and-phase model with
-        # no starvation term explains 97.0% of the per-slot decisions, leaving
-        # starvation at most 2.9% — but it is a real residual and it costs
-        # nothing to remove.
-        # timer_deadline_missed is the counter that keeps it honest.
+        # Read by main(). One per callback group that can block: tick, depth,
+        # action server, rclpy's implicit node group (/clock under use_sim_time
+        # plus the parameter services), tf2_ros's /tf group. rcl re-anchors a
+        # missed ROS_TIME deadline forward instead of catching up, so a /clock
+        # callback queued behind the depth take costs the tick a whole step.
         self.declare_parameter("executor_threads", 5)
-        # Depth subscription reliability: "best_effort" (default, unchanged)
-        # or "reliable". See _DEPTH_RELIABILITY.
         self.declare_parameter("depth_reliability", "best_effort")
         # TRT engine-cache knobs (see _resolve_onnx_providers); the path + its
         # default live in inference.yaml, not code.
@@ -391,12 +341,8 @@ class InferenceNode(Node):
         self._policy_load_error: Optional[str] = None
         self._ready_flag = False
 
-        # --- cadence accounting -------------------------------------
-        # Plain ints written only by the tick (a MutuallyExclusive group, so
-        # serialized) except the _on_depth ones, which are incremented under
-        # the depth lock. Cheap enough to leave permanently on: this is the
-        # instrument that makes a cadence regression visible without arming a
-        # parity capture.
+        # Written only by the tick (a MutuallyExclusive group, so serialized)
+        # except the _on_depth ones, which are bumped under the depth lock.
         self._counts: dict[str, int] = {
             "ticks_timer": 0,
             "ticks_depth": 0,
@@ -472,11 +418,9 @@ class InferenceNode(Node):
         # construction can never find a half-built wake handle.
         self._depth_wake = None
         if self._has_depth and self._tick_on_depth:
-            # Runs the tick in the DEFAULT group, not the depth group: the
-            # 921 KB deserialize keeps its own executor slot (the reason the
-            # groups were split), while the inference it triggers stays
-            # serialized against the other cached sources exactly as the
-            # timer-driven tick was.
+            # Default group, not the depth group: the deserialize keeps its
+            # own executor slot while the inference stays serialized against
+            # the other cached sources.
             self._depth_wake = self.create_guard_condition(
                 self._on_depth_tick, callback_group=self._default_cb_group
             )
@@ -548,14 +492,12 @@ class InferenceNode(Node):
         self.get_logger().info(
             "cadence: scheduler="
             + (
-                "depth-arrival + timer heartbeat"
+                "depth-arrival + timer"
                 if self._depth_wake is not None
-                else ("timer only" if self._has_depth else "timer (no depth variant)")
+                else ("timer only" if self._has_depth else "timer")
             )
-            + f" target={1.0 / infer_period:.2f} Hz sim; counters reported every "
-            f"{self._cadence_log_period_s:.0f} s "
-            "(depth_rx vs inferences is the load-bearing pair — a shortfall in "
-            "both indicts the depth transport, in inferences alone the node)."
+            + f" target={1.0 / infer_period:.2f} Hz sim, counters every "
+            f"{self._cadence_log_period_s:.0f} s"
         )
 
     def _resolve_onnx_providers(self) -> Optional[list]:
@@ -770,9 +712,8 @@ class InferenceNode(Node):
             self._last_depth_rx_t = rx_t
             self._depth_seq += 1
             self._counts["depth_rx"] += 1
-        # Wake the tick now that the frame it needs is in hand. rclpy
-        # re-triggers a guard condition that was signalled but not handled,
-        # so a wake landing while the tick is mid-inference is not lost.
+        # rclpy re-triggers a guard condition signalled but not handled, so a
+        # wake landing mid-inference is not lost.
         if self._depth_wake is not None:
             self._depth_wake.trigger()
 
@@ -1092,11 +1033,8 @@ class InferenceNode(Node):
     def _note_timer_deadline(self) -> None:
         """Count sim-time periods the timer skipped between two fires.
 
-        rcl re-anchors a ROS_TIME timer forward by whole periods past `now`
-        rather than catching up, so a callback delayed past its deadline
-        loses the intervening ticks outright. Under `use_sim_time` at a low
-        RTF that is exactly what a slow callback elsewhere in the executor
-        causes, and it is invisible without this count.
+        rcl re-anchors a ROS_TIME timer forward past `now` rather than
+        catching up, so a delayed callback loses those ticks outright.
         """
         now_sim = self.get_clock().now().nanoseconds * 1e-9
         prev = self._last_timer_fire_sim
@@ -1118,17 +1056,8 @@ class InferenceNode(Node):
     def _note_depth_content(self, depth_flat_meters: np.ndarray) -> None:
         """Count consecutive inferences fed a bit-identical depth block.
 
-        The freshness gate keys on the message counter, so a publisher that
-        stamps at 30 Hz while its renderer updates slower satisfies the gate
-        with duplicate pixels. Measured on a recorded sim-bridge capture:
-        54.1% of depth messages were byte-identical to their predecessor over
-        the whole recording, and inside the analysis window it is exact — 583
-        runs, every one of length 2, i.e. the sim renders depth at 15 Hz and
-        publishes each image twice at 30 Hz stamps. That is a publisher-side
-        property, not a node defect (the training gym dump shows the same
-        15 Hz novelty) — but the node is the only place it is observable at
-        runtime, and "one inference per fresh depth frame" means something
-        different when half the frames are not fresh images.
+        The gate keys on the message counter, so a publisher that stamps
+        faster than it renders satisfies it with duplicate pixels.
         """
         digest = hashlib.blake2b(
             depth_flat_meters.tobytes(), digest_size=16
@@ -1173,33 +1102,27 @@ class InferenceNode(Node):
             f"stale_sources[{stale}]"
         )
 
-        # Fail loud, and name the owner. A cadence regression that only
-        # shows up as a number in an INFO line is a cadence regression
-        # nobody reads; the depth_rx/inferences split is what says whether
-        # to look at the transport or at this node.
         if span_sim >= 2.0 and target > 0.0 and rate < 0.9 * target:
             expected = span_sim * target
             if self._has_depth and c["depth_rx"] < 0.9 * expected:
                 owner = (
-                    f"the depth TRANSPORT — only {c['depth_rx']} of ~"
-                    f"{expected:.0f} published frames reached this node "
-                    f"(subscription is depth_reliability="
+                    f"the depth transport: {c['depth_rx']} of ~{expected:.0f} "
+                    "published frames reached this node "
+                    f"(depth_reliability="
                     f"{self.get_parameter('depth_reliability').value!r}, "
                     "history depth=1)"
                 )
             else:
                 owner = (
-                    "THIS NODE — frames arrived but did not become "
-                    f"inferences (gate={c['skip_gate']} "
-                    f"watchdog={c['skip_watchdog']} "
+                    "this node: frames arrived but did not become inferences "
+                    f"(gate={c['skip_gate']} watchdog={c['skip_watchdog']} "
                     f"obs_none={c['skip_obs_none']} "
                     f"timer_deadline_missed={c['timer_deadline_missed']})"
                 )
             self.get_logger().warning(
                 f"CADENCE SHORTFALL: {rate:.2f} Hz sim against a "
-                f"{target:.2f} Hz training cadence ({100.0 * rate / target:.0f}%). "
-                f"Attributable to {owner}. A recurrent policy's hidden state "
-                "advances once per inference, so this is a train/deploy gap.",
+                f"{target:.2f} Hz training cadence "
+                f"({100.0 * rate / target:.0f}%). Attributable to {owner}.",
                 throttle_duration_sec=30.0,
             )
 
@@ -1361,12 +1284,6 @@ def main(args=None) -> None:
     # CLI / launch parameter overrides come through rclpy.init's argv
     # parser and are picked up automatically by the Node constructor.
     node = InferenceNode()
-    # One slot per callback group that can block: the action server's
-    # reentrant execute_callback, the tick + small subs (default group),
-    # _on_depth (its own group, the 921 KB take), rclpy's implicit node group
-    # (/clock under use_sim_time + the parameter services) and tf2_ros's
-    # private /tf group. See the executor_threads parameter for why five, and
-    # for why this is the small residual rather than the cadence fix.
     executor = MultiThreadedExecutor(
         num_threads=max(1, int(node.get_parameter("executor_threads").value))
     )

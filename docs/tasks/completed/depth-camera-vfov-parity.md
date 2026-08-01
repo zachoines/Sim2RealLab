@@ -1,5 +1,15 @@
 # Fix the policy-camera vertical FOV to match the real D555 sensor
 
+**Status:** Shipped 2026-07-31 in `<ship-commit>` (Jetson). The DGX half landed
+long before, in `41bfa6d` (PR #143); this PR closes the brief's own two remaining
+conditions — the operator's DEPTH_SUBGOAL retrain (`strafer_depth_subgoal_v2_998`,
+obs_dim 3619 = 19 + 80x45, md5-verified in-container) and its live validation
+(the 2026-07-31 obs-parity session) — and delivers the Jetson-side follow-up the
+hand-off asked for, though not the change it predicted. See **Closing note**.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/<N>
+**Follow-ups:** [`sim-depth-render-rate-parity`](../active/sim-performance/sim-depth-render-rate-parity.md) — the sim renders depth at 15 Hz behind a 30 Hz stamp.
+
+
 **Type:** task / bugfix (train↔deploy geometry parity)
 **Owner:** DGX (`strafer_shared` + `strafer_lab`). The deploy-side downsample
 change is a parallel Jetson follow-up (see **Operator hand-off**).
@@ -170,3 +180,86 @@ different authored `verticalAperture` (2.07 vs 2.76 mm) had identical sensor
 aperture rendered 56° while an 80×60 rendered 71°. VFOV tracks **resolution**,
 not the authored aperture — which is why the fix is a resolution change (80×45,
 16:9) and the standing guard is aspect parity.
+
+---
+
+## Closing note (2026-07-31, Jetson) — the Jetson follow-up, and a correction
+
+**The hand-off's item 2 was already satisfied.** It asked the Jetson lane to
+"downsample 640×360 → 80×**45**". `strafer_shared.constants` has carried
+`DEPTH_HEIGHT = 45` since `41bfa6d`, and `strafer_inference.obs_pipeline`
+derives its block size from those constants (`_BLOCK_H = 360 // 45 = 8`, with
+hard integer-ratio asserts), so the deploy path has been producing 80×45 all
+along. Nothing about the *resolution* needed to land.
+
+**But the residual the brief predicts is real, and it is not vertical FOV.**
+The 2026-07-31 obs-parity session found a ROW-STRUCTURED depth residual
+(row 1.08 / col 0.17, overall mean |Δ| 4.100e-03) and read it, per this
+brief, as the vertical-geometry signature. Measured against the preserved
+raw 640×360 bag frames and the preserved native 80×45 training render, it is
+not:
+
+- **Vertical FOV / shift — ruled out.** A vertical-scale sweep over
+  0.85–1.20 has its argmin at exactly **1.000**; a row-shift sweep over
+  −4…+4 rows has its argmin at exactly **0.00**; the joint 2-D grid agrees.
+  Independently, the two cameras' sky-fraction horizon profiles coincide to
+  **≤ 0.026 rows** at four iso-levels, against the **1.92 rows** a 1.26×
+  magnification would displace the 50% crossing. The aspect-parity guard
+  this brief installed is holding.
+- **Clip / nearfield ordering — ruled out.** Reordering moves the overall
+  residual by ≤ 1.8%.
+- **Per-row or global affine (pitch / extrinsic) — ruled out.** Fitting one
+  makes the residual *worse* (4.95e-03 and 4.69e-03 vs 4.10e-03).
+- **Area-average vs point-sample — CONFIRMED.** The training camera renders
+  one ray per policy pixel; deploy reduced 64 source pixels to one with a
+  mean. Blocks that straddle the sim's far-clip validity boundary (some
+  pixels `+inf`, some finite) are **2.4% of the image and carry 68% of the
+  entire residual**, at **87×** the per-pixel error of blocks that do not
+  straddle it. In rows 0–11 the homogeneous-block-only residual is
+  2.3e-07…3.6e-06 — i.e. zero — against full row residuals of
+  3.5e-03…1.05e-02. Rows 23–44 have zero straddling blocks and zero
+  residual. Averaging a part-sky, part-wall block produces a depth that
+  exists nowhere in the scene.
+
+**The fix is the reduction, not the geometry:** `downsample_depth` now takes
+the block **median**. Same 8×8 integer ratio, same pipeline either side,
+pure numpy, no new dependency.
+
+| | block mean (before) | block median (shipped) |
+|---|---|---|
+| overall mean \|Δ\| | 4.268e-03 (0.0256 m) | **6.187e-04 (0.0037 m)** |
+| absolute std of per-row means | 4.765e-03 | **1.960e-03** |
+| worst per-dim \|Δ\| | 7.812e-01 | **6.345e-01** |
+| `row_structure` | 1.116 | 3.168 |
+| `col_structure` | 1.238 | 1.089 |
+
+2245 joined ticks, the shipped `downsample_depth` against the preserved gym
+render, scored with `parity.py`'s own formula. **6.9× better overall**, and
+**5.7× below** the ~3.5e-03 cross-camera floor the session recorded — that
+figure is superseded; the new floor is **6.19e-04**, of which 4.31e-04 is the
+irreducible same-surface term no reduction choice can touch.
+
+**A correction to the acceptance metric.** `row_structure` *rises* (1.116 →
+3.168) even though the absolute row spread falls 2.4×, because both structure
+scores are ratios to the overall mean — shrinking the residual inflates them
+by construction. "The row-structure score collapses toward the column score"
+is therefore not achievable by any improvement, and `parity.py` would have
+gone on printing "vertical-FOV geometry-mismatch signature" at a residual an
+order of magnitude below the floor. This PR adds `_RESIDUAL_FLOOR` so the
+verdict says so instead, and `PARITY_SCHEMA.md` now states that the structure
+scores locate a residual but must never be used to judge whether it shrank.
+
+**Not shipped, and why.** A validity-majority + centre-2×2 masked mean scored
+better still (4.92e-04) but reads 4 of 64 source pixels. In sim the invalid
+region is a coherent `+inf` sky; on a real D555 invalid pixels are
+speckle-distributed NaN, so that variant would pass ~4× more sensor noise
+through, and its majority rule is tie-break fragile (the strictly-greater-than
+reading scores 5.68e-04, within 9% of the median). One operator over all 64
+pixels wins on the sensor we actually deploy against.
+
+**Cost:** 4.56 ms/frame vs 0.88 ms in `strafer-gpu:humble` on this Orin NX,
+against a 33.33 ms policy period that already spends 4.71 ms in TRT.
+
+**Do not expect this to move the v2 bias.** It is magnitude-class and
+spatially symmetric, exactly like the other two deploy-side fixes from the
+same session. The signed left-strafe bias is policy-owned.

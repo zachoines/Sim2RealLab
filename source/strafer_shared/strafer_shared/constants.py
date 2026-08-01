@@ -122,8 +122,13 @@ CAMERA_OFFSET_Z = 0.25  # meters up from body_link
 # stream). 80x45 is 16:9, matching the real D555 / perception camera aspect.
 # Isaac Sim derives a camera's vertical FOV from its resolution aspect ratio
 # (square pixels), not from vertical_aperture, so 16:9 yields the sensor's real
-# ~56.4 deg VFOV. Both are 16:9, so deployment downsamples 640x360 -> 80x45 by
-# an 8x block-average that preserves the vertical FOV.
+# ~56.4 deg VFOV. Both are 16:9, so deployment downsamples 640x360 -> 80x45 on
+# an exact 8x integer block grid, which preserves the vertical FOV. The
+# REDUCTION within each block is a median, not a mean: the training camera
+# renders one ray per policy pixel, and averaging a block that straddles the
+# far-clip validity boundary invents a depth that exists nowhere in the scene
+# (measured: such blocks are 2.4% of the image and carried 68% of the whole
+# train-vs-deploy depth residual). See obs_pipeline.downsample_depth.
 DEPTH_WIDTH = 80
 DEPTH_HEIGHT = 45
 DEPTH_CLIP_NEAR = 0.4  # meters — D555 stereo min range (real hardware limit)
@@ -146,7 +151,7 @@ D555_RENDER_FAR_CLIP_M = 50.0
 # grounding client) and mirrored by the Isaac Sim perception camera
 # (strafer_lab.tasks.navigation.d555_cfg). Distinct from DEPTH_WIDTH /
 # DEPTH_HEIGHT above, which is the 80×45 DOWNSAMPLED policy input only.
-# Both are 16:9, so the downsample is a clean 8× block-average (640/80,
+# Both are 16:9, so the downsample is a clean 8x integer block grid (640/80,
 # 360/45) that preserves the sensor's vertical FOV into the policy grid.
 PERCEPTION_WIDTH = 640
 PERCEPTION_HEIGHT = 360

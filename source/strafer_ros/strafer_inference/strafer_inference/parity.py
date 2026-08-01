@@ -426,6 +426,26 @@ def compute_obs_parity(
 _STRUCT_THRESH = 0.5  # per-row/col std as a fraction of the mean residual
 _TIME_THRESH = 0.5  # per-tick residual std as a fraction of its mean
 
+# Below this overall mean |delta| the structure scores stop meaning
+# anything and must not be reported as a defect signature.
+#
+# Both scores are RATIOS to the overall mean, so they are scale-free: fix
+# the dominant residual and every score goes UP even as the absolute
+# spread falls. Measured on the 2026-07-31 capture when the deploy
+# reduction changed from a block mean to a block median: overall
+# 4.27e-03 -> 6.19e-04 (6.9x better) and the absolute std of the per-row
+# means 4.77e-03 -> 1.96e-03 (2.4x better), while row_structure went
+# 1.12 -> 3.17. Without this floor the tool would keep printing
+# "vertical-FOV geometry-mismatch signature" at a residual an order of
+# magnitude below the cross-camera floor, for a geometry mismatch that
+# was independently ruled out (vertical-scale sweep argmin exactly 1.000,
+# row-shift argmin exactly 0).
+#
+# 1e-3 sits comfortably above the 6.19e-04 the current pipeline achieves
+# and well below the 4.27e-03 the defect produced. Read the absolute
+# per-row spread, not the ratio, when comparing two runs.
+_RESIDUAL_FLOOR = 1e-3
+
 
 @dataclass
 class DepthResidualReport:
@@ -487,7 +507,14 @@ def depth_spatial_residual(
     per_tick = resid.mean(axis=1)
     time_variation = float(per_tick.std() / (per_tick.mean() + _EPS))
 
-    if max(row_structure, col_structure) > _STRUCT_THRESH and (
+    if overall <= _RESIDUAL_FLOOR:
+        verdict = (
+            f"overall mean |delta| {overall:.3e} is at or below the "
+            f"{_RESIDUAL_FLOOR:.0e} residual floor -> structure scores are "
+            "ratios to that mean and carry no signal here; compare the "
+            "absolute per-row spread instead"
+        )
+    elif max(row_structure, col_structure) > _STRUCT_THRESH and (
         row_structure >= col_structure
     ):
         verdict = (

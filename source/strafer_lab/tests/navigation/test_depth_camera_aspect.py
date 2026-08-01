@@ -4,7 +4,7 @@
 """Standing geometry gate: the policy and perception cameras must share an aspect ratio.
 
 Isaac Sim derives a camera's vertical FOV from its resolution aspect ratio
-(square pixels), not from vertical_aperture. Deployment block-averages the
+(square pixels), not from vertical_aperture. Deployment block-reduces the
 perception stream onto the policy grid, so train/deploy vertical-FOV parity holds
 iff the two cameras' aspect ratios match — this assert is that gate.
 """

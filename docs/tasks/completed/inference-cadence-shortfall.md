@@ -1,9 +1,9 @@
-# Drive inference off depth arrival so the deploy cadence matches training
+# Drive inference off depth arrival to hold the 30 Hz cadence
 
-**Status:** Shipped 2026-07-31 in `<ship-commit>` (Jetson). Filed and shipped in
+**Status:** Shipped 2026-07-31 in `651fa13` (Jetson). Filed and shipped in
 the same PR — the work came from the 2026-07-31 obs-parity decision session, not
 from the queue.
-**PR:** https://github.com/zachoines/Sim2RealLab/pull/<N>
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/175
 
 **Type:** bug (train↔deploy cadence)
 **Owner:** Jetson

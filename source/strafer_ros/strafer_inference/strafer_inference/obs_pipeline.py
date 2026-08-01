@@ -59,6 +59,10 @@ def downsample_depth(
     training camera renders one ray per policy pixel; a mean over a block
     that straddles the far-clip validity boundary returns a depth that is on
     no surface in the scene, where the median returns the majority one.
+
+    Not a stride, either: the policy pixel's centre maps to the corner
+    BETWEEN source pixels ``8c+3`` and ``8c+4``, so no single source pixel
+    sits on the training ray and the two that bracket it disagree.
     """
     depth = np.asarray(depth_meters, dtype=np.float32)
     if depth.shape != (PERCEPTION_HEIGHT, PERCEPTION_WIDTH):

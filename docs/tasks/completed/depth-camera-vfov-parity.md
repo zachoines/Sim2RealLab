@@ -10,7 +10,7 @@ This brief's title is left as written — it records what was *asked for*. The P
 is titled for what shipped, because the vertical-FOV hypothesis it names is the
 one the work refuted.
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/176
-**Follow-ups:** [`sim-depth-render-rate-parity`](../active/sim-performance/sim-depth-render-rate-parity.md) — the sim renders depth at 15 Hz behind a 30 Hz stamp.
+**Follow-ups:** [`sim-depth-render-rate-parity`](../active/sim-performance/sim-depth-render-rate-parity.md) — the sim renders depth at 15 Hz behind a 30 Hz stamp; [`d555-invalid-pixel-statistics`](../active/trained-policy/d555-invalid-pixel-statistics.md) — the bench measurement holding the reduction follow-up.
 
 
 **Type:** task / bugfix (train↔deploy geometry parity)
@@ -266,3 +266,26 @@ against a 33.33 ms policy period that already spends 4.71 ms in TRT.
 **Do not expect this to move the v2 bias.** It is magnitude-class and
 spatially symmetric, exactly like the other two deploy-side fixes from the
 same session. The signed left-strafe bias is policy-owned.
+
+### Ruled after review (2026-08-01)
+
+- **Median ships; the majority-vote + centre-2×2 variant is HELD** behind a real
+  D555 bench measurement, filed as
+  [`d555-invalid-pixel-statistics`](../active/trained-policy/d555-invalid-pixel-statistics.md)
+  with a pre-registered decision rule. The variant trades an all-64-pixel
+  estimator for a 21% gain on a *proxy*, resting on an invalid-pixel structure
+  the real sensor may not honour; in absolute terms the gap is ~0.8 mm at 6 m,
+  an order below the depth-noise envelope the policy trained under.
+- **"Just stride to the training ray's pixel" is closed.** The policy pixel's
+  centre maps to the corner *between* source pixels `8c+3` and `8c+4`, so no
+  source pixel sits on the ray and the bracketing pixels disagree by 44%; which
+  pixel you stride to swings the residual ~8×. Even the best stride loses to the
+  median on same-surface blocks, where there is no boundary to straddle. The
+  geometry half of that argument now lives in `downsample_depth`'s docstring so
+  the refactor cannot be re-proposed from the code alone.
+- **The training-lane zero-drift option is REJECTED on budget.** Rendering the
+  training policy camera at 640×360 and sharing deploy's `downsample_depth`
+  would drive the reduction's drift contribution to exactly zero rather than
+  minimising it, but at 64× the policy-camera render cost against an env-count
+  ceiling far below what training uses, to remove a term already an order below
+  the trained noise envelope. Revisit trigger recorded on the bench brief.

@@ -60,7 +60,7 @@ is not a parity claim.
 | Block | Bound | Rationale |
 |---|---|---|
 | Scalar dims (everything but `depth_image`) | ≤ **1e-5** max-abs-delta | float32 assembly noise. |
-| Depth dims (`depth_image`) | ≤ **1e-3** max-abs-delta | renderer nondeterminism budget; reported separately. **Known not to pass and not currently achievable**: a max-abs bound over 3600 dims is set by single pixels at depth discontinuities, which no reduction removes (measured worst per-dim 6.34e-01 with the shipped block median, 7.81e-01 with the block mean it replaced). Judge depth on the distributional figure — overall mean \|Δ\|, currently **6.19e-04** — until this bound is replaced by a percentile one. |
+| Depth dims (`depth_image`) | ≤ **1e-3** max-abs-delta | renderer nondeterminism budget; reported separately. **Known not to pass**: a max-abs bound over 3600 dims is set by single pixels at depth discontinuities, which no reduction removes. Judge depth on the distributional figure — overall mean \|Δ\| — until this bound is replaced by a percentile one. |
 | Rolling subgoal position | ≤ **MAP_RESOLUTION·2 = 0.10 m** | half a costmap cell each side. |
 
 ## Depth spatial-residual report (depth variants)
@@ -78,19 +78,11 @@ verdict is a heuristic hint; the raw per-row / per-column means are reported so
 an operator can eyeball the map.
 
 **Both structure scores are RATIOS to the overall mean residual, so they are
-scale-free — do not use them to compare two runs.** Fixing the dominant residual
-makes every score go *up*. Measured when the deploy reduction changed from a
-block mean to a block median (2245 joined ticks of a recorded sim-bridge
-capture): overall
-mean |Δ| **4.268e-03 → 6.187e-04** (6.9× better) and the absolute std of the
-per-row means **4.765e-03 → 1.960e-03** (2.4× better), while `row_structure`
-went **1.116 → 3.168**. Compare `overall_mean` and the absolute per-row spread;
-read the structure scores only to locate *where* a residual lives, never to
-judge whether it shrank.
-
-Below an overall mean |Δ| of `_RESIDUAL_FLOOR` (1e-3) the verdict says so
-explicitly and reports no signature, so the tool stops naming a geometry
-mismatch at a residual an order of magnitude under the cross-camera floor.
+scale-free — do not use them to compare two runs.** Improving the dominant
+residual makes every score go *up*. Compare `overall_mean` and the absolute
+per-row spread; read the structure scores only to locate *where* a residual
+lives, never to judge whether it shrank. Below an overall mean |Δ| of
+`_RESIDUAL_FLOOR` the verdict says so and reports no signature.
 
 ## Cadence report
 

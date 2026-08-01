@@ -53,48 +53,12 @@ def downsample_depth(
     Returns raw meters, not normalized: the single 1/max_depth normalization
     is applied once downstream by ``assemble_observation``'s ``DEPTH_SCALE``,
     matching the sim ``ObsTerm(func=depth_image, scale=DEPTH_SCALE)``. The
-    noise step is skipped (inference adds none) and the 640×360 perception
-    stream is reduced to the 80×45 policy grid that exists only in sim.
+    noise step is skipped (inference adds none).
 
-    **The reduction is a block MEDIAN, not a block mean**, over the exact
-    8×8 integer ratio (640/80 = 360/45 = 8).
-
-    Both cameras are 16:9 and share a focal length, aperture and pose, so
-    the geometry already matches (that is what the 80×45 policy-camera
-    resolution bought). What does *not* match is the sampling: the training
-    camera renders one ray per policy pixel, while deploy reduces 64 source
-    pixels to one. Where those 64 disagree the two answers diverge, and they
-    disagree most across the far-clip validity boundary — the sim's frustum
-    cull returns ``+inf`` for 26.5% of source pixels, all of them in a sky
-    region whose edge cuts through image rows 0–22.
-
-    Measured over 2245 recorded frames of raw 640×360 joined against the
-    native 80×45 training render: with the block MEAN, blocks
-    that straddle that boundary are only 2.4% of the image but carry
-    **68% of the entire residual**, at 87× the per-pixel error of blocks
-    that do not straddle it. Averaging a block that is part sky and part
-    wall produces a depth that exists nowhere in the scene; the median
-    returns the majority surface, which is what a single ray would have
-    hit. That one substitution takes the residual from 4.27e-03 to
-    6.19e-04 (6.9×) and drops the irreducible same-surface floor from
-    1.38e-03 to 4.31e-04.
-
-    Ruled out by measurement, so they are not what this reduction is
-    guarding against: a residual vertical-FOV mismatch (the vertical-scale
-    sweep's argmin is exactly 1.000 and the row-shift argmin exactly 0, and
-    the two cameras' sky-fraction horizon profiles agree to ≤0.026 rows
-    against the 1.92 rows a 1.26× magnification would move it); the
-    clip/nearfield ordering (reordering moves the residual by ≤1.8%); and a
-    per-row or global affine (fitting one makes the residual *worse*).
-
-    A centre-2×2 masked mean scored slightly better still (4.92e-04) but is
-    not shipped: it reads 4 of 64 source pixels, so on a real D555 — whose
-    invalid pixels are speckle-distributed rather than a coherent sky
-    region — it passes ~4× more sensor noise through, and its
-    validity-majority rule is tie-break fragile (the strictly-greater-than
-    reading scores 5.68e-04, within 9% of the median for all that extra
-    machinery). The median is one operator over all 64 pixels with no
-    special cases and the same robustness argument on either sensor.
+    The block reduction is a MEDIAN over the exact 8×8 integer ratio. The
+    training camera renders one ray per policy pixel; a mean over a block
+    that straddles the far-clip validity boundary returns a depth that is on
+    no surface in the scene, where the median returns the majority one.
     """
     depth = np.asarray(depth_meters, dtype=np.float32)
     if depth.shape != (PERCEPTION_HEIGHT, PERCEPTION_WIDTH):
@@ -103,9 +67,8 @@ def downsample_depth(
             f"{PERCEPTION_WIDTH}); got {depth.shape}"
         )
 
-    # Non-finite first: the sim's frustum cull emits +inf and a real D555
-    # emits NaN, and both must read as "nothing within range" before the
-    # reduction rather than poisoning it.
+    # +inf (frustum cull) and NaN (D555) must read as out-of-range before
+    # the reduction rather than poisoning it.
     depth = np.where(np.isfinite(depth), depth, np.float32(max_depth))
     depth = np.median(
         depth.reshape(DEPTH_HEIGHT, _BLOCK_H, DEPTH_WIDTH, _BLOCK_W),

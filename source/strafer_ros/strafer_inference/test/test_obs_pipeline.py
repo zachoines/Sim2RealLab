@@ -92,18 +92,15 @@ class TestDownsampleDepth:
     def test_block_reduction_is_not_the_mean(self):
         """Guard against a silent revert to the block mean.
 
-        A block that straddles the far-clip validity boundary is where the
-        two reductions diverge, and those blocks carried 68% of the measured
-        train-vs-deploy depth residual under the mean.
+        A block straddling the far-clip validity boundary is where the two
+        reductions diverge.
         """
         block_h = PERCEPTION_HEIGHT // DEPTH_HEIGHT
         block_w = PERCEPTION_WIDTH // DEPTH_WIDTH
         raw = np.full(
             (PERCEPTION_HEIGHT, PERCEPTION_WIDTH), 2.0, dtype=np.float32
         )
-        # Make the first block 3/4 wall at 2.0 m and 1/4 sky (culled to +inf,
-        # which reads as DEPTH_MAX). The mean would invent 3.0 m; the median
-        # returns the surface that actually fills the block.
+        # 3/4 wall at 2.0 m, 1/4 culled: the mean would return 3.0 m.
         raw[0:block_h // 2, 0:block_w // 2] = np.inf
         out = downsample_depth(raw).reshape(DEPTH_HEIGHT, DEPTH_WIDTH)
         assert out[0, 0] == pytest.approx(2.0)
@@ -114,8 +111,8 @@ class TestDownsampleDepth:
         assert mean_answer == pytest.approx(3.0)
 
     def test_majority_sky_block_reads_as_out_of_range(self):
-        """The complementary case: a mostly-culled block must not be pulled
-        toward a minority near surface."""
+        """A mostly-culled block must not be pulled toward a minority near
+        surface."""
         block_h = PERCEPTION_HEIGHT // DEPTH_HEIGHT
         block_w = PERCEPTION_WIDTH // DEPTH_WIDTH
         raw = np.full(

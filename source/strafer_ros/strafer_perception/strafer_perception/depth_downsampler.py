@@ -6,9 +6,8 @@ depth range, and publishes it on /d555/depth/downsampled.
 
 WARNING: the 0.0-fill + cv2.INTER_AREA resize here is this node's own
 convention and must NEVER feed the policy — the policy obs pipeline
-downsamples the raw stream itself (a nearfield-fill block MEDIAN in
-strafer_inference.obs_pipeline.downsample_depth; an averaging resize like the
-one here is exactly what that pipeline moved away from).
+downsamples the raw stream itself (a nearfield-fill block median in
+strafer_inference.obs_pipeline.downsample_depth).
 
 Input:  /d555/depth/image_rect_raw  (16UC1, millimeters, native resolution)
 Output: /d555/depth/downsampled     (32FC1, meters, DEPTH_WIDTH×DEPTH_HEIGHT)

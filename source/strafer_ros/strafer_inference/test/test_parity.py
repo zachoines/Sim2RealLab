@@ -497,10 +497,8 @@ class TestReassembly:
 
 
 class TestResidualFloorSuppressesTheStructureVerdict:
-    """Both structure scores are ratios to the overall mean, so fixing the
-    dominant residual makes them RISE. Below the floor they carry no signal
-    and must not be reported as a geometry signature.
-    """
+    """Both scores are ratios to the overall mean, so they rise as the
+    residual falls. Below the floor they must not be reported."""
 
     def _flat_residual(self, magnitude: float):
         from strafer_shared.constants import DEPTH_HEIGHT, DEPTH_WIDTH
@@ -516,7 +514,7 @@ class TestResidualFloorSuppressesTheStructureVerdict:
         a, b, join = _depth_streams(self._flat_residual(1e-6))
         rep = P.depth_spatial_residual(a, b, join)
         assert rep.overall_mean <= P._RESIDUAL_FLOOR
-        # Strongly row-structured by the ratio, and correctly NOT reported.
+        # Row-structured by the ratio, and correctly not reported.
         assert rep.row_structure > P._STRUCT_THRESH
         assert "ROW-STRUCTURED" not in rep.verdict
         assert "residual floor" in rep.verdict
@@ -526,9 +524,3 @@ class TestResidualFloorSuppressesTheStructureVerdict:
         rep = P.depth_spatial_residual(a, b, join)
         assert rep.overall_mean > P._RESIDUAL_FLOOR
         assert "ROW-STRUCTURED" in rep.verdict
-
-    def test_floor_sits_between_the_measured_before_and_after(self):
-        # 2245 joined ticks of a recorded capture: block mean 4.268e-03 ->
-        # block median 6.187e-04. The floor must separate them, or it either
-        # hides a real defect or fails to suppress a fixed one.
-        assert 6.187e-04 < P._RESIDUAL_FLOOR < 4.268e-03

@@ -124,11 +124,8 @@ CAMERA_OFFSET_Z = 0.25  # meters up from body_link
 # (square pixels), not from vertical_aperture, so 16:9 yields the sensor's real
 # ~56.4 deg VFOV. Both are 16:9, so deployment downsamples 640x360 -> 80x45 on
 # an exact 8x integer block grid, which preserves the vertical FOV. The
-# REDUCTION within each block is a median, not a mean: the training camera
-# renders one ray per policy pixel, and averaging a block that straddles the
-# far-clip validity boundary invents a depth that exists nowhere in the scene
-# (measured: such blocks are 2.4% of the image and carried 68% of the whole
-# train-vs-deploy depth residual). See obs_pipeline.downsample_depth.
+# reduction within each block is a median, not a mean -- see
+# obs_pipeline.downsample_depth.
 DEPTH_WIDTH = 80
 DEPTH_HEIGHT = 45
 DEPTH_CLIP_NEAR = 0.4  # meters — D555 stereo min range (real hardware limit)

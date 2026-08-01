@@ -42,6 +42,25 @@ strafer_subgoal_generator:
     starvation_stationary_m: 0.05
     starvation_stationary_s: 1.0
 
+    # "mission": one anchored path per goal, replaced only on admission.
+    # "rolling": re-root on every accepted plan.
+    subgoal_anchoring: "mission"
+
+    # Above this the corridor is lost; sized under the global costmap's
+    # inflation radius.
+    admission_cross_track_m: 0.5
+
+    # Checks only the anchored path ahead of the cursor; abstains without a
+    # costmap. costmap_lethal_cost is in OccupancyGrid units (99 inscribed,
+    # 100 lethal).
+    admission_collision_check: true
+    costmap_topic: "/global_costmap/costmap"
+    costmap_lethal_cost: 99
+    costmap_timeout_s: 5.0
+
+    # Periodic anchoring/admission summary. 0 disables.
+    anchor_log_period_s: 10.0
+
     # Dedicated rolling-subgoal channel. The mission goal is not a topic —
     # it arrives via navigate_to_pose, and a new goal there resets the
     # policy's hidden state, so the streamed subgoal stays separate.

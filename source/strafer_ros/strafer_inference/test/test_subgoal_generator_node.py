@@ -16,10 +16,18 @@ import pytest
 import rclpy
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped
-from nav_msgs.msg import Path
+from nav_msgs.msg import OccupancyGrid, Path
 from rclpy.clock import ClockType
 from rclpy.parameter import Parameter
 
+from strafer_inference.generator import (
+    ADMIT_COLLISION,
+    ADMIT_CROSS_TRACK,
+    ADMIT_GOAL_CHANGED,
+    ADMIT_NO_ANCHOR,
+    ADMIT_ROLLING,
+    REJECT_ANCHOR_HELD,
+)
 from strafer_inference.subgoal_generator_node import SubgoalGeneratorNode
 
 
@@ -55,14 +63,79 @@ def _pose(x: float, y: float) -> PoseStamped:
     return msg
 
 
-def _path(*xy: tuple[float, float]) -> Path:
+def _path(*xy: tuple[float, float], stamp_ns: int = 0) -> Path:
     msg = Path()
+    msg.header.stamp.sec = stamp_ns // 1_000_000_000
+    msg.header.stamp.nanosec = stamp_ns % 1_000_000_000
     for x, y in xy:
         ps = PoseStamped()
         ps.pose.position.x = x
         ps.pose.position.y = y
         msg.poses.append(ps)
     return msg
+
+
+def _straight_path(n: int = 11, *, x0: float = 0.0, stamp_ns: int = 0) -> Path:
+    """An n-metre path along +x starting at ``x0`` — the shape a Nav2 plan
+    computed with ``use_start=False`` takes when the robot sits at ``x0``."""
+    return _path(*[(x0 + float(i), 0.0) for i in range(n)], stamp_ns=stamp_ns)
+
+
+def _plan_to_goal(robot_xy, goal_xy=(10.0, 0.0), *, spacing: float = 0.5,
+                  stamp_ns: int = 0) -> Path:
+    """A path from the robot's current pose to the goal, as Nav2 returns.
+
+    Rooted under the robot in x AND y; rooting in x only would show zero
+    cross-track by construction and hide the effect under test.
+    """
+    start = np.asarray(robot_xy, dtype=float)
+    goal = np.asarray(goal_xy, dtype=float)
+    total = float(np.linalg.norm(goal - start))
+    n = max(int(total / spacing), 1)
+    pts = [tuple(start + (goal - start) * (i / n)) for i in range(n + 1)]
+    return _path(*pts, stamp_ns=stamp_ns)
+
+
+def _costmap(
+    *,
+    blocked_cells: tuple[tuple[int, int], ...] = (),
+    resolution: float = 0.05,
+    width: int = 400,
+    height: int = 400,
+    origin_x: float = -10.0,
+    origin_y: float = -10.0,
+    frame_id: str = "map",
+    cost: int = 100,
+) -> OccupancyGrid:
+    """A global costmap with the named ``(col, row)`` cells at ``cost``."""
+    msg = OccupancyGrid()
+    msg.header.frame_id = frame_id
+    msg.info.resolution = resolution
+    msg.info.width = width
+    msg.info.height = height
+    msg.info.origin.position.x = origin_x
+    msg.info.origin.position.y = origin_y
+    data = [0] * (width * height)
+    for col, row in blocked_cells:
+        data[row * width + col] = cost
+    msg.data = data
+    return msg
+
+
+def _cells_for(node: SubgoalGeneratorNode, *xy: tuple[float, float]):
+    """(col, row) costmap indices, divide-then-floor as the node does.
+
+    ``//`` takes a different float path and would place the obstacle one
+    cell off the waypoint.
+    """
+    info = _costmap().info
+    return tuple(
+        (
+            int(np.floor((x - info.origin.position.x) / info.resolution)),
+            int(np.floor((y - info.origin.position.y) / info.resolution)),
+        )
+        for x, y in xy
+    )
 
 
 class TestPlanFresh(unittest.TestCase):
@@ -776,3 +849,448 @@ class TestComposedStaleBound(unittest.TestCase):
         self.assertEqual(
             generator_budget + inference_budget, pytest.approx(2.0)
         )
+
+
+# =============================================================================
+# Mission anchoring: one path per goal, replaced only on admission
+# =============================================================================
+
+
+def _anchored_node(**overrides) -> SubgoalGeneratorNode:
+    """A node with a 0..10 m anchor along +x and the robot on it at 0."""
+    node = _node(**overrides)
+    node._active_goal = _pose(10.0, 0.0)
+    node._last_goal_telemetry_rx_t = time.monotonic()
+    node._last_robot_xy = np.array([0.0, 0.0])
+    node._new_mission_pending = True
+    node._consider_plan(_straight_path(stamp_ns=1), source="test")
+    node._new_mission_pending = False
+    return node
+
+
+class TestAnchoringMode(unittest.TestCase):
+    def test_mission_is_the_shipped_default_in_code(self) -> None:
+        node = _node()
+        try:
+            self.assertFalse(node._rolling_anchoring)
+            self.assertEqual(
+                node.get_parameter("subgoal_anchoring").value, "mission"
+            )
+        finally:
+            node.destroy_node()
+
+    def test_shipped_yaml_selects_mission_anchoring(self) -> None:
+        import os
+        import yaml
+        from ament_index_python.packages import get_package_share_directory
+
+        path = os.path.join(
+            get_package_share_directory("strafer_inference"),
+            "config", "subgoal_generator.yaml",
+        )
+        with open(path) as fh:
+            params = yaml.safe_load(fh)
+        p = params["strafer_subgoal_generator"]["ros__parameters"]
+        self.assertEqual(p["subgoal_anchoring"], "mission")
+        self.assertGreater(p["admission_cross_track_m"], 0.0)
+        self.assertTrue(p["admission_collision_check"])
+
+    def test_unknown_mode_is_rejected_at_construction(self) -> None:
+        with pytest.raises(ValueError, match="subgoal_anchoring"):
+            _node(subgoal_anchoring="sometimes")
+
+    def test_rolling_mode_is_selectable_as_the_named_fallback(self) -> None:
+        node = _node(subgoal_anchoring="rolling")
+        try:
+            self.assertTrue(node._rolling_anchoring)
+        finally:
+            node.destroy_node()
+
+
+class TestAnchorHeldAgainstRepeatPlans(unittest.TestCase):
+    """A fresh plan is planner liveness, not a new path."""
+
+    def test_second_distinct_plan_does_not_re_root_the_anchor(self) -> None:
+        node = _anchored_node()
+        try:
+            node._last_robot_xy = np.array([4.0, 0.05])
+            node._last_cross_track_m = 0.05
+            anchor_before = node._generator.path.copy()
+            # A path rooted under the robot, as Nav2 sends.
+            node._consider_plan(
+                _straight_path(x0=4.0, stamp_ns=2), source="test"
+            )
+            np.testing.assert_allclose(node._generator.path, anchor_before)
+            self.assertEqual(node._anchors_rejected, 1)
+            self.assertEqual(node._admit_reasons.get(REJECT_ANCHOR_HELD), 1)
+        finally:
+            node.destroy_node()
+
+    def test_rejected_plan_still_counts_as_planner_liveness(self) -> None:
+        """A held anchor must not read as a dead planner."""
+        node = _anchored_node()
+        try:
+            node._last_cross_track_m = 0.05
+            node._last_plan_rx_t = 0.0            # aged far past path_timeout_s
+            node._planner_refusals = 3
+            node._hold_armed = False
+            node._consider_plan(
+                _straight_path(x0=4.0, stamp_ns=3), source="test"
+            )
+            self.assertTrue(node._plan_fresh(time.monotonic()))
+            self.assertEqual(node._planner_refusals, 0)
+            self.assertTrue(node._hold_armed)
+        finally:
+            node.destroy_node()
+
+    def test_republished_identical_plan_is_deduped(self) -> None:
+        """planner_server mirrors /plan, so arrival is meaningless."""
+        node = _anchored_node()
+        try:
+            seen_before = node._plans_seen
+            for _ in range(5):
+                node._consider_plan(_straight_path(stamp_ns=1), source="test")
+            self.assertEqual(node._plans_seen, seen_before)
+            self.assertEqual(node._plans_republished, 5)
+            self.assertTrue(node._plan_fresh(time.monotonic()))
+        finally:
+            node.destroy_node()
+
+    def test_identical_geometry_with_a_new_stamp_is_a_new_plan(self) -> None:
+        node = _anchored_node()
+        try:
+            node._last_cross_track_m = 0.05
+            node._consider_plan(_straight_path(stamp_ns=99), source="test")
+            self.assertEqual(node._plans_seen, 2)
+            self.assertEqual(node._plans_republished, 0)
+        finally:
+            node.destroy_node()
+
+    def test_rolling_mode_re_roots_on_every_plan(self) -> None:
+        node = _node(subgoal_anchoring="rolling")
+        try:
+            node._active_goal = _pose(10.0, 0.0)
+            node._last_robot_xy = np.array([0.0, 0.0])
+            node._consider_plan(_straight_path(stamp_ns=1), source="test")
+            node._last_cross_track_m = 0.0
+            node._consider_plan(
+                _straight_path(x0=4.0, stamp_ns=2), source="test"
+            )
+            self.assertEqual(node._generator.path[0][0], pytest.approx(4.0))
+            self.assertEqual(node._admit_reasons.get(ADMIT_ROLLING), 2)
+        finally:
+            node.destroy_node()
+
+
+class TestAdmissionRulesAtTheNode(unittest.TestCase):
+    def test_first_plan_of_a_mission_anchors(self) -> None:
+        node = _node()
+        try:
+            node._active_goal = _pose(10.0, 0.0)
+            node._consider_plan(_straight_path(stamp_ns=1), source="test")
+            self.assertTrue(node._generator.has_path)
+            self.assertEqual(node._admit_reasons.get(ADMIT_NO_ANCHOR), 1)
+        finally:
+            node.destroy_node()
+
+    def test_moved_goal_admits_a_replacement(self) -> None:
+        node = _anchored_node()
+        try:
+            node._last_cross_track_m = 0.01
+            node._active_goal = _pose(-5.0, 3.0)   # far from the anchor's goal
+            node._consider_plan(
+                _path((0.0, 0.0), (-5.0, 3.0), stamp_ns=4), source="test"
+            )
+            self.assertEqual(node._admit_reasons.get(ADMIT_GOAL_CHANGED), 1)
+            self.assertEqual(len(node._generator.path), 2)
+        finally:
+            node.destroy_node()
+
+    def test_new_mission_admits_even_when_the_goal_barely_moved(self) -> None:
+        """A new mission must not inherit the previous anchor just because
+        its goal sits within the provenance tolerance."""
+        node = _anchored_node()
+        try:
+            node._last_cross_track_m = 0.01
+            # Inside _PLAN_GOAL_MATCH_M, so provenance alone reads "same goal".
+            node._on_active_goal(_pose(10.1, 0.0))
+            self.assertTrue(node._new_mission_pending)
+            node._consider_plan(
+                _straight_path(x0=4.0, stamp_ns=5), source="test"
+            )
+            self.assertEqual(node._admit_reasons.get(ADMIT_GOAL_CHANGED), 1)
+            self.assertFalse(node._new_mission_pending)
+            self.assertEqual(node._generator.path[0][0], pytest.approx(4.0))
+        finally:
+            node.destroy_node()
+
+    def test_cross_track_below_the_bound_holds_the_anchor(self) -> None:
+        node = _anchored_node(admission_cross_track_m=0.5)
+        try:
+            node._last_cross_track_m = 0.49
+            node._consider_plan(
+                _straight_path(x0=4.0, stamp_ns=6), source="test"
+            )
+            self.assertEqual(node._admit_reasons.get(REJECT_ANCHOR_HELD), 1)
+        finally:
+            node.destroy_node()
+
+    def test_cross_track_above_the_bound_admits(self) -> None:
+        node = _anchored_node(admission_cross_track_m=0.5)
+        try:
+            node._last_cross_track_m = 0.51
+            node._consider_plan(
+                _straight_path(x0=4.0, stamp_ns=7), source="test"
+            )
+            self.assertEqual(node._admit_reasons.get(ADMIT_CROSS_TRACK), 1)
+            self.assertEqual(node._generator.path[0][0], pytest.approx(4.0))
+        finally:
+            node.destroy_node()
+
+    def test_admitted_replacement_seeds_the_cursor_by_projection(self) -> None:
+        node = _anchored_node(admission_cross_track_m=0.5)
+        try:
+            # Robot is 4 m along, badly off-corridor; the replacement path
+            # still runs 0..10 m (it did not root at the robot).
+            node._last_robot_xy = np.array([4.0, 0.9])
+            node._last_cross_track_m = 0.9
+            node._consider_plan(_straight_path(stamp_ns=8), source="test")
+            self.assertEqual(node._admit_reasons.get(ADMIT_CROSS_TRACK), 1)
+            # Progress preserved: the cursor lands at the robot's projection,
+            # not rewound to the path's start.
+            self.assertEqual(node._generator.cursor_arc, pytest.approx(4.0))
+        finally:
+            node.destroy_node()
+
+
+class TestCollisionAdmissionRule(unittest.TestCase):
+    def test_blocked_cell_ahead_of_the_cursor_admits(self) -> None:
+        node = _anchored_node()
+        try:
+            node._last_cross_track_m = 0.01
+            node._on_costmap(
+                _costmap(blocked_cells=_cells_for(node, (6.0, 0.0)))
+            )
+            self.assertTrue(node._anchor_in_collision())
+            node._consider_plan(
+                _straight_path(x0=4.0, stamp_ns=9), source="test"
+            )
+            self.assertEqual(node._admit_reasons.get(ADMIT_COLLISION), 1)
+        finally:
+            node.destroy_node()
+
+    def test_blocked_cell_behind_the_cursor_is_ignored(self) -> None:
+        node = _anchored_node()
+        try:
+            node._generator.update(np.array([6.0, 0.0]))   # cursor -> 6.0 m
+            node._last_cross_track_m = 0.01
+            node._on_costmap(
+                _costmap(blocked_cells=_cells_for(node, (2.0, 0.0)))
+            )
+            self.assertFalse(node._anchor_in_collision())
+            node._consider_plan(
+                _straight_path(x0=6.0, stamp_ns=10), source="test"
+            )
+            self.assertEqual(node._admit_reasons.get(REJECT_ANCHOR_HELD), 1)
+        finally:
+            node.destroy_node()
+
+    def test_inscribed_cost_counts_as_blocked(self) -> None:
+        node = _anchored_node()
+        try:
+            node._on_costmap(
+                _costmap(blocked_cells=_cells_for(node, (6.0, 0.0)), cost=99)
+            )
+            self.assertTrue(node._anchor_in_collision())
+        finally:
+            node.destroy_node()
+
+    def test_sub_inscribed_inflation_cost_is_not_blocked(self) -> None:
+        node = _anchored_node()
+        try:
+            node._on_costmap(
+                _costmap(blocked_cells=_cells_for(node, (6.0, 0.0)), cost=98)
+            )
+            self.assertFalse(node._anchor_in_collision())
+        finally:
+            node.destroy_node()
+
+    def test_no_costmap_abstains_and_warns_once(self) -> None:
+        node = _anchored_node()
+        try:
+            warn = MagicMock()
+            node.get_logger().warning = warn
+            self.assertFalse(node._anchor_in_collision())
+            self.assertFalse(node._anchor_in_collision())
+            self.assertEqual(warn.call_count, 1)
+        finally:
+            node.destroy_node()
+
+    def test_stale_costmap_abstains(self) -> None:
+        node = _anchored_node(costmap_timeout_s=1.0)
+        try:
+            node._on_costmap(
+                _costmap(blocked_cells=_cells_for(node, (6.0, 0.0)))
+            )
+            node._costmap_rx_t = time.monotonic() - 5.0
+            self.assertFalse(node._anchor_in_collision())
+        finally:
+            node.destroy_node()
+
+    def test_costmap_in_a_foreign_frame_is_rejected(self) -> None:
+        node = _anchored_node()
+        try:
+            node._on_costmap(
+                _costmap(
+                    blocked_cells=_cells_for(node, (6.0, 0.0)),
+                    frame_id="odom",
+                )
+            )
+            self.assertIsNone(node._costmap_grid)
+            self.assertFalse(node._anchor_in_collision())
+        finally:
+            node.destroy_node()
+
+    def test_waypoints_outside_the_costmap_are_unknown_not_blocked(self) -> None:
+        node = _anchored_node()
+        try:
+            # A tiny costmap that does not cover the path at all.
+            node._on_costmap(_costmap(width=4, height=4, origin_x=50.0,
+                                      origin_y=50.0))
+            self.assertFalse(node._anchor_in_collision())
+        finally:
+            node.destroy_node()
+
+    def test_check_disabled_never_subscribes_or_fires(self) -> None:
+        node = _anchored_node(admission_collision_check=False)
+        try:
+            self.assertIsNone(node._costmap_sub)
+            self.assertFalse(node._anchor_in_collision())
+        finally:
+            node.destroy_node()
+
+
+class TestAnchoredCursorMonotonicityAtTheNode(unittest.TestCase):
+    """Driving a mission at Nav2's replan cadence leaves the cursor
+    monotonic and lets cross-track grow."""
+
+    def _drive(self, node, drift_per_step: float, steps: int = 12):
+        """One mission at Nav2's plan cadence, in the node's own order:
+        robot moves, plan arrives (plus a republish), tick advances the
+        cursor. The admission rule therefore sees the previous tick's
+        cross-track, as it does in the node.
+        """
+        cursors, cross, remaining = [], [], []
+        for k in range(1, steps + 1):
+            robot = np.array([0.5 * k, drift_per_step * k])
+            node._last_robot_xy = robot
+            node._consider_plan(
+                _plan_to_goal(robot, stamp_ns=100 + k),
+                source="ComputePathToPose",
+            )
+            node._consider_plan(
+                _plan_to_goal(robot, stamp_ns=100 + k), source="/plan"
+            )
+            state = node._generator.update(robot)
+            node._last_cross_track_m = state.cross_track
+            cursors.append(state.cursor_arc)
+            cross.append(state.cross_track)
+            remaining.append(state.total_arc - state.cursor_arc)
+        return cursors, cross, remaining
+
+    def test_cursor_is_monotonic_under_continuous_replanning(self) -> None:
+        # Drift stays under admission_cross_track_m, so monotonicity is
+        # asserted over one continuous anchored path.
+        node = _anchored_node()
+        try:
+            cursors, _, _ = self._drive(node, 0.03)
+            for prev, nxt in zip(cursors, cursors[1:]):
+                self.assertGreaterEqual(nxt, prev - 1e-12)
+            self.assertGreater(cursors[-1], 3.0)
+            self.assertEqual(node._anchors_admitted, 1)   # the anchor itself
+        finally:
+            node.destroy_node()
+
+    def test_cross_track_develops_instead_of_pinning_at_one_cell(self) -> None:
+        node = _anchored_node()
+        try:
+            _, cross, _ = self._drive(node, 0.03)
+
+            self.assertGreater(max(cross), 0.3)
+            self.assertGreater(cross[-1], cross[0])
+        finally:
+            node.destroy_node()
+
+    def test_losing_the_corridor_admits_and_preserves_progress(self) -> None:
+        """Drift past the bound replaces the anchor; the remaining arc must
+        not jump backwards across the replacement."""
+        node = _anchored_node(admission_cross_track_m=0.5)
+        try:
+            _, cross, remaining = self._drive(node, 0.08)
+            self.assertGreater(max(cross), 0.5)
+            self.assertGreaterEqual(node._anchors_admitted, 2)
+            self.assertGreater(node._admit_reasons.get(ADMIT_CROSS_TRACK, 0), 0)
+            for prev, nxt in zip(remaining, remaining[1:]):
+                self.assertLessEqual(nxt, prev + 1e-9)
+        finally:
+            node.destroy_node()
+
+    def test_rolling_mode_reproduces_the_measured_failure(self) -> None:
+        """Control arm — the legacy semantics, so the A/B is testable."""
+        node = _node(subgoal_anchoring="rolling")
+        try:
+            node._active_goal = _pose(10.0, 0.0)
+            node._last_robot_xy = np.array([0.0, 0.0])
+            node._consider_plan(_straight_path(stamp_ns=1), source="test")
+            _, cross, _ = self._drive(node, 0.05)
+            # Every plan re-roots under the robot, so no cross-track can
+            # accumulate.
+            self.assertLess(max(cross), 1e-6)
+        finally:
+            node.destroy_node()
+
+    def test_repeat_plans_do_not_rewind_the_cursor(self) -> None:
+        node = _anchored_node()
+        try:
+            node._generator.update(np.array([5.0, 0.0]))
+            node._last_cross_track_m = 0.0
+            self.assertEqual(node._generator.cursor_arc, pytest.approx(5.0))
+            for k in range(6):
+                node._consider_plan(
+                    _straight_path(x0=5.0, stamp_ns=200 + k), source="test"
+                )
+            self.assertEqual(node._generator.cursor_arc, pytest.approx(5.0))
+            self.assertEqual(node._anchors_admitted, 1)   # the anchor itself
+        finally:
+            node.destroy_node()
+
+
+class TestAnchorStatusLogging(unittest.TestCase):
+    def test_periodic_log_reports_the_admission_histogram(self) -> None:
+        node = _anchored_node(anchor_log_period_s=0.0001)
+        try:
+            info = MagicMock()
+            node.get_logger().info = info
+            node._last_cross_track_m = 0.01
+            node._consider_plan(_straight_path(x0=4.0, stamp_ns=11),
+                                source="test")
+            node._last_anchor_log_t = 0.0
+            node._maybe_log_anchor_status()
+            line = info.call_args[0][0]
+            self.assertIn("anchor status:", line)
+            self.assertIn("mode=mission", line)
+            self.assertIn("held=1", line)
+            self.assertIn(REJECT_ANCHOR_HELD, line)
+        finally:
+            node.destroy_node()
+
+    def test_zero_period_disables_the_log(self) -> None:
+        node = _anchored_node(anchor_log_period_s=0.0)
+        try:
+            info = MagicMock()
+            node.get_logger().info = info
+            node._last_anchor_log_t = 0.0
+            node._maybe_log_anchor_status()
+            info.assert_not_called()
+        finally:
+            node.destroy_node()

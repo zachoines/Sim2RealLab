@@ -857,7 +857,7 @@ class TestComposedStaleBound(unittest.TestCase):
 
 
 # =============================================================================
-# Mission anchoring (H-ANCHOR): one path per goal, replaced only on admission
+# Mission anchoring: one path per goal, replaced only on admission
 # =============================================================================
 
 
@@ -935,7 +935,8 @@ class TestAnchorHeldAgainstRepeatPlans(unittest.TestCase):
             node.destroy_node()
 
     def test_rejected_plan_still_counts_as_planner_liveness(self) -> None:
-        """RC-6 depends on this: a held anchor must not read as a dead planner."""
+        """The refusal guards depend on this: a held anchor must not read
+        as a dead planner."""
         node = _anchored_node()
         try:
             node._last_cross_track_m = 0.05

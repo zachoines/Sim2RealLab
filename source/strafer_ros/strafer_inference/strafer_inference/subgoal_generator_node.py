@@ -24,8 +24,8 @@ Four non-obvious contracts:
   in :func:`~strafer_inference.generator.evaluate_admission`; otherwise
   it counts only as planner liveness and is discarded.
   ``subgoal_anchoring: rolling`` is the named legacy fallback that
-  re-roots on every plan, kept so the behavioural re-validation can A/B
-  the two semantics on the rig.
+  re-roots on every plan, kept so the two semantics can be A/B'd on
+  hardware without a code change.
 - The active-goal topic is status telemetry (inference node -> here),
   NOT a command channel: ``navigate_to_pose`` remains the only way to
   command a mission. Its staleness stops replanning, the plan ages past
@@ -243,8 +243,8 @@ class SubgoalGeneratorNode(Node):
         # past path_timeout_s. This is plan LIVENESS, deliberately NOT
         # "when the anchored path was installed" -- under mission anchoring
         # most valid plans are rejected, and treating a rejection as
-        # silence would starve the RC-6 guards into firing against a
-        # perfectly healthy planner.
+        # silence would starve the planner-refusal / starvation guards into
+        # firing against a perfectly healthy planner.
         self._last_plan_rx_t: Optional[float] = None
         self._stale_plan_logged = False
 
@@ -423,7 +423,8 @@ class SubgoalGeneratorNode(Node):
         answered with a usable path", never off "we installed it". Under
         mission anchoring most valid plans are rejected by admission, and
         letting a rejection read as planner silence would age the plan out
-        and trip the RC-6 guards against a healthy planner.
+        and trip the planner-refusal / starvation guards against a healthy
+        planner.
         """
         self._last_plan_rx_t = time.monotonic()
         self._planner_refusals = 0

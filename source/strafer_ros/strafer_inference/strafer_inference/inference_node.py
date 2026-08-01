@@ -19,6 +19,46 @@ ticks advance no hidden state, matching training's one-depth-one-step
 alignment; without it, catch-up ticks under the slow sim depth feed
 replay a stale frame into the recurrent state.
 
+Tick scheduling: for a depth variant the tick is driven by depth
+ARRIVAL (a guard condition triggered from ``_on_depth``), not solely by
+the timer. The gate is the rate limiter either way — this only fixes
+the PHASE.
+
+Measured on the 2026-07-31 parity capture: with a timer-only tick the
+node ran 23.49 Hz sim against training's 30 Hz (the session's headline
+23.79 Hz is the mission-p2 segment alone). Over the bag window, 247 of
+1166 sim slots produced no inference and **100% of them are slots
+where a depth frame WAS published** — the loss is not in the sim, the
+publisher, or the transport. The mechanism is arrival phase: the sim
+runs at RTF 0.15, so one 1/30 s sim step spans ~218 ms of wall, and
+that step's depth frame lands a long way into it (25.8% within 1 ms of
+the clock step, 59.0% at ≥90 ms). A timer-driven tick therefore
+usually fires *before* its own step's frame, the gate correctly skips
+it, and the frame is superseded before any later tick reads it. Two
+independent measurements pin this rather than executor starvation:
+a zero-free-parameter "tick runs τ ms after the clock step, gate
+passes iff an unconsumed frame has landed" model reproduces 97.0% of
+the individual per-slot hit/miss decisions (TPR 0.999, TNR 0.862) with
+no starvation term, and reconstructing which frame each inference
+actually consumed (bit-exact against the raw bag payloads, 919/919 at
+max|Δ| 0.0) shows 47.7% of ticks consuming a one-slot-old frame and
+34.2% a two-slot-old one — which a tick *delayed* by the 921 KB
+deserialize could not produce, since it would consume the current
+frame. Lost timer deadlines account for at most 2.9% of slots, and
+``timer_deadline_missed`` now measures that residual directly.
+
+Triggering the tick from the frame removes the phase term outright and
+makes "one inference per fresh depth frame" structural rather than
+emergent. The timer stays: it is the watchdog heartbeat, the scheduler
+for camera-free variants, and the safety net if the depth stream stops.
+
+Cadence counters: every skip is counted by cause and surfaced in a
+periodic ``cadence:`` log line, so a future regression is visible from
+an ordinary mission log without a parity session. ``depth_rx`` vs
+``inferences`` is the load-bearing pair — a shortfall with ``depth_rx``
+also short indicts the transport (the depth subscription is
+BEST_EFFORT/depth=1 against a RELIABLE publisher), not the node.
+
 Thread safety: the action server lives in a ``ReentrantCallbackGroup``
 so ``execute_callback`` can block on the mission while the timer keeps
 ticking; the policy mutex serializes ``policy(obs)`` and
@@ -115,6 +155,17 @@ _DEPTH_QOS = QoSProfile(
     depth=1,
 )
 
+# ...but that reasoning was written when a dropped frame cost a tick the
+# gate would have skipped anyway. Now that the tick is driven by depth
+# ARRIVAL, a frame lost in transport is a lost policy step outright, and
+# the depth_rx counter makes the loss visible. `depth_reliability` exposes
+# the trade so it can be measured on the rig instead of argued about; the
+# default is unchanged.
+_DEPTH_RELIABILITY = {
+    "best_effort": ReliabilityPolicy.BEST_EFFORT,
+    "reliable": ReliabilityPolicy.RELIABLE,
+}
+
 
 class InferenceNode(Node):
     """DEPTH-variant trained-policy execution node for strafer_direct."""
@@ -156,6 +207,31 @@ class InferenceNode(Node):
             ],
         )
         self.declare_parameter("onnx_intra_op_threads", 1)
+        # Drive the tick from depth arrival as well as from the timer. The
+        # freshness gate still caps the rate at one inference per fresh
+        # frame; this only aligns the tick's PHASE with the frame it needs.
+        # False restores the timer-only scheduling that measured 23.49 Hz
+        # sim against a 30 Hz training cadence.
+        self.declare_parameter("tick_on_depth", True)
+        # Periodic cadence/skip summary. 0 disables.
+        self.declare_parameter("cadence_log_period_s", 10.0)
+        # Executor threads (read by main()). The node spans FIVE callback
+        # groups, not three: the tick's default group, the depth group, the
+        # action server's reentrant group, rclpy's own implicit node group
+        # (which carries the /clock subscription under use_sim_time plus the
+        # parameter services), and tf2_ros's private group for /tf +
+        # /tf_static. Three threads for five groups lets the /clock callback
+        # queue behind the 921 KB depth deserialize, and rcl re-anchors a
+        # missed ROS_TIME deadline forward rather than catching up, so the
+        # tick loses that step outright. This is NOT the cause of the 2026
+        # cadence shortfall — a gate-and-phase model with no starvation term
+        # explains 97.0% of the per-slot decisions, leaving starvation at most
+        # 2.9% — but it is a real residual and it costs nothing to remove.
+        # timer_deadline_missed is the counter that keeps it honest.
+        self.declare_parameter("executor_threads", 5)
+        # Depth subscription reliability: "best_effort" (default, unchanged)
+        # or "reliable". See _DEPTH_RELIABILITY.
+        self.declare_parameter("depth_reliability", "best_effort")
         # TRT engine-cache knobs (see _resolve_onnx_providers); the path + its
         # default live in inference.yaml, not code.
         self.declare_parameter("trt_engine_cache_enable", False)
@@ -314,6 +390,40 @@ class InferenceNode(Node):
         self._policy_load_error: Optional[str] = None
         self._ready_flag = False
 
+        # --- cadence accounting -------------------------------------
+        # Plain ints written only by the tick (a MutuallyExclusive group, so
+        # serialized) except the _on_depth ones, which are incremented under
+        # the depth lock. Cheap enough to leave permanently on: this is the
+        # instrument that makes a cadence regression visible without a
+        # parity session.
+        self._counts: dict[str, int] = {
+            "ticks_timer": 0,
+            "ticks_depth": 0,
+            "inferences": 0,
+            "skip_watchdog": 0,
+            "skip_gate": 0,
+            "skip_no_policy": 0,
+            "skip_obs_none": 0,
+            "skip_action_shape": 0,
+            "depth_rx": 0,
+            "depth_bad_encoding": 0,
+            "depth_bad_shape": 0,
+            "depth_repeat_content": 0,
+            "timer_deadline_missed": 0,
+        }
+        self._stale_counts: dict[str, int] = {}
+        # Sim-time bookkeeping for the achieved-rate figure and the
+        # missed-timer-deadline count.
+        self._cadence_t0_sim: Optional[float] = None
+        self._cadence_t_last_sim: Optional[float] = None
+        self._last_timer_fire_sim: Optional[float] = None
+        self._last_depth_digest: Optional[bytes] = None
+        self._cadence_log_period_s = float(
+            self.get_parameter("cadence_log_period_s").value
+        )
+        self._last_cadence_log_t = time.monotonic()
+        self._tick_on_depth = bool(self.get_parameter("tick_on_depth").value)
+
         # Small subs + tick share the default mutex group. Depth gets its own
         # group so its ~921 KB deserialize/take runs on a separate executor
         # thread instead of contending for the tick's single serialized slot;
@@ -357,9 +467,34 @@ class InferenceNode(Node):
         # variant skips the subscriber (and its decode cost) entirely rather
         # than caching frames it never reads.
         self._depth_sub = None
+        # Created BEFORE the subscription so a frame arriving during
+        # construction can never find a half-built wake handle.
+        self._depth_wake = None
+        if self._has_depth and self._tick_on_depth:
+            # Runs the tick in the DEFAULT group, not the depth group: the
+            # 921 KB deserialize keeps its own executor slot (the reason the
+            # groups were split), while the inference it triggers stays
+            # serialized against the other cached sources exactly as the
+            # timer-driven tick was.
+            self._depth_wake = self.create_guard_condition(
+                self._on_depth_tick, callback_group=self._default_cb_group
+            )
         if self._has_depth:
+            reliability = str(
+                self.get_parameter("depth_reliability").value
+            ).strip().lower()
+            if reliability not in _DEPTH_RELIABILITY:
+                raise ValueError(
+                    f"depth_reliability={reliability!r} is not one of "
+                    f"{sorted(_DEPTH_RELIABILITY)}"
+                )
+            depth_qos = QoSProfile(
+                reliability=_DEPTH_RELIABILITY[reliability],
+                history=HistoryPolicy.KEEP_LAST,
+                depth=_DEPTH_QOS.depth,
+            )
             self._depth_sub = self.create_subscription(
-                Image, depth_topic, self._on_depth, _DEPTH_QOS,
+                Image, depth_topic, self._on_depth, depth_qos,
                 callback_group=self._depth_cb_group,
             )
         # Subgoal variants follow a rolling subgoal pose that advances
@@ -396,8 +531,9 @@ class InferenceNode(Node):
             )
 
         infer_period = float(self.get_parameter("infer_period_s").value)
+        self._infer_period_s = infer_period
         self._timer = self.create_timer(
-            infer_period, self._on_tick,
+            infer_period, self._on_timer_tick,
             callback_group=self._default_cb_group,
         )
 
@@ -407,6 +543,18 @@ class InferenceNode(Node):
             f"vel_cap=({self._vel_cap_linear:.4f} m/s, "
             f"{self._vel_cap_angular:.4f} rad/s) "
             f"policy_loaded={self._policy is not None}"
+        )
+        self.get_logger().info(
+            "cadence: scheduler="
+            + (
+                "depth-arrival + timer heartbeat"
+                if self._depth_wake is not None
+                else ("timer only" if self._has_depth else "timer (no depth variant)")
+            )
+            + f" target={1.0 / infer_period:.2f} Hz sim; counters reported every "
+            f"{self._cadence_log_period_s:.0f} s "
+            "(depth_rx vs inferences is the load-bearing pair — a shortfall in "
+            "both indicts the depth transport, in inferences alone the node)."
         )
 
     def _resolve_onnx_providers(self) -> Optional[list]:
@@ -595,6 +743,7 @@ class InferenceNode(Node):
 
     def _on_depth(self, msg: Image) -> None:
         if msg.encoding != "32FC1":
+            self._counts["depth_bad_encoding"] += 1
             self.get_logger().warning(
                 f"Dropping depth frame with encoding={msg.encoding!r}; "
                 "expected 32FC1"
@@ -604,6 +753,7 @@ class InferenceNode(Node):
         try:
             arr = arr.reshape(msg.height, msg.width)
         except ValueError:
+            self._counts["depth_bad_shape"] += 1
             self.get_logger().warning(
                 f"Depth frame data length {arr.size} does not match "
                 f"{msg.height}x{msg.width}"
@@ -618,6 +768,18 @@ class InferenceNode(Node):
             self._last_depth_meters = arr
             self._last_depth_rx_t = rx_t
             self._depth_seq += 1
+            self._counts["depth_rx"] += 1
+        # Wake the tick now that the frame it needs is in hand. rclpy
+        # re-triggers a guard condition that was signalled but not handled,
+        # so a wake landing while the tick is mid-inference is not lost.
+        if self._depth_wake is not None:
+            self._depth_wake.trigger()
+
+    def _on_depth_tick(self) -> None:
+        self._on_tick(source="depth")
+
+    def _on_timer_tick(self) -> None:
+        self._on_tick(source="timer")
 
     def _on_subgoal(self, msg: PoseStamped) -> None:
         # Cache only; the rolling subgoal advances every tick and must not
@@ -777,7 +939,14 @@ class InferenceNode(Node):
     # Inference tick
     # ------------------------------------------------------------------
 
-    def _on_tick(self) -> None:
+    def _on_tick(self, *, source: str = "timer") -> None:
+        if source == "timer":
+            self._counts["ticks_timer"] += 1
+            self._note_timer_deadline()
+        else:
+            self._counts["ticks_depth"] += 1
+        self._maybe_log_cadence()
+
         # Consistent snapshot of the depth triple (array, rx_t, seq) under the
         # lock: _on_depth may replace all three concurrently from its own
         # callback group. The rest of the tick reads only these locals plus
@@ -808,6 +977,9 @@ class InferenceNode(Node):
             goal_active=self._goal_active,
         )
         if stale:
+            self._counts["skip_watchdog"] += 1
+            for src in stale:
+                self._stale_counts[src] = self._stale_counts.get(src, 0) + 1
             if self._goal_active:
                 # A mission is executing but a source is stale — a real
                 # fault (e.g. the subgoal stream stopped). Throttled so a
@@ -830,6 +1002,7 @@ class InferenceNode(Node):
             # Watchdog clean but no model loaded: hold the channel idle
             # (no publish). Action server is unadvertised so no missions
             # arrive here.
+            self._counts["skip_no_policy"] += 1
             return
 
         # After the watchdog, so a stale-source zero-twist still preempts; a
@@ -837,10 +1010,12 @@ class InferenceNode(Node):
         # Uses the snapshot seq, not the live counter, so a frame landing
         # mid-tick is picked up next tick rather than tearing this one.
         if self._has_depth and depth_seq == self._last_inferred_depth_seq:
+            self._counts["skip_gate"] += 1
             return
 
         obs = self._assemble_observation_or_none()
         if obs is None:
+            self._counts["skip_obs_none"] += 1
             self._cmd_vel_pub.publish(Twist())
             return
 
@@ -857,6 +1032,7 @@ class InferenceNode(Node):
         with self._policy_lock:
             action = self._policy(obs)
         t_inference_ns = time.monotonic_ns() - t0
+        self._note_inference(t_inference_ns)
 
         # The policy call advanced the recurrent hidden state — consume the
         # snapshotted depth frame so the gate skips ticks until a fresher one
@@ -869,6 +1045,7 @@ class InferenceNode(Node):
 
         action = np.asarray(action, dtype=np.float32).reshape(-1)
         if action.shape[0] != 3:
+            self._counts["skip_action_shape"] += 1
             self.get_logger().error(
                 f"policy output shape {action.shape} != (3,); "
                 "publishing zero twist."
@@ -906,6 +1083,124 @@ class InferenceNode(Node):
 
         if self.get_logger().get_effective_level() <= 10:  # DEBUG
             self._log_obs_summary(obs, action, t_inference_ns)
+
+    # ------------------------------------------------------------------
+    # Cadence accounting
+    # ------------------------------------------------------------------
+
+    def _note_timer_deadline(self) -> None:
+        """Count sim-time periods the timer skipped between two fires.
+
+        rcl re-anchors a ROS_TIME timer forward by whole periods past `now`
+        rather than catching up, so a callback delayed past its deadline
+        loses the intervening ticks outright. Under `use_sim_time` at a low
+        RTF that is exactly what a slow callback elsewhere in the executor
+        causes, and it is invisible without this count.
+        """
+        now_sim = self.get_clock().now().nanoseconds * 1e-9
+        prev = self._last_timer_fire_sim
+        self._last_timer_fire_sim = now_sim
+        if prev is None or self._infer_period_s <= 0.0:
+            return
+        periods = round((now_sim - prev) / self._infer_period_s)
+        if periods > 1:
+            self._counts["timer_deadline_missed"] += periods - 1
+
+    def _note_inference(self, t_inference_ns: int) -> None:
+        self._counts["inferences"] += 1
+        now_sim = self.get_clock().now().nanoseconds * 1e-9
+        if self._cadence_t0_sim is None:
+            self._cadence_t0_sim = now_sim
+        self._cadence_t_last_sim = now_sim
+        self._t_inference_ns_last = t_inference_ns
+
+    def _note_depth_content(self, depth_flat_meters: np.ndarray) -> None:
+        """Count consecutive inferences fed a bit-identical depth block.
+
+        The freshness gate keys on the message counter, so a publisher that
+        stamps at 30 Hz while its renderer updates slower satisfies the gate
+        with duplicate pixels. Measured on the 2026-07-31 capture: 54.1% of
+        sim depth messages were byte-identical to their predecessor over the
+        whole bag, and inside the join window the structure is exact — 583
+        runs, every one of length 2, i.e. the sim renders depth at 15 Hz and
+        publishes each image twice at 30 Hz stamps. That is a publisher-side
+        property, not a node defect (the training gym dump shows the same
+        15 Hz novelty) — but the node is the only place it is observable at
+        runtime, and "one inference per fresh depth frame" means something
+        different when half the frames are not fresh images.
+        """
+        digest = hashlib.blake2b(
+            depth_flat_meters.tobytes(), digest_size=16
+        ).digest()
+        if digest == self._last_depth_digest:
+            self._counts["depth_repeat_content"] += 1
+        self._last_depth_digest = digest
+
+    def _maybe_log_cadence(self) -> None:
+        if self._cadence_log_period_s <= 0.0:
+            return
+        now = time.monotonic()
+        if now - self._last_cadence_log_t < self._cadence_log_period_s:
+            return
+        self._last_cadence_log_t = now
+
+        c = self._counts
+        span_sim = 0.0
+        if (
+            self._cadence_t0_sim is not None
+            and self._cadence_t_last_sim is not None
+        ):
+            span_sim = self._cadence_t_last_sim - self._cadence_t0_sim
+        rate = c["inferences"] / span_sim if span_sim > 0.0 else float("nan")
+        target = 1.0 / self._infer_period_s if self._infer_period_s > 0.0 else 0.0
+        stale = " ".join(
+            f"{k}={v}" for k, v in sorted(self._stale_counts.items())
+        ) or "none"
+        unconsumed = c["depth_rx"] - c["inferences"] if self._has_depth else 0
+        self.get_logger().info(
+            f"cadence: {rate:.2f} Hz sim (target {target:.2f}) over "
+            f"{span_sim:.1f} s sim | ticks timer={c['ticks_timer']} "
+            f"depth={c['ticks_depth']} | inferences={c['inferences']} | "
+            f"skips watchdog={c['skip_watchdog']} gate={c['skip_gate']} "
+            f"obs_none={c['skip_obs_none']} no_policy={c['skip_no_policy']} "
+            f"action_shape={c['skip_action_shape']} | "
+            f"depth rx={c['depth_rx']} unconsumed={unconsumed} "
+            f"repeat_content={c['depth_repeat_content']} "
+            f"bad_encoding={c['depth_bad_encoding']} "
+            f"bad_shape={c['depth_bad_shape']} | "
+            f"timer_deadline_missed={c['timer_deadline_missed']} | "
+            f"stale_sources[{stale}]"
+        )
+
+        # Fail loud, and name the owner. A cadence regression that only
+        # shows up as a number in an INFO line is a cadence regression
+        # nobody reads; the depth_rx/inferences split is what says whether
+        # to look at the transport or at this node.
+        if span_sim >= 2.0 and target > 0.0 and rate < 0.9 * target:
+            expected = span_sim * target
+            if self._has_depth and c["depth_rx"] < 0.9 * expected:
+                owner = (
+                    f"the depth TRANSPORT — only {c['depth_rx']} of ~"
+                    f"{expected:.0f} published frames reached this node "
+                    f"(subscription is depth_reliability="
+                    f"{self.get_parameter('depth_reliability').value!r}, "
+                    "history depth=1)"
+                )
+            else:
+                owner = (
+                    "THIS NODE — frames arrived but did not become "
+                    f"inferences (gate={c['skip_gate']} "
+                    f"watchdog={c['skip_watchdog']} "
+                    f"obs_none={c['skip_obs_none']} "
+                    f"timer_deadline_missed={c['timer_deadline_missed']})"
+                )
+            self.get_logger().warning(
+                f"CADENCE SHORTFALL: {rate:.2f} Hz sim against a "
+                f"{target:.2f} Hz training cadence ({100.0 * rate / target:.0f}%). "
+                f"Attributable to {owner}. A recurrent policy's hidden state "
+                "advances once per inference, so this is a train/deploy gap.",
+                throttle_duration_sec=30.0,
+            )
 
     def _assemble_observation_or_none(self) -> Optional[np.ndarray]:
         # The obs referent is the rolling subgoal for subgoal variants, the
@@ -964,6 +1259,8 @@ class InferenceNode(Node):
         depth_flat_meters = (
             downsample_depth(self._tick_depth_meters) if self._has_depth else None
         )
+        if depth_flat_meters is not None:
+            self._note_depth_content(depth_flat_meters)
 
         imu = self._last_imu
         odom = self._last_odom
@@ -1063,12 +1360,15 @@ def main(args=None) -> None:
     # CLI / launch parameter overrides come through rclpy.init's argv
     # parser and are picked up automatically by the Node constructor.
     node = InferenceNode()
-    # Three threads: the blocking action execute_callback, the tick + small
-    # subs (default group), and _on_depth (its own group) each get a slot so
-    # the heavy depth take never stalls the tick. A burst of overlapping
-    # preempting goals (Reentrant execute_callbacks) can transiently occupy all
-    # three for one ~50 ms sleep quantum; self-clearing.
-    executor = MultiThreadedExecutor(num_threads=3)
+    # One slot per callback group that can block: the action server's
+    # reentrant execute_callback, the tick + small subs (default group),
+    # _on_depth (its own group, the 921 KB take), rclpy's implicit node group
+    # (/clock under use_sim_time + the parameter services) and tf2_ros's
+    # private /tf group. See the executor_threads parameter for why five, and
+    # for why this is the small residual rather than the cadence fix.
+    executor = MultiThreadedExecutor(
+        num_threads=max(1, int(node.get_parameter("executor_threads").value))
+    )
     executor.add_node(node)
     try:
         executor.spin()

@@ -84,3 +84,45 @@
     # TensorRT version change, so it is safe to leave enabled.
     trt_engine_cache_enable: true
     trt_engine_cache_path: "~/.cache/strafer_inference/trt_engines"
+
+    # --- tick scheduling + cadence instrumentation ----------------------------
+    # Drive the tick from depth ARRIVAL as well as from the timer. The
+    # depth-freshness gate is the rate limiter either way (still one inference
+    # per fresh frame); this only aligns the tick's PHASE with the frame it
+    # needs. Measured on the 2026-07-31 parity capture with timer-only
+    # scheduling: 23.49 Hz sim against a 30 Hz training cadence, with 100% of
+    # the missing ticks landing on sim slots where a depth frame WAS published.
+    # At RTF 0.15 one sim step spans ~218 ms of wall and that step's depth
+    # frame lands deep inside it (25.8% within 1 ms of the clock step, 59.0% at
+    # >=90 ms), so a timer-driven tick usually fires BEFORE the frame it needs,
+    # the gate correctly skips, and the frame is superseded before any later
+    # tick reads it. Set false to restore timer-only scheduling for an A/B.
+    tick_on_depth: true
+
+    # Depth subscription reliability: "best_effort" (default) or "reliable".
+    # BEST_EFFORT/depth=1 was chosen when a dropped frame cost a tick the gate
+    # would have skipped anyway; with the tick driven by arrival, a frame lost
+    # in transport is a lost policy step. Keep the default: a RELIABLE
+    # subscriber is QoS-INCOMPATIBLE with a BEST_EFFORT publisher and would
+    # receive nothing at all if the camera is brought up with
+    # depth_qos:=SENSOR_DATA. Flip it only for a measured A/B against a known
+    # RELIABLE publisher (the sim bridge is one) — see depth_rx in the cadence
+    # log for whether it is worth flipping.
+    depth_reliability: "best_effort"
+
+    # Executor threads. Five callback groups can block: the tick's default
+    # group, the depth group (the 921 KB deserialize), the action server's
+    # reentrant group, rclpy's implicit node group (/clock under use_sim_time
+    # + the parameter services) and tf2_ros's private /tf group. Three threads
+    # for five groups lets /clock queue behind the depth take, and rcl drops a
+    # missed ROS_TIME deadline rather than catching up. That is a real but
+    # SMALL residual (at most 2.9% of sim slots on the 2026-07-31 capture, not
+    # the cadence shortfall itself); timer_deadline_missed measures it.
+    executor_threads: 5
+
+    # Periodic one-line cadence + skip-by-cause summary, so a cadence
+    # regression is visible from an ordinary mission log without arming a
+    # parity capture. depth_rx vs inferences is the load-bearing pair: both
+    # short indicts the depth transport (the subscription is
+    # BEST_EFFORT/depth=1), inferences alone indicts the node. 0 disables.
+    cadence_log_period_s: 10.0

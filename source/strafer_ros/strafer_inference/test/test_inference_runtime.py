@@ -15,6 +15,7 @@ import os
 import threading
 import time
 import unittest
+from types import SimpleNamespace
 from typing import Optional
 from unittest.mock import MagicMock
 
@@ -23,6 +24,7 @@ import pytest
 import rclpy
 from geometry_msgs.msg import PoseStamped
 from rclpy.parameter import Parameter
+from rclpy.qos import ReliabilityPolicy
 from sensor_msgs.msg import Image
 
 from strafer_shared.constants import GOAL_ARRIVAL_RADIUS_M
@@ -112,14 +114,93 @@ def _make_pose(x: float, y: float) -> PoseStamped:
     return msg
 
 
-def _depth_msg(h: int = 4, w: int = 4) -> Image:
+def _depth_msg(h: int = 4, w: int = 4, fill: float = 0.0) -> Image:
     """A minimal valid 32FC1 depth frame (content irrelevant to the gate)."""
     msg = Image()
     msg.encoding = "32FC1"
     msg.height = h
     msg.width = w
-    msg.data = np.zeros((h, w), dtype=np.float32).tobytes()
+    msg.data = np.full((h, w), fill, dtype=np.float32).tobytes()
     return msg
+
+
+def _node(**overrides) -> InferenceNode:
+    return InferenceNode(
+        parameter_overrides=_make_overrides(model_path="", **overrides)
+    )
+
+
+def _ready_depth_node(**overrides) -> InferenceNode:
+    """A DEPTH_SUBGOAL node whose watchdog is clean and whose obs assembly
+    succeeds, so a tick reaches the policy call.
+
+    Assembly is stubbed to a fixed vector: these tests are about the tick
+    scheduler and the counters, not about obs content, and the real depth
+    path needs a full 640x360 frame per tick.
+    """
+    node = _node(policy_variant="DEPTH_SUBGOAL", **overrides)
+    node._policy = _FakeRecurrentPolicy()
+    node._active_goal_count = 1
+    node._last_subgoal_map = _make_pose(1.0, 0.0)
+    now = time.monotonic()
+    for attr in (
+        "_last_imu_rx_t", "_last_joint_states_rx_t",
+        "_last_odom_rx_t", "_last_subgoal_rx_t",
+    ):
+        setattr(node, attr, now)
+    node._tf_age_s = lambda: 0.0            # type: ignore[method-assign]
+    node._assemble_observation_or_none = (  # type: ignore[method-assign]
+        lambda: np.zeros(node._variant.obs_dim, dtype=np.float32)
+    )
+    node._cmd_vel_pub = MagicMock()
+    return node
+
+
+def _full_depth_msg(fill: float) -> Image:
+    """A full-resolution 32FC1 frame, so the real downsample runs."""
+    from strafer_shared.constants import PERCEPTION_HEIGHT, PERCEPTION_WIDTH
+
+    return _depth_msg(PERCEPTION_HEIGHT, PERCEPTION_WIDTH, fill=fill)
+
+
+def _real_assembly_depth_node(**overrides) -> InferenceNode:
+    """A DEPTH_SUBGOAL node that assembles obs for real, so the downsample
+    (and the depth-content signature taken on its output) actually runs."""
+    from geometry_msgs.msg import TransformStamped
+    from nav_msgs.msg import Odometry
+    from sensor_msgs.msg import Imu, JointState
+
+    from strafer_shared.constants import WHEEL_JOINT_NAMES
+
+    # Marshalling a 921 KB Image through rclpy costs ~100 ms per frame in
+    # Python, which would age the once-set imu/joints/odom receipt times past
+    # the 0.2 s real-robot watchdog budget between iterations. The budget is
+    # not what these tests are about.
+    overrides.setdefault("obs_timeout_s", 30.0)
+    overrides.setdefault("depth_timeout_s", 30.0)
+    node = _node(policy_variant="DEPTH_SUBGOAL", **overrides)
+    node._policy = _FakeRecurrentPolicy()
+    node._active_goal_count = 1
+    now = time.monotonic()
+    imu = Imu()
+    imu.linear_acceleration.z = 9.81
+    node._last_imu = imu
+    node._last_imu_rx_t = now
+    js = JointState()
+    js.name = list(WHEEL_JOINT_NAMES)
+    js.velocity = [1.0, -1.0, 1.0, -1.0]
+    node._last_joint_states = js
+    node._last_joint_states_rx_t = now
+    node._last_odom = Odometry()
+    node._last_odom_rx_t = now
+    node._last_subgoal_map = _make_pose(1.0, 0.0)
+    node._last_subgoal_rx_t = now
+    tf = TransformStamped()
+    tf.transform.rotation.w = 1.0
+    node._tf_buffer.lookup_transform = MagicMock(return_value=tf)
+    node._tf_age_s = lambda: 0.0            # type: ignore[method-assign]
+    node._cmd_vel_pub = MagicMock()
+    return node
 
 
 # =============================================================================
@@ -1974,3 +2055,250 @@ class TestObsDump(unittest.TestCase):
                 self.assertIsInstance(rec["t_sim"], float)
             finally:
                 node.destroy_node()
+
+
+# =============================================================================
+# Tick scheduling + cadence counters
+# =============================================================================
+
+
+class TestDepthDrivenTick(unittest.TestCase):
+    """The tick is driven by depth ARRIVAL, not only by the timer.
+
+    The freshness gate is still the rate limiter — one inference per fresh
+    frame — so this changes the tick's PHASE, not its cap. Measured with
+    timer-only scheduling on the 2026-07-31 capture: 23.49 Hz sim against a
+    30 Hz training cadence, 100% of the missing ticks on sim slots where a
+    depth frame had been published.
+    """
+
+    def test_depth_variant_creates_a_wake_handle(self) -> None:
+        node = _node(policy_variant="DEPTH_SUBGOAL")
+        try:
+            self.assertIsNotNone(node._depth_wake)
+        finally:
+            node.destroy_node()
+
+    def test_camera_free_variant_has_no_wake_handle(self) -> None:
+        node = _node(policy_variant="NOCAM_SUBGOAL")
+        try:
+            self.assertIsNone(node._depth_wake)
+        finally:
+            node.destroy_node()
+
+    def test_tick_on_depth_false_restores_timer_only(self) -> None:
+        node = _node(policy_variant="DEPTH_SUBGOAL", tick_on_depth=False)
+        try:
+            self.assertIsNone(node._depth_wake)
+        finally:
+            node.destroy_node()
+
+    def test_a_frame_triggers_the_wake(self) -> None:
+        node = _node(policy_variant="DEPTH_SUBGOAL")
+        try:
+            wake = MagicMock()
+            node._depth_wake = wake
+            node._on_depth(_depth_msg())
+            wake.trigger.assert_called_once()
+        finally:
+            node.destroy_node()
+
+    def test_a_rejected_frame_does_not_trigger_the_wake(self) -> None:
+        node = _node(policy_variant="DEPTH_SUBGOAL")
+        try:
+            wake = MagicMock()
+            node._depth_wake = wake
+            bad = _depth_msg()
+            bad.encoding = "16UC1"
+            node._on_depth(bad)
+            wake.trigger.assert_not_called()
+            self.assertEqual(node._counts["depth_bad_encoding"], 1)
+            self.assertEqual(node._counts["depth_rx"], 0)
+        finally:
+            node.destroy_node()
+
+    def test_timer_still_exists_as_the_heartbeat(self) -> None:
+        """The watchdog rides the timer; if depth stops, the zero-twist must
+        still fire."""
+        node = _node(policy_variant="DEPTH_SUBGOAL")
+        try:
+            self.assertIsNotNone(node._timer)
+            self.assertFalse(node._timer.is_canceled())
+        finally:
+            node.destroy_node()
+
+    def test_the_gate_still_caps_at_one_inference_per_frame(self) -> None:
+        """Both schedulers feed the same gate: two ticks, one frame, one
+        inference."""
+        node = _ready_depth_node()
+        try:
+            node._on_depth(_depth_msg(fill=1.0))
+            node._on_tick(source="depth")
+            node._on_tick(source="timer")
+            node._on_tick(source="depth")
+            self.assertEqual(node._counts["inferences"], 1)
+            self.assertEqual(node._counts["skip_gate"], 2)
+        finally:
+            node.destroy_node()
+
+    def test_each_fresh_frame_yields_exactly_one_inference(self) -> None:
+        node = _ready_depth_node()
+        try:
+            for k in range(5):
+                node._on_depth(_depth_msg(fill=1.0 + k))
+                node._on_tick(source="depth")
+            self.assertEqual(node._counts["inferences"], 5)
+            self.assertEqual(node._counts["depth_rx"], 5)
+            self.assertEqual(node._counts["skip_gate"], 0)
+        finally:
+            node.destroy_node()
+
+
+class TestCadenceCounters(unittest.TestCase):
+    def test_tick_source_is_counted_separately(self) -> None:
+        node = _ready_depth_node()
+        try:
+            node._on_tick(source="timer")
+            node._on_tick(source="depth")
+            node._on_tick()  # default is the timer
+            self.assertEqual(node._counts["ticks_timer"], 2)
+            self.assertEqual(node._counts["ticks_depth"], 1)
+        finally:
+            node.destroy_node()
+
+    def test_watchdog_skip_is_counted_by_source(self) -> None:
+        node = _node(policy_variant="DEPTH_SUBGOAL")
+        try:
+            node._on_tick()   # nothing cached: every source stale
+            self.assertEqual(node._counts["skip_watchdog"], 1)
+            self.assertGreater(len(node._stale_counts), 0)
+        finally:
+            node.destroy_node()
+
+    def test_repeat_depth_content_is_counted(self) -> None:
+        """A publisher that stamps at 30 Hz while its renderer updates
+        slower satisfies the seq-keyed gate with duplicate pixels; 59.1% of
+        sim depth messages on the 2026-07-31 capture were byte-identical to
+        their predecessor. The node is the only place that is observable.
+
+        Drives the REAL obs-assembly path (full-resolution frames), because
+        the count is taken on the downsampled block the policy actually
+        sees, not on the raw message.
+        """
+        node = _real_assembly_depth_node()
+        try:
+            for _ in range(3):
+                node._on_depth(_full_depth_msg(fill=2.0))   # identical content
+                node._on_tick(source="depth")
+            self.assertEqual(node._counts["inferences"], 3)
+            self.assertEqual(node._counts["depth_repeat_content"], 2)
+        finally:
+            node.destroy_node()
+
+    def test_distinct_depth_content_is_not_counted_as_repeat(self) -> None:
+        node = _real_assembly_depth_node()
+        try:
+            for k in range(3):
+                node._on_depth(_full_depth_msg(fill=2.0 + k))
+                node._on_tick(source="depth")
+            self.assertEqual(node._counts["inferences"], 3)
+            self.assertEqual(node._counts["depth_repeat_content"], 0)
+        finally:
+            node.destroy_node()
+
+    def test_missed_timer_deadlines_are_counted(self) -> None:
+        node = _node(policy_variant="DEPTH_SUBGOAL")
+        try:
+            node._last_timer_fire_sim = 0.0
+            node.get_clock = MagicMock(  # type: ignore[method-assign]
+                return_value=SimpleNamespace(
+                    now=lambda: SimpleNamespace(nanoseconds=int(3 * (1 / 30) * 1e9))
+                )
+            )
+            node._note_timer_deadline()
+            # Three periods elapsed in one fire -> two ticks lost outright
+            # (rcl re-anchors forward, it does not catch up).
+            self.assertEqual(node._counts["timer_deadline_missed"], 2)
+        finally:
+            node.destroy_node()
+
+    def test_consecutive_fires_miss_no_deadline(self) -> None:
+        node = _node(policy_variant="DEPTH_SUBGOAL")
+        try:
+            node._last_timer_fire_sim = 0.0
+            node.get_clock = MagicMock(  # type: ignore[method-assign]
+                return_value=SimpleNamespace(
+                    now=lambda: SimpleNamespace(nanoseconds=int((1 / 30) * 1e9))
+                )
+            )
+            node._note_timer_deadline()
+            self.assertEqual(node._counts["timer_deadline_missed"], 0)
+        finally:
+            node.destroy_node()
+
+    def test_periodic_log_reports_every_cause(self) -> None:
+        node = _ready_depth_node(cadence_log_period_s=0.001)
+        try:
+            node._on_depth(_depth_msg(fill=1.0))
+            node._on_tick(source="depth")
+            info = MagicMock()
+            node.get_logger().info = info
+            node._last_cadence_log_t = 0.0
+            node._maybe_log_cadence()
+            line = info.call_args[0][0]
+            for token in (
+                "cadence:", "Hz sim", "ticks timer=", "depth=", "inferences=",
+                "skips watchdog=", "gate=", "obs_none=", "no_policy=",
+                "action_shape=", "depth rx=", "unconsumed=",
+                "repeat_content=", "timer_deadline_missed=", "stale_sources[",
+            ):
+                self.assertIn(token, line)
+        finally:
+            node.destroy_node()
+
+    def test_zero_period_disables_the_cadence_log(self) -> None:
+        node = _ready_depth_node(cadence_log_period_s=0.0)
+        try:
+            info = MagicMock()
+            node.get_logger().info = info
+            node._last_cadence_log_t = 0.0
+            node._maybe_log_cadence()
+            info.assert_not_called()
+        finally:
+            node.destroy_node()
+
+
+class TestDepthReliabilityLever(unittest.TestCase):
+    """The depth subscription's reliability is now a named lever.
+
+    Under the old timer-only scheduling a dropped frame cost a tick the gate
+    would have skipped anyway; now the tick is driven by arrival, so a frame
+    lost in transport is a lost policy step. The default is unchanged — the
+    lever exists so the trade can be measured on the rig.
+    """
+
+    def test_default_is_still_best_effort(self) -> None:
+        node = _node(policy_variant="DEPTH_SUBGOAL")
+        try:
+            self.assertEqual(
+                node.get_parameter("depth_reliability").value, "best_effort"
+            )
+            profile = node._depth_sub.qos_profile
+            self.assertEqual(profile.reliability, ReliabilityPolicy.BEST_EFFORT)
+            self.assertEqual(profile.depth, 1)
+        finally:
+            node.destroy_node()
+
+    def test_reliable_is_selectable(self) -> None:
+        node = _node(policy_variant="DEPTH_SUBGOAL", depth_reliability="reliable")
+        try:
+            self.assertEqual(
+                node._depth_sub.qos_profile.reliability,
+                ReliabilityPolicy.RELIABLE,
+            )
+        finally:
+            node.destroy_node()
+
+    def test_unknown_reliability_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="depth_reliability"):
+            _node(policy_variant="DEPTH_SUBGOAL", depth_reliability="maybe")

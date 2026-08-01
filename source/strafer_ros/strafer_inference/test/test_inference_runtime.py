@@ -2067,9 +2067,9 @@ class TestDepthDrivenTick(unittest.TestCase):
 
     The freshness gate is still the rate limiter — one inference per fresh
     frame — so this changes the tick's PHASE, not its cap. Measured with
-    timer-only scheduling on the 2026-07-31 capture: 23.49 Hz sim against a
-    30 Hz training cadence, 100% of the missing ticks on sim slots where a
-    depth frame had been published.
+    timer-only scheduling against a recorded sim-bridge capture: 23.49 Hz
+    sim against a 30 Hz training cadence, 100% of the missing ticks on sim
+    slots where a depth frame had been published.
     """
 
     def test_depth_variant_creates_a_wake_handle(self) -> None:
@@ -2177,8 +2177,8 @@ class TestCadenceCounters(unittest.TestCase):
 
     def test_repeat_depth_content_is_counted(self) -> None:
         """A publisher that stamps at 30 Hz while its renderer updates
-        slower satisfies the seq-keyed gate with duplicate pixels; 59.1% of
-        sim depth messages on the 2026-07-31 capture were byte-identical to
+        slower satisfies the seq-keyed gate with duplicate pixels; 54.1% of
+        depth messages in a recorded sim-bridge capture were byte-identical to
         their predecessor. The node is the only place that is observable.
 
         Drives the REAL obs-assembly path (full-resolution frames), because
@@ -2274,7 +2274,7 @@ class TestDepthReliabilityLever(unittest.TestCase):
     Under the old timer-only scheduling a dropped frame cost a tick the gate
     would have skipped anyway; now the tick is driven by arrival, so a frame
     lost in transport is a lost policy step. The default is unchanged — the
-    lever exists so the trade can be measured on the rig.
+    lever exists so the trade can be measured.
     """
 
     def test_default_is_still_best_effort(self) -> None:

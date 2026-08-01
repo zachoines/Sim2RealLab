@@ -142,9 +142,13 @@ The sim publishes depth at 30 Hz stamps but **renders at 15 Hz**: over the join
 window there are exactly 583 duplicate runs, every one of length 2 (54.1% of
 messages byte-identical to their predecessor over the whole bag). The gate keys
 on the message counter, so duplicates satisfy it. The training gym dump shows the
-same 15 Hz novelty after t_sim ≈ 66 s, so this is parity-matched rather than a
-deploy bug — but it means the 24% tick loss cost recurrent **hidden-state steps**
-(30/sim-s training vs 23.49/sim-s deploy), not image information: 97.25% of
+same 15 Hz novelty past an onset at t_sim ≈ 64 s (46.4% consecutive-identical
+over the full 14,189-record file, with only 30 of the first 6582 records
+duplicated), so this is broadly parity-matched rather than a deploy bug — though
+the gym side additionally contains freezes of up to 28 identical frames (~0.9 s)
+that have no deploy-side counterpart. It means the 24% tick loss cost
+recurrent **hidden-state steps** (30/sim-s training vs 23.49/sim-s deploy), not
+image information: 97.25% of
 distinct images still reached the policy. The new `depth_repeat_content` counter
 makes it visible at runtime. Whether the gym side's 30 Hz → 15 Hz transition is
 an artifact or a config difference is filed as

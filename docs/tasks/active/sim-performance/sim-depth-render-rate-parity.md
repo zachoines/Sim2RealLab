@@ -31,21 +31,34 @@ Measured on the 2026-07-31 parity artifacts while diagnosing
   every image published twice, bit-identical. Over the whole 2245-frame bag,
   1213/2244 consecutive pairs (54.06%) are byte-identical. That is a **15 Hz**
   render behind a 30 Hz stamp.
-- **Training side, from the gym dump.** The same structure appears, but not from
-  the start: identical-consecutive fraction is **0.0%** for records 0–~2000
-  (t_sim ≲ 66 s) and then ~50–72% for the rest of the file.
+- **Training side, from the gym dump** (workstation re-run over the full
+  **14,189-record** file). Overall **46.4%** consecutive-identical, but not from
+  the start: only **30 of 6582** records before t_sim = 66 s are duplicates, with
+  the onset at **t_sim ≈ 64 s**. And past the onset it is worse than the
+  length-2 pairs the deploy side shows — later stretches contain **freezes of up
+  to 28 identical frames (~0.9 s)**.
 
-So the two sides currently agree at 15 Hz, which is why this is P2 rather than
-P0 — but the *transition* on the training side is unexplained, and if it is
-load-dependent then train and deploy agree only by coincidence.
+  *Provenance note:* an earlier Jetson-side reading of this file gave 11,136
+  records and a ~50–72% post-onset fraction. That copy was an `scp` truncated
+  mid-write; both counts were correct for the file each side actually held. The
+  14,189-record figures above are the ones to work from.
+
+So the two sides broadly agree at 15 Hz, which is why this is P2 rather than
+P0 — but the *transition* on the training side is unexplained, the 0.9 s freezes
+have no deploy-side counterpart, and if either is load-dependent then train and
+deploy agree only by coincidence.
 
 ## Acceptance criteria
 
 - [ ] State which it is: a render-rate config, a decimation, a load-dependent
       effect (the renderer failing to keep up and the bridge republishing the
       last frame), or an artifact of how the dump is written.
-- [ ] Explain the gym-side 30 Hz → 15 Hz transition at t_sim ≈ 66 s
-      specifically. If it is load-dependent, say what the load was.
+- [ ] Explain the gym-side onset at t_sim ≈ 64 s specifically (only 30 of the
+      first 6582 records are duplicates). If it is load-dependent, say what the
+      load was.
+- [ ] Account for the **28-frame (~0.9 s) freezes** in later stretches of the
+      gym dump. A 15 Hz render explains length-2 runs; it does not explain a
+      0.9 s hold, and nothing of that length appears on the deploy side.
 - [ ] State whether the policy camera's effective render rate is a *stated*
       contract anywhere, and if not, make it one (a constant plus an assert or
       a bridge-side counter), so a future divergence between the two lanes
@@ -64,9 +77,9 @@ load-dependent then train and deploy agree only by coincidence.
 - The deploy-side counter that made this visible is `depth_repeat_content` in
   the inference node's periodic `cadence:` line — it counts consecutive
   inferences fed a bit-identical downsampled block.
-- Preserved artifacts: `~/strafer_v2_validation/gym_obs_parity.jsonl` (11136
-  records — note the session's "14189" figure is wrong) and
-  `~/strafer_v2_validation/parity_capture/parity_bag/`.
+- Preserved artifacts: `gym_obs_parity.jsonl` (**14,189 records** — verify the
+  line count before analysing; a truncated copy has circulated) and the
+  companion rosbag2 under `parity_capture/`.
 - Bridge camera config: `source/strafer_lab/strafer_lab/bridge/config.py`, and
   the policy/perception camera definitions in the navigation task's `d555_cfg`.
 

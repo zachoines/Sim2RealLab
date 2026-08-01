@@ -89,8 +89,8 @@
     # Drive the tick from depth ARRIVAL as well as from the timer. The
     # depth-freshness gate is the rate limiter either way (still one inference
     # per fresh frame); this only aligns the tick's PHASE with the frame it
-    # needs. Measured on the 2026-07-31 parity capture with timer-only
-    # scheduling: 23.49 Hz sim against a 30 Hz training cadence, with 100% of
+    # needs. Measured with timer-only scheduling against a recorded
+    # sim-bridge capture: 23.49 Hz sim against a 30 Hz training cadence, 100% of
     # the missing ticks landing on sim slots where a depth frame WAS published.
     # At RTF 0.15 one sim step spans ~218 ms of wall and that step's depth
     # frame lands deep inside it (25.8% within 1 ms of the clock step, 59.0% at
@@ -116,8 +116,8 @@
     # + the parameter services) and tf2_ros's private /tf group. Three threads
     # for five groups lets /clock queue behind the depth take, and rcl drops a
     # missed ROS_TIME deadline rather than catching up. That is a real but
-    # SMALL residual (at most 2.9% of sim slots on the 2026-07-31 capture, not
-    # the cadence shortfall itself); timer_deadline_missed measures it.
+    # SMALL residual (measured at most 2.9% of sim slots, not the cadence
+    # shortfall itself); timer_deadline_missed measures it.
     executor_threads: 5
 
     # Periodic one-line cadence + skip-by-cause summary, so a cadence

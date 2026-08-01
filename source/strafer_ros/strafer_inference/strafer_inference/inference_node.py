@@ -24,9 +24,9 @@ ARRIVAL (a guard condition triggered from ``_on_depth``), not solely by
 the timer. The gate is the rate limiter either way — this only fixes
 the PHASE.
 
-Measured on the 2026-07-31 parity capture: with a timer-only tick the
-node ran 23.49 Hz sim against training's 30 Hz (the session's headline
-23.79 Hz is the mission-p2 segment alone). Over the bag window, 247 of
+Measured against a recorded sim-bridge capture: with a timer-only tick
+the node ran 23.49 Hz sim against training's 30 Hz (a per-mission segment
+of the same run reads 23.79 Hz). Over the capture window, 247 of
 1166 sim slots produced no inference and **100% of them are slots
 where a depth frame WAS published** — the loss is not in the sim, the
 publisher, or the transport. The mechanism is arrival phase: the sim
@@ -54,7 +54,7 @@ for camera-free variants, and the safety net if the depth stream stops.
 
 Cadence counters: every skip is counted by cause and surfaced in a
 periodic ``cadence:`` log line, so a future regression is visible from
-an ordinary mission log without a parity session. ``depth_rx`` vs
+an ordinary mission log without arming a parity capture. ``depth_rx`` vs
 ``inferences`` is the load-bearing pair — a shortfall with ``depth_rx``
 also short indicts the transport (the depth subscription is
 BEST_EFFORT/depth=1 against a RELIABLE publisher), not the node.
@@ -159,8 +159,8 @@ _DEPTH_QOS = QoSProfile(
 # gate would have skipped anyway. Now that the tick is driven by depth
 # ARRIVAL, a frame lost in transport is a lost policy step outright, and
 # the depth_rx counter makes the loss visible. `depth_reliability` exposes
-# the trade so it can be measured on the rig instead of argued about; the
-# default is unchanged.
+# the trade so it can be measured instead of argued about; the default is
+# unchanged.
 _DEPTH_RELIABILITY = {
     "best_effort": ReliabilityPolicy.BEST_EFFORT,
     "reliable": ReliabilityPolicy.RELIABLE,
@@ -223,10 +223,11 @@ class InferenceNode(Node):
         # /tf_static. Three threads for five groups lets the /clock callback
         # queue behind the 921 KB depth deserialize, and rcl re-anchors a
         # missed ROS_TIME deadline forward rather than catching up, so the
-        # tick loses that step outright. This is NOT the cause of the 2026
-        # cadence shortfall — a gate-and-phase model with no starvation term
-        # explains 97.0% of the per-slot decisions, leaving starvation at most
-        # 2.9% — but it is a real residual and it costs nothing to remove.
+        # tick loses that step outright. This is NOT the cause of the
+        # cadence shortfall this scheduler fixes — a gate-and-phase model with
+        # no starvation term explains 97.0% of the per-slot decisions, leaving
+        # starvation at most 2.9% — but it is a real residual and it costs
+        # nothing to remove.
         # timer_deadline_missed is the counter that keeps it honest.
         self.declare_parameter("executor_threads", 5)
         # Depth subscription reliability: "best_effort" (default, unchanged)
@@ -394,8 +395,8 @@ class InferenceNode(Node):
         # Plain ints written only by the tick (a MutuallyExclusive group, so
         # serialized) except the _on_depth ones, which are incremented under
         # the depth lock. Cheap enough to leave permanently on: this is the
-        # instrument that makes a cadence regression visible without a
-        # parity session.
+        # instrument that makes a cadence regression visible without arming a
+        # parity capture.
         self._counts: dict[str, int] = {
             "ticks_timer": 0,
             "ticks_depth": 0,
@@ -1119,9 +1120,9 @@ class InferenceNode(Node):
 
         The freshness gate keys on the message counter, so a publisher that
         stamps at 30 Hz while its renderer updates slower satisfies the gate
-        with duplicate pixels. Measured on the 2026-07-31 capture: 54.1% of
-        sim depth messages were byte-identical to their predecessor over the
-        whole bag, and inside the join window the structure is exact — 583
+        with duplicate pixels. Measured on a recorded sim-bridge capture:
+        54.1% of depth messages were byte-identical to their predecessor over
+        the whole recording, and inside the analysis window it is exact — 583
         runs, every one of length 2, i.e. the sim renders depth at 15 Hz and
         publishes each image twice at 30 Hz stamps. That is a publisher-side
         property, not a node defect (the training gym dump shows the same

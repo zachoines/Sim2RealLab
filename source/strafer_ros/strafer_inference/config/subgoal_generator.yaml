@@ -18,47 +18,6 @@ strafer_subgoal_generator:
     planner_action: "/compute_path_to_pose"
     planner_id: "GridBased"
 
-    # Anchoring semantics — the train/deploy contract this node exists to
-    # reproduce. Training installs ONE path per goal and only ever advances a
-    # monotonic cursor along it, so the robot can genuinely BE off its path and
-    # the policy sees a real cross-track error to correct.
-    #
-    #   mission  (shipped default): the first plan of a mission is anchored;
-    #            later plans are planner LIVENESS and are discarded unless they
-    #            pass an admission rule below.
-    #   rolling  (legacy fallback): every accepted plan re-roots the path under
-    #            the robot. Kept named so the rig re-validation can A/B the two
-    #            semantics without editing code. Measured under `rolling`:
-    #            cross-track stays ~0.03 m (one costmap cell) over 5.95 m of
-    #            travel, i.e. no corrective lateral signal can accumulate.
-    subgoal_anchoring: "mission"
-
-    # Admission rule (ii): the robot is farther off the anchored path than this,
-    # so the corridor is genuinely lost and a subgoal on it would steer the
-    # policy at a route it can no longer reach. 0.5 m sits just under the global
-    # costmap's 0.55 m inflation_radius (strafer_navigation/config/nav2_params.yaml)
-    # and ~15x the cross-track seen under `rolling`, so ordinary tracking error
-    # cannot trip it.
-    admission_cross_track_m: 0.5
-
-    # Admission rule (i): the anchored path's REMAINING portion now crosses
-    # costmap cells at or above the inscribed threshold. Only the part ahead of
-    # the cursor is checked — an obstacle appearing behind the robot is not a
-    # reason to re-plan. The check abstains (never admits) with no costmap, a
-    # stale one, or a frame mismatch, so a missing costmap degrades to the
-    # cross-track and goal-change rules rather than to re-rooting.
-    admission_collision_check: true
-    costmap_topic: "/global_costmap/costmap"
-    # OccupancyGrid units after nav2_costmap_2d's translation table:
-    # 100 = LETHAL (254), 99 = INSCRIBED_INFLATED (253), -1 = NO_INFORMATION.
-    costmap_lethal_cost: 99
-    costmap_timeout_s: 5.0
-
-    # Periodic one-line anchoring summary (admitted / held / by-reason counts,
-    # cursor, cross-track) so the semantics are legible from a normal mission
-    # log without arming a parity capture. 0 disables.
-    anchor_log_period_s: 10.0
-
     # Guards for a robot parked inside the costmap inflation halo, where the
     # planner refuses the robot's own pose as a start and the resulting subgoal
     # suppression is what keeps it there. Both are degraded modes and both log.
@@ -82,6 +41,25 @@ strafer_subgoal_generator:
     starvation_hold_s: 5.0
     starvation_stationary_m: 0.05
     starvation_stationary_s: 1.0
+
+    # "mission": one anchored path per goal, replaced only on admission.
+    # "rolling": re-root on every accepted plan.
+    subgoal_anchoring: "mission"
+
+    # Above this the corridor is lost; sized under the global costmap's
+    # inflation radius.
+    admission_cross_track_m: 0.5
+
+    # Checks only the anchored path ahead of the cursor; abstains without a
+    # costmap. costmap_lethal_cost is in OccupancyGrid units (99 inscribed,
+    # 100 lethal).
+    admission_collision_check: true
+    costmap_topic: "/global_costmap/costmap"
+    costmap_lethal_cost: 99
+    costmap_timeout_s: 5.0
+
+    # Periodic anchoring/admission summary. 0 disables.
+    anchor_log_period_s: 10.0
 
     # Dedicated rolling-subgoal channel. The mission goal is not a topic —
     # it arrives via navigate_to_pose, and a new goal there resets the

@@ -497,8 +497,7 @@ class TestArcLengthProjection:
         assert s == pytest.approx(1.0)
 
     def test_tie_breaks_to_first_segment(self):
-        # Symmetric V: equidistant from both legs, first must win (matches
-        # torch.argmin in the training cursor).
+        # Symmetric V: equidistant from both legs, first must win.
         s, _ = arc_length_projection(
             np.array([(0.0, 1.0), (1.0, 0.0), (2.0, 1.0)]), np.array([1.0, 1.0])
         )
@@ -509,9 +508,8 @@ class TestArcLengthProjection:
             arc_length_projection(np.zeros((0, 2)), np.array([0.0, 0.0]))
 
     def test_matches_the_cursor_used_by_update(self):
-        """The projection helper and update() must agree — update() is
-        built on it, and admission compares a value from one against a
-        cursor driven by the other."""
+        """The projection helper and update() must agree; admission compares
+        one against a cursor driven by the other."""
         gen = RollingSubgoalGenerator(lookahead_m=LOOKAHEAD)
         gen.set_path(self.PATH)
         robot = np.array([2.2, 0.7])
@@ -525,7 +523,7 @@ class TestCursorSeeding:
     PATH = np.array([(0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (3.0, 0.0)])
 
     def test_default_still_rewinds_to_zero(self):
-        """The training cursor's goal-resample behaviour is unchanged."""
+        """Matches the training cursor at a goal resample."""
         gen = RollingSubgoalGenerator(lookahead_m=LOOKAHEAD)
         gen.set_path(self.PATH)
         gen.update(np.array([2.0, 0.0]))
@@ -573,8 +571,7 @@ class TestCursorSeeding:
 
 
 class TestAdmissionRules:
-    """The ruled predicate that decides whether a fresh plan may REPLACE
-    the anchored path. Default answer is no."""
+    """Whether a fresh plan may replace the anchored path. Default: no."""
 
     def test_holds_the_anchor_by_default(self):
         d = evaluate_admission(has_anchor=True, cross_track_m=0.02)
@@ -652,19 +649,13 @@ class TestAdmissionRules:
 
 
 class TestAnchoredCursorIsMonotonicUnderReplanning:
-    """The property PR-1 exists to restore.
-
-    Under the old semantics every fresh plan called ``set_path``, which
-    rewound the cursor AND re-rooted the path under the robot, so
-    cross-track could never grow. Holding one anchored path makes both
-    the cursor's monotonicity and the cross-track measurement real.
-    """
+    """Holding one anchored path makes the cursor's monotonicity and the
+    cross-track measurement real."""
 
     ANCHOR = np.array([(float(i), 0.0) for i in range(11)])  # 10 m along +x
 
     def _drive(self, drift_per_step: float):
-        """Robot drives +x while drifting laterally, as the biased policy
-        actually did."""
+        """Robot drives +x while drifting laterally."""
         return [
             np.array([0.5 * k, drift_per_step * k]) for k in range(1, 15)
         ]
@@ -683,18 +674,16 @@ class TestAnchoredCursorIsMonotonicUnderReplanning:
         gen = RollingSubgoalGenerator(lookahead_m=LOOKAHEAD)
         gen.set_path(self.ANCHOR)
         seen = [gen.update(r).cross_track for r in self._drive(0.05)]
-        # The corrective signal the policy is trained to consume: it grows
-        # with the drift instead of pinning at one costmap cell.
+
         assert seen[-1] > seen[0]
         assert max(seen) > 0.3
 
     def test_re_rooting_every_tick_destroys_that_signal(self):
-        """Control arm: the legacy behaviour, reproduced exactly."""
+        """Control arm: the legacy behaviour."""
         gen = RollingSubgoalGenerator(lookahead_m=LOOKAHEAD)
         seen = []
         for robot in self._drive(0.05):
-            # A Nav2 plan computed with use_start=False starts under the
-            # robot; installing on arrival is what re-roots it.
+            # use_start=False starts the plan under the robot.
             rerooted = np.array(
                 [robot + np.array([float(i), 0.0]) for i in range(11)]
             )
@@ -707,12 +696,11 @@ class TestAnchoredCursorIsMonotonicUnderReplanning:
         gen.set_path(self.ANCHOR)
         gen.update(np.array([4.0, 0.0]))
         assert gen.cursor_arc == pytest.approx(4.0)
-        # Admission fires; the replacement path still starts at the origin
-        # (e.g. a /plan from a source that did not root at the robot).
+        # The replacement path does not start at the robot.
         robot = np.array([4.0, 0.6])
         s, _ = arc_length_projection(self.ANCHOR, robot)
         gen.set_path(self.ANCHOR, initial_cursor=s)
-        # Progress toward the goal is preserved, not thrown away.
+
         assert gen.cursor_arc == pytest.approx(4.0)
         assert gen.total_arc - gen.cursor_arc == pytest.approx(6.0)
 

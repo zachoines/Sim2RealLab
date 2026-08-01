@@ -83,13 +83,10 @@ def _straight_path(n: int = 11, *, x0: float = 0.0, stamp_ns: int = 0) -> Path:
 
 def _plan_to_goal(robot_xy, goal_xy=(10.0, 0.0), *, spacing: float = 0.5,
                   stamp_ns: int = 0) -> Path:
-    """What Nav2 actually returns: a path from the robot's CURRENT pose to
-    the goal, discretized at ``spacing``.
+    """A path from the robot's current pose to the goal, as Nav2 returns.
 
-    ``use_start=False`` means every plan is rooted under the robot — in x
-    and y. Modelling it as "rooted in x only" would hide the very effect
-    under test, because a path that keeps the robot's lateral offset shows
-    zero cross-track by construction.
+    Rooted under the robot in x AND y; rooting in x only would show zero
+    cross-track by construction and hide the effect under test.
     """
     start = np.asarray(robot_xy, dtype=float)
     goal = np.asarray(goal_xy, dtype=float)
@@ -126,12 +123,10 @@ def _costmap(
 
 
 def _cells_for(node: SubgoalGeneratorNode, *xy: tuple[float, float]):
-    """(col, row) costmap indices for map-frame points.
+    """(col, row) costmap indices, divide-then-floor as the node does.
 
-    Uses divide-then-floor exactly as the node does. Python's ``//`` takes a
-    different float path (``16.0 // 0.05 == 319.0`` but
-    ``np.floor(16.0 / 0.05) == 320``), so a helper that used ``//`` would
-    place the obstacle one cell off the waypoint and silently test nothing.
+    ``//`` takes a different float path and would place the obstacle one
+    cell off the waypoint.
     """
     info = _costmap().info
     return tuple(
@@ -862,10 +857,7 @@ class TestComposedStaleBound(unittest.TestCase):
 
 
 def _anchored_node(**overrides) -> SubgoalGeneratorNode:
-    """A node with a mission anchored and the robot pose primed.
-
-    The anchor runs 0..10 m along +x; the robot starts on it at the origin.
-    """
+    """A node with a 0..10 m anchor along +x and the robot on it at 0."""
     node = _node(**overrides)
     node._active_goal = _pose(10.0, 0.0)
     node._last_goal_telemetry_rx_t = time.monotonic()
@@ -916,7 +908,7 @@ class TestAnchoringMode(unittest.TestCase):
 
 
 class TestAnchorHeldAgainstRepeatPlans(unittest.TestCase):
-    """The core of the fix: a fresh plan is planner liveness, not a new path."""
+    """A fresh plan is planner liveness, not a new path."""
 
     def test_second_distinct_plan_does_not_re_root_the_anchor(self) -> None:
         node = _anchored_node()
@@ -924,7 +916,7 @@ class TestAnchorHeldAgainstRepeatPlans(unittest.TestCase):
             node._last_robot_xy = np.array([4.0, 0.05])
             node._last_cross_track_m = 0.05
             anchor_before = node._generator.path.copy()
-            # Exactly what Nav2 sends next: a path rooted under the robot.
+            # A path rooted under the robot, as Nav2 sends.
             node._consider_plan(
                 _straight_path(x0=4.0, stamp_ns=2), source="test"
             )
@@ -935,8 +927,7 @@ class TestAnchorHeldAgainstRepeatPlans(unittest.TestCase):
             node.destroy_node()
 
     def test_rejected_plan_still_counts_as_planner_liveness(self) -> None:
-        """The refusal guards depend on this: a held anchor must not read
-        as a dead planner."""
+        """A held anchor must not read as a dead planner."""
         node = _anchored_node()
         try:
             node._last_cross_track_m = 0.05
@@ -953,7 +944,7 @@ class TestAnchorHeldAgainstRepeatPlans(unittest.TestCase):
             node.destroy_node()
 
     def test_republished_identical_plan_is_deduped(self) -> None:
-        """planner_server mirrors /plan at ~12 Hz; arrival is meaningless."""
+        """planner_server mirrors /plan, so arrival is meaningless."""
         node = _anchored_node()
         try:
             seen_before = node._plans_seen
@@ -1016,14 +1007,12 @@ class TestAdmissionRulesAtTheNode(unittest.TestCase):
             node.destroy_node()
 
     def test_new_mission_admits_even_when_the_goal_barely_moved(self) -> None:
-        """A mission boundary is a new mission: the policy's hidden state was
-        reset, so the previous mission's anchor must not be inherited just
-        because the new goal sits within the goal-provenance tolerance."""
+        """A new mission must not inherit the previous anchor just because
+        its goal sits within the provenance tolerance."""
         node = _anchored_node()
         try:
             node._last_cross_track_m = 0.01
-            # 0.1 m away — well inside _PLAN_GOAL_MATCH_M, so the provenance
-            # check alone would call this the same goal.
+            # Inside _PLAN_GOAL_MATCH_M, so provenance alone reads "same goal".
             node._on_active_goal(_pose(10.1, 0.0))
             self.assertTrue(node._new_mission_pending)
             node._consider_plan(
@@ -1182,18 +1171,14 @@ class TestCollisionAdmissionRule(unittest.TestCase):
 
 
 class TestAnchoredCursorMonotonicityAtTheNode(unittest.TestCase):
-    """The end-to-end property: driving a mission with Nav2 replanning at its
-    real cadence must leave the cursor monotonic and let cross-track grow."""
+    """Driving a mission at Nav2's replan cadence leaves the cursor
+    monotonic and lets cross-track grow."""
 
     def _drive(self, node, drift_per_step: float, steps: int = 12):
-        """One mission at Nav2's real plan cadence.
-
-        Per step, in the order the node actually sees it: the robot moves,
-        the plan Nav2 computed for that pose arrives (plus one
-        planner_server republish), then the tick projects and advances the
-        cursor. ``_last_cross_track_m`` is written by the tick and read by
-        the plan callback, so the admission rule legitimately sees the
-        PREVIOUS tick's measurement — as it does in the node.
+        """One mission at Nav2's plan cadence, in the node's own order:
+        robot moves, plan arrives (plus a republish), tick advances the
+        cursor. The admission rule therefore sees the previous tick's
+        cross-track, as it does in the node.
         """
         cursors, cross, remaining = [], [], []
         for k in range(1, steps + 1):
@@ -1214,8 +1199,7 @@ class TestAnchoredCursorMonotonicityAtTheNode(unittest.TestCase):
         return cursors, cross, remaining
 
     def test_cursor_is_monotonic_under_continuous_replanning(self) -> None:
-        # Drift stays under admission_cross_track_m for the whole drive, so
-        # the anchor is never legitimately replaced and monotonicity is
+        # Drift stays under admission_cross_track_m, so monotonicity is
         # asserted over one continuous anchored path.
         node = _anchored_node()
         try:
@@ -1231,21 +1215,15 @@ class TestAnchoredCursorMonotonicityAtTheNode(unittest.TestCase):
         node = _anchored_node()
         try:
             _, cross, _ = self._drive(node, 0.03)
-            # Measured under the old semantics: cross-track never left ~0.03 m
-            # (one MAP_RESOLUTION cell) over metres of travel.
+
             self.assertGreater(max(cross), 0.3)
             self.assertGreater(cross[-1], cross[0])
         finally:
             node.destroy_node()
 
     def test_losing_the_corridor_admits_and_preserves_progress(self) -> None:
-        """Drift past the bound: the anchor IS replaced.
-
-        Progress-toward-goal is what must survive the replacement, and on a
-        path re-rooted at the robot that is the REMAINING arc, not the
-        cursor value (a new path restarts its own arc parameterization).
-        The remaining arc must never jump backwards.
-        """
+        """Drift past the bound replaces the anchor; the remaining arc must
+        not jump backwards across the replacement."""
         node = _anchored_node(admission_cross_track_m=0.5)
         try:
             _, cross, remaining = self._drive(node, 0.08)
@@ -1265,8 +1243,8 @@ class TestAnchoredCursorMonotonicityAtTheNode(unittest.TestCase):
             node._last_robot_xy = np.array([0.0, 0.0])
             node._consider_plan(_straight_path(stamp_ns=1), source="test")
             _, cross, _ = self._drive(node, 0.05)
-            # Every plan re-roots under the robot, so the robot is never
-            # allowed to BE off its path: no corrective signal accumulates.
+            # Every plan re-roots under the robot, so no cross-track can
+            # accumulate.
             self.assertLess(max(cross), 1e-6)
         finally:
             node.destroy_node()

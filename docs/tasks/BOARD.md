@@ -83,7 +83,8 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | [`depth-subgoal-env`](active/trained-policy/depth-subgoal-env.md) | P3 | active | DGX |
 | [`depth-subgoal-reactive-avoidance`](parked/trained-policy/depth-subgoal-reactive-avoidance.md) | P3 | parked | DGX |
 | [`depth-subgoal-hybrid-runtime`](active/trained-policy/depth-subgoal-hybrid-runtime.md) | P3 | active | Jetson |
-| [`subgoal-anchoring-rig-revalidation`](active/trained-policy/subgoal-anchoring-rig-revalidation.md) | P0 | active | Jetson |
+| [`enriched-scene-anchoring-addendum`](active/trained-policy/enriched-scene-anchoring-addendum.md) | P0 | active | Jetson |
+| [`training-run-provenance-manifest`](active/trained-policy/training-run-provenance-manifest.md) | P2 | active | DGX |
 | [`d555-invalid-pixel-statistics`](active/trained-policy/d555-invalid-pixel-statistics.md) | P2 | active | Jetson |
 | [`procroom-depth-enrichment`](active/trained-policy/procroom-depth-enrichment.md) | P2 | active — impl merged (#156); F3/tall furniture merged (#159 — D4 34.6→36.4%, no regression, still below band); F1/enclosure closed the dominant D3 gap ~96%, fallback does not fire; the v2 batch's placement levers are designed in [`procroom-placement-architecture`](active/trained-policy/procroom-placement-architecture.md); the enclosure is now a one-way open quad so overhead `--video` works at the shipped defaults; enriched retrain + NX deploy-frame confirm open | DGX |
 | [`procroom-placement-architecture`](active/trained-policy/procroom-placement-architecture.md) | P2 | active — design shipped (#160), guard net merged (#161), re-range arm + instruments merged (#162); **surgery + D4 column knob = PR-1 (#163, open)**: vanilla path byte-identical (guard net untouched + CUDA pose-hash equal), D4 gate MET at the scaled protocol (shipped `prob=0.5` reads 45.45 ≥ 40.6, paired improvement +2.21 excludes zero). Next after PR-1: PR-2 (H1 compounds, instrument-first) and PR-3a (coverage invariant + seed guard promoted) are independent. Three PR-A findings still await a coordinator ruling (D4's capture-protocol sensitivity, the corrected path-topology comparator, the ray-cast D4 attribution) | DGX |
@@ -142,6 +143,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 
 | Brief | Pri | State | Owner |
 |---|---|---|---|
+| [`depth-qos-reliable-flip`](active/reliability/depth-qos-reliable-flip.md) | P1 | active | Jetson |
 | [`nav2-mppi-motion-model-investigation`](active/reliability/nav2-mppi-motion-model-investigation.md) | P2 | active | Jetson |
 | [`rtabmap-cold-start-determinism`](active/reliability/rtabmap-cold-start-determinism.md) | P2 | active | Jetson |
 | [`executor-grounding-loss-mid-mission-recovery`](active/reliability/executor-grounding-loss-mid-mission-recovery.md) | P2 | active | Jetson |
@@ -205,12 +207,13 @@ session. Parked briefs are not listed here — see **By epic** or
 
 | Brief | Owner | Estimate | Note |
 |---|---|---|---|
-| [`subgoal-anchoring-rig-revalidation`](active/trained-policy/subgoal-anchoring-rig-revalidation.md) | Jetson | M | One rig session that A/Bs `subgoal_anchoring: mission` vs `rolling` and puts a REAL v1 control beside v2 at comparable speed. Acceptance for the three deploy-side fixes the 2026-07-31 obs-parity session found ([`subgoal-mission-anchoring`](completed/subgoal-mission-anchoring.md), [`inference-cadence-shortfall`](completed/inference-cadence-shortfall.md), [`depth-camera-vfov-parity`](completed/depth-camera-vfov-parity.md)). None of the three can move the v2 signed bias — that is the training lane's. |
+| [`enriched-scene-anchoring-addendum`](active/trained-policy/enriched-scene-anchoring-addendum.md) | Jetson | S | The one cell the 2026-08-01 four-arm session could not run: **enriched scene × `mission` anchoring**. That session ran vanilla `ProcRoom-v0` while v2 is enriched-trained and v1 vanilla-trained, so its v1-10/10-vs-v2-4/10 contrast cannot separate policy-broken from scene-OOD, and its offline replay used observations recorded from an already-failing v2 loop. Carries a pre-registered decision rule: v2 advances → the vanilla failure re-files as a training-lane scene-robustness note; v2 fails → policy-owned with clean attribution and the training lever fires as robustness augmentation. |
 
 ### P1 — high priority
 
 | Brief | Owner | Estimate | Note |
 |---|---|---|---|
+| [`depth-qos-reliable-flip`](active/reliability/depth-qos-reliable-flip.md) | Jetson | S | The inference node receives 22–25 Hz sim of depth while a **concurrent** subscriber on the identical BEST_EFFORT/depth=1 QoS receives 29.8 Hz, at ~98% consumption — frames are lost at the node's receiver, not by the bridge. Filed off the 2026-08-01 anchoring re-validation with per-arm evidence. |
 | [`next-integration-round`](active/investigations/next-integration-round.md) | Either | M–L | Full end-to-end sim-in-the-loop run against `INTEGRATION_SIM_IN_THE_LOOP.md`; gating signal that bridge + autonomy + VLM/CLIP compose end-to-end |
 | [`validator-evaluation`](active/clip-validation/validator-evaluation.md) | Either | L | Wire the orphaned `SemanticMapManager` + `BackgroundMapper` + `TransitMonitor` path into the production executor and measure pre-registered TPR/FPR/time-to-decision on harness output. Gating brief for `MISSION_VALIDATION_ARCHITECTURE.md` §4 staged plan. Filed off `mid-mission-validation-investigation` ship. |
 | [`harness-architecture`](active/harness/harness-architecture.md) | DGX | XL (split across PRs B/C/D — see brief's Implementation tiers) | Architecture spec for the consolidated harness: one `source/strafer_lab/scripts/capture.py` entry point with `--driver` × `--mission-source` flags + LeRobot v3 canonical output. **Next pickable slice: Tier 1 (writer + teleop driver)** unblocks v1 measurement and v2 VLA training data without depending on bridge perf. Subsumes the retired teleop-driver / behavior-cloning-data-expansion / trajectory-first-captioning / oracle-driver / output-format-alignment briefs. |
@@ -223,6 +226,7 @@ session. Parked briefs are not listed here — see **By epic** or
 
 | Brief | Estimate | Note |
 |---|---|---|
+| [`training-run-provenance-manifest`](active/trained-policy/training-run-provenance-manifest.md) | S | A training run records nothing about which task it used: the export sidecar's `env_id` is the export-time default (every depth-subgoal artifact carries the same vanilla Play env string, including v0), and the run dir has no manifest. Settling whether v2 trained enriched or vanilla took two agents and Kit logs outside version control. Write `train_manifest.json` (task id, git SHA, seed, num_envs, resume chain), split training-env from export-env in the sidecar, and list the enriched bridge task in `--task` help. |
 | [`isaac-sim-rt-2-default-renderer`](active/sim-performance/isaac-sim-rt-2-default-renderer.md) | S | Flip default renderer to Real-Time 2.0 + 4× FPS multiplier + Performance mode; re-measure bridge perf |
 | [`sim-depth-render-rate-parity`](active/sim-performance/sim-depth-render-rate-parity.md) | S | The sim publishes depth on a strict 30 Hz sim-stamp grid but renders at 15 Hz — 583 duplicate runs, all of length 2, in the 2026-07-31 join window. Training shows the same 15 Hz, but only after t_sim ~66 s. Establish which rate is the contract and make a divergence fail loud. Filed off `inference-cadence-shortfall`. |
 | [`planner-rotate-direction-prompt`](active/reliability/planner-rotate-direction-prompt.md) | S | Quick win — prompt edit |

@@ -122,7 +122,7 @@ selector tests pass untouched.
 - The #171 start-cell planner selector (topic-isolated from this node;
   `test_nav_config.py` actively forbids the generator gaining a selector topic).
 - The behavioural re-validation itself — filed as
-  [`subgoal-anchoring-rig-revalidation`](../active/trained-policy/subgoal-anchoring-rig-revalidation.md).
+  [`subgoal-anchoring-rig-revalidation`](subgoal-anchoring-rig-revalidation.md).
 - The v2 signed leftward bias, which the same session routed to the training
   lane and which this change cannot and does not address.
 

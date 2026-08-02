@@ -73,45 +73,65 @@ Two coordinator findings (2026-08-02) shape what this session should expect:
   support, and both synthetic and deploy-manufactured joints do. This is exactly
   why only a closed loop can settle it.
 
-## Precondition — establish v2's training scene BEFORE booking rig time
+## Precondition — DISCHARGED 2026-08-02
 
-**This brief's premise is that v2's training distribution differs from vanilla.
-That is currently an assumption, not a fact, and it is not establishable from
-this repo.**
+**v2 trained on `Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-v0`** —
+enriched generator, Robust realism tier, `--num_envs 96 --seed 42`. The premise
+holds and this brief proceeds as written.
 
-- All three artifact sidecars carry
-  `"env_id": "Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0"` — the **vanilla**
-  Play env — including v0, whose `obs_dim` 4819 predates the env rework. That
-  field is `export_policy.py`'s export-time `--env` default
-  (`_DEFAULT_ENV_BY_VARIANT`), not the training task, though its docstring
-  claims otherwise.
-- `train_strafer_navigation.py` prints `env_name` to stdout and persists no task
-  id in the run directory.
-- v1's recorded `git_commit` is **absent from this clone**, so even the tree it
-  trained against cannot be inspected here.
-- A competing hypothesis is live: v2 may be the **vFOV retrain on the vanilla
-  generator** — `depth-camera-vfov-parity` calls a "v2 retrain" closed, while
-  `procroom-depth-enrichment` still treats the enrichment retrain as an open
-  operator decision. Both are referred to as "the v2 retrain".
+**Provenance: Isaac Sim Kit logs, which capture the full command line of every
+run.** Two training legs match their run directories to the second:
 
-**Required before running:** the coordinator confirms, from DGX-side training
-records (run logs, launch command, or the run directory for
-`run_20260727_171735`), which task id produced `model_998.pt`, and that answer is
-recorded here.
+| Kit log | run dir | command |
+|---|---|---|
+| `kit_20260726_221941.log` | `run_20260726_221955` | `--env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-v0 --num_envs 96 --seed 42 --headless --max_iterations 500` |
+| `kit_20260727_171717.log` | `run_20260727_171735` | same env, `--resume …/run_20260726_221955/model_499.pt` |
 
-- If **v2 trained enriched** → this brief proceeds as written.
-- If **v2 trained vanilla** → the scene-class confound evaporates, the
-  2026-08-01 attribution is reinstated as-is, and this brief closes without a rig
-  session. The four arms would then already be the clean test.
-- If it **cannot be recovered** → run the session anyway (an enriched arm is
-  informative regardless), but the decision rule below must be read as
-  "v2 in enriched" rather than "v2 on-distribution".
+The chain is closed: leg 2 resumes leg 1's `model_499` and produces
+`model_998`; the export sidecar's `source_checkpoint` names that file; the
+exported ONNX is byte-verified against the rig artifact. **The
+vFOV-retrain-on-vanilla hypothesis is dead.**
 
-**Root cause worth fixing separately (source change, not this brief):** the
-export sidecar's `env_id` cannot identify a training run, and the training script
-writes no manifest. A `train_manifest.json` carrying task id, git SHA, seed and
-`num_envs` would have made this precondition a lookup instead of an
-investigation.
+**Kit logs are the recovery path for any historical run's provenance** — nothing
+in the repo records it (see the root-cause note below), so this is the only
+mechanism until a training manifest ships.
+
+### Why the precondition existed (retained — the gap is real)
+
+Training provenance is **not recoverable from the repo**: all three artifact
+sidecars carry the same `env_id` (`…Subgoal-Real-Play-v0`, the *vanilla* Play
+env) because that field is `export_policy.py`'s export-time default rather than
+the training task; `train_strafer_navigation.py` persists no task id; and v1's
+recorded `git_commit` is absent from this clone. Filed as
+[`training-run-provenance-manifest`](training-run-provenance-manifest.md).
+
+## The evidence map this leaves
+
+Every v2 failure observed to date falls into one of two buckets, and the cell
+this brief runs is the first that is in neither.
+
+| when | scene | deploy stack | outcome |
+|---|---|---|---|
+| 2026-07-28/29 NX validation (10 runs) | **enriched** | **pre-fix** — robot-rooted `rolling`, 23.5 Hz, depth-mean reduction | failed |
+| 2026-07-31 17:00 obs-dump capture | **vanilla** | pre-fix | failed |
+| 2026-08-01 four-arm | **vanilla** | post-fix | failed |
+| every offline probe (both lanes) | **vanilla frames** | n/a | refuses to advance |
+| closed-loop sim (play gates) | enriched | n/a | **healthy — 0.883 completion** |
+
+**v2's enriched rig failures all predate the three deploy fixes; v2's post-fix
+failures are all vanilla.** So every observed failure is consistent with
+(since-fixed deploy defects) ∪ (vanilla scene). **Enriched × `mission` × the
+current build is the first condition where neither applies.**
+
+Coordinator's pre-registered prediction, recorded before the session runs:
+**v2 advances.** The decision rule below covers both outcomes, so the session is
+decisive either way.
+
+One suggestive-only data point: crudely filling the vanilla frames' clamped
+top-11 rows with ceiling-plausible depth (2.5 m) softens v2's cold-start retreat
+at two of three bearings (−0.303 → −0.111 at −60°; −0.125 → −0.078 at 0°) but
+flips nothing positive. The offline instrument is at its resolution limit — which
+is itself the argument for running the rig cell rather than another probe.
 
 ## Acceptance criteria
 
@@ -146,14 +166,15 @@ investigation.
 Committed before the session runs, so the outcome cannot be read backwards.
 
 - **v2 advances under enriched×`mission`** → the deploy stack is validated for
-  goal-directed motion in the deployment-relevant scene class (real deployment
-  rooms are furnished, i.e. enriched-like). The vanilla failure re-files as a
-  **scene-robustness training-lane note, not a deploy defect**, and the
-  2026-08-01 attribution is retired.
+  goal-directed motion in the deployment-relevant scene class. Real deployment
+  rooms are **ceilinged and walled — enriched-like on the far-clip axis that
+  drives the confound**, which is the axis that matters here, not furniture
+  count. The vanilla failure re-files as a **scene-robustness training-lane
+  note, not a deploy defect**, and the 2026-08-01 attribution is retired.
 - **v2 still fails under enriched×`mission`** → the failure is policy-owned with
-  clean attribution and the training lever fires. Its shape is informed by the
-  joint-brittleness finding: **robustness augmentation — off-joint subgoal
-  exposure and scene-mix — not merely frozen-subgoal replay.**
+  clean attribution and the training lever fires. Shape it as **scene-robustness
+  augmentation** — vanilla/enriched scene-mix, and exposure to upper-row
+  far-clip depth — rather than frozen-subgoal replay alone.
 - **Either way**, v2×`rolling` on enriched is the within-session regression
   control; it is expected to reproduce the historical enriched-session collapse,
   and if it does not, that is itself a finding about what changed on this build.

@@ -185,8 +185,13 @@ session's evidence, to the weights themselves.**
 >    while enrichment *un-pins* to U[4,7], so enriched rooms average **less**
 >    furniture and clutter, and are **farther** on average, not nearer.
 > 2. **The offline replay is circular for this attribution.** Its inputs are the
->    2026-07-31 node observations — enriched scene, but recorded under `rolling`
->    anchoring *from a loop in which v2 was already failing*. Observations
+>    2026-07-31 node observations — **vanilla scene** (the 17:00 obs-dump
+>    capture leg ran `ProcRoom-v0`; confirmed from the DGX Kit log), recorded
+>    under `rolling` anchoring *from a loop in which v2 was already failing*.
+>    All three defects therefore stack in the same direction: wrong scene class
+>    for v2, legacy anchoring, and inputs that embody the failure. That makes the
+>    replay **consistent with the scene axis, not evidence against it**.
+>    Observations
 >    recorded from a failing loop embody the failure (frozen dead-ahead
 >    subgoals, viewpoints wherever the robot hovered). The replay shows v2
 >    retreats **on those inputs**, which the frozen-regime account already
@@ -247,11 +252,13 @@ makes the signed split unreadable.
   same weights complete ~88% of closed-loop sim episodes and its lateral output
   tracks bearing correctly throughout. This also **refutes** the hypothesis that
   tick-1 bearing response explains this session's bearing↔outcome pattern.
-  Synthesis: **v2's advance decision is brittle to the joint (depth, subgoal,
-  state-history) distribution** — synthetic joints and deploy-manufactured
-  joints both fall off its support — where v1 is coarse and robust everywhere.
-  This is precisely why offline probes cannot settle the attribution: only a
-  closed loop generating its own in-support joints can.
+  **Narrowed 2026-08-02:** those probe frames were **vanilla-scene**, not
+  enriched as first reported. The wider "brittle to the joint (depth, subgoal,
+  state-history) distribution" synthesis is **retracted**. What the probes
+  actually demonstrate is narrower and cleaner: **v2 refuses to advance on
+  vanilla depth at any bearing, cold-start** — a blunt scene-OOD response, on
+  the same scene axis as the rig confound. v2's enriched closed-loop record is
+  healthy (0.883 completion).
 
 ### Units and clipping convention
 

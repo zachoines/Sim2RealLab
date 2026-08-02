@@ -1,5 +1,8 @@
 # Re-validate subgoal tracking on the rig with a real v1 control
 
+**Status:** Shipped 2026-08-01 in `4880064` (Jetson).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/PENDING
+
 **Type:** investigation (behavioural acceptance)
 **Owner:** Jetson (rig session; DGX supplies the bridge)
 **Priority:** P0 — it is the acceptance for three shipped deploy-side fixes and

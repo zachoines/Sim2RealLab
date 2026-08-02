@@ -142,8 +142,41 @@ under `logs/`, tooling under `tools/`). Build `25305a4c4103`, verified by
 `docker inspect` on both images. Vanilla `ProcRoom-v0`, one continuous sim run,
 fresh SLAM db `reval_reval1`.
 
-**The deploy-side anchoring defect is fixed; the v2 advance failure is not, and
-it is now isolated to the policy weights.**
+**The deploy-side anchoring defect is fixed. The v2 advance failure is not, and
+it is isolated to the v2 policy *under the tested conditions* — not, on this
+session's evidence, to the weights themselves.**
+
+> **Attribution caveat (amended 2026-08-02 on coordinator ruling).** Two
+> confounds bound what the four arms can conclude, and a third cell is unfilled.
+>
+> 1. **Scene class.** The session ran the **vanilla**
+>    `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0`. That was a deliberate
+>    session-side choice — it makes arm 1 directly comparable to the 2026-07-31
+>    parity control — but v2 trained on the **enriched** distribution
+>    (`StraferNavCfg_RLDepthSubgoalEnriched_Robust`) and v1 on vanilla. Vanilla
+>    rooms are open-top and furniture-free, i.e. far-clip-heavy in depth, which
+>    is the axis the enrichment program moved v2's training away from. All four
+>    arms were therefore a home game for v1 and an away game for v2 on a
+>    concrete mechanistic axis. **"v1 10/10, v2 4/10, in vanilla" cannot
+>    separate policy-broken from scene-out-of-distribution.**
+> 2. **The offline replay is circular for this attribution.** Its inputs are the
+>    2026-07-31 node observations — enriched scene, but recorded under `rolling`
+>    anchoring *from a loop in which v2 was already failing*. Observations
+>    recorded from a failing loop embody the failure (frozen dead-ahead
+>    subgoals, viewpoints wherever the robot hovered). The replay shows v2
+>    retreats **on those inputs**, which the frozen-regime account already
+>    predicted, and shows v1 is robust off-distribution. It does **not** show v2
+>    is broken on-distribution.
+> 3. **The decisive cell has never been run:** enriched scene × `mission`
+>    anchoring. Every historical enriched session used `rolling`; this session's
+>    `mission` arms were vanilla. Owned by
+>    [`enriched-scene-anchoring-addendum`](../active/trained-policy/enriched-scene-anchoring-addendum.md).
+>
+> **What survives unamended:** the anchoring semantics verification (measured in
+> both models), the cadence numbers with their load-dependent attribution, the
+> QoS discriminator, P2, P3, and the withdrawal of the historical left-bias
+> statistic. Those are within-session or within-model measurements that the
+> scene class does not confound.
 
 Every mission starts from a fixed pose *and heading* (60°), restored by Nav2
 rather than the policy, giving body-frame goal bearings of −60/−33/0/+28/+60° —
@@ -166,11 +199,48 @@ makes the signed split unreadable.
 - **Advance is measured as `v_par = v · ĝ`**, not `vx`. The base is holonomic
   mecanum, so `vx>0` scores a correct sideways approach as a failure on any goal
   not dead ahead.
-- **The decisive isolation is offline.** Replaying byte-identical recorded
+- **Offline replay, read with its limits.** Replaying byte-identical recorded
   observations through both ONNX artifacts with the GRU state threaded as the
   deploy loader threads it: **v1 commands vx median +1.067 m/s (100% forward),
-  v2 commands −0.244 m/s (0% forward).** No anchoring, no deploy stack, no start
-  condition — the separation is in the weights.
+  v2 commands −0.244 m/s (0% forward)** — raw interpreted velocity, *pre-clamp*
+  (see the units note below). The separation is real and rules out the
+  observation vector, the replay harness, the recurrent threading and the action
+  interpretation as sources. It does **not** establish that the v2 weights are
+  broken: the inputs were recorded from an already-failing v2 loop, so they
+  embody the failure. See the attribution caveat above.
+- **The export is exonerated — do not chase it.** (Coordinator, 2026-08-02.) The
+  v2 ONNX was checked against `model_998.pt` at the constants level:
+  `obs_normalizer._mean` byte-identical, the std divisor identical up to a
+  uniform +0.01 epsilon, the output head byte-identical; the apparent GRU weight
+  difference is the standard PyTorch→ONNX gate reorder. `export_policy.py` also
+  runs a torch-vs-ONNX round-trip probe at export time that raises on mismatch.
+  **The artifact faithfully reproduces the trained actor.**
+- **v2's failure surface is wider than the frozen-straight-ahead story.**
+  (Coordinator, 2026-08-02.) At a cold start (h=0, last_action=0, real
+  enriched-scene depth and proprio, subgoal pasted at 1 m), v2 commands negative
+  vx at **every** bearing from −60° to +60°, on 20/20 sampled frames — while the
+  same weights complete ~88% of closed-loop sim episodes and its lateral output
+  tracks bearing correctly throughout. This also **refutes** the hypothesis that
+  tick-1 bearing response explains this session's bearing↔outcome pattern.
+  Synthesis: **v2's advance decision is brittle to the joint (depth, subgoal,
+  state-history) distribution** — synthetic joints and deploy-manufactured
+  joints both fall off its support — where v1 is coarse and robust everywhere.
+  This is precisely why offline probes cannot settle the attribution: only a
+  closed loop generating its own in-support joints can.
+
+### Units and clipping convention
+
+Offline-replay velocities are **raw interpreted, pre-clamp**: the network's
+`action[0:2]` multiplied by `MAX_LINEAR_VEL` (≈1.568 m/s). Rig-measured
+velocities are read from the recorded `/cmd_vel` topic and are therefore
+**post-clamp**, bounded by `NAV_LINEAR_VEL` (0.784 m/s = `MAX_LINEAR_VEL` ×
+`NAV_VEL_SCALE` 0.5). That is why v1's replay median of +1.067 m/s legitimately
+exceeds the 0.784 m/s cap quoted for rig figures — the two are not the same
+quantity. The deploy clamp is an L1 **proportional scale of the whole velocity
+vector**, not a per-component clip, so it preserves commanded direction: a
+pre-clamp median remains a valid *direction* statistic even where its magnitude
+is not achievable. Do not compare a pre-clamp magnitude against a post-clamp one
+without converting.
 - **Two start-condition hypotheses tested and closed offline.** A carried-over
   `last_action` is refuted (the sign is inverted, and a first-step-only
   perturbation moves the median by 0.0005 m/s); body-velocity conditioning is

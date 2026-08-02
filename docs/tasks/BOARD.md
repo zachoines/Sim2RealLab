@@ -83,6 +83,7 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | [`depth-subgoal-env`](active/trained-policy/depth-subgoal-env.md) | P3 | active | DGX |
 | [`depth-subgoal-reactive-avoidance`](parked/trained-policy/depth-subgoal-reactive-avoidance.md) | P3 | parked | DGX |
 | [`depth-subgoal-hybrid-runtime`](active/trained-policy/depth-subgoal-hybrid-runtime.md) | P3 | active | Jetson |
+| [`enriched-scene-anchoring-addendum`](active/trained-policy/enriched-scene-anchoring-addendum.md) | P0 | active | Jetson |
 | [`d555-invalid-pixel-statistics`](active/trained-policy/d555-invalid-pixel-statistics.md) | P2 | active | Jetson |
 | [`procroom-depth-enrichment`](active/trained-policy/procroom-depth-enrichment.md) | P2 | active — impl merged (#156); F3/tall furniture merged (#159 — D4 34.6→36.4%, no regression, still below band); F1/enclosure closed the dominant D3 gap ~96%, fallback does not fire; the v2 batch's placement levers are designed in [`procroom-placement-architecture`](active/trained-policy/procroom-placement-architecture.md); the enclosure is now a one-way open quad so overhead `--video` works at the shipped defaults; enriched retrain + NX deploy-frame confirm open | DGX |
 | [`procroom-placement-architecture`](active/trained-policy/procroom-placement-architecture.md) | P2 | active — design shipped (#160), guard net merged (#161), re-range arm + instruments merged (#162); **surgery + D4 column knob = PR-1 (#163, open)**: vanilla path byte-identical (guard net untouched + CUDA pose-hash equal), D4 gate MET at the scaled protocol (shipped `prob=0.5` reads 45.45 ≥ 40.6, paired improvement +2.21 excludes zero). Next after PR-1: PR-2 (H1 compounds, instrument-first) and PR-3a (coverage invariant + seed guard promoted) are independent. Three PR-A findings still await a coordinator ruling (D4's capture-protocol sensitivity, the corrected path-topology comparator, the ray-cast D4 attribution) | DGX |
@@ -200,6 +201,12 @@ Grouped by priority tier, then by lane. Within each cell the rough
 order is "smallest / least-blocking first," but pick what fits your
 session. Parked briefs are not listed here — see **By epic** or
 **Parked** below.
+
+### P0 — blocking
+
+| Brief | Owner | Estimate | Note |
+|---|---|---|---|
+| [`enriched-scene-anchoring-addendum`](active/trained-policy/enriched-scene-anchoring-addendum.md) | Jetson | S | The one cell the 2026-08-01 four-arm session could not run: **enriched scene × `mission` anchoring**. That session ran vanilla `ProcRoom-v0` while v2 is enriched-trained and v1 vanilla-trained, so its v1-10/10-vs-v2-4/10 contrast cannot separate policy-broken from scene-OOD, and its offline replay used observations recorded from an already-failing v2 loop. Carries a pre-registered decision rule: v2 advances → the vanilla failure re-files as a training-lane scene-robustness note; v2 fails → policy-owned with clean attribution and the training lever fires as robustness augmentation. |
 
 ### P1 — high priority
 

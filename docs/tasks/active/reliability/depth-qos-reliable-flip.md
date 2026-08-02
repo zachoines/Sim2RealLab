@@ -86,9 +86,12 @@ the control path, not merely a throughput loss.
       buffers stale frames would trade a rate loss for a staleness loss. Report
       the depth age at inference time before and after.
 - [ ] Re-run at least one arm of the anchoring re-validation goal set and report
-      whether the advance numbers move at all. **The expectation is that they do
-      not** — the advance failure is policy-owned — so a change here is itself a
-      finding.
+      whether the advance numbers move at all. **Whether they move is itself a
+      finding either way** — do not pre-commit to an expectation here. The
+      2026-08-01 session's attribution of the advance failure is bounded by a
+      scene-class confound and is under test in
+      [`enriched-scene-anchoring-addendum`](../trained-policy/enriched-scene-anchoring-addendum.md);
+      this brief must not assume its outcome.
 - [ ] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See
@@ -111,4 +114,6 @@ the control path, not merely a throughput loss.
 
 - The sim's duplicate depth content (byte-identical consecutive frames;
   intermittent, 24.1% in one arm and 0% in another). A DGX brief owns it.
-- The policy's advance failure. Training lane owns it.
+- The v2 advance failure and its attribution. Under test in
+  [`enriched-scene-anchoring-addendum`](../trained-policy/enriched-scene-anchoring-addendum.md);
+  this brief neither depends on nor prejudges it.

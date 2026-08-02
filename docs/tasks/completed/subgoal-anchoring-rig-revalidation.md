@@ -152,13 +152,38 @@ session's evidence, to the weights themselves.**
 > 1. **Scene class.** The session ran the **vanilla**
 >    `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0`. That was a deliberate
 >    session-side choice — it makes arm 1 directly comparable to the 2026-07-31
->    parity control — but v2 trained on the **enriched** distribution
->    (`StraferNavCfg_RLDepthSubgoalEnriched_Robust`) and v1 on vanilla. Vanilla
->    rooms are open-top and furniture-free, i.e. far-clip-heavy in depth, which
->    is the axis the enrichment program moved v2's training away from. All four
->    arms were therefore a home game for v1 and an away game for v2 on a
->    concrete mechanistic axis. **"v1 10/10, v2 4/10, in vanilla" cannot
->    separate policy-broken from scene-out-of-distribution.**
+>    parity control.
+>
+>    **v1 trained on vanilla, as a matter of record**: the whole enrichment
+>    feature (`enrich_depth`, the `…Enriched…` cfg classes and task ids) first
+>    landed 2026-07-19/20, and v1's checkpoint dir `run_20260708_005923` predates
+>    it by eleven days — no enriched variant existed for it to train on.
+>
+>    **v2's training scene is UNKNOWN.** It is *not* recorded anywhere: all three
+>    artifact sidecars carry the same `env_id`
+>    (`Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0` — the *vanilla* Play env),
+>    because that field is the export-time default rather than the training task;
+>    v0 carries it too despite predating the env rework. `train_strafer_navigation.py`
+>    persists no task id. All that is established is that enriched training was
+>    *possible* — `69014c6` (2026-07-26) contains the enriched classes and
+>    `run_20260727_171735` postdates it. A competing hypothesis is live: v2 may be
+>    the **vFOV retrain on the vanilla generator** (`depth-camera-vfov-parity`
+>    calls a "v2 retrain" closed while `procroom-depth-enrichment` still treats
+>    the enrichment retrain as an open operator decision).
+>
+>    **An unknown match disqualifies the cross-model contrast exactly as a known
+>    mismatch would.** v1's distribution is on the record and v2's is not, so
+>    **"v1 10/10, v2 4/10, in vanilla" cannot separate policy-broken from
+>    scene-out-of-distribution** either way.
+>
+>    *Mechanism, stated correctly:* vanilla is **open-top** (`wall_height=1.0`,
+>    `p_ceil=0.0`, no ceiling entity) where enriched raises walls to 2.7 m and
+>    adds a ceiling at p=0.7 — measured in-repo as top-11-row depth pinned at the
+>    6 m clamp **58.9% vanilla vs 7.3% enriched**. It is **not** a furniture
+>    difference: vanilla *pins* difficulty at level 7/7
+>    (`[2 internal walls, 8 furniture, 16 clutter]`, the generator's maximum)
+>    while enrichment *un-pins* to U[4,7], so enriched rooms average **less**
+>    furniture and clutter, and are **farther** on average, not nearer.
 > 2. **The offline replay is circular for this attribution.** Its inputs are the
 >    2026-07-31 node observations — enriched scene, but recorded under `rolling`
 >    anchoring *from a loop in which v2 was already failing*. Observations

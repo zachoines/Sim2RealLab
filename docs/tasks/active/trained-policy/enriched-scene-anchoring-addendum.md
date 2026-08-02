@@ -29,14 +29,26 @@ The [2026-08-01 four-arm session](../../completed/subgoal-anchoring-rig-revalida
 verified the deploy stack and concluded the residual defect was policy-owned.
 **That attribution is bounded and has been amended.** Three facts:
 
-1. **The session ran the vanilla scene.**
-   `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0`, a deliberate session-side
-   choice to keep arm 1 comparable to the 2026-07-31 parity control. But **v2
-   trained on the enriched distribution** (`StraferNavCfg_RLDepthSubgoalEnriched_Robust`)
-   and **v1 on vanilla**. Vanilla rooms are open-top and furniture-free —
-   far-clip-heavy in depth, the exact axis the enrichment program moved v2's
-   training away from. Every arm was a home game for v1 and an away game for v2.
-   "v1 10/10, v2 4/10, in vanilla" cannot separate policy-broken from scene-OOD.
+1. **The session ran the vanilla scene**
+   (`Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-v0`), a deliberate session-side
+   choice to keep arm 1 comparable to the 2026-07-31 parity control.
+
+   **v1 trained on vanilla as a matter of record** — enrichment first landed
+   2026-07-19/20 and v1's `run_20260708_005923` predates it by eleven days.
+   **v2's training scene is not recorded anywhere in this repo** (see the
+   precondition below). Since v1's distribution is known and v2's is not, **an
+   unknown match disqualifies the cross-model contrast exactly as a known
+   mismatch would**: "v1 10/10, v2 4/10, in vanilla" cannot separate
+   policy-broken from scene-out-of-distribution either way.
+
+   *The scene axis, stated correctly:* vanilla is **open-top** (`wall_height=1.0`,
+   `p_ceil=0.0`) where enriched raises walls to 2.7 m and adds a ceiling at
+   p=0.7 — measured in-repo as top-11-row depth pinned at the 6 m clamp **58.9%
+   vanilla vs 7.3% enriched**. It is **not** a furniture difference: vanilla
+   *pins* difficulty at level 7/7 (the generator's maximum: 8 furniture, 16
+   clutter) while enrichment *un-pins* to U[4,7], so enriched averages **less**
+   furniture and clutter and is **farther** on average, not nearer. Do not
+   restate this as "vanilla is furniture-free" — that is false.
 2. **The offline replay is circular for the attribution.** Its inputs were
    recorded from a loop in which v2 was already failing, so they embody the
    failure. It shows v2 retreats on those inputs — which the frozen-regime
@@ -61,8 +73,50 @@ Two coordinator findings (2026-08-02) shape what this session should expect:
   support, and both synthetic and deploy-manufactured joints do. This is exactly
   why only a closed loop can settle it.
 
+## Precondition — establish v2's training scene BEFORE booking rig time
+
+**This brief's premise is that v2's training distribution differs from vanilla.
+That is currently an assumption, not a fact, and it is not establishable from
+this repo.**
+
+- All three artifact sidecars carry
+  `"env_id": "Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0"` — the **vanilla**
+  Play env — including v0, whose `obs_dim` 4819 predates the env rework. That
+  field is `export_policy.py`'s export-time `--env` default
+  (`_DEFAULT_ENV_BY_VARIANT`), not the training task, though its docstring
+  claims otherwise.
+- `train_strafer_navigation.py` prints `env_name` to stdout and persists no task
+  id in the run directory.
+- v1's recorded `git_commit` is **absent from this clone**, so even the tree it
+  trained against cannot be inspected here.
+- A competing hypothesis is live: v2 may be the **vFOV retrain on the vanilla
+  generator** — `depth-camera-vfov-parity` calls a "v2 retrain" closed, while
+  `procroom-depth-enrichment` still treats the enrichment retrain as an open
+  operator decision. Both are referred to as "the v2 retrain".
+
+**Required before running:** the coordinator confirms, from DGX-side training
+records (run logs, launch command, or the run directory for
+`run_20260727_171735`), which task id produced `model_998.pt`, and that answer is
+recorded here.
+
+- If **v2 trained enriched** → this brief proceeds as written.
+- If **v2 trained vanilla** → the scene-class confound evaporates, the
+  2026-08-01 attribution is reinstated as-is, and this brief closes without a rig
+  session. The four arms would then already be the clean test.
+- If it **cannot be recovered** → run the session anyway (an enriched arm is
+  informative regardless), but the decision rule below must be read as
+  "v2 in enriched" rather than "v2 on-distribution".
+
+**Root cause worth fixing separately (source change, not this brief):** the
+export sidecar's `env_id` cannot identify a training run, and the training script
+writes no manifest. A `train_manifest.json` carrying task id, git SHA, seed and
+`num_envs` would have made this precondition a lookup instead of an
+investigation.
+
 ## Acceptance criteria
 
+- [ ] **Precondition discharged:** v2's training task id recorded above, or
+      explicitly marked unrecoverable with the decision rule reinterpreted.
 - [ ] Two arms on `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0`:
       **v2×`mission`** and **v2×`rolling`**. v1×`mission` optional if the window
       allows; v1 needs no further characterisation otherwise.

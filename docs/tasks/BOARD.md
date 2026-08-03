@@ -83,7 +83,7 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | [`depth-subgoal-env`](active/trained-policy/depth-subgoal-env.md) | P3 | active | DGX |
 | [`depth-subgoal-reactive-avoidance`](parked/trained-policy/depth-subgoal-reactive-avoidance.md) | P3 | parked | DGX |
 | [`depth-subgoal-hybrid-runtime`](active/trained-policy/depth-subgoal-hybrid-runtime.md) | P3 | active | Jetson |
-| [`enriched-scene-anchoring-addendum`](active/trained-policy/enriched-scene-anchoring-addendum.md) | P0 | active | Jetson |
+| [`enriched-scene-anchoring-addendum`](completed/enriched-scene-anchoring-addendum.md) | P0 | **shipped 2026-08-02 — one of two arms.** `v2×mission` on enriched ran and scores the decision rule's **`mission` ✗** branch: achieved closing **+0.002 m/s at 50.5%** (a coin flip) and no mission reached its goal, so the failure is **policy-owned with clean attribution and the training lever fires** as scene-robustness augmentation. A first reading that the advance endpoint "flipped positive" was **withdrawn** on verification — the sign rested on 1 of 6 missions, a phase-randomised null reproduced 98% of its effect, and the bootstrap CI is 17× the effect. `v2×rolling` **did not run**: an Isaac renderer failure forced a sim restart and the redrawn map failed a pre-committed room-identity gate (`g3_far_R` clearance 0.30 → 0.00 m), so it was stopped rather than run confounded. **Data loss:** the 2026-08-01 vanilla `v2×mission` raw JSONs were destroyed this session by an `rm -rf` reusing the prior arm-directory name — figures survive transcribed in `REVALIDATION_FINDINGS.md`, but that arm can no longer be recomputed and achieved-closing is unavailable for the vanilla side. Rig failures filed as [`enriched-lane-rig-stability`](active/reliability/enriched-lane-rig-stability.md) | Jetson |
 | [`training-run-provenance-manifest`](active/trained-policy/training-run-provenance-manifest.md) | P2 | active | DGX |
 | [`d555-invalid-pixel-statistics`](active/trained-policy/d555-invalid-pixel-statistics.md) | P2 | active | Jetson |
 | [`procroom-depth-enrichment`](active/trained-policy/procroom-depth-enrichment.md) | P2 | active — impl merged (#156); F3/tall furniture merged (#159 — D4 34.6→36.4%, no regression, still below band); F1/enclosure closed the dominant D3 gap ~96%, fallback does not fire; the v2 batch's placement levers are designed in [`procroom-placement-architecture`](active/trained-policy/procroom-placement-architecture.md); the enclosure is now a one-way open quad so overhead `--video` works at the shipped defaults; enriched retrain + NX deploy-frame confirm open | DGX |
@@ -144,6 +144,7 @@ The learned components here share one frozen text-capable backbone — see [`con
 | Brief | Pri | State | Owner |
 |---|---|---|---|
 | [`depth-qos-reliable-flip`](active/reliability/depth-qos-reliable-flip.md) | P1 | active | Jetson |
+| [`enriched-lane-rig-stability`](active/reliability/enriched-lane-rig-stability.md) | P1 | active | Jetson + DGX |
 | [`nav2-mppi-motion-model-investigation`](active/reliability/nav2-mppi-motion-model-investigation.md) | P2 | active | Jetson |
 | [`rtabmap-cold-start-determinism`](active/reliability/rtabmap-cold-start-determinism.md) | P2 | active | Jetson |
 | [`executor-grounding-loss-mid-mission-recovery`](active/reliability/executor-grounding-loss-mid-mission-recovery.md) | P2 | active | Jetson |
@@ -207,12 +208,12 @@ session. Parked briefs are not listed here — see **By epic** or
 
 | Brief | Owner | Estimate | Note |
 |---|---|---|---|
-| [`enriched-scene-anchoring-addendum`](active/trained-policy/enriched-scene-anchoring-addendum.md) | Jetson | S | The one cell the 2026-08-01 four-arm session could not run: **enriched scene × `mission` anchoring**. That session ran vanilla `ProcRoom-v0` while v2 is enriched-trained and v1 vanilla-trained, so its v1-10/10-vs-v2-4/10 contrast cannot separate policy-broken from scene-OOD, and its offline replay used observations recorded from an already-failing v2 loop. Carries a pre-registered decision rule: v2 advances → the vanilla failure re-files as a training-lane scene-robustness note; v2 fails → policy-owned with clean attribution and the training lever fires as robustness augmentation. |
 
 ### P1 — high priority
 
 | Brief | Owner | Estimate | Note |
 |---|---|---|---|
+| [`enriched-lane-rig-stability`](active/reliability/enriched-lane-rig-stability.md) | Jetson + DGX | M | Four rig failure modes that cost the 2026-08-02 enriched session its second arm. Three present as something else — inactive Nav2 lifecycle nodes reject every goal while `ComputePathToPose` still reports `PLANNABLE`; a wedged USB WiFi adapter looks like a host crash; a dead renderer looks like the policy going quiet. Also: rtabmap `addLink()` left a 1.25 GB unloadable database. Asks for a **pre-arm health gate** so a rig failure is never mistaken for a policy result |
 | [`depth-qos-reliable-flip`](active/reliability/depth-qos-reliable-flip.md) | Jetson | S | The inference node receives 22–25 Hz sim of depth while a **concurrent** subscriber on the identical BEST_EFFORT/depth=1 QoS receives 29.8 Hz, at ~98% consumption — frames are lost at the node's receiver, not by the bridge. Filed off the 2026-08-01 anchoring re-validation with per-arm evidence. |
 | [`next-integration-round`](active/investigations/next-integration-round.md) | Either | M–L | Full end-to-end sim-in-the-loop run against `INTEGRATION_SIM_IN_THE_LOOP.md`; gating signal that bridge + autonomy + VLM/CLIP compose end-to-end |
 | [`validator-evaluation`](active/clip-validation/validator-evaluation.md) | Either | L | Wire the orphaned `SemanticMapManager` + `BackgroundMapper` + `TransitMonitor` path into the production executor and measure pre-registered TPR/FPR/time-to-decision on harness output. Gating brief for `MISSION_VALIDATION_ARCHITECTURE.md` §4 staged plan. Filed off `mid-mission-validation-investigation` ship. |

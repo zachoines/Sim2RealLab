@@ -200,7 +200,7 @@ session's evidence, to the weights themselves.**
 > 3. **The decisive cell has never been run:** enriched scene × `mission`
 >    anchoring. Every historical enriched session used `rolling`; this session's
 >    `mission` arms were vanilla. Owned by
->    [`enriched-scene-anchoring-addendum`](../active/trained-policy/enriched-scene-anchoring-addendum.md).
+>    [`enriched-scene-anchoring-addendum`](enriched-scene-anchoring-addendum.md).
 >
 > **What survives unamended:** the anchoring semantics verification (measured in
 > both models), the cadence numbers with their load-dependent attribution, the

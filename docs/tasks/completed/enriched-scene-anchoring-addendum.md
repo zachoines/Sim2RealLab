@@ -1,5 +1,15 @@
 # Fill the enriched × `mission` cell the four-arm session could not
 
+**Status:** Ran 2026-08-02 (Jetson). **One of two arms completed.**
+`v2 x mission` ran, was adversarially verified, and **scores the decision rule's
+`mission` ✗ branch** — the failure is policy-owned with clean attribution and the
+training lever fires. `v2 x rolling` was **not run**: an Isaac renderer failure
+forced a sim restart, and the redrawn map failed a pre-committed room-identity
+gate, so running it would have produced a confounded arm rather than a control.
+**Findings:** `~/strafer_v2_validation/ENRICHED_ANCHORING_FINDINGS.md`;
+rig record `ENRICHED_SESSION_LOG.md`. Rig failures filed as
+[`enriched-lane-rig-stability`](../active/reliability/enriched-lane-rig-stability.md).
+
 **Type:** investigation (behavioural acceptance — addendum)
 **Owner:** Jetson (rig session; DGX supplies the enriched bridge)
 **Priority:** P0 — it is the only cell that can attribute the v2 advance failure,
@@ -18,14 +28,14 @@ vanilla-scene contrast or a replay of already-failing inputs.**
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/bridge-runtime-invariants.md](../../context/bridge-runtime-invariants.md)
-- [context/recurrent-policy-contract.md](../../context/recurrent-policy-contract.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md)
+- [context/recurrent-policy-contract.md](../context/recurrent-policy-contract.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
 
 ## Context
 
-The [2026-08-01 four-arm session](../../completed/subgoal-anchoring-rig-revalidation.md)
+The [2026-08-01 four-arm session](subgoal-anchoring-rig-revalidation.md)
 verified the deploy stack and concluded the residual defect was policy-owned.
 **That attribution is bounded and has been amended.** Three facts:
 
@@ -103,7 +113,7 @@ sidecars carry the same `env_id` (`…Subgoal-Real-Play-v0`, the *vanilla* Play
 env) because that field is `export_policy.py`'s export-time default rather than
 the training task; `train_strafer_navigation.py` persists no task id; and v1's
 recorded `git_commit` is absent from this clone. Filed as
-[`training-run-provenance-manifest`](training-run-provenance-manifest.md).
+[`training-run-provenance-manifest`](../active/trained-policy/training-run-provenance-manifest.md).
 
 ## The evidence map this leaves
 
@@ -135,30 +145,31 @@ is itself the argument for running the rig cell rather than another probe.
 
 ## Acceptance criteria
 
-- [ ] **Precondition discharged:** v2's training task id recorded above, or
+- [x] **Precondition discharged:** v2's training task id recorded above, or
       explicitly marked unrecoverable with the decision rule reinterpreted.
-- [ ] Two arms on `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0`:
-      **v2×`mission`** and **v2×`rolling`**. v1×`mission` optional if the window
-      allows; v1 needs no further characterisation otherwise.
-- [ ] Protocol identical to the four-arm session: fixed start pose **and
+- [~] Two arms on `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0`:
+      **v2×`mission`** ran and is complete. **v2×`rolling` did NOT run** — see the
+      status stamp and findings §2. v1×`mission` not attempted.
+- [x] Protocol identical to the four-arm session: fixed start pose **and
       heading**, fresh SLAM db, **new** scene token, per-arm force-recreated
       `inference` container on the audited image, and the same instrumentation
       (`anchor status:` cross_track, cadence counters, `v_par`, per-sample goal
       bearing, threshold sweep).
-- [ ] **Goal set crosses bearing sign with map region** — at least one
+- [x] **Goal set crosses bearing sign with map region** (as radial bands — see findings §8 for why lateral lobes are impossible with a fixed start pose)
+       — at least one
       left-bearing and one right-bearing goal in EACH of two regions — plus one
       dead-ahead goal and one near-furniture goal. The 2026-08-01 set confounded
       bearing with region and could not separate them; the near-furniture goal
       makes the standoff read scorable if v2 approaches at all.
-- [ ] Report the same per-arm deliverables: achieved sim Hz, `depth_rx` vs
+- [x] Report the same per-arm deliverables (for the one arm that ran): achieved sim Hz, `depth_rx` vs
       `inferences`, skip-by-cause breakdown, `anchor status:` cross_track,
       `v_par` with the speed distribution and threshold sweep, mission outcomes.
-- [ ] If your work invalidates a fact in any referenced context module, package
+- [x] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
-- [ ] No regression in the workflows the touched code supports — measurement
+- [x] No regression in the workflows the touched code supports — measurement
       session; any code change it motivates is a separate brief.
 
 ## Pre-registered decision rule
@@ -200,7 +211,7 @@ Committed before the session runs, so the outcome cannot be read backwards.
 ## Out of scope
 
 - Any code change.
-- The depth QoS flip — [`depth-qos-reliable-flip`](../reliability/depth-qos-reliable-flip.md)
+- The depth QoS flip — [`depth-qos-reliable-flip`](../active/reliability/depth-qos-reliable-flip.md)
   owns it and may proceed in parallel or first. **If it lands before this
   session, note the changed build label** in the findings.
 - The v2 ONNX export, which is exonerated above.

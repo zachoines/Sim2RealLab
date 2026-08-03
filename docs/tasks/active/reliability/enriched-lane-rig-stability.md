@@ -61,6 +61,12 @@ whether a parameter (loop-closure/memory-management related) avoids it; and add 
 db integrity pre-check so a poisoned database is detected at launch rather than
 by an abort.
 
+> **Update 2026-08-03:** the poisoned `enrich1` database was deleted in a
+> volume-wide map cleanup and is **no longer available for forensics**. Triage
+> must work from the captured logs (`~/strafer_v2_validation/logs/slam_*.log`,
+> which contain all three FATALs and the rejected-loop-closure warnings that
+> preceded them) and from reproducing the assertion fresh.
+
 ### 2. Nav2 lifecycle nodes drop to `inactive` after a network partition
 
 After the WiFi adapter wedged, these did **not** recover on reconnect:
@@ -142,32 +148,60 @@ isolates the fault to the **RTX render/annotator pipeline**. Corroborating:
 **RTF rose 0.117 → 0.182** — the sim ran *faster* because it stopped paying
 render cost.
 
-**ROOT-CAUSED AND FIXED: a stale Omniverse/RTX shader cache.** Moving
-`~/.cache/ov` (9.4 GB) aside and relaunching restored rendering —
-**27.47 Hz sim depth, RTF 0.105, 0% consecutive-identical**. **No host reboot was
-required.**
+**ROOT CAUSE: OPEN. The shader-cache diagnosis is RETRACTED** (it was briefly
+recorded here as root-caused-and-fixed). The disproof, found 2026-08-03: the
+current Isaac build **never used `~/.cache/ov` at all** — the caches created by
+every recent launch, including the one that recovered, are **20 KB stubs**, and
+the 9.4 GB directory that was "cleared" is dated **April 14**, i.e. it belonged
+to an earlier Isaac install and was dead weight. Moving it changed nothing.
 
-**The trap, and a large part of why this brief exists:** the fix was initially
-recorded as having *failed*. With the cache cold, shaders recompile before the
-first frame appears, so the topics stayed silent for minutes after relaunch —
-indistinguishable from the fault itself. **A cold-cache relaunch must be given
-several minutes before it is judged.**
+What the evidence actually supports: **recovery correlates with a relaunch that
+is left undisturbed for a long time.** On 2026-08-02 the launch that recovered
+was the first one given **> 1 hour** before being judged; every failed
+"recovery" before and since was a kill + relaunch judged within ~15–40 min. The
+mode recurred on 2026-08-03 through a DGX **reboot** and three more
+clear+relaunch cycles — each cycle resetting whatever long warm-up
+(material/scene compilation, warp JIT, driver PSO cache — the actual sink is
+unidentified) precedes the first rendered frame.
 
-Ruled out along the way, none of which fixed it:
+So the operative failure may not be "renderer dies" at all, but **"first-frame
+latency after any sim start is tens of minutes on this box, during which the
+bridge advertises publishers and pumps `camera_info` into a void"** — plus,
+possibly, a separate genuine mid-run stall (the original 2026-08-02 event
+happened *without* a restart, on a sim that had been rendering for hours).
+The two must be disentangled.
 
-- sim process state — **three** full relaunches, each reporting the correct task,
-  `Environment seed : 42`, and `frame_skip=0 (derived, derived 0)` at 30 Hz;
-- GPU contention — a single CUDA context (7.4 GB), no orphans, 70 GB RAM free,
-  GPU 41% / 50 °C;
-- DDS/discovery — `Publisher count: 1`, both sim nodes visible;
+Ruled out:
+
+- launch flags — every launch used `--enable_cameras` and printed the cadence
+  contract and `Environment seed : 42`;
+- GPU contention — a single CUDA context (7.4 GB), no orphans, 70 GB RAM free;
+- DDS/discovery — `Publisher count: 1`, both sim nodes visible, `camera_info`
+  arriving on the Jetson;
 - Jetson subscribers — `slam` and `sim-perception` force-recreated;
-- Kit diagnostics — **6706 lines, zero `[Error]`/`[Fatal]`**.
+- `~/.cache/ov` state — see above;
+- a DGX **host reboot** — the mode recurred after one (2026-08-03);
+- Kit diagnostics — thousands of lines, zero `[Error]`/`[Fatal]` in every
+  instance.
 
-**Ask:** find why the cache goes stale (it had accumulated on a host up 28 days),
-and add a **renderer health check on the bridge side** — the sim should not report
-"async camera publisher up" and then publish `camera_info` into a void while
-producing no frames. Detecting this costs one counter; not detecting it cost an
-arm.
+**Asks:**
+
+1. **Instrument first-frame latency**: from sim launch to first frame on
+   `/d555/depth/image_rect_raw`, logged by the bridge itself. One number,
+   printed once — it separates "still warming up" from "stalled" and ends the
+   premature-kill loop that has now wasted two days of session time.
+2. **A renderer health/progress print on the bridge side** — the sim should not
+   report "async camera publisher up" and then publish `camera_info` with no
+   frames and no indication of whether render products are still compiling.
+3. Identify where the warm-up time actually goes (`~/.nv/ComputeCache`? warp
+   JIT? RTX PSO compile? enriched-scene material load?) and whether it can be
+   cached across restarts.
+4. Reproduce or rule out the **mid-run** stall as a distinct mode.
+
+**Operator rule until then: after any sim start, do not kill or judge the sim
+for at least 60–90 minutes; poll `ros2 topic hz /d555/depth/image_rect_raw` and
+treat `camera_info`-without-images as "warming or stalled", not as "broken,
+restart".**
 
 ## Acceptance criteria
 
@@ -185,9 +219,18 @@ arm.
 - [ ] Nav2 lifecycle non-recovery root-caused; `lifecycle_manager` behaviour on
       bond loss understood.
 - [ ] Wired transport evaluated for the DDS path and a recommendation recorded.
-- [x] Renderer stall root-caused (stale `~/.cache/ov`; cleared, rendering restored).
-- [ ] Renderer-stall **detection** on the sim side, plus a documented cache-clear
-      procedure that notes the cold-cache recompile delay.
+- [ ] Renderer/first-frame mode root-caused (the shader-cache diagnosis is
+      retracted — see mode 4). First-frame latency instrumented; the mid-run
+      stall reproduced or ruled out as a distinct mode.
+- [ ] Renderer-stall **detection** on the sim side.
+- [ ] **Promote `switch_arm.sh` into deploy tooling.** The session tool
+      (`~/strafer_v2_validation/tools/switch_arm.sh`) is the only safe way to
+      swap (model × anchoring): it force-recreates `inference` with the
+      read-only YAML overlay and then **verifies from inside the container**
+      (model path, `subgoal_anchoring:` line, `anchoring=` log line) — exactly
+      the checks that catch the silent `docker compose restart` foot-gun.
+      Generalize it (e.g. `deploy/tools/` or a make target), keep the
+      in-container verification, and document it in the cheatsheet.
 - [ ] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See

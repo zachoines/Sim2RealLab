@@ -1,11 +1,17 @@
 # Fill the enriched × `mission` cell the four-arm session could not
 
 **Status:** Ran 2026-08-02 (Jetson). **One of two arms completed.**
-`v2 x mission` ran, was adversarially verified, and **scores the decision rule's
-`mission` ✗ branch** — the failure is policy-owned with clean attribution and the
-training lever fires. `v2 x rolling` was **not run**: an Isaac renderer failure
-forced a sim restart, and the redrawn map failed a pre-committed room-identity
-gate, so running it would have produced a confounded arm rather than a control.
+`v2 x mission` ran, was adversarially verified, and scores the decision rule's
+`mission` ✗ branch — **provisionally** (coordinator ruling 2026-08-03): the
+scene attribution is clean (ceiling draw measured) and the anchoring is clean,
+but the arm ran at an **unprecedented temporal profile** — 11.68 Hz mid-arm
+depth arrival vs the 22–25 Hz band of every prior session, 38.3% repeat
+content, 11 146 deadline misses — so the policy-owned attribution is
+**provisional pending the cadence-emulation adjudication**, and **the training
+lever's firing is conditional on that result**. `v2 x rolling` was **not run**:
+an Isaac renderer failure forced a sim restart, and the redrawn map failed a
+pre-committed room-identity gate, so running it would have produced a
+confounded arm rather than a control.
 **Findings:** `~/strafer_v2_validation/ENRICHED_ANCHORING_FINDINGS.md`;
 rig record `ENRICHED_SESSION_LOG.md`. Rig failures filed as
 [`enriched-lane-rig-stability`](../active/reliability/enriched-lane-rig-stability.md).

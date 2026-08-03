@@ -148,60 +148,59 @@ isolates the fault to the **RTX render/annotator pipeline**. Corroborating:
 **RTF rose 0.117 → 0.182** — the sim ran *faster* because it stopped paying
 render cost.
 
-**ROOT CAUSE: OPEN. The shader-cache diagnosis is RETRACTED** (it was briefly
-recorded here as root-caused-and-fixed). The disproof, found 2026-08-03: the
-current Isaac build **never used `~/.cache/ov` at all** — the caches created by
-every recent launch, including the one that recovered, are **20 KB stubs**, and
-the 9.4 GB directory that was "cleared" is dated **April 14**, i.e. it belonged
-to an earlier Isaac install and was dead weight. Moving it changed nothing.
+**ROOT CAUSE (coordinator DGX forensics, 2026-08-03 ruling): duplicate-instance
+GPU contention — plus one still-open mid-run stall.** Two earlier diagnoses
+recorded here are dead:
 
-What the evidence actually supports: **recovery correlates with a relaunch that
-is left undisturbed for a long time.** On 2026-08-02 the launch that recovered
-was the first one given **> 1 hour** before being judged; every failed
-"recovery" before and since was a kill + relaunch judged within ~15–40 min. The
-mode recurred on 2026-08-03 through a DGX **reboot** and three more
-clear+relaunch cycles — each cycle resetting whatever long warm-up
-(material/scene compilation, warp JIT, driver PSO cache — the actual sink is
-unidentified) precedes the first rendered frame.
+- the **shader-cache theory is CLOSED**, not merely retracted: the portable-mode
+  kit tree's caches were warm and reused on every launch (46 GB
+  DerivedDataCache with index-only writes; RTX shadercache untouched since
+  April; driver GLCache opened 6 s after launch; zero CUDA JIT writes). A
+  recompile storm is impossible to hide under
+  `--/rtx/materialDb/syncLoads=True` with sar showing <10% CPU.
+- the **"45–90 min first-frame latency" claim is also wrong.** Sar/sysstat +
+  `/proc` forensics over every launch 08-01 → 08-03: warm-up **on an idle GPU
+  is 10–20 min, vanilla and enriched alike** (08-01 vanilla ≤14 min; 08-02
+  12:49 enriched ≤10–20 min; 08-02 22:17 enriched ≤12 min).
 
-So the operative failure may not be "renderer dies" at all, but **"first-frame
-latency after any sim start is tens of minutes on this box, during which the
-bridge advertises publishers and pumps `camera_info` into a void"** — plus,
-possibly, a separate genuine mid-run stall (the original 2026-08-02 event
-happened *without* a restart, on a sim that had been rendering for hours).
-The two must be disentangled.
+What actually produced the 45–90 min "stalls": **stacking a second bridge on a
+GPU another bridge already owned.** All four 08-03 launches (10:15 / 11:11 /
+11:30 / 12:04) started while the **08-02 22:17 bridge still held the GPU**;
+each loaded ~17 GB, idled 45–75 min at <10% CPU, and died without a clean
+shutdown. The depth "recovery" observed 08-03 12:40 was served by that
+resident 08-02 bridge — healthy for ~14 h — once the stacked duplicates died
+off, not by any relaunch coming good.
 
-Ruled out:
+**Still open, as a distinct mode:** the original 2026-08-02 **mid-run** stall
+(no restart involved; a bridge that had rendered for hours stopped producing
+frames while physics continued, `camera_info` kept flowing, and the Kit log
+stayed clean). If it recurs on an idle GPU: **`py-spy dump` the bridge before
+killing it.**
 
-- launch flags — every launch used `--enable_cameras` and printed the cadence
-  contract and `Environment seed : 42`;
-- GPU contention — a single CUDA context (7.4 GB), no orphans, 70 GB RAM free;
-- DDS/discovery — `Publisher count: 1`, both sim nodes visible, `camera_info`
-  arriving on the Jetson;
-- Jetson subscribers — `slam` and `sim-perception` force-recreated;
-- `~/.cache/ov` state — see above;
-- a DGX **host reboot** — the mode recurred after one (2026-08-03);
-- Kit diagnostics — thousands of lines, zero `[Error]`/`[Fatal]` in every
-  instance.
+**Operator rule (replaces the earlier "wait 60–90 min" rule):** before ANY
+bridge launch, run
+`nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv`;
+if a bridge PID is resident, **adopt it or kill it — never stack a second
+instance**. On an idle GPU expect 10–20 min to first frames; poll
+`ros2 topic hz /d555/depth/image_rect_raw`.
 
-**Asks:**
+**Asks (DGX-owned):**
 
-1. **Instrument first-frame latency**: from sim launch to first frame on
-   `/d555/depth/image_rect_raw`, logged by the bridge itself. One number,
-   printed once — it separates "still warming up" from "stalled" and ends the
-   premature-kill loop that has now wasted two days of session time.
-2. **A renderer health/progress print on the bridge side** — the sim should not
-   report "async camera publisher up" and then publish `camera_info` with no
-   frames and no indication of whether render products are still compiling.
-3. Identify where the warm-up time actually goes (`~/.nv/ComputeCache`? warp
-   JIT? RTX PSO compile? enriched-scene material load?) and whether it can be
-   cached across restarts.
-4. Reproduce or rule out the **mid-run** stall as a distinct mode.
-
-**Operator rule until then: after any sim start, do not kill or judge the sim
-for at least 60–90 minutes; poll `ros2 topic hz /d555/depth/image_rect_raw` and
-treat `camera_info`-without-images as "warming or stalled", not as "broken,
-restart".**
+1. **Bridge-side first-frame instrument** — a one-line
+   `first image published, t=…` print from `run_sim_in_the_loop.py`. It must be
+   bridge-side because Kit logs go silent ~10 s after env construction.
+2. **Fail-loud launch guard** in `run_sim_in_the_loop.py`: refuse to start when
+   a resident compute process already holds the GPU (env-var override for
+   intentional coexistence). Mechanical enforcement beats discipline — the
+   stacking mode cost the operator a full day.
+3. Reproduce or rule out the **mid-run** stall as a distinct mode (py-spy
+   capture protocol above).
+4. **Document the DGX handback protocol** (coordinator-mandated, standing) in
+   the cheatsheet: any session that launches a long-running DGX process over
+   SSH ends with either explicit teardown (kill the PID, confirm the GPU is
+   free) or an explicit handback line in the session report — "DGX bridge PID
+   <n> left RUNNING — task <id>, scene token <t>, launched <time>." Silent
+   orphans are a session-report defect.
 
 ## Acceptance criteria
 
@@ -219,10 +218,17 @@ restart".**
 - [ ] Nav2 lifecycle non-recovery root-caused; `lifecycle_manager` behaviour on
       bond loss understood.
 - [ ] Wired transport evaluated for the DDS path and a recommendation recorded.
-- [ ] Renderer/first-frame mode root-caused (the shader-cache diagnosis is
-      retracted — see mode 4). First-frame latency instrumented; the mid-run
-      stall reproduced or ruled out as a distinct mode.
-- [ ] Renderer-stall **detection** on the sim side.
+- [x] Renderer/first-frame mode root-caused: duplicate-instance GPU contention
+      (coordinator DGX forensics, 2026-08-03; shader-cache and first-frame-latency
+      theories both closed — see mode 4).
+- [ ] Bridge-side `first image published, t=…` print (Kit logs go silent ~10 s
+      after env construction, so it cannot live there).
+- [ ] Fail-loud GPU launch guard in `run_sim_in_the_loop.py` (refuse to start
+      over a resident compute process; env-var override).
+- [ ] The **mid-run** stall (2026-08-02 original event) reproduced or ruled out
+      as a distinct mode; py-spy dump before killing on any recurrence.
+- [ ] DGX handback protocol documented in the cheatsheet (explicit teardown or
+      an explicit handback line; silent orphans are a session-report defect).
 - [ ] **Promote `switch_arm.sh` into deploy tooling.** The session tool
       (`~/strafer_v2_validation/tools/switch_arm.sh`) is the only safe way to
       swap (model × anchoring): it force-recreates `inference` with the

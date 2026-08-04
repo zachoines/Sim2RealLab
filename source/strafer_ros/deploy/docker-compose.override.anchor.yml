@@ -1,0 +1,26 @@
+# Per-run subgoal-anchoring lever for the `inference` service.
+#
+# WHY THIS FILE EXISTS: strafer_inference's config/ is COPY'd into strafer-gpu at
+# build time and colcon-installs to the package share dir. No shipped compose
+# file bind-mounts it, and inference_policy.launch.py hard-codes the path when it
+# includes subgoal_generator.launch.py, so that launch file's `config_file`
+# argument is not reachable from the container's command. Editing the worktree
+# YAML would therefore require REBUILDING strafer-gpu to change one line -- and a
+# dirty tree stamps the image `-dirty`, destroying the revision-label currency
+# check that tells you what code you are actually running.
+#
+# This overlay mounts a generated config read-only over the installed one, so an
+# anchoring change is a container recreate and the image stays the audited build.
+#
+# DO NOT APPLY THIS BY HAND. `deploy/tools/switch_arm.sh` generates the config
+# FROM the image's own installed file (so only the anchoring line can differ),
+# mirrors the running stack's compose chain, and verifies the result from inside
+# the container. Applying the overlay manually reintroduces every failure mode
+# that tool exists to prevent.
+services:
+  inference:
+    volumes:
+      - type: bind
+        source: ${STRAFER_ANCHOR_CONFIG:?run deploy/tools/switch_arm.sh instead of applying this overlay by hand}
+        target: /ws/install/strafer_inference/share/strafer_inference/config/subgoal_generator.yaml
+        read_only: true

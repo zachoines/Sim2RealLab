@@ -55,9 +55,68 @@ defeats the point of small, independently-mergable PRs.
   config bug discovered while validating the feature) are OK to bundle
   if and only if they would block the brief from being verifiable.
   Otherwise: open a separate brief + branch + PR.
-- **PR title** mirrors the brief's title. Keep it under ~70 chars.
-- **PR body** structure: `## Summary` (1–3 bullets), `## Test plan`
-  (markdown checklist), no agent-attribution footer.
+
+### PR register — the title and body are the public merge record
+
+A PR outlives the workflow that produced it. Write the title and body
+for a maintainer with repo access and no knowledge of how the work was
+coordinated. The process layer — who asked for what, what a work
+session did or lost, how a decision was adjudicated — lives in the
+brief's dated narrative, never on the PR.
+
+**Title.** States what merging changes, imperative mood, ≤ ~70 chars,
+with the load-bearing mechanism or consequence when it fits. When the
+brief's title already does this, mirror it; when the brief title names
+an activity, the PR title names the tree change instead (a findings PR
+*records*; a brief-only PR *files*). Models from this repo:
+
+- "Drive inference off depth arrival to hold the 30 Hz cadence"
+- "Take the depth block median so far-clip straddling can't invent depths"
+- "Collapse the deploy config levels to one key, one home"
+
+Not titles: process verbs (escalate, adjudicate, re-validate, hand
+back), verdicts with no change named ("X stands permanently"),
+epic/arm tokens, dates.
+
+**Body.** Four sections, all present (a one-line section is fine):
+
+- `## Summary` — the defect or gap, the change, the mechanism. Present
+  tense, third person, self-contained.
+- `## Evidence` — suites with counts, measurements with the setup that
+  produced them, gates run. A checklist is welcome (`## Test plan`
+  remains an accepted name for code PRs). Measurement dates are fine;
+  work sessions are not characters in the story.
+- `## Scope` — what is deliberately untouched, defaults changed,
+  rollback lever, known residuals.
+- `## Docs` — the brief lifecycle line (stamped + moved + BOARD) and
+  any follow-up briefs filed, by name. One line each; no board
+  choreography.
+
+**Register rules** (title, body, commits, and review comments alike):
+
+- Third person throughout. No second-person address, offers, or
+  questions to a reader ("say the word", "happy to add", "if you
+  want") — decisions are made before the PR opens; genuinely open
+  questions go to the review thread, phrased against the code.
+- No internal role or workflow vocabulary: coordinator, operator,
+  dispatch, ruling, handback, session report, pre-registration
+  scoring, arm/cell labels.
+- No paths outside the repo (home directories, scratchpads,
+  machine-local reports). Evidence a PR relies on is in the repo — in
+  the brief or findings doc it links — or reproduced in the body.
+  Where artifacts live on a machine, the brief records it; the PR
+  cites the brief.
+- No tribunal register: "the ruling is", "the question is closed",
+  "measured not assumed", "attack lines that failed". State the fact
+  and its evidence; confidence is carried by the evidence, not by
+  oaths.
+- The body is the merge record: corrections found in review are edited
+  into the body, not appended as dialogue, and at merge the body must
+  agree with every artifact the PR ships (a body never asserts what
+  its own diff retracts).
+
+The skeleton lives at
+[`.github/PULL_REQUEST_TEMPLATE.md`](../../../.github/PULL_REQUEST_TEMPLATE.md).
 
 ## What does NOT use this convention
 

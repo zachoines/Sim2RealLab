@@ -59,7 +59,7 @@ entry-point scripts](repo-topology.md#key-entry-point-scripts).
 
 ## `strafer_lab/scripts/` (run directly via `$ISAACLAB -p` / `python -m` / a `make` target)
 
-- **Training / eval / export:** `train_strafer_navigation`, `play_strafer_navigation`, `export_policy`, `benchmark_policy`, `test_strafer_env`, `collect_demos`.
+- **Training / eval / export:** `train_strafer_navigation`, `play_strafer_navigation`, `eval_cadence_emulation` (closed-loop rollout under an emulated inference cadence — held ticks skip inference and re-issue the previous action; duplicate-depth ticks re-show the cached block), `export_policy`, `benchmark_policy`, `test_strafer_env`, `collect_demos`.
 - **Scene generation:** `prep_room_usds` (generate/ingest; chains the next two), `postprocess_scene_usd` (colliders + lights), `extract_scene_metadata` (embed metadata + `UsdSemantics` labels into the USD), `generate_scenes_metadata` (combined spawn-point manifest).
 - **Capture / harness:** `capture` (the `--driver` × `--mission-source` entry point), `teleop_capture`, `run_sim_in_the_loop` (bridge + harness modes), `bridge_harness_smoke` (Jetson-free Kit smoke).
 - **Diagnostics:** `roller_bounce_probe`, `ceiling_sidedness_probe` (is the enriched enclosure still opaque from below and absent from above — build-specific, re-run on a renderer upgrade), `measure_path_statistics` (baseline the path statistics over both occupancy sources; `--arm` compares generator arms).

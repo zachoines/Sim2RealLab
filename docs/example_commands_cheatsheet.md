@@ -180,6 +180,43 @@ $ISAACLAB -p source/strafer_lab/scripts/play_strafer_navigation.py \
 ```
 MP4 lands in `logs/rsl_rl/strafer_navigation/play_videos/play_<timestamp>/`.
 
+# Evaluate a checkpoint under an emulated inference cadence
+Rolls the play env out with a per-env schedule of *held* ticks (the policy does
+not run, the previous action is re-issued, the recurrent state stays frozen)
+and *duplicate-depth* ticks (the policy runs on a cached depth block). Reports
+completion, along-track progress, and the signed offset between the commanded
+direction and the subgoal bearing. Several profiles run in one session, so a
+checkpoint costs one Kit boot rather than one per arm.
+
+## (a) Baseline plus two degraded profiles
+```bash
+$ISAACLAB -p source/strafer_lab/scripts/eval_cadence_emulation.py \
+    --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0 \
+    --checkpoint logs/rsl_rl/strafer_navigation/run_20260727_171735/model_998.pt \
+    --profile clean,band,degraded \
+    --num_envs 16 --episodes 100 --headless
+```
+`clean` is every tick fresh, `band` is ~23 Hz effective, `degraded` is ~11.7 Hz
+with 38% duplicate depth content. Run `clean` first: a baseline far from the
+checkpoint's training completion rate means harness or env drift, not a cadence
+result.
+
+## (b) Replay a profile measured on the robot
+```bash
+$ISAACLAB -p source/strafer_lab/scripts/eval_cadence_emulation.py \
+    --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0 \
+    --checkpoint logs/rsl_rl/strafer_navigation/run_20260727_171735/model_998.pt \
+    --profile measured --profile-dump captures/inference_obs.jsonl \
+    --episodes 100 --headless
+```
+The dump is what `STRAFER_OBS_DUMP_PATH` writes on the robot: one JSON object
+per inference, so `t_sim` deltas are the inter-inference intervals and
+bit-identical depth blocks on consecutive lines are duplicate-content events.
+
+Results JSONL lands in `logs/rsl_rl/strafer_navigation/cadence_emulation/`.
+Individual knobs (`--hold-fraction`, `--stale-fraction`, `--mean-hold-run`,
+`--burst-weight`) override the chosen preset.
+
 # Export a checkpoint to a deployable artifact
 Converts an `rsl_rl` PPO checkpoint into a TorchScript `.pt` (and
 optionally an ONNX `.onnx`) loadable by

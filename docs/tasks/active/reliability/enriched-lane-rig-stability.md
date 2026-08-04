@@ -177,6 +177,40 @@ frames while physics continued, `camera_info` kept flowing, and the Kit log
 stayed clean). If it recurs on an idle GPU: **`py-spy dump` the bridge before
 killing it.**
 
+> **ESCALATION 2026-08-04 — the stall now reproduces at LAUNCH, and it blocks
+> the coordinator's sequencing.** During the cadence-profile capture attempt:
+>
+> - the **mid-run** mode recurred on the resident 08-02 22:17 bridge (~19 h of
+>   healthy rendering, then depth dead while `camera_info` trickled);
+> - then **two consecutive FRESH launches on a verified-idle GPU** (08-03
+>   ~17:37 and 08-04 00:32:54, launched under the new pre-launch resident-PID
+>   check) both stalled at first frame. Both logs went **silent ~14 s after
+>   startup**, immediately after the `async camera publisher up` line; no
+>   frame was ever produced (7 h observed / 35 min observed); `camera_info`
+>   ~0.6 Hz wall ≈ RTF ~0.02.
+> - All three instances share one signature: **every render-side thread
+>   (`vkrt Analysis`, `vkps Update`, `UsdFrameComplete`, `rtx::streaming`,
+>   tbb pool) parked in `futex_wait`**, single-digit CPU, zero Kit-log
+>   errors. Onset age ranges from ~14 s to ~19 h, so this is one blocking
+>   mechanism, not a warm-up phenomenon.
+> - This **falsifies the 10–20 min idle-GPU warm-up expectation as a
+>   sufficient operator model**: an idle GPU and a clean pre-launch check do
+>   not guarantee first frames at all.
+> - **`py-spy` could not run** — ptrace requires sudo on the DGX
+>   (`Permission Denied`). The capture protocol needs a standing precondition:
+>   a sudoers entry for py-spy or `kernel.yama.ptrace_scope=0`.
+> - Forensics on the DGX: `~/bridge_logs/midrun_stall_3361_forensics.txt`,
+>   `firstframe_stall_42566_forensics.txt`,
+>   `firstframe_stall_retry_forensics.txt`, stalled-launch logs
+>   `cadence_capture_bridge{,2}.log`, Kit log `kit_20260803_173707.log`.
+>
+> **Consequence:** the cadence-profile capture (coordinator ruling §5) is
+> **BLOCKED** on this mode — which blocks the emulation harness's
+> measured-profile cell, which holds the retrain decision. This item is now
+> the critical path of the entire cadence adjudication and needs DGX-side
+> debugging (py-spy under sudo on a stalled instance) before any further rig
+> time is spent on capture attempts.
+
 **Operator rule (replaces the earlier "wait 60–90 min" rule):** before ANY
 bridge launch, run
 `nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv`;

@@ -53,9 +53,39 @@ defines three presets:
 - `ROBUST_TRAINING_CONTRACT` — aggressive randomization for the
   `*-Robust-*` envs.
 
-The `*-Real-ProcRoom-Depth-v0` env (the
-[`inference-package`](../../completed/inference-package.md)
-deployment target) trains against `REAL_ROBOT_CONTRACT`.
+`Isaac-Strafer-Nav-RLDepth-Real-v0` and its siblings train against
+`REAL_ROBOT_CONTRACT`. **The shipped depth subgoal checkpoint does not** — it
+trained on `Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-v0`
+(`StraferNavCfg_RLDepthSubgoalEnriched_Robust`, `RealismCfg(level="robust")`),
+so every knob it saw came from `ROBUST_TRAINING_CONTRACT` plus
+`EventsCfg_ProcRoom_Robust_Enriched`. Read the "today" column below as the REAL
+tier; where the ROBUST value differs, the row says so.
+
+### What the shipped depth checkpoint trains on, temporally
+
+The rows below cover the physical knobs. The *temporal* texture is worth
+stating separately, because it is far narrower than the config surface
+suggests:
+
+- **Depth age: a fixed 2 control steps** (66.7 ms) on ROBUST, 1 on REAL. It is
+  a `DelayBuffer` ring shift, not a hold — and the ring is zeroed on reset, so
+  the policy sees an all-zero depth block for the first `latency_steps` ticks
+  of every episode.
+- **Frame drop: 1% i.i.d. Bernoulli per env per step** on ROBUST (0.1% on
+  REAL). A drop re-emits the previously *emitted* frame, so repeats chain into
+  geometric runs — but at p=0.01 the mean run is ~1.01 frames.
+- **Tick rate: a fixed 30 Hz**, structural rather than configurable
+  (`_DEFAULT_NAV_SIM_DT` 1/120 × `_DEFAULT_NAV_DECIMATION` 4).
+  `control_frequency_hz` does **not** set it; it is read only to scale IMU
+  noise density and the bias random-walk step.
+- **Cross-modality skew: a constant**, never sampled — depth 2 steps, IMU 1,
+  encoders 1, and the goal-shaped and velocity terms 0 (no noise model at
+  all). The policy sees depth exactly two ticks older than its bearing, every
+  tick, deterministically.
+
+There is no randomization of the tick period, of depth age, or of the skew
+between modalities. `scripts/eval_cadence_emulation.py` measures what happens
+outside that support without changing it.
 
 ### What peer pipelines randomize
 
@@ -65,14 +95,14 @@ deployment target) trains against `REAL_ROBOT_CONTRACT`.
 | Mass (multiplier) | `(0.95, 1.05)` | Wheeled Lab: "per-rollout, wider extents." Isaac Lab official envs commonly ±20–30%. | **Too tight.** Strafer's nominal mass ~4.5 kg; payload (D555 + cables + camera mount + occasional sensor pod) varies by ≥ ±15%. Real bench measurement needed. |
 | Motor strength | `(0.92, 1.08)` | [ANYmal review](https://www.oaepublish.com/articles/ir.2022.20): "PD gains and stall torques" randomized. 4S LiPo voltage 14.0–16.8 V → ~±20% torque envelope. | **Too tight for battery dynamics.** ROBUST `(0.80, 1.20)` is closer. Promote ROBUST's range to REAL or split into a `motor_strength_battery_range`. |
 | Motor time constant | `(0.03, 0.08)` s | GoBilda 5203 datasheet + bench measurement under varying load | Reasonable; verify with bench measurement. |
-| Action latency | 0–2 steps (0–66 ms) | Wheeled Lab: "actuator delays randomized per roll-out" — typically 10–100 ms for serial/CAN bus. | OK for ROS-over-LAN; **too generous for real on-chassis serial**, which is closer to 5–15 ms. If sim-in-the-loop uses ROS but real chassis uses RoboClaw direct, these diverge. |
+| Action latency | 1–3 control steps (33–100 ms); ROBUST 1–5 (33–167 ms) — `action_latency_steps` and `action_latency_steps_range` are **summed** in `get_action_config_params`, and the per-env lag is drawn once at action-term construction, never re-drawn on reset | Wheeled Lab: "actuator delays randomized per roll-out" — typically 10–100 ms for serial/CAN bus. | OK for ROS-over-LAN; **too generous for real on-chassis serial**, which is closer to 5–15 ms. If sim-in-the-loop uses ROS but real chassis uses RoboClaw direct, these diverge. |
 | Depth latency | 1 step (33 ms) | Intel D555 datasheet: stereo matching alone adds ~30–66 ms; add ROS transport. | **Too tight.** Real D555 publish-to-subscribe latency on Jetson is 60–120 ms measured. Widen to `(2, 4)` steps. |
-| Control rate jitter | ±5% | ROS on Jetson under load: P99 jitter is 20–50% per [`rtabmap-cold-start-determinism`](../reliability/rtabmap-cold-start-determinism.md). | **Too tight.** Widen to ±15% for REAL, ±25% for ROBUST. |
-| **TF staleness (goal pose / base pose age)** | **not randomized** — sim re-reads the goal pose from the command term at every tick, fresh in body frame; the policy never sees an age-distribution on its goal observation | Real Jetson reads goal pose in body frame via the chain `(map→odom)` ⊗ `(odom→base_link)` from a TF buffer that's only as fresh as the slowest publisher in the chain. RTAB-Map's `map→odom` updates at 1–10 Hz; under tracking loss or cold-start ([`rtabmap-cold-start-determinism`](../reliability/rtabmap-cold-start-determinism.md)) it can stall for 100 ms+ at a time. The policy's `body_frame_goal` reading then references a *stale* base pose, so the goal-in-body-frame drifts as the robot moves even though the goal hasn't. | **Whole axis not randomized.** This is the per-tick "data staleness" companion to the per-tick control-rate jitter row above — control-jitter randomizes when *the policy ticks*, but TF-staleness randomizes when *the policy's spatial reference frame last updated*. Two-step approach: (1) measure per Phase 1 item 6 below; (2) extend `randomize_d555_mount_offset`'s sibling (or file a new event term) to age the body-frame goal observation by a sampled latency drawn from the measured distribution. Same `mode="interval"` cadence as the existing jitter randomization so the staleness drifts within an episode. |
+| Control rate jitter | **not implemented.** `control_frequency_jitter_pct` is declared (`sim_real_cfg.py`, 0.05 REAL / 0.10 ROBUST) and read by nothing; the env ticks a fixed 30 Hz. Same for `obs_latency_steps` and `obs_latency_steps_range` — declared, zero consumers; only the four per-sensor `*_latency_steps` fields reach a `DelayBuffer`. | ROS on Jetson under load: P99 jitter is 20–50% per [`rtabmap-cold-start-determinism`](../reliability/rtabmap-cold-start-determinism.md). | **Whole axis not randomized.** The knob is the designed home, but the mechanism behind it was never built, so raising the number is a no-op until a consumer lands. Do not cite ±5% jitter or 0–2 steps of observation latency as part of any shipped checkpoint's training distribution. |
+| **TF staleness (goal pose / base pose age)** | **not randomized** — sim re-reads the goal pose from the command term at every tick, fresh in body frame; the policy never sees an age-distribution on its goal observation | Real Jetson reads goal pose in body frame via the chain `(map→odom)` ⊗ `(odom→base_link)` from a TF buffer that's only as fresh as the slowest publisher in the chain. RTAB-Map's `map→odom` updates at 1–10 Hz; under tracking loss or cold-start ([`rtabmap-cold-start-determinism`](../reliability/rtabmap-cold-start-determinism.md)) it can stall for 100 ms+ at a time. The policy's `body_frame_goal` reading then references a *stale* base pose, so the goal-in-body-frame drifts as the robot moves even though the goal hasn't. | **Whole axis not randomized.** This is the companion to the control-rate-jitter row above — **neither is implemented today**; jitter would randomize when *the policy ticks*, while TF-staleness randomizes when *the policy's spatial reference frame last updated*. Two-step approach: (1) measure per Phase 1 item 6 below; (2) extend `randomize_d555_mount_offset`'s sibling (or file a new event term) to age the body-frame goal observation by a sampled latency drawn from the measured distribution. Use `mode="interval"` so the staleness drifts within an episode — no interval-mode event term exists in this config today, so this would be the first. |
 | D555 mount angle | ±1° | Hand-mounted hardware, screw tolerances, chassis flex | Reasonable but probably understated; ±3° (ROBUST today) more realistic. |
 | **D555 mount POSITION** | **not randomized** — fixed at `(CAMERA_OFFSET_X, CAMERA_OFFSET_Y, CAMERA_OFFSET_Z) = (0.20, 0.0, 0.25)` m | Hand-mounted bracket, screw-hole tolerance ~±2 mm, cable strain, operator unbolt/rebolt during dev | **Whole axis not randomized.** Every time the operator removes the D555 (e.g. for the IMU kernel fix from `docs/D555_IMU_KERNEL_FIX.md`, lens cleaning, or transport) and rebolts it, the position shifts by ~1–3 cm. The existing `randomize_d555_mount_offset` event in [`events.py:450`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py) handles orientation (`_d555_mount_quat`) and the IMU obs path rotates readings through it; nothing parallel exists for position. |
-| ProcRoom difficulty | `min_level=7, max_level=7` (fixed) | Curriculum literature: progressive difficulty during training. | **Fixed at one level.** Policy never sees easier or harder rooms. Doesn't generalize to deployment scene variance. |
-| Goal-pose noise | ~0.15 m at reset only (`randomize_goal_noise` event, mode="reset") | [`goal-noise-training`](goal-noise-training.md) covers per-tick; this brief defers to it. | Covered separately — out of scope here, cross-ref only. |
+| ProcRoom difficulty | `min_level=7, max_level=7` on the vanilla generator; the **enriched** variants already un-pin to `U[4, 7]` via `_ENRICH_MIN_LEVEL` / `_ENRICH_MAX_LEVEL` | Curriculum literature: progressive difficulty during training. | **Partly closed.** The enriched retrain target already spans four levels; only the vanilla ProcRoom variants stay pinned. |
+| Goal-pose noise | `randomize_goal_noise` (mode="reset") — 0.35 m on every ROBUST tier, 0.15 m on the flat-arena and Infinigen REAL tiers but **absent on the ProcRoom REAL tier** (the lane the depth checkpoints train in), and set to `None` for every **subgoal** variant regardless of tier; the subgoal tiers randomize the planner lookahead instead (`(0.9, 1.1)` real / `(0.7, 1.3)` robust) | [`goal-noise-training`](goal-noise-training.md) covers per-tick; this brief defers to it. | Covered separately — out of scope here, cross-ref only. Note for anyone reading a signed bearing offset off a subgoal policy: that referent is **unperturbed at reset**, so a signed offset is not goal jitter. |
 | Encoder noise | velocity_noise_std=0.02 | Reasonable for GoBilda 5203 (quadrature) | Looks OK. |
 | IMU noise | density-based (BMI055 datasheet-anchored) | Datasheet-correct | Looks OK. |
 
@@ -155,12 +185,23 @@ Record measurements in the PR description as a single table. Phase 1
 items 5 and 6 are the inputs for Phase 2's new randomization configs
 (camera position and TF staleness, respectively).
 
-### Phase 2 — Update REAL_ROBOT_CONTRACT
+### Phase 2 — Update REAL_ROBOT_CONTRACT (and mirror into ROBUST)
 
 In [`sim_real_cfg.py`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py)
 update `create_real_robot_contract()` based on Phase 1 measurements.
 Each change must cite a row in the Phase 1 table — no speculative
 widening.
+
+Any row the shipped depth checkpoint is expected to inherit must also land in
+`create_robust_training_contract()` — the depth subgoal lane trains on the
+ROBUST tier. Two of the anticipated edits below are already the shipped ROBUST
+values (`depth_latency_steps=2`, `D555 mount angle ±3°`), so applying the block
+verbatim moves REAL only.
+
+The two temporal fields the block introduces —
+`depth_latency_steps_range` and the TF-staleness pair — have **no consumer
+today**. Landing them is a two-part change: the config field *and* the
+mechanism that reads it.
 
 Anticipated edits (subject to Phase 1 data):
 

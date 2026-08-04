@@ -74,16 +74,19 @@ Done from `logs/slam_v2xmission.log` alone, as the coordinator scoped. The
 framing above — "a mid-session weight-bookkeeping assertion" — is **wrong**, and
 the fix is a one-line compose change.
 
-**The assertion fires at DATABASE LOAD, not mid-session.** Timeline from the
-captured log:
+**The assertion fires at DATABASE LOAD, not mid-session.** The evidence is
+**the absence of any `rtabmap (N):` iteration line before the FATAL** — rtabmap
+prints one per processed frame, and on the aborting launches it prints none:
 
 ```
 17:53:46.969  rtabmap subscribed to (approx sync): /strafer/odom, /d555/... , /scan
 17:53:47.434  [FATAL] Memory.cpp:3852::addLink() Condition (fromS->getWeight() >= 0 && toS->getWeight() >=0) not met!
 ```
 
-**0.5 s after subscription setup** — before a single frame was processed. Every
-FATAL sits within a second of node init; none follows a mapping iteration.
+(Elapsed time alone would prove nothing at 30 Hz — a frame could arrive inside
+0.5 s. The iteration counter is what shows none was processed.) Every aborting
+launch shows the same shape: subscribe, then FATAL, with no iteration in
+between.
 
 **rtabmap names the cause itself**, on the next launch that got far enough:
 
@@ -100,25 +103,29 @@ working-memory state **at close** — so the database was truncated mid-shutdown
 
 **Why it was truncated — the deployment defect.** `deploy/docker-compose.yml`
 sets **no `stop_grace_period`**, so Docker's default applies: **SIGTERM, then
-SIGKILL after 10 seconds.** A 1.25 GB SQLite flush cannot complete in 10 s. The
+SIGKILL after 10 seconds.** The close-time write scales with the working set
+being serialised, not with the 1.25 GB file itself, and on a map this size it
+does not complete in 10 s. The
 captured log contains **zero** rtabmap shutdown or save messages across every
 stop — it never reached its save path. (`init: true` is also unset, so PID 1 is
 the launch process with no dedicated reaper.)
 
-**The self-reinforcing loop, which explains the escalating severity:**
+**The accumulation, which explains the escalating severity:**
 
 ```
 container stop / force-recreate
   → SIGKILL at 10 s, mid-flush
-  → dictionary + WM state truncated
-  → reload: signature with weight < 0 reached by addLink()
-  → assert → abort (itself an unclean exit)
-  → more truncation → eventually unloadable
+  → dictionary + WM state truncated a little further
+  → next load: signature with weight < 0 reached by addLink() → abort
 ```
 
-This predicts exactly what was observed: harmless early (small DB flushes inside
-10 s), fatal as the map grows, and finally a database that aborts on load with
-zero iterations. It also explains why `docker restart strafer_slam` — the
+Damage accumulates across **stops**, not across aborts: a load-time abort writes
+nothing, so it neither worsens nor repairs the database — it simply re-reads the
+same truncated state, which is why the launch is deterministic once poisoned.
+
+This predicts what was observed: harmless early (a small working set flushes
+inside 10 s), fatal as the map grows, and finally a database that aborts on load
+with zero iterations. It also explains why `docker restart strafer_slam` — the
 cheatsheet's documented recovery — stopped working: it re-enters the same load
 path.
 
@@ -348,9 +355,27 @@ instance**. On an idle GPU expect 10–20 min to first frames; poll
 - [x] rtabmap `addLink` **triaged** — load-time assertion caused by SIGKILL at
       the 10 s default stop grace period truncating rtabmap's dictionary flush;
       not primarily an upstream bug (see triage under mode 1).
-- [ ] **Apply the fix**: `stop_grace_period: 180s` on `slam` (and any service
-      owning a large on-disk store) plus `init: true`; verify by a stop/start
-      cycle on a large database showing **no** `loadDataFromDb()` repair warning.
+- [x] **Grace-period fix applied**: `stop_grace_period: 180s` on `slam`. A
+      survey of the compose found slam is the **only** service with a read-write
+      persistent store (every other mount is read-only config; the TRT engine
+      cache writes at build completion, not at stop), so no other service needs
+      it. `docker restart` inherits StopTimeout, so the cheatsheet's recovery
+      path is covered.
+- [ ] **Runtime verification** of that fix: a stop/start cycle on a large
+      database showing **no** `loadDataFromDb()` repair warning. Rides the next
+      rig session.
+- [ ] **`init: true` — deliberately deferred, not dropped.** It is correct for
+      signal delivery and zombie reaping, but it is a behaviour change to every
+      service and is not on the path to this failure: the flush is truncated by
+      the grace period, not by PID 1 mishandling SIGTERM (rtabmap does receive
+      it — it simply cannot finish in time). Landing it here would mix an
+      untested global change into a targeted fix. File it separately.
+- [ ] **Residual, out of this fix's reach:** dockerd's own `shutdown-timeout`
+      (default 15 s) SIGKILLs containers on daemon shutdown and host reboot
+      regardless of StopTimeout. A database truncated by a host reboot is
+      therefore expected, not a regression of the grace-period fix. Raising
+      `shutdown-timeout` in `daemon.json` is the lever if reboot-time corruption
+      proves to matter.
 - [ ] Poisoned-database detection at launch, as a backstop.
 - [ ] Nav2 lifecycle non-recovery root-caused; `lifecycle_manager` behaviour on
       bond loss understood.

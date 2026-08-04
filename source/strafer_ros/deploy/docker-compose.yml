@@ -93,20 +93,27 @@ services:
     <<: *cpu-svc
     container_name: strafer_slam
     # rtabmap writes NODES incrementally but flushes the visual-word dictionary
-    # and working-memory state only at CLOSE. Docker's default 10 s grace period
+    # and working-memory state only at CLOSE, so the close-time write scales with
+    # the working set, not with the file. Docker's default 10 s grace period
     # SIGKILLs that flush partway through on any map big enough to matter, and a
     # truncated flush is not merely lost work -- the database comes back with
     # nodes present and the word table empty, and the next load aborts on
     # `Memory.cpp:3852::addLink() Condition (fromS->getWeight() >= 0 ...)`.
-    # Because the abort is itself an unclean exit, the damage compounds until the
-    # database will not load at all: exactly what killed SLAM three times on
-    # 2026-08-02 and left a 1.25 GB unloadable db (rtabmap's own
-    # `loadDataFromDb()` repair warning names the cause, and the regenerated
-    # dictionary read 0 -> 15444 words). See enriched-lane-rig-stability, mode 1.
+    # Each SIGKILLed stop truncates a little more, so the damage accumulates
+    # across stops until the database will not load at all.
     #
-    # 180 s is sized for a multi-GB database on this host's storage. Regression
-    # test: after a stop/start cycle on a large map, the next launch must NOT
-    # print `loadDataFromDb() ... we will try to repair it`.
+    # slam is the only service with a read-write persistent store; every other
+    # mount is read-only config, and the TRT engine cache writes at build
+    # completion rather than at stop. `docker restart` inherits StopTimeout, so
+    # this covers that path too.
+    #
+    # RESIDUAL: dockerd's own `shutdown-timeout` (default 15 s) SIGKILLs
+    # containers on daemon shutdown and host reboot regardless of StopTimeout, so
+    # a reboot-truncated database is expected rather than a regression here.
+    #
+    # 180 s is sized for a multi-GB working set on this host's storage.
+    # Regression test: after a stop/start cycle on a large map, the next launch
+    # must NOT print `loadDataFromDb() ... we will try to repair it`.
     stop_grace_period: 180s
     environment:
       # Re-stated, not inherited: a service-level `environment:` REPLACES the

@@ -174,8 +174,57 @@ off, not by any relaunch coming good.
 **Still open, as a distinct mode:** the original 2026-08-02 **mid-run** stall
 (no restart involved; a bridge that had rendered for hours stopped producing
 frames while physics continued, `camera_info` kept flowing, and the Kit log
-stayed clean). If it recurs on an idle GPU: **`py-spy dump` the bridge before
-killing it.**
+stayed clean). If it recurs: **capture stacks before killing it — `py-spy dump`
+for Python frames AND `gdb`/`eu-stack` for the native ones** (the parked threads
+are native, so py-spy alone is insufficient).**
+
+> **ESCALATION 2026-08-04 — the stall now reproduces at LAUNCH, and it blocks
+> the coordinator's sequencing.** During the cadence-profile capture attempt:
+>
+> - the **mid-run** mode recurred on the resident 08-02 22:17 bridge (~19 h of
+>   healthy rendering, then depth dead while `camera_info` trickled);
+> - then **two consecutive FRESH launches on a verified-idle GPU** (08-03
+>   ~17:37 and 08-04 00:32:54, launched under the new pre-launch resident-PID
+>   check) both stalled at first frame. Both logs went **silent ~14 s after
+>   startup**, immediately after the `async camera publisher up` line; no
+>   frame was ever produced (7 h observed / 35 min observed); `camera_info`
+>   ~0.6 Hz wall ≈ RTF ~0.02.
+> - All three instances share one signature: **every render-side thread
+>   (`vkrt Analysis`, `vkps Update`, `UsdFrameComplete`, `rtx::streaming`,
+>   tbb pool) parked in `futex_wait`**, single-digit CPU, zero Kit-log
+>   errors. Onset age ranges from ~14 s to ~19 h, so this is one blocking
+>   mechanism, not a warm-up phenomenon.
+> - This **falsifies the 10–20 min idle-GPU warm-up expectation as a
+>   sufficient operator model**: an idle GPU and a clean pre-launch check do
+>   not guarantee first frames at all.
+> - **The debugger precondition is unmet, and needs BOTH tools.** `py-spy`
+>   could not attach at all (ptrace requires sudo on the DGX —
+>   `Permission Denied`), and even with sudo it would be **insufficient**: the
+>   parked threads are **native** (`vkrt`, `vkps`, tbb), and py-spy reports only
+>   Python frames. The standing precondition is therefore scoped sudoers for
+>   **`py-spy` AND `gdb`/`eu-stack`** (native stacks), or
+>   `kernel.yama.ptrace_scope=0` for the debug window.
+> - **Discriminant (coordinator, 2026-08-04):** the Isaac Lab **play-env** path
+>   (no ROS bridge, tiled render) produced frames at **30 Hz on the same box in
+>   the same window**. The stall has only ever been observed on the **bridge
+>   camera path**, and both fresh stalls went silent immediately after
+>   `async camera publisher up` — so the mechanism is plausibly specific to that
+>   path rather than box-wide GPU state. Start debugging there.
+> - Forensics on the DGX: `~/bridge_logs/midrun_stall_3361_forensics.txt`,
+>   `firstframe_stall_42566_forensics.txt`,
+>   `firstframe_stall_retry_forensics.txt`, stalled-launch logs
+>   `cadence_capture_bridge{,2}.log`, Kit log `kit_20260803_173707.log`.
+>
+> **Consequence — scoped.** This mode is the critical path of **the cadence
+> profile capture and of all future rig sessions**. It is **not** the critical
+> path of the cadence adjudication itself: the emulation harness's synthetic
+> cells (clean 30 Hz baseline, four-arm band, and the arm-1 profile
+> reconstructed from logged telemetry) are **unblocked and proceed on the DGX**,
+> carrying pre-registrations (i)/(ii)/(v) fully and (iii)/(iv) on the
+> reconstructed profile. Only the **measured-profile replay** cell waits on the
+> capture, as a later addition. A reader must not deprioritise the eval on the
+> strength of this brief. What this mode does block is any further rig time
+> spent on capture attempts — none should be spent until it is ruled.
 
 **Operator rule (replaces the earlier "wait 60–90 min" rule):** before ANY
 bridge launch, run
@@ -193,8 +242,10 @@ instance**. On an idle GPU expect 10–20 min to first frames; poll
    a resident compute process already holds the GPU (env-var override for
    intentional coexistence). Mechanical enforcement beats discipline — the
    stacking mode cost the operator a full day.
-3. Reproduce or rule out the **mid-run** stall as a distinct mode (py-spy
-   capture protocol above).
+3. Reproduce or rule out the **mid-run** stall as a distinct mode. Start from
+   the **bridge camera path** — the play-env path renders clean at 30 Hz on the
+   same box, and both fresh stalls went silent immediately after
+   `async camera publisher up`. Native-stack capture protocol above.
 4. **Document the DGX handback protocol** (coordinator-mandated, standing) in
    the cheatsheet: any session that launches a long-running DGX process over
    SSH ends with either explicit teardown (kill the PID, confirm the GPU is
@@ -225,8 +276,12 @@ instance**. On an idle GPU expect 10–20 min to first frames; poll
       after env construction, so it cannot live there).
 - [ ] Fail-loud GPU launch guard in `run_sim_in_the_loop.py` (refuse to start
       over a resident compute process; env-var override).
-- [ ] The **mid-run** stall (2026-08-02 original event) reproduced or ruled out
-      as a distinct mode; py-spy dump before killing on any recurrence.
+- [ ] The stall (both onsets — mid-run and at-launch) reproduced or ruled out;
+      native + Python stacks captured before killing on any recurrence.
+- [ ] **Debugger precondition provisioned on the DGX** (operator): scoped
+      sudoers for `py-spy` and `gdb`/`eu-stack`, or
+      `kernel.yama.ptrace_scope=0` for the debug window. Without this the
+      capture protocol cannot execute.
 - [ ] DGX handback protocol documented in the cheatsheet (explicit teardown or
       an explicit handback line; silent orphans are a session-report defect).
 - [ ] **Promote `switch_arm.sh` into deploy tooling.** The session tool

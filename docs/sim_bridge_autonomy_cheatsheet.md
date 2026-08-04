@@ -58,8 +58,16 @@ docker compose \
 # 3) Wait ~60-90s: donut_warmup spins the robot to seed rtabmap's map. Sanity-check:
 docker ps --format '{{.Names}}\t{{.Status}}' | grep strafer_
 docker logs strafer_slam 2>&1 | grep -iE 'FATAL|rtabmap \(' | tail -3   # want "rtabmap (N): ..." iterating, no FATAL
-#    If rtabmap died on a /clock hitch (FATAL Memory.cpp addLink), just restart it:
+#    If rtabmap died on FATAL Memory.cpp:3852::addLink(), a restart may NOT save you:
 #      docker restart strafer_slam        # wait ~30s for map->odom to re-establish
+#    That FATAL is NOT a /clock hitch -- it is a database-LOAD assertion on a db whose
+#    dictionary flush was truncated by a SIGKILL at container stop. A restart re-enters
+#    the same load path, so if it aborts again within ~1 s of "rtabmap subscribed to",
+#    the db is unloadable: bump STRAFER_SLAM_SCENE_TOKEN (keeps the old db for forensics)
+#    and re-seed. `stop_grace_period: 180s` on the slam service is the fix for the
+#    truncation itself -- confirm the next launch does NOT print
+#    "loadDataFromDb() ... we will try to repair it". See
+#    docs/tasks/active/reliability/enriched-lane-rig-stability.md mode 1.
 ```
 
 ## Send a natural-language command

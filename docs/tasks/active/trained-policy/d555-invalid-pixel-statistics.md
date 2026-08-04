@@ -7,6 +7,12 @@ entire claimed advantage is **two orders of magnitude below the sensor's own
 temporal noise**, while it adds a failure mode the median structurally cannot
 have. See "Measurement" below. The question is closed; the follow-up is not filed.
 
+The capture was **uncalibrated** (camera on a desk in a deployment room). The
+ruling deliberately rests only on the sensor-intrinsic measurements, which that
+does not compromise — see "What this capture does and does not establish". One
+earlier sim-versus-real claim drawn from the pose-dependent numbers has been
+**retracted** there.
+
 **Type:** investigation (bench measurement)
 **Owner:** Jetson
 **Priority:** P2 — nothing is blocked on it; it decides one contained follow-up.
@@ -135,12 +141,25 @@ as a valid 0 m return.
 
 ### 1. Invalid fraction
 
-**36.06%** of pixels (min 35.52, max 36.44, sd 0.18 pp over 120 frames), against
-the sim's 26.5%. The *structure* differs more than the fraction: the renderer's
-invalids are a coherent frustum-cull band in rows 0–22, while the sensor's are
-scattered and concentrated at the **bottom** — 65.7% in rows 330–360 vs 23.9% in
-rows 0–30. **The renderer's invalid structure is close to the inverse of the
-sensor's.**
+**36.06%** of pixels (min 35.52, max 36.44, sd 0.18 pp over 120 frames), with the
+heaviest concentration in the **bottom** rows — 65.7% in rows 330–360 vs 23.9%
+in rows 0–30.
+
+> **DO NOT COMPARE THIS TO THE SIM'S 26.5%.** An earlier draft did, and called
+> the renderer's invalid structure "close to the inverse of the sensor's". That
+> claim is **retracted**: it is an artefact of where the camera sat, not a
+> sensor-versus-renderer difference.
+>
+> The camera was on a desk. The bottom rows are the **desk surface itself**,
+> centimetres from the lens and below the stereo minimum — this capture's own
+> numbers say so: 4.16% of pixels return finite values *inside* 0.4 m, and the
+> largest persistent invalid region (19.7% of frame) is the near workbench. A
+> robot-mounted camera would have floor there at a metre or more.
+>
+> Both the **fraction** and the **spatial distribution** of invalids are
+> dominated by scene content and camera pose. Comparing them across two
+> completely different scenes measures the scenes, not the sensors. See
+> "What this capture does and does not establish" below.
 
 ### 2. Component sizes — the pre-registered statistic, and why it is ambiguous
 
@@ -229,16 +248,54 @@ assumed; now measured.
 3. **The pre-registered proxy, read the honest way (by area), agrees** — 94.7%
    of invalid area sits in components of a block or larger.
 
+Ground 1 is **tier 1** (sensor-intrinsic) and carries the ruling on its own.
+Grounds 2 and 3 are **tier 2** — right in direction, scene-dependent in
+magnitude — so they corroborate rather than decide. That split is deliberate:
+this was an uncalibrated capture, and a ruling resting on tier-3 numbers would
+not survive re-pointing the camera.
+
 The follow-up switch is **not** filed. The question is closed.
 
-### Observations outside this brief's scope
+### What this capture does and does not establish
 
-- **The renderer's invalid structure is nearly the inverse of the sensor's**
-  (sim 26.5%, coherent, rows 0–22; real 36.1%, scattered, bottom-heavy). Any
-  real-robot deployment of a depth policy trained on this renderer inherits that
-  gap — relevant to the v2 joint-distribution-brittleness synthesis.
-- **A third of blocks are unmeasurable** in this room at this pose (33.9% with
-  ≥32/64 invalid; 23.9% with none valid). That dwarfs the reduction question.
+An uncalibrated capture cannot support every kind of claim, and the difference
+matters more than any single number here. Three tiers:
+
+**Tier 1 — sensor-intrinsic. Robust to the pose; safe to build decisions on.**
+
+- **Temporal σ versus range** (§4). σ grows as roughly the z² a stereo triangulator
+  predicts — 1.1 mm at 0.7 m to 87 mm at ~4.5 m — because disparity quantisation
+  scales that way regardless of what is in frame. The far bin degrades somewhat
+  faster than z² alone, plausibly texture-limited. Scene affects the constant,
+  not the law, and **the ruling rests on this tier**: a 100× margin over the
+  variant's 0.8 mm advantage is not closeable by re-pointing the camera.
+- **Sub-0.4 m behaviour** (§5): the sensor returns *finite* values below its
+  stereo minimum. A contract fact about the device.
+- **Z16 encoding: invalid is `0`, not NaN.** A device fact.
+
+**Tier 2 — sensor × scene interaction. Direction is meaningful, magnitude is not.**
+
+- Invalids form **coherent patches on textureless, dark and specular surfaces**
+  rather than i.i.d. speckle. Which surfaces, and how much of the frame they
+  occupy, is scene-dependent — but that stereo fails *in patches* is a property
+  of stereo matching, and it is what makes a 4-pixel read window riskier than a
+  64-pixel one. The 0.45% discriminating-failure rate is a **sample from one
+  scene**, not a device constant.
+
+**Tier 3 — scene/pose artefact. Cite for context only; do not compare across setups.**
+
+- The **36.06% invalid fraction**, the **row/column profile**, and the
+  **33.9% of blocks with ≥32/64 invalid** are all products of a cluttered desk,
+  a seated person and a doorway. Change the pose and every one of them moves.
+  Nothing sim-versus-real can be concluded from them.
+
+**A calibrated capture would be needed** to make any depth-realism claim against
+the renderer — matched geometry (a flat target at surveyed ranges, plus a
+known-specular and a known-textureless sample), the same target replicated in
+sim, and accuracy/bias reported alongside σ. That is a different brief. It is
+**not** needed for the ruling above, and it is not on any current critical path:
+the sim-bridge lane's depth comes from Isaac's renderer, so the real D555 is not
+in that loop at all. File it if and when real-robot deployment becomes live.
 - **The IMU is silent** — `imu_filter` logged `Still waiting for data on topic
   imu/data_raw` throughout. That is the sibling IMU-QoS bench item presenting
   itself, captured here so the sitting need not be repeated.

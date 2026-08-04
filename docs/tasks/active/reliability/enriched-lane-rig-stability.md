@@ -56,16 +56,97 @@ The existing [`rtabmap-cold-start-determinism`](rtabmap-cold-start-determinism.m
 brief is adjacent but not the same failure; this is a mid-session
 weight-bookkeeping assertion, not a cold-start issue.
 
-**Ask:** determine whether this is the known upstream `addLink` weight bug and
-whether a parameter (loop-closure/memory-management related) avoids it; and add a
-db integrity pre-check so a poisoned database is detected at launch rather than
-by an abort.
+**Ask (superseded by the triage below):** the original ask — chase an upstream
+`addLink` weight bug and a loop-closure parameter — is **not** the fix. The
+triage below shows the trigger is our own container stop grace period. What
+remains: apply the grace-period fix, keep the db integrity pre-check as a
+backstop, and only pursue upstream if the assertion survives the fix.
 
 > **Update 2026-08-03:** the poisoned `enrich1` database was deleted in a
 > volume-wide map cleanup and is **no longer available for forensics**. Triage
 > must work from the captured logs (`~/strafer_v2_validation/logs/slam_*.log`,
 > which contain all three FATALs and the rejected-loop-closure warnings that
 > preceded them) and from reproducing the assertion fresh.
+
+#### TRIAGE 2026-08-04 — this is OUR defect, not (primarily) an upstream bug
+
+Done from `logs/slam_v2xmission.log` alone, as the coordinator scoped. The
+framing above — "a mid-session weight-bookkeeping assertion" — is **wrong**, and
+the fix is a one-line compose change.
+
+**The assertion fires at DATABASE LOAD, not mid-session.** Timeline from the
+captured log:
+
+```
+17:53:46.969  rtabmap subscribed to (approx sync): /strafer/odom, /d555/... , /scan
+17:53:47.434  [FATAL] Memory.cpp:3852::addLink() Condition (fromS->getWeight() >= 0 && toS->getWeight() >=0) not met!
+```
+
+**0.5 s after subscription setup** — before a single frame was processed. Every
+FATAL sits within a second of node init; none follows a mapping iteration.
+
+**rtabmap names the cause itself**, on the next launch that got far enough:
+
+```
+Memory.cpp:490::loadDataFromDb() The dictionary is empty or missing some words from nodes
+  in WM, we will try to repair it. This can be caused by rtabmap closing before it has
+  time to save the dictionary. Re-creating the dictionary from 261 nodes...
+Memory.cpp:555::loadDataFromDb() Regenerated the dictionary with 15444 missing words (0 -> 15444)
+```
+
+**0 → 15444 words**: the visual-word table was *entirely absent* while 261 nodes
+were present. rtabmap writes nodes incrementally but flushes the dictionary and
+working-memory state **at close** — so the database was truncated mid-shutdown.
+
+**Why it was truncated — the deployment defect.** `deploy/docker-compose.yml`
+sets **no `stop_grace_period`**, so Docker's default applies: **SIGTERM, then
+SIGKILL after 10 seconds.** A 1.25 GB SQLite flush cannot complete in 10 s. The
+captured log contains **zero** rtabmap shutdown or save messages across every
+stop — it never reached its save path. (`init: true` is also unset, so PID 1 is
+the launch process with no dedicated reaper.)
+
+**The self-reinforcing loop, which explains the escalating severity:**
+
+```
+container stop / force-recreate
+  → SIGKILL at 10 s, mid-flush
+  → dictionary + WM state truncated
+  → reload: signature with weight < 0 reached by addLink()
+  → assert → abort (itself an unclean exit)
+  → more truncation → eventually unloadable
+```
+
+This predicts exactly what was observed: harmless early (small DB flushes inside
+10 s), fatal as the map grows, and finally a database that aborts on load with
+zero iterations. It also explains why `docker restart strafer_slam` — the
+cheatsheet's documented recovery — stopped working: it re-enters the same load
+path.
+
+**Fix, in priority order:**
+
+1. **`stop_grace_period: 180s` on the `slam` service** (and any service owning a
+   large on-disk store). This is the root-cause fix and is one line.
+2. **`init: true`** on the compose services for correct signal delivery/reaping.
+3. **Database integrity pre-check at launch** (already an acceptance item) —
+   with the grace period fixed this becomes a backstop rather than the mitigation.
+4. Verify rtabmap actually completes its save within the new window: on stop,
+   expect the DB mtime to advance and the next load to show **no**
+   `loadDataFromDb()` repair warning. That warning's absence is the regression
+   test.
+
+**Upstream relevance — secondary and weaker.** That `addLink()` hard-asserts
+(aborts the process) on an inconsistent-but-repairable database, rather than
+degrading like the dictionary path immediately above it does, is arguably an
+upstream robustness gap worth reporting. But it is **not** why this happened to
+us, and no upstream patch is needed to fix our rig: we were killing the process
+mid-write. Version pinning and an upstream issue search are only worth doing if
+the assertion recurs *after* the grace-period fix.
+
+**Confidence:** high on the mechanism (rtabmap's own diagnostic names it, the
+load-time timing is unambiguous, and the 0→15444 dictionary loss is direct
+evidence of a truncated flush); untested on the fix, since it needs one
+stop/start cycle on a large database to confirm — cheap, and it can ride the
+next rig session rather than needing one of its own.
 
 ### 2. Nav2 lifecycle nodes drop to `inactive` after a network partition
 
@@ -264,8 +345,13 @@ instance**. On an idle GPU expect 10–20 min to first frames; poll
       fails an integrity pre-check.
 - [ ] The gate is wired into the session protocol **before** the first mission of
       every arm, and re-checked between arms.
-- [ ] rtabmap `addLink` triaged against upstream; poisoned-database detection at
-      launch.
+- [x] rtabmap `addLink` **triaged** — load-time assertion caused by SIGKILL at
+      the 10 s default stop grace period truncating rtabmap's dictionary flush;
+      not primarily an upstream bug (see triage under mode 1).
+- [ ] **Apply the fix**: `stop_grace_period: 180s` on `slam` (and any service
+      owning a large on-disk store) plus `init: true`; verify by a stop/start
+      cycle on a large database showing **no** `loadDataFromDb()` repair warning.
+- [ ] Poisoned-database detection at launch, as a backstop.
 - [ ] Nav2 lifecycle non-recovery root-caused; `lifecycle_manager` behaviour on
       bond loss understood.
 - [ ] Wired transport evaluated for the DDS path and a recommendation recorded.

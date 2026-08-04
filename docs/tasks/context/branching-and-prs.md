@@ -110,6 +110,9 @@ epic/arm tokens, dates.
   "measured not assumed", "attack lines that failed". State the fact
   and its evidence; confidence is carried by the evidence, not by
   oaths.
+- No attribution footers on the body ("Generated with …",
+  `Co-Authored-By:`) — the same rule
+  [commits follow](conventions.md#commit-messages).
 - The body is the merge record: corrections found in review are edited
   into the body, not appended as dialogue, and at merge the body must
   agree with every artifact the PR ships (a body never asserts what

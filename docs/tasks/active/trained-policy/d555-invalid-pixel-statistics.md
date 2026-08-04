@@ -43,8 +43,11 @@ renderer guarantees and the real sensor may not:
 
 - **Sim:** invalid depth is a coherent `+inf` region from the 50 m frustum cull —
   26.5% of pixels, all in image rows 0–22, with a clean boundary.
-- **Real D555:** NaN from specular surfaces, occlusion, and sub-0.4 m range.
-  Spatially scattered, and plausibly clustered on dark or glossy surfaces.
+- **Real D555:** ~~NaN~~ **`0`** from specular surfaces, occlusion, and sub-0.4 m
+  range — **corrected 2026-08-04 by measurement: the stream is Z16 and invalid is
+  zero, not NaN.** Spatially scattered, and clustered on dark or glossy surfaces
+  (confirmed). The NaN assumption has consequences beyond this brief — see "Two
+  hard findings for the sibling 16UC1 item".
 
 The held variant reads **4 of 64** source pixels, so it is only safe if invalid
 pixels are rare *inside* that 4-pixel window. The median reads all 64 and
@@ -72,9 +75,10 @@ robustness dominates optimality and there is no urgency.
       in `downsample_depth` consumes this and is currently assumed, not measured.
 - [x] **Decision recorded against the rule below**, and the follow-up either
       filed or the median confirmed permanent.
-- [ ] If your work invalidates a fact in any referenced context module, package
+- [x] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
-      same commit. See
+      same commit. (This brief's own Context asserted the real sensor returns
+      NaN; corrected in place. No other surface asserts the convention.) See
       [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
 - [x] No code change in this brief — it is a measurement.
@@ -304,3 +308,50 @@ Tools, kept for a re-run at robot mount height:
 `~/strafer_v2_validation/tools/{d555_invalid_stats,d555_invalid_where,d555_variant_robustness}.py`.
 Scene and mask images:
 `~/strafer_v2_validation/logs/d555_benchtop_{color,invalidmask}.png`.
+
+### Two hard findings for the sibling 16UC1 item (measured, not inferred)
+
+The capture surfaced a deploy blocker that is more consequential than the
+reduction question this brief exists to settle. Both facts are measured.
+
+**1. The inference node cannot consume the real D555's depth topic at all.**
+
+- The node subscribes to `/d555/depth/image_rect_raw` and **hard-requires
+  `32FC1`**, incrementing `depth_bad_encoding` and `return`ing on anything else
+  (`inference_node.py:688-694`).
+- The real driver publishes that topic as **`16UC1`** — measured directly today.
+- In the sim-bridge lane the Isaac publisher emits `32FC1`, which is why this has
+  never bitten: arm 1's counters read `bad_encoding=0` against
+  `inferences=4387`.
+
+So on hardware the node would drop **100%** of depth frames and never infer.
+Nothing bridges the gap: `depth_downsampler` does convert 16UC1→32FC1, but
+publishes to `/d555/depth/downsampled` at 80×45, whereas the node needs
+640×360 and runs its own `downsample_depth` (which asserts the full-res shape).
+
+**2. Adding a 16UC1 decode path is not sufficient — the invalid convention
+inverts.** `downsample_depth` rescues only **non-finite** values:
+
+```python
+depth = np.where(np.isfinite(depth), depth, max_depth)   # 0 is FINITE -> untouched
+depth = np.median(...)                                    # block median
+depth = np.where(depth < nearfield_clip, nearfield_fill, depth)   # 0 < 0.4 -> 0.2 m
+```
+
+Z16 invalid is `0`, which is finite, so it survives to the nearfield rule and
+becomes **`DEPTH_NEARFIELD_FILL = 0.2 m`**. Sim invalid (`+inf`) becomes
+`max_depth = 6 m`. **The same reduction maps invalid depth to "6 m away" in sim
+and "0.2 m away" — an obstacle in the robot's face — on hardware.**
+
+Scale, from this capture: **33.9% of blocks have ≥32/64 invalid**, so roughly a
+third of the policy's depth input would read as near-obstacles. A policy trained
+where invalid means "far" would meet an input where invalid means "blocked".
+
+This is uncalibrated on magnitude (that 33.9% is a tier-3, pose-dependent
+number) but the **mechanism is tier 1** — it follows from the encoding and the
+code, not from where the camera pointed.
+
+**Ask:** the 16UC1 item should cover both — a decode path *and* an explicit
+invalid-mask contract carried through the reduction, rather than relying on
+`isfinite`. Recommend the node take an explicit validity mask alongside depth,
+so neither sentinel convention is load-bearing.

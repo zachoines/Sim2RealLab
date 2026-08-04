@@ -53,15 +53,72 @@ class TestFieldSlices:
         assert ece.bearing_key(PolicyVariant.DEPTH) == "goal_heading_to_goal"
         assert ece.relative_key(PolicyVariant.DEPTH) == "goal_relative"
 
-    def test_bearing_dim_recovers_radians_through_its_own_scale(self):
+    def test_bearing_field_scale_is_the_reciprocal_of_pi(self):
+        # The harness divides the raw obs dim by this scale to recover radians,
+        # so the scale is load-bearing: any other value silently rescales every
+        # reported direction offset.
         variant = PolicyVariant.DEPTH_SUBGOAL
         key = ece.bearing_key(variant)
         scale = next(f.scale for f in variant.fields if f.key == key)
-        # The observation is the bearing times the field scale, so dividing by
-        # the scale must land back on the original angle.
-        for radians in (-np.pi + 1e-6, -0.5, 0.0, 1.25, np.pi - 1e-6):
-            assert np.isclose(radians * scale / scale, radians)
-        assert np.isclose(scale, 1.0 / np.pi)
+        assert scale == pytest.approx(1.0 / np.pi)
+        assert np.isclose(0.75 / scale, 0.75 * np.pi)
+
+
+class TestVerifyTermLayout:
+    """A total-width check passes any reorder that preserves the sum."""
+
+    def _names_and_dims(self, variant):
+        names = []
+        for obs_field in variant.fields:
+            key = obs_field.key
+            # The env's cfg spells the subgoal terms with the goal_* names.
+            names.append(key.replace("subgoal_relative", "goal_position")
+                         .replace("subgoal_distance", "goal_distance")
+                         .replace("subgoal_heading_to_subgoal", "goal_heading_to_goal"))
+        dims = [(f.dims,) for f in variant.fields]
+        return names, dims
+
+    def test_matching_layout_passes(self):
+        variant = PolicyVariant.DEPTH_SUBGOAL
+        names, dims = self._names_and_dims(variant)
+        ece.verify_term_layout(names, dims, variant)
+
+    def test_term_count_mismatch_is_rejected(self):
+        variant = PolicyVariant.DEPTH_SUBGOAL
+        names, dims = self._names_and_dims(variant)
+        with pytest.raises(ValueError, match="terms but"):
+            ece.verify_term_layout(names[:-1], dims[:-1], variant)
+
+    def test_reorder_that_preserves_total_width_is_caught(self):
+        variant = PolicyVariant.DEPTH_SUBGOAL
+        names, dims = self._names_and_dims(variant)
+        # Swap the 2-wide relative field with the 1-wide distance field: the
+        # total is unchanged, the bearing and depth reads are not.
+        names[3], names[4] = names[4], names[3]
+        dims[3], dims[4] = dims[4], dims[3]
+        assert sum(int(d[0]) for d in dims) == variant.obs_dim
+        with pytest.raises(ValueError, match="field order has drifted"):
+            ece.verify_term_layout(names, dims, variant)
+
+    def test_equal_width_swap_at_the_bearing_dim_is_caught(self):
+        variant = PolicyVariant.DEPTH_SUBGOAL
+        names, dims = self._names_and_dims(variant)
+        names[5] = "goal_distance"  # same width, wrong quantity
+        with pytest.raises(ValueError, match="not a signed heading term"):
+            ece.verify_term_layout(names, dims, variant)
+
+    def test_non_trailing_depth_block_is_caught(self):
+        variant = PolicyVariant.DEPTH_SUBGOAL
+        names, dims = self._names_and_dims(variant)
+        names[-1] = "something_else"
+        with pytest.raises(ValueError, match="not 'depth_image'"):
+            ece.verify_term_layout(names, dims, variant)
+
+    def test_multi_axis_term_dims_are_flattened(self):
+        variant = PolicyVariant.DEPTH_SUBGOAL
+        names, dims = self._names_and_dims(variant)
+        dims[-1] = (45, 80)  # the manager may report the unflattened shape
+        ece.verify_term_layout(names, dims, variant)
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +245,46 @@ class TestTemporalProfile:
         assert ece.PRESET_PROFILES["band"].hold_fraction == pytest.approx(0.233), (
             "resolve_profiles must not mutate the shared preset table"
         )
+
+    def test_an_overridden_arm_is_renamed_after_its_knobs(self):
+        resolved = ece.resolve_profiles(
+            ["degraded"], overrides={"stale_fraction": 0.0}
+        )
+        assert resolved[0].name == "degraded+stale0"
+        assert resolved[0].stale_fraction == pytest.approx(0.0)
+
+    def test_overrides_never_leave_an_arm_labelled_clean(self):
+        # Results are keyed by arm name and the decision rule divides by the arm
+        # named 'clean'. An override that kept the preset name would produce a
+        # baseline that silently holds ticks.
+        resolved = ece.resolve_profiles(
+            ["clean", "degraded"], overrides={"hold_fraction": 0.4}
+        )
+        names = [profile.name for profile in resolved]
+        assert "clean" not in names, (
+            f"an overridden arm must not keep the baseline's name; got {names}"
+        )
+        assert names[0].startswith("clean+")
+        assert all(profile.hold_fraction == pytest.approx(0.4) for profile in resolved)
+
+    def test_unoverridden_arms_keep_their_preset_names(self):
+        resolved = ece.resolve_profiles(["clean", "band", "degraded"])
+        assert [profile.name for profile in resolved] == ["clean", "band", "degraded"]
+
+    def test_overrides_on_a_measured_arm_are_refused(self):
+        # replace() cannot reach an EmpiricalProfile, so silently ignoring the
+        # flags would report a replayed distribution under a requested one.
+        with pytest.raises(ValueError, match="do not apply to 'measured'"):
+            ece.resolve_profiles(
+                ["measured"],
+                overrides={"hold_fraction": 0.4},
+                dump_loader=lambda name: ece.EmpiricalProfile(
+                    name=name,
+                    interval_ticks=np.array([1]),
+                    stale_run_lengths=np.array([], dtype=np.int64),
+                    clean_run_lengths=np.array([1]),
+                ),
+            )
 
     def test_resolve_rejects_unknown_names(self):
         with pytest.raises(ValueError, match="unknown profile"):
@@ -596,6 +693,19 @@ class TestSummaries:
         assert "clean" in ece.format_table([arm])
         assert "clean" in ece.format_cause_table([arm])
 
+    def test_arm_name_survives_into_the_rendered_table(self):
+        arm = {
+            "arm": "degraded+stale0",
+            "summary": ece.summarize_arm([_episode("path_complete", progress=1.0)]),
+            "realized_profile": {
+                "inference_hz": 11.7,
+                "hold_fraction": 0.61,
+                "stale_fraction": 0.0,
+            },
+            "direction_offset": ece.summarize_offsets(np.radians([5.0])),
+        }
+        assert "degraded+stale0" in ece.format_table([arm])
+
     def test_table_renders_a_null_offset_without_crashing(self):
         arm = {
             "arm": "band",
@@ -610,3 +720,397 @@ class TestSummaries:
         rendered = ece.format_table([arm])
         assert "n/a" in rendered
         assert "23.00" in rendered
+
+
+# ---------------------------------------------------------------------------
+# The rollout loop itself
+# ---------------------------------------------------------------------------
+
+_VARIANT = PolicyVariant.DEPTH_SUBGOAL
+_SLICES = ece.field_slices(_VARIANT)
+_DEPTH_SPAN = _SLICES["depth_image"]
+_BEARING_INDEX = _SLICES[ece.bearing_key(_VARIANT)].start
+_RELATIVE_SPAN = _SLICES[ece.relative_key(_VARIANT)]
+_HEADING_SCALE = next(
+    f.scale for f in _VARIANT.fields if f.key == ece.bearing_key(_VARIANT)
+)
+
+
+class _FakeCursor:
+    def __init__(self, num_envs, torch):
+        self._cursor = torch.zeros(num_envs)
+        self._total = torch.full((num_envs,), 8.0)
+
+    @property
+    def total_arc(self):
+        return self._total
+
+
+class _FakeCommandManager:
+    def __init__(self, num_envs, torch):
+        self._term = type("Term", (), {"path_cursor": _FakeCursor(num_envs, torch)})()
+
+    def get_term(self, name):
+        assert name == "goal_command", f"unexpected command term {name!r}"
+        return self._term
+
+
+class _FakeTerminationManager:
+    def __init__(self, num_envs, torch):
+        self.active_terms = list(ece.TERMINATION_PRIORITY)
+        self._dones = {
+            name: torch.zeros(num_envs, dtype=torch.bool) for name in self.active_terms
+        }
+
+    def get_term(self, name):
+        return self._dones[name]
+
+
+class _FakeEnv:
+    """Terminates each env on its own period, so episodes end out of phase."""
+
+    def __init__(self, num_envs, rng, torch):
+        self._torch = torch
+        self._rng = rng
+        self.num_envs = num_envs
+        self._tick = np.zeros(num_envs, dtype=np.int64)
+        self._period = rng.integers(20, 45, size=num_envs)
+        self.unwrapped = type(
+            "Unwrapped",
+            (),
+            {
+                "device": torch.device("cpu"),
+                "command_manager": _FakeCommandManager(num_envs, torch),
+                "termination_manager": _FakeTerminationManager(num_envs, torch),
+                "action_manager": type("AM", (), {"total_action_dim": 3})(),
+                "step_dt": 1.0 / 30.0,
+            },
+        )()
+        self._obs = self._make_obs()
+        self.issued = []
+
+    def _make_obs(self):
+        flat = self._torch.from_numpy(
+            self._rng.standard_normal((self.num_envs, _VARIANT.obs_dim)).astype(
+                np.float32
+            )
+        )
+        return {"policy": flat, "critic": flat.clone()}
+
+    def get_observations(self):
+        return self._obs
+
+    def step(self, actions):
+        assert actions.shape == (self.num_envs, 3), actions.shape
+        self.issued.append(actions.clone())
+        self._tick += 1
+        cursor = self.unwrapped.command_manager.get_term("goal_command").path_cursor
+        cursor._cursor += self._torch.from_numpy(
+            np.abs(actions[:, 0].numpy()).astype(np.float32) * 0.1
+        )
+        done = self._tick >= self._period
+        manager = self.unwrapped.termination_manager
+        for name in manager.active_terms:
+            manager._dones[name][:] = False
+        for index in np.flatnonzero(done):
+            cause = ["path_complete", "time_out", "off_path_divergence"][index % 3]
+            manager._dones[cause][index] = True
+            if index % 5 == 0:
+                # Terms co-fire; attribution must resolve by priority.
+                manager._dones["time_out"][index] = True
+        self._tick[done] = 0
+        self._period[done] = self._rng.integers(20, 45, size=int(done.sum()))
+        cursor._cursor[self._torch.from_numpy(done)] = 0.0
+        self._obs = self._make_obs()
+        return (
+            self._obs,
+            self._torch.zeros(self.num_envs),
+            self._torch.from_numpy(done.astype(np.int64)),
+            {},
+        )
+
+
+class _FakePolicy:
+    """Rebinds its hidden state like the real recurrent wrapper does."""
+
+    training = False
+
+    def __init__(self, num_envs, torch):
+        self._torch = torch
+        self.num_envs = num_envs
+        self.rnn = type("RNN", (), {"hidden_state": None})()
+        self.calls = 0
+        self.seen_depth = []
+
+    def __call__(self, obs):
+        flat = obs["policy"]
+        assert flat.shape == (self.num_envs, _VARIANT.obs_dim), flat.shape
+        self.calls += 1
+        self.seen_depth.append(flat[:, _DEPTH_SPAN].clone())
+        if self.rnn.hidden_state is None:
+            self.rnn.hidden_state = self._torch.zeros(1, self.num_envs, 8)
+        self.rnn.hidden_state = self.rnn.hidden_state + 1.0
+        return self._torch.tanh(flat[:, 0:3] * 0.5)
+
+    def reset(self, dones=None):
+        if dones is None:
+            self.rnn.hidden_state = None
+        elif self.rnn.hidden_state is not None:
+            self.rnn.hidden_state[..., dones == 1, :] = 0.0
+
+
+def _drive_arm(profile_name, *, episodes=25, warmup=0, seed=0):
+    torch = pytest.importorskip("torch")
+    env = _FakeEnv(6, np.random.default_rng(seed), torch)
+    policy = _FakePolicy(6, torch)
+    profile = ece.PRESET_PROFILES[profile_name]
+    sampler = ece.ScheduleSampler(
+        profile, 6, np.random.default_rng(seed + 1), warmup_ticks=warmup
+    )
+    kinds_log = []
+    original_next = sampler.next
+
+    def recording_next():
+        kinds = original_next()
+        kinds_log.append(kinds.copy())
+        return kinds
+
+    sampler.next = recording_next
+    result = ece._run_arm(
+        env=env, policy=policy, torch=torch, profile=profile, sampler=sampler,
+        depth_span=_DEPTH_SPAN, bearing_index=_BEARING_INDEX,
+        relative_span=_RELATIVE_SPAN, heading_scale=_HEADING_SCALE,
+        episode_budget=episodes, step_budget=4000, min_command=0.05, tick_hz=30.0,
+    )
+    return result, env, policy, np.stack(kinds_log)
+
+
+class TestRunArm:
+    """Drives the rollout loop against a mocked env and policy.
+
+    The mocks reproduce the two behaviours the loop depends on: the recurrent
+    state is rebound rather than mutated, and terminated envs are reset inside
+    ``step`` before it returns.
+    """
+
+    @pytest.mark.parametrize("name", ["clean", "band", "degraded"])
+    def test_arm_scores_its_episode_budget(self, name):
+        result, _, _, _ = _drive_arm(name)
+        summary = result["summary"]
+        assert summary["episodes"] == 25
+        assert not result["budget_exhausted"]
+        assert set(summary["cause_counts"]) <= set(ece.TERMINATION_PRIORITY)
+        assert "unattributed" not in summary["cause_counts"], (
+            "every episode end must resolve to a named termination term"
+        )
+
+    def test_co_firing_terms_resolve_to_the_success_signal(self):
+        # Envs at index % 5 == 0 fire time_out alongside their real cause; the
+        # ones whose real cause is path_complete must not be labelled time_out.
+        result, _, _, _ = _drive_arm("clean", episodes=30)
+        assert result["summary"]["cause_counts"].get("path_complete", 0) > 0
+
+    def test_held_rows_receive_the_previous_action_verbatim(self):
+        _, env, _, kinds = _drive_arm("degraded")
+        checked = 0
+        for tick in range(1, len(env.issued)):
+            for env_index in np.flatnonzero(kinds[tick] == ece.TICK_HELD):
+                assert torch_equal(env.issued[tick][env_index],
+                                   env.issued[tick - 1][env_index]), (
+                    f"tick {tick} env {env_index}: a held tick must re-issue the "
+                    f"previous command, not recompute or zero it"
+                )
+                checked += 1
+        assert checked > 50, f"only {checked} held rows exercised"
+
+    def test_stale_rows_see_the_block_from_their_last_fresh_tick(self):
+        _, _, policy, kinds = _drive_arm("degraded")
+        last_fresh = {}
+        checked = 0
+        for tick in range(len(policy.seen_depth)):
+            for env_index in range(kinds.shape[1]):
+                kind = kinds[tick][env_index]
+                if kind == ece.TICK_FRESH:
+                    last_fresh[env_index] = policy.seen_depth[tick][env_index].clone()
+                elif kind == ece.TICK_STALE:
+                    assert env_index in last_fresh
+                    assert torch_equal(policy.seen_depth[tick][env_index],
+                                       last_fresh[env_index]), (
+                        f"tick {tick} env {env_index}: a duplicate-content tick "
+                        f"must re-show the last inferred block. A held tick in "
+                        f"between is irrelevant -- its row is fed live depth but "
+                        f"its output is discarded."
+                    )
+                    checked += 1
+        assert checked > 20, f"only {checked} stale rows exercised"
+
+    def test_the_policy_runs_on_every_tick_at_full_batch_width(self):
+        # Held rows are emulated by restoring state, not by shrinking the batch:
+        # a narrower forward would rebind the hidden state and destroy the held
+        # columns permanently.
+        _, env, policy, _ = _drive_arm("degraded")
+        assert policy.calls == len(env.issued)
+        assert all(block.shape[0] == env.num_envs for block in policy.seen_depth)
+
+    def test_held_rows_do_not_advance_the_hidden_state(self):
+        torch = pytest.importorskip("torch")
+        env = _FakeEnv(6, np.random.default_rng(9), torch)
+        policy = _FakePolicy(6, torch)
+        profile = ece.PRESET_PROFILES["degraded"]
+        sampler = ece.ScheduleSampler(profile, 6, np.random.default_rng(10))
+        seen = []
+        original_next = sampler.next
+
+        def recording_next():
+            kinds = original_next()
+            state = policy.rnn.hidden_state
+            seen.append((kinds.copy(), None if state is None else state.clone()))
+            return kinds
+
+        sampler.next = recording_next
+        ece._run_arm(
+            env=env, policy=policy, torch=torch, profile=profile, sampler=sampler,
+            depth_span=_DEPTH_SPAN, bearing_index=_BEARING_INDEX,
+            relative_span=_RELATIVE_SPAN, heading_scale=_HEADING_SCALE,
+            episode_budget=10, step_budget=1000, min_command=0.05, tick_hz=30.0,
+        )
+        # The mock adds 1.0 per call, so a held row's column must be unchanged
+        # between consecutive pre-call snapshots (barring an episode reset).
+        checked = 0
+        for tick in range(1, len(seen)):
+            kinds, before = seen[tick - 1]
+            _, after = seen[tick]
+            if before is None or after is None:
+                continue
+            for env_index in np.flatnonzero(kinds == ece.TICK_HELD):
+                if float(after[0, env_index, 0]) == 0.0:
+                    continue  # zeroed by the episode-boundary reset
+                assert torch_equal(after[:, env_index, :], before[:, env_index, :]), (
+                    f"tick {tick - 1} env {env_index} was held; its recurrent "
+                    f"state must not have advanced"
+                )
+                checked += 1
+        assert checked > 20, f"only {checked} held rows exercised"
+
+    def test_fresh_rows_do_advance_the_hidden_state(self):
+        _, _, policy, _ = _drive_arm("clean", episodes=5)
+        assert policy.rnn.hidden_state is not None
+
+    def test_direction_offset_is_collected_only_on_inferring_ticks(self):
+        result, _, _, kinds = _drive_arm("degraded")
+        offset = result["direction_offset"]
+        inferring = int(np.count_nonzero(kinds != ece.TICK_HELD))
+        assert offset["samples"] > 0
+        assert offset["samples"] + result["direction_offset_dropped_ticks"] == inferring, (
+            "every inferring tick must either yield an offset sample or be "
+            "counted as dropped; held ticks must contribute neither"
+        )
+
+    def test_both_bearing_readouts_are_reported(self):
+        result, _, _, _ = _drive_arm("band")
+        assert result["direction_offset"]["samples"] > 0
+        assert result["direction_offset_from_relative"]["samples"] > 0
+
+    def test_progress_is_latched_from_before_the_step(self):
+        result, _, _, _ = _drive_arm("clean")
+        for episode in result["episodes"]:
+            assert 0.0 <= episode["progress_fraction"] <= 1.0
+            assert episode["along_track_m"] >= 0.0
+
+    def test_per_episode_tick_counts_sum_to_the_episode_length(self):
+        result, _, _, _ = _drive_arm("degraded")
+        for episode in result["episodes"]:
+            total = (episode["fresh_ticks"] + episode["stale_ticks"]
+                     + episode["held_ticks"])
+            assert total == episode["steps"], (
+                f"episode tick kinds sum to {total} but it ran {episode['steps']} "
+                f"steps; per-env accumulators are misaligned"
+            )
+
+    def test_step_ceiling_is_reported_rather_than_hidden(self):
+        torch = pytest.importorskip("torch")
+        env = _FakeEnv(6, np.random.default_rng(2), torch)
+        policy = _FakePolicy(6, torch)
+        profile = ece.PRESET_PROFILES["clean"]
+        sampler = ece.ScheduleSampler(profile, 6, np.random.default_rng(3))
+        result = ece._run_arm(
+            env=env, policy=policy, torch=torch, profile=profile, sampler=sampler,
+            depth_span=_DEPTH_SPAN, bearing_index=_BEARING_INDEX,
+            relative_span=_RELATIVE_SPAN, heading_scale=_HEADING_SCALE,
+            episode_budget=10_000, step_budget=40, min_command=0.05, tick_hz=30.0,
+        )
+        assert result["steps"] == 40
+        assert result["budget_exhausted"] is True
+
+    def test_warmup_forces_fresh_ticks_at_every_episode_start(self):
+        _, _, _, kinds = _drive_arm("degraded", warmup=3, episodes=20)
+        assert np.all(kinds[0] == ece.TICK_FRESH)
+
+
+def torch_equal(left, right):
+    import torch
+
+    return torch.equal(left, right)
+
+
+class TestInferenceTensorDiscipline:
+    """Isaac Lab's observation noise models keep their own state buffers and
+    write them in place. Once any rollout has run inside inference mode those
+    buffers are inference tensors, and an in-place write to one from outside
+    inference mode raises. Every harness call that reaches env state therefore
+    has to sit inside the same context."""
+
+    @staticmethod
+    def _inference_tensor(torch):
+        with torch.inference_mode():
+            return torch.zeros(4)
+
+    def test_an_in_place_write_outside_inference_mode_really_does_raise(self):
+        # Guards the premise: if torch ever relaxes this, the two tests below
+        # would silently stop testing anything.
+        torch = pytest.importorskip("torch")
+        buffer = self._inference_tensor(torch)
+        with pytest.raises(RuntimeError, match="[Ii]nference tensor"):
+            buffer[0] += 1.0
+
+    def test_arm_setup_reads_observations_inside_inference_mode(self):
+        torch = pytest.importorskip("torch")
+        buffer = self._inference_tensor(torch)
+        env = _FakeEnv(6, np.random.default_rng(0), torch)
+        base_get_observations = env.get_observations
+
+        def noisy_get_observations():
+            buffer[0] += 1.0
+            return base_get_observations()
+
+        env.get_observations = noisy_get_observations
+        policy = _FakePolicy(6, torch)
+        profile = ece.PRESET_PROFILES["clean"]
+        sampler = ece.ScheduleSampler(profile, 6, np.random.default_rng(1))
+        ece._run_arm(
+            env=env, policy=policy, torch=torch, profile=profile, sampler=sampler,
+            depth_span=_DEPTH_SPAN, bearing_index=_BEARING_INDEX,
+            relative_span=_RELATIVE_SPAN, heading_scale=_HEADING_SCALE,
+            episode_budget=3, step_budget=200, min_command=0.05, tick_hz=30.0,
+        )
+
+    def test_the_arm_transition_resets_inside_inference_mode(self):
+        torch = pytest.importorskip("torch")
+        buffer = self._inference_tensor(torch)
+        calls = {"env": 0, "policy": 0}
+
+        class _Env:
+            def reset(self):
+                buffer[0] += 1.0
+                calls["env"] += 1
+
+        class _Policy:
+            def reset(self, dones=None):
+                assert dones is None, (
+                    "the arm transition must clear the hidden state globally, "
+                    "not per-env; the next arm shares nothing with this one"
+                )
+                calls["policy"] += 1
+
+        ece.reset_between_arms(_Env(), _Policy(), torch)
+        assert calls == {"env": 1, "policy": 1}

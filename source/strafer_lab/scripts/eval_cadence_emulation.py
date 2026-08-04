@@ -27,16 +27,16 @@ recurrent state is independent across the batch dimension -- and it keeps the
 batch width constant, so no env's convolution numerics shift with its schedule.
 
 Examples:
-    # Baseline plus two degraded profiles for one checkpoint, one session:
+    # Baseline plus two degraded profiles for one checkpoint, one launch:
     $ISAACLAB -p source/strafer_lab/scripts/eval_cadence_emulation.py \\
         --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0 \\
-        --checkpoint logs/rsl_rl/strafer_navigation/run_20260727_171735/model_998.pt \\
+        --checkpoint logs/rsl_rl/strafer_navigation/run_<timestamp>/model_<step>.pt \\
         --profile clean,band,degraded --num_envs 16 --episodes 100 --headless
 
     # Replay a temporal profile measured from an inference-node observation dump:
     $ISAACLAB -p source/strafer_lab/scripts/eval_cadence_emulation.py \\
         --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0 \\
-        --checkpoint logs/rsl_rl/strafer_navigation/run_20260727_171735/model_998.pt \\
+        --checkpoint logs/rsl_rl/strafer_navigation/run_<timestamp>/model_<step>.pt \\
         --profile measured --profile-dump captures/inference_obs.jsonl --headless
 """
 
@@ -46,6 +46,7 @@ import argparse
 import json
 import math
 import os
+import sys
 from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Callable, Sequence
@@ -89,6 +90,41 @@ def field_slices(variant) -> dict[str, slice]:
             f"{variant.obs_dim}"
         )
     return slices
+
+
+def verify_term_layout(term_names: Sequence[str], term_dims: Sequence, variant) -> None:
+    """Check the env's observation terms against the variant's field order.
+
+    A total-width check alone passes any reorder that preserves the sum, which
+    would leave the bearing and depth reads pointing at the wrong dims while
+    every assert still passed. Raises ``ValueError`` on a mismatch.
+    """
+    fields = variant.fields
+    if len(term_names) != len(fields):
+        raise ValueError(
+            f"the env's policy group has {len(term_names)} terms but "
+            f"{variant.name} declares {len(fields)}: {list(term_names)}"
+        )
+    for index, (name, dims, obs_field) in enumerate(zip(term_names, term_dims, fields)):
+        width = int(np.prod(dims)) if not isinstance(dims, int) else int(dims)
+        if width != obs_field.dims:
+            raise ValueError(
+                f"term {index} ({name!r}) is {width} dims but "
+                f"{variant.name} expects {obs_field.dims} for "
+                f"{obs_field.key!r}; the field order has drifted"
+            )
+    # The two reads that would corrupt silently under an equal-width swap.
+    bearing_index = [f.key for f in fields].index(bearing_key(variant))
+    if not term_names[bearing_index].endswith(("heading_to_goal", "heading_to_subgoal")):
+        raise ValueError(
+            f"term {bearing_index} is {term_names[bearing_index]!r}, not a "
+            f"signed heading term; the direction-offset referent would be wrong"
+        )
+    if term_names[-1] != "depth_image":
+        raise ValueError(
+            f"the trailing term is {term_names[-1]!r}, not 'depth_image'; the "
+            f"cached depth block would splice over the wrong dims"
+        )
 
 
 def bearing_key(variant) -> str:
@@ -242,11 +278,12 @@ class TemporalProfile:
         return tick_hz * (1.0 - self.hold_fraction)
 
 
-# ``band`` is the inference rate the rig sustained across historical measurement
-# sessions. ``degraded`` is the mid-arm arrival rate and duplicate share of the
-# slowest session recorded to date; its two fractions are independent -- roughly
-# three ticks in five carry no new frame, and of the inferences that do run,
-# roughly two in five see pixels identical to the previous inference.
+# ``band`` holds the rate the deployed node sustains when its depth stream is
+# healthy, ~23 Hz against a 30 Hz tick. ``degraded`` holds the worst measured
+# pairing: ~11.7 Hz arrival with a 38% duplicate share. The two fractions are
+# independent -- roughly three ticks in five carry no new frame, and of the
+# inferences that do run, roughly two in five see pixels identical to the
+# previous inference.
 PRESET_PROFILES: dict[str, TemporalProfile] = {
     "clean": TemporalProfile(name="clean"),
     "band": TemporalProfile(
@@ -757,6 +794,16 @@ def profile_overrides(args: argparse.Namespace) -> dict:
     return overrides
 
 
+def _override_suffix(overrides: dict) -> str:
+    """Compact, deterministic tag naming the knobs an arm was overridden on."""
+    parts = []
+    for name in _OVERRIDE_FIELDS:
+        if name in overrides:
+            short = name.replace("fraction", "").replace("mean_", "").strip("_")
+            parts.append(f"{short}{overrides[name]:g}")
+    return "+".join(parts)
+
+
 def resolve_profiles(
     names: Sequence[str],
     *,
@@ -766,9 +813,18 @@ def resolve_profiles(
     """Turn profile names into profile objects, applying any overrides.
 
     ``measured`` resolves through ``dump_loader``; every other name must be a
-    preset. Overrides apply to parametric profiles only.
+    preset. Overrides apply to every parametric name in the list, so an
+    overridden arm is **renamed** after the knobs it carries: results are keyed
+    by arm name, and an arm still labelled ``clean`` must always be the
+    untouched baseline the comparison divides by.
     """
     overrides = overrides or {}
+    if overrides and "measured" in names:
+        raise ValueError(
+            "profile overrides do not apply to 'measured' — it replays a "
+            "recorded distribution. Run the measured arm on its own."
+        )
+    suffix = _override_suffix(overrides)
     resolved: list[TemporalProfile | EmpiricalProfile] = []
     for name in names:
         if name == "measured":
@@ -781,7 +837,7 @@ def resolve_profiles(
             raise ValueError(f"unknown profile {name!r}; choose from {known}")
         profile = PRESET_PROFILES[name]
         if overrides:
-            profile = replace(profile, **overrides)
+            profile = replace(profile, name=f"{name}+{suffix}", **overrides)
         resolved.append(profile)
     return resolved
 
@@ -801,7 +857,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--profile",
         type=str,
         default="clean",
-        help="Comma-separated profiles, run in order within one session: "
+        help="Comma-separated profiles, run in order within one launch: "
         f"{', '.join(sorted(PRESET_PROFILES))}, measured",
     )
     parser.add_argument(
@@ -855,6 +911,19 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 
 
+def reset_between_arms(env, policy, torch) -> None:
+    """Return the env and the recurrent state to a clean slate for the next arm.
+
+    The env reset writes the observation noise models' own buffers in place, and
+    those are inference tensors once any arm has run, so the call has to sit
+    inside inference mode. ``policy.reset()`` with no arguments is the global
+    clear -- the next arm must not inherit the previous one's hidden state.
+    """
+    with torch.inference_mode():
+        env.reset()
+    policy.reset()
+
+
 def _run_arm(
     *,
     env,
@@ -891,10 +960,14 @@ def _run_arm(
     ep_progress = np.zeros(num_envs, dtype=np.float64)
     ep_arc = np.zeros(num_envs, dtype=np.float64)
 
-    obs = env.get_observations()
-    action_dim = env.unwrapped.action_manager.total_action_dim
-    prev_actions = torch.zeros(num_envs, action_dim, device=device)
-    depth_cache = obs["policy"][:, depth_span].clone()
+    # The observation compute mutates the noise models' own buffers, which are
+    # inference tensors once any arm has run; an in-place write to one of those
+    # from outside inference mode is refused.
+    with torch.inference_mode():
+        obs = env.get_observations()
+        action_dim = env.unwrapped.action_manager.total_action_dim
+        prev_actions = torch.zeros(num_envs, action_dim, device=device)
+        depth_cache = obs["policy"][:, depth_span].clone()
 
     steps = 0
     while len(episodes) < episode_budget and steps < step_budget:
@@ -923,6 +996,12 @@ def _run_arm(
 
             hidden_before = None
             if rnn is not None and rnn.hidden_state is not None:
+                if isinstance(rnn.hidden_state, tuple):
+                    raise SystemExit(
+                        "the held-tick restore supports a single hidden-state "
+                        "tensor (GRU); this actor carries a tuple (LSTM), whose "
+                        "cell state would be restored inconsistently"
+                    )
                 hidden_before = rnn.hidden_state.clone()
 
             actions = policy(policy_obs)
@@ -964,7 +1043,11 @@ def _run_arm(
             # The command term's public arc-length readout is a per-tick delta
             # that is dropped once at every path install, so the monotone cursor
             # is the only exact progress signal; both are rewound by the reset
-            # inside step(), hence the pre-step snapshot.
+            # inside step(), hence the pre-step snapshot. The final step's own
+            # advance is therefore excluded, so a completed episode reports a
+            # progress fraction just under 1.0 -- completion and near-arrival
+            # are unaffected, and closing the gap would cost the exactness the
+            # pre-step read buys.
             pre_arc = cursor._cursor.detach().float().cpu().numpy().copy()
             pre_total = cursor.total_arc.detach().float().cpu().numpy().copy()
 
@@ -1029,6 +1112,12 @@ def _run_arm(
 
 
 def main() -> None:
+    # Kit tears the process down with os._exit, which discards whatever is
+    # still sitting in a block-buffered stdout -- redirect the run to a file and
+    # the results table is lost. Line buffering also lets an operator watch a
+    # long sweep progress.
+    sys.stdout.reconfigure(line_buffering=True)
+
     args = _parse_args()
 
     profile_names = [name.strip() for name in args.profile.split(",") if name.strip()]
@@ -1087,12 +1176,21 @@ def main() -> None:
 
     variant = PolicyVariant.DEPTH_SUBGOAL if "Subgoal" in args.env else PolicyVariant.DEPTH
     slices = field_slices(variant)
-    obs_dim = env.unwrapped.observation_manager.group_obs_dim["policy"][0]
+    obs_manager = env.unwrapped.observation_manager
+    obs_dim = obs_manager.group_obs_dim["policy"][0]
     if obs_dim != variant.obs_dim:
         raise SystemExit(
             f"the env's policy observation is {obs_dim} dims but {variant.name} "
             f"declares {variant.obs_dim}; the depth block cannot be located"
         )
+    try:
+        verify_term_layout(
+            obs_manager.active_terms["policy"],
+            obs_manager.group_obs_term_dim["policy"],
+            variant,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     depth_span = slices["depth_image"]
     bearing_field = bearing_key(variant)
     relative_field = relative_key(variant)
@@ -1123,8 +1221,7 @@ def main() -> None:
         for arm_index, profile in enumerate(profiles):
             print(f"[INFO] arm {arm_index + 1}/{len(profiles)}: {profile.name}")
             if arm_index > 0:
-                env.reset()
-                policy.reset()
+                reset_between_arms(env, policy, torch)
             sampler = ScheduleSampler(
                 profile,
                 env.num_envs,

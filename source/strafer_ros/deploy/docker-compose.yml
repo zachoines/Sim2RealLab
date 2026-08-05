@@ -92,6 +92,9 @@ services:
   slam:
     <<: *cpu-svc
     container_name: strafer_slam
+    # rtabmap flushes its visual-word dictionary only at close, and a write
+    # truncated by the 10 s default leaves a database that aborts on load.
+    stop_grace_period: 180s
     environment:
       # Re-stated, not inherited: a service-level `environment:` REPLACES the
       # anchor's rather than merging into it.

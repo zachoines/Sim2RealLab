@@ -28,9 +28,9 @@ renderer it was tuned against.**
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
 
 ## Context
 
@@ -79,7 +79,7 @@ robustness dominates optimality and there is no urgency.
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. (This brief's own Context asserted the real sensor returns
       NaN; corrected in place. No other surface asserts the convention.) See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
 - [x] No code change in this brief — it is a measurement.
 
@@ -110,7 +110,7 @@ coordinator-side; there is no brief for them in this repo to cross-link.)
 - Changing the reduction in this brief. The switch, if the numbers call for it,
   is its own PR.
 - Re-opening the depth *geometry* question — settled, see
-  [`depth-camera-vfov-parity`](../../completed/depth-camera-vfov-parity.md).
+  [`depth-camera-vfov-parity`](depth-camera-vfov-parity.md).
 - The training-lane zero-drift option (render the policy camera at 640×360 in
   training and share `downsample_depth`). Rejected on budget 2026-08-01 — it
   removes a drift term already an order below the trained noise envelope, at 64×
@@ -146,8 +146,8 @@ as a valid 0 m return.
 ### 1. Invalid fraction
 
 **36.06%** of pixels (min 35.52, max 36.44, sd 0.18 pp over 120 frames), with the
-heaviest concentration in the **bottom** rows — 65.7% in rows 330–360 vs 23.9%
-in rows 0–30.
+heaviest concentration in the **bottom** rows: the per-band invalid *rate* is
+65.7% across rows 330–360 against 23.9% across rows 0–30.
 
 > **DO NOT COMPARE THIS TO THE SIM'S 26.5%.** An earlier draft did, and called
 > the renderer's invalid structure "close to the inverse of the sensor's". That
@@ -229,7 +229,10 @@ Per-pixel σ over 120 frames, on pixels valid in ≥80% of them:
 | **3.5–5.5 m** | **87.1 mm** | **227.1 mm** |
 
 **The variant's whole claimed advantage is ~0.8 mm at 6 m. The sensor's own
-temporal noise there is 87 mm — 100× larger.** The optimisation is invisible
+temporal noise is 87 mm p50 in the 3.5–5.5 m band** — the furthest band with
+enough stable pixels to measure. Extrapolating that band's z² trend to 6 m lands
+higher still, so quoting the measured band is the conservative form of the
+argument: the margin is ~100×, and it widens with range rather than narrowing. The optimisation is invisible
 against the noise it would have to beat.
 
 ### 5. Sub-0.4 m behaviour
@@ -249,12 +252,14 @@ assumed; now measured.
 2. **It buys a failure mode the median cannot have** — 0.45% of blocks would get
    a confident wrong-but-finite depth. Small, but strictly worse than graceful
    degradation for no measurable gain.
-3. **The pre-registered proxy, read the honest way (by area), agrees** — 94.7%
+3. **The pre-registered proxy, read by area, agrees** — 94.7%
    of invalid area sits in components of a block or larger.
 
 Ground 1 is **tier 1** (sensor-intrinsic) and carries the ruling on its own.
-Grounds 2 and 3 are **tier 2** — right in direction, scene-dependent in
-magnitude — so they corroborate rather than decide. That split is deliberate:
+Ground 2 is **tier 2** — right in direction, scene-dependent in magnitude.
+Ground 3 is weaker still: its by-area dominance is driven by the same large
+near-field regions this capture classes as **tier 3**, so it corroborates only
+loosely. Both corroborate rather than decide. That split is deliberate:
 this was an uncalibrated capture, and a ruling resting on tier-3 numbers would
 not survive re-pointing the camera.
 

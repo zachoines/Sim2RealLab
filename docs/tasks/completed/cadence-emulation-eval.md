@@ -1,5 +1,13 @@
 # Adjudicate the cadence hypothesis in closed-loop sim
 
+**Status:** Shipped 2026-08-05 in `5b77c59` (DGX). The harness landed
+earlier in `659a5b1` (PR #179); this change records the 2026-08-04 evaluation
+run and the scored read-out that closes the brief. The temporal axis is
+exonerated as sufficient: the 22–25 Hz band costs ≤3% of completion, and the
+12 Hz / 36%-duplicate profile costs ~⅓ — a real loss, but not the rig's
+total failure. No cadence-targeted retrain is licensed.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/PENDING
+
 **Type:** investigation (evaluation harness + one operator-launched run)
 **Owner:** DGX
 **Priority:** P0 — a shipped attribution and the retrain decision both rest on
@@ -17,10 +25,10 @@ at half the historical inference rate.**
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/recurrent-policy-contract.md](../../context/recurrent-policy-contract.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/recurrent-policy-contract.md](../context/recurrent-policy-contract.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
 
 ## Context
 
@@ -82,31 +90,31 @@ progress is latched pre-step from the monotone path cursor.
 
 ## Acceptance criteria
 
-- [ ] Pure tests cover the schedule sampler's realized statistics against the
+- [x] Pure tests cover the schedule sampler's realized statistics against the
       requested profile, the observation-dump profile loader against a
       synthetic JSONL in the node's schema, the signed direction-offset sign
       convention, and the held-row hidden-state restore equivalence.
-- [ ] Harness dry-run on the play env with realized-schedule statistics
+- [x] Harness dry-run on the play env with realized-schedule statistics
       printed and inside tolerance of the request.
-- [ ] `B2` (baseline) and `B1` run **first**. If the baseline completion rate
+- [~] `B2` (baseline) and `B1` run **first**. If the baseline completion rate
       is far from ~0.8, STOP and report — that is harness or env drift, not a
       cadence result. If harness-`v1` collapses at the band profile, the
       emulation is too aggressive and must be recalibrated before the depth v2
       arms are read.
-- [ ] Per-arm results table (completion, near-arrival, progress, direction
+- [x] Per-arm results table (completion, near-arrival, progress, direction
       offset, realized profile) plus the raw JSONL in the PR description.
-- [ ] Failure counts broken out by cause. A completion drop that is entirely
+- [x] Failure counts broken out by cause. A completion drop that is entirely
       `off_path_divergence` is a different finding from one that is entirely
       `time_out`, and `near_arrival` separates a dwell-gate failure from never
       having arrived.
-- [ ] No changes to envs, cfgs, noise models, or the play script — the harness
+- [x] No changes to envs, cfgs, noise models, or the play script — the harness
       is additive.
-- [ ] If your work invalidates a fact in any referenced context module, package
+- [x] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
-- [ ] No regression in the workflows the touched code supports — the pure
+- [x] No regression in the workflows the touched code supports — the pure
       strafer_lab suite stays green and the play script is untouched.
 
 ## Arms
@@ -202,7 +210,7 @@ realized 0.224 / 0.000 (v2) and 0.226 / 0.000 (v1). `degraded` asked 0.611 /
 - **`T2c` (`measured`) did not run** — no inference-node observation dump exists
   on this machine, which the Arms table above pre-authorises ("skip and note if
   unavailable"). The capture is blocked upstream and that blocker is already
-  owned by [`enriched-lane-rig-stability`](../reliability/enriched-lane-rig-stability.md);
+  owned by [`enriched-lane-rig-stability`](../active/reliability/enriched-lane-rig-stability.md);
   no new brief is filed for it.
 - **The conditional rate-only cell did not fire.** It was pre-registered to run
   as its own invocation (`--profile degraded --stale-fraction 0.0`) if v2's

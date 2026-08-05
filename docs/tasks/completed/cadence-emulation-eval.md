@@ -6,7 +6,7 @@ run and the scored read-out that closes the brief. The temporal axis is
 exonerated as sufficient: the 22–25 Hz band costs ≤3% of completion, and the
 12 Hz / 36%-duplicate profile costs ~⅓ — a real loss, but not the rig's
 total failure. No cadence-targeted retrain is licensed.
-**PR:** https://github.com/zachoines/Sim2RealLab/pull/PENDING
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/186
 
 **Type:** investigation (evaluation harness + one operator-launched run)
 **Owner:** DGX

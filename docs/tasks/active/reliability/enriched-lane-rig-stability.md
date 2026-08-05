@@ -129,17 +129,27 @@ with zero iterations. It also explains why `docker restart strafer_slam` — the
 cheatsheet's documented recovery — stopped working: it re-enters the same load
 path.
 
-**Fix, in priority order:**
+**Fix.**
 
-1. **`stop_grace_period: 180s` on the `slam` service** (and any service owning a
-   large on-disk store). This is the root-cause fix and is one line.
-2. **`init: true`** on the compose services for correct signal delivery/reaping.
-3. **Database integrity pre-check at launch** (already an acceptance item) —
-   with the grace period fixed this becomes a backstop rather than the mitigation.
-4. Verify rtabmap actually completes its save within the new window: on stop,
-   expect the DB mtime to advance and the next load to show **no**
-   `loadDataFromDb()` repair warning. That warning's absence is the regression
-   test.
+1. **`stop_grace_period: 180s` on the `slam` service** — the root-cause fix, one
+   line. A compose survey found slam is the **only** service with a read-write
+   persistent store, so no other service needs it: every other mount is
+   read-only config, and the TRT engine cache writes at build completion rather
+   than at stop. `docker restart` inherits StopTimeout, so the cheatsheet's
+   restart path is covered by the same change.
+
+   **Sizing:** 180 s is set against a multi-GB working set on this host's
+   storage. The close-time write scales with the working set being serialised,
+   not with the database file, so the figure should be revisited if either the
+   map sizes or the storage change materially — it is a generous bound, not a
+   measured one.
+2. **Verification** (pending, needs rig time): on stop the database mtime should
+   advance, and the next launch must show **no** `loadDataFromDb()` repair
+   warning. That warning's absence is the regression test.
+3. **`init: true`** — deferred, with reasoning in the acceptance list below; it
+   is not on the path to this failure.
+4. **Database integrity pre-check at launch** — with the grace period fixed this
+   is a backstop rather than the mitigation.
 
 **Upstream relevance — secondary and weaker.** That `addLink()` hard-asserts
 (aborts the process) on an inconsistent-but-repairable database, rather than

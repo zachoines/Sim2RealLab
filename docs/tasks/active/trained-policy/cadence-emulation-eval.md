@@ -143,6 +143,81 @@ Committed before the session runs, so the outcome cannot be read backwards.
 | v2 holds even at `degraded` | the temporal axis is exonerated, the failing branch stands, and the training lever fires for real |
 | v2 collapses already at `band` | temporal texture is a first-order training defect across all deploy history, and the retrain leads with temporal-texture randomization |
 
+## Results — 2026-08-04 run
+
+The harness landed in `659a5b1` (PR #179). This section records the run it was
+built for. **The brief stays active: what closes it is the read-out against the
+pre-registered rule below, and that scoring is not recorded here.**
+
+Both invocations: `Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0`,
+16 envs, seed 42, 100 episodes per profile, observation corruption on,
+`--warmup-ticks 2`. No profile hit its step ceiling.
+
+**v2 — `run_20260727_171735/model_998.pt`**
+
+| profile | Hz | hold | dup | eps | completion | ratio | near | progress | offset | left |
+|---|---|---|---|---|---|---|---|---|---|---|
+| clean | 30.00 | 0.000 | 0.000 | 100 | 0.900 | 1.000 | 0.580 | 0.916 | +4.24° | 0.612 |
+| band | 23.29 | 0.224 | 0.000 | 100 | 0.870 | 0.967 | 0.710 | 0.921 | +3.84° | 0.606 |
+| degraded | 12.01 | 0.600 | 0.363 | 100 | 0.610 | 0.678 | 0.690 | 0.817 | +2.87° | 0.550 |
+
+**v1 — `run_20260708_005923/model_500.pt`** (calibration control)
+
+| profile | Hz | hold | dup | eps | completion | ratio | near | progress | offset | left |
+|---|---|---|---|---|---|---|---|---|---|---|
+| clean | 30.00 | 0.000 | 0.000 | 100 | 0.840 | 1.000 | 0.720 | 0.915 | +6.29° | 0.616 |
+| band | 23.23 | 0.226 | 0.000 | 100 | 0.750 | 0.893 | 0.760 | 0.906 | +4.67° | 0.579 |
+| degraded | 12.01 | 0.600 | 0.370 | 100 | 0.560 | 0.667 | 0.720 | 0.846 | +4.32° | 0.550 |
+
+**Failure cause, as a fraction of episodes** (time-out is 0.000 in all six):
+
+| profile | v2 path_complete / off_path / collision | v1 path_complete / off_path / collision |
+|---|---|---|
+| clean | 0.900 / 0.010 / 0.090 | 0.840 / 0.010 / 0.150 |
+| band | 0.870 / 0.030 / 0.100 | 0.750 / 0.050 / 0.200 |
+| degraded | 0.610 / 0.190 / 0.200 | 0.560 / 0.280 / 0.160 |
+
+**Requested vs realized.** `band` asked 0.233 hold / 0.000 duplicate and
+realized 0.224 / 0.000 (v2) and 0.226 / 0.000 (v1). `degraded` asked 0.611 /
+0.383 and realized 0.600 / 0.363 (v2) and 0.600 / 0.370 (v1). The shortfall is
+`--warmup-ticks` forcing fresh ticks after each episode boundary.
+
+### Gates and deviations
+
+- **Baseline STOP gate passed.** v2 clean is 0.900 — above ~0.8, not far below
+  it. No harness or env drift; proceeding to the degraded profiles was correct.
+- **The recalibration clause did not trip.** It is scoped to the band profile,
+  and v1 band holds 0.893 of its baseline. No recalibration is owed under the
+  acceptance criterion.
+- **A pre-registered row fails, and it is a scoring input rather than a gate.**
+  The decision-rule row reads "v1 holds ≥ 80% of baseline at every profile";
+  v1 at `degraded` is 0.667. The acceptance criterion above is band-scoped and
+  passes, so the two texts differ in reach. Both policies lose baseline at
+  near-identical rates at `degraded` (v1 0.667, v2 0.678). Recorded, not scored.
+- **Arm order deviated from the literal wording.** The acceptance asks for `B2`
+  and `B1` first; profiles run comma-separated within one invocation per
+  checkpoint, so the run was v2 clean/band/degraded then v1 clean/band/degraded,
+  and `B1` landed after `T2a`/`T2b` in wall-clock terms. Every gate was
+  evaluated on the complete set before any profile was read.
+- **`T2c` (`measured`) did not run** — no inference-node observation dump exists
+  on this machine, which the Arms table above pre-authorises ("skip and note if
+  unavailable"). The capture is blocked upstream and that blocker is already
+  owned by [`enriched-lane-rig-stability`](../reliability/enriched-lane-rig-stability.md);
+  no new brief is filed for it.
+- **The conditional rate-only cell did not fire.** It was pre-registered to run
+  as its own invocation (`--profile degraded --stale-fraction 0.0`) if v2's
+  degraded completion fell below 60% of its baseline; v2 reads 0.678.
+
+### Where the evidence lives
+
+`logs/` is gitignored, so the run's JSONL is not in version control and the
+tables above are its durable record. On the machine that produced it the files
+are `logs/rsl_rl/strafer_navigation/cadence_emulation/cadence_20260804_190256.jsonl`
+(v2) and `cadence_20260804_191139.jsonl` (v1), each carrying three profile
+records with per-episode detail. The two dry-run files from the same day
+(`cadence_20260804_081050.jsonl`, `cadence_20260804_081812.jsonl`) hold the
+harness check that preceded them.
+
 ## Investigation pointers
 
 - Freshness gate and the hold semantics it defines:

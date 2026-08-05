@@ -218,6 +218,55 @@ records with per-episode detail. The two dry-run files from the same day
 (`cadence_20260804_081050.jsonl`, `cadence_20260804_081812.jsonl`) hold the
 harness check that preceded them.
 
+## Read-out — scored against the pre-registered rule
+
+- **(i) Baseline: met.** v2 clean 0.900 ≥ 0.8. The harness and env reproduce
+  the healthy closed-loop regime.
+- **(ii) Band: met, decisively.** v2 at the 23 Hz band holds 0.967 of
+  baseline. At the 22–25 Hz cadence every recorded deploy session actually ran
+  in, emulated temporal texture costs ≤3% completion. **The band is exonerated
+  as a cause of any recorded deploy failure.**
+- **(iii) Degraded: met, with a bounded magnitude.** 0.678 of baseline at the
+  12 Hz / 36%-duplicate profile — a real ~⅓ loss, but far from the outcome it
+  was built to test: 0.610 completion and 0.817 progress in sim, against zero
+  completions and no net advance on the rig at the same temporal profile.
+  **Temporal texture explains at most a third of the enriched-lane failure,
+  not the failure.**
+- **(iv) No emergent rotation: met.** Direction offset runs +4.2° (clean) →
+  +2.9° (degraded) with left-share falling 0.61 → 0.55; both policies show the
+  same small baseline lean. The rig's directional signature is not temporal.
+- **(v) Calibration: the one failed row, informative rather than gating.** v1
+  at degraded is 0.667 < 0.80; band-scoped calibration passed (0.893). Both
+  policies lose ≈⅓ at 12 Hz (0.667 vs 0.678) — the profile is generically
+  harsh, not differentially harmful to v2, which is itself evidence: a
+  v2-specific rig failure cannot be produced by an axis that punishes both
+  policies equally.
+
+**Decision-map application.** v2 holds at `degraded` by the pre-registered
+line (0.678 ≥ 0.60): the temporal axis is **exonerated as sufficient**.
+Consequences:
+
+1. **No cadence-targeted retrain is licensed** — neither a fixed-20 Hz retrain
+   nor a temporal-texture-first augmentation. The temporal-DR wiring remains a
+   cheap rider if a retrain ever happens for other reasons.
+2. **The enriched-lane `mission` ✗ result is now unexplained by scene
+   (sim-enriched completes 0.90), by anchoring semantics (the emulation uses
+   training's own), or by temporal texture (this run).** Its attribution
+   reopens with four live candidates: SLAM-frame anchoring noise (map→odom
+   moved 0.166 m / 6.7° in that same session's discarded arm), planner
+   path-geometry distribution (Nav2 plans vs the training A*), unbounded
+   recurrent-state horizon (deploy never resets the GRU; training episodes cap
+   at 600 steps), and residual observation-chain deltas.
+3. **The receiver-side deploy fixes proceed on their own merits, now with
+   quantified stakes**: deploy at the 12 Hz regime costs ~⅓ of completion;
+   at the band it costs ~3%. Recovering arrival rate recovers almost the whole
+   temporal cost.
+4. **The measured-profile cell becomes archival** — the decision no longer
+   hangs on it; it runs if/when the capture unblocks, for the record.
+
+The residual-attribution arms this read-out dispatches are their own brief;
+they are not part of this one.
+
 ## Investigation pointers
 
 - Freshness gate and the hold semantics it defines:

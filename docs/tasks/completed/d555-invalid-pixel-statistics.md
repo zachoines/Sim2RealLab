@@ -305,14 +305,37 @@ sim, and accuracy/bias reported alongside σ. That is a different brief. It is
 **not** needed for the ruling above, and it is not on any current critical path:
 the sim-bridge lane's depth comes from Isaac's renderer, so the real D555 is not
 in that loop at all. File it if and when real-robot deployment becomes live.
-- **The IMU is silent** — `imu_filter` logged `Still waiting for data on topic
-  imu/data_raw` throughout. That is the sibling IMU-QoS bench item presenting
-  itself, captured here so the sitting need not be repeated.
 
-Tools, kept for a re-run at robot mount height:
-`~/strafer_v2_validation/tools/{d555_invalid_stats,d555_invalid_where,d555_variant_robustness}.py`.
-Scene and mask images:
-`~/strafer_v2_validation/logs/d555_benchtop_{color,invalidmask}.png`.
+### Also observed during the sitting
+
+- **The IMU never published** — `imu_filter` logged `Still waiting for data on
+  topic imu/data_raw` throughout. That is the separately-tracked IMU-QoS bench
+  item, recorded here so the sitting need not be repeated to confirm it.
+
+### Artifacts — deliberately not committed
+
+The capture scripts and the scene/invalid-mask images stay on the NX under
+`~/strafer_v2_validation/` and are **not** committed, for two reasons.
+
+**The images are not publishable.** This repository is public, and the colour
+frame and invalid mask are of a private home with a person in frame. Nothing in
+the ruling depends on seeing them: what they establish — that the largest
+persistent invalid regions are near clutter at ~2.35 m and a seated person at
+~0.67 m, and that the sunlit window is only the third-largest at 0.77% of frame
+— is stated numerically above and is what the argument actually rests on.
+
+**The scripts were written for one capture, not as tooling.** They hard-code
+this scene's geometry in their reasoning, so committing them would present
+throwaway code as a reusable bench harness. The method is specified precisely
+enough above to rebuild against a different setup: subscribe to
+`/d555/depth/image_rect_raw`, treat Z16 `0` as invalid, take 8×8-connected
+components of the invalid mask and report their size distribution **by area as
+well as by count**, score the discriminating case (block majority valid while
+the centre-2×2 is wholly invalid) conditioned on the block's local range, and
+bin per-pixel temporal σ by range over pixels valid in ≥80% of frames.
+
+A re-run at robot mount height, or the calibrated capture described above, wants
+purpose-built tooling against its own geometry rather than a copy of this.
 
 ### Two hard findings for the sibling 16UC1 item (measured, not inferred)
 

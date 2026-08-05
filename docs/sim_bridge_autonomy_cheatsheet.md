@@ -82,12 +82,38 @@ make submit-deploy CMD="go to the chair"
   verify: `docker exec strafer_inference printenv STRAFER_INFERENCE_MODEL_PATH`
   and `md5sum` the artifact. (`docker restart strafer_slam` below is fine —
   that's crash recovery, not a config change.)
-- **Swapping the policy:** set `STRAFER_INFERENCE_MODEL_PATH` in your shell or
-  `deploy/.env` (`cp .env.example .env`), then force-recreate `inference`. The
-  overlay's value is `${STRAFER_INFERENCE_MODEL_PATH:-/models/policy.onnx}`, so
-  the host wins and the v1 artifact stays the default. Do **not** edit a tracked
-  compose file for this, and note a local `docker-compose.override.*.yml` applied
-  later in the `-f` chain hard-pins the value and will shadow the env again.
+- **Swapping the policy or the anchoring — use the tool:**
+  ```bash
+  source/strafer_ros/deploy/tools/configure_inference.sh <model> <mission|rolling>
+  # model: a filename under /models, or an absolute container path.
+  # Run with no arguments to list what is mounted.
+  ```
+  It force-recreates `inference` (never `restart`), **mirrors the compose chain
+  the running stack was created with** (read off the container's
+  `com.docker.compose.project.config_files` label, so the chain cannot drift by
+  hand), generates the anchoring config **from the image's own installed
+  `subgoal_generator.yaml`** and refuses to mount it if more than the anchoring
+  line changed, and then **verifies from inside the container** — model path,
+  the installed config's anchoring key, the node's `anchoring=` log line, and
+  `policy_loaded=True`. It **exits non-zero** if any check fails rather than
+  falling through on a timeout, which is how a wrong configuration reaches a
+  measurement.
+  It also prints the image revision and warns on `-dirty`/`unknown`.
+
+  **Once the tool has run, a hand `up -d --force-recreate inference` with the
+  documented `-f` chain silently reverts the anchoring.** The tool appends
+  `docker-compose.override.anchor.yml`; the documented chain does not carry it,
+  so recreating by hand drops the bind mount and the container falls back to the
+  image's baked config. The model path is loud about this (it comes from
+  `.env`/your shell either way); the anchoring is not. Re-run the tool rather
+  than recreating `inference` by hand.
+
+  Doing it by hand instead: set `STRAFER_INFERENCE_MODEL_PATH` in your shell or
+  `deploy/.env`, then force-recreate `inference`. The overlay's value is
+  `${STRAFER_INFERENCE_MODEL_PATH:-/models/policy.onnx}`, so the host wins and
+  the v1 artifact stays the default. Do **not** edit a tracked compose file for
+  this, and note a local `docker-compose.override.*.yml` applied later in the
+  `-f` chain hard-pins the value and will shadow the env again.
 - **Bump the SLAM scene token on every sim restart:** `STRAFER_SLAM_SCENE_TOKEN=run4`
   → `~/.ros/rtabmap_run4.db`. ProcRoom is procedurally regenerated, so a
   restarted sim is a new layout; reloading the old map silently corrupts `/plan`.

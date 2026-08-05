@@ -97,6 +97,14 @@ make submit-deploy CMD="go to the chair"
   falling through on a timeout, which is how a mis-swapped arm reaches a report.
   It also prints the image revision and warns on `-dirty`/`unknown`.
 
+  **Once the tool has run, a hand `up -d --force-recreate inference` with the
+  documented `-f` chain silently reverts the anchoring.** The tool appends
+  `docker-compose.override.anchor.yml`; the documented chain does not carry it,
+  so recreating by hand drops the bind mount and the container falls back to the
+  image's baked config. The model path is loud about this (it comes from
+  `.env`/your shell either way); the anchoring is not. Re-run the tool rather
+  than recreating `inference` by hand.
+
   Doing it by hand instead: set `STRAFER_INFERENCE_MODEL_PATH` in your shell or
   `deploy/.env`, then force-recreate `inference`. The overlay's value is
   `${STRAFER_INFERENCE_MODEL_PATH:-/models/policy.onnx}`, so the host wins and

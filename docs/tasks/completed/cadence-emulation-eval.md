@@ -1,5 +1,13 @@
 # Adjudicate the cadence hypothesis in closed-loop sim
 
+**Status:** Shipped 2026-08-05 in `5b77c59` (DGX). The harness landed
+earlier in `659a5b1` (PR #179); this change records the 2026-08-04 evaluation
+run and the scored read-out that closes the brief. The temporal axis is
+exonerated as sufficient: the 22–25 Hz band costs ≤3% of completion, and the
+12 Hz / 36%-duplicate profile costs ~⅓ — a real loss, but not the rig's
+total failure. No cadence-targeted retrain is licensed.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/186
+
 **Type:** investigation (evaluation harness + one operator-launched run)
 **Owner:** DGX
 **Priority:** P0 — a shipped attribution and the retrain decision both rest on
@@ -17,10 +25,10 @@ at half the historical inference rate.**
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/recurrent-policy-contract.md](../../context/recurrent-policy-contract.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/recurrent-policy-contract.md](../context/recurrent-policy-contract.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
 
 ## Context
 
@@ -82,31 +90,31 @@ progress is latched pre-step from the monotone path cursor.
 
 ## Acceptance criteria
 
-- [ ] Pure tests cover the schedule sampler's realized statistics against the
+- [x] Pure tests cover the schedule sampler's realized statistics against the
       requested profile, the observation-dump profile loader against a
       synthetic JSONL in the node's schema, the signed direction-offset sign
       convention, and the held-row hidden-state restore equivalence.
-- [ ] Harness dry-run on the play env with realized-schedule statistics
+- [x] Harness dry-run on the play env with realized-schedule statistics
       printed and inside tolerance of the request.
-- [ ] `B2` (baseline) and `B1` run **first**. If the baseline completion rate
+- [~] `B2` (baseline) and `B1` run **first**. If the baseline completion rate
       is far from ~0.8, STOP and report — that is harness or env drift, not a
       cadence result. If harness-`v1` collapses at the band profile, the
       emulation is too aggressive and must be recalibrated before the depth v2
       arms are read.
-- [ ] Per-arm results table (completion, near-arrival, progress, direction
+- [x] Per-arm results table (completion, near-arrival, progress, direction
       offset, realized profile) plus the raw JSONL in the PR description.
-- [ ] Failure counts broken out by cause. A completion drop that is entirely
+- [x] Failure counts broken out by cause. A completion drop that is entirely
       `off_path_divergence` is a different finding from one that is entirely
       `time_out`, and `near_arrival` separates a dwell-gate failure from never
       having arrived.
-- [ ] No changes to envs, cfgs, noise models, or the play script — the harness
+- [x] No changes to envs, cfgs, noise models, or the play script — the harness
       is additive.
-- [ ] If your work invalidates a fact in any referenced context module, package
+- [x] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
-- [ ] No regression in the workflows the touched code supports — the pure
+- [x] No regression in the workflows the touched code supports — the pure
       strafer_lab suite stays green and the play script is untouched.
 
 ## Arms
@@ -202,7 +210,7 @@ realized 0.224 / 0.000 (v2) and 0.226 / 0.000 (v1). `degraded` asked 0.611 /
 - **`T2c` (`measured`) did not run** — no inference-node observation dump exists
   on this machine, which the Arms table above pre-authorises ("skip and note if
   unavailable"). The capture is blocked upstream and that blocker is already
-  owned by [`enriched-lane-rig-stability`](../reliability/enriched-lane-rig-stability.md);
+  owned by [`enriched-lane-rig-stability`](../active/reliability/enriched-lane-rig-stability.md);
   no new brief is filed for it.
 - **The conditional rate-only cell did not fire.** It was pre-registered to run
   as its own invocation (`--profile degraded --stale-fraction 0.0`) if v2's
@@ -217,6 +225,55 @@ are `logs/rsl_rl/strafer_navigation/cadence_emulation/cadence_20260804_190256.js
 records with per-episode detail. The two dry-run files from the same day
 (`cadence_20260804_081050.jsonl`, `cadence_20260804_081812.jsonl`) hold the
 harness check that preceded them.
+
+## Read-out — scored against the pre-registered rule
+
+- **(i) Baseline: met.** v2 clean 0.900 ≥ 0.8. The harness and env reproduce
+  the healthy closed-loop regime.
+- **(ii) Band: met, decisively.** v2 at the 23 Hz band holds 0.967 of
+  baseline. At the 22–25 Hz cadence every recorded deploy session actually ran
+  in, emulated temporal texture costs ≤3% completion. **The band is exonerated
+  as a cause of any recorded deploy failure.**
+- **(iii) Degraded: met, with a bounded magnitude.** 0.678 of baseline at the
+  12 Hz / 36%-duplicate profile — a real ~⅓ loss, but far from the outcome it
+  was built to test: 0.610 completion and 0.817 progress in sim, against zero
+  completions and no net advance on the rig at the same temporal profile.
+  **Temporal texture explains at most a third of the enriched-lane failure,
+  not the failure.**
+- **(iv) No emergent rotation: met.** Direction offset runs +4.2° (clean) →
+  +2.9° (degraded) with left-share falling 0.61 → 0.55; both policies show the
+  same small baseline lean. The rig's directional signature is not temporal.
+- **(v) Calibration: the one failed row, informative rather than gating.** v1
+  at degraded is 0.667 < 0.80; band-scoped calibration passed (0.893). Both
+  policies lose ≈⅓ at 12 Hz (0.667 vs 0.678) — the profile is generically
+  harsh, not differentially harmful to v2, which is itself evidence: a
+  v2-specific rig failure cannot be produced by an axis that punishes both
+  policies equally.
+
+**Decision-map application.** v2 holds at `degraded` by the pre-registered
+line (0.678 ≥ 0.60): the temporal axis is **exonerated as sufficient**.
+Consequences:
+
+1. **No cadence-targeted retrain is licensed** — neither a fixed-20 Hz retrain
+   nor a temporal-texture-first augmentation. The temporal-DR wiring remains a
+   cheap rider if a retrain ever happens for other reasons.
+2. **The enriched-lane `mission` ✗ result is now unexplained by scene
+   (sim-enriched completes 0.90), by anchoring semantics (the emulation uses
+   training's own), or by temporal texture (this run).** Its attribution
+   reopens with four live candidates: SLAM-frame anchoring noise (map→odom
+   moved 0.166 m / 6.7° in that same session's discarded arm), planner
+   path-geometry distribution (Nav2 plans vs the training A*), unbounded
+   recurrent-state horizon (deploy never resets the GRU; training episodes cap
+   at 600 steps), and residual observation-chain deltas.
+3. **The receiver-side deploy fixes proceed on their own merits, now with
+   quantified stakes**: deploy at the 12 Hz regime costs ~⅓ of completion;
+   at the band it costs ~3%. Recovering arrival rate recovers almost the whole
+   temporal cost.
+4. **The measured-profile cell becomes archival** — the decision no longer
+   hangs on it; it runs if/when the capture unblocks, for the record.
+
+The residual-attribution arms this read-out dispatches are their own brief;
+they are not part of this one.
 
 ## Investigation pointers
 

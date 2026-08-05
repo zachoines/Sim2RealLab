@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
-# Swap the inference container's (policy artifact x subgoal anchoring) and prove
-# the swap took effect from inside the container.
+# Set the inference container's (policy artifact x subgoal anchoring) and prove
+# the change took effect from inside the container.
 #
-#   ./switch_arm.sh <model> <mission|rolling>
+#   ./configure_inference.sh <model> <mission|rolling>
 #
-#   model:  v1 | v2 | an absolute /models/... path
+#   model      a filename under /models (e.g. policy.onnx), or any absolute
+#              container path. Run with no arguments to list what is mounted.
+#   anchoring  mission | rolling -- the two values subgoal_generator_node
+#              accepts (_ANCHOR_MISSION / _ANCHOR_ROLLING).
+#
+# The model argument is deliberately not an alias table: which artifacts exist
+# is a property of the host's models directory and changes per experiment, so
+# hardcoding names here would date the tool on its first A/B against a new pair.
 #
 # WHY A TOOL AND NOT TWO COMMANDS
 #
@@ -19,12 +26,12 @@
 #      `com.docker.compose.project.config_files` label and mirrors it.
 #   3. Hand-maintained copies of subgoal_generator.yaml drift from the image's
 #      installed config, and a drifted copy changes more than the one line it
-#      was meant to. This script generates the arm config from the IMAGE --
+#      was meant to. This script generates the anchoring config from the IMAGE --
 #      not from the running container, whose copy of that path is this tool's
 #      own previous bind mount -- rewrites exactly the anchoring key, and diffs
 #      the two to prove nothing else moved.
 #   4. Every cadence counter in the node is cumulative since process start with
-#      no reset path, so a surviving node sums the new arm onto the old one.
+#      no reset path, so a surviving node sums the new run onto the previous one.
 #      Recreation is what zeroes them.
 #
 # The verification at the end is the point: it exits non-zero when the container
@@ -32,13 +39,24 @@
 # a timeout.
 set -euo pipefail
 
-usage() { echo "usage: $(basename "$0") <v1|v2|/models/path.onnx> <mission|rolling>" >&2; exit 2; }
+CTR=strafer_inference
+
+usage() {
+  echo "usage: $(basename "$0") <model> <mission|rolling>" >&2
+  echo "  model: a filename under /models, or an absolute container path" >&2
+  if docker inspect "$CTR" >/dev/null 2>&1; then
+    echo "" >&2
+    echo "mounted under /models:" >&2
+    docker exec "$CTR" sh -c 'ls -1 /models 2>/dev/null' 2>/dev/null \
+      | sed 's/^/  /' >&2 || echo "  (could not list)" >&2
+  fi
+  exit 2
+}
 [ $# -eq 2 ] || usage
 
-MODEL_KEY="$1"
+MODEL_ARG="$1"
 ANCHOR="$2"
 SVC=inference
-CTR=strafer_inference
 DEPLOY="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GEN_DIR="$DEPLOY/.anchor_configs"          # gitignored; regenerated per switch
 INSTALLED=/ws/install/strafer_inference/share/strafer_inference/config/subgoal_generator.yaml
@@ -48,18 +66,25 @@ case "$ANCHOR" in
   *) echo "anchoring must be 'mission' or 'rolling'" >&2; usage ;;
 esac
 
-# v1 is /models/policy.onnx. There is deliberately no /models/*_v1.onnx alias:
-# the artifact identity is the file, and an alias invites a stale one.
-case "$MODEL_KEY" in
-  v1) MODEL=/models/policy.onnx ;;
-  v2) MODEL=/models/strafer_depth_subgoal_v2_998.onnx ;;
-  /*) MODEL="$MODEL_KEY" ;;
-  *)  echo "model must be v1, v2, or an absolute /models/... path" >&2; usage ;;
+# A bare name resolves under /models; anything absolute is taken as given, so a
+# model mounted elsewhere still works without special-casing.
+case "$MODEL_ARG" in
+  /*) MODEL="$MODEL_ARG" ;;
+  *)  MODEL="/models/$MODEL_ARG" ;;
 esac
 
 docker inspect "$CTR" >/dev/null 2>&1 || {
-  echo "ERROR: $CTR is not running. This tool swaps an arm on a live stack;" >&2
+  echo "ERROR: $CTR is not running. This tool reconfigures a live stack;" >&2
   echo "       it does not create one." >&2
+  exit 1
+}
+
+# Fail here rather than after a recreate: an unreadable model path otherwise
+# surfaces only as a node that comes up without a policy, several minutes later.
+docker exec "$CTR" test -f "$MODEL" 2>/dev/null || {
+  echo "ERROR: $MODEL does not exist inside $CTR." >&2
+  echo "mounted under /models:" >&2
+  docker exec "$CTR" sh -c 'ls -1 /models 2>/dev/null' 2>/dev/null | sed 's/^/  /' >&2
   exit 1
 }
 
@@ -75,7 +100,7 @@ for f in "${FILES[@]}"; do
 done
 FLAGS+=(-f "$DEPLOY/docker-compose.override.anchor.yml")
 
-# --- generate the arm config FROM THE IMAGE -----------------------------------
+# --- generate the anchoring config FROM THE IMAGE ------------------------------
 # Read the baseline from the image, NOT with `docker exec` on the running
 # container: once this tool has run, that path inside the container IS the anchor
 # bind mount, so exec would read back this tool's own previous output and the
@@ -101,7 +126,7 @@ if [ "$DIFF_LINES" -gt 2 ]; then
   exit 1
 fi
 
-echo "=== switching to ${MODEL_KEY} x ${ANCHOR} ==="
+echo "=== configuring inference: $(basename "$MODEL") x ${ANCHOR} ==="
 echo "    image  $IMG"
 echo "    model  $MODEL"
 echo "    config $OUT  ($((DIFF_LINES / 2)) line changed vs the image)"
@@ -190,4 +215,4 @@ case "$REV" in
 esac
 
 [ "$FAIL" -eq 0 ] || { echo "SWITCH FAILED VERIFICATION" >&2; exit 1; }
-echo "=== ${MODEL_KEY} x ${ANCHOR} active, counters zeroed by recreate ==="
+echo "=== $(basename "$MODEL") x ${ANCHOR} active, counters zeroed by recreate ==="

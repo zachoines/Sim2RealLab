@@ -284,14 +284,15 @@ instance**. On an idle GPU expect 10–20 min to first frames; poll
       capture protocol cannot execute.
 - [ ] DGX handback protocol documented in the cheatsheet (explicit teardown or
       an explicit handback line; silent orphans are a session-report defect).
-- [ ] **Promote `switch_arm.sh` into deploy tooling.** The session tool
-      (`~/strafer_v2_validation/tools/switch_arm.sh`) is the only safe way to
-      swap (model × anchoring): it force-recreates `inference` with the
-      read-only YAML overlay and then **verifies from inside the container**
-      (model path, `subgoal_anchoring:` line, `anchoring=` log line) — exactly
-      the checks that catch the silent `docker compose restart` foot-gun.
-      Generalize it (e.g. `deploy/tools/` or a make target), keep the
-      in-container verification, and document it in the cheatsheet.
+- [x] **Arm-switch tooling promoted** as `deploy/tools/configure_inference.sh`:
+      it force-recreates `inference` with the read-only anchoring overlay,
+      mirrors the compose chain off the container's own label, generates the
+      anchoring config from the image, and verifies model path, config key,
+      node log line and `policy_loaded` from inside the container, exiting
+      non-zero on any mismatch. The model argument takes any filename under
+      `/models` or an absolute container path rather than an alias table, so an
+      A/B against a new pair of artifacts needs no edit to the tool.
+
 - [ ] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See

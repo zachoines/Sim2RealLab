@@ -12,7 +12,7 @@
 # This overlay mounts a generated config read-only over the installed one, so an
 # anchoring change is a container recreate and the image stays the audited build.
 #
-# DO NOT APPLY THIS BY HAND. `deploy/tools/switch_arm.sh` generates the config
+# DO NOT APPLY THIS BY HAND. `deploy/tools/configure_inference.sh` generates the config
 # FROM the image's own installed file (so only the anchoring line can differ),
 # mirrors the running stack's compose chain, and verifies the result from inside
 # the container. Applying the overlay manually reintroduces every failure mode
@@ -21,6 +21,6 @@ services:
   inference:
     volumes:
       - type: bind
-        source: ${STRAFER_ANCHOR_CONFIG:?run deploy/tools/switch_arm.sh instead of applying this overlay by hand}
+        source: ${STRAFER_ANCHOR_CONFIG:?run deploy/tools/configure_inference.sh instead of applying this overlay by hand}
         target: /ws/install/strafer_inference/share/strafer_inference/config/subgoal_generator.yaml
         read_only: true

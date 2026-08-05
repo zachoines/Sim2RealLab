@@ -84,7 +84,9 @@ make submit-deploy CMD="go to the chair"
   that's crash recovery, not a config change.)
 - **Swapping the policy or the anchoring — use the tool:**
   ```bash
-  source/strafer_ros/deploy/tools/switch_arm.sh v2 mission    # <v1|v2|/models/path> <mission|rolling>
+  source/strafer_ros/deploy/tools/configure_inference.sh <model> <mission|rolling>
+  # model: a filename under /models, or an absolute container path.
+  # Run with no arguments to list what is mounted.
   ```
   It force-recreates `inference` (never `restart`), **mirrors the compose chain
   the running stack was created with** (read off the container's
@@ -94,7 +96,8 @@ make submit-deploy CMD="go to the chair"
   line changed, and then **verifies from inside the container** — model path,
   the installed config's anchoring key, the node's `anchoring=` log line, and
   `policy_loaded=True`. It **exits non-zero** if any check fails rather than
-  falling through on a timeout, which is how a mis-swapped arm reaches a report.
+  falling through on a timeout, which is how a wrong configuration reaches a
+  measurement.
   It also prints the image revision and warns on `-dirty`/`unknown`.
 
   **Once the tool has run, a hand `up -d --force-recreate inference` with the

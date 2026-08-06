@@ -197,9 +197,10 @@ finding for the operator, not a lever defect.
 
 Conclusion: enrichment **dominates** the finetune-only fallback for the
 descriptor-level gap it targets (D3 enclosure). Proceed toward the
-enriched retrain; keep F2 deferred. F3 is now implemented (tall furniture
-+ columns) and lifts D4 the right way (+1.8) with no regression, but does
-not reach the band on the height lever alone — the residual D4-near gap is
+enriched retrain — subject to the hold below; keep F2 deferred. F3 is now
+implemented (tall furniture + columns) and lifts D4 the right way (+1.8)
+with no regression, but does not reach the band on the height lever alone
+— the residual D4-near gap is
 a frequency/proximity lever (a follow-up), so the retrain either ships F3-
 as-is (tall statistics present, no regression) or waits on that follow-up
 — an operator call, informed by whether the deploy behavior needs the full
@@ -240,6 +241,32 @@ enrichment-dominates-finetune conclusion above and bounded by
 [`## Out of scope`](#out-of-scope): this brief ends at "levers implemented +
 descriptor-validated + calibration slot filled", not at a trained
 checkpoint.
+
+**The deploy-failure motivation for that retrain is discharged.** The cadence
+adjudication
+([`cadence-emulation-eval`](../../completed/cadence-emulation-eval.md),
+2026-08-05) exonerated the temporal axis as sufficient and licensed no
+cadence-targeted retrain; a scene-mix retrain does not address the deploy
+failure either, since the enriched scene already completes 0.90 in closed-loop
+sim. What survives is this brief's own motivation — the D3/D4 descriptor gap,
+which the read-out says nothing about and which remains a scheduling call rather
+than a blocked one.
+
+So the retrain is **held**, and what would make it urgent again is one of the
+residual arms in
+[`cadence-harness-residual-arms`](cadence-harness-residual-arms.md) implicating
+a trainable axis: a recurrent horizon that decays with chain depth would point
+at longer-episode training, and a subgoal-frame sensitivity at the TF-staleness
+and goal-noise mechanisms already designed in
+[`domain-randomization-audit`](domain-randomization-audit.md). Note this is the
+*enrichment* v2 retrain; the DEPTH_SUBGOAL retrain that
+[`depth-camera-vfov-parity`](../../completed/depth-camera-vfov-parity.md) records
+as closed (`strafer_depth_subgoal_v2_998`) is a different run.
+
+For the landscape: the next training run in the queue is the ratified
+temporal-DR run rather than this brief's enrichment retrain, plus whatever the
+residual arms implicate. This brief's remaining deploy-frame confirmation rides
+the eventual rig validation, not a retrain.
 
 That consult's headline finding bears on this brief's own numbers: the D1
 overshoot, the D4 regression and the path-topology collapse share one

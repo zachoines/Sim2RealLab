@@ -277,7 +277,7 @@ for Python frames AND `gdb`/`eu-stack` for the native ones** (the parked threads
 are native, so py-spy alone is insufficient).**
 
 > **ESCALATION 2026-08-04 — the stall now reproduces at LAUNCH, and it blocks
-> the coordinator's sequencing.** During the cadence-profile capture attempt:
+> every remaining rig session.** During the cadence-profile capture attempt:
 >
 > - the **mid-run** mode recurred on the resident 08-02 22:17 bridge (~19 h of
 >   healthy rendering, then depth dead while `camera_info` trickled);
@@ -313,16 +313,20 @@ are native, so py-spy alone is insufficient).**
 >   `firstframe_stall_retry_forensics.txt`, stalled-launch logs
 >   `cadence_capture_bridge{,2}.log`, Kit log `kit_20260803_173707.log`.
 >
-> **Consequence — scoped.** This mode is the critical path of **the cadence
-> profile capture and of all future rig sessions**. It is **not** the critical
-> path of the cadence adjudication itself: the emulation harness's synthetic
-> cells (clean 30 Hz baseline, four-arm band, and the arm-1 profile
-> reconstructed from logged telemetry) are **unblocked and proceed on the DGX**,
-> carrying pre-registrations (i)/(ii)/(v) fully and (iii)/(iv) on the
-> reconstructed profile. Only the **measured-profile replay** cell waits on the
-> capture, as a later addition. A reader must not deprioritise the eval on the
-> strength of this brief. What this mode does block is any further rig time
-> spent on capture attempts — none should be spent until it is ruled.
+> **Consequence — scoped.** This mode is the critical path of **all future rig
+> sessions**. It was never the critical path of the cadence adjudication: that
+> evaluation ran on the harness's synthetic profiles and has since
+> [read out](../../completed/cadence-emulation-eval.md), scoring every
+> pre-registration except the measured-profile replay. That replay is now
+> **archival** — the decision no longer rests on it, and it runs if and when the
+> capture unblocks, for the record.
+>
+> **The deploy-lane fixes are not gated on this mode.** The depth QoS flip and
+> the node-side consumption work were sequenced behind the capture only so the
+> capture would reflect the stack the failing arm ran on. With the adjudication
+> settled on synthetic profiles that reason is spent, and both proceed on their
+> own merits. What this mode does still block is any further rig time spent on
+> capture attempts — none should be spent until it is ruled.
 
 **Operator rule (replaces the earlier "wait 60–90 min" rule):** before ANY
 bridge launch, run
@@ -423,8 +427,9 @@ instance**. On an idle GPU expect 10–20 min to first frames; poll
 ## Out of scope
 
 - The depth QoS flip — [`depth-qos-reliable-flip`](depth-qos-reliable-flip.md)
-  owns it. Note it targets a **different** shortfall: node-side consumption
-  (the executor blocked during TensorRT inference; idle the node receives every
-  frame with 1 missed deadline, mid-arm it missed **11 146**), not any of the
-  four modes here.
+  owns it — and the node-side consumption it is easily confused with, which
+  [`inference-node-consumption-fixes`](inference-node-consumption-fixes.md)
+  owns: the executor blocked during TensorRT inference, where idle the node
+  receives every frame with 1 missed deadline and mid-arm it missed **11 146**.
+  Both target a **different** shortfall from any of the four modes here.
 - Any policy or training change.

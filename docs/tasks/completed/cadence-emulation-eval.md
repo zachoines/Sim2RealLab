@@ -301,9 +301,13 @@ they are not part of this one.
   measurement first. The audit doc's Phase 2 block is the designed home if this
   eval confirms.
 - Node-side consumption fixes (transport reliability, executor split, CPU
-  pinning). They are justified regardless of this result and are sequenced
-  after the rig profile capture, so that the capture reflects the stack the
-  failing arm actually ran on.
+  pinning). They are justified regardless of this result. They were sequenced
+  after the rig profile capture so the capture would reflect the stack the
+  failing arm actually ran on; with the temporal axis settled on synthetic
+  profiles and the measured cell archival, that reason is spent and the work is
+  unblocked. It is owned by
+  [`inference-node-consumption-fixes`](../active/reliability/inference-node-consumption-fixes.md),
+  filed after this brief shipped.
 - The retrain itself, which stays held until this reads out.
 - The sim depth stream's render duplication, which this harness *models* but
   does not fix.

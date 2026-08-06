@@ -98,6 +98,32 @@ is pose-dependent, but the inversion mechanism is not.
       for the surface list and trigger heuristics.
 - [ ] No regression in the workflows the touched code supports.
 
+## Adjacent — pin the driver's depth QoS while this lane is being made to work
+
+Once the decode lands, the real lane's depth subscription becomes live for the
+first time and its QoS starts to matter. Two things to settle here rather than
+separately, because this brief is what makes them measurable:
+
+- **Pin `depth_qos` explicitly** in `perception.launch.py`'s
+  `launch_arguments` to `rs_launch.py`, alongside the stream profiles already
+  pinned there. Depth currently inherits the wrapper's `SYSTEM_DEFAULT` (which
+  resolves RELIABLE), so a RELIABLE subscriber works *by default rather than by
+  contract*, and a driver-version change would break it silently — a reliable
+  subscriber receives **nothing** from a best-effort publisher. Note that
+  `d555_params.yaml` is **not** the surface: its own header offers it as a
+  `--params-file` and no launch file loads it, so anything written there is
+  inert. An argument name `rs_launch.py` does not declare fails the include
+  outright, so verify the name against the installed wrapper.
+- **Then decide the real lane's `depth_reliability`.** The sim lanes subscribe
+  RELIABLE via `STRAFER_DEPTH_RELIABILITY`
+  ([`depth-qos-reliable-flip`](../reliability/depth-qos-reliable-flip.md));
+  the real lane deliberately kept `best_effort` because it could not be
+  measured while every frame died at the encoding gate. Parity is the goal, but
+  the real lane has its own contention history on this topic — `timestamp_fixer`
+  is a RELIABLE subscriber of the same stream and was recorded dropping
+  fragmented Images under load — so this wants a measurement on hardware, not
+  an assertion.
+
 ## Investigation pointers
 
 - Encoding gate: `strafer_inference/strafer_inference/inference_node.py`, the

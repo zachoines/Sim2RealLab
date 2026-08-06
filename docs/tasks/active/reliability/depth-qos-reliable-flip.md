@@ -139,13 +139,28 @@ real; the conclusion was not, and this repo had already established why in
 | publisher | resolved QoS | reliable subscriber compatible? |
 |---|---|---|
 | sim bridge `async_camera_publisher._IMAGE_QOS` | RELIABLE, KEEP_LAST 10 | yes |
-| real D555 via `realsense2_camera` (no `depth_qos` in `d555_params.yaml`) | `SYSTEM_DEFAULT` → RELIABLE | yes |
+| real D555 via `realsense2_camera` (no `depth_qos` argument in `perception.launch.py`) | `SYSTEM_DEFAULT` → RELIABLE | yes |
 | a camera brought up `depth_qos:=SENSOR_DATA` | BEST_EFFORT | **no** |
 
 Nothing in the tree sets that override. The yaml default stays `best_effort`
 for the unpinned case rather than because the sim lane needs it. The bridge
 publisher being KEEP_LAST rather than KEEP_ALL also bounds the cost: a slow
 reader never blocks it, it drops from its own history and sends a GAP.
+
+**"Unpinned" is a real gap on the real lane, and pinning it belongs with the
+work that first makes that lane functional.** The real lane's stream config is
+pinned by explicit `launch_arguments` to `rs_launch.py` in
+`strafer_perception/launch/perception.launch.py`; no QoS argument is among
+them, so depth inherits the wrapper's `SYSTEM_DEFAULT`. (`d555_params.yaml` is
+*not* the surface — its own header offers it as a `--params-file` and no launch
+file loads it, so anything written there today is inert.) Pinning the argument
+explicitly would remove the caveat and let the real lane subscribe RELIABLE at
+parity with sim. It is deliberately **not** done here: on hardware the node
+drops **100% of depth frames at the 16UC1-vs-32FC1 encoding gate**
+([`d555-depth-decode-validity`](../trained-policy/d555-depth-decode-validity.md)),
+so a QoS pin on that lane is unmeasurable until the decode lands — and an
+argument name `rs_launch.py` does not declare fails the include outright, which
+is not a change to make blind. It rides with that brief.
 
 **Why the original best-effort rationale does not carry to this lane.**
 `70323c8` chose BEST_EFFORT so a lost frame would skip a tick instead of
@@ -192,9 +207,29 @@ the node cannot pass this criterion at any QoS setting, and the bar wants
 re-scoping against the measured wire ceiling rather than the nominal 30. Record
 the concurrent-probe figure before judging the node against the target.
 
-**A lower nominal cadence is an accepted outcome if the measurement forces
-one — but the standing rule is measure first, then match in training, and the
-evidence says it will not come to that.**
+**The setpoint question is sequenced and pre-registered, not open.** Two
+questions were being conflated: *is the temporal gap the cause of the advance
+failure* (closed — exonerated as sufficient, below) and *if the rig cannot
+serve 30 Hz, what should training target* (a capability question). The second
+is conditioned on two things, in order:
+
+1. **Arm D runs first.** If timer-driven stale-reuse is adopted, inference runs
+   at 30 Hz regardless of depth arrival and the setpoint question dissolves
+   into the trained staleness axis — there is no setpoint to move.
+2. **Only if Arm D is rejected** does this brief's post-flip ceiling matter,
+   against a rule fixed in advance of the measurement:
+
+| sustained achievable rate | outcome |
+|---|---|
+| **≥ 27 Hz** | setpoint stays 30 — the band costs ≤ 3% |
+| **20–27 Hz** | judgment, reading the harness sensitivity curve at the measured point |
+| **< 20 Hz** | setpoint moves via `POLICY_DECIMATION`, and training matches the measured **distribution** — interval histogram, duplicate run lengths, `depth_age` spread — not a mean |
+
+Report the probe figure as a **number with its spread**, never as a verdict
+against 30 Hz. The rule consumes the number; the measurement does not decide
+the outcome by itself.
+
+**Why a lower setpoint is an accepted outcome but not an expected one.**
 [`cadence-emulation-eval`](../../completed/cadence-emulation-eval.md) shipped
 2026-08-05 and swept exactly this axis in closed-loop sim, 100 episodes per
 profile:
@@ -213,19 +248,10 @@ to free and is not a reason to move the training setpoint. What that read-out
 does endorse is this brief: recovering arrival rate "recovers almost the whole
 temporal cost."
 
-The condition therefore stands as a rule rather than a live plan: **no setpoint
-change without a measurement first**, and if one is ever taken, the training
-side matches the measured profile rather than the deploy side being held to a
-number the rig cannot serve. Two things the rig session should carry back
-regardless:
-
-- Report the concurrent-probe figure as a **number with its spread**, not as a
-  verdict against 30 Hz. It is the input that would re-open the setpoint
-  question if it came back far below the band.
-- If it ever does re-open, hand the training lane the measured *distribution* —
-  interval histogram, duplicate run lengths, and the new `depth_age` spread —
-  not just a mean. A flat lower setpoint has zero rate variance too, which is
-  the standing argument against that particular shape.
+A flat lower setpoint would also have zero rate variance, which is the standing
+argument against that particular shape: the deploy profile's problem is
+variance and per-modality staleness skew, not the mean alone. That is why the
+`< 20 Hz` branch above hands over a distribution rather than a number.
 
 ## Acceptance criteria
 

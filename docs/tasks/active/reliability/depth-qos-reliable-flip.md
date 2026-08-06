@@ -36,6 +36,16 @@ Consumption near 98% says the node converts almost every frame it *receives*
 into an inference. The shortfall is therefore in arrival, not processing — the
 node is starved, not slow.
 
+**What that cadence costs is now measured rather than argued.** In closed-loop
+emulation of the same temporal texture
+([`cadence-emulation-eval`](../../completed/cadence-emulation-eval.md)), the
+22–25 Hz band costs 3 points of completion against a 30 Hz baseline
+(0.900 → 0.870) and the 12 Hz regime costs about a third (0.900 → 0.610).
+Recovering arrival rate therefore recovers almost the whole temporal cost, and
+this brief is the lever that recovers it: the executor split the shortfall used
+to be attributed to already shipped twice, and the starvation it named was
+bounded at 2.9% and refuted.
+
 **The discriminating measurement.** A second subscriber was run **concurrently
 with the inference node**, on exactly the node's own depth QoS (BEST_EFFORT,
 `KEEP_LAST` depth 1), for 60 s during a live arm:
@@ -88,10 +98,11 @@ the control path, not merely a throughput loss.
 - [ ] Re-run at least one arm of the anchoring re-validation goal set and report
       whether the advance numbers move at all. **Whether they move is itself a
       finding either way** — do not pre-commit to an expectation here. The
-      2026-08-01 session's attribution of the advance failure is bounded by a
-      scene-class confound and is under test in
-      [`enriched-scene-anchoring-addendum`](../trained-policy/enriched-scene-anchoring-addendum.md);
-      this brief must not assume its outcome.
+      2026-08-01 session's attribution of the advance failure was bounded by a
+      scene-class confound; that confound has since been discharged and the
+      attribution reopened on other grounds
+      ([`cadence-emulation-eval`](../../completed/cadence-emulation-eval.md)'s
+      read-out), so this brief still must not assume an outcome.
 - [ ] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See
@@ -114,6 +125,8 @@ the control path, not merely a throughput loss.
 
 - The sim's duplicate depth content (byte-identical consecutive frames;
   intermittent, 24.1% in one arm and 0% in another). A DGX brief owns it.
-- The v2 advance failure and its attribution. Under test in
-  [`enriched-scene-anchoring-addendum`](../trained-policy/enriched-scene-anchoring-addendum.md);
+- The v2 advance failure and its attribution. Reopened on four candidates by
+  [`cadence-emulation-eval`](../../completed/cadence-emulation-eval.md)'s
+  read-out and taken up in
+  [`cadence-harness-residual-arms`](../trained-policy/cadence-harness-residual-arms.md);
   this brief neither depends on nor prejudges it.

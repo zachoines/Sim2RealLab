@@ -272,8 +272,9 @@ Consequences:
 4. **The measured-profile cell becomes archival** — the decision no longer
    hangs on it; it runs if/when the capture unblocks, for the record.
 
-The residual-attribution arms this read-out dispatches are their own brief;
-they are not part of this one.
+The residual-attribution arms this read-out dispatches are their own brief —
+[`cadence-harness-residual-arms`](../active/trained-policy/cadence-harness-residual-arms.md)
+— and are not part of this one.
 
 ## Investigation pointers
 

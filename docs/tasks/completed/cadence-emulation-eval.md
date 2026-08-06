@@ -314,7 +314,7 @@ The residual-attribution arms this read-out dispatches are their own brief —
   median against a ~218 ms budget, starvation bounded at 2.9%,
   `timer_deadline_missed` reading 0 in every fixed arm). What remains is
   transport, owned by
-  [`depth-qos-reliable-flip`](../active/reliability/depth-qos-reliable-flip.md),
+  [`depth-qos-reliable-flip`](depth-qos-reliable-flip.md),
   whose replay already recovers the cadence to 30.15 Hz. CPU pinning stays
   unfiled because no measurement motivates it, and `timer_deadline_missed` is
   the instrumented trigger if that changes — not a hypothetical one: the rig's

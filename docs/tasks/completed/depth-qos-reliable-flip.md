@@ -1,5 +1,19 @@
 # Flip the inference node's depth subscription to RELIABLE
 
+**Status:** Closed 2026-08-06 in `e97c4d6` (Jetson) — **premise refuted, not
+delivered as scoped.** The code shipped and stands (per-lane
+`STRAFER_DEPTH_RELIABILITY`, history-1 pinned on both reliabilities, the
+`depth_age` instrument); the rig measurement then showed the cadence shortfall
+this brief targeted is **receiver-host capacity induced by the node's presence**,
+not subscription QoS. `reliable` stays set on the sim lanes — it was at least as
+good as `best_effort` in every paired arm, and it is a one-line env flip if the
+successor's measurement says otherwise. Numbers in
+[Rig measurement](#rig-measurement-2026-08-06--the-premise-does-not-hold).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/192
+**Follow-ups:** [`depth-receiver-host-capacity`](../active/reliability/depth-receiver-host-capacity.md)
+— owns the discriminating measurement, the levers, and the anchoring-arm re-run
+this brief no longer carries.
+
 **Type:** task (deploy runtime)
 **Owner:** Jetson
 **Priority:** P1 — it costs the policy ~20% of its training cadence on every
@@ -17,10 +31,10 @@ so that **the policy runs at the 30 Hz cadence it was trained at instead of the
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/bridge-runtime-invariants.md](../../context/bridge-runtime-invariants.md)
-- [context/recurrent-policy-contract.md](../../context/recurrent-policy-contract.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md)
+- [context/recurrent-policy-contract.md](../context/recurrent-policy-contract.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
 
 ## Context
 
@@ -38,7 +52,7 @@ node is starved, not slow.
 
 **What that cadence costs is now measured rather than argued.** In closed-loop
 emulation of the same temporal texture
-([`cadence-emulation-eval`](../../completed/cadence-emulation-eval.md)), the
+([`cadence-emulation-eval`](cadence-emulation-eval.md)), the
 22–25 Hz band costs 3 points of completion against a 30 Hz baseline
 (0.900 → 0.870) and the 12 Hz regime costs about a third (0.900 → 0.610).
 Recovering arrival rate therefore recovers almost the whole temporal cost, and
@@ -119,7 +133,7 @@ acceptance criterion; they fix different losses and only one is measured.
 
 1. **Only `reliable` has been measured to recover the rate.** Replaying the
    preserved bag into the real node
-   ([`inference-cadence-shortfall`](../../completed/inference-cadence-shortfall.md)):
+   ([`inference-cadence-shortfall`](inference-cadence-shortfall.md)):
    `best_effort` 25.44 / 21.07 / 24.88 / 27.37 Hz sim, `reliable` **30.15 Hz at
    98.6% consumption**, same harness. A raised history depth has never been
    measured at all, so choosing it would be the asserted answer this criterion
@@ -144,7 +158,7 @@ acceptance criterion; they fix different losses and only one is measured.
 The node's comment claimed `best_effort` was "the only safe default" because a
 RELIABLE subscriber receives nothing from a BEST_EFFORT publisher. The rule is
 real; the conclusion was not, and this repo had already established why in
-[`depth-reception-reliability`](../../completed/depth-reception-reliability.md):
+[`depth-reception-reliability`](depth-reception-reliability.md):
 
 | publisher | resolved QoS | reliable subscriber compatible? |
 |---|---|---|
@@ -167,7 +181,7 @@ file loads it, so anything written there today is inert.) Pinning the argument
 explicitly would remove the caveat and let the real lane subscribe RELIABLE at
 parity with sim. It is deliberately **not** done here: on hardware the node
 drops **100% of depth frames at the 16UC1-vs-32FC1 encoding gate**
-([`d555-depth-decode-validity`](../trained-policy/d555-depth-decode-validity.md)),
+([`d555-depth-decode-validity`](../active/trained-policy/d555-depth-decode-validity.md)),
 so a QoS pin on that lane is unmeasurable until the decode lands — and an
 argument name `rs_launch.py` does not declare fails the include outright, which
 is not a change to make blind. It rides with that brief.
@@ -297,7 +311,7 @@ reliable subscriber already gets ~28.5 Hz sim; attaching the node costs every
 subscriber on the host 4-6x **regardless of the node's own QoS**. The lever is
 **receiver-host capacity**, not depth reliability - the "whole-Jetson capacity
 ceiling" that
-[`depth-reception-reliability`](../../completed/depth-reception-reliability.md)
+[`depth-reception-reliability`](depth-reception-reliability.md)
 filed as a follow-up, and items 2-4 of the cadence addendum's node-consumption
 list. The flip is not harmful (reliable >= best_effort in every paired arm) but
 it is **not the fix this brief was written to land**.
@@ -307,12 +321,21 @@ cannot seed a map while depth delivery is degraded, so `map->base_link` never
 published, the watchdog held every tick, and the figure reads `n/a` by
 construction. AC3 needs a rig that can carry the full stack.
 
-**A caveat on the 95% bar.** The 2026-08-02 wire measurement in that addendum
-put concurrent-subscriber delivery at **28.45 Hz sim**. AC2's ≥ 95% of 30 Hz is
-28.5 Hz, at or just above that. If the re-measure reproduces a ~28.5 Hz wire,
-the node cannot pass this criterion at any QoS setting, and the bar wants
-re-scoping against the measured wire ceiling rather than the nominal 30. Record
-the concurrent-probe figure before judging the node against the target.
+### Three mechanisms, each displaced by a better measurement
+
+Worth stating plainly, because the pattern is the useful part of this brief:
+
+| # | mechanism | displaced by |
+|---|---|---|
+| 1 | **queue overwrite** — a frame lands while the node is busy and overwrites the depth-1 queue | `_on_depth` has had its own callback group and executor thread since `70323c8`, and `timer_deadline_missed` read 0 in every fixed replay arm |
+| 2 | **fragment loss in transit** — a lost RTPS fragment drops the whole ~921 KB sample at a best-effort reader | an independent *reliable* probe reads ~28.5 Hz sim with the node stopped, so nothing is being lost in transit at this scale |
+| 3 | **receiver-host capacity** — the node's presence collapses delivery for every subscriber on the host | *standing;* the successor brief owns locating it |
+
+Each revision came from a measurement designed to discriminate, not from
+argument, and each earlier mechanism was plausible on the evidence available at
+the time. The lesson this brief pays for: **a rate measured at one subscriber
+cannot attribute a loss.** Only the paired arms — same probe, one variable
+moved, node attached vs detached — separated presence from policy.
 
 **The setpoint question is sequenced and pre-registered, not open.** Two
 questions were being conflated: *is the temporal gap the cause of the advance
@@ -323,8 +346,12 @@ is conditioned on two things, in order:
 1. **Arm D runs first.** If timer-driven stale-reuse is adopted, inference runs
    at 30 Hz regardless of depth arrival and the setpoint question dissolves
    into the trained staleness axis — there is no setpoint to move.
-2. **Only if Arm D is rejected** does this brief's post-flip ceiling matter,
-   against a rule fixed in advance of the measurement:
+2. **Only if Arm D is rejected** does the achievable ceiling matter, against a
+   rule fixed in advance of the measurement. **The ceiling is no longer this
+   brief's to produce** — it moves to
+   [`depth-receiver-host-capacity`](../active/reliability/depth-receiver-host-capacity.md)'s
+   post-fix measurement, since the QoS re-measure that was going to supply it
+   turned out to measure the wrong thing:
 
 | sustained achievable rate | outcome |
 |---|---|
@@ -332,12 +359,19 @@ is conditioned on two things, in order:
 | **20–27 Hz** | judgment, reading the harness sensitivity curve at the measured point |
 | **< 20 Hz** | setpoint moves via `POLICY_DECIMATION`, and training matches the measured **distribution** — interval histogram, duplicate run lengths, `depth_age` spread — not a mean |
 
-Report the probe figure as a **number with its spread**, never as a verdict
-against 30 Hz. The rule consumes the number; the measurement does not decide
-the outcome by itself.
+Report the figure as a **number with its spread**, never as a verdict against
+30 Hz. The rule consumes the number; the measurement does not decide the
+outcome by itself.
+
+**The refutation carries good news for this rule.** With the node stopped the
+host already receives **~28.5 Hz sim — above the 27 Hz threshold**. So if the
+capacity work succeeds, the top branch applies, the setpoint stays 30, and the
+`< 20 Hz` branch never opens. Arm D is unchanged by any of this and is, if
+anything, worth more: timer-driven stale-reuse holds inference at 30 Hz under
+whatever arrival regime the host ends up managing.
 
 **Why a lower setpoint is an accepted outcome but not an expected one.**
-[`cadence-emulation-eval`](../../completed/cadence-emulation-eval.md) shipped
+[`cadence-emulation-eval`](cadence-emulation-eval.md) shipped
 2026-08-05 and swept exactly this axis in closed-loop sim, 100 episodes per
 profile:
 
@@ -386,12 +420,12 @@ variance and per-modality staleness skew, not the mean alone. That is why the
       2026-08-01 session's attribution of the advance failure was bounded by a
       scene-class confound; that confound has since been discharged and the
       attribution reopened on other grounds
-      ([`cadence-emulation-eval`](../../completed/cadence-emulation-eval.md)'s
+      ([`cadence-emulation-eval`](cadence-emulation-eval.md)'s
       read-out), so this brief still must not assume an outcome.
 - [x] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
 - [x] No regression in the workflows the touched code supports. — `make test-ros`
       729 passed (`strafer_inference` 461 passed, 11 skipped); `make env-check`
@@ -416,7 +450,7 @@ variance and per-modality staleness skew, not the mean alone. That is why the
 - The sim's duplicate depth content (byte-identical consecutive frames;
   intermittent, 24.1% in one arm and 0% in another). A DGX brief owns it.
 - The v2 advance failure and its attribution. Reopened on four candidates by
-  [`cadence-emulation-eval`](../../completed/cadence-emulation-eval.md)'s
+  [`cadence-emulation-eval`](cadence-emulation-eval.md)'s
   read-out and taken up in
-  [`cadence-harness-residual-arms`](../trained-policy/cadence-harness-residual-arms.md);
+  [`cadence-harness-residual-arms`](../active/trained-policy/cadence-harness-residual-arms.md);
   this brief neither depends on nor prejudges it.

@@ -116,7 +116,7 @@ separately, because this brief is what makes them measurable:
   outright, so verify the name against the installed wrapper.
 - **Then decide the real lane's `depth_reliability`.** The sim lanes subscribe
   RELIABLE via `STRAFER_DEPTH_RELIABILITY`
-  ([`depth-qos-reliable-flip`](../reliability/depth-qos-reliable-flip.md));
+  ([`depth-qos-reliable-flip`](../../completed/depth-qos-reliable-flip.md));
   the real lane deliberately kept `best_effort` because it could not be
   measured while every frame died at the encoding gate. Parity is the goal, but
   the real lane has its own contention history on this topic — `timestamp_fixer`

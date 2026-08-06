@@ -427,7 +427,7 @@ instance**. On an idle GPU expect 10–20 min to first frames; poll
 
 ## Out of scope
 
-- The depth QoS flip — [`depth-qos-reliable-flip`](depth-qos-reliable-flip.md)
+- The depth QoS flip — [`depth-qos-reliable-flip`](../../completed/depth-qos-reliable-flip.md)
   owns it, and owns the shortfall it names: frames lost at the node's own
   receive layer, not any of the four modes here. The "executor blocked during
   inference" gloss once attached to that shortfall does **not** survive the

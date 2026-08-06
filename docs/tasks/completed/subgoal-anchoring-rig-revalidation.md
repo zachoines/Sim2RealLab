@@ -132,7 +132,7 @@ Two facts from that session shape the protocol:
       **Zero source changes.** The anchoring lever was a read-only bind-mount
       over the installed YAML, so all four arms ran the audited
       `25305a4c4103` image. The one code change this motivates is filed as
-      [`depth-qos-reliable-flip`](../active/reliability/depth-qos-reliable-flip.md).
+      [`depth-qos-reliable-flip`](depth-qos-reliable-flip.md).
 
 ## Findings (2026-08-01)
 
@@ -282,7 +282,7 @@ without converting.
   consumption 97.9–98.4%. A **concurrent** independent subscriber on the node's
   own QoS saw 29.84 Hz while the node saw 22–25 Hz, which indicts the
   BEST_EFFORT/depth=1 receive path rather than the bridge. Filed as
-  [`depth-qos-reliable-flip`](../active/reliability/depth-qos-reliable-flip.md).
+  [`depth-qos-reliable-flip`](depth-qos-reliable-flip.md).
 
 ### Standoff and corner ride-alongs
 

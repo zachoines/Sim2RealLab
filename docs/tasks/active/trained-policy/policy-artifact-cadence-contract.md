@@ -63,13 +63,22 @@ same class of silent failure as a skipped ONNX hidden-state write-back, which
 point 3 exists to prevent. Obs-dim mismatch is caught at load; cadence mismatch
 is not.
 
-**Why now.** The cadence setpoint is under a pre-registered decision rule in
-[`depth-qos-reliable-flip`](../reliability/depth-qos-reliable-flip.md): if the
-post-flip rig re-measure lands below 20 Hz sustained, the setpoint moves via
-`POLICY_DECIMATION` and training matches. The moment that branch is taken —
-or any per-run cadence configurability lands on the training side — the
-constant stops being a sufficient contract. This brief lands **before** that,
-not after.
+**Why now.** The cadence setpoint is under a pre-registered decision rule
+recorded in
+[`depth-qos-reliable-flip`](../../completed/depth-qos-reliable-flip.md): if the
+sustained achievable rate lands below 20 Hz, the setpoint moves via
+`POLICY_DECIMATION` and training matches. The measurement that supplies that
+rate now belongs to
+[`depth-receiver-host-capacity`](../reliability/depth-receiver-host-capacity.md),
+after the QoS re-measure that was going to produce it turned out to be measuring
+the wrong thing. The moment that branch is taken — or any per-run cadence
+configurability lands on the training side — the constant stops being a
+sufficient contract. This brief lands **before** that, not after.
+
+The branch is not expected to open: the host already receives ~28.5 Hz sim with
+the inference node stopped, above the rule's 27 Hz threshold. That is a reason
+to land this cheaply and early, not a reason to skip it — the hazard is silent
+when it does fire.
 
 ## Acceptance criteria
 

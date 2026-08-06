@@ -192,6 +192,41 @@ the node cannot pass this criterion at any QoS setting, and the bar wants
 re-scoping against the measured wire ceiling rather than the nominal 30. Record
 the concurrent-probe figure before judging the node against the target.
 
+**A lower nominal cadence is an accepted outcome if the measurement forces
+one — but the standing rule is measure first, then match in training, and the
+evidence says it will not come to that.**
+[`cadence-emulation-eval`](../../completed/cadence-emulation-eval.md) shipped
+2026-08-05 and swept exactly this axis in closed-loop sim, 100 episodes per
+profile:
+
+| profile | Hz | completion | ratio to clean |
+|---|---|---|---|
+| clean | 30.00 | 0.900 | 1.000 |
+| band | 23.29 | 0.870 | **0.967** |
+| degraded | 12.01 | 0.610 | 0.678 |
+
+So the 22–25 Hz band costs **~3% of completion**, and that read-out
+**licenses no cadence-targeted retrain — explicitly neither a fixed-20 Hz
+retrain nor a temporal-texture-first augmentation.** A ~28.5 Hz wire ceiling
+sits *above* the band point that costs 3%, so a ceiling in that region is close
+to free and is not a reason to move the training setpoint. What that read-out
+does endorse is this brief: recovering arrival rate "recovers almost the whole
+temporal cost."
+
+The condition therefore stands as a rule rather than a live plan: **no setpoint
+change without a measurement first**, and if one is ever taken, the training
+side matches the measured profile rather than the deploy side being held to a
+number the rig cannot serve. Two things the rig session should carry back
+regardless:
+
+- Report the concurrent-probe figure as a **number with its spread**, not as a
+  verdict against 30 Hz. It is the input that would re-open the setpoint
+  question if it came back far below the band.
+- If it ever does re-open, hand the training lane the measured *distribution* —
+  interval histogram, duplicate run lengths, and the new `depth_age` spread —
+  not just a mean. A flat lower setpoint has zero rate variance too, which is
+  the standing argument against that particular shape.
+
 ## Acceptance criteria
 
 - [x] `depth_reliability` defaults to `reliable` for the sim-bridge lane, or the

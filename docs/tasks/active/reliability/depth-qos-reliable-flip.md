@@ -241,29 +241,71 @@ both before recording anything.
    with `STRAFER_DEPTH_RELIABILITY=best_effort` on the same lane — the
    instrument is reliability-agnostic, so the two arms differ in one variable.
 
-### Rig observations from the 2026-08-06 dry run (not measurements)
+## Rig measurement, 2026-08-06 — the premise does not hold
 
-A short session brought the bridge up to stage the measurement. It produced no
-AC2/AC3 numbers — recorded so the next session starts from the real state:
+Sim-bridge lane, bridge headless on the sim host, Jetson containers,
+DEPTH_SUBGOAL `model_998`. The node was verified to be running this change on
+every arm by both tells (startup override line, `depth_age` field present).
+RTF 0.107-0.112 throughout. The probe is an independent subscriber on the node's
+exact QoS (`KEEP_LAST` depth 1).
 
-- **The bridge rendered in ~10 minutes**, not the 45–90 documented as
-  first-frame latency, and delivered `/d555/depth/image_rect_raw` to a fresh
-  subscriber at 2.9–4.0 Hz wall against RTF ≈ 0.104, i.e. roughly the full sim
-  cadence. Cross-host discovery over Cyclone worked first try.
-- **Delivery is unstable under additional subscribers.** With the inference node
-  attached, an independent `ros2 topic hz` observer on the same topic dropped to
-  receiving nothing, while `/d555/color/image_raw` — same publisher, same size
-  class — kept flowing at ~3 Hz. This reproduced with the node on
-  **`best_effort`**, so it is **not** attributable to the reliability flip; the
-  first reading that blamed RELIABLE was withdrawn once the containers were
-  found to be running the image's older code.
-- **AC3 needs the full stack, confirmed.** With no SLAM/Nav2/mission the
-  watchdog trips every tick on `tf` / `goal` / `subgoal`, `inferences` stays 0
-  and `depth_age` reads `n/a` by construction. Depth *arrival* alone cannot
-  discharge AC3.
+### 1. A reliable subscriber reaches the target - the transport is not the constraint
 
-Whether the delivery instability is a rig-capacity mode belongs to
-[`enriched-lane-rig-stability`](enriched-lane-rig-stability.md), not here.
+Independent RELIABLE probe with the inference node **stopped**, three runs:
+28.41, 26.85, 30.20 Hz sim - mean **~28.5 Hz sim, at the 95%-of-30 Hz bar**.
+
+So RELIABLE is compatible, performs, and the wire carries the full training
+cadence. Both worries about the flip - QoS incompatibility and retransmit
+congestion - are absent at this scale.
+
+### 2. The node's *presence* costs 4-6x; its QoS does not explain it
+
+Same probe, same warm rig, 60 s each:
+
+| condition | probe rate |
+|---|---|
+| node stopped | **28.41 Hz sim** |
+| node attached, `reliable` | 8.22 Hz sim |
+| node attached, `best_effort` | **4.97 Hz sim** |
+
+`best_effort` is not better - it is worse. The loss tracks whether the inference
+container is running, not how it subscribes.
+
+### 3. At the node, the QoS effect is below the rig's noise floor
+
+Four interleaved 60 s arms on the warm rig:
+
+| arm | node arrival | probe |
+|---|---|---|
+| `best_effort` | 25.0 Hz sim | 19.80 Hz sim |
+| `reliable` | 22.0 Hz sim | 21.15 Hz sim |
+| `best_effort` | 11.1 Hz sim | 10.44 Hz sim |
+| `reliable` | 17.7 Hz sim | 12.87 Hz sim |
+
+Within-arm spread (11.1-25.0) exceeds the between-arm difference (means 18.1
+`best_effort` vs 19.9 `reliable`). Two arms cannot resolve the treatment.
+
+A warm-up trend dominates anything measured early: the first three arms, in
+order, read 26 -> 77 -> 246 frames per 90 s **while alternating QoS**. Numbers
+taken before the bridge settles describe the warm-up, not the setting.
+
+### What this means
+
+The brief attributed the shortfall to frames lost at the node's receiver because
+of its subscription QoS. That is not what the rig shows. With no node attached a
+reliable subscriber already gets ~28.5 Hz sim; attaching the node costs every
+subscriber on the host 4-6x **regardless of the node's own QoS**. The lever is
+**receiver-host capacity**, not depth reliability - the "whole-Jetson capacity
+ceiling" that
+[`depth-reception-reliability`](../../completed/depth-reception-reliability.md)
+filed as a follow-up, and items 2-4 of the cadence addendum's node-consumption
+list. The flip is not harmful (reliable >= best_effort in every paired arm) but
+it is **not the fix this brief was written to land**.
+
+`depth_age` at inference was never obtained, because no inference ran: SLAM
+cannot seed a map while depth delivery is degraded, so `map->base_link` never
+published, the watchdog held every tick, and the figure reads `n/a` by
+construction. AC3 needs a rig that can carry the full stack.
 
 **A caveat on the 95% bar.** The 2026-08-02 wire measurement in that addendum
 put concurrent-subscriber delivery at **28.45 Hz sim**. AC2's ≥ 95% of 30 Hz is
@@ -324,17 +366,21 @@ variance and per-modality staleness skew, not the mean alone. That is why the
       depth history depth is raised, with the choice justified against measured
       numbers rather than asserted. — **reliability flipped, history depth held
       at 1**; basis in [Decision and its basis](#decision-and-its-basis).
-- [ ] **[operator-gated]** Re-measure with the same method: node `depth_rx` in
-      sim Hz, and a **concurrent** independent subscriber. Both must read within
-      10% of each other; the node must reach ≥ 95% of the 30 Hz target.
-      See [What the rig session must run](#what-the-rig-session-must-run) —
-      including why the 95% bar may not be reachable at any QoS.
-- [ ] **[operator-gated]** Confirm no regression in end-to-end latency — a
-      reliable subscription that buffers stale frames would trade a rate loss
-      for a staleness loss. Report the depth age at inference time before and
-      after. **The instrument this needs did not exist and now ships** (see
-      below); the reading itself is a rig measurement.
-- [ ] **[operator-gated]** Re-run at least one arm of the anchoring re-validation goal set and report
+- [ ] **NOT MET, and the criterion's premise is refuted.** Measured 2026-08-06:
+      the node reached at best 25.0 Hz sim (83%), never ≥ 95%, on either QoS;
+      node-vs-probe agreement ranged 4%–37% across arms. But an independent
+      reliable probe with the node *stopped* reads ~28.5 Hz sim, so the wire is
+      not the constraint and the QoS is not the lever — see
+      [Rig measurement](#rig-measurement-2026-08-06--the-premise-does-not-hold).
+      Re-scoping this against receiver-host capacity is a coordinator call.
+- [ ] **Instrument ships; reading not obtainable on this rig.** No inference
+      ran — SLAM cannot seed while depth delivery is degraded, so `map→base_link`
+      never published and the watchdog held every tick, leaving `depth_age` at
+      `n/a` by construction. The one staleness figure the session did get points
+      the right way: probe frame age at receipt was p50 = 0.017 s sim on both
+      QoS in the settled arms, i.e. reliability bought no staleness.
+- [ ] **Not run** — blocked behind the same rig limit: the full stack never
+      seeded. Re-run at least one arm of the anchoring re-validation goal set and report
       whether the advance numbers move at all. **Whether they move is itself a
       finding either way** — do not pre-commit to an expectation here. The
       2026-08-01 session's attribution of the advance failure was bounded by a

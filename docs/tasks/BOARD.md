@@ -72,6 +72,7 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 
 | Brief | Pri | State | Owner |
 |---|---|---|---|
+| [`cadence-harness-residual-arms`](active/trained-policy/cadence-harness-residual-arms.md) | P1 | active | DGX |
 | [`export-sidecar-training-preset`](active/trained-policy/export-sidecar-training-preset.md) | P3 | active | DGX |
 | [`policy-export-deprecation-migration`](active/trained-policy/policy-export-deprecation-migration.md) | P3 | active | DGX |
 | [`strafer-direct-sim-validation`](active/trained-policy/strafer-direct-sim-validation.md) | P2 | active | Either |
@@ -214,6 +215,7 @@ session. Parked briefs are not listed here — see **By epic** or
 
 | Brief | Owner | Estimate | Note |
 |---|---|---|---|
+| [`cadence-harness-residual-arms`](active/trained-policy/cadence-harness-residual-arms.md) | DGX | M | The enriched-lane advance failure now survives every axis that has been tested — scene (sim-enriched completes 0.90), anchoring semantics, and temporal texture (≤3% of completion at the band every recorded session ran in). Two of the four remaining candidates are reachable from the existing harness: an unbounded recurrent horizon (one guarded `policy.reset(dones)`) and a drifting subgoal frame (an SE(2) rewrite of the four subgoal observation dims, as a correlated random walk rather than i.i.d. jitter). A fourth arm scores a proposed deploy change — timer-driven inference reusing the last depth frame — **before** the node PR is written. Filed off the 2026-08-05 cadence read-out. |
 | [`d555-depth-decode-validity`](active/trained-policy/d555-depth-decode-validity.md) | Jetson | S | The depth policy cannot run on real hardware: the node requires 32FC1 and the RealSense driver publishes 16UC1, so it drops every frame. Invisible in the sim lane, where Isaac emits 32FC1. A decode alone is not enough — Z16 invalid is `0`, which is finite, so it survives `downsample_depth`'s `isfinite` rescue and the nearfield rule turns it into a 0.2 m obstacle, where training's convention is 6.0 m. Needs an explicit validity mask; test vectors pinned in the brief. Implement at goal-b bringup |
 | [`enriched-lane-rig-stability`](active/reliability/enriched-lane-rig-stability.md) | Jetson + DGX | M | Four rig failure modes that cost the 2026-08-02 enriched session its second arm. Three present as something else — inactive Nav2 lifecycle nodes reject every goal while `ComputePathToPose` still reports `PLANNABLE`; a wedged USB WiFi adapter looks like a host crash; a dead renderer looks like the policy going quiet. Also: rtabmap `addLink()` left a 1.25 GB unloadable database. Asks for a **pre-arm health gate** so a rig failure is never mistaken for a policy result |
 | [`depth-qos-reliable-flip`](active/reliability/depth-qos-reliable-flip.md) | Jetson | S | The inference node receives 22–25 Hz sim of depth while a **concurrent** subscriber on the identical BEST_EFFORT/depth=1 QoS receives 29.8 Hz, at ~98% consumption — frames are lost at the node's receiver, not by the bridge. Filed off the 2026-08-01 anchoring re-validation with per-arm evidence. |

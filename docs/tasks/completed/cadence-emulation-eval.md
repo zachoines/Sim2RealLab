@@ -272,8 +272,9 @@ Consequences:
 4. **The measured-profile cell becomes archival** — the decision no longer
    hangs on it; it runs if/when the capture unblocks, for the record.
 
-The residual-attribution arms this read-out dispatches are their own brief;
-they are not part of this one.
+The residual-attribution arms this read-out dispatches are their own brief —
+[`cadence-harness-residual-arms`](../active/trained-policy/cadence-harness-residual-arms.md)
+— and are not part of this one.
 
 ## Investigation pointers
 
@@ -301,9 +302,26 @@ they are not part of this one.
   measurement first. The audit doc's Phase 2 block is the designed home if this
   eval confirms.
 - Node-side consumption fixes (transport reliability, executor split, CPU
-  pinning). They are justified regardless of this result and are sequenced
-  after the rig profile capture, so that the capture reflects the stack the
-  failing arm actually ran on.
-- The retrain itself, which stays held until this reads out.
+  pinning). They were sequenced after the rig profile capture so the capture
+  would reflect the stack the failing arm actually ran on; with the temporal
+  axis settled on synthetic profiles and the measured cell archival, that
+  reason is spent. What the hold was protecting is mostly already built: the
+  executor split shipped in two rounds — `_on_depth` on its own callback group
+  in [`depth-reception-reliability`](depth-reception-reliability.md), then five
+  executor threads in
+  [`inference-cadence-shortfall`](inference-cadence-shortfall.md) — and the
+  starvation it targeted was measured and refuted there (ORT latency 4.71 ms
+  median against a ~218 ms budget, starvation bounded at 2.9%,
+  `timer_deadline_missed` reading 0 in every fixed arm). What remains is
+  transport, owned by
+  [`depth-qos-reliable-flip`](../active/reliability/depth-qos-reliable-flip.md),
+  whose replay already recovers the cadence to 30.15 Hz. CPU pinning stays
+  unfiled because no measurement motivates it, and `timer_deadline_missed` is
+  the instrumented trigger if that changes — not a hypothetical one: the rig's
+  11 146 mid-session misses are a host-side signal that the container-loopback
+  replay never reproduced.
+- The retrain itself. It stays held; the hold and its lifting condition are
+  recorded in
+  [`procroom-depth-enrichment`](../active/trained-policy/procroom-depth-enrichment.md).
 - The sim depth stream's render duplication, which this harness *models* but
   does not fix.

@@ -2,13 +2,24 @@
 
 **Status:** Ran 2026-08-02 (Jetson). **One of two arms completed.**
 `v2 x mission` ran, was adversarially verified, and scores the decision rule's
-`mission` ✗ branch — **provisionally** (coordinator ruling 2026-08-03): the
+`mission` ✗ branch — **provisionally** (coordinator ruling 2026-08-03; that
+qualifier is discharged below): the
 scene attribution is clean (ceiling draw measured) and the anchoring is clean,
 but the arm ran at an **unprecedented temporal profile** — 11.68 Hz mid-arm
 depth arrival vs the 22–25 Hz band of every prior session, 38.3% repeat
-content, 11 146 deadline misses — so the policy-owned attribution is
-**provisional pending the cadence-emulation adjudication**, and **the training
-lever's firing is conditional on that result**. `v2 x rolling` was **not run**:
+content, 11 146 deadline misses — so the policy-owned attribution was
+**provisional pending the cadence-emulation adjudication**, and the training
+lever's firing was conditional on that result. **That adjudication has since
+read out** ([`cadence-emulation-eval`](cadence-emulation-eval.md), 2026-08-05):
+the temporal axis is exonerated as sufficient — the 22–25 Hz band costs 3 points
+of completion (0.900 → 0.870) and the 12 Hz / 36%-duplicate profile about a
+third (0.900 → 0.610), against this arm's zero completions — so the recorded
+profile neither excuses the arm nor
+explains it. The `mission` ✗ result stands; the **policy-owned attribution does
+not**, and **no retrain is licensed on it**. Attribution reopens on four
+candidates, taken up in
+[`cadence-harness-residual-arms`](../active/trained-policy/cadence-harness-residual-arms.md).
+`v2 x rolling` was **not run**:
 an Isaac renderer failure forced a sim restart, and the redrawn map failed a
 pre-committed room-identity gate, so running it would have produced a
 confounded arm rather than a control.

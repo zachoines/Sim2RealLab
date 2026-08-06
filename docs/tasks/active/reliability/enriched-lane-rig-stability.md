@@ -277,7 +277,8 @@ for Python frames AND `gdb`/`eu-stack` for the native ones** (the parked threads
 are native, so py-spy alone is insufficient).**
 
 > **ESCALATION 2026-08-04 — the stall now reproduces at LAUNCH, and it blocks
-> the coordinator's sequencing.** During the cadence-profile capture attempt:
+> every remaining session on the bridge camera path.** During the
+> cadence-profile capture attempt:
 >
 > - the **mid-run** mode recurred on the resident 08-02 22:17 bridge (~19 h of
 >   healthy rendering, then depth dead while `camera_info` trickled);
@@ -313,16 +314,20 @@ are native, so py-spy alone is insufficient).**
 >   `firstframe_stall_retry_forensics.txt`, stalled-launch logs
 >   `cadence_capture_bridge{,2}.log`, Kit log `kit_20260803_173707.log`.
 >
-> **Consequence — scoped.** This mode is the critical path of **the cadence
-> profile capture and of all future rig sessions**. It is **not** the critical
-> path of the cadence adjudication itself: the emulation harness's synthetic
-> cells (clean 30 Hz baseline, four-arm band, and the arm-1 profile
-> reconstructed from logged telemetry) are **unblocked and proceed on the DGX**,
-> carrying pre-registrations (i)/(ii)/(v) fully and (iii)/(iv) on the
-> reconstructed profile. Only the **measured-profile replay** cell waits on the
-> capture, as a later addition. A reader must not deprioritise the eval on the
-> strength of this brief. What this mode does block is any further rig time
-> spent on capture attempts — none should be spent until it is ruled.
+> **Consequence — scoped.** This mode is the critical path of **every future
+> session on the bridge camera path**. It was never the critical path of the
+> cadence adjudication: that evaluation ran on the harness's synthetic cells and
+> has since read out in
+> [`cadence-emulation-eval`](../../completed/cadence-emulation-eval.md), scoring
+> every pre-registration except the measured-profile replay. That replay is now
+> **archival** — the decision no longer rests on it, and it runs if and when the
+> capture unblocks, for the record.
+>
+> **The depth QoS flip is not gated on this mode.** It was sequenced behind the
+> capture only so the capture would reflect the stack the failing arm ran on;
+> with the question settled on synthetic profiles that reason is spent, and it
+> proceeds on its own merits. What this mode does still block is any further rig
+> time spent on capture attempts — none should be spent until it is ruled.
 
 **Operator rule (replaces the earlier "wait 60–90 min" rule):** before ANY
 bridge launch, run
@@ -423,8 +428,13 @@ instance**. On an idle GPU expect 10–20 min to first frames; poll
 ## Out of scope
 
 - The depth QoS flip — [`depth-qos-reliable-flip`](depth-qos-reliable-flip.md)
-  owns it. Note it targets a **different** shortfall: node-side consumption
-  (the executor blocked during TensorRT inference; idle the node receives every
-  frame with 1 missed deadline, mid-arm it missed **11 146**), not any of the
-  four modes here.
+  owns it, and owns the shortfall it names: frames lost at the node's own
+  receive layer, not any of the four modes here. The "executor blocked during
+  inference" gloss once attached to that shortfall does **not** survive the
+  code — depth has had its own callback group and its own executor thread since
+  `70323c8` — and the starvation it names was bounded at 2.9% and refuted in
+  [`inference-cadence-shortfall`](../../completed/inference-cadence-shortfall.md).
+  The **11 146** missed deadlines (against 1 when idle) belong to the
+  2026-08-02 session's 11.68 Hz arrival regime, for which mode 4 above is a
+  candidate cause.
 - Any policy or training change.

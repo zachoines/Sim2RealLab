@@ -34,10 +34,10 @@
            net.core.rmem_max regardless. -->
       <SocketReceiveBufferSize max="16MB" />
       <!-- Fragment-reassembly headroom: how many partially-received samples
-           Cyclone keeps defrag buffers for. Depth is BEST_EFFORT (unreliable),
-           so raise the unreliable pool well above its default of 4 so a
-           newly-arriving frame's fragments do not evict an in-progress frame
-           mid-reassembly. -->
+           Cyclone keeps defrag buffers for. The depth subscription runs either
+           reliability depending on the lane, so both pools are raised well
+           above the unreliable default of 4 — a newly-arriving frame's
+           fragments must not evict an in-progress frame mid-reassembly. -->
       <DefragUnreliableMaxSamples>32</DefragUnreliableMaxSamples>
       <DefragReliableMaxSamples>32</DefragReliableMaxSamples>
     </Internal>

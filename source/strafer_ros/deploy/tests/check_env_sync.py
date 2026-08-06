@@ -32,7 +32,7 @@ The invariants beyond the regenerate+diff:
      bind-mount target. (The one non-portable key lives only in compose.)
   2. Deploy-only keys (each lane's declared generator overlay) are present in
      that lane's mirror and absent from its canon.
-  3. The sim-only freshness widenings never leak into the autonomy lane
+  3. The sim-only lane values never leak into the autonomy lane
      (the REAL-HARDWARE GUARD comment, as an executable assertion), and the
      sim-bridge mirror that carries them is loaded by no always-on lane.
   4. THE PARTITION: no key appears in both a generated mirror and a compose
@@ -67,14 +67,16 @@ CONTAINER_ENV_PASSTHROUGH = {
         "STRAFER_SLAM_TASK_ID", "STRAFER_SLAM_SCENE_TOKEN",
     ),
 }
-# sim-only freshness widenings that must never reach the real-robot autonomy lane
-WIDENING_KEYS = {
+# sim-only lane values that must never reach the real-robot autonomy lane:
+# freshness widenings, plus the depth QoS that only matches a pinned publisher
+SIM_ONLY_LANE_KEYS = {
     "OBSERVATION_MAX_AGE_S",
     "STRAFER_OBS_TIMEOUT_S",
     "STRAFER_DEPTH_TIMEOUT_S",
     "ROTATE_TIMEOUT_S",
     "STRAFER_PROJECTION_DEPTH_MAX_M",
     "STRAFER_NAVIGATION_TIMEOUT_S",
+    "STRAFER_DEPTH_RELIABILITY",
 }
 COMPOSE_FILES = ("docker-compose.yml", "docker-compose.sim.yml")
 # Every tracked compose file whose service `environment:` blocks form the
@@ -157,12 +159,12 @@ def main() -> int:
             if k in ck:
                 fails.append(f"{spec['canon']}: deploy-only {k} unexpectedly present in canon")
 
-    # 4. REAL-HARDWARE GUARD: sim widenings never leak into the autonomy lane
-    leaked = WIDENING_KEYS & (
+    # 4. REAL-HARDWARE GUARD: sim lane values never leak into the autonomy lane
+    leaked = SIM_ONLY_LANE_KEYS & (
         _mirror_keys(COMPOSE / "autonomy.env") | _canon_keys(CANON / "env_autonomy.env")
     )
     for k in sorted(leaked):
-        fails.append(f"REAL-HARDWARE GUARD: sim-only widening {k} leaked into the autonomy lane")
+        fails.append(f"REAL-HARDWARE GUARD: sim-only {k} leaked into the autonomy lane")
 
     try:
         import yaml  # pyyaml ships with the ROS images and the dev hosts

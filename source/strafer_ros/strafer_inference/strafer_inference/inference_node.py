@@ -26,7 +26,9 @@ scheduler for camera-free variants.
 
 Cadence counters: every skip is counted by cause and reported
 periodically. ``depth_rx`` against ``inferences`` separates a transport
-loss from a loss inside this node.
+loss from a loss inside this node. Consumed-frame age — publisher stamp
+to inference — is reported alongside, so an arrival rate can be read
+against the staleness it cost.
 
 Thread safety: the action server lives in a ``ReentrantCallbackGroup``
 so ``execute_callback`` can block on the mission while the timer keeps
@@ -34,7 +36,7 @@ ticking; the policy mutex serializes ``policy(obs)`` and
 ``policy.reset()`` per the recurrent hidden-state contract's
 thread-safety point. Depth runs in its own callback group, so
 ``_on_depth`` and the tick execute on separate executor threads: a lock
-guards the depth ``(array, rx_t, seq)`` triple, and each tick snapshots
+guards the depth ``(array, stamp, rx_t, seq)`` tuple, and each tick snapshots
 it once so the watchdog, the freshness gate, and obs assembly all read
 one coherent frame — a bumped seq paired with the previous array would
 silently infer on the wrong frame. Every other cached source is written
@@ -50,6 +52,7 @@ import math
 import os
 import threading
 import time
+from collections import deque
 from pathlib import Path
 from typing import Optional
 
@@ -112,24 +115,26 @@ def _default_infer_period() -> float:
 _DEFAULT_VEL_CAP_LINEAR = NAV_LINEAR_VEL
 _DEFAULT_VEL_CAP_ANGULAR = NAV_ANGULAR_VEL
 
-# Depth uses a SENSOR_DATA-style profile: the freshness gate wants only the
-# newest frame, so a dropped frame should skip a tick, not trigger a reliable
-# retransmit that worsens congestion while large fragmented frames are already
-# being dropped. BEST_EFFORT receives from both a RELIABLE publisher (the sim
-# bridge, and realsense2_camera's SYSTEM_DEFAULT image streams) and a
-# BEST_EFFORT one (a depth_qos:=SENSOR_DATA override).
-_DEPTH_QOS = QoSProfile(
-    reliability=ReliabilityPolicy.BEST_EFFORT,
-    history=HistoryPolicy.KEEP_LAST,
-    depth=1,
-)
+# KEEP_LAST depth 1: the reader holds only the newest frame, which is all the
+# freshness gate ever wants. It also bounds what reliability can cost — a
+# recovered fragment cannot accumulate into a backlog of stale frames, so the
+# two settings are independent.
+_DEPTH_HISTORY_DEPTH = 1
 
-# A RELIABLE subscriber is QoS-incompatible with a BEST_EFFORT publisher and
-# receives nothing from one, so best_effort is the only safe default.
+# A RELIABLE subscriber receives nothing from a BEST_EFFORT publisher, so
+# best_effort is the safe default for a lane whose publisher QoS is unverified.
+# Both publishers in use resolve RELIABLE: the sim bridge's async camera
+# publisher, and realsense2_camera's SYSTEM_DEFAULT image streams (only its
+# IMU/HID streams default to SENSOR_DATA).
 _DEPTH_RELIABILITY = {
     "best_effort": ReliabilityPolicy.BEST_EFFORT,
     "reliable": ReliabilityPolicy.RELIABLE,
 }
+
+# Consumed-frame ages kept for the cadence line's percentiles. Covers a default
+# log period at the target rate with headroom, so the reported spread describes
+# the window just logged rather than the whole run.
+_DEPTH_AGE_WINDOW = 512
 
 
 class InferenceNode(Node):
@@ -308,6 +313,10 @@ class InferenceNode(Node):
         self._last_odom_rx_t: Optional[float] = None
         self._last_depth_meters: Optional[np.ndarray] = None
         self._last_depth_rx_t: Optional[float] = None
+        # Publisher stamp of the cached frame, carried alongside it so the age
+        # reported at consume time spans the whole path — render to inference —
+        # rather than the receive-to-tick leg alone.
+        self._last_depth_stamp_s: Optional[float] = None
         # Depth-frame counter (bumped in _on_depth): the tick runs at most
         # one inference per fresh frame. _last_inferred_depth_seq holds the
         # value consumed by the last policy call; -1 lets the first through.
@@ -315,7 +324,7 @@ class InferenceNode(Node):
         self._depth_seq = 0
         self._last_inferred_depth_seq = -1
         # _on_depth runs in its own callback group, concurrent with the tick.
-        # This lock guards the (array, rx_t, seq) triple so the tick reads a
+        # This lock guards the (array, stamp, rx_t, seq) tuple so the tick reads a
         # consistent snapshot; a fresh seq paired with a stale array would
         # silently infer on the wrong frame. Writes replace the array ref
         # (never mutate it), so a snapshotted ref stays valid without a copy.
@@ -365,6 +374,8 @@ class InferenceNode(Node):
         self._cadence_t_last_sim: Optional[float] = None
         self._last_timer_fire_sim: Optional[float] = None
         self._last_depth_digest: Optional[bytes] = None
+        # Appended only by the tick, which is serialized, so it needs no lock.
+        self._depth_age_s: deque[float] = deque(maxlen=_DEPTH_AGE_WINDOW)
         self._cadence_log_period_s = float(
             self.get_parameter("cadence_log_period_s").value
         )
@@ -428,6 +439,15 @@ class InferenceNode(Node):
             reliability = str(
                 self.get_parameter("depth_reliability").value
             ).strip().lower()
+            # Env override for the sim lane, whose publisher is known reliable;
+            # the yaml default is the real-robot value.
+            env_reliability = os.environ.get("STRAFER_DEPTH_RELIABILITY", "")
+            if env_reliability:
+                reliability = env_reliability.strip().lower()
+                self.get_logger().info(
+                    f"depth_reliability overridden to {reliability!r} via "
+                    "STRAFER_DEPTH_RELIABILITY"
+                )
             if reliability not in _DEPTH_RELIABILITY:
                 raise ValueError(
                     f"depth_reliability={reliability!r} is not one of "
@@ -436,7 +456,7 @@ class InferenceNode(Node):
             depth_qos = QoSProfile(
                 reliability=_DEPTH_RELIABILITY[reliability],
                 history=HistoryPolicy.KEEP_LAST,
-                depth=_DEPTH_QOS.depth,
+                depth=_DEPTH_HISTORY_DEPTH,
             )
             self._depth_sub = self.create_subscription(
                 Image, depth_topic, self._on_depth, depth_qos,
@@ -703,12 +723,14 @@ class InferenceNode(Node):
             )
             return
         rx_t = time.monotonic()
-        # Publish the frame as one atomic (array, rx_t, seq) update so the
+        stamp_s = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        # Publish the frame as one atomic (array, stamp, rx_t, seq) update so the
         # concurrent tick never pairs a bumped seq with the previous array.
-        # Validation/decode above stays outside the lock — only the triple
+        # Validation/decode above stays outside the lock — only the tuple
         # write is contended.
         with self._depth_lock:
             self._last_depth_meters = arr
+            self._last_depth_stamp_s = stamp_s
             self._last_depth_rx_t = rx_t
             self._depth_seq += 1
             self._counts["depth_rx"] += 1
@@ -889,18 +911,20 @@ class InferenceNode(Node):
             self._counts["ticks_depth"] += 1
         self._maybe_log_cadence()
 
-        # Consistent snapshot of the depth triple (array, rx_t, seq) under the
-        # lock: _on_depth may replace all three concurrently from its own
+        # Consistent snapshot of the depth tuple (array, stamp, rx_t, seq) under the
+        # lock: _on_depth may replace all four concurrently from its own
         # callback group. The rest of the tick reads only these locals plus
         # the tick-owned _last_inferred_depth_seq, so the frame the watchdog,
         # the gate, and obs assembly all see is one coherent frame.
         if self._has_depth:
             with self._depth_lock:
                 self._tick_depth_meters = self._last_depth_meters
+                depth_stamp_s = self._last_depth_stamp_s
                 depth_rx_t = self._last_depth_rx_t
                 depth_seq = self._depth_seq
         else:
             self._tick_depth_meters = None
+            depth_stamp_s = None
             depth_rx_t = None
             depth_seq = self._depth_seq  # 0; the gate is unreachable here
 
@@ -984,6 +1008,7 @@ class InferenceNode(Node):
         # regardless); depth variants only, others never read it.
         if self._has_depth:
             self._last_inferred_depth_seq = depth_seq
+            self._note_depth_age(depth_stamp_s)
 
         action = np.asarray(action, dtype=np.float32).reshape(-1)
         if action.shape[0] != 3:
@@ -1066,6 +1091,31 @@ class InferenceNode(Node):
             self._counts["depth_repeat_content"] += 1
         self._last_depth_digest = digest
 
+    def _note_depth_age(self, stamp_s: Optional[float]) -> None:
+        """Record how old the just-consumed frame was, publisher stamp to now.
+
+        Under ``use_sim_time`` both ends are sim seconds, so the figure is
+        comparable across the rig's varying RTF. A zero stamp (unstamped
+        publisher) or a clock still at zero (no ``/clock`` yet) has no age to
+        report.
+        """
+        if not stamp_s:
+            return
+        now_sim = self.get_clock().now().nanoseconds * 1e-9
+        if now_sim <= 0.0:
+            return
+        self._depth_age_s.append(now_sim - stamp_s)
+
+    def _depth_age_summary(self) -> str:
+        if not self._depth_age_s:
+            return "n/a"
+        ages = np.fromiter(self._depth_age_s, dtype=np.float64)
+        p50, p95 = np.percentile(ages, (50.0, 95.0))
+        return (
+            f"p50={p50:.3f} p95={p95:.3f} max={ages.max():.3f} s sim "
+            f"n={ages.size}"
+        )
+
     def _maybe_log_cadence(self) -> None:
         if self._cadence_log_period_s <= 0.0:
             return
@@ -1098,6 +1148,7 @@ class InferenceNode(Node):
             f"repeat_content={c['depth_repeat_content']} "
             f"bad_encoding={c['depth_bad_encoding']} "
             f"bad_shape={c['depth_bad_shape']} | "
+            f"depth_age {self._depth_age_summary()} | "
             f"timer_deadline_missed={c['timer_deadline_missed']} | "
             f"stale_sources[{stale}]"
         )

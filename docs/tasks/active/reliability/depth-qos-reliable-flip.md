@@ -194,6 +194,37 @@ address it, and the re-measure has to read both counters to tell them apart.
 
 ## What the rig session must run
 
+### Pre-flight: confirm the container is running this change, not the image's copy
+
+**The `strafer-gpu` image bakes the node code.** Its install space holds regular
+files, not symlinks — the image was built with a plain `colcon build`, so the
+dev overlay's header claim of `--symlink-install` does not hold for it, and
+bind-mounting the source over `/ws/src` changes nothing that runs. A dry run on
+2026-08-06 confirmed it: the container started, `docker compose config` showed
+`STRAFER_DEPTH_RELIABILITY=reliable` reaching it, and the node still subscribed
+`best_effort` because its code predated the parameter.
+
+Either rebuild the image, or with the dev overlay mounted run
+
+```
+docker compose ... exec inference \
+    bash -lc 'cd /ws && colcon build --symlink-install --packages-select strafer_inference'
+```
+
+and then `docker restart inference`. **Order matters:** `up -d --force-recreate`
+destroys the container and any in-container build with it, so the rebuild has to
+come *after* the final recreate, not before.
+
+**Two tells, both free, that say the running node is this code:**
+
+- startup logs `depth_reliability overridden to 'reliable' via STRAFER_DEPTH_RELIABILITY`;
+- the `cadence:` line contains a `depth_age` field.
+
+If either is missing, every number from that run describes the old node. Check
+both before recording anything.
+
+### Then
+
 1. **Bring the sim-bridge lane up** and confirm the override took:
    `docker compose … config` should show `STRAFER_DEPTH_RELIABILITY=reliable`
    on the `inference` service, and the node logs
@@ -209,6 +240,30 @@ address it, and the re-measure has to read both counters to tell them apart.
 4. **For the before/after that AC3 asks for**, take the `best_effort` reading
    with `STRAFER_DEPTH_RELIABILITY=best_effort` on the same lane — the
    instrument is reliability-agnostic, so the two arms differ in one variable.
+
+### Rig observations from the 2026-08-06 dry run (not measurements)
+
+A short session brought the bridge up to stage the measurement. It produced no
+AC2/AC3 numbers — recorded so the next session starts from the real state:
+
+- **The bridge rendered in ~10 minutes**, not the 45–90 documented as
+  first-frame latency, and delivered `/d555/depth/image_rect_raw` to a fresh
+  subscriber at 2.9–4.0 Hz wall against RTF ≈ 0.104, i.e. roughly the full sim
+  cadence. Cross-host discovery over Cyclone worked first try.
+- **Delivery is unstable under additional subscribers.** With the inference node
+  attached, an independent `ros2 topic hz` observer on the same topic dropped to
+  receiving nothing, while `/d555/color/image_raw` — same publisher, same size
+  class — kept flowing at ~3 Hz. This reproduced with the node on
+  **`best_effort`**, so it is **not** attributable to the reliability flip; the
+  first reading that blamed RELIABLE was withdrawn once the containers were
+  found to be running the image's older code.
+- **AC3 needs the full stack, confirmed.** With no SLAM/Nav2/mission the
+  watchdog trips every tick on `tf` / `goal` / `subgoal`, `inferences` stays 0
+  and `depth_age` reads `n/a` by construction. Depth *arrival* alone cannot
+  discharge AC3.
+
+Whether the delivery instability is a rig-capacity mode belongs to
+[`enriched-lane-rig-stability`](enriched-lane-rig-stability.md), not here.
 
 **A caveat on the 95% bar.** The 2026-08-02 wire measurement in that addendum
 put concurrent-subscriber delivery at **28.45 Hz sim**. AC2's ≥ 95% of 30 Hz is

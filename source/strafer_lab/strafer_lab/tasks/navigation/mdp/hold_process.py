@@ -150,7 +150,10 @@ class HoldProcess:
         begins = (~was_holding) & (draw < self._enter_p)
         held = begins | (was_holding & (draw >= self._exit_p))
 
-        if self._burst_weight > 0.0 and bool(torch.any(begins)):
+        # A run's component is chosen once, when the run begins, so its law does
+        # not change mid-run. Written branch-free: guarding on ``begins.any()``
+        # would read a device tensor on the host every control step.
+        if self._burst_weight > 0.0:
             burst = torch.rand(self._num_envs, device=self._device) < self._burst_weight
             self._exit_p = torch.where(
                 begins,

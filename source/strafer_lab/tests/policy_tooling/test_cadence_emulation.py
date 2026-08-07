@@ -107,6 +107,23 @@ class TestVerifyTermLayout:
         with pytest.raises(ValueError, match="not a signed heading term"):
             ece.verify_term_layout(names, dims, variant)
 
+    def test_equal_width_swap_of_relative_and_body_velocity_is_caught(self):
+        variant = PolicyVariant.DEPTH_SUBGOAL
+        names, dims = self._names_and_dims(variant)
+        # Both are 2-wide, so every width check passes and a drift arm would
+        # perturb chassis velocity instead of the referent.
+        names[3], names[6] = names[6], names[3]
+        assert dims[3] == dims[6]
+        with pytest.raises(ValueError, match="not a relative-position term"):
+            ece.verify_term_layout(names, dims, variant)
+
+    def test_equal_width_swap_at_the_distance_dim_is_caught(self):
+        variant = PolicyVariant.DEPTH_SUBGOAL
+        names, dims = self._names_and_dims(variant)
+        names[4] = "goal_heading_to_goal"  # same width, wrong quantity
+        with pytest.raises(ValueError, match="not a distance term"):
+            ece.verify_term_layout(names, dims, variant)
+
     def test_non_trailing_depth_block_is_caught(self):
         variant = PolicyVariant.DEPTH_SUBGOAL
         names, dims = self._names_and_dims(variant)
@@ -734,6 +751,15 @@ _RELATIVE_SPAN = _SLICES[ece.relative_key(_VARIANT)]
 _HEADING_SCALE = next(
     f.scale for f in _VARIANT.fields if f.key == ece.bearing_key(_VARIANT)
 )
+_DIST_SCALE = next(
+    f.scale for f in _VARIANT.fields if f.key == ece.relative_key(_VARIANT)
+)
+_QUARTET_INDICES = (
+    _RELATIVE_SPAN.start,
+    _RELATIVE_SPAN.start + 1,
+    _SLICES[ece.distance_key(_VARIANT)].start,
+    _BEARING_INDEX,
+)
 
 
 class _FakeCursor:
@@ -840,6 +866,7 @@ class _FakePolicy:
         self.num_envs = num_envs
         self.rnn = type("RNN", (), {"hidden_state": None})()
         self.calls = 0
+        self.reset_calls = 0
         self.seen_depth = []
 
     def __call__(self, obs):
@@ -853,13 +880,22 @@ class _FakePolicy:
         return self._torch.tanh(flat[:, 0:3] * 0.5)
 
     def reset(self, dones=None):
+        self.reset_calls += 1
         if dones is None:
             self.rnn.hidden_state = None
         elif self.rnn.hidden_state is not None:
             self.rnn.hidden_state[..., dones == 1, :] = 0.0
 
 
-def _drive_arm(profile_name, *, episodes=25, warmup=0, seed=0):
+def _drive_arm(
+    profile_name,
+    *,
+    episodes=25,
+    warmup=0,
+    seed=0,
+    reset_hidden_on_done=True,
+    drift=None,
+):
     torch = pytest.importorskip("torch")
     env = _FakeEnv(6, np.random.default_rng(seed), torch)
     policy = _FakePolicy(6, torch)
@@ -881,6 +917,8 @@ def _drive_arm(profile_name, *, episodes=25, warmup=0, seed=0):
         depth_span=_DEPTH_SPAN, bearing_index=_BEARING_INDEX,
         relative_span=_RELATIVE_SPAN, heading_scale=_HEADING_SCALE,
         episode_budget=episodes, step_budget=4000, min_command=0.05, tick_hz=30.0,
+        quartet_indices=_QUARTET_INDICES, dist_scale=_DIST_SCALE,
+        drift=drift, reset_hidden_on_done=reset_hidden_on_done,
     )
     return result, env, policy, np.stack(kinds_log)
 
@@ -1114,3 +1152,326 @@ class TestInferenceTensorDiscipline:
 
         ece.reset_between_arms(_Env(), _Policy(), torch)
         assert calls == {"env": 1, "policy": 1}
+
+
+# ---------------------------------------------------------------------------
+# Referent-frame drift
+# ---------------------------------------------------------------------------
+
+
+def _quartet(rel):
+    """Build the scaled four-dim referent block from body-frame vectors."""
+    rel = np.atleast_2d(np.asarray(rel, dtype=np.float64))
+    return np.stack(
+        [
+            rel[:, 0] * _DIST_SCALE,
+            rel[:, 1] * _DIST_SCALE,
+            np.hypot(rel[:, 0], rel[:, 1]) * _DIST_SCALE,
+            np.arctan2(rel[:, 1], rel[:, 0]) * _HEADING_SCALE,
+        ],
+        axis=1,
+    )
+
+
+def _drifted(quartet, offsets):
+    return ece.drifted_quartet(
+        quartet, offsets, dist_scale=_DIST_SCALE, heading_scale=_HEADING_SCALE
+    )
+
+
+class TestDriftedQuartet:
+    """The four dims are near-redundant, so they move as one geometry."""
+
+    def test_zero_offset_is_an_exact_no_op(self):
+        quartet = _quartet([[1.2, -0.4]])
+        out = _drifted(quartet, np.zeros((1, 3)))
+        assert np.allclose(out, quartet, atol=1e-12)
+
+    def test_pure_rotation_preserves_distance_and_shifts_the_bearing(self):
+        quartet = _quartet([[2.0, 0.0]])
+        angle = np.radians(15.0)
+        out = _drifted(quartet, np.array([[0.0, 0.0, angle]]))
+        assert out[0, 2] == pytest.approx(quartet[0, 2], rel=1e-9)
+        assert out[0, 3] / _HEADING_SCALE == pytest.approx(angle, rel=1e-9)
+
+    def test_pure_translation_moves_distance_with_the_referent(self):
+        quartet = _quartet([[2.0, 0.0]])
+        out = _drifted(quartet, np.array([[0.5, 0.0, 0.0]]))
+        assert out[0, 2] / _DIST_SCALE == pytest.approx(2.5, rel=1e-9)
+        assert out[0, 3] == pytest.approx(0.0, abs=1e-12)
+
+    def test_lateral_translation_produces_the_expected_bearing(self):
+        # 0.166 m of lateral offset at a 1.0 m lookahead: the position and
+        # heading knobs are near-equal in effect, so they do not separate.
+        quartet = _quartet([[1.0, 0.0]])
+        out = _drifted(quartet, np.array([[0.0, 0.166, 0.0]]))
+        assert np.degrees(out[0, 3] / _HEADING_SCALE) == pytest.approx(9.425, abs=1e-3)
+
+    def test_output_is_self_consistent_for_random_inputs(self):
+        rng = np.random.default_rng(11)
+        rel = rng.normal(size=(128, 2)) * 3.0
+        quartet = _quartet(rel)
+        offsets = rng.normal(size=(128, 3)) * 0.25
+        out = _drifted(quartet, offsets)
+        out_x = out[:, 0] / _DIST_SCALE
+        out_y = out[:, 1] / _DIST_SCALE
+        assert np.allclose(out[:, 2] / _DIST_SCALE, np.hypot(out_x, out_y))
+        assert np.allclose(out[:, 3] / _HEADING_SCALE, np.arctan2(out_y, out_x))
+
+    def test_bearing_stays_wrapped(self):
+        rng = np.random.default_rng(3)
+        quartet = _quartet(rng.normal(size=(256, 2)) * 4.0)
+        out = _drifted(quartet, rng.normal(size=(256, 3)) * 1.5)
+        bearing = out[:, 3] / _HEADING_SCALE
+        assert np.all(bearing > -np.pi - 1e-12)
+        assert np.all(bearing <= np.pi + 1e-12)
+
+    def test_shapes_are_validated(self):
+        with pytest.raises(ValueError, match=r"quartet must be \(N, 4\)"):
+            _drifted(np.zeros((2, 3)), np.zeros((2, 3)))
+        with pytest.raises(ValueError, match="offsets must be"):
+            _drifted(np.zeros((2, 4)), np.zeros((3, 3)))
+
+
+class TestSubgoalDrift:
+    """Integrated, not resampled: localization error accumulates."""
+
+    def _drift(self, **overrides):
+        params = dict(
+            num_envs=64,
+            position_rms_m=0.166,
+            heading_sigma_rad=np.radians(6.7),
+            tau_s=2.0,
+            step_dt=1.0 / 30.0,
+            rng=np.random.default_rng(7),
+        )
+        params.update(overrides)
+        return ece.SubgoalDrift(**params)
+
+    def test_axis_sigma_is_the_rms_over_root_two(self):
+        drift = self._drift()
+        assert drift.position_sigma_axis_m == pytest.approx(0.166 / np.sqrt(2.0))
+
+    def test_stationary_magnitudes_match_the_request(self):
+        drift = self._drift(num_envs=512)
+        for _ in range(3000):
+            drift.step()
+        realized = drift.realized()
+        assert realized["position_rms_m"] == pytest.approx(0.166, rel=0.05)
+        assert realized["heading_sigma_deg"] == pytest.approx(6.7, rel=0.05)
+
+    def test_correlation_time_sets_the_one_step_decay(self):
+        drift = self._drift(num_envs=4096)
+        previous = None
+        for _ in range(400):
+            previous = drift.step().copy()
+        current = drift.step()
+        slope = float(np.sum(previous * current) / np.sum(previous * previous))
+        assert slope == pytest.approx(np.exp(-(1.0 / 30.0) / 2.0), rel=0.05)
+
+    def test_a_longer_tau_holds_an_excursion_longer(self):
+        slow = self._drift(tau_s=8.0, num_envs=2048)
+        fast = self._drift(tau_s=0.5, num_envs=2048)
+        for _ in range(600):
+            slow_state = slow.step().copy()
+            fast_state = fast.step().copy()
+        slow_next = slow.step()
+        fast_next = fast.step()
+        slow_slope = float(np.sum(slow_state * slow_next) / np.sum(slow_state**2))
+        fast_slope = float(np.sum(fast_state * fast_next) / np.sum(fast_state**2))
+        assert slow_slope > fast_slope
+
+    def test_reset_re_anchors_only_the_masked_envs(self):
+        drift = self._drift(num_envs=6)
+        for _ in range(50):
+            state = drift.step()
+        assert np.any(state != 0.0)
+        mask = np.array([True, False, True, False, False, False])
+        carried = state[~mask].copy()
+        drift.reset(mask)
+        assert np.all(drift._state[mask] == 0.0)
+        assert np.array_equal(drift._state[~mask], carried)
+
+    def test_disabled_when_both_magnitudes_are_zero(self):
+        assert not self._drift(position_rms_m=0.0, heading_sigma_rad=0.0).enabled
+        assert self._drift(position_rms_m=0.0).enabled
+        assert self._drift(heading_sigma_rad=0.0).enabled
+
+    def test_realized_reports_the_request_alongside_what_was_applied(self):
+        drift = self._drift()
+        drift.step()
+        realized = drift.realized()
+        assert realized["requested_position_rms_m"] == pytest.approx(0.166)
+        assert realized["requested_heading_sigma_deg"] == pytest.approx(6.7)
+        assert realized["tau_s"] == pytest.approx(2.0)
+        assert realized["samples"] == 64
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"tau_s": 0.0},
+            {"tau_s": -1.0},
+            {"step_dt": 0.0},
+            {"position_rms_m": -0.1},
+            {"heading_sigma_rad": -0.1},
+        ],
+    )
+    def test_invalid_parameters_are_rejected(self, overrides):
+        with pytest.raises(ValueError):
+            self._drift(**overrides)
+
+
+class TestArmLabel:
+    """An arm still labelled `clean` must be the untouched baseline."""
+
+    def test_untouched_profile_keeps_its_name(self):
+        assert ece.arm_label("clean", hidden_reset=True, drift_gain=None) == "clean"
+
+    def test_hidden_reset_off_is_named(self):
+        assert (
+            ece.arm_label("clean", hidden_reset=False, drift_gain=None)
+            == "clean+nohreset"
+        )
+
+    def test_drift_gain_is_named(self):
+        assert (
+            ece.arm_label("clean", hidden_reset=True, drift_gain=0.5)
+            == "clean+drift0.5x"
+        )
+
+    def test_composed_arm_names_every_active_knob(self):
+        assert (
+            ece.arm_label("band", hidden_reset=False, drift_gain=1.0)
+            == "band+nohreset+drift1x"
+        )
+
+    def test_zero_gain_is_not_named(self):
+        assert ece.arm_label("band", hidden_reset=True, drift_gain=0.0) == "band"
+
+
+class TestDuplicateAxisCells:
+    """Hold-0 duplicate-axis cells, against the harness validation ceiling."""
+
+    @pytest.mark.parametrize(
+        "stale_fraction, mean_stale_run",
+        [(0.61, 2.0), (0.76, 4.0), (0.233, 1.2)],
+    )
+    def test_pre_registered_cells_clear_the_ceiling(
+        self, stale_fraction, mean_stale_run
+    ):
+        profile = ece.TemporalProfile(
+            name="cell",
+            hold_fraction=0.0,
+            stale_fraction=stale_fraction,
+            mean_stale_run=mean_stale_run,
+        )
+        assert profile.stale_fraction == pytest.approx(stale_fraction)
+
+    def test_the_degraded_run_length_cannot_reach_the_rate_parity_fraction(self):
+        # `degraded` carries mean_stale_run 1.0, whose ceiling is 0.5.
+        with pytest.raises(ValueError):
+            ece.TemporalProfile(
+                name="cell",
+                hold_fraction=0.0,
+                stale_fraction=0.61,
+                mean_stale_run=1.0,
+            )
+
+    def test_burst_knobs_are_inert_once_holds_are_off(self):
+        bursty = ece.TemporalProfile(
+            name="cell",
+            hold_fraction=0.0,
+            burst_weight=0.25,
+            mean_burst_run=6.0,
+            stale_fraction=0.61,
+            mean_stale_run=2.0,
+        )
+        sampler = ece.ScheduleSampler(bursty, 8, np.random.default_rng(0))
+        for _ in range(400):
+            kinds = sampler.next()
+            assert not np.any(kinds == ece.TICK_HELD)
+
+
+class TestResidualArms:
+    """Arms A through C driven through the rollout loop against mocks."""
+
+    def _drift(self, num_envs=6, **overrides):
+        params = dict(
+            num_envs=num_envs,
+            position_rms_m=0.166,
+            heading_sigma_rad=np.radians(6.7),
+            tau_s=2.0,
+            step_dt=1.0 / 30.0,
+            rng=np.random.default_rng(5),
+        )
+        params.update(overrides)
+        return ece.SubgoalDrift(**params)
+
+    def test_hidden_state_is_reset_at_boundaries_by_default(self):
+        result, _, policy, kinds = _drive_arm("clean", episodes=12)
+        assert policy.reset_calls == kinds.shape[0]
+        assert result["hidden_reset_on_done"] is True
+
+    def test_the_hidden_state_carries_when_the_reset_is_guarded(self):
+        result, _, policy, _ = _drive_arm(
+            "clean", episodes=12, reset_hidden_on_done=False
+        )
+        assert policy.reset_calls == 0
+        assert result["hidden_reset_on_done"] is False
+
+    def test_environments_still_reset_when_the_hidden_state_carries(self):
+        result, _, _, _ = _drive_arm(
+            "clean", episodes=12, reset_hidden_on_done=False
+        )
+        # Episodes still end and are still scored; only the recurrent state
+        # spans the chain.
+        assert len(result["episodes"]) >= 12
+        assert result["summary"]["episodes"] >= 12
+
+    def test_episode_index_counts_chain_depth_per_env(self):
+        result, _, _, _ = _drive_arm(
+            "clean", episodes=24, reset_hidden_on_done=False
+        )
+        per_env: dict[int, list[int]] = {}
+        for episode in result["episodes"]:
+            per_env.setdefault(episode["env"], []).append(episode["episode_index"])
+        assert per_env
+        for indices in per_env.values():
+            assert indices == list(range(len(indices)))
+
+    def test_drift_off_reports_no_perceived_offset(self):
+        result, _, _, _ = _drive_arm("clean", episodes=8)
+        assert result["direction_offset_perceived"] is None
+        assert result["subgoal_drift"] is None
+
+    def test_drift_does_not_overwrite_the_truth_referent(self):
+        # `clean` never splices depth, so the policy observation aliases the
+        # env's own buffer until the drift path clones it. Without that clone
+        # the truth and perceived readouts would be the same tensor.
+        result, _, _, _ = _drive_arm(
+            "clean", episodes=14, drift=self._drift(position_rms_m=1.5)
+        )
+        truth = result["direction_offset"]
+        perceived = result["direction_offset_perceived"]
+        assert perceived is not None
+        assert truth["samples"] > 0 and perceived["samples"] > 0
+        assert truth["median_deg"] != pytest.approx(perceived["median_deg"], abs=1e-6)
+
+    def test_drift_reports_what_it_applied(self):
+        result, _, _, _ = _drive_arm("clean", episodes=8, drift=self._drift())
+        realized = result["subgoal_drift"]
+        assert realized["samples"] > 0
+        assert realized["requested_position_rms_m"] == pytest.approx(0.166)
+        assert realized["position_rms_m"] > 0.0
+
+    def test_composed_arm_runs_with_both_knobs(self):
+        result, _, policy, _ = _drive_arm(
+            "band",
+            episodes=12,
+            reset_hidden_on_done=False,
+            drift=self._drift(),
+        )
+        assert policy.reset_calls == 0
+        assert result["subgoal_drift"]["samples"] > 0
+        assert result["direction_offset_perceived"] is not None
+        assert result["summary"]["episodes"] >= 12

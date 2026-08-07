@@ -425,6 +425,17 @@ Arm D adoption note must carry that cost.
 - The bearing is the bearing *to the subgoal*, not the path tangent. The
   tangent exists on the command term and is never observed, so Arm B perturbs
   everything the policy can see about the subgoal frame.
+- **Launching it.** `isaaclab.sh -p` resolves whatever `python` is on `PATH`
+  and falls back to base conda without erroring, so the cheatsheet's
+  `$ISAACLAB -p` line only works from a shell that already has the Isaac
+  environment active. From a fresh one it dies on `ModuleNotFoundError: torch`
+  before Kit boots.
+- **Realized drift reads below requested, and should.** The process re-anchors
+  at every episode boundary and needs roughly three time constants to reach its
+  stationary magnitude, so an arm's applied RMS is `sqrt(1 - (tau/2T)(1 -
+  exp(-2T/tau)))` of the request for mean episode length `T`. At the 20 s cap
+  that is ~97%; on a short dry run it is visibly less. Read the shortfall
+  against that expression before treating it as a defect.
 - Scale constants: `GOAL_DIST_SCALE = 1/10`, `HEADING_SCALE = 1/π`,
   `GOAL_DIST_MAX = 10.0`, `SUBGOAL_LOOKAHEAD_M = 1.0` randomized to (0.7, 1.3)
   on the ROBUST tier — the lookahead band is why the position and heading knobs

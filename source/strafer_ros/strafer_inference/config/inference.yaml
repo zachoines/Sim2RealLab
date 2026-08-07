@@ -90,8 +90,14 @@
     # either way.
     tick_on_depth: true
 
-    # A RELIABLE subscriber receives nothing from a BEST_EFFORT publisher, e.g.
-    # a camera brought up with depth_qos:=SENSOR_DATA.
+    # Depth subscription reliability. A RELIABLE subscriber receives nothing
+    # from a BEST_EFFORT publisher, e.g. a camera brought up with
+    # depth_qos:=SENSOR_DATA, so this stays best_effort wherever the publisher
+    # QoS is not pinned. STRAFER_DEPTH_RELIABILITY overrides it per lane; the
+    # sim-bridge lane sets "reliable" because its publisher is RELIABLE and the
+    # recovered fragments are inferences the recurrent policy would otherwise
+    # skip. The history depth stays 1 either way, so neither setting can serve
+    # a backlog of stale frames.
     depth_reliability: "best_effort"
 
     # One per callback group that can block: tick, depth, action server,

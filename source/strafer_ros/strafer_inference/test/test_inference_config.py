@@ -665,5 +665,7 @@ class TestCadenceConfig:
         assert int(node_params["executor_threads"]) >= 5
 
     def test_depth_reliability_default(self, node_params):
-        # A RELIABLE subscriber receives nothing from a BEST_EFFORT publisher.
+        # A RELIABLE subscriber receives nothing from a BEST_EFFORT publisher,
+        # so the shipped default suits a lane whose publisher QoS is not
+        # pinned; the sim lanes opt in via STRAFER_DEPTH_RELIABILITY.
         assert node_params["depth_reliability"] == "best_effort"

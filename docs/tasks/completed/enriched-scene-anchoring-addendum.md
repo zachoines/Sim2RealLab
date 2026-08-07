@@ -228,7 +228,7 @@ Committed before the session runs, so the outcome cannot be read backwards.
 ## Out of scope
 
 - Any code change.
-- The depth QoS flip — [`depth-qos-reliable-flip`](../active/reliability/depth-qos-reliable-flip.md)
+- The depth QoS flip — [`depth-qos-reliable-flip`](depth-qos-reliable-flip.md)
   owns it and may proceed in parallel or first. **If it lands before this
   session, note the changed build label** in the findings.
 - The v2 ONNX export, which is exonerated above.

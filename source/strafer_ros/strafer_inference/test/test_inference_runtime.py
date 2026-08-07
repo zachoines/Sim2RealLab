@@ -1,4 +1,4 @@
-"""Phase 3 node-integration tests for the runtime: model-load failure
+"""Node-integration tests for the runtime: model-load failure
 modes, reset-trigger wiring, and the recurrent two-pronged determinism
 assertion at the policy-stub seam.
 
@@ -29,7 +29,7 @@ from sensor_msgs.msg import Image
 
 from strafer_shared.constants import GOAL_ARRIVAL_RADIUS_M
 
-from strafer_inference.inference_node import InferenceNode
+from strafer_inference.inference_node import _DEPTH_AGE_WINDOW, InferenceNode
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -566,7 +566,7 @@ class TestSidecarObsDimGuard(unittest.TestCase):
 class TestModelLoadFailure(unittest.TestCase):
     """Brief: model-load failure is fatal — the action server must NOT
     advertise, so JetsonRosClient's wait_for_server times out and the
-    backend dispatcher falls back to nav2 per Phase 4.
+    backend dispatcher falls back to nav2.
     """
 
     def test_empty_model_path_skips_action_server(self) -> None:
@@ -1742,25 +1742,42 @@ def _seq_depth_msg(seq: int, h: int = 4, w: int = 4) -> Image:
 
 
 class TestDepthQoSProfile(unittest.TestCase):
-    """The depth subscription runs a SENSOR_DATA-style profile (BEST_EFFORT,
-    KEEP_LAST, small depth). A lost fragmented frame is then skipped (the
-    freshness gate wants only the newest frame) rather than reliably
-    retransmitted into a congested receiver, and the sub is compatible with
-    both a RELIABLE and a BEST_EFFORT publisher.
+    """The depth subscription is KEEP_LAST depth 1 on either reliability, so the
+    reader holds only the newest frame and reliability cannot buy a rate back by
+    serving a backlog. Reliability itself is a per-lane lever; the yaml default
+    is BEST_EFFORT, which receives from a publisher of either kind.
     """
 
-    def test_depth_sub_is_best_effort_keep_last_small(self) -> None:
-        from rclpy.qos import HistoryPolicy, ReliabilityPolicy
+    def test_depth_sub_defaults_to_best_effort(self) -> None:
+        from rclpy.qos import ReliabilityPolicy
 
+        os.environ.pop("STRAFER_DEPTH_RELIABILITY", None)
         node = InferenceNode(parameter_overrides=_make_overrides(
             model_path="", policy_variant="DEPTH"))
         try:
-            qos = node._depth_sub.qos_profile
-            self.assertEqual(qos.reliability, ReliabilityPolicy.BEST_EFFORT)
-            self.assertEqual(qos.history, HistoryPolicy.KEEP_LAST)
-            self.assertEqual(qos.depth, 1)
+            self.assertEqual(
+                node._depth_sub.qos_profile.reliability,
+                ReliabilityPolicy.BEST_EFFORT,
+            )
         finally:
             node.destroy_node()
+
+    def test_history_is_keep_last_one_on_either_reliability(self) -> None:
+        """The staleness bound: a reliable subscription recovers a lost
+        fragment but still cannot queue an older frame ahead of a newer one."""
+        from rclpy.qos import HistoryPolicy
+
+        os.environ.pop("STRAFER_DEPTH_RELIABILITY", None)
+        for reliability in ("best_effort", "reliable"):
+            node = InferenceNode(parameter_overrides=_make_overrides(
+                model_path="", policy_variant="DEPTH",
+                depth_reliability=reliability))
+            try:
+                qos = node._depth_sub.qos_profile
+                self.assertEqual(qos.history, HistoryPolicy.KEEP_LAST)
+                self.assertEqual(qos.depth, 1)
+            finally:
+                node.destroy_node()
 
     def test_depth_sub_uses_dedicated_callback_group(self) -> None:
         """Depth sits on its own callback group (not the tick's default group)
@@ -2260,7 +2277,11 @@ class TestCadenceCounters(unittest.TestCase):
 
 
 class TestDepthReliabilityLever(unittest.TestCase):
-    """The depth subscription's reliability is a named lever."""
+    """The depth subscription's reliability is a named lever, settable by
+    parameter or by the per-lane STRAFER_DEPTH_RELIABILITY env override."""
+
+    def setUp(self) -> None:
+        os.environ.pop("STRAFER_DEPTH_RELIABILITY", None)
 
     def test_default_is_best_effort(self) -> None:
         node = _node(policy_variant="DEPTH_SUBGOAL")
@@ -2287,3 +2308,128 @@ class TestDepthReliabilityLever(unittest.TestCase):
     def test_unknown_reliability_is_rejected(self) -> None:
         with pytest.raises(ValueError, match="depth_reliability"):
             _node(policy_variant="DEPTH_SUBGOAL", depth_reliability="maybe")
+
+    def test_env_override_wins_over_the_param(self) -> None:
+        os.environ["STRAFER_DEPTH_RELIABILITY"] = "reliable"
+        try:
+            node = _node(
+                policy_variant="DEPTH_SUBGOAL", depth_reliability="best_effort"
+            )
+        finally:
+            del os.environ["STRAFER_DEPTH_RELIABILITY"]
+        try:
+            self.assertEqual(
+                node._depth_sub.qos_profile.reliability,
+                ReliabilityPolicy.RELIABLE,
+            )
+        finally:
+            node.destroy_node()
+
+    def test_unset_env_keeps_the_param_value(self) -> None:
+        node = _node(policy_variant="DEPTH_SUBGOAL", depth_reliability="reliable")
+        try:
+            self.assertEqual(
+                node._depth_sub.qos_profile.reliability,
+                ReliabilityPolicy.RELIABLE,
+            )
+        finally:
+            node.destroy_node()
+
+    def test_unknown_env_override_is_rejected(self) -> None:
+        os.environ["STRAFER_DEPTH_RELIABILITY"] = "sometimes"
+        try:
+            with pytest.raises(ValueError, match="depth_reliability"):
+                _node(policy_variant="DEPTH_SUBGOAL")
+        finally:
+            del os.environ["STRAFER_DEPTH_RELIABILITY"]
+
+
+class TestDepthAgeInstrument(unittest.TestCase):
+    """Consumed-frame age — publisher stamp to inference — is what says whether
+    a recovered arrival rate was paid for in staleness."""
+
+    @staticmethod
+    def _at_sim(node: InferenceNode, t_s: float) -> None:
+        node.get_clock = MagicMock(  # type: ignore[method-assign]
+            return_value=SimpleNamespace(
+                now=lambda: SimpleNamespace(nanoseconds=int(t_s * 1e9))
+            )
+        )
+
+    @staticmethod
+    def _stamped(fill: float, stamp_s: float) -> Image:
+        msg = _depth_msg(fill=fill)
+        msg.header.stamp.sec = int(stamp_s)
+        msg.header.stamp.nanosec = int(round((stamp_s % 1.0) * 1e9))
+        return msg
+
+    def test_age_spans_publisher_stamp_to_inference(self) -> None:
+        node = _ready_depth_node()
+        try:
+            self._at_sim(node, 1.25)
+            node._on_depth(self._stamped(1.0, stamp_s=1.0))
+            node._on_tick(source="depth")
+            self.assertEqual(node._counts["inferences"], 1)
+            self.assertEqual(len(node._depth_age_s), 1)
+            self.assertAlmostEqual(node._depth_age_s[0], 0.25, places=6)
+        finally:
+            node.destroy_node()
+
+    def test_gate_skipped_tick_records_no_age(self) -> None:
+        """Only a frame the policy actually consumed has an age at inference."""
+        node = _ready_depth_node()
+        try:
+            self._at_sim(node, 1.25)
+            node._on_depth(self._stamped(1.0, stamp_s=1.0))
+            node._on_tick(source="depth")
+            node._on_tick(source="timer")   # no fresher frame: the gate skips
+            self.assertEqual(node._counts["skip_gate"], 1)
+            self.assertEqual(len(node._depth_age_s), 1)
+        finally:
+            node.destroy_node()
+
+    def test_unstamped_publisher_reports_no_age(self) -> None:
+        node = _ready_depth_node()
+        try:
+            self._at_sim(node, 1.25)
+            node._on_depth(_depth_msg(fill=1.0))   # stamp left at zero
+            node._on_tick(source="depth")
+            self.assertEqual(node._counts["inferences"], 1)
+            self.assertEqual(len(node._depth_age_s), 0)
+            self.assertEqual(node._depth_age_summary(), "n/a")
+        finally:
+            node.destroy_node()
+
+    def test_summary_reports_the_spread(self) -> None:
+        node = _ready_depth_node()
+        try:
+            for k in range(4):
+                self._at_sim(node, 10.0 + k)
+                node._on_depth(self._stamped(float(k), stamp_s=10.0 + k - 0.1))
+                node._on_tick(source="depth")
+            summary = node._depth_age_summary()
+            for token in ("p50=", "p95=", "max=", "s sim", "n=4"):
+                self.assertIn(token, summary)
+        finally:
+            node.destroy_node()
+
+    def test_window_is_bounded(self) -> None:
+        node = _ready_depth_node()
+        try:
+            self.assertEqual(node._depth_age_s.maxlen, _DEPTH_AGE_WINDOW)
+        finally:
+            node.destroy_node()
+
+    def test_age_appears_in_the_cadence_line(self) -> None:
+        node = _ready_depth_node(cadence_log_period_s=0.001)
+        try:
+            self._at_sim(node, 1.25)
+            node._on_depth(self._stamped(1.0, stamp_s=1.0))
+            node._on_tick(source="depth")
+            info = MagicMock()
+            node.get_logger().info = info
+            node._last_cadence_log_t = 0.0
+            node._maybe_log_cadence()
+            self.assertIn("depth_age p50=", info.call_args[0][0])
+        finally:
+            node.destroy_node()

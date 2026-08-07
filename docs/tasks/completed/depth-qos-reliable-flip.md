@@ -18,7 +18,9 @@ this brief no longer carries.
 **Owner:** Jetson
 **Priority:** P1 — it costs the policy ~20% of its training cadence on every
 mission, and the loss is at the receiver, so no amount of node-side work
-recovers it.
+recovers it. *(As filed. The last clause is what the rig refuted: the loss is
+receiver-**host** capacity, and node-side work is exactly where the remaining
+lever sits.)*
 **Estimate:** S (one parameter, one QoS profile, plus a re-measure)
 **Branch:** `task/depth-qos-reliable-flip`
 
@@ -400,19 +402,27 @@ variance and per-modality staleness skew, not the mean alone. That is why the
       depth history depth is raised, with the choice justified against measured
       numbers rather than asserted. — **reliability flipped, history depth held
       at 1**; basis in [Decision and its basis](#decision-and-its-basis).
-- [ ] **NOT MET, and the criterion's premise is refuted.** Measured 2026-08-06:
-      the node reached at best 25.0 Hz sim (83%), never ≥ 95%, on either QoS;
-      node-vs-probe agreement ranged 4%–37% across arms. But an independent
-      reliable probe with the node *stopped* reads ~28.5 Hz sim, so the wire is
-      not the constraint and the QoS is not the lever — see
+- [ ] Re-measure with the same method: node `depth_rx` in sim Hz, and a
+      **concurrent** independent subscriber. Both must read within 10% of each
+      other; the node must reach ≥ 95% of the 30 Hz target.
+      → **NOT MET, and the criterion's premise is refuted.** Measured
+      2026-08-06: the node reached at best 25.0 Hz sim (83%), never ≥ 95%, on
+      either QoS; node-vs-probe agreement ranged 4%–37% across arms. But an
+      independent reliable probe with the node *stopped* reads ~28.5 Hz sim, so
+      the wire is not the constraint and the QoS is not the lever — see
       [Rig measurement](#rig-measurement-2026-08-06--the-premise-does-not-hold).
-      Re-scoping this against receiver-host capacity is a coordinator call.
-- [ ] **Instrument ships; reading not obtainable on this rig.** No inference
-      ran — SLAM cannot seed while depth delivery is degraded, so `map→base_link`
-      never published and the watchdog held every tick, leaving `depth_age` at
-      `n/a` by construction. The one staleness figure the session did get points
-      the right way: probe frame age at receipt was p50 = 0.017 s sim on both
-      QoS in the settled arms, i.e. reliability bought no staleness.
+      Re-scoped onto
+      [`depth-receiver-host-capacity`](../active/reliability/depth-receiver-host-capacity.md).
+- [ ] Confirm no regression in end-to-end latency — a reliable subscription
+      that buffers stale frames would trade a rate loss for a staleness loss.
+      Report the depth age at inference time before and after.
+      → **Instrument ships; the reading was not obtainable on this rig.** No
+      inference ran — SLAM cannot seed while depth delivery is degraded, so
+      `map→base_link` never published and the watchdog held every tick, leaving
+      `depth_age` at `n/a` by construction. The one staleness figure the session
+      did get points the right way: probe frame age at receipt was
+      p50 = 0.017 s sim on both QoS in the settled arms, i.e. reliability bought
+      no staleness.
 - [ ] **Not run** — blocked behind the same rig limit: the full stack never
       seeded. Re-run at least one arm of the anchoring re-validation goal set and report
       whether the advance numbers move at all. **Whether they move is itself a

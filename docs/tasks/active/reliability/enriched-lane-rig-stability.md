@@ -427,14 +427,20 @@ instance**. On an idle GPU expect 10–20 min to first frames; poll
 
 ## Out of scope
 
-- The depth QoS flip — [`depth-qos-reliable-flip`](../../completed/depth-qos-reliable-flip.md)
-  owns it, and owns the shortfall it names: frames lost at the node's own
-  receive layer, not any of the four modes here. The "executor blocked during
-  inference" gloss once attached to that shortfall does **not** survive the
-  code — depth has had its own callback group and its own executor thread since
-  `70323c8` — and the starvation it names was bounded at 2.9% and refuted in
-  [`inference-cadence-shortfall`](../../completed/inference-cadence-shortfall.md).
+- The depth cadence shortfall —
+  [`depth-receiver-host-capacity`](depth-receiver-host-capacity.md) owns it, and
+  it is none of the four modes here. Its mechanism is settled as far as
+  attribution goes and open as to location: depth delivery collapses 4–6× the
+  moment the inference container runs, on `best_effort` as well as `reliable`,
+  while an independent probe reads ~28.5 Hz sim with the node stopped. The QoS
+  reading that preceded it is closed premise-refuted in
+  [`depth-qos-reliable-flip`](../../completed/depth-qos-reliable-flip.md), whose
+  per-lane override and `depth_age` instrument still ship. The "executor blocked
+  during inference" gloss once attached to this shortfall does **not** survive
+  the code — depth has had its own callback group and its own executor thread
+  since `70323c8` — and the starvation it names was bounded at 2.9% and refuted
+  in [`inference-cadence-shortfall`](../../completed/inference-cadence-shortfall.md).
   The **11 146** missed deadlines (against 1 when idle) belong to the
-  2026-08-02 session's 11.68 Hz arrival regime, for which mode 4 above is a
-  candidate cause.
+  2026-08-02 session's 11.68 Hz arrival regime; mode 4 above remains a candidate
+  cause, and host contention is now the other.
 - Any policy or training change.

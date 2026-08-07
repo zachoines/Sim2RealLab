@@ -24,6 +24,12 @@ the timer, so a tick cannot run before the frame it needs. The gate
 still caps the rate; the timer remains the watchdog heartbeat and the
 scheduler for camera-free variants.
 
+Tick period: the step period the loaded artifact was trained at, when
+its sidecar records one, and the shared training constant otherwise —
+a recurrent policy's dynamics are indexed by step count, so the rate
+belongs to the artifact rather than to the deployment. The two
+disagreeing is logged, never resolved silently.
+
 Cadence counters: every skip is counted by cause and reported
 periodically. ``depth_rx`` against ``inferences`` separates a transport
 loss from a loss inside this node. Consumed-frame age — publisher stamp
@@ -107,6 +113,16 @@ def _default_infer_period() -> float:
     from strafer_shared.constants import POLICY_DECIMATION, POLICY_SIM_DT
 
     return POLICY_SIM_DT * POLICY_DECIMATION
+
+
+def _hz(period_s: float) -> str:
+    return f"{1.0 / period_s:.2f} Hz" if period_s > 0.0 else "n/a"
+
+
+# Relative tolerance for calling a recorded and a configured step period the
+# same cadence. Any real setpoint move is tens of percent, so this only
+# absorbs serialization noise between the two.
+_PERIOD_MATCH_REL_TOL = 1e-6
 
 
 # The L1 velocity clamp defaults to the indoor-safety Nav2 cap (a
@@ -495,7 +511,7 @@ class InferenceNode(Node):
                 callback_group=self._action_cb_group,
             )
 
-        infer_period = float(self.get_parameter("infer_period_s").value)
+        infer_period = self._resolve_infer_period()
         self._infer_period_s = infer_period
         self._timer = self.create_timer(
             infer_period, self._on_timer_tick,
@@ -516,7 +532,7 @@ class InferenceNode(Node):
                 if self._depth_wake is not None
                 else ("timer only" if self._has_depth else "timer")
             )
-            + f" target={1.0 / infer_period:.2f} Hz sim, counters every "
+            + f" target={_hz(infer_period)} sim, counters every "
             f"{self._cadence_log_period_s:.0f} s"
         )
 
@@ -687,6 +703,35 @@ class InferenceNode(Node):
                 "artifact; re-export for the current depth resolution"
             )
         return None
+
+    def _resolve_infer_period(self) -> float:
+        """Step period to tick at: the loaded artifact's, else the parameter's.
+
+        ``infer_period_s`` defaults to the cadence the repo trains at *now*,
+        which is not necessarily the one the artifact in hand was trained
+        against — the artifact's own record wins whenever it carries one. A
+        disagreement is a behaviour change no other signal would surface, so it
+        is logged rather than resolved quietly. An artifact recording no period
+        leaves the parameter untouched, which is every export predating the
+        field.
+        """
+        configured = float(self.get_parameter("infer_period_s").value)
+        trained = getattr(self._policy, "trained_period_s", None)
+        if trained is None:
+            return configured
+
+        trained = float(trained)
+        if not math.isclose(
+            trained, configured, rel_tol=_PERIOD_MATCH_REL_TOL
+        ):
+            self.get_logger().warning(
+                f"Cadence disagreement: artifact trained at {trained:.6f} s "
+                f"({_hz(trained)}), node configured for {configured:.6f} s "
+                f"({_hz(configured)}). Ticking at the artifact's period — a "
+                "recurrent policy stepped off its trained cadence changes "
+                "behaviour with nothing else to log."
+            )
+        return trained
 
     # ------------------------------------------------------------------
     # Subscription callbacks

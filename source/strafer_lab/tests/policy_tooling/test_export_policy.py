@@ -140,6 +140,7 @@ def test_metadata_sidecar_records_documented_fields(
         source_checkpoint="logs/rsl_rl/strafer_navigation/run_test/model_999.pt",
         formats=["pt", "onnx"],
         is_recurrent=False,
+        trained_period_s=1.0 / 30.0,
     )
     assert sidecar_path.is_file(), "sidecar JSON was not written"
 
@@ -153,6 +154,7 @@ def test_metadata_sidecar_records_documented_fields(
         "source_checkpoint",
         "formats",
         "is_recurrent",
+        "trained_period_s",
         "git_commit",
         "export_timestamp",
         "onnx_opset",
@@ -266,6 +268,7 @@ def test_subgoal_sidecar_label_flows_through(tmp_path: Path) -> None:
         source_checkpoint="logs/rsl_rl/strafer_navigation/run_test/model_999.pt",
         formats=["pt", "onnx"],
         is_recurrent=False,
+        trained_period_s=1.0 / 30.0,
     )
     payload = json.loads(sidecar_path.read_text())
     assert payload["policy_variant"] == "NOCAM_SUBGOAL"
@@ -517,12 +520,74 @@ def test_recurrent_onnx_sidecar_marks_is_recurrent(
         source_checkpoint="logs/rsl_rl/strafer_navigation/run_test/model_999.pt",
         formats=["onnx"],
         is_recurrent=True,
+        trained_period_s=1.0 / 30.0,
     )
     payload = json.loads(sidecar_path.read_text())
     assert payload["policy_variant"] == "DEPTH"
     assert payload["is_recurrent"] is True
     assert payload["formats"] == ["onnx"]
     assert "onnx_opset" in payload
+
+
+# ---------------------------------------------------------------------------
+# Trained step period
+# ---------------------------------------------------------------------------
+
+
+def _sidecar_kwargs(**overrides) -> dict:
+    """Minimal ``write_metadata_sidecar`` kwargs for the cadence tests."""
+    kwargs = dict(
+        policy_variant="NOCAM",
+        obs_dim=PolicyVariant.NOCAM.obs_dim,
+        action_dim=3,
+        env_id="Isaac-Strafer-Nav-RLNoCam-Play-v0",
+        training_preset="STRAFER_PPO_RUNNER_CFG",
+        source_checkpoint="logs/rsl_rl/strafer_navigation/run_test/model_999.pt",
+        formats=["pt"],
+        is_recurrent=False,
+        trained_period_s=1.0 / 30.0,
+    )
+    kwargs.update(overrides)
+    return kwargs
+
+
+def test_trained_period_round_trips_through_the_sidecar(tmp_path: Path) -> None:
+    """The step period written must come back out at full precision.
+
+    It is the only record of the cadence the artifact's recurrent state was
+    trained to integrate at; a lossy round-trip would put the deploy tick off
+    the trained rate with nothing to log.
+    """
+    period = 1.0 / 20.0
+    stem = tmp_path / "tiny_nocam"
+    export_policy.write_metadata_sidecar(
+        stem, **_sidecar_kwargs(trained_period_s=period)
+    )
+
+    payload = export_policy.read_metadata_sidecar(stem.with_suffix(".pt"))
+    assert payload["trained_period_s"] == period
+
+
+@pytest.mark.parametrize("bad", [0.0, -1.0, float("nan"), float("inf")])
+def test_non_positive_trained_period_is_refused(tmp_path: Path, bad: float) -> None:
+    """A period that is not a positive number of seconds names no cadence.
+
+    Caught at export, on the host that can still fix it, rather than at the
+    robot's next launch.
+    """
+    with pytest.raises(ValueError, match="trained_period_s"):
+        export_policy.write_metadata_sidecar(
+            tmp_path / "tiny_nocam", **_sidecar_kwargs(trained_period_s=bad)
+        )
+
+
+def test_trained_period_is_a_required_field(tmp_path: Path) -> None:
+    """Omitting it must not be possible: an artifact that records no cadence
+    is exactly the artifact this field exists to stop producing."""
+    kwargs = _sidecar_kwargs()
+    del kwargs["trained_period_s"]
+    with pytest.raises(TypeError, match="trained_period_s"):
+        export_policy.write_metadata_sidecar(tmp_path / "tiny_nocam", **kwargs)
 
 
 def test_recurrent_onnx_determinism_check_catches_stochastic_head(

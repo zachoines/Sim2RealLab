@@ -113,12 +113,28 @@ def verify_term_layout(term_names: Sequence[str], term_dims: Sequence, variant) 
                 f"{variant.name} expects {obs_field.dims} for "
                 f"{obs_field.key!r}; the field order has drifted"
             )
-    # The two reads that would corrupt silently under an equal-width swap.
-    bearing_index = [f.key for f in fields].index(bearing_key(variant))
+    # The reads that would corrupt silently under an equal-width swap.
+    keys = [f.key for f in fields]
+    bearing_index = keys.index(bearing_key(variant))
     if not term_names[bearing_index].endswith(("heading_to_goal", "heading_to_subgoal")):
         raise ValueError(
             f"term {bearing_index} is {term_names[bearing_index]!r}, not a "
             f"signed heading term; the direction-offset referent would be wrong"
+        )
+    # The referent quartet is what the drift arms rewrite, and the two-dim
+    # body-velocity term is width-identical to the relative one -- a reorder
+    # that swapped them would perturb chassis velocity instead.
+    relative_index = keys.index(relative_key(variant))
+    if not term_names[relative_index].endswith(("position", "relative")):
+        raise ValueError(
+            f"term {relative_index} is {term_names[relative_index]!r}, not a "
+            f"relative-position term; a drift arm would rewrite the wrong dims"
+        )
+    distance_index = keys.index(distance_key(variant))
+    if not term_names[distance_index].endswith("distance"):
+        raise ValueError(
+            f"term {distance_index} is {term_names[distance_index]!r}, not a "
+            f"distance term; a drift arm would rewrite the wrong dims"
         )
     if term_names[-1] != "depth_image":
         raise ValueError(
@@ -141,6 +157,146 @@ def relative_key(variant) -> str:
         if obs_field.key in ("goal_relative", "subgoal_relative"):
             return obs_field.key
     raise ValueError(f"{variant.name} has no relative-position field")
+
+
+def distance_key(variant) -> str:
+    """Key of the scalar referent distance for ``variant``."""
+    for obs_field in variant.fields:
+        if obs_field.key in ("goal_distance", "subgoal_distance"):
+            return obs_field.key
+    raise ValueError(f"{variant.name} has no distance field")
+
+
+# ---------------------------------------------------------------------------
+# Referent-frame drift
+# ---------------------------------------------------------------------------
+
+
+def drifted_quartet(
+    quartet: np.ndarray,
+    offsets: np.ndarray,
+    *,
+    dist_scale: float,
+    heading_scale: float,
+) -> np.ndarray:
+    """Rewrite the four referent dims for a drifted body-frame referent.
+
+    ``quartet`` is ``(N, 4)`` of scaled observation values in field order --
+    relative x, relative y, distance, signed bearing -- and ``offsets`` is
+    ``(N, 3)`` of unscaled ``(tx, ty, dtheta)`` in metres and radians.
+
+    All four dims are recomputed from one body-frame vector. They are
+    near-redundant, so perturbing them independently would hand the policy an
+    observation no geometry can produce. The recomputed distance and bearing
+    are planar functions of that vector where the env derives them from the
+    full 3-D pose, so this is a flat-floor approximation -- which is why the
+    caller skips this path entirely at zero drift rather than round-tripping
+    through it.
+    """
+    if quartet.ndim != 2 or quartet.shape[1] != 4:
+        raise ValueError(f"quartet must be (N, 4), got {quartet.shape}")
+    if offsets.shape != (quartet.shape[0], 3):
+        raise ValueError(
+            f"offsets must be ({quartet.shape[0]}, 3), got {offsets.shape}"
+        )
+    rel_x = quartet[:, 0] / dist_scale + offsets[:, 0]
+    rel_y = quartet[:, 1] / dist_scale + offsets[:, 1]
+    cos_d = np.cos(offsets[:, 2])
+    sin_d = np.sin(offsets[:, 2])
+    out_x = cos_d * rel_x - sin_d * rel_y
+    out_y = sin_d * rel_x + cos_d * rel_y
+    out = np.empty_like(quartet)
+    out[:, 0] = out_x * dist_scale
+    out[:, 1] = out_y * dist_scale
+    out[:, 2] = np.hypot(out_x, out_y) * dist_scale
+    out[:, 3] = np.arctan2(out_y, out_x) * heading_scale
+    return out
+
+
+class SubgoalDrift:
+    """Per-env SE(2) drift on the referent frame, integrated not resampled.
+
+    Localization error accumulates: a body-frame offset and a heading error
+    that wander over seconds. Each of the three axes is an Ornstein-Uhlenbeck
+    process discretised exactly, so its stationary standard deviation is the
+    configured sigma at any step size.
+
+    State is zeroed on an episode boundary because a new episode is a new path
+    off a fresh anchor, and drift accumulates from the anchor. An episode's
+    early ticks therefore carry less than the stationary sigma, which is why
+    ``realized`` reports what the arm actually applied rather than what it
+    requested.
+    """
+
+    def __init__(
+        self,
+        *,
+        num_envs: int,
+        position_rms_m: float,
+        heading_sigma_rad: float,
+        tau_s: float,
+        step_dt: float,
+        rng,
+    ) -> None:
+        if tau_s <= 0.0:
+            raise ValueError(f"tau_s must be positive, got {tau_s}")
+        if step_dt <= 0.0:
+            raise ValueError(f"step_dt must be positive, got {step_dt}")
+        if position_rms_m < 0.0 or heading_sigma_rad < 0.0:
+            raise ValueError("drift magnitudes must be non-negative")
+        self.position_rms_m = float(position_rms_m)
+        # The class is stated as an RMS displacement of the 2-D offset, so each
+        # axis carries 1/sqrt(2) of it.
+        self.position_sigma_axis_m = self.position_rms_m / math.sqrt(2.0)
+        self.heading_sigma_rad = float(heading_sigma_rad)
+        self.tau_s = float(tau_s)
+        self._rng = rng
+        self._decay = math.exp(-float(step_dt) / self.tau_s)
+        self._innovation = math.sqrt(max(0.0, 1.0 - self._decay**2))
+        self._sigma = np.array(
+            [
+                self.position_sigma_axis_m,
+                self.position_sigma_axis_m,
+                self.heading_sigma_rad,
+            ],
+            dtype=np.float64,
+        )
+        self._state = np.zeros((num_envs, 3), dtype=np.float64)
+        self._sq_sum = np.zeros(3, dtype=np.float64)
+        self._samples = 0
+
+    @property
+    def enabled(self) -> bool:
+        return self.position_rms_m > 0.0 or self.heading_sigma_rad > 0.0
+
+    def step(self) -> np.ndarray:
+        """Advance one tick; return the per-env ``(tx, ty, dtheta)`` offsets."""
+        noise = self._rng.standard_normal(self._state.shape)
+        self._state = self._decay * self._state + self._innovation * self._sigma * noise
+        self._sq_sum += np.sum(self._state**2, axis=0)
+        self._samples += self._state.shape[0]
+        return self._state
+
+    def reset(self, done_mask) -> None:
+        """Re-anchor the envs in ``done_mask``."""
+        self._state[np.asarray(done_mask, dtype=bool)] = 0.0
+
+    def realized(self) -> dict:
+        """Requested against applied, in the units each is configured in."""
+        if self._samples:
+            mean_sq = self._sq_sum / self._samples
+        else:
+            mean_sq = np.zeros(3, dtype=np.float64)
+        return {
+            "samples": int(self._samples),
+            "tau_s": self.tau_s,
+            "requested_position_rms_m": self.position_rms_m,
+            "requested_position_sigma_axis_m": self.position_sigma_axis_m,
+            "requested_heading_sigma_deg": math.degrees(self.heading_sigma_rad),
+            "position_rms_m": float(math.sqrt(mean_sq[0] + mean_sq[1])),
+            "position_sigma_axis_m": float(math.sqrt(0.5 * (mean_sq[0] + mean_sq[1]))),
+            "heading_sigma_deg": float(math.degrees(math.sqrt(mean_sq[2]))),
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -895,6 +1051,25 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--disable-obs-corruption", action="store_true",
                         help="Turn the policy observation group's noise models off, "
                              "isolating the emulated cadence from the trained noise")
+    parser.add_argument("--no-hidden-reset", action="store_true",
+                        help="Carry the recurrent hidden state across episode "
+                             "boundaries. Environments still reset normally, so the "
+                             "recurrent horizon spans a chain of episodes instead of "
+                             "one")
+    parser.add_argument("--subgoal-drift-m", type=float, default=0.0,
+                        help="Stationary RMS displacement, in metres, of a drifting "
+                             "body-frame offset applied to the referent quartet. Each "
+                             "axis carries 1/sqrt(2) of it")
+    parser.add_argument("--subgoal-drift-deg", type=float, default=0.0,
+                        help="Stationary standard deviation, in degrees, of the "
+                             "drifting heading error applied to the referent quartet")
+    parser.add_argument("--subgoal-drift-tau-s", type=float, default=2.0,
+                        help="Correlation time of the drift, in seconds. Localization "
+                             "error integrates rather than being redrawn, so this sets "
+                             "how long an excursion persists")
+    parser.add_argument("--subgoal-drift-gain", type=float, default=1.0,
+                        help="Scales both drift magnitudes together, for a sweep at a "
+                             "fixed correlation time")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out-dir", type=str,
                         default="logs/rsl_rl/strafer_navigation/cadence_emulation",
@@ -924,6 +1099,22 @@ def reset_between_arms(env, policy, torch) -> None:
     policy.reset()
 
 
+def arm_label(profile_name: str, *, hidden_reset: bool, drift_gain: float | None) -> str:
+    """Fold the non-profile knobs into the recorded arm name.
+
+    ``resolve_profiles`` renames an arm only when a *profile* field is
+    overridden, so an arm carrying a hidden-reset or drift knob would otherwise
+    be recorded under the untouched profile's name -- and an arm labelled
+    ``clean`` must always be the untouched baseline.
+    """
+    parts = [profile_name]
+    if not hidden_reset:
+        parts.append("nohreset")
+    if drift_gain:
+        parts.append(f"drift{drift_gain:g}x")
+    return "+".join(parts)
+
+
 def _run_arm(
     *,
     env,
@@ -939,6 +1130,10 @@ def _run_arm(
     step_budget: int,
     min_command: float,
     tick_hz: float,
+    quartet_indices: Sequence[int] | None = None,
+    dist_scale: float = 1.0,
+    drift: SubgoalDrift | None = None,
+    reset_hidden_on_done: bool = True,
 ) -> dict:
     """Roll one profile out to its episode budget and score it."""
     num_envs = env.num_envs
@@ -953,9 +1148,23 @@ def _run_arm(
     episodes: list[dict] = []
     offsets: list[float] = []
     offsets_relative: list[float] = []
+    offsets_perceived: list[float] = []
     dropped_offsets = 0
 
+    drifting = drift is not None and drift.enabled
+    quartet_idx = None
+    if drifting:
+        if quartet_indices is None:
+            raise ValueError("a drift arm needs quartet_indices")
+        quartet_idx = torch.as_tensor(
+            np.asarray(quartet_indices, dtype=np.int64), device=device, dtype=torch.long
+        )
+
     ep_steps = np.zeros(num_envs, dtype=np.int64)
+    # Chain depth: how many episodes this env has already finished in this arm.
+    # Without a hidden-state reset the recurrent horizon spans the chain, so
+    # completion has to be readable against depth rather than pooled.
+    ep_index = np.zeros(num_envs, dtype=np.int64)
     ep_kinds = np.zeros((num_envs, 3), dtype=np.int64)
     ep_progress = np.zeros(num_envs, dtype=np.float64)
     ep_arc = np.zeros(num_envs, dtype=np.float64)
@@ -991,6 +1200,25 @@ def _run_arm(
             if stale_idx.numel():
                 policy_flat = live_flat.clone()
                 policy_flat[stale_idx, depth_span] = depth_cache[stale_idx]
+            if drifting:
+                # policy_flat still aliases the env's own observation buffer
+                # whenever no row is stale, so the rewrite has to clone first
+                # or it would corrupt the truth referent the metrics read.
+                if policy_flat is live_flat:
+                    policy_flat = live_flat.clone()
+                quartet = (
+                    policy_flat[:, quartet_idx].detach().float().cpu().numpy()
+                    .astype(np.float64)
+                )
+                perturbed = drifted_quartet(
+                    quartet,
+                    drift.step(),
+                    dist_scale=dist_scale,
+                    heading_scale=heading_scale,
+                )
+                policy_flat[:, quartet_idx] = torch.as_tensor(
+                    perturbed, device=device, dtype=policy_flat.dtype
+                )
             policy_obs = dict(obs)
             policy_obs["policy"] = policy_flat
 
@@ -1037,6 +1265,21 @@ def _run_arm(
                     min_command=min_command,
                 )
                 offsets_relative.extend(rel_offset[rel_valid].tolist())
+                if drifting:
+                    # Command against what the policy was shown, as opposed to
+                    # the two accumulators above, which are command against
+                    # truth. A policy tracking a drifted referent perfectly and
+                    # one that has stopped tracking look identical in the truth
+                    # readout and opposite in this one.
+                    perceived = (
+                        policy_flat[scored_idx, bearing_index]
+                        .detach().float().cpu().numpy()
+                        / heading_scale
+                    )
+                    perc_offset, perc_valid = signed_direction_offset(
+                        action_xy, perceived, min_command=min_command
+                    )
+                    offsets_perceived.extend(perc_offset[perc_valid].tolist())
 
             prev_actions = actions.clone()
 
@@ -1059,7 +1302,8 @@ def _run_arm(
                 for name in TERMINATION_PRIORITY
                 if name in active_terms
             }
-            policy.reset(dones)
+            if reset_hidden_on_done:
+                policy.reset(dones)
 
             ep_steps += 1
             ep_kinds[np.arange(num_envs), kinds.astype(np.int64)] += 1
@@ -1078,6 +1322,7 @@ def _run_arm(
                     episodes.append(
                         {
                             "env": int(env_index),
+                            "episode_index": int(ep_index[env_index]),
                             "steps": int(ep_steps[env_index]),
                             "cause": cause,
                             "progress_fraction": float(ep_progress[env_index]),
@@ -1087,11 +1332,17 @@ def _run_arm(
                             "held_ticks": int(ep_kinds[env_index, TICK_HELD]),
                         }
                     )
+                ep_index[done_np] += 1
                 ep_steps[done_np] = 0
                 ep_kinds[done_np] = 0
                 ep_progress[done_np] = 0.0
                 ep_arc[done_np] = 0.0
                 sampler.reset(done_np)
+                if drift is not None:
+                    # Re-anchored even when the hidden state carries: a new
+                    # episode is a new path off a fresh anchor, so only the
+                    # recurrent state spans a chain.
+                    drift.reset(done_np)
                 done_idx = torch.as_tensor(np.flatnonzero(done_np), device=device,
                                            dtype=torch.long)
                 prev_actions[done_idx] = 0.0
@@ -1106,7 +1357,12 @@ def _run_arm(
         "realized_profile": sampler.realized(tick_hz),
         "direction_offset": summarize_offsets(offsets),
         "direction_offset_from_relative": summarize_offsets(offsets_relative),
+        "direction_offset_perceived": (
+            summarize_offsets(offsets_perceived) if drifting else None
+        ),
         "direction_offset_dropped_ticks": dropped_offsets,
+        "hidden_reset_on_done": bool(reset_hidden_on_done),
+        "subgoal_drift": drift.realized() if drift is not None else None,
         "budget_exhausted": len(episodes) < episode_budget,
     }
 
@@ -1194,7 +1450,17 @@ def main() -> None:
     depth_span = slices["depth_image"]
     bearing_field = bearing_key(variant)
     relative_field = relative_key(variant)
+    distance_field = distance_key(variant)
     heading_scale = next(f.scale for f in variant.fields if f.key == bearing_field)
+    dist_scale = next(f.scale for f in variant.fields if f.key == relative_field)
+    # Gathered by index rather than sliced, so the quartet survives a variant
+    # whose four referent dims are not contiguous.
+    quartet_indices = (
+        slices[relative_field].start,
+        slices[relative_field].start + 1,
+        slices[distance_field].start,
+        slices[bearing_field].start,
+    )
 
     step_dt = env.unwrapped.step_dt
     tick_hz = 1.0 / step_dt
@@ -1216,10 +1482,26 @@ def main() -> None:
         f"arm, observation corruption {corruption}, bearing from {bearing_field}"
     )
 
+    drift_position_m = args.subgoal_drift_m * args.subgoal_drift_gain
+    drift_heading_rad = math.radians(args.subgoal_drift_deg * args.subgoal_drift_gain)
+    drift_requested = drift_position_m > 0.0 or drift_heading_rad > 0.0
+    label = arm_label(
+        "",
+        hidden_reset=not args.no_hidden_reset,
+        drift_gain=args.subgoal_drift_gain if drift_requested else None,
+    ).lstrip("+")
+    if label:
+        print(f"[INFO] non-profile knobs active: {label}")
+
     arms: list[dict] = []
     try:
         for arm_index, profile in enumerate(profiles):
-            print(f"[INFO] arm {arm_index + 1}/{len(profiles)}: {profile.name}")
+            name = arm_label(
+                profile.name,
+                hidden_reset=not args.no_hidden_reset,
+                drift_gain=args.subgoal_drift_gain if drift_requested else None,
+            )
+            print(f"[INFO] arm {arm_index + 1}/{len(profiles)}: {name}")
             if arm_index > 0:
                 reset_between_arms(env, policy, torch)
             sampler = ScheduleSampler(
@@ -1228,6 +1510,18 @@ def main() -> None:
                 np.random.default_rng(args.seed + 1000 * arm_index),
                 warmup_ticks=args.warmup_ticks,
             )
+            drift = None
+            if drift_requested:
+                drift = SubgoalDrift(
+                    num_envs=env.num_envs,
+                    position_rms_m=drift_position_m,
+                    heading_sigma_rad=drift_heading_rad,
+                    tau_s=args.subgoal_drift_tau_s,
+                    step_dt=step_dt,
+                    # A seed sequence, so the drift stream cannot collide with
+                    # the schedule sampler's scalar-seeded one.
+                    rng=np.random.default_rng([args.seed, arm_index]),
+                )
             result = _run_arm(
                 env=env,
                 policy=policy,
@@ -1242,9 +1536,13 @@ def main() -> None:
                 step_budget=args.max_steps,
                 min_command=args.min_command,
                 tick_hz=tick_hz,
+                quartet_indices=quartet_indices,
+                dist_scale=dist_scale,
+                drift=drift,
+                reset_hidden_on_done=not args.no_hidden_reset,
             )
             result.update(
-                arm=profile.name,
+                arm=name,
                 checkpoint=os.path.abspath(args.checkpoint),
                 env_id=args.env,
                 num_envs=int(env.num_envs),
@@ -1257,7 +1555,7 @@ def main() -> None:
             arms.append(result)
             if result["budget_exhausted"]:
                 print(
-                    f"[WARN] arm {profile.name} hit the {args.max_steps}-step ceiling "
+                    f"[WARN] arm {name} hit the {args.max_steps}-step ceiling "
                     f"with {len(result['episodes'])}/{args.episodes} episodes"
                 )
     except KeyboardInterrupt:

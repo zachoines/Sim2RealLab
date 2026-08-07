@@ -69,10 +69,16 @@ rollout without invasive surgery, and that surgery is out of scope. The
 training-side model is two mechanisms that together approximate it:
 
 - **Obs-staleness** carries duplicate content and the staleness skew, where
-  depth is stale while proprioception and the subgoal advance. The eval showed
-  those are the axes that carry the cost.
+  depth is stale while proprioception and the subgoal advance.
 - **Action-hold** carries "no new command this tick", so the chassis
   re-executes its last command.
+
+The eval measured the two axes only in combination — its degraded profile
+moves the hold fraction and the duplicate share together — so which of them
+carries how much of the third is not something this work can claim. What it
+established is that the combination costs a third and that training had never
+produced it. Separating them is the residual arms' Arm D, whose answer changes
+the action-hold ranges rather than the mechanism.
 
 The documented residual is the **GRU stepping rate**, which stays at 30 Hz in
 training. This is likely temporary: a pending deploy-semantics decision may

@@ -1,5 +1,8 @@
 # Train across the deploy stream's temporal texture
 
+**Status:** Shipped 2026-08-06 in `fb49b21` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/195
+
 **Type:** implementation (contract fields + two mechanisms + tests)
 **Owner:** DGX (`strafer_lab` lane — env config)
 **Priority:** P1 — the training distribution contains almost none of the
@@ -19,13 +22,13 @@ is flat across instead of a point it was fitted to.**
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/env-composition-contract.md](../../context/env-composition-contract.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [`domain-randomization-audit`](domain-randomization-audit.md) — the designed
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/env-composition-contract.md](../context/env-composition-contract.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
+- [`domain-randomization-audit`](../active/trained-policy/domain-randomization-audit.md) — the designed
   home for these fields, and the doc whose temporal rows this work rewrites.
-- [`cadence-emulation-eval`](../../completed/cadence-emulation-eval.md) — the
+- [`cadence-emulation-eval`](cadence-emulation-eval.md) — the
   measurement the tier ranges are set from.
 
 ## Context
@@ -221,7 +224,7 @@ checkpoint is fed the same quantities in the same order either way.
 - [x] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
 - [x] No regression in the workflows the touched code supports.
 
@@ -246,7 +249,7 @@ a failed change, not a partial success.
 **The retrain is not in this PR.** It is scheduled for when the
 residual-attribution arms report, so every ratified axis lands in one training
 run rather than several. The hold and its lifting condition live in
-[`procroom-depth-enrichment`](procroom-depth-enrichment.md); this brief's
+[`procroom-depth-enrichment`](../active/trained-policy/procroom-depth-enrichment.md); this brief's
 contribution to that run is an axis and the three numbers above.
 
 ## Out of scope

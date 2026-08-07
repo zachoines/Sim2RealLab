@@ -269,7 +269,7 @@ residual arms implicate. This brief's remaining deploy-frame confirmation rides
 the eventual rig validation, not a retrain.
 
 **The temporal-DR axis is now in the tree and waiting for that run.**
-[`temporal-texture-training-dr`](temporal-texture-training-dr.md) landed the
+[`temporal-texture-training-dr`](../../completed/temporal-texture-training-dr.md) landed the
 mechanism and the tier ranges — depth stream holds, per-env depth latency, and
 command holds, all re-drawn per environment at reset — without training
 anything, on the explicit understanding that the run happens once, when the

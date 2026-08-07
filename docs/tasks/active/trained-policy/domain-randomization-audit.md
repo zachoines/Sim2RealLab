@@ -61,11 +61,13 @@ so every knob it saw came from `ROBUST_TRAINING_CONTRACT` plus
 `EventsCfg_ProcRoom_Robust_Enriched`. Read the "today" column below as the REAL
 tier; where the ROBUST value differs, the row says so.
 
-### What the shipped depth checkpoint trains on, temporally
+### What the shipped depth checkpoint trained on, temporally
 
-The rows below cover the physical knobs. The *temporal* texture is worth
-stating separately, because it is far narrower than the config surface
-suggests:
+The rows below cover the physical knobs. The *temporal* texture is stated
+separately because it was far narrower than the config surface suggested.
+**This paragraph describes the checkpoint on disk, not the current contracts** —
+the temporal axes below have since been randomized, and the next subsection
+says how. A checkpoint trained before that lands saw:
 
 - **Depth age: a fixed 2 control steps** (66.7 ms) on ROBUST, 1 on REAL. It is
   a `DelayBuffer` ring shift, not a hold — and the ring is zeroed on reset, so
@@ -83,9 +85,48 @@ suggests:
   all). The policy sees depth exactly two ticks older than its bearing, every
   tick, deterministically.
 
-There is no randomization of the tick period, of depth age, or of the skew
-between modalities. `scripts/eval_cadence_emulation.py` measures what happens
-outside that support without changing it.
+### What the contracts randomize temporally now
+
+Three mechanisms, all per-environment and re-drawn at every reset, so one batch
+spans a band of temporal textures rather than sitting at a point:
+
+- **Depth stream holds.** The depth frame fails to advance for a run of steps,
+  and the policy re-reads the previous *noisy* frame. Run lengths come from a
+  mixture of two geometrics, so the stationary hold fraction and the mean run
+  length are independent knobs. REAL bands the fraction over `(0.0, 0.35)` with
+  runs of `(1.0, 1.6)` steps — centred on the arrival rate a healthy deploy
+  stream sustains, roughly 23 Hz against a 30 Hz tick. ROBUST reaches `(0.0,
+  0.60)` with runs of `(1.0, 2.0)` and a quarter of the runs drawn from a
+  6-step burst component, which covers the worst arrival rate ever measured on
+  the rig, about 12 Hz. The memoryless `frame_drop_probability` is unchanged
+  and composes with the hold as a union: a repeat is either.
+- **Depth age.** `depth_latency_steps_range` draws the ring shift per env at
+  reset — `(0, 2)` on REAL and `(1, 3)` on ROBUST. Both bands are
+  mean-preserving around the fixed value they replace, so this randomizes the
+  age without moving its centre; where the centre belongs is Phase 1's bench
+  measurement, still owed. Randomizing it also un-freezes the cross-modality
+  skew, which was previously a constant.
+- **Command holds.** A control step on which no new command arrives, so the
+  chassis re-executes the last one. Same run-length law, `(0.0, 0.05)` on REAL
+  and `(0.0, 0.25)` on ROBUST — deliberately far below the depth band, because
+  this models the residual left after the deployed node's inference cadence
+  rather than the cadence itself.
+
+Two things are still **not** randomized, and neither is declared as if it were:
+
+- **The tick period.** Still a structural 30 Hz. Randomizing it needs rollout
+  surgery, not a config field, so `control_frequency_jitter_pct` was deleted
+  rather than left declaring a randomization the env never performed. Same for
+  `obs_latency_steps` and `obs_latency_steps_range`, whose wired replacement is
+  the per-sensor `*_latency_steps` pair.
+- **The recurrent stepping rate.** Training advances the hidden state on every
+  tick; a depth-starved deploy node advances it more slowly. This is the
+  residual the two mechanisms above approximate rather than reproduce, and it
+  closes on its own if the node moves to timer-driven inference with bounded
+  stale-depth reuse.
+
+`scripts/eval_cadence_emulation.py` measures behaviour across this band and is
+the instrument that scores whether the randomization closed the gap.
 
 ### What peer pipelines randomize
 
@@ -96,9 +137,11 @@ outside that support without changing it.
 | Motor strength | `(0.92, 1.08)` | [ANYmal review](https://www.oaepublish.com/articles/ir.2022.20): "PD gains and stall torques" randomized. 4S LiPo voltage 14.0–16.8 V → ~±20% torque envelope. | **Too tight for battery dynamics.** ROBUST `(0.80, 1.20)` is closer. Promote ROBUST's range to REAL or split into a `motor_strength_battery_range`. |
 | Motor time constant | `(0.03, 0.08)` s | GoBilda 5203 datasheet + bench measurement under varying load | Reasonable; verify with bench measurement. |
 | Action latency | 1–3 control steps (33–100 ms); ROBUST 1–5 (33–167 ms) — `action_latency_steps` and `action_latency_steps_range` are **summed** in `get_action_config_params`, and the per-env lag is drawn once at action-term construction, never re-drawn on reset | Wheeled Lab: "actuator delays randomized per roll-out" — typically 10–100 ms for serial/CAN bus. | OK for ROS-over-LAN; **too generous for real on-chassis serial**, which is closer to 5–15 ms. If sim-in-the-loop uses ROS but real chassis uses RoboClaw direct, these diverge. |
-| Depth latency | 1 step (33 ms) | Intel D555 datasheet: stereo matching alone adds ~30–66 ms; add ROS transport. | **Too tight.** Real D555 publish-to-subscribe latency on Jetson is 60–120 ms measured. Widen to `(2, 4)` steps. |
-| Control rate jitter | **not implemented.** `control_frequency_jitter_pct` is declared (`sim_real_cfg.py`, 0.05 REAL / 0.10 ROBUST) and read by nothing; the env ticks a fixed 30 Hz. Same for `obs_latency_steps` and `obs_latency_steps_range` — declared, zero consumers; only the four per-sensor `*_latency_steps` fields reach a `DelayBuffer`. | ROS on Jetson under load: P99 jitter is 20–50% per [`rtabmap-cold-start-determinism`](../reliability/rtabmap-cold-start-determinism.md). | **Whole axis not randomized.** The knob is the designed home, but the mechanism behind it was never built, so raising the number is a no-op until a consumer lands. Do not cite ±5% jitter or 0–2 steps of observation latency as part of any shipped checkpoint's training distribution. |
-| **TF staleness (goal pose / base pose age)** | **not randomized** — sim re-reads the goal pose from the command term at every tick, fresh in body frame; the policy never sees an age-distribution on its goal observation | Real Jetson reads goal pose in body frame via the chain `(map→odom)` ⊗ `(odom→base_link)` from a TF buffer that's only as fresh as the slowest publisher in the chain. RTAB-Map's `map→odom` updates at 1–10 Hz; under tracking loss or cold-start ([`rtabmap-cold-start-determinism`](../reliability/rtabmap-cold-start-determinism.md)) it can stall for 100 ms+ at a time. The policy's `body_frame_goal` reading then references a *stale* base pose, so the goal-in-body-frame drifts as the robot moves even though the goal hasn't. | **Whole axis not randomized.** This is the companion to the control-rate-jitter row above — **neither is implemented today**; jitter would randomize when *the policy ticks*, while TF-staleness randomizes when *the policy's spatial reference frame last updated*. Two-step approach: (1) measure per Phase 1 item 6 below; (2) extend `randomize_d555_mount_offset`'s sibling (or file a new event term) to age the body-frame goal observation by a sampled latency drawn from the measured distribution. Use `mode="interval"` so the staleness drifts within an episode — no interval-mode event term exists in this config today, so this would be the first. |
+| Depth latency | 1 step (33 ms) centre, drawn per env over `(0, 2)`; ROBUST 2 steps over `(1, 3)` | Intel D555 datasheet: stereo matching alone adds ~30–66 ms; add ROS transport. | **Randomized, centre still too tight.** Real D555 publish-to-subscribe latency on Jetson is 60–120 ms measured. The band is mean-preserving, so it added the age *distribution* the axis was missing and left the centre where it was; moving the centre to `(2, 4)` is still owed and still gated on Phase 1's measurement. |
+| Depth frame holds | REAL `(0.0, 0.35)` hold fraction over runs of `(1.0, 1.6)` steps; ROBUST `(0.0, 0.60)` over `(1.0, 2.0)` with a quarter of runs from a 6-step burst. Per env, re-drawn at reset. | The deployed node's own arrival statistics: ~23 Hz against a 30 Hz tick when healthy, ~12 Hz with bursty stalls at its worst. | **Closed.** Was a 1% i.i.d. drop whose runs averaged ~1.01 frames — three orders of magnitude short of the run structure deploy produces. |
+| Command holds | REAL `(0.0, 0.05)`, ROBUST `(0.0, 0.25)`, same run-length law | A control step on which the node publishes nothing, so the chassis re-executes its last command. | **Closed, deliberately small.** Kept far under the depth band: this is the residual after the node's inference cadence, and sizing it like the cadence would model the same stall twice. Its correct size follows whatever inference semantics the node ends up with. |
+| Control rate jitter | **not implemented, and no longer declared.** `control_frequency_jitter_pct`, `obs_latency_steps` and `obs_latency_steps_range` were declared with zero consumers; all three are deleted. The env still ticks a fixed 30 Hz. | ROS on Jetson under load: P99 jitter is 20–50% per [`rtabmap-cold-start-determinism`](../reliability/rtabmap-cold-start-determinism.md). | **Whole axis not randomized.** Randomizing the tick period needs rollout surgery rather than a config field, so the fields were removed rather than left implying a randomization that never ran. Do not cite ±5% jitter or 0–2 steps of observation latency as part of any checkpoint's training distribution. What the deleted knobs were reaching for — a policy flat across the deploy stream's temporal texture — is served by the two hold rows above. |
+| **TF staleness (goal pose / base pose age)** | **not randomized** — sim re-reads the goal pose from the command term at every tick, fresh in body frame; the policy never sees an age-distribution on its goal observation | Real Jetson reads goal pose in body frame via the chain `(map→odom)` ⊗ `(odom→base_link)` from a TF buffer that's only as fresh as the slowest publisher in the chain. RTAB-Map's `map→odom` updates at 1–10 Hz; under tracking loss or cold-start ([`rtabmap-cold-start-determinism`](../reliability/rtabmap-cold-start-determinism.md)) it can stall for 100 ms+ at a time. The policy's `body_frame_goal` reading then references a *stale* base pose, so the goal-in-body-frame drifts as the robot moves even though the goal hasn't. | **Whole axis not randomized.** This is the companion to the control-rate-jitter row above, and it is now the only one of the pair still unbuilt: a tick-period randomization would change when *the policy ticks*, while TF-staleness changes when *the policy's spatial reference frame last updated*, and the hold mechanisms cover neither. Two-step approach: (1) measure per Phase 1 item 6 below; (2) extend `randomize_d555_mount_offset`'s sibling (or file a new event term) to age the body-frame goal observation by a sampled latency drawn from the measured distribution. Use `mode="interval"` so the staleness drifts within an episode — no interval-mode event term exists in this config today, so this would be the first. |
 | D555 mount angle | ±1° | Hand-mounted hardware, screw tolerances, chassis flex | Reasonable but probably understated; ±3° (ROBUST today) more realistic. |
 | **D555 mount POSITION** | **not randomized** — fixed at `(CAMERA_OFFSET_X, CAMERA_OFFSET_Y, CAMERA_OFFSET_Z) = (0.20, 0.0, 0.25)` m | Hand-mounted bracket, screw-hole tolerance ~±2 mm, cable strain, operator unbolt/rebolt during dev | **Whole axis not randomized.** Every time the operator removes the D555 (e.g. for the IMU kernel fix from `docs/D555_IMU_KERNEL_FIX.md`, lens cleaning, or transport) and rebolts it, the position shifts by ~1–3 cm. The existing `randomize_d555_mount_offset` event in [`events.py:450`](../../../../source/strafer_lab/strafer_lab/tasks/navigation/mdp/events.py) handles orientation (`_d555_mount_quat`) and the IMU obs path rotates readings through it; nothing parallel exists for position. |
 | ProcRoom difficulty | `min_level=7, max_level=7` on the vanilla generator; the **enriched** variants already un-pin to `U[4, 7]` via `_ENRICH_MIN_LEVEL` / `_ENRICH_MAX_LEVEL` | Curriculum literature: progressive difficulty during training. | **Partly closed.** The enriched retrain target already spans four levels; only the vanilla ProcRoom variants stay pinned. |
@@ -154,7 +197,10 @@ knobs where peer references suggest the current config is mis-tuned:
    inference node (once it ships) with a `time.perf_counter()` log on
    every tick; measure P50/P95/P99 inter-tick spacing under the same
    conditions as Phase 3. Compute jitter percentage vs.
-   `_DEFAULT_NAV_DECIMATION * _DEFAULT_NAV_SIM_DT`.
+   `_DEFAULT_NAV_DECIMATION * _DEFAULT_NAV_SIM_DT`. The consumer of this
+   measurement is the command-hold band, not a tick-period knob — a missed
+   tick that publishes nothing is a hold, and that is what the contract
+   models.
 5. **D555 mount position vs. nominal.** With the camera mounted in its
    current deployed configuration, measure the actual `(x, y, z)`
    offset of the D555 lens optical center relative to
@@ -198,10 +244,12 @@ ROBUST tier. Two of the anticipated edits below are already the shipped ROBUST
 values (`depth_latency_steps=2`, `D555 mount angle ±3°`), so applying the block
 verbatim moves REAL only.
 
-The two temporal fields the block introduces —
-`depth_latency_steps_range` and the TF-staleness pair — have **no consumer
-today**. Landing them is a two-part change: the config field *and* the
-mechanism that reads it.
+Of the two temporal fields the block introduces, `depth_latency_steps_range`
+has since **landed with its consumer** — the per-env sampling inside
+`DelayBuffer` — at a mean-preserving band, so what this block still owes on
+that row is the *centre*, which is Phase 1 item 3's measurement. The
+TF-staleness pair remains a config field with no mechanism behind it; landing
+it is still a two-part change, the field *and* the reader.
 
 Anticipated edits (subject to Phase 1 data):
 
@@ -218,15 +266,12 @@ randomize_motor_strength=EventTerm(
     params={"strength_range": (0.85, 1.15)},  # was (0.92, 1.08)
 )
 
-# Higher depth latency to match measured D555 + ROS transport
+# Higher depth latency to match measured D555 + ROS transport.
+# The range field and its per-env consumer have landed; what this edit
+# still proposes is moving the centre, which Phase 1 item 3 measures.
 TimingCfg(
     depth_latency_steps=2,  # was 1
-    depth_latency_steps_range=(1, 4),  # was (0, 0); new field
-)
-
-# Wider control jitter to match Jetson under load
-TimingCfg(
-    control_frequency_jitter_pct=0.15,  # was 0.05
+    depth_latency_steps_range=(1, 4),  # widen from the mean-preserving (0, 2)
 )
 
 # NEW: TF staleness on the goal-pose body-frame projection.
@@ -250,7 +295,7 @@ TF buffer, which can be 0–200 ms stale depending on RTAB-Map's
 `map→odom` publish cadence. Two options for closing the gap:
 
 1. **Sampled per-tick replay of a delayed base pose.** Cache a short
-   ring of past base-poses (length matching the upper jitter step
+   ring of past base-poses (length matching the upper staleness step
    range); per env, per interval, sample a staleness step `k` and
    use base-pose-from-`k`-ticks-ago when projecting the goal pose
    into body frame for the policy observation. Cheap, additive, and
@@ -372,7 +417,7 @@ evaluation time:
 | Eval at original DR | success rate | success rate | should be ≈ same |
 | Eval at +50% mass | success rate | success rate | DR-audit > baseline |
 | Eval at +50% depth latency | success rate | success rate | DR-audit > baseline |
-| Eval at +50% jitter | success rate | success rate | DR-audit > baseline |
+| Eval at the depth-hold band's upper edge | success rate | success rate | DR-audit > baseline |
 | Eval at +1 cm D555 offset on each axis | success rate | success rate | DR-audit > baseline |
 
 Per-cell metrics: median final-distance-to-goal, success rate (reach
@@ -443,7 +488,7 @@ Investigate before declaring done.
       with a sidecar JSON noting `baseline_checkpoint` provenance.
 - [ ] PR description includes the comparative evaluation table:
       baseline vs DR-audit, evaluated at original DR and at +50% mass /
-      depth-latency / jitter. DR-audit must show ≥ 10% success-rate
+      depth-latency / depth-hold. DR-audit must show ≥ 10% success-rate
       improvement on stress cells and ≤ 5% degradation on the original
       DR cell.
 

@@ -18,7 +18,7 @@ The authoritative in-code statement of the same contract is the
 docstring. This file is the cross-task mirror; if the two disagree, the
 docstring wins.
 
-## The six pinned points
+## The seven pinned points
 
 ### 1. Hidden-state tensor shape
 
@@ -111,6 +111,30 @@ The `LoadedPolicy` class itself does not provide the mutex — the
 caller is in the best position to decide whether one thread is
 sufficient.
 
+### 7. Trained step cadence
+
+A recurrent cell's dynamics are indexed by step count, not wall time,
+so the period at which a caller advances the policy belongs to the
+artifact rather than to the deployment.
+
+- **Producer**: `write_metadata_sidecar` records `trained_period_s`
+  (seconds of world time per policy step), taken off the env config
+  the checkpoint was reconstructed against — not off
+  `strafer_shared.constants` — so an env whose cadence is set per-run
+  records what it actually stepped at.
+- **Consumer**: `load_policy` surfaces it as
+  `LoadedPolicy.trained_period_s`. `None` means the artifact records
+  none, which is how every export predating the field reads; a value
+  that is present but not a positive number of seconds raises.
+- **Caller**: a caller carrying its own period prefers the artifact's
+  and logs both on disagreement. The inference node does this in
+  `_resolve_infer_period`; the period it settles on is what its
+  `cadence:` line reports as target.
+
+Advancing the policy at some other period changes the effective time
+constant on every gate while observations, action shape, and logs all
+stay correct-looking — the same silent-failure class as point 3.
+
 ## Cross-format parity (the load-bearing seam-level invariant)
 
 The same underlying recurrent model exported to both `.pt` and `.onnx`
@@ -146,7 +170,7 @@ The integration test that pins this is
 
 ## When to update
 
-Update this module — and the in-code mirror — when ANY of the six
+Update this module — and the in-code mirror — when ANY of the seven
 points changes. Specifically:
 
 - New format added (e.g. TensorRT engine) → add a per-tick state
@@ -155,6 +179,8 @@ points changes. Specifically:
 - `LoadedPolicy` gains internal locking → update point 6.
 - Hidden-state shape convention changes (e.g. fixed batch becomes
   dynamic) → update point 1.
+- The sidecar's cadence field is renamed, or a second caller starts
+  ticking a loaded policy → update point 7.
 
 Briefs that touch the train / export / inference chain cite this
 module from their `## Context bundle`. If you invalidate a fact here,

@@ -29,7 +29,12 @@ from sensor_msgs.msg import Image
 
 from strafer_shared.constants import GOAL_ARRIVAL_RADIUS_M
 
-from strafer_inference.inference_node import _DEPTH_AGE_WINDOW, InferenceNode
+from strafer_inference.inference_node import (
+    _DEPTH_AGE_WINDOW,
+    InferenceNode,
+    _default_infer_period,
+    _hz,
+)
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -556,6 +561,142 @@ class TestSidecarObsDimGuard(unittest.TestCase):
                     self.assertIn("unreadable", err)
                 finally:
                     node.destroy_node()
+
+
+# =============================================================================
+# Trained step period — the artifact's cadence beats the deploy constant
+# =============================================================================
+
+
+class TestTrainedPeriodPreference(unittest.TestCase):
+    """A recurrent policy's dynamics are indexed by step count, so the cadence
+    it trained at is a property of the artifact, not of the host it is deployed
+    on. The node ticks at the period the artifact records, names both values
+    when they disagree, and falls back to the shared constant — silently — for
+    the artifacts that predate the field.
+    """
+
+    def _node(self, tmpdir, trained_period_s):
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from strafer_inference import inference_node as node_mod
+
+        model = Path(tmpdir) / "policy.onnx"
+        model.write_bytes(b"not-a-real-onnx")
+        policy = _FakeRecurrentPolicy()
+        policy.trained_period_s = trained_period_s
+        with patch.object(node_mod, "load_policy", return_value=policy):
+            return InferenceNode(parameter_overrides=_make_overrides(
+                model_path=str(model), policy_variant="DEPTH_SUBGOAL",
+            ))
+
+    # Derived from the constant rather than written as a literal: this brief
+    # exists so the setpoint CAN move, and a test pinned to today's 30 Hz would
+    # stop describing a disagreement the day it does.
+    OFF_CADENCE = 1.5
+
+    def test_artifact_period_drives_the_timer(self) -> None:
+        import tempfile
+
+        trained = _default_infer_period() * self.OFF_CADENCE
+        with tempfile.TemporaryDirectory() as tmp:
+            node = self._node(tmp, trained)
+            try:
+                self.assertAlmostEqual(node._infer_period_s, trained, places=7)
+                self.assertAlmostEqual(
+                    node._timer.timer_period_ns / 1e9, trained, places=7
+                )
+            finally:
+                node.destroy_node()
+
+    def test_disagreement_names_both_values_and_the_winner(self) -> None:
+        import tempfile
+
+        configured = _default_infer_period()
+        trained = configured * self.OFF_CADENCE
+        with tempfile.TemporaryDirectory() as tmp:
+            node = self._node(tmp, trained)
+            try:
+                logger = MagicMock()
+                node.get_logger = lambda: logger  # type: ignore
+                self.assertAlmostEqual(
+                    node._resolve_infer_period(), trained, places=7
+                )
+                logger.warning.assert_called_once()
+                msg = logger.warning.call_args[0][0]
+                self.assertIn(f"{trained:.6f}", msg)
+                self.assertIn(f"{configured:.6f}", msg)
+                self.assertIn(_hz(trained), msg)
+                self.assertIn(_hz(configured), msg)
+            finally:
+                node.destroy_node()
+
+    def test_absent_period_keeps_the_constant_silently(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            node = self._node(tmp, None)
+            try:
+                self.assertAlmostEqual(
+                    node._infer_period_s, _default_infer_period(), places=7
+                )
+                logger = MagicMock()
+                node.get_logger = lambda: logger  # type: ignore
+                node._resolve_infer_period()
+                logger.warning.assert_not_called()
+            finally:
+                node.destroy_node()
+
+    def test_agreeing_period_is_not_a_disagreement(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            node = self._node(tmp, _default_infer_period())
+            try:
+                logger = MagicMock()
+                node.get_logger = lambda: logger  # type: ignore
+                node._resolve_infer_period()
+                logger.warning.assert_not_called()
+            finally:
+                node.destroy_node()
+
+    def test_no_policy_falls_back_to_the_parameter(self) -> None:
+        node = InferenceNode(parameter_overrides=_make_overrides(model_path=""))
+        try:
+            self.assertAlmostEqual(
+                node._infer_period_s, _default_infer_period(), places=7
+            )
+        finally:
+            node.destroy_node()
+
+    def test_cadence_line_target_follows_the_artifact(self) -> None:
+        # The achieved-vs-target figure and the sub-90% shortfall warning are
+        # only meaningful if target is what the node actually ticks at.
+        import tempfile
+
+        trained = _default_infer_period() * self.OFF_CADENCE
+        span_sim = 10.0
+        with tempfile.TemporaryDirectory() as tmp:
+            node = self._node(tmp, trained)
+            try:
+                node._cadence_log_period_s = 0.0001
+                node._last_cadence_log_t = 0.0
+                node._cadence_t0_sim = 0.0
+                node._cadence_t_last_sim = span_sim
+                # Exactly the artifact's rate over the span, so achieved ==
+                # target and the sub-90% shortfall warning must stay quiet.
+                node._counts["inferences"] = round(span_sim / trained)
+                logger = MagicMock()
+                node.get_logger = lambda: logger  # type: ignore
+
+                node._maybe_log_cadence()
+
+                line = logger.info.call_args[0][0]
+                self.assertIn(f"target {1.0 / trained:.2f}", line)
+                logger.warning.assert_not_called()
+            finally:
+                node.destroy_node()
 
 
 # =============================================================================

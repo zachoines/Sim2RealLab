@@ -11,10 +11,13 @@
     # `ros2 run` passes them with -p. Omitted here so there is one owner and no
     # dead duplicate that could re-bind an empty model_path or wrong variant.
 
-    # infer_period_s is omitted on purpose: the node derives the tick period
-    # from strafer_shared.constants (POLICY_SIM_DT * POLICY_DECIMATION), so the
-    # deploy rate can't drift from training via a config literal — same reason
-    # subgoal_generator.yaml omits update_period_s.
+    # infer_period_s is omitted on purpose: the node ticks at the step period
+    # the loaded artifact's sidecar records, falling back to
+    # strafer_shared.constants (POLICY_SIM_DT * POLICY_DECIMATION) for an
+    # artifact that records none, so the deploy rate can't drift from training
+    # via a config literal — same reason subgoal_generator.yaml omits
+    # update_period_s. A value set here loses to an artifact that carries its
+    # own period; the node logs both and which it took.
 
     # Node-level contract name; inference.launch.py remaps it to the
     # shared /cmd_vel that the RoboClaw driver and the sim bridge

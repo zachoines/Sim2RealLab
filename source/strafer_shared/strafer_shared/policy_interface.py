@@ -91,6 +91,19 @@ without re-deriving what the other two assume.
    calls through a single thread, or guard with a mutex if the
    rclpy executor is a ``MultiThreadedExecutor``.
 
+7. **Trained step cadence.** A recurrent cell's dynamics are indexed
+   by step count, not wall time, so the period at which a caller
+   advances the policy belongs to the artifact rather than to the
+   deployment. The export sidecar records it as ``trained_period_s``
+   (seconds of world time per policy step) and :func:`load_policy`
+   surfaces it as :attr:`LoadedPolicy.trained_period_s`, ``None``
+   when the artifact records none — which is how every export
+   predating the field reads. Advancing the policy at some other
+   period changes the effective time constant on every gate while
+   observations, action shape, and logs all stay correct-looking:
+   the same silent-failure class as point 3. A caller carrying its
+   own period must reconcile the two loudly, never silently.
+
 This docstring is the authoritative in-code statement of the
 contract. Task briefs that touch any seam in the train -> export ->
 inference chain cite it as a single load-bearing reference rather
@@ -345,6 +358,10 @@ class LoadedPolicy:
     # missing.
     active_providers: list[str] | None = None
 
+    # Seconds of world time between two policy steps during training, from the
+    # sidecar's ``trained_period_s``. ``None`` when the artifact records none.
+    trained_period_s: float | None = None
+
     def __call__(self, obs: np.ndarray) -> np.ndarray:
         raise NotImplementedError
 
@@ -485,6 +502,34 @@ def _read_sidecar(path: Path) -> dict | None:
     return json.loads(sidecar.read_text())
 
 
+def _sidecar_trained_period_s(sidecar: dict | None, path: Path) -> float | None:
+    """Trained step period recorded on the artifact, or ``None`` for none.
+
+    Absence is normal — every artifact exported before the field existed omits
+    it — and means the artifact has no opinion. A value that is present but not
+    a positive number of seconds is a broken artifact: it raises rather than
+    degrading to a fallback cadence, which is the failure this field exists to
+    make impossible.
+    """
+    if sidecar is None:
+        return None
+    raw = sidecar.get("trained_period_s")
+    if raw is None:
+        return None
+    try:
+        period = float(raw)
+    except (TypeError, ValueError):
+        period = None
+    if period is None or not np.isfinite(period) or period <= 0.0:
+        raise ValueError(
+            f"Sidecar at {path.with_suffix('.json')} records "
+            f"trained_period_s={raw!r}, which is not a positive number of "
+            f"seconds. Refusing to load an artifact whose recorded step "
+            f"period cannot be trusted."
+        )
+    return period
+
+
 def load_policy(
     path: str | Path,
     variant: PolicyVariant,
@@ -504,6 +549,11 @@ def load_policy(
         - When the sidecar is absent, recurrence is inferred from the
           loaded artifact (TorchScript: a callable ``reset`` attribute;
           ONNX: a port named ``h_in``).
+
+    The sidecar's ``trained_period_s`` is surfaced on the returned object as
+    ``.trained_period_s``, or ``None`` when the artifact records none. The
+    caller owns the tick and is responsible for reconciling it against its own
+    period; see the "Trained step cadence" point of this module's docstring.
 
     The returned object is callable — existing call sites that do
     ``policy = load_policy(...); policy(obs)`` continue to work unchanged.
@@ -535,8 +585,9 @@ def load_policy(
         :class:`LoadedPolicy` (callable; ``obs -> action``).
 
     Raises:
-        ValueError: Unsupported file extension, or sidecar ``policy_variant``
-            disagrees with the ``variant`` argument.
+        ValueError: Unsupported file extension, sidecar ``policy_variant``
+            disagrees with the ``variant`` argument, or the sidecar records a
+            ``trained_period_s`` that is not a positive number of seconds.
     """
     path = Path(path)
     obs_dim = variant.obs_dim
@@ -551,6 +602,7 @@ def load_policy(
                 f"called with variant={variant.name!r}. Refusing to load a "
                 f"mis-labeled artifact."
             )
+    trained_period_s = _sidecar_trained_period_s(sidecar, path)
 
     if path.suffix == ".pt":
         import torch
@@ -571,10 +623,11 @@ def load_policy(
                     f"exposes no callable .reset() — hidden state cannot be "
                     f"zeroed at episode boundaries."
                 )
-            return _RecurrentTorchPolicy(model, obs_dim)
-        return _TorchPolicy(model, obs_dim)
+            policy: LoadedPolicy = _RecurrentTorchPolicy(model, obs_dim)
+        else:
+            policy = _TorchPolicy(model, obs_dim)
 
-    if path.suffix == ".onnx":
+    elif path.suffix == ".onnx":
         import onnxruntime as ort
 
         sess_options = ort.SessionOptions()
@@ -603,12 +656,17 @@ def load_policy(
             is_recurrent = "h_in" in input_names
 
         if is_recurrent:
-            return _RecurrentOnnxPolicy(sess, obs_dim)
-        return _OnnxPolicy(sess, obs_dim)
+            policy = _RecurrentOnnxPolicy(sess, obs_dim)
+        else:
+            policy = _OnnxPolicy(sess, obs_dim)
 
-    raise ValueError(
-        f"Unsupported model format: {path.suffix} (expected .pt or .onnx)"
-    )
+    else:
+        raise ValueError(
+            f"Unsupported model format: {path.suffix} (expected .pt or .onnx)"
+        )
+
+    policy.trained_period_s = trained_period_s
+    return policy
 
 
 # ---------------------------------------------------------------------------

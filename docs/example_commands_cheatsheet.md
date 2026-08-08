@@ -221,8 +221,10 @@ Individual knobs (`--hold-fraction`, `--stale-fraction`, `--mean-hold-run`,
 Converts an `rsl_rl` PPO checkpoint into a TorchScript `.pt` (and
 optionally an ONNX `.onnx`) loadable by
 `strafer_shared.policy_interface.load_policy()` on the Jetson. Writes a
-`<output>.json` sidecar with variant, dimensions, source checkpoint,
-git commit, and ONNX opset.
+`<output>.json` sidecar with variant, dimensions, the step period the
+policy trained at, source checkpoint, git commit, and ONNX opset. The
+inference node ticks at that recorded period rather than at its own
+constant, so re-exporting is what moves the deploy cadence.
 
 ## NoCam — TorchScript only
 ```bash

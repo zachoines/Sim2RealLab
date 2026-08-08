@@ -387,7 +387,16 @@ def test_sidecar_without_the_period_field_leaves_it_unset(tmp_path: Path) -> Non
     assert policy.trained_period_s is None
 
 
-@pytest.mark.parametrize("bad", [0.0, -1.0, float("nan"), "fast", []])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        0.0, -1.0, float("nan"), float("inf"), float("-inf"),
+        # bool is an int subclass — JSON `true` would float() to a plausible
+        # 1 Hz. A stringified number would coerce to whatever it spells. Both
+        # are the wrong-but-plausible cadence this field exists to prevent.
+        True, False, "0.033", "fast", [], {},
+    ],
+)
 def test_unusable_trained_period_refuses_to_load(tmp_path: Path, bad) -> None:
     """Present but not a positive number of seconds is a broken artifact, not
     an artifact with no opinion — it must not degrade to a fallback cadence."""
@@ -396,3 +405,17 @@ def test_unusable_trained_period_refuses_to_load(tmp_path: Path, bad) -> None:
 
     with pytest.raises(ValueError, match="trained_period_s"):
         load_policy(out_path, PolicyVariant.NOCAM)
+
+
+def test_json_null_trained_period_reads_as_absent(tmp_path: Path) -> None:
+    """`null` is the artifact declining to state a period, not a broken value.
+
+    Deliberate: it is what a producer that has no cadence to record should
+    emit, and it must land on the same silent-fallback path as omitting the
+    key rather than on the refusal path above.
+    """
+    out_path = _stateless_pt(tmp_path)
+    _write_sidecar(out_path, trained_period_s=None)
+
+    policy = load_policy(out_path, PolicyVariant.NOCAM)
+    assert policy.trained_period_s is None

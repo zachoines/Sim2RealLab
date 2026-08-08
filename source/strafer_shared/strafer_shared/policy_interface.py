@@ -510,24 +510,26 @@ def _sidecar_trained_period_s(sidecar: dict | None, path: Path) -> float | None:
     a positive number of seconds is a broken artifact: it raises rather than
     degrading to a fallback cadence, which is the failure this field exists to
     make impossible.
+
+    The type is checked before any coercion. JSON ``true`` would otherwise
+    float() to a plausible 1 Hz and a stringified number would coerce to
+    whatever it spells — both would tick a mangled artifact at a wrong cadence
+    instead of refusing it.
     """
     if sidecar is None:
         return None
     raw = sidecar.get("trained_period_s")
     if raw is None:
         return None
-    try:
-        period = float(raw)
-    except (TypeError, ValueError):
-        period = None
-    if period is None or not np.isfinite(period) or period <= 0.0:
+    numeric = isinstance(raw, (int, float)) and not isinstance(raw, bool)
+    if not numeric or not np.isfinite(raw) or raw <= 0.0:
         raise ValueError(
             f"Sidecar at {path.with_suffix('.json')} records "
             f"trained_period_s={raw!r}, which is not a positive number of "
             f"seconds. Refusing to load an artifact whose recorded step "
             f"period cannot be trusted."
         )
-    return period
+    return float(raw)
 
 
 def load_policy(

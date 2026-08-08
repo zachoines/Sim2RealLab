@@ -166,7 +166,14 @@ discoverable from here. All ruled 2026-08-06.
 - **A present-but-unusable period refuses to load** rather than degrading to a
   fallback cadence — the node records the load error and leaves the action
   server unadvertised, so the dispatcher falls back to nav2. Absence stays
-  benign; only a corrupt value is fatal.
+  benign (no sidecar, no key, or JSON `null`); only a corrupt value is fatal.
+  "Unusable" is decided on type *before* any coercion at both ends: `bool` is
+  an `int` subclass, so JSON `true` would otherwise have recorded and been read
+  as a plausible 1 Hz, and a stringified number would have coerced to whatever
+  it spelled. A wrong-but-plausible cadence is the exact silent failure this
+  field exists to prevent, so it cannot be the one thing the field waves
+  through. Numeric types stay permissive enough for numpy scalars off an env
+  config (`numbers.Real`, not `(int, float)`).
 - **The artifact beats an explicit `infer_period_s` literal.** A config literal
   winning over the artifact re-opens exactly the drift `inference.yaml`'s
   contract exists to prevent. The cost is that a deliberate off-cadence

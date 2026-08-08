@@ -568,7 +568,9 @@ def test_trained_period_round_trips_through_the_sidecar(tmp_path: Path) -> None:
     assert payload["trained_period_s"] == period
 
 
-@pytest.mark.parametrize("bad", [0.0, -1.0, float("nan"), float("inf")])
+@pytest.mark.parametrize(
+    "bad", [0.0, -1.0, float("nan"), float("inf"), float("-inf")]
+)
 def test_non_positive_trained_period_is_refused(tmp_path: Path, bad: float) -> None:
     """A period that is not a positive number of seconds names no cadence.
 
@@ -579,6 +581,38 @@ def test_non_positive_trained_period_is_refused(tmp_path: Path, bad: float) -> N
         export_policy.write_metadata_sidecar(
             tmp_path / "tiny_nocam", **_sidecar_kwargs(trained_period_s=bad)
         )
+
+
+@pytest.mark.parametrize("bad", [True, False, "0.033", "fast", None, [], {}])
+def test_non_numeric_trained_period_is_refused(tmp_path: Path, bad) -> None:
+    """Type is checked before coercion, and the error names the field.
+
+    ``bool`` is an ``int`` subclass, so ``float(True)`` would record a
+    plausible-looking 1 Hz; a stringified number would coerce to whatever it
+    spells. Both are producer bugs, and a wrong-but-plausible cadence is
+    exactly the silent failure this field exists to prevent — so neither may
+    reach the sidecar. Bare ``float()`` would also have raised on ``"fast"``,
+    but with a message that never names ``trained_period_s``.
+    """
+    with pytest.raises(ValueError, match="trained_period_s"):
+        export_policy.write_metadata_sidecar(
+            tmp_path / "tiny_nocam", **_sidecar_kwargs(trained_period_s=bad)
+        )
+
+
+def test_numpy_scalar_trained_period_is_accepted(tmp_path: Path) -> None:
+    """An env config may hand over a numpy scalar; that is a real number.
+
+    The type guard uses ``numbers.Real`` rather than ``(int, float)`` for this
+    — ``np.float32`` satisfies neither ``float`` nor ``int``.
+    """
+    stem = tmp_path / "tiny_nocam"
+    export_policy.write_metadata_sidecar(
+        stem, **_sidecar_kwargs(trained_period_s=np.float32(1.0 / 30.0))
+    )
+    payload = json.loads(stem.with_suffix(".json").read_text())
+    assert payload["trained_period_s"] == pytest.approx(1.0 / 30.0)
+    assert isinstance(payload["trained_period_s"], float)
 
 
 def test_trained_period_is_a_required_field(tmp_path: Path) -> None:

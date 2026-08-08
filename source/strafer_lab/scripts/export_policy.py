@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import numbers
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -286,6 +287,17 @@ def write_metadata_sidecar(
     stem = Path(output_stem)
     sidecar_path = stem.with_suffix(".json")
 
+    # Type-checked before coercion: bool is an int subclass, so float(True)
+    # would record a plausible-looking 1 Hz, and a stringified number would
+    # coerce just as quietly. Both are producer bugs that must not survive as a
+    # cadence. numbers.Real admits numpy scalars, which (int, float) misses.
+    if isinstance(trained_period_s, bool) or not isinstance(
+        trained_period_s, numbers.Real
+    ):
+        raise ValueError(
+            f"trained_period_s must be a real number of seconds, got "
+            f"{trained_period_s!r}"
+        )
     trained_period_s = float(trained_period_s)
     if not np.isfinite(trained_period_s) or trained_period_s <= 0.0:
         raise ValueError(

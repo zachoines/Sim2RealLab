@@ -489,6 +489,13 @@ class DepthNoiseModel(NoiseModel):
         self._prev_frame = None
         self._frame_dropped = torch.zeros(num_envs, dtype=torch.bool, device=device)
 
+        # Whether each env's stored previous frame belongs to the *current*
+        # episode. A partial reset teleports one env without touching the
+        # others' frames, so without this an env's first observation after a
+        # reset could be re-emitted from the episode it just left — a pose and
+        # a depth image that no camera could have produced together.
+        self._has_prev_frame = torch.zeros(num_envs, dtype=torch.bool, device=device)
+
         # Bursty stream holds, layered on the memoryless per-frame drop above.
         # The two model different causes of "this frame did not advance" — the
         # sensor's own dropout and a stalled transport/consumption stream — and
@@ -513,10 +520,15 @@ class DepthNoiseModel(NoiseModel):
         if env_ids is None:
             self._prev_frame = None
             self._frame_dropped.zero_()
+            self._has_prev_frame.zero_()
             if self._delay_buffer is not None:
                 self._delay_buffer.reset(None)
         else:
             self._frame_dropped[env_ids] = False
+            # The stored rows are left as they are: nothing reads them until
+            # this env emits again, and leaving them makes a dropped guard
+            # reproduce the leak rather than quietly substituting zeros.
+            self._has_prev_frame[env_ids] = False
             if self._delay_buffer is not None:
                 self._delay_buffer.reset(env_ids)
 
@@ -555,14 +567,17 @@ class DepthNoiseModel(NoiseModel):
         # Frame drops (return previous frame)
         if self.cfg.frame_drop_prob > 0 and self._prev_frame is not None:
             drop = torch.rand(self._num_envs, device=self._device) < self.cfg.frame_drop_prob
+            drop &= self._has_prev_frame
             noisy_data[drop] = self._prev_frame[drop]
 
         # Stream holds (return previous frame for the length of the run). The
         # process advances every step so its run statistics stay well-defined;
-        # only the emission is conditional on a previous frame existing.
+        # only the emission is conditional on this episode having produced a
+        # frame to hold.
         if self._hold.enabled:
             held = self._hold.step()
             if self._prev_frame is not None:
+                held = held & self._has_prev_frame
                 noisy_data[held] = self._prev_frame[held]
 
         # Camera failure: return max_range for all pixels (camera returns "far" everywhere)
@@ -572,6 +587,7 @@ class DepthNoiseModel(NoiseModel):
 
         # Store for next frame
         self._prev_frame = noisy_data.clone()
+        self._has_prev_frame.fill_(True)
 
         # Apply observation latency (lazily initialize buffer based on actual obs size)
         if self._latency_steps > 0 or self._latency_steps_range is not None:

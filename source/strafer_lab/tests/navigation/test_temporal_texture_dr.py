@@ -223,6 +223,39 @@ class TestHoldProcess:
             process.reset(None)
         assert process.clamped_draws == 0
 
+    def test_a_disabled_process_leaves_the_rng_stream_untouched(self):
+        """Inertness is not just "never holds" — it is "consumes nothing".
+
+        Two arguments elsewhere rest on this. The contract-golden attribution
+        claims the new fields change nothing at their neutral defaults, and the
+        defence of an unrelated Kit failure claims an ideal-tier env is
+        bit-identical to a tree without this mechanism. Both are false the
+        moment a disabled process draws a single random number, so the RNG
+        state is asserted directly rather than inferred from behaviour."""
+        torch.manual_seed(21)
+        process = HoldProcess(
+            128, DEVICE, hold_fraction_range=(0.0, 0.0), hold_run_range=(1.0, 2.0)
+        )
+        assert process.enabled is False
+
+        before = torch.get_rng_state()
+        process.reset(None)
+        process.reset(torch.arange(64))
+        for _ in range(100):
+            assert not process.step().any()
+        assert torch.equal(torch.get_rng_state(), before)
+
+    def test_a_range_less_delay_buffer_leaves_the_rng_stream_untouched(self):
+        """The same claim for the latency half: no range means no draw."""
+        torch.manual_seed(22)
+        buffer = DelayBuffer(64, 8, 2, DEVICE)
+        before = torch.get_rng_state()
+        buffer.reset(None)
+        buffer.reset(torch.arange(32))
+        for step in range(50):
+            buffer(torch.full((64, 8), float(step)))
+        assert torch.equal(torch.get_rng_state(), before)
+
     def test_an_unreachable_request_is_clamped_and_counted(self):
         torch.manual_seed(5)
         # A mean run of 1 tick cannot hold more than half the steps.
@@ -358,6 +391,76 @@ class TestDepthStreamTexture:
         before = model._hold._enter_p.clone()
         model.reset(None)
         assert not torch.allclose(before, model._hold._enter_p)
+
+    def test_a_partial_reset_cannot_leak_the_previous_episode_frame(self):
+        """A reset env's first observation must come from its own episode.
+
+        Envs reset independently, and the stored previous frame is per-env. If
+        a reset did not invalidate it, a freshly teleported env could re-emit
+        the frame it saw before the teleport — a pose and a depth image no
+        camera could have produced together, delivered at exactly the episode
+        start this policy is most sensitive to."""
+        torch.manual_seed(15)
+        cfg = _depth_cfg(
+            frame_drop_prob=0.0,
+            latency_steps=0,
+            latency_steps_range=None,
+            hole_probability=0.0,
+            failure_probability=0.0,
+            # Hold on essentially every step, so the guard is under maximum
+            # pressure rather than being exercised by luck.
+            hold_fraction_range=(0.49, 0.49),
+            hold_run_range=(1.0, 1.0),
+            hold_burst_weight=0.0,
+        )
+        model = DepthNoiseModel(cfg, num_envs=8, device=DEVICE)
+
+        old_episode = torch.full((8, 16), 3.0)
+        for _ in range(30):
+            emitted_before = model(old_episode.clone())
+
+        reset_ids = torch.tensor([0, 1, 2, 3])
+        model.reset(reset_ids)
+
+        new_episode = torch.full((8, 16), 1.0)
+        first = model(new_episode.clone())
+
+        # The reset envs cannot carry any value from the episode they left.
+        assert not torch.isclose(
+            first[reset_ids], emitted_before[reset_ids]
+        ).all(dim=1).any()
+        # Their first frame is this episode's content, not a held one.
+        assert torch.allclose(first[reset_ids], new_episode[reset_ids], atol=0.2)
+        # Untouched envs keep holding across the same step — the guard is
+        # per-env, not a global disable.
+        assert model._has_prev_frame[reset_ids].all()
+        assert model._has_prev_frame[4:].all()
+
+    def test_the_first_step_of_an_episode_is_never_a_held_frame(self):
+        """Nothing exists to hold on the first step, so the process may count
+        the step as held while the emission is the live frame. Pinned because
+        it is the asymmetry against the command hold, which emits its at-rest
+        zero instead."""
+        torch.manual_seed(16)
+        cfg = _depth_cfg(
+            frame_drop_prob=0.0,
+            latency_steps=0,
+            latency_steps_range=None,
+            hole_probability=0.0,
+            failure_probability=0.0,
+            hold_fraction_range=(0.49, 0.49),
+            hold_run_range=(1.0, 1.0),
+            hold_burst_weight=0.0,
+        )
+        held_on_first = 0
+        for seed in range(40):
+            torch.manual_seed(seed)
+            model = DepthNoiseModel(cfg, num_envs=8, device=DEVICE)
+            data = torch.full((8, 16), 2.0)
+            first = model(data.clone())
+            held_on_first += int(model._hold._holding.sum())
+            assert torch.allclose(first, data, atol=0.2)
+        assert held_on_first > 0, "the process never claimed a first-step hold"
 
 
 # ---------------------------------------------------------------------------

@@ -97,6 +97,34 @@ def test_hold_is_inert_when_isolated_off(action_env):
     assert not repeats.any()
 
 
+def test_a_first_step_hold_issues_the_at_rest_command(action_env):
+    """Held on the very first step of an episode, the term emits zero.
+
+    Nothing has been published yet, so zero is what a chassis is executing.
+    Pinned because it is the deliberate asymmetry against the depth stream,
+    where a first-step hold has no frame to repeat and the live one is emitted
+    instead: one mechanism has a well-defined at-rest value and the other does
+    not."""
+    action_term = configure_action_term_dynamics(
+        action_env, enable_motor=False, enable_delay=False, enable_slew=False,
+        enable_hold=True,
+    )
+
+    drive = torch.zeros(action_env.num_envs, 3, device=action_env.device)
+    drive[:, 0] = 1.0
+
+    saw_first_step_hold = False
+    for trial in range(60):
+        action_term.reset(env_ids=torch.arange(action_env.num_envs, device=action_env.device))
+        action_term.process_actions(drive)
+        held = action_term._hold._holding
+        if bool(held.any()):
+            saw_first_step_hold = True
+            assert torch.count_nonzero(action_term.processed_actions[held]) == 0
+
+    assert saw_first_step_hold, "no first-step hold fired in 60 resets"
+
+
 def test_hold_state_is_per_environment(action_env):
     """Envs hold independently — a batch that stalled in lockstep would train
     the policy against a schedule no deployment produces."""

@@ -1,18 +1,21 @@
 # Carry the trained step period on the policy artifact
 
-**Status:** Shipped 2026-08-06 in `c7d282b` (Jetson). Both halves landed in one
-PR — the DGX half did not need to wait for the provenance-manifest work.
-**The `strafer_lab` suites covering that half are unrun:** neither torch nor
-onnxruntime is present on the Jetson host or in `strafer-cpu:humble`, and both
-test modules import torch at module scope, so
-`tests/policy_tooling/test_export_policy.py` and `test_load_policy.py` need a
-run on an Isaac Sim host before merge. In their place the same functions were
-driven directly with torch stubbed out — sidecar round-trip at full float64
-precision, the write-side validation, the loader's absent/valid/unusable
-branches — and the CLI's period derivation checked by parsing `main`'s AST. The
-Jetson half is covered by `make test-ros` (735 passed) and its three behavioural
+**Status:** Shipped 2026-08-06 in `c7d282b` (Jetson + DGX). Both halves landed
+in one PR — the DGX half did not need to wait for the provenance-manifest work.
+Covered on both hosts: `make test-ros` reads 735 passed on the Jetson, and the
+`strafer_lab` policy-tooling suites read **48/48** on an Isaac host from the PR
+head (5 export-side cases, 9 load-side), with the full pure lab suite at **1126
+passed / 1 skipped** and no regressions. The Jetson half's three behavioural
 cases were mutation-checked against the pre-change lookup.
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/194
+
+The Jetson session that wrote the DGX half could not run its suites — neither
+torch nor onnxruntime is present on that host or in `strafer-cpu:humble`, and
+both test modules import torch at module scope. It stood in a torch-stubbed
+drive of the same functions plus an AST check of the CLI wiring, and stamped
+the gap as open; the DGX run above closed it. Recorded because the same
+constraint binds any future Jetson session touching `export_policy.py` or the
+loader's torch paths.
 
 **Type:** task (train↔deploy contract)
 **Owner:** Jetson + DGX
@@ -125,8 +128,8 @@ when it does fire.
       literal, so they keep describing a disagreement after a setpoint move.
       DGX side: round-trip, write-side validation and required-argument cases in
       `test_export_policy.py`, and surfacing / absent / unusable cases for both
-      formats in `test_load_policy.py` — **written but unrun here**, see the
-      status stamp.
+      formats in `test_load_policy.py` — 48/48 on an Isaac host, plus 1126
+      passed / 1 skipped across the pure lab suite.
 - [x] Docs swept: the `infer_period_s` comment in `inference.yaml`,
       `source/strafer_ros/README.md`, `source/strafer_lab/README.md`,
       `docs/example_commands_cheatsheet.md`, and a seventh pinned point in
@@ -134,6 +137,42 @@ when it does fire.
       plus its in-code mirror.
 - [x] No regression: `make test-ros` 735 passed / 11 skipped across all seven
       `strafer_ros` packages, against 729 before.
+
+## Decisions taken
+
+The brief left several calls to the implementer. Recorded so the next reader
+does not re-litigate them, and so the one with a forward dependency is
+discoverable from here. All ruled 2026-08-06.
+
+- **Field name and units — `trained_period_s`, seconds.** One name across the
+  JSON key, the `write_metadata_sidecar` argument and the `LoadedPolicy`
+  attribute, so it greps end to end. `policy_period_s` was rejected as
+  ambiguous between the period it trained at and the period to run it at.
+- **Sourced from the env config, not the constant.** The export computes
+  `env_cfg.sim.dt * env_cfg.decimation`. Recording `POLICY_PERIOD_S` would have
+  re-encoded the coupling this brief removes. **Forward dependency:** that is
+  the *export* env, and
+  [`training-run-provenance-manifest`](../active/trained-policy/training-run-provenance-manifest.md)
+  already records that the export env is not provably the training env. The
+  caveat is latent, not live — every navigation env routes its runtime through
+  `strafer_env_cfg._apply_default_nav_runtime`, so no two nav envs can differ
+  on cadence today. It goes live only if a per-run cadence lands *and*
+  export/training env can diverge. Ruled: leave the source as is; the
+  provenance manifest supersedes it when it lands.
+- **The sidecar argument is required, not optional.** An export recording no
+  cadence is the artifact the field exists to stop producing, so omission is a
+  `TypeError`. Ruled: stays required, despite being a breaking signature change
+  to an importable helper.
+- **A present-but-unusable period refuses to load** rather than degrading to a
+  fallback cadence — the node records the load error and leaves the action
+  server unadvertised, so the dispatcher falls back to nav2. Absence stays
+  benign; only a corrupt value is fatal.
+- **The artifact beats an explicit `infer_period_s` literal.** A config literal
+  winning over the artifact re-opens exactly the drift `inference.yaml`'s
+  contract exists to prevent. The cost is that a deliberate off-cadence
+  experiment gets overridden — loudly, with both values logged. Ruled: no
+  operator escape hatch until an off-cadence experiment is actually scheduled;
+  the sentinel-default design that would provide one is ~10 lines if it is.
 
 ## Out of scope
 

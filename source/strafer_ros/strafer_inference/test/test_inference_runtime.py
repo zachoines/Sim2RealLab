@@ -591,9 +591,10 @@ class TestTrainedPeriodPreference(unittest.TestCase):
                 model_path=str(model), policy_variant="DEPTH_SUBGOAL",
             ))
 
-    # Derived from the constant rather than written as a literal: this brief
-    # exists so the setpoint CAN move, and a test pinned to today's 30 Hz would
-    # stop describing a disagreement the day it does.
+    # A period the constant cannot equal, derived from it rather than written
+    # as a literal so these cases still describe a disagreement after a
+    # setpoint move. Any factor outside _PERIOD_MATCH_REL_TOL works; 1.5 is
+    # chosen because it maps today's 30 Hz onto 20 Hz.
     OFF_CADENCE = 1.5
 
     def test_artifact_period_drives_the_timer(self) -> None:

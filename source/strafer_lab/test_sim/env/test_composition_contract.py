@@ -41,7 +41,8 @@ _CONTRACT_FIELDS = (
 _SIM_FIELDS = ("dt", "render_interval")
 
 
-def _canon(obj):
+def _canon(obj, drop=frozenset()):
+    """Canonical rendering of a cfg tree. ``drop`` omits attributes by name."""
     if obj is None or isinstance(obj, (bool, int, str)):
         return obj
     if isinstance(obj, float):
@@ -49,13 +50,15 @@ def _canon(obj):
     if callable(obj) and hasattr(obj, "__qualname__"):
         return f"<fn {getattr(obj, '__module__', '?')}.{obj.__qualname__}>"
     if isinstance(obj, dict):
-        return {str(k): _canon(obj[k]) for k in sorted(obj, key=str)}
+        return {str(k): _canon(obj[k], drop) for k in sorted(obj, key=str)}
     if isinstance(obj, (list, tuple)):
-        return [_canon(v) for v in obj]
+        return [_canon(v, drop) for v in obj]
     d = getattr(obj, "__dict__", None)
     if d is not None:
         return ["@" + type(obj).__name__] + [
-            [k, _canon(v)] for k, v in d.items() if not k.startswith("_")
+            [k, _canon(v, drop)]
+            for k, v in d.items()
+            if not k.startswith("_") and k not in drop
         ]
     return repr(obj)
 
@@ -80,34 +83,43 @@ def _hash(obj):
 # obs/action/DR contract a trained policy + the DEPTH inference package depend
 # on. Do not edit to make a test pass — a mismatch means the composition
 # drifted from the contract a checkpoint was trained against.
+#
+# Re-frozen when the timing/noise contract gained its temporal-texture fields
+# (depth stream holds, per-env depth latency, command holds). Every hash moved,
+# because the fields sit on the depth noise model and the action term, both of
+# which the snapshot walks. Dropping those five key names from the serializer
+# reproduced the prior hashes for all 22 variants and the depth-obs golden, so
+# the movement is the fields' presence alone: no term, order, scale, or
+# existing parameter changed. The layout golden below is the pin that says so
+# on every future run.
 _CONTRACT_GOLDENS = {
-    "RLDepth_Real": "cd24b3ca082c169413c19ab04d48f8be920730f45da3ae3523a21b7fe90718df",
-    "RLDepth_Robust": "4776f7d4cc36ccef858409400da67ed94d327a417f2aa0692fa32fd3ae710b21",
-    "RLNoCam": "a14787862b3a39c7c778c189aba9d45cc217783ce2cdbd2332068f8c62805bad",
-    "RLDepth_Real_PLAY": "3e340e6e46aa23aa54c7359ef204a39eaae55857b0474ebb66bf8ac648a0896d",
-    "RLDepth_Robust_PLAY": "787221fd5f6ac819010311eafac0d79292f9800ad2b70c8286851ecc4fdf5659",
-    "RLNoCam_PLAY": "7c60ad9bf35bcfaf3d0b5020d1e58479fefd4334035758f2400ab134e21f6345",
-    "RLNoCamSubgoal_Real": "5185c4759b8da15d2b1eac5ce796e9e547eabf81819ca2599122c747d5bd5e77",
-    "RLNoCamSubgoal_Robust": "1f16f07c038d3eb05c765fe99d857a2ef68e80d369dc279ad7e81c25ef760aa5",
-    "RLNoCamSubgoal_Real_PLAY": "0ec2595c9efb9ea6846a4cfa9b78025babb32fe377584a0d5a2c7049176d4079",
-    "RLNoCamSubgoal_Robust_PLAY": "f1fc1058d0ad698faa88986e8fd2ae0dada2c3701a7cbdf1e24e19a25f839c11",
-    "RLDepthSubgoal_Real": "40a2a824377036f9cf3e7974b24b28bc0ec2ea8848706b44cc8252bbdfe1b4cb",
-    "RLDepthSubgoal_Robust": "2c5969a27cd43317fd4d390e6ae4ca343b9cd6b8f654264c8e2d09543242eccc",
-    "RLDepthSubgoal_Real_PLAY": "6bd733a6b1b06303dc40da19068b0f96970550994cb1ba9b69564d5e060e1865",
-    "RLDepthSubgoal_Robust_PLAY": "3f0e0b5402c7279cd5ef0f6222753deca21e60c88494192e502f41962c08aa78",
+    "RLDepth_Real": "7ee27b742867f0c4e4158d05570d3c868460d36e387d1b57db57ef35ebd41e1c",
+    "RLDepth_Robust": "247b609d1a2bcb7620e4e5e17b44a827ddc1351866317d7ce38943b2341fd00d",
+    "RLNoCam": "0d866938a8a9ffcb320be441602ce1142af3cef366f781b8a439dc71aafaf8e6",
+    "RLDepth_Real_PLAY": "e13e90f16e51609ee85bd00ca7c4785a89536f79bfb5309fed38fab858b3b086",
+    "RLDepth_Robust_PLAY": "5d39cc40acbab7c5636352df16874a522def5d523b3b38bd5a403569ae0b4e6b",
+    "RLNoCam_PLAY": "102336cebcb41222ba0f3e47531366327c7d80a6f645d2fb6765ea3c6f4523d2",
+    "RLNoCamSubgoal_Real": "3a2009cd3ecd99f95fa280d22ffb4c0ec54a493def8184d4ce90aad0d6850b7f",
+    "RLNoCamSubgoal_Robust": "9b6a979627f6ab553018eb3ce153835a9cb696783e394abe8978784b4145f25d",
+    "RLNoCamSubgoal_Real_PLAY": "9f8ee558ba786737165f2a107ecf1eefda6d08275f34fa98120ee60c0f8e7c7f",
+    "RLNoCamSubgoal_Robust_PLAY": "0e63b10a3ec0348f4d4e7241016b1277c37a62b6546d87ea870feb12c592a882",
+    "RLDepthSubgoal_Real": "285517c6e8ca88b67ae0b32c5aa3756bf77ac02736440de10c2fa4d4c906ed1c",
+    "RLDepthSubgoal_Robust": "22a37208a357b600a2c5d11b7b1a0c38263a66c530c3b8fa1a3da6565112b564",
+    "RLDepthSubgoal_Real_PLAY": "fa3de4de295ef7ce28d3b0ea44a03937d2d4ced1eacfea6fad8ec7cf3f5f6dcd",
+    "RLDepthSubgoal_Robust_PLAY": "789d849490f7c67e8f9f4f4c5b8472f1348ced3a01c4fdbf4b734ae96db13902",
     # Depth-enrichment variants — NEW IDs frozen at creation (no prior checkpoint
     # depends on them). The enrichment lives in the `events` field (un-pinned
     # difficulty, enriched generation params incl. the tall-object heights, and
     # the rendered-camera mount offset); the observation contract is
     # byte-identical to the open-top depth variants (asserted separately).
-    "RLDepthEnriched_Real": "56228d9725791d1fc2c0f62fffe3d709bb19d2654aaf8bd32724fc74406c1b3e",
-    "RLDepthEnriched_Robust": "e1b94f5d445b09460ee97f3692e379925d41e90f9f6ae9daa719b847e0eae7cf",
-    "RLDepthEnriched_Real_PLAY": "1f54ee9f60e743bd96376db55c501d954c45b5933e51f3df4c0ede12e9dddd61",
-    "RLDepthEnriched_Robust_PLAY": "896b40edc38fc79d4b2c72e750646ac2e4b49b998166d5112d8491503b1170eb",
-    "RLDepthSubgoalEnriched_Real": "b61bb73f5e96403828e77bbd292a279265c58adfed28b5930408527af4886dd3",
-    "RLDepthSubgoalEnriched_Robust": "9481c58066028bb98c6fa9d3c36543c7e3aeddf5a7b0156543b0535f988fdc12",
-    "RLDepthSubgoalEnriched_Real_PLAY": "3ef4ca240a9f1ce16fe2e19354cb15b2394e4774a6099b6c7a31ebbd3b4cecb6",
-    "RLDepthSubgoalEnriched_Robust_PLAY": "ea7654d2a75c5851ffee3b231cce955dc72e73edd838081cf763bddfb79529e6",
+    "RLDepthEnriched_Real": "26f49953dc548a681ad8683c2638277fd2bb8860e3c49c8b53423a1a46603380",
+    "RLDepthEnriched_Robust": "a8d986cd474f5a6d4dc491061d017e580c772abd18565dd383a46cb5f18cae41",
+    "RLDepthEnriched_Real_PLAY": "7f295f22418e8c861012dbed15789289b874083963933f05a5b42505da8ac9fa",
+    "RLDepthEnriched_Robust_PLAY": "872330ec14293cd6f15817a087c3b12712012c51a1775b7b190a8cfac9a1d2f2",
+    "RLDepthSubgoalEnriched_Real": "8a313b13d62577176abbc7281acde176d57989576cc38c3f668a10d203cb3279",
+    "RLDepthSubgoalEnriched_Robust": "e320a28e851575f8af86112d2652840ce21ff37c1dc2e23cde31cf3298ceccb4",
+    "RLDepthSubgoalEnriched_Real_PLAY": "c98bc95392c9ed36e42c2414f904f4191471a79ab90b6cbb07827c8fdfe04046",
+    "RLDepthSubgoalEnriched_Robust_PLAY": "28ebda14b749d48ba5c241a7ed50622f3ac254b6657cb77ab61c5921839cee6f",
 }
 
 # Frozen signature (slot name set + spawn sizes) of the pre-enrichment 44-object
@@ -119,7 +131,19 @@ _PALETTE_GOLDEN = "cf3499bf212a50c571b1bda4980fbbf16c7ad743dc40c5e88b7b528de3d41
 # The depth observation a checkpoint consumes — captured identical across the
 # (now dropped) plane / Infinigen / ProcRoom depth variants, which justified
 # dropping them: any depth checkpoint stays valid regardless of which produced it.
-_DEPTH_OBS_GOLDEN = "179860c5765f2474043c235e0f608ba99c698e92319021bdb85eca6b2d69dce5"
+_DEPTH_OBS_GOLDEN = "8b52e0492e50a37994b1458a2b96bf7f8fcc9f65f025ddd47224563442797d01"
+
+# The policy tensor's *layout* — terms, order, params and scales, with every
+# noise model dropped. This is the half of the observation contract a deployed
+# checkpoint cannot survive a change to: a reordered term or a rescaled dim
+# feeds the network a different quantity, while a re-ranged sensor corruption
+# feeds it the same quantity drawn differently. There are exactly two, one per
+# observation profile, and they are tier-invariant by construction — realism
+# selects the noise, never the layout.
+_POLICY_OBS_LAYOUT_GOLDENS = {
+    "depth": "ccb6f617eae1dff4887191fe807e9605786c159451747295f525768ba3a9d20c",
+    "nocam": "26b1ece3f2001ccee496e784ca4737d1ad1d2be7afce33264d3f9dbd64fbe20d",
+}
 
 _COMPOSED_RL = {
     "RLDepth_Real": composed.StraferNavCfg_RLDepth_Real,
@@ -175,6 +199,47 @@ def test_depth_obs_contract_matches_frozen_golden():
     """The depth observation a checkpoint consumes is unchanged."""
     got = _hash(_canon(composed.StraferNavCfg_RLDepth_Real().observations))
     assert got == _DEPTH_OBS_GOLDEN
+
+
+def _policy_layout(cfg):
+    """Hash of the policy tensor's layout, blind to every noise model."""
+    return _hash(_canon(cfg.observations.policy, drop=frozenset({"noise"})))
+
+
+def _obs_profile(cfg):
+    return "depth" if hasattr(cfg.observations.policy, "depth_image") else "nocam"
+
+
+@pytest.mark.parametrize("name", sorted(_COMPOSED_RL), ids=lambda n: n)
+def test_policy_obs_layout_matches_its_profile_golden(name):
+    """The tensor the policy consumes — terms, order, params, scales — is one
+    of two layouts, and neither has moved.
+
+    Separating this from the full contract hash above is what makes a
+    randomization change readable. Re-ranging a sensor's noise moves every
+    contract golden, correctly: the training distribution changed. It must not
+    move this one, because a deployed checkpoint is fed the same quantities in
+    the same order either way. A failure here is the serious kind."""
+    cfg = _COMPOSED_RL[name]()
+    profile = _obs_profile(cfg)
+    assert _policy_layout(cfg) == _POLICY_OBS_LAYOUT_GOLDENS[profile], (
+        f"{name} changed the {profile} policy observation layout — a trained "
+        f"checkpoint would be fed a different tensor, not the same tensor "
+        f"corrupted differently"
+    )
+
+
+def test_the_obs_layout_is_the_same_at_every_realism_tier():
+    """Realism selects the sensor corruption, never the layout. Stated as its
+    own assertion so a tier that quietly gained or dropped a term fails here
+    rather than surviving as a fourth layout nobody compares."""
+    layouts = {}
+    for name in sorted(_COMPOSED_RL):
+        cfg = _COMPOSED_RL[name]()
+        layouts.setdefault(_obs_profile(cfg), set()).add(_policy_layout(cfg))
+    assert set(layouts) == set(_POLICY_OBS_LAYOUT_GOLDENS)
+    for profile, hashes in layouts.items():
+        assert len(hashes) == 1, f"{profile} has {len(hashes)} layouts across tiers"
 
 
 # =====================================================================

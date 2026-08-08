@@ -175,7 +175,8 @@ def configure_action_term_dynamics(
     env,
     enable_motor: bool = False,
     enable_delay: bool = False,
-    enable_slew: bool = False
+    enable_slew: bool = False,
+    enable_hold: bool = False,
 ):
     """Configure action term with specific dynamics enabled/disabled.
 
@@ -186,6 +187,10 @@ def configure_action_term_dynamics(
         enable_motor: Enable first-order motor dynamics filter
         enable_delay: Enable command delay buffer
         enable_slew: Enable slew rate (acceleration) limiting
+        enable_hold: Enable command holds (a repeated command). Off by default
+            so a delay or slew measurement is not perturbed by a step on which
+            no new command arrives. Can only mask a hold the cfg carries — it
+            does not conjure one on a tier configured without a band.
 
     Returns:
         The configured action term
@@ -197,6 +202,7 @@ def configure_action_term_dynamics(
     action_term._enable_motor_dynamics = enable_motor
     action_term._enable_command_delay = enable_delay
     action_term._enable_slew_rate = enable_slew
+    action_term._hold.enabled = enable_hold and max(action_term.cfg.hold_fraction_range) > 0.0
 
     # Reset and clear all state buffers
     action_term.reset(env_ids=torch.arange(env.num_envs, device=env.device))
@@ -216,8 +222,9 @@ def reset_env_and_action_term(env, ideal_mode: bool = False):
 
     Args:
         env: The environment
-        ideal_mode: If True, disable motor dynamics/delay/slew for ideal behavior.
-                    If False, enable all dynamics for realistic behavior.
+        ideal_mode: If True, disable motor dynamics/delay/slew/hold for ideal
+                    behavior. If False, enable all dynamics for realistic
+                    behavior.
 
     Returns:
         The configured action term
@@ -233,6 +240,9 @@ def reset_env_and_action_term(env, ideal_mode: bool = False):
     action_term._enable_motor_dynamics = not ideal_mode
     action_term._enable_command_delay = not ideal_mode
     action_term._enable_slew_rate = not ideal_mode
+    action_term._hold.enabled = (
+        not ideal_mode and max(action_term.cfg.hold_fraction_range) > 0.0
+    )
 
     # Reset (clears state for enabled dynamics)
     action_term.reset(env_ids=torch.arange(env.num_envs, device=env.device))

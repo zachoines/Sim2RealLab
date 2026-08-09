@@ -77,6 +77,14 @@ it and should not be treated as substitutes for it.
       measurement window, and treat arms taken in different brackets as
       incomparable. Method and tooling in the predecessor's investigation
       pointers.
+- [ ] **Record RTF concurrently with every wire-counter reading.** The
+      predecessor could not decompose its attached-vs-detached wire change
+      (observed +194% against a census-predicted +57%) because it took byte
+      counters without a paired RTF, leaving the residual split between an RTF
+      difference and RELIABLE retransmission. Wire demand is linear in RTF and
+      RTF is not constant on this rig — it moved 0.347 → 0.229 across one
+      subscriber ramp. A wire figure without its RTF cannot be compared to
+      another wire figure.
 - [ ] **Try the two free levers before the cable**, one at a time, each with a
       bracketed re-measure: `iw dev wlP9s9 set power_save off`, and raise
       `txpower` from 3.00 dBm. Report whether either moves the loss-free rate.

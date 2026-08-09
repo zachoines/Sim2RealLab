@@ -299,9 +299,31 @@ The host is **busier without the node**, because with the node gone the fan-out
 drops and depth actually flows, giving the SLAM chain real work. Across all
 eight suite arms the peak busiest core was 62% and GPU was 0% throughout, with
 the CPU largely parked at its 729 MHz idle floor. **There is no whole-Jetson CPU
-ceiling here.** What the node's presence costs is not CPU: it is a second
-unicast copy, which triples what the DGX puts on the wire (42.5 → 125.0 Mbit/s)
-while what arrives barely moves (21.6 → 24.6).
+ceiling here.** What the node's presence costs is not CPU; it is a second
+unicast copy of the depth stream.
+
+**How much that copy costs needs care, and this pair cannot fully answer it.**
+At fixed RTF the census predicts the added copy is worth **+57%** (387 → 608 ×
+RTF Mbit/s: detached carries `timestamp_fixer`'s depth + color + two
+`camera_info`, attached adds the node's depth). The observed change is
+42.5 → 125.0 Mbit/s, **+194%**. Those do not reconcile at fixed RTF, and this
+pair recorded wire counters without a concurrent RTF reading, so the residual
+cannot be decomposed here. Two candidates, both live and neither isolated:
+
+- **RTF differs between the conditions.** It is not a constant on this rig —
+  across the fan-out ramp it fell 0.347 → 0.299 → 0.264 → 0.229 as subscriber
+  processes were added, and wire demand is linear in it.
+- **Retransmission inflates offered load.** The attached condition sits far
+  deeper into loss (75.0% vs 44.5% shortfall) and the writer is RELIABLE, so it
+  answers NACKs with retransmits that are not accounted for in a nominal copy
+  count. The ramp's 1-subscriber point is the contrasting case: at 9.2%
+  shortfall, TX ran 67.5 against a nominal 66.1, i.e. essentially no inflation.
+
+What survives from this pair is the direction and a floor, not a multiplier:
+adding the node raises offered load by **at least the +57%** the census
+predicts, while what actually arrives barely moves (21.6 → 24.6 Mbit/s). The
+successor brief carries a requirement to record RTF alongside the wire counters
+so the next version of this comparison can be decomposed.
 
 **Decode and inference halves could not be separated**, for the same structural
 reason the predecessor hit and one worse: `inferences=0` *and* `depth rx=0` in
@@ -338,7 +360,13 @@ Cell means over the two rounds:
 Three read-outs:
 
 1. **Subscriber count is the variable.** It moves offered load 2.4× (50 → 118
-   Mbit/s) and shortfall 57% → 77%.
+   Mbit/s) and shortfall 57% → 77%. Unlike the attached/detached pair in §8,
+   this ratio *does* reconcile with the census: stopping `sim-perception` leaves
+   the node as the only remote subscriber on any camera topic, so the predicted
+   ratio is 608/221 = **2.75×** against an observed 2.47× (`reliable`) and 2.27×
+   (`best_effort`). Observed sits slightly *below* predicted, which is the
+   expected sign — under loss the writer cannot place its full nominal rate on
+   the wire.
 2. **Reliability is not.** Within each subscriber count the two QoS cells differ
    by less than the round-to-round spread of the same cell. Given a real test on
    the collapsed regime — which the completed brief never had, having compared
@@ -408,7 +436,9 @@ neither of which any single-subscriber rate could have supplied.
       30%; GPU 0% in both; peak busiest core across all eight suite arms 62%.
       The host is *busier without the node*, because depth then flows and the
       SLAM chain has work. What the node's presence costs is a second unicast
-      copy — DGX TX 42.5 → 125.0 Mbit/s — not CPU.
+      copy, not CPU — worth **at least the +57%** the census predicts at fixed
+      RTF; the observed 42.5 → 125.0 Mbit/s is larger and cannot be decomposed
+      from this pair, which recorded no concurrent RTF.
       **Decode and inference halves could not be separated:** `inferences=0`
       *and* `depth rx=0`, so the node performed neither. See
       [§8](#8-host-cpu-node-attached-vs-detached--the-jetson-idles-while-it-starves).

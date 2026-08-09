@@ -392,7 +392,7 @@ afterwards from the 2026-08-08 measurements and changes no other text.
 | outcome | consequence | scored |
 |---|---|---|
 | C below 0.30 of baseline | compositional sufficiency is established: individually survivable axes compose to the rig's failure, and the remedy list is deploy-side — arrival rate and SLAM quality — not a retrain | does not fire (C = 0.700) |
-| C at or above 0.60 of baseline | the residual lives in the axes sim cannot reach (node observation chain, planner path distribution); the next discriminant is rig-side, after the render stall is cleared | **fires** — C = 0.630 raw, 0.700 of baseline. Qualified below: the two deploy changes ship and the rig is re-validated first; only a still-failing rig read opens those discriminants |
+| C at or above 0.60 of baseline | the residual lives in the axes sim cannot reach (node observation chain, planner path distribution); the next discriminant is rig-side, after the render stall is cleared | **fires** — C = 0.630 raw, 0.700 of baseline. Qualified below: both changes ship, **then** the v2.1 retrain runs and is scored, **then** the rig is re-validated; only a still-failing rig read opens those discriminants |
 | C between 0.30 and 0.60 | composition contributes but is not sufficient: rank A and B by their solo losses, carry the larger into the rig-side discriminant, and no retrain trigger fires | does not fire |
 | A decays with chain depth **and** C is below 0.30 | the trainable axis is episode length; that is the one path back to a retrain, and it re-opens the held decision | does not fire — A is flat with chain depth and C is 0.700 |
 | B at 1× loses ≥ 15% | the training-side mechanism already designed in the DR audit's Phase 2 block is licensed for measurement, not yet for a training run | **fires** — 27.8% loss. Superseded upward: the drift model joins the v2.1 retrain rather than stopping at measurement |
@@ -486,7 +486,7 @@ depth pixels reach the policy, `tick_hz × (1 − hold) × (1 − duplicate)`.
 Requests were hold 0.233 and duplicate 0.610 / 0.760 / 0.233; the realized
 shortfall of ~1 point on the hold axis and ~2 on the duplicate axis is
 `--warmup-ticks` forcing fresh ticks after each boundary, as anticipated. Drift
-realizes at 0.85–0.90 of request against the ~0.89 the re-anchoring expression
+realizes at 0.85–0.93 of request against the ~0.89 the re-anchoring expression
 predicts at the observed mean episode length, so the shortfall is the modelled
 effect rather than a defect.
 
@@ -581,11 +581,15 @@ direction-offset summaries.
   means drift carries essentially the whole compositional cost. The gap between
   0.63 in sim and ~0.0 on the rig is real and lives in the axes sim cannot
   reach. The branch's literal consequence — go to the rig-side discriminants —
-  is qualified: the two deploy changes ship first and the rig is re-validated
-  with them live, and only a still-failing read then licenses the
-  path-geometry and observation-chain discriminants. T1C at 0.571 of its own
-  baseline confirms the composition is generically harsh rather than
-  v2-specific.
+  is qualified, and the order is load-bearing because only one of the two
+  changes reaches the rig directly. Both ship; **then** the v2.1 retrain runs
+  with the drift randomization in its scope and is scored on the acceptance
+  grid; **then** the rig is re-validated, running that retrained policy under
+  the new inference semantics. A rig read taken before the retrain does not
+  satisfy this gate — the drift half would not yet be in the policy under
+  test. Only a still-failing read at that point licenses the path-geometry and
+  observation-chain discriminants. T1C at 0.571 of its own baseline confirms
+  the composition is generically harsh rather than v2-specific.
 - **(d) Arm D — adopt, decisively.** T2D₂, the novelty-matched cell, reads
   0.910 — 1.011 of reference — far above the 0.85 adoption line, and T2D₁ at
   0.956 beat its ≥ 0.80 prediction; both committed predictions held. The
@@ -614,6 +618,14 @@ the next session that has SLAM up, and pins the τ = 2.0 s assumption this brief
 had to state rather than cite. Pre-registered now for the v2.1 acceptance grid:
 **drift-1× ratio ≥ 0.85 of its own clean**, up from today's 0.722, alongside
 the long-horizon chained arm from (a).
+
+The order they run in is a gate, not a preference: both changes ship → the
+v2.1 retrain runs with the drift randomization in scope and is scored on that
+grid → the rig is re-validated with the retrained policy under the new
+inference semantics. The node change is live on the rig as soon as it merges,
+but the drift randomization reaches the rig only through the retrained policy,
+so a rig read taken between the two merges and the retrain tests half the
+remedy and does not discharge (c).
 
 ## Investigation pointers
 

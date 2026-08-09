@@ -1,5 +1,16 @@
 # Extend the cadence harness to the residual attribution candidates
 
+**Status:** Shipped 2026-08-08 in `12a1e95` (DGX). The harness landed earlier
+in `ff5d93d` (PR #193); this change records the 2026-08-08 evaluation session
+and the read-out that closes the brief. Subgoal-frame drift is the dominant
+sim-testable contributor — 1× costs 24–28% of completion, monotone across the
+sweep — while the recurrent horizon is not implicated at today's horizons.
+Timer-driven stale reuse is adopted: at the degraded operating point,
+inference-rate parity recovers the entire loss, 0.610 → 0.910 at matched depth
+novelty. The composition does not collapse the policy (0.700 of baseline), so
+the sim-unreachable axes stay open behind a rig re-validation.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/PENDING
+
 **Type:** investigation (harness extension + one operator-launched run)
 **Owner:** DGX
 **Priority:** P1 — the enriched-lane advance failure is now unattributed on
@@ -21,21 +32,21 @@ reach.**
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/recurrent-policy-contract.md](../../context/recurrent-policy-contract.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/recurrent-policy-contract.md](../context/recurrent-policy-contract.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
 
 ## Context
 
-[`cadence-emulation-eval`](../../completed/cadence-emulation-eval.md) exonerated
+[`cadence-emulation-eval`](cadence-emulation-eval.md) exonerated
 the temporal axis as sufficient: at the 22–25 Hz band every recorded deploy
 session actually ran in, emulated temporal texture costs ≤3% of completion, and
 at the 12 Hz / 36%-duplicate profile it costs ~⅓ — a real loss, but far from the
 rig's zero completions. That read-out left the enriched-lane `mission` ✗ result
 unexplained by scene, by anchoring semantics, or by temporal texture, and named
 four live candidates
-([`cadence-emulation-eval.md`'s read-out](../../completed/cadence-emulation-eval.md#read-out--scored-against-the-pre-registered-rule),
+([`cadence-emulation-eval.md`'s read-out](cadence-emulation-eval.md#read-out--scored-against-the-pre-registered-rule),
 item 2): SLAM-frame anchoring noise, planner path-geometry distribution,
 unbounded recurrent-state horizon, and residual observation-chain deltas.
 
@@ -54,7 +65,7 @@ dump. Both wait on rig time; this brief takes the two that do not.
 the GRU — once per mission, on a new action-server goal
 (`strafer_inference/inference_node.py:788-791`, the only `policy.reset()` call
 site in the node, per
-[recurrent-policy-contract §4](../../context/recurrent-policy-contract.md#4-reset-trigger)).
+[recurrent-policy-contract §4](../context/recurrent-policy-contract.md#4-reset-trigger)).
 What it never does is reset *within* a mission, so the horizon is
 mission-length, not episode-length: `mission_timeout_s` is 60.0 s
 (`strafer_inference/config/inference.yaml:58`), which at the nominal 30 Hz tick
@@ -79,7 +90,7 @@ Scoring it here means the node PR is written against a measured number rather
 than an argument.
 
 That proposal retires a prior ruling rather than contradicting it silently:
-[`inference-cadence-shortfall`](../../completed/inference-cadence-shortfall.md)
+[`inference-cadence-shortfall`](inference-cadence-shortfall.md)
 shipped with "the freshness gate is NOT loosened (one inference per fresh depth
 frame is preserved exactly, and is now structural)". That choice traded rate
 parity for depth freshness, and it was made before any measurement showed which
@@ -155,7 +166,7 @@ name the relative and distance terms before shipping the arm.
 
 The perturbation is a per-env Ornstein-Uhlenbeck process, not i.i.d. jitter:
 localization error is integrated, not resampled. The repo already carries the
-same reasoning twice — [`goal-noise-training`](goal-noise-training.md)'s drift
+same reasoning twice — [`goal-noise-training`](../active/trained-policy/goal-noise-training.md)'s drift
 component ("integrated, not re-sampled — that matches SLAM drift (cumulative),
 not white noise") and the planner's shipped `perturb_waypoints`, which samples
 at correlation-length control points because independent per-waypoint noise
@@ -170,7 +181,7 @@ cited. The time constant is therefore a stated assumption, **τ = 2.0 s**,
 justified only by RTAB-Map's 1–10 Hz `map→odom` refresh; the sweep is on
 magnitude, and τ is held fixed so the sweep has one axis. The measurement that
 would pin τ is Phase 1 item 6 of
-[`domain-randomization-audit`](domain-randomization-audit.md), which is also
+[`domain-randomization-audit`](../active/trained-policy/domain-randomization-audit.md), which is also
 where the training-side mechanism for this axis is already designed.
 
 Parameterization at 1×: the 2-D offset is sampled with stationary per-axis
@@ -333,7 +344,7 @@ shape to build if the harness sees continued service afterwards.
 - [ ] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
 - [ ] No regression in the workflows the touched code supports — the pure
       `strafer_lab` suite stays green and the play script is untouched.

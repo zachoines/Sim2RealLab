@@ -10,7 +10,7 @@ good as `best_effort` in every paired arm, and it is a one-line env flip if the
 successor's measurement says otherwise. Numbers in
 [Rig measurement](#rig-measurement-2026-08-06--the-premise-does-not-hold).
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/192
-**Follow-ups:** [`depth-receiver-host-capacity`](../active/reliability/depth-receiver-host-capacity.md)
+**Follow-ups:** [`depth-receiver-host-capacity`](depth-receiver-host-capacity.md)
 — owns the discriminating measurement, the levers, and the anchoring-arm re-run
 this brief no longer carries.
 
@@ -351,7 +351,7 @@ is conditioned on two things, in order:
 2. **Only if Arm D is rejected** does the achievable ceiling matter, against a
    rule fixed in advance of the measurement. **The ceiling is no longer this
    brief's to produce** — it moves to
-   [`depth-receiver-host-capacity`](../active/reliability/depth-receiver-host-capacity.md)'s
+   [`depth-receiver-host-capacity`](depth-receiver-host-capacity.md)'s
    post-fix measurement, since the QoS re-measure that was going to supply it
    turned out to measure the wrong thing:
 
@@ -412,7 +412,7 @@ variance and per-modality staleness skew, not the mean alone. That is why the
       the wire is not the constraint and the QoS is not the lever — see
       [Rig measurement](#rig-measurement-2026-08-06--the-premise-does-not-hold).
       Re-scoped onto
-      [`depth-receiver-host-capacity`](../active/reliability/depth-receiver-host-capacity.md).
+      [`depth-receiver-host-capacity`](depth-receiver-host-capacity.md).
 - [ ] Confirm no regression in end-to-end latency — a reliable subscription
       that buffers stale frames would trade a rate loss for a staleness loss.
       Report the depth age at inference time before and after.

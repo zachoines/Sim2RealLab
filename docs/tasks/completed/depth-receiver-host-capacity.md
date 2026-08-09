@@ -1,5 +1,27 @@
 # Locate the depth receiver-host capacity ceiling
 
+**Status:** Shipped 2026-08-08 in `4ad29a8` (Jetson) — **measurement delivered,
+premise refuted.** Every measurement acceptance criterion read out, and the
+answer renames the fault: it is not the receiver host. The Jetson drops nothing
+at any layer and idles at 9.8% CPU while starving; the constraint is the **link
+between the hosts** — a DGX WiFi uplink measured at 20–60 Mbit/s loss-free
+carrying a subscriber census that needs 65–211 Mbit/s, unicast-multiplied once
+per subscribing process. Levers are sized against the numbers; per this brief's
+own rule **none is adopted here**, and all fix-work is filed as the follow-ups
+below. This is the fourth mechanism proposed for this defect and the fourth
+displaced by a measurement designed to discriminate.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/196
+**Follow-ups:**
+[`sim-bridge-link-transport-capacity`](../active/reliability/sim-bridge-link-transport-capacity.md)
+— the P1 lever, the only one that changes the order of magnitude; also inherits
+this brief's post-fix plan (achievable-cadence ceiling, `depth_age` at
+inference, the anchoring re-run), because it is the brief that moves the
+ceiling.
+[`depth-subscriber-consolidation`](../active/reliability/depth-subscriber-consolidation.md)
+— removes one of two remote depth copies.
+[`sim-bridge-16uc1-depth-publish`](../active/sim-performance/sim-bridge-16uc1-depth-publish.md)
+— halves the per-copy cost, DGX-side.
+
 **Type:** investigation → task (deploy runtime)
 **Owner:** Jetson
 **Priority:** P1 — it costs 4–6× of the depth cadence on every mission, and it
@@ -28,14 +50,14 @@ the host demonstrably receives when nothing else is attached, instead of the
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/bridge-runtime-invariants.md](../../context/bridge-runtime-invariants.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/bridge-runtime-invariants.md](../context/bridge-runtime-invariants.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
 
 ## Context
 
-[`depth-qos-reliable-flip`](../../completed/depth-qos-reliable-flip.md) closed
+[`depth-qos-reliable-flip`](depth-qos-reliable-flip.md) closed
 premise-refuted and handed this over. Its measurement, 2026-08-06, sim-bridge
 lane, RTF 0.107–0.112 **unchanged across every condition** so the sim never
 slowed:
@@ -65,7 +87,7 @@ publisher would have killed both. That is suggestive, not conclusive, and the
 first job below settles it before any lever is chosen.
 
 Prior art this supersedes and absorbs: the two follow-ups filed inside
-[`depth-reception-reliability`](../../completed/depth-reception-reliability.md)
+[`depth-reception-reliability`](depth-reception-reliability.md)
 — the **frame-skip-0 whole-Jetson capacity ceiling** and the **`timestamp_fixer`
 still-RELIABLE perception receive QoS** named there as its lever — plus items
 2–4 of the 2026-08-03 cadence addendum's node-consumption list. Those were
@@ -413,7 +435,7 @@ neither of which any single-subscriber rate could have supplied.
 - [ ] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
 - [ ] No regression in the workflows the touched code supports.
 
@@ -448,7 +470,7 @@ loss-free path** — and because a frame is 686 datagrams, the target is the
   (~921 KB → ~461 KB per frame), i.e. **221 → 111 × RTF Mbit/s** per depth copy.
   Still a **cross-lane candidate**, flagged not scoped: the bridge half is
   DGX-owned. It couples with
-  [`d555-depth-decode-validity`](../trained-policy/d555-depth-decode-validity.md)
+  [`d555-depth-decode-validity`](../active/trained-policy/d555-depth-decode-validity.md)
   — the 16UC1 decode path the node already needs for real hardware would let the
   sim lane carry half the bytes *and* close the encoding disparity between the
   two lanes in one move. Raise it with the DGX lane rather than implementing it
@@ -466,7 +488,7 @@ loss-free path** — and because a frame is 686 datagrams, the target is the
   way — do not pre-commit. This item moves here from the closed predecessor.
 - **Produce the achievable-cadence ceiling** the setpoint rule consumes. The
   rule itself (Arm D first; then ≥ 27 / 20–27 / < 20 Hz) is unchanged and lives
-  in [`depth-qos-reliable-flip`](../../completed/depth-qos-reliable-flip.md);
+  in [`depth-qos-reliable-flip`](depth-qos-reliable-flip.md);
   only its ceiling's owner moved here. Note the good news it starts from: the
   host already receives ~28.5 Hz sim with the node stopped, **above the 27 Hz
   threshold**, so a successful fix keeps the setpoint at 30 and the `< 20 Hz`
@@ -484,7 +506,7 @@ loss-free path** — and because a frame is 686 datagrams, the target is the
 - The sim's duplicate depth content, and the bridge's own render rate — both are
   DGX-owned and neither is implicated by the arms above.
 - Real-robot depth QoS, which stays an *Adjacent* item inside
-  [`d555-depth-decode-validity`](../trained-policy/d555-depth-decode-validity.md):
+  [`d555-depth-decode-validity`](../active/trained-policy/d555-depth-decode-validity.md):
   that lane is unobservable until the 16UC1 decode lands.
 
 ## Investigation pointers
@@ -497,6 +519,6 @@ loss-free path** — and because a frame is 686 datagrams, the target is the
   loss from host contention and was 0 in every offline replay while the rig
   logged 11 146 in one arm.
 - Cyclone receive tuning already in place, so it is not the missing piece:
-  [`cyclonedds.xml`](../../../../source/strafer_ros/strafer_bringup/config/cyclonedds.xml)
+  [`cyclonedds.xml`](../../../source/strafer_ros/strafer_bringup/config/cyclonedds.xml)
   (16 MB socket buffer, defrag headroom 32) plus the `rmem_max` sysctl drop-in
   beside it.

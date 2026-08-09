@@ -250,7 +250,7 @@ arm-to-arm comparison.
 > a tens-of-minutes timescale reproduces the "within-arm spread exceeds
 > between-arm difference" pattern that has defeated more than one A/B here.
 > Full measurement, method and per-arm data:
-> [`depth-receiver-host-capacity`](depth-receiver-host-capacity.md).
+> [`depth-receiver-host-capacity`](../../completed/depth-receiver-host-capacity.md).
 
 ### 4. The Isaac renderer stops producing frames while physics continues
 
@@ -452,7 +452,7 @@ instance**. On an idle GPU expect 10–20 min to first frames; poll
 ## Out of scope
 
 - The depth cadence shortfall —
-  [`depth-receiver-host-capacity`](depth-receiver-host-capacity.md) owns it, and
+  [`depth-receiver-host-capacity`](../../completed/depth-receiver-host-capacity.md) owns it, and
   it is none of the four modes here — though **mode 3 above is now the mode it
   belongs to**. Its location was settled 2026-08-08: the fault is the **link**,
   not either host. The DGX's WiFi uplink carries a unicast-multiplied camera

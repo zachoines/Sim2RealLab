@@ -27,7 +27,7 @@ Mbit/s, and DDS data on this path is **unicast per subscribing process**
 of remote subscribers rather than being shared. Anything that adds a remote
 subscriber to a camera topic, or raises RTF, spends against that 60 Mbit/s.
 Sizing and consequences in
-[`depth-receiver-host-capacity`](../active/reliability/depth-receiver-host-capacity.md).
+[`depth-receiver-host-capacity`](../completed/depth-receiver-host-capacity.md).
 
 ## Repository
 

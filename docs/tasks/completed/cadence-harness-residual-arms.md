@@ -9,7 +9,7 @@ Timer-driven stale reuse is adopted: at the degraded operating point,
 inference-rate parity recovers the entire loss, 0.610 → 0.910 at matched depth
 novelty. The composition does not collapse the policy (0.700 of baseline), so
 the sim-unreachable axes stay open behind a rig re-validation.
-**PR:** https://github.com/zachoines/Sim2RealLab/pull/PENDING
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/197
 
 **Type:** investigation (harness extension + one operator-launched run)
 **Owner:** DGX

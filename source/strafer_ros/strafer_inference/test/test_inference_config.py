@@ -654,6 +654,12 @@ class TestParamsFileBindsToLaunchedNode:
 class TestCadenceConfig:
     """The shipped cadence knobs."""
 
+    def test_depth_tick_semantics_ships_timer_reuse(self, node_params):
+        # The measured semantics: an inferring tick consumes the newest cached
+        # frame whether or not it advanced, so the policy holds its trained
+        # cadence under a degraded arrival regime. "gated" is the fallback.
+        assert node_params["depth_tick_semantics"] == "timer_reuse"
+
     def test_tick_on_depth_is_shipped_enabled(self, node_params):
         assert node_params["tick_on_depth"] is True
 

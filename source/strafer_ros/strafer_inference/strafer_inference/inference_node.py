@@ -12,17 +12,20 @@ L1 velocity clamp before ``/strafer/cmd_vel`` publish, and a
 successful inference so operator health checks distinguish "warming
 up" (TRT engine cold-start) from "wedged".
 
-Depth-freshness gate: a depth variant runs at most one inference per
-fresh depth frame — a tick whose depth-frame counter has not advanced
-since the last policy call is skipped, holding the channel. Skipped
-ticks advance no hidden state, matching training's one-depth-one-step
-alignment; without it, catch-up ticks under the slow sim depth feed
-replay a stale frame into the recurrent state.
+Depth tick semantics (``depth_tick_semantics``): under ``timer_reuse``
+an inferring tick consumes the newest cached frame whether or not its
+seq advanced, so the recurrent state advances at the trained cadence
+whatever the arrival rate is, and the depth watchdog's
+``depth_timeout_s`` is what bounds the reuse. Under ``gated`` a tick
+whose depth-frame counter has not advanced is skipped instead, holding
+the channel and advancing no hidden state.
 
-Tick scheduling: a depth variant ticks on depth arrival as well as on
-the timer, so a tick cannot run before the frame it needs. The gate
-still caps the rate; the timer remains the watchdog heartbeat and the
-scheduler for camera-free variants.
+Tick scheduling: the timer is the sole scheduler under ``timer_reuse``,
+so an arrival cannot add an inference above the trained cadence. Under
+``gated`` a depth variant also ticks on depth arrival
+(``tick_on_depth``), so a tick cannot run before the frame it needs and
+the gate is what caps the rate. The timer remains the watchdog
+heartbeat and the scheduler for camera-free variants either way.
 
 Tick period: the step period the loaded artifact was trained at, when
 its sidecar records one, and the shared training constant otherwise —
@@ -31,9 +34,10 @@ belongs to the artifact rather than to the deployment. The two
 disagreeing is logged, never resolved silently.
 
 Cadence counters: every skip is counted by cause and reported
-periodically. ``depth_rx`` against ``inferences`` separates a transport
-loss from a loss inside this node. Consumed-frame age — publisher stamp
-to inference — is reported alongside, so an arrival rate can be read
+periodically, and an inferring tick is counted fresh or reuse.
+``depth_rx`` against the fresh count separates a transport loss from a
+loss inside this node. Consumed-frame age — publisher stamp to
+inference — is reported alongside, so an inference rate can be read
 against the staleness it cost.
 
 Thread safety: the action server lives in a ``ReentrantCallbackGroup``
@@ -152,6 +156,11 @@ _DEPTH_RELIABILITY = {
 # the window just logged rather than the whole run.
 _DEPTH_AGE_WINDOW = 512
 
+# Depth tick semantics for the ``depth_tick_semantics`` parameter.
+_TICK_TIMER_REUSE = "timer_reuse"
+_TICK_GATED = "gated"
+_TICK_SEMANTICS = (_TICK_TIMER_REUSE, _TICK_GATED)
+
 
 class InferenceNode(Node):
     """DEPTH-variant trained-policy execution node for strafer_direct."""
@@ -193,7 +202,12 @@ class InferenceNode(Node):
             ],
         )
         self.declare_parameter("onnx_intra_op_threads", 1)
-        # False ticks on the timer alone, at whatever phase it lands on.
+        # "timer_reuse": an inferring tick consumes the newest cached frame
+        # whether or not it advanced. "gated": a tick whose frame has not
+        # advanced is skipped.
+        self.declare_parameter("depth_tick_semantics", _TICK_TIMER_REUSE)
+        # Read under "gated" only; "timer_reuse" ticks on the timer alone, so
+        # an arrival cannot add an inference above the trained cadence.
         self.declare_parameter("tick_on_depth", True)
         # Periodic cadence/skip summary. 0 disables.
         self.declare_parameter("cadence_log_period_s", 10.0)
@@ -333,10 +347,11 @@ class InferenceNode(Node):
         # reported at consume time spans the whole path — render to inference —
         # rather than the receive-to-tick leg alone.
         self._last_depth_stamp_s: Optional[float] = None
-        # Depth-frame counter (bumped in _on_depth): the tick runs at most
-        # one inference per fresh frame. _last_inferred_depth_seq holds the
-        # value consumed by the last policy call; -1 lets the first through.
-        # It is written and read only by the tick, so it needs no lock.
+        # Depth-frame counter (bumped in _on_depth). _last_inferred_depth_seq
+        # holds the value consumed by the last policy call, so the two
+        # disagreeing is what makes a tick's frame fresh rather than reused;
+        # -1 lets the first through. It is written and read only by the tick,
+        # so it needs no lock.
         self._depth_seq = 0
         self._last_inferred_depth_seq = -1
         # _on_depth runs in its own callback group, concurrent with the tick.
@@ -348,6 +363,8 @@ class InferenceNode(Node):
         # Snapshot of _last_depth_meters taken under _depth_lock at the top of
         # each tick; obs assembly reads this, not the live field.
         self._tick_depth_meters: Optional[np.ndarray] = None
+        # Whether that snapshot carries a frame no policy call has consumed.
+        self._tick_depth_fresh = True
         self._last_goal_map: Optional[PoseStamped] = None
         # Count, not a bool: a preempted or cancel-draining goal briefly
         # overlaps its successor, and the exiting goal must not clear
@@ -372,6 +389,8 @@ class InferenceNode(Node):
             "ticks_timer": 0,
             "ticks_depth": 0,
             "inferences": 0,
+            "infer_fresh": 0,
+            "infer_reuse": 0,
             "skip_watchdog": 0,
             "skip_gate": 0,
             "skip_no_policy": 0,
@@ -397,6 +416,16 @@ class InferenceNode(Node):
         )
         self._last_cadence_log_t = time.monotonic()
         self._tick_on_depth = bool(self.get_parameter("tick_on_depth").value)
+
+        semantics = str(
+            self.get_parameter("depth_tick_semantics").value
+        ).strip().lower()
+        if semantics not in _TICK_SEMANTICS:
+            raise ValueError(
+                f"depth_tick_semantics={semantics!r} is not one of "
+                f"{_TICK_SEMANTICS}"
+            )
+        self._reuse_stale_depth = semantics == _TICK_TIMER_REUSE
 
         # Small subs + tick share the default mutex group. Depth gets its own
         # group so its ~921 KB deserialize/take runs on a separate executor
@@ -444,7 +473,7 @@ class InferenceNode(Node):
         # Created BEFORE the subscription so a frame arriving during
         # construction can never find a half-built wake handle.
         self._depth_wake = None
-        if self._has_depth and self._tick_on_depth:
+        if self._has_depth and self._tick_on_depth and not self._reuse_stale_depth:
             # Default group, not the depth group: the deserialize keeps its
             # own executor slot while the inference stays serialized against
             # the other cached sources.
@@ -535,6 +564,25 @@ class InferenceNode(Node):
             + f" target={_hz(infer_period)} sim, counters every "
             f"{self._cadence_log_period_s:.0f} s"
         )
+        if self._has_depth:
+            self.get_logger().info(
+                f"depth tick semantics={semantics}: "
+                + (
+                    "an inferring tick consumes the newest cached frame "
+                    "whether or not it advanced, so the reuse is bounded by "
+                    f"the depth watchdog at {self._timeouts.depth:.2f} s."
+                    if self._reuse_stale_depth
+                    else "a tick whose depth frame has not advanced is "
+                    "skipped, so the policy steps once per fresh frame."
+                )
+            )
+            if self._reuse_stale_depth and self._tick_on_depth:
+                self.get_logger().info(
+                    "tick_on_depth is inert under "
+                    f"{_TICK_TIMER_REUSE}: the timer is the sole scheduler, "
+                    "so an arrival cannot add an inference above the "
+                    "trained cadence."
+                )
 
     def _resolve_onnx_providers(self) -> Optional[list]:
         """Build the ORT provider list from ``onnx_providers`` + TRT cache config.
@@ -960,7 +1008,7 @@ class InferenceNode(Node):
         # lock: _on_depth may replace all four concurrently from its own
         # callback group. The rest of the tick reads only these locals plus
         # the tick-owned _last_inferred_depth_seq, so the frame the watchdog,
-        # the gate, and obs assembly all see is one coherent frame.
+        # the freshness test, and obs assembly all see is one coherent frame.
         if self._has_depth:
             with self._depth_lock:
                 self._tick_depth_meters = self._last_depth_meters
@@ -971,7 +1019,8 @@ class InferenceNode(Node):
             self._tick_depth_meters = None
             depth_stamp_s = None
             depth_rx_t = None
-            depth_seq = self._depth_seq  # 0; the gate is unreachable here
+            depth_seq = self._depth_seq  # 0; unread for a camera-free variant
+        self._tick_depth_fresh = depth_seq != self._last_inferred_depth_seq
 
         tf_age = self._tf_age_s()
         stale = stale_sources(
@@ -1016,11 +1065,15 @@ class InferenceNode(Node):
             self._counts["skip_no_policy"] += 1
             return
 
-        # After the watchdog, so a stale-source zero-twist still preempts; a
-        # skipped tick (depth frame unchanged) holds the channel, no publish.
-        # Uses the snapshot seq, not the live counter, so a frame landing
-        # mid-tick is picked up next tick rather than tearing this one.
-        if self._has_depth and depth_seq == self._last_inferred_depth_seq:
+        # After the watchdog, so a stale-source zero-twist still preempts and
+        # the watchdog's depth timeout is what bounds how long a frame may be
+        # reused. Under `gated` an unadvanced frame skips instead, holding the
+        # channel with no publish.
+        if (
+            self._has_depth
+            and not self._tick_depth_fresh
+            and not self._reuse_stale_depth
+        ):
             self._counts["skip_gate"] += 1
             return
 
@@ -1046,12 +1099,15 @@ class InferenceNode(Node):
         self._note_inference(t_inference_ns)
 
         # The policy call advanced the recurrent hidden state — consume the
-        # snapshotted depth frame so the gate skips ticks until a fresher one
-        # arrives. Records the snapshot seq (the frame obs was built from),
+        # snapshotted depth frame so a later tick reading the same seq counts
+        # as reuse. Records the snapshot seq (the frame obs was built from),
         # not the live counter which a mid-tick _on_depth may have advanced.
         # Recorded even on the shape-error path below (the state advanced
         # regardless); depth variants only, others never read it.
         if self._has_depth:
+            self._counts[
+                "infer_fresh" if self._tick_depth_fresh else "infer_reuse"
+            ] += 1
             self._last_inferred_depth_seq = depth_seq
             self._note_depth_age(depth_stamp_s)
 
@@ -1124,10 +1180,12 @@ class InferenceNode(Node):
         self._t_inference_ns_last = t_inference_ns
 
     def _note_depth_content(self, depth_flat_meters: np.ndarray) -> None:
-        """Count consecutive inferences fed a bit-identical depth block.
+        """Count consecutive *fresh* frames carrying a bit-identical depth block.
 
-        The gate keys on the message counter, so a publisher that stamps
-        faster than it renders satisfies it with duplicate pixels.
+        Freshness keys on the message counter, so a publisher that stamps
+        faster than it renders advances it with duplicate pixels. Reused
+        frames are excluded by the caller: they repeat by construction, and
+        counting them would read as publisher duplication.
         """
         digest = hashlib.blake2b(
             depth_flat_meters.tobytes(), digest_size=16
@@ -1181,11 +1239,19 @@ class InferenceNode(Node):
         stale = " ".join(
             f"{k}={v}" for k, v in sorted(self._stale_counts.items())
         ) or "none"
-        unconsumed = c["depth_rx"] - c["inferences"] if self._has_depth else 0
+        # Against the fresh count, not every inference: a reused frame was
+        # already counted when it first arrived, and reuse can put the
+        # inference count above depth_rx entirely.
+        unconsumed = c["depth_rx"] - c["infer_fresh"] if self._has_depth else 0
+        split = (
+            f" (fresh={c['infer_fresh']} reuse={c['infer_reuse']})"
+            if self._has_depth
+            else ""
+        )
         self.get_logger().info(
             f"cadence: {rate:.2f} Hz sim (target {target:.2f}) over "
             f"{span_sim:.1f} s sim | ticks timer={c['ticks_timer']} "
-            f"depth={c['ticks_depth']} | inferences={c['inferences']} | "
+            f"depth={c['ticks_depth']} | inferences={c['inferences']}{split} | "
             f"skips watchdog={c['skip_watchdog']} gate={c['skip_gate']} "
             f"obs_none={c['skip_obs_none']} no_policy={c['skip_no_policy']} "
             f"action_shape={c['skip_action_shape']} | "
@@ -1200,18 +1266,27 @@ class InferenceNode(Node):
 
         if span_sim >= 2.0 and target > 0.0 and rate < 0.9 * target:
             expected = span_sim * target
-            if self._has_depth and c["depth_rx"] < 0.9 * expected:
+            depth_stale_ticks = self._stale_counts.get("depth", 0)
+            # Under reuse the inference rate follows the timer, so a low
+            # arrival count is not itself a shortfall — depth owns one only
+            # when it went missing long enough to hold ticks at the watchdog.
+            depth_owns = (
+                depth_stale_ticks > 0
+                if self._reuse_stale_depth
+                else c["depth_rx"] < 0.9 * expected
+            )
+            if self._has_depth and depth_owns:
                 owner = (
                     f"the depth transport: {c['depth_rx']} of ~{expected:.0f} "
                     "published frames reached this node "
                     f"(depth_reliability="
                     f"{self.get_parameter('depth_reliability').value!r}, "
-                    "history depth=1)"
+                    f"history depth=1), stale_depth_ticks={depth_stale_ticks}"
                 )
             else:
                 owner = (
-                    "this node: frames arrived but did not become inferences "
-                    f"(gate={c['skip_gate']} watchdog={c['skip_watchdog']} "
+                    "this node: ticks did not reach the policy at the target "
+                    f"rate (gate={c['skip_gate']} watchdog={c['skip_watchdog']} "
                     f"obs_none={c['skip_obs_none']} "
                     f"timer_deadline_missed={c['timer_deadline_missed']})"
                 )
@@ -1279,7 +1354,7 @@ class InferenceNode(Node):
         depth_flat_meters = (
             downsample_depth(self._tick_depth_meters) if self._has_depth else None
         )
-        if depth_flat_meters is not None:
+        if depth_flat_meters is not None and self._tick_depth_fresh:
             self._note_depth_content(depth_flat_meters)
 
         imu = self._last_imu

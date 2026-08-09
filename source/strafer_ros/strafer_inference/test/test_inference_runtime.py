@@ -141,9 +141,11 @@ def _ready_depth_node(**overrides) -> InferenceNode:
 
     Assembly is stubbed to a fixed vector: these tests are about the tick
     scheduler and the counters, not about obs content, and the real depth
-    path needs a full 640x360 frame per tick.
+    path needs a full 640x360 frame per tick. ``policy_variant`` is
+    overridable, so the same ready state serves a camera-free variant.
     """
-    node = _node(policy_variant="DEPTH_SUBGOAL", **overrides)
+    overrides.setdefault("policy_variant", "DEPTH_SUBGOAL")
+    node = _node(**overrides)
     node._policy = _FakeRecurrentPolicy()
     node._active_goal_count = 1
     node._last_subgoal_map = _make_pose(1.0, 0.0)
@@ -1644,17 +1646,19 @@ class TestVariantAwareWiring(unittest.TestCase):
 
 
 class TestDepthFreshnessGate(unittest.TestCase):
-    """A depth variant runs at most one inference per fresh depth frame:
-    catch-up ticks under the slow sim depth feed must not replay a stale
-    frame into the recurrent GRU. The gate sits after the watchdog (a
-    stale-source zero-twist still preempts) and holds the channel on a
-    skip (idle semantics — no publish). No-camera variants never gate.
+    """Under `depth_tick_semantics: gated` a depth variant runs at most one
+    inference per fresh depth frame: catch-up ticks under a slow depth feed
+    must not replay a stale frame into the recurrent GRU. The gate sits after
+    the watchdog (a stale-source zero-twist still preempts) and holds the
+    channel on a skip (idle semantics — no publish). No-camera variants never
+    gate. Every node here names the mode, because it is not the shipped one.
     """
 
     def _depth_node(self, variant: str = "DEPTH") -> InferenceNode:
         node = InferenceNode(
             parameter_overrides=_make_overrides(
                 model_path="", policy_variant=variant,
+                depth_tick_semantics="gated",
             )
         )
         node._policy = _FakeRecurrentPolicy()
@@ -2220,35 +2224,42 @@ class TestObsDump(unittest.TestCase):
 
 
 class TestDepthDrivenTick(unittest.TestCase):
-    """The tick is driven by depth arrival, not only by the timer.
+    """Under `depth_tick_semantics: gated` the tick is driven by depth arrival
+    as well as by the timer.
 
-    The freshness gate is still the rate limiter, so this changes the
-    tick's phase, not its cap.
+    The freshness gate is the rate limiter there, so arrival scheduling changes
+    the tick's phase, not its cap. Every node names the mode: without a gate an
+    arrival-driven tick would add an inference above the trained cadence, so
+    the shipped `timer_reuse` builds no wake at all.
     """
 
+    @staticmethod
+    def _gated(**overrides) -> InferenceNode:
+        return _node(depth_tick_semantics="gated", **overrides)
+
     def test_depth_variant_creates_a_wake_handle(self) -> None:
-        node = _node(policy_variant="DEPTH_SUBGOAL")
+        node = self._gated(policy_variant="DEPTH_SUBGOAL")
         try:
             self.assertIsNotNone(node._depth_wake)
         finally:
             node.destroy_node()
 
     def test_camera_free_variant_has_no_wake_handle(self) -> None:
-        node = _node(policy_variant="NOCAM_SUBGOAL")
+        node = self._gated(policy_variant="NOCAM_SUBGOAL")
         try:
             self.assertIsNone(node._depth_wake)
         finally:
             node.destroy_node()
 
     def test_tick_on_depth_false_restores_timer_only(self) -> None:
-        node = _node(policy_variant="DEPTH_SUBGOAL", tick_on_depth=False)
+        node = self._gated(policy_variant="DEPTH_SUBGOAL", tick_on_depth=False)
         try:
             self.assertIsNone(node._depth_wake)
         finally:
             node.destroy_node()
 
     def test_a_frame_triggers_the_wake(self) -> None:
-        node = _node(policy_variant="DEPTH_SUBGOAL")
+        node = self._gated(policy_variant="DEPTH_SUBGOAL")
         try:
             wake = MagicMock()
             node._depth_wake = wake
@@ -2258,7 +2269,7 @@ class TestDepthDrivenTick(unittest.TestCase):
             node.destroy_node()
 
     def test_a_rejected_frame_does_not_trigger_the_wake(self) -> None:
-        node = _node(policy_variant="DEPTH_SUBGOAL")
+        node = self._gated(policy_variant="DEPTH_SUBGOAL")
         try:
             wake = MagicMock()
             node._depth_wake = wake
@@ -2283,7 +2294,7 @@ class TestDepthDrivenTick(unittest.TestCase):
     def test_the_gate_still_caps_at_one_inference_per_frame(self) -> None:
         """Both schedulers feed the same gate: two ticks, one frame, one
         inference."""
-        node = _ready_depth_node()
+        node = _ready_depth_node(depth_tick_semantics="gated")
         try:
             node._on_depth(_depth_msg(fill=1.0))
             node._on_tick(source="depth")
@@ -2295,7 +2306,7 @@ class TestDepthDrivenTick(unittest.TestCase):
             node.destroy_node()
 
     def test_each_fresh_frame_yields_exactly_one_inference(self) -> None:
-        node = _ready_depth_node()
+        node = _ready_depth_node(depth_tick_semantics="gated")
         try:
             for k in range(5):
                 node._on_depth(_depth_msg(fill=1.0 + k))
@@ -2303,6 +2314,339 @@ class TestDepthDrivenTick(unittest.TestCase):
             self.assertEqual(node._counts["inferences"], 5)
             self.assertEqual(node._counts["depth_rx"], 5)
             self.assertEqual(node._counts["skip_gate"], 0)
+        finally:
+            node.destroy_node()
+
+
+class TestDepthTickSemantics(unittest.TestCase):
+    """`timer_reuse` (shipped) infers on every timer tick, consuming the newest
+    cached frame whether or not its seq advanced, so the recurrent state
+    advances at the trained cadence however slowly depth arrives. `gated` is
+    the named fallback that skips such a tick instead. The depth watchdog runs
+    first in both modes, so it — not a separate budget — is what bounds how
+    stale a reused frame may get.
+    """
+
+    @staticmethod
+    def _at_sim(node: InferenceNode, t_s: float) -> None:
+        node.get_clock = MagicMock(  # type: ignore[method-assign]
+            return_value=SimpleNamespace(
+                now=lambda: SimpleNamespace(nanoseconds=int(t_s * 1e9))
+            )
+        )
+
+    @staticmethod
+    def _stamped(fill: float, stamp_s: float) -> Image:
+        msg = _depth_msg(fill=fill)
+        msg.header.stamp.sec = int(stamp_s)
+        msg.header.stamp.nanosec = int(round((stamp_s % 1.0) * 1e9))
+        return msg
+
+    @staticmethod
+    def _restamp_non_depth(node: InferenceNode) -> None:
+        now = time.monotonic()
+        for attr in (
+            "_last_imu_rx_t", "_last_joint_states_rx_t",
+            "_last_odom_rx_t", "_last_subgoal_rx_t",
+        ):
+            setattr(node, attr, now)
+
+    # -- mode selection ------------------------------------------------
+
+    def test_shipped_default_is_timer_reuse(self) -> None:
+        node = _node(policy_variant="DEPTH_SUBGOAL")
+        try:
+            self.assertEqual(
+                node.get_parameter("depth_tick_semantics").value, "timer_reuse"
+            )
+            self.assertTrue(node._reuse_stale_depth)
+        finally:
+            node.destroy_node()
+
+    def test_gated_is_selectable_as_the_named_fallback(self) -> None:
+        node = _node(policy_variant="DEPTH_SUBGOAL", depth_tick_semantics="gated")
+        try:
+            self.assertFalse(node._reuse_stale_depth)
+        finally:
+            node.destroy_node()
+
+    def test_unknown_semantics_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="depth_tick_semantics"):
+            _node(
+                policy_variant="DEPTH_SUBGOAL",
+                depth_tick_semantics="sometimes",
+            )
+
+    # -- scheduler ownership -------------------------------------------
+
+    def test_reuse_leaves_the_timer_as_the_sole_scheduler(self) -> None:
+        """Without a gate an arrival-driven tick would add an inference above
+        the trained cadence, so no wake handle exists to raise one."""
+        node = _node(policy_variant="DEPTH_SUBGOAL", tick_on_depth=True)
+        try:
+            self.assertIsNone(node._depth_wake)
+            self.assertIsNotNone(node._timer)
+            self.assertFalse(node._timer.is_canceled())
+        finally:
+            node.destroy_node()
+
+    # -- the two modes' semantics --------------------------------------
+
+    def test_reuse_infers_on_a_tick_with_no_new_frame(self) -> None:
+        node = _ready_depth_node()
+        try:
+            node._on_depth(_depth_msg(fill=1.0))
+            for _ in range(3):
+                self._restamp_non_depth(node)
+                node._on_tick(source="timer")
+            self.assertEqual(node._counts["inferences"], 3)
+            self.assertEqual(node._counts["skip_gate"], 0)
+            self.assertEqual(node._cmd_vel_pub.publish.call_count, 3)
+        finally:
+            node.destroy_node()
+
+    def test_gated_skips_a_tick_with_no_new_frame(self) -> None:
+        node = _ready_depth_node(depth_tick_semantics="gated")
+        try:
+            node._on_depth(_depth_msg(fill=1.0))
+            for _ in range(3):
+                self._restamp_non_depth(node)
+                node._on_tick(source="timer")
+            self.assertEqual(node._counts["inferences"], 1)
+            self.assertEqual(node._counts["skip_gate"], 2)
+        finally:
+            node.destroy_node()
+
+    def test_hidden_state_advances_on_every_inferring_tick(self) -> None:
+        """The reuse is worth having only because the GRU steps on it: the
+        action stream must keep evolving with no new depth frame."""
+        node = _ready_depth_node()
+        try:
+            # Sum-normalised so the stub's hidden state integrates by a
+            # readable step: a zero obs leaves its action constant and a
+            # vector of ones drives tanh into float32 saturation, either of
+            # which would collide the actions this asserts are distinct.
+            obs_dim = node._variant.obs_dim
+            node._assemble_observation_or_none = (  # type: ignore
+                lambda: np.full(obs_dim, 100.0 / obs_dim, dtype=np.float32)
+            )
+            node._on_depth(_depth_msg(fill=1.0))
+            actions = []
+            for _ in range(4):
+                self._restamp_non_depth(node)
+                node._on_tick(source="timer")
+                actions.append(tuple(node._last_action.tolist()))
+            self.assertEqual(node._policy.call_count, 4)
+            self.assertEqual(node._counts["infer_reuse"], 3)
+            self.assertEqual(len(set(actions)), 4)
+        finally:
+            node.destroy_node()
+
+    def test_an_inferring_tick_takes_the_newest_cached_frame(self) -> None:
+        """Two frames land between ticks: the tick consumes the newer one and
+        the older is never inferred."""
+        node = _ready_depth_node()
+        try:
+            node._on_depth(_depth_msg(fill=1.0))
+            node._on_depth(_depth_msg(fill=2.0))
+            self._restamp_non_depth(node)
+            node._on_tick(source="timer")
+            self.assertEqual(float(node._tick_depth_meters.flat[0]), 2.0)
+            self.assertEqual(node._last_inferred_depth_seq, 2)
+            self.assertEqual(node._counts["inferences"], 1)
+        finally:
+            node.destroy_node()
+
+    def test_a_fresh_frame_ends_the_reuse_run(self) -> None:
+        node = _ready_depth_node()
+        try:
+            node._on_depth(_depth_msg(fill=1.0))
+            for _ in range(2):
+                self._restamp_non_depth(node)
+                node._on_tick(source="timer")
+            node._on_depth(_depth_msg(fill=2.0))
+            self._restamp_non_depth(node)
+            node._on_tick(source="timer")
+            self.assertEqual(node._counts["infer_fresh"], 2)
+            self.assertEqual(node._counts["infer_reuse"], 1)
+        finally:
+            node.destroy_node()
+
+    # -- the bound ------------------------------------------------------
+
+    def test_reuse_is_bounded_by_the_depth_watchdog(self) -> None:
+        """Past `depth_timeout_s` the watchdog holds the tick exactly as it
+        does today — the reuse has no budget of its own."""
+        node = _ready_depth_node()
+        try:
+            node._on_depth(_depth_msg(fill=1.0))
+            self._restamp_non_depth(node)
+            node._on_tick(source="timer")
+            self.assertEqual(node._counts["inferences"], 1)
+
+            # Age the cached frame past the watchdog's depth budget.
+            node._last_depth_rx_t = (
+                time.monotonic() - 10.0 * node._timeouts.depth
+            )
+            self._restamp_non_depth(node)
+            node._on_tick(source="timer")
+
+            self.assertEqual(node._counts["inferences"], 1)  # no reuse ran
+            self.assertEqual(node._counts["skip_watchdog"], 1)
+            self.assertEqual(node._stale_counts.get("depth"), 1)
+            published = node._cmd_vel_pub.publish.call_args[0][0]
+            self.assertEqual(
+                (published.linear.x, published.linear.y, published.angular.z),
+                (0.0, 0.0, 0.0),
+            )
+        finally:
+            node.destroy_node()
+
+    def test_reuse_resumes_once_depth_returns(self) -> None:
+        node = _ready_depth_node()
+        try:
+            node._on_depth(_depth_msg(fill=1.0))
+            node._last_depth_rx_t = (
+                time.monotonic() - 10.0 * node._timeouts.depth
+            )
+            self._restamp_non_depth(node)
+            node._on_tick(source="timer")
+            self.assertEqual(node._counts["inferences"], 0)
+
+            node._on_depth(_depth_msg(fill=2.0))
+            self._restamp_non_depth(node)
+            node._on_tick(source="timer")
+            self.assertEqual(node._counts["inferences"], 1)
+        finally:
+            node.destroy_node()
+
+    # -- counters -------------------------------------------------------
+
+    def test_reuse_ticks_are_counted_apart_from_fresh_ticks(self) -> None:
+        node = _ready_depth_node()
+        try:
+            node._on_depth(_depth_msg(fill=1.0))
+            for _ in range(3):
+                self._restamp_non_depth(node)
+                node._on_tick(source="timer")
+            self.assertEqual(node._counts["infer_fresh"], 1)
+            self.assertEqual(node._counts["infer_reuse"], 2)
+            self.assertEqual(node._counts["inferences"], 3)
+        finally:
+            node.destroy_node()
+
+    def test_gated_counts_every_inference_fresh(self) -> None:
+        node = _ready_depth_node(depth_tick_semantics="gated")
+        try:
+            for k in range(3):
+                node._on_depth(_depth_msg(fill=1.0 + k))
+                self._restamp_non_depth(node)
+                node._on_tick(source="timer")
+            self.assertEqual(node._counts["infer_fresh"], 3)
+            self.assertEqual(node._counts["infer_reuse"], 0)
+        finally:
+            node.destroy_node()
+
+    def test_reuse_records_the_growing_age_of_the_reused_frame(self) -> None:
+        """`depth_age` is what the reuse costs, so a reuse tick must report
+        it — the instrument is the reason the semantics are affordable."""
+        node = _ready_depth_node()
+        try:
+            self._at_sim(node, 1.0)
+            node._on_depth(self._stamped(1.0, stamp_s=1.0))
+            for t_sim in (1.0, 1.2, 1.4):
+                self._at_sim(node, t_sim)
+                self._restamp_non_depth(node)
+                node._on_tick(source="timer")
+            self.assertEqual(len(node._depth_age_s), 3)
+            for got, want in zip(node._depth_age_s, (0.0, 0.2, 0.4)):
+                self.assertAlmostEqual(got, want, places=6)
+        finally:
+            node.destroy_node()
+
+    def test_reuse_does_not_inflate_the_repeat_content_counter(self) -> None:
+        """`depth_repeat_content` measures a publisher stamping faster than it
+        renders. Reused frames repeat by construction, so counting them would
+        read as publisher duplication."""
+        node = _real_assembly_depth_node()
+        try:
+            node._on_depth(_full_depth_msg(fill=2.0))
+            for _ in range(3):
+                node._on_tick(source="timer")
+            self.assertEqual(node._counts["inferences"], 3)
+            self.assertEqual(node._counts["infer_reuse"], 2)
+            self.assertEqual(node._counts["depth_repeat_content"], 0)
+        finally:
+            node.destroy_node()
+
+    def test_publisher_duplication_is_still_counted_under_reuse(self) -> None:
+        """The other half of the same pin: distinct arrivals carrying identical
+        pixels still register, so the instrument survives the semantics."""
+        node = _real_assembly_depth_node()
+        try:
+            for _ in range(3):
+                node._on_depth(_full_depth_msg(fill=2.0))
+                node._on_tick(source="timer")
+            self.assertEqual(node._counts["infer_fresh"], 3)
+            self.assertEqual(node._counts["depth_repeat_content"], 2)
+        finally:
+            node.destroy_node()
+
+    # -- the cadence line ------------------------------------------------
+
+    def test_cadence_line_reports_the_fresh_reuse_split(self) -> None:
+        node = _ready_depth_node(cadence_log_period_s=0.001)
+        try:
+            node._on_depth(_depth_msg(fill=1.0))
+            for _ in range(3):
+                self._restamp_non_depth(node)
+                node._on_tick(source="timer")
+            info = MagicMock()
+            node.get_logger().info = info
+            node._last_cadence_log_t = 0.0
+            node._maybe_log_cadence()
+            self.assertIn(
+                "inferences=3 (fresh=1 reuse=2)", info.call_args[0][0]
+            )
+        finally:
+            node.destroy_node()
+
+    def test_unconsumed_counts_frames_no_tick_ever_took(self) -> None:
+        """Reuse can put the inference count above `depth_rx`, so `unconsumed`
+        is read against the fresh count or it goes negative."""
+        node = _ready_depth_node(cadence_log_period_s=0.001)
+        try:
+            for k in range(3):
+                node._on_depth(_depth_msg(fill=1.0 + k))
+            self._restamp_non_depth(node)
+            node._on_tick(source="timer")
+            node._on_tick(source="timer")
+            info = MagicMock()
+            node.get_logger().info = info
+            node._last_cadence_log_t = 0.0
+            node._maybe_log_cadence()
+            line = info.call_args[0][0]
+            self.assertEqual(node._counts["inferences"], 2)
+            self.assertIn("depth rx=3 unconsumed=2", line)
+        finally:
+            node.destroy_node()
+
+    def test_camera_free_variant_ignores_the_semantics(self) -> None:
+        node = _ready_depth_node(
+            policy_variant="NOCAM_SUBGOAL", cadence_log_period_s=0.001
+        )
+        try:
+            for _ in range(3):
+                self._restamp_non_depth(node)
+                node._on_tick(source="timer")
+            self.assertEqual(node._counts["inferences"], 3)
+            self.assertEqual(node._counts["infer_fresh"], 0)
+            self.assertEqual(node._counts["infer_reuse"], 0)
+            info = MagicMock()
+            node.get_logger().info = info
+            node._last_cadence_log_t = 0.0
+            node._maybe_log_cadence()
+            self.assertIn("inferences=3 |", info.call_args[0][0])
         finally:
             node.destroy_node()
 
@@ -2519,7 +2863,7 @@ class TestDepthAgeInstrument(unittest.TestCase):
 
     def test_gate_skipped_tick_records_no_age(self) -> None:
         """Only a frame the policy actually consumed has an age at inference."""
-        node = _ready_depth_node()
+        node = _ready_depth_node(depth_tick_semantics="gated")
         try:
             self._at_sim(node, 1.25)
             node._on_depth(self._stamped(1.0, stamp_s=1.0))

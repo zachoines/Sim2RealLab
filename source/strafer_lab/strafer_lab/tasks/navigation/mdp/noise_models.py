@@ -24,6 +24,8 @@ from isaaclab.utils.noise import NoiseModel
 from isaaclab.utils import configclass
 from isaaclab.utils.noise import NoiseModelCfg, GaussianNoiseCfg
 
+from .hold_process import HoldProcess
+
 if TYPE_CHECKING:
     from .sim_real_cfg import (
         IMUNoiseCfg,
@@ -43,28 +45,69 @@ class DelayBuffer:
     Stores past observations and returns delayed observations based on
     the configured latency (in control steps).
 
+    With ``delay_steps_range`` the latency is drawn per environment at every
+    reset instead of being one number shared by the whole batch, so the policy
+    sees an age *distribution* on the modality rather than a constant offset a
+    recurrent net can calibrate away. The fixed-latency path is unchanged when
+    no range is given.
+
     Args:
         num_envs: Number of parallel environments.
         obs_size: Size of observation vector per environment.
         delay_steps: Number of steps to delay (0 = no delay).
         device: Torch device for tensors.
+        delay_steps_range: Absolute per-env latency band [min, max] in control
+            steps, sampled at reset. None keeps the fixed ``delay_steps``.
     """
 
-    def __init__(self, num_envs: int, obs_size: int, delay_steps: int, device: str):
+    def __init__(
+        self,
+        num_envs: int,
+        obs_size: int,
+        delay_steps: int,
+        device: str,
+        delay_steps_range: tuple[int, int] | None = None,
+    ):
         self._num_envs = num_envs
         self._obs_size = obs_size
         self._delay_steps = delay_steps
         self._device = device
 
-        # Ring buffer: (delay_steps + 1, num_envs, obs_size)
+        if delay_steps_range is not None:
+            lo, hi = int(min(delay_steps_range)), int(max(delay_steps_range))
+            self._delay_range = (max(0, lo), max(0, hi))
+        else:
+            self._delay_range = None
+
+        # Ring depth must cover the largest latency any env can draw.
+        max_delay = delay_steps if self._delay_range is None else self._delay_range[1]
+        self._max_delay = max_delay
+
+        # Ring buffer: (max_delay + 1, num_envs, obs_size)
         # +1 because we need to store current + past observations
-        if delay_steps > 0:
-            self._buffer = torch.zeros(
-                delay_steps + 1, num_envs, obs_size, device=device
-            )
+        if max_delay > 0:
+            self._buffer = torch.zeros(max_delay + 1, num_envs, obs_size, device=device)
             self._write_idx = 0
+            self._delays = torch.full(
+                (num_envs,), delay_steps, dtype=torch.long, device=device
+            )
+            self._env_index = torch.arange(num_envs, device=device)
+            if self._delay_range is not None:
+                self._sample_delays(None)
         else:
             self._buffer = None
+
+    def _sample_delays(self, env_ids: Sequence[int] | None):
+        """Draw the per-env latency for the given envs from the configured band."""
+        lo, hi = self._delay_range
+        count = self._num_envs if env_ids is None else len(env_ids)
+        if count == 0:
+            return
+        drawn = torch.randint(lo, hi + 1, (count,), device=self._device)
+        if env_ids is None:
+            self._delays.copy_(drawn)
+        else:
+            self._delays[env_ids] = drawn
 
     def reset(self, env_ids: Sequence[int] | None = None):
         """Reset buffer for specified environments."""
@@ -76,6 +119,9 @@ class DelayBuffer:
         else:
             self._buffer[:, env_ids] = 0.0
 
+        if self._delay_range is not None:
+            self._sample_delays(env_ids)
+
     def __call__(self, data: torch.Tensor) -> torch.Tensor:
         """Store current observation and return delayed observation.
 
@@ -85,20 +131,27 @@ class DelayBuffer:
         Returns:
             Delayed observation tensor of same shape.
         """
-        if self._buffer is None or self._delay_steps == 0:
+        if self._buffer is None or self._max_delay == 0:
             return data
+
+        ring = self._max_delay + 1
 
         # Store current observation at write index
         self._buffer[self._write_idx] = data
 
-        # Compute read index (delay_steps behind write)
-        read_idx = (self._write_idx - self._delay_steps) % (self._delay_steps + 1)
-
-        # Get delayed observation
-        delayed = self._buffer[read_idx].clone()
+        # Compute read index (delay behind write), per env when randomized
+        if self._delay_range is None:
+            # A scalar index is a view into the ring; the write that comes
+            # round to that slot would otherwise change it under the caller.
+            read_idx = (self._write_idx - self._delay_steps) % ring
+            delayed = self._buffer[read_idx].clone()
+        else:
+            # Advanced indexing already materializes a copy.
+            read_idx = torch.remainder(self._write_idx - self._delays, ring)
+            delayed = self._buffer[read_idx, self._env_index]
 
         # Advance write index
-        self._write_idx = (self._write_idx + 1) % (self._delay_steps + 1)
+        self._write_idx = (self._write_idx + 1) % ring
 
         return delayed
 
@@ -439,19 +492,40 @@ class DepthNoiseModel(NoiseModel):
         self._prev_frame = None
         self._frame_dropped = torch.zeros(num_envs, dtype=torch.bool, device=device)
 
+        # Cleared per env on reset, so a teleported env cannot re-emit the
+        # frame it saw before the teleport.
+        self._has_prev_frame = torch.zeros(num_envs, dtype=torch.bool, device=device)
+
+        # Bursty stream holds, layered on the memoryless per-frame drop above.
+        # The two model different causes of "this frame did not advance" — the
+        # sensor's own dropout and a stalled transport/consumption stream — and
+        # compose as a union, so a repeat is either.
+        self._hold = HoldProcess(
+            num_envs,
+            device,
+            hold_fraction_range=self.cfg.hold_fraction_range,
+            hold_run_range=self.cfg.hold_run_range,
+            burst_weight=self.cfg.hold_burst_weight,
+            burst_run=self.cfg.hold_burst_run_steps,
+        )
+
         # Delay buffer for observation latency (initialized lazily due to variable obs size)
         self._delay_buffer = None
         self._latency_steps = self.cfg.latency_steps
+        self._latency_steps_range = self.cfg.latency_steps_range
 
     def reset(self, env_ids: Sequence[int] | None = None):
-        """Reset frame drop state and delay buffer."""
+        """Reset frame drop state, hold state, and delay buffer."""
+        self._hold.reset(env_ids)
         if env_ids is None:
             self._prev_frame = None
             self._frame_dropped.zero_()
+            self._has_prev_frame.zero_()
             if self._delay_buffer is not None:
                 self._delay_buffer.reset(None)
         else:
             self._frame_dropped[env_ids] = False
+            self._has_prev_frame[env_ids] = False
             if self._delay_buffer is not None:
                 self._delay_buffer.reset(env_ids)
 
@@ -490,7 +564,21 @@ class DepthNoiseModel(NoiseModel):
         # Frame drops (return previous frame)
         if self.cfg.frame_drop_prob > 0 and self._prev_frame is not None:
             drop = torch.rand(self._num_envs, device=self._device) < self.cfg.frame_drop_prob
+            drop &= self._has_prev_frame
             noisy_data[drop] = self._prev_frame[drop]
+
+        # Stream holds (return previous frame for the length of the run). The
+        # process advances every step so its run statistics stay well-defined;
+        # only the emission is conditional on this episode having produced a
+        # frame to hold.
+        if self._hold.enabled:
+            held = self._hold.step()
+            if self._prev_frame is not None:
+                # Out-of-place: step() hands back the process's own state
+                # tensor, so masking in place would cancel a run the process
+                # believes is still going.
+                held = held & self._has_prev_frame
+                noisy_data[held] = self._prev_frame[held]
 
         # Camera failure: return max_range for all pixels (camera returns "far" everywhere)
         if self.cfg.failure_probability > 0:
@@ -499,13 +587,18 @@ class DepthNoiseModel(NoiseModel):
 
         # Store for next frame
         self._prev_frame = noisy_data.clone()
+        self._has_prev_frame.fill_(True)
 
         # Apply observation latency (lazily initialize buffer based on actual obs size)
-        if self._latency_steps > 0:
+        if self._latency_steps > 0 or self._latency_steps_range is not None:
             if self._delay_buffer is None:
                 obs_size = noisy_data.shape[1] if noisy_data.dim() > 1 else 1
                 self._delay_buffer = DelayBuffer(
-                    self._num_envs, obs_size, self._latency_steps, self._device
+                    self._num_envs,
+                    obs_size,
+                    self._latency_steps,
+                    self._device,
+                    delay_steps_range=self._latency_steps_range,
                 )
             noisy_data = self._delay_buffer(noisy_data)
 
@@ -554,6 +647,21 @@ class DepthNoiseModelCfg(NoiseModelCfg):
     # Frame drops
     frame_drop_prob: float = 0.001
 
+    # Stream holds (bursty repeats, layered on the memoryless drop above)
+    hold_fraction_range: tuple[float, float] = (0.0, 0.0)
+    """Per-env stationary share of steps on which the frame does not advance,
+    sampled at reset. A max of 0 leaves the hold process inert."""
+
+    hold_run_range: tuple[float, float] = (1.0, 1.0)
+    """Per-env mean base hold-run length [min, max] in control steps, sampled
+    at reset."""
+
+    hold_burst_weight: float = 0.0
+    """Share of hold runs drawn from the long burst component."""
+
+    hold_burst_run_steps: float = 1.0
+    """Mean length of a burst hold run, in control steps."""
+
     # Image dimensions (for unflattening if needed)
     height: int = 60
     width: int = 80
@@ -565,6 +673,10 @@ class DepthNoiseModelCfg(NoiseModelCfg):
     # Observation latency
     latency_steps: int = 1
     """Observation latency in control steps. 1 = one step delay (default for cameras)."""
+
+    latency_steps_range: tuple[int, int] | None = None
+    """Absolute per-env latency band [min, max] in control steps, sampled at
+    reset. None keeps the fixed ``latency_steps`` for every env."""
 
 
 # =============================================================================

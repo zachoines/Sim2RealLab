@@ -21,6 +21,8 @@ from strafer_shared.mecanum_kinematics import (
     l1_clamp_twist_batched,
 )
 
+from .hold_process import HoldProcess
+
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
 
@@ -206,7 +208,19 @@ class MecanumWheelAction(ActionTerm):
                     (env.num_envs,), cfg.max_delay_steps, dtype=torch.int, device=env.device
                 )
             self._action_delay_buffer.set_time_lag(time_lags)
-        
+
+        # Command holds: no new command this control step, so the chassis keeps
+        # executing the last one it received. Distinct from the delay buffer
+        # above — a delay shifts a command in time, a hold repeats it.
+        self._hold = HoldProcess(
+            env.num_envs,
+            env.device,
+            hold_fraction_range=cfg.hold_fraction_range,
+            hold_run_range=cfg.hold_run_range,
+        )
+        if self._hold.enabled:
+            self._held_command = torch.zeros(env.num_envs, 4, device=env.device)
+
         # Slew rate limiting (max acceleration) — per-env randomization
         self._enable_slew_rate = cfg.max_acceleration_rad_s2 < float('inf')
         if self._enable_slew_rate:
@@ -236,6 +250,7 @@ class MecanumWheelAction(ActionTerm):
         print(f"  Wheel axis signs (FL,FR,RL,RR): {self._wheel_axis_signs.tolist()}")
         print(f"  Motor dynamics: {self._enable_motor_dynamics} (tau={cfg.motor_time_constant}s)")
         print(f"  Command delay: {self._enable_command_delay} (steps={cfg.min_delay_steps}-{cfg.max_delay_steps})")
+        print(f"  Command hold: {self._hold.enabled} (fraction={cfg.hold_fraction_range}, run={cfg.hold_run_range})")
         print(f"  Slew rate limit: {self._enable_slew_rate} (max_accel={cfg.max_acceleration_rad_s2} rad/s², range={cfg.max_acceleration_range})")
 
     def reset(self, env_ids: torch.Tensor | None = None) -> None:
@@ -251,6 +266,11 @@ class MecanumWheelAction(ActionTerm):
         # Reset delay buffer (expects Tensor or None, not slice)
         if self._enable_command_delay:
             self._action_delay_buffer.reset(None if all_envs else env_ids)
+
+        # Reset command-hold state and redraw its per-env parameters
+        if self._hold.enabled:
+            self._held_command[env_ids] = 0.0
+            self._hold.reset(None if all_envs else env_ids)
 
         # Reset slew rate state and re-randomize acceleration per env
         if self._enable_slew_rate:
@@ -331,7 +351,13 @@ class MecanumWheelAction(ActionTerm):
         # 1. Command delay (simulate network/driver latency)
         if self._enable_command_delay:
             wheel_vels = self._action_delay_buffer.compute(wheel_vels)
-        
+
+        # 1b. Command hold (no new command arrived this step)
+        if self._hold.enabled:
+            held = self._hold.step()
+            wheel_vels = torch.where(held.unsqueeze(-1), self._held_command, wheel_vels)
+            self._held_command = wheel_vels.clone()
+
         # 2. Slew rate limiting (max acceleration)
         if self._enable_slew_rate:
             delta = wheel_vels - self._prev_wheel_vels
@@ -416,9 +442,22 @@ class MecanumWheelActionCfg(ActionTermCfg):
     max_delay_steps: int = 0
     """Maximum command delay in physics steps. Randomized per reset.
     Default: 0 (no delay)."""
-    
+
     # ============================================================
-    # Sim-to-Real: Slew rate limiting  
+    # Sim-to-Real: Command holds
+    # ============================================================
+
+    hold_fraction_range: tuple[float, float] = (0.0, 0.0)
+    """Per-env stationary share of control steps on which no new command
+    arrives and the previous one is re-executed, sampled at reset. A max of 0
+    leaves the hold process inert."""
+
+    hold_run_range: tuple[float, float] = (1.0, 1.0)
+    """Per-env mean hold-run length [min, max] in control steps, sampled at
+    reset."""
+
+    # ============================================================
+    # Sim-to-Real: Slew rate limiting
     # ============================================================
     
     max_acceleration_rad_s2: float = float('inf')

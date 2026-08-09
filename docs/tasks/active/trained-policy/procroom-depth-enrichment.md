@@ -268,6 +268,20 @@ temporal-DR run rather than this brief's enrichment retrain, plus whatever the
 residual arms implicate. This brief's remaining deploy-frame confirmation rides
 the eventual rig validation, not a retrain.
 
+**The temporal-DR axis is now in the tree and waiting for that run.**
+[`temporal-texture-training-dr`](../../completed/temporal-texture-training-dr.md) landed the
+mechanism and the tier ranges — depth stream holds, per-env depth latency, and
+command holds, all re-drawn per environment at reset — without training
+anything, on the explicit understanding that the run happens once, when the
+residual arms report, so every ratified axis lands together. Whichever run that
+turns out to be inherits the axis by construction: the REAL and ROBUST tiers
+carry it, so any variant composed at those tiers trains against it. It also
+arrives with acceptance targets pre-registered before the run rather than
+chosen after it — degraded ratio ≥ 0.85 from the recorded 0.678, band ratio
+≥ 0.95, and clean completion held at ≥ 0.88 so robustness is not bought by
+giving up baseline. Those are scored on the cadence harness's own grid, ahead
+of any rig time.
+
 That consult's headline finding bears on this brief's own numbers: the D1
 overshoot, the D4 regression and the path-topology collapse share one
 mechanism — enrichment cleared the room interior and pushed the spawn away

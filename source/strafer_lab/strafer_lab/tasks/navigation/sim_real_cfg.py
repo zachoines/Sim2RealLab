@@ -4,9 +4,9 @@ This module defines configurable abstraction layers that model real-world
 imperfections for robust sim-to-real transfer:
 
 1. TIMING & LATENCY
-   - Command rate / control frequency
-   - Sensor observation delays (buffering)
+   - Sensor observation delays (buffering), fixed and per-env sampled
    - Action command delays (network/driver lag)
+   - Stream holds: a frame or command that does not advance, in runs
 
 2. ACTUATION MODEL
    - Motor response dynamics (first-order lag)
@@ -16,7 +16,7 @@ imperfections for robust sim-to-real transfer:
 3. SENSOR NOISE & FAILURES
    - IMU: bias drift, gaussian noise, temperature effects
    - Encoders: quantization, missed ticks, electrical noise
-   - Depth camera: holes, noise, range limits, dropped frames
+   - Depth camera: holes, noise, range limits, dropped frames, bursty holds
    - RGB camera: motion blur, exposure variation
 
 Usage:
@@ -50,24 +50,20 @@ class TimingCfg:
     """Timing and latency configuration for sim-to-real transfer.
 
     Models real-world timing imperfections:
-    - Control loop frequency and jitter
     - Sensor data latency (observation delay) - per-sensor
-    - Command latency (action delay)
+    - Command latency (action delay) and command holds
+
+    Latency and holds are separate axes: a latency shifts a modality in time,
+    a hold repeats it. A fixed-per-episode latency is a constant offset a
+    recurrent policy recalibrates away, which is why the depth latency is also
+    sampled per environment.
     """
 
     # Control frequency
     control_frequency_hz: float = 30.0
-    """Target control loop frequency in Hz. Default: 30 Hz (matching ROS2 node rate)."""
-
-    control_frequency_jitter_pct: float = 0.0
-    """Random jitter in control frequency as percentage. 0.1 = ±10% variation."""
-
-    # Global observation latency (legacy - use per-sensor latency instead)
-    obs_latency_steps: int = 0
-    """Fixed observation latency in control steps. 1 step @ 30Hz = 33ms."""
-
-    obs_latency_steps_range: tuple[int, int] = (0, 0)
-    """Random observation latency range [min, max] steps. Sampled per reset."""
+    """Nominal control loop frequency in Hz, used to scale IMU noise density
+    and bias random-walk steps. The env's tick period is structural
+    (``sim.dt`` x ``decimation``); this field does not set it."""
 
     # Per-sensor observation latency (steps)
     # Different sensors have different processing pipelines and latencies
@@ -80,6 +76,10 @@ class TimingCfg:
     depth_latency_steps: int = 1
     """Depth camera latency in control steps. Stereo matching adds delay (~33-66ms)."""
 
+    depth_latency_steps_range: tuple[int, int] | None = None
+    """Absolute per-env depth latency band [min, max] in control steps, drawn
+    at every reset. None keeps ``depth_latency_steps`` for every env."""
+
     rgb_latency_steps: int = 1
     """RGB camera latency in control steps. Image processing adds delay (~33-66ms)."""
 
@@ -89,6 +89,14 @@ class TimingCfg:
 
     action_latency_steps_range: tuple[int, int] = (0, 0)
     """Random action latency range [min, max] steps. Sampled per reset."""
+
+    # Command holds (policy → actuator): no new command this control step
+    action_hold_fraction_range: tuple[float, float] = (0.0, 0.0)
+    """Per-env stationary share of control steps that carry no new command, so
+    the chassis re-executes the previous one. Sampled at reset."""
+
+    action_hold_run_range: tuple[float, float] = (1.0, 1.0)
+    """Per-env mean command-hold run length [min, max] in control steps."""
 
 
 # =============================================================================
@@ -257,6 +265,22 @@ class DepthCameraNoiseCfg:
     frame_drop_probability: float = 0.001
     """Probability of dropping a frame (return previous frame)."""
 
+    # Stream holds — bursty repeats layered on the memoryless drop above.
+    # The drop models the sensor's own dropout; the hold models a transport or
+    # consumption stall, whose repeats arrive in runs rather than singly.
+    hold_fraction_range: tuple[float, float] = (0.0, 0.0)
+    """Per-env stationary share of steps on which the depth frame has not
+    advanced. Sampled at reset; a max of 0 leaves the hold inert."""
+
+    hold_run_range: tuple[float, float] = (1.0, 1.0)
+    """Per-env mean base hold-run length [min, max] in control steps."""
+
+    hold_burst_weight: float = 0.0
+    """Share of hold runs drawn from the long burst component."""
+
+    hold_burst_run_steps: float = 1.0
+    """Mean length of a burst hold run, in control steps."""
+
     # Temporal noise (flickering)
     enable_temporal_noise: bool = False
     """Enable frame-to-frame temporal noise (flickering)."""
@@ -369,7 +393,7 @@ class SimRealContractCfg:
         
         # Or customize specific aspects
         contract = SimRealContractCfg(
-            timing=TimingCfg(obs_latency_steps=1),
+            timing=TimingCfg(depth_latency_steps=1),
             sensors=SensorNoiseCfg(imu=IMUNoiseCfg(enable_noise=True)),
         )
     """
@@ -399,7 +423,6 @@ def create_ideal_contract() -> SimRealContractCfg:
     """
     return SimRealContractCfg(
         timing=TimingCfg(
-            obs_latency_steps=0,
             action_latency_steps=0,
             # No per-sensor latency in ideal mode
             imu_latency_steps=0,
@@ -431,16 +454,18 @@ def create_real_robot_contract() -> SimRealContractCfg:
     return SimRealContractCfg(
         timing=TimingCfg(
             control_frequency_hz=30.0,
-            control_frequency_jitter_pct=0.05,  # ±5% jitter
-            obs_latency_steps=1,  # 33ms sensor delay (legacy, use per-sensor)
-            obs_latency_steps_range=(0, 2),  # 0-66ms random
             action_latency_steps=1,  # 33ms command delay
             action_latency_steps_range=(0, 2),  # 0-66ms random
             # Per-sensor latency (realistic values)
             imu_latency_steps=0,  # IMU is very fast (~1-2ms)
             encoder_latency_steps=0,  # Encoders are fast (~5ms)
             depth_latency_steps=1,  # Stereo matching adds delay (~33ms)
+            depth_latency_steps_range=(0, 2),  # mean-preserving spread of the above
             rgb_latency_steps=1,  # Image processing adds delay (~33ms)
+            # Command holds stay near zero: the residual after the deployed
+            # node's inference cadence, not the cadence itself.
+            action_hold_fraction_range=(0.0, 0.05),
+            action_hold_run_range=(1.0, 1.2),
         ),
         actuator=ActuatorModelCfg(
             enable_motor_dynamics=True,
@@ -472,6 +497,12 @@ def create_real_robot_contract() -> SimRealContractCfg:
                 disparity_noise_px=0.08,
                 hole_probability=0.01,
                 frame_drop_probability=0.001,
+                # The fraction is measured: a 23 Hz effective arrival rate
+                # against a 30 Hz tick is a 0.22 hold fraction, and the band
+                # spans clean to somewhat worse. The run length is not —
+                # arrival rate constrains the fraction, not the law behind it.
+                hold_fraction_range=(0.0, 0.35),
+                hold_run_range=(1.0, 1.6),
             ),
             rgb_camera=RGBCameraNoiseCfg(
                 enable_noise=True,
@@ -493,16 +524,17 @@ def create_robust_training_contract() -> SimRealContractCfg:
     return SimRealContractCfg(
         timing=TimingCfg(
             control_frequency_hz=30.0,
-            control_frequency_jitter_pct=0.10,  # ±10% jitter
-            obs_latency_steps=1,
-            obs_latency_steps_range=(0, 3),  # Up to 100ms random
             action_latency_steps=1,
             action_latency_steps_range=(0, 4),  # Up to 133ms random
             # Per-sensor latency (aggressive values for robustness)
             imu_latency_steps=1,  # Add slight delay to IMU
             encoder_latency_steps=1,  # Add slight delay to encoders
             depth_latency_steps=2,  # Higher camera delay (~66ms)
+            depth_latency_steps_range=(1, 3),  # mean-preserving spread of the above
             rgb_latency_steps=2,  # Higher camera delay (~66ms)
+            # Wider than realistic on both knobs, still a residual band.
+            action_hold_fraction_range=(0.0, 0.25),
+            action_hold_run_range=(1.0, 1.5),
         ),
         actuator=ActuatorModelCfg(
             enable_motor_dynamics=True,
@@ -533,6 +565,15 @@ def create_robust_training_contract() -> SimRealContractCfg:
                 disparity_noise_px=0.16,  # 2x typical for robust training
                 hole_probability=0.03,  # 3x typical
                 frame_drop_probability=0.01,  # 10x typical
+                # Same split: the 0.60 fraction is the worst measured arrival
+                # rate (12 Hz against a 30 Hz tick); the burst weight and length
+                # are an assumed shape, carried from the evaluation profile that
+                # hit that fraction. Deploy records arrival counts, not the
+                # run-length distribution behind them.
+                hold_fraction_range=(0.0, 0.60),
+                hold_run_range=(1.0, 2.0),
+                hold_burst_weight=0.25,
+                hold_burst_run_steps=6.0,
             ),
             rgb_camera=RGBCameraNoiseCfg(
                 enable_noise=True,
@@ -686,8 +727,13 @@ def get_depth_noise(contract: SimRealContractCfg) -> DepthNoiseModelCfg | None:
         min_range=cfg.min_range_m,
         max_range=cfg.max_range_m,
         frame_drop_prob=cfg.frame_drop_probability,
+        hold_fraction_range=cfg.hold_fraction_range,
+        hold_run_range=cfg.hold_run_range,
+        hold_burst_weight=cfg.hold_burst_weight,
+        hold_burst_run_steps=cfg.hold_burst_run_steps,
         failure_probability=failure_prob,
         latency_steps=contract.timing.depth_latency_steps,
+        latency_steps_range=contract.timing.depth_latency_steps_range,
     )
 
 
@@ -731,6 +777,8 @@ def get_action_config_params(contract: SimRealContractCfg) -> dict:
         "motor_time_constant": contract.actuator.motor_time_constant_s,
         "min_delay_steps": min_delay,
         "max_delay_steps": max_delay,
+        "hold_fraction_range": contract.timing.action_hold_fraction_range,
+        "hold_run_range": contract.timing.action_hold_run_range,
         "max_acceleration_rad_s2": contract.actuator.max_acceleration_rad_s2,
         "max_acceleration_range": contract.actuator.max_acceleration_range,
     }

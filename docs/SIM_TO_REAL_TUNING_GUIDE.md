@@ -153,9 +153,15 @@ The sim-to-real processing pipeline in [actions.py:327-348](source/strafer_lab/s
 **Sim**: A circular buffer delays action commands by N physics steps.
 
 ```python
-# From REAL_ROBOT_CONTRACT (sim_real_cfg.py:431-432)
+# From REAL_ROBOT_CONTRACT (create_real_robot_contract, sim_real_cfg.py)
 action_latency_steps = 1      # 33ms at 30 Hz
 action_latency_steps_range = (0, 2)  # 0-66ms random, sampled per reset
+
+# Separately, a share of control steps carry no new command at all, so the
+# chassis re-executes the previous one. A delay shifts a command in time;
+# a hold repeats it.
+action_hold_fraction_range = (0.0, 0.05)   # (0.0, 0.25) on Robust
+action_hold_run_range = (1.0, 1.2)         # mean run length, control steps
 ```
 
 **Real-world source**: USB serial write -> RoboClaw command processing -> motor response. Typical round-trip: 2-5ms per command x 4 motors = 8-20ms total. At 50 Hz control rate (20ms period), this is roughly 0.5-1 step of delay.
@@ -321,10 +327,21 @@ Different sensors have different processing pipelines:
 |--------|------------------------|-------------------|
 | IMU | 0 steps (< 2ms) | Direct I2C read, minimal processing |
 | Encoders | 0 steps (< 5ms) | RoboClaw reads on serial bus |
-| Depth camera | 1 step (~33ms) | Stereo matching + USB transfer |
+| Depth camera | 1 step (~33ms), drawn per episode over 0-2 steps | Stereo matching + USB transfer |
 | RGB camera | 1 step (~33ms) | Image processing + USB transfer |
 
-These are modeled as per-sensor observation delays in [sim_real_cfg.py:73-84](source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py#L73-L84). The values match typical RealSense D555 behavior and generally don't need tuning.
+These are modeled as per-sensor observation delays on `TimingCfg` in [sim_real_cfg.py](source/strafer_lab/strafer_lab/tasks/navigation/sim_real_cfg.py). The values match typical RealSense D555 behavior and generally don't need tuning.
+
+The depth camera carries a second, separate axis: the frame sometimes fails to
+advance at all, and the policy re-reads the previous one. Unlike a delay, these
+repeats arrive in *runs* — `hold_fraction_range` sets what share of steps are
+stale and `hold_run_range` how long a stale run lasts, both drawn per
+environment at reset. Realistic is centred on the arrival rate a healthy deploy
+stream sustains (~23 Hz against a 30 Hz tick); Robust reaches ~12 Hz and adds a
+longer burst component. Measure the real stream's arrival rate and its stall
+lengths, not just its mean latency: a stream that averages 25 Hz by alternating
+30 Hz with multi-frame stalls is inside the trained band, and one that averages
+25 Hz smoothly is a different distribution.
 
 ---
 

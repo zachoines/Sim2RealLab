@@ -21,11 +21,13 @@ Usage:
 """
 
 import hashlib
+import inspect
 import json
 
 import pytest
 
 import strafer_lab.tasks.navigation.composed_env_cfg as composed
+import strafer_lab.tasks.navigation.strafer_env_cfg as env_cfgs
 from strafer_lab.tasks.navigation import mdp
 
 
@@ -261,31 +263,112 @@ def test_the_obs_layout_is_the_same_at_every_realism_tier():
 # Referent-frame drift: who reads the drifted referent and who reads truth
 # =====================================================================
 
-_GOAL_TERMS = ("goal_position", "goal_distance", "goal_heading_to_goal")
+# Discovered, not listed: a tier class added without a variant to compose it
+# would otherwise reach training un-gated.
+_OBS_CFG_CLASSES = {
+    name: getattr(env_cfgs, name)
+    for name in dir(env_cfgs)
+    if name.startswith("ObsCfg_")
+}
+
+def _is_drift_capable(func) -> bool:
+    """Whether a term function can read the referent through the drifted frame.
+
+    Discovered from the signature rather than from a name list: a name list
+    only guards the terms that existed when it was written, and the failure a
+    missed term produces — a value function fitted against a displaced referent
+    — is silent.
+    """
+    if not callable(func):
+        return False
+    try:
+        return "perceived" in inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def _obs_groups(observations):
+    """``(group_name, group_cfg)`` for every observation group on a cfg."""
+    return [
+        (name, group)
+        for name, group in vars(observations).items()
+        if not name.startswith("_") and hasattr(group, "__dict__")
+    ]
+
+
+def _obs_terms(group):
+    """``(term_name, term_cfg)`` for every observation term in a group."""
+    return [
+        (name, term)
+        for name, term in vars(group).items()
+        if not name.startswith("_") and hasattr(term, "func") and hasattr(term, "params")
+    ]
+
+
+def _drift_switch_violations(observations, label):
+    """Every group/term pair whose drift switch is set wrong.
+
+    The rule is structural: exactly one group — ``policy`` — reads the drifted
+    referent, and it does so by *not* pinning the switch, because the policy
+    group's params are the layout a deployed checkpoint is hashed against.
+    Every other group is privileged and must opt out explicitly, since the
+    drift lives inside the term and the observation manager's
+    ``enable_corruption`` switch therefore cannot strip it.
+    """
+    bad = []
+    for group_name, group in _obs_groups(observations):
+        for term_name, term in _obs_terms(group):
+            if not _is_drift_capable(term.func):
+                continue
+            pinned = term.params.get("perceived")
+            if group_name == "policy":
+                if "perceived" in term.params:
+                    bad.append(
+                        f"{label}.policy.{term_name} pins the drift switch in "
+                        f"the layout the deployed checkpoint is hashed against"
+                    )
+            elif pinned is not False:
+                bad.append(
+                    f"{label}.{group_name}.{term_name} would read the drifted "
+                    f"referent (perceived={pinned!r})"
+                )
+    return bad
 
 
 @pytest.mark.parametrize("name", sorted(_COMPOSED_RL), ids=lambda n: n)
 def test_the_privileged_group_reads_the_true_referent(name):
     """Realism corrupts what the policy senses, never what the critic knows.
 
-    The drift is applied inside the observation term rather than through a
-    noise model — the SE(2) law is one transform across three terms, which the
-    per-term noise hook cannot express — so the manager's ``enable_corruption``
-    switch does not strip it for the privileged group. That opt-out is the
-    parameter this pins. Losing it would quietly hand the value function a
-    displaced referent, which is the one thing the asymmetric critic exists to
-    avoid."""
+    Losing an opt-out would quietly fit the value function against a displaced
+    referent, which is the one thing the asymmetric critic exists to avoid."""
     cfg = _COMPOSED_RL[name]()
-    for term in _GOAL_TERMS:
-        critic = getattr(cfg.observations.critic, term)
-        assert critic.params.get("perceived") is False, (
-            f"{name}.critic.{term} would read the drifted referent"
-        )
-        policy = getattr(cfg.observations.policy, term)
-        assert "perceived" not in policy.params, (
-            f"{name}.policy.{term} pins the drift switch in the layout the "
-            f"deployed checkpoint is hashed against"
-        )
+    assert _drift_switch_violations(cfg.observations, name) == []
+
+
+@pytest.mark.parametrize(
+    "name", sorted(_OBS_CFG_CLASSES), ids=lambda n: n
+)
+def test_every_observation_tier_sets_the_drift_switch(name):
+    """The same rule at the source, over every observation cfg class rather
+    than only the ones a variant composes today.
+
+    A new tier or a new goal-shaped term reaches this gate before it reaches a
+    gym ID, and a term function that gains the drift without gaining an opt-out
+    on the privileged groups fails here rather than in a training curve."""
+    assert _drift_switch_violations(_OBS_CFG_CLASSES[name](), name) == []
+
+
+def test_the_drift_switch_guard_can_see_a_violation():
+    """The guard above is worth nothing if it cannot fail, and both of its
+    halves are easy to break silently — a params dict that never mentions the
+    switch reads as "fine" to a `.get`, and a signature check that mis-resolves
+    reads every term as incapable."""
+    cfg = composed.StraferNavCfg_RLNoCam()
+    assert _is_drift_capable(mdp.goal_position_relative)
+    assert not _is_drift_capable(mdp.body_velocity_xy)
+
+    del cfg.observations.critic.goal_distance.params["perceived"]
+    assert _drift_switch_violations(cfg.observations, "mutated") != []
 
 
 def test_only_the_randomized_tiers_carry_referent_drift():

@@ -15,8 +15,8 @@ Two error classes live on this axis and both are modelled here as one process:
 - A discontinuous snap. Accepting a loop closure moves ``map->odom`` in one
   step, which no correlated random walk produces. Modelled as a Poisson jump
   added into the same state, so a jump then relaxes on the same time constant.
-  Its band ships at zero: the mechanism is in the tree, the distribution waits
-  on the rig measurement.
+  Its rate and band default to zero, because no measured closure distribution
+  backs them; turning them on is a config change, not a code change.
 
 The magnitudes are per environment and drawn at reset, so a training batch
 spans a band of localization qualities rather than one point. State is zeroed

@@ -394,22 +394,21 @@ class LocalizationDriftCfg:
     A max of 0 leaves the wander inert."""
 
     tau_s: float = 2.0
-    """Correlation time of the wander, in seconds. An assumption, not a
-    measurement: justified by RTAB-Map's 1-10 Hz map->odom refresh, and the
-    bench item that would pin it is still open."""
+    """Correlation time of the wander, in seconds. An assumption rather than a
+    measurement, bounded by RTAB-Map's 1-10 Hz map->odom refresh."""
 
     jump_rate_hz: float = 0.0
-    """Poisson rate of loop-closure snaps. Zero until the rig ride-along
-    measures the closure rate."""
+    """Poisson rate of loop-closure snaps. Zero is off, and off is the default:
+    the closure rate is not a measured quantity here."""
 
     jump_position_range_m: tuple[float, float] = (0.0, 0.0)
-    """Snap displacement band [min, max] in metres, in a random direction.
-    Ships at zero: the mechanism is in the tree, the distribution is not
-    measured yet."""
+    """Snap displacement band [min, max] in metres, in a random direction. Zero
+    is off; the jump band is a config lever with no measured distribution
+    behind it."""
 
     jump_heading_range_deg: tuple[float, float] = (0.0, 0.0)
-    """Snap heading band [min, max] in degrees, with a random sign. Ships at
-    zero for the same reason as the displacement band."""
+    """Snap heading band [min, max] in degrees, with a random sign. Zero is off,
+    for the same reason as the displacement band."""
 
 
 # =============================================================================
@@ -661,9 +660,9 @@ def create_robust_training_contract() -> SimRealContractCfg:
         localization=LocalizationDriftCfg(
             enable_drift=True,
             # Past the measured class, the way the temporal bands reach past
-            # the measured arrival profiles: the sensitivity arm cost 24-28%
-            # of completion at 1x, so the band has to span it rather than sit
-            # on its edge.
+            # the measured arrival profiles: a closed-loop sweep put the cost
+            # at 24-28% of completion at 1x, so the band spans it rather than
+            # sitting on its edge.
             gain_range=(0.0, 1.25),
         ),
         domain_randomization_scale=1.5,  # Extra randomization

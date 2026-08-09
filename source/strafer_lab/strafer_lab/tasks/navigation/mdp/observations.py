@@ -420,6 +420,11 @@ def goal_distance(
     """
     offsets = _drift_offsets(env) if perceived else None
     if offsets is not None:
+        # Planar in the body frame, where the undrifted branch below is the
+        # full 3-D world norm: equal on a flat floor, differing by the tilt
+        # projection otherwise. Taking the drifted range off the same vector
+        # the offset and bearing come from matters more than that residual,
+        # which is why the branch is skipped entirely at zero drift.
         drifted = drift_referent(_referent_body_xy(env, command_name), offsets)
         return torch.norm(drifted, dim=-1, keepdim=True)
 
@@ -433,7 +438,9 @@ def goal_distance(
     return distance
 
 
-def goal_heading_relative(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+def goal_heading_relative(
+    env: ManagerBasedEnv, command_name: str, perceived: bool = True
+) -> torch.Tensor:
     """Angular error between robot heading and desired arrival heading.
 
     The arrival heading (``command[:, 2]``) is a randomly sampled target
@@ -447,6 +454,7 @@ def goal_heading_relative(env: ManagerBasedEnv, command_name: str) -> torch.Tens
     Args:
         env: The environment instance.
         command_name: Name of the command manager providing goal commands.
+        perceived: See :func:`goal_position_relative`.
 
     Returns:
         Heading error in radians, shape (num_envs, 1).
@@ -461,6 +469,12 @@ def goal_heading_relative(env: ManagerBasedEnv, command_name: str) -> torch.Tens
 
     # Shortest signed angle
     diff = desired_heading - robot_yaw
+    offsets = _drift_offsets(env) if perceived else None
+    if offsets is not None:
+        # A drifted frame is the robot believing its heading is dtheta off, so
+        # an arrival-heading error reads dtheta high. Same realization, and the
+        # same rotation the referent vector carries.
+        diff = diff + offsets[:, 2]
     heading_err = torch.atan2(torch.sin(diff), torch.cos(diff))
     return heading_err.unsqueeze(-1)
 

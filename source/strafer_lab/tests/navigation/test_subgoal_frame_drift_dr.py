@@ -22,6 +22,7 @@ Pure numpy plus torch on CPU — no Isaac Sim, no Kit boot.
 
 from __future__ import annotations
 
+import inspect
 import math
 from types import SimpleNamespace
 
@@ -309,9 +310,8 @@ def _jumping(**overrides) -> SubgoalDriftProcess:
 
 class TestLoopClosureJumps:
     def test_the_shipped_band_leaves_the_jump_dormant(self):
-        """The mechanism ships in the tree with its distribution switched off:
-        the closure rate and magnitude are not measured yet, so the band waits
-        on the rig log rather than being guessed."""
+        """The mechanism carries no measured distribution, so both of its knobs
+        default to zero rather than to a guessed shape."""
         for contract in (REAL_ROBOT_CONTRACT, ROBUST_TRAINING_CONTRACT):
             drift = contract.localization
             assert drift.jump_rate_hz == 0.0
@@ -490,6 +490,46 @@ class TestDriftedObservationTerms:
         obs.goal_position_relative(env, "goal_command")
         obs.goal_distance(env, "goal_command")
         assert not torch.equal(env._subgoal_drift.offsets, first)
+
+    def test_the_arrival_heading_reads_the_same_believed_yaw(self):
+        """The referent quartet's rotation is the robot believing its heading is
+        dtheta off, and the arrival-heading error is read against that same
+        belief. The term is unused by every shipped variant, so this pins the
+        law before something wires it in rather than after."""
+        torch.manual_seed(16)
+        rel = torch.tensor([[2.0, 0.5], [-1.0, 3.0]])
+        env = _stub_env(rel, yaw=torch.tensor([0.3, -1.2]))
+        env._subgoal_drift = _process(num_envs=2)
+
+        truth = obs.goal_heading_relative(env, "goal_command", perceived=False)
+        drifted = obs.goal_heading_relative(env, "goal_command")
+        dtheta = env._subgoal_drift.offsets[:, 2]
+
+        expected = torch.atan2(
+            torch.sin(truth.squeeze(-1) + dtheta), torch.cos(truth.squeeze(-1) + dtheta)
+        )
+        assert drifted.squeeze(-1).numpy() == pytest.approx(expected.numpy(), abs=1e-6)
+        assert not torch.allclose(drifted, truth)
+
+    def test_the_drift_capable_terms_are_the_referent_derived_ones(self):
+        """Pinned as a set, so a new observation function derived from the
+        referent frame has to choose whether it drifts — and so the contract
+        gate's signature-based discovery keeps matching what this module
+        actually offers."""
+        capable = {
+            name
+            for name, member in vars(obs).items()
+            if not name.startswith("_")
+            and inspect.isfunction(member)
+            and member.__module__ == obs.__name__
+            and "perceived" in inspect.signature(member).parameters
+        }
+        assert capable == {
+            "goal_position_relative",
+            "goal_distance",
+            "goal_heading_to_goal",
+            "goal_heading_relative",
+        }
 
     def test_an_env_without_the_process_reads_truth(self):
         """The mechanism is opt-in per tier, and an env that never installed it

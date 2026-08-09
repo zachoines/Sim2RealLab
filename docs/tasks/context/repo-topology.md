@@ -8,13 +8,26 @@ one git repository. Both hosts must agree on `ROS_DOMAIN_ID` and
 
 | Role | Hostname | IP | What runs here |
 |------|----------|----|----------------|
-| **DGX Spark** | `dgx-spark` | 192.168.50.196 | Isaac Sim, ROS 2 sim bridge, VLM service, LLM planner, RL training |
-| **Jetson Orin Nano** | `jetson-desktop` | 192.168.50.24 | RTAB-Map, Nav2, executor (`strafer-executor`), goal-projection service, on-robot ROS bringup |
+| **DGX Spark** | `gx10-d1d8` | 192.168.50.196 | Isaac Sim, ROS 2 sim bridge, VLM service, LLM planner, RL training |
+| **Jetson Orin Nano** | `strafer-nx` | 192.168.50.161 | RTAB-Map, Nav2, executor (`strafer-executor`), goal-projection service, on-robot ROS bringup |
 
 ROS 2 distro: **Humble** on both hosts.
 DDS: `rmw_cyclonedds_cpp` (cross-host discovery; FastDDS shared-memory
 default doesn't span machines).
 ROS domain ID: **42** (any value works as long as both hosts agree).
+
+**The link between them is a measured constraint, not a detail.** The DGX
+reaches the LAN over WiFi (`wlP9s9`, mt7925e) and the Jetson over wired
+gigabit (`enP8p1s0`); every wired NIC on the DGX is down, so the DGX's WiFi
+uplink is the only path and the narrow hop. Measured 2026-08-08, DGX → Jetson:
+**loss-free to 60 Mbit/s, saturating ~66 Mbit/s** (UDP), ~51 Mbit/s TCP. One
+640×360 `32FC1` depth stream at the full 30 Hz sim cadence needs `221 × RTF`
+Mbit/s, and DDS data on this path is **unicast per subscribing process**
+(measured: multicast share 0.01%), so the wire cost multiplies by the number
+of remote subscribers rather than being shared. Anything that adds a remote
+subscriber to a camera topic, or raises RTF, spends against that 60 Mbit/s.
+Sizing and consequences in
+[`depth-receiver-host-capacity`](../active/reliability/depth-receiver-host-capacity.md).
 
 ## Repository
 
@@ -25,7 +38,7 @@ Single git remote. `main` is the working line; per-task branches
 | Host | Repo path |
 |------|-----------|
 | DGX | `~/Workspace/Sim2RealLab/` |
-| Jetson | `~/workspaces/Sim2RealLab/` |
+| Jetson | `~/Sim2RealLab/` |
 
 Verify from inside the repo with `git remote -v` + `git rev-parse --show-toplevel`.
 

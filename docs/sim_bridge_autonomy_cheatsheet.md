@@ -79,7 +79,7 @@ make submit-deploy CMD="go to the chair"
 ```
 - **Watch it:** `docker logs -f strafer_autonomy` (VLM grounding, goal projection, dispatch)
 - **View it:** Foxglove Studio → `ws://localhost:8765`
-  (tunnel from your Mac: `ssh -L 8765:localhost:8765 zachoines@192.168.50.24`)
+  (tunnel from your Mac: `ssh -L 8765:localhost:8765 zachoines@192.168.50.161`)
 
 ## Good to know
 

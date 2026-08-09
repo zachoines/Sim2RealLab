@@ -1,6 +1,6 @@
 # Train across the referent frame's drift
 
-**Status:** Shipped 2026-08-09 in `8e6607c` (DGX).
+**Status:** Shipped 2026-08-09 in `a25abde` (DGX), landing from `45a0701`.
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/199
 
 **Type:** implementation (contract field + one mechanism + tests)
@@ -112,9 +112,11 @@ counter reports jumps taken, so a non-zero band is visible rather than inferred.
 
 ### Where the perturbation is applied
 
-Inside the three goal-shaped observation terms, on the body-frame referent
-vector they all derive from. Translate, then rotate; the relative offset, the
-range and the signed bearing are then read off one vector.
+Inside the goal-shaped observation terms, on the body-frame referent vector they
+derive from. Translate, then rotate; the relative offset, the range and the
+signed bearing are then read off one vector. The three that shipped variants
+wire carry the referent quartet; the fourth, the unwired arrival-heading term,
+carries the same yaw component.
 
 This is deliberately **not** a per-term noise model, and the reason is that the
 law cannot be expressed as one. The perturbation is a single SE(2) transform

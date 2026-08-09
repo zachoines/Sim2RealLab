@@ -21,11 +21,13 @@ Usage:
 """
 
 import hashlib
+import inspect
 import json
 
 import pytest
 
 import strafer_lab.tasks.navigation.composed_env_cfg as composed
+import strafer_lab.tasks.navigation.strafer_env_cfg as env_cfgs
 from strafer_lab.tasks.navigation import mdp
 
 
@@ -42,7 +44,11 @@ _SIM_FIELDS = ("dt", "render_interval")
 
 
 def _canon(obj, drop=frozenset()):
-    """Canonical rendering of a cfg tree. ``drop`` omits attributes by name."""
+    """Canonical rendering of a cfg tree. ``drop`` omits attributes and term
+    parameters by name — a term parameter is as much a named field of the
+    contract as a cfg attribute is, and subtracting a new field's name before
+    re-freezing is how a hash movement is shown to be that field's presence
+    alone rather than a reorder or a rescale."""
     if obj is None or isinstance(obj, (bool, int, str)):
         return obj
     if isinstance(obj, float):
@@ -50,7 +56,11 @@ def _canon(obj, drop=frozenset()):
     if callable(obj) and hasattr(obj, "__qualname__"):
         return f"<fn {getattr(obj, '__module__', '?')}.{obj.__qualname__}>"
     if isinstance(obj, dict):
-        return {str(k): _canon(obj[k], drop) for k in sorted(obj, key=str)}
+        return {
+            str(k): _canon(obj[k], drop)
+            for k in sorted(obj, key=str)
+            if k not in drop
+        }
     if isinstance(obj, (list, tuple)):
         return [_canon(v, drop) for v in obj]
     d = getattr(obj, "__dict__", None)
@@ -85,37 +95,37 @@ def _hash(obj):
 # drifted from the contract a checkpoint was trained against.
 #
 # A randomization change moves every hash here, because the snapshot walks the
-# noise models and the action term. That is correct — the training distribution
-# did change — and it is why the layout golden below exists: it is the half a
-# deployed checkpoint depends on, and it must not move.
+# noise models, the event terms and the action term. That is correct — the
+# training distribution did change — and it is why the layout golden below
+# exists: it is the half a deployed checkpoint depends on, and it must not move.
 _CONTRACT_GOLDENS = {
-    "RLDepth_Real": "7ee27b742867f0c4e4158d05570d3c868460d36e387d1b57db57ef35ebd41e1c",
-    "RLDepth_Robust": "247b609d1a2bcb7620e4e5e17b44a827ddc1351866317d7ce38943b2341fd00d",
-    "RLNoCam": "0d866938a8a9ffcb320be441602ce1142af3cef366f781b8a439dc71aafaf8e6",
-    "RLDepth_Real_PLAY": "e13e90f16e51609ee85bd00ca7c4785a89536f79bfb5309fed38fab858b3b086",
-    "RLDepth_Robust_PLAY": "5d39cc40acbab7c5636352df16874a522def5d523b3b38bd5a403569ae0b4e6b",
-    "RLNoCam_PLAY": "102336cebcb41222ba0f3e47531366327c7d80a6f645d2fb6765ea3c6f4523d2",
-    "RLNoCamSubgoal_Real": "3a2009cd3ecd99f95fa280d22ffb4c0ec54a493def8184d4ce90aad0d6850b7f",
-    "RLNoCamSubgoal_Robust": "9b6a979627f6ab553018eb3ce153835a9cb696783e394abe8978784b4145f25d",
-    "RLNoCamSubgoal_Real_PLAY": "9f8ee558ba786737165f2a107ecf1eefda6d08275f34fa98120ee60c0f8e7c7f",
-    "RLNoCamSubgoal_Robust_PLAY": "0e63b10a3ec0348f4d4e7241016b1277c37a62b6546d87ea870feb12c592a882",
-    "RLDepthSubgoal_Real": "285517c6e8ca88b67ae0b32c5aa3756bf77ac02736440de10c2fa4d4c906ed1c",
-    "RLDepthSubgoal_Robust": "22a37208a357b600a2c5d11b7b1a0c38263a66c530c3b8fa1a3da6565112b564",
-    "RLDepthSubgoal_Real_PLAY": "fa3de4de295ef7ce28d3b0ea44a03937d2d4ced1eacfea6fad8ec7cf3f5f6dcd",
-    "RLDepthSubgoal_Robust_PLAY": "789d849490f7c67e8f9f4f4c5b8472f1348ced3a01c4fdbf4b734ae96db13902",
+    "RLDepth_Real": "bf325fb81189d208984a0095fd782ea8122e090228a5023ff162ee4c1d3fea7a",
+    "RLDepth_Robust": "0ec9dc872773e4f39c2656fc492fbeb0ccb53b57a51fc4629f12f92b6b2ed28f",
+    "RLNoCam": "63fe18688cb6ec0974118bc0ac4b4e8d9ba8e6a9249e5e08be9ade18aa4f82c7",
+    "RLDepth_Real_PLAY": "ab290222e2b1fe08666a7ecc04f0f9aaa945bf1494f78fa8147300877a15050d",
+    "RLDepth_Robust_PLAY": "587798f2c26dbee99806ab96a5ff7a48c34142a9a3435b2a577d852b37930b2d",
+    "RLNoCam_PLAY": "6c46e340dc7cb508f59c3a122e971222afa8179219ba05cd007debc27b17fae3",
+    "RLNoCamSubgoal_Real": "43cb7039c0f3600545f1c3774cea755e43acf1c5828957eb1c816a4a247fe6bf",
+    "RLNoCamSubgoal_Robust": "d91d62e8e2e8c160d5438037a28e3d0f247f3735f7338e51b65ab2598f36f72d",
+    "RLNoCamSubgoal_Real_PLAY": "b0db740e62ed32c9f69fb2e2d7c368ab952210d14b7d446440503e81c9de7eb3",
+    "RLNoCamSubgoal_Robust_PLAY": "5b30a6751f59eb9638b80aa1195e84c63366d60bfb9dbd809dce05696a45887e",
+    "RLDepthSubgoal_Real": "bd147fe57ae82e1000bb4ecc02c31bc4aba267598438f6da3ddc4bbd1a875220",
+    "RLDepthSubgoal_Robust": "f7cd40eb23c3014d43eaca6639adfac9c526c3d74d764293bbbaae635ffa749d",
+    "RLDepthSubgoal_Real_PLAY": "1b22bfef0b8f72436b598fd6eb79b7044f328b6e172bcfda998281f6d6f8fe9b",
+    "RLDepthSubgoal_Robust_PLAY": "7358539b810734d6a00983e6076d630395bf124739cc45fd68e71dc6fee44b3d",
     # Depth-enrichment variants — NEW IDs frozen at creation (no prior checkpoint
     # depends on them). The enrichment lives in the `events` field (un-pinned
     # difficulty, enriched generation params incl. the tall-object heights, and
     # the rendered-camera mount offset); the observation contract is
     # byte-identical to the open-top depth variants (asserted separately).
-    "RLDepthEnriched_Real": "26f49953dc548a681ad8683c2638277fd2bb8860e3c49c8b53423a1a46603380",
-    "RLDepthEnriched_Robust": "a8d986cd474f5a6d4dc491061d017e580c772abd18565dd383a46cb5f18cae41",
-    "RLDepthEnriched_Real_PLAY": "7f295f22418e8c861012dbed15789289b874083963933f05a5b42505da8ac9fa",
-    "RLDepthEnriched_Robust_PLAY": "872330ec14293cd6f15817a087c3b12712012c51a1775b7b190a8cfac9a1d2f2",
-    "RLDepthSubgoalEnriched_Real": "8a313b13d62577176abbc7281acde176d57989576cc38c3f668a10d203cb3279",
-    "RLDepthSubgoalEnriched_Robust": "e320a28e851575f8af86112d2652840ce21ff37c1dc2e23cde31cf3298ceccb4",
-    "RLDepthSubgoalEnriched_Real_PLAY": "c98bc95392c9ed36e42c2414f904f4191471a79ab90b6cbb07827c8fdfe04046",
-    "RLDepthSubgoalEnriched_Robust_PLAY": "28ebda14b749d48ba5c241a7ed50622f3ac254b6657cb77ab61c5921839cee6f",
+    "RLDepthEnriched_Real": "0f2e7ec333ef296443ca2a35ae7a2a5b20cb3527ebea9dfcb8ed3a0de73e773b",
+    "RLDepthEnriched_Robust": "0571bd9b6305d59131ecf73bd63487117143b89c728218d640134ea5ea4c5152",
+    "RLDepthEnriched_Real_PLAY": "14997ac72fb1721ad9ac351463ccd63b3f15746af73e6ee3c3bd36de224db22d",
+    "RLDepthEnriched_Robust_PLAY": "e8c4123654d486e1f2038fd4726c243fb8c60c184846bedccb7deb73be0e71db",
+    "RLDepthSubgoalEnriched_Real": "4e70517667e75e3b9679fa1b45ab5eea3dde0d54d6be9fcb1b7588a91766c9b0",
+    "RLDepthSubgoalEnriched_Robust": "7ab495756e2ee0002a57878e0f075614a8a74a5bcf6eaa9c3b5e20ae2ae2d6a4",
+    "RLDepthSubgoalEnriched_Real_PLAY": "034b8e2081b326c8b45972cb630c69d117082fd1a71fab2c94f58ac5ef2699ba",
+    "RLDepthSubgoalEnriched_Robust_PLAY": "27911cbaf871923ce22ecdc72f60f0bc50147d8b7191f90f8d3dc7dd5c3bd225",
 }
 
 # Frozen signature (slot name set + spawn sizes) of the pre-enrichment 44-object
@@ -127,7 +137,9 @@ _PALETTE_GOLDEN = "cf3499bf212a50c571b1bda4980fbbf16c7ad743dc40c5e88b7b528de3d41
 # The depth observation a checkpoint consumes — captured identical across the
 # (now dropped) plane / Infinigen / ProcRoom depth variants, which justified
 # dropping them: any depth checkpoint stays valid regardless of which produced it.
-_DEPTH_OBS_GOLDEN = "8b52e0492e50a37994b1458a2b96bf7f8fcc9f65f025ddd47224563442797d01"
+# This walks both observation groups, so a privileged-group change moves it; the
+# policy half is pinned separately by the layout golden below.
+_DEPTH_OBS_GOLDEN = "bf6ad701fa80524226ce279a54a085857c78d0d28a9d4918bb68ce3738bdb9ab"
 
 # The policy tensor's *layout* — terms, order, params and scales, with every
 # noise model dropped. This is the half of the observation contract a deployed
@@ -236,6 +248,149 @@ def test_the_obs_layout_is_the_same_at_every_realism_tier():
     assert set(layouts) == set(_POLICY_OBS_LAYOUT_GOLDENS)
     for profile, hashes in layouts.items():
         assert len(hashes) == 1, f"{profile} has {len(hashes)} layouts across tiers"
+
+
+# =====================================================================
+# Referent-frame drift: who reads the drifted referent and who reads truth
+# =====================================================================
+
+# Discovered, not listed: a tier class added without a variant to compose it
+# would otherwise reach training un-gated.
+_OBS_CFG_CLASSES = {
+    name: getattr(env_cfgs, name)
+    for name in dir(env_cfgs)
+    if name.startswith("ObsCfg_")
+}
+
+def _is_drift_capable(func) -> bool:
+    """Whether a term function can read the referent through the drifted frame.
+
+    Discovered from the signature rather than from a name list: a name list
+    only guards the terms that existed when it was written, and the failure a
+    missed term produces — a value function fitted against a displaced referent
+    — is silent.
+    """
+    if not callable(func):
+        return False
+    try:
+        return "perceived" in inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def _obs_groups(observations):
+    """``(group_name, group_cfg)`` for every observation group on a cfg."""
+    return [
+        (name, group)
+        for name, group in vars(observations).items()
+        if not name.startswith("_") and hasattr(group, "__dict__")
+    ]
+
+
+def _obs_terms(group):
+    """``(term_name, term_cfg)`` for every observation term in a group."""
+    return [
+        (name, term)
+        for name, term in vars(group).items()
+        if not name.startswith("_") and hasattr(term, "func") and hasattr(term, "params")
+    ]
+
+
+def _drift_switch_violations(observations, label):
+    """Every group/term pair whose drift switch is set wrong.
+
+    The rule is structural: exactly one group — ``policy`` — reads the drifted
+    referent, and it does so by *not* pinning the switch, because the policy
+    group's params are the layout a deployed checkpoint is hashed against.
+    Every other group is privileged and must opt out explicitly, since the
+    drift lives inside the term and the observation manager's
+    ``enable_corruption`` switch therefore cannot strip it.
+    """
+    bad = []
+    for group_name, group in _obs_groups(observations):
+        for term_name, term in _obs_terms(group):
+            if not _is_drift_capable(term.func):
+                continue
+            pinned = term.params.get("perceived")
+            if group_name == "policy":
+                if "perceived" in term.params:
+                    bad.append(
+                        f"{label}.policy.{term_name} pins the drift switch in "
+                        f"the layout the deployed checkpoint is hashed against"
+                    )
+            elif pinned is not False:
+                bad.append(
+                    f"{label}.{group_name}.{term_name} would read the drifted "
+                    f"referent (perceived={pinned!r})"
+                )
+    return bad
+
+
+@pytest.mark.parametrize("name", sorted(_COMPOSED_RL), ids=lambda n: n)
+def test_the_privileged_group_reads_the_true_referent(name):
+    """Realism corrupts what the policy senses, never what the critic knows.
+
+    Losing an opt-out would quietly fit the value function against a displaced
+    referent, which is the one thing the asymmetric critic exists to avoid."""
+    cfg = _COMPOSED_RL[name]()
+    assert _drift_switch_violations(cfg.observations, name) == []
+
+
+@pytest.mark.parametrize(
+    "name", sorted(_OBS_CFG_CLASSES), ids=lambda n: n
+)
+def test_every_observation_tier_sets_the_drift_switch(name):
+    """The same rule at the source, over every observation cfg class rather
+    than only the ones a variant composes today.
+
+    A new tier or a new goal-shaped term reaches this gate before it reaches a
+    gym ID, and a term function that gains the drift without gaining an opt-out
+    on the privileged groups fails here rather than in a training curve."""
+    assert _drift_switch_violations(_OBS_CFG_CLASSES[name](), name) == []
+
+
+def test_the_drift_switch_guard_can_see_a_violation():
+    """The guard above is worth nothing if it cannot fail, and both of its
+    halves are easy to break silently — a params dict that never mentions the
+    switch reads as "fine" to a `.get`, and a signature check that mis-resolves
+    reads every term as incapable."""
+    cfg = composed.StraferNavCfg_RLNoCam()
+    assert _is_drift_capable(mdp.goal_position_relative)
+    assert not _is_drift_capable(mdp.body_velocity_xy)
+
+    del cfg.observations.critic.goal_distance.params["perceived"]
+    assert _drift_switch_violations(cfg.observations, "mutated") != []
+
+
+def test_only_the_randomized_tiers_carry_referent_drift():
+    """The drift is a realism-tier mechanism, present on every randomized RL
+    variant and absent from the ideal tier — an ideal env stays structurally
+    identical to a tree without this mechanism rather than carrying an inert
+    term."""
+    for name in sorted(_COMPOSED_RL):
+        events = _COMPOSED_RL[name]().events
+        assert getattr(events, "randomize_subgoal_drift", None) is not None, name
+    for factory in (composed.StraferNavCfg_NoCam_Ideal, composed.StraferNavCfg_Depth_Ideal):
+        assert not hasattr(factory().events, "randomize_subgoal_drift")
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        composed.StraferNavCfg_TeleopCapture,
+        composed.StraferNavCfg_BridgeAutonomy,
+        composed.StraferNavCfg_BridgeAutonomy_ProcRoom,
+        composed.StraferNavCfg_BridgeAutonomy_ProcRoomEnriched,
+        composed.StraferNavCfg_Coverage,
+    ],
+    ids=lambda f: f.__name__,
+)
+def test_the_capture_variants_record_the_true_referent(factory):
+    """A capture or bridge variant's observation is a record, not a policy
+    input. The bridge hands its scene to a deploy stack that reads its own
+    drifting TF, so a sim drift on top would double-count it and would corrupt
+    the sim-vs-deploy observation parity the dump exists to measure."""
+    assert factory().events.randomize_subgoal_drift is None
 
 
 # =====================================================================

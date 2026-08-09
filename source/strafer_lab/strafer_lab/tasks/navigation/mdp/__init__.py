@@ -66,6 +66,9 @@ from .noise_models import (
     RGBNoiseModelCfg,
 )
 
+# Referent-frame drift (goal-shaped observations)
+from .subgoal_drift import SubgoalDriftProcess, drift_referent
+
 # Custom actions
 from .actions import MecanumWheelActionCfg
 
@@ -112,6 +115,7 @@ from .events import (
     randomize_obstacles,
     randomize_mass,
     randomize_goal_noise,
+    randomize_subgoal_drift,
     randomize_motor_strength,
     randomize_d555_mount_offset,
     jitter_d555_camera_prim_pose,

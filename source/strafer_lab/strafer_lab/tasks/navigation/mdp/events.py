@@ -23,6 +23,8 @@ from isaaclab.utils.math import (
     quat_mul,
 )
 
+from .subgoal_drift import SubgoalDriftProcess
+
 logger = logging.getLogger(__name__)
 
 # XYZW quaternion component indices (Isaac Lab 3.0 convention)
@@ -400,6 +402,53 @@ def randomize_goal_noise(
 
     noise = torch.randn(len(env_ids), 2, device=device) * noise_std
     command_term._goal[env_ids, :2] += noise
+
+
+def randomize_subgoal_drift(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    position_rms_m: float,
+    heading_sigma_deg: float,
+    gain_range: tuple[float, float],
+    tau_s: float,
+    jump_rate_hz: float = 0.0,
+    jump_position_range_m: tuple[float, float] = (0.0, 0.0),
+    jump_heading_range_deg: tuple[float, float] = (0.0, 0.0),
+) -> None:
+    """Re-anchor the referent-frame drift and redraw its per-env magnitude.
+
+    The process is created on the first call, when the env's control period is
+    known, and lives on the env because the three goal-shaped observation terms
+    all read the same realization: the drift is one moving frame, not three
+    independent corruptions.
+
+    Args:
+        env: The environment instance.
+        env_ids: Indices of environments to re-anchor.
+        position_rms_m: RMS displacement of the 2-D offset at gain 1, in metres.
+        heading_sigma_deg: Stationary heading sigma at gain 1, in degrees.
+        gain_range: Per-env multiplier band on both magnitudes.
+        tau_s: Correlation time of the wander, in seconds.
+        jump_rate_hz: Poisson rate of loop-closure snaps.
+        jump_position_range_m: Snap displacement band, in metres.
+        jump_heading_range_deg: Snap heading band, in degrees.
+    """
+    process = getattr(env, "_subgoal_drift", None)
+    if process is None:
+        process = SubgoalDriftProcess(
+            env.num_envs,
+            env.device,
+            step_dt=env.step_dt,
+            position_rms_m=position_rms_m,
+            heading_sigma_deg=heading_sigma_deg,
+            gain_range=gain_range,
+            tau_s=tau_s,
+            jump_rate_hz=jump_rate_hz,
+            jump_position_range_m=jump_position_range_m,
+            jump_heading_range_deg=jump_heading_range_deg,
+        )
+        env._subgoal_drift = process
+    process.reset(env_ids)
 
 
 def randomize_motor_strength(

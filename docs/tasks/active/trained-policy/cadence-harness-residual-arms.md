@@ -367,32 +367,35 @@ in-session baseline and the discrepancy is the headline finding.
 Committed before the session runs, so the outcome cannot be read backwards.
 Ratios are against the v2 `clean` baseline of 0.900.
 
-| prediction | reading if it fails |
-|---|---|
-| v2 under A alone holds ≥ 0.70 of baseline | state longevity alone is a first-order defect, and the trainable axis is episode length |
-| v2 under B at 1× loses ≥ 15% of baseline | the subgoal-following gain is lower than assumed and SLAM-frame noise is not the residual |
-| v2 under B is monotone across 0.5× / 1× / 2× | the perturbation is not acting through the channel it was built for — verify the quartet rewrite before reading any level |
-| v2 at T2D₁ scores ≥ 0.80 of baseline | rate parity recovers less than predicted even on fully novel content; the consequence is whatever the Arm D table assigns to the level measured, and this row records only that the prediction missed |
-| v2 at T2D₂ scores ≥ 0.70 of baseline | reuse at the *current* duplicated-content operating point is worse than predicted; same reading, and the T2D₁ level then carries the adoption question |
+The rows below are as committed; the trailing **scored** column was added
+afterwards from the 2026-08-08 measurements and changes no other text.
 
-| outcome | consequence |
-|---|---|
-| C below 0.30 of baseline | compositional sufficiency is established: individually survivable axes compose to the rig's failure, and the remedy list is deploy-side — arrival rate and SLAM quality — not a retrain |
-| C at or above 0.60 of baseline | the residual lives in the axes sim cannot reach (node observation chain, planner path distribution); the next discriminant is rig-side, after the render stall is cleared |
-| C between 0.30 and 0.60 | composition contributes but is not sufficient: rank A and B by their solo losses, carry the larger into the rig-side discriminant, and no retrain trigger fires |
-| A decays with chain depth **and** C is below 0.30 | the trainable axis is episode length; that is the one path back to a retrain, and it re-opens the held decision |
-| B at 1× loses ≥ 15% | the training-side mechanism already designed in the DR audit's Phase 2 block is licensed for measurement, not yet for a training run |
+| prediction | reading if it fails | scored |
+|---|---|---|
+| v2 under A alone holds ≥ 0.70 of baseline | state longevity alone is a first-order defect, and the trainable axis is episode length | **held** — 0.890, 0.989 of baseline |
+| v2 under B at 1× loses ≥ 15% of baseline | the subgoal-following gain is lower than assumed and SLAM-frame noise is not the residual | **held** — 0.650, a 27.8% loss |
+| v2 under B is monotone across 0.5× / 1× / 2× | the perturbation is not acting through the channel it was built for — verify the quartet rewrite before reading any level | **held** — 0.810 / 0.650 / 0.340, strictly monotone; no re-verification owed |
+| v2 at T2D₁ scores ≥ 0.80 of baseline | rate parity recovers less than predicted even on fully novel content; the consequence is whatever the Arm D table assigns to the level measured, and this row records only that the prediction missed | **held** — 0.860, 0.956 of baseline |
+| v2 at T2D₂ scores ≥ 0.70 of baseline | reuse at the *current* duplicated-content operating point is worse than predicted; same reading, and the T2D₁ level then carries the adoption question | **held** — 0.910, 1.011 of baseline |
+
+| outcome | consequence | scored |
+|---|---|---|
+| C below 0.30 of baseline | compositional sufficiency is established: individually survivable axes compose to the rig's failure, and the remedy list is deploy-side — arrival rate and SLAM quality — not a retrain | does not fire (C = 0.700) |
+| C at or above 0.60 of baseline | the residual lives in the axes sim cannot reach (node observation chain, planner path distribution); the next discriminant is rig-side, after the render stall is cleared | **fires** — C = 0.630 raw, 0.700 of baseline. Qualified below: the two deploy changes ship and the rig is re-validated first; only a still-failing rig read opens those discriminants |
+| C between 0.30 and 0.60 | composition contributes but is not sufficient: rank A and B by their solo losses, carry the larger into the rig-side discriminant, and no retrain trigger fires | does not fire |
+| A decays with chain depth **and** C is below 0.30 | the trainable axis is episode length; that is the one path back to a retrain, and it re-opens the held decision | does not fire — A is flat with chain depth and C is 0.700 |
+| B at 1× loses ≥ 15% | the training-side mechanism already designed in the DR audit's Phase 2 block is licensed for measurement, not yet for a training run | **fires** — 27.8% loss. Superseded upward: the drift model joins the v2.1 retrain rather than stopping at measurement |
 
 **Arm D, scored on T2D₂** — novelty-matched to the stream deploy sees today —
 with T2D₁ read as the post-render-fix and real-hardware operating point, and
 T2D₃ as the band-regime reading:
 
-| T2D₂ against baseline | consequence |
-|---|---|
-| ≥ 0.85 | adopt timer-driven stale reuse. The node change is small and bounded: the freshness gate's skip path becomes bounded reuse, `tick_on_depth` goes false, and the reuse budget stays strictly shorter than `depth_timeout_s`. The depth-age watchdog still caps it, and the planner refusal and starvation guards are untouched |
-| 0.75 – 0.85 | a judgment call taken with the operator, informed by the T2D₁ – T2D₂ spread: a wide spread means the gain came from depth novelty rather than rate parity, and the deploy change would not deliver it |
-| < 0.75, **but T2D₁ ≥ 0.85** | adoption stays live, coupled to the sim render-duplication fix. The semantics pay off at the operating point that fix produces, and on real hardware, but not at today's duplicated-content one. This comes back as a judgment call rather than a rejection, and the deploy change waits on the render fix landing |
-| < 0.75 with T2D₁ also short | the current gate stands, and the freshness-gate ruling is re-affirmed on measurement rather than precedent |
+| T2D₂ against baseline | consequence | scored |
+|---|---|---|
+| ≥ 0.85 | adopt timer-driven stale reuse. The node change is small and bounded: the freshness gate's skip path becomes bounded reuse, `tick_on_depth` goes false, and the reuse budget stays strictly shorter than `depth_timeout_s`. The depth-age watchdog still caps it, and the planner refusal and starvation guards are untouched | **fires** — T2D₂ = 1.011 of baseline, well clear of the line. Adoption is ordered; the node change is filed separately and is not part of this brief |
+| 0.75 – 0.85 | a judgment call taken with the operator, informed by the T2D₁ – T2D₂ spread: a wide spread means the gain came from depth novelty rather than rate parity, and the deploy change would not deliver it | does not fire |
+| < 0.75, **but T2D₁ ≥ 0.85** | adoption stays live, coupled to the sim render-duplication fix. The semantics pay off at the operating point that fix produces, and on real hardware, but not at today's duplicated-content one. This comes back as a judgment call rather than a rejection, and the deploy change waits on the render fix landing | does not fire — and the coupling it anticipated is moot: T2D₁ (0.956) and T2D₂ (1.011) bracket the line from above, so adoption does not wait on the render fix |
+| < 0.75 with T2D₁ also short | the current gate stands, and the freshness-gate ruling is re-affirmed on measurement rather than precedent | does not fire |
 
 Predictions committed now: **≥ 0.80 at T2D₁** and **≥ 0.70 at T2D₂**, on the
 grounds that training's own render duplication already exposed the policy to
@@ -406,6 +409,200 @@ One interaction to read, not to gate on: adopting Arm D's semantics lengthens
 the recurrent horizon in deploy from ~700 advances per mission to the full 1800,
 which is the regime Arm A measures. If A shows decay with chain depth, the
 Arm D adoption note must carry that cost.
+
+## Results — 2026-08-08 session
+
+The harness landed in `ff5d93d` (PR #193). This section records the ten-launch
+session it was built for.
+
+**Tree.** Run from detached `dfd8a25`, the first parent of the #195 merge —
+the last commit carrying the harness extensions and predating the temporal-DR
+change, which adds a native stream-hold band to the ROBUST contract and would
+otherwise layer under the emulated schedules and break comparability with the
+recorded `clean` baseline. Verified before launching: `de514a8` (#193) is an
+ancestor and no commit of #195 is; `hold_fraction_range` has zero occurrences
+in the checkout; and no commit has touched `source/strafer_lab/strafer_lab/`
+since the 2026-08-04 baseline run, so the env, cfgs and noise models are
+identical to the tree that produced the 0.900.
+
+**Settings**, held fixed across all ten launches:
+`Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0`, seed 42, 16 envs
+(passed explicitly), 100 episodes per arm, 20 s cap, observation corruption on,
+`--warmup-ticks 2`. Launches were serialised — the runner refuses to start
+while any compute process holds the GPU. No arm hit its step ceiling; every arm
+completed its full 100 episodes.
+
+**Launch count: ten**, as filed. The override ergonomics were left unchanged.
+
+**Completion and failure cause.** Ratios are against the recorded v2 `clean`
+0.900 and, for T1C, the recorded v1 `clean` 0.840. The `/B2` column divides by
+the same-session baseline instead. `robot_flipped` and `time_out` are 0 in
+every arm, so the three causes shown are the complete breakdown.
+
+| arm | recorded label | compl | ratio | /B2 | near | prog | offset | left | complete / off-path / collision |
+|---|---|---|---|---|---|---|---|---|---|
+| B2 | `clean` | 0.860 | 0.956 | 1.000 | 0.490 | 0.900 | +4.70° | 0.627 | 86 / 2 / 12 |
+| T2A | `clean+nohreset` | 0.890 | 0.989 | 1.035 | 0.580 | 0.920 | +4.46° | 0.610 | 89 / 0 / 11 |
+| T2B₁ | `clean+drift0.5x` | 0.810 | 0.900 | 0.942 | 0.590 | 0.872 | +4.36° | 0.589 | 81 / 3 / 16 |
+| T2B₂ | `clean+drift1x` | 0.650 | 0.722 | 0.756 | 0.440 | 0.810 | +4.49° | 0.570 | 65 / 22 / 13 |
+| T2B₃ | `clean+drift2x` | 0.340 | 0.378 | 0.395 | 0.310 | 0.670 | +1.57° | 0.519 | 34 / 37 / 29 |
+| T2C | `band+nohreset+drift1x` | 0.630 | 0.700 | 0.733 | 0.540 | 0.836 | +4.71° | 0.579 | 63 / 19 / 18 |
+| T2D₁ | `clean+stale0.61+stale_run2` | 0.860 | 0.956 | 1.000 | 0.580 | 0.903 | +4.72° | 0.623 | 86 / 2 / 12 |
+| T2D₂ | `clean+stale0.76+stale_run4` | 0.910 | 1.011 | 1.058 | 0.700 | 0.921 | +4.34° | 0.625 | 91 / 2 / 7 |
+| T2D₃ | `clean+stale0.233+stale_run1.2` | 0.850 | 0.944 | 0.988 | 0.650 | 0.916 | +4.42° | 0.624 | 85 / 4 / 11 |
+| T1C (v1) | `band+nohreset+drift1x` | 0.480 | 0.571 | — | 0.520 | 0.787 | +2.80° | 0.536 | 48 / 35 / 17 |
+
+The label invariant holds: the only arm labelled `clean` is the untouched
+baseline, and every arm carrying a knob names it — including the composed arms,
+which fold all three.
+
+**Requested versus realized.** Distinct-content rate is the rate at which new
+depth pixels reach the policy, `tick_hz × (1 − hold) × (1 − duplicate)`.
+
+| arm | hold | dup | infer Hz | distinct Hz | dup run mean / max | drift RMS (of request) | drift σ (of request) | steps |
+|---|---|---|---|---|---|---|---|---|
+| B2 | 0.0000 | 0.0000 | 30.000 | 30.000 | — | — | — | 853 |
+| T2A | 0.0000 | 0.0000 | 30.000 | 30.000 | — | — | — | 920 |
+| T2B₁ | 0.0000 | 0.0000 | 30.000 | 30.000 | — | 0.0724 m (0.873) | 2.88° (0.860) | 820 |
+| T2B₂ | 0.0000 | 0.0000 | 30.000 | 30.000 | — | 0.1456 m (0.877) | 6.19° (0.925) | 861 |
+| T2B₃ | 0.0000 | 0.0000 | 30.000 | 30.000 | — | 0.2811 m (0.847) | 11.62° (0.867) | 808 |
+| T2C | 0.2300 | 0.0000 | 23.101 | 23.101 | — | 0.1497 m (0.902) | 6.14° (0.916) | 961 |
+| T2D₁ | 0.0000 | 0.5939 | 30.000 | 12.183 | 1.97 / 12 | — | — | 892 |
+| T2D₂ | 0.0000 | 0.7395 | 30.000 | 7.814 | 3.86 / 30 | — | — | 872 |
+| T2D₃ | 0.0000 | 0.2263 | 30.000 | 23.211 | 1.19 / 5 | — | — | 878 |
+| T1C | 0.2285 | 0.0000 | 23.146 | 23.146 | — | 0.1506 m (0.902) | 5.96° (0.889) | 946 |
+
+Requests were hold 0.233 and duplicate 0.610 / 0.760 / 0.233; the realized
+shortfall of ~1 point on the hold axis and ~2 on the duplicate axis is
+`--warmup-ticks` forcing fresh ticks after each boundary, as anticipated. Drift
+realizes at 0.85–0.90 of request against the ~0.89 the re-anchoring expression
+predicts at the observed mean episode length, so the shortfall is the modelled
+effect rather than a defect.
+
+**T2D₂ is novelty-matched on realized figures**, which is what the brief
+requires before the cell may be scored: its 7.814 Hz of distinct content sits
+2.15% from `degraded`'s realized 7.650 Hz, inside the 5% gate. No re-request
+was owed.
+
+**Command direction against truth and against the perturbed referent.** Only
+the drift arms carry a perceived counterpart.
+
+| arm | truth median | truth median abs | perceived median | perceived median abs |
+|---|---|---|---|---|
+| B2 | +4.70° | 14.78° | — | — |
+| T2A | +4.46° | 15.22° | — | — |
+| T2B₁ | +4.36° | 16.66° | +4.78° | 15.60° |
+| T2B₂ | +4.49° | 18.97° | +3.89° | 15.87° |
+| T2B₃ | +1.57° | 23.74° | +3.40° | 18.35° |
+| T2C | +4.71° | 18.66° | +4.62° | 15.87° |
+| T2D₁ | +4.72° | 15.33° | — | — |
+| T2D₂ | +4.34° | 13.71° | — | — |
+| T2D₃ | +4.42° | 13.84° | — | — |
+| T1C (v1) | +2.80° | 23.73° | +3.55° | 21.97° |
+
+**Completion against chain depth**, for the arms that carry the state across
+episodes. Bin sizes fall from 16 at low depth to single digits at the tail.
+
+| depth | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|---|
+| T2A | 0.875 | 1.000 | 0.938 | 0.750 | 0.875 | 0.857 | 1.000 | — | — |
+| T2C | 0.812 | 0.750 | 0.400 | 0.600 | 0.600 | 0.700 | 0.625 | 0.500 | 0.000 |
+| T1C (v1) | 0.625 | 0.562 | 0.562 | 0.375 | 0.429 | 0.333 | 0.286 | 0.667 | — |
+
+### Gates and deviations
+
+- **The baseline STOP gate passed.** B2 is 0.860, inside the pre-registered
+  0.84–0.96 band, so the recorded 0.900 and 0.840 denominators stay valid and
+  every arm below is readable. It landed 0.040 under the reference and the run
+  is not bit-reproducible against 2026-08-04 despite an identical env, seed and
+  settings — GPU nondeterminism, which is the sampling noise the band exists to
+  absorb. The `/B2` column is carried alongside so no reading depends on which
+  denominator is chosen; the two agree on every verdict.
+- **A GPU-free pre-flight preceded the session.** The pure suite ran 123/123,
+  and an offline replay of the sampler and the drift process against the
+  recorded episode-boundary sequence confirmed each duplicate-axis cell clears
+  the validation ceiling and projected T2D₂ at 7.86 Hz distinct content — 2.7%
+  from the match target — before any Kit launch. Realized 7.814.
+- **The horizon Arm A reaches is shorter than deploy's, and differs by arm.**
+  Held ticks do not advance the recurrent state, so the horizon is the count of
+  inferring ticks per env: 920 for T2A, 740 for T2C, 730 for T1C. T2C and T1C
+  land almost exactly on the ~700 advances derived for the failing 12 Hz deploy
+  regime; T2A exceeds it but reaches roughly half the 1800 of a full 60 s
+  mission at 30 Hz, because the 100-episode budget caps the chain. Arm A
+  therefore characterises the horizon deploy occupies today, not the horizon
+  the adopted inference semantics will create.
+- **No repository file was modified by the session itself.** No changes to
+  envs, cfgs, noise models, the inference node, or the play script.
+
+### Where the evidence lives
+
+`logs/` is gitignored, so the session's JSONL is not in version control and the
+tables above are its durable record. On the machine that produced it the ten
+files are in `logs/rsl_rl/strafer_navigation/cadence_emulation/`, one per
+launch, in arm order: `cadence_20260808_195228` (B2), `_195508` (T2A),
+`_195730` / `_195957` / `_200218` (T2B₁₋₃), `_200459` (T2C), `_200731` /
+`_201000` / `_201229` (T2D₁₋₃), `_201506` (T1C). Each carries the per-episode
+records — with `episode_index` as the env-local chain index — alongside
+`requested_profile`, `realized_profile`, `subgoal_drift`, and both
+direction-offset summaries.
+
+## Read-out — scored against the pre-registered rule
+
+- **(a) Arm A — passes; the recurrent horizon is not implicated at today's
+  horizons.** T2A is 0.890 (0.989 of reference, 1.035 of the same-session
+  baseline) and the chain-depth curve is flat. Carried forward: the session
+  reached ~920 inferring ticks, and the inference semantics adopted under (d)
+  push deploy's effective horizon toward ~1800, which nothing here has tested.
+  The v2.1 acceptance grid gains a long-horizon chained arm.
+- **(b) Arm B — passes; subgoal-frame drift is the dominant sim-testable
+  contributor.** 1× drift costs 24–28% (0.650; 0.722 of reference, 0.756 of the
+  same-session baseline), the sweep is monotone across 0.5× / 1× / 2×
+  (0.810 / 0.650 / 0.340), and the truth-versus-perceived split shows the
+  policy faithfully tracking a displaced frame: perceived offset holds near the
+  baseline's 14.78° while truth widens with magnitude. The failure is the
+  frame, not the tracking. **The drift model joins the v2.1 retrain**, which
+  is more than the pre-registered row licensed — it read "measurement, not yet
+  a training run" — and the upgrade rests on the monotone sweep plus the
+  discriminator agreeing on mechanism.
+- **(c) Arm C — the ≥ 0.60 branch fires, with the chase ordered rather than
+  opened.** T2C is 0.630 (0.700 of reference), so the composition of band
+  cadence, unbounded horizon and 1× drift does not collapse v2; T2C ≈ T2B₂
+  means drift carries essentially the whole compositional cost. The gap between
+  0.63 in sim and ~0.0 on the rig is real and lives in the axes sim cannot
+  reach. The branch's literal consequence — go to the rig-side discriminants —
+  is qualified: the two deploy changes ship first and the rig is re-validated
+  with them live, and only a still-failing read then licenses the
+  path-geometry and observation-chain discriminants. T1C at 0.571 of its own
+  baseline confirms the composition is generically harsh rather than
+  v2-specific.
+- **(d) Arm D — adopt, decisively.** T2D₂, the novelty-matched cell, reads
+  0.910 — 1.011 of reference — far above the 0.85 adoption line, and T2D₁ at
+  0.956 beat its ≥ 0.80 prediction; both committed predictions held. The
+  sharpest single figure is the regime contrast: holding distinct content fixed
+  and moving only inference rate, the degraded operating point goes 0.610 →
+  0.910 while the band point is neutral (0.870 → 0.850). The cost of
+  degradation was the frozen-state and held-command half, almost never the
+  stale-content half. That training itself ran amid render duplication remains
+  the explanation for why duplicate content is nearly free.
+
+**Consequences.** The cadence-setpoint question dissolves — 30 Hz stands and no
+20 Hz branch is needed. The command-hold bands stay as shipped. The
+host-capacity concern is largely defused for the policy loop, since at today's
+collapsed 5–8 Hz arrival stale reuse puts the node in T2D₂'s regime, pending
+the depth-age bound; capacity work proceeds on its own merits for SLAM, whose
+quality feeds the very drift axis (b) convicts.
+
+**What this brief licenses, filed separately.** Two changes follow and neither
+belongs to this brief: timer-driven stale-reuse inference semantics in the
+node, config-gated with the current behaviour as a named fallback; and an SE(2)
+drift randomization on the goal-shaped observation terms in `strafer_lab`,
+calibrated to the measured class, sharing `SubgoalDrift` as the reference
+definition, and carrying a default-off discontinuous-jump component for loop
+closures. A rig-side logger for loop-closure jump statistics rides along with
+the next session that has SLAM up, and pins the τ = 2.0 s assumption this brief
+had to state rather than cite. Pre-registered now for the v2.1 acceptance grid:
+**drift-1× ratio ≥ 0.85 of its own clean**, up from today's 0.722, alongside
+the long-horizon chained arm from (a).
 
 ## Investigation pointers
 

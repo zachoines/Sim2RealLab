@@ -254,7 +254,7 @@ than a blocked one.
 
 So the retrain is **held**, and what would make it urgent again is one of the
 residual arms in
-[`cadence-harness-residual-arms`](cadence-harness-residual-arms.md) implicating
+[`cadence-harness-residual-arms`](../../completed/cadence-harness-residual-arms.md) implicating
 a trainable axis: a recurrent horizon that decays with chain depth would point
 at longer-episode training, and a subgoal-frame sensitivity at the TF-staleness
 and goal-noise mechanisms already designed in

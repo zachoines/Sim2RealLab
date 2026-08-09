@@ -106,7 +106,9 @@ strafer_autonomy.executor                  strafer_lab
 
 Cross-host transport uses `rmw_cyclonedds_cpp` with `ROS_DOMAIN_ID=42`
 over LAN. HTTP goes over the same LAN (DGX `192.168.50.196`, Jetson
-`192.168.50.24` in the reference setup).
+`192.168.50.161` in the reference setup). The LAN hop is a real capacity
+limit for the bridged camera streams, not a free channel — see
+[`repo-topology.md`](docs/tasks/context/repo-topology.md#hosts).
 
 <p align="center">
   <img src="docs/artifacts/hallway_grounding_example.png" alt="Hallway scene with a yucca plant at the end" width="35%"/>

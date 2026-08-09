@@ -8,13 +8,25 @@ one git repository. Both hosts must agree on `ROS_DOMAIN_ID` and
 
 | Role | Hostname | IP | What runs here |
 |------|----------|----|----------------|
-| **DGX Spark** | `dgx-spark` | 192.168.50.196 | Isaac Sim, ROS 2 sim bridge, VLM service, LLM planner, RL training |
-| **Jetson Orin Nano** | `jetson-desktop` | 192.168.50.24 | RTAB-Map, Nav2, executor (`strafer-executor`), goal-projection service, on-robot ROS bringup |
+| **DGX Spark** | `gx10-d1d8` | 192.168.50.196 | Isaac Sim, ROS 2 sim bridge, VLM service, LLM planner, RL training |
+| **Jetson Orin Nano** | `strafer-nx` | 192.168.50.161 | RTAB-Map, Nav2, executor (`strafer-executor`), goal-projection service, on-robot ROS bringup |
 
 ROS 2 distro: **Humble** on both hosts.
 DDS: `rmw_cyclonedds_cpp` (cross-host discovery; FastDDS shared-memory
 default doesn't span machines).
 ROS domain ID: **42** (any value works as long as both hosts agree).
+
+**The sim-bridge camera streams cross a bandwidth-constrained link between the
+two hosts, and that link is a design constraint rather than a detail.** DDS
+data on it is carried **unicast per subscribing process**, so a camera topic's
+wire cost multiplies with the number of remote subscribers instead of being
+shared — adding a remote subscriber to a camera topic spends real budget. The
+measured budget and the current transport topology are owned by
+[`sim-bridge-link-transport-capacity`](../active/reliability/sim-bridge-link-transport-capacity.md);
+the dated measurement record is
+[`depth-receiver-host-capacity`](../completed/depth-receiver-host-capacity.md).
+Consult the brief for the figure before sizing anything against it — the value
+moves, which is why it does not live here.
 
 ## Repository
 
@@ -25,7 +37,7 @@ Single git remote. `main` is the working line; per-task branches
 | Host | Repo path |
 |------|-----------|
 | DGX | `~/Workspace/Sim2RealLab/` |
-| Jetson | `~/workspaces/Sim2RealLab/` |
+| Jetson | `~/Sim2RealLab/` |
 
 Verify from inside the repo with `git remote -v` + `git rev-parse --show-toplevel`.
 

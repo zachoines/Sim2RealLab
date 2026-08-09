@@ -86,7 +86,7 @@ recorded in
 sustained achievable rate lands below 20 Hz, the setpoint moves via
 `POLICY_DECIMATION` and training matches. The measurement that supplies that
 rate now belongs to
-[`depth-receiver-host-capacity`](../active/reliability/depth-receiver-host-capacity.md),
+[`depth-receiver-host-capacity`](depth-receiver-host-capacity.md),
 after the QoS re-measure that was going to produce it turned out to be measuring
 the wrong thing. The moment that branch is taken — or any per-run cadence
 configurability lands on the training side — the constant stops being a

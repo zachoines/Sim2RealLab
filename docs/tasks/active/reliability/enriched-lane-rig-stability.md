@@ -228,6 +228,30 @@ path regardless so an adapter wedge no longer costs rig control. **Do not switch
 transports mid-session** — it changes latency and jitter and confounds any
 arm-to-arm comparison.
 
+> **UPDATE 2026-08-08 — the ask is half-applied, and the unapplied half is now
+> the binding constraint on the depth lane.** The `mt7921u` dongle is gone: the
+> Jetson (`strafer-nx`, now **192.168.50.161**) is on wired gigabit
+> `enP8p1s0`. But the **DGX moved onto WiFi** (`wlP9s9`, mt7925e) and every
+> wired NIC on it is down — so the host that *transmits* every camera frame is
+> the one still on wireless, and its uplink is now the narrow hop. The
+> 251.6 Mbit/s powerline figure above describes neither current end of the path.
+>
+> Measured DGX → Jetson on the current path (`iperf3`, bracketed across one
+> session): **loss-free to 60 Mbit/s early and to only 20 Mbit/s ~50 minutes
+> later**, saturating at 66 and 32 Mbit/s respectively — a ~3× capacity swing
+> with RSSI (−60 dBm) and negotiated PHY rate (1297 Mbit/s) unchanged. `iw`
+> also reports **power save on** and **txpower 3.00 dBm**.
+>
+> Two consequences for this brief. First, the "live traffic requirement of only
+> 67.8 Mbit/s" above is **not a comfortable margin and not per-stream** — it is
+> the aggregate camera census at RTF ≈ 0.11, and it exceeds the path's real
+> capacity. Second, **that capacity instability is a candidate cause of mode-4-
+> adjacent measurement noise generally**: a link whose usable rate wanders 3× on
+> a tens-of-minutes timescale reproduces the "within-arm spread exceeds
+> between-arm difference" pattern that has defeated more than one A/B here.
+> Full measurement, method and per-arm data:
+> [`depth-receiver-host-capacity`](../../completed/depth-receiver-host-capacity.md).
+
 ### 4. The Isaac renderer stops producing frames while physics continues
 
 The failure that ended the session. Physics kept stepping and DDS stayed healthy,
@@ -428,9 +452,13 @@ instance**. On an idle GPU expect 10–20 min to first frames; poll
 ## Out of scope
 
 - The depth cadence shortfall —
-  [`depth-receiver-host-capacity`](depth-receiver-host-capacity.md) owns it, and
-  it is none of the four modes here. Its mechanism is settled as far as
-  attribution goes and open as to location: depth delivery collapses 4–6× the
+  [`depth-receiver-host-capacity`](../../completed/depth-receiver-host-capacity.md) owns it, and
+  it is none of the four modes here — though **mode 3 above is now the mode it
+  belongs to**. Its location was settled 2026-08-08: the fault is the **link**,
+  not either host. The DGX's WiFi uplink carries a unicast-multiplied camera
+  census far above its measured 20–60 Mbit/s loss-free capacity, and neither
+  host's network stack drops a packet. Prior framing, kept because the arms
+  below were read against it: depth delivery collapses 4–6× the
   moment the inference container runs, on `best_effort` as well as `reliable`,
   while an independent probe reads ~28.5 Hz sim with the node stopped. The QoS
   reading that preceded it is closed premise-refuted in

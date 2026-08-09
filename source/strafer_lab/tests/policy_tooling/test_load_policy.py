@@ -228,6 +228,7 @@ def test_recurrent_onnx_reset_required_for_determinism(tmp_path: Path) -> None:
         source_checkpoint="test-checkpoint.pt",
         formats=["onnx"],
         is_recurrent=True,
+        trained_period_s=1.0 / 30.0,
     )
 
     policy = load_policy(out_path, PolicyVariant.NOCAM)
@@ -289,6 +290,7 @@ def test_sidecar_variant_mismatch_raises(tmp_path: Path) -> None:
         source_checkpoint="test-checkpoint.pt",
         formats=["pt"],
         is_recurrent=False,
+        trained_period_s=1.0 / 30.0,
     )
 
     with pytest.raises(ValueError, match="policy_variant"):
@@ -316,3 +318,104 @@ def test_sidecar_is_recurrent_flag_overrides_inference(tmp_path: Path) -> None:
 
     policy = load_policy(out_path, PolicyVariant.NOCAM)
     assert policy.is_recurrent is False
+
+
+# ---------------------------------------------------------------------------
+# Trained step period
+# ---------------------------------------------------------------------------
+
+
+def _stateless_pt(tmp_path: Path, name: str = "tagged.pt") -> Path:
+    torch.manual_seed(0)
+    actor = _TinyStatelessActor(PolicyVariant.NOCAM.obs_dim).eval()
+    out_path = tmp_path / name
+    export_policy.export_torchscript(
+        actor, out_path, obs_dim=PolicyVariant.NOCAM.obs_dim, is_recurrent=False
+    )
+    return out_path
+
+
+def _write_sidecar(model_path: Path, **fields) -> None:
+    payload = {"policy_variant": "NOCAM", "obs_dim": PolicyVariant.NOCAM.obs_dim}
+    payload.update(fields)
+    model_path.with_suffix(".json").write_text(json.dumps(payload))
+
+
+def test_trained_period_is_surfaced_on_the_loaded_policy(tmp_path: Path) -> None:
+    """The cadence the artifact was trained at reaches the caller.
+
+    The caller owns the tick; without this it has no way to know the artifact
+    in its hands trained at a different rate than the deploy-side constant.
+    """
+    out_path = _stateless_pt(tmp_path)
+    _write_sidecar(out_path, trained_period_s=1.0 / 20.0)
+
+    policy = load_policy(out_path, PolicyVariant.NOCAM)
+    assert policy.trained_period_s == 1.0 / 20.0
+
+
+def test_trained_period_is_surfaced_from_an_onnx_artifact(tmp_path: Path) -> None:
+    """Both formats share one sidecar, so both must surface the period."""
+    pytest.importorskip("onnxruntime")
+    torch.manual_seed(0)
+    actor = _TinyStatelessActor(PolicyVariant.NOCAM.obs_dim).eval()
+    out_path = tmp_path / "tagged.onnx"
+    export_policy.export_onnx(
+        actor, out_path, obs_dim=PolicyVariant.NOCAM.obs_dim
+    )
+    _write_sidecar(out_path, trained_period_s=1.0 / 20.0)
+
+    policy = load_policy(out_path, PolicyVariant.NOCAM)
+    assert policy.trained_period_s == 1.0 / 20.0
+
+
+def test_absent_sidecar_leaves_the_trained_period_unset(tmp_path: Path) -> None:
+    out_path = _stateless_pt(tmp_path, "untagged.pt")
+
+    policy = load_policy(out_path, PolicyVariant.NOCAM)
+    assert policy.trained_period_s is None
+
+
+def test_sidecar_without_the_period_field_leaves_it_unset(tmp_path: Path) -> None:
+    """Every artifact exported before the field existed omits it. Absence has
+    to stay indistinguishable from "no opinion", or the deploy path bricks on
+    every legacy artifact."""
+    out_path = _stateless_pt(tmp_path)
+    _write_sidecar(out_path, is_recurrent=False)
+
+    policy = load_policy(out_path, PolicyVariant.NOCAM)
+    assert policy.trained_period_s is None
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        0.0, -1.0, float("nan"), float("inf"), float("-inf"),
+        # bool is an int subclass — JSON `true` would float() to a plausible
+        # 1 Hz. A stringified number would coerce to whatever it spells. Both
+        # are the wrong-but-plausible cadence this field exists to prevent.
+        True, False, "0.033", "fast", [], {},
+    ],
+)
+def test_unusable_trained_period_refuses_to_load(tmp_path: Path, bad) -> None:
+    """Present but not a positive number of seconds is a broken artifact, not
+    an artifact with no opinion — it must not degrade to a fallback cadence."""
+    out_path = _stateless_pt(tmp_path)
+    _write_sidecar(out_path, trained_period_s=bad)
+
+    with pytest.raises(ValueError, match="trained_period_s"):
+        load_policy(out_path, PolicyVariant.NOCAM)
+
+
+def test_json_null_trained_period_reads_as_absent(tmp_path: Path) -> None:
+    """`null` is the artifact declining to state a period, not a broken value.
+
+    Deliberate: it is what a producer that has no cadence to record should
+    emit, and it must land on the same silent-fallback path as omitting the
+    key rather than on the refusal path above.
+    """
+    out_path = _stateless_pt(tmp_path)
+    _write_sidecar(out_path, trained_period_s=None)
+
+    policy = load_policy(out_path, PolicyVariant.NOCAM)
+    assert policy.trained_period_s is None

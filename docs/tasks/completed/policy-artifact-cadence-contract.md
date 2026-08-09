@@ -1,0 +1,207 @@
+# Carry the trained step period on the policy artifact
+
+**Status:** Shipped 2026-08-06 in `c7d282b` (Jetson + DGX). Both halves landed
+in one PR — the DGX half did not need to wait for the provenance-manifest work.
+Covered on both hosts: `make test-ros` reads 735 passed on the Jetson, and the
+`strafer_lab` policy-tooling suites read **48/48** on an Isaac host from the PR
+head (5 export-side cases, 9 load-side), with the full pure lab suite at **1126
+passed / 1 skipped** and no regressions. The Jetson half's three behavioural
+cases were mutation-checked against the pre-change lookup.
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/194
+
+The Jetson session that wrote the DGX half could not run its suites — neither
+torch nor onnxruntime is present on that host or in `strafer-cpu:humble`, and
+both test modules import torch at module scope. It stood in a torch-stubbed
+drive of the same functions plus an AST check of the CLI wiring, and stamped
+the gap as open; the DGX run above closed it. Recorded because the same
+constraint binds any future Jetson session touching `export_policy.py` or the
+loader's torch paths.
+
+**Type:** task (train↔deploy contract)
+**Owner:** Jetson + DGX
+**Priority:** P1 — it is the prerequisite that makes a per-run cadence choice
+safe. Nothing is broken while exactly one global cadence exists; the day that
+stops being true, a mismatch is silent.
+**Estimate:** S (one sidecar field, one loader accessor, one node preference +
+a disagreement log)
+**Branch:** `task/policy-artifact-cadence-contract`
+
+## Story
+
+As the **inference node loading an exported policy**, I want **the artifact to
+state the step period it was trained at**, so that **a policy trained at a
+different cadence than the deploy constant is caught at load instead of running
+its recurrent state at the wrong rate in silence.**
+
+## Context bundle
+
+- [context/recurrent-policy-contract.md](../context/recurrent-policy-contract.md)
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
+
+## Context
+
+The trained step period has exactly one home today,
+[`strafer_shared/constants.py`](../../../source/strafer_shared/strafer_shared/constants.py):
+
+```python
+POLICY_SIM_DT = 1.0 / 120.0
+POLICY_DECIMATION = 4
+POLICY_PERIOD_S = POLICY_SIM_DT * POLICY_DECIMATION  # 1/30 s = 30 Hz
+```
+
+Its comment names it the single source of truth, and both consumers honour
+that: the Isaac Lab task config takes `cfg.sim.dt` / `cfg.decimation` from it,
+and the inference node derives its tick from it through
+`_default_infer_period()`. `inference.yaml` deliberately omits `infer_period_s`
+so the deploy rate cannot drift from training via a config literal.
+
+**That protection holds only while there is exactly one global cadence.** It is
+a *compile-time* coupling: the node reads whatever the constant says at the
+moment it starts, not what the policy in its hands was trained against. A
+checkpoint exported before a `POLICY_DECIMATION` change and deployed after it
+runs at the new rate with no error raised.
+
+**The artifact cannot currently say otherwise.** `write_metadata_sidecar` in
+[`export_policy.py`](../../../source/strafer_lab/scripts/export_policy.py)
+records `policy_variant`, `obs_dim`, `action_dim`, `env_id`, `training_preset`,
+`source_checkpoint`, `formats`, `is_recurrent`, `git_commit`,
+`export_timestamp`, `onnx_opset` and the TensorRT fields. There is no cadence,
+period, or decimation field, and `policy_interface` never consults one.
+
+**Why this is a recurrent-policy hazard specifically.** A GRU's dynamics are
+indexed by step count, not wall time. A policy trained to integrate at 30
+steps per second of world time and run at 20 has a different effective time
+constant on every gate in the recurrent cell — with correct-looking
+observations, a correct-looking action shape, and nothing to log. It is the
+same class of silent failure as a skipped ONNX hidden-state write-back, which
+[`recurrent-policy-contract.md`](../context/recurrent-policy-contract.md)
+point 3 exists to prevent. Obs-dim mismatch is caught at load; cadence mismatch
+is not.
+
+**Why now.** The cadence setpoint is under a pre-registered decision rule
+recorded in
+[`depth-qos-reliable-flip`](depth-qos-reliable-flip.md): if the
+sustained achievable rate lands below 20 Hz, the setpoint moves via
+`POLICY_DECIMATION` and training matches. The measurement that supplies that
+rate now belongs to
+[`depth-receiver-host-capacity`](../active/reliability/depth-receiver-host-capacity.md),
+after the QoS re-measure that was going to produce it turned out to be measuring
+the wrong thing. The moment that branch is taken — or any per-run cadence
+configurability lands on the training side — the constant stops being a
+sufficient contract. This brief lands **before** that, not after.
+
+The branch is not expected to open: the host already receives ~28.5 Hz sim with
+the inference node stopped, above the rule's 27 Hz threshold. That is a reason
+to land this cheaply and early, not a reason to skip it — the hazard is silent
+when it does fire.
+
+## Acceptance criteria
+
+- [x] The export sidecar records the trained step period — `trained_period_s`,
+      seconds of world time per policy step. Landed standalone rather than
+      riding the provenance manifest. Taken off the env config the checkpoint
+      was reconstructed against (`cfg.sim.dt * cfg.decimation`), **not** off
+      `constants.py`, so an env whose cadence is set per-run records what it
+      actually stepped at. A required keyword argument: an export that records
+      no cadence is the artifact the field exists to stop producing.
+- [x] `load_policy` surfaces it as `LoadedPolicy.trained_period_s` — the same
+      shape as `is_recurrent` / `active_providers`, a class attribute defaulting
+      to `None`.
+- [x] The inference node prefers it in `_resolve_infer_period`, and warns with
+      both periods, both Hz figures, and which one it took.
+- [x] An artifact with no period recorded keeps today's behaviour exactly.
+      Absence is normal and means "no opinion"; only a *present* value that is
+      not a positive number of seconds raises, and that is a broken artifact
+      rather than a legacy one.
+- [x] The resolved period is what `_infer_period_s` holds, so the `cadence:`
+      line's target, the shortfall percentage and `timer_deadline_missed` all
+      follow it.
+- [x] Tests. Jetson side: six cases in `TestTrainedPeriodPreference` — the
+      artifact's period reaches the rclpy timer, the disagreement log names both
+      values, an absent field takes the constant silently, an agreeing field is
+      not a disagreement, no policy falls back to the parameter, and the cadence
+      line's target follows the artifact. The three behavioural ones were
+      mutation-checked against the pre-change lookup. They derive their
+      off-cadence period from `_default_infer_period()` rather than a `30 Hz`
+      literal, so they keep describing a disagreement after a setpoint move.
+      DGX side: round-trip, write-side validation and required-argument cases in
+      `test_export_policy.py`, and surfacing / absent / unusable cases for both
+      formats in `test_load_policy.py` — 48/48 on an Isaac host, plus 1126
+      passed / 1 skipped across the pure lab suite.
+- [x] Docs swept: the `infer_period_s` comment in `inference.yaml`,
+      `source/strafer_ros/README.md`, `source/strafer_lab/README.md`,
+      `docs/example_commands_cheatsheet.md`, and a seventh pinned point in
+      [`recurrent-policy-contract.md`](../context/recurrent-policy-contract.md)
+      plus its in-code mirror.
+- [x] No regression: `make test-ros` 735 passed / 11 skipped across all seven
+      `strafer_ros` packages, against 729 before.
+
+## Decisions taken
+
+The brief left several calls to the implementer. Recorded so the next reader
+does not re-litigate them, and so the one with a forward dependency is
+discoverable from here. All ruled 2026-08-06.
+
+- **Field name and units — `trained_period_s`, seconds.** One name across the
+  JSON key, the `write_metadata_sidecar` argument and the `LoadedPolicy`
+  attribute, so it greps end to end. `policy_period_s` was rejected as
+  ambiguous between the period it trained at and the period to run it at.
+- **Sourced from the env config, not the constant.** The export computes
+  `env_cfg.sim.dt * env_cfg.decimation`. Recording `POLICY_PERIOD_S` would have
+  re-encoded the coupling this brief removes. **Forward dependency:** that is
+  the *export* env, and
+  [`training-run-provenance-manifest`](../active/trained-policy/training-run-provenance-manifest.md)
+  already records that the export env is not provably the training env. The
+  caveat is latent, not live — every navigation env routes its runtime through
+  `strafer_env_cfg._apply_default_nav_runtime`, so no two nav envs can differ
+  on cadence today. It goes live only if a per-run cadence lands *and*
+  export/training env can diverge. Ruled: leave the source as is; the
+  provenance manifest supersedes it when it lands.
+- **The sidecar argument is required, not optional.** An export recording no
+  cadence is the artifact the field exists to stop producing, so omission is a
+  `TypeError`. Ruled: stays required, despite being a breaking signature change
+  to an importable helper.
+- **A present-but-unusable period refuses to load** rather than degrading to a
+  fallback cadence — the node records the load error and leaves the action
+  server unadvertised, so the dispatcher falls back to nav2. Absence stays
+  benign (no sidecar, no key, or JSON `null`); only a corrupt value is fatal.
+  "Unusable" is decided on type *before* any coercion at both ends: `bool` is
+  an `int` subclass, so JSON `true` would otherwise have recorded and been read
+  as a plausible 1 Hz, and a stringified number would have coerced to whatever
+  it spelled. A wrong-but-plausible cadence is the exact silent failure this
+  field exists to prevent, so it cannot be the one thing the field waves
+  through. Numeric types stay permissive enough for numpy scalars off an env
+  config (`numbers.Real`, not `(int, float)`).
+- **The artifact beats an explicit `infer_period_s` literal.** A config literal
+  winning over the artifact re-opens exactly the drift `inference.yaml`'s
+  contract exists to prevent. The cost is that a deliberate off-cadence
+  experiment gets overridden — loudly, with both values logged. Ruled: no
+  operator escape hatch until an off-cadence experiment is actually scheduled;
+  the sentinel-default design that would provide one is ~10 lines if it is.
+
+## Out of scope
+
+- **Changing the setpoint.** This brief makes a change *safe*; it does not make
+  one. `POLICY_DECIMATION` stays 4 and the deploy cadence stays 30 Hz.
+- **Per-run cadence configurability on the training side.** Whether the period
+  becomes a training-run parameter rather than a constant is a separate
+  question; this brief only ensures the answer is recorded on the artifact
+  whenever it is taken.
+- **The hold / duplicate randomization work.** A different axis entirely —
+  degradation *within* a cadence, not the cadence itself.
+- The two-way obs/action contract, which `policy_interface` already pins.
+
+## Investigation pointers
+
+- `write_metadata_sidecar` / `read_metadata_sidecar` in
+  [`export_policy.py`](../../../source/strafer_lab/scripts/export_policy.py)
+  — both importable, so the sidecar shape has one owner.
+- `_default_infer_period()` in
+  [`inference_node.py`](../../../source/strafer_ros/strafer_inference/strafer_inference/inference_node.py)
+  is indirected through a function specifically so tests can patch the
+  constants; the artifact preference belongs at the same seam.
+- The `infer_period_s` comment at the top of
+  [`inference.yaml`](../../../source/strafer_ros/strafer_inference/config/inference.yaml)
+  states the current contract and is what this brief revises.

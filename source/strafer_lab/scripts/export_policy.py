@@ -10,11 +10,11 @@ and writes one or both of:
   Jetson, CPU EP on the DGX for round-trip validation).
 
 A sidecar ``<output>.json`` records the policy variant, observation/action
-dimensions, source checkpoint, repo commit, export timestamp, and -- for
-ONNX -- the opset version. The Jetson inference node reads the sidecar at
-launch and refuses to start if the recorded variant disagrees with its
-configured ``PolicyVariant`` -- that's the cross-host invariant this brief
-anchors at export time.
+dimensions, the step period the policy was trained at, source checkpoint,
+repo commit, export timestamp, and -- for ONNX -- the opset version. The
+Jetson inference node reads the sidecar at launch and refuses to start if
+the recorded variant disagrees with its configured ``PolicyVariant`` --
+that's the cross-host invariant this brief anchors at export time.
 
 CLI examples (DGX, under the Isaac Sim conda env)::
 
@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import numbers
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -232,6 +233,7 @@ def write_metadata_sidecar(
     source_checkpoint: str | Path,
     formats: Iterable[str],
     is_recurrent: bool,
+    trained_period_s: float,
     onnx_opset: int | None = None,
     tensorrt_engine_path: str | Path | None = None,
     tensorrt_version: str | None = None,
@@ -262,6 +264,11 @@ def write_metadata_sidecar(
         is_recurrent: Whether the exported policy carries hidden state
             across calls. Tells the inference node it must call
             ``policy.reset()`` at episode boundaries.
+        trained_period_s: Seconds of world time between two policy steps
+            during training (``cfg.sim.dt * cfg.decimation``). Recorded so
+            the inference node can tick the artifact at the cadence it was
+            trained at rather than at whatever the deploy-side constant
+            says when the node starts. Must be finite and positive.
         onnx_opset: ONNX opset version (set when ``"onnx"`` is in
             ``formats``).
         tensorrt_engine_path: Optional path to a pre-built ``.engine``
@@ -280,6 +287,24 @@ def write_metadata_sidecar(
     stem = Path(output_stem)
     sidecar_path = stem.with_suffix(".json")
 
+    # Type-checked before coercion: bool is an int subclass, so float(True)
+    # would record a plausible-looking 1 Hz, and a stringified number would
+    # coerce just as quietly. Both are producer bugs that must not survive as a
+    # cadence. numbers.Real admits numpy scalars, which (int, float) misses.
+    if isinstance(trained_period_s, bool) or not isinstance(
+        trained_period_s, numbers.Real
+    ):
+        raise ValueError(
+            f"trained_period_s must be a real number of seconds, got "
+            f"{trained_period_s!r}"
+        )
+    trained_period_s = float(trained_period_s)
+    if not np.isfinite(trained_period_s) or trained_period_s <= 0.0:
+        raise ValueError(
+            f"trained_period_s must be finite and positive, got "
+            f"{trained_period_s!r}"
+        )
+
     if git_commit is None:
         git_commit = _detect_git_commit()
     if export_timestamp is None:
@@ -295,6 +320,7 @@ def write_metadata_sidecar(
         "source_checkpoint": str(source_checkpoint),
         "formats": formats_list,
         "is_recurrent": bool(is_recurrent),
+        "trained_period_s": trained_period_s,
         "git_commit": git_commit,
         "export_timestamp": export_timestamp,
     }
@@ -619,6 +645,11 @@ def main() -> None:
         )
         env_cfg.seed = args.seed
 
+        # Taken off the env config rather than strafer_shared, so an env whose
+        # cadence is set per-run records what it actually stepped at instead of
+        # whatever the shared constant reads at export time.
+        trained_period_s = float(env_cfg.sim.dt) * int(env_cfg.decimation)
+
         agent_cfg = load_cfg_from_registry(args.env, "rsl_rl_cfg_entry_point")
         agent_cfg.seed = args.seed
         agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, _metadata.version("rsl-rl-lib"))
@@ -702,6 +733,7 @@ def main() -> None:
             source_checkpoint=checkpoint_path,
             formats=formats_written,
             is_recurrent=is_recurrent,
+            trained_period_s=trained_period_s,
             onnx_opset=args.onnx_opset if "onnx" in formats_written else None,
             tensorrt_engine_path=args.tensorrt_engine_path,
             tensorrt_version=args.tensorrt_version,

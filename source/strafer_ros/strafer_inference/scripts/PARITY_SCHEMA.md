@@ -88,9 +88,12 @@ lives, never to judge whether it shrank. Below an overall mean |Δ| of
 
 From the node dump's `t_sim` column, the inter-inference sim-time delta
 histogram. Expected: a spike at `POLICY_PERIOD_S` for every variant — the
-empirical proof that the depth freshness gate delivers training's
-one-fresh-depth-per-step cadence in sim time regardless of wall RTF. A shifted
-mode, gaps, or bursts is a cadence-parity concern.
+empirical proof that the node steps the policy at training's cadence in sim
+time regardless of wall RTF. A shifted mode, gaps, or bursts is a
+cadence-parity concern. Under `depth_tick_semantics: gated` the depth variants
+step once per fresh frame instead, so their spike is only as tight as depth
+arrival; the node's own `cadence:` line carries the fresh-vs-reuse split this
+histogram cannot show.
 
 ## The two CLIs
 

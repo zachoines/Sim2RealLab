@@ -88,9 +88,20 @@
     trt_engine_cache_enable: true
     trt_engine_cache_path: "~/.cache/strafer_inference/trt_engines"
 
+    # What an inferring tick does with the cached depth frame.
+    # "timer_reuse": it consumes the newest one whether or not the frame
+    # advanced, so the recurrent state, the proprioceptive terms and the
+    # command all move at the trained cadence however slowly depth arrives;
+    # depth_timeout_s is then what bounds how stale a reused frame may get,
+    # and the cadence line's depth_age is what that reuse costs.
+    # "gated": a tick whose frame has not advanced is skipped instead — one
+    # inference per fresh frame, the named fallback for A/B on the rig.
+    depth_tick_semantics: "timer_reuse"
+
     # Tick on depth arrival as well as on the timer; false ticks on the timer
-    # alone, at whatever phase it lands on. The freshness gate caps the rate
-    # either way.
+    # alone, at whatever phase it lands on. Read under "gated" only —
+    # "timer_reuse" ticks on the timer alone, since without a gate an arrival
+    # would add an inference above the trained cadence.
     tick_on_depth: true
 
     # Depth subscription reliability. A RELIABLE subscriber receives nothing

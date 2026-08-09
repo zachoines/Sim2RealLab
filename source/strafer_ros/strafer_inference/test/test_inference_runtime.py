@@ -2475,8 +2475,8 @@ class TestDepthTickSemantics(unittest.TestCase):
     # -- the bound ------------------------------------------------------
 
     def test_reuse_is_bounded_by_the_depth_watchdog(self) -> None:
-        """Past `depth_timeout_s` the watchdog holds the tick exactly as it
-        does today — the reuse has no budget of its own."""
+        """Past `depth_timeout_s` the watchdog holds the tick, so the reuse
+        has no budget of its own."""
         node = _ready_depth_node()
         try:
             node._on_depth(_depth_msg(fill=1.0))

@@ -166,6 +166,14 @@ Recorded so the next reader does not re-litigate them.
   fire rather than once per arrival, so inference occupies its thread more
   often. `timer_deadline_missed` is the shipped instrument and is unchanged;
   the node-side consumption levers remain their own scope.
+- **The shortfall attribution latches under reuse.** `depth_owns` reads
+  `_stale_counts["depth"]`, which is a run-total: one early stall makes every
+  later `CADENCE SHORTFALL` line blame the transport for the rest of the run,
+  even once depth has recovered and the shortfall is the node's. It costs a
+  wrong owner on a throttled warning, never a behaviour change, and the counts
+  it prints let a reader see past it. The fix is a windowed count rather than
+  an ever-happened flag, and it rides along the next time the node is touched
+  rather than earning a brief of its own.
 - **This is one half of an ordered gate.** The composition read-out is
   discharged only after both this change and the subgoal-drift randomization
   ship, then the retrain runs and is scored, then the rig is re-validated

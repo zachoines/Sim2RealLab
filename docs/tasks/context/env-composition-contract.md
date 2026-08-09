@@ -27,7 +27,11 @@ standard manager cfgs from them.
   variant into the enclosed, Infinigen-like ProcRoom generation; the enriched
   behavior lives on separate `-Enriched-` gym IDs with their own frozen
   goldens, so NOCAM and the open-top depth variants are untouched.
-- **`RealismCfg(level=...)`** — `ideal` / `real` / `robust` DR + noise tier.
+- **`RealismCfg(level=..., localization_drift=...)`** — `ideal` / `real` /
+  `robust` DR + noise tier. `localization_drift` opts a variant out of the
+  tier's referent-frame drift; it is off for the capture and bridge variants,
+  whose policy-facing observation is a record for a deploy stack that carries
+  the real SLAM drift already.
 - **`ObjectiveCfg(kind=...)`** — `goal` (fixed goal pose per episode) or
   `subgoal` (rolling subgoal along a sim-planned path). Selects the command /
   reward / termination blocks; observations are objective-agnostic because

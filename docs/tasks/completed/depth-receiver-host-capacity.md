@@ -367,8 +367,23 @@ Three read-outs:
    (`best_effort`). Observed sits slightly *below* predicted, which is the
    expected sign — under loss the writer cannot place its full nominal rate on
    the wire.
-2. **Reliability is not.** Within each subscriber count the two QoS cells differ
-   by less than the round-to-round spread of the same cell. Given a real test on
+2. **Reliability is not — on the metrics where the claim holds, and it does not
+   hold everywhere.** Stated precisely, against the two-round spread of the same
+   configuration:
+
+   | metric | single | multi |
+   |---|---|---|
+   | node `depth rx` | 0 vs 0 — identical | 0 vs 0 — identical |
+   | packet shortfall | 1.05 pts vs 2.60 spread — **inside** | 1.60 vs 3.10 — **inside** |
+   | Jetson RX | 0.76 vs 1.79 — inside | 3.70 vs 2.10 — **exceeds** |
+   | DGX TX | 0.37 vs 6.03 — inside | 8.75 vs 6.08 — **exceeds** |
+
+   So the null is claimed on **delivery** — the outcome that matters (`depth rx`)
+   and the loss metric (shortfall) — and **not** on offered or delivered bytes at
+   the multi count, where the difference does exceed the spread. With two rounds
+   per configuration that excess establishes nothing either; it is recorded
+   rather than explained, and it is the reason the claim is scoped to the
+   delivery metrics instead of asserted across the board. Given a real test on
    the collapsed regime — which the completed brief never had, having compared
    them only on an uncollapsed rig and on container loopback — `reliable` vs
    `best_effort` still does not resolve. It remains the right default for the
@@ -445,10 +460,12 @@ neither of which any single-subscriber rate could have supplied.
 - [x] **Single- vs multi-subscriber arms at both reliabilities**, on the
       collapsed regime. → Eight arms.
       **Subscriber count is the variable** (offered load 50 → 118 Mbit/s,
-      shortfall 58% → 77%); **reliability is not** — the two QoS cells differ by
-      less than the round-to-round spread of the same cell, so `reliable` vs
-      `best_effort` still does not resolve even given the real test on a
-      collapsed rig. `depth rx = 0` in **all eight arms**. See
+      shortfall 58% → 77%); **reliability does not resolve on the delivery
+      metrics** — `depth rx` is 0 either way, and the QoS difference in packet
+      shortfall sits inside the two-round spread of the same configuration at
+      both subscriber counts. It is *not* claimed as a null on offered/delivered
+      bytes at the multi count, where it exceeds that spread. `depth rx = 0` in
+      **all eight arms**. See
       [§9](#9-single--vs-multi-subscriber-at-both-reliabilities-on-the-collapsed-regime).
 - [x] Arms are **paired and interleaved**, with the warm-up trend controlled —
       run forward then in reverse order, each cell twice. Round 2 reproduces
@@ -462,12 +479,31 @@ neither of which any single-subscriber rate could have supplied.
       (`revision=25305a4c4103`) **predates `e97c4d6`** and carries neither, so
       every arm ran the dev overlay with an in-container `colcon build` **after**
       the force-recreate, then `restart`.
-- [ ] If your work invalidates a fact in any referenced context module, package
+- [x] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See
       [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
-- [ ] No regression in the workflows the touched code supports.
+      → **Swept.** [`repo-topology.md`](../context/repo-topology.md) carried two
+      host identities and a repo path that no longer resolve — `192.168.50.24`
+      does not answer ARP — and now states the link constraint with a pointer to
+      the brief that owns its value, rather than the value itself; the top-level
+      `Readme.md` and the
+      [cheatsheet](../../sim_bridge_autonomy_cheatsheet.md) carried the same
+      stale address. [`enriched-lane-rig-stability`](../active/reliability/enriched-lane-rig-stability.md)'s
+      mode 3 recorded a 251.6 Mbit/s figure for a transport path that no longer
+      exists at either end, and its out-of-scope note called this shortfall's
+      location open. [`context/README.md`](../context/README.md) gains the
+      authoring rule that keeps rig state out of modules in the first place.
+      `INTEGRATION_SIM_IN_THE_LOOP.md` also carries the stale address and is
+      **deliberately not** updated — it is banner-stamped INTERIM and exempt
+      from this sweep.
+- [x] No regression in the workflows the touched code supports. — **Vacuous
+      here, stated rather than left blank:** this brief changed no source,
+      config, or test file, so there is no workflow to regress. `make env-check`
+      was run green anyway to confirm the rig work left no stray config behind,
+      and the per-arm reliability override was applied through a scratch compose
+      overlay outside the repo rather than by editing a tracked file.
 
 ## Candidate levers — now sized against the measurement
 

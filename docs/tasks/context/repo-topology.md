@@ -16,32 +16,17 @@ DDS: `rmw_cyclonedds_cpp` (cross-host discovery; FastDDS shared-memory
 default doesn't span machines).
 ROS domain ID: **42** (any value works as long as both hosts agree).
 
-**The link between them is a measured constraint, not a detail.** The DGX
-reaches the LAN over WiFi (`wlP9s9`, mt7925e) and the Jetson over wired
-gigabit (`enP8p1s0`); every wired NIC on the DGX is down, so the DGX's WiFi
-uplink is the only path and the narrow hop.
-
-**Capacity DGX → Jetson is a range, not a number: loss-free to 60 Mbit/s at
-one point on 2026-08-08 and to only 20 Mbit/s fifty minutes later**, saturating
-at ~66 and ~32 respectively (UDP; TCP read 51 then 26). RSSI (−60 dBm) and
-negotiated PHY rate (1297 Mbit/s) were unchanged across the drop, so the swing
-is airtime contention or AP scheduling rather than signal quality. **Size
-against 20 Mbit/s, not 60**, and bracket any throughput measurement with a
-capacity reading at each end of it — a single reading is not a capacity, and
-two runs taken in different brackets are not comparable.
-
-One 640×360 `32FC1` depth stream at the full 30 Hz sim cadence needs
-`221 × RTF` Mbit/s, and DDS data on this path is **unicast per subscribing
-process** (multicast share 0.01%), so the wire cost multiplies by the number of
-remote subscriber processes rather than being shared. A frame is also 686 UDP
-datagrams and needs every one, so a few percent of datagram loss becomes most
-of the frames: 17.2% datagram loss measured as 89% frame loss. The budget to
-spend against is therefore the **loss-free** rate, not the saturation goodput.
-Anything that adds a remote subscriber to a camera topic, or raises RTF, spends
-against it. Sizing and consequences in
-[`depth-receiver-host-capacity`](../completed/depth-receiver-host-capacity.md);
-the lever is
-[`sim-bridge-link-transport-capacity`](../active/reliability/sim-bridge-link-transport-capacity.md).
+**The sim-bridge camera streams cross a bandwidth-constrained link between the
+two hosts, and that link is a design constraint rather than a detail.** DDS
+data on it is carried **unicast per subscribing process**, so a camera topic's
+wire cost multiplies with the number of remote subscribers instead of being
+shared — adding a remote subscriber to a camera topic spends real budget. The
+measured budget and the current transport topology are owned by
+[`sim-bridge-link-transport-capacity`](../active/reliability/sim-bridge-link-transport-capacity.md);
+the dated measurement record is
+[`depth-receiver-host-capacity`](../completed/depth-receiver-host-capacity.md).
+Consult the brief for the figure before sizing anything against it — the value
+moves, which is why it does not live here.
 
 ## Repository
 

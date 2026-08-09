@@ -33,23 +33,56 @@ before they arrive.**
 Filed by
 [`depth-receiver-host-capacity`](../../completed/depth-receiver-host-capacity.md),
 which closed premise-refuted: the fault it was written to locate on the receiver
-host is on **the link**. That brief's measurement section is the evidence base;
-the load-bearing facts are:
+host is on **the link**. That brief's measurement section is the evidence base.
 
-- **The DGX transmits every camera frame over WiFi.** All four of its wired NICs
-  are down (`wlP9s9`, mt7925e, channel 40 / 160 MHz, RSSI −60 dBm, negotiated
-  PHY 1297 Mbit/s TX). The Jetson is already on wired gigabit. The DGX uplink is
-  the only path and the narrow hop.
-- **Measured capacity DGX → Jetson: loss-free to 60 Mbit/s early in a session,
-  and to only 20 Mbit/s fifty minutes later**, saturating at 66 / 32 — a ~3×
-  swing with RSSI and negotiated PHY rate unchanged, so this is airtime
-  contention or AP scheduling, not signal quality. It delivers ~5% of its
-  negotiated PHY rate.
-- **`iw` also reports `power_save on` and `txpower 3.00 dBm`** on that
-  interface. Neither has been tested as a cause; both are free to change.
+### Current transport topology — this brief owns it
+
+[`repo-topology.md`](../../context/repo-topology.md) states that the constraint
+exists and points here for its value, because the value moves and a context
+module is the wrong durability level for it. **Keep this block current; it is
+what other work reads before sizing anything against the link.**
+
+| | host | interface | media |
+|---|---|---|---|
+| sim host (publisher) | `gx10-d1d8`, 192.168.50.196 | `wlP9s9` (mt7925e) | **WiFi** — channel 40 / 5200 MHz, 160 MHz wide, RSSI −60 dBm, negotiated PHY 1297 Mbit/s TX / 2041 RX |
+| robot host (subscriber) | `strafer-nx`, 192.168.50.161 | `enP8p1s0` | wired gigabit |
+
+All four wired NICs on the sim host are down, so its WiFi uplink is the only
+path and the narrow hop. `iw` also reports **power save on** and **txpower
+3.00 dBm** on that interface. The publisher runs with no `CYCLONEDDS_URI` — the
+tuned receive xml is robot-side only.
+
+**Measured budget, 2026-08-08 — a bracketed range, not a number:**
+
+| | start of window | ~50 min later |
+|---|---|---|
+| UDP loss-free to | **60 Mbit/s** | **20 Mbit/s** |
+| UDP saturation goodput | ~66 | ~32 |
+| TCP, 4 streams | 51.7 | 26.2 |
+
+RSSI and negotiated PHY rate were unchanged across the drop, so the swing is
+airtime contention or AP scheduling rather than signal quality. **Size against
+20 Mbit/s, not 60.** A single reading is not a capacity; bracket every
+throughput measurement with a capacity reading at each end, and treat runs from
+different brackets as incomparable.
+
+**What the link is asked to carry.** One 640×360 `32FC1` depth stream at the
+full 30 Hz sim cadence needs `221 × RTF` Mbit/s; color `rgb8` needs
+`166 × RTF`. DDS data on this path is **unicast per subscribing process**
+(multicast share of robot-host receive traffic: 0.01%), so cost multiplies with
+remote subscriber processes rather than being shared. The deployed census — 2
+depth copies + 1 color + 2 `camera_info` — is `608 × RTF` Mbit/s, i.e.
+**65–211 Mbit/s** across the RTFs this rig produces.
+
+### The load-bearing findings behind it
+
+- **The path delivers ~5% of its negotiated PHY rate**, and neither the low
+  `txpower` nor `power_save` has been tested as the reason. Both are free to
+  change and both are first arms below.
 - **Neither host drops a packet.** Zero UDP `InErrors` / `RcvbufErrors` /
-  NIC `rx_drop` on the Jetson, zero `SndbufErrors` / `tx_drop` on the DGX, in
-  every arm. The Jetson idles at 9.8% CPU and 0% GPU while starving.
+  NIC `rx_drop` on the robot host, zero `SndbufErrors` / `tx_drop` on the sim
+  host, in every measured condition. The robot host idles at 9.8% CPU and 0%
+  GPU while starving, so there is no receive-side headroom to buy.
 - **Why the margin has to be generous.** A 640×360 `32FC1` frame is 921 600 B =
   **686 UDP datagrams**, and all must arrive. Measured: 17.2% datagram loss is
   **89% frame loss**. The budget to size against is the *loss-free* rate, not

@@ -44,6 +44,29 @@ task that invalidated a fact — keep reading.
 - **Anything time-bound.** No "as of 2026-04-27" preambles.
   Modules describe present state; if the present state changes, the
   module changes.
+- **Rig state.** Link media, measured capacities and throughputs,
+  adapter or radio hardware, tuning parameters, and host addresses
+  beyond what identifies a role. These change without any code
+  changing, and a module is the worst place to discover that: it is
+  the surface future work reads *on its own*, so a stale number there
+  is quoted with a module's authority.
+
+**The rule for a constraint whose value moves.** A module may state
+that the constraint *exists* — that is a durable fact about the
+system's shape — and then point at the brief that owns its current
+value. It must not carry the value. "The sim-bridge camera stream
+crosses a bandwidth-constrained link between the sim host and the
+robot host; the measured budget and current topology are owned by
+`<brief>`" is a module sentence. The Mbit/s figure, the interface
+names, and which host is on WiFi this month are not.
+
+**Put rig state at the least durable level that still serves its
+readers.** An active brief holds live state that work is being
+planned against; a completed brief holds the dated record of what was
+measured and when; the
+[cheatsheet](../../sim_bridge_autonomy_cheatsheet.md) holds the
+operational facts someone needs at the keyboard. A module is the most
+durable level and therefore the wrong one by default.
 
 ---
 

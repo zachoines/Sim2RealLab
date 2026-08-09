@@ -221,9 +221,17 @@ class SceneSourceCfg:
 
 @configclass
 class RealismCfg:
-    """Domain-randomization + observation-noise tier."""
+    """Domain-randomization + observation-noise tier.
+
+    ``localization_drift`` opts a variant out of the tier's referent-frame
+    drift. It belongs off wherever the policy-facing observation is a record
+    rather than a policy input: the bridge variants hand their observation to a
+    deploy stack that reads its own drifting TF, so a sim drift on top would
+    both double-count and corrupt the sim-vs-deploy parity reference.
+    """
 
     level: str = "real"
+    localization_drift: bool = True
 
 
 @configclass
@@ -507,6 +515,10 @@ class _ComposedStraferNavEnvCfg(base._BaseStraferNavEnvCfg):
             raise ValueError(
                 f"No event tier for scene_source={kind!r}, realism={level!r}",
             ) from exc
+        if not self.realism.localization_drift and hasattr(
+            self.events, "randomize_subgoal_drift"
+        ):
+            self.events.randomize_subgoal_drift = None
         if objective == "subgoal":
             try:
                 self.commands = _COMMANDS_BY_SOURCE_SUBGOAL[kind]()
@@ -793,7 +805,7 @@ class StraferNavCfg_TeleopCapture(_ComposedStraferNavEnvCfg):
 
     sensors = SensorStackCfg(cameras_required=("rgb_full",))
     scene_source = SceneSourceCfg(kind="infinigen")
-    realism = RealismCfg(level="real")
+    realism = RealismCfg(level="real", localization_drift=False)
 
 
 @configclass
@@ -806,7 +818,7 @@ class StraferNavCfg_BridgeAutonomy(_ComposedStraferNavEnvCfg):
         cameras_required=("rgb_full", "depth_full", "depth_policy"),
     )
     scene_source = SceneSourceCfg(kind="infinigen")
-    realism = RealismCfg(level="real")
+    realism = RealismCfg(level="real", localization_drift=False)
 
 
 @configclass
@@ -825,7 +837,7 @@ class StraferNavCfg_BridgeAutonomy_ProcRoom(_ComposedStraferNavEnvCfg):
         cameras_required=("rgb_full", "depth_full", "depth_policy"),
     )
     scene_source = SceneSourceCfg(kind="procroom")
-    realism = RealismCfg(level="real")
+    realism = RealismCfg(level="real", localization_drift=False)
 
 
 @configclass
@@ -841,7 +853,7 @@ class StraferNavCfg_BridgeAutonomy_ProcRoomEnriched(_ComposedStraferNavEnvCfg):
         cameras_required=("rgb_full", "depth_full", "depth_policy"),
     )
     scene_source = SceneSourceCfg(kind="procroom", enrich_depth=True)
-    realism = RealismCfg(level="real")
+    realism = RealismCfg(level="real", localization_drift=False)
 
 
 @configclass
@@ -851,7 +863,7 @@ class StraferNavCfg_Coverage(_ComposedStraferNavEnvCfg):
 
     sensors = SensorStackCfg(cameras_required=("rgb_full", "depth_full"))
     scene_source = SceneSourceCfg(kind="infinigen")
-    realism = RealismCfg(level="real")
+    realism = RealismCfg(level="real", localization_drift=False)
 
 
 # ---------------------------------------------------------------------------

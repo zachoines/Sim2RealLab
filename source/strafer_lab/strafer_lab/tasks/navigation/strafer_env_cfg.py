@@ -63,6 +63,7 @@ from .sim_real_cfg import (
     get_depth_noise,
     get_rgb_noise,
     get_action_config_params,
+    get_subgoal_drift_params,
 )
 from .ceiling_surface import CeilingSurfaceCfg
 from .d555_cfg import (
@@ -520,9 +521,9 @@ class ObsCfg_Full_Ideal:
         imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, scale=_IMU_ACCEL_SCALE)
         imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, scale=_IMU_GYRO_SCALE)
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
-        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command", "perceived": False}, scale=_GOAL_DIST_SCALE)
+        goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command", "perceived": False}, scale=_GOAL_DIST_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command", "perceived": False}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
@@ -558,9 +559,9 @@ class ObsCfg_Depth_Ideal:
         imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, scale=_IMU_ACCEL_SCALE)
         imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, scale=_IMU_GYRO_SCALE)
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
-        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command", "perceived": False}, scale=_GOAL_DIST_SCALE)
+        goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command", "perceived": False}, scale=_GOAL_DIST_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command", "perceived": False}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
@@ -594,9 +595,9 @@ class ObsCfg_NoCam_Ideal:
         imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, scale=_IMU_ACCEL_SCALE)
         imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, scale=_IMU_GYRO_SCALE)
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
-        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command", "perceived": False}, scale=_GOAL_DIST_SCALE)
+        goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command", "perceived": False}, scale=_GOAL_DIST_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command", "perceived": False}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         def __post_init__(self):
@@ -643,9 +644,9 @@ class ObsCfg_Full_Realistic:
         imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, scale=_IMU_ACCEL_SCALE)
         imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, scale=_IMU_GYRO_SCALE)
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
-        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command", "perceived": False}, scale=_GOAL_DIST_SCALE)
+        goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command", "perceived": False}, scale=_GOAL_DIST_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command", "perceived": False}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
@@ -681,9 +682,9 @@ class ObsCfg_Depth_Realistic:
         imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, scale=_IMU_ACCEL_SCALE)
         imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, scale=_IMU_GYRO_SCALE)
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
-        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command", "perceived": False}, scale=_GOAL_DIST_SCALE)
+        goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command", "perceived": False}, scale=_GOAL_DIST_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command", "perceived": False}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
@@ -717,9 +718,9 @@ class ObsCfg_NoCam_Realistic:
         imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, scale=_IMU_ACCEL_SCALE)
         imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, scale=_IMU_GYRO_SCALE)
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
-        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command", "perceived": False}, scale=_GOAL_DIST_SCALE)
+        goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command", "perceived": False}, scale=_GOAL_DIST_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command", "perceived": False}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         def __post_init__(self):
@@ -766,9 +767,9 @@ class ObsCfg_Full_Robust:
         imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, scale=_IMU_ACCEL_SCALE)
         imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, scale=_IMU_GYRO_SCALE)
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
-        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command", "perceived": False}, scale=_GOAL_DIST_SCALE)
+        goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command", "perceived": False}, scale=_GOAL_DIST_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command", "perceived": False}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
@@ -804,9 +805,9 @@ class ObsCfg_Depth_Robust:
         imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, scale=_IMU_ACCEL_SCALE)
         imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, scale=_IMU_GYRO_SCALE)
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
-        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command", "perceived": False}, scale=_GOAL_DIST_SCALE)
+        goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command", "perceived": False}, scale=_GOAL_DIST_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command", "perceived": False}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         depth_image = ObsTerm(func=mdp.depth_image, params=_DEPTH_PARAMS, scale=_DEPTH_SCALE)
@@ -840,9 +841,9 @@ class ObsCfg_NoCam_Robust:
         imu_linear_acceleration = ObsTerm(func=mdp.imu_linear_acceleration, params=_IMU_ACCEL_PARAMS, scale=_IMU_ACCEL_SCALE)
         imu_angular_velocity = ObsTerm(func=mdp.imu_angular_velocity, params=_IMU_GYRO_PARAMS, scale=_IMU_GYRO_SCALE)
         wheel_encoder_velocities = ObsTerm(func=mdp.wheel_encoder_velocities, params=_ENCODER_PARAMS, scale=_ENCODER_SCALE)
-        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command"}, scale=_GOAL_DIST_SCALE)
-        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command"}, scale=_HEADING_SCALE)
+        goal_position = ObsTerm(func=mdp.goal_position_relative, params={"command_name": "goal_command", "perceived": False}, scale=_GOAL_DIST_SCALE)
+        goal_distance = ObsTerm(func=mdp.goal_distance, params={"command_name": "goal_command", "perceived": False}, scale=_GOAL_DIST_SCALE)
+        goal_heading_to_goal = ObsTerm(func=mdp.goal_heading_to_goal, params={"command_name": "goal_command", "perceived": False}, scale=_HEADING_SCALE)
         body_velocity_xy = ObsTerm(func=mdp.body_velocity_xy, scale=_BODY_VEL_SCALE)
         last_action = ObsTerm(func=mdp.last_action)
         def __post_init__(self):
@@ -930,6 +931,18 @@ _RESET_ROBOT = EventTerm(
 _D555_MOUNT_ANGLE_REAL_DEG = 1.0
 _D555_MOUNT_ANGLE_ROBUST_DEG = 3.0
 
+# Referent-frame drift, one term per realism tier, declared last in every event
+# cfg that carries it: the draw it adds must not shift the random stream the
+# room generation and the robot reset consume ahead of it.
+_SUBGOAL_DRIFT_REAL = EventTerm(
+    func=mdp.randomize_subgoal_drift, mode="reset",
+    params=get_subgoal_drift_params(REAL_ROBOT_CONTRACT),
+)
+_SUBGOAL_DRIFT_ROBUST = EventTerm(
+    func=mdp.randomize_subgoal_drift, mode="reset",
+    params=get_subgoal_drift_params(ROBUST_TRAINING_CONTRACT),
+)
+
 
 @configclass
 class EventsCfg_Ideal:
@@ -961,6 +974,7 @@ class EventsCfg_Realistic:
         func=mdp.randomize_goal_noise, mode="reset",
         params={"command_name": "goal_command", "noise_std": 0.15},
     )
+    randomize_subgoal_drift = _SUBGOAL_DRIFT_REAL
 
 
 @configclass
@@ -987,6 +1001,7 @@ class EventsCfg_Robust:
         func=mdp.randomize_goal_noise, mode="reset",
         params={"command_name": "goal_command", "noise_std": 0.35},
     )
+    randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
 
 
 @configclass
@@ -1102,6 +1117,7 @@ class EventsCfg_Infinigen_Realistic:
         func=mdp.randomize_goal_noise, mode="reset",
         params={"command_name": "goal_command", "noise_std": 0.15},
     )
+    randomize_subgoal_drift = _SUBGOAL_DRIFT_REAL
 
 
 @configclass
@@ -1130,6 +1146,7 @@ class EventsCfg_Infinigen_Robust:
         func=mdp.randomize_goal_noise, mode="reset",
         params={"command_name": "goal_command", "noise_std": 0.35},
     )
+    randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
 
 
 @configclass
@@ -1716,6 +1733,7 @@ class EventsCfg_ProcRoom_Realistic:
     )
     # Goal noise disabled for initial training (Phase 1).
     # Re-enable with noise_std=0.15 for Phase 3 robustness hardening.
+    randomize_subgoal_drift = _SUBGOAL_DRIFT_REAL
 
 
 @configclass
@@ -1744,6 +1762,7 @@ class EventsCfg_ProcRoom_Robust:
         func=mdp.randomize_goal_noise, mode="reset",
         params={"command_name": "goal_command", "noise_std": 0.35},
     )
+    randomize_subgoal_drift = _SUBGOAL_DRIFT_ROBUST
 
 
 # Depth-enrichment event terms: un-pin difficulty to a room-mode range and feed

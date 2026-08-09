@@ -353,6 +353,66 @@ class SensorFailureCfg:
 
 
 # =============================================================================
+# Localization Configuration
+# =============================================================================
+
+# The measured 1x drift class: the map->odom movement recorded on the rig,
+# stated as the RMS displacement of the 2-D offset and the heading sigma. The
+# tier bands below are multiples of this pair, which keeps them anchored to a
+# measurement rather than to a shape someone liked.
+MEASURED_DRIFT_POSITION_RMS_M = 0.166
+MEASURED_DRIFT_HEADING_DEG = 6.7
+
+
+@configclass
+class LocalizationDriftCfg:
+    """Drift of the SLAM frame the policy reads its referent through.
+
+    Two error classes on one axis. The wander is a correlated random walk on
+    the SE(2) offset — localization error is integrated, not resampled. The
+    jump is a loop closure landing: ``map->odom`` moves in a single step, which
+    no random walk produces.
+
+    Both magnitudes scale with one per-environment gain because they were
+    measured together and their effects do not separate: the offset component
+    perpendicular to the bearing is what produces bearing error, and at the
+    nominal subgoal lookahead its contribution is the same size as the heading
+    sigma. Sweeping them apart would measure nearly the same thing twice.
+    """
+
+    enable_drift: bool = False
+    """Enable referent-frame drift on the goal-shaped observations."""
+
+    position_rms_m: float = MEASURED_DRIFT_POSITION_RMS_M
+    """RMS displacement of the 2-D offset at gain 1, in metres."""
+
+    heading_sigma_deg: float = MEASURED_DRIFT_HEADING_DEG
+    """Stationary heading sigma at gain 1, in degrees."""
+
+    gain_range: tuple[float, float] = (0.0, 0.0)
+    """Per-env multiplier band [min, max] on both magnitudes, drawn at reset.
+    A max of 0 leaves the wander inert."""
+
+    tau_s: float = 2.0
+    """Correlation time of the wander, in seconds. An assumption, not a
+    measurement: justified by RTAB-Map's 1-10 Hz map->odom refresh, and the
+    bench item that would pin it is still open."""
+
+    jump_rate_hz: float = 0.0
+    """Poisson rate of loop-closure snaps. Zero until the rig ride-along
+    measures the closure rate."""
+
+    jump_position_range_m: tuple[float, float] = (0.0, 0.0)
+    """Snap displacement band [min, max] in metres, in a random direction.
+    Ships at zero: the mechanism is in the tree, the distribution is not
+    measured yet."""
+
+    jump_heading_range_deg: tuple[float, float] = (0.0, 0.0)
+    """Snap heading band [min, max] in degrees, with a random sign. Ships at
+    zero for the same reason as the displacement band."""
+
+
+# =============================================================================
 # Combined Sensor Noise Configuration
 # =============================================================================
 
@@ -406,7 +466,11 @@ class SimRealContractCfg:
     
     sensors: SensorNoiseCfg = SensorNoiseCfg()
     """Sensor noise configuration."""
-    
+
+    localization: LocalizationDriftCfg = LocalizationDriftCfg()
+    """Referent-frame drift configuration. Not a sensor: the depth image and
+    the encoders are unaffected by where the map frame thinks the robot is."""
+
     # Domain randomization scale
     domain_randomization_scale: float = 1.0
     """Scale factor for all domain randomization. 0.0 = none, 1.0 = full."""
@@ -441,6 +505,7 @@ def create_ideal_contract() -> SimRealContractCfg:
             rgb_camera=RGBCameraNoiseCfg(enable_noise=False),
             failures=SensorFailureCfg(enable_failures=False),
         ),
+        localization=LocalizationDriftCfg(enable_drift=False),
         domain_randomization_scale=0.0,
     )
 
@@ -510,6 +575,12 @@ def create_real_robot_contract() -> SimRealContractCfg:
                 frame_drop_probability=0.001,
             ),
             failures=SensorFailureCfg(enable_failures=False),
+        ),
+        localization=LocalizationDriftCfg(
+            enable_drift=True,
+            # Up to half the measured class: the realistic tier spans clean
+            # localization to a fraction of what the rig recorded.
+            gain_range=(0.0, 0.5),
         ),
         domain_randomization_scale=1.0,
     )
@@ -586,6 +657,14 @@ def create_robust_training_contract() -> SimRealContractCfg:
                 encoder_failure_probability=0.0001,
                 camera_failure_probability=0.001,
             ),
+        ),
+        localization=LocalizationDriftCfg(
+            enable_drift=True,
+            # Past the measured class, the way the temporal bands reach past
+            # the measured arrival profiles: the sensitivity arm cost 24-28%
+            # of completion at 1x, so the band has to span it rather than sit
+            # on its edge.
+            gain_range=(0.0, 1.25),
         ),
         domain_randomization_scale=1.5,  # Extra randomization
     )
@@ -781,4 +860,26 @@ def get_action_config_params(contract: SimRealContractCfg) -> dict:
         "hold_run_range": contract.timing.action_hold_run_range,
         "max_acceleration_rad_s2": contract.actuator.max_acceleration_rad_s2,
         "max_acceleration_range": contract.actuator.max_acceleration_range,
+    }
+
+
+def get_subgoal_drift_params(contract: SimRealContractCfg) -> dict | None:
+    """Get referent-frame drift parameters from contract.
+
+    Returns the params dict for the ``randomize_subgoal_drift`` event term, or
+    ``None`` on a tier that carries no drift — the caller omits the term
+    entirely rather than installing an inert one, so an ideal-tier env is
+    structurally identical to a tree without this mechanism.
+    """
+    drift = contract.localization
+    if not drift.enable_drift:
+        return None
+    return {
+        "position_rms_m": drift.position_rms_m,
+        "heading_sigma_deg": drift.heading_sigma_deg,
+        "gain_range": drift.gain_range,
+        "tau_s": drift.tau_s,
+        "jump_rate_hz": drift.jump_rate_hz,
+        "jump_position_range_m": drift.jump_position_range_m,
+        "jump_heading_range_deg": drift.jump_heading_range_deg,
     }

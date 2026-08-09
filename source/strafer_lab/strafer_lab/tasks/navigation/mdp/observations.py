@@ -22,6 +22,8 @@ import warp as wp
 
 from strafer_shared.mecanum_kinematics import INVERSE_KINEMATIC_MATRIX
 
+from .subgoal_drift import drift_referent
+
 # XYZW quaternion component indices (Isaac Lab 3.0 convention)
 QX, QY, QZ, QW = 0, 1, 2, 3
 
@@ -340,20 +342,26 @@ def imu_projected_gravity(
 
 
 
-def goal_position_relative(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
-    """Get goal position relative to robot in local frame.
+def _drift_offsets(env: ManagerBasedEnv) -> torch.Tensor | None:
+    """This control step's referent-frame offsets, or None when undrifted.
+
+    The three goal-shaped terms below all consult this, so they see one
+    realization of one moving frame; the process advances once per control
+    step no matter how many of them read it.
+    """
+    process = getattr(env, "_subgoal_drift", None)
+    if process is None or not process.enabled:
+        return None
+    return process.advance_to(env.common_step_counter)
+
+
+def _referent_body_xy(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+    """True referent offset (x, y) in the robot's local frame, in metres.
 
     Uses a full quaternion inverse rotation (matching TF2 on the real robot)
     rather than a yaw-only 2D rotation.  The world-frame displacement vector
     is lifted to 3-D (z=0), rotated by the conjugate of the robot quaternion,
     and the resulting local x/y are returned.
-
-    Args:
-        env: The environment instance.
-        command_name: Name of the command manager providing goal positions.
-
-    Returns:
-        Relative goal position (x, y) in robot's local frame. Shape: (num_envs, 2)
     """
     command = env.command_manager.get_command(command_name)
     goal_pos_w = command[:, :2]
@@ -374,16 +382,47 @@ def goal_position_relative(env: ManagerBasedEnv, command_name: str) -> torch.Ten
     return rel_local[:, :2]
 
 
-def goal_distance(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+def goal_position_relative(
+    env: ManagerBasedEnv, command_name: str, perceived: bool = True
+) -> torch.Tensor:
+    """Get goal position relative to robot in local frame.
+
+    Args:
+        env: The environment instance.
+        command_name: Name of the command manager providing goal positions.
+        perceived: Read the referent through the drifting SLAM frame the
+            deployed policy sees. False reads the true referent — what the
+            privileged critic gets, and what an env with no drift configured
+            returns either way.
+
+    Returns:
+        Relative goal position (x, y) in robot's local frame. Shape: (num_envs, 2)
+    """
+    rel_local = _referent_body_xy(env, command_name)
+    offsets = _drift_offsets(env) if perceived else None
+    if offsets is None:
+        return rel_local
+    return drift_referent(rel_local, offsets)
+
+
+def goal_distance(
+    env: ManagerBasedEnv, command_name: str, perceived: bool = True
+) -> torch.Tensor:
     """Get scalar Euclidean distance to goal.
 
     Args:
         env: The environment instance.
         command_name: Name of the command manager providing goal positions.
+        perceived: See :func:`goal_position_relative`.
 
     Returns:
         Distance to goal. Shape: (num_envs, 1)
     """
+    offsets = _drift_offsets(env) if perceived else None
+    if offsets is not None:
+        drifted = drift_referent(_referent_body_xy(env, command_name), offsets)
+        return torch.norm(drifted, dim=-1, keepdim=True)
+
     command = env.command_manager.get_command(command_name)
     goal_pos_w = command[:, :2]
 
@@ -426,7 +465,9 @@ def goal_heading_relative(env: ManagerBasedEnv, command_name: str) -> torch.Tens
     return heading_err.unsqueeze(-1)
 
 
-def goal_heading_to_goal(env: ManagerBasedEnv, command_name: str) -> torch.Tensor:
+def goal_heading_to_goal(
+    env: ManagerBasedEnv, command_name: str, perceived: bool = True
+) -> torch.Tensor:
     """Angular error between robot heading and direction TO the goal.
 
     Computes the signed angle from the robot's current yaw to the bearing
@@ -436,11 +477,17 @@ def goal_heading_to_goal(env: ManagerBasedEnv, command_name: str) -> torch.Tenso
     Args:
         env: The environment instance.
         command_name: Name of the command manager providing goal commands.
+        perceived: See :func:`goal_position_relative`.
 
     Returns:
         Heading-to-goal error in radians, shape (num_envs, 1).
         Positive = goal is CCW from robot heading.
     """
+    offsets = _drift_offsets(env) if perceived else None
+    if offsets is not None:
+        drifted = drift_referent(_referent_body_xy(env, command_name), offsets)
+        return torch.atan2(drifted[:, 1], drifted[:, 0]).unsqueeze(-1)
+
     command = env.command_manager.get_command(command_name)
     goal_pos_w = command[:, :2]
 

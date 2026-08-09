@@ -10,9 +10,8 @@ agree), but it silently halves the depth novelty the whole DEPTH family sees.
 ## Story
 
 As the **DEPTH policy family**, I want **to know whether the sim depth images I
-train and deploy on are genuinely new every step**, so that **"one inference per
-fresh depth frame" means one inference per fresh IMAGE and not per fresh
-timestamp.**
+train and deploy on are genuinely new every step**, so that **a fresh timestamp
+is not mistaken for a fresh IMAGE by anything downstream of the publisher.**
 
 ## Context bundle
 
@@ -47,6 +46,17 @@ So the two sides broadly agree at 15 Hz, which is why this is P2 rather than
 P0 — but the *transition* on the training side is unexplained, the 0.9 s freezes
 have no deploy-side counterpart, and if either is load-dependent then train and
 deploy agree only by coincidence.
+
+**What the deploy-side tick semantics changed, and what it did not.** These
+figures were read when an inference ran only on a depth frame whose sequence had
+advanced, so a duplicate image with a fresh stamp bought an inference on stale
+pixels. The node now ticks on a timer and reuses the newest cached frame, which
+decouples the inference rate from arrival and makes the duplicate-content share
+the whole of what a halved render rate costs. That *sharpens* this brief rather
+than retiring it: the novelty question is now the only one on this axis, and a
+closed-loop sweep put duplicate content at the cheaper half of the two — so what
+is left to establish is whether the 15 Hz render is a stated contract or a
+coincidence, not whether it gates inference.
 
 ## Acceptance criteria
 

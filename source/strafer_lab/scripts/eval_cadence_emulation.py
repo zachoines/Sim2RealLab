@@ -1,15 +1,29 @@
 #!/usr/bin/env python3
 """Evaluate a checkpoint in closed-loop sim under an emulated inference cadence.
 
-The deployed inference node runs one inference per *fresh* depth frame. A tick
-whose depth frame has not advanced skips inference entirely, publishes nothing
-(so the chassis keeps executing the last command), and leaves the recurrent
-hidden state untouched. Separately, a publisher that stamps faster than it
-renders satisfies that freshness gate with duplicate pixels, so an inference can
-run on depth content identical to the previous one.
+Two ways a deployed tick can fail to be a fresh inference on fresh content, and
+this harness emulates both as independent axes.
 
-This harness reproduces both effects inside the sim rollout, which ticks at a
-fixed rate with every frame fresh. Each env draws its own tick schedule:
+The first is the *gated* semantics: one inference per fresh depth frame, where a
+tick whose frame has not advanced skips inference entirely, publishes nothing
+(so the chassis keeps executing the last command), and leaves the recurrent
+hidden state untouched. That is what the node shipped, and it is what makes the
+inference rate a function of the arrival rate. Under the timer-driven semantics
+that supersedes it, ticks run on the artifact-resolved period and a tick whose
+frame has not advanced consumes the newest cached frame instead of skipping, so
+the inference rate decouples from arrival and held ticks shrink to timer
+misses. The harness keeps modelling both because the difference between them is
+a measurable quantity: holding the novel-depth rate fixed and moving only the
+inference rate is what separates the cost of a frozen recurrent state from the
+cost of stale content.
+
+The second is duplicate content: a publisher that stamps faster than it renders
+satisfies a freshness gate with identical pixels, so an inference runs on depth
+content identical to the previous one. This is orthogonal to the first and
+survives the semantics change unchanged.
+
+The sim rollout ticks at a fixed rate with every frame fresh, so both are
+emulated on top of it. Each env draws its own tick schedule:
 
     fresh  -- the policy runs on the live observation
     stale  -- the policy runs on live scalars and a cached depth block
@@ -434,12 +448,16 @@ class TemporalProfile:
         return tick_hz * (1.0 - self.hold_fraction)
 
 
-# ``band`` holds the rate the deployed node sustains when its depth stream is
-# healthy, ~23 Hz against a 30 Hz tick. ``degraded`` holds the worst measured
-# pairing: ~11.7 Hz arrival with a 38% duplicate share. The two fractions are
-# independent -- roughly three ticks in five carry no new frame, and of the
-# inferences that do run, roughly two in five see pixels identical to the
-# previous inference.
+# ``band`` holds a healthy measured depth arrival, ~23 Hz against a 30 Hz tick.
+# ``degraded`` holds the worst measured pairing: ~11.7 Hz arrival with a 38%
+# duplicate share. The two fractions are independent -- roughly three ticks in
+# five carry no new frame, and of the inferences that do run, roughly two in
+# five see pixels identical to the previous inference.
+#
+# The hold fraction is arrival translated through the *gated* semantics, where
+# an arrival rate is an inference rate. Under timer-driven ticks the same
+# arrival leaves the inference rate at the tick rate and shows up on the stale
+# axis instead, which is why the two axes are overridable independently.
 PRESET_PROFILES: dict[str, TemporalProfile] = {
     "clean": TemporalProfile(name="clean"),
     "band": TemporalProfile(

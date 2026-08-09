@@ -105,10 +105,10 @@ A second error class lives on this axis and no random walk produces it: when
 RTAB-Map accepts a closure, `map→odom` moves in one step. It ships as a Poisson
 component of the same process — a rate and a magnitude band — so a snap lands in
 the state the wander relaxes and decays on the same τ rather than persisting.
-**Its band ships at zero on every tier.** The mechanism is in the tree so the
-contract goldens move once, in this re-freeze, and turning it on later is a
-config change; the distribution waits on the rig ride-along. A counter reports
-jumps taken, so a non-zero band is visible rather than inferred.
+**Its rate and band ship at zero on every tier.** Shipping the mechanism now is
+what makes the contract goldens move once, in this re-freeze, so turning it on
+later is a config change; the distribution waits on the rig ride-along. A
+counter reports jumps taken, so a non-zero band is visible rather than inferred.
 
 ### Where the perturbation is applied
 
@@ -128,10 +128,33 @@ together.
 
 The cost of applying it in the term rather than the noise hook is that the
 observation manager's `enable_corruption` switch no longer strips it for the
-privileged group. So the critic's goal-shaped terms carry `perceived=False`
-explicitly and read the true referent, and a contract test pins that on every
-composed variant. The policy terms are untouched, which is what keeps the
-layout golden still.
+privileged group. So every goal-shaped term on a privileged group carries
+`perceived=False` and reads the true referent. That opt-out is guarded
+structurally rather than by a name list: the contract gate discovers which term
+functions are drift-capable from their signatures and asserts that only the
+`policy` group reads the drifted referent, over every observation cfg class
+rather than only the ones a variant composes today. A name list would have
+guarded the three terms that existed when it was written, and the failure a
+missed term produces — a value function fitted against a displaced referent —
+is silent. `goal_heading_relative` carries the switch for the same reason: no
+shipped variant wires it, but a drifted frame is the robot believing its heading
+is θ off, so an arrival-heading error read against that belief drifts too. The
+policy terms pin nothing, which is what keeps the layout golden still.
+
+### Known deviation
+
+On the drift path the range and the bearing become planar functions of the
+body-frame referent vector, where the undrifted terms derive them from the full
+3-D pose — `goal_distance` is a world-frame norm and `goal_heading_to_goal` is a
+world bearing minus yaw. The two agree exactly on a flat floor and differ by the
+tilt projection otherwise, bounded by `d(1 − cos θ)`: at 5° of body tilt and 3 m
+of range that is 11 mm, two orders under the drift class itself, and the floors
+these variants generate are flat. This is the same approximation the harness
+documents on `drifted_quartet`, and it is why both skip the path entirely at
+zero drift rather than round-tripping through it. Everything that does not read
+the drifted referent — every privileged group, every ideal-tier env, and every
+variant that opts out — is therefore bit-for-bit what it was before this
+change.
 
 The command the rewards and terminations read is never perturbed. That
 separation is what the arm's truth-versus-perceived discriminator rests on, and
@@ -203,7 +226,13 @@ deployed checkpoint is hashed against.
 - [x] All four referent dims come from one perturbed vector — distance equals
       the drifted relative offset's norm and bearing equals its `atan2`, in the
       terms themselves and not just in the helper.
-- [x] The privileged critic reads the true referent, on every composed variant.
+- [x] The arrival-heading term reads the same believed yaw the referent
+      rotation encodes, pinned before anything wires it.
+- [x] The set of drift-capable term functions is pinned, so a new
+      referent-derived observation has to choose whether it drifts.
+- [x] The privileged critic reads the true referent, on every composed variant
+      and every observation cfg class, guarded by signature discovery rather
+      than a term-name list, with the guard itself mutation-tested.
 - [x] Per-env magnitudes differ across envs and are re-drawn at reset; a partial
       reset touches only the named envs.
 - [x] Inert at neutral parameters, and inert means *consumes nothing*: a zero
@@ -278,7 +307,12 @@ plus this axis — and it runs when this merges.
 - The law and its per-env process:
   `source/strafer_lab/strafer_lab/tasks/navigation/mdp/subgoal_drift.py`.
 - Where the offsets are applied: `_drift_offsets` and `_referent_body_xy` in
-  `mdp/observations.py`, consulted by all three goal-shaped terms.
+  `mdp/observations.py`, consulted by all four drift-capable terms.
+- The privileged-group guard: `_drift_switch_violations` in
+  `test_sim/env/test_composition_contract.py`, which discovers drift-capable
+  terms by signature. Adding a `perceived` parameter to a term function is what
+  enrols it; the guard then requires the opt-out on every non-policy group and
+  requires the policy group to pin nothing.
 - Why the advance is keyed on the step counter rather than performed per read:
   the observation group is computed more than once on a recorder step, and three
   terms read the same offsets — a per-read advance would run the process at

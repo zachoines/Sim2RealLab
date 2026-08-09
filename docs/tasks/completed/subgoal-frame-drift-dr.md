@@ -1,5 +1,8 @@
 # Train across the referent frame's drift
 
+**Status:** Shipped 2026-08-09 in `8e6607c` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/199
+
 **Type:** implementation (contract field + one mechanism + tests)
 **Owner:** DGX (`strafer_lab` lane — env config)
 **Priority:** P1 — the residual-attribution arms convicted this axis as the
@@ -18,15 +21,15 @@ the way the deployed one does, instead of one that is exact to the millimetre.**
 
 ## Context bundle
 
-- [context/repo-topology.md](../../context/repo-topology.md)
-- [context/env-composition-contract.md](../../context/env-composition-contract.md)
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [`cadence-harness-residual-arms`](../../completed/cadence-harness-residual-arms.md) —
+- [context/repo-topology.md](../context/repo-topology.md)
+- [context/env-composition-contract.md](../context/env-composition-contract.md)
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
+- [`cadence-harness-residual-arms`](cadence-harness-residual-arms.md) —
   the arm that convicted the axis and the source of the magnitude class.
-- [`temporal-texture-training-dr`](../../completed/temporal-texture-training-dr.md) —
+- [`temporal-texture-training-dr`](temporal-texture-training-dr.md) —
   the shape this follows: one law, tier bands, an attributed golden re-freeze.
-- [`domain-randomization-audit`](domain-randomization-audit.md) — the designed
+- [`domain-randomization-audit`](../active/trained-policy/domain-randomization-audit.md) — the designed
   home for this axis, and the doc whose TF row this work rewrites.
 
 ## Context
@@ -189,41 +192,41 @@ deployed checkpoint is hashed against.
 
 ## Acceptance criteria
 
-- [ ] The drift law agrees with the evaluation harness's own `SubgoalDrift` —
+- [x] The drift law agrees with the evaluation harness's own `SubgoalDrift` —
       the OU coefficients across τ and step size, the RMS-to-axis split, and the
       four-dim transform element-for-element — asserted against the harness
       rather than restated.
-- [ ] Realized in-env magnitude verified against the configured profile at a
+- [x] Realized in-env magnitude verified against the configured profile at a
       pinned gain, and the gain verified to scale both magnitudes together.
-- [ ] The process is integrated, not resampled: the lag-1 and lag-30
+- [x] The process is integrated, not resampled: the lag-1 and lag-30
       autocorrelations match the configured τ.
-- [ ] All four referent dims come from one perturbed vector — distance equals
+- [x] All four referent dims come from one perturbed vector — distance equals
       the drifted relative offset's norm and bearing equals its `atan2`, in the
       terms themselves and not just in the helper.
-- [ ] The privileged critic reads the true referent, on every composed variant.
-- [ ] Per-env magnitudes differ across envs and are re-drawn at reset; a partial
+- [x] The privileged critic reads the true referent, on every composed variant.
+- [x] Per-env magnitudes differ across envs and are re-drawn at reset; a partial
       reset touches only the named envs.
-- [ ] Inert at neutral parameters, and inert means *consumes nothing*: a zero
+- [x] Inert at neutral parameters, and inert means *consumes nothing*: a zero
       gain band and a zero jump band each leave the torch RNG stream
       bit-identical.
-- [ ] The jump is discontinuous where the wander is not, arrives at the
+- [x] The jump is discontinuous where the wander is not, arrives at the
       configured Poisson rate, and relaxes on the same τ; the shipped band is
       zero on every tier.
-- [ ] Tier convention: both tiers range, robust strictly wider, robust spans the
+- [x] Tier convention: both tiers range, robust strictly wider, robust spans the
       measured class and realistic sits below it; the ideal tier carries no term.
-- [ ] `LocalizationDriftCfg`'s field set is pinned, and no field is left without
+- [x] `LocalizationDriftCfg`'s field set is pinned, and no field is left without
       a consumer.
-- [ ] The bridge and capture variants carry no drift term.
-- [ ] Contract-hash movement attributed to the two new keys before re-freezing,
+- [x] The bridge and capture variants carry no drift term.
+- [x] Contract-hash movement attributed to the two new keys before re-freezing,
       and the policy layout golden verified unmoved.
-- [ ] The evaluation harness, the play script, the training loop and the
+- [x] The evaluation harness, the play script, the training loop and the
       inference node are untouched.
-- [ ] If your work invalidates a fact in any referenced context module, package
+- [x] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See
-      [`conventions.md`'s user-facing documentation maintenance section](../../context/conventions.md#user-facing-documentation-maintenance)
+      [`conventions.md`'s user-facing documentation maintenance section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
-- [ ] No regression in the workflows the touched code supports.
+- [x] No regression in the workflows the touched code supports.
 
 ## Pre-registered acceptance for the retrain this feeds
 
@@ -246,7 +249,7 @@ do. "Clean" at scoring time means env DR as trained, with no harness emulation
 layered on it; an arm run against a v2.1 checkpoint measures the sum of the two.
 
 **The retrain is not in this PR.** Its scope is now final — the temporal DR from
-[`temporal-texture-training-dr`](../../completed/temporal-texture-training-dr.md)
+[`temporal-texture-training-dr`](temporal-texture-training-dr.md)
 plus this axis — and it runs when this merges.
 
 ## Out of scope

@@ -84,14 +84,10 @@ def _hash(obj):
 # on. Do not edit to make a test pass — a mismatch means the composition
 # drifted from the contract a checkpoint was trained against.
 #
-# Re-frozen when the timing/noise contract gained its temporal-texture fields
-# (depth stream holds, per-env depth latency, command holds). Every hash moved,
-# because the fields sit on the depth noise model and the action term, both of
-# which the snapshot walks. Dropping those five key names from the serializer
-# reproduced the prior hashes for all 22 variants and the depth-obs golden, so
-# the movement is the fields' presence alone: no term, order, scale, or
-# existing parameter changed. The layout golden below is the pin that says so
-# on every future run.
+# A randomization change moves every hash here, because the snapshot walks the
+# noise models and the action term. That is correct — the training distribution
+# did change — and it is why the layout golden below exists: it is the half a
+# deployed checkpoint depends on, and it must not move.
 _CONTRACT_GOLDENS = {
     "RLDepth_Real": "7ee27b742867f0c4e4158d05570d3c868460d36e387d1b57db57ef35ebd41e1c",
     "RLDepth_Robust": "247b609d1a2bcb7620e4e5e17b44a827ddc1351866317d7ce38943b2341fd00d",

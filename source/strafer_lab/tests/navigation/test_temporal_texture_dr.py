@@ -436,6 +436,46 @@ class TestDepthStreamTexture:
         assert model._has_prev_frame[reset_ids].all()
         assert model._has_prev_frame[4:].all()
 
+    def test_the_emission_guard_does_not_write_back_into_the_hold_process(self):
+        """Masking the emission must not cancel the run the process is tracking.
+
+        ``HoldProcess.step`` returns its own state tensor, so masking it in
+        place would clear a run that has legitimately begun — biasing run
+        lengths short after every reset, where the mask is the only thing that
+        is ever false. The statistics tests cannot see this: they run without
+        resets, so the mask is all-true and the two spellings agree."""
+        torch.manual_seed(17)
+        cfg = _depth_cfg(
+            frame_drop_prob=0.0,
+            latency_steps=0,
+            latency_steps_range=None,
+            hole_probability=0.0,
+            failure_probability=0.0,
+            hold_fraction_range=(0.49, 0.49),
+            hold_run_range=(4.0, 4.0),
+            hold_burst_weight=0.0,
+        )
+        reset_ids = torch.arange(4)
+
+        carried = False
+        for seed in range(60):
+            torch.manual_seed(seed)
+            model = DepthNoiseModel(cfg, num_envs=8, device=DEVICE)
+            for step in range(6):
+                model(torch.full((8, 16), 1.0 + 0.01 * step))
+            model.reset(reset_ids)
+            # First post-reset step: the mask is false, so nothing is emitted
+            # as held, but the process may still have started a run.
+            model(torch.full((8, 16), 5.0))
+            if bool(model._hold._holding[reset_ids].any()):
+                carried = True
+                break
+
+        assert carried, (
+            "no reset env ever carried a hold out of its first post-reset step "
+            "— the emission mask is being written back into the process state"
+        )
+
     def test_the_first_step_of_an_episode_is_never_a_held_frame(self):
         """Nothing exists to hold on the first step, so the process may count
         the step as held while the emission is the live frame. Pinned because

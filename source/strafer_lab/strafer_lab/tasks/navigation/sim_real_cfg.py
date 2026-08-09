@@ -497,9 +497,10 @@ def create_real_robot_contract() -> SimRealContractCfg:
                 disparity_noise_px=0.08,
                 hole_probability=0.01,
                 frame_drop_probability=0.001,
-                # Centered on the healthy deploy band: a 23 Hz effective
-                # arrival rate against a 30 Hz tick is a 0.22 hold fraction in
-                # runs of ~1.2 steps. The band spans clean to somewhat worse.
+                # The fraction is measured: a 23 Hz effective arrival rate
+                # against a 30 Hz tick is a 0.22 hold fraction, and the band
+                # spans clean to somewhat worse. The run length is not —
+                # arrival rate constrains the fraction, not the law behind it.
                 hold_fraction_range=(0.0, 0.35),
                 hold_run_range=(1.0, 1.6),
             ),
@@ -564,9 +565,11 @@ def create_robust_training_contract() -> SimRealContractCfg:
                 disparity_noise_px=0.16,  # 2x typical for robust training
                 hole_probability=0.03,  # 3x typical
                 frame_drop_probability=0.01,  # 10x typical
-                # Reaches the worst measured deploy pairing: a 12 Hz effective
-                # arrival rate is a 0.60 hold fraction, with a quarter of the
-                # runs drawn from a ~6-step burst component.
+                # Same split: the 0.60 fraction is the worst measured arrival
+                # rate (12 Hz against a 30 Hz tick); the burst weight and length
+                # are an assumed shape, carried from the evaluation profile that
+                # hit that fraction. Deploy records arrival counts, not the
+                # run-length distribution behind them.
                 hold_fraction_range=(0.0, 0.60),
                 hold_run_range=(1.0, 2.0),
                 hold_burst_weight=0.25,

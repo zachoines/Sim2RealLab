@@ -141,11 +141,14 @@ class DelayBuffer:
 
         # Compute read index (delay behind write), per env when randomized
         if self._delay_range is None:
+            # A scalar index is a view into the ring; the write that comes
+            # round to that slot would otherwise change it under the caller.
             read_idx = (self._write_idx - self._delay_steps) % ring
             delayed = self._buffer[read_idx].clone()
         else:
+            # Advanced indexing already materializes a copy.
             read_idx = torch.remainder(self._write_idx - self._delays, ring)
-            delayed = self._buffer[read_idx, self._env_index].clone()
+            delayed = self._buffer[read_idx, self._env_index]
 
         # Advance write index
         self._write_idx = (self._write_idx + 1) % ring
@@ -489,11 +492,8 @@ class DepthNoiseModel(NoiseModel):
         self._prev_frame = None
         self._frame_dropped = torch.zeros(num_envs, dtype=torch.bool, device=device)
 
-        # Whether each env's stored previous frame belongs to the *current*
-        # episode. A partial reset teleports one env without touching the
-        # others' frames, so without this an env's first observation after a
-        # reset could be re-emitted from the episode it just left — a pose and
-        # a depth image that no camera could have produced together.
+        # Cleared per env on reset, so a teleported env cannot re-emit the
+        # frame it saw before the teleport.
         self._has_prev_frame = torch.zeros(num_envs, dtype=torch.bool, device=device)
 
         # Bursty stream holds, layered on the memoryless per-frame drop above.
@@ -525,9 +525,6 @@ class DepthNoiseModel(NoiseModel):
                 self._delay_buffer.reset(None)
         else:
             self._frame_dropped[env_ids] = False
-            # The stored rows are left as they are: nothing reads them until
-            # this env emits again, and leaving them makes a dropped guard
-            # reproduce the leak rather than quietly substituting zeros.
             self._has_prev_frame[env_ids] = False
             if self._delay_buffer is not None:
                 self._delay_buffer.reset(env_ids)
@@ -577,6 +574,9 @@ class DepthNoiseModel(NoiseModel):
         if self._hold.enabled:
             held = self._hold.step()
             if self._prev_frame is not None:
+                # Out-of-place: step() hands back the process's own state
+                # tensor, so masking in place would cancel a run the process
+                # believes is still going.
                 held = held & self._has_prev_frame
                 noisy_data[held] = self._prev_frame[held]
 

@@ -46,8 +46,9 @@ _SIM_FIELDS = ("dt", "render_interval")
 def _canon(obj, drop=frozenset()):
     """Canonical rendering of a cfg tree. ``drop`` omits attributes and term
     parameters by name — a term parameter is as much a named field of the
-    contract as a cfg attribute is, and the attribution recipe below has to be
-    able to subtract either."""
+    contract as a cfg attribute is, and subtracting a new field's name before
+    re-freezing is how a hash movement is shown to be that field's presence
+    alone rather than a reorder or a rescale."""
     if obj is None or isinstance(obj, (bool, int, str)):
         return obj
     if isinstance(obj, float):
@@ -94,19 +95,9 @@ def _hash(obj):
 # drifted from the contract a checkpoint was trained against.
 #
 # A randomization change moves every hash here, because the snapshot walks the
-# noise models and the action term. That is correct — the training distribution
-# did change — and it is why the layout golden below exists: it is the half a
-# deployed checkpoint depends on, and it must not move.
-#
-# Re-frozen when the tiers gained referent-frame drift. Every hash moved: the
-# drift is an event term, and the critic's goal-shaped terms gained the
-# parameter that keeps the privileged group reading the true referent. Dropping
-# the two key names {"randomize_subgoal_drift", "perceived"} from the
-# serializer reproduced all 22 prior hashes and the depth-obs golden
-# byte-for-byte, so the movement is their presence alone: no term reordered, no
-# scale changed, no existing parameter touched. The layout golden below did not
-# move at all, which is the stronger statement — the drift never reaches the
-# policy group's declared layout.
+# noise models, the event terms and the action term. That is correct — the
+# training distribution did change — and it is why the layout golden below
+# exists: it is the half a deployed checkpoint depends on, and it must not move.
 _CONTRACT_GOLDENS = {
     "RLDepth_Real": "bf325fb81189d208984a0095fd782ea8122e090228a5023ff162ee4c1d3fea7a",
     "RLDepth_Robust": "0ec9dc872773e4f39c2656fc492fbeb0ccb53b57a51fc4629f12f92b6b2ed28f",
@@ -146,7 +137,7 @@ _PALETTE_GOLDEN = "cf3499bf212a50c571b1bda4980fbbf16c7ad743dc40c5e88b7b528de3d41
 # The depth observation a checkpoint consumes — captured identical across the
 # (now dropped) plane / Infinigen / ProcRoom depth variants, which justified
 # dropping them: any depth checkpoint stays valid regardless of which produced it.
-# This walks both groups, so the critic's referent-truth parameter moves it; the
+# This walks both observation groups, so a privileged-group change moves it; the
 # policy half is pinned separately by the layout golden below.
 _DEPTH_OBS_GOLDEN = "bf6ad701fa80524226ce279a54a085857c78d0d28a9d4918bb68ce3738bdb9ab"
 

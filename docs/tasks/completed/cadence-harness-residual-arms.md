@@ -10,6 +10,10 @@ inference-rate parity recovers the entire loss, 0.610 → 0.910 at matched depth
 novelty. The composition does not collapse the policy (0.700 of baseline), so
 the sim-unreachable axes stay open behind a rig re-validation.
 **PR:** https://github.com/zachoines/Sim2RealLab/pull/197
+**Follow-ups:** [`inference-timer-reuse-semantics`](inference-timer-reuse-semantics.md)
+— the node half of the adoption ordered by Arm D; the drift randomization is
+the other half, and the two gate the retrain and the rig re-validation in that
+order.
 
 **Type:** investigation (harness extension + one operator-launched run)
 **Owner:** DGX

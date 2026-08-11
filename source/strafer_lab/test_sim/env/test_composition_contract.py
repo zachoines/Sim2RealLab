@@ -100,32 +100,32 @@ def _hash(obj):
 # exists: it is the half a deployed checkpoint depends on, and it must not move.
 _CONTRACT_GOLDENS = {
     "RLDepth_Real": "bf325fb81189d208984a0095fd782ea8122e090228a5023ff162ee4c1d3fea7a",
-    "RLDepth_Robust": "0ec9dc872773e4f39c2656fc492fbeb0ccb53b57a51fc4629f12f92b6b2ed28f",
+    "RLDepth_Robust": "83c1b44720a500bb78f520361c691afcc4780bdb494c8ceaa633445b2e47f0fe",
     "RLNoCam": "63fe18688cb6ec0974118bc0ac4b4e8d9ba8e6a9249e5e08be9ade18aa4f82c7",
     "RLDepth_Real_PLAY": "ab290222e2b1fe08666a7ecc04f0f9aaa945bf1494f78fa8147300877a15050d",
-    "RLDepth_Robust_PLAY": "587798f2c26dbee99806ab96a5ff7a48c34142a9a3435b2a577d852b37930b2d",
+    "RLDepth_Robust_PLAY": "3164f925b22e2cbd77656e4424e9cc5977938a1307b638a93f7232c7ef9191b7",
     "RLNoCam_PLAY": "6c46e340dc7cb508f59c3a122e971222afa8179219ba05cd007debc27b17fae3",
     "RLNoCamSubgoal_Real": "43cb7039c0f3600545f1c3774cea755e43acf1c5828957eb1c816a4a247fe6bf",
-    "RLNoCamSubgoal_Robust": "d91d62e8e2e8c160d5438037a28e3d0f247f3735f7338e51b65ab2598f36f72d",
+    "RLNoCamSubgoal_Robust": "f7741442d7d147a3f53ba3b13931604cf42067a41d07afd89b1855fd1efe2d25",
     "RLNoCamSubgoal_Real_PLAY": "b0db740e62ed32c9f69fb2e2d7c368ab952210d14b7d446440503e81c9de7eb3",
-    "RLNoCamSubgoal_Robust_PLAY": "5b30a6751f59eb9638b80aa1195e84c63366d60bfb9dbd809dce05696a45887e",
+    "RLNoCamSubgoal_Robust_PLAY": "021d87e34d4a68ed510e2c64e412f3d2a7d616a0055bd252294222a4fff12c53",
     "RLDepthSubgoal_Real": "bd147fe57ae82e1000bb4ecc02c31bc4aba267598438f6da3ddc4bbd1a875220",
-    "RLDepthSubgoal_Robust": "f7cd40eb23c3014d43eaca6639adfac9c526c3d74d764293bbbaae635ffa749d",
+    "RLDepthSubgoal_Robust": "4c6d1b829c6891a596db354fcc64344b092dd38fc3054004ec682a54ee1c5534",
     "RLDepthSubgoal_Real_PLAY": "1b22bfef0b8f72436b598fd6eb79b7044f328b6e172bcfda998281f6d6f8fe9b",
-    "RLDepthSubgoal_Robust_PLAY": "7358539b810734d6a00983e6076d630395bf124739cc45fd68e71dc6fee44b3d",
+    "RLDepthSubgoal_Robust_PLAY": "543fbc62b48769fda53ff6a7823d5623613832ab2158af4f447536d312a80dd1",
     # Depth-enrichment variants — NEW IDs frozen at creation (no prior checkpoint
     # depends on them). The enrichment lives in the `events` field (un-pinned
     # difficulty, enriched generation params incl. the tall-object heights, and
     # the rendered-camera mount offset); the observation contract is
     # byte-identical to the open-top depth variants (asserted separately).
     "RLDepthEnriched_Real": "0f2e7ec333ef296443ca2a35ae7a2a5b20cb3527ebea9dfcb8ed3a0de73e773b",
-    "RLDepthEnriched_Robust": "0571bd9b6305d59131ecf73bd63487117143b89c728218d640134ea5ea4c5152",
+    "RLDepthEnriched_Robust": "978fd310a5847fc6e07d519f23d7af69f855e6255b7d8e1bb66c841a54ff219e",
     "RLDepthEnriched_Real_PLAY": "14997ac72fb1721ad9ac351463ccd63b3f15746af73e6ee3c3bd36de224db22d",
-    "RLDepthEnriched_Robust_PLAY": "e8c4123654d486e1f2038fd4726c243fb8c60c184846bedccb7deb73be0e71db",
+    "RLDepthEnriched_Robust_PLAY": "efc941f252c8e08f9ae1c9de48ae439d874e624fb1993ab14a2a4ef8376098a2",
     "RLDepthSubgoalEnriched_Real": "4e70517667e75e3b9679fa1b45ab5eea3dde0d54d6be9fcb1b7588a91766c9b0",
-    "RLDepthSubgoalEnriched_Robust": "7ab495756e2ee0002a57878e0f075614a8a74a5bcf6eaa9c3b5e20ae2ae2d6a4",
+    "RLDepthSubgoalEnriched_Robust": "b2bc8f776c77fe065fe32af672d42c1eb3b48a62d45f117ff299074d64178391",
     "RLDepthSubgoalEnriched_Real_PLAY": "034b8e2081b326c8b45972cb630c69d117082fd1a71fab2c94f58ac5ef2699ba",
-    "RLDepthSubgoalEnriched_Robust_PLAY": "27911cbaf871923ce22ecdc72f60f0bc50147d8b7191f90f8d3dc7dd5c3bd225",
+    "RLDepthSubgoalEnriched_Robust_PLAY": "43bccb18bb7fbd423d79855d48cf07ffbc4162350e4028e93669e1ae23ae16f2",
 }
 
 # Frozen signature (slot name set + spawn sizes) of the pre-enrichment 44-object

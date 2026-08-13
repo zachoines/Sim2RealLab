@@ -602,9 +602,11 @@ def create_robust_training_contract() -> SimRealContractCfg:
             depth_latency_steps=2,  # Higher camera delay (~66ms)
             depth_latency_steps_range=(1, 3),  # mean-preserving spread of the above
             rgb_latency_steps=2,  # Higher camera delay (~66ms)
-            # Wider than realistic on both knobs, still a residual band.
-            action_hold_fraction_range=(0.0, 0.25),
-            action_hold_run_range=(1.0, 1.5),
+            # Held to the realistic tier alongside the depth-stream hold: the
+            # two compose on the same episode, so widening one is widening the
+            # share of steps whose outcome the policy did not choose.
+            action_hold_fraction_range=(0.0, 0.05),
+            action_hold_run_range=(1.0, 1.2),
         ),
         actuator=ActuatorModelCfg(
             enable_motor_dynamics=True,
@@ -635,15 +637,18 @@ def create_robust_training_contract() -> SimRealContractCfg:
                 disparity_noise_px=0.16,  # 2x typical for robust training
                 hole_probability=0.03,  # 3x typical
                 frame_drop_probability=0.01,  # 10x typical
-                # Same split: the 0.60 fraction is the worst measured arrival
-                # rate (12 Hz against a 30 Hz tick); the burst weight and length
-                # are an assumed shape, carried from the evaluation profile that
-                # hit that fraction. Deploy records arrival counts, not the
-                # run-length distribution behind them.
-                hold_fraction_range=(0.0, 0.60),
-                hold_run_range=(1.0, 2.0),
-                hold_burst_weight=0.25,
-                hold_burst_run_steps=6.0,
+                # Held to the realistic tier's law entirely, burst included.
+                # A 0.60 fraction is a 12 Hz effective arrival against a 30 Hz
+                # tick, and a converged policy measurably loses about a third
+                # of its completions there. Drawing the fraction per env then
+                # spans a batch from 30 Hz to 12 Hz, which makes whether an
+                # episode finishes depend more on its draw than on its actions
+                # -- a return that weakly rewards control, against a fixed
+                # entropy bonus that does not weaken with it.
+                hold_fraction_range=(0.0, 0.35),
+                hold_run_range=(1.0, 1.6),
+                hold_burst_weight=0.0,
+                hold_burst_run_steps=1.0,
             ),
             rgb_camera=RGBCameraNoiseCfg(
                 enable_noise=True,

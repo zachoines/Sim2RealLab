@@ -564,21 +564,30 @@ class TestContractTiers:
             "jump_heading_range_deg",
         }
 
-    def test_both_tiers_range_and_robust_is_strictly_wider(self):
+    def test_both_tiers_range_and_robust_does_not_reach_past_realistic(self):
+        """The one term where the robust tier does not widen past the realistic
+        one. Off-path termination reads TRUE cross-track against a fixed
+        corridor while the policy steers by the drifted referent, so a band
+        reaching well past the corridor buys episode ends no observation can
+        predict rather than a harder distribution to learn. The equality is the
+        deliberate pin: widening this again is not the licensed response to a
+        larger measured drift -- scaling the corridor with the drawn gain is.
+        """
         real = REAL_ROBOT_CONTRACT.localization
         robust = ROBUST_TRAINING_CONTRACT.localization
         for drift in (real, robust):
             assert drift.enable_drift
             assert drift.gain_range[0] == 0.0
             assert drift.gain_range[1] > 0.0
-        assert robust.gain_range[1] > real.gain_range[1]
+        assert robust.gain_range == real.gain_range
 
     def test_the_bands_are_the_multiples_of_the_measured_class(self):
         """Both tiers are anchored to one recorded pair rather than to a shape
-        someone liked: realistic reaches half of it, robust past it, the way the
-        temporal bands reach past the measured arrival profiles."""
+        someone liked: each reaches half of it, which is as far as the corridor
+        admits until the rig measures the steady-state sigma and tau directly
+        and both bands are re-derived from numbers instead of a class."""
         assert REAL_ROBOT_CONTRACT.localization.gain_range == (0.0, 0.5)
-        assert ROBUST_TRAINING_CONTRACT.localization.gain_range == (0.0, 1.25)
+        assert ROBUST_TRAINING_CONTRACT.localization.gain_range == (0.0, 0.5)
         for contract in (REAL_ROBOT_CONTRACT, ROBUST_TRAINING_CONTRACT):
             drift = contract.localization
             assert drift.position_rms_m == MEASURED_DRIFT_POSITION_RMS_M
@@ -616,10 +625,12 @@ class TestContractTiers:
     @pytest.mark.parametrize(
         "contract", [REAL_ROBOT_CONTRACT, ROBUST_TRAINING_CONTRACT], ids=["real", "robust"]
     )
-    def test_the_shipped_band_spans_the_sensitivity_arm(self, contract):
+    def test_no_shipped_band_reaches_the_sensitivity_arm(self, contract):
         """The arm that convicted this axis ran at 1x and cost 24-28% of
-        completion. The robust band has to reach it; the realistic band is
-        deliberately below it, because realistic models the link as measured
-        rather than the worst it can be."""
-        gain_hi = contract.localization.gain_range[1]
-        assert gain_hi >= 1.0 if contract is ROBUST_TRAINING_CONTRACT else gain_hi < 1.0
+        completion. Neither tier trains there. At that gain the drawn lateral
+        displacement is a large fraction of the corridor off-path termination
+        reads on TRUE geometry, so episodes end on a quantity no observation
+        carries and the return stops rewarding control. 1x is an evaluation
+        point -- a fixed-gain probe run against the trained band -- rather than
+        part of the band itself."""
+        assert contract.localization.gain_range[1] < 1.0

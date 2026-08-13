@@ -659,11 +659,14 @@ def create_robust_training_contract() -> SimRealContractCfg:
         ),
         localization=LocalizationDriftCfg(
             enable_drift=True,
-            # Past the measured class, the way the temporal bands reach past
-            # the measured arrival profiles: a closed-loop sweep put the cost
-            # at 24-28% of completion at 1x, so the band spans it rather than
-            # sitting on its edge.
-            gain_range=(0.0, 1.25),
+            # The one term where this tier does not reach past the realistic
+            # one. Off-path termination reads TRUE cross-track against a fixed
+            # 0.30 m corridor while the policy steers by the drifted referent,
+            # so gains much past half the measured class end episodes on a
+            # displacement no observation carries -- noise in the return, not
+            # a harder distribution to learn. Re-derive both bands when the
+            # rig measures the steady-state sigma and tau directly.
+            gain_range=(0.0, 0.5),
         ),
         domain_randomization_scale=1.5,  # Extra randomization
     )

@@ -1,0 +1,8 @@
+
+../../Documents/repos/IsaacLab/source/isaaclab/isaaclab/utils/configclass.py:508: 7 warnings
+test_sim/env/test_composition_contract.py: 199 warnings
+  /home/zachoines/Documents/repos/IsaacLab/source/isaaclab/isaaclab/utils/configclass.py:508: DeprecationWarning: TiledCameraCfg is deprecated. Use CameraCfg directly — Camera now includes TiledCamera's vectorized rendering optimizations.
+    f1(*args, **kwargs)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+147 passed, 241 warnings in 16.51s

@@ -1,0 +1,2 @@
+env single-source OK: mirrors == gen_env(canon); one key one home (partition + passthrough); DDS-URI + deploy-only + real-hw-guard hold
+EXIT=0

@@ -1,0 +1,3 @@
+ERROR: no native ROS toolchain and image 'strafer-cpu:humble' is missing.
+       Build it first:  make images
+EXIT=1

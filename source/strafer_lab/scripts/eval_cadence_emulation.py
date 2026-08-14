@@ -52,6 +52,16 @@ Examples:
         --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0 \\
         --checkpoint logs/rsl_rl/strafer_navigation/run_<timestamp>/model_<step>.pt \\
         --profile measured --profile-dump captures/inference_obs.jsonl --headless
+
+    # Fixed-gain drift arm on a tier that drifts natively. Without the
+    # suppression the env's own band would ride under the requested gain and
+    # the arm would not be comparable to the rest of a sweep, so the harness
+    # refuses the composition rather than reporting it under the gain's name:
+    $ISAACLAB -p source/strafer_lab/scripts/eval_cadence_emulation.py \\
+        --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0 \\
+        --checkpoint logs/rsl_rl/strafer_navigation/run_<timestamp>/model_<step>.pt \\
+        --subgoal-drift-m 0.166 --subgoal-drift-deg 6.7 --subgoal-drift-gain 1.0 \\
+        --suppress-env-drift --headless
 """
 
 from __future__ import annotations
@@ -1088,6 +1098,17 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--subgoal-drift-gain", type=float, default=1.0,
                         help="Scales both drift magnitudes together, for a sweep at a "
                              "fixed correlation time")
+    parser.add_argument("--suppress-env-drift", action="store_true",
+                        help="Drop the environment's own referent-frame drift so the "
+                             "knobs above are the only drift in the rollout. Needed "
+                             "for a fixed-gain arm on a tier that drifts natively: "
+                             "the harness perturbs the referent the env already "
+                             "moved, so without this the arm measures the env's band "
+                             "plus the requested gain rather than the gain")
+    parser.add_argument("--allow-composed-drift", action="store_true",
+                        help="Run a drift arm on top of the environment's own drift "
+                             "deliberately. The arm then measures the composition, "
+                             "which is not comparable to a fixed-gain series")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out-dir", type=str,
                         default="logs/rsl_rl/strafer_navigation/cadence_emulation",
@@ -1115,6 +1136,57 @@ def reset_between_arms(env, policy, torch) -> None:
     with torch.inference_mode():
         env.reset()
     policy.reset()
+
+
+def resolve_drift_sources(
+    *,
+    env_drifts: bool,
+    harness_drift_requested: bool,
+    suppress: bool,
+    allow_composed: bool,
+    env_id: str,
+) -> tuple[bool, bool]:
+    """Decide which referent drift a run carries: ``(drop_env_term, composed)``.
+
+    Drift can arrive from two places at once. A tier that carries the event term
+    moves the referent for every arm; the ``--subgoal-drift`` knobs move it again
+    on top. A fixed-gain arm has to own the whole displacement or the number it
+    reports is not the gain it names, and a series compared across gains is only
+    a series if each point owns its own. So a run that would silently compose is
+    refused, and the caller has to say which of the two measurements it wants.
+
+    Raises:
+        SystemExit: on contradictory flags, on suppressing a drift the env does
+            not carry, or on an unclaimed composition.
+    """
+    if suppress and allow_composed:
+        raise SystemExit(
+            "--suppress-env-drift and --allow-composed-drift are mutually exclusive"
+        )
+    if suppress:
+        if not env_drifts:
+            raise SystemExit(
+                f"--suppress-env-drift: {env_id} carries no referent-drift term, so "
+                "there is nothing to suppress and the flag would misdescribe the arm"
+            )
+        return True, False
+    if allow_composed and not (env_drifts and harness_drift_requested):
+        missing = "carries no referent-drift term" if not env_drifts else "was given no drift arm"
+        raise SystemExit(
+            f"--allow-composed-drift: {env_id} {missing}, so there is no composition "
+            "to allow and the flag would misdescribe the arm"
+        )
+    if harness_drift_requested and env_drifts:
+        if not allow_composed:
+            raise SystemExit(
+                f"{env_id} drifts the referent natively and a drift arm was also "
+                "requested, so the arm would measure the env's band plus the "
+                "requested gain under the gain's name. Pass --suppress-env-drift for "
+                "a fixed-gain arm comparable to a sweep, or --allow-composed-drift "
+                "to measure the composition deliberately."
+            )
+        return False, True
+    return False, False
 
 
 def arm_label(profile_name: str, *, hidden_reset: bool, drift_gain: float | None) -> str:
@@ -1431,6 +1503,30 @@ def main() -> None:
     if args.disable_obs_corruption:
         env_cfg.observations.policy.enable_corruption = False
 
+    drift_position_m = args.subgoal_drift_m * args.subgoal_drift_gain
+    drift_heading_rad = math.radians(args.subgoal_drift_deg * args.subgoal_drift_gain)
+    drift_requested = drift_position_m > 0.0 or drift_heading_rad > 0.0
+    drop_env_drift, composed = resolve_drift_sources(
+        env_drifts=getattr(env_cfg.events, "randomize_subgoal_drift", None) is not None,
+        harness_drift_requested=drift_requested,
+        suppress=args.suppress_env_drift,
+        allow_composed=args.allow_composed_drift,
+        env_id=args.env,
+    )
+    if drop_env_drift:
+        # What the tier-level opt-out does, reached directly because
+        # parse_env_cfg has already run __post_init__ and setting
+        # realism.localization_drift here would be read by nothing.
+        env_cfg.events.randomize_subgoal_drift = None
+    env_drifts = not drop_env_drift and getattr(
+        env_cfg.events, "randomize_subgoal_drift", None
+    ) is not None
+    if composed:
+        print(
+            "[INFO] composed drift: the requested gain rides the env's own band; "
+            "this arm is not comparable to a fixed-gain series"
+        )
+
     agent_cfg = load_cfg_from_registry(args.env, "rsl_rl_cfg_entry_point")
     agent_cfg.seed = args.seed
     agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, _metadata.version("rsl-rl-lib"))
@@ -1500,9 +1596,6 @@ def main() -> None:
         f"arm, observation corruption {corruption}, bearing from {bearing_field}"
     )
 
-    drift_position_m = args.subgoal_drift_m * args.subgoal_drift_gain
-    drift_heading_rad = math.radians(args.subgoal_drift_deg * args.subgoal_drift_gain)
-    drift_requested = drift_position_m > 0.0 or drift_heading_rad > 0.0
     label = arm_label(
         "",
         hidden_reset=not args.no_hidden_reset,
@@ -1569,6 +1662,10 @@ def main() -> None:
                 bearing_field=bearing_field,
                 warmup_ticks=args.warmup_ticks,
                 tick_hz=tick_hz,
+                env_drift_active=env_drifts,
+                harness_drift_gain=(
+                    args.subgoal_drift_gain if drift_requested else None
+                ),
             )
             arms.append(result)
             if result["budget_exhausted"]:

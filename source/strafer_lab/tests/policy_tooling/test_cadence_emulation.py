@@ -1475,3 +1475,60 @@ class TestResidualArms:
         assert result["subgoal_drift"]["samples"] > 0
         assert result["direction_offset_perceived"] is not None
         assert result["summary"]["episodes"] >= 12
+
+
+class TestResolveDriftSources:
+    """A drift arm has to own its displacement, or the gain it reports is not
+    the gain it names."""
+
+    def _call(self, **kw):
+        base = dict(
+            env_drifts=False,
+            harness_drift_requested=False,
+            suppress=False,
+            allow_composed=False,
+            env_id="Isaac-Test-v0",
+        )
+        base.update(kw)
+        return ece.resolve_drift_sources(**base)
+
+    def test_a_tier_without_drift_needs_no_decision(self):
+        assert self._call() == (False, False)
+        assert self._call(harness_drift_requested=True) == (False, False)
+
+    def test_an_env_that_drifts_is_left_alone_when_no_arm_asks_for_drift(self):
+        assert self._call(env_drifts=True) == (False, False)
+
+    def test_suppression_drops_the_env_term(self):
+        assert self._call(env_drifts=True, harness_drift_requested=True,
+                          suppress=True) == (True, False)
+
+    def test_suppression_without_a_drift_to_suppress_is_refused(self):
+        """Silently accepting it would label an arm as fixed-gain on a tier that
+        never carried the term."""
+        with pytest.raises(SystemExit, match="nothing to suppress"):
+            self._call(suppress=True)
+
+    def test_an_unclaimed_composition_is_refused(self):
+        """The failure this guards is a composed number reported under a
+        fixed-gain name, which reads as comparable to a sweep and is not."""
+        with pytest.raises(SystemExit, match="under the gain's name"):
+            self._call(env_drifts=True, harness_drift_requested=True)
+
+    def test_composition_is_available_when_claimed(self):
+        assert self._call(env_drifts=True, harness_drift_requested=True,
+                          allow_composed=True) == (False, True)
+
+    def test_claiming_a_composition_that_cannot_happen_is_refused(self):
+        """Both halves have to be present for the flag to describe anything.
+        Accepting it silently where its sibling refuses would let an arm carry
+        a label for a composition it never ran."""
+        with pytest.raises(SystemExit, match="carries no referent-drift term"):
+            self._call(harness_drift_requested=True, allow_composed=True)
+        with pytest.raises(SystemExit, match="was given no drift arm"):
+            self._call(env_drifts=True, allow_composed=True)
+
+    def test_the_two_flags_contradict(self):
+        with pytest.raises(SystemExit, match="mutually exclusive"):
+            self._call(env_drifts=True, harness_drift_requested=True,
+                       suppress=True, allow_composed=True)

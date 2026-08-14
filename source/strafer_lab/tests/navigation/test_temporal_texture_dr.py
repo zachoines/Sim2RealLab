@@ -577,15 +577,25 @@ class TestContractTiers:
             "action_hold_run_range",
         }
 
-    def test_both_tiers_range_and_robust_is_strictly_wider(self):
+    def test_both_tiers_range_and_robust_holds_the_realistic_stream_law(self):
+        """The one sensor axis where the robust tier does not widen past the
+        realistic one. Hold fraction is drawn per env at reset, so a wide band
+        spans a training batch from a full tick rate down to a fraction of it,
+        and whether an episode finishes then turns more on its draw than on
+        its actions -- a return that weakly rewards control, against a fixed
+        entropy bonus that does not weaken alongside it.
+
+        The equality covers the whole law, burst included, so a widened
+        fraction cannot slip in under an unchanged run-length shape."""
         real = REAL_ROBOT_CONTRACT.sensors.depth_camera
         robust = ROBUST_TRAINING_CONTRACT.sensors.depth_camera
         for cfg in (real, robust):
             assert cfg.hold_fraction_range[1] > cfg.hold_fraction_range[0]
             assert cfg.hold_run_range[1] > cfg.hold_run_range[0]
-        assert robust.hold_fraction_range[1] > real.hold_fraction_range[1]
-        assert robust.hold_run_range[1] > real.hold_run_range[1]
-        assert robust.hold_burst_weight > real.hold_burst_weight
+        assert robust.hold_fraction_range == real.hold_fraction_range
+        assert robust.hold_run_range == real.hold_run_range
+        assert robust.hold_burst_weight == real.hold_burst_weight
+        assert robust.hold_burst_run_steps == real.hold_burst_run_steps
 
     def test_the_action_hold_stays_a_residual_under_the_depth_hold(self):
         """The command hold models what is left after the deployed node's
@@ -597,9 +607,13 @@ class TestContractTiers:
             depth = contract.sensors.depth_camera.hold_fraction_range
             assert action[0] == 0.0
             assert 0.0 < action[1] < 0.5 * depth[1]
-        real = REAL_ROBOT_CONTRACT.timing.action_hold_fraction_range
-        robust = ROBUST_TRAINING_CONTRACT.timing.action_hold_fraction_range
-        assert robust[1] > real[1]
+        # The command hold rides the same tier equality as the depth hold:
+        # the two compose on one episode, so a wider command band widens the
+        # share of steps whose outcome the policy did not choose.
+        real_timing = REAL_ROBOT_CONTRACT.timing
+        robust_timing = ROBUST_TRAINING_CONTRACT.timing
+        assert robust_timing.action_hold_fraction_range == real_timing.action_hold_fraction_range
+        assert robust_timing.action_hold_run_range == real_timing.action_hold_run_range
 
     @pytest.mark.parametrize(
         "contract", [REAL_ROBOT_CONTRACT, ROBUST_TRAINING_CONTRACT], ids=["real", "robust"]

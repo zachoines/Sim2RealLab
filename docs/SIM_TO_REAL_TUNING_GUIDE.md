@@ -160,7 +160,7 @@ action_latency_steps_range = (0, 2)  # 0-66ms random, sampled per reset
 # Separately, a share of control steps carry no new command at all, so the
 # chassis re-executes the previous one. A delay shifts a command in time;
 # a hold repeats it.
-action_hold_fraction_range = (0.0, 0.05)   # (0.0, 0.25) on Robust
+action_hold_fraction_range = (0.0, 0.05)   # same band on Robust
 action_hold_run_range = (1.0, 1.2)         # mean run length, control steps
 ```
 
@@ -336,9 +336,14 @@ The depth camera carries a second, separate axis: the frame sometimes fails to
 advance at all, and the policy re-reads the previous one. Unlike a delay, these
 repeats arrive in *runs* — `hold_fraction_range` sets what share of steps are
 stale and `hold_run_range` how long a stale run lasts, both drawn per
-environment at reset. Realistic is centred on the arrival rate a healthy deploy
-stream sustains (~23 Hz against a 30 Hz tick); Robust reaches ~12 Hz and adds a
-longer burst component. Measure the real stream's arrival rate and its stall
+environment at reset. Both tiers carry the same band, centred on the arrival
+rate a healthy deploy stream sustains (~23 Hz against a 30 Hz tick) and leaving
+about 19 Hz at its top, with no burst component. A ceiling reaching the rig's
+~12 Hz worst case is not trainable: the fraction is drawn per environment, so
+it puts part of the batch where an episode's outcome turns on its draw rather
+than its actions, and a policy trained against it does not converge. Evaluate
+against that regime with the cadence harness instead. Measure the real stream's
+arrival rate and its stall
 lengths, not just its mean latency: a stream that averages 25 Hz by alternating
 30 Hz with multi-frame stalls is inside the trained band, and one that averages
 25 Hz smoothly is a different distribution.

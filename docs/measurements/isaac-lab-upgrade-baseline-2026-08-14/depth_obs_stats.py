@@ -20,10 +20,11 @@ and ceiling rows darken — which a single mean can hide.
 
 Usage (from the repo root, after ``source env_setup.sh``):
 
-    $ISAACLAB -p docs/measurements/isaac-lab-upgrade-baseline-2026-08-14/depth_obs_stats.py \
+    D=docs/measurements/isaac-lab-upgrade-baseline-2026-08-14
+    $ISAACLAB -p $D/depth_obs_stats.py \
         --headless --enable_cameras --num_envs 8 --seed 42 --frames 30 \
         --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0 \
-        --out docs/measurements/isaac-lab-upgrade-baseline-2026-08-14/render/depth_obs_enriched_robust.json
+        --out $D/render/depth_obs_enriched_robust_play.json
 """
 
 import argparse
@@ -126,7 +127,8 @@ def main():
     out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
     np.savez_compressed(out.with_suffix(".npz"), depth=stack.astype(np.float32))
 
-    print(json.dumps({k: v for k, v in payload.items() if not isinstance(v, list)}, indent=2, sort_keys=True))
+    scalars = {k: v for k, v in payload.items() if not isinstance(v, list)}
+    print(json.dumps(scalars, indent=2, sort_keys=True))
     print("row_band_mean[0:5] =", payload["row_band_mean"][:5])
     print("row_band_mean[-5:] =", payload["row_band_mean"][-5:])
 

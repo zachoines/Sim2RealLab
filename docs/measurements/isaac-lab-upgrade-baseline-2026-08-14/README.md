@@ -73,6 +73,14 @@ $ISAACLAB -p docs/measurements/isaac-lab-upgrade-baseline-2026-08-14/pose_trace_
 | DR fields captured | `root_state_w`, `joint_pos`, `joint_vel`, `masses`, `inertias`, `material_properties` |
 | DR fields unavailable | none |
 
+The trace is not degenerate, which matters because a probe that recorded nothing
+would also hash identically. Over the 300 steps: every one of env 0's 300 poses
+is distinct, per-env planar path length ranges 1.87–10.36 m, the 16 envs are
+spread across a standard deviation of 11.4 m in x, all quaternions are unit-norm,
+the action stream is uniform on [−1, 1] with 4800/4800 distinct rows, and the
+domain-randomized body masses take 160 distinct values across 16 envs × 105
+bodies. The reproduced quantity is rich, varied, DR-driven motion.
+
 Raw: [`physics/pose_trace_run1.npz`](physics/pose_trace_run1.npz) +
 [`.json`](physics/pose_trace_run1.json), and the `run2` pair.
 
@@ -201,7 +209,8 @@ own displacement, both ancestors of `e7ea7bd` via #200 and #201 — and the newe
 JSONL carries `env_drift_active` / `harness_drift_gain` fields the older one does
 not. Off-path divergence is exactly the quantity that work targeted. The
 post-bump comparison must be made against **0.8119**, not against the older
-figure; the same-session-reference convention exists for this reason.
+figure, and if more tree movement lands before the bump the reference should be
+re-measured again rather than carried forward.
 
 At p ≈ 0.81 and n = 101, one standard error is 0.039, so a ±2·SE band is
 **0.734 – 0.890**. `--episodes 400` would halve it.
@@ -237,10 +246,14 @@ $ISAACLAB -p docs/measurements/isaac-lab-upgrade-baseline-2026-08-14/depth_obs_s
 | sha256 (float64 stack) | `f4c3375ad9c6565a1d0f0d6db14193f3c8dd747ac4f7ce2beb3037e154b44b09` | `a6529378732e3c5a1d66fde436d86b651ed68f1decf5bb7562ade710aa8bbb2e` |
 
 The full 45-entry row-band and 80-entry column-band profiles are in the JSON.
-The row profile is the vertical-FOV fingerprint: it falls monotonically from
-~0.48 at the top of the frame to ~0.13 at the bottom, and a renderer that starts
-honouring the authored vertical aperture changes the *shape* of that fall, which
-a single mean would hide.
+The row profile is the vertical-FOV fingerprint. On the Enriched-Robust tier it
+holds a plateau near 0.48 across the top third (peaking at 0.4815 on row 4) and
+then falls to 0.1266 at the bottom row; the Real tier starts at its maximum
+0.5617 and falls throughout. Neither is strictly monotonic — 35 of 44 row-to-row
+steps are non-increasing on the robust tier, 42 of 44 on the real tier — so the
+comparison quantity is the *shape* of the profile, which a renderer that starts
+honouring the authored vertical aperture would change and a single mean would
+hide.
 
 **Frame 0 of the Enriched-Robust tier is all zeros** (`per_frame_mean[0] = 0.0`);
 the Real tier's is 0.1687. The robust tier carries frame-drop depth noise and the
@@ -304,7 +317,9 @@ U[0,1]). ONNX threads `h_out → h_in` through raw `sess.run`; TorchScript carri
 state in the `hidden_state` buffer, zeroed once at sequence start. The
 observation sequences are stored **inside** the `.npz` and are replayed with
 `--replay`, so the post-bump comparison never depends on a numpy or torch RNG
-stream staying stable.
+stream staying stable. The replay path was exercised against this dump: all 22
+arrays reproduce with max delta 0.0 and the re-written `.npz` carries the same
+sha256, so `--replay` is known to work rather than assumed to.
 
 | artifact | obs dim | recurrent | formats |
 |---|---|---|---|
@@ -327,15 +342,18 @@ signal.
 | `strafer_nocam_subgoal_v0` | normal | 2.861e−06 | — |
 | `strafer_nocam_subgoal_v0` | indist | 2.384e−06 | — |
 
-**These are the pre-bump `.pt`-vs-`.onnx` agreement levels, and they are two
-orders of magnitude larger than the 7.5e−8 float-noise figure that has been used
-to calibrate export tolerances.** That figure measures eager PyTorch against
-legacy ONNX; this measures TorchScript against ONNX over a 128-step threaded GRU
-rollout, where the hidden state accumulates. The candidate export tolerances
-(≤1e−5 action, ≤1e−4 hidden) still clear at baseline — but the hidden-state
-margin is 6×, not the four orders of magnitude a 7.5e−8 anchor implies. The
-separation from the known-wrongness class (0.064 action / 0.193 hidden) is what
-carries the gate; the tolerance should be set from 1.7e−5, not from 7.5e−8.
+**These are the pre-bump `.pt`-vs-`.onnx` agreement levels, and they are far
+above the 7.5e−8 float-noise figure that has been used to calibrate export
+tolerances** — 39× on actions and 224× on hidden state. That figure measures
+eager PyTorch against legacy ONNX; this measures TorchScript against ONNX over a
+128-step threaded GRU rollout, where the hidden state accumulates.
+
+The candidate export tolerances still clear at baseline, but with far less room
+than a 7.5e−8 anchor suggests: **3.4× on the ≤1e−5 action bound and 6.0× on the
+≤1e−4 hidden bound.** What actually carries the gate is the distance to the
+known-wrongness class (0.064 action / 0.193 hidden), which is still 4.3 and 4.1
+decades away. Set the tolerance from 1.7e−5, not from 7.5e−8, and state the
+margin as the separation from the wrongness class rather than from float noise.
 
 Raw: [`export-anchors/export-trajectories.npz`](export-anchors/export-trajectories.npz)
 (3.78 MB) + [`export-trajectories-manifest.json`](export-anchors/export-trajectories-manifest.json)

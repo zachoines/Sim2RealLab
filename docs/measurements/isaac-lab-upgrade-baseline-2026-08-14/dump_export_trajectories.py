@@ -117,7 +117,8 @@ def run_onnx(path: pathlib.Path, obs: np.ndarray):
     recurrent = "h_in" in in_names
     h = None
     if recurrent:
-        shape = [d if isinstance(d, int) else 1 for d in sess.get_inputs()[in_names.index("h_in")].shape]
+        h_shape = sess.get_inputs()[in_names.index("h_in")].shape
+        shape = [d if isinstance(d, int) else 1 for d in h_shape]
         h = np.zeros(shape, dtype=np.float32)
 
     actions, hiddens = [], []

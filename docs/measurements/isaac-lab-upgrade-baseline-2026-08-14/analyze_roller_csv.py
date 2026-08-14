@@ -83,7 +83,8 @@ def main() -> int:
         }
         print(f"\n=== {path.name} ===")
         print(f"{'frac':>6} {'late_p2p_mm':>12} {'growth':>8} {'peak_f_hz':>10} {'mean_z_mm':>10}")
-        for frac, m in sorted(report["runs"][path.name]["per_frac"].items(), key=lambda kv: float(kv[0])):
+        per_frac = report["runs"][path.name]["per_frac"]
+        for frac, m in sorted(per_frac.items(), key=lambda kv: float(kv[0])):
             print(
                 f"{frac:>6} {m['late_p2p_mm']:>12.3f} {str(m['growth']):>8} "
                 f"{m['peak_f_hz']:>10.2f} {m['mean_z_mm']:>10.3f}"

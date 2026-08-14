@@ -27,7 +27,7 @@ modified to obtain them.
 | numpy / warp-lang | 2.3.1 / 1.12.0 |
 | driver / CUDA | 580.82.09 / 13.0 |
 | GPU | NVIDIA GB10 |
-| captured | 2026-08-14, 15:45–17:0x local |
+| captured | 2026-08-14, 15:45–17:55 local |
 
 Full interpreter state: [`pip-freeze-env_isaaclab3.txt`](pip-freeze-env_isaaclab3.txt),
 [`provenance.md`](provenance.md). Machine-local conditions the migration
@@ -516,3 +516,67 @@ outside the repo with the other binaries. Raw tool output:
 [`render/exposure-train-video.txt`](render/exposure-train-video.txt).
 
 ---
+## 9. Training-curve leg
+
+A baseline *shape* for `train_strafer_navigation.py`, the one Tier-1 entry point
+with no automated coverage at all. No recipe knob is touched — this is not an
+experiment, and the curve is not a result to be improved on. What it establishes
+is that the training path runs end to end, at what throughput, and with what
+early trajectory, so a post-bump run can be overlaid on it.
+
+```
+$ISAACLAB -p source/strafer_lab/scripts/train_strafer_navigation.py \
+    --env Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-v0 \
+    --num_envs 64 --max_iterations 100 --seed 42 --headless \
+    --log_dir <scratch>
+```
+
+`--max_iterations 100` runs iterations **0 through 99**; there is no iteration
+100. The last row below is the final iteration, not a 101st.
+
+| iteration | steps/s | mean reward | mean episode length | collection s | learning s | value loss | entropy | action std |
+|---|---|---|---|---|---|---|---|---|
+| 0 | 39 | −0.28 | 35.20 | 20.192 | 57.648 | 0.0109 | 0.6220 | 0.30 |
+| 10 | 52 | −3.82 | 179.29 | 18.328 | 40.371 | 0.0375 | 0.5940 | 0.30 |
+| 25 | 53 | −4.81 | 278.72 | 19.501 | 37.891 | 0.0215 | 0.5514 | 0.29 |
+| 50 | 53 | −5.06 | 319.09 | 18.037 | 38.938 | 0.0141 | 0.5611 | 0.29 |
+| 75 | 54 | −4.60 | 334.22 | 17.559 | 38.387 | 0.0173 | 0.5825 | 0.30 |
+| **99** | **55** | **−5.09** | **385.86** | 18.297 | 37.069 | 0.0184 | 0.5641 | 0.30 |
+
+Throughput across all 100 iterations: **min 35, max 58, mean 53.4 steps/s** at
+64 envs × 48 rollout steps (3072 steps per iteration). Wall clock 16:18:23 →
+17:54:22, about 96 minutes. **Iteration 0 is not representative** — it carries
+first-iteration warm-up (39 steps/s, 57.6 s of learning time against a ~38 s
+steady state) and should be excluded from a throughput comparison. Use the mean
+of 53.4, or the iteration-50 value of 53.
+
+The shape to overlay, not to judge: episode length climbs steadily (35 → 386)
+while mean reward falls and then partly recovers (−0.28 → −5.06 at iteration 50
+→ −4.60 at 75 → −5.09 at the end). A fresh policy surviving longer accumulates
+more per-episode penalty before it learns to complete, so a falling reward
+alongside a rising episode length is the expected early trajectory here, and
+100 iterations is far too short for completion behaviour to appear. The ±15 %
+throughput band around 53.4 steps/s is **45.4 – 61.4**.
+
+Full per-iteration data for all 100 iterations, ten columns:
+[`training/training-curve.csv`](training/training-curve.csv). The five sampled
+rows above, machine-readable:
+[`training/curve-iters.json`](training/curve-iters.json).
+
+---
+
+## 10. File manifest
+
+SHA256 of every committed file in this directory:
+[`MANIFEST.sha256`](MANIFEST.sha256). Verify with:
+
+```
+cd docs/measurements/isaac-lab-upgrade-baseline-2026-08-14 && \
+  sha256sum -c MANIFEST.sha256
+```
+
+Binaries deliberately kept outside the repo, with hashes recorded above:
+the v2 source checkpoint and the other five of its training run, every
+`models/` artifact, the two roller `--inspect` MP4s, the training video clip,
+and the two depth-observation `.npz` stacks. They live together with a
+20-entry `SHA256SUMS.txt` covering the model artifacts and checkpoints.

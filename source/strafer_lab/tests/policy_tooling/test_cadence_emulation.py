@@ -1519,6 +1519,15 @@ class TestResolveDriftSources:
         assert self._call(env_drifts=True, harness_drift_requested=True,
                           allow_composed=True) == (False, True)
 
+    def test_claiming_a_composition_that_cannot_happen_is_refused(self):
+        """Both halves have to be present for the flag to describe anything.
+        Accepting it silently where its sibling refuses would let an arm carry
+        a label for a composition it never ran."""
+        with pytest.raises(SystemExit, match="carries no referent-drift term"):
+            self._call(harness_drift_requested=True, allow_composed=True)
+        with pytest.raises(SystemExit, match="was given no drift arm"):
+            self._call(env_drifts=True, allow_composed=True)
+
     def test_the_two_flags_contradict(self):
         with pytest.raises(SystemExit, match="mutually exclusive"):
             self._call(env_drifts=True, harness_drift_requested=True,

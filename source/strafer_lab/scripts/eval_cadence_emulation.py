@@ -1170,6 +1170,12 @@ def resolve_drift_sources(
                 "there is nothing to suppress and the flag would misdescribe the arm"
             )
         return True, False
+    if allow_composed and not (env_drifts and harness_drift_requested):
+        missing = "carries no referent-drift term" if not env_drifts else "was given no drift arm"
+        raise SystemExit(
+            f"--allow-composed-drift: {env_id} {missing}, so there is no composition "
+            "to allow and the flag would misdescribe the arm"
+        )
     if harness_drift_requested and env_drifts:
         if not allow_composed:
             raise SystemExit(
@@ -1497,13 +1503,12 @@ def main() -> None:
     if args.disable_obs_corruption:
         env_cfg.observations.policy.enable_corruption = False
 
-    harness_drift_requested = (
-        args.subgoal_drift_m * args.subgoal_drift_gain > 0.0
-        or args.subgoal_drift_deg * args.subgoal_drift_gain > 0.0
-    )
+    drift_position_m = args.subgoal_drift_m * args.subgoal_drift_gain
+    drift_heading_rad = math.radians(args.subgoal_drift_deg * args.subgoal_drift_gain)
+    drift_requested = drift_position_m > 0.0 or drift_heading_rad > 0.0
     drop_env_drift, composed = resolve_drift_sources(
         env_drifts=getattr(env_cfg.events, "randomize_subgoal_drift", None) is not None,
-        harness_drift_requested=harness_drift_requested,
+        harness_drift_requested=drift_requested,
         suppress=args.suppress_env_drift,
         allow_composed=args.allow_composed_drift,
         env_id=args.env,
@@ -1591,9 +1596,6 @@ def main() -> None:
         f"arm, observation corruption {corruption}, bearing from {bearing_field}"
     )
 
-    drift_position_m = args.subgoal_drift_m * args.subgoal_drift_gain
-    drift_heading_rad = math.radians(args.subgoal_drift_deg * args.subgoal_drift_gain)
-    drift_requested = drift_position_m > 0.0 or drift_heading_rad > 0.0
     label = arm_label(
         "",
         hidden_reset=not args.no_hidden_reset,
@@ -1662,7 +1664,7 @@ def main() -> None:
                 tick_hz=tick_hz,
                 env_drift_active=env_drifts,
                 harness_drift_gain=(
-                    args.subgoal_drift_gain if harness_drift_requested else None
+                    args.subgoal_drift_gain if drift_requested else None
                 ),
             )
             arms.append(result)

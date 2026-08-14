@@ -608,8 +608,8 @@ class TestContractTiers:
             assert action[0] == 0.0
             assert 0.0 < action[1] < 0.5 * depth[1]
         # The command hold rides the same tier equality as the depth hold:
-        # the two compose on one episode, so a wider command band re-widens
-        # the share of steps the policy did not choose.
+        # the two compose on one episode, so a wider command band widens the
+        # share of steps whose outcome the policy did not choose.
         real_timing = REAL_ROBOT_CONTRACT.timing
         robust_timing = ROBUST_TRAINING_CONTRACT.timing
         assert robust_timing.action_hold_fraction_range == real_timing.action_hold_fraction_range

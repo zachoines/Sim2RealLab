@@ -638,13 +638,14 @@ def create_robust_training_contract() -> SimRealContractCfg:
                 hole_probability=0.03,  # 3x typical
                 frame_drop_probability=0.01,  # 10x typical
                 # Held to the realistic tier's law entirely, burst included.
-                # A 0.60 fraction is a 12 Hz effective arrival against a 30 Hz
-                # tick, and a converged policy measurably loses about a third
-                # of its completions there. Drawing the fraction per env then
-                # spans a batch from 30 Hz to 12 Hz, which makes whether an
-                # episode finishes depend more on its draw than on its actions
-                # -- a return that weakly rewards control, against a fixed
-                # entropy bonus that does not weaken with it.
+                # The fraction is drawn per env at reset, so the top of the
+                # band is the worst arrival rate a training episode can draw:
+                # 0.35 leaves ~19 Hz against a 30 Hz tick. A ceiling near 0.6
+                # reaches the ~12 Hz regime where a converged policy loses
+                # about a third of its completions, and past there an episode's
+                # outcome turns more on its draw than on its actions -- a
+                # return that weakly rewards control cannot outpull a fixed
+                # entropy bonus.
                 hold_fraction_range=(0.0, 0.35),
                 hold_run_range=(1.0, 1.6),
                 hold_burst_weight=0.0,

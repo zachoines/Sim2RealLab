@@ -22,7 +22,7 @@ from tensordict import TensorDict
 from rsl_rl.models.rnn_model import RNNModel
 from rsl_rl.modules import HiddenState
 
-from isaaclab.utils import configclass
+from isaaclab.utils.configclass import configclass
 from isaaclab_rl.rsl_rl import RslRlRNNModelCfg
 
 from strafer_shared.constants import DEPTH_HEIGHT, DEPTH_SCALE, DEPTH_WIDTH

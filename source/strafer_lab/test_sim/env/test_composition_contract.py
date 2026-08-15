@@ -15,6 +15,11 @@ sensor an observation term reads is present with the channel it needs.
 
 Inspects config dataclass attributes only — no simulation stepping.
 
+Hermetic: the variant sweeps here construct every ``StraferNavCfg_*``, including
+the Infinigen-source capture variants, which read the transient scene corpus at
+construction time. A stand-in corpus is wired in below so nothing depends on the
+machine having generated one.
+
 Usage:
     cd source/strafer_lab
     isaaclab -p -m pytest test_sim/env/test_composition_contract.py -v
@@ -29,6 +34,28 @@ import pytest
 import strafer_lab.tasks.navigation.composed_env_cfg as composed
 import strafer_lab.tasks.navigation.strafer_env_cfg as env_cfgs
 from strafer_lab.tasks.navigation import mdp
+from test_sim.common.scenes import stub_scene_corpus
+
+
+# =====================================================================
+# Hermeticity: a stand-in scene corpus, never the machine's
+# =====================================================================
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _hermetic_scene_corpus(tmp_path_factory):
+    """Bind a stand-in scene corpus for every test in this module.
+
+    Autouse and module-wide on purpose: the leak is structural — *any*
+    construction of an Infinigen-source variant reads ``SCENE_USD_DIR``, and
+    ``_mount_dr_rows`` sweeps the module for every variant there is. Opting in
+    per test would re-open the hole the moment a variant is added.
+
+    Inert for the plane / procroom sources, which never reach ``SCENE_USD_DIR``:
+    the frozen goldens below recompute byte-identically under it.
+    """
+    with stub_scene_corpus(tmp_path_factory) as root:
+        yield root
 
 
 # =====================================================================

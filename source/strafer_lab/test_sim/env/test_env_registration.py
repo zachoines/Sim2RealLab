@@ -12,6 +12,10 @@ Strafer Lab registers a small set of composed navigation variants in
 
 Lightweight (no simulation needed) — only inspects registry metadata.
 
+Hermetic: ``StraferNavCfg_TeleopCapture`` is an Infinigen-source variant and
+reads the transient scene corpus at construction time, so a stand-in corpus is
+wired in below rather than depending on the machine having generated one.
+
 Usage:
     cd source/strafer_lab
     isaaclab -p -m pytest test_sim/env/test_env_registration.py -v
@@ -28,6 +32,24 @@ from strafer_lab.tasks.navigation.composed_env_cfg import (
     StraferNavCfg_RLDepth_Real,
     StraferNavCfg_TeleopCapture,
 )
+from test_sim.common.scenes import stub_scene_corpus
+
+
+# =====================================================================
+# Hermeticity: a stand-in scene corpus, never the machine's
+# =====================================================================
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _hermetic_scene_corpus(tmp_path_factory):
+    """Bind a stand-in scene corpus for every test in this module.
+
+    Autouse rather than per test: the capture variant is one entry in a
+    parametrized cfg list, and the next Infinigen-source variant added to that
+    list would otherwise reintroduce the dependency silently.
+    """
+    with stub_scene_corpus(tmp_path_factory) as root:
+        yield root
 
 
 # =====================================================================

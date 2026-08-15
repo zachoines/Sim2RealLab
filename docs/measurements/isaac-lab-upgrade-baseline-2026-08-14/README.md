@@ -395,6 +395,7 @@ so any re-export from this checkpoint adds it.
 | `test-vlm` | `make test-vlm` | **143 passed** |
 | `env-check` | `make env-check` | PASS, exit 0 |
 | `test-ros` / `test-driver` | `tools/run_ros_tests.sh ros` | **unknown — needs a Jetson run or a built container** |
+| the two files outside SUITES, standalone | the `--noconftest` command in "Supplementary baseline" below | **29 passed** (27 + 2) — supplementary, *not* part of the 486 |
 
 ```
 LD_PRELOAD=/lib/aarch64-linux-gnu/libgomp.so.1 \
@@ -433,11 +434,31 @@ and **passed 4/4**. Both outcomes are the baseline: this suite is a coin flip an
 a post-bump comparison that treats a single imu failure as a regression will be
 wrong about half the time.
 
-The junit XMLs in [`suites/kit-junit-xml/`](suites/kit-junit-xml/) carry the
-**rerun** (green) imu result, because `run_tests.py` writes to a fixed path and
-the rerun overwrote it. The failure above is from the full-run console. Those
-files are copies of the run's output renamed from `test_results_*.xml` to
-`kit-suite-*.xml`, because the original name is gitignored as live test output.
+#### Which junit file holds which run
+
+`run_tests.py` writes junit to a fixed path per file, so the rerun **overwrote**
+the failing imu output. There is no committed XML of the failure, and the two
+imu files carry a `-RERUN` suffix so the artifact says so on its own:
+
+| file in [`suites/kit-junit-xml/`](suites/kit-junit-xml/) | which run | contents |
+|---|---|---|
+| `kit-suite-imu_test_imu-RERUN.xml` | the **rerun**, not the full run | 1 test, 0 failures |
+| `kit-suite-imu_test_imu_collision-RERUN.xml` | the **rerun**, not the full run | 3 tests, 0 failures — including the flaky `test_collision_imu_mean_differs_from_free`, passing |
+| every other `kit-suite-*.xml` | the full run | as counted above |
+
+So the two numbers a reader needs, stated plainly:
+
+- **The full run was 485 pass / 1 fail** — the known `collision-imu-signal-flaky`
+  flake, quoted above from the console.
+- **The committed imu XMLs are the rerun, 4/4 pass.** Summing the committed XMLs
+  therefore gives 486/0, which is *not* the full-run result.
+
+The suite was deliberately not re-run again to produce a failing artifact: the
+flake firing is data about the suite, not a defect to paper over.
+
+All files in that directory are copies of the run's output renamed from
+`test_results_*.xml`, because the original name is gitignored as live test
+output.
 
 ### Tests the baseline does not cover
 
@@ -451,8 +472,39 @@ therefore never executed by `make test-lab`:
 
 37 of the 39 files under `test_sim/` are reachable through SUITES; these two are
 not, so **29 test functions of assumed protection are not running** and are not
-in the 486. Recorded, not fixed — changing the SUITES map is a change to the
+in the 486. The SUITES map is left alone — changing it is a change to the
 instrument.
+
+#### Supplementary baseline for those two files
+
+They are left out of the harness, but what they cover — the D555 perception
+camera cfg and the shared camera mount — is exactly where a renderer or Kit
+change is most likely to move something. Leaving them with no recorded value at
+all would mean a post-bump run has nothing to compare against, so they were run
+standalone.
+
+Both are cfg-only: they construct dataclasses and read attributes, instantiate
+no env, and need no Kit boot. They run under the same `--noconftest` pattern as
+the composition-contract command, in 2.5 s, on no GPU.
+
+```
+LD_PRELOAD=/lib/aarch64-linux-gnu/libgomp.so.1 \
+$STRAFER_ISAACLAB_PYTHON -m pytest --noconftest -q \
+  source/strafer_lab/test_sim/sensors/test_d555_perception_cfg.py \
+  source/strafer_lab/test_sim/sensors/depth_noise/test_scene_cfg.py
+```
+
+| file | result |
+|---|---|
+| `test_sim/sensors/test_d555_perception_cfg.py` | **27 passed** (2.54 s) |
+| `test_sim/sensors/depth_noise/test_scene_cfg.py` | **2 passed** (2.55 s) |
+| both together | **29 passed** (2.53 s) |
+
+**These 29 are supplementary and deliberately excluded from the 486/14 headline.**
+The post-bump Kit run must use the same SUITES map for a like-for-like count, so
+folding them in would break that comparison. Run this standalone pair again after
+the bump and compare it separately. Raw output:
+[`suites/orphaned-standalone.txt`](suites/orphaned-standalone.txt).
 
 ### `test-ros`
 

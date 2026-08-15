@@ -139,9 +139,6 @@ STRAFER_PPO_RECURRENT_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
 # policy.  Beta differential entropy goes negative as concentrations grow,
 # so this coefficient must be high enough to resist early collapse while
 # staying below the surrogate loss magnitude.
-#
-# schedule="fixed": adaptive LR is counterproductive with DAPG — the strong
-# initial BC gradient triggers the KL controller to kill LR before RL starts.
 # =============================================================================
 
 STRAFER_PPO_DEPTH_RUNNER_CFG = RslRlOnPolicyRunnerCfg(

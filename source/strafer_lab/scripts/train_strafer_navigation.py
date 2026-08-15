@@ -6,15 +6,6 @@ Environments (--env):
     Isaac-Strafer-Nav-RLDepth-Robust-v0   Depth policy, ProcRoom, robust DR
     Isaac-Strafer-Nav-RLNoCam-v0          Proprioceptive only, ProcRoom, realistic
 
-Auxiliary losses (--aux):
-    dapg    Demo Augmented Policy Gradient (NLL on expert demos)
-    gail    Generative Adversarial Imitation Learning (WGAN-GP discriminator)
-
-    Examples (demo obs_dim must match env variant — use Depth demos for Depth envs):
-        --aux dapg --dapg_demos demos.h5
-        --aux gail --gail_demos demos.h5
-        --aux dapg --aux gail --dapg_demos demos.h5 --gail_demos demos.h5
-
 Video recording (overhead view):
     --video                Record periodic MP4 videos during training
     --video_length 200     Frames per clip (default: 200)
@@ -33,9 +24,6 @@ from datetime import datetime
 
 def main():
     """Main entry point."""
-    # Phase 1: Parse core args + AppLauncher args (before simulator launch).
-    # Auxiliary-specific args (--dapg_*, --gail_*) are left as unknown here
-    # and parsed in phase 2 after the aux modules can register their own args.
     parser = argparse.ArgumentParser(description="Train Strafer navigation policy")
     parser.add_argument(
         "--num_envs", type=int, default=512, help="Number of parallel environments"
@@ -93,18 +81,12 @@ def main():
         "--lr_min", type=float, default=1e-5,
         help="Minimum learning rate for cosine/linear decay (default: 1e-5).",
     )
-    # Modular auxiliary losses
-    parser.add_argument(
-        "--aux", type=str, action="append", default=[],
-        choices=["dapg", "gail"],
-        help="Auxiliary loss modules to activate (can specify multiple)",
-    )
 
     # Import Isaac Lab app launcher and add its CLI args (--enable_cameras, etc.)
     from isaaclab.app import AppLauncher
 
     AppLauncher.add_app_launcher_args(parser)
-    args, remainder = parser.parse_known_args()
+    args = parser.parse_args()
 
     # Auto-enable cameras for variants that use depth/RGB or video recording
     if "NoCam" not in args.env or args.video:
@@ -143,23 +125,6 @@ def main():
 
     # Import strafer_lab to register environments
     import strafer_lab  # noqa: F401
-    from strafer_lab.tasks.navigation.agents import (
-        install_strafer_ppo,
-        register_auxiliary,
-    )
-
-    # Let aux modules define their own CLI args, then re-parse remainder.
-    from strafer_lab.tasks.navigation.agents.aux_dapg import DAPGAuxiliary
-    from strafer_lab.tasks.navigation.agents.aux_gail import GAILAuxiliary
-
-    aux_parser = argparse.ArgumentParser()
-    DAPGAuxiliary.add_args(aux_parser)
-    GAILAuxiliary.add_args(aux_parser)
-    aux_args = aux_parser.parse_args(remainder)
-
-    # Merge aux args into main namespace so everything is in one place
-    for key, value in vars(aux_args).items():
-        setattr(args, key, value)
 
     env_name = args.env
 
@@ -201,8 +166,6 @@ def main():
         print(f"Video: every {args.video_interval} steps, {args.video_length} frames/clip")
     if args.depth_encoder:
         print(f"Depth encoder: {args.depth_encoder} (CLI override)")
-    if args.aux:
-        print(f"Auxiliary losses: {', '.join(args.aux)}")
     print("=" * 60 + "\n")
 
     # Create environment (with render_mode for video if needed)
@@ -280,20 +243,6 @@ def main():
         log_dir = os.path.join(log_root, f"run_{timestamp}")
         os.makedirs(log_dir, exist_ok=True)
     print(f"Logging to: {log_dir}")
-
-    # --- Register auxiliary losses ---
-    if args.aux:
-        install_strafer_ppo()
-
-        if "dapg" in args.aux:
-            if args.dapg_demos is None:
-                raise ValueError("--aux dapg requires --dapg_demos <path>")
-            register_auxiliary(DAPGAuxiliary.from_args(args, device=agent_cfg.device))
-
-        if "gail" in args.aux:
-            if args.gail_demos is None:
-                raise ValueError("--aux gail requires --gail_demos <path>")
-            register_auxiliary(GAILAuxiliary.from_args(args, device=agent_cfg.device))
 
     # Create runner (inject CLI overrides into the config dict)
     agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, _rsl_rl_version)

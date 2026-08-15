@@ -15,8 +15,8 @@ Output:
     --output can be a ``.h5`` file or a directory.  When a directory is given
     (or a path without ``.h5`` extension), a timestamped filename is
     auto-generated inside it (e.g., ``demos/demos_20260321_143000.h5``).
-    This allows incremental collection across sessions — point the training
-    script at the folder and all ``.h5`` files will be loaded and concatenated.
+    This allows incremental collection across sessions — ``ExpertDemoBuffer``
+    accepts the folder and loads every ``.h5`` inside it, concatenated.
 
 Usage:
     # Single file (classic):
@@ -28,10 +28,6 @@ Usage:
     isaaclab -p scripts/collect_demos.py \
         --task Isaac-Strafer-Nav-RLDepth-Real-Play-v0 \
         --output demos/ --max_episodes 40
-
-    # Train on the folder:
-    isaaclab -p source/strafer_lab/scripts/train_strafer_navigation.py \
-        --aux dapg --dapg_demos demos/
 """
 
 from __future__ import annotations

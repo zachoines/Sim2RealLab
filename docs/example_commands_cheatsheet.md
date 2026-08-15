@@ -123,39 +123,13 @@ $ISAACLAB -p source/strafer_lab/scripts/collect_demos.py \
     --output demos/ --max_episodes 100 --viz kit
 ```
 
-# DAPG smoke (50 iters, fresh policy):
-```bash
-$ISAACLAB -p source/strafer_lab/scripts/train_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
-    --num_envs 64 --max_iterations 50 \
-    --aux dapg --dapg_demos demos/ \
-    --dapg_weight 0.03 --dapg_decay 30 --dapg_batch_size 128
-```
-
-# GAIL smoke (50 iters, fresh policy):
-```bash
-$ISAACLAB -p source/strafer_lab/scripts/train_strafer_navigation.py \
-    --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
-    --num_envs 64 --max_iterations 50 \
-    --aux gail --gail_demos demos/ \
-    --gail_reward_weight 1.0 --gail_disc_lr 3e-4 --gail_disc_batch_size 256
-```
-Watch TB for `dapg_nll`, `dapg_weight`, `gail_reward`, `gail_disc_loss`, `gail_disc_expert`, `gail_disc_policy` — those scalars come from the aux loop and prove it executed.
-
-
-# Fine-tune a live checkpoint with demos:
+# Fine-tune a live checkpoint:
 ```bash
 $ISAACLAB -p source/strafer_lab/scripts/train_strafer_navigation.py \
     --env Isaac-Strafer-Nav-RLDepth-Real-v0 \
     --num_envs 128 --max_iterations 6000 \
     --resume logs/rsl_rl/strafer_navigation/run_20260425_035916/model_999.pt \
     --seed 1337 \
-    --aux dapg --dapg_demos demos/ \
-        --dapg_weight 0.05 \
-        --dapg_decay 4000 \
-        --dapg_batch_size 64 \
-        --dapg_min_return_pct 0.25 \
-        --dapg_action_noise 0.03 \
     --headless --video --video_length 300 --video_interval 30000
 ```
 

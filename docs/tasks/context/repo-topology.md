@@ -118,13 +118,13 @@ Ownership boundaries are spelled out in
 
 | Path | Purpose |
 |------|---------|
-| `source/strafer_lab/scripts/train_strafer_navigation.py` | RL training (rsl_rl PPO, optional DAPG/GAIL aux losses, optional video) |
+| `source/strafer_lab/scripts/train_strafer_navigation.py` | RL training (rsl_rl PPO, optional video) |
 | `source/strafer_lab/scripts/play_strafer_navigation.py` | Inference rollout from a checkpoint or an exported `.pt` (headed or headless+MP4) |
 | `source/strafer_lab/scripts/export_policy.py` | Export an rsl_rl checkpoint to a deployable `.pt` / `.onnx` (+ JSON sidecar) consumed by `strafer_shared.policy_interface.load_policy()` |
 | `source/strafer_lab/scripts/benchmark_policy.py` | Inference-latency stats on an exported artifact, with ONNX execution-provider preference for the Jetson TRT-EP path |
 | `source/strafer_lab/scripts/test_strafer_env.py` | Env smoke tests (no policy; predefined motion patterns) |
 | `source/strafer_lab/scripts/run_sim_in_the_loop.py` | The sim bridge — `--mode bridge` (default) drives env from `/cmd_vel`; `--mode harness` walks scene-metadata targets or a `mission_queue.yaml` through the Jetson stack and records a LeRobot v3 dataset (dispatched via `capture.py --driver bridge`) |
-| `source/strafer_lab/scripts/collect_demos.py` | Gamepad-driven demo collection for DAPG/GAIL aux losses |
+| `source/strafer_lab/scripts/collect_demos.py` | Gamepad-driven demo collection — HDF5 for imitation-learning consumers |
 | `source/strafer_lab/scripts/postprocess_scene_usd.py` | Bake colliders + lights into Infinigen-exported USDC |
 | `source/strafer_lab/scripts/prep_room_usds.py` | Run Infinigen scene generation + invoke postprocess |
 

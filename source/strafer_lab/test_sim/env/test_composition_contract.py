@@ -15,6 +15,11 @@ sensor an observation term reads is present with the channel it needs.
 
 Inspects config dataclass attributes only — no simulation stepping.
 
+Hermetic: the variant sweeps here construct every ``StraferNavCfg_*``, including
+the Infinigen-source capture variants, which read the transient scene corpus at
+construction time. Importing ``hermetic_scene_corpus`` binds a stand-in corpus
+for the whole module, so nothing depends on the machine having generated one.
+
 Usage:
     cd source/strafer_lab
     isaaclab -p -m pytest test_sim/env/test_composition_contract.py -v
@@ -29,6 +34,9 @@ import pytest
 import strafer_lab.tasks.navigation.composed_env_cfg as composed
 import strafer_lab.tasks.navigation.strafer_env_cfg as env_cfgs
 from strafer_lab.tasks.navigation import mdp
+# Autouse: binds a stand-in scene corpus for every test here, so the variant
+# sweeps below never read the machine's. See test_sim/common/scenes.py.
+from test_sim.common.scenes import hermetic_scene_corpus, scene_source_kind  # noqa: F401
 
 
 # =====================================================================
@@ -189,6 +197,31 @@ _COMPOSED_RL = {
 _OPEN_TOP_RL_VARIANTS = tuple(
     name for name in sorted(_COMPOSED_RL) if "Enriched" not in name
 )
+
+
+def test_no_hashed_variant_reads_the_scene_corpus():
+    """No golden-hashed variant may be Infinigen-source.
+
+    The Infinigen bind writes spawn points, the robot spawn-z and the
+    ground-lift height into ``events`` and ``commands`` — all hashed fields.
+    Those come out populated against a generated corpus and empty against the
+    stand-in one, so a golden frozen for such a variant would encode whichever
+    corpus its author happened to have: green there forever, red on every
+    machine whose corpus differs. Freezing it in a worktree would be worst, the
+    hash then matching nowhere a real corpus exists.
+
+    That is the one way the stand-in corpus could reach a hashed field, and it
+    is the property the goldens' machine-independence rests on.
+    """
+    leaking = sorted(
+        name for name, factory in _COMPOSED_RL.items()
+        if scene_source_kind(factory) == "infinigen"
+    )
+    assert leaking == [], (
+        f"{leaking} carry frozen contract hashes but read the scene corpus at "
+        "construction — their hash would embed corpus-dependent spawn and floor "
+        "values. Hash a procroom/plane variant, or drop it from _COMPOSED_RL."
+    )
 
 
 @pytest.mark.parametrize("name", sorted(_COMPOSED_RL), ids=lambda n: n)

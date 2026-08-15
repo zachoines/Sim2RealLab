@@ -42,6 +42,11 @@ from strafer_lab.tasks.navigation.strafer_env_cfg import (
     ObsCfg_Depth_Ideal,
 )
 
+# Autouse: binds a stand-in scene corpus for every test here. Nothing below
+# constructs an Infinigen-source variant, so it is inert — it holds the module
+# hermetic if one is added. See test_sim/common/scenes.py.
+from test_sim.common.scenes import hermetic_scene_corpus  # noqa: F401
+
 
 # =====================================================================
 # Canonical mapping: policy_interface field key → env config attribute name

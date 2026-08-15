@@ -211,9 +211,7 @@ def test_no_hashed_variant_reads_the_scene_corpus():
     hash then matching nowhere a real corpus exists.
 
     That is the one way the stand-in corpus could reach a hashed field, and it
-    is the property the goldens' machine-independence rests on. Before the
-    stand-in corpus existed this mistake failed loudly and identically
-    everywhere; this keeps that.
+    is the property the goldens' machine-independence rests on.
     """
     leaking = sorted(
         name for name, factory in _COMPOSED_RL.items()

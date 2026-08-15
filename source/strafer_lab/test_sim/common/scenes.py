@@ -63,8 +63,8 @@ def write_stub_scene_corpus(
     a flat file would leave the resolution step untested.
 
     Composable: the manifest merges with whatever is already registered and an
-    existing symlink is left in place, so extending a corpus in a second call
-    keeps the first call's scenes instead of dropping them from the manifest.
+    existing symlink is left in place, so a second call extends the corpus
+    rather than replacing it.
     """
     root.mkdir(parents=True, exist_ok=True)
     meta_path = root / "scenes_metadata.json"
@@ -92,10 +92,8 @@ def _assert_corpus_is_the_bound_one(root: Path) -> None:
 
     The patch going inert is invisible on a machine that carries a real corpus:
     every test keeps passing, silently reading the machine's scenes instead of
-    these. That is the exact state this module exists to prevent, and unaided it
-    surfaces only in a worktree — where nobody looks before merging. So the bind
-    is asserted rather than assumed: if ``SCENE_USD_DIR`` stops being the seam
-    ``_get_scene_usd_paths`` reads, this fails everywhere at once.
+    these. Asserting the bind fails everywhere at once instead — including where
+    a corpus is present, which unaided reports nothing.
     """
     from strafer_lab.tasks.navigation import composed_env_cfg as composed
 
@@ -104,8 +102,8 @@ def _assert_corpus_is_the_bound_one(root: Path) -> None:
     assert root.resolve() in bound.parents, (
         "the stand-in scene corpus is not the one being read: "
         f"StraferNavCfg_TeleopCapture bound {bound}, outside {root}. "
-        "SCENE_USD_DIR is no longer the seam _get_scene_usd_paths() reads, so "
-        "these tests are reading whatever corpus this machine happens to hold."
+        "SCENE_USD_DIR is not the seam _get_scene_usd_paths() reads, so these "
+        "tests are reading whatever corpus this machine happens to hold."
     )
 
 
@@ -138,8 +136,7 @@ def hermetic_scene_corpus(tmp_path_factory):
     variant sweeps in these modules construct every ``StraferNavCfg_*`` there
     is. Opting in per test would reopen the hole the moment a variant is added.
 
-    Defined here rather than per module so there is one definition to keep
-    correct; a module binds it by importing the name. It cannot live in a
+    A module binds it by importing the name. It cannot live in a
     ``conftest.py`` — the contract gate runs under ``--noconftest``.
 
     Inert for the plane / procroom sources, which never reach ``SCENE_USD_DIR``:

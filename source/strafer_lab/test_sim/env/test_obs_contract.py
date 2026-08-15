@@ -43,9 +43,8 @@ from strafer_lab.tasks.navigation.strafer_env_cfg import (
 )
 
 # Autouse: binds a stand-in scene corpus for every test here. Nothing below
-# constructs an Infinigen-source variant today, so this is defensive — it keeps
-# the whole directory hermetic by default rather than one module at a time.
-# See test_sim/common/scenes.py.
+# constructs an Infinigen-source variant, so it is inert — it holds the module
+# hermetic if one is added. See test_sim/common/scenes.py.
 from test_sim.common.scenes import hermetic_scene_corpus  # noqa: F401
 
 

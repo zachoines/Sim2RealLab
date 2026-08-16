@@ -27,8 +27,60 @@ Usage:
 """
 
 import argparse
+import math
 import os
 from datetime import datetime
+
+
+def attach_lr_schedule(runner, schedule, lr_init, lr_min, num_iterations):
+    """Decay the optimizer learning rate over a training run.
+
+    Wraps ``runner.alg.update`` so each update runs at its scheduled rate.
+
+    RSL-RL copies ``alg.learning_rate`` into ``optimizer.param_groups`` only
+    inside its KL-adaptive branch, which the CLI schedule disables by forcing
+    ``schedule="fixed"``. Writing the attribute alone therefore leaves Adam on
+    its initial rate while the logged value decays, so both are written here.
+
+    Progress runs against the last iteration this invocation will reach
+    (``start + num_iterations``), not the configured maximum, so a resumed run
+    continues down the same curve instead of clamping to ``lr_min``. The
+    iteration index is tracked locally because
+    ``runner.current_learning_iteration`` is assigned only after ``update()``
+    returns, and so lags by one when read from inside the wrapper.
+
+    Args:
+        runner: The ``OnPolicyRunner`` whose algorithm is being scheduled.
+        schedule: ``"cosine"`` or ``"linear"``.
+        lr_init: Rate at progress 0, i.e. the rate the optimizer was built with.
+        lr_min: Rate approached at progress 1.
+        num_iterations: Iterations this invocation will run.
+    """
+    if schedule not in ("cosine", "linear"):
+        raise ValueError(f"unknown LR schedule {schedule!r}; expected 'cosine' or 'linear'")
+
+    original_update = runner.alg.update
+    # Resolved on first use: a resume checkpoint loads after the schedule is
+    # attached, and it moves current_learning_iteration.
+    start = None
+    step = 0
+
+    def scheduled_update():
+        nonlocal start, step
+        if start is None:
+            start = runner.current_learning_iteration
+        progress = min((start + step) / max(start + num_iterations, 1), 1.0)
+        if schedule == "cosine":
+            lr = lr_min + 0.5 * (lr_init - lr_min) * (1.0 + math.cos(math.pi * progress))
+        else:  # linear
+            lr = lr_init + (lr_min - lr_init) * progress
+        runner.alg.learning_rate = lr
+        for param_group in runner.alg.optimizer.param_groups:
+            param_group["lr"] = lr
+        step += 1
+        return original_update()
+
+    runner.alg.update = scheduled_update
 
 
 def main():
@@ -307,29 +359,21 @@ def main():
         agent_dict["algorithm"]["schedule"] = "fixed"
     runner = OnPolicyRunner(env, agent_dict, log_dir=log_dir, device=agent_cfg.device)
 
-    # Attach LR decay schedule (monkey-patches alg.update to apply decay)
     if args.lr_schedule is not None:
-        import math as _math
-
-        _lr_init = agent_dict["algorithm"]["learning_rate"]
-        _lr_min = args.lr_min
-        _total_iters = agent_cfg.max_iterations
-        _schedule_type = args.lr_schedule
-        _original_update = runner.alg.update
-
-        def _update_with_lr_schedule():
-            result = _original_update()
-            it = runner.current_learning_iteration
-            progress = min(it / max(_total_iters, 1), 1.0)
-            if _schedule_type == "cosine":
-                lr = _lr_min + 0.5 * (_lr_init - _lr_min) * (1.0 + _math.cos(_math.pi * progress))
-            else:  # linear
-                lr = _lr_init + (_lr_min - _lr_init) * progress
-            runner.alg.learning_rate = lr
-            return result
-
-        runner.alg.update = _update_with_lr_schedule
-        print(f"[Override] LR schedule = {args.lr_schedule} ({_lr_init:.1e} → {_lr_min:.1e} over {_total_iters} iters)")
+        # The rate the optimizer was constructed with, not the config dict:
+        # OnPolicyRunner mutates the dict it is handed during construction.
+        lr_init = runner.alg.learning_rate
+        attach_lr_schedule(
+            runner,
+            args.lr_schedule,
+            lr_init=lr_init,
+            lr_min=args.lr_min,
+            num_iterations=agent_cfg.max_iterations,
+        )
+        print(
+            f"[Override] LR schedule = {args.lr_schedule} "
+            f"({lr_init:.1e} → {args.lr_min:.1e} over {agent_cfg.max_iterations} iters)"
+        )
 
     # Resume from checkpoint if specified
     if args.resume:

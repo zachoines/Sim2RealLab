@@ -79,8 +79,20 @@ lane cannot read its own demos back without it.
       layout the policy interface exposes for that variant — field order and
       scale, not just width.
 - [ ] `ExpertDemoBuffer` reads `LeRobotDataset` instead of HDF5, preserving
-      its current behavior: multi-episode concatenation, optional
-      return-weighted filtering, and the obs-dim mismatch check.
+      multi-episode concatenation into one uniformly-sampled transition pool.
+      Its return-percentile episode filter is **not** ported as-is: the HDF5
+      version appends returns only for episodes that carry `rewards` while
+      appending obs/actions for every episode, so the keep-indices are computed
+      over one list and applied to a longer one and a mixed corpus silently
+      keeps the wrong episodes (`demo_buffer.py:87-101`). Either drop the
+      filter or hold each episode's obs, actions, and return in one aligned
+      record.
+- [ ] The **BC entry point** derives the expected observation dimension and
+      layout identity from the live policy variant and passes them to the
+      buffer, and a mismatch is a hard error. Today's `expected_obs_dim`
+      parameter has no callers, so "the buffer supports a check" is not the
+      criterion — the caller supplying the live dimension is. Without it a
+      19-dim NOCAM demo set trains against a 3619-dim depth policy silently.
 - [ ] Sequence-aware BC trains the GRU actor with truncated BPTT over demo
       trajectories. Single-step BC is wrong for a recurrent policy and is not
       an acceptable fallback; the truncation window and hidden-state carry are

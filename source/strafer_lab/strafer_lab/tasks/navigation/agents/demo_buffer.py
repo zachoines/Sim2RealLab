@@ -22,8 +22,9 @@ import torch
 class ExpertDemoBuffer:
     """Replay buffer of expert demonstrations loaded from HDF5.
 
-    Supports optional per-transition weighting by normalized episode return
-    when reward data is available in the HDF5 file.
+    When reward data is present, episodes below ``min_return_percentile`` are
+    dropped at load time; the surviving transitions are pooled and ``sample()``
+    draws from them uniformly.
 
     ``path`` may be a single ``.h5`` file or a directory.  When a directory is
     given, all ``.h5`` files inside it are loaded and concatenated (sorted by

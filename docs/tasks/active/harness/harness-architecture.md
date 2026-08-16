@@ -75,7 +75,7 @@ The `(driver, mission_source)` cells that exist:
 | `scripted` | `captioner` | Random reachable A→B + post-hoc speaker-model captioning (trajectory-first) | Same | Subsumes `trajectory-first-captioning.md` |
 | `scripted` | `coverage` | "Visit every room + repeat 2–3× from different headings" — for room-state eval and VPR training data | Same | New combination; moved from `room-state-eval-harness.md` |
 
-`collect_demos.py` writes gamepad episodes as a flat HDF5 of continuous-control transitions — a different artifact in a different format from the LeRobot v3 datasets this system produces, with no camera, mission, or detections columns. It is **orthogonal** to this consolidation and stays separate: cross-reference but don't fold in. ([`bc-warm-start`](../../parked/trained-policy/bc-warm-start.md) proposes retiring that format in favour of the teleop driver's LeRobot output, which would close the question rather than fold it in.)
+`collect_demos.py` writes gamepad episodes as HDF5 — one group per episode holding `obs` / `actions` / `rewards` arrays — a different artifact in a different format from the LeRobot v3 datasets this system produces, with no camera, mission, or detections columns. It is **orthogonal** to this consolidation and stays separate: cross-reference but don't fold in. ([`bc-warm-start`](../../parked/trained-policy/bc-warm-start.md) proposes retiring that format in favour of the teleop driver's LeRobot output, which would close the question rather than fold it in.)
 
 ## Output format — LeRobot v3
 
@@ -595,7 +595,7 @@ Lifted from the source briefs:
 
 ## Out of scope
 
-- **`collect_demos.py` (gamepad episodes written as flat continuous-control HDF5).** Different artifact, different format. Cross-referenced but not folded in.
+- **`collect_demos.py` (gamepad episodes written as per-episode HDF5 groups).** Different artifact, different format. Cross-referenced but not folded in.
 - **Real-robot capture.** Sim-only. The LeRobot v3 format choice is informed by what works on the real robot but not blocked by it.
 - **Online (training-time) Cosmos augmentation.** Cosmos is the [`cosmos-replay-perturbation`](../../parked/harness/cosmos-replay-perturbation.md) brief's scope; offline batch only.
 - **Re-architecting the perception scene to support more parallel envs.** Filed at [`harness-throughput-measurement`](../../parked/harness/harness-throughput-measurement.md); the env-count cap is a measurement result, not a fix.

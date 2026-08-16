@@ -1,8 +1,11 @@
-"""Gamepad-driven demonstration collection for behavior cloning.
+"""Gamepad-driven demonstration recording to HDF5.
 
 Launches a single-environment Isaac Lab simulation and records expert
-(human) demonstrations using an Xbox / generic gamepad.  Transitions
-are saved to HDF5 for offline imitation learning.
+(human) demonstrations using an Xbox / generic gamepad.  Each episode is
+written as its own HDF5 group of ``obs`` / ``actions`` / ``rewards`` arrays.
+
+No training entry point reads this format.  Demo-driven training consumes the
+LeRobot datasets written by ``scripts/capture.py --driver teleop`` instead.
 
 World-frame control mode (overhead camera, stick = viewport motion):
     Left stick     → world-frame velocity (stick direction = viewport direction)
@@ -15,8 +18,8 @@ Output:
     --output can be a ``.h5`` file or a directory.  When a directory is given
     (or a path without ``.h5`` extension), a timestamped filename is
     auto-generated inside it (e.g., ``demos/demos_20260321_143000.h5``).
-    This allows incremental collection across sessions — ``ExpertDemoBuffer``
-    accepts the folder and loads every ``.h5`` inside it, concatenated.
+    This allows incremental collection across sessions: a directory holds one
+    ``.h5`` per session, ordered by filename.
 
 Usage:
     # Single file (classic):

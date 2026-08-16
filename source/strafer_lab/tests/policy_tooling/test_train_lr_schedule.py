@@ -37,8 +37,15 @@ def _expected_linear(progress: float) -> float:
 class _RecordingAlg:
     """Stand-in for ``rsl_rl.algorithms.PPO`` holding a real Adam optimizer."""
 
-    def __init__(self, lr: float, num_param_groups: int = 1, apply_step: bool = False) -> None:
+    def __init__(
+        self,
+        lr: float,
+        num_param_groups: int = 1,
+        apply_step: bool = False,
+        schedule: str = "fixed",
+    ) -> None:
         self.learning_rate = lr
+        self.schedule = schedule
         self.params = [torch.nn.Parameter(torch.zeros(1)) for _ in range(num_param_groups)]
         self.optimizer = torch.optim.Adam([{"params": [p]} for p in self.params], lr=lr)
         self.apply_step = apply_step
@@ -67,9 +74,21 @@ class _RecordingRunner:
         start_iteration: int = 0,
         num_param_groups: int = 1,
         apply_step: bool = False,
+        schedule: str = "fixed",
     ) -> None:
-        self.alg = _RecordingAlg(lr, num_param_groups, apply_step)
+        self.alg = _RecordingAlg(lr, num_param_groups, apply_step, schedule)
         self.current_learning_iteration = start_iteration
+
+    def load(self, checkpoint_lr: float, iteration: int) -> None:
+        """Stand in for ``runner.load()``: restore an optimizer rate and an iteration.
+
+        rsl_rl restores the optimizer state dict, and torch's
+        ``load_state_dict`` carries the checkpoint's ``lr`` into
+        ``param_groups`` wholesale.
+        """
+        for param_group in self.alg.optimizer.param_groups:
+            param_group["lr"] = checkpoint_lr
+        self.current_learning_iteration = iteration
 
     def learn(self, num_iterations: int) -> None:
         start = self.current_learning_iteration
@@ -191,3 +210,112 @@ def test_unknown_schedule_is_rejected_at_attach_time():
     runner = _RecordingRunner()
     with pytest.raises(ValueError, match="unknown LR schedule"):
         train_script.attach_lr_schedule(runner, "exponential", LR_INIT, LR_MIN, num_iterations=10)
+
+
+def test_adaptive_algorithm_schedule_is_rejected_at_attach_time():
+    """The KL controller rewrites ``param_groups`` from inside ``update()``.
+
+    It would overwrite the decay after the wrapper has written it, reproducing
+    the logged-versus-applied divergence this schedule exists to remove.
+    """
+    runner = _RecordingRunner(schedule="adaptive")
+    with pytest.raises(ValueError, match="requires algorithm schedule 'fixed'"):
+        train_script.attach_lr_schedule(runner, "cosine", LR_INIT, LR_MIN, num_iterations=10)
+
+
+def test_resume_without_the_flag_does_not_inherit_a_decayed_rate():
+    """A checkpoint from a scheduled leg carries ``lr_min`` in its optimizer state.
+
+    Resumed without ``--lr_schedule``, nothing rewrites it under
+    ``schedule="fixed"``, so the leg would run ~30x slow. The runner logs
+    ``alg.learning_rate``, which on rsl_rl 5.0.1 still holds the constructor's
+    rate — the logged-versus-applied divergence again, this time with no banner.
+    """
+    runner = _RecordingRunner()
+    runner.load(checkpoint_lr=LR_MIN, iteration=9999)
+    # What load() leaves behind, and what the leg would run at unreset.
+    assert runner.alg.optimizer.param_groups[0]["lr"] == pytest.approx(LR_MIN)
+
+    replaced = train_script.reset_lr_after_resume(runner, LR_INIT, schedule=None)
+
+    assert replaced == pytest.approx(LR_MIN), "the replaced rate is reported for the console record"
+    runner.learn(3)
+    assert runner.alg.optimizer_lrs == pytest.approx([LR_INIT] * 3)
+
+
+def test_no_reset_is_reported_when_the_checkpoint_matches_the_config():
+    runner = _RecordingRunner()
+    runner.load(checkpoint_lr=LR_INIT, iteration=500)
+
+    assert train_script.reset_lr_after_resume(runner, LR_INIT, schedule=None) is None
+    assert runner.alg.optimizer.param_groups[0]["lr"] == pytest.approx(LR_INIT)
+
+
+def test_an_adaptive_algorithm_keeps_ownership_of_a_resumed_rate():
+    """The KL controller adapts from the restored rate; the reset must not clobber it."""
+    runner = _RecordingRunner(schedule="adaptive")
+    runner.load(checkpoint_lr=5.0e-5, iteration=500)
+
+    assert train_script.reset_lr_after_resume(runner, LR_INIT, schedule=None) is None
+    assert runner.alg.optimizer.param_groups[0]["lr"] == pytest.approx(5.0e-5)
+
+
+def test_the_schedule_keeps_ownership_of_a_resumed_rate():
+    """With the flag there is nothing to reset — the schedule writes before its first update."""
+    runner = _RecordingRunner()
+    train_script.attach_lr_schedule(runner, "cosine", LR_INIT, LR_MIN, num_iterations=6000)
+    runner.load(checkpoint_lr=LR_MIN, iteration=9999)
+
+    assert train_script.reset_lr_after_resume(runner, LR_INIT, schedule="cosine") is None
+    runner.learn(1)
+    assert runner.alg.optimizer_lrs[0] == pytest.approx(_expected_cosine(9999 / 15999))
+
+
+def test_set_learning_rate_writes_every_param_group_and_the_attribute():
+    runner = _RecordingRunner(num_param_groups=3)
+    runner.load(checkpoint_lr=LR_MIN, iteration=500)
+
+    train_script.set_learning_rate(runner, LR_INIT)
+
+    assert [g["lr"] for g in runner.alg.optimizer.param_groups] == pytest.approx([LR_INIT] * 3)
+    assert runner.alg.learning_rate == pytest.approx(LR_INIT)
+
+
+def test_scheduled_resume_overrides_the_checkpoint_rate_on_the_first_update():
+    """With the flag, the schedule owns the rate from the first update on."""
+    start, num_iterations = 9999, 6000
+    runner = _RecordingRunner()
+    train_script.attach_lr_schedule(runner, "cosine", LR_INIT, LR_MIN, num_iterations=num_iterations)
+    runner.load(checkpoint_lr=LR_MIN, iteration=start)
+    runner.learn(num_iterations)
+
+    expected = _expected_cosine(start / (start + num_iterations))
+    assert runner.alg.optimizer_lrs[0] == pytest.approx(expected)
+    assert runner.alg.optimizer_lrs[0] > 5 * LR_MIN
+
+
+def test_lr_at_progress_spans_the_curve():
+    assert train_script.lr_at_progress("cosine", LR_INIT, LR_MIN, 0.0) == pytest.approx(LR_INIT)
+    assert train_script.lr_at_progress("cosine", LR_INIT, LR_MIN, 1.0) == pytest.approx(LR_MIN)
+    assert train_script.lr_at_progress("linear", LR_INIT, LR_MIN, 0.5) == pytest.approx(
+        0.5 * (LR_INIT + LR_MIN)
+    )
+    with pytest.raises(ValueError, match="unknown LR schedule"):
+        train_script.lr_at_progress("exponential", LR_INIT, LR_MIN, 0.0)
+
+
+def test_the_final_iteration_lands_one_step_short_of_lr_min():
+    """The loop is exclusive of ``start + num_iterations``, so progress never reaches 1.
+
+    The last iteration executed is ``start + num_iterations - 1``, leaving the
+    final rate exactly one schedule step above ``lr_min`` — negligible at a real
+    iteration count, but it is what the code does and the docstring says so.
+    """
+    runner = _RecordingRunner()
+    train_script.attach_lr_schedule(runner, "linear", LR_INIT, LR_MIN, num_iterations=100)
+    runner.learn(100)
+
+    final = runner.alg.optimizer_lrs[-1]
+    assert final == pytest.approx(_expected_linear(99 / 100))
+    assert final > LR_MIN
+    assert final - LR_MIN == pytest.approx((LR_INIT - LR_MIN) / 100)

@@ -260,7 +260,7 @@ flowchart TB
     PPO -.->|--video| VideoRec
     VideoRec -.-> Videos
 
-    click Launcher "../source/strafer_lab/scripts/train_strafer_navigation.py" "Training wrapper (RSL-RL / aux losses / video)"
+    click Launcher "../source/strafer_lab/scripts/train_strafer_navigation.py" "Training wrapper (RSL-RL / video)"
     click TasksInit "../source/strafer_lab/strafer_lab/tasks/navigation" "30 registered gym environments"
     click EnvCfg "../source/strafer_lab/strafer_lab/tasks/navigation" "Env configs per realism × sensor"
     click SimRealCfg "../source/strafer_lab/strafer_lab/tasks/navigation" "Ideal / Realistic / Robust presets"

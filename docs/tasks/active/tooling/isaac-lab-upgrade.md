@@ -4,7 +4,9 @@
 **Owner:** DGX (lane: `env_isaaclab3`, the Isaac Sim/Lab install, `env_setup.sh`)
 **Priority:** P3 — nothing is blocked today; bumps to P2 if a needed upstream fix/feature (or a torch the deploy chain needs) is gated behind the bump.
 **Estimate:** M–L — the bump itself is small; the risk is the whole sim stack (training, bridge, rendering, the Kit test suite), so the cost is the full re-validation, not the upgrade.
-**Branch:** task/isaac-lab-upgrade
+**Branch:** task/isaac-lab-upgrade-* — one standing brief, several PRs (the
+upgrade lands in stages; each stage is its own `task/isaac-lab-upgrade-<stage>`
+branch off `main`).
 
 ## Story
 
@@ -47,9 +49,25 @@ wide blast radius, so the deliverable is dominated by re-validation.
 
 ## Approach
 
-- Bump the pinned Isaac Lab commit/release on a branch; recreate
-  `env_isaaclab3` and update its recreate command + any pinned versions in
-  `env_setup.sh` / `repo-topology.md`.
+- **Build a second env + clone pair alongside the existing one — never
+  recreate `env_isaaclab3` in place.** The new Isaac Lab clone is checked out
+  at the target release and installed into a new conda env; the old pair stays
+  on disk, untouched and still working, for the whole migration.
+- The new env is created with **`rsl-rl-lib==5.4.2`** and
+  **`onnxscript>=0.7.1`** from the start, rather than flipping either pin in
+  place afterwards. Install the Isaac Lab editables *without* the `rsl-rl`
+  extra — its `==5.0.1` pin would trip `pip check` — then install
+  `rsl-rl-lib==5.4.2` directly.
+- **Cutover is a pointer flip, not a reinstall**: `STRAFER_ISAACLAB_PYTHON`,
+  `CONDA_ENV`, and `ISAACLAB` in `.env` select which pair the repo uses.
+  Update the recreate command + pinned versions in `env_setup.sh` /
+  `.env.example` / `repo-topology.md` to describe the new pair in the same PR
+  as the flip. **Rollback is flipping those three pointers back.**
+- **The old pair is a preserved artifact, not scratch space.** It is no longer
+  rebuildable from the notes that produced it, and it is the only way to
+  recompute pre-bump config hashes when a golden moves and the attribution
+  needs both trees. Do not delete it, reinstall over it, or upgrade anything
+  inside it.
 - Record the **torch version** the new release ships (the input to the
   `.venv_vlm` consolidation question).
 - Re-validate the sim stack: `make test-lab` (Kit suite + pure-Python), a
@@ -62,10 +80,14 @@ wide blast radius, so the deliverable is dominated by re-validation.
 
 ## Acceptance
 
-- [ ] Pinned Isaac Lab version bumped; `env_isaaclab3` recreate command + any
-      pinned versions in `env_setup.sh` / `repo-topology.md` updated; the new
-      torch version recorded.
-- [ ] `make test-lab` green from a fresh `env_isaaclab3` (modulo the known
+- [ ] Pinned Isaac Lab version bumped in a **new** env + clone pair built
+      alongside the old one; the recreate command + pinned versions (including
+      `rsl-rl-lib==5.4.2` and `onnxscript>=0.7.1`) updated in `env_setup.sh` /
+      `.env.example` / `repo-topology.md`; the new torch version recorded.
+- [ ] The `.env` pointers select the new pair, the old pair is still intact on
+      disk, and flipping the pointers back is demonstrated to restore the old
+      behavior.
+- [ ] `make test-lab` green on the new pair (modulo the known
       [`collision-imu-signal-flaky`](../investigations/collision-imu-signal-flaky.md)
       flake).
 - [ ] Training smoke + `make sim-bridge` smoke pass; no regression to the

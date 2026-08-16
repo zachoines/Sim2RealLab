@@ -8,6 +8,11 @@ Three config tiers:
 
 All use asymmetric actor-critic: the actor sees noisy policy observations
 while the critic additionally receives privileged ground truth state.
+
+All three pin ``schedule="fixed"``, so the learning rate is governed by this
+config and any external decay schedule, never by rsl_rl's KL-adaptive
+controller. ``desired_kl`` is a required field on ``RslRlPpoAlgorithmCfg`` and
+is read only under ``schedule="adaptive"`` — its value is inert here.
 """
 
 from isaaclab_rl.rsl_rl import (
@@ -139,9 +144,6 @@ STRAFER_PPO_RECURRENT_RUNNER_CFG = RslRlOnPolicyRunnerCfg(
 # policy.  Beta differential entropy goes negative as concentrations grow,
 # so this coefficient must be high enough to resist early collapse while
 # staying below the surrogate loss magnitude.
-#
-# schedule="fixed": adaptive LR is counterproductive with DAPG — the strong
-# initial BC gradient triggers the KL controller to kill LR before RL starts.
 # =============================================================================
 
 STRAFER_PPO_DEPTH_RUNNER_CFG = RslRlOnPolicyRunnerCfg(

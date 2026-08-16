@@ -8,6 +8,11 @@ Three config tiers:
 
 All use asymmetric actor-critic: the actor sees noisy policy observations
 while the critic additionally receives privileged ground truth state.
+
+All three pin ``schedule="fixed"``, so the learning rate is governed by this
+config and any external decay schedule, never by rsl_rl's KL-adaptive
+controller. ``desired_kl`` is a required field on ``RslRlPpoAlgorithmCfg`` and
+is read only under ``schedule="adaptive"`` — its value is inert here.
 """
 
 from isaaclab_rl.rsl_rl import (

@@ -1,0 +1,10 @@
+# Supplementary baseline — the two Kit test files absent from run_tests.py SUITES
+
+Run standalone on 2026-08-14 at e7ea7bd. Both are cfg-only and need no Kit boot.
+
+=== test_sim/sensors/test_d555_perception_cfg.py ===
+27 passed, 44 warnings in 2.54s
+=== test_sim/sensors/depth_noise/test_scene_cfg.py ===
+2 passed, 43 warnings in 2.55s
+=== both together ===
+29 passed, 45 warnings in 2.53s

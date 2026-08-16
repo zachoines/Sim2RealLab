@@ -1,0 +1,322 @@
+{
+ "clutter_box_0": {
+  "size": [
+   0.3,
+   0.3,
+   0.3
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "clutter_box_1": {
+  "size": [
+   0.3,
+   0.3,
+   0.3
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "clutter_box_2": {
+  "size": [
+   0.3,
+   0.3,
+   0.3
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "clutter_box_3": {
+  "size": [
+   0.3,
+   0.3,
+   0.3
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "clutter_capsule_0": {
+  "height": 0.4,
+  "radius": 0.1,
+  "spawn": "CapsuleCfg"
+ },
+ "clutter_capsule_1": {
+  "height": 0.4,
+  "radius": 0.1,
+  "spawn": "CapsuleCfg"
+ },
+ "clutter_cone_0": {
+  "height": 0.35,
+  "radius": 0.12,
+  "spawn": "ConeCfg"
+ },
+ "clutter_cone_1": {
+  "height": 0.35,
+  "radius": 0.12,
+  "spawn": "ConeCfg"
+ },
+ "clutter_cyl_0": {
+  "height": 0.4,
+  "radius": 0.15,
+  "spawn": "CylinderCfg"
+ },
+ "clutter_cyl_1": {
+  "height": 0.4,
+  "radius": 0.15,
+  "spawn": "CylinderCfg"
+ },
+ "clutter_flat_0": {
+  "size": [
+   0.4,
+   0.4,
+   0.15
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "clutter_flat_1": {
+  "size": [
+   0.4,
+   0.4,
+   0.15
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "clutter_sphere_0": {
+  "radius": 0.15,
+  "spawn": "SphereCfg"
+ },
+ "clutter_sphere_1": {
+  "radius": 0.15,
+  "spawn": "SphereCfg"
+ },
+ "clutter_tall_cyl_0": {
+  "height": 0.7,
+  "radius": 0.1,
+  "spawn": "CylinderCfg"
+ },
+ "clutter_tall_cyl_1": {
+  "height": 0.7,
+  "radius": 0.1,
+  "spawn": "CylinderCfg"
+ },
+ "furn_cabinet_0": {
+  "size": [
+   0.5,
+   0.5,
+   0.6
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "furn_cabinet_1": {
+  "size": [
+   0.5,
+   0.5,
+   0.6
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "furn_couch_0": {
+  "size": [
+   1.4,
+   0.6,
+   0.35
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "furn_couch_1": {
+  "size": [
+   1.4,
+   0.6,
+   0.35
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "furn_shelf_0": {
+  "size": [
+   1.2,
+   0.3,
+   0.8
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "furn_shelf_1": {
+  "size": [
+   1.2,
+   0.3,
+   0.8
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "furn_table_0": {
+  "size": [
+   0.8,
+   0.6,
+   0.4
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "furn_table_1": {
+  "size": [
+   0.8,
+   0.6,
+   0.4
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "wall_long_0": {
+  "size": [
+   2.0,
+   0.15,
+   1.0
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "wall_long_1": {
+  "size": [
+   2.0,
+   0.15,
+   1.0
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "wall_long_2": {
+  "size": [
+   2.0,
+   0.15,
+   1.0
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "wall_long_3": {
+  "size": [
+   2.0,
+   0.15,
+   1.0
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "wall_long_4": {
+  "size": [
+   2.0,
+   0.15,
+   1.0
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "wall_long_5": {
+  "size": [
+   2.0,
+   0.15,
+   1.0
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "wall_long_6": {
+  "size": [
+   2.0,
+   0.15,
+   1.0
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "wall_long_7": {
+  "size": [
+   2.0,
+   0.15,
+   1.0
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "wall_med_0": {
+  "size": [
+   1.0,
+   0.15,
+   1.0
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "wall_med_1": {
+  "size": [
+   1.0,
+   0.15,
+   1.0
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "wall_med_2": {
+  "size": [
+   1.0,
+   0.15,
+   1.0
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "wall_med_3": {
+  "size": [
+   1.0,
+   0.15,
+   1.0
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "wall_med_4": {
+  "size": [
+   1.0,
+   0.15,
+   1.0
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "wall_med_5": {
+  "size": [
+   1.0,
+   0.15,
+   1.0
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "wall_med_6": {
+  "size": [
+   1.0,
+   0.15,
+   1.0
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "wall_med_7": {
+  "size": [
+   1.0,
+   0.15,
+   1.0
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "wall_short_0": {
+  "size": [
+   0.5,
+   0.15,
+   1.0
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "wall_short_1": {
+  "size": [
+   0.5,
+   0.15,
+   1.0
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "wall_short_2": {
+  "size": [
+   0.5,
+   0.15,
+   1.0
+  ],
+  "spawn": "CuboidCfg"
+ },
+ "wall_short_3": {
+  "size": [
+   0.5,
+   0.15,
+   1.0
+  ],
+  "spawn": "CuboidCfg"
+ }
+}

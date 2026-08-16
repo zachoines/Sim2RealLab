@@ -1,0 +1,284 @@
+{
+  "artifacts": {
+    "strafer_depth_subgoal_v2_998": {
+      "formats": {
+        "onnx": {
+          "bytes": 12521436,
+          "sha256": "855e1df7d0dac3be7229f933b59546b26f18959f97966b9e2f2f22e752bf5165"
+        },
+        "pt": {
+          "bytes": 13424358,
+          "sha256": "03871cb5a09bffd2383994bd00f8245ea68a4aec1cac33f98a5ac6ae5d637b37"
+        }
+      },
+      "sequences": {
+        "indist|cross_format": {
+          "max_action_delta": 2.6226043701171875e-06,
+          "max_hidden_delta": 1.6763806343078613e-05
+        },
+        "indist|onnx": {
+          "action_abs_mean": 0.43409784712518257,
+          "action_max": 0.9618194103240967,
+          "action_min": -0.9605546593666077,
+          "action_shape": [
+            128,
+            3
+          ],
+          "hidden_abs_mean": 0.8809539613120507,
+          "hidden_shape": [
+            128,
+            1,
+            1,
+            128
+          ],
+          "rerun_action_delta": 0.0,
+          "rerun_hidden_delta": 0.0
+        },
+        "indist|pt": {
+          "action_abs_mean": 0.4340978297404945,
+          "action_max": 0.9618194103240967,
+          "action_min": -0.9605546593666077,
+          "action_shape": [
+            128,
+            3
+          ],
+          "hidden_abs_mean": 0.8809537264993281,
+          "hidden_shape": [
+            128,
+            1,
+            1,
+            128
+          ],
+          "rerun_action_delta": 0.0,
+          "rerun_hidden_delta": 0.0
+        },
+        "normal|cross_format": {
+          "max_action_delta": 2.9206275939941406e-06,
+          "max_hidden_delta": 1.4916062355041504e-05
+        },
+        "normal|onnx": {
+          "action_abs_mean": 0.4637865115267535,
+          "action_max": 0.94761061668396,
+          "action_min": -0.9731853008270264,
+          "action_shape": [
+            128,
+            3
+          ],
+          "hidden_abs_mean": 0.8826963228056081,
+          "hidden_shape": [
+            128,
+            1,
+            1,
+            128
+          ],
+          "rerun_action_delta": 0.0,
+          "rerun_hidden_delta": 0.0
+        },
+        "normal|pt": {
+          "action_abs_mean": 0.46378649414206546,
+          "action_max": 0.94761061668396,
+          "action_min": -0.9731853008270264,
+          "action_shape": [
+            128,
+            3
+          ],
+          "hidden_abs_mean": 0.8826960951702318,
+          "hidden_shape": [
+            128,
+            1,
+            1,
+            128
+          ],
+          "rerun_action_delta": 0.0,
+          "rerun_hidden_delta": 0.0
+        }
+      },
+      "sidecar": {
+        "action_dim": 3,
+        "env_id": "Isaac-Strafer-Nav-RLDepth-Subgoal-Real-Play-v0",
+        "export_timestamp": "2026-07-28T18:37:39.452169+00:00",
+        "formats": [
+          "pt",
+          "onnx"
+        ],
+        "git_commit": "69014c6f0621f62e9ea672e4c2d666d143fd64b0",
+        "is_recurrent": true,
+        "obs_dim": 3619,
+        "onnx_opset": 18,
+        "policy_variant": "DEPTH_SUBGOAL",
+        "source_checkpoint": "logs/rsl_rl/strafer_navigation/run_20260727_171735/model_998.pt",
+        "training_preset": "RslRlOnPolicyRunnerCfg"
+      },
+      "sidecar_sha256": "3b5d3e909eeb6f9e36fb466c2cd979468bbc29014290e278bba5a32a446017e2"
+    },
+    "strafer_nocam_subgoal_gru_smoke": {
+      "formats": {
+        "onnx": null,
+        "pt": {
+          "bytes": 782436,
+          "sha256": "3cac49dcec9b81c7c3fb9cce98b17b73a677513fda7c2786365f1bd1e962bfeb"
+        }
+      },
+      "sequences": {
+        "indist|pt": {
+          "action_abs_mean": 0.15914600011137736,
+          "action_max": 0.618147075176239,
+          "action_min": -0.6444094777107239,
+          "action_shape": [
+            128,
+            3
+          ],
+          "hidden_abs_mean": 0.10896951170574809,
+          "hidden_shape": [
+            128,
+            1,
+            1,
+            128
+          ],
+          "rerun_action_delta": 0.0,
+          "rerun_hidden_delta": 0.0
+        },
+        "normal|pt": {
+          "action_abs_mean": 0.1553194076670176,
+          "action_max": 0.6443968415260315,
+          "action_min": -0.46592819690704346,
+          "action_shape": [
+            128,
+            3
+          ],
+          "hidden_abs_mean": 0.11157585340860976,
+          "hidden_shape": [
+            128,
+            1,
+            1,
+            128
+          ],
+          "rerun_action_delta": 0.0,
+          "rerun_hidden_delta": 0.0
+        }
+      },
+      "sidecar": {
+        "action_dim": 3,
+        "env_id": "Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-GRU-v0",
+        "export_timestamp": "2026-07-04T22:52:01.096681+00:00",
+        "formats": [
+          "pt"
+        ],
+        "git_commit": "1714ed02c38dcc98f045f8df3011175177f57c4e",
+        "is_recurrent": true,
+        "obs_dim": 19,
+        "policy_variant": "NOCAM_SUBGOAL",
+        "source_checkpoint": "logs/rsl_rl/strafer_navigation/run_20260704_173327/model_9.pt",
+        "training_preset": "RslRlOnPolicyRunnerCfg"
+      },
+      "sidecar_sha256": "6d8fa1f1cfcc7729105a910c3f1055c92eed99b18a4afba038e81c4de1872b4b"
+    },
+    "strafer_nocam_subgoal_v0": {
+      "formats": {
+        "onnx": {
+          "bytes": 417926,
+          "sha256": "95f06bc7c27f25139145f78d8c103a339f130933985424410f66477a3e6c60d2"
+        },
+        "pt": {
+          "bytes": 431620,
+          "sha256": "4168a655a50dc928ff697e5e9bf3277999199a2bd8f30e5e1ff9dcabc0e3ef56"
+        }
+      },
+      "sequences": {
+        "indist|cross_format": {
+          "max_action_delta": 2.384185791015625e-06,
+          "max_hidden_delta": null
+        },
+        "indist|onnx": {
+          "action_abs_mean": 2.3552967224871586,
+          "action_max": 3.917107343673706,
+          "action_min": -24.966548919677734,
+          "action_shape": [
+            128,
+            3
+          ],
+          "hidden_abs_mean": null,
+          "hidden_shape": null,
+          "rerun_action_delta": 0.0,
+          "rerun_hidden_delta": null
+        },
+        "indist|pt": {
+          "action_abs_mean": 2.355296746296517,
+          "action_max": 3.917107582092285,
+          "action_min": -24.966550827026367,
+          "action_shape": [
+            128,
+            3
+          ],
+          "hidden_abs_mean": null,
+          "hidden_shape": null,
+          "rerun_action_delta": 0.0,
+          "rerun_hidden_delta": null
+        },
+        "normal|cross_format": {
+          "max_action_delta": 2.86102294921875e-06,
+          "max_hidden_delta": null
+        },
+        "normal|onnx": {
+          "action_abs_mean": 2.3956780353716263,
+          "action_max": 4.656588554382324,
+          "action_min": -25.469572067260742,
+          "action_shape": [
+            128,
+            3
+          ],
+          "hidden_abs_mean": null,
+          "hidden_shape": null,
+          "rerun_action_delta": 0.0,
+          "rerun_hidden_delta": null
+        },
+        "normal|pt": {
+          "action_abs_mean": 2.3956780018891854,
+          "action_max": 4.656588554382324,
+          "action_min": -25.469572067260742,
+          "action_shape": [
+            128,
+            3
+          ],
+          "hidden_abs_mean": null,
+          "hidden_shape": null,
+          "rerun_action_delta": 0.0,
+          "rerun_hidden_delta": null
+        }
+      },
+      "sidecar": {
+        "action_dim": 3,
+        "env_id": "Isaac-Strafer-Nav-RLNoCam-Subgoal-Real-Play-v0",
+        "export_timestamp": "2026-06-28T22:16:12.043806+00:00",
+        "formats": [
+          "pt",
+          "onnx"
+        ],
+        "git_commit": "e01ad59d793db307350fe743a3958156e741966d",
+        "is_recurrent": false,
+        "obs_dim": 19,
+        "onnx_opset": 18,
+        "policy_variant": "NOCAM_SUBGOAL",
+        "source_checkpoint": "/home/zachoines/Workspace/Sim2RealLab-subgoal-env/logs/rsl_rl/strafer_navigation/run_20260615_042919/model_2999.pt",
+        "training_preset": "RslRlOnPolicyRunnerCfg"
+      },
+      "sidecar_sha256": "e812c46251c6d7b9a9cf50f434cf611d882a6b4dc821b50c7d2a5b9cc56fa892"
+    }
+  },
+  "n_scalars": 19,
+  "obs_source": "generated",
+  "seeds": {
+    "indist": 5678,
+    "normal": 1234
+  },
+  "steps": 128,
+  "versions": {
+    "isaacsim": "6.0.0.0",
+    "numpy": "2.3.1",
+    "onnx": "1.21.0",
+    "onnxruntime": "1.25.1",
+    "onnxscript": "0.6.2",
+    "rsl-rl-lib": "5.0.1",
+    "torch": "2.10.0+cu130"
+  }
+}

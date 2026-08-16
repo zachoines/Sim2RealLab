@@ -1,0 +1,21 @@
+{
+  "action_dim": 3,
+  "action_hash": "8dce355fb1188a4066db77c7c0955708c91bd65f1dbdcc651f54d4a94e2bf3fe",
+  "device": "cuda:0",
+  "dr_fields": [
+    "inertias",
+    "joint_pos",
+    "joint_vel",
+    "masses",
+    "material_properties",
+    "root_state_w"
+  ],
+  "dr_fields_unavailable": [],
+  "dr_hash": "194fe656d3974568a297a5fad35b349c9f52a10c2123fb5cc301b0c679b118f6",
+  "env": "Isaac-Strafer-Nav-RLNoCam-v0",
+  "npz": "pose_trace_run2.npz",
+  "num_envs": 16,
+  "seed": 42,
+  "steps": 300,
+  "trace_hash": "c6632a4e63c9e19198802dfc2c8c7adc0eb53c79fc26420d4b98e29fae934aaa"
+}

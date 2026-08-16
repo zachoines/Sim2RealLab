@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="17.970" timestamp="2026-08-14T16:03:22.880960-05:00" hostname="gx10-d1d8"><testcase classname="test_sim.sensors.test_imu" name="test_imu_gravity" time="17.949" /></testsuite></testsuites>

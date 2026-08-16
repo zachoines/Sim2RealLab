@@ -1,0 +1,61 @@
+{
+  "iterations_seen": 99,
+  "n": 100,
+  "selected": {
+    "10": {
+      "total_steps": 33792,
+      "steps_per_second": 52,
+      "collection_time_s": 18.328,
+      "learning_time_s": 40.371,
+      "mean_reward": -3.82,
+      "mean_episode_length": 179.29,
+      "mean_value_loss": 0.0375,
+      "mean_entropy_loss": 0.594,
+      "mean_action_std": 0.3
+    },
+    "25": {
+      "total_steps": 79872,
+      "steps_per_second": 53,
+      "collection_time_s": 19.501,
+      "learning_time_s": 37.891,
+      "mean_reward": -4.81,
+      "mean_episode_length": 278.72,
+      "mean_value_loss": 0.0215,
+      "mean_entropy_loss": 0.5514,
+      "mean_action_std": 0.29
+    },
+    "50": {
+      "total_steps": 156672,
+      "steps_per_second": 53,
+      "collection_time_s": 18.037,
+      "learning_time_s": 38.938,
+      "mean_reward": -5.06,
+      "mean_episode_length": 319.09,
+      "mean_value_loss": 0.0141,
+      "mean_entropy_loss": 0.5611,
+      "mean_action_std": 0.29
+    },
+    "75": {
+      "total_steps": 233472,
+      "steps_per_second": 54,
+      "collection_time_s": 17.559,
+      "learning_time_s": 38.387,
+      "mean_reward": -4.6,
+      "mean_episode_length": 334.22,
+      "mean_value_loss": 0.0173,
+      "mean_entropy_loss": 0.5825,
+      "mean_action_std": 0.3
+    },
+    "99": {
+      "total_steps": 307200,
+      "steps_per_second": 55,
+      "collection_time_s": 18.297,
+      "learning_time_s": 37.069,
+      "mean_reward": -5.09,
+      "mean_episode_length": 385.86,
+      "mean_value_loss": 0.0184,
+      "mean_entropy_loss": 0.5641,
+      "mean_action_std": 0.3
+    }
+  }
+}

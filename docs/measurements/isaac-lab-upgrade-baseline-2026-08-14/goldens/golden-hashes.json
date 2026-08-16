@@ -1,0 +1,239 @@
+{
+  "n_records": 26,
+  "n_matching": 26,
+  "all_match": true,
+  "variant_obs_profile": {
+    "RLDepthEnriched_Real": "depth",
+    "RLDepthEnriched_Real_PLAY": "depth",
+    "RLDepthEnriched_Robust": "depth",
+    "RLDepthEnriched_Robust_PLAY": "depth",
+    "RLDepthSubgoalEnriched_Real": "depth",
+    "RLDepthSubgoalEnriched_Real_PLAY": "depth",
+    "RLDepthSubgoalEnriched_Robust": "depth",
+    "RLDepthSubgoalEnriched_Robust_PLAY": "depth",
+    "RLDepthSubgoal_Real": "depth",
+    "RLDepthSubgoal_Real_PLAY": "depth",
+    "RLDepthSubgoal_Robust": "depth",
+    "RLDepthSubgoal_Robust_PLAY": "depth",
+    "RLDepth_Real": "depth",
+    "RLDepth_Real_PLAY": "depth",
+    "RLDepth_Robust": "depth",
+    "RLDepth_Robust_PLAY": "depth",
+    "RLNoCam": "nocam",
+    "RLNoCamSubgoal_Real": "nocam",
+    "RLNoCamSubgoal_Real_PLAY": "nocam",
+    "RLNoCamSubgoal_Robust": "nocam",
+    "RLNoCamSubgoal_Robust_PLAY": "nocam",
+    "RLNoCam_PLAY": "nocam"
+  },
+  "records": [
+    {
+      "kind": "contract",
+      "name": "RLDepthEnriched_Real",
+      "stored_golden": "0f2e7ec333ef296443ca2a35ae7a2a5b20cb3527ebea9dfcb8ed3a0de73e773b",
+      "recomputed": "0f2e7ec333ef296443ca2a35ae7a2a5b20cb3527ebea9dfcb8ed3a0de73e773b",
+      "match": true,
+      "preimage_file": "preimages/contract-RLDepthEnriched_Real.json"
+    },
+    {
+      "kind": "contract",
+      "name": "RLDepthEnriched_Real_PLAY",
+      "stored_golden": "14997ac72fb1721ad9ac351463ccd63b3f15746af73e6ee3c3bd36de224db22d",
+      "recomputed": "14997ac72fb1721ad9ac351463ccd63b3f15746af73e6ee3c3bd36de224db22d",
+      "match": true,
+      "preimage_file": "preimages/contract-RLDepthEnriched_Real_PLAY.json"
+    },
+    {
+      "kind": "contract",
+      "name": "RLDepthEnriched_Robust",
+      "stored_golden": "dcf440028fda1258e5694348f1c4bc464df50f1fe6c6f6a9a5dbb77d02943e83",
+      "recomputed": "dcf440028fda1258e5694348f1c4bc464df50f1fe6c6f6a9a5dbb77d02943e83",
+      "match": true,
+      "preimage_file": "preimages/contract-RLDepthEnriched_Robust.json"
+    },
+    {
+      "kind": "contract",
+      "name": "RLDepthEnriched_Robust_PLAY",
+      "stored_golden": "291e1c2e71109910a0cc9a9694b04f543bae3f84f33924d4a9cfab133b5ab884",
+      "recomputed": "291e1c2e71109910a0cc9a9694b04f543bae3f84f33924d4a9cfab133b5ab884",
+      "match": true,
+      "preimage_file": "preimages/contract-RLDepthEnriched_Robust_PLAY.json"
+    },
+    {
+      "kind": "contract",
+      "name": "RLDepthSubgoalEnriched_Real",
+      "stored_golden": "4e70517667e75e3b9679fa1b45ab5eea3dde0d54d6be9fcb1b7588a91766c9b0",
+      "recomputed": "4e70517667e75e3b9679fa1b45ab5eea3dde0d54d6be9fcb1b7588a91766c9b0",
+      "match": true,
+      "preimage_file": "preimages/contract-RLDepthSubgoalEnriched_Real.json"
+    },
+    {
+      "kind": "contract",
+      "name": "RLDepthSubgoalEnriched_Real_PLAY",
+      "stored_golden": "034b8e2081b326c8b45972cb630c69d117082fd1a71fab2c94f58ac5ef2699ba",
+      "recomputed": "034b8e2081b326c8b45972cb630c69d117082fd1a71fab2c94f58ac5ef2699ba",
+      "match": true,
+      "preimage_file": "preimages/contract-RLDepthSubgoalEnriched_Real_PLAY.json"
+    },
+    {
+      "kind": "contract",
+      "name": "RLDepthSubgoalEnriched_Robust",
+      "stored_golden": "ca9de0f434fd4e82f98683c178b85a5fdc66838d57913c4cd67eec7606d84d50",
+      "recomputed": "ca9de0f434fd4e82f98683c178b85a5fdc66838d57913c4cd67eec7606d84d50",
+      "match": true,
+      "preimage_file": "preimages/contract-RLDepthSubgoalEnriched_Robust.json"
+    },
+    {
+      "kind": "contract",
+      "name": "RLDepthSubgoalEnriched_Robust_PLAY",
+      "stored_golden": "d515524d2a643e6650a60d0033582b2caa461d032e493ec531b5cd0820e172b4",
+      "recomputed": "d515524d2a643e6650a60d0033582b2caa461d032e493ec531b5cd0820e172b4",
+      "match": true,
+      "preimage_file": "preimages/contract-RLDepthSubgoalEnriched_Robust_PLAY.json"
+    },
+    {
+      "kind": "contract",
+      "name": "RLDepthSubgoal_Real",
+      "stored_golden": "bd147fe57ae82e1000bb4ecc02c31bc4aba267598438f6da3ddc4bbd1a875220",
+      "recomputed": "bd147fe57ae82e1000bb4ecc02c31bc4aba267598438f6da3ddc4bbd1a875220",
+      "match": true,
+      "preimage_file": "preimages/contract-RLDepthSubgoal_Real.json"
+    },
+    {
+      "kind": "contract",
+      "name": "RLDepthSubgoal_Real_PLAY",
+      "stored_golden": "1b22bfef0b8f72436b598fd6eb79b7044f328b6e172bcfda998281f6d6f8fe9b",
+      "recomputed": "1b22bfef0b8f72436b598fd6eb79b7044f328b6e172bcfda998281f6d6f8fe9b",
+      "match": true,
+      "preimage_file": "preimages/contract-RLDepthSubgoal_Real_PLAY.json"
+    },
+    {
+      "kind": "contract",
+      "name": "RLDepthSubgoal_Robust",
+      "stored_golden": "51a6b578a08d9d086d0a0dd74a65f6c2e0ae8244e6144806546cc70acaf95114",
+      "recomputed": "51a6b578a08d9d086d0a0dd74a65f6c2e0ae8244e6144806546cc70acaf95114",
+      "match": true,
+      "preimage_file": "preimages/contract-RLDepthSubgoal_Robust.json"
+    },
+    {
+      "kind": "contract",
+      "name": "RLDepthSubgoal_Robust_PLAY",
+      "stored_golden": "69e1b847fcba6d4cd9f5c0728100e9668295a5d80947b97cc67d406869b1c226",
+      "recomputed": "69e1b847fcba6d4cd9f5c0728100e9668295a5d80947b97cc67d406869b1c226",
+      "match": true,
+      "preimage_file": "preimages/contract-RLDepthSubgoal_Robust_PLAY.json"
+    },
+    {
+      "kind": "contract",
+      "name": "RLDepth_Real",
+      "stored_golden": "bf325fb81189d208984a0095fd782ea8122e090228a5023ff162ee4c1d3fea7a",
+      "recomputed": "bf325fb81189d208984a0095fd782ea8122e090228a5023ff162ee4c1d3fea7a",
+      "match": true,
+      "preimage_file": "preimages/contract-RLDepth_Real.json"
+    },
+    {
+      "kind": "contract",
+      "name": "RLDepth_Real_PLAY",
+      "stored_golden": "ab290222e2b1fe08666a7ecc04f0f9aaa945bf1494f78fa8147300877a15050d",
+      "recomputed": "ab290222e2b1fe08666a7ecc04f0f9aaa945bf1494f78fa8147300877a15050d",
+      "match": true,
+      "preimage_file": "preimages/contract-RLDepth_Real_PLAY.json"
+    },
+    {
+      "kind": "contract",
+      "name": "RLDepth_Robust",
+      "stored_golden": "3147ff16fa6863a7b410822cd3b6c8b6d5da6e4c8789e618899fc2ec056f0c6b",
+      "recomputed": "3147ff16fa6863a7b410822cd3b6c8b6d5da6e4c8789e618899fc2ec056f0c6b",
+      "match": true,
+      "preimage_file": "preimages/contract-RLDepth_Robust.json"
+    },
+    {
+      "kind": "contract",
+      "name": "RLDepth_Robust_PLAY",
+      "stored_golden": "13793d71f8441a9e38d4c1ad6e09c3c56afa6c819b1600c897ef0da618c6f497",
+      "recomputed": "13793d71f8441a9e38d4c1ad6e09c3c56afa6c819b1600c897ef0da618c6f497",
+      "match": true,
+      "preimage_file": "preimages/contract-RLDepth_Robust_PLAY.json"
+    },
+    {
+      "kind": "contract",
+      "name": "RLNoCam",
+      "stored_golden": "63fe18688cb6ec0974118bc0ac4b4e8d9ba8e6a9249e5e08be9ade18aa4f82c7",
+      "recomputed": "63fe18688cb6ec0974118bc0ac4b4e8d9ba8e6a9249e5e08be9ade18aa4f82c7",
+      "match": true,
+      "preimage_file": "preimages/contract-RLNoCam.json"
+    },
+    {
+      "kind": "contract",
+      "name": "RLNoCamSubgoal_Real",
+      "stored_golden": "43cb7039c0f3600545f1c3774cea755e43acf1c5828957eb1c816a4a247fe6bf",
+      "recomputed": "43cb7039c0f3600545f1c3774cea755e43acf1c5828957eb1c816a4a247fe6bf",
+      "match": true,
+      "preimage_file": "preimages/contract-RLNoCamSubgoal_Real.json"
+    },
+    {
+      "kind": "contract",
+      "name": "RLNoCamSubgoal_Real_PLAY",
+      "stored_golden": "b0db740e62ed32c9f69fb2e2d7c368ab952210d14b7d446440503e81c9de7eb3",
+      "recomputed": "b0db740e62ed32c9f69fb2e2d7c368ab952210d14b7d446440503e81c9de7eb3",
+      "match": true,
+      "preimage_file": "preimages/contract-RLNoCamSubgoal_Real_PLAY.json"
+    },
+    {
+      "kind": "contract",
+      "name": "RLNoCamSubgoal_Robust",
+      "stored_golden": "d1bfab170702a8200316cabf667255e47c439515d8612031760fa13f154f1559",
+      "recomputed": "d1bfab170702a8200316cabf667255e47c439515d8612031760fa13f154f1559",
+      "match": true,
+      "preimage_file": "preimages/contract-RLNoCamSubgoal_Robust.json"
+    },
+    {
+      "kind": "contract",
+      "name": "RLNoCamSubgoal_Robust_PLAY",
+      "stored_golden": "e862b8e24dd863b3ebf6fbf607529602d76a4bd5a7aaf8c342eb8ae4d26445e1",
+      "recomputed": "e862b8e24dd863b3ebf6fbf607529602d76a4bd5a7aaf8c342eb8ae4d26445e1",
+      "match": true,
+      "preimage_file": "preimages/contract-RLNoCamSubgoal_Robust_PLAY.json"
+    },
+    {
+      "kind": "contract",
+      "name": "RLNoCam_PLAY",
+      "stored_golden": "6c46e340dc7cb508f59c3a122e971222afa8179219ba05cd007debc27b17fae3",
+      "recomputed": "6c46e340dc7cb508f59c3a122e971222afa8179219ba05cd007debc27b17fae3",
+      "match": true,
+      "preimage_file": "preimages/contract-RLNoCam_PLAY.json"
+    },
+    {
+      "kind": "depthobs",
+      "name": "RLDepth_Real",
+      "stored_golden": "bf6ad701fa80524226ce279a54a085857c78d0d28a9d4918bb68ce3738bdb9ab",
+      "recomputed": "bf6ad701fa80524226ce279a54a085857c78d0d28a9d4918bb68ce3738bdb9ab",
+      "match": true,
+      "preimage_file": "preimages/depthobs-RLDepth_Real.json"
+    },
+    {
+      "kind": "layout",
+      "name": "depth",
+      "stored_golden": "ccb6f617eae1dff4887191fe807e9605786c159451747295f525768ba3a9d20c",
+      "recomputed": "ccb6f617eae1dff4887191fe807e9605786c159451747295f525768ba3a9d20c",
+      "match": true,
+      "preimage_file": "preimages/layout-depth.json"
+    },
+    {
+      "kind": "layout",
+      "name": "nocam",
+      "stored_golden": "26b1ece3f2001ccee496e784ca4737d1ad1d2be7afce33264d3f9dbd64fbe20d",
+      "recomputed": "26b1ece3f2001ccee496e784ca4737d1ad1d2be7afce33264d3f9dbd64fbe20d",
+      "match": true,
+      "preimage_file": "preimages/layout-nocam.json"
+    },
+    {
+      "kind": "palette",
+      "name": "pre_enrichment",
+      "stored_golden": "cf3499bf212a50c571b1bda4980fbbf16c7ad743dc40c5e88b7b528de3d41832",
+      "recomputed": "cf3499bf212a50c571b1bda4980fbbf16c7ad743dc40c5e88b7b528de3d41832",
+      "match": true,
+      "preimage_file": "preimages/palette-pre_enrichment.json"
+    }
+  ]
+}

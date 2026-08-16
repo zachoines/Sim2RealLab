@@ -21,14 +21,106 @@ Video recording (overhead view):
     --video_interval 2000  Steps between recordings (default: 2000)
 
 Usage:
-    .\\IsaacLab\\isaaclab.bat -p Scripts\\train_strafer_navigation.py --num_envs 512
-    .\\IsaacLab\\isaaclab.bat -p Scripts\\train_strafer_navigation.py --headless --num_envs 1024
-    .\\IsaacLab\\isaaclab.bat -p Scripts\\train_strafer_navigation.py --video --num_envs 64
+    $ISAACLAB -p source/strafer_lab/scripts/train_strafer_navigation.py --num_envs 512
+    $ISAACLAB -p source/strafer_lab/scripts/train_strafer_navigation.py --headless --num_envs 1024
+    $ISAACLAB -p source/strafer_lab/scripts/train_strafer_navigation.py --video --num_envs 64
 """
 
 import argparse
+import math
 import os
 from datetime import datetime
+
+
+def lr_at_progress(schedule, lr_init, lr_min, progress):
+    """Rate at a point in ``[0, 1]`` along a decay from ``lr_init`` to ``lr_min``."""
+    if schedule == "cosine":
+        return lr_min + 0.5 * (lr_init - lr_min) * (1.0 + math.cos(math.pi * progress))
+    if schedule == "linear":
+        return lr_init + (lr_min - lr_init) * progress
+    raise ValueError(f"unknown LR schedule {schedule!r}; expected 'cosine' or 'linear'")
+
+
+def set_learning_rate(runner, lr):
+    """Put ``lr`` on both the algorithm attribute and the optimizer, returning the rate replaced.
+
+    RSL-RL copies ``alg.learning_rate`` into ``optimizer.param_groups`` only
+    inside its KL-adaptive branch, and the runner logs the attribute rather than
+    the optimizer. Writing one without the other produces a run whose reported
+    rate is not the rate it stepped at.
+    """
+    previous = runner.alg.optimizer.param_groups[0]["lr"]
+    runner.alg.learning_rate = lr
+    for param_group in runner.alg.optimizer.param_groups:
+        param_group["lr"] = lr
+    return previous
+
+
+def reset_lr_after_resume(runner, lr_cfg, schedule):
+    """Put the config's rate back on a resumed optimizer, returning the rate replaced.
+
+    ``PPO.load()`` restores the checkpoint's optimizer state, so a leg resumed
+    from a scheduled run inherits that run's decayed rate. Under
+    ``schedule="fixed"`` nothing rewrites it, and the runner logs
+    ``alg.learning_rate`` rather than the optimizer, so the inherited rate can
+    run a whole leg unreported. The config describes this leg.
+
+    Returns ``None`` when there is nothing to report: a CLI schedule owns the
+    rate from its own first update, the KL-adaptive controller owns it when it
+    is enabled, and a checkpoint already at the config rate is not a reset.
+    """
+    if schedule is not None or getattr(runner.alg, "schedule", None) == "adaptive":
+        return None
+    previous = set_learning_rate(runner, lr_cfg)
+    return None if previous == lr_cfg else previous
+
+
+def attach_lr_schedule(runner, schedule, lr_init, lr_min, num_iterations):
+    """Decay the optimizer learning rate over a training run.
+
+    Wraps ``runner.alg.update`` so each update runs at its scheduled rate, set
+    before the update it governs rather than after.
+
+    Progress runs against ``start + num_iterations``, not the configured
+    maximum, so a resumed run continues down the same curve instead of clamping
+    to ``lr_min``. The loop is exclusive of that bound — the last iteration
+    executed is ``start + num_iterations - 1`` — so the final rate lands one
+    step short of ``lr_min``. The iteration index is tracked locally because
+    ``runner.current_learning_iteration`` is assigned only after ``update()``
+    returns, and so lags by one when read from inside the wrapper.
+
+    Args:
+        runner: The ``OnPolicyRunner`` whose algorithm is being scheduled.
+        schedule: ``"cosine"`` or ``"linear"``.
+        lr_init: Rate at progress 0.
+        lr_min: Rate approached at progress 1.
+        num_iterations: Iterations this invocation will run.
+    """
+    # Validate the name against the curve itself, so an unknown schedule fails
+    # at attach rather than on the first update.
+    lr_at_progress(schedule, lr_init, lr_min, 0.0)
+    if getattr(runner.alg, "schedule", None) == "adaptive":
+        raise ValueError(
+            "LR schedule requires algorithm schedule 'fixed': the KL-adaptive controller "
+            "rewrites param_groups from inside update() and would overwrite the decay"
+        )
+
+    original_update = runner.alg.update
+    # Resolved on first use: a resume checkpoint loads after the schedule is
+    # attached, and it moves current_learning_iteration.
+    start = None
+    step = 0
+
+    def scheduled_update():
+        nonlocal start, step
+        if start is None:
+            start = runner.current_learning_iteration
+        progress = min((start + step) / max(start + num_iterations, 1), 1.0)
+        set_learning_rate(runner, lr_at_progress(schedule, lr_init, lr_min, progress))
+        step += 1
+        return original_update()
+
+    runner.alg.update = scheduled_update
 
 
 def main():
@@ -305,36 +397,41 @@ def main():
     # RSL-RL's KL-adaptive controller from fighting the decay.
     if args.lr_schedule is not None:
         agent_dict["algorithm"]["schedule"] = "fixed"
+    # Read before construction: the runner mutates the dict it is handed, and
+    # RSL-RL can overwrite alg.learning_rate from a loaded checkpoint.
+    lr_cfg = agent_dict["algorithm"]["learning_rate"]
     runner = OnPolicyRunner(env, agent_dict, log_dir=log_dir, device=agent_cfg.device)
 
-    # Attach LR decay schedule (monkey-patches alg.update to apply decay)
     if args.lr_schedule is not None:
-        import math as _math
-
-        _lr_init = agent_dict["algorithm"]["learning_rate"]
-        _lr_min = args.lr_min
-        _total_iters = agent_cfg.max_iterations
-        _schedule_type = args.lr_schedule
-        _original_update = runner.alg.update
-
-        def _update_with_lr_schedule():
-            result = _original_update()
-            it = runner.current_learning_iteration
-            progress = min(it / max(_total_iters, 1), 1.0)
-            if _schedule_type == "cosine":
-                lr = _lr_min + 0.5 * (_lr_init - _lr_min) * (1.0 + _math.cos(_math.pi * progress))
-            else:  # linear
-                lr = _lr_init + (_lr_min - _lr_init) * progress
-            runner.alg.learning_rate = lr
-            return result
-
-        runner.alg.update = _update_with_lr_schedule
-        print(f"[Override] LR schedule = {args.lr_schedule} ({_lr_init:.1e} → {_lr_min:.1e} over {_total_iters} iters)")
+        attach_lr_schedule(
+            runner,
+            args.lr_schedule,
+            lr_init=lr_cfg,
+            lr_min=args.lr_min,
+            num_iterations=agent_cfg.max_iterations,
+        )
 
     # Resume from checkpoint if specified
     if args.resume:
         print(f"Resuming from: {args.resume}")
         runner.load(args.resume)
+        replaced = reset_lr_after_resume(runner, lr_cfg, args.lr_schedule)
+        if replaced is not None:
+            print(
+                f"[Override] optimizer LR {replaced:.3e} from the checkpoint "
+                f"reset to the config's {lr_cfg:.3e}"
+            )
+
+    # The schedule's span is only known once a resume has moved the counter.
+    if args.lr_schedule is not None:
+        start = runner.current_learning_iteration
+        last = start + agent_cfg.max_iterations - 1
+        first_lr = lr_at_progress(args.lr_schedule, lr_cfg, args.lr_min, start / max(last + 1, 1))
+        last_lr = lr_at_progress(args.lr_schedule, lr_cfg, args.lr_min, last / max(last + 1, 1))
+        print(
+            f"[Override] LR schedule = {args.lr_schedule} "
+            f"({first_lr:.1e} → {last_lr:.1e} over iterations {start}-{last})"
+        )
 
     # Train
     print("\n--- Starting Training ---")

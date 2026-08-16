@@ -21,9 +21,9 @@ Video recording (overhead view):
     --video_interval 2000  Steps between recordings (default: 2000)
 
 Usage:
-    .\\IsaacLab\\isaaclab.bat -p Scripts\\train_strafer_navigation.py --num_envs 512
-    .\\IsaacLab\\isaaclab.bat -p Scripts\\train_strafer_navigation.py --headless --num_envs 1024
-    .\\IsaacLab\\isaaclab.bat -p Scripts\\train_strafer_navigation.py --video --num_envs 64
+    $ISAACLAB -p source/strafer_lab/scripts/train_strafer_navigation.py --num_envs 512
+    $ISAACLAB -p source/strafer_lab/scripts/train_strafer_navigation.py --headless --num_envs 1024
+    $ISAACLAB -p source/strafer_lab/scripts/train_strafer_navigation.py --video --num_envs 64
 """
 
 import argparse

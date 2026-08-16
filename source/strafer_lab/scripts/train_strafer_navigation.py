@@ -113,7 +113,6 @@ def main():
 
     # Now import other modules (requires simulator to be running)
     import gymnasium as gym
-    import torch
 
     from rsl_rl.runners import OnPolicyRunner
     import importlib.metadata as _metadata

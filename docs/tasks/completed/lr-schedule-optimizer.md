@@ -82,7 +82,24 @@ resumes and reproduces the intended curve exactly for the crash-resume case.
 For the same reason the decay is anchored at the configured rate, not at the
 checkpoint's. The anchor is the curve's value at absolute iteration 0; taking
 it from the restored optimizer state would re-anneal an already-decayed rate
-and step the LR down discontinuously at each resume.
+and step the LR down discontinuously at each resume. The anchor is read out of
+the config dict before the runner is constructed rather than off
+`alg.learning_rate` afterwards: rsl-rl 5.4.2 — the version the Isaac Lab
+upgrade moves to — assigns `self.learning_rate` from the restored
+`param_groups` inside `PPO.load()`, so the attribute's post-load meaning
+changes with the version while the config read does not.
+
+**Resuming without the flag resets the optimizer to the config's rate.** Making
+the schedule reach `param_groups` makes a new divergence reachable: a checkpoint
+saved from a scheduled leg carries the decayed rate in its
+`optimizer_state_dict`, and `PPO.load()` restores it. Resumed without
+`--lr_schedule`, `schedule="fixed"` means nothing ever rewrites it, so the leg
+would run at roughly `lr_min` while the runner logs the constructor's rate — the
+same logged-versus-applied divergence this work exists to remove, with no banner
+this time. The config describes the leg, so the config's rate is written back
+and the replaced value is printed. Two owners are respected: a CLI schedule,
+which sets the rate before its own first update, and the KL-adaptive
+controller when a config enables it.
 
 ## Acceptance criteria
 
@@ -94,6 +111,14 @@ and step the LR down discontinuously at each resume.
       checkpoint's optimizer rate — runs at its scheduled rate.
 - [x] Progress is measured against the iterations the invocation will execute,
       and the iteration index does not lag the loop.
+- [x] A leg resumed *without* the flag runs at the config's rate rather than
+      inheriting a decayed one from the checkpoint, and says so when it replaces
+      one. A schedule or an adaptive controller keeps ownership where it has it.
+- [x] The helper refuses to attach to an adaptive algorithm, which would
+      overwrite the decay from inside the update it wraps.
+- [x] The console line an operator records describes the leg that ran: on a
+      resume it reports the real first rate and the real iteration span, which
+      are only known once the checkpoint has loaded.
 - [x] A pure test (no Kit, no GPU) drives the patched update against a real
       `torch.optim.Adam` and asserts on `optimizer.param_groups`, never on
       `alg.learning_rate`. It fails against the pre-fix logic and passes after.

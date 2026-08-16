@@ -92,6 +92,7 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | [`batched-gpu-path-planner`](parked/trained-policy/batched-gpu-path-planner.md) | P3 | parked | DGX |
 | [`rl-global-nav2-local`](parked/trained-policy/rl-global-nav2-local.md) | P3 | parked | Either |
 | [`subgoal-corridor-clearance`](parked/trained-policy/subgoal-corridor-clearance.md) | P3 | parked (filed-on-trigger: GRU arm still cuts corners) | DGX |
+| [`bc-warm-start`](parked/trained-policy/bc-warm-start.md) | P2 | parked (blocked-on-deps: the rig gate + the Isaac Lab migration; needs `torchcodec` on the new pair). The replacement for the deleted DAPG/GAIL demo path — BC the GRU actor on the teleop driver's LeRobot demos, then fine-tune with stock PPO. Its load-bearing prerequisite is capture-side: the harness records a 10-dim pose/velocity `observation.state`, not the policy obs in the trained layout. Owns retiring `collect_demos.py`'s HDF5 path and deciding the fate of `encoded_obs_dim` / `encode_obs`. Filed off PR #205. | DGX |
 
 ### Harness & training data
 

@@ -47,6 +47,14 @@ is affected — no brief, measurement or run in the history ever passed the flag
 but a banner that confirms an override that did not happen is the same failure
 shape the LR schedule had.
 
+Writing `actor` and `critic` unconditionally is not the fix. Only the depth
+runner config uses `StraferDepthRNNModelCfg`; the other two use
+`RslRlMLPModelCfg` / `RslRlRNNModelCfg`, and those sub-dicts are splatted into
+`MLPModel.__init__`, which takes no `**kwargs`. Injecting the key on a
+non-depth env would trade a silent no-op for a `TypeError` at model
+construction. The override has to establish that the key already exists on both
+and fail loudly with a clear message when it does not.
+
 **2. `agent_cfg.device` is never derived from `--device`.** `--device` is an
 AppLauncher argument and reaches only the environment, via
 `parse_env_cfg` → `cfg.sim.device`. `agent_cfg.device` keeps its class default
@@ -58,9 +66,12 @@ produces tensors on one device and the networks live on another.
 **3. `agent_cfg.seed` is dead.** rsl_rl 5.0.1 contains no reference to `seed`;
 the key survives into `agent_dict` and is read only by the wandb/neptune
 `store_config` path, which the default `tensorboard` logger does not take. Run
-determinism comes entirely from `env_cfg.seed`, which is consumed before the
-scene is built and therefore before the networks are initialized. This one may
-be correct to delete rather than plumb — decide which and say so.
+determinism comes entirely from `env_cfg.seed`, which seeds
+`random`/`numpy`/`torch`/`warp` before the scene is built and therefore before
+the networks are initialized. This one may be correct to delete rather than
+plumb — decide which and say so. Note that deleting the line does not remove the
+key: the field defaults to 42, so under `--logger wandb`/`neptune` the uploaded
+config would then report 42 regardless of `--seed`.
 
 **4. `clip_actions` is never plumbed into the wrapper.** `RslRlVecEnvWrapper(env)`
 is constructed without the argument, so the wrapper takes its own `None` default

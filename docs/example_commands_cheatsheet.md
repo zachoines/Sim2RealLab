@@ -122,6 +122,10 @@ $ISAACLAB -p source/strafer_lab/scripts/collect_demos.py \
     --task Isaac-Strafer-Nav-RLDepth-Real-Play-v0 \
     --output demos/ --max_episodes 100 --viz kit
 ```
+No training entry point reads this HDF5 today. The demo-driven training lane is
+specified in [`bc-warm-start`](tasks/parked/trained-policy/bc-warm-start.md), and it
+takes the teleop driver's LeRobot datasets (`capture.py --driver teleop`) rather than
+this format.
 
 # Fine-tune a live checkpoint:
 ```bash

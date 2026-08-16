@@ -27,8 +27,7 @@ class ExpertDemoBuffer:
 
     ``path`` may be a single ``.h5`` file or a directory.  When a directory is
     given, all ``.h5`` files inside it are loaded and concatenated (sorted by
-    filename).  This lets you collect demos incrementally across sessions and
-    point the training script at the folder.
+    filename), so demos can be collected incrementally across sessions.
     """
 
     def __init__(

@@ -398,7 +398,7 @@ def main():
     if args.lr_schedule is not None:
         agent_dict["algorithm"]["schedule"] = "fixed"
     # Read before construction: the runner mutates the dict it is handed, and
-    # alg.learning_rate is overwritten from the checkpoint by newer rsl_rl.
+    # RSL-RL can overwrite alg.learning_rate from a loaded checkpoint.
     lr_cfg = agent_dict["algorithm"]["learning_rate"]
     runner = OnPolicyRunner(env, agent_dict, log_dir=log_dir, device=agent_cfg.device)
 

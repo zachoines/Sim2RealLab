@@ -8,7 +8,7 @@ that decays over a run whose Adam never changed rate. Asserting the attribute
 is therefore the same mistake the schedule itself made, so it is only ever
 checked for *agreement* with the optimizer.
 
-``_RecordingRunner.learn`` mirrors rsl_rl 5.0.1's loop shape, including the
+``_RecordingRunner.learn`` mirrors RSL-RL's loop shape, including the
 assignment of ``current_learning_iteration`` *after* ``alg.update()`` returns:
 a schedule reading that counter from inside the update sees a stale index.
 """
@@ -227,9 +227,8 @@ def test_resume_without_the_flag_does_not_inherit_a_decayed_rate():
     """A checkpoint from a scheduled leg carries ``lr_min`` in its optimizer state.
 
     Resumed without ``--lr_schedule``, nothing rewrites it under
-    ``schedule="fixed"``, so the leg would run ~30x slow. The runner logs
-    ``alg.learning_rate``, which on rsl_rl 5.0.1 still holds the constructor's
-    rate — the logged-versus-applied divergence again, this time with no banner.
+    ``schedule="fixed"``, so the leg would run ~30x slow against a config that
+    says otherwise, and with no banner marking the difference.
     """
     runner = _RecordingRunner()
     runner.load(checkpoint_lr=LR_MIN, iteration=9999)

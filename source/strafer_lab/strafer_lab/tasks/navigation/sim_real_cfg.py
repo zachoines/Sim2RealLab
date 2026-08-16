@@ -29,7 +29,7 @@ Usage:
 
 from __future__ import annotations
 
-from isaaclab.utils import configclass
+from isaaclab.utils.configclass import configclass
 from isaaclab.utils.noise import GaussianNoiseCfg
 
 # Import custom noise models that generate independent per-environment noise

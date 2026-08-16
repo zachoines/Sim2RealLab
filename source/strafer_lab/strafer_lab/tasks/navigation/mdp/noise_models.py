@@ -21,7 +21,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from isaaclab.utils.noise import NoiseModel
-from isaaclab.utils import configclass
+from isaaclab.utils.configclass import configclass
 from isaaclab.utils.noise import NoiseModelCfg, GaussianNoiseCfg
 
 from .hold_process import HoldProcess

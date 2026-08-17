@@ -1,0 +1,80 @@
+[
+  {
+    "label": "M1_dead_ahead",
+    "n_lines": 52,
+    "anchored_arc_m": 3.73,
+    "cursor_advance_m": 1.86,
+    "cross_track_start": 0.03,
+    "cross_track_max": 0.427,
+    "cross_track_end": 0.078,
+    "developed": true,
+    "consumed": true,
+    "collision_admissions": 1,
+    "xt_admissions": 1
+  },
+  {
+    "label": "M2_right_regionN",
+    "n_lines": 53,
+    "anchored_arc_m": 3.43,
+    "cursor_advance_m": 0.0,
+    "cross_track_start": 0.038,
+    "cross_track_max": 0.463,
+    "cross_track_end": 0.329,
+    "developed": true,
+    "consumed": true,
+    "collision_admissions": 0,
+    "xt_admissions": 1
+  },
+  {
+    "label": "M3_right_furniture",
+    "n_lines": 57,
+    "anchored_arc_m": 3.72,
+    "cursor_advance_m": 0.01,
+    "cross_track_start": 0.023,
+    "cross_track_max": 0.184,
+    "cross_track_end": 0.183,
+    "developed": true,
+    "consumed": false,
+    "collision_admissions": 2,
+    "xt_admissions": 0
+  },
+  {
+    "label": "M4_left_regionW",
+    "n_lines": 58,
+    "anchored_arc_m": 3.47,
+    "cursor_advance_m": -0.01,
+    "cross_track_start": 0.029,
+    "cross_track_max": 0.359,
+    "cross_track_end": 0.11,
+    "developed": true,
+    "consumed": true,
+    "collision_admissions": 14,
+    "xt_admissions": 1
+  },
+  {
+    "label": "M5_left_regionSW",
+    "n_lines": 58,
+    "anchored_arc_m": 3.66,
+    "cursor_advance_m": 0.22,
+    "cross_track_start": 0.04,
+    "cross_track_max": 0.055,
+    "cross_track_end": 0.005,
+    "developed": false,
+    "consumed": false,
+    "collision_admissions": 0,
+    "xt_admissions": 0
+  },
+  {
+    "label": "M6_left_corner",
+    "n_lines": 59,
+    "anchored_arc_m": 2.48,
+    "cursor_advance_m": 0.31,
+    "cross_track_start": 0.015,
+    "cross_track_max": 0.078,
+    "cross_track_end": 0.044,
+    "developed": true,
+    "consumed": false,
+    "collision_admissions": 1,
+    "xt_admissions": 0
+  }
+]

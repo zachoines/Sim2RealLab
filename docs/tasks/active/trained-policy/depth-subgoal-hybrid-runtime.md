@@ -7,6 +7,33 @@
 **Branch:** task/depth-subgoal-hybrid-runtime
 **Status:** In-flight (un-parked). Runtime is variant-agnostic (verified); this PR **consumes** `PolicyVariant.DEPTH_SUBGOAL` (shipped in #138) and adds the full combo test cell, the sim depth-timeout override, and the deploy depth-scale fix. Stays **active** for the live acceptance (load the converged `DEPTH_SUBGOAL` artifact + a hybrid sim mission), gated on the checkpoint (`depth-subgoal-env` Phase 5) + the rig.
 
+> **The runtime half of the live acceptance is discharged; the behavioural half
+> is not.** Measured 2026-08-17 on the rebuilt deploy stack over the direct
+> DGX↔robot cable — full record in
+> [`measurements/goal-a-rig-gate-2026-08-17`](../../../measurements/goal-a-rig-gate-2026-08-17/README.md).
+>
+> **Runtime, confirmed against the converged artifact on the rig:** the v2
+> `DEPTH_SUBGOAL` artifact loads and advertises (`recurrent=True`,
+> `policy_loaded=True`), the subgoal generator auto-starts under
+> `hybrid_nav2_strafer` with `anchoring=mission`, and the loop holds **30.00 Hz
+> sim** (p05 28.18 / p95 31.82 over 685 windows) with **24 892 of 24 892**
+> inferences on a fresh depth frame, `depth_age` max **0.025 s sim**, and zero
+> missed timer deadlines, `obs_none`, `gate`, `bad_encoding` or `bad_shape`.
+> This closes the "live artifact-load confirmation" left open at `:126`.
+>
+> **Behaviour, not confirmed:** six hybrid missions reached **0 of 6** goals
+> against a 0.30 m tolerance, closest approach 1.79 m, every mission aborted at
+> the 60 s `mission_timeout_s`. Net advance was positive in five of six, so the
+> shape is under-advance rather than no motion. Transport, cadence, observation
+> assembly, map→odom drift and duplicate depth content are each ruled out by
+> measurement in that record. One earlier run on the same stack and artifact did
+> reach tolerance (3.03 m goal, final 0.299 m, 53.6 s sim), so the open question
+> is consistency, not capability.
+>
+> Two runtime defects the run surfaced, both filed and neither blocking this
+> brief: [`subgoal-generator-sim-clock-freshness`](../reliability/subgoal-generator-sim-clock-freshness.md)
+> and [`cadence-report-window-never-resets`](../reliability/cadence-report-window-never-resets.md).
+
 ## Un-park trigger
 
 > **Resolved.** All three deps shipped. [`depth-subgoal-env`](../../active/trained-policy/depth-subgoal-env.md) shipped `PolicyVariant.DEPTH_SUBGOAL` (its Phase 2) in **#138**; this brief **consumes** that variant — the runtime was already variant-agnostic, so there is nothing to add on the shared-contract side. The **live** acceptance still waits on `depth-subgoal-env`'s converged checkpoint (Phase 5, operator-gated).

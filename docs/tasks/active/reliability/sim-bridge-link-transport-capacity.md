@@ -2,12 +2,21 @@
 
 **Type:** task (rig transport)
 **Owner:** Jetson + DGX
-**Priority:** P1 — it is the **binding constraint** on the depth lane. Measured
+**Priority:** P1 — it **was** the binding constraint on the depth lane. Measured
 2026-08-08: the deployed subscriber census needs 65–211 Mbit/s and the path
 delivers 20–60 Mbit/s loss-free, so the inference node receives **zero** complete
 depth frames in the deployed configuration. Nothing downstream of this — the
 achievable-cadence ceiling, `depth_age` at inference, the anchoring re-run —
 can be measured until it moves.
+
+> **The constraint moved, 2026-08-17.** A direct point-to-point cable between
+> the hosts carries the deployed two-subscriber census at full cadence:
+> **30.02–30.50 Hz sim** at the node with `timestamp_fixer` attached, against
+> 0.26 Hz on WiFi. The wired arm and the discriminating re-run below are
+> discharged; see [§ Wired path — measured](#wired-path--measured-2026-08-17).
+> What remains open is the WiFi half (the two free `iw` levers were never
+> tested, because the cable made them unnecessary) and the duplicate-content
+> defect, which is DGX-owned and is not a transport fault.
 **Estimate:** S–M (a cable and two `iw` settings are the whole first arm; the
 re-measure and the inherited post-fix plan are the rest)
 **Branch:** `task/sim-bridge-link-transport-capacity`
@@ -73,6 +82,99 @@ full 30 Hz sim cadence needs `221 × RTF` Mbit/s; color `rgb8` needs
 remote subscriber processes rather than being shared. The deployed census — 2
 depth copies + 1 color + 2 `camera_info` — is `608 × RTF` Mbit/s, i.e.
 **65–211 Mbit/s** across the RTFs this rig produces.
+
+### Wired path — measured 2026-08-17
+
+Direct point-to-point cable on a private /24, no gateway, CycloneDDS pinned to it
+on **both** hosts (`enP7s7` on the sim host, `enP7p1s0` on the robot, each entry
+pairing `name=` with `address=` and carrying `presence_required="true"`). The
+addresses live in the host-local Cyclone configs, which are deliberately outside
+the repo.
+
+| | forward (NX→DGX) | reverse (DGX→NX, the depth direction) |
+|---|---|---|
+| iperf3, 20 s | 943 sender / 941 receiver Mbit/s | 941 sender / **940 receiver** Mbit/s |
+| retransmits | 0 | 0 |
+
+**The census now fits with margin at the worst RTF the rig produces**, which is
+the form the criterion asks for. RTF measured 0.109–0.115 this session (`/clock`
+advanced 2.18 s per 20.0 s wall; the whole-session ride-along gives 173.7 s sim
+over 1512.5 s wall). At `608 × RTF`, the deployed census is **66–70 Mbit/s**
+against 940 Mbit/s delivered — a **13–14×** margin. The prior path's own best
+bracket (60 Mbit/s) sat *below* that demand, which is why frame delivery was
+total rather than proportional.
+
+**The discriminating arm, re-run.** Subscriber census unchanged and the node
+attached: `ros2 topic info /d555/depth/image_rect_raw --verbose` reports
+`Subscription count: 2` — `strafer_inference` and `timestamp_fixer`, both
+`RELIABLE` — against `Publisher count: 1`. This is the exact configuration that
+delivered 0.26 Hz on WiFi.
+
+- **`depth rx` went from 0 to a real number**: the node's counters climb
+  continuously, and every inference this session consumed a **fresh** frame
+  (`reuse=0` on every cadence line during an active mission).
+- **`depth_age` at inference — the reading that had never been obtainable**:
+  `p50 = 0.025 s`, `p95 = 0.025 s`, `max = 0.033 s` sim. One frame period at
+  30 Hz sim is 0.0333 s, so the worst observed age is a single frame and the
+  median is below one.
+- **`timer_deadline_missed = 0`** throughout.
+
+**Achievable-cadence ceiling — reported as a number with its spread, not as a
+verdict.** The figure must be computed by **differencing** the node's counters,
+not read off its `rate` field: that field is a lifetime average whose window
+never resets (see below), so on a multi-mission session it understates. Over 685
+consecutive counter windows, `d(inferences)/d(span_sim)` gives:
+
+| | Hz sim |
+|---|---:|
+| p05 | 28.18 |
+| **p50** | **30.00** |
+| p95 | 31.82 |
+| min / max | 0.19 / 33.33 |
+
+Only **2.0%** of windows (14/685) fall below the setpoint rule's 27 Hz floor,
+and those are the windows straddling a mission boundary, where inference starts
+or stops part-way through. **`reuse = 0` across the entire session** — all
+**21 842** inferences consumed a fresh depth frame, never a cached one.
+
+> **Do not quote the node's own `rate` field for this.** `_cadence_t0_sim` is
+> set at the first inference and never reset
+> (`inference_node.py:1177-1179`), so `rate = inferences / span_sim` averages
+> across every inter-mission idle gap. This session logged **220**
+> `CADENCE SHORTFALL` warnings, ramping smoothly 11.46 → 26.0 Hz, while the
+> instantaneous rate was 30.00 Hz throughout. Every one is an artefact of the
+> unreset window. The node's *attribution* is nonetheless correct — it names
+> `watchdog` skips (no active goal), not depth — which is what keeps the warning
+> from being mistaken for a transport fault. Filed as
+> [`cadence-report-window-never-resets`](cadence-report-window-never-resets.md).
+
+**Consecutive-identical depth content, measured at the node — it is bimodal,
+not a rate.** Differencing `repeat_content` against `depth rx` across 571
+counter windows (~96 min wall) gives a fraction that sits at either **0%** or
+**~50%** and switches between them in multi-minute blocks. It is never
+in between:
+
+| block (wall s from node start) | duplicate fraction |
+|---|---:|
+| 0 – 550 | 0% |
+| 558 – 984 | 48.6 – 51.4% |
+| 1045 – 1716 | 0% |
+| 1776 – 4458 | 48.5 – 51.5% |
+| 4519 – 5792 | 0% |
+
+Session mean **16.4%**. A single cumulative ratio is therefore the wrong
+statistic and is what a spot check reports: taken at two arbitrary checkpoints
+this same session read 22% and 20%, both of which are artefacts of where the
+window fell. The 50% regime is exactly *every other published frame repeated* —
+30 Hz sim publish carrying 15 Hz of new content — and is consistent with the
+50.2–67.0% previously measured at the sim host; what that measurement missed is
+that the defect switches off for long stretches. **Quote the regime and its
+duration, not an average.**
+
+Depth arrival held ~30 Hz sim throughout (2.86–3.66 Hz wall, mean 3.30, tracking
+RTF), so the duplication is a render-side content defect and not a delivery one:
+the frames arrive, some of them carry no new information. This is DGX-owned and
+is **not** a transport fault.
 
 ### The load-bearing findings behind it
 

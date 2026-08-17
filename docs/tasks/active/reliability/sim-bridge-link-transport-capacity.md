@@ -74,6 +74,45 @@ remote subscriber processes rather than being shared. The deployed census — 2
 depth copies + 1 color + 2 `camera_info` — is `608 × RTF` Mbit/s, i.e.
 **65–211 Mbit/s** across the RTFs this rig produces.
 
+**Re-measured 2026-08-16 — the census arithmetic reproduces at the node, and
+the degradation is a cliff.** The 2026-08-08 budget was built from iperf plus a
+subscriber census; this reading takes the same quantity from the inference
+node's own `cadence:` counters, where `depth rx` against `ticks timer` (a 30 Hz
+sim timer, so one frame per tick *is* the contract) measures what the policy
+actually receives:
+
+| remote depth subscriber processes | depth reliability | robot-host rx | depth at the node |
+|---|---|---|---|
+| 1 (inference alone) | `reliable` | 26.6 Mbit/s | 354 frames / 354 ticks — **30.0 Hz sim, the full contract** |
+| 2 (inference + `timestamp_fixer`) | `reliable` | 49.3 Mbit/s | **0.26 Hz sim** |
+| 2 | `best_effort` | 44.8 Mbit/s | **0.00 Hz sim** (1 frame in 474 ticks) |
+
+Two consequences for anything sizing against this link:
+
+- **Demand does not degrade gracefully across the ceiling; it collapses.** One
+  copy costs 26.6 Mbit/s, so two cost ~48.6 against a path measured at 49.3
+  Mbit/s that day — oversubscribed by roughly 1.5%, and losing ~99% of frames.
+  The 686-datagram framing above is why: at the margin, nearly every frame is
+  missing at least one datagram. Plans that assume a proportional slowdown near
+  capacity are wrong.
+- **`best_effort` is not a way to buy margin, and the `reliable` default is
+  correct.** Flipping the per-lane `STRAFER_DEPTH_RELIABILITY` lever made
+  delivery strictly worse — zero complete frames — because a lost datagram
+  discards the whole sample where `reliable` recovers it. This is the
+  [`depth-qos-reliable-flip`](../../completed/depth-qos-reliable-flip.md)
+  ruling holding under a condition that could have overturned it. The lever was
+  returned to `reliable`.
+
+Robot-host counters stayed at `rx_drop=0 rx_err=0 tx_drop=0` throughout, at
+49.3 Mbit/s — consistent with every prior reading that nothing is lost at the
+receiver.
+
+The sim host's radio negotiated differently on this date than on 2026-08-08 —
+RSSI −54 dBm, 80 MHz on 5805 MHz, PHY 960.7 Mbit/s TX / 1200.9 RX, against the
+table's −60 dBm / 160 MHz / 5200 MHz. Achieved goodput was ~49 Mbit/s either
+way, which is further evidence the constraint is airtime or scheduling rather
+than signal quality, and another reason to size against the low end.
+
 ### The load-bearing findings behind it
 
 - **The path delivers ~5% of its negotiated PHY rate**, and neither the low

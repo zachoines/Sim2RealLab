@@ -4,16 +4,34 @@
 
 1. `serve-vlm`    — VLM on `:8100`
 2. `serve-planner` — planner on `:8200`
-3. the **raw** sim-bridge (ProcRoom, **skip 0** — `make sim-bridge` uses the wrong flags):
+3. the **raw** sim-bridge (ProcRoom), at the script's default cadence flags:
    ```bash
    cd ~/Workspace/Sim2RealLab
-   export ROS_DOMAIN_ID=42 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+   export ROS_DOMAIN_ID=42 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp PYTHONUNBUFFERED=1
    source env_setup.sh && source $CONDA_ROOT/etc/profile.d/conda.sh && conda activate env_isaaclab3
    $ISAACLAB -p source/strafer_lab/scripts/run_sim_in_the_loop.py \
        --mode bridge --headless --enable_cameras \
-       --task Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0 --decimation 4 --render-interval 4
+       --task Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0
    ```
-   Confirm the cadence print: `frame_skip=0 (derived, derived 0)` / `publish 30.00 Hz sim`.
+   Confirm the cadence print: `frame_skip=3 (derived, derived 3)` /
+   `publish 30.00 Hz sim`. **`PYTHONUNBUFFERED=1` is load-bearing when the
+   launch is redirected to a file** — without it that print sits in a block
+   buffer, and the log appears to go silent right where a stall would show.
+
+   > **Do not add `--decimation 4 --render-interval 4`.** Earlier revisions of
+   > this page prescribed them to obtain `frame_skip=0`, on the reasoning that
+   > publishing every bridge tick drops the fewest frames. Measured 2026-08-16,
+   > that combination starves the async camera publisher: depth arrived at
+   > **0.300 Hz sim** in correctly-cadenced bursts separated by long stalls,
+   > with every render-side thread parked (see
+   > [`enriched-lane-rig-stability`](tasks/active/reliability/enriched-lane-rig-stability.md)
+   > mode 4). The same task at the defaults delivers **29.949 Hz sim**, a 37×
+   > gain in wall-clock camera throughput. **The policy-facing contract is
+   > 30.00 Hz sim either way** — `frame_skip` is only how the script reaches it,
+   > and skip 3 at a 120 Hz bridge tick is the same publish rate as skip 0 at
+   > 30 Hz. The script's own help carries the measurements: decimation 1 reaches
+   > "~29 steps/s vs ~8 at the training default", and "per-render wall time
+   > grows with render_interval, so fewer-but-slower renders is a net loss".
 
    **Match the task to the policy's training scene.** The depth-subgoal work was
    validated on `ProcRoom-Enriched-v0` (enclosed rooms, tall furniture, mid-room
@@ -90,6 +108,21 @@ make submit-deploy CMD="go to the chair"
   verify: `docker exec strafer_inference printenv STRAFER_INFERENCE_MODEL_PATH`
   and `md5sum` the artifact. (`docker restart strafer_slam` below is fine —
   that's crash recovery, not a config change.)
+- **Pre-flight: confirm BOTH hosts are wired before spending rig time.** The
+  depth publisher is the sim host, so its uplink is the constraint, and a wired
+  robot host does not help on its own. Measured 2026-08-16: with the sim host on
+  WiFi the link delivered ~49 Mbit/s, which carries exactly **one** remote depth
+  subscriber (30.0 Hz sim at the node) and collapses at **two** (0.26 Hz sim) —
+  the deployed configuration needs two, so the policy receives nothing and never
+  infers. Details and the full budget in
+  [`sim-bridge-link-transport-capacity`](tasks/active/reliability/sim-bridge-link-transport-capacity.md).
+  ```bash
+  ssh <sim-host> 'ip -brief addr | grep -v " lo "'   # a wired NIC must be UP, not just present
+  # then, once the stack is up, the number that actually matters:
+  docker logs strafer_inference 2>&1 | grep 'cadence:' | tail -1
+  # `depth rx` must climb ~1 per `ticks timer`; inferences=0 with
+  # skips watchdog≈ticks means depth is not arriving, whatever the topic list says.
+  ```
 - **Swapping the policy or the anchoring — use the tool:**
   ```bash
   source/strafer_ros/deploy/tools/configure_inference.sh <model> <mission|rolling>

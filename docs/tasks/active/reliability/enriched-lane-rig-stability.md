@@ -327,6 +327,40 @@ are native, so py-spy alone is insufficient).**
 >   Python frames. The standing precondition is therefore scoped sudoers for
 >   **`py-spy` AND `gdb`/`eu-stack`** (native stacks), or
 >   `kernel.yama.ptrace_scope=0` for the debug window.
+> **AMENDED 2026-08-16 — the CPU half of the signature does not hold, and one
+> reproducible trigger is now named.**
+>
+> A launch carrying `--decimation 4 --render-interval 4` reproduced a *partial*
+> version of this mode: physics healthy (RTF 0.296, `/clock` 138.8 Hz sim) while
+> depth ran at **0.300 Hz sim** against a 30 Hz contract. The frames that did
+> arrive were spaced **exactly one bridge tick apart** (0.033 s, invariant), so
+> the publisher was emitting correctly-cadenced bursts and then starving —
+> distinct from the documented total stall, where no frame is produced at all.
+>
+> - **The parked-thread half matches:** `[vkrt] Analysis`, `[vkps] Update`,
+>   `rtx::streaming`, `UsdFrameComplete` and `OC Tick` all in
+>   `futex_wait_queue`; 132 of 155 threads in `futex_wait_queue`; clean Kit log.
+> - **The CPU half does not.** This mode is described above as "single-digit
+>   CPU". Here the tbb worker pool was saturated — roughly 15 workers at ~870
+>   utime + ~2150 stime each, system time exceeding user time better than 2:1,
+>   GPU 36–45%, 7.4 GB resident. Parked render threads above a tbb pool burning
+>   kernel time is contention, not idleness. **Treat "single-digit CPU" as
+>   descriptive of the observed instances rather than diagnostic of the mode**,
+>   or split the partial and total cases.
+> - **Trigger.** Relaunching the same task with the flags dropped to the
+>   documented bridge defaults cleared it immediately: depth locked to 29.949 Hz
+>   sim with uniform 0.033 s spacing, a 37× gain in wall-clock camera throughput
+>   (0.089 → 3.266 Hz). `run_sim_in_the_loop.py` already argues against both
+>   flags for this path — decimation 1 reaches "~29 steps/s vs ~8 at the
+>   training default", and for `--render-interval`, "per-render wall time grows
+>   with render_interval, so fewer-but-slower renders is a net loss" — and
+>   `make sim-bridge` passes neither. Before capturing native stacks for a stall
+>   on this path, check the launch flags first.
+> - **The debugger precondition remains unmet**, unchanged from the 2026-08-04
+>   escalation: `kernel.yama.ptrace_scope=1` with no passwordless sudo refuses
+>   both `py-spy` and `gdb`. Non-ptrace forensics (wchan histogram, per-thread
+>   state and CPU accounting) were what remained available.
+>
 > - **Discriminant (coordinator, 2026-08-04):** the Isaac Lab **play-env** path
 >   (no ROS bridge, tiled render) produced frames at **30 Hz on the same box in
 >   the same window**. The stall has only ever been observed on the **bridge

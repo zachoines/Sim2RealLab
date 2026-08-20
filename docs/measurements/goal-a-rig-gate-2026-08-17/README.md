@@ -30,6 +30,7 @@ straight-line advance was positive in five of six missions (+0.15 to +1.10 m of
 | `tf_drift.jsonl` | map→odom **change points**. The transform is piecewise constant between corrections, so 1095 change points reproduce all 86 393 raw samples exactly |
 | `drift_summary.json` | correction statistics and autocorrelation |
 | `anchor_per_mission.json` | cross-track, cursor advance and admission reasons per mission |
+| `repeatability.jsonl` | the 2026-08-19 fixed-goal repeats (see the addendum), same record shape |
 
 ## Transport and cadence — the stack delivered its contract
 
@@ -173,6 +174,100 @@ of the six because it ran before the fixed-heading correction landed (its start
 heading was 14.5°, not 130°). It establishes that this stack and artifact can
 reach a ~3 m goal inside the 60 s budget, and that the six-mission result is
 therefore about consistency rather than capability.
+
+## Addendum, 2026-08-19 — the mechanism, isolated
+
+A follow-up run on a fresh bridge (`kit_20260819_190207.log`, same task and seed,
+SLAM key `enrich_pingpong1`) repeated **one fixed goal** (−2.00, 2.25) from a
+fixed start pose and heading, which the six-mission set could not do: each of its
+missions used a different goal, so it measures coverage, not reliability.
+
+**Repeatability: 0/3, and the three runs are the same run.** All three ended
+within 4 cm of each other — (−0.36, −0.49), (−0.37, −0.48), (−0.35, −0.46) —
+having started from the same place. The first drove there from the origin; the
+second and third began there and never left. Final distances 3.197 / 3.177 /
+3.172 m against a 3.13 m start, i.e. **all three ended farther from the goal than
+they began.**
+
+**The guidance the policy receives is correct.** Measured live, with the robot
+stationary and a goal active:
+
+| | measured |
+|---|---|
+| `active_goal` | (−2.00, 2.25) — the submitted goal, 3.12 m away |
+| `/plan` | 147 poses, 3.69 m, terminating **0.00 m** from the goal |
+| `/strafer/subgoal` | 0.81 m ahead of the robot, into free space |
+
+So the goal is right, the plan reaches it, and the subgoal is a sane local
+target. Nothing upstream of the policy is misdirecting it.
+
+**The policy's command is sustained and points the wrong way.** Over 240
+consecutive `/cmd_vel` messages (30.1 Hz sim), with the goal essentially dead
+ahead (robot facing 122°, goal bearing 122.6°):
+
+| axis | mean (signed) | mean abs | duty | sign flips |
+|---|---:|---:|---:|---:|
+| `vx` | **−0.114** | 0.121 | 0.94 | 1.5 Hz sim |
+| `vy` | **+0.224** | 0.224 | **1.00** | **0** |
+| `wz` | +0.060 | 0.119 | 0.50 | 8.0 Hz sim |
+
+`vy` is a *perfectly* sustained left strafe — duty 1.00, not one sign change in
+8 s sim — combined with a **backward** `vx`. That is a **~117° sustained
+directional error in the robot frame** toward a goal that is straight ahead. It
+is not dither, not under-commanding, and not a magnitude problem.
+
+**Backward is into an obstacle.** At the parked pose the nearest lethal costmap
+cell is **0.21 m at −174° relative to heading** — directly behind the robot —
+with 37 lethal cells inside 0.5 m. The policy reverses into it.
+
+**The chassis is not the fault, and neither is wedging.** Driven open-loop with
+the policy holding no goal, the robot moves freely on every axis:
+
+| axis | achieved over 3.5 s sim | of commanded |
+|---|---:|---:|
+| forward / backward | 0.339 / 0.320 m | ~32% / ~30% |
+| left / right | 0.468 / 0.335 m | ~45% / ~32% |
+| yaw | +45.0° | ~37% |
+
+Under the policy in free space the same ratio holds (**36.3%** translation,
+64.9% rotation), so the ~3× command-tracking deficit is the modelled actuation
+(motor dynamics τ=0.05 s, 1–3 step command delay, slew limit, command hold) and
+is present identically whoever is driving. It lowers the policy's effective
+speed to a third of what it commands; it does not steer it. The one place the
+ratio collapses to **5.6%** is at the parked pose, which is exactly where the
+robot is pressed against the obstacle behind it.
+
+**Map noise is not supported at short timescales.** Sampled per costmap update
+for 144 s wall with the robot stationary (0.007 m of drift), the global costmap
+was stable: the robot's own cell held constant, and the ≥99 cell count varied by
+7 in 5125 (0.1%). Over the longer run the robot did enter the inscribed band 131
+times and spent **64% of 44 min** inside it — but that is a consequence of
+parking against an obstacle, not evidence of a flickering map.
+
+> **Reading note for anyone re-running this.** `/global_costmap/costmap` is
+> published in nav2's **0–100 display scale** (100 lethal, 99 inscribed), not the
+> raw 0–254 cost. A `>= 254` test on that topic silently returns zero obstacles
+> in a fully furnished room. This session made that mistake before catching it.
+
+**What this adds to the verdict.** The 0/6 stands, and its attribution is now
+narrower than "under-advance": the deploy stack delivers a correct goal, a
+correct plan, a correct subgoal, fresh depth at 30 Hz sim, and a chassis that
+tracks commands the same for any driver — and the policy answers with a sustained
+strafe roughly 117° off the goal direction, reversing into mapped geometry. That
+is the signed left-strafe bias
+[`depth-camera-vfov-parity`](../../tasks/completed/depth-camera-vfov-parity.md)
+already called **policy-owned** on 2026-08-01, reproduced here with every
+deploy-side alternative measured and excluded.
+
+**Operator observations from ad-hoc testing, 2026-08-19** (reported, not
+instrumented, and recorded as such): ~5 natural-language missions, none advanced
+correctly and most drifted in unrelated directions; 4 direct pose goals, 2
+reached, with a difficult initial start on the successes. The NL failures are
+plausibly a *different* mechanism — a policy that under-advances toward a correct
+goal does not produce motion in an unrelated direction — and the grounding →
+projection → dispatch chain was never exercised by this set, which submitted
+poses directly. Isolating it needs one NL mission captured with
+`docker logs strafer_autonomy` alongside the dispatched pose.
 
 ## Confounds this set carries
 

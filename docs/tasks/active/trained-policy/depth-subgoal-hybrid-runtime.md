@@ -24,9 +24,13 @@
 > **Behaviour, not confirmed:** six hybrid missions reached **0 of 6** goals
 > against a 0.30 m tolerance, closest approach 1.79 m, every mission aborted at
 > the 60 s `mission_timeout_s`. Net advance was positive in five of six, so the
-> shape is under-advance rather than no motion. Transport, cadence, observation
-> assembly, map→odom drift and duplicate depth content are each ruled out by
-> measurement in that record. One earlier run on the same stack and artifact did
+> shape is under-advance rather than no motion. Transport, cadence, chassis
+> actuation, map→odom displacement magnitude within scored windows, and duplicate
+> depth content are each ruled out by measurement in that record; observation
+> *content*, the recurrent horizon, the on-device TRT path and the subgoal stream
+> under the wall-clock freshness defect are **not**, and the record says so per
+> candidate. The 2026-08-01 `policy-owned` call is retired elsewhere in the
+> record and this run does not re-establish it. One earlier run on the same stack and artifact did
 > reach tolerance (3.03 m goal, final 0.299 m, 53.6 s sim), so the open question
 > is consistency, not capability.
 >

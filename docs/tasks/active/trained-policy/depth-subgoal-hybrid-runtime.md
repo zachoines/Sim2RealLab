@@ -16,9 +16,10 @@
 > `DEPTH_SUBGOAL` artifact loads and advertises (`recurrent=True`,
 > `policy_loaded=True`), the subgoal generator auto-starts under
 > `hybrid_nav2_strafer` with `anchoring=mission`, and the loop holds **30.00 Hz
-> sim** (p05 28.18 / p95 31.82 over 685 windows) with **24 892 of 24 892**
-> inferences on a fresh depth frame, `depth_age` max **0.025 s sim**, and zero
-> missed timer deadlines, `obs_none`, `gate`, `bad_encoding` or `bad_shape`.
+> sim** (p05 28.18 / p95 31.19, differenced over 787 windows of the complete
+> 948.8 s sim log) with **24 892 of 24 892** inferences on a fresh depth frame,
+> `depth_age` max **0.033 s sim** — one frame period — and zero missed timer
+> deadlines, `obs_none`, `gate`, `bad_encoding` or `bad_shape`.
 > This closes the "live artifact-load confirmation" left open at `:126`.
 >
 > **Behaviour, not confirmed:** six hybrid missions reached **0 of 6** goals
@@ -30,8 +31,8 @@
 > *content*, the recurrent horizon, the on-device TRT path and the subgoal stream
 > under the wall-clock freshness defect are **not**, and the record says so per
 > candidate. The 2026-08-01 `policy-owned` call is retired elsewhere in the
-> record and this run does not re-establish it. One earlier run on the same stack and artifact did
-> reach tolerance (3.03 m goal, final 0.299 m, 53.6 s sim), so the open question
+> record and this run does not re-establish it. One earlier run on the same stack
+> and artifact did reach tolerance (3.03 m goal, final 0.299 m, 53.6 s sim), so the open question
 > is consistency, not capability.
 >
 > Two runtime defects the run surfaced, both filed and neither blocking this

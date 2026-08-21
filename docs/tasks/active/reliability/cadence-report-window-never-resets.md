@@ -28,7 +28,7 @@ span_sim = self._cadence_t_last_sim - self._cadence_t0_sim
 ```
 
 `_cadence_t0_sim` is assigned once, at the first inference, and never cleared
-([`inference_node.py:1177-1179`](../../../source/strafer_ros/strafer_inference/strafer_inference/inference_node.py#L1177));
+([`inference_node.py:1177-1179`](../../../../source/strafer_ros/strafer_inference/strafer_inference/inference_node.py#L1177));
 `_cadence_t_last_sim` advances every inference. So `span_sim` is the node's
 **lifetime** since its first inference, while the log line's own header says
 `counters every 10 s`.
@@ -38,7 +38,7 @@ Between missions the node holds ticks at the watchdog because no goal is active
 contributing no inferences. `rate` therefore decays as soon as the first
 inter-mission gap opens, and recovers only asymptotically once inference
 resumes. The shortfall test at
-[`:1267`](../../../source/strafer_ros/strafer_inference/strafer_inference/inference_node.py#L1267)
+[`:1267`](../../../../source/strafer_ros/strafer_inference/strafer_inference/inference_node.py#L1267)
 (`rate < 0.9 * target`) is evaluated against that decayed value, so it latches on
 for the rest of the session.
 
@@ -56,10 +56,12 @@ process.
 - **220** `CADENCE SHORTFALL` warnings, ramping smoothly from 11.46 Hz to
   26.0 Hz. The smooth monotone ramp is the signature: a real cadence fault does
   not walk linearly upward across an hour.
-- Recomputed by differencing consecutive counter windows,
-  `d(inferences)/d(span_sim)` over 685 windows: **p05 28.18 / p50 30.00 / p95
-  31.82 Hz sim**, with only 2.0% of windows below 27 Hz, all of them straddling
-  a mission boundary.
+- Recomputed by differencing consecutive counter windows over the **complete**
+  container log (886 counter lines, 948.8 s sim), `d(inferences)/d(span_sim)`
+  across the 787 usable windows: **p05 28.18 / p50 30.00 / p95 31.19 Hz sim**,
+  with only 2.3% (18/787) below 27 Hz, all of them straddling a mission
+  boundary. Figures taken from a partial capture are smaller, which is why the
+  span is stated.
 - `timer_deadline_missed = 0`, `reuse = 0`, `obs_none = 0`, `gate = 0`,
   `bad_encoding = 0`, `bad_shape = 0` for the whole session. Nothing else
   corroborated a shortfall.

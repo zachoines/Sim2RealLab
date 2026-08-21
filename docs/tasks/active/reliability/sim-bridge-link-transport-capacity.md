@@ -11,7 +11,8 @@ can be measured until it moves.
 
 > **The constraint moved, 2026-08-17.** A direct point-to-point cable between
 > the hosts carries the deployed two-subscriber census at full cadence:
-> **30.02–30.50 Hz sim** at the node with `timestamp_fixer` attached, against
+> a differenced median of **30.00 Hz sim** at the node with `timestamp_fixer`
+> attached (p05 28.18 / p95 31.19), against
 > 0.26 Hz on WiFi. The wired arm and the discriminating re-run below are
 > discharged; see [§ Wired path — measured](#wired-path--measured-2026-08-17).
 > What remains open is the WiFi half (the two free `iw` levers were never
@@ -97,10 +98,9 @@ the repo.
 | retransmits | 0 | 0 |
 
 **The census now fits with margin at the worst RTF the rig produces**, which is
-the form the criterion asks for. RTF measured 0.109–0.115 this session (`/clock`
-advanced 2.18 s per 20.0 s wall; the whole-session ride-along gives 173.7 s sim
-over 1512.5 s wall). At `608 × RTF`, the deployed census is **66–70 Mbit/s**
-against 940 Mbit/s delivered — a **13–14×** margin. The prior path's own best
+the form the criterion asks for. **RTF 0.106** session-wide (980.8 s sim in
+9257.0 s wall), with spot readings 0.106–0.115. At `608 × RTF`, the deployed
+census is **64–70 Mbit/s** against 940 Mbit/s delivered — a **13–15×** margin. The prior path's own best
 bracket (60 Mbit/s) sat *below* that demand, which is why frame delivery was
 total rather than proportional.
 
@@ -114,7 +114,9 @@ delivered 0.26 Hz on WiFi.
   continuously, and every inference this session consumed a **fresh** frame
   (`reuse=0` on every cadence line during an active mission).
 - **`depth_age` at inference — the reading that had never been obtainable**:
-  `p50 = 0.025 s`, `p95 = 0.025 s`, `max = 0.033 s` sim. One frame period at
+  `p50 = 0.025 s`, `p95 = 0.025 s`, `max = 0.033 s` sim, the max taken across all
+  886 counter lines (each line's own `max=` is a rolling n=512 sample, so the
+  final line alone reads 0.025 and understates the session). One frame period at
   30 Hz sim is 0.0333 s, so the worst observed age is a single frame and the
   median is below one.
 - **`timer_deadline_missed = 0`** throughout.
@@ -122,20 +124,23 @@ delivered 0.26 Hz on WiFi.
 **Achievable-cadence ceiling — reported as a number with its spread, not as a
 verdict.** The figure must be computed by **differencing** the node's counters,
 not read off its `rate` field: that field is a lifetime average whose window
-never resets (see below), so on a multi-mission session it understates. Over 685
-consecutive counter windows, `d(inferences)/d(span_sim)` gives:
+never resets (see below), so on a multi-mission session it understates — and a
+figure taken from a partial capture understates differently again, so the span
+belongs with the number. Differenced from the **complete** container log for this
+session (886 counter lines, 948.8 s sim), across the 787 usable windows
+`d(inferences)/d(span_sim)` gives:
 
 | | Hz sim |
 |---|---:|
 | p05 | 28.18 |
 | **p50** | **30.00** |
-| p95 | 31.82 |
+| p95 | 31.19 |
 | min / max | 0.19 / 33.33 |
 
-Only **2.0%** of windows (14/685) fall below the setpoint rule's 27 Hz floor,
+Only **2.3%** of windows (18/787) fall below the setpoint rule's 27 Hz floor,
 and those are the windows straddling a mission boundary, where inference starts
 or stops part-way through. **`reuse = 0` across the entire session** — all
-**21 842** inferences consumed a fresh depth frame, never a cached one.
+**24 892** inferences consumed a fresh depth frame, never a cached one.
 
 > **Do not quote the node's own `rate` field for this.** `_cadence_t0_sim` is
 > set at the first inference and never reset
@@ -149,20 +154,20 @@ or stops part-way through. **`reuse = 0` across the entire session** — all
 > [`cadence-report-window-never-resets`](cadence-report-window-never-resets.md).
 
 **Consecutive-identical depth content, measured at the node — it is bimodal,
-not a rate.** Differencing `repeat_content` against `depth rx` across 571
-counter windows (~96 min wall) gives a fraction that sits at either **0%** or
+not a rate.** Differencing `repeat_content` against `depth rx` across the 885
+windows with `d(depth rx) > 0` gives a fraction that sits at either **0%** or
 **~50%** and switches between them in multi-minute blocks. It is never
 in between:
 
-| block (wall s from node start) | duplicate fraction |
+| block (s sim from the first counter line) | duplicate fraction |
 |---|---:|
-| 0 – 550 | 0% |
-| 558 – 984 | 48.6 – 51.4% |
-| 1045 – 1716 | 0% |
-| 1776 – 4458 | 48.5 – 51.5% |
-| 4519 – 5792 | 0% |
+| 2.3 – 52.4 | ~50% |
+| 52.4 – 142.7 | 0% |
+| 142.7 – 448.7 | ~50% (three short 0% interruptions) |
+| **449.7 – 948.6** | **0%** |
 
-Session mean **16.4%**. A single cumulative ratio is therefore the wrong
+Session mean **17.3%**. Blocks are on the counters' own sim-time axis, and only
+runs of at least 20 s sim are listed. A single cumulative ratio is therefore the wrong
 statistic and is what a spot check reports: taken at two arbitrary checkpoints
 this same session read 22% and 20%, both of which are artefacts of where the
 window fell. The 50% regime is exactly *every other published frame repeated* —

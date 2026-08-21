@@ -27,10 +27,21 @@ straight-line advance was positive in five of six missions (+0.15 to +1.10 m of
 | file | holds |
 |---|---|
 | `missions.jsonl` | one record per mission: goal, start pose, bearing, full track, verdict. Tracks decimated to 10 Hz sim from ~120 Hz; `track_raw_samples` records the original count |
-| `tf_drift.jsonl` | map→odom **change points**. The transform is piecewise constant between corrections, so 1095 change points reproduce all 86 393 raw samples exactly |
+| `tf_drift.jsonl` | map→odom **change points** — 1095 rows retained from 86 393 raw 10 Hz samples. `map→odom` is piecewise constant between SLAM corrections, so dropping the repeats is lossless *for the statistics reported here*: re-running `analyze_tf.py` on the compacted file reproduces the correction count (395), the jump quantiles, and τ to the printed precision. It was not diffed sample-by-sample against the raw series, which was not retained |
+| `analyze_tf.py` | the drift analysis, so the compaction claim above and `drift_summary.json` can both be re-derived |
 | `drift_summary.json` | correction statistics and autocorrelation |
 | `anchor_per_mission.json` | cross-track, cursor advance and admission reasons per mission |
 | `repeatability.jsonl` | the 2026-08-19 fixed-goal repeats (see the addendum), same record shape |
+| `probes.txt` | raw output of the addendum's read-only probes (guidance, command character, costmap neighbourhood, open-loop actuation), each stamped with the pose it was taken at |
+
+Velocity fields in both JSONLs (`track.v_par`, `track.speed`, and the
+`mission.v_par_*` aggregates) are **derived offline from the position series** —
+the runner's own per-sample differencing compared consecutive TF lookups, which
+return the same transform between TF updates, and collapsed to zero. Per-sample
+values are raw finite differences at the ~0.1 s sim track spacing and are
+quantisation-noisy; the aggregates, and every velocity quoted below, use a 0.5 s
+sim uniform resample of the same series. `mission._velocity_fields` restates this
+in each record.
 
 ## Transport and cadence — the stack delivered its contract
 
@@ -41,14 +52,18 @@ forward, **941/940 Mbit/s** reverse (the depth direction), **0 retransmits**. At
 The configuration under test is the one that collapsed on WiFi:
 `ros2 topic info /d555/depth/image_rect_raw --verbose` reported
 `Subscription count: 2` — `strafer_inference` **and** `timestamp_fixer`, both
-`RELIABLE`. Under that load, over the whole run:
+`RELIABLE`. Every figure below is differenced from the **complete** container log
+for this session — 886 counter lines spanning the node's whole life, 948.8 s sim
+(~2.6 h wall). Cumulative counters make the span load-bearing: a figure taken
+from a partial capture is smaller but not wrong, so each is stated with the span
+it covers. Under that load:
 
 | quantity | value |
 |---|---|
-| cadence, `d(inferences)/d(span_sim)` over 685 windows | p05 **28.18** · p50 **30.00** · p95 **31.82** Hz sim |
-| windows below the 27 Hz floor | 14 / 685 (2.0%), all straddling a mission boundary |
+| cadence, `d(inferences)/d(span_sim)` over 787 windows | p05 **28.18** · p50 **30.00** · p95 **31.19** Hz sim |
+| windows below the 27 Hz floor | 18 / 787 (2.3%), all straddling a mission boundary |
 | inferences on a **fresh** frame | **24 892 / 24 892** (`reuse = 0`) |
-| `depth_age` | p50 **0.025** · p95 **0.025** · max **0.025** s sim (one frame period is 0.0333 s) |
+| `depth_age` | p50 **0.025** · p95 **0.025** · max **0.033** s sim (one frame period is 0.0333 s) |
 | `timer_deadline_missed` | **0** |
 | `bad_encoding` / `bad_shape` / `obs_none` / `gate` skips | **0 / 0 / 0 / 0** |
 | `Cadence disagreement` lines | **0** (expected: the sidecar carries no `trained_period_s`) |
@@ -61,19 +76,18 @@ warnings ramping smoothly 11.46 → 26.0 Hz while the instantaneous rate was
 `watchdog` skips, never depth.
 
 **Duplicate depth content is bimodal, not a rate.** Differencing
-`repeat_content` against `depth rx` over 938 windows gives either 0% or ~50%,
-never in between (8 windows land in a 5–40% band):
+`repeat_content` against `depth rx` over the 885 windows with `d(depth rx) > 0`
+gives either 0% or ~50%, never in between (8 windows land in a 5–40% band).
+Blocks of at least 20 s sim, on the same 948.8 s sim axis as the counters:
 
-| block (wall s from node start) | duplicate fraction |
+| block (s sim from the first counter line) | duplicate fraction |
 |---|---:|
-| 0 – 538 | 0% |
-| 548 – 984 | ~50% |
-| 994 – 1746 | 0% |
-| 1756 – 3961 | ~50% (two 30 s interruptions) |
-| 3972 – 4498 | ~50% |
-| **4498 – 9532** | **0%** |
+| 2.3 – 52.4 | ~50% |
+| 52.4 – 142.7 | 0% |
+| 142.7 – 448.7 | ~50% (three short 0% interruptions) |
+| **449.7 – 948.6** | **0%** |
 
-Session mean 16.3%. The 50% regime is every other published frame repeated —
+Session mean 17.3%. The 50% regime is every other published frame repeated —
 30 Hz sim publish carrying 15 Hz of new content. Frames arrive; some carry no new
 information, so this is a render-side content defect, not a delivery one.
 
@@ -138,23 +152,32 @@ distance, so it moved goalward without tracking the path at all.
 
 The two largest corrections (0.628 m with 13.0°, and 0.337 m with 18.3°) both
 landed inside unscored transits, never inside a scored mission. Restricted to the
-six scored windows: **137 corrections, max 0.168 m, p95 0.065 m, and zero at or
-above the 0.30 m tolerance.** The map frame was stable to well inside the pass
+**six gate missions**: **100 corrections, max 0.168 m, p95 0.069 m, and zero at
+or above the 0.30 m tolerance.** (Adding the pilot's own window brings the count
+to 137 with the same max; the pilot is not one of the six, so 100 is the
+denominator for the gate.) The map frame was stable to well inside the pass
 margin for every scored mission, so drift does not explain the outcome.
 
 ## What this set does and does not attribute
 
-Ruled out by measurement, not by argument:
+Ruled out by measurement, not by argument — with the scope of each stated, since
+"ruled out" is only as wide as the instrument:
 
 - **Transport.** 940 Mbit/s against ~64 Mbit/s of demand; 24 892 of 24 892
-  inferences on fresh frames; `depth_age` max 0.025 s sim.
-- **Cadence.** 30.00 Hz sim median, 2.0% of windows below the 27 Hz floor and
+  inferences on fresh frames; `depth_age` max 0.033 s sim, i.e. one frame period.
+- **Cadence.** 30.00 Hz sim median, 2.3% of windows below the 27 Hz floor and
   those only at mission boundaries; zero missed timer deadlines.
-- **Observation assembly.** Zero `obs_none`, `gate`, `bad_encoding`, `bad_shape`.
-- **Drift.** Zero within-mission corrections at or above the tolerance.
-- **Duplicate depth content.** The final 84 min ran at 0% duplicates and covered
-  M4, M5, M6 and M3; those advanced *less* than M1 and M2, which ran in the ~50%
-  regime. Anti-correlated with outcome.
+- **Observation assembly — the *mechanics*, not the *content*.** Zero
+  `obs_none`, `gate`, `bad_encoding`, `bad_shape`, so the vector was assembled
+  every tick without a malformed input. This says nothing about whether the
+  assembled values match what training produced: no obs-parity capture was taken,
+  and residual observation-chain deltas remain a live attribution candidate.
+- **Drift — magnitude within scored windows.** Zero corrections at or above the
+  tolerance across the six gate missions. Not excluded: the effect of the
+  wall-clock freshness defect on the subgoal stream those corrections feed.
+- **Duplicate depth content.** The final 499 s sim (~78 min wall) ran at 0%
+  duplicates and covered M4, M5, M6 and M3; those advanced *less* than M1 and M2,
+  which ran in the ~50% regime. Anti-correlated with outcome.
 - **Goal bearing.** Advance does not order by bearing: the dead-ahead mission
   (+0.8°) advanced most of the six, and the two best `v_par` values sit at +90.6°
   and +47.7°.
@@ -182,12 +205,13 @@ SLAM key `enrich_pingpong1`) repeated **one fixed goal** (−2.00, 2.25) from a
 fixed start pose and heading, which the six-mission set could not do: each of its
 missions used a different goal, so it measures coverage, not reliability.
 
-**Repeatability: 0/3, and the three runs are the same run.** All three ended
-within 4 cm of each other — (−0.36, −0.49), (−0.37, −0.48), (−0.35, −0.46) —
-having started from the same place. The first drove there from the origin; the
-second and third began there and never left. Final distances 3.197 / 3.177 /
-3.172 m against a 3.13 m start, i.e. **all three ended farther from the goal than
-they began.**
+**Repeatability: 0/3, and the three runs converge on the same place.** All three
+ended within 4 cm of each other — (−0.36, −0.49), (−0.37, −0.48), (−0.35, −0.46).
+The first drove there from the origin; the second and third began there and never
+left. None finished within 3.1 m of a goal 0.30 m in tolerance. Net change in
+distance to goal was **+0.071 m (R1), −0.036 m (R2), +0.085 m (R3)** — two ended
+farther than they started and one ended 3.6 cm nearer, so the honest statement is
+that **none of the three made material progress**, not that all three retreated.
 
 **The guidance the policy receives is correct.** Measured live, with the robot
 stationary and a goal active:
@@ -199,7 +223,19 @@ stationary and a goal active:
 | `/strafer/subgoal` | 0.81 m ahead of the robot, into free space |
 
 So the goal is right, the plan reaches it, and the subgoal is a sane local
-target. Nothing upstream of the policy is misdirecting it.
+target — at the pose sampled. Nothing upstream of the policy was misdirecting it
+there.
+
+> **These probes are a juxtaposition, not a simultaneous capture.** The guidance
+> table above and the command table below were taken by **separate** read-only
+> probes, minutes apart, at **different robot poses** — the guidance probe at
+> (−0.26, −0.35) facing 111°, the command probe after an intervening open-loop
+> test had moved the robot, at (−0.345, −0.335) facing 122°. Both poses sit in
+> the same attractor and both carried an active goal on the same fixed target, so
+> the pairing is fair, but no single instant was captured showing correct guidance
+> and an off-goal command together. A simultaneous capture is the obvious
+> strengthening of this result and was not taken. The raw probe outputs are in
+> `probes.txt`.
 
 **The policy's command is sustained and points the wrong way.** Over 240
 consecutive `/cmd_vel` messages (30.1 Hz sim), with the goal essentially dead
@@ -249,15 +285,52 @@ parking against an obstacle, not evidence of a flickering map.
 > raw 0–254 cost. A `>= 254` test on that topic silently returns zero obstacles
 > in a fully furnished room. This session made that mistake before catching it.
 
-**What this adds to the verdict.** The 0/6 stands, and its attribution is now
-narrower than "under-advance": the deploy stack delivers a correct goal, a
-correct plan, a correct subgoal, fresh depth at 30 Hz sim, and a chassis that
-tracks commands the same for any driver — and the policy answers with a sustained
-strafe roughly 117° off the goal direction, reversing into mapped geometry. That
-is the signed left-strafe bias
+**What this adds, and where it sits in the attribution record.** The 0/6 stands,
+and its shape is now narrower than "under-advance": the deploy stack delivers a
+correct goal, a correct plan, a correct subgoal, fresh depth at 30 Hz sim, and a
+chassis that tracks commands the same for any driver — and the policy answers
+with a sustained strafe roughly 117° off the goal direction, reversing into
+mapped geometry.
+
+**This is new evidence on a reopened question, not a reproduction of a standing
+call.** The 2026-08-01 four-arm session's `policy-owned` conclusion has been
+superseded twice and should not be cited as current:
+[`enriched-scene-anchoring-addendum`](../../tasks/completed/enriched-scene-anchoring-addendum.md)
+records that "the `mission` ✗ result stands; the **policy-owned attribution does
+not**, and **no retrain is licensed on it**", and retires the 2026-08-01
+attribution outright; [`cadence-harness-residual-arms`](../../tasks/completed/cadence-harness-residual-arms.md)
+then states the enriched-lane
+advance failure is "**unattributed on every axis that has been tested**", naming
+four live candidates — SLAM-frame anchoring noise, planner path-geometry
+distribution, unbounded recurrent-state horizon, and residual observation-chain
+deltas.
+
+Against that register, this session's contribution is specific. It supplies the
+enriched × `mission` cell **at a clean temporal profile** — the thing the
+2026-08-02 arm could not, having run at 11.68 Hz depth arrival, 38.3% repeat
+content and 11 146 deadline misses, against this run's 30.00 Hz, `reuse = 0` and
+zero deadline misses. It therefore bears on two of the four candidates and
+excludes neither of the others:
+
+| candidate | what this session says |
+|---|---|
+| SLAM-frame anchoring noise | **Bounded, not excluded.** Within the six gate windows the map frame moved at most 0.168 m, none at or above tolerance. But the wall-clock freshness defect duty-cycled the collision admission rule for roughly half of its evaluations, and the effect of that on the subgoal stream was **not** measured. |
+| planner path-geometry | **Sampled, not characterised.** `/plan` was verified to reach the goal at the poses sampled; no distribution over plans was taken. |
+| unbounded recurrent horizon | **Untested, and this run sits squarely in it.** Every mission ran to the 60 s `mission_timeout_s`, i.e. up to 1800 hidden-state advances against training's 600. |
+| residual observation-chain deltas | **Untested.** No obs-parity capture was taken; the assembled observation *content* was never compared against the training pipeline. |
+
+Two further deploy-side items are also outside what was measured: the **TRT
+execution path** on this device (the export was exonerated at the constants level
+in the addendum, but the on-device execution was not re-checked here), and the
+subgoal stream under the freshness defect above. So the correct summary is that
+**transport, cadence and temporal texture, chassis actuation, map-frame
+displacement magnitude, and goal/plan/subgoal correctness at the sampled poses
+are excluded — not that every deploy-side alternative is.** The residual is
+consistent with the directional bias
 [`depth-camera-vfov-parity`](../../tasks/completed/depth-camera-vfov-parity.md)
-already called **policy-owned** on 2026-08-01, reproduced here with every
-deploy-side alternative measured and excluded.
+described on 2026-08-01, but that call is retired, and nothing here re-establishes
+it; what this run does is remove the temporal confound that made the 2026-08-02
+cell unusable, leaving the remaining candidates to be discriminated.
 
 **Operator observations from ad-hoc testing, 2026-08-19** (reported, not
 instrumented, and recorded as such): ~5 natural-language missions, none advanced
@@ -285,14 +358,22 @@ poses directly. Isolating it needs one NL mission captured with
    with the robot never moving. Transits therefore ran on the policy itself and
    were aborted by the same 60 s timeout, landing 0.20–3.53 m from the nominal
    start. Every mission's actual start pose and bearing is recorded.
-3. **The furniture-standoff goal was moved outward.** Its original coordinates
+3. **A minimum-start-distance floor was added to the harness mid-set.** One run
+   scored `REACHED` from a start 0.201 m from its goal — inside the 0.30 m
+   tolerance — with `sim_elapsed 0.01 s` and a single track sample: a pass
+   recorded without the robot moving. A 1.20 m floor was added, after which any
+   mission starting nearer is refused as `INVALID_START` rather than scored. The
+   floor fired once, on the original furniture-standoff goal (item 4). No scored
+   mission in this record began inside it, and the discarded run is not counted
+   in the 0/6.
+4. **The furniture-standoff goal was moved outward.** Its original coordinates
    sat 1.21 m from the start pose, so a successful transit left the robot 0.686 m
    away — inside a distance that measures nothing. It was moved to a goal the
    probe placed in the same class (`cost_goal 0`, `cost_near 99`) at 3.17 m. The
    refused run is retained in the raw logs.
-4. **Duplicate-content regime changed mid-run**, 50% → 0% for the final 84 min,
+5. **Duplicate-content regime changed mid-run**, 50% → 0% for the final 499 s sim (~78 min wall),
    so M1/M2 and M3–M6 were not taken in the same render regime.
-5. **No secondary artifact arm was run.** A v1 `DEPTH_SUBGOAL` artifact is
+6. **No secondary artifact arm was run.** A v1 `DEPTH_SUBGOAL` artifact is
    present and runnable (`policy.onnx`, `run_20260708_005923/model_500.pt`,
    `obs_dim 3619`), but the fixed acceptance criteria stop the set on a fail
    rather than continuing to spend rig time. That comparison is the obvious first

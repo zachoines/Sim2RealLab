@@ -1,0 +1,499 @@
+Read-only probes behind the 2026-08-19 addendum
+===============================================
+
+PROVENANCE. These probes were run interactively against the live stack; their
+stdout was not redirected to disk at the time, so the outputs below are
+TRANSCRIBED VERBATIM from the session rather than being original capture files.
+The scripts that produced them follow each block and are reproducible against a
+running stack. Every block records the robot pose it was taken at, because the
+probes are NOT simultaneous -- they are minutes apart at different poses within
+the same attractor (see README.md, "These probes are a juxtaposition").
+
+Bridge: kit_20260819_190207.log, task Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-
+Enriched-v0, Environment seed 42, SLAM key enrich_pingpong1.
+Artifact: /models/strafer_depth_subgoal_v2_998.onnx (sha256 855e1df7...).
+
+-------------------------------------------------------------------------------
+[1] GUIDANCE  -- guidance.py -- robot (-0.26, -0.35) yaw 111 deg, goal active
+-------------------------------------------------------------------------------
+robot (-0.26, -0.35) yaw=111 deg
+active_goal (-2.00, 2.25)  dist=3.12 m  (37 msgs in 60 s)
+/plan: 147 poses, length=3.69 m, start=(-0.26,-0.34), end=(-2.00,2.25)
+       plan END is 0.00 m from the active goal  <-- should be ~0
+subgoal (-0.13, 0.45)  0.81 m from robot, bearing -30 deg rel heading  (103 msgs in 60 s)
+
+-------------------------------------------------------------------------------
+[2] COMMAND CHARACTER -- chatter.py -- taken AFTER probe [4] had moved the robot;
+    pose (-0.345, -0.335) yaw 122 deg, goal bearing 122.6 deg (dead ahead)
+-------------------------------------------------------------------------------
+cmd_vel msgs=240 over 7.97 s sim (30.1 Hz sim)
+  vx: mean(signed)=-0.1139  mean(|v|)=0.1212  duty=0.94  sign-flips=12 (1.5 Hz sim)
+  vy: mean(signed)=+0.2243  mean(|v|)=0.2243  duty=1.00  sign-flips=0 (0.0 Hz sim)
+  wz: mean(signed)=+0.0598  mean(|v|)=0.1185  duty=0.50  sign-flips=64 (8.0 Hz sim)
+     -> a sustained push has duty ~1.0; pure dither ~0.0
+
+-------------------------------------------------------------------------------
+[3] ACHIEVED vs COMMANDED -- yawrate.py -- two runs
+-------------------------------------------------------------------------------
+(a) at the parked attractor, policy driving:
+sim span=10.32 s  (wall 90 s)
+TRANSLATION: path=0.0441 m  net=0.0243 m  -> mean speed 0.0043 m/s sim
+ROTATION   : total=6.8 deg  net=+0.4 deg -> mean |yaw rate| 0.0115 rad/s sim
+COMMANDED  : |vx|=0.0741 |vy|=0.0158 |wz|=0.1618 (means)
+             commanded translational speed=0.0765 m/s -> expected 0.789 m over 10.32 s sim
+             ACHIEVED / COMMANDED translation = 5.6%
+             ACHIEVED / COMMANDED rotation    = 7.1%
+WHEELS     : |v| mean=2.876 max=5.109 rad/s (max capability 32.67)
+
+(b) in free space after probe [4], policy driving:
+sim span=10.10 s  (wall 90 s)
+TRANSLATION: path=0.4515 m  net=0.2878 m  -> mean speed 0.0447 m/s sim
+ROTATION   : total=40.2 deg  net=+16.1 deg -> mean |yaw rate| 0.0694 rad/s sim
+COMMANDED  : |vx|=0.0821 |vy|=0.0793 |wz|=0.1069 (means)
+             commanded translational speed=0.1232 m/s -> expected 1.245 m over 10.10 s sim
+             ACHIEVED / COMMANDED translation = 36.3%
+             ACHIEVED / COMMANDED rotation    = 64.9%
+WHEELS     : |v| mean=3.803 max=9.460 rad/s (max capability 32.67)
+
+-------------------------------------------------------------------------------
+[4] OPEN-LOOP ACTUATION -- wedge_test.py -- policy holding NO goal
+-------------------------------------------------------------------------------
+start pose: (-0.410, -0.472) yaw=78.3 deg
+forward  +vx  sim= 3.5s  moved=0.339 m (expected ~0.90 m,  37.7%)  dyaw= +14.0 deg  wheel|v|mean=6.67 rad/s
+backward -vx  sim= 3.5s  moved=0.320 m (expected ~0.90 m,  35.6%)  dyaw=  -5.0 deg  wheel|v|mean=6.19 rad/s
+left     +vy  sim= 3.5s  moved=0.468 m (expected ~0.90 m,  52.0%)  dyaw= -10.8 deg  wheel|v|mean=6.04 rad/s
+right    -vy  sim= 3.5s  moved=0.335 m (expected ~0.90 m,  37.2%)  dyaw=  +0.8 deg  wheel|v|mean=5.94 rad/s
+yaw      +wz  sim= 3.5s  moved=0.112 m (expected ~0.00 m,   nan%)  dyaw= +45.0 deg  wheel|v|mean=6.56 rad/s
+end pose:   (-0.345, -0.335) yaw=122.3 deg
+
+NOTE: the printed "expected" uses DRIVE_SIM_S=3.0 while the loop actually ran
+3.5 s sim, so the true commanded distance is 1.05 m and the percentages above
+are ~14% optimistic; recomputed against 1.05 m they are 32/30/45/32%. README.md
+quotes the recomputed figures.
+
+-------------------------------------------------------------------------------
+[5] COSTMAP NEIGHBOURHOOD -- halo.py then scale.py
+-------------------------------------------------------------------------------
+robot (-0.30, -0.44)  cell cost=76  (0-100 display scale)
+cost profile around robot (0.1 m steps, 8 compass dirs):
+  E  [76, 76, 76, 76, 76, 76, 76, 76]
+  NE [65, 56, 41, 36, 0, 0, 0, 0]
+  N  [56, 41, 0, 0, 0, 0, 0, 0]
+  NW [65, 56, 41, 36, 0, 0, 0, 0]
+  W  [76, 76, 76, 76, 75, 75, 68, 62]
+  SW [99, 99, 99, 100, 100, 99, 99, -1]
+  S  [99, 99, 100, 99, 99, -1, -1, -1]
+  SE [99, 99, 99, 100, 99, 99, 99, -1]
+
+distinct costmap values (nav2 publishes 0-100 display scale):
+  max value present = 100
+  cells >=90: [(95, 75), (99, 4262), (100, 922)]
+robot (-0.60,-0.53) yaw=89
+  nearest LETHAL(100): 0.21 m at -174 deg RELATIVE TO HEADING
+  lethal within 0.5 m: 37   within 1.0 m: 50
+
+CAUTION: an earlier pass of halo.py tested `>= 254` against this topic and
+reported zero lethal cells in a fully furnished room. /global_costmap/costmap is
+published in nav2's 0-100 DISPLAY scale (100 lethal, 99 inscribed), not raw
+0-254 cost. The zero-lethal reading was an artefact of that test and is retracted.
+
+-------------------------------------------------------------------------------
+[6] COSTMAP STABILITY -- flicker.py -- robot stationary, 144 s wall
+-------------------------------------------------------------------------------
+samples=17 over 144 s wall  robot total displacement=0.007 m
+robot OWN cell cost : min=76 max=76  distinct=[76]
+lethal (>=254) count: min=0 max=0        <-- wrong scale, see [5]
+inscribed(>=253)    : min=0 max=0        <-- wrong scale, see [5]
+high (>=99) count   : min=5119 max=5126  swing=7
+known cells         : min=15527 max=15527
+
+The load-bearing reading here is the last two lines, which are scale-independent:
+with the robot displaced 0.007 m over 144 s wall, the >=99 population moved by 7
+cells in 5125 (0.1%) and the known-cell count did not move at all.
+
+===============================================================================
+SCRIPTS
+===============================================================================
+
+----- guidance.py -----
+"""What guidance is the policy actually receiving?
+
+If /plan does not reach the goal, or the published /strafer/subgoal sits on top
+of the robot, then the policy is doing what it was told and the fault is
+upstream of it. Reports the plan's extent and endpoint, the subgoal's position
+relative to the robot, and the active goal.
+"""
+import rclpy, time, math
+import tf2_ros
+from nav_msgs.msg import Path
+from geometry_msgs.msg import PoseStamped
+rclpy.init(); n=rclpy.create_node("guidance_probe")
+n.set_parameters([rclpy.parameter.Parameter("use_sim_time", rclpy.Parameter.Type.BOOL, True)])
+buf=tf2_ros.Buffer(); tf2_ros.TransformListener(buf,n)
+P={}; SG=[]; AG=[]
+n.create_subscription(Path,"/plan",lambda m:P.update({"m":m}),1)
+n.create_subscription(PoseStamped,"/strafer/subgoal",lambda m:SG.append(m),10)
+n.create_subscription(PoseStamped,"/strafer_inference/active_goal",lambda m:AG.append(m),10)
+t0=time.monotonic()
+while time.monotonic()-t0<60:
+    rclpy.spin_once(n,timeout_sec=0.1)
+try:
+    tr=buf.lookup_transform("map","base_link",rclpy.time.Time())
+    rx,ry=tr.transform.translation.x,tr.transform.translation.y
+    q=tr.transform.rotation
+    ryaw=math.atan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z))
+except Exception:
+    print("no robot pose"); raise SystemExit
+print("robot (%.2f, %.2f) yaw=%.0f deg" % (rx,ry,math.degrees(ryaw)))
+if AG:
+    g=AG[-1].pose.position
+    print("active_goal (%.2f, %.2f)  dist=%.2f m  (%d msgs in 60 s)" %
+          (g.x,g.y,math.hypot(g.x-rx,g.y-ry),len(AG)))
+else:
+    print("active_goal: NONE received in 60 s")
+if "m" in P:
+    ps=P["m"].poses
+    if ps:
+        L=sum(math.hypot(ps[i+1].pose.position.x-ps[i].pose.position.x,
+                         ps[i+1].pose.position.y-ps[i].pose.position.y) for i in range(len(ps)-1))
+        s=ps[0].pose.position; e=ps[-1].pose.position
+        print("/plan: %d poses, length=%.2f m, start=(%.2f,%.2f), end=(%.2f,%.2f)" % (len(ps),L,s.x,s.y,e.x,e.y))
+        if AG:
+            g=AG[-1].pose.position
+            print("       plan END is %.2f m from the active goal  <-- should be ~0" %
+                  math.hypot(e.x-g.x,e.y-g.y))
+    else:
+        print("/plan: EMPTY (0 poses)")
+else:
+    print("/plan: no message in 60 s")
+if SG:
+    sg=SG[-1].pose.position
+    d=math.hypot(sg.x-rx,sg.y-ry)
+    brg=math.degrees(math.atan2(sg.y-ry,sg.x-rx))
+    rel=math.degrees(math.atan2(math.sin(math.radians(brg)-ryaw),math.cos(math.radians(brg)-ryaw)))
+    print("subgoal (%.2f, %.2f)  %.2f m from robot, bearing %+.0f deg rel heading  (%d msgs in 60 s)" %
+          (sg.x,sg.y,d,rel,len(SG)))
+    if d < 0.15:
+        print("       ^^ subgoal is essentially ON the robot: nothing to drive toward")
+else:
+    print("subgoal: NONE received in 60 s")
+n.destroy_node(); rclpy.shutdown()
+
+----- chatter.py -----
+"""Is the policy's cmd_vel a sustained command or a dithering one?
+
+Open-loop constant commands move this chassis ~32-45% of commanded. The policy
+achieves ~5%. If the policy's output alternates sign faster than the motor model
+(tau=0.05 s, 1-3 step delay, slew limit) can follow, the wheels chatter and the
+body integrates almost nothing -- which looks identical to "the policy won't
+drive" but is a signal-character problem, not a magnitude one.
+
+Reports, per axis: mean of the SIGNED command vs mean of |command| (their ratio
+is the duty of a sustained push), and the sign-flip rate in Hz sim.
+"""
+import rclpy, time, math, statistics
+from geometry_msgs.msg import Twist
+rclpy.init(); n=rclpy.create_node("chatter")
+n.set_parameters([rclpy.parameter.Parameter("use_sim_time", rclpy.Parameter.Type.BOOL, True)])
+C=[]
+def cb(m):
+    C.append((n.get_clock().now().nanoseconds*1e-9, m.linear.x, m.linear.y, m.angular.z))
+n.create_subscription(Twist,"/cmd_vel",cb,100)
+t0=time.monotonic()
+while time.monotonic()-t0<70:
+    rclpy.spin_once(n,timeout_sec=0.02)
+if len(C)<20:
+    print("cmd msgs:",len(C)); raise SystemExit
+span=C[-1][0]-C[0][0]
+print("cmd_vel msgs=%d over %.2f s sim (%.1f Hz sim)" % (len(C), span, len(C)/span))
+for idx,name in ((1,"vx"),(2,"vy"),(3,"wz")):
+    v=[c[idx] for c in C]
+    signed=statistics.mean(v); absmean=statistics.mean(abs(x) for x in v)
+    flips=sum(1 for a,b in zip(v[:-1],v[1:]) if a*b<0)
+    duty = (abs(signed)/absmean) if absmean>1e-9 else float('nan')
+    print("  %s: mean(signed)=%+.4f  mean(|v|)=%.4f  duty=%.2f  sign-flips=%d (%.1f Hz sim)"
+          % (name, signed, absmean, duty, flips, flips/span))
+    print("     -> a sustained push has duty ~1.0; pure dither ~0.0")
+n.destroy_node(); rclpy.shutdown()
+
+----- yawrate.py -----
+import rclpy, time, math, numpy as np
+import tf2_ros
+from sensor_msgs.msg import JointState
+from geometry_msgs.msg import Twist
+rclpy.init(); n=rclpy.create_node("yaw_rate")
+n.set_parameters([rclpy.parameter.Parameter("use_sim_time", rclpy.Parameter.Type.BOOL, True)])
+buf=tf2_ros.Buffer(); tf2_ros.TransformListener(buf,n)
+W=[]; C=[]
+n.create_subscription(JointState,"/strafer/joint_states",lambda m:W.append(max((abs(v) for v in m.velocity),default=0.0)),20)
+n.create_subscription(Twist,"/cmd_vel",lambda m:C.append((m.linear.x,m.linear.y,m.angular.z)),50)
+S=[]
+t0=time.monotonic()
+while time.monotonic()-t0<90:
+    rclpy.spin_once(n,timeout_sec=0.02)
+    try:
+        tr=buf.lookup_transform("map","base_link",rclpy.time.Time())
+        q=tr.transform.rotation
+        S.append((n.get_clock().now().nanoseconds*1e-9,
+                  tr.transform.translation.x, tr.transform.translation.y,
+                  math.atan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z))))
+    except Exception: pass
+if len(S)<5: print("no pose"); raise SystemExit
+t=np.array([s[0] for s in S]); x=np.array([s[1] for s in S]); y=np.array([s[2] for s in S])
+yaw=np.unwrap(np.array([s[3] for s in S]))
+sim_span=t[-1]-t[0]
+trans=float(np.sum(np.hypot(np.diff(x),np.diff(y))))
+net=math.hypot(x[-1]-x[0],y[-1]-y[0])
+rot=float(np.sum(np.abs(np.diff(yaw))))
+print("sim span=%.2f s  (wall 90 s)" % sim_span)
+print("TRANSLATION: path=%.4f m  net=%.4f m  -> mean speed %.4f m/s sim" % (trans,net,trans/sim_span))
+print("ROTATION   : total=%.1f deg  net=%+.1f deg -> mean |yaw rate| %.4f rad/s sim" %
+      (math.degrees(rot), math.degrees(yaw[-1]-yaw[0]), rot/sim_span))
+if C:
+    import statistics
+    print("COMMANDED  : |vx|=%.4f |vy|=%.4f |wz|=%.4f (means)" %
+          (statistics.mean(abs(c[0]) for c in C), statistics.mean(abs(c[1]) for c in C),
+           statistics.mean(abs(c[2]) for c in C)))
+    cs=statistics.mean(math.hypot(c[0],c[1]) for c in C)
+    print("             commanded translational speed=%.4f m/s -> expected %.3f m over %.2f s sim" % (cs, cs*sim_span, sim_span))
+    print("             ACHIEVED / COMMANDED translation = %.1f%%" % (100*trans/(cs*sim_span) if cs>0 else float('nan')))
+    cw=statistics.mean(abs(c[2]) for c in C)
+    print("             ACHIEVED / COMMANDED rotation    = %.1f%%" % (100*(rot/sim_span)/cw if cw>0 else float('nan')))
+if W:
+    print("WHEELS     : |v| mean=%.3f max=%.3f rad/s (max capability 32.67)" % (sum(W)/len(W), max(W)))
+n.destroy_node(); rclpy.shutdown()
+
+----- wedge_test.py -----
+#!/usr/bin/env python3
+"""Can the robot move AT ALL from where it parks? Open-loop /cmd_vel probe.
+
+Every repeat ends at the same point. Two very different causes produce that:
+
+  (a) the policy commands little or commands the wrong direction -- a POLICY
+      fault, and the robot would move freely if something else drove it;
+  (b) the chassis is wedged against sim geometry -- a SCENE/physics fault, in
+      which case the wheels spin, the body does not translate, and no policy
+      could have succeeded from there.
+
+This drives /cmd_vel open-loop in each axis in turn and measures the body
+displacement actually achieved per axis, alongside wheel velocities. Run it
+with NO active goal so nothing else is publishing to /cmd_vel.
+"""
+import math
+import time
+
+import rclpy
+import tf2_ros
+from geometry_msgs.msg import Twist
+from sensor_msgs.msg import JointState
+
+AXES = [
+    ("forward  +vx", 0.30, 0.0, 0.0),
+    ("backward -vx", -0.30, 0.0, 0.0),
+    ("left     +vy", 0.0, 0.30, 0.0),
+    ("right    -vy", 0.0, -0.30, 0.0),
+    ("yaw      +wz", 0.0, 0.0, 0.60),
+]
+DRIVE_SIM_S = 3.0
+WALL_CAP_S = 120.0
+
+
+def main():
+    rclpy.init()
+    n = rclpy.create_node("wedge_test")
+    n.set_parameters(
+        [rclpy.parameter.Parameter("use_sim_time", rclpy.Parameter.Type.BOOL, True)]
+    )
+    buf = tf2_ros.Buffer()
+    tf2_ros.TransformListener(buf, n)
+    pub = n.create_publisher(Twist, "/cmd_vel", 10)
+    wheels = []
+    n.create_subscription(
+        JointState, "/strafer/joint_states",
+        lambda m: wheels.append(max((abs(v) for v in m.velocity), default=0.0)), 10)
+
+    def pose():
+        try:
+            tr = buf.lookup_transform("map", "base_link", rclpy.time.Time())
+        except Exception:
+            return None
+        q = tr.transform.rotation
+        return (
+            tr.transform.translation.x,
+            tr.transform.translation.y,
+            math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)),
+        )
+
+    def sim_now():
+        return n.get_clock().now().nanoseconds * 1e-9
+
+    t0 = time.monotonic()
+    while pose() is None and time.monotonic() - t0 < 20:
+        rclpy.spin_once(n, timeout_sec=0.1)
+    p = pose()
+    print("start pose: (%.3f, %.3f) yaw=%.1f deg" % (p[0], p[1], math.degrees(p[2])))
+
+    for name, vx, vy, wz in AXES:
+        p0 = pose()
+        s0, w0 = sim_now(), time.monotonic()
+        wheels.clear()
+        t = Twist()
+        t.linear.x, t.linear.y, t.angular.z = vx, vy, wz
+        while sim_now() - s0 < DRIVE_SIM_S and time.monotonic() - w0 < WALL_CAP_S:
+            pub.publish(t)
+            rclpy.spin_once(n, timeout_sec=0.02)
+        for _ in range(15):
+            pub.publish(Twist())
+            rclpy.spin_once(n, timeout_sec=0.02)
+        # let it settle
+        s1 = sim_now()
+        while sim_now() - s1 < 0.5 and time.monotonic() - w0 < WALL_CAP_S:
+            rclpy.spin_once(n, timeout_sec=0.02)
+        p1 = pose()
+        d = math.hypot(p1[0] - p0[0], p1[1] - p0[1])
+        dyaw = math.degrees(
+            math.atan2(math.sin(p1[2] - p0[2]), math.cos(p1[2] - p0[2]))
+        )
+        sim_el = sim_now() - s0
+        cmd_speed = math.hypot(vx, vy)
+        expected = cmd_speed * DRIVE_SIM_S
+        wmean = sum(wheels) / len(wheels) if wheels else 0.0
+        eff = (d / expected * 100.0) if expected > 1e-6 else float("nan")
+        print(
+            "%-13s sim=%4.1fs  moved=%.3f m (expected ~%.2f m, %5.1f%%)  "
+            "dyaw=%+6.1f deg  wheel|v|mean=%.2f rad/s"
+            % (name, sim_el, d, expected, eff, dyaw, wmean)
+        )
+
+    p = pose()
+    print("end pose:   (%.3f, %.3f) yaw=%.1f deg" % (p[0], p[1], math.degrees(p[2])))
+    n.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()
+
+----- halo.py -----
+import rclpy, time, numpy as np, math
+import tf2_ros
+from nav_msgs.msg import OccupancyGrid
+rclpy.init(); n=rclpy.create_node("halo_probe")
+n.set_parameters([rclpy.parameter.Parameter("use_sim_time", rclpy.Parameter.Type.BOOL, True)])
+buf=tf2_ros.Buffer(); tf2_ros.TransformListener(buf,n)
+G={}
+n.create_subscription(OccupancyGrid,"/global_costmap/costmap",
+    lambda m:G.update({"d":np.asarray(m.data,dtype=np.int16).reshape(m.info.height,m.info.width),"i":m.info}),1)
+p=None; t0=time.monotonic()
+while time.monotonic()-t0<30:
+    rclpy.spin_once(n,timeout_sec=0.1)
+    try: p=buf.lookup_transform("map","base_link",rclpy.time.Time())
+    except Exception: pass
+    if p is not None and "d" in G: break
+x,y=p.transform.translation.x,p.transform.translation.y
+i=G["i"]; d=G["d"]
+c=int((x-i.origin.position.x)/i.resolution); r=int((y-i.origin.position.y)/i.resolution)
+print("robot (%.2f, %.2f)  cell cost=%d  (inscribed=253, lethal=254)" % (x,y,int(d[r,c])))
+# nearest lethal cell
+ys,xs=np.where(d>=254)
+if len(ys):
+    wx=i.origin.position.x+(xs+0.5)*i.resolution; wy=i.origin.position.y+(ys+0.5)*i.resolution
+    dist=np.hypot(wx-x,wy-y); k=int(np.argmin(dist))
+    print("nearest LETHAL cell: (%.2f, %.2f) at %.2f m, bearing %+.0f deg" %
+          (wx[k],wy[k],dist[k],math.degrees(math.atan2(wy[k]-y,wx[k]-x))))
+    print("lethal cells within 0.5 m: %d   within 1.0 m: %d" % (int((dist<0.5).sum()), int((dist<1.0).sum())))
+print("cost profile around robot (0.1 m steps, 8 compass dirs):")
+for name,(ux,uy) in [("E",(1,0)),("NE",(.707,.707)),("N",(0,1)),("NW",(-.707,.707)),
+                     ("W",(-1,0)),("SW",(-.707,-.707)),("S",(0,-1)),("SE",(.707,-.707))]:
+    prof=[]
+    for step in range(1,9):
+        px,py=x+ux*0.1*step, y+uy*0.1*step
+        cc=int((px-i.origin.position.x)/i.resolution); rr=int((py-i.origin.position.y)/i.resolution)
+        prof.append(int(d[rr,cc]) if 0<=rr<d.shape[0] and 0<=cc<d.shape[1] else -1)
+    print("  %-2s %s" % (name, prof))
+n.destroy_node(); rclpy.shutdown()
+
+----- scale.py -----
+import rclpy, time, numpy as np, math
+import tf2_ros
+from nav_msgs.msg import OccupancyGrid
+rclpy.init(); n=rclpy.create_node("scale_probe")
+n.set_parameters([rclpy.parameter.Parameter("use_sim_time", rclpy.Parameter.Type.BOOL, True)])
+buf=tf2_ros.Buffer(); tf2_ros.TransformListener(buf,n)
+G={}
+n.create_subscription(OccupancyGrid,"/global_costmap/costmap",
+    lambda m:G.update({"d":np.asarray(m.data,dtype=np.int16).reshape(m.info.height,m.info.width),"i":m.info}),1)
+p=None;t0=time.monotonic()
+while time.monotonic()-t0<30:
+    rclpy.spin_once(n,timeout_sec=0.1)
+    try: p=buf.lookup_transform("map","base_link",rclpy.time.Time())
+    except Exception: pass
+    if p is not None and "d" in G: break
+d=G["d"]; i=G["i"]
+vals,counts=np.unique(d,return_counts=True)
+print("distinct costmap values (nav2 publishes 0-100 display scale):")
+print("  max value present =",int(vals.max()))
+top=[(int(v),int(c)) for v,c in zip(vals,counts) if v>=90]
+print("  cells >=90:",top)
+x,y=p.transform.translation.x,p.transform.translation.y
+q=p.transform.rotation
+yaw=math.atan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z))
+ys,xs=np.where(d>=100)
+if len(ys):
+    wx=i.origin.position.x+(xs+0.5)*i.resolution; wy=i.origin.position.y+(ys+0.5)*i.resolution
+    dist=np.hypot(wx-x,wy-y); k=int(np.argmin(dist))
+    rel=math.degrees(math.atan2(math.sin(math.atan2(wy[k]-y,wx[k]-x)-yaw),
+                                math.cos(math.atan2(wy[k]-y,wx[k]-x)-yaw)))
+    print("robot (%.2f,%.2f) yaw=%.0f" % (x,y,math.degrees(yaw)))
+    print("  nearest LETHAL(100): %.2f m at %+.0f deg RELATIVE TO HEADING" % (dist[k],rel))
+    print("  lethal within 0.5 m: %d   within 1.0 m: %d" % (int((dist<0.5).sum()),int((dist<1.0).sum())))
+n.destroy_node(); rclpy.shutdown()
+
+----- flicker.py -----
+"""Is the global costmap stable while the robot is nearly stationary?
+
+Samples, per costmap update: the robot's own cell cost, the count of lethal and
+inscribed cells, and the robot's displacement since the previous sample. If the
+robot is not moving but its own cell cost swings, the map is flickering -- which
+makes every /plan derived from it, and therefore every subgoal the policy
+follows, non-stationary for reasons that have nothing to do with the policy.
+"""
+import rclpy, time, math, numpy as np
+import tf2_ros
+from nav_msgs.msg import OccupancyGrid
+rclpy.init(); n=rclpy.create_node("flicker_probe")
+n.set_parameters([rclpy.parameter.Parameter("use_sim_time", rclpy.Parameter.Type.BOOL, True)])
+buf=tf2_ros.Buffer(); tf2_ros.TransformListener(buf,n)
+S=[]
+def cb(m):
+    d=np.asarray(m.data,dtype=np.int16).reshape(m.info.height,m.info.width)
+    try: tr=buf.lookup_transform("map","base_link",rclpy.time.Time())
+    except Exception: return
+    x,y=tr.transform.translation.x,tr.transform.translation.y
+    c=int((x-m.info.origin.position.x)/m.info.resolution)
+    r=int((y-m.info.origin.position.y)/m.info.resolution)
+    own=int(d[r,c]) if 0<=r<d.shape[0] and 0<=c<d.shape[1] else -1
+    S.append({"t":time.monotonic(),"x":x,"y":y,"own":own,
+              "lethal":int((d>=254).sum()),"inscribed":int((d>=253).sum()),
+              "high":int((d>=99).sum()),"known":int((d>=0).sum())})
+n.create_subscription(OccupancyGrid,"/global_costmap/costmap",cb,5)
+t0=time.monotonic()
+while time.monotonic()-t0<150:
+    rclpy.spin_once(n,timeout_sec=0.1)
+if len(S)<3:
+    print("samples:",len(S)); raise SystemExit
+disp=[math.hypot(S[i+1]["x"]-S[i]["x"],S[i+1]["y"]-S[i]["y"]) for i in range(len(S)-1)]
+own=[s["own"] for s in S]; leth=[s["lethal"] for s in S]; ins=[s["inscribed"] for s in S]
+hi=[s["high"] for s in S]
+print("samples=%d over %.0f s wall  robot total displacement=%.3f m" % (len(S), S[-1]["t"]-S[0]["t"], sum(disp)))
+print("robot OWN cell cost : min=%d max=%d  distinct=%s" % (min(own),max(own),sorted(set(own))))
+print("lethal (>=254) count: min=%d max=%d" % (min(leth),max(leth)))
+print("inscribed(>=253)    : min=%d max=%d" % (min(ins),max(ins)))
+print("high (>=99) count   : min=%d max=%d  swing=%d" % (min(hi),max(hi),max(hi)-min(hi)))
+print("known cells         : min=%d max=%d" % (min(s['known'] for s in S), max(s['known'] for s in S)))
+print()
+print(" t_rel  disp_m  own  lethal  inscribed  high")
+for i,s in enumerate(S):
+    d0 = disp[i-1] if i>0 else 0.0
+    print("%6.1f  %6.3f %4d %7d %10d %5d" % (s["t"]-S[0]["t"], d0, s["own"], s["lethal"], s["inscribed"], s["high"]))
+n.destroy_node(); rclpy.shutdown()

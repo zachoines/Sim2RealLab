@@ -84,10 +84,13 @@ seed determinism and places the robot 2.9 cm from the recorded pose; from there
 v2's first command is 9.4° off its referent instead of 82° off. Substituting one
 field at a time at that tick, every non-depth field can be replaced with its
 clean-sim value and the command moves by at most 0.570°, while depth moves it by
-95.8° and does so in both directions. Across all 30 records, corruption-bearing
-depth commands toward the referent 29/30 times and clean depth 0/30. The patch
-replays and both sweeps re-run bit-exactly (worst deviation 0.000e+00) from the
-shipped artifacts.
+95.8° and does so in both directions. Swept across all 30 records, the
+noise-bearing rows command toward the referent **29/30**; the single-field arm —
+the node's own observation with only its depth dims replaced by clean sim — is
+**0/30**; and the whole-clean-row arm is **1/30**, its records 2–29 converging
+into a 3°-wide band around −79° to −82°. The patch replays and both published
+sweeps re-run bit-exactly (worst deviation 0.000e+00) from the shipped
+artifacts.
 
 The record also carries what the evidence does not support: the exoneration of
 the node's observation assembly is causal and single-tick, not a whole-mission
@@ -174,9 +177,12 @@ Sub-questions the choice has to answer either way:
 The mechanism did not change; the exposure did. `noise_models.py`,
 `sim_real_cfg.py`, `observations.py` and `d555_cfg.py` are **byte-identical**
 between the two artifacts' export trees (`eeacccc`, 2026-07-08 → `69014c6`,
-2026-07-26), and the `too_close` slam with its `min_range = 0.2` default entered
-in `52e1bd5` on 2026-01-12 and has never been edited. Both candidate changes
-land outside the window: #153 (2026-07-18) re-derives a variance test's
+2026-07-26). The collision is two-sided and both halves long predate the runs:
+the `too_close` slam with its `min_range = 0.2` default entered in `52e1bd5` on
+2026-01-12, and the `nearfield_fill = 0.2` the threshold lands on entered in
+`c50a76a` on 2026-03-23 — that second commit is where the two numbers met.
+Neither has been edited since. Neither candidate change separates the two runs:
+#153 merged 2026-07-18, inside the window, but re-derives a variance test's
 confidence interval and says in its own body that the noise models are not
 touched, which the empty diff confirms; #143's 80×60 → 80×45 policy camera
 (vertical FOV ~71° → 56.4°) has its last commit nineteen minutes before v1's run

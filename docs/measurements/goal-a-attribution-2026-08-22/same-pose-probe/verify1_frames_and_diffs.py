@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Adversarial verifier, part 1: frame arithmetic, independent field-diff
-reproduction, alignment attacks. Written from scratch (does not import the
-diff agent's scripts)."""
+reproduction, alignment attacks. Written from scratch (does not import
+the analysis scripts)."""
 import json, math
 import numpy as np
 
@@ -150,12 +150,12 @@ rowfrac = slam.reshape(30, H, W).mean(axis=(0, 2))
 diffs["rowslam_top5"] = rowfrac[:5].tolist()
 diffs["rowslam_rows25_44_minmax"] = [float(rowfrac[25:].min()), float(rowfrac[25:].max())]
 uns = ~slam
-diffs["unslammed_corr"] = corr(envD[uns], gymD[uns])                # claim 0.997
-diffs["unslammed_delta_std"] = float((envD[uns] - gymD[uns]).std())  # claim 0.021
+diffs["unslammed_corr"] = corr(envD[uns], gymD[uns])
+diffs["unslammed_delta_std"] = float((envD[uns] - gymD[uns]).std())
 # jaccard across consecutive records
 m = slam.reshape(30, -1)
 jac = [ (m[i] & m[i+1]).sum() / max(1, (m[i] | m[i+1]).sum()) for i in range(29)]
-diffs["mask_jaccard_mean_consecutive"] = float(np.mean(jac))        # claim ~0.33
+diffs["mask_jaccard_mean_consecutive"] = float(np.mean(jac))
 
 # NaN audit of the gym dump
 nanmask = np.isnan(gym)

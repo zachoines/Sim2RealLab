@@ -86,9 +86,25 @@ record of which environment each run trained under — see [`README.md`](README.
 
 ## What was edited in the copied artifacts
 
-The scripts and outputs in this directory are reproduced as they ran, with one
-substitution: the transient directory they were written into has been rewritten
-to this record's path, so the scripts resolve their inputs from a repository
-checkout. No numeric field, log line, or array was altered. The `.npy` and
-`.jsonl` payloads are byte-identical to what the runs produced —
-[`MANIFEST.sha256`](MANIFEST.sha256) digests what is here.
+The scripts and outputs in this directory are reproduced as they ran, with two
+declared classes of edit and nothing else.
+
+**1. The transient run directory was rewritten to this record's path**, so the
+scripts resolve their inputs from a repository checkout. It is not confined to
+the scripts: three lines of `same-pose-probe/probe_stdout.log` and four string
+fields across `same-pose-probe/analysis.json` and
+`same-pose-probe/closed_loop_summary.json` name that directory and carry the
+substitution too.
+
+**2. Two words were made neutral** where a script's own prose named the role
+that produced it rather than the thing it read: `replay/verify_replay.py:32`
+("prior agent's" → "the prior run's") and
+`same-pose-probe/verify1_frames_and_diffs.py:4` ("the diff agent's scripts" →
+"the analysis scripts"). Comments in the same file that restated superseded
+figures were deleted rather than corrected, so nothing in the directory asserts
+a number the record does not.
+
+Beyond those, nothing was altered — no numeric field, no array, no other log
+line. Every `.npy` and `.jsonl` payload is byte-identical to what the runs
+produced. [`MANIFEST.sha256`](MANIFEST.sha256) digests the directory as it
+stands, after both classes of edit.

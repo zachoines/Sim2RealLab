@@ -1,13 +1,16 @@
 """Independent re-derivation of the decisive patch replays and the two sweeps.
 Written from the published method description, not by re-executing the original
 script. Compares against patch_replays_consolidated.json."""
-import json, math, hashlib
+import json, math, hashlib, os
 import numpy as np
 import onnxruntime as ort
 
 SP   = "docs/measurements/goal-a-attribution-2026-08-22/same-pose-probe"
-NODE = "/home/zachoines/arm3_obs_capture_20260822/node_obs.jsonl"
-ONNX = "/home/zachoines/Workspace/Sim2RealLab/models/strafer_depth_subgoal_v2_998.onnx"
+# Run from the repo root.
+#   ONNX  — untracked repo content; sha256 digests in ../provenance.md
+#   NODE  — machine-local, 131 MB, not in git; location and sha256 in ../provenance.md
+ONNX = "models/strafer_depth_subgoal_v2_998.onnx"
+NODE = os.path.expanduser("~/arm3_obs_capture_20260822/node_obs.jsonl")
 BEARING, D0 = -8.1, 19
 
 print("onnx sha256:", hashlib.sha256(open(ONNX,'rb').read()).hexdigest())
@@ -59,11 +62,32 @@ for k, o in cases.items():
     print(f"{k:34s} {d:13.4f} {p:11.4f} {abs(d-p):10.2e}  [{a[0]:+.5f} {a[1]:+.5f} {a[2]:+.5f}]")
 
 sw = json.load(open(f"{SP}/patch_replays_consolidated.json"))["sweeps"]
+
+# Three sweeps over the same 30 records. The first two have published
+# counterparts and are compared against the matching series; the third has none.
+
+# (1) noise-bearing rows straight through -> sweeps.env_noise_rows_toward_goal
 env_flip = sum(1 for i in range(30) if abs(off(act(env[i]))) <= 45.0)
-gym_flip = 0
+
+# (2) whole clean-sim rows with the node's bookkeeping dims filled in -- the
+#     construction sweeps.gymclean_sweep uses -> sweeps.gymclean_rows_toward_goal
+whole_clean_flip = 0
+for i in range(30):
+    o = gym[i].copy(); o[10:14] = node[0, 10:14]; o[16:19] = node[0, 16:19]
+    if abs(off(act(o))) <= 45.0: whole_clean_flip += 1
+
+# (3) the tighter single-field arm added for this record: the node's own
+#     observation with only its 3600 depth dims replaced. NOT the same quantity
+#     as (2) -- no published counterpart; README section 6 reports it as 0/30.
+single_field_flip = 0
 for i in range(30):
     o = node[0].copy(); o[D0:] = gym[i, D0:]
-    if abs(off(act(o))) <= 45.0: gym_flip += 1
-print(f"\nenv noise-bearing rows toward goal : {env_flip}/30   published {sw['env_noise_rows_toward_goal']}")
-print(f"clean-depth rows toward goal       : {gym_flip}/30   published {sw['gymclean_rows_toward_goal']}")
-print(f"\nworst absolute deviation across all re-derived quantities: {worst:.3e}")
+    if abs(off(act(o))) <= 45.0: single_field_flip += 1
+
+print(f"\nnoise-bearing rows, unmodified            : {env_flip}/30"
+      f"   published {sw['env_noise_rows_toward_goal']}")
+print(f"whole clean-sim rows + node bookkeeping   : {whole_clean_flip}/30"
+      f"   published {sw['gymclean_rows_toward_goal']}")
+print(f"node obs, depth <- clean sim record i     : {single_field_flip}/30"
+      f"   (this record's own arm; README section 6 states 0/30)")
+print(f"\nworst absolute deviation across the re-derived patch cells: {worst:.3e}")

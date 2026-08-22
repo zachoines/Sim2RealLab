@@ -1,8 +1,11 @@
-import json, math
+import json, math, os
 import numpy as np, onnxruntime as ort
 SP="docs/measurements/goal-a-attribution-2026-08-22/same-pose-probe"
-NODE="/home/zachoines/arm3_obs_capture_20260822/node_obs.jsonl"
-ONNX="/home/zachoines/Workspace/Sim2RealLab/models/strafer_depth_subgoal_v2_998.onnx"
+# Run from the repo root.
+#   ONNX  — untracked repo content; sha256 digests in ../provenance.md
+#   NODE  — machine-local, 131 MB, not in git; location and sha256 in ../provenance.md
+ONNX = "models/strafer_depth_subgoal_v2_998.onnx"
+NODE = os.path.expanduser("~/arm3_obs_capture_20260822/node_obs.jsonl")
 B,D0=-8.1,19
 def rows(p,n=None,dh=False):
     o=[]

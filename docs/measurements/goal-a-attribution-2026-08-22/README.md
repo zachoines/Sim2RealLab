@@ -92,8 +92,11 @@ produced by the noise model and by nothing else.
 | [`same-pose-probe/field_diff_and_patch.py`](same-pose-probe/field_diff_and_patch.py), [`field_diff_and_patch_results.json`](same-pose-probe/field_diff_and_patch_results.json) | field-by-field node-vs-clean diffs against the pre-registered bands |
 | [`same-pose-probe/bisect_and_motion.py`](same-pose-probe/bisect_and_motion.py), [`bisect_and_motion_results.json`](same-pose-probe/bisect_and_motion_results.json) | the capture's motion onset, the tick-0 scene guard, the bisection ticks and both sweeps |
 | [`same-pose-probe/patch_replays_consolidated.json`](same-pose-probe/patch_replays_consolidated.json) | all 14 patch replays and the two 30-record sweeps in one file |
+| [`same-pose-probe/analyze.py`](same-pose-probe/analyze.py), [`analysis.json`](same-pose-probe/analysis.json) | the probe's own summary pass over its outputs |
+| [`same-pose-probe/launch_ts.txt`](same-pose-probe/launch_ts.txt) | wall stamps bracketing the probe run |
+| [`same-pose-probe/verify1_frames_and_diffs.py`](same-pose-probe/verify1_frames_and_diffs.py), [`verify1_out.json`](same-pose-probe/verify1_out.json) | the independent frame-arithmetic and field-diff re-derivation run at the time |
 | [`same-pose-probe/*.npy`](same-pose-probe/) | mean node image, mean clean image, and their difference, 45×80 |
-| [`verify/`](verify/) | re-derivations written for this record — §3, §5 and §7 below |
+| [`verify/`](verify/) | re-derivations written for this record — §3, §6 and §7 below |
 
 Analysis scripts and outputs from the attribution sessions are reproduced here
 verbatim, following the `analyze_tf.py` precedent in the gate record; the one
@@ -270,16 +273,16 @@ back. That is the four-way bidirectional result.
 
 Swept across all 30 records rather than one:
 
-| sweep | toward referent |
+| sweep arm | toward referent |
 |---|---|
 | noise-bearing rows, unmodified | **29 / 30** |
-| clean sim rows + node bookkeeping | **1 / 30** |
-| node observation with clean sim depth substituted | **0 / 30** |
+| whole clean-sim rows + node bookkeeping | **1 / 30** |
+| node observation, depth ← clean sim record *i* (single field) | **0 / 30** |
 
-The clean-depth arm converges hard: records 2–29 all land in −79.11° … −81.94°,
-a band 3° wide. The two exceptions are adjacent early records — record 0 in the
-clean sweep (−10.36°) and record 1 in the noise-bearing sweep (−99.06°) — both
-inside the probe's settle transient.
+The **whole-clean-row** arm converges hard: records 2–29 all land in
+−79.11° … −81.94°, a band 3° wide. The two exceptions are adjacent early records
+— record 0 in that arm (−10.36°) and record 1 in the noise-bearing arm (−99.06°)
+— both inside the probe's settle transient.
 
 The third row is a re-derivation added for this record: substituting only the
 3 600 depth dimensions of each clean sim record into the node's own observation
@@ -301,25 +304,33 @@ absolute deviation across every re-derived command component and angle:
 §6 establishes that corruption-bearing depth and clean depth put the command in
 different classes. It does not establish that the *slammed pixels* are the
 operative part of the corruption. That was tested here, and the controls do not
-separate ([`verify/specificity_probe_2.py`](verify/specificity_probe_2.py), all
-single-tick, zeroed state, off referent in degrees):
+separate. Both probes are single-tick from a zeroed state, off referent in
+degrees; the source column names which one each row came from
+([`verify/specificity_probe_1.py`](verify/specificity_probe_1.py),
+[`verify/specificity_probe_2.py`](verify/specificity_probe_2.py)):
 
-| manipulation of the node's own tick-0 depth | off referent | toward |
-|---|---:|:--:|
-| unmodified | −82.30 | no |
-| every nearfield-fill pixel → far clamp (the training convention) | **+37.70** | yes |
-| the same, checkerboard half of them | +26.55 | yes |
-| random **non**-nearfield pixels, same count → far clamp | +48.40 | no |
-| random pixels anywhere, same count → far clamp | +51.77 | no |
-| nearfield pixels → 0.5 / 1.0 / 2.0 / 4.0 m instead | −101.40 / −115.60 / −119.18 / −18.20 | no / no / no / yes |
-| whole image rescaled to the same mean, no class structure | −25.18 | yes |
+| manipulation of the node's own tick-0 depth | off referent | toward | from |
+|---|---:|:--:|:--|
+| unmodified | −82.30 | no | 1, 2 |
+| every nearfield-fill pixel → far clamp (the training convention) | **+37.70** | yes | 1, 2 |
+| the same, checkerboard half of them | +26.55 | yes | 1 |
+| **first** 1 288 non-nearfield pixels in raster order → far clamp | **−4.53** | **yes** | 1 |
+| random **non**-nearfield pixels, same count → far clamp | +48.40 | no | 2 |
+| random pixels anywhere, same count → far clamp | +51.77 | no | 2 |
+| nearfield pixels → 0.5 / 1.0 / 2.0 / 4.0 m instead | −101.40 / −115.60 / −119.18 / −18.20 | no / no / no / yes | 2 |
+| whole image rescaled to the same mean, no class structure | −25.18 | yes | 2 |
 
 Applying the training convention to the robot's own frame swings the command
-120° toward the referent, which is the predicted direction. But an
-equal-area far-clamp on pixels chosen at random swings it ~130° as well, landing
-at 48–52° — outside the 45° criterion, and near enough to it that the verdict
-turns on the threshold. A uniform rescale with no pixel-class structure also
-crosses. The inverse behaves the same way: undoing only the 671 slam-created
+120° toward the referent, which is the predicted direction. But equal-area
+far-clamps that are *not* the slam move it comparably. The deterministic
+raster-order control — the first 1 288 non-nearfield pixels, which is the top of
+the image — lands at **−4.53°** and crosses the criterion outright; the randomized
+versions of the same control swing ~130° and land at 48–52°, outside the
+criterion but near enough that the verdict turns on where the threshold sits. A
+uniform rescale with no pixel-class structure crosses as well. The two controls
+disagreeing with each other is itself the finding: the response tracks *how much
+of the image reads far* and *where*, and neither probe holds those fixed while
+moving only class membership. The inverse behaves the same way: undoing only the 671 slam-created
 pixels on the corruption-bearing record 15 moves it from +14.30° to −27.30°, in
 the predicted direction but well short of the −80.05° that replacing the whole
 depth field with clean sim depth produces.
@@ -341,8 +352,8 @@ node's records 0–29 against the clean sim images and requires a Pearson
 correlation ≥ 0.9 over the 3 600 pixels. Pooled, it reads **0.8951** and fails.
 The cause is in the capture, not the reproduction: the robot is stationary only
 at record 0. `last_action` is `[0, 0, 0]` at record 0 and non-zero from record 1;
-maximum absolute encoder velocity climbs 0.018 → 0.310 → 0.499 → 0.696 across
-records 1–5; correlation against the capture's own record 0 decays
+maximum absolute encoder velocity climbs 0.018 → 0.022 → 0.310 → 0.499 → 0.612 →
+0.696 across records 0–5; correlation against the capture's own record 0 decays
 1.000 → 0.9945 (record 3) → 0.8592 (record 9) → 0.8154 (record 11). Pooling
 therefore averages a moving camera against a fixed one.
 
@@ -422,37 +433,45 @@ and nothing else, and the TensorBoard files carry no text or hyperparameter
 records. The per-run stdout logs named in [`provenance.md`](provenance.md) are
 the only surviving statement of what was run.
 
-**The mechanism is older than both artifacts.** The `too_close` slam and the
-`min_range = 0.2` default entered in `52e1bd5` on **2026-01-12** and have not
-been modified since (`git log -S` on both). Across the two export commits —
+**The mechanism is older than both artifacts, and it is two-sided.** The
+`too_close` slam and the `min_range = 0.2` default entered in `52e1bd5` on
+**2026-01-12**; the `nearfield_fill = 0.2` the threshold lands on entered in
+`c50a76a` on **2026-03-23**, which is when the collision was created. Neither
+line has been modified since (`git log -S` on both). Across the two export
+commits —
 `eeacccc` (2026-07-08) and `69014c6` (2026-07-26, the merge of #168) —
 `noise_models.py`, `sim_real_cfg.py`, `observations.py` and `d555_cfg.py` are
 **byte-identical**. Neither run's depth pipeline differs from the other's.
 
-**Two candidate changes both land outside the window.** #153 (merged
-2026-07-18, between the runs) re-derives a variance test's confidence interval
-from the wall-pixel count and states in its own body that the noise models are
-not touched; the empty tree diff confirms it. #143, the 80×60 → 80×45 policy
-camera that took the rendered vertical FOV from ~71° to 56.4°, has its last
-commit at `2026-07-08T05:40:27Z` and v1's run begins at `05:59:23Z`, nineteen
-minutes later — and v1's own stdout log is named `depth_subgoal_vfov8045`. Both
+**Two candidate changes, neither of which separates the two runs.** #153 merged
+2026-07-18, which is *inside* the window, but it re-derives a variance test's
+confidence interval from the wall-pixel count and nothing else: it states in its
+own body that the noise models are not touched, and the empty tree diff over
+those files confirms it. #143, the 80×60 → 80×45 policy camera that took the
+rendered vertical FOV from ~71° to 56.4°, lands *before* the window — its last
+commit is at `2026-07-08T05:40:27Z` and v1's run begins at `05:59:23Z`, nineteen
+minutes later, and v1's own stdout log is named `depth_subgoal_vfov8045`. Both
 artifacts trained on the 80×45 camera.
 
 **What did change is the environment.** From the stdout logs:
 
 | | v1 | v2 |
 |---|---|---|
-| run | `run_20260708_005923`, iterations 0 → 574 | `run_20260726_221955` 0 → 499, then `run_20260727_171735` 500 → 998 resuming leg 1's `model_499.pt` |
+| run | `run_20260708_005923`, iterations 0 → 578 | `run_20260726_221955` 0 → 499, then `run_20260727_171735` 500 → 998 resuming leg 1's `model_499.pt` |
 | task | `Isaac-Strafer-Nav-RLDepth-Subgoal-Real-v0` | `Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-v0` |
 | deployed checkpoint | `model_500.pt` | `model_998.pt` |
 | seed | 42 | 42 |
 
 v2 is a fresh run, not a continuation of v1 — leg 1 has a `model_0.pt` and no
-resume line. Its task ID did not exist at v1's tree; the enriched variants are
-registered for the first time at `69014c6`. `StraferNavCfg_RLDepthSubgoal_Real`,
-the class v1 used, is byte-identical between the two trees, and enrichment is
-gated on `enrich_depth` in `_ComposedStraferNavEnvCfg`, so the change reached v2
-only through the task ID.
+resume line. **Its task ID is absent from v1's tree**, which is the load-bearing
+fact; the enriched variants enter at `3054af1` (#156, 2026-07-20), between the
+two runs. `StraferNavCfg_RLDepthSubgoal_Real`, the class v1 used, is
+byte-identical between the two trees, and enrichment is gated on `enrich_depth`
+in `_ComposedStraferNavEnvCfg`, so the change reached v2 only through the task
+ID.
+
+The iteration counts come from TensorBoard; v1's stdout log truncates at its
+iteration-574 block.
 
 The two config fields that differ are `enrich_depth` False → True and
 `level` `real` → `robust`. Both move the affected share, in the same direction:
@@ -468,9 +487,17 @@ The two config fields that differ are `enrich_depth` False → True and
   takes depth latency 1 → 2 steps. It leaves `min_range` and `max_range` alone,
   so it does not move the slam rate — §1.
 
-The corroborating telemetry: `Train/mean_episode_length` at v2 leg 1's first
-logged iteration is 33.1 against v1's 149.9 at its last, and `Train/mean_reward`
-−0.330 against 4.145. Both re-climb over v2's run.
+**The training curves do not add to this, and are recorded so they are not read
+as if they did.** v2 leg 1 starts from `model_0.pt`, so its first logged
+iteration is a fresh policy rather than a resume: `Train/mean_episode_length`
+32.111 and `Train/mean_reward` −0.174 at step 0, against v1's 20.857 / −1.029 at
+its own step 0. By the end of each run leg 1 reads 200.54 / 3.315 at iteration
+499 and v1 reads 149.90 / 4.145 at 578. Leg 2 resumes leg 1 and its first logged
+iteration, step 499, reads 33.091 / −0.330 — the discontinuity there is the
+resume, not a change of scene. Two runs of different lengths under different
+task IDs cannot be compared this way to say which environment was harder; the
+stdout logs settle that directly, and nothing here is offered as corroboration
+of it.
 
 **What is missing, exactly.** No measurement of the affected pixel share under
 v1's environment exists, and none can be made from the artifacts on either

@@ -29,7 +29,7 @@ for i in range(n):
     a, h = sess.run(["actions", "h_out"], {"obs": obs[i][None, :], "h_in": h})
     my_act[i] = a[0].astype(np.float64)
 
-# prior agent's saved actions
+# the prior run's saved actions
 prior_act = np.array([json.loads(l)["action"] for l in open(f"{PRIOR}/actions_v2_cpu.jsonl")])
 assert prior_act.shape == (n, 3)
 dev = np.abs(my_act - prior_act)

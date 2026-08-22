@@ -80,6 +80,7 @@ For how these briefs layer (v1 / v1.5 / v2 / v2.5 / v3 / escape valves) and how 
 | [`policy-rate-shared-constants`](active/trained-policy/policy-rate-shared-constants.md) | P2 | active | DGX |
 | [`domain-randomization-audit`](active/trained-policy/domain-randomization-audit.md) | P1 | active | DGX |
 | [`goal-noise-training`](active/trained-policy/goal-noise-training.md) | P2 | active | DGX |
+| [`depth-nearfield-convention-mismatch`](active/trained-policy/depth-nearfield-convention-mismatch.md) | P0 | active | DGX |
 | [`depth-subgoal-env`](active/trained-policy/depth-subgoal-env.md) | P3 | active | DGX |
 | [`depth-subgoal-reactive-avoidance`](parked/trained-policy/depth-subgoal-reactive-avoidance.md) | P3 | parked | DGX |
 | [`depth-subgoal-hybrid-runtime`](active/trained-policy/depth-subgoal-hybrid-runtime.md) | P3 | active | Jetson |
@@ -218,6 +219,7 @@ session. Parked briefs are not listed here — see **By epic** or
 
 | Brief | Owner | Estimate | Note |
 |---|---|---|---|
+| [`depth-nearfield-convention-mismatch`](active/trained-policy/depth-nearfield-convention-mismatch.md) | DGX | S code / L consequence | **The attributed cause of the 2026-08-17 gate's 0 of 6, and it invalidates every depth artifact trained under it.** Training's realism noise slams every pixel below `min_range` to `max_range`; the deploy pipeline writes the near-fill value at the same pixels. The threshold sits exactly on the value the observation term already wrote, so the stereo dither sends **49.90%** of the near-field class to the far clamp — **18.89%** of every frame reading 6.0 m in training where deployment reads 0.2 m, in a contiguous floor band (rows 22–44 at 36.9%, rows 0–21 at 0.02%). Tier-independent: it is the threshold's position, not the noise magnitude. v2 `model_998` depends on those statistics (fed them it commands 9.4° off its referent; fed the deploy convention, 82° off, in both patch directions, 29/30 against 0/30 across records); v1 `model_500` tolerates both. The mechanism predates both artifacts — `52e1bd5`, 2026-01-12, byte-identical across the two training trees — so what changed is exposure: v2 trained on the enriched robust task ID, every lever of which raises the affected share. Three fix directions are drawn up and **none is adjudicated**; the choice has to be made before a retrain is spent. Record: [`goal-a-attribution-2026-08-22`](../measurements/goal-a-attribution-2026-08-22/README.md) |
 
 ### P1 — high priority
 

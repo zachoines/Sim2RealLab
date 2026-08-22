@@ -70,6 +70,23 @@ process.
   reader who trusts the attribution reaches the right conclusion; a reader who
   trusts the rate does not.
 
+## Not what produced that session's 0 of 6
+
+The defect stands exactly as measured above, and it stays a reporting defect.
+The loop it misreports was healthy — 24 892 of 24 892 inferences on a fresh
+depth frame, `depth_age` max one frame period — and the gate result is
+attributed elsewhere: to a near-field depth convention mismatch
+([`depth-nearfield-convention-mismatch`](../trained-policy/depth-nearfield-convention-mismatch.md),
+record [`goal-a-attribution-2026-08-22`](../../../measurements/goal-a-attribution-2026-08-22/README.md)).
+That record replays the mission's own observations offline, one tick per
+observation, and reproduces the robot's commands to mean absolute differences of
+3.6e-4 / 2.2e-4 / 4.7e-4 across the three command components — so no cadence or
+scheduling quantity is carrying the failure: the same observations produce the
+same commands with the loop removed entirely.
+
+The reason to fix this is unchanged — a rate that latches into a false shortfall
+is the number the setpoint rule consumes.
+
 ## Acceptance
 
 - [ ] The rate printed with a counter block describes that block's interval.

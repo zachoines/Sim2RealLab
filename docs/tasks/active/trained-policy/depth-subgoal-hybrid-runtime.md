@@ -38,6 +38,29 @@
 > Two runtime defects the run surfaced, both filed and neither blocking this
 > brief: [`subgoal-generator-sim-clock-freshness`](../reliability/subgoal-generator-sim-clock-freshness.md)
 > and [`cadence-report-window-never-resets`](../reliability/cadence-report-window-never-resets.md).
+> Both still stand and both are now measured non-causal for the 0 of 6.
+>
+> **Attributed 2026-08-22 — the runtime is exonerated and the behavioural half
+> is blocked on a training-side fix.** Record:
+> [`measurements/goal-a-attribution-2026-08-22`](../../../measurements/goal-a-attribution-2026-08-22/README.md);
+> defect: [`depth-nearfield-convention-mismatch`](depth-nearfield-convention-mismatch.md).
+> Replaying the mission's own captured observations offline reproduces the
+> robot's commands to mean absolute differences of **3.6e-4 / 2.2e-4 / 4.7e-4**
+> across the three command components, so the on-device TensorRT path is ruled
+> out and the failure is the artifact's; the off-goal
+> command is present in the **first** inference, so the recurrent horizon is not
+> winding into it; and substituting each observation field with its clean-sim
+> value at that tick moves the command by at most 0.570° for every field except
+> **depth**, which moves it by 95.8° in both directions. The subgoal stream was
+> never suppressed on the replayed mission (stale-subgoal counter 0 over 1 799
+> ticks) and the referent's freeze follows the failure rather than causing it.
+>
+> Observation *content* is therefore the open candidate no longer — it is
+> settled, and it settles against the **training** convention, not the node:
+> `obs_pipeline.downsample_depth` writes bit-identical values to the clean
+> training observation term, and it is the training-side noise model that
+> rewrites ~19% of every frame. This brief's live acceptance stays open, and is
+> now gated on that fix plus a retrain rather than on the rig.
 
 ## Un-park trigger
 

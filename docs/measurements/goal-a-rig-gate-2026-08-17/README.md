@@ -346,11 +346,13 @@ poses directly. Isolating it needs one NL mission captured with
 
 1. **The collision admission rule was duty-cycled, not in force.** The subgoal
    generator's freshness guards compare `time.monotonic()` (wall) against
-   timeouts sized in sim units. The costmap arrives every ~1.05 s sim ≈ 9.1 s
-   wall against a 5.0 s guard, so the rule was unavailable for roughly 45% of
-   evaluations. Both states were observed: the warning fired throughout, and
-   `anchor_in_collision` admissions still occurred (40 across the run, 14 of
-   them inside M4). Filed as
+   timeouts sized in sim units. The costmap arrives every 1.05 s sim, which at
+   the session-wide RTF 0.106 is **9.9 s wall** against a 5.0 s guard, so the
+   rule was unavailable for **49.5%** of the interval. Both states were observed:
+   the warning fired for the larger part of every cycle, and `anchor_in_collision`
+   admissions still occurred — that field is a **cumulative counter**, and it
+   reached **43** by session end, **18** of them inside the six scored windows
+   (14 of those in M4). Filed as
    [`subgoal-generator-sim-clock-freshness`](../../tasks/active/reliability/subgoal-generator-sim-clock-freshness.md).
 2. **Start pose varied; only start heading was fixed.** Nav2 cannot reposition
    from a just-parked pose in this scene — `controller_server` reports

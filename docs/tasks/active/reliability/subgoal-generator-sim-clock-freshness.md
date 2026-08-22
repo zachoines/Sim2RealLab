@@ -75,10 +75,15 @@ arithmetic is stated once and does not drift between paragraphs.
   fastest spot RTF observed, 0.115, the gap is 9.1 s and the figure is 45.2%;
   the session-wide number is the one quoted here.) The suppression is invisible
   in the log because the warning is throttled to 10 s and therefore reads as
-  continuous. Both outcomes were observed in the same session: the warning
-  fired throughout, and `anchor_in_collision=2` admissions still occurred.
-  The other two rules are unaffected (`cross_track_exceeded` and `goal_changed`
-  both fired normally).
+  continuous. Both outcomes were observed in the same session: the warning fired
+  for the larger part of every cycle, and collision admissions still landed in
+  the windows where the guard happened to be open. `anchor_in_collision` in the
+  `anchor status:` line is a **cumulative counter**, not a flag — it climbs
+  1 → 43 across this session over 13 distinct values — so a single reading of
+  `anchor_in_collision=2` is a snapshot early in the run, not a total. The
+  session total is **43**, of which **18** fall inside the six scored mission
+  windows (14 of those in one mission). The other two rules are unaffected
+  (`cross_track_exceeded` and `goal_changed` both fired normally).
 - `plan is stale (older than 1.0 s); suppressing rolling-subgoal output` also
   fired: the replan period is 0.5 s sim ≈ 4.7 s wall at RTF 0.106, against a
   1.0 s wall guard.
@@ -104,7 +109,7 @@ arithmetic is stated once and does not drift between paragraphs.
 ## Scope
 
 The fix is a clock swap inside one node. It changes no admission thresholds and
-no default. It does change behaviour on slow sim lanes — the collision rule
-begins firing where it previously never did — so the first re-run after it lands
-is expected to show anchors admitted by `collision` that this session's records
-show admitted only by `goal_changed`.
+no default. It does change behaviour on slow sim lanes — the collision rule goes
+from firing about half the time to always — so the first re-run after it lands is
+expected to show **more** `anchor_in_collision` admissions than this session's 43,
+and anchoring records taken before and after the fix are not directly comparable.

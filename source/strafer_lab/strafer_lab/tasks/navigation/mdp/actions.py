@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import torch
 
 from isaaclab.managers.action_manager import ActionTerm, ActionTermCfg
-from isaaclab.utils import configclass
+from isaaclab.utils.configclass import configclass
 from isaaclab.utils.buffers import DelayBuffer
 from strafer_shared.mecanum_kinematics import (
     KINEMATIC_MATRIX,

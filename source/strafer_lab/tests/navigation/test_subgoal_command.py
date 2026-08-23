@@ -170,6 +170,16 @@ def _make_stub_env(num_envs: int = 2):
         num_envs=num_envs,
         device=device,
         scene=_StubScene({"robot": robot}, torch.zeros(num_envs, 3)),
+        # CommandTerm.__init__ calls set_debug_vis, which reaches the marker
+        # registry even when debug vis is off. Older pins guarded that branch
+        # behind a live handle check, so a term built on this stub never
+        # touched it; stub the registry so the term constructs on either pin.
+        sim=SimpleNamespace(
+            vis_marker_registry=SimpleNamespace(
+                add_debug_vis_callback=lambda _term: None,
+                clear_debug_vis_callback=lambda _term: None,
+            )
+        ),
     )
     env._proc_room_free_space = torch.ones(num_envs, 80, 80, dtype=torch.bool)
     # Reachable goal candidates: one too close (0.5 m), several valid.

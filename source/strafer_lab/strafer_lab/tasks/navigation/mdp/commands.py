@@ -13,7 +13,7 @@ import torch
 import isaaclab.sim as sim_utils
 from isaaclab.managers import CommandTerm, CommandTermCfg
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
-from isaaclab.utils import configclass
+from isaaclab.utils.configclass import configclass
 from isaaclab.utils.math import quat_from_euler_xyz, quat_mul
 
 from strafer_shared.constants import (

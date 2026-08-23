@@ -12,7 +12,7 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.sensors import TiledCameraCfg, ImuCfg, ContactSensorCfg
-from isaaclab.utils import configclass
+from isaaclab.utils.configclass import configclass
 
 import isaaclab.sim as sim_utils
 

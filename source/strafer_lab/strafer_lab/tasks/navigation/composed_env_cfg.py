@@ -38,7 +38,7 @@ observation tensor.
 
 from __future__ import annotations
 
-from isaaclab.utils import configclass
+from isaaclab.utils.configclass import configclass
 
 from . import strafer_env_cfg as base
 

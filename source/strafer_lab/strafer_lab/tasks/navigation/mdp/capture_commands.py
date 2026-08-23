@@ -26,7 +26,7 @@ from collections.abc import Sequence
 import torch
 import warp as wp
 
-from isaaclab.utils import configclass
+from isaaclab.utils.configclass import configclass
 
 from .commands import SubgoalCommand, SubgoalCommandCfg
 

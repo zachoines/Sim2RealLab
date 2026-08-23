@@ -2,7 +2,6 @@
 
 This module provides RL algorithm configurations for training:
 - RSL-RL (PPO) with standard MLP, RNN, or depth-RNN network
-- Modular auxiliary loss architecture (DAPG, GAIL) via StraferPPO
 
 The depth runner uses ``StraferDepthRNNModel`` (extends rsl_rl's RNNModel
 with integrated depth encoding) and ``AffineBetaDistribution`` for bounded
@@ -10,18 +9,16 @@ with integrated depth encoding) and ``AffineBetaDistribution`` for bounded
 ``resolve_callable()`` from the config's ``class_name`` field — no manual
 registration is needed.
 
-For auxiliary losses (DAPG, GAIL), call ``install_strafer_ppo()`` once,
-then register auxiliary modules via ``register_auxiliary()``.
+Exported here: the three runner configs, the bounded-action distribution, the
+depth-RNN model, and the depth encoders.  ``demo_buffer`` is deliberately not
+re-exported — it pulls in ``h5py``, which nothing else in this package needs;
+import it by module path.
 """
 
 from .rsl_rl_ppo_cfg import STRAFER_PPO_RUNNER_CFG, STRAFER_PPO_RECURRENT_RUNNER_CFG, STRAFER_PPO_DEPTH_RUNNER_CFG
 from .distributions import AffineBetaDistribution, BetaDistributionCfg
 from .depth_rnn_model import StraferDepthRNNModel, StraferDepthRNNModelCfg
 from .depth_encoders import SpatialSoftArgmax, DeFMDepthEncoder, DepthEncoder, create_depth_encoder
-from .strafer_ppo import AuxiliaryLoss, install_strafer_ppo, register_auxiliary
-from .demo_buffer import ExpertDemoBuffer
-from .aux_dapg import DAPGAuxiliary
-from .aux_gail import GAILAuxiliary
 
 
 __all__ = [
@@ -36,10 +33,4 @@ __all__ = [
     "DeFMDepthEncoder",
     "DepthEncoder",
     "create_depth_encoder",
-    "ExpertDemoBuffer",
-    "AuxiliaryLoss",
-    "install_strafer_ppo",
-    "register_auxiliary",
-    "DAPGAuxiliary",
-    "GAILAuxiliary",
 ]

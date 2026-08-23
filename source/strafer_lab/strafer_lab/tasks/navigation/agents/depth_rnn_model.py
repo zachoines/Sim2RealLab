@@ -191,7 +191,6 @@ class StraferDepthRNNModel(RNNModel):
     def encoded_obs_dim(self) -> int:
         """Dimension of the encoded observation (after depth compression).
 
-        Used by GAIL to auto-size the discriminator input layer.
         Returns the scalar_dim + depth_embedding_dim when depth is present,
         otherwise the raw obs dim.
         """
@@ -203,8 +202,7 @@ class StraferDepthRNNModel(RNNModel):
         """Encode flat observations through the depth encoder (no RNN/MLP).
 
         Takes a raw concatenated observation tensor and returns the encoded
-        representation (scalar features + depth embedding). Used by GAIL
-        to map observations into the shared latent space.
+        representation (scalar features + depth embedding).
 
         Args:
             obs_flat: (B, raw_obs_dim) flat observations.

@@ -92,6 +92,23 @@ arithmetic is stated once and does not drift between paragraphs.
   `anchor_age=794.0s` on a mission that had run ~50 s sim, which is a live trap
   for anyone reading that line to time an anchor.
 
+## Not what produced that session's 0 of 6
+
+The defect stands exactly as measured above, but it did not produce the gate
+result: the hypothesis that a duty-cycled admission rule starved the policy of a
+fresh referent is **refuted**, not merely unsupported. The gate is attributed to
+a near-field depth convention mismatch —
+[`depth-nearfield-convention-mismatch`](../trained-policy/depth-nearfield-convention-mismatch.md),
+record [`goal-a-attribution-2026-08-22`](../../../measurements/goal-a-attribution-2026-08-22/README.md).
+The stale-subgoal counter reads 0 across all 1 799 ticks of the replayed mission,
+the off-goal command precedes any staleness (first inference, referent still
+evolving), and substituting the referent quartet with its clean-sim value there
+moves the command 0.4°.
+
+What this brief owns is untouched by that: an admission rule that fires about
+half the time on any lane slower than real time, and an `anchor_age` reported in
+a clock the rest of its line does not use.
+
 ## Acceptance
 
 - [ ] Freshness guards read the node clock (`get_clock().now()`), so they follow

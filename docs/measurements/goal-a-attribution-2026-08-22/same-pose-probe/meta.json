@@ -1,0 +1,121 @@
+{
+  "task": "Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0",
+  "seed": 42,
+  "cfg": {
+    "decimation": 4,
+    "sim_dt": 0.008333333333333333,
+    "render_interval": 4,
+    "step_dt": 0.03333333333333333
+  },
+  "terminations_disabled": [
+    "time_out",
+    "robot_flipped",
+    "sustained_collision",
+    "goal_reached"
+  ],
+  "anchor_pos_w": [
+    0.35000020265579224,
+    -1.75,
+    0.10000000149011612
+  ],
+  "anchor_yaw_w": 0.0,
+  "env_origin": [
+    -0.0,
+    0.0,
+    0.0
+  ],
+  "pos_attr": "root_link_pos_w",
+  "target_world": [
+    -0.14899979734420776,
+    -2.201
+  ],
+  "target_yaw": 2.22,
+  "ref_world": [
+    0.22009654669384432,
+    -1.4071505734336296
+  ],
+  "goal_world": [
+    -1.6499997973442078,
+    0.5
+  ],
+  "achieved_pos_w": [
+    -0.14677724242210388,
+    -2.1721723079681396,
+    0.0800388753414154
+  ],
+  "achieved_yaw_w": 2.2137026846438372,
+  "quartet_clean_terms": {
+    "goal_position_relative_raw_m": [
+      0.3922194838523865,
+      -0.7519649267196655
+    ],
+    "goal_distance_raw_m": [
+      0.8484424352645874
+    ],
+    "goal_heading_to_goal_raw_rad": [
+      -1.0900686979293823
+    ],
+    "goal_heading_relative_raw_rad": [
+      -2.21370267868042
+    ]
+  },
+  "goal_bearing_body_deg": -7.476021133973904,
+  "policy_term_layout": [
+    [
+      "imu_linear_acceleration",
+      [
+        3
+      ]
+    ],
+    [
+      "imu_angular_velocity",
+      [
+        3
+      ]
+    ],
+    [
+      "wheel_encoder_velocities",
+      [
+        4
+      ]
+    ],
+    [
+      "goal_position",
+      [
+        2
+      ]
+    ],
+    [
+      "goal_distance",
+      [
+        1
+      ]
+    ],
+    [
+      "goal_heading_to_goal",
+      [
+        1
+      ]
+    ],
+    [
+      "body_velocity_xy",
+      [
+        2
+      ]
+    ],
+    [
+      "last_action",
+      [
+        3
+      ]
+    ],
+    [
+      "depth_image",
+      [
+        3600
+      ]
+    ]
+  ],
+  "settle_steps": 2,
+  "spawn_z": 0.1
+}

@@ -38,6 +38,19 @@
 > Two runtime defects the run surfaced, both filed and neither blocking this
 > brief: [`subgoal-generator-sim-clock-freshness`](../reliability/subgoal-generator-sim-clock-freshness.md)
 > and [`cadence-report-window-never-resets`](../reliability/cadence-report-window-never-resets.md).
+> Both still stand and both are now measured non-causal for the 0 of 6.
+>
+> **Attributed 2026-08-22 — the runtime is exonerated and the behavioural half
+> is blocked on a training-side fix.** Record:
+> [`measurements/goal-a-attribution-2026-08-22`](../../../measurements/goal-a-attribution-2026-08-22/README.md);
+> defect: [`depth-nearfield-convention-mismatch`](depth-nearfield-convention-mismatch.md).
+> The candidates left open above are **refuted**, not merely unsupported: the
+> replay reproduces the robot's own commands offline (not the TensorRT path), the
+> off-goal command is in the first inference (not the recurrent horizon), and the
+> stale-subgoal counter is 0 over 1 799 ticks (not the subgoal stream).
+> Observation *content* settles against the **training** convention, not the
+> node: depth moves the command 95.8° where every other field is inert within
+> 0.570°. The live acceptance stays open, now gated on that fix plus a retrain.
 
 ## Un-park trigger
 

@@ -70,6 +70,21 @@ process.
   reader who trusts the attribution reaches the right conclusion; a reader who
   trusts the rate does not.
 
+## Not what produced that session's 0 of 6
+
+The defect stands exactly as measured above, and it stays a reporting defect.
+The hypothesis that a cadence shortfall produced the gate result is **refuted**,
+not merely unsupported: the gate is attributed to a near-field depth convention
+mismatch —
+[`depth-nearfield-convention-mismatch`](../trained-policy/depth-nearfield-convention-mismatch.md),
+record [`goal-a-attribution-2026-08-22`](../../../measurements/goal-a-attribution-2026-08-22/README.md).
+Replaying the mission's own observations offline, one tick per observation,
+reproduces the robot's commands to 3.6e-4 / 2.2e-4 / 4.7e-4 — the same
+observations give the same commands with the loop removed entirely.
+
+The reason to fix this is unchanged — a rate that latches into a false shortfall
+is the number the setpoint rule consumes.
+
 ## Acceptance
 
 - [ ] The rate printed with a counter block describes that block's interval.

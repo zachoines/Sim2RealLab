@@ -29,7 +29,7 @@ Provenance, stack versions and binding proof: [`provenance.md`](provenance.md).
 | **G6** export A/B/C | 0.0 same-format; 2.9e−6 / 1.7e−5 cross | A: 8.345e−07 / 4.247e−06 (below investigate floor); **B: export axis exactly 0.0**; C: 85 pass / 1 skip | **ATTRIBUTED PASS** |
 | **G7** deterministic eval | REF 0.8119 | same-session REF **0.8575 ± 0.0435** (n=4); new pin **0.8650 ± 0.0289** (n=4); **+0.29 σ** | **PASS** |
 | **G8** bridge cadence + parity | 1302/1302 at 33.33 ms | **bridge does not start**: `ModuleNotFoundError: isaacsim.core.utils`; `bridge_harness_smoke.py` PASSes | **BLOCKED — stop-condition #8** |
-| **G9** training curve | mean 53.4 steps/s (45.4–61.4) | see below | see below |
+| **G9** training curve | mean 53.4 steps/s (45.4–61.4) | **53.86** steps/s, no NaN, curves r = 0.86 / 0.89 | **PASS** |
 
 **Two results need a coordinator ruling before the flip: G5 and G8.** A third, FINDING 4, is not
 a gate but is the most consequential thing measured today.
@@ -657,6 +657,76 @@ with a traceback rather than stalling, so the ptrace-free stall protocol did not
 
 ---
 
+**Per-site severity — the 8 sites do not fail the same way**, which matters for the ruling:
+
+| site | guard | behaviour on the new pin |
+|---|---|---|
+| `run_sim_in_the_loop.py:762` | **none** | **hard crash — the Tier-1 bridge does not start** (observed) |
+| `collect_demos.py:303` | none | hard crash when the camera re-pose path runs |
+| `coverage_capture.py:746` | none | hard crash when the overhead camera re-poses each step |
+| `test_strafer_env.py:162` | none, but behind `if args.video` | hard crash only under `--video` |
+| `validate_scene_connectivity.py:840` | `except Exception` -> `logger.warning` | **silently degrades** — `isaacsim.asset.gen.omap` is never enabled and the tool continues, so occupancy generation proceeds without the extension it asked for |
+| `extract_scene_metadata.py:640` | `except ImportError` -> `RuntimeError` | fails loudly and intentionally, with a message naming the runtime |
+| `teleop_capture.py:406` | `except ImportError` -> `return False` | graceful fallback |
+| `teleop_capture.py:438` | `except ImportError` -> `return` | graceful fallback |
+
+The `validate_scene_connectivity.py` case is the one worth flagging beyond the bridge: it is the
+only site that neither crashes nor falls back, so on the new pin it would keep running with the
+occupancy extension absent and report success.
+
+---
+
+### G9 — training-curve overlay — PASS
+
+cmd (new pin, same fixed-seed short run as the baseline; **no `--lr_schedule`, no recipe flags**):
+`$NEWLAB -p source/strafer_lab/scripts/train_strafer_navigation.py --env
+Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-v0 --num_envs 64 --max_iterations 100 --seed 42
+--headless --log_dir <scratch>` — 1 h 32 m wall, exit 0, **0 retries**.
+
+`--max_iterations 100` runs iterations **0–99**; there is no row 100. Iteration 0 carries
+first-iteration warm-up and is excluded from throughput, per §11.6.
+
+| quantity | baseline | new pin | delta |
+|---|---|---|---|
+| **steps/s, excluding iteration 0** | **53.49** (band 45.5–61.5) | **53.86** | **+0.36 (+0.7 %) — INSIDE** |
+| mean reward, iters 1–99 | −4.65 | −4.69 | −0.04 |
+| mean episode length, iters 1–99 | 287.73 | 283.92 | −3.81 (−1.3 %) |
+| NaN / inf rows | none | **none** | — |
+
+Sampled rows, against the baseline's own sampled table:
+
+| iter | steps/s base → new | reward base → new | ep-len base → new |
+|---|---|---|---|
+| 0 | 39 → 36 | −0.28 → −0.31 | 35.20 → 28.25 |
+| 10 | 52 → 57 | −3.82 → −3.74 | 179.29 → 210.82 |
+| 25 | 53 → 57 | −4.81 → −5.01 | 278.72 → 280.43 |
+| 50 | 53 → 43 | −5.06 → −5.16 | 319.09 → 309.24 |
+| 75 | 54 → 55 | −4.60 → −4.64 | 334.22 → 309.02 |
+| 99 | 55 → 53 | −5.09 → −5.36 | 385.86 → 371.39 |
+
+"Overlays qualitatively" is stated as a number rather than eyeballed: across the 99 compared
+iterations the curves correlate at **r = 0.8641** (mean reward) and **r = 0.8861** (mean episode
+length). The characteristic early shape is reproduced — episode length climbs steadily
+(28 → 371 against the baseline's 35 → 386) while reward falls and partly recovers — which is the
+expected trajectory when a fresh policy survives longer and accumulates more per-episode penalty
+before it learns to complete. Per-iteration steps/s correlates weakly (r = 0.40), which is
+timing jitter rather than curve shape; the means agree to 0.7 %.
+
+This is deliberately **not** an equality gate — rsl-rl 5.4.2's `compute_returns` fix changes
+GRU-critic dynamics by design. What it establishes is that the training path runs end to end on
+the new stack at baseline throughput, exercising the 5.4.2 runner and `tensordict 0.14.0`
+together. It did that, and it was the one leg of the session that needed no retry.
+
+**Provenance note.** The curve comes from the run's own TensorBoard event file, not from stdout:
+the launcher's final step copied an earlier partial `/proc` recovery of the log over the complete
+one, so the stdout log in the deposit holds only the first three iterations. The event file was
+untouched and carries all 100 points per tag, and `model_99.pt` in the same directory
+independently confirms the run reached iteration 99.
+[`extract_training_curve.py`](extract_training_curve.py) reads the event file; the recovered
+curve is [`training/training-curve.csv`](training/training-curve.csv) and the comparison is
+[`training/curve-comparison.txt`](training/curve-comparison.txt).
+
+
 ## The two cross-cutting findings
 
 ## FINDING 4 (the session's headline) — the new pair intermittently deadlocks during Kit init
@@ -664,7 +734,7 @@ with a traceback rather than stalling, so the ptrace-free stall protocol did not
 FINDING 2's "test-harness timeout" is not a test-harness problem. The roller probe — no pytest,
 no `run_tests.py` — hung the same way on its second PGS leg, and that gave a live specimen.
 
-**Specimen** (`logs/G2-hang-specimen-forensics.log`, captured non-ptrace per the standing rule):
+**Specimen** (evidence deposit, `logs/G2-hang-specimen-forensics.log`; captured non-ptrace per the standing rule):
 
 | observation | value | reading |
 |---|---|---|
@@ -690,7 +760,18 @@ stale set still in place succeeded in 2–3 s each. So the mechanism is a **race
 permanently poisoned lock, and the shm/semaphore leak is a contributing condition rather than a
 proven single cause. Stated as a hypothesis, not a conclusion.
 
-**Frequency and attribution.** Roughly one launch in three to ten hangs:
+
+**Rate, and how firmly it is attributed to the pair.** Counting every Kit launch of the session:
+
+| pin | launches | hangs | rate |
+|---|---|---|---|
+| **NEW** | 55 (RUN1 14, RUN2 14, env standalone 3, roller 1, 21 under `kit_retry`, 2 misc) | **13** | **23.6 %** |
+| **OLD** (same session, same host) | 20 (14 suite subprocesses, 4 evals, 1 `--video` train, 1 pose-trace equivalence) | **0** | 0 % |
+
+If the old pair carried the new pair's rate, the chance of seeing **zero** hangs in 20 launches
+is **0.45 %**. That is the attribution: the pair, not the host, the checkout, or the session.
+
+**Frequency by leg.** 
 RUN1 2 of 14 suites · RUN2 4 of 14 suites · roller 1 of 4 legs · standalone env 1 of 3.
 The **same-session old-pin control run of the identical command hung 0 of 14** and finished
 487/487 in 666 s. That is the attribution: **new pair, not this host**.

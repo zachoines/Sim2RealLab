@@ -1,0 +1,150 @@
+{
+  "pairwise": {
+    "roller_z_pgs_run1.csv vs roller_z_pgs_run2.csv": {
+      "bit_identical": true,
+      "comparable": true,
+      "max_abs_dvz_m_per_s": 0.0,
+      "max_abs_dz_m": 0.0
+    },
+    "roller_z_pgs_run1.csv vs roller_z_tgs_control.csv": {
+      "bit_identical": false,
+      "comparable": true,
+      "max_abs_dvz_m_per_s": 0.576801,
+      "max_abs_dz_m": 0.022306000000000006
+    },
+    "roller_z_pgs_run2.csv vs roller_z_tgs_control.csv": {
+      "bit_identical": false,
+      "comparable": true,
+      "max_abs_dvz_m_per_s": 0.576801,
+      "max_abs_dz_m": 0.022306000000000006
+    }
+  },
+  "runs": {
+    "roller_z_pgs_run1.csv": {
+      "per_frac": {
+        "0.25": {
+          "early_p2p_mm": 0.446,
+          "growth": 0.5583,
+          "late_p2p_mm": 0.249,
+          "max_z_mm": 48.058,
+          "mean_z_mm": 47.7987,
+          "min_z_mm": 47.612,
+          "peak_f_hz": 12.8
+        },
+        "0.5": {
+          "early_p2p_mm": 1.097,
+          "growth": 0.9125,
+          "late_p2p_mm": 1.001,
+          "max_z_mm": 48.139,
+          "mean_z_mm": 47.342,
+          "min_z_mm": 46.867,
+          "peak_f_hz": 25.6
+        },
+        "0.75": {
+          "early_p2p_mm": 2.017,
+          "growth": 0.643,
+          "late_p2p_mm": 1.297,
+          "max_z_mm": 48.248,
+          "mean_z_mm": 46.9242,
+          "min_z_mm": 46.153,
+          "peak_f_hz": 38.6
+        },
+        "1.0": {
+          "early_p2p_mm": 2.931,
+          "growth": 0.7339,
+          "late_p2p_mm": 2.151,
+          "max_z_mm": 48.676,
+          "mean_z_mm": 46.6862,
+          "min_z_mm": 45.745,
+          "peak_f_hz": 10.2
+        }
+      },
+      "rows": 2400,
+      "sha256": "d1285d3c616c9ffd3ab539ed238e18abd10e4a42a2d91c087254d3898cd528fa"
+    },
+    "roller_z_pgs_run2.csv": {
+      "per_frac": {
+        "0.25": {
+          "early_p2p_mm": 0.446,
+          "growth": 0.5583,
+          "late_p2p_mm": 0.249,
+          "max_z_mm": 48.058,
+          "mean_z_mm": 47.7987,
+          "min_z_mm": 47.612,
+          "peak_f_hz": 12.8
+        },
+        "0.5": {
+          "early_p2p_mm": 1.097,
+          "growth": 0.9125,
+          "late_p2p_mm": 1.001,
+          "max_z_mm": 48.139,
+          "mean_z_mm": 47.342,
+          "min_z_mm": 46.867,
+          "peak_f_hz": 25.6
+        },
+        "0.75": {
+          "early_p2p_mm": 2.017,
+          "growth": 0.643,
+          "late_p2p_mm": 1.297,
+          "max_z_mm": 48.248,
+          "mean_z_mm": 46.9242,
+          "min_z_mm": 46.153,
+          "peak_f_hz": 38.6
+        },
+        "1.0": {
+          "early_p2p_mm": 2.931,
+          "growth": 0.7339,
+          "late_p2p_mm": 2.151,
+          "max_z_mm": 48.676,
+          "mean_z_mm": 46.6862,
+          "min_z_mm": 45.745,
+          "peak_f_hz": 10.2
+        }
+      },
+      "rows": 2400,
+      "sha256": "d1285d3c616c9ffd3ab539ed238e18abd10e4a42a2d91c087254d3898cd528fa"
+    },
+    "roller_z_tgs_control.csv": {
+      "per_frac": {
+        "0.25": {
+          "early_p2p_mm": 0.996,
+          "growth": 0.3715,
+          "late_p2p_mm": 0.37,
+          "max_z_mm": 48.719,
+          "mean_z_mm": 47.8752,
+          "min_z_mm": 47.72,
+          "peak_f_hz": 18.2
+        },
+        "0.5": {
+          "early_p2p_mm": 3.243,
+          "growth": 1.506,
+          "late_p2p_mm": 4.884,
+          "max_z_mm": 52.119,
+          "mean_z_mm": 47.7849,
+          "min_z_mm": 47.235,
+          "peak_f_hz": 5.0
+        },
+        "0.75": {
+          "early_p2p_mm": 22.565,
+          "growth": 0.6451,
+          "late_p2p_mm": 14.556,
+          "max_z_mm": 69.419,
+          "mean_z_mm": 49.0626,
+          "min_z_mm": 46.468,
+          "peak_f_hz": 4.4
+        },
+        "1.0": {
+          "early_p2p_mm": 14.306,
+          "growth": 0.9814,
+          "late_p2p_mm": 14.04,
+          "max_z_mm": 68.541,
+          "mean_z_mm": 50.2111,
+          "min_z_mm": 46.31,
+          "peak_f_hz": 5.2
+        }
+      },
+      "rows": 2400,
+      "sha256": "6d4110dd6a27b5189e19cdce59d035374d3dcc4dd5e7f378d7186e882e411065"
+    }
+  }
+}

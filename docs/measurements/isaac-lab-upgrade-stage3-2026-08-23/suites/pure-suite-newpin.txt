@@ -1,0 +1,146 @@
+..............s......................................................... [  5%]
+........................................................................ [ 11%]
+........................................................................ [ 17%]
+........................................................................ [ 23%]
+........................................................................ [ 28%]
+........................................................................ [ 34%]
+........................................................................ [ 40%]
+........................................................................ [ 46%]
+........................................................................ [ 51%]
+........................................................................ [ 57%]
+........................................................................ [ 63%]
+........................................................................ [ 69%]
+........................................................................ [ 74%]
+........................................................................ [ 80%]
+........................................................................ [ 86%]
+........................................................................ [ 92%]
+........................................................................ [ 97%]
+..........................                                               [100%]
+=============================== warnings summary ===============================
+../../Documents/repos/IsaacLab-3beta2/source/isaaclab/isaaclab/utils/configclass.py:513: 10 warnings
+  /home/zachoines/Documents/repos/IsaacLab-3beta2/source/isaaclab/isaaclab/utils/configclass.py:513: DeprecationWarning: 'RigidBodyMaterialCfg' is deprecated and will be removed in 5.0. Use 'isaaclab_physx.sim.spawners.materials.PhysxRigidBodyMaterialCfg' for PhysX properties, or 'isaaclab.sim.spawners.materials.RigidBodyMaterialBaseCfg' for solver-common properties only.
+    f1(*args, **kwargs)
+
+../../Documents/repos/IsaacLab-3beta2/source/isaaclab/isaaclab/utils/configclass.py:513: 230 warnings
+tests/navigation/test_proc_room_vanilla_golden.py: 88 warnings
+  /home/zachoines/Documents/repos/IsaacLab-3beta2/source/isaaclab/isaaclab/utils/configclass.py:513: DeprecationWarning: 'RigidBodyPropertiesCfg' is deprecated and will be removed in 5.0. Use 'isaaclab_physx.sim.schemas.PhysxRigidBodyPropertiesCfg' for PhysX properties, or 'isaaclab.sim.schemas.RigidBodyBaseCfg' for solver-common properties only.
+    f1(*args, **kwargs)
+
+../../Documents/repos/IsaacLab-3beta2/source/isaaclab/isaaclab/utils/configclass.py:513
+../../Documents/repos/IsaacLab-3beta2/source/isaaclab/isaaclab/utils/configclass.py:513
+../../Documents/repos/IsaacLab-3beta2/source/isaaclab/isaaclab/utils/configclass.py:513
+../../Documents/repos/IsaacLab-3beta2/source/isaaclab/isaaclab/utils/configclass.py:513
+../../Documents/repos/IsaacLab-3beta2/source/isaaclab/isaaclab/utils/configclass.py:513
+../../Documents/repos/IsaacLab-3beta2/source/isaaclab/isaaclab/utils/configclass.py:513
+../../Documents/repos/IsaacLab-3beta2/source/isaaclab/isaaclab/utils/configclass.py:513
+../../Documents/repos/IsaacLab-3beta2/source/isaaclab/isaaclab/utils/configclass.py:513
+  /home/zachoines/Documents/repos/IsaacLab-3beta2/source/isaaclab/isaaclab/utils/configclass.py:513: DeprecationWarning: 'ArticulationRootPropertiesCfg' is deprecated and will be removed in 5.0. Use 'isaaclab_physx.sim.schemas.PhysxArticulationRootPropertiesCfg' for PhysX properties, or 'isaaclab.sim.schemas.ArticulationRootBaseCfg' for solver-common properties only.
+    f1(*args, **kwargs)
+
+../../miniconda3/envs/env_isaaclab3beta2/lib/python3.12/site-packages/torch/jit/_script.py:1488: 35 warnings
+tests/contracts/test_recurrent_contract_e2e.py: 5 warnings
+tests/policy_tooling/test_export_policy.py: 4 warnings
+tests/policy_tooling/test_load_policy.py: 19 warnings
+  /home/zachoines/miniconda3/envs/env_isaaclab3beta2/lib/python3.12/site-packages/torch/jit/_script.py:1488: DeprecationWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+../../Documents/repos/IsaacLab-3beta2/source/isaaclab/isaaclab/utils/configclass.py:513: 7 warnings
+tests/harness/test_bridge_spawn_from_occupancy.py: 4 warnings
+tests/navigation/test_bridge_procroom_cfg.py: 4 warnings
+tests/navigation/test_ceiling_surface_cfg.py: 20 warnings
+tests/navigation/test_d555_mount_camera_jitter.py: 26 warnings
+tests/navigation/test_proc_room_spawn_clearance.py: 1 warning
+  /home/zachoines/Documents/repos/IsaacLab-3beta2/source/isaaclab/isaaclab/utils/configclass.py:513: DeprecationWarning: TiledCameraCfg is deprecated. Use CameraCfg directly — Camera now includes TiledCamera's vectorized rendering optimizations.
+    f1(*args, **kwargs)
+
+../../Documents/repos/IsaacLab-3beta2/source/isaaclab/isaaclab/utils/configclass.py:513: 220 warnings
+tests/navigation/test_proc_room_vanilla_golden.py: 88 warnings
+  /home/zachoines/Documents/repos/IsaacLab-3beta2/source/isaaclab/isaaclab/utils/configclass.py:513: DeprecationWarning: 'CollisionPropertiesCfg' is deprecated and will be removed in 5.0. Use 'isaaclab_physx.sim.schemas.PhysxCollisionPropertiesCfg' for PhysX properties, or 'isaaclab.sim.schemas.CollisionBaseCfg' for solver-common properties only.
+    f1(*args, **kwargs)
+
+tests/contracts/test_recurrent_contract_e2e.py: 9 warnings
+tests/policy_tooling/test_export_policy.py: 5 warnings
+tests/policy_tooling/test_load_policy.py: 26 warnings
+  /home/zachoines/miniconda3/envs/env_isaaclab3beta2/lib/python3.12/site-packages/torch/jit/_serialization.py:176: DeprecationWarning: `torch.jit.load` is deprecated. Please switch to `torch.export`.
+    warnings.warn(
+
+tests/contracts/test_recurrent_contract_e2e.py::test_reset_then_same_obs_is_byte_identical_both_formats
+tests/contracts/test_recurrent_contract_e2e.py::test_no_reset_evolves_hidden_state_both_formats
+tests/contracts/test_recurrent_contract_e2e.py::test_pt_and_onnx_produce_numerically_close_actions_across_sequence
+tests/contracts/test_recurrent_contract_e2e.py::test_loaded_policy_initial_state_is_zero_implicitly
+  /home/zachoines/Workspace/Sim2RealLab/source/strafer_lab/tests/contracts/test_recurrent_contract_e2e.py:119: DeprecationWarning: You are using the legacy TorchScript-based ONNX export. Starting in PyTorch 2.9, the new torch.export-based ONNX exporter has become the default. Learn more about the new export logic: https://docs.pytorch.org/docs/stable/onnx_export.html. For exporting control flow: https://pytorch.org/tutorials/beginner/onnx/export_control_flow_model_to_onnx_tutorial.html
+    torch.onnx.export(
+
+tests/contracts/test_recurrent_contract_e2e.py: 4 warnings
+tests/policy_tooling/test_export_policy.py: 7 warnings
+tests/policy_tooling/test_load_policy.py: 4 warnings
+  /home/zachoines/miniconda3/envs/env_isaaclab3beta2/lib/python3.12/site-packages/torch/onnx/_internal/torchscript_exporter/utils.py:218: DeprecationWarning: The feature will be removed. Please remove usage of this function
+    setup_onnx_logging(verbose) as log_ctx,
+
+tests/contracts/test_recurrent_contract_e2e.py: 4 warnings
+tests/policy_tooling/test_export_policy.py: 5 warnings
+tests/policy_tooling/test_load_policy.py: 2 warnings
+  /home/zachoines/miniconda3/envs/env_isaaclab3beta2/lib/python3.12/site-packages/torch/nn/modules/rnn.py:328: TracerWarning: Converting a tensor to a Python boolean might cause the trace to be incorrect. We can't record the data flow of Python values, so this value will be treated as a constant in the future. This means that the trace might not generalize to other inputs!
+    if self.input_size != input.size(-1):
+
+tests/contracts/test_recurrent_contract_e2e.py: 4 warnings
+tests/policy_tooling/test_export_policy.py: 5 warnings
+tests/policy_tooling/test_load_policy.py: 2 warnings
+  /home/zachoines/miniconda3/envs/env_isaaclab3beta2/lib/python3.12/site-packages/torch/nn/modules/rnn.py:361: TracerWarning: Converting a tensor to a Python boolean might cause the trace to be incorrect. We can't record the data flow of Python values, so this value will be treated as a constant in the future. This means that the trace might not generalize to other inputs!
+    if hx.size() != expected_hidden_size:
+
+tests/contracts/test_recurrent_contract_e2e.py: 4 warnings
+tests/policy_tooling/test_export_policy.py: 5 warnings
+tests/policy_tooling/test_load_policy.py: 2 warnings
+  /home/zachoines/miniconda3/envs/env_isaaclab3beta2/lib/python3.12/site-packages/torch/onnx/_internal/torchscript_exporter/symbolic_opset9.py:4571: UserWarning: Exporting a model to ONNX with a batch_size other than 1, with a variable length with GRU can cause an error when running the ONNX model with a different batch size. Make sure to save the model with a batch size of 1, or define the initial states (h0/c0) as inputs of the model. 
+    return _generic_rnn(
+
+tests/harness/test_lerobot_depth.py: 5 warnings
+tests/harness/test_lerobot_writer.py: 18 warnings
+  /home/zachoines/Workspace/Sim2RealLab/source/strafer_lab/strafer_lab/tools/lerobot_depth.py:95: DeprecationWarning: 'mode' parameter for changing data types is deprecated and will be removed in Pillow 13 (2026-10-15)
+    Image.fromarray(mm, mode="I;16").save(path, format="PNG")
+
+tests/harness/test_lerobot_writer.py::TestRoundTrip::test_single_episode_with_depth
+tests/harness/test_lerobot_writer.py::TestRoundTrip::test_single_episode_with_depth
+tests/harness/test_lerobot_writer.py::TestPolicyDepthSidecar::test_policy_depth_lands_under_policy_feature_dir
+tests/harness/test_lerobot_writer.py::TestPolicyDepthSidecar::test_policy_depth_lands_under_policy_feature_dir
+tests/harness/test_lerobot_writer.py::TestPolicyDepthSidecar::test_policy_depth_is_optional
+tests/harness/test_lerobot_writer.py::TestPolicyDepthSidecar::test_policy_depth_is_optional
+  /home/zachoines/miniconda3/envs/env_isaaclab3beta2/lib/python3.12/multiprocessing/popen_fork.py:66: DeprecationWarning: This process (pid=914328) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    self.pid = os.fork()
+
+tests/harness/test_lerobot_writer.py::TestDetectionsRoundTrip::test_columns_and_vocab_round_trip
+  /home/zachoines/miniconda3/envs/env_isaaclab3beta2/lib/python3.12/site-packages/lerobot/datasets/compute_stats.py:159: RuntimeWarning: Converting input from bool to <class 'numpy.uint8'> for compatibility.
+    hist, _ = np.histogram(batch[:, i], bins=self._bin_edges[i])
+
+tests/policy_tooling/test_export_policy.py::test_onnx_export_round_trips_through_load_policy
+tests/policy_tooling/test_export_policy.py::test_metadata_sidecar_records_documented_fields
+tests/policy_tooling/test_export_policy.py::test_recurrent_onnx_export_writes_multi_input_artifact
+tests/policy_tooling/test_export_policy.py::test_recurrent_onnx_round_trip_is_deterministic_with_reset
+tests/policy_tooling/test_export_policy.py::test_recurrent_onnx_state_evolves_when_h_in_carried
+tests/policy_tooling/test_export_policy.py::test_recurrent_onnx_sidecar_marks_is_recurrent
+tests/policy_tooling/test_export_policy.py::test_recurrent_onnx_determinism_check_catches_stochastic_head
+tests/policy_tooling/test_load_policy.py::test_stateless_onnx_round_trip
+tests/policy_tooling/test_load_policy.py::test_trained_period_is_surfaced_from_an_onnx_artifact
+  /home/zachoines/Workspace/Sim2RealLab/source/strafer_lab/scripts/export_policy.py:210: DeprecationWarning: You are using the legacy TorchScript-based ONNX export. Starting in PyTorch 2.9, the new torch.export-based ONNX exporter has become the default. Learn more about the new export logic: https://docs.pytorch.org/docs/stable/onnx_export.html. For exporting control flow: https://pytorch.org/tutorials/beginner/onnx/export_control_flow_model_to_onnx_tutorial.html
+    torch.onnx.export(
+
+tests/policy_tooling/test_export_policy.py::test_torch_safe_defm_encoder_wraps_unscriptable_backbone
+tests/policy_tooling/test_export_policy.py::test_torch_safe_defm_encoder_matches_eager_within_trace_tolerance
+  /home/zachoines/miniconda3/envs/env_isaaclab3beta2/lib/python3.12/site-packages/torch/jit/_trace.py:1006: DeprecationWarning: `torch.jit.trace` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+tests/policy_tooling/test_export_policy.py::test_torch_safe_defm_encoder_wraps_unscriptable_backbone
+tests/policy_tooling/test_export_policy.py::test_torch_safe_defm_encoder_wraps_unscriptable_backbone
+tests/policy_tooling/test_export_policy.py::test_torch_safe_defm_encoder_matches_eager_within_trace_tolerance
+tests/policy_tooling/test_export_policy.py::test_torch_safe_defm_encoder_matches_eager_within_trace_tolerance
+  /home/zachoines/miniconda3/envs/env_isaaclab3beta2/lib/python3.12/site-packages/torch/jit/_trace.py:1145: DeprecationWarning: `torch.jit.trace_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+tests/policy_tooling/test_load_policy.py::test_recurrent_onnx_reset_required_for_determinism
+tests/policy_tooling/test_load_policy.py::test_recurrent_onnx_infers_recurrence_without_sidecar
+  /home/zachoines/Workspace/Sim2RealLab/source/strafer_lab/tests/policy_tooling/test_load_policy.py:119: DeprecationWarning: You are using the legacy TorchScript-based ONNX export. Starting in PyTorch 2.9, the new torch.export-based ONNX exporter has become the default. Learn more about the new export logic: https://docs.pytorch.org/docs/stable/onnx_export.html. For exporting control flow: https://pytorch.org/tutorials/beginner/onnx/export_control_flow_model_to_onnx_tutorial.html
+    torch.onnx.export(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1249 passed, 1 skipped, 908 warnings in 111.70s (0:01:51)

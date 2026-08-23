@@ -1,0 +1,9 @@
+metric                                 OLD mean+-sd       NEW mean+-sd   new-old  2026-08-14
+completion rate                     0.8575+-0.0435    0.8650+-0.0289   +0.0075      0.8119
+path_complete                       0.8575+-0.0435    0.8650+-0.0289   +0.0075      0.8119
+off_path_divergence                 0.0075+-0.0096    0.0125+-0.0050   +0.0050      0.0297
+sustained_collision                 0.1350+-0.0465    0.1225+-0.0250   -0.0125      0.1584
+direction offset median (deg)       4.5725+-0.6850    4.5325+-0.4066   -0.0400      4.5100
+fraction left                       0.6248+-0.0249    0.6180+-0.0157   -0.0068      0.6216
+near-arrival rate                   0.6125+-0.0275    0.6500+-0.0440   +0.0375      0.5743
+progress fraction mean              0.8925+-0.0191    0.8985+-0.0187   +0.0060      0.8680

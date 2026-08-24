@@ -390,7 +390,7 @@ Verdict: **ATTRIBUTED PASS.** Per the pre-registered decision tree (`dr` moved),
 verdict and physics rests on **G2 + G7** — which is the right place for it, and both are
 answered independently.
 
-**Gate-design note for the coordinator.** The ≤0.01 m per-step / ≤0.10 m terminal diagnostics
+**Gate-design note, for the upgrade brief.** The ≤0.01 m per-step / ≤0.10 m terminal diagnostics
 are not applicable to a 300-step rollout and should not be read as failed: once *any* float
 moves, chaotic growth exceeds them by construction, and no build differing in the last bit could
 ever satisfy them. The probe remains an excellent **determinism** instrument — it is what proved

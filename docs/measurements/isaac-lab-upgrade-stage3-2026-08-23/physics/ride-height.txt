@@ -1,4 +1,0 @@
-========== INSPECT ==========
-solver            PGS (solver_type=0)
-spin frac         0.4  (600 frames @ 120 Hz physics -> 30 fps playback)
-chassis ride z    rest  47.99 mm | spin-mean  47.56 mm | min  47.26 mm

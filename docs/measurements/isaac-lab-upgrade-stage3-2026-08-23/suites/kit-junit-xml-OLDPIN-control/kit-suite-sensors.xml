@@ -1,1 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="4.056" timestamp="2026-08-23T11:39:17.066242-05:00" hostname="gx10-d1d8"><testcase classname="test_sim.sensors.test_observations" name="test_observation_structure" time="4.042" /></testsuite></testsuites>

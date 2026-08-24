@@ -28,7 +28,7 @@ depth-noise configuration, and no renderer setting was altered.
 | **G8** — cadence | **PASS — 1012/1012 deltas at 33.3333 ms, sd = 0.000000** |
 | **G8** — obs dump | written, parses under `parity.py`, documented NaN mask intact |
 | **G8** — `bridge_harness_smoke.py` | **PASS** |
-| **G8** — cross-lane parity | **not runnable** — no gym-side dumper exists in the tree |
+| **G8** — cross-lane parity | **not runnable on this host** — needs the inference node's dump (`--node-dump`) from a Jetson-in-the-loop session; the bridge dump is the gym-side half |
 
 ---
 
@@ -205,10 +205,14 @@ because each would have produced a wrong answer:
 documented convention. A self-parity pass joins 4129/4129 ticks with worst |dt| 0.000 ms
 and both bounds PASS (`obs-parity-report.txt`, `dfd96880…`).
 
-**The cross-lane comparison the gate names is not runnable.** `--obs-dump-path` is
-declared only by `run_sim_in_the_loop.py`; there is no gym-side obs dumper in the tree, so
-the reference stream has no producer. Building one is new feature work rather than an
-accommodation, so it is named here rather than improvised.
+**The cross-lane comparison the gate names is not runnable on this host.** The bridge's
+`--obs-dump-path` output *is* the gym-side stream (`strafer_lab/bridge/obs_dump.py`
+evaluates the same observation terms training assembles, and `obs_parity.py` consumes it
+as `--gym-dump`). Its counterpart is the **inference node's** dump (`obs_dump_path`
+parameter in `strafer_inference/inference_node.py`, consumed as `--node-dump`), which
+only exists when the Jetson node runs against the same bridge session. Both producers
+and the comparator exist in the tree; what is missing is a Jetson-in-the-loop session,
+so the comparison is named here for that lane rather than improvised.
 
 ### `bridge_harness_smoke.py` — PASS
 

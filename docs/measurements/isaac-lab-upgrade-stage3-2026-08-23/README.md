@@ -25,13 +25,13 @@ Provenance, stack versions and binding proof: [`provenance.md`](provenance.md).
 | **G2** roller physics | PGS md5 `d1ef40cd…`, p2p ≤3 mm, ride 48±1 | md5 moved; run1≡run2; p2p max 2.151 mm; ride **47.99 mm** | **ATTRIBUTED PASS** |
 | **G3** pose trace | 3 hashes | `action_hash` identical; DR draw bit-identical; `inertias` 1.16e−10; trace diverges chaotically | **ATTRIBUTED PASS** |
 | **G4** depth obs | array hashes, moments, profiles | hashes moved; mean +0.02 %, std +0.001 %, profiles r = 1.000000, same argmax | **ATTRIBUTED PASS** |
-| **G5** render / video | luma 86.6, crush 0.0056 | **luma 68.6/68.3, crush 0.122/0.128**; old-pin control reproduces 86.6/0.0056 exactly | **FAIL — returned for a ruling** |
+| **G5** render / video | luma 86.6, crush 0.0056 | **luma 68.6/68.3, crush 0.122/0.128**; old-pin control reproduces 86.6/0.0056 exactly | **FAIL — recorded; disposition in the upgrade brief** |
 | **G6** export A/B/C | 0.0 same-format; 2.9e−6 / 1.7e−5 cross | A: 8.345e−07 / 4.247e−06 (below investigate floor); **B: export axis exactly 0.0**; C: 85 pass / 1 skip | **ATTRIBUTED PASS** |
 | **G7** deterministic eval | REF 0.8119 | same-session REF **0.8575 ± 0.0435** (n=4); new pin **0.8650 ± 0.0289** (n=4); **+0.29 σ** | **PASS** |
 | **G8** bridge cadence + parity | 1302/1302 at 33.33 ms | **bridge does not start**: `ModuleNotFoundError: isaacsim.core.utils`; `bridge_harness_smoke.py` PASSes | **BLOCKED — stop-condition #8** |
 | **G9** training curve | mean 53.4 steps/s (45.4–61.4) | **53.86** steps/s, no NaN, curves r = 0.86 / 0.89 | **PASS** |
 
-**Two results need a coordinator ruling before the flip: G5 and G8.** A third, FINDING 4, is not
+**Two results block the flip pending disposition in the upgrade brief: G5 and G8.** A third, FINDING 4, is not
 a gate but is the most consequential thing measured today.
 
 ---
@@ -40,13 +40,13 @@ a gate but is the most consequential thing measured today.
 
 | # | finding | class |
 |---|---|---|
-| **1** | `depth_noise` (6 tests): a zero-match contact filter is fatal at patch1 | test-side, PR-B |
-| **2** | Kit-booting processes intermittently hang ~24 % of launches — **new pair only** | **blocking, needs a ruling** |
+| **1** | `depth_noise` (6 tests): a zero-match contact filter is fatal at patch1 | test-side, for the compatibility PR (the both-pin code-accommodation PR the upgrade brief names) |
+| **2** | Kit-booting processes intermittently hang ~24 % of launches — **new pair only** | **blocking; disposition in the upgrade brief** |
 | **3** | A timed-out suite silently inherits the previous session's junit XML | instrument, later PR |
 | **4** | `Articulation.data` now returns `ProxyArray`; production unaffected, probes not | measurement-side |
 | **5** | The eval gate is **not** rerun-deterministic; its band was binomial-only | method |
-| **6** | `isaacsim.core.utils` moved to `extsDeprecated/` — 8 sites, 7 scripts | **blocking, needs a ruling** |
-| **7** | RGB render is ~21 % darker with 22× crushed pixels | **blocking, needs a ruling** |
+| **6** | `isaacsim.core.utils` moved to `extsDeprecated/` — 8 sites, 7 scripts | **blocking; disposition in the upgrade brief** |
+| **7** | RGB render is ~21 % darker with 22× crushed pixels | **blocking; disposition in the upgrade brief** |
 | 8 | `env_setup.sh` does not activate conda — a mixed pair is one inherited var away | operational |
 | 9 | Both Kit mods obsolete, but the telemetry deletion was never a correctness fix | recipe |
 
@@ -60,7 +60,7 @@ run from a shell where another env is active executes the **old clone's Isaac La
 other env's interpreter** — silently. That was demonstrated during setup: old `$ISAACLAB` with
 `CONDA_PREFIX` pointing at the new env produced `isaaclab.__file__` in the old clone and
 `sys.executable` in the new env. `make test-lab` does not activate either (`Makefile:263`); it
-inherits whatever the operator has active.
+inherits whatever environment the invoking shell has active.
 
 Every old-pin leg in this record therefore used
 `source env_setup.sh && conda activate env_isaaclab3 && $ISAACLAB -p …`, and every run logs
@@ -78,9 +78,9 @@ the new prefix, without sourcing `.env`.
 ### G0 — first boot / Kit-mod verdicts — STRICT PASS
 cmd: `$NEWLAB -p source/strafer_lab/run_tests.py terminations`
 - 13/13 passed on the **pristine** new clone. No telemetry deletion, no `omni.kit.pip_archive` shim.
-- **Verdict: both Kit mods are obsolete at patch1.** Neither is needed in PR-A's recipe.
+- **Verdict: both Kit mods are obsolete at patch1.** Neither is needed in the recipe PR (the landing PR that rewrites the install recipe).
 - Clone still shows zero modifications after the boot (`git status --porcelain` empty) — the strong form.
-- No EULA prompt; the operator-written `EULA_ACCEPTED` marker under the new env's
+- No EULA prompt; the interactively accepted `EULA_ACCEPTED` marker under the new env's
   `isaacsim/kit/` is sufficient. `OMNI_KIT_ACCEPT_EULA` was never set.
 - Boot-to-first-test ~86 s cold.
 
@@ -92,11 +92,11 @@ Kit run (observed as pid 889884, parented to init, started at the G0 boot; exten
 `nvidia-smi --query-compute-apps` — so it does not violate the resident-process rule, but it
 outlives the run and one is spawned per Kit boot.
 
-So the two Kit mods split, and PR-A's recipe should say so:
+So the two Kit mods split, and the recipe PR should say so:
 - `omni.kit.pip_archive` shim — **obsolete**, nothing to decide.
 - `omni.kit.telemetry` deletion — **not required for function** (the boot proves that), but it
   was never a correctness fix; removing it re-enables an outbound telemetry daemon. Keeping or
-  dropping it is an operator policy call, and the recipe should present it as one rather than
+  dropping it is a policy choice, and the recipe should present it as one rather than
   as a build step that patch1 made unnecessary.
 
 ### G1 — Kit suite `all`, new pin — FINDINGS (not the pre-registered result)
@@ -158,7 +158,7 @@ shipped env, no deployed policy path, and no training env constructs a filtered 
 
 Class: same family as the §12.5 `set_debug_vis` stub-env break — a **test-side** accommodation,
 both-pin compatible (deleting a filter that matches nothing changes nothing at the old pin).
-It belongs in PR-B, not in the measurement record, and it is **not** a STOP: the dispatch's
+It belongs in the compatibility PR, not in the measurement record, and it is **not** a STOP: the pre-registered
 STOP clause covers runtime failures in the **env** suite via manager/warp/`.torch` call sites;
 this is the depth_noise suite via a filtered contact view.
 
@@ -289,7 +289,7 @@ cmd (each leg via `kit_retry.sh`, new pin, `--solver-type 0` explicit on every P
 Retries: PGS run1 0, PGS run2 0, TGS 0, `--inspect` **1 hang then success** (post-sweep).
 
 **Strict gate does not hold.** Baseline PGS run1 md5 `d1ef40cdd2b04e4058e3d4369670079d` (matches
-the dispatch anchor exactly, so the right file is being compared); new pin
+the pre-registered anchor exactly, so the right file is being compared); new pin
 `dc0570e27ec934aaa71517209b5602d8`. Physics moved across the bump.
 
 **But D0 still holds on the new pin**, so the gate stays strict-grade rather than degrading to
@@ -386,7 +386,7 @@ Seed at float32 resolution, positive Lyapunov growth, saturation at the attracto
 ~step 100. **No discontinuity, no step change** — the signature of chaotic amplification in a
 contact-rich rollout under random actions, not of a behavioural change.
 
-Verdict: **ATTRIBUTED PASS.** Per the dispatch's tree (`dr` moved), this is not a physics
+Verdict: **ATTRIBUTED PASS.** Per the pre-registered decision tree (`dr` moved), this is not a physics
 verdict and physics rests on **G2 + G7** — which is the right place for it, and both are
 answered independently.
 
@@ -473,7 +473,7 @@ same RGB path feeds the capture and perception lanes (D555 RGB, mission capture,
 grounding corpus). A 21 % luma drop with 12 % crushed pixels is a change to the image
 distribution those lanes are calibrated against — and the repo already carries an
 exposure-calibration history (`measure_perception_exposure`'s `[90,150]` window, the RTX
-histogram auto-exposure work). **Returned for a ruling rather than worked around**, per the
+histogram auto-exposure work). **Recorded as failed rather than worked around**, per the
 standing rule: no exposure or renderer setting was touched to make this number move.
 
 **G5 confirmation — both pins are internally stable, so the gap is real.** A second clip on each
@@ -488,7 +488,7 @@ pin was taken (new-pin run2 required 1 retry after a 1200 s hang, then 434 s):
 
 The old pin reproduces the nine-day-old baseline to every digit; the new pin reproduces its own
 value to 0.3 luma. **Δmean_luma ≈ −18.2, Δcrush_frac ≈ +0.117** — 1.8× and 12× their bounds.
-Verdict: **FAIL, attributed to the new stack**, returned for a ruling.
+Verdict: **FAIL, attributed to the new stack**, recorded as failed; disposition in the upgrade brief.
 
 ---
 
@@ -545,7 +545,7 @@ torch 2.10.0->2.11.0, onnxscript 0.6.2->0.7.1, onnxruntime 1.25.1 (unchanged).
 > shipped re-export switches cadence from configured to artifact-driven; the value equals the
 > configured 30 Hz, so behaviour is unchanged in value but the code path changes.
 
-Minor note for PR-A: `source_checkpoint` records whatever path was passed, so this run's sidecar
+Minor note for the recipe PR: `source_checkpoint` records whatever path was passed, so this run's sidecar
 carries an absolute out-of-repo path. A shipping re-export should be invoked with the in-repo
 relative checkpoint path so the field stays meaningful.
 
@@ -588,10 +588,10 @@ Individual completions — OLD 0.880 / 0.850 / 0.900 / 0.800 · NEW 0.860 / 0.87
 **The 0.8119 → 0.8575 "shift" in the REF is the instrument, not the tree.** 0.8119 lies inside
 the old pin's own observed range [0.800, 0.900] measured today, and the run-to-run sd on a fixed
 pin (0.0435) is **1.24×** the binomial SE (0.0350) the band was built from. The attribution work
-the dispatch asked for was done first (FINDING 5): no env/harness commit, no checkpoint drift,
+the gate specification asked for was done first (FINDING 5): no env/harness commit, no checkpoint drift,
 no DeFM drift, no cadence variation explains it — it is the eval's own spread.
 
-**Cause buckets named, per the dispatch:** no bucket shifts between pins beyond noise.
+**Cause buckets named, per the gate specification:** no bucket shifts between pins beyond noise.
 `off_path_divergence` sits near zero on both (0.0075 vs 0.0125) — both far below the baseline's
 0.0297, consistent across pins, so that is a same-session property rather than a bump effect.
 `sustained_collision` is flat (0.135 vs 0.1225). Direction-offset median and fraction-left are
@@ -635,8 +635,8 @@ under `exts/`, and `enable_extension` is at
 The deprecated tree is also still physically present, so re-enabling the extension explicitly is
 a second possible route. **Neither was applied**: this is §6 stop-condition **#8** — "an
 import-surface removal at the target that forces strafer code migration beyond mechanical
-accommodation … ruling on whether it rides PR-B or re-targets the bump" — and the standing rule
-is to return it for a ruling, not to work around it. Seven Tier-1/Tier-2 entry points is past
+accommodation … whether the accommodation rides the compatibility PR or re-targets the bump" — and the standing rule
+is to record it for disposition in the upgrade brief, not to work around it. Seven Tier-1/Tier-2 entry points is past
 "mechanical". Note the scoping report's §2.10 candidate list did **not** anticipate this; it
 named `TiledCameraCfg` (cleared) and the warp churn. This is a new, unlisted blocker.
 
@@ -657,7 +657,7 @@ with a traceback rather than stalling, so the ptrace-free stall protocol did not
 
 ---
 
-**Per-site severity — the 8 sites do not fail the same way**, which matters for the ruling:
+**Per-site severity — the 8 sites do not fail the same way**, which matters for the disposition:
 
 | site | guard | behaviour on the new pin |
 |---|---|---|
@@ -780,7 +780,7 @@ The **same-session old-pin control run of the identical command hung 0 of 14** a
 measurement script, so it will hit `train_strafer_navigation.py`, `eval_cadence_emulation.py`,
 and `run_sim_in_the_loop.py` — including a long unattended training run or a rig session, where
 a silent 20-minute stall is expensive and looks like something else entirely. **This is the one
-result that should gate the flip**, and it is offered for a ruling rather than worked around.
+result that should gate the flip**, and it is recorded rather than worked around.
 
 **Mitigation used for the rest of this session, so results stay honest.** Every remaining Kit
 leg runs through `kit_retry.sh` (committed here): bounded timeout, retry on hang, dead-pid
@@ -861,108 +861,109 @@ Gate B re-exported artifacts) deposited earlier in the same session.
 |---|---|
 | repository | <https://github.com/zachoines/Sim2RealLab-Artifacts> (private) |
 | directory | `isaac-lab-upgrade-stage3-2026-08-23/` |
-| deposit commit | `1cbf5f22e110de82272b2b230985c8c02d8495c4` |
+| deposit commit | `03995f3e3c3fca7c8f81fefa86248f4952cd94f52e110de82272b2b230985c8c02d8495c4` |
 | conventions | the repository's `README.md`; per-file digests in the deposit's `DEPOSIT.md` |
 
-sha256 of every file this record moved there (subdirectory structure preserved;
-first-tranche bulk files are listed in `DEPOSIT.md`):
+sha256 of every file this record moved there, laid out under `record-files/` in the
+record's own layout so `cp -a record-files/. docs/measurements/<record>/` restores it
+(first-tranche bulk files are siblings, listed in `DEPOSIT.md`):
 
 ```
-ba76f7522107dc9fb3d367f1b4f0c02fe41b3a4b4dd8312c749e8306e94f39ca  suites/stale-not-this-session/README.md
-7e62e1cc7babf62af83738e30e0b0fa98c384e6b7a9674a65e9b27b11cbdf181  compare_export_npz.py
-310746bde4baa0b231b3ed277b2a6b9a125cff6a5a1a2e12628fe16824d79d95  eval/g7-recomputed-from-jsonl.txt
-970bc30dfe4c1c9100904958111326475aab2b64e68388755c11e369fc1add87  eval/g7-summary.txt
-530a1fbb5663fb7b080ea9b3e9b96350b71e93ae8858468b1851054885790527  eval/newpin_run1/cadence_20260823_131757.jsonl
-1f3af85f6a4ccaa09c404f2566e9b51c1edacaabf5557a4f058c928500c7a0c1  eval/newpin_run2/cadence_20260823_132005.jsonl
-d17d628174d9084c22c4c484b89446adbbf4960e3e8e96f17d3bba27636785fe  eval/newpin_run3/cadence_20260823_132216.jsonl
-2a3ac7a8940b9501be76b89d73765ac92b118bac41f2cd16e5f614b5d93673e2  eval/newpin_run4/cadence_20260823_132424.jsonl
-78d8335f52346b59a683669569e57ca80f0a368a6104a7ebf80ccbc811c8098f  eval/oldpin/cadence_20260823_130714.jsonl
-b7a8695bfff7e83de6031bba4e7db7af0a5c4a71bf6f7aebad6c94b1dd5d44ea  eval/oldpin_run2/cadence_20260823_131103.jsonl
-258b41fd9c99295173ab6b769ca753ce1ed724816b5d9ddcea198a5694c0bdcf  eval/oldpin_run3/cadence_20260823_131348.jsonl
-d34c71900f448c432c1b0e77d64b090943e26726ec8991c277f81c609e94e01b  eval/oldpin_run4/cadence_20260823_131553.jsonl
-de2448026582a0d334ca1ab03f127e46d370293da9c00f916e8c979010d11633  export/gateA-comparison.json
-ad834d19262e514d15c2c64b6266dae92b38c58cdb3670de0be9a63c784139be  export/gateA/export-trajectories-manifest.json
-4e06da1a4af8e288d5d58b9714180ea03323cedc957ddccf491f358df3bf30ed  export/gateA/export-trajectories.npz.sha256
-dbb464b9a44dcfd3348045e5b070d77944fe28bbbedac5e1d886c093ab321036  export/gateB-comparison.json
-ac815f1dcfa5f9c35d4d57d8cd10c1761baacbe4ff7e55e74810c7aa76928111  export/gateB/export-trajectories-manifest.json
-4e06da1a4af8e288d5d58b9714180ea03323cedc957ddccf491f358df3bf30ed  export/gateB/export-trajectories.npz.sha256
-8ef7cc0e65e4bd54e47c06ebd3b7dd9e6ff9f7f0f9946f2ac41a24736ca44cde  extract_training_curve.py
-f392731ec59047cc6411a3f9ebf1a982aa9551ce03d67f1f75512aa91ddacc38  kit_retry.sh
-20123d322769267b98e36e7a8caa8a6870d16e98e97c84548f535489cc54f723  MANIFEST.sha256
-ff313f05a0e8c49c46a6f76802635ef237e93290ab0e4203afb2162d6ec6f1bf  newpin_env.sh
-8b2ab15e680354d866fd3014261311e6a0067b150a449997e85512f6feda200b  obs_dtype_probe.py
-2d3265f59ab14a1740a2b95d3ffec3f89eccb5d7fb051bdec586cc148a72f8b1  physics/obs-dtypes.json
-e046f152df857c73119862a55ccdc1697e98666026cd70f1c3745e9cec23e442  physics/pose_trace_OLDPIN_equivalence.json
-2fabfc62e937192d968e47eb281c648963e397501b29fc3eb4dbad91dbdffe0c  physics/pose_trace_run1.json
-3cd79443512257fd0e79c3ff077e10fa8cee68d31cf8b5b1b448549071afe8f3  physics/pose_trace_run2.json
-3cf7643e5e4afe5feb17f9660ae9ad3f4dd3ec6e63b9740e642f5c335cd0e4f9  physics/ride-height.txt
-ba5376a24b6cb01dc2a4fc6cd323621b7de76096bca85489c214fe637e3cad18  physics/roller-analysis.txt
-e62f7ad1249d61788a374cd45e6472e34942fea421b44711fdd23e8448ac91d1  physics/roller-metrics.json
-d1285d3c616c9ffd3ab539ed238e18abd10e4a42a2d91c087254d3898cd528fa  physics/roller_z_pgs_run1.csv
-d1285d3c616c9ffd3ab539ed238e18abd10e4a42a2d91c087254d3898cd528fa  physics/roller_z_pgs_run2.csv
-6d4110dd6a27b5189e19cdce59d035374d3dcc4dd5e7f378d7186e882e411065  physics/roller_z_tgs_control.csv
-8f3b352bb884396823ae273fa52a699cf34a078536ef7220c24a0220ef55f7e5  pip-freeze-env_isaaclab3beta2.txt
-8337afcd563aa5aa2b238f1e151fcd008d3027efb64729b9055bad47762585db  pose_trace_probe.py
-5d344299804c1284b635582062bdcf6db1fa0dd82e89c64ecbc4c363e0decd3f  render/depth_obs_enriched_robust_play.json
-f8666067d9a36f97e479f5d6ce077529fd834db7c96bdd7de7d3a12af27e8bfe  render/depth_obs_subgoal_real_play.json
-2cab38b3abea0ba440d4b8ac76e66f7fe846c78f04b5864b5ab0bc9dd5a19af1  render/exposure-train-video-newpin-run2.txt
-4a22059068ddae12fdcfaa80f3d0ecf9cc2ff10f96b4ad1fe07a53aa2c2f2ce3  render/exposure-train-video-OLDPIN.txt
-d6dbc781295f1a2abe163fc504ecbe842646d82a3c858be8475678ea9cb7f249  render/exposure-train-video.txt
-f74feda9d3b37b8962f0834f5dcfd222d30b5ce072af20ac1d6bf54d6b45ac06  suites/contract-two-file-newpin.txt
-6db539354f027e67a4bd5bf78e6560ad117b9524ba8815e3c5e19e745e893084  suites/env-uncapped-newpin.xml
-e9d75fd1b630c5a43ce1e3af92351002e92de26f8bb9fcf7b64669b8bf6746f0  suites/kit-junit-xml-envrerun/kit-suite-env-RERUN-PASSING.xml
-b03e70752cfd2e7ee0f98563114b6a076309d2d57a154334be5a0a50bbbcb6a0  suites/kit-junit-xml-FAILRUN/kit-suite-actions.xml
-bf499b599d1f56648055b689d9cc67bd95e641ab310f17a926fb056aba4d3a1d  suites/kit-junit-xml-FAILRUN/kit-suite-camera_jitter.xml
-c88e63ac5642fdd7235d99f57ac7ba67f4c8bd46e5ffa571d516c8f6d5f77bc4  suites/kit-junit-xml-FAILRUN/kit-suite-commands.xml
-dcb5824deaa04d05b08973ae0acf35ed6a1c575b13463d3cbd00f71372b4f364  suites/kit-junit-xml-FAILRUN/kit-suite-curriculums.xml
-a456cdc01d1ba85bd20a9072e7519d6daa53c3447cc33bfe50bbbfb3c9d9512a  suites/kit-junit-xml-FAILRUN/kit-suite-depth_noise_test_frame_drops.xml
-d05f56577c1cebdec54786b4740ba50f5d0d46563d38244a914fec3d0efd3f66  suites/kit-junit-xml-FAILRUN/kit-suite-depth_noise_test_gaussian.xml
-ec20d16a7163a3bfd9605683b419e92d5391db1d9ca08e6aac08b872d2dd791c  suites/kit-junit-xml-FAILRUN/kit-suite-events.xml
-d25eca4177acffd281bbccf4723621c968bc6a45113831fd20ccf563f50b128e  suites/kit-junit-xml-FAILRUN/kit-suite-imu_test_imu_collision.xml
-40e32ce8156561a48f54030324af8604536fc918fdec99861cf778800b2365c8  suites/kit-junit-xml-FAILRUN/kit-suite-imu_test_imu.xml
-ddceba392bc12d684191f4bd61fbe72f26eb31d8faa0a4820945f3551ed12556  suites/kit-junit-xml-FAILRUN/kit-suite-noise_models.xml
-dfab705687d4c5aae6599b3b359ad09e0167ce1dd44e02516776b2a80f812c9d  suites/kit-junit-xml-FAILRUN/kit-suite-obs_dump.xml
-41c20209b12e01734cfcdd29f6a2672936204070a13ebbe7f3e2172c7cf10c3f  suites/kit-junit-xml-FAILRUN/kit-suite-observations.xml
-4c17e606bab5ec27022e28f305f1761c85ccfaedcdfab40e427dee8764ce0178  suites/kit-junit-xml-FAILRUN/kit-suite-rewards_test_collision_rewards.xml
-f417048bc4b601c740d9f57a416a8daf5f082c745189c42cb93ae3888744fae0  suites/kit-junit-xml-FAILRUN/kit-suite-rewards_test_rewards.xml
-f1a687faafd3386c5f520207801ed2ff0c53f70e6ede08b6f4e5f761137f42ce  suites/kit-junit-xml-FAILRUN/kit-suite-sensors.xml
-8135071b1052739f9dd53405f30e45e7a9ade997e6dff92cb6ebebfe1d3c51e1  suites/kit-junit-xml-FAILRUN/kit-suite-terminations.xml
-1bab129d2cf7746a3ee121ca83605739362b7d84bebb8c2eb3dd1086dba3e5cb  suites/kit-junit-xml/G0-boot-terminations.xml
-e2810aec2e01e68c09df2580ee53882c9509d09b5deb8289ab41dfb728cf38b6  suites/kit-junit-xml-OLDPIN-control/kit-suite-actions.xml
-920252547f957ae2abb815b639b6ed7f3b2280e3a366f1ddd3bc6be862a81b4f  suites/kit-junit-xml-OLDPIN-control/kit-suite-camera_jitter.xml
-c5a22c097d8790542c372e09abe268f3f7f57d9e08cf298b0ca926191db3a85e  suites/kit-junit-xml-OLDPIN-control/kit-suite-commands.xml
-aa26d675691a8ba945e3f68944cb7c580e854ac5ac2c6d06e1a80f2ab6e37506  suites/kit-junit-xml-OLDPIN-control/kit-suite-curriculums.xml
-aa8e4eaaecf859b3517f44d3bd5d27e9ac2852d011f9d3a7e798301625072da2  suites/kit-junit-xml-OLDPIN-control/kit-suite-depth_noise_test_frame_drops.xml
-1107687abdcf23108bd3a0310d8be14451f75935022317c644bd05cabd343a5b  suites/kit-junit-xml-OLDPIN-control/kit-suite-depth_noise_test_gaussian.xml
-fa6898c7a4c648487e3dceb067b3adbb2038a6f306f2f26e9172ebb02eeb5495  suites/kit-junit-xml-OLDPIN-control/kit-suite-depth_noise_test_holes.xml
-8f48d1a28b0556988e90d513d361dceea53fe5e7ee177940f02deae4522282b3  suites/kit-junit-xml-OLDPIN-control/kit-suite-env.xml
-2bac56d629fbbf9f3f05a0eb9b4f2bb37e8f9148c25229eb9d0a79c9dfda9f12  suites/kit-junit-xml-OLDPIN-control/kit-suite-events.xml
-035de7c67345ffc96444b6fe8befb596a0fd5c62d580bb68ec9497fa84d19f52  suites/kit-junit-xml-OLDPIN-control/kit-suite-imu_test_imu_collision.xml
-59dc997f7e569b46e15440722e8507fabd008bcef81bf91f9299eb56dbee7e66  suites/kit-junit-xml-OLDPIN-control/kit-suite-imu_test_imu.xml
-d44f5880d94d0b40a037b56e15b832f4adbf85b78a60a4261fe824d2a975608c  suites/kit-junit-xml-OLDPIN-control/kit-suite-noise_models.xml
-d053c689a72cb64dab5771dce1aebb333aa296068039bdf3b28d5fc4f3df9b50  suites/kit-junit-xml-OLDPIN-control/kit-suite-obs_dump.xml
-d4e4fa9cb7537e3cc81218509a6f7cf9ceb62f13dfe8416902245a622b8108db  suites/kit-junit-xml-OLDPIN-control/kit-suite-observations.xml
-435bd81eb60d13445cc8611a8a27e1dd6bb0306ccf7ade023acf7e37295244f6  suites/kit-junit-xml-OLDPIN-control/kit-suite-rewards_test_collision_rewards.xml
-d190821ab92300f6ecab28b1866c92b6d250be5554385db93c3b3dfaccc5544d  suites/kit-junit-xml-OLDPIN-control/kit-suite-rewards_test_rewards.xml
-6d8db09e50b167aa93c4a83cb819bf344b84105cbc88368b8f314a1d07633fe4  suites/kit-junit-xml-OLDPIN-control/kit-suite-sensors.xml
-3f4e0f7dbe49f3364dbb1551e051d5b15a69d18dd03e67b27f7a736d9b644d77  suites/kit-junit-xml-OLDPIN-control/kit-suite-terminations.xml
-a0b8208897db65fa3f3c7745c25a5cb16fbcd6e062761151a9415918db05a55a  suites/kit-junit-xml-RUN2/kit-suite-actions.xml
-8c86d3752fc3e9558039d8b33168c6122c1ff6a46d4d54c3ea288ca32d1615ca  suites/kit-junit-xml-RUN2/kit-suite-commands.xml
-2c682e61d25592b882e198d27c438f76f2088fbcef1f4715e0b7825e5e3671e1  suites/kit-junit-xml-RUN2/kit-suite-curriculums.xml
-130a389722a2b4db6617020b00eb3768218e6e30881622ea6bd45f472aa58a4c  suites/kit-junit-xml-RUN2/kit-suite-depth_noise_test_frame_drops.xml
-fbaaac86984891df4564d3127d4953bdebac225dd0f63cefe10e2c3696480a22  suites/kit-junit-xml-RUN2/kit-suite-depth_noise_test_gaussian.xml
-4580818d370b7a7cdf56184395d3a4e56cec21ea3fd19f737ca1e6679337f0eb  suites/kit-junit-xml-RUN2/kit-suite-env.xml
-25fd37281e70ec952c76aa6627a534554301c0ebf86e9e6dec1539e9b57724a0  suites/kit-junit-xml-RUN2/kit-suite-events.xml
-930b41bc94c6dcb6422232309d33a10eff9e441270646fea1c75db88eef32a81  suites/kit-junit-xml-RUN2/kit-suite-noise_models.xml
-0835675ca4f2be544421f09d196b735f71df2910c7d2e5e34092ae7c2f56f43c  suites/kit-junit-xml-RUN2/kit-suite-obs_dump.xml
-53fd2ff597491a56e0a0689db211921b7a4a0a27f7527d9e1f6c5162a0ba0665  suites/kit-junit-xml-RUN2/kit-suite-observations.xml
-8ae6a161651464cfd793a47f8acc2518c12b6cdf075f6e26279ae1e74a9bd427  suites/kit-junit-xml-RUN2/kit-suite-rewards_test_collision_rewards.xml
-2f30ef228c50bc9e342f08dc520dff6e35e9505eb730dbd6e770384a691e7c5c  suites/kit-junit-xml-RUN2/kit-suite-sensors.xml
-0f6444bcb66e9e7d50656561d371525c28823b2657178bb5c07c8fb1783960bf  suites/kit-junit-xml-RUN2/kit-suite-terminations.xml
-a2771ff7a442cde356cd043489e0b312f0624e0c5336ef39664d0af69a060df5  suites/orphaned-standalone-newpin.txt
-3a80f62a3821f7e4661c0c5c1e408304eb5caceaeba07f82f61a9e024d828e7f  suites/pure-suite-newpin.txt
-ecfcff929d5f7aad5d0fd2f0b7d4801ddd60878c0aec5463393bf3505186111f  suites/stale-not-this-session/kit-suite-depth_noise_test_holes--STALE-2026-08-14-baseline.xml
-dd21b5a402e3a3731c7b4d749b87a6387afedd904b15610fc1ee83d64638844e  suites/stale-not-this-session/kit-suite-env--STALE-2026-08-14-baseline.xml
-6c3541c02d7fdd7a009ff0c47c040ddbaabbe22915c3c60cc6ebb48ce1277d9e  training/curve-comparison.txt
-17797ecdbf901282406db6a7dde71af7bca18179d318039b0c38fb15f1eb4dd9  training/training-curve.csv
+ba76f7522107dc9fb3d367f1b4f0c02fe41b3a4b4dd8312c749e8306e94f39ca  record-files/suites/stale-not-this-session/README.md
+7e62e1cc7babf62af83738e30e0b0fa98c384e6b7a9674a65e9b27b11cbdf181  record-files/compare_export_npz.py
+310746bde4baa0b231b3ed277b2a6b9a125cff6a5a1a2e12628fe16824d79d95  record-files/eval/g7-recomputed-from-jsonl.txt
+970bc30dfe4c1c9100904958111326475aab2b64e68388755c11e369fc1add87  record-files/eval/g7-summary.txt
+530a1fbb5663fb7b080ea9b3e9b96350b71e93ae8858468b1851054885790527  record-files/eval/newpin_run1/cadence_20260823_131757.jsonl
+1f3af85f6a4ccaa09c404f2566e9b51c1edacaabf5557a4f058c928500c7a0c1  record-files/eval/newpin_run2/cadence_20260823_132005.jsonl
+d17d628174d9084c22c4c484b89446adbbf4960e3e8e96f17d3bba27636785fe  record-files/eval/newpin_run3/cadence_20260823_132216.jsonl
+2a3ac7a8940b9501be76b89d73765ac92b118bac41f2cd16e5f614b5d93673e2  record-files/eval/newpin_run4/cadence_20260823_132424.jsonl
+78d8335f52346b59a683669569e57ca80f0a368a6104a7ebf80ccbc811c8098f  record-files/eval/oldpin/cadence_20260823_130714.jsonl
+b7a8695bfff7e83de6031bba4e7db7af0a5c4a71bf6f7aebad6c94b1dd5d44ea  record-files/eval/oldpin_run2/cadence_20260823_131103.jsonl
+258b41fd9c99295173ab6b769ca753ce1ed724816b5d9ddcea198a5694c0bdcf  record-files/eval/oldpin_run3/cadence_20260823_131348.jsonl
+d34c71900f448c432c1b0e77d64b090943e26726ec8991c277f81c609e94e01b  record-files/eval/oldpin_run4/cadence_20260823_131553.jsonl
+de2448026582a0d334ca1ab03f127e46d370293da9c00f916e8c979010d11633  record-files/export/gateA-comparison.json
+ad834d19262e514d15c2c64b6266dae92b38c58cdb3670de0be9a63c784139be  record-files/export/gateA/export-trajectories-manifest.json
+4e06da1a4af8e288d5d58b9714180ea03323cedc957ddccf491f358df3bf30ed  record-files/export/gateA/export-trajectories.npz.sha256
+dbb464b9a44dcfd3348045e5b070d77944fe28bbbedac5e1d886c093ab321036  record-files/export/gateB-comparison.json
+ac815f1dcfa5f9c35d4d57d8cd10c1761baacbe4ff7e55e74810c7aa76928111  record-files/export/gateB/export-trajectories-manifest.json
+4e06da1a4af8e288d5d58b9714180ea03323cedc957ddccf491f358df3bf30ed  record-files/export/gateB/export-trajectories.npz.sha256
+8ef7cc0e65e4bd54e47c06ebd3b7dd9e6ff9f7f0f9946f2ac41a24736ca44cde  record-files/extract_training_curve.py
+f392731ec59047cc6411a3f9ebf1a982aa9551ce03d67f1f75512aa91ddacc38  record-files/kit_retry.sh
+20123d322769267b98e36e7a8caa8a6870d16e98e97c84548f535489cc54f723  record-files/MANIFEST.sha256
+ff313f05a0e8c49c46a6f76802635ef237e93290ab0e4203afb2162d6ec6f1bf  record-files/newpin_env.sh
+8b2ab15e680354d866fd3014261311e6a0067b150a449997e85512f6feda200b  record-files/obs_dtype_probe.py
+2d3265f59ab14a1740a2b95d3ffec3f89eccb5d7fb051bdec586cc148a72f8b1  record-files/physics/obs-dtypes.json
+e046f152df857c73119862a55ccdc1697e98666026cd70f1c3745e9cec23e442  record-files/physics/pose_trace_OLDPIN_equivalence.json
+2fabfc62e937192d968e47eb281c648963e397501b29fc3eb4dbad91dbdffe0c  record-files/physics/pose_trace_run1.json
+3cd79443512257fd0e79c3ff077e10fa8cee68d31cf8b5b1b448549071afe8f3  record-files/physics/pose_trace_run2.json
+3cf7643e5e4afe5feb17f9660ae9ad3f4dd3ec6e63b9740e642f5c335cd0e4f9  record-files/physics/ride-height.txt
+ba5376a24b6cb01dc2a4fc6cd323621b7de76096bca85489c214fe637e3cad18  record-files/physics/roller-analysis.txt
+e62f7ad1249d61788a374cd45e6472e34942fea421b44711fdd23e8448ac91d1  record-files/physics/roller-metrics.json
+d1285d3c616c9ffd3ab539ed238e18abd10e4a42a2d91c087254d3898cd528fa  record-files/physics/roller_z_pgs_run1.csv
+d1285d3c616c9ffd3ab539ed238e18abd10e4a42a2d91c087254d3898cd528fa  record-files/physics/roller_z_pgs_run2.csv
+6d4110dd6a27b5189e19cdce59d035374d3dcc4dd5e7f378d7186e882e411065  record-files/physics/roller_z_tgs_control.csv
+8f3b352bb884396823ae273fa52a699cf34a078536ef7220c24a0220ef55f7e5  record-files/pip-freeze-env_isaaclab3beta2.txt
+8337afcd563aa5aa2b238f1e151fcd008d3027efb64729b9055bad47762585db  record-files/pose_trace_probe.py
+5d344299804c1284b635582062bdcf6db1fa0dd82e89c64ecbc4c363e0decd3f  record-files/render/depth_obs_enriched_robust_play.json
+f8666067d9a36f97e479f5d6ce077529fd834db7c96bdd7de7d3a12af27e8bfe  record-files/render/depth_obs_subgoal_real_play.json
+2cab38b3abea0ba440d4b8ac76e66f7fe846c78f04b5864b5ab0bc9dd5a19af1  record-files/render/exposure-train-video-newpin-run2.txt
+4a22059068ddae12fdcfaa80f3d0ecf9cc2ff10f96b4ad1fe07a53aa2c2f2ce3  record-files/render/exposure-train-video-OLDPIN.txt
+d6dbc781295f1a2abe163fc504ecbe842646d82a3c858be8475678ea9cb7f249  record-files/render/exposure-train-video.txt
+f74feda9d3b37b8962f0834f5dcfd222d30b5ce072af20ac1d6bf54d6b45ac06  record-files/suites/contract-two-file-newpin.txt
+6db539354f027e67a4bd5bf78e6560ad117b9524ba8815e3c5e19e745e893084  record-files/suites/env-uncapped-newpin.xml
+e9d75fd1b630c5a43ce1e3af92351002e92de26f8bb9fcf7b64669b8bf6746f0  record-files/suites/kit-junit-xml-envrerun/kit-suite-env-RERUN-PASSING.xml
+b03e70752cfd2e7ee0f98563114b6a076309d2d57a154334be5a0a50bbbcb6a0  record-files/suites/kit-junit-xml-FAILRUN/kit-suite-actions.xml
+bf499b599d1f56648055b689d9cc67bd95e641ab310f17a926fb056aba4d3a1d  record-files/suites/kit-junit-xml-FAILRUN/kit-suite-camera_jitter.xml
+c88e63ac5642fdd7235d99f57ac7ba67f4c8bd46e5ffa571d516c8f6d5f77bc4  record-files/suites/kit-junit-xml-FAILRUN/kit-suite-commands.xml
+dcb5824deaa04d05b08973ae0acf35ed6a1c575b13463d3cbd00f71372b4f364  record-files/suites/kit-junit-xml-FAILRUN/kit-suite-curriculums.xml
+a456cdc01d1ba85bd20a9072e7519d6daa53c3447cc33bfe50bbbfb3c9d9512a  record-files/suites/kit-junit-xml-FAILRUN/kit-suite-depth_noise_test_frame_drops.xml
+d05f56577c1cebdec54786b4740ba50f5d0d46563d38244a914fec3d0efd3f66  record-files/suites/kit-junit-xml-FAILRUN/kit-suite-depth_noise_test_gaussian.xml
+ec20d16a7163a3bfd9605683b419e92d5391db1d9ca08e6aac08b872d2dd791c  record-files/suites/kit-junit-xml-FAILRUN/kit-suite-events.xml
+d25eca4177acffd281bbccf4723621c968bc6a45113831fd20ccf563f50b128e  record-files/suites/kit-junit-xml-FAILRUN/kit-suite-imu_test_imu_collision.xml
+40e32ce8156561a48f54030324af8604536fc918fdec99861cf778800b2365c8  record-files/suites/kit-junit-xml-FAILRUN/kit-suite-imu_test_imu.xml
+ddceba392bc12d684191f4bd61fbe72f26eb31d8faa0a4820945f3551ed12556  record-files/suites/kit-junit-xml-FAILRUN/kit-suite-noise_models.xml
+dfab705687d4c5aae6599b3b359ad09e0167ce1dd44e02516776b2a80f812c9d  record-files/suites/kit-junit-xml-FAILRUN/kit-suite-obs_dump.xml
+41c20209b12e01734cfcdd29f6a2672936204070a13ebbe7f3e2172c7cf10c3f  record-files/suites/kit-junit-xml-FAILRUN/kit-suite-observations.xml
+4c17e606bab5ec27022e28f305f1761c85ccfaedcdfab40e427dee8764ce0178  record-files/suites/kit-junit-xml-FAILRUN/kit-suite-rewards_test_collision_rewards.xml
+f417048bc4b601c740d9f57a416a8daf5f082c745189c42cb93ae3888744fae0  record-files/suites/kit-junit-xml-FAILRUN/kit-suite-rewards_test_rewards.xml
+f1a687faafd3386c5f520207801ed2ff0c53f70e6ede08b6f4e5f761137f42ce  record-files/suites/kit-junit-xml-FAILRUN/kit-suite-sensors.xml
+8135071b1052739f9dd53405f30e45e7a9ade997e6dff92cb6ebebfe1d3c51e1  record-files/suites/kit-junit-xml-FAILRUN/kit-suite-terminations.xml
+1bab129d2cf7746a3ee121ca83605739362b7d84bebb8c2eb3dd1086dba3e5cb  record-files/suites/kit-junit-xml/G0-boot-terminations.xml
+e2810aec2e01e68c09df2580ee53882c9509d09b5deb8289ab41dfb728cf38b6  record-files/suites/kit-junit-xml-OLDPIN-control/kit-suite-actions.xml
+920252547f957ae2abb815b639b6ed7f3b2280e3a366f1ddd3bc6be862a81b4f  record-files/suites/kit-junit-xml-OLDPIN-control/kit-suite-camera_jitter.xml
+c5a22c097d8790542c372e09abe268f3f7f57d9e08cf298b0ca926191db3a85e  record-files/suites/kit-junit-xml-OLDPIN-control/kit-suite-commands.xml
+aa26d675691a8ba945e3f68944cb7c580e854ac5ac2c6d06e1a80f2ab6e37506  record-files/suites/kit-junit-xml-OLDPIN-control/kit-suite-curriculums.xml
+aa8e4eaaecf859b3517f44d3bd5d27e9ac2852d011f9d3a7e798301625072da2  record-files/suites/kit-junit-xml-OLDPIN-control/kit-suite-depth_noise_test_frame_drops.xml
+1107687abdcf23108bd3a0310d8be14451f75935022317c644bd05cabd343a5b  record-files/suites/kit-junit-xml-OLDPIN-control/kit-suite-depth_noise_test_gaussian.xml
+fa6898c7a4c648487e3dceb067b3adbb2038a6f306f2f26e9172ebb02eeb5495  record-files/suites/kit-junit-xml-OLDPIN-control/kit-suite-depth_noise_test_holes.xml
+8f48d1a28b0556988e90d513d361dceea53fe5e7ee177940f02deae4522282b3  record-files/suites/kit-junit-xml-OLDPIN-control/kit-suite-env.xml
+2bac56d629fbbf9f3f05a0eb9b4f2bb37e8f9148c25229eb9d0a79c9dfda9f12  record-files/suites/kit-junit-xml-OLDPIN-control/kit-suite-events.xml
+035de7c67345ffc96444b6fe8befb596a0fd5c62d580bb68ec9497fa84d19f52  record-files/suites/kit-junit-xml-OLDPIN-control/kit-suite-imu_test_imu_collision.xml
+59dc997f7e569b46e15440722e8507fabd008bcef81bf91f9299eb56dbee7e66  record-files/suites/kit-junit-xml-OLDPIN-control/kit-suite-imu_test_imu.xml
+d44f5880d94d0b40a037b56e15b832f4adbf85b78a60a4261fe824d2a975608c  record-files/suites/kit-junit-xml-OLDPIN-control/kit-suite-noise_models.xml
+d053c689a72cb64dab5771dce1aebb333aa296068039bdf3b28d5fc4f3df9b50  record-files/suites/kit-junit-xml-OLDPIN-control/kit-suite-obs_dump.xml
+d4e4fa9cb7537e3cc81218509a6f7cf9ceb62f13dfe8416902245a622b8108db  record-files/suites/kit-junit-xml-OLDPIN-control/kit-suite-observations.xml
+435bd81eb60d13445cc8611a8a27e1dd6bb0306ccf7ade023acf7e37295244f6  record-files/suites/kit-junit-xml-OLDPIN-control/kit-suite-rewards_test_collision_rewards.xml
+d190821ab92300f6ecab28b1866c92b6d250be5554385db93c3b3dfaccc5544d  record-files/suites/kit-junit-xml-OLDPIN-control/kit-suite-rewards_test_rewards.xml
+6d8db09e50b167aa93c4a83cb819bf344b84105cbc88368b8f314a1d07633fe4  record-files/suites/kit-junit-xml-OLDPIN-control/kit-suite-sensors.xml
+3f4e0f7dbe49f3364dbb1551e051d5b15a69d18dd03e67b27f7a736d9b644d77  record-files/suites/kit-junit-xml-OLDPIN-control/kit-suite-terminations.xml
+a0b8208897db65fa3f3c7745c25a5cb16fbcd6e062761151a9415918db05a55a  record-files/suites/kit-junit-xml-RUN2/kit-suite-actions.xml
+8c86d3752fc3e9558039d8b33168c6122c1ff6a46d4d54c3ea288ca32d1615ca  record-files/suites/kit-junit-xml-RUN2/kit-suite-commands.xml
+2c682e61d25592b882e198d27c438f76f2088fbcef1f4715e0b7825e5e3671e1  record-files/suites/kit-junit-xml-RUN2/kit-suite-curriculums.xml
+130a389722a2b4db6617020b00eb3768218e6e30881622ea6bd45f472aa58a4c  record-files/suites/kit-junit-xml-RUN2/kit-suite-depth_noise_test_frame_drops.xml
+fbaaac86984891df4564d3127d4953bdebac225dd0f63cefe10e2c3696480a22  record-files/suites/kit-junit-xml-RUN2/kit-suite-depth_noise_test_gaussian.xml
+4580818d370b7a7cdf56184395d3a4e56cec21ea3fd19f737ca1e6679337f0eb  record-files/suites/kit-junit-xml-RUN2/kit-suite-env.xml
+25fd37281e70ec952c76aa6627a534554301c0ebf86e9e6dec1539e9b57724a0  record-files/suites/kit-junit-xml-RUN2/kit-suite-events.xml
+930b41bc94c6dcb6422232309d33a10eff9e441270646fea1c75db88eef32a81  record-files/suites/kit-junit-xml-RUN2/kit-suite-noise_models.xml
+0835675ca4f2be544421f09d196b735f71df2910c7d2e5e34092ae7c2f56f43c  record-files/suites/kit-junit-xml-RUN2/kit-suite-obs_dump.xml
+53fd2ff597491a56e0a0689db211921b7a4a0a27f7527d9e1f6c5162a0ba0665  record-files/suites/kit-junit-xml-RUN2/kit-suite-observations.xml
+8ae6a161651464cfd793a47f8acc2518c12b6cdf075f6e26279ae1e74a9bd427  record-files/suites/kit-junit-xml-RUN2/kit-suite-rewards_test_collision_rewards.xml
+2f30ef228c50bc9e342f08dc520dff6e35e9505eb730dbd6e770384a691e7c5c  record-files/suites/kit-junit-xml-RUN2/kit-suite-sensors.xml
+0f6444bcb66e9e7d50656561d371525c28823b2657178bb5c07c8fb1783960bf  record-files/suites/kit-junit-xml-RUN2/kit-suite-terminations.xml
+a2771ff7a442cde356cd043489e0b312f0624e0c5336ef39664d0af69a060df5  record-files/suites/orphaned-standalone-newpin.txt
+3a80f62a3821f7e4661c0c5c1e408304eb5caceaeba07f82f61a9e024d828e7f  record-files/suites/pure-suite-newpin.txt
+ecfcff929d5f7aad5d0fd2f0b7d4801ddd60878c0aec5463393bf3505186111f  record-files/suites/stale-not-this-session/kit-suite-depth_noise_test_holes--STALE-2026-08-14-baseline.xml
+dd21b5a402e3a3731c7b4d749b87a6387afedd904b15610fc1ee83d64638844e  record-files/suites/stale-not-this-session/kit-suite-env--STALE-2026-08-14-baseline.xml
+6c3541c02d7fdd7a009ff0c47c040ddbaabbe22915c3c60cc6ebb48ce1277d9e  record-files/training/curve-comparison.txt
+17797ecdbf901282406db6a7dde71af7bca18179d318039b0c38fb15f1eb4dd9  record-files/training/training-curve.csv
 ```

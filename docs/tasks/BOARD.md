@@ -185,7 +185,6 @@ The learned components here share one frozen text-capable backbone — see [`con
 | [`brief-link-depth-on-ship`](active/tooling/brief-link-depth-on-ship.md) | P2 | active | Either |
 | [`deployed-artifact-test-discovery`](active/tooling/deployed-artifact-test-discovery.md) | P3 | active | Jetson |
 | [`scene-corpus-test-fixture-consolidation`](active/tooling/scene-corpus-test-fixture-consolidation.md) | P3 | active | DGX |
-| [`measurements-evidence-policy`](active/tooling/measurements-evidence-policy.md) | P2 | active | DGX |
 | [`tools-package-reorg`](parked/tooling/tools-package-reorg.md) | P3 | parked (land when no large `tools/`-touching PR is in flight — after the R1 detections column + `depth-ffv1-video-column` settle) | DGX |
 | [`scene-contract-instance-discriminator`](parked/tooling/scene-contract-instance-discriminator.md) | P3 | parked (filed-on-trigger) | DGX |
 

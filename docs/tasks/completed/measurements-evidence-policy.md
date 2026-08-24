@@ -1,5 +1,8 @@
 # Keep `docs/measurements/` to the record prose
 
+**Status:** Shipped 2026-08-23 in `09ef78a` (DGX).
+**PR:** https://github.com/zachoines/Sim2RealLab/pull/213
+
 **Type:** docs / convention change (plus the retroactive sweep that applies it)
 **Owner:** DGX (the records were all written on the sim host, and the deposits
 are pushed from it)
@@ -19,9 +22,9 @@ with their digests attached rather than 137 files deep in the diff.**
 
 ## Context bundle
 
-- [context/conventions.md](../../context/conventions.md)
-- [context/branching-and-prs.md](../../context/branching-and-prs.md)
-- [`docs/tasks/README.md`](../../README.md) — the brief lifecycle this ships
+- [context/conventions.md](../context/conventions.md)
+- [context/branching-and-prs.md](../context/branching-and-prs.md)
+- [`docs/tasks/README.md`](../README.md) — the brief lifecycle this ships
   under
 
 ## Context
@@ -58,24 +61,24 @@ unchanged.
 
 ## Acceptance criteria
 
-- [ ] `docs/measurements/README.md` states the policy: what stays, what is
+- [x] `docs/measurements/README.md` states the policy: what stays, what is
       deposited, deposit-before-record ordering, immutability, the >100 MB
       rule, and how a reviewer verifies a record.
-- [ ] Every record directory holds only `README.md` and, where it has one,
+- [x] Every record directory holds only `README.md` and, where it has one,
       `provenance.md`.
-- [ ] Every deposited file is in the evidence repository under its record name,
+- [x] Every deposited file is in the evidence repository under its record name,
       with a `DEPOSIT.md` carrying host, source, date and per-file sha256, and
       each deposit verifies from its own digest list.
-- [ ] Each slimmed record's README carries an evidence section naming the
+- [x] Each slimmed record's README carries an evidence section naming the
       repository URL, the deposit directory, the deposit commit hash and the
       sha256 of every deposited file, and the digests in the README equal the
       digests in the deposit.
-- [ ] No load-bearing number in any record README or `provenance.md` changes.
-- [ ] No relative link in a record points at a file that left the tree.
-- [ ] If your work invalidates a fact in any referenced context module, package
+- [x] No load-bearing number in any record README or `provenance.md` changes.
+- [x] No relative link in a record points at a file that left the tree.
+- [x] If your work invalidates a fact in any referenced context module, package
       README, top-level `Readme.md`, or guide under `docs/`, update those in the
       same commit. See [`conventions.md`'s user-facing documentation maintenance
-      section](../../context/conventions.md#user-facing-documentation-maintenance)
+      section](../context/conventions.md#user-facing-documentation-maintenance)
       for the surface list and trigger heuristics.
 
 ## Out of scope

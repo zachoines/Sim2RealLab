@@ -153,6 +153,7 @@ Sim2RealLab/
     ├── INTEGRATION_SIM_IN_THE_LOOP.md    # cross-host bridge runbook (DGX + Jetson)
     ├── example_commands_cheatsheet.md   # one-liners operators copy-paste during ops
     ├── tasks/                           # one-shot Jira-style task briefs for follow-on work
+    ├── measurements/                    # measurement records; evidence is deposited, see its README
     └── artifacts/, reference/           # images, videos, product inserts
 ```
 

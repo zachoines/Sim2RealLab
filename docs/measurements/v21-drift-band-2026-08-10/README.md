@@ -5,6 +5,33 @@ off-path corridor bound: a policy trained on the `(0.0, 1.25)` robust band
 scored **0.360** completion where the drift-naive reference scored **0.723** at
 matched budget on the same distribution.
 
+## Evidence deposit
+
+The three result files this record scores are not in this directory. They are
+in the companion evidence repository
+`https://github.com/zachoines/Sim2RealLab-Artifacts`, a private repository
+holding the evidence behind these records, under
+`v21-drift-band-2026-08-10/record-files/`, deposited at commit
+`ae3e8c0ef50c80ca7832df3dec8d1c2831a5bb12`. That directory mirrors this one,
+so a filename below names the same file there; restoring it puts the files back
+where this record names them:
+
+```
+cp -a <clone>/v21-drift-band-2026-08-10/record-files/. \
+    docs/measurements/v21-drift-band-2026-08-10/
+```
+
+The deposit's own `DEPOSIT.md` comes across with the files and is not part
+of the record.
+
+sha256 of every deposited file:
+
+```
+1eeaa306112f8d39d4263b39b180f98ad5aa1b6c63c42e8810a4fdf107e76325  v2-model499-clean.jsonl
+40656e055f32309584ece0d3df7d1741c8d6ae6049af06b8290033a330c38a1d  v2-model998-clean.jsonl
+e56a7d973dd59c4bdcb62af94686a9491a8727e7db286f64f6969fb54fff06f4  v21-leg1-model499-clean.jsonl
+```
+
 | file | checkpoint | trained on drift | completion |
 |---|---|---|---|
 | `v21-leg1-model499-clean.jsonl` | `run_20260809_171025/model_499.pt` | yes, `(0.0, 1.25)` | 0.360 |

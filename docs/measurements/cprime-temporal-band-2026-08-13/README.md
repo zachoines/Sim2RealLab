@@ -10,6 +10,40 @@ iterations while entropy keeps dropping — so the checkpoint is selected rather
 than taken as the final one. Selection ran on **seed 7**, scoring on **seed
 42**, disjoint so the selection cannot flatter the score.
 
+## Evidence deposit
+
+The ten result files this record scores are not in this directory. They are in
+the companion evidence repository
+`https://github.com/zachoines/Sim2RealLab-Artifacts`, a private repository
+holding the evidence behind these records, under
+`cprime-temporal-band-2026-08-13/record-files/`, deposited at commit
+`ae3e8c0ef50c80ca7832df3dec8d1c2831a5bb12`. That directory mirrors this one,
+so a filename below names the same file there; restoring it puts the files back
+where this record names them:
+
+```
+cp -a <clone>/cprime-temporal-band-2026-08-13/record-files/. \
+    docs/measurements/cprime-temporal-band-2026-08-13/
+```
+
+The deposit's own `DEPOSIT.md` comes across with the files and is not part
+of the record.
+
+sha256 of every deposited file:
+
+```
+09b5d665d2a6141d8359f25cd7787e4b59fcede44ed37fa4b55d4eaf894fc07c  grid-seed42-REF-v2-model998.jsonl
+4326f45c81fb9e816b3024e8e68a7294a1f12862cf902459197f030c6ef070b7  grid-seed42-T2D2-cprime-model400.jsonl
+8e9facd9d6a75d5fcec7823f01dbf73f880a62fae267032392b68f0999f46451  grid-seed42-cprime-model400-clean-band-degraded.jsonl
+88d35838929fd43d2cb4a48a90c8580071b6ef54250636488d170a8f958f78ea  grid-seed42-drift1x-cprime-model400.jsonl
+6f739c394ad9d90aa75191e69a517c989ccbb64ff57e42d36696b4230a3734bb  grid-seed42-drift1x-v2-model998.jsonl
+bae64659a6a6227ae7b211f4576bc7b113b4bd1bd2b5a21794488cc0047e91fa  select-seed7-model100.jsonl
+8b1a15fba2b0f2f7a99c0522f25c16e25a7be38ab79b000f5bff066af8bba12a  select-seed7-model200.jsonl
+23bd5a5bd12667ea342c26f32260dec8d7097f45c8a4e6ca11151c16aeba208b  select-seed7-model300.jsonl
+3efb23fad48818e7351e592abbd864f28a02810070d5392ea2353130107417e7  select-seed7-model400.jsonl
+6708c4d1ce79944453ef3505d5087abb2a0bf2841cac9680ba410fece68988e8  select-seed7-model499.jsonl
+```
+
 ## Selection (seed 7)
 
 | file | checkpoint | completion |

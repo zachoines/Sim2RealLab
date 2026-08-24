@@ -43,6 +43,37 @@ quantisation-noisy; the aggregates, and every velocity quoted below, use a 0.5 s
 sim uniform resample of the same series. `mission._velocity_fields` restates this
 in each record.
 
+## Evidence deposit
+
+None of the seven files above are in this directory. They are in the companion
+evidence repository `https://github.com/zachoines/Sim2RealLab-Artifacts`, a
+private repository holding the evidence behind these records, under
+`goal-a-rig-gate-2026-08-17/record-files/`, deposited at commit
+`ae3e8c0ef50c80ca7832df3dec8d1c2831a5bb12`. That directory mirrors this one,
+so a filename above names the same file there; restoring it puts the files back
+where this record names them, and `analyze_tf.py` then re-derives the
+compaction claim and `drift_summary.json` as described:
+
+```
+cp -a <clone>/goal-a-rig-gate-2026-08-17/record-files/. \
+    docs/measurements/goal-a-rig-gate-2026-08-17/
+```
+
+The deposit's own `DEPOSIT.md` comes across with the files and is not part
+of the record.
+
+sha256 of every deposited file:
+
+```
+e2e9cad2fe91064954c93f10018bf6d7122a5e8c2cb5a64ae0d72cc037280e6b  analyze_tf.py
+67c80b44a94571005d6d94b6bfa8c7f594e0d90e98a9f38e466ee155ee84cf7e  anchor_per_mission.json
+e36b7fa85d4f67f2673bcb21d714fd96224a92275c172f648f07ab72106109e1  drift_summary.json
+c82d84575f57247996c3e5a3a495b760b6df5b3a5e63f80b1e3533973c1c5ff5  missions.jsonl
+87b0f9e4cc1add83fce912abb0811694ca36605cd3a1925fced434bd06773e14  probes.txt
+b4592035c31441b3fcd280f5fffb3257e52ad717ba60b2b2a0093ac071bfd3da  repeatability.jsonl
+dcf3a34b904daa675ccaa2194bf17e65ad0a3720db112645e6d93f45f9f3cd1d  tf_drift.jsonl
+```
+
 ## Transport and cadence — the stack delivered its contract
 
 The link is no longer the constraint. iperf3 across the cable: **943/941 Mbit/s**

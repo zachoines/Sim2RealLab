@@ -6,6 +6,38 @@ instability finding. All arms on the **`(0.0, 0.5)` drift env** —
 `Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-Play-v0`, `--profile
 clean`, 16 envs x 100 episodes, seed 42, deterministic policy.
 
+## Evidence deposit
+
+The eight result files this record scores are not in this directory. They are
+in the companion evidence repository
+`https://github.com/zachoines/Sim2RealLab-Artifacts`, a private repository
+holding the evidence behind these records, under
+`v21a-narrow-band-2026-08-12/record-files/`, deposited at commit
+`ae3e8c0ef50c80ca7832df3dec8d1c2831a5bb12`. That directory mirrors this one,
+so a filename below names the same file there; restoring it puts the files back
+where this record names them:
+
+```
+cp -a <clone>/v21a-narrow-band-2026-08-12/record-files/. \
+    docs/measurements/v21a-narrow-band-2026-08-12/
+```
+
+The deposit's own `DEPOSIT.md` comes across with the files and is not part
+of the record.
+
+sha256 of every deposited file:
+
+```
+becb97729cf9403a82477af0e568d523dfae481a1442989f995b5f66e2999d7f  v2-model499-clean.jsonl
+d2db8596888aac10abca3ac73528e93c245377329d4a8dca16977d539db560fb  v2-model998-clean-REF.jsonl
+429fd8d0131df46bfe3e0336114f52168b401c5b83d1ef83d7542d0b0c5d058a  v21-model400-clean.jsonl
+ca38431b4fba43f0b4aa8af0b7615c16b800c0294bc16436471b6cb5594c9b56  v21-model499-clean.jsonl
+4d5ab84f2201a7576d0e297e4040d22c1c88c1b8b26cd3e645896ec14aa2cbb0  v21a-model200-clean.jsonl
+490a9f4fa7d2b1301dab7bc975f8f070d377492b2fecdb8709944daaa81e40f8  v21a-model300-clean.jsonl
+c1ed2217f1841388bf846d9eff9617cf52f032641e53c6d4f410f0556341bbd4  v21a-model400-clean.jsonl
+5b91d2f537e82d90502fb263b5383fdd06f6bf5cd6463c98c90104d1a2e89ebe  v21a-model499-clean-band-degraded.jsonl
+```
+
 | file | checkpoint | trained with | completion | offset | left |
 |---|---|---|---|---|---|
 | `v2-model998-clean-REF.jsonl` | `run_20260727_171735/model_998.pt` | no holds, no drift | **0.870** | +3.32° | 0.591 |

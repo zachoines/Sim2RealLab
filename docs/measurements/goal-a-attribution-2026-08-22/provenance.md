@@ -28,9 +28,9 @@ onnxruntime 1.25.1, isaaclab 4.6.12. Every inference in this record ran on
 `CPUExecutionProvider`.
 
 The corruption statistic in [`README.md`](README.md) §3 re-derives on any host
-with numpy — [`verify/recheck_corruption_stats.py`](verify/recheck_corruption_stats.py)
-reads only files in this directory. The replay re-checks need onnxruntime and
-the two machine-local inputs below.
+with numpy — `verify/recheck_corruption_stats.py` reads only files the record
+itself carries. The replay re-checks need onnxruntime and the two machine-local
+inputs below.
 
 ## Artifacts
 
@@ -51,10 +51,12 @@ sha256 `07682894947d36b956867a3bfc55026c3a12ad58c33946d3e8cf303b6e22ec78`
 (dated Jul 22) and `…619207121200783073_0_0_sm87.engine` sha256
 `320dff7c9084530e58fe11414c788a34cf18b6bc190d0c3412d784ad6addaaa1` (Jul 28).
 
-## Machine-local inputs, not in git
+## Inputs this repository does not carry
 
-The node-assembled observation capture is 131 MB and stays on the sim host at
-`gx10-d1d8:~/arm3_obs_capture_20260822/`:
+The node-assembled observation capture is 131 MB. It was written on the sim
+host at `gx10-d1d8:~/arm3_obs_capture_20260822/` and is deposited under this
+record's name in the evidence repository, in `arm3-obs-capture/`, where
+`node_obs.jsonl` is stored gzipped with the uncompressed digest recorded:
 
 | file | bytes | sha256 |
 |---|---|---:|
@@ -78,19 +80,21 @@ Kit log `kit_20260822_093054.log`, SLAM key `enrich_isolate1`, anchoring
 bearing −8.1° relative to heading; final `(-0.464, -0.524, 1.351)` at 3.171 m,
 `ABORTED` at 60.0 s sim, net −0.081 m.
 
-Two training-run stdout logs are likewise machine-local, on `gx10-d1d8` under
+Two training-run stdout logs are machine-local and not deposited, on
+`gx10-d1d8` under
 `~/Workspace/Sim2RealLab/logs/rsl_rl/strafer_navigation/`:
 `depth_subgoal_vfov8045_stdout.log` (v1), `depth_subgoal_v2_stdout.log` and
 `depth_subgoal_v2b_stdout.log` (v2's two legs). They are the only surviving
-record of which environment each run trained under — see [`README.md`](README.md) §6.
+record of which environment each run trained under — see [`README.md`](README.md) §10.
 
 ## What was edited in the copied artifacts
 
-The scripts and outputs in this directory are reproduced as they ran, with two
-declared classes of edit and nothing else.
+The scripts and outputs the record carries are reproduced as they ran, with
+two declared classes of edit and nothing else.
 
 **1. The transient run directory was rewritten to this record's path**, so the
-scripts resolve their inputs from a repository checkout. It is not confined to
+scripts resolve their inputs from a checkout with the deposit restored into it
+(the recipe is in [`README.md`](README.md) §2). It is not confined to
 the scripts: three lines of `same-pose-probe/probe_stdout.log` and four string
 fields across `same-pose-probe/analysis.json` and
 `same-pose-probe/closed_loop_summary.json` name that directory and carry the
@@ -106,5 +110,5 @@ a number the record does not.
 
 Beyond those, nothing was altered — no numeric field, no array, no other log
 line. Every `.npy` and `.jsonl` payload is byte-identical to what the runs
-produced. [`MANIFEST.sha256`](MANIFEST.sha256) digests the directory as it
-stands, after both classes of edit.
+produced. The evidence deposit named in [`README.md`](README.md) §2 digests
+every file as it stands, after both classes of edit.

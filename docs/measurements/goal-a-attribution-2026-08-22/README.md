@@ -80,37 +80,98 @@ produced by the noise model and by nothing else.
 
 | path | holds |
 |---|---|
-| [`replay/replay.py`](replay/replay.py) | the offline replay: 1 799 captured node observations through both artifacts on CPU |
-| [`replay/actions_v2_cpu.jsonl`](replay/actions_v2_cpu.jsonl), [`actions_v1_cpu.jsonl`](replay/actions_v1_cpu.jsonl) | one `{t_sim, action}` record per tick |
-| [`replay/analysis.json`](replay/analysis.json) | signature, agreement against the on-robot commands, referent timeline, v1 probe |
-| [`replay/verify_replay.py`](replay/verify_replay.py) | the independent re-derivation run at the time |
-| [`same-pose-probe/probe.py`](same-pose-probe/probe.py), [`probe_stdout.log`](same-pose-probe/probe_stdout.log) | the Kit probe that reproduced the room and placed the robot at the captured pose, and its full output |
-| [`same-pose-probe/meta.json`](same-pose-probe/meta.json) | scene, seed, decimation, disabled terminations, anchor and achieved pose, clean quartet, term layout |
-| [`same-pose-probe/gym_obs.jsonl`](same-pose-probe/gym_obs.jsonl) | 30 **clean** observation-term outputs (3 619 dims) |
-| [`same-pose-probe/env_obsbuf.jsonl`](same-pose-probe/env_obsbuf.jsonl) | the same 30 ticks as the ObservationManager delivers them, **after** the realism noise |
-| [`same-pose-probe/closed_loop_v2.jsonl`](same-pose-probe/closed_loop_v2.jsonl), [`closed_loop_v1.jsonl`](same-pose-probe/closed_loop_v1.jsonl), [`closed_loop_summary.json`](same-pose-probe/closed_loop_summary.json) | 450 closed-loop steps per artifact from the identical pose |
-| [`same-pose-probe/field_diff_and_patch.py`](same-pose-probe/field_diff_and_patch.py), [`field_diff_and_patch_results.json`](same-pose-probe/field_diff_and_patch_results.json) | field-by-field node-vs-clean diffs against the pre-registered bands |
-| [`same-pose-probe/bisect_and_motion.py`](same-pose-probe/bisect_and_motion.py), [`bisect_and_motion_results.json`](same-pose-probe/bisect_and_motion_results.json) | the capture's motion onset, the tick-0 scene guard, the bisection ticks and both sweeps |
-| [`same-pose-probe/patch_replays_consolidated.json`](same-pose-probe/patch_replays_consolidated.json) | all 14 patch replays and the two 30-record sweeps in one file |
-| [`same-pose-probe/analyze.py`](same-pose-probe/analyze.py), [`analysis.json`](same-pose-probe/analysis.json) | the probe's own summary pass over its outputs |
-| [`same-pose-probe/launch_ts.txt`](same-pose-probe/launch_ts.txt) | wall stamps bracketing the probe run |
-| [`same-pose-probe/verify1_frames_and_diffs.py`](same-pose-probe/verify1_frames_and_diffs.py), [`verify1_out.json`](same-pose-probe/verify1_out.json) | the independent frame-arithmetic and field-diff re-derivation run at the time |
-| [`same-pose-probe/*.npy`](same-pose-probe/) | mean node image, mean clean image, and their difference, 45×80 |
-| [`verify/`](verify/) | re-derivations written for this record — §3, §6 and §7 below |
+| `replay/replay.py` | the offline replay: 1 799 captured node observations through both artifacts on CPU |
+| `replay/actions_v2_cpu.jsonl`, `replay/actions_v1_cpu.jsonl` | one `{t_sim, action}` record per tick |
+| `replay/analysis.json` | signature, agreement against the on-robot commands, referent timeline, v1 probe |
+| `replay/verify_replay.py` | the independent re-derivation run at the time |
+| `same-pose-probe/probe.py`, `same-pose-probe/probe_stdout.log` | the Kit probe that reproduced the room and placed the robot at the captured pose, and its full output |
+| `same-pose-probe/meta.json` | scene, seed, decimation, disabled terminations, anchor and achieved pose, clean quartet, term layout |
+| `same-pose-probe/gym_obs.jsonl` | 30 **clean** observation-term outputs (3 619 dims) |
+| `same-pose-probe/env_obsbuf.jsonl` | the same 30 ticks as the ObservationManager delivers them, **after** the realism noise |
+| `same-pose-probe/closed_loop_v2.jsonl`, `same-pose-probe/closed_loop_v1.jsonl`, `same-pose-probe/closed_loop_summary.json` | 450 closed-loop steps per artifact from the identical pose |
+| `same-pose-probe/field_diff_and_patch.py`, `same-pose-probe/field_diff_and_patch_results.json` | field-by-field node-vs-clean diffs against the pre-registered bands |
+| `same-pose-probe/bisect_and_motion.py`, `same-pose-probe/bisect_and_motion_results.json` | the capture's motion onset, the tick-0 scene guard, the bisection ticks and both sweeps |
+| `same-pose-probe/patch_replays_consolidated.json` | all 14 patch replays and the two 30-record sweeps in one file |
+| `same-pose-probe/analyze.py`, `same-pose-probe/analysis.json` | the probe's own summary pass over its outputs |
+| `same-pose-probe/launch_ts.txt` | wall stamps bracketing the probe run |
+| `same-pose-probe/verify1_frames_and_diffs.py`, `same-pose-probe/verify1_out.json` | the independent frame-arithmetic and field-diff re-derivation run at the time |
+| `same-pose-probe/*.npy` | mean node image, mean clean image, and their difference, 45×80 |
+| `verify/` | re-derivations written for this record — §3, §6 and §7 below |
 
-Analysis scripts and outputs from the attribution sessions are reproduced here
-verbatim, following the `analyze_tf.py` precedent in the gate record; the one
+Analysis scripts and outputs from the attribution sessions are kept verbatim,
+following the `analyze_tf.py` precedent in the gate record; the one
 substitution made to them is described at the end of [`provenance.md`](provenance.md).
-The 131 MB observation capture the replay consumes is **not** in git; its
-location and digest are in [`provenance.md`](provenance.md).
+The 131 MB observation capture the replay consumes is deposited separately,
+under the same record name in `arm3-obs-capture/`; its digest is in
+[`provenance.md`](provenance.md).
+
+### Evidence deposit
+
+None of the paths above are in this directory. They are in the companion
+evidence repository `https://github.com/zachoines/Sim2RealLab-Artifacts`, a
+private repository holding the evidence behind these records, under
+`goal-a-attribution-2026-08-22/record-files/`, deposited at commit
+`ae3e8c0ef50c80ca7832df3dec8d1c2831a5bb12`. That directory mirrors this one,
+so a path above names the same file there. The scripts resolve their inputs as
+`docs/measurements/goal-a-attribution-2026-08-22/…` relative to the
+working directory, so restoring the deposit into that path is what makes the
+commands below run:
+
+```
+cp -a <clone>/goal-a-attribution-2026-08-22/record-files/. \
+    docs/measurements/goal-a-attribution-2026-08-22/
+```
+
+The deposit's own `DEPOSIT.md` comes across with the files and is not part
+of the record.
+
+These 31 digests are the payload rows of the record's former `MANIFEST.sha256`,
+which is not deposited: its other two rows digested this README and
+`provenance.md`, and this edit changes both.
+
+sha256 of every deposited file, paths relative to this directory:
+
+```
+010a120826b5e5c5c8f518b6effb2963443cb0556feeb1f0f282481dd5db3c0e  replay/actions_v1_cpu.jsonl
+730d218a6956a298134228882570a3c40acf7f31112f0935eede483622f868ff  replay/actions_v2_cpu.jsonl
+c4a72d3ccc62988507d3aa5d50dab5f6c6c2ba1deb530a0f15176ce075df2c27  replay/analysis.json
+45711db995eb53a6387e2e6251c8f2d09d66f5123b076d5d7bbbf57d2f794b00  replay/replay.py
+0deb2ad2e8f6d1564e26bb989da0705d8396c682299be29f52e39b62a8d5d26a  replay/verify_replay.py
+176a9183a5ee50dc60526e103b24917fa91d1c8b3ff6e413325cf4d992b1c1ac  same-pose-probe/analysis.json
+c2069292cfac4f499eb5972e35648d80e1cd3f2fe47e2e54f43fda459e093ddd  same-pose-probe/analyze.py
+d8fc6d060c833da5f4bd5515ffb704f86908388e5c3bfd690e0faa11a47cc4a1  same-pose-probe/bisect_and_motion.py
+8ac9134ec6e54fa177ef9586563c67954fca96fab48dd5e5891f44a8247d91b9  same-pose-probe/bisect_and_motion_results.json
+8a452d03178009615bb16aaa4aad095f395daa3d3b6cc1da09d6401abee79303  same-pose-probe/closed_loop_summary.json
+a65d3ea59507429178d733b6f35d905d27fd12d6ab86d4bf5713c61757bd5437  same-pose-probe/closed_loop_v1.jsonl
+6b225e90db491a6563b93577c3492e40a1ced26d4fcc1bfd7a204a6266fb4f3f  same-pose-probe/closed_loop_v2.jsonl
+237d6e6bb449bd0fb9f99baed8f1f452759d995c651b36ba4020f8debd4269f7  same-pose-probe/depth_diff_mean_img.npy
+101b18ed32e43680b3aa3d1a1496f5b2d2c3298f4dbc7b23bce65cfa6e861e7a  same-pose-probe/env_obsbuf.jsonl
+29f7b603777c8c2cb7b6ccb6ac67f1a90d9ac49d2710446ba25a4c014d791290  same-pose-probe/field_diff_and_patch.py
+f32d213f34dacdd7d9d19f2ff73d3d2a30ee93ae4db0a45b3511a66f0c48cc67  same-pose-probe/field_diff_and_patch_results.json
+448b6335cfec24f36ce16538c5519b48ae52d3df95a47c037c35b16b18c947b4  same-pose-probe/gym_depth_mean.npy
+821fe832e37952766088a60d6bb77fd8f4a21c0cdcb83195b9db4d2067cb0cbf  same-pose-probe/gym_obs.jsonl
+90e97683c82c2ce1fc894cdbffeff491af63b70f1b5600aacaa30a0652bc28a0  same-pose-probe/launch_ts.txt
+7dbc36289051656f355fb00ed6cd661f5574d474864c0ab9208127c167af0768  same-pose-probe/meta.json
+0c9cd2c7f3b13ff1a873adc5dc106f97768351127d9ee1fdc99d0739bbb9f839  same-pose-probe/node_depth_mean.npy
+eef734090ab1811246d1647af151d6f5a045e0c535abce46476a9e988dc66f0a  same-pose-probe/patch_replays_consolidated.json
+8cf92884db6591cb7994fa154a7b08058882f1c748b4827138d9e715f2bafd0d  same-pose-probe/probe.py
+1109377167a53e8f3c7a426da086ee2ddb8c38bc4bf46fd8d7b88602e15a7dc0  same-pose-probe/probe_stdout.log
+f61da6544d0da1a6cd7ac01495c59d0ad28118bb40c675797481d8904dd6100b  same-pose-probe/verify1_frames_and_diffs.py
+06a67055faf196edae0348e18dbbe784b6f560b2ab6b67c293affd064af9e7b7  same-pose-probe/verify1_out.json
+9a820fd5eb255ef719bd736f1d85679d0fda4500f2c853cc10ea9bce194e415a  verify/recheck_corruption_stats.py
+47e182216916b05fa62c9dc99b0f775cace158754d55b487c6cfab66f4fe9af9  verify/recheck_patch_replays.py
+f9509742eb5ff45e2563d06c40015edeaee06d707c845fbbb1cb4f5f4b8ed8fb  verify/recheck_sweeps.py
+0bd2e1842c97827a29d38b093ba6cf7f9db5c508f730f752deeb8f1c5a18fc9b  verify/specificity_probe_1.py
+f511b7ac8533aa824bab93ebade1401e0b4c452b7b3bb6c27de8164a8b9829b6  verify/specificity_probe_2.py
+```
 
 ---
 
 ## 3. The convention divergence, measured
 
-Both observation streams for the same 30 ticks are in this directory, so the
-divergence re-derives from the record alone. `verify/recheck_corruption_stats.py`
-reads nothing else and needs only numpy:
+Both observation streams for the same 30 ticks are in the deposit, so the
+divergence re-derives from the record's own files.
+`verify/recheck_corruption_stats.py` reads nothing else and needs only numpy:
 
 ```
 $ python3 docs/measurements/goal-a-attribution-2026-08-22/verify/recheck_corruption_stats.py
@@ -150,7 +211,7 @@ the slam component is identical because it is tier-independent.
 
 ## 4. The offline replay — the artifact's, and present at tick 0
 
-[`replay/replay.py`](replay/replay.py) pushes all 1 799 captured node
+`replay/replay.py` pushes all 1 799 captured node
 observations through both ONNX artifacts on `CPUExecutionProvider`, one tick at
 a time from a zeroed hidden state.
 
@@ -188,7 +249,7 @@ artifact returns `vx` mean **+0.65875** with positive duty **0.99944**, first
 tick `[+0.17561, −0.09146, −0.53942]`, against v2's `vx` mean −0.04494. The
 observations are not unusable; this artifact cannot use them.
 
-For the magnitudes, measured from [`replay/actions_v2_cpu.jsonl`](replay/actions_v2_cpu.jsonl):
+For the magnitudes, measured from `replay/actions_v2_cpu.jsonl`:
 `vx ∈ [−0.1467, +0.2988]`, `vy ∈ [−0.4190, +0.0602]`, `wz ∈ [−0.6397, +0.0611]`
 over the whole mission. The last 20 s sim is one-signed in both translation
 axes — positive-`vy` duty 0.000 with zero sign changes, at `vy` mean −0.0568 —
@@ -199,7 +260,7 @@ should be read from rather than from elsewhere (§9).
 
 ## 5. The same-pose probe — the room reproduces, and v2 drives in sim
 
-[`same-pose-probe/probe.py`](same-pose-probe/probe.py) rebuilds
+`same-pose-probe/probe.py` rebuilds
 `Isaac-Strafer-Nav-Capture-Bridge-ProcRoom-Enriched-v0` at environment seed 42
 — the capture's scene, reproduced from seed determinism — disables `time_out`,
 `robot_flipped`, `sustained_collision` and `goal_reached`, and teleports the
@@ -289,8 +350,8 @@ The third row is a re-derivation added for this record: substituting only the
 never produces a toward-referent command, which is the tighter single-field form
 of the same result.
 
-**Reproduction.** [`verify/recheck_patch_replays.py`](verify/recheck_patch_replays.py)
-and [`verify/recheck_sweeps.py`](verify/recheck_sweeps.py) were written against
+**Reproduction.** `verify/recheck_patch_replays.py`
+and `verify/recheck_sweeps.py` were written against
 the published method rather than by re-executing the analysis, and re-run the
 eight cells and both sweeps from the shipped `gym_obs.jsonl` / `env_obsbuf.jsonl`
 (sha256 verified equal to the originals) plus the machine-local capture. Worst
@@ -306,8 +367,8 @@ different classes. It does not establish that the *slammed pixels* are the
 operative part of the corruption. That was tested here, and the controls do not
 separate. Both probes are single-tick from a zeroed state, off referent in
 degrees; the source column names which one each row came from
-([`verify/specificity_probe_1.py`](verify/specificity_probe_1.py),
-[`verify/specificity_probe_2.py`](verify/specificity_probe_2.py)):
+(`verify/specificity_probe_1.py`,
+`verify/specificity_probe_2.py`):
 
 | manipulation of the node's own tick-0 depth | off referent | toward | from |
 |---|---:|:--:|:--|
@@ -363,7 +424,7 @@ against the mean clean image and 0.9779 against clean record 0, with mean depth
 **0.0026 m** and p95 0.1161 m. The single localized block reaching 3.673 m is
 the residual §9 records. Every bisection cell in §6 uses node tick 0, so it
 runs on the passing anchor; the diagnosis is in
-[`bisect_and_motion_results.json`](same-pose-probe/bisect_and_motion_results.json)
+`same-pose-probe/bisect_and_motion_results.json`
 under `node_motion_onset` and `scene_guard_tick0`.
 
 **Decimation 4, against 1 on the rig.** `sim_dt` 1/120 s with `decimation` 4

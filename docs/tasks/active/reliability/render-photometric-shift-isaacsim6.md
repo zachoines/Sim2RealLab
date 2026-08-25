@@ -2,8 +2,8 @@
 
 **Type:** investigation → recalibration (render lane)
 **Owner:** DGX / render lane
-**Priority:** P2 — **not flip-blocking** (coordinator ruling R3, 2026-08-23). The policy
-lane is unaffected: G4 measured the depth observation unmoved. What is affected is every
+**Priority:** P2 — **not flip-blocking**; the policy lane is unaffected, because the depth
+observation was measured unmoved. What is affected is every
 lane calibrated against RGB luminance, and those calibrations are wrong by a known factor
 the moment the flip lands.
 **Estimate:** S to recalibrate (scale the bands, re-validate at first use); the root cause
@@ -24,8 +24,9 @@ do with the scene.**
 
 ## What was measured
 
-Stage 3 gate G5, 2026-08-23. One 200-frame overhead training clip per pin, identical
-command, `measure_perception_exposure.py` read for its numbers rather than its verdict.
+Measured 2026-08-23 in the pre-bump validation record's render leg. One 200-frame overhead
+training clip per stack, identical command, `measure_perception_exposure.py` read for its
+numbers rather than its verdict.
 
 | clip | mean_luma | clip_frac | crush_frac |
 |---|---|---|---|
@@ -43,7 +44,7 @@ Video-path integrity is intact: the recording is anchored on `env_0` and the `_c
 patch found `/World/envs/env_0`, so it is not the silent world-frame fallback. The failure
 is photometric, not structural.
 
-**Depth is untouched.** G4 measured the depth observation on both Play tiers: mean moved
+**Depth is untouched.** The depth observation was measured on both Play tiers: mean moved
 +0.02 % of a 2 % budget, band profiles correlate at r = 1.000000 with an unchanged peak
 row. Depth is geometric; this is photometric. The two results do not conflict, and
 together they say the policy's input distribution is unchanged while the RGB image is not.
@@ -102,7 +103,7 @@ Name installs by build metadata, not by pip version.
 - **Capture** — RGB frames written into LeRobot datasets; any exposure gate on them.
 - **Perception / VLM grounding** — the corpus and its exposure history; the `[90, 150]`
   window in `measure_perception_exposure.py` was set for perception frames.
-- **Not the policy lane.** G4 is the evidence.
+- **Not the policy lane.** The unmoved depth observation is the evidence.
 - `measure_perception_exposure.py`'s own bands are the concrete artifact to rescale.
 
 ## Disposition
@@ -112,7 +113,7 @@ Name installs by build metadata, not by pip version.
 2. **Do not tune a render setting to compensate.** No exposure or renderer setting was
    touched to produce these numbers, and every config surface examined is identical
    between the installs — a compensating setting would be an unexplained local mod of
-   exactly the kind G0 just retired.
+   exactly the kind the candidate clone was just shown not to need.
 3. **PR #147 (default-renderer A/B) re-baselines regardless**, so it inherits the new
    numbers rather than needing a separate pass.
 4. **Report upstream.** No Isaac Sim issue describes this; the per-frame ratio analysis
@@ -120,7 +121,7 @@ Name installs by build metadata, not by pip version.
 
 ## Evidence
 
-Stage 3 record `docs/measurements/isaac-lab-upgrade-stage3-2026-08-23/` (gate G5) and its
-evidence deposit `isaac-lab-upgrade-stage3-2026-08-23/` — the three clips
+Record `docs/measurements/isaac-lab-upgrade-stage3-2026-08-23/` (its render leg) and the
+matching evidence deposit `isaac-lab-upgrade-stage3-2026-08-23/` — the three clips
 (`video/g5-train-clip-OLDPIN-control.mp4`, `…-newpin-run1.mp4`, `…-newpin-run2.mp4`) and
 the exposure readings under `render/`.

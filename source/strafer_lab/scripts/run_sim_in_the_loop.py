@@ -759,8 +759,9 @@ def main() -> None:
     import isaaclab_tasks  # noqa: F401
     import strafer_lab.tasks  # noqa: F401
 
-    from isaacsim.core.utils.extensions import enable_extension
     from isaaclab_tasks.utils import parse_env_cfg
+
+    from strafer_lab.isaacsim_compat import enable_extension
 
     from strafer_lab.bridge.config import build_default_bridge_config
     from strafer_lab.bridge.graph import build_bridge_graph

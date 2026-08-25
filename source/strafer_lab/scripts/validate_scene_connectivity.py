@@ -836,13 +836,14 @@ def _boot_kit() -> Any:
     kit_args.headless = True
     kit_args.enable_cameras = True
     app = AppLauncher(kit_args).app
-    try:
-        from isaacsim.core.utils.extensions import enable_extension  # type: ignore
 
-        enable_extension("isaacsim.asset.gen.omap")
-        app.update()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("could not enable isaacsim.asset.gen.omap: %s", exc)
+    # Fail loudly. Occupancy generation reads the omap extension's output, so a
+    # boot that could not enable it produces wrong maps rather than missing ones,
+    # and a warning here is indistinguishable from success in a batch log.
+    from strafer_lab.isaacsim_compat import enable_extension
+
+    enable_extension("isaacsim.asset.gen.omap")
+    app.update()
     return app
 
 

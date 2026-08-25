@@ -743,7 +743,7 @@ def _follow_overhead_camera(robot_world_xy, altitude_z: float, cam_prim_path: st
     step (the call teleop's follow uses). Eye and target share XY so the view
     stays straight down.
     """
-    from isaacsim.core.utils.viewports import set_camera_view
+    from strafer_lab.isaacsim_compat import set_camera_view
 
     x, y = float(robot_world_xy[0]), float(robot_world_xy[1])
     set_camera_view(eye=[x, y, altitude_z], target=[x, y, 0.0], camera_prim_path=cam_prim_path)

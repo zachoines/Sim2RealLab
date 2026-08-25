@@ -47,6 +47,17 @@ Two reasons to move:
 rendering/video, and the entire `run_tests.py` Kit suite. A bad bump has a
 wide blast radius, so the deliverable is dominated by re-validation.
 
+**Deprecated-extension relocation.** Isaac Sim 6.0 deprecates
+`isaacsim.core.utils` and the 6.0.x line moves it to `isaacsim/extsDeprecated/`.
+Isaac Lab's kit apps registered that directory at `ae41e2aca68` and no longer do
+at `3.0.0-beta2`, so the module is present on disk but unimportable under
+`isaaclab.sh -p` and any direct import dies at runtime inside a booted Kit —
+`run_sim_in_the_loop.py` among them. The eight call sites route through
+`strafer_lab.isaacsim_compat`, which prefers the documented replacements
+(`isaacsim.core.experimental.utils`, `isaacsim.core.rendering_manager`) and keeps
+the deprecated location as a fallback. A pure-suite guard test fails if anything
+imports the deprecated surface directly again.
+
 ## Approach
 
 - **Build a second env + clone pair alongside the existing one — never

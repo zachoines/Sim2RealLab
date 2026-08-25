@@ -527,11 +527,10 @@ def extract_from_blend(blend_path: Path) -> dict[str, Any]:
 def _open_stage_for_authoring(usd_path: Path | str, *, kit: bool):
     """Return ``(stage, save_fn)`` for authoring into ``usd_path``.
 
-    When ``kit`` (semantics pass), open via the Isaac Sim USD context so
-    ``add_labels`` — which routes through ``omni.replicator`` and operates
-    on the *managed* stage — actually applies the ``UsdSemantics`` schema;
-    a raw ``Usd.Stage.Open`` stage silently no-ops the label write. The
-    plain path (customData only) uses raw ``pxr`` and ``Stage.Save``.
+    When ``kit`` (semantics pass), open via the Isaac Sim USD context so the
+    label write lands on the *managed* stage and the ``UsdSemantics`` schema
+    plugin is registered; a raw ``Usd.Stage.Open`` stage silently no-ops the
+    write. The plain path (customData only) uses raw ``pxr`` and ``Stage.Save``.
     """
     if kit:
         import omni.usd  # noqa: WPS433 — Kit-only, lazy by design
@@ -630,21 +629,25 @@ def _author_into_stage(
 
 
 def _resolve_add_labels() -> Any:
-    """Return ``isaacsim.core.utils.semantics.add_labels`` or raise.
+    """Return the label-applying helper.
 
     The ``UsdSemantics.LabelsAPI`` schema + this helper are provided by the
     Isaac Sim Kit runtime, not plain ``pxr``; applying labels requires
     running under ``$ISAACLAB -p``.
+
+    :mod:`strafer_lab.isaacsim_compat` owns which implementation is used — the
+    ``isaacsim.core.utils`` surface this used to import directly is deprecated and is
+    unreachable under Isaac Lab's kit apps. It also preserves the deprecated
+    overwrite-by-default contract that this caller relies on, which the replacement
+    does not share.
+
+    One behavioural note: the missing-Kit ``RuntimeError`` now comes from the compat
+    layer on the first prim actually labelled, rather than from this resolver before
+    the loop starts. It is the same error class with an equivalent message, and the
+    ``apply_semantics=False`` path is unchanged.
     """
-    try:
-        from isaacsim.core.utils.semantics import add_labels  # type: ignore
-    except ImportError as exc:
-        raise RuntimeError(
-            "Applying UsdSemantics detection labels needs the Isaac Sim Kit "
-            "runtime (isaacsim.core.utils.semantics). Run this under "
-            "`$ISAACLAB -p`, or pass apply_semantics=False to author "
-            "customData only (the scene will not be detections-ready)."
-        ) from exc
+    from strafer_lab.isaacsim_compat import add_labels
+
     return add_labels
 
 
@@ -660,7 +663,7 @@ def _parse_denylist(spec: str) -> set[str]:
 def _boot_kit_for_semantics() -> Any:
     """Boot a headless Isaac Sim Kit app and return the SimulationApp.
 
-    ``isaacsim.core.utils.semantics`` (the ``UsdSemantics.LabelsAPI`` helper)
+    The semantics helper (the ``UsdSemantics.LabelsAPI`` wrapper)
     and the ``UsdSemantics`` schema plugin are only importable once Kit has
     initialized — being under ``$ISAACLAB -p`` alone is not enough. The CLI
     boots Kit for the semantics-authoring paths; the caller closes the app.
@@ -671,8 +674,8 @@ def _boot_kit_for_semantics() -> Any:
     AppLauncher.add_app_launcher_args(launcher_parser)
     kit_args = launcher_parser.parse_args([])
     kit_args.headless = True
-    # add_labels routes through omni.replicator.core, which only loads when
-    # the camera/Replicator extensions are enabled.
+    # Selects the app the semantics pass has always booted under. Narrowing it
+    # is a behavioural change, not a comment fix, so it is left alone here.
     kit_args.enable_cameras = True
     return AppLauncher(kit_args).app
 

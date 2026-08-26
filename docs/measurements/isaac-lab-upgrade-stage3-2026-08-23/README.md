@@ -861,7 +861,7 @@ Gate B re-exported artifacts) deposited earlier in the same session.
 |---|---|
 | repository | <https://github.com/zachoines/Sim2RealLab-Artifacts> (private) |
 | directory | `isaac-lab-upgrade-stage3-2026-08-23/` |
-| deposit commit | `03995f3e3c3fca7c8f81fefa86248f4952cd94f52e110de82272b2b230985c8c02d8495c4` |
+| deposit commit | `03995f3e3c3fca7c8f81fefa86248f4952cd94f5` |
 | conventions | the repository's `README.md`; per-file digests in the deposit's `DEPOSIT.md` |
 
 sha256 of every file this record moved there, laid out under `record-files/` in the

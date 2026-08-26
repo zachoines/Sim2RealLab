@@ -159,7 +159,7 @@ def main():
         # Use isaacsim's FSD-safe set_camera_view (goes through TransformPrimCommand).
         if args.video:
             import numpy as np
-            from isaacsim.core.utils.viewports import set_camera_view as isaacsim_set_camera_view
+            from strafer_lab.isaacsim_compat import set_camera_view as isaacsim_set_camera_view
 
             unwrapped = env.unwrapped
             origin = unwrapped.scene.env_origins[0].cpu().numpy()

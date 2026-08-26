@@ -395,15 +395,16 @@ def _arcade_camera_init(
 
     Resets ``camera_path`` first to defend against a prior egocentric
     session that left the viewport possessed by the d555 prim, then
-    drives the persp camera through ``isaacsim.core.utils.viewports.
-    set_camera_view`` (Kit's FSD-safe ``TransformPrimCommand`` path) —
+    drives the persp camera through :func:`strafer_lab.isaacsim_compat.
+    set_camera_view` (Kit's FSD-safe ``TransformPrimCommand`` path) —
     necessary because :class:`ViewportCameraController` doesn't
     reliably apply :class:`ViewerCfg` to the active viewport after
     env.reset.
     """
+    from strafer_lab.isaacsim_compat import set_camera_view
+
     try:
         import omni.kit.viewport.utility as vp_util  # type: ignore
-        from isaacsim.core.utils.viewports import set_camera_view  # type: ignore
     except ImportError:
         return False
     try:
@@ -433,9 +434,10 @@ def _arcade_follow_tick(unwrapped, robot_xy: tuple[float, float]) -> None:
     only overwrite XY). Silent on failure so a one-shot Kit hiccup
     doesn't break the loop.
     """
+    from strafer_lab.isaacsim_compat import set_camera_view
+
     try:
         import omni.kit.viewport.utility as vp_util  # type: ignore
-        from isaacsim.core.utils.viewports import set_camera_view  # type: ignore
         from pxr import Usd, UsdGeom  # type: ignore
     except ImportError:
         return
@@ -859,7 +861,7 @@ def main() -> int:
     else:  # world_arcade
         # ViewerCfg here is only the initial seed — after env.reset()
         # we drive /OmniverseKit_Persp directly via
-        # ``isaacsim.core.utils.viewports.set_camera_view`` because
+        # :func:`strafer_lab.isaacsim_compat.set_camera_view` because
         # Isaac Lab's ViewportCameraController doesn't reliably apply
         # ViewerCfg to the active viewport in this launch mode (see
         # _arcade_camera_init + collect_demos.py:282-311). The per-tick

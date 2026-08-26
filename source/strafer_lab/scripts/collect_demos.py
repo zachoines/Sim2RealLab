@@ -300,7 +300,7 @@ def main():
     # (or at all in some launch modes). isaacsim's set_camera_view goes
     # through Kit's TransformPrimCommand which is FSD-safe.
     import numpy as np
-    from isaacsim.core.utils.viewports import set_camera_view as isaacsim_set_camera_view
+    from strafer_lab.isaacsim_compat import set_camera_view as isaacsim_set_camera_view
 
     origin = unwrapped.scene.env_origins[0].cpu().numpy()
     cam_eye = origin + np.array(env_cfg.viewer.eye, dtype=float)

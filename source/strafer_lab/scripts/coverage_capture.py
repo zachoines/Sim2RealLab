@@ -538,13 +538,14 @@ def main() -> int:
             capture.cfg.camera_prim_path if capture is not None
             else viewer.cam_prim_path
         )
-        if capture is not None:
+        if capture is not None and hasattr(capture.cfg, "camera_position"):
             capture.cfg.camera_position = world_eye
             capture.cfg.camera_target = world_target
         else:
             print(
-                "[coverage_capture] --video: viewport capture handle "
-                "unavailable; the overhead MP4 may use the default camera pose",
+                "[coverage_capture] --video: capture camera pose not anchored; "
+                "the first recorded frame uses the recorder's own pose (the "
+                "per-step follow re-poses the camera from the second on)",
                 flush=True,
             )
         base.sim.set_camera_view(eye=world_eye, target=world_target)

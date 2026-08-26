@@ -43,32 +43,38 @@ Verify from inside the repo with `git remote -v` + `git rev-parse --show-topleve
 
 ## Python environments (DGX)
 
-Three live environments partition the DGX stack — two conda envs and one
-venv. Each is forced apart by a hard constraint, not convenience, so this
-table names *what each is for and why it is separate*; the build recipe
-for each lives in exactly one place (linked under **Recreate** below).
+Four environments live on the DGX — three conda envs and one venv. Each split
+is forced by a hard constraint, not convenience, so this table names *what each
+is for and why it is separate*; the build recipe for each lives in exactly one
+place (linked under **Recreate** below). Two of them are Isaac Lab environments:
+`.env` and the Makefile defaults name which one the tooling uses, and
+`CONDA_ENV` in `.env` is the single place that answers "which".
 
 | Env | Kind | Python | For | Key contents |
 |-----|------|--------|-----|--------------|
-| `env_isaaclab3` | conda | 3.12 | Training, the sim bridge, **and all `strafer_lab` tests** (Kit + pure-Python) | Isaac Sim 6 + Isaac Lab develop, `pxr`, CUDA torch 2.10 (`+cu130`), lerobot 0.5.1, warp, onnx |
+| `env_isaaclab3` | conda | 3.12 | Training, the sim bridge, **and all `strafer_lab` tests** (Kit + pure-Python) | Isaac Sim 6.0.0.0 + Isaac Lab develop, `pxr`, CUDA torch 2.10 (`+cu130`), lerobot 0.5.1, warp, onnx |
+| `env_isaaclab3beta2` | conda | 3.12 | The same, on the tagged Isaac Lab pin | Isaac Sim 6.0.1.0 + Isaac Lab `v3.0.0-beta2.patch1`, CUDA torch 2.11 (`+cu130`), torchcodec 0.16.0, rsl-rl-lib 5.4.2, lerobot 0.5.1 |
 | `.venv_vlm` | venv | 3.12 | The VLM + LLM-planner services and their test suites | CUDA torch 2.11 (`+cu128`, with the NVRTC swap), transformers 5.x, `strafer_vlm`, `strafer_autonomy` |
 | `env_infinigen` | conda | 3.11 | Infinigen procedural scene generation only | source-built `bpy==4.2.0`, Infinigen 1.19.x (editable, `--no-deps`) |
 
-**Why three — both splits are forced, not incidental:**
+**Why separate — each split is forced, not incidental:**
 
-- **`.venv_vlm` is kept by design — cadence isolation.** Isaac Sim's
-  *compiled* torch is a hard floor: `env_isaaclab3` cannot move off torch
-  2.10 without risking the sim. The VLM / LLM stack wants the fast-moving
-  ceiling (newer `transformers` / torch per newer models — currently torch
-  2.11 + transformers 5.x). One env can't satisfy both, so the services
-  keep their own venv.
+- **`.venv_vlm` is kept by design — CUDA-build isolation.** Isaac Sim is
+  compiled against a specific torch build, so the Isaac Lab env's build tag is
+  not free to move; the VLM / LLM stack tracks whatever build its
+  `transformers` line wants. The two run the same torch minor and differ in the
+  CUDA build — `+cu130` against `+cu128` with the NVRTC swap — so the split
+  rests on the build tag and on release cadence, not on a version floor.
 - **`env_infinigen` is pinned to 3.11** because Infinigen's deps don't all
   support 3.12 yet.
 
 **Recreate** (each recipe is documented once — link, don't duplicate):
 
-- `env_isaaclab3` — Isaac Sim 6 + Isaac Lab develop build:
+- `env_isaaclab3beta2` — Isaac Sim 6 + tagged Isaac Lab build:
   [`source/strafer_lab/README.md` → Install (DGX Spark)](../../../source/strafer_lab/README.md#install).
+  **This is the recipe a host builds from scratch**, and the only Isaac Lab
+  recipe maintained here. `env_isaaclab3` predates it, is kept as a rollback
+  artifact, is never written to, and is not rebuilt.
 - `.venv_vlm` — venv + CUDA-torch + NVRTC-swap bootstrap:
   [`Readme.md` → Install (DGX Spark)](../../../Readme.md#dgx-spark-grace--blackwell-aarch64-ubuntu).
 - `env_infinigen` — aarch64 `bpy` wheel + Infinigen: the `README.md` in the

@@ -81,6 +81,15 @@ imports the deprecated surface directly again.
   inside it.
 - Record the **torch version** the new release ships (the input to the
   `.venv_vlm` consolidation question).
+- **Every Kit launch goes through a boot watchdog.** Isaac Sim 6.0.1
+  intermittently deadlocks in carb initialisation on this host, so a launch
+  that never starts is relaunched and counted rather than recorded as a failed
+  measurement. It is a no-op on the earlier pin, which lets it land before the
+  flip and makes the old pair's zero-relaunch count part of the baseline.
+- **The recipe is reconstructed from the build's own pip logs and then proved
+  by rebuilding into a third, throwaway env** — the pair was built before any
+  recipe was written down, so transcribing was not an option and a freeze
+  cannot recover ordering.
 - Re-validate the sim stack: `make test-lab` (Kit suite + pure-Python), a
   training smoke, and a `make sim-bridge` smoke. Confirm no regression to the
   physics fixes (roller-bounce / teleop-perf shared cfg) or the headless

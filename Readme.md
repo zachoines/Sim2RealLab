@@ -193,7 +193,7 @@ Three conda / venv environments partition the stack:
 
 | Env | Purpose | Key contents |
 |---|---|---|
-| `env_isaaclab3` | Isaac Sim + Isaac Lab + `strafer_lab` editable | Python 3.12, Isaac Sim 6 (bundled in Isaac Lab 3.0 develop), `pxr` via `.pth` |
+| `env_isaaclab3` / `env_isaaclab3beta2` | Isaac Sim + Isaac Lab + `strafer_lab` editable | Python 3.12, Isaac Sim 6, `pxr`. Two pairs coexist mid-migration: `env_isaaclab3` is selected today, `env_isaaclab3beta2` is the validated candidate. |
 | `env_infinigen` | Infinigen procedural scene generation | Python 3.11, source-built `bpy==4.2.0` wheel, Infinigen 1.19.x editable `--no-deps` |
 | `.venv_vlm` | VLM + planner services, batch scripts, test suite | Python 3.12, PyTorch cu128, transformers, `strafer_vlm`, `strafer_autonomy` |
 
@@ -222,7 +222,7 @@ make check-nvrtc
 
 Must be redone if `nvidia-cuda-nvrtc` is upgraded or the venv is recreated. `make serve-vlm` and `make serve-planner` run this check first.
 
-For the Isaac Lab 3.0 source build that backs `env_isaaclab3` and the aarch64 `bpy` wheel (`env_infinigen`), see the `README.md` inside the sibling `~/Workspace/blender-build/` directory and the upstream Isaac Lab install instructions.
+The Isaac Lab env recipe lives in [`source/strafer_lab/README.md` → Install](source/strafer_lab/README.md#install). For the aarch64 `bpy` wheel (`env_infinigen`), see the `README.md` inside the sibling `~/Workspace/blender-build/` directory.
 
 ### Windows workstation (fallback for Isaac Lab)
 

@@ -20,16 +20,17 @@ procedure.
 
 ## One-time env setup
 
-Bring up the `env_isaaclab3` conda env per
+Bring up the Isaac Lab conda env per
 [`source/strafer_lab/README.md` → Install (Linux / DGX Spark)](../source/strafer_lab/README.md#install)
 — that recipe installs Isaac Sim 6, Isaac Lab, **and** the `--no-deps`
 `lerobot` layering the harness writer needs (with the rationale for why
 `lerobot` is installed `--no-deps`). Confirm the env is capture-ready:
 
 ```bash
-conda activate env_isaaclab3
+source env_setup.sh
+source "$CONDA_ROOT/etc/profile.d/conda.sh" && conda activate "$CONDA_ENV"
 python -c "import torch, lerobot; print('torch', torch.__version__, 'lerobot', lerobot.__version__, 'cuda', torch.cuda.is_available())"
-# Expected: torch 2.10.0+cu130 lerobot 0.5.1 cuda True
+# Expected: lerobot 0.5.1, cuda True, and the CUDA torch build the recipe pins.
 ```
 
 Pure-Python unit tests (writer / depth / mission picker / button

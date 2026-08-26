@@ -66,6 +66,15 @@ entry-point scripts](repo-topology.md#key-entry-point-scripts).
 - `scripts/asset_authoring/` — run-by-hand robot/asset USD utilities: `collapse_redundant_xforms`, `inspect_robot_prim_layout`, `run_empty_lab`, `setup_physics`.
 - `scripts/retired/` — deprecated data-prep: `finetune_clip`, `generate_descriptions`, `prepare_vlm_finetune_data`.
 
+## Repo-root `tools/` (run directly)
+
+- `check_brief_links.py` / `.sh` — brief cross-reference validator.
+- `run_ros_tests.sh` — robot-stack suites, natively or in `strafer-cpu:humble`.
+- `kit_boot_watchdog.sh` — wraps one Kit-booting command and relaunches it if
+  carb initialisation deadlocks; prints one accounting line per attempt. Used by
+  the `sim-bridge*` / `sim-harness` / `harness-smoke` Make targets and by
+  `run_tests.py` around each Kit suite.
+
 ## Other packages
 
 - `strafer_autonomy` — the executor's skills, planner/VLM/ROS client protocols, and the `strafer-autonomy-cli` / `strafer-executor` console entry points; see its README.

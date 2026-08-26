@@ -175,9 +175,15 @@ def main() -> None:
         )
         recorder = getattr(unwrapped, "video_recorder", None)
         capture = getattr(recorder, "_capture", None) if recorder is not None else None
-        if capture is not None:
+        if capture is not None and hasattr(capture.cfg, "camera_position"):
             capture.cfg.camera_position = world_eye
             capture.cfg.camera_target = world_target
+        else:
+            print(
+                "[play_strafer_navigation] --video: capture camera pose not anchored; "
+                "the recording uses the recorder's own pose, not env 0",
+                flush=True,
+            )
         unwrapped.sim.set_camera_view(eye=world_eye, target=world_target)
         try:
             from isaaclab_physx.renderers.kit_viewport_utils import set_kit_renderer_camera_view

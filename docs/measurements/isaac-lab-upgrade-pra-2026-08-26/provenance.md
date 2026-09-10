@@ -36,7 +36,8 @@ second boot arm, which is why that arm's clone is not pristine.
 - rebuild: `~/miniconda3/envs/env_isaaclab3verify/bin/python`, launcher
   `~/Documents/repos/IsaacLab-verify/isaaclab.sh`
 
-Candidate-pin runs entered the pair through the Stage 3 record's deposited
+Candidate-pin runs entered the pair through the
+`isaac-lab-upgrade-stage3-2026-08-23` record's deposited
 `newpin_env.sh`, which mirrors `env_setup.sh` against the candidate prefix
 without editing `.env`.
 
@@ -47,7 +48,8 @@ without editing `.env`.
   They are machine-local, outside both repositories, and were never deposited.
   They are the reason the recipe could be reconstructed rather than guessed, and
   their absence from either repository is itself reported in the record.
-- **The Stage 3 deposited freeze**, which the rebuild is accepted against:
+- **The freeze deposited with `isaac-lab-upgrade-stage3-2026-08-23`**, which the
+  rebuild is accepted against:
   `isaac-lab-upgrade-stage3-2026-08-23/record-files/pip-freeze-env_isaaclab3beta2.txt`
   in the evidence repository.
 - **The boot-hang forensics** the watchdog's detection rule is derived from:

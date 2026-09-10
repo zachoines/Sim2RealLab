@@ -285,15 +285,20 @@ def main():
         )
         recorder = getattr(unwrapped, "video_recorder", None)
         capture = getattr(recorder, "_capture", None) if recorder is not None else None
-        if capture is not None and hasattr(capture.cfg, "camera_position"):
+        if capture is not None:
+            # A recording that is silently posed at the wrong place is worse than
+            # no recording, so a renamed field stops the run rather than warning.
+            if not hasattr(capture.cfg, "camera_position"):
+                raise RuntimeError(
+                    "[train_strafer_navigation] --video: the capture config exposes "
+                    f"{'/'.join(n for n in ('eye', 'lookat') if hasattr(capture.cfg, n)) or 'neither'}"
+                    " where camera_position/camera_target are expected — Isaac Lab "
+                    "renamed those fields at v3.0.0-beta2.patch1. Anchoring env 0 "
+                    "would silently do nothing and the recording would use the "
+                    "recorder's own pose instead."
+                )
             capture.cfg.camera_position = world_eye
             capture.cfg.camera_target = world_target
-        else:
-            print(
-                "[train_strafer_navigation] --video: capture camera pose not anchored; "
-                "the recording uses the recorder's own pose, not env 0",
-                flush=True,
-            )
         unwrapped.sim.set_camera_view(eye=world_eye, target=world_target)
         try:
             from isaaclab_physx.renderers.kit_viewport_utils import (

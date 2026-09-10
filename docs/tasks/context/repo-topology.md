@@ -59,12 +59,13 @@ place (linked under **Recreate** below). Two of them are Isaac Lab environments:
 
 **Why separate — each split is forced, not incidental:**
 
-- **`.venv_vlm` is kept by design — CUDA-build isolation.** Isaac Sim is
-  compiled against a specific torch build, so the Isaac Lab env's build tag is
-  not free to move; the VLM / LLM stack tracks whatever build its
-  `transformers` line wants. The two run the same torch minor and differ in the
-  CUDA build — `+cu130` against `+cu128` with the NVRTC swap — so the split
-  rests on the build tag and on release cadence, not on a version floor.
+- **`.venv_vlm` is kept by design — the Isaac Lab env's torch is not free.**
+  `isaacsim-core` pins torch to an exact version, not a floor, so that env takes
+  whatever its Isaac Sim was built against; the VLM / LLM stack tracks whatever
+  its `transformers` line wants. The split rests on that exact pin and on
+  release cadence. How far apart the two sit varies with the Isaac Sim in use —
+  `env_isaaclab3beta2` and `.venv_vlm` share a torch minor and differ only in
+  the CUDA build, while `env_isaaclab3` is a minor behind both.
 - **`env_infinigen` is pinned to 3.11** because Infinigen's deps don't all
   support 3.12 yet.
 

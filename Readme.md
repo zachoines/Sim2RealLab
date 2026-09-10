@@ -193,7 +193,7 @@ Three conda / venv environments partition the stack:
 
 | Env | Purpose | Key contents |
 |---|---|---|
-| `env_isaaclab3` / `env_isaaclab3beta2` | Isaac Sim + Isaac Lab + `strafer_lab` editable | Python 3.12, Isaac Sim 6, `pxr`. Two pairs coexist mid-migration: `env_isaaclab3` is selected today, `env_isaaclab3beta2` is the validated candidate. |
+| `env_isaaclab3` / `env_isaaclab3beta2` | Isaac Sim + Isaac Lab + `strafer_lab` editable | Python 3.12, Isaac Sim 6, `pxr`. Two pairs coexist mid-migration: `env_isaaclab3` is selected today, `env_isaaclab3beta2` is the candidate. |
 | `env_infinigen` | Infinigen procedural scene generation | Python 3.11, source-built `bpy==4.2.0` wheel, Infinigen 1.19.x editable `--no-deps` |
 | `.venv_vlm` | VLM + planner services, batch scripts, test suite | Python 3.12, PyTorch cu128, transformers, `strafer_vlm`, `strafer_autonomy` |
 

@@ -261,8 +261,10 @@ pip install --index-url https://download.pytorch.org/whl/cu130 \
 pip install "isaacsim[all,extscache]==6.0.1.0" \
   --extra-index-url https://pypi.nvidia.com
 
-# 5. Isaac Sim's resolver churns the torch stack; force the CUDA build back.
-#    --no-deps, or pip re-resolves torch's whole closure off the cu130 index.
+# 5. A defensive re-pin. The recorded build's Isaac Sim step left torch alone
+#    (its log reports the pins already satisfied and uninstalls nothing), but
+#    isaacsim[all] is free to move the stack and step 6 depends on it being
+#    right. --no-deps, or pip re-resolves torch's whole closure off cu130.
 pip install --force-reinstall --no-deps \
   --index-url https://download.pytorch.org/whl/cu130 \
   torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0
@@ -319,7 +321,45 @@ pip install packaging==26.0       # isaaclab_rl's editable pins it down to 23.2
 pip install torchcodec==0.16.0    # closes the lerobot video-decode break;
                                   # ABI-coupled to torch, declares no torch
                                   # dependency — re-check on any torch move
+pip install py-spy==0.4.2         # the sampling profiler the Kit boot-hang
+                                  # forensics used; part of the validated set
 ```
+
+**Pinning the rest.** The commands above name about fifteen packages. The other
+~267 are whatever the resolver returns on the day, and they move:
+[`constraints-env_isaaclab3beta2.txt`](constraints-env_isaaclab3beta2.txt) holds
+the 282 resolved versions from the environment Stage 3 validated, so a rebuild
+can reproduce that set rather than a contemporary one. Two things make it not a
+drop-in `-c`, both checked by dry-run:
+
+```bash
+export PIP_CONSTRAINT=$PWD/source/strafer_lab/constraints-env_isaaclab3beta2.txt
+
+# Every torch step needs PyPI alongside the cu130 index. Constrained, torch's
+# own dependencies must resolve to the pinned versions, and the cu130 index does
+# not carry them: with cu130 alone pip reports
+#   torch 2.11.0+cu130 depends on jinja2 / the user requested (constraint) jinja2==3.1.5
+# and fails. Add --extra-index-url to steps 3, 5 and 11:
+#   --index-url https://download.pytorch.org/whl/cu130 \
+#   --extra-index-url https://pypi.org/simple
+# Constrained, those steps also land nvidia-cudnn-cu13 9.19.0.56 directly, so
+# step 12's repair becomes a no-op rather than a fix.
+
+# Step 6 must run OUTSIDE the constraint:
+env -u PIP_CONSTRAINT ./isaaclab.sh --install mimic,newton,visualizer
+# _ensure_cuda_torch uninstalls torch and installs torch==2.10.0, which the
+# constraint forbids — pip reports "The user requested torch==2.10.0 / the user
+# requested (constraint) torch==2.11.0+cu130" and the install dies part-way.
+# Because that step ran unconstrained, follow it with a convergence pass before
+# continuing, which re-pins whatever it moved:
+pip install --extra-index-url https://pypi.org/simple \
+    -r <(grep -E '^[A-Za-z0-9._-]+==' source/strafer_lab/constraints-env_isaaclab3beta2.txt)
+```
+
+Honestly labelled: the file parses, and the three resolutions above were
+verified by dry-run. **A full rebuild under these constraints has not been run
+end to end.** The throwaway environment from the rebuild is the place to prove
+it.
 
 **`isaaclab.sh --install` is not idempotent, and re-running it breaks the env.**
 `_ensure_cuda_torch` compares the full version string against `2.10.0+cu130`;
@@ -405,9 +445,11 @@ python -m pip install -e source/strafer_lab source/strafer_shared
 
 Three environments partition the DGX stack — the Isaac Sim / Isaac Lab conda
 env (this package), `.venv_vlm` (the VLM + planner services), and
-`env_infinigen` (scene-gen, Python 3.11). The first two now run the same torch
-minor and differ in the CUDA build. The full table, the why-separate rationale,
-and each recreate recipe live in
+`env_infinigen` (scene-gen, Python 3.11). `isaacsim-core` pins torch to an exact
+version, so the Isaac Lab env's torch is not free to move at all; `.venv_vlm`
+tracks its own. On the candidate pair the two happen to share a torch minor and
+differ only in the CUDA build; the currently selected pair is a minor behind.
+The full table, the why-separate rationale, and each recreate recipe live in
 [`repo-topology.md` → Python environments (DGX)](../../docs/tasks/context/repo-topology.md#python-environments-dgx).
 
 ## Run

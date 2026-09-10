@@ -40,12 +40,19 @@ XML_DIR = Path(__file__).parent  # directory for junit-xml files
 WATCHDOG = Path(__file__).resolve().parents[2] / "tools" / "kit_boot_watchdog.sh"
 WATCHDOG_ATTEMPTS = 3
 WATCHDOG_STALL_WINDOW = 60
+WATCHDOG_POLL = 1
+# The wrapper's own SIGTERM grace before it escalates to SIGKILL. A child that
+# ignores SIGTERM costs the whole of it, so the budget below has to include it.
+WATCHDOG_KILL_GRACE = 10
 
 # A suite's timeout has to cover what the watchdog may spend before the suite's
 # own work starts, or a stall it could have recovered from is killed as a
 # timeout instead. Only the losing attempts count: the winning one runs the
-# suite, which is what the per-suite timeout already budgets for.
-WATCHDOG_BUDGET = (WATCHDOG_ATTEMPTS - 1) * (WATCHDOG_STALL_WINDOW + 10)
+# suite, which is what the per-suite timeout already budgets for. Each losing
+# attempt costs one poll to notice, the stall window itself, and the grace.
+WATCHDOG_BUDGET = (WATCHDOG_ATTEMPTS - 1) * (
+    WATCHDOG_POLL + WATCHDOG_STALL_WINDOW + WATCHDOG_KILL_GRACE + 2
+)
 
 # Seconds a timed-out suite gets to shut down after SIGTERM before it is killed.
 # Isaac Sim releases its carb shared memory and named semaphores on the way out;
@@ -100,14 +107,13 @@ SUITES = {
 
 def _wrap(cmd: list[str], label: str) -> list[str]:
     """Put the boot watchdog in front of a suite command, if it is runnable."""
-    if os.name != "posix":
-        return cmd
-    if os.name != "posix" or not (WATCHDOG.is_file() and os.access(WATCHDOG, os.X_OK)):
+    if not (WATCHDOG.is_file() and os.access(WATCHDOG, os.X_OK)):
         return cmd
     return [str(WATCHDOG),
             "--label", label,
             "--attempts", str(WATCHDOG_ATTEMPTS),
             "--stall-window", str(WATCHDOG_STALL_WINDOW),
+            "--poll", str(WATCHDOG_POLL),
             "--"] + cmd
 
 
@@ -142,16 +148,24 @@ def _preserve_failing_xml(xml_path: Path) -> Path | None:
     """Copy a failing suite's JUnit XML aside so the next run cannot erase it.
 
     Suites write to a fixed per-suite path, so re-running a suite overwrites the
-    evidence of why it failed. The copy carries a timestamp, so a second failing
-    run preserves its own rather than replacing the first.
+    evidence of why it failed. The copy carries a timestamp, and a counter for
+    the case where two failures land in the same second, so a preserved file is
+    never replaced by a later one.
+
+    Nothing prunes these. They are gitignored by the same `test_results*.xml`
+    rule as the live files, and a tree that has failed often enough to notice
+    wants clearing by hand.
     """
     if not xml_path.is_file():
         return None
-    kept = xml_path.with_name(
-        f"{xml_path.stem}-FAILRUN-{time.strftime('%Y%m%d-%H%M%S')}{xml_path.suffix}"
-    )
-    shutil.copy2(xml_path, kept)
-    return kept
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    for n in range(1000):
+        suffix = f"-FAILRUN-{stamp}" + (f"-{n}" if n else "")
+        kept = xml_path.with_name(f"{xml_path.stem}{suffix}{xml_path.suffix}")
+        if not kept.exists():
+            shutil.copy2(xml_path, kept)
+            return kept
+    return None
 
 
 def _watchdog_lines(captured: str) -> list[str]:
@@ -252,11 +266,14 @@ def _run_subprocess(cmd: list[str], timeout: int, xml_path: Path) -> dict:
     root = tree.getroot()
     suite = root.find(".//testsuite")
     if suite is None:
-        _preserve_failing_xml(xml_path)
+        kept = _preserve_failing_xml(xml_path)
+        details = ["  ERROR  No testsuite in XML"]
+        if kept is not None:
+            details.append(f"  KEPT   {kept.name}")
         return {"tests": 0, "passed": 0, "failed": 0,
                 "errors": 1, "skipped": 0,
                 "watchdog": _watchdog_lines(captured),
-                "details": ["  ERROR  No testsuite in XML"]}
+                "details": details}
 
     total = int(suite.get("tests", 0))
     errors = int(suite.get("errors", 0))

@@ -69,15 +69,13 @@ for _n in "$ATTEMPTS" "$STALL_WINDOW" "$BOOT_WINDOW"; do
     esac
 done
 [ "$ATTEMPTS" -ge 1 ] || { echo "$(basename "$0"): --attempts must be at least 1" >&2; exit 2; }
-unset _n
-
-for _n in "$ATTEMPTS" "$STALL_WINDOW" "$BOOT_WINDOW"; do
-    case "$_n" in
-        ''|*[!0-9]*) echo "$(basename "$0"): --attempts/--stall-window/--boot-window take integers" >&2
-                     exit 2 ;;
-    esac
-done
-[ "$ATTEMPTS" -ge 1 ] || { echo "$(basename "$0"): --attempts must be at least 1" >&2; exit 2; }
+# sleep accepts a decimal, so --poll is checked as a positive number rather than
+# an integer. Zero would spin the poll loop flat out for the whole boot window.
+case "$POLL" in
+    ''|*[!0-9.]*|*.*.*) echo "$(basename "$0"): --poll takes a positive number" >&2; exit 2 ;;
+esac
+awk -v p="$POLL" 'BEGIN { exit !(p > 0) }' \
+    || { echo "$(basename "$0"): --poll must be greater than zero" >&2; exit 2; }
 unset _n
 
 [ -n "$LABEL" ] || LABEL="$(basename "$1")"

@@ -538,14 +538,24 @@ def main() -> int:
             capture.cfg.camera_prim_path if capture is not None
             else viewer.cam_prim_path
         )
-        if capture is not None and hasattr(capture.cfg, "camera_position"):
+        if capture is not None:
+            # A recording that is silently posed at the wrong place is worse than
+            # no recording, so a renamed field stops the run rather than warning.
+            if not hasattr(capture.cfg, "camera_position"):
+                raise RuntimeError(
+                    "[coverage_capture] --video: the capture config exposes "
+                    f"{'/'.join(n for n in ('eye', 'lookat') if hasattr(capture.cfg, n)) or 'neither'}"
+                    " where camera_position/camera_target are expected — Isaac Lab "
+                    "renamed those fields at v3.0.0-beta2.patch1. Anchoring env 0 "
+                    "would silently do nothing and the recording would use the "
+                    "recorder's own pose instead."
+                )
             capture.cfg.camera_position = world_eye
             capture.cfg.camera_target = world_target
         else:
             print(
-                "[coverage_capture] --video: capture camera pose not anchored; "
-                "the first recorded frame uses the recorder's own pose (the "
-                "per-step follow re-poses the camera from the second on)",
+                "[coverage_capture] --video: viewport capture handle "
+                "unavailable; the overhead MP4 may use the default camera pose",
                 flush=True,
             )
         base.sim.set_camera_view(eye=world_eye, target=world_target)

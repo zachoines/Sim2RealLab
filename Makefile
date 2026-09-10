@@ -276,8 +276,10 @@ test-lab: ## Run ALL strafer_lab tests in env_isaaclab3 — Kit suites (run_test
 			echo "[test-lab] STRAFER_ISAACLAB_PYTHON is unset — source env_setup.sh first."; \
 			exit 1; }; \
 		[ "$$(dirname "$$(dirname "$$STRAFER_ISAACLAB_PYTHON")")" = "$$CONDA_PREFIX" ] || { \
-			echo "[test-lab] STRAFER_ISAACLAB_PYTHON=$$STRAFER_ISAACLAB_PYTHON is outside the active env $$CONDA_PREFIX"; \
-			echo "[test-lab] .env names two different environments; the two halves would not test the same one."; \
+			echo "[test-lab] the two halves would not test the same environment:"; \
+			echo "[test-lab]   Kit half   -> CONDA_ENV=$(CONDA_ENV) (from $(origin CONDA_ENV)), active prefix $$CONDA_PREFIX"; \
+			echo "[test-lab]   pure half  -> STRAFER_ISAACLAB_PYTHON=$$STRAFER_ISAACLAB_PYTHON"; \
+			echo "[test-lab] origin 'environment' means env_setup.sh exported it from .env; 'file' means the Makefile default."; \
 			exit 1; }; \
 		rc=0; \
 		$(ISAACLAB) -p source/strafer_lab/run_tests.py all || rc=1; \

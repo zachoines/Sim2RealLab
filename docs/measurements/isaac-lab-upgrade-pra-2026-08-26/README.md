@@ -26,10 +26,10 @@ touches `noise_models.py` or any depth-noise configuration.
 | **recipe** — rebuild acceptance | **288 of 300 distributions byte-identical**; every pinned package, all 25 `isaacsim` wheels and all 15 `isaaclab_*` editables match |
 | **recipe** — what does not reproduce | 10 unpinned transitives drifted; `usd-exchange` crossed a **major** version (2.3.0 → 3.0.0) |
 | **watchdog** — detection rule | resident-size thresholds are unusable inside pytest; **no CPU and no output** is the signature that holds everywhere |
-| **watchdog** — candidate pin | 16 boots, **4 relaunches**, all 16 eventually clean; one boot needed two relaunches |
+| **watchdog** — candidate pin | 16 boots: **4 relaunches** recovered 3 deadlocked boots (one needed two), **14 / 16 exited clean, 2 crashed** |
 | **watchdog** — earlier pin | **0 relaunches across all 14 Kit suites** — the wrapper costs nothing where the defect is absent |
 | **new failure mode** — SIGSEGV in `libomni.kit.telemetry.plugin.so` | **2 / 16 boots** on the pristine candidate clone; **0 / 16** with the extension removed |
-| **gates** — earlier pin, on this branch | Kit **487 / 487**, pure **1252 passed / 1 skipped**, contract **148** |
+| **gates** — earlier pin, branch as it ships | Kit **486 / 487** (the tracked imu flake), **0 relaunches**, pure **1252 passed / 1 skipped**, contract **148** |
 
 ---
 
@@ -38,7 +38,7 @@ touches `noise_models.py` or any depth-noise configuration.
 The candidate pair — conda `env_isaaclab3beta2` and an Isaac Lab clone at tag
 `v3.0.0-beta2.patch1`, commit `ffff603` — was built on 2026-08-14/15. Nothing in
 this repository or in the evidence repository recorded how. A `pip freeze` was
-deposited with the Stage 3 record, and a freeze describes an end state but not
+deposited with the `isaac-lab-upgrade-stage3-2026-08-23` record, and a freeze describes an end state but not
 an order, which matters here because the order is the whole difficulty (see
 *The torch pin has to be last*, below).
 
@@ -54,8 +54,9 @@ The reconstructed sequence was executed end to end into a throwaway conda
 environment against a third clone of Isaac Lab at the same commit. The two
 existing pairs were never activated; the driver aborts if the active environment
 is not the throwaway one, because `isaaclab.sh` picks its interpreter from
-`CONDA_PREFIX` and would otherwise install into whichever pair happened to be
-active — which, for the candidate pair, would have destroyed it.
+`VIRTUAL_ENV` and then `CONDA_PREFIX`, and would otherwise install into whichever
+environment happened to be active — which, for the candidate pair, would have
+destroyed it.
 
 All 17 steps exited zero. The resulting environment holds **300 distributions**,
 the same count as the deposited freeze, and differs from it in **12 lines**:
@@ -108,9 +109,15 @@ Two related traps the recipe now names:
 ## Detecting a deadlocked Kit boot
 
 The defect: on Isaac Sim 6.0.1.0 a Kit process intermittently deadlocks inside
-carb initialisation — two threads in `futex_wait_queue`, resident size near
-47 MB, no CUDA context, output stopped after the launcher's first line, no
-recovery. Isaac Sim 6.0.0.0 does not do this.
+carb initialisation — two threads in `futex_wait_queue`, no CUDA context, output
+stopped after the launcher's first line, no recovery. Isaac Sim 6.0.0.0 does not
+do this.
+
+Two resident sizes appear in the evidence and they are not in conflict. The
+forensic specimen, a bare `isaacsim` boot, reads **47 MB** — that is the Python
+process alone. The wrapper's own accounting lines read **~63 MB**, because it
+sums the process group and the Isaac Lab launcher's shell is in it. A future
+`STALLED` line should be matched against the second number, not the first.
 
 A resident-size threshold was the obvious detector and was measured before being
 adopted, which is what ruled it out. Sampling one healthy boot every 250 ms:
@@ -122,10 +129,13 @@ adopted, which is what ruled it out. Sampling one healthy boot every 250 ms:
 | 827 ms | 1032 MB | 1348 |
 | 2178 ms | 1349 MB | 1348 |
 
-A healthy boot is an order of magnitude above the deadlocked 47 MB within
+A healthy boot is an order of magnitude above the deadlocked 47-63 MB within
 277 ms, so the separation is real for a bare launch. It is useless one level up:
 inside a pytest subprocess the imports alone exceed any such threshold long
 before Kit starts, so the check would pass before the boot it is meant to watch.
+That second half is an argument from the mechanism, not an observation — no
+deadlock has been caught inside a pytest child on the candidate pair, because
+the Kit suites have not been run there yet.
 
 The rule that holds at both levels is **no CPU time and no output**. A
 deadlocked tree moves neither counter — the live specimen sat at 6 CPU ticks and
@@ -140,7 +150,8 @@ Measured on the candidate pin, 16 consecutive boots:
 |---|---|
 | boots | 16 |
 | relaunched | 4 attempts across 3 boots (one needed two) |
-| eventually clean | 16 / 16 |
+| exited clean | 14 / 16 |
+| crashed (exit 139, not retried) | 2 / 16 |
 | healthy boot | 3 s |
 | detection latency | 61 s (a 60 s no-progress window plus one poll) |
 
@@ -153,7 +164,11 @@ switched.
 
 Two of those 16 boots did not deadlock — they **crashed**, exit 139, about one
 second in. The captured stack names `libomni.kit.telemetry.plugin.so` in two
-consecutive frames.
+consecutive frames on boot9 and three on boot15. Every frame is flagged
+low-confidence by the crash reporter — the symbols are nearest-export guesses,
+and the topmost frame that resolves to real code is a libc `getenv` running on a
+`carb.tasking` fiber — so the stack places the crash in that extension's
+initialisation without naming a function inside it.
 
 The same 16-boot arm was then run against a clone with the `omni.kit.telemetry`
 entry removed from both Kit app files, everything else held constant:
@@ -205,16 +220,26 @@ Run on this branch, against the pair the tooling currently selects:
 |---|---|
 | pure suite, unmodified `main` (control) | 1252 passed, 1 skipped |
 | pure suite, this branch | 1252 passed, 1 skipped |
-| Kit suites, this branch, through the watchdog | 487 tests, **487 passed**, **0 relaunches** |
+| Kit suites, this branch, through the watchdog | 487 tests, **486 passed**, **0 relaunches** |
 | contract, two files | 148 passed |
 
-An earlier run of the same gates, mid-work, came back 486 of 487: it caught
-`test_collision_imu_mean_differs_from_free`, the flake tracked in
-[`collision-imu-signal-flaky`](../../tasks/active/investigations/collision-imu-signal-flaky.md),
-which then passed on the run above. Both runs are deposited. The failing one is
-worth keeping for a second reason: its XML was preserved under a `-FAILRUN-`
-name by the change described above, which is the only recording of that
-mechanism firing on a real failure rather than a synthetic one.
+Those are the gates against the branch as it ships. A review round changed the
+branch after an earlier pass of the same gates, so both are recorded and they are
+deposited separately — the earlier pass returned 487 of 487 and the shipping one
+486, the difference being whether the flake below fired.
+
+The single failure is `test_collision_imu_mean_differs_from_free`, the flake
+tracked in
+[`collision-imu-signal-flaky`](../../tasks/active/investigations/collision-imu-signal-flaky.md).
+Across three full passes of this gate it failed, passed, and failed again, at a
+collision mean of 16 against free means of 15.83 and 15.60 — the flake as
+described, not a new signal. Every pass reported 487 collected and 0 relaunches.
+
+Each failing pass is also a recording of the failing-XML preservation firing on a
+real failure rather than a synthetic one: the `KEPT
+test_results_imu_test_imu_collision-FAILRUN-…` line in the log is what stands as
+that record, since the preserved file is gitignored working-tree output and is
+not itself deposited.
 
 ## Evidence
 
@@ -225,10 +250,23 @@ mechanism firing on a real failure rather than a synthetic one.
 | Commit | `930434e68b733989696d0c7989ad7e334aa3633a` |
 
 The groups are `recipe-verify/` (the rebuild: its driver, the per-step pip logs,
-the resulting freeze and the acceptance diff), `gates/` (the suite runs, the RSS
-trajectory, and the two 16-boot arms with every per-attempt log), and
-`upstream/` (an unposted draft issue for the carb deadlock). The deposit's own
-`DEPOSIT.md` says which is which.
+the resulting freeze and the acceptance diff), `gates/` (the suite runs from
+before the review round, the RSS trajectory, and the two 16-boot arms with every
+per-attempt log), and `upstream/` (an unposted draft issue for the carb
+deadlock). The deposit's own `DEPOSIT.md` says which is which.
+
+The gates against the branch as it ships are in a second deposit, which
+supplements the first rather than superseding it:
+
+| | |
+|---|---|
+| Directory | `isaac-lab-upgrade-pra-fixround-2026-09-10/` |
+| Commit | `a3cb1b8f51ca92cbec76e3d1101d764490d15c38` |
+
+```
+bf71f9db9e257af3c4c0afb98fe1493287390c0cc6f9cdc907d615ccba065bb6  gates/contract-oldpin-FIXROUND.log
+8ca0954d8e152ad5875534b9d948fff2f1674357801bbf35ac9577fedfb36840  gates/test-lab-oldpin-FIXROUND.log
+```
 
 sha256 of every file in the deposit, paths relative to the deposit directory:
 

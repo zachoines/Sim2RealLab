@@ -1,6 +1,6 @@
 # Constraints for the Isaac Sim / Isaac Lab conda environment.
 #
-# Generated from the pip freeze of the environment that Stage 3 validated:
+# Generated from the pip freeze deposited with isaac-lab-upgrade-stage3-2026-08-23:
 # the 282 `name==version` lines of that freeze, with the 17 editable installs
 # and the one git-URL requirement (robomimic) dropped — a constraints file
 # cannot pin an editable or a URL requirement, and pip rejects the file if it

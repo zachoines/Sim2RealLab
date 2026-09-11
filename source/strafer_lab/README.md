@@ -328,9 +328,9 @@ pip install py-spy==0.4.2         # the sampling profiler the Kit boot-hang
 **Pinning the rest.** The commands above name about fifteen packages. The other
 ~267 are whatever the resolver returns on the day, and they move:
 [`constraints-env_isaaclab3beta2.txt`](constraints-env_isaaclab3beta2.txt) holds
-the 282 resolved versions from the environment Stage 3 validated, so a rebuild
-can reproduce that set rather than a contemporary one. Two things make it not a
-drop-in `-c`, both checked by dry-run:
+the 282 resolved versions deposited with `isaac-lab-upgrade-stage3-2026-08-23`,
+so a rebuild can reproduce that set rather than a contemporary one. Two things
+make it not a drop-in `-c`, both checked by dry-run:
 
 ```bash
 export PIP_CONSTRAINT=$PWD/source/strafer_lab/constraints-env_isaaclab3beta2.txt

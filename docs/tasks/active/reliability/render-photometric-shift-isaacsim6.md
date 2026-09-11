@@ -38,6 +38,32 @@ numbers rather than its verdict.
 The gate's bounds were ±10 luma and ±0.01 crush. Both are exceeded — by **1.8×** and
 **12×**. `clip_frac` does not move.
 
+## Confounded — the two stacks were filmed from different camera poses
+
+**The comparison above is not valid and the shift is not yet attributable to the
+renderer.** The capture scripts anchor the recording camera over env 0 by writing
+`camera_position` / `camera_target` on the recorder's capture config. Isaac Lab renamed
+those fields to `eye` / `lookat` at v3.0.0-beta2 (upstream `2644c1eb0`, #5474). The
+scripts kept writing the old names, which on the new stack set attributes nothing reads:
+the anchor silently did nothing and the recorder filmed from its own default pose. The
+"anchored" line in the logs was the script's own print, issued before the write and
+regardless of whether it took effect.
+
+So the old-pin clips are framed on env 0 and the new-pin clips are framed wherever the
+recorder's default put them. A luma difference between clips of different framings of a
+procedurally furnished room is expected and says nothing about photometry. The 18.0 luma
+and 0.116 crush deltas measure pose, renderer, or both, in unknown proportion.
+
+What survives: the old-pin/baseline agreement (86.6 / 0.0056 reproduced exactly) is a
+same-pose comparison and still shows the old stack is stable. The two new-pin runs
+agreeing with each other (68.6/68.3, 0.1218/0.1279) shows the new stack is internally
+stable. Neither speaks to the gap between them.
+
+**Re-measure with matched poses.** The scripts now write whichever field pair the
+installed Isaac Lab exposes, so the anchor works on both stacks. The re-measurement runs
+as part of the landing change's `--video` gates, on both pins, and this brief's
+disposition waits on it — the recalibration it proposes may turn out to be unnecessary.
+
 **This is the stack, not the instrument.** The old-pin control reproduces the nine-day-old
 baseline to every recorded digit, and each pin reproduces its own value across two clips.
 Video-path integrity is intact: the recording is anchored on `env_0` and the `_capture`

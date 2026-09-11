@@ -193,7 +193,7 @@ Three conda / venv environments partition the stack:
 
 | Env | Purpose | Key contents |
 |---|---|---|
-| `env_isaaclab3` / `env_isaaclab3beta2` | Isaac Sim + Isaac Lab + `strafer_lab` editable | Python 3.12, Isaac Sim 6, `pxr`. Two pairs coexist mid-migration: `env_isaaclab3` is selected today, `env_isaaclab3beta2` is the candidate. |
+| the Isaac Lab env (`$CONDA_ENV`) | Isaac Sim + Isaac Lab + `strafer_lab` editable | Python 3.12, Isaac Sim 6, `pxr`, CUDA torch 2.11 (`+cu130`) |
 | `env_infinigen` | Infinigen procedural scene generation | Python 3.11, source-built `bpy==4.2.0` wheel, Infinigen 1.19.x editable `--no-deps` |
 | `.venv_vlm` | VLM + planner services, batch scripts, test suite | Python 3.12, PyTorch cu128, transformers, `strafer_vlm`, `strafer_autonomy` |
 
@@ -392,7 +392,7 @@ make test-dgx        # DGX e2e: autonomy + vlm + lab  (SKIP_KIT=1 skips the ~40-
 make test-jetson     # Jetson e2e: autonomy + ros + driver
 ```
 
-Individual suites: `make test-autonomy` (planner/executor, host-agnostic), `make test-vlm` (VLM, `.venv_vlm`), `make test-lab` / `make test-lab-pure` (strafer_lab Kit + pure-Python, `env_isaaclab3`), `make test-ros` / `make test-driver` (Jetson ROS packages / driver — run natively or in `strafer-cpu:humble`). Full list: [`docs/example_commands_cheatsheet.md`](docs/example_commands_cheatsheet.md#run-test-cases).
+Individual suites: `make test-autonomy` (planner/executor, host-agnostic), `make test-vlm` (VLM, `.venv_vlm`), `make test-lab` / `make test-lab-pure` (strafer_lab Kit + pure-Python, the Isaac Lab env), `make test-ros` / `make test-driver` (Jetson ROS packages / driver — run natively or in `strafer-cpu:humble`). Full list: [`docs/example_commands_cheatsheet.md`](docs/example_commands_cheatsheet.md#run-test-cases).
 
 The autonomy + VLM suites run 800+ tests without any service running; planner endpoint tests use an `autouse` fixture that points `PLANNER_MODEL` / `GROUNDING_MODEL` at `/nonexistent` to prevent model download during tests.
 

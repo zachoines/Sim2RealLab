@@ -43,17 +43,16 @@ Verify from inside the repo with `git remote -v` + `git rev-parse --show-topleve
 
 ## Python environments (DGX)
 
-Four environments live on the DGX — three conda envs and one venv. Each split
-is forced by a hard constraint, not convenience, so this table names *what each
-is for and why it is separate*; the build recipe for each lives in exactly one
-place (linked under **Recreate** below). Two of them are Isaac Lab environments:
-`.env` and the Makefile defaults name which one the tooling uses, and
-`CONDA_ENV` in `.env` is the single place that answers "which".
+Three environments partition the DGX stack — two conda envs and one venv. Each
+split is forced by a hard constraint, not convenience, so this table names *what
+each is for and why it is separate*; the build recipe for each lives in exactly
+one place (linked under **Recreate** below). `CONDA_ENV` in `.env` is the single
+place that names the Isaac Lab environment; everything else refers to it by
+role.
 
 | Env | Kind | Python | For | Key contents |
 |-----|------|--------|-----|--------------|
-| `env_isaaclab3` | conda | 3.12 | Training, the sim bridge, **and all `strafer_lab` tests** (Kit + pure-Python) | Isaac Sim 6.0.0.0 + Isaac Lab develop, `pxr`, CUDA torch 2.10 (`+cu130`), lerobot 0.5.1, warp, onnx |
-| `env_isaaclab3beta2` | conda | 3.12 | The same, on the tagged Isaac Lab pin | Isaac Sim 6.0.1.0 + Isaac Lab `v3.0.0-beta2.patch1`, CUDA torch 2.11 (`+cu130`), torchcodec 0.16.0, rsl-rl-lib 5.4.2, lerobot 0.5.1 |
+| the Isaac Lab env (`$CONDA_ENV`) | conda | 3.12 | Training, the sim bridge, **and all `strafer_lab` tests** (Kit + pure-Python) | Isaac Sim 6 + Isaac Lab `v3.0.0-beta2.patch1`, `pxr`, CUDA torch 2.11 (`+cu130`), torchcodec 0.16.0, rsl-rl-lib 5.4.2, lerobot 0.5.1, warp, onnx |
 | `.venv_vlm` | venv | 3.12 | The VLM + LLM-planner services and their test suites | CUDA torch 2.11 (`+cu128`, with the NVRTC swap), transformers 5.x, `strafer_vlm`, `strafer_autonomy` |
 | `env_infinigen` | conda | 3.11 | Infinigen procedural scene generation only | source-built `bpy==4.2.0`, Infinigen 1.19.x (editable, `--no-deps`) |
 
@@ -63,19 +62,17 @@ place (linked under **Recreate** below). Two of them are Isaac Lab environments:
   `isaacsim-core` pins torch to an exact version, not a floor, so that env takes
   whatever its Isaac Sim was built against; the VLM / LLM stack tracks whatever
   its `transformers` line wants. The split rests on that exact pin and on
-  release cadence. How far apart the two sit varies with the Isaac Sim in use —
-  `env_isaaclab3beta2` and `.venv_vlm` share a torch minor and differ only in
-  the CUDA build, while `env_isaaclab3` is a minor behind both.
+  release cadence. How far apart the two sit varies with the Isaac Sim in use;
+  today they share a torch minor and differ only in the CUDA build.
 - **`env_infinigen` is pinned to 3.11** because Infinigen's deps don't all
   support 3.12 yet.
 
 **Recreate** (each recipe is documented once — link, don't duplicate):
 
-- `env_isaaclab3beta2` — Isaac Sim 6 + tagged Isaac Lab build:
+- the Isaac Lab env — Isaac Sim 6 + tagged Isaac Lab build:
   [`source/strafer_lab/README.md` → Install (DGX Spark)](../../../source/strafer_lab/README.md#install).
-  **This is the recipe a host builds from scratch**, and the only Isaac Lab
-  recipe maintained here. `env_isaaclab3` predates it, is kept as a rollback
-  artifact, is never written to, and is not rebuilt.
+  That is the recipe a host builds from scratch, and the only Isaac Lab recipe
+  maintained here.
 - `.venv_vlm` — venv + CUDA-torch + NVRTC-swap bootstrap:
   [`Readme.md` → Install (DGX Spark)](../../../Readme.md#dgx-spark-grace--blackwell-aarch64-ubuntu).
 - `env_infinigen` — aarch64 `bpy` wheel + Infinigen: the `README.md` in the
@@ -90,6 +87,12 @@ The Jetson uses system Python 3.10 (Ubuntu 22.04 / ROS 2 Humble default)
 `COLCON_WS`, `CONDA_ROOT`, `CONDA_ENV`. Always `source env_setup.sh`
 before running any DGX-side command. The `$ISAACLAB` symbol pins to
 `isaaclab.sh -p` in the bundled Isaac Sim install.
+
+`CONDA_ENV` / `ISAACLAB` in `.env` are the only place the Isaac Lab environment
+and its clone are named, and the Makefile carries the same pair as `?=` defaults
+so `make` works before `.env` is sourced. Keep them in step: `isaaclab.sh` takes
+its interpreter from the active environment, so a half-set `.env` runs one half
+of a gate against one pair and the other half against another, silently.
 
 ## Workspace layout
 

@@ -74,6 +74,13 @@ imports the deprecated surface directly again.
   Update the recreate command + pinned versions in `env_setup.sh` /
   `.env.example` / `repo-topology.md` to describe the new pair in the same PR
   as the flip. **Rollback is flipping those three pointers back.**
+- **One canonical name, renamed at the flip.** Documentation names a single
+  Isaac Lab environment by role; only `.env` and the Makefile defaults carry the
+  concrete name. The flip renames the tagged environment to `env_isaaclab3` and
+  the retired one to `env_isaaclab3-retired`, moves the clones to match, and
+  re-links the `isaaclab_*` editables against the moved path, so afterwards only
+  canonical names appear anywhere. The retired pair is deleted only once the
+  post-flip gates hold.
 - **The old pair is a preserved artifact, not scratch space.** It is no longer
   rebuildable from the notes that produced it, and it is the only way to
   recompute pre-bump config hashes when a golden moves and the attribution

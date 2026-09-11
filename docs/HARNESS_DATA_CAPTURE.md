@@ -34,7 +34,7 @@ python -c "import torch, lerobot; print('torch', torch.__version__, 'lerobot', l
 ```
 
 Pure-Python unit tests (writer / depth / mission picker / button
-translator / CLI dispatch / scene-path resolver) run in `env_isaaclab3`
+translator / CLI dispatch / scene-path resolver) run in the Isaac Lab env
 without booting Kit:
 
 ```bash

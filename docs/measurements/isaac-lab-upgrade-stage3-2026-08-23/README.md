@@ -436,6 +436,14 @@ neither moved at all. The policy's input distribution is unchanged for practical
 
 ### G5 — render / video path — **FAIL (band exceeded), attributed to the new stack**
 
+> **Correction (2026-09-11): this comparison is confounded and the attribution does
+> not hold.** The capture script's env-0 camera anchor writes `camera_position` /
+> `camera_target`, which Isaac Lab renamed to `eye` / `lookat` on the new pin, so the
+> anchor silently did nothing there and the two stacks were filmed from different
+> poses. The numbers below stand as recorded; what they measure is pose and renderer
+> together. Re-measurement with matched poses is tracked in
+> [`render-photometric-shift-isaacsim6`](../../tasks/active/reliability/render-photometric-shift-isaacsim6.md).
+
 cmd (identical on both pins except the launcher):
 `<launcher> -p source/strafer_lab/scripts/train_strafer_navigation.py --env
 Isaac-Strafer-Nav-RLDepth-Subgoal-Enriched-Robust-v0 --num_envs 64 --max_iterations 6 --seed 42

@@ -19,6 +19,7 @@ Examples:
 """
 
 import importlib.util
+import itertools
 import signal
 import subprocess
 import sys
@@ -111,8 +112,9 @@ def _preserve_failing_xml(xml_path: Path) -> Path | None:
 
     Suites write to a fixed per-suite path, so re-running a suite overwrites the
     evidence of why it failed. The copy carries a timestamp, and a counter for
-    the case where two failures land in the same second, so a preserved file is
-    never replaced by a later one.
+    the case where two failures land in the same second. The name is claimed
+    with O_CREAT | O_EXCL, so the check and the claim are one operation and two
+    runs preserving at the same moment cannot land on the same file.
 
     Nothing prunes these. They are gitignored by the same `test_results*.xml`
     rule as the live files, and a tree that has failed often enough to notice
@@ -121,13 +123,16 @@ def _preserve_failing_xml(xml_path: Path) -> Path | None:
     if not xml_path.is_file():
         return None
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    for n in range(1000):
+    for n in itertools.count():
         suffix = f"-FAILRUN-{stamp}" + (f"-{n}" if n else "")
         kept = xml_path.with_name(f"{xml_path.stem}{suffix}{xml_path.suffix}")
-        if not kept.exists():
-            shutil.copy2(xml_path, kept)
-            return kept
-    return None
+        try:
+            fd = os.open(kept, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            continue
+        os.close(fd)
+        shutil.copy2(xml_path, kept)
+        return kept
 
 
 

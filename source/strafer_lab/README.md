@@ -358,8 +358,9 @@ pip install --extra-index-url https://pypi.org/simple \
 
 Honestly labelled: the file parses, and the three resolutions above were
 verified by dry-run. **A full rebuild under these constraints has not been run
-end to end.** The throwaway environment from the rebuild is the place to prove
-it.
+end to end.** Proving it means the same thing the recipe itself was proved with:
+build into a throwaway env against its own clone, then diff the resulting
+`pip freeze` against this file.
 
 **`isaaclab.sh --install` is not idempotent, and re-running it breaks the env.**
 `_ensure_cuda_torch` compares the full version string against `2.10.0+cu130`;

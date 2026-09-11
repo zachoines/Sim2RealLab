@@ -5,8 +5,8 @@ Isaac Lab pair was reconstructed and then **proved by building it again from
 scratch**, and a Kit boot that stops partway was characterised well enough to be
 detected and relaunched.
 
-**The wrapper those boot measurements exercise is not shipped.** It is deposited
-with this record and parked on its own branch, because a wrapper works around a
+**The wrapper those boot measurements exercise is not shipped.** It is parked on
+its own branch, `task/kit-boot-watchdog`, because a wrapper works around a
 defect rather than fixing one and the cheaper fix has not been ruled out: a
 separate investigation is measuring whether a setting or a version pin avoids
 the hang outright. If one does, the wrapper is deleted rather than merged. The
@@ -37,7 +37,7 @@ touches `noise_models.py` or any depth-noise configuration.
 | **stalled boots** — detection rule | resident-size thresholds are unusable inside pytest; **no CPU and no output** is the signature that holds everywhere |
 | **stalled boots** — candidate pin, through the prototype | 16 boots: **4 relaunches** recovered 3 stopped boots (one needed two), **14 / 16 exited clean, 2 crashed** |
 | **stalled boots** — earlier pin | **0 relaunches across all 14 Kit suites** — the defect is absent there, so the wrapper was a no-op |
-| **the wrapper itself** | deposited and parked, **not shipped** — pending a measurement of whether a setting or pin avoids the hang |
+| **the wrapper itself** | parked on `task/kit-boot-watchdog`, **not shipped** — pending a measurement of whether a setting or pin avoids the hang |
 | **new failure mode** — SIGSEGV in `libomni.kit.telemetry.plugin.so` | **2 / 16 boots** on the pristine candidate clone; **0 / 16** with the extension removed |
 | **gates** — earlier pin, branch as it ships | Kit **487 / 487**, pure **1252 passed / 1 skipped**, contract **148** |
 
@@ -118,10 +118,16 @@ Two related traps the recipe now names:
 
 ## Detecting a stalled Kit boot
 
-The defect: on Isaac Sim 6.0.1.0 a Kit process intermittently deadlocks inside
-carb initialisation — two threads in `futex_wait_queue`, no CUDA context, output
-stopped after the launcher's first line, no recovery. Isaac Sim 6.0.0.0 does not
-do this.
+The defect, as observed: on Isaac Sim 6.0.1.0 a Kit process intermittently stops
+early in its boot and does not recover — two threads in `futex_wait_queue`, no
+CUDA context, output stopped after the launcher's first line. Isaac Sim 6.0.0.0
+does not do this.
+
+That is the signature, not a diagnosis. No cause has been isolated: the mapped
+libraries at the point of the stall are the earliest carb plugins, which places
+it early rather than naming what fails, and nothing here should be read as
+attributing it to a subsystem. Which is the whole reason the wrapper is parked —
+the cheaper answer may be a setting or a pin, and that has not been measured.
 
 Two resident sizes appear in the evidence and they are not in conflict. The
 forensic specimen, a bare `isaacsim` boot, reads **47 MB** — that is the Python
@@ -170,8 +176,9 @@ reported **zero** relaunches. That zero is what establishes the defect is
 absent there, and it is why the gate counts taken through the wrapper and the
 gate counts taken without it are the same measurement.
 
-The wrapper is deposited with this record and parked on its own branch rather
-than shipped. It works around a defect instead of fixing one, and whether a
+The wrapper is parked on `task/kit-boot-watchdog` rather than shipped, and is
+not part of this deposit; what is deposited is the driver scripts that invoke it
+and every per-attempt log. It works around a defect instead of fixing one, and whether a
 setting or a version pin avoids the hang outright has not been measured yet;
 that measurement decides whether the wrapper is adopted or deleted.
 
@@ -259,36 +266,22 @@ not itself deposited.
 
 ## Evidence
 
-| | |
-|---|---|
-| Repository | `https://github.com/zachoines/Sim2RealLab-Artifacts` (private) |
-| Directory | `isaac-lab-upgrade-pra-2026-08-26/` |
-| Commit | `930434e68b733989696d0c7989ad7e334aa3633a` |
+Two deposits, in the same private repository,
+`https://github.com/zachoines/Sim2RealLab-Artifacts`.
 
-The groups are `recipe-verify/` (the rebuild: its driver, the per-step pip logs,
-the resulting freeze and the acceptance diff), `gates/` (the suite runs from
-before the review round, the RSS trajectory, and the two 16-boot arms with every
-per-attempt log), and `upstream/` (an unposted draft issue for the stalled
-boot). The deposit's own `DEPOSIT.md` says which is which. The wrapper the boot
-arms were taken with is not in the deposit — it is kept on its own branch,
-`task/kit-boot-watchdog`, along with the drivers here that invoke it.
+### `isaac-lab-upgrade-pra-2026-08-26/` — commit `930434e68b733989696d0c7989ad7e334aa3633a`
 
-The gates against the branch as it ships are in a second deposit. It supersedes
-an interim one, `isaac-lab-upgrade-pra-fixround-2026-09-10/`, whose runs describe
-the tree before the boot wrapper was split out; that deposit stays where it is
-and is not cited here.
+The recipe rebuild and the boot measurements. `recipe-verify/` holds the
+rebuild's driver, the per-step pip logs, the resulting freeze and the acceptance
+diff; `gates/` holds the resident-size trajectory, the two 16-boot arms with
+every per-attempt log, and the suite runs taken before the wrapper was split out;
+`upstream/` holds an unposted draft issue for the stalled boot. The deposit's own
+`DEPOSIT.md` says which is which.
 
-| | |
-|---|---|
-| Directory | `isaac-lab-upgrade-pra-gates-2026-09-11/` |
-| Commit | `9503fe4eddecd6884eea23a9fa435925e21397f7` |
+The wrapper the boot arms were taken with is **not** in this deposit — it is kept
+on `task/kit-boot-watchdog`, along with the driver scripts here that invoke it.
 
-```
-84419f649417bbbff89fd7d3636127eb90118b12a94118145bb1dd933a37b3e2  gates/contract-oldpin-SPLIT.log
-c6b8904b041f5955e5d8d718cdfa59cab8036a7e0474b118e4edc22800e62aaf  gates/test-lab-oldpin-SPLIT.log
-```
-
-sha256 of every file in the deposit, paths relative to the deposit directory:
+sha256 of every file, paths relative to that deposit directory:
 
 ```
 bf71f9db9e257af3c4c0afb98fe1493287390c0cc6f9cdc907d615ccba065bb6  gates/contract-oldpin.log
@@ -366,4 +359,18 @@ c4378cc1694568b9433521931a5c8eacebbec205b53c63c36e3dca0136cdf000  recipe-verify/
 9f06d5ff0a4b7f5f65afa656016c7e028a9f75e78cb4fda31e8a71eab01c8836  recipe-verify/freeze-verify.txt
 a5544d33e5af758addc205cb9fa8af602937a3834e3a96a2df4708a5f0abb383  recipe-verify/verify_build.sh
 0f9b24d24f3b8c8338880e5306977ffd159f7f4dc727272bca5c46eeb1e5f3f4  upstream/UPSTREAM-ISSUE-DRAFT.md
+```
+
+### `isaac-lab-upgrade-pra-gates-2026-09-11/` — commit `a8195a1b571f46c8c1b8e3715af2cc9f028c0dcf`
+
+The gates against the branch as it ships. Supersedes an interim deposit,
+`isaac-lab-upgrade-pra-fixround-2026-09-10/`, whose runs describe the tree before
+the wrapper was split out; that deposit stays where it is and is not cited here.
+
+sha256 of every file, paths relative to that deposit directory:
+
+```
+84419f649417bbbff89fd7d3636127eb90118b12a94118145bb1dd933a37b3e2  gates/contract-oldpin-SPLIT.log
+0f32f376bf0f55ece388430166e018d7f3b1768ce2ee46f72b5abd6937f016bf  gates/test-lab-oldpin-RERUN.log
+c6b8904b041f5955e5d8d718cdfa59cab8036a7e0474b118e4edc22800e62aaf  gates/test-lab-oldpin-SPLIT.log
 ```

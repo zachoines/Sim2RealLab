@@ -200,6 +200,12 @@ def _run_subprocess(cmd: list[str], timeout: int, xml_path: Path) -> dict:
         details = ["  ERROR  XML not generated (subprocess crashed before writing results)"]
         details += [f"         | {ln}" for ln in tail] if tail else \
                    ["         | (no output captured)"]
+        # A parse error means a partial file IS on disk, and it is the most
+        # useful thing the run left behind; the next run's unlink would destroy
+        # it. FileNotFoundError leaves nothing to keep and this is a no-op.
+        kept = _preserve_failing_xml(xml_path)
+        if kept is not None:
+            details.append(f"  KEPT   {kept.name}")
         return {"tests": 0, "passed": 0, "failed": 0,
                 "errors": 1, "skipped": 0,
                 "details": details}
